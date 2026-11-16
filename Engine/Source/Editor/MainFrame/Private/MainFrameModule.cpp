@@ -1,3 +1,4 @@
+#include "AssetTools/AssetImportAdapter.h"
 #include "MainFrameModule.h"
 #include "Toolkits/ToolkitManager.h"
 #include "ExportWindow.h"
@@ -71,6 +72,9 @@ namespace Durin::MainFrame
 	{
 		FMainFrameContext()
 		{
+			SetAssetImportBrowserSync([this](std::span<DObject* const> Objects) {
+				if (ContentBrowserTool && !Objects.empty()) (void)ContentBrowserTool->RevealAsset(Objects.front()->GetObjectPath());
+			});
 			FEditorFileUtils::SetSavePrompt([](std::span<DPackage* const> Packages, const FEditorFileUtils::FPromptForCheckoutAndSaveParams& Params) {
 				std::string Message = Params.Message;
 				for (auto* Package : Packages) Message += "\n" + Package->GetPackagePath();
@@ -93,6 +97,7 @@ namespace Durin::MainFrame
 		}
 		~FMainFrameContext()
 		{
+			SetAssetImportBrowserSync({});
 			FEditorFileUtils::SetSavePrompt({});
 			DPackageTools::SetReloadPrompt({});
 			ObjectTools::SetDuplicatePrompt({});

@@ -15,6 +15,7 @@
         "Projects"
     ],
     "ReflectHeaders": [
+        "Public/AssetForge/Builtins/SceneImportOptions.h",
         "Public/AssetForge/Builtins/Texture2DFactory.h",
         "Public/AssetForge/Builtins/TextureCubeFactory.h",
         "Public/AssetForge/Builtins/VolumeTextureFactory.h",

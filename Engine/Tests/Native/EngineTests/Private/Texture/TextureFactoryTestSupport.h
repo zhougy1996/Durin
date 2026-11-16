@@ -31,8 +31,7 @@ namespace Durin::AssetForge::Builtins
 		Durin::FFeedbackContext ImportedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
 		});
-		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTexture2D::StaticClass(), FilePath, Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &ImportedFeedback);
+		const auto Imported = Durin::Testing::ImportFactoryAssetForTest(ParsedPath, DTexture2D::StaticClass(), FilePath, Factory, &ImportedFeedback);
 		auto* Texture = Cast<DTexture2D>(Imported);
 		if (!Imported || !Texture)
 			return {false, ImportedError, Texture};

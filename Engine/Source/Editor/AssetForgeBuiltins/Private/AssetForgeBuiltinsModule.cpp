@@ -1,8 +1,10 @@
+#include "AssetTools/AssetImportAdapter.h"
 #include "Modules/ModuleManager.h"
 #include "AssetForgeBuiltinsAssetFeatures.h"
 #include "GltfAssetImportDialog.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 
+namespace Durin::AssetForge::Builtins { auto MakeSceneImportAdapter() -> std::unique_ptr<FAssetImportAdapterRegistration>; }
 namespace Durin
 {
 	class FAssetForgeBuiltinsModule final : public IModuleInterface
@@ -10,6 +12,7 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
+			ImportAdapter = AssetForge::Builtins::MakeSceneImportAdapter();
 			SaveReadinessRegistration = FModularFeatureRegistry::Get().RegisterFeature<
 				IAssetSaveReadinessFeature>(AssetFeatures);
 			require(SaveReadinessRegistration.IsValid());
@@ -39,10 +42,12 @@ namespace Durin
 		{
 			ImportExtension.Reset();
 			ImportDialog.reset();
+			ImportAdapter.reset();
 			SaveReadinessRegistration.Reset();
 		}
 
 	private:
+		std::unique_ptr<FAssetImportAdapterRegistration> ImportAdapter;
 		AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
 		FModularFeatureRegistration SaveReadinessRegistration;
 		ContentBrowser::FScopedHostPresentation Presentation;

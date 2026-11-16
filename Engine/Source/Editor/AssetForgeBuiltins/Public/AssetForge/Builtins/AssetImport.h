@@ -12,6 +12,7 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class DTexture2D;
+	class DAssetImportTask;
 }
 
 namespace Durin::AssetForge::Builtins
@@ -30,6 +31,7 @@ namespace Durin::AssetForge::Builtins
 		bool bCreateMeshes = true;
 		bool bCreateMaterials = true;
 		bool bCreateTextures = true;
+		auto operator==(const FAssetImportOptions&) const -> bool = default;
 	};
 
 	struct FAssetImportSourceMesh
@@ -111,18 +113,20 @@ namespace Durin::AssetForge::Builtins
 		bool bCancellationRequested = false;
 	};
 
-	// GameThread-owned asset import operation. Tick never waits for workers, compilation or
-	// disk staging. The host must tick until completion; destruction cancels and
-	// drains outstanding work at the host's shutdown safe point.
-	class FAssetImportSession final
+	// Feature-owned preview and progress host. Preparation does not publish assets;
+	// ConfigureTask attaches its snapshot to the supported import command. Host
+	// teardown cancels and drains accepted work at the owning safe point.
+	struct FSceneImportState;
+	class FSceneTaskOperation;
+	class FSceneImportPreview final
 	{
 	public:
-		ASSETFORGEBUILTINS_API FAssetImportSession(std::string SourceFile,
+		ASSETFORGEBUILTINS_API FSceneImportPreview(std::string SourceFile,
 			FPackagePath DestinationDirectory, FStaticMeshImportSettings Settings,
 			FAssetImportOptions Options = {});
-		ASSETFORGEBUILTINS_API ~FAssetImportSession();
-		FAssetImportSession(const FAssetImportSession&) = delete;
-		auto operator=(const FAssetImportSession&) -> FAssetImportSession& = delete;
+		ASSETFORGEBUILTINS_API ~FSceneImportPreview();
+		FSceneImportPreview(const FSceneImportPreview&) = delete;
+		auto operator=(const FSceneImportPreview&) -> FSceneImportPreview& = delete;
 		ASSETFORGEBUILTINS_API auto Tick() -> void;
 		ASSETFORGEBUILTINS_API auto Cancel() -> void;
 		ASSETFORGEBUILTINS_API auto GetProgress() const -> const FAssetImportProgress&;
@@ -133,23 +137,18 @@ namespace Durin::AssetForge::Builtins
 		// Resolves every selected output and material mapping from the captured source.
 		ASSETFORGEBUILTINS_API auto PreviewOutputs(const FPackagePath& Destination,
 			const FSceneMaterialImportOptions& Options = {}) -> FAssetImportPreview;
-		// No save arguments means import to Dirty memory only; explicit arguments request ordinary saving.
-		ASSETFORGEBUILTINS_API auto BeginImport(const FPackagePath& Destination,
-			FSceneMaterialImportOptions Options,
-			std::optional<FAssetPackageSaveArgs> SaveArgs = std::nullopt) -> bool;
+		// Populates task inputs with this prepared snapshot; execution still requires
+		// IAssetTools::ImportAssetTasks. No direct scene execution entrypoint.
+		ASSETFORGEBUILTINS_API auto ConfigureTask(DAssetImportTask& Task, const FPackagePath& Destination,
+			FSceneMaterialImportOptions Options = {}) -> bool;
 	private:
-		friend ASSETFORGEBUILTINS_API auto ImportAssetOutputs(std::string_view, const FPackagePath&,
-			const FStaticMeshImportSettings&, const FAssetImportOptions&, const FSceneMaterialImportOptions&,
-			const std::function<bool()>&, const std::optional<FAssetPackageSaveArgs>&) -> FAssetImportResult;
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
+		friend class FSceneTaskOperation;
+		explicit FSceneImportPreview(std::shared_ptr<FSceneImportState> State) : Impl(std::move(State)) {}
+		auto ResolvePreview(const FPackagePath& Destination, const FSceneMaterialImportOptions& Options,
+			bool bAllowAccepted) -> FAssetImportPreview;
+		auto BeginImport(const FPackagePath& Destination, FSceneMaterialImportOptions Options,
+			std::optional<FAssetPackageSaveArgs> SaveArgs) -> bool;
+		std::shared_ptr<FSceneImportState> Impl;
 	};
-
-	[[nodiscard]] ASSETFORGEBUILTINS_API auto ImportAssetOutputs(std::string_view SourceFile,
-		const FPackagePath& DestinationDirectory,
-		const FStaticMeshImportSettings& Settings = FStaticMeshImportSettings::MakeYUpNegativeZForward(),
-		const FAssetImportOptions& Options = {}, const FSceneMaterialImportOptions& Materials = {},
-		const std::function<bool()>& IsCancellationRequested = {},
-		const std::optional<FAssetPackageSaveArgs>& SaveArgs = std::nullopt) -> FAssetImportResult;
 
 }

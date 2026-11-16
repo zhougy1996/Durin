@@ -1,3 +1,6 @@
+#include "SceneImportTaskTestSupport.h"
+using Durin::Testing::FSceneTaskHarness;
+using Durin::Testing::ImportSceneForTest;
 #include "NativeAssetBuildTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -215,7 +218,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::AssetForge::Builtins::FAssetImportResult Executed;
 	{
 		using namespace Durin::AssetForge::Builtins;
-		FAssetImportSession Session(MountedScene.generic_string(), DestinationDirectory,
+		FSceneTaskHarness Session(MountedScene.generic_string(), DestinationDirectory,
 			Durin::FStaticMeshImportSettings::MakeDurin(),
 			{.MeshMode = EAssetImportMeshMode::Combined});
 		const auto AdvanceTo = [&](EAssetImportPhase Phase) {
@@ -743,7 +746,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		}
 		// Retain the actual importer output for packed source channels, independent
 		// derived textures, transformed UV1, normal strength and masked rendering.
-		auto PbrImport = Durin::AssetForge::Builtins::ImportAssetOutputs((std::filesystem::path(DURIN_TEST_DATA_DIR)
+		auto PbrImport = Durin::Testing::ImportSceneForTest((std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "StaticModelMaterials/ImportedPbrContract.gltf").generic_string(),
 			MakeAssetPath("/SceneImportVulkan/Imports/PbrBaseline"), Durin::FStaticMeshImportSettings::MakeDurin(),
 			{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined}, {}, {}, Durin::FAssetPackageSaveArgs{});

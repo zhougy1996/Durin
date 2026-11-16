@@ -10,6 +10,8 @@ namespace Durin
 {
 	class DFactory;
 	class FAssetTools;
+	class IAssetImportTaskOperation;
+	struct FAssetImportTaskAccess;
 
 	// Owner-thread inputs and managed outputs for one source file. Ordinary factories
 	// complete synchronously even when bAsync is requested.
@@ -46,7 +48,11 @@ namespace Durin
 		DURINED_API auto IsAsyncImportComplete() const -> bool;
 	private:
 		friend class FAssetTools;
+		friend struct FAssetImportTaskAccess;
 		bool bRunning = false;
+		bool bAdvancing = false;
+		std::function<void()> Completion;
+		std::shared_ptr<IAssetImportTaskOperation> Operation;
 		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DObject>> Results;
 		mutable std::vector<DObject*> ObjectView;

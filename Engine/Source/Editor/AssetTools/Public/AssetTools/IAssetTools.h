@@ -5,7 +5,6 @@
 #include "AssetToolsAPI.h"
 #include "AssetTools/AssetDeletion.h"
 #include "Misc/FeedbackContext.h"
-#include "AssetTools/AssetImport.h"
 #include "AssetRenameData.h"
 #include "DObject/Object.h"
 
@@ -36,35 +35,10 @@ namespace Durin
 
 		virtual auto ImportAssetTasks(std::span<DAssetImportTask* const> Tasks) -> void = 0;
 
-		// Input order; null entries denote rejected, canceled or unattempted imports.
-		ASSETTOOLS_API auto ImportAssets(const FAssetImportBatchRequest& Request,
-			FFeedbackContext* Warn = nullptr) -> std::vector<DObject*>;
-
-		virtual auto ImportAsset(
-			const FTopLevelAssetPath& AssetPath,
-			DClass* AssetClass,
-			std::string_view Filename,
-			DFactory* Factory = nullptr,
-			DObject* Context = nullptr,
-			EObjectFlags Flags = (EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional),
-			FFeedbackContext* Warn = nullptr)
-			-> DObject* = 0;
-
-		auto ImportPackageLeafAssetForTesting(
-			const FPackagePath& PackagePath,
-			DClass* AssetClass,
-			std::string_view Filename,
-			DFactory* Factory = nullptr,
-			DObject* Context = nullptr,
-			EObjectFlags Flags = (EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional),
-			FFeedbackContext* Warn = nullptr) -> DObject*
-		{
-			FTopLevelAssetPath AssetPath;
-			if (!FTopLevelAssetPath::TryCreate(
-				PackagePath, PackagePath.GetPackageName(), AssetPath)) return {};
-			return ImportAsset(
-				AssetPath, AssetClass, Filename, Factory, Context, Flags, Warn);
-		}
+		virtual auto ImportAssets(std::span<const std::string> Files, std::string_view DestinationPath,
+			DFactory* ChosenFactory = nullptr, bool bSyncToBrowser = true,
+			std::vector<std::pair<std::string, std::string>>* FilesAndDestinations = nullptr,
+			bool bAllowAsyncImport = false, bool bSceneImport = false) const -> std::vector<DObject*> = 0;
 
 		virtual auto RenameAssets(std::span<const FAssetRenameData> AssetsAndNames) -> bool = 0;
 		virtual auto OnAssetPostRename() -> TMulticastDelegate<void(std::span<const FAssetRenameData>)>& = 0;

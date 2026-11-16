@@ -18,9 +18,10 @@ included in that baseline. Stage 1 is complete on 2026-11-16 against
 `394237cb6176aecc8b6e4b898a4851231557b336` plus its implementation working tree.
 Stage 2 is complete on 2026-11-16 against
 `793934ef450be2b3f46bf5b49777d92553fb5ddd` plus its implementation working tree.
-Acceptance evidence for both stages is recorded below. Stage 3 is in progress;
-Stages 4-5 remain open. The current increment adds task-backed standalone factory
-execution; scene adapters and removal of legacy entrypoints remain required.
+Acceptance evidence for both stages is recorded below. Stage 3 is complete on
+2026-11-16 against `21af11c9207f5111023158b05558192349cf7c3c` plus its implementation
+working tree. File-list and scene execution now share managed tasks, and the
+superseded import protocols are removed. Stages 4-5 remain open.
 Stage 0 itself contained no implementation change or native execution.
 
 Stage 0 planning-document checks on 2026-11-16: changed-document validation passed for
@@ -545,9 +546,9 @@ mechanisms may survive under explicit ownership and names.
 | `FAssetRelocationRequest`, `FAssetRelocation`, `IAssetTools::RelocateAssets` | `FAssetRenameData`, `RenameAssets`, private rename orchestration | Stage 2: move coordinators and Browser migrated; remove redundant request structs |
 | Public native `RelocateAssets`, `FAssetRelocationMapping`, IAssetMoveObserver and registration/broadcast APIs | Private relocation helper plus Registry OnAssetRenamed and AssetTools OnAssetPostRename | Stage 2: migrate documents, recent assets, LevelEditor and native tests, then remove package-only observer/mapping protocol; no editor command bypass |
 | `FAssetRedirectorFixupRequest`, `IAssetTools::FixUpRedirectors`, duplicate fix-up modes | `FixupReferencers`, `ERedirectFixupMode` | Stage 2: migrate callers and internal reports; remove obsolete public workflow headers |
-| `FAssetImportRequest`, `FAssetImportBatchRequest`, positional null-result batch, single-output `ImportAsset` service | `DAssetImportTask`, UE-shaped `ImportAssets`/`ImportAssetTasks` | Stage 3: multi-output, cancellation and save-policy callers migrated; delete old request/header dependencies |
-| `ImportPackageLeafAssetForTesting` | Test fixtures over supported import APIs | Stage 3: no exported test convenience method |
-| Public `FAssetImportSession` / `ImportAssetOutputs` workflow exposure | Task-backed pipeline adapters; format-preview controller where needed | Stage 3: dialogs/tools use the same task execution; preview-only types may remain feature-owned, no second executable import API |
+| `FAssetImportRequest`, `FAssetImportBatchRequest`, positional null-result batch, single-output `ImportAsset` service | `DAssetImportTask`, UE-shaped `ImportAssets`/`ImportAssetTasks` | Closed in Stage 3: task/file-list callers migrated; old request/header and positional-null protocols removed |
+| `ImportPackageLeafAssetForTesting` | Test fixtures over supported import APIs | Closed in Stage 3: fixtures use tasks; no exported test convenience method |
+| Public `FAssetImportSession` / `ImportAssetOutputs` workflow exposure | Task-backed pipeline adapters; format-preview controller where needed | Closed in Stage 3: dialogs/headless callers submit tasks; feature preview has no public execution entrypoint |
 | `IAssetTools::PrepareDeletion`, public `FAssetDeletionOperation`/commit protocol | ObjectTools plus delete model and private native executor | Stage 4: all callers migrated; keep companion extension capabilities separately |
 | Public content deletion Request/Plan/Operation/Result protocol | Model-owned internal selection/execution and File-specific facts | Stage 4: move needed native records private; delete exported workflow headers |
 | Public ContentBrowserDeleteRequestLease helper | Private model/executor reentry protection | Stage 4: delete header and all Data/Asset/File lease uses with the context protocol |
@@ -822,26 +823,26 @@ Outcome: file-list and task imports share one pipeline with UE-shaped task data.
 - [x] Add reflected DAssetImportTask and standalone ImportAssetTasks with managed
       factory/options/results, synchronous completion, replacement settings and
       optional save. Migrate Texture/StaticMesh UI admission to tasks.
-- [ ] Add the file-list import entrypoint and extend completion ownership to
+- [x] Add the file-list import entrypoint and extend completion ownership to
       registered multi-output scene adapters, including actual async waiting.
-- [ ] Adapt standalone factories and feature-owned multi-output sessions through
+- [x] Adapt standalone factories and feature-owned multi-output sessions through
       registered adapters. Preserve detached build preparation and owner-thread
       publication; no AssetTools-to-AssetForgeBuiltins dependency.
-- [ ] Migrate glTF/FBX preview/progress controllers, Texture/StaticMesh import,
+- [x] Migrate glTF/FBX preview/progress controllers, Texture/StaticMesh import,
       automated/script/headless callers, reimport integration where affected,
       tools and native tests. Keep preview reuse without a parallel import API.
-- [ ] Preserve underlying cancellation/drain semantics behind task/session owners;
+- [x] Preserve underlying cancellation/drain semantics behind task/session owners;
       do not expose a new generic cancellation ledger or fake pending results.
-- [ ] Remove Stage 3 ledger APIs, positional result assumptions and unused headers.
+- [x] Remove Stage 3 ledger APIs, positional result assumptions and unused headers.
 
-Standalone increment accepted on 2026-11-16: `DAssetImportTask` is reflected in DurinEd and
+Historical standalone increment accepted on 2026-11-16: `DAssetImportTask` is reflected in DurinEd and
 `ImportAssetTasks` runs standalone factories through the existing prepared-package
 publication boundary. Tasks retain inputs/results, reject recursive submission,
 clear completed-run results on reuse, and preserve live results independently
 from requested save success. Built-in factory configuration retains existing
-settings unless replacement settings are selected. Scene task dispatch, real
-asynchronous task completion/waiting, the file-list overload and old API removal
-are not yet accepted; the stage checklist remains open until those gates pass.
+settings unless replacement settings are selected. At that increment, scene task
+dispatch, asynchronous waiting, the file-list overload and API removal were still
+open; the final acceptance below supersedes those remaining gates.
 
 Standalone increment validation (2026-11-16): tested `440e84730787bbe8c301b8eb69bbe8008d767a05`
 plus this implementation working tree, windows-msvc-x64 /
@@ -880,6 +881,83 @@ the sandbox through DevTool, as prescribed by the build workflow. Stage 5 still
 owns the workspace all-build and startup gates. Changed-document/all-plan
 validation and `git diff --check` passed for this increment. No legacy import
 API or positional-result removal is claimed by this increment.
+
+Final Stage 3 acceptance (2026-11-16):
+
+`ImportAssets(Files, DestinationPath, ...)` and `ImportAssetTasks` use one task
+pipeline. File lists snapshot files/mappings, honor configured factories even with
+scene selection, preserve successful peers and return successful objects only.
+An optional MainFrame binding synchronizes real outputs to Browser presentation;
+headless execution has no presentation dependency. Registered scene adapters own
+multi-output work; AssetTools owns admission/ticking/provider drain, and DurinEd
+owns managed inputs/results and completion storage. Polling does not advance work;
+`GetObjects` waits on the actual operation. Source capture, preview reuse,
+compilation, cancellation and native saving retain their owning implementations.
+Temporary file/UI tasks release result references when handing objects to their
+next owner, so completed imports do not block later deletion while awaiting GC.
+User-held tasks continue to retain their outputs.
+
+The three Stage 3 ledger rows are closed. All Engine, Sandbox and RoadWeaver
+source/test roots plus Tools/Templates have zero old command, request, session or
+header matches. Native fixtures call supported task APIs. Preview/progress data
+remain feature-owned and read-only; the preview cannot execute an import without
+a submitted task. The old synchronous scene branch and external cancellation
+callback storage were also removed. Reimport's existing settings policy is unchanged.
+
+Supported-policy clarification: same-class replacement/settings combinations apply
+to standalone factory families. Scene models retain their existing one-time import
+contract; even `bReplaceExisting=true` rejects occupied scene outputs before mutation.
+This is a deliberate limitation relative to UE's general replacement capability,
+not a new model update/reimport feature. The UE authority is the current local
+`AssetImportTask.h`/`AssetTools.cpp`; the Durin limit is the existing scene importer
+and `DSceneImportData` policy. Scene task/file-list callers and glTF/FBX forms share
+this policy. Repeated-import/edit-preservation, mapped-material and collision
+regressions cover it. An explicit scene `DestinationName` names the sole mesh;
+ambiguous multi-mesh naming or contradictory prepared settings reject explicitly.
+Submission also freezes preview configuration before queued work can advance.
+
+Validation: base revision above plus the implementation inputs recorded in
+`Build/UE58AssetOperationsAlignment/stage3-final-receipts/tested-inputs.json`.
+Host/preset: windows-msvc-x64 / Win64-Debug-DurinEditor, MSVC 14.44, 14 build jobs,
+DevTool outside the sandbox as required by the established C1902/PDB constraint.
+Eight native selections passed **871 tests**, with no failures or skips. Raw logs,
+five passing build receipts and SHA-256 identities for 30 changed/deleted native
+inputs are preserved in `stage3-final-receipts/`; its UE manifest rechecks the
+user-supplied 5.8.0 / CL 53629095 reference. Receipt names share `20261116-`.
+
+| Selection | Result | Receipt suffix |
+| --- | --- | --- |
+| SceneImportTests | 38 passed | 175743-213977-7408-SceneImportTests.log |
+| EditorOperationTests | 391 passed | 174009-818397-33672-EditorOperationTests.log |
+| TextureTests | 152 passed | 172821-919048-43956-TextureTests.log |
+| TextureImportWorkflowTests | 27 passed | 173200-795612-46968-TextureImportWorkflowTests.log |
+| StaticMeshTests | 201 passed | 173208-661276-12328-StaticMeshTests.log |
+| AssetImportTests | 22 passed | 172845-952821-33400-AssetImportTests.log |
+| AssetEditorFamilyTests | 10 passed | 172924-514760-35736-AssetEditorFamilyTests.log |
+| MaterialFunctionTests | 30 passed | 174038-783406-39728-MaterialFunctionTests.log |
+| MainFrame build | passed | 173218-864450-38064-cmake.log |
+| SceneImportVulkanTests build | passed, execution not selected | 173258-715857-5756-cmake.log |
+| RoadWeaverEditor build | passed | 173337-271930-33344-cmake.log |
+| Sandbox build | passed | 173351-678840-46636-cmake.log |
+| DurinAssetTool build | passed | 173400-868322-44024-cmake.log |
+
+Final scene/operation suites cover the last prepared-settings consistency,
+queued-preview freeze, admission advance and actual-path reporting changes. Earlier passing selections and consumer builds
+remain applicable: their factory/fixture behavior, exported signatures, module
+edges, generated layouts and environment are unchanged by those last private
+checks. The final scene suite also covers multi-output polling versus waiting,
+managed retention through GC, typed selections, explicit names, source changes,
+pre/post-publication cancellation, save failure retaining live task outputs,
+view teardown and active-task provider shutdown. Shared fixture ownership prompted
+the additional MaterialFunction selection and the unload/delete regression fix.
+
+`stage3-final-affected.txt` records why new shared test headers and broad editor
+module labels expand automatic selection to unrelated Engine tests. Named owner,
+factory, UI and direct-consumer selections above cover this stage; no GPU behavior
+changed, so the migrated Vulkan fixture was compiled only. The whole-workspace
+all-build/startup gates remain Stage 5. Changed-document/all-plan validation and
+`git diff --check` passed. No Stage 3 implementation or mandatory validation gate
+remains open.
 
 Acceptance: one and multiple outputs, chosen/automatic factory, typed options,
 destination name/path, automated mode, each replacement/settings combination,

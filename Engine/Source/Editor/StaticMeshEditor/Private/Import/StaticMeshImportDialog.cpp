@@ -1,3 +1,4 @@
+#include "Import/AssetImportTaskExecution.h"
 #include "AssetImportTask.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Physics/BodySetup.h"
@@ -274,6 +275,8 @@ namespace Durin::StaticMeshEditor
 		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
 		const auto& Objects = Task->GetObjects();
 		auto* Result = Objects.empty() ? nullptr : Objects.front();
+		const FStrongObjectPtr ImportedOwner(Result);
+		FAssetImportTaskAccess::ReleaseResults(*Task);
 		if (!Result)
 		{
 			Operation.reset();

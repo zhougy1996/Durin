@@ -147,7 +147,7 @@ cancellation history, mailbox, activity projection, or shutdown pump for these
 workflows. Missing or corrupt disposable data uses the owning family build or
 PostLoad policy rather than import `Recover` semantics.
 
-## Standalone Import Tasks
+## Import Tasks
 
 `DAssetImportTask` belongs to DurinEd alongside `DFactory`. The five policy
 booleans default to false; factory/options, destination/source strings and output
@@ -158,10 +158,15 @@ task already executing. Completed resubmission clears that run's old outputs.
 
 Standalone factory execution is synchronous, including when `bAsync` is true;
 completion describes authored object publication, independently of family DDC
-compilation. Polling does no work. Reading results inside the same synchronous
-factory callback is a reentrant wait error. A completed task returns its managed
-live objects and exact object paths. Optional `bSave` uses the ordinary editor
-save facade after publication; a save failure retains those live outputs.
+compilation. Registered scene adapters may defer capture, build, publication and
+optional saving. `IsAsyncImportComplete` only reads completion; it neither waits
+nor advances work. Editor ticks advance accepted tasks. `GetObjects` drives the
+same operation to completion on the owner thread and waits for real outputs.
+Reading results from the same task's execution callback is a reentrant wait error.
+A completed task retains successful live objects and their exact object paths,
+including outputs surviving partial save failure. `bSave` selects ordinary saving
+after publication, using the editor facade for factories and dependency-ordered
+native package tasks for scenes. Saving failure never clears imported outputs.
 
 `DFactory::ConfigureImportTask` is the lower-layer extension point for consuming
 typed `Options` and retaining existing authored settings. The default rejects
@@ -174,13 +179,22 @@ settings on same-class replacement unless `bReplaceExistingSettings` is true.
 Cube settings retention requires a matching source layout. Occupied destinations
 require `bReplaceExisting`; headless execution never prompts. Package graph
 replacement preserves siblings and revalidates the destination after callbacks.
-The legacy standalone batch and scene session entrypoints below remain available.
+AssetTools owns adapter registration, owner-thread ticks and active task retention.
+Provider retirement removes admission, cancels and drains its tasks, then releases
+provider callbacks. Internal file-list and UI-owned temporary tasks
+release their result references after handing objects to their next owner; they
+do not block later unload or deletion merely by awaiting GC. A user-held task
+continues to retain its results until reuse or collection. Task completion storage and managed references belong to
+DurinEd, which has no dependency on AssetTools or AssetForgeBuiltins. A task's
+inputs are snapshotted before callbacks; completed resubmission captures fresh
+source/settings. No separate import request, positional batch result or public
+scene execution API remains.
 
-## Standalone Batch Admission
+## Factory Admission And Reimport
 
-Standalone creation and import return a live `DObject*`, or `nullptr` on failure.
-Creation uses lexical `FScopedFeedbackContext`; the current standalone import
-entrypoints retain optional `FFeedbackContext*` until task migration. Invalid products report requested and actual identity/class before
+Standalone creation returns a live `DObject*` or `nullptr`; task imports publish
+only successful managed outputs. Creation and import use lexical
+`FScopedFeedbackContext`. Invalid products report requested and actual identity/class before
 package cleanup. Mutable factories format their local `FFactoryDiagnostics` through feedback
 and do not retain it in a high-level result or nested cause chain.
 The collection preserves report order and shares one entry-count limit across
@@ -270,72 +284,27 @@ confident layout remains a successful inspection. Dimensions, channel suggestion
 and layout confidence remain independent inspection facts; `FormatVolumeTextureAtlasInspection` renders
 failure or advisory text without storing prose or a separate success flag.
 
-`FAssetImportRequest` carries an explicit top-level destination, source filename,
-asset class, optional configured factory, context, and object flags.
-Import admission checks constructibility, writable mounted destinations,
-resident/catalog/file occupancy, and factory selection. Every item sharing a
-destination package is rejected, even with different top-level names. Source
-capture and format validation remain factory responsibilities.
+`IAssetTools::ImportAssets` accepts source files, a destination directory, an
+optional chosen factory, optional filename-to-directory mappings, browser sync,
+async permission and scene selection. It creates tasks and uses the same dispatch
+as `ImportAssetTasks`. Files and mappings are snapshotted before callbacks.
+Outputs follow input order and adapter output order, with no positional null slots;
+a failed input does not suppress successful peers. Earlier successful collisions
+remain committed, and later inputs revalidate the current destination. Empty work
+returns an empty vector. This concrete result API waits for async-capable adapters;
+use tasks for polling. A chosen factory is honored, including with scene selection,
+rather than silently replaced by automatic scene dispatch. Extension-only ambiguity
+rejects with feedback. Browser sync calls an optional host binding after successful
+outputs are available; headless hosts have no presentation work.
 
-`ImportAssets` snapshots the request and dispatches standalone factories in input
-order on the game thread. Execution revalidates each destination using the same
-admission policy as single-file `ImportAsset`. The returned object must have the
-requested class, package, and exact name. Configured factories and context objects
-are strongly retained throughout the call. Failed candidate storage is collected
-after callbacks return at the host safe point; resident queries reject garbage
-candidates immediately. Explicit package unload remains a synchronous owner operation.
-
-The returned `std::vector<DObject*>` preserves input order. Null entries identify
-rejected, canceled or unattempted inputs; messages use the feedback context.
-Failure continues by default; stop-on-failure preserves earlier successful peers.
-Cancellation is checked between items and cannot interrupt a running factory.
-Empty batches return no objects.
-
-Acceptance means the factory returned a valid live asset. It does not imply that
-deferred family compilation or persistence has completed. Successful packages
-remain dirty; callers coordinate family completion before the editor SavePackages facade and own
-save retry and presentation. The batch performs no automatic save, publication,
-peer rollback, naming policy, or Scene orchestration. Existing dialogs continue
-to use their single-asset workflows.
-
-## Normalized Source Documents
-
-`AssetForgeBuiltins::FImportedDocument` separates source mesh resources (each
-owning primitive streams and material indices) from transform nodes that refer
-to those resources. Multiple glTF instances share a resource; an FBX node can
-reference several Assimp mesh resources. The document retains all source scenes,
-the default scene, unused resources, materials, images, dependencies and diagnostics.
-These source nodes do not construct Actors, Levels or runtime scene objects.
-
-`ImportDocumentFromFile` applies the caller's source basis to local geometry once
-and conjugates local/global transforms by that basis. Numeric lengths and source
-origins remain intact. glTF's engine-basis setting is
-`FStaticMeshImportSettings::MakeYUpNegativeZForward`, mapping `(x,y,z)` to
-`(-z,x,y)`; neither this path nor the legacy path introduces an implicit unit
-scale. FBX retains its existing Assimp interpretation. UV orientation matches the
-existing format decoder path. Triangle winding and tangent handedness follow
-basis and instance determinants; normals use inverse transpose.
-
-The glTF adapter constructs one explicitly named decoder mesh per source
-primitive. Synthetic source tokens map decoded geometry back to its original
-resource/primitive/material independently of decoder traversal or material order.
-The new document path rejects morph/skin attributes, non-triangle primitives,
-sparse accessors and animation/skin tables with source-attributable diagnostics.
-Malformed transforms, invalid parents, cycles and scene roots fail decoding.
-
-`SelectImportedMeshResource` returns local primitive geometry and its used material
-slots. `ExpandImportedDocument` explicitly expands the default or requested source
-scenes, applying each node's canonical global transform once. It preserves origin,
-uses each selected node once when scene roots overlap, and rejects singular mesh
-instance transforms. The asset import session uses this document boundary;
-combined mode expands the selected scene instances. `ImportedScene.h`,
 `ImportFromFile` and `ImportGeometryFromMemory` are standalone flattened boundaries;
 reflected receipt names and existing output identities are unchanged.
 
 ## Shared Asset Output Planning
 
-`AssetImport.h` exposes `FAssetImportSession`, `FAssetImportOptions`, and the
-headless `ImportAssetOutputs` entrypoint. New imports default to one output per
+`AssetImport.h` exposes `FSceneImportPreview` and feature-owned planning data.
+`DSceneImportOptions` supplies typed mesh, selection and material inputs to tasks.
+Both interactive and headless execution use `IAssetTools` task dispatch. New imports default to one output per
 selected source mesh; primitives remain sections/material slots and node instances
 reuse that output. Combined mode expands the selected source scenes explicitly.
 Empty mesh selection resolves resources reachable from those scenes. Explicit
@@ -357,13 +326,18 @@ selected packaged material/interface without modifying, compiling or saving it;
 its source texture products are omitted unless another output needs them or unused
 resources were explicitly requested.
 
-`FAssetImportSession::PreviewOutputs` is the single preview boundary for glTF,
+`FSceneImportPreview::PreviewOutputs` is the single preview boundary for glTF,
 GLB and FBX. It resolves all selected output paths, create/preserve/conflict
 dispositions, material mappings and destination occupancy from the retained
 source snapshot without decoding again or publishing assets. It returns
 `FAssetImportPreview` with `Outputs`, `Materials`, `Diagnostics` and `Message`;
-material-only views read `Materials` from that same result. `BeginImport` consumes
-the resolved preview for unchanged selections and refreshes it when needed.
+material-only views read `Materials` from that same result. `ConfigureTask` attaches
+the prepared snapshot to task options; it does not execute an import. Contradictory
+mesh/selection settings on an attached snapshot reject and require refreshed
+preview configuration rather than silently ignoring the new settings. Submission
+freezes that preview configuration before work is queued; later host edits cannot
+expand or replan the accepted task. The registered
+adapter consumes the snapshot and revalidates output policy before building.
 Source closure hashes are checked before product construction and again before
 publication. Publication rejects destination occupancy and mapped-material revision changes
 rather than accepting a different occupant. Existing standalone ownership,
@@ -374,7 +348,7 @@ addition to disposition. `ImportedPackages` identifies newly applied live packag
 preserved/material-mapped assets are excluded. Import applies the complete validated
 peer graph before optional saving. Saving does not change output import states.
 
-Both `FAssetImportSession` and `ImportAssetOutputs` default to split outputs.
+Both preview configuration and task scene dispatch default to split outputs.
 Combined imports explicitly pass `FAssetImportOptions` with
 `MeshMode = EAssetImportMeshMode::Combined` and use the `scene:mesh:combined`
 output identity. Public declarations live in `AssetImport.h` and
@@ -452,18 +426,22 @@ texture preparation still reuse their family build adapters below that
 publication boundary. Engine exposes no generic `CreateAsset` materialization
 seam.
 
-`ImportAssetOutputs` returns a complete `FAssetImportResult` report by value.
-Its boolean conversion checks `bSucceeded`; cancellation and rejection still
-return diagnostics and any output summaries already produced. Output summaries
-are planned identities, not proof that their packages were saved.
-`bSucceeded` reports successful application to live memory. The optional save
-argument defaults to `std::nullopt`: default imports create Dirty, NewlyCreated
-assets without writing authored packages. Passing `FAssetPackageSaveArgs{}` requests
-ordinary saving after import. `SaveResult` is absent when saving was not requested,
-and otherwise retains the batch result, successful saves and failed package.
-Save failure or cancellation does not clear import success or discard imported
-assets. Ordinary save retries operate on those resident packages; model import
-retries still require unoccupied destinations.
+The feature progress view exposes `FAssetImportResult` diagnostics and output
+summaries; these planned identities do not prove saving. Task `GetObjects` and
+`ImportedObjectPaths` contain actual published outputs, excluding existing material
+mappings that were used without modification. `bSave` is false by default: ordinary
+imports create Dirty, NewlyCreated assets. When saving is selected, `SaveResult`
+retains successful saves, the failed package and native persistence facts. Fault
+and save context are captured at submission, not at a later UI tick. Save failure
+or cancellation preserves imported live objects for ordinary save retry.
+
+Scene model outputs retain their one-time import policy, including with
+`bReplaceExisting=true`: occupied scene outputs reject rather than overwrite an
+unsupported graph. Same-class replacement/settings combinations belong to the
+standalone family factories. A nonempty scene `DestinationName` names the sole
+mesh output; ambiguous multiple-mesh naming rejects. Other scene outputs retain
+their planned identities. Reimport continues to preserve its existing family
+settings policy and does not gain a scene update feature.
 
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation
@@ -507,20 +485,21 @@ destination. It defaults to Y-up/-Z-forward and split mesh assets. It exposes so
 scene and mesh-resource selection, split/combine, output categories, include-unused,
 material creation/instances/existing mappings, per-material overrides, complete
 resolved destinations/dispositions and source warnings. Selection changes use
-`FAssetImportSession::SetOptions` to replan the retained document on a worker;
+`FSceneImportPreview::SetOptions` to replan the retained document on a worker;
 source geometry is not decoded again. Coordinate changes create another session.
 The host presentation polls progress, keeps cancellation ticking to completion,
 reports every imported/preserved/failed/unexecuted output, and offers Show asset after
-publication. Existing Scene and standalone factory entrypoints remain available
-for legacy programmatic callers and receipts; their ordinary file pickers no
-longer offer glTF as a second user workflow.
+publication. Forms configure a managed task from the preview, submit it through
+`ImportAssetTasks`, and observe that same task. Ordinary file pickers do not offer
+glTF as a second user workflow.
 
 FBX and glTF dialogs share the pure `MakeAssetImportFeedback` projection from
 session progress to `FSlowTaskSnapshot`, and embed the shared progress widget in
-the existing form. A cancel click calls the session directly. The form retains no
-Task, feedback context, or parallel cancellation state. Session cleanup, partial
-publication reports, and the different completion/close behaviors remain
-unchanged. See [slow task feedback](../../../Runtime/Core/SlowTasks.md).
+the existing form. A cancel click reaches the task-owned scene operation through
+its preview host. Forms retain their task and no borrowed feedback context or
+parallel cancellation ledger. Closing a host cancels and drains accepted work;
+provider shutdown also drains headless tasks before code retirement. Partial
+publication diagnostics and completion/close presentation remain feature-owned. See [slow task feedback](../../../Runtime/Core/SlowTasks.md).
 
 Reimport has no extension entry, family enum, or host switch: Content Browser asks
 `FReimportManager` for loaded-object capabilities and sends Reimport or the

@@ -1,3 +1,4 @@
+#include "FactoryImportTestSupport.h"
 #include "AssetTools/MutationTesting.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -65,8 +66,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &CreatedFeedback);
+	const auto Created = Durin::Testing::ImportFactoryAssetForTest(AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory, &CreatedFeedback);
 	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result{
 		static_cast<bool>(Created), CreatedError, Durin::Cast<Durin::DTexture2D>(Created)};
 	ASSERT_TRUE(Result) << Result.Message;

@@ -1,3 +1,4 @@
+#include "FactoryImportTestSupport.h"
 #include "AssetImportTask.h"
 #include "DObject/StrongObjectPtr.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
@@ -230,8 +231,7 @@ TEST(FSingleAssetImportTests, FactorySourceAdmissionReportsDiagnosticBeforeDisca
 		Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 			if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 		});
-		const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+		const auto Result = Durin::Testing::ImportFactoryAssetForTest(Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory, &ResultFeedback);
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 		EXPECT_FALSE(ResultError.empty());
@@ -254,8 +254,7 @@ TEST(FSingleAssetImportTests, FactoryReportsInvalidSettingsBeforeDiscard)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-		Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	const auto Result = Durin::Testing::ImportFactoryAssetForTest(Path, Durin::DStaticMesh::StaticClass(), Source.generic_string(), Factory, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 	EXPECT_FALSE(ResultError.empty());
@@ -283,8 +282,7 @@ TEST(FSingleAssetImportTests, VolumeFactoryRetainsDiagnosticAfterPackageDiscard)
 		Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 			if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 		});
-		const auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			Path, Durin::DVolumeTexture::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+		const auto Result = Durin::Testing::ImportFactoryAssetForTest(Path, Durin::DVolumeTexture::StaticClass(), Source.generic_string(), Factory, &ResultFeedback);
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 		EXPECT_EQ(ResultError, Expected);

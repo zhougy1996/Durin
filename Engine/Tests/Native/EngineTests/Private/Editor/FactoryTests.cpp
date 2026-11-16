@@ -1,3 +1,5 @@
+#include "AssetTools/AssetImportAdapter.h"
+#include "FactoryImportTestSupport.h"
 #include "AssetImportTask.h"
 #include "AssetRegistry/Publication.h"
 #include "Editor/TransactionRecordTestSupport.h"
@@ -395,137 +397,45 @@ namespace
 		return Factory;
 	}
 
-	auto MakeImportRequest(std::string_view Path, Durin::DFactory* Factory)
-		-> Durin::FAssetImportRequest
-	{
-		Durin::FPackagePath PackagePath;
-		Durin::FPackagePath::TryCreate(Path, PackagePath);
-		return {
-			Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath),
-			DFactoryAssetForTest::StaticClass(), "source.factorytest", Factory};
-	}
 }
 
-TEST(DFactoryTests, BatchPreflightRejectsEveryDuplicateWithoutCreatingPackages)
+TEST(DFactoryTests, FileListKeepsFirstCollisionSuccessAndReturnsNoNullSlots)
 {
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
-	auto First = MakeImportRequest("/AssetToolsTests/BatchDuplicate",
-		MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
-	auto Second = First;
-	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
-		First.AssetPath.GetPackagePath(), "AnotherAsset", Second.AssetPath));
-	const auto Result = Durin::IAssetTools::Get().ImportAssets({.Items = {First, Second}});
-	ASSERT_EQ(Result.size(), 2u);
-	EXPECT_EQ(Result[0], nullptr);
-	EXPECT_EQ(Result[1], nullptr);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
-	EXPECT_EQ(Durin::FindPackage(First.AssetPath.GetPackagePath().GetView()), nullptr);
-}
-
-TEST(DFactoryTests, BatchContinuesAfterFactoryFailureAndKeepsSuccessfulPeersDirty)
-{
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
-	auto* Success = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
-	const Durin::FAssetImportBatchRequest Batch{.Items = {
-		MakeImportRequest("/AssetToolsTests/BatchFirst", Success),
-		MakeImportRequest("/AssetToolsTests/BatchFailed", MakeFactory(DAssetToolsFactoryForTest::EMode::Fail)),
-		MakeImportRequest("/AssetToolsTests/BatchLast", Success)}};
-	const auto Result = Durin::IAssetTools::Get().ImportAssets(Batch);
-	ASSERT_EQ(Result.size(), 3u);
-	EXPECT_NE(Result[0], nullptr);
-	EXPECT_EQ(Result[1], nullptr);
-	EXPECT_NE(Result[2], nullptr);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
-	EXPECT_EQ(Durin::FindPackage(Batch.Items[1].AssetPath.GetPackagePath().GetView()), nullptr);
-	for (const size_t Index : {0u, 2u})
-	{
-		ASSERT_NE(Result[Index], nullptr);
-		EXPECT_TRUE(Result[Index]->GetPackage()->IsDirty());
-		ASSERT_NE(Result[Index]->GetPackage(), nullptr);
-		EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Result[Index]->GetPackage()}, Error, true) && Error.empty(); }()));
-	}
-}
-
-TEST(DFactoryTests, BatchStopAndCancelLeaveUnattemptedPackagesAbsent)
-{
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
-	auto First = MakeImportRequest("/AssetToolsTests/BatchStop", nullptr);
-	First.Filename.clear();
-	const auto Second = MakeImportRequest("/AssetToolsTests/BatchUnattempted", nullptr);
-	const auto Stopped = Durin::IAssetTools::Get().ImportAssets({
-		.Items = {First, Second}, .bStopOnFailure = true});
-	ASSERT_EQ(Stopped.size(), 2u);
-	EXPECT_EQ(Stopped[0], nullptr);
-	EXPECT_EQ(Stopped[1], nullptr);
-	const auto Canceled = Durin::IAssetTools::Get().ImportAssets({
-		.Items = {First, Second}, .ShouldCancel = [] { return true; }});
-	ASSERT_EQ(Canceled.size(), 2u);
-	for (const auto& Item : Canceled)
-		EXPECT_EQ(Item, nullptr);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
-	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
-	EXPECT_TRUE(Durin::IAssetTools::Get().ImportAssets({}).empty());
-}
-
-TEST(DFactoryTests, ImportRejectsUncatalogedDestinationFileAndWrongAssetName)
-{
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
-	const auto File = Durin::Testing::GetTestWorkDirectory() / "AssetTools" / "BatchOccupied.dasset";
-	const std::array Bytes{std::byte{42}};
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, File));
-	const auto Occupied = MakeImportRequest("/AssetToolsTests/BatchOccupied",
-		MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
-	const auto WrongName = MakeImportRequest("/AssetToolsTests/BatchWrongName",
-		MakeFactory(DAssetToolsFactoryForTest::EMode::WrongName));
-	const auto Result = Durin::IAssetTools::Get().ImportAssets({.Items = {Occupied, WrongName}});
-	ASSERT_EQ(Result.size(), 2u);
-	for (const auto& Item : Result)
-		EXPECT_EQ(Item, nullptr);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
-	EXPECT_EQ(Durin::FindPackage(WrongName.AssetPath.GetPackagePath().GetView()), nullptr);
-	EXPECT_EQ(std::filesystem::file_size(File), 1u);
-	std::filesystem::remove(File);
-}
-
-TEST(DFactoryTests, BatchRevalidatesDestinationAfterPreflight)
-{
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
-	const auto Item = MakeImportRequest("/AssetToolsTests/BatchRevalidated",
-		MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
-	Durin::DPackage* Occupant = nullptr;
-	const auto Result = Durin::IAssetTools::Get().ImportAssets({
-		.Items = {Item}, .ShouldCancel = [&] {
-			Occupant = Durin::CreatePackage(Item.AssetPath.GetPackagePath());
-			return false;
-		}});
-	ASSERT_NE(Occupant, nullptr);
-	ASSERT_EQ(Result.size(), 1u);
-	EXPECT_EQ(Result[0], nullptr);
-	EXPECT_EQ(Durin::FindPackage(Item.AssetPath.GetPackagePath().GetView()), Occupant);
-	EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Occupant}, Error, true) && Error.empty(); }()));
-}
-
-TEST(DFactoryTests, BatchCancellationPreservesAlreadyAcceptedAsset)
-{
-	InitializeFactoryTestGameThread();
-	EnsureAssetToolsTestMount();
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
-	const auto First = MakeImportRequest("/AssetToolsTests/BatchBeforeCancel", Factory);
-	const auto Second = MakeImportRequest("/AssetToolsTests/BatchAfterCancel", Factory);
-	size_t Checks = 0;
-	const auto Result = Durin::IAssetTools::Get().ImportAssets({
-		.Items = {First, Second}, .ShouldCancel = [&] { return ++Checks == 2; }});
-	ASSERT_EQ(Result.size(), 2u);
-	EXPECT_NE(Result[0], nullptr);
-	EXPECT_EQ(Result[1], nullptr);
-	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
-	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
-	EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Result[0]->GetPackage()}, Error, true) && Error.empty(); }()));
+	const std::array<std::string, 2> Files{"ListDuplicate.factorytest", "other/ListDuplicate.factorytest"};
+	const auto Objects = IAssetTools::Get().ImportAssets(Files, "/AssetToolsTests", Factory, false);
+	ASSERT_EQ(Objects.size(), 1u); EXPECT_NE(Objects.front(), nullptr);
+	EXPECT_EQ(Factory->Calls, 1u); EXPECT_TRUE(Objects.front()->GetPackage()->IsDirty());
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Objects.front()->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DFactoryTests, FileListMappingsAndFailuresRetainSuccessfulPeers)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	const std::array<std::string, 3> Files{"ListFirst.factorytest", "", "ListLast.factorytest"};
+	std::vector<std::pair<std::string,std::string>> Mappings{{Files.back(), "/AssetToolsTests/Mapped"}};
+	const auto Objects = IAssetTools::Get().ImportAssets(Files, "/AssetToolsTests", Factory, false, &Mappings);
+	ASSERT_EQ(Objects.size(), 2u);
+	EXPECT_EQ(Objects[0]->GetObjectPath(), "/AssetToolsTests/ListFirst.ListFirst");
+	EXPECT_EQ(Objects[1]->GetObjectPath(), "/AssetToolsTests/Mapped/ListLast.ListLast");
+	for (auto* Object : Objects) EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DFactoryTests, FileListRejectsUncatalogedBytesAndInvalidFactoryProduct)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	const auto File = Testing::GetTestWorkDirectory() / "AssetTools/ListOccupied.dasset";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::array{std::byte{42}}, File));
+	const std::array<std::string, 1> Files{"ListOccupied.factorytest"};
+	EXPECT_TRUE(IAssetTools::Get().ImportAssets(Files, "/AssetToolsTests", MakeFactory(DAssetToolsFactoryForTest::EMode::Success), false).empty());
+	EXPECT_EQ(std::filesystem::file_size(File), 1u); std::filesystem::remove(File);
+	const std::array<std::string, 1> Wrong{"ListWrongName.factorytest"};
+	EXPECT_TRUE(IAssetTools::Get().ImportAssets(Wrong, "/AssetToolsTests", MakeFactory(DAssetToolsFactoryForTest::EMode::WrongName), false).empty());
 }
 
 TEST(DFactoryTests, ExposesAbstractReflectedFactoryContract)
@@ -598,8 +508,7 @@ TEST(DFactoryTests, AssetToolsRequireSourceFilenameBeforeCreatingPackage)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	auto Result = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-		Path, Durin::DObject::StaticClass(), {}, nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	auto Result = Durin::Testing::ImportFactoryAssetForTest(Path, Durin::DObject::StaticClass(), {}, nullptr, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(ResultError, "A source filename is required for import.");
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
@@ -1807,4 +1716,18 @@ TEST(DAssetImportTaskTests, AutomaticFactoryUsesTransientInvocationAndRejectsUns
 	EXPECT_TRUE(Task->GetObjects().empty()); EXPECT_TRUE(Task->ImportedObjectPaths.empty());
 	Task.Reset();
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+}
+
+TEST(DAssetImportTaskTests, FileListHonorsChosenFactoryForSceneFlagAndSynchronizesOnlyRealOutputs)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	size_t Synced = 0;
+	SetAssetImportBrowserSync([&](std::span<DObject* const> Objects) { Synced += Objects.size(); });
+	struct FSyncScope { ~FSyncScope() { SetAssetImportBrowserSync({}); } } Scope;
+	const std::array<std::string, 2> Files{"ChosenScene.gltf", ""};
+	const auto Objects = IAssetTools::Get().ImportAssets(Files, "/AssetToolsTests", Factory, true, nullptr, true, true);
+	ASSERT_EQ(Objects.size(), 1u); EXPECT_EQ(Synced, 1u); EXPECT_EQ(Factory->Calls, 1u);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Objects.front()->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 }

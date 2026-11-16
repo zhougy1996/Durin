@@ -1,3 +1,6 @@
+#include "Import/AssetImportTaskExecution.h"
+#include "AssetTools/IAssetTools.h"
+#include "DObject/DObjectGlobals.h"
 #include "Assets/SceneImportDialog.h"
 
 #include "Import/AssetDestinationValidation.h"
@@ -17,12 +20,19 @@ namespace Durin::LevelEditor
 	FSceneImportDialog::FSceneImportDialog(FImportDialogCallbacks InCallbacks)
 		: Callbacks(std::move(InCallbacks)) {}
 
+	FSceneImportDialog::~FSceneImportDialog() { ResetSession(); }
+	auto FSceneImportDialog::ResetSession() -> void
+	{
+		Session.reset();
+		if (Task) { FAssetImportTaskAccess::ReleaseResults(*Task); Task.Reset(); }
+	}
+
 	auto FSceneImportDialog::Open(std::string_view InDestinationDirectory) -> void
 	{
 		if (bImporting) return;
 		if (Session && Session->GetProgress().Phase != AssetForge::Builtins::EAssetImportPhase::Ready
 			&& Session->GetProgress().Phase != AssetForge::Builtins::EAssetImportPhase::Completed) return;
-		Session.reset();
+		ResetSession();
 		bImporting = bReportedCompletion = bCloseWhenFinished = false;
 		SourcePathBuffer.fill(0);
 		Coordinates.Reset();
@@ -101,7 +111,7 @@ namespace Durin::LevelEditor
 		ImGui::BeginGroup();
 		Coordinates.Draw();
 		ImGui::EndGroup();
-		if (ImGui::IsItemEdited()) { bPreviewDirty = true; Session.reset(); }
+		if (ImGui::IsItemEdited()) { bPreviewDirty = true; ResetSession(); }
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		const std::string PreviousDirectory(DestinationDirectory.GetPath());
@@ -115,7 +125,7 @@ namespace Durin::LevelEditor
 		const std::string ImportSettingsError = SettingsValidation ? std::string{} : FormatStaticMeshImportSettingsError(SettingsValidation.error());
 		if (!Session && bSourceExists && bSupportedSource && bImportSettingsValid && DestinationValidation)
 		{
-			Session = std::make_unique<AssetForge::Builtins::FAssetImportSession>(
+			Session = std::make_unique<AssetForge::Builtins::FSceneImportPreview>(
 				SourcePathBuffer.data(), DestinationValidation.DirectoryPath, Coordinates.GetSettings(),
 				AssetForge::Builtins::FAssetImportOptions{.MeshMode = AssetForge::Builtins::EAssetImportMeshMode::Combined});
 			bReportedCompletion = bImporting = false;
@@ -185,7 +195,7 @@ namespace Durin::LevelEditor
 			return;
 		}
 		SourcePathBuffer.fill(0);
-		Session.reset();
+		ResetSession();
 		bImporting = bReportedCompletion = bCloseWhenFinished = false;
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(),
 			std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
@@ -218,7 +228,10 @@ namespace Durin::LevelEditor
 			return false;
 		}
 		const FPackagePath& OutputDirectory = DestinationValidation.DirectoryPath;
-		bImporting = Session && Session->BeginImport(OutputDirectory, MaterialOptions);
+		Task = NewObject<DAssetImportTask>(nullptr, "SceneImportTask", EObjectFlags::Transient);
+		Task->bAsync = true;
+		bImporting = Session && Session->ConfigureTask(*Task, OutputDirectory, MaterialOptions);
+		if (bImporting) IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
 		return bImporting;
 	}
 
@@ -294,7 +307,7 @@ namespace Durin::LevelEditor
 		}
 		if (Session && Session->GetProgress().Phase == EAssetImportPhase::Completed && ImGui::Button("Retry preparation"))
 		{
-			Session.reset();
+			ResetSession();
 			bPreviewDirty = true;
 		}
 	}

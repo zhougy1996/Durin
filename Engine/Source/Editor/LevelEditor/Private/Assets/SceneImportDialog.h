@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AssetImportTask.h"
+#include "DObject/StrongObjectPtr.h"
 
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
@@ -13,6 +15,7 @@ namespace Durin::LevelEditor
 	{
 	public:
 		explicit FSceneImportDialog(FImportDialogCallbacks InCallbacks);
+		~FSceneImportDialog();
 		FSceneImportDialog(const FSceneImportDialog&) = delete;
 		auto operator=(const FSceneImportDialog&) -> FSceneImportDialog& = delete;
 
@@ -20,6 +23,7 @@ namespace Durin::LevelEditor
 		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
+		auto ResetSession() -> void;
 		auto BrowseSource() -> void;
 		auto BrowseDestinationDirectory() -> void;
 		auto Import() -> bool;
@@ -35,7 +39,8 @@ namespace Durin::LevelEditor
 		AssetForge::Builtins::FAssetImportPreview OutputPreview;
 		std::array<char, 128> ParentSearch{};
 		bool bPreviewDirty = true;
-		std::unique_ptr<AssetForge::Builtins::FAssetImportSession> Session;
+		std::unique_ptr<AssetForge::Builtins::FSceneImportPreview> Session;
+		TStrongObjectPtr<DAssetImportTask> Task;
 		bool bImporting = false;
 		bool bReportedCompletion = false;
 		bool bCloseWhenFinished = false;

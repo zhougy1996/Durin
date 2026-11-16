@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AssetImportTask.h"
+#include "DObject/StrongObjectPtr.h"
 
 #include "Import/ImportDialogSupport.h"
 #include "Import/MeshCoordinateImportModel.h"
@@ -13,6 +15,7 @@ namespace Durin
 	{
 	public:
 		explicit FGltfAssetImportDialog(FImportDialogCallbacks InCallbacks = {});
+		~FGltfAssetImportDialog();
 		auto SetCallbacks(FImportDialogCallbacks InCallbacks) -> void { Callbacks = std::move(InCallbacks); }
 		FGltfAssetImportDialog(const FGltfAssetImportDialog&) = delete;
 		auto operator=(const FGltfAssetImportDialog&) -> FGltfAssetImportDialog& = delete;
@@ -21,6 +24,7 @@ namespace Durin
 		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
+		auto ResetSession() -> void;
 		auto BrowseSource() -> void;
 		auto BrowseDestinationDirectory() -> void;
 		auto Import() -> bool;
@@ -40,7 +44,8 @@ namespace Durin
 		AssetForge::Builtins::FAssetImportPreview OutputPreview;
 		std::array<char, 128> ParentSearch{};
 		bool bPreviewDirty = true;
-		std::unique_ptr<AssetForge::Builtins::FAssetImportSession> Session;
+		std::unique_ptr<AssetForge::Builtins::FSceneImportPreview> Session;
+		TStrongObjectPtr<DAssetImportTask> Task;
 		bool bImporting = false;
 		bool bReportedCompletion = false;
 	};

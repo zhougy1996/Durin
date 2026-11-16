@@ -12,6 +12,9 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Factories/Factory.h"
 #include "AssetImportTask.h"
+#include "AssetTools/AssetImportAdapter.h"
+#include "Import/AssetImportTaskExecution.h"
+#include "TickableEditorObject.h"
 #include "FileHelpers.h"
 #include "Misc/StringConvert.h"
 #include "Editor/EditorEngine.h"
@@ -41,42 +44,44 @@ namespace Durin
 		{
 			return Class && Class->IsChildOf(DObject::StaticClass()) && !Class->HasAnyClassFlags(EClassFlags::Abstract);
 		}
-		auto FindImportFactory(const FAssetImportRequest& Item, FFeedbackContext* Warn) -> DFactory*
-		{
-			if (!Item.AssetPath.IsValid()) { Reject(Warn, "The destination asset path is invalid."); return nullptr; }
-			if (!ValidateClass(Item.AssetClass)) { Reject(Warn, "The requested asset class cannot be constructed."); return nullptr; }
-			if (Item.Filename.empty()) { Reject(Warn, "A source filename is required for import."); return nullptr; }
-			const auto Destination = InspectAssetDestination(Item.AssetPath.GetPackagePath().GetView());
-			if (!Destination) { Reject(Warn, FormatAssetDestinationValidation(Destination)); return nullptr; }
-			std::error_code Error;
-			const bool bExists = std::filesystem::exists(Destination.PhysicalPath, Error);
-			if (Error) { Reject(Warn, "The destination package could not be inspected: " + Error.message()); return nullptr; }
-			if (bExists) { Reject(Warn, "A package file already occupies the destination."); return nullptr; }
-			const DFactory* Factory = Item.Factory;
-			if (!Factory)
-			{
-				const auto Extension = std::filesystem::path(Item.Filename).extension().generic_string();
-				const auto Candidates = DFactory::FindFactories(Item.AssetClass, Extension);
-				if (Candidates.size() > 1)
-				{
-					Reject(Warn, std::format("Multiple factories support {} for the requested asset class.", Extension));
-					return nullptr;
-				}
-				if (!Candidates.empty()) Factory = Candidates.front();
-			}
-			if (!Factory) Factory = DFactory::FindFactory(Item.AssetClass);
-			if (!Factory) { Reject(Warn, "No factory supports the requested asset."); return nullptr; }
-			const DClass* Supported = Factory->GetSupportedClass();
-			if (!Supported || !Item.AssetClass->IsChildOf(Supported))
-			{
-				Reject(Warn, "The selected factory does not support the requested asset class.");
-				return nullptr;
-			}
-			return Item.Factory ? Item.Factory : Cast<DFactory>(NewObject(Factory->GetClass(), nullptr, FName("ImportFactoryInvocation"), EObjectFlags::Transient));
-		}
+
 	}
 
-	class FAssetTools final : public IAssetTools
+	namespace
+	{
+		struct FAdapter { uint64 Id; std::function<bool(const DAssetImportTask&, bool)> Accepts;
+			std::function<std::shared_ptr<IAssetImportTaskOperation>(const DAssetImportTask&)> Create; size_t Dispatches = 0; };
+		struct FActiveImport { uint64 Adapter; TStrongObjectPtr<DAssetImportTask> Task, Inputs; };
+		auto& Adapters = *new std::vector<std::shared_ptr<FAdapter>>;
+		auto& ActiveImports = *new std::vector<FActiveImport>;
+		uint64 NextAdapterId = 0;
+		auto& BrowserSync = *new std::function<void(std::span<DObject* const>)>;
+	}
+	FAssetImportAdapterRegistration::FAssetImportAdapterRegistration(
+		std::function<bool(const DAssetImportTask&, bool)> Accepts,
+		std::function<std::shared_ptr<IAssetImportTaskOperation>(const DAssetImportTask&)> Create)
+	{
+		check(IsInGameThread()); Id = ++NextAdapterId;
+		Adapters.push_back(std::make_shared<FAdapter>(FAdapter{Id, std::move(Accepts), std::move(Create)}));
+	}
+	FAssetImportAdapterRegistration::~FAssetImportAdapterRegistration() { Reset(); }
+	auto FAssetImportAdapterRegistration::Reset() -> void
+	{
+		if (!Id) return;
+		check(IsInGameThread());
+		for (const auto& Adapter : Adapters) if (Adapter->Id == Id)
+			requiref(Adapter->Dispatches == 0, "Cannot retire an import adapter from its dispatch callback.");
+		std::erase_if(Adapters, [&](const auto& Adapter) { return Adapter->Id == Id; });
+		const auto Snapshot = ActiveImports;
+		for (const auto& Active : Snapshot) if (Active.Adapter == Id)
+			FAssetImportTaskAccess::CancelAndDrain(*Active.Task);
+		std::erase_if(ActiveImports, [&](const auto& Active) { return Active.Adapter == Id; });
+		Id = 0;
+	}
+	auto SetAssetImportBrowserSync(std::function<void(std::span<DObject* const>)> Callback) -> void
+	{ check(IsInGameThread()); BrowserSync = std::move(Callback); }
+
+	class FAssetTools final : public IAssetTools, public FTickableEditorObject
 	{
 	public:
 		auto CreateAsset(std::string_view Name, std::string_view Directory, DClass* Class, DFactory* Factory,
@@ -97,7 +102,45 @@ namespace Durin
 		auto CreateUniqueAssetName(std::string_view Base, std::string_view Suffix, std::string& Package, std::string& Name) -> void override
 		{ MakeUniqueAssetName(Base, Suffix, Package, Name); }
 
-		auto ImportAssetTasks(std::span<DAssetImportTask* const> Tasks) -> void override
+		auto GetTickableEditor() const -> DEditorEngine* override { return GEditor; }
+		auto Tick(float) noexcept -> void override
+		{
+			const auto Snapshot = ActiveImports;
+			for (const auto& Active : Snapshot) FAssetImportTaskAccess::Tick(*Active.Task);
+			std::erase_if(ActiveImports, [](const auto& Active) { return Active.Task->IsAsyncImportComplete(); });
+		}
+		auto ImportAssetTasks(std::span<DAssetImportTask* const> Tasks) -> void override { SubmitTasks(Tasks); }
+		auto ImportAssets(std::span<const std::string> Files, std::string_view Destination, DFactory* Factory,
+			bool Sync, std::vector<std::pair<std::string, std::string>>* Mappings, bool Async, bool Scene) const -> std::vector<DObject*> override
+		{
+			check(IsInGameThread());
+			const std::vector<std::string> Filenames(Files.begin(), Files.end());
+			const auto Destinations = Mappings ? *Mappings : std::vector<std::pair<std::string, std::string>>{};
+			TStrongObjectPtr<DFactory> FactoryOwner(Factory);
+			std::vector<TStrongObjectPtr<DAssetImportTask>> Tasks;
+			std::vector<DAssetImportTask*> Raw;
+			for (const auto& File : Filenames)
+			{
+				TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "FileImportTask", EObjectFlags::Transient));
+				Task->Filename = File; Task->DestinationPath = Destination; Task->Factory = Factory; Task->bAsync = Async;
+				const auto Mapping = std::ranges::find(Destinations, File, &std::pair<std::string, std::string>::first);
+				if (Mapping != Destinations.end()) Task->DestinationPath = Mapping->second;
+				Raw.push_back(Task.Get()); Tasks.push_back(std::move(Task));
+			}
+			SubmitTasks(Raw, Scene);
+			// This API returns concrete successful outputs, so even async-capable adapters
+			// must finish before the borrowed result list is returned. Tasks expose polling.
+			std::vector<DObject*> Objects;
+			std::vector<FStrongObjectPtr> OutputOwners;
+			for (const auto& Task : Tasks)
+			{
+				for (auto* Object : Task->GetObjects()) { Objects.push_back(Object); OutputOwners.emplace_back(Object); }
+				FAssetImportTaskAccess::ReleaseResults(*Task);
+			}
+			if (Sync && BrowserSync && !Objects.empty()) { const auto Callback = BrowserSync; Callback(Objects); }
+			return Objects;
+		}
+		auto SubmitTasks(std::span<DAssetImportTask* const> Tasks, bool Scene = false) const -> void
 		{
 			check(IsInGameThread());
 			// Snapshot and retain the entire selection before callbacks can collect or
@@ -108,9 +151,8 @@ namespace Durin
 			{
 				auto* Task = Owner.Get();
 				if (!Task) { Feedback(nullptr).Warning("ImportAssetTasks supplied an empty task."); continue; }
-				if (Task->bRunning) { Reject(nullptr, "The import task is already running."); continue; }
-				Task->bRunning = true;
-				struct FCompletion { bool& Running; ~FCompletion() { Running = false; } } Completion{Task->bRunning};
+				if (!FAssetImportTaskAccess::Begin(*Task)) { Reject(nullptr, "The import task is already running."); continue; }
+				struct FCompletion { DAssetImportTask& Task; ~FCompletion() { if (!Task.Operation) Task.bRunning = false; } } Completion{*Task};
 				Task->Results.clear(); Task->ObjectView.clear(); Task->ImportedObjectPaths.clear();
 				TStrongObjectPtr<DAssetImportTask> Inputs(NewObject<DAssetImportTask>(nullptr, "ImportTaskInputs", EObjectFlags::Transient));
 				Inputs->Filename = Task->Filename;
@@ -129,6 +171,31 @@ namespace Durin
 					? StringUtils::SanitizeFileName(std::filesystem::path(Filename).stem().generic_string(), "Asset") : Inputs->DestinationName;
 				TStrongObjectPtr<DFactory> Factory(Inputs->Factory.Get());
 				if (Filename.empty()) { Reject(nullptr, "A source filename is required for import."); continue; }
+				const auto ProviderSnapshot = Adapters;
+				std::vector<std::shared_ptr<FAdapter>> Candidates;
+				for (const auto& Adapter : ProviderSnapshot)
+				{
+					++Adapter->Dispatches;
+					struct FDispatch { size_t& Count; ~FDispatch() { --Count; } } Dispatch{Adapter->Dispatches};
+					if (Adapter->Accepts(*Inputs, Scene)) Candidates.push_back(Adapter);
+				}
+				if (!Candidates.empty())
+				{
+					if (Candidates.size() != 1) { Reject(nullptr, "Multiple adapters support this import task."); continue; }
+					++Candidates.front()->Dispatches;
+					struct FDispatch { size_t& Count; ~FDispatch() { --Count; } } Dispatch{Candidates.front()->Dispatches};
+					auto Operation = Candidates.front()->Create(*Inputs);
+					if (!Operation) continue;
+					FAssetImportTaskAccess::Attach(*Task, std::move(Operation), [Task] {
+						std::erase_if(ActiveImports, [Task](const auto& Active) { return Active.Task.Get() == Task; });
+					});
+					ActiveImports.push_back({Candidates.front()->Id, Owner, Inputs});
+					FAssetImportTaskAccess::Tick(*Task);
+					if (!Inputs->bAsync) (void)Task->GetObjects();
+					std::erase_if(ActiveImports, [](const auto& Active) { return Active.Task->IsAsyncImportComplete(); });
+					continue;
+				}
+				if (Scene && !Factory) { Reject(nullptr, "No scene import adapter supports this source and factory."); continue; }
 				if (!Factory)
 				{
 					const auto Candidates = DFactory::FindFactoriesByExtension(std::filesystem::path(Filename).extension().generic_string());
@@ -149,21 +216,13 @@ namespace Durin
 						&FFeedbackContext::Get(), {}, Inputs->bReplaceExisting, Inputs.Get());
 				if (!Object) continue;
 				Task->Results.emplace_back(Object);
-				Task->ImportedObjectPaths.push_back(Path.ToString());
+				Task->ImportedObjectPaths.push_back(Object->GetObjectPath());
 				if (Inputs->bSave)
 				{
 					auto* Package = Object->GetPackage();
 					DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true);
 				}
 			}
-		}
-
-		auto ImportAsset(const FTopLevelAssetPath& Path, DClass* Class, std::string_view Filename,
-			DFactory* RequestedFactory, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
-		{
-			checkf(IsInGameThread(), "Asset import must run on the game thread.");
-			auto* Factory = FindImportFactory({Path, Class, std::string(Filename), RequestedFactory, Context, Flags}, Warn);
-			return Factory ? CreateWithFactory(Path, Class, Factory, Filename, Context, Flags, Warn) : nullptr;
 		}
 		auto RenameAssets(std::span<const FAssetRenameData> Requests) -> bool override
 		{ return RenameAssetsWithEditorPolicy(Requests, PostRename); }
@@ -176,10 +235,10 @@ namespace Durin
 
 	private:
 		TMulticastDelegate<void(std::span<const FAssetRenameData>)> PostRename;
-		std::unordered_set<DFactory*> ActiveFactories;
+		mutable std::unordered_set<DFactory*> ActiveFactories;
 		auto CreateWithFactory(const FTopLevelAssetPath& Path, DClass* Class, DFactory* RequestedFactory,
 			std::string_view Filename, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn,
-			FName CallingContext = {}, bool Overwrite = false, const DAssetImportTask* ImportTask = nullptr) -> DObject*
+			FName CallingContext = {}, bool Overwrite = false, const DAssetImportTask* ImportTask = nullptr) const -> DObject*
 		{
 			checkf(IsInGameThread(), "Asset tools creation must run on the game thread.");
 			if (!Path.IsValid()) return Reject(Warn, "The destination asset path is invalid.");
@@ -284,33 +343,6 @@ namespace Durin
 
 	};
 
-	auto IAssetTools::ImportAssets(const FAssetImportBatchRequest& Request, FFeedbackContext* Warn) -> std::vector<DObject*>
-	{
-		checkf(IsInGameThread(), "Asset batch import must run on the game thread.");
-		const auto Batch = Request;
-		std::vector<FStrongObjectPtr> Retained;
-		std::unordered_map<FPackagePath, size_t> Counts;
-		for (const auto& Item : Batch.Items)
-		{
-			Retained.emplace_back(Item.AssetClass);
-			Retained.emplace_back(Item.Factory);
-			Retained.emplace_back(Item.Context);
-			if (Item.AssetPath.IsValid()) ++Counts[Item.AssetPath.GetPackagePath()];
-		}
-		std::vector<DObject*> Assets(Batch.Items.size(), nullptr);
-		for (size_t Index = 0; Index < Batch.Items.size(); ++Index)
-		{
-			if (Batch.ShouldCancel && Batch.ShouldCancel()) break;
-			const auto& Item = Batch.Items[Index];
-			if (Item.AssetPath.IsValid() && Counts[Item.AssetPath.GetPackagePath()] > 1)
-				Reject(Warn, std::format("Multiple imports target package {}.", Item.AssetPath.GetPackagePath().ToString()));
-			else Assets[Index] = ImportAsset(Item.AssetPath, Item.AssetClass, Item.Filename, Item.Factory, Item.Context, Item.Flags, Warn);
-			if (Assets[Index]) Retained.emplace_back(Assets[Index]);
-			if (!Assets[Index] && Batch.bStopOnFailure) break;
-		}
-		return Assets;
-	}
-
 	auto FAssetToolsModule::StartupModule() -> void
 	{
 		check(!AssetTools);
@@ -323,6 +355,9 @@ namespace Durin
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("AssetTools"),
 				"AssetTools cannot retire while one of its custom changes is active");
+		const auto Snapshot = ActiveImports;
+		for (const auto& Active : Snapshot) FAssetImportTaskAccess::CancelAndDrain(*Active.Task);
+		ActiveImports.clear(); BrowserSync = {};
 		AssetTools.reset();
 	}
 

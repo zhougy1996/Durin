@@ -2,9 +2,9 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: TextureCompressor, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
+Modules: TextureCompressor, AssetForgeBuiltins, AssetTools, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-16
 
 ## Ownership Layers
 
@@ -18,8 +18,8 @@ Asynchronous asset work crosses three independent concerns:
 Typed compilation domains retain their own workers, priorities, cancellation,
 and metrics. Direct standalone-family import performs synchronous detached
 preparation and explicit setter application or delegates only build work to its typed family
-domain. Shared asset import uses `FAssetImportSession` around private captured
-values. It does not introduce a generic import job framework.
+domain. Shared asset import uses `DAssetImportTask` with registered scene operations around
+private captured values. It does not introduce a generic import job framework.
 
 Texture2D imports commit authored Source/settings/import metadata on the
 GameThread and then start independent DDC work. Compiler completion follows
@@ -45,7 +45,8 @@ current serials alone may publish an upload.
 ## Asset Import Sessions
 
 AssetForgeBuiltins owns the glTF form; LevelEditor owns the FBX form. Both use
-`FAssetImportSession` and advance each frame. The FBX form explicitly selects
+`FSceneImportPreview` to configure `DAssetImportTask` and submit through
+`IAssetTools::ImportAssetTasks`. AssetTools advances task operations each frame. The FBX form explicitly selects
 `MeshMode = EAssetImportMeshMode::Combined`; the shared session defaults to split outputs. Selecting a
 source starts detached capture, dependency discovery and scene decoding. The Ready
 phase exposes `PreviewOutputs` for all selected outputs, material configuration
@@ -74,8 +75,13 @@ Progress reports the active phase, activity and available work counts. Cancellat
 keeps ticking through worker completion and unpublished candidate cleanup. Closing
 the active progress view requests cancellation; host destruction cancels and drains
 at its teardown safe point before module or compiler teardown. Worker captures never
-refer to widgets. The `ImportAssetOutputs` entry point runs the same
-pipeline without yielding for synchronous/headless callers.
+refer to widgets. Headless callers use the same task entrypoint; `GetObjects`
+waits by driving the actual operation to completion. Polling never advances work.
+The file-list entrypoint waits for concrete successful outputs even when async
+preparation is permitted. Provider retirement stops admission, cancels/drains its
+accepted tasks and clears callbacks before module code retires. Task data and
+completion storage belong to DurinEd; the adapter registry/tick lane belongs to
+AssetTools, with no reverse dependency on concrete format modules.
 
 Source decoding, product construction and staged writes are nonblocking in the
 interactive path. Texture mutation may wait for a canceled predecessor to retire. Material policy checks, individual package

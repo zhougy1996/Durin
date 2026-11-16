@@ -36,8 +36,7 @@ namespace Durin::AssetForge::Builtins
 		Durin::FFeedbackContext ImportedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
 		});
-		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DStaticMesh::StaticClass(), FilePath, Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &ImportedFeedback);
+		const auto Imported = Durin::Testing::ImportFactoryAssetForTest(ParsedPath, DStaticMesh::StaticClass(), FilePath, Factory, &ImportedFeedback);
 		auto* Mesh = Cast<DStaticMesh>(Imported);
 		if (!Imported || !Mesh)
 			return {false, ImportedError, Mesh};

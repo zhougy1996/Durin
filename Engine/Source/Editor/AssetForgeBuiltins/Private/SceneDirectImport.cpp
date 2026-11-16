@@ -1,3 +1,4 @@
+#include "Misc/FeedbackContext.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Physics/BodySetup.h"
@@ -5,7 +6,11 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/AssetImport.h"
-#include "AssetTools/AssetImport.h"
+#include "AssetTools/AssetImportAdapter.h"
+#include "AssetImportTask.h"
+#include "Import/AssetImportTaskExecution.h"
+#include "AssetForge/Builtins/SceneImportOptions.h"
+#include "DObject/WeakObjectPtr.h"
 #include "AssetForge/Builtins/SceneImportData.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Hash/XxHash.h"
@@ -342,8 +347,11 @@ auto MaterialWorkPending(std::span<DObject *const> Objects) -> bool
 }
 } // namespace
 
-struct FAssetImportSession::FImpl
+struct FSceneImportState
 {
+	TWeakObjectPtr<DAssetImportTask> TrackedTask;
+	std::vector<TStrongObjectPtr<DObject>> OutputOwners;
+	std::vector<DObject*> OutputObjects;
 	std::string SourceFile;
 	std::string RootFilename;
 	FPackagePath DestinationDirectory;
@@ -352,22 +360,15 @@ struct FAssetImportSession::FImpl
 	FAssetImportOptions ImportOptions;
 	std::optional<FAssetPackageSaveArgs> SaveArgs;
 	Testing::FPackageSaveFault SaveFault;
-	bool bAsync = true;
 	bool bImportRequested = false;
+	bool bTaskAccepted = false;
 	bool bReplanRequested = false;
 	Tasks::FCancellationToken Cancellation;
-	std::function<bool()> ExternalCancellation;
-	std::mutex CancellationMutex;
-	auto CheckCancellation() -> bool
-	{
-		if (Cancellation.IsCanceled()) return true;
-		std::lock_guard Lock(CancellationMutex);
-		if (!Cancellation.IsCanceled() && ExternalCancellation && ExternalCancellation()) Cancellation.Cancel();
-		return Cancellation.IsCanceled();
-	}
+	auto CheckCancellation() -> bool { return Cancellation.IsCanceled(); }
 	std::function<bool()> IsCancellationRequested;
 	FAssetImportProgress Progress;
 	FAssetImportResult Result;
+	std::optional<FAssetImportResult> Rejection;
 	std::shared_ptr<const FSourceSnapshot> Snapshot;
 	FAssetImportPlan Data;
 	std::vector<FImportOutputSummary> BaseOutputs;
@@ -386,11 +387,11 @@ struct FAssetImportSession::FImpl
 
 	struct FStep
 	{
-		FImpl &Owner;
+		FSceneImportState &Owner;
 		std::function<bool()> Ready;
 		auto await_ready() const noexcept -> bool
 		{
-			return !Owner.bAsync;
+			return false;
 		}
 		auto await_suspend(std::coroutine_handle<>) -> void
 		{
@@ -408,11 +409,6 @@ struct FAssetImportSession::FImpl
 	}
 	auto Work(std::function<void()> Body) -> FStep
 	{
-		if (!bAsync)
-		{
-			Body();
-			return Step();
-		}
 		Worker = Tasks::LaunchTask("Scene.ImportPreparation", std::move(Body));
 		return Step(
 		    [this]
@@ -430,8 +426,6 @@ struct FAssetImportSession::FImpl
 			if (auto *Material = Cast<DMaterialInterface>(Object);
 			    Material && Material->GetMaterialCompileStatus().HasScheduledEdits())
 				RequestMaterialRecompile(*Material);
-		if (!bAsync)
-			FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
 		return Step(
 		    [this, Objects]
 		    {
@@ -471,7 +465,7 @@ struct FAssetImportSession::FImpl
 	auto BuildProducts(FAssetImportResult &Result) -> void;
 };
 
-auto FAssetImportSession::FImpl::ResolveOutputs(FAssetImportResult& Result,
+auto FSceneImportState::ResolveOutputs(FAssetImportResult& Result,
 	std::vector<FSceneMaterialPreview>& Materials) -> bool
 {
 	const auto Directory = InspectContentDirectory(DestinationDirectory.ToString());
@@ -484,7 +478,9 @@ auto FAssetImportSession::FImpl::ResolveOutputs(FAssetImportResult& Result,
 			{
 				if (auto Summary = std::ranges::find(Result.Outputs, Row.StableIdentity, &FImportOutputSummary::StableIdentity);
 					Summary != Result.Outputs.end()) Summary->Disposition = EImportOutputDisposition::Conflict;
-				Result.Diagnostics.push_back({.Category = EImportDiagnosticCategory::InvalidPlan,
+				const bool Occupied = Row.AssetPath.IsValid()
+					&& (FindPackageExact(Row.AssetPath) || FindResidentPackage(Row.AssetPath));
+				Result.Diagnostics.push_back({.Category = Occupied ? EImportDiagnosticCategory::Collision : EImportDiagnosticCategory::InvalidPlan,
 					.Phase = "asset-preflight", .OutputIdentity = Row.StableIdentity, .Message = Row.Message});
 			}
 		return false;
@@ -537,7 +533,7 @@ auto FAssetImportSession::FImpl::ResolveOutputs(FAssetImportResult& Result,
 	return bValid;
 }
 
-auto FAssetImportSession::FImpl::PrepareSource(FAssetImportResult &Result) -> void
+auto FSceneImportState::PrepareSource(FAssetImportResult &Result) -> void
 {
 	Private::FScopedSceneImportCancellation CancellationScope(IsCancellationRequested);
 	RootFilename = std::filesystem::absolute(SourceFile).lexically_normal().generic_string();
@@ -576,7 +572,7 @@ auto FAssetImportSession::FImpl::PrepareSource(FAssetImportResult &Result) -> vo
 	}
 }
 
-auto FAssetImportSession::FImpl::ValidateSources(FAssetImportResult& Result) -> bool
+auto FSceneImportState::ValidateSources(FAssetImportResult& Result) -> bool
 {
 	// Validate the captured closure without parsing the source a second time.
 	for (const auto &Source : Snapshot->GetSources())
@@ -597,7 +593,7 @@ auto FAssetImportSession::FImpl::ValidateSources(FAssetImportResult& Result) -> 
 	return true;
 }
 
-auto FAssetImportSession::FImpl::BuildProducts(FAssetImportResult &Result) -> void
+auto FSceneImportState::BuildProducts(FAssetImportResult &Result) -> void
 {
 	Private::FScopedSceneImportCancellation CancellationScope(IsCancellationRequested);
 	if (!ValidateSources(Result)) return;
@@ -689,7 +685,7 @@ auto FAssetImportSession::FImpl::BuildProducts(FAssetImportResult &Result) -> vo
 	}
 }
 
-auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
+auto FSceneImportState::Run() -> FSceneRoutine
 {
 	FAssetImportResult Result;
 	try
@@ -708,7 +704,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 		if (!Result.Message.empty() || !Snapshot)
 			co_return std::move(Result);
 		BaseOutputs = Result.Outputs;
-		while (bAsync && !bImportRequested)
+		while (!bImportRequested)
 		{
 			Progress = {EAssetImportPhase::Ready, "Configure asset outputs"};
 			co_await Step([this] { return bImportRequested || bReplanRequested || CheckCancellation(); });
@@ -1148,10 +1144,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 				std::ranges::find(Result.Outputs, Pair.Prepared->GetPackagePathIdentity(),
 					&FImportOutputSummary::AssetPath)->State = EImportOutputState::Imported;
 			}
-			if (bAsync)
-				co_await Step([&] { return Publication.Retire(); });
-			else
-				require(Publication.Retire());
+			co_await Step([&] { return Publication.Retire(); });
 		}
 		Result.bSucceeded = true;
 
@@ -1172,10 +1165,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 					Tasks::TTask<FAssetWriteResult> Task;
 					{
 						Testing::FScopedPackageSaveFault Scope(Fault);
-						if (bAsync)
-							Task = SavePackageAsync(Package, *SaveArgs, IsCancellationRequested);
-						else
-							SavePackage(Package, *SaveArgs, &Batch.Result);
+						Task = SavePackageAsync(Package, *SaveArgs, IsCancellationRequested);
 					}
 					if (Task.IsValid())
 					{
@@ -1214,7 +1204,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 	}
 }
 
-auto FAssetImportSession::FImpl::Tick() -> void
+auto FSceneImportState::Tick() -> void
 {
 	if (Progress.Phase == EAssetImportPhase::Building)
 		Progress.Completed = BuiltCount.load();
@@ -1234,6 +1224,7 @@ auto FAssetImportSession::FImpl::Tick() -> void
 	if (!bCleaning)
 	{
 		Result = std::move(Routine->Handle.promise().Result);
+		if (Rejection) { Result = std::move(*Rejection); Rejection.reset(); }
 		bCleaning = true;
 		Progress = {EAssetImportPhase::Finishing, "Releasing import resources"};
 		std::vector<DObject *> Objects;
@@ -1246,8 +1237,12 @@ auto FAssetImportSession::FImpl::Tick() -> void
 	for (const auto &Output : Prepared)
 		if (Output.Package && IsValid(Output.Package) && Output.Package->IsGraphPrivate())
 			Objects.push_back(Output.Candidate);
-	if (bAsync && MaterialWorkPending(Objects))
+	if (MaterialWorkPending(Objects))
 		return;
+	for (const auto& Output : Prepared)
+		if (Output.Package && IsValid(Output.Candidate) && !Output.Package->IsGraphPrivate()
+			&& std::ranges::contains(Result.ImportedPackages, Output.AssetPath))
+		{ OutputOwners.emplace_back(Output.Candidate); OutputObjects.push_back(Output.Candidate); }
 	Abandon(Prepared);
 	Prepared.clear();
 	Data = {};
@@ -1256,9 +1251,9 @@ auto FAssetImportSession::FImpl::Tick() -> void
 	Progress = {EAssetImportPhase::Completed, Result.Message.empty() ? "Import complete" : Result.Message};
 }
 
-FAssetImportSession::FAssetImportSession(std::string SourceFile, FPackagePath Destination,
+FSceneImportPreview::FSceneImportPreview(std::string SourceFile, FPackagePath Destination,
                                          FStaticMeshImportSettings Settings, FAssetImportOptions Options)
-    : Impl(std::make_unique<FImpl>())
+    : Impl(std::make_shared<FSceneImportState>())
 {
 	Impl->SourceFile = std::move(SourceFile);
 	Impl->DestinationDirectory = std::move(Destination);
@@ -1266,9 +1261,11 @@ FAssetImportSession::FAssetImportSession(std::string SourceFile, FPackagePath De
 	Impl->ImportOptions = std::move(Options);
 	Impl->IsCancellationRequested = [State = Impl.get()] { return State->CheckCancellation(); };
 }
-FAssetImportSession::~FAssetImportSession()
+FSceneImportPreview::~FSceneImportPreview()
 {
 	Cancel();
+	if (auto* Task = Impl->TrackedTask.Get(); Task && !Task->IsAsyncImportComplete())
+	{ FAssetImportTaskAccess::CancelAndDrain(*Task); return; }
 	// Only host teardown drains synchronously; normal UI cancellation keeps ticking.
 	while (Impl->Progress.Phase != EAssetImportPhase::Completed)
 	{
@@ -1279,26 +1276,28 @@ FAssetImportSession::~FAssetImportSession()
 			std::this_thread::yield();
 	}
 }
-auto FAssetImportSession::Tick() -> void
+auto FSceneImportPreview::Tick() -> void
 {
-	Impl->Tick();
+	if (auto* Task = Impl->TrackedTask.Get(); Task && !Task->IsAsyncImportComplete())
+		FAssetImportTaskAccess::Tick(*Task);
+	else if (!Impl->bImportRequested) Impl->Tick();
 	// Phase transitions can replace Progress; publish the cancellation fact afterwards.
 	Impl->Progress.bCancellationRequested = Impl->CheckCancellation();
 }
-auto FAssetImportSession::Cancel() -> void
+auto FSceneImportPreview::Cancel() -> void
 {
 	Impl->Cancellation.Cancel();
 	Impl->Progress.bCancellationRequested = true;
 }
-auto FAssetImportSession::GetProgress() const -> const FAssetImportProgress &
+auto FSceneImportPreview::GetProgress() const -> const FAssetImportProgress &
 {
 	return Impl->Progress;
 }
-auto FAssetImportSession::GetResult() const -> const FAssetImportResult &
+auto FSceneImportPreview::GetResult() const -> const FAssetImportResult &
 {
 	return Impl->Result;
 }
-auto FAssetImportSession::GetSourceMeshes() const -> std::vector<FAssetImportSourceMesh>
+auto FSceneImportPreview::GetSourceMeshes() const -> std::vector<FAssetImportSourceMesh>
 {
 	std::vector<FAssetImportSourceMesh> Result;
 	if (Impl->Progress.Phase == EAssetImportPhase::Ready)
@@ -1310,7 +1309,7 @@ auto FAssetImportSession::GetSourceMeshes() const -> std::vector<FAssetImportSou
 		}
 	return Result;
 }
-auto FAssetImportSession::GetSourceScenes() const -> std::vector<FAssetImportSourceScene>
+auto FSceneImportPreview::GetSourceScenes() const -> std::vector<FAssetImportSourceScene>
 {
 	std::vector<FAssetImportSourceScene> Result;
 	if (Impl->Progress.Phase == EAssetImportPhase::Ready)
@@ -1319,9 +1318,9 @@ auto FAssetImportSession::GetSourceScenes() const -> std::vector<FAssetImportSou
 				Index == Impl->Data.Document.DefaultSceneIndex});
 	return Result;
 }
-auto FAssetImportSession::SetOptions(FAssetImportOptions Options) -> bool
+auto FSceneImportPreview::SetOptions(FAssetImportOptions Options) -> bool
 {
-	if (Impl->Progress.Phase != EAssetImportPhase::Ready || Impl->bImportRequested || Impl->bReplanRequested) return false;
+	if (Impl->Progress.Phase != EAssetImportPhase::Ready || Impl->bImportRequested || Impl->bTaskAccepted || Impl->bReplanRequested) return false;
 	Impl->ImportOptions = std::move(Options);
 	Impl->PreviewDescriptors.clear();
 	Impl->PreviewSummaries.clear();
@@ -1331,11 +1330,15 @@ auto FAssetImportSession::SetOptions(FAssetImportOptions Options) -> bool
 	return true;
 }
 
-auto FAssetImportSession::PreviewOutputs(const FPackagePath& Destination,
+auto FSceneImportPreview::PreviewOutputs(const FPackagePath& Destination,
 	const FSceneMaterialImportOptions& Options) -> FAssetImportPreview
+{ return ResolvePreview(Destination, Options, false); }
+
+auto FSceneImportPreview::ResolvePreview(const FPackagePath& Destination,
+	const FSceneMaterialImportOptions& Options, bool bAllowAccepted) -> FAssetImportPreview
 {
 	FAssetImportPreview Preview;
-	if (Impl->Progress.Phase != EAssetImportPhase::Ready || !Impl->Rebase(Destination))
+	if ((!bAllowAccepted && Impl->bTaskAccepted) || Impl->Progress.Phase != EAssetImportPhase::Ready || !Impl->Rebase(Destination))
 	{
 		Preview.Message = "Import preparation is not ready or destination is invalid.";
 		return Preview;
@@ -1367,7 +1370,7 @@ auto FAssetImportSession::PreviewOutputs(const FPackagePath& Destination,
 	return Preview;
 }
 
-auto FAssetImportSession::BeginImport(const FPackagePath &Destination, FSceneMaterialImportOptions Options,
+auto FSceneImportPreview::BeginImport(const FPackagePath &Destination, FSceneMaterialImportOptions Options,
                                       std::optional<FAssetPackageSaveArgs> SaveArgs) -> bool
 {
 	if (Impl->Progress.Phase != EAssetImportPhase::Ready || Impl->bImportRequested || !Destination.IsValid())
@@ -1375,7 +1378,7 @@ auto FAssetImportSession::BeginImport(const FPackagePath &Destination, FSceneMat
 	if (!Impl->Rebase(Destination))
 		return false;
 	if (Impl->PreviewDescriptors.empty() || Impl->PreviewDestination != Destination || Impl->PreviewOptions != Options)
-		if (!PreviewOutputs(Destination, Options).bSucceeded) return false;
+		if (!ResolvePreview(Destination, Options, true).bSucceeded) return false;
 	Impl->Data.Outputs = Impl->PreviewDescriptors;
 	Impl->BaseOutputs = Impl->PreviewSummaries;
 	Impl->PreviewDescriptors.clear();
@@ -1388,20 +1391,118 @@ auto FAssetImportSession::BeginImport(const FPackagePath &Destination, FSceneMat
 	return true;
 }
 
-auto ImportAssetOutputs(std::string_view SourceFile, const FPackagePath& DestinationDirectory,
-	const FStaticMeshImportSettings& Settings, const FAssetImportOptions& Options,
-	const FSceneMaterialImportOptions& Materials, const std::function<bool()>& Cancellation,
-	const std::optional<FAssetPackageSaveArgs>& SaveArgs) -> FAssetImportResult
+auto FSceneImportPreview::ConfigureTask(DAssetImportTask& Task, const FPackagePath& Destination,
+	FSceneMaterialImportOptions Options) -> bool
 {
-	FAssetImportSession Session(std::string(SourceFile), DestinationDirectory, Settings, Options);
-	Session.Impl->bAsync = false;
-	Session.Impl->bImportRequested = true;
-	Session.Impl->MaterialOptions = Materials;
-	Session.Impl->SaveArgs = SaveArgs;
-	Session.Impl->SaveFault = Testing::CapturePackageSaveFault();
-	Session.Impl->ExternalCancellation = Cancellation;
-	Session.Tick();
-	return Session.GetResult();
+	if (!Task.IsAsyncImportComplete() || Impl->bTaskAccepted || Impl->Progress.Phase != EAssetImportPhase::Ready || Impl->bImportRequested || !Destination.IsValid()) return false;
+	auto* Inputs = NewObject<DSceneImportOptions>(nullptr, "SceneTaskOptions", EObjectFlags::Transient);
+	Inputs->Prepared = Impl; Inputs->MeshSettings = Impl->Settings; Inputs->Assets = Impl->ImportOptions;
+	Inputs->Materials = std::move(Options);
+	Task.Filename = Impl->SourceFile; Task.DestinationPath = Destination.ToString(); Task.Options = Inputs;
+	Impl->TrackedTask = &Task;
+	return true;
+}
+
+class FSceneTaskOperation final : public IAssetImportTaskOperation
+{
+public:
+	explicit FSceneTaskOperation(const DAssetImportTask& Inputs)
+	{
+		FPackagePath Directory;
+		if (!FPackagePath::TryCreate(Inputs.DestinationPath, Directory))
+		{ FFeedbackContext::Get().Error("The scene destination is invalid."); return; }
+		auto* Options = Cast<DSceneImportOptions>(Inputs.Options.Get());
+		if (Inputs.Options && !Options)
+		{ FFeedbackContext::Get().Error("Scene import requires scene import options."); return; }
+		if (Options && Options->Prepared)
+		{
+			if (Options->Prepared->bImportRequested || Options->Prepared->SourceFile != Inputs.Filename)
+			{ FFeedbackContext::Get().Error("The scene preview is already submitted or belongs to another source."); return; }
+			if (Options->MeshSettings != Options->Prepared->Settings || Options->Assets != Options->Prepared->ImportOptions)
+			{ FFeedbackContext::Get().Error("Prepared scene settings changed; refresh the preview before importing."); return; }
+			Preview.reset(new FSceneImportPreview(std::exchange(Options->Prepared, {})));
+		}
+		else Preview = std::make_unique<FSceneImportPreview>(Inputs.Filename, Directory,
+			Options ? Options->MeshSettings : FStaticMeshImportSettings::MakeYUpNegativeZForward(),
+			Options ? Options->Assets : FAssetImportOptions{});
+		Preview->Impl->bTaskAccepted = true;
+		Destination = Directory; Name = Inputs.DestinationName;
+		Materials = Options ? Options->Materials : FSceneMaterialImportOptions{};
+		if (Inputs.bSave) SaveArgs.emplace();
+		SaveFault = Testing::CapturePackageSaveFault();
+		// Models remain one-time imports. An occupied scene output is explicitly
+		// unsupported replacement; standalone family task replacement is separate.
+	}
+	~FSceneTaskOperation() override
+	{ if (Preview) { Preview->Impl->OutputOwners.clear(); Preview->Impl->OutputObjects.clear(); } }
+	auto Tick() -> void override
+	{
+		if (!Preview || Complete) return;
+		PumpGameThreadDeferredWork();
+		FAssetCompilingManager::Get().ProcessAsyncTasks(false);
+		auto& State = *Preview->Impl;
+		State.Tick();
+		if (State.Progress.Phase == EAssetImportPhase::Ready && !State.bImportRequested)
+		{
+			if (!State.Rebase(Destination)) State.Cancellation.Cancel();
+			if (!Name.empty())
+			{
+				std::vector<FImportOutputSummary*> Meshes;
+				for (auto& Output : State.BaseOutputs) if (Output.Role == "StaticMesh") Meshes.push_back(&Output);
+				FPackagePath Path;
+				FTopLevelAssetPath Identity;
+				if (Meshes.size() != 1 || !FPackagePath::TryCreate(Destination.ToString() + "/Meshes/" + Name, Path)
+					|| !FTopLevelAssetPath::TryCreate(Path, Name, Identity))
+				{
+					auto& Rejection = State.Rejection.emplace();
+					Rejection.Message = "An explicit scene destination name requires one mesh and a valid name.";
+					Rejection.Diagnostics.push_back({.Category = EImportDiagnosticCategory::InvalidRequest, .Message = Rejection.Message});
+					State.Cancellation.Cancel();
+				}
+				else { Meshes.front()->AssetPath = Path; State.PreviewDescriptors.clear(); }
+				Name.clear();
+			}
+			if (!State.CheckCancellation())
+			{
+				const auto Plan = Preview->ResolvePreview(Destination, Materials, true);
+				if (!Plan.bSucceeded)
+				{
+					auto& Rejection = State.Rejection.emplace();
+					Rejection.Outputs = Plan.Outputs; Rejection.Diagnostics = Plan.Diagnostics; Rejection.Message = Plan.Message;
+					State.Cancellation.Cancel();
+				}
+				else if (!Preview->BeginImport(Destination, Materials, SaveArgs)) State.Cancellation.Cancel();
+				else State.SaveFault = SaveFault;
+			}
+		}
+		if (State.Progress.Phase == EAssetImportPhase::Completed)
+		{
+			Complete = true;
+			if (!State.Result.Message.empty()) FFeedbackContext::Get().Error(State.Result.Message);
+		}
+	}
+	auto Cancel() -> void override { if (Preview) Preview->Cancel(); }
+	auto IsComplete() const -> bool override { return !Preview || Complete; }
+	auto GetObjects() const -> std::span<DObject* const> override
+	{ return Preview ? std::span<DObject* const>(Preview->Impl->OutputObjects) : std::span<DObject* const>{}; }
+private:
+	std::unique_ptr<FSceneImportPreview> Preview;
+	FPackagePath Destination;
+	std::string Name;
+	FSceneMaterialImportOptions Materials;
+	std::optional<FAssetPackageSaveArgs> SaveArgs;
+	Testing::FPackageSaveFault SaveFault;
+	bool Complete = false;
+};
+
+auto MakeSceneImportAdapter() -> std::unique_ptr<FAssetImportAdapterRegistration>
+{
+	return std::make_unique<FAssetImportAdapterRegistration>(
+		[](const DAssetImportTask& Task, bool Scene) {
+			return !Task.Factory && IsOneTimeModelSource(Task.Filename)
+				&& (Scene || !Task.Options || Cast<DSceneImportOptions>(Task.Options.Get()));
+		},
+		[](const DAssetImportTask& Inputs) { return std::make_shared<FSceneTaskOperation>(Inputs); });
 }
 
 } // namespace Durin::AssetForge::Builtins

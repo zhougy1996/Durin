@@ -41,8 +41,7 @@ namespace Durin::AssetForge::Builtins
 		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
 			if (Level >= ELogLevel::Error) Error += Message;
 		});
-		auto* Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &Feedback);
+		auto* Imported = Durin::Testing::ImportFactoryAssetForTest(ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory, &Feedback);
 		return SaveTextureCubeFactoryResult(Imported, Error);
 	}
 
@@ -65,8 +64,7 @@ namespace Durin::AssetForge::Builtins
 		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
 			if (Level >= ELogLevel::Error) Error += Message;
 		});
-		auto* Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &Feedback);
+		auto* Imported = Durin::Testing::ImportFactoryAssetForTest(ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory, &Feedback);
 		return SaveTextureCubeFactoryResult(Imported, Error);
 	}
 }

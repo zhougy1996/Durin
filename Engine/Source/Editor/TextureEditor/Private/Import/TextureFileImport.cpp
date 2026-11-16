@@ -1,3 +1,4 @@
+#include "Import/AssetImportTaskExecution.h"
 #include "AssetImportTask.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Import/TextureFileImport.h"
@@ -71,6 +72,8 @@ namespace Durin::TextureEditor
 		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
 		const auto& Objects = Task->GetObjects();
 		auto* Imported = Objects.empty() ? nullptr : Objects.front();
+		const FStrongObjectPtr ImportedOwner(Imported);
+		FAssetImportTaskAccess::ReleaseResults(*Task);
 		if (!Imported || bBatchImport) return Imported;
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported);
 		if (!Save(Destination.GetPackagePath())) PendingSaves.push_back(Destination.GetPackagePath());

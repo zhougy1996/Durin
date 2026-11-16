@@ -1,3 +1,8 @@
+#include "AssetForge/Builtins/SceneImportOptions.h"
+#include "Import/AssetImportTaskExecution.h"
+#include "SceneImportTaskTestSupport.h"
+using Durin::Testing::FSceneTaskHarness;
+using Durin::Testing::ImportSceneForTest;
 #include "Misc/FeedbackContext.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Misc/UnifiedError.h"
@@ -133,7 +138,7 @@ namespace
 	auto RunScene(const FSceneFixture& Fixture)
 		-> Durin::AssetForge::Builtins::FAssetImportResult
 	{
-		auto Result = Durin::AssetForge::Builtins::ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+		auto Result = Durin::Testing::ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 			Durin::FStaticMeshImportSettings::MakeDurin(),
 			{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined}, {}, {}, Durin::FAssetPackageSaveArgs{});
 		EXPECT_TRUE(Result) << Result.Message;
@@ -143,7 +148,8 @@ namespace
 
 namespace
 {
-	auto AdvanceSceneSession(Durin::AssetForge::Builtins::FAssetImportSession& Session,
+	template<typename TPreviewHost>
+	auto AdvanceSceneSession(TPreviewHost& Session,
 		Durin::AssetForge::Builtins::EAssetImportPhase Target) -> bool
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -179,7 +185,7 @@ TEST(FSceneImportTests, OutputSelectionReplansCapturedDocumentWithoutReopeningSo
 	const auto Fixture = InitializeFixture("Replan", "StaticModelMaterials/PrimitiveProjection.gltf");
 	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
 		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {});
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
 	ASSERT_EQ(Session.GetSourceMeshes().size(), 2u);
 	ASSERT_EQ(Session.GetSourceScenes().size(), 1u);
@@ -206,7 +212,7 @@ TEST(FSceneImportTests, SplitOutputsReuseInstancesAndBindOnlyTheirOwnMaterials)
 	const auto Fixture = InitializeFixture("Split", "StaticModelMaterials/ResourceInstances.gltf");
 	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
 		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
-	const auto Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
+	const auto Result = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory);
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.Outputs.size(), 3u); // One shared source mesh and its two materials.
 	EXPECT_EQ(Result.ImportedPackages.size(), 3u);
@@ -231,13 +237,13 @@ TEST(FSceneImportTests, SplitOutputsReuseInstancesAndBindOnlyTheirOwnMaterials)
 	EXPECT_EQ(Mesh->GetMaterialSlots()[1].SourceMaterialIndex, 2u);
 	for (const auto& Slot : Mesh->GetMaterialSlots()) EXPECT_NE(Slot.DefaultMaterial.Get(), nullptr);
 	EXPECT_TRUE(std::ranges::all_of(Result.Outputs, [](const auto& Row) { return Row.State == EImportOutputState::Imported; }));
-	const auto All = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/AllResources"),
+	const auto All = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/AllResources"),
 		FStaticMeshImportSettings::MakeYUpNegativeZForward(), {.bIncludeUnusedResources = true});
 	ASSERT_TRUE(All) << All.Message;
 	EXPECT_EQ(std::ranges::count(All.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role), 2);
 	EXPECT_EQ(All.Outputs.size(), 6u);
 	EXPECT_EQ(Mesh->GetSource().GetMeshCount(), 2u);
-	const auto Combined = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/CombinedInstances"),
+	const auto Combined = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/CombinedInstances"),
 		FStaticMeshImportSettings::MakeDurin(), {.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(Combined) << Combined.Message;
 	const auto CombinedRow = std::ranges::find(Combined.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
@@ -257,7 +263,7 @@ TEST(FSceneImportTests, SessionDefaultsToSplitAndCombinesOnlyWithExplicitOptions
 	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
 		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
 	const auto Settings = FStaticMeshImportSettings::MakeDurin();
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory, Settings);
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory, Settings);
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
 	const auto Split = Session.PreviewOutputs(Fixture.DestinationDirectory);
 	ASSERT_TRUE(Split.bSucceeded) << Split.Message;
@@ -273,7 +279,7 @@ TEST(FSceneImportTests, SessionDefaultsToSplitAndCombinesOnlyWithExplicitOptions
 	EXPECT_EQ(Mesh->GetSource().GetMeshCount(), 2u);
 
 	const auto Destination = MakeAssetPath("/SceneImportTests/SessionCombined");
-	FAssetImportSession Combined(Fixture.Source, Destination, Settings, {.MeshMode = EAssetImportMeshMode::Combined});
+	FSceneTaskHarness Combined(Fixture.Source, Destination, Settings, {.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(Combined, EAssetImportPhase::Ready));
 	const auto Preview = Combined.PreviewOutputs(Destination);
 	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
@@ -296,11 +302,11 @@ TEST(FSceneImportTests, ExplicitSelectionAndGeometryOnlyHaveClosedDependencies)
 	const auto Fixture = InitializeFixture("Selection", "StaticModelMaterials/PrimitiveProjection.gltf");
 	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
 		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
-	const auto Selected = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Selected = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(), {.SelectedMeshes = {1}});
 	ASSERT_TRUE(Selected) << Selected.Message;
 	EXPECT_EQ(Selected.Outputs.size(), 2u);
-	const auto Geometry = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/GeometryOnly"),
+	const auto Geometry = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/GeometryOnly"),
 		FStaticMeshImportSettings::MakeDurin(), {.bCreateMaterials = false, .bCreateTextures = false});
 	ASSERT_TRUE(Geometry) << Geometry.Message;
 	EXPECT_EQ(Geometry.Outputs.size(), 2u);
@@ -321,10 +327,10 @@ TEST(FSceneImportTests, SharedImageUsageAndDisabledTexturesProduceExplicitProduc
 	for (const auto File : {"Triangle.bin", "Red.png"})
 		std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials" / File,
 			std::filesystem::path(Fixture.Source).parent_path() / File);
-	const auto Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
+	const auto Result = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory);
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(std::ranges::count_if(Result.Outputs, [](const auto& Output) { return Output.Role.starts_with("Texture2D."); }), 2);
-	const auto Fallback = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/WithoutTextures"),
+	const auto Fallback = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/WithoutTextures"),
 		FStaticMeshImportSettings::MakeDurin(), {.bCreateTextures = false});
 	ASSERT_TRUE(Fallback) << Fallback.Message;
 	EXPECT_TRUE(std::ranges::none_of(Fallback.Outputs, [](const auto& Output) { return Output.Role.starts_with("Texture2D."); }));
@@ -337,7 +343,7 @@ TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMapp
 	using namespace Durin::AssetForge;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("MaterialMapping");
-	const auto Original = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Original = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(), {.bCreateMeshes = false});
 	ASSERT_TRUE(Original) << Original.Message;
 	const auto Row = std::ranges::find(Original.Outputs, std::string("Material"), &FImportOutputSummary::Role);
@@ -345,7 +351,7 @@ TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMapp
 	auto* Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Row->AssetPath));
 	ASSERT_NE(Material, nullptr);
 	const auto Revision = Material->GetPackage()->GetEditRevision();
-	const auto Result = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/MappedMesh"),
+	const auto Result = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/MappedMesh"),
 		FStaticMeshImportSettings::MakeDurin(), {}, {.Default = {.Mode = ESceneMaterialImportMode::UseExisting,
 			.ExistingMaterialPath = Material->GetObjectPath()}});
 	ASSERT_TRUE(Result) << Result.Message;
@@ -357,7 +363,7 @@ TEST(FSceneImportTests, ExistingMaterialMappingPublishesOnlyMeshAndPreservesMapp
 	auto* Mesh = LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshRow->AssetPath));
 	ASSERT_NE(Mesh, nullptr);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Material);
-	const auto PreservedOnly = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/PreservedOnly"),
+	const auto PreservedOnly = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/PreservedOnly"),
 		FStaticMeshImportSettings::MakeDurin(), {.bCreateMeshes = false, .bCreateTextures = false},
 		{.Default = {.Mode = ESceneMaterialImportMode::UseExisting, .ExistingMaterialPath = Material->GetObjectPath()}},
 		{}, FAssetPackageSaveArgs{});
@@ -376,14 +382,14 @@ TEST(FSceneImportTests, PreviewAndExecutionRejectDestinationChanges)
 	using namespace Durin::AssetForge;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("PreviewRace");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeYUpNegativeZForward(), {});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
 	const auto Preview = Session.PreviewOutputs(Fixture.DestinationDirectory);
 	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
 	ASSERT_FALSE(Preview.Outputs.empty());
 	// Another completed import occupies the previewed outputs before this session executes.
-	const auto Other = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory);
+	const auto Other = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory);
 	ASSERT_TRUE(Other) << Other.Message;
 	ASSERT_TRUE(Session.BeginImport(Fixture.DestinationDirectory, {}));
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Completed));
@@ -400,14 +406,14 @@ TEST(FSceneImportTests, CombinedPreviewRejectsOccupiedMeshOutputAndRebasesFromCa
 	using namespace Durin::AssetForge;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("CombinedPreviewCollision");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
 	const auto Preview = Session.PreviewOutputs(Fixture.DestinationDirectory);
 	ASSERT_TRUE(Preview.bSucceeded) << Preview.Message;
 	const auto Mesh = std::ranges::find(Preview.Outputs, std::string("StaticMesh"), &FImportOutputSummary::Role);
 	ASSERT_NE(Mesh, Preview.Outputs.end());
-	const auto Existing = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
+	const auto Existing = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined, .bCreateMaterials = false, .bCreateTextures = false});
 	ASSERT_TRUE(Existing) << Existing.Message;
 	ASSERT_EQ(Existing.Outputs.size(), 1u);
@@ -441,7 +447,7 @@ TEST(FSceneImportTests, OptionalSaveFailureRetainsEveryImportedOutput)
 		Testing::FScopedPackageSaveFault Fault([](Testing::EPackageSaveFaultPoint Phase, size_t Index) {
 			return Phase == Testing::EPackageSaveFaultPoint::StagePackage && Index == 1;
 		});
-		Result = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+		Result = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 			FStaticMeshImportSettings::MakeDurin(), {}, {}, {}, FAssetPackageSaveArgs{});
 	}
 	ASSERT_TRUE(Result) << Result.Message;
@@ -470,7 +476,7 @@ TEST(FSceneImportTests, AsyncSessionPublishesIndependentImports)
 	for (int Pass = 0; Pass != 2; ++Pass)
 	{
 		const auto Destination = MakeAssetPath(Fixture.DestinationDirectory.ToString() + std::format("/Pass{}", Pass));
-		FAssetImportSession Session(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), {.MeshMode = EAssetImportMeshMode::Combined});
+		FSceneTaskHarness Session(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(), {.MeshMode = EAssetImportMeshMode::Combined});
 		ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready)) << Session.GetResult().Message;
 		ASSERT_TRUE(Session.PreviewOutputs(Destination, {}).bSucceeded);
 		ASSERT_TRUE(Session.PreviewOutputs(Destination, {}).bSucceeded);
@@ -492,7 +498,7 @@ TEST(FSceneImportTests, AsyncSessionRejectsChangedSourceAfterReusablePreview)
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("AsyncStaleSource");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
@@ -511,7 +517,7 @@ TEST(FSceneImportTests, AsyncSessionCancelsBeforePublication)
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("AsyncCancel");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
@@ -528,7 +534,7 @@ TEST(FSceneImportTests, AsyncSessionReportsImportAndSaveResultsSeparately)
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("AsyncPartial");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
@@ -543,6 +549,9 @@ TEST(FSceneImportTests, AsyncSessionReportsImportAndSaveResultsSeparately)
 	ASSERT_TRUE(Result);
 	ASSERT_TRUE(Result.SaveResult);
 	EXPECT_FALSE(*Result.SaveResult);
+	ASSERT_NE(Session.GetTask(), nullptr);
+	EXPECT_EQ(Session.GetTask()->GetObjects().size(), Result.ImportedPackages.size());
+
 	EXPECT_EQ(Result.SaveResult->SavedPackages.size(), 1u) << Result.Message;
 	EXPECT_EQ(Result.SaveResult->Result.Effect, EAssetWriteEffect::ContentCommittedProjectionPending);
 	EXPECT_NE(Result.Message.find("saved 1 of"), std::string::npos);
@@ -561,7 +570,7 @@ TEST(FSceneImportTests, AsyncSaveCancellationKeepsImportAndAllowsOrdinarySaveRet
 	const auto Fixture = InitializeFixture("AsyncStagedCancel");
 	std::vector<FPackagePath> Imported;
 	{
-		FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+		FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory,
 			FStaticMeshImportSettings::MakeDurin(),
 			{.MeshMode = EAssetImportMeshMode::Combined});
 		ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
@@ -599,7 +608,7 @@ TEST(FSceneImportTests, AsyncSessionDestructionDrainsPreparation)
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("AsyncDestruction");
 	{
-		FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory,
+		FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory,
 			FStaticMeshImportSettings::MakeDurin(),
 			{.MeshMode = EAssetImportMeshMode::Combined});
 		Session.Tick();
@@ -683,7 +692,7 @@ TEST(FSceneImportTests, SavedGltfOutputsReloadWithoutSourcesAndRejectEveryReimpo
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("OneTimeReload");
-	const auto Initial = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Initial = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(), {}, {}, {}, FAssetPackageSaveArgs{});
 	ASSERT_TRUE(Initial) << Initial.Message;
 	for (const std::string_view Class : {"Durin::DStaticMesh", "Durin::DMaterial", "Durin::DTexture2D"})
@@ -748,12 +757,12 @@ TEST(FSceneImportTests, FbxSceneImportRejectsImplicitUpdates)
 	using namespace Durin;
 	using namespace Durin::AssetForge::Builtins;
 	const auto Fixture = InitializeFixture("OneTimeFbx", "StaticModelMaterials/PhongMaterial.fbx");
-	const auto Imported = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Imported = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(Imported) << Imported.Message;
 	EXPECT_FALSE(Imported.ImportedPackages.empty());
-	const auto Repeated = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Repeated = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Repeated);
@@ -843,7 +852,7 @@ TEST(FSceneImportTests, SaveFaultsKeepImportedGraphsAndUseOrdinaryRetry)
 				bInjected = true;
 				return true;
 			});
-			Result = ImportAssetOutputs(Fixture.Source, Destination,
+			Result = ImportSceneForTest(Fixture.Source, Destination,
 				FStaticMeshImportSettings::MakeDurin(),
 				{.MeshMode = EAssetImportMeshMode::Combined}, {}, {}, FAssetPackageSaveArgs{});
 		}
@@ -1003,7 +1012,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	const auto Revision = Parent->GetPackage()->GetEditRevision();
 	FSceneMaterialImportOptions Options;
 	Options.Default = {ESceneMaterialImportMode::CreateInstances, Parent->GetObjectPath()};
-	auto Second = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/Second"),
+	auto Second = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/Second"),
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined}, Options, {}, {});
 	ASSERT_TRUE(Second) << Second.Message;
@@ -1030,7 +1039,7 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	auto Changed = Original;
 	Changed.Get(EMaterialProperty::MP_AmbientOcclusion).SetConstant({.3f});
 	ASSERT_TRUE(ApplyOutputs(Changed));
-	auto Rejected = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
+	auto Rejected = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined}, Options, {}, {});
 	EXPECT_FALSE(Rejected);
@@ -1081,7 +1090,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	const auto MaterialPath = Material->GetPackage()->GetPackagePathIdentity();
 	const auto MeshPath = Mesh->GetPackage()->GetPackagePathIdentity();
 	const auto Revision = Material->GetPackage()->GetEditRevision();
-	const auto Reimport = ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Reimport = ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Reimport);
@@ -1107,7 +1116,7 @@ TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExpli
 		if (Output.Role == "Material") Parent = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
 	ASSERT_NE(Parent, nullptr);
 	const auto Destination = MakeAssetPath("/SceneImportTests/MixedOutput");
-	FAssetImportSession Session(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(),
+	FSceneTaskHarness Session(Fixture.Source, Destination, FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Ready));
 	auto Preview = Session.PreviewOutputs(Destination);
@@ -1115,7 +1124,7 @@ TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExpli
 	ASSERT_EQ(Preview.Materials.size(), 2u);
 	FSceneMaterialImportOptions Options;
 	Options.Default.Mode = ESceneMaterialImportMode::CreateInstances;
-	auto Rejected = ImportAssetOutputs(Fixture.Source, Destination,
+	auto Rejected = ImportSceneForTest(Fixture.Source, Destination,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined}, Options, {}, {});
 	EXPECT_FALSE(Rejected);
@@ -1144,7 +1153,7 @@ TEST(FSceneImportTests, PerMaterialOverridesMissingParentsAndTypeChangesAreExpli
 	}
 	EXPECT_EQ(std::ranges::count(Imported.Outputs, "Material", &Durin::AssetForge::FImportOutputSummary::Role), 1);
 	EXPECT_EQ(std::ranges::count(Imported.Outputs, "MaterialInstance", &Durin::AssetForge::FImportOutputSummary::Role), 1);
-	const auto Repeated = ImportAssetOutputs(Fixture.Source, Destination,
+	const auto Repeated = ImportSceneForTest(Fixture.Source, Destination,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Repeated);
@@ -1178,7 +1187,7 @@ TEST(FSceneImportTests, DuplicateSourceNamesDoNotPermitImplicitGltfUpdates)
 	ASSERT_NE(FirstMaterial, SecondMaterial);
 	Mesh->SetMaterialSlotDefaultMaterial(0, SecondMaterial);
 	Mesh->SetMaterialSlotDefaultMaterial(1, FirstMaterial);
-	const auto Reimport = Durin::AssetForge::Builtins::ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	const auto Reimport = Durin::Testing::ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Reimport);
@@ -1215,7 +1224,7 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 	const auto ParentRevision = Parent->GetPackage()->GetEditRevision();
 	FSceneMaterialImportOptions Options;
 	Options.Default = {ESceneMaterialImportMode::CreateInstances, Parent->GetObjectPath()};
-	FAssetImportSession PreviewSession(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
+	FSceneTaskHarness PreviewSession(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined});
 	ASSERT_TRUE(AdvanceSceneSession(PreviewSession, EAssetImportPhase::Ready));
 	const auto Preview = PreviewSession.PreviewOutputs(Fixture.DestinationDirectory, Options);
@@ -1235,7 +1244,7 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 			std::ofstream(Fixture.Source, std::ios::trunc) << Source;
 		}
 		const auto Destination = bTranslucent ? MakeAssetPath("/SceneImportTests/StandardTranslucent") : Fixture.DestinationDirectory;
-		const auto Imported = ImportAssetOutputs(Fixture.Source, Destination,
+		const auto Imported = ImportSceneForTest(Fixture.Source, Destination,
 			FStaticMeshImportSettings::MakeDurin(),
 			{.MeshMode = EAssetImportMeshMode::Combined}, Options, {}, {});
 		ASSERT_TRUE(Imported) << Imported.Message;
@@ -1278,7 +1287,7 @@ TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialP
 	ASSERT_TRUE(Source.is_open());
 	Source << R"({"asset":{"version":"2.0"},"materials":[{"name":"MustNotPublish"}],"skins":[]})";
 	Source.close();
-	auto Imported = Durin::AssetForge::Builtins::ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	auto Imported = Durin::Testing::ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		Durin::FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined});
 	EXPECT_FALSE(Imported);
@@ -1292,7 +1301,7 @@ TEST(FSceneImportTests, DirectImportHonorsCancellationBeforePublication)
 {
 	const FSceneFixture Fixture = InitializeFixture("Scheduled");
 	uint32 CancellationChecks = 0;
-	auto Result = Durin::AssetForge::Builtins::ImportAssetOutputs(Fixture.Source, Fixture.DestinationDirectory,
+	auto Result = Durin::Testing::ImportSceneForTest(Fixture.Source, Fixture.DestinationDirectory,
 		Durin::FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = Durin::AssetForge::Builtins::EAssetImportMeshMode::Combined}, {}, [&] { return ++CancellationChecks == 1; });
 	EXPECT_FALSE(Result);
@@ -1445,10 +1454,91 @@ TEST(FSceneImportTests, CancellationRemainsVisibleAfterCleanupReplacesProgress)
 	const auto Fixture = InitializeFixture("FeedbackCancel", "StaticModelMaterials/PrimitiveProjection.gltf");
 	std::filesystem::copy_file(std::filesystem::path(DURIN_TEST_DATA_DIR) / "StaticModelMaterials/Triangle.bin",
 		std::filesystem::path(Fixture.Source).parent_path() / "Triangle.bin");
-	FAssetImportSession Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {});
+	FSceneTaskHarness Session(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(), {});
 	Session.Cancel();
 	ASSERT_TRUE(AdvanceSceneSession(Session, EAssetImportPhase::Completed));
 	EXPECT_TRUE(Session.GetProgress().bCancellationRequested);
 	EXPECT_FALSE(Session.GetResult());
 	EXPECT_TRUE(Session.GetResult().ImportedPackages.empty());
+}
+
+TEST(FSceneImportTests, AsyncTasksPollWithoutAdvancingAndGetObjectsWaitsForMultipleManagedOutputs)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("TaskAsyncManaged");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AsyncSceneTask", EObjectFlags::Transient));
+	Task->Filename = Fixture.Source; Task->DestinationPath = Fixture.DestinationDirectory.ToString(); Task->bAsync = true;
+	Task->Options = NewObject<DSceneImportOptions>(nullptr, "AsyncSceneOptions", EObjectFlags::Transient);
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	for (int Index = 0; Index < 100; ++Index) EXPECT_FALSE(Task->IsAsyncImportComplete());
+	const auto& Objects = Task->GetObjects();
+	ASSERT_TRUE(Task->IsAsyncImportComplete()); ASSERT_GT(Objects.size(), 1u);
+	ASSERT_EQ(Objects.size(), Task->ImportedObjectPaths.size());
+	CollectGarbage(EObjectFlags::NoFlags);
+	for (size_t Index = 0; Index < Task->GetObjects().size(); ++Index)
+	{
+		auto* Object = Task->GetObjects()[Index]; ASSERT_TRUE(IsValid(Object));
+		EXPECT_EQ(Object->GetObjectPath(), Task->ImportedObjectPaths[Index]); EXPECT_TRUE(Object->GetPackage()->IsDirty());
+	}
+}
+
+TEST(FSceneImportTests, FileListSceneAdapterReturnsAllOutputsAndSupportsExplicitPrimaryName)
+{
+	using namespace Durin;
+	const auto Fixture = InitializeFixture("TaskFileList");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	const std::array<std::string, 1> Files{Fixture.Source};
+	const auto Objects = IAssetTools::Get().ImportAssets(Files, Fixture.DestinationDirectory.ToString(), nullptr, false, nullptr, true, true);
+	ASSERT_GT(Objects.size(), 1u);
+	for (auto* Object : Objects) EXPECT_TRUE(IsValid(Object));
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "NamedSceneTask", EObjectFlags::Transient));
+	Task->Filename = Fixture.Source; Task->DestinationPath = "/SceneImportTests/NamedTask"; Task->DestinationName = "ExplicitMesh";
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	ASSERT_GT(Task->GetObjects().size(), 1u);
+	EXPECT_TRUE(std::ranges::any_of(Task->GetObjects(), [](DObject* Object) { return Cast<DStaticMesh>(Object) && Object->GetFName() == FName("ExplicitMesh"); }));
+}
+
+TEST(FSceneImportTests, PreparedTaskOptionsRejectContradictionsAndReuseTheCapturedSelection)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	const auto Fixture = InitializeFixture("TaskPreparedOptions");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	FSceneImportPreview Preview(Fixture.Source, Fixture.DestinationDirectory, FStaticMeshImportSettings::MakeDurin(),
+		{.bCreateMaterials = false, .bCreateTextures = false});
+	ASSERT_TRUE(AdvanceSceneSession(Preview, EAssetImportPhase::Ready));
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "PreparedSceneTask", EObjectFlags::Transient));
+	ASSERT_TRUE(Preview.ConfigureTask(*Task, Fixture.DestinationDirectory));
+	auto* Options = Cast<DSceneImportOptions>(Task->Options.Get()); ASSERT_NE(Options, nullptr);
+	Options->MeshSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
+	std::string Error;
+	FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) { if (Level >= ELogLevel::Error) Error += Message; });
+	FScopedFeedbackContext Scope(Feedback);
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	EXPECT_TRUE(Task->IsAsyncImportComplete()); EXPECT_TRUE(Task->GetObjects().empty());
+	EXPECT_NE(Error.find("settings changed"), std::string::npos);
+	Options->MeshSettings = FStaticMeshImportSettings::MakeDurin(); Task->bAsync = true;
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	EXPECT_FALSE(Task->IsAsyncImportComplete());
+	EXPECT_FALSE(Preview.SetOptions({}));
+	EXPECT_FALSE(Preview.PreviewOutputs(Fixture.DestinationDirectory).bSucceeded);
+	ASSERT_EQ(Task->GetObjects().size(), 1u); EXPECT_NE(Cast<DStaticMesh>(Task->GetObjects().front()), nullptr);
+}
+
+TEST(FSceneImportTests, ProviderShutdownCancelsAndDrainsActiveTaskBeforeRetiringAdapter)
+{
+	using namespace Durin;
+	const auto Fixture = InitializeFixture("TaskProviderShutdown");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "ShutdownSceneTask", EObjectFlags::Transient));
+	Task->Filename = Fixture.Source; Task->DestinationPath = Fixture.DestinationDirectory.ToString(); Task->bAsync = true;
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	FAssetImportTaskAccess::Tick(*Task); // Queue source capture before the provider safe point.
+	ASSERT_FALSE(Task->IsAsyncImportComplete());
+	FModuleManager::Get().ShutdownModule("AssetForgeBuiltins");
+	EXPECT_TRUE(Task->IsAsyncImportComplete()); EXPECT_TRUE(Task->GetObjects().empty());
+	const std::array<std::string, 1> Files{Fixture.Source};
+	EXPECT_TRUE(IAssetTools::Get().ImportAssets(Files, Fixture.DestinationDirectory.ToString(), nullptr, false, nullptr, false, true).empty());
 }
