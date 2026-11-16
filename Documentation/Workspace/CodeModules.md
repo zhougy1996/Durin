@@ -47,8 +47,8 @@ Within `DurinEd`, `Public/` and `Private/` use matching responsibility folders:
 and workspace UI; `Transactions/` for history; `PropertyEditor/` for reflected
 editing; `Actors/` for the Actor subsystem and structural composition,
 `Components/` for owned Component structural replay; `Notifications/` for notifications; `Asset/` for retention, pickers,
-and drag/drop; `Import/` for import helpers and reimport contracts; and `Async/`
-for compensating operations. `Factories/`, `Preview/`, `Thumbnail/`, and
+and drag/drop; and `Import/` for import helpers and reimport contracts.
+`Factories/`, `Preview/`, `Thumbnail/`, and
 `Source/` retain their dedicated responsibilities. Place new files with their
 owning feature rather than in the module root or the lifecycle-only `Editor/`
 folder. Module entrypoints and API export headers remain at the root.

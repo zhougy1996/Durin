@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureCompressor, MeshBuilder
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-17
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -349,7 +349,7 @@ If a completion or post-compile observer submits follow-up work for the same
 texture, the wait completes that work before allowing a mutation to proceed.
 New submissions then start with no active predecessor; no latest-wins serial is needed. Storage-only
 source recompression preserves semantic identity and retained read handles.
-Editor save and compensation adapters consume this terminal contract through
+Editor import and save consumers use this terminal contract through
 [Async Asset Operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md).
 
 ## Proven Reuse Boundary

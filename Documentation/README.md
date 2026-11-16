@@ -67,7 +67,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Game export orchestration, completion markers, tool components, or Editor/DevTool export clients | [Game export](Runtime/Application/GameExport.md) |
 | Export a Game from the direct tool, DevTool, or Editor; use and retry a delivery | [Exporting a Game](Editor/Guides/ExportingGames.md) |
 | Editor asset creation, duplicate naming, package save/reload policy, or factory invocation | [Editor asset tools](Editor/Architecture/Assets/AssetTools.md) |
-| Async asset build completion, editor commit, rollback, or compensation | [Async asset operations](Editor/Architecture/Assets/AsyncAssetOperations.md) |
+| Async asset build completion, import-task retirement, or editor save sequencing | [Async asset operations](Editor/Architecture/Assets/AsyncAssetOperations.md) |
 | Log ordering, queue admission, structured history, sinks, or logger shutdown | [Logging](Runtime/Core/Logging.md) |
 | Engine-free package saves, async completion, or staged package persistence | [Package persistence](Runtime/ObjectSystem/PackagePersistence.md) |
 | Canonical archives, object serialization, duplication, defaults, or authored override intent | [Serialization](Runtime/ObjectSystem/Serialization.md) |

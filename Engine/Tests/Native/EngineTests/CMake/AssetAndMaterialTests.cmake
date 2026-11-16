@@ -100,7 +100,6 @@ durin_add_native_test(EditorOperationTests
 	SOURCES
 		Private/Editor/AssetDefinitionTests.cpp
 		Private/Editor/AssetEditorLifecycleTests.cpp
-		Private/Editor/CompensatingAsyncOperationTests.cpp
 		Private/Editor/EditorToolTests.cpp
 		Private/Editor/EditorSubsystemTests.cpp
 		Private/Editor/FactoryTests.cpp
@@ -115,7 +114,7 @@ durin_add_native_test(EditorOperationTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE
-		"Exercises reusable DurinEd asynchronous operation orchestration without an application host."
+		"Exercises editor asset operations, transactions, subsystem lifetimes and tool invocation without an application host."
 )
 
 durin_add_native_test(TransactionArrayQualificationTests

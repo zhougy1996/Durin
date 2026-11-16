@@ -1,19 +1,19 @@
 # Async Asset Operations
 
-Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
+Summary: Define completion, persistence, and UI ownership for nonblocking editor asset mutations.
 
 Modules: TextureCompressor, AssetForgeBuiltins, AssetTools, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 ## Ownership Layers
 
 Asynchronous asset work crosses three independent concerns:
 
 1. Asset-family compilation domains schedule typed work and return typed products.
-2. A family editor adapts typed completion to package save and diagnostics.
-3. DurinEd's optional compensating utility remains available for a mutation
-   that actually needs external rollback and asynchronous repair.
+2. AssetTools advances registered import operations; DurinEd owns task data,
+   completion storage and managed results.
+3. A family editor sequences typed completion, package save and diagnostics.
 
 Typed compilation domains retain their own workers, priorities, cancellation,
 and metrics. Direct standalone-family import performs synchronous detached
@@ -92,31 +92,6 @@ Duplication returns the new live object and performs no saving. The caller saves
 its package separately. Saving failures retain it for ordinary retry, without
 another duplication or graph discard.
 
-## Compensating Operation Contract
-
-`FCompensatingAsyncOperation` owns this state transition:
-
-```text
-prepare -> async apply -> commit -> succeeded
-                |
-                +-> rollback -> async compensation -> failed
-```
-
-Commit failure takes the same compensation path as apply failure. The primary
-error is retained; compensation failure is appended instead of replacing it.
-Rollback executes at most once.
-
-The operation is completion-driven. It does not poll a family domain, wait on
-a worker, or know about assets, packages, source files, or Widgets. Apply and
-compensation callbacks execute on the operation's owning editor thread. Inline
-completion is valid and produces the same phase transitions as deferred
-completion.
-
-Destroying an active operation detaches its callback owner before requesting
-cancellation. An applying operation also rolls back prepared external state.
-Explicit abort reports a terminal failure to its UI owner; destruction does
-not call presentation callbacks.
-
 ## Typed Adapters and UI
 
 Editor async consumers call `SavePackageAsync(Package, Args, IsCancellationRequested)`
@@ -131,11 +106,6 @@ Normal host ticks advance the GameThread continuation. Headless hosts explicitly
 specified by [Package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md#operation-lifetime-and-completion).
 Only a completed save Task can confirm persistence; submission
 admission and disk-only waits do not confirm publication.
-
-An asset-family adapter supplies preparation, apply start, commit, rollback,
-compensation start, cancellation, and final notification callables. The adapter
-may use typed weak object references but cannot make the generic coordinator
-retain a reflected object implicitly.
 
 `PrepareTexture2DImport` and texture source translation return `std::expected`
 with owned detached values and diagnostic strings. Failure exposes no prepared
@@ -173,11 +143,9 @@ For direct Texture2D source selection:
   pending, and offers cancellation. Normal editor ticks apply completion; the
   interactive UI does not block to wait for the build.
 
-Other asset families can reuse the compensating operation only when they have a
-real prepare/rollback/compensate transaction. Direct import itself does not use
-this utility: each family captures and validates detached state before its
-narrow setter/update seam, then reports synchronous rejection or typed build
-completion through its owning module.
+Each family captures and validates detached state before its narrow setter/update
+seam, then reports synchronous rejection or typed build completion through its
+owning module.
 
 Package discard is a separate saved-content recovery operation. Editable asset
 documents finish active property input, submit package reload, keep close
