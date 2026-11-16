@@ -17,8 +17,6 @@ namespace Durin::ObjectTools
 	struct FDeleteItemsResult { int32 ObjectsDeleted = 0, FoldersDeleted = 0; };
 	using FDeletePrompt = std::function<bool(FAssetDeleteModel&, std::span<const std::string>, EAllowCancelDuringDelete)>;
 	ASSETTOOLS_API auto SetDeletePrompt(FDeletePrompt Prompt) -> void;
-	ASSETTOOLS_API auto ConfirmDelete(FAssetDeleteModel& Model, std::span<const std::string> Files,
-		EAllowCancelDuringDelete AllowCancel = EAllowCancelDuringDelete::AllowCancel) -> bool;
 	ASSETTOOLS_API auto DeleteObjects(std::span<DObject* const> ObjectsToDelete, bool bShowConfirmation = true,
 		EAllowCancelDuringDelete AllowCancel = EAllowCancelDuringDelete::AllowCancel) -> int32;
 	ASSETTOOLS_API auto DeleteAssets(std::span<const FAssetData> AssetsToDelete, bool bShowConfirmation = true) -> int32;

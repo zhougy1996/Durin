@@ -4,7 +4,7 @@ Summary: Define UE-shaped browser provider registration, opaque item ownership, 
 
 Modules: ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, ContentBrowser, DurinEd, AssetTools, Engine, AssetRegistry
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 ## Ownership And Registration
 
@@ -257,8 +257,11 @@ source and invoke admitted peers independently; a rejected provider does not
 veto another provider. The data-source feature version is 18. There is no public
 prepare, preview, request, validation, confirmation-context or lease protocol.
 
-Native providers retain their own execution scope and invoke the model/host for
-confirmation. The panel passes its captured selection directly to the service.
+Native providers retain their own execution scope. Asset resolves its exact
+selection and delegates model scanning, confirmation and object execution to
+ObjectTools, with provider admission rechecked after the prompt. File owns its
+physical scope and reuses the same private scan and confirmation helpers. The
+panel passes its captured selection directly to the service.
 Asset uses exact selected exports; File owns ordinary files and mixed folders,
 including explicit folder expansion and empty-directory cleanup. Confirmation
 never permits newly discovered entries to join an executing selection. Final

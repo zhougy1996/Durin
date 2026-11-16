@@ -1401,6 +1401,36 @@ namespace
 		ASSERT_NE(Result, Rows.end());
 		EXPECT_EQ(Result->GetInternalItems().size(), 2u);
 	}
+	TEST_F(FContentBrowserDataTests, AssetDeletionSharesObjectToolsGuardAndRechecksAdmissionAfterConfirmation)
+	{
+		auto* Object = IAssetTools::Get().CreateAsset("DeleteOuter", "/ProviderTests", DObject::StaticClass(), nullptr);
+		auto* Peer = IAssetTools::Get().CreateAsset("DeletePeer", "/ProviderTests", DObject::StaticClass(), nullptr);
+		ASSERT_TRUE(Object && Peer);
+		auto* Source = Data->GetActiveDataSource(FName("Asset"));
+		ASSERT_NE(Source, nullptr);
+		FContentBrowserItem Description = Durin::ContentBrowser::Private::FStorageItemFixture{
+			.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Object->GetObjectPath(),
+			.PackagePath = Object->GetPackage()->GetPackagePathIdentity(),
+			.PhysicalPath = (Root / "DeleteOuter.dasset").generic_string()};
+		bool Allowed = true, Withdraw = true;
+		const auto Item = Source->BindItemData(*Description.GetPrimaryInternalItem(), {.CanMutateContent = [&] { return Allowed; }});
+		int Prompts = 0;
+		ObjectTools::SetDeletePrompt([&](auto&, auto, auto) {
+			++Prompts;
+			EXPECT_EQ(ObjectTools::DeleteObjects(std::array<DObject*, 1>{Peer}, false), 0);
+			if (Withdraw) Allowed = false;
+			return true;
+		});
+		EXPECT_FALSE(Data->BulkDeleteItems(std::array{Item}));
+		EXPECT_TRUE(IsValid(Object));
+		Allowed = true; Withdraw = false;
+		EXPECT_TRUE(Data->BulkDeleteItems(std::array{Item}));
+		EXPECT_EQ(Prompts, 2);
+		EXPECT_FALSE(IsValid(Object));
+		EXPECT_TRUE(IsValid(Peer));
+		ObjectTools::SetDeletePrompt([](auto&, auto, auto) { return true; });
+	}
+
 	TEST_F(FContentBrowserDataTests, MixedFolderDeleteCommitsPackagesFilesAndDirectoriesThroughTheirOwners)
 	{
 		FPackagePath Path;

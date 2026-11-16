@@ -11,6 +11,7 @@
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
 #include "ObjectTools.h"
+#include "AssetTools/DeleteItemsHost.h"
 #include "AssetDeleteModel.h"
 
 #include "AssetRegistry/Catalog.h"
@@ -599,13 +600,11 @@ namespace Durin
 				}
 			}
 		}
-		while (Model.GetState() != FAssetDeleteModel::EState::Finished) Model.Tick(0.f);
-		if (!Model.CanDelete()) { FFeedbackContext::Get().Error(Model.GetProgressText()); return false; }
-		if (!ObjectTools::ConfirmDelete(Model, {})) return false;
-		for (const auto& Policy : Policies) if (Policy->CanMutateContent && !Policy->CanMutateContent()) return false;
-		for (const auto& Item : Snapshot) if (Item.GetOwnerDataSource() != this) return false;
-		Model.DoDelete();
-		return Model.GetDeletedObjectCount() != 0;
+		return ObjectTools::Private::DeleteObjects(Model, [&] {
+			for (const auto& Policy : Policies) if (Policy->CanMutateContent && !Policy->CanMutateContent()) return false;
+			for (const auto& Item : Snapshot) if (Item.GetOwnerDataSource() != this) return false;
+			return true;
+		}) != 0;
 	}
 } // namespace Durin
 

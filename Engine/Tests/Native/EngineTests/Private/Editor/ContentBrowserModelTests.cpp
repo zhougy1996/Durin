@@ -1,5 +1,6 @@
 #include "AssetDeleteModel.h"
 #include "ObjectTools.h"
+#include "AssetTools/DeleteItemsHost.h"
 #include "ThumbnailManagerTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
@@ -5525,6 +5526,36 @@ TEST_F(FContentBrowserModelTests, DeleteModelAdvancesStatesExcludesOwnRetentionA
 	EXPECT_EQ(GetLastGarbageCollectionStats().CollectionTime, CollectionTime);
 }
 
+TEST_F(FContentBrowserModelTests, SharedDeleteScanHonorsCancellationWithoutExecutingTheModel)
+{
+	InitializeDObjectSystem();
+	for (const bool AllowCancel : {true, false})
+	{
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(AllowCancel ? "/ContentBrowserTests/CancelScan" : "/ContentBrowserTests/RequiredScan", Path));
+		DObject* Object = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Object));
+		FAssetDeleteModel Model(std::array{Object});
+		FFeedbackContext Feedback;
+		FScopedFeedbackContext Scope(Feedback);
+		bool ObservedProgress = false;
+		Model.OnStateChanged().AddLambda([&](auto State) {
+			if (State != FAssetDeleteModel::EState::Scanning) return;
+			const auto Progress = Feedback.GetVisibleTask();
+			ASSERT_TRUE(Progress);
+			ObservedProgress = true;
+			EXPECT_EQ(Progress->bCanCancel, AllowCancel);
+			EXPECT_EQ(Feedback.RequestCancel(Progress->Id), AllowCancel);
+		});
+		EXPECT_EQ(ObjectTools::Private::ScanDeleteModel(Model, AllowCancel
+			? ObjectTools::EAllowCancelDuringDelete::AllowCancel : ObjectTools::EAllowCancelDuringDelete::CancelNotAllowed), !AllowCancel);
+		EXPECT_TRUE(ObservedProgress);
+		EXPECT_TRUE(IsValid(Object));
+		EXPECT_EQ(Model.GetDeletedObjectCount(), 0);
+		EXPECT_EQ(Model.CanDelete(), !AllowCancel);
+		EXPECT_FALSE(Feedback.GetVisibleTask());
+	}
+}
+
 TEST_F(FContentBrowserModelTests, DeleteModelPreservesExternalStrongOwnersOfTheSameObject)
 {
 	InitializeDObjectSystem();
@@ -5644,6 +5675,38 @@ TEST_F(FContentBrowserModelTests, ObjectToolsCancellationAndPromptReentryCannotE
 		return true;
 	});
 	EXPECT_EQ(ObjectTools::DeleteObjects(Selection), 1);
+}
+
+TEST_F(FContentBrowserModelTests, DeleteAssetsSharesObjectOrchestrationAndRetainsTheExactSelection)
+{
+	InitializeDObjectSystem();
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/DeleteAssetSelection", Path));
+	DObject* Object = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Object));
+	auto* Sibling = NewObject<DObject>(Object->GetPackage(), FName("Sibling"), EObjectFlags::Public | EObjectFlags::Standalone);
+	ASSERT_NE(Sibling, nullptr); ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	FTopLevelAssetPath AssetPath;
+	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, Object->GetName(), AssetPath));
+	const auto Entry = FindAssetExact(AssetPath);
+	ASSERT_TRUE(Entry);
+	std::vector<FAssetData> Selection{*Entry.Asset};
+	struct FReset { ~FReset() { ObjectTools::SetDeletePrompt({}); } } Reset;
+	int Prompts = 0;
+	ObjectTools::SetDeletePrompt([&](auto& Model, auto, auto) {
+		++Prompts;
+		EXPECT_EQ(Model.GetState(), FAssetDeleteModel::EState::Finished);
+		EXPECT_EQ(Model.GetPendingDeletedAssets().size(), 1u);
+		EXPECT_EQ(Model.GetPendingDeletedAssets().front()->GetObject(), Object);
+		Selection.clear();
+		EXPECT_EQ(ObjectTools::DeleteItems({.ObjectsToDelete = {Sibling}, .bShowConfirmation = false}).ObjectsDeleted, 0);
+		return true;
+	});
+	EXPECT_EQ(ObjectTools::DeleteAssets(Selection), 1);
+	EXPECT_EQ(Prompts, 1);
+	EXPECT_TRUE(IsValid(Sibling));
+	const auto Remaining = FindPackageExact(Path);
+	ASSERT_TRUE(Remaining);
+	ASSERT_EQ(Remaining->TopLevelAssets.size(), 1u);
+	EXPECT_EQ(Remaining->TopLevelAssets.front().AssetPath.GetAssetName(), "Sibling");
 }
 
 TEST_F(FContentBrowserModelTests, DeleteItemsReportsObjectsAndFoldersSeparatelyForMixedFolders)

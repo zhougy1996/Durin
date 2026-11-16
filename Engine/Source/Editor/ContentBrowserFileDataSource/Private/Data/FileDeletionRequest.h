@@ -22,8 +22,9 @@ namespace Durin::ContentStorage
 	class CONTENTBROWSERFILEDATASOURCE_API FFileDeletionRequest
 	{
 	public:
+		static auto DeleteObjectsAndFolders(const ObjectTools::FDeleteItemsParameters&) -> ObjectTools::FDeleteItemsResult;
 		explicit FFileDeletionRequest(const FContentMutationPolicy& Host = {}, bool InDeleteAssets = true, bool InDeleteFiles = true);
-		auto PrepareDeleteItems(std::span<const FFileDeletionInput>) -> FFileDeletionPlanPtr;
+		auto PrepareDeleteItems(std::span<const FFileDeletionInput>, ObjectTools::EAllowCancelDuringDelete AllowCancel = ObjectTools::EAllowCancelDuringDelete::CancelNotAllowed) -> FFileDeletionPlanPtr;
 		auto DeleteItems(FFileDeletionPlanPtr&, FFileDeletionHooks Hooks = {}) -> FFileDeletionResult;
 		auto DismissDeletion(FFileDeletionPlanPtr Plan) -> void;
 		auto ValidateForExecution() -> FAssetWriteResult;
@@ -31,7 +32,7 @@ namespace Durin::ContentStorage
 		auto HasCommittedEffects() const -> bool { return bCommitted; }
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Diagnostics = std::move(Sink); }
 	private:
-		auto AnalyzeDeletion(std::span<const FFileDeletionInput>, FAssetDeletionOperation&) -> FFileDeletionPlanPtr;
+		auto AnalyzeDeletion(std::span<const FFileDeletionInput>, FAssetDeletionOperation&, ObjectTools::EAllowCancelDuringDelete) -> FFileDeletionPlanPtr;
 		auto CanModify(std::string* Error = nullptr) const -> bool;
 		auto Report(ELogLevel, std::string_view) const -> void;
 		auto NotifyItemsUpdated(FContentChangeBatch) -> void;

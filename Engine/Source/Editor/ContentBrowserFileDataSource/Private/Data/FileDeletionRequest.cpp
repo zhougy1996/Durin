@@ -1,4 +1,5 @@
 #include "Data/FileDeletionRequest.h"
+#include "AssetTools/DeleteItemsHost.h"
 #include "Misc/ContentMountPaths.h"
 #include "Misc/ContentPathInspection.h"
 #include "Misc/ContentFilesystem.h"
@@ -8,6 +9,7 @@
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::ContentStorage
 {
@@ -61,7 +63,7 @@ namespace Durin::ContentStorage
 	}
 	auto FFileDeletionRequest::AnalyzeDeletion(
 		std::span<const FFileDeletionInput> Items,
-		FAssetDeletionOperation& OutOperation)
+		FAssetDeletionOperation& OutOperation, ObjectTools::EAllowCancelDuringDelete AllowCancel)
 		-> FFileDeletionPlanPtr
 	{
 		auto Plan = std::make_shared<FFileDeletionPlan>();
@@ -345,7 +347,11 @@ namespace Durin::ContentStorage
 		}
 		if (!Model->GetPendingDeletedAssets().empty())
 		{
-			while (Model->GetState() != FAssetDeleteModel::EState::Finished) Model->Tick(0.f);
+			if (!ObjectTools::Private::ScanDeleteModel(*Model, AllowCancel))
+			{
+				AddBlocker(EFileDeletionBlocker::InspectionFailed, "Assets", {}, {}, "Deletion canceled while analyzing assets.");
+				return Plan;
+			}
 			bPrepared &= Model->CanDelete();
 			if (!bPrepared) AdmissionError += Model->GetProgressText();
 			OutOperation = Model->TakeWholePackageOperation();
@@ -587,6 +593,58 @@ namespace Durin::ContentStorage
 		return Plan;
 	}
 
+	auto FFileDeletionRequest::DeleteObjectsAndFolders(const ObjectTools::FDeleteItemsParameters& Parameters) -> ObjectTools::FDeleteItemsResult
+	{
+		std::vector<FFileDeletionInput> Inputs;
+		for (const auto& Folder : Parameters.FoldersToDelete)
+		{
+			const auto Mapped = FContentMountPaths::VirtualToPhysical(Folder);
+			Inputs.push_back({std::filesystem::path(Folder).filename().generic_string(), Mapped.empty() ? Folder : Mapped});
+		}
+		FAssetDeleteModel Objects(Parameters.ObjectsToDelete);
+		const auto Snapshot = CaptureAssetQuerySnapshot();
+		for (const auto& [Identity, Asset] : Snapshot.Assets)
+		{
+			const auto Resolved = FMountPaths::ResolveAssetPath(Identity.GetPackagePath().GetView());
+			if (!Resolved) continue;
+			const auto Physical = Resolved->PhysicalPath.generic_string() + ".dasset";
+			const bool Covered = std::ranges::any_of(Inputs, [&](const auto& Folder) {
+				std::filesystem::path Relative;
+				return FPaths::TryMakeLexicalRelativePath(Physical, Folder.PhysicalPath, Relative);
+			});
+			if (!Covered) continue;
+			auto* Package = FindResidentPackage(Identity.GetPackagePath());
+			if (!Package) Package = LoadPackage(Identity.GetPackagePath());
+			auto* Object = Package ? Package->FindTopLevelAsset(FName(Identity.GetAssetName())) : nullptr;
+			if (!Object) return ObjectTools::FDeleteItemsResult{};
+			Objects.AddObjectToDelete(Object);
+		}
+		if (!ObjectTools::Private::ScanDeleteModel(Objects, Parameters.AllowCancelDuringDelete)) return {};
+		const bool HasObjects = !Objects.GetPendingDeletedAssets().empty();
+		if (HasObjects && !Objects.CanDelete()) return ObjectTools::FDeleteItemsResult{};
+		// File retains the immutable ordinary-file scope while this one model
+		// retires the selected assets. Only confirmed asset removals may differ.
+		FFileDeletionRequest Files({}, false, true);
+		auto Plan = Files.PrepareDeleteItems(Inputs);
+		if (!Plan || !Plan->CanExecute()) return ObjectTools::FDeleteItemsResult{};
+		std::vector<std::string> Paths;
+		std::unordered_set<std::string> Folders;
+		for (const auto& Entry : Plan->Entries)
+		{
+			Paths.push_back(Entry.PhysicalPath);
+			if (Entry.Kind == EFileDeletionEntryKind::Directory) Folders.insert(Entry.PhysicalPath);
+		}
+		for (const auto& Warning : Plan->Warnings) Paths.push_back(Warning.Details);
+		if (Parameters.bShowConfirmation && !ObjectTools::Private::ConfirmDelete(Objects, Paths, Parameters.AllowCancelDuringDelete)) return ObjectTools::FDeleteItemsResult{};
+		if (!Files.ValidateForExecution()) return ObjectTools::FDeleteItemsResult{};
+		if (HasObjects && !Objects.DoDelete()) return ObjectTools::FDeleteItemsResult{};
+		const auto Effects = Files.DeleteItems(Plan);
+		ObjectTools::FDeleteItemsResult Result{.ObjectsDeleted = Objects.GetDeletedObjectCount()};
+		for (const auto& Effect : Effects.Effects)
+			if (Effect.Status == EFileDeletionEffectStatus::Committed && Folders.contains(Effect.PhysicalPath)) ++Result.FoldersDeleted;
+		return Result;
+	}
+
 	FFileDeletionRequest::FFileDeletionRequest(const FContentMutationPolicy& Host, bool InDeleteAssets, bool InDeleteFiles)
 		: Policy(Host), Diagnostics(Host.ReportDiagnostic), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles) {}
 	auto FFileDeletionRequest::DeleteWithConfirmation(std::span<const FFileDeletionInput> Inputs, bool ShowConfirmation, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> ObjectTools::FDeleteItemsResult
@@ -594,7 +652,7 @@ namespace Durin::ContentStorage
 		if (bPresenting) return {};
 		bPresenting = true;
 		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPresenting};
-		auto Plan = PrepareDeleteItems(Inputs);
+		auto Plan = PrepareDeleteItems(Inputs, AllowCancel);
 		if (!Plan || !Plan->CanExecute())
 		{
 			if (Plan) for (const auto& Blocker : Plan->Blockers) Report(ELogLevel::Error, Blocker.Details);
@@ -603,7 +661,7 @@ namespace Durin::ContentStorage
 		std::vector<std::string> Paths;
 		for (const auto& Entry : Plan->Entries) Paths.push_back(Entry.PhysicalPath);
 		for (const auto& Warning : Plan->Warnings) Paths.push_back(Warning.Details);
-		if (ShowConfirmation && !ObjectTools::ConfirmDelete(*Model, Paths, AllowCancel)) return {};
+		if (ShowConfirmation && !ObjectTools::Private::ConfirmDelete(*Model, Paths, AllowCancel)) return {};
 		std::unordered_set<std::string> Folders;
 		for (const auto& Entry : Plan->Entries) if (Entry.Kind == EFileDeletionEntryKind::Directory) Folders.insert(Entry.PhysicalPath);
 		const auto Effects = DeleteItems(Plan);
@@ -632,12 +690,12 @@ namespace Durin::ContentStorage
 		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;
 		if (Policy.NotifyContentMutation) Policy.NotifyContentMutation(std::move(Changes));
 	}
-	auto FFileDeletionRequest::PrepareDeleteItems(std::span<const FFileDeletionInput> Items) -> FFileDeletionPlanPtr
+	auto FFileDeletionRequest::PrepareDeleteItems(std::span<const FFileDeletionInput> Items, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> FFileDeletionPlanPtr
 	{
 		if (bExecuting) return {};
 		CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear();
 		FAssetDeletionOperation AssetOperation;
-		auto Plan = std::make_shared<FFileDeletionPlan>(*AnalyzeDeletion(Items, AssetOperation));
+		auto Plan = std::make_shared<FFileDeletionPlan>(*AnalyzeDeletion(Items, AssetOperation, AllowCancel));
 		Plan->SessionId = ++NextSession;
 		CurrentPlan = Plan;
 		CapturedRequest.assign(Items.begin(), Items.end());

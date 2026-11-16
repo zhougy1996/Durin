@@ -159,6 +159,21 @@ folder counts describe actual directory removals. `DoDelete` reports acceptance
 of an action, independently of persistence success and the deleted-object count.
 A failed or completed attempt cannot run again. Diagnostics retain write failures.
 
+`DeleteObjects` delegates to `DeleteItems`, matching UE's entrypoint roles.
+ObjectTools shares model scanning, confirmation and object execution with
+`DeleteAssets` and the Asset Browser adapter. The adapter only resolves its
+selection and supplies a private admission check that runs again after the
+prompt. Nested object deletion rejects while this orchestration is active.
+Folder orchestration belongs to File's private executor; its module only binds
+that executor into ObjectTools. `ConfirmDelete` is a private host bridge, not
+another public deletion entrypoint.
+
+All synchronous deletion paths share one model scan loop with scoped slow-task
+progress and the requested `AllowCancelDuringDelete` policy. Cancellation stops
+before destructive execution. The current native confirmation host remains
+synchronous; progress does not pump nested editor frames or promise responsive
+mid-call UI. See [slow-task execution](../../../Runtime/Core/SlowTasks.md#editor-presentation-and-execution).
+
 The model advances through Waiting, StartScanning, Scanning, UpdateActions and
 Finished on the owner thread. Pending assets retain their exact objects. Native
 read-only traversal supplies weak referencers, reference counts and property
