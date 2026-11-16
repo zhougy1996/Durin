@@ -23,6 +23,18 @@ Numeric nodes register output zero. Texture sampling nodes emit a single sample
 and register its RGBA, RGB, and scalar channels; sample parameters also register
 the texture resource at index seven. Retired index six remains invalid. Normal
 texture RGB outputs decode RG normal data; RGBA and scalar outputs remain raw.
+Texture2D sample expressions select `EMaterialTextureReadMode`: Implicit,
+Level, Bias or Grad. MIR records the selection in `FTextureRead`; resource and
+Float2 coordinates precede the selected scalar LOD/Bias or Float2 DDX/DDY
+operands. Level supports Vertex and Pixel; Implicit, Bias and Grad are Pixel-only.
+Every selected operand participates in stage intersection and type validation.
+Unused optional operands retain authoring state but are absent from detached MIR
+and its resource closure. The generated Shader uses Sample, SampleLevel,
+SampleBias or SampleGrad with the existing material-owned sampler. Normal RGB
+decoding retains its existing Pixel/Tangent semantics; raw sampled channels may
+feed vertex displacement through Level. Editor mode changes use the shared
+ReplaceExpression transaction and preserve inactive defaults and wiring.
+
 Surface extraction registers every enabled attribute. Function calls register
 all declared GUID outputs after validating their bindings and building the body.
 Collection expressions resolve one numeric declaration from a referenced

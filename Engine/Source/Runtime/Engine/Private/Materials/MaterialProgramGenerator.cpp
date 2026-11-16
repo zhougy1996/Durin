@@ -470,8 +470,15 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				{
 					const auto& TextureNode = IR.Nodes[Node.Inputs[0]];
 					if (const auto* Field = FindField(TextureNode.GetParameterId()))
-						Expression = std::format("{}.Sample(MaterialSampler{}, {})",
-							Input(0), Field->CompactIndex, Input(1));
+					{
+						const auto Mode = Node.GetTextureReadMode();
+						const auto Method = Mode == EMaterialTextureReadMode::Level ? "SampleLevel"
+							: Mode == EMaterialTextureReadMode::Bias ? "SampleBias"
+							: Mode == EMaterialTextureReadMode::Grad ? "SampleGrad" : "Sample";
+						Expression = std::format("{}.{}(MaterialSampler{}, {}", Input(0), Method, Field->CompactIndex, Input(1));
+						for (size_t Slot = 2; Slot < Node.Inputs.size(); ++Slot) Expression += ", " + Input(Slot);
+						Expression += ")";
+					}
 					break;
 				}
 				case EMaterialProgramOpcode::Add: Expression = std::format("({} + {})", Input(0), Input(1)); break;
@@ -677,7 +684,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 		{
 			const auto& Node = IR.Nodes[Index];
-			const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
+			const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType, Node.GetTextureReadMode());
 			if ((Node.Opcode >= EMaterialProgramOpcode::FunctionInput && Node.Opcode <= EMaterialProgramOpcode::AppendVector) || !Signature || Node.Inputs.size() != Signature->InputCount)
 			{
 				Fail("Material IR opcode, result type, or input count is invalid.");
@@ -733,7 +740,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				|| Node.Opcode == EMaterialProgramOpcode::TransformNormal
 				? &std::get<FMaterialTransformPayload>(Node.Payload) : nullptr;
 			auto ExpectedSemantics = ResolveMaterialProgramNodeSemantics(
-				Node.Opcode, Node.ResultType, InputSemantics, Transform);
+				Node.Opcode, Node.ResultType, InputSemantics, Transform, Node.GetTextureReadMode());
 			if (Node.Opcode == EMaterialProgramOpcode::Constant
 				&& Node.SpatialKind != EMaterialSpatialKind::None)
 				ExpectedSemantics = Node.GetSemantics();

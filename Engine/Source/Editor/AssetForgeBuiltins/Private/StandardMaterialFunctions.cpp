@@ -45,7 +45,7 @@ namespace Durin::AssetForge::Builtins
 				if constexpr (std::is_same_v<T, DMaterialExpressionMakeVector2>)
 					{ N->X = Inputs[0]; N->Y = Inputs[1]; }
 				if constexpr (std::is_same_v<T, DMaterialExpressionTextureSample2D>)
-					{ N->Texture = Inputs[0]; N->UV = Inputs[1]; }
+					{ N->Texture = Inputs[0]; N->UV = Inputs[1]; N->MipValue = Inputs[2]; N->DDX = Inputs[3]; N->DDY = Inputs[4]; }
 				return {N->Id};
 			}
 			auto Input(uint32 Slot) -> Link
@@ -116,7 +116,7 @@ namespace Durin::AssetForge::Builtins
 			const bool bNormal = Function == Entry::SampleNormal;
 			const auto Tex = B.Input(1);
 			const auto UV = B.Input(2);
-			const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Tex, UV});
+			const auto Sample = B.Node<DMaterialExpressionTextureSample2D>(Type::Float4, {Tex, UV, {}, {}, {}});
 			if (bNormal)
 			{
 				const auto Strength = B.Input(3);

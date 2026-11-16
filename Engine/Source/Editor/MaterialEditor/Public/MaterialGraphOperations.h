@@ -17,7 +17,7 @@ namespace Durin
 
 namespace Durin::MaterialEditor
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 10;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 11;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8

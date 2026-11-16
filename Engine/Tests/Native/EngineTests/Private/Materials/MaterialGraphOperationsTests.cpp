@@ -866,6 +866,12 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 						Expressions.insert(Expressions.end(), SourceExpressions[TypeIndex].begin(), SourceExpressions[TypeIndex].end());
 					}
 				});
+				const auto ActivateSampleOperand = [&](auto* Sample, uint32 FirstOptional) {
+					if (Sample) Sample->ReadMode = Pin < FirstOptional ? EMaterialTextureReadMode::Implicit
+						: Pin == FirstOptional ? EMaterialTextureReadMode::Level : EMaterialTextureReadMode::Grad;
+				};
+				ActivateSampleOperand(Cast<DMaterialExpressionTextureSample2D>(Target.Get()), 2);
+				ActivateSampleOperand(Cast<DMaterialExpressionTextureSampleParameter2D>(Target.Get()), 1);
 				Expressions.push_back(Target.Get());
 				const auto& Accepted = Entry.AcceptedInputTypes[Pin];
 				const bool bSpatialTransform = Entry.Opcode == EMaterialProgramOpcode::TransformPosition
@@ -4114,4 +4120,43 @@ TEST(FMaterialGraphOperationsTests, CommandAdmissionRequiresEditorOrExplicitUnre
 	EXPECT_FALSE(Document.CreateExpression(*Third, 0, 0, ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRejected);
 	Outer.Cancel();
+}
+
+
+TEST(FMaterialGraphOperationsTests, TextureSamplingModeUsesSharedUndoAndRetainsInactivePins)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialGraphDocument Document(*Material);
+	auto Sample = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "Sample"};
+	Sample->MipValue.SetConstant({2.f});
+	Sample->DDX.SetConstant({.1f,.2f});
+	ASSERT_TRUE(Document.CreateExpression(*Sample));
+	const auto Before = CaptureExpressions(*Material);
+	Sample->ReadMode = EMaterialTextureReadMode::Grad;
+	ASSERT_TRUE(Document.ReplaceExpression(*Sample));
+	const auto After = CaptureExpressions(*Material);
+	const auto View = Document.Inspect();
+	const auto* Node = FindViewNode(View, Sample->Id);
+	ASSERT_NE(Node, nullptr);
+	ASSERT_EQ(Node->Inputs.size(), 4u);
+	EXPECT_FALSE(Node->Inputs[1].bActive);
+	EXPECT_TRUE(Node->Inputs[2].bActive);
+	EXPECT_TRUE(Node->Inputs[3].bActive);
+	EXPECT_FLOAT_EQ(Node->Inputs[1].RetainedConstant.Literal.X, 2.f);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(CaptureExpressions(*Material), After);
+	FMaterialGraphClipboardPayload Clipboard;
+	ASSERT_TRUE(Document.CopySelection(std::array{Sample->Id}, Clipboard));
+	ASSERT_TRUE(Document.Paste(Clipboard, 200, 200));
+	const auto& Expressions = Material->GetExpressionCollection().Expressions;
+	EXPECT_EQ(std::ranges::count_if(Expressions, [](const auto& E) {
+		const auto* S = Cast<DMaterialExpressionTextureSampleParameter2D>(E.Get());
+		return S && S->ReadMode == EMaterialTextureReadMode::Grad && S->MipValue.Constant == std::vector<float>{2.f};
+	}), 2);
 }

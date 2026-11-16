@@ -44,6 +44,13 @@ namespace Durin
 						&& Signature->Inputs[Index].front() <= EMaterialProgramValueType::Float4)
 						Shape.AcceptedInputTypes.back().push_back(EMaterialProgramValueType::Float);
 				}
+				if (IsMaterialSamplingNode(Opcode))
+				{
+					for (const auto Name : {"Mip Value", "DDX", "DDY"}) Shape.InputNames.emplace_back(Name);
+					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float});
+					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float2});
+					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float2});
+				}
 				Result.Shapes.push_back(std::move(Shape));
 			}
 			return Result;

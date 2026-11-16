@@ -326,6 +326,14 @@ namespace Durin::MaterialEditor
 					}
 					if (!Input.ExpressionId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
 					else if (!Input.ExpressionId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
+					const auto SetSamplingActivity = [&](const auto* Sample, uint32 FirstOptional) {
+						if (!Sample || InputIndex < FirstOptional) return;
+						Pin.bActive = InputIndex == FirstOptional
+							? Sample->ReadMode == EMaterialTextureReadMode::Level || Sample->ReadMode == EMaterialTextureReadMode::Bias
+							: Sample->ReadMode == EMaterialTextureReadMode::Grad;
+					};
+					SetSamplingActivity(Cast<DMaterialExpressionTextureSample2D>(Expression), 2);
+					SetSamplingActivity(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression), 1);
 					View.Inputs.push_back(std::move(Pin));
 				});
 			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)

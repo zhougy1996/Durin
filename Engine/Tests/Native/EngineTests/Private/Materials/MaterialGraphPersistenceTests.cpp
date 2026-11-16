@@ -171,3 +171,40 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 	}
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
+
+
+TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRoundTrip)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "TextureSamplingRoundTrip";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/TextureSamplingRoundTrip/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TextureSamplingRoundTrip/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	auto Sample = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "Sample"};
+	Sample->ReadMode = EMaterialTextureReadMode::Level;
+	Sample->MipValue.SetConstant({2.f});
+	Sample->DDX.SetConstant({.125f,.25f});
+	Sample->DDY.SetConstant({.5f,.75f});
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Sample.Get()}, {}));
+	const auto Expected = CaptureExpressions(*Material);
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	Sample.Reset();
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_NE(Material, nullptr);
+	EXPECT_EQ(CaptureExpressions(*Material), Expected);
+	const auto It = std::ranges::find_if(Material->GetExpressionCollection().Expressions,
+		[](const auto& E) { return Cast<DMaterialExpressionTextureSampleParameter2D>(E.Get()) != nullptr; });
+	ASSERT_NE(It, Material->GetExpressionCollection().Expressions.end());
+	const auto* LoadedSample = Cast<DMaterialExpressionTextureSampleParameter2D>(It->Get());
+	EXPECT_EQ(LoadedSample->ReadMode, EMaterialTextureReadMode::Level);
+	EXPECT_EQ(LoadedSample->DDX.Constant, (std::vector<float>{.125f,.25f}));
+	EXPECT_EQ(LoadedSample->DDY.Constant, (std::vector<float>{.5f,.75f}));
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+}

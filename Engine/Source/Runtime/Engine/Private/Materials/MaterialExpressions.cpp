@@ -52,6 +52,12 @@ namespace Durin
 		if (Opcode == EMaterialProgramOpcode::TextureCoordinates) Opcode = EMaterialProgramOpcode::UVChannel;
 		if (Opcode == EMaterialProgramOpcode::AppendVector) return {0.f};
 		if (Opcode == EMaterialProgramOpcode::BlendMaterialAttributes && Slot == 2) return {.5f};
+		if (IsMaterialSamplingNode(Opcode))
+		{
+			const uint32 FirstOptional = Opcode == EMaterialProgramOpcode::TextureSample2D ? 2 : 1;
+			if (Slot >= FirstOptional && Slot <= FirstOptional + 2)
+				return std::vector<float>(Slot == FirstOptional ? 1 : 2, 0.f);
+		}
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 		if (!Signature || Slot >= Signature->InputCount) return {};
 		if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)

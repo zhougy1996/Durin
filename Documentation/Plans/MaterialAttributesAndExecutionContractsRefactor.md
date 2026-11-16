@@ -12,8 +12,11 @@ Completed:
 Stages 0-2 completed on 2026-11-16. Typed attributes, per-entry compilation
 requirements and canonical Shader/mesh execution requests now span translation,
 Cook and renderer admission. Pass templates own entry bodies, GBuffer packing
-and lighting execution. Five Stage 1 minimum source assets remain unchanged.
-Validation and content disposition are recorded below. Stage 3 is not started.
+and lighting execution. The five minimum source assets have been regenerated
+for the Stage 3 graph/function generation at their original logical paths.
+Validation and content disposition are recorded below. Stage 3 is in progress:
+the Texture2D sampling-mode slice is implemented; typed Cube resources, scene
+inputs and the full authoring-to-Cook/GPU exit gates remain open.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -159,7 +162,7 @@ No runtime source compilation may compensate for missing cooked entries.
 
 ## Implementation Stages
 
-Only Stage 0 has run. Checkboxes require stage-specific evidence,
+Stages 0-2 have completed. Checkboxes require stage-specific evidence,
 not completion of this planning document. Stage N depends on the prior stage
 unless a narrower dependency is stated. One checkout has one source/build writer.
 
@@ -381,6 +384,80 @@ Exit: TextureCube and explicit sampling traverse authoring-to-Cook execution;
 scene reads have validated lifetimes and no attachment read/write feedback.
 Texture3D/Array and additional scene inputs remain future extensions.
 
+### Stage 3 incremental implementation
+
+The 2026-11-16 continuation uses UE source at
+`E:/Programs/Epic Games/UE_5.8`. Its `Engine/Build/Build.version` reports 5.8.0,
+CL 53629095, branch `++UE5+Release-5.8`. The older installation and qualification
+measurements above remain historical records, not evidence for this installation.
+`MaterialExpressionTextureSample.h` supplies the source comparison for mip mode
+and derivative operand ownership.
+
+The first Stage 3 slice adds Implicit/Level/Bias/Grad to existing Texture2D
+sample expressions and detached `MIR::FTextureRead`. Only selected operands
+enter MIR; inactive authored inputs retain their links/defaults. Level permits
+Vertex/Pixel, while Implicit/Bias/Grad require Pixel. Coordinate, LOD and gradient
+signatures validate before source generation. Cache/canonical identities include
+the mode, and translation records carry the typed immediate. The graph's shared
+ReplaceExpression command edits mode through existing Undo/Redo ownership.
+
+This slice starts the frozen Stage 3 graph/function, MIR/translation,
+normalization/generator/adapter and pass/DMAT generations (7/4, 11/7, 11/19/16,
+15/18). Instance and resource-layout versions remain at their Stage 2 values
+until their Stage 3 representation changes land. Existing source material/function
+packages require recreation before loading. DefaultMaterial, UVTransform,
+SampleNormal, SampleORM and DefaultWater have been regenerated from their current
+recipes at their existing paths. Full corpus/source-free Cook acceptance remains
+open. No Stage 3 checkbox is closed
+by this slice. Cube, Renderer scene-resource planning, Vulkan pixel/mip checks
+and backend reflection acceptance remain required.
+
+#### Sampling slice validation receipt
+
+Validated the working tree based on `440e84730787bbe8c301b8eb69bbe8008d767a05`
+on 2026-11-16 with windows-msvc-x64 / Win64-Debug-DurinEditor, MSVC 19.44,
+Debug, Tracy and 14 build jobs. The final source/test/asset SHA-256 manifest is
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage3/source-sha256.json`.
+
+- `test @domain=material,kind=feature --report` passed all 13 targets after
+  regenerating the five minimum assets. Final CTest receipt:
+  `Build/.agent-state/logs/20261116-132639-898308-39860-ctest.log`;
+  build receipt `20261116-132546-767388-39860-cmake.log` in the same directory.
+  Coverage includes all four read modes, coordinate/stage/operand rejection,
+  distinct Level/Bias identities, detached translation round-trip, real Vulkan
+  Shader compilation and per-entry texture reflection, Level WPO in both Local
+  and Spline entries, graph-stripped DMAT encode/decode, inactive-input retention,
+  mode Undo/Redo/clipboard, package round-trip, functions, instances, lifecycle,
+  preview and thumbnails. This is compilation/reflection and CPU contract evidence,
+  not cube/mip pixel or native GPU execution evidence.
+- Updated StandardMaterialFunctions' sample construction and the catalog pin
+  matrix for the additional retained operands. Initial feature failures exposed
+  these consumers and obsolete minimum source packages; those failures are
+  corrected, not waived. Unbound function texture fallbacks validate selected
+  operands before constant folding. The frozen texture compatibility fixtures
+  remain unchanged.
+- Recreated the four Engine assets with `asset material-foundation --project
+  Sandbox/Sandbox.dproject`. Engine's executable BaseModules entry cannot serve
+  as a dynamic asset-tool project module; the successful Sandbox host required
+  its current module binary. The earlier failed host invocations wrote no assets.
+- The isolated Water author-material/material probe rebuilt DefaultWater and
+  passed its CPU wave/material/query comparison. Receipts are `water-author.log`
+  and `water-material.log` under the Stage 3 evidence root. Its temporary fixture
+  admission was removed and `Durin.dworkspace` restored byte-for-byte. Only the
+  Editor fixture/plugin targets were built; no Game/Cook or Water GPU pass is
+  claimed from this check.
+- Workspace consumer checks passed: RoadSceneIntegrationTests (5 cases), receipt
+  `20261116-132813-930683-20620-RoadSceneIntegrationTests.log`, and
+  SandboxGameplayTests (13 cases), receipt
+  `20261116-132825-704278-41444-SandboxGameplayTests.log`, both under
+  `Build/.agent-state/logs/`. Their builds refreshed the current consumer binaries.
+  The changed-document validator passed for both updated documents.
+- The first sandbox build hit the workflow's MSVC C1902 PDB-service error;
+  subsequent builds ran outside the sandbox. No GPU timing, numerical parity
+  qualification, new-mode Metal reflection, full workspace build or final
+  source-free Game acceptance is claimed. These remain with the relevant stage
+  and final acceptance gates.
+
 ### Stage 4: Prove shading-model and domain extension
 
 Outcome: new attributes, a second Lit model and a non-mesh domain execute without
@@ -449,9 +526,9 @@ not passed. Numerical budgets must be fixed in Stage 0; final acceptance cannot
 choose tolerances after observing a regression.
 
 The initial planning change required document validation only. Stage 0's later
-authorization covers the baseline builds/tests recorded below. The owner has
-subsequently authorized Stages 1 and 2 implementation, validation and commit.
-Stage 3 and later implementation remain outside the current execution scope.
+authorization covers the baseline builds/tests recorded below. The owner subsequently authorized Stages 1 and 2 implementation, validation and
+commit, then requested continuation of this plan on 2026-11-16. That continuation
+authorizes the remaining stages; stage completion still requires its exit gates.
 
 ## Stage 0 Frozen Specification
 

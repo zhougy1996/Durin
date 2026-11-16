@@ -647,6 +647,12 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	Sample->UV = {{9, 9, 9, 9}};
 	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 	Sample->UV.Connection = {};
+	Sample->ReadMode = EMaterialTextureReadMode::Level;
+	Sample->MipValue.Constant = {1.f, 2.f};
+	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
+	Sample->MipValue.Constant = {1.f};
+	EXPECT_TRUE(MIR::BuildGraph(Graph, Roots, Environment));
+	Sample->ReadMode = EMaterialTextureReadMode::Implicit;
 	Nested->Function = Outer.Get(); Nested->Outputs = Call->Outputs; OuterOutput->Source.OutputId = OuterOutput->Port.Id;
 	const auto Recursive = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Recursive); EXPECT_TRUE(Recursive.IR.Nodes.empty());
@@ -1568,4 +1574,51 @@ TEST(FMaterialExpressionTests, ClassDescriptionsPreserveAuthoredShapesWithoutOwn
 	ASSERT_NE(Shape, Add->Shapes.end());
 	EXPECT_EQ(Shape->InputNames, (std::vector<std::string>{"A", "B"}));
 	EXPECT_TRUE(std::ranges::contains(Shape->AcceptedInputTypes.front(), EMaterialProgramValueType::Float));
+}
+
+
+TEST(FMaterialExpressionTests, TextureReadModesLowerOnlyActiveOperandsAndPreserveDefaults)
+{
+	using namespace Durin;
+	using Mode = EMaterialTextureReadMode;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Sample(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
+	Sample->Id = FGuid::NewGuid();
+	Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "ReadMode"};
+	Sample->MipValue.SetConstant({2.f});
+	Sample->DDX.SetConstant({.25f, 0.f});
+	Sample->DDY.SetConstant({0.f, .25f});
+	const std::array<DMaterialExpression*, 1> Expressions{Sample.Get()};
+	const auto Build = [&] { return MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample->Id}}); };
+	for (const auto ReadMode : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
+	{
+		Sample->ReadMode = ReadMode;
+		const auto Built = Build();
+		ASSERT_TRUE(Built) << (Built.Diagnostics.empty() ? "" : Built.Diagnostics.front().Message);
+		const auto& Read = Built.IR.Nodes[Built.Roots.front()];
+		EXPECT_EQ(Read.Opcode, EMaterialProgramOpcode::TextureSample2D);
+		EXPECT_EQ(Read.GetTextureReadMode(), ReadMode);
+		EXPECT_EQ(Read.Inputs.size(), ReadMode == Mode::Implicit ? 2u : ReadMode == Mode::Grad ? 4u : 3u);
+		EXPECT_EQ(Read.LegalStages, ReadMode == Mode::Level ? EMaterialEvaluationStage::Both : EMaterialEvaluationStage::Pixel);
+		if (ReadMode == Mode::Level || ReadMode == Mode::Bias)
+			EXPECT_FLOAT_EQ(Built.IR.Nodes[Read.Inputs[2]].GetLiteral().X, 2.f);
+	}
+	Sample->ReadMode = Mode::Level;
+	Sample->DDX.Connection = {{9,9,9,9}};
+	EXPECT_TRUE(Build()); // Inactive gradient wiring is retained without becoming a dependency.
+	Sample->ReadMode = Mode::Grad;
+	EXPECT_FALSE(Build());
+	Sample->ReadMode = Mode::Level;
+	Sample->MipValue.UseConstant = false;
+	const auto Inherited = Build();
+	ASSERT_TRUE(Inherited);
+	EXPECT_FLOAT_EQ(Inherited.IR.Nodes[Inherited.IR.Nodes[Inherited.Roots.front()].Inputs[2]].GetLiteral().X, 0.f);
+	EXPECT_EQ(Sample->MipValue.Constant, (std::vector<float>{2.f}));
+	Sample->MipValue.Connection.OutputIndex = 1;
+	EXPECT_FALSE(Build());
+	Sample->MipValue.Connection = {};
+	Sample->MipValue.Constant = {1.f,2.f};
+	EXPECT_FALSE(Build());
+	Sample->ReadMode = static_cast<Mode>(255);
+	EXPECT_FALSE(Build());
 }

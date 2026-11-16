@@ -117,6 +117,12 @@ namespace Durin
 		const FMaterialValueSemantics& Value) -> std::string;
 
 	DENUM()
+	enum class EMaterialTextureReadMode : uint8
+	{
+		Implicit, Level, Bias, Grad,
+	};
+
+	DENUM()
 	enum class EMaterialProgramOpcode : uint8
 	{
 		Constant,
@@ -225,7 +231,9 @@ namespace Durin
 	inline auto MaterialNumericInputAllowsScalarBroadcast(
 		EMaterialProgramOpcode Opcode, uint32 Slot) -> bool
 	{
-		if (Opcode == EMaterialProgramOpcode::Normalize
+		if (Opcode == EMaterialProgramOpcode::TextureSample2D
+			|| Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
+			|| Opcode == EMaterialProgramOpcode::Normalize
 			|| Opcode == EMaterialProgramOpcode::BlendNormalsRNM
 			|| Opcode == EMaterialProgramOpcode::DecodeNormalRG
 			|| Opcode == EMaterialProgramOpcode::TransformPosition
@@ -251,7 +259,8 @@ namespace Durin
 
 	// Returns no signature for an unsupported opcode/result pair. Input spans have static lifetime.
 	ENGINE_API auto GetMaterialProgramNodeSignature(
-		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
+		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType,
+		EMaterialTextureReadMode ReadMode = EMaterialTextureReadMode::Implicit)
 		-> std::optional<FMaterialProgramNodeSignature>;
 
 	// Resolves one concrete semantic result and validates every operand. The
@@ -260,7 +269,8 @@ namespace Durin
 		EMaterialProgramOpcode Opcode,
 		EMaterialProgramValueType ResultType,
 		std::span<const FMaterialValueSemantics> Inputs,
-		const FMaterialTransformPayload* Transform = nullptr)
+		const FMaterialTransformPayload* Transform = nullptr,
+		EMaterialTextureReadMode ReadMode = EMaterialTextureReadMode::Implicit)
 		-> std::optional<FMaterialValueSemantics>;
 	ENGINE_API auto GetMaterialSurfaceOutputSemantics(EMaterialProperty Output)
 		-> FMaterialValueSemantics;

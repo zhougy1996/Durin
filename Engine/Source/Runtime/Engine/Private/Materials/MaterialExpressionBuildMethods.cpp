@@ -436,7 +436,7 @@ namespace Durin
 				Emitter.Fail("Disconnected UV input has an output selector.");
 				return MIR::InvalidIndex;
 			}
-			if (UV.Constant.empty() || UV.Constant.size() > 2
+			if (UV.Constant.size() != 2
 				|| !std::ranges::all_of(UV.Constant, [](float V) { return std::isfinite(V); }))
 			{
 				Emitter.Fail("Retained numeric default has an invalid width or non-finite component.");
@@ -444,10 +444,66 @@ namespace Durin
 			}
 			auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input)
 				: UV.UseConstant ? Emitter.Literal(UV.Constant) : Emitter.Coordinates();
-			if (Index != MIR::InvalidIndex && Emitter.GetNode(Index).ResultType == EMaterialProgramValueType::Float)
-				Index = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Splat2,
-					.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Index}});
+			if (Index != MIR::InvalidIndex && Emitter.GetNode(Index).ResultType != EMaterialProgramValueType::Float2)
+			{
+				Emitter.Fail("Texture2D coordinates require Float2.");
+				return MIR::InvalidIndex;
+			}
 			return Index;
+		}
+		template<class SampleExpression>
+		auto EmitTextureRead(MIR::FEmitter& Emitter, const SampleExpression& Expression,
+			uint32 Resource, uint32 Coordinates, std::span<const float> Fallback = {}) -> uint32
+		{
+			const auto Mode = Expression.ReadMode;
+			if (Mode > EMaterialTextureReadMode::Grad)
+			{
+				Emitter.Fail("Texture read mode is unsupported.");
+				return MIR::InvalidIndex;
+			}
+			MIR::FNode Node{.Opcode = EMaterialProgramOpcode::TextureSample2D,
+				.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates},
+				.Payload = MIR::FTextureRead{Mode}};
+			const auto ResolveOperand = [&](const FMaterialNumericInput& Operand, uint32 Width) {
+				if (!Operand.Connection.ExpressionId.IsValid()
+					&& (Operand.Connection.OutputIndex != 0 || Operand.Connection.OutputId.IsValid()))
+				{
+					Emitter.Fail("Disconnected texture read operand has an output selector.");
+					return MIR::InvalidIndex;
+				}
+				if (Operand.Constant.size() != Width || !std::ranges::all_of(Operand.Constant, [](float V) { return std::isfinite(V); }))
+				{
+					Emitter.Fail("Texture read operand has an invalid width or non-finite default.");
+					return MIR::InvalidIndex;
+				}
+				return Operand.Connection.ExpressionId.IsValid() ? Emitter.ResolveIndex(Operand.Connection)
+					: Emitter.Literal(Operand.UseConstant ? Operand.Constant : std::vector<float>(Width, 0.f));
+			};
+			if (Mode == EMaterialTextureReadMode::Level || Mode == EMaterialTextureReadMode::Bias)
+				Node.Inputs.push_back(ResolveOperand(Expression.MipValue, 1));
+			else if (Mode == EMaterialTextureReadMode::Grad)
+			{
+				Node.Inputs.push_back(ResolveOperand(Expression.DDX, 2));
+				Node.Inputs.push_back(ResolveOperand(Expression.DDY, 2));
+			}
+			if (!Fallback.empty())
+			{
+				// A function's unbound texture folds to its constant fallback only after
+				// validating the same active operands as a real resource read.
+				std::vector<FMaterialValueSemantics> Semantics{{EMaterialProgramValueType::Texture2D}};
+				for (size_t Slot = 1; Slot < Node.Inputs.size(); ++Slot)
+				{
+					if (Node.Inputs[Slot] == MIR::InvalidIndex) return MIR::InvalidIndex;
+					Semantics.push_back(Emitter.GetNode(Node.Inputs[Slot]).GetSemantics());
+				}
+				if (!ResolveMaterialProgramNodeSemantics(Node.Opcode, Node.ResultType, Semantics, nullptr, Mode))
+				{
+					Emitter.Fail("Texture read operands have incompatible types or evaluation stages.");
+					return MIR::InvalidIndex;
+				}
+				return Emitter.Literal(Fallback);
+			}
+			return Emitter.Emit(std::move(Node));
 		}
 		// Node-specific lowering: publish all sampled channels from one sample instruction.
 		auto EmitSampleOutputs(MIR::FEmitter& Emitter, uint32 Sample, bool bDecodeNormal) -> void
@@ -472,6 +528,7 @@ namespace Durin
 
 	auto DMaterialExpressionTextureSample2D::Build(MIR::FEmitter& Emitter) const -> void
 	{
+		if (ReadMode > EMaterialTextureReadMode::Grad) return Emitter.Fail("Texture read mode is unsupported.");
 		const auto Coordinates = ResolveUV(Emitter, UV);
 		const auto ResourceValue = Emitter.Resolve(Texture);
 		uint32 Sample;
@@ -480,12 +537,11 @@ namespace Durin
 			const std::array White{1.f, 1.f, 1.f, 1.f};
 			const std::array Black{0.f, 0.f, 0.f, 1.f};
 			const std::array Normal{.5f, .5f, 1.f, 1.f};
-			Sample = Emitter.Literal(Default->Fallback == EMaterialTextureFallback::White ? White
+			Sample = EmitTextureRead(Emitter, *this, MIR::InvalidIndex, Coordinates, Default->Fallback == EMaterialTextureFallback::White ? White
 				: Default->Fallback == EMaterialTextureFallback::FlatRGNormal ? Normal : Black);
 		}
 		else
-			Sample = Emitter.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
-				.ResultType = EMaterialProgramValueType::Float4, .Inputs = {*ResourceValue.GetIndex(), Coordinates}});
+			Sample = EmitTextureRead(Emitter, *this, *ResourceValue.GetIndex(), Coordinates);
 		EmitSampleOutputs(Emitter, Sample, Emitter.IsNormalTexture(ResourceValue));
 	}
 
@@ -493,9 +549,9 @@ namespace Durin
 	{
 		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture);
 		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
+		if (ReadMode > EMaterialTextureReadMode::Grad) return Emitter.Fail("Texture read mode is unsupported.");
 		const auto Coordinates = ResolveUV(Emitter, UV);
-		const auto Sample = Emitter.Emit({.Opcode = EMaterialProgramOpcode::TextureSample2D,
-			.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates}});
+		const auto Sample = EmitTextureRead(Emitter, *this, Resource, Coordinates);
 		EmitSampleOutputs(Emitter, Sample, TextureUsage == ETextureUsage::Normal);
 	}
 

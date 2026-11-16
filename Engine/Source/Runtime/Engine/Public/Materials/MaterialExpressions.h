@@ -1170,7 +1170,20 @@ namespace Durin
 		DPROPERTY()
 		FMaterialNumericInput UV{2};
 
-		auto GetAuthoredInputCount() const -> uint32 override { return 2; }
+		// Inactive operands retain authored intent but are not lowered or evaluated.
+		DPROPERTY(Edit)
+		EMaterialTextureReadMode ReadMode = EMaterialTextureReadMode::Implicit;
+
+		DPROPERTY()
+		FMaterialNumericInput MipValue{1};
+
+		DPROPERTY()
+		FMaterialNumericInput DDX{2};
+
+		DPROPERTY()
+		FMaterialNumericInput DDY{2};
+
+		auto GetAuthoredInputCount() const -> uint32 override { return 5; }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
@@ -1187,7 +1200,20 @@ namespace Durin
 		DPROPERTY()
 		FMaterialNumericInput UV{2};
 
-		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		// Inactive operands retain authored intent but are not lowered or evaluated.
+		DPROPERTY(Edit)
+		EMaterialTextureReadMode ReadMode = EMaterialTextureReadMode::Implicit;
+
+		DPROPERTY()
+		FMaterialNumericInput MipValue{1};
+
+		DPROPERTY()
+		FMaterialNumericInput DDX{2};
+
+		DPROPERTY()
+		FMaterialNumericInput DDY{2};
+
+		auto GetAuthoredInputCount() const -> uint32 override { return 4; }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 

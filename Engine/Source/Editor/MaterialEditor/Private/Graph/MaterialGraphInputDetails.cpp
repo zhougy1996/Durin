@@ -219,6 +219,17 @@ namespace Durin::MaterialEditor
 			if (bConstant && EditLiteral("Value", Type, Value))
 				Submit(Document.SetConstantValue(Expression->Id, MakeParameterValue(Type, Value)));
 		}
+		const auto EditSamplingMode = [&](const auto* Sample) {
+			if (!Sample || Changed) return;
+			int Mode = static_cast<int>(Sample->ReadMode);
+			if (!DetailsStyle::EditRow("Sampling", [&] { return ImGui::Combo("##Value", &Mode, "Implicit\0Level\0Bias\0Grad\0"); })) return;
+			using ExpressionType = std::remove_cv_t<std::remove_pointer_t<decltype(Sample)>>;
+			TStrongObjectPtr<ExpressionType> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
+			Copy->ReadMode = static_cast<EMaterialTextureReadMode>(Mode);
+			Submit(Document.ReplaceExpression(*Copy));
+		};
+		EditSamplingMode(Cast<DMaterialExpressionTextureSample2D>(Expression.Get()));
+		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()));
 		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)
 		{
 			DetailsStyle::EditRow("Channels", [&] {

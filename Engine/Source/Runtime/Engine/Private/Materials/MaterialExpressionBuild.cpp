@@ -286,7 +286,7 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::Emit(FNode Node) -> uint32
 	{
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
-		const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
+		const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType, Node.GetTextureReadMode());
 		if (!Node.HasValidPayload() || !Signature || Node.Inputs.size() != Signature->InputCount)
 			return Fail("Expression opcode, result width, or input count is invalid.");
 		// Adapt authored fixed-width inputs before admitting strictly typed IR.
@@ -348,7 +348,7 @@ namespace Durin::MIR
 		const auto RequestedKind = Node.SpatialKind;
 		const auto RequestedSpace = Node.CoordinateSpace;
 		auto Semantics = ResolveMaterialProgramNodeSemantics(
-			Node.Opcode, Node.ResultType, InputSemantics, Transform);
+			Node.Opcode, Node.ResultType, InputSemantics, Transform, Node.GetTextureReadMode());
 		if (Node.Opcode == EMaterialProgramOpcode::Constant
 			&& Node.SpatialKind != EMaterialSpatialKind::None)
 			Semantics = Node.GetSemantics();

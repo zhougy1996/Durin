@@ -144,6 +144,7 @@ namespace Durin
 			AppendGuid(Bytes, Node.GetCollectionParameter().ParameterId);
 			AppendLittleEndian(Bytes, Node.GetTransform().Source);
 			AppendLittleEndian(Bytes, Node.GetTransform().Destination);
+			AppendLittleEndian(Bytes, Node.GetTextureReadMode());
 			if (const auto* Read = std::get_if<MIR::FCustomDataRead>(&Node.Payload))
 				AppendLittleEndian(Bytes, Read->Index);
 		}

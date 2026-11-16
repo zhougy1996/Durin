@@ -38,7 +38,7 @@ namespace Durin
 	}
 
 	auto GetMaterialProgramNodeSignature(
-		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
+		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType, EMaterialTextureReadMode ReadMode)
 		-> std::optional<FMaterialProgramNodeSignature>
 	{
 		using Type = EMaterialProgramValueType;
@@ -48,6 +48,7 @@ namespace Durin
 		const auto One = [](Type Value) -> std::span<const Type> {
 			return {&Types[static_cast<size_t>(Value)], 1};
 		};
+		if (ReadMode > EMaterialTextureReadMode::Grad) return std::nullopt;
 		const bool bNumeric = ResultType >= Type::Float && ResultType <= Type::Float4;
 		FMaterialProgramNodeSignature Signature;
 		const auto Same = [&](uint8 Count, Type InputType) {
@@ -122,6 +123,12 @@ namespace Durin
 		case EMaterialProgramOpcode::TextureSampleParameter2D:
 			if (ResultType != Type::Float4) return std::nullopt;
 			Same(1, Type::Float2);
+			if (ReadMode != EMaterialTextureReadMode::Implicit)
+			{
+				Signature.InputCount = ReadMode == EMaterialTextureReadMode::Grad ? 3 : 2;
+				Signature.Inputs[1] = One(ReadMode == EMaterialTextureReadMode::Grad ? Type::Float2 : Type::Float);
+				if (ReadMode == EMaterialTextureReadMode::Grad) Signature.Inputs[2] = One(Type::Float2);
+			}
 			break;
 		case EMaterialProgramOpcode::BlendMaterialAttributes:
 			if (ResultType != Type::MaterialAttributes) return std::nullopt;
@@ -147,6 +154,12 @@ namespace Durin
 			Signature.InputCount = 2;
 			Signature.Inputs[0] = One(Type::Texture2D);
 			Signature.Inputs[1] = One(Type::Float2);
+			if (ReadMode != EMaterialTextureReadMode::Implicit)
+			{
+				Signature.InputCount = ReadMode == EMaterialTextureReadMode::Grad ? 4 : 3;
+				Signature.Inputs[2] = One(ReadMode == EMaterialTextureReadMode::Grad ? Type::Float2 : Type::Float);
+				if (ReadMode == EMaterialTextureReadMode::Grad) Signature.Inputs[3] = One(Type::Float2);
+			}
 			break;
 		case EMaterialProgramOpcode::BlendNormalsRNM:
 			if (ResultType != Type::Float3) return std::nullopt;
@@ -286,10 +299,10 @@ namespace Durin
 	auto ResolveMaterialProgramNodeSemantics(EMaterialProgramOpcode Opcode,
 		EMaterialProgramValueType ResultType,
 		std::span<const FMaterialValueSemantics> Inputs,
-		const FMaterialTransformPayload* Transform)
+		const FMaterialTransformPayload* Transform, EMaterialTextureReadMode ReadMode)
 		-> std::optional<FMaterialValueSemantics>
 	{
-		const auto Signature = GetMaterialProgramNodeSignature(Opcode, ResultType);
+		const auto Signature = GetMaterialProgramNodeSignature(Opcode, ResultType, ReadMode);
 		if (!Signature || Inputs.size() != Signature->InputCount) return std::nullopt;
 		for (size_t Index = 0; Index < Inputs.size(); ++Index)
 			if (!IsValidMaterialValueSemantics(Inputs[Index])
@@ -348,7 +361,7 @@ namespace Durin
 			return NonSpatial();
 		case OpcodeType::TextureSample2D:
 		case OpcodeType::TextureSampleParameter2D:
-			return NonSpatial(Stage::Pixel);
+			return NonSpatial(ReadMode == EMaterialTextureReadMode::Level ? Stage::Both : Stage::Pixel);
 		case OpcodeType::DecodeNormalRG:
 			if (IsSpatial(Inputs[0])) return std::nullopt;
 			Result.Kind = Kind::Normal; Result.Space = Space::Tangent;

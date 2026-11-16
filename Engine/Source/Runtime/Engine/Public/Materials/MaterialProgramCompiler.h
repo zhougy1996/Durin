@@ -19,12 +19,12 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 10;
+		inline constexpr uint32 CurrentVersion = 11;
 	}
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 14;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 15;
 	// Classification only. Persisted requests use Shader type/entry identities.
 	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex };
 	using FMaterialShaderEntrySet = std::vector<EMaterialShaderEntry>;
@@ -122,8 +122,13 @@ namespace Durin
 			uint32 Index = 0;
 			auto operator==(const FCustomDataRead&) const -> bool = default;
 		};
+		struct FTextureRead
+		{
+			EMaterialTextureReadMode Mode = EMaterialTextureReadMode::Implicit;
+			auto operator==(const FTextureRead&) const -> bool = default;
+		};
 		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid,
-			FSwizzle, FCollectionParameter, FMaterialTransformPayload, FCustomDataRead>;
+			FSwizzle, FCollectionParameter, FMaterialTransformPayload, FCustomDataRead, FTextureRead>;
 
 		struct FNode
 		{
@@ -161,6 +166,11 @@ namespace Durin
 				const auto* Value = std::get_if<FMaterialTransformPayload>(&Payload);
 				return Value ? *Value : FMaterialTransformPayload{};
 			}
+			auto GetTextureReadMode() const -> EMaterialTextureReadMode
+			{
+				const auto* Read = std::get_if<FTextureRead>(&Payload);
+				return Read ? Read->Mode : EMaterialTextureReadMode::Implicit;
+			}
 			auto GetSemantics() const -> FMaterialValueSemantics
 			{
 				return {ResultType, LegalStages, SpatialKind, CoordinateSpace};
@@ -175,6 +185,11 @@ namespace Durin
 					const auto* Read = std::get_if<FCustomDataRead>(&Payload);
 					return Read && ResultType <= EMaterialProgramValueType::Float4
 						&& Read->Index < 32 && static_cast<uint32>(ResultType) + 1 <= 32 - Read->Index;
+				}
+				case EMaterialProgramOpcode::TextureSample2D:
+				{
+					const auto* Read = std::get_if<FTextureRead>(&Payload);
+					return Read ? Read->Mode <= EMaterialTextureReadMode::Grad : std::holds_alternative<std::monostate>(Payload);
 				}
 				case EMaterialProgramOpcode::Constant: return std::holds_alternative<FMaterialProgramLiteral>(Payload);
 				case EMaterialProgramOpcode::Parameter:

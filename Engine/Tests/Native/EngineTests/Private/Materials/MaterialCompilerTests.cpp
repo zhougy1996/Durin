@@ -501,7 +501,7 @@ namespace
 			|| Node.Opcode == Durin::EMaterialProgramOpcode::TransformNormal
 			? &std::get<Durin::FMaterialTransformPayload>(Node.Payload) : nullptr;
 		const auto Result = Durin::ResolveMaterialProgramNodeSemantics(
-			Node.Opcode, Node.ResultType, Inputs, Transform);
+			Node.Opcode, Node.ResultType, Inputs, Transform, Node.GetTextureReadMode());
 		if (!Result) return;
 		if (Node.Opcode == Durin::EMaterialProgramOpcode::Constant
 			&& Node.SpatialKind != Durin::EMaterialSpatialKind::None) return;
@@ -3209,4 +3209,121 @@ TEST(FMaterialProgramOwnershipTests, ShaderDiagnosticsAreCollectedDirectlyByMate
 	EXPECT_FLOAT_EQ(Result.GetShaderMap().CompileTime, 0.f);
 	EXPECT_EQ(Result.Diagnostics[0].Message, "first compiler error");
 	EXPECT_EQ(Result.Diagnostics[1].Message, "/Generated/Test.slang(7): second compiler error");
+}
+
+
+TEST(FMaterialTextureReadTests, ModesValidateOperandDimensionsAndStageIntersection)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	using Stage = EMaterialEvaluationStage;
+	using Mode = EMaterialTextureReadMode;
+	for (const auto ReadMode : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
+	{
+		std::vector<FMaterialValueSemantics> Inputs{{Type::Texture2D}, {Type::Float2}};
+		if (ReadMode == Mode::Level || ReadMode == Mode::Bias) Inputs.push_back({Type::Float});
+		if (ReadMode == Mode::Grad) { Inputs.push_back({Type::Float2}); Inputs.push_back({Type::Float2}); }
+		const auto Resolve = [&] { return ResolveMaterialProgramNodeSemantics(
+			EMaterialProgramOpcode::TextureSample2D, Type::Float4, Inputs, nullptr, ReadMode); };
+		const auto Result = Resolve();
+		ASSERT_TRUE(Result);
+		EXPECT_EQ(Result->Stages, ReadMode == Mode::Level ? Stage::Both : Stage::Pixel);
+		Inputs[1].Type = Type::Float3;
+		EXPECT_FALSE(Resolve());
+		Inputs[1].Type = Type::Float;
+		EXPECT_FALSE(Resolve());
+		Inputs[1] = {Type::Float2, Stage::Vertex};
+		EXPECT_EQ(bool(Resolve()), ReadMode == Mode::Level);
+		Inputs[1] = {Type::Float2, Stage::Pixel};
+		ASSERT_TRUE(Resolve());
+		EXPECT_EQ(Resolve()->Stages, Stage::Pixel);
+		Inputs.push_back({Type::Float});
+		EXPECT_FALSE(Resolve());
+	}
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::TextureSample2D,
+		Type::Float4, static_cast<Mode>(255)));
+}
+
+TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslation)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode;
+	using Type = EMaterialProgramValueType;
+	using Mode = EMaterialTextureReadMode;
+	InitializeDObjectSystem();
+	std::set<FXxHash128> Identities;
+	for (const auto ReadMode : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
+	{
+		SCOPED_TRACE(static_cast<uint32>(ReadMode));
+		MIR::FCompilerInput Input;
+		Input.IR = MakeDefaultMaterialCompilerIR();
+		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+		const FGuid TextureId{1, 2, 3, 4};
+		Input.Parameters = {{TextureId, EMaterialParameterType::Texture}};
+		const auto Add = [&](MIR::FNode Node) {
+			ResolveNodeSemantics(Input.IR, Node);
+			const auto Index = uint32(Input.IR.Nodes.size());
+			Input.IR.Nodes.push_back(std::move(Node));
+			return Index;
+		};
+		const auto Texture = Add({.Opcode = Op::TextureParameter, .ResultType = Type::Texture2D, .Payload = TextureId});
+		const auto UV = Add({.Opcode = Op::Constant, .ResultType = Type::Float2, .Payload = FMaterialProgramLiteral{.25f,.75f}});
+		std::vector<uint32> Operands{Texture, UV};
+		if (ReadMode == Mode::Level || ReadMode == Mode::Bias)
+			Operands.push_back(Add({.Opcode = Op::Constant, .ResultType = Type::Float, .Payload = FMaterialProgramLiteral{1}}));
+		if (ReadMode == Mode::Grad) { Operands.push_back(UV); Operands.push_back(UV); }
+		const auto Sample = Add({.Opcode = Op::TextureSample2D, .ResultType = Type::Float4,
+			.Inputs = Operands, .Payload = MIR::FTextureRead{ReadMode}});
+		const auto RGB = Add({.Opcode = Op::Swizzle, .ResultType = Type::Float3, .Inputs = {Sample},
+			.Payload = MIR::FSwizzle{3, {0,1,2}}});
+		auto& Emissive = Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor);
+		Emissive.bExpression = true; Emissive.ExpressionIndex = RGB;
+		const auto Normalized = MIR::Normalize(Input);
+		ASSERT_TRUE(Normalized);
+		EXPECT_TRUE(Identities.insert(Normalized.Identity.Digest).second);
+		const auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(Input);
+		ASSERT_TRUE(Encoded);
+		const auto Decoded = MaterialBuildPrivate::DecodeTranslationInput(Encoded->GetBytes());
+		ASSERT_TRUE(Decoded);
+		EXPECT_EQ(Decoded->IR, Input.IR);
+		const auto Compiled = MIR::Compile(*Decoded);
+		ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "" : Compiled.Diagnostics.front().Message);
+		const auto CheckCooked = [&](const auto& Program) {
+			FByteBuffer Bytes;
+			auto Result = Testing::EncodeMaterialCookedProgramFamilyForTest(Program.Resource, Input.StaticProperties,
+				ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+			ASSERT_TRUE(Result) << Result.error();
+			FMaterialStaticProperties Properties;
+			std::shared_ptr<const FMaterialProgram> Cooked;
+			Result = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64,
+				ECookTargetProfile::Game, Program.Resource, Properties, Cooked);
+			ASSERT_TRUE(Result) << Result.error();
+			ASSERT_TRUE(Cooked);
+			EXPECT_TRUE(Cooked->GetDebugData().IR.Nodes.empty());
+			EXPECT_TRUE(Cooked->GetDebugData().GeneratedSource.empty());
+			EXPECT_EQ(Cooked->GetShaderMap().Layout, Program.GetShaderMap().Layout);
+			EXPECT_EQ(Cooked->GetShaderMap().ShaderMapId, Program.GetShaderMap().ShaderMapId);
+		};
+		CheckCooked(Compiled);
+		for (const auto& Shader : Compiled.GetShaderMap().CompiledShaders)
+		{
+			const bool PixelSurface = Shader.SourceEntryPoint == "FragmentMain" || Shader.SourceEntryPoint == "GeometryFragmentMain";
+			EXPECT_EQ(std::ranges::contains(Shader.Reflection.ResourceBindings, "MaterialTexture0", &FShaderResourceBinding::Name), PixelSurface);
+		}
+		Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression = true;
+		Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex = RGB;
+		const auto Vertex = MIR::Normalize(Input);
+		EXPECT_EQ(bool(Vertex), ReadMode == Mode::Level);
+		if (ReadMode == Mode::Level)
+		{
+			const auto VertexCompiled = MIR::Compile(Input);
+			ASSERT_TRUE(VertexCompiled) << (VertexCompiled.Diagnostics.empty() ? "" : VertexCompiled.Diagnostics.front().Message);
+			CheckCooked(VertexCompiled);
+			for (const auto& Shader : VertexCompiled.GetShaderMap().CompiledShaders)
+				if (Shader.Frequency == EShaderFrequency::Vertex)
+					EXPECT_TRUE(std::ranges::contains(Shader.Reflection.ResourceBindings, "MaterialTexture0", &FShaderResourceBinding::Name));
+		}
+		Input.IR.Nodes[Sample].Payload = MIR::FTextureRead{static_cast<Mode>(255)};
+		EXPECT_FALSE(MIR::Normalize(Input));
+	}
 }
