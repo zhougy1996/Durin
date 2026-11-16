@@ -4,7 +4,7 @@
 
 #include "DurinEdAPI.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Asset/MutationExtensions.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin { class DAssetEditorSubsystem; class IPackageReloadParticipant; }
 
@@ -15,7 +15,7 @@ namespace Durin
 	// Owns one toolkit's document identity, activation, persistence and close decisions.
 	// Tab presentation and docking belong to FTabManager and TabLayout.
 	// Every resolved asset document retains its asset until closed or its controller is destroyed.
-	class FEditorDocumentManager final : private IAssetMoveObserver
+	class FEditorDocumentManager final
 	{
 	public:
 		DURINED_API FEditorDocumentManager();
@@ -65,8 +65,7 @@ namespace Durin
 
 	private:
 		auto SynchronizeAssets() -> void;
-		auto OnAssetsRelocated(
-			std::span<const FAssetRelocationMapping> Mappings) -> void override;
+		auto OnAssetRenamed(const FAssetData& Asset, const FSoftObjectPath& OldPath) -> void;
 		auto FindDocument(FDocumentId DocumentId) -> FEditorDocument*;
 		auto FindDocument(const FAssetEditorToolkitId& ToolkitId, std::string_view DocumentKey) -> FEditorDocument*;
 		auto RequestDeactivateActiveDocument(FDocumentId NextDocumentId = {}) -> bool;
@@ -74,6 +73,6 @@ namespace Durin
 		static auto AssetLabel(std::string_view ResourceId) -> std::string;
 
 		std::shared_ptr<DocumentPrivate::FEditorDocumentState> State;
-		FAssetMoveObserverHandle AssetMoveObserverHandle = 0;
+		FDelegateHandle AssetRenameHandle;
 	};
 }

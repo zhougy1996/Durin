@@ -1,8 +1,6 @@
-#include "AssetTools/Relocation.h"
+#include "AssetTools/MutationTesting.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
-#include "AssetTools/RedirectorFixup.h"
-#include "AssetTools/MutationTesting.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -45,8 +43,8 @@ namespace
 		const Durin::FPackagePath& Source,
 		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
-		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-		return Durin::RelocateAssets(std::span{&Mapping, 1}).Result;
+		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
+		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
 	}
 }
 
@@ -68,7 +66,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
 	const auto Created = Durin::IAssetTools::Get().ImportPackageLeafAssetForTesting(
-		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
+		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &CreatedFeedback);
 	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result{
 		static_cast<bool>(Created), CreatedError, Durin::Cast<Durin::DTexture2D>(Created)};
 	ASSERT_TRUE(Result) << Result.Message;

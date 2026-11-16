@@ -239,7 +239,7 @@ namespace Durin::ContentBrowser
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		TWeakObjectPtr<DContentBrowserDataSubsystem> DataSubsystem;
 		std::function<void(ELogLevel, std::string_view)> ReportDiagnostic;
-		std::function<bool(std::span<const FPackagePath>)> FixUpRedirectors;
+		std::function<bool(std::span<const FTopLevelAssetPath>)> FixUpRedirectors;
 		std::function<bool(std::string_view)> FixUpRedirectorsInFolder;
 		std::function<bool()> FixUpAllRedirectors;
 		operator FContentBrowserOperationContext() const

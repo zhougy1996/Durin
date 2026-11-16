@@ -1,3 +1,5 @@
+#include "PackageTools.h"
+#include "Misc/FeedbackContext.h"
 #include "LevelEditorModule.h"
 #include "Toolkits/ToolkitManager.h"
 #include "LevelAssetEditor.h"
@@ -58,8 +60,8 @@ namespace Durin
 					CreatedError += Message;
 				}
 			});
-			const auto Created = IAssetTools::Get().CreateAsset(
-				AssetPath, DLevel::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
+			Durin::FScopedFeedbackContext CreationFeedbackScope(CreatedFeedback);
+			const auto Created = Durin::IAssetTools::Get().CreateAsset((AssetPath).GetAssetName(), (AssetPath).GetPackagePath().ToString().substr(0, (AssetPath).GetPackagePath().ToString().find_last_of('/')), DLevel::StaticClass(), nullptr);
 			if (!Created)
 			{
 				OutError = CreatedError;
@@ -69,7 +71,7 @@ namespace Durin
 			if (!SavePackage(Created->GetPackage(), {}, &Result))
 			{
 				OutError = (Result.Error ? Result.Error->ToString() : std::string{});
-				if (!IAssetTools::Get().DiscardPackage(Created->GetPackage()))
+				if (!([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Created->GetPackage()}, Error, true) && Error.empty(); }()))
 					OutError += " The unsaved level package could not be discarded.";
 				return false;
 			}

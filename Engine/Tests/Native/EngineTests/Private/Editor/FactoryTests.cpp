@@ -1,6 +1,13 @@
+#include "AssetRegistry/Publication.h"
+#include "Editor/TransactionRecordTestSupport.h"
+#include "Asset/Redirector.h"
+#include "ObjectTools.h"
+#include "PackageTools.h"
+#include "Misc/FeedbackContext.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Misc/UnifiedError.h"
 #include "Factories/Factory.h"
+#include "FileHelpers.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/EditorReimportHandler.h"
@@ -25,10 +32,31 @@
 
 #include "NativeDObjectTestSupport.h"
 #include "NativeAssetTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
+#include "Materials/Material.h"
 #include "AssetRegistry/Scan.h"
 
 namespace
 {
+	auto SavePackagesForTest(std::vector<Durin::FPackagePath> Paths, Durin::FFeedbackContext* Feedback = nullptr,
+		std::function<void(const Durin::FPackagePath&)> OnSaved = {}) -> bool
+	{
+		Durin::FScopedFeedbackContext Scope(Feedback ? *Feedback : Durin::FFeedbackContext::Get());
+		Durin::FScopedPackageSaveObserver Observer(std::move(OnSaved));
+		std::vector<Durin::DPackage*> Packages;
+		for (const auto& Path : Paths) Packages.push_back(Durin::FindResidentPackage(Path));
+		return Durin::DEditorLoadingAndSavingUtils::SavePackages(Packages, true);
+	}
+
+	auto CreateAssetForTest(const Durin::FPackagePath& Path, Durin::DClass* Class,
+		Durin::DFactory* Factory, Durin::FFeedbackContext* Feedback) -> Durin::DObject*
+	{
+		Durin::FScopedFeedbackContext Scope(*Feedback);
+		const auto Text = Path.ToString();
+		return Durin::IAssetTools::Get().CreateAsset(Path.GetPackageName(),
+			Text.substr(0, Text.find_last_of('/')), Class, Factory);
+	}
+
 	class DFactoryAssetForTest : public Durin::DObject
 	{
 	public:
@@ -70,6 +98,87 @@ namespace
 			static Durin::DClass* Class = ConstructDClass(Params);
 			return Class;
 		}
+	};
+
+	class DAssetRenameReferencesForTest : public Durin::DObject
+	{
+	public:
+		explicit DAssetRenameReferencesForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DAssetRenameReferencesForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DAssetRenameReferencesForTest",
+					sizeof(DAssetRenameReferencesForTest), alignof(DAssetRenameReferencesForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DAssetRenameReferencesForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				auto* ValueProperty = new Durin::FNumericProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(DAssetRenameReferencesForTest, Value),
+					sizeof(int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+				Durin::Tests::ObjectState::SetValueLifecycle<int32>(*ValueProperty);
+
+				auto* HardProperty = new Durin::FObjectProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Hard"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(DAssetRenameReferencesForTest, Hard),
+					sizeof(Durin::TObjectPtr<Durin::DObject>),
+					Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true,
+					[](const void* Value) -> Durin::DObject* {
+						return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(Value)->Get();
+					},
+					[](void* Value, Durin::DObject* Object) {
+						*static_cast<Durin::TObjectPtr<Durin::DObject>*>(Value) = Object;
+					});
+				Durin::Tests::ObjectState::SetValueLifecycle<Durin::TObjectPtr<Durin::DObject>>(*HardProperty);
+
+				auto* SoftProperty = new Durin::FSoftObjectProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Soft"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::Edit, 1, STRUCT_OFFSET_UINT16(DAssetRenameReferencesForTest, Soft),
+					sizeof(Durin::TSoftObjectPtr<Durin::DObject>), Durin::DObject::StaticClass(),
+					[](void* Value) -> Durin::FSoftObjectPtr* {
+						return &static_cast<Durin::TSoftObjectPtr<Durin::DObject>*>(Value)->GetBase();
+					},
+					[](const void* Value) -> const Durin::FSoftObjectPtr* {
+						return &static_cast<const Durin::TSoftObjectPtr<Durin::DObject>*>(Value)->GetBase();
+					});
+				Durin::Tests::ObjectState::SetValueLifecycle<Durin::TSoftObjectPtr<Durin::DObject>>(*SoftProperty);
+
+				ValueProperty->SetNext(HardProperty); HardProperty->SetNext(SoftProperty);
+				Class->SetChildProperties(ValueProperty);
+
+				Class->Register(Durin::DClass::StaticClass, "", "DAssetRenameReferencesForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin::DurinCodeGen;
+			static const FClassParams Params{
+				&StaticClassNoRegister, "Tests::DAssetRenameReferencesForTest",
+				"DAssetRenameReferencesForTest", nullptr, 0};
+			static Durin::DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+		int32 Value = 0;
+		Durin::TObjectPtr<Durin::DObject> Hard;
+		Durin::TSoftObjectPtr<Durin::DObject> Soft;
+
 	};
 
 	class DAssetToolsFactoryForTest : public Durin::DFactory
@@ -124,8 +233,12 @@ namespace
 			Durin::FName InName,
 			Durin::EObjectFlags Flags,
 			Durin::DObject*,
-			Durin::FFactoryDiagnostics* Diagnostics) const -> Durin::DObject* override
+			Durin::FFeedbackContext* Warn, Durin::FName CallingContext) -> Durin::DObject* override
 		{
+			++Calls;
+			LastCallingContext = CallingContext;
+		Durin::FFactoryDiagnostics DiagnosticStorage(Warn);
+		auto* Diagnostics = &DiagnosticStorage;
 			if (Mode == EMode::TypedFail)
 			{
 				if (Diagnostics) Diagnostics->ReportFailure({
@@ -146,20 +259,25 @@ namespace
 				Mode == EMode::WrongName ? Durin::FName("UnexpectedName") : InName, Flags);
 		}
 
-		auto FactoryCreateFromFile(
+		auto FactoryCreateFile(
 			Durin::DClass* InClass,
 			Durin::DObject* InParent,
 			Durin::FName InName,
 			Durin::EObjectFlags Flags,
 			std::string_view,
-			Durin::DObject* Context,
-			Durin::FFactoryDiagnostics* Diagnostics) const -> Durin::DObject* override
+			std::string_view Parms,
+			Durin::FFeedbackContext* Warn, bool& bOutOperationCanceled) -> Durin::DObject* override
 		{
+		Durin::FFactoryDiagnostics DiagnosticStorage(Warn);
+		auto* Diagnostics = &DiagnosticStorage;
+		bOutOperationCanceled = false;
 			return FactoryCreateNew(
-				InClass, InParent, InName, Flags, Context, Diagnostics);
+				InClass, InParent, InName, Flags, nullptr, Warn, {});
 		}
 
 		EMode Mode = EMode::Success;
+		uint32 Calls = 0;
+		Durin::FName LastCallingContext;
 	};
 
 	class FStandaloneReimportHandlerForTest final : public Durin::FReimportHandler
@@ -218,30 +336,22 @@ namespace
 	};
 
 	using FFactoryCreateNewSignature = Durin::DObject* (Durin::DFactory::*)(
-		Durin::DClass*,
-		Durin::DObject*,
-		Durin::FName,
-		Durin::EObjectFlags,
-		Durin::DObject*,
-		Durin::FFactoryDiagnostics*) const;
-	using FFactoryCreateFromFileSignature = Durin::DObject* (Durin::DFactory::*)(
-		Durin::DClass*,
-		Durin::DObject*,
-		Durin::FName,
-		Durin::EObjectFlags,
-		std::string_view,
-		Durin::DObject*,
-		Durin::FFactoryDiagnostics*) const;
+		Durin::DClass*, Durin::DObject*, Durin::FName, Durin::EObjectFlags,
+		Durin::DObject*, Durin::FFeedbackContext*, Durin::FName);
+	using FFactoryCreateFileSignature = Durin::DObject* (Durin::DFactory::*)(
+		Durin::DClass*, Durin::DObject*, Durin::FName, Durin::EObjectFlags,
+		std::string_view, std::string_view, Durin::FFeedbackContext*, bool&);
 
 	static_assert(std::is_same_v<
 		decltype(&Durin::DFactory::FactoryCreateNew),
 		FFactoryCreateNewSignature>);
 	static_assert(std::is_same_v<
-		decltype(&Durin::DFactory::FactoryCreateFromFile),
-		FFactoryCreateFromFileSignature>);
+		decltype(&Durin::DFactory::FactoryCreateFile),
+		FFactoryCreateFileSignature>);
 
 	auto InitializeFactoryTestGameThread() -> void
 	{
+		Durin::Testing::InitializeAssetSystemForTests();
 		if (Durin::GIsGameThreadIdInitialized) return;
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 		Durin::GIsGameThreadIdInitialized = true;
@@ -270,7 +380,7 @@ namespace
 		return Factory;
 	}
 
-	auto MakeImportRequest(std::string_view Path, const Durin::DFactory* Factory)
+	auto MakeImportRequest(std::string_view Path, Durin::DFactory* Factory)
 		-> Durin::FAssetImportRequest
 	{
 		Durin::FPackagePath PackagePath;
@@ -319,7 +429,7 @@ TEST(DFactoryTests, BatchContinuesAfterFactoryFailureAndKeepsSuccessfulPeersDirt
 		ASSERT_NE(Result[Index], nullptr);
 		EXPECT_TRUE(Result[Index]->GetPackage()->IsDirty());
 		ASSERT_NE(Result[Index]->GetPackage(), nullptr);
-		EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result[Index]->GetPackage()));
+		EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Result[Index]->GetPackage()}, Error, true) && Error.empty(); }()));
 	}
 }
 
@@ -382,7 +492,7 @@ TEST(DFactoryTests, BatchRevalidatesDestinationAfterPreflight)
 	ASSERT_EQ(Result.size(), 1u);
 	EXPECT_EQ(Result[0], nullptr);
 	EXPECT_EQ(Durin::FindPackage(Item.AssetPath.GetPackagePath().GetView()), Occupant);
-	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Occupant));
+	EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Occupant}, Error, true) && Error.empty(); }()));
 }
 
 TEST(DFactoryTests, BatchCancellationPreservesAlreadyAcceptedAsset)
@@ -400,7 +510,7 @@ TEST(DFactoryTests, BatchCancellationPreservesAlreadyAcceptedAsset)
 	EXPECT_EQ(Result[1], nullptr);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Second.AssetPath.GetPackagePath().GetView()), nullptr);
-	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result[0]->GetPackage()));
+	EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Result[0]->GetPackage()}, Error, true) && Error.empty(); }()));
 }
 
 TEST(DFactoryTests, ExposesAbstractReflectedFactoryContract)
@@ -449,14 +559,13 @@ TEST(DFactoryTests, AssetToolsCreatesConcreteAssetsWithoutSpecializedFactory)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, Durin::DObject::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	auto Result = CreateAssetForTest(Path, Durin::DObject::StaticClass(), nullptr, &ResultFeedback);
 	ASSERT_TRUE(Result) << ResultError;
 	ASSERT_NE(Result, nullptr);
 	ASSERT_NE(Result->GetPackage(), nullptr);
 	EXPECT_EQ(Result->GetOuter(), Result->GetPackage());
 	EXPECT_EQ(Result->GetPackage()->FindTopLevelAsset(Result->GetFName()), Result);
-	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result->GetPackage()));
+	EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Result->GetPackage()}, Error, true) && Error.empty(); }()));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
@@ -562,8 +671,7 @@ TEST(DFactoryTests, FactoryFailureReportsDiagnosticAndDiscardsPackage)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	const auto Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), Factory, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	EXPECT_NE(ResultError.find("test factory failure"), std::string::npos);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
@@ -583,8 +691,7 @@ TEST(DFactoryTests, WrongOuterIsRejectedAndPackageIsDiscarded)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	const auto Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), Factory, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
@@ -603,8 +710,7 @@ TEST(DFactoryTests, WrongClassIsRejectedAndPackageIsDiscarded)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	const auto Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), Factory, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
@@ -619,8 +725,7 @@ TEST(DFactoryTests, SaveFailureLeavesCreatedPackageAvailableForDiscard)
 	Durin::Testing::RegisterMountPointForTests(
 		"/AssetToolsSaveFailure/", InvalidRoot.generic_string() + "/");
 	Durin::Testing::RemoveTestWorkDirectory(InvalidRoot);
-	const std::array InvalidRootBytes{std::byte{1}};
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(InvalidRootBytes, InvalidRoot));
+	ASSERT_TRUE(std::filesystem::create_directories(InvalidRoot));
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsSaveFailure/SaveFailure", Path));
@@ -629,12 +734,14 @@ TEST(DFactoryTests, SaveFailureLeavesCreatedPackageAvailableForDiscard)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
-	ASSERT_TRUE(Result);
+	const auto Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), Factory, &ResultFeedback);
+	ASSERT_TRUE(Result) << ResultError;
+	const auto Blocker = InvalidRoot / "SaveFailure.dasset";
+	ASSERT_TRUE(std::filesystem::create_directory(Blocker));
 	EXPECT_FALSE(Durin::SavePackage(Result->GetPackage()));
+	EXPECT_TRUE(std::filesystem::remove(Blocker));
 	EXPECT_EQ(Durin::FindResidentPackage(Path), Result->GetPackage());
-	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result->GetPackage()));
+	EXPECT_TRUE(([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Result->GetPackage()}, Error, true) && Error.empty(); }()));
 }
 
 TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
@@ -649,8 +756,7 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	const auto Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), Factory, &ResultFeedback);
 	ASSERT_TRUE(Result);
 	EXPECT_TRUE(Result->GetPackage()->IsNewlyCreated());
 	ASSERT_TRUE(Durin::SavePackage(Result->GetPackage()));
@@ -679,20 +785,16 @@ TEST(DFactoryTests, SaveNotifiesEachSavedPackageAndDuplicateRequiresExplicitSave
 	EnsureAssetToolsTestMount();
 	FPackagePath SourcePath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/OperationSource", SourcePath));
-	auto* Created = IAssetTools::Get().CreatePackageLeafAssetForTesting(SourcePath,
-		DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success));
+	auto* Created = CreateAssetForTest(SourcePath, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), &(Durin::FFeedbackContext::Get()));
 	ASSERT_NE(Created, nullptr);
 	std::vector<FPackagePath> Saved;
-	ASSERT_TRUE(IAssetTools::Get().SaveAssets({.AssetPaths = {SourcePath},
-		.OnSaved = [&](const FPackagePath& Path) { Saved.push_back(Path); }}));
+	ASSERT_TRUE(SavePackagesForTest({SourcePath}, nullptr, [&](const FPackagePath& Path) { Saved.push_back(Path); }));
 	EXPECT_EQ(Saved, std::vector{SourcePath});
-	auto* Copy = IAssetTools::Get().DuplicateAsset({
-		.SourcePath = Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath),
-		.DestinationDirectory = "/AssetToolsTests/"});
+	auto* Copy = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); auto* Source = Durin::LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath), nullptr); std::vector<Durin::DObject*> Copies; Durin::ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, "/AssetToolsTests/", false, &Copies); return Copies.empty() ? nullptr : Copies.front(); }());
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_TRUE(Copy->GetPackage()->IsDirty());
 	const auto CopyPath = Copy->GetPackage()->GetPackagePathIdentity();
-	ASSERT_TRUE(IAssetTools::Get().SaveAssets({.AssetPaths = {CopyPath}}));
+	ASSERT_TRUE(SavePackagesForTest({CopyPath}, nullptr, {}));
 	EXPECT_TRUE(UnloadPackage(CopyPath));
 	if (FindResidentPackage(SourcePath)) EXPECT_TRUE(UnloadPackage(SourcePath));
 	EXPECT_EQ(FindResidentPackage(SourcePath), nullptr);
@@ -713,8 +815,7 @@ TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
 		Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 			if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 		});
-		const auto Created = IAssetTools::Get().CreatePackageLeafAssetForTesting(
-			Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+		const auto Created = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), &CreatedFeedback);
 		ASSERT_TRUE(Created);
 		Paths.push_back(Path);
 		Packages.push_back(Created->GetPackage());
@@ -726,8 +827,7 @@ TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[0], Paths[1], Paths[2], Paths[0]},
-		.OnSaved = [&](const FPackagePath& Path) { Notifications.push_back(Path); }}, &ResultFeedback);
+	const auto Result = SavePackagesForTest({Paths[0], Paths[1], Paths[2], Paths[0]}, &ResultFeedback, [&](const FPackagePath& Path) { Notifications.push_back(Path); });
 	EXPECT_FALSE(Result);
 	EXPECT_NE(ResultError.find(Paths[1].ToString()), std::string::npos);
 	EXPECT_EQ(Notifications, (std::vector{Paths[0], Paths[2]}));
@@ -738,8 +838,7 @@ TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
 	Durin::FFeedbackContext FailedOnlyFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!FailedOnlyError.empty()) FailedOnlyError += "\n"; FailedOnlyError += Message; }
 	});
-	const auto FailedOnly = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[1]},
-		.OnSaved = [&](const FPackagePath& Path) { Notifications.push_back(Path); }}, &FailedOnlyFeedback);
+	const auto FailedOnly = SavePackagesForTest({Paths[1]}, &FailedOnlyFeedback, [&](const FPackagePath& Path) { Notifications.push_back(Path); });
 	EXPECT_FALSE(FailedOnly);
 	EXPECT_EQ(Notifications, (std::vector{Paths[0], Paths[2]}));
 	std::filesystem::remove(Blocker);
@@ -747,7 +846,7 @@ TEST(DFactoryTests, BatchSaveContinuesAfterFailureAndPublishesOnlySavedPackages)
 	Durin::FFeedbackContext RetryFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!RetryError.empty()) RetryError += "\n"; RetryError += Message; }
 	});
-	const auto Retry = IAssetTools::Get().SaveAssets({.AssetPaths = {Paths[1]}}, &RetryFeedback);
+	const auto Retry = SavePackagesForTest({Paths[1]}, &RetryFeedback, {});
 	EXPECT_TRUE(Retry) << RetryError;
 	for (const auto& Path : Paths)
 	{
@@ -767,17 +866,14 @@ TEST(DFactoryTests, DuplicateDefaultsToDirtyMemoryAndResolvesItsOwnDestination)
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		SourcePath, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+	const auto Created = CreateAssetForTest(SourcePath, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), &CreatedFeedback);
 	ASSERT_TRUE(Created);
 	EXPECT_FALSE(FindPackageExact(SourcePath));
 	std::string CopyError;
 	Durin::FFeedbackContext CopyFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CopyError.empty()) CopyError += "\n"; CopyError += Message; }
 	});
-	const auto Copy = IAssetTools::Get().DuplicateAsset({
-		.SourcePath = Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath),
-		.DestinationDirectory = "/AssetToolsTests/LiveCopies"}, &CopyFeedback);
+	const auto Copy = ([&] { Durin::FScopedFeedbackContext Scope(*(&CopyFeedback)); auto* Source = Durin::LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath), nullptr); std::vector<Durin::DObject*> Copies; Durin::ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, "/AssetToolsTests/LiveCopies", false, &Copies); return Copies.empty() ? nullptr : Copies.front(); }());
 	ASSERT_TRUE(Copy) << CopyError;
 	ASSERT_NE(Copy, nullptr);
 	EXPECT_NE(Copy, Created);
@@ -792,11 +888,9 @@ TEST(DFactoryTests, DuplicateDefaultsToDirtyMemoryAndResolvesItsOwnDestination)
 	Durin::FFeedbackContext RepeatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!RepeatedError.empty()) RepeatedError += "\n"; RepeatedError += Message; }
 	});
-	const auto Repeated = IAssetTools::Get().DuplicateAsset({
-		.SourcePath = Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath),
-		.DestinationDirectory = "/AssetToolsTests/LiveCopies"}, &RepeatedFeedback);
+	const auto Repeated = ([&] { Durin::FScopedFeedbackContext Scope(*(&RepeatedFeedback)); auto* Source = Durin::LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath), nullptr); std::vector<Durin::DObject*> Copies; Durin::ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, "/AssetToolsTests/LiveCopies", false, &Copies); return Copies.empty() ? nullptr : Copies.front(); }());
 	ASSERT_TRUE(Repeated);
-	EXPECT_EQ(Repeated->GetPackage()->GetPackagePathIdentity().GetPackageName(), "LiveDuplicateSource_Copy");
+	EXPECT_EQ(Repeated->GetPackage()->GetPackagePathIdentity().GetPackageName(), "LiveDuplicateSource1");
 	const auto RepeatedPath = Repeated->GetPackage()->GetPackagePathIdentity();
 	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(RepeatedPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
@@ -814,17 +908,14 @@ TEST(DFactoryTests, DuplicateSaveFailureRetainsLiveCopyAndAllowsOrdinarySaveRetr
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		SourcePath, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+	const auto Created = CreateAssetForTest(SourcePath, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), &CreatedFeedback);
 	ASSERT_TRUE(Created);
 	TStrongObjectPtr<DObject> SourceOwner(Created);
 	ASSERT_TRUE(SavePackage(Created->GetPackage()));
 	for (auto Phase : {Testing::EPackageSaveFaultPoint::PublishPackage, Testing::EPackageSaveFaultPoint::PublishRegistry})
 	{
 		SCOPED_TRACE(static_cast<int>(Phase));
-		auto* Copy = IAssetTools::Get().DuplicateAsset({
-			.SourcePath = Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath),
-			.DestinationDirectory = "/AssetToolsTests/FailedCopies"});
+		auto* Copy = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); auto* Source = Durin::LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath), nullptr); std::vector<Durin::DObject*> Copies; Durin::ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, "/AssetToolsTests/FailedCopies", false, &Copies); return Copies.empty() ? nullptr : Copies.front(); }());
 		ASSERT_NE(Copy, nullptr);
 		FAssetWriteResult Saved;
 		{
@@ -881,8 +972,7 @@ TEST(DFactoryTests, TypedFactoryFailureSurvivesPackageDiscard)
 	Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 	});
-	const auto Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), Factory, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &ResultFeedback);
+	const auto Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), Factory, &ResultFeedback);
 	EXPECT_FALSE(Result);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone); // Owner boundary after factory callbacks have returned.
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
@@ -964,8 +1054,7 @@ TEST(DFactoryTests, SuccessfulReimportSaveReportsOwnedPersistenceResult)
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+	const auto Created = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), &CreatedFeedback);
 	ASSERT_TRUE(Created) << CreatedError;
 	Durin::FReimportResult Result;
 	Durin::FReimportManager::Reimport(*Created, {.bSave = true},
@@ -990,8 +1079,7 @@ TEST(DFactoryTests, ReimportProjectionFailureRetainsSaveEffectAndImportSuccess)
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
-		Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+	const auto Created = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Success), &CreatedFeedback);
 	ASSERT_TRUE(Created) << CreatedError;
 	Durin::FReimportResult Result;
 	{
@@ -1020,12 +1108,560 @@ TEST(DFactoryTests, FailedCandidateRequestsCollectionBeforeHostSafePoint)
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/ProtectedFailure", Path));
 	{
-		auto* Result = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path,
-			DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Fail));
+		auto* Result = CreateAssetForTest(Path, DFactoryAssetForTest::StaticClass(), MakeFactory(DAssetToolsFactoryForTest::EMode::Fail), &(Durin::FFeedbackContext::Get()));
 		EXPECT_EQ(Result, nullptr);
 		EXPECT_EQ(FindResidentPackage(Path), nullptr);
 		EXPECT_TRUE(IsGarbageCollectionRequested());
 	}
 	EXPECT_TRUE(TryCollectGarbage(Durin::EObjectFlags::Standalone));
 	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
+}
+
+TEST(DFactoryTests, CreationInfersClassRoutesCallingContextAndDoesNotExecuteTheDefaultFactory)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	auto* Created = IAssetTools::Get().CreateAsset("CallingContext", "/AssetToolsTests", nullptr, Factory, FName("Creator"));
+	ASSERT_NE(Created, nullptr);
+	EXPECT_EQ(Factory->Calls, 1u);
+	EXPECT_EQ(Factory->LastCallingContext, FName("Creator"));
+	const auto CreationFlags = EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional;
+	EXPECT_EQ(Created->GetObjectFlags() & CreationFlags, CreationFlags);
+	const std::array Classes{DAssetToolsFactoryForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	DFactory::InvalidateFactoryCache();
+	auto* Default = Cast<DAssetToolsFactoryForTest>(Classes[0]->GetDefaultObject());
+	ASSERT_NE(Default, nullptr);
+	const auto Calls = Default->Calls;
+	auto* Other = IAssetTools::Get().CreateAsset("DefaultFactory", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(Other, nullptr);
+	EXPECT_EQ(Default->Calls, Calls);
+	const auto CreatedPath = Created->GetPackage()->GetPackagePathIdentity();
+	const auto OtherPath = Other->GetPackage()->GetPackagePathIdentity();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(CreatedPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(OtherPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DFactoryTests, OverwritePreservesTheOriginalOnFactoryFailureAndRejectsUnclaimedOwners)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	auto* Original = IAssetTools::Get().CreateAsset("Overwrite", "/AssetToolsTests", nullptr, Factory);
+	ASSERT_NE(Original, nullptr);
+	const auto Path = Original->GetPackage()->GetPackagePathIdentity();
+	Factory->Mode = DAssetToolsFactoryForTest::EMode::Fail;
+	EXPECT_EQ(IAssetTools::Get().CreateAsset("Overwrite", "/AssetToolsTests", nullptr, Factory, {}, true), nullptr);
+	EXPECT_EQ(FindResidentPackage(Path), Original->GetPackage());
+	Factory->Mode = DAssetToolsFactoryForTest::EMode::Success;
+	{
+		TStrongObjectPtr<DObject> Protected(Original);
+		EXPECT_EQ(IAssetTools::Get().CreateAsset("Overwrite", "/AssetToolsTests", nullptr, Factory, {}, true), nullptr);
+		EXPECT_EQ(Protected.Get(), Original);
+	}
+	auto* Replacement = IAssetTools::Get().CreateAsset("Overwrite", "/AssetToolsTests", nullptr, Factory, {}, true);
+	ASSERT_NE(Replacement, nullptr);
+	EXPECT_NE(Replacement, Original);
+	EXPECT_EQ(FindResidentPackage(Path), Replacement->GetPackage());
+	EXPECT_TRUE(Replacement->GetPackage()->IsDirty());
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DFactoryTests, UniqueNamingUsesNumericSuffixesAndExplicitDuplicateRejectsCollision)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Source = IAssetTools::Get().CreateAsset("Numeric007", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(Source, nullptr);
+	std::string Package, Name;
+	IAssetTools::Get().CreateUniqueAssetName("/AssetToolsTests/Numeric007", {}, Package, Name);
+	EXPECT_EQ(Name, "Numeric008");
+	auto* Copy = IAssetTools::Get().DuplicateAsset(Name, "/AssetToolsTests", Source);
+	ASSERT_NE(Copy, nullptr);
+	EXPECT_TRUE(Copy->GetPackage()->IsDirty());
+	EXPECT_EQ(IAssetTools::Get().DuplicateAsset(Name, "/AssetToolsTests", Source), nullptr);
+	IAssetTools::Get().CreateUniqueAssetName("/AssetToolsTests/123", {}, Package, Name);
+	EXPECT_EQ(Name, "123_2");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Copy->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Source->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DFactoryTests, SaveFilteringAndPromptDecisionsDoNotConfuseDeclineWithCancellation)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	EXPECT_TRUE(DEditorLoadingAndSavingUtils::SavePackages({}, true));
+	auto* Asset = IAssetTools::Get().CreateAsset("PromptSave", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(Asset, nullptr);
+	auto* Package = Asset->GetPackage();
+	const auto Path = Package->GetPackagePathIdentity();
+	FEditorFileUtils::FPromptForCheckoutAndSaveParams Params;
+	Params.bPromptToSave = true;
+	FEditorFileUtils::SetSavePrompt([](auto, const auto&) { return FEditorFileUtils::PR_Declined; });
+	EXPECT_EQ(FEditorFileUtils::PromptForCheckoutAndSave(std::span{&Package, 1}, Params), FEditorFileUtils::PR_Declined);
+	EXPECT_TRUE(Package->IsDirty());
+	Params.bCanBeDeclined = false;
+	EXPECT_EQ(FEditorFileUtils::PromptForCheckoutAndSave(std::span{&Package, 1}, Params), FEditorFileUtils::PR_Cancelled);
+	FEditorFileUtils::SetSavePrompt({});
+	EXPECT_EQ(FEditorFileUtils::PromptForCheckoutAndSave(std::span{&Package, 1}, Params), FEditorFileUtils::PR_Cancelled);
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true));
+	uint32 Saves = 0;
+	FScopedPackageSaveObserver Observer([&](const FPackagePath&) { ++Saves; });
+	EXPECT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true));
+	EXPECT_EQ(Saves, 0u);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+}
+
+TEST(DFactoryTests, SaveObserverExcludesNestedBatchesAndIncludesProjectionPendingPersistence)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* First = IAssetTools::Get().CreateAsset("ObservedFirst", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	auto* Second = IAssetTools::Get().CreateAsset("ObservedSecond", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(First, nullptr); ASSERT_NE(Second, nullptr);
+	auto* FirstPackage = First->GetPackage(); auto* SecondPackage = Second->GetPackage();
+	const auto FirstPath = FirstPackage->GetPackagePathIdentity(), SecondPath = SecondPackage->GetPackagePathIdentity();
+	std::vector<FPackagePath> Observed;
+	{
+		FScopedPackageSaveObserver Observer([&](const FPackagePath& Path) {
+			Observed.push_back(Path);
+			EXPECT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&SecondPackage, 1}, true));
+		});
+		EXPECT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&FirstPackage, 1}, true));
+	}
+	EXPECT_EQ(Observed, std::vector{FirstPath});
+	FirstPackage->MarkDirty();
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::PublishRegistry; });
+		FScopedPackageSaveObserver Observer([&](const FPackagePath& Path) { Observed.push_back(Path); });
+		EXPECT_FALSE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&FirstPackage, 1}, true));
+	}
+	EXPECT_EQ(Observed, (std::vector{FirstPath, FirstPath}));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(FirstPath));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(SecondPath));
+}
+
+TEST(DFactoryTests, ReloadModesPreserveDirtyStateUnlessExplicitlyAccepted)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Asset = IAssetTools::Get().CreateAsset("ReloadMode", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Asset, nullptr);
+	auto* Package = Asset->GetPackage();
+	const auto Path = Package->GetPackagePathIdentity();
+	ASSERT_TRUE(SavePackage(Package));
+	Package->MarkDirty();
+	std::string Error;
+	EXPECT_FALSE(DPackageTools::ReloadPackages(std::span{&Package, 1}, Error, EReloadPackagesInteractionMode::AssumeNegative));
+	EXPECT_EQ(FindResidentPackage(Path), Package);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_FALSE(DPackageTools::ReloadPackages(std::span{&Package, 1}, Error));
+	EXPECT_TRUE(DPackageTools::ReloadPackages(std::span{&Package, 1}, Error, EReloadPackagesInteractionMode::AssumePositive)) << Error;
+	EXPECT_NE(FindResidentPackage(Path), Package);
+	EXPECT_FALSE(FindResidentPackage(Path)->IsDirty());
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+}
+
+TEST(DFactoryTests, SavedOverwritePublishesMemoryBeforeExplicitPersistenceAndPreservesSiblings)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Original = IAssetTools::Get().CreateAsset("SavedOverwrite", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(Original, nullptr);
+	auto* Package = Original->GetPackage();
+	ASSERT_NE(NewObject<DObject>(Package, FName("Sibling"), EObjectFlags::Public), nullptr);
+	const auto Path = Package->GetPackagePathIdentity();
+	ASSERT_TRUE(SavePackage(Package));
+	const auto Physical = Testing::GetTestWorkDirectory() / "AssetTools/SavedOverwrite.dasset";
+	const auto Before = FFileHelper::LoadFileToArray(Physical);
+	ASSERT_TRUE(Before);
+	auto* Replacement = IAssetTools::Get().CreateAsset("SavedOverwrite", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr, {}, true);
+	ASSERT_NE(Replacement, nullptr);
+	EXPECT_NE(Replacement, Original);
+	EXPECT_FALSE(Replacement->GetPackage()->IsNewlyCreated());
+	EXPECT_TRUE(Replacement->GetPackage()->IsDirty());
+	ASSERT_NE(Replacement->GetPackage()->FindTopLevelAsset(FName("Sibling")), nullptr);
+	const auto Unchanged = FFileHelper::LoadFileToArray(Physical);
+	ASSERT_TRUE(Unchanged);
+	EXPECT_EQ(*Unchanged, *Before);
+	ASSERT_TRUE(SavePackage(Replacement->GetPackage()));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+	auto* Reloaded = LoadPackage(Path);
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_NE(Reloaded->FindTopLevelAsset(FName("Sibling")), nullptr);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+}
+
+TEST(DAssetRenameTests, DirtyUnsavedRenamePreservesObjectAndDoesNotLeaveAnUnneededAlias)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameNewSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	TStrongObjectPtr<DObject> Owner(Object);
+	const auto OldPackage = Object->GetPackage()->GetPackagePathIdentity();
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameNewTarget"};
+	int Events = 0;
+	const auto Handle = OnAssetRenamed().AddLambda([&](const FAssetData& Data, const FSoftObjectPath& Old) {
+		++Events; EXPECT_EQ(Data.AssetPath.ToString(), "/AssetToolsTests/RenameNewTarget.RenameNewTarget"); EXPECT_EQ(Old.GetPackagePath(), OldPackage);
+	});
+	EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	OnAssetRenamed().Remove(Handle);
+	EXPECT_EQ(Events, 1);
+	EXPECT_EQ(Object, Owner.Get());
+	EXPECT_EQ(Object->GetObjectPath(), "/AssetToolsTests/RenameNewTarget.RenameNewTarget");
+	EXPECT_EQ(FindResidentPackage(OldPackage), nullptr);
+	const auto Target = Object->GetPackage()->GetPackagePathIdentity();
+	Owner.Reset();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Target, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, SelectedExportMovesWithoutItsSiblingAndSavedAliasesResolveAfterUnload)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameSelected", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	auto* SourcePackage = Object->GetPackage();
+	auto* Sibling = NewObject<DMaterial>(SourcePackage, FName("UntouchedSibling"), EObjectFlags::Public | EObjectFlags::Standalone);
+	ASSERT_NE(Sibling, nullptr);
+	ASSERT_TRUE(SavePackage(SourcePackage));
+	FSoftObjectPath Old; ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Old));
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameExtracted"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_EQ(Sibling->GetPackage(), SourcePackage);
+	EXPECT_EQ(Sibling->GetName(), "UntouchedSibling");
+	EXPECT_NE(Object->GetPackage(), SourcePackage);
+	const auto Target = Object->GetPackage()->GetPackagePathIdentity();
+	EXPECT_TRUE(Cast<DAssetRedirector>(SourcePackage->FindTopLevelAsset(FName("RenameSelected"))));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Target, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_NE(LoadObject(Old, nullptr), nullptr);
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Target, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, ExplicitObjectIdentityAndCaseOnlyChangesPreserveLiveOwners)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameExplicit", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	FSoftObjectPath Old, New;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Old));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameExplicitNonLeaf.IndependentName", New));
+	const FAssetRenameData Rename{Old, New};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_EQ(Object->GetObjectPath(), New.ToString());
+	FSoftObjectPath Case; ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/renameexplicitnonleaf.independentname", Case));
+	const FAssetRenameData CaseRename{New, Case};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&CaseRename, 1}));
+	EXPECT_EQ(Object->GetObjectPath(), "/AssetToolsTests/renameexplicitnonleaf.independentname");
+	EXPECT_EQ(Object->GetPackage()->GetName(), "renameexplicitnonleaf");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, DestinationFailureDoesNotPreventLaterItemsAndRetryDoesNotRepeatIdentityEvents)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* First = IAssetTools::Get().CreateAsset("RenameBlockedSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	auto* Blocker = IAssetTools::Get().CreateAsset("RenameOccupied", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	auto* Second = IAssetTools::Get().CreateAsset("RenamePeerSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_TRUE(First && Blocker && Second);
+	const std::array Renames{
+		FAssetRenameData{TWeakObjectPtr<DObject>(First), "/AssetToolsTests", "RenameOccupied"},
+		FAssetRenameData{TWeakObjectPtr<DObject>(Second), "/AssetToolsTests", "RenamePeerTarget"}};
+	EXPECT_FALSE(IAssetTools::Get().RenameAssets(Renames));
+	EXPECT_EQ(First->GetName(), "RenameBlockedSource");
+	EXPECT_EQ(Second->GetName(), "RenamePeerTarget");
+	int Events = 0, PostEvents = 0;
+	const auto PostHandle = IAssetTools::Get().OnAssetPostRename().AddLambda([&](std::span<const FAssetRenameData>) { ++PostEvents; });
+	const auto Handle = OnAssetRenamed().AddLambda([&](const FAssetData&, const FSoftObjectPath&) { ++Events; });
+	EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Renames[1], 1}));
+	OnAssetRenamed().Remove(Handle);
+	IAssetTools::Get().OnAssetPostRename().Remove(PostHandle);
+	EXPECT_EQ(Events, 0); EXPECT_EQ(PostEvents, 0);
+	for (auto* Object : {First, Blocker, Second}) EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, FailedPersistenceRetainsUnsavedValuesAndIdentityForOrdinaryRetry)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameFaultSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameFaultTarget"};
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	}
+	EXPECT_EQ(Object->GetName(), "RenameFaultTarget");
+	EXPECT_TRUE(Object->GetPackage()->IsDirty());
+	EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	FPackagePath Alias; ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/RenameFaultSource", Alias));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Alias, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, DirtyLoadedHardAndSoftReferencersRetainValuesAndSubobjectSuffixes)
+{
+	using namespace Durin;
+
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameReferenced", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	auto* Child = NewObject<DObject>(Object, FName("Child"));
+	ASSERT_NE(Child, nullptr);
+	TStrongObjectPtr<DObject> ChildOwner(Child);
+	auto* Ref = Cast<DAssetRenameReferencesForTest>(IAssetTools::Get().CreateAsset("RenameReferencer", "/AssetToolsTests", DAssetRenameReferencesForTest::StaticClass(), nullptr));
+	ASSERT_NE(Ref, nullptr);
+	FSoftObjectPath OldChild; ASSERT_TRUE(FSoftObjectPath::TryCreate(Child->GetObjectPath(), OldChild));
+	Ref->Hard = Child; Ref->Soft = OldChild; Ref->Value = 123;
+	ASSERT_TRUE(SavePackage(Object->GetPackage())); ASSERT_TRUE(SavePackage(Ref->GetPackage()));
+	Ref->Value = 456; Ref->MarkPackageDirty();
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenamedReferenced"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_EQ(Ref->Hard.Get(), Child);
+	EXPECT_EQ(Ref->Soft.ToSoftObjectPath().ToString(), Child->GetObjectPath());
+	EXPECT_EQ(Ref->Value, 456);
+	FSoftObjectPath RefPath; ASSERT_TRUE(FSoftObjectPath::TryCreate(Ref->GetObjectPath(), RefPath));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(RefPath.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	auto* Reopened = Cast<DAssetRenameReferencesForTest>(LoadObject(RefPath, nullptr));
+	ASSERT_NE(Reopened, nullptr); EXPECT_EQ(Reopened->Value, 456); EXPECT_EQ(Reopened->Hard.Get(), Child);
+	FPackagePath Alias; ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/RenameReferenced", Alias));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(RefPath.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Alias, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ChildOwner.Reset();
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, SoftOnlySubobjectRepairDoesNotMoveTheAsset)
+{
+	using namespace Durin;
+
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = Cast<DAssetRenameReferencesForTest>(IAssetTools::Get().CreateAsset("RenameSoftOnly", "/AssetToolsTests", DAssetRenameReferencesForTest::StaticClass(), nullptr));
+	ASSERT_NE(Object, nullptr);
+	FSoftObjectPath Old, New;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameSoftOnly.RenameSoftOnly:Before", Old));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameSoftOnly.RenameSoftOnly:After", New));
+	Object->Soft = Old;
+	const FAssetRenameData Repair{Old, New, true};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Repair, 1}));
+	EXPECT_EQ(Object->Soft.ToSoftObjectPath(), New);
+	EXPECT_EQ(Object->GetName(), "RenameSoftOnly");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, MixedPackageFixupKeepsThenDeletesOnlyTheSelectedRedirector)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameFixup", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	auto* OldPackage = Object->GetPackage();
+	auto* Sibling = NewObject<DMaterial>(OldPackage, FName("FixupSibling"), EObjectFlags::Public | EObjectFlags::Standalone);
+	ASSERT_TRUE(SavePackage(OldPackage));
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameFixupTarget"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	auto* Alias = Cast<DAssetRedirector>(OldPackage->FindTopLevelAsset(FName("RenameFixup")));
+	ASSERT_NE(Alias, nullptr);
+	const std::array Aliases{Alias, Alias};
+	IAssetTools::Get().FixupReferencers(Aliases, false, ERedirectFixupMode::LeaveFixedUpRedirectors);
+	EXPECT_EQ(OldPackage->FindTopLevelAsset(FName("RenameFixup")), Alias);
+	IAssetTools::Get().FixupReferencers(Aliases);
+	EXPECT_EQ(OldPackage->FindTopLevelAsset(FName("RenameFixup")), nullptr);
+	EXPECT_EQ(OldPackage->FindTopLevelAsset(FName("FixupSibling")), Sibling);
+	const auto OldPath = OldPackage->GetPackagePathIdentity(), NewPath = Object->GetPackage()->GetPackagePathIdentity();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(OldPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(NewPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	auto* Reopened = LoadPackage(OldPath);
+	ASSERT_NE(Reopened, nullptr);
+	EXPECT_EQ(Reopened->FindTopLevelAsset(FName("RenameFixup")), nullptr);
+	EXPECT_NE(Reopened->FindTopLevelAsset(FName("FixupSibling")), nullptr);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(OldPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, WritableMountMoveAndReadOnlyRejectionUseTheSameLiveObject)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	const auto Root = Testing::GetTestWorkDirectory() / "RenameMounts";
+	std::filesystem::create_directories(Root / "Writable"); std::filesystem::create_directories(Root / "ReadOnly");
+	Testing::RegisterMountPointForTests("/RenameWritable/", (Root / "Writable").generic_string() + "/");
+	Testing::RegisterMountPointForTests("/RenameReadOnly/", (Root / "ReadOnly").generic_string() + "/", true, false);
+	auto* Object = IAssetTools::Get().CreateAsset("RenameMountSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	const FAssetRenameData ReadOnly{TWeakObjectPtr<DObject>(Object), "/RenameReadOnly", "Blocked"};
+	EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&ReadOnly, 1}));
+	EXPECT_EQ(Object->GetObjectPath(), "/AssetToolsTests/RenameMountSource.RenameMountSource");
+	const FAssetRenameData Writable{TWeakObjectPtr<DObject>(Object), "/RenameWritable", "Moved"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Writable, 1}));
+	EXPECT_EQ(Object->GetObjectPath(), "/RenameWritable/Moved.Moved");
+	EXPECT_EQ(Object->GetPackage()->GetName(), "Moved");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, RegistryLagRetryPreservesIdentityAndPublishesItsAlias)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameLagSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr); ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	const auto Old = Object->GetPackage()->GetPackagePathIdentity();
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameLagTarget"};
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishRegistry; });
+		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	}
+	const auto New = Object->GetPackage()->GetPackagePathIdentity();
+	EXPECT_TRUE(IsAssetRegistryProjectionFenced(New));
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_FALSE(IsAssetRegistryProjectionFenced(New));
+	EXPECT_EQ(LoadObject(Testing::MakePackageLeafTopLevelAssetPathForTests(Old), nullptr), Object);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(New, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, FixupSavesDirtyHardReferencersBeforeDeletingPureAliases)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameHardSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	auto* Ref = Cast<DAssetRenameReferencesForTest>(IAssetTools::Get().CreateAsset("RenameHardRef", "/AssetToolsTests", DAssetRenameReferencesForTest::StaticClass(), nullptr));
+	ASSERT_TRUE(Object && Ref); Ref->Hard = Object;
+	ASSERT_TRUE(SavePackage(Object->GetPackage())); ASSERT_TRUE(SavePackage(Ref->GetPackage()));
+	const auto Old = Object->GetPackage()->GetPackagePathIdentity();
+	Ref->Value = 789; Ref->MarkPackageDirty();
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameHardTarget"};
+	{
+		int Publications = 0;
+		Testing::FScopedPackageSaveFault Fault([&](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage && ++Publications == 3; });
+		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	}
+	ASSERT_TRUE(Ref->GetPackage()->IsDirty());
+	auto* Alias = Cast<DAssetRedirector>(FindResidentPackage(Old)->FindTopLevelAsset(FName("RenameHardSource")));
+	ASSERT_NE(Alias, nullptr);
+	IAssetTools::Get().FixupReferencers(std::span{&Alias, 1});
+	EXPECT_EQ(Ref->Value, 789); EXPECT_EQ(Ref->Hard.Get(), Object);
+	EXPECT_FALSE(FindPackageExact(Old));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Ref->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, SavedUnloadedExplicitRenameAndPreparationFailureKeepValidSources)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameUnloaded", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr); ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	FSoftObjectPath Old, New; ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Old));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameUnloadedTarget.OtherName", New));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	const FAssetRenameData Rename{Old, New};
+	const auto Handle = RegisterAssetOwnedPayloadRelocator(DMaterial::StaticClass(), [](DObject*, const FPackagePath&, const FPackagePath&, FAssetOwnedPayloadRelocation&) -> std::expected<void, UnifiedError::FError> {
+		return std::unexpected(UnifiedError::FError{AssetWriteErrors::IoError, "Injected owned payload preparation failure."});
+	});
+	ASSERT_NE(Handle, 0u);
+	EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	UnregisterAssetOwnedPayloadRelocator(Handle);
+	EXPECT_NE(LoadObject(Old, nullptr), nullptr);
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_EQ(LoadObject(Old, nullptr), LoadObject(New, nullptr));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(New.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, PreparationRevalidatesSavedBytesWithoutReplacingExternalEdits)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = IAssetTools::Get().CreateAsset("RenameStaleFile", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr); ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	const auto File = FMountPaths::ResolveAssetPath(Object->GetPackage()->GetPackagePath())->PhysicalPath.generic_string() + ".dasset";
+	const auto Before = FFileHelper::LoadFileToArray(File); ASSERT_TRUE(Before);
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameStaleTarget"};
+	const auto Handle = RegisterAssetOwnedPayloadRelocator(DMaterial::StaticClass(), [&](DObject*, const FPackagePath&, const FPackagePath&, FAssetOwnedPayloadRelocation&) -> std::expected<void, UnifiedError::FError> {
+		std::ofstream Stream(File, std::ios::binary | std::ios::app); Stream.put('x'); return {};
+	});
+	ASSERT_NE(Handle, 0u);
+	EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	UnregisterAssetOwnedPayloadRelocator(Handle);
+	EXPECT_EQ(Object->GetName(), "RenameStaleFile");
+	const auto After = FFileHelper::LoadFileToArray(File); ASSERT_TRUE(After); EXPECT_EQ(After->size(), Before->size() + 1);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Before, File));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, DiagnosticReentryRejectsWithoutRecursiveFeedbackOrMutation)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Source = IAssetTools::Get().CreateAsset("RenameReentrySource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	auto* Target = IAssetTools::Get().CreateAsset("RenameReentryTarget", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_TRUE(Source && Target);
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Source), "/AssetToolsTests", "RenameReentryTarget"};
+	int Reports = 0;
+	FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view) {
+		if (Level < ELogLevel::Error) return;
+		++Reports; EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	});
+	{ FScopedFeedbackContext Scope(Feedback); EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1})); }
+	EXPECT_EQ(Reports, 1); EXPECT_EQ(Source->GetName(), "RenameReentrySource");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Source->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Target->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, AliasOnlyPackagesWithDifferentTargetsFixSelectedExportsIndependently)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* First = IAssetTools::Get().CreateAsset("RenameAliasPair", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(First, nullptr);
+	auto* Package = First->GetPackage(); const auto Old = Package->GetPackagePathIdentity();
+	auto* Second = NewObject<DMaterial>(Package, FName("Second"), EObjectFlags::Public | EObjectFlags::Standalone);
+	ASSERT_NE(Second, nullptr); ASSERT_TRUE(SavePackage(Package));
+	const std::array Renames{FAssetRenameData{TWeakObjectPtr<DObject>(First), "/AssetToolsTests", "AliasPairFirst"},
+		FAssetRenameData{TWeakObjectPtr<DObject>(Second), "/AssetToolsTests", "AliasPairSecond"}};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(Renames));
+	auto* FirstAlias = Cast<DAssetRedirector>(Package->FindTopLevelAsset(FName("RenameAliasPair")));
+	auto* SecondAlias = Cast<DAssetRedirector>(Package->FindTopLevelAsset(FName("Second")));
+	ASSERT_TRUE(FirstAlias && SecondAlias);
+	IAssetTools::Get().FixupReferencers(std::span{&FirstAlias, 1});
+	EXPECT_EQ(Package->FindTopLevelAsset(FName("RenameAliasPair")), nullptr);
+	EXPECT_EQ(Package->FindTopLevelAsset(FName("Second")), SecondAlias);
+	IAssetTools::Get().FixupReferencers(std::span{&SecondAlias, 1});
+	EXPECT_FALSE(FindPackageExact(Old));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(First->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Second->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, MixedPackageAliasSurvivesReadOnlyPersistentSoftReferencers)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	const auto Root = Testing::GetTestWorkDirectory() / "ReadOnlyRenameRef"; std::filesystem::create_directories(Root);
+	Testing::RegisterMountPointForTests("/RenameRORef/", Root.generic_string() + "/");
+	auto* Object = IAssetTools::Get().CreateAsset("RenameKeptAlias", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr); auto* Package = Object->GetPackage();
+	auto* Sibling = NewObject<DMaterial>(Package, FName("StableSibling"), EObjectFlags::Public | EObjectFlags::Standalone);
+	ASSERT_NE(Sibling, nullptr); ASSERT_TRUE(SavePackage(Package));
+	FSoftObjectPath Old; ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Old));
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameKeptTarget"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	auto* Ref = Cast<DAssetRenameReferencesForTest>(IAssetTools::Get().CreateAsset("ReadOnlyRef", "/RenameRORef", DAssetRenameReferencesForTest::StaticClass(), nullptr));
+	ASSERT_NE(Ref, nullptr); Ref->Soft = Old; ASSERT_TRUE(SavePackage(Ref->GetPackage()));
+	Testing::RegisterMountPointForTests("/RenameRORef/", Root.generic_string() + "/", true, false);
+	auto* Alias = Cast<DAssetRedirector>(Package->FindTopLevelAsset(FName("RenameKeptAlias"))); ASSERT_NE(Alias, nullptr);
+	IAssetTools::Get().FixupReferencers(std::span{&Alias, 1});
+	EXPECT_EQ(Package->FindTopLevelAsset(FName("RenameKeptAlias")), Alias);
+	EXPECT_EQ(Package->FindTopLevelAsset(FName("StableSibling")), Sibling);
+	Testing::RegisterMountPointForTests("/RenameRORef/", Root.generic_string() + "/");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Ref->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 }

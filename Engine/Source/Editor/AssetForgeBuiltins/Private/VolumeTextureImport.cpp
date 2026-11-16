@@ -430,15 +430,18 @@ namespace Durin::AssetForge::Builtins
 		Formats = {"png"};
 	}
 
-	auto DVolumeTextureFactory::FactoryCreateFromFile(
+	auto DVolumeTextureFactory::FactoryCreateFile(
 		DClass* InClass,
 		DObject* InParent,
 		FName InName,
 		EObjectFlags Flags,
 		std::string_view Filename,
-		DObject*,
-		FFactoryDiagnostics* Diagnostics) const -> DObject*
+		std::string_view Parms,
+			FFeedbackContext* Warn, bool& bOutOperationCanceled) -> DObject*
 	{
+		FFactoryDiagnostics DiagnosticStorage(Warn);
+		auto* Diagnostics = &DiagnosticStorage;
+		bOutOperationCanceled = false;
 		auto Failed = [&](std::string Diagnostic) -> DObject* {
 			if (Diagnostics) Diagnostics->ReportDomainFailure(std::make_shared<FVolumeTextureFactoryError>(std::move(Diagnostic)));
 			return nullptr;

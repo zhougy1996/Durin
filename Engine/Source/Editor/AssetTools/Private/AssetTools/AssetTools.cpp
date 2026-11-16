@@ -1,5 +1,7 @@
 #include "AssetTools/AssetToolsModule.h"
-#include "PackageTools.h"
+#include "ObjectTools.h"
+#include "DObject/Archive.h"
+#include "DObject/ObjectGraphReplacement.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
@@ -17,10 +19,11 @@ namespace Durin
 {
 	IMPLEMENT_MODULE(FAssetToolsModule, AssetTools)
 
-	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest&, FFeedbackContext*) -> DObject*;
-	auto SaveAssetsWithEditorPolicy(const FAssetSaveRequest&, FFeedbackContext*) -> bool;
-	auto RelocateAssetsWithEditorPolicy(const FAssetRelocationRequest&, FFeedbackContext*) -> bool;
-	auto FixUpRedirectorsWithEditorPolicy(const FAssetRedirectorFixupRequest&, FFeedbackContext*) -> bool;
+	auto DuplicateAssetWithEditorPolicy(std::string_view, std::string_view, DObject*) -> DObject*;
+	auto MakeUniqueAssetName(std::string_view, std::string_view, std::string&, std::string&) -> void;
+	auto RenameAssetsWithEditorPolicy(std::span<const FAssetRenameData>, TMulticastDelegate<void(std::span<const FAssetRenameData>)>&) -> bool;
+	auto FixupReferencersWithEditorPolicy(std::span<DAssetRedirector* const>, ERedirectFixupMode) -> void;
+	auto IsEditorFixupInProgress() -> bool;
 	auto PrepareAssetDeletionWithEditorPolicy(const FAssetDeletionRequest&, FAssetDeletionOperation&, FFeedbackContext*) -> bool;
 
 	namespace
@@ -35,7 +38,7 @@ namespace Durin
 		{
 			return Class && Class->IsChildOf(DObject::StaticClass()) && !Class->HasAnyClassFlags(EClassFlags::Abstract);
 		}
-		auto FindImportFactory(const FAssetImportRequest& Item, FFeedbackContext* Warn) -> const DFactory*
+		auto FindImportFactory(const FAssetImportRequest& Item, FFeedbackContext* Warn) -> DFactory*
 		{
 			if (!Item.AssetPath.IsValid()) { Reject(Warn, "The destination asset path is invalid."); return nullptr; }
 			if (!ValidateClass(Item.AssetClass)) { Reject(Warn, "The requested asset class cannot be constructed."); return nullptr; }
@@ -66,108 +69,139 @@ namespace Durin
 				Reject(Warn, "The selected factory does not support the requested asset class.");
 				return nullptr;
 			}
-			return Factory;
+			return Item.Factory ? Item.Factory : Cast<DFactory>(NewObject(Factory->GetClass(), nullptr, FName("ImportFactoryInvocation"), EObjectFlags::Transient));
 		}
 	}
 
 	class FAssetTools final : public IAssetTools
 	{
 	public:
-		auto CreateAsset(const FTopLevelAssetPath& Path, DClass* Class, const DFactory* Factory,
-			DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
+		auto CreateAsset(std::string_view Name, std::string_view Directory, DClass* Class, DFactory* Factory,
+			FName CallingContext, bool Overwrite) -> DObject* override
 		{
-			return CreateWithFactory(Path, Class, Factory, {}, Context, Flags, Warn);
+			FPackagePath PackagePath;
+			FTopLevelAssetPath Path;
+			std::string PackageName(Directory);
+			if (!PackageName.ends_with('/')) PackageName += '/';
+			if (!FPackagePath::TryCreate(PackageName + std::string(Name), PackagePath)
+				|| !FTopLevelAssetPath::TryCreate(PackagePath, Name, Path)) return Reject(nullptr, "The destination identity is invalid.");
+			return CreateWithFactory(Path, Class, Factory, {}, nullptr,
+				EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional,
+				&FFeedbackContext::Get(), CallingContext, Overwrite);
 		}
+		auto DuplicateAsset(std::string_view Name, std::string_view Directory, DObject* Source) -> DObject* override
+		{ return DuplicateAssetWithEditorPolicy(Name, Directory, Source); }
+		auto CreateUniqueAssetName(std::string_view Base, std::string_view Suffix, std::string& Package, std::string& Name) -> void override
+		{ MakeUniqueAssetName(Base, Suffix, Package, Name); }
+
 		auto ImportAsset(const FTopLevelAssetPath& Path, DClass* Class, std::string_view Filename,
-			const DFactory* RequestedFactory, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
+			DFactory* RequestedFactory, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
 		{
 			checkf(IsInGameThread(), "Asset import must run on the game thread.");
-			const auto* Factory = FindImportFactory({Path, Class, std::string(Filename), RequestedFactory, Context, Flags}, Warn);
+			auto* Factory = FindImportFactory({Path, Class, std::string(Filename), RequestedFactory, Context, Flags}, Warn);
 			return Factory ? CreateWithFactory(Path, Class, Factory, Filename, Context, Flags, Warn) : nullptr;
 		}
-		auto DiscardPackage(DPackage* Package) -> bool override
-		{
-			checkf(IsInGameThread(), "Asset package discard must run on the game thread.");
-			if (!Package || !Package->IsAssetPackage()) return false;
-			std::string Errors;
-			return DPackageTools::UnloadPackages(std::span{&Package, 1}, Errors, true) && Errors.empty();
-		}
-
-		auto RecoverPackages(const FPackageReloadRequest& Request)
-			-> FPackageReloadOperation override
-		{
-			checkf(IsInGameThread(), "Asset package recovery must run on the game thread.");
-			FPackageReloadRequest Coordinated = Request;
-			if (GEditor && GEditor->GetTransactor())
-			{
-				auto Participant = CreateTransactorReloadParticipant(
-					*GEditor->GetTransactor(), Coordinated.Packages);
-				if (Participant) Coordinated.Participants.push_back(std::move(Participant));
-			}
-			return ReloadPackages(Coordinated);
-		}
-
-		auto DuplicateAsset(const FAssetDuplicateRequest& Request, FFeedbackContext* Warn) -> DObject* override
-		{ return DuplicateAssetWithEditorPolicy(Request, Warn); }
-		auto SaveAssets(const FAssetSaveRequest& Request, FFeedbackContext* Warn) -> bool override
-		{ return SaveAssetsWithEditorPolicy(Request, Warn); }
-		auto RelocateAssets(const FAssetRelocationRequest& Request, FFeedbackContext* Warn) -> bool override
-		{ return RelocateAssetsWithEditorPolicy(Request, Warn); }
-		auto FixUpRedirectors(const FAssetRedirectorFixupRequest& Request, FFeedbackContext* Warn) -> bool override
-		{ return FixUpRedirectorsWithEditorPolicy(Request, Warn); }
+		auto RenameAssets(std::span<const FAssetRenameData> Requests) -> bool override
+		{ return RenameAssetsWithEditorPolicy(Requests, PostRename); }
+		auto OnAssetPostRename() -> TMulticastDelegate<void(std::span<const FAssetRenameData>)>& override { return PostRename; }
+		auto FixupReferencers(std::span<DAssetRedirector* const> Objects, bool, ERedirectFixupMode Mode) const -> void override
+		{ FixupReferencersWithEditorPolicy(Objects, Mode); }
+		auto IsFixupReferencersInProgress() const -> bool override { return IsEditorFixupInProgress(); }
 		auto PrepareDeletion(const FAssetDeletionRequest& Request, FAssetDeletionOperation& Operation, FFeedbackContext* Warn) -> bool override
 		{ return PrepareAssetDeletionWithEditorPolicy(Request, Operation, Warn); }
 
 	private:
-		auto CreateWithFactory(const FTopLevelAssetPath& Path, DClass* Class, const DFactory* RequestedFactory,
-			std::string_view Filename, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject*
+		TMulticastDelegate<void(std::span<const FAssetRenameData>)> PostRename;
+		auto CreateWithFactory(const FTopLevelAssetPath& Path, DClass* Class, DFactory* RequestedFactory,
+			std::string_view Filename, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn,
+			FName CallingContext = {}, bool Overwrite = false) -> DObject*
 		{
 			checkf(IsInGameThread(), "Asset tools creation must run on the game thread.");
 			if (!Path.IsValid()) return Reject(Warn, "The destination asset path is invalid.");
+			if (!Class && RequestedFactory) Class = RequestedFactory->GetSupportedClass();
 			if (!ValidateClass(Class)) return Reject(Warn, "The requested asset class cannot be constructed.");
-			if (FindPackage(Path.GetPackagePath().GetView()) || FindAssetExact(Path))
-				return Reject(Warn, std::format("Asset {} already exists.", Path.ToString()));
-			const DFactory* Factory = RequestedFactory ? RequestedFactory : DFactory::FindFactory(Class);
-			if (Factory && (!Factory->GetSupportedClass() || !Class->IsChildOf(Factory->GetSupportedClass())))
+			const auto* Prototype = RequestedFactory ? RequestedFactory : DFactory::FindFactory(Class);
+			if (Prototype && (!Prototype->GetSupportedClass() || !Class->IsChildOf(Prototype->GetSupportedClass())))
 				return Reject(Warn, "The selected factory does not support the requested asset class.");
-			auto* Package = CreatePackage(Path.GetPackagePath());
-			if (!Package) return Reject(Warn, "The destination package could not be created.");
-			const TStrongObjectPtr<DPackage> CreationOwner(Package);
-			FFactoryDiagnostics Diagnostics;
+			TStrongObjectPtr<DFactory> Invocation;
+			if (Prototype)
+			{
+				auto* Factory = Prototype->IsClassDefaultObject()
+					? Cast<DFactory>(NewObject(Prototype->GetClass(), nullptr, FName("AssetFactoryInvocation"), EObjectFlags::Transient))
+					: RequestedFactory;
+				if (!Factory) return Reject(Warn, "The factory invocation could not be created.");
+				Invocation = TStrongObjectPtr<DFactory>(Factory);
+			}
+			const auto Destination = InspectAssetDestination(Path.GetPackagePath().GetView());
+			if (!Destination && !Destination.AssetExists()) return Reject(Warn, FormatAssetDestinationValidation(Destination));
+			std::error_code Error;
+			const bool Exists = std::filesystem::exists(Destination.PhysicalPath, Error);
+			if (Error == std::errc::not_a_directory) Error.clear(); // The live asset may outlast a temporarily invalid save directory.
+			if (Error) return Reject(Warn, "The destination file could not be inspected: " + Error.message());
+			DPackage* Current = FindPackage(Path.GetPackagePath().GetView());
+			if ((Current || Destination.AssetExists() || Exists) && !Overwrite) return Reject(Warn, "The destination is already occupied.");
+			if (Overwrite && !Current && (Destination.AssetExists() || Exists))
+			{
+				std::optional<UnifiedError::FError> Cause;
+				Current = LoadPackage(Path.GetPackagePath(), nullptr, &Cause);
+				if (!Current) return Reject(Warn, Cause ? Cause->ToString() : "The existing package could not be loaded.");
+			}
+			if (Current)
+			{
+				auto* Existing = Current->FindTopLevelAsset(FName(Path.GetAssetName()));
+				if (!Existing || Existing->GetClass() != Class) return Reject(Warn, "Replacement requires an existing asset of the same class.");
+			}
+			FStrongObjectPtr PreviousOwner(Current);
+			const uint64 PreviousRevision = Current ? Current->GetEditRevision() : 0;
+			auto* Package = NewObject<DPackage>(nullptr, FName(Path.GetPackagePath().GetPackageName()));
+			if (!Package || !Package->InitializePreparedAssetPackage(Path.GetPackagePath())) return Reject(Warn, "The destination package could not be prepared.");
+			const TStrongObjectPtr<DPackage> CandidateOwner(Package);
+			auto Abandon = [&] { MarkObjectHierarchyAsGarbage(Package); RequestGarbageCollection(); };
+			if (Current)
+				for (auto* Sibling : Current->GetTopLevelAssets())
+					if (Sibling->GetFName() != FName(Path.GetAssetName()) && !DuplicateObject(Sibling, Package, Sibling->GetFName()))
+					{ Abandon(); return Reject(Warn, "A sibling asset could not be preserved."); }
 			const FName Name(Path.GetAssetName());
 			DObject* Asset = nullptr;
-			if (!Filename.empty()) Asset = Factory->FactoryCreateFromFile(Class, Package, Name, Flags, Filename, Context, &Diagnostics);
-			else if (Factory) Asset = Factory->FactoryCreateNew(Class, Package, Name, Flags, Context, &Diagnostics);
-			else
+			bool ReportedFailure = false;
+			FFeedbackContext FactoryFeedback({}, [&](ELogLevel Level, std::string_view Message) {
+				ReportedFailure |= Level >= ELogLevel::Error;
+				Feedback(Warn).Serialize(Level, Message);
+			});
+			if (!Filename.empty())
 			{
-				FStaticConstructObjectParameters Parameters{Class, Package, Name, Class->GetStructureSize(), Flags};
-				Asset = StaticConstructObject(Parameters);
-				DObjectForceRegistration(Asset);
+				bool Canceled = false;
+				Asset = Invocation.Get()->FactoryCreateFile(Class, Package, Name, Flags, Filename, {}, &FactoryFeedback, Canceled);
+				if (Canceled) Asset = nullptr;
 			}
-			if (!Asset)
+			else if (Invocation.Get()) Asset = Invocation.Get()->FactoryCreateNew(Class, Package, Name, Flags, Context, &FactoryFeedback, CallingContext);
+			else Asset = NewObject(Class, Package, Name, Flags);
+			if (!Asset) { Abandon(); if (!ReportedFailure) Reject(Warn, "The factory did not create an asset."); return nullptr; }
+			if (!Asset || Asset->GetClass() != Class || Asset->GetOuter() != Package || Asset->GetFName() != Name
+				|| Package->FindTopLevelAsset(Name) != Asset)
+			{ Abandon(); return Reject(Warn, "The factory did not produce the requested registered asset."); }
+			if (FindPackage(Path.GetPackagePath().GetView()) != Current || (Current && Current->GetEditRevision() != PreviousRevision))
+			{ Abandon(); return Reject(Warn, "The destination changed while the factory was executing."); }
+			if (!Overwrite)
 			{
-				const auto Message = Diagnostics.ToString();
-				Reject(Warn, Message.empty() ? "The factory could not construct the asset." : Message);
-				MarkObjectHierarchyAsGarbage(Package);
-				Package->RetireFailedLoadRegistration();
-				RequestGarbageCollection();
-				return nullptr;
+				Error.clear();
+				const bool Occupied = std::filesystem::exists(Destination.PhysicalPath, Error);
+				if (Error == std::errc::not_a_directory) Error.clear();
+				if (Occupied || Error) { Abandon(); return Reject(Warn, "The destination file changed while the factory was executing."); }
 			}
-			if (!Asset->IsA(Class) || Asset->GetOuter() != Package || Asset->GetFName() != Name
-				|| Package->FindTopLevelAsset(Asset->GetFName()) != Asset)
-			{
-				const auto Message = std::format("Invalid factory product {} (class {}); expected {} (class {}) registered in its destination package.",
-					Asset->GetObjectPath(), Asset->GetClass()->GetName(), Path.ToString(), Class->GetName());
-				MarkObjectHierarchyAsGarbage(Package);
-				Package->RetireFailedLoadRegistration();
-				RequestGarbageCollection();
-				return Reject(Warn, Message);
-			}
+			PreviousOwner.Reset();
+			FObjectGraphReplacement Publication;
+			const FObjectReplacementPackagePair Pair{Current, Package};
+			auto Applied = Publication.Prepare(std::span{&Pair, 1});
+			if (!Applied) { Abandon(); return Reject(Warn, ToString(Applied.error())); }
+			Applied = Publication.TryCommit();
+			if (!Applied) { Publication.Abort(); return Reject(Warn, ToString(Applied.error())); }
 			Package->MarkDirty();
-			Package->MarkAsNewlyCreated();
-			if (!Diagnostics.GetEntries().empty()) Feedback(Warn).Warning(Diagnostics.ToString());
+			if (!Current || Current->IsNewlyCreated()) Package->MarkAsNewlyCreated();
+			require(Publication.Retire());
 			return Asset;
 		}
+
 	};
 
 	auto IAssetTools::ImportAssets(const FAssetImportBatchRequest& Request, FFeedbackContext* Warn) -> std::vector<DObject*>
@@ -179,7 +213,7 @@ namespace Durin
 		for (const auto& Item : Batch.Items)
 		{
 			Retained.emplace_back(Item.AssetClass);
-			Retained.emplace_back(const_cast<DFactory*>(Item.Factory));
+			Retained.emplace_back(Item.Factory);
 			Retained.emplace_back(Item.Context);
 			if (Item.AssetPath.IsValid()) ++Counts[Item.AssetPath.GetPackagePath()];
 		}

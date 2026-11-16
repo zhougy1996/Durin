@@ -1,9 +1,8 @@
-#include "AssetTools/Relocation.h"
+#include "Misc/FeedbackContext.h"
+#include "AssetTools/MutationTesting.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Materials/MaterialShaderMap.h"
-#include "AssetTools/RedirectorFixup.h"
-#include "AssetTools/MutationTesting.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
@@ -633,8 +632,7 @@ TEST(FMaterialFunctionTests, BaseTypedCallsRoundTripAndSnapshotsDoNotRetainOwner
 	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionTests/Callee", CalleePath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionTests/Caller", CallerPath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionTests/Abstract", AbstractPath));
-	EXPECT_FALSE(IAssetTools::Get().CreatePackageLeafAssetForTesting(AbstractPath,
-		DMaterialFunctionInterface::StaticClass()));
+	EXPECT_FALSE(([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = AbstractPath; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((AbstractPath).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DMaterialFunctionInterface::StaticClass(), nullptr); }()));
 	DMaterialFunction* Callee = nullptr;
 	DMaterialFunction* Caller = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(CalleePath, Callee));
@@ -1620,8 +1618,8 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const auto OriginalLeafPath = Leaf->GetObjectPath();
-	const std::array Mappings{FAssetRelocationMapping{LeafPath, MovedPath}};
-	ASSERT_TRUE(RelocateAssets(Mappings).Result);
+	const std::array Mappings{FPackageRelocationTestMapping{LeafPath, MovedPath}};
+	ASSERT_TRUE(RelocatePackageFilesForTesting(Mappings).Result);
 	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
 	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetMaterialCompileStatus().HasUnsubmittedEdits());

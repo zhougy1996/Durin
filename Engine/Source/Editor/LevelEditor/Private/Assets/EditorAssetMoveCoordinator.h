@@ -2,7 +2,8 @@
 
 #include "CoreMinimal.h"
 
-#include "Asset/MutationExtensions.h"
+#include "AssetRenameData.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin::LevelEditor
 {
@@ -10,11 +11,11 @@ namespace Durin::LevelEditor
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
-	using FEditorAssetMove = FAssetRelocationMapping;
+	using FEditorAssetMove = FAssetRenameData;
 
 	// Extends an Engine Asset move with editor-owned state keyed by asset path.
 	// Applies asset moves while keeping open documents and scene references coherent.
-	class FEditorAssetMoveCoordinator final : public IAssetMoveObserver
+	class FEditorAssetMoveCoordinator final
 	{
 	public:
 		FEditorAssetMoveCoordinator(
@@ -27,12 +28,11 @@ namespace Durin::LevelEditor
 		auto MoveAssets(std::span<const FEditorAssetMove> Moves, std::string* OutError = nullptr) -> bool;
 
 	private:
-		auto OnAssetsRelocated(
-			std::span<const FAssetRelocationMapping> Mappings) -> void override;
+		auto OnAssetRenamed(const FAssetData& Asset, const FSoftObjectPath& Old) -> void;
 
 		FLevelEditorContext& Context;
 		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FSceneViewportPanel& SceneViewportPanel;
-		FAssetMoveObserverHandle ObserverHandle = 0;
+		FDelegateHandle RenameHandle;
 	};
 } // namespace Durin::LevelEditor

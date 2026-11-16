@@ -7,27 +7,26 @@
 #include "Misc/Paths.h"
 #include "Misc/Time.h"
 #include "Yaml/Yaml.h"
-#include "Asset/MutationExtensions.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/RegistryOperations.h"
 
 namespace Durin
 {
-	struct DAssetEditorSubsystem::FLifecycleState : IAssetMoveObserver
+	struct DAssetEditorSubsystem::FLifecycleState
 	{
-		FLifecycleState() : MoveObserver(RegisterAssetMoveObserver(this)) {}
-		~FLifecycleState() override { UnregisterAssetMoveObserver(MoveObserver); }
-		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override
+		FLifecycleState()
 		{
-			for (auto& Target : Recent)
-				for (const auto& Mapping : Mappings)
-					if (Target.AssetPath.GetPackagePath() == Mapping.SourcePath)
+			RenameHandle = OnAssetRenamed().AddLambda([this](const FAssetData& Asset, const FSoftObjectPath& Old) {
+				for (auto& Target : Recent)
+					if (Target.AssetPath.GetAssetPath() == Old.GetAssetPath())
 					{
 						FSoftObjectPath Replacement;
-						const auto Text = Target.AssetPath.ToString();
-						if (FSoftObjectPath::TryCreate(Mapping.DestinationPath.ToString() + Text.substr(Mapping.SourcePath.ToString().size()), Replacement)) Target.AssetPath = Replacement;
+						if (FSoftObjectPath::TryCreate(Asset.AssetPath, Target.AssetPath.GetSubobjectNames(), Replacement)) Target.AssetPath = Replacement;
 					}
+			});
 		}
-		FAssetMoveObserverHandle MoveObserver;
+		~FLifecycleState() { OnAssetRenamed().Remove(RenameHandle); }
+		FDelegateHandle RenameHandle;
 		uint64 NextId = 1;
 		std::map<uint64, std::function<void(const FAssetEditorEvent&)>> Subscribers;
 		std::vector<FAssetOpenTarget> Recent;

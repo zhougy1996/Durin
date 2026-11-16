@@ -1,9 +1,7 @@
-#include "AssetTools/Relocation.h"
+#include "AssetTools/MutationTesting.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Threading/TaskRuntime.h"
-#include "AssetTools/RedirectorFixup.h"
-#include "AssetTools/MutationTesting.h"
 #include "NativeAssetTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Asset/PackageSerialization.h"
@@ -54,8 +52,8 @@ namespace
 		const Durin::FPackagePath& Source,
 		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
-		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-		return Durin::RelocateAssets(std::span{&Mapping, 1}).Result;
+		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
+		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
 	}
 
 	constexpr std::array<std::string_view, Durin::TextureCubeFaceCount> FaceNames = {

@@ -1,224 +1,400 @@
-#include "DObject/StrongObjectPtr.h"
-#include "Misc/UnifiedError.h"
+#include "Asset/References.h"
+#include "Misc/FileHelper.h"
+#include "DObject/Function.h"
 #include "AssetTools/IAssetTools.h"
-#include "Import/AssetDestinationValidation.h"
-
-#include "Asset/PackageSerialization.h"
-#include "AssetMaintenance/CanonicalResave.h"
-#include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetRegistry/Catalog.h"
+#include "AssetMutationInternal.h"
+#include "AssetTools/MutationTesting.h"
+#include "FileHelpers.h"
+#include "PackageTools.h"
 #include "Asset/Load.h"
-#include "AssetTools/MutationTypes.h"
-#include "AssetTools/RedirectorFixup.h"
-#include "AssetTools/Relocation.h"
-#include "DObject/Object.h"
-#include "DObject/Archive.h"
+#include "Asset/PackageEditing.h"
+#include "Asset/PackageSerialization.h"
+#include "Asset/Redirector.h"
+#include "Asset/RegistryOperations.h"
+#include "AssetRegistry/Publication.h"
+#include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Import/AssetDestinationValidation.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
+	FAssetRenameData::FAssetRenameData(TWeakObjectPtr<DObject> Object, std::string_view Directory,
+		std::string_view Name, bool OnlySoft)
+		: Asset(Object), NewPackagePath(Directory), NewName(Name), bOnlyFixSoftReferences(OnlySoft) {}
+	FAssetRenameData::FAssetRenameData(const FSoftObjectPath& Old, const FSoftObjectPath& New, bool OnlySoft)
+		: OldObjectPath(Old), NewObjectPath(New), bOnlyFixSoftReferences(OnlySoft) {}
+
 	namespace
 	{
-		auto Feedback(FFeedbackContext* Warn) -> FFeedbackContext& { return Warn ? *Warn : FFeedbackContext::Get(); }
-		auto ReportMutation(const FAssetMutationResultDetails& Result, FFeedbackContext* Warn) -> bool
+		bool Renaming = false, Fixing = false;
+		auto Reject(std::string_view Message) -> bool
 		{
-			if (!Result.Result) Feedback(Warn).Error((Result.Result.Error ? Result.Result.Error->ToString() : std::string{}));
-			for (const auto& Path : Result.BackupLocations) Feedback(Warn).Warning("Recovery backup: " + Path.generic_string());
-			if (!Result.Result)
-				for (const auto& Path : Result.AffectedFiles) Feedback(Warn).Warning("Affected file: " + Path.generic_string());
-			return static_cast<bool>(Result.Result);
+			static thread_local bool Reporting = false;
+			if (Reporting) return false;
+			Reporting = true;
+			struct FReset { bool& Value; ~FReset() { Value = false; } } Reset{Reporting};
+			FFeedbackContext::Get().Error(Message);
+			return false;
 		}
-	}
-
-	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest& Request, FFeedbackContext* Warn)
-		-> DObject*
-	{
-		std::optional<Durin::UnifiedError::FError> LoadedSourceError;
-		const auto Reject = [Warn](std::string_view Message) -> DObject* {
-			(Warn ? *Warn : FFeedbackContext::Get()).Error(Message);
-			return nullptr;
-		};
-		if (!Request.SourcePath.IsValid() || Request.DestinationDirectory.empty())
-			return Reject("Asset duplication requires a valid source and destination directory.");
-		const FAssetCatalogEntry Source =
-			FindAssetExact(Request.SourcePath);
-		if (!Source || Source->IsRedirector())
-			return Reject(
-				"The copied source is no longer an available real asset.");
-
-		std::string Directory = Request.DestinationDirectory;
-		if (!Directory.ends_with('/')) Directory.push_back('/');
-		const std::string AssetName(Request.SourcePath.GetAssetName());
-		FTopLevelAssetPath DestinationAssetPath;
-		FPackagePath DestinationPackagePath;
-		if (Request.DestinationPath)
+		auto KeepPackage(DPackage* Package, std::vector<FStrongObjectPtr>& Owners) -> void
 		{
-			DestinationAssetPath = *Request.DestinationPath;
-			if (!DestinationAssetPath.IsValid()) return Reject("The exact duplicate destination is invalid.");
-			DestinationPackagePath = DestinationAssetPath.GetPackagePath();
-			const auto Destination = InspectAssetDestination(DestinationPackagePath.GetView());
-			std::error_code Error;
-			if (!Destination || Destination.AssetExists() || std::filesystem::exists(Destination.PhysicalPath, Error) || Error)
-				return Reject("The exact duplicate destination is occupied or unavailable.");
+			Owners.emplace_back(Package);
+			for (auto* Object : Package->GetTopLevelAssets()) Owners.emplace_back(Object);
 		}
-		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
+		auto ReplacePath(const FSoftObjectPath& Path, const FSoftObjectPath& Old, const FSoftObjectPath& New) -> std::optional<FSoftObjectPath>
 		{
-			if (Request.DestinationPath) break;
-			const std::string CandidateName = Suffix == 0 ? AssetName
-				: Suffix == 1 ? AssetName + "_Copy"
-				: std::format("{}_Copy{}", AssetName, Suffix);
-			FPackagePath CandidatePath;
-			if (!FPackagePath::TryCreate(Directory + CandidateName, CandidatePath))
-				return Reject("The duplicate destination path is invalid.");
-			const auto Destination = InspectAssetDestination(CandidatePath.GetView());
-			if (Destination.AssetExists()) continue;
-			if (!Destination) return Reject(FormatAssetDestinationValidation(Destination));
-			std::string CandidatePhysical = Destination.PhysicalPath.generic_string();
-			std::error_code Error;
-			const bool bExists = std::filesystem::exists(CandidatePhysical, Error);
-			if (Error)
-				return Reject(
-					std::format("Could not inspect the duplicate destination: {}", Error.message()));
-			if (bExists) continue;
-			if (!FTopLevelAssetPath::TryCreate(
-				CandidatePath, CandidateName, DestinationAssetPath)) continue;
-			DestinationPackagePath = std::move(CandidatePath);
-			break;
+			const auto Text = Path.ToString(), Prefix = Old.ToString();
+			// Compare identity first, preserving the authored suffix and replacement spelling.
+			FSoftObjectPath Head;
+			if (Text.size() < Prefix.size() || (Text.size() > Prefix.size() && Text[Prefix.size()] != ':' && Text[Prefix.size()] != '.')
+				|| !FSoftObjectPath::TryCreate(Text.substr(0, Prefix.size()), Head) || Head != Old) return {};
+			FSoftObjectPath Replacement;
+			if (!FSoftObjectPath::TryCreate(New.ToString() + Text.substr(Prefix.size()), Replacement)) return {};
+			return Replacement;
 		}
-		if (!DestinationAssetPath.IsValid())
-			return Reject(
-				"Could not find an available copy name in this folder.");
-
-		FSoftObjectPath SourceObjectPath;
-		if (!FSoftObjectPath::TryCreate(
-			Request.SourcePath, std::span<const std::string>{}, SourceObjectPath))
-			return Reject(
-				"The source top-level asset path is invalid.");
-		DObject* SourceAsset = nullptr;
-		auto LoadedSource = LoadObject(SourceObjectPath, nullptr, nullptr, &LoadedSourceError);
-		SourceAsset = LoadedSource;
-		if (!LoadedSource)
-			return Reject(LoadedSourceError->ToString());
-		DPackage* SourcePackage = SourceAsset ? SourceAsset->GetPackage() : nullptr;
-		if (!SourceAsset || !SourcePackage || SourceAsset->GetOuter() != SourcePackage
-			|| SourcePackage->FindTopLevelAsset(SourceAsset->GetFName()) != SourceAsset)
-			return Reject(
-				"The source is not a registered top-level asset.");
-
-		DPackage* DestinationPackage = CreatePackage(DestinationPackagePath);
-		if (!DestinationPackage)
-			return Reject(
-				"The destination package could not be created.");
-		const TStrongObjectPtr<DObject> SourceOwner(SourceAsset);
-		const TStrongObjectPtr<DPackage> CreationOwner(DestinationPackage);
-		DestinationPackage->SetFlags(EObjectFlags::Transactional);
-		const auto Duplicated = DuplicateObject(
-			SourceAsset, DestinationPackage,
-			FName(DestinationAssetPath.GetAssetName()));
-		DObject* DuplicatedAsset = Duplicated.value_or(nullptr);
-		if (!DuplicatedAsset
-			|| DestinationPackage->FindTopLevelAsset(
-				DuplicatedAsset->GetFName()) != DuplicatedAsset)
+		auto HasPersistentAliasReferences(const FSoftObjectPath& Alias) -> bool
 		{
-			MarkObjectHierarchyAsGarbage(DestinationPackage);
-			RequestGarbageCollection();
-			return Reject(
-				!Duplicated ? ToString(Duplicated.error())
-					: "The source object graph could not be duplicated as an asset.");
-		}
-		DuplicatedAsset->SetFlags(EObjectFlags::Standalone);
-		DestinationPackage->MarkDirty();
-		DestinationPackage->MarkAsNewlyCreated();
-		return DuplicatedAsset;
-	}
-
-	auto SaveAssetsWithEditorPolicy(const FAssetSaveRequest& Request, FFeedbackContext* Warn) -> bool
-	{
-		const auto Reject = [Warn](std::string_view Message) { Feedback(Warn).Error(Message); return false; };
-		if (Request.AssetPaths.empty()) return Reject("No asset packages were selected for saving.");
-		if (Request.Mode == EAssetSaveMode::CanonicalResave)
-		{
-			const FAssetPackageDiscoverySnapshot Snapshot =
-				CaptureMountedAssetPackageSnapshot();
-			if (Snapshot.Status != EAssetPackageSnapshotStatus::Completed)
-				return Reject(
-					Snapshot.Error.empty() ? "Canonical-resave discovery did not complete."
-						: Snapshot.Error);
-			const FReflectionCompatibilityCatalog Catalog =
-				FReflectionCompatibilityCatalog::Capture();
-			std::vector<FAssetPackageCompatibilityProbeInput> Inputs;
-			for (const FPackagePath& Path : Request.AssetPaths)
+			std::unordered_set<FPackagePath> Seen;
+			for (const auto& Edge : CaptureAssetReferenceIndex().FindReferencers(Alias.GetPackagePath()))
 			{
-				const auto Input = std::ranges::find(
-					Snapshot.Packages, Path,
-					&FAssetPackageCompatibilityProbeInput::PackagePath);
-				if (Input == Snapshot.Packages.end())
-					return Reject( std::format(
-						"Package {} is not in a content-writable mounted snapshot.", Path.ToString()));
-				Inputs.push_back(*Input);
-				Inputs.back().bIncludeNestedMigrationEvidence = true;
+				if (!Seen.insert(Edge.SourcePackage).second) continue;
+				const auto Data = FindPackageExact(Edge.SourcePackage);
+				if (!Data) return true;
+				FAssetPackageInspection Inspection;
+				if (auto Inspected = InspectAssetPackage(Data->PhysicalPath, Edge.SourcePackage, Inspection); !Inspected) { Reject(Inspected.error().ToString()); return true; }
+				std::vector<FAssetReferenceEdge> Occurrences;
+				if (auto Read = ExtractAssetReferences(Edge.SourcePackage, Inspection, Occurrences); !Read) { Reject(Read.error().ToString()); return true; }
+				if (std::ranges::any_of(Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath.GetAssetPath() == Alias.GetAssetPath(); })) return true;
 			}
-			auto Audit = RunAssetCompatibilityAudit(Inputs, Catalog);
-			if (Audit.Status != EAssetCompatibilityAuditStatus::Completed
-				|| Audit.Records.size() != Inputs.size())
-				return Reject(
-					"Selected packages could not be inspected completely.");
-			FAssetCanonicalResaveSelection Selection{
-				.Packages = Request.AssetPaths, .bAllowPlainResave = true};
-			auto Plan = PlanAssetCanonicalResaves(Audit.Records, Selection);
-			auto Applied = ApplyAssetCanonicalResaves(std::move(Plan), Catalog);
-			if (Request.OnSaved)
-				for (const auto& Package : Applied.Plan.Packages)
-					if (Package.Status == EAssetCanonicalResavePackageStatus::Resaved) Request.OnSaved(Package.PackagePath);
-			if (Applied.Status != EAssetCanonicalResaveApplyStatus::Succeeded)
-				return Reject(
-					Applied.Diagnostic.empty()
-						? SerializeAssetCanonicalResaveApplyReport(Applied)
-						: Applied.Diagnostic);
-			return true;
+			return false;
 		}
-		std::unordered_set<FPackagePath> Visited;
-		bool bSucceeded = true;
-		for (const auto& Path : Request.AssetPaths)
+		struct FSoftRewrite { FSoftObjectPtr* Value; FSoftObjectPath After; DPackage* Package; };
+		struct FRenameItem
 		{
-			if (!Visited.insert(Path).second) continue;
-			auto* Package = FindResidentPackage(Path);
-			if (!Package || !Package->IsDirty())
+			FAssetRenameData Data;
+			TStrongObjectPtr<DObject> Object;
+			bool Failed = false;
+			bool IdentityChanged = false;
+		};
+		auto SaveRenamed(DObject* Asset) -> bool
+		{
+			auto* Package = Asset->GetPackage();
+			FAssetWriteResult Result;
+			const bool Saved = (!Package->IsDirty() && !Package->IsNewlyCreated() && !IsAssetRegistryProjectionFenced(Package->GetPackagePathIdentity())) || SavePackage(Package, {}, &Result);
+			const bool Committed = Saved || Result.Effect == EAssetWriteEffect::ContentCommittedProjectionPending;
+			if (!Saved) FFeedbackContext::Get().Error(Result.Error ? Result.Error->ToString() : "Renamed package save failed; the live asset remains available for retry.");
+			if (!Committed) return false;
+			bool Success = Saved;
+			// A retry of an already committed identity also retries its unsaved aliases.
+			std::vector<FStrongObjectPtr> Owners;
+			std::vector<DPackage*> Aliases;
+			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+				if (auto* Alias = Cast<DAssetRedirector>(Object); Alias && Alias->GetDestinationObject() == Asset
+					&& Alias->GetPackage() != Package && (Alias->GetPackage()->IsDirty() || IsAssetRegistryProjectionFenced(Alias->GetPackage()->GetPackagePathIdentity()))
+					&& !std::ranges::contains(Aliases, Alias->GetPackage()))
+				{ Aliases.push_back(Alias->GetPackage()); KeepPackage(Alias->GetPackage(), Owners); }
+			if (!DEditorLoadingAndSavingUtils::SavePackages(Aliases, false)) Success = false;
+			return Success;
+		}
+		auto RenameOne(FRenameItem& Item, bool SaveHardReferencers = false) -> bool
+		{
+			auto& Data = Item.Data;
+			DObject* Object = Data.Asset.Get();
+			if (!Data.OldObjectPath.IsValid() && Object) FSoftObjectPath::TryCreate(Object->GetObjectPath(), Data.OldObjectPath);
+			if (!Data.NewObjectPath.IsValid())
 			{
-				bSucceeded = false;
-				Feedback(Warn).Error(std::format("{}: Save requires a loaded package with authored changes.", Path.ToString()));
+				std::string Directory = Data.NewPackagePath;
+				if (!Directory.ends_with('/')) Directory += '/';
+				if (!FSoftObjectPath::TryCreate(Directory + Data.NewName + "." + Data.NewName, Data.NewObjectPath)) return Reject("The new asset identity is invalid.");
+			}
+			if (!Data.OldObjectPath.IsValid()) return Reject("Rename requires a live object or an explicit old object path.");
+			if (!Data.bOnlyFixSoftReferences && (!Data.OldObjectPath.IsTopLevelAsset() || !Data.NewObjectPath.IsTopLevelAsset()))
+				return Reject("Physical rename requires top-level assets; subobject paths are supported only for soft reference repair.");
+			std::optional<UnifiedError::FError> Error;
+			if (!Object && !Data.bOnlyFixSoftReferences) Object = LoadObject(Data.OldObjectPath, nullptr, nullptr, &Error);
+			if (!Data.bOnlyFixSoftReferences && (!Object || Cast<DAssetRedirector>(Object))) return Reject(Error ? Error->ToString() : "The rename source is unavailable or is a redirector.");
+			if (Data.NewPackagePath.empty()) { const auto Text = Data.NewObjectPath.GetPackagePath().ToString(); Data.NewPackagePath = Text.substr(0, Text.find_last_of('/')); }
+			if (Data.NewName.empty()) Data.NewName = Data.NewObjectPath.GetAssetPath().GetAssetName();
+			Item.Object = TStrongObjectPtr<DObject>(Object);
+			if (Object) Data.Asset = TWeakObjectPtr<DObject>(Object);
+			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() == Data.NewObjectPath.ToString()) return SaveRenamed(Object);
+			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() != Data.OldObjectPath.ToString()) return Reject("The rename source identity changed.");
+			const auto OldPackagePath = Data.OldObjectPath.GetPackagePath();
+			const auto NewPackagePath = Data.NewObjectPath.GetPackagePath();
+			const bool CaseOnly = Data.OldObjectPath == Data.NewObjectPath;
+			const auto SourceDestination = InspectAssetDestination(OldPackagePath.GetView());
+			const auto Destination = InspectAssetDestination(NewPackagePath.GetView());
+			if (!SourceDestination.bMountedDestination || !SourceDestination.bContentWritable || !Destination.bMountedDestination || !Destination.bContentWritable)
+				return Reject("Rename requires writable mounted source and destination packages.");
+			auto* SourcePackage = Object ? Object->GetPackage() : nullptr;
+			if (SourcePackage && (Object->IsTemplateObject() || Object->HasAnyObjectFlags(EObjectFlags::Transient) || SourcePackage->IsGraphPrivate() || SourcePackage->IsPlayInEditor() || !SourcePackage->IsFullyLoaded() || IsPackageLoading(OldPackagePath))) return Reject("Rename requires a published fully loaded source.");
+			const auto SourceRevision = SourcePackage ? SourcePackage->GetEditRevision() : 0;
+			std::optional<FXxHash128> SourceFingerprint;
+			if (!Data.bOnlyFixSoftReferences && SourcePackage && !SourcePackage->IsNewlyCreated())
+			{
+				const auto Fingerprint = FFileHelper::HashFileXx128(SourceDestination.PhysicalPath);
+				if (!Fingerprint) return Reject(Fingerprint.error().ToString());
+				const auto Base = SourcePackage->GetDiskImageDigest();
+				if (Base != FXxHash128{} && Base != *Fingerprint) return Reject("The saved source changed outside the loaded package; reload it before renaming.");
+				SourceFingerprint = *Fingerprint;
+			}
+			auto* DestinationPackage = FindResidentPackage(NewPackagePath);
+			std::error_code FilesystemError;
+			if (!Data.bOnlyFixSoftReferences && !CaseOnly && NewPackagePath != OldPackagePath
+				&& (DestinationPackage || FindPackageExact(NewPackagePath) || std::filesystem::exists(Destination.PhysicalPath, FilesystemError) || FilesystemError))
+				return Reject("The rename destination package is occupied.");
+			if (!Data.bOnlyFixSoftReferences && SourcePackage && SourcePackage->FindTopLevelAsset(Object->GetFName()) != Object) return Reject("Rename requires a registered top-level object.");
+			std::vector<FStrongObjectPtr> Owners;
+			std::vector<DPackage*> Referencers, ToSave;
+			if (SourcePackage) { KeepPackage(SourcePackage, Owners); Referencers.push_back(SourcePackage); }
+			const auto References = CaptureAssetReferenceIndex();
+			// Load disk referencers while the old identity still resolves. Their hard pointers survive rename.
+			for (const auto& Edge : References.FindReferencers(OldPackagePath))
+			{
+				if (Edge.Kind == EAssetReferenceKind::Redirect || std::ranges::any_of(Referencers, [&](auto* P) { return P->GetPackagePathIdentity() == Edge.SourcePackage; })) continue;
+				auto* Package = LoadPackage(Edge.SourcePackage, nullptr, &Error);
+				if (Package) { Referencers.push_back(Package); if (!Data.bOnlyFixSoftReferences || SaveHardReferencers) ToSave.push_back(Package); KeepPackage(Package, Owners); }
+				else FFeedbackContext::Get().Warning("A referencer could not be loaded; its old identity will remain supported by a redirector.");
+			}
+			for (auto* Candidate : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+				if (auto* Package = Cast<DPackage>(Candidate); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate() && !Package->IsPlayInEditor() && Package->IsFullyLoaded() && !Package->GetTopLevelAssets().empty() && !std::ranges::contains(Referencers, Package))
+				{ Referencers.push_back(Package); KeepPackage(Package, Owners); }
+			std::vector<FSoftRewrite> Soft;
+			for (auto* Package : Referencers)
+			{
+				std::vector<FSoftObjectPtr*> Values;
+				if (auto Collected = CollectLoadedAssetPackageSoftReferences(Package, OldPackagePath, Values); !Collected) return Reject(Collected.error().ToString());
+				for (auto* Value : Values) if (auto Replacement = ReplacePath(Value->ToSoftObjectPath(), Data.OldObjectPath, Data.NewObjectPath)) Soft.push_back({Value, *Replacement, Package});
+			}
+			FAssetOwnedPayloadRelocation Payload;
+			std::vector<std::filesystem::path> CopiedPayloads;
+			bool PayloadCommitted = false;
+			struct FPayloadPreparation
+			{
+				std::vector<std::filesystem::path>& Files; bool& Committed;
+				~FPayloadPreparation() { if (!Committed) for (const auto& File : Files) { std::error_code Ignored; std::filesystem::remove(File, Ignored); } }
+			} PayloadPreparation{CopiedPayloads, PayloadCommitted};
+			if (!Data.bOnlyFixSoftReferences && OldPackagePath != NewPackagePath)
+				if (const auto Relocator = FindAssetOwnedPayloadRelocator(Object->GetClass()))
+				{
+					if (auto Prepared = Relocator(Object, OldPackagePath, NewPackagePath, Payload); !Prepared) return Reject(Prepared.error().ToString());
+					for (const auto& [From, To] : Payload.Files)
+					{
+						if (From == To) continue;
+						std::filesystem::create_directories(To.parent_path(), FilesystemError);
+						if (!FilesystemError) std::filesystem::copy_file(From, To, std::filesystem::copy_options::none, FilesystemError);
+						if (FilesystemError)
+						{
+							for (const auto& Created : CopiedPayloads) { std::error_code Ignored; std::filesystem::remove(Created, Ignored); }
+							return Reject("Owned payload preparation failed: " + FilesystemError.message());
+						}
+						CopiedPayloads.push_back(To);
+					}
+				}
+			FAssetReferenceStoreCapture Stores;
+			if (auto Captured = CaptureAssetReferenceStores(Stores); !Captured) return Reject(Captured.error().ToString());
+			const bool ExternalStore = std::ranges::any_of(Stores.Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == OldPackagePath; }); });
+			const bool LeaveAlias = !CaseOnly && SourcePackage && (!SourcePackage->IsNewlyCreated() || !References.FindReferencers(OldPackagePath).empty() || !Soft.empty() || ExternalStore);
+			if (SourcePackage && (Object->GetPackage() != SourcePackage || SourcePackage->GetEditRevision() != SourceRevision)) return Reject("The source changed while rename was preparing.");
+			if (!Data.bOnlyFixSoftReferences)
+			{
+				if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Reject(Guard.error().ToString());
+				const auto CurrentSource = InspectAssetDestination(OldPackagePath.GetView()), CurrentTarget = InspectAssetDestination(NewPackagePath.GetView());
+				if (!CurrentSource.bContentWritable || !CurrentTarget.bContentWritable || CurrentSource.PhysicalPath != SourceDestination.PhysicalPath || CurrentTarget.PhysicalPath != Destination.PhysicalPath)
+					return Reject("A source or destination mount changed while rename was preparing.");
+				if (SourceFingerprint)
+				{
+					const auto Current = FFileHelper::HashFileXx128(SourceDestination.PhysicalPath);
+					if (!Current) return Reject(Current.error().ToString());
+					if (*Current != *SourceFingerprint) return Reject("The source file changed while rename was preparing.");
+				}
+			}
+			DAssetRedirector* Alias = nullptr;
+			if (!Data.bOnlyFixSoftReferences)
+			{
+				if (CaseOnly || (!LeaveAlias && SourcePackage->GetTopLevelAssets().size() == 1))
+				{
+					if (SourcePackage->GetTopLevelAssets().size() != 1 && OldPackagePath.ToString() != NewPackagePath.ToString()) return Reject("A package spelling change cannot silently rename sibling assets.");
+					if (!SourcePackage->RelocateAssetPackage(NewPackagePath)) return Reject("The package identity could not be updated.");
+					SourcePackage->Rename(FName(NewPackagePath.GetPackageName()));
+					DestinationPackage = SourcePackage;
+				}
+				else if (NewPackagePath == OldPackagePath) DestinationPackage = SourcePackage;
+				else DestinationPackage = CreatePackage(NewPackagePath);
+				if (!DestinationPackage) return Reject("The destination package could not be created.");
+				KeepPackage(DestinationPackage, Owners);
+				const auto PreviousName = Object->GetFName();
+				if (!Object->Rename(FName(Data.NewObjectPath.GetAssetPath().GetAssetName()), DestinationPackage)) return Reject("The object identity could not be updated.");
+				Object->SetFlags(EObjectFlags::Public | EObjectFlags::Standalone);
+				if (Payload.Apply) Payload.Apply();
+				PayloadCommitted = true;
+				if (LeaveAlias)
+				{
+					Alias = NewObject<DAssetRedirector>(SourcePackage, PreviousName, EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional);
+					if (!Alias) return Reject("The old identity redirector could not be created.");
+					Alias->SetDestinationObject(Object);
+					Owners.emplace_back(Alias);
+				}
+
+			}
+			for (auto& Rewrite : Soft) { *Rewrite.Value = Rewrite.After; Rewrite.Package->MarkDirty(); if (!std::ranges::contains(ToSave, Rewrite.Package)) ToSave.push_back(Rewrite.Package); }
+			if (!Data.bOnlyFixSoftReferences) { Item.IdentityChanged = true; PublishAssetRenamed(*Object, Data.OldObjectPath); }
+			bool Success = true;
+			if (!Data.bOnlyFixSoftReferences) Success = SaveRenamed(Object);
+			// Save referencers only after the real destination is persistent. Failed saves keep aliases.
+			if (Success)
+				for (auto* Package : ToSave)
+				{
+					if (!Data.bOnlyFixSoftReferences && (Package == SourcePackage || (Object && Package == Object->GetPackage()))) continue;
+					const auto Writeable = InspectAssetDestination(Package->GetPackagePathIdentity().GetView());
+					if (!Writeable.bMountedDestination || !Writeable.bContentWritable) continue;
+					if (!DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, false)) Success = false;
+				}
+			if (Data.bOnlyFixSoftReferences) return Success;
+			if (Alias && SourcePackage == DestinationPackage && !DEditorLoadingAndSavingUtils::SavePackages(std::span{&SourcePackage, 1}, false)) Success = false;
+			if (Success && Alias && ExternalStore && std::ranges::all_of(SourcePackage->GetTopLevelAssets(), [&](auto* Export) {
+				auto* Redirector = Cast<DAssetRedirector>(Export);
+				return Redirector && Redirector->GetDestinationObject() && Redirector->GetDestinationObject()->GetPackage() == Object->GetPackage();
+			}))
+			{
+				const auto Fixed = FixupPackageAliases(std::span{&OldPackagePath, 1}, EPackageAliasFixupMode::RewriteOnly);
+				if (!Fixed.Result)
+				{
+					Success = false;
+					Reject(Fixed.Result.Error ? Fixed.Result.Error->ToString() : "Reference store update failed; the old alias remains valid.");
+					for (const auto& Backup : Fixed.BackupLocations) FFeedbackContext::Get().Warning("Recovery backup: " + Backup.generic_string());
+				}
+			}
+			if (Success)
+				for (const auto& [From, To] : Payload.Files)
+					if (From != To)
+					{
+						std::error_code Error; std::filesystem::remove(From, Error);
+						if (Error) { Success = false; FFeedbackContext::Get().Warning("The renamed asset is saved; remove the retained source payload after inspection: " + From.generic_string()); }
+					}
+			return Success;
+		}
+	}
+	auto RenameAssetsWithEditorPolicy(std::span<const FAssetRenameData> Input,
+		TMulticastDelegate<void(std::span<const FAssetRenameData>)>& PostRename) -> bool
+	{
+		check(IsInGameThread());
+		if (Renaming || Fixing) return Reject("An asset identity operation is already running.");
+		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) return Reject(Guard.error().ToString());
+		if (!CaptureAssetReferenceIndex().IsComplete()) return Reject("Rename requires complete asset discovery and reference indexing.");
+		Renaming = true;
+		struct FReset { ~FReset() { Renaming = false; } } Reset;
+		std::vector<FRenameItem> Items;
+		for (const auto& Request : Input)
+		{
+			auto Data = Request;
+			auto* Object = Request.Asset.Get();
+			if (!Data.OldObjectPath.IsValid() && Object) FSoftObjectPath::TryCreate(Object->GetObjectPath(), Data.OldObjectPath);
+			Items.push_back({std::move(Data), TStrongObjectPtr<DObject>(Object)});
+		}
+		bool Success = true;
+		std::vector<FAssetRenameData> Completed;
+		for (auto& Item : Items)
+		{
+			Item.Failed = !RenameOne(Item);
+			Success &= !Item.Failed;
+			if (Item.IdentityChanged || (!Item.Failed && Item.Data.bOnlyFixSoftReferences)) Completed.push_back(Item.Data);
+		}
+		if (!Completed.empty()) PostRename.Broadcast(Completed);
+		return Success;
+	}
+	auto IsEditorFixupInProgress() -> bool { check(IsInGameThread()); return Fixing; }
+	auto FixupReferencersWithEditorPolicy(std::span<DAssetRedirector* const> Objects, ERedirectFixupMode Mode) -> void
+	{
+		check(IsInGameThread());
+		if (Fixing || Renaming) { Reject("An asset identity operation is already running."); return; }
+		if (Objects.empty()) return;
+		if (auto Guard = CheckAssetPackageMutationAllowed(); !Guard) { Reject(Guard.error().ToString()); return; }
+		if (!CaptureAssetReferenceIndex().IsComplete()) { Reject("Fix-up requires complete asset discovery and reference indexing."); return; }
+		Fixing = true;
+		struct FReset { ~FReset() { Fixing = false; } } Reset;
+		std::vector<TStrongObjectPtr<DAssetRedirector>> Selection;
+		std::vector<FStrongObjectPtr> SiblingOwners;
+		for (auto* Object : Objects)
+			if (Object && !Object->IsGarbage() && std::ranges::none_of(Selection, [&](const auto& Owner) { return Owner.Get() == Object; })) Selection.emplace_back(Object);
+		std::vector<FPackagePath> Paths;
+		for (const auto& Owner : Selection)
+		{
+			auto* Alias = Owner.Get();
+			auto* Package = Alias->GetPackage();
+			auto* Destination = Alias->GetDestinationObject();
+			if (!Package || !Destination) { Reject("A selected redirector has no live destination."); continue; }
+			FSoftObjectPath Old, New;
+			if (!FSoftObjectPath::TryCreate(Alias->GetObjectPath(), Old) || !FSoftObjectPath::TryCreate(Destination->GetObjectPath(), New)) { Reject("A selected redirector has an invalid identity."); continue; }
+			for (auto* Export : Package->GetTopLevelAssets())
+				if (std::ranges::none_of(Selection, [&](const auto& Selected) { return Selected.Get() == Export; })) SiblingOwners.emplace_back(Export);
+			if (!SaveRenamed(Destination)) continue;
+			FRenameItem Repair{FAssetRenameData(Old, New, true)};
+			if (!RenameOne(Repair, true)) continue; // Preserve the alias after any failed referencer save.
+			const auto Exports = Package->GetTopLevelAssets();
+			const bool WholeAliasPackage = std::ranges::all_of(Exports, [&](auto* Export) {
+				auto* Other = Cast<DAssetRedirector>(Export);
+				return Other && Other->GetDestinationObject() && Other->GetDestinationObject()->GetPackage() == Destination->GetPackage()
+					&& std::ranges::any_of(Selection, [&](const auto& Selected) { return Selected.Get() == Export; });
+			});
+			if (WholeAliasPackage)
+			{
+				if (!std::ranges::contains(Paths, Old.GetPackagePath())) Paths.push_back(Old.GetPackagePath());
 				continue;
 			}
-			FAssetWriteResult Saved;
-			const bool Succeeded = SavePackage(Package, {}, &Saved);
-			if (Request.OnSaved && (Succeeded || Saved.Effect == EAssetWriteEffect::ContentCommittedProjectionPending))
-				Request.OnSaved(Path);
-			if (!Succeeded)
+			if (Mode == ERedirectFixupMode::LeaveFixedUpRedirectors) continue;
+			FAssetReferenceStoreCapture Stores;
+			if (auto Captured = CaptureAssetReferenceStores(Stores); !Captured) { Reject(Captured.error().ToString()); continue; }
+			if (std::ranges::any_of(Stores.Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == Old.GetPackagePath(); }); }))
+			{ Reject("A package-valued external store cannot distinguish the selected redirector from its siblings; the alias is retained."); continue; }
+			if (Alias->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || Private::GetStrongObjectReferenceCount(FObjectKey(Alias)) > 1)
+			{ Reject("A selected redirector is retained by a native owner."); continue; }
+			class FReferences final : public FReferenceCollector
 			{
-				bSucceeded = false;
-				const std::string_view Disposition = Saved.Effect == EAssetWriteEffect::ContentCommittedProjectionPending
-					? "Package content was saved; the asset catalog requires synchronization. "
-					: Saved.Effect == EAssetWriteEffect::None ? ""
-					: "Package files may have changed; inspect recovery details. ";
-				Feedback(Warn).Error(std::format("{}: {}{}", Path.ToString(), Disposition,
-					Saved.Error ? Saved.Error->ToString() : std::string{}));
+			public:
+				DObject* Target = nullptr;
+				bool Found = false;
+				auto AddReferencedObject(DObject*& Value) -> void override { Found |= Value == Target; }
+			} References;
+			References.Target = Alias;
+			Private::AddFunctionParameterReferences(References);
+			for (auto* Live : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly)) if (Live != Alias) Live->AddReferencedObjects(References);
+			if (References.Found) { Reject("A selected redirector is still referenced by a live object."); continue; }
+			if (HasPersistentAliasReferences(Old)) { Reject("Persistent references still require the selected redirector; it is retained."); continue; }
+			Alias->SetTransient(true);
+			Package->UnregisterTopLevelAsset(Alias);
+			Package->MarkDirty();
+			FAssetWriteResult Written;
+			const bool Saved = SavePackage(Package, {}, &Written);
+			if (!Saved && Written.Effect != EAssetWriteEffect::ContentCommittedProjectionPending)
+			{
+				Alias->SetTransient(false);
+				Alias->Rename(Alias->GetFName(), Package);
+				Reject(Written.Error ? Written.Error->ToString() : "Could not save the remaining sibling assets.");
+				continue;
 			}
+			MarkObjectHierarchyAsGarbage(Alias);
+			RequestGarbageCollection();
+			if (!Saved) Reject(Written.Error ? Written.Error->ToString() : "Sibling package saved; catalog synchronization is pending.");
 		}
-		return bSucceeded;
-	}
-
-	auto RelocateAssetsWithEditorPolicy(const FAssetRelocationRequest& Request, FFeedbackContext* Warn) -> bool
-	{
-		if (Request.Mappings.empty()) return true;
-		std::vector<FAssetRelocationMapping> Mappings;
-		for (const auto& Mapping : Request.Mappings) Mappings.push_back({Mapping.SourcePath, Mapping.DestinationPath});
-		return ReportMutation(RelocateAssets(Mappings), Warn);
-	}
-	auto FixUpRedirectorsWithEditorPolicy(const FAssetRedirectorFixupRequest& Request, FFeedbackContext* Warn) -> bool
-	{
-		if (Request.Redirectors.empty()) return true;
-		return ReportMutation(FixUpRedirectors(Request.Redirectors, Request.bDeleteRedirectors
-			? EAssetRedirectorFixupMode::RewriteAndDelete : EAssetRedirectorFixupMode::RewriteOnly), Warn);
+		Selection.clear();
+		SiblingOwners.clear();
+		if (Paths.empty()) return;
+		if (Mode == ERedirectFixupMode::DeleteFixedUpRedirectors)
+		{
+			std::vector<DPackage*> Packages;
+			for (const auto& Path : Paths) if (auto* Package = FindResidentPackage(Path)) Packages.push_back(Package);
+			std::string Error;
+			DPackageTools::UnloadPackages(Packages, Error);
+		}
+		const auto Result = FixupPackageAliases(Paths, Mode == ERedirectFixupMode::DeleteFixedUpRedirectors
+			? EPackageAliasFixupMode::RewriteAndDelete : EPackageAliasFixupMode::RewriteOnly);
+		if (!Result.Result) FFeedbackContext::Get().Error(Result.Result.Error ? Result.Result.Error->ToString() : "Redirector fix-up failed.");
+		for (const auto& Backup : Result.BackupLocations) FFeedbackContext::Get().Warning("Recovery backup: " + Backup.generic_string());
 	}
 }

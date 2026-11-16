@@ -30,7 +30,7 @@ namespace Durin
 		CONTENTBROWSERASSETDATASOURCE_API auto EditItem(const ContentBrowser::FContentBrowserItemData&) -> bool override;
 		CONTENTBROWSERASSETDATASOURCE_API auto CanDuplicateItem(const ContentBrowser::FContentBrowserItemData&, std::string* = nullptr) const -> bool override;
 		CONTENTBROWSERASSETDATASOURCE_API auto DuplicateItem(const ContentBrowser::FContentBrowserItemData&, ContentBrowser::FContentBrowserItemData&) -> bool override;
-		CONTENTBROWSERASSETDATASOURCE_API auto FixUpRedirectors(std::span<const FPackagePath>, const ContentBrowser::FContentBrowserOperationContext&) -> bool;
+		CONTENTBROWSERASSETDATASOURCE_API auto FixUpRedirectors(std::span<const FTopLevelAssetPath>, const ContentBrowser::FContentBrowserOperationContext&) -> bool;
 		CONTENTBROWSERASSETDATASOURCE_API auto FixUpRedirectorsInFolder(std::string_view, const ContentBrowser::FContentBrowserOperationContext&) -> bool;
 		CONTENTBROWSERASSETDATASOURCE_API auto FixUpAllRedirectors(const ContentBrowser::FContentBrowserOperationContext&) -> bool;
 		CONTENTBROWSERASSETDATASOURCE_API auto CanSaveItem(const ContentBrowser::FContentBrowserItemData&, ContentBrowser::EContentBrowserItemSaveFlags, std::string* = nullptr) const -> bool override;

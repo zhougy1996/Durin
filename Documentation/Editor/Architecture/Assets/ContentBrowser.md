@@ -395,8 +395,10 @@ AssetTools; ordinary files and folders stay within their source mount.
 Provider preparation validates mounts, source/destination ancestry, reparse paths,
 unknown packages and companion ownership before writing. Shared directories merge;
 files and packages never overwrite existing destinations. Selected descendants
-collapse beneath selected folders. Package relocation runs synchronously per
-package integrity unit through AssetTools. Ordinary file moves copy without
+collapse beneath selected folders. Asset rename/move runs synchronously through RenameAssets with exact object
+paths. Normal rename changes the selected object name and its package leaf;
+multi-asset packages retain unselected siblings. Dirty and unsaved asset items
+use live identity rather than requiring a preliminary save. Ordinary file moves copy without
 replacement, verify byte identities, then remove only the verified source. Failed
 source removal retains the destination and reports both paths for recovery.
 Independent failures retain prior commits; admission loss or uncertain native
@@ -404,7 +406,7 @@ recovery stops remaining writes inside that provider. Registry publication failu
 committed content and requests reconciliation. Source cleanup removes only empty
 directories; retained redirectors produce a warning. Authored relocation never
 enters global object-edit Undo/Redo. See
-[asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#synchronous-relocation).
+[asset mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md#rename-and-private-byte-transformations).
 
 The browser's navigation roots come from automatically scanned mounts. Providers
 may contribute logical items beneath those roots without physical storage.

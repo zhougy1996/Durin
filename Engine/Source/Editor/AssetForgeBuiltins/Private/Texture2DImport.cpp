@@ -200,15 +200,18 @@ namespace Durin::AssetForge::Builtins
 		return OutPrepared;
 	}
 
-	auto DTexture2DFactory::FactoryCreateFromFile(
+	auto DTexture2DFactory::FactoryCreateFile(
 		DClass* InClass,
 		DObject* InParent,
 		FName InName,
 		EObjectFlags Flags,
 		std::string_view Filename,
-		DObject*,
-		FFactoryDiagnostics* Diagnostics) const -> DObject*
+		std::string_view Parms,
+			FFeedbackContext* Warn, bool& bOutOperationCanceled) -> DObject*
 	{
+		FFactoryDiagnostics DiagnosticStorage(Warn);
+		auto* Diagnostics = &DiagnosticStorage;
+		bOutOperationCanceled = false;
 		auto Reject = [&](EFactoryError Code, std::string_view PreparedFilename = {}) -> DObject* {
 			if (Diagnostics) Diagnostics->ReportFailure({
 				.Code = Code,

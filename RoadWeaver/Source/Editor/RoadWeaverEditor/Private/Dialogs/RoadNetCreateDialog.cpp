@@ -1,3 +1,5 @@
+#include "PackageTools.h"
+#include "Misc/FeedbackContext.h"
 #include "Dialogs/RoadNetCreateDialog.h"
 
 #include "Asset/PackageSerialization.h"
@@ -121,8 +123,8 @@ namespace Durin::RoadNet::Editor
 				CreatedError += Message;
 			}
 		});
-		const auto Created = IAssetTools::Get().CreateAsset(
-			AssetPath, DRoadNet::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
+		Durin::FScopedFeedbackContext CreationFeedbackScope(CreatedFeedback);
+			const auto Created = Durin::IAssetTools::Get().CreateAsset((AssetPath).GetAssetName(), (AssetPath).GetPackagePath().ToString().substr(0, (AssetPath).GetPackagePath().ToString().find_last_of('/')), DRoadNet::StaticClass(), nullptr);
 		DRoadNet* RoadNet = Cast<DRoadNet>(Created);
 		if (!Created || !RoadNet)
 		{
@@ -175,14 +177,14 @@ namespace Durin::RoadNet::Editor
 		Operation.RadiusMeters = PlanetRadiusMeters;
 		if (!FitRoadDefinition(Candidate, Operation, Error) || !RoadNet->SetDefinition(std::move(Candidate), Error))
 		{
-			IAssetTools::Get().DiscardPackage(RoadNet->GetPackage());
+			([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{RoadNet->GetPackage()}, Error, true) && Error.empty(); }());
 			SetError(Error);
 			return false;
 		}
 		FAssetWriteResult Saved;
 		if (!SavePackage(RoadNet->GetPackage(), {}, &Saved))
 		{
-			IAssetTools::Get().DiscardPackage(RoadNet->GetPackage());
+			([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{RoadNet->GetPackage()}, Error, true) && Error.empty(); }());
 			SetError((Saved.Error ? Saved.Error->ToString() : std::string{}).empty()
 				? "The Road Net asset could not be saved." : (Saved.Error ? Saved.Error->ToString() : std::string{}));
 			return false;

@@ -4,6 +4,7 @@
 
 #include "DurinEdAPI.h"
 #include "DObject/Object.h"
+#include "Misc/FeedbackContext.h"
 
 #include "Factory.gen.h"
 
@@ -55,6 +56,7 @@ namespace Durin
 	class FFactoryDiagnostics
 	{
 	public:
+		explicit FFactoryDiagnostics(FFeedbackContext* InFeedback = nullptr) : Feedback(InFeedback) {}
 		static constexpr size_t MaximumMessageCount = 8;
 		static constexpr size_t MaximumMessageLength = 1024;
 
@@ -65,6 +67,7 @@ namespace Durin
 		DURINED_API auto ToString() const -> std::string;
 
 	private:
+		FFeedbackContext* Feedback;
 		std::vector<FFactoryDiagnostic> Entries;
 	};
 
@@ -104,16 +107,16 @@ namespace Durin
 			FName InName,
 			EObjectFlags Flags,
 			DObject* Context,
-			FFactoryDiagnostics* Diagnostics) const -> DObject*;
+			FFeedbackContext* Warn, FName CallingContext = {}) -> DObject*;
 
-		DURINED_API virtual auto FactoryCreateFromFile(
+		DURINED_API virtual auto FactoryCreateFile(
 			DClass* InClass,
 			DObject* InParent,
 			FName InName,
 			EObjectFlags Flags,
 			std::string_view Filename,
-			DObject* Context,
-			FFactoryDiagnostics* Diagnostics) const -> DObject*;
+			std::string_view Parms,
+			FFeedbackContext* Warn, bool& bOutOperationCanceled) -> DObject*;
 
 	protected:
 		DURINED_API explicit DFactory(const FObjectInitializer& ObjectInitializer);

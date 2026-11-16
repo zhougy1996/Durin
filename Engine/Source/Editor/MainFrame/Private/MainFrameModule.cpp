@@ -53,6 +53,12 @@
 #include "Import/EditorReimportHandler.h"
 #include "Import/ImportDialogSupport.h"
 #include "Dialogs/FileDialog.h"
+#include "Dialogs/MessageDialog.h"
+#include "Misc/ContentMountPaths.h"
+#include "FileHelpers.h"
+#include "PackageTools.h"
+#include "ObjectTools.h"
+#include "DObject/Package.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -63,8 +69,33 @@ namespace Durin::MainFrame
 
 	struct FMainFrameContext
 	{
+		FMainFrameContext()
+		{
+			FEditorFileUtils::SetSavePrompt([](std::span<DPackage* const> Packages, const FEditorFileUtils::FPromptForCheckoutAndSaveParams& Params) {
+				std::string Message = Params.Message;
+				for (auto* Package : Packages) Message += "\n" + Package->GetPackagePath();
+				const auto Result = ShowMessageDialog(Params.Title, Message, Params.bCanBeDeclined, GEditor && GEditor->GetCapabilities().bPresentWorkspace);
+				return Result == EMessageDialogResult::Yes ? FEditorFileUtils::PR_Success
+					: Result == EMessageDialogResult::No ? FEditorFileUtils::PR_Declined : FEditorFileUtils::PR_Cancelled;
+			});
+			DPackageTools::SetReloadPrompt([](std::span<DPackage* const> Packages) {
+				std::string Message = "Discard unsaved changes and reload these packages?";
+				for (auto* Package : Packages) Message += "\n" + Package->GetPackagePath();
+				return ShowMessageDialog("Reload Packages", Message, false, GEditor && GEditor->GetCapabilities().bPresentWorkspace) == EMessageDialogResult::Yes;
+			});
+			ObjectTools::SetDuplicatePrompt([](std::string_view Destination) -> std::optional<std::string> {
+				const auto Result = OpenFolderDialog({.Title = "Duplicate Assets", .InitialDirectory = ContentStorage::FContentMountPaths::VirtualToPhysical(Destination),
+					.bAllowUserInteraction = GEditor && GEditor->GetCapabilities().bPresentWorkspace});
+				if (Result.Status != EFileDialogStatus::Selected) return {};
+				const auto Directory = ContentStorage::FContentMountPaths::PhysicalToVirtualDirectory(Result.FilePath);
+				return Directory.empty() ? std::nullopt : std::optional(Directory);
+			});
+		}
 		~FMainFrameContext()
 		{
+			FEditorFileUtils::SetSavePrompt({});
+			DPackageTools::SetReloadPrompt({});
+			ObjectTools::SetDuplicatePrompt({});
             ExportWindow.Stop();
 			if (RootWindow) RootWindow->SetCloseRequestHandler({});
 			if (ContentBrowserTool)
@@ -375,7 +406,7 @@ namespace Durin::MainFrame
 				Services.DataSubsystem = BrowserData;
 				const auto Policy = static_cast<ContentBrowser::FContentBrowserOperationContext>(Services);
 				const auto Data = Services.DataSubsystem;
-				Services.FixUpRedirectors = [Data, Policy](std::span<const FPackagePath> Paths) { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectors(Paths, Policy); };
+				Services.FixUpRedirectors = [Data, Policy](std::span<const FTopLevelAssetPath> Paths) { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectors(Paths, Policy); };
 				Services.FixUpRedirectorsInFolder = [Data, Policy](std::string_view Path) { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpRedirectorsInFolder(Path, Policy); };
 				Services.FixUpAllRedirectors = [Data, Policy] { auto* DataSubsystem = Data.Get(); auto* Source = DataSubsystem ? Cast<DContentBrowserAssetDataSource>(DataSubsystem->GetActiveDataSource(FName("Asset"))) : nullptr; return Source && Source->FixUpAllRedirectors(Policy); };
 				Context.ContentBrowserTool = ContentBrowser::CreateContentBrowserTool(

@@ -3,14 +3,15 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_Engine",
     "PrivateDependencies": [
-        "DurinEd",
-        "AssetMaintenance"
+        "DurinEd"
     ],
     "PublicDependencies": [
-		"AssetRegistry",
+        "AssetRegistry",
         "Engine",
         "Core",
         "CoreDObject"
     ],
-    "ReflectHeaders": ["Public/PackageTools.h"]
+    "ReflectHeaders": [
+        "Public/PackageTools.h"
+    ]
 }

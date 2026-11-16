@@ -18,6 +18,7 @@ namespace Durin
 		};
 		FStreamableManager Streamable;
 		bool bActive = false;
+		FDelegateHandle RenameHandle;
 		FAssetManagerSettings Settings;
 		uint64 Revision = std::numeric_limits<uint64>::max();
 		uint64 NextGeneration = 0;
@@ -53,6 +54,22 @@ namespace Durin
 		}
 		State->Settings = std::move(Settings);
 		State->bActive = true;
+		State->RenameHandle = OnAssetRenamed().AddLambda([Weak = std::weak_ptr(State)](const FAssetData& Asset, const FSoftObjectPath& Old) {
+			const auto Current = Weak.lock();
+			if (!Current || !Current->bActive) return;
+			const auto Prior = std::ranges::find_if(Current->Catalog, [&](const auto& Entry) { return Entry.second.AssetPath == Old.GetAssetPath(); });
+			if (Prior == Current->Catalog.end()) return;
+			const auto OldId = Prior->first;
+			Current->Catalog.erase(Prior);
+			if (!Asset.PrimaryAssetId.IsValid()) { Current->Rules.erase(OldId); Current->EditorOnly.erase(OldId); return; }
+			Current->Catalog[Asset.PrimaryAssetId] = Asset;
+			if (OldId != Asset.PrimaryAssetId)
+			{
+				if (const auto Rule = Current->Rules.find(OldId); Rule != Current->Rules.end()) { Current->Rules[Asset.PrimaryAssetId] = Rule->second; Current->Rules.erase(OldId); }
+				if (Current->EditorOnly.erase(OldId)) Current->EditorOnly.insert(Asset.PrimaryAssetId);
+				if (auto Entry = Current->Loaded.extract(OldId); !Entry.empty()) { Entry.key() = Asset.PrimaryAssetId; Current->Loaded.insert(std::move(Entry)); }
+			}
+		});
 		State->Revision = std::numeric_limits<uint64>::max();
 		RefreshCatalog();
 		if (!State->Diagnostics.empty())
@@ -67,6 +84,8 @@ namespace Durin
 	{
 		// Detach/cancel requests before dropping the manager's retained handles.
 		State->bActive = false;
+		OnAssetRenamed().Remove(State->RenameHandle);
+		State->RenameHandle = {};
 		State->Streamable.ClearRequests();
 		State->Loaded.clear();
 		State->Catalog.clear();

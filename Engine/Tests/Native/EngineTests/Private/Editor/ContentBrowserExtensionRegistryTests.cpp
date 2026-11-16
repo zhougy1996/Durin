@@ -1,3 +1,5 @@
+#include "PackageTools.h"
+#include "Misc/FeedbackContext.h"
 #include "Editor/ContentBrowserModelFixture.h"
 #include "Editor/ContentBrowserItemTestSupport.h"
 #include "Misc/UnifiedError.h"
@@ -300,7 +302,7 @@ namespace Durin::ContentBrowser
 		struct FPackageCleanup
 		{
 			DPackage*& Package;
-			~FPackageCleanup() { if (Package) IAssetTools::Get().DiscardPackage(Package); }
+			~FPackageCleanup() { if (Package) ([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Package}, Error, true) && Error.empty(); }()); }
 		} Cleanup{CreatedPackage};
 		Private::FAssetCreationDialog Dialog({
 			.Id = "test.deferred-creation", .Label = "Level", .DefaultName = "NewLevel",
@@ -310,7 +312,7 @@ namespace Durin::ContentBrowser
 				Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 					if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 				});
-				const auto Created = IAssetTools::Get().CreateAsset(Path, DLevel::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+				const auto Created = ([&] { Durin::FScopedFeedbackContext Scope(*(&CreatedFeedback)); const auto& PackagePath = (Path).GetPackagePath(); const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetAssetName(), Text.substr(0, Text.find_last_of('/')), DLevel::StaticClass(), nullptr); }());
 				if (!Created) { Error = CreatedError; return false; }
 				CreatedPackage = Created->GetPackage();
 				FAssetWriteResult Saved;

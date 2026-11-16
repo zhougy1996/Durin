@@ -176,12 +176,31 @@ namespace Durin
 	auto DObject::Rename(FName InName) -> void
 	{
 		if (IsTemplateObject()) return;
-		if (NamePrivate == InName) return;
+		if (NamePrivate.ToString() == InName.ToString()) return;
 		if (auto* Package = Cast<DPackage>(GetOuter()); Package && Package->IsAssetPackage()
 			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
 		NamePrivate = InName;
 		Durin::Private::InvalidateSoftObjectCaches();
 		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) MarkPackageDirty();
+	}
+
+	auto DObject::Rename(FName InName, DObject* NewOuter) -> bool
+	{
+		CheckGameThread();
+		if (IsTemplateObject() || IsGarbage() || !NewOuter || NewOuter->IsGarbage() || InName.IsNone()) return false;
+		for (auto* Outer = NewOuter; Outer; Outer = Outer->GetOuter()) if (Outer == this) return false;
+		auto* Package = Cast<DPackage>(NewOuter);
+		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
+			|| !Package->CanUseTopLevelAssetName(InName, this)) return false;
+		auto* OldPackage = GetPackage();
+		if (auto* Previous = Cast<DPackage>(OuterPrivate)) Previous->UnregisterTopLevelAsset(this);
+		NamePrivate = InName;
+		if (OuterPrivate != NewOuter) GDObjectArray.ReparentObject(this, NewOuter);
+		require(Package->RegisterTopLevelAsset(this));
+		if (OldPackage) OldPackage->MarkDirty();
+		Package->MarkDirty();
+		Durin::Private::InvalidateSoftObjectCaches();
+		return true;
 	}
 
 	auto DObject::RestoreTransactionMetadata(FName Name, DObject* Outer, EObjectFlags Flags) -> void

@@ -1,4 +1,6 @@
+#include "Asset/References.h"
 #include "AssetTools/MutationTesting.h"
+#include "AssetMutationInternal.h"
 #include "AssetMutationStagingInternal.h"
 #include "Asset/PackageEditing.h"
 #include "Asset/Load.h"
@@ -109,8 +111,8 @@ namespace Durin
 		struct FFixupLiveSoftReference
 		{
 			FSoftObjectPtr* Value = nullptr;
-			FPackagePath PrePath;
-			FPackagePath PostPath;
+			FSoftObjectPath PrePath;
+			FSoftObjectPath PostPath;
 		};
 
 		struct FFixupStoreState
@@ -137,7 +139,7 @@ namespace Durin
 	struct FAssetRedirectorFixupState;
 	static auto PrepareRedirectorFixupState(
 		std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode,
+		EPackageAliasFixupMode Mode,
 		std::optional<UnifiedError::FError>* OutError) -> std::shared_ptr<FAssetRedirectorFixupState>;
 	static auto ValidateRedirectorFixupCommit(
 		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup, std::optional<UnifiedError::FError>* OutError) -> bool;
@@ -146,7 +148,7 @@ namespace Durin
 
 	struct FAssetRedirectorFixupState
 	{
-		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete;
+		EPackageAliasFixupMode Mode = EPackageAliasFixupMode::RewriteAndDelete;
 		uint64 ExpectedRegistryRevision = 0;
 		uint64 ExpectedStoreRevision = 0;
 		std::vector<FPackagePath> Redirectors;
@@ -162,7 +164,7 @@ namespace Durin
 
 	static auto PrepareRedirectorFixupState(
 		std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode,
+		EPackageAliasFixupMode Mode,
 		std::optional<UnifiedError::FError>* OutError) -> std::shared_ptr<FAssetRedirectorFixupState>
 	{
 		if (OutError) OutError->reset();
@@ -175,7 +177,7 @@ namespace Durin
 		if (Redirectors.empty())
 			return RejectPreparation(UnifiedError::FError{AssetWriteErrors::InvalidPath,
 				"Redirector Fix Up requires at least one redirector."});
-		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
+		if (Mode == EPackageAliasFixupMode::RewriteAndDelete
 			&& !CaptureAssetReferenceIndex().IsComplete())
 			return RejectPreparation(UnifiedError::FError{AssetWriteErrors::StaleData,
 				"Redirector Fix Up cannot delete aliases because the reference index is incomplete."});
@@ -211,7 +213,7 @@ namespace Durin
 			if (IsPackageLoading(Alias))
 				return RejectPreparation(UnifiedError::FError{AssetWriteErrors::InUse,
 					"A selected redirector is currently loading."});
-			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
+			if (Mode == EPackageAliasFixupMode::RewriteAndDelete
 				&& FindResidentPackage(Alias))
 				return RejectPreparation(UnifiedError::FError{AssetWriteErrors::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion."});
@@ -230,9 +232,16 @@ namespace Durin
 				return RejectPreparation(UnifiedError::FError{AssetWriteErrors::InvalidData, std::format(
 					"Fix Up could not resolve {} (state {}).", Alias.ToString(),
 					static_cast<uint32>(Resolution.State))});
-			State->Mappings.push_back({Alias, Resolution.FinalPath});
+			FAssetPackageReferenceMapping Mapping{Alias, Resolution.FinalPath};
+			for (const auto& Asset : FindPrepared(Alias)->TopLevelAssets)
+			{
+				const auto ObjectResolution = ResolveAssetObjectPathForOperation(FSoftObjectPath(Asset.AssetPath));
+				if (!ObjectResolution) return RejectPreparation(UnifiedError::FError{AssetWriteErrors::InvalidData, "An exact redirector destination could not be resolved."});
+				Mapping.Objects.emplace_back(Asset.AssetPath, ObjectResolution.FinalPath.GetAssetPath());
+			}
+			State->Mappings.push_back(std::move(Mapping));
 		}
-		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+		if (Mode == EPackageAliasFixupMode::RewriteAndDelete)
 			State->DeletableRedirectors = State->Redirectors;
 
 		std::map<FPackagePath, uint64, decltype([](const FPackagePath& Left,
@@ -265,7 +274,7 @@ namespace Durin
 		{
 			if (!Closure.contains(Edge.TargetPath.GetPackagePath())) continue;
 			State->PackageOccurrences.push_back(Edge);
-			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
+			if (Mode == EPackageAliasFixupMode::RewriteAndDelete
 				&& Closure.contains(Edge.SourcePackage))
 				continue;
 			++PackageRewriteCounts[Edge.SourcePackage];
@@ -353,10 +362,9 @@ namespace Durin
 					for (FSoftObjectPtr* Value : Values)
 					{
 						if (!Value || !Seen.insert(Value).second) continue;
-						State->LiveSoftReferences.push_back({
-							.Value = Value,
-							.PrePath = Mapping.SourcePath,
-							.PostPath = Mapping.DestinationPath});
+						const auto Resolved = ResolveAssetObjectPathForOperation(Value->ToSoftObjectPath());
+						if (!Resolved) return RejectPreparation(UnifiedError::FError{AssetWriteErrors::InvalidData, "A live soft reference could not be resolved."});
+						State->LiveSoftReferences.push_back({Value, Value->ToSoftObjectPath(), Resolved.FinalPath});
 					}
 				}
 			}
@@ -491,7 +499,7 @@ namespace Durin
 				return Left.TargetPath.GetView() < Right.TargetPath.GetView();
 			});
 
-		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+		if (Mode == EPackageAliasFixupMode::RewriteAndDelete)
 		{
 			for (const FPackagePath& Alias : State->Redirectors)
 			{
@@ -514,7 +522,7 @@ namespace Durin
 
 	static auto FixUpRedirectorsImpl(
 		std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode,
+		EPackageAliasFixupMode Mode,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{
 		FAssetMutationResultDetails Details;
@@ -665,14 +673,7 @@ namespace Durin
 				return PublicationFailed(*Result.Error);
 			}
 		}
-		for (FFixupLiveSoftReference& Live : State.LiveSoftReferences)
-		{
-			FSoftObjectPath Path;
-			if (!FSoftObjectPath::TryCreate(Live.PostPath.GetView(), Path))
-				return PublicationFailed(UnifiedError::FError{AssetWriteErrors::IoError,
-					"A prepared live soft-reference destination became invalid."});
-			*Live.Value = std::move(Path);
-		}
+		for (FFixupLiveSoftReference& Live : State.LiveSoftReferences) *Live.Value = Live.PostPath;
 
 		std::vector<FAssetReferenceEdge> VerifiedEdges;
 		std::unordered_set<FPackagePath> VerifiedPackages;
@@ -716,7 +717,7 @@ namespace Durin
 						"Fix Up verification found a remaining external occurrence."});
 		}
 
-		if (State.Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+		if (State.Mode == EPackageAliasFixupMode::RewriteAndDelete)
 		{
 			for (size_t Index = 0; Index < State.Staging.Entries.size(); ++Index)
 			{
@@ -742,12 +743,14 @@ namespace Durin
 		return {};
 	}
 
-	auto FixUpRedirectors(std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode) -> FAssetMutationResultDetails
+	auto FixupPackageAliases(std::span<const FPackagePath> Redirectors,
+		EPackageAliasFixupMode Mode) -> FAssetMutationResultDetails
 	{ return FixUpRedirectorsImpl(Redirectors, Mode, {}); }
 
-	auto FixUpRedirectorsWithBeforeCommitForTesting(
-		std::span<const FPackagePath> Redirectors, EAssetRedirectorFixupMode Mode,
+	auto FixupPackageFilesWithBeforeCommitForTesting(
+		std::span<const FPackagePath> Redirectors, EPackageAliasFixupTestMode Mode,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
-	{ return FixUpRedirectorsImpl(Redirectors, Mode, BeforeCommit); }
+	{ return FixUpRedirectorsImpl(Redirectors, static_cast<EPackageAliasFixupMode>(Mode), BeforeCommit); }
+	auto FixupPackageFilesForTesting(std::span<const FPackagePath> Paths, EPackageAliasFixupTestMode Mode) -> FAssetMutationResultDetails
+	{ return FixupPackageAliases(Paths, static_cast<EPackageAliasFixupMode>(Mode)); }
 }

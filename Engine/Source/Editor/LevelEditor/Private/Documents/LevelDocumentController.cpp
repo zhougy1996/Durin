@@ -328,32 +328,11 @@ namespace Durin::LevelEditor
 			return false;
 		}
 
-		if (OldPath == NewPath)
-		{
-			if (Context.Level->GetName() == NewName) return true;
-			const FName OldObjectName = Context.Level->GetFName();
-			const bool bWasDirty = Package->IsDirty();
-			Context.Level->Rename(FName(NewName));
-			FAssetWriteResult SaveResult;
-			const bool Saved = SavePackage(Package, {}, &SaveResult);
-			FLevelDocumentRevisionState::CompleteSave(
-				(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, Saved
-			);
-			if (!Saved)
-			{
-				Context.Level->Rename(OldObjectName);
-				if (!bWasDirty) Package->ClearDirty();
-				SetError((SaveResult.Error ? SaveResult.Error->ToString() : std::string{}));
-				return false;
-			}
-			return true;
-		}
-
-		const FEditorAssetMove Move{OldPath, NewPath};
+		const FEditorAssetMove Move{TWeakObjectPtr<DObject>(Context.Level), OldPathString.substr(0, Separator), NewName};
 		std::string MoveError;
 		const bool MoveResult = AssetMoveCoordinator.MoveAssets(std::span{&Move, 1}, &MoveError);
 		FLevelDocumentRevisionState::CompleteSave(
-			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Package, static_cast<bool>(MoveResult)
+			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Context.Level->GetPackage(), static_cast<bool>(MoveResult)
 		);
 		if (!MoveResult)
 		{

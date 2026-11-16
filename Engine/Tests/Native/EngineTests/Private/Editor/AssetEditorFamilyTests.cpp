@@ -1,3 +1,4 @@
+#include "ObjectTools.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Editor/AssetEditorTestQueries.h"
 #include "Asset/Testing/PackageReloadTesting.h"
@@ -15,7 +16,7 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Texture/VolumeTexture.h"
 #include "AssetTools/IAssetTools.h"
-#include "AssetTools/Relocation.h"
+#include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include <gtest/gtest.h>
 
@@ -69,7 +70,7 @@ namespace
 			Durin::FFeedbackContext ResultFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 				if (Level >= Durin::ELogLevel::Error) { if (!ResultError.empty()) ResultError += "\n"; ResultError += Message; }
 			});
-			const auto Result = IAssetTools::Get().DuplicateAsset({.SourcePath = Path.GetAssetPath(), .DestinationDirectory = "/EditorFamilies"}, &ResultFeedback);
+			const auto Result = ([&] { Durin::FScopedFeedbackContext Scope(*(&ResultFeedback)); auto* Source = Durin::LoadObject(Path.GetAssetPath(), nullptr); std::vector<Durin::DObject*> Copies; Durin::ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, "/EditorFamilies", false, &Copies); return Copies.empty() ? nullptr : Copies.front(); }());
 			return Result && SavePackage(Result->GetPackage()) ? Result : nullptr;
 		}
 		Tests::FAssetThumbnailFixtureSet Fixtures;
@@ -282,8 +283,9 @@ namespace
 		EXPECT_EQ(Edit.get(), AssetEditorSubsystem->FindEditorForAsset(Object, false));
 		FPackagePath Destination;
 		ASSERT_TRUE(FPackagePath::TryCreate(Source.GetPackagePath().ToString() + "Moved", Destination));
-		const FAssetRelocationMapping Mapping{Source.GetPackagePath(), Destination};
-		ASSERT_TRUE(RelocateAssets(std::span{&Mapping, 1}).Result);
+		const auto TargetText = Destination.ToString();
+		const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), TargetText.substr(0, TargetText.find_last_of('/')), Destination.GetPackageName()};
+		ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 		for (const auto& Toolkit : {Edit, View})
 			EXPECT_EQ(Object->GetObjectPath(), Toolkit->GetDocumentManager()->GetDocuments().front().ResourceId);
 		EXPECT_EQ(Window, Edit->GetPresentationRootKey("StaticMeshEditor"));
@@ -335,8 +337,9 @@ namespace
 		ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Source));
 		FPackagePath Destination;
 		ASSERT_TRUE(FPackagePath::TryCreate(Source.GetPackagePath().ToString() + "Moved", Destination));
-		const FAssetRelocationMapping Mapping{Source.GetPackagePath(), Destination};
-		ASSERT_TRUE(RelocateAssets(std::span{&Mapping, 1}).Result);
+		const auto TargetText = Destination.ToString();
+		const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), TargetText.substr(0, TargetText.find_last_of('/')), Destination.GetPackageName()};
+		ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 		EXPECT_EQ(Object->GetObjectPath(), EditorInstance->GetDocumentManager()->GetDocuments().front().ResourceId);
 		EXPECT_EQ(Window, EditorInstance->GetToolkit()->GetPresentationRootKey("MaterialEditor"));
 		EXPECT_EQ(Profile, EditorInstance->GetToolkit()->GetLayoutProfileKey());

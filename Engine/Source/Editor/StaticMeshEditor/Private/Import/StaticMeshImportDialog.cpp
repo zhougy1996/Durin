@@ -5,6 +5,7 @@
 #include "Import/StaticMeshImportDialog.h"
 
 #include "AssetTools/IAssetTools.h"
+#include "FileHelpers.h"
 #include "Asset/PackageSerialization.h"
 #include "Import/AssetDestinationValidation.h"
 #include "Asset/Asset.h"
@@ -262,7 +263,7 @@ namespace Durin::StaticMeshEditor
 		});
 		const auto Result = IAssetTools::Get().ImportAsset(
 			TopLevelAssetPath, DStaticMesh::StaticClass(),
-			SourcePathBuffer.data(), Factory, nullptr, Durin::DefaultAssetCreationFlags, &ResultFeedback);
+			SourcePathBuffer.data(), Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &ResultFeedback);
 		if (!Result)
 		{
 			Operation.reset();
@@ -287,12 +288,10 @@ namespace Durin::StaticMeshEditor
 		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
 			if (Level >= ELogLevel::Error) SavedError += Message;
 		});
-		if (const bool Saved = IAssetTools::Get().SaveAssets({
-				.AssetPaths = {AssetPath},
-				.OnSaved = [this](const FPackagePath& AssetPath) {
-					Callbacks.NotifyAssetCreated(AssetPath.ToString());
-				}}, &Feedback);
-			!Saved)
+		FScopedFeedbackContext SaveScope(Feedback);
+		FScopedPackageSaveObserver SavedObserver([this](const FPackagePath& Path) { Callbacks.NotifyAssetCreated(Path.ToString()); });
+		auto* Package = Mesh->GetPackage();
+		if (!DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true))
 		{
 			Operation->bSaveFailed = true;
 			SetError(SavedError.empty()

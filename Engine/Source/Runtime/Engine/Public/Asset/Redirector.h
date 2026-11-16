@@ -19,6 +19,8 @@ namespace Durin
 
 		auto GetDestinationObject() const -> DObject* { return DestinationObject.Get(); }
 
+		ENGINE_API auto SetDestinationObject(DObject* Object) -> void;
+
 	private:
 		DPROPERTY()
 		TObjectPtr<DObject> DestinationObject;

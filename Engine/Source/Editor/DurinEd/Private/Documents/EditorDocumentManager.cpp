@@ -104,13 +104,13 @@ namespace Durin
 
 	FEditorDocumentManager::FEditorDocumentManager()
 		: State(std::make_shared<DocumentPrivate::FEditorDocumentState>())
-	{ AssetMoveObserverHandle = RegisterAssetMoveObserver(this); }
+	{ AssetRenameHandle = Durin::OnAssetRenamed().AddLambda([this](const FAssetData& Asset, const FSoftObjectPath& Old) { OnAssetRenamed(Asset, Old); }); }
 
 	FEditorDocumentManager::~FEditorDocumentManager()
 	{
 		State->AssetsChanged = {};
 		State->AssetRoots.clear();
-		UnregisterAssetMoveObserver(AssetMoveObserverHandle);
+		Durin::OnAssetRenamed().Remove(AssetRenameHandle);
 	}
 
 	auto FEditorDocumentManager::SynchronizeAssets() -> void
@@ -173,28 +173,20 @@ namespace Durin
 		return std::make_shared<DocumentPrivate::FDocumentReloadParticipant>(State, std::move(Features));
 	}
 
-	auto FEditorDocumentManager::OnAssetsRelocated(
-		std::span<const FAssetRelocationMapping> Mappings) -> void
+	auto FEditorDocumentManager::OnAssetRenamed(const FAssetData& Asset, const FSoftObjectPath& Old) -> void
 	{
-		for (const FAssetRelocationMapping& Mapping : Mappings)
-		{
-			std::vector<std::pair<std::string, std::string>> Resources;
-			const auto Collect = [&](const FEditorDocument& Document) {
-				FSoftObjectPath Source;
-				if (!FSoftObjectPath::TryCreate(Document.ResourceId, Source) || Source.GetPackagePath() != Mapping.SourcePath) return;
-				FTopLevelAssetPath DestinationAsset;
-				FSoftObjectPath Destination;
-				if (FTopLevelAssetPath::TryCreate(Mapping.DestinationPath, Source.GetAssetPath().GetAssetName(), DestinationAsset)
-					&& FSoftObjectPath::TryCreate(DestinationAsset, Source.GetSubobjectNames(), Destination))
-					Resources.emplace_back(Document.ResourceId, Destination.ToString());
-			};
-			for (const auto& Document : State->Documents) Collect(Document);
-			for (const auto& [Id, Document] : State->DeferredDocumentOpens) Collect(Document);
-			for (const auto& [Source, Destination] : Resources) RemapResourceId(Source, Destination);
-			// Non-asset workspace documents may still use package-only resource keys.
-			RemapResourceId(
-				Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
-		}
+		std::vector<std::pair<std::string, std::string>> Resources;
+		const auto Collect = [&](const FEditorDocument& Document) {
+			FSoftObjectPath Source, Destination;
+			if (FSoftObjectPath::TryCreate(Document.ResourceId, Source) && Source.GetAssetPath() == Old.GetAssetPath()
+				&& FSoftObjectPath::TryCreate(Asset.AssetPath, Source.GetSubobjectNames(), Destination))
+				Resources.emplace_back(Document.ResourceId, Destination.ToString());
+		};
+		for (const auto& Document : State->Documents) Collect(Document);
+		for (const auto& [Id, Document] : State->DeferredDocumentOpens) Collect(Document);
+		for (const auto& [Source, Destination] : Resources) RemapResourceId(Source, Destination);
+		// Only a moved package key may migrate non-asset workspace resources.
+		if (!FindResidentPackage(Old.GetPackagePath())) RemapResourceId(Old.GetPackagePath().ToString(), Asset.AssetPath.GetPackagePath().ToString());
 	}
 
 	auto FEditorDocumentManager::OpenDocument(FDocumentRequest Request) -> FDocumentId

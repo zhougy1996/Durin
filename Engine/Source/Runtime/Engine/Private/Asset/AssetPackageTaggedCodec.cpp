@@ -787,6 +787,9 @@ namespace Durin::AssetPrivate::TaggedPackage
 			};
 			auto RemapObjectPath = [&](const FSoftObjectPath& Source,
 				std::string_view DestinationAssetName, FSoftObjectPath& Out) -> bool {
+				for (const auto& Mapping : Mappings)
+					for (const auto& [Old, New] : Mapping.Objects)
+						if (Source.GetAssetPath() == Old) return FSoftObjectPath::TryCreate(New, Source.GetSubobjectNames(), Out);
 				const FPackagePath* Destination = FindDestination(
 					Source.GetPackagePath().GetView());
 				if (!Destination) return false;

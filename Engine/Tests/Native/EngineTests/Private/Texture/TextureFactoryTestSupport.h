@@ -32,7 +32,7 @@ namespace Durin::AssetForge::Builtins
 			if (Level >= Durin::ELogLevel::Error) { if (!ImportedError.empty()) ImportedError += "\n"; ImportedError += Message; }
 		});
 		const auto Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTexture2D::StaticClass(), FilePath, Factory, nullptr, Durin::DefaultAssetCreationFlags, &ImportedFeedback);
+			ParsedPath, DTexture2D::StaticClass(), FilePath, Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &ImportedFeedback);
 		auto* Texture = Cast<DTexture2D>(Imported);
 		if (!Imported || !Texture)
 			return {false, ImportedError, Texture};

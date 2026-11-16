@@ -4,6 +4,7 @@
 #include "Asset/PackageSerialization.h"
 
 #include "AssetTools/IAssetTools.h"
+#include "FileHelpers.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "DObject/DObjectGlobals.h"
@@ -59,7 +60,7 @@ namespace Durin::TextureEditor
 		const bool bBatchImport = bool(Prepared);
 		Factory->SetPreparedImport(std::move(Prepared));
 		auto* Imported = IAssetTools::Get().ImportAsset(Destination, DTexture2D::StaticClass(), Filename, Factory,
-			nullptr, Durin::DefaultAssetCreationFlags, Warn);
+			nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), Warn);
 		if (!Imported || bBatchImport) return Imported;
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported);
 		if (!Save(Destination.GetPackagePath())) PendingSaves.push_back(Destination.GetPackagePath());
@@ -76,7 +77,9 @@ namespace Durin::TextureEditor
 				Error += Message;
 			}
 		});
-		const bool bSaved = IAssetTools::Get().SaveAssets({.AssetPaths = {Path}}, &Feedback);
+		FScopedFeedbackContext Scope(Feedback);
+		auto* Package = FindResidentPackage(Path);
+		const bool bSaved = DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true);
 		if (bSaved)
 		{
 			if (bRunning) Published.push_back(Path.ToString());

@@ -591,27 +591,19 @@ namespace Durin::ContentBrowser::Private
 		const FContentBrowserItem& Item) -> void
 	{
 		if (!CanMutateContent()) return;
-		std::vector<FPackagePath> Redirectors;
-		for (const FContentBrowserItem& Candidate : Model.GetItems())
-		{
-			if (!(Candidate.IsRedirector())
-				|| !SelectionState.Selected.contains(Candidate.GetItemKey()))
-				continue;
-			if (!ItemAttributes::PackagePath(Candidate).IsValid())
+		std::vector<FTopLevelAssetPath> Redirectors;
+		for (const auto& Candidate : Model.GetItems())
+			if (Candidate.IsRedirector() && SelectionState.Selected.contains(Candidate.GetItemKey()))
 			{
-				SetError("A selected redirector path is invalid.");
-				return;
+				FTopLevelAssetPath Path;
+				if (!FTopLevelAssetPath::TryCreate(Candidate.GetVirtualPath(), Path)) { SetError("A selected redirector identity is invalid."); return; }
+				Redirectors.push_back(Path);
 			}
-			Redirectors.push_back(ItemAttributes::PackagePath(Candidate));
-		}
 		if (Redirectors.empty())
 		{
-			if (!ItemAttributes::PackagePath(Item).IsValid())
-			{
-				SetError("The redirector path is invalid.");
-				return;
-			}
-			Redirectors.push_back(ItemAttributes::PackagePath(Item));
+			FTopLevelAssetPath Path;
+			if (!FTopLevelAssetPath::TryCreate(Item.GetVirtualPath(), Path)) { SetError("The redirector identity is invalid."); return; }
+			Redirectors.push_back(Path);
 		}
 		if (HostContext.FixUpRedirectors) HostContext.FixUpRedirectors(Redirectors);
 	}

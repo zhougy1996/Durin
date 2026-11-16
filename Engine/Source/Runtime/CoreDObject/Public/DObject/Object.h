@@ -94,6 +94,8 @@ namespace Durin
 		virtual auto GetAssetBundleData() const -> FAssetBundleData { return {}; }
 
 		COREDOBJECT_API auto Rename(FName InName) -> void;
+		// Checked identity change; preserves object pointers and package export indexes.
+		COREDOBJECT_API auto Rename(FName InName, DObject* NewOuter) -> bool;
 
 		auto GetFName() const -> FName { return NamePrivate; }
 

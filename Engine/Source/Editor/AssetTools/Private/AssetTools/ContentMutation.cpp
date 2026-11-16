@@ -27,7 +27,13 @@ namespace Durin::ContentStorage
 		else FFeedbackContext::Get().Serialize(Level, Message);
 	}
 	auto FContentMutationOperation::Feedback() const -> FFeedbackContext
-	{ return FFeedbackContext({}, [this](ELogLevel Level, std::string_view Message) { Report(Level, Message); }); }
+	{
+		const auto Sink = Policy.ReportDiagnostic;
+		auto* Fallback = &FFeedbackContext::Get();
+		return FFeedbackContext({}, [Sink, Fallback](ELogLevel Level, std::string_view Message) {
+			if (Sink) Sink(Level, Message); else Fallback->Serialize(Level, Message);
+		});
+	}
 	auto FContentMutationOperation::NotifyItemsUpdated(FContentChangeBatch Changes) -> void
 	{
 		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;

@@ -1,3 +1,4 @@
+#include "Misc/FeedbackContext.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Misc/UnifiedError.h"
 #include "NativeAssetBuildTestSupport.h"
@@ -1066,7 +1067,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = IAssetTools::Get().CreateAsset(CustomPath, DMaterialInstance::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+	const auto Created = ([&] { Durin::FScopedFeedbackContext Scope(*(&CreatedFeedback)); const auto& PackagePath = (CustomPath).GetPackagePath(); const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((CustomPath).GetAssetName(), Text.substr(0, Text.find_last_of('/')), DMaterialInstance::StaticClass(), nullptr); }());
 	ASSERT_TRUE(Created) << CreatedError;
 	auto* Custom = Cast<DMaterialInstance>(Created);
 	ASSERT_NE(Custom, nullptr);
@@ -1201,7 +1202,7 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 	Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 	});
-	const auto Created = IAssetTools::Get().CreateAsset(ParentPath, DMaterial::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+	const auto Created = ([&] { Durin::FScopedFeedbackContext Scope(*(&CreatedFeedback)); const auto& PackagePath = (ParentPath).GetPackagePath(); const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((ParentPath).GetAssetName(), Text.substr(0, Text.find_last_of('/')), DMaterial::StaticClass(), nullptr); }());
 	ASSERT_TRUE(Created) << CreatedError;
 	auto* Parent = Cast<DMaterial>(Created);
 	ASSERT_NE(Parent, nullptr);
@@ -1332,7 +1333,7 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 		Durin::FFeedbackContext CreatedFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 			if (Level >= Durin::ELogLevel::Error) { if (!CreatedError.empty()) CreatedError += "\n"; CreatedError += Message; }
 		});
-		const auto Created = IAssetTools::Get().CreateAsset(AssetPath, DMaterialFunction::StaticClass(), nullptr, nullptr, Durin::EObjectFlags::Public | Durin::EObjectFlags::Transactional, &CreatedFeedback);
+		const auto Created = ([&] { Durin::FScopedFeedbackContext Scope(*(&CreatedFeedback)); const auto& PackagePath = (AssetPath).GetPackagePath(); const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((AssetPath).GetAssetName(), Text.substr(0, Text.find_last_of('/')), DMaterialFunction::StaticClass(), nullptr); }());
 		ASSERT_TRUE(Created) << CreatedError;
 		auto* Function = Cast<DMaterialFunction>(Created);
 		ASSERT_NE(Function, nullptr);

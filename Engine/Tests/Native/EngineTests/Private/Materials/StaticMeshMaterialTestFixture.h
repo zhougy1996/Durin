@@ -1,5 +1,3 @@
-#include "AssetTools/Relocation.h"
-#include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #pragma once
 
@@ -48,7 +46,7 @@ namespace
 		const Durin::FPackagePath& Source,
 		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
-		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-		return Durin::RelocateAssets(std::span{&Mapping, 1}).Result;
+		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
+		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
 	}
 }

@@ -3,7 +3,7 @@
 Summary: Runtime object ownership, editor Standalone flags and checked package unloading.
 Modules: CoreDObject, Engine, Launch, AssetTools, AssetForgeBuiltins
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-16
 
 ## Runtime ownership
 
@@ -50,6 +50,12 @@ invalid, dirty-only and wholly referenced requests return false; partial success
 returns true while retaining unsaved/reference diagnostics. This follows UE's
 stated result meaning; unlike UE 5.8's empty-array early return, an empty Durin
 request reports no change. An explicit discard permits unsaved data loss.
+
+PackageTools also provides synchronous ReloadPackages overloads with
+Interactive, AssumePositive and AssumeNegative Dirty-loss policy. Prompt callbacks
+retain and revalidate the selected generation; native reload owns atomic graph
+replacement and delayed-resource retirement. Protected owners may reject it.
+See [editor package policy](../../../Editor/Architecture/Assets/AssetTools.md#package-reload-and-cleanup).
 
 Engine's public `Asset/PackageCollection.h` supplies `CheckPackageCollectionAllowed`
 and `CollectPackageExports`. The latter rechecks owner-thread/load/GC admission,

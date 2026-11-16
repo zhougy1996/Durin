@@ -2,10 +2,11 @@
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
 #include "AssetTools/IAssetTools.h"
-#include "AssetTools/Relocation.h"
+
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Misc/FeedbackContext.h"
 
 namespace Durin::ContentBrowser::AssetDataSource::Private
@@ -26,7 +27,7 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 		std::error_code Ec;
 		if (!SafePath(Destination, true, &Error) || !std::filesystem::is_directory(Destination, Ec) || Ec)
 			return Rejected(Inputs, Error.empty() ? "The destination is not an admitted directory." : Error);
-		const auto Catalog = CaptureAssetCatalogSnapshot();
+		const auto Query = CaptureAssetQuerySnapshot();
 		for (const auto& Input : Inputs)
 		{
 			const auto Source = std::filesystem::path(Input.Item.PhysicalPath).lexically_normal();
@@ -35,56 +36,50 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 					&& FPaths::IsLexicalDescendantPath(Source, Other.Item.PhysicalPath, true);
 			})) continue;
 			const auto Mount = ContentStorage::FContentMountPaths::ResolveMountPath(Source.generic_string());
-			if (!Mount || !SafePath(Source, Move, &Error) || Same(Source, Mount.Mount->GetContentDir()))
-				return Rejected(Inputs, Error.empty() ? "The asset source is outside an admitted directory." : Error);
+			if (!Mount || !SafePath(Source, Move, &Error) || Same(Source, Mount.Mount->GetContentDir())) return Rejected(Inputs, Error.empty() ? "The source is outside an admitted directory." : Error);
 			const bool Folder = Input.Item.Kind == EContentBrowserItemKind::Folder;
-			if (!Folder && Input.Item.Kind != EContentBrowserItemKind::Asset) return Rejected(Inputs, "Asset transfer requires real assets or folders.");
+			FTopLevelAssetPath Selected;
+			if (!Folder && (Input.Item.Kind != EContentBrowserItemKind::Asset || !FTopLevelAssetPath::TryCreate(Input.Item.VirtualPath, Selected))) return Rejected(Inputs, "Asset transfer requires real assets or folders.");
 			const auto TargetRoot = NewName ? Source.parent_path() / *NewName : std::filesystem::path(Destination) / Source.filename();
-
 			for (const auto& Other : Inputs)
-				if (Same(TargetRoot, Other.Item.PhysicalPath) || FPaths::IsLexicalDescendantPath(TargetRoot, Other.Item.PhysicalPath, true))
-					return Rejected(Inputs, "A destination cannot be inside a selected source.");
+				if (!(Move && NewName && !Folder && Same(Source, Other.Item.PhysicalPath))
+					&& (Same(TargetRoot, Other.Item.PhysicalPath) || FPaths::IsLexicalDescendantPath(TargetRoot, Other.Item.PhysicalPath, true))) return Rejected(Inputs, "A destination cannot be inside a selected source.");
 			if (Folder)
 			{
 				if (!std::filesystem::is_directory(Source, Ec) || Ec) return Rejected(Inputs, "The selected folder is unavailable.");
 				Folders.push_back(TargetRoot);
 			}
 			bool Found = Folder;
-			for (const auto& [Path, Package] : Catalog.Assets)
+			for (const auto& [AssetPath, Asset] : Query.Assets)
 			{
-				const auto Physical = std::filesystem::path(Package.PhysicalPath);
-				if (Folder ? !FPaths::IsLexicalDescendantPath(Physical, Source, true) : Path != Input.Item.PackagePath) continue;
-				if (!Folder && !Same(Physical, Source)) return Rejected(Inputs, "The asset no longer matches its captured file.");
+				const auto Path = Asset.AssetPath.GetPackagePath();
+				const auto Physical = std::filesystem::path(ContentStorage::FContentMountPaths::VirtualToPhysical(Path.ToString() + ".dasset"));
+				if (Folder ? !FPaths::IsLexicalDescendantPath(Physical, Source, true) : Asset.AssetPath != Selected) continue;
+				if (!Folder && !Same(Physical, Source)) return Rejected(Inputs, "The source no longer matches its captured identity.");
 				Found = true;
-				if (std::ranges::any_of(Entries, [&](const auto& Entry) { return Entry.Source == Path; })) continue;
-				if (Package.TopLevelAssets.empty() || std::ranges::any_of(Package.TopLevelAssets, &FAssetData::IsRedirector))
-					return Rejected(Inputs, "Fix Up redirectors before transferring their folder.");
-				if (!Move && Package.TopLevelAssets.size() != 1) return Rejected(Inputs, "Package copy requires one real top-level asset.");
-				const auto Target = Folder ? TargetRoot / Physical.lexically_relative(Source) : NewName ? Physical.parent_path() / (*NewName + ".dasset") : std::filesystem::path(Destination) / Physical.filename();
-				if (NewName && !Folder && (std::filesystem::exists(Target, Ec) || Ec)) return Rejected(Inputs, "The rename destination is already occupied.");
+				if (std::ranges::any_of(Entries, [&](const auto& Entry) { return Entry.Assets.front().first == Asset.AssetPath; })) continue;
+				if (Asset.IsRedirector()) return Rejected(Inputs, "Fix Up redirectors before transferring their folder.");
+				const std::string Name = NewName && !Folder ? *NewName : std::string(Asset.AssetPath.GetAssetName());
+				const auto TargetDirectory = Folder ? (TargetRoot / Physical.lexically_relative(Source)).parent_path() : std::filesystem::path(Destination);
+				const auto Target = TargetDirectory / (Name + ".dasset");
 				if (!SafePath(Physical, Move, &Error) || !SafePath(Target, true, &Error)) return Rejected(Inputs, Error);
-				auto Virtual = ContentStorage::FContentMountPaths::ResolveMountPath(Target.generic_string()).VirtualPath;
-				if (!Virtual.ends_with(".dasset")) return Rejected(Inputs, "The target package extension is invalid.");
-				Virtual.resize(Virtual.size() - 7);
+				auto Virtual = ContentStorage::FContentMountPaths::PhysicalToVirtualDirectory(TargetDirectory.generic_string());
+				if (Virtual.empty()) return Rejected(Inputs, "The target directory is not mounted.");
+				if (!Virtual.ends_with('/')) Virtual += '/';
+				Virtual += Name;
 				FPackagePath TargetPath;
-				if (!FPackagePath::TryCreate(Virtual, TargetPath)) return Rejected(Inputs, "The target package path is invalid.");
-				FEntry Entry{Path, TargetPath, Physical, Target};
-				for (const auto& Asset : Package.TopLevelAssets)
-				{
-					FTopLevelAssetPath NewAsset;
-					if (!FTopLevelAssetPath::TryCreate(TargetPath, Asset.AssetPath.GetAssetName(), NewAsset)) return Rejected(Inputs, "The target asset path is invalid.");
-					Entry.Assets.emplace_back(Asset.AssetPath, NewAsset);
-				}
-				Entries.push_back(std::move(Entry));
+				FTopLevelAssetPath TargetAsset;
+				if (!FPackagePath::TryCreate(Virtual, TargetPath) || !FTopLevelAssetPath::TryCreate(TargetPath, Name, TargetAsset)) return Rejected(Inputs, "The target object identity is invalid.");
+				Entries.push_back({Path, TargetPath, Physical, Target, {{Asset.AssetPath, TargetAsset}}});
 			}
-			if (!Found) return Rejected(Inputs, "The selected asset is no longer registered.");
+			if (!Found) return Rejected(Inputs, "The selected asset is no longer available.");
 		}
 		std::ranges::sort(Entries, {}, [](const auto& Entry) { return Entry.Source.ToString(); });
 		auto Validate = [&](std::string* Error) {
 			if (!Admitted(Inputs, Error)) return false;
 			for (const auto& Entry : Entries)
 			{
-				if (!FindPackageExact(Entry.Source) || !SafePath(Entry.SourceFile, false, Error) || !SafePath(Entry.TargetFile, true, Error)) return false;
+				if (!FindAssetExact(Entry.Assets.front().first) || !SafePath(Entry.SourceFile, false, Error) || !SafePath(Entry.TargetFile, true, Error)) return false;
 				std::error_code Ec;
 				if (std::filesystem::is_directory(Entry.TargetFile, Ec)) { if (Error) *Error = "A directory occupies a package destination."; return false; }
 				Ec.clear();
@@ -108,7 +103,7 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 			if (!Admitted(Inputs, &Error) || !SafePath(Entry.SourceFile, Move, &Error) || !SafePath(Entry.TargetFile, true, &Error))
 			{ ReportDiagnostic(Inputs, ELogLevel::Error, Error); Stopped = true; break; }
 			std::error_code Ec;
-			if (std::filesystem::exists(Entry.TargetFile, Ec) || Ec || FindPackageExact(Entry.Target) || FindResidentPackage(Entry.Target))
+			if (!(Move && NewName && Entry.Source == Entry.Target) && (std::filesystem::exists(Entry.TargetFile, Ec) || Ec || FindPackageExact(Entry.Target) || FindResidentPackage(Entry.Target)))
 			{ ReportDiagnostic(Inputs, ELogLevel::Error, "The destination package is already occupied."); continue; }
 			std::vector<std::filesystem::path> MissingParents;
 			for (auto Parent = Entry.TargetFile.parent_path(); !std::filesystem::exists(Parent, Ec) && !Ec && Parent != Parent.parent_path(); Parent = Parent.parent_path()) MissingParents.push_back(Parent);
@@ -127,47 +122,52 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 			if (!Admitted(Inputs, &Error)) { ReportDiagnostic(Inputs, ELogLevel::Error, Error); Stopped = true; break; }
 			if (Move)
 			{
-				const FAssetRelocationMapping Mapping{Entry.Source, Entry.Target};
-				const auto Native = RelocateAssets(std::span{&Mapping, 1});
-				const bool Committed = Native.Result || Native.Result.Effect == EAssetWriteEffect::ContentCommittedProjectionPending;
-				if (Committed)
+				std::vector<FAssetRenameData> Renames;
+				std::vector<FStrongObjectPtr> Owners;
+				for (const auto& [Source, Target] : Entry.Assets)
 				{
+					auto* Object = LoadObject(Source, nullptr);
+					if (!Object) continue;
+					Owners.emplace_back(Object);
+					Renames.emplace_back(FSoftObjectPath(Source), FSoftObjectPath(Target));
+				}
+				if (!Admitted(Inputs, &Error)) { ReportDiagnostic(Inputs, ELogLevel::Error, Error); break; }
+				auto& FallbackFeedback = FFeedbackContext::Get();
+				FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+					if (!Inputs.empty() && Inputs.front().Policy->ReportDiagnostic) Inputs.front().Policy->ReportDiagnostic(Level, Message);
+					else FallbackFeedback.Serialize(Level, Message);
+				});
+				FScopedFeedbackContext Scope(Feedback);
+				const auto Handle = OnAssetRenamed().AddLambda([&](const FAssetData& Asset, const FSoftObjectPath& Old) {
+					if (Old.GetAssetPath() != Entry.Assets.front().first) return;
 					Success = true;
-					for (const auto& [Source, Target] : Entry.Assets)
-						Changes.Changes.push_back({EContentChangeKind::Renamed, Entry.SourceFile.generic_string(), Entry.TargetFile.generic_string(), Source.ToString(), Target.ToString()});
-				}
-				if (!Native.Result)
-				{
-					ReportDiagnostic(Inputs, ELogLevel::Error, Native.Result.Error ? Native.Result.Error->ToString() : "Asset relocation did not complete.");
-					for (const auto& Path : Native.BackupLocations) ReportDiagnostic(Inputs, ELogLevel::Warn, "Recovery location: " + Path.generic_string());
-					for (const auto& Path : Native.AffectedFiles) ReportDiagnostic(Inputs, ELogLevel::Warn, "Recovery location: " + Path.generic_string());
-					Stopped = !Committed && Native.Result.Effect != EAssetWriteEffect::None;
-					Changes.bFullRefresh |= Native.Result.Effect != EAssetWriteEffect::None;
-				}
+					Changes.Changes.push_back({EContentChangeKind::Renamed, Entry.SourceFile.generic_string(), Entry.TargetFile.generic_string(), Old.ToString(), Asset.AssetPath.ToString()});
+				});
+				if (!IAssetTools::Get().RenameAssets(Renames) && Success) Changes.bFullRefresh = true;
+				OnAssetRenamed().Remove(Handle);
 			}
 			else
 			{
 				bool ReportedFailure = false;
+				auto& FallbackFeedback = FFeedbackContext::Get();
 				FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
 					ReportedFailure |= Level >= ELogLevel::Error;
-					ReportDiagnostic(Inputs, Level, Message);
+					if (!Inputs.empty() && Inputs.front().Policy->ReportDiagnostic) Inputs.front().Policy->ReportDiagnostic(Level, Message);
+					else FallbackFeedback.Serialize(Level, Message);
 				});
 				const auto& [SourceAsset, TargetAsset] = Entry.Assets.front();
-				auto* Copy = IAssetTools::Get().DuplicateAsset({.SourcePath = SourceAsset, .DestinationDirectory = Entry.Target.ToString().substr(0, Entry.Target.ToString().find_last_of('/')), .DestinationPath = TargetAsset}, &Feedback);
+				FScopedFeedbackContext FeedbackScope(Feedback);
+				std::optional<UnifiedError::FError> LoadError;
+				auto* Source = LoadObject(SourceAsset, nullptr, nullptr, &LoadError);
+				if (!Source) { Feedback.Error(LoadError ? LoadError->ToString() : "The copy source is unavailable."); continue; }
+				const TStrongObjectPtr<DObject> SourceOwner(Source);
+				if (!Admitted(Inputs, &Error)) { Feedback.Error(Error); Stopped = true; break; }
+				const auto TargetPackage = Entry.Target.ToString();
+				auto* Copy = IAssetTools::Get().DuplicateAsset(Entry.Target.GetPackageName(),
+					TargetPackage.substr(0, TargetPackage.find_last_of('/')), Source);
 				if (!Copy) { if (!ReportedFailure) ReportDiagnostic(Inputs, ELogLevel::Error, "Asset copy failed."); continue; }
-				Success = true; // The duplicated resident asset exists even if saving is interrupted.
-				bool Committed = false;
-				const bool MaySave = Admitted(Inputs, &Error);
-				ReportedFailure = false;
-				const bool Saved = MaySave && IAssetTools::Get().SaveAssets({.AssetPaths = {Entry.Target}, .OnSaved = [&](const FPackagePath&) { Committed = true; }}, &Feedback);
-				if (Committed) Changes.Changes.push_back({EContentChangeKind::Added, {}, Entry.TargetFile.generic_string(), {}, TargetAsset.ToString()});
-				if (!Saved)
-				{
-					if (!ReportedFailure) ReportDiagnostic(Inputs, ELogLevel::Error, "The copied package needs save/recovery inspection: " + Entry.TargetFile.generic_string());
-					else ReportDiagnostic(Inputs, ELogLevel::Warn, "Inspect retained copy: " + Entry.TargetFile.generic_string());
-					Stopped = !Committed;
-					Changes.bFullRefresh = true;
-				}
+				Success = true;
+				Changes.Changes.push_back({EContentChangeKind::Added, {}, Entry.TargetFile.generic_string(), {}, Copy->GetObjectPath()});
 			}
 			if (Stopped) break;
 		}

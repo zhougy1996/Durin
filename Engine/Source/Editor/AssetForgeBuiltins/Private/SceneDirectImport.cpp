@@ -186,7 +186,7 @@ auto ConstructSceneCandidate(const FTopLevelAssetPath &AssetPath, T *&OutAsset, 
 	}
 	const TStrongObjectPtr<DPackage> CreationOwner(Package);
 	FStaticConstructObjectParameters Parameters{T::StaticClass(), Package, FName(AssetPath.GetAssetName()),
-	                                            sizeof(T), DefaultAssetCreationFlags};
+	                                            sizeof(T), (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional)};
 	DObject *Object = StaticConstructObject(Parameters);
 	DObjectForceRegistration(Object);
 	OutAsset = Cast<T>(Object);

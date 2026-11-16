@@ -28,6 +28,7 @@ namespace Durin
 	};
 	namespace
 	{
+		thread_local FFeedbackContext* ScopedFeedback = nullptr;
 		auto IsLive(const FSlowTaskContextState& State, const FSlowTaskData& Task) -> bool
 		{
 			if (State.bRetired || Task.bRetired) return false;
@@ -92,7 +93,15 @@ namespace Durin
 		DURIN_LOG(Level, "{}", Message);
 	}
 	FFeedbackContext::~FFeedbackContext() { Retire(); }
-	auto FFeedbackContext::Get() -> FFeedbackContext& { thread_local FFeedbackContext Context; return Context; }
+	FScopedFeedbackContext::FScopedFeedbackContext(FFeedbackContext& Context)
+		: Previous(std::exchange(ScopedFeedback, &Context)) {}
+	FScopedFeedbackContext::~FScopedFeedbackContext() { ScopedFeedback = Previous; }
+	auto FFeedbackContext::Get() -> FFeedbackContext&
+	{
+		if (ScopedFeedback) return *ScopedFeedback;
+		thread_local FFeedbackContext Context;
+		return Context;
+	}
 	auto FFeedbackContext::Retire() -> void { std::lock_guard Lock(State->Mutex); State->bRetired = true; }
 	auto FFeedbackContext::GetVisibleTask() const -> std::optional<FSlowTaskSnapshot>
 	{

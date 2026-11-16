@@ -23,11 +23,11 @@
 #include "Asset/PackageEditing.h"
 #include "Asset/AssetCook.h"
 #if DURIN_WITH_EDITOR
-	#include "AssetTools/Relocation.h"
+	#include "AssetTools/MutationTesting.h"
 	#include "PackageTools.h"
 	#include "Editor/EditorEngine.h"
 	#include "Transactions/Transactor.h"
-	#include "AssetTools/RedirectorFixup.h"
+	#include "AssetTools/MutationTesting.h"
 	#include "AssetTools/MutationTesting.h"
 	#include "AssetMaintenance/CompatibilityAudit.h"
 	#include "AssetMaintenance/CanonicalResave.h"
@@ -231,11 +231,11 @@ namespace
 
 #if DURIN_WITH_EDITOR
 	auto RelocateAssetsForTest(
-		std::span<const Durin::FAssetRelocationMapping> Mappings
+		std::span<const Durin::FPackageRelocationTestMapping> Mappings
 	)
 		-> Durin::FAssetWriteResult
 	{
-		return Durin::RelocateAssets(Mappings).Result;
+		return Durin::RelocatePackageFilesForTesting(Mappings).Result;
 	}
 
 	auto RelocateAssetForTest(
@@ -244,7 +244,7 @@ namespace
 	)
 		-> Durin::FAssetWriteResult
 	{
-		const Durin::FAssetRelocationMapping Mapping{
+		const Durin::FPackageRelocationTestMapping Mapping{
 			Source, Destination
 		};
 		return RelocateAssetsForTest(std::span{&Mapping, 1});
@@ -252,11 +252,11 @@ namespace
 
 	auto FixUpRedirectorsForTest(
 		std::span<const Durin::FPackagePath> Redirectors,
-		Durin::EAssetRedirectorFixupMode Mode =
-			Durin::EAssetRedirectorFixupMode::RewriteAndDelete)
+		Durin::EPackageAliasFixupTestMode Mode =
+			Durin::EPackageAliasFixupTestMode::RewriteAndDelete)
 		-> Durin::FAssetWriteResult
 	{
-		return Durin::FixUpRedirectors(Redirectors, Mode).Result;
+		return Durin::FixupPackageFilesForTesting(Redirectors, Mode).Result;
 	}
 #endif
 
@@ -6625,7 +6625,7 @@ TEST(FPackageAssetTests, V8BundleAndRelocationPreserveCurrentFormat)
 	ASSERT_EQ(Durin::FindPackageExact(SourcePath)->FormatVersion,
 		Durin::OrdinaryAssetPackageWriterVersion);
 
-	const Durin::FAssetRelocationMapping Mapping{
+	const Durin::FPackageRelocationTestMapping Mapping{
 		SourcePath, DestinationPath};
 	ASSERT_TRUE(RelocateAssetsForTest(std::span(&Mapping, 1)));
 	const Durin::FPackageCatalogEntry Redirector =
@@ -6728,8 +6728,8 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyRetainsAlias)
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 
-	const auto Details = Durin::FixUpRedirectors(
-		std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteOnly);
+	const auto Details = Durin::FixupPackageFilesForTesting(
+		std::span{&OldPath, 1}, Durin::EPackageAliasFixupTestMode::RewriteOnly);
 	const auto Executed = Details.Result;
 	ASSERT_TRUE(Executed) << (Executed.Error ? Executed.Error->ToString() : std::string{});
 	const auto Alias = Durin::FindPackageExact(OldPath);
@@ -9793,11 +9793,11 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(OwnerPath));
 
 	Durin::TSoftObjectPtr<DPackageAssetForTest> ExternalSetting(MakeFormerMainObjectPath(OldPath));
-	const Durin::FAssetRelocationMapping Mapping{OldPath, NewPath};
+	const Durin::FPackageRelocationTestMapping Mapping{OldPath, NewPath};
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+	const auto Details = Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1});
 	const auto Result = Details.Result;
 	EXPECT_TRUE(Result.Error && Result.Error->Is(Durin::AssetWriteErrors::IoError));
 	EXPECT_EQ(Result.Effect,
@@ -9829,13 +9829,13 @@ TEST(FPackageAssetTests, RestartDoesNotReplayInterruptedRelocation)
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
 
-	const Durin::FAssetRelocationMapping Mapping{
+	const Durin::FPackageRelocationTestMapping Mapping{
 		SourcePath, DestinationPath
 	};
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+	const auto Details = Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1});
 	const auto Interrupted = Details.Result;
 	ASSERT_FALSE(Details.BackupLocations.empty());
 	const auto BackupLocation = Details.BackupLocations.front();
@@ -9965,10 +9965,10 @@ TEST(FPackageAssetTests, RelocationOwnsAndRemovesItsStagingRoot)
 				Entry.path().filename().generic_string());
 
 	{
-		const Durin::FAssetRelocationMapping Mapping{
+		const Durin::FPackageRelocationTestMapping Mapping{
 			SourcePath, DestinationPath};
 		bool bInspectedStaging = false;
-		const auto Details = Durin::RelocateAssetsWithBeforeCommitForTesting(
+		const auto Details = Durin::RelocatePackageFilesWithBeforeCommitForTesting(
 			std::span{&Mapping, 1}, [&] {
 				bInspectedStaging = true;
 				std::filesystem::path OperationRoot;
@@ -10037,11 +10037,11 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 		DPackageAssetForTest* Asset = nullptr;
 		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
 		ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-		const Durin::FAssetRelocationMapping Mapping{
+		const Durin::FPackageRelocationTestMapping Mapping{
 			SourcePath, DestinationPath
 		};
 		Durin::SetAssetRelocationFailurePointForTesting(Points[Index]);
-		const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+		const auto Details = Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1});
 		EXPECT_TRUE(Details.Result.Error && Details.Result.Error->Is(Durin::AssetWriteErrors::IoError));
 		ASSERT_NE(Durin::FindPackageExact(SourcePath), nullptr);
 		EXPECT_FALSE(Durin::FindPackageExact(SourcePath)->TopLevelAssets.front().IsRedirector());
@@ -10059,14 +10059,14 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 	DPackageAssetForTest* PrepareAsset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(PrepareSource, PrepareAsset));
 	ASSERT_TRUE(Durin::SavePackage(PrepareAsset->GetPackage()));
-	const Durin::FAssetRelocationMapping PrepareMapping{
+	const Durin::FPackageRelocationTestMapping PrepareMapping{
 		PrepareSource, PrepareDestination
 	};
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PrepareOutput
 	);
 	{
-		const auto Failure = Durin::RelocateAssets(std::span{&PrepareMapping, 1}).Result;
+		const auto Failure = Durin::RelocatePackageFilesForTesting(std::span{&PrepareMapping, 1}).Result;
 		ASSERT_TRUE(Failure.Error);
 		EXPECT_TRUE(Failure.Error->Is(Durin::AssetWriteErrors::IoError)) << Failure.Error->ToString();
 	}
@@ -10092,13 +10092,13 @@ TEST(FPackageAssetTests, RelocationFailureRetainsEffectsAndBackups)
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	const Durin::FAssetRelocationMapping Mapping{
+	const Durin::FPackageRelocationTestMapping Mapping{
 		SourcePath, DestinationPath
 	};
 	Durin::SetAssetRelocationFailurePointForTesting(
 		Durin::EAssetRelocationFailurePoint::PublishRedirector
 	);
-	const auto Details = Durin::RelocateAssets(std::span{&Mapping, 1});
+	const auto Details = Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1});
 	const auto Result = Details.Result;
 	EXPECT_TRUE(Result.Error && Result.Error->Is(Durin::AssetWriteErrors::IoError));
 	EXPECT_NE((Result.Error ? Result.Error->ToString() : std::string{}).find("AssetMutationFailed"), std::string::npos);
@@ -10177,8 +10177,8 @@ namespace
 		FMemoryAssetReferenceStore Store(OldPath);
 		FScopedReferenceStoreRegistration StoreRegistration(&Store);
 		const uint64 ConstructionCount = GSoftPackageConstructionCount;
-		const auto Details = Durin::FixUpRedirectors(
-			std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
+		const auto Details = Durin::FixupPackageFilesForTesting(
+			std::span{&OldPath, 1}, Durin::EPackageAliasFixupTestMode::RewriteAndDelete);
 		const auto Executed = Details.Result;
 		ASSERT_TRUE(Executed) << (Executed.Error ? Executed.Error->ToString() : std::string{});
 		EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
@@ -10234,8 +10234,8 @@ namespace
 		FMemoryAssetReferenceStore Store(OldPath);
 		const Durin::FAssetReferenceStoreHandle Handle =
 			Durin::RegisterAssetReferenceStore(&Store);
-		const auto Details = Durin::FixUpRedirectorsWithBeforeCommitForTesting(
-			std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
+		const auto Details = Durin::FixupPackageFilesWithBeforeCommitForTesting(
+			std::span{&OldPath, 1}, Durin::EPackageAliasFixupTestMode::RewriteAndDelete,
 			[&] { Durin::UnregisterAssetReferenceStore(Handle); });
 		const auto Result = Details.Result;
 		EXPECT_TRUE(Result.Error && Result.Error->Is(Durin::AssetWriteErrors::StaleData));
@@ -10296,8 +10296,8 @@ namespace
 					PermissionError
 				);
 				ASSERT_FALSE(PermissionError) << PermissionError.message();
-				Result = Durin::FixUpRedirectors(
-					std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete).Result;
+				Result = Durin::FixupPackageFilesForTesting(
+					std::span{&OldPath, 1}, Durin::EPackageAliasFixupTestMode::RewriteAndDelete).Result;
 				std::filesystem::permissions(
 					OwnerFile, OriginalPermissions,
 					std::filesystem::perm_options::replace,
@@ -10309,9 +10309,9 @@ namespace
 			}
 			else
 			{
-				Result = Durin::FixUpRedirectorsWithBeforeCommitForTesting(
+				Result = Durin::FixupPackageFilesWithBeforeCommitForTesting(
 					std::span{&OldPath, 1},
-					Durin::EAssetRedirectorFixupMode::RewriteAndDelete, [&] {
+					Durin::EPackageAliasFixupTestMode::RewriteAndDelete, [&] {
 						Durin::FByteBuffer ChangedBytes = PreBytes;
 						ASSERT_TRUE(RenameSerializedString(
 							ChangedBytes, "Label", "Ghost"
@@ -10379,8 +10379,8 @@ namespace
 			Durin::SetAssetRedirectorFixupFailurePointForTesting(
 				FailurePoints[Index]
 			);
-			const auto Details = Durin::FixUpRedirectors(
-				std::span{&OldPath, 1}, Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
+			const auto Details = Durin::FixupPackageFilesForTesting(
+				std::span{&OldPath, 1}, Durin::EPackageAliasFixupTestMode::RewriteAndDelete);
 			const auto Result = Details.Result;
 			Durin::SetAssetRedirectorFixupFailurePointForTesting(
 				Durin::EAssetRedirectorFixupFailurePoint::None
@@ -11261,12 +11261,12 @@ TEST(FPackageAssetTests, RelocationBatchPublishesOneCatalogRevision)
 	ASSERT_TRUE(Durin::SavePackage(SecondAsset->GetPackage()));
 
 	const std::array Mappings = {
-		Durin::FAssetRelocationMapping{First, FirstMoved},
-		Durin::FAssetRelocationMapping{Second, SecondMoved}
+		Durin::FPackageRelocationTestMapping{First, FirstMoved},
+		Durin::FPackageRelocationTestMapping{Second, SecondMoved}
 	};
 	const uint64 BeforeRevision =
 		Durin::GetAssetCatalogRevision();
-	const auto Details = Durin::RelocateAssets(Mappings);
+	const auto Details = Durin::RelocatePackageFilesForTesting(Mappings);
 	ASSERT_TRUE(Details.Result);
 	EXPECT_EQ(Durin::GetAssetCatalogRevision(), BeforeRevision + 1);
 	EXPECT_TRUE(Durin::FindPackageExact(First)->TopLevelAssets.front().IsRedirector());
@@ -11296,8 +11296,8 @@ TEST(FPackageAssetTests, RelocationRejectsStaleCommitWithoutMutatingState)
 	DPackageAssetForTest* SourceAsset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Source, SourceAsset));
 	ASSERT_TRUE(Durin::SavePackage(SourceAsset->GetPackage()));
-	const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-	const auto Details = Durin::RelocateAssetsWithBeforeCommitForTesting(
+	const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
+	const auto Details = Durin::RelocatePackageFilesWithBeforeCommitForTesting(
 		std::span{&Mapping, 1}, [&] {
 			DPackageAssetForTest* UnrelatedAsset = nullptr;
 			ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Unrelated, UnrelatedAsset));

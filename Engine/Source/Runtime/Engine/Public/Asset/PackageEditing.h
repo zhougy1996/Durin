@@ -10,11 +10,14 @@
 
 namespace Durin
 {
+	// Emits one committed live identity event; file reconciliation does not repeat it.
+	ENGINE_API auto PublishAssetRenamed(DObject& Asset, const FSoftObjectPath& OldPath) -> void;
 	// Byte-level path substitutions shared by Cook and authoring tools.
 	struct FAssetPackageReferenceMapping
 	{
 		FPackagePath SourcePath;
 		FPackagePath DestinationPath;
+		std::vector<std::pair<FTopLevelAssetPath, FTopLevelAssetPath>> Objects;
 		auto operator==(const FAssetPackageReferenceMapping&) const -> bool = default;
 	};
 

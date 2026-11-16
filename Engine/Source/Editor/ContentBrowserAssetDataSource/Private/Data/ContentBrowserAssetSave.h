@@ -1,7 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Data/ContentBrowserNativeItem.h"
-#include "AssetTools/AssetSave.h"
+#include "FileHelpers.h"
 #include "Misc/FeedbackContext.h"
 #include "ContentBrowserOperationContext.h"
 
@@ -12,8 +12,8 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 	{
 	public:
 		explicit FContentBrowserAssetSaveOperation(FContentBrowserOperationContext InHost = {}) : Host(std::move(InHost)) {}
-		auto CanSaveItem(const FContentBrowserNativeItem& Item, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage, std::string* Error = nullptr) const -> bool;
-		auto BulkSaveItems(std::span<const FContentBrowserNativeItem> Items, EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage) -> bool;
+		auto CanSaveItem(const FContentBrowserNativeItem& Item, bool IncludeClean = false, std::string* Error = nullptr) const -> bool;
+		auto BulkSaveItems(std::span<const FContentBrowserNativeItem> Items, bool IncludeClean = false) -> bool;
 	private:
 		FContentBrowserOperationContext Host;
 	};

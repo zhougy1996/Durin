@@ -214,8 +214,8 @@ contribution succeeded. Item Copy/Move call single-item source actions; service
 bulk calls public bulk overrides. Default bulk copy/move OR single-item results.
 Save/rename/copy/move/edit/duplicate capabilities also OR supported contributions.
 Rename and Duplicate aggregate successful admitted outputs. Duplicate succeeds
-when the copy exists; save failure is feedback and leaves the dirty copy available
-for ordinary Save. Independent failures retain earlier work; transfer has no
+when the copy exists; copies remain Dirty until an explicit Save. Saving failure
+leaves that copy available for retry. Independent failures retain earlier work; transfer has no
 global preflight, rollback or cancel.
 
 Capability queries do not reserve destinations or replace execution checks.

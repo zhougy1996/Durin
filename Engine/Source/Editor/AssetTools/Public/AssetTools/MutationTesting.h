@@ -1,19 +1,30 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AssetToolsAPI.h"
+#include "DObject/AssetPath.h"
 
-#include "AssetTools/Relocation.h"
-#include "AssetTools/RedirectorFixup.h"
+#include "AssetTools/MutationTypes.h"
+
 
 namespace Durin
 {
+	struct FPackageRelocationTestMapping
+	{
+		FPackagePath SourcePath, DestinationPath;
+		auto operator==(const FPackageRelocationTestMapping&) const -> bool = default;
+	};
+	enum class EPackageAliasFixupTestMode : uint8 { RewriteOnly, RewriteAndDelete };
+	ASSETTOOLS_API auto RelocatePackageFilesForTesting(std::span<const FPackageRelocationTestMapping> Mappings) -> FAssetMutationResultDetails;
+	ASSETTOOLS_API auto FixupPackageFilesForTesting(std::span<const FPackagePath> Paths, EPackageAliasFixupTestMode Mode) -> FAssetMutationResultDetails;
+
 	// Invoke the callback after successful staging, immediately before commit validation.
-	ASSETTOOLS_API auto RelocateAssetsWithBeforeCommitForTesting(
-		std::span<const FAssetRelocationMapping> Mappings,
+	ASSETTOOLS_API auto RelocatePackageFilesWithBeforeCommitForTesting(
+		std::span<const FPackageRelocationTestMapping> Mappings,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails;
-	ASSETTOOLS_API auto FixUpRedirectorsWithBeforeCommitForTesting(
+	ASSETTOOLS_API auto FixupPackageFilesWithBeforeCommitForTesting(
 		std::span<const FPackagePath> Redirectors,
-		EAssetRedirectorFixupMode Mode,
+		EPackageAliasFixupTestMode Mode,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails;
 
 	enum class EAssetRedirectorFixupFailurePoint : uint8

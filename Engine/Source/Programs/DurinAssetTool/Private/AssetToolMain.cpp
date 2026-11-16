@@ -1,3 +1,5 @@
+#include "PackageTools.h"
+#include "Misc/FeedbackContext.h"
 #include "HAL/PlatformLibrary.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
@@ -1174,7 +1176,8 @@ int main(int ArgC, char** ArgV)
 				CreatedError += Message;
 			}
 		});
-		const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
+		Durin::FScopedFeedbackContext CreationFeedbackScope(CreatedFeedback);
+			const auto Created = Durin::IAssetTools::Get().CreateAsset((AssetPath).GetAssetName(), (AssetPath).GetPackagePath().ToString().substr(0, (AssetPath).GetPackagePath().ToString().find_last_of('/')), Durin::DMaterial::StaticClass(), nullptr);
 		auto* Material = Durin::Cast<Durin::DMaterial>(Created);
 		if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
 		Material->SetEditCompileMode(Durin::EMaterialEditCompileMode::Manual);
@@ -1183,14 +1186,14 @@ int main(int ArgC, char** ArgV)
 		if (!Valid)
 		{
 			std::cerr << "PBRSurfaceMaterial_MR graph validation failed.\n";
-			Durin::IAssetTools::Get().DiscardPackage(Material->GetPackage());
+			([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Material->GetPackage()}, Error, true) && Error.empty(); }());
 			return 1;
 		}
 		Durin::FAssetWriteResult Saved;
 		if (!Durin::SavePackage(Material->GetPackage(), {}, &Saved))
 		{
 			std::cerr << (Saved.Error ? Saved.Error->ToString() : std::string{}) << '\n';
-			Durin::IAssetTools::Get().DiscardPackage(Material->GetPackage());
+			([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Material->GetPackage()}, Error, true) && Error.empty(); }());
 			return 1;
 		}
 		std::cout << "Created PBRSurfaceMaterial_MR; existing materials are never replaced.\n";
@@ -1372,7 +1375,8 @@ int main(int ArgC, char** ArgV)
 					CreatedError += Message;
 				}
 			});
-			const auto Created = Durin::IAssetTools::Get().CreateAsset(AssetPath, Durin::DMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
+			Durin::FScopedFeedbackContext CreationFeedbackScope(CreatedFeedback);
+			const auto Created = Durin::IAssetTools::Get().CreateAsset((AssetPath).GetAssetName(), (AssetPath).GetPackagePath().ToString().substr(0, (AssetPath).GetPackagePath().ToString().find_last_of('/')), Durin::DMaterial::StaticClass(), nullptr);
 			auto* Material = Durin::Cast<Durin::DMaterial>(Created);
 			if (!Created || !Material) { std::cerr << CreatedError << '\n'; return 1; }
 			Durin::FAssetWriteResult Saved;

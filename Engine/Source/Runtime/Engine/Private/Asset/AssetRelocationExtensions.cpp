@@ -27,20 +27,6 @@ namespace Durin
 			return Handle;
 		}
 
-		auto GetMoveObservers()
-			-> std::map<FAssetMoveObserverHandle, IAssetMoveObserver*>&
-		{
-			static std::map<FAssetMoveObserverHandle, IAssetMoveObserver*>
-				Observers;
-			return Observers;
-		}
-
-		auto NextMoveObserverHandle() -> FAssetMoveObserverHandle&
-		{
-			static FAssetMoveObserverHandle Handle = 1;
-			return Handle;
-		}
-
 
 	}
 
@@ -72,24 +58,6 @@ namespace Durin
 		});
 	}
 
-	auto RegisterAssetMoveObserver(
-		IAssetMoveObserver* Observer)
-		-> FAssetMoveObserverHandle
-	{
-		if (!Observer) return 0;
-		auto& NextHandle = NextMoveObserverHandle();
-		const FAssetMoveObserverHandle Handle = NextHandle++;
-
-		GetMoveObservers().emplace(Handle, Observer);
-		return Handle;
-	}
-
-	auto UnregisterAssetMoveObserver(FAssetMoveObserverHandle Handle) -> void
-	{
-		if (Handle != 0) GetMoveObservers().erase(Handle);
-	}
-
-
 	auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
 		-> FAssetOwnedPayloadRelocator
 	{
@@ -103,16 +71,5 @@ namespace Durin
 		}
 		return {};
 	}
-
-	auto NotifyAssetMoveObservers(
-		std::span<const FAssetRelocationMapping> Mappings) -> void
-	{
-		for (const auto& [Handle, Observer] : GetMoveObservers())
-		{
-			(void)Handle;
-			Observer->OnAssetsRelocated(Mappings);
-		}
-	}
-
 
 }

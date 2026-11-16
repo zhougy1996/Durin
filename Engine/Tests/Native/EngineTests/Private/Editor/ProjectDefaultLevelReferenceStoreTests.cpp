@@ -1,6 +1,5 @@
+#include "Asset/References.h"
 #include "NativeAssetRuntimeTestSupport.h"
-#include "AssetTools/Relocation.h"
-#include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include <gtest/gtest.h>
 
@@ -39,8 +38,8 @@ namespace
 		const Durin::FPackagePath& Source,
 		const Durin::FPackagePath& Destination) -> Durin::FAssetWriteResult
 	{
-		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
-		return Durin::RelocateAssets(std::span{&Mapping, 1}).Result;
+		const Durin::FPackageRelocationTestMapping Mapping{Source, Destination};
+		return Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result;
 	}
 
 	class FScopedStoreRegistration
@@ -146,9 +145,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 		[&](const Durin::FPackagePath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
-	ASSERT_TRUE(Durin::FixUpRedirectors(
+	ASSERT_TRUE(Durin::FixupPackageFilesForTesting(
 		std::span{&Scenario.OldPath, 1},
-		Durin::EAssetRedirectorFixupMode::RewriteAndDelete).Result);
+		Durin::EPackageAliasFixupTestMode::RewriteAndDelete).Result);
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
 	EXPECT_EQ(Durin::FindPackageExact(
 		Scenario.OldPath), nullptr);
@@ -171,9 +170,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRetainsPublishe
 	FScopedStoreRegistration Registration(Store);
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::Verify);
-	const auto Details = Durin::FixUpRedirectors(
+	const auto Details = Durin::FixupPackageFilesForTesting(
 		std::span{&Scenario.OldPath, 1},
-		Durin::EAssetRedirectorFixupMode::RewriteAndDelete);
+		Durin::EPackageAliasFixupTestMode::RewriteAndDelete);
 	const auto& Result = Details.Result;
 	Durin::SetAssetRedirectorFixupFailurePointForTesting(
 		Durin::EAssetRedirectorFixupFailurePoint::None);

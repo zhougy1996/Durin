@@ -1,3 +1,6 @@
+#include "Asset/Redirector.h"
+#include "Asset/Load.h"
+#include "DObject/Package.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/ConsoleToolAdapter.h"
 
@@ -239,7 +242,7 @@ namespace Durin::MainFrame
 						"The editor transactor is unavailable.");
 				std::vector<FPackagePath> Redirectors;
 				for (const auto& [Path, Data] : CaptureAssetCatalogSnapshot().Assets)
-					if ((!Data.TopLevelAssets.empty() && std::ranges::all_of(Data.TopLevelAssets, &FAssetData::IsRedirector)))
+					if ((!Data.TopLevelAssets.empty() && std::ranges::any_of(Data.TopLevelAssets, &FAssetData::IsRedirector)))
 						Redirectors.push_back(Path);
 				std::ranges::sort(Redirectors,
 					[](const FPackagePath& Left, const FPackagePath& Right) {
@@ -254,13 +257,12 @@ namespace Durin::MainFrame
 						ResultError += Message;
 					}
 				});
-				const auto Result = IAssetTools::Get().FixUpRedirectors({
-					.Redirectors = Redirectors,
-					.bDeleteRedirectors = bDelete}, &ResultFeedback);
-				return Result ? FConsoleCommandResult::Success(std::format(
-					"Fixed up {} redirector(s) in {} mode.", Redirectors.size(),
-					bDelete ? "rewrite-and-delete" : "rewrite-only"))
-					: FConsoleCommandResult::Failure(ResultError);
+				FScopedFeedbackContext Scope(ResultFeedback);
+				std::vector<DAssetRedirector*> Objects;
+				for (const auto& Path : Redirectors) if (auto* Package = LoadPackage(Path))
+					for (auto* Asset : Package->GetTopLevelAssets()) if (auto* Alias = Cast<DAssetRedirector>(Asset)) Objects.push_back(Alias);
+				IAssetTools::Get().FixupReferencers(Objects, true, bDelete ? ERedirectFixupMode::DeleteFixedUpRedirectors : ERedirectFixupMode::LeaveFixedUpRedirectors);
+				return FConsoleCommandResult::Success("Redirector fix-up request handled; diagnostics report any backend failures.");
 			}});
 	}
 

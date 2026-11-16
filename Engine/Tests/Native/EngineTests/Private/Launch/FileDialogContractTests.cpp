@@ -1,4 +1,5 @@
 #include "Dialogs/FileDialog.h"
+#include "Dialogs/MessageDialog.h"
 
 #include <gtest/gtest.h>
 
@@ -30,3 +31,9 @@ TEST(FFileDialogContractTests, InteractiveMacOSRequestsRejectWorkerThreads)
 	EXPECT_NE(Result.ErrorMessage.find("main thread"), std::string::npos);
 }
 #endif
+
+TEST(FMessageDialogContractTests, DisabledInteractionNeverReturnsConsent)
+{
+	EXPECT_EQ(Durin::ShowMessageDialog("Save", "Save selected packages?", true, false), Durin::EMessageDialogResult::Error);
+	EXPECT_EQ(Durin::ShowMessageDialog("Reload", "Discard unsaved changes?", false, false), Durin::EMessageDialogResult::Error);
+}

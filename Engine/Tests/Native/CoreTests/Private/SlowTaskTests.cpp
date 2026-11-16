@@ -3,6 +3,30 @@
 
 using namespace Durin;
 
+TEST(FFeedbackContextTests, LexicalOverrideRestoresNestedContextsAndDoesNotEscapeTheThread)
+{
+	auto* Original = &FFeedbackContext::Get();
+	std::vector<std::string> OuterMessages, InnerMessages;
+	FFeedbackContext Outer({}, [&](ELogLevel, std::string_view Text) { OuterMessages.emplace_back(Text); });
+	FFeedbackContext Inner({}, [&](ELogLevel, std::string_view Text) { InnerMessages.emplace_back(Text); });
+	{
+		FScopedFeedbackContext OuterScope(Outer);
+		FFeedbackContext::Get().Error("before");
+		{
+			FScopedFeedbackContext InnerScope(Inner);
+			FFeedbackContext::Get().Warning("inside");
+		}
+		FFeedbackContext::Get().Error("after");
+		bool Inherited = true;
+		std::thread Worker([&] { Inherited = &FFeedbackContext::Get() == &Outer; });
+		Worker.join();
+		EXPECT_FALSE(Inherited);
+	}
+	EXPECT_EQ(&FFeedbackContext::Get(), Original);
+	EXPECT_EQ(OuterMessages, (std::vector<std::string>{"before", "after"}));
+	EXPECT_EQ(InnerMessages, (std::vector<std::string>{"inside"}));
+}
+
 TEST(FSlowTaskTests, NestedScopesContributeToTheReservedParentFrame)
 {
 	FFeedbackContext Context;

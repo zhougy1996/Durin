@@ -42,7 +42,7 @@ namespace Durin::AssetForge::Builtins
 			if (Level >= ELogLevel::Error) Error += Message;
 		});
 		auto* Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory, nullptr, Durin::DefaultAssetCreationFlags, &Feedback);
+			ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &Feedback);
 		return SaveTextureCubeFactoryResult(Imported, Error);
 	}
 
@@ -66,7 +66,7 @@ namespace Durin::AssetForge::Builtins
 			if (Level >= ELogLevel::Error) Error += Message;
 		});
 		auto* Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
-			ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory, nullptr, Durin::DefaultAssetCreationFlags, &Feedback);
+			ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &Feedback);
 		return SaveTextureCubeFactoryResult(Imported, Error);
 	}
 }

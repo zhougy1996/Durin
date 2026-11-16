@@ -5,9 +5,66 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transactor.h"
+#include "Asset/PackageReload.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
+	namespace { DPackageTools::FReloadPrompt ReloadPrompt; }
+	auto DPackageTools::SetReloadPrompt(FReloadPrompt Prompt) -> void
+	{ check(IsInGameThread()); ReloadPrompt = std::move(Prompt); }
+	auto DPackageTools::ReloadPackages(std::span<DPackage* const> Packages) -> bool
+	{
+		std::string Error;
+		const bool Changed = ReloadPackages(Packages, Error);
+		if (!Error.empty()) DURIN_WARN("{}", Error);
+		return Changed;
+	}
+	auto DPackageTools::ReloadPackages(std::span<DPackage* const> Packages, std::string& Error,
+		EReloadPackagesInteractionMode Mode) -> bool
+	{
+		check(IsInGameThread());
+		Error.clear();
+		FPackageReloadRequest Request;
+		for (auto* Package : Packages)
+			if (Package && Package->IsAssetPackage() && !Package->IsNewlyCreated()
+				&& FindResidentPackage(Package->GetPackagePathIdentity()) == Package
+				&& !std::ranges::contains(Request.Packages, Package)) Request.Packages.push_back(Package);
+		if (Request.Packages.empty()) return false;
+		std::vector<FStrongObjectPtr> PromptOwners;
+		std::vector<FPackagePath> Paths;
+		for (auto* Package : Request.Packages)
+		{
+			PromptOwners.emplace_back(Package);
+			Paths.push_back(Package->GetPackagePathIdentity());
+			for (auto* Asset : Package->GetTopLevelAssets()) PromptOwners.emplace_back(Asset);
+		}
+		std::vector<DPackage*> Dirty;
+		for (auto* Package : Request.Packages) if (Package->IsDirty()) Dirty.push_back(Package);
+		if (!Dirty.empty() && Mode != EReloadPackagesInteractionMode::AssumePositive)
+		{
+			const auto Prompt = ReloadPrompt;
+			if (Mode == EReloadPackagesInteractionMode::AssumeNegative || !Prompt || !Prompt(Dirty))
+			{ Error = "Reload declined; packages have unsaved changes."; return false; }
+		}
+		if (auto* Editor = GetTransactionEditor(); Editor && Editor->GetTransactor())
+		{
+			auto Participant = CreateTransactorReloadParticipant(*Editor->GetTransactor(), Request.Packages);
+			if (!Participant) { Error = "Reload requires idle transaction history."; return false; }
+			Request.Participants.push_back(std::move(Participant));
+		}
+		for (size_t Index = 0; Index < Paths.size(); ++Index)
+			if (FindResidentPackage(Paths[Index]) != Request.Packages[Index]) { Error = "Reload selection changed during confirmation."; return false; }
+		PromptOwners.clear();
+		auto Operation = Durin::ReloadPackages(Request);
+		const auto Result = Operation.Wait();
+		if (!Result)
+		{
+			for (const auto& Diagnostic : Result.Diagnostics) Error += FormatPackageReloadDiagnostic(Diagnostic) + "\n";
+			return false;
+		}
+		return true;
+	}
 	auto DPackageTools::UnloadPackages(FUnloadPackageParams& Params) -> bool
 	{
 		auto& Errors = Params.OutErrorMessage;

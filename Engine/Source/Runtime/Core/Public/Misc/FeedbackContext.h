@@ -10,6 +10,18 @@ namespace Durin
 	class FSlowTask;
 	class FScopedSlowTask;
 
+	// Overrides feedback on this thread until the lexical scope exits; nested calls restore their caller.
+	class FScopedFeedbackContext
+	{
+	public:
+		CORE_API explicit FScopedFeedbackContext(class FFeedbackContext& Context);
+		CORE_API ~FScopedFeedbackContext();
+		FScopedFeedbackContext(const FScopedFeedbackContext&) = delete;
+		auto operator=(const FScopedFeedbackContext&) -> FScopedFeedbackContext& = delete;
+	private:
+		class FFeedbackContext* Previous;
+	};
+
 	// Terminal results are distinct from a cooperative cancellation request.
 	enum class ESlowTaskStatus : uint8 { Running, Completed, Failed, Canceled };
 

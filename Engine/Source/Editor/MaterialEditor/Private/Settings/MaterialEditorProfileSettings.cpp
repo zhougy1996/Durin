@@ -126,7 +126,7 @@ namespace Durin::MaterialEditor
 		Viewports.erase(It);
 		DirtyViewports.emplace(OldResourceId); DirtyViewports.emplace(NewResourceId);
 	}
-	auto FMaterialEditorProfileSettings::RemapStoredViewports(std::span<const FAssetRelocationMapping> Mappings) -> void
+	auto FMaterialEditorProfileSettings::RemapStoredViewports(const FAssetData& Asset, const FSoftObjectPath& Old) -> void
 	{
 		const auto Directory = std::filesystem::path(FPaths::LaunchConfigsDir()) / "MaterialEditor/Profiles";
 		std::error_code Error;
@@ -141,12 +141,10 @@ namespace Durin::MaterialEditor
 			{
 				FSoftObjectPath Path;
 				if (!FSoftObjectPath::TryCreate(Resource, Path)) continue;
-				for (const auto& Mapping : Mappings) if (Path.GetPackagePath() == Mapping.SourcePath)
+				if (Path.GetAssetPath() == Old.GetAssetPath())
 				{
-					FTopLevelAssetPath Asset; FSoftObjectPath Destination;
-					if (FTopLevelAssetPath::TryCreate(Mapping.DestinationPath, Path.GetAssetPath().GetAssetName(), Asset)
-						&& FSoftObjectPath::TryCreate(Asset, Path.GetSubobjectNames(), Destination)) Renames.emplace_back(Resource, Destination.ToString());
-					break;
+					FSoftObjectPath Destination;
+					if (FSoftObjectPath::TryCreate(Asset.AssetPath, Path.GetSubobjectNames(), Destination)) Renames.emplace_back(Resource, Destination.ToString());
 				}
 			}
 			for (const auto& [Source, Destination] : Renames) Settings.MoveViewport(Source, Destination);

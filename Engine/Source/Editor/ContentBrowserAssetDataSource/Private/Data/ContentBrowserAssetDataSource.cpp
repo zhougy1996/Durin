@@ -188,11 +188,11 @@ namespace Durin
 			Host.CanMutateContent = [Policies] { for (const auto& Policy : Policies) if (Policy->CanMutateContent && !Policy->CanMutateContent()) return false; return true; };
 			return std::make_shared<ContentStorage::FContentDeletionRequest>(ContentStorage::FContentMutationPolicy{.CanMutateContent=Host.CanMutateContent, .ReportDiagnostic=Host.ReportDiagnostic, .NotifyContentMutation=Host.NotifyContentMutation}, Assets, Files);
 		}
-		auto SaveMode(EContentBrowserItemSaveFlags Flags) -> std::optional<EAssetSaveMode>
+		auto SaveMode(EContentBrowserItemSaveFlags Flags) -> std::optional<bool>
 		{
 			const auto Bits = static_cast<uint8>(Flags);
 			if (Bits > 3) return {};
-			return (Bits & 1) ? EAssetSaveMode::LoadedDirtyPackage : EAssetSaveMode::CanonicalResave;
+			return (Bits & 1) ? false : true;
 		}
 		auto Destination(std::string_view Path) -> std::string
 		{
@@ -415,7 +415,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DContentBrowserAssetDataSource::FixUpRedirectors(std::span<const FPackagePath> Paths, const FContentBrowserOperationContext& Host) -> bool
+	auto DContentBrowserAssetDataSource::FixUpRedirectors(std::span<const FTopLevelAssetPath> Paths, const FContentBrowserOperationContext& Host) -> bool
 	{
 		FAssetActions Operations(ScopedHost(*this, Host));
 		return IsActive() && Operations.FixUpRedirectors(Paths);
@@ -491,6 +491,21 @@ namespace Durin
 			if ((std::filesystem::exists(Target, Ec) && !(MergeDirectory && Item.Kind == EContentBrowserItemKind::Folder && std::filesystem::is_directory(Target, Ec))) || Ec) { if (Error) *Error = "The rename destination is already occupied or unavailable."; return false; }
 			return true;
 		}
+		auto CanTransferAsset(const ContentBrowser::AssetDataSource::Private::FNativeTransferInput& Input, std::string_view Destination, bool Move, std::string* Error) -> bool
+		{
+			if (Error) Error->clear();
+			FTopLevelAssetPath Identity;
+			if (!FTopLevelAssetPath::TryCreate(Input.Item.VirtualPath, Identity)) return false;
+			const auto Asset = FindAssetExact(Identity);
+			if (!Asset || Asset->IsRedirector()) { if (Error) *Error = "The asset is unavailable or is a redirector."; return false; }
+			const auto Target = std::filesystem::path(Destination) / (std::string(Identity.GetAssetName()) + ".dasset");
+			using namespace ContentBrowser::Transfer;
+			if (!Admitted(std::span{&Input, 1}, Error) || !SafePath(Input.Item.PhysicalPath, Move, Error) || !SafePath(Target, true, Error)) return false;
+			std::error_code Ec;
+			if (!std::filesystem::is_directory(Destination, Ec) || Ec || Same(Target, Input.Item.PhysicalPath) || std::filesystem::exists(Target, Ec) || Ec)
+			{ if (Error) *Error = "The destination is unavailable or occupied."; return false; }
+			return Admitted(std::span{&Input, 1}, Error);
+		}
 		auto ExecuteNativeTransfer(DContentBrowserDataSource& Source, std::span<const FContentBrowserItemData> Data, std::string_view Dest, bool Move) -> bool
 		{
 			TStrongObjectPtr<DContentBrowserDataSource> Lifetime(&Source);
@@ -516,7 +531,11 @@ namespace Durin
 		std::string Error;
 		if (!ValidateRenameTarget(P->Item, NewName, &Error, true)) { if (P->Host->ReportDiagnostic) P->Host->ReportDiagnostic(ELogLevel::Error, Error); return false; }
 		const auto Target = RenameTarget(P->Item, NewName);
-		if (ContentBrowser::Transfer::Same(Target, P->Item.PhysicalPath)) { Out = Item; return true; }
+		if (ContentBrowser::Transfer::Same(Target, P->Item.PhysicalPath))
+		{
+			FTopLevelAssetPath Asset;
+			if (P->Item.Kind != EContentBrowserItemKind::Asset || (FTopLevelAssetPath::TryCreate(P->Item.VirtualPath, Asset) && Asset.GetAssetName() == NewName)) { Out = Item; return true; }
+		}
 		const std::vector<ContentBrowser::AssetDataSource::Private::FNativeTransferInput> Inputs{{P->Item, P->Host}};
 		const bool Success = ContentBrowser::AssetDataSource::Private::ExecuteAssetTransfer(Inputs, std::filesystem::path(P->Item.PhysicalPath).parent_path().generic_string(), true, NewName);
 		if (!Success || Item.GetOwnerDataSource() != this) return Success;
@@ -524,10 +543,16 @@ namespace Durin
 		Renamed.VirtualPath = ContentStorage::FContentMountPaths::ResolveMountPath(Renamed.PhysicalPath).VirtualPath;
 		if (Renamed.Kind == EContentBrowserItemKind::Asset)
 		{
-			auto Package = Renamed.VirtualPath; if (Package.ends_with(".dasset")) Package.resize(Package.size() - 7);
-			FPackagePath::TryCreate(Package, Renamed.PackagePath);
-			FTopLevelAssetPath Old, New;
-			if (FTopLevelAssetPath::TryCreate(P->Item.VirtualPath, Old) && FTopLevelAssetPath::TryCreate(Renamed.PackagePath, Old.GetAssetName(), New)) Renamed.VirtualPath = New.ToString();
+			FTopLevelAssetPath Old;
+			if (FTopLevelAssetPath::TryCreate(P->Item.VirtualPath, Old))
+			{
+				const auto Source = Old.GetPackagePath().ToString();
+				FPackagePath TargetPackage;
+				if (FPackagePath::TryCreate(Source.substr(0, Source.find_last_of('/') + 1) + NewName, TargetPackage))
+					if (auto* Package = FindResidentPackage(TargetPackage))
+						if (auto* Object = Package->FindTopLevelAsset(FName(NewName)))
+						{ Renamed.PackagePath = Package->GetPackagePathIdentity(); Renamed.VirtualPath = Object->GetObjectPath(); }
+			}
 		}
 		Out = BindNative(*this, Renamed, P->Context);
 		return Success;
@@ -548,7 +573,14 @@ namespace Durin
 		const auto P = Payload(*this, CapturedItem);
 		if (!P) return false;
 		const ContentBrowser::AssetDataSource::Private::FNativeTransferInput Input{P->Item, P->Host};
-		if (!ContentBrowser::Transfer::CanRename(Input, Error) || CapturedItem.GetOwnerDataSource() != this) return false;
+		if (P->Item.Kind == EContentBrowserItemKind::Asset)
+		{
+			FTopLevelAssetPath Identity;
+			if (!FTopLevelAssetPath::TryCreate(P->Item.VirtualPath, Identity) || !FindAssetExact(Identity)
+				|| !ContentBrowser::Transfer::Admitted(std::span{&Input, 1}, Error) || !ContentBrowser::Transfer::SafePath(P->Item.PhysicalPath, true, Error)) return false;
+		}
+		else if (!ContentBrowser::Transfer::CanRename(Input, Error)) return false;
+		if (CapturedItem.GetOwnerDataSource() != this) return false;
 		if (!CapturedName) return true;
 		return ValidateRenameTarget(P->Item, *CapturedName, Error);
 	}
@@ -559,7 +591,7 @@ namespace Durin
 		const auto P = Payload(*this, CapturedItem);
 		if (!P) return false;
 		const ContentBrowser::AssetDataSource::Private::FNativeTransferInput Input{P->Item, P->Host};
-		return ContentBrowser::Transfer::CanTransfer(Input, Destination(CapturedDestination), false, Error) && CapturedItem.GetOwnerDataSource() == this;
+		return (P->Item.Kind == EContentBrowserItemKind::Asset ? CanTransferAsset(Input, Destination(CapturedDestination), false, Error) : ContentBrowser::Transfer::CanTransfer(Input, Destination(CapturedDestination), false, Error)) && CapturedItem.GetOwnerDataSource() == this;
 	}
 	auto DContentBrowserAssetDataSource::CanMoveItem(const FContentBrowserItemData& Item, std::string_view Dest, std::string* Error) const -> bool
 	{
@@ -568,7 +600,7 @@ namespace Durin
 		const auto P = Payload(*this, CapturedItem);
 		if (!P) return false;
 		const ContentBrowser::AssetDataSource::Private::FNativeTransferInput Input{P->Item, P->Host};
-		return ContentBrowser::Transfer::CanTransfer(Input, Destination(CapturedDestination), true, Error, true) && CapturedItem.GetOwnerDataSource() == this;
+		return (P->Item.Kind == EContentBrowserItemKind::Asset ? CanTransferAsset(Input, Destination(CapturedDestination), true, Error) : ContentBrowser::Transfer::CanTransfer(Input, Destination(CapturedDestination), true, Error, true)) && CapturedItem.GetOwnerDataSource() == this;
 	}
 
 	auto DContentBrowserAssetDataSource::CanDeleteItem(const FContentBrowserItemData& Item, std::string* Error) const -> bool

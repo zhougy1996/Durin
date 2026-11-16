@@ -1,3 +1,6 @@
+#include "Materials/MaterialFunctionInterface.h"
+#include "DObject/Object.h"
+#include "DObject/Class.h"
 #include "Asset/PackageEditing.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
@@ -11,6 +14,17 @@
 
 namespace Durin
 {
+	auto PublishAssetRenamed(DObject& Asset, const FSoftObjectPath& OldPath) -> void
+	{
+		FAssetData Data;
+		if (!FTopLevelAssetPath::TryCreate(Asset.GetObjectPath(), Data.AssetPath)) return;
+		Data.AssetClassName = Asset.GetClass()->GetQualifiedName().ToString();
+		Data.PrimaryAssetId = Asset.GetPrimaryAssetId();
+		Data.AssetBundleData = Asset.GetAssetBundleData();
+		OnAssetRenamed().Broadcast(Data, OldPath);
+		if (auto* Function = Cast<DMaterialFunctionInterface>(&Asset)) NotifyMaterialFunctionChanged(*Function);
+	}
+
 	namespace
 	{
 		auto Error(UnifiedError::FErrorId Code, std::string Message) -> std::expected<void, UnifiedError::FError>

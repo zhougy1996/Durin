@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-16
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -35,11 +35,10 @@ The intended dependency direction is:
 - `DurinEd` owns the generic `DFactory` descriptor/discovery contract and the
   self-registering `FReimportHandler` / `FReimportManager` capability, routing,
   priority, result, and optional persistence policy.
-- `AssetTools` depends on DurinEd and owns the single `IAssetTools` service,
-  typed operation terminal/persistence/warning values, package
-  creation/adoption, factory invocation, result validation, failed-package
-  discard, and reusable editor duplicate/save/mutation orchestration. It has
-  no dependency on UI or concrete asset families.
+- `AssetTools` depends on DurinEd and owns IAssetTools creation/import, factory
+  invocation, product validation, and operation policy. Package save/reload and
+  batch duplication are separate [editor tool facades](AssetTools.md). Failed
+  construction retires its private graph; it does not expose a discard job.
 - `AssetForgeBuiltins` owns reflected concrete factories, concrete editor
   import data, family capture/decode/build helpers, and reimport implementations
   that publish complete detached build products in place through
@@ -151,10 +150,10 @@ PostLoad policy rather than import `Recover` semantics.
 ## Standalone Batch Admission
 
 Standalone creation and import return a live `DObject*`, or `nullptr` on failure.
-Optional `FFeedbackContext*` routes messages synchronously; the default context
-logs them. Invalid products report requested and actual identity/class before
-package cleanup. Factory-owned `FFactoryDiagnostics` is formatted at this boundary
-and is not retained in a high-level result or nested cause chain.
+Creation uses lexical `FScopedFeedbackContext`; the current standalone import
+entrypoints retain optional `FFeedbackContext*` until task migration. Invalid products report requested and actual identity/class before
+package cleanup. Mutable factories format their local `FFactoryDiagnostics` through feedback
+and do not retain it in a high-level result or nested cause chain.
 The collection preserves report order and shares one entry-count limit across
 transitional text, typed `FFactoryError` entries and module-owned
 `IFactoryErrorDetail` payloads. The latter retain concrete typed causes behind an
@@ -265,7 +264,7 @@ Empty batches return no objects.
 
 Acceptance means the factory returned a valid live asset. It does not imply that
 deferred family compilation or persistence has completed. Successful packages
-remain dirty; callers coordinate family completion before `SaveAssets` and own
+remain dirty; callers coordinate family completion before the editor SavePackages facade and own
 save retry and presentation. The batch performs no automatic save, publication,
 peer rollback, naming policy, or Scene orchestration. Existing dialogs continue
 to use their single-asset workflows.

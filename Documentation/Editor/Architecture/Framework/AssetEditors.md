@@ -145,7 +145,9 @@ and resets that toolkit's live dock spaces.
 
 Material preferences and graph viewports use version-3 files under
 `MaterialEditor/Profiles/`, keyed by the same profile. Resource relocation rekeys
-live and stored viewport records. Closing withdraws preference callbacks.
+live and stored viewport records using Registry OnAssetRenamed with the exact old
+object path and new FAssetData identity. Descendant suffixes and unrelated sibling
+assets retain their own keys. Closing withdraws preference callbacks.
 
 Content Browser reads definition metadata without loading assets. Import,
 creation, thumbnails, and optional `RegisterAssetTypeExtras` contributions have

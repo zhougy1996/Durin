@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-16
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -167,8 +167,8 @@ request and Registry contracts, with matching diagnostic identity on propagation
 `FAssetWriteResult::Error` is the sole optional failure channel. Read, encoding
 and Registry failures retain their original identities; they are not remapped
 through a write-error enumeration. Asset-write policy rejections use the
-`AssetWrite` domain. Only write reports carry observed write effects. AssetTools relocation and Fix Up
-preparation return a nullable prepared object
+`AssetWrite` domain. Only native write reports carry observed write effects. Private byte-transform
+preparation returns a nullable prepared object
 with optional diagnostics; object presence is their sole success signal.
 Revalidation, companion-ownership queries and file-validation callbacks return
 bool with optional diagnostics. Reference-store application also returns bool;
@@ -215,20 +215,10 @@ for the standalone host, ordinary loading, and dependency responsibilities.
 
 ## Duplication
 
-`IAssetTools::DuplicateAsset` accepts an exact source `FTopLevelAssetPath`,
-resolves destinations through the asset mount system and selects the deterministic
-`_Copy`, `_Copy2`, and later destination against
-catalog, residency, and physical occupancy, and loads the exact source object.
-AssetTools creates the destination package and uses CoreDObject's
-`DuplicateObject` graph primitive directly. Internal references are remapped to
-the cloned inner objects while cross-package references retain their authored
-targets. Redirectors are rejected and partially constructed graphs are discarded
-when duplication fails. Successful duplication creates a Dirty, NewlyCreated
-resident package and returns its `DObject*`. Duplication performs no saving.
-The caller saves the returned package separately. Save failure retains the live
-copy for ordinary save retry; it never triggers discard or another duplication.
-Package identity and physical destinations are queried through the package and
-mount APIs. Engine exposes no separate asset-duplication operation.
+Editor creation and duplication, explicit targets, unique naming and Dirty-copy
+retention are specified by [Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md#creation-and-duplication).
+CoreDObject supplies the graph-copy primitive; Engine exposes no parallel asset
+creation or duplication command.
 
 ## Editor Orchestration Boundary
 
@@ -251,24 +241,22 @@ global object-edit Undo/Redo history.
 
 ## Editor Operation Results
 
-`IAssetTools` creation, standalone import and duplication return `DObject*`, with
-`nullptr` on failure. Successful objects belong to live Dirty packages. Saving,
-relocation, redirector fixup and deletion preparation/execution return `bool`.
-Optional `FFeedbackContext*` parameters route detailed diagnostics synchronously;
-omitting the context uses the shared context and logging. High-level operations
-carry no common result envelope, terminal/persistence enums, or nested causes.
-
-`SaveAssets` continues after individual failures and invokes `OnSaved` for each
-committed package file, including a save whose Registry publication is pending.
-The boolean remains false for publication failure and feedback carries its error.
-The callback reports actual file persistence, not command admission. Duplication has no save option or completion event.
+Creation, standalone import and duplication return live Dirty objects or nullptr.
+Editor package saving and prompt results belong to the
+[save facades](../../../Editor/Architecture/Assets/AssetTools.md#saving-and-feedback),
+not IAssetTools. Saving keeps physical commits separate from Registry failure;
+lexical observers receive only their own batch's committed paths. Creation and
+copying use scoped feedback rather than trailing diagnostic parameters.
+Rename returns bool and referencer fix-up returns void, with scoped feedback and
+exact identity events as defined by [Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md#rename-and-referencer-fix-up).
+Deletion keeps its current operation-specific interface and optional feedback. No common editor result envelope is introduced.
 
 Native `FAssetWriteResult` and `FAssetMutationResultDetails` retain disk effects
 and recovery paths at the owning I/O boundary. Deletion operations expose their
 native write result and affected files, retaining destructive evidence after
 rejected repeat execution. A false high-level return does not
 prove that no bytes changed: orchestration requiring partial-commit evidence
-consumes the native operation directly. Browser commands return booleans and
+observes the owning native persistence boundary. Browser commands return booleans and
 operation-specific item outputs. Their independent item-update notifier drives refresh from observed content changes;
 the Panel does not receive native write effects or an operation-result envelope.
 Folder validation returns bool with an optional diagnostic; automatic naming
@@ -350,84 +338,47 @@ is unsuccessful. `SavePackages` stops at the first failure instead of continuing
 but also preserves earlier successes. Canonical resaves retain per-package
 verification and recovery; they do not roll back earlier successful packages.
 
-## Synchronous Relocation
+## Rename And Private Byte Transformations
 
-Relocation and redirector Fix Up are AssetTools operations and are unavailable
-in runtime-only builds. Engine retains redirector resolution and package codecs.
-Relocation is batched even for one mapping. Preparation captures the catalog
-revision, exact participant fingerprints, resident finalizers, destination
-artifacts, source redirectors, and owned payload moves in private operation state.
-`RelocateAssets()` prepares, revalidates, and commits synchronously on the owner
-thread, publishing destinations and owned payloads before source redirectors.
-Relocation neither opens nor rewrites
-unrelated referencer packages: their authored paths continue to target the
-source alias until an explicit Fix Up operation canonicalizes those paths.
+Editor rename/move is object based and owned by
+[Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md#rename-and-referencer-fix-up).
+Normal rename changes the selected object and its package identity together;
+explicit paths support independent object names. A multi-asset package keeps
+unselected exports. Hard references retain their live pointers, matching soft
+paths preserve subobject suffixes, and writable referencers may be rewritten as
+part of rename. Dirty authored values do not require a preliminary save.
+Engine's committed live identity publisher emits Registry OnAssetRenamed once,
+with the new exact asset record and old soft object path. Disk publication and
+projection reconciliation do not repeat this identity notification.
 
-Moving package `A -> B` retains one redirect record for each moved top-level
-asset and preserves every asset name and descendant suffix. Asset rename is a
-separate exact operation. Relocation does not
-compress unrelated upstream aliases; canonicalization belongs exclusively to
-Fix Up. Reclaiming a destination alias requires exact proof that it resolves to
-the selected real source.
+The private path-only byte transform still preserves existing export names.
+Its native characterization is distinct from editor rename. Native package codecs
+also rewrite exact object mappings for alias repair and Cook. Registry metadata,
+owned payload closure and source aliases remain bounded checked participants.
+Loaded material functions notify callers through their existing compile policy
+after identity publication; manual callers retain their accepted generation.
 
-After committing relocation, loaded material function assets notify their nested
-material and instance callers through the existing compile policy. This refreshes
-dependency paths and per-owner expression sources without changing shader identity
-for a path-only move. Manual callers retain the accepted generation until compiling.
-Function references participate in ordinary deletion blockers; deleting a function
-does not silently sever call bindings.
+Owned authored payload closure is metadata-derived. DAST companions follow the
+validated Bulk Directory and writer closure; temporary and backup files are not
+authored payloads. See [bulk publication ownership](../../ObjectSystem/BulkData.md#publication-and-companion-ownership).
+Editor payload relocation prepares/copies before live publication and retires old
+payload files only after the destination and references are committed.
 
-Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
-v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
-Directory bind a nonempty external segment. Relocation, duplication, and Save publish that companion with the `.dasset`. Atomic
-temporaries and transaction backups end in `.tmp` and are never authored
-mutation participants. Legacy backup siblings are neither restored nor removed
-by readers; see [bulk publication ownership](../../ObjectSystem/BulkData.md#publication-and-companion-ownership).
+Private file staging retains exact participant fingerprints, pre/post images and
+published-file evidence. Source changes, read-only participants and preparation
+failures reject before authority changes. Partial file/store publication retains
+backups under `.durin-asset-mutation` for inspection. Registry-only lag returns
+ContentCommittedProjectionPending and fences affected paths without rolling back
+valid content. These mechanisms provide no startup replay or multi-file crash
+atomicity. Retried editor identity operations recognize already moved objects;
+private byte repair prepares a new operation from current content.
 
-Stale participants, read-only participants, collisions, and preparation failures leave
-authority unchanged. Failures after publication report the affected files and
-retain staging backups for manual repair. Mutation staging stores `pre-*.tmp`
-and `post-*.tmp` payloads under its owned operation directory; `owner` is the
-ownership marker used to guard directory cleanup. Operations never resume partially completed
-work; a new operation must analyze the current content. Registry-only lag returns
-`ContentCommittedProjectionPending`, fences affected paths, and never rolls back
-valid package bytes.
-
-Asset mutations keep progress in memory and stage before/after images beside
-owned content in `.durin-asset-mutation`. Operations clean up their owned stages when returning before publication or
-after successful completion; interrupted publication retains backups for manual repair.
-No locator directory or persistent journal is written. Runtime initialization
-neither scans `Saved/AssetMutationRecovery` nor replays interrupted operations.
-Legacy records are left untouched and do not block startup.
-Staging keeps the original file fingerprint for conflict detection and the
-prepared output hash for duplicate-participant checks and pre-publication
-validation. The fingerprint also supplies the original byte hash; no second
-original hash or post-publication fingerprint is stored. Original backup paths
-are local to preparation, while before images remain on disk for manual repair.
-
-`RelocateAssets()` and `FixUpRedirectors()` in AssetTools return `FAssetMutationResultDetails`
-directly, including the write result, affected files, and retained backup locations.
-Callers receive the complete result
-when the synchronous call returns; no public job, execution state machine, or
-separate preparation summary is exposed. Preparation failures also return the
-write error without publishing content.
-
-Reference-store rewrite contributions provide revalidation, application, and
-verification callbacks; no restore callback or rollback-only snapshot is retained.
-Fix Up verifies reference rewrites before deleting redirectors. There is no
-in-process continuation, startup replay, or multi-file crash-atomicity guarantee;
-partial changes require inspection and possibly manual repair or version-control
-restoration before preparing a new operation.
-
-`FAssetWriteResult::Effect` describes observed effects independently of its error
-code: partial writes, uncertain content, or committed content with Registry
-projection lag. It does not indicate retryability. Mutation details expose
-`AffectedFiles` and all retained `BackupLocations`, never a replayable record. Editor
-operation results preserve the complete backup list and report `ContentUncertain`
-when the remaining content state cannot be established. Their terminal `State`
-and `Persistence` are separate: creation can succeed with dirty, unsaved content,
-and a batch save can fail after persisting some packages. Notification delivery
-is owned by the publish callback and is not duplicated as a result flag.
+Native FAssetMutationResultDetails retains write effects, affected files and every
+backup location internally and in the explicit native test surface. These are
+not a public editor rename/fix-up result protocol. Reference stores retain their
+owned revalidation, application and verification callbacks; successful rewrites
+are verified before alias deletion. Later failures preserve valid aliases and
+previous committed work for a subsequent repair or manual recovery.
 
 ## Deletion And Fix-Up
 
@@ -510,13 +461,14 @@ removals has no write effect, verified earlier removals yield `PartiallyWritten`
 and an unobservable post-removal state yields `ContentUncertain`. Item effects
 continue to describe every committed, failed or unattempted participant.
 
-Fix Up is the only path-canonicalizing asset-mutation operation. It rewrites
+Rename can update affected references; explicit Fix Up repairs remaining aliases. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens
 package-level candidates to verify that no exact incoming occurrence remains,
 and may then delete proven aliases. AssetTools retains exact Engine reference
 occurrences only for the synchronous operation.
-Dirty, incompatible, read-only, incomplete, or stale participants block before
-mutation. Later participant failures retain verified rewrites and valid
+Private byte fix-up rejects Dirty, incompatible, read-only, incomplete or stale
+participants before mutation. The editor facade first repairs/saves loaded Dirty
+referencers with their current authored values. Later participant failures retain verified rewrites and valid
 redirectors; a subsequent call prepares a new operation from current content.
 
 Owned-payload relocators, deletion companions, persistent external reference

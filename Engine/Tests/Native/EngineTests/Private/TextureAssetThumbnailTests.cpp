@@ -1,3 +1,4 @@
+#include "ObjectTools.h"
 #include "ThumbnailManagerTestSupport.h"
 #include "Editor/AssetEditorTestQueries.h"
 #include "Editor/AssetEditorTestHost.h"
@@ -15,7 +16,7 @@
 #include "AssetDefinition/AssetDefinition.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "AssetTools/IAssetTools.h"
-#include "AssetTools/Relocation.h"
+#include "AssetTools/MutationTesting.h"
 #include "Misc/MountPaths.h"
 
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
@@ -143,9 +144,7 @@ TEST_F(FTextureAssetEditorTests, RelocationPreservesOpenTextureRoutingAndSave)
 	Durin::FFeedbackContext DuplicateFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
 		if (Level >= Durin::ELogLevel::Error) { if (!DuplicateError.empty()) DuplicateError += "\n"; DuplicateError += Message; }
 	});
-	const auto Duplicate = Durin::IAssetTools::Get().DuplicateAsset({
-		.SourcePath = Args.Assets.front().AssetPath.GetAssetPath(),
-		.DestinationDirectory = SourcePackage.substr(0, SourcePackage.find_last_of('/')) + "/EditorRelocation"}, &DuplicateFeedback);
+	const auto Duplicate = ([&] { Durin::FScopedFeedbackContext Scope(*(&DuplicateFeedback)); auto* Source = Durin::LoadObject(Args.Assets.front().AssetPath.GetAssetPath(), nullptr); std::vector<Durin::DObject*> Copies; Durin::ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, SourcePackage.substr(0, SourcePackage.find_last_of('/')) + "/EditorRelocation", false, &Copies); return Copies.empty() ? nullptr : Copies.front(); }());
 	ASSERT_TRUE(Duplicate) << DuplicateError;
 	ASSERT_TRUE(Durin::SavePackage(Duplicate->GetPackage()));
 	ASSERT_NE(nullptr, Duplicate);
@@ -158,8 +157,8 @@ TEST_F(FTextureAssetEditorTests, RelocationPreservesOpenTextureRoutingAndSave)
 	const auto EditorInstance = Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front();
 	Durin::FPackagePath Destination;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(DuplicatedPath.GetPackagePath().ToString() + "Moved", Destination));
-	const Durin::FAssetRelocationMapping Mapping{DuplicatedPath.GetPackagePath(), Destination};
-	ASSERT_TRUE(Durin::RelocateAssets(std::span{&Mapping, 1}).Result);
+	const Durin::FPackageRelocationTestMapping Mapping{DuplicatedPath.GetPackagePath(), Destination};
+	ASSERT_TRUE(Durin::RelocatePackageFilesForTesting(std::span{&Mapping, 1}).Result);
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Duplicate);
 	const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
 	EXPECT_NE(DuplicatedPath.ToString(), Document.ResourceId);

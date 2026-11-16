@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include "ContentBrowserItemAttributeHelpers.h"
-#include "AssetTools/AssetSave.h"
+#include "FileHelpers.h"
 #include "AssetTools/ContentDeletionRequest.h"
 #include "AssetRegistry/Catalog.h"
 namespace Durin::ContentBrowser::Private
@@ -83,14 +83,14 @@ namespace Durin::ContentBrowser::Private
 	{
 	public:
 		using FOperationFixture::FOperationFixture;
-		auto CanSaveItem(const FStorageItemFixture& Item, EAssetSaveMode Mode=EAssetSaveMode::LoadedDirtyPackage, std::string* Error=nullptr) -> bool
+		auto CanSaveItem(const FStorageItemFixture& Item, bool Mode=false, std::string* Error=nullptr) -> bool
 		{
-			auto Bound=Bind(Item); const auto* Data=Bound.GetPrimaryInternalItem(); return Data && Data->GetOwnerDataSource() && Data->GetOwnerDataSource()->CanSaveItem(*Data,Mode==EAssetSaveMode::CanonicalResave ? EContentBrowserItemSaveFlags::None : EContentBrowserItemSaveFlags::SaveOnlyIfDirty,Error);
+			auto Bound=Bind(Item); const auto* Data=Bound.GetPrimaryInternalItem(); return Data && Data->GetOwnerDataSource() && Data->GetOwnerDataSource()->CanSaveItem(*Data,Mode==true ? EContentBrowserItemSaveFlags::None : EContentBrowserItemSaveFlags::SaveOnlyIfDirty,Error);
 		}
-		auto BulkSaveItems(std::span<const FStorageItemFixture> Items, EAssetSaveMode Mode=EAssetSaveMode::LoadedDirtyPackage) -> bool
+		auto BulkSaveItems(std::span<const FStorageItemFixture> Items, bool Mode=false) -> bool
 		{
 			FContentBrowserItem Batch; for (const auto& Item : Items) { auto Bound=Bind(Item); Batch.InternalItems.insert(Batch.InternalItems.end(),Bound.InternalItems.begin(),Bound.InternalItems.end()); }
-			return Batch.Save(Mode==EAssetSaveMode::CanonicalResave ? EContentBrowserItemSaveFlags::None : EContentBrowserItemSaveFlags::SaveOnlyIfDirty);
+			return Batch.Save(Mode==true ? EContentBrowserItemSaveFlags::None : EContentBrowserItemSaveFlags::SaveOnlyIfDirty);
 		}
 	};
 	class FDeletionRequestFixture

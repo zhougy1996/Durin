@@ -8,6 +8,8 @@
 namespace Durin
 {
 	class DPackage;
+	// Interactive hosts decide whether authored changes may be abandoned by reload.
+	enum class EReloadPackagesInteractionMode : uint8 { Interactive, AssumePositive, AssumeNegative };
 	DCLASS(Abstract)
 	class DPackageTools : public DObject
 	{
@@ -17,7 +19,7 @@ namespace Durin
 		{
 			explicit FUnloadPackageParams(std::span<DPackage* const> InPackages)
 				: Packages(InPackages.begin(), InPackages.end()) {}
-			std::vector<DPackage*> Packages;
+			const std::vector<DPackage*> Packages;
 			bool bUnloadDirtyPackages = false;
 			bool bResetTransBuffer = true;
 			std::string OutErrorMessage;
@@ -28,5 +30,10 @@ namespace Durin
 		ASSETTOOLS_API static auto UnloadPackages(std::span<DPackage* const> Packages,
 			std::string& OutErrorMessage, bool bUnloadDirtyPackages = false) -> bool;
 		ASSETTOOLS_API static auto UnloadPackages(FUnloadPackageParams& Params) -> bool;
+		using FReloadPrompt = std::function<bool(std::span<DPackage* const>)>;
+		ASSETTOOLS_API static auto SetReloadPrompt(FReloadPrompt Prompt) -> void;
+		ASSETTOOLS_API static auto ReloadPackages(std::span<DPackage* const> Packages) -> bool;
+		ASSETTOOLS_API static auto ReloadPackages(std::span<DPackage* const> Packages,
+			std::string& OutErrorMessage, EReloadPackagesInteractionMode Mode = EReloadPackagesInteractionMode::Interactive) -> bool;
 	};
 }

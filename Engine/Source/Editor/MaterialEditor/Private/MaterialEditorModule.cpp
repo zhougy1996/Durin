@@ -1,3 +1,5 @@
+#include "PackageTools.h"
+#include "Misc/FeedbackContext.h"
 #include "MaterialEditorModule.h"
 #include "Settings/MaterialEditorProfileSettings.h"
 #include "MaterialParameterCollectionDetails.h"
@@ -36,15 +38,15 @@ namespace Durin
 					CreatedError += Message;
 				}
 			});
-			const auto Created = IAssetTools::Get().CreateAsset(
-				AssetPath, TMaterial::StaticClass(), nullptr, nullptr, Durin::DefaultAssetCreationFlags, &CreatedFeedback);
+			Durin::FScopedFeedbackContext CreationFeedbackScope(CreatedFeedback);
+			const auto Created = Durin::IAssetTools::Get().CreateAsset((AssetPath).GetAssetName(), (AssetPath).GetPackagePath().ToString().substr(0, (AssetPath).GetPackagePath().ToString().find_last_of('/')), TMaterial::StaticClass(), nullptr);
 			if (!Created)
 			{
 				OutError = CreatedError;
 				return false;
 			}
 			const auto Discard = [&] {
-				if (!IAssetTools::Get().DiscardPackage(Created->GetPackage()))
+				if (!([&] { std::string Error; return Durin::DPackageTools::UnloadPackages(std::array{Created->GetPackage()}, Error, true) && Error.empty(); }()))
 					OutError += " The unsaved material package could not be discarded.";
 			};
 			if constexpr (std::same_as<TMaterial, DMaterial>)
@@ -69,11 +71,9 @@ namespace Durin
 
 	IMPLEMENT_MODULE(FMaterialEditorModule, MaterialEditor)
 
-	struct FMaterialEditorModule::FIntegrationState : IAssetMoveObserver
+	struct FMaterialEditorModule::FIntegrationState
 	{
-		FAssetMoveObserverHandle MoveObserver = 0;
-		auto OnAssetsRelocated(std::span<const FAssetRelocationMapping> Mappings) -> void override
-		{ FMaterialEditorProfileSettings::RemapStoredViewports(Mappings); }
+		FDelegateHandle RenameHandle;
 		std::vector<ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
@@ -87,7 +87,7 @@ namespace Durin
 
 	auto FMaterialEditorModule::StartupModule() -> void
 	{
-		Integration->MoveObserver = RegisterAssetMoveObserver(Integration.get());
+		Integration->RenameHandle = OnAssetRenamed().AddLambda([](const FAssetData& Asset, const FSoftObjectPath& Old) { FMaterialEditorProfileSettings::RemapStoredViewports(Asset, Old); });
 		DetailCustomizationRegistration = FDetailCustomizationRegistry::Get().RegisterDetailCustomization(
 			DMaterialParameterCollection::StaticClass(), MaterialEditor::CreateMaterialParameterCollectionDetails());
 		require(static_cast<bool>(DetailCustomizationRegistration));
@@ -96,8 +96,8 @@ namespace Durin
 
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
-		UnregisterAssetMoveObserver(Integration->MoveObserver);
-		Integration->MoveObserver = 0;
+		OnAssetRenamed().Remove(Integration->RenameHandle);
+		Integration->RenameHandle = {};
 		UnregisterContributions();
 		FDetailCustomizationRegistry::Get().Unregister(DetailCustomizationRegistration);
 		DetailCustomizationRegistration = {};

@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "MonaImGui.h"
-#include "Asset/MutationExtensions.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin::MaterialEditor
 {
@@ -23,7 +23,7 @@ namespace Durin::MaterialEditor
 		auto Save(bool bReplacePreferences = false) const -> bool;
 		// Select one editor profile; an absent file starts from defaults.
 		auto SelectStorage(std::string InFileName) -> bool;
-		static auto RemapStoredViewports(std::span<const FAssetRelocationMapping> Mappings) -> void;
+		static auto RemapStoredViewports(const FAssetData& Asset, const FSoftObjectPath& Old) -> void;
 
 		auto FindViewport(std::string_view ResourceId) const
 			-> const FMaterialGraphViewportState*;

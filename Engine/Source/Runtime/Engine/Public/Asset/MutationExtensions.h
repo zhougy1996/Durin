@@ -17,14 +17,6 @@ namespace Durin
 
 namespace Durin
 {
-	struct FAssetRelocationMapping
-	{
-		FPackagePath SourcePath;
-		FPackagePath DestinationPath;
-
-		auto operator==(const FAssetRelocationMapping&) const -> bool = default;
-	};
-
 	struct FAssetReferenceStoreOccurrence
 	{
 		std::string ProviderId;
@@ -153,22 +145,4 @@ namespace Durin
 	ENGINE_API auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
 		-> FAssetOwnedPayloadRelocator;
 
-	class IAssetMoveObserver
-	{
-	public:
-		virtual ~IAssetMoveObserver() = default;
-		virtual auto OnAssetsRelocated(
-			std::span<const FAssetRelocationMapping> Mappings
-		) -> void = 0;
-	};
-
-	using FAssetMoveObserverHandle = uint64;
-	ENGINE_API auto RegisterAssetMoveObserver(
-		IAssetMoveObserver* Observer) -> FAssetMoveObserverHandle;
-
-	ENGINE_API auto UnregisterAssetMoveObserver(
-		FAssetMoveObserverHandle Handle
-	) -> void;
-	ENGINE_API auto NotifyAssetMoveObservers(
-		std::span<const FAssetRelocationMapping> Mappings) -> void;
 } // namespace Durin

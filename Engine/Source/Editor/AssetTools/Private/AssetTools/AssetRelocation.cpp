@@ -1,3 +1,4 @@
+#include "Asset/MutationExtensions.h"
 #include "AssetTools/MutationTesting.h"
 #include "Misc/UnifiedError.h"
 #include "AssetMutationStagingInternal.h"
@@ -61,7 +62,7 @@ namespace Durin
 
 		struct FLoadedRelocationState
 		{
-			FAssetRelocationMapping Mapping;
+			FPackageRelocationTestMapping Mapping;
 			DPackage* Package = nullptr;
 			std::string PrePackageName;
 		};
@@ -72,7 +73,7 @@ namespace Durin
 
 	struct FAssetRelocationState;
 	static auto PrepareAssetRelocationState(
-		std::span<const FAssetRelocationMapping> Mappings,
+		std::span<const FPackageRelocationTestMapping> Mappings,
 		std::optional<UnifiedError::FError>* OutError) -> std::shared_ptr<FAssetRelocationState>;
 	static auto RevalidateAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation, std::optional<UnifiedError::FError>* OutError) -> bool;
@@ -82,14 +83,14 @@ namespace Durin
 	struct FAssetRelocationState
 	{
 		uint64 ExpectedRegistryRevision = 0;
-		std::vector<FAssetRelocationMapping> Mappings;
+		std::vector<FPackageRelocationTestMapping> Mappings;
 		FAssetMutationStaging Staging;
 		std::vector<FLoadedRelocationState> LoadedPackages;
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
 	};
 
 	static auto PrepareAssetRelocationState(
-		std::span<const FAssetRelocationMapping> Mappings,
+		std::span<const FPackageRelocationTestMapping> Mappings,
 		std::optional<UnifiedError::FError>* OutError) -> std::shared_ptr<FAssetRelocationState>
 	{
 		if (OutError) OutError->reset();
@@ -112,8 +113,8 @@ namespace Durin
 		};
 		State->Mappings.assign(Mappings.begin(), Mappings.end());
 		std::ranges::sort(State->Mappings,
-			[](const FAssetRelocationMapping& A,
-				const FAssetRelocationMapping& B) {
+			[](const FPackageRelocationTestMapping& A,
+				const FPackageRelocationTestMapping& B) {
 				return A.SourcePath.GetView() < B.SourcePath.GetView();
 			});
 		InitializeMutationStaging(
@@ -147,7 +148,7 @@ namespace Durin
 					EMutationStagingDuplicatePolicy::Reject}, IgnoredIndex, OutError);
 		};
 
-		for (const FAssetRelocationMapping& Mapping : State->Mappings)
+		for (const FPackageRelocationTestMapping& Mapping : State->Mappings)
 		{
 			if (!Mapping.SourcePath.IsValid()
 				|| !Mapping.DestinationPath.IsValid()
@@ -160,7 +161,7 @@ namespace Durin
 					"An asset relocation batch contains duplicate paths."});
 		}
 
-		for (const FAssetRelocationMapping& Mapping : State->Mappings)
+		for (const FPackageRelocationTestMapping& Mapping : State->Mappings)
 		{
 			const FPackageData* SourceData = FindPrepared(Mapping.SourcePath);
 			if (!SourceData)
@@ -373,7 +374,7 @@ namespace Durin
 	}
 
 	static auto RelocateAssetsImpl(
-		std::span<const FAssetRelocationMapping> Mappings,
+		std::span<const FPackageRelocationTestMapping> Mappings,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{
 		FAssetMutationResultDetails Details;
@@ -491,7 +492,7 @@ namespace Durin
 		State.Staging.bRetainBackups = true;
 		auto PublicationFailed = [&](UnifiedError::FError Failure) -> FAssetWriteResult {
 			std::vector<FPackagePath> Paths;
-			for (const FAssetRelocationMapping& Mapping : State.Mappings)
+			for (const FPackageRelocationTestMapping& Mapping : State.Mappings)
 			{
 				Paths.push_back(Mapping.SourcePath);
 				Paths.push_back(Mapping.DestinationPath);
@@ -534,7 +535,7 @@ namespace Durin
 			return PublicationFailed(UnifiedError::FError{AssetWriteErrors::IoError, "Injected relocation Registry-publication failure."});
 
 		std::vector<FPackagePath> Paths;
-		for (const FAssetRelocationMapping& Mapping : State.Mappings)
+		for (const FPackageRelocationTestMapping& Mapping : State.Mappings)
 		{
 			Paths.push_back(Mapping.SourcePath);
 			Paths.push_back(Mapping.DestinationPath);
@@ -546,17 +547,23 @@ namespace Durin
 			for (DObject* Object : Loaded.Package->GetTopLevelAssets())
 				if (auto* Function = Cast<DMaterialFunctionInterface>(Object))
 					NotifyMaterialFunctionChanged(*Function);
-		NotifyAssetMoveObservers(State.Mappings);
+		for (const auto& Mapping : State.Mappings)
+			if (const auto Saved = FindPackageExact(Mapping.DestinationPath))
+				for (const auto& Asset : Saved->TopLevelAssets)
+				{
+					FTopLevelAssetPath Old;
+					if (FTopLevelAssetPath::TryCreate(Mapping.SourcePath, Asset.AssetPath.GetAssetName(), Old)) OnAssetRenamed().Broadcast(Asset, FSoftObjectPath(Old));
+				}
 		return {};
 	}
 
 
-	auto RelocateAssets(std::span<const FAssetRelocationMapping> Mappings)
+	auto RelocatePackageFilesForTesting(std::span<const FPackageRelocationTestMapping> Mappings)
 		-> FAssetMutationResultDetails
 	{ return RelocateAssetsImpl(Mappings, {}); }
 
-	auto RelocateAssetsWithBeforeCommitForTesting(
-		std::span<const FAssetRelocationMapping> Mappings,
+	auto RelocatePackageFilesWithBeforeCommitForTesting(
+		std::span<const FPackageRelocationTestMapping> Mappings,
 		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
 	{ return RelocateAssetsImpl(Mappings, BeforeCommit); }
 }

@@ -1902,8 +1902,10 @@ TEST(FMaterialLayoutSettingsTests, SharedProfileMergesResourceWritesAndKeepsNewe
 	FPackagePath Source, Destination;
 	ASSERT_TRUE(FPackagePath::TryCreate("/LayoutSettings/A", Source));
 	ASSERT_TRUE(FPackagePath::TryCreate("/LayoutSettings/Moved", Destination));
-	const FAssetRelocationMapping Mapping{Source, Destination};
-	FMaterialEditorProfileSettings::RemapStoredViewports(std::span{&Mapping, 1});
+	FAssetData Renamed;
+	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Destination, "A", Renamed.AssetPath));
+	FSoftObjectPath Old; ASSERT_TRUE(FSoftObjectPath::TryCreate("/LayoutSettings/A.A", Old));
+	FMaterialEditorProfileSettings::RemapStoredViewports(Renamed, Old);
 	ASSERT_TRUE(First.Save()); // A stale window must not resurrect a moved resource or old preference.
 	ASSERT_TRUE(Loaded.Load()); EXPECT_EQ(nullptr, Loaded.FindViewport("/LayoutSettings/A.A"));
 	EXPECT_NE(nullptr, Loaded.FindViewport("/LayoutSettings/Moved.A")); EXPECT_NE(nullptr, Loaded.FindViewport("/LayoutSettings/B.B"));

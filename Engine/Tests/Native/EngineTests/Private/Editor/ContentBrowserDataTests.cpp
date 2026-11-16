@@ -1,3 +1,4 @@
+#include "Misc/FeedbackContext.h"
 #include "Threading/TaskRuntime.h"
 #include "ContentBrowserAssetProviderSubsystem.h"
 #include "ContentBrowserFileProviderSubsystem.h"
@@ -939,7 +940,7 @@ namespace
 	{
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/SaveAsset", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(nullptr, Asset);
 		auto* Source = Data->GetActiveDataSource(FName("Asset"));
 		ASSERT_NE(nullptr, Source);
@@ -991,7 +992,7 @@ namespace
 			std::string VirtualPath = Path.ToString() + "." + Name;
 			if (std::string_view(Name) != "10Missing")
 			{
-				auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+				auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 				ASSERT_NE(nullptr, Asset);
 				VirtualPath = Asset->GetObjectPath();
 			}
@@ -1017,7 +1018,7 @@ namespace
 		{
 			FPackagePath Path;
 			ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/" + std::string(Name), Path));
-			auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+			auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 			ASSERT_NE(nullptr, Asset);
 			FContentBrowserItem Description = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
 			Items.push_back(Source->BindItemData(*Description.GetPrimaryInternalItem()));
@@ -1067,7 +1068,7 @@ namespace
 	{
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Sub/Owned", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(nullptr, Asset);
 		auto* AssetSource = Data->GetActiveDataSource(FName("Asset"));
 		FContentBrowserItem Description = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
@@ -1092,7 +1093,7 @@ namespace
 	{
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/MixedAsset", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(nullptr, Asset);
 		auto* Source = Data->GetActiveDataSource(FName("Asset"));
 		ASSERT_NE(nullptr, Source);
@@ -1113,7 +1114,11 @@ namespace
 			return (static_cast<uint16>(Update.GetItemData().GetItemFlags()) & static_cast<uint16>(EContentBrowserItemFlags::Category_Asset)) != 0 && Owner && Owner->GetDataSourceName() == FName("Asset");
 		}));
 		EXPECT_TRUE(std::filesystem::exists(Root / "Target/source.txt"));
-		EXPECT_TRUE(std::filesystem::exists(Root / "Target/MixedAsset.dasset"));
+		EXPECT_FALSE(std::filesystem::exists(Root / "Target/MixedAsset.dasset"));
+		FPackagePath CopiedPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Target/MixedAsset", CopiedPath));
+		ASSERT_NE(FindResidentPackage(CopiedPath), nullptr);
+		EXPECT_TRUE(FindResidentPackage(CopiedPath)->IsDirty());
 		auto Context = Data->PrepareDeleteItems(Batch);
 		ASSERT_TRUE(Context.CanExecute());
 		const auto Preview = Context.Request->GetPreview();
@@ -1342,7 +1347,7 @@ namespace
 	{
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Sub/Example", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(Asset, nullptr);
 		auto* Source = Data->GetActiveDataSource(FName("Asset"));
 		const auto Input = Durin::ContentBrowser::Private::MakeFixtureItem({.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path}, true);
@@ -1373,7 +1378,7 @@ namespace
 	{
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Sub/MixedDelete", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(nullptr, Asset);
 		auto* Source = Data->GetActiveDataSource(FName("Asset"));
 		FContentBrowserItem Item = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset, .VirtualPath = Asset->GetObjectPath(), .PackagePath = Path};
@@ -1460,7 +1465,7 @@ namespace
 	{
 		FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Ready);
 		FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/NoBrowser", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(nullptr, Asset);
 		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
 		const auto Count = std::ranges::count_if(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == Asset->GetObjectPath() && Update.GetUpdateType() == EContentBrowserItemUpdateType::Added; });
@@ -1595,7 +1600,7 @@ namespace
 	{
 		ASSERT_TRUE(Data->DeactivateDataSource(FName("Asset")));
 		FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/InactiveAsset", Path));
-		auto* Asset = IAssetTools::Get().CreatePackageLeafAssetForTesting(Path, DObject::StaticClass());
+		auto* Asset = ([&] { Durin::FScopedFeedbackContext Scope(Durin::FFeedbackContext::Get()); const auto& PackagePath = Path; const auto Text = PackagePath.ToString(); return Durin::IAssetTools::Get().CreateAsset((Path).GetPackageName(), Text.substr(0, Text.find_last_of('/')), DObject::StaticClass(), nullptr); }());
 		ASSERT_NE(nullptr, Asset);
 		(void)CaptureAssetQuerySnapshot(); (PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Data->Tick(0.0f));
 		EXPECT_FALSE(std::ranges::any_of(PublishedUpdates, [&](const auto& Update) { return Update.GetItemData().GetVirtualPath() == Asset->GetObjectPath(); }));

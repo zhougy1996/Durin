@@ -37,14 +37,14 @@ namespace Durin::AssetForge::Builtins
 			return SourceLayout;
 		}
 
-		ASSETFORGEBUILTINS_API auto FactoryCreateFromFile(
+		ASSETFORGEBUILTINS_API auto FactoryCreateFile(
 			DClass* InClass,
 			DObject* InParent,
 			FName InName,
 			EObjectFlags Flags,
 			std::string_view Filename,
-			DObject* Context,
-			FFactoryDiagnostics* Diagnostics) const -> DObject* override;
+			std::string_view Parms,
+			FFeedbackContext* Warn, bool& bOutOperationCanceled) -> DObject* override;
 		ASSETFORGEBUILTINS_API auto QueryReimportActions(std::string_view AssetClassName) const
 			-> FReimportActions override;
 		ASSETFORGEBUILTINS_API auto GetSourceFileDialogs(const DObject& Object) const

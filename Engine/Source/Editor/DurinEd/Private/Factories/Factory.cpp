@@ -123,18 +123,21 @@ namespace Durin
 
 	auto FFactoryDiagnostics::ReportFailure(FFactoryError Error) -> void
 	{
+		if (Feedback) Feedback->Error(FormatFactoryError(Error));
 		if (Entries.size() >= MaximumMessageCount) return;
 		Entries.push_back({.Failure = std::move(Error)});
 	}
 
 	auto FFactoryDiagnostics::ReportDomainFailure(std::shared_ptr<const IFactoryErrorDetail> Error) -> void
 	{
+		if (Feedback && Error) Feedback->Error(Error->Format());
 		if (!Error || Entries.size() >= MaximumMessageCount) return;
 		Entries.push_back({.DomainFailure = std::move(Error)});
 	}
 
 	auto FFactoryDiagnostics::Report(std::string_view Message) -> void
 	{
+		if (Feedback && !Message.empty()) Feedback->Error(Message);
 		if (Message.empty() || Entries.size() >= MaximumMessageCount) return;
 		Entries.push_back({.Message = std::string(Message.substr(0, MaximumMessageLength))});
 	}
@@ -218,16 +221,17 @@ namespace Durin
 	}
 
 	auto DFactory::FactoryCreateNew(
-		DClass*, DObject*, FName, EObjectFlags, DObject*, FFactoryDiagnostics*) const
+		DClass*, DObject*, FName, EObjectFlags, DObject*, FFeedbackContext*, FName)
 		-> DObject*
 	{
 		return nullptr;
 	}
 
-	auto DFactory::FactoryCreateFromFile(
-		DClass*, DObject*, FName, EObjectFlags, std::string_view, DObject*,
-		FFactoryDiagnostics*) const -> DObject*
+	auto DFactory::FactoryCreateFile(
+		DClass*, DObject*, FName, EObjectFlags, std::string_view, std::string_view,
+		FFeedbackContext*, bool& bOutOperationCanceled) -> DObject*
 	{
+		bOutOperationCanceled = false;
 		return nullptr;
 	}
 

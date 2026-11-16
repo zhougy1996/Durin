@@ -96,7 +96,7 @@ namespace Durin
 		return Result;
 	}
 	auto FPackagePath::ToString() const -> std::string { return Path.IsNone() ? std::string{} : Path.ToString(); }
-	auto FPackagePath::GetView() const -> std::string_view { return Path.IsNone() ? std::string_view{} : Path.GetComparisonNameEntry()->MakeView(); }
+	auto FPackagePath::GetView() const -> std::string_view { return Path.IsNone() ? std::string_view{} : Path.GetDisplayNameEntry()->MakeView(); }
 	auto FPackagePath::operator<=>(const FPackagePath& Other) const -> std::strong_ordering { return CompareFolded(GetView(), Other.GetView()); }
 
 	auto FTopLevelAssetPath::TryCreateWithDiagnostic(std::string_view InPath, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>
@@ -114,7 +114,7 @@ namespace Durin
 		if (InPackagePath.GetView().size() + 1 + InAssetName.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Asset, InPackagePath.ToString() + "." + std::string(InAssetName), MaximumObjectPathBytes);
 		FTopLevelAssetPath Candidate; Candidate.PackagePath = InPackagePath; Candidate.AssetName = FName(InAssetName, -1); OutPath = std::move(Candidate); return {};
 	}
-	auto FTopLevelAssetPath::GetAssetName() const -> std::string_view { return AssetName.IsNone() ? std::string_view{} : AssetName.GetComparisonNameEntry()->MakeView(); }
+	auto FTopLevelAssetPath::GetAssetName() const -> std::string_view { return AssetName.IsNone() ? std::string_view{} : AssetName.GetDisplayNameEntry()->MakeView(); }
 	auto FTopLevelAssetPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; Out.append(PackagePath.GetView()); Out.push_back('.'); Out.append(GetAssetName()); }
 	auto FTopLevelAssetPath::ToString() const -> std::string { std::string Result; if (IsValid()) { Result.reserve(PackagePath.GetView().size() + 1 + GetAssetName().size()); AppendTo(Result); } return Result; }
 	auto FTopLevelAssetPath::operator<=>(const FTopLevelAssetPath& Other) const -> std::strong_ordering { if (const auto Order = PackagePath <=> Other.PackagePath; Order != 0) return Order; return CompareFolded(GetAssetName(), Other.GetAssetName()); }

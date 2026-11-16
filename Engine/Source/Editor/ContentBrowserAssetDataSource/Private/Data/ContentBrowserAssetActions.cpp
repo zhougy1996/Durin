@@ -6,14 +6,17 @@
 
 #include "Asset/PackageSerialization.h"
 #include "AssetTools/AssetDeletion.h"
-#include "AssetTools/Relocation.h"
-#include "AssetTools/RedirectorFixup.h"
+#include "Asset/Redirector.h"
+
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetTools/IAssetTools.h"
+#include "ObjectTools.h"
+#include "Asset/Load.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
@@ -95,68 +98,58 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 				"This content mount is not content-writable. Choose a writable mount before pasting the asset."));
 
 		auto Context = Feedback();
-		auto* Copy = IAssetTools::Get().DuplicateAsset({.SourcePath = SourcePath, .DestinationDirectory = Directory}, &Context);
+		FScopedFeedbackContext FeedbackScope(Context);
+		std::optional<UnifiedError::FError> LoadError;
+		auto* Source = LoadObject(SourcePath, nullptr, nullptr, &LoadError);
+		if (!Source) return ReportFailure(LoadError.value_or(UnifiedError::FError{AssetWriteErrors::NotFound, "The duplicate source is unavailable."}));
+		const TStrongObjectPtr<DObject> SourceOwner(Source);
+		if (!CanModify(&Error)) return ReportFailure(UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, Error});
+		std::vector<DObject*> Copies;
+		ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, Directory, false, &Copies);
+		auto* Copy = Copies.empty() ? nullptr : Copies.front();
 		if (!Copy) return false;
 		OutNewItem.Kind = EContentBrowserItemKind::Asset;
 		OutNewItem.PackagePath = Copy->GetPackage()->GetPackagePathIdentity();
 		OutNewItem.AssetClassName = SourceData->AssetClassName;
 		const auto Resolved = FMountPaths::ResolveAssetPath(OutNewItem.PackagePath.GetView());
 		SetNewItem(OutNewItem, Resolved ? Resolved->PhysicalPath.generic_string() + ".dasset" : std::string{}, Copy->GetObjectPath());
-		const bool bSaved = IAssetTools::Get().SaveAssets({.AssetPaths = {OutNewItem.PackagePath}}, &Context);
-		if (!bSaved) Report(ELogLevel::Warn, "The duplicated asset is available with unsaved changes.");
-		NotifyItemsUpdated({.bFullRefresh = !bSaved, .Changes = {{EContentChangeKind::Added, {}, OutNewItem.PhysicalPath, {}, OutNewItem.VirtualPath}}});
+		NotifyItemsUpdated({.Changes = {{EContentChangeKind::Added, {}, OutNewItem.PhysicalPath, {}, OutNewItem.VirtualPath}}});
 		return true;
 	}
-	auto FContentBrowserAssetActions::CollectRedirectors(
-		std::string_view VirtualDirectory) const -> std::vector<FPackagePath>
+	auto FContentBrowserAssetActions::CollectRedirectors(std::string_view Directory) const -> std::vector<FTopLevelAssetPath>
 	{
-		std::string Prefix(VirtualDirectory);
-		if (!Prefix.empty() && !Prefix.ends_with('/')) Prefix += '/';
-		std::vector<FPackagePath> Redirectors;
-		for (const auto& [Path, Data]
-			: CaptureAssetCatalogSnapshot().Assets)
-		{
-			if (!(!Data.TopLevelAssets.empty() && std::ranges::all_of(Data.TopLevelAssets, &FAssetData::IsRedirector)))
-				continue;
-			if (!Prefix.empty() && !Path.GetView().starts_with(Prefix)) continue;
-			Redirectors.push_back(Path);
-		}
-		std::ranges::sort(
-			Redirectors,
-			[](const FPackagePath& A, const FPackagePath& B) {
-				return A.GetView() < B.GetView();
-			});
-		return Redirectors;
+		std::string Prefix(Directory); if (!Prefix.empty() && !Prefix.ends_with('/')) Prefix += '/';
+		std::vector<FTopLevelAssetPath> Result;
+		for (const auto& [Path, Asset] : CaptureAssetQuerySnapshot().Assets)
+			if (Asset.IsRedirector() && (Prefix.empty() || Path.GetPackagePath().GetView().starts_with(Prefix))) Result.push_back(Path);
+		std::ranges::sort(Result);
+		return Result;
 	}
-	auto FContentBrowserAssetActions::FixUpRedirectorsInFolder(
-		std::string_view VirtualDirectory) -> bool
+	auto FContentBrowserAssetActions::FixUpRedirectorsInFolder(std::string_view Directory) -> bool
+	{
+		if (Directory.empty()) return ReportFailure(UnifiedError::FError{AssetWriteErrors::InvalidPath, "Fix Up in Folder requires a mounted virtual directory."});
+		return FixUpRedirectors(CollectRedirectors(Directory));
+	}
+	auto FContentBrowserAssetActions::FixUpRedirectors(std::span<const FTopLevelAssetPath> Paths) -> bool
 	{
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
-		if (VirtualDirectory.empty())
-			return ReportFailure(UnifiedError::FError{AssetWriteErrors::InvalidPath, "Fix Up in Folder requires a mounted virtual directory."});
-		const std::vector<FPackagePath> Redirectors =
-			CollectRedirectors(VirtualDirectory);
-		if (Redirectors.empty()) return true;
-		return CompleteMutation(Durin::FixUpRedirectors(Redirectors, EAssetRedirectorFixupMode::RewriteAndDelete));
+		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, AdmissionError});
+		if (Paths.empty()) return true;
+		auto Context = Feedback(); FScopedFeedbackContext Scope(Context);
+		std::vector<DAssetRedirector*> Objects;
+		std::vector<FStrongObjectPtr> Owners;
+		for (const auto& Path : Paths)
+			if (auto* Package = LoadPackage(Path.GetPackagePath()))
+				if (auto* Alias = Cast<DAssetRedirector>(Package->FindTopLevelAsset(FName(Path.GetAssetName()))))
+				{ Objects.push_back(Alias); Owners.emplace_back(Alias); }
+		if (!CanModify(&AdmissionError)) return false;
+		// The synchronous backend retains selection itself, then releases it for checked retirement.
+		Owners.clear();
+		IAssetTools::Get().FixupReferencers(Objects);
+		NotifyItemsUpdated({.bFullRefresh = true});
+		return true;
 	}
-	auto FContentBrowserAssetActions::FixUpRedirectors(
-		std::span<const FPackagePath> Redirectors) -> bool
-	{
-		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
-		if (Redirectors.empty()) return true;
-		return CompleteMutation(Durin::FixUpRedirectors(Redirectors, EAssetRedirectorFixupMode::RewriteAndDelete));
-	}
-	auto FContentBrowserAssetActions::FixUpAllRedirectors()
-		-> bool
-	{
-		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
-		const std::vector<FPackagePath> Redirectors = CollectRedirectors("/");
-		return Redirectors.empty() ? true
-			: CompleteMutation(Durin::FixUpRedirectors(Redirectors, EAssetRedirectorFixupMode::RewriteAndDelete));
-	}
+	auto FContentBrowserAssetActions::FixUpAllRedirectors() -> bool { return FixUpRedirectors(CollectRedirectors("/")); }
 	auto FContentBrowserAssetActions::CanDuplicateAsset(const FTopLevelAssetPath& Source, std::string* OutErrorMsg) const -> bool
 	{
 		if (!CanModify(OutErrorMsg)) return false;
@@ -171,19 +164,4 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 		return CanDuplicateAsset(Source, OutErrorMsg);
 	}
 
-	auto FContentBrowserAssetActions::ReportRecovery(const FAssetMutationResultDetails& Native) const -> void
-	{
-		for (const auto& Path : Native.BackupLocations) Report(ELogLevel::Warn, "Recovery backup: " + Path.generic_string());
-		if (!Native.Result)
-			for (const auto& Path : Native.AffectedFiles) Report(ELogLevel::Warn, "Affected file: " + Path.generic_string());
-	}
-	auto FContentBrowserAssetActions::CompleteMutation(const FAssetMutationResultDetails& Native, FContentChangeBatch Changes) -> bool
-	{
-		ReportRecovery(Native);
-		if (!Native.Result && Native.Result.Effect != EAssetWriteEffect::None) Changes.bFullRefresh = true;
-		if (!Native.AffectedFiles.empty() && Changes.Changes.empty()) Changes.bFullRefresh = true;
-		if (Native.Result.Error) Report(ELogLevel::Error, Native.Result.Error->ToString());
-		NotifyItemsUpdated(std::move(Changes));
-		return bool(Native.Result);
-	}
 }

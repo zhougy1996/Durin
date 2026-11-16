@@ -4,13 +4,18 @@ Summary: Define shared slow-task progress, lexical work scopes, cancellation, an
 
 Modules: Core, DurinEd, MainFrame, LevelEditor, AssetForgeBuiltins
 
-Last reviewed: 2026-11-11
+Last reviewed: 2026-11-16
 
 ## Ownership and Lifetimes
 
 `Misc/SlowTask.h`, `Misc/ScopedSlowTask.h`, and `Misc/FeedbackContext.h` expose
 `FSlowTask`, `FScopedSlowTask`, and `FFeedbackContext`. Core contains no ImGui,
 Engine, editor, native-window, or work-scheduler dependency for this service.
+
+`FScopedFeedbackContext` lexically redirects `FFeedbackContext::Get()` on the
+current thread and restores nested callers on exit. It does not propagate to
+workers. Adapters capture the previous feedback before installing a scope; a
+fallback must not resolve back to the adapter itself.
 
 `FSlowTask` is a noncopyable feedback lifetime that can be held across ordinary
 host frames. Its owner explicitly calls `Complete`, `Fail`, or `Cancel` when the

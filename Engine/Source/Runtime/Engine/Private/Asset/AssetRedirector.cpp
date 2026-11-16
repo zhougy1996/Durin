@@ -6,4 +6,5 @@ namespace Durin
 		: Super(ObjectInitializer)
 	{
 	}
+	auto DAssetRedirector::SetDestinationObject(DObject* Object) -> void { DestinationObject = Object; MarkPackageDirty(); }
 }

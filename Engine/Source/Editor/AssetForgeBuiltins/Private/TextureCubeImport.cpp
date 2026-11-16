@@ -202,15 +202,18 @@ namespace Durin::AssetForge::Builtins
 		Formats = {"png", "jpg", "jpeg", "bmp", "tga", "hdr"};
 	}
 
-	auto DTextureCubeFactory::FactoryCreateFromFile(
+	auto DTextureCubeFactory::FactoryCreateFile(
 		DClass* InClass,
 		DObject* InParent,
 		FName InName,
 		EObjectFlags Flags,
 		std::string_view Filename,
-		DObject*,
-		FFactoryDiagnostics* Diagnostics) const -> DObject*
+		std::string_view Parms,
+			FFeedbackContext* Warn, bool& bOutOperationCanceled) -> DObject*
 	{
+		FFactoryDiagnostics DiagnosticStorage(Warn);
+		auto* Diagnostics = &DiagnosticStorage;
+		bOutOperationCanceled = false;
 		auto Failed = [&](std::string Message) -> DObject* {
 			if (Diagnostics) Diagnostics->Report(Message);
 			return nullptr;

@@ -267,6 +267,7 @@ namespace Durin
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot;
 	ASSETREGISTRY_API auto GetAssetCatalogRevision() -> uint64;
+	ASSETREGISTRY_API auto OnAssetRenamed() -> TMulticastDelegate<void(const FAssetData&, const FSoftObjectPath&)>&;
 	// Broadcast after commit on the publishing thread; listeners must defer owner-thread work.
 	ASSETREGISTRY_API auto OnAssetCatalogChanged() -> TThreadSafeMulticastDelegate<void(const FContentChangeBatch&)>&;
 	// Captures complete change coverage through the current revision under the catalog lock.

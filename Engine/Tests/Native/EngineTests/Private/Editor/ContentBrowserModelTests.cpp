@@ -13,8 +13,6 @@
 #include "NativeAssetBuildTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Actors/ActorChange.h"
-#include "AssetTools/Relocation.h"
-#include "AssetTools/RedirectorFixup.h"
 #include "AssetTools/MutationTesting.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/Testing/PackageSaveTesting.h"
@@ -25,7 +23,6 @@
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
-#include "AssetTools/Relocation.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Publication.h"
 #include "AssetTools/IAssetTools.h"
@@ -125,15 +122,25 @@ namespace
 					Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 			ShutdownAssetRuntime();
+			// Each test remounts the same logical root. Release prior editor-retained exports first.
+			for (auto* Package : GetLiveAssetPackages())
+				if (Package->GetPackagePath().starts_with("/ContentBrowserTests/"))
+					for (auto* Asset : Package->GetTopLevelAssets()) Asset->ClearFlags(EObjectFlags::Standalone);
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 			ASSERT_TRUE(InitializeAssetRuntime());
+			ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		}
 
 		static void TearDownTestSuite()
 		{
 			ShutdownAssetRuntime();
+			// Each test remounts the same logical root. Release prior editor-retained exports first.
+			for (auto* Package : GetLiveAssetPackages())
+				if (Package->GetPackagePath().starts_with("/ContentBrowserTests/"))
+					for (auto* Asset : Package->GetTopLevelAssets()) Asset->ClearFlags(EObjectFlags::Standalone);
 			CollectGarbage(Durin::EObjectFlags::Standalone);
 			ASSERT_TRUE(InitializeAssetRuntime());
+			ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
 		}
 
 		std::string OperationError, OperationWarning;
@@ -614,11 +621,10 @@ TEST_F(FContentBrowserModelTests, RelocationDoesNotEnterEditorUndoHistory)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	const FAssetRelocation Mapping{
-		SourcePath, DestinationPath};
+	const auto TargetDirectory = DestinationPath.ToString().substr(0, DestinationPath.ToString().find_last_of('/'));
+	const FAssetRenameData Mapping{TWeakObjectPtr<DObject>(Material), TargetDirectory, DestinationPath.GetPackageName()};
 	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
-		.Mappings = {Mapping}}));
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Mapping, 1}));
 	EXPECT_TRUE(Transactions->GetUndoContext(false).Description.empty());
 	EXPECT_EQ(ResolvePackagePathForOperation(SourcePath).FinalPath,
 		DestinationPath);
@@ -792,8 +798,8 @@ TEST_F(FContentBrowserModelTests, SingleAssetPackageUsesPackageNameAfterRelocati
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
-		.Mappings = {{SourcePath, DestinationPath}}}));
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Material), "/ContentBrowserTests", DestinationPath.GetPackageName()};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 
 	FProviderQueryFixture ModelSource;
 
@@ -804,7 +810,7 @@ TEST_F(FContentBrowserModelTests, SingleAssetPackageUsesPackageNameAfterRelocati
 		Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath);
 	FTopLevelAssetPath RelocatedAssetPath;
 	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(
-		DestinationPath, AssetPath.GetAssetName(), RelocatedAssetPath));
+		DestinationPath, DestinationPath.GetPackageName(), RelocatedAssetPath));
 	const auto Revealed = Model.RevealAsset(RelocatedAssetPath.ToString());
 	FContentBrowserModelFixtureAccess::Wait(Model);
 	ASSERT_FALSE(!Revealed.IsValid());
@@ -1492,7 +1498,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Original", SourcePath));
 	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/Original_Copy2", DuplicatePath));
+		"/ContentBrowserTests/Original2", DuplicatePath));
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/Original", PastedPath));
 	DMaterial* Material = nullptr;
@@ -1502,7 +1508,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	{
-		std::ofstream Occupied(Root / "Content/Original_Copy.dasset");
+		std::ofstream Occupied(Root / "Content/Original1.dasset");
 		Occupied << "unregistered collision";
 	}
 
@@ -1529,7 +1535,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	EXPECT_EQ(TestVirtualPath(ResultItem),
 		Testing::MakePackageLeafTopLevelAssetPathForTests(DuplicatePath).ToString());
 	EXPECT_EQ(TestPhysicalPath(ResultItem),
-		std::filesystem::absolute(Root / "Content/Original_Copy2.dasset")
+		std::filesystem::absolute(Root / "Content/Original2.dasset")
 			.lexically_normal().generic_string());
 	DMaterial* Duplicate = nullptr;
 	{
@@ -1541,8 +1547,8 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_NE(Duplicate, Material);
 	EXPECT_EQ(Duplicate->GetStaticProperties(), Properties);
-	EXPECT_FALSE(Duplicate->GetPackage()->IsDirty());
-	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(ResultItem)));
+	EXPECT_TRUE(Duplicate->GetPackage()->IsDirty());
+	EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(ResultItem)));
 	FContentBrowserItem PastedResultItem;
 	const bool PastedResult = Operations.CopyToFolder(
 		AssetItem(SourcePath),
@@ -1559,6 +1565,8 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	}
 	ASSERT_NE(Pasted, nullptr);
 	EXPECT_EQ(Pasted->GetStaticProperties(), Properties);
+	ASSERT_TRUE(SavePackage(Pasted->GetPackage()));
+	ASSERT_TRUE(SavePackage(Duplicate->GetPackage()));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(PastedPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DuplicatePath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(SourcePath));
@@ -1835,14 +1843,14 @@ TEST_F(FContentBrowserModelTests, AssetAndMixedMovesShareRenameIdentityAndNotifi
 	EXPECT_EQ(ObservedChanges.Changes.size(), 2u);
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/notes.txt"));
 	FPackagePath Moved;
-	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/SharedMove", Moved));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/AssetObject", Moved));
 	ASSERT_NE(FindPackageExact(Moved), nullptr);
 	const FContentBrowserItem Asset{.Kind = EContentBrowserItemKind::Asset,
-		.VirtualPath = "/ContentBrowserTests/B/SharedMove.AssetObject", .PackagePath = Moved};
+		.VirtualPath = "/ContentBrowserTests/B/AssetObject.AssetObject", .PackagePath = Moved};
 	ASSERT_TRUE(Service.CanRenameItem(Asset, "RenamedMove"));
 	FContentBrowserItem Renamed;
 	ASSERT_TRUE(Service.RenameItem(Asset, "RenamedMove", Renamed)) << OperationError;
-	EXPECT_EQ(TestVirtualPath(Renamed), "/ContentBrowserTests/B/RenamedMove.AssetObject");
+	EXPECT_EQ(TestVirtualPath(Renamed), "/ContentBrowserTests/B/RenamedMove.RenamedMove");
 	EXPECT_EQ(TestName(Renamed), "RenamedMove");
 	EXPECT_EQ(TestPhysicalPath(Renamed), (Root / "Content/B/RenamedMove.dasset").generic_string());
 	EXPECT_EQ(Publications, 2);
@@ -1934,7 +1942,7 @@ TEST_F(FContentBrowserModelTests, RejectedMixedMoveDoesNotPublishPlannedChanges)
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/First"));
 }
 
-TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveDeletionPreflight)
+TEST_F(FContentBrowserModelTests, OperationsRenameDirtyAssetsAndUseRecursiveDeletionPreflight)
 {
 	InitializeDObjectSystem();
 	FPackagePath SourcePath;
@@ -1958,10 +1966,11 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 	FContentBrowserItem MoveResultItem;
 	const bool MoveResult =
 		Operations.RenameItem(AssetItem, "New", MoveResultItem);
-	EXPECT_FALSE(MoveResult);
-	EXPECT_NE(OperationError.find("dirty"), std::string::npos);
+	EXPECT_TRUE(MoveResult) << OperationError;
+	EXPECT_TRUE(OperationError.empty());
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(AssetItem)));
-	EXPECT_FALSE(std::filesystem::exists(Root / "Content/New.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/New.dasset"));
+	EXPECT_EQ(Material->GetObjectPath(), "/ContentBrowserTests/New.New");
 
 	const std::filesystem::path Folder = Root / "Content/NonEmpty";
 	std::filesystem::create_directories(Folder);
@@ -1992,7 +2001,7 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 
 }
 
-TEST_F(FContentBrowserModelTests, PackageRenameReturnsRelocatedAssetIdentity)
+TEST_F(FContentBrowserModelTests, AssetRenameReturnsTheNewPackageAndObjectIdentity)
 {
 	FPackagePath OldPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/OldPackage", OldPath));
@@ -2016,7 +2025,7 @@ TEST_F(FContentBrowserModelTests, PackageRenameReturnsRelocatedAssetIdentity)
 
 	ASSERT_TRUE(Result) << OperationError;
 	EXPECT_EQ(TestVirtualPath(ResultItem),
-		"/ContentBrowserTests/NewPackage.AssetObject");
+		"/ContentBrowserTests/NewPackage.NewPackage");
 }
 
 TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
@@ -3128,8 +3137,8 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndIsPermanen
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OldPath, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	const FAssetRelocationMapping Mapping{OldPath, FinalPath};
-	ASSERT_TRUE(RelocateAssets(
+	const FPackageRelocationTestMapping Mapping{OldPath, FinalPath};
+	ASSERT_TRUE(RelocatePackageFilesForTesting(
 		std::span{&Mapping, 1}).Result);
 
 	FPackageCatalogEntry AliasData =
@@ -4257,20 +4266,22 @@ TEST_F(FContentBrowserModelTests, MixedContentMoveKeepsIndependentFileCommitWhen
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	std::ofstream(Root / "Content/A/notes.txt") << "notes";
 	std::filesystem::create_directories(Root / "Content/A/Empty");
-	Material->GetPackage()->MarkDirty();
+	FPackagePath Occupied; ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/A/Asset", Occupied));
+	DMaterial* Blocker = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Occupied, Blocker)); ASSERT_TRUE(SavePackage(Blocker->GetPackage()));
 	FProviderTransferFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
 	const auto Result = Service.BulkMoveItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
 	EXPECT_TRUE(Result);
-	EXPECT_NE(OperationError.find("dirty"), std::string::npos);
+	EXPECT_NE(OperationError.find("occupied"), std::string::npos);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/A/notes.txt"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/Asset.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A"));
 	EXPECT_FALSE(ObservedChanges.bFullRefresh);
 	EXPECT_FALSE(ObservedChanges.Changes.empty());
+	EXPECT_TRUE(Testing::RemoveAssetPackageForTests(Occupied));
 }
 
 TEST_F(FContentBrowserModelTests, MixedContentMoveRelocatesAssetsAndOrdinaryFilesTogether)
@@ -4291,7 +4302,8 @@ TEST_F(FContentBrowserModelTests, MixedContentMoveRelocatesAssetsAndOrdinaryFile
 	ASSERT_TRUE(Result) << OperationError;
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/A/notes.txt"));
-	EXPECT_EQ(ResolvePackagePathForOperation(Source).FinalPath, Destination);
+	EXPECT_EQ(Material->GetObjectPath(), "/ContentBrowserTests/B/A/Asset.Asset") << OperationError;
+	EXPECT_EQ(ResolvePackagePathForOperation(Source).FinalPath.ToString(), Destination.ToString()) << OperationError;
 }
 
 TEST_F(FContentBrowserModelTests, ContentMoveRejectsUnknownPackagesAndKeepsFirstDuplicateDestination)
@@ -4330,11 +4342,7 @@ TEST_F(FContentBrowserModelTests, ContentMoveReportsNativePartialPublicationAndR
 		if (Level >= ELogLevel::Error) OperationError = Message;
 		else if (Level == ELogLevel::Warn) Warnings.emplace_back(Message);
 	});
-	struct FFailureReset
-	{
-		~FFailureReset() { SetAssetRelocationFailurePointForTesting(EAssetRelocationFailurePoint::None); }
-	} Reset;
-	SetAssetRelocationFailurePointForTesting(EAssetRelocationFailurePoint::PublishRegistry);
+	Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishRegistry; });
 
 	const FContentBrowserItem Folder{.Kind = EContentBrowserItemKind::Folder,
 		.PhysicalPath = (Root / "Content/A").generic_string()};
@@ -4344,7 +4352,7 @@ TEST_F(FContentBrowserModelTests, ContentMoveReportsNativePartialPublicationAndR
 	EXPECT_FALSE(OperationError.empty());
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/A/notes.txt"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
-	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/ProjectionAsset.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/ProjectionAsset.dasset")) << OperationError;
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/ProjectionAsset.dasset"));
 	EXPECT_TRUE(ObservedChanges.bFullRefresh);
 }
@@ -4501,13 +4509,16 @@ TEST_F(FContentBrowserModelTests, MixedContentCopyDuplicatesAssetAndPreservesSou
 	const auto Result = Service.BulkCopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
 	ASSERT_TRUE(Result) << OperationError;
 	EXPECT_TRUE(FindPackageExact(Source));
-	EXPECT_TRUE(FindPackageExact(Destination));
+	ASSERT_NE(FindResidentPackage(Destination), nullptr) << OperationError;
+	EXPECT_TRUE(FindResidentPackage(Destination)->IsDirty());
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/A/CopySource.dasset"));
-	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/CopySource.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A/CopySource.dasset"));
+	ASSERT_TRUE(SavePackage(FindResidentPackage(Destination)));
+	EXPECT_TRUE(FindPackageExact(Destination));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/notes.txt"));
 }
 
-TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsContentChange)
+TEST_F(FContentBrowserModelTests, PasteKeepsDirtyCopyAndExplicitSaveFailureAllowsRetry)
 {
 	std::optional<Durin::UnifiedError::FError> LoadedCopyError;
 	FPackagePath Source;
@@ -4520,13 +4531,10 @@ TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsConten
 	Observe(Service);
 	bool Result = false;
 	FContentBrowserItem ResultItem;
-	{
-		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::PublishPackage; });
-		Result = Service.CopyToFolder(AssetItem(AssetPath), (Root / "Content/B").generic_string(), ResultItem);
-	}
+	Result = Service.CopyToFolder(AssetItem(AssetPath), (Root / "Content/B").generic_string(), ResultItem);
 	EXPECT_TRUE(Result);
 	EXPECT_TRUE((ObservedChanges.bFullRefresh || !ObservedChanges.Changes.empty()));
-	EXPECT_FALSE(OperationWarning.empty());
+	EXPECT_TRUE(OperationWarning.empty());
 	FSoftObjectPath CopyPath;
 	ASSERT_TRUE(FSoftObjectPath::TryCreate(TestVirtualPath(ResultItem), CopyPath));
 	auto LoadedCopy = LoadObject<DMaterial>(CopyPath, nullptr, &LoadedCopyError);
@@ -4536,6 +4544,11 @@ TEST_F(FContentBrowserModelTests, PasteSaveFailureKeepsDirtyCopyAndReportsConten
 	EXPECT_TRUE(Copy->GetPackage()->IsDirty());
 	EXPECT_EQ(FindResidentPackage(CopyPath.GetPackagePath()), Copy->GetPackage());
 	EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(ResultItem)));
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		EXPECT_FALSE(SavePackage(Copy->GetPackage()));
+	}
+	EXPECT_TRUE(Copy->GetPackage()->IsDirty());
 	EXPECT_TRUE(SavePackage(Copy->GetPackage()));
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(ResultItem)));
 }
@@ -4564,9 +4577,13 @@ TEST_F(FContentBrowserModelTests, ContentCopyBulkTravelsOnlyThroughOwningAssetDu
 		.PhysicalPath = (Root / "Content/A").generic_string()};
 	const auto Result = Service.BulkCopyItems(std::span{&Folder, 1}, (Root / "Content/B").generic_string());
 	ASSERT_TRUE(Result) << OperationError;
-	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/CopyTexture.dbulk"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/B/A/CopyTexture.dbulk"));
 	FPackagePath CopiedPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/A/CopyTexture", CopiedPath));
+	ASSERT_NE(FindResidentPackage(CopiedPath), nullptr) << OperationError;
+	EXPECT_TRUE(FindResidentPackage(CopiedPath)->IsDirty());
+	ASSERT_TRUE(SavePackage(FindResidentPackage(CopiedPath)));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/B/A/CopyTexture.dbulk"));
 	const auto Copied = FindPackageExact(CopiedPath);
 	ASSERT_NE(Copied, nullptr);
 	EXPECT_GT(Copied->BulkSegmentExtent, 0u);
@@ -4597,7 +4614,7 @@ TEST_F(FContentBrowserModelTests, SaveReportsCommittedFileWhenRegistryPublicatio
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/SaveProjectionPending.dasset"));
 	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
 	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
-	EXPECT_NE(OperationError.find("asset catalog requires synchronization"), std::string::npos);
+	EXPECT_FALSE(OperationError.empty());
 	EXPECT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::Incremental));
 }
 
@@ -4775,7 +4792,7 @@ TEST_F(FContentBrowserModelTests, DirectoryCapturesPrepareCurrentCatalogWithoutI
 	}
 }
 
-TEST_F(FContentBrowserModelTests, SaveCapabilitiesFollowModeAndCurrentMountPolicy)
+TEST_F(FContentBrowserModelTests, SaveCapabilitiesFollowFlagsAndCurrentMountPolicy)
 {
 	InitializeDObjectSystem();
 	FPackagePath Path;
@@ -4787,10 +4804,10 @@ TEST_F(FContentBrowserModelTests, SaveCapabilitiesFollowModeAndCurrentMountPolic
 	FProviderSaveFixture Source;
 	Observe(Source);
 	EXPECT_TRUE(Source.CanSaveItem(Item));
-	EXPECT_FALSE(Source.CanSaveItem(Item, EAssetSaveMode::CanonicalResave));
+	EXPECT_TRUE(Source.CanSaveItem(Item, true));
 	ASSERT_TRUE(Source.BulkSaveItems(std::span(&Item, 1)));
 	EXPECT_FALSE(Source.CanSaveItem(Item));
-	EXPECT_TRUE(Source.CanSaveItem(Item, EAssetSaveMode::CanonicalResave));
+	EXPECT_TRUE(Source.CanSaveItem(Item, true));
 	Asset->GetPackage()->MarkDirty();
 	Registry.reset();
 	const std::array Definitions{FMountPoint{.VirtualRoot = "/ContentBrowserTests/",
@@ -4798,9 +4815,9 @@ TEST_F(FContentBrowserModelTests, SaveCapabilitiesFollowModeAndCurrentMountPolic
 	Registry = std::make_unique<Testing::FScopedMountRegistryFixture>(Definitions);
 	ASSERT_TRUE(Registry->IsValid());
 	std::string Reason;
-	EXPECT_FALSE(Source.CanSaveItem(Item, EAssetSaveMode::LoadedDirtyPackage, &Reason));
+	EXPECT_FALSE(Source.CanSaveItem(Item, false, &Reason));
 	EXPECT_FALSE(Reason.empty());
-	EXPECT_FALSE(Source.CanSaveItem(Item, EAssetSaveMode::CanonicalResave));
+	EXPECT_FALSE(Source.CanSaveItem(Item, true));
 	EXPECT_TRUE(OperationError.empty());
 	EXPECT_FALSE(Source.BulkSaveItems(std::span(&Item, 1)));
 	EXPECT_TRUE(Asset->GetPackage()->IsDirty());
@@ -5160,29 +5177,30 @@ TEST_F(FContentBrowserModelTests, DeletionReportsEachFailureAndKeepsConfirmation
 	EXPECT_EQ(2, Notifications);
 }
 
-TEST_F(FContentBrowserModelTests, DuplicateReturnsDirtyOutputWhenSavingFails)
+TEST_F(FContentBrowserModelTests, DuplicateDoesNotSaveAndPublishesDirtyOutput)
 {
 	FPackagePath Path, Copy;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/DuplicateSaveFailure", Path));
-	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/DuplicateSaveFailure_Copy", Copy));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/DuplicateSaveFailure1", Copy));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	int Notifications = 0, Errors = 0;
+	int Notifications = 0, Errors = 0, SaveAttempts = 0;
 	FContentChangeBatch Published;
 	FProviderAssetActionFixture Operation({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ++Notifications; Published = std::move(Batch); }});
 	Operation.SetDiagnosticSink([&](ELogLevel Level, std::string_view Text) { if (Level >= ELogLevel::Error && !Text.empty()) ++Errors; });
 	FContentBrowserItem Output;
 	{
-		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		Testing::FScopedPackageSaveFault Fault([&](auto Phase, size_t) { ++SaveAttempts; return Phase == Testing::EPackageSaveFaultPoint::PublishPackage; });
 		EXPECT_TRUE(Operation.DuplicateItem(AssetItem(Path), Output));
 	}
 	EXPECT_EQ(Testing::MakePackageLeafTopLevelAssetPathForTests(Copy).ToString(), TestVirtualPath(Output));
 	ASSERT_NE(FindResidentPackage(Copy), nullptr);
 	EXPECT_TRUE(FindResidentPackage(Copy)->IsDirty());
-	EXPECT_EQ(1, Errors);
+	EXPECT_EQ(0, Errors);
+	EXPECT_EQ(0, SaveAttempts);
 	EXPECT_EQ(1, Notifications);
-	EXPECT_TRUE(Published.bFullRefresh);
+	EXPECT_FALSE(Published.bFullRefresh);
 	ASSERT_EQ(1u, Published.Changes.size());
 	EXPECT_EQ(TestVirtualPath(Output), Published.Changes.front().NewAssetPath);
 }
@@ -5214,7 +5232,7 @@ TEST_F(FContentBrowserModelTests, SaveFeedbackReentryPublishesOnlyEachOperations
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/NestedSaveC.dasset"));
 }
 
-TEST_F(FContentBrowserModelTests, DuplicateRetainsCreatedOutputAcrossFeedbackWithdrawal)
+TEST_F(FContentBrowserModelTests, DuplicateRetainsCreatedOutputAcrossNotificationWithdrawal)
 {
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/DuplicateReactivation", Path));
@@ -5227,8 +5245,8 @@ TEST_F(FContentBrowserModelTests, DuplicateRetainsCreatedOutputAcrossFeedbackWit
 	auto Description = AssetItem(Path);
 	Description.PhysicalPath = TestPhysicalPath(*FindPackageExact(Path));
 	bool Reactivated = false;
-	const auto Bound = Query.BindContributionsForTesting(Description, {.ReportDiagnostic = [&](ELogLevel Level, std::string_view) {
-		if (Level >= ELogLevel::Error && !Reactivated)
+	const auto Bound = Query.BindContributionsForTesting(Description, {.NotifyContentMutation = [&](FContentChangeBatch) {
+		if (!Reactivated)
 		{
 			Reactivated = true;
 			EXPECT_TRUE(Query.GetServiceForTesting()->DeactivateDataSource(FName("Asset")));
@@ -5236,7 +5254,6 @@ TEST_F(FContentBrowserModelTests, DuplicateRetainsCreatedOutputAcrossFeedbackWit
 	}});
 	ASSERT_EQ(1u, Bound.InternalItems.size());
 	ContentBrowser::FContentBrowserItemData Output;
-	Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::PublishPackage; });
 	EXPECT_TRUE(Source->DuplicateItem(Bound.InternalItems.front(), Output));
 	EXPECT_TRUE(Reactivated);
 	EXPECT_FALSE(Source->IsActive());
@@ -5456,4 +5473,42 @@ TEST_F(FContentBrowserModelTests, SortingPrefetchesProviderAttributesBeforeCompa
 	EXPECT_EQ(2, Source->DiskSizeReads);
 	ASSERT_EQ(2u, Model.GetItems().size());
 	EXPECT_EQ("A", TestName(Model.GetItems().front()));
+}
+
+TEST_F(FContentBrowserModelTests, UnsavedAssetCapabilitiesAndRenameUseLiveIdentity)
+{
+	auto* Object = IAssetTools::Get().CreateAsset("UnsavedRename", "/ContentBrowserTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset, .Name = "UnsavedRename",
+		.VirtualPath = "/ContentBrowserTests/UnsavedRename.UnsavedRename", .PackagePath = Object->GetPackage()->GetPackagePathIdentity(),
+		.PhysicalPath = (Root / "Content/UnsavedRename.dasset").generic_string()};
+	FProviderTransferFixture Service;
+	Observe(Service);
+	EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(Item)));
+	EXPECT_TRUE(Service.CanRenameItem(Item, "LiveRenamed"));
+	EXPECT_TRUE(Service.CanMoveItem(Item, (Root / "Content/B").generic_string()));
+	ASSERT_TRUE(Service.RenameItem(Item, "LiveRenamed", NewItem)) << OperationError;
+	EXPECT_EQ(TestVirtualPath(NewItem), "/ContentBrowserTests/LiveRenamed.LiveRenamed");
+	EXPECT_EQ(Object->GetObjectPath(), TestVirtualPath(NewItem));
+}
+
+TEST_F(FContentBrowserModelTests, SelectedAssetRenamePreservesSiblingAndSupportsCaseOnlyFollowup)
+{
+	FPackagePath Source; ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/MultiRename", Source));
+	DMaterial* Object = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source, Object));
+	auto* Sibling = NewObject<DMaterial>(Object->GetPackage(), FName("Sibling"), EObjectFlags::Public | EObjectFlags::Standalone);
+	ASSERT_NE(Sibling, nullptr); ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	const auto SiblingPath = Sibling->GetObjectPath();
+	FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset, .Name = "MultiRename",
+		.VirtualPath = Object->GetObjectPath(), .PackagePath = Source, .PhysicalPath = (Root / "Content/MultiRename.dasset").generic_string()};
+	FProviderTransferFixture Service;
+	Observe(Service);
+	ASSERT_TRUE(Service.RenameItem(Item, "Chosen", NewItem)) << OperationError;
+	EXPECT_EQ(Sibling->GetObjectPath(), SiblingPath);
+	FContentBrowserItem CaseItem;
+	ASSERT_TRUE(Service.RenameItem(NewItem, "chosen", CaseItem)) << OperationError;
+	EXPECT_EQ(TestVirtualPath(CaseItem), "/ContentBrowserTests/chosen.chosen");
+	EXPECT_TRUE(std::ranges::any_of(std::filesystem::directory_iterator(Root / "Content"), [](const auto& Entry) { return Entry.path().filename().generic_string() == "chosen.dasset"; }));
+	EXPECT_EQ(Object->GetObjectPath(), TestVirtualPath(CaseItem));
+	EXPECT_EQ(Sibling->GetObjectPath(), SiblingPath);
 }

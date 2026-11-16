@@ -346,15 +346,18 @@ namespace Durin::AssetForge::Builtins
 		Formats = {"obj", "fbx", "gltf", "glb", "dae", "3ds", "ply", "stl"};
 	}
 
-	auto DStaticMeshFactory::FactoryCreateFromFile(
+	auto DStaticMeshFactory::FactoryCreateFile(
 		DClass* InClass,
 		DObject* InParent,
 		FName InName,
 		EObjectFlags Flags,
 		std::string_view Filename,
-		DObject*,
-		FFactoryDiagnostics* Diagnostics) const -> DObject*
+		std::string_view Parms,
+			FFeedbackContext* Warn, bool& bOutOperationCanceled) -> DObject*
 	{
+		FFactoryDiagnostics DiagnosticStorage(Warn);
+		auto* Diagnostics = &DiagnosticStorage;
+		bOutOperationCanceled = false;
 		auto Reject = [&](EFactoryError Code) -> DObject* {
 			if (Diagnostics) Diagnostics->ReportFailure({
 				.Code = Code,

@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "AssetTools/AssetSave.h"
+#include "FileHelpers.h"
 #include "Misc/FeedbackContext.h"
 #include "Asset/AssetWriteResult.h"
 #include "Threading/Task.h"

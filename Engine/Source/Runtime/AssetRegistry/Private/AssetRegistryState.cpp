@@ -664,6 +664,8 @@ namespace Durin
 		return AssetPrivate::GetAssetRegistryState().CaptureChanges(FromRevision);
 	}
 
+	auto OnAssetRenamed() -> TMulticastDelegate<void(const FAssetData&, const FSoftObjectPath&)>&
+	{ static TMulticastDelegate<void(const FAssetData&, const FSoftObjectPath&)> Event; return Event; }
 	auto OnAssetCatalogChanged() -> TThreadSafeMulticastDelegate<void(const FContentChangeBatch&)>& { static TThreadSafeMulticastDelegate<void(const FContentChangeBatch&)> Event; return Event; }
 
 	auto GetAssetCatalogRevision() -> uint64
