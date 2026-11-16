@@ -1,4 +1,4 @@
-#include "Import/AssetImportTaskExecution.h"
+#include "DObject/ObjectLifecycle.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/DObjectGlobals.h"
 #include "GltfAssetImportDialog.h"
@@ -24,7 +24,8 @@ namespace Durin
 	auto FGltfAssetImportDialog::ResetSession() -> void
 	{
 		Session.reset();
-		if (Task) { FAssetImportTaskAccess::ReleaseResults(*Task); Task.Reset(); }
+		if (Task) MarkAsGarbage(Task.Get());
+		Task.Reset();
 	}
 
 	auto FGltfAssetImportDialog::Open(std::string_view InDestinationDirectory) -> void

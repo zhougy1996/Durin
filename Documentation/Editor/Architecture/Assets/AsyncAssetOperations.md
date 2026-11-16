@@ -83,6 +83,13 @@ accepted tasks and clears callbacks before module code retires. Task data and
 completion storage belong to DurinEd; the adapter registry/tick lane belongs to
 AssetTools, with no reverse dependency on concrete format modules.
 
+After submission, the preview host observes progress and requests cancellation;
+only AssetTools' editor lane or `GetObjects`' explicit wait advances the task.
+Preview ticks advance unsubmitted preparation, not accepted task execution.
+Teardown cancels through the feature state, waits through `GetObjects`, then
+retires the completed temporary task through the object lifecycle. Ordinary UI
+and format adapters do not include the private task execution bridge.
+
 Source decoding, product construction and staged writes are nonblocking in the
 interactive path. Texture mutation may wait for a canceled predecessor to retire. Material policy checks, individual package
 capture and atomic graph commit remain owner-thread operations; the session does

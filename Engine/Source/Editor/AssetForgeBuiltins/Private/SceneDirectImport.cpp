@@ -8,7 +8,7 @@
 #include "AssetForge/Builtins/AssetImport.h"
 #include "AssetTools/AssetImportAdapter.h"
 #include "AssetImportTask.h"
-#include "Import/AssetImportTaskExecution.h"
+#include "Import/AssetImportTaskOperation.h"
 #include "AssetForge/Builtins/SceneImportOptions.h"
 #include "DObject/WeakObjectPtr.h"
 #include "AssetForge/Builtins/SceneImportData.h"
@@ -1265,7 +1265,7 @@ FSceneImportPreview::~FSceneImportPreview()
 {
 	Cancel();
 	if (auto* Task = Impl->TrackedTask.Get(); Task && !Task->IsAsyncImportComplete())
-	{ FAssetImportTaskAccess::CancelAndDrain(*Task); return; }
+	{ (void)Task->GetObjects(); return; }
 	// Only host teardown drains synchronously; normal UI cancellation keeps ticking.
 	while (Impl->Progress.Phase != EAssetImportPhase::Completed)
 	{
@@ -1278,9 +1278,7 @@ FSceneImportPreview::~FSceneImportPreview()
 }
 auto FSceneImportPreview::Tick() -> void
 {
-	if (auto* Task = Impl->TrackedTask.Get(); Task && !Task->IsAsyncImportComplete())
-		FAssetImportTaskAccess::Tick(*Task);
-	else if (!Impl->bImportRequested) Impl->Tick();
+	if (!Impl->bTaskAccepted && !Impl->bImportRequested) Impl->Tick();
 	// Phase transitions can replace Progress; publish the cancellation fact afterwards.
 	Impl->Progress.bCancellationRequested = Impl->CheckCancellation();
 }

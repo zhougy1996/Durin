@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "AssetImportTask.h"
-#include "Import/AssetImportTaskExecution.h"
+#include "DObject/ObjectLifecycle.h"
 #include "AssetTools/IAssetTools.h"
 #include "Factories/Factory.h"
 #include "DObject/DObjectGlobals.h"
@@ -28,7 +28,7 @@ namespace Durin::Testing
 		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
 		const auto& Objects = Task->GetObjects();
 		auto* Object = Objects.empty() ? nullptr : Objects.front();
-		FAssetImportTaskAccess::ReleaseResults(*Task);
+		MarkAsGarbage(Task.Get()); Task.Reset();
 		return Object;
 	}
 

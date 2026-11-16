@@ -1,6 +1,9 @@
 #include "AssetTools/AssetImportAdapter.h"
 #include "FactoryImportTestSupport.h"
 #include "AssetImportTask.h"
+#include "Import/AssetImportTaskOperation.h"
+#include "Editor/EditorEngine.h"
+#include "TickableEditorObject.h"
 #include "AssetRegistry/Publication.h"
 #include "Editor/TransactionRecordTestSupport.h"
 #include "Asset/Redirector.h"
@@ -1733,6 +1736,72 @@ TEST(DAssetImportTaskTests, DefaultsAndManagedInputsAndOutputsSurviveCollection)
 	const auto Path = Task->GetObjects().front()->GetPackage()->GetPackagePathIdentity();
 	Task.Reset();
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetImportTaskTests, TemporaryTaskRetirementStopsRetainingResultsWithoutWaitingForCollection)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "TemporaryImportTask", EObjectFlags::Transient));
+	Task->Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	Task->Filename = "source.factorytest"; Task->DestinationPath = "/AssetToolsTests"; Task->DestinationName = "TemporaryTaskOutput";
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	ASSERT_TRUE(Task->IsAsyncImportComplete());
+	ASSERT_EQ(Task->GetObjects().size(), 1u);
+	auto* Package = Task->GetObjects().front()->GetPackage();
+	const auto TryUnload = [&] {
+		DPackageTools::FUnloadPackageParams Params(std::span{&Package, 1});
+		Params.bUnloadDirtyPackages = true;
+		return DPackageTools::UnloadPackages(Params);
+	};
+	EXPECT_FALSE(TryUnload());
+	// Retire the completed internal task through the ordinary object lifecycle, without running GC.
+	MarkAsGarbage(Task.Get()); Task.Reset();
+	EXPECT_TRUE(TryUnload());
+}
+
+TEST(DAssetImportTaskTests, EditorTickSkipsAPeerTaskRetiredByAnImportCallback)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	class FOperation final : public IAssetImportTaskOperation
+	{
+	public:
+		int Ticks = 0;
+		std::function<void()> Callback;
+		auto Tick() -> void override { ++Ticks; if (auto Call = std::exchange(Callback, {})) Call(); }
+		auto Cancel() -> void override { Ticks = 3; }
+		auto IsComplete() const -> bool override { return Ticks >= 3; }
+		auto GetObjects() const -> std::span<DObject* const> override { return {}; }
+	};
+	TStrongObjectPtr<DEditorEngine> Host;
+	if (!GEditor)
+	{
+		Host = NewObject<DEditorEngine>(nullptr, "ImportCallbackHost", EObjectFlags::Transient);
+		ASSERT_TRUE(Host->ActivateEditor());
+	}
+	struct FRelease { TStrongObjectPtr<DEditorEngine>& Host; ~FRelease() { if (Host) Host->PreExit(); } } Release{Host};
+	std::vector<std::shared_ptr<FOperation>> Operations;
+	FAssetImportAdapterRegistration Adapter(
+		[](const DAssetImportTask& Task, bool) { return Task.Filename.ends_with(".tasklanetest"); },
+		[&](const DAssetImportTask&) { auto Operation = std::make_shared<FOperation>(); Operations.push_back(Operation); return Operation; });
+	TStrongObjectPtr<DAssetImportTask> First(NewObject<DAssetImportTask>(nullptr, "FirstCallbackTask", EObjectFlags::Transient));
+	TStrongObjectPtr<DAssetImportTask> Peer(NewObject<DAssetImportTask>(nullptr, "PeerCallbackTask", EObjectFlags::Transient));
+	First->Filename = "first.tasklanetest"; Peer->Filename = "peer.tasklanetest";
+	First->bAsync = Peer->bAsync = true;
+	IAssetTools::Get().ImportAssetTasks(std::array{First.Get(), Peer.Get()});
+	ASSERT_EQ(Operations.size(), 2u);
+	Operations.front()->Callback = [&] {
+		(void)Peer->GetObjects();
+		EXPECT_TRUE(Peer->IsAsyncImportComplete());
+		MarkAsGarbage(Peer.Get()); Peer.Reset();
+	};
+	FTickableEditorObject::TickObjects(*GEditor, 0.f);
+	EXPECT_FALSE(Peer);
+	EXPECT_EQ(Operations.front()->Ticks, 2);
+	EXPECT_TRUE(Operations.back()->IsComplete());
+	EXPECT_TRUE(First->GetObjects().empty());
+	EXPECT_TRUE(First->IsAsyncImportComplete());
 }
 
 TEST(DAssetImportTaskTests, SkipsNullContinuesFailuresAndClearsCompletedResultsOnResubmission)

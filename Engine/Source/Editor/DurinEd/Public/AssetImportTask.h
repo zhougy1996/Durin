@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class DFactory;
-	class FAssetTools;
 	class IAssetImportTaskOperation;
 	struct FAssetImportTaskAccess;
 
@@ -47,7 +46,6 @@ namespace Durin
 		DURINED_API auto GetObjects() const -> const std::vector<DObject*>&;
 		DURINED_API auto IsAsyncImportComplete() const -> bool;
 	private:
-		friend class FAssetTools;
 		friend struct FAssetImportTaskAccess;
 		bool bRunning = false;
 		bool bAdvancing = false;

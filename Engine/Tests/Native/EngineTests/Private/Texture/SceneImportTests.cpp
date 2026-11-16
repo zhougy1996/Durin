@@ -1,5 +1,4 @@
 #include "AssetForge/Builtins/SceneImportOptions.h"
-#include "Import/AssetImportTaskExecution.h"
 #include "SceneImportTaskTestSupport.h"
 using Durin::Testing::FSceneTaskHarness;
 using Durin::Testing::ImportSceneForTest;
@@ -1524,6 +1523,9 @@ TEST(FSceneImportTests, PreparedTaskOptionsRejectContradictionsAndReuseTheCaptur
 	EXPECT_FALSE(Task->IsAsyncImportComplete());
 	EXPECT_FALSE(Preview.SetOptions({}));
 	EXPECT_FALSE(Preview.PreviewOutputs(Fixture.DestinationDirectory).bSucceeded);
+	for (int Index = 0; Index < 100; ++Index) Preview.Tick();
+	EXPECT_FALSE(Task->IsAsyncImportComplete());
+	EXPECT_TRUE(Task->ImportedObjectPaths.empty());
 	ASSERT_EQ(Task->GetObjects().size(), 1u); EXPECT_NE(Cast<DStaticMesh>(Task->GetObjects().front()), nullptr);
 }
 
@@ -1531,11 +1533,12 @@ TEST(FSceneImportTests, ProviderShutdownCancelsAndDrainsActiveTaskBeforeRetiring
 {
 	using namespace Durin;
 	const auto Fixture = InitializeFixture("TaskProviderShutdown");
+	Testing::FSceneImportTickHost TickHost;
 	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "ShutdownSceneTask", EObjectFlags::Transient));
 	Task->Filename = Fixture.Source; Task->DestinationPath = Fixture.DestinationDirectory.ToString(); Task->bAsync = true;
 	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
-	FAssetImportTaskAccess::Tick(*Task); // Queue source capture before the provider safe point.
+	TickHost.Tick(); // Queue source capture through the owning editor lane before the provider safe point.
 	ASSERT_FALSE(Task->IsAsyncImportComplete());
 	FModuleManager::Get().ShutdownModule("AssetForgeBuiltins");
 	EXPECT_TRUE(Task->IsAsyncImportComplete()); EXPECT_TRUE(Task->GetObjects().empty());

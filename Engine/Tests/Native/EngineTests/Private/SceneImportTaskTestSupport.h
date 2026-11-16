@@ -1,7 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "AssetImportTask.h"
-#include "Import/AssetImportTaskExecution.h"
+#include "DObject/ObjectLifecycle.h"
 #include "AssetTools/IAssetTools.h"
 #include "AssetForge/Builtins/AssetImport.h"
 #include "DObject/DObjectGlobals.h"
@@ -9,8 +9,27 @@
 #include "Asset/AssetCompilingManager.h"
 #include "Threading/Task.h"
 #include "Modules/ModuleManager.h"
+#include "Editor/EditorEngine.h"
+#include "TickableEditorObject.h"
 namespace Durin::Testing
 {
+	// Headless fixtures drive the same AssetTools editor tick lane as interactive hosts.
+	class FSceneImportTickHost
+	{
+	public:
+		FSceneImportTickHost()
+		{
+			if (!GEditor)
+			{
+				Editor = NewObject<DEditorEngine>(nullptr, "SceneImportTickHost", EObjectFlags::Transient);
+				require(Editor->ActivateEditor());
+			}
+		}
+		~FSceneImportTickHost() { if (Editor) Editor->PreExit(); }
+		auto Tick() -> void { require(GEditor); FTickableEditorObject::TickObjects(*GEditor, 0.f); }
+	private:
+		TStrongObjectPtr<DEditorEngine> Editor;
+	};
 	// Test fixture over the supported task command; preserves feature diagnostics
 	// without exporting an additional production scene execution entrypoint.
 	class FSceneTaskHarness
@@ -19,8 +38,8 @@ namespace Durin::Testing
 		FSceneTaskHarness(std::string Source, FPackagePath Destination, FStaticMeshImportSettings Settings,
 			AssetForge::Builtins::FAssetImportOptions Options = {})
 			: Preview(std::make_unique<AssetForge::Builtins::FSceneImportPreview>(std::move(Source), std::move(Destination), Settings, Options)) {}
-		~FSceneTaskHarness() { Preview.reset(); if (Task) FAssetImportTaskAccess::ReleaseResults(*Task); Task.Reset(); }
-		auto Tick() -> void { Preview->Tick(); }
+		~FSceneTaskHarness() { Preview.reset(); ReleaseTask(); }
+		auto Tick() -> void { TickHost.Tick(); Preview->Tick(); }
 		auto Cancel() -> void { Preview->Cancel(); }
 		auto GetProgress() const -> const AssetForge::Builtins::FAssetImportProgress& { return Preview->GetProgress(); }
 		auto GetResult() const -> const AssetForge::Builtins::FAssetImportResult& { return Preview->GetResult(); }
@@ -40,9 +59,10 @@ namespace Durin::Testing
 			IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
 			return true;
 		}
-		auto ReleaseTask() -> void { if (Task) FAssetImportTaskAccess::ReleaseResults(*Task); Task.Reset(); }
+		auto ReleaseTask() -> void { if (Task) MarkAsGarbage(Task.Get()); Task.Reset(); }
 		auto GetTask() const -> DAssetImportTask* { return Task.Get(); }
 	private:
+		FSceneImportTickHost TickHost;
 		bool bLastPreviewValid = false;
 		TStrongObjectPtr<DAssetImportTask> Task;
 		std::unique_ptr<AssetForge::Builtins::FSceneImportPreview> Preview;

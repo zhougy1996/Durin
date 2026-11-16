@@ -1,4 +1,4 @@
-#include "Import/AssetImportTaskExecution.h"
+#include "DObject/ObjectLifecycle.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/DObjectGlobals.h"
 #include "Assets/SceneImportDialog.h"
@@ -24,7 +24,8 @@ namespace Durin::LevelEditor
 	auto FSceneImportDialog::ResetSession() -> void
 	{
 		Session.reset();
-		if (Task) { FAssetImportTaskAccess::ReleaseResults(*Task); Task.Reset(); }
+		if (Task) MarkAsGarbage(Task.Get());
+		Task.Reset();
 	}
 
 	auto FSceneImportDialog::Open(std::string_view InDestinationDirectory) -> void

@@ -13,7 +13,7 @@
 #include "Factories/Factory.h"
 #include "AssetImportTask.h"
 #include "AssetTools/AssetImportAdapter.h"
-#include "Import/AssetImportTaskExecution.h"
+#include "Import/AssetImportTaskAccess.h"
 #include "TickableEditorObject.h"
 #include "FileHelpers.h"
 #include "Misc/StringConvert.h"
@@ -73,7 +73,7 @@ namespace Durin
 		std::erase_if(Adapters, [&](const auto& Adapter) { return Adapter->Id == Id; });
 		const auto Snapshot = ActiveImports;
 		for (const auto& Active : Snapshot) if (Active.Adapter == Id)
-			FAssetImportTaskAccess::CancelAndDrain(*Active.Task);
+			if (auto* Task = Active.Task.Get()) FAssetImportTaskAccess::CancelAndDrain(*Task);
 		std::erase_if(ActiveImports, [&](const auto& Active) { return Active.Adapter == Id; });
 		Id = 0;
 	}
@@ -105,8 +105,9 @@ namespace Durin
 		auto Tick(float) noexcept -> void override
 		{
 			const auto Snapshot = ActiveImports;
-			for (const auto& Active : Snapshot) FAssetImportTaskAccess::Tick(*Active.Task);
-			std::erase_if(ActiveImports, [](const auto& Active) { return Active.Task->IsAsyncImportComplete(); });
+			for (const auto& Active : Snapshot)
+				if (auto* Task = Active.Task.Get()) FAssetImportTaskAccess::Tick(*Task);
+			std::erase_if(ActiveImports, [](const auto& Active) { return !Active.Task || Active.Task->IsAsyncImportComplete(); });
 		}
 		auto ImportAssetTasks(std::span<DAssetImportTask* const> Tasks) -> void override { SubmitTasks(Tasks); }
 		auto ImportAssets(std::span<const std::string> Files, std::string_view Destination, DFactory* Factory,
@@ -131,10 +132,10 @@ namespace Durin
 			// must finish before the borrowed result list is returned. Tasks expose polling.
 			std::vector<DObject*> Objects;
 			std::vector<FStrongObjectPtr> OutputOwners;
-			for (const auto& Task : Tasks)
+			for (auto& Task : Tasks)
 			{
 				for (auto* Object : Task->GetObjects()) { Objects.push_back(Object); OutputOwners.emplace_back(Object); }
-				FAssetImportTaskAccess::ReleaseResults(*Task);
+				MarkAsGarbage(Task.Get()); Task.Reset();
 			}
 			if (Sync && BrowserSync && !Objects.empty()) { const auto Callback = BrowserSync; Callback(Objects); }
 			return Objects;
@@ -151,8 +152,12 @@ namespace Durin
 				auto* Task = Owner.Get();
 				if (!Task) { Feedback(nullptr).Warning("ImportAssetTasks supplied an empty task."); continue; }
 				if (!FAssetImportTaskAccess::Begin(*Task)) { Reject(nullptr, "The import task is already running."); continue; }
-				struct FCompletion { DAssetImportTask& Task; ~FCompletion() { if (!Task.Operation) Task.bRunning = false; } } Completion{*Task};
-				Task->Results.clear(); Task->ObjectView.clear(); Task->ImportedObjectPaths.clear();
+				struct FCompletion
+				{
+					DAssetImportTask& Task;
+					FStrongObjectPtr Result;
+					~FCompletion() { const std::array Objects{Result.Get()}; FAssetImportTaskAccess::CompleteSynchronous(Task, Objects); }
+				} Completion{*Task};
 				TStrongObjectPtr<DAssetImportTask> Inputs(NewObject<DAssetImportTask>(nullptr, "ImportTaskInputs", EObjectFlags::Transient));
 				Inputs->Filename = Task->Filename;
 				Inputs->DestinationPath = Task->DestinationPath;
@@ -191,7 +196,7 @@ namespace Durin
 					ActiveImports.push_back({Candidates.front()->Id, Owner, Inputs});
 					FAssetImportTaskAccess::Tick(*Task);
 					if (!Inputs->bAsync) (void)Task->GetObjects();
-					std::erase_if(ActiveImports, [](const auto& Active) { return Active.Task->IsAsyncImportComplete(); });
+					std::erase_if(ActiveImports, [](const auto& Active) { return !Active.Task || Active.Task->IsAsyncImportComplete(); });
 					continue;
 				}
 				if (Scene && !Factory) { Reject(nullptr, "No scene import adapter supports this source and factory."); continue; }
@@ -214,8 +219,7 @@ namespace Durin
 					EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional,
 						&FFeedbackContext::Get(), {}, Inputs->bReplaceExisting, Inputs.Get());
 				if (!Object) continue;
-				Task->Results.emplace_back(Object);
-				Task->ImportedObjectPaths.push_back(Object->GetObjectPath());
+				Completion.Result = FStrongObjectPtr(Object);
 				if (Inputs->bSave)
 				{
 					auto* Package = Object->GetPackage();
@@ -353,7 +357,8 @@ namespace Durin
 				->DiscardCustomChangesByModule("AssetTools"),
 				"AssetTools cannot retire while one of its custom changes is active");
 		const auto Snapshot = ActiveImports;
-		for (const auto& Active : Snapshot) FAssetImportTaskAccess::CancelAndDrain(*Active.Task);
+		for (const auto& Active : Snapshot)
+			if (auto* Task = Active.Task.Get()) FAssetImportTaskAccess::CancelAndDrain(*Task);
 		ActiveImports.clear(); BrowserSync = {};
 		AssetTools.reset();
 	}

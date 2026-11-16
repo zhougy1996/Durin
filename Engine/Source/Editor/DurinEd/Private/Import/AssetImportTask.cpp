@@ -1,6 +1,6 @@
 #include "AssetImportTask.h"
 #include "Factories/Factory.h"
-#include "Import/AssetImportTaskExecution.h"
+#include "Import/AssetImportTaskAccess.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -17,8 +17,14 @@ namespace Durin
 	}
 	auto FAssetImportTaskAccess::Attach(DAssetImportTask& Task, std::shared_ptr<IAssetImportTaskOperation> Operation, std::function<void()> Completion) -> void
 	{ check(Task.bRunning && !Task.Operation); Task.Operation = std::move(Operation); Task.Completion = std::move(Completion); }
+	auto FAssetImportTaskAccess::CompleteSynchronous(DAssetImportTask& Task, std::span<DObject* const> Objects) -> void
+	{
+		check(IsInGameThread());
+		if (Task.bRunning && !Task.Operation) Complete(Task, Objects);
+	}
 	auto FAssetImportTaskAccess::Complete(DAssetImportTask& Task, std::span<DObject* const> Objects) -> void
 	{
+		check(IsInGameThread()); check(Task.bRunning);
 		for (auto* Object : Objects) if (IsValid(Object))
 		{
 			Task.Results.emplace_back(Object);
@@ -38,11 +44,6 @@ namespace Durin
 		const auto Operation = Task.Operation;
 		Operation->Tick();
 		if (Operation->IsComplete()) Complete(Task, Operation->GetObjects());
-	}
-	auto FAssetImportTaskAccess::ReleaseResults(DAssetImportTask& Task) -> void
-	{
-		check(IsInGameThread()); check(!Task.bRunning);
-		Task.Results.clear(); Task.ObjectView.clear(); Task.ImportedObjectPaths.clear();
 	}
 	auto FAssetImportTaskAccess::CancelAndDrain(DAssetImportTask& Task) -> void
 	{

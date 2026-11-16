@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -181,10 +181,20 @@ require `bReplaceExisting`; headless execution never prompts. Package graph
 replacement preserves siblings and revalidates the destination after callbacks.
 AssetTools owns adapter registration, owner-thread ticks and active task retention.
 Provider retirement removes admission, cancels and drains its tasks, then releases
-provider callbacks. Internal file-list and UI-owned temporary tasks
-release their result references after handing objects to their next owner; they
-do not block later unload or deletion merely by awaiting GC. A user-held task
-continues to retain its results until reuse or collection. Task completion storage and managed references belong to
+provider callbacks. The execution bridge `FAssetImportTaskAccess` is private to
+DurinEd and AssetTools. DurinEd alone clears per-run results and publishes both
+synchronous factory outputs and deferred adapter outputs; AssetTools does not
+write task result or completion fields directly. Providers implement
+`IAssetImportTaskOperation` but receive no task-control or result-release access.
+
+Internal file-list and UI owners retire their completed temporary task objects
+through the ordinary object lifecycle after handing outputs to their next owner.
+Those tasks no longer act as live referencers while awaiting GC, so they do not
+block later unload or deletion. A user-held task continues to retain its results
+until reuse or collection. An asynchronous preview host cancels and waits at its
+teardown safe point before retiring its temporary task. There is no public
+result-release method or separate scoped task type.
+Task completion storage and managed references belong to
 DurinEd, which has no dependency on AssetTools or AssetForgeBuiltins. A task's
 inputs are snapshotted before callbacks; completed resubmission captures fresh
 source/settings. No separate import request, positional batch result or public
