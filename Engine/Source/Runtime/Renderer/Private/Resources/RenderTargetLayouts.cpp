@@ -48,10 +48,14 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
-	auto MakeGBufferTargets() -> FRHIRenderTargetLayout
+	auto MakeGBufferTargets(bool bModelData) -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
-		Layout.NumColorRenderTargets = 4;
+		Layout.NumColorRenderTargets = bModelData ? 5 : 4;
+		if (bModelData) Layout.ColorAttachments[4].RenderTarget = MakeColorAttachment(
+							EPixelFormat::RGBA8_UNORM, ERHIRenderTargetLoadAction::Clear, ERHITextureLayout::Undefined,
+							ERHIAccess::None, ERHITextureLayout::ShaderReadOnly, ERHIAccess::GraphicsShaderRead
+						);
 		for (uint32 Index = 0; Index < 3; ++Index)
 		{
 			Layout.ColorAttachments[Index].RenderTarget = MakeColorAttachment(

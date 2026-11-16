@@ -3458,3 +3458,55 @@ TEST(FMaterialSpecularTests, DefaultsReachabilityEntryIdentityAndSourceFreeCookR
     const auto ExplicitDefault = MIR::Compile(Input); ASSERT_TRUE(ExplicitDefault) << FormatMaterialProgramDiagnostics(ExplicitDefault.Diagnostics);
     EXPECT_EQ(ExplicitDefault.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
 }
+
+TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFreeCook)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	const auto Default = MIR::Compile(Input);
+	ASSERT_TRUE(Default) << FormatMaterialProgramDiagnostics(Default.Diagnostics);
+	Input.StaticProperties.ShadingModel = EMaterialShadingModel::ClearCoat;
+	const FGuid WeightId{19, 28, 37, 46}, RoughId{18, 27, 36, 45};
+	Input.Parameters = {{WeightId, EMaterialParameterType::Scalar}, {RoughId, EMaterialParameterType::Scalar}};
+	for (const auto [Property, Id] : {std::pair{EMaterialProperty::MP_ClearCoat, WeightId}, std::pair{EMaterialProperty::MP_ClearCoatRoughness, RoughId}})
+	{
+		Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Parameter, .ResultType = EMaterialProgramValueType::Float, .Payload = Id});
+		auto& Root = Input.IR.GetAttribute(Property);
+		Root.bExpression = true;
+		Root.ExpressionIndex = uint32(Input.IR.Nodes.size() - 1);
+	}
+	const auto Coat = MIR::Compile(Input);
+	ASSERT_TRUE(Coat) << FormatMaterialProgramDiagnostics(Coat.Diagnostics);
+	EXPECT_NE(Coat.GetShaderMap().ShaderMapId, Default.GetShaderMap().ShaderMapId);
+	const auto GBuffer = [](const auto& P) -> const FMaterialShaderEntryRequest& { return *std::ranges::find(P.GetShaderMap().Entries, "SurfaceGBuffer", [](const auto& E) { return E.Shader.ShaderType; }); };
+	EXPECT_NE(GBuffer(Coat).Shader.OutputLayout, GBuffer(Default).Shader.OutputLayout);
+	for (const auto& Entry : Coat.GetShaderMap().Entries)
+	{
+		const bool Pixel = Entry.Shader.ShaderType == "SurfaceForward" || Entry.Shader.ShaderType == "SurfaceGBuffer";
+		EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs, WeightId), Pixel);
+		EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs, RoughId), Pixel);
+	}
+	FByteBuffer Bytes;
+	const auto Encoded = Testing::EncodeMaterialCookedProgramFamilyForTest(Coat.Resource, Input.StaticProperties, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+	ASSERT_TRUE(Encoded) << Encoded.error();
+	FMaterialStaticProperties Properties;
+	std::shared_ptr<const FMaterialProgram> Cooked;
+	const auto Decoded = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Coat.Resource, Properties, Cooked);
+	ASSERT_TRUE(Decoded) << Decoded.error();
+	ASSERT_TRUE(Cooked);
+	EXPECT_TRUE(Cooked->GetDebugData().IR.Nodes.empty());
+	EXPECT_EQ(Properties.ShadingModel, EMaterialShadingModel::ClearCoat);
+	EXPECT_EQ(Cooked->GetShaderMap().Entries, Coat.GetShaderMap().Entries);
+	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
+	const auto Masked = MIR::Compile(Input);
+	ASSERT_TRUE(Masked) << FormatMaterialProgramDiagnostics(Masked.Diagnostics);
+	Input.StaticProperties.BlendMode = EMaterialBlendMode::Translucent;
+	EXPECT_FALSE(MIR::Compile(Input));
+	Input.StaticProperties.BlendMode = EMaterialBlendMode::Opaque;
+	Input.StaticProperties.ShadingModel = EMaterialShadingModel::DefaultLit;
+	const auto Inactive = MIR::Compile(Input);
+	ASSERT_TRUE(Inactive) << FormatMaterialProgramDiagnostics(Inactive.Diagnostics);
+	EXPECT_TRUE(Inactive.GetShaderMap().Layout.Fields.empty());
+}

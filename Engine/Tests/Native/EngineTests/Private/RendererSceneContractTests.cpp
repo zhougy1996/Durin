@@ -619,7 +619,7 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	const auto& Colors = Metadata->Members[2];
 	EXPECT_STREQ(Colors.Name, "Colors");
 	EXPECT_EQ(Colors.Kind, Durin::ERDGParameterMemberKind::ManagedColorAttachment);
-	EXPECT_EQ(Colors.ArraySize, 4u);
+	EXPECT_EQ(Colors.ArraySize, 5u);
 	EXPECT_TRUE(Colors.bOptional);
 	EXPECT_EQ(Colors.Use, Durin::ERDGUse::ReadWrite);
 	EXPECT_EQ(Colors.Access, Durin::ERHIAccess::ColorAttachmentReadWrite);

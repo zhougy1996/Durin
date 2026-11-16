@@ -8,6 +8,7 @@
 namespace Durin::GBufferContract
 {
 	inline constexpr uint8 StandardLitFlag = 1u;
+	inline constexpr uint8 ClearCoatFlag = 2u;
 	inline constexpr uint8 AuthoredSpecularFlag = 128u;
 	inline constexpr float MaximumUNorm8Error = 1.0f / 510.0f;
 	inline constexpr double MaximumNormalErrorDegrees = 1.0;
@@ -19,11 +20,14 @@ namespace Durin::GBufferContract
 		FVector3f GeometricNormal{0.0f, 0.0f, 1.0f};
 		float Metallic = 0.0f;
 		float Specular = 0.5f;
+		float ClearCoat = 0.0f;
+		float ClearCoatRoughness = 0.1f;
 		float Roughness = 0.0f;
 		float AmbientOcclusion = 0.0f;
 		float EffectiveOpacity = 0.0f;
 		uint8 Flags = 0;
 
+		auto IsClearCoat() const -> bool { return (Flags & 3u) == ClearCoatFlag; }
 		auto IsStandardLit() const -> bool
 		{
 			return (Flags & StandardLitFlag) != 0;
@@ -37,7 +41,9 @@ namespace Durin::GBufferContract
 	RENDERER_API auto DecodeRecord(
 		const FVector4f& Material,
 		const FVector4f& Normals,
-		const FVector4f& Surface) -> FDecodedRecord;
+		const FVector4f& Surface,
+		const FVector4f& ModelData = {}
+	) -> FDecodedRecord;
 
 	// Solves the three homogeneous projection equations directly in view space.
 	// This avoids an inverse view-projection multiply and therefore never mixes

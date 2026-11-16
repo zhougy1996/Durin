@@ -38,6 +38,7 @@ namespace Durin
 	class FStaticMeshRenderer final
 	{
 	public:
+		static auto NeedsGBufferModelData(const FPreparedStaticMeshView& View) -> bool;
 		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
 			FResolvedStaticMeshView& ResolvedView) -> bool;
 			auto PrepareBindings_RenderThread(FRHICommandListImmediate& CommandList, FGBufferRenderer* GBuffer,

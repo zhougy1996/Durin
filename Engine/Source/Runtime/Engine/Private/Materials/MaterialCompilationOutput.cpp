@@ -34,13 +34,7 @@ namespace Durin
 			const auto& Descriptor = *FindMaterialShaderEntry(Entry);
 			const bool Vertex = Descriptor.Frequency == EShaderFrequency::Vertex;
 			FMaterialShaderEntryRequest Request;
-			Request.Shader = {.Material = {.RenderLayout = Layout.Identity, .ProgramIdentity = Identity,
-				.BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel,
-				.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Properties).OpacityMaskThreshold},
-				.ShaderType = std::string(Descriptor.ShaderType), .EntryPoint = std::string(Descriptor.Name),
-				.Target = Environment.Target, .Frequency = Descriptor.Frequency,
-				.PassContractVersion = Environment.PassContractVersion,
-				.OutputLayout = {Environment.PassContractVersion, {0x4d415450, 0x4f555450, 1, Vertex ? 0u : uint32(Entry) + 1}}};
+			Request.Shader = {.Material = {.RenderLayout = Layout.Identity, .ProgramIdentity = Identity, .BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel, .OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Properties).OpacityMaskThreshold}, .ShaderType = std::string(Descriptor.ShaderType), .EntryPoint = std::string(Descriptor.Name), .Target = Environment.Target, .Frequency = Descriptor.Frequency, .PassContractVersion = Environment.PassContractVersion, .OutputLayout = {Environment.PassContractVersion, {0x4d415450, 0x4f555450, 1, Vertex ? 0u : uint32(Entry) + 1 + (Entry == EMaterialShaderEntry::GBuffer && Properties.ShadingModel == EMaterialShadingModel::ClearCoat ? 0x100u : 0u)}}};
 			if (Vertex) Request.Mesh = FMeshMaterialShaderPermutationIdentity{.Material = Request.Shader,
 				.VertexFactoryType = Entry == EMaterialShaderEntry::LocalVertex ? "LocalVertexFactory" : "SplineVertexFactory"};
 			auto& Requirements = Request.Requirements;

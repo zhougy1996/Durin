@@ -64,7 +64,7 @@ float4 DebugFragmentMain(VSOutput input) : SV_Target
     float3 emissive = BasePassColor.Load(int3(pixel, 0)).rgb;
     FGBufferRecord record = DecodeGBuffer(
         material, normals, surface);
-    if ((record.flags & GBufferStandardLitFlag) == 0u)
+    if ((record.flags & GBufferLitModelMask) == 0u)
         return float4(0.0, 0.0, 0.0, 1.0);
 
     uint mode = (uint)round(Params.Params.x);

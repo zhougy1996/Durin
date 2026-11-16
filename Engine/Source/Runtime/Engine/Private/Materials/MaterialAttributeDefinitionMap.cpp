@@ -63,14 +63,16 @@ namespace Durin
 	{
 		using P = EMaterialProperty;
 		if (Domain != EMaterialDomain::Surface && Domain != EMaterialDomain::PostProcess) return {};
-		if (Model != EMaterialShadingModel::DefaultLit && Model != EMaterialShadingModel::Unlit) return {};
+		if (Model != EMaterialShadingModel::DefaultLit && Model != EMaterialShadingModel::Unlit && Model != EMaterialShadingModel::ClearCoat) return {};
 		if (Blend != EMaterialBlendMode::Opaque && Blend != EMaterialBlendMode::Masked && Blend != EMaterialBlendMode::Translucent) return {};
 		if (Domain == EMaterialDomain::PostProcess)
 			return Model == EMaterialShadingModel::Unlit && Blend == EMaterialBlendMode::Opaque
 				? std::vector<P>{P::MP_EmissiveColor} : std::vector<P>{};
+		if (Model == EMaterialShadingModel::ClearCoat && Blend == EMaterialBlendMode::Translucent) return {};
 		std::vector<P> Result{P::MP_EmissiveColor, P::MP_WorldPositionOffset};
-		if (Model == EMaterialShadingModel::DefaultLit)
+		if (Model != EMaterialShadingModel::Unlit)
 			Result.insert(Result.end(), {P::MP_BaseColor,P::MP_Normal,P::MP_Metallic,P::MP_Roughness,P::MP_AmbientOcclusion,P::MP_Specular});
+		if (Model == EMaterialShadingModel::ClearCoat) Result.insert(Result.end(), {P::MP_ClearCoat, P::MP_ClearCoatRoughness});
 		if (Blend == EMaterialBlendMode::Translucent) Result.push_back(P::MP_Opacity);
 		if (Blend == EMaterialBlendMode::Masked) Result.push_back(P::MP_OpacityMask);
 		return Result;

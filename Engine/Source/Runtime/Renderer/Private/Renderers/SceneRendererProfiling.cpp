@@ -20,6 +20,7 @@ namespace Durin
 		std::atomic<FGroundTruthAmbientOcclusionFeatureTimingQuerySink> GGroundTruthAmbientOcclusionFeatureTimingQuerySink = nullptr;
 		std::atomic<FHDRSceneColorCaptureSink> GHDRSceneColorCaptureSink = nullptr;
 		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
+		std::atomic<FGBufferModelDataCaptureSink> GGBufferModelDataCaptureSink = nullptr;
 		std::atomic<FDeferredDirectionalCaptureSink> GDeferredDirectionalCaptureSink = nullptr;
 		std::atomic<FGroundTruthAmbientOcclusionCaptureSink> GGroundTruthAmbientOcclusionCaptureSink = nullptr;
 		std::atomic<FSceneRenderGraphCaptureSink> GSceneRenderGraphCaptureSink = nullptr;
@@ -140,6 +141,15 @@ namespace Durin
 	auto SetGBufferCaptureSink(FGBufferCaptureSink Sink) -> void
 	{
 		GGBufferCaptureSink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetGBufferModelDataCaptureSink(FGBufferModelDataCaptureSink Sink) -> void
+	{
+		GGBufferModelDataCaptureSink.store(Sink, std::memory_order_release);
+	}
+	auto GetGBufferModelDataCaptureSink() -> FGBufferModelDataCaptureSink
+	{
+		return GGBufferModelDataCaptureSink.load(std::memory_order_acquire);
 	}
 
 	auto SetDeferredDirectionalCaptureSink(

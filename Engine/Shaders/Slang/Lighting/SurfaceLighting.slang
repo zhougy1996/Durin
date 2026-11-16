@@ -38,11 +38,11 @@ public float3 EvaluateSurfaceDirectionalLighting(
     FSurfaceLightingFrame frame,
     float3 toLight,
     float3 radiance,
-    float shadowAttenuation)
+    float shadowAttenuation, float clearCoat = 0.0, float clearCoatRoughness = 0.1)
 {
     return EvaluatePBRDirectLighting(
         baseColor, metallic, specular, roughness, frame.normal,
-        toLight, frame.toView, radiance) * shadowAttenuation;
+        toLight, frame.toView, radiance, clearCoat, clearCoatRoughness) * shadowAttenuation;
 }
 
 public float3 EvaluateSurfaceLocalLighting(
@@ -52,7 +52,7 @@ public float3 EvaluateSurfaceLocalLighting(
     float roughness,
     float3 worldPosition,
     FSurfaceLightingFrame frame,
-    FForwardLocalLightUniform light)
+    FForwardLocalLightUniform light, float clearCoat = 0.0, float clearCoatRoughness = 0.1)
 {
     float3 lightVector = light.PositionInverseRange.xyz - worldPosition;
     float distanceSquared = dot(lightVector, lightVector);
@@ -82,14 +82,14 @@ public float3 EvaluateSurfaceLocalLighting(
         * inverseSquare * rangeAttenuation * coneAttenuation;
     return EvaluatePBRDirectLighting(
         baseColor, metallic, specular, roughness, frame.normal,
-        toLight, frame.toView, radiance);
+        toLight, frame.toView, radiance, clearCoat, clearCoatRoughness);
 }
 
 public float3 AccumulateViewLocalLights(float3 result, float3 baseColor, float metallic, float specular, float roughness,
-    float3 worldPosition, FSurfaceLightingFrame frame, StructuredBuffer<FForwardLocalLightUniform> records, uint count)
+    float3 worldPosition, FSurfaceLightingFrame frame, StructuredBuffer<FForwardLocalLightUniform> records, uint count, float clearCoat = 0.0, float clearCoatRoughness = 0.1)
 {
     for (uint i = 0; i < count; ++i)
-        result += EvaluateSurfaceLocalLighting(baseColor, metallic, specular, roughness, worldPosition, frame, records[i]);
+        result += EvaluateSurfaceLocalLighting(baseColor, metallic, specular, roughness, worldPosition, frame, records[i], clearCoat, clearCoatRoughness);
     return result;
 }
 
@@ -104,7 +104,7 @@ public float3 EvaluateSurfaceEnvironmentLighting(
     TextureCube<float4> prefilteredTexture,
     Texture2D<float4> brdfLutTexture,
     SamplerState environmentSampler,
-    float4 environmentRotation, float4 environmentControl)
+    float4 environmentRotation, float4 environmentControl, float clearCoat = 0.0, float clearCoatRoughness = 0.1)
 {
     float3 normal = frame.normal + 2.0 * cross(environmentRotation.xyz,
         cross(environmentRotation.xyz, frame.normal) + environmentRotation.w * frame.normal);
@@ -117,9 +117,19 @@ public float3 EvaluateSurfaceEnvironmentLighting(
         roughness * environmentControl.y).rgb * environmentControl.x;
     float2 environmentBrdf = brdfLutTexture.Sample(
         environmentSampler, float2(frame.NoV, roughness)).rg;
-    return EvaluatePBREnvironmentLighting(
+    float3 base = EvaluatePBREnvironmentLighting(
         baseColor, metallic, specular, roughness, ambientOcclusion,
         frame.NoV, irradiance, prefiltered, environmentBrdf);
+    float c = saturate(clearCoat);
+    if (c == 0.0) return base;
+    float rc = clamp(clearCoatRoughness, 0.045, 1.0);
+    float3 coatPrefiltered = prefilteredTexture.SampleLevel(environmentSampler, reflection,
+        rc * environmentControl.y).rgb * environmentControl.x;
+    float2 coatBrdf = brdfLutTexture.Sample(environmentSampler, float2(frame.NoV, rc)).rg;
+    float Fc = 0.04 + 0.96 * pow(1.0 - frame.NoV, 5.0);
+    float attenuation = 1.0 - c * Fc;
+    return attenuation * attenuation * base
+        + c * coatPrefiltered * (0.04 * coatBrdf.x + coatBrdf.y) * ambientOcclusion;
 }
 
 public float4 ComposeSurfaceLighting(

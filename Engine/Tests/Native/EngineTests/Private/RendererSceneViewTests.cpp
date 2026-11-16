@@ -382,6 +382,27 @@ namespace Durin
 			FMatrix(0.0), FVector2f(0.0f), 0.5, Reconstructed));
 	}
 
+
+	TEST(FRendererSceneViewTests, ClearCoatModelDataDecodesWithoutChangingNormalsOrDefaultLit)
+	{
+		for (uint32 Weight : {0u, 128u, 255u})
+			for (uint32 Rough : {11u, 26u, 102u, 255u})
+			{
+				const FVector4f Normals{.2f, .7f, .6f, .4f};
+				const FVector4f Model{Weight / 255.f, Rough / 255.f, 0, 0};
+				const auto Coat = GBufferContract::DecodeRecord({.2f, .4f, .6f, .8f}, Normals, {.3f, .75f, .6f, 130.f / 255.f}, Model);
+				const auto Base = GBufferContract::DecodeRecord({.2f, .4f, .6f, .8f}, Normals, {.3f, .75f, .6f, 129.f / 255.f}, Model);
+				EXPECT_TRUE(Coat.IsClearCoat());
+				EXPECT_FALSE(Coat.IsStandardLit());
+				EXPECT_FLOAT_EQ(Coat.ClearCoat, Model.x);
+				EXPECT_FLOAT_EQ(Coat.ClearCoatRoughness, std::clamp(Model.y, .045f, 1.f));
+				EXPECT_FLOAT_EQ(Coat.Specular, .75f);
+				EXPECT_FLOAT_EQ(Base.ClearCoat, 0.f);
+				EXPECT_EQ(Coat.ShadingNormal, Base.ShadingNormal);
+				EXPECT_EQ(Coat.GeometricNormal, Base.GeometricNormal);
+			}
+	}
+
 	TEST(FRendererSceneViewTests, UnconstrainedViewsFitIndependentOutputs)
 	{
 		FSceneView View;

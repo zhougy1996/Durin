@@ -1,6 +1,7 @@
 module GBufferDecode;
 
 public static const uint GBufferStandardLitFlag = 1u;
+public static const uint GBufferLitModelMask = 3u;
 
 public struct FGBufferRecord
 {
@@ -9,6 +10,8 @@ public struct FGBufferRecord
     public float3 geometricNormal;
     public float metallic;
     public float specular;
+    public float clearCoat;
+    public float clearCoatRoughness;
     public float roughness;
     public float ambientOcclusion;
     public float effectiveOpacity;
@@ -32,7 +35,7 @@ public float3 DecodeOctahedralNormal(float2 encoded)
 public FGBufferRecord DecodeGBuffer(
     float4 material,
     float4 normals,
-    float4 surface)
+    float4 surface, float4 modelData = float4(0.0))
 {
     FGBufferRecord result;
     result.baseColor = material.rgb;
@@ -44,6 +47,8 @@ public FGBufferRecord DecodeGBuffer(
     result.ambientOcclusion = material.a;
     result.effectiveOpacity = 1.0;
     result.flags = (uint)round(saturate(surface.a) * 255.0);
+    result.clearCoat = (result.flags & 3u) == 2u ? saturate(modelData.r) : 0.0;
+    result.clearCoatRoughness = clamp(modelData.g, 0.045, 1.0);
     return result;
 }
 

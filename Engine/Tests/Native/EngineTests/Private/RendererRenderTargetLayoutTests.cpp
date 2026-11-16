@@ -467,6 +467,20 @@ namespace Durin
 		EXPECT_EQ(FGBufferRenderer::CalculateTargetBytes(std::numeric_limits<uint32>::max(), std::numeric_limits<uint32>::max()), std::numeric_limits<uint64>::max());
 	}
 
+
+	TEST(FRendererRenderTargetLayoutTests, ClearCoatAddsOnlyOptionalModelDataMRT)
+	{
+		const auto Base = Durin::RenderTargetLayouts::MakeGBufferTargets();
+		const auto Coat = Durin::RenderTargetLayouts::MakeGBufferTargets(true);
+		EXPECT_EQ(Base.NumColorRenderTargets, 4u);
+		EXPECT_EQ(Coat.NumColorRenderTargets, 5u);
+		for (uint32 I = 0; I < 4; ++I)
+			EXPECT_EQ(Base.ColorAttachments[I], Coat.ColorAttachments[I]);
+		EXPECT_EQ(Coat.ColorAttachments[4].RenderTarget.Format, Durin::EPixelFormat::RGBA8_UNORM);
+		EXPECT_EQ(Durin::FGBufferRenderer::CalculateTargetBytes(1920, 1080, true), 33'177'600u);
+		EXPECT_EQ(Durin::FGBufferRenderer::CalculateTargetBytes(1920, 1080), 24'883'200u);
+	}
+
 	TEST(FRendererRenderTargetLayoutTests, SceneTargetByteBudgetIsFormatAware)
 	{
 		EXPECT_EQ(FPostProcessRenderer::SceneTargetBytesPerPixel, 12u);

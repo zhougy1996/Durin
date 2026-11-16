@@ -282,7 +282,7 @@ FMaterialSurface MakeAuthoredSurface(float3 baseColor, float3 normal, float meta
     FMaterialSurface s;
     s.baseColor = baseColor; s.tangentNormal = normal; s.metallic = metallic;
     s.roughness = roughness; s.ambientOcclusion = ao; s.emissive = emissive;
-    s.opacity = opacity; s.opacityMask = mask; s.specular = 0.5;
+    s.opacity = opacity; s.opacityMask = mask; s.specular = 0.5; s.clearCoat = 0.0; s.clearCoatRoughness = 0.1;
     return s;
 }
 float3 MaterialSafeNormalize(float3 value)
@@ -611,7 +611,9 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					std::pair{P::MP_Metallic, "metallic"}, std::pair{P::MP_Roughness, "roughness"},
 					std::pair{P::MP_AmbientOcclusion, "ambientOcclusion"}, std::pair{P::MP_EmissiveColor, "emissive"},
 					std::pair{P::MP_Opacity, "opacity"}, std::pair{P::MP_OpacityMask, "opacityMask"},
-					std::pair{P::MP_Specular, "specular"}};
+					std::pair{P::MP_Specular, "specular"}, std::pair{P::MP_ClearCoat, "clearCoat"},
+					std::pair{P::MP_ClearCoatRoughness, "clearCoatRoughness"}
+				};
 				OutSource += "    FMaterialSurface result;\n";
 				for (const auto& [Property, Field] : Fields)
 				{
@@ -621,6 +623,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					const auto Value = Root.bExpression ? Expressions[Root.ExpressionIndex] : LiteralExpression(Root.Type, Root.Literal);
 					OutSource += std::format("    result.{} = {};\n", Field, Value);
 				}
+				OutSource += "#if DURIN_MATERIAL_SHADING_MODEL != 2\n    result.clearCoat = 0.0;\n#endif\n";
 				OutSource += "    return EvaluateMaterialSurface(result);\n}\n";
 			}
 		} // Stage-specific expression closures.

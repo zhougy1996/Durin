@@ -1,5 +1,6 @@
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
+#include "RHICapabilities.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -55,7 +56,8 @@ namespace Durin
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
 				FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
-			auto operator==(const FGBufferPipelineKey&) const -> bool = default;
+				bool bModelData = false;
+				auto operator==(const FGBufferPipelineKey&) const -> bool = default;
 		};
 
 		auto GetGBufferPlanningPassIdentity(const FGBufferPipelineKey& Key)
@@ -114,11 +116,13 @@ namespace Durin
 		const FPipelineRequest& Request) -> std::shared_ptr<const FPipeline>
 	{
 		if (Request.VertexDeclaration == nullptr) return nullptr;
+		if (Request.Material.ShaderMap.ShadingModel == EMaterialShadingModel::ClearCoat && !Request.bModelData) return nullptr;
+		const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (Request.bModelData && (!Caps || Caps->MaxColorAttachments < 5)) return nullptr;
 		const auto Factory = RendererPrivate::FindMeshVertexFactory(Request.FactoryKey);
 		if (!Factory || Factory->GetLayoutKey() != Request.LayoutKey) return nullptr;
 		const auto& Processor = RendererPrivate::FPassProcessorManager::GetMeshPassProcessor(RendererPrivate::EMeshPipelinePass::GBuffer);
-		const RendererPrivate::FMeshPassProcessorBatch Batch{Request.Material, *Factory,
-			{Request.Rasterizer, Request.Depth, {}}, Request.Topology, {}, true};
+		const RendererPrivate::FMeshPassProcessorBatch Batch{Request.Material, *Factory, {Request.Rasterizer, Request.Depth, {}, Request.bModelData}, Request.Topology, {}, true};
 		const FGBufferShaderMapKey ShaderKey{
 			.Material = Request.Material.ShaderMap,
 			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey};
@@ -151,8 +155,11 @@ namespace Durin
 			.Rasterizer = Request.Rasterizer,
 			.Depth = Request.Depth,
 			.VertexDeclaration = Request.VertexDeclaration,
-			.FactoryKey = Request.FactoryKey, .LayoutKey = Request.LayoutKey,
-			.Topology = Request.Topology};
+			.FactoryKey = Request.FactoryKey,
+			.LayoutKey = Request.LayoutKey,
+			.Topology = Request.Topology,
+			.bModelData = Request.bModelData
+		};
 		auto& PipelineEntry = State->Pipelines.FindOrAddBounded(
 			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget, RendererPrivate::MaterialPipelineCacheByteBudget);
 		FRenderResourceGeneration PipelineGeneration =
@@ -204,10 +211,21 @@ namespace Durin::RendererPrivate
 				return Result;
 			}
 			auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> override
-			{ return RasterVariants(Config, Params, 8); }
+			{
+				auto Result = RasterVariants(Config, Params, 8);
+				const auto Base = Result;
+				for (auto Variant : Base)
+				{
+					Variant.bGBufferModelData = true;
+					Result.push_back(Variant);
+				}
+				return Result;
+			}
 			auto DescribeMeshDraw(const FMeshPipelineState& State, FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
 				FMaterialShaderBlendModeKey, bool) const -> FMeshPipelineDescription override
-			{ return {.RenderTargets = RenderTargetLayouts::MakeGBufferTargets(), .Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth}; }
+			{
+				return {.RenderTargets = RenderTargetLayouts::MakeGBufferTargets(State.bGBufferModelData), .Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth};
+			}
 		};
 		auto CreateGBufferMeshPassProcessor(int32 PSOCollectorIndex) -> std::unique_ptr<FMeshPassProcessor>
 		{ return std::make_unique<FGBufferPassMeshProcessor>(PSOCollectorIndex); }

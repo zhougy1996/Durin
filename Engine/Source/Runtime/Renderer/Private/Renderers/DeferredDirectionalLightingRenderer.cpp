@@ -25,7 +25,8 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);                     \
 	DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);                      \
 	DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);                      \
-	DURIN_SHADER_PARAMETER_TEXTURE(BasePassColor);                     \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferModelData);                    \
+	DURIN_SHADER_PARAMETER_TEXTURE(BasePassColor);                       \
 	DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);                          \
 	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);               \
 	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);              \
@@ -367,6 +368,7 @@ namespace Durin
 			ShaderParameters.GBufferMaterial = Parameters.Material;
 			ShaderParameters.GBufferNormals = Parameters.Normals;
 			ShaderParameters.GBufferSurface = Parameters.Surface;
+			ShaderParameters.GBufferModelData = Parameters.ModelData ? Parameters.ModelData : Parameters.Material;
 			ShaderParameters.BasePassColor = bProduction ? Parameters.Material : Parameters.BasePassColor;
 			ShaderParameters.SceneDepth = Parameters.Depth;
 			ShaderParameters.EnvironmentIrradiance =

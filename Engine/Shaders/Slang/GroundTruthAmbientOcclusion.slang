@@ -106,7 +106,7 @@ bool SelectRepresentative(int2 halfPixel, out int2 selectedPixel,
         float4 surface = GBufferSurface.Load(int3(candidate, 0));
         uint flags = (uint)round(saturate(surface.a) * 255.0);
         float3 position;
-        if ((flags & GBufferStandardLitFlag) == 0u
+        if ((flags & GBufferLitModelMask) == 0u
             || !ReconstructAt(candidate, position))
             continue;
         float depth = abs(position.x);
@@ -144,7 +144,7 @@ float EvaluateVisibility(int2 domainPixel, bool halfResolution,
         return 1.0;
     float4 surface = GBufferSurface.Load(int3(pixel, 0));
     uint flags = (uint)round(saturate(surface.a) * 255.0);
-    if ((flags & GBufferStandardLitFlag) == 0u)
+    if ((flags & GBufferLitModelMask) == 0u)
         return 1.0;
 
     float3 centerPosition;
@@ -337,7 +337,7 @@ bool LoadFilterSurface(int2 halfPixel, out int2 fullPixel,
     uint flags = (uint)round(saturate(surface.a) * 255.0);
     normal = DecodeOctahedralNormal(
         FilterGBufferNormals.Load(int3(fullPixel, 0)).ba);
-    return (flags & GBufferStandardLitFlag) != 0u
+    return (flags & GBufferLitModelMask) != 0u
         && ReconstructFilterAt(fullPixel, position)
         && all(isfinite(normal));
 }
@@ -353,7 +353,7 @@ float BilateralFragmentMain(VSOutput input) : SV_Target0
         return 1.0;
     float4 centerSurface = FilterGBufferSurface.Load(int3(pixel, 0));
     uint centerFlags = (uint)round(saturate(centerSurface.a) * 255.0);
-    if ((centerFlags & GBufferStandardLitFlag) == 0u)
+    if ((centerFlags & GBufferLitModelMask) == 0u)
         return 1.0;
 
     float3 centerPosition;
@@ -387,7 +387,7 @@ float BilateralFragmentMain(VSOutput input) : SV_Target0
             float3 samplePosition;
             float3 sampleNormal = DecodeOctahedralNormal(
                 FilterGBufferNormals.Load(int3(samplePixel, 0)).ba);
-            if ((sampleFlags & GBufferStandardLitFlag) == 0u
+            if ((sampleFlags & GBufferLitModelMask) == 0u
                 || !ReconstructFilterAt(samplePixel, samplePosition)
                 || !all(isfinite(sampleNormal))
                 || dot(centerNormal, sampleNormal)
@@ -462,7 +462,7 @@ float ResolveFragmentMain(VSOutput input) : SV_Target0
     float3 centerPosition;
     float3 centerNormal = DecodeOctahedralNormal(
         FilterGBufferNormals.Load(int3(pixel, 0)).ba);
-    if ((flags & GBufferStandardLitFlag) == 0u
+    if ((flags & GBufferLitModelMask) == 0u
         || !ReconstructFilterAt(pixel, centerPosition)
         || !all(isfinite(centerNormal)))
         return 1.0;

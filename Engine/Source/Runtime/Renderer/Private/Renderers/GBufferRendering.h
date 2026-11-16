@@ -27,7 +27,7 @@ namespace Durin
 	{
 		FGPUSceneReadParameters GPUScene;
 		TRDGValueWrite<FGBufferPassResult> Completion;
-		std::array<std::optional<FRDGColorAttachmentParameter>, 4> Colors;
+		std::array<std::optional<FRDGColorAttachmentParameter>, 5> Colors;
 		std::optional<FRDGDepthStencilAttachmentParameter> Depth;
 		FInstanceCullingDrawParams InstanceCulling;
 
@@ -39,6 +39,7 @@ namespace Durin
 	struct FGBufferTextureHandles final
 	{
 		std::array<FRDGTextureHandle, 3> Colors;
+		std::optional<FRDGTextureHandle> ModelData;
 	};
 
 	struct FGBufferGraphOutput final

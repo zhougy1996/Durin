@@ -551,3 +551,82 @@ TEST(FMaterialRenderingTests, DebugStaticMeshProvidesCompleteSplitVertexAttribut
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
+
+TEST(FMaterialRenderingTests, ClearCoatMatchesIndependentAlignedLayerEquationsAndZeroIsExact)
+{
+	using namespace Durin;
+	constexpr double Pi = 3.14159265358979323846;
+	for (float M : {0.f, .5f, 1.f})
+		for (float C : {0.f, .5f, 1.f})
+			for (float R : {.045f, .1f, .4f, 1.f})
+			{
+				FPBRDirectLightingInput D;
+				D.BaseColor = FVector3f(.5f);
+				D.Metallic = M;
+				D.Specular = .25f;
+				const double F0 = .02 * (1. - M) + .5 * M;
+				const double Base = ((1. - F0) * (1. - M) * .5 + 4. * F0) / Pi;
+				const auto Bare = EvaluatePBRDirectLighting(D);
+				D.ClearCoat = C;
+				D.ClearCoatRoughness = R;
+				const double Expected = (1. - C * .04) * (1. - C * .04) * Base + C * .04 / (4. * Pi * std::pow(double(R), 4.));
+				const auto Result = EvaluatePBRDirectLighting(D);
+				if (C == 0) EXPECT_EQ(Result, Bare);
+				for (uint32 Channel = 0; Channel < 3; ++Channel)
+					EXPECT_NEAR(Result[Channel], Expected, std::max(1e-5, Expected * 1e-5));
+				FPBREnvironmentLightingInput E;
+				E.BaseColor = FVector3f(.5f);
+				E.Metallic = M;
+				E.Specular = .25f;
+				E.Irradiance = FVector3f(float(Pi));
+				E.PrefilteredRadiance = FVector3f(2.f);
+				E.BrdfLut = {.5f, .125f};
+				E.CoatPrefilteredRadiance = FVector3f(3.f);
+				E.CoatBrdfLut = {.4f, .07f};
+				const auto BareIBL = EvaluatePBREnvironmentLighting(E);
+				E.ClearCoat = C;
+				const double BaseIBL = .5 * (1. - F0) * (1. - M) + F0 + .25;
+				const double ExpectedIBL = (1. - C * .04) * (1. - C * .04) * BaseIBL + C * 3. * (.04 * .4 + .07);
+				const auto IBL = EvaluatePBREnvironmentLighting(E);
+				if (C == 0) EXPECT_EQ(IBL, BareIBL);
+				for (uint32 Channel = 0; Channel < 3; ++Channel)
+					EXPECT_NEAR(IBL[Channel], ExpectedIBL, 1e-5);
+			}
+}
+
+TEST(FMaterialRenderingTests, ClearCoatObliqueGoldenIncludesBothFresnelAttenuationFactors)
+{
+	using namespace Durin;
+	FPBRDirectLightingInput D;
+	D.BaseColor = {.2f, .4f, .6f};
+	D.Metallic = .35f;
+	D.Specular = .2f;
+	D.Roughness = .6f;
+	D.Normal = {.2f, -.1f, 1.f};
+	D.ToLight = {-.1f, .3f, 1.f};
+	D.ToView = {.4f, .2f, 1.f};
+	D.ClearCoat = .73f;
+	D.ClearCoatRoughness = .27f;
+	const FVector3f DirectGolden{.0481413344f, .0885314449f, .1240953378f};
+	const auto Direct = EvaluatePBRDirectLighting(D);
+	FPBREnvironmentLightingInput E;
+	E.BaseColor = D.BaseColor;
+	E.Metallic = D.Metallic;
+	E.Specular = D.Specular;
+	E.Roughness = D.Roughness;
+	E.NoV = .37f;
+	E.AmbientOcclusion = .6f;
+	E.Irradiance = {1.2f, .8f, 2.f};
+	E.PrefilteredRadiance = {3.f, 1.f, 5.f};
+	E.BrdfLut = {.42f, .07f};
+	E.ClearCoat = .73f;
+	E.CoatPrefilteredRadiance = {2.f, .5f, 1.5f};
+	E.CoatBrdfLut = {.51f, .11f};
+	const FVector3f IBLGolden{.2874315098f, .1200717061f, .5739863110f};
+	const auto IBL = EvaluatePBREnvironmentLighting(E);
+	for (uint32 C = 0; C < 3; ++C)
+	{
+		EXPECT_NEAR(Direct[C], DirectGolden[C], 1e-5f);
+		EXPECT_NEAR(IBL[C], IBLGolden[C], 1e-5f);
+	}
+}

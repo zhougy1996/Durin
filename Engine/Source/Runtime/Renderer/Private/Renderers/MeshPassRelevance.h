@@ -15,7 +15,8 @@ namespace Durin::RendererPrivate
 			? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver)) return false;
 		const bool bTranslucent = Material.ShaderMap.BlendMode == EMaterialBlendMode::Translucent;
 		const bool bGBuffer = !bTranslucent && bSupportsGBuffer
-			&& Material.ShaderMap.ShadingModel == EMaterialShadingModel::DefaultLit;
+							  && (Material.ShaderMap.ShadingModel == EMaterialShadingModel::DefaultLit
+								  || Material.ShaderMap.ShadingModel == EMaterialShadingModel::ClearCoat);
 		switch (Pass)
 		{
 		case EMeshPipelinePass::ShadowDepth: return !bTranslucent;

@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-17
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -489,6 +489,29 @@ fail validation. Mask rejection remains strictly below cutoff. BRDF and specular
 helpers retain their independent numerical safeguards; AA bounds its newly
 computed roughness and deferred lighting does not apply AA again.
 
+### ClearCoat
+
+Surface ClearCoat accepts opaque/masked blending and rejects translucency.
+Active scalar attributes are ClearCoat (default 1, clamped 0..1) and
+ClearCoatRoughness (default 0.1, clamped 0.045..1), alongside DefaultLit inputs.
+Forward and GBuffer entries retain their reachable parameters; unrelated entries
+and inactive models do not bind coat parameters. Compiled output identity distinguishes
+the five-output coat fragment from the four-output DefaultLit fragment.
+Cooked programs retain that model/entry identity and need no authoring graph.
+
+The layer shares the mapped shading normal with the base. Let c be coat weight,
+rc its roughness, and Fc(x)=0.04+0.96*(1-saturate(x))^5. Each direct/local light
+uses `(1-c*Fc(NoV))*(1-c*Fc(NoL))*DefaultLit + c*CoatGGX`, with the existing
+GGX distribution and Smith visibility at rc, dielectric Fresnel Fc(VoH), and the
+same light attenuation/shadow visibility. Environment lighting uses
+`(1-c*Fc(NoV))^2*BaseIBL + c*CoatIBL`, with prefiltered radiance at rc and the
+existing split-sum LUT term `0.04*A+B`; AO applies to both layers. Weight zero
+branches to the exact DefaultLit result. Base specular-AA is unchanged; coat
+roughness uses the clamped authored value. Emissive is applied once afterward.
+No coat normal, refraction, absorption or area-light specialization is provided.
+The [GBuffer contract](../Pipeline/GBuffer.md#record-encoding) owns optional
+ModelData and common per-view MRT/PSO layouts; both octahedral normals remain.
+
 ### DefaultLit Specular
 
 DefaultLit shares the same direct and environment BRDF in forward and deferred
@@ -501,7 +524,7 @@ existing uniform payload without compiling another program.
 Per-entry compilation requirements include reachable Specular parameters only
 for surface lighting entries. The updated pass ABI participates in canonical
 entry identity and source-free cooked admission. Renderer packs Specular in the
-existing surface target, keeping three GBuffer records plus SceneColor for every Specular view.
+existing surface target, keeping three GBuffer records plus SceneColor for DefaultLit-only Specular views.
 An unconnected or constant 0.5 decodes exactly; dynamic/nondefault values use
 UNorm8 transport. Renderer owns the channel layout and compatibility flag in the
 [GBuffer contract](../Pipeline/GBuffer.md#record-encoding).
@@ -899,7 +922,7 @@ consumes the qualified prepared bulk. The explicit target is independent of the
 active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v22 family per material or instance in the
+DMAT v23 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
 The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
 selections may retain a supported subset. Each uses that owner's
@@ -925,7 +948,7 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v22 contains no IR/generator/compiler producer version words. Older payload
+DMAT v23 contains no IR/generator/compiler producer version words. Older payload
 schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
@@ -1341,8 +1364,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 22, MIR 14, layout 5, pass contract 19,
-and material Cook class-schema version 7. The independent compile adapter is version 20;
+Current compatibility versions are DMAT 23, MIR 15, layout 5, pass contract 20,
+and material Cook class-schema version 7. The independent compile adapter is version 21;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11

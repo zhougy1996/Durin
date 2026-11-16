@@ -29,12 +29,13 @@ namespace Durin
 			128ull * 1024ull * 1024ull;
 		static constexpr auto CalculateTargetBytes(
 			uint32 Width,
-			uint32 Height) -> uint64
+			uint32 Height,
+			bool bModelData = false
+		) -> uint64
 		{
+			const uint64 Cost = BytesPerPixel + (bModelData ? 4 : 0);
 			const uint64 Pixels = static_cast<uint64>(Width) * Height;
-			return Pixels > std::numeric_limits<uint64>::max() / BytesPerPixel
-				? std::numeric_limits<uint64>::max()
-				: Pixels * BytesPerPixel;
+			return Pixels > std::numeric_limits<uint64>::max() / Cost ? std::numeric_limits<uint64>::max() : Pixels * Cost;
 		}
 
 		struct FTargets
@@ -42,6 +43,7 @@ namespace Durin
 			FTextureRHIRef Material;
 			FTextureRHIRef Normals;
 			FTextureRHIRef Surface;
+			FTextureRHIRef ModelData;
 		};
 
 		struct FPipelineRequest
@@ -54,6 +56,7 @@ namespace Durin
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;
 				FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
+				bool bModelData = false;
 		};
 
 

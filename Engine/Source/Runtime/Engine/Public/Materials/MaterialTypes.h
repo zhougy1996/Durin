@@ -80,7 +80,7 @@ namespace Durin
 	{
 		DefaultLit = 0,
 		Unlit = 1,
-		ClearCoat = 2, // Reserved authoring identity; execution is introduced separately.
+		ClearCoat = 2,
 	};
 
 	// Controls depth writes independently from the blend-mode default.

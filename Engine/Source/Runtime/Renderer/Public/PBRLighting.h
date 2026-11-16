@@ -17,6 +17,8 @@ namespace Durin
 		FVector3f ToLight{0.0f, 0.0f, 1.0f};
 		FVector3f ToView{0.0f, 0.0f, 1.0f};
 		FVector3f LightRadiance{1.0f};
+		float ClearCoat = 0.0f;
+		float ClearCoatRoughness = 0.1f;
 	};
 
 	struct FPBRMappedNormalInput
@@ -40,6 +42,9 @@ namespace Durin
 		FVector3f Irradiance{0.0f};
 		FVector3f PrefilteredRadiance{0.0f};
 		FVector2f BrdfLut{0.0f};
+		float ClearCoat = 0.0f;
+		FVector3f CoatPrefilteredRadiance{0.0f};
+		FVector2f CoatBrdfLut{0.0f};
 	};
 
 	// CPU reference for the direct-light shader contract. Inputs are

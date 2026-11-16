@@ -18,6 +18,8 @@
 #include "Materials/MaterialParameterCollection.h"
 
 #include <typeinfo>
+#include "RHI.h"
+#include "RHICapabilities.h"
 
 namespace Durin
 {
@@ -716,9 +718,7 @@ namespace Durin
 				auto& Scope = BuildScopes[PassKey];
 				if (!Scope) Scope = std::make_unique<FPassBuildScope>(ResolvedView.CachedDrawLists,
 					*ResolvedView.DrawCommandStorage, ResolvedView.GetMeshDrawCommandPass(PassKey), BindingCache);
-				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
-					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend},
-					Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer};
+				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory, {Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend, PassKey.Pass == EMeshPipelinePass::GBuffer && Pipeline->GetInitializer().Description.RenderTargets.NumColorRenderTargets == 5}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer};
 				std::shared_ptr<const FMeshDrawCommand> Cached;
 				FCachedMeshDrawCommand CachedSelection;
 				if (Ready)
@@ -840,6 +840,17 @@ namespace Durin
 		return {Result.bComplete, Result.bRenderedGeometry, O.GBufferAttemptedDraws, O.GBufferSuccessfulDraws, O.GBufferRejectedDraws, O.GBufferSkippedDraws};
 	}
 
+	auto FStaticMeshRenderer::NeedsGBufferModelData(const FPreparedStaticMeshView& View) -> bool
+	{
+		for (uint32 Index = 0; Index < View.GetNumSections(); ++Index)
+		{
+			const auto& Draw = View.GetDraw(Index);
+			if (Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel == EMaterialShadingModel::ClearCoat
+				&& Draw.Command->bSupportsGBuffer) return true;
+		}
+		return false;
+	}
+
 	auto FStaticMeshRenderer::PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView,
 		FResolvedStaticMeshView& ResolvedView) -> bool
 	{
@@ -847,6 +858,9 @@ namespace Durin
 		{
 			Record.Pipelines.erase({EMeshPipelinePass::GBuffer});
 		}
+		const bool bModelData = NeedsGBufferModelData(PreparedView);
+		const auto* Caps = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (bModelData && (!Caps || Caps->MaxColorAttachments < 5)) return false;
 		bool Ready = true;
 		ForEachShadowBucket(PreparedView, [&](const auto& Bucket) {
 			for (const auto& Item : Bucket)
@@ -856,7 +870,7 @@ namespace Durin
 				if (!Primitive) { ResolvedView.Draws[Item.ResolvedIndex].bReady = false; Ready = false; continue; }
 				const auto Declaration = ResolveMeshVertexDeclaration(*Primitive, Item);
 				if (!Declaration) { ResolvedView.Draws[Item.ResolvedIndex].bReady = false; Ready = false; continue; }
-				auto Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Declaration, .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .Topology = Item.Command->PipelineKey.Topology});
+				auto Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.Command->PipelineKey.Material, .CompiledProgram = Item.Command->Material.CompiledProgram, .Rasterizer = Item.Command->PipelineKey.Rasterizer, .Depth = Item.Command->PipelineKey.Depth, .VertexDeclaration = Declaration, .FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey, .Topology = Item.Command->PipelineKey.Topology, .bModelData = bModelData});
 				ResolvedView.Draws[Item.ResolvedIndex].bReady = ResolvedView.IsReady(Item) && Pipeline != nullptr;
 				Ready = Pipeline && Ready;
 				ResolvedView.Draws[Item.ResolvedIndex].Pipelines[{EMeshPipelinePass::GBuffer}] = Pipeline;

@@ -14,6 +14,7 @@ namespace Durin::RendererPrivate
 		FRHIRasterizerState Rasterizer;
 		FRHIDepthStencilState Depth;
 		FRHIColorBlendState ColorBlend;
+		bool bGBufferModelData = false;
 	};
 
 	struct FMeshPipelineRasterOptions
@@ -28,6 +29,7 @@ namespace Durin::RendererPrivate
 	{
 		FMeshPipelineRasterOptions Raster;
 		bool bRequired = false;
+		bool bGBufferModelData = false;
 	};
 
 	enum class EMeshPipelinePass : uint8

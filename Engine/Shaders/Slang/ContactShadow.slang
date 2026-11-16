@@ -101,7 +101,7 @@ float CalculateContactVisibility(int2 pixel)
         GBufferMaterial.Load(int3(pixel, 0)),
         GBufferNormals.Load(int3(pixel, 0)),
         GBufferSurface.Load(int3(pixel, 0)));
-    if ((receiver.flags & GBufferStandardLitFlag) == 0u)
+    if ((receiver.flags & GBufferLitModelMask) == 0u)
         return 1.0;
     float centerDepth = SceneDepth.Load(int3(pixel, 0));
     bool reversedZ = Params.SurfaceBiasReversedZ.z > 0.5;

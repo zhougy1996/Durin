@@ -4,7 +4,7 @@ Summary: Defines isolated and production deferred lighting ownership, compositio
 
 Modules: Renderer, RenderCore
 
-The deferred lighting path evaluates opaque and masked Lit material records
+The deferred lighting path evaluates opaque and masked DefaultLit/ClearCoat material records
 over the [minimal GBuffer](../Pipeline/GBuffer.md). It supports both the isolated
 qualification target and the production composition route. Every solid Lit
 view requires deferred opaque ownership; no complete forward Lit route or
@@ -53,7 +53,9 @@ inputs and sequential isolation.
 
 The fragment shader binds three GBuffer attachments at slots 0..2. Isolated
 diagnostics additionally bind the pre-lighting SceneColor seed at slot 3;
-production omits that binding. Remaining slots retain their indices: D32, irradiance,
+production omits that binding. Optional ModelData is slot 20, binding the material fallback when absent;
+only ClearCoat records use its channels. Both models call shared direct/local/IBL
+layer helpers. Remaining slots retain their indices: D32, irradiance,
 prefiltered environment, the BRDF LUT, the environment sampler, the selected
 directional-shadow array and comparison sampler, one 176-byte deferred-view
 uniform, the shared 544-byte view lighting uniform, GTAO native raw,

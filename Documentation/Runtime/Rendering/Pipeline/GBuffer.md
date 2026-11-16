@@ -81,7 +81,7 @@ publishes incomplete geometry or performs an unordered late redraw.
 ## Record Encoding
 
 Every extent owns three cleared GBuffer attachments and uses existing sampled
-`D32` scene depth. The geometry pass has four MRT outputs: these three records
+`D32` scene depth. Default-only geometry has four MRT outputs: these three records
 and the existing `RGBA16_FLOAT` SceneColor, seeded with Emissive RGB and alpha one:
 
 | Attachment | Format | Channels |
@@ -89,17 +89,26 @@ and the existing `RGBA16_FLOAT` SceneColor, seeded with Emissive RGB and alpha o
 | `GBufferMaterial` | `RGBA8_UNORM` | Base color RGB, ambient occlusion A |
 | `GBufferNormals` | `RGBA8_UNORM` | Octahedral shading normal RG, octahedral geometric normal BA |
 | `GBufferSurface` | `RGBA8_UNORM` | Metallic R, Specular G, effective perceptual roughness B, flags/255 A |
+| Optional `GBufferModelData` | `RGBA8_UNORM` | ClearCoat weight R, clamped coat perceptual roughness G, zero B/A |
 
 The three GBuffer attachments clear to zero; SceneColor clears to the view clear color. Bit 0 of the decoded flags is `StandardLit`;
-baseline records use `1`. Bit 7 identifies authored nondefault or dynamic
+baseline records use `1`. Low model bits `2` identify ClearCoat; authored
+Specular adds bit 7, giving `130` for ClearCoat. Bit 7 identifies authored nondefault or dynamic
 Specular; these DefaultLit records use `129`. Zero is background or invalid.
-Other flag bits remain zero. Without bit 7, Specular decodes as exactly 0.5,
+Bits 2..6 remain zero. Without bit 7, Specular decodes as exactly 0.5,
 avoiding midpoint UNorm8 bias in baseline lighting. Authored Specular has error
 <=1/510 and dielectric F0 error <=0.08/510. This compatibility flag is a Durin
 policy, not UE's binary layout. The metallic/specular/roughness grouping follows
 UE's GBufferB semantic packing. Opaque/masked effective opacity decodes as one;
-translucent opacity remains in the forward path. Every Specular view retains
-three GBuffer attachments plus SceneColor. Primitive identity is counter-owned and not stored per pixel.
+translucent opacity remains in the forward path. DefaultLit-only Specular views
+retain three GBuffer attachments plus SceneColor. A view containing eligible ClearCoat
+adds ModelData at MRT4 and uses the common five-output layout for every draw.
+DefaultLit does not write or consume ModelData; its pixels do not promise
+meaningful channels in that optional attachment. Fewer than five supported color attachments
+reject deferred coat preparation with resources unavailable, without changing model.
+MRT layouts participate in pipeline identity. DefaultLit precaches the five-target
+mixed-view variant as optional; required ClearCoat raster variants use five targets.
+Primitive identity is counter-owned and not stored per pixel.
 
 The shading normal includes the authored normal-map perturbation. The
 geometric normal is the independently encoded, oriented visible-side normal
@@ -118,7 +127,7 @@ material assets and the GBuffer format do not change.
 
 CPU validation uses `GBufferContract`; shaders include
 `Material/GBufferDecode.slang`. These implementations own channel decode,
-octahedral normal decode, validity, and
+octahedral normal decode, optional model-data decode, validity, and
 pixel-center analytic depth reconstruction.
 
 World position is not stored. Consumers reconstruct view-relative position
@@ -127,7 +136,11 @@ reversed-Z perspective or orthographic equation. They must not substitute a
 cancellation-prone inverse view-projection multiply. The result must be finite
 and remain within `max(0.002, 3e-5 * distance-to-view)` world units of the
 forward interpolant. Quantized normals allow at most `1.0 degree` angular
-error. UNORM material channels allow `1/510` absolute error. Emissive allows
+error. Coat lighting is evaluated from the decoded normal and model channels;
+sharp lobes can amplify their bounded quantization error. Numerical validation
+compares the lighting against independently decoded inputs and records the
+predicted difference from full-precision forward inputs separately.
+UNORM material channels allow `1/510` absolute error. Emissive allows
 `1.0%` relative error in `[2^-14, 64]` and `2^-14` absolute error below that
 range.
 
@@ -162,12 +175,15 @@ present a partial image or select another lighting owner. No
 view may sample stale attachments from another view or extent.
 
 The three GBuffer attachments cost exactly 12 bytes per pixel, or `24,883,200` bytes at
-1920x1080, including authored or dynamic Specular. Scene Color/depth and final SDR output are accounted separately.
+1920x1080, including authored or dynamic Specular. ClearCoat views add four
+bytes/pixel (16 total, 33,177,600 bytes at 1920x1080); default-only views allocate
+no ModelData. Coat channels use UNorm8 with error <=1/510 before roughness clamps
+to [0.045,1]. Both models retain the same two octahedral normals. Scene Color/depth and final SDR output are accounted separately.
 Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
 feature byte costs do not define independent cache quotas.
 
 Directional contact visibility is an optional downstream consumer of material
-flags, geometric normal, and D32. It accepts only standard-Lit records and owns
+flags, geometric normal, and D32. It accepts only DefaultLit and ClearCoat records and owns
 its separate on-demand single-channel output; it does not change GBuffer
 packing or keep the GBuffer debug target resident in ordinary production.
 

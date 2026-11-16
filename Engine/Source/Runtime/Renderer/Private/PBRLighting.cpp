@@ -77,6 +77,19 @@ namespace Durin
 			* (1.0f - Metallic) * BaseColor / Pi;
 		const FVector3f Result = (Diffuse
 			+ Distribution * Visibility * Fresnel) * LightRadiance * NoL;
+		if (std::isfinite(Input.ClearCoat) && Input.ClearCoat > 0.f)
+		{
+			const float C = std::clamp(Input.ClearCoat, 0.f, 1.f);
+			auto Coat = Input;
+			Coat.ClearCoat = 0.f;
+			Coat.BaseColor = FVector3f(0.f);
+			Coat.Metallic = 0.f;
+			Coat.Specular = .5f;
+			Coat.Roughness = std::isfinite(Input.ClearCoatRoughness) ? Input.ClearCoatRoughness : .1f;
+			const float Fv = .04f + .96f * std::pow(1.f - NoV, 5.f);
+			const float Fl = .04f + .96f * std::pow(1.f - NoL, 5.f);
+			return (1.f - C * Fv) * (1.f - C * Fl) * Result + C * EvaluatePBRDirectLighting(Coat);
+		}
 		return Math::IsFinite(Result) ? Result : FVector3f(0.0f);
 	}
 
@@ -209,6 +222,15 @@ namespace Durin
 			* (FVector3f(1.0f) - Fresnel) * (1.0f - Metallic);
 		const FVector3f Specular = Prefiltered * (F0 * Lut.x + Lut.y);
 		const FVector3f Result = (Diffuse + Specular) * AmbientOcclusion;
+		if (std::isfinite(Input.ClearCoat) && Input.ClearCoat > 0.f)
+		{
+			const float C = std::clamp(Input.ClearCoat, 0.f, 1.f);
+			const float Fc = .04f + .96f * std::pow(1.f - NoV, 5.f);
+			const auto CoatRadiance = Math::IsFinite(Input.CoatPrefilteredRadiance) ? Math::Max(Input.CoatPrefilteredRadiance, FVector3f(0.f)) : FVector3f(0.f);
+			const auto CoatLut = std::isfinite(Input.CoatBrdfLut.x) && std::isfinite(Input.CoatBrdfLut.y) ? Math::Max(Input.CoatBrdfLut, FVector2f(0.f)) : FVector2f(0.f);
+			const auto Coat = CoatRadiance * (.04f * CoatLut.x + CoatLut.y) * AmbientOcclusion;
+			return (1.f - C * Fc) * (1.f - C * Fc) * Result + C * Coat;
+		}
 		return Math::IsFinite(Result) ? Result : FVector3f(0.0f);
 	}
 }

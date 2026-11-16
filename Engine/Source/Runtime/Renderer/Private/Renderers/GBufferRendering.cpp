@@ -135,6 +135,8 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy),
 					.ObservationTag = static_cast<uint32>(
 						ERDGAllocationObservation::GBuffer)}, Names[Index]);
+		if (FStaticMeshRenderer::NeedsGBufferModelData(Prepared))
+			GBuffer->ModelData = Graph.CreateTexture({.Texture = FRHITextureCreateDesc::Create2D("Scene.GBuffer.ModelData", Width, Height, EPixelFormat::RGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy), .ObservationTag = static_cast<uint32>(ERDGAllocationObservation::GBuffer)}, "Scene.GBuffer.ModelData");
 		const auto CullingMode = Inputs.Feature.InstanceCullingMode;
 		const bool bUseGPUCulling = CullingMode == EInstanceCullingMode::Enabled;
 		size_t OverflowCandidates = 0;
@@ -179,6 +181,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < GBuffer->Colors.size(); ++Index)
 			Parameters->Colors[Index] = FRDGColorAttachmentParameter{GBuffer->Colors[Index], {ERHITextureAspect::Color, 0, 1, 0, 1}};
 		Parameters->Colors[3] = FRDGColorAttachmentParameter{Inputs.SceneColor, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+		if (GBuffer->ModelData) Parameters->Colors[4] = FRDGColorAttachmentParameter{*GBuffer->ModelData, {ERHITextureAspect::Color, 0, 1, 0, 1}};
 		Parameters->Depth = FRDGDepthStencilAttachmentParameter{
 			.Texture = Inputs.Depth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
@@ -196,9 +199,10 @@ namespace Durin
 				const FRDGAttachmentView Depth =
 					Resolver.GetDepthStencilAttachment(PassParameters.Depth);
 				FRHITexture* SceneDepth = Depth.Texture;
-				const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
+				auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
 					Resolver, PassParameters.Colors[0], PassParameters.Colors[1], PassParameters.Colors[2]
 				);
+				if (GBufferTargets) GBufferTargets->ModelData = Resolver.GetColorAttachment(PassParameters.Colors[4]).Texture;
 				const auto OverrideArgs = GetMeshDrawCommandOverrideArgs(PassParameters.InstanceCulling, Resolver);
 				Resolver.WriteValue(PassParameters.Completion) =
 					RecordGBuffer_RenderThread(
@@ -216,7 +220,7 @@ namespace Durin
 				[Plan = MeshPass.GetInstanceCullingContext()->shared_from_this()](const FGBufferPassResult& Result) {
 					return Plan->IsCullingDispatched() && Result.IsComplete();
 				});
-		if (GetGBufferCaptureSink() || GetGBufferTimingQuerySink())
+		if (GetGBufferCaptureSink() || GetGBufferModelDataCaptureSink() || GetGBufferTimingQuerySink())
 			Graph.MarkPassRoot(GBufferPass, "GBuffer qualification observation");
 		FGBufferGraphOutput Output{.Completion = GBufferCompletion, .Textures = GBuffer, .Depth = Inputs.Depth, .BasePassColor = Inputs.SceneColor};
 		if (Inputs.Options.GBufferDebugMode == EGBufferDebugMode::Emissive
@@ -275,7 +279,7 @@ namespace Durin
 			{
 				FRHIRenderPassInfo GBufferPassInfo{};
 				GBufferPassInfo.RenderTargetLayout =
-					RenderTargetLayouts::MakeGBufferTargets();
+					RenderTargetLayouts::MakeGBufferTargets(GBufferTargets->ModelData != nullptr);
 				GBufferPassInfo.ColorRenderTargets[0] =
 					GBufferTargets->Material;
 				GBufferPassInfo.ColorRenderTargets[1] =
@@ -285,7 +289,8 @@ namespace Durin
 				GBufferPassInfo.ColorRenderTargets[3] =
 					SceneColor;
 				GBufferPassInfo.DepthStencilRenderTarget = SceneDepth;
-				for (uint32 Index = 0; Index < 4; ++Index)
+				if (GBufferTargets->ModelData) GBufferPassInfo.ColorRenderTargets[4] = GBufferTargets->ModelData;
+				for (uint32 Index = 0; Index < GBufferPassInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
 				{
 					GBufferPassInfo.ColorClearValues[Index] =
 						FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
@@ -344,9 +349,10 @@ namespace Durin
 						SceneDepth
 					);
 				}
+				if (const auto Sink = GetGBufferModelDataCaptureSink()) Sink(CommandList, GBufferTargets->ModelData);
 				++Telemetry.View.GBuffer.GBufferEnabledViews;
 				Telemetry.View.GBuffer.GBufferAttachmentBytes =
-					FGBufferRenderer::CalculateTargetBytes(Width, Height);
+					FGBufferRenderer::CalculateTargetBytes(Width, Height, GBufferTargets->ModelData != nullptr);
 				Telemetry.View.GBuffer.GBufferAttemptedDraws =
 					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferSuccessfulDraws =

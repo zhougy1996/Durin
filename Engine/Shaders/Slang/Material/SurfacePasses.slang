@@ -62,6 +62,9 @@ struct GeometryPassFragmentOutput
     float4 normals : SV_Target1;
     float4 surface : SV_Target2;
     float4 sceneColor : SV_Target3;
+#if DURIN_MATERIAL_SHADING_MODEL == 2
+    float4 modelData : SV_Target4;
+#endif
 };
 [shader("fragment")]
 GeometryPassFragmentOutput GeometryFragmentMain(
@@ -86,9 +89,13 @@ GeometryPassFragmentOutput GeometryFragmentMain(
         EncodeOctahedralNormal(shading.normalFrame.shadingNormal),
         EncodeOctahedralNormal(shading.normalFrame.geometricNormal));
     o.surface = float4(s.metallic, s.specular, shading.effectiveRoughness, 1.0 / 255.0);
+#if DURIN_MATERIAL_SHADING_MODEL == 2
+    o.modelData = float4(s.clearCoat, s.clearCoatRoughness, 0.0, 0.0);
+    o.surface.a = 2.0 / 255.0;
+#endif
     o.sceneColor = float4(s.emissive, 1.0);
 #if DURIN_MATERIAL_AUTHORED_SPECULAR
-    o.surface.a = 129.0 / 255.0;
+    o.surface.a += 128.0 / 255.0;
 #endif
     return o;
 #endif
@@ -119,7 +126,7 @@ float4 FragmentMain(
 {
     FMaterialSurface s = EvaluateGeneratedMaterial(input);
     FResolvedGeneratedSurfaceShading shading;
-#if DURIN_MATERIAL_SHADING_MODEL == 0
+#if DURIN_MATERIAL_SHADING_MODEL != 1
     shading = ResolveGeneratedSurfaceShading(input, s, isFrontFace);
 #endif
 #if DURIN_MATERIAL_BLEND_MODE == 1
@@ -158,14 +165,14 @@ float4 FragmentMain(
             return float4(shadow.diagnosticColor, s.opacity);
         direct += EvaluateSurfaceDirectionalLighting(s.baseColor, s.metallic, s.specular,
             shading.effectiveRoughness, lightingFrame, toLight, radiance,
-            shadow.attenuation);
+            shadow.attenuation, s.clearCoat, s.clearCoatRoughness);
     }
     direct = AccumulateViewLocalLights(direct, s.baseColor, s.metallic, s.specular, shading.effectiveRoughness,
-        input.worldPosition, lightingFrame, LocalLights, Lighting.Counts.y);
+        input.worldPosition, lightingFrame, LocalLights, Lighting.Counts.y, s.clearCoat, s.clearCoatRoughness);
     float3 environment = EvaluateSurfaceEnvironmentLighting(s.baseColor,
         s.metallic, s.specular, shading.effectiveRoughness, s.ambientOcclusion,
         lightingFrame, EnvironmentIrradiance, EnvironmentPrefiltered,
-        EnvironmentBrdfLut, EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
+        EnvironmentBrdfLut, EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl, s.clearCoat, s.clearCoatRoughness);
     return ComposeSurfaceLighting(direct, environment, s.emissive, s.opacity);
 #endif
 }

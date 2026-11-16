@@ -140,8 +140,9 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
     const FPSOPrecacheVertexFactoryData VertexFactory(&Factory->GetType());
     const auto InitialConfig = Renderer.GetSceneRenderPreparationConfig(FSceneInterface::GetDefaultFeatureLevel());
     for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
-    for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit})
+    for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit, EMaterialShadingModel::ClearCoat})
     {
+        if (Shading == EMaterialShadingModel::ClearCoat && Blend == EMaterialBlendMode::Translucent) continue;
         SCOPED_TRACE(std::format("blend={} shading={}", uint8(Blend), uint8(Shading)));
         TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
         FMaterialStaticProperties Properties; Properties.BlendMode = Blend; Properties.ShadingModel = Shading;
@@ -309,14 +310,15 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             case EMeshPipelinePass::HybridRetainedForward: Applicable = Main && Case.Config.Settings.bHybrid && Blend != EMaterialBlendMode::Translucent && (Shading == EMaterialShadingModel::Unlit || !HasGBuffer); break;
             case EMeshPipelinePass::SortedTranslucency: Applicable = Main && Case.Config.Settings.bHybrid && Blend == EMaterialBlendMode::Translucent; break;
             case EMeshPipelinePass::ShadowDepth: Applicable = Case.Params.Participation.bCastShadow && Blend != EMaterialBlendMode::Translucent && Case.Factory->GetShaderType(MaterialMeshPassShadow); break;
-            case EMeshPipelinePass::GBuffer: Applicable = Main && Case.Config.Settings.bHybrid && Blend != EMaterialBlendMode::Translucent && Shading == EMaterialShadingModel::DefaultLit && HasGBuffer; break;
+            case EMeshPipelinePass::GBuffer: Applicable = Main && Case.Config.Settings.bHybrid && Blend != EMaterialBlendMode::Translucent && Shading != EMaterialShadingModel::Unlit && HasGBuffer; break;
             case EMeshPipelinePass::HitProxy: Applicable = Main && Case.Config.Settings.bHitProxy; break;
             }
             ASSERT_FALSE(Case.Initializers.front().IsValid());
             if (!Applicable) { EXPECT_EQ(Case.Initializers.size(), 1u); continue; }
             ASSERT_GT(Case.Initializers.size(), 1u);
-            const size_t ExpectedInitializers = Case.Pass == EMeshPipelinePass::ShadowDepth ? 2u
+            size_t ExpectedInitializers = Case.Pass == EMeshPipelinePass::ShadowDepth ? 2u
                 : Case.Pass == EMeshPipelinePass::HitProxy ? 4u : Case.Config.bSupportsWireframe ? 8u : 4u;
+            if (Case.Pass == EMeshPipelinePass::GBuffer && Shading == EMaterialShadingModel::DefaultLit) ExpectedInitializers *= 2;
             EXPECT_EQ(Case.Initializers.size() - 1, ExpectedInitializers);
             EXPECT_EQ(std::ranges::count_if(Case.Initializers, [](const auto& Data) { return Data.IsValid() && Data.bRequired; }),
                 Case.Pass == EMeshPipelinePass::HitProxy ? 0 : 2);
@@ -330,7 +332,9 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 const FMeshPipelineRasterOptions Raster{(Bits & 4) != 0, (Bits & 1) != 0,
                     Case.Params.bOrientationChanging, (Bits & 2) != 0};
                 if (Raster.bWireframe && !Case.Config.bSupportsWireframe) continue;
-                const auto Draw = Case.Processor->DescribeMeshDraw(MakeMeshPipelineState(Identity, Raster), Case.Params.Topology, Blend, Raster.bReversedZ);
+                auto State = MakeMeshPipelineState(Identity, Raster);
+                State.bGBufferModelData = Case.Pass == EMeshPipelinePass::GBuffer && Shading == EMaterialShadingModel::ClearCoat;
+                const auto Draw = Case.Processor->DescribeMeshDraw(State, Case.Params.Topology, Blend, Raster.bReversedZ);
                 auto Matches = [&](const FPSOPrecacheData& Data) {
                     const auto& PSO = Data.GetGraphicsInitializer();
                     return Data.IsValid() && PSO.PrimitiveTopology == Draw.Topology && PSO.RenderTargetLayout == Draw.RenderTargets
@@ -376,7 +380,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         EXPECT_EQ(ComputeCount, 2u);
 
     }
-    EXPECT_EQ(DeferredProbeCalls.load(), 12);
+    EXPECT_EQ(DeferredProbeCalls.load(), 16);
     EXPECT_EQ(MobileProbeCalls.load(), 0);
 
 }

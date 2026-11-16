@@ -47,6 +47,7 @@ TEST(FMaterialAttributeAuthoringTests, InvalidBindingsAndConfigurationRollBackAt
 	EXPECT_FALSE(Material->SetMaterialConfiguration({.Domain = EMaterialDomain::PostProcess}));
 	FMaterialConfiguration Unsupported;
 	Unsupported.Properties.ShadingModel = EMaterialShadingModel::ClearCoat;
+	Unsupported.Properties.BlendMode = EMaterialBlendMode::Translucent;
 	EXPECT_FALSE(Material->SetMaterialConfiguration(Unsupported));
 	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::DefaultLit);
 	EXPECT_EQ(Material->GetDomain(), EMaterialDomain::Surface);

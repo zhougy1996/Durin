@@ -769,7 +769,8 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FShaderCode& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 20u);
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 21u);
+		ExpectBinding(Fragment, "GBufferModelData", 20, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		for (uint32 Index = 0; Index <= 7; ++Index)
 		{
 			const std::array<const char*, 8> Names{

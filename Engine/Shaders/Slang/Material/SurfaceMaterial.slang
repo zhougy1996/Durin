@@ -8,6 +8,8 @@ public struct FMaterialSurface
     public float3 tangentNormal;
     public float metallic;
     public float specular;
+    public float clearCoat;
+    public float clearCoatRoughness;
     public float roughness;
     public float ambientOcclusion;
     public float3 emissive;
@@ -70,6 +72,8 @@ public FMaterialSurface EvaluateMaterialSurface(FMaterialSurface result)
     result.metallic = saturate(FiniteSurfaceValue(result.metallic, 0.0));
     result.specular = saturate(FiniteSurfaceValue(result.specular, 0.5));
     result.roughness = clamp(FiniteSurfaceValue(result.roughness, 0.5), 0.045, 1.0);
+    result.clearCoat = saturate(FiniteSurfaceValue(result.clearCoat, 1.0));
+    result.clearCoatRoughness = clamp(FiniteSurfaceValue(result.clearCoatRoughness, 0.1), 0.045, 1.0);
     result.ambientOcclusion = saturate(FiniteSurfaceValue(result.ambientOcclusion, 1.0));
     // Retain authored finite HDR bounds across forward and RGBA16F SceneColor output.
     result.emissive = clamp(FiniteSurfaceColor(result.emissive, 0.0),

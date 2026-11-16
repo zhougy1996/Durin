@@ -31,7 +31,7 @@ namespace Durin
 		return &Metadata;                                                          \
 	}
 
-	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassResources, MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)), DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(BasePassColor), DURIN_TEXTURE(SceneDepth), DURIN_TEXTURE(AmbientOcclusion), DURIN_TEXTURE(ContactShadowFragment), DURIN_TEXTURE(ContactShadowCompute), DURIN_TEXTURE(CloudShadowFragment), DURIN_TEXTURE(CloudShadowCompute), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut));
+	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassResources, MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)), DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(BasePassColor), DURIN_TEXTURE(ModelData), DURIN_TEXTURE(SceneDepth), DURIN_TEXTURE(AmbientOcclusion), DURIN_TEXTURE(ContactShadowFragment), DURIN_TEXTURE(ContactShadowCompute), DURIN_TEXTURE(CloudShadowFragment), DURIN_TEXTURE(CloudShadowCompute), DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance), DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut));
 
 	DURIN_DEFINE_METADATA(FDeferredLightingInputParameters, MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::DirectionalShadow), FDirectionalShadowPassResult>("DirectionalShadow", offsetof(FParameters, DirectionalShadow)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::GBufferCompletion), FGBufferPassResult>("GBufferCompletion", offsetof(FParameters, GBufferCompletion)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::AmbientOcclusion), FGroundTruthAmbientOcclusionPassResult>("AmbientOcclusion", offsetof(FParameters, AmbientOcclusion)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::ContactShadow), FContactShadowVisibilityPassResult>("ContactShadow", offsetof(FParameters, ContactShadow)), MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::CloudShadow), FVolumetricCloudShadowPassResult>("CloudShadow", offsetof(FParameters, CloudShadow)), MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::Resources)>("Resources", offsetof(FParameters, Resources), FDeferredDirectionalLightingPassResources::GetRDGParametersMetadata()));
 
@@ -167,6 +167,8 @@ namespace Durin
 			.AmbientOcclusionQuality = AmbientOcclusionQuality,
 			.bProduction = bWantsProductionDeferred
 		};
+		if (Inputs.GBuffer.Textures && Inputs.GBuffer.Textures->ModelData)
+			Parameters->Inputs.Resources.ModelData = FRDGTextureParameter{*Inputs.GBuffer.Textures->ModelData, {ERHITextureAspect::Color, 0, 1, 0, 1}};
 		auto ProductionInputs = Parameters->Inputs;
 		if (bIsolated) Parameters->Inputs.Resources.BasePassColor = FRDGTextureParameter{Inputs.GBuffer.BasePassColor,{ERHITextureAspect::Color,0,1,0,1}};
 		if (!bIsolated)
@@ -295,6 +297,7 @@ namespace Durin
 			.Normals = GBufferTargets->Normals,
 			.Surface = GBufferTargets->Surface,
 			.BasePassColor = Resolver.GetTexture(Resources.BasePassColor),
+			.ModelData = Resources.ModelData ? Resolver.GetTexture(Resources.ModelData) : GBufferTargets->Material.GetReference(),
 			.Depth = SceneDepth,
 			.EnvironmentIrradiance = ResolvePersistent(Policy.PersistentAliases.Irradiance),
 			.EnvironmentPrefiltered = ResolvePersistent(Policy.PersistentAliases.Prefiltered),

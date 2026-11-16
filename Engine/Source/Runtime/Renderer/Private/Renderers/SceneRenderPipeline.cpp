@@ -436,6 +436,10 @@ namespace Durin
 			bool FixedPipelinesReady = true;
 			const FRHICapabilities* Capabilities = GDynamicRHI
 				? GDynamicRHI->RHIGetCapabilities() : nullptr;
+			if (FeaturePlan.GBuffer.IsEnabled()
+				&& FStaticMeshRenderer::NeedsGBufferModelData(PreparedView.Receiver.StaticMeshes)
+				&& (!Capabilities || Capabilities->MaxColorAttachments < 5))
+				return ERenderViewResult::RendererResourcesUnavailable;
 			FeaturePlan.GBuffer.InstanceCullingMode = EInstanceCullingMode::Disabled;
 			if (FeaturePlan.GBuffer.IsEnabled() && Context.Logical.Options.bEnableGPUCulling)
 			{

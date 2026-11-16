@@ -52,21 +52,28 @@ namespace Durin::GBufferContract
 	auto DecodeRecord(
 		const FVector4f& Material,
 		const FVector4f& Normals,
-		const FVector4f& Surface) -> FDecodedRecord
+		const FVector4f& Surface,
+		const FVector4f& ModelData
+	) -> FDecodedRecord
 	{
 		const auto Flags = static_cast<uint8>(std::clamp(std::lround(Surface.w * 255.f), 0l, 255l));
 		return {
 			.BaseColor = FVector3f(Material),
 			.ShadingNormal = DecodeOctahedralNormal(
-				{Normals.x, Normals.y}),
+				{Normals.x, Normals.y}
+			),
 			.GeometricNormal = DecodeOctahedralNormal(
-				{Normals.z, Normals.w}),
+				{Normals.z, Normals.w}
+			),
 			.Metallic = Surface.x,
 			.Specular = (Flags & AuthoredSpecularFlag) ? std::clamp(Surface.y, 0.f, 1.f) : .5f,
+			.ClearCoat = (Flags & 3u) == ClearCoatFlag ? std::clamp(ModelData.x, 0.f, 1.f) : 0.f,
+			.ClearCoatRoughness = std::clamp(ModelData.y, .045f, 1.f),
 			.Roughness = Surface.z,
 			.AmbientOcclusion = Material.w,
 			.EffectiveOpacity = 1.f,
-			.Flags = Flags};
+			.Flags = Flags
+		};
 	}
 
 	auto ReconstructViewPositionAnalytic(

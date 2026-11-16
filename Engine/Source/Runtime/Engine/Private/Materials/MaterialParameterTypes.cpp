@@ -276,10 +276,13 @@ namespace Durin
 		{
 		case EMaterialShadingModel::DefaultLit:
 		case EMaterialShadingModel::Unlit:
+		case EMaterialShadingModel::ClearCoat:
 			break;
 		default:
 			return std::unexpected("Material shading model is invalid.");
 		}
+		if (Properties.ShadingModel == EMaterialShadingModel::ClearCoat && Properties.BlendMode == EMaterialBlendMode::Translucent)
+			return std::unexpected("Translucent ClearCoat is unsupported.");
 		switch (Properties.DepthWritePolicy)
 		{
 		case EMaterialDepthWritePolicy::Automatic:

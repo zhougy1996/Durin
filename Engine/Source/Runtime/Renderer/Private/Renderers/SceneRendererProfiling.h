@@ -147,6 +147,7 @@ namespace Durin
 		FRHITexture* Surface,
 		FRHITexture* BasePassColor,
 		FRHITexture* Depth);
+	using FGBufferModelDataCaptureSink = void (*)(FRHICommandListImmediate&, FRHITexture*);
 	using FDeferredDirectionalCaptureSink = void (*)(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* DeferredColor);
@@ -195,6 +196,8 @@ namespace Durin
 
 	// Development seam receiving the completed qualification geometry buffers.
 	RENDERER_API auto SetGBufferCaptureSink(FGBufferCaptureSink Sink) -> void;
+	RENDERER_API auto SetGBufferModelDataCaptureSink(FGBufferModelDataCaptureSink Sink) -> void;
+	auto GetGBufferModelDataCaptureSink() -> FGBufferModelDataCaptureSink;
 	RENDERER_API auto SetDeferredDirectionalCaptureSink(
 		FDeferredDirectionalCaptureSink Sink) -> void;
 	RENDERER_API auto SetGroundTruthAmbientOcclusionCaptureSink(

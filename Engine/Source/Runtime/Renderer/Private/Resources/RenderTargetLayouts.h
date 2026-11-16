@@ -18,7 +18,7 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeSceneTargets() -> FRHIRenderTargetLayout;
 	// Four stored color attachments plus D32 depth for the qualified opaque and
 	// masked geometry transport.
-	RENDERER_API auto MakeGBufferTargets() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGBufferTargets(bool bModelData = false) -> FRHIRenderTargetLayout;
 	// One D32 depth attachment that is cleared for shadow rendering and
 	// published for fragment-shader comparison sampling when the pass ends.
 	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;

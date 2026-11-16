@@ -707,12 +707,16 @@ namespace Durin::RendererPrivate
 			|| !IsMeshRelevant(Identity, Params.Participation, Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return;
 		for (const auto& Variant : GetPSOPrecacheVariants(Config, Params))
 		{
-			const FMeshPassProcessorBatch Batch{Identity, *Factory, MakeMeshPipelineState(Identity, Variant.Raster),
-				Params.Topology, Params.Participation, true, Variant.Raster.bReversedZ};
+			auto PipelineState = MakeMeshPipelineState(Identity, Variant.Raster);
+			PipelineState.bGBufferModelData = GetPass() == EMeshPipelinePass::GBuffer
+											  && (Variant.bGBufferModelData || Properties.ShadingModel == EMaterialShadingModel::ClearCoat);
+			if (GetPass() == EMeshPipelinePass::GBuffer && Properties.ShadingModel == EMaterialShadingModel::ClearCoat && !Variant.bGBufferModelData) continue;
+			const FMeshPassProcessorBatch Batch{Identity, *Factory, PipelineState, Params.Topology, Params.Participation, true, Variant.Raster.bReversedZ};
 			FGraphicsPipelineStateInitializer Initializer;
 			if (!BuildPSOInitializer(Batch, PSOResources->GetShaders(), PSOResources->GetDeclaration(), Initializer))
 			{ requiref(false, "Prepared mesh resources do not match the append inputs."); }
-			Out.emplace_back(Initializer, Variant.bRequired);
+			const bool bRequired = Variant.bRequired && (GetPass() != EMeshPipelinePass::GBuffer || Properties.ShadingModel == EMaterialShadingModel::ClearCoat || !Variant.bGBufferModelData);
+			Out.emplace_back(Initializer, bRequired);
 			Out.back().PSOCollectorIndex = PSOCollectorIndex;
 			Out.back().VertexFactoryType = VertexFactoryData.VertexFactoryType;
 		}

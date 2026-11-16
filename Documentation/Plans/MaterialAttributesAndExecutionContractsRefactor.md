@@ -29,8 +29,9 @@ The owner authorized the Stage 4 DefaultLit Specular slice while retaining that
 Metal gap. Specular implementation and Windows forward/deferred qualification
 are complete on 2026-11-17. The following Emissive-to-SceneColor slice uses
 three RGBA8 GBuffer records plus existing RGBA16F SceneColor, retaining both
-octahedral normals. Its Windows receipt is recorded below. ClearCoat and
-display-chain PostProcess integration remain open.
+octahedral normals. The ClearCoat continuation implements a shared forward/
+deferred layer and optional ModelData; Windows qualification completed on 2026-11-17.
+Display-chain PostProcess integration remains open.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -705,6 +706,35 @@ final workspace build and numerical cost gates.
 Outcome: new attributes, a second Lit model and a non-mesh domain execute without
 reintroducing fixed Surface or geometry assumptions. Depends on Stage 3.
 
+2026-11-17 ClearCoat implementation decision: the owner authorized the next
+Windows slice while retaining native Metal acceptance. Use the frozen single-normal
+GGX/Schlick layer equations below and exactly bypass the layer when weight is zero.
+ModelData is optional RGBA8: R=coat weight, G=clamped coat perceptual roughness,
+B/A=zero. It is MRT4, following existing SceneColor MRT3. Low model bits are
+1=DefaultLit and 2=ClearCoat; bit 7 retains authored Specular identity. Views with
+eligible ClearCoat use one common five-output render-pass layout for all participating
+draws; shader outputs and PSO layouts participate in identity. Default-only views
+keep four MRT outputs and 12 GBuffer bytes/pixel; coat views use 16, excluding
+SceneColor/depth. Reject unsupported attachment counts and translucent ClearCoat;
+never silently select DefaultLit. Preserve both octahedral normals, base specular-AA,
+Emissive ownership and authored asset versions. Advance MIR/translation to 15/12,
+normalization/generator/adapter to 15/24/21 and pass/DMAT to 20/23; layout stays 5.
+
+ClearCoat precision refinement before qualification closure: retaining the existing
+RGBA8 dual-octahedral normals means a coating lobe can amplify their permitted
+normal error. The initial off-axis metallic c=1/rc=0.4 sample differed by 0.00513
+between paths (the old absolute floor was 0.005), while every codec channel
+remained within its frozen bound. Do not silently widen that floor or change
+normal storage. For this new model, compare each GPU path to independent CPU
+lighting using that path's actual resolved inputs: full forward values versus
+captured/decoded GBuffer values. Keep <=max(0.005,0.01*abs(reference)) residual,
+<=1/510 model channels, <=1 degree normals, and exact c=0 DefaultLit identity
+within the same transport. Also check the forward/deferred difference against
+the independently predicted transport difference, with <=0.005 residual, and
+retain raw HDR/CSV evidence. This refines the new ClearCoat cross-path gate below;
+it does not alter DefaultLit baseline gates or promise image equality beyond
+existing compact transport precision.
+
 2026-11-17 follow-up decision: the owner authorized Emissive-to-SceneColor
 alignment before ClearCoat. Eligible opaque/masked Base Pass draws write linear
 HDR Emissive and alpha one directly to the existing RGBA16F SceneColor alongside
@@ -738,7 +768,7 @@ ModelData attachment remains reserved for later ClearCoat, outside this slice.
 
 - [x] Add DefaultLit Specular with the Stage 0 mapping and compatibility default; qualify direct and environment lighting in Windows forward/deferred paths. Metal qualification remains open under the owner's bounded continuation decision.
 - [x] Align Emissive with SceneColor before ClearCoat; qualify single application, HDR/alpha/exposure, debug, RDG ordering and failure recovery on Windows while retaining both octahedral normals and the Metal gap.
-- [ ] Add the selected ClearCoat model, coat weight/roughness attributes, model identity and explicit GBuffer encode/decode. Share surface semantics across forward and deferred; qualify zero/full coat and roughness endpoints and reject translucent ClearCoat.
+- [x] Add the selected ClearCoat model, coat weight/roughness attributes, model identity and explicit GBuffer encode/decode. Share surface semantics across forward and deferred; qualify zero/full coat and roughness endpoints and reject translucent ClearCoat. Windows-qualified; native Metal acceptance remains open.
 - [ ] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. A neutral material preserves input; a color transform and depth visualization demonstrate actual execution. No mesh Vertex Factory or surface-lighting resources are requested.
 - [ ] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
 - [ ] Verify domain/model switches, parameter-only updates without compilation, graph Undo/Redo/save/reopen, cooked Editor/Game parity and distinct shader identities for semantically different contracts.
@@ -746,6 +776,77 @@ ModelData attachment remains reserved for later ClearCoat, outside this slice.
 Exit: all three extension proofs produce independently checked pixels and valid
 Cook output. ClearCoat and PostProcess unsupported paths are explicit, without
 silently falling back to DefaultLit or Surface.
+
+#### ClearCoat implementation and Windows receipt
+
+Validated `26fcff65f` plus this change on 2026-11-17, windows-msvc-x64 /
+Win64-Debug-DurinEditor, MSVC 19.44, Debug, 18 build jobs; NVIDIA GeForce
+RTX 3090, Vulkan 1.4.351, SDK 1.4.357.0 validation layer.
+
+The frozen single-normal layer is shared by forward and deferred direct/local/IBL
+helpers. ClearCoat activates its two scalar attributes only in consuming pixel
+entries and rejects translucent configurations. Material compiler tests prove
+entry parameter reachability, model/output identity, masked admission, inactive
+parameter pruning and graph-stripped Win64 Game-profile DMAT round-trip.
+
+Default-only views retain three RGBA8 records plus existing RGBA16F SceneColor;
+coat views add optional RGBA8 ModelData at MRT4. All participating draws use one
+matching view layout, including DefaultLit in a mixed view. Shader/PSO identity
+and automatic precache cover the four/five-target variants. ModelData stores
+weight/roughness in R/G, B/A zero; flag model 2 and authored-Specular bit 7 are
+independent. Both octahedral normals and Emissive-to-SceneColor remain intact.
+AO/contact/debug accept both Lit model identities without requiring coat channels.
+
+CPU closed-form checks and real Vulkan HDR pixels cover c=0/0.5/1, roughness
+0.045/0.1/0.4/1 and metallic 0/1 under directional, point, spot and environment
+lighting; separate oblique CPU goldens exercise Fresnel attenuation and AO. A named
+forward-only qualification factory exercises opaque/masked forward shader output
+without admitting translucent coat or introducing a production fallback. Zero
+coat equals DefaultLit byte-for-byte in each matching transport. Mixed-view
+DefaultLit pixels remain unchanged. Captured ModelData and normals determine
+independent deferred references under the precision refinement above; complete
+forward values determine forward references. Parameter updates retain accepted
+program identity. Raw HDR/record captures, numerical CSV and receipts live in
+ignored `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage4/ClearCoat/`.
+
+Cache generations are MIR/translation 15/12, normalization/generator/adapter
+15/24/21 and pass/DMAT 20/23. Layout 5 and authored custom versions are unchanged;
+derived programs require rebuilding/recook, without source asset recreation.
+
+All Windows receipts below are under `Build/.agent-state/logs/`:
+
+| Validation | Result | Receipt |
+| --- | --- | --- |
+| `StaticMeshRenderPreparationVulkanTests` | All 26 cases; shared lighting, mixed layout, emission/WPO regression, PSO ownership and ClearCoat opaque/masked precache | `20261117-021124-655111-33120-StaticMeshRenderPreparationVulkanTests.log` |
+| `@domain=material,kind=feature --test-jobs 2` | All 13 targets; source-free Cook/Game-profile decode, authoring, instances, compiler and oblique CPU goldens | `20261117-021722-265036-41832-ctest.log` |
+| `RenderShaderContractTests` | All 73 cases, including optional ModelData slot 20 and no production SceneColor seed sampler | `20261117-015319-909779-26556-RenderShaderContractTests.log` |
+| `EditorRenderingTests` | All 93 cases, including model codec, normals and four/five MRT byte budgets | `20261117-021825-010688-14996-EditorRenderingTests.log` |
+| `RendererSceneContractTests` | All 173 cases; optional attachment metadata and producer/resource contracts | `20261117-021838-397289-30856-RendererSceneContractTests.log` |
+| `VolumetricCloudSceneVulkanTests` | Offscreen/Present, resource retry, graph schedules and nine Stage 0 captures within frozen precision | `20261117-021148-265879-38804-VolumetricCloudSceneVulkanTests.log` |
+| `EditorGridVulkanTests` | All 7 cases; resource generation/device invalidation/recovery and Present/resize | `20261117-021205-325067-47212-EditorGridVulkanTests.log` |
+| Workspace `all` | Engine, Sandbox and RoadWeaver compile/link integration passed for shared material/MRT/mesh headers | `20261117-021209-947982-41828-cmake.log` |
+
+The 576 HDR observations have maximum model residuals 0.000218958 directional,
+0.000239760 point, 0.000222743 spot and 0.000126205 IBL. Raw cross-path differences
+reach 0.00537109; after the independently predicted transport difference, the
+maximum residual is 0.000422. Both the unchanged channel bounds and the refined
+ClearCoat precision gate pass. Six of nine Stage 0 captures are byte-identical;
+the other three each differ in one component: one SDR code value, or one HDR half
+ULP (maximum absolute HDR difference 0.0000610352). Alpha is identical. Preserve
+these measured differences rather than claiming all baseline bytes are unchanged.
+
+Affected analysis selects broad Engine/Renderer consumers. The bounded material,
+shader, renderer, changed GPU routes and workspace build cover this continuation.
+The shader receipt remains applicable because shader sources, reflection fixtures,
+compiler/environment and relevant material compile inputs did not change afterward.
+Final GPU receipts contain no Vulkan validation errors. No timing qualification,
+full corpus Cook or packaged Game executable is claimed. Native Metal compilation/reflection
+and GPU acceptance remain open: migrate the macOS qualification fixture first,
+then verify coat attribute resources, five MRT outputs/capability admission,
+RGBA8 codec, preserved normals, shared lighting, c=0 identity and model switching.
+Windows SPIR-V and source-free execution do not waive these native backend gates.
+PostProcess display integration, remaining editor/content/Game closure and final
+integrated cost/timing qualification remain later work; Stage 4 is not complete.
 
 #### Emissive-to-SceneColor implementation and Windows receipt
 
@@ -1143,14 +1244,14 @@ newly discovered incompatibility is documented first. Stage-specific generations
 cannot consume prior intermediate products. Collection/texture-package formats
 remain unchanged unless their own representation changes.
 
-| Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4 Specular | Stage 4 Emissive |
-| --- | --- | --- | --- | --- | --- | --- |
-| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 9 / 4 / 6 | same | same |
-| MaterialInstance custom version | 2 | 2 | 2 | 3 | 3 | 3 |
-| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 13 / 9 | 14 / 10 | 14 / 11 |
-| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 13 / 21 / 18 | 14 / 22 / 19 | 14 / 23 / 20 |
-| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 17 / 20 | 18 / 21 | 19 / 22 |
-| RenderLayout identity and compiled-layout version | 4 / 4 | same | same | 5 / 5 | same | same |
+| Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4 Specular | Stage 4 Emissive | Stage 4 ClearCoat |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 9 / 4 / 6 | same | same | same |
+| MaterialInstance custom version | 2 | 2 | 2 | 3 | 3 | 3 | 3 |
+| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 13 / 9 | 14 / 10 | 14 / 11 | 15 / 12 |
+| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 13 / 21 / 18 | 14 / 22 / 19 | 14 / 23 / 20 | 15 / 24 / 21 |
+| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 17 / 20 | 18 / 21 | 19 / 22 | 20 / 23 |
+| RenderLayout identity and compiled-layout version | 4 / 4 | same | same | 5 / 5 | same | same | same |
 
 The existing shader-library container need not change solely because material
 contracts change: new entry/material/source identities and Cook inventories must
@@ -1236,13 +1337,13 @@ layout: BaseColor/AO share one RGBA8 target, Metallic/Specular/Roughness/flags
 share another, and opaque/masked opacity decodes as one. Bit 7 identifies authored
 Specular; without it decode exactly 0.5. All Specular views retain three records
 plus SceneColor.
-For the later ClearCoat slice, add one optional RGBA8 ModelData target for coat
-weight/roughness (final channel assignment must be recorded before that slice);
-clamp/UNorm8 encode. Without this target use DefaultLit and its existing packed Specular. MRT/output-layout variants participate in
+The ClearCoat slice adds one optional RGBA8 ModelData target for coat
+weight/roughness in R/G and zero B/A on ClearCoat pixels;
+clamp/UNorm8 encode. Default-only views omit it. A ClearCoat draw without the required target is rejected. MRT/output-layout variants participate in
 Shader/PSO identity; a view with the target uses a matching common GBuffer layout
 for its participating draws. Inspect target-count capability before admission.
 
-Baseline GBuffer transport is 12 bytes/pixel; the later ModelData extension is
+Baseline GBuffer transport is 12 bytes/pixel; the ModelData extension is
 16, excluding existing RGBA16F SceneColor and 4-byte depth in both cases. No
 ModelData/fifth MRT attachment is allocated for a default-only view. ModelData quantization error is at most 1/510 per
 normalized attribute; Specular's dielectric F0 error at most 0.08/510. Preserve

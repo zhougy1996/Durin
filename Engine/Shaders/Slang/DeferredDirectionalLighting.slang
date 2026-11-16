@@ -68,6 +68,7 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
     return output;
 }
 
+[[vk::binding(20, 0)]] Texture2D<float4> GBufferModelData;
 [[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
 [[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
 [[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
@@ -106,13 +107,13 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input, bool includeEmi
     FGBufferRecord record = DecodeGBuffer(
         GBufferMaterial.Load(int3(pixel, 0)),
         GBufferNormals.Load(int3(pixel, 0)),
-        GBufferSurface.Load(int3(pixel, 0)));
+        GBufferSurface.Load(int3(pixel, 0)), GBufferModelData.Load(int3(pixel, 0)));
 	// Negative w selects AO diagnostics; positive w preserves the scene background.
     uint aoDiagnostic = View.Params.w < -0.5
         ? (uint)round(-View.Params.w) : AmbientOcclusionDebugDisabled;
 	bool gtaoEnabled = View.Params.z >= 0.0;
 	int2 aoNativePixel = View.ContactParams.z > 0.5 ? pixel / 2 : pixel;
-    if ((record.flags & GBufferStandardLitFlag) == 0u)
+    if ((record.flags & GBufferLitModelMask) == 0u)
     {
 		if (aoDiagnostic != AmbientOcclusionDebugDisabled)
 			return MakeDeferredLightingOutput(float4(0.0, 0.0, 0.0, 1.0), float3(0.0));
@@ -201,14 +202,14 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input, bool includeEmi
             frame,
             toLight,
             radiance,
-			shadow.attenuation * contactVisibility * cloudVisibility);
+			shadow.attenuation * contactVisibility * cloudVisibility, record.clearCoat, record.clearCoatRoughness);
     }
 	if (View.ContactParams.y > 0.5)
 		return MakeDeferredLightingOutput(
 			float4(1.0 - contactVisibility, 0.0, 0.0, 1.0), directional);
 
     float3 local = AccumulateViewLocalLights(float3(0.0), record.baseColor, record.metallic, record.specular, record.roughness,
-        worldPosition, frame, LocalLights, Lighting.Counts.y);
+        worldPosition, frame, LocalLights, Lighting.Counts.y, record.clearCoat, record.clearCoatRoughness);
 
     float3 environment = EvaluateSurfaceEnvironmentLighting(
         record.baseColor,
@@ -221,7 +222,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input, bool includeEmi
         EnvironmentIrradiance,
         EnvironmentPrefiltered,
         EnvironmentBrdfLut,
-        EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
+        EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl, record.clearCoat, record.clearCoatRoughness);
 #if DURIN_DEFERRED_PRODUCTION
     float3 emissive = float3(0.0);
 #else
@@ -335,7 +336,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input, bool includeEmi
 				GBufferMaterial.Load(int3(neighbor, 0)),
 				GBufferNormals.Load(int3(neighbor, 0)),
 				GBufferSurface.Load(int3(neighbor, 0)));
-			if ((neighborRecord.flags & GBufferStandardLitFlag) == 0u
+			if ((neighborRecord.flags & GBufferLitModelMask) == 0u
 				|| dot(centerNormal, neighborRecord.geometricNormal) < 0.90)
 				rejectedEdge = true;
 			else
