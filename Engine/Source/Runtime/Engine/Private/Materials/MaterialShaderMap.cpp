@@ -5,10 +5,9 @@ namespace Durin
 	FMaterialShaderMap::FMaterialShaderMap() = default;
 	FMaterialShaderMap::~FMaterialShaderMap() = default;
 	FMaterialShaderMap::FMaterialShaderMap(const FMaterialShaderMap& Other)
-		: ActiveParameters(Other.ActiveParameters), Layout(Other.Layout), Requirements(Other.Requirements),
-		  Dependencies(Other.Dependencies), CompiledShaders(Other.CompiledShaders), ShaderMapId(Other.ShaderMapId),
+		: FMaterialCompilationOutput(Other), Dependencies(Other.Dependencies), CompiledShaders(Other.CompiledShaders), ShaderMapId(Other.ShaderMapId),
           CompilerIdentity(Other.CompilerIdentity), Target(Other.Target), PassContractVersion(Other.PassContractVersion),
-          RequiredStages(Other.RequiredStages), CollectionLayouts(Other.CollectionLayouts), DebugData(Other.DebugData),
+		  RequiredEntries(Other.RequiredEntries), DebugData(Other.DebugData),
           CompileTime(Other.CompileTime) {}
 	auto FMaterialProgram::GetShaderMap() const -> const FMaterialShaderMap&
 	{ static const FMaterialShaderMap Empty; return ShaderMap ? *ShaderMap : Empty; }
@@ -58,6 +57,17 @@ namespace Durin
 			+ CollectionBytes(CollectionLayouts)
 			+ ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
 			+ Layout.Fields.capacity() * sizeof(FMaterialRenderField) + CompiledShaders.capacity() * sizeof(FShaderCode);
+		Size += RequiredEntries.capacity() * sizeof(EMaterialShaderEntry) + Entries.capacity() * sizeof(FMaterialShaderEntryRequest);
+		for (const auto& Entry : Entries)
+		{
+			const auto& Key = Entry.Shader; const auto& Q = Entry.Requirements;
+			Size += Key.ShaderType.capacity() + Key.EntryPoint.capacity() + Key.Target.capacity();
+			if (Entry.Mesh) Size += Entry.Mesh->Material.ShaderType.capacity() + Entry.Mesh->Material.EntryPoint.capacity()
+				+ Entry.Mesh->Material.Target.capacity() + Entry.Mesh->VertexFactoryType.capacity();
+			Size += (Q.AttributeIDs.capacity() + Q.ParameterIDs.capacity() + Q.CollectionIDs.capacity()) * sizeof(FGuid)
+				+ Q.ResourceIndices.capacity() * sizeof(uint16) + Q.SceneTextures.capacity() * sizeof(FMaterialSceneTextureRequirement)
+				+ Q.Interpolators.capacity() * sizeof(FMaterialValueSemantics);
+		}
 		for (const auto& Dependency : Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
 		for (const auto& Shader : CompiledShaders) {
 			Size += Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity() + Shader.Code.GetRetainedCapacityBytes();

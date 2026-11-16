@@ -58,7 +58,7 @@ namespace
 	auto EditRoughnessDefault(Durin::DMaterial& Material, float Delta) -> Durin::FMaterialProgramValidationResult
 	{
 		auto Outputs = Material.GetExpressionOutputs();
-		Outputs.Roughness.SetConstant({ReadMaterialOutputDefault(Outputs, Durin::EMaterialOutputPin::Roughness)[0] + Delta});
+		Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({ReadMaterialOutputDefault(Outputs, Durin::EMaterialOutputPin::Roughness)[0] + Delta});
 		std::vector<Durin::DMaterialExpression*> Expressions;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		return Material.SetMaterialExpressions(Expressions, Outputs);
@@ -114,7 +114,7 @@ namespace
 		Cache->Release.Trigger(); ASSERT_TRUE(WaitForMaterialCompile(*A)); ASSERT_TRUE(WaitForMaterialCompile(*B));
 		EXPECT_GT(GetMaterialCompilationStatistics().SingleFlightConsumers, Before.SingleFlightConsumers);
 		EXPECT_NE(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram());
-		EXPECT_EQ(A->GetAcceptedCompiledProgram()->ShaderMap, B->GetAcceptedCompiledProgram()->ShaderMap); EXPECT_EQ(GetShaderBuildStats().Compilations, std::popcount(MaterialAllStageMask));
+		EXPECT_EQ(A->GetAcceptedCompiledProgram()->ShaderMap, B->GetAcceptedCompiledProgram()->ShaderMap); EXPECT_EQ(GetShaderBuildStats().Compilations, MaterialAllEntries.size());
 	}
 }
 
@@ -215,7 +215,7 @@ auto QualifyEditScheduling() -> void
 		.MemberProperty = Root->GetClass()->FindPropertyByName("ExpressionCollection")});
 	EXPECT_EQ(Root->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	auto Invalid = Root->GetExpressionOutputs();
-	Invalid.Roughness.Connection.ExpressionId = FGuid::NewGuid();
+	Invalid.Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId = FGuid::NewGuid();
 	Expressions.clear();
 	for (const auto& Expression : Root->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 	EXPECT_FALSE(Root->SetMaterialExpressions(Expressions, Invalid));
@@ -863,7 +863,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementUsesFallbackUntilComp
 	const std::array Definitions{Definition};
 	auto& Node = Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float,
 		{}, Definition.Id, {}, Definitions);
-	Graph.Outputs.Roughness = {Node.Id};
+	Graph.Outputs.Get(EMaterialProperty::MP_Roughness) = {Node.Id};
 	Durin::FThreadEvent Started, Release;
 	std::atomic<uint32> StartedCount = 0;
 	std::vector<Durin::Tasks::FTask> Blockers;
@@ -1064,8 +1064,8 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Expression(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 		Expression->Id = Call; Expression->Function = Wrapper; Expression->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Expression.Get()};
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = Call, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+		FMaterialAttributeRoot Outputs;
+		Outputs.Attributes = {.ExpressionId = Call, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	{
@@ -1096,11 +1096,11 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	{
 		FHoldWorkers Hold;
 		ASSERT_TRUE(Hold.Hold());
-		LeafSignature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.381f;
+		LeafSignature.Inputs[0].Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = 0.381f;
 		ASSERT_TRUE(ApplyLeafSignature());
 		ASSERT_TRUE(First->CompileEdits());
 		ASSERT_TRUE(Second->CompileEdits());
-		LeafSignature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.482f;
+		LeafSignature.Inputs[0].Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = 0.482f;
 		ASSERT_TRUE(ApplyLeafSignature());
 		EXPECT_FALSE(First->GetAcceptedCompiledProgram());
 	}
@@ -1301,6 +1301,7 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FByteBuffer WrongEnvironmentBytes;
 	auto WrongMap = std::make_shared<Durin::FMaterialShaderMap>(WrongEnvironment.GetShaderMap());
 	WrongMap->Target = "wrong-target";
+	for (auto& Entry : WrongMap->Entries) { Entry.Shader.Target = WrongMap->Target; if (Entry.Mesh) Entry.Mesh->Material = Entry.Shader; }
 	WrongEnvironment.ShaderMap = WrongMap;
 	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironment, Material->GetStaticProperties(),
@@ -1362,6 +1363,7 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes));
 	Artifact->Target = "metal-library-1";
+	for (auto& Entry : Artifact->Entries) { Entry.Shader.Target = Artifact->Target; if (Entry.Mesh) Entry.Mesh->Material = Entry.Shader; }
 	for (auto& Shader : Artifact->CompiledShaders)
 	{
 		Shader.Target = Durin::MetalLibraryShaderTarget;
@@ -1478,7 +1480,7 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	Select->DefaultValue.Connection = {Low->Id};
 	Select->SM5 = {High->Id};
 	Select->SM6 = {High->Id};
-	FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Select->Id};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select->Id};
 	const std::array<DMaterialExpression*, 3> Expressions{Low, High, Select};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -1517,7 +1519,7 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	ASSERT_TRUE(LowResource->CompiledProgram);
 	ASSERT_EQ(LowResource->CompiledProgram->DefaultParameters.GetParameterCount(), 1u);
 	EXPECT_FLOAT_EQ(LowResource->CompiledProgram->DefaultParameters.ScalarParameters.front().Value, 0.625f);
-	Outputs.Roughness = {High->Id};
+	Outputs.Get(EMaterialProperty::MP_Roughness) = {High->Id};
 	const std::array<DMaterialExpression*, 1> RemainingExpressions{High};
 	ASSERT_TRUE(Material->SetMaterialExpressions(RemainingExpressions, Outputs));
 	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
@@ -1660,7 +1662,7 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousResourceCacheDoesNotWaitForAnother
 	Low->Id = FGuid::NewGuid(); Low->Value = .21319f;
 	High->Id = FGuid::NewGuid(); High->Value = .71319f;
 	Select->Id = FGuid::NewGuid(); Select->Low = {Low->Id}; Select->High = {High->Id};
-	FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Select->Id};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select->Id};
 	const std::array<DMaterialExpression*, 3> Expressions{Low, High, Select};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);

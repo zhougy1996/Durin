@@ -10,7 +10,11 @@ namespace Durin
 	inline auto FindMaterialNumericInput(DMaterialExpression& Expression,
 		const FMaterialExpressionInput& Input) -> FMaterialNumericInput*
 	{
-		if (auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(&Expression))
+		if (auto* Attributes = Cast<DMaterialExpressionMakeMaterialAttributes>(&Expression))
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+			{ auto& Numeric = Attributes->Values.Get(Definition.Property); if (&Numeric.Connection == &Input) return &Numeric; }
+
+		if (auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(&Expression))
 			for (auto& Attribute : Surface->Attributes) if (&Attribute.Source.Connection == &Input) return &Attribute.Source;
 		FMaterialNumericInput* Result = nullptr;
 		Expression.GetClass()->ForEachProperty([&](FProperty* Property) {
@@ -34,6 +38,13 @@ namespace Durin
 	template<typename Visitor>
 	auto VisitMaterialExpressionInputs(DMaterialExpression& Expression, Visitor&& Visit) -> void
 	{
+		if (auto* Attributes = Cast<DMaterialExpressionMakeMaterialAttributes>(&Expression))
+		{
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+				Visit(uint32(Definition.Property), Attributes->Values.Get(Definition.Property).Connection);
+			return;
+		}
+
 		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
 		{
 			for (uint32 Index = 0; Index < Call->Inputs.size(); ++Index) Visit(Index, Call->Inputs[Index].Input);
@@ -58,7 +69,7 @@ namespace Durin
 			for (uint32 Element = 0; Element < Property->GetArrayDim(); ++Element)
 				Visit(Index++, *static_cast<FMaterialExpressionInput*>(Property->GetValuePtr(&Expression, Element)));
 		});
-		if (auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(&Expression))
-			for (auto& Attribute : Surface->Attributes) Visit(static_cast<uint32>(Attribute.Attribute) + 1, Attribute.Source.Connection);
+		if (auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(&Expression))
+			for (auto& Attribute : Surface->Attributes) Visit(static_cast<uint32>(Attribute.GetProperty()) + 1, Attribute.Source.Connection);
 	}
 }

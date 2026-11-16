@@ -6,8 +6,8 @@ Modules: Engine, RenderCore, Renderer, MaterialEditor
 ## Authoring and semantics
 
 The Surface material terminal exposes a `World Position Offset` Float3 input
-with zero default. Its connection and retained literal remain independent of
-the eight pixel Surface attributes and Material Attributes mode. Graph commands,
+with zero default. Its GUID-keyed binding belongs to the same typed attribute
+set as the pixel properties and participates in Material Attributes mode. Graph commands,
 transactions, working copies, Apply and package persistence use the ordinary
 terminal input contract.
 
@@ -51,9 +51,9 @@ Accepted programs contain the exact declared geometry/Pass stage set, selected
 from four fragment entries and `VertexMain`/`SplineVertexMain`. Direct and
 indirect drawing share those geometry entries. Stage artifacts share independently through ShaderBuild;
 see [shader stage selection and sharing](MaterialShaderStages.md). The generated
-import closure conservatively includes both Local and Spline factories. MIR 8,
-generator revision 16, compile adapter 13, pass contract 13 and cooked payload
-schema 15 invalidate incompatible producer and runtime artifacts.
+import closure conservatively includes both Local and Spline factories. MIR 10,
+generator revision 18, compile adapter 15, pass contract 14 and cooked payload
+schema 17 invalidate incompatible producer and runtime artifacts.
 
 Local and Spline vertices apply WPO after vertex-factory deformation using the
 selected GPUScene instance transform. Clip displacement transforms the

@@ -201,14 +201,18 @@ namespace Durin
 				FMaterialRenderBinding Binding;
 				if (!Item.Primitive || !Factory
 					|| !ResolvePreparedMaterialBinding(Draw.Command->Material, Binding, "HitProxyMaterial")) { bReady = false; break; }
-				// Until time dependence is a separate material requirement, conservatively
-				// expire all live view-dependent programs once per render frame.
 				const auto Program = Draw.Command->Material.CompiledProgram;
-				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && Program->GetShaderMap().Requirements.bMaterialView;
+				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
+				const auto* VertexType = Factory->UsesGeneratedMaterialVertexStage(Processor.GetVertexFactoryPass())
+					? Factory->GetShaderType(Processor.GetVertexFactoryPass()) : nullptr;
+				// Only this pass's coverage and selected vertex evaluation can make
+				// a live-time hit map frame-dependent; unrelated surface roots cannot.
+				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && std::ranges::any_of(Program->GetShaderMap().Entries,
+					[&](const auto& Entry) { return Entry.Requirements.Context.bMaterialView
+						&& (Entry.Shader.ShaderType == "SurfaceHitProxy" || (VertexType && Entry.Shader.EntryPoint == VertexType->GetEntryPoint())); });
 				for (const auto& Texture : Binding.CompiledTextures)
 					if (Texture && Texture->GetReferencedTexture_RenderThread())
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);
-				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HitProxy);
 				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
 					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
 					View.DepthConvention == ESceneDepthConvention::ReversedZ};

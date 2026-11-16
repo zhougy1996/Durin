@@ -11,7 +11,7 @@ namespace Durin::AssetForge::Builtins
 	struct FMaterialExpressionRecipe
 	{
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		FMaterialExpressionSurfaceOutputs Outputs;
+		FMaterialAttributeRoot Outputs;
 		FMaterialGraphPresentation Presentation;
 		std::pair<int32, int32> OutputPosition{96, 0};
 		ASSETFORGEBUILTINS_API auto Apply(DMaterial& Material) const -> FMaterialProgramValidationResult;

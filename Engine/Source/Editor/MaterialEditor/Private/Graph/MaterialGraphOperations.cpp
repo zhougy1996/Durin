@@ -30,12 +30,12 @@ namespace Durin::MaterialEditor
 
 	namespace
 	{
-		auto GetSurfaceLink(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialSurfaceOutput Attribute) -> FMaterialExpressionInput*
+		auto GetSurfaceLink(FMaterialAttributeRoot& Outputs, EMaterialProperty Attribute) -> FMaterialExpressionInput*
 		{
-			if (Attribute > EMaterialSurfaceOutput::OpacityMask) return nullptr;
+			if (Attribute > EMaterialProperty::MP_OpacityMask) return nullptr;
 			return GetMaterialOutputInput(Outputs, static_cast<EMaterialOutputPin>(Attribute));
 		}
-		auto GetSurfaceDefault(const FMaterialExpressionSurfaceOutputs& Outputs, EMaterialSurfaceOutput Attribute) -> FMaterialProgramLiteral
+		auto GetSurfaceDefault(const FMaterialAttributeRoot& Outputs, EMaterialProperty Attribute) -> FMaterialProgramLiteral
 		{
 			const auto Value = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Attribute));
 			return Value.size() == 3 ? FMaterialProgramLiteral{Value[0], Value[1], Value[2]}
@@ -267,7 +267,7 @@ namespace Durin::MaterialEditor
 	}
 
 	auto FMaterialGraphOperations::ResetSurfaceDefault(DMaterial& Material,
-		EMaterialSurfaceOutput Output, ETransactionMode Mode) -> FMaterialGraphCommandResult
+		EMaterialProperty Output, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
@@ -356,7 +356,7 @@ namespace Durin::MaterialEditor
 		for (uint32 Suffix = 1; Material.FindParameterDefinition(Texture->Metadata.Name); ++Suffix)
 			Texture->Metadata.Name = FName(std::format("TextureParameter{}", Suffix));
 		Texture->Metadata.DisplayName = Texture->Metadata.Name.ToString();
-		if (Request.Output == EMaterialSurfaceOutput::Normal)
+		if (Request.Output == EMaterialProperty::MP_Normal)
 		{
 			Texture->TextureUsage = ETextureUsage::Normal;
 			Texture->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;

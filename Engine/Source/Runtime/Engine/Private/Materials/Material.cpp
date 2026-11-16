@@ -171,6 +171,15 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::SetMaterialConfiguration(const FMaterialConfiguration& Configuration) -> FMaterialProgramValidationResult
+	{
+		if (Configuration.Domain != EMaterialDomain::Surface)
+			return {.Diagnostics = {{.Message = "The selected material domain has no execution implementation."}}};
+		const auto Result = SetStaticProperties(Configuration.Properties);
+		if (!Result) return {.Diagnostics = {{.Message = Result.error()}}};
+		return {.bSucceeded = true};
+	}
+
 	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> std::expected<void, std::string>
 	{
 		auto Properties = InProperties;

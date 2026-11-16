@@ -107,10 +107,10 @@ namespace Durin::AssetForge::Builtins::Private
 			}
 			return UV;
 		}
-		static auto Output(FMaterialExpressionSurfaceOutputs& Outputs, uint32 Role) -> FMaterialExpressionInput&
+		static auto Output(FMaterialAttributeRoot& Outputs, uint32 Role) -> FMaterialExpressionInput&
 		{
-			const std::array Links{&Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic, &Outputs.Roughness,
-				&Outputs.AmbientOcclusion, &Outputs.Emissive, &Outputs.Opacity, &Outputs.OpacityMask};
+			const std::array Links{&Outputs.Get(EMaterialProperty::MP_BaseColor), &Outputs.Get(EMaterialProperty::MP_Normal), &Outputs.Get(EMaterialProperty::MP_Metallic), &Outputs.Get(EMaterialProperty::MP_Roughness),
+				&Outputs.Get(EMaterialProperty::MP_AmbientOcclusion), &Outputs.Get(EMaterialProperty::MP_EmissiveColor), &Outputs.Get(EMaterialProperty::MP_Opacity), &Outputs.Get(EMaterialProperty::MP_OpacityMask)};
 			return *Links.at(Role);
 		}
 	};

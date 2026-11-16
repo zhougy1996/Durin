@@ -35,7 +35,7 @@ namespace Durin::Testing
 	struct FTestMaterialExpressionGraph
 	{
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		FMaterialExpressionSurfaceOutputs Outputs;
+		FMaterialAttributeRoot Outputs;
 		FMaterialGraphPresentation Presentation;
 		uint32 NextId = 0;
 		std::unordered_map<FGuid, EMaterialProgramValueType> Types;
@@ -148,7 +148,7 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::UVChannel: Expression = NewObject<DMaterialExpressionTextureCoordinates>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Splat3: Expression = NewObject<DMaterialExpressionSplat3>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Subtract: Expression = NewObject<DMaterialExpressionSubtract>(nullptr, NAME_None); break;
-			case EMaterialProgramOpcode::MakeSurface: Expression = NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::MakeMaterialAttributes: Expression = NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::Swizzle:
 			{
 				auto* Mask = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
@@ -160,6 +160,7 @@ namespace Durin::Testing
 			case EMaterialProgramOpcode::Splat2: Expression = NewObject<DMaterialExpressionSplat2>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::MakeFloat2: Expression = NewObject<DMaterialExpressionMakeVector2>(nullptr, NAME_None); break;
 			case EMaterialProgramOpcode::BlendNormalsRNM: Expression = NewObject<DMaterialExpressionBlendNormalsRNM>(nullptr, NAME_None); break;
+			case EMaterialProgramOpcode::BlendMaterialAttributes: Expression = NewObject<DMaterialExpressionBlendMaterialAttributes>(nullptr, NAME_None); break;
 			default: check(false); break;
 			}
 			check(Expression);
@@ -184,7 +185,7 @@ namespace Durin::Testing
 				using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;
 				if (Type == EMaterialProgramValueType::Float3
 					&& ParameterId == GetMaterialSurfaceParameterId(
-						EMaterialSurfaceOutput::Normal, ParameterKind::Value))
+						EMaterialProperty::MP_Normal, ParameterKind::Value))
 				{
 					Mask->OutputSpatialKind = EMaterialSpatialKind::Normal;
 					Mask->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;

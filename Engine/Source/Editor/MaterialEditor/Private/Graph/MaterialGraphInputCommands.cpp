@@ -15,7 +15,7 @@ namespace Durin::MaterialEditor
 		{
 			FMaterialExpressionInput* Source = nullptr;
 			std::vector<float>* Default = nullptr;
-			FMaterialExpressionSurfaceOutputs* MaterialOutputs = nullptr;
+			FMaterialAttributeRoot* MaterialOutputs = nullptr;
 			EMaterialOutputPin OutputPin = EMaterialOutputPin::Surface;
 			std::string Message;
 			FMaterialNumericInput* Numeric = nullptr;
@@ -51,7 +51,9 @@ namespace Durin::MaterialEditor
 			State.Modify(*Expression);
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
-				if (PortId.IsValid() || Index > static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset)) return {.Message = "The material output input address is invalid."};
+				if (PortId.IsValid() || (Index != static_cast<uint32>(EMaterialOutputPin::Surface)
+					&& (Index >= FMaterialAttributeDefinitionMap::GetDefinitions().size()
+						|| !FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Index))))) return {.Message = "The material output input address is invalid."};
 				return {.Source = GetMaterialOutputInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index)),
 					.MaterialOutputs = &Output->Outputs, .OutputPin = static_cast<EMaterialOutputPin>(Index),
 					.Numeric = GetMaterialOutputNumericInput(Output->Outputs, static_cast<EMaterialOutputPin>(Index))};

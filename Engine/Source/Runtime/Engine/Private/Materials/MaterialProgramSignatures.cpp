@@ -1,4 +1,5 @@
 #include "Materials/MaterialProgramTypes.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 
 namespace Durin
 {
@@ -43,7 +44,7 @@ namespace Durin
 		using Type = EMaterialProgramValueType;
 		static constexpr std::array Types{
 			Type::Float, Type::Float2, Type::Float3, Type::Float4,
-			Type::Texture2D, Type::Surface, Type::StaticBool};
+			Type::Texture2D, Type::MaterialAttributes, Type::StaticBool};
 		const auto One = [](Type Value) -> std::span<const Type> {
 			return {&Types[static_cast<size_t>(Value)], 1};
 		};
@@ -122,17 +123,24 @@ namespace Durin
 			if (ResultType != Type::Float4) return std::nullopt;
 			Same(1, Type::Float2);
 			break;
-		case EMaterialProgramOpcode::MakeSurface:
-			if (ResultType != Type::Surface) return std::nullopt;
-			Signature.InputCount = 8;
+		case EMaterialProgramOpcode::BlendMaterialAttributes:
+			if (ResultType != Type::MaterialAttributes) return std::nullopt;
+			Signature.InputCount = 3;
+			Signature.Inputs[0] = One(Type::MaterialAttributes);
+			Signature.Inputs[1] = One(Type::MaterialAttributes);
+			Signature.Inputs[2] = One(Type::Float);
+			return Signature;
+		case EMaterialProgramOpcode::MakeMaterialAttributes:
+			if (ResultType != Type::MaterialAttributes) return std::nullopt;
+			Signature.InputCount = uint8(FMaterialAttributeDefinitionMap::GetDefinitions().size());
 			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
 				Signature.Inputs[Index] = One(GetMaterialSurfaceOutputType(
-					static_cast<EMaterialSurfaceOutput>(Index)));
+					static_cast<EMaterialProperty>(Index)));
 			break;
-		case EMaterialProgramOpcode::GetSurfaceAttributes:
-		case EMaterialProgramOpcode::SetSurfaceAttributes:
-			if (ResultType != Type::Surface) return std::nullopt;
-			Same(1, Type::Surface);
+		case EMaterialProgramOpcode::GetMaterialAttributes:
+		case EMaterialProgramOpcode::SetMaterialAttributes:
+			if (ResultType != Type::MaterialAttributes) return std::nullopt;
+			Same(1, Type::MaterialAttributes);
 			break;
 		case EMaterialProgramOpcode::TextureSample2D:
 			if (ResultType != Type::Float4) return std::nullopt;
@@ -448,21 +456,27 @@ namespace Durin
 			if (!IsSpatial(Inputs[0])) return NonSpatial();
 			// Payload-specific identity checking is performed by the emitter/IR validator.
 			return WithStages(Result, Inputs);
-		case OpcodeType::MakeSurface:
-			if (Inputs.size() != 8) return std::nullopt;
+		case OpcodeType::MakeMaterialAttributes:
+			if (Inputs.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size()) return std::nullopt;
 			for (size_t Index = 0; Index < Inputs.size(); ++Index)
 			{
 				const auto Expected = GetMaterialSurfaceOutputSemantics(
-					static_cast<EMaterialSurfaceOutput>(Index));
+					static_cast<EMaterialProperty>(Index));
+				if (static_cast<EMaterialProperty>(Index) == EMaterialProperty::MP_WorldPositionOffset)
+				{
+					if (!IsMaterialWorldPositionOffsetSemantics(Inputs[Index])) return std::nullopt;
+					continue;
+				}
 				if (Inputs[Index].Type != Expected.Type
 					|| Inputs[Index].Kind != Expected.Kind
 					|| Inputs[Index].Space != Expected.Space
-					|| !MaterialStagesContain(Inputs[Index].Stages, Stage::Pixel))
+					|| !MaterialStagesContain(Inputs[Index].Stages, Expected.Stages))
 					return std::nullopt;
 			}
-			return WithStages(Result, Inputs, Stage::Pixel);
-		case OpcodeType::GetSurfaceAttributes:
-		case OpcodeType::SetSurfaceAttributes:
+			Result.Stages = Stage::Both;
+			return Result;
+		case OpcodeType::GetMaterialAttributes:
+		case OpcodeType::SetMaterialAttributes:
 			return WithStages(Result, Inputs, Stage::Pixel);
 		case OpcodeType::FunctionInput:
 		case OpcodeType::FunctionOutput:

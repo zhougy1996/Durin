@@ -26,7 +26,7 @@ namespace Durin::MaterialEditor
 			if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
 				return !Source || (!Entry->AcceptedInputTypes.empty() && Accepts(Entry->AcceptedInputTypes.front(), *Source));
 			if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
-				return HasFunctionPorts() && Port->Type <= EMaterialProgramValueType::Surface
+				return HasFunctionPorts() && Port->Type <= EMaterialProgramValueType::MaterialAttributes
 					&& (!Source || (Port->bOutput && AcceptsPort(Port->Type, *Source)));
 			return true; // Function signatures are resolved by the document.
 		}

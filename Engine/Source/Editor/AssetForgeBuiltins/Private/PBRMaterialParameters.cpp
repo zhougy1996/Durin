@@ -147,28 +147,28 @@ namespace Durin::AssetForge::Builtins
 
 
 	auto GetMaterialSurfaceParameterId(
-		EMaterialSurfaceOutput Output,
+		EMaterialProperty Output,
 		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid
 	{
 		using MaterialParameters::EMaterialBuiltinParameterRole;
 		EMaterialBuiltinParameterRole Role;
 		switch (Output)
 		{
-		case EMaterialSurfaceOutput::BaseColor:
+		case EMaterialProperty::MP_BaseColor:
 			Role = EMaterialBuiltinParameterRole::BaseColor; break;
-		case EMaterialSurfaceOutput::Normal:
+		case EMaterialProperty::MP_Normal:
 			Role = EMaterialBuiltinParameterRole::Normal; break;
-		case EMaterialSurfaceOutput::Metallic:
+		case EMaterialProperty::MP_Metallic:
 			Role = EMaterialBuiltinParameterRole::Metallic; break;
-		case EMaterialSurfaceOutput::Roughness:
+		case EMaterialProperty::MP_Roughness:
 			Role = EMaterialBuiltinParameterRole::Roughness; break;
-		case EMaterialSurfaceOutput::AmbientOcclusion:
+		case EMaterialProperty::MP_AmbientOcclusion:
 			Role = EMaterialBuiltinParameterRole::AmbientOcclusion; break;
-		case EMaterialSurfaceOutput::Emissive:
+		case EMaterialProperty::MP_EmissiveColor:
 			Role = EMaterialBuiltinParameterRole::Emissive; break;
-		case EMaterialSurfaceOutput::Opacity:
+		case EMaterialProperty::MP_Opacity:
 			Role = EMaterialBuiltinParameterRole::Opacity; break;
-		case EMaterialSurfaceOutput::OpacityMask:
+		case EMaterialProperty::MP_OpacityMask:
 			Role = EMaterialBuiltinParameterRole::OpacityMask; break;
 		default:
 			return {};

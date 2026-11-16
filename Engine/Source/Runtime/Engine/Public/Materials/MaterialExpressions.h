@@ -6,6 +6,7 @@
 #include "Materials/MaterialFunctionTypes.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 
 #include "MaterialExpressions.gen.h"
 
@@ -275,58 +276,52 @@ namespace Durin
 	ENGINE_API auto GetMaterialNumericInputFallback(EMaterialProgramOpcode Opcode,
 		EMaterialProgramValueType Type, uint32 Slot) -> std::vector<float>;
 
-	// Material terminal pins retain concrete defaults independently of connections.
 	DSTRUCT()
-	struct FMaterialExpressionSurfaceOutputs
+	struct FMaterialAttributeBinding
 	{
 		GENERATED_BODY()
+		DPROPERTY()
+		FGuid AttributeID;
+		DPROPERTY()
+		FMaterialNumericInput Input;
+		auto operator==(const FMaterialAttributeBinding&) const -> bool = default;
+	};
+	DSTRUCT()
+	struct FMaterialAttributes
+	{
+		GENERATED_BODY()
+		DPROPERTY()
+		std::vector<FMaterialAttributeBinding> Bindings;
+		auto operator==(const FMaterialAttributes&) const -> bool = default;
+	};
+	// Serialized bindings use stable attribute identities, not terminal pin order.
+	DSTRUCT()
+	struct FMaterialAttributeRoot
+	{
+		GENERATED_BODY()
+		ENGINE_API FMaterialAttributeRoot();
 
 		DPROPERTY()
-		FMaterialExpressionInput Surface;
-
+		FMaterialExpressionInput Attributes;
 		DPROPERTY()
-		FMaterialNumericInput BaseColor{3};
-
-		DPROPERTY()
-		FMaterialNumericInput Normal{3};
-
-		DPROPERTY()
-		FMaterialNumericInput Metallic;
-
-		DPROPERTY()
-		FMaterialNumericInput Roughness;
-
-		DPROPERTY()
-		FMaterialNumericInput AmbientOcclusion;
-
-		DPROPERTY()
-		FMaterialNumericInput Emissive{3};
-
-		DPROPERTY()
-		FMaterialNumericInput Opacity;
-
-		DPROPERTY()
-		FMaterialNumericInput OpacityMask;
-
-		DPROPERTY()
-		FMaterialNumericInput WorldPositionOffset{3};
+		FMaterialAttributes Properties;
 
 		// Both connection sets are retained; only the selected set drives the output.
 		DPROPERTY()
 		bool bUseMaterialAttributes = false;
+		ENGINE_API auto Get(EMaterialProperty Property) -> FMaterialNumericInput&;
+		ENGINE_API auto Get(EMaterialProperty Property) const -> const FMaterialNumericInput&;
 
-		auto operator==(const FMaterialExpressionSurfaceOutputs&) const -> bool = default;
+		auto operator==(const FMaterialAttributeRoot&) const -> bool = default;
 
 	};
-
-	DENUM()
-	enum class EMaterialDomain : uint8 { Surface = 0 };
 
 	// Persistent semantic identities; their values do not encode visual pin order.
 	enum class EMaterialOutputPin : uint8
 	{
 		BaseColor = 0, Normal = 1, Metallic = 2, Roughness = 3,
-		AmbientOcclusion = 4, Emissive = 5, Opacity = 6, OpacityMask = 7, Surface = 8, WorldPositionOffset = 9,
+		AmbientOcclusion = 4, Emissive = 5, Opacity = 6, OpacityMask = 7,
+		WorldPositionOffset = 8, Specular = 9, ClearCoat = 10, ClearCoatRoughness = 11, Surface = 255,
 	};
 	struct FMaterialOutputPinDefinition
 	{
@@ -335,11 +330,11 @@ namespace Durin
 		EMaterialProgramValueType Type;
 	};
 	ENGINE_API auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>;
-	ENGINE_API auto GetMaterialOutputInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*;
+	ENGINE_API auto GetMaterialOutputInput(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*;
 
-	ENGINE_API auto GetMaterialOutputNumericInput(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> FMaterialNumericInput*;
-	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin) -> std::vector<float>;
-	ENGINE_API auto WriteMaterialOutputDefault(FMaterialExpressionSurfaceOutputs& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool;
+	ENGINE_API auto GetMaterialOutputNumericInput(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> FMaterialNumericInput*;
+	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> std::vector<float>;
+	ENGINE_API auto WriteMaterialOutputDefault(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool;
 
 	// A graph sink: connections/defaults are authored here, while its owner supplies the domain.
 	DCLASS()
@@ -350,7 +345,7 @@ namespace Durin
 		explicit DMaterialExpressionMaterialOutput(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		DPROPERTY()
-		FMaterialExpressionSurfaceOutputs Outputs;
+		FMaterialAttributeRoot Outputs;
 		auto GetAuthoredInputCount() const -> uint32 override { return 10; }
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
@@ -1435,37 +1430,15 @@ namespace Durin
 
 	// Builds eight surface attributes from their applicable numeric inputs.
 	DCLASS()
-	class DMaterialExpressionMakeSurface : public DMaterialExpressionNumeric
+	class DMaterialExpressionMakeMaterialAttributes : public DMaterialExpressionNumeric
 	{
 		GENERATED_BODY()
 	public:
-		explicit DMaterialExpressionMakeSurface(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		explicit DMaterialExpressionMakeMaterialAttributes(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialNumericInput BaseColor{3};
-
-		DPROPERTY()
-		FMaterialNumericInput Normal{3};
-
-		DPROPERTY()
-		FMaterialNumericInput Metallic;
-
-		DPROPERTY()
-		FMaterialNumericInput Roughness;
-
-		DPROPERTY()
-		FMaterialNumericInput AmbientOcclusion;
-
-		DPROPERTY()
-		FMaterialNumericInput Emissive{3};
-
-		DPROPERTY()
-		FMaterialNumericInput Opacity;
-
-		DPROPERTY()
-		FMaterialNumericInput OpacityMask;
-
-		auto GetAuthoredInputCount() const -> uint32 override { return 8; }
+		FMaterialAttributeRoot Values;
+		auto GetAuthoredInputCount() const -> uint32 override { return uint32(FMaterialAttributeDefinitionMap::GetDefinitions().size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
@@ -1473,17 +1446,19 @@ namespace Durin
 
 	// Selects stable output attributes from one aggregate surface.
 	DCLASS()
-	class DMaterialExpressionGetSurfaceAttributes : public DMaterialExpression
+	class DMaterialExpressionGetMaterialAttributes : public DMaterialExpression
 	{
 		GENERATED_BODY()
 	public:
-		explicit DMaterialExpressionGetSurfaceAttributes(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API explicit DMaterialExpressionGetMaterialAttributes(const FObjectInitializer& Initializer);
 
 		DPROPERTY()
 		FMaterialExpressionInput Surface;
 
 		DPROPERTY()
-		uint8 AttributeMask = 0xff;
+		std::vector<FGuid> AttributeIDs;
+		auto IsSelected(EMaterialProperty Property) const -> bool
+			{ return std::ranges::contains(AttributeIDs, FMaterialAttributeDefinitionMap::GetID(Property)); }
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
 
@@ -1492,44 +1467,65 @@ namespace Durin
 	};
 
 	DSTRUCT()
-	struct FMaterialExpressionSurfaceAttributeBinding
+	struct FMaterialExpressionAttributeBinding
 	{
 		GENERATED_BODY()
-		FMaterialExpressionSurfaceAttributeBinding() = default;
-		FMaterialExpressionSurfaceAttributeBinding(EMaterialSurfaceOutput InAttribute, FMaterialExpressionInput InSource)
-			: Attribute(InAttribute)
+		FMaterialExpressionAttributeBinding() = default;
+		FMaterialExpressionAttributeBinding(EMaterialProperty InAttribute, FMaterialExpressionInput InSource)
+			: AttributeID(FMaterialAttributeDefinitionMap::GetID(InAttribute))
 		{
 			Source.Connection = InSource;
-			Source.Constant.resize(static_cast<uint32>(GetMaterialSurfaceOutputType(Attribute)) + 1, 0.f);
+			Source.Constant.resize(static_cast<uint32>(GetMaterialSurfaceOutputType(InAttribute)) + 1, 0.f);
 		}
 
 		DPROPERTY()
-		EMaterialSurfaceOutput Attribute = EMaterialSurfaceOutput::BaseColor;
+		FGuid AttributeID{0x4d415454, 0x52505250, 1, 1};
+		auto GetProperty() const -> EMaterialProperty
+		{
+			const auto* Definition = FMaterialAttributeDefinitionMap::Find(AttributeID);
+			return Definition ? Definition->Property : static_cast<EMaterialProperty>(0xff);
+		}
 
 		DPROPERTY()
 		FMaterialNumericInput Source;
 
-		auto operator==(const FMaterialExpressionSurfaceAttributeBinding&) const -> bool = default;
+		auto operator==(const FMaterialExpressionAttributeBinding&) const -> bool = default;
 	};
 
 	// Overrides only selected attributes on one aggregate surface.
 	DCLASS()
-	class DMaterialExpressionSetSurfaceAttributes : public DMaterialExpression
+	class DMaterialExpressionSetMaterialAttributes : public DMaterialExpression
 	{
 		GENERATED_BODY()
 	public:
-		explicit DMaterialExpressionSetSurfaceAttributes(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		explicit DMaterialExpressionSetMaterialAttributes(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
 		FMaterialExpressionInput Surface;
 
 		DPROPERTY()
-		std::vector<FMaterialExpressionSurfaceAttributeBinding> Attributes;
+		std::vector<FMaterialExpressionAttributeBinding> Attributes;
 
 		auto GetAuthoredInputCount() const -> uint32 override { return 1 + static_cast<uint32>(Attributes.size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
+	};
+
+	DCLASS()
+	class DMaterialExpressionBlendMaterialAttributes : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionBlendMaterialAttributes(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialExpressionInput A;
+		DPROPERTY()
+		FMaterialExpressionInput B;
+		DPROPERTY()
+		FMaterialNumericInput Alpha;
+		auto GetAuthoredInputCount() const -> uint32 override { return 3; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 	};
 
 	// Owns the function port definition; the function signature is derived from terminals.

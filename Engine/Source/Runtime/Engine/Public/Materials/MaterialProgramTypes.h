@@ -14,13 +14,13 @@ namespace Durin
 {
 	struct FMaterialParameterDefinition;
 	struct FMaterialProgramValidationResult;
-	enum class EMaterialSurfaceOutput : uint8;
+	enum class EMaterialProperty : uint8;
 
 	inline constexpr uint32 MaterialProgramMaxVertexInterpolators = 8;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
-	inline constexpr uint32 MaterialProgramMaxNodeInputCount = 8;
+	inline constexpr uint32 MaterialProgramMaxNodeInputCount = 16;
 	inline constexpr uint32 MaterialProgramMaxDepth = 64;
 	inline constexpr uint32 MaterialProgramMaxDisplayNameBytes = 128;
 	inline constexpr uint32 MaterialProgramMaxStringBytes = 16 * 1024;
@@ -38,7 +38,7 @@ namespace Durin
 		Float3,
 		Float4,
 		Texture2D,
-		Surface,
+		MaterialAttributes,
 		// Authoring-only selector value. Normalization must eliminate it.
 		StaticBool,
 	};
@@ -149,12 +149,12 @@ namespace Durin
 		UVChannel = 31,
 		Sine,
 		Cosine,
-		MakeSurface,
+		MakeMaterialAttributes,
 		FunctionInput,
 		FunctionOutput,
 		FunctionCall,
-		GetSurfaceAttributes,
-		SetSurfaceAttributes,
+		GetMaterialAttributes,
+		SetMaterialAttributes,
 		TextureSampleParameter2D,
 		TextureCoordinates,
 		AppendVector,
@@ -194,6 +194,7 @@ namespace Durin
 		VertexInterpolator,
 		PrimitiveCustomData,
 		InstanceCustomData,
+		BlendMaterialAttributes,
 	};
 
 	struct FMaterialTransformPayload
@@ -214,16 +215,11 @@ namespace Durin
 	}
 
 	DENUM()
-	enum class EMaterialSurfaceOutput : uint8
+	enum class EMaterialProperty : uint8
 	{
-		BaseColor,
-		Normal,
-		Metallic,
-		Roughness,
-		AmbientOcclusion,
-		Emissive,
-		Opacity,
-		OpacityMask,
+		MP_BaseColor = 0, MP_Normal = 1, MP_Metallic = 2, MP_Roughness = 3,
+		MP_AmbientOcclusion = 4, MP_EmissiveColor = 5, MP_Opacity = 6, MP_OpacityMask = 7,
+		MP_WorldPositionOffset = 8, MP_Specular = 9, MP_ClearCoat = 10, MP_ClearCoatRoughness = 11,
 	};
 
 	inline auto MaterialNumericInputAllowsScalarBroadcast(
@@ -239,8 +235,9 @@ namespace Durin
 				&& Opcode <= EMaterialProgramOpcode::Distance)
 			|| Opcode == EMaterialProgramOpcode::Reflect
 			|| (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2)
-			|| (Opcode == EMaterialProgramOpcode::MakeSurface
-				&& Slot == static_cast<uint32>(EMaterialSurfaceOutput::Normal)))
+			|| (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
+				&& (Slot == static_cast<uint32>(EMaterialProperty::MP_Normal)
+					|| Slot == static_cast<uint32>(EMaterialProperty::MP_WorldPositionOffset))))
 			return false;
 		return true;
 	}
@@ -265,7 +262,7 @@ namespace Durin
 		std::span<const FMaterialValueSemantics> Inputs,
 		const FMaterialTransformPayload* Transform = nullptr)
 		-> std::optional<FMaterialValueSemantics>;
-	ENGINE_API auto GetMaterialSurfaceOutputSemantics(EMaterialSurfaceOutput Output)
+	ENGINE_API auto GetMaterialSurfaceOutputSemantics(EMaterialProperty Output)
 		-> FMaterialValueSemantics;
 
 	DSTRUCT()
@@ -358,64 +355,28 @@ namespace Durin
 		-> const FMaterialSampleOutputDefinition*;
 
 	DSTRUCT()
-	struct FMaterialSurfaceOutputs
+	struct FMaterialAttributeValue
 	{
 		GENERATED_BODY()
-
-		// Aggregate surface source. Valid only when every per-property link is
-		// disconnected; retained defaults remain available after disconnection.
 		DPROPERTY()
-		FMaterialProgramLink Surface;
-
+		FGuid AttributeID;
 		DPROPERTY()
-		FMaterialProgramLink BaseColor;
-
+		FMaterialProgramLink Connection;
 		DPROPERTY()
-		FMaterialProgramLink Normal;
-
+		FMaterialProgramLiteral Literal;
+		auto operator==(const FMaterialAttributeValue&) const -> bool = default;
+	};
+	DSTRUCT()
+	struct FMaterialAttributeValues
+	{
+		GENERATED_BODY()
 		DPROPERTY()
-		FMaterialProgramLink Metallic;
-
+		FMaterialProgramLink Attributes;
 		DPROPERTY()
-		FMaterialProgramLink Roughness;
-
-		DPROPERTY()
-		FMaterialProgramLink AmbientOcclusion;
-
-		DPROPERTY()
-		FMaterialProgramLink Emissive;
-
-		DPROPERTY()
-		FMaterialProgramLink Opacity;
-
-		DPROPERTY()
-		FMaterialProgramLink OpacityMask;
-
-		DPROPERTY()
-		FMaterialProgramLiteral BaseColorDefault{0.5f, 0.5f, 0.5f, 0.0f};
-
-		DPROPERTY()
-		FMaterialProgramLiteral NormalDefault{0.0f, 0.0f, 1.0f, 0.0f};
-
-		DPROPERTY()
-		FMaterialProgramLiteral MetallicDefault{};
-
-		DPROPERTY()
-		FMaterialProgramLiteral RoughnessDefault{0.5f, 0.0f, 0.0f, 0.0f};
-
-		DPROPERTY()
-		FMaterialProgramLiteral AmbientOcclusionDefault{1.0f, 0.0f, 0.0f, 0.0f};
-
-		DPROPERTY()
-		FMaterialProgramLiteral EmissiveDefault{};
-
-		DPROPERTY()
-		FMaterialProgramLiteral OpacityDefault{1.0f, 0.0f, 0.0f, 0.0f};
-
-		DPROPERTY()
-		FMaterialProgramLiteral OpacityMaskDefault{1.0f, 0.0f, 0.0f, 0.0f};
-
-		auto operator==(const FMaterialSurfaceOutputs&) const -> bool = default;
+		std::vector<FMaterialAttributeValue> Bindings;
+		ENGINE_API auto Get(EMaterialProperty Property) -> FMaterialAttributeValue&;
+		ENGINE_API auto Get(EMaterialProperty Property) const -> const FMaterialAttributeValue&;
+		auto operator==(const FMaterialAttributeValues&) const -> bool = default;
 	};
 
 	// Stores one package-persisted editor position for a live material-program node.
@@ -474,6 +435,7 @@ namespace Durin
 		std::vector<FGuid> CallPath;
 		std::optional<uint32> InputIndex;
 		std::optional<uint32> UVFieldIndex;
+		FGuid AttributeID;
 
 		auto operator==(const FMaterialProgramDiagnostic&) const -> bool = default;
 	};
@@ -490,22 +452,22 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
-	ENGINE_API auto IsMaterialSurfaceOutputActive(EMaterialSurfaceOutput Output,
+	ENGINE_API auto IsMaterialSurfaceOutputActive(EMaterialProperty Output,
 		const FMaterialStaticProperties& Properties) -> bool;
 
-	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
+	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialProperty Output)
 		-> EMaterialProgramValueType;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(
-		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		FMaterialAttributeValues& Outputs, EMaterialProperty Output)
 		-> FMaterialProgramLink&;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(
-		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		const FMaterialAttributeValues& Outputs, EMaterialProperty Output)
 		-> const FMaterialProgramLink&;
 	ENGINE_API auto GetMaterialSurfaceOutputDefault(
-		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		FMaterialAttributeValues& Outputs, EMaterialProperty Output)
 		-> FMaterialProgramLiteral&;
 	ENGINE_API auto GetMaterialSurfaceOutputDefault(
-		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		const FMaterialAttributeValues& Outputs, EMaterialProperty Output)
 		-> const FMaterialProgramLiteral&;
 	ENGINE_API auto SanitizeMaterialGraphPresentation(
 		const FMaterialGraphPresentation& Presentation,

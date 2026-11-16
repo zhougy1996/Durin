@@ -1,0 +1,172 @@
+// Pass execution owns lighting, attachments and geometry entry bodies.
+// Included after generated evaluation functions; the environment includes this
+// file without instantiation so its exact bytes participate in dependency identity.
+#if DURIN_GENERATED_MATERIAL
+#if DURIN_MATERIAL_VERTEX_STAGE
+
+[[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
+VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, uint sceneInstanceId)
+{
+    VSOutput input = (VSOutput)0;
+    MaterialPrimitiveUniform primitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(sceneInstanceId), MaterialView);
+#if DURIN_MATERIAL_PIXEL_PRIMITIVE_DATA
+    input.sceneInstanceId = sceneInstanceId;
+#endif
+    input.pos = mul(MaterialView.WorldToClip, mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
+    input.color = vertex.color;
+    CopyPrimitiveCustomData(input, primitive);
+    input.worldPosition = mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
+    input.worldNormal = mul(primitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
+    input.worldTangent = float4(mul(primitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz,
+        vertex.localTangent.w * primitive.TransformParams.x);
+    input.uv0 = vertex.texCoords[0]; input.uv1 = vertex.texCoords[1];
+    input.uv2 = vertex.texCoords[2]; input.uv3 = vertex.texCoords[3];
+    float3 offset;
+    VSOutput output = EvaluateGeneratedVertex(input, primitive, offset);
+    output.pos += mul(MaterialView.WorldToClip, float4(offset, 0.0));
+    return output;
+}
+[shader("vertex")]
+VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
+{
+    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input), ResolveSceneInstanceId(instanceId, firstInstance));
+}
+[shader("vertex")]
+VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
+{
+    return EvaluateGeneratedGeometry(GetSplineMeshVertexFactoryIntermediates(input, SplineMesh), ResolveSceneInstanceId(instanceId, firstInstance));
+}
+
+
+#endif
+#if DURIN_MATERIAL_PIXEL_STAGE
+
+struct FResolvedGeneratedSurfaceShading
+{
+    FMaterialNormalFrame normalFrame;
+    float effectiveRoughness;
+};
+FResolvedGeneratedSurfaceShading ResolveGeneratedSurfaceShading(
+    VSOutput input, FMaterialSurface surface, bool isFrontFace)
+{
+    FResolvedGeneratedSurfaceShading result;
+    result.normalFrame = EvaluateMaterialNormalFrame(input.worldNormal,
+        input.worldTangent, surface.tangentNormal, isFrontFace);
+    result.effectiveRoughness = FilterSpecularRoughness(surface.roughness,
+        result.normalFrame.shadingNormal, MaterialView.Parameters.w > 0.5);
+    return result;
+}
+struct GeometryPassFragmentOutput
+{
+    float4 material : SV_Target0;
+    float4 normals : SV_Target1;
+    float4 surface : SV_Target2;
+    float4 emissive : SV_Target3;
+};
+[shader("fragment")]
+GeometryPassFragmentOutput GeometryFragmentMain(
+    VSOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+#if DURIN_MATERIAL_SHADING_MODEL == 1
+    discard;
+    GeometryPassFragmentOutput empty = (GeometryPassFragmentOutput)0;
+    return empty;
+#else
+    FMaterialSurface s = EvaluateGeneratedMaterial(input);
+    FResolvedGeneratedSurfaceShading shading =
+        ResolveGeneratedSurfaceShading(input, s, isFrontFace);
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    if (RejectMaterialMask(s.opacityMask, asfloat(uint(
+            DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
+        discard;
+#endif
+    GeometryPassFragmentOutput o;
+    o.material = float4(s.baseColor, s.metallic);
+    o.normals = float4(
+        EncodeOctahedralNormal(shading.normalFrame.shadingNormal),
+        EncodeOctahedralNormal(shading.normalFrame.geometricNormal));
+    o.surface = float4(shading.effectiveRoughness,
+        s.ambientOcclusion, s.opacity, 1.0 / 255.0);
+    o.emissive = float4(s.emissive, 0.0);
+    return o;
+#endif
+}
+struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
+[[vk::binding(27, 1)]] ConstantBuffer<HitProxyUniform> HitProxy;
+[shader("fragment")]
+uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0
+{
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    float mask = EvaluateGeneratedMaterial(input).opacityMask;
+    if (mask < asfloat(uint(DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))) discard;
+#endif
+    return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz)));
+}
+[shader("fragment")]
+void ShadowFragmentMain(VSOutput input)
+{
+#if DURIN_MATERIAL_BLEND_MODE == 1
+        float mask = EvaluateGeneratedMaterial(input).opacityMask;
+    if (mask < asfloat(uint(DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)))
+        discard;
+#endif
+}
+[shader("fragment")]
+float4 FragmentMain(
+    VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
+{
+    FMaterialSurface s = EvaluateGeneratedMaterial(input);
+    FResolvedGeneratedSurfaceShading shading;
+#if DURIN_MATERIAL_SHADING_MODEL == 0
+    shading = ResolveGeneratedSurfaceShading(input, s, isFrontFace);
+#endif
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    if (RejectMaterialMask(s.opacityMask, asfloat(uint(
+            DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
+        discard;
+#endif
+#if DURIN_MATERIAL_SHADING_MODEL == 1
+    return float4(s.emissive, s.opacity);
+#else
+    if (MaterialView.Parameters.z < 0.5) return float4(s.baseColor + s.emissive, s.opacity);
+    FSurfaceLightingFrame lightingFrame = BuildSurfaceLightingFrame(
+        input.worldPosition, shading.normalFrame.shadingNormal,
+        Lighting.ViewPosition.xyz);
+    float3 direct = float3(0.0);
+    if (Lighting.Counts.x > 0u)
+    {
+        float3 toLight = SafeSurfaceNormal(-Lighting.DirectionalDirection.xyz);
+        float3 radiance = Lighting.DirectionalColorIntensity.rgb
+            * Lighting.DirectionalColorIntensity.a;
+        FDirectionalShadowSample shadow;
+        shadow.attenuation = 1.0;
+        shadow.diagnosticColor = float3(1.0);
+        // Match the BRDF's mapped shading normal, preserving diagnostic output.
+        if (Lighting.DirectionalShadowControl.y > 0.5
+            || dot(lightingFrame.normal, toLight) > 0.0)
+            shadow = EvaluateDirectionalShadow(
+                input.worldPosition, shading.normalFrame.geometricNormal,
+                Lighting.DirectionalShadowControl,
+                Lighting.DirectionalShadowViewDepthTransform,
+                Lighting.DirectionalShadowSplitDepths,
+                Lighting.DirectionalShadowLightTransition,
+                Lighting.DirectionalShadowCascades,
+                DirectionalShadowTexture, DirectionalShadowSampler);
+        if (Lighting.DirectionalShadowControl.y > 0.5)
+            return float4(shadow.diagnosticColor, s.opacity);
+        direct += EvaluateSurfaceDirectionalLighting(s.baseColor, s.metallic,
+            shading.effectiveRoughness, lightingFrame, toLight, radiance,
+            shadow.attenuation);
+    }
+    direct = AccumulateViewLocalLights(direct, s.baseColor, s.metallic, shading.effectiveRoughness,
+        input.worldPosition, lightingFrame, LocalLights, Lighting.Counts.y);
+    float3 environment = EvaluateSurfaceEnvironmentLighting(s.baseColor,
+        s.metallic, shading.effectiveRoughness, s.ambientOcclusion,
+        lightingFrame, EnvironmentIrradiance, EnvironmentPrefiltered,
+        EnvironmentBrdfLut, EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
+    return ComposeSurfaceLighting(direct, environment, s.emissive, s.opacity);
+#endif
+}
+
+#endif
+#endif

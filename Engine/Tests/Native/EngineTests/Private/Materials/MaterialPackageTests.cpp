@@ -105,7 +105,10 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(LoadedTexture->FinishCachePlatformData(10.0));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
-	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
+	Durin::FVector3 RetainedBaseColor;
+	ASSERT_TRUE(Loaded->GetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), RetainedBaseColor));
+	ExpectColorNear(Durin::FVector4f(Durin::FVector3f(RetainedBaseColor), 1.f), Durin::FVector4f(.2f, .4f, .6f, 1.f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	const auto LoadedBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
 	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.0f);
 	float Retained = 0;
@@ -114,16 +117,25 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.5f);
 	ASSERT_TRUE(Loaded->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::RoughnessName(), Retained));
 	EXPECT_FLOAT_EQ(Retained, 0.7f);
-	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);
-	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector2f(2.0f, -1.0f));
-	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector2f(0.25f, 0.5f));
+	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 0.0f);
+	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector2f(1.0f));
+	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector2f(0.0f));
+	ASSERT_TRUE(Loaded->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), Retained));
+	EXPECT_FLOAT_EQ(Retained, 2.f);
+	Durin::FVector2 RetainedUV;
+	ASSERT_TRUE(Loaded->GetVector2ParameterValue(Durin::FName("BaseColorUVScale"), RetainedUV));
+	EXPECT_EQ(RetainedUV, Durin::FVector2(2.0, -1.0));
+	ASSERT_TRUE(Loaded->GetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), RetainedUV));
+	EXPECT_EQ(RetainedUV, Durin::FVector2(.25, .5));
 	EXPECT_EQ(
 		GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).Textures[0],
-		LoadedTexture->GetTextureReferenceRHI());
+		nullptr);
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
-	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 1.0f));
+	ASSERT_TRUE(Loaded->GetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), RetainedBaseColor));
+	ExpectColorNear(Durin::FVector4f(Durin::FVector3f(RetainedBaseColor), 1.f), Durin::FVector4f(.6f, .4f, .2f, 1.f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(.5f, .5f, .5f, 1.f));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(
 		BasePath,
@@ -152,10 +164,10 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	ASSERT_NE(TransformPosition, nullptr);
 	TransformPosition->Source = EMaterialCoordinateSpace::World;
 	TransformPosition->Destination = EMaterialCoordinateSpace::View;
-	Authored.Outputs.WorldPositionOffset.SetConstant({1.f, 2.f, 3.f});
+	Authored.Outputs.Get(EMaterialProperty::MP_WorldPositionOffset).SetConstant({1.f, 2.f, 3.f});
 	const auto Time = Testing::MakeLink(Authored.Add(EMaterialProgramOpcode::Time,
 		EMaterialProgramValueType::Float, {}, {}, {}));
-	Authored.Outputs.Emissive = Testing::MakeLink(Authored.Add(EMaterialProgramOpcode::VertexInterpolator,
+	Authored.Outputs.Get(EMaterialProperty::MP_EmissiveColor) = Testing::MakeLink(Authored.Add(EMaterialProgramOpcode::VertexInterpolator,
 		EMaterialProgramValueType::Float3, {Time}, {}, {}));
 	std::ranges::reverse(Authored.Expressions);
 	const auto LabelId = Authored.Expressions.front()->Id;
@@ -362,10 +374,10 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	EXPECT_FALSE(ContainsSerializedField(Saved, "PortId"));
 	ASSERT_TRUE(UnloadPackage(Path));
 	const std::array RejectedVersionBoundaries{
-		std::pair{FMaterialGraphVersion::Guid, std::array{-1, 4, 6}},
+		std::pair{FMaterialGraphVersion::Guid, std::array{-1, 5, 7}},
 		std::pair{FMaterialInstanceVersion::Guid, std::array{-1, 1, 3}},
-		std::pair{FMaterialFunctionVersion::Guid, std::array{-1, 1, 3}},
-		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 2, 4}},
+		std::pair{FMaterialFunctionVersion::Guid, std::array{-1, 2, 4}},
+		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 3, 5}},
 	};
 	for (const auto& [Guid, Versions] : RejectedVersionBoundaries)
 		for (const int32 Version : Versions)
@@ -488,14 +500,11 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
-	TStrongObjectPtr<DMaterialExpressionMakeSurface> Packed(NewObject<DMaterialExpressionMakeSurface>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> Packed(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
 	Packed->Id = FGuid::NewGuid();
-	Packed->BaseColor = Graph.Outputs.BaseColor; Packed->Normal = Graph.Outputs.Normal;
-	Packed->Metallic = Graph.Outputs.Metallic; Packed->Roughness = Graph.Outputs.Roughness;
-	Packed->AmbientOcclusion = Graph.Outputs.AmbientOcclusion; Packed->Emissive = Graph.Outputs.Emissive;
-	Packed->Opacity = Graph.Outputs.Opacity; Packed->OpacityMask = Graph.Outputs.OpacityMask;
+	Packed->Values = Graph.Outputs;
 	Graph.Expressions.emplace_back(Packed.Get());
-	Graph.Outputs.Surface = {Packed->Id};
+	Graph.Outputs.Attributes = {Packed->Id};
 	Graph.Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Graph.Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));

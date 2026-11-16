@@ -2045,8 +2045,8 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 		Product->ResultType = EMaterialProgramValueType::Float3;
 		Product->A = {Sample->Id, 1};
 		Product->B = {Brightness->Id};
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.BaseColor = {Product->Id};
+		FMaterialAttributeRoot Outputs;
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Product->Id};
 		const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Brightness.Get(), Product.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -2223,8 +2223,8 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 		TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
 		Time->Id = FGuid::NewGuid();
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.BaseColor = {Time->Id};
+		FMaterialAttributeRoot Outputs;
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Time->Id};
 		const std::array<DMaterialExpression*, 1> Expressions{Time.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -2325,8 +2325,8 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		PrimitiveOffset->Id = FGuid::NewGuid(); PrimitiveOffset->ResultType = EMaterialProgramValueType::Float3; PrimitiveOffset->DataIndex = 29;
 		Sum->Id = FGuid::NewGuid(); Sum->ResultType = EMaterialProgramValueType::Float3;
 		Sum->A = {Offset->Id}; Sum->B = {PrimitiveOffset->Id};
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.BaseColor = {Color->Id}; Outputs.OpacityMask = {Mask->Id}; Outputs.WorldPositionOffset = {Sum->Id};
+		FMaterialAttributeRoot Outputs;
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color->Id}; Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id}; Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {Sum->Id};
 		// Evaluate object-space data in the fragment stage too. A grouped draw must
 		// fetch the selected instance instead of its representative primitive.
 		TStrongObjectPtr<DMaterialExpressionObjectPosition> ObjectPosition(NewObject<DMaterialExpressionObjectPosition>(nullptr, NAME_None));
@@ -2337,7 +2337,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		ObjectDistance->Id = FGuid::NewGuid(); ObjectDistance->A = {ObjectPosition->Id}; ObjectDistance->B = {CameraPosition->Id};
 		PixelColor->Id = FGuid::NewGuid(); PixelColor->ResultType = EMaterialProgramValueType::Float3;
 		PixelColor->A = {Color->Id}; PixelColor->B = {ObjectDistance->Id};
-		Outputs.Emissive = {PixelColor->Id};
+		Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {PixelColor->Id};
 		const std::array<DMaterialExpression*, 9> Expressions{Color.Get(), Mask.Get(), Offset.Get(), PrimitiveOffset.Get(), Sum.Get(), ObjectPosition.Get(), CameraPosition.Get(), ObjectDistance.Get(), PixelColor.Get()};
 		FMaterialStaticProperties Properties; Properties.BlendMode = EMaterialBlendMode::Masked;
 		Properties.GeometryUsage = 5; Properties.PassUsage = 7;
@@ -2352,13 +2352,13 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		ColorChannels->Id = FGuid::NewGuid(); ColorChannels->Input = {Tint->Id}; ColorChannels->Components = {0, 1, 2};
 		DynamicOffset->Id = FGuid::NewGuid(); DynamicOffset->Metadata = {.Id = FGuid::NewGuid(), .Name = "InstanceOffset"};
 		OffsetChannels->Id = FGuid::NewGuid(); OffsetChannels->Input = {DynamicOffset->Id}; OffsetChannels->Components = {0, 1, 2};
-		FMaterialExpressionSurfaceOutputs ReferenceOutputs;
-		ReferenceOutputs.BaseColor = {ColorChannels->Id}; ReferenceOutputs.OpacityMask.SetConstant({1.f});
-		ReferenceOutputs.WorldPositionOffset = {OffsetChannels->Id};
+		FMaterialAttributeRoot ReferenceOutputs;
+		ReferenceOutputs.Get(EMaterialProperty::MP_BaseColor) = {ColorChannels->Id}; ReferenceOutputs.Get(EMaterialProperty::MP_OpacityMask).SetConstant({1.f});
+		ReferenceOutputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {OffsetChannels->Id};
 		TStrongObjectPtr<DMaterialExpressionMultiply> ReferencePixelColor(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 		ReferencePixelColor->Id = FGuid::NewGuid(); ReferencePixelColor->ResultType = EMaterialProgramValueType::Float3;
 		ReferencePixelColor->A = {ColorChannels->Id}; ReferencePixelColor->B = {ObjectDistance->Id};
-		ReferenceOutputs.Emissive = {ReferencePixelColor->Id};
+		ReferenceOutputs.Get(EMaterialProperty::MP_EmissiveColor) = {ReferencePixelColor->Id};
 		const std::array<DMaterialExpression*, 8> ReferenceExpressions{Tint.Get(), ColorChannels.Get(), DynamicOffset.Get(), OffsetChannels.Get(), ObjectPosition.Get(), CameraPosition.Get(), ObjectDistance.Get(), ReferencePixelColor.Get()};
 		ASSERT_TRUE(Reference->SetStaticProperties(Properties));
 		ASSERT_TRUE(Reference->SetMaterialExpressions(ReferenceExpressions, ReferenceOutputs));
@@ -3078,9 +3078,9 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		Color->ParameterId = ColorId;
 		Mask->Id = FGuid::NewGuid(); Mask->Collection = Collection.Get();
 		Mask->ParameterId = MaskId;
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.BaseColor = {Color->Id};
-		Outputs.OpacityMask = {Mask->Id};
+		FMaterialAttributeRoot Outputs;
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color->Id};
+		Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id};
 		const std::array<DMaterialExpression*, 2> Expressions{Color.Get(), Mask.Get()};
 		FMaterialStaticProperties Properties;
 		Properties.BlendMode = EMaterialBlendMode::Masked;
@@ -3565,11 +3565,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 	{
 		TStrongObjectPtr<DMaterial> SingleSided(NewObject<DMaterial>(nullptr, NAME_None));
 		TStrongObjectPtr<DMaterial> TwoSided(NewObject<DMaterial>(nullptr, NAME_None));
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.BaseColor.SetConstant({0.8f, 0.2f, 0.1f});
+		FMaterialAttributeRoot Outputs;
+		Outputs.Get(EMaterialProperty::MP_BaseColor).SetConstant({0.8f, 0.2f, 0.1f});
 		// A nonzero tangent-space Y makes an incorrect bitangent sign visible
 		// in the captured GBuffer, independently of the lighting direction.
-		Outputs.Normal.SetConstant({0.3f, 0.6f, 0.74f});
+		Outputs.Get(EMaterialProperty::MP_Normal).SetConstant({0.3f, 0.6f, 0.74f});
 		for (auto* Material : {SingleSided.Get(), TwoSided.Get()})
 		{
 			FMaterialStaticProperties Properties;
@@ -3772,9 +3772,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
 		Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "PSOScalar"};
 		Parameter->DefaultValue = 0.5f;
-		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::Lit;
+		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::DefaultLit;
 		ASSERT_TRUE(Material->SetStaticProperties(Properties));
-		FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Parameter->Id};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter->Id};
 		const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -3856,11 +3856,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 	} RendererCleanup{Lifecycle};
 	{
 		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
-		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::Lit;
+		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::DefaultLit;
 		ASSERT_TRUE(Material->SetStaticProperties(Properties));
 		TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
 		Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "ComponentPSORoughness"}; Parameter->DefaultValue = 0.5f;
-		FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Parameter->Id};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter->Id};
 		const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -4252,8 +4252,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	auto* Mask = NewObject<DMaterialExpressionScalarConstant>(Masked, "Mask");
 	Mask->Id = FGuid::NewGuid();
 	Mask->Value = 0.f;
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.OpacityMask = {Mask->Id};
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id};
 	const std::array<DMaterialExpression*, 1> Expressions{Mask};
 	EXPECT_TRUE(Masked->SetMaterialExpressions(Expressions, Outputs));
 	FMaterialStaticProperties Properties;
@@ -4474,7 +4474,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	Low->Id = FGuid::NewGuid(); Low->Metadata = {.Id = FGuid::NewGuid(), .Name = "LowSceneValue"}; Low->DefaultValue = 0.25f;
 	High->Id = FGuid::NewGuid(); High->Metadata = {.Id = FGuid::NewGuid(), .Name = "HighSceneValue"}; High->DefaultValue = 0.75f;
 	Select->Id = FGuid::NewGuid(); Select->DefaultValue.Connection = {Low->Id}; Select->SM5 = {High->Id}; Select->SM6 = {High->Id};
-	FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Select->Id};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select->Id};
 	const std::array<DMaterialExpression*, 3> Expressions{Low.Get(), High.Get(), Select.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);

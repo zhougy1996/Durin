@@ -279,12 +279,12 @@ def run(
         )
     )
     command = getattr(namespace, "asset_command", "check")
-    if command in ("identity-audit", "material-functions", "material-template"):
+    if command in ("identity-audit", "material-functions", "material-template", "material-foundation"):
         project = _project_from_namespace(namespace, repository)
         arguments = [command, f"--project={project}"]
         if command == "material-template":
             arguments.append(namespace.destination)
-        if command in ("material-functions", "material-template") and not namespace.dry_run:
+        if command in ("material-functions", "material-template", "material-foundation") and not namespace.dry_run:
             arguments.append("--apply")
         native_output = _invoke_asset_program(
             selection,

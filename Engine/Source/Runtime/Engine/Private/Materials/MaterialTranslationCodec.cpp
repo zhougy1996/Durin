@@ -1,5 +1,6 @@
 #include "MaterialTranslationCodec.h"
 #include "Serialization/BinaryFormat.h"
+#include "MaterialCompilationOutputSerialization.h"
 
 namespace Durin::MaterialBuildPrivate
 {
@@ -11,6 +12,8 @@ namespace Durin::MaterialBuildPrivate
 			FBinaryWriter* Writer = nullptr;
 			FBinaryReader* Reader = nullptr;
 			bool Good = true;
+			auto IsLoading() const -> bool { return Reading; }
+			auto Check(bool Condition) -> void { Good &= Condition; }
 			template<class T> auto Value(T& V) -> void
 			{
 				using VType = std::remove_cv_t<T>;
@@ -67,13 +70,12 @@ namespace Durin::MaterialBuildPrivate
 				uint32 Kind = uint32(Node.Payload.index()); Value(Kind); Variant(Node.Payload, Kind, [&](auto& V) { Payload(V); });
 			}
 			template<class T> auto Surface(T& Input) -> void
-			{ Value(Input.bExpression); Value(Input.ExpressionIndex); Value(Input.Type); Value(Input.LegalStages); Value(Input.SpatialKind); Value(Input.CoordinateSpace); Literal(Input.Literal); }
+			{ Value(Input.AttributeID); Value(Input.bExpression); Value(Input.ExpressionIndex); Value(Input.Type); Value(Input.LegalStages); Value(Input.SpatialKind); Value(Input.CoordinateSpace); Literal(Input.Literal); }
 			template<class T> auto IR(T& IR) -> void
 			{
-				Value(IR.Version); Sequence(IR.Nodes, MaterialFunctionMaxExpandedNodes, [&](auto& V) { Node(V); });
-				Value(IR.SurfaceRoot.bAggregate); Value(IR.SurfaceRoot.AggregateExpressionIndex);
-				for (auto& Input : IR.SurfaceRoot.Inputs) Surface(Input);
-				Surface(IR.WorldPositionOffset);
+				Value(IR.Version); Value(IR.Domain); Sequence(IR.Nodes, MaterialFunctionMaxExpandedNodes, [&](auto& V) { Node(V); });
+				Value(IR.bAggregateAttributes); Value(IR.AggregateAttributesIndex);
+				Sequence(IR.AttributeRoots, 64, [&](auto& Input) { Surface(Input); });
 			}
 			template<class T> auto Parameters(T& Items) -> void
 			{ Sequence(Items, MaterialRenderMaxFieldCount, [&](auto& V) { Value(V.Id); Value(V.Type); }); }
@@ -103,7 +105,7 @@ namespace Durin::MaterialBuildPrivate
 			}
 			template<class T> auto Diagnostic(T& D) -> void
 			{
-				Value(D.LocationKind); Value(D.NodeId); Value(D.LocationIndex); Optional(D.InputIndex); Optional(D.UVFieldIndex);
+				Value(D.LocationKind); Value(D.NodeId); Value(D.LocationIndex); Optional(D.InputIndex); Optional(D.UVFieldIndex); Value(D.AttributeID);
 				String(D.Message, MaterialProgramMaxDiagnosticMessageBytes);
 				Good &= uint32(D.LocationKind) <= uint32(EMaterialProgramDiagnosticLocationKind::SurfaceOutput);
 			}
@@ -113,7 +115,8 @@ namespace Durin::MaterialBuildPrivate
 				Value(InputIdentity); bool Succeeded = Product.Status == EMaterialProgramStatus::Ok; Value(Succeeded);
 				if constexpr (Reading) Product.Status = Succeeded ? EMaterialProgramStatus::Ok : EMaterialProgramStatus::Error;
 				auto& Result = Product;
-				Value(Product.RequiredStages); IR(Result.IR); Parameters(Result.ActiveParameters); Collections(Result.ActiveCollections); Layout(Result.Layout); Properties(Product.StaticProperties); Limits(Product.ResourceLimits);
+				TransferMaterialEntrySet(*this, Product.RequiredEntries); TransferMaterialCompilationEntries(*this, Product);
+				IR(Result.IR); Parameters(Result.ActiveParameters); Collections(Result.ActiveCollections); Layout(Result.Layout); Properties(Product.StaticProperties); Limits(Product.ResourceLimits);
 				String(Result.GeneratedSource, 1024 * 1024); Sequence(Product.Sources, MaterialFunctionMaxExpandedNodes, [&](auto& Location) { Source(Location.Source); });
 				auto& Q = Result.Requirements;
 				Value(Q.bMaterialView); Value(Q.bMaterialPrimitive); Value(Q.bCameraPosition); Value(Q.bViewport); Value(Q.bViewTransforms); Value(Q.bObjectTransforms); Value(Q.bBoundsCenter); Value(Q.bTangentFrame); Value(Q.bVertexNormal);
@@ -185,7 +188,9 @@ namespace Durin::MaterialBuildPrivate
 	{
 		if (Product.Status == EMaterialProgramStatus::Canceled) return {};
 		const auto Digest = Product ? SemanticIdentity(Product).Digest : Product.Identity.Digest;
-		FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<false> Transfer{.Writer = &Writer}; Transfer.Product(Product, Identity, Digest);
+		FBinaryWriter Writer({.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<false> Transfer{.Writer = &Writer}; auto CanonicalProduct = Product;
+		for (auto& Entry : CanonicalProduct.Entries) { Entry.Shader.Material.ProgramIdentity.Digest = Digest; if (Entry.Mesh) Entry.Mesh->Material = Entry.Shader; }
+		Transfer.Product(CanonicalProduct, Identity, Digest);
 		if (!Transfer.Valid()) return {}; return FSharedByteBuffer::Take(Writer.TakeBytes());
 	}
 	auto DecodeTranslationProduct(FByteView Bytes, FXxHash128 InputIdentity, const MIR::FCompilerInput& Consumer) -> std::optional<FMaterialTranslatedProgram>
@@ -193,7 +198,7 @@ namespace Durin::MaterialBuildPrivate
 		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<true> Transfer{.Reader = &Reader}; FMaterialTranslatedProgram Product; FXxHash128 Identity;
 		Transfer.Product(Product, Identity); if (!Transfer.Valid() || Identity != InputIdentity) return {};
 		auto& Result = Product;
-		if (Product.RequiredStages != SelectMaterialShaderStages(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses)) return {};
+		if (Product.RequiredEntries != SelectMaterialShaderEntries(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses)) return {};
 		if (Product.ResourceLimits != Consumer.Environment.ResourceLimits || Product.StaticProperties != CanonicalizeMaterialShaderProperties(Consumer.StaticProperties)) return {};
 		if (Product)
 		{
@@ -207,6 +212,9 @@ namespace Durin::MaterialBuildPrivate
 			FByteBuffer Canonical;
 			if (!MIR::EncodeCanonical(Result.IR, Canonical)) return {};
 			if (SemanticIdentity(Product) != Result.Identity) return {};
+			auto Environment = Consumer.Environment; Environment.Target = "vulkan-spirv-1.5";
+			const auto Expected = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Product.StaticProperties, Environment, Result.Identity);
+			if (Result.Domain != Expected.Domain || Result.Entries != Expected.Entries) return {};
 			Result.Identity = BuildMaterialProgramIdentity(Consumer.StaticProperties, Consumer.Environment, Result.ActiveCollections, Canonical, Result.Layout);
 			for (auto& Collection : Result.ActiveCollections)
 			{
@@ -214,6 +222,7 @@ namespace Durin::MaterialBuildPrivate
 				if (Current == Consumer.Collections.end() || !Collection.HasCompatibleSchema(*Current)) return {};
 				Collection.AssetPath = Current->AssetPath; Collection.DefaultPayload = Current->DefaultPayload;
 			}
+			static_cast<FMaterialCompilationOutput&>(Result) = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Consumer.StaticProperties, Consumer.Environment, Result.Identity);
 		}
 		else if (Result.Diagnostics.empty()) return {};
 		for (auto& Location : Product.Sources)

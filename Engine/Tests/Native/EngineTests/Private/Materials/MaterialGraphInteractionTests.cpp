@@ -574,14 +574,14 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 	ASSERT_EQ(Sample->Outputs.size(), 7u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
 	const auto BeforeInvalid = Material->GetExpressionOutputs();
-	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Normal), FMaterialGraphPinAddress::Output({SampleId, 8}), true, Durin::ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Normal), FMaterialGraphPinAddress::Output({SampleId, 8}), true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(Material->GetExpressionOutputs(), BeforeInvalid);
-	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Normal), Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document.Disconnect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Normal), Durin::ETransactionMode::NotTransactable));
 	const std::array Consumers{SecondSample.GeneratedNodeIds.front(), RG.GeneratedNodeIds.front()};
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).RemoveNodes(Consumers, Durin::ETransactionMode::NotTransactable));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	EXPECT_EQ(Sample->Outputs.size(), 6u);
-	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.Connection.OutputIndex, 1u);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.OutputIndex, 1u);
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -656,11 +656,11 @@ TEST(FMaterialGraphInteractionTests, DiagnosticNavigationIsLocatedAndDocumentLoc
 	EXPECT_TRUE(FirstCanvas.SelectAndFrameDiagnostic({
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
 		.NodeId = FirstNode,
-		.LocationIndex = static_cast<uint32>(EMaterialSurfaceOutput::Roughness),
+		.LocationIndex = static_cast<uint32>(EMaterialProperty::MP_Roughness),
 	}));
 	EXPECT_TRUE(FirstCanvas.GetSelection().contains(FirstNode));
 	EXPECT_EQ(FirstCanvas.GetSelectedSurfaceOutput(),
-		EMaterialSurfaceOutput::Roughness);
+		EMaterialProperty::MP_Roughness);
 	EXPECT_TRUE(FirstCanvas.SelectAndFrame(FirstNode));
 	EXPECT_FALSE(FirstCanvas.GetSelectedSurfaceOutput().has_value());
 	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
@@ -669,7 +669,7 @@ TEST(FMaterialGraphInteractionTests, DiagnosticNavigationIsLocatedAndDocumentLoc
 	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
 		.NodeId = FirstNode,
-		.LocationIndex = 8,
+		.LocationIndex = 255,
 	}));
 	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
@@ -850,12 +850,12 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	ASSERT_TRUE(Call);
 	const auto Constant = Testing::CreateGraphConstant(Document, 0.f, 0, 300);
 	ASSERT_TRUE(Constant);
-	auto SurfaceExpression = Testing::MakeGraphExpression<DMaterialExpressionSetSurfaceAttributes>();
+	auto SurfaceExpression = Testing::MakeGraphExpression<DMaterialExpressionSetMaterialAttributes>();
 	SurfaceExpression->Surface = {Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id};
-	SurfaceExpression->Attributes = {{EMaterialSurfaceOutput::Metallic, {Constant.GeneratedNodeIds[0]}}};
+	SurfaceExpression->Attributes = {{EMaterialProperty::MP_Metallic, {Constant.GeneratedNodeIds[0]}}};
 	const auto Surface = Document.CreateExpression(*SurfaceExpression.Get(), 0, 450, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Surface);
-	const uint32 MetallicInput = static_cast<uint32>(EMaterialSurfaceOutput::Metallic) + 1;
+	const uint32 MetallicInput = static_cast<uint32>(EMaterialProperty::MP_Metallic) + 1;
 	const FMaterialProgramLink AmountSource{Call.GeneratedNodeIds[0], 0, Output.Id};
 	EXPECT_FALSE(Document.Connect(FMaterialGraphPinAddress::Input(Surface.GeneratedNodeIds[0], MetallicInput), FMaterialGraphPinAddress::Output(AmountSource), false, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::Input(Surface.GeneratedNodeIds[0], MetallicInput), FMaterialGraphPinAddress::Output(AmountSource), true, Durin::ETransactionMode::NotTransactable));
@@ -863,7 +863,7 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	const auto* SurfaceView = FindViewNode(SurfaceInspection, Surface.GeneratedNodeIds[0]);
 	ASSERT_NE(SurfaceView, nullptr);
 	ASSERT_EQ(SurfaceView->Inputs.size(), 2u);
-	EXPECT_EQ(SurfaceView->Inputs[0].AcceptedTypes, std::vector{EMaterialProgramValueType::Surface});
+	EXPECT_EQ(SurfaceView->Inputs[0].AcceptedTypes, std::vector{EMaterialProgramValueType::MaterialAttributes});
 	EXPECT_EQ(SurfaceView->Inputs[1].Link, AmountSource);
 	const auto Destination = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Saturate, EMaterialProgramValueType::Float, {Constant.GeneratedNodeIds[0]}, 350);
 	ASSERT_TRUE(Destination);
@@ -1061,10 +1061,10 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	EXPECT_EQ(FindViewNode(FMaterialGraphDocument(*Material).Inspect(), Destination)
 		->Inputs.front().Link.SourceNodeId, Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight * 3)}, false);
-	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Connection.ExpressionId, Source);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId, Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)))}, false);
 	EXPECT_EQ(Errors, 1);
-	EXPECT_EQ(Material->GetExpressionOutputs().BaseColor.Connection.ExpressionId, Source);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.ExpressionId, Source);
 	Drop({Origin.x + 380, Origin.y + 10}, false);
 	Frame(Output, false);
 	Frame(Output, true);
@@ -1387,8 +1387,8 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 	for (uint32 Index = 0; Index < Channels.size(); ++Index)
 	{
 		SCOPED_TRACE(Index);
-		const auto Role = static_cast<EMaterialSurfaceOutput>(Index);
-		const bool bNormal = Role == EMaterialSurfaceOutput::Normal;
+		const auto Role = static_cast<EMaterialProperty>(Index);
+		const bool bNormal = Role == EMaterialProperty::MP_Normal;
 		const auto Result = FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = Role, .X = 400, .Y = 200});
 		ASSERT_TRUE(Result) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Result);
 		ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
@@ -1400,7 +1400,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		const FGuid ParameterId = Sample->Metadata.Id;
 		const auto ReadOutput = [&]() {
 			const auto& O = Material->GetExpressionOutputs();
-			return (std::array{O.BaseColor, O.Normal, O.Metallic, O.Roughness, O.AmbientOcclusion, O.Emissive, O.Opacity, O.OpacityMask})[Index];
+			return (std::array{O.Get(EMaterialProperty::MP_BaseColor), O.Get(EMaterialProperty::MP_Normal), O.Get(EMaterialProperty::MP_Metallic), O.Get(EMaterialProperty::MP_Roughness), O.Get(EMaterialProperty::MP_AmbientOcclusion), O.Get(EMaterialProperty::MP_EmissiveColor), O.Get(EMaterialProperty::MP_Opacity), O.Get(EMaterialProperty::MP_OpacityMask)})[Index];
 		};
 		EXPECT_EQ(ReadOutput().Connection.ExpressionId, SampleId);
 		EXPECT_EQ(ReadOutput().Connection.OutputIndex, Channels[Index]);
@@ -1420,8 +1420,8 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_TRUE(Transactions->TryReset());
 	}
-	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = EMaterialSurfaceOutput::BaseColor, .X = 0, .Y = 0}, Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = EMaterialSurfaceOutput::Normal, .X = 320, .Y = 360}, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = EMaterialProperty::MP_BaseColor, .X = 0, .Y = 0}, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = EMaterialProperty::MP_Normal, .X = 320, .Y = 360}, Durin::ETransactionMode::NotTransactable));
 	auto Presentation = Material->GetMaterialGraphPresentation();
 	Testing::OutputPosition(*Material, Presentation).X = 760;
 	Testing::OutputPosition(*Material, Presentation).Y = 100;
@@ -1748,8 +1748,10 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 	DObject* Owner = GetParam() ? static_cast<DObject*>(NewObject<DMaterialFunction>(nullptr, "FunctionDetails"))
 		: static_cast<DObject*>(NewObject<DMaterial>(nullptr, "MaterialDetails"));
 	FMaterialGraphDocument Document(*Owner);
-	auto Surface = Testing::MakeGraphExpression<DMaterialExpressionGetSurfaceAttributes>();
-	Surface->AttributeMask = 3;
+	auto Surface = Testing::MakeGraphExpression<DMaterialExpressionGetMaterialAttributes>();
+	const auto BaseColorID = FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_BaseColor);
+	const auto NormalID = FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_Normal);
+	Surface->AttributeIDs = {BaseColorID, NormalID};
 	ASSERT_TRUE(Document.CreateExpression(*Surface.Get(), 0, 0, Durin::ETransactionMode::NotTransactable));
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Owner), {.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
@@ -1780,14 +1782,14 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SurfaceDetailsCommitImmediatelyAndU
 		: Cast<DMaterial>(Owner)->GetExpressionCollection().Expressions;
 	const auto Node = std::ranges::find(Expressions, Surface->Id, [](const auto& E) { return E->Id; });
 	ASSERT_NE(Node, Expressions.end());
-	const auto* Edited = Cast<DMaterialExpressionGetSurfaceAttributes>(Node->Get());
+	const auto* Edited = Cast<DMaterialExpressionGetMaterialAttributes>(Node->Get());
 	ASSERT_NE(Edited, nullptr);
-	EXPECT_EQ(Edited->AttributeMask, 2);
+	EXPECT_EQ(Edited->AttributeIDs, (std::vector<FGuid>{NormalID}));
 	EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 1u);
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(Edited->AttributeMask, 3);
+	EXPECT_EQ(Edited->AttributeIDs, (std::vector<FGuid>{BaseColorID, NormalID}));
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Edited->AttributeMask, 2);
+	EXPECT_EQ(Edited->AttributeIDs, (std::vector<FGuid>{NormalID}));
 	ImGui::DestroyContext(Context);
 	EXPECT_TRUE(Transactions->TryReset());
 	MarkAsGarbage(Owner); CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -1871,7 +1873,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCreationActionsShareCompatibilityAn
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Callee->GetFunctionSignature(), Signature);
 	EXPECT_FALSE(Transactions->CanUndo());
-	for (const auto Type : {EMaterialProgramValueType::Texture2D, EMaterialProgramValueType::Surface})
+	for (const auto Type : {EMaterialProgramValueType::Texture2D, EMaterialProgramValueType::MaterialAttributes})
 	{
 		const auto TypedInput = Function.Create({MakePortCreationAction(false, Type)}, Durin::ETransactionMode::NotTransactable);
 		ASSERT_TRUE(TypedInput) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(TypedInput);

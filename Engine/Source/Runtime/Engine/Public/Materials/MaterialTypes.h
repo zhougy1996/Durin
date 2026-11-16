@@ -16,6 +16,8 @@
 namespace Durin
 {
 	class DMaterialInterface;
+	DENUM()
+	enum class EMaterialDomain : uint8 { Surface = 0, PostProcess = 1 };
 	inline constexpr uint32 MaterialMaxStaticBoolDeclarations = 32;
 
 	DENUM()
@@ -75,8 +77,9 @@ namespace Durin
 	DENUM()
 	enum class EMaterialShadingModel : uint8
 	{
-		Lit,
-		Unlit,
+		DefaultLit = 0,
+		Unlit = 1,
+		ClearCoat = 2, // Reserved authoring identity; execution is introduced separately.
 	};
 
 	// Controls depth writes independently from the blend-mode default.
@@ -98,7 +101,7 @@ namespace Durin
 		EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
 
 		DPROPERTY()
-		EMaterialShadingModel ShadingModel = EMaterialShadingModel::Lit;
+		EMaterialShadingModel ShadingModel = EMaterialShadingModel::DefaultLit;
 
 		DPROPERTY()
 		bool bTwoSided = false;

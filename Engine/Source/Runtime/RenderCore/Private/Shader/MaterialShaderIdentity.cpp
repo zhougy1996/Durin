@@ -27,6 +27,9 @@ namespace Durin
 			Builder.UpdateValue(uint8{0});
 			Builder.UpdateValue(Identity.PermutationId);
 			Builder.UpdateValue(static_cast<uint8>(Identity.Frequency));
+			Builder.UpdateValue(Identity.PassContractVersion);
+			Builder.UpdateValue(Identity.OutputLayout.Version);
+			Builder.Update(Identity.OutputLayout.Id.ToString());
 		}
 
 		auto MakeOrderingTuple(
@@ -44,7 +47,7 @@ namespace Durin
 				Identity.EntryPoint,
 				Identity.Target,
 				Identity.PermutationId,
-				Identity.Frequency);
+				Identity.Frequency, Identity.PassContractVersion, Identity.OutputLayout);
 		}
 	}
 
@@ -72,7 +75,7 @@ namespace Durin
 		const FMaterialShaderPermutationIdentity& Identity) -> std::string
 	{
 		return std::format(
-			"layout-version={},layout-id={},program={},blend={},shading={},mask-bits={},type={},entry={},target={},permutation={},frequency={}",
+			"layout-version={},layout-id={},program={},blend={},shading={},mask-bits={},type={},entry={},target={},permutation={},frequency={},pass-contract={},output-layout={}:{}",
 			Identity.Material.RenderLayout.Version,
 			Identity.Material.RenderLayout.Id.ToString(),
 			Identity.Material.ProgramIdentity.ToString(),
@@ -80,7 +83,8 @@ namespace Durin
 			Identity.Material.ShadingModel.Value,
 			std::bit_cast<uint32>(Identity.Material.OpacityMaskThreshold),
 			Identity.ShaderType, Identity.EntryPoint, Identity.Target,
-			Identity.PermutationId, static_cast<uint8>(Identity.Frequency));
+			Identity.PermutationId, static_cast<uint8>(Identity.Frequency), Identity.PassContractVersion,
+			Identity.OutputLayout.Version, Identity.OutputLayout.Id.ToString());
 	}
 
 	auto GetMaterialShaderIdentityText(

@@ -9,113 +9,88 @@
 
 namespace Durin
 {
-	auto MIR::FGraphBuilderImpl::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs)
+	auto MIR::FGraphBuilderImpl::FinishSurface(const FMaterialAttributeRoot& Outputs)
 		-> MIR::FBuildResult
 	{
-		const std::array Inputs{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
-			Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
-		std::array<FMaterialProgramLiteral, 8> Defaults;
-		for (uint32 Index = 0; Index < Defaults.size(); ++Index)
-		{
-			const auto Values = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Index));
-			Defaults[Index] = {Values.empty() ? 0.f : Values[0], Values.size() > 1 ? Values[1] : 0.f, Values.size() > 2 ? Values[2] : 0.f};
-		}
-		auto OutputError = [&](uint32 Index, std::string Message) {
-			if (Result.Diagnostics.empty())
-				Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
-					.LocationIndex = Index, .Message = std::move(Message)});
-		};
-		auto ValidSelector = [](const FMaterialExpressionInput& Input) {
-			return Input.ExpressionId.IsValid() || (Input.OutputIndex == 0 && !Input.OutputId.IsValid());
-		};
-		// Authoring validates every disconnected node and every selector branch.
-		// Compilation starts from the surface roots so selector resolution can keep
-		// inactive branches out of expanded MIR, resource/dependency discovery and limits.
-		if (bValidateAuthoring) BuildAllExpressions();
-		const bool bAggregate = Outputs.bUseMaterialAttributes;
-		const FMaterialSurfaceOutputs StandardDefaults;
-		const auto OutputLinks = std::ranges::count_if(Inputs, [](const auto& Input) { return Input.Connection.ExpressionId.IsValid(); })
-			+ (Outputs.Surface.ExpressionId.IsValid() ? 1 : 0)
-			+ (Outputs.WorldPositionOffset.Connection.ExpressionId.IsValid() ? 1 : 0);
-		if (AuthoredLinks + OutputLinks > MaterialProgramMaxLinkCount) OutputError(0, "Material output connections exceed the authored link bound.");
-		if (!ValidSelector(Outputs.Surface)) OutputError(0, "Disconnected Surface output has an output selector.");
-		for (uint32 Index = 0; Index < Inputs.size() && Result.Diagnostics.empty(); ++Index)
-		{
-			const auto& Input = Inputs[Index].Connection;
-			const auto& Retained = Inputs[Index].Constant;
-			AuthoringCodeHash.UpdateValue(Inputs[Index].UseConstant);
-			AuthoringCodeHash.UpdateValue(static_cast<uint32>(Retained.size()));
-			for (const auto V : Retained) AuthoringCodeHash.UpdateValue(V);
-			const auto& Default = Defaults[Index];
-			if (Retained.size() != static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))) + 1
-				|| !std::ranges::all_of(Retained, [](float V) { return std::isfinite(V); }) || !ValidSelector(Input) || !std::isfinite(Default.X) || !std::isfinite(Default.Y) || !std::isfinite(Default.Z))
+		if (Outputs.Properties.Bindings.size() > 64) { Fail("Material attribute binding limit exceeded."); return Finish({}); }
+		std::unordered_set<FGuid> Seen;
+		for (const auto& Binding : Outputs.Properties.Bindings)
+			if (!FMaterialAttributeDefinitionMap::Find(Binding.AttributeID) || !Seen.insert(Binding.AttributeID).second)
 			{
-				OutputError(Index, "Material output has an invalid selector or retained default.");
+				const auto* Definition = FMaterialAttributeDefinitionMap::Find(Binding.AttributeID);
+				Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					.LocationIndex = Definition ? uint32(Definition->Property) : 255u,
+					.Message = "Material attributes contain an unknown or duplicate identity.", .AttributeID = Binding.AttributeID});
+				return Finish({});
+			}
+		if (bValidateAuthoring) BuildAllExpressions();
+		if (bValidateAuthoring)
+		{
+			// Retained wiring must stay structurally valid even when its mode is inactive.
+			if (!Outputs.bUseMaterialAttributes && Outputs.Attributes.ExpressionId.IsValid()) ResolveIndex(Outputs.Attributes);
+			if (Outputs.bUseMaterialAttributes)
+				for (const auto& Binding : Outputs.Properties.Bindings)
+					if (Binding.Input.Connection.ExpressionId.IsValid()) ResolveIndex(Binding.Input.Connection);
+		}
+		if (!Outputs.Attributes.ExpressionId.IsValid() && (Outputs.Attributes.OutputIndex != 0 || Outputs.Attributes.OutputId.IsValid()))
+		{ Fail("Disconnected material attributes input has an output selector."); return Finish({}); }
+		AuthoringCodeHash.UpdateValue(Outputs.bUseMaterialAttributes);
+		uint32 Aggregate = MIR::InvalidIndex;
+		if (Outputs.bUseMaterialAttributes && Outputs.Attributes.ExpressionId.IsValid())
+		{
+			Aggregate = ResolveIndex(Outputs.Attributes);
+			if (Aggregate != MIR::InvalidIndex && GetNode(Aggregate).ResultType != EMaterialProgramValueType::MaterialAttributes)
+				Fail("Aggregate material output requires a Surface expression.");
+		}
+		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+		{
+			const auto& Stored = Outputs.Get(Definition.Property);
+			const auto& Link = Stored.Connection;
+			const auto Width = uint32(Definition.Semantics.Type) + 1;
+			if (Stored.Constant.size() != Width || !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); })
+				|| (!Link.ExpressionId.IsValid() && (Link.OutputIndex != 0 || Link.OutputId.IsValid())))
+			{ Fail("Material attribute has an invalid selector or retained default."); break; }
+			AuthoringCodeHash.UpdateValue(Definition.AttributeID);
+			AuthoringCodeHash.UpdateValue(Stored.UseConstant);
+			for (float V : Stored.Constant) AuthoringCodeHash.UpdateValue(V);
+			auto& Root = Result.IR.GetAttribute(Definition.Property);
+			Root.Literal = Definition.DefaultValue;
+			if (!Outputs.bUseMaterialAttributes && Stored.UseConstant) Root.Literal = {Stored.Constant[0], Width > 1 ? Stored.Constant[1] : 0.f, Width > 2 ? Stored.Constant[2] : 0.f, Width > 3 ? Stored.Constant[3] : 0.f};
+			uint32 Index = MIR::InvalidIndex;
+			if (Aggregate != MIR::InvalidIndex && size_t(Definition.Property) < GetNode(Aggregate).Inputs.size())
+				Index = GetNode(Aggregate).Inputs[size_t(Definition.Property)];
+			else if (!Outputs.bUseMaterialAttributes && Link.ExpressionId.IsValid()) Index = ResolveIndex(Link);
+			if (Index != MIR::InvalidIndex && Definition.Property != EMaterialProperty::MP_Normal
+				&& Definition.Property != EMaterialProperty::MP_WorldPositionOffset)
+			{
+				const auto Broadcast = BroadcastScalar(Index, Root.Type);
+				const auto* BroadcastIndex = Broadcast.GetIndex();
+				Index = BroadcastIndex ? *BroadcastIndex : MIR::InvalidIndex;
+			}
+			if (Index == MIR::InvalidIndex || !Result.Diagnostics.empty()) continue;
+			const auto Actual = GetNode(Index).GetSemantics();
+			const bool Compatible = Definition.Property == EMaterialProperty::MP_WorldPositionOffset
+				? IsMaterialWorldPositionOffsetSemantics(Actual)
+				: Actual.Type == Definition.Semantics.Type && Actual.Kind == Definition.Semantics.Kind
+					&& Actual.Space == Definition.Semantics.Space && MaterialStagesContain(Actual.Stages, Definition.Semantics.Stages);
+			if (!Compatible)
+			{
+				Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					.LocationIndex = uint32(Definition.Property),
+					.Message = Actual.Type != Root.Type
+						? std::format("Material output source has an incompatible type. [expected type {}] [actual type {}]", uint8(Root.Type), uint8(Actual.Type))
+						: "Material output source has an incompatible evaluation stage, spatial kind, or coordinate space.",
+					.AttributeID = Definition.AttributeID});
 				break;
 			}
-			auto& Root = Result.IR.SurfaceRoot.Inputs[Index];
-			Root.Literal = bAggregate ? GetMaterialSurfaceOutputDefault(StandardDefaults,
-				static_cast<EMaterialSurfaceOutput>(Index)) : Default;
-			if (!Input.ExpressionId.IsValid()) continue;
-			const auto ExpressionIndex = *BroadcastScalar(ResolveIndex(Input), Root.Type).GetIndex();
-			if (!bAggregate) { Root.ExpressionIndex = ExpressionIndex; Root.bExpression = true; }
-			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != Root.Type)
-			{
-				OutputError(Index, std::format("Material output source has an incompatible type. [expected type {}] [actual type {}]",
-					static_cast<uint8>(Root.Type), static_cast<uint8>(Result.IR.Nodes[ExpressionIndex].ResultType)));
-			}
-			if (Result.Diagnostics.empty())
-			{
-				const auto Actual = Result.IR.Nodes[ExpressionIndex].GetSemantics();
-				const auto Expected = Root.GetSemantics();
-				if (Actual.Type != Expected.Type || Actual.Kind != Expected.Kind
-					|| Actual.Space != Expected.Space
-					|| !MaterialStagesContain(Actual.Stages,
-						EMaterialEvaluationStage::Pixel))
-					OutputError(Index,
-						"Material output source has an incompatible evaluation stage, spatial kind, or coordinate space.");
-			}
+			Root.bExpression = true; Root.ExpressionIndex = Index;
 		}
-		if (Outputs.Surface.ExpressionId.IsValid() && Result.Diagnostics.empty())
-		{
-			auto& Root = Result.IR.SurfaceRoot;
-			const auto ExpressionIndex = ResolveIndex(Outputs.Surface);
-			if (bAggregate) { Root.bAggregate = true; Root.AggregateExpressionIndex = ExpressionIndex; }
-			if (Result.Diagnostics.empty() && Result.IR.Nodes[ExpressionIndex].ResultType != EMaterialProgramValueType::Surface)
-				OutputError(0, "Aggregate material output requires a Surface expression.");
-		}
-		if (Result.Diagnostics.empty())
-		{
-			const auto& Stored = Outputs.WorldPositionOffset;
-			const auto& Input = Stored.Connection;
-			const auto Values = ReadMaterialOutputDefault(Outputs, EMaterialOutputPin::WorldPositionOffset);
-			const auto Pin = static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
-			AuthoringCodeHash.UpdateValue(Stored.UseConstant);
-			for (float Value : Stored.Constant) AuthoringCodeHash.UpdateValue(Value);
-			if (!ValidSelector(Input) || Stored.Constant.size() != 3
-				|| !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); }))
-				OutputError(Pin, "Material output has an invalid selector or retained default.");
-			else
-			{
-				auto& Root = Result.IR.WorldPositionOffset;
-				Root.Literal = {Values[0], Values[1], Values[2]};
-				if (Input.ExpressionId.IsValid())
-				{
-					const auto Index = ResolveIndex(Input);
-					if (Result.Diagnostics.empty())
-					{
-						if (!IsMaterialWorldPositionOffsetSemantics(Result.IR.Nodes[Index].GetSemantics()))
-							OutputError(Pin, "Material output source has an incompatible evaluation stage, spatial kind, or coordinate space.");
-						else { Root.bExpression = true; Root.ExpressionIndex = Index; }
-					}
-				}
-			}
-		}
+
 		return Finish({});
 	}
 
 	auto MIR::FGraphBuilderImpl::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+		const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
 		MIR::FGraphBuilderImpl Context(Expressions);
 		Context.bValidateAuthoring = true;
@@ -158,18 +133,16 @@ namespace Durin
 					Hash.UpdateValue(Transform->Destination);
 				}
 			}
-			Hash.UpdateValue(Built.IR.SurfaceRoot.bAggregate);
-			Hash.UpdateValue(Built.IR.SurfaceRoot.AggregateExpressionIndex);
-			for (const auto& Input : Built.IR.SurfaceRoot.Inputs)
+			Hash.UpdateValue(Built.IR.bAggregateAttributes);
+			Hash.UpdateValue(Built.IR.AggregateAttributesIndex);
+			for (const auto& Input : Built.IR.AttributeRoots)
 			{
+				Hash.UpdateValue(Input.AttributeID);
 				Hash.UpdateValue(Input.bExpression); Hash.UpdateValue(Input.ExpressionIndex);
 				Hash.UpdateValue(Input.Type); Hash.UpdateValue(Input.LegalStages);
 				Hash.UpdateValue(Input.SpatialKind); Hash.UpdateValue(Input.CoordinateSpace);
 				Literal(Input.Literal);
 			}
-			Hash.UpdateValue(Built.IR.WorldPositionOffset.bExpression);
-			Hash.UpdateValue(Built.IR.WorldPositionOffset.ExpressionIndex);
-			Literal(Built.IR.WorldPositionOffset.Literal);
 			*OutCodeFingerprint = Hash.Finalize();
 		}
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
@@ -320,8 +293,8 @@ namespace Durin
 		if (!Capture) return Result;
 		const auto& Snapshot = Capture.Snapshot->Input;
 		std::vector<uint32> Pending;
-		if (Snapshot.IR.SurfaceRoot.bAggregate) Pending.push_back(Snapshot.IR.SurfaceRoot.AggregateExpressionIndex);
-		else for (const auto& Input : Snapshot.IR.SurfaceRoot.Inputs)
+		if (Snapshot.IR.bAggregateAttributes) Pending.push_back(Snapshot.IR.AggregateAttributesIndex);
+		else for (const auto& Input : Snapshot.IR.AttributeRoots)
 			if (Input.bExpression) Pending.push_back(Input.ExpressionIndex);
 		std::vector<bool> Visited(Snapshot.IR.Nodes.size());
 		while (!Pending.empty())

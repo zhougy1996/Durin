@@ -144,14 +144,14 @@ namespace Durin::Testing
 		auto& OpacityMask = MakeScalarProduct(
 			OpacityMaskIds.Value, OpacityMaskIds.Texture, 0);
 
-		Graph.Outputs.BaseColor.Connection = MakeLink(BaseColor);
-		Graph.Outputs.Normal.Connection = MakeLink(Normal);
-		Graph.Outputs.Metallic.Connection = MakeLink(Metallic);
-		Graph.Outputs.Roughness.Connection = MakeLink(Roughness);
-		Graph.Outputs.AmbientOcclusion.Connection = MakeLink(AmbientOcclusion);
-		Graph.Outputs.Emissive.Connection = MakeLink(Emissive);
-		Graph.Outputs.Opacity.Connection = MakeLink(Opacity);
-		Graph.Outputs.OpacityMask.Connection = MakeLink(OpacityMask);
+		Graph.Outputs.Get(EMaterialProperty::MP_BaseColor).Connection = MakeLink(BaseColor);
+		Graph.Outputs.Get(EMaterialProperty::MP_Normal).Connection = MakeLink(Normal);
+		Graph.Outputs.Get(EMaterialProperty::MP_Metallic).Connection = MakeLink(Metallic);
+		Graph.Outputs.Get(EMaterialProperty::MP_Roughness).Connection = MakeLink(Roughness);
+		Graph.Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection = MakeLink(AmbientOcclusion);
+		Graph.Outputs.Get(EMaterialProperty::MP_EmissiveColor).Connection = MakeLink(Emissive);
+		Graph.Outputs.Get(EMaterialProperty::MP_Opacity).Connection = MakeLink(Opacity);
+		Graph.Outputs.Get(EMaterialProperty::MP_OpacityMask).Connection = MakeLink(OpacityMask);
 
 		auto AppendNode = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
 			std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}, FMaterialProgramLiteral Literal = {}) -> FMaterialExpressionInput {

@@ -1,13 +1,28 @@
 # Material System Roadmap
 
-Summary: Evolve authored materials from fixed PBR inputs to material-owned parameters, compiled layouts, reusable graphs, and runtime instances.
+Summary: Evolve authored materials through compiled layouts, reusable graphs and instances to extensible material attributes and explicit execution contracts.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-11-16
 
 Status: Active
 Completed:
 
 ## Current Status
+
+On 2026-11-15 the owner selected M14, the
+[Material Attributes and Execution Contracts Refactor plan](../Plans/MaterialAttributesAndExecutionContractsRefactor.md),
+for planning, then authorized Stage 0 only. Stage 0 completed on 2026-11-16
+with frozen contracts, content dispositions and measured baseline receipts.
+The owner subsequently authorized Stage 1, now complete with typed attribute
+roots, migrated minimum content and validation receipts. Stage 2 is also complete:
+material evaluation composes with analyzed typed Shader/Pass/Vertex Factory
+contracts across translation, Cook, renderer admission and PSO precaching.
+Stage 3 remains unstarted.
+M14 replaces the fixed-eight Surface boundary with UE-aligned
+attribute definitions, compilation requirements and separate evaluation/pass
+execution, with explicit content replacement permitted. M14 supersedes the
+historical retained-output restriction for its selected scope; existing runtime
+contracts remain authoritative until implementation lands.
 
 The [Material Async Derived Data Build plan](../Plans/Archive/2026-10/MaterialAsyncDerivedDataBuild.md)
 implements detached cached translation, asynchronous ShaderBuild subscriptions and
@@ -262,6 +277,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | 11. Reusable material functions | Complete | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Expression semantics and bounded language completion | Complete | M8, M10, M11 and M13 complete | Stage/space-aware values, selected math and spatial/view expressions, and static/quality/feature selectors through existing Surface passes; excludes WPO, depth, new outputs/domains/passes |
 | 13. Material instance shader variants | Complete; remaining qualification waived by user | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import integration; retained evidence and waived gates recorded in the plan |
+| 14. Material attributes and execution contracts | Stages 0-2 complete; Stage 3 unstarted | Landed material compiler/lifecycle, functions, instances, stage/space semantics and vertex evaluation; further implementation begins on subsequent owner instruction | UE-aligned attributes/domains, per-entry compilation requirements, separate evaluation/pass contracts, typed sampling, Specular/ClearCoat/PostProcess proofs, closed content replacement inventory and cross-project qualification; exact stages and gates belong to the child plan |
 
 Parameter GUIDs identify declarations within a root material; node GUIDs identify
 expression occurrences. Names are case-insensitive lookup keys in one root scope.
@@ -290,8 +306,15 @@ in separate writer checkouts. M12 is selected as a bounded expression-language
 plan and does not activate WPO, SceneDepth, new outputs/domains, or new passes.
 M13 keeps runtime dynamic edits outside shader compilation.
 
+M14 owns the next output/domain/execution transition and may replace authored
+assets and compiled formats rather than preserve compatibility. Its scope
+overrides the earlier fixed-eight-output constraint, but does not activate Water
+optics, Substrate, or unspecified domains. Stages 0-2 are complete; typed sampling, selected model/domain proofs
+and the remaining content work belong to later child-plan stages.
+
 | Proposed or completed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
+| [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Stages 0-2 complete; Stage 3 not started |
 | [Material Parameter Domain Refactor](../Plans/Archive/2026-07/MaterialParameterDomainRefactor.md) | M1 | Runtime-owned parameter schema and editor integration | Complete |
 | [Static Mesh Material Slots](../Plans/Archive/2026-07/StaticMeshMaterialSlots.md) and [Static Mesh Indexed Material Overrides](../Plans/Archive/2026-08/StaticMeshIndexedMaterialOverrides.md) | M1 | Mesh slot identity, reconciliation, and component overrides | Complete |
 | [Material Render-Proxy Invalidation](../Plans/Archive/2026-08/MaterialRenderProxyInvalidation.md) | M2 | Stable proxy publication and scalable inherited invalidation | Complete |

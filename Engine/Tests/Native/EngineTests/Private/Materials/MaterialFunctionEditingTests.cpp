@@ -128,7 +128,7 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
 	const auto RootCall = Root.InsertFunctionCall(*Function, 100, 200, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(RootCall);
-	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({RootCall.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({RootCall.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Material->CompileEdits());
 	const auto RootConstant = Testing::CreateGraphConstant(Root, 0.6f);
 	ASSERT_TRUE(RootConstant);
@@ -160,9 +160,9 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	const auto Output = FunctionPort(51, EMaterialProgramValueType::Float, "New Amount");
 	ASSERT_TRUE(Graph.AddPort(true, Output, {Input.GeneratedNodeIds[0]}, 0, 0, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 1u);
-	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 2u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Connection.OutputId, Output.Id);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.OutputId, Output.Id);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -244,7 +244,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	EXPECT_FALSE(Document.RemovePort(false, Input.Id, Durin::ETransactionMode::NotTransactable));
 	const auto Inserted = Caller.InsertFunctionCall(*Function, 0, 0, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Inserted);
-	ASSERT_TRUE(Caller.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialSurfaceOutput::Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}), true, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(Caller.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}), true, Durin::ETransactionMode::Record));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	const auto Identity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
@@ -258,10 +258,10 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	const auto CallId = Inserted.GeneratedNodeIds[0];
 	ASSERT_TRUE(Caller.RemoveNodes(std::span(&CallId, 1), Durin::ETransactionMode::Record));
 	EXPECT_TRUE(GetFunctionCalls(*Material).empty());
-	EXPECT_FALSE(Material->GetExpressionOutputs().Roughness.Connection.ExpressionId.IsValid());
+	EXPECT_FALSE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId.IsValid());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Roughness.Connection.OutputId, Output.Id);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.OutputId, Output.Id);
 	ASSERT_TRUE(Document.RemovePort(true, Output.Id, Durin::ETransactionMode::NotTransactable));
 	const auto NodeId = AddedNode.GeneratedNodeIds[0];
 	ASSERT_TRUE(Document.RemoveNodes(std::span(&NodeId, 1), Durin::ETransactionMode::NotTransactable));
@@ -288,7 +288,7 @@ TEST(FMaterialFunctionEditingTests, TerminalPortIsTheOnlyAuthoredInterfaceAndUnd
 	const auto NodeId = Input->Id;
 	auto Edited = Input->Port;
 	Edited.Name = "Authored on node";
-	Edited.Default.Surface.RoughnessDefault.X = .27f;
+	Edited.Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = .27f;
 	std::vector<FMaterialGraphChangeSet> Events;
 	const auto Handle = Function->GetGraphChanges().Subscribe(*Function.Get(), [&](const auto& Change) {
 		Events.push_back(Change);

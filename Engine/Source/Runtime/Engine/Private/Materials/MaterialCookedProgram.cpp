@@ -3,12 +3,24 @@
 #include "Materials/MaterialRenderTypes.h"
 
 #include "Serialization/Archive.h"
+#include "MaterialCompilationOutputSerialization.h"
 
 namespace Durin
 {
 
 	namespace
 	{
+		struct FEntryArchiveTransfer
+		{
+			FArchive& Ar;
+			auto IsLoading() const -> bool { return Ar.IsLoading(); }
+			auto Check(bool Condition) -> void { if (!Condition) Ar.Fail(EArchiveFailureCode::InvalidData, "Invalid typed material entry."); }
+			template<class T> auto Value(T& V) -> void { Ar << V; }
+			auto Value(FXxHash128& V) -> void { Ar << V.HashLow << V.HashHigh; }
+			auto String(std::string& V, uint32 Limit) -> void { SerializeBoundedString(Ar, V, Limit); }
+			template<class T, class F> auto Sequence(T& V, uint32 Limit, F&& Visit) -> void
+			{ SerializeBoundedSequence(Ar, V, Limit, [&](FArchive&, auto& Item) { Visit(Item); }); }
+		};
 		constexpr uint32 MaterialCookedProgramMagic = 0x54414d44; // DMAT
 		constexpr uint64 MaterialCookedProgramMaxStringBytes = 4096;
 		constexpr uint64 MaterialCookedProgramMaxBindingsPerStage = 128;
@@ -161,8 +173,7 @@ namespace Durin
 		{
 			uint32 Magic = MaterialCookedProgramMagic;
 			uint32 SchemaVersion = MaterialCookedProgramPayloadSchemaVersion;
-			Ar << Magic << SchemaVersion
-				<< Artifact.PassContractVersion << Artifact.RequiredStages << TargetPlatform << TargetProfile;
+			Ar << Magic << SchemaVersion << Artifact.PassContractVersion << TargetPlatform << TargetProfile;
 			if (Ar.IsLoading() && !Ar.IsError()
 				&& (Magic != MaterialCookedProgramMagic
 					|| SchemaVersion != MaterialCookedProgramPayloadSchemaVersion
@@ -174,12 +185,17 @@ namespace Durin
 				return;
 			}
 
+			FEntryArchiveTransfer Entries{Ar};
+			MaterialBuildPrivate::TransferMaterialEntrySet(Entries, Artifact.RequiredEntries);
+			MaterialBuildPrivate::TransferMaterialCompilationEntries(Entries, Artifact);
+
 			SerializeHash(Ar, Artifact.ShaderMapId.Digest);
 			SerializeBoundedString(
 				Ar, Artifact.CompilerIdentity, MaterialCookedProgramMaxStringBytes);
 			SerializeBoundedString(
 				Ar, Artifact.Target, MaterialCookedProgramMaxStringBytes);
 			SerializeStaticProperties(Ar, StaticProperties);
+			Artifact.StaticProperties = CanonicalizeMaterialShaderProperties(StaticProperties);
 			SerializeProgramConfiguration(Ar, Program);
 			SerializeLayout(Ar, Artifact.Layout);
 			SerializeRequirements(Ar, Artifact.Requirements);
@@ -277,8 +293,8 @@ namespace Durin
 				if (!ShaderFormat::ValidateShaderCode(Shader))
 					return std::unexpected("Material cooked program target is incompatible; recook for this runtime.");
 			}
-			if (Program.GetShaderMap().RequiredStages != SelectMaterialShaderStages(StaticProperties, true)
-				&& Program.GetShaderMap().RequiredStages != SelectMaterialShaderStages(StaticProperties, false))
+			if (Program.GetShaderMap().RequiredEntries != SelectMaterialShaderEntries(StaticProperties, true)
+				&& Program.GetShaderMap().RequiredEntries != SelectMaterialShaderEntries(StaticProperties, false))
 				return std::unexpected("Material cooked program identity or environment is invalid.");
 			const auto Contract = ValidateMaterialProgram(Program);
 			if (!Contract) return std::unexpected(std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Contract.Error),
@@ -363,9 +379,9 @@ namespace Durin
 		}
 		if (Platform != ExpectedPlatform || Profile != ExpectedProfile)
 			return std::unexpected("Material cooked program target is incompatible; recook for this runtime.");
+		Artifact->SetCollectionLayouts(Candidate.ActiveCollections);
 		if (const auto Validation = ValidateDecodedProgram(
 				Candidate, CandidateProperties, Platform, true); !Validation) return Validation;
-		Artifact->SetCollectionLayouts(Candidate.ActiveCollections);
 		OutStaticProperties = CandidateProperties;
 		OutProgram = std::make_shared<const FMaterialProgram>(
 			std::move(Candidate));

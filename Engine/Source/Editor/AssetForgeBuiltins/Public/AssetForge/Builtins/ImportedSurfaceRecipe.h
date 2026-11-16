@@ -28,7 +28,7 @@ namespace Durin::AssetForge::Builtins
 	};
 	struct FImportedSurfaceOwner
 	{
-		EMaterialSurfaceOutput Role;
+		EMaterialProperty Role;
 		MaterialParameters::EMaterialBuiltinParameterKind Kind;
 		FGuid ParameterId;
 	};

@@ -39,8 +39,8 @@ namespace
 			EMaterialProgramValueType::Float3, {}, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::BaseColor).Value, {});
 		auto& Opacity = Graph.Add(EMaterialProgramOpcode::Parameter,
 			EMaterialProgramValueType::Float, {}, Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Role::Opacity).Value, {});
-		Graph.Outputs.BaseColor = Testing::MakeLink(Color);
-		Graph.Outputs.Opacity = Testing::MakeLink(Opacity);
+		Graph.Outputs.Get(EMaterialProperty::MP_BaseColor) = Testing::MakeLink(Color);
+		Graph.Outputs.Get(EMaterialProperty::MP_Opacity) = Testing::MakeLink(Opacity);
 		return static_cast<bool>(Graph.Apply(Material));
 	}
 

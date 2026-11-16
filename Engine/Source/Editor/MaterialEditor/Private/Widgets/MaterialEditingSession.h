@@ -35,7 +35,7 @@ namespace Durin::MaterialEditor
 		struct FAuthoredState
 		{
 			std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-			FMaterialExpressionSurfaceOutputs Outputs;
+			FMaterialAttributeRoot Outputs;
 			FMaterialStaticProperties Properties;
 			FMaterialGraphPresentation Presentation;
 			auto Matches(const DMaterial& Material) const -> bool;

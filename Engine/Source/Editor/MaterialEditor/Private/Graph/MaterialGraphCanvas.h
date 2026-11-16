@@ -58,7 +58,7 @@ namespace Durin::MaterialEditor
 			return SelectedNodes;
 		}
 		auto GetSelectedSurfaceOutput() const
-			-> std::optional<EMaterialSurfaceOutput>
+			-> std::optional<EMaterialProperty>
 		{
 			return SelectedSurfaceOutput;
 		}
@@ -124,7 +124,7 @@ namespace Durin::MaterialEditor
 		struct FContextMenuInteraction
 		{
 			FGuid ContextNode;
-			std::optional<EMaterialSurfaceOutput> SurfaceOutput;
+			std::optional<EMaterialProperty> SurfaceOutput;
 		};
 		using FInteraction = std::variant<
 			FIdleInteraction,
@@ -182,7 +182,7 @@ namespace Durin::MaterialEditor
 		std::unordered_set<FMaterialGraphCanvasNodeId> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<FMaterialProgramDiagnostic> SelectedDiagnostic;
-		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
+		std::optional<EMaterialProperty> SelectedSurfaceOutput;
 		std::vector<std::string> RecentCreationMenuEntries;
 		FMaterialGraphReadModel ReadModel;
 		bool bViewStale = true;

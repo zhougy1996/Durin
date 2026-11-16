@@ -60,7 +60,7 @@ namespace
 	struct FExpressionGraphSnapshot
 	{
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		FMaterialExpressionSurfaceOutputs Outputs;
+		FMaterialAttributeRoot Outputs;
 		FMaterialFunctionSignature Signature;
 		auto operator==(const FExpressionGraphSnapshot& Other) const -> bool
 		{

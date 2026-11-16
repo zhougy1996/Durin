@@ -170,7 +170,7 @@ namespace Durin::MaterialEditor
 			case Op::StaticBool: case Op::StaticSwitch: case Op::QualitySwitch:
 			case Op::FeatureLevelSwitch:
 				return IM_COL32(112, 76, 142, 255);
-			case Op::MakeSurface: case Op::GetSurfaceAttributes: case Op::SetSurfaceAttributes:
+			case Op::MakeMaterialAttributes: case Op::GetMaterialAttributes: case Op::SetMaterialAttributes:
 				return IM_COL32(119, 57, 60, 255);
 			default: return IM_COL32(66, 72, 83, 255);
 			}
@@ -185,7 +185,7 @@ namespace Durin::MaterialEditor
 			case EMaterialProgramValueType::Float3: return IM_COL32(220, 170, 80, 255);
 			case EMaterialProgramValueType::Float4: return IM_COL32(210, 110, 180, 255);
 			case EMaterialProgramValueType::Texture2D: return IM_COL32(150, 110, 230, 255);
-			case EMaterialProgramValueType::Surface: return IM_COL32(235, 155, 70, 255);
+			case EMaterialProgramValueType::MaterialAttributes: return IM_COL32(235, 155, 70, 255);
 			case EMaterialProgramValueType::StaticBool: return IM_COL32(188, 125, 225, 255);
 			}
 			return IM_COL32_WHITE;
@@ -274,14 +274,12 @@ namespace Durin::MaterialEditor
 			SelectedSurfaceOutput.reset();
 			return SelectAndFrame(Diagnostic.NodeId);
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
-			if (Diagnostic.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset))
-				return SelectAndFrame(Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId);
-			if (Diagnostic.LocationIndex
-				> static_cast<uint32>(EMaterialSurfaceOutput::OpacityMask)) return false;
+			if (Diagnostic.LocationIndex >= FMaterialAttributeDefinitionMap::GetDefinitions().size()
+				|| !FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Diagnostic.LocationIndex))) return false;
 			SelectedNodes = {Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId};
 			PendingFrameNode = Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId;
 			SelectedSurfaceOutput =
-				static_cast<EMaterialSurfaceOutput>(Diagnostic.LocationIndex);
+				static_cast<EMaterialProperty>(Diagnostic.LocationIndex);
 			return true;
 		case EMaterialProgramDiagnosticLocationKind::Program:
 			return false;
@@ -621,7 +619,7 @@ namespace Durin::MaterialEditor
 
 		const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
 		const FGuid ContextNode = Context ? Context->ContextNode : FGuid{};
-		const std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput =
+		const std::optional<EMaterialProperty> ContextSurfaceOutput =
 			Context ? Context->SurfaceOutput : std::nullopt;
 		const auto ContextNodeIt = std::ranges::find(View.Nodes, ContextNode,
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
@@ -1109,7 +1107,7 @@ namespace Durin::MaterialEditor
 					.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
 						: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
 					.SurfaceOutput = HoveredInputNode && HoveredInputNode->View->Node.bMaterialOutput
-						&& HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex <= static_cast<uint32>(EMaterialOutputPin::Surface) ? std::optional{static_cast<EMaterialSurfaceOutput>(HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex)} : std::nullopt};
+						&& HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex <= static_cast<uint32>(EMaterialOutputPin::Surface) ? std::optional{static_cast<EMaterialProperty>(HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex)} : std::nullopt};
 				ImGui::OpenPopup("MaterialGraphContext");
 			}
 		}

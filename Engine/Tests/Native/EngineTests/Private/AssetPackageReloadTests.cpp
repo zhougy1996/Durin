@@ -375,14 +375,14 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadInvalidatesNestedCallersUntilExpl
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 		Call->Id = RootCall; Call->Function = Wrapper.Get(); Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
-		FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = RootCall, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+		FMaterialAttributeRoot Outputs;
+		Outputs.Attributes = {.ExpressionId = RootCall, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Message);
 	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
 	auto Signature = Function->GetFunctionSignature();
-	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;
+	Signature.Inputs[0].Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = 0.15f;
 	ASSERT_TRUE(PublishFunctionExpressions(*Function, CaptureFunctionExpressions(*Function), Signature));
 	ASSERT_TRUE(Material->CompileEdits());
 	const auto Accepted = Material->GetAcceptedCompiledProgram();

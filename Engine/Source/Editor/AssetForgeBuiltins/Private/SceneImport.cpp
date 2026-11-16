@@ -306,9 +306,9 @@ namespace Durin::AssetForge::Builtins
 		const auto Source = std::ranges::find(Plan.Scene.Materials, Output.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
 		require(Source != Plan.Scene.Materials.end());
 		std::array<FImportedSurfaceRole, 8> Roles;
-		const FMaterialSurfaceOutputs Defaults;
+		const FMaterialAttributeValues Defaults;
 		for (uint32 I = 0; I < 8; ++I)
-			Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+			Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
 		Roles[0].Value = {Source->BaseColorFactor.r, Source->BaseColorFactor.g, Source->BaseColorFactor.b};
 		Roles[2].Value = {Source->MetallicFactor};
 		Roles[3].Value = {Source->RoughnessFactor};

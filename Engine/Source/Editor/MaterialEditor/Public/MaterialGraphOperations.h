@@ -17,7 +17,7 @@ namespace Durin
 
 namespace Durin::MaterialEditor
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 9;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 10;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -38,7 +38,7 @@ namespace Durin::MaterialEditor
 		auto operator==(const FMaterialGraphPinAddress&) const -> bool = default;
 		static auto Input(FGuid Node, uint32 Index, FGuid Port = {}) -> FMaterialGraphPinAddress
 		{ return {Node, Port.IsValid() ? EMaterialGraphPinKind::FunctionInput : EMaterialGraphPinKind::Input, Port.IsValid() ? 0u : Index, Port}; }
-		static auto MaterialOutput(FGuid Node, std::optional<EMaterialSurfaceOutput> Attribute = {}) -> FMaterialGraphPinAddress
+		static auto MaterialOutput(FGuid Node, std::optional<EMaterialProperty> Attribute = {}) -> FMaterialGraphPinAddress
 		{ return {Node, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
 			Attribute ? static_cast<uint32>(*Attribute) : static_cast<uint32>(EMaterialOutputPin::Surface)}; }
 		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
@@ -188,7 +188,7 @@ namespace Durin::MaterialEditor
 		std::string FunctionPath;
 		auto InputAddress(const FMaterialGraphPinView& Pin) const -> FMaterialGraphPinAddress
 		{
-			if (Node.bMaterialOutput && Pin.InputIndex != static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset))
+			if (Node.bMaterialOutput)
 				return {Node.Id, Pin.InputIndex == static_cast<uint32>(EMaterialOutputPin::Surface)
 					? EMaterialGraphPinKind::MaterialSurface : EMaterialGraphPinKind::MaterialAttribute, Pin.InputIndex};
 			return FMaterialGraphPinAddress::Input(Node.Id, Pin.InputIndex, Pin.PortId);
@@ -199,19 +199,19 @@ namespace Durin::MaterialEditor
 	struct FMaterialGraphView
 	{
 		std::vector<FMaterialGraphNodeView> Nodes;
-		FMaterialSurfaceOutputs Outputs;
+		FMaterialAttributeValues Outputs;
 		bool bFunction = false;
 	};
 
 	struct FMaterialGraphSurfaceDefaultRequest
 	{
-		EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
+		EMaterialProperty Output = EMaterialProperty::MP_BaseColor;
 		FMaterialProgramLiteral Value;
 	};
 
 	struct FMaterialGraphSurfaceNodeRequest
 	{
-		EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
+		EMaterialProperty Output = EMaterialProperty::MP_BaseColor;
 		int32 X = 0;
 		int32 Y = 0;
 	};
@@ -314,7 +314,7 @@ namespace Durin::MaterialEditor
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto ResetSurfaceDefault(
 			DMaterial& Material,
-			EMaterialSurfaceOutput Output,
+			EMaterialProperty Output,
 			ETransactionMode Mode = ETransactionMode::Record)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto SetParameterValue(

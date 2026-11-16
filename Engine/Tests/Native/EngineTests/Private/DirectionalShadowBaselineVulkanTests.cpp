@@ -430,7 +430,7 @@ namespace
 		return Data;
 	}
 
-	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, const Durin::FVector3& BaseColor, Durin::EMaterialShadingModel ShadingModel = Durin::EMaterialShadingModel::Lit, const Durin::FVector3& Emissive = Durin::FVector3(0.0), float Opacity = 1.0f)
+	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, const Durin::FVector3& BaseColor, Durin::EMaterialShadingModel ShadingModel = Durin::EMaterialShadingModel::DefaultLit, const Durin::FVector3& Emissive = Durin::FVector3(0.0), float Opacity = 1.0f)
 		-> Durin::FMaterialRenderProxyRef
 	{
 		static uint64 MaterialIndex = 0;
@@ -458,8 +458,12 @@ namespace
 		Overrides.Values.bTwoSided = true;
 		Overrides.Values.OpacityMaskThreshold = 0.4f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
+		// Recreate the old Unlit color explicitly; the new execution root is EmissiveColor.
+		const auto AuthoredEmissive = ShadingModel == Durin::EMaterialShadingModel::Unlit
+			? Durin::FVector3(std::clamp(BaseColor.X, 0.0, 1.0), std::clamp(BaseColor.Y, 0.0, 1.0), std::clamp(BaseColor.Z, 0.0, 1.0)) + Emissive
+			: Emissive;
 		EXPECT_TRUE(Material->SetVectorParameterValue(
-			Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), Emissive));
+			Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), AuthoredEmissive));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 		if (BlendMode == Durin::EMaterialBlendMode::Translucent)
@@ -1622,7 +1626,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	auto Opaque = MakeMaterial(
 		Durin::EMaterialBlendMode::Opaque,
 		{0.72, 0.72, 0.72},
-		Durin::EMaterialShadingModel::Lit,
+		Durin::EMaterialShadingModel::DefaultLit,
 		{0.0, 0.0, 1.1}
 	);
 
@@ -1931,7 +1935,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(HybridTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
 	EXPECT_EQ(HybridTelemetry.Deferred.HybridDeferredUnavailableViews, 0u);
 
-	auto Translucent = MakeMaterial(Durin::EMaterialBlendMode::Translucent, {0.1, 0.8, 0.25}, Durin::EMaterialShadingModel::Lit, Durin::FVector3(0.0), 0.45);
+	auto Translucent = MakeMaterial(Durin::EMaterialBlendMode::Translucent, {0.1, 0.8, 0.25}, Durin::EMaterialShadingModel::DefaultLit, Durin::FVector3(0.0), 0.45);
 	auto MixedUnlit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.12, 0.18, 0.75}, Durin::EMaterialShadingModel::Unlit, {2.0, 0.25, 0.1});
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Translucent}), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{MixedUnlit}), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
@@ -2099,14 +2103,14 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	DirectionalToken = nullptr;
 	Durin::FlushRenderingCommands();
-	auto PureLit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72}, Durin::EMaterialShadingModel::Lit);
+	auto PureLit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72}, Durin::EMaterialShadingModel::DefaultLit);
 	SetFixtureMaterial(PureLit);
 	Durin::FByteBuffer NoLightForward;
 	Durin::FByteBuffer NoLightDeferred;
 	Durin::FByteBuffer NoLightSurface;
 	CaptureDeferredTerm(NoLightForward, NoLightDeferred, NoLightSurface);
 
-	auto EmissiveOnly = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.0, 0.0, 0.0}, Durin::EMaterialShadingModel::Lit, {4.0, 2.0, 0.5});
+	auto EmissiveOnly = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.0, 0.0, 0.0}, Durin::EMaterialShadingModel::DefaultLit, {4.0, 2.0, 0.5});
 	SetFixtureMaterial(EmissiveOnly);
 	Durin::FByteBuffer EmissiveOnlyForward;
 	Durin::FByteBuffer EmissiveOnlyDeferred;

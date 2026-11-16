@@ -23,17 +23,23 @@ namespace Durin
 	{
 		check(bValidateAuthoring);
 		if (!Result.Diagnostics.empty()) return MIR::InvalidIndex;
-		if (Type == EMaterialProgramValueType::Surface)
+		if (Type == EMaterialProgramValueType::MaterialAttributes)
 		{
-			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = Type};
-			for (uint8 Attribute = 0; Attribute < 8; ++Attribute)
+			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = Type};
+			// These are validation-only opaque values. Equal semantic shapes can
+			// share a placeholder without spending expanded graph nodes per field.
+			std::map<std::tuple<EMaterialProgramValueType, EMaterialEvaluationStage,
+				EMaterialSpatialKind, EMaterialCoordinateSpace>, uint32> Shapes;
+			for (uint8 Attribute = 0; Attribute < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Attribute)
 			{
-				const auto Output = static_cast<EMaterialSurfaceOutput>(Attribute);
-				const auto Value = OpaqueAuthoringValue(Opcode,
-					GetMaterialSurfaceOutputType(Output), Inputs);
+				const auto Output = static_cast<EMaterialProperty>(Attribute);
+				const auto Semantics = GetMaterialSurfaceOutputSemantics(Output);
+				const auto Key = std::tuple{Semantics.Type, Semantics.Stages, Semantics.Kind, Semantics.Space};
+				auto [Shape, Inserted] = Shapes.try_emplace(Key, InvalidIndex);
+				if (Inserted) Shape->second = OpaqueAuthoringValue(Opcode, Semantics.Type, Inputs);
+				const auto Value = Shape->second;
 				if (Value != InvalidIndex)
 				{
-					const auto Semantics = GetMaterialSurfaceOutputSemantics(Output);
 					auto& Node = Result.IR.Nodes[Value];
 					Node.LegalStages = Semantics.Stages;
 					Node.SpatialKind = Semantics.Kind;
@@ -43,7 +49,7 @@ namespace Durin
 			}
 			return Emit(std::move(Surface));
 		}
-		if (Type > EMaterialProgramValueType::Surface || Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
+		if (Type > EMaterialProgramValueType::MaterialAttributes || Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Inputs.size() > MaterialFunctionMaxExpandedLinks)
 			return Fail("Function authoring value has an invalid type or exceeds graph bounds.");
 		uint32 Depth = 1;
@@ -78,7 +84,7 @@ namespace Durin
 		for (const auto& Binding : Call.Inputs)
 		{
 			if (!Binding.InputId.IsValid() || !InputIds.insert(Binding.InputId).second
-				|| Binding.ExpectedType > EMaterialProgramValueType::Surface)
+				|| Binding.ExpectedType > EMaterialProgramValueType::MaterialAttributes)
 				return Emitter.Fail("Function call input requires a unique valid typed port.", Binding.InputId);
 			AuthoringCodeHash.UpdateValue(Binding.InputId);
 			AuthoringCodeHash.UpdateValue(Binding.ExpectedType);
@@ -104,7 +110,7 @@ namespace Durin
 		for (const auto& Output : Call.Outputs)
 		{
 			if (!Output.OutputId.IsValid() || InputIds.contains(Output.OutputId) || !OutputIds.insert(Output.OutputId).second
-				|| Output.ExpectedType > EMaterialProgramValueType::Surface)
+				|| Output.ExpectedType > EMaterialProgramValueType::MaterialAttributes)
 				return Emitter.Fail("Function call output requires a unique valid typed port.", Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.OutputId);
 			AuthoringCodeHash.UpdateValue(Output.ExpectedType);
@@ -220,20 +226,20 @@ namespace Durin
 				.ResultType = EMaterialProgramValueType::Float2, .Inputs = {Channel}});
 			break;
 		}
-		case EMaterialFunctionDefaultKind::Surface:
+		case EMaterialFunctionDefaultKind::MaterialAttributes:
 		{
-			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeSurface, .ResultType = EMaterialProgramValueType::Surface};
-			for (uint8 Index = 0; Index < 8; ++Index)
+			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = EMaterialProgramValueType::MaterialAttributes};
+			for (uint8 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 			{
-				const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
+				const auto Attribute = static_cast<EMaterialProperty>(Index);
 				const auto& Numeric = GetMaterialSurfaceOutputDefault(Default.Surface, Attribute);
 				const std::array Components{Numeric.X, Numeric.Y, Numeric.Z, Numeric.W};
 				Surface.Inputs.push_back(Literal(
 					std::span(Components).first(static_cast<size_t>(
 						GetMaterialSurfaceOutputType(Attribute)) + 1),
-					Attribute == EMaterialSurfaceOutput::Normal
+					Attribute == EMaterialProperty::MP_Normal
 						? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
-					Attribute == EMaterialSurfaceOutput::Normal
+					Attribute == EMaterialProperty::MP_Normal
 						? EMaterialCoordinateSpace::Tangent
 						: EMaterialCoordinateSpace::None));
 			}

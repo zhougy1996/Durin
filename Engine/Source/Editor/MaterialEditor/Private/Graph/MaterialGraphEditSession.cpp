@@ -224,7 +224,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		});
 		return Result;
 	}
-	auto FGraphEditSession::GetOutputs() -> FMaterialExpressionSurfaceOutputs&
+	auto FGraphEditSession::GetOutputs() -> FMaterialAttributeRoot&
 	{
 		for (auto& E : Expressions)
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(E.Get())) { Modify(*Output); return Output->Outputs; }

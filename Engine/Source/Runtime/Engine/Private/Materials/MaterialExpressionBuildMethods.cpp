@@ -257,10 +257,46 @@ namespace Durin
 		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::BlendNormalsRNM, EMaterialProgramValueType::Float3, Inputs));
 	}
 
-	auto DMaterialExpressionMakeSurface::Build(MIR::FEmitter& Emitter) const -> void
+	auto DMaterialExpressionMakeMaterialAttributes::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		const std::array Inputs{&BaseColor, &Normal, &Metallic, &Roughness, &AmbientOcclusion, &Emissive, &Opacity, &OpacityMask};
-		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface, Inputs));
+		if (Values.Properties.Bindings.size() > 64) return Emitter.Fail("Material attribute binding limit exceeded.");
+		std::unordered_set<FGuid> Seen;
+		for (const auto& Binding : Values.Properties.Bindings)
+			if (!FMaterialAttributeDefinitionMap::Find(Binding.AttributeID) || !Seen.insert(Binding.AttributeID).second)
+				return Emitter.Fail("Material attributes contain an unknown or duplicate identity.");
+		std::vector<const FMaterialNumericInput*> Inputs;
+		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions()) Inputs.push_back(&Values.Get(Definition.Property));
+		return Emitter.Output(0, Emitter.Numeric(EMaterialProgramOpcode::MakeMaterialAttributes, EMaterialProgramValueType::MaterialAttributes, Inputs));
+	}
+
+	auto DMaterialExpressionBlendMaterialAttributes::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const auto Left = Emitter.ResolveIndex(A), Right = Emitter.ResolveIndex(B);
+		if (Left == MIR::InvalidIndex || Right == MIR::InvalidIndex) return;
+		const auto L = Emitter.GetNode(Left), R = Emitter.GetNode(Right);
+		const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
+		if (L.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes || R.Opcode != L.Opcode
+			|| L.Inputs.size() != Definitions.size() || R.Inputs.size() != Definitions.size())
+			return Emitter.Fail("Attribute blending requires two constructed material attribute values.");
+		if (Alpha.Constant.size() != 1 || !std::isfinite(Alpha.Constant[0])
+			|| (!Alpha.Connection.ExpressionId.IsValid() && (Alpha.Connection.OutputId.IsValid() || Alpha.Connection.OutputIndex != 0)))
+			return Emitter.Fail("Attribute blend alpha has an invalid retained default or selector.");
+		const auto Weight = Alpha.Connection.ExpressionId.IsValid() ? Emitter.ResolveIndex(Alpha.Connection)
+			: Emitter.Literal(Alpha.UseConstant ? std::span<const float>(Alpha.Constant) : std::span<const float>(std::array{.5f}));
+		if (Weight == MIR::InvalidIndex || Emitter.GetNode(Weight).ResultType != EMaterialProgramValueType::Float)
+			return Emitter.Fail("Attribute blend alpha must be a scalar.");
+		MIR::FNode Result{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = EMaterialProgramValueType::MaterialAttributes};
+		for (const auto& Definition : Definitions)
+		{
+			const auto Slot = uint32(Definition.Property);
+			auto Value = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Lerp, .ResultType = Definition.Semantics.Type,
+				.Inputs = {L.Inputs[Slot], R.Inputs[Slot], Weight}});
+			if (Definition.Blend == EMaterialAttributeBlend::NormalizedNormal && Value != MIR::InvalidIndex)
+				Value = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Normalize, .ResultType = Definition.Semantics.Type, .Inputs = {Value}});
+			if (Value == MIR::InvalidIndex) return;
+			Result.Inputs.push_back(Value);
+		}
+		return Emitter.Output(0, Emitter.Emit(std::move(Result)));
 	}
 
 	auto DMaterialExpressionAppendVector::Build(MIR::FEmitter& Emitter) const -> void
@@ -463,35 +499,44 @@ namespace Durin
 		EmitSampleOutputs(Emitter, Sample, TextureUsage == ETextureUsage::Normal);
 	}
 
-	auto DMaterialExpressionGetSurfaceAttributes::Build(MIR::FEmitter& Emitter) const -> void
+	auto DMaterialExpressionGetMaterialAttributes::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		if (AttributeMask == 0) return Emitter.Fail("Surface attribute output is not selected.");
+		if (AttributeIDs.empty() || AttributeIDs.size() > 64) return Emitter.Fail("Surface attribute output is not selected or exceeds its bound.");
+		std::unordered_set<FGuid> Seen;
+		for (const auto ID : AttributeIDs)
+			if (!FMaterialAttributeDefinitionMap::Find(ID) || !Seen.insert(ID).second)
+				return Emitter.Fail("Surface attribute output identity is unknown or duplicated.");
 		const auto Index = Emitter.ResolveIndex(Surface);
 		if (Index == MIR::InvalidIndex) return;
 		const auto& Base = Emitter.GetNode(Index);
-		if (Base.Opcode != EMaterialProgramOpcode::MakeSurface || Base.Inputs.size() != 8)
+		if (Base.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes || Base.Inputs.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size())
 			return Emitter.Fail("Surface attribute input must resolve to a constructed Surface.");
-		for (uint8 Index = 0; Index < 8; ++Index)
-			if (AttributeMask & (1u << Index)) Emitter.Output(Index, Base.Inputs[Index]);
+		for (uint8 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
+			if (IsSelected(static_cast<EMaterialProperty>(Index)))
+			{
+				Emitter.Output(Index, Base.Inputs[Index]);
+				Emitter.Output(FMaterialAttributeDefinitionMap::GetID(static_cast<EMaterialProperty>(Index)), Base.Inputs[Index]);
+			}
 	}
 
-	auto DMaterialExpressionSetSurfaceAttributes::Build(MIR::FEmitter& Emitter) const -> void
+	auto DMaterialExpressionSetMaterialAttributes::Build(MIR::FEmitter& Emitter) const -> void
 	{
 		const auto Index = Emitter.ResolveIndex(Surface);
 		if (Index == MIR::InvalidIndex) return;
 		const auto& Base = Emitter.GetNode(Index);
-		if (Base.Opcode != EMaterialProgramOpcode::MakeSurface || Base.Inputs.size() != 8)
+		if (Base.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes || Base.Inputs.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size())
 			return Emitter.Fail("Surface override input must resolve to a constructed Surface.");
-		MIR::FNode Node{.Opcode = EMaterialProgramOpcode::MakeSurface,
-			.ResultType = EMaterialProgramValueType::Surface, .Inputs = Base.Inputs};
-		uint8 Seen = 0;
+		MIR::FNode Node{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes,
+			.ResultType = EMaterialProgramValueType::MaterialAttributes, .Inputs = Base.Inputs};
+		uint16 Seen = 0;
 		for (const auto& Attribute : Attributes)
 		{
-			const auto Slot = static_cast<uint8>(Attribute.Attribute);
-			if (Slot >= 8 || (Seen & (1u << Slot))) return Emitter.Fail("Surface override contains an invalid or duplicate attribute.");
-			Seen |= static_cast<uint8>(1u << Slot);
+			const auto Property = Attribute.GetProperty();
+			const auto Slot = static_cast<uint8>(Property);
+			if (Slot >= FMaterialAttributeDefinitionMap::GetDefinitions().size() || (Seen & (1u << Slot))) return Emitter.Fail("Surface override contains an invalid or duplicate attribute.");
+			Seen |= static_cast<uint16>(1u << Slot);
 			const auto& Input = Attribute.Source;
-			const auto Width = static_cast<uint32>(GetMaterialSurfaceOutputType(Attribute.Attribute)) + 1;
+			const auto Width = static_cast<uint32>(GetMaterialSurfaceOutputType(Property)) + 1;
 			if (Input.Constant.empty() || (Input.Constant.size() != 1 && Input.Constant.size() != Width)
 				|| !std::ranges::all_of(Input.Constant, [](float V) { return std::isfinite(V); }))
 				return Emitter.Fail("Retained numeric default has an invalid width or non-finite component.");
@@ -499,13 +544,14 @@ namespace Durin
 			else if (Input.Connection.OutputIndex != 0 || Input.Connection.OutputId.IsValid())
 				return Emitter.Fail("Disconnected numeric input has an output selector.");
 			else if (Input.UseConstant) Node.Inputs[Slot] = Emitter.Literal(Input.Constant,
-				Attribute.Attribute == EMaterialSurfaceOutput::Normal && Input.Constant.size() == 3
+				Property == EMaterialProperty::MP_Normal && Input.Constant.size() == 3
 					? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
-				Attribute.Attribute == EMaterialSurfaceOutput::Normal && Input.Constant.size() == 3
+				Property == EMaterialProperty::MP_Normal && Input.Constant.size() == 3
 					? EMaterialCoordinateSpace::Tangent
 					: EMaterialCoordinateSpace::None);
 			const auto Selected = Node.Inputs[Slot];
-			if (Selected != MIR::InvalidIndex && Width == 3 && Emitter.GetNode(Selected).ResultType == EMaterialProgramValueType::Float)
+			if (Selected != MIR::InvalidIndex && Width == 3 && Property != EMaterialProperty::MP_Normal
+				&& Property != EMaterialProperty::MP_WorldPositionOffset && Emitter.GetNode(Selected).ResultType == EMaterialProgramValueType::Float)
 				Node.Inputs[Slot] = Emitter.Emit({.Opcode = EMaterialProgramOpcode::Splat3,
 					.ResultType = EMaterialProgramValueType::Float3, .Inputs = {Selected}});
 		}

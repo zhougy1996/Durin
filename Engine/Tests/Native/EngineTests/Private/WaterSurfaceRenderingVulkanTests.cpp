@@ -78,12 +78,12 @@ namespace
 		// DecodeNormalRG gives the analytic upward normal the material terminal's
 		// required Tangent/Normal semantics without adding a new expression type.
 		const auto SurfaceNormal = Add({.Opcode = Op::DecodeNormalRG, .ResultType = Type::Float3, .Inputs = {EncodedNormal}});
-		auto& NormalRoot = Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Normal)];
+		auto& NormalRoot = Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Normal)));
 		NormalRoot.bExpression = true; NormalRoot.ExpressionIndex = SurfaceNormal;
-		Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::BaseColor)].Literal = {.02f, .2f, .3f};
-		Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Roughness)].Literal = {.25f};
-		Input.IR.WorldPositionOffset.bExpression = Displace;
-		Input.IR.WorldPositionOffset.ExpressionIndex = Offset;
+		Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_BaseColor))).Literal = {.02f, .2f, .3f};
+		Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Roughness))).Literal = {.25f};
+		Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression = Displace;
+		Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex = Offset;
 		return Input;
 	}
 #endif

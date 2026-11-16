@@ -1,3 +1,4 @@
+#include "Materials/MaterialProgramCompiler.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/MaterialShader.h"
 #include "RenderResourcePreparation.h"
@@ -184,6 +185,28 @@ namespace Durin
 				.Target = Input.Target,
 				.PermutationId = Input.LocalPermutationId,
 				.Frequency = Type->GetFrequency()};
+			if (Input.bContainsGeneratedMaterialStages)
+			{
+				const auto SourceEntry = Type->GetEntryPoint() == "OpaqueShadowFragmentMain" ? std::string_view("ShadowFragmentMain") : Type->GetEntryPoint();
+				const auto Contract = std::ranges::find_if(Input.GeneratedEntries, [&](const auto& E) {
+					return E.Shader.EntryPoint == SourceEntry && E.Shader.Frequency == Type->GetFrequency();
+				});
+				// Indirect factories retain their own fixed vertex program.
+				if (Contract != Input.GeneratedEntries.end())
+				{
+					auto RequestedMaterial = Input.Identity;
+					if (RequestedMaterial.BlendMode != EMaterialBlendMode::Masked)
+						RequestedMaterial.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
+					if (Contract->Shader.Material != RequestedMaterial || Contract->Shader.Target != Input.Target
+						|| Contract->Shader.PassContractVersion != CurrentMaterialPassContractVersion
+						|| (Contract->Mesh && (!Input.VertexFactoryType || Contract->Mesh->VertexFactoryType != Input.VertexFactoryType->GetName())))
+						return std::unexpected(std::format("Generated material execution contract is incompatible: requested {}, compiled {}, factory {}.", GetMaterialShaderIdentityText(Permutation), GetMaterialShaderIdentityText(Contract->Shader), Input.VertexFactoryType ? std::string(Input.VertexFactoryType->GetName()) : "none"));
+					Permutation.PassContractVersion = Contract->Shader.PassContractVersion;
+					Permutation.OutputLayout = Contract->Shader.OutputLayout;
+				}
+				else if (Type->GetFrequency() == EShaderFrequency::Fragment)
+					return std::unexpected(std::string("Generated material entry contract is missing."));
+			}
 			if (IsMeshMaterialShaderType(Type))
 			{
 				if (Input.VertexFactoryType == nullptr)
@@ -361,6 +384,7 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = !Input.GeneratedStages.empty(),
 			.CompiledProgramIdentity = Input.CompiledProgramIdentity,
 			.CompiledTarget = std::move(Input.CompiledTarget),
+			.GeneratedEntries = Input.GeneratedEntries,
 			.bCreateRHIShaders = Input.bCreateRHIShaders}, OutMap);
 	}
 

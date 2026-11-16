@@ -75,7 +75,7 @@ TEST_F(FMaterialFunctionCookTests, CookFingerprintsNestedFunctionsWithoutProduci
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
 	auto Edited = CaptureFunctionExpressions(*Leaf);
-	Edited.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.27f;
+	Edited.Signature.Inputs[0].Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = 0.27f;
 	ASSERT_TRUE(Edited.Apply(*Leaf));
 	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
 	ASSERT_TRUE(Material->CompileEdits());
@@ -148,9 +148,9 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	std::array<FImportedSurfaceRole, 8> Roles;
-	const FMaterialSurfaceOutputs Defaults;
+	const FMaterialAttributeValues Defaults;
 	for (uint32 I = 0; I < Roles.size(); ++I)
-		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
 		.OutputIndex = 1};
 	const auto Recipe = MakeImportedSurfaceRecipe(Roles);

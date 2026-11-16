@@ -618,7 +618,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		return Testing::MakeLink(Graph.Add(Opcode, Type, std::move(Inputs), Id, {}, Definitions));
 	};
 	const auto TintNode = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint.Id);
-	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {TintNode});
+	Graph.Outputs.Get(EMaterialProperty::MP_BaseColor) = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {TintNode});
 	const auto TextureNode = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture.Id);
 	const auto MeshUV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto UV = Add(EMaterialProgramOpcode::VertexInterpolator, EMaterialProgramValueType::Float2, {}, {MeshUV});
@@ -627,16 +627,16 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	PrimitiveData->ResultType = EMaterialProgramValueType::Float3;
 	PrimitiveData->DataIndex = 29;
 	Graph.Expressions.emplace_back(PrimitiveData);
-	Graph.Outputs.WorldPositionOffset = Testing::MakeLink(*PrimitiveData);
+	Graph.Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = Testing::MakeLink(*PrimitiveData);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureNode, UV});
-	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Sample});
+	Graph.Outputs.Get(EMaterialProperty::MP_EmissiveColor) = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {}, {Sample});
 	auto* InstanceData = NewObject<DMaterialExpressionInstanceCustomData>(nullptr, NAME_None);
 	InstanceData->Id = FGuid::NewGuid();
 	InstanceData->ResultType = EMaterialProgramValueType::Float3;
 	InstanceData->DataIndex = 3;
 	Graph.Expressions.emplace_back(InstanceData);
-	Graph.Outputs.Emissive = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float3,
-		{}, {Graph.Outputs.Emissive.Connection, Testing::MakeLink(*InstanceData)});
+	Graph.Outputs.Get(EMaterialProperty::MP_EmissiveColor) = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float3,
+		{}, {Graph.Outputs.Get(EMaterialProperty::MP_EmissiveColor).Connection, Testing::MakeLink(*InstanceData)});
 	ASSERT_TRUE(Graph.Apply(*Source));
 	ASSERT_NE(Source->GetAcceptedCompiledProgram(), nullptr);
 	const auto ExpectedLayout = Source->GetAcceptedCompiledProgram()->GetShaderMap().Layout;
@@ -683,8 +683,8 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 		EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().IR.Nodes.empty());
 		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.empty());
-		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().RequiredStages,
-			SelectMaterialShaderStages(Loaded->GetStaticProperties(), false));
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().RequiredEntries,
+			SelectMaterialShaderEntries(Loaded->GetStaticProperties(), false));
 		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders.size(), 4u);
 		EXPECT_FALSE(std::ranges::any_of(Loaded->GetAcceptedCompiledProgram()->GetShaderMap().CompiledShaders,
 			[](const auto& Stage) { return Stage.SourceEntryPoint == "HitProxyFragmentMain"; }));

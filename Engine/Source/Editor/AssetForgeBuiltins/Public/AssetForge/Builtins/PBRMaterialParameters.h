@@ -216,7 +216,7 @@ namespace Durin::AssetForge::Builtins
 
 	// Resolves the persistent built-in parameter identity owned by one surface output.
 	ASSETFORGEBUILTINS_API auto GetMaterialSurfaceParameterId(
-		EMaterialSurfaceOutput Output,
+		EMaterialProperty Output,
 		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid;
 
 }

@@ -210,11 +210,15 @@ namespace Durin::MaterialEditor
 			if (Source == NodesById.end()) return EMaterialProgramValueType::Float;
 			if (const auto* Output = FindMaterialSampleOutput(Source->second->Opcode, Link.SourceOutputIndex))
 				return Output->Type;
-			if (Source->second->Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Link.SourceOutputIndex < 8)
-				return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Link.SourceOutputIndex));
+			if (Source->second->Opcode == EMaterialProgramOpcode::GetMaterialAttributes)
+			{
+				const auto* Definition = Link.SourceOutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Link.SourceOutputId)
+					: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Link.SourceOutputIndex));
+				if (Definition) return Definition->Semantics.Type;
+			}
 			return Source->second->ResultType;
 		};
-		constexpr std::array AttributeNames{"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"};
+		const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
 		std::unordered_map<const DClass*, std::vector<const FMaterialGraphCatalogEntry*>> BaseShapes;
 		for (const auto& Entry : Catalog) BaseShapes[Entry.ExpressionClass].push_back(&Entry);
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
@@ -234,8 +238,7 @@ namespace Durin::MaterialEditor
 				for (const auto& Definition : GetMaterialDomainOutputPins(Material->GetDomain()))
 				{
 					const bool bAttributes = Definition.Id == EMaterialOutputPin::Surface;
-					if (Definition.Id != EMaterialOutputPin::WorldPositionOffset
-						&& bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
+					if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
 					const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 					FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input)), .AcceptedTypes = {Definition.Type}};
@@ -244,22 +247,22 @@ namespace Durin::MaterialEditor
 					else if (!bAttributes)
 					{
 						const auto Semantics = GetMaterialSurfaceOutputSemantics(
-							static_cast<EMaterialSurfaceOutput>(Definition.Id));
+							static_cast<EMaterialProperty>(Definition.Id));
 						Pin.Constraint = {.Mode = EMaterialFunctionValueConstraintMode::Exact,
 							.Stages = Semantics.Stages, .Kind = Semantics.Kind,
 							.Space = Semantics.Space};
 					}
-					if (Definition.Id != EMaterialOutputPin::WorldPositionOffset
+					if (Definition.Id != EMaterialOutputPin::WorldPositionOffset && Definition.Id != EMaterialOutputPin::Normal
 						&& Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
 						Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 					Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
-					if (const auto* Numeric = GetMaterialOutputNumericInput(const_cast<FMaterialExpressionSurfaceOutputs&>(Terminal->Outputs), Definition.Id))
+					if (const auto* Numeric = GetMaterialOutputNumericInput(const_cast<FMaterialAttributeRoot&>(Terminal->Outputs), Definition.Id))
 					{
 						Pin.bSupportsConstant = true; Pin.bUseConstant = Numeric->UseConstant;
 						Pin.RetainedConstant = DefaultView(Numeric->Constant);
 					}
 					Pin.bActive = bAttributes || Definition.Id == EMaterialOutputPin::WorldPositionOffset || IsMaterialSurfaceOutputActive(
-						static_cast<EMaterialSurfaceOutput>(Definition.Id), Material->GetStaticProperties());
+						static_cast<EMaterialProperty>(Definition.Id), Material->GetStaticProperties());
 					View.Inputs.push_back(std::move(Pin));
 				}
 				const auto Position = Positions.find(Node.Id);
@@ -299,7 +302,7 @@ namespace Durin::MaterialEditor
 			if (!Cast<DMaterialExpressionFunctionCall>(Expression))
 				VisitMaterialExpressionInputs(*Expression, [&](uint32 InputIndex, FMaterialExpressionInput& Input) {
 					// Surface override indices are stable attributes, not binding-array ordinals.
-					if (Cast<DMaterialExpressionSetSurfaceAttributes>(Expression) && InputIndex != 0) return;
+					if (Cast<DMaterialExpressionSetMaterialAttributes>(Expression) && InputIndex != 0) return;
 					FMaterialGraphPinView Pin{.InputIndex = InputIndex,
 						.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
 						.Link = LinkView(Input), .SourceType = SourceType(LinkView(Input))};
@@ -369,11 +372,11 @@ namespace Durin::MaterialEditor
 				for (const auto& Output : GetMaterialSampleOutputs(Node.Opcode))
 					View.Outputs.push_back({.OutputIndex = static_cast<uint8>(Output.Id), .Name = Output.Name, .Type = Output.Type});
 			}
-			else if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
+			else if (Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes)
 			{
-				for (uint8 Index = 0; Index < 8; ++Index)
-					if (Cast<DMaterialExpressionGetSurfaceAttributes>(Expression)->AttributeMask & (1u << Index)) View.Outputs.push_back({.OutputIndex = Index,
-						.Name = AttributeNames[Index], .Type = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))});
+				for (uint8 Index = 0; Index < Definitions.size(); ++Index)
+					if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression)->IsSelected(Definitions[Index].Property)) View.Outputs.push_back({.PortId = Definitions[Index].AttributeID,
+						.Name = std::string(Definitions[Index].Name), .Type = Definitions[Index].Semantics.Type});
 			}
 			else if (Node.Opcode != EMaterialProgramOpcode::FunctionOutput)
 				View.Outputs.push_back({.Name = GetProgramTypeName(Node.ResultType), .Type = Node.ResultType});
@@ -386,20 +389,21 @@ namespace Durin::MaterialEditor
 				if (!View.Outputs.empty()) View.Outputs[0].Name = Port.Name;
 				if (!View.Inputs.empty()) { View.Inputs[0].Name = Port.Name; View.Inputs[0].AcceptedTypes = {Port.Type}; }
 			}
-			if ((Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes
-				|| Node.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes) && !View.Inputs.empty())
+			if ((Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes
+				|| Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes) && !View.Inputs.empty())
 			{
 				View.Inputs[0].Name = "Surface";
-				View.Inputs[0].AcceptedTypes = {EMaterialProgramValueType::Surface};
+				View.Inputs[0].AcceptedTypes = {EMaterialProgramValueType::MaterialAttributes};
 			}
-			if (Node.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes)
-				for (const auto& Attribute : Cast<DMaterialExpressionSetSurfaceAttributes>(Expression)->Attributes)
+			if (Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes)
+				for (const auto& Attribute : Cast<DMaterialExpressionSetMaterialAttributes>(Expression)->Attributes)
 				{
-					const auto Index = static_cast<uint32>(Attribute.Attribute);
-					if (Index < 8) View.Inputs.push_back({.InputIndex = Index + 1, .Name = AttributeNames[Index],
+					const auto Property = Attribute.GetProperty();
+					const auto Index = static_cast<uint32>(Property);
+					if (Index < Definitions.size()) View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
 						.Link = LinkView(Attribute.Source), .SourceType = Attribute.Source.Connection.ExpressionId.IsValid()
-							? SourceType(LinkView(Attribute.Source)) : GetMaterialSurfaceOutputType(Attribute.Attribute),
-						.AcceptedTypes = {GetMaterialSurfaceOutputType(Attribute.Attribute)},
+							? SourceType(LinkView(Attribute.Source)) : GetMaterialSurfaceOutputType(Property),
+						.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)},
 						.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
 						.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,
 						.bUseConstant = Attribute.Source.UseConstant});
@@ -423,15 +427,12 @@ namespace Durin::MaterialEditor
 		if (Material)
 		{
 			const auto& Outputs = Material->GetExpressionOutputs();
-			Result.Outputs.Surface = LinkView(Outputs.Surface);
-			const std::array Links{Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
-				Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask};
-
-			for (uint32 Index = 0; Index < 8; ++Index)
+			Result.Outputs.Attributes = LinkView(Outputs.Attributes);
+			for (const auto& Definition : Definitions)
 			{
-				GetMaterialSurfaceOutputLink(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = LinkView(Links[Index]);
-				GetMaterialSurfaceOutputDefault(Result.Outputs, static_cast<EMaterialSurfaceOutput>(Index)) = [&] {
-					const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Index));
+				GetMaterialSurfaceOutputLink(Result.Outputs, Definition.Property) = LinkView(Outputs.Get(Definition.Property));
+				GetMaterialSurfaceOutputDefault(Result.Outputs, Definition.Property) = [&] {
+					const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Definition.Property));
 					return FMaterialProgramLiteral{V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};
 				}();
 			}

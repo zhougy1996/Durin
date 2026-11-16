@@ -270,8 +270,10 @@ vertex-to-fragment interpolator.
 outputs. Concrete reflected expression classes own only their applicable values,
 inputs and defaults; there is no authored Program, universal node, or separate call
 table. GUID connections preserve node, parameter and function-port identities.
-The material owns eight typed pixel Surface outputs, an optional aggregate Surface
-connection, and an independent zero-default World Position Offset input.
+The material owns `FMaterialAttributeRoot`: a bounded GUID-keyed property set
+and an optional aggregate `MaterialAttributes` connection. The immutable
+`FMaterialAttributeDefinitionMap` owns property types, defaults, stage/space
+semantics, applicability and blend policy. WPO belongs to the same set.
 [Vertex evaluation](MaterialVertexEvaluation.md) owns vertex roots and interpolation. `DMaterialInstance` owns no expressions and resolves its root through
 the parent chain, independently of expression ordering.
 
@@ -299,14 +301,21 @@ parameters using these operations; multiple samples can share the resulting Floa
 Synthetic expression source records retain authored node, input and call path.
 These authoring forms lower before normalization and do
 not change layout v4. Fresh materials own one material-output expression node
-and eight unconnected property defaults:
+and twelve unconnected property defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
-OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
-eight property links to be disconnected; per-property mode requires the
-aggregate source to be disconnected. Retained fallbacks survive either mode.
-Material and function owners serialize the current reflected graph directly, without
-a historical graph-version marker or UV compatibility branch.
+OpacityMask `1`, WPO `(0,0,0)`, Specular `0.5`, ClearCoat `1`, and
+ClearCoatRoughness `0.1`. Specular and coat properties retain authored intent
+without execution until their shading implementation is available. Aggregate
+mode selects one MaterialAttributes source; per-property mode selects the
+individual bindings. Both connection sets and retained fallbacks survive mode
+changes. Inactive known properties retain their authoring state and create no
+execution bindings. Unknown/duplicate IDs, malformed retained defaults and
+incompatible selected values reject before publication.
+Graph version 6, output version 4 and function version 3 reject older schemas
+explicitly. `asset material-foundation` recreates DefaultMaterial and the three
+standard functions at their existing Engine paths; use `--dry-run` to inspect
+the bounded write set. Instances retain parameter-storage version 2.
 `MIR::FGraphBuilder::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation
@@ -386,10 +395,11 @@ removes dead and presentation-only state, canonicalizes
 commutative inputs and numeric bytes, and produces versioned typed IR plus a
 stable digest independent of authored node order, node GUIDs, and dynamic
 parameter/resource values. Two-sided state and depth policy remain pipeline-
-only and do not enter this program digest. Normalized IR owns one special
-Surface Root outside its ordinary node vector. Per-property inputs contain an
-earlier exact-typed expression or an inline finite literal; aggregate mode names
-one earlier Surface expression. A default material therefore has zero ordinary
+only and do not enter this program digest. MIR version 9 owns GUID-sorted typed
+attribute roots outside its ordinary node vector, including vertex WPO.
+Each root contains its identity, semantics and an earlier exact-typed expression
+or an inline finite literal. Aggregate construction lowers into these same roots
+before reachability and identity computation. A default material has zero ordinary
 IR nodes. Function calls expand into ordinary expressions before normalization; the editor
 retains the compact authored calls and their stable port identities.
 
@@ -426,6 +436,13 @@ material texture-sample expressions or texture-role bindings.
 The complete value-owned result includes identity, IR, source, dependencies,
 the exact declared compiled stage set, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
+
+The analyzed `FMaterialCompilationOutput` pairs canonical typed Shader requests
+with per-entry attribute, parameter, resource, collection, interpolation and
+context closures. Pass entry bodies and resource declarations live in owned
+Slang templates; generation emits material evaluation and composes those
+captured dependencies. See [stage selection and sharing](MaterialShaderStages.md)
+for execution-key, reflection and atomic admission rules.
 
 ### Final surface evaluation
 
@@ -485,12 +502,19 @@ caller's semantics independently; defaults, bindings, and inferred outputs are
 checked at the invocation boundary. Calls bind by port GUID, and multi-output links retain output
 GUIDs rather than declaration indices. Reordering or renaming preserves wiring;
 deleting or incompatibly changing a used port produces a diagnostic. Functions
-accept Float, Float2, Float3, Float4, Texture2D and Surface. `GetSurfaceAttributes`
-and `SetSurfaceAttributes` compose existing Surface fields. Functions cannot own
+accept Float, Float2, Float3, Float4, Texture2D and MaterialAttributes.
+`MakeMaterialAttributes`, `GetMaterialAttributes` and `SetMaterialAttributes`
+share the property registry. Get selections and Set bindings persist attribute
+GUIDs. Functions cannot own
 root parameter declarations; callers supply parameter expressions explicitly.
 Texture inputs carry resource, sampler and fallback together. Optional unbound
 textures use the declared white, black or flat-RG fallback; connected values keep
-the caller's complete sampling policy. Surface defaults retain all eight fields.
+the caller's complete sampling policy. Attribute defaults are literal-only,
+bounded GUID-keyed sets; omitted values use registry defaults.
+`BlendMaterialAttributes` lowers each numeric attribute to Lerp and safely
+normalizes blended normals; RNM remains an explicit composition operation.
+Surface Unlit uses EmissiveColor only. Retained parity recipes explicitly move
+the old saturated BaseColor contribution into EmissiveColor.
 
 GameThread traverses typed function bodies and emits detached IR directly. Each
 invocation substitutes independent bindings, validates required inputs, rejects
@@ -1279,14 +1303,14 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 13, MIR 8, layout 4, pass contract 13,
-and material Cook class-schema version 5. The independent compile adapter is version 13;
+Current compatibility versions are DMAT 17, MIR 10, layout 4, pass contract 14,
+and material Cook class-schema version 5. The independent compile adapter is version 15;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11
 default-relative owned-object serialization, with no material-specific serializer
-or universal old-asset conversion path. Material graphs require version 5,
-function ports require version 2, and material instances require version 2. The
+or universal old-asset conversion path. Material graphs require version 6,
+material outputs require version 4, function ports require version 3, and material instances require version 2. The
 canonically resaved repository corpus is the compatibility baseline; older,
 missing, and future domain versions reject before object publication. Unrelated
 property/package migrations remain intact.

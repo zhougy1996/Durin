@@ -438,7 +438,7 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	// ordinary color data before it reaches the Emissive terminal.
 	PositionRgb->Components = {0, 1, 0};
 	Recipe.Expressions.emplace_back(Position.Get()); Recipe.Expressions.emplace_back(PositionRgb.Get()); Recipe.Expressions.emplace_back(Time.Get());
-	Recipe.Outputs.Emissive = {PositionRgb->Id}; Recipe.Outputs.Roughness = {Time->Id};
+	Recipe.Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {PositionRgb->Id}; Recipe.Outputs.Get(EMaterialProperty::MP_Roughness) = {Time->Id};
 	ASSERT_TRUE(Recipe.Apply(*StaticMeshAssetMaterial));
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),

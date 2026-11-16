@@ -46,17 +46,17 @@ namespace Durin::WaterMaterialRecipe
 	auto BuildInput() -> MIR::FCompilerInput
 	{
 		FWaterMaterialBuilder B;
-		FMaterialSurfaceOutputs Defaults;
+		FMaterialAttributeValues Defaults;
 		for (uint32 I = 0; I < 8; ++I)
 		{
-			auto& Root = B.Input.IR.SurfaceRoot.Inputs[I];
-			const auto S = GetMaterialSurfaceOutputSemantics(static_cast<EMaterialSurfaceOutput>(I));
+			auto& Root = B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(I));
+			const auto S = GetMaterialSurfaceOutputSemantics(static_cast<EMaterialProperty>(I));
 			Root.Type = S.Type; Root.LegalStages = S.Stages; Root.SpatialKind = S.Kind; Root.CoordinateSpace = S.Space;
-			Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(I));
+			Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
 		}
 		B.Input.StaticProperties.bTwoSided = true;
-		B.Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::BaseColor)].Literal = {.02f, .18f, .24f};
-		B.Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Roughness)].Literal = {.22f};
+		B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_BaseColor))).Literal = {.02f, .18f, .24f};
+		B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Roughness))).Literal = {.22f};
 		const auto Zero = B.C(0), One = B.C(1);
 		const auto UV = B.Add({.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {Zero}});
 		auto Channel = [&](uint8 I) { return B.Add({.Opcode = Op::Swizzle, .Inputs = {UV}, .Payload = MIR::FSwizzle{1, {I}}}); };
@@ -99,12 +99,12 @@ namespace Durin::WaterMaterialRecipe
 			const auto Term = B.Scale(WorldAxis, Components[I]);
 			Offset = I ? B.B(Op::Add, Offset, Term, Type::Float3) : Term;
 		}
-		B.Input.IR.WorldPositionOffset.bExpression = true; B.Input.IR.WorldPositionOffset.ExpressionIndex = Offset;
+		B.Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression = true; B.Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex = Offset;
 		const auto Normal = B.U(Op::Normalize, B.B(Op::Cross, B.V3(TXX, TXY, TXZ), B.V3(TXY, TYY, TYZ), Type::Float3), Type::Float3);
 		const auto XY = B.Add({.Opcode = Op::Swizzle, .ResultType = Type::Float2, .Inputs = {Normal}, .Payload = MIR::FSwizzle{2, {0, 1}}});
 		const auto Half = B.Add({.Opcode = Op::Constant, .ResultType = Type::Float2, .Payload = FMaterialProgramLiteral{.5f, .5f}});
 		const auto Encoded = B.B(Op::Add, B.B(Op::Multiply, XY, Half, Type::Float2), Half, Type::Float2);
-		auto& Root = B.Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Normal)];
+		auto& Root = B.Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Normal)));
 		Root.bExpression = true; Root.ExpressionIndex = B.U(Op::DecodeNormalRG, Encoded, Type::Float3);
 		return std::move(B.Input);
 	}

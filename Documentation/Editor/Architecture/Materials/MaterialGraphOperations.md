@@ -53,10 +53,10 @@ but cannot be deleted or duplicated. Copying a mixed selection excludes it.
 `DMaterial::Domain` selects the output-pin definition contract; Surface is the
 only implemented domain. `EMaterialOutputPin` gives pins stable semantic keys,
 independent of display order. The output terminal stores `bUseMaterialAttributes`: false
-shows eight pixel property inputs; true shows Material Attributes. The independent
-World Position Offset input remains visible in both modes. Both pixel connection
-sets, the WPO connection and defaults persist across mode changes. WPO uses an
-ordinary terminal input address; [vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md)
+shows the registry's twelve property inputs, including vertex WPO; true shows
+one Material Attributes input. Both connection sets and defaults persist across
+mode changes. WPO uses the same property-address contract as other attributes;
+[vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md)
 owns stage rules and the separate Vertex Interpolator expression.
 Connections and edits address those keys. Additional domains must define their
 pin schema and validation/migration policy in Engine; canvas rendering consumes
@@ -231,7 +231,8 @@ views; no universal authored node is copied into the view. Catalog
 entries contain a concrete expression class, result type and accepted pin types,
 with no universal node template. `CreateCatalogNode()` validates the descriptor
 against the catalog and creates the matching expression with typed numeric, UV
-and Surface defaults; parameter entries receive unique metadata. `MakeSurface` exposes the aggregate Surface output type;
+and attribute defaults; parameter entries receive unique metadata.
+`MakeMaterialAttributes` exposes the aggregate MaterialAttributes output type;
 legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
 
@@ -307,12 +308,12 @@ Normalize still requires a vector source. Retained defaults keep their declared 
 Shared document inspection resolves function call pins from the live signature,
 ordered by display order and GUID. Detached pin records retain stable port GUIDs,
 types, names, defaults, required flags, missing-port markers, and their detached
-value constraints. Fixed Surface pins expose their exact Pixel semantics, including
-Tangent/Normal for Normal; function terminals and call pins expose unconstrained,
+value constraints. Property pins expose registry stage semantics: Vertex for WPO
+and Pixel/Tangent/Normal for Normal. Function terminals and call pins expose unconstrained,
 non-spatial, or exact stage/kind/space constraints. The canvas formats those fields
 in pin tooltips and uses Engine diagnostics for rejected semantic links, so it does
 not duplicate the semantic algebra. Function terminals
-have typed named pins; Surface attribute pins retain their fixed attribute indices.
+have typed named pins; attribute selectors and overrides retain stable GUIDs.
 The material canvas draws each output separately and preserves the full source
 link through drag, reconnection, Surface assignment and node creation.
 Callee interface notifications refresh the cached inspection, including interface-only
@@ -336,7 +337,7 @@ Successful connection edits report the target and valid previous/new source IDs
 alongside any downstream changed nodes, sorted and deduplicated. No-change and
 rejected edits publish no changed IDs. Type compatibility guides palette filtering, automatic connections,
 and manual-drag feedback; manual wiring still permits type errors for compiler
-diagnostics. Commands also use parameter GUIDs and `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
+diagnostics. Commands also use parameter GUIDs and `EMaterialProperty`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
 surface-default edit/reset, parameter promotion, explicit texture-branch
 creation, copy, cut, paste, and duplication. Each result reports a stable status,
@@ -491,7 +492,7 @@ value. Reset clears that flag without changing the connection or retained
 constant; re-enabling restores the retained value. Details distinguishes inherited
 and explicit values. Connecting, disconnecting and deleting an upstream node
 preserve the flag and constant. Transactions and clipboard copies carry the
-complete reflected input state; clipboard schema 9 rejects older payloads.
+complete reflected input state; clipboard schema 10 rejects older payloads.
 
 Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
 owns a resource and exposes raw RGBA/R/G/B/A, RGB and Texture2D slot 7.
@@ -668,7 +669,7 @@ from live authored positions.
 The shared graph clipboard releases its retained expression objects before editor
 module shutdown.
 
-`FMaterialGraphClipboardPayload` schema 8 contains at most 256 independently
+`FMaterialGraphClipboardPayload` schema 10 contains at most 256 independently
 cloned concrete expressions (including terminal port definitions), presentation
 labels, relative positions and a weak source-owner identity. Strong expression roots keep
 reflected texture and callee references alive independently of the source asset;

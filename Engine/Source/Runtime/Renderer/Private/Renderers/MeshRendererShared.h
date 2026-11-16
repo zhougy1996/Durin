@@ -108,6 +108,8 @@ namespace Durin::RendererPrivate
 				"Accepted material program has no {} stage for type '{}'.",
 				(std::string(Entry)), (std::string{})));
 		}
+		std::span<const FMaterialShaderEntryRequest> GeneratedEntries = MaterialProgram ? std::span<const FMaterialShaderEntryRequest>(MaterialProgram->GetShaderMap().Entries) : std::span<const FMaterialShaderEntryRequest>{};
+		std::vector<FMaterialShaderEntryRequest> FactoryCompatibleEntries;
 		std::vector<FShaderCode> FactoryCompatibleStages;
 		if (!Factory->UsesGeneratedMaterialVertexStage(MeshPassKey))
 		{
@@ -115,6 +117,19 @@ namespace Durin::RendererPrivate
 				if (Stage.Frequency != EShaderFrequency::Vertex)
 					FactoryCompatibleStages.push_back(Stage);
 			GeneratedStages = FactoryCompatibleStages;
+			for (const auto& Entry : GeneratedEntries)
+				if (Entry.Shader.Frequency != EShaderFrequency::Vertex) FactoryCompatibleEntries.push_back(Entry);
+			GeneratedEntries = FactoryCompatibleEntries;
+		}
+		else if (MaterialProgram)
+		{
+			// Registered factories may explicitly reuse a built-in generated vertex
+			// implementation. Compose its transport with the consuming factory key.
+			FactoryCompatibleEntries.assign(GeneratedEntries.begin(), GeneratedEntries.end());
+			for (auto& Entry : FactoryCompatibleEntries)
+				if (Entry.Mesh && Entry.Shader.EntryPoint == VertexType.GetEntryPoint())
+					Entry.Mesh->VertexFactoryType = VertexFactoryType.GetName();
+			GeneratedEntries = FactoryCompatibleEntries;
 		}
 		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
@@ -132,6 +147,7 @@ namespace Durin::RendererPrivate
 				? MaterialProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
 			.CompiledTarget = MaterialProgram
 				? MaterialProgram->GetShaderMap().Target : std::string{},
+			.GeneratedEntries = GeneratedEntries,
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 

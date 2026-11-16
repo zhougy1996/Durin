@@ -70,8 +70,8 @@ namespace
 			}
 			V.push_back(R);
 		}
-		const auto Offset = FVector3(V.at(Input.IR.WorldPositionOffset.ExpressionIndex));
-		const auto Normal = FVector3(V.at(Input.IR.SurfaceRoot.Inputs[size_t(EMaterialSurfaceOutput::Normal)].ExpressionIndex));
+		const auto Offset = FVector3(V.at(Input.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex));
+		const auto Normal = FVector3(V.at(Input.IR.GetAttribute(static_cast<EMaterialProperty>(size_t(EMaterialProperty::MP_Normal))).ExpressionIndex));
 		return {FVector3(P, S.Elevation) + Offset, Normal};
 	}
 
@@ -187,7 +187,7 @@ int main(int Argc, char** Argv)
 			if (Mode == "load") Require(bool(RefreshAssetRegistry()), "Asset registry scan failed.");
 			FPackagePath Path; Require(FPackagePath::TryCreate("/Game/WaterSurfaceLevel", Path), "Invalid level path.");
 			const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
-			Require(bool(Loaded), Loaded ? "" : (*LoadedError));
+			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			auto* Level = Cast<DLevel>(Loaded->FindTopLevelAsset("WaterSurfaceLevel"));
 			Require(Level && Level->GetActors().size() == 1, "Saved water level did not load.");
 			auto* Actor = Cast<AWaterSurfaceActor>(Level->GetActors()[0].Get());
@@ -201,7 +201,7 @@ int main(int Argc, char** Argv)
 				FSoftObjectPath MaterialPath;
 				Require(FSoftObjectPath::TryCreate("/Plugins/Water/Materials/DefaultWater.DefaultWater", MaterialPath), "Invalid material path.");
 				const auto Material = LoadObject<DMaterialInterface>(MaterialPath, nullptr, &MaterialError);
-				Require(bool(Material), Material ? "" : (*MaterialError));
+				Require(bool(Material), Material ? "" : MaterialError->ToString());
 				(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 				Require(bool(Material->GetAcceptedCompiledProgram()), "Cooked Water material has no accepted platform program.");
 			}
@@ -215,7 +215,7 @@ int main(int Argc, char** Argv)
 			FSoftObjectPath Path;
 			Require(FSoftObjectPath::TryCreate("/Plugins/Water/Materials/DefaultWater.DefaultWater", Path), "Invalid material path.");
 			const auto Loaded = LoadObject<DMaterial>(Path, nullptr, &LoadedError);
-			Require(bool(Loaded), Loaded ? "" : (*LoadedError));
+			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			const auto Snapshot = SnapshotMaterialCompilerInput(*Loaded, {});
 			Require(bool(Snapshot), FormatMaterialProgramDiagnostics(Snapshot.Diagnostics));
 			CheckQueries(Snapshot.Snapshot->Input);
@@ -240,7 +240,7 @@ int main(int Argc, char** Argv)
 			const auto Unloaded = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});
 			Require(bool(Unloaded.Admission) && Unloaded.CollectedCount > 0, "Level unload failed.");
 			const auto Loaded = LoadPackage(Path, nullptr, &LoadedError);
-			Require(bool(Loaded), Loaded ? "" : (*LoadedError));
+			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			auto* Reloaded = Cast<DLevel>(Loaded->FindTopLevelAsset("WaterSurfaceLevel"));
 			Require(Reloaded && Reloaded->GetActors().size() == 1, "Level actor did not reopen.");
 			auto* Actor = Cast<AWaterSurfaceActor>(Reloaded->GetActors()[0].Get());

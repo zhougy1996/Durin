@@ -35,13 +35,13 @@ namespace Durin::Testing
 			Graph.Expressions.emplace_back(Expression.Get());
 			return Link;
 		};
-		const std::array OutputLinks{&Graph.Outputs.BaseColor, &Graph.Outputs.Normal, &Graph.Outputs.Metallic, &Graph.Outputs.Roughness,
-			&Graph.Outputs.AmbientOcclusion, &Graph.Outputs.Emissive, &Graph.Outputs.Opacity, &Graph.Outputs.OpacityMask};
+		const std::array OutputLinks{&Graph.Outputs.Get(EMaterialProperty::MP_BaseColor), &Graph.Outputs.Get(EMaterialProperty::MP_Normal), &Graph.Outputs.Get(EMaterialProperty::MP_Metallic), &Graph.Outputs.Get(EMaterialProperty::MP_Roughness),
+			&Graph.Outputs.Get(EMaterialProperty::MP_AmbientOcclusion), &Graph.Outputs.Get(EMaterialProperty::MP_EmissiveColor), &Graph.Outputs.Get(EMaterialProperty::MP_Opacity), &Graph.Outputs.Get(EMaterialProperty::MP_OpacityMask)};
 		using ParameterKind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < 8; ++I)
 		{
-			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
+			const auto Role = static_cast<EMaterialProperty>(I);
 			const auto Parameter = [&](ParameterKind Kind, Type ValueType, int32 Column, int32 Row) {
 				const auto Id = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, Kind);
 				const auto Definition = std::ranges::find(Recipe, Id, &FMaterialParameterDefinition::Id);

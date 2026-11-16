@@ -108,6 +108,8 @@ namespace Durin
 		std::string Target;
 		uint32 PermutationId = 0;
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		uint32 PassContractVersion = 0;
+		FMaterialRenderLayoutIdentity OutputLayout;
 
 		auto operator==(const FMaterialShaderPermutationIdentity&) const
 			-> bool = default;

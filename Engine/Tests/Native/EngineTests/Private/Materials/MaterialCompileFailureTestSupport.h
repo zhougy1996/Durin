@@ -9,6 +9,7 @@ namespace Durin::Testing
 	inline auto FailMaterialCompilation(DMaterialInterface& Material) -> bool
 	{
 		MIR::FCompilerInput Invalid;
+		Invalid.IR.Version = 0;
 		Invalid.StaticProperties = Material.GetStaticProperties();
 		if (!BuildDefaultMaterialCompilerEnvironment(Invalid.Environment)) return false;
 		FScopedOfflinePreparation Offline;

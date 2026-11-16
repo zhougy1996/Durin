@@ -14,6 +14,93 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
 
+TEST(FMaterialAttributeAuthoringTests, InvalidBindingsAndConfigurationRollBackAtomically)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialAttributeRoot Root;
+	Root.Get(EMaterialProperty::MP_Specular).SetConstant({.7f});
+	std::ranges::reverse(Root.Properties.Bindings);
+	ASSERT_TRUE(Material->SetMaterialExpressions({}, Root));
+	const auto Before = Material->GetExpressionOutputs();
+	EXPECT_TRUE(std::ranges::is_sorted(Before.Properties.Bindings, {}, &FMaterialAttributeBinding::AttributeID));
+	for (uint32 Case = 0; Case < 6; ++Case)
+	{
+		auto Invalid = Root;
+		if (Case == 0) Invalid.Properties.Bindings.back().AttributeID = {9,9,9,9};
+		if (Case == 1) Invalid.Properties.Bindings.push_back(Invalid.Properties.Bindings.front());
+		if (Case == 2) Invalid.Get(EMaterialProperty::MP_BaseColor).Constant = {1.f};
+		if (Case == 3) Invalid.Attributes.OutputIndex = 1;
+		if (Case == 4) { Invalid.bUseMaterialAttributes = true; Invalid.Get(EMaterialProperty::MP_Metallic) = {FGuid::NewGuid()}; }
+		if (Case == 5) Invalid.Attributes = {FGuid::NewGuid()};
+		const auto Rejected = Material->SetMaterialExpressions({}, Invalid);
+		EXPECT_FALSE(Rejected);
+		if (Case < 2)
+		{
+			ASSERT_FALSE(Rejected.Diagnostics.empty());
+			EXPECT_EQ(Rejected.Diagnostics[0].AttributeID, Invalid.Properties.Bindings.back().AttributeID);
+		}
+		EXPECT_EQ(Material->GetExpressionOutputs(), Before);
+	}
+	EXPECT_FALSE(Material->SetMaterialConfiguration({.Domain = EMaterialDomain::PostProcess}));
+	FMaterialConfiguration Unsupported;
+	Unsupported.Properties.ShadingModel = EMaterialShadingModel::ClearCoat;
+	EXPECT_FALSE(Material->SetMaterialConfiguration(Unsupported));
+	EXPECT_EQ(Material->GetStaticProperties().ShadingModel, EMaterialShadingModel::DefaultLit);
+	EXPECT_EQ(Material->GetDomain(), EMaterialDomain::Surface);
+	EXPECT_EQ(Material->GetExpressionOutputs(), Before);
+}
+
+TEST(FMaterialAttributeAuthoringTests, AggregateBlendLowersByPropertyAndNormalizesNormals)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> A(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> B(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionBlendMaterialAttributes> Blend(NewObject<DMaterialExpressionBlendMaterialAttributes>(nullptr, NAME_None));
+	A->Id = FGuid::NewGuid(); B->Id = FGuid::NewGuid(); Blend->Id = FGuid::NewGuid();
+	A->Values.Get(EMaterialProperty::MP_Metallic).SetConstant({0.f});
+	B->Values.Get(EMaterialProperty::MP_Metallic).SetConstant({1.f});
+	Blend->A = {A->Id}; Blend->B = {B->Id}; Blend->Alpha.SetConstant({.25f});
+	const std::array<DMaterialExpression*, 3> Expressions{A.Get(), B.Get(), Blend.Get()};
+	FMaterialAttributeRoot Root;
+	Root.bUseMaterialAttributes = true; Root.Attributes = {Blend->Id};
+	MIR::FGraphBuilder Builder(Expressions);
+	const auto Built = Builder.FinishSurface(Root);
+	ASSERT_TRUE(Built) << FormatMaterialProgramDiagnostics(Built.Diagnostics);
+	const auto& Normal = Built.IR.Nodes[Built.IR.GetAttribute(EMaterialProperty::MP_Normal).ExpressionIndex];
+	EXPECT_EQ(Normal.Opcode, EMaterialProgramOpcode::Normalize);
+	EXPECT_EQ(Normal.SpatialKind, EMaterialSpatialKind::Normal);
+	const auto& Metallic = Built.IR.Nodes[Built.IR.GetAttribute(EMaterialProperty::MP_Metallic).ExpressionIndex];
+	EXPECT_EQ(Metallic.Opcode, EMaterialProgramOpcode::Lerp);
+	EXPECT_EQ(Built.IR.Nodes[Metallic.Inputs[2]].GetLiteral().X, .25f);
+	EXPECT_TRUE(Built.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression);
+	B->Values.Properties.Bindings.front().AttributeID = {9,9,9,9};
+	MIR::FGraphBuilder Invalid(Expressions);
+	EXPECT_FALSE(Invalid.FinishSurface(Root));
+}
+
+TEST(FMaterialAttributeAuthoringTests, AggregateWorldOffsetRetainsTheExactFloat3Contract)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> Base(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionSetMaterialAttributes> Set(NewObject<DMaterialExpressionSetMaterialAttributes>(nullptr, NAME_None));
+	Base->Id = FGuid::NewGuid(); Set->Id = FGuid::NewGuid(); Set->Surface = {Base->Id};
+	Set->Attributes.emplace_back(EMaterialProperty::MP_WorldPositionOffset, FMaterialExpressionInput{});
+	Set->Attributes[0].Source.SetConstant({1.f});
+	const std::array<DMaterialExpression*, 2> Expressions{Base.Get(), Set.Get()};
+	FMaterialAttributeRoot Root;
+	Root.Attributes = {Set->Id}; Root.bUseMaterialAttributes = true;
+	MIR::FGraphBuilder Invalid(Expressions);
+	EXPECT_FALSE(Invalid.FinishSurface(Root));
+	Set->Attributes[0].Source.SetConstant({1.f, 2.f, 3.f});
+	MIR::FGraphBuilder Valid(Expressions);
+	EXPECT_TRUE(Valid.FinishSurface(Root));
+}
+
 TEST(FMaterialExpressionSemanticTests, SourcesAndConstantsCarryExplicitDetachedSemantics)
 {
 	using namespace Durin;
@@ -137,8 +224,8 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	Mask->Id = FGuid::NewGuid();
 	Mask->Input = {Color->Id}; Mask->Components = {0, 1, 2};
 	const std::array<DMaterialExpression*, 3> Expressions{Color.Get(), Roughness.Get(), Mask.Get()};
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {Mask->Id}; Outputs.Roughness = {Roughness->Id};
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Mask->Id}; Outputs.Get(EMaterialProperty::MP_Roughness) = {Roughness->Id};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FMaterialCompilerEnvironment Environment;
 
@@ -193,22 +280,22 @@ TEST(FMaterialExpressionTests, AuthoringRejectsDisconnectedInvalidNodesAndSnapsh
 	const auto Rejected = Invalid.FinishSurface({});
 	EXPECT_TRUE(Rejected); EXPECT_TRUE(Rejected.IR.Nodes.empty()); EXPECT_TRUE(Rejected.Parameters.empty());
 	Constant->Value = .5f;
-	FMaterialExpressionSurfaceOutputs Wrong;
-	Wrong.BaseColor = {Constant->Id};
+	FMaterialAttributeRoot Wrong;
+	Wrong.Get(EMaterialProperty::MP_BaseColor) = {Constant->Id};
 	MIR::FGraphBuilder Broadcast(Expressions);
 	const auto BroadcastResult = Broadcast.FinishSurface(Wrong);
 	ASSERT_TRUE(BroadcastResult);
-	const auto& Color = BroadcastResult.IR.Nodes[BroadcastResult.IR.SurfaceRoot.Inputs[0].ExpressionIndex];
+	const auto& Color = BroadcastResult.IR.Nodes[BroadcastResult.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex];
 	EXPECT_EQ(Color.Opcode, EMaterialProgramOpcode::Splat3);
 	EXPECT_EQ(Color.ResultType, EMaterialProgramValueType::Float3);
-	Wrong.BaseColor.Connection = {}; Wrong.Roughness.SetConstant({std::numeric_limits<float>::quiet_NaN()});
+	Wrong.Get(EMaterialProperty::MP_BaseColor).Connection = {}; Wrong.Get(EMaterialProperty::MP_Roughness).SetConstant({std::numeric_limits<float>::quiet_NaN()});
 	MIR::FGraphBuilder BadDefault(Expressions);
 	EXPECT_FALSE(BadDefault.FinishSurface(Wrong));
-	std::vector<TStrongObjectPtr<DMaterialExpressionMakeSurface>> Owners;
+	std::vector<TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes>> Owners;
 	std::vector<DMaterialExpression*> Dense;
 	for (uint32 Index = 0; Index < MaterialProgramMaxLinkCount / 8 + 1; ++Index)
 	{
-		Owners.emplace_back(NewObject<DMaterialExpressionMakeSurface>(nullptr, FName(std::format("Dense{}", Index))));
+		Owners.emplace_back(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, FName(std::format("Dense{}", Index))));
 		Owners.back()->Id = {2, 3, 4, Index + 1}; Dense.push_back(Owners.back().Get());
 	}
 	MIR::FGraphBuilder TooManyLinks(Dense);
@@ -236,8 +323,8 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
 	Mask->Id = FGuid::NewGuid(); Mask->Input = {Parameter->Id}; Mask->Components = {0, 1, 2};
 	const std::array<DMaterialExpression*, 2> Expressions{Parameter.Get(), Mask.Get()};
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {Mask->Id}; Outputs.Roughness.SetConstant({.375f});
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Mask->Id}; Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.375f});
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("Program"), nullptr);
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("FunctionCalls"), nullptr);
@@ -246,7 +333,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	Parameter->DefaultValue = {.9, .9, .9, 0};
 	const auto Applied = Material->GetExpressionCollection().Expressions;
 	const auto AuthoredRevision = Material->GetMaterialProgramRevision();
-	auto BrokenOutputs = Outputs; BrokenOutputs.Normal = {{99, 1, 1, 1}};
+	auto BrokenOutputs = Outputs; BrokenOutputs.Get(EMaterialProperty::MP_Normal) = {{99, 1, 1, 1}};
 	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, BrokenOutputs));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Applied);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), AuthoredRevision);
@@ -295,8 +382,8 @@ TEST(FMaterialExpressionTests, MaterialCanReplaceItsOwnExpressionsAndClearOwnedC
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Source(NewObject<DMaterialExpressionScalarConstant>(nullptr, "Roughness"));
 	Source->Id = {1, 2, 3, 4}; Source->Value = .75f;
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.Roughness = {Source->Id};
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_Roughness) = {Source->Id};
 	const std::array<DMaterialExpression*, 1> Initial{Source.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Initial, Outputs));
 	TStrongObjectPtr<DMaterialExpression> Previous(Material->GetExpressionCollection().Expressions[0].Get());
@@ -601,7 +688,7 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	const std::array Roots{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}};
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
 	FXxHash128 ColorFingerprint, NormalFingerprint;
-	FMaterialExpressionSurfaceOutputs Surface; Surface.Normal = Roots[0];
+	FMaterialAttributeRoot Surface; Surface.Get(EMaterialProperty::MP_Normal) = Roots[0];
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, Surface, &ColorFingerprint));
 	const auto Color = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Color);
@@ -675,8 +762,8 @@ TEST(FMaterialExpressionTests, BuildFunctionDefaultsPreserveAliasUVAndSurfaceSem
 		{.Id = ScalarId, .Type = EMaterialProgramValueType::Float, .Name = "Scalar", .Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.625f}}},
 		{.Id = AliasId, .Type = EMaterialProgramValueType::Float, .Name = "Alias", .Default = {.Kind = EMaterialFunctionDefaultKind::Input, .InputId = ScalarId}},
 		{.Id = UVId, .Type = EMaterialProgramValueType::Float2, .Name = "UV", .Default = {.Kind = EMaterialFunctionDefaultKind::UV0}},
-		{.Id = SurfaceId, .Type = EMaterialProgramValueType::Surface, .Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::Surface}}};
-	GetMaterialSurfaceOutputDefault(Body.Signature.Inputs[3].Default.Surface, EMaterialSurfaceOutput::BaseColor) = {.2f, .3f, .4f};
+		{.Id = SurfaceId, .Type = EMaterialProgramValueType::MaterialAttributes, .Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::MaterialAttributes}}};
+	GetMaterialSurfaceOutputDefault(Body.Signature.Inputs[3].Default.Surface, EMaterialProperty::MP_BaseColor) = {.2f, .3f, .4f};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "DefaultsCall"));
 	Call->Id = {3, 0, 0, 1}; Call->Function = Function.Get();
 	std::vector<FMaterialExpressionInput> Roots;
@@ -700,7 +787,7 @@ TEST(FMaterialExpressionTests, BuildFunctionDefaultsPreserveAliasUVAndSurfaceSem
 	EXPECT_EQ(UV.Opcode, EMaterialProgramOpcode::UVChannel);
 	EXPECT_FLOAT_EQ(Built.IR.Nodes[UV.Inputs[0]].GetLiteral().X, 0.f);
 	const auto& Surface = Built.IR.Nodes[Built.Roots[2]];
-	EXPECT_EQ(Surface.Opcode, EMaterialProgramOpcode::MakeSurface);
+	EXPECT_EQ(Surface.Opcode, EMaterialProgramOpcode::MakeMaterialAttributes);
 	EXPECT_EQ(Built.IR.Nodes[Surface.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.2f, .3f, .4f}));
 	Body.Signature.Inputs[0].Default = {.Kind = EMaterialFunctionDefaultKind::Input, .InputId = AliasId};
 	const auto Cyclic = MIR::BuildGraph(Graph, Roots, Environment);
@@ -846,15 +933,15 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	using namespace Durin;
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Sample(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, "BuildSample"));
-	TStrongObjectPtr<DMaterialExpressionMakeSurface> Surface(NewObject<DMaterialExpressionMakeSurface>(nullptr, "BuildSurface"));
-	TStrongObjectPtr<DMaterialExpressionGetSurfaceAttributes> Get(NewObject<DMaterialExpressionGetSurfaceAttributes>(nullptr, "BuildGet"));
+	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> Surface(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, "BuildSurface"));
+	TStrongObjectPtr<DMaterialExpressionGetMaterialAttributes> Get(NewObject<DMaterialExpressionGetMaterialAttributes>(nullptr, "BuildGet"));
 	Sample->Id = {1, 2, 3, 1}; Sample->Metadata.Id = {4, 5, 6, 7}; Sample->Metadata.Name = "Sample";
 	Sample->TextureUsage = ETextureUsage::Normal;
 	Surface->Id = {1, 2, 3, 2};
-	Surface->BaseColor.SetConstant({1, 1, 1}); Surface->Normal = {Sample->Id, 1};
-	Surface->Metallic.SetConstant({0}); Surface->Roughness.SetConstant({.5f});
-	Surface->AmbientOcclusion.SetConstant({1}); Surface->Emissive.SetConstant({0, 0, 0});
-	Surface->Opacity.SetConstant({1}); Surface->OpacityMask.SetConstant({1});
+	Surface->Values.Get(EMaterialProperty::MP_BaseColor).SetConstant({1, 1, 1}); Surface->Values.Get(EMaterialProperty::MP_Normal) = {Sample->Id, 1};
+	Surface->Values.Get(EMaterialProperty::MP_Metallic).SetConstant({0}); Surface->Values.Get(EMaterialProperty::MP_Roughness).SetConstant({.5f});
+	Surface->Values.Get(EMaterialProperty::MP_AmbientOcclusion).SetConstant({1}); Surface->Values.Get(EMaterialProperty::MP_EmissiveColor).SetConstant({0, 0, 0});
+	Surface->Values.Get(EMaterialProperty::MP_Opacity).SetConstant({1}); Surface->Values.Get(EMaterialProperty::MP_OpacityMask).SetConstant({1});
 	Get->Id = {1, 2, 3, 3}; Get->Surface = {Surface->Id};
 	const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Surface.Get(), Get.Get()};
 	const std::array Roots{FMaterialExpressionInput{Surface->Id}, FMaterialExpressionInput{Get->Id, 0}, FMaterialExpressionInput{Sample->Id, 7}};
@@ -865,8 +952,8 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[2]].ResultType, EMaterialProgramValueType::Texture2D);
 	ASSERT_EQ(Built.Parameters.size(), 1u);
 	EXPECT_EQ(Built.Parameters[0].Id, Sample->Metadata.Id);
-	Built.IR.SurfaceRoot.bAggregate = true;
-	Built.IR.SurfaceRoot.AggregateExpressionIndex = Built.Roots[0];
+	Built.IR.bAggregateAttributes = true;
+	Built.IR.AggregateAttributesIndex = Built.Roots[0];
 	const auto Layout = CompileMaterialLayout(Built.Parameters);
 	ASSERT_TRUE(Layout);
 	const auto Source = GenerateMaterialProgramSlang(Built.IR, Layout.Layout);
@@ -878,8 +965,8 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
 	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), std::popcount(MaterialAllStageMask));
-	Get->AttributeMask = 2;
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	Get->AttributeIDs = {FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_Normal)};
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }
 
@@ -1147,12 +1234,12 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		FEntry{DMaterialExpressionTransformDirection::StaticClass(), EMaterialProgramOpcode::TransformDirection, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionTransformNormal::StaticClass(), EMaterialProgramOpcode::TransformNormal, EMaterialProgramValueType::Float3},
 		FEntry{DMaterialExpressionTextureCoordinates::StaticClass(), EMaterialProgramOpcode::TextureCoordinates, EMaterialProgramValueType::Float2},
-		FEntry{DMaterialExpressionMakeSurface::StaticClass(), EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface},
-		FEntry{DMaterialExpressionGetSurfaceAttributes::StaticClass(), EMaterialProgramOpcode::GetSurfaceAttributes, EMaterialProgramValueType::Surface},
-		FEntry{DMaterialExpressionSetSurfaceAttributes::StaticClass(), EMaterialProgramOpcode::SetSurfaceAttributes, EMaterialProgramValueType::Surface},
-		FEntry{DMaterialExpressionFunctionInput::StaticClass(), EMaterialProgramOpcode::FunctionInput, EMaterialProgramValueType::Surface},
-		FEntry{DMaterialExpressionFunctionOutput::StaticClass(), EMaterialProgramOpcode::FunctionOutput, EMaterialProgramValueType::Surface},
-		FEntry{DMaterialExpressionFunctionCall::StaticClass(), EMaterialProgramOpcode::FunctionCall, EMaterialProgramValueType::Surface}};
+		FEntry{DMaterialExpressionMakeMaterialAttributes::StaticClass(), EMaterialProgramOpcode::MakeMaterialAttributes, EMaterialProgramValueType::MaterialAttributes},
+		FEntry{DMaterialExpressionGetMaterialAttributes::StaticClass(), EMaterialProgramOpcode::GetMaterialAttributes, EMaterialProgramValueType::MaterialAttributes},
+		FEntry{DMaterialExpressionSetMaterialAttributes::StaticClass(), EMaterialProgramOpcode::SetMaterialAttributes, EMaterialProgramValueType::MaterialAttributes},
+		FEntry{DMaterialExpressionFunctionInput::StaticClass(), EMaterialProgramOpcode::FunctionInput, EMaterialProgramValueType::MaterialAttributes},
+		FEntry{DMaterialExpressionFunctionOutput::StaticClass(), EMaterialProgramOpcode::FunctionOutput, EMaterialProgramValueType::MaterialAttributes},
+		FEntry{DMaterialExpressionFunctionCall::StaticClass(), EMaterialProgramOpcode::FunctionCall, EMaterialProgramValueType::MaterialAttributes}};
 	uint32 Index = 0;
 	std::unordered_set<EMaterialProgramOpcode> Covered;
 	for (const auto& Entry : Entries)
@@ -1172,14 +1259,14 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
 		{
 			Call->Function = Function.Get();
-			Call->Outputs = {{Function->GetFunctionSignature().Outputs[0].Id, EMaterialProgramValueType::Surface}};
+			Call->Outputs = {{Function->GetFunctionSignature().Outputs[0].Id, EMaterialProgramValueType::MaterialAttributes}};
 		}
 		EXPECT_EQ(Expression->GetClass()->FindPropertyByName("Opcode"), nullptr);
 		EXPECT_EQ(Expression->GetClass()->FindPropertyByName("Parameter"), nullptr);
-		if (auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression.Get()))
-			Surface->Attributes.push_back({EMaterialSurfaceOutput::Roughness, {}});
+		if (auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(Expression.Get()))
+			Surface->Attributes.push_back({EMaterialProperty::MP_Roughness, {}});
 		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
-			Call->Inputs.push_back({Function->GetFunctionSignature().Inputs[0].Id, EMaterialProgramValueType::Surface, {}});
+			Call->Inputs.push_back({Function->GetFunctionSignature().Inputs[0].Id, EMaterialProgramValueType::MaterialAttributes, {}});
 		uint32 Visited = 0;
 		Durin::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
 			Input = {{11, 12, Index, Pin + 1}}; ++Visited;
@@ -1214,8 +1301,8 @@ TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenc
 	Call->Inputs = {{InputId, EMaterialProgramValueType::Float3, {Value->Id}}};
 	Call->Outputs = {{OutputId, EMaterialProgramValueType::Float3}};
 	const std::array<DMaterialExpression*, 2> Expressions{Value.Get(), Call.Get()};
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {Call->Id, 0, OutputId};
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Call->Id, 0, OutputId};
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	const auto Snapshot = SnapshotMaterialCompilerInput(*Material, {});
@@ -1311,17 +1398,17 @@ TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesPar
 	Call->Inputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float4, {Parameter->Id}}};
 	Call->Outputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float3}, {FGuid::NewGuid(), EMaterialProgramValueType::Float3}};
 	const std::array<DMaterialExpression*, 2> Expressions{Parameter.Get(), Call.Get()};
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = {Call->Id, 0, Call->Outputs[0].OutputId};
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Call->Id, 0, Call->Outputs[0].OutputId};
 	FXxHash128 Before, After;
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &Before));
 	Parameter->DefaultValue = {.2, .4, .6, 0}; Parameter->Metadata.DisplayName = "Display color";
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Before);
-	Outputs.BaseColor.Connection.OutputId = Call->Outputs[1].OutputId;
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.OutputId = Call->Outputs[1].OutputId;
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_NE(After, Before);
-	Outputs.BaseColor.Connection.OutputId = Call->Outputs[0].OutputId;
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.OutputId = Call->Outputs[0].OutputId;
 	const auto InputId = Call->Inputs[0].InputId;
 	Call->Inputs[0].InputId = FGuid::NewGuid();
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));

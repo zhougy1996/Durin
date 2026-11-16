@@ -14,13 +14,13 @@ namespace Durin::AssetForge::Builtins
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		for (uint32 I = 0; I < Channels.size(); ++I)
 		{
-			const auto Role = static_cast<EMaterialSurfaceOutput>(I);
+			const auto Role = static_cast<EMaterialProperty>(I);
 			const int32 Row = static_cast<int32>(I) * 900;
 			const auto Parameter = [&](Kind ParameterKind, int32 X, int32 Y) {
 				const auto Id = GetMaterialSurfaceParameterId(Role, ParameterKind);
 				const auto Definition = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
 				require(Definition != Definitions.end());
-				const bool bTangentNormal = Role == EMaterialSurfaceOutput::Normal
+				const bool bTangentNormal = Role == EMaterialProperty::MP_Normal
 					&& ParameterKind == Kind::Value;
 				return B.Parameter(*Definition, I, X, Row + Y, ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
 					? EMaterialProgramValueType::Float2 : ParameterKind == Kind::Value ? GetMaterialSurfaceOutputType(Role) : EMaterialProgramValueType::Float4,

@@ -49,7 +49,8 @@ TEST(FMaterialPropertyEditingTests, CustomDeclarationOverridesRetainOrphansAndRe
 	Parameter->Id = Durin::FGuid::NewGuid(); Parameter->Metadata.Id = Definition.Id;
 	Parameter->Metadata.Name = Definition.Name; Parameter->DefaultValue = .25f;
 	const std::array<Durin::DMaterialExpression*, 1> Original{Parameter.Get()};
-	const Durin::FMaterialExpressionSurfaceOutputs Outputs{.Roughness = Durin::FMaterialNumericInput(Durin::FMaterialExpressionInput{Parameter->Id}, 1)};
+	Durin::FMaterialAttributeRoot Outputs;
+	Outputs.Get(Durin::EMaterialProperty::MP_Roughness) = {Parameter->Id};
 	ASSERT_TRUE(Root->SetMaterialExpressions(Original, Outputs));
 	ASSERT_TRUE(Parent->SetParent(Root));
 	ASSERT_TRUE(Child->SetParent(Parent));
@@ -217,14 +218,14 @@ TEST(FMaterialPropertyEditingTests, BuiltinRecipeHasStableIdentityOrderAndMetada
 	using Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	using Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole;
 	const std::array SurfaceOutputs{
-		Durin::EMaterialSurfaceOutput::BaseColor,
-		Durin::EMaterialSurfaceOutput::Normal,
-		Durin::EMaterialSurfaceOutput::Metallic,
-		Durin::EMaterialSurfaceOutput::Roughness,
-		Durin::EMaterialSurfaceOutput::AmbientOcclusion,
-		Durin::EMaterialSurfaceOutput::Emissive,
-		Durin::EMaterialSurfaceOutput::Opacity,
-		Durin::EMaterialSurfaceOutput::OpacityMask,
+		Durin::EMaterialProperty::MP_BaseColor,
+		Durin::EMaterialProperty::MP_Normal,
+		Durin::EMaterialProperty::MP_Metallic,
+		Durin::EMaterialProperty::MP_Roughness,
+		Durin::EMaterialProperty::MP_AmbientOcclusion,
+		Durin::EMaterialProperty::MP_EmissiveColor,
+		Durin::EMaterialProperty::MP_Opacity,
+		Durin::EMaterialProperty::MP_OpacityMask,
 	};
 	std::vector<Durin::FGuid> ExpectedIds;
 	for (size_t RoleIndex = 0;
@@ -245,10 +246,10 @@ TEST(FMaterialPropertyEditingTests, BuiltinRecipeHasStableIdentityOrderAndMetada
 		}
 	}
 	EXPECT_FALSE(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(
-		static_cast<Durin::EMaterialSurfaceOutput>(255),
+		static_cast<Durin::EMaterialProperty>(255),
 		EMaterialBuiltinParameterKind::Value).IsValid());
 	EXPECT_FALSE(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(
-		Durin::EMaterialSurfaceOutput::BaseColor,
+		Durin::EMaterialProperty::MP_BaseColor,
 		EMaterialBuiltinParameterKind::Count).IsValid());
 	EXPECT_FALSE(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterId(
 		static_cast<EMaterialBuiltinParameterRole>(255),

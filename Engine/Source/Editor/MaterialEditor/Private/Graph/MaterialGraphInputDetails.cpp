@@ -241,32 +241,34 @@ namespace Durin::MaterialEditor
 				return false;
 			});
 		}
-		if (const auto* Surface = Cast<DMaterialExpressionGetSurfaceAttributes>(Expression.Get()); Surface && !Changed)
+		if (const auto* Surface = Cast<DMaterialExpressionGetMaterialAttributes>(Expression.Get()); Surface && !Changed)
 		{
-			for (uint32 Index = 0; Index < 8 && !Changed; ++Index)
+			for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size() && !Changed; ++Index)
 			{
-				bool Enabled = (Surface->AttributeMask & (1 << Index)) != 0;
-				if (!DetailsStyle::EditRow(MaterialSurfaceNames[Index], [&] { return ImGui::Checkbox("##Value", &Enabled); })) continue;
+				const auto ID = FMaterialAttributeDefinitionMap::GetDefinitions()[Index].AttributeID;
+				bool Enabled = std::ranges::contains(Surface->AttributeIDs, ID);
+				if (!DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] { return ImGui::Checkbox("##Value", &Enabled); })) continue;
 				const auto Edited = BeginSelectedEdit();
 				if (Edited == Session->Expressions.end()) continue;
-				auto* Draft = Cast<DMaterialExpressionGetSurfaceAttributes>(Edited->Get());
-				Draft->AttributeMask = Enabled ? Draft->AttributeMask | (1 << Index) : Draft->AttributeMask & ~(1 << Index);
+				auto* Draft = Cast<DMaterialExpressionGetMaterialAttributes>(Edited->Get());
+				if (Enabled) Draft->AttributeIDs.push_back(ID);
+				else std::erase(Draft->AttributeIDs, ID);
 				Submit(Session->Commit("Edit Surface Outputs", &Transactions));
 			}
 		}
-		if (const auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression.Get()); Surface && !Changed)
+		if (const auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(Expression.Get()); Surface && !Changed)
 		{
-			for (uint32 Index = 0; Index < 8 && !Changed; ++Index)
+			for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size() && !Changed; ++Index)
 			{
-				const auto Attribute = static_cast<EMaterialSurfaceOutput>(Index);
-				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionSurfaceAttributeBinding::Attribute);
+				const auto Attribute = static_cast<EMaterialProperty>(Index);
+				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 				const bool bKeepBase = Binding == Surface->Attributes.end()
 					|| (!Binding->Source.Connection.ExpressionId.IsValid() && !Binding->Source.UseConstant);
 				const auto SetSource = [&](FMaterialProgramLink Link) {
 					const auto Edited = BeginSelectedEdit();
 					if (Edited == Session->Expressions.end()) return;
-					auto& Bindings = Cast<DMaterialExpressionSetSurfaceAttributes>(Edited->Get())->Attributes;
-					auto Existing = std::ranges::find(Bindings, Attribute, &FMaterialExpressionSurfaceAttributeBinding::Attribute);
+					auto& Bindings = Cast<DMaterialExpressionSetMaterialAttributes>(Edited->Get())->Attributes;
+					auto Existing = std::ranges::find(Bindings, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 					if (Existing == Bindings.end() && Link.SourceNodeId.IsValid())
 					{
 						Bindings.emplace_back(Attribute, FMaterialExpressionInput{});
@@ -279,7 +281,7 @@ namespace Durin::MaterialEditor
 					}
 					Submit(Session->Commit("Edit Surface Input", &Transactions));
 				};
-				DetailsStyle::EditRow(MaterialSurfaceNames[Index], [&] {
+				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
 					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.ExpressionId.IsValid() ? "Connected" : "Constant")) return false;
 					if (ImGui::Selectable("Keep base value", bKeepBase)) SetSource({});
 					for (const auto& Source : View.Nodes)
@@ -316,7 +318,7 @@ namespace Durin::MaterialEditor
 			const bool bConnected = Pin.Link.SourceNodeId.IsValid();
 			const bool bInheritedContext = Pin.bSupportsConstant && !Pin.bUseConstant
 				&& (Selected->Node.IsSampleUVInput(Pin.InputIndex)
-					|| (Selected->Node.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes && Pin.InputIndex != 0));
+					|| (Selected->Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && Pin.InputIndex != 0));
 			const auto EditValue = [&]() {
 				if (bInheritedContext)
 				{

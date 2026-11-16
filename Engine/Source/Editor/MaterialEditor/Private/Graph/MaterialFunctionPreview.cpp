@@ -102,9 +102,9 @@ namespace Durin::MaterialEditor
 						Texture->Metadata.Name = "PreviewTexture";
 						Source = {Texture->Id}; break;
 					}
-					case Type::Surface:
+					case Type::MaterialAttributes:
 					{
-						auto* Surface = Add.operator()<DMaterialExpressionMakeSurface>();
+						auto* Surface = Add.operator()<DMaterialExpressionMakeMaterialAttributes>();
 						Source = {Surface->Id}; break;
 					}
 					default: return RejectCommand("The preview input type is unsupported.");
@@ -114,7 +114,7 @@ namespace Durin::MaterialEditor
 			}
 		FMaterialExpressionInput Value{Call->Id, 0, OutputId};
 		FMaterialStaticProperties Properties;
-		if (Output->Type == Type::Surface) { State.GetOutputs().Surface = Value; State.GetOutputs().bUseMaterialAttributes = true; }
+		if (Output->Type == Type::MaterialAttributes) { State.GetOutputs().Attributes = Value; State.GetOutputs().bUseMaterialAttributes = true; }
 		else
 		{
 			Properties.ShadingModel = EMaterialShadingModel::Unlit;
@@ -140,7 +140,7 @@ namespace Durin::MaterialEditor
 				auto* Mask = Add.operator()<DMaterialExpressionSwizzle>();
 				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask->Id};
 			}
-			State.GetOutputs().Emissive = Value;
+			State.GetOutputs().Get(EMaterialProperty::MP_EmissiveColor) = Value;
 		}
 		for (size_t Index = 0; Index < State.Expressions.size(); ++Index)
 			State.Presentation.Nodes.push_back({State.Expressions[Index]->Id, static_cast<int32>(Index % 4) * 320,

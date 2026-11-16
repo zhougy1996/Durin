@@ -17,7 +17,7 @@ namespace Durin::MIR
 		// Local authoring validation checks typed links without requiring available callee bodies.
 		// Its opaque function values stay private and can never become compiler snapshots.
 		static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+			const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 		static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 		auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
@@ -52,7 +52,7 @@ namespace Durin::MIR
 		auto Fail(std::string Message, FGuid PortId = {}) -> uint32;
 		auto GetNode(uint32 Index) const -> const FNode& { return Result.IR.Nodes.at(Index); }
 		auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
-		auto FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FBuildResult;
+		auto FinishSurface(const FMaterialAttributeRoot& Outputs) -> FBuildResult;
 	private:
 		friend class FEmitter;
 		struct FSharedState

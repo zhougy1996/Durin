@@ -21,15 +21,15 @@ namespace Durin
 		return nullptr;
 	}
 
-	auto DMaterial::GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs&
+	auto DMaterial::GetExpressionOutputs() const -> const FMaterialAttributeRoot&
 	{
 		if (const auto* Output = GetOutputNode()) return Output->Outputs;
-		static const FMaterialExpressionSurfaceOutputs Empty;
+		static const FMaterialAttributeRoot Empty;
 		return Empty; // Cooked assets contain the compiled projection, not an authored graph.
 	}
 
 	auto DMaterial::ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
-		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+		const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
 		const auto Count = std::ranges::count_if(Collection.Expressions, [](const auto& Expression) {
 			return Cast<DMaterialExpressionMaterialOutput>(Expression.Get()) != nullptr;
@@ -112,7 +112,7 @@ namespace Durin
 
 #if DURIN_WITH_EDITORONLY_DATA
 	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
-		FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult
+		FMaterialAttributeRoot Outputs) -> FMaterialProgramValidationResult
 	{
 		// Recipe convenience: publish an ordinary output node together with the supplied expressions.
 		TStrongObjectPtr<DMaterialExpressionMaterialOutput> Terminal(NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None));

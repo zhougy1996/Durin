@@ -1,3 +1,4 @@
+#include "Materials/MaterialProgramCompiler.h"
 #include "Shader/ShaderMapPreparation.h"
 #pragma once
 
@@ -128,12 +129,16 @@ namespace Durin
 				const size_t FragmentPass = Pass == 3 ? 1 : Pass;
 				const std::array<const FShaderType*, 2> ComposedTypes{
 					RuntimeTypes.front(), FragmentTypes[FragmentPass]};
+				const std::array Entries{FMaterialShaderEntryRequest{.Shader = {
+					.Material = {.ProgramIdentity = Program}, .ShaderType = std::string(FragmentTypes[FragmentPass]->GetName()),
+					.EntryPoint = std::string(FragmentTypes[FragmentPass]->GetEntryPoint()), .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
+					.Frequency = EShaderFrequency::Fragment, .PassContractVersion = CurrentMaterialPassContractVersion}}};
 				ASSERT_TRUE((ShaderResult = FMeshMaterialShaderMap::TryCompileSync({
 					.Identity = {.ProgramIdentity = Program}, .Target = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"),
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
 					.GeneratedStages = MaterialStages[FragmentPass], .CompiledProgramIdentity = Program,
-					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Error;
+					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .GeneratedEntries = Entries, .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Error;
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};

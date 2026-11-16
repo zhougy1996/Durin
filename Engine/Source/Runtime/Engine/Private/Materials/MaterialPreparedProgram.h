@@ -24,27 +24,23 @@ namespace Durin
 
 	// Detached CPU product. Shader binaries and publication success exist only
 	// in FMaterialShaderMap, constructed by final assembly.
-	struct FMaterialTranslatedProgram
+	struct FMaterialTranslatedProgram : FMaterialCompilationOutput
 	{
 		EMaterialProgramStatus Status = EMaterialProgramStatus::Error;
 		FMaterialProgramIdentity Identity;
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
-		uint8 RequiredStages = MaterialAllStageMask;
+		FMaterialShaderEntrySet RequiredEntries = MaterialAllEntries;
 		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		MIR::FModule IR;
-		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;
-		FMaterialRenderLayout Layout;
-		FMaterialProgramRequirements Requirements;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		float CompileTime = 0;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		FMaterialStaticProperties StaticProperties;
 		FMaterialCompilerResourceLimits ResourceLimits;
 		std::vector<FMaterialTranslationSource> Sources;
 

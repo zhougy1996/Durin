@@ -35,7 +35,7 @@ namespace Durin
 	namespace
 	{
 		auto IsType(EMaterialProgramValueType Type) -> bool
-			{ return Type <= EMaterialProgramValueType::Surface; }
+			{ return Type <= EMaterialProgramValueType::MaterialAttributes; }
 		auto IsFinite(const FMaterialProgramLiteral& Value) -> bool
 			{ return std::isfinite(Value.X) && std::isfinite(Value.Y)
 				&& std::isfinite(Value.Z) && std::isfinite(Value.W); }
@@ -109,16 +109,18 @@ namespace Durin
 					bValid = Port.Type == EMaterialProgramValueType::Texture2D
 						&& IsValidMaterialSampling(Default.Sampler, Default.TextureFallback);
 					break;
-				case EMaterialFunctionDefaultKind::Surface:
-					bValid = Port.Type == EMaterialProgramValueType::Surface
-						&& IsDisconnected(Default.Surface.Surface);
-					for (uint8 Index = 0; Index < 8; ++Index)
+				case EMaterialFunctionDefaultKind::MaterialAttributes:
+				{
+					bValid = Port.Type == EMaterialProgramValueType::MaterialAttributes
+						&& IsDisconnected(Default.Surface.Attributes) && Default.Surface.Bindings.size() <= 64;
+					std::unordered_set<FGuid> Seen;
+					for (const auto& Value : Default.Surface.Bindings)
 					{
-						const auto Output = static_cast<EMaterialSurfaceOutput>(Index);
-						bValid &= IsDisconnected(GetMaterialSurfaceOutputLink(Default.Surface, Output))
-							&& IsFinite(GetMaterialSurfaceOutputDefault(Default.Surface, Output));
+						bValid &= FMaterialAttributeDefinitionMap::Find(Value.AttributeID)
+							&& Seen.insert(Value.AttributeID).second && IsDisconnected(Value.Connection) && IsFinite(Value.Literal);
 					}
 					break;
+				}
 				case EMaterialFunctionDefaultKind::Input:
 					if (const auto It = InputIndices.find(Default.InputId); It != InputIndices.end())
 						bValid = Signature.Inputs[It->second].Type == Port.Type;

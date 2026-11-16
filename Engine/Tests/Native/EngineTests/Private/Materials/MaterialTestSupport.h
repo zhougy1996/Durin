@@ -599,9 +599,9 @@ namespace
 			EMaterialProgramValueType::Float, {RustMask, Amount});
 		const auto Alpha = Add(EMaterialProgramOpcode::Saturate,
 			EMaterialProgramValueType::Float, {WeightedMask});
-		Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Lerp,
+		Graph.Outputs.Get(EMaterialProperty::MP_BaseColor) = Add(EMaterialProgramOpcode::Lerp,
 			EMaterialProgramValueType::Float3, {MetalColor, RustColor, Alpha});
-		Graph.Outputs.Normal = Add(EMaterialProgramOpcode::Lerp,
+		Graph.Outputs.Get(EMaterialProperty::MP_Normal) = Add(EMaterialProgramOpcode::Lerp,
 			EMaterialProgramValueType::Float3, {MetalNormal, RustNormal, Alpha});
 		return {std::move(Definitions), std::move(Graph)};
 	}

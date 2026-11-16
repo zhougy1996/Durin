@@ -933,7 +933,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 					for (uint32 Role = 0; Role < Roles.size(); ++Role)
 						for (uint32 Kind = 0; Kind < MaterialParameters::BuiltinParameterKindCount; ++Kind)
 						{
-							const auto Surface = static_cast<EMaterialSurfaceOutput>(Role);
+							const auto Surface = static_cast<EMaterialProperty>(Role);
 							const auto ParameterKind =
 							    static_cast<MaterialParameters::EMaterialBuiltinParameterKind>(Kind);
 							Recipe.Owners.push_back({Surface, ParameterKind,
@@ -994,7 +994,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 					const auto *Sample = Role.Sample ? &*Role.Sample : nullptr;
 					// The full template reads opacity from alpha, while compact imports use
 					// the derived red-channel mask. Alpha is unaffected by the source's sRGB view.
-					if (Descriptor.bStandardPBRParent && Owner.Role == EMaterialSurfaceOutput::Opacity &&
+					if (Descriptor.bStandardPBRParent && Owner.Role == EMaterialProperty::MP_Opacity &&
 					    Sample)
 						Sample = &*Roles[0].Sample;
 					const auto StandardDefinitions = GetPBRMaterialParameterDefinitions();
@@ -1016,7 +1016,7 @@ auto FAssetImportSession::FImpl::Run() -> FSceneRoutine
 						const auto Literal =
 						    Owner.Kind == Kind::Value
 						        ? (Descriptor.bStandardPBRParent &&
-						                   Owner.Role == EMaterialSurfaceOutput::Emissive && Sample
+						                   Owner.Role == EMaterialProperty::MP_EmissiveColor && Sample
 						               ? FMaterialProgramLiteral{}
 						               : Role.Value)
 						    : Owner.Kind == Kind::UVChannel ? Sample->UVChannel

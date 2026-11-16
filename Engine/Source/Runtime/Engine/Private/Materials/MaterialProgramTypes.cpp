@@ -1,11 +1,12 @@
 #include "Materials/MaterialProgramTypes.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 
 namespace Durin
 {
 	auto IsValidMaterialValueSemantics(const FMaterialValueSemantics& Value) -> bool
 	{
 		const auto StageBits = static_cast<uint8>(Value.Stages);
-		if (Value.Type > EMaterialProgramValueType::Surface || StageBits == 0
+		if (Value.Type > EMaterialProgramValueType::MaterialAttributes || StageBits == 0
 			|| (StageBits & ~static_cast<uint8>(EMaterialEvaluationStage::Both)) != 0)
 			return false;
 		if (Value.Kind == EMaterialSpatialKind::None)
@@ -22,7 +23,7 @@ namespace Durin
 		-> std::string
 	{
 		constexpr std::array Types{"Float", "Float2", "Float3", "Float4",
-			"Texture2D", "Surface"};
+			"Texture2D", "MaterialAttributes"};
 		constexpr std::array Kinds{"", "Position", "Direction", "Normal",
 			"ScreenCoordinate"};
 		constexpr std::array Spaces{"", "Object", "World", "View", "Tangent",
@@ -40,106 +41,51 @@ namespace Durin
 		return Result;
 	}
 
-	auto GetMaterialSurfaceOutputSemantics(EMaterialSurfaceOutput Output)
-		-> FMaterialValueSemantics
+	auto FMaterialAttributeValues::Get(EMaterialProperty Property) -> FMaterialAttributeValue&
 	{
-		FMaterialValueSemantics Result{
-			.Type = GetMaterialSurfaceOutputType(Output),
-			.Stages = EMaterialEvaluationStage::Pixel};
-		if (Output == EMaterialSurfaceOutput::Normal)
-		{
-			Result.Kind = EMaterialSpatialKind::Normal;
-			Result.Space = EMaterialCoordinateSpace::Tangent;
-		}
-		return Result;
+		const auto* Definition = FMaterialAttributeDefinitionMap::Find(Property);
+		check(Definition);
+		for (auto& Value : Bindings) if (Value.AttributeID == Definition->AttributeID) return Value;
+		Bindings.reserve(64);
+		Bindings.push_back({Definition->AttributeID, {}, Definition->DefaultValue});
+		return Bindings.back();
 	}
-
-	auto IsMaterialSurfaceOutputActive(EMaterialSurfaceOutput Output,
-		const FMaterialStaticProperties& Properties) -> bool
+	auto FMaterialAttributeValues::Get(EMaterialProperty Property) const -> const FMaterialAttributeValue&
 	{
-		switch (Output)
-		{
-		case EMaterialSurfaceOutput::Normal:
-		case EMaterialSurfaceOutput::Metallic:
-		case EMaterialSurfaceOutput::Roughness:
-		case EMaterialSurfaceOutput::AmbientOcclusion: return Properties.ShadingModel == EMaterialShadingModel::Lit;
-		case EMaterialSurfaceOutput::Opacity: return Properties.BlendMode == EMaterialBlendMode::Translucent;
-		case EMaterialSurfaceOutput::OpacityMask: return Properties.BlendMode == EMaterialBlendMode::Masked;
-		default: return true;
-		}
+		const auto ID = FMaterialAttributeDefinitionMap::GetID(Property);
+		for (const auto& Value : Bindings) if (Value.AttributeID == ID) return Value;
+		static const auto Defaults = [] {
+			FMaterialAttributeValues Result;
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions()) Result.Get(Definition.Property);
+			return Result;
+		}();
+		for (const auto& Value : Defaults.Bindings) if (Value.AttributeID == ID) return Value;
+		check(false);
+		return Defaults.Bindings.front();
 	}
-
-
-	auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
-		-> EMaterialProgramValueType
+	auto GetMaterialSurfaceOutputSemantics(EMaterialProperty Output) -> FMaterialValueSemantics
 	{
-		switch (Output)
-		{
-		case EMaterialSurfaceOutput::BaseColor:
-		case EMaterialSurfaceOutput::Normal:
-		case EMaterialSurfaceOutput::Emissive:
-			return EMaterialProgramValueType::Float3;
-		case EMaterialSurfaceOutput::Metallic:
-		case EMaterialSurfaceOutput::Roughness:
-		case EMaterialSurfaceOutput::AmbientOcclusion:
-		case EMaterialSurfaceOutput::Opacity:
-		case EMaterialSurfaceOutput::OpacityMask:
-			return EMaterialProgramValueType::Float;
-		}
-		return static_cast<EMaterialProgramValueType>(0xff);
+		const auto* Definition = FMaterialAttributeDefinitionMap::Find(Output);
+		return Definition ? Definition->Semantics : FMaterialValueSemantics{.Stages=EMaterialEvaluationStage::None};
 	}
-
-	auto GetMaterialSurfaceOutputLink(
-		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
-		-> FMaterialProgramLink&
+	auto IsMaterialSurfaceOutputActive(EMaterialProperty Output, const FMaterialStaticProperties& Properties) -> bool
 	{
-		return const_cast<FMaterialProgramLink&>(GetMaterialSurfaceOutputLink(
-			std::as_const(Outputs), Output));
+		return std::ranges::contains(FMaterialAttributeDefinitionMap::GetActiveProperties(
+			EMaterialDomain::Surface,Properties.ShadingModel,Properties.BlendMode), Output);
 	}
-
-	auto GetMaterialSurfaceOutputLink(
-		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
-		-> const FMaterialProgramLink&
+	auto GetMaterialSurfaceOutputType(EMaterialProperty Output) -> EMaterialProgramValueType
 	{
-		switch (Output)
-		{
-		case EMaterialSurfaceOutput::BaseColor: return Outputs.BaseColor;
-		case EMaterialSurfaceOutput::Normal: return Outputs.Normal;
-		case EMaterialSurfaceOutput::Metallic: return Outputs.Metallic;
-		case EMaterialSurfaceOutput::Roughness: return Outputs.Roughness;
-		case EMaterialSurfaceOutput::AmbientOcclusion: return Outputs.AmbientOcclusion;
-		case EMaterialSurfaceOutput::Emissive: return Outputs.Emissive;
-		case EMaterialSurfaceOutput::Opacity: return Outputs.Opacity;
-		case EMaterialSurfaceOutput::OpacityMask: return Outputs.OpacityMask;
-		}
-		return Outputs.BaseColor;
+		const auto* Definition = FMaterialAttributeDefinitionMap::Find(Output);
+		return Definition ? Definition->Semantics.Type : static_cast<EMaterialProgramValueType>(0xff);
 	}
-
-	auto GetMaterialSurfaceOutputDefault(
-		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
-		-> FMaterialProgramLiteral&
-	{
-		return const_cast<FMaterialProgramLiteral&>(GetMaterialSurfaceOutputDefault(
-			std::as_const(Outputs), Output));
-	}
-
-	auto GetMaterialSurfaceOutputDefault(
-		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
-		-> const FMaterialProgramLiteral&
-	{
-		switch (Output)
-		{
-		case EMaterialSurfaceOutput::BaseColor: return Outputs.BaseColorDefault;
-		case EMaterialSurfaceOutput::Normal: return Outputs.NormalDefault;
-		case EMaterialSurfaceOutput::Metallic: return Outputs.MetallicDefault;
-		case EMaterialSurfaceOutput::Roughness: return Outputs.RoughnessDefault;
-		case EMaterialSurfaceOutput::AmbientOcclusion: return Outputs.AmbientOcclusionDefault;
-		case EMaterialSurfaceOutput::Emissive: return Outputs.EmissiveDefault;
-		case EMaterialSurfaceOutput::Opacity: return Outputs.OpacityDefault;
-		case EMaterialSurfaceOutput::OpacityMask: return Outputs.OpacityMaskDefault;
-		}
-		return Outputs.BaseColorDefault;
-	}
+	auto GetMaterialSurfaceOutputLink(FMaterialAttributeValues& Outputs, EMaterialProperty Output) -> FMaterialProgramLink&
+	{ return Outputs.Get(Output).Connection; }
+	auto GetMaterialSurfaceOutputLink(const FMaterialAttributeValues& Outputs, EMaterialProperty Output) -> const FMaterialProgramLink&
+	{ return Outputs.Get(Output).Connection; }
+	auto GetMaterialSurfaceOutputDefault(FMaterialAttributeValues& Outputs, EMaterialProperty Output) -> FMaterialProgramLiteral&
+	{ return Outputs.Get(Output).Literal; }
+	auto GetMaterialSurfaceOutputDefault(const FMaterialAttributeValues& Outputs, EMaterialProperty Output) -> const FMaterialProgramLiteral&
+	{ return Outputs.Get(Output).Literal; }
 
 	auto SanitizeMaterialGraphPresentation(
 		const FMaterialGraphPresentation& Presentation,

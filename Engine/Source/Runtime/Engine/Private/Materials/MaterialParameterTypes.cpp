@@ -252,7 +252,7 @@ namespace Durin
 		}
 		switch (Properties.ShadingModel)
 		{
-		case EMaterialShadingModel::Lit:
+		case EMaterialShadingModel::DefaultLit:
 		case EMaterialShadingModel::Unlit:
 			break;
 		default:

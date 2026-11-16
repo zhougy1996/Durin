@@ -14,3 +14,7 @@ import Lighting.SurfaceLighting;
 
 import VertexFactory.LocalVertexFactory;
 import VertexFactory.SplineMeshVertexFactory;
+
+#include "Material/SurfacePasses.slang"
+
+#include "Material/SurfacePassResources.slang"

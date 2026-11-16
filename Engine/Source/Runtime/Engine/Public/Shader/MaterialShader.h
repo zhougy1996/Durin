@@ -11,6 +11,7 @@
 namespace Durin
 {
 	class FMeshMaterialShaderMapPayload;
+	struct FMaterialShaderEntryRequest;
 
 	class FMaterialShader : public FShader
 	{
@@ -171,6 +172,7 @@ namespace Durin
 		bool bContainsGeneratedMaterialStages = false;
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;
+		std::span<const FMaterialShaderEntryRequest> GeneratedEntries;
 		bool bCreateRHIShaders = true;
 	};
 
@@ -190,6 +192,7 @@ namespace Durin
 		std::span<const FShaderCode> GeneratedStages;
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;
+		std::span<const FMaterialShaderEntryRequest> GeneratedEntries;
 		bool bCreateRHIShaders = true;
 	};
 

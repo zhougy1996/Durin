@@ -6,7 +6,7 @@
 namespace Durin
 {
 	// Owns finalized material program content, shared as const after publication.
-	class FMaterialShaderMap final
+	class FMaterialShaderMap final : public FMaterialCompilationOutput
 	{
 	public:
 		ENGINE_API FMaterialShaderMap();
@@ -15,18 +15,13 @@ namespace Durin
 		ENGINE_API FMaterialShaderMap(const FMaterialShaderMap& Other);
 		auto operator=(const FMaterialShaderMap&) -> FMaterialShaderMap& = delete;
 
-		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
-		FMaterialRenderLayout Layout;
-		FMaterialProgramRequirements Requirements;
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		std::vector<FShaderCode> CompiledShaders;
 		FMaterialProgramIdentity ShaderMapId;
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
-		uint8 RequiredStages = MaterialAllStageMask;
-		// Schemas only: defaults and asset paths belong to each requesting material.
-		std::vector<FMaterialParameterCollectionLayout> CollectionLayouts;
+		FMaterialShaderEntrySet RequiredEntries = MaterialAllEntries;
 		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
 		// Elapsed seconds for this map's shader-job stage; retained hits reuse this value.
 		float CompileTime = 0;

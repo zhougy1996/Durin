@@ -1,3 +1,4 @@
+#include "Materials/MaterialProgramCompiler.h"
 #include <gtest/gtest.h>
 #include "NativeRHIBackendTestSupport.h"
 
@@ -308,6 +309,12 @@ namespace Durin
 			GetMaterialShaderIdentityHash(Later));
 		EXPECT_TRUE(MaterialShaderIdentityLess(First, Later));
 		EXPECT_FALSE(GetMaterialShaderIdentityText(First).empty());
+		auto NewPass = First; NewPass.PassContractVersion = CurrentMaterialPassContractVersion;
+		EXPECT_NE(GetMaterialShaderIdentityHash(First), GetMaterialShaderIdentityHash(NewPass));
+		EXPECT_TRUE(MaterialShaderIdentityLess(First, NewPass));
+		auto NewOutput = NewPass; NewOutput.OutputLayout.Id = FGuid(1, 2, 3, 4);
+		EXPECT_NE(GetMaterialShaderIdentityHash(NewPass), GetMaterialShaderIdentityHash(NewOutput));
+		EXPECT_TRUE(MaterialShaderIdentityLess(NewPass, NewOutput));
 	}
 
 	TEST_F(FShaderFoundationTests, MaterialShaderMapRetainsTypedRefsAndStableSetIdentity)
@@ -320,6 +327,10 @@ namespace Durin
 			.BlendMode = FMaterialShaderBlendModeKey(0),
 			.ShadingModel = FMaterialShaderShadingModelKey(1)};
 		const FRenderResourceGeneration Generation{.Shader = 7, .Device = 9};
+		const std::array Entries{
+			FMaterialShaderEntryRequest{.Shader = {.Material = Identity, .ShaderType = std::string(FragmentType.GetName()),
+				.EntryPoint = "fragmentMain", .Target = "vulkan-spirv-1.5", .Frequency = EShaderFrequency::Fragment,
+				.PassContractVersion = CurrentMaterialPassContractVersion}}};
 
 		const std::array<const FShaderType*, 2> TypesA{&VertexType, &FragmentType};
 		FShaderCompilerOutput OutputA;
@@ -340,6 +351,7 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
+			.GeneratedEntries = Entries,
 			.bCreateRHIShaders = false}, MapA))) << Error.Error;
 
 		const std::array<const FShaderType*, 2> TypesB{&FragmentType, &VertexType};
@@ -360,6 +372,7 @@ namespace Durin
 			.bContainsGeneratedMaterialStages = true,
 			.CompiledProgramIdentity = Identity.ProgramIdentity,
 			.CompiledTarget = "vulkan-spirv-1.5",
+			.GeneratedEntries = Entries,
 			.bCreateRHIShaders = false}, MapB))) << Error.Error;
 		EXPECT_EQ(MapA.GetCompatibilityHash(), MapB.GetCompatibilityHash());
 		EXPECT_EQ(MapA.GetCompatibilityText(), MapB.GetCompatibilityText());

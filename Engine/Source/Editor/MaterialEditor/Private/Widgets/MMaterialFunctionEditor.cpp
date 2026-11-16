@@ -298,7 +298,7 @@ namespace Durin::MaterialEditor
 			Document.PortDraft.Type = static_cast<EMaterialProgramValueType>(Type);
 			Document.PortDraft.Default = {};
 			if (!Document.bOutputPort) Document.PortDraft.Default.Kind = Type < 4 ? EMaterialFunctionDefaultKind::Numeric
-				: Type == 4 ? EMaterialFunctionDefaultKind::Texture : EMaterialFunctionDefaultKind::Surface;
+				: Type == 4 ? EMaterialFunctionDefaultKind::Texture : EMaterialFunctionDefaultKind::MaterialAttributes;
 		}
 		ImGui::InputInt("Order", &Document.PortDraft.DisplayOrder);
 		ImGui::Checkbox("Advanced", &Document.PortDraft.bAdvanced);
@@ -338,13 +338,13 @@ namespace Durin::MaterialEditor
 					if (ImGui::Combo("Address U", &U, "Repeat\0Mirrored Repeat\0Clamp To Edge\0")) Sampler.AddressU = static_cast<EMaterialSamplerAddressMode>(U);
 					if (ImGui::Combo("Address V", &V, "Repeat\0Mirrored Repeat\0Clamp To Edge\0")) Sampler.AddressV = static_cast<EMaterialSamplerAddressMode>(V);
 				}
-				else if (Document.PortDraft.Default.Kind == EMaterialFunctionDefaultKind::Surface)
-					for (uint32 Index = 0; Index < 8; ++Index)
+				else if (Document.PortDraft.Default.Kind == EMaterialFunctionDefaultKind::MaterialAttributes)
+					for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 					{
 						ImGui::PushID(static_cast<int>(Index));
-						auto& Value = GetMaterialSurfaceOutputDefault(Document.PortDraft.Default.Surface, static_cast<EMaterialSurfaceOutput>(Index));
-						ImGui::InputScalarN(MaterialSurfaceNames[Index], ImGuiDataType_Float, &Value.X,
-							static_cast<int>(GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index))) + 1);
+						auto& Value = GetMaterialSurfaceOutputDefault(Document.PortDraft.Default.Surface, static_cast<EMaterialProperty>(Index));
+						ImGui::InputScalarN(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), ImGuiDataType_Float, &Value.X,
+							static_cast<int>(GetMaterialSurfaceOutputType(static_cast<EMaterialProperty>(Index))) + 1);
 						ImGui::PopID();
 					}
 			}

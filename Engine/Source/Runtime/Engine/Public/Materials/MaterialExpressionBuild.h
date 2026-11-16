@@ -149,10 +149,10 @@ namespace Durin
 			FGraphBuilder(const FGraphBuilder&) = delete;
 			auto operator=(const FGraphBuilder&) -> FGraphBuilder& = delete;
 			ENGINE_API auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
-			ENGINE_API auto FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FBuildResult;
+			ENGINE_API auto FinishSurface(const FMaterialAttributeRoot& Outputs) -> FBuildResult;
 			// Local validation permits unavailable function bodies; opaque values never reach snapshots.
 			ENGINE_API static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-				const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+				const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 			ENGINE_API static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		private:
 			std::unique_ptr<FGraphBuilderImpl> Impl;

@@ -37,7 +37,7 @@ namespace Durin
 		None,
 		Numeric,
 		Texture,
-		Surface,
+		MaterialAttributes,
 		Input,
 		UV0,
 	};
@@ -93,7 +93,7 @@ namespace Durin
 		// This value carries attributes only; links must be disconnected.
 
 		DPROPERTY()
-		FMaterialSurfaceOutputs Surface;
+		FMaterialAttributeValues Surface;
 
 		DPROPERTY()
 		FGuid InputId;

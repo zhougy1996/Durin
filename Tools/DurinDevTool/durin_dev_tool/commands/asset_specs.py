@@ -22,6 +22,13 @@ COMMAND_SPEC = CommandSpec(
     help_group="Assets",
     subcommands=(
         CommandSpec(
+            "material-foundation",
+            "recreate Engine DefaultMaterial and the three shipped material functions",
+            HANDLER,
+            required_modules=("rich",),
+            arguments=CONTEXT_ARGUMENTS + (PROJECT_ARGUMENT, DRY_RUN),
+        ),
+        CommandSpec(
             "material-functions",
             "validate shipped standard functions and initialize missing DefaultMaterial",
             HANDLER,

@@ -140,7 +140,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
     const FPSOPrecacheVertexFactoryData VertexFactory(&Factory->GetType());
     const auto InitialConfig = Renderer.GetSceneRenderPreparationConfig(FSceneInterface::GetDefaultFeatureLevel());
     for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
-    for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+    for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit})
     {
         SCOPED_TRACE(std::format("blend={} shading={}", uint8(Blend), uint8(Shading)));
         TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -148,7 +148,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         ASSERT_TRUE(Material->SetStaticProperties(Properties));
         TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
         Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "CollectorScalar"}; Parameter->DefaultValue = 0.5f;
-        FMaterialExpressionSurfaceOutputs Outputs; Outputs.Roughness = {Parameter->Id};
+        FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter->Id};
         const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
         ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
         Material->CacheResourceShadersForRendering(InitialConfig.FeatureLevel);
@@ -309,7 +309,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             case EMeshPipelinePass::HybridRetainedForward: Applicable = Main && Case.Config.Settings.bHybrid && Blend != EMaterialBlendMode::Translucent && (Shading == EMaterialShadingModel::Unlit || !HasGBuffer); break;
             case EMeshPipelinePass::SortedTranslucency: Applicable = Main && Case.Config.Settings.bHybrid && Blend == EMaterialBlendMode::Translucent; break;
             case EMeshPipelinePass::ShadowDepth: Applicable = Case.Params.Participation.bCastShadow && Blend != EMaterialBlendMode::Translucent && Case.Factory->GetShaderType(MaterialMeshPassShadow); break;
-            case EMeshPipelinePass::GBuffer: Applicable = Main && Case.Config.Settings.bHybrid && Blend != EMaterialBlendMode::Translucent && Shading == EMaterialShadingModel::Lit && HasGBuffer; break;
+            case EMeshPipelinePass::GBuffer: Applicable = Main && Case.Config.Settings.bHybrid && Blend != EMaterialBlendMode::Translucent && Shading == EMaterialShadingModel::DefaultLit && HasGBuffer; break;
             case EMeshPipelinePass::HitProxy: Applicable = Main && Case.Config.Settings.bHitProxy; break;
             }
             ASSERT_FALSE(Case.Initializers.front().IsValid());

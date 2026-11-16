@@ -20,13 +20,13 @@ namespace Durin::MIR
 		return Impl->Finish(Roots);
 	}
 
-	auto FGraphBuilder::FinishSurface(const FMaterialExpressionSurfaceOutputs& Outputs) -> FBuildResult
+	auto FGraphBuilder::FinishSurface(const FMaterialAttributeRoot& Outputs) -> FBuildResult
 	{
 		return Impl->FinishSurface(Outputs);
 	}
 
 	auto FGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-		const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+		const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
 		return FGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
 	}
@@ -42,11 +42,11 @@ namespace Durin::MIR
 		  LinkCount(Shared->LinkCount), Environment(std::move(InEnvironment))
 	{
 		Admit(InExpressions);
-		for (uint32 Index = 0; Index < Result.IR.SurfaceRoot.Inputs.size(); ++Index)
+		for (uint32 Index = 0; Index < Result.IR.AttributeRoots.size(); ++Index)
 		{
 			const auto Semantics = GetMaterialSurfaceOutputSemantics(
-				static_cast<EMaterialSurfaceOutput>(Index));
-			auto& Input = Result.IR.SurfaceRoot.Inputs[Index];
+				static_cast<EMaterialProperty>(Index));
+			auto& Input = Result.IR.GetAttribute(static_cast<EMaterialProperty>(Index));
 			Input.Type = Semantics.Type;
 			Input.LegalStages = Semantics.Stages;
 			Input.SpatialKind = Semantics.Kind;
@@ -93,7 +93,7 @@ namespace Durin::MIR
 					&& static_cast<FStructProperty*>(Property)->GetStruct() == FMaterialNumericInput::StaticStruct())
 					HashInput(*static_cast<const FMaterialNumericInput*>(Property->GetValuePtr(Expression)));
 			});
-			if (const auto* Surface = Cast<DMaterialExpressionSetSurfaceAttributes>(Expression))
+			if (const auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(Expression))
 				for (const auto& Attribute : Surface->Attributes) HashInput(Attribute.Source);
 			if (const auto* StaticBool = Cast<DMaterialExpressionStaticBool>(Expression))
 			{
@@ -201,9 +201,11 @@ namespace Durin::MIR
 			if (Input.OutputId.IsValid()) Fail("Sample output requires an index, not an output GUID.");
 			else if (!FindMaterialSampleOutput(Opcode, Input.OutputIndex)) Fail("Sample expression output selector is invalid.");
 		}
-		else if (const auto* Attributes = Cast<DMaterialExpressionGetSurfaceAttributes>(&Expression))
+		else if (const auto* Attributes = Cast<DMaterialExpressionGetMaterialAttributes>(&Expression))
 		{
-			if (Input.OutputId.IsValid() || Input.OutputIndex >= 8 || !(Attributes->AttributeMask & (1u << Input.OutputIndex)))
+			const auto* Definition = Input.OutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Input.OutputId)
+				: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex));
+			if (!Definition || !Attributes->IsSelected(Definition->Property) || (Input.OutputId.IsValid() && Input.OutputIndex != 0))
 				Fail("Surface attribute output is not selected.");
 		}
 		else if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
@@ -607,8 +609,8 @@ namespace Durin::MIR
 			const auto& Input = Stored.Connection;
 			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
 				return Fail("Disconnected numeric input has an output selector.");
-			const bool bSurfaceNormalDefault = Opcode == EMaterialProgramOpcode::MakeSurface
-				&& Slot == static_cast<size_t>(EMaterialSurfaceOutput::Normal)
+			const bool bSurfaceNormalDefault = Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
+				&& Slot == static_cast<size_t>(EMaterialProperty::MP_Normal)
 				&& !Input.ExpressionId.IsValid();
 			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input)
 				: Literal(Stored.UseConstant ? Default

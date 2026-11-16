@@ -411,15 +411,13 @@ namespace Durin
 		FShaderCompilerOutput Output) -> FMaterialCompilerResult
 	{
 		auto Artifact = std::make_shared<FMaterialShaderMap>();
-		Artifact->ActiveParameters = std::move(Translation.ActiveParameters);
-		Artifact->Layout = std::move(Translation.Layout);
-		Artifact->Requirements = Translation.Requirements;
+		static_cast<FMaterialCompilationOutput&>(*Artifact) = static_cast<const FMaterialCompilationOutput&>(Translation);
 		Artifact->Dependencies = std::move(Translation.Dependencies);
 		Artifact->ShaderMapId = Translation.Identity;
 		Artifact->CompilerIdentity = std::move(Translation.CompilerIdentity);
 		Artifact->Target = std::move(Translation.Target);
 		Artifact->PassContractVersion = Translation.PassContractVersion;
-		Artifact->RequiredStages = Translation.RequiredStages;
+		Artifact->RequiredEntries = Translation.RequiredEntries;
 		Artifact->DebugData = std::make_shared<const FMaterialProgramDebugData>(FMaterialProgramDebugData{
 			.IR = std::move(Translation.IR), .GeneratedSource = std::move(Translation.GeneratedSource)});
 		FMaterialCompilerResult Result;
@@ -443,11 +441,12 @@ namespace Durin
 		const auto Reflection = std::ranges::all_of(Output.CompiledShaders,
 			[&](const auto& Shader) { return Shader.Target == Target; })
 			? ValidateMaterialCompiledStages(Output.CompiledShaders,
-				Artifact->Layout, Translation.ResourceLimits, Result.Resource.ActiveCollections, Artifact->RequiredStages)
+				Artifact->Layout, Translation.ResourceLimits, Result.Resource.ActiveCollections, Artifact->RequiredEntries)
 			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
-		if (!Reflection)
+		const auto Execution = ValidateMaterialCompilationOutput(*Artifact, Artifact->ShaderMapId, Artifact->Target, Output.CompiledShaders);
+		if (!Reflection || !Execution)
 		{
-			Result.Diagnostics.push_back({.Message = std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Reflection.Error), Reflection.ParameterId.IsValid() ? std::format(" [parameter {}]", Reflection.ParameterId.ToString()) : "", Reflection.FieldIndex)});
+			Result.Diagnostics.push_back({.Message = std::format("{}{} [index {}]", GetMaterialLayoutErrorText(!Reflection ? Reflection.Error : Execution.Error), Reflection.ParameterId.IsValid() ? std::format(" [parameter {}]", Reflection.ParameterId.ToString()) : "", Reflection.FieldIndex)});
 			return Result;
 		}
 		Artifact->CompiledShaders = std::move(Output.CompiledShaders);

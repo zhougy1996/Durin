@@ -3,7 +3,7 @@
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-16
 
 ## Declared usages
 
@@ -27,16 +27,24 @@ rejected transactionally.
 | 4 | `ShadowFragmentMain` |
 | 8 | `HitProxyFragmentMain` |
 
-`MaterialShaderEntries` is the canonical descriptor table for entry names,
-frequencies, persisted stage bits, geometry/Pass eligibility and editor-only
-selection. Compile options, identity encoding, source requests and stage
-validation consume that contract; Renderer uses named entry bits rather than
-positional constants. The descriptor table contains six entries with persisted
-ordinals 0-5. Retired GPU-culling ordinal 6 is not a descriptor and must never be
-reused; bit 6 remains outside `MaterialAllStageMask` and rejects in compiled products.
-Legacy authored geometry usage bit 4 remains a load/edit/identity migration input,
-not a shader stage. The Cook container shape and active-stage ABI are unchanged.
-`SelectMaterialShaderStages` computes their union in canonical entry order.
+`MaterialShaderEntries` owns stable Shader type/source-entry pairs, frequencies,
+geometry/Pass eligibility and Editor selection. `SelectMaterialShaderEntries`
+returns typed classifications; serialized selections use stable Shader type
+names. No ordinal or six-bit stage mask is a persisted request identity.
+`FMaterialCompilationOutput::Entries` stores full existing RenderCore Shader keys,
+sorted by full key and paired with per-entry requirements. Keys include material
+identity/layout, Shader type, entry, target, frequency, permutation, pass version
+and output-layout identity. Vertex requests additionally carry a mesh key with
+`LocalVertexFactory` or `SplineVertexFactory`. Their shared vertex transport uses
+mesh pass key zero; renderer composition adds the actual pass key and registered
+runtime Shader type to its own mesh-map identity. Registered factories explicitly
+reusing built-in generated transport compose it with their own factory identity;
+fixed vertex implementations exclude generated vertex contracts even when source
+entry names collide. Opaque mask thresholds canonicalize before key comparison.
+HitProxy live-time cache invalidation consumes the coverage and selected vertex
+entry contexts rather than unrelated whole-module surface requirements.
+Pixel products remain shared
+across factories.
 All declared passes and selection algorithms share the selected geometry entries. Editor compilation retains
 declared HitProxy use; both production Game Cook preparation paths explicitly
 exclude it through `FMaterialCompilerEnvironment::bIncludeEditorPasses`.
@@ -53,27 +61,37 @@ the built-in generated Local/Spline implementation.
 
 ## Independent stage products
 
-Detached translation retains the complete generated source for diagnostics.
-`MakeMaterialShaderStageRequests` generates frequency-specific closures and
-submits one entry per ShaderBuild request. Vertex source excludes pixel
-expression evaluation; fragment source excludes WPO evaluation and generated
-geometry entry functions. Vertex temporary symbols use dense stage-local
-indices so changes in pixel IR numbering do not rename vertex expressions.
+Detached translation retains generated evaluation source for diagnostics.
+`Material/SurfacePasses.slang` owns geometry and fragment entry bodies, GBuffer
+packing and lighting execution; `Material/SurfacePassResources.slang` owns pass
+resource declarations. The expression generator composes these captured modules
+with typed attribute evaluation and material resource reads. Both files belong
+to the immutable material compiler environment dependency closure.
 
-Stage virtual paths derive from generated source content, independently of
-whole-material identity and usage masks. The existing ShaderBuild output key
-also includes entry/frequency, effective macros, target, compiler environment
-and verified immutable import dependencies. Vertex requests use neutral pixel
-property macros. Equivalent vertex source therefore shares across compatible
-pixel edits, shading-property variants, passes and usage declarations.
+After normalization and static selection, `BuildMaterialCompilationOutput`
+analyzes demanded attribute roots per entry. Forward/GBuffer request applicable
+surface attributes; Unlit GBuffer has no surface evaluation. Shadow and HitProxy
+request only masked coverage. Vertex entries evaluate WPO and transport the union
+of interpolators needed by selected pixel passes. Pixel analysis stops at explicit
+VertexInterpolator boundaries. Each closure records active attribute/parameter IDs,
+compact resource indices, collection IDs, interpolator semantics, WPO/mask flags
+and material evaluation context. Logical scene inputs remain empty for Surface.
+The whole-module layout and context are conservative; they do not replace these
+per-entry requirements or the pass adapter's own camera/lighting bindings.
 
-The shared uniform layout and varying interface remain in both closures.
-Adding/removing active parameters or changing interpolation/custom-data channels
-invalidates incompatible vertex products. WPO changes invalidate vertex source.
-The import closure is conservative, retaining all material environment imports;
-changes in those dependencies still invalidate affected requests. Fragment
-requests currently share one pixel source closure across passes, so an emissive
-edit can rebuild a shadow request even when optimized shadow code is unchanged.
+`MakeMaterialShaderStageRequests` projects each pixel entry's roots before
+source generation. Shadow/HitProxy therefore do not gain bindings from unrelated
+surface expressions. Shared layout/varying changes and pixel IR symbol numbering
+can still invalidate a request. Vertex symbols use dense local
+indices, preserving reuse across pixel edits. Vertex and pixel requests retain
+the shared uniform layout and varying slot allocation; changing either can
+invalidate otherwise reusable products. Selected coverage-only programs also
+remove unrelated parameters from their whole-module layout.
+
+Stage virtual paths derive from evaluation source content independently of the
+whole-material identity. ShaderBuild additionally keys entry/frequency, effective
+macros, target, compiler environment and immutable module dependencies. Vertex
+requests use neutral pixel macros. The import closure remains conservative.
 
 ShaderBuild's existing bounded memory cache (128 outputs / 256 MiB) and DDC own
 stage retention. Immutable `FSharedByteBuffer` allocations share across accepted
@@ -103,13 +121,16 @@ frame-time speedup claim.
 
 ## Atomic admission and Cook
 
-`RequiredStages` persists with translated and cooked products. Validation requires
-exact count, canonical entry order, frequency, target and the existing strict
-resource reflection allowlist for that set. Missing, extra, duplicate, reordered
-or mistyped stages reject the complete candidate. No partially compiled set is
-published. Cook validation also checks the set against the serialized usage
-selection; low-level codecs can represent either the declared editor or Game
-set, while production Game preparation always selects the latter.
+Typed entry selections and complete requests persist with translated and cooked
+products. Admission checks the canonical full-key sequence, exact supported
+selection, target, pass/output ABI, factory and layout identity. Binary stages
+are matched by source entry and frequency rather than vector position. Missing,
+extra, duplicate or mistyped entries reject the candidate. Reflection validates
+the closed pass allowlist and requires material resource/collection bindings to
+belong to that entry's analyzed closure. Optimization may remove conservative
+requirements; it may not introduce unrelated bindings. No partial set publishes.
+Cook reconstructs collection schemas before admission and checks selection
+against saved material usage. Production Game excludes Editor HitProxy entries.
 
 Renderer Shader Map admission verifies required generated geometry and fragment
 entries before fixed-source fallback. This also applies to the fixed opaque
@@ -117,14 +138,14 @@ shadow fragment, whose declared material Pass remains Shadow. Excluded uses
 fail admission without compiler work. Game continues to load accepted binaries
 without MIR, generated source, ShaderBuild or authoring graphs.
 
-Pass contract 13, Cook payload schema 15 and detached translation schema 2 carry
-this contract. Generator revision 16 and compile adapter 13 invalidate old
-producer results. Pass validation rejects old shader ABIs even though the Cook
-container schema is unchanged. Older cooked payloads must be rebuilt.
+Pass contract 14, DMAT 17, MIR 10 and detached translation schema 6 carry this
+contract. Normalization/generator revisions 10/18 and compile adapter 15 invalidate
+old producer results. Rebuild earlier compiled/Cook products; authored graph,
+output, function and instance versions remain 6/4/3/2 and layout remains 4.
 
 The design follows UE's separation of material shaders, mesh material shaders
 and Vertex Factory permutations, and its sparse compilation selection described
 in [Shader Development](https://dev.epicgames.com/documentation/en-us/unreal-engine/shader-development-in-unreal-engine)
 and [FMeshMaterialShaderType](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FMeshMaterialShaderType).
-Durin currently uses bounded usage masks and content-based stage requests rather
-than UE's full shader-type/Vertex Factory permutation registry.
+Durin uses bounded authored usage declarations and typed sparse entry requests;
+this does not implement UE's full permutation registry.

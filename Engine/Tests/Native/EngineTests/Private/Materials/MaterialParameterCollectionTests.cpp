@@ -223,9 +223,9 @@ TEST_F(FMaterialParameterCollectionTests,
 			.Target = "test-target",
 			.Dependencies = {{"/Tests/Collection", FXxHash128{1, 2}}}},
 		.Sources = Built.Sources};
-	Input.IR.SurfaceRoot.Inputs[0].bExpression = true;
-	Input.IR.SurfaceRoot.Inputs[0].ExpressionIndex = Built.Roots[0];
-	Input.IR.SurfaceRoot.Inputs[0].Type = EMaterialProgramValueType::Float3;
+	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
+	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = Built.Roots[0];
+	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Type = EMaterialProgramValueType::Float3;
 	auto First = MIR::Normalize(Input);
 	ASSERT_TRUE(First) << (First.Diagnostics.empty() ? "no diagnostic"
 		: First.Diagnostics.front().Message);
@@ -241,9 +241,9 @@ TEST_F(FMaterialParameterCollectionTests,
 	auto Rebuilt = MIR::BuildGraph(Expressions, std::span(&Root, 1));
 	ASSERT_TRUE(Rebuilt);
 	Input.IR = Rebuilt.IR;
-	Input.IR.SurfaceRoot.Inputs[0].bExpression = true;
-	Input.IR.SurfaceRoot.Inputs[0].ExpressionIndex = Rebuilt.Roots[0];
-	Input.IR.SurfaceRoot.Inputs[0].Type = EMaterialProgramValueType::Float3;
+	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).bExpression = true;
+	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).ExpressionIndex = Rebuilt.Roots[0];
+	Input.IR.GetAttribute(static_cast<EMaterialProperty>(0)).Type = EMaterialProgramValueType::Float3;
 	Input.Collections = Rebuilt.Collections;
 	Input.Sources = Rebuilt.Sources;
 	const auto DefaultsChanged = MIR::Normalize(Input);
@@ -265,8 +265,8 @@ TEST_F(FMaterialParameterCollectionTests,
 	Expression->Collection = Collection;
 	Expression->ParameterId = Value.Id;
 	auto* Material = Make<DMaterial>("CollectionCookMaterial");
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor = FMaterialNumericInput(
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = FMaterialNumericInput(
 		FMaterialExpressionInput{Expression->Id}, 3);
 	const std::array<DMaterialExpression*, 1> Expressions{Expression};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -374,8 +374,8 @@ TEST_F(FMaterialParameterCollectionTests,
 					return Concrete->GetExpressionBody();
 				return std::nullopt;
 			}});
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.BaseColor.Connection = {.ExpressionId = Call->Id,
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection = {.ExpressionId = Call->Id,
 		.OutputId = Signature.Outputs.front().Id};
 	const auto Built = Builder.FinishSurface(Outputs);
 	ASSERT_TRUE(Built) << (Built.Diagnostics.empty() ? "no diagnostic"

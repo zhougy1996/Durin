@@ -83,12 +83,13 @@ namespace Durin::MaterialEditor
 			{&DMaterialExpressionSmoothStep::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionSign::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionReflect::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::AdaptiveVector},
-			{&DMaterialExpressionMakeSurface::StaticClass, "Surface"},
+			{&DMaterialExpressionMakeMaterialAttributes::StaticClass, "Surface"},
+			{&DMaterialExpressionBlendMaterialAttributes::StaticClass, "Surface"},
 			{&DMaterialExpressionFunctionInput::StaticClass, "Functions", EMaterialGraphCreationKind::AssetBound, EMaterialGraphPaletteShape::InspectOnly},
 			{&DMaterialExpressionFunctionOutput::StaticClass, "Functions", EMaterialGraphCreationKind::AssetBound, EMaterialGraphPaletteShape::InspectOnly},
 			{&DMaterialExpressionFunctionCall::StaticClass, "Functions", EMaterialGraphCreationKind::AssetBound, EMaterialGraphPaletteShape::InspectOnly},
-			{&DMaterialExpressionGetSurfaceAttributes::StaticClass, "Surface"},
-			{&DMaterialExpressionSetSurfaceAttributes::StaticClass, "Surface"},
+			{&DMaterialExpressionGetMaterialAttributes::StaticClass, "Surface"},
+			{&DMaterialExpressionSetMaterialAttributes::StaticClass, "Surface"},
 		};
 	}
 

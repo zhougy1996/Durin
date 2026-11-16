@@ -766,16 +766,17 @@ namespace Durin
 			Color->Id = {1, 2, 3, 4};
 			Color->Value = Blend == EMaterialBlendMode::Translucent ? FVector3{0.1, 0.6, 0.9} : FVector3{0.7, 0.25, 0.1};
 			std::vector<DMaterialExpression*> Expressions{Color};
-			FMaterialExpressionSurfaceOutputs Outputs;
-			Outputs.BaseColor = {Color->Id};
+			FMaterialAttributeRoot Outputs;
+			// Retain the pre-migration Unlit image with an explicit emissive recipe.
+			Outputs.Get(Shading == EMaterialShadingModel::Unlit ? EMaterialProperty::MP_EmissiveColor : EMaterialProperty::MP_BaseColor) = {Color->Id};
 			if (Blend != EMaterialBlendMode::Opaque)
 			{
 				auto* Opacity = NewObject<DMaterialExpressionScalarConstant>(Material, "Opacity");
 				Opacity->Id = {1, 2, 3, 5};
 				Opacity->Value = Blend == EMaterialBlendMode::Translucent ? 0.5f : 1.0f;
 				Expressions.push_back(Opacity);
-				if (Blend == EMaterialBlendMode::Translucent) Outputs.Opacity = {Opacity->Id};
-				else Outputs.OpacityMask = {Opacity->Id};
+				if (Blend == EMaterialBlendMode::Translucent) Outputs.Get(EMaterialProperty::MP_Opacity) = {Opacity->Id};
+				else Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Opacity->Id};
 			}
 			EXPECT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 			EXPECT_TRUE(Material->CompileEdits());
@@ -784,10 +785,10 @@ namespace Durin
 			EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
 			return Material;
 		};
-		auto* LitMaterial = MakeRouteMaterial("SceneRouteLit", EMaterialShadingModel::Lit);
+		auto* LitMaterial = MakeRouteMaterial("SceneRouteLit", EMaterialShadingModel::DefaultLit);
 		auto* UnlitMaterial = MakeRouteMaterial("SceneRouteUnlit", EMaterialShadingModel::Unlit);
-		auto* MaskedMaterial = MakeRouteMaterial("SceneRouteMasked", EMaterialShadingModel::Lit, EMaterialBlendMode::Masked);
-		auto* TranslucentMaterial = MakeRouteMaterial("SceneRouteTranslucent", EMaterialShadingModel::Lit, EMaterialBlendMode::Translucent);
+		auto* MaskedMaterial = MakeRouteMaterial("SceneRouteMasked", EMaterialShadingModel::DefaultLit, EMaterialBlendMode::Masked);
+		auto* TranslucentMaterial = MakeRouteMaterial("SceneRouteTranslucent", EMaterialShadingModel::DefaultLit, EMaterialBlendMode::Translucent);
 		auto Geometry = std::make_unique<FStaticMeshRenderData>();
 		Geometry->MaterialSlots = {{"Route", 0}};
 		auto& LOD = Geometry->LODResources.emplace_back();

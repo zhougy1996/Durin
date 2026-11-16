@@ -121,6 +121,16 @@ namespace Durin::Private
 				return Result;
 			}
 			Copies.Expressions.emplace_back(Copy);
+			const auto SortRoot = [](FMaterialAttributeRoot& Root) {
+				std::ranges::sort(Root.Properties.Bindings, {}, &FMaterialAttributeBinding::AttributeID);
+			};
+			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Copy)) SortRoot(Output->Outputs);
+			if (auto* Make = Cast<DMaterialExpressionMakeMaterialAttributes>(Copy)) SortRoot(Make->Values);
+			if (auto* Get = Cast<DMaterialExpressionGetMaterialAttributes>(Copy)) std::ranges::sort(Get->AttributeIDs);
+			if (auto* Set = Cast<DMaterialExpressionSetMaterialAttributes>(Copy))
+				std::ranges::sort(Set->Attributes, {}, &FMaterialExpressionAttributeBinding::AttributeID);
+			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Copy))
+				std::ranges::sort(Input->Port.Default.Surface.Bindings, {}, &FMaterialAttributeValue::AttributeID);
 		}
 		TStrongObjectPtr<DObject> Retired(NewObject<DObject>(nullptr, "RetiredMaterialExpressions"));
 		for (auto& Expression : Collection.Expressions) if (Expression) Expression->SetOuterPrivate(Retired.Get());

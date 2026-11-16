@@ -131,7 +131,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
         const auto Factory = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
         ASSERT_TRUE(Factory);
         for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
-        for (const auto Shading : {EMaterialShadingModel::Lit, EMaterialShadingModel::Unlit})
+        for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit})
         for (bool Main : {false, true})
         for (bool Shadow : {false, true})
         for (bool GBuffer : {false, true})
@@ -139,7 +139,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
             FMaterialPlanningPassIdentity Material;
             Material.ShaderMap.BlendMode = Blend; Material.ShaderMap.ShadingModel = Shading;
             const bool Translucent = Blend == EMaterialBlendMode::Translucent;
-            const bool Deferred = !Translucent && Shading == EMaterialShadingModel::Lit && GBuffer;
+            const bool Deferred = !Translucent && Shading == EMaterialShadingModel::DefaultLit && GBuffer;
             bool Relevant = Main;
             if (Pass == EMeshPipelinePass::ShadowDepth) Relevant = Shadow && !Translucent;
             else if (Pass == EMeshPipelinePass::GBuffer) Relevant = Main && Deferred;

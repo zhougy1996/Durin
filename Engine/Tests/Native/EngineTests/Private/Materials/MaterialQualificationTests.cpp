@@ -31,6 +31,7 @@
 #include "ShaderBuildTestSupport.h"
 #include "Shader/IShaderBuildModule.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 
 
 namespace
@@ -254,8 +255,8 @@ TEST_F(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			std::vector<std::shared_ptr<MIR::FCompilerInput>> Inputs;
 			for (uint32 Index = 0; Index < Count; ++Index) {
 				auto Input = std::make_shared<MIR::FCompilerInput>();
-				FMaterialExpressionSurfaceOutputs Outputs;
-				Outputs.Roughness.SetConstant({.271f + Index * .071f + Sample * .011f + (Workload == 2 ? .039f : 0.f)});
+				FMaterialAttributeRoot Outputs;
+				Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.271f + Index * .071f + Sample * .011f + (Workload == 2 ? .039f : 0.f)});
 				MIR::FGraphBuilder Graph(std::span<DMaterialExpression* const>{}); Input->IR = Graph.FinishSurface(Outputs).IR;
 				ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment)); Inputs.push_back(std::move(Input));
 			}
@@ -343,7 +344,7 @@ TEST_F(FMaterialQualificationTests, RequestToPublicationWorkloads)
 				auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
 				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 				if (Workload) ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
-				auto Outputs = Material->GetExpressionOutputs(); Outputs.Roughness.SetConstant({0.527f + Sample * 0.013f});
+				auto Outputs = Material->GetExpressionOutputs(); Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.527f + Sample * 0.013f});
 				std::vector<DMaterialExpression*> Expressions;
 				for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 				ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -400,7 +401,7 @@ TEST_F(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 				auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
 				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 				if (Workload) ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
-				auto Outputs = Material->GetExpressionOutputs(); Outputs.Roughness.SetConstant({0.527f + Sample * 0.013f});
+				auto Outputs = Material->GetExpressionOutputs(); Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.527f + Sample * 0.013f});
 				std::vector<DMaterialExpression*> Expressions;
 				for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 				ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -493,9 +494,18 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 		Samples.push_back(std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::steady_clock::now() - SampleBegin));
 	}
+	if (const char* Destination = std::getenv("DURIN_MATERIAL_CONTRACT_BASELINE"))
+	{
+		std::string Csv = "sample,layout_us\n";
+		for (size_t Index = 0; Index < Samples.size(); ++Index)
+			Csv += std::format("{},{}\n", Index, Samples[Index].count());
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Csv)), std::string(Destination) + ".layout.csv"));
+	}
 	std::ranges::sort(Samples);
 	RecordProperty("LayoutMedianMicroseconds", Samples[50].count());
 	RecordProperty("LayoutP95Microseconds", Samples[95].count());
+	std::cout << "MATERIAL_LAYOUT_BASELINE median_us=" << Samples[50].count()
+		<< " p95_us=" << Samples[95].count() << '\n';
 	EXPECT_LT(Samples[50], std::chrono::milliseconds(25));
 	EXPECT_LT(Samples[95], std::chrono::milliseconds(50));
 
@@ -558,6 +568,35 @@ TEST_F(FMaterialQualificationTests, LargeGraphLoadBaseline)
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST_F(FMaterialQualificationTests, ContractsStage0Snapshot)
+{
+	using namespace Durin;
+	FScopedOfflinePreparation Offline;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	const auto Result = MIR::Compile(Input, true);
+	ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "missing diagnostic" : Result.Diagnostics.front().Message);
+	const auto& Map = Result.GetShaderMap();
+	std::string Report = std::format("MATERIAL_CONTRACT_BASELINE uniform_bytes={} uniform_fields={} resource_fields={} entries={} layout_object_bytes={} parameter_value_bytes={} static_properties_bytes={}\n",
+		Map.Layout.UniformPayloadSize, Map.Layout.UniformFieldCount, Map.Layout.ResourceFieldCount,
+		Map.CompiledShaders.size(), sizeof(FMaterialRenderLayout), sizeof(FMaterialParameterValue), sizeof(FMaterialStaticProperties));
+	Report += std::format("MATERIAL_COMPILER_BASELINE target={} compiler={} identity={}\n",
+		Map.Target, Map.CompilerIdentity, Map.ShaderMapId.ToString());
+	for (const auto& Stage : Map.CompiledShaders)
+	{
+		Report += std::format("MATERIAL_ENTRY_BASELINE entry={} code_bytes={} descriptors={}\n",
+			Stage.SourceEntryPoint, Stage.Code.size(), Stage.Reflection.ResourceBindings.size());
+		for (const auto& Binding : Stage.Reflection.ResourceBindings)
+			Report += std::format("MATERIAL_BINDING_BASELINE entry={} name={} set={} binding={} type={} count={}\n",
+				Stage.SourceEntryPoint, Binding.Name, Binding.SetIndex, Binding.BindingIndex, uint32(Binding.Type), Binding.ArraySize);
+	}
+	if (const char* Destination = std::getenv("DURIN_MATERIAL_CONTRACT_BASELINE"))
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Report)), Destination));
+	std::cout << Report;
+	EXPECT_EQ(Map.CompiledShaders.size(), SelectMaterialShaderEntries(Input.StaticProperties).size());
+	EXPECT_TRUE(ValidateMaterialCompiledStages(Map.CompiledShaders, Map.Layout));
+}
+
 TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 {
 	InitializeDObjectSystem();
@@ -595,10 +634,16 @@ TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		? "missing diagnostic"
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
-	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), std::popcount(Durin::MaterialAllStageMask));
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings.size(), 21u);
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders[1].Reflection.ResourceBindings.size(), 14u);
-	EXPECT_TRUE(Compiled.GetShaderMap().CompiledShaders[2].Reflection.ResourceBindings.empty());
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialAllEntries.size());
+	// Stage 0's captured forward contract has 22 descriptors. Check its named
+	// pass-owned LocalLights binding alongside the total.
+	const auto FindEntry = [&](std::string_view Name) -> const Durin::FShaderCode& {
+		return *std::ranges::find(Compiled.GetShaderMap().CompiledShaders, Name, &Durin::FShaderCode::SourceEntryPoint);
+	};
+	EXPECT_EQ(FindEntry("FragmentMain").Reflection.ResourceBindings.size(), 22u);
+	EXPECT_TRUE(std::ranges::any_of(FindEntry("FragmentMain").Reflection.ResourceBindings, [](const auto& B) { return B.Name == "LocalLights" && B.SetIndex == 0 && B.BindingIndex == 30; }));
+	EXPECT_EQ(FindEntry("GeometryFragmentMain").Reflection.ResourceBindings.size(), 14u);
+	EXPECT_TRUE(FindEntry("ShadowFragmentMain").Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.GetShaderMap().CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
 	std::string ReflectionError;
@@ -725,7 +770,7 @@ TEST_F(FMaterialQualificationTests, BoundedStaticSelectorVariantGrowth)
 			{Testing::MakeLink(QualityNode), Testing::MakeLink(FeatureNode)}, {}, {});
 		auto& Result = Graph.Add(EMaterialProgramOpcode::Add, Type::Float,
 			{Testing::MakeLink(*Chain), Testing::MakeLink(QualityFeature)}, {}, {});
-		Graph.Outputs.Roughness.Connection = Testing::MakeLink(Result);
+		Graph.Outputs.Get(EMaterialProperty::MP_Roughness).Connection = Testing::MakeLink(Result);
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Graph.Expressions) Expressions.push_back(Expression.Get());
 		ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Graph.Outputs));

@@ -70,13 +70,13 @@ namespace
 		Call->Function = &Function;
 		Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<Durin::DMaterialExpression*, 1> Expressions{Call.Get()};
-		Durin::FMaterialExpressionSurfaceOutputs Outputs;
-		Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+		Durin::FMaterialAttributeRoot Outputs;
+		Outputs.Attributes = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 		return Material.SetMaterialExpressions(Expressions, Outputs);
 	}
 
 	auto BuildTypedExpressions(std::span<Durin::DMaterialExpression* const> Expressions,
-		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::MIR::FBuildResult
+		const Durin::FMaterialAttributeRoot& Outputs) -> Durin::MIR::FBuildResult
 	{
 		Durin::MIR::FBuildEnvironment Environment;
 		Environment.FindFunction = [](const Durin::DMaterialFunctionInterface& Function)
@@ -90,7 +90,7 @@ namespace
 	}
 
 	auto NormalizeTypedExpressions(std::span<Durin::DMaterialExpression* const> Expressions,
-		const Durin::FMaterialExpressionSurfaceOutputs& Outputs) -> Durin::MIR::FNormalizationResult
+		const Durin::FMaterialAttributeRoot& Outputs) -> Durin::MIR::FNormalizationResult
 	{
 		auto Built = BuildTypedExpressions(Expressions, Outputs);
 		if (!Built) return {.Diagnostics = std::move(Built.Diagnostics)};

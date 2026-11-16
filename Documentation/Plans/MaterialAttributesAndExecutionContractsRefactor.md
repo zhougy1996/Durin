@@ -1,0 +1,1073 @@
+# Material Attributes and Execution Contracts Refactor Plan
+
+Summary: Replace the fixed surface-output contract with UE-aligned material attributes, explicit compilation requirements, and separate material evaluation and render-pass execution.
+
+Last reviewed: 2026-11-16
+
+Status: Active
+Completed:
+
+## Current Status
+
+Stages 0-2 completed on 2026-11-16. Typed attributes, per-entry compilation
+requirements and canonical Shader/mesh execution requests now span translation,
+Cook and renderer admission. Pass templates own entry bodies, GBuffer packing
+and lighting execution. Five Stage 1 minimum source assets remain unchanged.
+Validation and content disposition are recorded below. Stage 3 is not started.
+See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
+
+The 2026-11-16 rebase review below preserves the selected architecture, content
+disposition and Stage 0 status. Later editor work must consume the new toolkit
+ownership/close contract. Historical measurements keep their actual tested
+revision; the rebase is not recorded as a new runtime qualification.
+
+This is M14 of the [Material System roadmap](../Roadmaps/MaterialSystem.md).
+Existing contracts and assets may change. Prefer UE-aligned names and boundaries
+where they fit Durin ownership. Asset compatibility is not an acceptance gate:
+content that is awkward to convert may be replaced with newly authored assets.
+Every retained consumer must nevertheless resolve to valid new content.
+
+## Goal
+
+A material declares its domain, shading model, typed attributes and resources.
+The compiler produces immutable evaluation code, binding layouts and explicit
+per-entry requirements. Renderer combines that result with pass and geometry
+implementations without interpreting authored graphs. Adding a supported
+attribute, shading model, resource type or domain has one explicit extension
+path instead of requiring independent fixed-eight-output edits throughout the
+asset, function, compiler, Cook and renderer stack.
+
+Retain stable parameter identities where useful, typed spatial/stage semantics,
+detached worker snapshots, shared ShaderBuild/DDC ownership, immutable render
+publication, dynamic instances and source-free cooked execution. Their concrete
+interfaces and formats may change together with affected consumers.
+
+## UE Reference and Verified Starting Points
+
+The inspected installation is `D:/Programs/UE_5.8`, version 5.8.2, changelist
+56702186, branch `++UE5+Release-5.8`, as recorded in `Engine/Build/Build.version`.
+These are local source references, not repository dependencies or portable links:
+
+| UE source relative to that installation | Relevant boundary |
+| --- | --- |
+| `Engine/Source/Runtime/Engine/Public/MaterialDomain.h` | Material domain is separate from shading model and blend policy. |
+| `Engine/Source/Runtime/Engine/Public/Materials/MaterialAttributeDefinitionMap.h` and `Private/Materials/MaterialAttributeDefinitionMap.cpp` | Stable attribute IDs, value types, defaults, shader frequency, and attribute-specific blending. |
+| `Engine/Source/Runtime/Engine/Public/Materials/MaterialIRTypes.h` and `MaterialIR.h` | Typed values/resources and texture-read operations with explicit sampling modes. |
+| `Engine/Source/Runtime/Engine/Public/MaterialShared.h` | Compilation output records uniform expressions, scene-texture use and material behavior; shader maps track shader and vertex-factory dependencies. |
+| `Engine/Source/Runtime/Engine/Public/MaterialShaderType.h` and `MeshMaterialShaderType.h` | Material shaders and geometry-dependent material shaders have distinct contracts and permutation selection. |
+| `Engine/Source/Runtime/Engine/Public/Materials/MaterialExpressionSubstrate.h` | BSDF composition is a separate, substantially larger capability than extensible numeric material attributes. |
+
+Durin already has typed Shader/Material/Mesh maps and Vertex Factory descriptors
+in RenderCore. Reuse them. Its current material producer still stores eight
+surface inputs in `MIR::FModule::FSurfaceRoot`, generates fixed surface packing
+and pass entry bodies in `MaterialProgramGenerator.cpp`, and requests six
+entries through persisted ordinal bits. `FMaterialProgramRequirements` records
+selected context needs but not a complete per-entry scene-resource contract.
+The current GBuffer recognizes StandardLit, and authored material resources are
+principally Texture2D. These are starting constraints, not new runtime rules.
+
+## Selected Scope and Non-Goals
+
+Required scope includes attribute/root schemas, function attributes, compilation
+analysis, generated module/pass separation, shader-map entry selection, typed
+resources, scene inputs, renderer bindings, editor commands/UI, import recipes,
+Cook and content replacement. Extension proofs are DefaultLit Specular,
+ClearCoat, TextureCube and a bounded PostProcess domain.
+
+Surface initially supports Unlit, DefaultLit and ClearCoat. Rename the existing
+Lit semantic to DefaultLit in the new contract. Preserve the existing
+Opaque/Masked/Translucent baseline; ClearCoat is initially opaque/masked only.
+Unsupported combinations fail explicitly. PostProcess is unlit fullscreen
+color evaluation at one fixed insertion point before tone mapping, consuming
+linear HDR input and optional read-only scene depth. It has no mesh dependency.
+
+This plan does not implement Water optical rendering, Substrate/closure graphs,
+arbitrary user shader source, runtime-polymorphic pass plugins, Decal/Volume/UI
+domains, compute materials, ray tracing, virtual texturing, bindless indexing,
+texture streaming, OIT, general refraction or a new uniform-expression VM.
+Do not expose unimplemented enum choices as working features. A later domain
+can use the new extension path without being preimplemented here.
+
+## Target Interfaces and Data Ownership
+
+Names below are the selected design vocabulary. Use Durin naming/reflection
+conventions; UE binary layouts, enum ordinals and serialization are not targets.
+Stage 0 freezes exact signatures, ownership and supported combinations before
+source edits. Any departure from these decisions must be recorded first.
+
+| Interface or value | Selected responsibility |
+| --- | --- |
+| `EMaterialDomain` | Authored purpose: Surface or PostProcess in this plan. Independent of blend mode, shading model, shader frequency and pass identity. |
+| `EMaterialProperty` and `FMaterialAttributeDefinitionMap` | Engine-owned definitions with stable attribute GUID, name, value type, default, stage and spatial semantics, applicability, and explicit blend behavior. Resolve serialized IDs through validated definitions; never persist table positions. |
+| `FMaterialAttributes` and `FMaterialAttributeBinding` | Bounded typed attribute collection and GUID-keyed root links/defaults. Material Attributes Make/Get/Set and function ports share these definitions. Root selection supplies defaults and validates domain/model applicability. |
+| `MIR::FModule` | Detached typed expressions, attribute roots and source provenance. Replace fixed-eight `SurfaceRoot` and special-case WPO storage with property roots; WPO remains explicitly Vertex/World Direction. |
+| `FMaterialCompilationOutput` | Immutable active attributes, compiled parameter/resource layouts, per-entry requirements, interpolators, behavior flags and supported execution combinations. Evolve existing requirement values instead of introducing a parallel authority. |
+| Typed texture values and `FTextureRead` | Texture dimension/sample type independent from sampling mode; carry sampler policy and fallback. Initial reads support Implicit, Level, Bias and Grad where legal; Cube has Float3 direction coordinates. |
+| `FMaterialSceneTextureRequirement` | Logical input, stage/pass availability, coordinate/depth/color semantics, filtering and required-versus-optional policy. Names refer to defined input snapshots, never arbitrary current render targets. |
+| Existing material/mesh Shader maps and type descriptors | Exact entry keys using shader type, frequency, applicable Vertex Factory, target and required permutation. Replace persisted six-entry ordinal assumptions with canonical typed entry descriptions; retain compatible stage-artifact sharing and atomic map admission. |
+| Material evaluation module and pass adapters | Generated code evaluates selected properties. Pass shaders own entry signatures, coverage/depth behavior and attachments; Vertex Factories supply geometry; shading-model modules interpret surface data. |
+| Renderer GBuffer codecs and model data | Explicit versioned transport per supported model, with shared semantic inputs to forward and deferred shading. Attribute collections do not become a per-pixel dictionary. |
+
+Definitions are deterministic engine-owned data, frozen before compilation.
+This is not a mutable plugin registry. Separate semantic metadata from editor
+presentation so workers and Renderer never consult reflected UI state.
+Unknown IDs, duplicate bindings, invalid types and illegal domain/model/stage
+combinations produce source-located diagnostics.
+
+Attribute blending is semantic: normals require defined normalization/composition;
+discrete selectors and incompatible resource types cannot silently use numeric
+Lerp. Preserve defaults and disconnected authored intent. Numeric attributes
+lower to compact typed shader structs; only applicable reachable values occupy
+the compiled representation.
+
+Engine owns authored semantics, normalization, material compilation output and
+Cook assembly. RenderCore owns generic shader identities, maps and Vertex
+Factory descriptors; ShaderBuild owns compilation and shader-artifact caching.
+Renderer owns pass selection, RDG inputs, model codecs and resource binding.
+MaterialEditor owns presentation over the shared graph command API. Extend
+existing contracts rather than creating another scheduler, resource cache or
+graph mutation API.
+
+## Asset and Artifact Transition
+
+Compatibility adapters are optional, disposable tooling, not runtime features.
+The selected default is new-format content, with conversion only where it is
+simple and useful. No dual old/new evaluator or legacy cooked loader is required.
+
+Stage 0 inventories every base material, instance, function, collection, recipe,
+default/error resource, preview, thumbnail fixture and material reference in
+Engine, Sandbox, RoadWeaver and selected plugins, including Water. Classify each
+as **convert**, **recreate**, or **remove with all references**. Record the old
+logical identity, replacement identity, dependent packages and validation route.
+Untracked or external user content is outside automatic deletion/rewrite scope;
+document its explicit conversion or recreation requirement.
+
+Prefer preserving package paths and compatible parameter/node/function-port
+GUIDs when converting. Recreated content may use new paths and IDs: rewrite
+parents, instance overrides, graph function calls, Level/mesh assignments,
+soft defaults and Cook roots together. Do not blindly transfer overrides by
+display name. Rebuild instances when the parent schema changes incompatibly.
+Import recipes and asset-authoring utilities must create new-format content so
+reimport or fixture generation cannot restore retired schemas.
+
+Migrate minimal fixtures with each owning source stage; Stage 5 closes the full
+inventory. Runtime may reject old authored schemas with an actionable recreation
+diagnostic. Reject obsolete DMAT, MIR/translation-cache, shader-map/pass and
+shader-library artifacts using all relevant identities/versions. Re-Cook from
+the new content into an isolated generation; do not purge unrelated caches.
+No runtime source compilation may compensate for missing cooked entries.
+
+## Implementation Stages
+
+Only Stage 0 has run. Checkboxes require stage-specific evidence,
+not completion of this planning document. Stage N depends on the prior stage
+unless a narrower dependency is stated. One checkout has one source/build writer.
+
+### Stage 0: Freeze contracts, inventory and qualification baseline
+
+Outcome: an executable contract and content transition specification before any
+production refactor. Authorized by the owner's Stage 0-only instruction.
+
+- [x] Audit current source and test consumers in every project declared by `Durin.dworkspace`, plus plugins, editor and content generators. Confirm ownership against current code rather than old roadmap wording.
+- [x] Freeze attribute IDs/types/defaults/applicability/blend semantics, root and function schemas, Domain/model/blend matrix, exact Shader entry keys, binding ownership and version transitions.
+- [x] Freeze PostProcess input/output color semantics, insertion point, scene-depth convention, viewport/subrect coordinates, pass resource availability and failure behavior. Preserve current exposure semantics explicitly.
+- [x] Freeze ClearCoat's bounded single-normal model, attribute defaults, direct/IBL equations, forward/deferred transport and precision; a separate coat normal is deferred. Freeze Specular mapping with a default reproducing current F0 = 0.04.
+- [x] Complete the convert/recreate/remove inventory and choose representative authored fixtures for each retained behavior and extension proof.
+- [x] Capture baseline images, shader entry counts, compilation/cache observations, material/descriptor sizes and GBuffer footprint. Record exact targets, revision, camera/light/time settings, backend, hardware, raw evidence paths and numerical image/performance budgets before changing production code.
+- [x] Separate unchanged-content parity cases from deliberately recreated appearances. Record existing failures independently; old waived gates are not passes for this plan.
+
+Exit: all decisions above are recorded, every content owner/reference category is
+accounted for, and qualification budgets are numerical and reproducible. Open
+choices must be resolved here before their dependent implementation starts.
+
+### Stage 1: Replace fixed outputs with typed material attributes
+
+Outcome: assets, functions, compiler roots and editor commands use one attribute
+definition authority. Depends on Stage 0.
+
+- [x] Implement Domain, property definitions, attribute bindings and aggregate values; replace fixed eight-field root indexing and the separate WPO root representation across normalization, codecs, identity and diagnostics.
+- [x] Migrate Make/Get/Set attributes, function signatures/expansion, defaults, stage/space checks and static-selector reachability. Retain explicit VertexInterpolator semantics and bounded graph/function validation.
+- [x] Update shared graph commands, root pins, canvas, preview, instance controls, Undo/Redo, clipboard and save/reload for active and inactive attributes. Domain/model changes must retain authored intent while rejecting invalid active combinations. Preserve the current ToolkitManager ownership, profile settings and close-time preview release described in the rebase review.
+- [x] Update basic import/authoring recipes and convert or recreate the minimum DefaultLit, Unlit, masked, function, instance and WPO fixtures needed to keep development executable.
+- [x] Verify deterministic serialization/identity, property order independence, default equivalence, unknown/duplicate IDs, illegal stages/types, attribute blend behavior, function diagnostics and transaction rollback.
+
+Exit: no authoritative fixed-eight output array or positional serialization
+remains in the new path. Existing surface behavior and WPO execute through the
+new schema; resource/pass extensions may remain unavailable until later stages.
+
+Stage 1 content refinement: recreate DefaultWater together with the four Engine
+foundation assets. The component's saved soft default otherwise fails the new
+graph version boundary, so it belongs to the minimum executable WPO consumer
+set. Use the existing explicit Water authoring fixture with unchanged wave and
+logical-asset identities; this adds no Water optical or renderer functionality.
+
+#### Stage 1 implementation and acceptance receipt
+
+Validated the Stage 1 working tree based on `766f38d30`, committed with this
+receipt, using windows-msvc-x64 / Win64-Debug-DurinEditor, Debug, Tracy and
+18 build jobs. Runtime/editor authorities are the linked
+[material system](../Runtime/Rendering/Materials/MaterialSystem.md),
+[expression building](../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
+and [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md)
+contracts.
+
+- One immutable twelve-property registry owns GUIDs, types, defaults, stages,
+  spatial semantics, active-property selection and blend policy. Root bindings,
+  aggregate values, function defaults and Get/Set selections use stable IDs.
+  MIR 9 contains typed attribute roots including WPO; canonical root ordering
+  is independent of binding order. Normal blending lowers to safe normalization
+  after Lerp. Missing retained wiring, invalid selectors, unknown/duplicate IDs,
+  incompatible types/stages and unsupported configurations reject atomically.
+- Public aggregate/model names are MaterialAttributes and DefaultLit. Graph,
+  output, function, translation, producer and DMAT versions follow the frozen
+  Stage 1 table; clipboard schema is 10. ClearCoat and PostProcess identities
+  are declared but execution remains unavailable. Specular/coat values retain
+  authoring intent without execution bindings. Existing compact surface pass
+  adapters remain for Stage 2; pass contract 13 and layout 4 are unchanged.
+- Recreated DefaultMaterial, UVTransform, SampleNormal, SampleORM and DefaultWater
+  at their original paths. DefaultMaterial retains its empty-root default
+  appearance. `asset material-foundation` recreates the four Engine assets;
+  the documented isolated Water authoring probe recreates DefaultWater and
+  passed its CPU material/query comparison. The temporary fixture admission was
+  removed and `Durin.dworkspace` restored byte-for-byte. Remaining examples and
+  the full corpus/reference/Cook closure remain Stage 5 work; older graph
+  versions reject rather than silently lose fields.
+- Final workspace `all` passed; log
+  `Build/.agent-state/logs/20261116-023840-099839-39672-cmake.log`.
+  `@domain=material,kind=feature --report` passed all 13 targets; final CTest log
+  `20261116-023715-948012-23512-ctest.log` in the same directory. The final owner
+  compiler run passed 110 cases (`20261116-023601-972031-17136-MaterialCompilerTests.log`).
+  Coverage includes functions/defaults/expansion, strict WPO typing, ID/order
+  determinism, graph editing/Undo/Redo/clipboard, instances, persistence, Cook,
+  preview close-time release and asynchronous publication/rollback. A native
+  debugger identified a sequence-dependent fixture cleanup defect: the prebound
+  proxy test now collects World children while their stack-owned Engine outer
+  is still alive; the full runtime target passes all 99 cases in one process.
+- SceneImportTests (34), RoadSceneIntegrationTests (5), AssetPackageReloadTests
+  (22) and RendererSceneContractTests (173) passed. Their receipts are
+  `20261116-022042-717270-34628-SceneImportTests.log`,
+  `20261116-022126-937517-13172-RoadSceneIntegrationTests.log`,
+  `20261116-022145-314972-18992-AssetPackageReloadTests.log` and
+  `20261116-022226-564815-38984-RendererSceneContractTests.log` under the same
+  log directory. RoadViewportQualificationTests compiled; its GPU qualification
+  was not selected. DevTool asset Python tests passed 30 cases.
+- VolumetricCloudSceneVulkanTests passed with `DURIN_LOCAL_LIGHT_CAPTURES`
+  pointing to `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage1/captures`.
+  All nine Final/Forward/Local raw files for 0/1/4 lights are byte-identical to
+  the Stage 0 baseline, including the explicitly converted Unlit fixture.
+  Receipt: `20261116-022315-681728-4264-VolumetricCloudSceneVulkanTests.log`.
+  WaterSurfaceRenderingVulkanTests passed both the independent CPU/GPU WPO proof
+  and actual component scene after DefaultWater recreation; receipt
+  `20261116-022948-429360-30716-WaterSurfaceRenderingVulkanTests.log`.
+  Subsequent changes only tightened malformed authoring/editor admission and
+  fixture cleanup; generated shading and captured scene inputs are unchanged.
+
+Raw parity hashes, captures, source fingerprint and copied reports are under
+ignored `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage1/`.
+No new timing qualification or native Metal GPU result is claimed. Stage 0's
+known cold/warm binding-count failure remains recorded for Stage 2; it was not
+reclassified as a pass. No Stage 2 execution-contract or later rendering feature
+was implemented.
+
+### Stage 2: Separate evaluation modules from Shader and pass execution
+
+Outcome: one analyzed material module composes with explicit Shader/Pass/Vertex
+Factory contracts. Depends on Stage 1.
+
+Implementation clarification: per-entry `CollectionIDs` are separate from material
+parameter IDs, so collection dependencies do not masquerade as material fields.
+Built-in vertex requests use a shared pass-zero transport; renderer composition
+adds the actual consuming pass/factory key. Explicit registered factory reuse and
+fixed-source factories retain their existing opt-in behavior.
+
+
+- [x] Move pass entry bodies, GBuffer packing and lighting execution out of the expression generator into owned shader modules/templates. Keep expression generation focused on typed attribute evaluation and resource reads.
+- [x] Derive `FMaterialCompilationOutput` after normalization/static selection, with per-entry property closure, active parameters/resources, interpolators, behavior and context requirements. Shadow/hit-proxy entries request only needed property roots and vertex effects.
+- [x] Replace six-bit persisted entry assumptions with typed canonical entry requests using existing RenderCore maps/descriptors. Select supported entries, preserve artifact reuse, and publish only complete compatible maps.
+- [x] Version producer/runtime identities and migrate renderer planning, PSO precache, binding reflection, fallback, resource recovery and Cook stage admission together.
+- [x] Qualify Local and Spline geometry, direct/indirect consumers, forward/GBuffer, masked/opaque shadows, hit proxies, previews and thumbnails. Include cancellation, stale completion, failed compilation and device-resource retry.
+
+Exit: adding an evaluation property does not require adding pass bodies to the
+generator; unsupported entry combinations fail deterministically. Inactive
+branches and unrelated surface properties do not create per-entry bindings.
+
+### Stage 2 implementation and validation receipt
+
+Completed on 2026-11-16 from `5704379c0` plus the Stage 2 working tree.
+The final source SHA-256 manifest, copied reports, raw CPU samples and captures
+are under ignored `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage2/`.
+Profile: Win64-Debug-DurinEditor, MSVC 19.44, 18 build jobs; native Vulkan on the
+same RTX 3090 host and settings as Stage 0. Subsequent edits are documentation only.
+
+- Evaluation generation composes `SurfacePasses.slang` and
+  `SurfacePassResources.slang`; their bytes are captured dependencies.
+  `FMaterialCompilationOutput` is shared by detached translation and immutable
+  shader maps. Per-entry closures cut interpolation boundaries, preserve WPO,
+  and exclude unrelated surface parameters/resources from coverage entries.
+- Typed requests persist stable Shader names and full existing RenderCore keys,
+  not stage-mask ordinals. Translation revalidates analysis before consumer
+  identity rebinding; Cook validates supported selections, complete keys and
+  reflected resource subsets before publication. Collection schemas restore
+  before Cook admission. Renderer/PSO composition preserves independent fixed
+  factories and explicit built-in transport reuse; inactive opaque mask
+  thresholds canonicalize. HitProxy cache uses the relevant entry contexts.
+  New metadata capacity participates in existing retained-memory accounting.
+- Authored graph/output/function/instance versions remain 6/4/3/2 and layout 4.
+  MIR/pass/DMAT are 10/14/17, translation schema 6, normalization/generator
+  revisions 10/18 and adapter 15. Prior compiled/Cook products require rebuilding.
+  DefaultMaterial, UVTransform, SampleNormal, SampleORM and DefaultWater require
+  no further source migration. Full corpus closure remains Stage 5.
+- Negative tests cover missing/duplicate/unknown entries, target/pass/output ABI,
+  factory identity, invalid requirement IDs/semantics/behavior and unavailable
+  scene contracts. Masked Shadow/HitProxy cannot bind a BaseColor-only texture;
+  a coverage-only build removes it from the module layout. Unrelated pixel Time
+  reads do not create coverage/vertex context requirements. Cancellation tests
+  now read owner state under its mutex and allow owner release after terminal
+  publication; live subscriptions still retain distinct owners and complete once.
+
+Passing receipts below are in `Build/.agent-state/logs/`:
+
+| Coverage | Result | Receipt |
+| --- | --- | --- |
+| Workspace `all` | Passed, final shared API/consumer gate | `20261116-040249-382199-17304-cmake.log` |
+| Material feature set | All 13 targets | `20261116-035544-045051-21432-ctest.log` |
+| Final MaterialCompilerTests | 111 cases | `20261116-035948-343704-12292-MaterialCompilerTests.log` |
+| Shader contracts / Cook composition | 72 / 1 cases | `20261116-035610-593121-37784-RenderShaderContractTests.log`, `20261116-035620-480897-27280-RenderShaderCookIntegrationTests.log` |
+| Renderer scene / Scene import / Road scene | 173 / 34 / 5 cases | `20261116-035631-446101-3816-RendererSceneContractTests.log`, `20261116-035645-507550-14768-SceneImportTests.log`, `20261116-035719-390437-45420-RoadSceneIntegrationTests.log` |
+| Local/Spline, direct/indirect, PSO, shadows, HitProxy | All 21 mesh Vulkan cases | `20261116-040014-504036-27704-StaticMeshRenderPreparationVulkanTests.log` |
+| Resource reload/recovery | 2 Vulkan cases | `20261116-040026-160581-38416-RendererResourceReloadVulkanTests.log` |
+| Preview/thumbnail / Water | 14 / 2 Vulkan cases | `20261116-040029-157053-33592-ThumbnailVulkanTests.log`, `20261116-040037-026717-46952-WaterSurfaceRenderingVulkanTests.log` |
+| Final scene parity | 1 case; all 9 raw files equal Stage 0 and Stage 1 | `20261116-040557-217139-36852-VolumetricCloudSceneVulkanTests.log` |
+
+Three serial quiet CPU runs selected StagedBuildWorkloadBaseline,
+MaximumGraphLayoutLatency and ContractsStage0Snapshot with qualification mode
+and one test slot. Raw 60-row compiler samples and 100 layout samples per run
+are retained in `cpu-1` through `cpu-3`; receipts are
+`20261116-040404-180432-31196-ctest.log`,
+`20261116-040417-242577-20344-ctest.log` and
+`20261116-040430-410783-17344-ctest.log`.
+Layout medians were 12203/12340/12435 us and p95 13042/13636/13460 us.
+Small miss/disk/retained medians ranged 492977-502356 / 15097-15983 /
+3760-4117 us; function medians ranged 542532-544753 / 27731-28288 /
+15026-15478 us. All frozen CPU budgets passed; warm modes compiled zero times.
+The staged baseline intentionally retains its original single bulk submission
+for equivalent-workload comparison; production sparse-entry work is separately
+covered by compiler tests (6 cold entries, 0 warm, compatible vertex sharing).
+
+Per-entry code bytes and descriptor counts exactly match Stage 0, including
+Forward's 22 named descriptors. The old expectation of 21 is corrected against
+that independent snapshot and its explicit set-0 LocalLights binding. The
+ColdAndWarmCompilerBaseline and instance variant probe passed; final receipt
+`20261116-040443-504733-42692-ctest.log`, full output `contract-cost.log`.
+Total SPIR-V remains 182708 bytes; root DMAT is 190990 versus 188127 bytes
+(+1.52%, including new contract metadata). Instance DMAT is 1561950 bytes;
+4 effective identities remain shared, with 934796 retained bytes in this probe.
+No new GBuffer attachment or scene copy is introduced. Native Metal GPU and GPU
+timing qualification are not claimed; offline Metal compilation/reflection and
+codec coverage remain in the passing owner tests. Stage 3 remains unstarted.
+
+### Stage 3: Add typed sampling and explicit scene-resource contracts
+
+Outcome: resource reads have validated types, stages and Renderer-owned inputs.
+Depends on Stage 2.
+
+- [ ] Generalize material texture parameter values/layouts to support Texture2D and TextureCube, reusing existing texture asset/build/residency facilities. Migrate instance overrides, functions, reflection, fallback resources and cooked references.
+- [ ] Implement Implicit/Level/Bias/Grad read modes with dimensional coordinate validation. Explicit Level works in Vertex and Pixel; implicit derivatives, Bias and Grad are Pixel-only for this scope. Reject illegal combinations before Shader compilation.
+- [ ] Implement logical scene inputs for PostProcessInput0 and read-only SceneDepth, with declared filtering and conversion helpers. Do not expose an ambiguous writable current SceneColor.
+- [ ] Carry entry requirements through source-free Cook loading. Renderer material planning resolves them to counted resources, RDG declarations and pass bindings; unavailable required inputs fail locally without stale bindings.
+- [ ] Test cube face/orientation and mip selection, vertex texture WPO, per-instance resource replacement, missing resources, scene UV/depth reconstruction, subrects, resizing and incompatible-domain rejection. Inspect Vulkan and Metal reflection.
+
+Exit: TextureCube and explicit sampling traverse authoring-to-Cook execution;
+scene reads have validated lifetimes and no attachment read/write feedback.
+Texture3D/Array and additional scene inputs remain future extensions.
+
+### Stage 4: Prove shading-model and domain extension
+
+Outcome: new attributes, a second Lit model and a non-mesh domain execute without
+reintroducing fixed Surface or geometry assumptions. Depends on Stage 3.
+
+- [ ] Add DefaultLit Specular with the Stage 0 mapping and compatibility default; qualify direct and environment lighting in forward/deferred paths.
+- [ ] Add the selected ClearCoat model, coat weight/roughness attributes, model identity and explicit GBuffer encode/decode. Share surface semantics across forward and deferred; qualify zero/full coat and roughness endpoints and reject translucent ClearCoat.
+- [ ] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. A neutral material preserves input; a color transform and depth visualization demonstrate actual execution. No mesh Vertex Factory or surface-lighting resources are requested.
+- [ ] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
+- [ ] Verify domain/model switches, parameter-only updates without compilation, graph Undo/Redo/save/reopen, cooked Editor/Game parity and distinct shader identities for semantically different contracts.
+
+Exit: all three extension proofs produce independently checked pixels and valid
+Cook output. ClearCoat and PostProcess unsupported paths are explicit, without
+silently falling back to DefaultLit or Surface.
+
+### Stage 5: Replace workspace content and retire legacy contracts
+
+Outcome: every retained workspace consumer uses new content and artifacts.
+Depends on Stages 1-4; incremental inventory updates occur throughout them.
+
+- [ ] Close each inventory row with converted/recreated/removed assets and repaired references, including instances, functions, import parents, standard functions, defaults/error materials, examples, Water and test fixtures.
+- [ ] Regenerate content from supported recipes; round-trip it and verify reimport/recreation produces the new schema. Check overridden values by declared identity or explicit replacement mappings.
+- [ ] Cook representative Engine, Sandbox and RoadWeaver content and the opt-in Water fixture into new generations. Verify source-free Game loads with authored graphs/compiler services unavailable, and resolve all required Shader/texture dependencies.
+- [ ] Remove obsolete root/field adapters, ordinal assumptions and duplicate semantics. If a one-shot conversion utility remains useful, keep it editor/tool-only with explicit supported input versions.
+- [ ] Test old authored/cooked artifacts for clear rejection, missing replacements for actionable diagnostics, and all repaired soft references/Cook roots for reachability. No dangling reference is accepted as an intentional appearance change.
+
+Exit: inventory has no unresolved retained consumer. New and regenerated content
+works without a legacy evaluator, old cooked products or runtime compilation.
+
+### Stage 6: Qualify the integrated contract and publish lasting documentation
+
+Outcome: final-state correctness, integration and cost evidence, with no deferred
+required gate hidden by a completed checklist. Depends on Stage 5.
+
+- [ ] Run the final relevant coverage in the acceptance matrix below, reusing passing evidence only when relevant inputs/environment are unchanged and applicability is recorded.
+- [ ] Run the workspace `all` build after shared-interface migration. This explicit final gate covers cross-project foundational headers, reflected schemas, generated metadata and shader/build inventory consumers that bounded owner tests cannot fully cover.
+- [ ] Compare unchanged baseline scenes and the approved recreated/new fixtures against Stage 0 budgets. Record compilation/cache behavior, exact Shader entries, descriptors, GPU transport footprint and runtime upload work; investigate regressions before acceptance.
+- [ ] Publish implemented semantics in owning Runtime/Rendering and Editor documents; update the roadmap and content authoring guidance. Keep execution receipts/raw captures under ignored `Build/` artifact directories.
+- [ ] Record final tested inputs, selections, backend limits, migration inventory disposition and remaining optional work. Complete this plan only after every required gate passes or the owner explicitly changes its acceptance scope.
+
+## Acceptance Matrix and Execution Policy
+
+Follow [build selection](../Agents/BuildAndRun.md) and
+[test selection/result reuse](../Agents/Testing.md). Discover current registered
+targets at implementation time; do not invent target names or automatically run
+all native tests. The matrix specifies required behavior, not repeated full-suite
+runs after every stage.
+
+| Area | Required final evidence |
+| --- | --- |
+| Schema and language | Round-trip/order determinism; stable IDs/defaults; functions and attribute blend semantics; malformed/cyclic/unknown/duplicate/type/stage/domain rejection; bounded expansion. |
+| Compilation and identity | Per-entry reachability and resources, complete reflection/layout agreement, static-selection identity changes, no parameter-value recompilation, compatible artifact sharing, cancellation/stale-result rejection and complete-generation publication. |
+| Surface rendering | Local/Spline and retained/direct/indirect paths where supported; Opaque/Masked/Translucent baseline, WPO/custom data/interpolation, forward/deferred, shadows, hit proxies, preview and thumbnails. ClearCoat is qualified only on its declared matrix. |
+| New functionality | Independent expected values for Specular and ClearCoat; Cube direction/mips; explicit-LOD vertex displacement; neutral/color/depth PostProcess output, viewport subrects and resizing. |
+| Lifetime and failure | Parent/texture/function edits, unload/reload, unavailable required inputs, missing cooked entries, compile failure, resource allocation failure/retry and device recreation do not mix layouts/code or retain stale inputs. |
+| Editor and content | Shared commands and canvas, Undo/Redo, clipboard, Apply/save/reopen, instance overrides, import/reimport, closed asset inventory and resolved Level/mesh/default/Cook references. Retained closed toolkits release previews during OnClose/PreExit without waiting for destruction or GC; active draws retain a safe local preview lease. |
+| Cook and Game | New-format round-trip and corruption/version rejection; warm/miss Cook; graph-stripped source-free Game execution for new models/domain/resources; Water stays a consumer regression fixture, not an optical feature. |
+| Workspace integration | Owning and affected consumer targets across every project in `Durin.dworkspace`, plus selected plugin inventories; final workspace `all` build. |
+| Backends and cost | Win64 Vulkan native correctness; SPIR-V and Metal compilation/reflection for changed layouts/entry families; Stage 0 numerical image and cost budgets with raw evidence. Native Metal GPU execution is additional coverage unless separately selected, and cannot be claimed from offline reflection. |
+
+Host application startup is not a default gate. Use focused native rendering and
+editor fixtures; if an application-hosted test is essential, name that bounded
+case and follow the test workflow before execution. Timing qualification needs
+the prescribed exclusive GPU environment; unavailable timing remains unmeasured,
+not passed. Numerical budgets must be fixed in Stage 0; final acceptance cannot
+choose tolerances after observing a regression.
+
+The initial planning change required document validation only. Stage 0's later
+authorization covers the baseline builds/tests recorded below. The owner has
+subsequently authorized Stages 1 and 2 implementation, validation and commit.
+Stage 3 and later implementation remain outside the current execution scope.
+
+## Stage 0 Frozen Specification
+
+### Audit and ownership
+
+Production baseline is `eb29e77e43306d2a121c2cdb69931175991c51be`.
+All measurements use that production code; the snapshot probe and timing output
+are qualification-only additions in this Stage 0 change. A repository-wide
+tracked-file asset census found 28 `.dasset` files, including three frozen texture
+Cook fixtures. Source/test searches covered all three workspace projects, not
+only Engine. The first symbol census contains 168 files; raw lists and the
+asset bytes/hashes/type/path-string inventory are under the evidence root below.
+
+| Owner / source roots relative to repository | Migration responsibility |
+| --- | --- |
+| `Engine/Source/Runtime/Engine/{Public,Private}/Materials` | Authored graph/root/function/instance schemas, validation, normalization, generation, compile/Cook identities, defaults and render publication. |
+| Engine `Rendering`, `StaticMesh`, `SplineMesh`, `Texture`, asset preparation/Cook/reload | Geometry/material consumers, counted texture references, Cube values, package dependencies and source-free readiness. |
+| `Engine/Source/Runtime/RenderCore/{Public,Private}/Shader` | Extend existing typed identities/maps and Vertex Factory contracts; keep Engine reflected types out. |
+| `Engine/Source/Runtime/ShaderBuild` | Existing source compilation, dependency fingerprints, artifact sharing/DDC and reflection. No second compile scheduler. |
+| `Engine/Source/Runtime/Renderer/Private/Renderers`, `Resources`; `Engine/Shaders/Slang` | Surface bindings, mesh planning/PSO precache, frame resources, PostProcess, GBuffer and lighting implementations. |
+| `Engine/Source/Editor/MaterialEditor` | Domain/model/root controls, shared commands, functions, preview, clipboard and transactions. |
+| `Engine/Source/Editor/AssetForgeBuiltins`; `Engine/Source/Programs/DurinAssetTool` | Imported material recipes, standard functions, default/template authoring and offline asset services. |
+| Other editor material consumers and `Engine/Tests` | Mesh assignments, defaults, asset-family editors, previews/thumbnails, transient graphs, reflection, GPU/Cook/lifecycle fixtures. |
+| `Engine/Plugins/Water`; `Engine/Tests/Fixtures/WaterSurface` | Preserve wave conventions while rebuilding material roots and Cook recipes. No optical change. |
+| `Sandbox/Source`, `Sandbox/Tests`, `Sandbox/Content` | No direct authored-material API hits in the initial symbol census; retained material/mesh/Level references and runtime defaults still require content validation. |
+| `RoadWeaver/Source`, `RoadWeaver/Tests`, `RoadWeaver/Content` | Production scene geometry/default material consumption; `RoadViewportQualificationTests.cpp` authors transient graphs, and `RoadSceneIntegrationTests.cpp` exercises mesh slots and saved Levels. |
+
+Current code already defines `EMaterialDomain { Surface = 0 }` and
+`GetMaterialDomainOutputPins` in `MaterialExpressions.h`, and `DMaterial`
+serializes Domain. Extend/move this authority instead of adding a second enum.
+Current standard functions are exactly UVTransform, SampleNormal and SampleORM;
+the roadmap's historical five-function description is not the current inventory.
+
+### Properties, identities and supported combinations
+
+Freeze `EMaterialDomain : uint8 { Surface = 0, PostProcess = 1 }` and
+`EMaterialShadingModel : uint8 { DefaultLit = 0, Unlit = 1, ClearCoat = 2 }`.
+Use UE-style `EMaterialProperty` names below. These enum values are lookup keys;
+serialized root connectivity uses attribute GUIDs. Durin GUIDs deliberately do
+not claim UE asset interoperability.
+
+Attribute GUIDs are the following four-word literal constants. The first three
+words are `0x4d415454, 0x52505250, 0x00000001`; the table freezes the fourth
+word in hexadecimal. They are not recomputed from enum/table order. Never reuse
+an ID after retirement. Parameter IDs and function-port IDs remain independent.
+
+| Property | ID word 4 | Type / default | Stage and applicability | Evaluation / attribute blend |
+| --- | --- | --- | --- | --- |
+| `MP_BaseColor` | `0x00000001` | Float3 / (0.5,0.5,0.5) | Pixel; Surface Lit models | Linear reflectance, clamp 0..1; component Lerp. |
+| `MP_Normal` | `0x00000002` | Float3 / (0,0,1) | Pixel; Surface Lit models; Tangent Normal | Safe normalization after Lerp; RNM remains an explicit composition node. |
+| `MP_Metallic` | `0x00000003` | Float / 0 | Pixel; Surface Lit models | Clamp 0..1; Lerp. |
+| `MP_Roughness` | `0x00000004` | Float / 0.5 | Pixel; Surface Lit models | Clamp 0.045..1; Lerp. |
+| `MP_AmbientOcclusion` | `0x00000005` | Float / 1 | Pixel; Surface Lit models | Clamp 0..1; Lerp. |
+| `MP_EmissiveColor` | `0x00000006` | Float3 / (0,0,0) | Pixel; both domains, all models | Nonnegative HDR, existing finite channel limits; Lerp. Sole color root for Unlit and PostProcess. |
+| `MP_Opacity` | `0x00000007` | Float / 1 | Pixel; Surface Translucent | Clamp 0..1; Lerp. |
+| `MP_OpacityMask` | `0x00000008` | Float / 1 | Pixel; Surface Masked | Clamp 0..1; Lerp; discard strictly below authored threshold. |
+| `MP_WorldPositionOffset` | `0x00000009` | Float3 / (0,0,0) | Vertex; Surface; World Direction | Finite displacement; Lerp. No implicit bounds/collision/normal updates. |
+| `MP_Specular` | `0x0000000a` | Float / 0.5 | Pixel; Surface Lit models | Clamp 0..1; Lerp. |
+| `MP_ClearCoat` | `0x0000000b` | Float / 1 | Pixel; Surface ClearCoat | Clamp 0..1; Lerp. |
+| `MP_ClearCoatRoughness` | `0x0000000c` | Float / 0.1 | Pixel; Surface ClearCoat | Clamp 0.045..1; Lerp. |
+
+Surface DefaultLit/Unlit accept Opaque, Masked and Translucent; ClearCoat accepts
+Opaque/Masked. PostProcess requires Unlit/Opaque, no depth test/write, no mesh
+usage, WPO, mask or shadow. It preserves input alpha rather than exposing a
+separate alpha root. Domain belongs to the base material and is inherited without
+an instance override, matching UE's asset boundary. Shading model/blend retain
+explicit static-instance override intent; runtime dynamic instances cannot
+switch static settings without selecting a separately compiled configuration.
+
+Inactive known attributes retain authored values but create no normal execution
+bindings; diagnostics distinguish inactive properties from invalid graphs.
+Editor diagnostic view modes may explicitly demand BaseColor even where normal
+lighting is bypassed. Unknown IDs, duplicate IDs, or illegal active root values
+reject atomically. Domain and shading-model selectors are not interpolated graph
+values. The registry is immutable after engine startup.
+
+One deliberate UE alignment changes Surface Unlit from the current
+`BaseColor + Emissive` to EmissiveColor-only. Converted parity fixtures explicitly
+compute `saturate(old BaseColor) + old Emissive`, including the old default base
+contribution. Newly authored Unlit defaults to black. This is a content recipe
+change, not permission to silently change a retained fixture's image.
+
+### Frozen data shapes and entry interfaces
+
+The following signatures describe required C++ value shapes, not implementation
+added by Stage 0. Names use existing Durin types where possible:
+
+```cpp
+struct FMaterialAttributeDefinition {
+    FGuid AttributeID;
+    EMaterialProperty Property;
+    FMaterialValueSemantics Semantics;
+    FMaterialProgramLiteral DefaultValue;
+    EMaterialAttributeBlend Blend; // Linear or NormalizedNormal
+};
+struct FMaterialAttributeBinding {
+    FGuid AttributeID;
+    FMaterialNumericInput Input; // retained literal and optional expression link
+};
+struct FMaterialAttributes {
+    std::vector<FMaterialAttributeBinding> Bindings; // authored, bounded, sorted on capture
+};
+class FMaterialAttributeDefinitionMap {
+public:
+    static auto Find(FGuid) -> const FMaterialAttributeDefinition*;
+    static auto GetID(EMaterialProperty) -> FGuid;
+    static auto GetActiveProperties(EMaterialDomain, EMaterialShadingModel,
+        EMaterialBlendMode) -> std::vector<EMaterialProperty>;
+};
+struct FMaterialAttributeRoot {
+    FMaterialAttributes Properties;
+    FMaterialExpressionInput Attributes; // optional aggregate connection
+};
+struct FMaterialConfiguration {
+    EMaterialDomain Domain;
+    FMaterialStaticProperties Properties;
+};
+// DMaterial authoring API; both calls validate before mutating or publishing.
+auto SetMaterialConfiguration(const FMaterialConfiguration&)
+    -> FMaterialProgramValidationResult;
+auto SetMaterialExpressions(std::span<DMaterialExpression* const>,
+    const FMaterialAttributeRoot&) -> FMaterialProgramValidationResult;
+```
+
+The real definition also owns applicability and finite-value policy from the
+table; editor labels/categories are a separate projection. Root storage is one
+`FMaterialAttributes` plus an optional aggregate-expression link. Aggregate mode
+and active per-property connections remain mutually exclusive. Retained
+disconnected defaults survive switching modes. Bounds: 64 root bindings,
+existing 256-node/1024-link authored limit, existing function expansion limits.
+
+Rename the MIR aggregate type Surface to MaterialAttributes and replace
+`FSurfaceRoot`/separate WPO with a sorted vector of typed `FAttributeRoot`
+values: AttributeID, semantics, literal/expression reference and source location.
+Flatten function calls before analysis. Function ports preserve GUID, type,
+stage/space constraints and required/default status; attribute defaults are
+literal-only typed sets, with no expression links. Resource ports carry a typed
+texture value and its sampler/fallback. No worker follows a live asset pointer.
+
+`FMaterialCompilationOutput` owns Domain/model, static settings, parameter and
+collection layouts, typed Shader-entry requests and `FMaterialEntryRequirements`
+per entry. Each requirement contains active attribute IDs, parameter IDs,
+resource indices, logical scene inputs, interpolator layout and behavior flags
+(WPO, mask, tangent/context needs). Analyze after static selection; shader
+reflection must validate the actual binding plan. Conservative execution needs
+and reflected bindings are distinguished, never silently substituted.
+
+Freeze the scene/input requirement value shape as follows; containers contain
+owned values, never renderer resources or authored object pointers:
+
+```cpp
+enum class EMaterialSceneTextureId : uint8 { PostProcessInput0, SceneDepth };
+enum class EMaterialSceneTextureFilter : uint8 { Point, Linear };
+struct FMaterialSceneTextureRequirement {
+    EMaterialSceneTextureId InputId;
+    EMaterialSceneTextureFilter Filter;
+    bool bRequired = true;
+};
+struct FMaterialEntryRequirements {
+    std::vector<FGuid> AttributeIDs;
+    std::vector<FGuid> ParameterIDs;
+    std::vector<uint16> ResourceIndices;
+    std::vector<FMaterialSceneTextureRequirement> SceneTextures;
+    std::vector<FMaterialValueSemantics> Interpolators;
+    bool bUsesWPO = false;
+    bool bUsesMask = false;
+    FMaterialProgramRequirements Context;
+};
+```
+
+Per-entry compilation output pairs the appropriate existing typed Shader key
+with its requirements. The outer output owns compiled layouts, collection
+schemas, supported configuration and canonical entry sequence. Keep returned
+configuration/root inspection const; mutation flows through the shared graph
+commands and atomic validated APIs above. Instance parent/override edits retain
+the existing atomic entry point and cannot override Domain.
+
+Retain `FMaterialShaderPermutationIdentity` and
+`FMeshMaterialShaderPermutationIdentity`. An entry key contains stable Shader
+type name, source entry, target, frequency, permutation, pass-contract version
+and output-layout identity; a mesh entry additionally carries the existing
+VertexFactoryType/MeshPassKey. Request sets are sorted and deduplicated by full
+key, not a new positional mask. Pixel artifacts independent of a factory may
+remain shared across Local/Spline; do not blindly form a Cartesian product.
+
+Freeze these initial Shader type/source-entry pairs (implementation may place
+the source in owned modules, but keeps these identities): SurfaceForward /
+FragmentMain, SurfaceGBuffer / GeometryFragmentMain, SurfaceShadow /
+ShadowFragmentMain, SurfaceHitProxy / HitProxyFragmentMain, LocalMaterialVertex /
+VertexMain, SplineMaterialVertex / SplineVertexMain, and PostProcessMaterial /
+PostProcessMaterialMain. HitProxy is Editor-only. PostProcess uses the existing
+fixed fullscreen vertex implementation and a material fragment entry, without
+Local/Spline requests. Shadow needs WPO and optional OpacityMask; HitProxy needs
+WPO/coverage/ID. Dynamic parameter values never enter entry or PSO identity.
+
+Binding ownership: pass adapters provide View/scene inputs, geometry supplies
+GPUScene/deformation data, lighting adapters provide lights/environment/shadows,
+and the material layout supplies numeric/resource values and collections. Reuse
+the existing set-0 pass/context and set-1 material convention. Preserve the
+16-byte reserved material header; numeric fields use current 16-byte slots.
+Texture/sampler declarations retain deterministic compact allocation starting
+at existing material binding 32. Scene textures never consume authored parameter
+IDs or material texture slots. Typed Renderer bindings own counted references;
+no reflected pointers enter the render thread.
+
+`FTextureRead` stores texture expression, coordinate expression, mode and optional
+LOD/Bias or DDX/DDY operands. Texture2D uses Float2, Cube uses a finite nonzero
+direction Float3; arrays/3D remain unavailable. Implicit, Bias and Grad are
+Pixel-only; Level is Vertex/Pixel. Coordinate space for Cube is an explicit
+author choice, not an automatic World transform. Add AddressW to sampler policy
+with Repeat default. Cube permits white/black six-face fallback; reject the 2D
+FlatRGNormal fallback. Resource defaults/overrides use a checked variant of
+Texture2D/TextureCube, never an unchecked cast from the existing DTexture2D field.
+
+Version transitions are frozen below. Stage 5/6 do not change formats unless a
+newly discovered incompatibility is documented first. Stage-specific generations
+cannot consume prior intermediate products. Collection/texture-package formats
+remain unchanged unless their own representation changes.
+
+| Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4/final |
+| --- | --- | --- | --- | --- | --- |
+| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 7 / 4 / 4 | same |
+| MaterialInstance custom version | 2 | 2 | 2 | 3 | 3 |
+| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 11 / 7 | 12 / 8 |
+| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 11 / 19 / 16 | 12 / 20 / 17 |
+| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 15 / 18 | 16 / 19 |
+| RenderLayout identity and compiled-layout version | 4 / 4 | same | same | 5 / 5 | same |
+
+The existing shader-library container need not change solely because material
+contracts change: new entry/material/source identities and Cook inventories must
+prevent satisfying a new request with an obsolete artifact. Add a container
+version only if its representation changes. Old authored files fail custom-version
+admission with a recreate/convert diagnostic; optional tooling reads the old
+schema separately. No production legacy graph evaluator is retained.
+
+### PostProcess and scene inputs
+
+Add one optional material slot to the existing per-view post-process settings;
+Engine retains the asset and publishes an immutable material proxy/reference.
+Renderer admits one fullscreen material pass after normal HDR scene composition
+(including sorted translucency and cloud composition) and before the existing
+PostProcess display mapping. GBuffer/AO/isolated-light debug routes bypass the
+material slot. Editor assistance follows the existing final output ordering.
+
+PostProcessInput0 is a distinct read-only snapshot of the composed linear HDR
+scene in RGBA16F. Write a separate RGBA16F output only when the effect is active;
+never sample the active attachment. Output RGB is nonnegative linear HDR,
+finite-clamped to 65504, alpha copied from Input0. Apply neither gamma nor
+exposure inside material evaluation. Existing display mapping applies
+`exp2(clamp(ExposureEV,-16,16))` exactly once, followed by its current filmic
+mapping/output transfer and FXAA policy. A neutral effect preserves Input0 and
+must not double-compose clouds or translucency.
+
+SceneDepth names the completed scene geometry depth for that view; it excludes
+depthless translucency. Point sampling is required. Expose device depth and a
+linear positive view-depth conversion, with the existing NormalZ/ReversedZ
+projection convention; clear/no-geometry yields an explicit invalid flag and
+linear depth 0, not infinity. Decode using projection/view helpers rather than
+assuming forward Z. Scene inputs are Pixel-only in PostProcess in this plan.
+Functions containing reads inherit the caller's legality.
+
+ViewportUV is [0,1] over the active subrect. For pixel center p and subrect
+(Origin,Extent): ViewportUV=(p-Origin)/Extent and
+TextureUV=(Origin+ViewportUV*Extent)/TextureExtent. Clamp sampled centers to
+the subrect's half-texel interior; account for backend orientation exactly once
+in the existing fullscreen adapter. Zero extents reject the pass. Input0 allows
+point/linear filtering (linear default), depth allows point only.
+
+`FMaterialSceneTextureRequirement` records InputId, sampling policy and whether
+required; all connected reads are required in this scope. Renderer declares RDG
+reads and separate output attachment writes from these requirements. A pending
+compile retains a complete compatible last-known-good effect; a failed compile,
+missing required input or allocation failure bypasses the effect with a local
+diagnostic and preserves the normal frame. Retry on later frames. Surface keeps
+its existing pending/failed ErrorMaterial policy. No fullscreen draw may bind
+the Surface ErrorMaterial or an incomplete/stale generation.
+
+### Specular, ClearCoat and GBuffer
+
+Use UE's familiar scalar Specular mapping:
+`F0 = lerp(float3(0.08 * saturate(Specular)), BaseColor, Metallic)`.
+Specular=0.5 reproduces the existing nonmetal F0=0.04. No IOR property is added.
+Preserve existing base GGX/direct/IBL helpers and specular-AA policy.
+
+ClearCoat is a bounded single-normal dielectric layer, not UE's full refracted
+bottom-layer implementation. Let c=saturate(ClearCoat), rc=clamp(CoatRoughness,
+0.045,1), and Fc(x)=0.04+0.96*(1-saturate(x))^5. Use existing GGX D and Smith
+visibility with alpha=rc^2, the same shading normal for both lobes and existing
+shadow attenuation. For each punctual/directional light:
+
+```text
+Base = existing DefaultLit direct BRDF contribution with authored Specular
+Coat = GGX_D(rc,NoH) * SmithVisibility(rc,NoL,NoV) * Fc(VoH) * Li * NoL
+Result = (1-c*Fc(NoV)) * (1-c*Fc(NoL)) * Base + c*Coat
+```
+
+For IBL, evaluate existing base IBL at base roughness/Specular, and the coat
+specular from the existing prefiltered environment at rc with LUT term
+`0.04*A(NoV,rc)+B(NoV,rc)`. Combine as
+`(1-c*Fc(NoV))^2 * BaseIBL + c*CoatIBL`; apply the existing AO convention to
+both. Add EmissiveColor once after lighting. At c=0, code must take the exact
+DefaultLit path. No second normal, refracted bottom direction, absorption,
+area-light specialization, or claim of pixel parity with UE ClearCoat is made.
+
+Keep the four baseline GBuffer targets (three RGBA8 and one R11G11B10).
+Model identity uses the existing flag byte: 0 invalid, 1 DefaultLit, 2 ClearCoat.
+Add one optional RGBA8 ModelData target if any admitted material needs ClearCoat
+or a nonconstant/nondefault Specular. Store R=Specular, G=coat weight,
+B=coat roughness, A=0; clamp/UNorm8 encode. Without this target decode Specular
+as exactly 0.5 and use DefaultLit. MRT/output-layout variants participate in
+Shader/PSO identity; a view with the target uses a matching common GBuffer layout
+for its participating draws. Inspect target-count capability before admission.
+
+Baseline color transport is 16 bytes/pixel; extended transport is 20, plus the
+existing 4-byte depth allocation in both cases. No fifth attachment is allocated
+for a default-only view. ModelData quantization error is at most 1/510 per
+normalized attribute; Specular's dielectric F0 error at most 0.08/510. Preserve
+current normal transport bounds (1 degree) and other channel formats. Forward
+and deferred share model equations; codecs belong to Renderer, not the graph.
+
+## Stage 0 Content Disposition
+
+This is the selected disposition of all 28 tracked packages, not a claim that
+their replacement has happened. Paths below are repository-relative physical
+paths; keep existing logical object identities unless stated. The raw inventory
+records exact physical hashes, classes and length-prefixed logical path strings.
+That scan is a package census/reference-candidate inventory, not a substitute
+for Stage 5's loader/Cook dependency validation. Retain means no material schema
+change to unrelated payload; resave only if an actual referencing field changes.
+
+| Package / group | Decision and replacement | Consumers / validation |
+| --- | --- | --- |
+| `Engine/Content/Materials/DefaultMaterial.dasset` | Recreate new DefaultLit root at the same object path; defaults preserve current appearance. | DefaultMaterialService, unassigned mesh slots, previews and Game default Cook root. |
+| `Engine/Content/Materials/Functions/UVTransform.dasset` | Convert function schema; preserve signature/port IDs and numeric behavior. | Standard-function authoring/imported UV recipes; function round-trip and UV pixels. |
+| `Engine/Content/Materials/Functions/SampleNormal.dasset` | Convert signature/resource/default schema; preserve ports and RNM behavior. | Normal recipes/functions; decode/strength/composition tests and Cook. |
+| `Engine/Content/Materials/Functions/SampleORM.dasset` | Convert signature/resource/default schema; preserve ports and channels. | Import ORM recipes; sampled channel/reflection/function Cook tests. |
+| `Engine/Plugins/Water/Content/Materials/DefaultWater.dasset` | Recreate via updated `AuthorWaterMaterial.h` and `WaterMaterialRecipe.cpp`, same logical identity and waves. | Water component soft default, UV0/custom data/WPO/normal convention, Editor/Game fixture Cook. |
+| `Sandbox/Content/Materials/Metal/M_MetalRust.dasset` | Recreate new DefaultLit graph at the same logical identity, preserving texture roles and two-layer rust appearance where present in current graph. | Sandbox mesh/Level assignments, material editor reopen and texture-dependent image fixture. |
+| `Engine/Content/Models/Box.dasset` | Retain geometry; validate default material selection/slots. | Graybox Level, primitive and preview fixtures. |
+| `Engine/Content/Models/Sphere.dasset` | Retain geometry; validate default/override slots. | Material previews/thumbnails. |
+| `Engine/Content/Models/SplineBox.dasset` | Retain geometry; validate default slots. | RoadWeaver Level and Spline material path. |
+| `Engine/Content/Renderer/DefaultStudioCube.dasset` | Retain Cube asset and current logical path. | Sky/default lighting and new Cube-resource fixture. |
+| `Engine/Content/Renderer/ThumbnailStudioCube.dasset` | Retain Cube asset. | Thumbnail/preview environment. |
+| `Sandbox/Content/Materials/Metal/Metal053C_1K-JPG_Color.dasset` | Retain Texture2D. | Recreated rust BaseColor. |
+| `Sandbox/Content/Materials/Metal/Metal053C_1K-JPG_Metalness.dasset` | Retain Texture2D. | Recreated rust Metallic. |
+| `Sandbox/Content/Materials/Metal/Metal053C_1K-JPG_NormalDX.dasset` | Retain Texture2D and normal convention. | Recreated rust normal path. |
+| `Sandbox/Content/Materials/Metal/Metal053C_1K-JPG_Roughness.dasset` | Retain Texture2D. | Recreated rust Roughness. |
+| `Sandbox/Content/Textures/TEX_StoneHead.dasset` | Retain Texture2D. | Existing project content/reference reachability. |
+| `Sandbox/Content/Textures/TEXCUBE_PureSky_512x512.dasset` | Retain Cube asset. | Graybox sky and new Cube parameter alternative. |
+| `Sandbox/Content/Volumes/VolumetricCloud/VT_Cloud_Base_Voronoi_128.dasset` | Retain VolumeTexture; no Texture3D material support implied. | Existing cloud composition regression. |
+| `Sandbox/Content/Volumes/VolumetricCloud/VT_Cloud_Detail_Voronoi_64.dasset` | Retain VolumeTexture. | Existing cloud composition regression. |
+| `Sandbox/Content/Models/GrayboxPawn.dasset` | Retain geometry; convert referencing material slots only if necessary. | Pawn defaults/Level rendering. |
+| `Sandbox/Content/Gameplay/PlayerPawnDefaults.dasset` | Retain and validate GrayboxPawn soft reference. | Default gameplay asset Cook closure. |
+| `Sandbox/Content/Levels/NewLevel.dasset` | Retain; validate all assignments/default resolution. | Level open/save/Cook. |
+| `Sandbox/Content/Levels/GrayboxStage15.dasset` | Convert/resave material-reference fields if changed; preserve actors, textures, cloud assets and transforms. | Graybox rendering and Level Cook/load. |
+| `RoadWeaver/Content/Levels/L_RoadNet.dasset` | Convert/resave material-reference fields if changed; preserve spline geometry and object identity (current export name `NewLevel`). | Road scene/viewport tests and Game Cook. |
+| `RoadWeaver/Content/NewRoadNet.dasset` | Retain road graph; no material payload rewrite. | Road graph/scene integration. |
+| `Engine/Tests/Native/EngineTests/Data/TextureCookedBaseState/CookedPackages/Game/Texture2D.dasset` | Retain frozen texture compatibility fixture. | Texture cooked-base-state tests; do not rebaseline as material content. |
+| `Engine/Tests/Native/EngineTests/Data/TextureCookedBaseState/CookedPackages/Game/TextureCube.dasset` | Retain frozen texture compatibility fixture. | Same; Cube material support must not rewrite it. |
+| `Engine/Tests/Native/EngineTests/Data/TextureCookedBaseState/CookedPackages/Game/VolumeTexture.dasset` | Retain frozen texture compatibility fixture. | Same; no material Volume domain implied. |
+
+No tracked material-instance or material-collection package was found. Their
+transient graphs, parent chains, defaults and generated Cook products remain
+required migration/test categories. No tracked package is selected for deletion.
+Recreated material objects keep paths so retained references can resolve; if
+implementation chooses a different identity, first update this disposition and
+rewrite every dependent path/override as a single task.
+
+Additional generated/transient content dispositions:
+
+- Convert all Engine material/function/instance/collection test builders,
+  including `TypedMaterialGraphTestFixture`, `ExplicitMaterialProgramTestFixture`,
+  `MaterialVariantTestFixture`, `StandardMaterialFunctionTestFixture` and
+  `SceneRenderQualification`; preserve semantic inputs, including explicit
+  conversion of old Unlit color behavior.
+- Update AssetForgeBuiltins imported-surface/Assimp/glTF recipes and the three
+  standard-function interfaces. Reimport recreates new-format imported parents;
+  generated temporary import packages are not source assets to preserve.
+- Recreate asset-independent Surface ErrorMaterial and transient preview and
+  thumbnail materials through the new contracts. PostProcess uses bypass on
+  failure, never this Surface terminal.
+- Convert RoadWeaver's transient viewport material builder. Keep its content
+  bindings/defaults; run the registered RoadSceneIntegrationTests and selected
+  RoadViewportQualificationTests when their owning changes land.
+- Create new Stage 4 fixtures under a test-only logical root
+  `/Game/MaterialContracts/`: `M_Specular`, `M_ClearCoat`, `M_Cube`, `M_VertexLOD`,
+  `M_PostNeutral`, `M_PostColor`, `M_PostDepth`. Generate them in ignored test/Cook
+  output; they do not require shipping project assets.
+
+## Stage 0 Baselines and Acceptance Budgets
+
+Evidence root (ignored):
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage0/`.
+It contains `assets.json`, `assets-summary.txt`, `consumers.txt`,
+`publication-and-binding-consumers.txt`, `material-qualification.log`,
+reconstructed `compiler-samples.csv` (60 intact rows), `contracts.txt`,
+`contracts.txt.layout.csv` (100 ordered raw samples), `contracts-layout-final.log`,
+`toolchain.txt`, `summary.json`, first/repeat
+captures, a generated `ForwardMaterial.slang`, and copied test reports.
+Raw reports are not committed; these concise receipts and reproduction inputs
+are. Evidence remains required for future comparisons.
+
+Profile: windows-msvc-x64 / Win64-Debug-DurinEditor, Debug, Tracy enabled,
+18 build jobs, MSVC 19.44.35228.0; processor identifier Intel64 Family 6 Model
+151 Stepping 2. Shader compiler identity:
+`ShaderBuild:e21b77147eb05392;adapter=5:3:7`, target `vulkan-spirv-1.5`.
+Vulkan native run: NVIDIA GeForce RTX 3090, device 0x2204,
+API 1.4.351, reported driver 0x9a100000, Khronos layer SDK 1.4.357.0.
+Correctness ran on the ordinary host lane. Exclusive GPU ownership was not
+established, so no GPU timing baseline or performance pass is claimed.
+
+### Reproduction and results
+
+Use the host DevTool launcher with the selected profile, following the linked
+test workflow. Exact selections and capture controls:
+
+- MaterialQualificationTests, mode qualification, report enabled; filter
+  `FMaterialQualificationTests.StagedBuildWorkloadBaseline:FMaterialQualificationTests.MaximumGraphLayoutLatency:FMaterialQualificationTests.InstanceVariantPayloadBaseline`.
+  All three passed. CTest receipt:
+  `Build/.agent-state/logs/20261115-235726-604888-27240-ctest.log`.
+- MaterialQualificationTests, mode qualification, report enabled; final filter
+  `FMaterialQualificationTests.ContractsStage0Snapshot:FMaterialQualificationTests.MaximumGraphLayoutLatency`.
+  Both passed. Set `DURIN_MATERIAL_CONTRACT_BASELINE` to an absolute report file
+  (here the evidence root's `contracts.txt`). CTest receipt:
+  `Build/.agent-state/logs/20261116-001421-393198-33868-ctest.log`.
+  This final instrumentation records the ordered layout samples as well as
+  compiler identity; prior runs are not substituted for that final source state.
+- VolumetricCloudSceneVulkanTests, report enabled, ordinary registered direct
+  host. Set `DURIN_LOCAL_LIGHT_CAPTURES` to absolute `captures/` and then
+  `repeat/` directories. Both runs passed the single scene-route test:
+  `20261115-235820-445636-16552-VolumetricCloudSceneVulkanTests.log` and
+  `20261116-000604-730755-11664-VolumetricCloudSceneVulkanTests.log`, under
+  `Build/.agent-state/logs/`.
+
+The scene is the current `SceneRenderQualification.h` fixed receiver recipe:
+96x64, camera (0,0,2500), forward normalize(1,0,0.1), vertical FOV 60 degrees,
+near 0.1, far 500000, ReversedZ, clear (0.05,0.08,0.12,1). Receiver local
+quad is x=0,y/z=+-40, translated (100,-35,2510), BaseColor (0.7,0.25,0.1),
+two-sided Lit and otherwise default surface values. Lights are ordered IDs
+23000..23003 at (135,-35+i,2510), alternating point/spot, intensities 1100/1800,
+range 200; the fixture owns the other sun/cloud controls. Capture branch disables
+cloud rendering. These constant graphs do not read Time: MaterialTimeSeconds
+uses the renderer default and has no pixel influence. Future time-dependent
+fixtures must set it explicitly to 0 and 1 seconds. Final/Forward captures are
+RGBA8; isolated Local is raw RGBA16F. Forward is the existing Lit wireframe
+route, not a claim of a solid-forward full-scene capture.
+
+| Local lights | Final SHA-256 prefix | Forward prefix | Local HDR prefix |
+| --- | --- | --- | --- |
+| 0 | e58fd1d7b1e3726d | 7842eb82ef35ef12 | bccf5468013e4067 |
+| 1 | 53c2bd1ef19eeb98 | 36aaab621f837a6a | b90d9a7ce640076b |
+| 4 | 0baef1561063cf42 | 4c9041fd526c88b6 | 75d43b5e2d1a727a |
+
+All nine first/repeat files are byte-identical. Full hashes are in summary.json.
+The 4-light final PNG was visually inspected and shows the lit receiver; it is
+not an empty-scene fallback. This is the current baseline, not reuse of a
+historical acceptance image from another plan.
+
+Synthetic PBR compiler fixture snapshot: 496 uniform bytes, 30 numeric fields,
+6 texture fields; 6 Editor entries (Game removes HitProxy). C++ object sizes on
+this ABI: FMaterialRenderLayout 64 bytes, FMaterialParameterValue 40,
+FMaterialStaticProperties 12. These are measured host ABI observations, not
+portable serialized sizes. Per-entry reflected descriptors/code bytes:
+
+| Entry | Descriptors | SPIR-V bytes |
+| --- | ---: | ---: |
+| FragmentMain | 22 | 129160 |
+| GeometryFragmentMain | 14 | 28144 |
+| ShadowFragmentMain | 0 | 168 |
+| HitProxyFragmentMain | 1 | 1008 |
+| VertexMain | 5 | 6244 |
+| SplineVertexMain | 6 | 17984 |
+
+Three-workload staged compiler probe used five independently isolated cache
+seeds per workload; modes are miss, disk reuse, retained reuse. Small-graph
+candidate medians were 527171 / 15234 / 3210 microseconds; standard-function
+graph medians were 591486 / 26522 / 14671. Each miss seed compiled once; disk
+and retained reuse compiled zero times and recorded their expected hit. Shared
+two-instance workload compiled once per miss seed, with the second consumer
+using retained work. Do not aggregate that second consumer's near-zero producer
+time into a claimed compiler speedup.
+
+MaximumGraphLayoutLatency measured median 12726 and p95 13230 microseconds
+in the final run (the earlier run was 12588/13249). Its 100 raw samples are
+retained; the acceptance budgets below were fixed before the final probe run.
+InstanceVariantPayloadBaseline: 8 owners, 4 effective
+identities, 8 compatible instances, 13 instance requests, 15 total requests,
+11 completions, 5 retained programs / 1118336 retained bytes, instance DMAT
+1540898 bytes, root DMAT 188127 bytes. These counts are workload observations;
+the entry-contract refactor may change physical request decomposition, but
+semantic variants must remain shared rather than duplicated per instance.
+
+Current GBuffer is 16 color bytes/pixel plus 4 depth bytes/pixel, excluding HDR
+scene color and allocator padding. At 1920x1080 this is 33177600 color bytes
+and 8294400 depth bytes. The optional new model attachment adds 8294400 bytes;
+it must not be allocated in a default-only view.
+
+### Frozen acceptance budgets
+
+- Unchanged default Specular=0.5 scenes and the nine captured routes require
+  byte-identical pixels on the same backend/toolchain/settings. A mismatch must
+  be investigated and an explicit plan decision recorded before relaxing this
+  gate. Never silently substitute a new baseline. Recreated assets with the same
+  intended semantics still use this rule on their matching fixtures.
+- New model fixtures use an independent CPU reference for the frozen equations:
+  direct/IBL scalar error <=1e-4 before storage; final HDR channel error
+  <=max(0.005,0.01*abs(reference)) including quantization. Forward/deferred use
+  the same HDR bound. ModelData <=1/510, F0 <=0.08/510, normal <=1 degree.
+  ClearCoat c=0 must exactly select the DefaultLit path with the same transport.
+- PostNeutral requires identical output to bypass; PostColor with multiplier
+  (0.5,1,2) must match the existing display mapper applied after the operation,
+  within 1 RGBA8 code value. Test EV -2/0/+2, both depth conventions, view subrect
+  and resized targets. Alpha is copied exactly. Depth reconstruction error is
+  <=max(1e-4,1e-4*viewDepth) for finite geometry samples; background follows the
+  invalid/zero-depth rule. VertexLOD is checked at t=0/1 and position error <=1e-4
+  for representable fixture coordinates; Cube uses known face colors and mips.
+- Default-only view adds zero GBuffer attachments/bytes and zero scene-texture
+  copies. Active PostProcess uses at most one new full-resolution RGBA16F target
+  (8 bytes/pixel), one fullscreen material draw and required declared reads.
+  Extended Lit uses at most one extra RGBA8 attachment (4 bytes/pixel).
+- On the equivalent synthetic fixture, material uniform payload stays <=496
+  bytes and texture count <=6; adding fixed/default surface outputs cannot add
+  runtime parameters. Each baseline entry's reflected descriptor count must
+  not grow. Baseline default usage stays <=6 Editor / <=5 Game entries, and
+  Local Forward-only stays 2. New model/domain entries are accounted separately.
+  New descriptor/layout identities may differ, but bindings must remain exact.
+- Equivalent material Shader code and cooked/retained bytes stay <=125% of the
+  measured baseline, with expanded schema metadata reported separately. Numeric
+  parameter updates compile zero Shaders; disk/retained warm modes compile zero;
+  compatible instances share effective programs, and missing inactive branches
+  allocate no resources. Source-only changes must not create duplicate entries.
+- Same-host Debug CPU budgets: max-graph layout median <=16000 us, p95 <=20000 us;
+  small miss/disk/retained candidate medians <=750000/40000/10000 us; standard
+  function medians <=850000/65000/30000 us. Repeat the same cache seeds/workloads
+  across three quiet CPU runs for an acceptance decision. Current measurements
+  characterize one run and do not establish cross-host performance.
+- GPU timing is not a Stage 0 pass. Before any later GPU performance claim,
+  establish the exclusive lane required by the testing workflow and compare
+  unchanged parent/new fixtures consecutively: median <=110% and p95 <=115% for
+  unchanged routes, with matching pixels. New ClearCoat/PostProcess cost is
+  reported separately, not compared as if it were unchanged shading.
+
+### Validation gaps and independent diagnostics
+
+The read-only DurinAssetTool identity-audit did not yield a usable report in
+this session: Engine invocation failed; Sandbox invocation failed with the old
+tool and remained idle after rebuilding the current tool, then was canceled.
+The cause is unconfirmed. It is not counted as a passed loader/reference audit.
+The complete tracked-file census and serialized name/type inspection establish
+the disposition above; actual reference-edge extraction and new-content
+load/Cook closure remain explicit Stage 5 gates, including repairing all actual
+edges discovered there. No asset was loaded/resaved to work around this issue.
+
+The selected three-case measurement run and final two-case snapshot/layout run
+passed. A separate diagnostic selection of
+`FMaterialQualificationTests.ColdAndWarmCompilerBaseline` failed its existing
+Forward descriptor assertion: expected 21, actual 22. The baseline snapshot and
+reflection show the current 22 descriptors; the assertion was already present
+in the unchanged parent source. Receipt:
+`Build/.agent-state/logs/20261116-001143-997311-35420-ctest.log`, with full output
+copied to `existing-cold-warm-failure.log` under the evidence root. Do not use
+this test as a passed qualification or change its expectation without examining
+the entry's binding needs. Stage 2's reflection/consumer migration owns its
+resolution. The diagnostic run also reported 182708 total SPIR-V bytes and
+188127 root cooked bytes, consistent with the successful snapshot/variant run.
+Earlier archived material unload failures and waived qualification are not
+imported as current results.
+Unselected Cook/editor/application tests, native Metal GPU execution, full
+workspace builds and GPU timing were not run in Stage 0. Their later gates remain
+as specified; Stage 0 changes no production interfaces requiring an `all` build.
+
+## Rebase Review on 2026-11-16
+
+Reviewed `b8d1aa0d7` against the original Stage 0 handoff `5799e35d2`.
+The planning commits were replayed as `e73c76db3` and `b8d1aa0d7` on top of
+`970621e8a` (`refactor(editor): align toolkit ownership and preview teardown`).
+That inserted refactor changes editor ownership/settings/lifetime and their
+tests. At review time it implemented no M14 stage; Stage 1 was still unstarted.
+
+| Review area | Verified effect and plan disposition |
+| --- | --- |
+| Material compiler and formats | No diff in Engine Materials public/private code, RenderCore, ShaderBuild, Renderer or Slang shaders. Frozen properties, data shapes, model/domain/sampling decisions and version transition table stay unchanged. |
+| Assets | Recomputed hashes match all 28 baseline packages; tracked package count remains 28 with no additions. Keep every disposition row and logical identity. Editor window/profile state is separate from material content. |
+| Baseline probes and images | MaterialQualificationTests.cpp, SceneRenderQualification.h and the core material/Shader/render sources have no diff. Preserve the historical structural/reflection and image captures as reference evidence; do not relabel their tested revision as the rebased HEAD. |
+| Editor ownership | FToolkitManager now owns admitted toolkits; reflected editor and host back-references do not create the old ownership chain. Extend current toolkits, without recreating subsystem-owned Session enumeration or lifetime APIs. |
+| Preview release | MMaterialEditor::OnClose clears MaterialPreviews. PreExit closes editors and releases thumbnail previews before rendering teardown. MaterialPreviews use shared ownership; a draw holds a local shared lease against reentrant closing. New domain/model previews must obey the same lifetime. |
+| Preferences and graph viewports | Use MaterialEditorProfileSettings and version-3 files under MaterialEditor/Profiles. Do not restore retired MaterialEditorSessionSettings or migrate obsolete window state as part of material asset conversion. |
+| Tests and support | AssetEditorLifecycleTests replaces AssetEditorSessionTests. Material editor/function tests use current toolkit queries, and FMaterialPreviewHarness has idempotent explicit ShutdownRenderer. Update future fixtures through these seams; material graph editing sessions remain valid and are distinct from the retired asset-editor Session ownership API. |
+
+The owning implemented editor rules are
+[Asset Editors](../Editor/Architecture/Framework/AssetEditors.md).
+Stage 1's root/command/UI migration and later domain previews must additionally
+retain these focused regression scenarios:
+
+- Closing a retained material toolkit releases its preview before toolkit
+  destruction; Editor PreExit can then shut down Renderer before immediate GC.
+- Closing during preview drawing cannot destroy the actively drawing preview.
+- Material/function tab close, host transfer, reopen and preference callbacks
+  use current IsEditorOpen/IsClosed and ToolkitManager membership semantics.
+- Thumbnail preview release preserves registrations needed by a subsequent
+  editor instance and does not keep a scene alive past renderer teardown.
+
+MaterialPreviewTests and material graph interaction cases are registered under
+MaterialEditorInteractionTests; function persistence is under
+MaterialEditingPersistenceTests. Select those affected targets and the relevant
+thumbnail/lifecycle cases when implementation touches their behavior, using
+the current registry. The inserted commit reports its own 678-test and startup
+validation; this review did not independently rerun or adopt that as M14 evidence.
+
+This review is source/asset comparison and documentation maintenance only.
+No new native build/test, timing measurement, Cook or startup smoke was run.
+Changed editor host/preview lifecycle means the historical evidence does not
+qualify the rebased editor's open/close/teardown behavior. Re-run the changed
+editor cases at the affected implementation stage; CPU timing acceptance still
+requires the existing three-run same-host protocol on the final relevant inputs.
+The old 21-versus-22 descriptor assertion and unavailable identity-audit report
+remain historical diagnostics, not newly resolved or newly reproduced failures.
+No architecture redesign, asset recensus or Stage 0 restart is required by the
+verified changes.

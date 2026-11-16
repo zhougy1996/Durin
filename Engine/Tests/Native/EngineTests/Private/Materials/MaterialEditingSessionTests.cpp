@@ -48,7 +48,7 @@ namespace
 		auto Edit(DMaterial& Material, float Roughness) -> void
 		{
 			auto Outputs = Material.GetExpressionOutputs();
-			Outputs.Roughness.SetConstant({Roughness});
+			Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({Roughness});
 			std::vector<DMaterialExpression*> Expressions;
 			for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 			ASSERT_TRUE(Material.SetMaterialExpressions(Expressions, Outputs));
@@ -70,7 +70,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 	Parameter->DefaultValue = 0.23f;
 	DMaterialExpression* Inputs[] = {Parameter.Get()};
 	auto Outputs = Source->GetExpressionOutputs();
-	Outputs.Roughness.Connection.ExpressionId = Parameter->Id;
+	Outputs.Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId = Parameter->Id;
 	ASSERT_TRUE(Source->SetMaterialExpressions(Inputs, Outputs));
 	Package->ClearDirty();
 	TObjectPtr<DMaterialExpression> RetiredDraftExpression;
@@ -155,7 +155,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, AppliedGeneration);
 	Edit(*Draft, 0.62f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.37f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.37f);
 	MarkAsGarbage(Child);
 }
 
@@ -164,7 +164,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	auto* First = NewObject<DMaterialFunction>(Package, "FirstFunction");
 	auto* Second = NewObject<DMaterialFunction>(Package, "SecondFunction");
 	auto Signature = Second->GetFunctionSignature();
-	Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.23f;
+	Signature.Inputs[0].Default.Surface.Get(EMaterialProperty::MP_Roughness).Literal.X = 0.23f;
 	std::vector<DMaterialExpression*> Body;
 	for (const auto& Expression : Second->GetExpressionCollection().Expressions) Body.push_back(Expression.Get());
 	ASSERT_TRUE(Second->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
@@ -174,8 +174,8 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Call->Id = CallId; Call->Function = First; Call->Outputs = {{Output.Id, Output.Type}};
 	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
-	FMaterialExpressionSurfaceOutputs Outputs;
-	Outputs.Surface = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+	FMaterialAttributeRoot Outputs;
+	Outputs.Attributes = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Source->SetMaterialExpressions(Expressions, Outputs));
 	const auto GetCall = [](DMaterial& Material) {
 		return Cast<DMaterialExpressionFunctionCall>(Material.GetExpressionCollection().Expressions.at(0).Get());
@@ -259,8 +259,8 @@ TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOver
 	Edit(*Source, 0.72f);
 	EXPECT_FALSE(Session.FinishAndApply(Error));
 	EXPECT_NE(Error.find("outside"), std::string::npos);
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.72f);
-	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetExpressionOutputs().Roughness.Constant[0], 0.31f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.72f);
+	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.31f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 }
 
@@ -277,7 +277,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 		auto* Draft = Session.GetWorkingMaterial();
 		RetiredDraft = Draft;
 		FMaterialGraphSurfaceDefaultRequest Request;
-		Request.Output = EMaterialSurfaceOutput::Roughness;
+		Request.Output = EMaterialProperty::MP_Roughness;
 		Request.Value.X = 0.21f;
 		ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Draft, Request));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
@@ -294,7 +294,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 	EXPECT_FALSE(RetiredDraft.IsValid());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FALSE(Transactions->CanRedo());
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.21f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.21f);
 }
 
 TEST_F(FMaterialEditingSessionTests, DiscardWithoutApplyLeavesSourceClean)
@@ -321,5 +321,5 @@ TEST_F(FMaterialEditingSessionTests, RelocationDoesNotInvalidateAnUnchangedSourc
 		FGuid::NewGuid().ToString()), Destination));
 	ASSERT_TRUE(Package->RelocateAssetPackage(Destination));
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Roughness.Constant[0], 0.46f);
+	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.46f);
 }

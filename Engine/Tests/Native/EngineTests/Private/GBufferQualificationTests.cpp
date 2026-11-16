@@ -151,6 +151,9 @@ namespace
 		Overrides.Values.bTwoSided = true;
 		Overrides.Values.OpacityMaskThreshold = 0.333f;
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
+		if (ShadingModel == Durin::EMaterialShadingModel::Unlit)
+			EXPECT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
+				Durin::FVector3(std::clamp(BaseColor.X, 0.0, 1.0), std::clamp(BaseColor.Y, 0.0, 1.0), std::clamp(BaseColor.Z, 0.0, 1.0))));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 		EXPECT_TRUE(Material->SetScalarParameterValue(
@@ -554,7 +557,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 
 	auto* MaterialObject = MakeMaterial(
 		"GBufferQualificationLit", Durin::EMaterialBlendMode::Opaque,
-		Durin::EMaterialShadingModel::Lit, {0.7, 0.4, 0.2});
+		Durin::EMaterialShadingModel::DefaultLit, {0.7, 0.4, 0.2});
 	ASSERT_NE(MaterialObject, nullptr);
 	auto Material = MaterialObject->GetRenderProxy();
 	Durin::FlushRenderingCommands();
@@ -621,7 +624,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 
 	auto* SpecularAAMaterialObject = MakeMaterial(
 		"GBufferQualificationSpecularAA", Durin::EMaterialBlendMode::Opaque,
-		Durin::EMaterialShadingModel::Lit, {0.7, 0.4, 0.2}, 0.8f, 0.045f);
+		Durin::EMaterialShadingModel::DefaultLit, {0.7, 0.4, 0.2}, 0.8f, 0.045f);
 	ASSERT_NE(SpecularAAMaterialObject, nullptr);
 	auto SpecularAAMaterial =
 		SpecularAAMaterialObject->GetRenderProxy();

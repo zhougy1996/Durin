@@ -119,9 +119,9 @@ namespace Durin
 		{
 			auto* Input = NewObject<DMaterialExpressionFunctionInput>(this, "FunctionInput");
 			auto* Output = NewObject<DMaterialExpressionFunctionOutput>(this, "FunctionOutput");
-			Input->Id = InputNodeId; Input->Port = {.Id = InputId, .Type = EMaterialProgramValueType::Surface,
-				.Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::Surface}};
-			Output->Id = OutputNodeId; Output->Port = {.Id = OutputId, .Type = EMaterialProgramValueType::Surface, .Name = "Surface"}; Output->Source = {InputNodeId};
+			Input->Id = InputNodeId; Input->Port = {.Id = InputId, .Type = EMaterialProgramValueType::MaterialAttributes,
+				.Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::MaterialAttributes}};
+			Output->Id = OutputNodeId; Output->Port = {.Id = OutputId, .Type = EMaterialProgramValueType::MaterialAttributes, .Name = "Surface"}; Output->Source = {InputNodeId};
 			ExpressionCollection.Expressions = {Input, Output};
 		}
 

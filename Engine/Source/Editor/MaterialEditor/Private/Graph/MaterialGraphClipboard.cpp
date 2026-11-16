@@ -49,12 +49,12 @@ namespace Durin::MaterialEditor
 			if (!Copy) return RejectCommand(ToString(Duplicated.error()));
 			OutPayload.Nodes.push_back({TStrongObjectPtr<DMaterialExpression>(Copy), Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
-		if (Material && Selected.contains(Material->GetExpressionOutputs().Surface.ExpressionId))
+		if (Material && Selected.contains(Material->GetExpressionOutputs().Attributes.ExpressionId))
 		{
 			OutPayload.bConnectAggregateSurface = true;
-			OutPayload.AggregateSourceNodeId = Material->GetExpressionOutputs().Surface.ExpressionId;
-			OutPayload.AggregateSourceOutputIndex = Material->GetExpressionOutputs().Surface.OutputIndex;
-			OutPayload.AggregateSourceOutputId = Material->GetExpressionOutputs().Surface.OutputId;
+			OutPayload.AggregateSourceNodeId = Material->GetExpressionOutputs().Attributes.ExpressionId;
+			OutPayload.AggregateSourceOutputIndex = Material->GetExpressionOutputs().Attributes.OutputIndex;
+			OutPayload.AggregateSourceOutputId = Material->GetExpressionOutputs().Attributes.OutputId;
 		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
@@ -183,7 +183,7 @@ namespace Durin::MaterialEditor
 		}
 		if (Payload.bConnectAggregateSurface && !State.bFunction)
 		{
-			State.GetOutputs().Surface = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
+			State.GetOutputs().Attributes = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
 		auto Result = State.Commit("Paste Graph Nodes", Transactions);
 		if (Result)

@@ -19,70 +19,53 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 8;
+		inline constexpr uint32 CurrentVersion = 10;
 	}
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 13;
-	// Ordinals 0-5 are persisted. Retired ordinal 6 must never be reused.
-	enum class EMaterialShaderEntry : uint8
-	{
-		Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex,
-	};
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 14;
+	// Classification only. Persisted requests use Shader type/entry identities.
+	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex };
+	using FMaterialShaderEntrySet = std::vector<EMaterialShaderEntry>;
 	struct FMaterialShaderEntryDescriptor
 	{
 		EMaterialShaderEntry Entry;
+		std::string_view ShaderType;
 		std::string_view Name;
 		EShaderFrequency Frequency;
 		uint8 GeometryUsage;
 		uint8 PassUsage;
 		bool bEditorOnly = false;
-		constexpr auto GetBit() const -> uint8 { return uint8(1u << static_cast<uint8>(Entry)); }
 	};
 	inline constexpr std::array MaterialShaderEntries{
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Forward, "FragmentMain", EShaderFrequency::Fragment, 3, 1},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GBuffer, "GeometryFragmentMain", EShaderFrequency::Fragment, 3, 2},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Shadow, "ShadowFragmentMain", EShaderFrequency::Fragment, 3, 4},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::HitProxy, "HitProxyFragmentMain", EShaderFrequency::Fragment, 3, 8, true},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::LocalVertex, "VertexMain", EShaderFrequency::Vertex, 1, 15},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineVertexMain", EShaderFrequency::Vertex, 2, 15},
-	};
-	constexpr auto MaterialShaderEntryBit(EMaterialShaderEntry Entry) -> uint8
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Forward, "SurfaceForward", "FragmentMain", EShaderFrequency::Fragment, 3, 1},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::GBuffer, "SurfaceGBuffer", "GeometryFragmentMain", EShaderFrequency::Fragment, 3, 2},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Shadow, "SurfaceShadow", "ShadowFragmentMain", EShaderFrequency::Fragment, 3, 4},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::HitProxy, "SurfaceHitProxy", "HitProxyFragmentMain", EShaderFrequency::Fragment, 3, 8, true},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::LocalVertex, "LocalMaterialVertex", "VertexMain", EShaderFrequency::Vertex, 1, 15},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineMaterialVertex", "SplineVertexMain", EShaderFrequency::Vertex, 2, 15}};
+	inline auto FindMaterialShaderEntry(EMaterialShaderEntry Entry) -> const FMaterialShaderEntryDescriptor*
+	{ for (const auto& D : MaterialShaderEntries) if (D.Entry == Entry) return &D; return nullptr; }
+	inline auto FindMaterialShaderEntry(std::string_view ShaderType) -> const FMaterialShaderEntryDescriptor*
+	{ for (const auto& D : MaterialShaderEntries) if (D.ShaderType == ShaderType) return &D; return nullptr; }
+	inline auto SelectMaterialShaderEntries(const FMaterialStaticProperties& Properties, bool bIncludeEditorPasses = true) -> FMaterialShaderEntrySet
 	{
-		return MaterialShaderEntries[static_cast<uint8>(Entry)].GetBit();
-	}
-	constexpr auto MaterialShaderStageMask(EShaderFrequency Frequency) -> uint8
-	{
-		uint8 Mask = 0;
+		FMaterialShaderEntrySet Result;
+		uint8 Passes = 0;
 		for (const auto& Entry : MaterialShaderEntries)
-			if (Entry.Frequency == Frequency && Entry.GeometryUsage != 0) Mask |= Entry.GetBit();
-		return Mask;
+			if (Entry.Frequency == EShaderFrequency::Fragment && (!Entry.bEditorOnly || bIncludeEditorPasses)) Passes |= Entry.PassUsage;
+		Passes &= Properties.PassUsage;
+		for (const auto& Entry : MaterialShaderEntries)
+			if ((!Entry.bEditorOnly || bIncludeEditorPasses) && (Properties.GeometryUsage & Entry.GeometryUsage) && (Passes & Entry.PassUsage)) Result.push_back(Entry.Entry);
+		return Result;
 	}
-	inline constexpr uint8 MaterialFragmentStageMask = MaterialShaderStageMask(EShaderFrequency::Fragment);
-	inline constexpr uint8 MaterialVertexStageMask = MaterialShaderStageMask(EShaderFrequency::Vertex);
-	inline constexpr uint8 MaterialAllStageMask = MaterialFragmentStageMask | MaterialVertexStageMask;
+	inline const auto MaterialAllEntries = SelectMaterialShaderEntries({});
 	inline constexpr auto MaterialCompiledEntryPoints = [] {
 		std::array<std::string_view, MaterialShaderEntries.size()> Names;
 		for (size_t Index = 0; Index < Names.size(); ++Index) Names[Index] = MaterialShaderEntries[Index].Name;
 		return Names;
 	}();
-
-	constexpr auto SelectMaterialShaderStages(const FMaterialStaticProperties& Properties,
-		bool bIncludeEditorPasses = true) -> uint8
-	{
-		uint8 Passes = 0;
-		for (const auto& Entry : MaterialShaderEntries)
-			if (Entry.Frequency == EShaderFrequency::Fragment && (!Entry.bEditorOnly || bIncludeEditorPasses))
-				Passes |= Entry.PassUsage;
-		Passes &= Properties.PassUsage;
-		uint8 Stages = 0;
-		for (const auto& Entry : MaterialShaderEntries)
-			if ((!Entry.bEditorOnly || bIncludeEditorPasses)
-				&& (Properties.GeometryUsage & Entry.GeometryUsage) && (Passes & Entry.PassUsage))
-				Stages |= Entry.GetBit();
-		return Stages;
-	}
 
 	struct FMaterialCompilerDependency
 	{
@@ -213,9 +196,11 @@ namespace Durin
 		struct FModule
 		{
 			uint32 Version = CurrentVersion;
+			EMaterialDomain Domain = EMaterialDomain::Surface;
 			std::vector<FNode> Nodes;
-			struct FSurfaceInput
+			struct FAttributeRoot
 			{
+				FGuid AttributeID;
 				bool bExpression = false;
 				uint32 ExpressionIndex = 0;
 				EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
@@ -227,18 +212,14 @@ namespace Durin
 				{
 					return {Type, LegalStages, SpatialKind, CoordinateSpace};
 				}
-				auto operator==(const FSurfaceInput&) const -> bool = default;
+				auto operator==(const FAttributeRoot&) const -> bool = default;
 			};
-			struct FSurfaceRoot
-			{
-				bool bAggregate = false;
-				uint32 AggregateExpressionIndex = 0;
-				std::array<FSurfaceInput, 8> Inputs;
-				auto operator==(const FSurfaceRoot&) const -> bool = default;
-			};
-			FSurfaceRoot SurfaceRoot;
-			FSurfaceInput WorldPositionOffset{.Type = EMaterialProgramValueType::Float3,
-				.LegalStages = EMaterialEvaluationStage::Vertex};
+			bool bAggregateAttributes = false;
+			uint32 AggregateAttributesIndex = 0;
+			std::vector<FAttributeRoot> AttributeRoots;
+			ENGINE_API FModule();
+			ENGINE_API auto GetAttribute(EMaterialProperty Property) -> FAttributeRoot&;
+			ENGINE_API auto GetAttribute(EMaterialProperty Property) const -> const FAttributeRoot&;
 
 			auto operator==(const FModule&) const -> bool = default;
 		};
@@ -303,6 +284,58 @@ namespace Durin
 		bool bVertexNormal = false;
 		auto operator==(const FMaterialProgramRequirements&) const -> bool = default;
 	};
+
+	enum class EMaterialSceneTextureId : uint8 { PostProcessInput0, SceneDepth };
+	enum class EMaterialSceneTextureFilter : uint8 { Point, Linear };
+	// Logical renderer input only; Surface entries currently require none.
+	struct FMaterialSceneTextureRequirement
+	{
+		EMaterialSceneTextureId InputId;
+		EMaterialSceneTextureFilter Filter;
+		bool bRequired = true;
+		auto operator==(const FMaterialSceneTextureRequirement&) const -> bool = default;
+	};
+	// Conservative evaluation closure; reflection may remove, but never add, reads.
+	struct FMaterialEntryRequirements
+	{
+		std::vector<FGuid> AttributeIDs;
+		std::vector<FGuid> ParameterIDs;
+		std::vector<uint16> ResourceIndices;
+		std::vector<FGuid> CollectionIDs;
+		std::vector<FMaterialSceneTextureRequirement> SceneTextures;
+		std::vector<FMaterialValueSemantics> Interpolators;
+		bool bUsesWPO = false;
+		bool bUsesMask = false;
+		FMaterialProgramRequirements Context;
+		auto operator==(const FMaterialEntryRequirements&) const -> bool = default;
+	};
+	// Owned execution identity and analyzed requirements, independent of worker order.
+	struct FMaterialShaderEntryRequest
+	{
+		FMaterialShaderPermutationIdentity Shader;
+		std::optional<FMeshMaterialShaderPermutationIdentity> Mesh;
+		FMaterialEntryRequirements Requirements;
+		auto operator==(const FMaterialShaderEntryRequest&) const -> bool = default;
+	};
+	// Immutable analyzed module shared by translated, cooked and runtime artifacts.
+	struct FMaterialCompilationOutput
+	{
+		EMaterialDomain Domain = EMaterialDomain::Surface;
+		FMaterialStaticProperties StaticProperties;
+		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
+		FMaterialRenderLayout Layout;
+		FMaterialProgramRequirements Requirements;
+		// Schemas only; paths and defaults belong to each requesting material.
+		std::vector<FMaterialParameterCollectionLayout> CollectionLayouts;
+		std::vector<FMaterialShaderEntryRequest> Entries;
+	};
+	ENGINE_API auto ValidateMaterialCompilationOutput(const FMaterialCompilationOutput& Output,
+		FMaterialProgramIdentity Identity, std::string_view Target, std::span<const FShaderCode> Stages)
+		-> FMaterialLayoutValidationResult;
+	ENGINE_API auto GetMaterialEntryProperties(EMaterialShaderEntry Entry, const FMaterialStaticProperties& Properties) -> std::vector<EMaterialProperty>;
+	ENGINE_API auto BuildMaterialCompilationOutput(const MIR::FModule& IR, const FMaterialRenderLayout& Layout,
+		std::span<const FMaterialCompilerParameterDeclaration> Parameters, std::span<const FMaterialParameterCollectionLayout> Collections,
+		const FMaterialStaticProperties& Properties, const FMaterialCompilerEnvironment& Environment, FMaterialProgramIdentity Identity) -> FMaterialCompilationOutput;
 
 	enum class EMaterialProgramStatus : uint8 { Ok, Error, Canceled };
 	class FMaterialShaderMap;
@@ -404,7 +437,7 @@ namespace Durin
 		std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits = {},
 		std::span<const FMaterialParameterCollectionLayout> Collections = {},
-		uint8 RequiredStages = MaterialAllStageMask)
+		const FMaterialShaderEntrySet& RequiredEntries = MaterialAllEntries)
 		-> FMaterialLayoutValidationResult;
 	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
 		const MIR::FModule& IR) -> FMaterialSourceGenerationResult;

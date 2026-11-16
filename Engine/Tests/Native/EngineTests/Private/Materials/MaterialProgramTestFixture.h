@@ -76,10 +76,10 @@ namespace
 		}
 		check(Nodes.size() == Count);
 		Input.IR.Nodes = std::move(Nodes);
-		for (auto& Root : Input.IR.SurfaceRoot.Inputs)
+		for (auto& Root : Input.IR.AttributeRoots)
 			if (Root.bExpression) Root.ExpressionIndex = Remapping[Root.ExpressionIndex];
-		if (Input.IR.SurfaceRoot.bAggregate)
-			Input.IR.SurfaceRoot.AggregateExpressionIndex = Remapping[Input.IR.SurfaceRoot.AggregateExpressionIndex];
+		if (Input.IR.bAggregateAttributes)
+			Input.IR.AggregateAttributesIndex = Remapping[Input.IR.AggregateAttributesIndex];
 		for (auto& Source : Input.Sources) Source.ExpressionIndex = Remapping[Source.ExpressionIndex];
 	}
 

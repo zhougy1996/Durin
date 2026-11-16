@@ -117,9 +117,9 @@ namespace
 			auto* Constant = NewObject<DMaterialExpressionVector3Constant>(Material, "Color");
 			Constant->Id = FGuid::NewGuid();
 			Constant->Value = Color;
-			FMaterialExpressionSurfaceOutputs Outputs;
-			Outputs.BaseColor = {Constant->Id};
-			Outputs.Emissive = {Constant->Id};
+			FMaterialAttributeRoot Outputs;
+			Outputs.Get(EMaterialProperty::MP_BaseColor) = {Constant->Id};
+			Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Constant->Id};
 			const std::array<DMaterialExpression*, 1> Expressions{Constant};
 			EXPECT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 			FMaterialStaticProperties Properties;

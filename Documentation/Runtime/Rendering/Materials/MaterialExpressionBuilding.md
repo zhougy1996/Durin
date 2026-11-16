@@ -35,7 +35,7 @@ kind, and coordinate space. Existing operations resolve those semantics through
 one signature table before a node is published. Constants and parameters are
 non-spatial; normal-texture RGB is an explicit Pixel/Tangent/Normal producer;
 Surface attributes require Pixel values and Normal requires the exact Tangent/Normal
-contract. The independent WPO root requires Vertex values; explicit interpolators
+contract. The WPO attribute requires Vertex values; explicit interpolators
 bridge vertex inputs to pixel consumers. See [vertex evaluation](MaterialVertexEvaluation.md). Scalar broadcast is represented explicitly and records which operand
 was broadcast so canonical validation cannot confuse it with vector arithmetic.
 Position, direction, and normal transform nodes carry canonical source and
@@ -115,14 +115,15 @@ compiler worker inputs.
 Authored shapes reuse shared value/type rules during initialization, then apply
 numeric broadcast and exact-normal authoring constraints. They are separate from
 normalized MIR signatures: samples expose multiple indexed outputs, collections
-resolve declaration types, functions use live GUID ports, and Surface masks and
+resolve declaration types, functions use live GUID ports, and attribute GUID selections and
 bindings control instance pins. Instance-dependent output behavior must be read
 from authored state rather than inferred from palette availability.
 
 `MaterialExpressionInputs.h` owns reflected connection traversal and retained
 numeric-default lookup. Fixed members retain declaration order; function calls
-visit binding order, material terminals use stable output indices, and Surface
-overrides use stable attribute indices. Visitors borrow live inputs for the
+visit binding order; material terminals and attribute overrides project stable
+property identities to command addresses. Attribute selectors and bindings persist
+GUIDs rather than definition-table positions. Visitors borrow live inputs for the
 current owning-thread operation. Editor commands, clipboard, and layout share
 this contract without putting expression references into detached compilation.
 
@@ -139,7 +140,8 @@ A connection takes precedence over either flag state. Broken or incompatible
 connections report diagnostics. A disconnected input uses its constant when
 enabled, otherwise its definition fallback. `GetMaterialNumericInputFallback`
 owns numeric node fallbacks; standard Surface values come from
-`FMaterialSurfaceOutputs`. Sampling UVs inherit mesh UV0 and attribute overrides
+`FMaterialAttributeDefinitionMap`, projected through `FMaterialAttributeValues`.
+Sampling UVs inherit mesh UV0 and attribute overrides
 inherit their base Surface value. Inputs without a fallback remain required.
 
 Retained constants are validated even behind connections or while disabled.

@@ -538,12 +538,13 @@ def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: P
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
-def test_material_function_initialization_executes_unless_dry_run(tmp_path: Path, dry_run: bool) -> None:
+@pytest.mark.parametrize("command", ["material-functions", "material-foundation"])
+def test_material_function_initialization_executes_unless_dry_run(tmp_path: Path, dry_run: bool, command: str) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
-    namespace = argparse.Namespace(asset_command="material-functions", project_path=project, dry_run=dry_run)
+    namespace = argparse.Namespace(asset_command=command, project_path=project, dry_run=dry_run)
     calls = []
     def runner(arguments, **kwargs):
         calls.append(arguments)
@@ -553,7 +554,7 @@ def test_material_function_initialization_executes_unless_dry_run(tmp_path: Path
             stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda *_: executable, command_runner=runner)
     assert run() == 0
-    assert calls == [[str(executable), "material-functions", f"--project={project}"] + (["--apply"] if not dry_run else [])]
+    assert calls == [[str(executable), command, f"--project={project}"] + (["--apply"] if not dry_run else [])]
 
 
 @pytest.mark.parametrize("dry_run", [False, True])

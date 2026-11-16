@@ -126,7 +126,7 @@ TEST(FMaterialProgramIdentityTests,
 		Durin::EMaterialBlendMode::Opaque);
 	EXPECT_EQ(
 		Initial.PlanningPassIdentity.ShaderMap.ShadingModel,
-		Durin::EMaterialShadingModel::Lit);
+		Durin::EMaterialShadingModel::DefaultLit);
 	EXPECT_FLOAT_EQ(
 		Initial.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold,
 		0.333f);
@@ -285,7 +285,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	EXPECT_FALSE(Resolved.Representation.IsError());
 	EXPECT_EQ(
 		Resolved.PlanningPassIdentity.ShaderMap.ShadingModel,
-		Durin::EMaterialShadingModel::Lit);
+		Durin::EMaterialShadingModel::DefaultLit);
 	EXPECT_FALSE(Resolved.PlanningPassIdentity.bTwoSided);
 
 	const auto CookRoots = Durin::GetEngineBuiltInCookRoots();
@@ -635,7 +635,7 @@ TEST(FMaterialRenderRepresentationTests, TextureSamplingOverridesChangePayloadWi
 	const auto Texture = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, {}, Definition.Id);
 	const auto UV = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
 	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {Texture, UV});
-	Graph.Outputs.BaseColor = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {Sample});
+	Graph.Outputs.Get(EMaterialProperty::MP_BaseColor) = Add(EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float3, {Sample});
 	ASSERT_TRUE(Graph.Apply(*Root));
 	ASSERT_TRUE(FinishMaterialCompileForTest(*Root));
 	ASSERT_TRUE(Child->SetParent(Root));

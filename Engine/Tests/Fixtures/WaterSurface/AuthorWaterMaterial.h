@@ -111,19 +111,17 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 		}
 		Links.push_back(Link);
 	}
-	FMaterialExpressionSurfaceOutputs Outputs;
-	std::array<FMaterialNumericInput*, 8> Pins{&Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic, &Outputs.Roughness,
-		&Outputs.AmbientOcclusion, &Outputs.Emissive, &Outputs.Opacity, &Outputs.OpacityMask};
-	for (uint32 I = 0; I < Pins.size(); ++I)
+	FMaterialAttributeRoot Outputs;
+	for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
 	{
-		const auto& Root = Recipe.IR.SurfaceRoot.Inputs[I];
-		if (Root.bExpression) *Pins[I] = Links.at(Root.ExpressionIndex);
+		const auto& Root = Recipe.IR.GetAttribute(Definition.Property);
+		auto& Pin = Outputs.Get(Definition.Property);
+		if (Root.bExpression) Pin = Links.at(Root.ExpressionIndex);
 		else {
 			const std::array Values{Root.Literal.X, Root.Literal.Y, Root.Literal.Z, Root.Literal.W};
-			Pins[I]->SetConstant(std::vector<float>(Values.begin(), Values.begin() + uint32(Root.Type) + 1));
+			Pin.SetConstant(std::vector<float>(Values.begin(), Values.begin() + uint32(Root.Type) + 1));
 		}
 	}
-	Outputs.WorldPositionOffset = Links.at(Recipe.IR.WorldPositionOffset.ExpressionIndex);
 	if (auto R = Material->SetStaticProperties(Recipe.StaticProperties); !R) throw std::runtime_error(R.error());
 	if (auto R = Material->SetMaterialExpressions(Nodes, Outputs); !R)
 		throw std::runtime_error(R.Diagnostics.empty() ? "Water source material graph validation failed." : R.Diagnostics.front().Message);

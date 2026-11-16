@@ -1,4 +1,5 @@
 #include "Materials/MaterialProgramCompiler.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "MaterialPreparedProgram.h"
 #include "MaterialBuildVersion.h"
 #include "Hash/XxHash.h"
@@ -51,15 +52,6 @@ namespace Durin
 			using Type = std::underlying_type_t<TValue>;
 		};
 
-		constexpr std::array GSurfaceOutputOrder{
-			EMaterialSurfaceOutput::BaseColor,
-			EMaterialSurfaceOutput::Normal,
-			EMaterialSurfaceOutput::Metallic,
-			EMaterialSurfaceOutput::Roughness,
-			EMaterialSurfaceOutput::AmbientOcclusion,
-			EMaterialSurfaceOutput::Emissive,
-			EMaterialSurfaceOutput::Opacity,
-			EMaterialSurfaceOutput::OpacityMask};
 		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 8;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
@@ -426,8 +418,10 @@ namespace Durin
 		constexpr uint32 InvalidIndex = 0xffffffffu;
 		std::vector<uint32> Indices(Count, InvalidIndex);
 		MIR::FModule IR;
-		IR.SurfaceRoot = Input.IR.SurfaceRoot;
-		IR.WorldPositionOffset = Input.IR.WorldPositionOffset;
+		IR.Domain = Input.IR.Domain;
+		IR.AttributeRoots = Input.IR.AttributeRoots;
+		IR.bAggregateAttributes = Input.IR.bAggregateAttributes;
+		IR.AggregateAttributesIndex = Input.IR.AggregateAttributesIndex;
 		std::function<uint32(uint32)> Emit = [&](uint32 Index) -> uint32 {
 			if (Indices[Index] != InvalidIndex) return Indices[Index];
 			auto Node = Nodes[Index];
@@ -438,31 +432,37 @@ namespace Durin
 			Indices[Index] = NewIndex;
 			return NewIndex;
 		};
-		if (IR.SurfaceRoot.bAggregate)
+		if (IR.bAggregateAttributes)
 		{
 			// Surface construction is lowered before normalization. Both authoring
 			// modes share final-property filtering and reachability from this point.
-			const auto& Surface = Nodes[IR.SurfaceRoot.AggregateExpressionIndex];
-			for (size_t Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+			const auto& Surface = Nodes[IR.AggregateAttributesIndex];
+			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
 			{
-				auto& Root = IR.SurfaceRoot.Inputs[Index];
+				auto& Root = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
 				Root.bExpression = true;
-				Root.ExpressionIndex = Surface.Inputs[Index];
+				Root.ExpressionIndex = Index < Surface.Inputs.size() ? Surface.Inputs[Index] : 0;
+				Root.bExpression = Index < Surface.Inputs.size();
 			}
-			IR.SurfaceRoot.bAggregate = false;
+			IR.bAggregateAttributes = false;
 		}
 		{
-			const FMaterialSurfaceOutputs Defaults;
-			for (size_t Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
-				if (!IsMaterialSurfaceOutputActive(static_cast<EMaterialSurfaceOutput>(Index), Input.StaticProperties))
+			const FMaterialAttributeValues Defaults;
+			std::set<EMaterialProperty> Demanded;
+			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses))
+				for (const auto Property : GetMaterialEntryProperties(Entry, Input.StaticProperties)) Demanded.insert(Property);
+			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
+				if (!Demanded.contains(static_cast<EMaterialProperty>(Index))
+					|| !IsMaterialSurfaceOutputActive(static_cast<EMaterialProperty>(Index), Input.StaticProperties))
 				{
-					auto& Root = IR.SurfaceRoot.Inputs[Index];
+					auto& Root = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
 					Root.bExpression = false;
-					Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialSurfaceOutput>(Index));
+					Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(Index));
 				}
 
-			IR.SurfaceRoot.AggregateExpressionIndex = 0;
-			for (auto& Root : IR.SurfaceRoot.Inputs)
+			IR.AggregateAttributesIndex = 0;
+			std::ranges::sort(IR.AttributeRoots, {}, &MIR::FModule::FAttributeRoot::AttributeID);
+			for (auto& Root : IR.AttributeRoots)
 			{
 				if (Root.bExpression) { Root.ExpressionIndex = Emit(Root.ExpressionIndex); Root.Literal = {}; }
 				else
@@ -473,12 +473,7 @@ namespace Durin
 				}
 			}
 		}
-		if (IR.WorldPositionOffset.bExpression)
-		{
-			IR.WorldPositionOffset.ExpressionIndex = Emit(IR.WorldPositionOffset.ExpressionIndex);
-			IR.WorldPositionOffset.Literal = {};
-		}
-		else { IR.WorldPositionOffset.ExpressionIndex = 0; IR.WorldPositionOffset.Literal.W = 0.f; }
+
 		for (const auto& Source : Input.Sources)
 			if (Indices[Source.ExpressionIndex] != InvalidIndex)
 			{
@@ -578,24 +573,42 @@ namespace Durin
 			}
 			AppendIRNode(OutBytes, Node);
 		}
-		AppendLittleEndian(OutBytes, static_cast<uint8>(IR.SurfaceRoot.bAggregate));
-		AppendLittleEndian(OutBytes, IR.SurfaceRoot.AggregateExpressionIndex);
-		if (IR.SurfaceRoot.bAggregate
-			&& (IR.SurfaceRoot.AggregateExpressionIndex >= IR.Nodes.size()
-				|| IR.Nodes[IR.SurfaceRoot.AggregateExpressionIndex].ResultType
-					!= EMaterialProgramValueType::Surface
-				|| IR.Nodes[IR.SurfaceRoot.AggregateExpressionIndex].SpatialKind
+		if (IR.Domain != EMaterialDomain::Surface)
+		{ OutBytes.clear(); return std::unexpected("Unsupported material domain."); }
+		AppendLittleEndian(OutBytes, IR.Domain);
+		AppendLittleEndian(OutBytes, static_cast<uint8>(IR.bAggregateAttributes));
+		AppendLittleEndian(OutBytes, IR.AggregateAttributesIndex);
+		if (IR.bAggregateAttributes
+			&& (IR.AggregateAttributesIndex >= IR.Nodes.size()
+				|| IR.Nodes[IR.AggregateAttributesIndex].ResultType
+					!= EMaterialProgramValueType::MaterialAttributes
+				|| IR.Nodes[IR.AggregateAttributesIndex].SpatialKind
 					!= EMaterialSpatialKind::None
 				|| !MaterialStagesContain(
-					IR.Nodes[IR.SurfaceRoot.AggregateExpressionIndex].LegalStages,
+					IR.Nodes[IR.AggregateAttributesIndex].LegalStages,
 					EMaterialEvaluationStage::Pixel)))
 		{
 			OutBytes.clear();
 			return std::unexpected("Material IR aggregate Surface Root expression is invalid.");
 		}
-		for (size_t Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+		auto Roots = IR.AttributeRoots;
+		if (Roots.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size())
 		{
-			const auto& Input = IR.SurfaceRoot.Inputs[Index];
+			OutBytes.clear();
+			return std::unexpected("Material IR attribute schema is incomplete.");
+		}
+		std::ranges::sort(Roots, {}, &MIR::FModule::FAttributeRoot::AttributeID);
+		std::unordered_set<FGuid> Seen;
+		AppendLittleEndian(OutBytes, uint32(Roots.size()));
+		for (const auto& Input : Roots)
+		{
+			const auto* Definition = FMaterialAttributeDefinitionMap::Find(Input.AttributeID);
+			if (!Definition || !Seen.insert(Input.AttributeID).second || Input.GetSemantics() != Definition->Semantics
+				|| !std::isfinite(Input.Literal.X) || !std::isfinite(Input.Literal.Y)
+				|| !std::isfinite(Input.Literal.Z) || !std::isfinite(Input.Literal.W)
+				|| (Input.bExpression && (Input.ExpressionIndex >= IR.Nodes.size() || IR.Nodes[Input.ExpressionIndex].ResultType != Input.Type)))
+			{ OutBytes.clear(); return std::unexpected("Material IR attribute root is invalid."); }
+			AppendGuid(OutBytes, Input.AttributeID);
 			AppendLittleEndian(OutBytes, static_cast<uint8>(Input.bExpression));
 			AppendLittleEndian(OutBytes, Input.ExpressionIndex);
 			AppendLittleEndian(OutBytes, Input.Type);
@@ -603,32 +616,8 @@ namespace Durin
 			AppendLittleEndian(OutBytes, Input.SpatialKind);
 			AppendLittleEndian(OutBytes, Input.CoordinateSpace);
 			AppendLiteral(OutBytes, Input.Literal);
-			if ((!IR.SurfaceRoot.bAggregate && Input.bExpression
-					&& (Input.ExpressionIndex >= IR.Nodes.size()
-						|| IR.Nodes[Input.ExpressionIndex].ResultType != Input.Type))
-				|| Input.Type != GetMaterialSurfaceOutputType(GSurfaceOutputOrder[Index])
-				|| Input.GetSemantics() != GetMaterialSurfaceOutputSemantics(
-					GSurfaceOutputOrder[Index]))
-			{
-				OutBytes.clear();
-				return std::unexpected("Material IR per-property Surface Root input is invalid.");
-			}
 		}
-		const auto& Offset = IR.WorldPositionOffset;
-		if (Offset.Type != EMaterialProgramValueType::Float3
-			|| Offset.LegalStages != EMaterialEvaluationStage::Vertex
-			|| Offset.SpatialKind != EMaterialSpatialKind::None
-			|| Offset.CoordinateSpace != EMaterialCoordinateSpace::None
-			|| (Offset.bExpression && (Offset.ExpressionIndex >= IR.Nodes.size()
-				|| !IsMaterialWorldPositionOffsetSemantics(IR.Nodes[Offset.ExpressionIndex].GetSemantics())))
-			|| !std::isfinite(Offset.Literal.X) || !std::isfinite(Offset.Literal.Y) || !std::isfinite(Offset.Literal.Z))
-		{
-			OutBytes.clear();
-			return std::unexpected("Material IR per-property Surface Root input is invalid.");
-		}
-		AppendLittleEndian(OutBytes, static_cast<uint8>(Offset.bExpression));
-		AppendLittleEndian(OutBytes, Offset.ExpressionIndex);
-		AppendLiteral(OutBytes, Offset.Literal);
+
 		if (OutBytes.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutBytes.clear();

@@ -20,7 +20,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FGraphEditSession(FGraphEditSession&&) = delete;
 		auto Modify(DMaterialExpression& Expression) -> void;
 		auto Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> FMaterialGraphCommandResult;
-		auto GetOutputs() -> FMaterialExpressionSurfaceOutputs&;
+		auto GetOutputs() -> FMaterialAttributeRoot&;
 		auto Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult;
 		// Work counter for profiling and bounded-inference regression checks.
 		uint32 InferredNumericNodes = 0;

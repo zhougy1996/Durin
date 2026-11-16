@@ -906,25 +906,25 @@ TEST(FSceneImportTests, SourceTransformsMaskFactorAndTexturelessEmissiveArePubli
 	ASSERT_NE(Instance, nullptr);
 	using Kind = Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind;
 	FResolvedMaterialParameter Parameter;
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Texture), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::Texture), Parameter));
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MinFilter, EMaterialSamplerMinFilter::Nearest);
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.MagFilter, EMaterialSamplerMagFilter::Nearest);
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.AddressU, EMaterialSamplerAddressMode::ClampToEdge);
 	EXPECT_EQ(Parameter.Value.GetTexture().SamplerState.AddressV, EMaterialSamplerAddressMode::MirroredRepeat);
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVChannel), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::UVChannel), Parameter));
 	EXPECT_EQ(Parameter.Value.GetScalar(), 1);
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::UVScale), Parameter));
 	EXPECT_EQ(FVector2(Parameter.Value.GetVector4()), FVector2(2, 3));
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVOffset), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::UVOffset), Parameter));
 	EXPECT_EQ(FVector2(Parameter.Value.GetVector4()), FVector2(.25, .5));
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVRotation), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::UVRotation), Parameter));
 	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::OpacityMask, Kind::Value), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_OpacityMask, Kind::Value), Parameter));
 	EXPECT_FLOAT_EQ(Parameter.Value.GetScalar(), .4f);
-	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Parameter));
+	ASSERT_TRUE(Instance->ResolveParameterValue(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_EmissiveColor, Kind::Value), Parameter));
 	EXPECT_EQ(FVector3(Parameter.Value.GetVector4()), FVector3(2, 3, 4));
-	EXPECT_EQ(Instance->FindParameterDefinition(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Texture)), nullptr);
-	EXPECT_EQ(Instance->FindParameterDefinition(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Opacity, Kind::Value)), nullptr);
+	EXPECT_EQ(Instance->FindParameterDefinition(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_EmissiveColor, Kind::Texture)), nullptr);
+	EXPECT_EQ(Instance->FindParameterDefinition(Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(EMaterialProperty::MP_Opacity, Kind::Value)), nullptr);
 }
 
 TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
@@ -966,11 +966,11 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
 		[](const auto& Expression) { return Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
 	const auto& Outputs = Parent->GetExpressionOutputs();
-	EXPECT_EQ(Outputs.Metallic.Connection.ExpressionId, Outputs.Roughness.Connection.ExpressionId);
-	EXPECT_EQ(Outputs.Metallic.Connection.ExpressionId, Outputs.AmbientOcclusion.Connection.ExpressionId);
-	EXPECT_EQ(Outputs.Metallic.Connection.OutputIndex, 4);
-	EXPECT_EQ(Outputs.Roughness.Connection.OutputIndex, 3);
-	EXPECT_EQ(Outputs.AmbientOcclusion.Connection.OutputIndex, 2);
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.ExpressionId, Outputs.Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId);
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.ExpressionId, Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.ExpressionId);
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.OutputIndex, 4);
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Roughness).Connection.OutputIndex, 3);
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.OutputIndex, 2);
 	EXPECT_EQ(Instance->GetParameterDefinitions().size(), 2u);
 	EXPECT_FALSE(Instance->GetImportProvenance().OutputIdentity.empty());
 	DTexture2D* Texture = nullptr;
@@ -1020,13 +1020,13 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), Revision);
 	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
 	const auto Original = Parent->GetExpressionOutputs();
-	const auto ApplyOutputs = [&](const FMaterialExpressionSurfaceOutputs& Outputs) {
+	const auto ApplyOutputs = [&](const FMaterialAttributeRoot& Outputs) {
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Parent->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		return Parent->SetMaterialExpressions(Expressions, Outputs);
 	};
 	auto Changed = Original;
-	Changed.AmbientOcclusion.SetConstant({.3f});
+	Changed.Get(EMaterialProperty::MP_AmbientOcclusion).SetConstant({.3f});
 	ASSERT_TRUE(ApplyOutputs(Changed));
 	auto Rejected = ImportAssetOutputs(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
 		FStaticMeshImportSettings::MakeDurin(),
@@ -1055,7 +1055,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	ASSERT_NE(Material, nullptr);
 	ASSERT_NE(Mesh, nullptr);
 	using Kind = MaterialParameters::EMaterialBuiltinParameterKind;
-	const auto Color = GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::Value);
+	const auto Color = GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::Value);
 	ASSERT_TRUE(Material->SetParameterValue(Color, FMaterialParameterValue::MakeVector4({.2, .3, .4, 0})));
 	auto Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = true;
@@ -1246,9 +1246,9 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 		EXPECT_TRUE(Instance->GetMaterialCompileStatus().IsCurrent());
 		EXPECT_EQ(Instance->GetStaticProperties().BlendMode, bTranslucent ? EMaterialBlendMode::Translucent : EMaterialBlendMode::Masked);
 		FResolvedMaterialParameter Value;
-		ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::BaseColor, Kind::UVScale), Value));
+		ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialProperty::MP_BaseColor, Kind::UVScale), Value));
 		EXPECT_EQ(FVector2(Value.Value.GetVector4()), FVector2(2, 3));
-		ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialSurfaceOutput::Emissive, Kind::Value), Value));
+		ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialProperty::MP_EmissiveColor, Kind::Value), Value));
 		EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0));
 		DTexture2D* Metallic = nullptr;
 		DTexture2D* Roughness = nullptr;
@@ -1352,10 +1352,10 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Compact.Apply(*Material));
 	EXPECT_EQ(std::ranges::count_if(Material->GetExpressionCollection().Expressions, [](const auto& E) { return Cast<DMaterialExpressionFunctionCall>(E.Get()) != nullptr; }), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
-	EXPECT_FALSE(Material->GetExpressionOutputs().Surface.ExpressionId.IsValid());
+	EXPECT_FALSE(Material->GetExpressionOutputs().Attributes.ExpressionId.IsValid());
 	const auto& Outputs = Material->GetExpressionOutputs();
-	for (const auto& Link : {Outputs.BaseColor, Outputs.Normal, Outputs.Metallic, Outputs.Roughness,
-		Outputs.AmbientOcclusion, Outputs.Emissive, Outputs.Opacity, Outputs.OpacityMask}) EXPECT_TRUE(Link.Connection.ExpressionId.IsValid());
+	for (const auto& Link : {Outputs.Get(EMaterialProperty::MP_BaseColor), Outputs.Get(EMaterialProperty::MP_Normal), Outputs.Get(EMaterialProperty::MP_Metallic), Outputs.Get(EMaterialProperty::MP_Roughness),
+		Outputs.Get(EMaterialProperty::MP_AmbientOcclusion), Outputs.Get(EMaterialProperty::MP_EmissiveColor), Outputs.Get(EMaterialProperty::MP_Opacity), Outputs.Get(EMaterialProperty::MP_OpacityMask)}) EXPECT_TRUE(Link.Connection.ExpressionId.IsValid());
 	FMaterialCompilerEnvironment Environment;
 	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
 	ASSERT_TRUE(EnvironmentResult) << EnvironmentResult.error();

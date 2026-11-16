@@ -762,7 +762,7 @@ TEST(FPSOPrecacheTests, VertexFactoryRouteEligibilityUsesTheSharedPassFilter)
         auto Resolve(const FMeshMaterialShaderMap&, uint32) const -> std::shared_ptr<const FMeshVertexShaderBinding> override { return {}; }
     };
     auto Params = MaterialPSOTestParams();
-    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
+    Params.Material.ShaderMap.ShadingModel = EMaterialShadingModel::DefaultLit;
     const FLimitedFactory NoShadow(*Local, MaterialMeshPassShadow);
     EXPECT_FALSE(NoShadow.Supports(MaterialMeshPassShadow, {}));
     const auto& Shadow = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::ShadowDepth);

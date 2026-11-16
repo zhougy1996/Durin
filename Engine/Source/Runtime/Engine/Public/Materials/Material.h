@@ -16,6 +16,11 @@ namespace Durin
 {
 	class DTexture2D;
 	class IObjectReplacementParticipant;
+	struct FMaterialConfiguration
+	{
+		EMaterialDomain Domain = EMaterialDomain::Surface;
+		FMaterialStaticProperties Properties;
+	};
 	// Rebinds native parameter-schema texture references alongside reflected graph owners.
 	ENGINE_API auto MakeMaterialReferenceReplacementParticipant() -> std::shared_ptr<IObjectReplacementParticipant>;
 	// Accepted writes distinguish unchanged sanitized state from an actual edit.
@@ -36,14 +41,15 @@ namespace Durin
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 #if DURIN_WITH_EDITORONLY_DATA
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
-		ENGINE_API auto GetExpressionOutputs() const -> const FMaterialExpressionSurfaceOutputs&;
+		ENGINE_API auto GetExpressionOutputs() const -> const FMaterialAttributeRoot&;
 		ENGINE_API auto GetOutputNode() const -> const DMaterialExpressionMaterialOutput*;
 #endif
 		auto GetDomain() const -> EMaterialDomain { return Domain; }
+		ENGINE_API auto SetMaterialConfiguration(const FMaterialConfiguration& Configuration) -> FMaterialProgramValidationResult;
 #if DURIN_WITH_EDITORONLY_DATA
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		[[nodiscard]] ENGINE_API auto SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
-			FMaterialExpressionSurfaceOutputs Outputs) -> FMaterialProgramValidationResult;
+			FMaterialAttributeRoot Outputs) -> FMaterialProgramValidationResult;
 #endif
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 #if DURIN_WITH_EDITORONLY_DATA
@@ -128,7 +134,7 @@ namespace Durin
 
 
 		static auto ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
-			const FMaterialExpressionSurfaceOutputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+			const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 		static auto DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
 			std::vector<FMaterialParameterDefinition>& OutDefinitions) -> FMaterialProgramValidationResult;
 

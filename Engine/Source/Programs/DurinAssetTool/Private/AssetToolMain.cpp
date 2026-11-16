@@ -28,6 +28,7 @@
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
 #include "HAL/PlatformMisc.h"
@@ -78,6 +79,7 @@ namespace
 		StorageInventory,
 		IdentityAudit,
 		MaterialFunctions,
+		MaterialFoundation,
 		MaterialTemplate,
 		Cook,
         StageInfo,
@@ -120,6 +122,7 @@ namespace
 		case EOperation::StorageInventory: return "storage-inventory";
 		case EOperation::IdentityAudit: return "identity-audit";
 		case EOperation::MaterialFunctions: return "material-functions";
+		case EOperation::MaterialFoundation: return "material-foundation";
 		case EOperation::MaterialTemplate: return "material-template";
 		case EOperation::Cook: return "cook";
         case EOperation::StageInfo: return "stage-info";
@@ -180,6 +183,7 @@ namespace
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
 			<< "  DurinAssetTool material-template --project=<project.dproject> <package-path> [--apply]\n"
 			<< "  DurinAssetTool material-functions --project=<project.dproject> [--apply]\n"
+			<< "  DurinAssetTool material-foundation --project=<project.dproject> [--apply]\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64|macos --profile=game --target-receipt=<absolute-Game-receipt> [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
@@ -216,7 +220,7 @@ namespace
 								| OptionBit(EOption::DryRun) | OptionBit(EOption::TargetReceipt);
 		const uint16 Allowed = Options.Operation == EOperation::MaterialTemplate
 			? Storage | OptionBit(EOption::Apply) | OptionBit(EOption::Scope)
-			: Options.Operation == EOperation::MaterialFunctions ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
+			: (Options.Operation == EOperation::MaterialFunctions || Options.Operation == EOperation::MaterialFoundation) ? Storage | OptionBit(EOption::Apply) : Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
 															  Options.Operation == EOperation::Cook ? Cook : Options.Operation == EOperation::StageInfo ? Check | OptionBit(EOption::Output) : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
@@ -300,6 +304,8 @@ namespace
 			OutOptions.Operation = EOperation::IdentityAudit;
 		else if (Command == "material-functions")
 			OutOptions.Operation = EOperation::MaterialFunctions;
+		else if (Command == "material-foundation")
+			OutOptions.Operation = EOperation::MaterialFoundation;
 		else if (Command == "material-template")
 			OutOptions.Operation = EOperation::MaterialTemplate;
 		else if (Command == "stage-info")
@@ -1191,6 +1197,56 @@ int main(int ArgC, char** ArgV)
 		return 0;
 #else
 		std::cerr << "Material template creation requires the editor asset host.\n";
+		return 1;
+#endif
+	}
+	if (Options.Operation == EOperation::MaterialFoundation)
+	{
+#if DURIN_WITH_EDITOR
+		using namespace Durin;
+		using namespace Durin::AssetForge::Builtins;
+		const std::array Names{"DefaultMaterial", "UVTransform", "SampleNormal", "SampleORM"};
+		if (!Options.bApply)
+		{
+			for (const auto* Name : Names) std::cout << "Recreate Engine material foundation: " << Name << '\n';
+			return 0;
+		}
+		FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		std::vector<std::pair<std::filesystem::path, FByteBuffer>> Writes;
+		for (uint32 Index = 0; Index < Names.size(); ++Index)
+		{
+			const auto Relative = Index == 0 ? std::string("Materials/DefaultMaterial")
+				: std::format("Materials/Functions/{}", Names[Index]);
+			FPackagePath Path;
+			if (!FPackagePath::TryCreate("/Engine/" + Relative, Path)) return 1;
+			auto* Package = CreatePackage(Path);
+			if (Index == 0)
+			{
+				auto* Material = NewObject<DMaterial>(Package, Names[Index], EObjectFlags::Public);
+				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+				const auto Result = Material->SetMaterialExpressions(std::span<DMaterialExpression* const>{}, FMaterialAttributeRoot{});
+				if (!Result) return 1;
+				Material->SetMaterialGraphPresentation({.Nodes = {{Material->GetOutputNode()->Id, 1600, 400}}});
+			}
+			else
+			{
+				auto* Function = NewObject<DMaterialFunction>(Package, Names[Index], EObjectFlags::Public);
+				const auto Recipe = MakeStandardMaterialFunctionExpressions(static_cast<EStandardMaterialFunction>(Index));
+				const auto Result = Recipe.Apply(*Function);
+				if (!Result) return 1;
+			}
+			FByteBuffer Bytes;
+			if (!SerializeAssetPackageBytes(Package, Bytes)) return 1;
+			Writes.emplace_back(std::filesystem::path(FPaths::EngineContentDir()) / (Relative + ".dasset"), std::move(Bytes));
+		}
+		for (const auto& [Path, Bytes] : Writes)
+		{
+			std::filesystem::create_directories(Path.parent_path());
+			if (!FFileHelper::SaveArrayToFileAtomically(Bytes, Path)) return 1;
+			std::cout << "Recreated " << Path.generic_string() << '\n';
+		}
+		return 0;
+#else
 		return 1;
 #endif
 	}

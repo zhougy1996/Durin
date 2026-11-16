@@ -9,7 +9,7 @@ namespace Durin
 	{
 		template<typename Expression>
 		auto Describe(EMaterialProgramOpcode Opcode, std::string_view Name,
-			std::string_view Description, std::array<const char*, 8> InputNames = {},
+			std::string_view Description, std::array<const char*, MaterialProgramMaxNodeInputCount> InputNames = {},
 			std::string_view Keywords = {}, std::optional<EMaterialProgramValueType> FixedType = {})
 			-> FMaterialExpressionDescription
 		{
@@ -18,8 +18,8 @@ namespace Durin
 			const bool bInstance = Opcode == EMaterialProgramOpcode::FunctionInput
 				|| Opcode == EMaterialProgramOpcode::FunctionOutput || Opcode == EMaterialProgramOpcode::FunctionCall
 				|| Opcode == EMaterialProgramOpcode::CollectionParameter || Opcode == EMaterialProgramOpcode::Swizzle
-				|| Opcode == EMaterialProgramOpcode::AppendVector || Opcode == EMaterialProgramOpcode::GetSurfaceAttributes
-				|| Opcode == EMaterialProgramOpcode::SetSurfaceAttributes;
+				|| Opcode == EMaterialProgramOpcode::AppendVector || Opcode == EMaterialProgramOpcode::GetMaterialAttributes
+				|| Opcode == EMaterialProgramOpcode::SetMaterialAttributes;
 			FMaterialExpressionDescription Result{Expression::StaticClass(), Opcode, Name, Description, Keywords,
 				bInstance ? Behavior::Instance : IsMaterialAdaptiveNumeric(Opcode) ? Behavior::AdaptiveNumeric : Behavior::Fixed, {}};
 			for (uint8 TypeValue = 0; TypeValue <= static_cast<uint8>(EMaterialProgramValueType::StaticBool); ++TypeValue)
@@ -33,10 +33,12 @@ namespace Durin
 				FMaterialExpressionAuthoringShape Shape{Type, {}, {}};
 				for (uint8 Index = 0; Index < Signature->InputCount; ++Index)
 				{
-					Shape.InputNames.emplace_back(InputNames[Index] ? InputNames[Index] : "Value");
+					if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)
+						Shape.InputNames.emplace_back(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name);
+					else Shape.InputNames.emplace_back(InputNames[Index] ? InputNames[Index] : "Value");
 					Shape.AcceptedInputTypes.emplace_back(Signature->Inputs[Index].begin(), Signature->Inputs[Index].end());
 					const bool bExactNormal = Opcode == EMaterialProgramOpcode::BlendNormalsRNM
-						|| (Opcode == EMaterialProgramOpcode::MakeSurface && Index == static_cast<uint8>(EMaterialSurfaceOutput::Normal));
+						|| (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes && Index == static_cast<uint8>(EMaterialProperty::MP_Normal));
 					if (MaterialNumericInputAllowsScalarBroadcast(Opcode, Index) && !bExactNormal
 						&& Signature->Inputs[Index].size() == 1 && Signature->Inputs[Index].front() > EMaterialProgramValueType::Float
 						&& Signature->Inputs[Index].front() <= EMaterialProgramValueType::Float4)
@@ -193,18 +195,20 @@ namespace Durin
 					"Returns the sign of each component.", {}, ""),
 				Describe<DMaterialExpressionReflect>(EMaterialProgramOpcode::Reflect, "Reflect",
 					"Reflects an incident vector around a normal of equal width.", {"Incident", "Normal"}, ""),
-				Describe<DMaterialExpressionMakeSurface>(EMaterialProgramOpcode::MakeSurface, "Make Surface",
-					"Combines eight explicit surface properties without hidden parameter access.", {"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"}, ""),
+				Describe<DMaterialExpressionMakeMaterialAttributes>(EMaterialProgramOpcode::MakeMaterialAttributes, "Make Material Attributes",
+					"Constructs typed material attributes using the shared property definitions.", {}, ""),
+				Describe<DMaterialExpressionBlendMaterialAttributes>(EMaterialProgramOpcode::BlendMaterialAttributes, "Blend Material Attributes",
+					"Blends numeric attributes and safely normalizes blended normals.", {"A", "B", "Alpha"}, ""),
 				Describe<DMaterialExpressionFunctionInput>(EMaterialProgramOpcode::FunctionInput, "Function Input",
 					"Reads an input from the function signature.", {}, ""),
 				Describe<DMaterialExpressionFunctionOutput>(EMaterialProgramOpcode::FunctionOutput, "Function Output",
 					"Publishes a value through the function signature.", {}, ""),
 				Describe<DMaterialExpressionFunctionCall>(EMaterialProgramOpcode::FunctionCall, "Function Call",
 					"Evaluates a material function with its bound inputs.", {}, ""),
-				Describe<DMaterialExpressionGetSurfaceAttributes>(EMaterialProgramOpcode::GetSurfaceAttributes, "Get Surface Attributes",
-					"Reads selected attributes from a Surface.", {"Surface"}, ""),
-				Describe<DMaterialExpressionSetSurfaceAttributes>(EMaterialProgramOpcode::SetSurfaceAttributes, "Set Surface Attributes",
-					"Overrides selected attributes while retaining the base Surface.", {"Surface"}, ""),
+				Describe<DMaterialExpressionGetMaterialAttributes>(EMaterialProgramOpcode::GetMaterialAttributes, "Get Material Attributes",
+					"Reads selected typed material attributes.", {"Attributes"}, ""),
+				Describe<DMaterialExpressionSetMaterialAttributes>(EMaterialProgramOpcode::SetMaterialAttributes, "Set Material Attributes",
+					"Overrides selected attributes while retaining the base values.", {"Attributes"}, ""),
 				{DMaterialExpressionMaterialOutput::StaticClass(), std::nullopt, "Material Output",
 					"Publishes material domain outputs.", {}, EMaterialExpressionOutputBehavior::Instance, {}},
 			};

@@ -102,7 +102,7 @@ namespace Durin::MaterialEditor
 				if (std::ranges::none_of(Ports, [&](const auto& Existing) { return Existing.Name == Port.Name; })) break;
 			}
 			if (!Spec->bOutput)
-				Port.Default.Kind = Port.Type == EMaterialProgramValueType::Surface ? EMaterialFunctionDefaultKind::Surface
+				Port.Default.Kind = Port.Type == EMaterialProgramValueType::MaterialAttributes ? EMaterialFunctionDefaultKind::MaterialAttributes
 					: Port.Type == EMaterialProgramValueType::Texture2D ? EMaterialFunctionDefaultKind::Texture
 					: EMaterialFunctionDefaultKind::Numeric;
 			return AddPort(Spec->bOutput, Port, Source, Request.X, Request.Y, Mode);
@@ -191,8 +191,13 @@ namespace Durin::MaterialEditor
 					if (const auto* Output = FindMaterialSampleOutput(Opcode, Input.OutputIndex)) return Output->Type;
 					bValid = false; return Type::Float;
 				}
-				if (Opcode == EMaterialProgramOpcode::GetSurfaceAttributes && Input.OutputIndex < 8)
-					return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Input.OutputIndex));
+				if (Opcode == EMaterialProgramOpcode::GetMaterialAttributes)
+				{
+					const auto* Definition = Input.OutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Input.OutputId)
+						: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex));
+					if (Definition) return Definition->Semantics.Type;
+					bValid = false; return Type::Float;
+				}
 				if (Resolved.contains(E->Id)) return Resolved.at(E->Id);
 				if (!Active.insert(E->Id).second) { bValid = false; return Type::Float; }
 				auto* Property = E->GetClass()->FindPropertyByName("ResultType");
@@ -287,13 +292,17 @@ namespace Durin::MaterialEditor
 			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(E))
 				return Call->Function.IsValid() && Input.OutputIndex == 0
 					&& std::ranges::any_of(Call->Function->GetFunctionSignature().Outputs, [&](const auto& Port) { return Port.Id == Input.OutputId; });
+			if (const auto* Attributes = Cast<DMaterialExpressionGetMaterialAttributes>(E))
+			{
+				const auto* Definition = Input.OutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Input.OutputId)
+					: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex));
+				return Definition && Attributes->IsSelected(Definition->Property) && (!Input.OutputId.IsValid() || Input.OutputIndex == 0);
+			}
 			if (Input.OutputId.IsValid() || Cast<DMaterialExpressionMaterialOutput>(E) || Cast<DMaterialExpressionFunctionOutput>(E)) return false;
 			if (Cast<DMaterialExpressionTextureSampleParameter2D>(E))
 				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Input.OutputIndex) != nullptr;
 			if (Cast<DMaterialExpressionTextureSample2D>(E))
 				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, Input.OutputIndex) != nullptr;
-			if (const auto* Surface = Cast<DMaterialExpressionGetSurfaceAttributes>(E))
-				return Input.OutputIndex < 8 && (Surface->AttributeMask & (1u << Input.OutputIndex));
 			return Input.OutputIndex == 0;
 		}
 
@@ -475,6 +484,7 @@ namespace Durin::MaterialEditor
 		if (Entry.AcceptedInputTypes.size() != Expression->GetAuthoredInputCount())
 			return RejectCommand("The catalog input shape is stale.");
 		std::optional<uint32> InvalidInput;
+		if (auto* Blend = Cast<DMaterialExpressionBlendMaterialAttributes>(Expression.Get())) Blend->B = FirstInput;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
 			if (Index == 0 && FirstInput.ExpressionId.IsValid())
 			{
@@ -721,7 +731,8 @@ namespace Durin::MaterialEditor
 			{
 			case EMaterialGraphPinKind::Input: break;
 			case EMaterialGraphPinKind::MaterialAttribute:
-				if (!Cast<DMaterialExpressionMaterialOutput>(Node->Get()) || Index >= 8)
+				if (!Cast<DMaterialExpressionMaterialOutput>(Node->Get()) || Index >= FMaterialAttributeDefinitionMap::GetDefinitions().size()
+					|| !FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Index)))
 					return RejectCommand("The material attribute pin is invalid.");
 				break;
 			case EMaterialGraphPinKind::MaterialSurface:

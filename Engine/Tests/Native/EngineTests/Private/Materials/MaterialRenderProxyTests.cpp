@@ -32,8 +32,9 @@ namespace
 			Properties.BlendMode = BlendMode;
 			if (!Material->SetStaticProperties(Properties)) return nullptr;
 		}
-		if (!Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material)) return nullptr;
-		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
+		const auto Applied = Durin::Testing::MakePBRMaterialExpressionsForTest().Apply(*Material);
+		if (!Applied) { ADD_FAILURE() << Durin::FormatMaterialProgramDiagnostics(Applied.Diagnostics); return nullptr; }
+		if (!FinishMaterialCompileForTest(*Material)) { ADD_FAILURE() << Material->GetMaterialCookDiagnostic(); return nullptr; }
 		return Material;
 	}
 
@@ -216,12 +217,16 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 	});
 	FlushRenderingCommands();
 	Proxy = {};
+	// Retire World children while their stack-owned Engine outer is still alive.
+	Harness.Shutdown();
+	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
 TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 {
 	FRenderSceneHarness Harness;
 	auto* Base = MakeExpandedMaterial(nullptr, "ChangingContract");
+	ASSERT_NE(Base, nullptr);
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "DormantOverride");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
@@ -258,6 +263,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
 	FRenderSceneHarness Harness;
 	auto* Material = MakeExpandedMaterial(
 		nullptr, "StableProxyMaterial");
+	ASSERT_NE(Material, nullptr);
 	Durin::FMaterialRenderProxyRef Proxy =
 		Material->GetRenderProxy();
 	Durin::FMaterialRenderProxyRef SameProxy =
@@ -294,6 +300,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
 	StaticProperties.DepthWritePolicy =
 		Durin::EMaterialDepthWritePolicy::Disabled;
 	StaticProperties.OpacityMaskThreshold = 0.55f;
+	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(), Durin::FVector3(.2, .4, .7)));
 	ASSERT_TRUE(Material->SetStaticProperties(StaticProperties));
 	const FMaterialProxySnapshot StaticUpdated =
 		CaptureMaterialProxy(Proxy);
@@ -308,16 +315,16 @@ TEST(FMaterialRenderProxyTests, StableIdentityAppliesSnapshotsInCommandOrder)
 	Publication.CompiledProgram = StaticUpdated.RenderData.CompiledProgram;
 	Publication.StaticProperties = StaticProperties;
 	Publication.Parameters.push_back({
-		.Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
+		.Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Emissive).Value,
 		.Value = Durin::FVector4(0.0),
 	});
 	Durin::Testing::QueueMaterialTestState(*Proxy, std::move(Publication));
 	const auto Replaced = CaptureMaterialProxy(Proxy);
 	EXPECT_EQ(Replaced.PublicationCount, StaticUpdated.PublicationCount + 3);
 	EXPECT_EQ(Replaced.ResolutionCount, StaticUpdated.ResolutionCount + 1);
-	EXPECT_EQ(Durin::FVector3f(GetMaterialBinding(Replaced.RenderData).BaseColor), Durin::FVector3f(0.0f));
+	EXPECT_EQ(GetMaterialBinding(Replaced.RenderData).Emissive, Durin::FVector3f(0.0f));
 	// Previously resolved values remain independent of later proxy updates.
-	EXPECT_EQ(Durin::FVector3f(GetMaterialBinding(StaticUpdated.RenderData).BaseColor),
+	EXPECT_EQ(GetMaterialBinding(StaticUpdated.RenderData).Emissive,
 		Durin::FVector3f(0.2f, 0.4f, 0.7f));
 	EXPECT_FALSE(std::ranges::equal(StaticUpdated.RenderData.Representation.GetUniformPayload(),
 		Replaced.RenderData.Representation.GetUniformPayload()));
@@ -421,7 +428,7 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 	EXPECT_EQ(BaseBinding.Emissive, Durin::FVector3f(3.0f, 5.0f, 7.0f));
 	for (size_t Role = 0; Role < BaseBinding.UVChannels.size(); ++Role)
 	{
-		if (!Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialSurfaceOutput>(Role), Base->GetStaticProperties()))
+		if (!Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialProperty>(Role), Base->GetStaticProperties()))
 		{
 			EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 0.0f);
 			EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(1.0f));
@@ -531,10 +538,10 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 				OverrideTexture->GetTextureReferenceRHI();
 			size_t RoleIndex = 0;
 			for (; RoleIndex < 8; ++RoleIndex)
-				if (Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex),
+				if (Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialProperty>(RoleIndex),
 					Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Texture) == Definition.Id) break;
 			ASSERT_LT(RoleIndex, size_t{8});
-			if (Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialSurfaceOutput>(RoleIndex), Instance->GetStaticProperties()))
+			if (Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialProperty>(RoleIndex), Instance->GetStaticProperties()))
 			{
 				EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
 				std::vector<Durin::DTexture2D*> UsedTextures;
