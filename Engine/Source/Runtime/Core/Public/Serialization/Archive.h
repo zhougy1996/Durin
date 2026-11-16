@@ -14,6 +14,7 @@
 
 namespace Durin
 {
+	class DObject;
 	enum class EArchiveStructBaseline : uint8 { Complete, Parent, TypeDefault };
 
 	// Selects the direction of a bidirectional serialization operation.
@@ -225,6 +226,9 @@ namespace Durin
 		CORE_API auto SetCriticalError(
 			EArchiveFailureCode Code = EArchiveFailureCode::InvalidData,
 			std::string_view Message = "Critical archive error.") -> void;
+
+		// Object-loading archives override this; byte/save archives have no loading work.
+		virtual auto Preload(DObject* Object) -> void {}
 
 		virtual CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void;
 		CORE_API auto Serialize(void* Data, uint64 Size) -> void;

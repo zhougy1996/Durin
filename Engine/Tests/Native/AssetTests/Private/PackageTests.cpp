@@ -14,6 +14,7 @@
 #include "Asset/RegistryOperations.h"
 #include "Engine/StreamableManager.h"
 #include <gtest/gtest.h>
+#include <exception>
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/AssetPackageArchive.h"
@@ -69,6 +70,21 @@
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskRuntime.h"
 #include "DObject/PackageValueCodec.h"
+
+namespace
+{
+	auto ReadPackageExportForTest(
+		Durin::DObject& Object, std::span<const Durin::ObjectPackage::FPropertyTag> Fields,
+		const Durin::ObjectPackage::FLinkerTables& Linker, std::span<Durin::DObject* const> Objects,
+		const Durin::AssetPrivate::FPackageLoadBindings& Bindings, const Durin::FArchiveState& Context = {},
+		const Durin::AssetPrivate::FPackageOverrideRestore& Restore = {}) -> std::expected<void, Durin::UnifiedError::FError>
+	{
+		Durin::AssetPrivate::FPackageLoadContext Load;
+		Load.SerializeExport(Object, Fields, Linker, Objects, Bindings, Context, Restore);
+		if (Load.IsError()) return std::unexpected(Load.GetError());
+		return {};
+	}
+}
 
 namespace AssetStructTest
 {
@@ -603,6 +619,7 @@ namespace
 	};
 
 	std::function<void(Durin::DObject&, Durin::FArchive&)> GAuthoredLoadProbe;
+	std::function<void(Durin::FArchive&)> GAuthoredFieldProbe;
 	std::function<void(Durin::DObject&)> GAuthoredPostLoadProbe;
 
 	uint64 GPackageAssetPostLoadCount = 0;
@@ -987,6 +1004,7 @@ namespace
 			{
 				auto Field = Durin::EnterArchiveField(
 					Ar, {DeclaringType, Durin::FName("NativeValue"), NativeType});
+				if (Ar.IsLoading() && GAuthoredFieldProbe) GAuthoredFieldProbe(Ar);
 				Ar << NativeValue;
 			}
 			if (bDuplicateField)
@@ -3186,6 +3204,128 @@ TEST_F(FAsyncAssetLoadTests, SynchronousHandleCannotEscapeGuardedConstruction)
 	EXPECT_EQ(FindResidentPackage(Other), nullptr);
 }
 
+TEST(FPackageAssetTests, ObjectPreloadOrdersOutersSkipsDuplicatesAndReturnsCallbackFailures)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PreloadOuterOrder", Path));
+	DPackageAssetForTest* Root = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Root));
+	auto* Middle = NewObject<DPackageAssetForTest>(Root, "Middle");
+	auto* Leaf = NewObject<DPackageAssetForTest>(Middle, "Leaf");
+	Root->Value = 100; Middle->Value = 200; Leaf->Value = 300;
+	Root->ExternalReference = Leaf;
+	Middle->ExternalReference = Leaf;
+	Leaf->ExternalReference = Root;
+	ASSERT_TRUE(SavePackage(Root->GetPackage()));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Path));
+	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {}; } } Reset;
+	for (uint32 Mode = 0; Mode < 4; ++Mode)
+	{
+		std::vector<std::string> Order;
+		uint32 Notifications = 0;
+		bool bPreloadReturned = false;
+		GAuthoredLoadProbe = [&](DObject& Object, FArchive& Ar) {
+			const auto& Asset = static_cast<DPackageAssetForTest&>(Object);
+			if (Asset.Value == 100)
+			{
+				Order.push_back("RootEnter");
+				Ar.Preload(&Object);
+				Ar.Preload(Asset.ExternalReference.Get());
+				Ar.Preload(Asset.ExternalReference.Get());
+				bPreloadReturned = true;
+				Order.push_back("RootExit");
+				EXPECT_EQ(Ar.IsError(), Mode != 0);
+			}
+			else if (Asset.Value == 200) Order.push_back("Middle");
+			else
+			{
+				Order.push_back("Leaf");
+				Ar.Preload(Asset.ExternalReference.Get());
+				EXPECT_EQ(static_cast<DPackageAssetForTest*>(Object.GetOuter())->Value, 200);
+				if (Mode == 1) Ar.Fail(EArchiveFailureCode::InvalidData, "Original preload peer failure.");
+				if (Mode == 2) throw std::runtime_error("Original preload peer exception.");
+				if (Mode == 3)
+				{
+					Ar.Fail(EArchiveFailureCode::InvalidData, "Original preload peer failure.");
+					throw std::runtime_error("Secondary exception after archive rejection.");
+				}
+			}
+			EXPECT_EQ(Notifications, 0u);
+		};
+		GAuthoredPostLoadProbe = [&](DObject&) { ++Notifications; };
+		std::optional<UnifiedError::FError> Error;
+		DPackage* Package = nullptr;
+		EXPECT_NO_THROW(Package = LoadPackage(Path, nullptr, &Error));
+		EXPECT_TRUE(bPreloadReturned);
+		EXPECT_EQ(Order, (std::vector<std::string>{"RootEnter", "Middle", "Leaf", "RootExit"}));
+		if (Mode == 0)
+		{
+			ASSERT_NE(Package, nullptr);
+			EXPECT_FALSE(Error);
+			EXPECT_EQ(Notifications, 3u);
+		}
+		else
+		{
+			EXPECT_EQ(Package, nullptr);
+			ASSERT_TRUE(Error);
+			EXPECT_NE(Error->ToString().find(Mode != 2 ? "Original preload peer failure." : "Original preload peer exception."), std::string::npos);
+			EXPECT_NE(Error->ToString().find("Leaf"), std::string::npos);
+			if (Mode == 3)
+			{
+				EXPECT_TRUE(Error->Is(PackageReadErrors::CorruptFile));
+				EXPECT_EQ(Error->ToString().find("Secondary exception"), std::string::npos);
+			}
+			EXPECT_EQ(Notifications, 0u);
+			EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		}
+		GAuthoredLoadProbe = {}; GAuthoredPostLoadProbe = {};
+		ASSERT_TRUE(Testing::EnsurePackageNotResident(Path));
+	}
+	// A new load on the same identities must succeed after failed candidates detach.
+	ASSERT_NE(LoadPackage(Path), nullptr);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, PackageLoadContextRetainsFirstFailureAndStopsLaterExports)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	TStrongObjectPtr<DImportMetadataForTest> Asset(NewObject<DImportMetadataForTest>(nullptr, "LoadContextFailure"));
+	ObjectPackage::FPropertyTag Field{.DeclaringType = Asset->GetClass()->GetQualifiedName().ToString(),
+		.FieldName = "SchemaVersion", .Type = {.Kind = ObjectPackage::EValueKind::U32}, .Value = {.Unsigned = 7}};
+	ObjectPackage::FLinkerTables Linker;
+	Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
+	DObject* Objects[] = {Asset.Get()};
+	uint32 CallbackCount = 0;
+	const FPackageOverrideRestore Reject = [&](FPackageLoadContext& Load, std::unique_ptr<FOverriddenPropertyRestoreContext>) {
+		++CallbackCount;
+		Load.Fail(UnifiedError::FError{AssetLoadErrors::MissingDependency, "Original callback failure."});
+	};
+	FPackageLoadContext Load;
+	Load.SerializeExport(*Asset, std::span{&Field, 1}, Linker, Objects, {}, {}, Reject);
+	ASSERT_TRUE(Load.IsError());
+	EXPECT_TRUE(Load.GetError().Is(AssetLoadErrors::MissingDependency));
+	const auto Diagnostic = Load.GetError().ToString();
+	EXPECT_NE(Diagnostic.find("Original callback failure."), std::string::npos);
+	EXPECT_NE(Diagnostic.find(Asset->GetObjectPath()), std::string::npos);
+	EXPECT_EQ(Asset->SchemaVersion, 7u);
+	Field.Value.Unsigned = 9;
+	Load.SerializeExport(*Asset, std::span{&Field, 1}, Linker, Objects, {}, {}, Reject);
+	Load.Fail(UnifiedError::FError{PackageReadErrors::CorruptFile, "Later failure."});
+	EXPECT_EQ(Load.GetError().ToString(), Diagnostic);
+	EXPECT_EQ(CallbackCount, 1u);
+	EXPECT_EQ(Asset->SchemaVersion, 7u);
+	// An independent operation has independent error state and can read the same data.
+	FPackageLoadContext Independent;
+	Independent.SerializeExport(*Asset, std::span{&Field, 1}, Linker, Objects, {});
+	EXPECT_FALSE(Independent.IsError());
+	EXPECT_EQ(Asset->SchemaVersion, 9u);
+	EXPECT_EQ(Load.GetError().ToString(), Diagnostic);
+}
+
 TEST(FPackageAssetTests, ObservedOverrideRestorationMatchesStrictAndRejectsFailedOrFilteredEvidence)
 {
 	using namespace Durin;
@@ -3206,17 +3346,17 @@ TEST(FPackageAssetTests, ObservedOverrideRestorationMatchesStrictAndRejectsFaile
 	DObject* Objects[] = {Fast.Get()};
 	FAuthoredOverrideDiagnostic Diagnostic;
 	bool bObserved = false;
-	const FPackageOverrideRestore Publish = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> std::expected<void, Durin::UnifiedError::FError> {
+	const FPackageOverrideRestore Publish = [&](FPackageLoadContext& Load, std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> void {
 		bObserved = true;
-		if (!Evidence || !Evidence->IsEligible()) return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Expected eligible reflected evidence."});
+		if (!Evidence || !Evidence->IsEligible()) return Load.Fail(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Expected eligible reflected evidence."});
 		EXPECT_EQ(Evidence->GetPathVisits(), 1u);
 		EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Prior);
 		EXPECT_TRUE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Evidence), &Diagnostic));
 		EXPECT_EQ(Evidence, nullptr);
 		EXPECT_FALSE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Evidence), &Diagnostic));
-		return {};
+		return;
 	};
-	const auto Loaded = LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Publish);
+	const auto Loaded = ReadPackageExportForTest(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Publish);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().ToString());
 	EXPECT_TRUE(bObserved);
 	const auto Published = FOverridableManager::GetOverriddenProperties(*Fast);
@@ -3234,29 +3374,29 @@ TEST(FPackageAssetTests, ObservedOverrideRestorationMatchesStrictAndRejectsFaile
 	EXPECT_EQ(Prior->GetEntries().front().Path.back().FieldName, FName("SourcePath"));
 	FArchiveState Filtered;
 	Filtered.bFilterEditorOnly = true;
-	const FPackageOverrideRestore RejectFiltered = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> std::expected<void, Durin::UnifiedError::FError> {
-		if (!Evidence) return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Missing fallback context."});
+	const FPackageOverrideRestore RejectFiltered = [&](FPackageLoadContext& Load, std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> void {
+		if (!Evidence) return Load.Fail(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Missing fallback context."});
 		EXPECT_FALSE(Evidence->IsEligible());
 		EXPECT_EQ(Evidence->GetFallbackReason(), EOverrideRestoreFallbackReason::FilteredContext);
 		EXPECT_FALSE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Evidence), &Diagnostic));
-		return {};
+		return;
 	};
-	ASSERT_TRUE(LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, Filtered, RejectFiltered));
+	ASSERT_TRUE(ReadPackageExportForTest(*Fast, std::span{&Field, 1}, Linker, Objects, {}, Filtered, RejectFiltered));
 	EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Published);
 	std::unique_ptr<FOverriddenPropertyRestoreContext> Escaped;
-	const FPackageOverrideRestore Escape = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> std::expected<void, Durin::UnifiedError::FError> {
+	const FPackageOverrideRestore Escape = [&](FPackageLoadContext& Load, std::unique_ptr<FOverriddenPropertyRestoreContext> Evidence) -> void {
 		EXPECT_TRUE(Evidence && Evidence->IsEligible());
 		Escaped = std::move(Evidence);
-		return {};
+		return;
 	};
-	ASSERT_TRUE(LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Escape));
+	ASSERT_TRUE(ReadPackageExportForTest(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Escape));
 	ASSERT_TRUE(Escaped);
 	EXPECT_FALSE(Escaped->IsEligible());
 	EXPECT_FALSE(FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Escaped), &Diagnostic));
 	EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Published);
 	Field.FieldName = "Missing";
 	bObserved = false;
-	EXPECT_FALSE(LoadPackageObject(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Publish));
+	EXPECT_FALSE(ReadPackageExportForTest(*Fast, std::span{&Field, 1}, Linker, Objects, {}, {}, Publish));
 	EXPECT_FALSE(bObserved);
 	EXPECT_EQ(FOverridableManager::GetOverriddenProperties(*Fast), Published);
 }
@@ -3324,14 +3464,14 @@ TEST(FPackageAssetTests, ObservedNestedContainerReplacementsMatchStrictNormaliza
 	TStrongObjectPtr<DObservedMathAssetForTest> Fast(NewObject<DObservedMathAssetForTest>(nullptr, "ObservedContainersFast"));
 	TStrongObjectPtr<DObservedMathAssetForTest> Strict(NewObject<DObservedMathAssetForTest>(nullptr, "ObservedContainersStrict"));
 	DObject* Objects[] = {Fast.Get()};
-	const FPackageOverrideRestore Restore = [&](std::unique_ptr<FOverriddenPropertyRestoreContext> Context) -> std::expected<void, Durin::UnifiedError::FError> {
-		if (!Context || !Context->IsEligible()) return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, "Expected pure reflected container proof."});
-		return FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Context))
-			? std::expected<void, Durin::UnifiedError::FError>{} : std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Observed restore failed."})};
+	const FPackageOverrideRestore Restore = [&](FPackageLoadContext& Load, std::unique_ptr<FOverriddenPropertyRestoreContext> Context) -> void {
+		if (!Context || !Context->IsEligible()) return Load.Fail(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, "Expected pure reflected container proof."});
+		if (!FOverridableManager::RestoreOverriddenPropertyOperation(std::move(Context)))
+			Load.Fail(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Observed restore failed."});
 	};
-	const auto Loaded = LoadPackageObject(*Fast, Fields, Linker, Objects, {}, {}, Restore);
+	const auto Loaded = ReadPackageExportForTest(*Fast, Fields, Linker, Objects, {}, {}, Restore);
 	ASSERT_TRUE(Loaded) << (Loaded ? std::string{} : Loaded.error().ToString());
-	ASSERT_TRUE(LoadPackageObject(*Strict, Fields, Linker, Objects, {}));
+	ASSERT_TRUE(ReadPackageExportForTest(*Strict, Fields, Linker, Objects, {}));
 	FAuthoredOverrideValidationWork Work;
 	ASSERT_TRUE(FOverridableManager::RestoreOverriddenPropertyOperation(*Strict, StrictEntries, nullptr, &Work));
 	EXPECT_EQ(Work.FullCaptures, 2u);
@@ -5303,7 +5443,7 @@ TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFall
 		return {};
 	};
 	auto Read = [&] {
-		return LoadPackageObject(*Candidate, std::span{&Field, 1}, Linker, Objects, Bindings);
+		return ReadPackageExportForTest(*Candidate, std::span{&Field, 1}, Linker, Objects, Bindings);
 	};
 	ASSERT_TRUE(Read());
 	EXPECT_EQ(Candidate->ExternalReference.Get(), Candidate);
@@ -5385,7 +5525,7 @@ TEST(FPackageAssetTests, StructuredLoadRejectsMalformedContainerConsumption)
 			else if (Mode != 6) { int32 Value = 0; Ar << Value; if (!Ar.IsError()) Values.push_back(Value); }
 		}
 	};
-	auto Read = [&] { return LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context); };
+	auto Read = [&] { return ReadPackageExportForTest(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context); };
 	const auto Before = Field;
 	ASSERT_TRUE(Read());
 	EXPECT_EQ(Values, (std::vector<int32>{17, 29}));
@@ -5396,6 +5536,176 @@ TEST(FPackageAssetTests, StructuredLoadRejectsMalformedContainerConsumption)
 	Values.clear();
 	ASSERT_TRUE(Read());
 	EXPECT_EQ(Values, (std::vector<int32>{17, 29}));
+}
+
+TEST(FPackageAssetTests, StructuredScopeUnwindPreservesFailuresAndRejectsAbandonedValues)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ScopeUnwind", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	struct FCleanup
+	{
+		DPackage* Package;
+		~FCleanup() { GCookedLoadProbe = {}; MarkObjectHierarchyAsGarbage(Package); CollectGarbage(EObjectFlags::Standalone); }
+	} Cleanup{Asset->GetPackage()};
+	FArchiveState Context;
+	Context.bCooking = Context.bFilterEditorOnly = true;
+	Context.Target.Platform = "Win64"; Context.Target.Profile = "Game";
+	DObject* Objects[] = {Asset};
+	const auto IntType = FArchiveLogicalTypeDescriptor::Scalar(true, 32);
+	for (uint32 Site = 0; Site < 6; ++Site)
+	{
+		// Scalar field, array field, array element, map field, map key, map value.
+		const bool bScalar = Site == 0, bMap = Site >= 3;
+		const auto Type = bScalar ? IntType : bMap
+			? FArchiveLogicalTypeDescriptor::Map(IntType, IntType) : FArchiveLogicalTypeDescriptor::Array(IntType);
+		ObjectPackage::FPropertyTag Field{.DeclaringType = "Tests::DAuthoredArchiveAssetForTest", .FieldName = "Probe",
+			.Type = {.Kind = bScalar ? ObjectPackage::EValueKind::I32 : bMap ? ObjectPackage::EValueKind::Map : ObjectPackage::EValueKind::Array},
+			.Value = {.Signed = 17}};
+		if (!bScalar)
+		{
+			Field.Type.Children = {{.Kind = ObjectPackage::EValueKind::I32}};
+			Field.Value.Elements = {{.Signed = 17}};
+			if (bMap) { Field.Type.Children.push_back(Field.Type.Children[0]); Field.Value.Elements.push_back({.Signed = 29}); }
+		}
+		ObjectPackage::FLinkerTables Linker;
+		Linker.Schemas.push_back({Field.DeclaringType, {{Field.FieldName, Field.Type}}});
+		uint32 Restorations = 0;
+		const FPackageOverrideRestore Restore = [&](FPackageLoadContext&, std::unique_ptr<FOverriddenPropertyRestoreContext>) { ++Restorations; };
+		auto Read = [&] { return ReadPackageExportForTest(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context, Restore); };
+		auto ReadValues = [&](FArchive& Ar) {
+			if (bScalar) { int32 Value = 0; Ar << Value; return; }
+			uint64 Count = 0; Ar << Count;
+			for (uint64 Index = 0; Index < Count; ++Index)
+			{
+				if (!bMap) { auto Element = EnterArchiveArrayElement(Ar, Index); int32 Value = 0; Ar << Value; }
+				else
+				{
+					{ auto Key = EnterArchiveMapKey(Ar, Index); int32 Value = 0; Ar << Value; }
+					{ auto Value = EnterArchiveMapValue(Ar, Index); int32 Number = 0; Ar << Number; }
+				}
+			}
+		};
+		for (uint32 Failure = 0; Failure < 5; ++Failure)
+		{
+			SCOPED_TRACE(std::format("scope site {}, failure {}", Site, Failure));
+			GCookedLoadProbe = [&](FArchive& Ar) {
+				auto Throw = [&] {
+					if (Failure == 1) Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Explicit scope failure.");
+					if (Failure == 2) throw 7;
+					throw std::runtime_error("Original scope exception.");
+				};
+				auto Traverse = [&] {
+					auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), "Probe", Type});
+					// Complete values still cannot recover after their scope unwinds.
+					if (Failure == 4) { ReadValues(Ar); EXPECT_FALSE(Ar.IsError()); Throw(); return; }
+					if (Site == 0 || Site == 1 || Site == 3) { Throw(); return; }
+					uint64 Count = 0; Ar << Count;
+					if (Site == 2) { auto Element = EnterArchiveArrayElement(Ar, 0); Throw(); return; }
+					if (Site == 4) { auto Key = EnterArchiveMapKey(Ar, 0); Throw(); return; }
+					{ auto Key = EnterArchiveMapKey(Ar, 0); int32 Value = 0; Ar << Value; }
+					auto Value = EnterArchiveMapValue(Ar, 0); Throw();
+				};
+				if (Failure >= 3) { try { Traverse(); } catch (const std::exception&) {} }
+				else Traverse();
+			};
+			const auto Result = Read();
+			ASSERT_FALSE(Result);
+			EXPECT_EQ(Restorations, 0u);
+			const auto Text = Result.error().ToString();
+			EXPECT_NE(Text.find(Asset->GetObjectPath()), std::string::npos);
+			if (Failure == 1)
+			{
+				EXPECT_TRUE(Result.error().Is(PackageReadErrors::UnsupportedVersion));
+				EXPECT_NE(Text.find("Explicit scope failure."), std::string::npos);
+				EXPECT_NE(Text.find("Probe"), std::string::npos);
+				EXPECT_EQ(Text.find("Original scope exception"), std::string::npos);
+			}
+			else if (Failure >= 3)
+			{
+				EXPECT_TRUE(Result.error().Is(AssetLoadErrors::UnsupportedProperty));
+				EXPECT_NE(Text.find("recovery after a stored value scope unwinds"), std::string::npos);
+			}
+			else
+			{
+				EXPECT_TRUE(Result.error().Is(AssetLoadErrors::InvalidObjectGraph));
+				EXPECT_NE(Text.find(Failure == 0 ? "Original scope exception." : "Object load callback threw."), std::string::npos);
+			}
+		}
+		// A fresh read must not inherit the interrupted traversal, and normal reads
+		// must still visit all values before restoration can run.
+		GCookedLoadProbe = [&](FArchive& Ar) {
+			auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), "Probe", Type});
+			ReadValues(Ar);
+		};
+		ASSERT_TRUE(Read());
+		EXPECT_EQ(Restorations, 1u);
+		if (bScalar)
+		{
+			// Loading inside an already-unwinding caller must still validate normal
+			// scope exits; only a new exception from this traversal suppresses them.
+			GCookedLoadProbe = [&](FArchive& Ar) {
+				auto Scope = EnterArchiveField(Ar, {FName(Field.DeclaringType), "Probe", Type});
+			};
+			struct FDuringUnwind { std::function<void()> Check; ~FDuringUnwind() { Check(); } };
+			try
+			{
+				FDuringUnwind Probe{[&] {
+					EXPECT_GT(std::uncaught_exceptions(), 0);
+					const auto Result = Read();
+					EXPECT_FALSE(Result);
+					if (!Result) EXPECT_TRUE(Result.error().Is(PackageReadErrors::CorruptFile));
+				}};
+				throw std::runtime_error("Enclosing caller exception.");
+			}
+			catch (const std::exception&) {}
+			EXPECT_EQ(Restorations, 1u);
+		}
+	}
+}
+
+TEST(FPackageAssetTests, NativeFieldUnwindSkipsPostLoadCleansCandidatesAndAllowsRetry)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/NativeFieldUnwind", Path));
+	DAuthoredArchiveAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Path));
+	struct FReset { ~FReset() { GAuthoredFieldProbe = {}; GAuthoredPostLoadProbe = {}; } } Reset;
+	for (uint32 Failure = 0; Failure < 3; ++Failure)
+	{
+		uint32 Notifications = 0;
+		GAuthoredPostLoadProbe = [&](DObject&) { ++Notifications; };
+		GAuthoredFieldProbe = [&](FArchive& Ar) {
+			if (Failure == 1) Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Explicit native field failure.");
+			if (Failure == 2) throw 7;
+			throw std::runtime_error("Native field callback exception.");
+		};
+		std::optional<UnifiedError::FError> Error;
+		DPackage* Loaded = nullptr;
+		EXPECT_NO_THROW(Loaded = LoadPackage(Path, nullptr, &Error));
+		EXPECT_EQ(Loaded, nullptr);
+		ASSERT_TRUE(Error);
+		EXPECT_TRUE(Error->Is(Failure == 1 ? PackageReadErrors::UnsupportedVersion : AssetLoadErrors::InvalidObjectGraph));
+		EXPECT_NE(Error->ToString().find(Failure == 1 ? "Explicit native field failure."
+			: Failure == 0 ? "Native field callback exception." : "Object load callback threw."), std::string::npos);
+		if (Failure == 1) EXPECT_NE(Error->ToString().find("NativeValue"), std::string::npos);
+		EXPECT_EQ(Notifications, 0u);
+		EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		EXPECT_FALSE(IsPackageLoading(Path));
+		GAuthoredFieldProbe = {};
+		ASSERT_NE(LoadPackage(Path), nullptr);
+		EXPECT_EQ(Notifications, 1u);
+		ASSERT_TRUE(Testing::EnsurePackageNotResident(Path));
+	}
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
 TEST(FPackageAssetTests, StructuredLoadKeepsDeprecatedEvidenceInItsOwningScope)
@@ -5444,7 +5754,7 @@ TEST(FPackageAssetTests, StructuredLoadKeepsDeprecatedEvidenceInItsOwningScope)
 	};
 	DObject* Objects[] = {Asset};
 	const auto Before = Field;
-	const auto Result = LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context);
+	const auto Result = ReadPackageExportForTest(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context);
 	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
 	EXPECT_EQ(Field, Before);
 }
@@ -5480,7 +5790,7 @@ TEST(FPackageAssetTests, StructuredLoadHonorsTextBoundsAndRejectsRawLogicalReads
 		if (bRaw) { uint64 Bytes = 0; Ar.Serialize(&Bytes, sizeof(Bytes)); }
 		else SerializeBoundedString(Ar, Text, Limit);
 	};
-	auto Read = [&] { return LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context); };
+	auto Read = [&] { return ReadPackageExportForTest(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context); };
 	ASSERT_TRUE(Read());
 	EXPECT_EQ(Text, "structured");
 	Text = "unchanged";
@@ -5516,7 +5826,7 @@ TEST(FPackageAssetTests, StructuredLoadPreservesEnumBitsAndValidatesNativeBoolea
 	DObject* Objects[] = {Asset};
 	auto Read = [&] {
 		Linker.Schemas = {{Field.DeclaringType, {{Field.FieldName, Field.Type}}}};
-		return LoadPackageObject(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context);
+		return ReadPackageExportForTest(*Asset, std::span{&Field, 1}, Linker, Objects, {}, Context);
 	};
 	auto CheckEnum = [&]<typename T>(K Storage) {
 		Field.Type = {.Kind = K::Enum, .QualifiedName = "Tests::ELogicalEnum", .Parameter = static_cast<uint64>(Storage)};
@@ -5719,6 +6029,17 @@ TEST(FPackageAssetTests, CyclicLoadsCompleteTogetherAndRejectPrematurePublicAcce
 		EXPECT_EQ(Recursive, nullptr);
 		EXPECT_EQ(FindResidentPackage(ReentrantPath), nullptr);
 	};
+	uint32 PreloadReads = 0;
+	GAuthoredLoadProbe = [&](DObject& Object, FArchive& Ar) {
+		if (Object.GetPackage()->GetPackagePathIdentity() != APath && Object.GetPackage()->GetPackagePathIdentity() != BPath) return;
+		++PreloadReads;
+		auto* Peer = static_cast<DPackageAssetForTest&>(Object).ExternalReference.Get();
+		ASSERT_NE(Peer, nullptr);
+		Ar.Preload(Peer);
+		Ar.Preload(Peer);
+		EXPECT_FALSE(Ar.IsError());
+		EXPECT_EQ(Notifications, 0u);
+	};
 	DPackage* Loaded = nullptr;
 	{
 		std::optional<Durin::UnifiedError::FError> LoadedValueError;
@@ -5726,6 +6047,8 @@ TEST(FPackageAssetTests, CyclicLoadsCompleteTogetherAndRejectPrematurePublicAcce
 		Loaded = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
+	EXPECT_EQ(PreloadReads, 2u);
+	GAuthoredLoadProbe = {};
 	EXPECT_EQ(Notifications, 2u);
 	EXPECT_EQ(FindResidentPackage(APath), Loaded);
 	ASSERT_NE(FindResidentPackage(BPath), nullptr);
@@ -5855,9 +6178,9 @@ TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkRe
 	auto* Candidate = NewObject<DBulkPackageAssetForTest>(Private, Live->GetFName());
 	DObject* Objects[] = {Candidate};
 	// A live resource exists at the same path, but cannot satisfy a missing binding.
-	EXPECT_FALSE(LoadPackageObject(*Candidate, std::span{&Field, 1}, Linker, Objects, {}));
+	EXPECT_FALSE(ReadPackageExportForTest(*Candidate, std::span{&Field, 1}, Linker, Objects, {}));
 	FPackageLoadBindings Bindings{.BulkResource = Prepared.GetBulkResource()};
-	ASSERT_TRUE(LoadPackageObject(*Candidate, std::span{&Field, 1}, Linker, Objects, Bindings));
+	ASSERT_TRUE(ReadPackageExportForTest(*Candidate, std::span{&Field, 1}, Linker, Objects, Bindings));
 	EXPECT_FALSE(Candidate->Payload.IsMemoryResident());
 	EXPECT_EQ(Candidate->Payload.GetPayloadId(), Storage.ContentHash);
 	Bindings = {};
@@ -8566,6 +8889,70 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FPackageAssetTests, PreparedBatchPreloadRoutesCyclesAndPreservesOutputOnFailure)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	std::array<FPackageGraphSource, 2> Sources;
+	std::array<DPackageAssetForTest*, 2> Live{};
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PreloadBatch{}", Index), Sources[Index].PackagePath));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+		Live[Index]->Value = static_cast<int32>(100 + Index);
+	}
+	Live[0]->ExternalReference = Live[1];
+	Live[1]->ExternalReference = Live[0];
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / std::format("PreloadBatch{}.dasset", Index);
+		auto Storage = FPreparedPackageResource::Read(Sources[Index].PackagePath, File, 1024 * 1024);
+		ASSERT_TRUE(Storage);
+		Sources[Index].Storage = std::move(*Storage);
+	}
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	struct FReset { ~FReset() { GAuthoredLoadProbe = {}; } } Reset;
+	uint32 FailureMode = 0;
+	uint32 Reads = 0;
+	const auto PostLoads = GPackageAssetPostLoadCount;
+	GAuthoredLoadProbe = [&](DObject& Object, FArchive& Ar) {
+		++Reads;
+		EXPECT_TRUE(Object.GetPackage()->IsGraphPrivate());
+		auto* Peer = static_cast<DPackageAssetForTest&>(Object).ExternalReference.Get();
+		ASSERT_NE(Peer, nullptr);
+		Ar.Preload(Peer);
+		Ar.Preload(Peer);
+		if (Object.GetPackage()->GetPackagePathIdentity() == Sources[1].PackagePath)
+		{
+			if (FailureMode == 1) Ar.Fail(EArchiveFailureCode::InvalidData, "Rejected private preloaded peer.");
+			if (FailureMode == 2) throw std::runtime_error("private preload exception");
+		}
+	};
+	ASSERT_TRUE(PreparePackageGraphs(Sources, Options, Graphs));
+	EXPECT_EQ(Reads, 2u);
+	ASSERT_EQ(Graphs.size(), 2u);
+	const auto* Previous = Graphs[0].GetPackage();
+	for (FailureMode = 1; FailureMode <= 2; ++FailureMode)
+	{
+		Reads = 0;
+		const auto Failed = PreparePackageGraphs(Sources, Options, Graphs);
+		ASSERT_FALSE(Failed);
+		ASSERT_TRUE(Failed.Cause);
+		EXPECT_NE(Failed.Cause->ToString().find(FailureMode == 1 ? "Rejected private preloaded peer." : "private preload exception"), std::string::npos);
+		EXPECT_EQ(Graphs[0].GetPackage(), Previous);
+		EXPECT_EQ(Reads, 2u);
+	}
+	EXPECT_EQ(GPackageAssetPostLoadCount, PostLoads);
+	EXPECT_EQ(FindResidentPackage(Sources[0].PackagePath), Live[0]->GetPackage());
+	EXPECT_EQ(Live[0]->Value, 100);
+	FailureMode = 0;
+	ASSERT_TRUE(PreparePackageGraphs(Sources, Options, Graphs));
 }
 
 TEST(FPackageAssetTests, PreparedGraphValidationWaitsForBatchValuesAndPreservesOutputOnFailure)

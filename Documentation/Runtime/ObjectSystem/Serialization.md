@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-17
 
 ## Archive And Object Serialization
 
@@ -160,6 +160,13 @@ references and object-aware adapters. `DObject/Archive.h` forwards the Core
 Archive API and temporarily aliases its prior memory-Archive spellings to the
 object-aware canonical implementations for named migration consumers; it does
 not contain a second primitive serializer.
+
+`FArchive::Preload(DObject*)` is a void virtual extension point, with no work in
+the base byte/save archive. Core only forward-declares the object type and owns
+no loading implementation. Engine's package archive routes explicit serializer
+requests through the object's temporary loader/export binding; see
+[object preload](../Assets/Packages/ObjectLoading.md#object-preload) for ownership,
+routing, cycle semantics and publication boundaries.
 
 Structured loading uses Core Archive logical primitive and text read hooks,
 symmetrical with logical capture. Byte archives keep canonical byte decoding;

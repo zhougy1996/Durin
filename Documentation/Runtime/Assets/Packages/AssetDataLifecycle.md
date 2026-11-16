@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, MeshBuilder, TextureCompressor, AssetForgeBuiltins
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-17
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -99,15 +99,18 @@ without a public native effect ledger. The physical package
 writer retains its native contract; the asset boundary preserves its failure
 identity, file evidence and retained backup paths in the report's error context.
 
-Field application through `LoadAuthoredObject` returns `std::expected<void, UnifiedError::FError>`, with
-success represented by an expected value. Failures own a complete diagnostic:
-object identity, Archive field route and first failure, plus dependency,
-bounds or type details captured at the producer. Original serializer failure
-messages survive archive and candidate destruction. External resolver failures
-retain their identity and appended field/object context; operation recovery metadata
-stays with the resolver's owning operation. Serializers retain their void
-interface and in-place writes. The same field application serves ordinary and
-private loading; the caller owns candidate cleanup and PostLoad policy.
+Field application uses the operation-local `FPackageLoadContext::SerializeExport`
+with a void serializer interface. The package context retains the first owned
+failure; internal loading phases inspect that state instead of forwarding
+`expected<void, FError>` through every layer. Diagnostics retain object identity,
+Archive field route and first failure, plus dependency, bounds or type details
+captured at the producer. Original serializer messages survive Archive and
+candidate destruction. External resolver failures retain their identity and
+field/object context; operation recovery metadata stays with the resolver's owner.
+The package loader owns NeedLoad flags and object-to-export bindings; `SerializeExport` remains
+the field-application step. The same path serves ordinary, cooked and private loading. Writes
+remain in-place; the caller owns candidate cleanup and PostLoad policy. See
+[object package loading](ObjectLoading.md#loading-failure-ownership) for the failure boundary.
 
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional

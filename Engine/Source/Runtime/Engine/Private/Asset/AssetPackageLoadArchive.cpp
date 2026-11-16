@@ -1,4 +1,5 @@
 #include "AssetPackageArchive.h"
+#include <exception>
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
 #include "AssetObjectLoadTiming.h"
@@ -34,7 +35,8 @@ namespace Durin::AssetPrivate
 				const ObjectPackage::FLinkerTables& InLinker,
 				std::span<DObject* const> InObjects,
 				const FPackageLoadBindings& InBindings,
-				const FArchiveState& Context, LinkerSchema::FLoadSchemaBindings& InSchemaBindings, bool bCollectRestoration)
+				const FArchiveState& Context, LinkerSchema::FLoadSchemaBindings& InSchemaBindings, bool bCollectRestoration,
+				FPackageLoadContext& InLoadContext)
 				: FObjectArchive({EArchiveDirection::Load,
 					Context.bCooking ? EArchivePurpose::CookedPackage : EArchivePurpose::AuthoredPackage,
 					EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
@@ -47,9 +49,17 @@ namespace Durin::AssetPrivate
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), InLinker.FormatVersion}},
 						InLinker.CustomVersions})
 				, Object(InObject), Fields(InFields), Linker(InLinker), Objects(InObjects), Bindings(InBindings),
-				  Consumed(InFields.size(), 0), SchemaBindings(InSchemaBindings)
+				  Consumed(InFields.size(), 0), SchemaBindings(InSchemaBindings), LoadContext(InLoadContext)
 			{
 				if (bCollectRestoration) PrepareOverriddenPropertyRestoration(Object);
+			}
+
+			auto Preload(DObject* Target) -> void override
+			{
+				if (IsError() || !Target) return;
+				PreloadPackageObject(LoadContext, Target);
+				if (LoadContext.IsError())
+					Fail(EArchiveFailureCode::InvalidObjectReference, "Referenced object preload failed.");
 			}
 
 			auto GetStructBaseline() -> EArchiveStructBaseline override
@@ -57,15 +67,17 @@ namespace Durin::AssetPrivate
 				if (!IsCurrentFieldAvailable()) return EArchiveStructBaseline::Complete;
 				return Scopes.back().Value->Baseline;
 			}
-			auto Complete(const FPackageOverrideRestore& OnValidatedValues) -> std::expected<void, Durin::UnifiedError::FError>
+			auto Complete(const FPackageOverrideRestore& OnValidatedValues) -> void
 			{
-				auto Result = GetResult();
-				if (Result && OnValidatedValues) return OnValidatedValues(TakeOverriddenPropertyRestoration());
-				return Result;
+				ValidateConsumption();
+				if (!LoadContext.IsError() && OnValidatedValues)
+					OnValidatedValues(LoadContext, TakeOverriddenPropertyRestoration());
 			}
 
-			auto GetResult() const -> std::expected<void, Durin::UnifiedError::FError>
+			auto ValidateConsumption() const -> void
 			{
+				// A nested preload already owns its complete diagnostic in this context.
+				if (LoadContext.IsError()) return;
 				if (const auto* Failure = GetFailure())
 				{
 					auto Error = LoadFailure;
@@ -90,10 +102,13 @@ namespace Durin::AssetPrivate
 							? AssetLoadErrors::UnsupportedProperty : PackageReadErrors::CorruptFile;
 						Error.emplace(Id, std::move(Reason));
 					}
-					Error->PushContext("object", Object.GetObjectPath()).PushContext("field", Failure->Path)
+					Error->PushContext("field", Failure->Path)
 						.PushContext("archive code", std::to_string(static_cast<uint32>(Failure->Code)));
-					return std::unexpected(std::move(*Error));
+					return LoadContext.Fail(std::move(*Error));
 				}
+				if (bValueScopeUnwound)
+					return LoadContext.Fail(UnifiedError::FError{AssetLoadErrors::UnsupportedProperty,
+						"Serializer recovery after a stored value scope unwinds is not supported."});
 				for (size_t Index = 0; Index < Fields.size(); ++Index)
 				{
 					if (Consumed[Index]) continue;
@@ -101,10 +116,10 @@ namespace Durin::AssetPrivate
 					const auto* Schema = LinkerSchema::FindSchema(Linker, Tag.DeclaringType);
 					const auto Field = Schema ? SchemaBindings.FindProperty(*Schema, Tag.FieldName) : nullptr;
 					if (!IsCooking() && Field && Field->Match.Route == LinkerSchema::EPropertyLoadRoute::Removed) continue;
-					return std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, std::format("Object '{}' has an unconsumed field '{}::{}' of kind '{}'.",
+					return LoadContext.Fail(Durin::UnifiedError::FError{Durin::AssetLoadErrors::UnsupportedProperty, std::format("Object '{}' has an unconsumed field '{}::{}' of kind '{}'.",
 							Object.GetObjectPath(), Tag.DeclaringType, Tag.FieldName, static_cast<uint32>(Tag.Type.Kind))});
 				}
-				return {};
+				return;
 			}
 
 			auto GetLoadedDeprecatedProperties(FName DeclaringType) const
@@ -468,7 +483,9 @@ namespace Durin::AssetPrivate
 			{
 				if (Scopes.empty()) return;
 				auto& Scope = Scopes.back();
-				if (!IsError() && Scope.Value)
+				// Unwinding balances scopes without replacing the callback exception.
+				if (Scope.Value && std::uncaught_exceptions() > InitialExceptionDepth) bValueScopeUnwound = true;
+				else if (!IsError() && Scope.Value)
 				{
 					const auto Kind = Scope.Type->Kind;
 					if (Scope.IsIntrinsicComponent() || (Kind != K::Struct && Kind != K::Intrinsic && Kind != K::FixedArray
@@ -502,7 +519,10 @@ namespace Durin::AssetPrivate
 				Scopes.pop_back();
 			}
 
+			const int InitialExceptionDepth = std::uncaught_exceptions();
+			bool bValueScopeUnwound = false;
 			std::optional<UnifiedError::FError> LoadFailure;
+			FPackageLoadContext& LoadContext;
 			DObject& Object;
 			std::span<const ObjectPackage::FPropertyTag> Fields;
 			const ObjectPackage::FLinkerTables& Linker;
@@ -515,27 +535,61 @@ namespace Durin::AssetPrivate
 
 	}
 
-	auto LoadPackageObject(
+	auto FPackageLoadContext::Fail(UnifiedError::FError Error, std::string_view ObjectPath) -> void
+	{
+		if (IsError()) return;
+		if (!ObjectPath.empty()) Error.PushContext("object", std::string(ObjectPath));
+		else if (CurrentObject) Error.PushContext("object", CurrentObject->GetObjectPath());
+		Failure = std::move(Error);
+	}
+
+	auto FPackageLoadContext::SerializeExport(
 		DObject& Object,
 		std::span<const ObjectPackage::FPropertyTag> Fields,
 		const ObjectPackage::FLinkerTables& Linker,
 		std::span<DObject* const> Objects,
 		const FPackageLoadBindings& Bindings,
 		const FArchiveState& Context,
-		const FPackageOverrideRestore& OnValidatedValues) -> std::expected<void, Durin::UnifiedError::FError>
+		const FPackageOverrideRestore& OnValidatedValues) -> void
 	{
+		if (IsError()) return;
+		struct FScopedObject
+		{
+			DObject*& Current;
+			DObject* Previous;
+			~FScopedObject() { Current = Previous; }
+		} ObjectScope{CurrentObject, std::exchange(CurrentObject, &Object)};
 		FScopedObjectLoadPhase Timing(Linker.Summary.PackagePath, EObjectLoadPhase::SerializeExports, 1, Fields.size());
 		std::optional<LinkerSchema::FLoadSchemaBindings> LocalBindings;
 		if (!Bindings.SchemaBindings) LocalBindings.emplace(Linker);
 		auto& SchemaBindings = Bindings.SchemaBindings ? *Bindings.SchemaBindings : *LocalBindings;
 		FPackageLoadArchive Archive(
-			Object, Fields, Linker, Objects, Bindings, Context, SchemaBindings, bool(OnValidatedValues));
+			Object, Fields, Linker, Objects, Bindings, Context, SchemaBindings, bool(OnValidatedValues), *this);
+		// The serializer/restoration callback boundary owns exception translation.
+		// Once recorded, failures travel through normal void returns and cleanup.
+		// Keep the object scope alive while translating callback exceptions, so
+		// scope-closing diagnostics cannot replace an exception thrown before base Serialize.
+		auto ArchiveScope = Archive.EnterObject(Object);
+		try
 		{
-			auto Scope = Archive.EnterObject(Object);
 			if (Context.bCooking) Object.SerializeCooked(Archive);
 			else Object.Serialize(Archive);
+			ArchiveScope = {};
+			Archive.Complete(OnValidatedValues);
 		}
-		return Archive.Complete(OnValidatedValues);
+		catch (const std::exception& Error)
+		{
+			if (Archive.IsError()) Archive.ValidateConsumption();
+			if (IsError()) return;
+			Fail(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph,
+				std::string("Object load callback threw: ") + Error.what()});
+		}
+		catch (...)
+		{
+			if (Archive.IsError()) Archive.ValidateConsumption();
+			if (IsError()) return;
+			Fail(UnifiedError::FError{AssetLoadErrors::InvalidObjectGraph, "Object load callback threw."});
+		}
 	}
 	auto DecodeReferenceByteToolValue(
 		FProperty* Property,

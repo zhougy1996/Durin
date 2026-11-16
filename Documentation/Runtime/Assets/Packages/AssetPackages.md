@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST packages, runtime residency, load
 
 Modules: Core, AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -545,8 +545,10 @@ authored compatibility policy. Reference resolution and external BulkData use
 the supplied load bindings. Construct-free byte-tool payloads retain their
 separate decoder and are not part of this production load path.
 
-`LoadPackageObject` serves both authored and cooked dispatch. Property lookup
-uses each descriptor's declaring type. Consumption records actual reads;
+The owning loader's `Preload(Object)` clears per-export NeedLoad and routes explicit
+`Ar.Preload(Object)` requests; see [object preload](ObjectLoading.md#object-preload).
+`FPackageLoadContext::SerializeExport` serves both authored and cooked field dispatch.
+Property lookup uses each descriptor's declaring type. Consumption records actual reads;
 removable authored fields are skipped by compatibility policy, not premarked
 as consumed. Deprecated-field evidence belongs to the active Struct scope, so
 nested instances of the same type cannot clear or inherit each other's evidence.
@@ -686,13 +688,15 @@ Missing bindings and external resolvers returning no object fail the read;
 internal references still use the supplied export table. The ordinary linker
 supplies its registered resource and normal load resolver. A private caller can
 supply an immutable resource snapshot and private object resolver without
-temporarily publishing either. `LoadAuthoredObject` applies serializer fields
-only; the caller owns graph construction, dependency lifetime, rollback and
-PostLoad policy. It returns an owned diagnostic in `std::expected<void, UnifiedError::FError>`;
-resolver identity and context survive propagation, while operation recovery metadata
-stays with its owner. Serializer
-and struct migration callbacks still execute and
-require their own admission before use in isolated preparation.
+temporarily publishing either. `FPackageLoadContext::SerializeExport` applies
+serializer fields only; the caller owns graph construction, dependency lifetime,
+rollback and PostLoad policy. Internal phases record failure in their package's
+load context; operation boundaries expose the owned diagnostic through their
+existing result contracts. Resolver identity and context survive, while recovery
+metadata stays with its owner. See
+[loading failure ownership](ObjectLoading.md#loading-failure-ownership). Serializer
+and struct migration callbacks still execute and require their own admission
+before use in isolated preparation.
 
 `PreparePackageGraphs` consumes saved immutable closures on GameThread and uses
 those same canonicalization, schema, skeleton, field and authored-ledger phases.
