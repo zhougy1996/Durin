@@ -1,4 +1,5 @@
 #include "Asset/RegistryOperations.h"
+#include "AssetRegistry/Publication.h"
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
@@ -331,15 +332,14 @@ namespace Durin::LevelEditor
 		const FEditorAssetMove Move{TWeakObjectPtr<DObject>(Context.Level), OldPathString.substr(0, Separator), NewName};
 		std::string MoveError;
 		const bool MoveResult = AssetMoveCoordinator.MoveAssets(std::span{&Move, 1}, &MoveError);
+		auto& RenamedPackage = *Context.Level->GetPackage();
 		FLevelDocumentRevisionState::CompleteSave(
-			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), *Context.Level->GetPackage(), static_cast<bool>(MoveResult)
+			(Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), RenamedPackage,
+			MoveResult && !RenamedPackage.IsDirty() && !RenamedPackage.IsNewlyCreated()
+				&& !IsAssetRegistryProjectionFenced(RenamedPackage.GetPackagePathIdentity())
 		);
-		if (!MoveResult)
-		{
-			SetError(MoveError);
-			return false;
-		}
-		return true;
+		if (!MoveError.empty()) SetError(MoveError);
+		return MoveResult;
 	}
 
 	auto FLevelDocumentController::CloseLevel() -> bool

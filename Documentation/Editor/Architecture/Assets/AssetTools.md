@@ -4,7 +4,7 @@ Summary: Define editor creation, duplication, rename/reference handling, package
 
 Modules: AssetTools, DurinEd, AssetMaintenance, MainFrame, Core, CoreDObject, ApplicationCore
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 ## Ownership
 
@@ -111,6 +111,14 @@ physical commit does not establish that Registry publication succeeded.
 Owned payloads prepare before identity mutation and retain source files until the
 new package and references are committed; failed preparation removes new copies.
 Uncertain/partial persistence still requires native diagnostics and inspection.
+
+The return value reports whether every requested identity change or soft-reference
+repair succeeded. Subsequent save, Registry publication and old-payload cleanup
+failures remain diagnostics and native persistence facts; they do not turn an
+applied rename into a failed rename. Repeating an already applied request may
+retry persistence without emitting another identity event. Callers must not use
+the rename bool as a saved-state checkpoint; Level Editor checks the package's
+Dirty/new state and Registry publication fence independently.
 
 Engine publishes `OnAssetRenamed(const FAssetData&, const FSoftObjectPath& Old)`
 after committing live identity, outside Registry locks. The new record includes

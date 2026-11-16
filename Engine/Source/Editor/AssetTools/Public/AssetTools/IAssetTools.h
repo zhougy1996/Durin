@@ -40,6 +40,7 @@ namespace Durin
 			std::vector<std::pair<std::string, std::string>>* FilesAndDestinations = nullptr,
 			bool bAllowAsyncImport = false, bool bSceneImport = false) const -> std::vector<DObject*> = 0;
 
+		// True when every rename/reference repair succeeds; follow-up save/cleanup failures remain diagnostics.
 		virtual auto RenameAssets(std::span<const FAssetRenameData> AssetsAndNames) -> bool = 0;
 		virtual auto OnAssetPostRename() -> TMulticastDelegate<void(std::span<const FAssetRenameData>)>& = 0;
 		virtual auto FixupReferencers(std::span<DAssetRedirector* const> Objects, bool bCheckoutDialogPrompt = true,

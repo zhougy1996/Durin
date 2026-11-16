@@ -1349,16 +1349,65 @@ TEST(DAssetRenameTests, FailedPersistenceRetainsUnsavedValuesAndIdentityForOrdin
 	ASSERT_NE(Object, nullptr);
 	ASSERT_TRUE(SavePackage(Object->GetPackage()));
 	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameFaultTarget"};
+	int IdentityEvents = 0, PostEvents = 0, Errors = 0;
+	const auto IdentityHandle = OnAssetRenamed().AddLambda([&](const auto&, const auto&) { ++IdentityEvents; });
+	const auto PostHandle = IAssetTools::Get().OnAssetPostRename().AddLambda([&](auto) { ++PostEvents; });
+	FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view) { Errors += Level >= ELogLevel::Error; });
 	{
+		FScopedFeedbackContext Scope(Feedback);
 		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage; });
-		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+		EXPECT_EQ(IdentityEvents, 1); EXPECT_EQ(PostEvents, 1);
+		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 	}
+	EXPECT_GE(Errors, 2);
 	EXPECT_EQ(Object->GetName(), "RenameFaultTarget");
 	EXPECT_TRUE(Object->GetPackage()->IsDirty());
 	EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	EXPECT_EQ(IdentityEvents, 1); EXPECT_EQ(PostEvents, 1);
+	OnAssetRenamed().Remove(IdentityHandle);
+	IAssetTools::Get().OnAssetPostRename().Remove(PostHandle);
 	FPackagePath Alias; ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/RenameFaultSource", Alias));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Alias, EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, PayloadCleanupFailureDoesNotFailTheCommittedRename)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	const auto Root = Testing::GetTestWorkDirectory() / "RenamePayloadCleanup";
+	std::filesystem::create_directories(Root);
+	const auto Source = Root / "source.bin", Target = Root / "target.bin";
+	{ std::ofstream Stream(Source); Stream << "payload"; }
+	auto* Object = IAssetTools::Get().CreateAsset("RenameCleanupSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
+	ASSERT_NE(Object, nullptr);
+	const auto Handle = RegisterAssetOwnedPayloadRelocator(DMaterial::StaticClass(),
+		[&](DObject*, const FPackagePath&, const FPackagePath&, FAssetOwnedPayloadRelocation& Payload) -> std::expected<void, UnifiedError::FError> {
+			Payload.Files.emplace_back(Source, Target);
+			Payload.Apply = [&] {
+				std::filesystem::remove(Source);
+				std::filesystem::create_directory(Source);
+				std::ofstream Stream(Source / "blocker"); Stream << "prevent removal";
+			};
+			return {};
+		});
+	ASSERT_NE(Handle, 0u);
+	int Warnings = 0;
+	FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view) { Warnings += Level == ELogLevel::Warn; });
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameCleanupTarget"};
+	{
+		FScopedFeedbackContext Scope(Feedback);
+		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	}
+	UnregisterAssetOwnedPayloadRelocator(Handle);
+	EXPECT_GT(Warnings, 0);
+	EXPECT_EQ(Object->GetName(), "RenameCleanupTarget");
+	EXPECT_FALSE(Object->GetPackage()->IsDirty());
+	EXPECT_TRUE(std::filesystem::is_regular_file(Target));
+	EXPECT_TRUE(std::filesystem::is_directory(Source));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+	std::filesystem::remove(Source / "blocker"); std::filesystem::remove(Source); std::filesystem::remove(Target);
 }
 
 TEST(DAssetRenameTests, DirtyLoadedHardAndSoftReferencersRetainValuesAndSubobjectSuffixes)
@@ -1408,6 +1457,33 @@ TEST(DAssetRenameTests, SoftOnlySubobjectRepairDoesNotMoveTheAsset)
 	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Repair, 1}));
 	EXPECT_EQ(Object->Soft.ToSoftObjectPath(), New);
 	EXPECT_EQ(Object->GetName(), "RenameSoftOnly");
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetRenameTests, SoftOnlyRepairSucceedsWhenItsFollowUpSaveFails)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* Object = Cast<DAssetRenameReferencesForTest>(IAssetTools::Get().CreateAsset("RenameSoftSaveFault", "/AssetToolsTests", DAssetRenameReferencesForTest::StaticClass(), nullptr));
+	ASSERT_NE(Object, nullptr);
+	FSoftObjectPath Old, New;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameSoftSaveFault.RenameSoftSaveFault:Before", Old));
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameSoftSaveFault.RenameSoftSaveFault:After", New));
+	Object->Soft = Old;
+	ASSERT_TRUE(SavePackage(Object->GetPackage()));
+	int Errors = 0;
+	FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view) { Errors += Level >= ELogLevel::Error; });
+	const FAssetRenameData Repair{Old, New, true};
+	{
+		FScopedFeedbackContext Scope(Feedback);
+		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Repair, 1}));
+	}
+	EXPECT_GT(Errors, 0);
+	EXPECT_EQ(Object->Soft.ToSoftObjectPath(), New);
+	EXPECT_EQ(Object->GetName(), "RenameSoftSaveFault");
+	EXPECT_TRUE(Object->GetPackage()->IsDirty());
+	ASSERT_TRUE(SavePackage(Object->GetPackage()));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
@@ -1470,7 +1546,7 @@ TEST(DAssetRenameTests, RegistryLagRetryPreservesIdentityAndPublishesItsAlias)
 	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameLagTarget"};
 	{
 		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishRegistry; });
-		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 	}
 	const auto New = Object->GetPackage()->GetPackagePathIdentity();
 	EXPECT_TRUE(IsAssetRegistryProjectionFenced(New));
@@ -1495,11 +1571,17 @@ TEST(DAssetRenameTests, FixupSavesDirtyHardReferencersBeforeDeletingPureAliases)
 	{
 		int Publications = 0;
 		Testing::FScopedPackageSaveFault Fault([&](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage && ++Publications == 3; });
-		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 	}
 	ASSERT_TRUE(Ref->GetPackage()->IsDirty());
 	auto* Alias = Cast<DAssetRedirector>(FindResidentPackage(Old)->FindTopLevelAsset(FName("RenameHardSource")));
 	ASSERT_NE(Alias, nullptr);
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		IAssetTools::Get().FixupReferencers(std::span{&Alias, 1});
+	}
+	EXPECT_EQ(FindResidentPackage(Old)->FindTopLevelAsset(FName("RenameHardSource")), Alias);
+	EXPECT_TRUE(Ref->GetPackage()->IsDirty());
 	IAssetTools::Get().FixupReferencers(std::span{&Alias, 1});
 	EXPECT_EQ(Ref->Value, 789); EXPECT_EQ(Ref->Hard.Get(), Object);
 	EXPECT_FALSE(FindPackageExact(Old));

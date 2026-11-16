@@ -132,7 +132,9 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 				}
 				if (!Admitted(Inputs, &Error)) { ReportDiagnostic(Inputs, ELogLevel::Error, Error); break; }
 				auto& FallbackFeedback = FFeedbackContext::Get();
+				bool ReportedFailure = false;
 				FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) {
+					ReportedFailure |= Level >= ELogLevel::Error;
 					if (!Inputs.empty() && Inputs.front().Policy->ReportDiagnostic) Inputs.front().Policy->ReportDiagnostic(Level, Message);
 					else FallbackFeedback.Serialize(Level, Message);
 				});
@@ -142,7 +144,8 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 					Success = true;
 					Changes.Changes.push_back({EContentChangeKind::Renamed, Entry.SourceFile.generic_string(), Entry.TargetFile.generic_string(), Old.ToString(), Asset.AssetPath.ToString()});
 				});
-				if (!IAssetTools::Get().RenameAssets(Renames) && Success) Changes.bFullRefresh = true;
+				const bool Renamed = IAssetTools::Get().RenameAssets(Renames);
+				if ((!Renamed || ReportedFailure) && Success) Changes.bFullRefresh = true;
 				OnAssetRenamed().Remove(Handle);
 			}
 			else

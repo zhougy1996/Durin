@@ -77,7 +77,7 @@ namespace Durin
 		{
 			FAssetRenameData Data;
 			TStrongObjectPtr<DObject> Object;
-			bool Failed = false;
+			bool RenameSucceeded = false;
 			bool IdentityChanged = false;
 		};
 		auto SaveRenamed(DObject* Asset) -> bool
@@ -100,7 +100,8 @@ namespace Durin
 			if (!DEditorLoadingAndSavingUtils::SavePackages(Aliases, false)) Success = false;
 			return Success;
 		}
-		auto RenameOne(FRenameItem& Item, bool SaveHardReferencers = false) -> bool
+		// Follow-up persistence gates fix-up retirement independently of rename success.
+		auto RenameAndPersist(FRenameItem& Item, bool SaveHardReferencers = false) -> bool
 		{
 			auto& Data = Item.Data;
 			DObject* Object = Data.Asset.Get();
@@ -121,7 +122,11 @@ namespace Durin
 			if (Data.NewName.empty()) Data.NewName = Data.NewObjectPath.GetAssetPath().GetAssetName();
 			Item.Object = TStrongObjectPtr<DObject>(Object);
 			if (Object) Data.Asset = TWeakObjectPtr<DObject>(Object);
-			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() == Data.NewObjectPath.ToString()) return SaveRenamed(Object);
+			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() == Data.NewObjectPath.ToString())
+			{
+				Item.RenameSucceeded = true;
+				return SaveRenamed(Object);
+			}
 			if (!Data.bOnlyFixSoftReferences && Object->GetObjectPath() != Data.OldObjectPath.ToString()) return Reject("The rename source identity changed.");
 			const auto OldPackagePath = Data.OldObjectPath.GetPackagePath();
 			const auto NewPackagePath = Data.NewObjectPath.GetPackagePath();
@@ -242,6 +247,7 @@ namespace Durin
 
 			}
 			for (auto& Rewrite : Soft) { *Rewrite.Value = Rewrite.After; Rewrite.Package->MarkDirty(); if (!std::ranges::contains(ToSave, Rewrite.Package)) ToSave.push_back(Rewrite.Package); }
+			Item.RenameSucceeded = true;
 			if (!Data.bOnlyFixSoftReferences) { Item.IdentityChanged = true; PublishAssetRenamed(*Object, Data.OldObjectPath); }
 			bool Success = true;
 			if (!Data.bOnlyFixSoftReferences) Success = SaveRenamed(Object);
@@ -300,9 +306,9 @@ namespace Durin
 		std::vector<FAssetRenameData> Completed;
 		for (auto& Item : Items)
 		{
-			Item.Failed = !RenameOne(Item);
-			Success &= !Item.Failed;
-			if (Item.IdentityChanged || (!Item.Failed && Item.Data.bOnlyFixSoftReferences)) Completed.push_back(Item.Data);
+			(void)RenameAndPersist(Item);
+			Success &= Item.RenameSucceeded;
+			if (Item.IdentityChanged || (Item.RenameSucceeded && Item.Data.bOnlyFixSoftReferences)) Completed.push_back(Item.Data);
 		}
 		if (!Completed.empty()) PostRename.Broadcast(Completed);
 		return Success;
@@ -334,7 +340,7 @@ namespace Durin
 				if (std::ranges::none_of(Selection, [&](const auto& Selected) { return Selected.Get() == Export; })) SiblingOwners.emplace_back(Export);
 			if (!SaveRenamed(Destination)) continue;
 			FRenameItem Repair{FAssetRenameData(Old, New, true)};
-			if (!RenameOne(Repair, true)) continue; // Preserve the alias after any failed referencer save.
+			if (!RenameAndPersist(Repair, true)) continue; // Preserve the alias after any failed referencer save.
 			const auto Exports = Package->GetTopLevelAssets();
 			const bool WholeAliasPackage = std::ranges::all_of(Exports, [&](auto* Export) {
 				auto* Other = Cast<DAssetRedirector>(Export);

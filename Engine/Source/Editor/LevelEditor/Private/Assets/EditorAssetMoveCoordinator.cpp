@@ -38,16 +38,18 @@ namespace Durin::LevelEditor
 		}
 
 		std::string ResultError;
+		auto& FallbackFeedback = FFeedbackContext::Get();
 		FFeedbackContext ResultFeedback({}, [&](ELogLevel Level, std::string_view Message) {
 			if (Level >= ELogLevel::Error)
 			{
 				if (!ResultError.empty()) ResultError += "\n";
 				ResultError += Message;
 			}
+			FallbackFeedback.Serialize(Level, Message);
 		});
 		FScopedFeedbackContext FeedbackScope(ResultFeedback);
 		const auto Result = IAssetTools::Get().RenameAssets(Moves);
-		if (!Result && OutError) *OutError = std::move(ResultError);
+		if (OutError) *OutError = std::move(ResultError);
 		return Result;
 	}
 
