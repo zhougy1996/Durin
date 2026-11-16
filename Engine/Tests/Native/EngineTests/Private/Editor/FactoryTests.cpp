@@ -439,7 +439,7 @@ TEST(DObjectToolsTests, FolderDeletionWithoutBrowserModulesRevalidatesAndCountsA
 	Parameters.bShowConfirmation = false;
 	const auto Deleted = ObjectTools::DeleteItems(Parameters);
 	EXPECT_EQ(Deleted.ObjectsDeleted, 3);
-	EXPECT_EQ(Deleted.FoldersDeleted, 2);
+	EXPECT_EQ(Deleted.FoldersDeleted, 1);
 	EXPECT_EQ(Prompts, 1);
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	const auto Root = ObjectTools::DeleteItems({.FoldersToDelete = {"/AssetToolsTests/"}, .bShowConfirmation = false});

@@ -1,7 +1,6 @@
 #include "ObjectTools.h"
 #include "AssetDeleteModel.h"
 #include "AssetTools/DeleteItemsHost.h"
-#include "AssetTools/FileDeletionRequest.h"
 #include "Asset/Load.h"
 #include "DObject/Package.h"
 #include "Misc/FeedbackContext.h"
@@ -94,7 +93,7 @@ namespace Durin::ObjectTools
 		if (!Scope.Entered) return {};
 		const auto Selection = Parameters;
 		if (!Selection.FoldersToDelete.empty())
-			return ContentStorage::FFileDeletionRequest::DeleteObjectsAndFolders(Selection);
+			return Private::DeleteObjectsAndFolders(Selection);
 		FAssetDeleteModel Model(Selection.ObjectsToDelete);
 		return DeleteModel(Model, Selection, {});
 	}

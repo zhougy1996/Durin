@@ -3,7 +3,7 @@
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include "ContentBrowserItemAttributeHelpers.h"
 #include "FileHelpers.h"
-#include "AssetTools/FileDeletionRequest.h"
+#include "AssetTools/FileDeletionState.h"
 #include "AssetRegistry/Catalog.h"
 namespace Durin::ContentBrowser::Private
 {
@@ -93,16 +93,47 @@ namespace Durin::ContentBrowser::Private
 			return Batch.Save(Mode==true ? EContentBrowserItemSaveFlags::None : EContentBrowserItemSaveFlags::SaveOnlyIfDirty);
 		}
 	};
-	class FDeletionRequestFixture
+	// Read-only native inspection around a real UE-style model; no executable snapshot handles.
+	class FDeletionModelFixture
+	{
+		std::unique_ptr<FAssetDeleteModel> Model;
+	public:
+		explicit FDeletionModelFixture(std::unique_ptr<FAssetDeleteModel> InModel)
+			: Model(std::move(InModel)), Snapshot(AssetToolsPrivate::FAssetDeleteModelAccess::GetState(*Model).Snapshot),
+			Summary(Snapshot.Summary), Entries(Snapshot.Entries), Blockers(Snapshot.Blockers), Warnings(Snapshot.Warnings), MaximalRoots(Snapshot.MaximalRoots) {}
+		const FFileDeletionSnapshot& Snapshot;
+		const FFileDeletionSummary& Summary;
+		const std::vector<FFileDeletionFingerprint>& Entries;
+		const std::vector<FFileDeletionBlocker>& Blockers;
+		const std::vector<FFileDeletionWarning>& Warnings;
+		const std::vector<FFileDeletionRoot>& MaximalRoots;
+		auto CanDelete() const -> bool { return Model->CanDelete(); }
+		auto GetModel() -> FAssetDeleteModel& { return *Model; }
+		auto GetEffects() const -> const FFileDeletionResult& { return AssetToolsPrivate::FAssetDeleteModelAccess::GetState(*Model).Effects; }
+		auto Delete(FFileDeletionHooks Hooks = {}) -> FFileDeletionResult
+		{
+			auto& State = AssetToolsPrivate::FAssetDeleteModelAccess::GetState(*Model);
+			if (State.Attempted) return {.bStopped = true};
+			State.Hooks = std::move(Hooks);
+			Model->DoDelete();
+			return State.Attempted ? State.Effects : FFileDeletionResult{.bStopped = true};
+		}
+	};
+	using FDeletionModelPtr = std::shared_ptr<FDeletionModelFixture>;
+	class FDeletionFixture
 	{
 	public:
-		explicit FDeletionRequestFixture(FContentBrowserOperationContext Host={}, bool Assets=true, bool Files=true) : Operation({.CanMutateContent=Host.CanMutateContent,.ReportDiagnostic=Host.ReportDiagnostic,.NotifyContentMutation=Host.NotifyContentMutation},Assets,Files) {}
-		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Operation.SetDiagnosticSink(std::move(Sink)); }
-		template<typename T> auto PrepareDeleteItems(const T& Items) -> FFileDeletionPlanPtr { std::vector<FFileDeletionInput> Inputs; for (const auto& Item : Items) Inputs.push_back({Item.Name,Item.PhysicalPath}); return Operation.PrepareDeleteItems(Inputs); }
-		auto DismissDeletion(FFileDeletionPlanPtr Plan) -> void { Operation.DismissDeletion(std::move(Plan)); }
-		auto DeleteItems(FFileDeletionPlanPtr& Plan, FFileDeletionHooks Hooks={}) -> FFileDeletionResult
-		{ return Operation.DeleteItems(Plan, std::move(Hooks)); }
+		explicit FDeletionFixture(FContentBrowserOperationContext Host = {}, bool InAssets = true, bool InFiles = true)
+			: Policy{Host.CanMutateContent, Host.ReportDiagnostic, Host.NotifyContentMutation}, Assets(InAssets), Files(InFiles) {}
+		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Policy.ReportDiagnostic = std::move(Sink); }
+		template<typename T> auto CreateModel(const T& Items) -> FDeletionModelPtr
+		{
+			std::vector<FFileDeletionInput> Inputs;
+			for (const auto& Item : Items) Inputs.push_back({Item.Name, Item.PhysicalPath});
+			return std::make_shared<FDeletionModelFixture>(AssetToolsPrivate::FAssetDeleteModelAccess::Create(Inputs, Policy, Assets, Files));
+		}
 	private:
-		FFileDeletionRequest Operation;
+		FContentMutationPolicy Policy;
+		bool Assets, Files;
 	};
 }

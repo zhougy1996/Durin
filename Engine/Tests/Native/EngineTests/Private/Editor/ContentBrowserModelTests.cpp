@@ -1987,12 +1987,12 @@ TEST_F(FContentBrowserModelTests, OperationsRenameDirtyAssetsAndUseRecursiveDele
 		.Name = "NonEmpty",
 		.PhysicalPath = Folder.generic_string()};
 	const std::array Items{FolderItem};
-	FDeletionRequestFixture Deletion;
-	const FFileDeletionPlanPtr Plan =
-		Deletion.PrepareDeleteItems(Items);
-	ASSERT_TRUE(Plan->CanExecute());
+	FDeletionFixture Deletion;
+	FDeletionModelPtr DeletionModel =
+		Deletion.CreateModel(Items);
+	ASSERT_TRUE(DeletionModel->CanDelete());
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Entries,
+		DeletionModel->Entries,
 		[&](const FFileDeletionFingerprint& Entry) {
 			return TestKind(Entry) == EFileDeletionEntryKind::OrdinaryFile
 				&& TestPhysicalPath(Entry)
@@ -2067,7 +2067,7 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 		}));
 }
 
-TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionPlan)
+TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionModel)
 {
 	const std::filesystem::path Tree = Root / "Content/Tree";
 	const std::filesystem::path Nested = Tree / "Nested";
@@ -2085,7 +2085,7 @@ TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionPlan)
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem RootItem{
 		.Kind = EContentBrowserItemKind::Folder,
@@ -2097,16 +2097,16 @@ TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionPlan)
 		.PhysicalPath = Nested.generic_string()};
 	const std::array Items{RootItem, NestedItem};
 
-	const FFileDeletionPlanPtr Plan =
-		Operations.PrepareDeleteItems(Items);
-	ASSERT_NE(Plan, nullptr);
-	EXPECT_TRUE(Plan->CanExecute());
-	ASSERT_EQ(Plan->MaximalRoots.size(), 1);
-	EXPECT_EQ(Plan->Summary.FolderCount, 3);
-	EXPECT_EQ(Plan->Summary.FileCount, 2);
-	EXPECT_EQ(Plan->Summary.AssetCount, 0);
+	FDeletionModelPtr DeletionModel =
+		Operations.CreateModel(Items);
+	ASSERT_NE(DeletionModel, nullptr);
+	EXPECT_TRUE(DeletionModel->CanDelete());
+	ASSERT_EQ(DeletionModel->MaximalRoots.size(), 1);
+	EXPECT_EQ(DeletionModel->Summary.FolderCount, 3);
+	EXPECT_EQ(DeletionModel->Summary.FileCount, 2);
+	EXPECT_EQ(DeletionModel->Summary.AssetCount, 0);
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Entries,
+		DeletionModel->Entries,
 		[&](const FFileDeletionFingerprint& Entry) {
 			return TestPhysicalPath(Entry).ends_with("/.hidden/secret.txt");
 		}));
@@ -2115,18 +2115,20 @@ TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionPlan)
 		std::ofstream HiddenFile(Hidden / "secret.txt", std::ios::app);
 		HiddenFile << " changed";
 	}
-	auto Confirmation = Plan;
-	EXPECT_FALSE(Operations.DeleteItems(Confirmation).IsComplete());
+	auto ConfirmedModel = DeletionModel;
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_TRUE(std::filesystem::exists(Hidden / "secret.txt"));
 	EXPECT_TRUE(std::filesystem::exists(Tree / "visible.txt"));
-	ASSERT_NE(Confirmation, nullptr);
-	EXPECT_NE(Confirmation, Plan);
-	ASSERT_TRUE(Confirmation->CanExecute());
-	ASSERT_EQ(Confirmation->MaximalRoots.size(), 1);
-	auto RetiredConfirmation = Plan;
-	EXPECT_FALSE(Operations.DeleteItems(RetiredConfirmation).IsComplete());
+	ASSERT_NE(ConfirmedModel, nullptr);
+	EXPECT_EQ(ConfirmedModel, DeletionModel);
+	EXPECT_FALSE(ConfirmedModel->CanDelete());
+	ConfirmedModel = Operations.CreateModel(Items);
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
+	ASSERT_EQ(ConfirmedModel->MaximalRoots.size(), 1);
+	auto RetiredConfirmation = DeletionModel;
+	EXPECT_FALSE(RetiredConfirmation->Delete().IsComplete());
 	EXPECT_TRUE(std::filesystem::exists(Tree));
-	EXPECT_TRUE(Operations.DeleteItems(Confirmation).IsComplete());
+	EXPECT_TRUE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(Tree));
 }
 
@@ -2141,23 +2143,23 @@ TEST_F(FContentBrowserModelTests, BlocksUnknownPackagesWithoutOmittingThem)
 	FProviderQueryFixture ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem FolderItem{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "UnknownPackage",
 		.PhysicalPath = Folder.generic_string()};
-	const FFileDeletionPlanPtr Plan = Operations.PrepareDeleteItems(
+	FDeletionModelPtr DeletionModel = Operations.CreateModel(
 		std::span{&FolderItem, 1});
 
-	EXPECT_FALSE(Plan->CanExecute());
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Blockers,
+		DeletionModel->Blockers,
 		[](const FFileDeletionBlocker& Blocker) {
 			return TestKind(Blocker) == EFileDeletionBlocker::UnknownPackage;
 		}));
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Entries,
+		DeletionModel->Entries,
 		[](const FFileDeletionFingerprint& Entry) {
 			return TestKind(Entry) == EFileDeletionEntryKind::UnknownPackage;
 		}));
@@ -2182,15 +2184,15 @@ TEST(FFileDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 	FProviderQueryFixture ModelSource;
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations;
+	FDeletionFixture Operations;
 	const FContentBrowserItem Folder{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "Folder",
 		.PhysicalPath = (Root / "Content/Folder").generic_string()};
-	const FFileDeletionPlanPtr Plan = Operations.PrepareDeleteItems(
+	FDeletionModelPtr DeletionModel = Operations.CreateModel(
 		std::span{&Folder, 1});
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Blockers,
+		DeletionModel->Blockers,
 		[](const FFileDeletionBlocker& Blocker) {
 			return TestKind(Blocker) == EFileDeletionBlocker::ReadOnlyMount;
 		}));
@@ -2200,7 +2202,7 @@ TEST(FFileDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "Content",
 		.PhysicalPath = (Root / "Content").generic_string()};
-	const FFileDeletionPlanPtr MountRootPlan = Operations.PrepareDeleteItems(
+	FDeletionModelPtr MountRootPlan = Operations.CreateModel(
 		std::span{&MountRoot, 1});
 	EXPECT_TRUE(std::ranges::any_of(
 		MountRootPlan->Blockers,
@@ -2559,7 +2561,7 @@ TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageD
 	EXPECT_NE(FindPackageExact(BasePath), nullptr);
 }
 
-TEST_F(FContentBrowserModelTests, DeletionReusesConfirmationAndInspectsParticipantsOncePerPhase)
+TEST_F(FContentBrowserModelTests, DeletionModelInspectsParticipantsOncePerPhase)
 {
 	InitializeDObjectSystem();
 	FPackagePath Path;
@@ -2582,12 +2584,12 @@ TEST_F(FContentBrowserModelTests, DeletionReusesConfirmationAndInspectsParticipa
 	ASSERT_NE(Reset.Handle, 0u);
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
 		.Name = "SingleDeletionPlan", .PhysicalPath = File};
-	FDeletionRequestFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
-	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan->CanExecute());
+	auto DeletionModel = Service.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
 	EXPECT_EQ(Inspections, 1u);
-	ASSERT_TRUE(Service.DeleteItems(Plan).IsComplete());
+	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_EQ(Inspections, 2u);
 	EXPECT_FALSE(std::filesystem::exists(File));
 }
@@ -2630,17 +2632,17 @@ TEST_F(FContentBrowserModelTests, UnrelatedStandardPackageDamageDoesNotInvalidat
 	ASSERT_TRUE(UnloadPackage(OutsidePath));
 	const auto SelectedFile = TestPhysicalPath(*(FindPackageExact(SelectedPath)));
 	const auto OutsideFile = TestPhysicalPath(*(FindPackageExact(OutsidePath)));
-	FDeletionRequestFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Service);
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
 		.Name = "ScopedDelete", .PhysicalPath = SelectedFile};
-	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan->CanExecute());
+	auto DeletionModel = Service.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
 	std::ofstream(OutsideFile, std::ios::binary | std::ios::trunc) << "unrelated corrupt package";
 	FAssetCompanionOwnership Ownership;
 	ASSERT_TRUE(QueryAssetCompanionOwnership(Root / "Content/unclaimed.txt", Ownership));
 	EXPECT_EQ(Ownership.State, EAssetCompanionOwnershipState::Unclaimed);
-	ASSERT_TRUE(Service.DeleteItems(Plan).IsComplete());
+	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(SelectedFile));
 	EXPECT_TRUE(std::filesystem::exists(OutsideFile));
 	ASSERT_TRUE(std::filesystem::remove(OutsideFile));
@@ -2827,22 +2829,27 @@ TEST_F(FContentBrowserModelTests, DeletionRevalidatesExternalProviderFingerprint
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(*(FindPackageExact(Path)))));
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "ProviderDeletion", .PhysicalPath = TestPhysicalPath(*(FindPackageExact(Path)))};
-	FDeletionRequestFixture Service;
+	FDeletionFixture Service;
 	Observe(Service);
-	auto Confirmation = Service.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Confirmation->CanExecute());
-	const auto Original = Confirmation;
+	auto ConfirmedModel = Service.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
+	auto Original = ConfirmedModel;
 	Store.bFail = true;
-	EXPECT_FALSE(Service.DeleteItems(Confirmation).IsComplete());
-	EXPECT_EQ(Confirmation, Original);
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
+	EXPECT_EQ(ConfirmedModel, Original);
 	EXPECT_NE(OperationError.find("Injected provider inspection failure"), std::string::npos);
 	Store.bFail = false;
 	Store.Fingerprint = "third";
-	EXPECT_FALSE(Service.DeleteItems(Confirmation).IsComplete());
-	ASSERT_TRUE(Confirmation);
-	EXPECT_NE(Confirmation, Original);
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
+	ASSERT_TRUE(ConfirmedModel);
+	EXPECT_EQ(ConfirmedModel, Original);
+	EXPECT_FALSE(ConfirmedModel->CanDelete());
+	Original.reset();
+	ConfirmedModel.reset();
+	ConfirmedModel = Service.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(Item)));
-	EXPECT_TRUE(Service.DeleteItems(Confirmation).IsComplete());
+	EXPECT_TRUE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(Item)));
 
 }
@@ -2862,16 +2869,16 @@ TEST_F(FContentBrowserModelTests, BlocksDirectoryReparseTraversal)
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem FolderItem{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "ReparseRoot",
 		.PhysicalPath = Folder.generic_string()};
-	const FFileDeletionPlanPtr Plan = Operations.PrepareDeleteItems(
+	FDeletionModelPtr DeletionModel = Operations.CreateModel(
 		std::span{&FolderItem, 1});
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Blockers,
+		DeletionModel->Blockers,
 		[](const FFileDeletionBlocker& Blocker) {
 			return TestKind(Blocker) == EFileDeletionBlocker::ReparsePoint;
 		}));
@@ -2881,19 +2888,19 @@ TEST_F(FContentBrowserModelTests, EmptyFolderDeletionIsPermanent)
 {
 	const std::filesystem::path Folder = Root / "Content/EmptyFolder";
 	std::filesystem::create_directories(Folder);
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "EmptyFolder",
 		.PhysicalPath = Folder.generic_string()};
-	auto Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan->CanExecute());
-	EXPECT_EQ(Plan->Summary.FolderCount, 1);
-	EXPECT_EQ(Plan->Summary.AssetCount, 0);
-	EXPECT_EQ(Plan->Summary.FileCount, 0);
+	auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
+	EXPECT_EQ(DeletionModel->Summary.FolderCount, 1);
+	EXPECT_EQ(DeletionModel->Summary.AssetCount, 0);
+	EXPECT_EQ(DeletionModel->Summary.FileCount, 0);
 
-	ASSERT_TRUE(Operations.DeleteItems(Plan).IsComplete());
+	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 }
 
@@ -2937,18 +2944,18 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "UnsafeCompanion",
 		.PhysicalPath = Folder.generic_string()};
-	const FFileDeletionPlanPtr Plan = Operations.PrepareDeleteItems(
+	FDeletionModelPtr DeletionModel = Operations.CreateModel(
 		std::span{&Item, 1});
 
-	EXPECT_FALSE(Plan->CanExecute());
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Blockers,
+		DeletionModel->Blockers,
 		[&](const FFileDeletionBlocker& Blocker) {
 			return TestKind(Blocker) == EFileDeletionBlocker::OutsideMount
 				&& TestPhysicalPath(Blocker)
@@ -2956,7 +2963,7 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 						.lexically_normal().generic_string();
 		}));
 	EXPECT_FALSE(std::ranges::any_of(
-		Plan->MaximalRoots,
+		DeletionModel->MaximalRoots,
 		[&](const FFileDeletionRoot& RootEntry) {
 			return RootEntry.OriginalPath
 				== std::filesystem::absolute(OutsideFile)
@@ -2964,7 +2971,7 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 		}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(OutsideFile));
 
-	Operations.DismissDeletion(Plan);
+	DeletionModel.reset();
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
 }
@@ -3013,24 +3020,24 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "ReparseCompanion",
 		.PhysicalPath = Folder.generic_string()};
-	const FFileDeletionPlanPtr Plan = Operations.PrepareDeleteItems(
+	FDeletionModelPtr DeletionModel = Operations.CreateModel(
 		std::span{&Item, 1});
 
-	EXPECT_FALSE(Plan->CanExecute());
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	EXPECT_TRUE(std::ranges::any_of(
-		Plan->Blockers,
+		DeletionModel->Blockers,
 		[](const FFileDeletionBlocker& Blocker) {
 			return TestKind(Blocker) == EFileDeletionBlocker::ReparsePoint;
 		}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Target));
 
-	Operations.DismissDeletion(Plan);
+	DeletionModel.reset();
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
 }
@@ -3078,21 +3085,21 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionDeleteTogether)
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "Mixed",
 		.PhysicalPath = Folder.generic_string()};
-	auto Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan->CanExecute());
-	EXPECT_EQ(Plan->Summary.AssetCount, 1);
-	EXPECT_EQ(Plan->Summary.FileCount, 1);
-	EXPECT_EQ(Plan->Summary.CompanionCount, 1);
-	EXPECT_EQ(Plan->Summary.FolderCount, 2);
-	ASSERT_EQ(Plan->MaximalRoots.size(), 2);
+	auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
+	EXPECT_EQ(DeletionModel->Summary.AssetCount, 1);
+	EXPECT_EQ(DeletionModel->Summary.FileCount, 1);
+	EXPECT_EQ(DeletionModel->Summary.CompanionCount, 1);
+	EXPECT_EQ(DeletionModel->Summary.FolderCount, 2);
+	ASSERT_EQ(DeletionModel->MaximalRoots.size(), 2);
 
-	ASSERT_TRUE(Operations.DeleteItems(Plan).IsComplete());
+	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
 	EXPECT_EQ(FindPackageExact(AssetPath), nullptr);
@@ -3114,7 +3121,7 @@ TEST_F(FContentBrowserModelTests, DestructiveDeletionRemovesRegistryAndResidency
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Asset,
@@ -3122,10 +3129,10 @@ TEST_F(FContentBrowserModelTests, DestructiveDeletionRemovesRegistryAndResidency
 		.VirtualPath = AssetPath.ToString(),
 		.PhysicalPath = PackagePath.generic_string(),
 		.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString()};
-	auto Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan->CanExecute());
+	auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
 
-	ASSERT_TRUE(Operations.DeleteItems(Plan).IsComplete());
+	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
 	EXPECT_EQ(FindPackageExact(AssetPath), nullptr);
 	EXPECT_EQ(FindResidentPackage(AssetPath), nullptr);
@@ -3171,17 +3178,17 @@ TEST_F(FContentBrowserModelTests, UnusedRedirectorCanBeSelectedAloneAndTargetReq
 
 	FContentBrowserModel Model(ModelSource);
 	Model.RefreshMountSnapshot();
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
-	const FFileDeletionPlanPtr AliasOnly = Operations.PrepareDeleteItems(
+	FDeletionModelPtr AliasOnly = Operations.CreateModel(
 		std::span{&AliasItem, 1});
-	EXPECT_TRUE(AliasOnly->CanExecute());
-	const auto TargetOnly = Operations.PrepareDeleteItems(std::span{&FinalItem, 1});
-	EXPECT_FALSE(TargetOnly->CanExecute());
+	EXPECT_TRUE(AliasOnly->CanDelete());
+	const auto TargetOnly = Operations.CreateModel(std::span{&FinalItem, 1});
+	EXPECT_FALSE(TargetOnly->CanDelete());
 	const std::array Items{AliasItem, FinalItem};
-	auto Complete = Operations.PrepareDeleteItems(Items);
-	ASSERT_TRUE(Complete->CanExecute()) << [&] { std::string Text; for (const auto& Blocker : Complete->Blockers) Text += Blocker.Details + "\n"; return Text; }();
-	ASSERT_TRUE(Operations.DeleteItems(Complete).IsComplete());
+	auto Complete = Operations.CreateModel(Items);
+	ASSERT_TRUE(Complete->CanDelete()) << [&] { std::string Text; for (const auto& Blocker : Complete->Blockers) Text += Blocker.Details + "\n"; return Text; }();
+	ASSERT_TRUE(Complete->Delete().IsComplete());
 	EXPECT_EQ(FindPackageExact(OldPath), nullptr);
 	EXPECT_EQ(FindPackageExact(FinalPath), nullptr);
 }
@@ -3196,23 +3203,23 @@ TEST_F(FContentBrowserModelTests, DestructiveDeletionRevalidatesConfirmedBytes)
 		File << "source";
 	}
 	const auto ConfirmedWriteTime = std::filesystem::last_write_time(SourceFile);
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "ConflictFolder",
 		.PhysicalPath = Folder.generic_string()};
-	auto Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
+	auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
 	{
 		std::ofstream File(SourceFile, std::ios::trunc);
 		File << "change";
 	}
 	std::filesystem::last_write_time(SourceFile, ConfirmedWriteTime);
-	EXPECT_FALSE(Operations.DeleteItems(Plan).IsComplete());
+	EXPECT_FALSE(DeletionModel->Delete().IsComplete());
 	EXPECT_TRUE(std::filesystem::exists(SourceFile));
 }
 
-TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreservingRewrite)
+TEST_F(FContentBrowserModelTests, DeletionModelRejectsSameSizeTimestampPreservingRewrite)
 {
 	const std::filesystem::path FilePath = Root / "Content/rewrite.txt";
 	{
@@ -3220,30 +3227,32 @@ TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreserving
 		File << "source";
 	}
 	const auto ConfirmedWriteTime = std::filesystem::last_write_time(FilePath);
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::File,
 		.Name = "rewrite.txt",
 		.PhysicalPath = FilePath.generic_string(),
 		.Extension = ".txt"};
-	const FFileDeletionPlanPtr Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan->CanExecute());
+	FDeletionModelPtr DeletionModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
 	{
 		std::ofstream File(FilePath, std::ios::trunc);
 		File << "change";
 	}
 	std::filesystem::last_write_time(FilePath, ConfirmedWriteTime);
-	auto Confirmation = Plan;
-	EXPECT_FALSE(Operations.DeleteItems(Confirmation).IsComplete());
+	auto ConfirmedModel = DeletionModel;
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_TRUE(std::filesystem::exists(FilePath));
-	ASSERT_NE(Confirmation, nullptr);
-	EXPECT_NE(Confirmation, Plan);
-	ASSERT_TRUE(Confirmation->CanExecute());
-	auto RetiredConfirmation = Plan;
-	EXPECT_FALSE(Operations.DeleteItems(RetiredConfirmation).IsComplete());
+	ASSERT_NE(ConfirmedModel, nullptr);
+	EXPECT_EQ(ConfirmedModel, DeletionModel);
+	EXPECT_FALSE(ConfirmedModel->CanDelete());
+	ConfirmedModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
+	auto RetiredConfirmation = DeletionModel;
+	EXPECT_FALSE(RetiredConfirmation->Delete().IsComplete());
 	EXPECT_TRUE(std::filesystem::exists(FilePath));
-	EXPECT_TRUE(Operations.DeleteItems(Confirmation).IsComplete());
+	EXPECT_TRUE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(FilePath));
 }
 
@@ -3256,19 +3265,19 @@ TEST_F(FContentBrowserModelTests, DeletionRejectsNewUnconfirmedDescendant)
 		std::ofstream File(SourceFile);
 		File << "source";
 	}
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "StagedRewrite",
 		.PhysicalPath = Folder.generic_string()};
-	auto Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
+	auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
 	const std::filesystem::path Unexpected = Folder / "unexpected.txt";
 	{
 		std::ofstream File(Unexpected);
 		File << "new";
 	}
-	EXPECT_FALSE(Operations.DeleteItems(Plan).IsComplete());
+	EXPECT_FALSE(DeletionModel->Delete().IsComplete());
 	EXPECT_TRUE(std::filesystem::exists(SourceFile));
 	EXPECT_TRUE(std::filesystem::exists(Unexpected));
 }
@@ -3280,15 +3289,15 @@ TEST_F(FContentBrowserModelTests, CompletedDeletionLeavesNoRecoveryArtifact)
 		std::ofstream File(FilePath);
 		File << "evict me";
 	}
-	FDeletionRequestFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::File,
 		.Name = "evicted.txt",
 		.PhysicalPath = FilePath.generic_string(),
 		.Extension = ".txt"};
-	auto Plan = Operations.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Operations.DeleteItems(Plan).IsComplete());
+	auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(FilePath));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Undo"));
 }
@@ -3381,34 +3390,38 @@ TEST_F(FContentBrowserModelTests, DeletionReconfirmsChangedDirtySelectionThenAll
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "DirtyConfirmation", .PhysicalPath = TestPhysicalPath(*(FindPackageExact(Path)))};
-	FDeletionRequestFixture Service;
+	FDeletionFixture Service;
 	Observe(Service);
-	auto Confirmation = Service.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Confirmation->CanExecute());
-	const auto Original = Confirmation;
+	auto ConfirmedModel = Service.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
+	auto Original = ConfirmedModel;
 	Material->GetPackage()->MarkDirty();
-	EXPECT_FALSE(Service.DeleteItems(Confirmation).IsComplete());
-	EXPECT_NE(Confirmation, Original);
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
+	EXPECT_EQ(ConfirmedModel, Original);
+	EXPECT_FALSE(ConfirmedModel->CanDelete());
+	Original.reset();
+	ConfirmedModel.reset();
+	ConfirmedModel = Service.CreateModel(std::span{&Item, 1});
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(Item)));
 	// A fresh confirmation permits explicit loss of selected unsaved changes.
-	ASSERT_TRUE(Confirmation->CanExecute());
-	EXPECT_TRUE(Service.DeleteItems(Confirmation).IsComplete());
-	EXPECT_FALSE(Confirmation);
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
+	EXPECT_TRUE(ConfirmedModel->Delete().IsComplete());
+	EXPECT_FALSE(ConfirmedModel->CanDelete());
 	EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(Item)));
 }
 
 #ifdef _WIN32
-TEST_F(FContentBrowserModelTests, DeletionReadFailureKeepsConfirmationAndRevalidatesRetry)
+TEST_F(FContentBrowserModelTests, DeletionReadFailureRequiresFreshModelAndRevalidatesRetry)
 {
 	const auto File = Root / "Content/locked-confirmation.txt";
 	std::ofstream(File) << "before";
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
 		.Name = "locked-confirmation.txt", .PhysicalPath = File.generic_string()};
-	FDeletionRequestFixture Service;
+	FDeletionFixture Service;
 	Observe(Service);
-	auto Confirmation = Service.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Confirmation->CanExecute());
-	const auto Original = Confirmation;
+	auto ConfirmedModel = Service.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
+	const auto Original = ConfirmedModel;
 	{
 		struct FReadGuard
 		{
@@ -3417,24 +3430,26 @@ TEST_F(FContentBrowserModelTests, DeletionReadFailureKeepsConfirmationAndRevalid
 		} Guard{CreateFileW(File.c_str(), GENERIC_READ, FILE_SHARE_DELETE,
 			nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
 		ASSERT_NE(Guard.Handle, INVALID_HANDLE_VALUE);
-		EXPECT_FALSE(Service.DeleteItems(Confirmation).IsComplete());
-		EXPECT_EQ(Confirmation, Original);
+		EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
+		EXPECT_EQ(ConfirmedModel, Original);
 		EXPECT_FALSE(OperationError.empty());
 		EXPECT_TRUE(OperationWarning.empty());
 		EXPECT_TRUE(std::filesystem::exists(File));
 	}
 	// A retained confirmation is not permission to skip validation on retry.
 	std::ofstream(File, std::ios::trunc) << "changed";
-	EXPECT_FALSE(Service.DeleteItems(Confirmation).IsComplete());
-	ASSERT_TRUE(Confirmation);
-	EXPECT_NE(Confirmation, Original);
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
+	ASSERT_TRUE(ConfirmedModel);
+	EXPECT_EQ(ConfirmedModel, Original);
+	EXPECT_FALSE(ConfirmedModel->CanDelete());
+	ConfirmedModel = Service.CreateModel(std::span{&Item, 1});
 	EXPECT_TRUE(std::filesystem::exists(File));
-	EXPECT_TRUE(Service.DeleteItems(Confirmation).IsComplete());
+	EXPECT_TRUE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(File));
 }
 #endif
 
-TEST_F(FContentBrowserModelTests, AssetDeletionSessionRetiresAfterPartialRemoval)
+TEST_F(FContentBrowserModelTests, AssetDeletionModelRetainsPartialFactsAndRequiresFreshAnalysis)
 {
 	InitializeDObjectSystem();
 	std::vector<FContentBrowserItem> Items;
@@ -3451,12 +3466,12 @@ TEST_F(FContentBrowserModelTests, AssetDeletionSessionRetiresAfterPartialRemoval
 			.PhysicalPath = TestPhysicalPath(*(FindPackageExact(Path)))});
 	}
 	int Publications = 0;
-	FDeletionRequestFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
+	FDeletionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
 	Observe(Service);
-	auto Confirmation = Service.PrepareDeleteItems(Items);
-	ASSERT_TRUE(Confirmation->CanExecute());
+	auto ConfirmedModel = Service.CreateModel(Items);
+	ASSERT_TRUE(ConfirmedModel->CanDelete());
 	int Calls = 0;
-	const auto First = Service.DeleteItems(Confirmation, {.RemoveEntry = [&](const auto& Path) {
+	const auto First = ConfirmedModel->Delete({.RemoveEntry = [&](const auto& Path) {
 		if (++Calls == 2) return std::make_error_code(std::errc::io_error);
 		std::error_code Error;
 		Durin::Testing::RemoveTestWorkDirectory(Path, Error);
@@ -3466,40 +3481,44 @@ TEST_F(FContentBrowserModelTests, AssetDeletionSessionRetiresAfterPartialRemoval
 
 	EXPECT_FALSE(OperationError.empty());
 	EXPECT_EQ(Publications, 1);
-	EXPECT_FALSE(Service.DeleteItems(Confirmation).IsComplete());
+	EXPECT_FALSE(ConfirmedModel->Delete().IsComplete());
 	EXPECT_EQ(Calls, 2);
 	EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(Items.front())));
 	EXPECT_TRUE(std::filesystem::exists(TestPhysicalPath(Items.back())));
 	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::Incremental));
-	auto Fresh = Service.PrepareDeleteItems(std::span{&Items.back(), 1});
-	ASSERT_TRUE(Fresh->CanExecute());
-	ASSERT_TRUE(Service.DeleteItems(Fresh).IsComplete());
+	auto Fresh = Service.CreateModel(std::span{&Items.back(), 1});
+	ASSERT_TRUE(Fresh->CanDelete());
+	ASSERT_TRUE(Fresh->Delete().IsComplete());
 	EXPECT_EQ(Publications, 2);
 	for (const auto& Item : Items) EXPECT_FALSE(std::filesystem::exists(TestPhysicalPath(Item)));
 }
 
-TEST_F(FContentBrowserModelTests, StaleConfirmationRequiresNewHandleAndUsesCapturedRequest)
+TEST_F(FContentBrowserModelTests, StaleDeletionModelRequiresFreshAnalysis)
 {
 	const auto Folder = Root / "Content/confirmation";
 	std::filesystem::create_directories(Folder);
 	std::ofstream(Folder / "before.txt") << "before";
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Folder,
 		.Name = "confirmation", .PhysicalPath = Folder.generic_string()};
-	FDeletionRequestFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
+	FDeletionFixture Service;
 	Observe(Service);
-	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
-	auto OriginalPlan = Plan;
+	auto Original = Service.CreateModel(std::span{&Item, 1});
+	EXPECT_EQ(Original->Summary.FileCount, 1u);
 	std::ofstream(Folder / "after.txt") << "after";
-	const auto Stale = Service.DeleteItems(Plan);
-	EXPECT_FALSE(Stale.IsComplete());
-	ASSERT_TRUE(Plan);
-	EXPECT_NE(Plan, OriginalPlan);
-	EXPECT_EQ(Plan->Summary.FileCount, 2u);
-	EXPECT_FALSE(Service.DeleteItems(OriginalPlan).IsComplete());
+	EXPECT_FALSE(Original->GetModel().DoDelete());
+	EXPECT_TRUE(Original->GetEffects().bStopped);
+	EXPECT_EQ(Original->GetModel().GetDeletedObjectCount(), 0);
+	EXPECT_FALSE(Original->CanDelete());
+	EXPECT_EQ(Original->Summary.FileCount, 1u);
 	EXPECT_TRUE(std::filesystem::exists(Folder));
-	Service.DismissDeletion(Plan);
-	EXPECT_FALSE(Service.DeleteItems(Plan).IsComplete());
-	EXPECT_TRUE(std::filesystem::exists(Folder));
+	auto Fresh = Service.CreateModel(std::span{&Item, 1});
+	EXPECT_EQ(Fresh->Summary.FileCount, 2u);
+	EXPECT_FALSE(Original->GetModel().DoDelete());
+	EXPECT_TRUE(Fresh->GetModel().DoDelete());
+	EXPECT_TRUE(Fresh->GetEffects().IsComplete());
+	EXPECT_FALSE(Fresh->CanDelete());
+	EXPECT_FALSE(Fresh->GetModel().DoDelete());
+	EXPECT_TRUE(Fresh->GetEffects().IsComplete());
 }
 
 TEST_F(FContentBrowserModelTests, ServicePublishesProjectionPendingWithoutRepeatingPhysicalDelete)
@@ -3513,11 +3532,11 @@ TEST_F(FContentBrowserModelTests, ServicePublishesProjectionPendingWithoutRepeat
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Asset,
 		.Name = "ServiceProjection", .PhysicalPath = TestPhysicalPath(*(FindPackageExact(Path)))};
 	int Publications = 0;
-	FDeletionRequestFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
+	FDeletionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = Batch; ++Publications; }});
 	Observe(Service);
-	auto Plan = Service.PrepareDeleteItems(std::span{&Item, 1});
+	auto DeletionModel = Service.CreateModel(std::span{&Item, 1});
 	int Calls = 0;
-	const auto Result = Service.DeleteItems(Plan, {.RemoveEntry = [&](const auto& Physical) {
+	const auto Result = DeletionModel->Delete({.RemoveEntry = [&](const auto& Physical) {
 		++Calls;
 		std::error_code Error;
 		Durin::Testing::RemoveTestWorkDirectory(Physical, Error);
@@ -3527,11 +3546,11 @@ TEST_F(FContentBrowserModelTests, ServicePublishesProjectionPendingWithoutRepeat
 
 	EXPECT_TRUE(Result.HasCommittedEffects());
 	EXPECT_TRUE(ObservedChanges.bFullRefresh);
-	EXPECT_FALSE(Plan);
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	EXPECT_TRUE(OperationError.empty());
 	EXPECT_NE(OperationWarning.find("Registry reconcile is required."), std::string::npos);
 	EXPECT_EQ(Publications, 1);
-	EXPECT_FALSE(Service.DeleteItems(Plan).IsComplete());
+	EXPECT_FALSE(DeletionModel->Delete().IsComplete());
 	EXPECT_EQ(Calls, 1);
 	EXPECT_EQ(Publications, 1);
 }
@@ -5034,22 +5053,22 @@ TEST_F(FContentBrowserModelTests, DeleteRetainsIndependentCommitsAndRetriesOnlyS
 	const std::array Paths{Root / "Content/delete-a.txt", Root / "Content/delete-b.txt", Root / "Content/delete-c.txt"};
 	std::vector<FContentBrowserItem> Items;
 	for (const auto& Path : Paths) { std::ofstream(Path) << "confirmed bytes"; Items.push_back({.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()}); }
-	FDeletionRequestFixture Operation;
-	auto Plan = Operation.PrepareDeleteItems(Items);
-	ASSERT_TRUE(Plan && Plan->CanExecute());
-	const auto Result = Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto& Path) {
+	FDeletionFixture Operation;
+	auto DeletionModel = Operation.CreateModel(Items);
+	ASSERT_TRUE(DeletionModel && DeletionModel->CanDelete());
+	const auto Result = DeletionModel->Delete({.RemoveEntry = [&](const auto& Path) {
 		if (Path == Paths[1]) return std::make_error_code(std::errc::permission_denied);
 		std::error_code Error; std::filesystem::remove(Path, Error); return Error;
 	}});
 	EXPECT_EQ(ContentStorage::EFileDeletionStatus::Partial, Result.GetStatus());
 	EXPECT_FALSE(Result.bStopped);
-	EXPECT_FALSE(Plan);
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	EXPECT_FALSE(std::filesystem::exists(Paths[0]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[1]));
 	EXPECT_FALSE(std::filesystem::exists(Paths[2]));
-	EXPECT_FALSE(Operation.DeleteItems(Plan).IsComplete());
-	auto Retry = Operation.PrepareDeleteItems(std::span{&Items[1], 1});
-	EXPECT_TRUE(Operation.DeleteItems(Retry).IsComplete());
+	EXPECT_FALSE(DeletionModel->Delete().IsComplete());
+	auto Retry = Operation.CreateModel(std::span{&Items[1], 1});
+	EXPECT_TRUE(Retry->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(Paths[1]));
 }
 
@@ -5087,13 +5106,13 @@ TEST_F(FContentBrowserModelTests, StoppedDeletionRetainsFirstNativeFailureAndUna
 	const std::array Paths{Root / "Content/failure-a.txt", Root / "Content/failure-b.txt", Root / "Content/failure-c.txt"};
 	std::vector<FContentBrowserItem> Items;
 	for (const auto& Path : Paths) { std::ofstream(Path) << "confirmed"; Items.push_back({.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()}); }
-	FDeletionRequestFixture Operation;
+	FDeletionFixture Operation;
 	std::vector<std::string> Diagnostics;
 	Operation.SetDiagnosticSink([&](ELogLevel, std::string_view Message) { Diagnostics.emplace_back(Message); });
-	auto Plan = Operation.PrepareDeleteItems(Items);
-	ASSERT_TRUE(Plan && Plan->CanExecute());
+	auto DeletionModel = Operation.CreateModel(Items);
+	ASSERT_TRUE(DeletionModel && DeletionModel->CanDelete());
 	bool Attempted = false;
-	const auto Result = Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto&) {
+	const auto Result = DeletionModel->Delete({.RemoveEntry = [&](const auto&) {
 		Attempted = true;
 		return std::make_error_code(std::errc::permission_denied);
 	}, .CanExecuteEffect = [&] { return !Attempted; }});
@@ -5114,11 +5133,11 @@ TEST_F(FContentBrowserModelTests, CancellationBeforeFirstDeletionLeavesEveryFile
 	const auto Path = Root / "Content/cancel-before.txt";
 	std::ofstream(Path) << "confirmed";
 	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()};
-	FDeletionRequestFixture Operation;
-	auto Plan = Operation.PrepareDeleteItems(std::span{&Item, 1});
-	ASSERT_TRUE(Plan && Plan->CanExecute());
+	FDeletionFixture Operation;
+	auto DeletionModel = Operation.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel && DeletionModel->CanDelete());
 	int Removes = 0;
-	const auto Result = Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto&) { ++Removes; return std::error_code{}; }, .ShouldCancel = [] { return true; }});
+	const auto Result = DeletionModel->Delete({.RemoveEntry = [&](const auto&) { ++Removes; return std::error_code{}; }, .ShouldCancel = [] { return true; }});
 	EXPECT_TRUE(Result.bCancelled);
 	EXPECT_FALSE(Result.HasCommittedEffects());
 	EXPECT_EQ(Removes, 0);
@@ -5131,16 +5150,16 @@ TEST_F(FContentBrowserModelTests, DeleteCancellationRetainsCommitAndMarksRemaind
 	const std::array Paths{Root / "Content/cancel-a.txt", Root / "Content/cancel-b.txt", Root / "Content/cancel-c.txt"};
 	std::vector<FContentBrowserItem> Items;
 	for (const auto& Path : Paths) { std::ofstream(Path) << "confirmed bytes"; Items.push_back({.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()}); }
-	FDeletionRequestFixture Operation;
-	auto Plan = Operation.PrepareDeleteItems(Items);
+	FDeletionFixture Operation;
+	auto DeletionModel = Operation.CreateModel(Items);
 	bool Cancelled = false;
-	const auto Result = Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto& Path) {
+	const auto Result = DeletionModel->Delete({.RemoveEntry = [&](const auto& Path) {
 		std::error_code Error; std::filesystem::remove(Path, Error); Cancelled = true; return Error;
 	}, .ShouldCancel = [&] { return Cancelled; }});
 	EXPECT_TRUE(Result.bCancelled);
 	EXPECT_TRUE(Result.HasCommittedEffects());
 	EXPECT_EQ(ContentStorage::EFileDeletionStatus::Cancelled, Result.GetStatus());
-	EXPECT_FALSE(Plan);
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	EXPECT_FALSE(std::filesystem::exists(Paths[0]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[1]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[2]));
@@ -5166,30 +5185,30 @@ TEST_F(FContentBrowserModelTests, RejectedFileValidationNeedsNoDiagnosticAndNeve
 	EXPECT_TRUE(Operation.GetWriteResult().Error.has_value());
 }
 
-TEST_F(FContentBrowserModelTests, DeletionReportsEachFailureAndKeepsConfirmationPreparedFromFeedback)
+TEST_F(FContentBrowserModelTests, DeletionReportsEachFailureAndAllowsModelCreationFromFeedback)
 {
 	const std::array Paths{Root / "Content/delete-a.txt", Root / "Content/delete-b.txt", Root / "Content/delete-c.txt"};
 	std::vector<FContentBrowserItem> Items;
 	for (const auto& Path : Paths) { std::ofstream(Path) << "bytes"; Items.push_back({.Kind = EContentBrowserItemKind::File, .PhysicalPath = Path.generic_string()}); }
 	std::vector<std::string> Errors;
 	int Notifications = 0;
-	FDeletionRequestFixture Operation({.NotifyContentMutation = [&](FContentChangeBatch Batch) {
+	FDeletionFixture Operation({.NotifyContentMutation = [&](FContentChangeBatch Batch) {
 		++Notifications;
 		EXPECT_EQ(1u, Batch.Changes.size());
 	}});
-	ContentStorage::FFileDeletionPlanPtr Next;
+	FDeletionModelPtr Next;
 	Operation.SetDiagnosticSink([&](ELogLevel Level, std::string_view Text) {
 		if (Level < ELogLevel::Error) return;
 		Errors.emplace_back(Text);
-		if (!Next) Next = Operation.PrepareDeleteItems(std::span{Items.data(), 1});
+		if (!Next) Next = Operation.CreateModel(std::span{Items.data(), 1});
 	});
-	auto Plan = Operation.PrepareDeleteItems(Items);
-	ASSERT_TRUE(Plan && Plan->CanExecute());
-	EXPECT_TRUE(Operation.DeleteItems(Plan, {.RemoveEntry = [&](const auto& Path) {
+	auto DeletionModel = Operation.CreateModel(Items);
+	ASSERT_TRUE(DeletionModel && DeletionModel->CanDelete());
+	EXPECT_TRUE(DeletionModel->Delete({.RemoveEntry = [&](const auto& Path) {
 		if (Path != Paths[2]) return std::make_error_code(std::errc::permission_denied);
 		std::error_code Error; std::filesystem::remove(Path, Error); return Error;
 	}}).HasCommittedEffects());
-	EXPECT_FALSE(Plan);
+	EXPECT_FALSE(DeletionModel->CanDelete());
 	ASSERT_EQ(3u, Errors.size());
 	EXPECT_NE(std::string::npos, Errors[0].find(Paths[0].generic_string()));
 	EXPECT_NE(std::string::npos, Errors[1].find(Paths[1].generic_string()));
@@ -5200,9 +5219,9 @@ TEST_F(FContentBrowserModelTests, DeletionReportsEachFailureAndKeepsConfirmation
 	EXPECT_TRUE(std::filesystem::exists(Paths[0]));
 	EXPECT_TRUE(std::filesystem::exists(Paths[1]));
 	EXPECT_FALSE(std::filesystem::exists(Paths[2]));
-	ASSERT_TRUE(Next && Next->CanExecute());
-	EXPECT_TRUE(Operation.DeleteItems(Next).HasCommittedEffects());
-	EXPECT_FALSE(Next);
+	ASSERT_TRUE(Next && Next->CanDelete());
+	EXPECT_TRUE(Next->Delete().HasCommittedEffects());
+	EXPECT_FALSE(Next->CanDelete());
 	EXPECT_FALSE(std::filesystem::exists(Paths[0]));
 	EXPECT_EQ(2, Notifications);
 }
@@ -5763,7 +5782,7 @@ TEST_F(FContentBrowserModelTests, DeleteItemsReportsObjectsAndFoldersSeparatelyF
 	std::ofstream(Root / "Content/MixedDelete/note.txt") << "ordinary";
 	const auto Result = ObjectTools::DeleteItems({.FoldersToDelete = {"/ContentBrowserTests/MixedDelete"}, .bShowConfirmation = false});
 	EXPECT_EQ(Result.ObjectsDeleted, 2);
-	EXPECT_EQ(Result.FoldersDeleted, 2);
+	EXPECT_EQ(Result.FoldersDeleted, 1);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/MixedDelete"));
 }
 

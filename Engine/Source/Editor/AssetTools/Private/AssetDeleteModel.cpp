@@ -1,6 +1,7 @@
 #include "AssetDeleteModel.h"
 #include "AssetTools/NativeAssetDeletion.h"
 #include "AssetTools/AssetDeletionInternal.h"
+#include "AssetTools/FileDeletionState.h"
 #include "Asset/Load.h"
 #include "Asset/MutationExtensions.h"
 #include "Asset/PackageEditing.h"
@@ -118,10 +119,23 @@ namespace Durin
 		int32 Deleted = 0;
 		bool bAllowed = false, bAttempted = false, bDispatching = false, bNativeTransferred = false;
 		std::string Diagnostic;
+		std::unique_ptr<AssetToolsPrivate::FFileDeletionState> FileDeletion;
 	};
 	FAssetDeleteModel::FAssetDeleteModel(std::span<DObject* const> Objects) : Impl(std::make_unique<FImpl>())
 	{ for (auto* Object : Objects) AddObjectToDelete(Object); }
 	FAssetDeleteModel::~FAssetDeleteModel() = default;
+	auto AssetToolsPrivate::FAssetDeleteModelAccess::Create(std::span<const ContentStorage::FFileDeletionInput> Inputs, const ContentStorage::FContentMutationPolicy& Policy, bool Assets, bool Files, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> std::unique_ptr<FAssetDeleteModel>
+	{
+		const std::vector<ContentStorage::FFileDeletionInput> Selection(Inputs.begin(), Inputs.end());
+		auto Model = std::make_unique<FAssetDeleteModel>(std::span<DObject* const>{});
+		auto State = std::make_unique<FFileDeletionState>(Policy, Assets, Files);
+		State->Analyze(Selection, *Model, AllowCancel);
+		State->ContributorRevision = GetAssetDeleteContributorRevision();
+		Model->Impl->FileDeletion = std::move(State);
+		Model->SetState(FAssetDeleteModel::EState::Finished);
+		return Model;
+	}
+	auto AssetToolsPrivate::FAssetDeleteModelAccess::GetState(FAssetDeleteModel& Model) -> FFileDeletionState& { return *Model.Impl->FileDeletion; }
 	auto FAssetDeleteModel::TakeWholePackageOperation() -> FAssetDeletionOperation
 	{
 		check(Impl->Partial.empty());
@@ -132,6 +146,7 @@ namespace Durin
 	auto FAssetDeleteModel::AddObjectToDelete(DObject* Object) -> void
 	{
 		CheckGameThread();
+		if (Impl->FileDeletion) return;
 		if (Impl->bAttempted || Impl->bDispatching || !IsValid(Object) || !Object->GetPackage()
 			|| Object->GetOuter() != Object->GetPackage()) return;
 		if (std::ranges::any_of(Impl->Pending, [Object](const auto& P) { return P->GetObject() == Object; })) return;
@@ -151,6 +166,7 @@ namespace Durin
 	auto FAssetDeleteModel::Tick(float) -> void
 	{
 		CheckGameThread();
+		if (Impl->FileDeletion) return;
 		if (Impl->bDispatching || Impl->bAttempted) return;
 		if (Impl->State != EState::Waiting && Impl->State != EState::StartScanning)
 		{
@@ -247,10 +263,11 @@ namespace Durin
 		}
 	}
 	auto FAssetDeleteModel::CanDelete() const -> bool
-	{ return Impl->State == EState::Finished && Impl->bAllowed && !Impl->bAttempted; }
+	{ return Impl->FileDeletion ? Impl->FileDeletion->CanDelete() : Impl->State == EState::Finished && Impl->bAllowed && !Impl->bAttempted; }
 	auto FAssetDeleteModel::DoDelete() -> bool
 	{
 		CheckGameThread();
+		if (Impl->FileDeletion) return Impl->FileDeletion->DoDelete();
 		if (!CanDelete() || Impl->bDispatching) return false;
 		auto& S = *Impl;
 		// Freeze the attempt before invoking extensible admission callbacks.
@@ -371,12 +388,21 @@ namespace Durin
 	auto FAssetDeleteModel::GetPendingDeletedAssets() const -> std::span<const std::unique_ptr<FPendingDelete>> { return Impl->Pending; }
 	auto FAssetDeleteModel::GetDeletedObjectCount() const -> int32
 	{
+		if (Impl->FileDeletion && !Impl->FileDeletion->Started) return 0;
 		return Impl->bNativeTransferred ? static_cast<int32>(std::ranges::count_if(Impl->Pending, [](const auto& Pending) { return !Pending->Object.Get(); })) : Impl->Deleted;
 	}
 	auto FAssetDeleteModel::GetProgress() const -> float
 	{ return Impl->State == EState::Finished ? 1.f : Impl->Pending.empty() ? 0.f : float(Impl->Scanned) / float(Impl->Pending.size() + 1); }
 	auto FAssetDeleteModel::GetProgressText() const -> std::string
 	{
+		if (Impl->FileDeletion)
+		{
+			const auto& Snapshot = Impl->FileDeletion->Snapshot;
+			std::string Text = Snapshot.DisplayName;
+			for (const auto& Blocker : Snapshot.Blockers) Text += "\n" + Blocker.Details;
+			for (const auto& Warning : Snapshot.Warnings) Text += "\n" + Warning.Details;
+			return Text;
+		}
 		std::string Text = Impl->Diagnostic.empty() ? std::format("{} of {} objects analyzed. Selected unsaved changes will be discarded.", Impl->Scanned, Impl->Pending.size()) : Impl->Diagnostic;
 		for (const auto& Warning : Impl->WholePackages.GetWarnings()) Text += "\n" + Warning.Details;
 		return Text;

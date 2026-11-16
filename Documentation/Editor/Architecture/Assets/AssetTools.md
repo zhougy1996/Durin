@@ -157,7 +157,8 @@ its alias if a store cannot distinguish the selected export.
 `ObjectTools::DeleteAssets` loads exact selected exports, including redirectors,
 without resolving them to their destinations. `DeleteObjects` and `DeleteItems`
 use `FAssetDeleteModel`; object counts describe retired selected objects, while
-folder counts describe actual directory removals. `DoDelete` reports acceptance
+folder counts describe removed selected folders, matching UE's parameter/result
+roles; recursive descendant effects remain private facts. `DoDelete` reports acceptance
 of an action, independently of persistence success and the deleted-object count.
 A failed or completed attempt cannot run again. Diagnostics retain write failures.
 
@@ -173,14 +174,19 @@ admission and notifications over the same core; it registers no ObjectTools
 handler. `ConfirmDelete` is a private host bridge, not another public deletion
 entrypoint.
 
-Each private file/folder attempt uniquely owns its analysis model, native deletion
-authorization, immutable plan and captured inputs. The request owns only that
-attempt and host policy; it keeps no parallel model, plan, session counter or last
-result. Confirmation handle identity must match the current attempt. Stale scope
-creates a replacement handle; completed attempts retire before feedback can
-prepare another. Browser deletion consumes the returned committed-effect facts.
-Model analysis and final native/file validation remain separate phases: analysis
-does not authorize later I/O without fresh scope, ownership and byte checks.
+Deletion follows the model-centered `Tick / CanDelete / DoDelete` roles.
+`FPendingDelete` retains selected objects; the model's private implementation owns
+file/folder confirmation snapshots, native authorization and committed-effect
+facts. There is no independent Plan/Operation service or caller-owned confirmation
+handle, and no prepare/execute/dismiss protocol. Browser File invokes a single
+private model-backed command and consumes its returned effects.
+
+Analysis and final native/file validation remain separate phases: analysis does
+not authorize later I/O without fresh scope, ownership and byte checks. Changed
+scope consumes the current model without destructive I/O; interactive retry
+constructs and confirms a fresh model. Partial commits and failures remain
+inspectable on the completed model. Feedback may create another model, but never
+restart the completed one or repeat its effects.
 
 All synchronous deletion paths share one model scan loop with scoped slow-task
 progress and the requested `AllowCancelDuringDelete` policy. Cancellation stops

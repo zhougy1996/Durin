@@ -260,11 +260,13 @@ prepare, preview, request, validation, confirmation-context or lease protocol.
 Native providers retain their own execution scope. Asset resolves its exact
 selection and delegates model scanning, confirmation and object execution to
 ObjectTools, with provider admission rechecked after the prompt. File captures its
-physical selection and adapts AssetTools' private deletion core. The
+physical selection and invokes AssetTools' private model-backed deletion command. The
 panel passes its captured selection directly to the service.
 Asset uses exact selected exports; File handles ordinary-file and mixed-folder
 contributions. AssetTools owns recursive scope planning, execution and empty-directory
-cleanup for both File and direct `ObjectTools::DeleteItems` callers. Confirmation
+cleanup for both File and direct `ObjectTools::DeleteItems` callers. The model owns
+confirmation snapshots and execution facts; providers hold no executable Plan or
+Operation handles. Confirmation
 never permits newly discovered entries to join an executing selection. Final
 checks cover policy, mount/reparse/read-only state, live owners, providers and
 fresh bytes. Partial removals retain private committed/failed/unattempted facts

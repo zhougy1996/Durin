@@ -14,6 +14,7 @@ namespace Durin::ObjectTools
 		bool bShowConfirmation = true;
 		EAllowCancelDuringDelete AllowCancelDuringDelete = EAllowCancelDuringDelete::AllowCancel;
 	};
+	// Counts retired selected objects and removed selected folders.
 	struct FDeleteItemsResult { int32 ObjectsDeleted = 0, FoldersDeleted = 0; };
 	using FDeletePrompt = std::function<bool(FAssetDeleteModel&, std::span<const std::string>, EAllowCancelDuringDelete)>;
 	ASSETTOOLS_API auto SetDeletePrompt(FDeletePrompt Prompt) -> void;

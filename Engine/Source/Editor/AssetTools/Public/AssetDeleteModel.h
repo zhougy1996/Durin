@@ -6,7 +6,7 @@
 namespace Durin
 {
 	class FAssetDeletionOperation;
-	namespace ContentStorage { class FFileDeletionRequest; }
+	namespace AssetToolsPrivate { struct FFileDeletionState; struct FAssetDeleteModelAccess; }
 	class ASSETTOOLS_API FAssetDeleteModel
 	{
 	public:
@@ -26,7 +26,8 @@ namespace Durin
 		auto GetState() const -> EState;
 		auto OnStateChanged() -> TMulticastDelegate<void(EState)>& { return StateChanged; }
 	private:
-		friend class ContentStorage::FFileDeletionRequest;
+		friend struct AssetToolsPrivate::FFileDeletionState;
+		friend struct AssetToolsPrivate::FAssetDeleteModelAccess;
 		auto TakeWholePackageOperation() -> FAssetDeletionOperation;
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;

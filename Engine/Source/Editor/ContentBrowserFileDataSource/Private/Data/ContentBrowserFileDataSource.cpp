@@ -7,7 +7,8 @@
 #include "Data/ContentBrowserNativeTransfer.h"
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
-#include "AssetTools/FileDeletionRequest.h"
+#include "AssetTools/ContentDeletion.h"
+#include "AssetTools/AssetDeleteExtensions.h"
 
 #include "AssetRegistry/Catalog.h"
 
@@ -124,7 +125,8 @@ namespace Durin
 			{ if (Error) *Error = "Transfer or rename the owning package instead of its managed companion."; return false; }
 			return true;
 		}
-		auto GatherDeletion(const DContentBrowserDataSource& Source, std::span<const FContentBrowserItemData> Data, std::vector<FContentBrowserNativeItem>& Items) -> std::shared_ptr<ContentStorage::FFileDeletionRequest>
+		struct FDeletionSelection { ContentStorage::FContentMutationPolicy Policy; bool Assets, Files; };
+		auto GatherDeletion(const DContentBrowserDataSource& Source, std::span<const FContentBrowserItemData> Data, std::vector<FContentBrowserNativeItem>& Items) -> std::optional<FDeletionSelection>
 		{
 			std::vector<std::shared_ptr<const FContentBrowserOperationContext>> Policies;
 			bool Assets = false, Files = false;
@@ -141,7 +143,7 @@ namespace Durin
 			if (Policies.empty()) return {};
 			auto Host = *Policies.front();
 			Host.CanMutateContent = [Policies] { for (const auto& Policy : Policies) if (Policy->CanMutateContent && !Policy->CanMutateContent()) return false; return true; };
-			return std::make_shared<ContentStorage::FFileDeletionRequest>(ContentStorage::FContentMutationPolicy{.CanMutateContent=Host.CanMutateContent, .ReportDiagnostic=Host.ReportDiagnostic, .NotifyContentMutation=Host.NotifyContentMutation}, Assets, Files);
+			return FDeletionSelection{{.CanMutateContent=Host.CanMutateContent, .ReportDiagnostic=Host.ReportDiagnostic, .NotifyContentMutation=Host.NotifyContentMutation}, Assets, Files};
 		}
 
 		auto Destination(std::string_view Path) -> std::string
@@ -450,7 +452,7 @@ namespace Durin
 		if (!Operations) return false;
 		std::vector<ContentStorage::FFileDeletionInput> Inputs;
 		for (const auto& Item : Items) Inputs.push_back({Item.Name, Item.PhysicalPath});
-		return Operations->DeleteWithConfirmation(Inputs).HasCommittedEffects();
+		return ContentStorage::DeleteFiles(Inputs, Operations->Policy, Operations->Assets, Operations->Files).HasCommittedEffects();
 	}
 } // namespace Durin
 

@@ -442,25 +442,20 @@ registered package, ordinary file, or asset-managed companion. An unregistered
 `.dasset` is an explicit unknown-package blocker and is never treated as an
 ordinary file or silently omitted.
 
-Native preflight produces one immutable deletion plan retained by the provider.
-The modal receives an immutable presentation preview, while the native plan contains the registry revision, deterministic
-physical fingerprints, sorted entries, and the minimal set of maximal roots to
-remove. A versioned session identifier binds the confirmation to its data-source-owned
-execution session. Copying confirmation data cannot grant execution authority:
-submission requires the exact retained confirmation owner. The session alone
-owns the move-only AssetTools operation; confirmation contains no mutable
-execution capability. File fingerprints include
-a bounded-memory streamed 128-bit byte identity;
-directory identities deterministically aggregate their sorted descendants.
-Confirmation and execution revalidate those identities. If
-filesystem or registry state changed, the modal replaces the stale plan,
-displays the updated scope, and requires a second confirmation.
+AssetTools constructs an `FAssetDeleteModel` for the captured selection. Its
+private state owns the confirmation snapshot, registry admission, sorted physical
+fingerprints and maximal roots. Browser providers hold no independent Plan,
+Operation or versioned confirmation handle. File fingerprints include a streamed
+128-bit byte identity; final validation also checks directory membership. A
+changed filesystem, registry or reference scope rejects execution on that model.
+A later user attempt constructs a fresh model and confirms its newly analyzed
+scope; no mutable handle is replaced or automatically retried.
 
 The complete operation is blocked before mutation when any target is outside a
 single writable authoring mount, is the mount root, traverses a reparse point,
 violates source-control policy, or cannot be
 inspected. AssetTools deletion preflight over Engine safety mechanisms also
-blocks loading or dirty packages,
+blocks loading packages and unselected dirty content that cannot be preserved,
 references from outside the deletion set, and ambiguous or externally owned
 companions. References between assets inside the same deletion set are allowed.
 Engine assigns each companion to one owner and includes an owned companion
@@ -468,9 +463,10 @@ outside a selected folder once as a standalone root.
 
 Deletion never rewrites soft or external-store paths, but it reports them as
 explicit dangling-reference warnings and revalidates the warning snapshot.
-Alias-only deletion, broken aliases, and target selections missing any
-direct/upstream alias are blocked. A target may be deleted only with its complete
-alias closure and explicit confirmation.
+Redirectors are selected by exact export, without resolving the selection to its
+destination. Target deletion requires the necessary incoming alias closure;
+external references remain blockers. Selected unsaved changes remain subject to
+explicit loss policy and the model's final checks.
 
 ### Permanent deletion boundary
 
@@ -479,42 +475,32 @@ cannot be undone, and must be restored through version control. ContentBrowser
 revalidates every confirmed byte identity and rejects new descendants through
 the file-validation callback invoked by AssetTools before destructive work. AssetTools revalidates the confirmed selection, companion
 ownership, warnings, and external-reference snapshots, asks Engine to release
-the eligible resident package batch, and invokes the host deletion phase, which removes confirmed provider-owned files and then empty directories individually. Engine then publishes the checked catalog removals. The move-only
-AssetTools operation owns the complete deletion state; no Engine deletion job
+the eligible resident package batch, and invokes the host deletion phase, which removes confirmed provider-owned files and then empty directories individually. Engine then publishes the checked catalog removals. The model owns confirmation and execution state; no separate deletion job
 is wrapped or exposed to ContentBrowser.
 No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
 automatic retention policy exists.
 
-`BulkDeleteItems` requires the provider-owned confirmation capability and exact
-item scope. If validation detects stale content before destructive work starts,
-the native request replaces its immutable preview from the captured request and
-returns an unattempted result. The Panel shows the changed confirmation and
-requires another explicit confirmation. It does not retry automatically or infer
-new scope from the current UI selection.
+`BulkDeleteItems` captures exact provider item scope and invokes one model-backed
+command. Stale content before destruction records unattempted entries and rejects
+execution. The Panel neither retries automatically nor expands the selection;
+a new command analyzes and confirms a fresh model.
 
 `StaleData` means confirmed content or dependency snapshots changed, including
 companion ownership and external reference-store snapshots. Read failures retain
-`IoError`; loading, dirty packages, and live references remain `InUse`. These
-non-stale failures before physical deletion preserve the confirmation and report
-the original error without rescanning or claiming the selection changed. A user
-retry runs all execution checks again; the retained handle never bypasses them.
-Read-only admission failures likewise retain the confirmation. Initially blocked
-plans remain non-executable and must be dismissed and analyzed again after the
-blocker is resolved.
+`IoError`; loading and live-reference blockers retain their original errors.
+Failed validation performs no destructive I/O. A retry constructs a new model;
+neither a previous confirmation nor a completed model bypasses final checks.
 
-Once destructive work starts, the browser session is retired after the attempt.
-Partial deletion does not recreate removed content; it publishes a full-refresh
-notification and reports the failure. A later attempt requires fresh analysis and
-confirmation. The native deletion operation retains its affected-file evidence;
+A model cannot execute again once attempted. Partial deletion never recreates
+removed content; it publishes the committed removals, requests conservative
+reconciliation when needed, and retains failed/unattempted facts for diagnostics.
 Registry fences and recovery obligations remain at their owning boundaries.
-There is no browser-level mutable last-result cache or retry of a session that
-has begun physical deletion.
+There is no Browser last-result cache or executable confirmation handle.
 
-If physical removal completes but Registry publication fails, the data source reports
-a warning, publishes the removed item updates, retires the session, clears the
-confirmation handle and reports committed removals plus failed projection in a partial result. RefreshCoordinator
-reconciliation converges from mounted authored files. The Panel never inspects
-`EAssetWriteEffect`, parses diagnostic prefixes, or repeats physical deletion.
+If physical removal completes but Registry publication fails, the data source
+reports a warning and committed removals plus failed projection in partial-result
+facts. RefreshCoordinator reconciles from mounted authored files. The Panel
+never inspects `EAssetWriteEffect`, parses diagnostic prefixes or repeats I/O.
 
 Mounted-content mutations publish structured events. Panels subscribe and coalesce
 reconciliation across views, preserving selection and directory remapping. An
