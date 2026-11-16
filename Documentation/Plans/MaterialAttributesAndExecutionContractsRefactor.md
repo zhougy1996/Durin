@@ -2,7 +2,7 @@
 
 Summary: Replace the fixed surface-output contract with UE-aligned material attributes, explicit compilation requirements, and separate material evaluation and render-pass execution.
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 Status: Active
 Completed:
@@ -20,7 +20,11 @@ boundary, with all four sampling modes, instance replacement, function/editor
 support, source-free DMAT and Vulkan pixel validation. PostProcessInput0 and
 read-only SceneDepth now traverse authoring, detached compilation, source-free
 Cook decoding and Renderer RDG planning/binding. The scene-input and RDG tasks
-are complete; the remaining Stage 3 backend/WPO qualification gates remain open.
+are complete. Windows Stage 3 qualification is complete on 2026-11-17,
+including Cube face-local orientation and numerical explicit-LOD vertex WPO.
+Production Metal compilation/reflection remains a required open gate, so
+Stage 3 as a whole is not complete. Packaged Game/content closure and final
+integrated cost qualification remain in Stages 5 and 6.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -382,7 +386,8 @@ Depends on Stage 2.
 - [x] Implement Implicit/Level/Bias/Grad read modes with dimensional coordinate validation. Explicit Level works in Vertex and Pixel; implicit derivatives, Bias and Grad are Pixel-only for this scope. Reject illegal combinations before Shader compilation.
 - [x] Implement logical scene inputs for PostProcessInput0 and read-only SceneDepth, with declared filtering and conversion helpers. Do not expose an ambiguous writable current SceneColor.
 - [x] Carry entry requirements through source-free Cook loading. Renderer material planning resolves them to counted resources, RDG declarations and pass bindings; unavailable required inputs fail locally without stale bindings.
-- [ ] Test cube face/orientation and mip selection, vertex texture WPO, per-instance resource replacement, missing resources, scene UV/depth reconstruction, subrects, resizing and incompatible-domain rejection. Inspect Vulkan and Metal reflection.
+- [x] Qualify Windows/Vulkan cube face-local orientation and mip selection, numerical vertex texture WPO, per-instance resource replacement, missing resources, scene UV/depth reconstruction, subrects, resizing and incompatible-domain rejection; inspect SPIR-V reflection. See the 2026-11-17 Windows receipt below.
+- [ ] Qualify production Metal compilation/reflection for Texture2D/Cube sampling, explicit-LOD vertex entries and PostProcess scene-input layouts on the supported macOS toolchain. Windows MSL text inspection does not satisfy this gate; see the handoff below.
 
 Exit: TextureCube and explicit sampling traverse authoring-to-Cook execution;
 scene reads have validated lifetimes and no attachment read/write feedback.
@@ -415,8 +420,10 @@ The first sampling slice already published intermediate Stage 3 artifacts.
 Changing the resource value and declaration representations must reject those
 products as well. Advance graph/function to 8/5, instance to 3, MIR/translation
 to 12/8, normalization/generator/adapter to 12/20/17, pass/DMAT to 16/19 and
-layout to 5. The later Stage 4 generations advance correspondingly to
+layout to 5. The scene-input continuation subsequently consumed
 MIR/translation 13/9, normalization/generator/adapter 13/21/18 and pass/DMAT 17/20.
+The reserved Stage 4 generations are therefore MIR/translation 14/10,
+normalization/generator/adapter 14/22/19 and pass/DMAT 18/21, as in the table below.
 Minimum source content is regenerated in the same change. Historical receipts
 remain associated with their original generations.
 
@@ -614,6 +621,78 @@ UE comparison used this session's local 5.8.0 installation, CL 53629095,
   were added. The remaining Stage 3 qualification checkbox stays open, including
   earlier Cube corner-orientation/numerical WPO and native Metal gaps. Stage 4
   still owns the per-view effect slot and final display-chain integration.
+
+#### Windows qualification closure and Metal handoff on 2026-11-17
+
+Validated `a49e474ac31e381a1d5dfc59ceaf6f91f38659cb` plus this test change
+using windows-msvc-x64 / Win64-Debug-DurinEditor, MSVC 19.44, Debug, Tracy
+and 18 build jobs. GPU: NVIDIA GeForce RTX 3090, Vulkan 1.4.351;
+validation layer from Vulkan SDK 1.4.357.0. This is correctness qualification,
+not a new timing measurement or a relabeling of earlier hosts' receipts.
+
+- Extended `CubeMaterialFacesMipsInstanceReplacementAndFallbacks` with an
+  independently specified inverse cube projection and four distinct face-local
+  texels. All 24 face/quadrant directions pass, in addition to the existing
+  six face centers at two mip levels, instance replacement, white/black missing
+  resource recovery and incompatible-dimension/fallback rejection.
+- Added `ExplicitTextureLODVertexDisplacementMatchesNumericalDepth` for both
+  Texture2D and Cube. Known blue/zero mip data drives WPO at time 0/1 under
+  identity view/projection. GPU depth at four interior samples across indexed
+  and non-indexed Local geometry matches independent world-z expectations
+  0.5/0.75 within the frozen 1e-4 position budget; all 32 recorded depth
+  observations have zero absolute error on this host. Dynamic mip/time updates
+  retain the accepted material program and render-proxy program identity.
+  This is a Local vertex numerical proof; existing Local/Spline compilation
+  and renderer regression coverage remains separately recorded above.
+- Full `StaticMeshRenderPreparationVulkanTests` passed all 23 cases; receipt
+  `Build/.agent-state/logs/20261117-000726-838305-16296-StaticMeshRenderPreparationVulkanTests.log`.
+- `MaterialCompilerTests` with
+  `FMaterialTextureReadTests.*:FMaterialSceneTextureTests.*` passed all three
+  cases. Both dimensions and all four pixel read modes, explicit Level vertex
+  stages, illegal stage/domain/filter rejection, detached translation,
+  graph-stripped Game-profile DMAT and SPIR-V resource reflection are covered.
+  Receipt: `Build/.agent-state/logs/20261117-000807-360628-27164-MaterialCompilerTests.log`.
+- `MaterialSceneTexturesVulkanTests` passed its source-free scene-input/RDG
+  case on this host, including filtering, subrects, resizing, both depth
+  conventions, alpha preservation and local failure/retry behavior. Receipt:
+  `Build/.agent-state/logs/20261117-001009-023892-5148-MaterialSceneTexturesVulkanTests.log`.
+  ShaderBuild is shut down before GPU execution. This remains execution in the
+  Editor test host, not packaged Game qualification.
+- Raw 96x96 float depth captures for all eight dimension/mip/time combinations,
+  numerical observations, copied receipts and source hashes are under ignored
+  `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage3/Windows/`.
+  Set `DURIN_MATERIAL_STAGE3_EVIDENCE_DIR` to an existing output directory when
+  reproducing the mesh test to retain the depth captures. No runtime, asset,
+  format or shared-header input changed; `affected --explain` selects only the
+  mesh Vulkan target. The compiler and scene targets additionally refresh the
+  Windows Stage 3 contracts. No new workspace `all`, full corpus Cook, packaged
+  Game, application startup or performance qualification is claimed here.
+  The initial sandbox build failed with MSVC C1902; the same launcher outside
+  the sandbox built successfully, without source/toolchain workarounds.
+
+Remaining Metal acceptance is explicit and is not waived by this Windows work:
+
+- Use the supported macOS editor shader toolchain to compile the production
+  Metal output and inspect native reflection for Texture2D/Cube and sampler
+  dimension/count/index agreement, all four pixel sampling modes, explicit
+  Level vertex sampling for Local/Spline entries, and the no-mesh PostProcess
+  Input0/depth entry with its counted resources and layout.
+- `MetalShaderQualificationTests` is macOS/editor-only and is excluded from
+  this Windows registry. Its material fixture still contains the retired
+  `EMaterialShadingModel::Lit` spelling and baseline-only variants in
+  `MetalMaterialQualificationTests.mm`; migrate it to DefaultLit and the
+  canonical selected entry contracts, and add the Stage 3 resource/domain
+  matrix before claiming native Metal coverage. Merely rerunning the old
+  fixture cannot close the gate.
+- Earlier offline MSL inspection is supplemental only; its older frontend's
+  vertex `SV_StartInstanceLocation` rejection remains historical. Production
+  Metal compilation/reflection was not run here. Native Metal GPU pixel tests
+  remain additional coverage under the acceptance policy, not a replacement
+  for the required compilation/reflection gate.
+
+Stage 3 stays in progress solely for this backend acceptance gate. This receipt
+does not silently relax Stage 4's dependency or the later packaged Game/content,
+final workspace build and numerical cost gates.
 
 ### Stage 4: Prove shading-model and domain extension
 

@@ -18,6 +18,7 @@
 
 #include "GeometrySubmissionTestSupport.h"
 #include "Materials/MaterialExpressions.h"
+#include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Asset/AssetCompilingManager.h"
 #include "LightSceneTestSupport.h"
@@ -4986,7 +4987,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 	{
 		constexpr std::array<std::array<uint8,3>, 6> FaceColors{{{255,0,0},{0,255,0},{0,0,255},{255,255,0},{255,0,255},{0,255,255}}};
 		const std::array<FVector4,6> Directions{FVector4(1,0,0,0), FVector4(-1,0,0,0), FVector4(0,1,0,0), FVector4(0,-1,0,0), FVector4(0,0,1,0), FVector4(0,0,-1,0)};
-		std::array<TStrongObjectPtr<DTextureCube>, 2> Cubes;
+		std::array<TStrongObjectPtr<DTextureCube>, 3> Cubes;
 		for (uint32 Variant = 0; Variant < Cubes.size(); ++Variant)
 		{
 			Cubes[Variant] = TStrongObjectPtr<DTextureCube>(NewObject<DTextureCube>(nullptr, NAME_None));
@@ -5001,7 +5002,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 					FByteBuffer Pixels(Size * Size * 4);
 					for (uint32 Pixel = 0; Pixel < Size * Size; ++Pixel)
 					{
-						for (uint32 C = 0; C < 3; ++C) Pixels[Pixel*4+C] = std::byte((Variant ^ Mip) ? 255-FaceColors[Face][C] : FaceColors[Face][C]);
+						for (uint32 C = 0; C < 3; ++C)
+							Pixels[Pixel*4+C] = std::byte(Variant == 2 ? FaceColors[Pixel][C]
+								: (Variant ^ Mip) ? 255-FaceColors[Face][C] : FaceColors[Face][C]);
 						Pixels[Pixel*4+3] = std::byte{255};
 					}
 					Data.Mips.push_back({FSharedByteBuffer::Take(std::move(Pixels)), Size, Size, Size*4});
@@ -5083,6 +5086,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 			}
 		ASSERT_TRUE(Instance->SetTextureParameterValue("Cube",Cubes[1].Get()));
 		Capture(FaceColors[5]); // Replacing the resource inverts mip 1 again.
+		ASSERT_TRUE(Instance->SetTextureParameterValue("Cube",Cubes[2].Get()));
+		ASSERT_TRUE(Instance->SetScalarParameterValue("Mip", 0.f));
+		// Independent cube projection inverse: sc/tc identify texel centers at
+		// (u,v)=(.25/.75,.25/.75). Uniform face colors cannot detect these flips.
+		for (uint32 Face = 0; Face < 6; ++Face)
+		for (uint32 Corner = 0; Corner < 4; ++Corner)
+		{
+			SCOPED_TRACE(std::format("face {} corner {}", Face, Corner));
+			const double S = (Corner & 1) ? .5 : -.5;
+			const double T = (Corner & 2) ? .5 : -.5;
+			const std::array<FVector4,6> CornerDirections{
+				FVector4(1,-T,-S,0), FVector4(-1,-T,S,0),
+				FVector4(S,1,T,0), FVector4(S,-1,-T,0),
+				FVector4(S,-T,1,0), FVector4(-S,-T,-1,0)};
+			ASSERT_TRUE(Instance->SetParameterValue(Direction->Metadata.Id,
+				FMaterialParameterValue::MakeVector4(CornerDirections[Face])));
+			Capture(FaceColors[Corner]);
+		}
 		ASSERT_FALSE(Instance->SetTextureParameterValue("Cube", NewObject<DTexture2D>(nullptr, NAME_None)));
 		ASSERT_TRUE(Instance->SetTextureParameterValue("Cube", nullptr));
 		Capture({255,255,255});
@@ -5095,6 +5116,147 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 		Scene.Reset(); FlushRenderingCommands();
 		for (auto& Cube : Cubes) Cube->ReleaseResource();
 		FlushRenderingCommands();
+	}
+	CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, ExplicitTextureLODVertexDisplacementMatchesNumericalDepth)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetRuntime());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("TextureLODVertexContract"); Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+	{
+		// The identity view/projection maps world z directly to device depth.
+		// Mip 0 supplies (0,0,1), mip 1 supplies zero, independently of UV/face.
+		const auto MakePlatform = [] {
+			auto Platform = std::make_unique<FTexturePlatformData>();
+			Platform->PixelFormat = EPixelFormat::RGBA8_UNORM;
+			for (uint32 Mip = 0; Mip < 2; ++Mip)
+			{
+				const uint32 Size = 2u >> Mip;
+				FByteBuffer Pixels(Size * Size * 4);
+				for (uint32 Pixel = 0; Pixel < Size * Size; ++Pixel)
+				{
+					Pixels[Pixel*4+2] = std::byte(Mip ? 0 : 255);
+					Pixels[Pixel*4+3] = std::byte{255};
+				}
+				Platform->Mips.push_back({FSharedByteBuffer::Take(std::move(Pixels)), Size, Size, Size*4});
+			}
+			return Platform;
+		};
+		TStrongObjectPtr<DTexture2D> Texture(NewObject<DTexture2D>(nullptr, NAME_None));
+		Texture->SetPlatformData(MakePlatform()); Texture->UpdateResource();
+		TStrongObjectPtr<DTextureCube> Cube(NewObject<DTextureCube>(nullptr, NAME_None));
+		auto CubePlatform = std::make_unique<FTextureCubePlatformData>();
+		CubePlatform->PixelFormat = EPixelFormat::RGBA8_UNORM;
+		for (auto& Face : CubePlatform->Faces) Face = std::move(*MakePlatform());
+		ASSERT_TRUE(CubePlatform->IsValid());
+		Cube->SetPlatformData(std::move(CubePlatform)); Cube->UpdateResource();
+		FlushRenderingCommands();
+		for (const bool bCube : {false, true})
+		{
+			SCOPED_TRACE(bCube ? "Cube" : "Texture2D");
+			TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+			Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+			TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Sample2D(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
+			TStrongObjectPtr<DMaterialExpressionTextureSampleParameterCube> SampleCube(NewObject<DMaterialExpressionTextureSampleParameterCube>(nullptr, NAME_None));
+			DMaterialExpressionTextureParameter* Sample = bCube
+				? static_cast<DMaterialExpressionTextureParameter*>(SampleCube.Get()) : Sample2D.Get();
+			Sample->Id = FGuid::NewGuid(); Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "Displacement"};
+			Sample->DefaultValue = (bCube ? FMaterialParameterValue::MakeTextureCube(Cube.Get())
+				: FMaterialParameterValue::MakeTexture(Texture.Get())).GetTexture();
+			Sample->DefaultValue.SamplerState.MinFilter = EMaterialSamplerMinFilter::NearestMipmapNearest;
+			Sample->DefaultValue.SamplerState.MagFilter = EMaterialSamplerMagFilter::Nearest;
+			TStrongObjectPtr<DMaterialExpressionScalarParameter> Mip(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+			Mip->Id = FGuid::NewGuid(); Mip->Metadata = {.Id = FGuid::NewGuid(), .Name = "Mip"};
+			Sample2D->ReadMode = SampleCube->ReadMode = EMaterialTextureReadMode::Level;
+			if (bCube) SampleCube->MipValue = {Mip->Id};
+			else Sample2D->MipValue = {Mip->Id};
+			TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
+			Time->Id = FGuid::NewGuid();
+			TStrongObjectPtr<DMaterialExpressionMultiply> Animated(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
+			Animated->Id = FGuid::NewGuid(); Animated->ResultType = EMaterialProgramValueType::Float3;
+			Animated->A = {Sample->Id,1}; Animated->B = {Time->Id};
+			TStrongObjectPtr<DMaterialExpressionMultiply> Offset(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
+			Offset->Id = FGuid::NewGuid(); Offset->ResultType = EMaterialProgramValueType::Float3;
+			Offset->A = {Animated->Id}; Offset->B.SetConstant({.25f});
+			FMaterialAttributeRoot Outputs;
+			Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {Offset->Id};
+			FMaterialStaticProperties Properties; Properties.bTwoSided = true;
+			ASSERT_TRUE(Material->SetStaticProperties(Properties));
+			ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,5>{Sample,Mip.Get(),Time.Get(),Animated.Get(),Offset.Get()}, Outputs));
+			ASSERT_TRUE(RequestMaterialRecompile(*Material));
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+			for (const auto& Diagnostic : Material->GetMaterialCompileDiagnostics()) ADD_FAILURE() << Diagnostic.Message;
+			ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+			const auto Program = Material->GetAcceptedCompiledProgram();
+			TStrongObjectPtr<DMaterialInstance> Instance(DMaterialInstance::CreateDynamic(Material.Get()));
+			ASSERT_TRUE(Instance);
+			FSceneTestOwner Scene;
+			FProceduralGeometry Geometry;
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+				Geometry = FProceduralGeometry::Create(Commands,1,false);
+			});
+			FlushRenderingCommands();
+			for (const uint32 Level : {0u,1u})
+			for (const double T : {0.,1.})
+			{
+				SCOPED_TRACE(std::format("mip {} time {}", Level, T));
+				ASSERT_TRUE(Instance->SetScalarParameterValue("Mip", float(Level)));
+				FlushRenderingCommands();
+				const auto ProxyRef = Instance->GetRenderProxy();
+				EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+					auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
+					Proxy->Materials = {ProxyRef->GetMaterialWithFallback(),ProxyRef->GetMaterialWithFallback()};
+					ASSERT_FALSE(Proxy->Materials[0].Representation.IsError());
+					EXPECT_EQ(Proxy->Materials[0].CompiledProgram,Program);
+					ASSERT_TRUE(Proxy->PublishGeometry());
+					ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene,FPrimitiveComponentId(8002),std::move(Proxy),FMatrix(1.0)));
+				});
+				FlushRenderingCommands();
+				FSceneView View; View.ViewportWidth = View.ViewportHeight = 96;
+				View.Settings.Mode.RenderMode = ERenderMode::Lit;
+				View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+				View.MaterialTimeSeconds = T;
+				FByteBuffer Depth;
+				static FByteBuffer* Capture = nullptr;
+				const auto Result = RenderPreparedGeometryView(Renderer,*Scene,View,
+					FRHITextureCreateDesc::Create2D("VertexTextureDepth",96,96,EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::SourceCopy),
+					[&] {
+						Capture = &Depth;
+						SetGBufferCaptureSink(+[](FRHICommandListImmediate& Commands,FRHITexture*,FRHITexture*,FRHITexture*,FRHITexture*,FRHITexture* Z) {
+							ReadGeometryTexture(Commands,Z,*Capture,true);
+						});
+					}, [](FRHICommandListImmediate&,FRHITexture*) {});
+				Capture = nullptr;
+				ASSERT_EQ(Result,ERenderViewResult::Success);
+				ASSERT_EQ(Depth.size(),96u*96u*sizeof(float));
+				if (const auto* Directory = std::getenv("DURIN_MATERIAL_STAGE3_EVIDENCE_DIR"))
+					ASSERT_TRUE(FFileHelper::SaveArrayToFile(Depth, std::filesystem::path(Directory)
+						/ std::format("vertex-lod-{}-mip{}-t{}.r32", bCube ? "cube" : "2d", Level, uint32(T))));
+				const float Expected = .5f + (Level == 0 ? .25f * float(T) : 0.f);
+				// Interior samples of both indexed and non-indexed triangles.
+				for (const uint32 X : {24u,26u,68u,70u})
+				{
+					float Z; std::memcpy(&Z,Depth.data()+(48*96+X)*sizeof(float),sizeof(Z));
+					EXPECT_NEAR(Z,Expected,1e-4f) << "pixel " << X;
+				}
+				EXPECT_EQ(Material->GetAcceptedCompiledProgram(),Program);
+			}
+			Scene.Reset(); FlushRenderingCommands();
+		}
+		Texture->ReleaseResource(); Cube->ReleaseResource(); FlushRenderingCommands();
 	}
 	CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
 }
