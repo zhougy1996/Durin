@@ -324,6 +324,15 @@ adapts committed batches to the Transactor event. External notifications survive
 provider retirement, while source projection remains fenced. Asset deltas come
 from registry events rather than operation-result replay.
 
+Folder and asset actions compose `FContentMutationPolicy` callbacks through small
+admission, feedback and notification helpers; they do not inherit an operation
+base. Fix-up keeps the UE-style `IAssetTools::FixupReferencers` void contract:
+the Browser bool reports request handling, while feedback reports failures.
+Its host notification reads committed package changes from the existing catalog
+journal; asset rows still arrive through query events. Empty work and rejection
+before any effect emit no mutation batch. A journal gap or a newly fenced projection after
+failed publication retains the conservative full-refresh fallback.
+
 File sources own one cancellable background metadata snapshot per editor. At
 most one scan runs per source; steady-state starts are spaced by at least half
 a second of editor time. Workers capture owned mount paths and cancellation only, without

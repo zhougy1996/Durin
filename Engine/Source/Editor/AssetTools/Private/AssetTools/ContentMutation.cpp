@@ -13,20 +13,14 @@ namespace Durin::ContentStorage
 		for (const auto& Change : Batch.Changes) if (Change.bDirectory) Directories.Changes.push_back(Change);
 		if (Directories.bFullRefresh || !Directories.Changes.empty()) OnContentDirectoriesChanged().Broadcast(Directories, Origin, Reason);
 	}
-	FContentMutationOperation::FContentMutationOperation(const FContentMutationPolicy& InPolicy) : Policy(InPolicy) {}
-	auto FContentMutationOperation::CanModify(std::string* Error) const -> bool
+	auto CanModifyContent(const FContentMutationPolicy& Policy, std::string* Error) -> bool
 	{
 		if (Error) Error->clear();
 		if (Policy.CanMutateContent && !Policy.CanMutateContent())
 		{ if (Error) *Error = "Content mutation is currently disabled."; return false; }
 		return true;
 	}
-	auto FContentMutationOperation::Report(ELogLevel Level, std::string_view Message) const -> void
-	{
-		if (Policy.ReportDiagnostic) Policy.ReportDiagnostic(Level, Message);
-		else FFeedbackContext::Get().Serialize(Level, Message);
-	}
-	auto FContentMutationOperation::Feedback() const -> FFeedbackContext
+	auto MakeContentMutationFeedback(const FContentMutationPolicy& Policy) -> FFeedbackContext
 	{
 		const auto Sink = Policy.ReportDiagnostic;
 		auto* Fallback = &FFeedbackContext::Get();
@@ -34,14 +28,15 @@ namespace Durin::ContentStorage
 			if (Sink) Sink(Level, Message); else Fallback->Serialize(Level, Message);
 		});
 	}
-	auto FContentMutationOperation::NotifyItemsUpdated(FContentChangeBatch Changes) -> void
+	auto NotifyContentMutation(const FContentMutationPolicy& Policy, FContentChangeBatch Changes) -> void
 	{
 		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;
 		if (Policy.NotifyContentMutation) Policy.NotifyContentMutation(std::move(Changes));
 	}
-	auto FContentMutationOperation::ReportFailure(const UnifiedError::FError& Error) const -> bool
+	auto ReportContentMutationFailure(const FContentMutationPolicy& Policy, const UnifiedError::FError& Error) -> bool
 	{
-		Report(ELogLevel::Error, Error.ToString());
+		if (Policy.ReportDiagnostic) Policy.ReportDiagnostic(ELogLevel::Error, Error.ToString());
+		else FFeedbackContext::Get().Serialize(ELogLevel::Error, Error.ToString());
 		return false;
 	}
 }

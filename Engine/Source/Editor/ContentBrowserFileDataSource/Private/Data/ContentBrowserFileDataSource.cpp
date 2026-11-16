@@ -429,7 +429,7 @@ namespace Durin
 		const DContentBrowserDataSource& Source = *this;
 		auto P = Payload(Source, Item);
 		if (!P) return false;
-		if (!ContentStorage::FContentMutationOperation(NativePolicy(*P->Host)).CanModify(Error)) return false;
+		if (!ContentStorage::CanModifyContent(NativePolicy(*P->Host), Error)) return false;
 		const auto Mount = ContentStorage::FContentMountPaths::ResolveMountPath(P->Item.PhysicalPath);
 		const bool Allowed = Mount && Mount.Mount->bContentWritable
 							 && !P->Item.PhysicalPath.empty()

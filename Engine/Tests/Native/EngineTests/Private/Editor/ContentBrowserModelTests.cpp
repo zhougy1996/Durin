@@ -4631,14 +4631,58 @@ TEST_F(FContentBrowserModelTests, CapabilityQueriesExplainRejectionWithoutExecut
 	EXPECT_TRUE(std::filesystem::exists(File));
 }
 
-TEST_F(FContentBrowserModelTests, SuccessfulNoOpFixUpDoesNotPublishItemUpdates)
+TEST_F(FContentBrowserModelTests, FixUpPublishesCommittedChangesAndFallsBackForPendingProjection)
 {
 	int Updates = 0;
-	FProviderAssetActionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch) { ++Updates; }});
+	FProviderAssetActionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); ++Updates; }});
 	Observe(Service);
 	EXPECT_TRUE(Service.FixUpRedirectorsInFolder("/ContentBrowserTests/A/"));
 	EXPECT_EQ(Updates, 0);
 	EXPECT_TRUE(OperationError.empty());
+
+	FPackagePath OldPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/FixUpSource", OldPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OldPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Material), "/ContentBrowserTests/B", "FixUpTarget"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	Material->MarkPackageDirty();
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Point, size_t) { return Point == Testing::EPackageSaveFaultPoint::PublishPackage; });
+		// The Browser return value means the request was handled, as the UE fix-up entry is void.
+		EXPECT_TRUE(Service.FixUpRedirectorsInFolder("/ContentBrowserTests/A/"));
+	}
+	EXPECT_FALSE(OperationError.empty());
+	EXPECT_EQ(Updates, 0);
+	EXPECT_NE(FindPackageExact(OldPath), nullptr);
+	OperationError.clear();
+	ASSERT_TRUE(Service.FixUpRedirectorsInFolder("/ContentBrowserTests/A/"));
+	EXPECT_TRUE(OperationError.empty()) << OperationError;
+	EXPECT_EQ(Updates, 1);
+	EXPECT_FALSE(ObservedChanges.bFullRefresh);
+	EXPECT_TRUE(std::ranges::any_of(ObservedChanges.Changes, [&](const auto& Change) {
+		return Change.Kind == EContentChangeKind::Removed && Change.OldAssetPath == OldPath.GetView();
+	}));
+	EXPECT_TRUE(std::ranges::all_of(ObservedChanges.Changes, [&](const auto& Change) {
+		return Change.OldAssetPath == OldPath.GetView()
+			|| Change.NewAssetPath == Material->GetPackage()->GetPackagePath();
+	}));
+	EXPECT_EQ(FindPackageExact(OldPath), nullptr);
+	EXPECT_TRUE(Service.FixUpRedirectorsInFolder("/ContentBrowserTests/A/"));
+	EXPECT_EQ(Updates, 1);
+
+	const auto IntermediatePath = Material->GetPackage()->GetPackagePathIdentity();
+	const FAssetRenameData RenameAgain{TWeakObjectPtr<DObject>(Material), "/ContentBrowserTests/A", "FixUpFinal"};
+	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&RenameAgain, 1}));
+	SetAssetRedirectorFixupFailurePointForTesting(EAssetRedirectorFixupFailurePoint::PublishRegistry);
+	struct FResetFault { ~FResetFault() { SetAssetRedirectorFixupFailurePointForTesting(EAssetRedirectorFixupFailurePoint::None); } } ResetFault;
+	EXPECT_TRUE(Service.FixUpRedirectorsInFolder("/ContentBrowserTests/B/"));
+	EXPECT_EQ(Updates, 2);
+	EXPECT_TRUE(ObservedChanges.bFullRefresh);
+	EXPECT_FALSE(OperationError.empty());
+	EXPECT_TRUE(IsAssetRegistryProjectionFenced(IntermediatePath));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::Incremental));
 }
 
 TEST_F(FContentBrowserModelTests, DataSourceShutdownCancelsPublicationAndRejectsNewCaptures)

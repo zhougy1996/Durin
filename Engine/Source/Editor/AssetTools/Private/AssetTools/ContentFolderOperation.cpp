@@ -22,7 +22,7 @@ namespace Durin::ContentStorage
 		if (OutError) OutError->reset();
 		OutNewItem = {};
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return Reject(OutError, UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
+		if (!CanModifyContent(Policy, &AdmissionError)) return Reject(OutError, UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		if (Name.empty() || Name == "." || Name == ".."
 			|| Name.find_first_of("/\\:*?\"<>|") != std::string_view::npos
 			|| Name.back() == '.' || Name.back() == ' '
@@ -66,15 +66,15 @@ namespace Durin::ContentStorage
 		OutNewItem = {};
 		std::string Candidate;
 		std::optional<UnifiedError::FError> Error;
-		if (!ValidateFolder(Directory, Name, Candidate, &Error)) return ReportFailure(*Error);
+		if (!ValidateFolder(Directory, Name, Candidate, &Error)) return ReportContentMutationFailure(Policy, *Error);
 		std::error_code Ec;
 		const bool Created = std::filesystem::create_directory(Candidate, Ec);
-		if (Ec) return ReportFailure(ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories, .NativeError = Ec, .Path = Candidate}));
-		if (!Created) return ReportFailure(UnifiedError::FError{AssetWriteErrors::AlreadyExists, "An item with this name already exists."});
+		if (Ec) return ReportContentMutationFailure(Policy, ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories, .NativeError = Ec, .Path = Candidate}));
+		if (!Created) return ReportContentMutationFailure(Policy, UnifiedError::FError{AssetWriteErrors::AlreadyExists, "An item with this name already exists."});
 		OutNewItem = std::move(Candidate);
 		FContentChangeBatch Changes;
 		Changes.Changes.push_back({EContentChangeKind::Added, {}, OutNewItem, {}, {}, true});
-		NotifyItemsUpdated(std::move(Changes));
+		NotifyContentMutation(Policy, std::move(Changes));
 		return true;
 	}
 }

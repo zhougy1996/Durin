@@ -11,6 +11,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "AssetRegistry/Catalog.h"
+#include "AssetRegistry/Publication.h"
 #include "AssetTools/IAssetTools.h"
 #include "ObjectTools.h"
 #include "Asset/Load.h"
@@ -45,23 +46,23 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 	{
 		OutNewItem = {};
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
+		if (!ContentStorage::CanModifyContent(Policy, &AdmissionError)) return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		if (Item.Kind != EContentBrowserItemKind::Asset)
-			return ReportFailure(UnifiedError::FError(
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(
 				AssetWriteErrors::InvalidData,
 				"Only real assets can be duplicated."));
 		FTopLevelAssetPath SourcePath;
 		if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, SourcePath))
-			return ReportFailure(UnifiedError::FError(AssetWriteErrors::InvalidPath,
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(AssetWriteErrors::InvalidPath,
 				"The source top-level asset path is invalid."));
 		if (!SourcePath.IsValid())
-			return ReportFailure(UnifiedError::FError(
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(
 				AssetWriteErrors::InvalidPath,
 				"The source asset path is invalid."));
 		const std::string SourcePackagePath = SourcePath.GetPackagePath().ToString();
 		const size_t Slash = SourcePackagePath.find_last_of('/');
 		if (Slash == std::string::npos)
-			return ReportFailure(UnifiedError::FError(
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(
 				AssetWriteErrors::InvalidPath,
 				"The source asset has no valid destination directory."));
 		return DuplicateItem(Item, ContentStorage::FContentMountPaths::VirtualToPhysical(SourcePackagePath.substr(0, Slash + 1)), OutNewItem);
@@ -73,37 +74,37 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 	{
 		OutNewItem = {};
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
+		if (!ContentStorage::CanModifyContent(Policy, &AdmissionError)) return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(AssetWriteErrors::ReadOnlyMode, AdmissionError));
 		FTopLevelAssetPath SourcePath;
 		if (Item.Kind != EContentBrowserItemKind::Asset || !FTopLevelAssetPath::TryCreate(Item.VirtualPath, SourcePath) || PhysicalDirectory.empty())
-			return ReportFailure(UnifiedError::FError(
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(
 				AssetWriteErrors::InvalidPath,
 				"Asset paste requires a valid source and destination folder."));
 		std::string Directory = ContentStorage::FContentMountPaths::PhysicalToVirtualDirectory(PhysicalDirectory);
 		if (!Directory.ends_with('/')) Directory.push_back('/');
 		std::string Error;
-		if (!CanDuplicateAsset(SourcePath, &Error)) return ReportFailure(UnifiedError::FError{AssetWriteErrors::InvalidData, Error});
+		if (!CanDuplicateAsset(SourcePath, &Error)) return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError{AssetWriteErrors::InvalidData, Error});
 		const auto SourceData = FindAssetExact(SourcePath);
 		const std::string DestinationDirectoryPhysical =
 			ContentStorage::FContentMountPaths::VirtualToPhysical(Directory);
 		const ContentStorage::FContentMountPaths::FMountPath Mount =
 			ContentStorage::FContentMountPaths::ResolveMountPath(DestinationDirectoryPhysical);
 		if (!Mount)
-			return ReportFailure(UnifiedError::FError(
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(
 				AssetWriteErrors::InvalidPath,
 				"The paste destination is outside an automatically scanned content mount."));
 		if (!Mount.Mount->bContentWritable)
-			return ReportFailure(UnifiedError::FError(
+			return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError(
 				AssetWriteErrors::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before pasting the asset."));
 
-		auto Context = Feedback();
+		auto Context = ContentStorage::MakeContentMutationFeedback(Policy);
 		FScopedFeedbackContext FeedbackScope(Context);
 		std::optional<UnifiedError::FError> LoadError;
 		auto* Source = LoadObject(SourcePath, nullptr, nullptr, &LoadError);
-		if (!Source) return ReportFailure(LoadError.value_or(UnifiedError::FError{AssetWriteErrors::NotFound, "The duplicate source is unavailable."}));
+		if (!Source) return ContentStorage::ReportContentMutationFailure(Policy, LoadError.value_or(UnifiedError::FError{AssetWriteErrors::NotFound, "The duplicate source is unavailable."}));
 		const TStrongObjectPtr<DObject> SourceOwner(Source);
-		if (!CanModify(&Error)) return ReportFailure(UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, Error});
+		if (!ContentStorage::CanModifyContent(Policy, &Error)) return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, Error});
 		std::vector<DObject*> Copies;
 		ObjectTools::DuplicateObjects(std::span{&Source, 1}, {}, Directory, false, &Copies);
 		auto* Copy = Copies.empty() ? nullptr : Copies.front();
@@ -113,7 +114,7 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 		OutNewItem.AssetClassName = SourceData->AssetClassName;
 		const auto Resolved = FMountPaths::ResolveAssetPath(OutNewItem.PackagePath.GetView());
 		SetNewItem(OutNewItem, Resolved ? Resolved->PhysicalPath.generic_string() + ".dasset" : std::string{}, Copy->GetObjectPath());
-		NotifyItemsUpdated({.Changes = {{EContentChangeKind::Added, {}, OutNewItem.PhysicalPath, {}, OutNewItem.VirtualPath}}});
+		ContentStorage::NotifyContentMutation(Policy, {.Changes = {{EContentChangeKind::Added, {}, OutNewItem.PhysicalPath, {}, OutNewItem.VirtualPath}}});
 		return true;
 	}
 	auto FContentBrowserAssetActions::CollectRedirectors(std::string_view Directory) const -> std::vector<FTopLevelAssetPath>
@@ -127,32 +128,39 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 	}
 	auto FContentBrowserAssetActions::FixUpRedirectorsInFolder(std::string_view Directory) -> bool
 	{
-		if (Directory.empty()) return ReportFailure(UnifiedError::FError{AssetWriteErrors::InvalidPath, "Fix Up in Folder requires a mounted virtual directory."});
+		if (Directory.empty()) return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError{AssetWriteErrors::InvalidPath, "Fix Up in Folder requires a mounted virtual directory."});
 		return FixUpRedirectors(CollectRedirectors(Directory));
 	}
 	auto FContentBrowserAssetActions::FixUpRedirectors(std::span<const FTopLevelAssetPath> Paths) -> bool
 	{
 		std::string AdmissionError;
-		if (!CanModify(&AdmissionError)) return ReportFailure(UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, AdmissionError});
+		if (!ContentStorage::CanModifyContent(Policy, &AdmissionError)) return ContentStorage::ReportContentMutationFailure(Policy, UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, AdmissionError});
 		if (Paths.empty()) return true;
-		auto Context = Feedback(); FScopedFeedbackContext Scope(Context);
+		auto Context = ContentStorage::MakeContentMutationFeedback(Policy); FScopedFeedbackContext Scope(Context);
 		std::vector<DAssetRedirector*> Objects;
 		std::vector<FStrongObjectPtr> Owners;
 		for (const auto& Path : Paths)
 			if (auto* Package = LoadPackage(Path.GetPackagePath()))
 				if (auto* Alias = Cast<DAssetRedirector>(Package->FindTopLevelAsset(FName(Path.GetAssetName()))))
 				{ Objects.push_back(Alias); Owners.emplace_back(Alias); }
-		if (!CanModify(&AdmissionError)) return false;
+		if (!ContentStorage::CanModifyContent(Policy, &AdmissionError)) return false;
 		// The synchronous backend retains selection itself, then releases it for checked retirement.
 		Owners.clear();
+		const auto Revision = GetAssetCatalogRevision();
+		const auto Fences = CaptureAssetRegistryProjectionFences();
 		IAssetTools::Get().FixupReferencers(Objects);
-		NotifyItemsUpdated({.bFullRefresh = true});
+		auto Changes = CaptureAssetCatalogChanges(Revision);
+		// Failed publication can leave committed files outside the catalog projection.
+		// Keep the conservative fallback for that uncertainty, not for every fix-up.
+		for (const auto& Path : CaptureAssetRegistryProjectionFences())
+			if (std::ranges::find(Fences, Path) == Fences.end()) { Changes.bFullRefresh = true; break; }
+		ContentStorage::NotifyContentMutation(Policy, std::move(Changes));
 		return true;
 	}
 	auto FContentBrowserAssetActions::FixUpAllRedirectors() -> bool { return FixUpRedirectors(CollectRedirectors("/")); }
 	auto FContentBrowserAssetActions::CanDuplicateAsset(const FTopLevelAssetPath& Source, std::string* OutErrorMsg) const -> bool
 	{
-		if (!CanModify(OutErrorMsg)) return false;
+		if (!ContentStorage::CanModifyContent(Policy, OutErrorMsg)) return false;
 		const auto Entry = FindAssetExact(Source);
 		return Entry && !Entry->IsRedirector() ? true : SetQueryError(OutErrorMsg, "The copied source is no longer an available real asset.");
 	}

@@ -20,6 +20,7 @@
 #include "AssetTools/ContentMutation.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Testing/PackageSaveTesting.h"
+#include "Asset/PackageSerialization.h"
 #include <gtest/gtest.h>
 
 using Durin::ContentBrowser::Private::TestKind;
@@ -876,6 +877,8 @@ namespace
 		ASSERT_NE(nullptr, Copy);
 		Flush();
 		EXPECT_EQ(1, Count(EContentBrowserItemUpdateType::Added, Copy->GetObjectPath()));
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		Flush();
 		const FAssetRenameData Rename(TWeakObjectPtr<DObject>(Asset), "/ProviderTests", "DirectRenamed");
 		ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 		Flush();
@@ -884,6 +887,21 @@ namespace
 		EXPECT_TRUE(std::ranges::any_of(PublishedUpdates, [&](const auto& Update) {
 			return Update.GetUpdateType() == EContentBrowserItemUpdateType::Moved && Update.GetPreviousVirtualPath() == Original;
 		}));
+		Flush();
+		EXPECT_TRUE(PublishedUpdates.empty());
+		bool Refreshed = false;
+		FTopLevelAssetPath OriginalPath;
+		ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Original, OriginalPath));
+		ASSERT_TRUE(FindAssetExact(OriginalPath));
+		const auto RefreshHandle = Data->OnItemDataRefreshed().AddLambda([&] { Refreshed = true; });
+		struct FUnsubscribe { DContentBrowserDataSubsystem* Data; FDelegateHandle Handle; ~FUnsubscribe() { Data->OnItemDataRefreshed().Remove(Handle); } } Subscription{Data, RefreshHandle};
+		auto* Source = Cast<DContentBrowserAssetDataSource>(Data->GetActiveDataSource(FName("Asset")));
+		ASSERT_NE(Source, nullptr);
+		ASSERT_TRUE(Source->FixUpRedirectorsInFolder("/ProviderTests/", {}));
+		Flush();
+		EXPECT_FALSE(Refreshed);
+		EXPECT_EQ(1, Count(EContentBrowserItemUpdateType::Removed, Original));
+		EXPECT_FALSE(FindAssetExact(OriginalPath));
 		Flush();
 		EXPECT_TRUE(PublishedUpdates.empty());
 	}

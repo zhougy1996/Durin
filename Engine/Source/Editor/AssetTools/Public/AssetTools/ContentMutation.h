@@ -22,17 +22,8 @@ namespace Durin::ContentStorage
 	ASSETTOOLS_API auto OnContentDirectoriesChanged() -> TMulticastDelegate<void(const FContentChangeBatch&, const DObject*, EContentDirectoryChangeReason)>&;
 	ASSETTOOLS_API auto PublishContentDirectoryChanges(const FContentChangeBatch&, const DObject* Origin, EContentDirectoryChangeReason Reason = EContentDirectoryChangeReason::Mutation) -> void;
 
-	class ASSETTOOLS_API FContentMutationOperation
-	{
-	public:
-		explicit FContentMutationOperation(const FContentMutationPolicy&);
-		auto CanModify(std::string* Error = nullptr) const -> bool;
-	protected:
-		auto Report(ELogLevel, std::string_view) const -> void;
-		auto Feedback() const -> FFeedbackContext;
-		auto NotifyItemsUpdated(FContentChangeBatch) -> void;
-		auto ReportFailure(const UnifiedError::FError&) const -> bool;
-	private:
-		FContentMutationPolicy Policy;
-	};
+	ASSETTOOLS_API auto CanModifyContent(const FContentMutationPolicy&, std::string* Error = nullptr) -> bool;
+	ASSETTOOLS_API auto MakeContentMutationFeedback(const FContentMutationPolicy&) -> FFeedbackContext;
+	ASSETTOOLS_API auto NotifyContentMutation(const FContentMutationPolicy&, FContentChangeBatch) -> void;
+	ASSETTOOLS_API auto ReportContentMutationFailure(const FContentMutationPolicy&, const UnifiedError::FError&) -> bool;
 }
