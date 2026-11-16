@@ -37,6 +37,7 @@ namespace Durin::MaterialEditor
 			std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
 			FMaterialAttributeRoot Outputs;
 			FMaterialStaticProperties Properties;
+			EMaterialDomain Domain = EMaterialDomain::Surface;
 			FMaterialGraphPresentation Presentation;
 			auto Matches(const DMaterial& Material) const -> bool;
 		};

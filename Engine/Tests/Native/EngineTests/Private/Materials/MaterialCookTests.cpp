@@ -10,6 +10,8 @@
 #include "Shader/IShaderBuildModule.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "Threading/TaskRuntime.h"
+#include "Asset/OfflinePreparation.h"
+#include "NativePackageUnloadTestSupport.h"
 
 static auto QualifyDefaultMaterialCook(bool Metal) -> void
 {
@@ -714,4 +716,133 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	}
 	ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(InitializeAssetRuntime());
+}
+
+TEST(FMaterialStage4CookTests, EditorAndSourceFreeGamePackagesKeepCommonShadersAndDistinctContracts)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedRHIBackendOverride Backend("vulkan");
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root=Testing::GetTestWorkDirectory()/"Stage4Cook";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/Game/",(Root/"Source").generic_string()+"/");
+	const std::array Names{"M_Specular","M_ClearCoat","M_Unlit","M_PostNeutral","M_PostColor","M_PostDepth"};
+	std::array<FPackagePath,6> Paths;
+	std::array<std::shared_ptr<const FMaterialProgram>,6> EditorPrograms,GamePrograms;
+	std::array<FMaterialConfiguration,6> Configurations;
+	std::array<FGuid,6> ColorIds;
+	FCookContext Cook(ECookTargetPlatform::Win64,ECookTargetProfile::Game);
+	Cook.SetMaterialConfigurations(std::array{FMaterialCookConfiguration{GetMaterialQualityLevel(),ERHIFeatureLevel::SM5}});
+	for (uint32 Variant=0;Variant<Names.size();++Variant)
+	{
+		SCOPED_TRACE(Names[Variant]);
+		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/Game/MaterialContracts/")+Names[Variant],Paths[Variant]));
+		DMaterial* Material=nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Paths[Variant],Material));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		auto& Configuration=Configurations[Variant];
+		if (Variant==1) Configuration.Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
+		if (Variant>=2) Configuration.Properties.ShadingModel=EMaterialShadingModel::Unlit;
+		if (Variant>=3) Configuration.Domain=EMaterialDomain::PostProcess;
+		ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+		std::vector<TStrongObjectPtr<DMaterialExpression>> Nodes;
+		const auto Add=[&]<class T>() { auto* E=NewObject<T>(nullptr,NAME_None); E->Id=FGuid::NewGuid(); Nodes.emplace_back(E); return E; };
+		auto* Color=Add.template operator()<DMaterialExpressionVector4Parameter>();
+		Color->Metadata={.Id=FGuid::NewGuid(),.Name="Color"}; Color->DefaultValue={.5,1,2,1}; ColorIds[Variant]=Color->Metadata.Id;
+		auto* RGB=Add.template operator()<DMaterialExpressionSwizzle>(); RGB->Input={Color->Id}; RGB->Components={0,1,2};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB->Id};
+		if (Variant<2)
+		{
+			auto* Weight=Add.template operator()<DMaterialExpressionScalarParameter>();
+			Weight->Metadata={.Id=FGuid::NewGuid(),.Name="Weight"}; Weight->DefaultValue=.4f;
+			Outputs.Get(EMaterialProperty::MP_Specular)={Weight->Id};
+			Outputs.Get(EMaterialProperty::MP_ClearCoat)={Weight->Id};
+			Outputs.Get(EMaterialProperty::MP_ClearCoatRoughness).SetConstant({.2f});
+		}
+		if (Variant==3 || Variant==4)
+		{
+			auto* Scene=Add.template operator()<DMaterialExpressionSceneTexture>();
+			auto* SceneRGB=Add.template operator()<DMaterialExpressionSwizzle>(); SceneRGB->Input={Scene->Id}; SceneRGB->Components={0,1,2};
+			Outputs.Get(EMaterialProperty::MP_EmissiveColor)={SceneRGB->Id};
+			if (Variant==4)
+			{
+				auto* Multiply=Add.template operator()<DMaterialExpressionMultiply>(); Multiply->ResultType=EMaterialProgramValueType::Float3;
+				Multiply->A.Connection={SceneRGB->Id}; Multiply->B.Connection={RGB->Id};
+				Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply->Id};
+			}
+		}
+		if (Variant==5)
+		{
+			auto* Depth=Add.template operator()<DMaterialExpressionSceneDepth>(); Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Depth->Id};
+		}
+		std::vector<DMaterialExpression*> Expressions; for (const auto& E:Nodes) Expressions.push_back(E.Get());
+		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions,Outputs));
+		ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
+		EditorPrograms[Variant]=Material->GetAcceptedCompiledProgram(); ASSERT_TRUE(EditorPrograms[Variant]);
+		FMaterialCompilerEnvironment Environment; ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment));
+		Environment.bIncludeEditorPasses=false;
+		auto Snapshot=SnapshotMaterialCompilerInput(*Material,Environment); ASSERT_TRUE(Snapshot);
+		auto Game=MIR::Compile(Snapshot.Snapshot->Input); ASSERT_TRUE(Game) << FormatMaterialProgramDiagnostics(Game.Diagnostics);
+		GamePrograms[Variant]=std::make_shared<FMaterialProgram>(std::move(Game.Resource));
+		const auto& EditorMap=EditorPrograms[Variant]->GetShaderMap(); const auto& GameMap=GamePrograms[Variant]->GetShaderMap();
+		EXPECT_EQ(EditorMap.Layout,GameMap.Layout); EXPECT_EQ(EditorMap.Domain,GameMap.Domain);
+		EXPECT_EQ(std::ranges::count(EditorMap.Entries,"SurfaceHitProxy",[](const auto& E) { return E.Shader.ShaderType; }),Variant<3 ? 1 : 0);
+		EXPECT_EQ(std::ranges::count(GameMap.Entries,"SurfaceHitProxy",[](const auto& E) { return E.Shader.ShaderType; }),0);
+		for (const auto& Entry:GameMap.Entries)
+		{
+			const auto Peer=std::ranges::find(EditorMap.Entries,Entry.Shader.ShaderType,[](const auto& E) { return E.Shader.ShaderType; }); ASSERT_NE(Peer,EditorMap.Entries.end());
+			EXPECT_EQ(Peer->Requirements,Entry.Requirements); EXPECT_EQ(Peer->Shader.OutputLayout,Entry.Shader.OutputLayout);
+			EXPECT_EQ(bool(Peer->Mesh),bool(Entry.Mesh));
+			const auto Code=std::ranges::find(GameMap.CompiledShaders,Entry.Shader.EntryPoint,&FShaderCode::SourceEntryPoint);
+			const auto EditorCode=std::ranges::find(EditorMap.CompiledShaders,Entry.Shader.EntryPoint,&FShaderCode::SourceEntryPoint);
+			ASSERT_NE(Code,GameMap.CompiledShaders.end()); ASSERT_NE(EditorCode,EditorMap.CompiledShaders.end());
+			EXPECT_EQ(Code->CodeHash,EditorCode->CodeHash); EXPECT_TRUE(std::ranges::equal(Code->Code,EditorCode->Code));
+		}
+		for (uint32 Other=0;Other<Variant;++Other)
+		{
+			EXPECT_NE(GameMap.ShaderMapId,GamePrograms[Other]->GetShaderMap().ShaderMapId);
+			EXPECT_NE(EditorMap.ShaderMapId,EditorPrograms[Other]->GetShaderMap().ShaderMapId);
+		}
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		ASSERT_TRUE(SaveCookPackage(Material->GetPackage(),std::string("/Game/MaterialContracts/")+Names[Variant],Cook));
+	}
+	const auto CookRoot=std::filesystem::absolute(Root/"Cooked");
+	ASSERT_TRUE(PublishCookContext(Cook,CookRoot));
+	ShutdownAssetRuntime(); CollectGarbage(EObjectFlags::Standalone);
+	auto Runtime=FAssetRuntimeConfiguration::Authored(); ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(CookRoot,Runtime));
+	ASSERT_TRUE(InitializeAssetRuntime(std::move(Runtime)));
+	{
+		const std::array Mounts{FMountPoint{.VirtualRoot="/Game/",.Owner=EMountOwner::Test,.Root=CookRoot/"Game",.bAutoScan=true}};
+		Testing::FScopedMountRegistryFixture CookMounts(Mounts); ASSERT_TRUE(CookMounts.IsValid()); ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		const auto BuildStats=GetShaderBuildStats();
+		std::string Evidence="fixture,editor_identity,game_identity,editor_entries,game_entries,loaded_entries\n";
+		for (uint32 Variant=0;Variant<Names.size();++Variant)
+		{
+			SCOPED_TRACE(Names[Variant]);
+			auto* Loaded=LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[Variant])); ASSERT_TRUE(Loaded);
+			Loaded->CacheResourceShadersForRendering(ERHIFeatureLevel::SM5,GetMaterialQualityLevel(),EMaterialShaderPrecompileMode::Synchronous);
+			FShaderCompilingManager::Get().FinishCompilationForObjects(std::array<DObject*,1>{Loaded});
+			const auto Program=Loaded->GetAcceptedCompiledProgram(); ASSERT_TRUE(Program) << Loaded->GetMaterialCookDiagnostic();
+			const auto& Expected=GamePrograms[Variant]->GetShaderMap(); const auto& Actual=Program->GetShaderMap();
+			EXPECT_EQ(Loaded->GetDomain(),Configurations[Variant].Domain); EXPECT_EQ(Loaded->GetStaticProperties(),Configurations[Variant].Properties);
+			EXPECT_TRUE(Loaded->GetExpressionCollection().Expressions.empty()); EXPECT_TRUE(Program->GetDebugData().IR.Nodes.empty()); EXPECT_TRUE(Program->GetDebugData().GeneratedSource.empty());
+			EXPECT_EQ(Actual.ShaderMapId,Expected.ShaderMapId); EXPECT_EQ(Actual.Entries,Expected.Entries); EXPECT_EQ(Actual.Layout,Expected.Layout);
+			ASSERT_EQ(Actual.CompiledShaders.size(),Expected.CompiledShaders.size());
+			for (size_t I=0;I<Actual.CompiledShaders.size();++I) { EXPECT_EQ(Actual.CompiledShaders[I].CodeHash,Expected.CompiledShaders[I].CodeHash); EXPECT_TRUE(std::ranges::equal(Actual.CompiledShaders[I].Code,Expected.CompiledShaders[I].Code)); }
+			const auto Data=Testing::CaptureMaterialRenderData(*Loaded); EXPECT_FALSE(Data.Representation.IsError());
+			const auto Field=std::ranges::find(Actual.Layout.Fields,ColorIds[Variant],&FMaterialRenderField::ParameterId);
+			if (Field!=Actual.Layout.Fields.end()) { float Value; std::memcpy(&Value,Data.Representation.GetUniformPayload().data()+Field->Offset,sizeof(Value)); EXPECT_FLOAT_EQ(Value,.5f); }
+			Evidence+=std::format("{},{},{},{},{},{}\n",Names[Variant],EditorPrograms[Variant]->GetShaderMap().ShaderMapId.ToString(),Actual.ShaderMapId.ToString(),EditorPrograms[Variant]->GetShaderMap().Entries.size(),Expected.Entries.size(),Actual.Entries.size());
+			ASSERT_TRUE(UnloadPackage(Paths[Variant]));
+		}
+		const auto After=GetShaderBuildStats();
+		EXPECT_EQ(After.Compilations,BuildStats.Compilations); EXPECT_EQ(After.DependencyResolutions,BuildStats.DependencyResolutions); EXPECT_EQ(After.ContentReads,BuildStats.ContentReads);
+		if (const auto* Directory=std::getenv("DURIN_MATERIAL_STAGE4_CLOSURE_EVIDENCE_DIR"))
+		{
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Evidence)),std::filesystem::path(Directory)/"cook-contracts.csv"));
+			std::filesystem::copy(CookRoot,std::filesystem::path(Directory)/"Cooked",std::filesystem::copy_options::recursive|std::filesystem::copy_options::overwrite_existing);
+		}
+	}
+	ShutdownAssetRuntime(); CollectGarbage(EObjectFlags::Standalone); ASSERT_TRUE(InitializeAssetRuntime());
 }

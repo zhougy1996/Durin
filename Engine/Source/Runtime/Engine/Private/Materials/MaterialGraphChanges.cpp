@@ -55,6 +55,7 @@ namespace Durin
 			std::vector<FGuid> Order;
 			FMaterialGraphPresentation Presentation;
 			FMaterialStaticProperties Properties;
+			EMaterialDomain Domain = EMaterialDomain::Surface;
 			FGuid OutputId;
 			bool bValid = true;
 		};
@@ -68,6 +69,7 @@ namespace Durin
 				Collection = &Material->GetExpressionCollection();
 				State.Presentation = Material->GetMaterialGraphPresentation();
 				State.Properties = Material->GetStaticProperties();
+				State.Domain = Material->GetDomain();
 				if (const auto* Output = Material->GetOutputNode()) State.OutputId = Output->Id;
 			}
 			else
@@ -146,7 +148,7 @@ namespace Durin
 				}
 			}
 			if (After.OutputId.IsValid() && (Before.Properties.ShadingModel != After.Properties.ShadingModel
-				|| Before.Properties.BlendMode != After.Properties.BlendMode))
+				|| Before.Properties.BlendMode != After.Properties.BlendMode || Before.Domain != After.Domain))
 				Result.MarkNode(After.OutputId, N::Content | N::Interface);
 			Result.Merge(DifferencePresentation(Before.Presentation, After.Presentation));
 			// Unpositioned nodes use collection order for their deterministic fallback layout.

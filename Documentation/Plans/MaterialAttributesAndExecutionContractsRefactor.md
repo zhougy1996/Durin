@@ -32,8 +32,11 @@ three RGBA8 GBuffer records plus existing RGBA16F SceneColor, retaining both
 octahedral normals. The ClearCoat continuation implements a shared forward/
 deferred layer and optional ModelData; Windows qualification completed on 2026-11-17.
 The ordered pre-tone-map PostProcess slot, studio preview and failure bypass
-are Windows-qualified on 2026-11-17; remaining Stage 4 editor/content parity,
-native Metal and integrated cost gates stay open.
+are Windows-qualified on 2026-11-17. Stage 4 domain/model changes, value-only
+updates, editor history/Apply/save/reopen, representative Editor/Game Cook parity
+and Shader identity qualification are also complete on Windows. Stage 4 remains
+open solely for native Metal acceptance; full content/Game closure and integrated
+cost gates remain in Stages 5/6.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -708,6 +711,16 @@ final workspace build and numerical cost gates.
 Outcome: new attributes, a second Lit model and a non-mesh domain execute without
 reintroducing fixed Surface or geometry assumptions. Depends on Stage 3.
 
+2026-11-17 Stage 4 closure decision: qualify the remaining Windows domain/model,
+value-only update, history/persistence and Editor/Game common-entry identity matrix.
+Expose Surface/PostProcess and all supported shading models through one validated
+material-editor configuration command, recording the domain and static properties
+as a single Undo/Redo change. Domain-only changes must invalidate output-pin
+interfaces. Reject illegal PostProcess or translucent ClearCoat configurations
+without changing graph/history state. Preserve authored connections while selected
+contracts prune inactive attributes. No shader ABI/schema change is intended;
+Stage 3/4 native Metal acceptance and Stages 5/6 remain open.
+
 2026-11-17 PostProcess implementation decision: the owner authorized the ordered
 pre-tone-map slot and Windows preview/failure qualification with Metal still open.
 Engine viewport clients retain the assigned material and place a counted proxy
@@ -793,11 +806,80 @@ ModelData attachment remains reserved for later ClearCoat, outside this slice.
 - [x] Add the selected ClearCoat model, coat weight/roughness attributes, model identity and explicit GBuffer encode/decode. Share surface semantics across forward and deferred; qualify zero/full coat and roughness endpoints and reject translucent ClearCoat. Windows-qualified; native Metal acceptance remains open.
 - [x] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. Windows neutral/color/depth pixels, subrect/resize, alpha, exposure and FXAA are qualified; no mesh Vertex Factory or surface-lighting resources are requested. Native Metal remains open.
 - [x] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
-- [ ] Verify domain/model switches, parameter-only updates without compilation, graph Undo/Redo/save/reopen, cooked Editor/Game parity and distinct shader identities for semantically different contracts.
+- [x] Verify domain/model switches, parameter-only updates without compilation, graph Undo/Redo/Apply/save/reopen, representative cooked Editor/Game parity and distinct shader identities for semantically different contracts on Windows. See the closure receipt below.
+- [ ] Qualify Stage 4 Specular/ClearCoat/PostProcess compilation, reflection and execution on native Metal using the supported macOS toolchain; preserve the Stage 3 sampling/scene-input gap and the explicit backend handoffs.
 
 Exit: all three extension proofs produce independently checked pixels and valid
 Cook output. ClearCoat and PostProcess unsupported paths are explicit, without
 silently falling back to DefaultLit or Surface.
+
+#### Remaining Stage 4 Windows acceptance receipt
+
+Validated `56b9bd34a` plus this change on 2026-11-17, windows-msvc-x64 /
+Win64-Debug-DurinEditor, MSVC 19.44, Debug, 18 build jobs. GPU regression uses
+NVIDIA GeForce RTX 3090 / Vulkan 1.4.351 with SDK 1.4.357.0 validation layers.
+
+- Replaced the details panel's old Lit/Unlit-only choices with Surface/PostProcess
+  and DefaultLit/Unlit/ClearCoat. One validated configuration command records domain
+  and static properties together. Illegal PostProcess and translucent ClearCoat
+  edits leave graph, revision and history unchanged. Domain-only changes invalidate
+  the output-pin interface; a combined Immediate edit advances one revision/request.
+- Added a shared-graph matrix for DefaultLit, ClearCoat, Surface/Unlit and
+  PostProcess. Configuration Undo/Redo preserves authored nodes/roots and returns
+  to the same prior shader identity. Scalar/Vector4 root updates and their history
+  preserve the ShaderMap, request ID and revision while updating published uniforms.
+  Dynamic instance overrides and clearing inherit the correct values without
+  compilation; unreachable instance parameters reject. Root default publications
+  may replace immutable program wrappers, which is distinct from shader compilation.
+- Closed a working-copy omission: initialization, change/conflict comparison and
+  Apply now carry Domain. Tests traverse domain-only PostProcess changes, ClearCoat
+  and DefaultLit through draft history, isolated source state, Apply, Save and actual
+  package reopen, including PostProcess scene-read graphs. Reopened PostProcess
+  drafts retain the no-mesh execution domain.
+- Generated six temporary fixtures under `/Game/MaterialContracts/`: M_Specular,
+  M_ClearCoat, M_Unlit, M_PostNeutral, M_PostColor and M_PostDepth. Real Win64 Game
+  package Cook/load at High/SM5 retains configurations, layouts, defaults, entry
+  requirements, shader identities and exact bytes after graph/source stripping.
+  Editor Surface has six entries and Game five (HitProxy omitted); each PostProcess
+  family has one. All 18 common entries have identical Editor/Game shader bytes.
+  Family identities remain separate for the requested editor-entry policy. All six
+  selected contracts have distinct family identities. Cooked loads add no ShaderBuild
+  compilations, dependency resolutions or source reads.
+
+Reproduce with the material feature selection and its new Stage4 history/working-
+copy/Cook cases. Set `DURIN_MATERIAL_STAGE4_CLOSURE_EVIDENCE_DIR` to an existing
+ignored output directory to retain `history-contracts.csv`, `cook-contracts.csv`
+and the six actual Game packages. Evidence is under
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage4/Closure/`;
+DevTool receipts remain under `Build/.agent-state/logs/`. No shipping content,
+authored format, shader ABI or material producer generation changes in this slice.
+
+Validation passed:
+
+- `@domain=material,kind=feature`: all 13 targets; receipt
+  `20261117-033113-753857-19660-ctest.log`. The final SceneTexture working-copy
+  test extension was rerun in full `MaterialEditingPersistenceTests` (30 cases),
+  receipt `20261117-033318-756250-40052-MaterialEditingPersistenceTests.log`.
+  Other production/compiler inputs were unchanged, so their passing results apply.
+- `StaticMeshRenderPreparationVulkanTests` (27), `MaterialSceneTexturesVulkanTests`
+  (1), `RenderShaderContractTests` (73), `EditorRenderingTests` (93),
+  `RoadSceneIntegrationTests` (5) and `SandboxGameplayTests` (13). GPU receipts
+  contain no Vulkan validation errors. The new history table records zero extra
+  compilation requests for all four selected contracts. Source hashes and actual
+  Cooked package hashes are retained in `inputs-sha256.json` beside the tables.
+- Changed-document validation (5 contracts/plan/roadmap files) and diff checks
+  passed. Affected analysis selected broad Engine services; the bounded material,
+  Shader, rendering, editor and cross-project selections cover these setter/editor
+  changes. No foundational header layout, build graph or shader source changed;
+  no new workspace `all`, full corpus Cook, startup or timing qualification is claimed.
+
+This closes the remaining Windows Stage 4 checklist, not Stage 4's native Metal
+acceptance. Preserve both octahedral normals and all Stage 3/4 Metal handoffs.
+The macOS fixture still needs its retired Lit spelling migrated and the selected
+contracts compiled/reflected and executed natively. These Editor-host Game packages
+do not establish a packaged Game executable or full Engine/Sandbox/RoadWeaver/Water
+content closure. Stages 5 and 6, final cost qualification and plan completion stay
+open.
 
 #### PostProcess implementation and Windows receipt
 
@@ -855,8 +937,8 @@ retired `Lit` identity, compile/reflect the current PostProcess fragment entry,
 verify view/material/collection and scene bindings 40-44, exact input orientation,
 letterbox/resize, both depth conventions, HDR/alpha, pre-tone-map execution and
 pending/failed/native-resource bypass. Windows SPIR-V and graph-stripped Game
-DMAT do not waive native Metal or packaged Game gates. Stage 4 remains active for
-its remaining editor/identity/content parity checklist; Stages 5/6 remain open.
+DMAT do not waive native Metal or packaged Game gates. The later Windows closure
+receipt above closes editor/identity parity; native Metal and Stages 5/6 remain open.
 
 #### ClearCoat implementation and Windows receipt
 

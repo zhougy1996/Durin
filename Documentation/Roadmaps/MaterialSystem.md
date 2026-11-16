@@ -29,7 +29,9 @@ qualified: three RGBA8 GBuffer records (12 bytes/pixel) plus existing RGBA16F
 SceneColor, with both octahedral normals retained. The following ClearCoat
 slice implements the shared forward/deferred layer and optional ModelData,
 with Windows qualification completed on 2026-11-17. The ordered pre-tone-map PostProcess slot, studio preview and failure bypass
-are implemented and Windows qualified on 2026-11-17. Full
+are implemented and Windows qualified on 2026-11-17. The remaining Stage 4
+Windows editor/history/value-update and representative Editor/Game Cook/Shader
+identity gates are also qualified. Stage 4 remains open for native Metal. Full
 content/Game closure and final qualification remain open;
 evidence and backend handoff belong to the child plan.
 M14 replaces the fixed-eight Surface boundary with UE-aligned
@@ -291,7 +293,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | 11. Reusable material functions | Complete | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Expression semantics and bounded language completion | Complete | M8, M10, M11 and M13 complete | Stage/space-aware values, selected math and spatial/view expressions, and static/quality/feature selectors through existing Surface passes; excludes WPO, depth, new outputs/domains/passes |
 | 13. Material instance shader variants | Complete; remaining qualification waived by user | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import integration; retained evidence and waived gates recorded in the plan |
-| 14. Material attributes and execution contracts | Stages 0-2 complete; Stage 3 Windows and Stage 4 Specular/Emissive/ClearCoat/PostProcess Windows qualified; Metal open | Typed attributes, execution separation, typed sampling, scene inputs, Specular/ClearCoat, SceneColor emission and ordered PostProcess landed; owner authorized the bounded Stage 4 continuation with Metal acceptance retained | UE-aligned attributes/domains, per-entry compilation requirements, separate evaluation/pass contracts, typed sampling, Specular/ClearCoat/PostProcess proofs, closed content replacement inventory and cross-project qualification; exact stages and gates belong to the child plan |
+| 14. Material attributes and execution contracts | Stages 0-2 complete; Stages 3/4 Windows acceptance complete; native Metal open | Typed attributes, execution separation, typed sampling, scene inputs, Specular/ClearCoat, SceneColor emission and ordered PostProcess landed; owner authorized the bounded Stage 4 continuation with Metal acceptance retained | UE-aligned attributes/domains, per-entry compilation requirements, separate evaluation/pass contracts, typed sampling, Specular/ClearCoat/PostProcess proofs, closed content replacement inventory and cross-project qualification; exact stages and gates belong to the child plan |
 
 Parameter GUIDs identify declarations within a root material; node GUIDs identify
 expression occurrences. Names are case-insensitive lookup keys in one root scope.
@@ -329,12 +331,13 @@ compilation/reflection remains open. The owner-authorized Stage 4 Specular slice
 and Emissive-to-SceneColor alignment are implemented and Windows-qualified,
 retaining both octahedral normals. ClearCoat uses a shared single-normal model
 and optional ModelData. PostProcess now executes before display mapping with
-preview and failure bypass. Remaining editor/domain/content parity and final
-qualification stay in the child plan.
+preview and failure bypass. Windows domain/model history, Apply/save/reopen,
+value-only updates and representative Cook/identity parity are qualified. Native
+Metal, full content/Game closure and final qualification stay in the child plan.
 
 | Proposed or completed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Stages 0-2 complete; Stage 3 Windows and Stage 4 Specular/Emissive/ClearCoat/PostProcess Windows qualified; Metal open |
+| [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Stages 0-2 complete; Stages 3/4 Windows acceptance complete; native Metal open |
 | [Material Parameter Domain Refactor](../Plans/Archive/2026-07/MaterialParameterDomainRefactor.md) | M1 | Runtime-owned parameter schema and editor integration | Complete |
 | [Static Mesh Material Slots](../Plans/Archive/2026-07/StaticMeshMaterialSlots.md) and [Static Mesh Indexed Material Overrides](../Plans/Archive/2026-08/StaticMeshIndexedMaterialOverrides.md) | M1 | Mesh slot identity, reconciliation, and component overrides | Complete |
 | [Material Render-Proxy Invalidation](../Plans/Archive/2026-08/MaterialRenderProxyInvalidation.md) | M2 | Stable proxy publication and scalable inherited invalidation | Complete |

@@ -173,33 +173,16 @@ namespace Durin
 
 	auto DMaterial::SetMaterialConfiguration(const FMaterialConfiguration& Configuration) -> FMaterialProgramValidationResult
 	{
-        if (const auto Valid = ValidateMaterialConfiguration(Configuration.Domain, Configuration.Properties); !Valid)
-            return {.Diagnostics = {{.Message = Valid.error()}}};
-		const auto PreviousDomain = Domain;
-		Domain = Configuration.Domain;
-		const auto Result = SetStaticProperties(Configuration.Properties);
-		if (!Result) { Domain = PreviousDomain; return {.Diagnostics = {{.Message = Result.error()}}}; }
-		if (PreviousDomain != Domain)
-		{
-			FObjectCacheContext Context;
-			AdvanceAuthoredRevision(&Context);
-			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
-			MarkPackageDirty();
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState, true, &Context);
-		}
-		return {.bSucceeded = true};
-	}
-
-	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> std::expected<void, std::string>
-	{
-		auto Properties = InProperties;
-		const auto Error = ValidateMaterialConfiguration(Domain, Properties);
-		if (!Error) return Error;
+		auto Properties = Configuration.Properties;
+		if (const auto Valid = ValidateMaterialConfiguration(Configuration.Domain, Properties); !Valid)
+			return {.Diagnostics = {{.Message = Valid.error()}}};
 		Properties.GeometryUsage &= 3;
-		if (StaticProperties == Properties) return {};
-		const bool bShaderIdentityChanged =
-			CanonicalizeMaterialShaderProperties(StaticProperties)
-				!= CanonicalizeMaterialShaderProperties(Properties);
+		const bool bDomainChanged = Domain != Configuration.Domain;
+		if (!bDomainChanged && StaticProperties == Properties) return {.bSucceeded = true};
+		const bool bShaderIdentityChanged = bDomainChanged
+			|| CanonicalizeMaterialShaderProperties(StaticProperties) != CanonicalizeMaterialShaderProperties(Properties);
+		// Publish the complete configuration before scheduling a single generation.
+		Domain = Configuration.Domain;
 		StaticProperties = Properties;
 		FObjectCacheContext Context;
 		if (bShaderIdentityChanged)
@@ -207,15 +190,20 @@ namespace Durin
 			AdvanceRevision(CompilationState.AuthoredRevision);
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
 		}
-		InvalidateMaterialCompilation(false, true, &Context);
+		InvalidateMaterialCompilation(false, !bDomainChanged, &Context);
 		MarkPackageDirty();
-		MarkRenderDataDirty(
-			EMaterialRenderDirtyFlags::ShaderMap
-				| EMaterialRenderDirtyFlags::PipelineState, false, &Context);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState, bDomainChanged, &Context);
 		Context.EndDiscovery();
 #if DURIN_WITH_EDITORONLY_DATA
 		GraphChanges.Publish(*this);
 #endif
+		return {.bSucceeded = true};
+	}
+
+	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
+	{
+		const auto Result = SetMaterialConfiguration({Domain, Properties});
+		if (!Result) return std::unexpected(Result.Diagnostics.front().Message);
 		return {};
 	}
 

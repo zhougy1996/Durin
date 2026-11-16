@@ -1205,7 +1205,7 @@ namespace Durin::MaterialEditor
 			MonaImGui::TextName(Material->GetFName());
 			ImGui::PopTextWrapPos();
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Document.ResourceId.c_str());
-			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : "Surface Material");
+			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : BaseMaterial->GetDomain() == EMaterialDomain::PostProcess ? "PostProcess Material" : "Surface Material");
 			ImGui::Spacing();
 		}
 		if (auto* Instance = Cast<DMaterialInstance>(Material))
@@ -1224,11 +1224,21 @@ namespace Durin::MaterialEditor
 					if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 				}
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
-				auto Properties = BaseMaterial->GetStaticProperties();
+				FMaterialConfiguration Configuration{BaseMaterial->GetDomain(), BaseMaterial->GetStaticProperties()};
+				int Domain = static_cast<int>(Configuration.Domain);
+				bool bChanged = DetailsStyle::EditRow("Domain", [&] { return ImGui::Combo("##Value", &Domain, "Surface\0PostProcess\0"); });
+				Configuration.Domain = static_cast<EMaterialDomain>(Domain);
+				if (bChanged && Configuration.Domain == EMaterialDomain::PostProcess)
+				{
+					Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+					Configuration.Properties.BlendMode = EMaterialBlendMode::Opaque;
+					Configuration.Properties.DepthWritePolicy = EMaterialDepthWritePolicy::Disabled;
+				}
+				auto& Properties = Configuration.Properties;
 				int Shading = static_cast<int>(Properties.ShadingModel);
 				int Blend = static_cast<int>(Properties.BlendMode);
 				int Depth = static_cast<int>(Properties.DepthWritePolicy);
-				bool bChanged = DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "Lit\0Unlit\0"); });
+				bChanged |= DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "DefaultLit\0Unlit\0ClearCoat\0"); });
 				bChanged |= DetailsStyle::EditRow("Blend", [&] { return ImGui::Combo("##Value", &Blend, "Opaque\0Masked\0Translucent\0"); });
 				Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
 				Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
@@ -1240,12 +1250,10 @@ namespace Durin::MaterialEditor
 				Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);
 				MonaImGui::PropertyEdit::EndTable();
 				if (bChanged)
-					if (auto* Property = BaseMaterial->GetClass()->FindPropertyByName(FName("StaticProperties")))
-						PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-							FPropertyEditTarget::ForMember(BaseMaterial, Property),
-							[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-								*ScratchProperty->ContainerPtrToValuePtr<FMaterialStaticProperties>(ScratchContainer, ScratchArrayIndex) = Properties;
-							}, false);
+				{
+					const auto Result = FMaterialGraphDocument(*BaseMaterial).SetConfiguration(Configuration);
+					if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
+				}
 			}
 			if (Documents.GetEditor() && Documents.GetEditor()->GetTransactor())
 			{
@@ -1293,7 +1301,7 @@ namespace Durin::MaterialEditor
 						: Index == 1 ? static_cast<int>(DisplayValues.ShadingModel)
 						: static_cast<int>(DisplayValues.DepthWritePolicy);
 					const char* Items = Index == 0 ? "Opaque\0Masked\0Translucent\0"
-						: Index == 1 ? "Lit\0Unlit\0" : "Automatic\0Enabled\0Disabled\0";
+						: Index == 1 ? "DefaultLit\0Unlit\0ClearCoat\0" : "Automatic\0Enabled\0Disabled\0";
 					if (ImGui::Combo("##Value", &Value, Items))
 					{
 						bChanged = true;

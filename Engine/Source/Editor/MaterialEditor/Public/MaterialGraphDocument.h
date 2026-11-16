@@ -6,6 +6,8 @@
 #include "MaterialGraphSchema.h"
 #include "Materials/MaterialFunction.h"
 
+namespace Durin { struct FMaterialConfiguration; }
+
 namespace Durin::MaterialEditor
 {
 	// The shared owning-thread editing boundary; retains no asset or preview owner.
@@ -46,6 +48,8 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto SetSwizzleComponents(const FGuid& NodeId, std::span<const uint8> Components,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetConfiguration(const FMaterialConfiguration& Configuration,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetUseMaterialAttributes(bool bEnabled, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,

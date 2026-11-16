@@ -13,7 +13,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material) const -> bool
 	{
 		const auto& Current = Material.GetExpressionCollection().Expressions;
-		if (Outputs != Material.GetExpressionOutputs() || Properties != Material.GetStaticProperties()
+		if (Domain != Material.GetDomain() || Outputs != Material.GetExpressionOutputs() || Properties != Material.GetStaticProperties()
 			|| Presentation != Material.GetMaterialGraphPresentation() || Expressions.size() != Current.size()) return false;
 		for (size_t Index = 0; Index < Expressions.size(); ++Index)
 		{
@@ -35,6 +35,7 @@ namespace Durin::MaterialEditor
 		FAuthoredState Candidate;
 		Candidate.Outputs = Material.GetExpressionOutputs();
 		Candidate.Properties = Material.GetStaticProperties();
+		Candidate.Domain = Material.GetDomain();
 		Candidate.Presentation = Material.GetMaterialGraphPresentation();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
@@ -97,14 +98,14 @@ namespace Durin::MaterialEditor
 		Working = NewObject<DMaterial>(DMaterial::StaticClass(), WorkingPackage.Get(),
 			InSource.GetFName(), EObjectFlags::Transient);
 		Working->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		if (const auto Configuration = Working->SetMaterialConfiguration({Applied.Domain, Applied.Properties}); !Configuration)
+		{
+			Error = FormatMaterialProgramDiagnostics(Configuration.Diagnostics);
+			return false;
+		}
 		if (!CopyExpressions(*Working, InSource))
 		{
 			Error = "The source material's authored state is invalid.";
-			return false;
-		}
-		if (const auto Properties = Working->SetStaticProperties(Applied.Properties); !Properties)
-		{
-			Error = Properties.error();
 			return false;
 		}
 		Working->SetMaterialGraphPresentation(Applied.Presentation);
@@ -195,13 +196,14 @@ namespace Durin::MaterialEditor
 			Error = ToString(Captured.error());
 			return false;
 		}
-		if (const auto Validation = ValidateMaterialStaticProperties(Candidate.Properties); !Validation)
+		if (const auto Validation = ValidateMaterialConfiguration(Candidate.Domain, Candidate.Properties); !Validation)
 		{
 			Error = Validation.error();
 			return false;
 		}
 		const auto PreviousMode = Source->GetEditCompileMode();
 		Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FScopedMaterialGraphChange GraphBatch(*Source);
 		const auto Result = CopyExpressions(*Source, *Working);
 		if (!Result)
 		{
@@ -209,8 +211,8 @@ namespace Durin::MaterialEditor
 			Error = "The material changes could not be applied to the source.";
 			return false;
 		}
-		// Candidate.Properties already passed the setter's validation above.
-		(void)Source->SetStaticProperties(Candidate.Properties);
+		// The complete candidate configuration passed admission before publication.
+		(void)Source->SetMaterialConfiguration({Candidate.Domain, Candidate.Properties});
 		Source->SetMaterialGraphPresentation(Candidate.Presentation);
 		if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
 		Source->SetEditCompileMode(PreviousMode);

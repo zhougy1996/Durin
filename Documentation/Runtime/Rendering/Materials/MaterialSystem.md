@@ -1163,7 +1163,12 @@ assembles `FMaterialRenderRepresentation`. Render-thread consumers choose
   Material instances own authored overrides; their proxies receive only compatible
   overrides from the instance chain. Resources do not retain effective parameter
   arrays. Root default edits bind new defaults to the same ShaderMap and invalidate
-  uniform values without rebuilding static draws or collection bindings.
+  uniform values without rebuilding static draws or collection bindings. This may
+  publish a new immutable `FMaterialProgram` wrapper carrying changed defaults;
+  the ShaderMap, shader bytes and compilation request identity remain unchanged.
+  Dynamic instance updates likewise change active uniform payloads without shader
+  compilation; inactive parameter writes are rejected by instance reachability
+  admission, while the root may retain inactive authored defaults.
   Cooked packages persist typed defaults and texture dependencies in their root
   parameter metadata. Admission binds these defaults into the decoded program;
   native RHI references are never serialized into shader cache or cooked blobs.
@@ -1354,6 +1359,25 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
   A default-only edit refreshes program defaults and instantiated world
   snapshots without changing identity or compile count. Runtime world updates
   publish only the collection snapshot to that world's scene.
+
+## Configuration and Editor/Game Identity
+
+`SetMaterialConfiguration` admits the complete domain/model/blend combination
+before mutation. It publishes domain and static properties together, advances one
+authored generation for a shader-contract change, and invalidates affected
+consumers. A domain change invalidates dependents even if their static properties
+are unchanged. Pipeline-only property edits retain the existing shader policy.
+Domain/model changes preserve authored roots and parameter IDs; selected entries
+prune inactive attributes and resources.
+
+Editor and Game compilation retain separate family identities for their requested
+entry policy. Surface Editor families include HitProxy; Game families omit it.
+PostProcess has only its no-mesh fragment entry. Matching runtime entries preserve
+requirements, output layouts and shader bytecode across the policies. Game Cook
+persists those exact selected identities, layouts, defaults and stage bytes.
+Loading graph-stripped packages decodes the family without shader compilation,
+source dependency resolution or source reads. Package Cook/load in an Editor test
+host does not establish packaged Game executable or native Metal acceptance.
 
 ## Compatibility Boundary
 

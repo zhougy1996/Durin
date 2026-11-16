@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-17
 
 ## Task routing
 
@@ -50,17 +50,31 @@ setter rejects missing or duplicate output nodes. The recipe overload constructs
 the terminal before publishing the graph. The terminal is selectable and movable,
 but cannot be deleted or duplicated. Copying a mixed selection excludes it.
 
-`DMaterial::Domain` selects the output-pin definition contract; Surface is the
-only implemented domain. `EMaterialOutputPin` gives pins stable semantic keys,
-independent of display order. The output terminal stores `bUseMaterialAttributes`: false
-shows the registry's twelve property inputs, including vertex WPO; true shows
-one Material Attributes input. Both connection sets and defaults persist across
-mode changes. WPO uses the same property-address contract as other attributes;
-[vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md)
-owns stage rules and the separate Vertex Interpolator expression.
-Connections and edits address those keys. Additional domains must define their
-pin schema and validation/migration policy in Engine; canvas rendering consumes
-ordinary node input descriptors. Domain switching is not implemented.
+`DMaterial::Domain` selects Surface or PostProcess output definitions. Stable
+`EMaterialOutputPin` property keys are independent of display order. Surface
+admits DefaultLit, Unlit and ClearCoat; PostProcess admits opaque Unlit and exposes
+Emissive Color. The output terminal's `bUseMaterialAttributes` selects property
+inputs or one Material Attributes input. Both root representations and their
+inactive links/defaults persist across domain/model/output-mode changes. Engine's
+attribute registry and selected execution contract determine which values compile.
+WPO follows the property-address contract and
+[vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md).
+
+`FMaterialGraphDocument::SetConfiguration` validates the domain and complete
+static properties before recording one command change. Undo/Redo restores both
+through `DMaterial::SetMaterialConfiguration`, retaining expression and parameter
+identities. Invalid PostProcess/model/blend combinations leave owner and history
+unchanged; identical writes create no history. The Engine setter publishes the
+complete pair before advancing one authored generation and scheduling one request.
+Static-property setters delegate to that same admission boundary.
+
+The details panel exposes Surface/PostProcess and DefaultLit/Unlit/ClearCoat.
+Selecting PostProcess supplies Unlit/Opaque/disabled-depth-write settings. Other
+unsupported combinations produce diagnostics. Instance shading overrides use the
+same model names and existing validation. Domain/model changes invalidate the
+output node's Content and Interface, including a domain-only Surface/Unlit to
+PostProcess switch. Canvas refresh consumes these hints rather than polling.
+
 Base-material documents edit a transient working `DMaterial`; Apply transfers
 its authored state to the existing package-owned source material. Graph commands
 remain reusable against either owner and never implicitly select a source asset.
@@ -68,7 +82,7 @@ Working-copy initialization and Apply duplicate concrete expression children thr
 `SetMaterialExpressions`, including call bindings and typed terminal defaults.
 Source and preview never share mutable expression children. The applied checkpoint
 retains independent expression copies and compares their reflected authored fields,
-static properties, outputs and presentation. A changed callee with unchanged node
+domain, static properties, outputs and presentation. A changed callee with unchanged node
 IDs is still an unapplied edit. Invalid candidates leave the source unchanged.
 Semantic commands preserve storage identity and parameter-definition consistency;
 numeric type mismatches and missing required values remain compiler diagnostics.

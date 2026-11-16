@@ -5,6 +5,9 @@
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/OverridableManager.h"
 #include "MaterialGraphTestSupport.h"
+#include "MaterialResourceTestSupport.h"
+#include "Misc/FileHelper.h"
+#include "Widgets/MaterialEditingSession.h"
 
 TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefaultAcrossPackageRoundTrip)
 {
@@ -263,5 +266,194 @@ TEST(FMaterialGraphPersistenceTests, SceneInputDomainCoordinatesAndFilteringSurv
 	ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().Domain,EMaterialDomain::PostProcess);
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAndReopenPreserveContracts)
+{
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "Stage4History";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/Game/", Root.generic_string() + "/");
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/Game/MaterialContracts/M_Stage4History", Path));
+	DMaterial* Material = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	auto Weight = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
+	Weight->Metadata = {.Id=FGuid::NewGuid(), .Name="LayerWeight"}; Weight->DefaultValue=.25f;
+	auto Color = Testing::MakeGraphExpression<DMaterialExpressionVector4Parameter>();
+	Color->Metadata = {.Id=FGuid::NewGuid(), .Name="Emission"}; Color->DefaultValue={.2,.4,.6,1};
+	auto RGB = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Input={Color->Id}; RGB->Components={0,1,2};
+	const auto WeightId=Weight->Metadata.Id, ColorId=Color->Metadata.Id;
+	FMaterialAttributeRoot Outputs;
+	Outputs.Get(EMaterialProperty::MP_Specular)={Weight->Id};
+	Outputs.Get(EMaterialProperty::MP_ClearCoat)={Weight->Id};
+	Outputs.Get(EMaterialProperty::MP_ClearCoatRoughness)={Weight->Id};
+	Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB->Id};
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,3>{Weight.Get(),Color.Get(),RGB.Get()},Outputs));
+	Weight.Reset(); Color.Reset(); RGB.Reset();
+	std::array<FMaterialConfiguration,4> Configurations;
+	Configurations[1].Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
+	Configurations[2].Properties.ShadingModel=EMaterialShadingModel::Unlit;
+	Configurations[3].Domain=EMaterialDomain::PostProcess;
+	Configurations[3].Properties.ShadingModel=EMaterialShadingModel::Unlit;
+	std::vector<FMaterialProgramIdentity> Identities;
+	std::string Evidence="variant,domain,model,identity,entries,value_compile_requests\n";
+	for (uint32 Index=0;Index<Configurations.size();++Index)
+	{
+		SCOPED_TRACE(Index);
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		const auto Before=CaptureExpressions(*Material);
+		const FMaterialConfiguration Previous{Material->GetDomain(),Material->GetStaticProperties()};
+		Tests::FTestEditorTransactorOwner Transactions;
+		FMaterialGraphDocument Document(*Material);
+		std::vector<FMaterialGraphChangeSet> Changes;
+		const auto Subscription=Material->GetGraphChanges().Subscribe(*Material,[&](const auto& Change) { Changes.push_back(Change); });
+		ASSERT_TRUE(Document.SetConfiguration(Configurations[Index]));
+		if (Index)
+		{
+			ASSERT_EQ(Changes.size(),1u);
+			EXPECT_TRUE(std::ranges::any_of(Changes.back().Nodes,[&](const auto& N) { return N.NodeId==Material->GetOutputNode()->Id
+				&& (N.Flags & EMaterialGraphNodeChange::Interface)!=EMaterialGraphNodeChange::None; }));
+			ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Material->GetDomain(),Previous.Domain); EXPECT_EQ(Material->GetStaticProperties(),Previous.Properties);
+			ASSERT_TRUE(Material->CompileEdits()); ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+			EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,Identities.back());
+			ASSERT_TRUE(Transactions->Redo());
+		}
+		Material->GetGraphChanges().Unsubscribe(Subscription);
+		EXPECT_EQ(Material->GetDomain(),Configurations[Index].Domain); EXPECT_EQ(Material->GetStaticProperties(),Configurations[Index].Properties);
+		EXPECT_EQ(CaptureExpressions(*Material),Before); // Inactive roots and stable parameter IDs are retained.
+		ASSERT_TRUE(Transactions->TryReset());
+		const auto Revision=Material->GetMaterialCompileDebugInfo().AuthoredRevision;
+		auto Invalid=Configurations[Index]; Invalid.Domain=EMaterialDomain::PostProcess; Invalid.Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
+		EXPECT_FALSE(Document.SetConfiguration(Invalid)); EXPECT_FALSE(Transactions->CanUndo());
+		Invalid.Domain=EMaterialDomain::Surface; Invalid.Properties.BlendMode=EMaterialBlendMode::Translucent;
+		EXPECT_FALSE(Document.SetConfiguration(Invalid)); EXPECT_FALSE(Transactions->CanUndo());
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,Revision); EXPECT_EQ(CaptureExpressions(*Material),Before);
+		ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
+		const auto Program=Material->GetAcceptedCompiledProgram(); ASSERT_TRUE(Program);
+		EXPECT_FALSE(std::ranges::contains(Identities,Program->GetShaderMap().ShaderMapId)); Identities.push_back(Program->GetShaderMap().ShaderMapId);
+		EXPECT_EQ(Program->GetShaderMap().Domain,Configurations[Index].Domain);
+		const auto OriginalDebug=Material->GetMaterialCompileDebugInfo();
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Immediate);
+		const auto Requests=GetMaterialCompilationStatistics().AcceptedRequests;
+		for (const auto Id : {WeightId,ColorId})
+		{
+			const auto Original=Material->FindParameterDefinition(Id)->Value;
+			const auto Value=Id==WeightId ? FMaterialParameterValue::MakeScalar(.5f+Index*.0625f)
+				: FMaterialParameterValue::MakeVector4({.3+Index*.1,.2,.7,1});
+			FMaterialGraphParameterEditSession Edit;
+			ASSERT_TRUE(Edit.Begin(*Material,Id,Transactions.Get())); ASSERT_TRUE(Edit.Apply(Value)); ASSERT_TRUE(Edit.Commit());
+			const auto Updated=Testing::CaptureMaterialRenderData(*Material); EXPECT_FALSE(Updated.Representation.IsError());
+			ASSERT_TRUE(Updated.CompiledProgram); EXPECT_EQ(Updated.CompiledProgram->ShaderMap,Program->ShaderMap);
+			const auto Field=std::ranges::find(Updated.Representation.GetLayout().Fields,Id,&FMaterialRenderField::ParameterId);
+			EXPECT_EQ(Field!=Updated.Representation.GetLayout().Fields.end(),Id==ColorId || Index<2);
+			if (Field!=Updated.Representation.GetLayout().Fields.end())
+			{
+				float Actual=0; std::memcpy(&Actual,Updated.Representation.GetUniformPayload().data()+Field->Offset,sizeof(float));
+				EXPECT_FLOAT_EQ(Actual,Id==WeightId ? Value.GetScalar() : float(Value.GetVector4().x));
+			}
+			ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Material->FindParameterDefinition(Id)->Value,Original);
+			ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Material->FindParameterDefinition(Id)->Value,Value);
+			ASSERT_TRUE(Material->GetAcceptedCompiledProgram()); EXPECT_EQ(Material->GetAcceptedCompiledProgram()->ShaderMap,Program->ShaderMap);
+			EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,OriginalDebug.AuthoredRevision);
+			EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,OriginalDebug.RequestId);
+		}
+		EXPECT_EQ(GetMaterialCompilationStatistics().AcceptedRequests,Requests);
+		Evidence+=std::format("{},{},{},{},{},{}\n",Index,uint32(Configurations[Index].Domain),uint32(Configurations[Index].Properties.ShadingModel),Program->GetShaderMap().ShaderMapId.ToString(),Program->GetShaderMap().Entries.size(),Material->GetMaterialCompileDebugInfo().RequestId-OriginalDebug.RequestId);
+		{
+			TStrongObjectPtr<DMaterialInstance> Instance(DMaterialInstance::CreateDynamic(Material)); ASSERT_TRUE(Instance);
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Instance);
+			const auto BeforeInstance=Testing::CaptureMaterialRenderData(*Instance); ASSERT_TRUE(BeforeInstance.CompiledProgram); EXPECT_FALSE(BeforeInstance.Representation.IsError());
+			const auto InstanceRequests=GetMaterialCompilationStatistics().AcceptedRequests;
+			if (Index<2) ASSERT_TRUE(Instance->SetParameterValue(WeightId,FMaterialParameterValue::MakeScalar(.875f)));
+			else EXPECT_FALSE(Instance->SetParameterValue(WeightId,FMaterialParameterValue::MakeScalar(.875f)));
+			ASSERT_TRUE(Instance->SetParameterValue(ColorId,FMaterialParameterValue::MakeVector4({.8,.2,.1,1})));
+			const auto Updated=Testing::CaptureMaterialRenderData(*Instance); EXPECT_FALSE(Updated.Representation.IsError()); ASSERT_TRUE(Updated.CompiledProgram);
+			EXPECT_EQ(Updated.CompiledProgram->ShaderMap,BeforeInstance.CompiledProgram->ShaderMap);
+			for (const auto& Field:Updated.Representation.GetLayout().Fields)
+				if (Field.ParameterId==WeightId || Field.ParameterId==ColorId) { float Value; std::memcpy(&Value,Updated.Representation.GetUniformPayload().data()+Field.Offset,sizeof(Value)); EXPECT_FLOAT_EQ(Value,Field.ParameterId==WeightId ? .875f : .8f); }
+			if (Index<2) ASSERT_TRUE(Instance->ClearParameterValue(WeightId));
+			ASSERT_TRUE(Instance->ClearParameterValue(ColorId));
+			const auto Cleared=Testing::CaptureMaterialRenderData(*Instance);
+			EXPECT_EQ(Cleared.Representation.GetContentHash(),Testing::CaptureMaterialRenderData(*Material).Representation.GetContentHash());
+			EXPECT_EQ(GetMaterialCompilationStatistics().AcceptedRequests,InstanceRequests);
+			MarkAsGarbage(Instance.Get());
+		}
+		ASSERT_TRUE(Transactions->TryReset());
+		const auto Expected=CaptureExpressions(*Material);
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		ASSERT_TRUE(UnloadPackage(Path)); Material=nullptr;
+		Material=LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path)); ASSERT_TRUE(Material);
+		EXPECT_EQ(CaptureExpressions(*Material),Expected); EXPECT_FALSE(Material->GetPackage()->IsDirty());
+		EXPECT_EQ(Material->GetDomain(),Configurations[Index].Domain); EXPECT_EQ(Material->GetStaticProperties(),Configurations[Index].Properties);
+		ASSERT_TRUE(Material->CompileEdits()); ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+		EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,Program->GetShaderMap().ShaderMapId);
+	}
+	// A combined domain/model edit in Immediate mode is one generation, including a return to a prior identity.
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Immediate);
+	const auto ImmediateRequests=Material->GetMaterialCompileDebugInfo().RequestId;
+	const auto ImmediateRevision=Material->GetMaterialCompileDebugInfo().AuthoredRevision;
+	uint32 Notifications=0;
+	const auto Subscription=Material->GetGraphChanges().Subscribe(*Material,[&](const auto&) { ++Notifications; });
+	ASSERT_TRUE(FMaterialGraphDocument(*Material).SetConfiguration(Configurations.front(),ETransactionMode::NotTransactable));
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,ImmediateRequests+1);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,ImmediateRevision+1);
+	EXPECT_EQ(Notifications,1u); Material->GetGraphChanges().Unsubscribe(Subscription);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram()); EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId,Identities.front());
+	if (const auto* Directory=std::getenv("DURIN_MATERIAL_STAGE4_CLOSURE_EVIDENCE_DIR")) ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Evidence)),std::filesystem::path(Directory)/"history-contracts.csv"));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FMaterialGraphPersistenceTests, Stage4WorkingCopyAppliesDomainAndModelAcrossSaveAndReopen)
+{
+	InitializeDObjectSystem(); FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root=Testing::GetTestWorkDirectory()/"Stage4Apply";
+	Testing::RemoveTestWorkDirectory(Root); Testing::RegisterMountPointForTests("/Game/",Root.generic_string()+"/");
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/Game/MaterialContracts/M_Apply",Path));
+	DMaterial* Source=nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path,Source));
+	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialConfiguration Initial; Initial.Properties.ShadingModel=EMaterialShadingModel::Unlit;
+	ASSERT_TRUE(Source->SetMaterialConfiguration(Initial));
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor).SetConstant({.25f,.5f,1.f});
+	ASSERT_TRUE(Source->SetMaterialExpressions({},Outputs)); ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	std::array<FMaterialConfiguration,3> Configurations;
+	Configurations[0]=Initial; Configurations[0].Domain=EMaterialDomain::PostProcess;
+	Configurations[1].Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
+	for (const auto& Configuration:Configurations)
+	{
+		SCOPED_TRACE(uint32(Configuration.Domain));
+		const auto OriginalDomain=Source->GetDomain(); const auto OriginalProperties=Source->GetStaticProperties();
+		FMaterialAttributeRoot ExpectedOutputs=Outputs;
+		{
+			Tests::FTestEditorTransactorOwner Transactions;
+			FMaterialEditingSession Session; std::string Error;
+			ASSERT_TRUE(Session.Initialize(*Source,EMaterialEditCompileMode::Manual,Error,Transactions.Get())) << Error;
+			auto* Draft=Session.GetWorkingMaterial(); ASSERT_TRUE(Draft);
+			EXPECT_EQ(Draft->GetDomain(),OriginalDomain); EXPECT_EQ(Draft->GetStaticProperties(),OriginalProperties); EXPECT_FALSE(Session.HasUnappliedChanges());
+			ASSERT_TRUE(FMaterialGraphDocument(*Draft).SetConfiguration(Configuration)); EXPECT_TRUE(Session.HasUnappliedChanges());
+			EXPECT_EQ(Source->GetDomain(),OriginalDomain); EXPECT_EQ(Source->GetStaticProperties(),OriginalProperties); EXPECT_FALSE(Source->GetPackage()->IsDirty());
+			ASSERT_TRUE(Transactions->Undo()); EXPECT_FALSE(Session.HasUnappliedChanges());
+			ASSERT_TRUE(Transactions->Redo()); EXPECT_TRUE(Session.HasUnappliedChanges());
+			if (Configuration.Domain==EMaterialDomain::PostProcess)
+			{
+				auto Scene=Testing::MakeGraphExpression<DMaterialExpressionSceneTexture>();
+				auto RGB=Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Input={Scene->Id}; RGB->Components={0,1,2};
+				ExpectedOutputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB->Id};
+				ASSERT_TRUE(Draft->SetMaterialExpressions(std::array<DMaterialExpression*,2>{Scene.Get(),RGB.Get()},ExpectedOutputs));
+			}
+			else ASSERT_TRUE(Draft->SetMaterialExpressions({},ExpectedOutputs));
+			ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
+			EXPECT_FALSE(Session.HasUnappliedChanges()); EXPECT_EQ(Source->GetDomain(),Configuration.Domain); EXPECT_EQ(Source->GetStaticProperties(),Configuration.Properties);
+			ASSERT_TRUE(Source->GetAcceptedCompiledProgram()); EXPECT_EQ(Source->GetAcceptedCompiledProgram()->GetShaderMap().Domain,Configuration.Domain);
+			ASSERT_TRUE(SavePackage(Source->GetPackage())); Session.MarkSaved();
+		}
+		ASSERT_TRUE(UnloadPackage(Path)); Source=LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path)); ASSERT_TRUE(Source);
+		EXPECT_EQ(Source->GetDomain(),Configuration.Domain); EXPECT_EQ(Source->GetStaticProperties(),Configuration.Properties); EXPECT_EQ(Source->GetExpressionOutputs(),ExpectedOutputs);
+	}
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(EObjectFlags::Standalone);
 }

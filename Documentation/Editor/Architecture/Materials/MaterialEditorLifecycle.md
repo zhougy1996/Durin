@@ -4,7 +4,7 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
@@ -76,6 +76,17 @@ Publication updates the existing source through material mutation boundaries and
 submits its changed root and loaded dependent variants together. Scene references
 keep their identity and runtime compilation retains its last-good failure policy.
 Apply does not save the package to disk.
+
+Working-copy checkpoints include Domain as well as static properties, expression
+children, roots and presentation. Initialization installs the complete configuration
+before copying the graph, so PostProcess scene reads compile in their own domain.
+A domain-only change is an unapplied edit and participates in external-source
+conflict checks. Apply validates domain/model/blend admission, copies the current
+graph and complete configuration in a graph-notification batch, and compiles the
+resulting source generation. Save then persists that source; reopening reconstructs
+the same domain, model, retained roots and selected shader contract. Preview and
+source do not share mutable expression children.
+
 
 Before applying changes, Save finishes the selected preview's pending compilation,
 even when the installed program is already current, then applies it and saves the
