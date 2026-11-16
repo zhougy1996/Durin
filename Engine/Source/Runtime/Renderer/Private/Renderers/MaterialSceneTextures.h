@@ -50,7 +50,8 @@ namespace Durin
 	};
 	// Validation precedes allocation. On failure the caller keeps its composed input.
 	RENDERER_API auto PlanMaterialSceneTextures(FRDGBuilder& Graph,
-		const FMaterialShaderEntryRequest& Entry, const FMaterialSceneTextureInputs& Inputs)
+		const FMaterialShaderEntryRequest& Entry, const FMaterialSceneTextureInputs& Inputs,
+		std::optional<FRDGTextureHandle> Output = {})
 		-> std::expected<FMaterialSceneTexturePlan, std::string>;
 	RENDERER_API auto MaterialSceneTextureUV(FVector2f ViewportUV, FIntPoint TextureExtent,
 		FIntPoint ViewMin, FIntPoint ViewSize) -> FVector2f;
@@ -61,6 +62,10 @@ namespace Durin
 		FRHIUniformBufferRange Uniform;
 		std::vector<FRHIShaderParameterResource> Parameters;
 	};
+	RENDERER_API auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
+		const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
+		const FMaterialSceneTextureUniform& Uniform)
+		-> std::expected<FMaterialSceneTextureBindings, std::string>;
 	// Counted bindings are built atomically from this pass's resolver authority.
 	RENDERER_API auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
 		const FShaderReflectionData& Reflection, const FMaterialSceneTexturePassParameters& Parameters,

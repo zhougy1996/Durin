@@ -3,6 +3,9 @@
 [shader("fragment")]
 float4 PostProcessMaterialMain(float4 position : SV_Position) : SV_Target0
 {
+    float2 uv = (position.xy - MaterialView.Viewport.xy) * MaterialView.ReciprocalViewport.xy;
+    if (any(uv < 0.0) || any(uv >= 1.0))
+        return PostProcessInput0.Load(int3(int2(position.xy), 0));
     VSOutput input = (VSOutput)0;
     input.pos = position;
     FMaterialSurface material = EvaluateGeneratedMaterial(input);
@@ -10,7 +13,6 @@ float4 PostProcessMaterialMain(float4 position : SV_Position) : SV_Target0
     color = float3(isfinite(color.x) ? clamp(color.x, 0, 65504) : 0,
         isfinite(color.y) ? clamp(color.y, 0, 65504) : 0,
         isfinite(color.z) ? clamp(color.z, 0, 65504) : 0);
-    float2 uv = (position.xy - MaterialView.Viewport.xy) * MaterialView.ReciprocalViewport.xy;
     return float4(color, ReadMaterialInput0Linear(uv).a);
 }
 

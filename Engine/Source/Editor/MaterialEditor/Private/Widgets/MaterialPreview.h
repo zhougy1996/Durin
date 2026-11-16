@@ -16,6 +16,7 @@ namespace Durin::MaterialEditor
 		~FMaterialPreview();
 
 		auto SetVisible(bool bInVisible) -> void;
+		auto SetMaterial(DMaterialInterface* Material) -> void;
 		auto Draw(DMaterialInterface* Material, float PanelHeight = 0.0f) -> void;
 
 	private:

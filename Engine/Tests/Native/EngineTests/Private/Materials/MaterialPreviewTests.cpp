@@ -7,6 +7,9 @@
 #include "Editor/EditorEngineTestSupport.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
+#include "Client/ViewportClient.h"
+#include "Engine/Actor.h"
+#include "Components/StaticMeshComponent.h"
 
 namespace Durin::MaterialEditor
 {
@@ -166,4 +169,44 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 	EXPECT_EQ(FindObjectByName(FirstLightName), nullptr);
 	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);
+}
+
+TEST(FMaterialPreviewTests, PostProcessUsesStudioInputAndDomainSwitchRebindsTheSameMaterial)
+{
+	using namespace Durin;
+	InitializeDObjectSystem(); FScopedPreviewMeshCompiler Compiler;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	FMountPaths::InitDefaultMountPoints(); ASSERT_TRUE(RefreshAssetRegistry());
+	FMaterialPreviewHarness Harness;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr,NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialConfiguration Configuration; Configuration.Properties.ShadingModel=EMaterialShadingModel::Unlit;
+	ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+
+	{
+		MaterialEditor::FMaterialPreview Preview(987654324);
+		for (const auto Text : {"/Engine/Models/Sphere.Sphere","/Engine/Models/Box.Box"})
+		{
+			FSoftObjectPath Path; ASSERT_TRUE(FSoftObjectPath::TryCreate(Text,Path));
+			FRetainedAsset Asset; std::string Error; ASSERT_TRUE(FAssetRetentionService::Acquire(Path,Asset,Error)) << Error;
+			FAssetCompilingManager::Get().FinishCompilationForObject(*Cast<DStaticMesh>(Asset.Get()));
+		}
+		auto* Actor=Cast<AActor>(FindObjectByName("MaterialPreviewActor_987654324")); ASSERT_TRUE(Actor);
+		auto* Mesh=Actor->FindComponentByClass<DStaticMeshComponent>(); ASSERT_TRUE(Mesh);
+		const auto Frame=[&] { Preview.SetMaterial(Material); FlushRenderingCommands(); };
+		Frame(); Frame(); ASSERT_GT(Mesh->GetNumMaterials(),0u); EXPECT_EQ(Mesh->GetMaterial(0),Material.Get());
+		Configuration.Domain=EMaterialDomain::PostProcess; ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+		Frame(); EXPECT_EQ(Mesh->GetMaterial(0),GetDefaultMaterial());
+		Configuration.Domain=EMaterialDomain::Surface; ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+		Frame(); EXPECT_EQ(Mesh->GetMaterial(0),Material.Get());
+	}
+	FViewportClient Owner; Owner.SetPostProcessMaterial(Material);
+	auto Snapshot=Owner.GetViewSettings(); ASSERT_TRUE(Snapshot.PostProcess.Material);
+	const FObjectKey Key(Material.Get()); Material.Reset(); CollectGarbage(EObjectFlags::Standalone);
+	EXPECT_TRUE(Key.ResolveObjectPtr());
+	Owner.SetPostProcessMaterial(nullptr); CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
+	EXPECT_FALSE(Key.ResolveObjectPtr()); EXPECT_TRUE(Snapshot.PostProcess.Material);
+	Snapshot.PostProcess.Material.reset(); FlushRenderingCommands();
 }

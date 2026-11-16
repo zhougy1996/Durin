@@ -26,6 +26,10 @@ float2 MaterialSceneTextureUV(float2 uv, float4 viewport, float4 size)
 float4 ReadMaterialInput0Linear(float2 uv)
 {
     float2 textureUV = MaterialSceneTextureUV(uv, MaterialSceneTextures.Input0Viewport, MaterialSceneTextures.Input0TextureSize);
+    float2 pixel = textureUV * MaterialSceneTextures.Input0TextureSize.xy;
+    float2 center = floor(pixel) + 0.5;
+    if (all(abs(pixel - center) < 1.0e-4))
+        return PostProcessInput0.Load(int3(int2(floor(pixel)), 0));
     return PostProcessInput0.SampleLevel(MaterialSceneLinearSampler, textureUV, 0);
 }
 float4 ReadMaterialInput0Point(float2 uv)

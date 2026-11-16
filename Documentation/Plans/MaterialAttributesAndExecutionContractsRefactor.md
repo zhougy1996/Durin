@@ -31,7 +31,9 @@ are complete on 2026-11-17. The following Emissive-to-SceneColor slice uses
 three RGBA8 GBuffer records plus existing RGBA16F SceneColor, retaining both
 octahedral normals. The ClearCoat continuation implements a shared forward/
 deferred layer and optional ModelData; Windows qualification completed on 2026-11-17.
-Display-chain PostProcess integration remains open.
+The ordered pre-tone-map PostProcess slot, studio preview and failure bypass
+are Windows-qualified on 2026-11-17; remaining Stage 4 editor/content parity,
+native Metal and integrated cost gates stay open.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -706,6 +708,26 @@ final workspace build and numerical cost gates.
 Outcome: new attributes, a second Lit model and a non-mesh domain execute without
 reintroducing fixed Surface or geometry assumptions. Depends on Stage 3.
 
+2026-11-17 PostProcess implementation decision: the owner authorized the ordered
+pre-tone-map slot and Windows preview/failure qualification with Metal still open.
+Engine viewport clients retain the assigned material and place a counted proxy
+reference in copied view settings; RenderCore only forward-declares that reference.
+Renderer snapshots accepted no-fallback data, prepares the optional fullscreen
+pipeline/target before graph authoring, and declares an effect pass after composed
+HDR (including cloud/translucency) and before existing display mapping. Diagnostic
+views bypass it. A pending compile may use a complete accepted PostProcess generation;
+terminal failure has no accepted program and bypasses, never selecting Surface ErrorMaterial.
+Keep one full-texture RGBA16F effect output, preserve letterbox pixels and alpha,
+and sample the immutable composed input without an extra copy. Prepare optional
+resources transactionally so target/pipeline failures bypass before graph allocation.
+The standalone scene-input adapter keeps cropped outputs by default; production
+supplies its prepared full-extent output. Snap mathematically centered Input0 reads
+to exact texels to make neutral effects preserve bytes. Preview applies the slot
+to a normal studio scene rather than assigning a fullscreen domain to a mesh.
+Advance generator/adapter to 25/22, translation to 13 and pass/DMAT to 21/24 for
+output/clamp semantics; MIR/normalization stay 15 and layout stays 5. Authored
+versions and the Stage 3/4 native Metal acceptance gaps remain unchanged.
+
 2026-11-17 ClearCoat implementation decision: the owner authorized the next
 Windows slice while retaining native Metal acceptance. Use the frozen single-normal
 GGX/Schlick layer equations below and exactly bypass the layer when weight is zero.
@@ -769,13 +791,72 @@ ModelData attachment remains reserved for later ClearCoat, outside this slice.
 - [x] Add DefaultLit Specular with the Stage 0 mapping and compatibility default; qualify direct and environment lighting in Windows forward/deferred paths. Metal qualification remains open under the owner's bounded continuation decision.
 - [x] Align Emissive with SceneColor before ClearCoat; qualify single application, HDR/alpha/exposure, debug, RDG ordering and failure recovery on Windows while retaining both octahedral normals and the Metal gap.
 - [x] Add the selected ClearCoat model, coat weight/roughness attributes, model identity and explicit GBuffer encode/decode. Share surface semantics across forward and deferred; qualify zero/full coat and roughness endpoints and reject translucent ClearCoat. Windows-qualified; native Metal acceptance remains open.
-- [ ] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. A neutral material preserves input; a color transform and depth visualization demonstrate actual execution. No mesh Vertex Factory or surface-lighting resources are requested.
-- [ ] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
+- [x] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. Windows neutral/color/depth pixels, subrect/resize, alpha, exposure and FXAA are qualified; no mesh Vertex Factory or surface-lighting resources are requested. Native Metal remains open.
+- [x] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
 - [ ] Verify domain/model switches, parameter-only updates without compilation, graph Undo/Redo/save/reopen, cooked Editor/Game parity and distinct shader identities for semantically different contracts.
 
 Exit: all three extension proofs produce independently checked pixels and valid
 Cook output. ClearCoat and PostProcess unsupported paths are explicit, without
 silently falling back to DefaultLit or Surface.
+
+#### PostProcess implementation and Windows receipt
+
+Validated `0211ece94` plus this change on 2026-11-17, windows-msvc-x64 /
+Win64-Debug-DurinEditor, MSVC 19.44, Debug, 18 build jobs; NVIDIA GeForce
+RTX 3090, Vulkan 1.4.351, SDK 1.4.357.0 validation layer.
+
+The per-viewport counted no-fallback slot executes `Scene.PostProcessMaterial`
+after composition and before `Scene.PostProcess`. It uses accepted source-free
+fragment code and exact scene/material bindings. The optional full-extent RGBA16F
+target is prepared before RDG allocation, costs 8 bytes/pixel and never aliases
+Input0/depth. Disabled/diagnostic routes add no effect target or pass. A completion
+value makes binding/draw preparation failures select the original composed input.
+Material preview applies the slot to the studio scene with a default-material
+input mesh; same-object domain and quality changes rebind the route. Pending
+compiles retain a complete accepted generation; terminal failure has no program
+and bypasses with diagnostics, without a fullscreen mesh ErrorMaterial.
+
+The Vulkan integration case uses neutral, `(0.5,1,2)` color transform and
+`(device depth, positive view depth, validity)` programs, encoded and decoded as
+graph-stripped Win64 Game DMAT. It covers 64/96 extents, a centered 2:1 subrect,
+EV -2/0/+2, FXAA off/on, ForwardZ/ReversedZ, clear depth, letterbox/alpha,
+completed translucent composition without a depth write,
+pending/failed/recovered publications, diagnostic bypass and injected preparation/
+binding rejection. Neutral HDR and final SDR are byte exact; color/depth HDR
+residual is <=0.002 and final SDR agrees with an independent exposure/filmic/sRGB
+reference within one code. Raw captures and 288 CSV channel samples are kept in
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage4/PostProcess/`.
+Measured maximum error at the independently checked sample points is 0 in HDR
+and 0 SDR codes; the stated tolerances remain the acceptance bounds. No shipping
+fixture packages are added.
+
+Validation selection and receipts (logs under `Build/.agent-state/logs/`):
+
+- The `@domain=material,kind=feature` selection passed its 12 unaffected targets;
+  `MaterialEditorInteractionTests` was rerun after adding the preview preparation
+  seam and passed all 68 cases. Compiler/Cook/lifecycle inputs did not change
+  after their passing receipts; those results are reused.
+- `StaticMeshRenderPreparationVulkanTests`: 27; `MaterialSceneTexturesVulkanTests`:
+  1; `PostProcessVulkanTests`: 1. The new integrated case writes raw evidence via
+  `DURIN_MATERIAL_POSTPROCESS_EVIDENCE_DIR`; its full name is
+  `FStaticMeshRenderPreparationVulkanTests.PostProcessMaterialsRunBeforeDisplayMappingAndBypassFailedOrDiagnosticSlots`.
+- `RenderShaderContractTests`: 73; `RendererSceneContractTests`: 173;
+  `EditorRenderingTests`: 93; `RendererResourceReloadVulkanTests`: 2;
+  `EngineViewportHeaderTests`: 1; `ViewportTests`: 118;
+  `VolumetricCloudSceneVulkanTests`: 1; `EditorGridVulkanTests`: 7.
+- Workspace `all` build passed (16.08 seconds), covering the shared
+  SceneView/ViewportClient layout across Engine, Sandbox and RoadWeaver. Changed-document validation
+  covers the plan, roadmap and three runtime contracts. Native GPU receipts
+  contain no Vulkan validation errors. No timing qualification, full content
+  Cook or packaged Game executable is claimed.
+
+Native Metal remains unqualified: on macOS, migrate the existing fixture's
+retired `Lit` identity, compile/reflect the current PostProcess fragment entry,
+verify view/material/collection and scene bindings 40-44, exact input orientation,
+letterbox/resize, both depth conventions, HDR/alpha, pre-tone-map execution and
+pending/failed/native-resource bypass. Windows SPIR-V and graph-stripped Game
+DMAT do not waive native Metal or packaged Game gates. Stage 4 remains active for
+its remaining editor/identity/content parity checklist; Stages 5/6 remain open.
 
 #### ClearCoat implementation and Windows receipt
 
@@ -845,7 +926,7 @@ and GPU acceptance remain open: migrate the macOS qualification fixture first,
 then verify coat attribute resources, five MRT outputs/capability admission,
 RGBA8 codec, preserved normals, shared lighting, c=0 identity and model switching.
 Windows SPIR-V and source-free execution do not waive these native backend gates.
-PostProcess display integration, remaining editor/content/Game closure and final
+PostProcess integration is recorded in the receipt above. Remaining editor/content/Game closure and final
 integrated cost/timing qualification remain later work; Stage 4 is not complete.
 
 #### Emissive-to-SceneColor implementation and Windows receipt

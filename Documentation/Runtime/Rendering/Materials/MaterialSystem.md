@@ -922,7 +922,7 @@ consumes the qualified prepared bulk. The explicit target is independent of the
 active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v23 family per material or instance in the
+DMAT v24 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
 The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
 selections may retain a supported subset. Each uses that owner's
@@ -948,7 +948,7 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v23 contains no IR/generator/compiler producer version words. Older payload
+DMAT v24 contains no IR/generator/compiler producer version words. Older payload
 schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
@@ -1364,8 +1364,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 23, MIR 15, layout 5, pass contract 20,
-and material Cook class-schema version 7. The independent compile adapter is version 21;
+Current compatibility versions are DMAT 24, MIR 15, layout 5, pass contract 21,
+and material Cook class-schema version 7. The independent compile adapter is version 22;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11

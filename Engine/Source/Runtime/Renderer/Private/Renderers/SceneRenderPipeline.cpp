@@ -351,6 +351,9 @@ namespace Durin
 				bPresentOutput, RenderView.Settings.PostProcess.bEnableFXAA,
 				bHasEditorAssistance, OutputTarget->GetFormat()))
 				return ERenderViewResult::RendererResourcesUnavailable;
+			ResolvedSceneResources.PostProcessMaterial = Service.PostProcessRenderer.PrepareMaterial_RenderThread(
+				CommandList, RenderView, Context.Logical.Options, Context.Logical.Scene, Width, Height,
+				Qualification.bFailPostProcessMaterialPreparation, Qualification.bFailPostProcessMaterialBindings);
 			if (bHasEditorAssistance)
 				FeaturePlan.EditorAssistance.Purposes =
 					ESceneFeaturePurpose::Production;

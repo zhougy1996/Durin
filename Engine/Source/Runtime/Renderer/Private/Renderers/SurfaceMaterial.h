@@ -26,6 +26,7 @@ namespace Durin
 			MaskedShadow,
 			Forward,
 			GBuffer,
+			PostProcess,
 		};
 
 		class FCompiledSurfaceBindingLayout

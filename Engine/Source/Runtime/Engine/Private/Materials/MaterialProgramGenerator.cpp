@@ -601,7 +601,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					OutSource.clear();
 					return std::unexpected("Aggregate Surface Root expression is out of bounds.");
 				}
-				OutSource += std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.AggregateAttributesIndex]);
+				OutSource += (IR.Domain == EMaterialDomain::PostProcess ? std::format("    return {};\n}}\n", Expressions[IR.AggregateAttributesIndex]) : std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.AggregateAttributesIndex]));
 			}
 			else
 			{
@@ -624,7 +624,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					OutSource += std::format("    result.{} = {};\n", Field, Value);
 				}
 				OutSource += "#if DURIN_MATERIAL_SHADING_MODEL != 2\n    result.clearCoat = 0.0;\n#endif\n";
-				OutSource += "    return EvaluateMaterialSurface(result);\n}\n";
+				OutSource += IR.Domain == EMaterialDomain::PostProcess ? "    return result;\n}\n" : "    return EvaluateMaterialSurface(result);\n}\n";
 			}
 		} // Stage-specific expression closures.
 		if (IR.Domain == EMaterialDomain::PostProcess) OutSource += "#define DURIN_GENERATED_MATERIAL_POSTPROCESS 1\n#include \"Material/PostProcessPass.slang\"\n";

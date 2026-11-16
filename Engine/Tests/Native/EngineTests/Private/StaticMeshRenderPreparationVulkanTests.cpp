@@ -15,6 +15,7 @@
 #include "Renderers/MaterialPSOPrecacheCollector.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Materials/MaterialShaderMap.h"
+#include "Materials/MaterialCookedProgram.h"
 
 #include "GeometrySubmissionTestSupport.h"
 #include "Materials/MaterialExpressions.h"
@@ -1373,7 +1374,7 @@ namespace
 		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {},
 		const Durin::FSceneViewRenderOptions& Options = {},
 		std::optional<Durin::EGPUCullingFailure> CullingFailure = {},
-		uint64* PreparationNanoseconds = nullptr, uint64* RecordingNanoseconds = nullptr, Durin::FSceneViewStatistics* Statistics = nullptr) -> Durin::ERenderViewResult
+		uint64* PreparationNanoseconds = nullptr, uint64* RecordingNanoseconds = nullptr, Durin::FSceneViewStatistics* Statistics = nullptr, uint32 PostProcessFailure = 0) -> Durin::ERenderViewResult
 	{
 		using namespace Durin;
 		if (PreparationNanoseconds) *PreparationNanoseconds = 0;
@@ -1387,6 +1388,8 @@ namespace
 			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 				FGeometryQualificationFrame Frame(Commands);
 				auto Policy = GetRendererQualificationPolicy();
+				Policy.bFailPostProcessMaterialPreparation = PostProcessFailure == 1;
+				Policy.bFailPostProcessMaterialBindings = PostProcessFailure == 2;
 				if (CullingFailure) Policy.GPUCullingFailure = *CullingFailure;
 				FScopedRendererQualificationPolicy Qualification(Policy);
 				if (!Target) Target = GDynamicRHI->RHICreateTexture(Commands, TargetDesc);
@@ -6027,4 +6030,156 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClearCoatMatchesForwardDeferredDir
 	}
 	CollectGarbage(EObjectFlags::Standalone);
 	FlushRenderingCommands();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, PostProcessMaterialsRunBeforeDisplayMappingAndBypassFailedOrDiagnosticSlots)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints()); ASSERT_TRUE(InitializeAssetRuntime()); ASSERT_TRUE(RefreshAssetRegistry());
+	RHIInit(GetVulkanEngineTestInitializationContext()); ASSERT_NE(GDynamicRHI, nullptr); InitRenderingThread();
+	FRendererModule Renderer; FModuleTestHarness Lifecycle("PostProcessMaterials"); Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+	{
+		std::array<std::shared_ptr<const FMaterialProgram>, 3> Programs;
+		for (uint32 Mode = 0; Mode < 3; ++Mode)
+		{
+			using Op = EMaterialProgramOpcode; using Type = EMaterialProgramValueType;
+			MIR::FCompilerInput Input; Input.IR.Domain = EMaterialDomain::PostProcess;
+			Input.StaticProperties.ShadingModel = EMaterialShadingModel::Unlit;
+			ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+			Input.IR.Nodes = {
+				{.Opcode=Op::ScreenPosition, .ResultType=Type::Float2, .LegalStages=EMaterialEvaluationStage::Pixel,
+					.SpatialKind=EMaterialSpatialKind::ScreenCoordinate, .CoordinateSpace=EMaterialCoordinateSpace::Screen},
+				{.Opcode=Mode == 2 ? Op::SceneDepth : Op::SceneTexture, .ResultType=Mode == 2 ? Type::Float3 : Type::Float4,
+					.LegalStages=EMaterialEvaluationStage::Pixel, .Inputs={0}, .Payload=MIR::FSceneTextureRead{
+						Mode == 2 ? EMaterialSceneTextureId::SceneDepth : EMaterialSceneTextureId::PostProcessInput0,
+						Mode == 2 ? EMaterialSceneTextureFilter::Point : EMaterialSceneTextureFilter::Linear}}};
+			uint32 Color = 1;
+			if (Mode < 2)
+			{
+				Color = 2; Input.IR.Nodes.push_back({.Opcode=Op::Swizzle, .ResultType=Type::Float3,
+					.LegalStages=EMaterialEvaluationStage::Pixel, .Inputs={1}, .Payload=MIR::FSwizzle{3,{0,1,2}}});
+				if (Mode == 1)
+				{
+					Input.IR.Nodes.push_back({.Opcode=Op::Constant, .ResultType=Type::Float3, .Payload=FMaterialProgramLiteral{.5f,1.f,2.f}});
+					Color=4; Input.IR.Nodes.push_back({.Opcode=Op::Multiply, .ResultType=Type::Float3, .LegalStages=EMaterialEvaluationStage::Pixel, .Inputs={2,3}});
+				}
+			}
+			auto& Root=Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor); Root.bExpression=true; Root.ExpressionIndex=Color;
+			const auto Compiled=MIR::Compile(Input); ASSERT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
+			FByteBuffer Bytes; const std::array<const FMaterialProgram*,1> Family{&Compiled.Resource};
+			ASSERT_TRUE(EncodeMaterialCookedProgramFamily(Family,Input.StaticProperties,ECookTargetPlatform::Win64,ECookTargetProfile::Game,Bytes));
+			FMaterialStaticProperties Properties;
+			ASSERT_TRUE(DecodeMaterialCookedProgramFamily(Bytes,ECookTargetPlatform::Win64,ECookTargetProfile::Game,
+				Compiled.Resource.Quality,Compiled.Resource.FeatureLevel,Compiled.Resource.StaticBools,Properties,Programs[Mode]));
+			EXPECT_TRUE(Programs[Mode]->GetDebugData().GeneratedSource.empty());
+			EXPECT_FALSE(Programs[Mode]->GetShaderMap().Entries[0].Mesh);
+		}
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr,NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialStaticProperties Properties; Properties.ShadingModel=EMaterialShadingModel::Unlit; Properties.bTwoSided=true;
+		ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		FMaterialAttributeRoot Root; Root.Get(EMaterialProperty::MP_EmissiveColor).SetConstant({.25f,.5f,1.f});
+		ASSERT_TRUE(Material->SetMaterialExpressions({},Root)); ASSERT_TRUE(RequestMaterialRecompile(*Material));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material); ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+		TStrongObjectPtr<DMaterial> Translucent(NewObject<DMaterial>(nullptr,NAME_None));
+		Translucent->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		Properties.BlendMode=EMaterialBlendMode::Translucent; ASSERT_TRUE(Translucent->SetStaticProperties(Properties));
+		Root.Get(EMaterialProperty::MP_EmissiveColor).SetConstant({.8f,.2f,.1f});
+		Root.Get(EMaterialProperty::MP_Opacity).SetConstant({.25f});
+		ASSERT_TRUE(Translucent->SetMaterialExpressions({},Root)); ASSERT_TRUE(RequestMaterialRecompile(*Translucent));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Translucent);
+		FSceneTestOwner Scene; FProceduralGeometry Geometry;
+		const auto Surface=Material->GetRenderProxy();
+		const auto Overlay=Translucent->GetRenderProxy();
+		EnqueueRenderCommand("PostProcessInputGeometry",[&](FRHICommandListImmediate& C) {
+			Geometry=FProceduralGeometry::Create(C,1,false);
+			auto P=std::make_unique<FProceduralProxy>(); P->Geometry=Geometry;
+			P->Materials={Surface->GetMaterialWithFallback(),Surface->GetMaterialWithFallback()}; ASSERT_TRUE(P->PublishGeometry());
+			ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene,FPrimitiveComponentId(8040),std::move(P),FMatrix(1.0)));
+			auto Top=std::make_unique<FProceduralProxy>(); Top->Geometry=Geometry;
+			Top->Materials={Overlay->GetMaterialWithFallback(),Overlay->GetMaterialWithFallback()}; ASSERT_TRUE(Top->PublishGeometry());
+			FMatrix Transform(1.0); Transform[3][2]=-.25;
+			ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene,FPrimitiveComponentId(8041),std::move(Top),Transform));
+		}); FlushRenderingCommands();
+		std::shared_ptr<FMaterialRenderProxy> Slot;
+		const auto Publish=[&](std::shared_ptr<const FMaterialProgram> Program,bool Pending=false) {
+			if (!Slot) { FMaterialRenderProxyRef Ref(new FMaterialRenderProxy()); auto* Pointer=Ref.GetReference();
+				Slot=std::shared_ptr<FMaterialRenderProxy>(Pointer,[Ref=std::move(Ref)](FMaterialRenderProxy*) mutable { Ref={}; }); }
+			Slot->SetProgram_GameThread(std::move(Program)); Slot->SetCompiling_GameThread(Pending); FlushRenderingCommands();
+		};
+		struct FCapture { FByteBuffer HDR,Input,Final; FRDGCapture Graph; };
+		static FCapture* Sink=nullptr;
+		const auto Render=[&](uint32 Extent,float EV,bool FXAA,bool Reverse,FCapture& Out, bool Debug=false, uint32 Failure=0) {
+			FSceneView View; View.ViewportWidth=Extent; View.ViewportHeight=Extent; View.AspectRatioConstraint=2;
+			View.ClearColor={.07f,.11f,.13f,.3f}; View.Settings.AmbientOcclusion.bEnabled=false;
+			View.Settings.Mode.VisibilityMode=EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.PostProcess.Material=Slot; View.Settings.PostProcess.ExposureEV=EV; View.Settings.PostProcess.bEnableFXAA=FXAA;
+			View.DepthConvention=Reverse ? ESceneDepthConvention::ReversedZ : ESceneDepthConvention::ForwardZ;
+			if (Reverse) { View.ProjectionMatrix[2][2]=-1; View.ProjectionMatrix[3][2]=1; View.ViewProjectionMatrix=View.ProjectionMatrix; }
+			FSceneViewRenderOptions Options; if (Debug) Options.GBufferDebugMode=EGBufferDebugMode::Emissive;
+			const auto Result=RenderPreparedGeometryView(Renderer,*Scene,View,
+				FRHITextureCreateDesc::Create2D("PostProcessMaterialTest",Extent,Extent,EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::SourceCopy),[&] {
+					Sink=&Out; SetHDRSceneColorCaptureSink(+[](FRHICommandListImmediate& C,FRHITexture* HDR,FRHITexture* Input) { ReadGeometryTexture(C,HDR,Sink->HDR); ReadGeometryTexture(C,Input,Sink->Input); });
+					SetSceneRenderGraphCaptureSink(+[](const FRDGCapture& G) { Sink->Graph=G; });
+				},[&](FRHICommandListImmediate& C,FRHITexture* Target) { ReadGeometryTexture(C,Target,Out.Final); },Options, {}, nullptr, nullptr, nullptr, Failure);
+			SetSceneRenderGraphCaptureSink(nullptr); Sink=nullptr; EXPECT_EQ(Result,ERenderViewResult::Success);
+		};
+		const auto Half=[](const FByteBuffer& B,size_t I) { uint16 H; std::memcpy(&H,B.data()+I*2,2); return glm::unpackHalf2x16(H).x; };
+		const auto EffectPass=[](const FCapture& C) { return std::ranges::find(C.Graph.Passes,"Scene.PostProcessMaterial",&FRDGPassCapture::Name)!=C.Graph.Passes.end(); };
+		std::string Measurements="extent,ev,fxaa,reversed,mode,channel,expected,actual\n";
+		for (const auto Extent : {64u,96u}) for (const float EV : {-2.f,0.f,2.f})
+		for (const bool FXAA : {false,true}) for (const bool Reverse : {false,true})
+		{
+			SCOPED_TRACE(std::format("extent {} EV {} FXAA {} reverse {}",Extent,EV,FXAA,Reverse));
+			Slot.reset(); FCapture Baseline; Render(Extent,EV,FXAA,Reverse,Baseline);
+			ASSERT_EQ(Baseline.HDR.size(),Extent*Extent*8u); ASSERT_EQ(Baseline.Final.size(),Extent*Extent*4u); EXPECT_FALSE(EffectPass(Baseline));
+			EXPECT_EQ(std::ranges::count(Baseline.Graph.Resources,"Material.PostProcessOutput",&FRDGResourceCapture::Name),0);
+			for (uint32 Mode=0;Mode<3;++Mode)
+			{
+				Publish(Programs[Mode]); FCapture Out; Render(Extent,EV,FXAA,Reverse,Out); EXPECT_TRUE(EffectPass(Out));
+				const auto Effect=std::ranges::find(Out.Graph.Passes,"Scene.PostProcessMaterial",&FRDGPassCapture::Name);
+				const auto Display=std::ranges::find(Out.Graph.Passes,"Scene.PostProcess",&FRDGPassCapture::Name);
+				EXPECT_LT(Effect,Display);
+				ASSERT_EQ(std::ranges::count(Out.Graph.Resources,"Material.PostProcessOutput",&FRDGResourceCapture::Name),1);
+				const auto Target=std::ranges::find(Out.Graph.Resources,"Material.PostProcessOutput",&FRDGResourceCapture::Name);
+				EXPECT_TRUE(Target->bExternal); EXPECT_EQ(Target->TextureFormat,EPixelFormat::RGBA16_FLOAT);
+				EXPECT_EQ(Target->TextureExtent,FIntPoint(Extent,Extent));
+				EXPECT_EQ(Out.HDR,Baseline.HDR); // The composed input remains read-only.
+				ASSERT_EQ(Out.Input.size(),Baseline.HDR.size()); ASSERT_EQ(Out.Final.size(),Baseline.Final.size());
+				if (Mode==0) { EXPECT_EQ(Out.Input,Baseline.HDR); EXPECT_EQ(Out.Final,Baseline.Final); }
+				const size_t Pixel=(Extent/2*Extent+uint32(Extent*.275f))*4;
+				for (uint32 C=0;C<4;++C)
+				{
+					const float Expected=C==3 ? 1.f : Mode==2 ? (C==2 ? 1.f : .5f) : Half(Baseline.HDR,Pixel+C)*(Mode==1 ? (C==0 ? .5f : C==2 ? 2.f : 1.f) : 1.f);
+					EXPECT_NEAR(Half(Out.Input,Pixel+C),Expected,.002f);
+					Measurements+=std::format("{},{},{},{},{},{},{},{}\n",Extent,EV,FXAA,Reverse,Mode,C,Expected,Half(Out.Input,Pixel+C));
+					EXPECT_EQ(Half(Out.Input,C),Half(Baseline.HDR,C)); // Letterbox and alpha.
+					if (C==3) EXPECT_EQ(Out.Final[Pixel+C],Baseline.Final[Pixel+C]);
+					else { const double X=Expected*std::exp2(EV); const double L=std::clamp((X*(2.51*X+.03))/(X*(2.43*X+.59)+.14),0.,1.);
+						const double SRGB=L<=.0031308 ? L*12.92 : 1.055*std::pow(L,1./2.4)-.055;
+						EXPECT_NEAR(std::to_integer<int>(Out.Final[Pixel+C]),std::round(SRGB*255),1); }
+				}
+				if (Mode==2) { const size_t ClearPixel=(Extent/2*Extent+Extent/2)*4; EXPECT_EQ(Half(Out.Input,ClearPixel+1),0); EXPECT_EQ(Half(Out.Input,ClearPixel+2),0); }
+				if (const auto* Directory=std::getenv("DURIN_MATERIAL_POSTPROCESS_EVIDENCE_DIR")) {
+					const auto Name=std::format("{}-ev{}-fxaa{}-reverse{}-mode{}",Extent,EV,FXAA,Reverse,Mode);
+					ASSERT_TRUE(FFileHelper::SaveArrayToFile(Out.Input,std::filesystem::path(Directory)/(Name+".rgba16f")));
+					ASSERT_TRUE(FFileHelper::SaveArrayToFile(Out.Final,std::filesystem::path(Directory)/(Name+".rgba8"))); }
+			}
+			Publish(Programs[1]); FCapture Accepted; Render(Extent,EV,FXAA,Reverse,Accepted);
+			Slot->SetCompiling_GameThread(true); FlushRenderingCommands(); FCapture Pending; Render(Extent,EV,FXAA,Reverse,Pending); EXPECT_TRUE(EffectPass(Pending)); EXPECT_EQ(Pending.Final,Accepted.Final);
+			Publish(nullptr); FCapture Failed; Render(Extent,EV,FXAA,Reverse,Failed); EXPECT_FALSE(EffectPass(Failed)); EXPECT_EQ(Failed.Final,Baseline.Final);
+			Publish(Programs[1]); FCapture Recovered; Render(Extent,EV,FXAA,Reverse,Recovered); EXPECT_TRUE(EffectPass(Recovered));
+			FCapture Debug; Render(Extent,EV,FXAA,Reverse,Debug,true); EXPECT_FALSE(EffectPass(Debug));
+			for (uint32 Failure=1;Failure<=2;++Failure) { FCapture Rejected; Render(Extent,EV,FXAA,Reverse,Rejected,false,Failure); EXPECT_EQ(EffectPass(Rejected),Failure==2); EXPECT_EQ(Rejected.Final,Baseline.Final); }
+		}
+		if (const auto* Directory=std::getenv("DURIN_MATERIAL_POSTPROCESS_EVIDENCE_DIR")) ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Measurements)),std::filesystem::path(Directory)/"postprocess.csv"));
+		Slot.reset(); FlushRenderingCommands();
+		EnqueueRenderCommand("PostProcessRemoveInput",[&](FRHICommandListImmediate&) { FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene,FPrimitiveComponentId(8040)); FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene,FPrimitiveComponentId(8041)); }); FlushRenderingCommands();
+	}
+	CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
 }

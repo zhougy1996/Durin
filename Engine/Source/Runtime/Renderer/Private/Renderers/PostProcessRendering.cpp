@@ -4,6 +4,8 @@
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/GBufferDebugRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
+#include "Renderers/MaterialSceneTextures.h"
+#include "Materials/MaterialShaderMap.h"
 #include "Renderers/RendererRDGAllocator.h"
 
 #include "Renderers/SceneRendererProfiling.h"
@@ -34,7 +36,7 @@ namespace Durin
 			DURIN_TEXTURE(SceneColor), DURIN_TEXTURE(CloudComposite),
 			DURIN_TEXTURE(SceneDepth),
 			DURIN_COLOR(GBufferDebugOutput, ERHIAccess::GraphicsShaderRead),
-			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred), DURIN_TEXTURE(BasePassDebug)
+			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred), DURIN_TEXTURE(BasePassDebug), DURIN_TEXTURE(MaterialOutput)
 		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FPostProcessPassResources", Members);
@@ -53,6 +55,7 @@ namespace Durin
 				"DeferredLighting", offsetof(FParameters, DeferredLighting)
 			),
 			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::BasePassDebugCompletion), FGBufferPassResult>("BasePassDebugCompletion", offsetof(FParameters, BasePassDebugCompletion)),
+			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::MaterialCompletion), bool>("MaterialCompletion", offsetof(FParameters, MaterialCompletion)),
 			MakeRDGValueParameterMemberMetadata<FParameters, decltype(FParameters::Completion), FPostProcessPassResult>(
 				"Completion", offsetof(FParameters, Completion)
 			),
@@ -68,6 +71,24 @@ namespace Durin
 
 	namespace
 	{
+		struct FMaterialEffectParameters
+		{
+			FMaterialSceneTexturePassParameters Scene;
+			std::optional<FRDGTextureParameter> Cloud;
+			TRDGValueRead<FSceneColorPassResult> Input;
+			TRDGValueWrite<bool> Applied;
+			static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+			{
+				using P = FMaterialEffectParameters;
+				static const std::array Members{
+					MakeRDGNestedParameterMemberMetadata<P, decltype(P::Scene)>("Scene", offsetof(P, Scene), FMaterialSceneTexturePassParameters::GetRDGParametersMetadata()),
+					MakeRDGTextureReadMetadata<P, decltype(P::Cloud)>("Cloud", offsetof(P, Cloud)),
+					MakeRDGValueParameterMemberMetadata<P, decltype(P::Input), FSceneColorPassResult>("Input", offsetof(P, Input)),
+					MakeRDGValueParameterMemberMetadata<P, decltype(P::Applied), bool>("Applied", offsetof(P, Applied))};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<P>("FMaterialEffectParameters", Members);
+				return &Metadata;
+			}
+		};
 		struct FPostProcessRecorder final
 		{
 			FGBufferDebugRenderer& GBufferDebugRenderer;
@@ -79,7 +100,7 @@ namespace Durin
 				const FSceneViewRenderOptions&,
 				const FPostProcessRenderer::FSceneTargets&,
 				const FGBufferRenderer::FTargets*,
-				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*,
+				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*, FRHITexture*,
 				bool) -> FPostProcessPassResult;
 		};
 
@@ -123,6 +144,41 @@ namespace Durin
 				"Scene.GBuffer.Debug");
 		auto Parameters = Graph.AllocParameters<FPostProcessPassParameters>();
 		Parameters->SceneColor = {.Value = Inputs.SceneColor.Completion};
+		if (Inputs.Material)
+		{
+			const auto& Prepared = Inputs.Material;
+			const auto Output = Graph.RegisterExternalTexture(Prepared->Output, "Material.PostProcessOutput",
+				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			FMaterialSceneTextureInputs Textures;
+			Textures.PostProcessInput0 = FScreenPassTexture{Inputs.SceneColor.Color,
+				{RecordView.ViewportX, RecordView.ViewportY}, {RecordView.ViewportWidth, RecordView.ViewportHeight}};
+			Textures.SceneDepth = FScreenPassTexture{Inputs.SceneColor.Depth, Textures.PostProcessInput0->ViewMin, Textures.PostProcessInput0->ViewSize};
+			const auto Projection = Math::TransposeToFloat(RecordView.ProjectionMatrix);
+			for (uint32 Row = 0; Row < 4; ++Row) Textures.ProjectionRows[Row] = Projection[Row];
+			Textures.ClearDepth = RecordView.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.f : 1.f;
+			auto Plan = PlanMaterialSceneTextures(Graph, Prepared->Program->GetShaderMap().Entries[0], Textures, Output);
+			if (Plan)
+			{
+				const auto Applied = Graph.CreateValue<bool>("Scene.PostProcessMaterial.Applied", "optional-material-result");
+				auto Effect = Graph.AllocParameters<FMaterialEffectParameters>();
+				Effect->Scene.PostProcessInput0 = Plan->Parameters->PostProcessInput0;
+				Effect->Scene.SceneDepth = Plan->Parameters->SceneDepth;
+				Effect->Scene.Output = Plan->Parameters->Output;
+				Effect->Input = {Inputs.SceneColor.Completion}; Effect->Applied = {Applied};
+				if (Inputs.SceneColor.CloudComposite) Effect->Cloud = {*Inputs.SceneColor.CloudComposite, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+				Graph.AddPass("Scene.PostProcessMaterial", ERDGPassType::Graphics, std::move(Effect),
+					[Prepared, Uniform = Plan->Uniform, Renderer = &Inputs.Renderer](FRHICommandListImmediate& Commands,
+						const FMaterialEffectParameters& P, const FRDGParameterResolver& Resolver) {
+						const auto& Result = Resolver.ReadValue(P.Input);
+						auto* Input = Resolver.GetTexture(P.Scene.PostProcessInput0);
+						if (Result.bUsesVolumetricCloudComposite && P.Cloud) Input = Resolver.GetTexture(P.Cloud);
+						Resolver.WriteValue(P.Applied) = Result.IsSuccess() && Renderer->DrawMaterial_RenderThread(
+							Commands, *Prepared, Input, Resolver.GetTexture(P.Scene.SceneDepth), Uniform);
+					});
+				Parameters->MaterialCompletion = TRDGValueRead<bool>{Applied};
+				Parameters->Resources.MaterialOutput = {Output, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			}
+		}
 		if (Inputs.Deferred.Completion)
 			Parameters->DeferredLighting = TRDGValueRead<FIsolatedDeferredPassResult>{*Inputs.Deferred.Completion};
 		Parameters->Completion = {.Value = PostProcessCompletion};
@@ -185,6 +241,9 @@ namespace Durin
 					&& PassParameters.Resources.CloudComposite)
 					SceneColorInput = Resolver.GetTexture(
 						PassParameters.Resources.CloudComposite);
+				FRHITexture* MaterialColorInput = nullptr;
+				if (const auto* Applied = Resolver.ReadValue(PassParameters.MaterialCompletion); Applied && *Applied)
+					MaterialColorInput = Resolver.GetTexture(PassParameters.Resources.MaterialOutput);
 				std::optional<FGBufferDebugRenderer::FTargets> DebugTargets;
 				if (PassParameters.Resources.GBufferDebugOutput)
 					DebugTargets = {.Color = Resolver.GetColorAttachment(
@@ -225,7 +284,7 @@ namespace Durin
 					bPresentOutput, LocalOptions, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					DebugTargets ? &*DebugTargets : nullptr,
-					SceneColorInput, IsolatedDeferredOutput,
+					SceneColorInput, MaterialColorInput, IsolatedDeferredOutput,
 					bHasEditorAssistance
 				);
 			});
@@ -248,6 +307,7 @@ namespace Durin
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FGBufferDebugRenderer::FTargets* GBufferDebugTargets,
 		FRHITexture* SceneColor,
+		FRHITexture* MaterialColor,
 		FRHITexture* GroundTruthAmbientOcclusionDebugOutput,
 		bool bEditorAssistanceFollows
 	) -> FPostProcessPassResult
@@ -256,7 +316,7 @@ namespace Durin
 		const uint32 Height = OutputTarget->GetSizeY();
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
-		FRHITexture* PostProcessInput = SceneColor;
+		FRHITexture* PostProcessInput = MaterialColor ? MaterialColor : SceneColor;
 		if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 			&& GBufferTargets != nullptr)
 		{

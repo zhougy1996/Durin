@@ -12,6 +12,7 @@ namespace Durin
 {
 	class FGBufferDebugRenderer;
 	class FPostProcessRenderer;
+	struct FPreparedPostProcessMaterial;
 	struct FSceneRenderTelemetry;
 
 	struct FPostProcessPassResources final
@@ -26,6 +27,7 @@ namespace Durin
 		std::array<std::optional<FRDGTextureParameter>, 3> GBuffer;
 		std::optional<FRDGTextureParameter> IsolatedDeferred;
 		std::optional<FRDGTextureParameter> BasePassDebug;
+		std::optional<FRDGTextureParameter> MaterialOutput;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
@@ -36,6 +38,7 @@ namespace Durin
 		TRDGValueRead<FSceneColorPassResult> SceneColor;
 		std::optional<TRDGValueRead<FIsolatedDeferredPassResult>> DeferredLighting;
 		std::optional<TRDGValueRead<FGBufferPassResult>> BasePassDebugCompletion;
+		std::optional<TRDGValueRead<bool>> MaterialCompletion;
 		TRDGValueWrite<FPostProcessPassResult> Completion;
 		FPostProcessPassResources Resources;
 
@@ -67,6 +70,7 @@ namespace Durin
 		const FSceneFeatureDecision& GBufferDebugFeature;
 		const FSceneFeatureDecision& EditorAssistanceFeature;
 		bool bPresentOutput;
+		std::shared_ptr<const FPreparedPostProcessMaterial> Material;
 	};
 
 	inline constexpr std::string_view PostProcessPassName = "Scene.PostProcess";

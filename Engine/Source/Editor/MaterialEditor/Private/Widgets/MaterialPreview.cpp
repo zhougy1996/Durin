@@ -7,6 +7,8 @@
 #include "Engine/Actor.h"
 #include "Materials/MaterialCompilationConfiguration.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/Material.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Preview/AssetPreviewHost.h"
@@ -20,6 +22,13 @@ namespace Durin::MaterialEditor
 {
 	namespace
 	{
+		auto IsPostProcessMaterial(DMaterialInterface* Material) -> bool
+		{
+			if (!Material) return false;
+			while (Material->GetParent()) Material = Material->GetParent();
+			const auto* Root = Cast<DMaterial>(Material);
+			return Root && Root->GetDomain() == EMaterialDomain::PostProcess;
+		}
 		constexpr float PreviewRotationSensitivity = 0.25f;
 		constexpr double PreviewMinZoom = 0.4;
 		constexpr double PreviewMaxZoom = 4.0;
@@ -165,6 +174,8 @@ namespace Durin::MaterialEditor
 			if (Host) Host->SetVisible(bInVisible);
 		}
 
+		auto SetMaterial(DMaterialInterface* Material) -> void { UpdateScene(Material); }
+
 		auto Draw(DMaterialInterface* Material, float PanelHeight) -> void
 		{
 			if (!ImGui::BeginChild("MaterialPreview", ImVec2(0.0f, PanelHeight), ImGuiChildFlags_None))
@@ -184,7 +195,7 @@ namespace Durin::MaterialEditor
 			SetVisible(true);
 			const char* ShapeLabel = Shape == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(120.0f));
-			if (ImGui::BeginCombo("Preview Mesh", ShapeLabel))
+			if (ImGui::BeginCombo(IsPostProcessMaterial(Material) ? "Input Mesh" : "Preview Mesh", ShapeLabel))
 			{
 				for (const EMaterialPreviewShape Candidate : {EMaterialPreviewShape::Sphere, EMaterialPreviewShape::Box})
 				{
@@ -216,6 +227,7 @@ namespace Durin::MaterialEditor
 						Candidate == PreviewQuality))
 					{
 						PreviewQuality = Candidate;
+						bProxyDirty = true;
 						if (Material) Material->RequestPreviewProgramCompile(
 							PreviewQuality, PreviewFeatureLevel);
 					}
@@ -246,6 +258,7 @@ namespace Durin::MaterialEditor
 				ImGui::EndCombo();
 			}
 			UpdateScene(Material);
+			if (IsPostProcessMaterial(Material)) ImGui::TextUnformatted("PostProcess: studio scene before tone mapping");
 			if (!SceneStatus.empty())
 			{
 				SetVisible(false);
@@ -288,7 +301,8 @@ namespace Durin::MaterialEditor
 		auto UpdateScene(DMaterialInterface* Material) -> void
 		{
 			if (PreviewMesh == nullptr || Material == nullptr) return;
-			if (bProxyDirty || Material != CurrentMaterial)
+			const bool bPostProcess = IsPostProcessMaterial(Material);
+			if (bProxyDirty || Material != CurrentMaterial || bPostProcess != bPostProcessInput)
 			{
 				DStaticMesh* Mesh = GetSelectedMesh();
 				if (Mesh == nullptr || Mesh->GetRenderData() == nullptr)
@@ -305,10 +319,13 @@ namespace Durin::MaterialEditor
 					ViewportClient->SetRadius(Math::Length(Bounds->GetCenter()) + (Shape == EMaterialPreviewShape::Sphere
 						? std::max({Extent.x, Extent.y, Extent.z}) : Math::Length(Extent)));
 				}
+				ViewportClient->SetPostProcessMaterial(bPostProcess ? Material : nullptr,
+					bPostProcess ? Material->GetRenderProxy(PreviewFeatureLevel, PreviewQuality) : FMaterialRenderProxyRef{});
 				for (uint32 SlotIndex = 0; SlotIndex < PreviewMesh->GetNumMaterials(); ++SlotIndex)
-					PreviewMesh->SetMaterial(SlotIndex, Material);
+					PreviewMesh->SetMaterial(SlotIndex, bPostProcess ? GetDefaultMaterial() : Material);
 				PreviewMesh->SetWorldRotation(PreviewRotation);
 				CurrentMaterial = Material;
+				bPostProcessInput = bPostProcess;
 				bProxyDirty = false;
 			}
 		}
@@ -324,6 +341,7 @@ namespace Durin::MaterialEditor
 		EMaterialQualityLevel PreviewQuality = EMaterialQualityLevel::High;
 		ERHIFeatureLevel PreviewFeatureLevel = ERHIFeatureLevel::SM5;
 		bool bProxyDirty = true;
+		bool bPostProcessInput = false;
 		// Mesh readiness is retried each frame; initialization errors are terminal.
 		std::string SceneStatus;
 		std::string Error;
@@ -339,6 +357,11 @@ namespace Durin::MaterialEditor
 	auto FMaterialPreview::SetVisible(bool bInVisible) -> void
 	{
 		Impl->SetVisible(bInVisible);
+	}
+
+	auto FMaterialPreview::SetMaterial(DMaterialInterface* Material) -> void
+	{
+		Impl->SetMaterial(Material);
 	}
 
 	auto FMaterialPreview::Draw(DMaterialInterface* Material, float PanelHeight) -> void

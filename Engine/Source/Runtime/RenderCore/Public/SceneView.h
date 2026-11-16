@@ -11,6 +11,8 @@
 
 namespace Durin
 {
+	class FMaterialRenderProxy;
+
 	// Selects whether one scene view evaluates material lighting.
 	enum class ERenderMode : uint8
 	{
@@ -129,6 +131,8 @@ namespace Durin
 		// Manual display exposure in EV stops. Renderer canonicalizes non-finite
 		// values to zero and clamps authored values to the display contract range.
 		float ExposureEV = 0.0f;
+		// Engine owns the asset; this counted snapshot never exposes authoring objects.
+		std::shared_ptr<FMaterialRenderProxy> Material;
 	};
 
 	struct FSceneViewDirectionalShadowSettings

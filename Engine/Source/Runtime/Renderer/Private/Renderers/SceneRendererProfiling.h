@@ -39,6 +39,8 @@ namespace Durin
 		std::optional<uint32> LocalLightRecordBudget;
 		bool bMeasureLocalLights = false;
 		bool bFailLocalLightAllocation = false;
+		bool bFailPostProcessMaterialPreparation = false;
+		bool bFailPostProcessMaterialBindings = false;
 		bool bEnableGBuffer = false;
 		bool bEnableDeferredDirectional = false;
 		bool bEnableGroundTruthAmbientOcclusion = false;

@@ -24,6 +24,14 @@ namespace Durin
 		const FRDGParameterResolver& Resolver, const FMaterialSceneTextureUniform& Uniform)
 		-> std::expected<FMaterialSceneTextureBindings, std::string>
 	{
+		return ResolveMaterialSceneTextureBindings(Commands, Reflection,
+			Resolver.GetTexture(Parameters.PostProcessInput0), Resolver.GetTexture(Parameters.SceneDepth), Uniform);
+	}
+	auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
+		const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
+		const FMaterialSceneTextureUniform& Uniform)
+		-> std::expected<FMaterialSceneTextureBindings, std::string>
+	{
 		FMaterialSceneTextureBindings Result;
 		std::array<bool, 5> Seen{};
 		const std::array Names{"MaterialSceneTextures", "PostProcessInput0", "MaterialSceneDepth", "MaterialScenePointSampler", "MaterialSceneLinearSampler"};
@@ -43,7 +51,7 @@ namespace Durin
 			}
 			else if (Slot < 3)
 			{
-				auto* Texture = Slot == 1 ? Resolver.GetTexture(Parameters.PostProcessInput0) : Resolver.GetTexture(Parameters.SceneDepth);
+				auto* Texture = Slot == 1 ? Input0 : Depth;
 				if (!Texture) return std::unexpected("A required material scene texture is unavailable during binding.");
 				auto View = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
 				View.Range = {Slot == 1 ? ERHITextureAspect::Color : ERHITextureAspect::Depth, 0, 1, 0, 1};
@@ -64,7 +72,7 @@ namespace Durin
 	}
 
 	auto PlanMaterialSceneTextures(FRDGBuilder& Graph, const FMaterialShaderEntryRequest& Entry,
-		const FMaterialSceneTextureInputs& Inputs) -> std::expected<FMaterialSceneTexturePlan, std::string>
+		const FMaterialSceneTextureInputs& Inputs, std::optional<FRDGTextureHandle> Output) -> std::expected<FMaterialSceneTexturePlan, std::string>
 	{
 		if (Entry.Shader.ShaderType != "PostProcessMaterial" || Entry.Shader.EntryPoint != "PostProcessMaterialMain"
 			|| Entry.Shader.Frequency != EShaderFrequency::Fragment || Entry.Shader.PassContractVersion != CurrentMaterialPassContractVersion || Entry.Mesh || Entry.Requirements.SceneTextures.empty())
@@ -116,10 +124,24 @@ namespace Durin
 		Plan.Uniform.ProjectionRows = Inputs.ProjectionRows;
 		Plan.Uniform.DepthParameters.x = Inputs.ClearDepth;
 		const auto& Input0 = *Inputs.PostProcessInput0;
-		Plan.Output = {Graph.CreateTexture({.Texture = FRHITextureCreateDesc::Create2D("MaterialPostProcessOutput",
-			Input0.ViewSize.x, Input0.ViewSize.y, EPixelFormat::RGBA16_FLOAT)
-			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)}, "Material.PostProcessOutput"),
-			{0, 0}, Input0.ViewSize};
+		if (Output)
+		{
+			const auto Desc = Graph.GetTextureDesc(*Output);
+			const auto InputDesc = Graph.GetTextureDesc(Input0.Texture);
+			if (!Desc || !InputDesc || *Output == Input0.Texture || (Inputs.SceneDepth && *Output == Inputs.SceneDepth->Texture)
+				|| Desc->Extent != InputDesc->Extent || Desc->Format != EPixelFormat::RGBA16_FLOAT
+				|| Desc->Dimension != ETextureDimension::Texture2D || Desc->ArraySize != 1 || Desc->NumMips != 1
+				|| Desc->NumSamples != 1 || !(Desc->Flags & ETextureCreateFlags::RenderTargetable)
+				|| !(Desc->Flags & ETextureCreateFlags::ShaderResource)) return std::unexpected("Invalid material effect output.");
+			Plan.Output = {*Output, Input0.ViewMin, Input0.ViewSize};
+		}
+		else
+		{
+			Plan.Output = {Graph.CreateTexture({.Texture = FRHITextureCreateDesc::Create2D("MaterialPostProcessOutput",
+				Input0.ViewSize.x, Input0.ViewSize.y, EPixelFormat::RGBA16_FLOAT)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)}, "Material.PostProcessOutput"),
+				{0, 0}, Input0.ViewSize};
+		}
 		Plan.Parameters = Graph.AllocParameters<FMaterialSceneTexturePassParameters>();
 		Plan.Parameters->PostProcessInput0 = {Input0.Texture, {ERHITextureAspect::Color, 0, 1, 0, 1}};
 		if (Required[1]) Plan.Parameters->SceneDepth = {Inputs.SceneDepth->Texture, {ERHITextureAspect::Depth, 0, 1, 0, 1}};

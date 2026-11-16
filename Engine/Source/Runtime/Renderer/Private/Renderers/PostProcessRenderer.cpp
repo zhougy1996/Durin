@@ -1,6 +1,16 @@
 #include "Renderers/PostProcessRenderer.h"
 
 #include "Renderers/DisplayMapping.h"
+#include "Renderers/SurfaceMaterial.h"
+#include "Renderers/MaterialBindingResolution.h"
+#include "Renderers/MaterialSceneTextures.h"
+#include "Renderers/SceneViewPreparation.h"
+#include "Materials/MaterialShaderMap.h"
+#include "Resources/DefaultTextureResources.h"
+#include "Scene.h"
+#include "SceneView.h"
+#include "DynamicRHI.h"
+#include "RDG/RDG.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -125,6 +135,12 @@ namespace Durin
 		using FSlot = TRenderResourceCreationSlot<FPayload>;
 		// Two shader routes, two formats, and three output attachment layouts.
 		std::array<std::unique_ptr<FSlot>, 12> Slots;
+		struct FMaterialPipeline { FShaderRHIRef Vertex, Fragment; FGraphicsPipelineStateRHIRef Pipeline; };
+		using FMaterialSlot = TRenderResourceCreationSlot<FMaterialPipeline>;
+		std::vector<std::pair<std::shared_ptr<const FMaterialProgram>, std::unique_ptr<FMaterialSlot>>> MaterialSlots;
+		std::unique_ptr<RendererPrivate::FSurfaceMaterialResources> MaterialResources;
+		FTextureRHIRef MaterialOutput;
+		std::string MaterialDiagnostic;
 	};
 
 	FPostProcessRenderer::FPostProcessRenderer(
@@ -304,8 +320,163 @@ namespace Durin
 		CommandList.DrawIndexed(3, 0, 0);
 	}
 
+	auto FPostProcessRenderer::PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands,
+		const FSceneView& View, const FSceneViewRenderOptions& Options, FScene* Scene, uint32 Width, uint32 Height,
+		bool bRejectPreparation, bool bRejectBindings)
+		-> std::shared_ptr<const FPreparedPostProcessMaterial>
+	{
+		using namespace RendererPrivate;
+		const auto& Proxy = View.Settings.PostProcess.Material;
+		if (!Proxy || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
+			|| Options.DeferredDirectionalDebugMode != EDeferredDirectionalDebugMode::Disabled
+			|| Options.GroundTruthAmbientOcclusionDebugMode != EGroundTruthAmbientOcclusionDebugMode::Disabled
+			|| View.Settings.DirectionalShadow.bShowContactDebug
+			|| View.Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit
+			|| View.Settings.VolumetricCloud.DebugMode != EVolumetricCloudDebugMode::Lit)
+		{
+			State->MaterialOutput = nullptr;
+			return {};
+		}
+		if (bRejectPreparation) return {};
+		const auto* Data = Proxy->GetMaterialNoFallback();
+		if (!Data || !Data->CompiledProgram)
+		{
+			const std::string Diagnostic = Proxy->IsCompiling() ? "pending without an accepted program" : "missing or failed accepted program";
+			if (State->MaterialDiagnostic != Diagnostic)
+				DURIN_WARN("PostProcess material bypassed: {}. Material compiler diagnostics remain on the material.", Diagnostic);
+			State->MaterialDiagnostic = Diagnostic;
+			State->MaterialOutput = nullptr;
+			return {};
+		}
+		State->MaterialDiagnostic.clear();
+		const auto Program = Data->CompiledProgram;
+		const auto& Map = Program->GetShaderMap();
+		if (Map.Domain != EMaterialDomain::PostProcess || Map.Entries.size() != 1
+			|| Map.CompiledShaders.size() != 1 || Map.Entries[0].Mesh
+			|| Map.Entries[0].Shader.ShaderType != "PostProcessMaterial"
+			|| Map.PassContractVersion != CurrentMaterialPassContractVersion) return {};
+		auto Found = std::ranges::find_if(State->MaterialSlots, [&](const auto& Item) { return Item.first == Program; });
+		if (Found == State->MaterialSlots.end())
+		{
+			if (State->MaterialSlots.size() == 8) State->MaterialSlots.erase(State->MaterialSlots.begin());
+			State->MaterialSlots.emplace_back(Program, std::make_unique<FState::FMaterialSlot>(
+				ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device));
+			Found = std::prev(State->MaterialSlots.end());
+		}
+		using FResult = TRenderResourceCreateResult<FState::FMaterialPipeline>;
+		const auto* Pipeline = Found->second->Resolve(Coordinator.GetGeneration_RenderThread(), [&]() -> FResult {
+			FState::FMaterialPipeline Candidate;
+			for (const auto& Slot : State->Slots)
+				if (Slot && Slot->GetPayload()) { Candidate.Vertex = Slot->GetPayload()->VertexShader.GetRHIShader(false); break; }
+			const auto& Code = Map.CompiledShaders[0];
+			auto Desc = FRHIShaderCreateDesc::Create("PostProcessMaterial", Code.Frequency, Code.Code, Code.CodeHash);
+			Desc.SetEntryPoint(Code.BinaryEntryPoint.c_str());
+			Candidate.Fragment = GDynamicRHI->RHICreateShader(Desc);
+			FPipelineLayoutDesc Layout;
+			if (Candidate.Vertex && Candidate.Fragment && BuildPipelineLayoutFromShaders(std::span(&Code, 1), Layout))
+			{
+				FRHIRenderTargetLayout Targets;
+				Targets.NumColorRenderTargets = 1;
+				Targets.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(EPixelFormat::RGBA16_FLOAT,
+					ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
+				Candidate.Pipeline = CreatePostProcessPipeline("PostProcessMaterial", Candidate.Vertex, Candidate.Fragment,
+					FullscreenGeometry.GetVertexDeclaration_RenderThread(), Layout, Targets);
+			}
+			if (!Candidate.Pipeline) return FResult::Failure(MakeRendererResourceCreateError(
+				ERenderResourceCreateErrorCategory::GraphicsPipeline, "PostProcessMaterial", "optional-effect",
+				ERenderResourceCreateErrorReason::PipelinePreparationRejected,
+				ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
+			return FResult::Success(std::move(Candidate));
+		}, ReportRendererResourceCreateDiagnostic);
+		if (!Pipeline) return {};
+		auto Prepared = std::make_shared<FPreparedPostProcessMaterial>();
+		Prepared->Program = Program;
+		Prepared->bRejectBindings = bRejectBindings;
+		Prepared->Vertex = Pipeline->Vertex; Prepared->Fragment = Pipeline->Fragment; Prepared->Pipeline = Pipeline->Pipeline;
+		if (!ResolvePreparedMaterialBinding(*Data, Prepared->Material, "PostProcessMaterial")) return {};
+		if (!State->MaterialResources) State->MaterialResources = std::make_unique<FSurfaceMaterialResources>(Coordinator, GetDefaultTextureResources());
+		FResolvedSurfaceMaterial Material;
+		if (!State->MaterialResources->Ensure_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess)
+			|| !State->MaterialResources->Resolve_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess, {}, nullptr, nullptr, Material)) return {};
+		auto Reflection = Map.CompiledShaders[0].Reflection;
+		std::erase_if(Reflection.ResourceBindings, [](const auto& B) { return B.SetIndex == 0 && B.BindingIndex >= 40 && B.BindingIndex <= 44; });
+		const FCompiledSurfaceBindingLayout Layout(Reflection);
+		if (!Layout.IsValid()) return {};
+		for (const auto& Entry : Layout.GetEntries())
+			if (Entry.Source != FCompiledSurfaceBindingLayout::ESource::View && Entry.Source != FCompiledSurfaceBindingLayout::ESource::Material
+				&& Entry.Source != FCompiledSurfaceBindingLayout::ESource::Texture && Entry.Source != FCompiledSurfaceBindingLayout::ESource::Sampler
+				&& Entry.Source != FCompiledSurfaceBindingLayout::ESource::Collection) return {};
+		const auto RetainUniform = [&](FByteView Payload) {
+			const auto Range = Payload.empty() ? FRHIUniformBufferRange{} : Commands.CreateUniformBufferRange(Payload.data(), Payload.size());
+			if (Range.Buffer) Prepared->Resources.emplace_back(Range.Buffer);
+			return Range;
+		};
+		const auto MaterialBuffer = RetainUniform(Prepared->Material.CompiledUniformPayload);
+		const auto ViewBuffer = PrepareMeshViewUniform(Commands, View, false);
+		if (!ViewBuffer.Buffer) return {};
+		Prepared->Resources.emplace_back(ViewBuffer.Buffer);
+		std::vector<FRHIUniformBufferRange> Collections;
+		for (const auto& Required : Program->ActiveCollections)
+		{
+			const auto Snapshot = Scene ? Scene->GetMaterialParameterCollection_RenderThread(Required.CollectionId) : nullptr;
+			if (Snapshot && !Snapshot->Layout.HasCompatibleSchema(Required)) return {};
+			const FByteView Payload = Snapshot ? FByteView(Snapshot->Payload) : FByteView(Required.DefaultPayload);
+			if (Payload.size() != Required.UniformLayout.UniformPayloadSize) return {};
+			Collections.push_back(RetainUniform(Payload));
+			if (!Collections.back().Buffer) return {};
+		}
+		FMeshDrawShaderBindings Bindings;
+		if (!PrepareCompiledSurfaceMaterial(Prepared->Fragment, Layout, Material, MaterialBuffer, {}, {}, ViewBuffer, {}, Collections, Bindings)) return {};
+		Prepared->Bindings = std::move(Bindings.Parameters);
+		for (auto& Binding : Prepared->Bindings)
+		{
+			if (Binding.Type == ERHIBindingType::UniformBufferDynamic) Binding.Type = ERHIBindingType::UniformBuffer;
+			if (Binding.Resource) Prepared->Resources.emplace_back(Binding.Resource);
+		}
+		if (!State->MaterialOutput || State->MaterialOutput->GetSizeX() != Width || State->MaterialOutput->GetSizeY() != Height)
+		{
+			State->MaterialOutput = GDynamicRHI->RHICreateTexture(Commands, FRHITextureCreateDesc::Create2D(
+				"PostProcessMaterialOutput", Width, Height, EPixelFormat::RGBA16_FLOAT)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy));
+			if (State->MaterialOutput) Commands.TransitionTextures(std::array{FRHITextureTransition{State->MaterialOutput,
+				{ERHITextureAspect::Color, 0, 1, 0, 1}, ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead}});
+		}
+		if (!State->MaterialOutput) return {};
+		Prepared->Output = State->MaterialOutput;
+		return Prepared;
+	}
+
+	auto FPostProcessRenderer::DrawMaterial_RenderThread(FRHICommandListImmediate& Commands,
+		const FPreparedPostProcessMaterial& Prepared, FRHITexture* Input0, FRHITexture* Depth,
+		const FMaterialSceneTextureUniform& Uniform) -> bool
+	{
+		if (Prepared.bRejectBindings || !Input0 || Input0 == Prepared.Output.GetReference() || !Prepared.Output || !Prepared.Pipeline) return false;
+		auto Scene = ResolveMaterialSceneTextureBindings(Commands, Prepared.Program->GetShaderMap().CompiledShaders[0].Reflection, Input0, Depth, Uniform);
+		if (!Scene) return false;
+		auto Bindings = Prepared.Bindings;
+		Bindings.insert(Bindings.end(), Scene->Parameters.begin(), Scene->Parameters.end());
+		FRHIRenderPassInfo Pass;
+		Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+		Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(EPixelFormat::RGBA16_FLOAT,
+			ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
+		Pass.ColorRenderTargets[0] = Prepared.Output;
+		Commands.BeginRenderPass(Pass, "Scene.PostProcessMaterial");
+		Commands.SetGraphicsPipelineState(*Prepared.Pipeline);
+		const auto Width = Prepared.Output->GetSizeX(), Height = Prepared.Output->GetSizeY();
+		Commands.SetViewport(0, 0, 0, Width, Height, 1); Commands.SetScissor(0, 0, Width, Height);
+		Commands.SetShaderParameters(Prepared.Fragment, Bindings);
+		Commands.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+		Commands.BindIndexBuffer(FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+		Commands.DrawIndexed(3, 0, 0);
+		Commands.EndRenderPass();
+		return true;
+	}
+
 	auto FPostProcessRenderer::ReleaseResources_RenderThread() -> void
 	{
 		for (auto& Slot : State->Slots) Slot.reset();
+		State->MaterialSlots.clear();
+		State->MaterialOutput = nullptr;
+		if (State->MaterialResources) State->MaterialResources->ReleaseResources_RenderThread();
 	}
 } // namespace Durin

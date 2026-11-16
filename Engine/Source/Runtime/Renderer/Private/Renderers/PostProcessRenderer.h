@@ -3,12 +3,30 @@
 #include "CoreMinimal.h"
 
 #include "RHIResources.h"
+#include "RHIShaderParameters.h"
+#include "Materials/MaterialRenderTypes.h"
 
 namespace Durin
 {
 	class FFullscreenGeometryResources;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
+	class FScene;
+	struct FSceneView;
+	struct FSceneViewRenderOptions;
+	struct FMaterialSceneTextureUniform;
+	struct FPreparedPostProcessMaterial
+	{
+		std::shared_ptr<const FMaterialProgram> Program;
+		FMaterialRenderBinding Material;
+		FShaderRHIRef Fragment;
+		FShaderRHIRef Vertex;
+		FGraphicsPipelineStateRHIRef Pipeline;
+		FTextureRHIRef Output;
+		std::vector<FRHIShaderParameterResource> Bindings;
+		std::vector<TRefCountPtr<FRHIResource>> Resources;
+		bool bRejectBindings = false;
+	};
 
 	// Owns post-process shaders and output pipelines while recording into
 	// caller-provided scene targets.
@@ -59,6 +77,13 @@ namespace Durin
 			bool bHasEditorAssistance,
 			EPixelFormat OutputFormat,
 			float ExposureEV) -> void;
+		auto PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands,
+			const FSceneView& View, const FSceneViewRenderOptions& Options, FScene* Scene, uint32 Width, uint32 Height,
+			bool bRejectPreparation = false, bool bRejectBindings = false)
+			-> std::shared_ptr<const FPreparedPostProcessMaterial>;
+		auto DrawMaterial_RenderThread(FRHICommandListImmediate& Commands,
+			const FPreparedPostProcessMaterial& Prepared, FRHITexture* Input0,
+			FRHITexture* Depth, const FMaterialSceneTextureUniform& Uniform) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

@@ -60,7 +60,10 @@ bounded display-linear RGB. This fused route adds no display-sized
 intermediate. FXAA keeps the mapped center alpha.
 
 All scene draws and optional contact-shadow composition finish in HDR. Display
-mapping and optional FXAA then write the SDR output. Editor grid, gizmos,
+mapping and optional FXAA then write the SDR output. An optional per-view
+[PostProcess material](../Materials/MaterialSceneInputs.md#per-view-slot-and-preview)
+runs between completed HDR composition and that display transform, with a
+separate HDR output and local failure bypass. Editor grid, gizmos,
 overlay lines, and icons load that output afterward, preserving their crisp
 SDR design. Present/offscreen selection changes only the final resource state,
 not color processing.
@@ -76,7 +79,8 @@ invalidation clears dependent resources before retry.
 Scene Color and depth cost 12 bytes per pixel (8 + 4), or `24,883,200` bytes
 at 1920x1080. They are frame-transient graph targets.
 Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
-feature byte costs do not define independent cache quotas.
+feature byte costs do not define independent cache quotas. The optional material
+slot adds one RGBA16F output (8 bytes/pixel); the disabled slot adds none.
 
 ## Validation Contract
 
