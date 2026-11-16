@@ -958,3 +958,8 @@ durin_add_native_test(AssetCompatibilityAuditQualificationTests
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Measures the editor compatibility audit worker and presentation mailbox."
 )
+
+target_include_directories(ContentBrowserWorkflowTests PRIVATE
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetTools/Private
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/ContentBrowserFileDataSource/Private
+)

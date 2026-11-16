@@ -1,4 +1,4 @@
-#include "AssetTools/ContentDeletionOperation.h"
+#include "Data/FileDeletionOperation.h"
 #include "Misc/ContentPathInspection.h"
 #include "Misc/ContentMountPaths.h"
 
@@ -25,16 +25,16 @@ namespace Durin::ContentStorage
 
 	}
 
-	FContentDeletionOperation::FContentDeletionOperation(
-		FContentDeletionPlanPtr InPlan,
-		FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles)
-		: Plan(std::move(InPlan)), AssetOperation(std::move(InAssetOperation)), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles)
+	FFileDeletionOperation::FFileDeletionOperation(
+		FFileDeletionPlanPtr InPlan,
+		FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles, std::shared_ptr<FAssetDeleteModel> InModel)
+		: Plan(std::move(InPlan)), Model(std::move(InModel)), AssetOperation(std::move(InAssetOperation)), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles)
 	{
 		ContributorRevision = GetAssetDeleteContributorRevision();
 		if (!Hooks.RemoveEntry) Hooks.RemoveEntry = DefaultRemoveEntry;
 	}
 
-	auto FContentDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly, std::optional<UnifiedError::FError>* OutError) -> bool
+	auto FFileDeletionOperation::ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly, std::optional<UnifiedError::FError>* OutError) -> bool
 	{
 		if (OutError) OutError->reset();
 		if (!Plan) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, "The deletion plan is unavailable."});
@@ -51,14 +51,14 @@ namespace Durin::ContentStorage
 		};
 		FAssetDeletionFileIdentities VerifiedFiles;
 		std::unordered_set<std::string> ExpectedPaths;
-		for (const FContentDeletionFingerprint& Entry : Plan->Entries)
+		for (const FFileDeletionFingerprint& Entry : Plan->Entries)
 		{
 			const std::filesystem::path Path = Normalize(Entry.PhysicalPath);
 			ExpectedPaths.insert(Path.generic_string());
-			if (OwnedOnly && (Entry.Kind == EContentDeletionEntryKind::AssetPackage || Entry.Kind == EContentDeletionEntryKind::ManagedCompanion)) continue;
+			if (OwnedOnly && (Entry.Kind == EFileDeletionEntryKind::AssetPackage || Entry.Kind == EFileDeletionEntryKind::ManagedCompanion)) continue;
 			std::error_code Error;
 			const auto Status = std::filesystem::symlink_status(Path, Error);
-			if (OwnedOnly && Entry.Kind == EContentDeletionEntryKind::Directory && (Error == std::errc::no_such_file_or_directory || Status.type() == std::filesystem::file_type::not_found)) continue;
+			if (OwnedOnly && Entry.Kind == EFileDeletionEntryKind::Directory && (Error == std::errc::no_such_file_or_directory || Status.type() == std::filesystem::file_type::not_found)) continue;
 			if (Error) return InspectionFailure(Path, Error);
 			if (!std::filesystem::exists(Status) || std::filesystem::is_symlink(Status)) return Changed(Path);
 #ifdef _WIN32
@@ -67,7 +67,7 @@ namespace Durin::ContentStorage
 				return InspectionFailure(Path, std::error_code(static_cast<int>(GetLastError()), std::system_category()));
 			if ((Attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return Changed(Path);
 #endif
-			const bool bDirectory = Entry.Kind == EContentDeletionEntryKind::Directory;
+			const bool bDirectory = Entry.Kind == EFileDeletionEntryKind::Directory;
 			if (bDirectory != std::filesystem::is_directory(Status)) return Changed(Path);
 			if (!bDirectory)
 			{
@@ -88,7 +88,7 @@ namespace Durin::ContentStorage
 			if (!(OwnedOnly && bDirectory) && static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks) return Changed(Path);
 		}
 
-		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
+		for (const FFileDeletionRoot& Root : Plan->MaximalRoots)
 		{
 			const std::filesystem::path Path = Normalize(Root.OriginalPath);
 			std::error_code Error;
@@ -108,7 +108,7 @@ namespace Durin::ContentStorage
 		return true;
 	}
 
-	auto FContentDeletionOperation::DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult
+	auto FFileDeletionOperation::DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult
 	{
 		bStarted = true;
 		FAssetWriteResult Status;
@@ -126,9 +126,9 @@ namespace Durin::ContentStorage
 		};
 		auto Entries = Plan->Entries;
 		std::ranges::sort(Entries, [](const auto& A, const auto& B) {
-			const bool AD = A.Kind == EContentDeletionEntryKind::Directory, BD = B.Kind == EContentDeletionEntryKind::Directory;
+			const bool AD = A.Kind == EFileDeletionEntryKind::Directory, BD = B.Kind == EFileDeletionEntryKind::Directory;
 			if (AD != BD) return !AD;
-			const bool AC = A.Kind == EContentDeletionEntryKind::ManagedCompanion, BC = B.Kind == EContentDeletionEntryKind::ManagedCompanion;
+			const bool AC = A.Kind == EFileDeletionEntryKind::ManagedCompanion, BC = B.Kind == EFileDeletionEntryKind::ManagedCompanion;
 			if (AC != BC) return !AC;
 			if (AD && A.PhysicalPath.size() != B.PhysicalPath.size()) return A.PhysicalPath.size() > B.PhysicalPath.size();
 			return A.PhysicalPath < B.PhysicalPath;
@@ -136,19 +136,19 @@ namespace Durin::ContentStorage
 		std::unordered_set<std::string> Removed;
 		for (const auto& Entry : Entries)
 		{
-			if (!DeleteAssets && (Entry.Kind == EContentDeletionEntryKind::AssetPackage || Entry.Kind == EContentDeletionEntryKind::ManagedCompanion)) continue;
-			if (!DeleteFiles && (Entry.Kind == EContentDeletionEntryKind::OrdinaryFile || Entry.Kind == EContentDeletionEntryKind::Directory)) continue;
+			if (!DeleteAssets && (Entry.Kind == EFileDeletionEntryKind::AssetPackage || Entry.Kind == EFileDeletionEntryKind::ManagedCompanion)) continue;
+			if (!DeleteFiles && (Entry.Kind == EFileDeletionEntryKind::OrdinaryFile || Entry.Kind == EFileDeletionEntryKind::Directory)) continue;
 			if (Hooks.ShouldCancel && Hooks.ShouldCancel()) Effects.bCancelled = true;
 			if (Hooks.CanExecuteEffect && !Hooks.CanExecuteEffect()) Effects.bStopped = true;
 			if (ContributorRevision != GetAssetDeleteContributorRevision() || (DeleteAssets && AssetOperation.GetRegistryRevision() != GetAssetCatalogRevision())) Effects.bStopped = true;
 			if (Effects.bCancelled || Effects.bStopped)
-			{ Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, "Deletion stopped before this effect."); if (!Status.Error) Fail(UnifiedError::FError{Effects.bCancelled ? AssetWriteErrors::Cancelled : AssetWriteErrors::StaleData, "Deletion stopped before this effect."}); continue; }
-			if (Entry.Kind == EContentDeletionEntryKind::ManagedCompanion)
+			{ Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "Deletion stopped before this effect."); if (!Status.Error) Fail(UnifiedError::FError{Effects.bCancelled ? AssetWriteErrors::Cancelled : AssetWriteErrors::StaleData, "Deletion stopped before this effect."}); continue; }
+			if (Entry.Kind == EFileDeletionEntryKind::ManagedCompanion)
 			{
 				const bool OwnerSurvives = std::ranges::any_of(AssetOperation.GetEntries(), [&](const auto& Asset) {
 					return std::ranges::any_of(Asset.CompanionFiles, [&](const auto& Path) { return Normalize(Path).generic_string() == Entry.PhysicalPath; }) && !Removed.contains(Normalize(Asset.RegistryEntry.PhysicalPath).generic_string());
 				});
-				if (OwnerSurvives) { Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, "Companion retained because its package was not removed."); continue; }
+				if (OwnerSurvives) { Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "Companion retained because its package was not removed."); continue; }
 			}
 			const auto Mount = FContentMountPaths::ResolveMountPath(Entry.PhysicalPath);
 			std::error_code Ec;
@@ -156,42 +156,42 @@ namespace Durin::ContentStorage
 			const bool Invalid = !Mount || !Mount.Mount->bContentWritable
 				|| FindReparsePointInPath(Mount.Mount->GetContentDir(), Entry.PhysicalPath, Reparse, Ec) || Ec;
 			if (Ec && Ec != std::errc::no_such_file_or_directory && Ec != std::errc::not_a_directory)
-			{ Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
+			{ Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
 			const auto Current = std::filesystem::symlink_status(Entry.PhysicalPath, Ec);
-			if (!DeleteAssets && Entry.Kind == EContentDeletionEntryKind::Directory && (Ec == std::errc::no_such_file_or_directory || Current.type() == std::filesystem::file_type::not_found)) { Effects.bNoChanges = true; continue; }
-			if (!DeleteAssets && Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)
+			if (!DeleteAssets && Entry.Kind == EFileDeletionEntryKind::Directory && (Ec == std::errc::no_such_file_or_directory || Current.type() == std::filesystem::file_type::not_found)) { Effects.bNoChanges = true; continue; }
+			if (!DeleteAssets && Entry.Kind == EFileDeletionEntryKind::OrdinaryFile)
 			{
 				FAssetCompanionOwnership Ownership;
 				std::optional<UnifiedError::FError> OwnershipError;
 				if (!QueryAssetCompanionOwnership(Entry.PhysicalPath, Ownership, &OwnershipError))
-				{ Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, OwnershipError->ToString()); Effects.bStopped = true; Fail(std::move(*OwnershipError)); continue; }
+				{ Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, OwnershipError->ToString()); Effects.bStopped = true; Fail(std::move(*OwnershipError)); continue; }
 				if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
-				{ Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, "File ownership changed before deletion."); Effects.bStopped = true; Fail(UnifiedError::FError{AssetWriteErrors::StaleData, "File ownership changed."}); continue; }
+				{ Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "File ownership changed before deletion."); Effects.bStopped = true; Fail(UnifiedError::FError{AssetWriteErrors::StaleData, "File ownership changed."}); continue; }
 			}
 			if (Ec && Ec != std::errc::no_such_file_or_directory && Ec != std::errc::not_a_directory)
-			{ Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
+			{ Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
 			bool Changed = Invalid || Ec || std::filesystem::is_symlink(Current) || !std::filesystem::exists(Current);
-			if (!Changed && Entry.Kind != EContentDeletionEntryKind::Directory)
+			if (!Changed && Entry.Kind != EFileDeletionEntryKind::Directory)
 			{
 				const auto Identity = FFileHelper::HashFileXx128(Entry.PhysicalPath);
 				if (!Identity)
-				{ Fail(ToError(Identity.error())); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
+				{ Fail(ToError(Identity.error())); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
 				Changed = *Identity != Entry.ByteIdentity;
 			}
 			if (Changed)
-			{ Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, "Deletion source changed immediately before destruction."); Effects.bStopped = true; Fail(UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion stopped because a source changed."}); continue; }
+			{ Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "Deletion source changed immediately before destruction."); Effects.bStopped = true; Fail(UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion stopped because a source changed."}); continue; }
 			const auto Error = Hooks.RemoveEntry(Entry.PhysicalPath);
 			const auto After = std::filesystem::symlink_status(Entry.PhysicalPath, Ec);
 			const bool Gone = (!Ec || Ec == std::errc::no_such_file_or_directory) && After.type() == std::filesystem::file_type::not_found;
 			if (Gone)
 			{
 				Removed.insert(Entry.PhysicalPath);
-				Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Committed);
+				Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Committed);
 			}
 			if (Error || !Gone)
 			{
 				const auto Message = "Could not permanently delete " + Entry.PhysicalPath + ": " + (Error ? Error.message() : "the entry remains");
-				Effects.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Failed, Message);
+				Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Failed, Message);
 				if (Error) Fail(ToError(FFileError{.Operation = EFileOperation::Remove, .NativeError = Error, .Path = Entry.PhysicalPath}));
 				else if (Ec) Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath}));
 				else Fail(UnifiedError::FError{AssetWriteErrors::IoError, Message});
@@ -211,7 +211,7 @@ namespace Durin::ContentStorage
 		return Status;
 	}
 
-	auto FContentDeletionOperation::ValidateScope(std::optional<UnifiedError::FError>* OutError) -> bool
+	auto FFileDeletionOperation::ValidateScope(std::optional<UnifiedError::FError>* OutError) -> bool
 	{
 		if (OutError) OutError->reset();
 		if (bStarted || !Plan || !Plan->CanExecute()) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, "Deletion is blocked or consumed."});
@@ -220,7 +220,7 @@ namespace Durin::ContentStorage
 		return ValidatePhysicalState(Identities, false, OutError);
 	}
 
-	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> bool
+	auto FFileDeletionOperation::Execute(FFileDeletionHooks InHooks) -> bool
 	{
 		if (InHooks.RemoveEntry) Hooks.RemoveEntry = std::move(InHooks.RemoveEntry);
 		Hooks.ShouldCancel = std::move(InHooks.ShouldCancel);

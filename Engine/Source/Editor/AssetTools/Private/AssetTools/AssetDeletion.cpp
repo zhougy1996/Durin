@@ -6,6 +6,8 @@
 #include "Asset/PackageRemoval.h"
 #include "AssetRegistry/Publication.h"
 #include "DObject/Package.h"
+#include "DObject/WeakObjectPtr.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 
@@ -45,6 +47,7 @@ namespace Durin
 
 	struct FAssetDeletionOperation::FState
 	{
+		std::vector<const FStrongObjectPtr*> RetainedOwners;
 		uint64 RegistryRevision = 0;
 		uint64 ContributorRevision = 0;
 		FAssetReferenceStoreCapture ReferenceStores;
@@ -55,6 +58,9 @@ namespace Durin
 		std::vector<std::filesystem::path> CompanionScope;
 		bool bPrepared = false;
 		bool bExecuted = false;
+		bool bExecuting = false;
+		struct FResident { FWeakObjectPtr Package; uint64 Revision; std::vector<FObjectKey> Exports; };
+		std::vector<FResident> Residents;
 		FAssetRegistrySnapshot PreparedSnapshot;
 		FAssetDeletionFileIdentities ConfirmedBytes;
 		std::unordered_set<std::string> RemovedFiles;
@@ -69,6 +75,7 @@ namespace Durin
 			std::span<const std::filesystem::path> Roots,
 			std::vector<FAssetDeletionBlocker>& OutBlockers, std::optional<UnifiedError::FError>* OutError) -> bool;
 		auto Validate(std::optional<UnifiedError::FError>* OutError) const -> bool;
+		auto ValidateResidents(std::optional<UnifiedError::FError>* OutError) const -> bool;
 		auto Delete(const FAssetDeletionCommit& Commit, std::vector<std::filesystem::path>& AffectedFiles) -> FAssetWriteResult;
 	};
 
@@ -112,14 +119,21 @@ namespace Durin
 	{
 		return State ? std::span<const std::filesystem::path>(State->AffectedFiles) : std::span<const std::filesystem::path>{};
 	}
+	auto FAssetDeletionOperation::GetFileIdentities() const -> const FAssetDeletionFileIdentities&
+	{
+		static const FAssetDeletionFileIdentities Empty;
+		return State ? State->ConfirmedBytes : Empty;
+	}
 	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit, FFeedbackContext* Warn) -> bool
 	{
 		if (!State) { (Warn ? *Warn : FFeedbackContext::Get()).Error((GetWriteResult().Error ? GetWriteResult().Error->ToString() : std::string{})); return false; }
-		if (State->bExecuted)
+		if (State->bExecuted || State->bExecuting)
 		{
 			(Warn ? *Warn : FFeedbackContext::Get()).Error("The deletion operation has already executed.");
 			return false;
 		}
+		State->bExecuting = true;
+		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{State->bExecuting};
 		State->AffectedFiles.clear();
 		State->LastResult = State->Delete(Commit, State->AffectedFiles);
 		if (!State->LastResult) (Warn ? *Warn : FFeedbackContext::Get()).Error((State->LastResult.Error ? State->LastResult.Error->ToString() : std::string{}));
@@ -142,6 +156,17 @@ namespace Durin
 			return WriteFailure(AssetWriteErrors::StaleData,
 				"The asset Registry changed after deletion confirmation.");
 		if (!ValidateFiles(Commit, &Result.Error)) return Result;
+		// The host supplies freshly verified bytes. Do not reopen guarded files or
+		// repeat companion analysis; recheck callback-sensitive admission facts.
+		if (!Entries.empty())
+		{
+			FAssetReferenceStoreCapture Stores;
+			if (const auto Captured = CaptureAssetReferenceStores(Stores); !Captured)
+				return {.Error = Captured.error()};
+			if (Stores != ReferenceStores)
+				return WriteFailure(AssetWriteErrors::StaleData, "External reference owners changed during file validation.");
+		}
+		if (!ValidateResidents(&Result.Error)) return Result;
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
 			return WriteFailure(AssetWriteErrors::StaleData, "Deletion metadata changed during file validation.");
@@ -149,7 +174,7 @@ namespace Durin
 		for (const FAssetDeletionEntry& Entry : Entries)
 			if (FindPackageExact(Entry.RegistryEntry.PackagePath))
 				Packages.push_back(Entry.RegistryEntry);
-		if (auto Released = ReleasePackagesForRemoval(Packages, RegistryRevision); !Released)
+		if (auto Released = ReleasePackagesForRemoval(Packages, RegistryRevision, RetainedOwners, true); !Released)
 			return {.Error = std::move(Released.error())};
 		bExecuted = true;
 		const FAssetWriteResult DeleteResult = Commit.Delete(AffectedFiles);
@@ -305,6 +330,12 @@ namespace Durin
 				continue;
 			}
 
+			if (auto* Loaded = FindResidentPackage(Path))
+			{
+				FResident Resident{FWeakObjectPtr(Loaded), Loaded->GetEditRevision()};
+				for (auto* Export : Loaded->GetTopLevelAssets()) Resident.Exports.emplace_back(Export);
+				Residents.push_back(std::move(Resident));
+			}
 			FAssetDeletionEntry Entry{
 				.RegistryEntry = *Data,
 				.bLoaded = FindResidentPackage(Path) != nullptr};
@@ -315,14 +346,6 @@ namespace Durin
 					{},
 					Data->PhysicalPath,
 					"Asset is currently loading.");
-			if (DPackage* Loaded = FindResidentPackage(Path);
-				Loaded && Loaded->IsDirty())
-				AddBlocker(
-					EAssetDeletionBlocker::DirtyPackage,
-					Path,
-					{},
-					Data->PhysicalPath,
-					"Asset has unsaved changes.");
 
 			std::optional<UnifiedError::FError> CompanionError;
 			const bool CompanionResult =
@@ -338,102 +361,13 @@ namespace Durin
 			OutToken.Entries.push_back(std::move(Entry));
 		}
 		FPackagePath BlockedPackage;
-		if (const auto References = ValidatePackageRemovalReferences(SortedPaths, &BlockedPackage); !References)
+		if (const auto References = ValidatePackageRemovalReferences(SortedPaths, &BlockedPackage, RetainedOwners); !References)
 			AddBlocker(EAssetDeletionBlocker::ExternalLoadedReference, BlockedPackage, {}, {}, References.error().ToString());
 		CompanionScope = OutToken.PhysicalRoots;
 		for (const auto& Entry : Entries)
 			CompanionScope.insert(CompanionScope.end(), Entry.CompanionFiles.begin(), Entry.CompanionFiles.end());
 
-		// Deletion is closed over final targets and every alias that resolves to them.
-		// This prevents an alias-only delete from silently invalidating authored old paths,
-		// and prevents a target delete from leaving redirectors with no destination.
 		const FAssetReferenceIndex& ReferenceIndex = PreparedSnapshot.References;
-		std::unordered_map<FPackagePath, std::vector<FPackagePath>> RedirectorsByTarget;
-		for (const auto& Target : SortedPaths)
-		{
-			const auto* TargetData = PreparedSnapshot.Catalog.FindExact(Target);
-			if (!TargetData || (!TargetData->TopLevelAssets.empty() && std::ranges::all_of(TargetData->TopLevelAssets, &FAssetData::IsRedirector))) continue;
-			std::vector<FPackagePath> Pending{Target};
-			std::unordered_set<FPackagePath> Visited{Target};
-			for (size_t Index = 0; Index < Pending.size(); ++Index)
-				for (const auto& Edge : ReferenceIndex.FindReferencers(Pending[Index]))
-				{
-					if (Edge.Kind != EAssetReferenceKind::Redirect
-						|| !Visited.insert(Edge.SourcePackage).second) continue;
-					const auto* Alias = PreparedSnapshot.Catalog.FindExact(Edge.SourcePackage);
-					if (!Alias || !(!Alias->TopLevelAssets.empty() && std::ranges::all_of(Alias->TopLevelAssets, &FAssetData::IsRedirector))) continue;
-					const auto Resolution = ResolvePackagePathForOperation(Edge.SourcePackage);
-					if (!Resolution || Resolution.FinalPath != Target) continue;
-					RedirectorsByTarget[Target].push_back(Edge.SourcePackage);
-					Pending.push_back(Edge.SourcePackage);
-				}
-		}
-		for (auto& [AssetPath, Redirectors] : RedirectorsByTarget)
-			std::ranges::sort(
-				Redirectors,
-				[](const FPackagePath& A, const FPackagePath& B) {
-					return A.GetView() < B.GetView();
-				});
-
-		for (const FPackagePath& Path : SortedPaths)
-		{
-			const FPackageCatalogEntry Data = FindPackageExact(Path);
-			if (!Data) continue;
-			if ((!Data->TopLevelAssets.empty() && std::ranges::all_of(Data->TopLevelAssets, &FAssetData::IsRedirector)))
-			{
-				const FPackagePathResolveResult Resolution =
-					ResolvePackagePathForOperation(Path);
-				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
-				{
-					const FPackagePath Related = Resolution.FinalPath.IsValid()
-						? Resolution.FinalPath
-						: Data->TopLevelAssets.front().RedirectDestination.GetPackagePath();
-					AddBlocker(
-						EAssetDeletionBlocker::RedirectorTargetNotSelected,
-						Path,
-						Related,
-						Data->PhysicalPath,
-						Resolution
-							? std::format(
-								"Redirector {} cannot be deleted alone. Select its final target {} and every alias to that target, or run Fix Up Redirectors.",
-								Path.ToString(), Resolution.FinalPath.ToString())
-							: std::format(
-								"Redirector {} cannot be deleted because its target does not resolve. Repair the redirector before deleting it.",
-								Path.ToString()));
-				}
-				continue;
-			}
-
-			const auto Found = RedirectorsByTarget.find(Path);
-			if (Found == RedirectorsByTarget.end()) continue;
-			std::vector<FPackagePath> SelectedRedirectors;
-			for (const FPackagePath& Redirector : Found->second)
-			{
-				if (DeletionSet.contains(Redirector))
-					SelectedRedirectors.push_back(Redirector);
-				else
-				{
-					const FPackageCatalogEntry RedirectorData = FindPackageExact(Redirector);
-					AddBlocker(
-						EAssetDeletionBlocker::TargetRedirectorsNotSelected,
-						Path,
-						Redirector,
-						RedirectorData
-							? std::filesystem::path(RedirectorData->PhysicalPath)
-							: std::filesystem::path{},
-						std::format(
-							"Asset {} still has redirector {}. Reveal redirectors and include every alias, or run Fix Up Redirectors before deleting the target.",
-							Path.ToString(), Redirector.ToString()));
-				}
-			}
-			if (!SelectedRedirectors.empty())
-				OutToken.Warnings.push_back({
-					.AssetPath = Path,
-					.RedirectorPaths = std::move(SelectedRedirectors),
-					.Details = std::format(
-						"Deleting {} together with {} redirector(s) permanently invalidates every authored old path.",
-						Path.ToString(), Found->second.size())});
-		}
 
 		for (const FPackagePath& Path : SortedPaths)
 		{
@@ -618,7 +552,7 @@ namespace Durin
 			if (!Current || !(*Current == Entry.RegistryEntry))
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "A deletion participant changed after confirmation."});
 			const auto* Loaded = FindResidentPackage(Path);
-			if (IsPackageLoading(Path) || (Loaded && Loaded->IsDirty()))
+			if (IsPackageLoading(Path))
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InUse, "A deletion participant is loading or dirty."});
 			std::vector<std::filesystem::path> Files;
 			const bool Inspected = AssetToolsPrivate::InspectAssetCompanionFiles(*Current, Files, OutError);
@@ -628,7 +562,7 @@ namespace Durin
 		}
 		std::vector<FPackagePath> Paths;
 		for (const auto& Entry : Entries) Paths.push_back(Entry.RegistryEntry.PackagePath);
-		if (const auto References = ValidatePackageRemovalReferences(Paths); !References) return Reject(OutError, References.error());
+		if (const auto References = ValidatePackageRemovalReferences(Paths, nullptr, RetainedOwners); !References) return Reject(OutError, References.error());
 		std::unordered_map<FPackagePath, std::vector<std::filesystem::path>> Companions;
 		for (const auto& [Path, Data] : PreparedSnapshot.Catalog.Assets)
 		{
@@ -653,6 +587,19 @@ namespace Durin
 		if (GetAssetCatalogRevision() != RegistryRevision
 			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
 			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion metadata changed during validation."});
+		return ValidateResidents(OutError);
+	}
+
+	auto FAssetDeletionOperation::FState::ValidateResidents(std::optional<UnifiedError::FError>* OutError) const -> bool
+	{
+		for (const auto& Resident : Residents)
+		{
+			auto* Package = Cast<DPackage>(Resident.Package.Get());
+			std::vector<FObjectKey> Exports;
+			if (Package) for (auto* Export : Package->GetTopLevelAssets()) Exports.emplace_back(Export);
+			if (!Package || Package->GetEditRevision() != Resident.Revision || Exports != Resident.Exports)
+				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "The live deletion selection or its unsaved changes changed after confirmation."});
+		}
 		return true;
 	}
 
@@ -662,6 +609,7 @@ namespace Durin
 		OutOperation = FAssetDeletionOperation{};
 		OutOperation.State = std::make_unique<FAssetDeletionOperation::FState>();
 		auto& State = *OutOperation.State;
+		State.RetainedOwners = Request.RetainedOwners;
 		std::optional<UnifiedError::FError> Error;
 		const bool Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers, &Error);
 		State.bPrepared = Prepared && State.Blockers.empty();

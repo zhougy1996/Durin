@@ -20,8 +20,8 @@ namespace Durin
 		CONTENTBROWSERFILEDATASOURCE_API auto CanCreateFolder(std::string_view, std::string* = nullptr) const -> bool override;
 		CONTENTBROWSERFILEDATASOURCE_API auto CreateFolder(std::string_view, ContentBrowser::FContentBrowserItemDataTemporaryContext&, const ContentBrowser::FContentBrowserOperationContext& = {}) -> bool override;
 		CONTENTBROWSERFILEDATASOURCE_API auto CanDeleteItem(const ContentBrowser::FContentBrowserItemData&, std::string* = nullptr) const -> bool override;
-		CONTENTBROWSERFILEDATASOURCE_API auto PrepareDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> ContentBrowser::FContentBrowserDeleteContext override;
-		CONTENTBROWSERFILEDATASOURCE_API auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> bool override;
+		CONTENTBROWSERFILEDATASOURCE_API auto DeleteItem(const ContentBrowser::FContentBrowserItemData&) -> bool override;
+		CONTENTBROWSERFILEDATASOURCE_API auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> bool override;
 
 		CONTENTBROWSERFILEDATASOURCE_API auto CanRenameItem(const ContentBrowser::FContentBrowserItemData&, std::optional<std::string_view> = std::nullopt, std::string* = nullptr) const -> bool override;
 		CONTENTBROWSERFILEDATASOURCE_API auto CanCopyItem(const ContentBrowser::FContentBrowserItemData&, std::string_view, std::string* = nullptr) const -> bool override;

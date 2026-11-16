@@ -40,13 +40,10 @@ namespace Durin::ContentBrowser::Private
 	auto FContentBrowserPanel::CanDeleteSelection() const -> bool
 	{
 		size_t Count = 0;
+		bool Allowed = false;
 		for (const auto& Item : Model.GetItems())
-			if (SelectionState.Selected.contains(Item.GetItemKey()))
-			{
-				if (!Item.CanDelete()) return false;
-				++Count;
-			}
-		return Count > 0 && Count == SelectionState.Selected.size();
+			if (SelectionState.Selected.contains(Item.GetItemKey())) { Allowed |= Item.CanDelete(); ++Count; }
+		return Allowed && Count == SelectionState.Selected.size();
 	}
 
 	auto FContentBrowserPanel::CanMutateContent() const -> bool
@@ -119,12 +116,7 @@ namespace Durin::ContentBrowser::Private
 		ApplyTransferResult(Result, true);
 		return Result;
 	}
-	auto FContentBrowserPanel::GetDeletionPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview>
-	{
-		if (!PendingDeletion.Request) return {};
-		auto Preview = PendingDeletion.Request->GetPreview();
-		return Preview ? Preview : DeletionFallbackPreview;
-	}
+
 
 	auto FContentBrowserPanel::SaveItem(const FContentBrowserItem& Item) -> void
 	{
@@ -663,39 +655,14 @@ namespace Durin::ContentBrowser::Private
 		else BeginRename(*It);
 	}
 
-	auto FContentBrowserPanel::RequestDeleteSelection() -> void
-	{
-		if (!CanMutateContent() || !CanDeleteSelection()) return;
-		PendingDeletion = {};
-		PendingDeletionItems = CollectItemData(ContentBrowserQuery::CopySelection(Model.GetItems(), SelectionState.Selected));
-		auto* Data = GetDataSubsystem();
-		if (!Data) return;
-		PendingDeletion = Data->PrepareDeleteItems(PendingDeletionItems);
-		auto Preview = std::make_shared<FContentBrowserDeletePreview>();
-		Preview->DisplayName = "selected items";
-		DeletionFallbackPreview = std::move(Preview);
-		bDeletionPlanRefreshed = false;
-		bDeletePopupRequested = true;
-	}
+	auto FContentBrowserPanel::RequestDeleteSelection() -> void { DeleteSelection(); }
 
 	auto FContentBrowserPanel::DeleteSelection() -> void
 	{
-		if (!CanMutateContent()) return;
-		if (!PendingDeletion.Request)
-		{
-			SetError("Content deletion is unavailable.");
-			return;
-		}
-		const auto PreviousPlan = GetDeletionPreview();
+		if (!CanMutateContent() || !CanDeleteSelection()) return;
+		const auto Items = CollectItemData(ContentBrowserQuery::CopySelection(Model.GetItems(), SelectionState.Selected));
 		auto* Data = GetDataSubsystem();
-		const auto Result = Data ? Data->BulkDeleteItems(PendingDeletionItems, PendingDeletion) : false;
-		if (PendingDeletion.Request && GetDeletionPreview() != PreviousPlan)
-		{
-			bDeletionPlanRefreshed = true;
-			return;
-		}
-		if (!Result) SetError("Content was not deleted. See Console for details.");
-		bDeletionPlanRefreshed = false;
+		if (!Data || !Data->BulkDeleteItems(Items)) SetError("Content was not deleted. See Console for details.");
 		SynchronizeMountedContentMutation();
 	}
 
@@ -750,8 +717,6 @@ namespace Durin::ContentBrowser::Private
 		DataQuery.StopRequestAdmission();
 		DragSnapshot.reset();
 		Model.CancelPendingSnapshots();
-		PendingDeletion = {};
-		PendingDeletionItems.clear();
 		DeferredTreeAction = {};
 		DeferredContentAction = {};
 		PendingItemAction.reset();

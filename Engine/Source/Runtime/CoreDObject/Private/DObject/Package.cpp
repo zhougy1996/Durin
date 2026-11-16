@@ -86,7 +86,7 @@ namespace Durin
 		if (IsAssetPackage()) Private::NotifyAssetPackageChanged();
 	}
 
-	auto DPackage::RetireFailedLoadRegistration() -> void
+	auto DPackage::RetireGarbageRegistration() -> void
 	{
 		require(IsAssetPackage() && IsGarbage());
 		auto It = GetPackageRegistry().find(RegisteredPath);

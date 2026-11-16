@@ -1,3 +1,4 @@
+#include "ObjectTools.h"
 #include "Editor/ContentBrowserModelFixture.h"
 #include "Editor/ContentBrowserItemTestSupport.h"
 #include "Panels/ContentBrowserPanel.h"
@@ -60,10 +61,7 @@ namespace Durin
 		{
 			ContentBrowser::FContentBrowserOperationContext Host;
 		};
-		struct FDelete : ContentBrowser::IContentBrowserDeleteRequest
-		{
-			auto CanExecute() const -> bool override { return true; }
-		};
+
 		auto GetDataSourceName() const -> FName override { return SourceName; }
 		auto MakeItem(std::string Path, const ContentBrowser::FContentBrowserOperationContext& Host, ContentBrowser::EContentBrowserItemFlags Flags = ContentBrowser::EContentBrowserItemFlags::Type_File) -> ContentBrowser::FContentBrowserItem
 		{
@@ -170,21 +168,11 @@ namespace Durin
 
 		auto CanDeleteItem(const ContentBrowser::FContentBrowserItemData& Item, std::string*) const -> bool override { return Allowed(Item); }
 
-		auto PrepareDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData> Items) -> ContentBrowser::FContentBrowserDeleteContext override
+
+		auto DeleteItem(const ContentBrowser::FContentBrowserItemData& Item) -> bool override
 		{
-			if (Items.empty() || !Allowed(Items.front())) return {};
-			return {Items.front(), std::make_unique<FDelete>()};
-		}
-		auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData> Items, ContentBrowser::FContentBrowserDeleteContext& Context) -> bool override
-		{
-			if (Items.empty() || !Context.CanExecute() || !Allowed(Items.front())) return {};
-			for (const auto& Item : Items)
-			{
-				std::erase(Paths, Item.GetVirtualPath());
-				QueueItemDataUpdate(ContentBrowser::FContentBrowserItemDataUpdate::MakeItemRemovedUpdate(Item));
-			}
+			if (!Allowed(Item)) return false;
 			++Deletes;
-			Context.Request.reset();
 			return true;
 		}
 	};
@@ -307,12 +295,10 @@ namespace Durin::ContentBrowser::Private
 		static auto Move(FContentBrowserPanel& Panel, std::vector<FContentBrowserItem> Items, std::string Destination) -> bool { return Panel.MoveItems(std::move(Items), std::move(Destination)); }
 		static auto PrepareDelete(FContentBrowserPanel& Panel) -> void { Panel.RequestDeleteSelection(); }
 		static auto ExecuteDelete(FContentBrowserPanel& Panel) -> void { Panel.DeleteSelection(); }
-		static auto DeletionPreview(const FContentBrowserPanel& Panel) -> std::shared_ptr<const FContentBrowserDeletePreview> { return Panel.GetDeletionPreview(); }
 
 		static auto Delete(FContentBrowserPanel& Panel) -> void
 		{
 			Panel.RequestDeleteSelection();
-			Panel.DeleteSelection();
 		}
 		static auto SetMutationAllowed(FContentBrowserPanel& Panel, bool Allowed) -> void { Panel.bAllowAssetMutation = Allowed; }
 
@@ -333,6 +319,7 @@ namespace Durin::ContentBrowser::Private
 		auto SetUp() -> void override
 		{
 			Testing::InitializeDObjectSystemForTests();
+			ObjectTools::SetDeletePrompt([](auto&, auto, auto) { return true; });
 			for (auto Name : {"ContentBrowserData", "ContentBrowserAssetDataSource", "ContentBrowserFileDataSource", "ContentBrowser"}) FModuleManager::Get().LoadModuleChecked(Name);
 			Editor = TStrongObjectPtr<DEditorEngine>(NewObject<DEditorEngine>(nullptr, {}));
 			FEditorEngineTestAccess::StartEditor(*Editor);
@@ -353,6 +340,7 @@ namespace Durin::ContentBrowser::Private
 
 		auto TearDown() -> void override
 		{
+			ObjectTools::SetDeletePrompt({});
 			for (auto& Source : Sources)
 				Source->Shutdown();
 			if (Editor.Get()) Editor->PreExit();
@@ -922,17 +910,12 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanelTestAccess::FinishCapture(Panel);
 		auto Item = FContentBrowserPanelTestAccess::Select(Panel, "/PanelDeletion/notes.txt");
 		ASSERT_FALSE(Item.InternalItems.empty());
-		FContentBrowserPanelTestAccess::PrepareDelete(Panel);
-		const auto Preview = FContentBrowserPanelTestAccess::DeletionPreview(Panel);
-		ASSERT_NE(nullptr, Preview);
-		EXPECT_EQ(1u, Preview->Summary.FileCount);
-		std::ofstream(Root / "notes.txt", std::ios::app) << "changed";
+		ObjectTools::SetDeletePrompt([&](auto&, auto, auto) { std::ofstream(Root / "notes.txt", std::ios::app) << "changed"; return true; });
 		FContentBrowserPanelTestAccess::ExecuteDelete(Panel);
 		EXPECT_TRUE(std::filesystem::exists(Root / "notes.txt"));
-		EXPECT_NE(Preview, FContentBrowserPanelTestAccess::DeletionPreview(Panel));
+		ObjectTools::SetDeletePrompt([](auto&, auto, auto) { return true; });
 		FContentBrowserPanelTestAccess::ExecuteDelete(Panel);
 		EXPECT_FALSE(std::filesystem::exists(Root / "notes.txt"));
-		EXPECT_EQ(nullptr, FContentBrowserPanelTestAccess::DeletionPreview(Panel));
 	}
 
 	TEST_F(FContentBrowserPanelExtensionTests, UnrelatedUpdatesPreserveOtherViewAndRespectPublicationFence)
@@ -1007,5 +990,26 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Second, "/Unmounted/renamed.note"));
 		FContentBrowserPanelTestAccess::Paste(First, "/Unmounted/Target");
 		EXPECT_EQ(Right->Copies, 1); EXPECT_EQ(Left->Copies, 0);
+	}
+}
+
+namespace Durin::ContentBrowser::Private
+{
+	TEST_F(FContentBrowserPanelExtensionTests, DeleteDispatchKeepsAcceptedPeersAndUsesBaseBulkFallback)
+	{
+		auto* Rejecting = AddProbe("/PanelProviders/", FName("RejectingDelete"));
+		auto* Accepting = AddProbe("/PanelProviders/", FName("AcceptingDelete"));
+		ASSERT_NE(Rejecting, nullptr); ASSERT_NE(Accepting, nullptr);
+		auto Rejected = Rejecting->MakeItem("/PanelProviders/item.note", {.CanMutateContent = [] { return false; }});
+		auto Accepted = Accepting->MakeItem("/PanelProviders/item.note", {});
+		FContentBrowserItem Merged = Rejected;
+		Merged.InternalItems.push_back(Accepted.InternalItems.front());
+		EXPECT_TRUE(Merged.CanDelete());
+		EXPECT_TRUE(Merged.Delete());
+		EXPECT_EQ(Rejecting->Deletes, 0);
+		EXPECT_EQ(Accepting->Deletes, 1);
+		EXPECT_TRUE(BrowserData->BulkDeleteItems(Merged.InternalItems));
+		EXPECT_EQ(Rejecting->Deletes, 0);
+		EXPECT_EQ(Accepting->Deletes, 2);
 	}
 }

@@ -5,7 +5,7 @@
 namespace Durin::ContentStorage
 {
 	// Classifies every preflight condition that can keep a deletion plan read-only.
-	enum class EContentDeletionBlocker : uint8
+	enum class EFileDeletionBlocker : uint8
 	{
 		InvalidSelection,
 		UnsupportedMount,
@@ -28,16 +28,16 @@ namespace Durin::ContentStorage
 		StalePlan,
 	};
 
-	struct FContentDeletionBlocker
+	struct FFileDeletionBlocker
 	{
-		EContentDeletionBlocker Kind = EContentDeletionBlocker::InvalidSelection;
+		EFileDeletionBlocker Kind = EFileDeletionBlocker::InvalidSelection;
 		std::string DisplayName;
 		std::string PhysicalPath;
 		std::string RelatedAssetPath;
 		std::string Details;
 	};
 
-	enum class EContentDeletionEntryKind : uint8
+	enum class EFileDeletionEntryKind : uint8
 	{
 		Directory,
 		AssetPackage,
@@ -48,21 +48,21 @@ namespace Durin::ContentStorage
 
 	// Complete file-byte identities detect in-place edits even when size and time
 	// are preserved. Directory membership is validated against the captured entries.
-	struct FContentDeletionFingerprint
+	struct FFileDeletionFingerprint
 	{
 		std::string PhysicalPath;
-		EContentDeletionEntryKind Kind = EContentDeletionEntryKind::OrdinaryFile;
+		EFileDeletionEntryKind Kind = EFileDeletionEntryKind::OrdinaryFile;
 		uintmax_t FileSize = 0;
 		int64 LastWriteTimeTicks = 0;
 		FXxHash128 ByteIdentity;
 	};
 
-	struct FContentDeletionRoot
+	struct FFileDeletionRoot
 	{
 		std::string OriginalPath;
 	};
 
-	struct FContentDeletionSummary
+	struct FFileDeletionSummary
 	{
 		uint64 AssetCount = 0;
 		uint64 FileCount = 0;
@@ -70,7 +70,7 @@ namespace Durin::ContentStorage
 		uint64 FolderCount = 0;
 	};
 
-	struct FContentDeletionWarning
+	struct FFileDeletionWarning
 	{
 		std::string DisplayName;
 		std::string Details;
@@ -78,19 +78,19 @@ namespace Durin::ContentStorage
 
 	// Confirmation and execution share immutable scope. Only the data source owns the
 	// move-only execution capability; SessionId is validated against its retained owner.
-	struct FContentDeletionPlan
+	struct FFileDeletionPlan
 	{
 		std::string DisplayName;
-		FContentDeletionSummary Summary;
-		std::vector<FContentDeletionRoot> MaximalRoots;
-		std::vector<FContentDeletionFingerprint> Entries;
-		std::vector<FContentDeletionBlocker> Blockers;
-		std::vector<FContentDeletionWarning> Warnings;
+		FFileDeletionSummary Summary;
+		std::vector<FFileDeletionRoot> MaximalRoots;
+		std::vector<FFileDeletionFingerprint> Entries;
+		std::vector<FFileDeletionBlocker> Blockers;
+		std::vector<FFileDeletionWarning> Warnings;
 		uint64 SessionId = 0;
 
 		auto CanExecute() const -> bool { return Blockers.empty(); }
 	};
 
-	using FContentDeletionPlanPtr = std::shared_ptr<const FContentDeletionPlan>;
+	using FFileDeletionPlanPtr = std::shared_ptr<const FFileDeletionPlan>;
 
 }

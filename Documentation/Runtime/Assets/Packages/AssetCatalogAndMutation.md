@@ -132,9 +132,8 @@ reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
 lifecycle, `Asset/Load.h` owns runtime resolution and residency,
 `Asset/Mutation.h` aggregates Engine package persistence mechanisms and shared
 reference-provider contracts. `Asset/PackageEditing.h` exposes bounded package-byte
-transformations used by authoring tools and Cook. `AssetTools/Relocation.h` and
-`AssetTools/RedirectorFixup.h` own the synchronous editor operations;
-`AssetTools/AssetDeletion.h` owns editor deletion. Operation failure seams live in
+transformations used by authoring tools and Cook. `IAssetTools` owns synchronous rename and referencer fix-up;
+`ObjectTools.h` and `AssetDeleteModel.h` own editor deletion. Operation failure seams live in
 `AssetTools/MutationTesting.h`; Engine catalog testing remains in `Asset/Testing.h`.
 Runtime and offline consumers include these capability headers directly; the
 former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
@@ -407,59 +406,46 @@ must keep their store and native code alive until active callbacks return.
 Successful snapshots retain owned values and remain usable after unregistration;
 the registration revision is an availability check, not a provider lifetime pin.
 
-Deletion never rewrites persistent paths. Preparation evaluates the selected
-target, complete direct/upstream alias closure, unified reference projection,
-registered external stores, residency, and exact files. Alias-only deletion,
-broken aliases, incomplete alias closure, dirty/loading packages, open levels,
-rooted/native-owned objects, external live GC references, unsafe paths,
-and changed fingerprints are blocked. After confirmation, maximal roots are
-permanently removed and no Engine recovery copy, Undo record, Restore command,
-or reverse callback is retained. Recovery belongs to version control. A partial
-I/O failure stops the operation and fences stale Registry paths. The destructive
-callback cannot run again on the same operation.
-AssetTools calls Engine's `ReleasePackagesForRemoval` only after editor policy
-revalidation. Confirmation retains one AssetTools plan and its outside companion
-snapshot. Execution checks current participant files, residency, reference-store
-fingerprints, and catalog/contributor revisions without rebuilding that plan;
-ContentBrowser retires failed destructive confirmations and validates its
-physical selection once during execution and prepares a replacement confirmation
-only after a `StaleData` rejection before destructive work begins. Transient
-I/O or in-use failures retain the confirmation and report their original cause;
-an explicit retry repeats validation. Engine checks the complete batch before retiring any resident
-graph, allowing internal hard references while rejecting outside hard
-referencers, dirty/loading packages, and stale catalog state. After the physical
-callback, `PublishPackageRemoval` removes matching catalog entries only when
-their package files are absent. An empty, moved-from, blocked, or previously
-executed AssetTools operation cannot invoke the callback.
+Deletion never rewrites persistent paths. ObjectTools and the native asset delete
+model own exact selected exports, reference analysis and confirmation. The model
+allows selected Dirty loss, preserves unselected siblings and permits an unused
+redirector to be selected alone. Incoming aliases, external persistent/live
+references, loading state, open levels and rooted/native owners retain their
+normal protection. See [Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md#deletion)
+for the editor-facing model and prompt contract.
 
-`ValidatePackageRemovalReferences` inspects current object references without
-collecting or modifying graphs. AssetTools uses it during preparation and
-confirmation validation; Engine repeats it after host file-validation callbacks,
-before marking any selected graph as garbage. Opening a level or acquiring a
-strong reference after confirmation therefore rejects the whole batch before
-physical deletion. Close the level/editor or release its owner before retrying;
-confirmation never authorizes forced destruction of an active graph.
+AssetTools' private native attempt retains catalog/contributor revisions, exact
+companion closure, external-store snapshots and confirmed file identities.
+File owns its private immutable ordinary-file/mixed-folder scope and physical
+effect records. Execution checks current files and policy without rebuilding an
+accepted scope. A stale pre-effect rejection may prepare a replacement that needs
+fresh confirmation; a destructive attempt is retired before feedback. No recovery
+copy, undo record, restore command or reverse callback is retained.
 
-Workspace asset documents hold native strong references for their entire open
-lifetime, including inactive tabs and read-only inspectors. This protects
-materials, material instances/functions/parameter collections, textures, volume
-textures, and static meshes through the same reference check without a deletion
-type whitelist. Closing or unregistering a document releases its own reference;
-other consumers may continue to retain the asset. Discard participates in atomic
-package reload to migrate document roots before retiring the old generation.
+`ValidatePackageRemovalReferences` observes current references without collecting
+or modifying graphs. The exact model-owned strong registrations are excluded;
+other strong/function owners and external live referencers remain blockers.
+`ReleasePackagesForRemoval` repeats native admission after host validation and
+checks the complete batch before retiring any resident graph. Selected Dirty
+loss is an explicit editor option; the default native primitive rejects Dirty
+packages. Garbage package registrations retire before deferred collection, and
+`PublishPackageRemoval` removes matching catalog entries only after their files
+are absent. Partial persistence failures fence affected Registry projections.
 
-ContentBrowser hashes each surviving confirmed file once per execution attempt,
-after asset policy validation, and shares those freshly verified identities through
-`FAssetDeletionCommit::ValidateFiles`. AssetTools requires complete participant
-coverage without rehashing the files. A later deletion requires a new plan and
-fresh confirmation. Hosts without this callback use AssetTools' own hashing.
-Neither size/timestamp matches nor cached hashes replace the final byte check.
-Physical deletion preserves the first failure identity when later entries are
-unattempted. Read and removal failures retain native operation, path and code;
-read failures are not treated as byte mismatches. A failed attempt with no observed
-removals has no write effect, verified earlier removals yield `PartiallyWritten`,
-and an unobservable post-removal state yields `ContentUncertain`. Item effects
-continue to describe every committed, failed or unattempted participant.
+Open workspace documents retain native strong references even in inactive tabs
+and read-only inspectors. Closing a document releases its own registration;
+other consumers may continue to retain the same object. No type whitelist or
+asset-wide reference exemption bypasses this protection.
+
+The physical executor freshly hashes the confirmed selection, supplies complete
+participant identities to the private native attempt, and rechecks each physical
+effect. The native handoff rechecks callback-sensitive live identity and external
+store facts without reopening host-guarded package files or repeating companion
+analysis. Cached hashes and matching size/timestamps do not replace fresh byte
+validation. Physical failures retain every committed, failed and unattempted
+participant, native path/error identity and any uncertain recovery location.
+Verified earlier removals yield partial effects; unobservable post-removal state
+remains uncertain. The same destructive callback cannot run twice.
 
 Rename can update affected references; explicit Fix Up repairs remaining aliases. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens

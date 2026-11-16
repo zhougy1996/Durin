@@ -9,8 +9,8 @@ Last reviewed: 2026-11-16
 ## Ownership
 
 `IAssetTools` owns creation, explicit-target duplication, unique naming and the
-object rename, referencer fix-up and current standalone import/deletion entrypoints. `ObjectTools`
-owns batch duplicate naming and presentation policy. Package saving belongs to
+object rename, referencer fix-up and standalone import entrypoints. `ObjectTools`
+owns batch duplicate naming, deletion and presentation policy. Package saving belongs to
 `DEditorLoadingAndSavingUtils` and `FEditorFileUtils` in `FileHelpers.h`;
 `DPackageTools` owns unload/reload policy. These services share the AssetTools
 module without making DurinEd depend on AssetTools.
@@ -141,6 +141,37 @@ production consumers cannot invoke the removed relocation/fix-up request APIs.
 External stores still own package-valued occurrences: an unambiguous pure-alias
 package can be rewritten during rename/fix-up, while a mixed package must retain
 its alias if a store cannot distinguish the selected export.
+
+## Deletion
+
+`ObjectTools::DeleteAssets` loads exact selected exports, including redirectors,
+without resolving them to their destinations. `DeleteObjects` and `DeleteItems`
+use `FAssetDeleteModel`; object counts describe retired selected objects, while
+folder counts describe actual directory removals. `DoDelete` reports acceptance
+of an action, independently of persistence success and the deleted-object count.
+A failed or completed attempt cannot run again. Diagnostics retain write failures.
+
+The model advances through Waiting, StartScanning, Scanning, UpdateActions and
+Finished on the owner thread. Pending assets retain their exact objects. Native
+read-only traversal supplies weak referencers, reference counts and property
+descriptors; strong/function owners remain separate blockers. Only the model's
+exact strong registrations are excluded. Open documents, open levels, roots,
+loading packages, external references and unsafe files still block deletion.
+
+Selected Dirty assets may be deleted with explicit loss of their edits. Selecting
+one export preserves unselected siblings and their live identities; the surviving
+package is persisted and its prior Dirty state is retained. An unused redirector
+may be deleted alone; deleting a target still checks incoming aliases and other
+references. No deletion path forces garbage collection. Retired package identities
+are withdrawn before deferred collection so a failed physical removal can be
+reloaded safely.
+
+Confirmation belongs to the model's host. MainFrame installs the interactive
+prompt; a missing required host rejects. Passing `bShowConfirmation=false` skips
+presentation while retaining admission and final-validation checks. File owns
+ordinary-file and mixed-folder scope, byte identities and partial I/O facts.
+Those records are private implementation details. Companion registration remains
+in `AssetTools/AssetDeleteExtensions.h`; Engine retains checked removal primitives.
 
 ## Saving And Feedback
 

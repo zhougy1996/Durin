@@ -8,16 +8,19 @@
 
 namespace Durin
 {
+	class FStrongObjectPtr;
 	// Read-only admission check for open levels, roots, native owners and external
 	// live GC references. References within the complete removal set are allowed.
 	ENGINE_API auto ValidatePackageRemovalReferences(std::span<const FPackagePath> Packages,
-		FPackagePath* OutBlockedPackage = nullptr) -> std::expected<void, UnifiedError::FError>;
+		FPackagePath* OutBlockedPackage = nullptr,
+		std::span<const FStrongObjectPtr* const> ExcludedOwners = {}) -> std::expected<void, UnifiedError::FError>;
 
 	// Validates the entire expected set before retiring its resident object graphs.
 	// Rejects cooked mode, stale metadata, loading/dirty packages and outside hard
 	// referencers. References within the set are allowed. Main-thread authoring only.
 	ENGINE_API auto ReleasePackagesForRemoval(
-		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>;
+		std::span<const FPackageData> Packages, uint64 ExpectedRevision,
+			std::span<const FStrongObjectPtr* const> ExcludedOwners = {}, bool bAllowDirty = false) -> std::expected<void, UnifiedError::FError>;
 
 	// Removes only matching catalog entries after their package files are absent.
 	// Failure leaves catalog publication unchanged; callers fence paths after an I/O commit.

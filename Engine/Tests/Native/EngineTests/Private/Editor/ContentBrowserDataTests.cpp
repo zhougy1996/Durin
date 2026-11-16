@@ -1,3 +1,4 @@
+#include "ObjectTools.h"
 #include "Misc/FeedbackContext.h"
 #include "Threading/TaskRuntime.h"
 #include "ContentBrowserAssetProviderSubsystem.h"
@@ -204,6 +205,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			Testing::InitializeDObjectSystemForTests();
+			ObjectTools::SetDeletePrompt([](auto&, auto, auto) { return true; });
 			OwnScheduler = !IsTaskSchedulerRunning();
 			if (OwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
 			if (!GetGameThreadDeferredWorkQueueDiagnostics().bInstalled) ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
@@ -225,6 +227,7 @@ namespace
 		}
 		auto TearDown() -> void override
 		{
+			ObjectTools::SetDeletePrompt({});
 			for (const auto& Source : Extras)
 				Source->Shutdown();
 			if (Editor.Get()) Editor->PreExit();
@@ -688,16 +691,13 @@ namespace
 		auto* Owner = Item.GetOwnerDataSource();
 		ASSERT_NE(nullptr, Owner);
 		const std::array Items{Item};
-		auto Context = Owner->PrepareDeleteItems(Items);
-		ASSERT_NE(nullptr, Context.Request);
-		ASSERT_TRUE(Context.CanExecute());
-		EXPECT_FALSE(Data->BulkDeleteItems({}, Context));
-		std::ofstream(Root / "source.txt", std::ios::app) << "changed";
-		EXPECT_FALSE(Data->BulkDeleteItems(Items, Context));
+		EXPECT_FALSE(Data->BulkDeleteItems({}));
+		ObjectTools::SetDeletePrompt([&](auto&, auto, auto) { std::ofstream(Root / "source.txt", std::ios::app) << "changed"; return true; });
+		EXPECT_FALSE(Data->BulkDeleteItems(Items));
 		EXPECT_TRUE(std::filesystem::exists(Root / "source.txt"));
-		EXPECT_TRUE(Data->BulkDeleteItems(Items, Context));
+		ObjectTools::SetDeletePrompt([](auto&, auto, auto) { return true; });
+		EXPECT_TRUE(Data->BulkDeleteItems(Items));
 		EXPECT_FALSE(std::filesystem::exists(Root / "source.txt"));
-		EXPECT_EQ(nullptr, Context.Request);
 	}
 	TEST_F(FContentBrowserDataTests, ShutdownRejectsDirectProviderOperations)
 	{
@@ -1081,13 +1081,10 @@ namespace
 		const auto FileOwner = std::ranges::find_if(Folder->InternalItems, [](const auto& Item) { return Item.GetOwnerDataSource()->GetDataSourceName() == FName("File"); });
 		ASSERT_NE(Folder->InternalItems.end(), FileOwner);
 		auto* FileSource = FileOwner->GetOwnerDataSource();
-		auto Context = FileSource->PrepareDeleteItems(std::span{&*FileOwner, 1});
-		ASSERT_TRUE(Context.CanExecute());
-		const auto Result = FileSource->BulkDeleteItems(std::span{&*FileOwner, 1}, Context);
+		const auto Result = FileSource->BulkDeleteItems(std::span{&*FileOwner, 1});
 		EXPECT_TRUE(Result);
 		EXPECT_FALSE(std::filesystem::exists(Root / "Sub/note.txt"));
-		EXPECT_TRUE(std::filesystem::exists(Root / "Sub/Owned.dasset"));
-		EXPECT_FALSE(Context.CanExecute());
+		EXPECT_FALSE(std::filesystem::exists(Root / "Sub/Owned.dasset"));
 	}
 	TEST_F(FContentBrowserDataTests, NativeAssetAndFileBatchSharesOneCopyAndConfirmedDelete)
 	{
@@ -1119,13 +1116,7 @@ namespace
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/Target/MixedAsset", CopiedPath));
 		ASSERT_NE(FindResidentPackage(CopiedPath), nullptr);
 		EXPECT_TRUE(FindResidentPackage(CopiedPath)->IsDirty());
-		auto Context = Data->PrepareDeleteItems(Batch);
-		ASSERT_TRUE(Context.CanExecute());
-		const auto Preview = Context.Request->GetPreview();
-		ASSERT_NE(nullptr, Preview);
-		EXPECT_EQ(1u, Preview->Summary.AssetCount);
-		EXPECT_EQ(1u, Preview->Summary.FileCount);
-		EXPECT_TRUE(Data->BulkDeleteItems(Batch, Context));
+		EXPECT_TRUE(Data->BulkDeleteItems(Batch));
 		EXPECT_FALSE(std::filesystem::exists(Root / "source.txt"));
 		EXPECT_FALSE(std::filesystem::exists(Root / "MixedAsset.dasset"));
 	}
@@ -1389,12 +1380,9 @@ namespace
 		const auto Folder = std::ranges::find_if(Rows, [](const auto& Row) { return Row.GetVirtualPath() == "/ProviderTests/Sub"; });
 		ASSERT_NE(Folder, Rows.end());
 		ASSERT_EQ(2u, Folder->GetInternalItems().size());
-		auto Context = Data->PrepareDeleteItems(Folder->GetInternalItems());
-		ASSERT_TRUE(Context.CanExecute());
-		const auto Result = Data->BulkDeleteItems(Folder->GetInternalItems(), Context);
+		const auto Result = Data->BulkDeleteItems(Folder->GetInternalItems());
 		ASSERT_TRUE(Result);
 		EXPECT_TRUE(Result);
-		EXPECT_FALSE(Context.CanExecute());
 		EXPECT_FALSE(std::filesystem::exists(Root / "Sub"));
 	}
 
@@ -1494,7 +1482,7 @@ namespace
 		FPackagePath FirstPath, SecondPath;
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/NewParent/First", FirstPath));
 		ASSERT_TRUE(FPackagePath::TryCreate("/ProviderTests/NewParent/Second", SecondPath));
-		auto* First = IAssetTools::Get().CreatePackageLeafAssetForTesting(FirstPath, DObject::StaticClass());
+		auto* First = IAssetTools::Get().CreateAsset(FirstPath.GetPackageName(), "/ProviderTests/NewParent", DObject::StaticClass(), nullptr);
 		ASSERT_NE(First, nullptr);
 		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
 		auto HasFolder = [&](const auto& Update) {
@@ -1510,7 +1498,7 @@ namespace
 		FContentBrowserDataCompiledFilter Filter;
 		Source->CompileFilter("/ProviderTests/", {}, Filter);
 		EXPECT_TRUE(Source->DoesItemPassFilter(Folder->GetItemData(), Filter));
-		auto* Second = IAssetTools::Get().CreatePackageLeafAssetForTesting(SecondPath, DObject::StaticClass());
+		auto* Second = IAssetTools::Get().CreateAsset(SecondPath.GetPackageName(), "/ProviderTests/NewParent", DObject::StaticClass(), nullptr);
 		ASSERT_NE(Second, nullptr);
 		(PublishedUpdates.clear(), PumpGameThreadDeferredWork(), Editor->Tick(0.0f, false));
 		EXPECT_FALSE(std::ranges::any_of(PublishedUpdates, HasFolder));
@@ -1607,6 +1595,20 @@ namespace
 		ASSERT_TRUE(Data->ActivateDataSource(FName("Asset")));
 		const auto Rows = Enumerate();
 		EXPECT_TRUE(std::ranges::any_of(Rows, [&](const auto& Item) { return Item.GetVirtualPath() == Asset->GetObjectPath(); }));
+	}
+
+	TEST_F(FContentBrowserDataTests, FolderDeletionIncludesUnsavedLiveAssets)
+	{
+		auto* Object = IAssetTools::Get().CreateAsset("Pending", "/ProviderTests/Transient", DObject::StaticClass(), nullptr);
+		ASSERT_NE(Object, nullptr);
+		ASSERT_TRUE(Object->GetPackage()->IsDirty());
+		ASSERT_FALSE(std::filesystem::exists(Root / "Transient"));
+		const auto Rows = Enumerate();
+		const auto Folder = std::ranges::find_if(Rows, [](const auto& Row) { return Row.GetVirtualPath() == "/ProviderTests/Transient"; });
+		ASSERT_NE(Folder, Rows.end());
+		ASSERT_TRUE(Data->BulkDeleteItems(Folder->GetInternalItems()));
+		EXPECT_FALSE(IsValid(Object));
+		EXPECT_FALSE(std::filesystem::exists(Root / "Transient"));
 	}
 
 }

@@ -30,7 +30,6 @@ namespace Durin
 	auto RenameAssetsWithEditorPolicy(std::span<const FAssetRenameData>, TMulticastDelegate<void(std::span<const FAssetRenameData>)>&) -> bool;
 	auto FixupReferencersWithEditorPolicy(std::span<DAssetRedirector* const>, ERedirectFixupMode) -> void;
 	auto IsEditorFixupInProgress() -> bool;
-	auto PrepareAssetDeletionWithEditorPolicy(const FAssetDeletionRequest&, FAssetDeletionOperation&, FFeedbackContext*) -> bool;
 
 	namespace
 	{
@@ -230,8 +229,6 @@ namespace Durin
 		auto FixupReferencers(std::span<DAssetRedirector* const> Objects, bool, ERedirectFixupMode Mode) const -> void override
 		{ FixupReferencersWithEditorPolicy(Objects, Mode); }
 		auto IsFixupReferencersInProgress() const -> bool override { return IsEditorFixupInProgress(); }
-		auto PrepareDeletion(const FAssetDeletionRequest& Request, FAssetDeletionOperation& Operation, FFeedbackContext* Warn) -> bool override
-		{ return PrepareAssetDeletionWithEditorPolicy(Request, Operation, Warn); }
 
 	private:
 		TMulticastDelegate<void(std::span<const FAssetRenameData>)> PostRename;

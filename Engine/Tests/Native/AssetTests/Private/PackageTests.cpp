@@ -5596,7 +5596,7 @@ TEST(FPackageAssetTests, FailedGenerationCanRetryBeforeHostCollection)
 		EXPECT_NE(Replacement, Failed);
 		EXPECT_EQ(FindPackage(Path.GetView()), Replacement);
 		// A stale generation cannot withdraw the replacement's path registration.
-		Failed->RetireFailedLoadRegistration();
+		Failed->RetireGarbageRegistration();
 		EXPECT_EQ(FindPackage(Path.GetView()), Replacement);
 	}
 	CollectGarbage(Durin::EObjectFlags::Standalone);

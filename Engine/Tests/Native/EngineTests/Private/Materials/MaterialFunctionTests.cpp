@@ -1,3 +1,5 @@
+#include "AssetDeleteModel.h"
+#include "ObjectTools.h"
 #include "Misc/FeedbackContext.h"
 #include "AssetTools/MutationTesting.h"
 #include "Misc/UnifiedError.h"
@@ -1602,12 +1604,14 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	ASSERT_NO_FATAL_FAILURE(AddFunctionCall(*Wrapper, *Leaf));
 	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
 	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
-	FAssetDeletionOperation Deletion;
-	EXPECT_FALSE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {LeafPath}}, Deletion));
-	EXPECT_TRUE(std::ranges::any_of(Deletion.GetBlockers(), [](const auto& Blocker) {
-		return Blocker.Kind == EAssetDeletionBlocker::ExternalPersistentReference
-			|| Blocker.Kind == EAssetDeletionBlocker::ExternalLoadedReference;
-	}));
+	{
+		const std::array<DObject*, 1> Selected{Leaf};
+		FAssetDeleteModel Deletion(Selected);
+		while (Deletion.GetState() != FAssetDeleteModel::EState::Finished) Deletion.Tick(0.f);
+		EXPECT_FALSE(Deletion.CanDelete());
+		const auto& Pending = *Deletion.GetPendingDeletedAssets().front();
+		EXPECT_TRUE(Pending.RemainingDiskReferences || Pending.RemainingMemoryReferences || Pending.IsReferencedByNativeOwner());
+	}
 	auto* Material = NewObject<DMaterial>(nullptr, "FunctionRelocationCaller");
 	TStrongObjectPtr<DMaterial> MaterialRoot(Material);
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
@@ -1639,16 +1643,14 @@ TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsRe
 	// no live owner still references the function selected for deletion.
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	const std::array Removed{LeafPath, MovedPath};
-	FAssetDeletionOperation UnreferencedDeletion;
-	std::string PreparedDeletionError;
-	Durin::FFeedbackContext PreparedDeletionFeedback({}, [&](Durin::ELogLevel Level, std::string_view Message) {
-		if (Level >= Durin::ELogLevel::Error) { if (!PreparedDeletionError.empty()) PreparedDeletionError += "\n"; PreparedDeletionError += Message; }
-	});
-	const auto PreparedDeletion = IAssetTools::Get().PrepareDeletion(
-		{.AssetPaths = {LeafPath, MovedPath}}, UnreferencedDeletion, &PreparedDeletionFeedback);
-	ASSERT_TRUE(PreparedDeletion) << PreparedDeletionError
-		<< (UnreferencedDeletion.GetBlockers().empty() ? "" : UnreferencedDeletion.GetBlockers().front().Details);
-	ASSERT_TRUE(Testing::RemoveAssetPackagesForTests(Removed));
+	std::vector<FAssetData> Selected;
+	for (const auto& Path : Removed)
+	{
+		const auto Entry = FindPackageExact(Path);
+		ASSERT_TRUE(Entry);
+		Selected.insert(Selected.end(), Entry->TopLevelAssets.begin(), Entry->TopLevelAssets.end());
+	}
+	EXPECT_EQ(ObjectTools::DeleteAssets(Selected, false), 2);
 	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 	MaterialRoot.Reset();
 	MarkAsGarbage(Material);

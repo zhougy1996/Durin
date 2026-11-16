@@ -49,12 +49,13 @@ namespace Durin
 		};
 		if (Changes.bFullRefresh)
 		{
+			for (const auto& [Path, Count] : AssetFolderCounts) PreviousFolders.emplace(Path, Count != 0);
 			PackageAssets.clear(); AssetFolderCounts.clear();
 			const auto Snapshot = CaptureAssetQuerySnapshot();
 			for (const auto& [Path, Asset] : Snapshot.Assets) ChangePath(Path.ToString(), true);
-			return Updates;
+			if (!Publish) return Updates;
 		}
-		for (const auto& Change : Changes.Changes)
+		else for (const auto& Change : Changes.Changes)
 		{
 			if (Change.bDirectory) continue;
 			if (Change.Kind == EContentChangeKind::Removed || Change.Kind == EContentChangeKind::Renamed) ChangePath(Change.OldAssetPath, false);

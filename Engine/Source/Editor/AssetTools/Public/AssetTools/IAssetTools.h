@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "AssetToolsAPI.h"
-#include "AssetTools/AssetDeletion.h"
+#include "AssetTools/AssetDeleteExtensions.h"
 #include "Misc/FeedbackContext.h"
 #include "AssetRenameData.h"
 #include "DObject/Object.h"
@@ -45,11 +45,6 @@ namespace Durin
 		virtual auto FixupReferencers(std::span<DAssetRedirector* const> Objects, bool bCheckoutDialogPrompt = true,
 			ERedirectFixupMode Mode = ERedirectFixupMode::DeleteFixedUpRedirectors) const -> void = 0;
 		virtual auto IsFixupReferencersInProgress() const -> bool = 0;
-		// Captures asset safety and the opaque irreversible operation without staging bytes.
-		virtual auto PrepareDeletion(
-			const FAssetDeletionRequest& Request,
-			FAssetDeletionOperation& OutOperation, FFeedbackContext* Warn = nullptr)
-			-> bool = 0;
 	};
 
 }

@@ -18,19 +18,7 @@ namespace Durin::ContentBrowser
 		virtual auto QueueItemDataUpdate(FContentBrowserItemDataUpdate&& Update) -> void = 0;
 		virtual auto NotifyItemDataRefreshed() -> void = 0;
 	};
-	struct FContentBrowserDeletePreview
-	{
-		struct FSummary
-		{
-			uint64 AssetCount = 0, FileCount = 0, CompanionCount = 0, FolderCount = 0;
-		} Summary;
-		struct FMessage
-		{
-			std::string DisplayName, PhysicalPath, RelatedAssetPath, Details;
-		};
-		std::string DisplayName;
-		std::vector<FMessage> Blockers, Warnings;
-	};
+
 	// Source-owned validation and deferred creation; constructing a context performs no mutation.
 	class FContentBrowserItemDataTemporaryContext
 	{
@@ -57,22 +45,6 @@ namespace Durin::ContentBrowser
 		std::function<bool(std::string_view, std::string*)> Validate;
 		std::function<bool(std::string_view, FContentBrowserItemData&)> Finalize;
 	};
-	// Confirmed request capability; providers supply an owner-bound implementation.
-	enum class EContentBrowserDeleteValidation : uint8 { Valid, Stale, Rejected };
-	class IContentBrowserDeleteRequest
-	{
-	public:
-		virtual ~IContentBrowserDeleteRequest() = default;
-		virtual auto CanExecute() const -> bool = 0;
-		virtual auto ValidateForExecution() -> EContentBrowserDeleteValidation { return CanExecute() ? EContentBrowserDeleteValidation::Valid : EContentBrowserDeleteValidation::Rejected; }
-		virtual auto GetPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview> { return {}; }
-	};
-	struct FContentBrowserDeleteContext
-	{
-		FContentBrowserItemData OwnerItem;
-		std::unique_ptr<IContentBrowserDeleteRequest> Request;
-		auto CanExecute() const -> bool { return OwnerItem.GetOwnerDataSource() && Request && Request->CanExecute(); }
-	};
 } // namespace Durin::ContentBrowser
 namespace Durin
 {
@@ -84,7 +56,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		static constexpr std::string_view FeatureName = "ContentBrowserDataSource";
-		static constexpr uint32 FeatureVersion = 17;
+		static constexpr uint32 FeatureVersion = 18;
 		CONTENTBROWSERDATA_API explicit DContentBrowserDataSource(const FObjectInitializer& Initializer);
 		CONTENTBROWSERDATA_API virtual auto Initialize(bool bAutoRegister = true) -> void;
 		CONTENTBROWSERDATA_API virtual auto Shutdown() -> void;
@@ -132,8 +104,8 @@ namespace Durin
 		CONTENTBROWSERDATA_API virtual auto MoveItem(const ContentBrowser::FContentBrowserItemData&, std::string_view) -> bool;
 		CONTENTBROWSERDATA_API virtual auto BulkMoveItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool;
 		CONTENTBROWSERDATA_API virtual auto CanDeleteItem(const ContentBrowser::FContentBrowserItemData&, std::string* Error = nullptr) const -> bool;
-		CONTENTBROWSERDATA_API virtual auto PrepareDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> ContentBrowser::FContentBrowserDeleteContext;
-		CONTENTBROWSERDATA_API virtual auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> bool;
+		CONTENTBROWSERDATA_API virtual auto DeleteItem(const ContentBrowser::FContentBrowserItemData&) -> bool;
+		CONTENTBROWSERDATA_API virtual auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> bool;
 
 	protected:
 		ContentBrowser::IContentBrowserItemDataSink* DataSink = nullptr;

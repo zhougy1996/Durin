@@ -3,6 +3,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageRemoval.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/ReferencerInformation.h"
 #include "DObject/Package.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -14,6 +15,7 @@
 
 namespace Durin
 {
+	class FStrongObjectPtr;
 	namespace
 	{
 		auto WriteFailure(UnifiedError::FErrorId Code, std::string Message) -> std::expected<void, UnifiedError::FError>
@@ -22,7 +24,7 @@ namespace Durin
 	}
 
 	auto ValidatePackageRemovalReferences(std::span<const FPackagePath> Paths,
-		FPackagePath* OutBlockedPackage) -> std::expected<void, UnifiedError::FError>
+		FPackagePath* OutBlockedPackage, std::span<const FStrongObjectPtr* const> ExcludedOwners) -> std::expected<void, UnifiedError::FError>
 	{
 		CheckGameThread();
 		if (OutBlockedPackage) *OutBlockedPackage = {};
@@ -45,28 +47,13 @@ namespace Durin
 			if (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
 				return Reject(*Package, std::format("Asset {} contains rooted object {} and cannot be deleted.", Package->GetPackagePath(), Object->GetObjectPath()));
 		}
-		class FRemovalReferenceCollector final : public FReferenceCollector
+		std::vector<DObject*> Roots(Packages.begin(), Packages.end());
+		for (auto* Package : Packages)
 		{
-		public:
-			explicit FRemovalReferenceCollector(const std::unordered_set<DPackage*>& InPackages) : Packages(InPackages) {}
-			auto AddReferencedObject(DObject*& Object) -> void override
-			{
-				if (!BlockedPackage && IsValid(Object) && Packages.contains(Object->GetPackage()))
-					BlockedPackage = Object->GetPackage();
-			}
-			const std::unordered_set<DPackage*>& Packages;
-			DPackage* BlockedPackage = nullptr;
-		} Collector(Packages);
-		Private::AddStrongObjectReferences(Collector);
-		Private::AddFunctionParameterReferences(Collector);
-		if (Collector.BlockedPackage)
-			return Reject(*Collector.BlockedPackage, std::format("Asset {} is retained by an active native owner or function call. Close its editor or finish the operation before deleting it.", Collector.BlockedPackage->GetPackagePath()));
-		for (DObject* Object : Objects)
-		{
-			if (!IsValid(Object) || Packages.contains(Object->GetPackage())) continue;
-			Object->AddReferencedObjects(Collector);
-			if (Collector.BlockedPackage)
-				return Reject(*Collector.BlockedPackage, std::format("Asset {} is referenced by live object {}. Close its level or editor before deleting it.", Collector.BlockedPackage->GetPackagePath(), Object->GetObjectPath()));
+			FReferencerInformationList References;
+			if (FindObjectReferencers(Package, Roots, References, ExcludedOwners)
+				|| !References.ExternalReferences.empty())
+				return Reject(*Package, "The deletion is retained by an external live or native owner.");
 		}
 		return {};
 	}
@@ -102,7 +89,8 @@ namespace Durin
 	}
 
 	auto FAssetMutationCoordinator::ReleasePackagesForRemoval(
-		std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
+		std::span<const FPackageData> Entries, uint64 ExpectedRevision,
+			std::span<const FStrongObjectPtr* const> ExcludedOwners, bool bAllowDirty) -> std::expected<void, UnifiedError::FError>
 	{
 		const auto Validated = ValidatePackageRemoval(Entries, ExpectedRevision);
 		if (!Validated) return Validated;
@@ -115,20 +103,21 @@ namespace Durin
 					"Asset {} is currently loading.", Path.ToString()));
 			DPackage* Loaded = FindResidentPackage(Path);
 			if (!Loaded) continue;
-			if (Loaded->IsDirty())
+			if (!bAllowDirty && Loaded->IsDirty())
 				return WriteFailure(AssetWriteErrors::InUse, std::format(
 					"Asset {} has unsaved changes.", Path.ToString()));
 			Packages.push_back(Loaded);
 		}
 		std::vector<FPackagePath> Paths;
 		for (const auto& Entry : Entries) Paths.push_back(Entry.PackagePath);
-		const auto References = ValidatePackageRemovalReferences(Paths);
+		const auto References = ValidatePackageRemovalReferences(Paths, nullptr, ExcludedOwners);
 		if (!References) return References;
 		for (DPackage* Package : Packages)
 		{
 			MarkObjectHierarchyAsGarbage(Package);
+			Package->RetireGarbageRegistration();
 		}
-		if (!Packages.empty()) CollectGarbage(Durin::EObjectFlags::Standalone);
+		if (!Packages.empty()) RequestGarbageCollection();
 		return {};
 	}
 

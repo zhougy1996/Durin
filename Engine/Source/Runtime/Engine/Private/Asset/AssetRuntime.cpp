@@ -648,7 +648,7 @@ namespace Durin
 					else
 					{
 						MarkObjectHierarchyAsGarbage(Package);
-						Package->RetireFailedLoadRegistration();
+						Package->RetireGarbageRegistration();
 					}
 				}
 			}

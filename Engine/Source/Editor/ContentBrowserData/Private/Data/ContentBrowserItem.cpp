@@ -1,6 +1,7 @@
 #include "ContentBrowserItem.h"
 #include "ContentBrowserDataSource.h"
 #include "Data/ContentBrowserSaveDispatch.h"
+#include "Data/ContentBrowserDeleteDispatch.h"
 #include "Data/ContentBrowserTransferDispatch.h"
 #include "DObject/StrongObjectPtr.h"
 namespace Durin::ContentBrowser
@@ -90,16 +91,28 @@ namespace Durin::ContentBrowser
 		return !Out.InternalItems.empty();
 	}
 	auto FContentBrowserItem::CanDelete() const -> bool
+	{ return CanOperate(*this, [](auto& Source, const auto& Data) { return Source.CanDeleteItem(Data); }); }
+	auto FContentBrowserItem::Delete() const -> bool
+	{ return Private::DispatchDeleteItems(InternalItems, [](auto* Source) { return Source && Source->IsActive(); }); }
+	auto Private::DispatchDeleteItems(std::span<const FContentBrowserItemData> Items,
+		const std::function<bool(DContentBrowserDataSource*)>& Admitted) -> bool
 	{
-		if (InternalItems.empty()) return false;
-		for (const auto& Data : InternalItems)
+		struct FPartition { TStrongObjectPtr<DContentBrowserDataSource> Source; std::vector<FContentBrowserItemData> Items; };
+		const std::vector<FContentBrowserItemData> Snapshot(Items.begin(), Items.end());
+		std::vector<FPartition> Partitions;
+		for (const auto& Item : Snapshot)
 		{
-			auto* Source = Data.GetOwnerDataSource();
-			if (!Source) return false;
-			TStrongObjectPtr<DContentBrowserDataSource> KeepAlive(Source);
-			if (!Source->CanDeleteItem(Data) || Data.GetOwnerDataSource() != Source) return false;
+			auto* Source = Item.GetOwnerDataSource();
+			if (!Source || !Admitted(Source)) continue;
+			auto Found = std::ranges::find_if(Partitions, [Source](const auto& P) { return P.Source.Get() == Source; });
+			if (Found == Partitions.end()) Partitions.push_back({TStrongObjectPtr<DContentBrowserDataSource>(Source), {Item}});
+			else if (std::ranges::none_of(Found->Items, [&](const auto& Value) { return Value.GetContributionKey() == Item.GetContributionKey(); })) Found->Items.push_back(Item);
 		}
-		return true;
+		bool Success = false;
+		for (auto& Part : Partitions)
+			if (Admitted(Part.Source.Get()) && std::ranges::all_of(Part.Items, [&](const auto& Item) { return Item.GetOwnerDataSource() == Part.Source.Get(); }))
+				Success |= Part.Source->BulkDeleteItems(Part.Items);
+		return Success;
 	}
 
 	auto FContentBrowserItem::CanSave(EContentBrowserItemSaveFlags Flags) const -> bool

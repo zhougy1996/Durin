@@ -8,6 +8,7 @@
 
 namespace Durin
 {
+	class FStrongObjectPtr;
 	namespace
 	{
 		struct FSoftObjectPathRegistration
@@ -75,10 +76,11 @@ namespace Durin
 	}
 
 	auto ReleasePackagesForRemoval(
-		std::span<const FPackageData> Packages, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>
+		std::span<const FPackageData> Packages, uint64 ExpectedRevision,
+			std::span<const FStrongObjectPtr* const> ExcludedOwners, bool bAllowDirty) -> std::expected<void, UnifiedError::FError>
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.ReleasePackagesForRemoval(Packages, ExpectedRevision);
+			.ReleasePackagesForRemoval(Packages, ExpectedRevision, ExcludedOwners, bAllowDirty);
 	}
 
 	auto PublishPackageRemoval(

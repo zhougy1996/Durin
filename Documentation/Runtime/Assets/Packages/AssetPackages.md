@@ -57,15 +57,17 @@ capabilities: `Asset.h` for resolution, residency, loading, and cooked payload
 reads; `Asset/Mutation.h` for exact mutation; and
 `Asset/PackageSerialization.h` or `Asset/PackageInspection.h` for package
 serialization, saving, and construct-free inspection. Asset creation,
-duplication, import and deletion operations belong to `IAssetTools`; editor
+duplication and import operations belong to `IAssetTools`; `ObjectTools` owns
+delete entrypoints and the asset delete model. Editor
 save/reload policy belongs to FileHelpers and PackageTools, as defined by
 [Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md).
 Engine exposes no generic asset-construction operation. `AssetCook.h` owns Cook
 reachability and publication. Developer `AssetMaintenance` owns project-wide
 compatibility and canonical-resave batches.
 `Asset/PackageRemoval.h` exposes batch residency release and checked catalog
-removal; selection, confirmation, companions, and deletion callbacks belong to
-`AssetTools/AssetDeletion.h` as defined by
+removal; selection and confirmation belong to `ObjectTools.h` and
+`AssetDeleteModel.h`, with companion capabilities in
+`AssetTools/AssetDeleteExtensions.h`, as defined by
 [Asset Catalog And Mutation](AssetCatalogAndMutation.md#deletion-and-fix-up).
 
 Ownership is deliberately one-way:

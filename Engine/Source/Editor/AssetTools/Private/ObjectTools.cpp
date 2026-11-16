@@ -88,7 +88,7 @@ namespace Durin
 		if (!Result)
 		{
 			MarkObjectHierarchyAsGarbage(Package);
-			Package->RetireFailedLoadRegistration();
+			Package->RetireGarbageRegistration();
 			RequestGarbageCollection();
 			return Reject(ToString(Result.error()));
 		}

@@ -171,8 +171,16 @@ namespace Durin
 		return Success;
 	}
 	auto DContentBrowserDataSource::CanDeleteItem(const FContentBrowserItemData&, std::string*) const -> bool { return false; }
-	auto DContentBrowserDataSource::PrepareDeleteItems(std::span<const FContentBrowserItemData>) -> FContentBrowserDeleteContext { return {}; }
-	auto DContentBrowserDataSource::BulkDeleteItems(std::span<const FContentBrowserItemData>, FContentBrowserDeleteContext&) -> bool { return false; }
+	auto DContentBrowserDataSource::DeleteItem(const FContentBrowserItemData&) -> bool { return false; }
+	auto DContentBrowserDataSource::BulkDeleteItems(std::span<const FContentBrowserItemData> Items) -> bool
+	{
+		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(this);
+		const std::vector<FContentBrowserItemData> Snapshot(Items.begin(), Items.end());
+		bool Success = false;
+		for (const auto& Item : Snapshot)
+			if (IsActive() && Item.GetOwnerDataSource() == this) Success |= DeleteItem(Item);
+		return Success;
+	}
 
 } // namespace Durin
 namespace Durin::ContentBrowser

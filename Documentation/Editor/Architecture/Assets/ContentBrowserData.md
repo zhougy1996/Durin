@@ -23,12 +23,10 @@ Storage-neutral filesystem, mount projection and path inspection helpers live in
 Core. The shared `FContentChange`/`FContentChangeBatch` value contract lives in
 Core's `Misc/ContentChanges.h`; AssetRegistry retains its scoped projection and
 bounded journal. This lets Data implement generic operation fencing without a
-registry or native-provider dependency. AssetTools owns
-`FContentDeletionRequest` and `FContentDeletionOperation`, the single native
-confirmed-deletion and companion-safety mechanism. Its input is a name and physical
-path plus narrow policy callbacks; it depends on no browser contract. Providers
-publish actual changes and report native diagnostics independently of bool results. No combined native browser
-facade or parallel deletion executor is retained. Test-only value construction
+registry or native-provider dependency. AssetTools owns ObjectTools and the native
+asset delete model; File owns private ordinary-file/mixed-folder selection,
+fingerprints and partial I/O execution. Providers publish actual changes and
+report native diagnostics independently of bool results. Test-only value construction
 and snapshot fixtures use public provider contracts or owner-module friend access;
 production queries require a live data service and have no standalone-source or
 injected-snapshot dispatch branch. Provider fixtures register and activate sources
@@ -205,7 +203,7 @@ drains owned worker bodies; prepared values remain readable after query destruct
 
 Asset and File sources derive directly from `DContentBrowserDataSource`, own their
 native execution and both contribute folders. AssetTools shares admission,
-feedback, directory creation and confirmed-deletion utilities; Core owns path
+feedback and directory creation utilities; Core owns path
 safety helpers. Native copy/move/save return bool directly. No generic
 `OperationResult`, prepared-transfer context or cross-provider claim ledger remains.
 
@@ -251,18 +249,22 @@ Discarding the context writes nothing. Validation checks current names, ownershi
 and permissions; no activation-generation revocation contract is imposed.
 Temporary items never enter the published snapshot or ordinary selection.
 
-Confirmed deletion is an intentional UE adaptation. `PrepareDeleteItems` returns
-a move-only context; `BulkDeleteItems` requires its exact owner-bound scope.
-Execution validates all partitions and rechecks admission/fingerprints before
-destruction. Stale scope requires a replacement confirmation; an attempted native
-destruction retires the session before feedback/notification, even after partial
-failure. Each failed removal and recovery path is reported once; an already
-reported error is not repeated as an aggregate diagnostic. Providers delete owned
-descendants and only empty directories; no unconfirmed deletion entrypoint exists.
-The native concrete `FContentDeletionResult` records physical removals for updates
-and recovery. Browser actions return bool; tests inspect native facts directly.
-Panels use immutable `GetPreview` data and never inspect fingerprints or execution
-sessions. Dismissal releases the pending context.
+Deletion uses `DeleteItem` and context-free `BulkDeleteItems`. Base bulk delegates
+to single actions and ORs results. Item and service partition immutable inputs by
+source and invoke admitted peers independently; a rejected provider does not
+veto another provider. The data-source feature version is 18. There is no public
+prepare, preview, request, validation, confirmation-context or lease protocol.
+
+Native providers retain their own execution scope and invoke the model/host for
+confirmation. The panel passes its captured selection directly to the service.
+Asset uses exact selected exports; File owns ordinary files and mixed folders,
+including explicit folder expansion and empty-directory cleanup. Confirmation
+never permits newly discovered entries to join an executing selection. Final
+checks cover policy, mount/reparse/read-only state, live owners, providers and
+fresh bytes. Partial removals retain private committed/failed/unattempted facts
+for publication and diagnostics; a destructive attempt is consumed before
+feedback can prepare another selection. No provider-wide preflight or rollback
+is implied by the aggregate bool result.
 
 ## Incremental Updates
 

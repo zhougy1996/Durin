@@ -3,7 +3,7 @@
 #include "Editor/ContentBrowserQueryTestSupport.h"
 #include "ContentBrowserItemAttributeHelpers.h"
 #include "FileHelpers.h"
-#include "AssetTools/ContentDeletionRequest.h"
+#include "Data/FileDeletionRequest.h"
 #include "AssetRegistry/Catalog.h"
 namespace Durin::ContentBrowser::Private
 {
@@ -98,11 +98,11 @@ namespace Durin::ContentBrowser::Private
 	public:
 		explicit FDeletionRequestFixture(FContentBrowserOperationContext Host={}, bool Assets=true, bool Files=true) : Operation({.CanMutateContent=Host.CanMutateContent,.ReportDiagnostic=Host.ReportDiagnostic,.NotifyContentMutation=Host.NotifyContentMutation},Assets,Files) {}
 		auto SetDiagnosticSink(FFeedbackContext::FMessageSink Sink) -> void { Operation.SetDiagnosticSink(std::move(Sink)); }
-		template<typename T> auto PrepareDeleteItems(const T& Items) -> FContentDeletionPlanPtr { std::vector<FContentDeletionInput> Inputs; for (const auto& Item : Items) Inputs.push_back({Item.Name,Item.PhysicalPath}); return Operation.PrepareDeleteItems(Inputs); }
-		auto DismissDeletion(FContentDeletionPlanPtr Plan) -> void { Operation.DismissDeletion(std::move(Plan)); }
-		auto DeleteItems(FContentDeletionPlanPtr& Plan, FContentDeletionHooks Hooks={}) -> FContentDeletionResult
+		template<typename T> auto PrepareDeleteItems(const T& Items) -> FFileDeletionPlanPtr { std::vector<FFileDeletionInput> Inputs; for (const auto& Item : Items) Inputs.push_back({Item.Name,Item.PhysicalPath}); return Operation.PrepareDeleteItems(Inputs); }
+		auto DismissDeletion(FFileDeletionPlanPtr Plan) -> void { Operation.DismissDeletion(std::move(Plan)); }
+		auto DeleteItems(FFileDeletionPlanPtr& Plan, FFileDeletionHooks Hooks={}) -> FFileDeletionResult
 		{ return Operation.DeleteItems(Plan, std::move(Hooks)); }
 	private:
-		FContentDeletionRequest Operation;
+		FFileDeletionRequest Operation;
 	};
 }

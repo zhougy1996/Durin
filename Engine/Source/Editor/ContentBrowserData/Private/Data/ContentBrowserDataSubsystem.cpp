@@ -1,7 +1,7 @@
 #include "ContentBrowserDataSubsystem.h"
 #include "Data/ContentBrowserSaveDispatch.h"
 #include "Data/ContentBrowserTransferDispatch.h"
-#include "ContentBrowserDeleteRequestLease.h"
+#include "Data/ContentBrowserDeleteDispatch.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Misc/MountPaths.h"
@@ -211,41 +211,6 @@ namespace Durin
 		return ContentBrowser::Private::DispatchSaveItems(Items, Flags, [this](auto* Source) { return OwnsSource(Source); });
 	}
 
-	namespace
-	{
-		struct FCompositeDeleteRequest final : IContentBrowserDeleteRequest
-		{
-			struct FPartition
-			{
-				TStrongObjectPtr<DContentBrowserDataSource> Source;
-				std::string Name;
-				std::vector<FContentBrowserItemData> Items;
-				FContentBrowserDeleteContext Context;
-			};
-			std::vector<FPartition> Partitions;
-			std::vector<FContentBrowserItemData> Captured;
-			mutable std::vector<std::shared_ptr<const FContentBrowserDeletePreview>> Previous;
-			mutable std::shared_ptr<FContentBrowserDeletePreview> Preview;
-			auto CanExecute() const -> bool override
-			{ return !Partitions.empty() && std::ranges::all_of(Partitions, [](const auto& Part) { return Part.Context.CanExecute(); }); }
-			auto GetPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview> override
-			{
-				std::vector<std::shared_ptr<const FContentBrowserDeletePreview>> Current;
-				for (const auto& Part : Partitions) Current.push_back(Part.Context.Request ? Part.Context.Request->GetPreview() : nullptr);
-				if (Preview && Current == Previous) return Preview;
-				Previous = Current;
-				Preview = std::make_shared<FContentBrowserDeletePreview>(); Preview->DisplayName = "selected items";
-				for (const auto& Value : Current) if (Value)
-				{
-					Preview->Summary.AssetCount += Value->Summary.AssetCount; Preview->Summary.FileCount += Value->Summary.FileCount;
-					Preview->Summary.CompanionCount += Value->Summary.CompanionCount; Preview->Summary.FolderCount += Value->Summary.FolderCount;
-					Preview->Blockers.insert(Preview->Blockers.end(), Value->Blockers.begin(), Value->Blockers.end());
-					Preview->Warnings.insert(Preview->Warnings.end(), Value->Warnings.begin(), Value->Warnings.end());
-				}
-				return Preview;
-			}
-		};
-	}
 	auto DContentBrowserDataSubsystem::IsActive() const -> bool
 	{
 		return !bStopping && GetEditor() && !GetEditor()->IsShutdownRequested();
@@ -266,34 +231,7 @@ namespace Durin
 			if (OwnsSource(Source.Get()) && Source->CanCreateFolder(Path) && OwnsSource(Source.Get())) return Source->CreateFolder(Path, Out, Host);
 		return false;
 	}
-	auto DContentBrowserDataSubsystem::PrepareDeleteItems(std::span<const FContentBrowserItemData> Items) -> FContentBrowserDeleteContext
-	{
-		RefreshSources();
-		if (Items.empty()) return {};
-		auto Request = std::make_unique<FCompositeDeleteRequest>();
-		Request->Captured.assign(Items.begin(), Items.end());
-		for (const auto& Item : Items)
-		{
-			auto* Source = Item.GetOwnerDataSource();
-			if (!OwnsSource(Source)) return {};
-			auto Part = std::ranges::find_if(Request->Partitions, [Source](const auto& Value) { return Value.Source.Get() == Source; });
-			if (Part == Request->Partitions.end()) Request->Partitions.push_back({TStrongObjectPtr<DContentBrowserDataSource>(Source), {}, {Item}, {}});
-			else if (std::ranges::none_of(Part->Items, [&](const auto& Value) { return Value.GetContributionKey() == Item.GetContributionKey(); })) Part->Items.push_back(Item);
-		}
-		for (auto& Part : Request->Partitions)
-		{
-			Part.Name = Part.Source->GetDataSourceName().ToString();
-			std::ranges::sort(Part.Items, {}, &FContentBrowserItemData::GetVirtualPath);
-		}
-		std::ranges::sort(Request->Partitions, {}, &FCompositeDeleteRequest::FPartition::Name);
-		for (auto& Part : Request->Partitions)
-		{
-			if (!OwnsSource(Part.Source.Get()) || std::ranges::any_of(Part.Items, [&](const auto& Item) { return Item.GetOwnerDataSource() != Part.Source.Get(); })) return {};
-			Part.Context = Part.Source->PrepareDeleteItems(Part.Items);
-			if (!Part.Context.Request) return {};
-		}
-		return {Items.front(), std::move(Request)};
-	}
+
 
 	auto DContentBrowserDataSubsystem::BulkCopyItems(std::span<const FContentBrowserItemData> Items, std::string_view Dest) -> bool
 	{
@@ -307,48 +245,10 @@ namespace Durin
 		RefreshSources();
 		return ContentBrowser::Private::DispatchTransferItems(Items, Dest, true, [this](auto* Source) { return OwnsSource(Source); });
 	}
-	auto DContentBrowserDataSubsystem::BulkDeleteItems(std::span<const FContentBrowserItemData> Items, FContentBrowserDeleteContext& Context) -> bool
+	auto DContentBrowserDataSubsystem::BulkDeleteItems(std::span<const FContentBrowserItemData> Items) -> bool
 	{
 		TStrongObjectPtr<DContentBrowserDataSubsystem> Lifetime(this);
-		const std::vector<FContentBrowserItemData> Snapshot(Items.begin(), Items.end());
-		Items = Snapshot;
-		bool Success = false;
-		ContentBrowser::Private::FContentBrowserDeleteRequestLease Lease(Context);
-		auto* Request = dynamic_cast<FCompositeDeleteRequest*>(Lease.Request.get());
-		if (!Request)
-		{
-			auto* Owner = Lease.Owner.GetOwnerDataSource();
-			if (!OwnsSource(Owner) || std::ranges::any_of(Items, [Owner](const auto& Item) { return Item.GetOwnerDataSource() != Owner; })) return false;
-			TStrongObjectPtr<DContentBrowserDataSource> OwnerLifetime(Owner);
-			FContentBrowserDeleteContext Local{Lease.Owner, std::move(Lease.Request)};
-			const auto Native = Owner->BulkDeleteItems(Items, Local);
-			Lease.Request = std::move(Local.Request); Lease.bConsumed = !Lease.Request;
-			return Native;
-		}
-		if (Items.size() != Request->Captured.size()) return false;
-		for (size_t I = 0; I < Items.size(); ++I)
-			if (Items[I].GetContributionKey() != Request->Captured[I].GetContributionKey() || Items[I].GetPayload() != Request->Captured[I].GetPayload()) return false;
-		auto Current = [&](const auto& Part) { return OwnsSource(Part.Source.Get()) && std::ranges::all_of(Part.Items, [&](const auto& Item) { return Item.GetOwnerDataSource() == Part.Source.Get(); }); };
-		for (auto& Part : Request->Partitions)
-		{
-			if (!Current(Part) || !Part.Context.CanExecute()) return false;
-			const auto Validation = Part.Context.Request->ValidateForExecution();
-			if (Validation == EContentBrowserDeleteValidation::Stale)
-			{
-				Context = PrepareDeleteItems(Items);
-				return false;
-			}
-			if (Validation != EContentBrowserDeleteValidation::Valid) return false;
-		}
-		for (const auto& Part : Request->Partitions) if (!Current(Part)) return false;
-		bool Consumed = false;
-		for (auto& Part : Request->Partitions)
-		{
-			if (!Current(Part)) continue;
-			Success |= Part.Source->BulkDeleteItems(Part.Items, Part.Context);
-			Consumed |= !Part.Context.Request;
-		}
-		Lease.bConsumed = Consumed || Success;
-		return Success;
+		RefreshSources();
+		return ContentBrowser::Private::DispatchDeleteItems(Items, [this](auto* Source) { return OwnsSource(Source); });
 	}
 } // namespace Durin

@@ -10,8 +10,9 @@
 #include "Data/ContentBrowserNativeTransfer.h"
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
-#include "AssetTools/ContentDeletionRequest.h"
-#include "ContentBrowserDeleteRequestLease.h"
+#include "ObjectTools.h"
+#include "AssetDeleteModel.h"
+
 #include "AssetRegistry/Catalog.h"
 
 #include "Asset/RegistryOperations.h"
@@ -104,48 +105,7 @@ namespace Durin
 			std::shared_ptr<const FContentBrowserOperationContext> Context;
 			std::shared_ptr<const FContentBrowserOperationContext> Host;
 		};
-		struct FNativeDeleteRequest final : IContentBrowserDeleteRequest
-		{
-			std::shared_ptr<ContentStorage::FContentDeletionRequest> Operations;
 
-			ContentStorage::FContentDeletionPlanPtr Plan;
-			std::vector<std::shared_ptr<const IContentBrowserItemDataPayload>> Payloads;
-			mutable ContentStorage::FContentDeletionPlanPtr PreviewPlan;
-			mutable std::shared_ptr<const FContentBrowserDeletePreview> Preview;
-			auto GetPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview> override
-			{
-				if (Plan != PreviewPlan)
-				{
-					PreviewPlan = Plan;
-					Preview.reset();
-					if (Plan)
-					{
-						auto Next = std::make_shared<FContentBrowserDeletePreview>();
-						Next->DisplayName = Plan->DisplayName;
-						Next->Summary = {Plan->Summary.AssetCount, Plan->Summary.FileCount, Plan->Summary.CompanionCount, Plan->Summary.FolderCount};
-						for (const auto& B : Plan->Blockers)
-							Next->Blockers.push_back({B.DisplayName, B.PhysicalPath, B.RelatedAssetPath, B.Details});
-						for (const auto& W : Plan->Warnings)
-							Next->Warnings.push_back({W.DisplayName, {}, {}, W.Details});
-						Preview = std::move(Next);
-					}
-				}
-				return Preview;
-			}
-			~FNativeDeleteRequest() override
-			{
-				if (Operations && Plan) Operations->DismissDeletion(Plan);
-			}
-			auto CanExecute() const -> bool override { return Plan && Plan->CanExecute(); }
-			auto ValidateForExecution() -> EContentBrowserDeleteValidation override
-			{
-				const auto Status = Operations->ValidateForExecution();
-				if (Status) return EContentBrowserDeleteValidation::Valid;
-				return Status.Error && (Status.Error->Is(AssetWriteErrors::StaleData)
-					|| Status.Error->Is({"AssetRegistry", "StaleData"}) || Status.Error->Is({"AssetLoad", "StaleData"}))
-					? EContentBrowserDeleteValidation::Stale : EContentBrowserDeleteValidation::Rejected;
-			}
-		};
 		auto Payload(const DContentBrowserDataSource& Source, const FContentBrowserItemData& Data) -> std::optional<FNativePayloadView>
 		{
 			using namespace ContentBrowser::AssetDataSource::Private;
@@ -169,25 +129,7 @@ namespace Durin
 			return {};
 		}
 
-		auto GatherDeletion(const DContentBrowserDataSource& Source, std::span<const FContentBrowserItemData> Data, std::vector<FContentBrowserNativeItem>& Items) -> std::shared_ptr<ContentStorage::FContentDeletionRequest>
-		{
-			std::vector<std::shared_ptr<const FContentBrowserOperationContext>> Policies;
-			bool Assets = false, Files = false;
-			for (const auto& Entry : Data)
-			{
-				auto* Owner = Entry.GetOwnerDataSource();
-				const auto P = Owner == &Source ? Payload(*Owner, Entry) : std::optional<FNativePayloadView>{};
-				if (!P) return {};
-				Assets |= true;
-				Files |= false;
-				Policies.push_back(P->Host);
-				if (std::ranges::none_of(Items, [&](const auto& Item) { return std::filesystem::path(Item.PhysicalPath).lexically_normal() == std::filesystem::path(P->Item.PhysicalPath).lexically_normal(); })) Items.push_back(P->Item);
-			}
-			if (Policies.empty()) return {};
-			auto Host = *Policies.front();
-			Host.CanMutateContent = [Policies] { for (const auto& Policy : Policies) if (Policy->CanMutateContent && !Policy->CanMutateContent()) return false; return true; };
-			return std::make_shared<ContentStorage::FContentDeletionRequest>(ContentStorage::FContentMutationPolicy{.CanMutateContent=Host.CanMutateContent, .ReportDiagnostic=Host.ReportDiagnostic, .NotifyContentMutation=Host.NotifyContentMutation}, Assets, Files);
-		}
+
 		auto SaveMode(EContentBrowserItemSaveFlags Flags) -> std::optional<bool>
 		{
 			const auto Bits = static_cast<uint8>(Flags);
@@ -617,36 +559,53 @@ namespace Durin
 		return Allowed;
 	}
 
-	auto DContentBrowserAssetDataSource::PrepareDeleteItems(std::span<const FContentBrowserItemData> Data) -> FContentBrowserDeleteContext
-	{
-		DContentBrowserDataSource& Source = *this;
-		std::vector<FContentBrowserNativeItem> Items;
-		auto Operations = GatherDeletion(Source, Data, Items);
-		if (!Operations) return {};
-		auto Request = std::make_unique<FNativeDeleteRequest>();
-		Request->Operations = Operations;
-		Request->Plan = Operations->PrepareDeleteItems([&] { std::vector<ContentStorage::FContentDeletionInput> Inputs; for (const auto& Item : Items) Inputs.push_back({Item.Name, Item.PhysicalPath}); return Inputs; }());
+	auto DContentBrowserAssetDataSource::DeleteItem(const FContentBrowserItemData& Item) -> bool
+	{ return BulkDeleteItems(std::span(&Item, 1)); }
 
-		for (const auto& Entry : Data)
-			Request->Payloads.push_back(Entry.GetPayload());
-		return {Data.front(), std::move(Request)};
-	}
-
-	auto DContentBrowserAssetDataSource::BulkDeleteItems(std::span<const FContentBrowserItemData> Data, FContentBrowserDeleteContext& Context) -> bool
+	auto DContentBrowserAssetDataSource::BulkDeleteItems(std::span<const FContentBrowserItemData> Data) -> bool
 	{
-		DContentBrowserDataSource& Source = *this;
-		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(&Source);
+		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(this);
 		const std::vector<FContentBrowserItemData> Snapshot(Data.begin(), Data.end());
-		Data = Snapshot;
-		if (Context.OwnerItem.GetOwnerDataSource() != &Source) return false;
-		ContentBrowser::Private::FContentBrowserDeleteRequestLease Lease(Context);
-		auto* Request = dynamic_cast<FNativeDeleteRequest*>(Lease.Request.get());
-		if (!Request || Data.size() != Request->Payloads.size()) return false;
-		for (size_t I = 0; I < Data.size(); ++I)
-			if (Data[I].GetOwnerDataSource() != &Source || Data[I].GetPayload() != Request->Payloads[I]) return false;
-		const auto Native = Request->Operations->DeleteItems(Request->Plan);
-		Lease.bConsumed = !Request->Plan;
-		return Native.HasCommittedEffects();
+		FAssetDeleteModel Model(std::span<DObject* const>{});
+		std::vector<std::shared_ptr<const FContentBrowserOperationContext>> Policies;
+		for (const auto& Item : Snapshot)
+		{
+			if (!CanDeleteItem(Item)) return false;
+			const auto View = Payload(*this, Item);
+			if (!View) return false;
+			Policies.push_back(View->Host);
+			if (const auto Asset = std::dynamic_pointer_cast<const ContentBrowser::AssetDataSource::Private::FContentBrowserAssetFileItemDataPayload>(Item.GetPayload()))
+			{
+				auto* Package = FindResidentPackage(Asset->AssetPath.GetPackagePath());
+				if (!Package) Package = LoadPackage(Asset->AssetPath.GetPackagePath());
+				auto* Object = Package ? Package->FindTopLevelAsset(FName(Asset->AssetPath.GetAssetName())) : nullptr;
+				if (!Object) return false;
+				Model.AddObjectToDelete(Object);
+			}
+			else
+			{
+				const auto Root = std::filesystem::path(View->Item.PhysicalPath).lexically_normal();
+				for (const auto& [Identity, Asset] : CaptureAssetQuerySnapshot().Assets)
+				{
+					const auto Resolved = FMountPaths::ResolveAssetPath(Identity.GetPackagePath().GetView());
+					if (!Resolved) continue;
+					std::filesystem::path Relative;
+					if (!FPaths::TryMakeLexicalRelativePath(Resolved->PhysicalPath.generic_string() + ".dasset", Root, Relative)) continue;
+					auto* Package = FindResidentPackage(Identity.GetPackagePath());
+					if (!Package) Package = LoadPackage(Identity.GetPackagePath());
+					auto* Object = Package ? Package->FindTopLevelAsset(FName(Identity.GetAssetName())) : nullptr;
+					if (!Object) return false;
+					Model.AddObjectToDelete(Object);
+				}
+			}
+		}
+		while (Model.GetState() != FAssetDeleteModel::EState::Finished) Model.Tick(0.f);
+		if (!Model.CanDelete()) { FFeedbackContext::Get().Error(Model.GetProgressText()); return false; }
+		if (!ObjectTools::ConfirmDelete(Model, {})) return false;
+		for (const auto& Policy : Policies) if (Policy->CanMutateContent && !Policy->CanMutateContent()) return false;
+		for (const auto& Item : Snapshot) if (Item.GetOwnerDataSource() != this) return false;
+		Model.DoDelete();
+		return Model.GetDeletedObjectCount() != 0;
 	}
 } // namespace Durin
 

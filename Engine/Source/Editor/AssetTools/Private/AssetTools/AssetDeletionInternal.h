@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "AssetTools/AssetDeletion.h"
+#include "AssetTools/NativeAssetDeletion.h"
 
 namespace Durin::AssetToolsPrivate
 {

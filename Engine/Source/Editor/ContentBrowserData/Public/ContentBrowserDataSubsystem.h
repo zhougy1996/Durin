@@ -40,13 +40,12 @@ namespace Durin
 		CONTENTBROWSERDATA_API auto EnumerateItemsMatchingFilter(const ContentBrowser::FContentBrowserDataCompiledFilter&, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserOperationContext& = {}) -> void;
 		CONTENTBROWSERDATA_API auto EnumerateItemsAtPath(std::string_view, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserOperationContext& = {}) -> void;
 		CONTENTBROWSERDATA_API auto EnumerateItemsUnderPath(std::string_view Path, const ContentBrowser::FContentBrowserDataFilter&, const std::function<bool(ContentBrowser::FContentBrowserItem&&)>&, const ContentBrowser::FContentBrowserOperationContext& = {}) -> void;
-		CONTENTBROWSERDATA_API auto PrepareDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> ContentBrowser::FContentBrowserDeleteContext;
 		CONTENTBROWSERDATA_API auto CanCreateFolder(std::string_view Path, std::string* Error = nullptr) -> bool;
 		CONTENTBROWSERDATA_API auto CreateFolder(std::string_view Path, ContentBrowser::FContentBrowserItemDataTemporaryContext& Out, const ContentBrowser::FContentBrowserOperationContext& Host = {}) -> bool;
 		CONTENTBROWSERDATA_API auto BulkSaveItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::EContentBrowserItemSaveFlags) -> bool;
 		CONTENTBROWSERDATA_API auto BulkCopyItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool;
 		CONTENTBROWSERDATA_API auto BulkMoveItems(std::span<const ContentBrowser::FContentBrowserItemData>, std::string_view) -> bool;
-		CONTENTBROWSERDATA_API auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>, ContentBrowser::FContentBrowserDeleteContext&) -> bool;
+		CONTENTBROWSERDATA_API auto BulkDeleteItems(std::span<const ContentBrowser::FContentBrowserItemData>) -> bool;
 
 	private:
 		CONTENTBROWSERDATA_API static auto MergeItem(std::vector<ContentBrowser::FContentBrowserItem>&, ContentBrowser::FContentBrowserItem) -> void;

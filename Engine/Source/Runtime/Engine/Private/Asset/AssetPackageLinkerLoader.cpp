@@ -944,7 +944,7 @@ namespace Durin::AssetPrivate
 				if (!Options.ExistingPackage && (!bSkeletonPublished || !Options.DeferCompletion))
 				{
 					MarkObjectHierarchyAsGarbage(Package);
-					if (Package->IsAssetPackage()) Package->RetireFailedLoadRegistration();
+					if (Package->IsAssetPackage()) Package->RetireGarbageRegistration();
 					RequestGarbageCollection();
 				}
 			});

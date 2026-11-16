@@ -1,7 +1,7 @@
 #include "Data/ContentBrowserNativeTransfer.h"
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
-#include "AssetTools/AssetDeletion.h"
+#include "AssetTools/AssetDeleteExtensions.h"
 #include "AssetRegistry/Catalog.h"
 #include "Misc/FileHelper.h"
 

@@ -39,6 +39,7 @@ namespace Durin::ContentBrowser
 		CONTENTBROWSERDATA_API auto CanDuplicate() const -> bool;
 		CONTENTBROWSERDATA_API auto Duplicate(FContentBrowserItem& Out) const -> bool;
 		CONTENTBROWSERDATA_API auto CanDelete() const -> bool;
+		CONTENTBROWSERDATA_API auto Delete() const -> bool;
 		CONTENTBROWSERDATA_API auto CanSave(EContentBrowserItemSaveFlags Flags) const -> bool;
 		CONTENTBROWSERDATA_API auto Save(EContentBrowserItemSaveFlags Flags) const -> bool;
 		CONTENTBROWSERDATA_API auto CanRename(std::optional<std::string_view> Name = std::nullopt, std::string* Error = nullptr) const -> bool;

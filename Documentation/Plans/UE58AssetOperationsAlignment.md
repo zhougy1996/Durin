@@ -21,7 +21,10 @@ Stage 2 is complete on 2026-11-16 against
 Acceptance evidence for both stages is recorded below. Stage 3 is complete on
 2026-11-16 against `21af11c9207f5111023158b05558192349cf7c3c` plus its implementation
 working tree. File-list and scene execution now share managed tasks, and the
-superseded import protocols are removed. Stages 4-5 remain open.
+superseded import protocols are removed. Stage 4 is complete on 2026-11-16
+against `d570674d8f9ccd7446c96aad63a379c71b493270` plus its implementation working
+tree. ObjectTools and the delete model now own deletion policy; Browser deletion
+uses independent context-free provider dispatch. Stage 5 remains open.
 Stage 0 itself contained no implementation change or native execution.
 
 Stage 0 planning-document checks on 2026-11-16: changed-document validation passed for
@@ -973,26 +976,26 @@ Dependencies: Stages 1-2. May precede Stage 3 on the single-writer lane.
 Outcome: UE-shaped ObjectTools/delete-model and Browser deletion surfaces with
 private confirmation/execution state and independent provider dispatch.
 
-- [ ] Implement FPendingDelete, FAssetDeleteModel and ObjectTools DeleteAssets/
+- [x] Implement FPendingDelete, FAssetDeleteModel and ObjectTools DeleteAssets/
       DeleteObjects with supported confirmation/cancellation behavior and actual
       object deletion counts; add UE's FDeleteItemsParameters/Result and DeleteItems.
       Do not count directory cleanup as an asset deletion. Add read-only native
       referencer information and preserve multi-asset package siblings.
-- [ ] Consolidate policy/reference facts and destructive attempt state; keep
+- [x] Consolidate policy/reference facts and destructive attempt state; keep
       native fingerprint, companion and partial-I/O records internal. Document
       analysis, confirmation and final-validation ownership to avoid repeated work.
-- [ ] Preserve open-document/external live references, loading/dirty policy,
+- [x] Preserve open-document/external live references, loading/dirty policy,
       redirector reference safety and external-store checks under the frozen
       selected-Dirty/unused-alias policies. Separate model-owned retention
       from external references so the model does not block its own deletion.
-- [ ] Migrate Item/service/provider/Panel APIs together to DeleteItem/BulkDeleteItems;
+- [x] Migrate Item/service/provider/Panel APIs together to DeleteItem/BulkDeleteItems;
       remove public prepare/context/preview/validation types and update feature
       version, extensions, scripts and all tests. Confirmation UI observes the
       native model through its host; generic providers need no shared delete plan.
-- [ ] Migrate ordinary-file and mixed-folder deletion to File-owned execution;
+- [x] Migrate ordinary-file and mixed-folder deletion to File-owned execution;
       preserve unique companion ownership, confirmed selection, empty-directory
       cleanup and partial effects without all-provider preflight or rollback.
-- [ ] Remove Stage 4 ledger surfaces; retain separately scoped companion extension
+- [x] Remove Stage 4 ledger surfaces; retain separately scoped companion extension
       registration and Engine removal primitives with correct module lifetimes.
 
 Acceptance: model state/progress and references; asset/object counts; confirmed
@@ -1004,6 +1007,76 @@ Verify no repeated destructive callback, no unconfirmed scope expansion, no
 force collection, correct stale Registry fencing, and retained evidence of every
 committed/failed/unattempted participant. Replace tests of removed public context
 identity with tests of the public behavior and internal executor invariants.
+
+Stage 4 acceptance (2026-11-16, Windows/MSVC, Win64-Debug-DurinEditor):
+
+- The current UE 5.8.0 reference at `E:/Programs/Epic Games/UE_5.8` was checked
+  through UnrealEd's `AssetDeleteModel.h`, `ObjectTools.h` and `ObjectTools.cpp`.
+  Durin retains its stricter native protection, File-owned ordinary-file execution
+  and deferred collection policy rather than adopting UE force-delete APIs.
+- `FPendingDelete`/`FAssetDeleteModel` expose incremental states, reference facts,
+  visibility, progress, action acceptance and actual object counts. Read-only
+  CoreDObject traversal distinguishes object/property references from native
+  strong/function owners and excludes only exact model-owned registrations.
+- Whole-package attempts retain private asset policy, companion and external-store
+  snapshots. Confirmed live export identities are rechecked after callbacks.
+  Partial-package deletion preserves sibling identity, persists the surviving
+  exports and retains the prior Dirty state. Garbage package registration is
+  retired without forcing collection; loading, duplication and test consumers
+  use the renamed checked retirement primitive.
+- Source feature version 18 removes the public Browser prepare/context/preview/
+  validation/lease protocol. Base bulk falls back to single actions; Item, service
+  and panel use independent OR-success dispatch. MainFrame owns the native prompt.
+  A missing required host rejects; explicit headless calls retain all admission.
+- File owns private scope/fingerprint/effect records and mixed-folder execution.
+  ObjectTools folder requests freeze file scope and expand exact asset identities
+  into one model before confirmation, then clean up confirmed ordinary files and
+  empty directories. The private peer-scope validation remains for that ordered
+  native handoff; it is not a generic Browser preflight protocol.
+- Production and test roots in Engine, Sandbox and RoadWeaver, plus Tools and
+  Templates, contain no removed public deletion protocol/header references.
+  MaterialFunction consumers now exercise the public model/ObjectTools boundary.
+  Companion extension registration remains separately in
+  `AssetTools/AssetDeleteExtensions.h`.
+
+Raw receipts are retained under ignored `Build/UE58AssetOperationsAlignment/`
+and `Build/.agent-state/logs/`. The final selections total **1,156 passed** with
+**2 existing Windows symlink-privilege skips**:
+
+| Selection | Result | Retained receipt |
+| --- | --- | --- |
+| ContentBrowserWorkflowTests | 207 passed, 2 skipped | `stage4-ContentBrowserWorkflowTests.log` |
+| ContentBrowserDataTests | 62 passed | `stage4-ContentBrowserDataTests.log` |
+| EditorOperationTests | 391 passed | `stage4-EditorOperationTests.log` |
+| AssetPackageTests | 251 passed | `stage4-AssetPackageTests.log` |
+| MaterialFunctionTests | 30 passed | `stage4-MaterialFunctionTests.log` |
+| CoreObjectTests | 181 passed | `stage4-CoreObjectTests.log` |
+| EngineGarbageCollectionTests | 10 passed | `stage4-EngineGarbageCollectionTests.log` |
+| PackageRegistryContractTests | 9 passed | `stage4-PackageRegistryContractTests.log` |
+| AssetReferenceStoreTests | 15 passed | `stage4-AssetReferenceStoreTests.log` |
+| MainFrame build | passed | `stage4-build-MainFrame.log` |
+| RoadWeaverEditor build | passed | `stage4-build-RoadWeaverEditor.log` |
+| Sandbox build | passed | `stage4-build-Sandbox.log` |
+| DurinAssetTool build | passed | `stage4-build-DurinAssetTool.log` |
+
+Coverage includes model state/progress, native retention exclusion and late
+external owners, exact same-package and sibling-only disk references, Dirty
+sibling survival, late export expansion, unsaved folder assets, exact redirector
+selection, public/headless confirmation, cancellation/reentry, independent peer
+rejection, object versus directory counts, fresh hashes, unchanged-timestamp byte
+edits, contributor/store changes, read-only/reparse paths, protected documents,
+open levels, partial I/O, repeat-attempt rejection and Registry fencing. Host
+verified hashes are shared without reopening guarded package files or repeating
+companion inspection; callback-sensitive admission is checked at handoff.
+
+`test affected --explain` expands broadly through CoreDObject/Engine labels and
+shared workflow fixtures. These named owner, lifecycle, persistence, UI and direct
+consumer selections cover the changed behavior without GPU or startup execution.
+Passing receipts remain applicable across the final documentation and unused
+private test-include cleanup; effective production/test headers and runtime
+settings are unchanged. Full-workspace all-build/startup/all-native acceptance
+remains Stage 5. Changed-document/all-plan validation and `git diff --check`
+passed for this stage's final documentation and source set.
 
 ### Stage 5: Finish notifications, contract cleanup and integrated acceptance
 

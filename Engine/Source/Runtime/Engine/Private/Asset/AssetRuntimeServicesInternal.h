@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	class FStrongObjectPtr;
 	struct FAsyncPackageInput;
 	class FAssetLoadRequestService;
 	// Owns incomplete load components and coordinates completed package residency.
@@ -122,7 +123,8 @@ namespace Durin
 			const FAssetPackageSaveArgs& Options) -> FAssetBatchSaveResult;
 		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> std::expected<void, UnifiedError::FError>;
 		auto ReleasePackagesForRemoval(
-			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>;
+			std::span<const FPackageData> Entries, uint64 ExpectedRevision,
+			std::span<const FStrongObjectPtr* const> ExcludedOwners = {}, bool bAllowDirty = false) -> std::expected<void, UnifiedError::FError>;
 		auto PublishPackageRemoval(
 			std::span<const FPackageData> Entries, uint64 ExpectedRevision) -> std::expected<void, UnifiedError::FError>;
 

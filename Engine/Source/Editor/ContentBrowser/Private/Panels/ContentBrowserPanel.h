@@ -64,7 +64,6 @@ namespace Durin::ContentBrowser::Private
 		auto FindItemAtPath(std::string_view VirtualPath) const -> FContentBrowserItem;
 		static auto CollectItemData(std::span<const FContentBrowserItem>) -> std::vector<FContentBrowserItemData>;
 		auto MoveItems(std::vector<FContentBrowserItem>, std::string Destination) -> bool;
-		auto GetDeletionPreview() const -> std::shared_ptr<const FContentBrowserDeletePreview>;
 		auto PrepareForDraw() -> void;
 		auto DrawBrowserContents() -> void;
 		auto Refresh(bool bRescanRegistry) -> void;
@@ -176,14 +175,9 @@ namespace Durin::ContentBrowser::Private
 		std::array<char, 256> RenameBuffer{};
 		bool bFocusRename = false;
 		bool bRenameEditorHovered = false;
-		bool bDeletePopupRequested = false;
-		bool bDeletionPlanRefreshed = false;
 		bool bRefreshItemsOnFirstDraw = true;
 		bool bSelectionRepairDeferred = false;
 		bool bResetContentScroll = false;
-		FContentBrowserDeleteContext PendingDeletion;
-		std::vector<FContentBrowserItemData> PendingDeletionItems;
-		std::shared_ptr<const FContentBrowserDeletePreview> DeletionFallbackPreview;
 		std::function<void()> DeferredTreeAction;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;

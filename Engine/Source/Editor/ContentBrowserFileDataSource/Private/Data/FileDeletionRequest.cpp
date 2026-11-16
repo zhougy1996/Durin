@@ -1,9 +1,10 @@
-#include "AssetTools/ContentDeletionRequest.h"
+#include "Data/FileDeletionRequest.h"
 #include "Misc/ContentMountPaths.h"
 #include "Misc/ContentPathInspection.h"
 #include "Misc/ContentFilesystem.h"
-#include "AssetTools/IAssetTools.h"
+#include "Asset/Load.h"
 #include "AssetRegistry/Catalog.h"
+#include "AssetRegistry/References.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -15,15 +16,15 @@ namespace Durin::ContentStorage
 	{
 		auto MakeFingerprint(
 			const std::filesystem::path& Path,
-			EContentDeletionEntryKind Kind,
-			FContentDeletionFingerprint& OutFingerprint,
+			EFileDeletionEntryKind Kind,
+			FFileDeletionFingerprint& OutFingerprint,
 			std::error_code& OutError) -> bool
 		{
 			OutError.clear();
 			OutFingerprint = {};
 			OutFingerprint.PhysicalPath = NormalizePath(Path.generic_string());
 			OutFingerprint.Kind = Kind;
-			if (Kind != EContentDeletionEntryKind::Directory)
+			if (Kind != EFileDeletionEntryKind::Directory)
 			{
 				OutFingerprint.FileSize = std::filesystem::file_size(Path, OutError);
 				if (OutError) return false;
@@ -32,7 +33,7 @@ namespace Durin::ContentStorage
 			if (OutError) return false;
 			OutFingerprint.LastWriteTimeTicks =
 				static_cast<int64>(WriteTime.time_since_epoch().count());
-			if (Kind != EContentDeletionEntryKind::Directory)
+			if (Kind != EFileDeletionEntryKind::Directory)
 			{
 				auto Identity = FFileHelper::HashFileXx128(Path);
 				if (!Identity)
@@ -58,14 +59,14 @@ namespace Durin::ContentStorage
 		}
 
 	}
-	auto FContentDeletionRequest::AnalyzeDeletion(
-		std::span<const FContentDeletionInput> Items,
-		FAssetDeletionOperation& OutOperation) const
-		-> FContentDeletionPlanPtr
+	auto FFileDeletionRequest::AnalyzeDeletion(
+		std::span<const FFileDeletionInput> Items,
+		FAssetDeletionOperation& OutOperation)
+		-> FFileDeletionPlanPtr
 	{
-		auto Plan = std::make_shared<FContentDeletionPlan>();
+		auto Plan = std::make_shared<FFileDeletionPlan>();
 
-		auto AddBlocker = [&](EContentDeletionBlocker Kind,
+		auto AddBlocker = [&](EFileDeletionBlocker Kind,
 			std::string DisplayName,
 			std::string PhysicalPath,
 			std::string RelatedAssetPath,
@@ -81,19 +82,19 @@ namespace Durin::ContentStorage
 		if (Items.empty())
 		{
 			AddBlocker(
-				EContentDeletionBlocker::InvalidSelection,
+				EFileDeletionBlocker::InvalidSelection,
 				"Selection", {}, {}, "No content is selected.");
 			return Plan;
 		}
 
 		struct FSelectedRoot
 		{
-			const FContentDeletionInput* Item = nullptr;
+			const FFileDeletionInput* Item = nullptr;
 			std::string PhysicalPath;
 			const FMountPoint* Mount = nullptr;
 		};
 		std::vector<FSelectedRoot> SelectedRoots;
-		for (const FContentDeletionInput& Item : Items)
+		for (const FFileDeletionInput& Item : Items)
 		{
 			const std::string PhysicalPath = NormalizePath(Item.PhysicalPath);
 			const FContentMountPaths::FMountPath Resolved =
@@ -101,7 +102,7 @@ namespace Durin::ContentStorage
 			if (!Resolved)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::OutsideMount,
+					EFileDeletionBlocker::OutsideMount,
 					Item.Name,
 					PhysicalPath,
 					{},
@@ -111,14 +112,14 @@ namespace Durin::ContentStorage
 			const FMountPoint* Mount = Resolved.Mount;
 			if (AreSamePath(PhysicalPath, Mount->GetContentDir().generic_string()))
 				AddBlocker(
-					EContentDeletionBlocker::MountRoot,
+					EFileDeletionBlocker::MountRoot,
 					Item.Name,
 					PhysicalPath,
 					{},
 					"A mounted content root cannot be deleted.");
 			if (!Mount->bContentWritable)
 				AddBlocker(
-					EContentDeletionBlocker::ReadOnlyMount,
+					EFileDeletionBlocker::ReadOnlyMount,
 					Item.Name,
 					PhysicalPath,
 					{},
@@ -128,7 +129,7 @@ namespace Durin::ContentStorage
 
 		if (SelectedRoots.size() != Items.size())
 			AddBlocker(
-				EContentDeletionBlocker::InvalidSelection,
+				EFileDeletionBlocker::InvalidSelection,
 				"Selection",
 				{},
 				{},
@@ -146,7 +147,7 @@ namespace Durin::ContentStorage
 			if (!MaximalRoots.empty()
 				&& Candidate.Mount != MaximalRoots.front().Mount)
 				AddBlocker(
-					EContentDeletionBlocker::UnsupportedMount,
+					EFileDeletionBlocker::UnsupportedMount,
 					Candidate.Item->Name,
 					Candidate.PhysicalPath,
 					{},
@@ -176,34 +177,34 @@ namespace Durin::ContentStorage
 		auto AddPhysicalEntry = [&](const std::filesystem::path& Physical,
 			bool bDirectory) {
 			const std::string Normalized = NormalizePath(Physical.generic_string());
-			EContentDeletionEntryKind Kind = bDirectory
-				? EContentDeletionEntryKind::Directory
-				: EContentDeletionEntryKind::OrdinaryFile;
+			EFileDeletionEntryKind Kind = bDirectory
+				? EFileDeletionEntryKind::Directory
+				: EFileDeletionEntryKind::OrdinaryFile;
 			if (!bDirectory && Physical.extension() == ".dasset")
 			{
 				if (const auto Asset = AssetsByPhysicalPath.find(Normalized);
 					Asset != AssetsByPhysicalPath.end())
 				{
-					Kind = EContentDeletionEntryKind::AssetPackage;
+					Kind = EFileDeletionEntryKind::AssetPackage;
 					AssetPaths.push_back(Asset->second->PackagePath);
 				}
 				else
 				{
-					Kind = EContentDeletionEntryKind::UnknownPackage;
+					Kind = EFileDeletionEntryKind::UnknownPackage;
 					AddBlocker(
-						EContentDeletionBlocker::UnknownPackage,
+						EFileDeletionBlocker::UnknownPackage,
 						Physical.filename().generic_string(),
 						Normalized,
 						{},
 						"Package file is not registered or has invalid metadata.");
 				}
 			}
-			FContentDeletionFingerprint Fingerprint;
+			FFileDeletionFingerprint Fingerprint;
 			std::error_code Ec;
 			if (!MakeFingerprint(Physical, Kind, Fingerprint, Ec))
 			{
 				AddBlocker(
-					EContentDeletionBlocker::InspectionFailed,
+					EFileDeletionBlocker::InspectionFailed,
 					Physical.filename().generic_string(),
 					Normalized,
 					{},
@@ -222,7 +223,7 @@ namespace Durin::ContentStorage
 			if (Ec)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::InspectionFailed,
+					EFileDeletionBlocker::InspectionFailed,
 					Root.Item->Name,
 					Root.PhysicalPath,
 					{},
@@ -232,7 +233,7 @@ namespace Durin::ContentStorage
 			if (bReparse)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::ReparsePoint,
+					EFileDeletionBlocker::ReparsePoint,
 					Root.Item->Name,
 					Root.PhysicalPath,
 					{},
@@ -243,7 +244,7 @@ namespace Durin::ContentStorage
 			if (Ec || (!bDirectory && !std::filesystem::is_regular_file(Physical, Ec)))
 			{
 				AddBlocker(
-					EContentDeletionBlocker::InvalidSelection,
+					EFileDeletionBlocker::InvalidSelection,
 					Root.Item->Name,
 					Root.PhysicalPath,
 					{},
@@ -265,7 +266,7 @@ namespace Durin::ContentStorage
 				if (IsReparsePoint(It->path(), EntryEc))
 				{
 					AddBlocker(
-						EContentDeletionBlocker::ReparsePoint,
+						EFileDeletionBlocker::ReparsePoint,
 						It->path().filename().generic_string(),
 						NormalizePath(It->path().generic_string()),
 						{},
@@ -276,7 +277,7 @@ namespace Durin::ContentStorage
 				if (EntryEc)
 				{
 					AddBlocker(
-						EContentDeletionBlocker::InspectionFailed,
+						EFileDeletionBlocker::InspectionFailed,
 						It->path().filename().generic_string(),
 						NormalizePath(It->path().generic_string()),
 						{},
@@ -289,7 +290,7 @@ namespace Durin::ContentStorage
 					AddPhysicalEntry(It->path(), bChildDirectory);
 				else if (EntryEc)
 					AddBlocker(
-						EContentDeletionBlocker::InspectionFailed,
+						EFileDeletionBlocker::InspectionFailed,
 						It->path().filename().generic_string(),
 						NormalizePath(It->path().generic_string()),
 						{},
@@ -297,7 +298,7 @@ namespace Durin::ContentStorage
 			}
 			if (Ec)
 				AddBlocker(
-					EContentDeletionBlocker::InspectionFailed,
+					EFileDeletionBlocker::InspectionFailed,
 					Root.Item->Name,
 					Root.PhysicalPath,
 					{},
@@ -310,15 +311,15 @@ namespace Durin::ContentStorage
 			PhysicalRoots.clear();
 			for (auto& Entry : Plan->Entries)
 			{
-				if (Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)
+				if (Entry.Kind == EFileDeletionEntryKind::OrdinaryFile)
 				{
 					FAssetCompanionOwnership Ownership;
 					const bool Inspected = QueryAssetCompanionOwnership(Entry.PhysicalPath, Ownership);
 					if (!Inspected || Ownership.State == EAssetCompanionOwnershipState::Ambiguous)
-						AddBlocker(EContentDeletionBlocker::CompanionOwnershipConflict, Entry.PhysicalPath, Entry.PhysicalPath, {}, "Companion ownership cannot be established.");
-					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed) Entry.Kind = EContentDeletionEntryKind::ManagedCompanion;
+						AddBlocker(EFileDeletionBlocker::CompanionOwnershipConflict, Entry.PhysicalPath, Entry.PhysicalPath, {}, "Companion ownership cannot be established.");
+					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed) Entry.Kind = EFileDeletionEntryKind::ManagedCompanion;
 				}
-				if ((DeleteAssets && Entry.Kind == EContentDeletionEntryKind::AssetPackage) || (DeleteFiles && Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)) PhysicalRoots.emplace_back(Entry.PhysicalPath);
+				if ((DeleteAssets && Entry.Kind == EFileDeletionEntryKind::AssetPackage) || (DeleteFiles && Entry.Kind == EFileDeletionEntryKind::OrdinaryFile)) PhysicalRoots.emplace_back(Entry.PhysicalPath);
 			}
 		}
 		std::ranges::sort(AssetPaths, [](const FPackagePath& A, const FPackagePath& B) {
@@ -327,24 +328,46 @@ namespace Durin::ContentStorage
 		AssetPaths.erase(std::unique(AssetPaths.begin(), AssetPaths.end()), AssetPaths.end());
 		std::string AdmissionError;
 		FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view Message) { if (Level >= ELogLevel::Error) AdmissionError += Message; });
-		const bool bPrepared = IAssetTools::Get().PrepareDeletion({.AssetPaths = AssetPaths, .PhysicalRoots = PhysicalRoots}, OutOperation, &Feedback);
+		FAssetDeletionRequest Request{.AssetPaths = AssetPaths, .PhysicalRoots = PhysicalRoots};
+		bool bPrepared = true;
+		Model = std::make_shared<FAssetDeleteModel>(std::span<DObject* const>{});
+		for (const auto& Path : Request.AssetPaths)
+		{
+			const auto Entry = FindPackageExact(Path);
+			if (!Entry) { bPrepared = false; continue; }
+			for (const auto& Asset : Entry->TopLevelAssets)
+			{
+				auto* Package = FindResidentPackage(Asset.AssetPath.GetPackagePath());
+				if (!Package) Package = LoadPackage(Asset.AssetPath.GetPackagePath());
+				auto* Object = Package ? Package->FindTopLevelAsset(FName(Asset.AssetPath.GetAssetName())) : nullptr;
+				if (Object) Model->AddObjectToDelete(Object); else bPrepared = false;
+			}
+		}
+		if (!Model->GetPendingDeletedAssets().empty())
+		{
+			while (Model->GetState() != FAssetDeleteModel::EState::Finished) Model->Tick(0.f);
+			bPrepared &= Model->CanDelete();
+			if (!bPrepared) AdmissionError += Model->GetProgressText();
+			OutOperation = Model->TakeWholePackageOperation();
+		}
+		else bPrepared &= PrepareAssetDeletionWithEditorPolicy(Request, OutOperation, &Feedback);
 		if (!bPrepared && OutOperation.GetBlockers().empty())
-			AddBlocker(EContentDeletionBlocker::InspectionFailed, "Assets", {}, {}, AdmissionError);
+			AddBlocker(EFileDeletionBlocker::InspectionFailed, "Assets", {}, {}, AdmissionError);
 
 		std::unordered_set<std::string> CompanionPaths;
 		for (const FAssetDeletionEntry& Entry : OutOperation.GetEntries())
 			for (const std::filesystem::path& Companion : Entry.CompanionFiles)
 				CompanionPaths.insert(NormalizePath(Companion.generic_string()));
-		for (FContentDeletionFingerprint& Entry : Plan->Entries)
+		for (FFileDeletionFingerprint& Entry : Plan->Entries)
 			if (CompanionPaths.contains(Entry.PhysicalPath)
-				&& Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)
-				Entry.Kind = EContentDeletionEntryKind::ManagedCompanion;
+				&& Entry.Kind == EFileDeletionEntryKind::OrdinaryFile)
+				Entry.Kind = EFileDeletionEntryKind::ManagedCompanion;
 
 		for (const std::string& CompanionPath : CompanionPaths)
 		{
 			if (std::ranges::any_of(
 					Plan->Entries,
-					[&](const FContentDeletionFingerprint& Entry) {
+					[&](const FFileDeletionFingerprint& Entry) {
 						return Entry.PhysicalPath == CompanionPath;
 					}))
 				continue;
@@ -355,7 +378,7 @@ namespace Durin::ContentStorage
 					&& Ec != std::errc::no_such_file_or_directory
 					&& Ec != std::errc::not_a_directory)
 					AddBlocker(
-						EContentDeletionBlocker::InspectionFailed,
+						EFileDeletionBlocker::InspectionFailed,
 						std::filesystem::path(CompanionPath).filename().generic_string(),
 						CompanionPath,
 						{},
@@ -376,7 +399,7 @@ namespace Durin::ContentStorage
 					Ec))
 			{
 				AddBlocker(
-					EContentDeletionBlocker::ReparsePoint,
+					EFileDeletionBlocker::ReparsePoint,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -388,7 +411,7 @@ namespace Durin::ContentStorage
 			if (Ec)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::InspectionFailed,
+					EFileDeletionBlocker::InspectionFailed,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -401,7 +424,7 @@ namespace Durin::ContentStorage
 			if (!Resolved)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::OutsideMount,
+					EFileDeletionBlocker::OutsideMount,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -413,7 +436,7 @@ namespace Durin::ContentStorage
 			if (!SelectedMount || CompanionMount != SelectedMount)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::UnsupportedMount,
+					EFileDeletionBlocker::UnsupportedMount,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -423,7 +446,7 @@ namespace Durin::ContentStorage
 			if (!CompanionMount->bContentWritable)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::ReadOnlyMount,
+					EFileDeletionBlocker::ReadOnlyMount,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -436,7 +459,7 @@ namespace Durin::ContentStorage
 			if (Ec)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::InspectionFailed,
+					EFileDeletionBlocker::InspectionFailed,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -446,7 +469,7 @@ namespace Durin::ContentStorage
 			if (bReparse)
 			{
 				AddBlocker(
-					EContentDeletionBlocker::ReparsePoint,
+					EFileDeletionBlocker::ReparsePoint,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -456,15 +479,15 @@ namespace Durin::ContentStorage
 				bCompanionRootSafe = false;
 			}
 			if (!bCompanionRootSafe) continue;
-			FContentDeletionFingerprint Fingerprint;
+			FFileDeletionFingerprint Fingerprint;
 			if (!MakeFingerprint(
 					CompanionPath,
-					EContentDeletionEntryKind::ManagedCompanion,
+					EFileDeletionEntryKind::ManagedCompanion,
 					Fingerprint,
 					Ec))
 			{
 				AddBlocker(
-					EContentDeletionBlocker::InspectionFailed,
+					EFileDeletionBlocker::InspectionFailed,
 					std::filesystem::path(CompanionPath).filename().generic_string(),
 					CompanionPath,
 					{},
@@ -478,36 +501,36 @@ namespace Durin::ContentStorage
 
 		for (const FAssetDeletionBlocker& Blocker : OutOperation.GetBlockers())
 		{
-			EContentDeletionBlocker Kind = EContentDeletionBlocker::InspectionFailed;
+			EFileDeletionBlocker Kind = EFileDeletionBlocker::InspectionFailed;
 			switch (Blocker.Kind)
 			{
 			case EAssetDeletionBlocker::ExternalPersistentReference:
 			case EAssetDeletionBlocker::ExternalLoadedReference:
-				Kind = EContentDeletionBlocker::ExternalReference;
+				Kind = EFileDeletionBlocker::ExternalReference;
 				break;
 			case EAssetDeletionBlocker::RedirectorTargetNotSelected:
-				Kind = EContentDeletionBlocker::RedirectorTargetNotSelected;
+				Kind = EFileDeletionBlocker::RedirectorTargetNotSelected;
 				break;
 			case EAssetDeletionBlocker::TargetRedirectorsNotSelected:
-				Kind = EContentDeletionBlocker::TargetRedirectorsNotSelected;
+				Kind = EFileDeletionBlocker::TargetRedirectorsNotSelected;
 				break;
 			case EAssetDeletionBlocker::LoadingPackage:
-				Kind = EContentDeletionBlocker::LoadingPackage;
+				Kind = EFileDeletionBlocker::LoadingPackage;
 				break;
 			case EAssetDeletionBlocker::DirtyPackage:
-				Kind = EContentDeletionBlocker::DirtyPackage;
+				Kind = EFileDeletionBlocker::DirtyPackage;
 				break;
 			case EAssetDeletionBlocker::ReferenceStoreInspectionFailed:
-				Kind = EContentDeletionBlocker::ReferenceStoreInspectionFailed;
+				Kind = EFileDeletionBlocker::ReferenceStoreInspectionFailed;
 				break;
 			case EAssetDeletionBlocker::CompanionInspectionFailed:
-				Kind = EContentDeletionBlocker::CompanionInspectionFailed;
+				Kind = EFileDeletionBlocker::CompanionInspectionFailed;
 				break;
 			case EAssetDeletionBlocker::CompanionOwnershipConflict:
-				Kind = EContentDeletionBlocker::CompanionOwnershipConflict;
+				Kind = EFileDeletionBlocker::CompanionOwnershipConflict;
 				break;
 			case EAssetDeletionBlocker::ExternalCompanionOwner:
-				Kind = EContentDeletionBlocker::ExternalCompanionOwner;
+				Kind = EFileDeletionBlocker::ExternalCompanionOwner;
 				break;
 			default:
 				break;
@@ -527,34 +550,34 @@ namespace Durin::ContentStorage
 		std::ranges::sort(
 			Plan->Entries,
 			{},
-			&FContentDeletionFingerprint::PhysicalPath);
-		for (const FContentDeletionFingerprint& Entry : Plan->Entries)
+			&FFileDeletionFingerprint::PhysicalPath);
+		for (const FFileDeletionFingerprint& Entry : Plan->Entries)
 			switch (Entry.Kind)
 			{
-			case EContentDeletionEntryKind::Directory:
+			case EFileDeletionEntryKind::Directory:
 				++Plan->Summary.FolderCount;
 				break;
-			case EContentDeletionEntryKind::AssetPackage:
+			case EFileDeletionEntryKind::AssetPackage:
 				if (DeleteAssets) ++Plan->Summary.AssetCount;
 				break;
-			case EContentDeletionEntryKind::ManagedCompanion:
+			case EFileDeletionEntryKind::ManagedCompanion:
 				if (DeleteAssets) ++Plan->Summary.CompanionCount;
 				break;
-			case EContentDeletionEntryKind::OrdinaryFile:
-			case EContentDeletionEntryKind::UnknownPackage:
+			case EFileDeletionEntryKind::OrdinaryFile:
+			case EFileDeletionEntryKind::UnknownPackage:
 				if (DeleteFiles) ++Plan->Summary.FileCount;
 				break;
 			}
 		std::ranges::sort(
 			Plan->Blockers,
-			[](const FContentDeletionBlocker& A, const FContentDeletionBlocker& B) {
+			[](const FFileDeletionBlocker& A, const FFileDeletionBlocker& B) {
 				return std::tie(A.PhysicalPath, A.RelatedAssetPath, A.Kind, A.Details)
 					< std::tie(B.PhysicalPath, B.RelatedAssetPath, B.Kind, B.Details);
 			});
 		Plan->Blockers.erase(
 			std::unique(Plan->Blockers.begin(), Plan->Blockers.end(),
-				[](const FContentDeletionBlocker& A,
-					const FContentDeletionBlocker& B) {
+				[](const FFileDeletionBlocker& A,
+					const FFileDeletionBlocker& B) {
 					return A.Kind == B.Kind
 						&& A.PhysicalPath == B.PhysicalPath
 						&& A.RelatedAssetPath == B.RelatedAssetPath
@@ -564,38 +587,68 @@ namespace Durin::ContentStorage
 		return Plan;
 	}
 
-	FContentDeletionRequest::FContentDeletionRequest(const FContentMutationPolicy& Host, bool InDeleteAssets, bool InDeleteFiles)
+	FFileDeletionRequest::FFileDeletionRequest(const FContentMutationPolicy& Host, bool InDeleteAssets, bool InDeleteFiles)
 		: Policy(Host), Diagnostics(Host.ReportDiagnostic), DeleteAssets(InDeleteAssets), DeleteFiles(InDeleteFiles) {}
-	auto FContentDeletionRequest::CanModify(std::string* Error) const -> bool
+	auto FFileDeletionRequest::DeleteWithConfirmation(std::span<const FFileDeletionInput> Inputs, bool ShowConfirmation, ObjectTools::EAllowCancelDuringDelete AllowCancel) -> ObjectTools::FDeleteItemsResult
+	{
+		if (bPresenting) return {};
+		bPresenting = true;
+		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bPresenting};
+		auto Plan = PrepareDeleteItems(Inputs);
+		if (!Plan || !Plan->CanExecute())
+		{
+			if (Plan) for (const auto& Blocker : Plan->Blockers) Report(ELogLevel::Error, Blocker.Details);
+			return {};
+		}
+		std::vector<std::string> Paths;
+		for (const auto& Entry : Plan->Entries) Paths.push_back(Entry.PhysicalPath);
+		for (const auto& Warning : Plan->Warnings) Paths.push_back(Warning.Details);
+		if (ShowConfirmation && !ObjectTools::ConfirmDelete(*Model, Paths, AllowCancel)) return {};
+		std::unordered_set<std::string> Folders;
+		for (const auto& Entry : Plan->Entries) if (Entry.Kind == EFileDeletionEntryKind::Directory) Folders.insert(Entry.PhysicalPath);
+		const auto Effects = DeleteItems(Plan);
+		bCommitted = Effects.HasCommittedEffects();
+		ObjectTools::FDeleteItemsResult Result{.ObjectsDeleted = LastDeletedObjects};
+		for (const auto& Effect : Effects.Effects)
+			if (Effect.Status == EFileDeletionEffectStatus::Committed)
+			{
+
+				if (Folders.contains(Effect.PhysicalPath)) ++Result.FoldersDeleted;
+			}
+		return Result;
+	}
+	auto FFileDeletionRequest::CanModify(std::string* Error) const -> bool
 	{
 		if (Policy.CanMutateContent && !Policy.CanMutateContent()) { if (Error) *Error = "Content mutation is currently disabled."; return false; }
 		return true;
 	}
-	auto FContentDeletionRequest::Report(ELogLevel Level, std::string_view Message) const -> void
+	auto FFileDeletionRequest::Report(ELogLevel Level, std::string_view Message) const -> void
 	{
 		const auto Notify = Diagnostics;
 		if (Notify) Notify(Level, Message); else FFeedbackContext::Get().Serialize(Level, Message);
 	}
-	auto FContentDeletionRequest::NotifyItemsUpdated(FContentChangeBatch Changes) -> void
+	auto FFileDeletionRequest::NotifyItemsUpdated(FContentChangeBatch Changes) -> void
 	{
 		if (!Changes.bFullRefresh && Changes.Changes.empty()) return;
 		if (Policy.NotifyContentMutation) Policy.NotifyContentMutation(std::move(Changes));
 	}
-	auto FContentDeletionRequest::PrepareDeleteItems(std::span<const FContentDeletionInput> Items) -> FContentDeletionPlanPtr
+	auto FFileDeletionRequest::PrepareDeleteItems(std::span<const FFileDeletionInput> Items) -> FFileDeletionPlanPtr
 	{
+		if (bExecuting) return {};
+		CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear();
 		FAssetDeletionOperation AssetOperation;
-		auto Plan = std::make_shared<FContentDeletionPlan>(*AnalyzeDeletion(Items, AssetOperation));
+		auto Plan = std::make_shared<FFileDeletionPlan>(*AnalyzeDeletion(Items, AssetOperation));
 		Plan->SessionId = ++NextSession;
 		CurrentPlan = Plan;
 		CapturedRequest.assign(Items.begin(), Items.end());
-		Execution = std::unique_ptr<FContentDeletionOperation>(new FContentDeletionOperation(Plan, std::move(AssetOperation), DeleteAssets, DeleteFiles));
+		Execution = std::shared_ptr<FFileDeletionOperation>(new FFileDeletionOperation(Plan, std::move(AssetOperation), DeleteAssets, DeleteFiles, Model));
 		return Plan;
 	}
-	auto FContentDeletionRequest::DismissDeletion(FContentDeletionPlanPtr Plan) -> void
+	auto FFileDeletionRequest::DismissDeletion(FFileDeletionPlanPtr Plan) -> void
 	{
-		if (Plan == CurrentPlan) { CurrentPlan.reset(); Execution.reset(); CapturedRequest.clear(); }
+		if (!bExecuting && Plan == CurrentPlan) { CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear(); }
 	}
-	auto FContentDeletionRequest::ValidateForExecution() -> FAssetWriteResult
+	auto FFileDeletionRequest::ValidateForExecution() -> FAssetWriteResult
 	{
 		if (!CanModify()) return {.Error = UnifiedError::FError{AssetWriteErrors::ReadOnlyMode, "Content mutation is currently disabled."}};
 		if (!Execution) return {.Error = UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion confirmation is unavailable."}};
@@ -605,11 +658,14 @@ namespace Durin::ContentStorage
 		return {};
 	}
 
-	auto FContentDeletionRequest::DeleteItems(FContentDeletionPlanPtr& Confirmation, FContentDeletionHooks Hooks) -> FContentDeletionResult
+	auto FFileDeletionRequest::DeleteItems(FFileDeletionPlanPtr& Confirmation, FFileDeletionHooks Hooks) -> FFileDeletionResult
 	{
-		FContentDeletionResult Result;
+		FFileDeletionResult Result;
+		if (bExecuting) { Result.bStopped = true; return Result; }
+		bExecuting = true;
+		struct FReset { bool& Flag; ~FReset() { Flag = false; } } Reset{bExecuting};
 		auto Reject = [&](std::string Error) {
-			if (Confirmation) for (const auto& Entry : Confirmation->Entries) Result.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, Error);
+			if (Confirmation) for (const auto& Entry : Confirmation->Entries) Result.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Error);
 			Result.bStopped = true;
 			Report(ELogLevel::Error, Error);
 			return Result;
@@ -632,35 +688,38 @@ namespace Durin::ContentStorage
 		Hooks.CanExecuteEffect = [this, CallerAdmission] { return CanModify() && (!CallerAdmission || CallerAdmission()) && CanModify(); };
 		const bool Succeeded = Execution->Execute(std::move(Hooks));
 		const auto Native = Execution->GetResult();
+		LastDeletedObjects = Execution->HasStarted() && Model ? Model->GetDeletedObjectCount() : 0;
 		if (!Succeeded && !Execution->HasStarted())
 		{
 			if ((!Native.Error || !(Native.Error->Is(AssetWriteErrors::StaleData) || Native.Error->Is({"AssetRegistry", "StaleData"}) || Native.Error->Is({"AssetLoad", "StaleData"})))) return Reject((Native.Error ? Native.Error->ToString() : std::string{}));
 			const auto Request = CapturedRequest;
+			bExecuting = false;
 			Confirmation = PrepareDeleteItems(Request);
 			Result.bStopped = true;
-			for (const auto& Entry : Confirmation->Entries) Result.Add(Entry.PhysicalPath, EContentDeletionEffectStatus::Unattempted, "Confirm the replacement deletion plan before retrying.");
+			for (const auto& Entry : Confirmation->Entries) Result.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "Confirm the replacement deletion plan before retrying.");
 			Report(ELogLevel::Warn, (Native.Error ? Native.Error->ToString() : std::string{}) + " Review and confirm the updated deletion plan.");
 			return Result;
 		}
 		Result = Execution->GetEffects();
 		FContentChangeBatch Changes;
 		for (const auto& Effect : Result.Effects)
-			if (Effect.Status == EContentDeletionEffectStatus::Committed)
+			if (Effect.Status == EFileDeletionEffectStatus::Committed)
 			{
-				const auto Entry = std::ranges::find(Confirmation->Entries, Effect.PhysicalPath, &FContentDeletionFingerprint::PhysicalPath);
-				Changes.Changes.push_back({EContentChangeKind::Removed, Effect.PhysicalPath, {}, {}, {}, Entry != Confirmation->Entries.end() && Entry->Kind == EContentDeletionEntryKind::Directory});
+				const auto Entry = std::ranges::find(Confirmation->Entries, Effect.PhysicalPath, &FFileDeletionFingerprint::PhysicalPath);
+				Changes.Changes.push_back({EContentChangeKind::Removed, Effect.PhysicalPath, {}, {}, {}, Entry != Confirmation->Entries.end() && Entry->Kind == EFileDeletionEntryKind::Directory});
 			}
 		Changes.bFullRefresh |= !Native;
 		// Retire this attempt before feedback/notifications can prepare another one.
-		CurrentPlan.reset(); Execution.reset(); CapturedRequest.clear(); Confirmation.reset();
+		CurrentPlan.reset(); Execution.reset(); Model.reset(); CapturedRequest.clear(); Confirmation.reset();
+		bExecuting = false;
 		for (const auto& Effect : Result.Effects)
 		{
-			if (Effect.Status == EContentDeletionEffectStatus::Failed && !Effect.Diagnostic.empty())
+			if (Effect.Status == EFileDeletionEffectStatus::Failed && !Effect.Diagnostic.empty())
 				Report(ELogLevel::Error, Effect.Diagnostic);
 			for (const auto& Path : Effect.RecoveryLocations) Report(ELogLevel::Warn, "Recovery location: " + Path);
 		}
 		if (!Native && Native.Error && std::ranges::none_of(Result.Effects, [&](const auto& Effect) {
-			return Effect.Status == EContentDeletionEffectStatus::Failed && Effect.Diagnostic == Native.Error->GetMessage();
+			return Effect.Status == EFileDeletionEffectStatus::Failed && Effect.Diagnostic == Native.Error->GetMessage();
 		}))
 			Report(Native.Effect == EAssetWriteEffect::ContentCommittedProjectionPending ? ELogLevel::Warn : ELogLevel::Error, Native.Error->ToString());
 		NotifyItemsUpdated(std::move(Changes));

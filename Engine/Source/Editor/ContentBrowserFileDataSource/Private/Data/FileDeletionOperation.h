@@ -1,33 +1,35 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AssetTools/AssetDeletion.h"
-#include "AssetTools/ContentDeletionPlan.h"
-#include "AssetTools/ContentDeletionResult.h"
+#include "AssetDeleteModel.h"
+#include "ContentBrowserFileDataSourceAPI.h"
+#include "AssetTools/NativeAssetDeletion.h"
+#include "Data/FileDeletionPlan.h"
+#include "Data/FileDeletionResult.h"
 
 namespace Durin::ContentStorage
 {
 	// Narrow injection seam for deterministic destructive-deletion failure tests.
-	struct FContentDeletionHooks
+	struct FFileDeletionHooks
 	{
 		std::function<std::error_code(const std::filesystem::path&)> RemoveEntry;
 		std::function<bool()> ShouldCancel;
 		std::function<bool()> CanExecuteEffect;
 	};
 
-	class ASSETTOOLS_API FContentDeletionOperation final
+	class CONTENTBROWSERFILEDATASOURCE_API FFileDeletionOperation final
 	{
 	private:
-		friend class FContentDeletionRequest;
-		explicit FContentDeletionOperation(
-			FContentDeletionPlanPtr InPlan,
-			FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles);
+		friend class FFileDeletionRequest;
+		explicit FFileDeletionOperation(
+			FFileDeletionPlanPtr InPlan,
+			FAssetDeletionOperation InAssetOperation, bool InDeleteAssets, bool InDeleteFiles, std::shared_ptr<FAssetDeleteModel> InModel);
 
 	public:
-		auto Execute(FContentDeletionHooks InHooks = {}) -> bool;
+		auto Execute(FFileDeletionHooks InHooks = {}) -> bool;
 		auto HasStarted() const -> bool { return bStarted; }
 		auto GetResult() const -> const FAssetWriteResult& { return Result; }
-		auto GetEffects() const -> const FContentDeletionResult& { return Effects; }
+		auto GetEffects() const -> const FFileDeletionResult& { return Effects; }
 		auto ValidateScope(std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 		auto AllowPeerScopeChanges() -> void { bPeerScopeValidated = true; }
 
@@ -35,12 +37,13 @@ namespace Durin::ContentStorage
 		auto ValidatePhysicalState(FAssetDeletionFileIdentities& OutIdentities, bool OwnedOnly = false, std::optional<UnifiedError::FError>* OutError = nullptr) -> bool;
 		auto DeletePhysicalRoots(std::vector<std::filesystem::path>& RemovedPaths) -> FAssetWriteResult;
 
-		FContentDeletionPlanPtr Plan;
+		FFileDeletionPlanPtr Plan;
+		std::shared_ptr<FAssetDeleteModel> Model;
 		FAssetDeletionOperation AssetOperation;
 		FAssetWriteResult Result;
 		bool bStarted = false;
-		FContentDeletionHooks Hooks;
-		FContentDeletionResult Effects;
+		FFileDeletionHooks Hooks;
+		FFileDeletionResult Effects;
 		bool DeleteAssets = true, DeleteFiles = true;
 		uint64 ContributorRevision = 0;
 		bool bPeerScopeValidated = false;

@@ -59,6 +59,7 @@
 #include "FileHelpers.h"
 #include "PackageTools.h"
 #include "ObjectTools.h"
+#include "AssetDeleteModel.h"
 #include "DObject/Package.h"
 
 #include "Widgets/MFunctionWidget.h"
@@ -87,6 +88,14 @@ namespace Durin::MainFrame
 				for (auto* Package : Packages) Message += "\n" + Package->GetPackagePath();
 				return ShowMessageDialog("Reload Packages", Message, false, GEditor && GEditor->GetCapabilities().bPresentWorkspace) == EMessageDialogResult::Yes;
 			});
+			ObjectTools::SetDeletePrompt([](FAssetDeleteModel& Model, std::span<const std::string> Files, ObjectTools::EAllowCancelDuringDelete AllowCancel) {
+				std::string Message = "Permanently delete the selected content? This cannot be undone.\n" + Model.GetProgressText();
+				for (const auto& Pending : Model.GetPendingDeletedAssets()) if (auto* Object = Pending->GetObject()) Message += "\n" + Object->GetObjectPath();
+				for (const auto& Pending : Model.GetPendingDeletedAssets()) if (auto* Object = Pending->GetObject()) Message += "\n" + Object->GetObjectPath();
+				for (const auto& File : Files) Message += "\n" + File;
+				return ShowMessageDialog("Delete Content", Message, AllowCancel == ObjectTools::EAllowCancelDuringDelete::AllowCancel,
+					GEditor && GEditor->GetCapabilities().bPresentWorkspace) == EMessageDialogResult::Yes;
+			});
 			ObjectTools::SetDuplicatePrompt([](std::string_view Destination) -> std::optional<std::string> {
 				const auto Result = OpenFolderDialog({.Title = "Duplicate Assets", .InitialDirectory = ContentStorage::FContentMountPaths::VirtualToPhysical(Destination),
 					.bAllowUserInteraction = GEditor && GEditor->GetCapabilities().bPresentWorkspace});
@@ -101,6 +110,7 @@ namespace Durin::MainFrame
 			FEditorFileUtils::SetSavePrompt({});
 			DPackageTools::SetReloadPrompt({});
 			ObjectTools::SetDuplicatePrompt({});
+			ObjectTools::SetDeletePrompt({});
             ExportWindow.Stop();
 			if (RootWindow) RootWindow->SetCloseRequestHandler({});
 			if (ContentBrowserTool)
