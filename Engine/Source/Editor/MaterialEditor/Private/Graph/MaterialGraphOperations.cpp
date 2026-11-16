@@ -122,7 +122,7 @@ namespace Durin::MaterialEditor
 			{
 				auto* E = NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None);
 				const auto& Value = Definition.Value.GetTexture();
-				E->DefaultValue = {Value.Texture, Value.SamplerState, Value.TextureFallback};
+				E->DefaultValue = Value;
 				E->TextureUsage = Definition.TextureUsage; Result = E; break;
 			}
 			default: return {.Message = "The parameter expression type is unsupported."};

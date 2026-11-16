@@ -58,9 +58,9 @@ namespace Durin::MIR
 		return Builder.Literal(Components, Kind, Space);
 	}
 
-	auto FEmitter::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
+	auto FEmitter::Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension) -> uint32
 	{
-		return Builder.Parameter(Id, Type);
+		return Builder.Parameter(Id, Type, Dimension);
 	}
 
 	auto FEmitter::CollectionParameter(

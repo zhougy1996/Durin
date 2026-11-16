@@ -233,7 +233,7 @@ namespace Durin
 		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
-	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> std::expected<void, std::string>
+	auto DMaterial::SetTextureParameterValue(FName Name, DTexture* Value) -> std::expected<void, std::string>
 	{
 		const auto* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Texture);
@@ -249,6 +249,7 @@ namespace Durin
 		auto Entry = std::ranges::find(ParameterSchema, Id, &FMaterialParameterDefinition::Id);
 		if (Entry == ParameterSchema.end()) return std::unexpected(std::format("{} [parameter {}]", "Material declaration does not exist.", Id.ToString()));
 		const bool bCooked = GetAssetRuntimeConfiguration().RequiresCookedPayload();
+		if (!Entry->Value.HasSameType(Value)) return std::unexpected("Material parameter value has an incompatible texture dimension or type.");
 		auto Definition = *Entry;
 		Definition.Value = Value;
 		const auto Validation = ValidateMaterialParameterDefinitions(std::span(&Definition, 1));
@@ -302,7 +303,7 @@ namespace Durin
 			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
 	}
 
-	auto DMaterial::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
+	auto DMaterial::GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool
 	{
 		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
 			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });
@@ -422,16 +423,18 @@ namespace Durin
 					{
 						auto& Texture = Definition.Value.GetTexture();
 						{
-							auto Scope = EnterArchiveField(Inner, {RecordName, FName("Texture"), FArchiveLogicalTypeDescriptor::Object(FName("Durin::DTexture2D"))});
+							auto Scope = EnterArchiveField(Inner, {RecordName, FName("Texture"), FArchiveLogicalTypeDescriptor::Object(FName("Durin::DTexture"))});
 							DObject* Object = Texture.Texture.Get();
 							SerializeArchiveObjectReference(Inner, Object);
-							if (Object && !Object->IsA(DTexture2D::StaticClass())) Inner.Fail(EArchiveFailureCode::InvalidData, "Cooked texture parameter has a non-texture reference.");
-							Texture.Texture = Cast<DTexture2D>(Object);
+							if (Object && !Object->IsA(DTexture::StaticClass())) Inner.Fail(EArchiveFailureCode::InvalidData, "Cooked texture parameter has a non-texture reference.");
+							Texture.Texture = Cast<DTexture>(Object);
 						}
 						Member("MinFilter", Texture.SamplerState.MinFilter, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerMinFilter"), false, 8));
 						Member("MagFilter", Texture.SamplerState.MagFilter, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerMagFilter"), false, 8));
 						Member("AddressU", Texture.SamplerState.AddressU, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerAddressMode"), false, 8));
 						Member("AddressV", Texture.SamplerState.AddressV, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerAddressMode"), false, 8));
+						Member("AddressW", Texture.SamplerState.AddressW, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialSamplerAddressMode"), false, 8));
+						Member("Dimension", Texture.Dimension, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialTextureDimension"), false, 8));
 						Member("Fallback", Texture.TextureFallback, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::EMaterialTextureFallback"), false, 8));
 						Member("Usage", Definition.TextureUsage, FArchiveLogicalTypeDescriptor::Enum(FName("Durin::ETextureUsage"), false, 8));
 						break;

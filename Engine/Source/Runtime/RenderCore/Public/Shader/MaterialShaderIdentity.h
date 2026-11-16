@@ -22,7 +22,7 @@ namespace Durin
 	};
 
 	using FMaterialRenderLayoutVersion = uint32;
-	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 4;
+	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 5;
 
 	struct FMaterialRenderLayoutIdentity
 	{

@@ -170,18 +170,19 @@ namespace Durin::MaterialEditor
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change this node's parameter binding. Existing names use the existing parameter's value.");
 			if (!Changed && Parameter.Type == EMaterialParameterType::Texture)
 			{
-				int Usage = static_cast<int>(Parameter.TextureUsage);
-				if (DetailsStyle::EditRow("Texture usage", [&] { return ImGui::Combo("##Value", &Usage, "Color\0Normal\0Data / Mask\0"); }))
+				const bool Cube = Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube;
+				int Usage = Cube ? (Parameter.TextureUsage == ETextureUsage::DataMask ? 1 : 0) : static_cast<int>(Parameter.TextureUsage);
+				if (DetailsStyle::EditRow("Texture usage", [&] { return ImGui::Combo("##Value", &Usage, Cube ? "Color\0Data / Mask\0" : "Color\0Normal\0Data / Mask\0"); }))
 				{
-					Parameter.TextureUsage = static_cast<ETextureUsage>(Usage);
+					Parameter.TextureUsage = Cube ? (Usage == 1 ? ETextureUsage::DataMask : ETextureUsage::Color) : static_cast<ETextureUsage>(Usage);
 					CommitParameter();
 				}
 				MonaImGui::PropertyEdit::BeginRow("Texture");
-				const auto Picker = AssetPicker::Draw({.RequiredClass = DTexture2D::StaticClass(),
+				const auto Picker = AssetPicker::Draw({.RequiredClass = Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
 					.CurrentSelection = Parameter.Value.GetTexture().Texture.Get(), .SearchText = NodeTextureSearch,
 					.AssignSelection = [&](DObject* Object, std::string& Error) {
 						auto Value = Parameter.Value;
-						Value.GetTexture().Texture = Cast<DTexture2D>(Object);
+						Value.GetTexture().Texture = Cast<DTexture>(Object);
 						const auto Result = FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Value);
 						Error = FormatMaterialGraphCommandResult(Result); Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 						return static_cast<bool>(Result);
@@ -196,11 +197,12 @@ namespace Durin::MaterialEditor
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
 						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value));
 					};
-					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, "White\0Black\0Flat normal\0");
+					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? "White\0Black\0" : "White\0Black\0Flat normal\0");
 					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
 					Combo("Mag filter", Parameter.Value.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
 					Combo("Address U", Parameter.Value.GetTexture().SamplerState.AddressU, "Repeat\0Mirrored repeat\0Clamp\0");
 					Combo("Address V", Parameter.Value.GetTexture().SamplerState.AddressV, "Repeat\0Mirrored repeat\0Clamp\0");
+					Combo("Address W", Parameter.Value.GetTexture().SamplerState.AddressW, "Repeat\0Mirrored repeat\0Clamp\0");
 					MonaImGui::PropertyEdit::EndGroup();
 				}
 			}
@@ -228,6 +230,8 @@ namespace Durin::MaterialEditor
 			Copy->ReadMode = static_cast<EMaterialTextureReadMode>(Mode);
 			Submit(Document.ReplaceExpression(*Copy));
 		};
+		EditSamplingMode(Cast<DMaterialExpressionTextureSampleCube>(Expression.Get()));
+		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameterCube>(Expression.Get()));
 		EditSamplingMode(Cast<DMaterialExpressionTextureSample2D>(Expression.Get()));
 		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()));
 		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)

@@ -75,6 +75,7 @@ namespace Durin
 	{
 		bool bError = false;
 		FMaterialRenderLayoutIdentity LayoutIdentity;
+		const FMaterialRenderLayout* CompiledLayout = nullptr;
 		FByteView CompiledUniformPayload;
 		std::span<const FRHITextureReferenceRef> CompiledTextures;
 		std::span<const FMaterialSamplerState> CompiledSamplers;

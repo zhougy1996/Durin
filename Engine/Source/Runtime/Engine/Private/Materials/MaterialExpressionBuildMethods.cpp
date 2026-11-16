@@ -45,7 +45,8 @@ namespace Durin
 
 	auto DMaterialExpressionTextureParameter::Build(MIR::FEmitter& Emitter) const -> void
 	{
-		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture));
+		if (!DefaultValue.IsValid()) return Emitter.Fail("Texture parameter resource, dimension or sampling policy is invalid.");
+		return Emitter.Output(0, Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture, DefaultValue.Dimension));
 	}
 
 	auto DMaterialExpressionCollectionParameter::Build(MIR::FEmitter& Emitter) const -> void
@@ -451,6 +452,21 @@ namespace Durin
 			}
 			return Index;
 		}
+		auto ResolveCubeDirection(MIR::FEmitter& Emitter, const FMaterialNumericInput& Direction) -> uint32
+		{
+			if (Direction.Constant.size() != 3 || !std::ranges::all_of(Direction.Constant, [](float V) { return std::isfinite(V); }))
+			{
+				Emitter.Fail("TextureCube direction requires a finite Float3 default.");
+				return MIR::InvalidIndex;
+			}
+			if (!Direction.Connection.ExpressionId.IsValid() && (Direction.Connection.OutputIndex || Direction.Connection.OutputId.IsValid()))
+			{
+				Emitter.Fail("Disconnected Cube direction has an output selector.");
+				return MIR::InvalidIndex;
+			}
+			return Direction.Connection.ExpressionId.IsValid() ? Emitter.ResolveIndex(Direction.Connection)
+				: Emitter.Literal(Direction.UseConstant ? Direction.Constant : std::vector<float>{1,0,0});
+		}
 		template<class SampleExpression>
 		auto EmitTextureRead(MIR::FEmitter& Emitter, const SampleExpression& Expression,
 			uint32 Resource, uint32 Coordinates, std::span<const float> Fallback = {}) -> uint32
@@ -461,7 +477,8 @@ namespace Durin
 				Emitter.Fail("Texture read mode is unsupported.");
 				return MIR::InvalidIndex;
 			}
-			MIR::FNode Node{.Opcode = EMaterialProgramOpcode::TextureSample2D,
+			constexpr bool bCube = requires { Expression.Direction; };
+			MIR::FNode Node{.Opcode = bCube ? EMaterialProgramOpcode::TextureSampleCube : EMaterialProgramOpcode::TextureSample2D,
 				.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates},
 				.Payload = MIR::FTextureRead{Mode}};
 			const auto ResolveOperand = [&](const FMaterialNumericInput& Operand, uint32 Width) {
@@ -483,14 +500,14 @@ namespace Durin
 				Node.Inputs.push_back(ResolveOperand(Expression.MipValue, 1));
 			else if (Mode == EMaterialTextureReadMode::Grad)
 			{
-				Node.Inputs.push_back(ResolveOperand(Expression.DDX, 2));
-				Node.Inputs.push_back(ResolveOperand(Expression.DDY, 2));
+				Node.Inputs.push_back(ResolveOperand(Expression.DDX, bCube ? 3 : 2));
+				Node.Inputs.push_back(ResolveOperand(Expression.DDY, bCube ? 3 : 2));
 			}
 			if (!Fallback.empty())
 			{
 				// A function's unbound texture folds to its constant fallback only after
 				// validating the same active operands as a real resource read.
-				std::vector<FMaterialValueSemantics> Semantics{{EMaterialProgramValueType::Texture2D}};
+				std::vector<FMaterialValueSemantics> Semantics{{bCube ? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D}};
 				for (size_t Slot = 1; Slot < Node.Inputs.size(); ++Slot)
 				{
 					if (Node.Inputs[Slot] == MIR::InvalidIndex) return MIR::InvalidIndex;
@@ -500,6 +517,16 @@ namespace Durin
 				{
 					Emitter.Fail("Texture read operands have incompatible types or evaluation stages.");
 					return MIR::InvalidIndex;
+				}
+				if constexpr (bCube)
+				{
+					const auto& Direction = Emitter.GetNode(Coordinates);
+					const auto V = Direction.GetLiteral();
+					if (Direction.Opcode == EMaterialProgramOpcode::Constant && V.X == 0 && V.Y == 0 && V.Z == 0)
+					{
+						Emitter.Fail("TextureCube direction must be nonzero.");
+						return MIR::InvalidIndex;
+					}
 				}
 				return Emitter.Literal(Fallback);
 			}
@@ -534,6 +561,7 @@ namespace Durin
 		uint32 Sample;
 		if (const auto* Default = ResourceValue.GetTexture())
 		{
+			if (Default->Dimension != EMaterialTextureDimension::Texture2D) return Emitter.Fail("Texture2D sample requires a 2D resource.");
 			const std::array White{1.f, 1.f, 1.f, 1.f};
 			const std::array Black{0.f, 0.f, 0.f, 1.f};
 			const std::array Normal{.5f, .5f, 1.f, 1.f};
@@ -547,12 +575,38 @@ namespace Durin
 
 	auto DMaterialExpressionTextureSampleParameter2D::Build(MIR::FEmitter& Emitter) const -> void
 	{
+		if (DefaultValue.Dimension != EMaterialTextureDimension::Texture2D || !DefaultValue.IsValid()) return Emitter.Fail("Texture sample parameter 2D requires a 2D declaration.");
 		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture);
 		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
 		if (ReadMode > EMaterialTextureReadMode::Grad) return Emitter.Fail("Texture read mode is unsupported.");
 		const auto Coordinates = ResolveUV(Emitter, UV);
 		const auto Sample = EmitTextureRead(Emitter, *this, Resource, Coordinates);
 		EmitSampleOutputs(Emitter, Sample, TextureUsage == ETextureUsage::Normal);
+	}
+
+	auto DMaterialExpressionTextureSampleCube::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		const auto Coordinates = ResolveCubeDirection(Emitter, Direction);
+		const auto Resource = Emitter.Resolve(Texture);
+		uint32 Sample;
+		if (const auto* Default = Resource.GetTexture())
+		{
+			if (Default->Dimension != EMaterialTextureDimension::TextureCube || Default->Fallback == EMaterialTextureFallback::FlatRGNormal)
+				return Emitter.Fail("Cube sample requires a Cube resource and white/black fallback.");
+			const std::array White{1.f,1.f,1.f,1.f}, Black{0.f,0.f,0.f,1.f};
+			Sample = EmitTextureRead(Emitter, *this, MIR::InvalidIndex, Coordinates, Default->Fallback == EMaterialTextureFallback::White ? White : Black);
+		}
+		else Sample = EmitTextureRead(Emitter, *this, *Resource.GetIndex(), Coordinates);
+		EmitSampleOutputs(Emitter, Sample, false);
+	}
+
+	auto DMaterialExpressionTextureSampleParameterCube::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		if (DefaultValue.Dimension != EMaterialTextureDimension::TextureCube || !DefaultValue.IsValid() || TextureUsage == ETextureUsage::Normal)
+			return Emitter.Fail("Cube sample parameter requires a Cube declaration and white/black fallback.");
+		const auto Resource = Emitter.Parameter(Metadata.Id, EMaterialParameterType::Texture, EMaterialTextureDimension::TextureCube);
+		Emitter.Output(static_cast<uint8>(EMaterialSampleOutput::Texture), Resource);
+		EmitSampleOutputs(Emitter, EmitTextureRead(Emitter, *this, Resource, ResolveCubeDirection(Emitter, Direction)), false);
 	}
 
 	auto DMaterialExpressionGetMaterialAttributes::Build(MIR::FEmitter& Emitter) const -> void

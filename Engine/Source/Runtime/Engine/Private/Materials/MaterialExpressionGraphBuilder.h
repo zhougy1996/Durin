@@ -28,7 +28,7 @@ namespace Durin::MIR
 		auto Literal(std::span<const float> Components,
 			EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
 			EMaterialCoordinateSpace Space = EMaterialCoordinateSpace::None) -> uint32;
-		auto Parameter(FGuid Id, EMaterialParameterType Type) -> uint32;
+		auto Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension = EMaterialTextureDimension::Texture2D) -> uint32;
 		auto CollectionParameter(const DMaterialParameterCollection& Collection,
 			FGuid ParameterId) -> uint32;
 		auto Numeric(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,

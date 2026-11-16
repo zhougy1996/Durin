@@ -52,6 +52,7 @@ namespace Durin
 			if (!Parameter.Id.IsValid()) return Reject(EMaterialLayoutError::InvalidParameter);
 			if (Parameter.Id == Previous) return Reject(EMaterialLayoutError::DuplicateParameter, Parameter.Id);
 			Previous = Parameter.Id;
+			if (Parameter.TextureDimension > EMaterialTextureDimension::TextureCube || (Parameter.Type != EMaterialParameterType::Texture && Parameter.TextureDimension != EMaterialTextureDimension::Texture2D)) return Reject(EMaterialLayoutError::InvalidType, Parameter.Id);
 			FMaterialRenderField Field;
 			Field.ParameterId = Parameter.Id;
 			switch (Parameter.Type)
@@ -60,7 +61,10 @@ namespace Durin
 			case EMaterialParameterType::Vector2: Field.Type = EMaterialRenderValueType::Vector2; Field.Size = 8; break;
 			case EMaterialParameterType::Vector: Field.Type = EMaterialRenderValueType::Vector3; Field.Size = 12; break;
 			case EMaterialParameterType::Vector4: Field.Type = EMaterialRenderValueType::Vector4; Field.Size = 16; break;
-			case EMaterialParameterType::Texture: Field.Type = EMaterialRenderValueType::Texture2D; break;
+			case EMaterialParameterType::Texture:
+				if (Parameter.TextureDimension > EMaterialTextureDimension::TextureCube) return Reject(EMaterialLayoutError::InvalidType, Parameter.Id);
+				Field.Type = Parameter.TextureDimension == EMaterialTextureDimension::TextureCube ? EMaterialRenderValueType::TextureCube : EMaterialRenderValueType::Texture2D;
+				break;
 			default: return Reject(EMaterialLayoutError::InvalidType, Parameter.Id);
 			}
 			if (Parameter.Type == EMaterialParameterType::Texture)
@@ -106,10 +110,12 @@ namespace Durin
 			case EMaterialRenderValueType::Vector2: Type = EMaterialParameterType::Vector2; break;
 			case EMaterialRenderValueType::Vector3: Type = EMaterialParameterType::Vector; break;
 			case EMaterialRenderValueType::Vector4: Type = EMaterialParameterType::Vector4; break;
+			case EMaterialRenderValueType::TextureCube:
 			case EMaterialRenderValueType::Texture2D: Type = EMaterialParameterType::Texture; break;
 			default: return {EMaterialLayoutError::InvalidType, Field.ParameterId, Index};
 			}
-			Parameters.push_back({Field.ParameterId, Type});
+			Parameters.push_back({Field.ParameterId, Type, Field.Type == EMaterialRenderValueType::TextureCube
+				? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D});
 		}
 		const auto Expected = CompileMaterialLayout(Parameters, Limits);
 		if (!Expected) return Expected.Validation;

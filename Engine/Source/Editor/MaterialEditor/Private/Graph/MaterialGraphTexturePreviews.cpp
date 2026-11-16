@@ -34,7 +34,8 @@ namespace Durin::MaterialEditor
 		{
 			const auto* Parameter = Cast<DMaterialExpressionTextureParameter>(Expression.Get());
 			if (!Parameter || !Parameter->DefaultValue.Texture.IsValid()) continue;
-			auto* Asset = Parameter->DefaultValue.Texture.Get();
+			auto* Asset = Cast<DTexture2D>(Parameter->DefaultValue.Texture.Get());
+			if (!Asset) continue;
 			if (!Asset->IsAsyncCacheComplete() || Asset->HasPendingRenderResourceInitialization()) continue;
 			const auto* Resource = Asset->GetResource();
 			if (!Resource) continue;

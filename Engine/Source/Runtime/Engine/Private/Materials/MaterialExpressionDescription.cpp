@@ -48,8 +48,10 @@ namespace Durin
 				{
 					for (const auto Name : {"Mip Value", "DDX", "DDY"}) Shape.InputNames.emplace_back(Name);
 					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float});
-					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float2});
-					Shape.AcceptedInputTypes.push_back({EMaterialProgramValueType::Float2});
+					Shape.AcceptedInputTypes.push_back({Opcode == EMaterialProgramOpcode::TextureSampleCube || Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
+						? EMaterialProgramValueType::Float3 : EMaterialProgramValueType::Float2});
+					Shape.AcceptedInputTypes.push_back({Opcode == EMaterialProgramOpcode::TextureSampleCube || Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
+						? EMaterialProgramValueType::Float3 : EMaterialProgramValueType::Float2});
 				}
 				Result.Shapes.push_back(std::move(Shape));
 			}
@@ -76,6 +78,10 @@ namespace Durin
 					"A value exposed by the material parameter definition.", {}, ""),
 				Describe<DMaterialExpressionTextureParameter>(EMaterialProgramOpcode::TextureParameter, "Texture Object Parameter",
 					"A texture resource for function inputs or multiple samples. For ordinary texture mapping, use Texture Sample Parameter 2D.", {}, ""),
+				Describe<DMaterialExpressionTextureSampleParameterCube>(EMaterialProgramOpcode::TextureSampleParameterCube, "Texture Sample Parameter Cube",
+					"Samples a named Cube texture with a Float3 direction.", {"Direction"}),
+				Describe<DMaterialExpressionTextureSampleCube>(EMaterialProgramOpcode::TextureSampleCube, "Texture Sample Cube",
+					"Samples a connected Cube texture object with a Float3 direction.", {"Texture", "Direction"}),
 				Describe<DMaterialExpressionTextureSampleParameter2D>(EMaterialProgramOpcode::TextureSampleParameter2D, "Texture Sample Parameter 2D",
 					"Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch.", {"UV"}, ""),
 				Describe<DMaterialExpressionWorldPosition>(EMaterialProgramOpcode::WorldPosition, "World Position",

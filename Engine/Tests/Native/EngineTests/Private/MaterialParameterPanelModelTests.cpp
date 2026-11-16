@@ -307,7 +307,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	TextureValue.GetTexture().SamplerState.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 	TextureValue.GetTexture().TextureFallback = Durin::EMaterialTextureFallback::Black;
 	ASSERT_TRUE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
-	Durin::DTexture2D* ResolvedTexture = nullptr;
+	Durin::DTexture* ResolvedTexture = nullptr;
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ResolvedTexture));
 	EXPECT_EQ(ResolvedTexture, Texture);

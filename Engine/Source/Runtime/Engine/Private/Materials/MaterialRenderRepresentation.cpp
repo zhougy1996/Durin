@@ -63,6 +63,7 @@ namespace Durin
 			Hash.UpdateValue(Sampler.MagFilter);
 			Hash.UpdateValue(Sampler.AddressU);
 			Hash.UpdateValue(Sampler.AddressV);
+			Hash.UpdateValue(Sampler.AddressW);
 		}
 		for (const auto Fallback : InFallbacks) Hash.UpdateValue(Fallback);
 		Storage = std::make_shared<const FStorage>(FStorage{
@@ -103,7 +104,12 @@ namespace Durin
 		for (uint32 FieldIndex = 0; FieldIndex < Input.Layout.Fields.size(); ++FieldIndex)
 		{
 			const FMaterialRenderField& Field = Input.Layout.Fields[FieldIndex];
-			if (Field.Storage != EMaterialRenderFieldStorage::Uniform) continue;
+			if (Field.Storage == EMaterialRenderFieldStorage::Resource)
+			{
+				if (Field.Type == EMaterialRenderValueType::TextureCube && Input.TextureFallbacks[Field.CompactIndex] == EMaterialTextureFallback::FlatRGNormal)
+					return SetValidationFailure(OutDiagnostic, "Cube textures cannot use a 2D normal fallback.");
+				continue;
+			}
 			for (uint32 ByteIndex = Field.Offset;
 				ByteIndex < Field.Offset + Field.Size;
 				++ByteIndex)
@@ -193,13 +199,14 @@ namespace Durin
 			OutBinding.Owner = Representation.Storage;
 			OutBinding.bError = Representation.IsError();
 			OutBinding.LayoutIdentity = Representation.GetLayout().Identity;
+			OutBinding.CompiledLayout = &Representation.GetLayout();
 			OutBinding.CompiledUniformPayload = Representation.GetUniformPayload();
 			OutBinding.CompiledTextures = Representation.GetResources();
 			OutBinding.CompiledSamplers = Representation.GetSamplers();
 			OutBinding.CompiledTextureFallbacks = Representation.GetTextureFallbacks();
 			return true;
 		}
-		return SetValidationFailure(OutDiagnostic, "Only compiled material layout v4 can bind.");
+		return SetValidationFailure(OutDiagnostic, "Only compiled material layout v5 can bind.");
 	}
 
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
@@ -245,8 +252,8 @@ namespace Durin
 		{
 			const auto& Texture = Value.GetTexture();
 			if (!Value.IsRenderThreadValue() || Field.Storage != EMaterialRenderFieldStorage::Resource
-				|| Field.Type != EMaterialRenderValueType::Texture2D || Field.CompactIndex >= Input.Resources.size()
-				|| !IsValidMaterialSampling(Texture.SamplerState, Texture.TextureFallback)) return RejectField(Id);
+				|| Field.Type != (Texture.Dimension == EMaterialTextureDimension::TextureCube ? EMaterialRenderValueType::TextureCube : EMaterialRenderValueType::Texture2D) || Field.CompactIndex >= Input.Resources.size()
+				|| !Texture.IsValid()) return RejectField(Id);
 			Input.Resources[Field.CompactIndex] = Texture.TextureReference;
 			Input.Samplers[Field.CompactIndex] = Texture.SamplerState;
 			Input.TextureFallbacks[Field.CompactIndex] = Texture.TextureFallback;
@@ -361,7 +368,7 @@ namespace Durin
 		const FMaterialRenderField* Field = FindField(ParameterId);
 		if (Field == nullptr) return false;
 		if (Field->Storage != EMaterialRenderFieldStorage::Resource
-			|| Field->Type != EMaterialRenderValueType::Texture2D
+			|| (Field->Type != EMaterialRenderValueType::Texture2D && Field->Type != EMaterialRenderValueType::TextureCube)
 			|| Field->CompactIndex >= Input.Resources.size())
 		{
 			return RejectField(ParameterId);
@@ -369,7 +376,7 @@ namespace Durin
 		Input.Resources[Field->CompactIndex] = Value;
 		if (Input.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
 		{
-			if (!IsValidMaterialSampling(Sampler, Fallback)) return RejectField(ParameterId);
+			if (!IsValidMaterialSampling(Sampler, Fallback) || (Field->Type == EMaterialRenderValueType::TextureCube && Fallback == EMaterialTextureFallback::FlatRGNormal)) return RejectField(ParameterId);
 			Input.Samplers[Field->CompactIndex] = Sampler;
 			Input.TextureFallbacks[Field->CompactIndex] = Fallback;
 		}

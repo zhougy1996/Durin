@@ -42,6 +42,8 @@ namespace Durin::MaterialEditor
 			{&DMaterialExpressionTextureCoordinates::StaticClass, "Inputs",
 				EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::All},
 			{&DMaterialExpressionTextureSample2D::StaticClass, "Textures"},
+			{&DMaterialExpressionTextureSampleCube::StaticClass, "Textures"},
+			{&DMaterialExpressionTextureSampleParameterCube::StaticClass, "Parameters"},
 			{&DMaterialExpressionAdd::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionSubtract::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionMultiply::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},

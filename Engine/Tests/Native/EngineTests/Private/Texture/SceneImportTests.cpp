@@ -974,10 +974,11 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.OutputIndex, 2);
 	EXPECT_EQ(Instance->GetParameterDefinitions().size(), 2u);
 	EXPECT_FALSE(Instance->GetImportProvenance().OutputIdentity.empty());
-	DTexture2D* Texture = nullptr;
+	DTexture* Texture = nullptr;
 	ASSERT_TRUE(Instance->GetTextureParameterValue(Durin::AssetForge::Builtins::MaterialParameters::MetallicTextureName(), Texture));
 	ASSERT_NE(Texture, nullptr);
-	EXPECT_EQ(Texture->GetUsage(), ETextureUsage::DataMask);
+	ASSERT_NE(Cast<DTexture2D>(Texture), nullptr);
+	EXPECT_EQ(Cast<DTexture2D>(Texture)->GetUsage(), ETextureUsage::DataMask);
 }
 
 TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompatibleGraphs)
@@ -1075,7 +1076,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_TRUE(SavePackage(Custom->GetPackage()));
 	Mesh->SetMaterialSlotDefaultMaterial(0, Custom);
-	DTexture2D* PreviousTexture = nullptr;
+	DTexture* PreviousTexture = nullptr;
 	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), PreviousTexture));
 	const auto MaterialPath = Material->GetPackage()->GetPackagePathIdentity();
 	const auto MeshPath = Mesh->GetPackage()->GetPackagePathIdentity();
@@ -1089,7 +1090,7 @@ TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdit
 	EXPECT_EQ(LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath)), Material);
 	EXPECT_EQ(LoadObject<DStaticMesh>(Testing::MakePackageLeafAssetObjectPathForTests(MeshPath)), Mesh);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].DefaultMaterial.Get(), Custom);
-	DTexture2D* CurrentTexture = nullptr;
+	DTexture* CurrentTexture = nullptr;
 	ASSERT_TRUE(Material->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), CurrentTexture));
 	EXPECT_EQ(CurrentTexture, PreviousTexture);
 	EXPECT_TRUE(Material->GetStaticProperties().bTwoSided);
@@ -1251,15 +1252,15 @@ TEST(FSceneImportTests, StandardPBRParentMapsPackedChannelsUVsEmissiveAndOpacity
 		EXPECT_EQ(FVector2(Value.Value.GetVector4()), FVector2(2, 3));
 		ASSERT_TRUE(Instance->ResolveParameterValue(GetMaterialSurfaceParameterId(EMaterialProperty::MP_EmissiveColor, Kind::Value), Value));
 		EXPECT_EQ(FVector3(Value.Value.GetVector4()), FVector3(0));
-		DTexture2D* Metallic = nullptr;
-		DTexture2D* Roughness = nullptr;
+		DTexture* Metallic = nullptr;
+		DTexture* Roughness = nullptr;
 		ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::MetallicTextureName(), Metallic));
 		ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::RoughnessTextureName(), Roughness));
 		ASSERT_NE(Metallic, nullptr);
 		EXPECT_EQ(Metallic, Roughness);
-		DTexture2D* BaseColor = nullptr;
-		DTexture2D* Opacity = nullptr;
-		DTexture2D* Mask = nullptr;
+		DTexture* BaseColor = nullptr;
+		DTexture* Opacity = nullptr;
+		DTexture* Mask = nullptr;
 		ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), BaseColor));
 		ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::OpacityTextureName(), Opacity));
 		ASSERT_TRUE(Instance->GetTextureParameterValue(MaterialParameters::OpacityMaskTextureName(), Mask));

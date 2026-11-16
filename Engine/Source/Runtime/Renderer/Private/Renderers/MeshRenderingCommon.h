@@ -37,7 +37,7 @@ namespace Durin::RendererPrivate
 		Result.MaxLod = Min < 2 ? 0.0f : 1000.0f;
 		Result.AddressU = ToRHIAddress(State.AddressU);
 		Result.AddressV = ToRHIAddress(State.AddressV);
-		Result.AddressW = ESamplerAddressMode::Repeat;
+		Result.AddressW = ToRHIAddress(State.AddressW);
 		return Result;
 	}
 

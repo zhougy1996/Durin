@@ -72,6 +72,7 @@ namespace Durin
 			case EMaterialProgramValueType::Float4: return "float4";
 			case EMaterialProgramValueType::Texture2D:
 				return "Texture2D<float4>";
+			case EMaterialProgramValueType::TextureCube: return "TextureCube<float4>";
 			case EMaterialProgramValueType::MaterialAttributes: return "FMaterialSurface";
 			case EMaterialProgramValueType::StaticBool: return {};
 			}
@@ -206,12 +207,16 @@ struct VSOutput
 			OutSource += std::format("    float4 Value{};\n", Index);
 		OutSource += "};\n[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\n"
 			"[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;\n";
-		for (uint32 Index = 0; Index < Layout.ResourceFieldCount; ++Index)
+		for (const auto& Field : Layout.Fields)
+		{
+			if (Field.Storage != EMaterialRenderFieldStorage::Resource) continue;
+			const auto Index = Field.CompactIndex;
 			OutSource += std::format(
-				"[[vk::binding({}, 1)]] Texture2D<float4> MaterialTexture{};\n"
+				"[[vk::binding({}, 1)]] {}<float4> MaterialTexture{};\n"
 				"[[vk::binding({}, 1)]] SamplerState MaterialSampler{};\n",
-				MaterialTextureBindingBase + 2 * Index, Index,
+				MaterialTextureBindingBase + 2 * Index, Field.Type == EMaterialRenderValueType::TextureCube ? "TextureCube" : "Texture2D", Index,
 				MaterialTextureBindingBase + 2 * Index + 1, Index);
+		}
 		for (uint32 Index = 0; Index < Collections.size(); ++Index)
 		{
 			OutSource += std::format("struct MaterialCollectionUniform{}\n{{\n    float4 Reserved;\n", Index);
@@ -307,6 +312,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				case EMaterialProgramOpcode::FunctionInput:
 				case EMaterialProgramOpcode::FunctionOutput:
 				case EMaterialProgramOpcode::FunctionCall:
+				case EMaterialProgramOpcode::TextureSampleParameterCube:
 				case EMaterialProgramOpcode::TextureSampleParameter2D:
 				case EMaterialProgramOpcode::TextureCoordinates:
 				case EMaterialProgramOpcode::GetMaterialAttributes:
@@ -466,6 +472,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 						Expression = std::format("MaterialTexture{}", Field->CompactIndex);
 					break;
 				}
+				case EMaterialProgramOpcode::TextureSampleCube:
 				case EMaterialProgramOpcode::TextureSample2D:
 				{
 					const auto& TextureNode = IR.Nodes[Node.Inputs[0]];
@@ -475,7 +482,9 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 						const auto Method = Mode == EMaterialTextureReadMode::Level ? "SampleLevel"
 							: Mode == EMaterialTextureReadMode::Bias ? "SampleBias"
 							: Mode == EMaterialTextureReadMode::Grad ? "SampleGrad" : "Sample";
-						Expression = std::format("{}.{}(MaterialSampler{}, {}", Input(0), Method, Field->CompactIndex, Input(1));
+						const auto Coordinates = Node.Opcode == EMaterialProgramOpcode::TextureSampleCube
+							? std::format("((all(isfinite({0})) && dot({0}, {0}) > 0.0) ? {0} : float3(1,0,0))", Input(1)) : Input(1);
+						Expression = std::format("{}.{}(MaterialSampler{}, {}", Input(0), Method, Field->CompactIndex, Coordinates);
 						for (size_t Slot = 2; Slot < Node.Inputs.size(); ++Slot) Expression += ", " + Input(Slot);
 						Expression += ")";
 					}
@@ -531,7 +540,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				}
 				const auto SymbolIndex = bVertex ? LocalIndex++ : Index;
 				Expressions[Index] = std::format("n{}", SymbolIndex);
-				if (Node.ResultType != EMaterialProgramValueType::Texture2D)
+				if (Node.ResultType != EMaterialProgramValueType::Texture2D && Node.ResultType != EMaterialProgramValueType::TextureCube)
 					OutSource += std::format("    {} n{} = {};\n",
 						SlangType(Node.ResultType), SymbolIndex, Expression);
 				else
@@ -643,7 +652,8 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			case EMaterialRenderValueType::Vector4: Type = EMaterialParameterType::Vector4; break;
 			default: Type = EMaterialParameterType::Texture; break;
 			}
-			Parameters.push_back({Field.ParameterId, Type});
+			Parameters.push_back({Field.ParameterId, Type, Field.Type == EMaterialRenderValueType::TextureCube
+				? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D});
 		}
 		return MIR::Validate(IR, Parameters);
 	}
@@ -660,6 +670,8 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		}
 		for (const auto& Parameter : Parameters)
 			if (!Parameter.Id.IsValid() || !ParameterIds.insert(Parameter.Id).second
+				|| Parameter.TextureDimension > EMaterialTextureDimension::TextureCube
+				|| (Parameter.Type != EMaterialParameterType::Texture && Parameter.TextureDimension != EMaterialTextureDimension::Texture2D)
 				|| (Parameter.Type != EMaterialParameterType::Scalar && Parameter.Type != EMaterialParameterType::Vector2
 					&& Parameter.Type != EMaterialParameterType::Vector && Parameter.Type != EMaterialParameterType::Vector4
 					&& Parameter.Type != EMaterialParameterType::Texture))
@@ -685,7 +697,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		{
 			const auto& Node = IR.Nodes[Index];
 			const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType, Node.GetTextureReadMode());
-			if ((Node.Opcode >= EMaterialProgramOpcode::FunctionInput && Node.Opcode <= EMaterialProgramOpcode::AppendVector) || !Signature || Node.Inputs.size() != Signature->InputCount)
+			if (Node.Opcode == EMaterialProgramOpcode::TextureSampleParameterCube || (Node.Opcode >= EMaterialProgramOpcode::FunctionInput && Node.Opcode <= EMaterialProgramOpcode::AppendVector) || !Signature || Node.Inputs.size() != Signature->InputCount)
 			{
 				Fail("Material IR opcode, result type, or input count is invalid.");
 				return Result;
@@ -812,9 +824,21 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					}
 				}();
 				if (!Node.GetParameterId().IsValid() || Field == Parameters.end()
-					|| Field->Type != Expected)
+					|| Field->Type != Expected || (Expected == EMaterialParameterType::Texture
+						&& Field->TextureDimension != (Node.ResultType == EMaterialProgramValueType::TextureCube
+							? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D)))
 				{
 					Fail("Material IR parameter is missing or has an incompatible binding type.");
+					return Result;
+				}
+			}
+			if (Node.Opcode == EMaterialProgramOpcode::TextureSampleCube)
+			{
+				const auto& Direction = IR.Nodes[Node.Inputs[1]];
+				const auto V = Direction.GetLiteral();
+				if (Direction.Opcode == EMaterialProgramOpcode::Constant && V.X == 0 && V.Y == 0 && V.Z == 0)
+				{
+					Fail("TextureCube direction must be nonzero.");
 					return Result;
 				}
 			}

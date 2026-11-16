@@ -106,8 +106,9 @@ namespace Durin
 							Port.Constraint.Kind, Port.Constraint.Space});
 					break;
 				case EMaterialFunctionDefaultKind::Texture:
-					bValid = Port.Type == EMaterialProgramValueType::Texture2D
-						&& IsValidMaterialSampling(Default.Sampler, Default.TextureFallback);
+					bValid = (Port.Type == EMaterialProgramValueType::Texture2D || Port.Type == EMaterialProgramValueType::TextureCube)
+						&& IsValidMaterialSampling(Default.Sampler, Default.TextureFallback)
+						&& (Port.Type != EMaterialProgramValueType::TextureCube || Default.TextureFallback != EMaterialTextureFallback::FlatRGNormal);
 					break;
 				case EMaterialFunctionDefaultKind::MaterialAttributes:
 				{

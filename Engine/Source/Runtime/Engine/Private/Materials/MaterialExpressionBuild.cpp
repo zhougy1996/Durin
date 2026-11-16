@@ -267,7 +267,8 @@ namespace Durin::MIR
 
 	auto FGraphBuilderImpl::MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool
 	{
-		if (Value.GetTexture()) return Type == EMaterialProgramValueType::Texture2D;
+		if (const auto* Texture = Value.GetTexture()) return Type == (Texture->Dimension == EMaterialTextureDimension::TextureCube
+			? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D);
 		if (Value.GetStaticBool()) return Type == EMaterialProgramValueType::StaticBool;
 		return Value.GetIndex() && *Value.GetIndex() < Result.IR.Nodes.size()
 			&& Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
@@ -324,6 +325,13 @@ namespace Durin::MIR
 			const std::array Values{Node.GetLiteral().X, Node.GetLiteral().Y, Node.GetLiteral().Z, Node.GetLiteral().W};
 			for (uint32 Index = 0; Index <= static_cast<uint32>(Node.ResultType); ++Index)
 				if (!std::isfinite(Values[Index])) return Fail("Expression constant must be finite.");
+		}
+		if (Node.Opcode == EMaterialProgramOpcode::TextureSampleCube)
+		{
+			const auto& Direction = Result.IR.Nodes[Node.Inputs[1]];
+			const auto V = Direction.GetLiteral();
+			if (Direction.Opcode == EMaterialProgramOpcode::Constant && V.X == 0 && V.Y == 0 && V.Z == 0)
+				return Fail("TextureCube direction must be nonzero.");
 		}
 		if (Node.Opcode == EMaterialProgramOpcode::Swizzle)
 		{
@@ -513,9 +521,10 @@ namespace Durin::MIR
 		return Emit(std::move(Node));
 	}
 
-	auto FGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type) -> uint32
+	auto FGraphBuilderImpl::Parameter(FGuid Id, EMaterialParameterType Type, EMaterialTextureDimension Dimension) -> uint32
 	{
 		if (!Id.IsValid()) return Fail("Parameter expression requires a valid parameter GUID.");
+		if (Dimension > EMaterialTextureDimension::TextureCube) return Fail("Texture parameter dimension is unsupported.");
 		EMaterialProgramValueType ValueType;
 		switch (Type)
 		{
@@ -523,12 +532,12 @@ namespace Durin::MIR
 		case EMaterialParameterType::Vector2: ValueType = EMaterialProgramValueType::Float2; break;
 		case EMaterialParameterType::Vector: ValueType = EMaterialProgramValueType::Float3; break;
 		case EMaterialParameterType::Vector4: ValueType = EMaterialProgramValueType::Float4; break;
-		case EMaterialParameterType::Texture: ValueType = EMaterialProgramValueType::Texture2D; break;
+		case EMaterialParameterType::Texture: ValueType = Dimension == EMaterialTextureDimension::TextureCube ? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D; break;
 		default: return Fail("Parameter expression has an unsupported type.");
 		}
 		const auto Existing = std::ranges::find(Result.Parameters, Id, &FMaterialCompilerParameterDeclaration::Id);
-		if (Existing != Result.Parameters.end() && Existing->Type != Type) return Fail("Parameter GUID has conflicting types.");
-		if (Existing == Result.Parameters.end()) Result.Parameters.push_back({Id, Type});
+		if (Existing != Result.Parameters.end() && (Existing->Type != Type || Existing->TextureDimension != Dimension)) return Fail("Parameter GUID has conflicting types.");
+		if (Existing == Result.Parameters.end()) Result.Parameters.push_back({Id, Type, Dimension});
 		if (Result.Parameters.size() > MaterialProgramMaxReferencedParameterCount) return Fail("Expression parameter count exceeds the bound.");
 		return Emit({.Opcode = Type == EMaterialParameterType::Texture ? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::Parameter,
 			.ResultType = ValueType, .Payload = Id});

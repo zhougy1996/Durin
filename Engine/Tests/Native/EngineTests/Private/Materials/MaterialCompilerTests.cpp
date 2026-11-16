@@ -13,6 +13,7 @@
 #include "Materials/MaterialTranslationCodec.h"
 #include "Threading/Task.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 #include "Threading/ThreadEvent.h"
 #include "Shader/ShaderDiagnostics.h"
 #include "NativeRHIBackendTestSupport.h"
@@ -2731,7 +2732,7 @@ TEST(FMaterialProgramCompilerTests, CompiledLayoutsAreTypedDeterministicAndDevic
 	const auto Built = CompileMaterialLayout(Parameters);
 	ASSERT_TRUE(Built);
 	EXPECT_TRUE(ValidateCompiledMaterialLayout(Built.Layout));
-	EXPECT_EQ(Built.Layout.Identity.Version, 4u);
+	EXPECT_EQ(Built.Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
 	EXPECT_EQ(Built.Layout.UniformPayloadSize, 80u);
 	EXPECT_EQ(Built.Layout.UniformFieldCount, 4u);
 	EXPECT_EQ(Built.Layout.ResourceFieldCount, 1u);
@@ -2822,7 +2823,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	Input.IR.GetAttribute(static_cast<EMaterialProperty>(7)).ExpressionIndex = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, Amount);
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
-	EXPECT_EQ(Compiled.GetShaderMap().Layout.Identity.Version, 4u);
+	EXPECT_EQ(Compiled.GetShaderMap().Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
 	EXPECT_EQ(Compiled.GetShaderMap().Layout.Fields.size(), 4u);
 	const auto& Entries = Compiled.GetShaderMap().Entries;
 	const auto Shadow = std::ranges::find(Entries, "SurfaceShadow", [](const auto& E) { return E.Shader.ShaderType; });
@@ -3252,6 +3253,7 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 	using Mode = EMaterialTextureReadMode;
 	InitializeDObjectSystem();
 	std::set<FXxHash128> Identities;
+	for (const auto Dimension : {EMaterialTextureDimension::Texture2D, EMaterialTextureDimension::TextureCube})
 	for (const auto ReadMode : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
 	{
 		SCOPED_TRACE(static_cast<uint32>(ReadMode));
@@ -3259,20 +3261,21 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 		Input.IR = MakeDefaultMaterialCompilerIR();
 		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
 		const FGuid TextureId{1, 2, 3, 4};
-		Input.Parameters = {{TextureId, EMaterialParameterType::Texture}};
+		Input.Parameters = {{TextureId, EMaterialParameterType::Texture, Dimension}};
+		const bool Cube = Dimension == EMaterialTextureDimension::TextureCube;
 		const auto Add = [&](MIR::FNode Node) {
 			ResolveNodeSemantics(Input.IR, Node);
 			const auto Index = uint32(Input.IR.Nodes.size());
 			Input.IR.Nodes.push_back(std::move(Node));
 			return Index;
 		};
-		const auto Texture = Add({.Opcode = Op::TextureParameter, .ResultType = Type::Texture2D, .Payload = TextureId});
-		const auto UV = Add({.Opcode = Op::Constant, .ResultType = Type::Float2, .Payload = FMaterialProgramLiteral{.25f,.75f}});
+		const auto Texture = Add({.Opcode = Op::TextureParameter, .ResultType = Cube ? Type::TextureCube : Type::Texture2D, .Payload = TextureId});
+		const auto UV = Add({.Opcode = Op::Constant, .ResultType = Cube ? Type::Float3 : Type::Float2, .Payload = FMaterialProgramLiteral{1.f,.25f,.75f}});
 		std::vector<uint32> Operands{Texture, UV};
 		if (ReadMode == Mode::Level || ReadMode == Mode::Bias)
 			Operands.push_back(Add({.Opcode = Op::Constant, .ResultType = Type::Float, .Payload = FMaterialProgramLiteral{1}}));
 		if (ReadMode == Mode::Grad) { Operands.push_back(UV); Operands.push_back(UV); }
-		const auto Sample = Add({.Opcode = Op::TextureSample2D, .ResultType = Type::Float4,
+		const auto Sample = Add({.Opcode = Cube ? Op::TextureSampleCube : Op::TextureSample2D, .ResultType = Type::Float4,
 			.Inputs = Operands, .Payload = MIR::FTextureRead{ReadMode}});
 		const auto RGB = Add({.Opcode = Op::Swizzle, .ResultType = Type::Float3, .Inputs = {Sample},
 			.Payload = MIR::FSwizzle{3, {0,1,2}}});
@@ -3304,6 +3307,16 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 			EXPECT_EQ(Cooked->GetShaderMap().Layout, Program.GetShaderMap().Layout);
 			EXPECT_EQ(Cooked->GetShaderMap().ShaderMapId, Program.GetShaderMap().ShaderMapId);
 		};
+		const auto DumpSource = [&](const auto& Program, bool Vertex) {
+			if (!Cube) return;
+			if (const auto* Directory = std::getenv("DURIN_MATERIAL_CUBE_SOURCE_DIR"))
+			{
+				const auto Path = std::filesystem::path(Directory) / std::format("Cube-{}-{}.slang", uint32(ReadMode), Vertex ? "wpo" : "pixel");
+				const auto& Source = Program.GetDebugData().GeneratedSource;
+				ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Source)), Path));
+			}
+		};
+		DumpSource(Compiled, false);
 		CheckCooked(Compiled);
 		for (const auto& Shader : Compiled.GetShaderMap().CompiledShaders)
 		{
@@ -3318,6 +3331,7 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 		{
 			const auto VertexCompiled = MIR::Compile(Input);
 			ASSERT_TRUE(VertexCompiled) << (VertexCompiled.Diagnostics.empty() ? "" : VertexCompiled.Diagnostics.front().Message);
+			DumpSource(VertexCompiled, true);
 			CheckCooked(VertexCompiled);
 			for (const auto& Shader : VertexCompiled.GetShaderMap().CompiledShaders)
 				if (Shader.Frequency == EShaderFrequency::Vertex)

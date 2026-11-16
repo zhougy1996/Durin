@@ -144,6 +144,7 @@ namespace Durin
 				Candidate.FlatNormal = CreateFlatNormalTexture(CommandList);
 				Candidate.BlackCube = CreateSolidCubeTexture(
 					CommandList, "DefaultBlackCube", {0, 0, 0, 255});
+				Candidate.WhiteCube = CreateSolidCubeTexture(CommandList, "DefaultWhiteCube", {255,255,255,255});
 				Candidate.ShadowArray = CreateShadowArrayTexture(
 					CommandList, "DefaultShadowArray");
 
@@ -167,11 +168,13 @@ namespace Durin
 		return Payload->White;
 	}
 
-	auto FDefaultTextureResources::GetCube_RenderThread() const -> FRHITexture*
+	auto FDefaultTextureResources::GetCube_RenderThread(EDefaultTexture Texture) const -> FRHITexture*
 	{
 		check(IsInRenderingThread());
 		const FPayload* Payload = Slot.GetPayload();
-		return Payload != nullptr ? Payload->BlackCube.GetReference() : nullptr;
+		if (!Payload) return nullptr;
+		return Texture == EDefaultTexture::White ? Payload->WhiteCube.GetReference()
+			: Texture == EDefaultTexture::Black ? Payload->BlackCube.GetReference() : nullptr;
 	}
 
 	auto FDefaultTextureResources::GetArray_RenderThread() const -> FRHITexture*

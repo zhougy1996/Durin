@@ -18,6 +18,7 @@
 
 #include "GeometrySubmissionTestSupport.h"
 #include "Materials/MaterialExpressions.h"
+#include "Texture/TextureCube.h"
 #include "Asset/AssetCompilingManager.h"
 #include "LightSceneTestSupport.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -4964,4 +4965,136 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 		EXPECT_FALSE(Renderer.RenderHitProxies(Commands, LowScene.get(), Picking));
 	});
 	FlushRenderingCommands();
+}
+
+
+TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceReplacementAndFallbacks)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetRuntime());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("CubeMaterialContract"); Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+	{
+		constexpr std::array<std::array<uint8,3>, 6> FaceColors{{{255,0,0},{0,255,0},{0,0,255},{255,255,0},{255,0,255},{0,255,255}}};
+		const std::array<FVector4,6> Directions{FVector4(1,0,0,0), FVector4(-1,0,0,0), FVector4(0,1,0,0), FVector4(0,-1,0,0), FVector4(0,0,1,0), FVector4(0,0,-1,0)};
+		std::array<TStrongObjectPtr<DTextureCube>, 2> Cubes;
+		for (uint32 Variant = 0; Variant < Cubes.size(); ++Variant)
+		{
+			Cubes[Variant] = TStrongObjectPtr<DTextureCube>(NewObject<DTextureCube>(nullptr, NAME_None));
+			auto Platform = std::make_unique<FTextureCubePlatformData>();
+			Platform->PixelFormat = EPixelFormat::RGBA8_UNORM;
+			for (uint32 Face = 0; Face < 6; ++Face)
+			{
+				auto& Data = Platform->Faces[Face]; Data.PixelFormat = Platform->PixelFormat;
+				for (uint32 Mip = 0; Mip < 2; ++Mip)
+				{
+					const uint32 Size = 2u >> Mip;
+					FByteBuffer Pixels(Size * Size * 4);
+					for (uint32 Pixel = 0; Pixel < Size * Size; ++Pixel)
+					{
+						for (uint32 C = 0; C < 3; ++C) Pixels[Pixel*4+C] = std::byte((Variant ^ Mip) ? 255-FaceColors[Face][C] : FaceColors[Face][C]);
+						Pixels[Pixel*4+3] = std::byte{255};
+					}
+					Data.Mips.push_back({FSharedByteBuffer::Take(std::move(Pixels)), Size, Size, Size*4});
+				}
+			}
+			ASSERT_TRUE(Platform->IsValid());
+			Cubes[Variant]->SetPlatformData(std::move(Platform));
+			Cubes[Variant]->UpdateResource();
+		}
+		FlushRenderingCommands();
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		TStrongObjectPtr<DMaterialExpressionTextureSampleParameterCube> Sample(NewObject<DMaterialExpressionTextureSampleParameterCube>(nullptr, NAME_None));
+		Sample->Id = FGuid::NewGuid(); Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "Cube"};
+		Sample->DefaultValue = FMaterialParameterValue::MakeTextureCube(Cubes[0].Get()).GetTexture();
+		Sample->DefaultValue.SamplerState.MinFilter = EMaterialSamplerMinFilter::NearestMipmapNearest;
+		Sample->DefaultValue.SamplerState.MagFilter = EMaterialSamplerMagFilter::Nearest;
+		Sample->ReadMode = EMaterialTextureReadMode::Level;
+		TStrongObjectPtr<DMaterialExpressionVector4Parameter> Direction(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
+		Direction->Id = FGuid::NewGuid(); Direction->Metadata = {.Id = FGuid::NewGuid(), .Name = "Direction"}; Direction->DefaultValue = Directions[0];
+		TStrongObjectPtr<DMaterialExpressionSwizzle> XYZ(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+		XYZ->Id = FGuid::NewGuid(); XYZ->Input = {Direction->Id}; XYZ->Components = {0,1,2}; Sample->Direction = {XYZ->Id};
+		TStrongObjectPtr<DMaterialExpressionScalarParameter> Mip(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
+		Mip->Id = FGuid::NewGuid(); Mip->Metadata = {.Id = FGuid::NewGuid(), .Name = "Mip"}; Sample->MipValue = {Mip->Id};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Sample->Id,1};
+		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::Unlit; Properties.bTwoSided = true;
+		ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,4>{Sample.Get(),Direction.Get(),XYZ.Get(),Mip.Get()}, Outputs));
+		ASSERT_TRUE(RequestMaterialRecompile(*Material));
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+		const auto Program = Material->GetAcceptedCompiledProgram();
+		TStrongObjectPtr<DMaterialInstance> Instance(DMaterialInstance::CreateDynamic(Material.Get()));
+		ASSERT_TRUE(Instance);
+		FSceneTestOwner Scene;
+		FProceduralGeometry Geometry;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) { Geometry = FProceduralGeometry::Create(Commands,1,false); });
+		FlushRenderingCommands();
+		FSceneView View; View.ViewportWidth = 96; View.ViewportHeight = 96;
+		View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		const auto Capture = [&](const std::array<uint8,3>& Expected) {
+			FlushRenderingCommands();
+			const auto ProxyRef = Instance->GetRenderProxy();
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate&) {
+				auto Proxy = std::make_unique<FProceduralProxy>(); Proxy->Geometry = Geometry;
+				Proxy->Materials = {ProxyRef->GetMaterialWithFallback(),ProxyRef->GetMaterialWithFallback()};
+				ASSERT_FALSE(Proxy->Materials[0].Representation.IsError());
+				ASSERT_TRUE(Proxy->PublishGeometry());
+				ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(8001), std::move(Proxy), FMatrix(1.0)));
+			});
+			FlushRenderingCommands();
+			FByteBuffer Pixels;
+			static FViewRenderTelemetry Telemetry;
+			Telemetry = {};
+			const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View,
+				FRHITextureCreateDesc::Create2D("CubeMaterialPixel",96,96,EPixelFormat::SRGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::SourceCopy),
+				[] { SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& V) { Telemetry = V; }); },
+				[&](FRHICommandListImmediate& Commands, FRHITexture* Target) { ReadGeometryTexture(Commands,Target,Pixels); });
+			ASSERT_EQ(Result, ERenderViewResult::Success);
+			EXPECT_EQ(Telemetry.StaticMesh.StaticMeshSuccessfulDraws, 2u);
+			ASSERT_EQ(Pixels.size(),96u*96u*4u);
+			const uint32 Pixel = (48*96+26)*4;
+			for (uint32 C = 0; C < 3; ++C)
+			{
+				if (Expected[C]) { EXPECT_GT(std::to_integer<int>(Pixels[Pixel+C]),100) << C; }
+				else { EXPECT_LT(std::to_integer<int>(Pixels[Pixel+C]),20) << C; }
+			}
+			EXPECT_EQ(Material->GetAcceptedCompiledProgram(),Program);
+		};
+		for (uint32 Face = 0; Face < 6; ++Face)
+			for (uint32 Level = 0; Level < 2; ++Level)
+			{
+				SCOPED_TRACE(std::format("face {} mip {}", Face, Level));
+				ASSERT_TRUE(Instance->SetParameterValue(Direction->Metadata.Id, FMaterialParameterValue::MakeVector4(Directions[Face])));
+				ASSERT_TRUE(Instance->SetScalarParameterValue("Mip", float(Level)));
+				auto Expected = FaceColors[Face]; if (Level) for (auto& C : Expected) C = 255-C;
+				Capture(Expected);
+			}
+		ASSERT_TRUE(Instance->SetTextureParameterValue("Cube",Cubes[1].Get()));
+		Capture(FaceColors[5]); // Replacing the resource inverts mip 1 again.
+		ASSERT_FALSE(Instance->SetTextureParameterValue("Cube", NewObject<DTexture2D>(nullptr, NAME_None)));
+		ASSERT_TRUE(Instance->SetTextureParameterValue("Cube", nullptr));
+		Capture({255,255,255});
+		FResolvedMaterialParameter Resolved; ASSERT_TRUE(Instance->ResolveParameterValue(Sample->Metadata.Id, Resolved));
+		Resolved.Value.GetTexture().TextureFallback = EMaterialTextureFallback::Black;
+		ASSERT_TRUE(Instance->SetParameterValue(Sample->Metadata.Id,Resolved.Value));
+		Capture({0,0,0});
+		Resolved.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
+		EXPECT_FALSE(Instance->SetParameterValue(Sample->Metadata.Id,Resolved.Value));
+		Scene.Reset(); FlushRenderingCommands();
+		for (auto& Cube : Cubes) Cube->ReleaseResource();
+		FlushRenderingCommands();
+	}
+	CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
 }

@@ -24,7 +24,7 @@ namespace Durin
 		case EMaterialParameterType::Vector2: return sizeof(FVector2);
 		case EMaterialParameterType::Vector: return sizeof(FVector3);
 		case EMaterialParameterType::Vector4: return sizeof(FVector4);
-		case EMaterialParameterType::Texture: return sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback);
+		case EMaterialParameterType::Texture: return sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback) + sizeof(EMaterialTextureDimension);
 		}
 		return 0;
 	}
@@ -95,7 +95,7 @@ namespace Durin
 	{
 		return ScalarParameters.size() * sizeof(float) + Vector2Parameters.size() * sizeof(FVector2)
 			+ Vector3Parameters.size() * sizeof(FVector3) + VectorParameters.size() * sizeof(FVector4)
-			+ TextureParameters.size() * (sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback));
+			+ TextureParameters.size() * (sizeof(FRHITextureReferenceRef) + sizeof(FMaterialSamplerState) + sizeof(EMaterialTextureFallback) + sizeof(EMaterialTextureDimension));
 	}
 
 	auto FMaterialPropertyOverrides::ApplyTo(FMaterialStaticProperties& Properties) const -> void
@@ -137,7 +137,7 @@ namespace Durin
 		{
 			DObject* Object = Texture->Texture.Get();
 			Collector.AddReferencedObject(Object);
-			Texture->Texture = Cast<DTexture2D>(Object);
+			Texture->Texture = Cast<DTexture>(Object);
 		}
 	}
 
@@ -169,12 +169,32 @@ namespace Durin
 		return Result;
 	}
 
-	auto FMaterialParameterValue::MakeTexture(DTexture2D* Value, FMaterialSamplerState Sampler,
+	auto FMaterialParameterValue::MakeTexture(DTexture* Value, FMaterialSamplerState Sampler,
 		EMaterialTextureFallback Fallback) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
-		Result.Value = FMaterialTextureValue{Value, Sampler, Fallback};
+		Result.Value = FMaterialTextureValue{Value, Sampler, Fallback, Cast<DTextureCube>(Value)
+			? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D};
 		return Result;
+	}
+
+	auto FMaterialParameterValue::MakeTextureCube(DTextureCube* Value, FMaterialSamplerState Sampler,
+		EMaterialTextureFallback Fallback) -> FMaterialParameterValue
+	{
+		auto Result = MakeTexture(Value, Sampler, Fallback);
+		Result.GetTexture().Dimension = EMaterialTextureDimension::TextureCube;
+		return Result;
+	}
+
+	auto FMaterialTextureValue::IsValid() const -> bool
+	{
+		if (!IsValidMaterialSampling(SamplerState, TextureFallback) || Dimension > EMaterialTextureDimension::TextureCube)
+			return false;
+		if (Dimension == EMaterialTextureDimension::TextureCube && TextureFallback == EMaterialTextureFallback::FlatRGNormal)
+			return false;
+		if (!Texture) return true;
+		return Dimension == EMaterialTextureDimension::TextureCube
+			? Cast<DTextureCube>(Texture.Get()) != nullptr : Cast<DTexture2D>(Texture.Get()) != nullptr;
 	}
 
 	auto IsValidMaterialSampling(FMaterialSamplerState State, EMaterialTextureFallback Fallback) -> bool
@@ -183,6 +203,7 @@ namespace Durin
 			&& State.MagFilter <= EMaterialSamplerMagFilter::Linear
 			&& State.AddressU <= EMaterialSamplerAddressMode::ClampToEdge
 			&& State.AddressV <= EMaterialSamplerAddressMode::ClampToEdge
+			&& State.AddressW <= EMaterialSamplerAddressMode::ClampToEdge
 			&& Fallback <= EMaterialTextureFallback::FlatRGNormal;
 	}
 
@@ -217,7 +238,8 @@ namespace Durin
 			if (Definition.Type != Definition.Value.GetType())
 				return {EMaterialParameterError::InvalidType, Definition.Id};
 			if (Definition.Type == EMaterialParameterType::Texture
-				&& !IsValidMaterialSampling(Definition.Value.GetTexture().SamplerState, Definition.Value.GetTexture().TextureFallback))
+				&& (!Definition.Value.GetTexture().IsValid()
+					|| (Definition.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube && Definition.TextureUsage == ETextureUsage::Normal)))
 				return {EMaterialParameterError::InvalidMetadata, Definition.Id};
 			if (!Private::IsFiniteMaterialParameterValue(Definition.Value))
 				return {EMaterialParameterError::InvalidDefault, Definition.Id};

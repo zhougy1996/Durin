@@ -98,7 +98,7 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_EQ(Loaded->GetStaticBoolOverrides().size(), 1u);
 	EXPECT_EQ(Loaded->GetStaticBoolOverrides().front(),
 		(Durin::FMaterialStaticBoolOverride{StaticBoolId, true}));
-	Durin::DTexture2D* LoadedTexture = nullptr;
+	Durin::DTexture* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), LoadedTexture));
 	ASSERT_NE(LoadedTexture, nullptr);

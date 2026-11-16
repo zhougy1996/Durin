@@ -67,9 +67,10 @@ namespace Durin
 					auto& Texture = Definition.Value.GetTexture().Texture;
 					if (const auto* Entry = Map.Find(Texture.Get()))
 					{
-						if (Entry->Replacement && !Cast<DTexture2D>(Entry->Replacement))
+						if (Entry->Replacement && !Cast<DTexture>(Entry->Replacement))
 							return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Unsupported});
-						Texture = Cast<DTexture2D>(Entry->Replacement);
+						Texture = Cast<DTexture>(Entry->Replacement);
+						if (!Definition.Value.GetTexture().IsValid()) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Unsupported});
 						bChanged = true;
 					}
 				}

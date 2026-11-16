@@ -45,7 +45,8 @@ namespace Durin::RendererPrivate
 				return static_cast<size_t>(Key.MinFilter)
 					| (static_cast<size_t>(Key.MagFilter) << 8)
 					| (static_cast<size_t>(Key.AddressU) << 16)
-					| (static_cast<size_t>(Key.AddressV) << 24);
+					| (static_cast<size_t>(Key.AddressV) << 24)
+					| (static_cast<size_t>(Key.AddressW) << 32);
 			}
 		};
 		TRendererResourceSlotCache<FMaterialSamplerState, FSamplerRHIRef, FSamplerKeyHash> Samplers{
@@ -122,7 +123,7 @@ namespace Durin::RendererPrivate
 		if (OutMaterial.bCompiledLayout)
 		{
 			const size_t Count = Binding.CompiledTextures.size();
-			if (Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
+			if (!Binding.CompiledLayout || Binding.CompiledLayout->Identity != Binding.LayoutIdentity || Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
 				|| Binding.CompiledUniformPayload.size() < MaterialUniformHeaderBytes) return false;
 			if (Binding.bError) return Count == 0;
 			for (size_t Index = 0; Index < Count; ++Index)
@@ -139,7 +140,15 @@ namespace Durin::RendererPrivate
 				case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
 				default: return false;
 				}
-				FRHITexture* FallbackTexture = DefaultTextures.Get_RenderThread(Fallback);
+				const auto& Fields = Binding.CompiledLayout->Fields;
+				const auto Field = std::ranges::find_if(Fields, [&](const auto& V) {
+					return V.Storage == EMaterialRenderFieldStorage::Resource && V.CompactIndex == Index;
+				});
+				if (Field == Fields.end()) return false;
+				const bool Cube = Field->Type == EMaterialRenderValueType::TextureCube;
+				const auto* Actual = Binding.CompiledTextures[Index] ? Binding.CompiledTextures[Index]->GetReferencedTexture_RenderThread() : nullptr;
+				if (Actual && Actual->GetDimension() != (Cube ? ETextureDimension::TextureCube : ETextureDimension::Texture2D)) return false;
+				FRHITexture* FallbackTexture = Cube ? DefaultTextures.GetCube_RenderThread(Fallback) : DefaultTextures.Get_RenderThread(Fallback);
 				if (!Texture) Texture = FallbackTexture;
 				OutMaterial.CompiledTextureFallbacks.push_back(FallbackTexture);
 				FRHISampler* Sampler = Entry->Slot.GetPayload()->GetReference();

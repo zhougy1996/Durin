@@ -190,10 +190,18 @@ TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRound
 	Sample->MipValue.SetConstant({2.f});
 	Sample->DDX.SetConstant({.125f,.25f});
 	Sample->DDY.SetConstant({.5f,.75f});
-	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Sample.Get()}, {}));
+	auto Cube = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameterCube>();
+	Cube->Metadata = {.Id = FGuid::NewGuid(), .Name = "Cube"};
+	Cube->ReadMode = EMaterialTextureReadMode::Grad;
+	Cube->DDX.SetConstant({.125f,.25f,.5f});
+	Cube->DDY.SetConstant({.5f,.75f,1.f});
+	Cube->DefaultValue.SamplerState.AddressW = EMaterialSamplerAddressMode::ClampToEdge;
+	Cube->DefaultValue.TextureFallback = EMaterialTextureFallback::Black;
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Sample.Get(), Cube.Get()}, {}));
 	const auto Expected = CaptureExpressions(*Material);
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	Sample.Reset();
+	Cube.Reset();
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 	ASSERT_NE(Material, nullptr);
@@ -205,6 +213,18 @@ TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRound
 	EXPECT_EQ(LoadedSample->ReadMode, EMaterialTextureReadMode::Level);
 	EXPECT_EQ(LoadedSample->DDX.Constant, (std::vector<float>{.125f,.25f}));
 	EXPECT_EQ(LoadedSample->DDY.Constant, (std::vector<float>{.5f,.75f}));
+	const auto CubeIt = std::ranges::find_if(Material->GetExpressionCollection().Expressions,
+		[](const auto& E) { return Cast<DMaterialExpressionTextureSampleParameterCube>(E.Get()) != nullptr; });
+	ASSERT_NE(CubeIt, Material->GetExpressionCollection().Expressions.end());
+	const auto* LoadedCube = Cast<DMaterialExpressionTextureSampleParameterCube>(CubeIt->Get());
+	EXPECT_EQ(LoadedCube->ReadMode, EMaterialTextureReadMode::Grad);
+	EXPECT_EQ(LoadedCube->DefaultValue.Dimension, EMaterialTextureDimension::TextureCube);
+	EXPECT_EQ(LoadedCube->DefaultValue.SamplerState.AddressW, EMaterialSamplerAddressMode::ClampToEdge);
+	EXPECT_EQ(LoadedCube->DefaultValue.TextureFallback, EMaterialTextureFallback::Black);
+	EXPECT_EQ(LoadedCube->DDX.Constant, (std::vector<float>{.125f,.25f,.5f}));
+	const auto* Definition = Material->FindParameterDefinition("Cube");
+	ASSERT_NE(Definition, nullptr);
+	EXPECT_EQ(Definition->Value.GetTexture().Dimension, EMaterialTextureDimension::TextureCube);
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }

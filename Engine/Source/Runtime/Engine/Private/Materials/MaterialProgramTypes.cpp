@@ -23,7 +23,7 @@ namespace Durin
 		-> std::string
 	{
 		constexpr std::array Types{"Float", "Float2", "Float3", "Float4",
-			"Texture2D", "MaterialAttributes"};
+			"Texture2D", "TextureCube", "MaterialAttributes"};
 		constexpr std::array Kinds{"", "Position", "Direction", "Normal",
 			"ScreenCoordinate"};
 		constexpr std::array Spaces{"", "Object", "World", "View", "Tangent",

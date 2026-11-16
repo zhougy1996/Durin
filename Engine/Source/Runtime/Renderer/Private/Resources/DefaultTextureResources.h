@@ -19,7 +19,7 @@ namespace Durin
 		auto Initialize_RenderThread(FRHICommandListImmediate& CommandList)
 			-> bool;
 		auto Get_RenderThread(EDefaultTexture Texture) const -> FRHITexture*;
-		auto GetCube_RenderThread() const -> FRHITexture*;
+		auto GetCube_RenderThread(EDefaultTexture Texture = EDefaultTexture::Black) const -> FRHITexture*;
 		auto GetArray_RenderThread() const -> FRHITexture*;
 		auto ReleaseResources_RenderThread() -> void;
 
@@ -30,6 +30,7 @@ namespace Durin
 			FTextureRHIRef Black;
 			FTextureRHIRef FlatNormal;
 			FTextureRHIRef BlackCube;
+			FTextureRHIRef WhiteCube;
 			FTextureRHIRef ShadowArray;
 		};
 

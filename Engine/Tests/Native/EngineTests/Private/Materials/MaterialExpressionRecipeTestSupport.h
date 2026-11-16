@@ -60,7 +60,7 @@ namespace Durin::Testing
 				else if (auto* E = Cast<DMaterialExpressionTextureParameter>(Expression.Get()))
 				{
 					const auto& Value = Definition->Value.GetTexture();
-					E->DefaultValue = {Value.Texture, Value.SamplerState, Value.TextureFallback};
+					E->DefaultValue = Value;
 				}
 			}
 		}
@@ -86,7 +86,7 @@ namespace Durin::Testing
 				case EMaterialParameterType::Texture:
 					{ DMaterialExpressionTextureParameter* E = Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
 						? NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None) : NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None); const auto& V = Definition->Value.GetTexture();
-					E->DefaultValue = {V.Texture, V.SamplerState, V.TextureFallback}; E->TextureUsage = Definition->TextureUsage; Expression = E; break; }
+					E->DefaultValue = V; E->TextureUsage = Definition->TextureUsage; Expression = E; break; }
 				}
 				Cast<DMaterialExpressionParameter>(Expression)->Metadata = {Definition->Id, Definition->Name, Definition->DisplayName,
 					Definition->GroupName, Definition->SortOrder, Definition->Presentation};

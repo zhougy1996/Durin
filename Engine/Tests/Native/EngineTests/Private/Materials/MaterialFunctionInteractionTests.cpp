@@ -11,7 +11,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "PreviewFunction");
 	auto* Preview = NewObject<DMaterial>(nullptr, "PreviewWrapper");
 	Preview->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	for (uint32 Index = 0; Index < 6; ++Index)
+	for (uint32 Index = 0; Index <= static_cast<uint32>(EMaterialProgramValueType::MaterialAttributes); ++Index)
 	{
 		const auto Type = static_cast<EMaterialProgramValueType>(Index);
 		auto Input = FunctionPort(1, Type, "Input");
@@ -33,7 +33,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		ASSERT_NE(Call, nullptr);
 		EXPECT_EQ(Call->Outputs[0].OutputId, Output.Id);
 		for (const auto& Expression : Expressions) EXPECT_EQ(Expression->GetOuter(), Preview);
-		ASSERT_TRUE(Preview->CompileEdits());
+		ASSERT_TRUE(Preview->CompileEdits()) << "type " << Index << ": " << FormatMaterialProgramDiagnostics(Preview->GetMaterialCompileDiagnostics());
 		ASSERT_TRUE(Preview->GetAcceptedCompiledProgram());
 		EXPECT_EQ(Function->GetFunctionSignature(), Signature);
 		EXPECT_EQ(Function->GetExpressionCollection().Expressions, SourceExpressions);

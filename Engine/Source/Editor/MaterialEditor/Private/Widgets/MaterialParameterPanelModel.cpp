@@ -221,7 +221,7 @@ namespace Durin::MaterialEditor
 	{
 		if (!Entry.Definition || Entry.bOrphan || !Material || Entry.Definition->Type != Value.GetType()) return false;
 		if (Entry.Definition->Type == EMaterialParameterType::Texture
-			&& !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback)) return false;
+			&& !Value.GetTexture().IsValid()) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeValue(*Entry.Definition, Value);
 		if (Instance)
 		{

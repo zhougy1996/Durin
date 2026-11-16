@@ -15,7 +15,7 @@ representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
 surface directly. Their implementations are separated into authored schema,
 compiled-layout representation/builder, and diagnostics files. The production
-render boundary accepts only material-specific layout v4 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
+render boundary accepts only material-specific layout v5 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
 
 ## Results and diagnostics
 
@@ -257,9 +257,9 @@ Their GUIDs are permanent because serialized overrides must survive renames.
 The built-in identities are maintained by one explicit role-to-parameter-group
 registry. Callers use its shared role/kind lookup rather than duplicating GUID
 switches, individual aliases, or parallel-array knowledge.
-Engine compiles reachable declarations in GUID order into layout v4. Numeric
+Engine compiles reachable declarations in GUID order into layout v5. Numeric
 fields occupy zero-padded 16-byte slots after the reserved view-control slot;
-Texture2D fields receive compact resource/sampler indices. Layout identity,
+Texture2D and TextureCube fields receive compact resource/sampler indices. Layout identity,
 counts, field types, offsets, and shader reflection are accepted as one schema.
 The view-control slot stores material time in x, reserves y, and stores lighting
 and specular-AA flags in z/w. Forward, GBuffer and masked-shadow draws supply the
@@ -285,22 +285,38 @@ Call expressions own the callee and GUID-keyed port bindings; absent optional ca
 defaults select signature defaults. Required inputs without a value reject.
 Signature InputId aliases remain supported. Retired opcode values 3 and 30 reject.
 
-TextureParameter owns a resource and exposes Texture2D output 0.
-TextureSampleParameter2D owns a resource and optionally samples it. Both sampling
+TextureParameter owns a reflected DTexture reference and exposes typed Texture2D
+or TextureCube output 0. Its explicit dimension survives null resources,
+duplication, serialization and function expansion. Asset class, declaration
+dimension, MIR type, overrides and compiled layout must agree. Value-only setters
+cannot change the declared dimension. Samplers retain independent U/V/W
+addressing. Cube fallback supports white or black; flat RG normal and normal-map
+usage require Texture2D.
+TextureSampleParameter2D and TextureSampleParameterCube own a resource and
+optionally sample it; TextureSample2D and TextureSampleCube consume resource
+connections. Both sampling
 forms expose slots 0 RGBA, 1 RGB, 2 R, 3 G, 4 B, and 5 A; slot 6 is retired. Only the combined
-owner also exposes slot 7 Texture2D. Node building registers all sample outputs;
+owner also exposes slot 7 with its declared resource type. Node building registers all sample outputs;
 normalization removes unreachable sampling and UV work when only the resource is
 consumed. Multiple consumers retain independent samples
-and UVs. Both sample forms accept a Float2 UV expression; a missing UV link reads
+and coordinates. Both 2D sample forms accept a Float2 UV expression; a missing UV link reads
 mesh UV0 directly, without local transform settings. TextureCoordinates selects
 one channel through its scalar Channel input/default and outputs Float2.
 UV channel rounding/clamping remains floor(channel + 0.5), clamped to 0..3;
 missing mesh channels remain zero. Scaling, origin rotation in radians and offset
 are explicit upstream math expressions. Import and PBR recipes preserve their UV
 parameters using these operations; multiple samples can share the resulting Float2.
+Cube samples require a Float3 direction and Float3 gradients. Constant zero
+directions reject; generated reads guard dynamic zero/nonfinite directions with
++X. All dimensions support Implicit, Level, Bias and Grad. Level supports
+Vertex/Pixel; the other modes require Pixel. Only active mip/gradient operands
+enter MIR, while inactive authored values remain stored. Typed Cube resources
+traverse detached translation, graph-stripped DMAT, renderer binding and
+per-instance resource replacement. Renderer chooses a dimension-compatible
+fallback and validates the resident RHI texture against the compiled field.
 Synthetic expression source records retain authored node, input and call path.
 These authoring forms lower before normalization and do
-not change layout v4. Fresh materials own one material-output expression node
+not change layout v5. Fresh materials own one material-output expression node
 and twelve unconnected property defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
@@ -312,10 +328,10 @@ individual bindings. Both connection sets and retained fallbacks survive mode
 changes. Inactive known properties retain their authoring state and create no
 execution bindings. Unknown/duplicate IDs, malformed retained defaults and
 incompatible selected values reject before publication.
-Graph version 6, output version 4 and function version 3 reject older schemas
+Graph version 8, output version 4 and function version 5 reject older schemas
 explicitly. `asset material-foundation` recreates DefaultMaterial and the three
 standard functions at their existing Engine paths; use `--dry-run` to inspect
-the bounded write set. Instances retain parameter-storage version 2.
+the bounded write set. Instances use parameter-storage version 3.
 `MIR::FGraphBuilder::ValidateSurface` and `ValidateFunction` check
 concrete expressions directly before publication: identifiers, typed links,
 cycles, bounds, defaults, parameter metadata and function terminals. Local validation
@@ -343,7 +359,7 @@ Static bool declarations are reflected expressions keyed by valid stable GUIDs
 and unique names, bounded to 32 per root material. A base declaration supplies
 the default and an authored material instance may override the same GUID; orphan,
 duplicate, or over-bound records reject. These values belong to shader selection,
-not compiled layout v4, parameter collections, or dynamic material-instance
+not compiled layout v5, parameter collections, or dynamic material-instance
 mutation. Static, Quality, and Feature Level switches select before normalized IR
 and dependency discovery, so only the root-reachable selected branch contributes
 parameters, resources, functions, limits, source, and code.
@@ -502,7 +518,7 @@ caller's semantics independently; defaults, bindings, and inferred outputs are
 checked at the invocation boundary. Calls bind by port GUID, and multi-output links retain output
 GUIDs rather than declaration indices. Reordering or renaming preserves wiring;
 deleting or incompatibly changing a used port produces a diagnostic. Functions
-accept Float, Float2, Float3, Float4, Texture2D and MaterialAttributes.
+accept Float, Float2, Float3, Float4, Texture2D, TextureCube and MaterialAttributes.
 `MakeMaterialAttributes`, `GetMaterialAttributes` and `SetMaterialAttributes`
 share the property registry. Get selections and Set bindings persist attribute
 GUIDs. Functions cannot own
@@ -1179,7 +1195,7 @@ whole-material counters.
 
 `FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with a
 layout identity, validated uniform payload, counted RHI texture references,
-typed sampler states, and explicit texture fallbacks. Compiled layout v4 is
+typed sampler states, and explicit texture fallbacks. Compiled layout v5 is
 material-specific: it deterministically packs only reachable declarations and
 is validated against the accepted program and reflected pass bindings. Material
 assets persist authored values rather than this transient representation. DMAT

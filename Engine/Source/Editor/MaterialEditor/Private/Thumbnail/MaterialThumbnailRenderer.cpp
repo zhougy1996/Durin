@@ -25,13 +25,13 @@ namespace Durin::MaterialEditor
 	{
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
-		auto GetTextureDependencies(DMaterialInterface& Material) -> std::vector<DTexture2D*>
+		auto GetTextureDependencies(DMaterialInterface& Material) -> std::vector<DTexture*>
 		{
-			std::vector<DTexture2D*> Result;
+			std::vector<DTexture*> Result;
 			for (const auto& Definition : Material.GetParameterDefinitions())
 			{
 				if (Definition.Type != EMaterialParameterType::Texture) continue;
-				DTexture2D* Texture = nullptr;
+				DTexture* Texture = nullptr;
 				if (Material.GetTextureParameterValue(Definition.Name, Texture) && Texture
 					&& !std::ranges::contains(Result, Texture)) Result.push_back(Texture);
 			}
@@ -80,7 +80,7 @@ namespace Durin::MaterialEditor
 					? Diagnostics.front().Message
 					: "The material has no current compiled program.");
 			}
-			for (DTexture2D* Texture : GetTextureDependencies(*Material))
+			for (DTexture* Texture : GetTextureDependencies(*Material))
 			{
 				if (!Texture->IsAsyncCacheComplete()) return FMaterialThumbnailResource{};
 				if (!Texture->HasPlatformData())
@@ -196,9 +196,9 @@ namespace Durin::MaterialEditor
 		if (!bSphereReady || !*ShaderReady) return;
 		const auto PreparedMaterialSnapshot = *Resource;
 		const auto PreparedSphereResourceRevision = Sphere->GetRenderResourceStatus().Revision;
-		struct FDependencySnapshot { TWeakObjectPtr<DTexture2D> Texture; FTextureRHIRef Allocation; };
+		struct FDependencySnapshot { TWeakObjectPtr<DTexture> Texture; FTextureRHIRef Allocation; };
 		std::vector<FDependencySnapshot> DependencySnapshots;
-		for (DTexture2D* Texture : GetTextureDependencies(*Material))
+		for (DTexture* Texture : GetTextureDependencies(*Material))
 		{
 			if (!Texture->IsAsyncCacheComplete() || Texture->HasPendingRenderResourceInitialization())
 				return Context.Fail("The material texture resource is not ready.");

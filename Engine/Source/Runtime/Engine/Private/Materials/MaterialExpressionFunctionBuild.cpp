@@ -168,10 +168,10 @@ namespace Durin
 		if (Port == Signature->Inputs.end()) return Fail("Function input terminal has no matching declaration.");
 		if (bValidateAuthoring)
 		{
-			if (Port->Type == EMaterialProgramValueType::Texture2D
+			if ((Port->Type == EMaterialProgramValueType::Texture2D || Port->Type == EMaterialProgramValueType::TextureCube)
 				&& Port->Default.Kind == EMaterialFunctionDefaultKind::Texture)
 				return MIR::FTextureDefault{Port->Default.Sampler,
-					Port->Default.TextureFallback};
+					Port->Default.TextureFallback, Port->Type == EMaterialProgramValueType::TextureCube ? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D};
 			const auto Value = OpaqueAuthoringValue(EMaterialProgramOpcode::FunctionInput, Port->Type);
 			if (Value != InvalidIndex && Port->Type <= EMaterialProgramValueType::Float4)
 			{
@@ -213,7 +213,7 @@ namespace Durin
 			break;
 		}
 		case EMaterialFunctionDefaultKind::Texture:
-			Value = MIR::FTextureDefault{Default.Sampler, Default.TextureFallback};
+			Value = MIR::FTextureDefault{Default.Sampler, Default.TextureFallback, Port->Type == EMaterialProgramValueType::TextureCube ? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D};
 			break;
 		case EMaterialFunctionDefaultKind::Input:
 			Value = FunctionInput(Default.InputId);

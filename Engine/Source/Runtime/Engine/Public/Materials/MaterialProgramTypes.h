@@ -38,6 +38,7 @@ namespace Durin
 		Float3,
 		Float4,
 		Texture2D,
+		TextureCube,
 		MaterialAttributes,
 		// Authoring-only selector value. Normalization must eliminate it.
 		StaticBool,
@@ -201,6 +202,8 @@ namespace Durin
 		PrimitiveCustomData,
 		InstanceCustomData,
 		BlendMaterialAttributes,
+		TextureSampleCube,
+		TextureSampleParameterCube,
 	};
 
 	struct FMaterialTransformPayload
@@ -232,6 +235,8 @@ namespace Durin
 		EMaterialProgramOpcode Opcode, uint32 Slot) -> bool
 	{
 		if (Opcode == EMaterialProgramOpcode::TextureSample2D
+			|| Opcode == EMaterialProgramOpcode::TextureSampleCube
+			|| Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
 			|| Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
 			|| Opcode == EMaterialProgramOpcode::Normalize
 			|| Opcode == EMaterialProgramOpcode::BlendNormalsRNM

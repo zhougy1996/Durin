@@ -45,6 +45,7 @@ namespace Durin::MaterialEditor
 		case EMaterialProgramValueType::Float3: return "Float3";
 		case EMaterialProgramValueType::Float4: return "Float4";
 		case EMaterialProgramValueType::Texture2D: return "Texture2D";
+		case EMaterialProgramValueType::TextureCube: return "TextureCube";
 		case EMaterialProgramValueType::MaterialAttributes: return "Material Attributes";
 		case EMaterialProgramValueType::StaticBool: return "Static Bool";
 		}
@@ -69,6 +70,7 @@ namespace Durin::MaterialEditor
 				{Literal.X, Literal.Y, Literal.Z, Literal.W});
 		case EMaterialProgramValueType::Texture2D:
 			return FMaterialParameterValue::MakeTexture(nullptr);
+		case EMaterialProgramValueType::TextureCube: return FMaterialParameterValue::MakeTextureCube(nullptr);
 		default: return {};
 		}
 	}
@@ -81,6 +83,7 @@ namespace Durin::MaterialEditor
 		case EMaterialProgramValueType::Float2: return EMaterialParameterType::Vector2;
 		case EMaterialProgramValueType::Float3: return EMaterialParameterType::Vector;
 		case EMaterialProgramValueType::Float4: return EMaterialParameterType::Vector4;
+		case EMaterialProgramValueType::TextureCube:
 		case EMaterialProgramValueType::Texture2D: return EMaterialParameterType::Texture;
 		default: return std::nullopt;
 		}

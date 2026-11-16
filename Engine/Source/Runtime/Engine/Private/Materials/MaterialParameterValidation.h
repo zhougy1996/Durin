@@ -16,7 +16,7 @@ namespace Durin::Private
 
 	inline auto IsAuthoringMaterialParameterValue(const FMaterialParameterValue& Value) -> bool
 	{
-		return Value.GetType() != EMaterialParameterType::Texture || !Value.GetTexture().TextureReference;
+		return Value.GetType() != EMaterialParameterType::Texture || (!Value.GetTexture().TextureReference && Value.GetTexture().IsValid());
 	}
 
 	inline auto IsFiniteMaterialParameterValue(const FMaterialParameterValue& Value) -> bool

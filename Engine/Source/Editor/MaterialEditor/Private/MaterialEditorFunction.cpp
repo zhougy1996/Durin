@@ -356,12 +356,12 @@ namespace Durin::MaterialEditor
 		}
 		ImGui::InputText("Name", Document.PortName.data(), Document.PortName.size());
 		int Type = static_cast<int>(Document.PortDraft.Type);
-		if (ImGui::Combo("Type", &Type, "Float\0Float2\0Float3\0Float4\0Texture2D\0Surface\0"))
+		if (ImGui::Combo("Type", &Type, "Float\0Float2\0Float3\0Float4\0Texture2D\0TextureCube\0Material Attributes\0"))
 		{
 			Document.PortDraft.Type = static_cast<EMaterialProgramValueType>(Type);
 			Document.PortDraft.Default = {};
 			if (!Document.bOutputPort) Document.PortDraft.Default.Kind = Type < 4 ? EMaterialFunctionDefaultKind::Numeric
-				: Type == 4 ? EMaterialFunctionDefaultKind::Texture : EMaterialFunctionDefaultKind::MaterialAttributes;
+				: Type <= 5 ? EMaterialFunctionDefaultKind::Texture : EMaterialFunctionDefaultKind::MaterialAttributes;
 		}
 		ImGui::InputInt("Order", &Document.PortDraft.DisplayOrder);
 		ImGui::Checkbox("Advanced", &Document.PortDraft.bAdvanced);
@@ -392,14 +392,15 @@ namespace Durin::MaterialEditor
 				else if (Document.PortDraft.Default.Kind == EMaterialFunctionDefaultKind::Texture)
 				{
 					int Fallback = static_cast<int>(Document.PortDraft.Default.TextureFallback);
-					if (ImGui::Combo("Fallback", &Fallback, "White\0Black\0Flat RG Normal\0")) Document.PortDraft.Default.TextureFallback = static_cast<EMaterialTextureFallback>(Fallback);
+					if (ImGui::Combo("Fallback", &Fallback, Document.PortDraft.Type == EMaterialProgramValueType::TextureCube ? "White\0Black\0" : "White\0Black\0Flat RG Normal\0")) Document.PortDraft.Default.TextureFallback = static_cast<EMaterialTextureFallback>(Fallback);
 					auto& Sampler = Document.PortDraft.Default.Sampler;
 					int Min = static_cast<int>(Sampler.MinFilter), Mag = static_cast<int>(Sampler.MagFilter);
-					int U = static_cast<int>(Sampler.AddressU), V = static_cast<int>(Sampler.AddressV);
+					int U = static_cast<int>(Sampler.AddressU), V = static_cast<int>(Sampler.AddressV), W = static_cast<int>(Sampler.AddressW);
 					if (ImGui::Combo("Min Filter", &Min, "Nearest\0Linear\0Nearest Mipmap Nearest\0Linear Mipmap Nearest\0Nearest Mipmap Linear\0Linear Mipmap Linear\0")) Sampler.MinFilter = static_cast<EMaterialSamplerMinFilter>(Min);
 					if (ImGui::Combo("Mag Filter", &Mag, "Nearest\0Linear\0")) Sampler.MagFilter = static_cast<EMaterialSamplerMagFilter>(Mag);
 					if (ImGui::Combo("Address U", &U, "Repeat\0Mirrored Repeat\0Clamp To Edge\0")) Sampler.AddressU = static_cast<EMaterialSamplerAddressMode>(U);
 					if (ImGui::Combo("Address V", &V, "Repeat\0Mirrored Repeat\0Clamp To Edge\0")) Sampler.AddressV = static_cast<EMaterialSamplerAddressMode>(V);
+					if (ImGui::Combo("Address W", &W, "Repeat\0Mirrored Repeat\0Clamp To Edge\0")) Sampler.AddressW = static_cast<EMaterialSamplerAddressMode>(W);
 				}
 				else if (Document.PortDraft.Default.Kind == EMaterialFunctionDefaultKind::MaterialAttributes)
 					for (uint32 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)

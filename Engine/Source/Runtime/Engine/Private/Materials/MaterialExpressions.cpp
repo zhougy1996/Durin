@@ -54,9 +54,11 @@ namespace Durin
 		if (Opcode == EMaterialProgramOpcode::BlendMaterialAttributes && Slot == 2) return {.5f};
 		if (IsMaterialSamplingNode(Opcode))
 		{
-			const uint32 FirstOptional = Opcode == EMaterialProgramOpcode::TextureSample2D ? 2 : 1;
+			const bool Cube = Opcode == EMaterialProgramOpcode::TextureSampleCube || Opcode == EMaterialProgramOpcode::TextureSampleParameterCube;
+			const uint32 FirstOptional = Opcode == EMaterialProgramOpcode::TextureSample2D || Opcode == EMaterialProgramOpcode::TextureSampleCube ? 2 : 1;
+			if (Cube && Slot + 1 == FirstOptional) return {1.f,0.f,0.f};
 			if (Slot >= FirstOptional && Slot <= FirstOptional + 2)
-				return std::vector<float>(Slot == FirstOptional ? 1 : 2, 0.f);
+				return std::vector<float>(Slot == FirstOptional ? 1 : Cube ? 3 : 2, 0.f);
 		}
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 		if (!Signature || Slot >= Signature->InputCount) return {};
@@ -173,7 +175,7 @@ namespace Durin
 		else if (auto* Parameter = Cast<DMaterialExpressionTextureParameter>(this))
 		{
 			const auto& Texture = Definition.Value.GetTexture();
-			Parameter->DefaultValue = {Texture.Texture, Texture.SamplerState, Texture.TextureFallback};
+			Parameter->DefaultValue = Texture;
 			Parameter->TextureUsage = Definition.TextureUsage;
 		}
 		else return std::unexpected(std::format("{} [parameter {}]", "Parameter expression has an unsupported type.", Definition.Id.ToString()));
@@ -207,8 +209,7 @@ namespace Durin
 
 	auto DMaterialExpressionTextureParameter::GetParameterDefinition() const -> FMaterialParameterDefinition
 	{
-		auto Definition = MakeDefinition(EMaterialParameterType::Texture,
-			FMaterialParameterValue::MakeTexture(DefaultValue.Texture.Get(), DefaultValue.SamplerState, DefaultValue.TextureFallback));
+		auto Definition = MakeDefinition(EMaterialParameterType::Texture, FMaterialParameterValue(DefaultValue));
 		Definition.TextureUsage = TextureUsage;
 		return Definition;
 	}

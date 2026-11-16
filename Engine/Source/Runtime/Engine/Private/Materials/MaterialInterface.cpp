@@ -253,7 +253,7 @@ namespace Durin
 		Result.TextureCount = std::ranges::count_if(Program->GetShaderMap().Layout.Fields,
 			[](const FMaterialRenderField& Field) {
 				return Field.Storage == EMaterialRenderFieldStorage::Resource
-					&& Field.Type == EMaterialRenderValueType::Texture2D;
+					&& (Field.Type == EMaterialRenderValueType::Texture2D || Field.Type == EMaterialRenderValueType::TextureCube);
 			});
 		Result.SamplerCount = Result.TextureCount;
 		Result.GeneratedSourceBytes = Program->GetDebugData().GeneratedSource.size();
@@ -455,7 +455,7 @@ namespace Durin
 		return false;
 	}
 
-	auto DMaterialInterface::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
+	auto DMaterialInterface::GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool
 	{
 		return false;
 	}
@@ -532,7 +532,7 @@ namespace Durin
 				|| GetMaterialCompileStatus().IsCurrent());
 	}
 
-	auto DMaterialInterface::GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void
+	auto DMaterialInterface::GetUsedTextures(std::vector<DTexture*>& OutTextures) const -> void
 	{
 		CheckMaterialQueryThread();
 		OutTextures.clear();
@@ -679,7 +679,7 @@ namespace Durin
 		for (const auto& Parameter : Program->GetShaderMap().ActiveParameters)
 		{
 			const auto* Definition = Root->FindParameterDefinition(Parameter.Id);
-			if (!Definition || Definition->Type != Parameter.Type) return {};
+			if (!Definition || !Parameter.MatchesValue(Definition->Value)) return {};
 			Defaults.SetParameter(Parameter.Id, Definition->Value);
 		}
 		Defaults.ResolveTextureReferences();
@@ -702,7 +702,7 @@ namespace Durin
 			{
 				const auto* Instance = Cast<DMaterialInstance>(Owner);
 				FMaterialParameterValue Value;
-				if (Instance && Instance->GetLocalParameterValue(Parameter.Id, Value) && Value.GetType() == Parameter.Type)
+				if (Instance && Instance->GetLocalParameterValue(Parameter.Id, Value) && Parameter.MatchesValue(Value))
 				{
 					Result.SetParameter(Parameter.Id, Value);
 					break;

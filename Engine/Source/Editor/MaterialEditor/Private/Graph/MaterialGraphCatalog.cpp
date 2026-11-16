@@ -24,7 +24,8 @@ namespace Durin::MaterialEditor
 			.Description = Entry.Description,
 			.bFunction = Entry.Opcode != EMaterialProgramOpcode::Parameter
 				&& Entry.Opcode != EMaterialProgramOpcode::TextureParameter
-				&& Entry.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D, .Payload = Entry};
+				&& Entry.Opcode != EMaterialProgramOpcode::TextureSampleParameter2D
+				&& Entry.Opcode != EMaterialProgramOpcode::TextureSampleParameterCube, .Payload = Entry};
 	}
 	auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction
 	{
@@ -149,12 +150,16 @@ namespace Durin::MaterialEditor
 				if (Description->SemanticOpcode) Node.Opcode = *Description->SemanticOpcode;
 				if (!Description->Shapes.empty()) Node.ResultType = Description->Shapes.front().ResultType;
 			}
+			if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression.Get()); Texture && !IsMaterialSamplingNode(Node.Opcode))
+				Node.ResultType = Texture->DefaultValue.Dimension == EMaterialTextureDimension::TextureCube ? EMaterialProgramValueType::TextureCube : EMaterialProgramValueType::Texture2D;
 			if (auto* Type = Expression->GetClass()->FindPropertyByName("ResultType"))
 				Node.ResultType = *static_cast<const EMaterialProgramValueType*>(Type->GetValuePtr(Expression.Get()));
 			if (const auto* Constant = Cast<DMaterialExpressionScalarConstant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeScalar(Constant->Value);
 			else if (const auto* Constant = Cast<DMaterialExpressionVector2Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector2(Constant->Value);
 			else if (const auto* Constant = Cast<DMaterialExpressionVector3Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector(Constant->Value);
 			else if (const auto* Constant = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) Node.Data = FMaterialParameterValue::MakeVector4(Constant->Value);
+			else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameterCube>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id};
+			else if (Cast<DMaterialExpressionTextureSampleCube>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{};
 			else if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{Sample->Metadata.Id};
 			else if (const auto* Sample = Cast<DMaterialExpressionTextureSample2D>(Expression.Get())) Node.Data = FMaterialGraphSampleInfo{};
 			else if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get())) Node.Data = FMaterialGraphParameterInfo{Parameter->Metadata.Id};
@@ -332,6 +337,8 @@ namespace Durin::MaterialEditor
 							? Sample->ReadMode == EMaterialTextureReadMode::Level || Sample->ReadMode == EMaterialTextureReadMode::Bias
 							: Sample->ReadMode == EMaterialTextureReadMode::Grad;
 					};
+					SetSamplingActivity(Cast<DMaterialExpressionTextureSampleCube>(Expression), 2);
+					SetSamplingActivity(Cast<DMaterialExpressionTextureSampleParameterCube>(Expression), 1);
 					SetSamplingActivity(Cast<DMaterialExpressionTextureSample2D>(Expression), 2);
 					SetSamplingActivity(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression), 1);
 					View.Inputs.push_back(std::move(Pin));
@@ -417,7 +424,7 @@ namespace Durin::MaterialEditor
 						.bUseConstant = Attribute.Source.UseConstant});
 				}
 			for (auto& Pin : View.Inputs)
-				if (Node.Opcode != EMaterialProgramOpcode::Normalize && Pin.AcceptedTypes.size() == 1
+				if (Node.Opcode != EMaterialProgramOpcode::Normalize && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
 					&& Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
 					&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4)
 					Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);

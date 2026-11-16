@@ -32,7 +32,7 @@ namespace Durin
 		OutDiagnostic = {};
 		if (Layout.Identity.Version != CompiledMaterialRenderLayoutVersion)
 		{
-			OutDiagnostic.Message = "Material render layouts require compiled version 4; migrate and recompile older assets.";
+			OutDiagnostic.Message = "Material render layouts require compiled version 5; migrate and recompile older assets.";
 			return false;
 		}
 		const auto Result = ValidateCompiledMaterialLayout(Layout);

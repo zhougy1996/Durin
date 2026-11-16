@@ -202,7 +202,7 @@ namespace Durin
 			SerializeBoundedSequence(
 				Ar, Artifact.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
 				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
-					Inner << Parameter.Id << Parameter.Type;
+					Inner << Parameter.Id << Parameter.Type << Parameter.TextureDimension;
 				});
 			SerializeBoundedSequence(Ar, Program.ActiveCollections,
 				MaterialParameterCollectionMaxPerMaterial,

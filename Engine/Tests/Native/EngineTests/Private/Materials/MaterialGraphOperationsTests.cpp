@@ -680,9 +680,11 @@ TEST(FMaterialGraphOperationsTests, EveryCatalogShapeCreatesItsConcreteExpressio
 		if (!Entry.AcceptedInputTypes.empty() && !Entry.AcceptedInputTypes.front().empty())
 		{
 			const auto Type = Entry.AcceptedInputTypes.front().front();
-			if (Type == EMaterialProgramValueType::MaterialAttributes || Type == EMaterialProgramValueType::Texture2D)
+			if (Type == EMaterialProgramValueType::MaterialAttributes || Type == EMaterialProgramValueType::Texture2D || Type == EMaterialProgramValueType::TextureCube)
 			{
-				const auto Prerequisite = Document.CreateCatalogNode(Type == EMaterialProgramValueType::MaterialAttributes ? *Surface : *Texture, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
+				const auto CubeTexture = std::ranges::find_if(Catalog, [](const auto& E) { return E.Opcode == EMaterialProgramOpcode::TextureParameter && E.ResultType == EMaterialProgramValueType::TextureCube; });
+				ASSERT_NE(CubeTexture, Catalog.end());
+				const auto Prerequisite = Document.CreateCatalogNode(Type == EMaterialProgramValueType::MaterialAttributes ? *Surface : Type == EMaterialProgramValueType::TextureCube ? *CubeTexture : *Texture, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 				ASSERT_TRUE(Prerequisite) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Prerequisite);
 				Source = {Prerequisite.GeneratedNodeIds.front()};
 			}
@@ -756,10 +758,11 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 	FMaterialParameterDefinition Texture;
 	Texture.Id = FGuid::NewGuid(); Texture.Name = "SignatureTexture";
 	Texture.Type = EMaterialParameterType::Texture; Texture.Value = FMaterialParameterValue::MakeTexture(nullptr);
-	const std::array Definitions{Texture};
+	auto Cube = Texture; Cube.Id = FGuid::NewGuid(); Cube.Name = "SignatureCube"; Cube.Value = FMaterialParameterValue::MakeTextureCube(nullptr);
+	const std::array Definitions{Texture, Cube};
 	std::function<FMaterialExpressionInput(Type)> AddSource = [&](Type ValueType) {
-		if (ValueType == Type::Texture2D)
-			return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, Texture.Id, {}, Definitions));
+		if (ValueType == Type::Texture2D || ValueType == Type::TextureCube)
+			return Testing::MakeLink(Graph.Add(EMaterialProgramOpcode::TextureParameter, ValueType, {}, ValueType == Type::TextureCube ? Cube.Id : Texture.Id, {}, Definitions));
 		std::vector<FMaterialExpressionInput> Inputs;
 			if (ValueType == Type::MaterialAttributes)
 				for (uint32 Index = 0; Index < 8; ++Index)
@@ -778,10 +781,10 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 					Inputs.push_back(Source);
 				}
 		return Testing::MakeLink(Graph.Add(ValueType == Type::MaterialAttributes ? EMaterialProgramOpcode::MakeMaterialAttributes : EMaterialProgramOpcode::Constant,
-			ValueType, std::move(Inputs), {}, {}));
+			ValueType, std::move(Inputs), {}, ValueType == Type::Float3 ? FMaterialProgramLiteral{1,0,0} : FMaterialProgramLiteral{}));
 	};
-	std::array<FMaterialExpressionInput, 6> Sources;
-	std::array<std::vector<DMaterialExpression*>, 6> SourceExpressions;
+	std::array<FMaterialExpressionInput, static_cast<size_t>(Type::MaterialAttributes) + 1> Sources;
+	std::array<std::vector<DMaterialExpression*>, static_cast<size_t>(Type::MaterialAttributes) + 1> SourceExpressions;
 		for (uint32 I = 0; I < Sources.size(); ++I)
 	{
 		const auto First = Graph.Expressions.size();
@@ -812,10 +815,10 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 		ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
 		FMaterialExpressionInput Prerequisite;
 		const auto FirstType = Entry.AcceptedInputTypes.front().front();
-		if (FirstType == Type::MaterialAttributes || FirstType == Type::Texture2D)
+		if (FirstType == Type::MaterialAttributes || FirstType == Type::Texture2D || FirstType == Type::TextureCube)
 		{
 			const auto Opcode = FirstType == Type::MaterialAttributes ? EMaterialProgramOpcode::MakeMaterialAttributes : EMaterialProgramOpcode::TextureParameter;
-			const auto Found = std::ranges::find(Catalog, Opcode, &FMaterialGraphCatalogEntry::Opcode);
+			const auto Found = std::ranges::find_if(Catalog, [&](const auto& Entry) { return Entry.Opcode == Opcode && Entry.ResultType == FirstType; });
 			ASSERT_NE(Found, Catalog.end());
 			const auto Created = Document.CreateCatalogNode(*Found, 0, 0, {}, Durin::ETransactionMode::NotTransactable);
 			ASSERT_TRUE(Created); Prerequisite = {Created.GeneratedNodeIds.front()};
@@ -830,12 +833,12 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 			std::ranges::fill(Swizzle->Components, 0);
 		for (uint32 Pin = 0; Pin < Entry.AcceptedInputTypes.size(); ++Pin)
 			for (Type SourceType : {Type::Float, Type::Float2, Type::Float3, Type::Float4,
-				Type::Texture2D, Type::MaterialAttributes})
+				Type::Texture2D, Type::TextureCube, Type::MaterialAttributes})
 			{
 				SCOPED_TRACE(std::format("{} result {} pin {} source {}", Entry.OperationName,
 					static_cast<uint8>(Entry.ResultType), Pin, static_cast<uint8>(SourceType)));
 					Expressions.clear();
-					std::array<bool, 6> Included{};
+					std::array<bool, static_cast<size_t>(Type::MaterialAttributes) + 1> Included{};
 					bool bNormalIncluded = false;
 			VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
 					const bool bEqualWidthGeometry = Entry.Opcode == EMaterialProgramOpcode::Dot
@@ -870,6 +873,8 @@ TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
 					if (Sample) Sample->ReadMode = Pin < FirstOptional ? EMaterialTextureReadMode::Implicit
 						: Pin == FirstOptional ? EMaterialTextureReadMode::Level : EMaterialTextureReadMode::Grad;
 				};
+				ActivateSampleOperand(Cast<DMaterialExpressionTextureSampleCube>(Target.Get()), 2);
+				ActivateSampleOperand(Cast<DMaterialExpressionTextureSampleParameterCube>(Target.Get()), 1);
 				ActivateSampleOperand(Cast<DMaterialExpressionTextureSample2D>(Target.Get()), 2);
 				ActivateSampleOperand(Cast<DMaterialExpressionTextureSampleParameter2D>(Target.Get()), 1);
 				Expressions.push_back(Target.Get());
@@ -1370,7 +1375,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 			|| Entry.Opcode == EMaterialProgramOpcode::TextureParameter;
 	};
 	std::erase_if(Entries, [&](const auto& Entry) { return !IsParameter(Entry); });
-	ASSERT_EQ(Entries.size(), 3u);
+	ASSERT_EQ(Entries.size(), 4u);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	for (const auto& Entry : Entries)
 	{
@@ -1412,7 +1417,7 @@ TEST(FMaterialGraphOperationsTests, GenericParametersCreateIndependentDeclaratio
 		Cast<DMaterialExpressionParameter>(SharedNode.Get())->Metadata.Id = FirstDefinition->Id;
 		EXPECT_FALSE(FMaterialGraphDocument(*Material).ReplaceExpression(*SharedNode.Get()));
 		EXPECT_EQ(Cast<DMaterialExpressionParameter>(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get())->Metadata.Id, Second.AffectedParameterIds.front());
-		EXPECT_EQ(std::ranges::count_if(FMaterialGraphOperations::SearchCatalog("parameter"), IsParameter), 3);
+		EXPECT_EQ(std::ranges::count_if(FMaterialGraphOperations::SearchCatalog("parameter"), IsParameter), 4);
 	}
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);

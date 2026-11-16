@@ -1529,19 +1529,19 @@ namespace Durin::MaterialEditor
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		DTexture2D* Texture = Entry.Value.GetTexture().Texture.Get();
+		DTexture* Texture = Entry.Value.GetTexture().Texture.Get();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		const FAssetPickerResult PickerResult = AssetPicker::Draw({
 			.ComboId = "##Texture",
 			.SearchId = "##TextureSearch",
 			.SearchHint = "Search textures...",
-			.RequiredClass = DTexture2D::StaticClass(),
+			.RequiredClass = Entry.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
 			.ClassPolicy = EAssetClassPolicy::Derived,
 			.CurrentSelection = Texture,
 			.SearchText = TextureSearchText,
 			.bAllowNone = true,
 			.AssignSelection = [this, &Model, Entry, Label = Definition.DisplayName](DObject* Selection, std::string& OutError) {
-				DTexture2D* Selected = Cast<DTexture2D>(Selection);
+				DTexture* Selected = Cast<DTexture>(Selection);
 				if (Selection && !Selected)
 				{
 					OutError = "The selected asset is not a texture.";
@@ -1575,7 +1575,8 @@ namespace Durin::MaterialEditor
 			Changed |= Combo("Magnification", Edited.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
 			Changed |= Combo("Address U", Edited.GetTexture().SamplerState.AddressU, "Repeat\0Mirror\0Clamp\0");
 			Changed |= Combo("Address V", Edited.GetTexture().SamplerState.AddressV, "Repeat\0Mirror\0Clamp\0");
-			Changed |= Combo("Missing texture", Edited.GetTexture().TextureFallback, "White\0Black\0Flat normal (RG)\0");
+			Changed |= Combo("Address W", Edited.GetTexture().SamplerState.AddressW, "Repeat\0Mirror\0Clamp\0");
+			Changed |= Combo("Missing texture", Edited.GetTexture().TextureFallback, Edited.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? "White\0Black\0" : "White\0Black\0Flat normal (RG)\0");
 			if (Changed) Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, false);
 			ImGui::TreePop();
 		}

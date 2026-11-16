@@ -9,6 +9,7 @@
 #include "Misc/Guid.h"
 #include "EngineAPI.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
 #include "RHIResources.h"
 
 #include "MaterialTypes.gen.h"
@@ -161,6 +162,9 @@ namespace Durin
 	ENGINE_API auto CanonicalizeMaterialShaderProperties(FMaterialStaticProperties Properties)
 		-> FMaterialStaticProperties;
 
+	DENUM()
+	enum class EMaterialTextureDimension : uint8 { Texture2D, TextureCube };
+
 	// Bounded sampling state belongs to texture values and instance overrides.
 	DENUM()
 	enum class EMaterialSamplerMinFilter : uint8
@@ -194,6 +198,8 @@ namespace Durin
 		EMaterialSamplerAddressMode AddressU = EMaterialSamplerAddressMode::Repeat;
 		DPROPERTY()
 		EMaterialSamplerAddressMode AddressV = EMaterialSamplerAddressMode::Repeat;
+		DPROPERTY()
+		EMaterialSamplerAddressMode AddressW = EMaterialSamplerAddressMode::Repeat;
 
 		auto operator==(const FMaterialSamplerState&) const -> bool = default;
 	};
@@ -215,13 +221,18 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		TObjectPtr<DTexture2D> Texture;
+		TObjectPtr<DTexture> Texture;
 
 		DPROPERTY()
 		FMaterialSamplerState SamplerState;
 
 		DPROPERTY()
 		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
+
+		DPROPERTY()
+		EMaterialTextureDimension Dimension = EMaterialTextureDimension::Texture2D;
+
+		ENGINE_API auto IsValid() const -> bool;
 
 		// Transient render reference. Never reflected or serialized; publication clears Texture.
 		FRHITextureReferenceRef TextureReference;
@@ -244,6 +255,11 @@ namespace Durin
 		auto IsRenderThreadValue() const -> bool { return GetType() != EMaterialParameterType::Texture || !GetTexture().Texture; }
 
 		ENGINE_API auto GetType() const -> EMaterialParameterType;
+		auto HasSameType(const FMaterialParameterValue& Other) const -> bool
+		{
+			return GetType() == Other.GetType() && (GetType() != EMaterialParameterType::Texture
+				|| GetTexture().Dimension == Other.GetTexture().Dimension);
+		}
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 		auto GetScalar() const -> const float& { require(std::holds_alternative<float>(Value)); return std::get<float>(Value); }
 		auto GetScalar() -> float& { require(std::holds_alternative<float>(Value)); return std::get<float>(Value); }
@@ -260,7 +276,9 @@ namespace Durin
 		ENGINE_API static auto MakeVector2(const FVector2& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector4(const FVector4& Value) -> FMaterialParameterValue;
-		ENGINE_API static auto MakeTexture(DTexture2D* Value, FMaterialSamplerState Sampler = {},
+		ENGINE_API static auto MakeTexture(DTexture* Value, FMaterialSamplerState Sampler = {},
+			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeTextureCube(DTextureCube* Value, FMaterialSamplerState Sampler = {},
 			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White) -> FMaterialParameterValue;
 		auto operator==(const FMaterialParameterValue&) const -> bool = default;
 	private:

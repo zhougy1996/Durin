@@ -116,8 +116,8 @@ namespace Durin::MaterialEditor
 		FGuid ParameterId;
 		FMaterialParameterValue BeforeValue;
 		FMaterialParameterValue CurrentValue;
-		TStrongObjectPtr<DTexture2D> BeforeTexture;
-		TStrongObjectPtr<DTexture2D> CurrentTexture;
+		TStrongObjectPtr<DTexture> BeforeTexture;
+		TStrongObjectPtr<DTexture> CurrentTexture;
 		DTransactor* Transactions = nullptr;
 		bool bActive = false;
 	};

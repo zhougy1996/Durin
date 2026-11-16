@@ -46,6 +46,7 @@ namespace Durin
 		struct FNodeState
 		{
 			DClass* Class = nullptr;
+			std::optional<EMaterialTextureDimension> TextureDimension;
 			std::vector<FPropertyValueSnapshotPayload> Properties;
 		};
 		struct FGraphState
@@ -82,6 +83,7 @@ namespace Durin
 				State.Order.push_back(Expression->Id);
 				auto& Node = State.Nodes[Expression->Id];
 				Node.Class = Expression->GetClass();
+				if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression.Get())) Node.TextureDimension = Texture->DefaultValue.Dimension;
 				Node.Class->ForEachProperty([&](FProperty* Property) {
 					for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 					{
@@ -137,7 +139,7 @@ namespace Durin
 					const auto Name = Node.Properties[Index].GetProperty()->NamePrivate;
 					// Known display/value fields cannot change pin identities or connections.
 					// Unknown fields conservatively invalidate the node interface as well.
-					const bool bContent = Name == FName("Value") || Name == FName("DefaultValue")
+					const bool bContent = Name == FName("Value") || (Name == FName("DefaultValue") && Old.TextureDimension == Node.TextureDimension)
 						|| Name == FName("Metadata") || Name == FName("bHasRange")
 						|| Name == FName("MinimumValue") || Name == FName("MaximumValue");
 					Result.MarkNode(Id, bContent ? N::Content : N::Content | N::Interface | N::Inputs);

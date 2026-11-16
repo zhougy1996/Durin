@@ -79,7 +79,7 @@ namespace Durin::MaterialBuildPrivate
 				Sequence(IR.AttributeRoots, 64, [&](auto& Input) { Surface(Input); });
 			}
 			template<class T> auto Parameters(T& Items) -> void
-			{ Sequence(Items, MaterialRenderMaxFieldCount, [&](auto& V) { Value(V.Id); Value(V.Type); }); }
+			{ Sequence(Items, MaterialRenderMaxFieldCount, [&](auto& V) { Value(V.Id); Value(V.Type); Value(V.TextureDimension); }); }
 			template<class T> auto Layout(T& Layout) -> void
 			{
 				Value(Layout.Identity.Version); Value(Layout.Identity.Id); Value(Layout.UniformPayloadSize); Value(Layout.UniformFieldCount); Value(Layout.ResourceFieldCount);

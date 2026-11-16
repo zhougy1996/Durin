@@ -29,7 +29,7 @@ namespace Durin
 	DECLARE_MULTICAST_DELEGATE(FMaterialParameterChangedEvent)
 
 	class DMaterialInstance;
-	class DTexture2D;
+	class DTexture;
 	inline constexpr uint32 MaterialMaximumParentDepth = 64;
 
 	// Immutable editing query; an unsuccessful analysis is distinct from an empty graph.
@@ -182,7 +182,7 @@ namespace Durin
 		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
 		ENGINE_API virtual auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool;
 		ENGINE_API virtual auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
-		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
+		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 		ENGINE_API virtual auto GetStaticProperties() const -> const FMaterialStaticProperties&;
 		// Returns the accepted program without initiating loading or compilation.
@@ -200,7 +200,7 @@ namespace Durin
 		ENGINE_API auto CacheResourceShadersForRendering(
 			EMaterialShaderPrecompileMode PrecompileMode = EMaterialShaderPrecompileMode::Default) -> void;
 		// Effective textures of the accepted program; replaces OutTextures.
-		ENGINE_API virtual auto GetUsedTextures(std::vector<DTexture2D*>& OutTextures) const -> void;
+		ENGINE_API virtual auto GetUsedTextures(std::vector<DTexture*>& OutTextures) const -> void;
 		// Editor preview only: selects an explicit quality and a feature level no
 		// greater than the initialized RHI capability.
 		ENGINE_API auto RequestPreviewProgramCompile(

@@ -1622,3 +1622,48 @@ TEST(FMaterialExpressionTests, TextureReadModesLowerOnlyActiveOperandsAndPreserv
 	Sample->ReadMode = static_cast<Mode>(255);
 	EXPECT_FALSE(Build());
 }
+
+
+TEST(FMaterialExpressionTests, CubeFunctionPortsPreserveResourceDimensionAndValidateFallbacks)
+{
+	using namespace Durin;
+	using Type = EMaterialProgramValueType;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionFunctionInput> Input(NewObject<DMaterialExpressionFunctionInput>(Function.Get(), NAME_None));
+	Input->Id = FGuid::NewGuid(); Input->Port.Id = FGuid::NewGuid(); Input->Port.Type = Type::TextureCube; Input->Port.Name = "Cube";
+	Input->Port.Default.Kind = EMaterialFunctionDefaultKind::Texture;
+	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None));
+	Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Port.Type = Type::TextureCube; Output->Port.Name = "Result"; Output->Source = {Input->Id};
+	MIR::FFunctionBody Body; Body.Expressions = {Input.Get(),Output.Get()}; Body.AssetPath = "/Test/CubeFunction";
+	const auto UpdateSignature = [&] { Body.Signature.Inputs = {Input->Port}; Body.Signature.Outputs = {Output->Port}; };
+	UpdateSignature();
+	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+	Call->Id = FGuid::NewGuid(); Call->Function = Function.Get(); Call->Outputs = {{Output->Port.Id,Type::TextureCube}};
+	TStrongObjectPtr<DMaterialExpressionTextureSampleCube> Sample(NewObject<DMaterialExpressionTextureSampleCube>(nullptr, NAME_None));
+	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Call->Id,0,Output->Port.Id}; Sample->ReadMode = EMaterialTextureReadMode::Level;
+	TStrongObjectPtr<DMaterialExpressionTextureParameter> Resource(NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None));
+	Resource->Id = FGuid::NewGuid(); Resource->Metadata = {.Id = FGuid::NewGuid(), .Name = "Cube"}; Resource->DefaultValue.Dimension = EMaterialTextureDimension::TextureCube;
+	const std::array<DMaterialExpression*,3> Expressions{Call.Get(), Sample.Get(), Resource.Get()};
+	const std::array Roots{FMaterialExpressionInput{Sample->Id}};
+	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) -> std::optional<MIR::FFunctionBody> { return Body; }};
+	const auto Fallback = MIR::BuildGraph(Expressions,Roots,Environment);
+	ASSERT_TRUE(Fallback) << FormatMaterialProgramDiagnostics(Fallback.Diagnostics);
+	EXPECT_EQ(Fallback.IR.Nodes[Fallback.Roots.front()].GetLiteral(), (FMaterialProgramLiteral{1,1,1,1}));
+	EXPECT_TRUE(Fallback.Parameters.empty());
+	Input->Port.Default.TextureFallback = EMaterialTextureFallback::FlatRGNormal; UpdateSignature();
+	EXPECT_FALSE(MIR::BuildGraph(Expressions,Roots,Environment));
+	Input->Port.Default.TextureFallback = EMaterialTextureFallback::White; UpdateSignature();
+	Call->Inputs = {{Input->Port.Id,Type::TextureCube,{Resource->Id}}};
+	const auto Bound = MIR::BuildGraph(Expressions,Roots,Environment);
+	ASSERT_TRUE(Bound) << FormatMaterialProgramDiagnostics(Bound.Diagnostics);
+	ASSERT_EQ(Bound.Parameters.size(),1u);
+	EXPECT_EQ(Bound.Parameters.front().TextureDimension, EMaterialTextureDimension::TextureCube);
+	Resource->DefaultValue.Dimension = EMaterialTextureDimension::Texture2D;
+	EXPECT_FALSE(MIR::BuildGraph(Expressions,Roots,Environment));
+	Resource->DefaultValue.Dimension = EMaterialTextureDimension::TextureCube;
+	Sample->Direction.SetConstant({0,0,0});
+	EXPECT_FALSE(MIR::BuildGraph(Expressions,Roots,Environment));
+	Sample->Direction.SetConstant({1,0,0}); Sample->ReadMode = EMaterialTextureReadMode::Grad; Sample->DDX.SetConstant({1,0});
+	EXPECT_FALSE(MIR::BuildGraph(Expressions,Roots,Environment));
+}

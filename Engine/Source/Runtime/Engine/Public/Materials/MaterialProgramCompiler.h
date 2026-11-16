@@ -19,12 +19,12 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 11;
+		inline constexpr uint32 CurrentVersion = 12;
 	}
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 15;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 16;
 	// Classification only. Persisted requests use Shader type/entry identities.
 	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex };
 	using FMaterialShaderEntrySet = std::vector<EMaterialShaderEntry>;
@@ -186,6 +186,7 @@ namespace Durin
 					return Read && ResultType <= EMaterialProgramValueType::Float4
 						&& Read->Index < 32 && static_cast<uint32>(ResultType) + 1 <= 32 - Read->Index;
 				}
+				case EMaterialProgramOpcode::TextureSampleCube:
 				case EMaterialProgramOpcode::TextureSample2D:
 				{
 					const auto* Read = std::get_if<FTextureRead>(&Payload);

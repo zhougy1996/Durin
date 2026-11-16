@@ -77,7 +77,7 @@ namespace Durin::MaterialEditor
 			return Value;
 		};
 		auto* Terminal = Add.operator()<DMaterialExpressionMaterialOutput>();
-		std::array<FMaterialExpressionInput, 6> RequiredValues;
+		std::array<FMaterialExpressionInput, static_cast<size_t>(Type::MaterialAttributes) + 1> RequiredValues;
 		auto* Call = Add.operator()<DMaterialExpressionFunctionCall>();
 		Call->Function = &Function;
 		for (const auto& Port : Signature.Outputs) Call->Outputs.push_back({Port.Id, Port.Type});
@@ -95,11 +95,13 @@ namespace Durin::MaterialEditor
 					case Type::Float2: Source = {Add.operator()<DMaterialExpressionVector2Constant>()->Id}; break;
 					case Type::Float3: Source = {Add.operator()<DMaterialExpressionVector3Constant>()->Id}; break;
 					case Type::Float4: Source = {Add.operator()<DMaterialExpressionVector4Constant>()->Id}; break;
+					case Type::TextureCube:
 					case Type::Texture2D:
 					{
 						auto* Texture = Add.operator()<DMaterialExpressionTextureParameter>();
 						Texture->Metadata.Id = FGuid::NewGuid();
 						Texture->Metadata.Name = "PreviewTexture";
+						Texture->DefaultValue.Dimension = Port.Type == Type::TextureCube ? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D;
 						Source = {Texture->Id}; break;
 					}
 					case Type::MaterialAttributes:
@@ -121,6 +123,11 @@ namespace Durin::MaterialEditor
 			if (Output->Type == Type::Texture2D)
 			{
 				auto* Sample = Add.operator()<DMaterialExpressionTextureSample2D>();
+				Sample->Texture = Value; Value = {Sample->Id};
+			}
+			if (Output->Type == Type::TextureCube)
+			{
+				auto* Sample = Add.operator()<DMaterialExpressionTextureSampleCube>();
 				Sample->Texture = Value; Value = {Sample->Id};
 			}
 			if (Output->Type == Type::Float)

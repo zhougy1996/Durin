@@ -140,7 +140,7 @@ namespace Durin
 				else if (!Ids.insert(Record.ParameterId).second) Result = std::unexpected("Material parameter value identity is duplicated.");
 				else if (!Private::IsFiniteMaterialParameterValue(Record.GetValue())) Result = std::unexpected("Material declaration default must be finite.");
 				else if constexpr (std::is_same_v<TRecord, FMaterialTextureParameterValue>)
-					if (!IsValidMaterialSampling(Record.Value.SamplerState, Record.Value.TextureFallback))
+					if (!Record.Value.IsValid())
 						Result = std::unexpected("Material parameter value has an invalid sampling policy.");
 				if (!Result)
 				{
@@ -383,7 +383,7 @@ namespace Durin
 			const auto* Instance = Cast<DMaterialInstance>(Owner);
 			if (!Instance) return Owner->ResolveParameterValue(Id, OutParameter);
 			FMaterialParameterValue LocalValue;
-			if (Instance->GetLocalParameterValue(Id, LocalValue) && LocalValue.GetType() == Definition->Type)
+			if (Instance->GetLocalParameterValue(Id, LocalValue) && LocalValue.HasSameType(Definition->Value))
 			{
 				OutParameter.Definition = Definition;
 				OutParameter.Value = std::move(LocalValue);
@@ -415,10 +415,10 @@ namespace Durin
 		};
 		if (!Private::IsAuthoringMaterialParameterValue(Value)) return Fail("Material texture overrides must reference assets, not render resources.");
 		if (!Definition) return Fail("Material declaration does not exist.");
-		if (Definition->Type != Type) return Fail("Material declaration type is invalid.");
+		if (!Definition->Value.HasSameType(Value)) return Fail("Material declaration type is invalid.");
 		if (!GetParameterReachability()->ParameterIds.contains(Id)) return Fail("The parameter is not reachable from the material outputs.");
 		if (!Private::IsFiniteMaterialParameterValue(Value)) return Fail("Material declaration default must be finite.");
-		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.GetTexture().SamplerState, Value.GetTexture().TextureFallback))
+		if (Type == EMaterialParameterType::Texture && !Value.GetTexture().IsValid())
 			return Fail("Material parameter value has an invalid sampling policy.");
 		FMaterialParameterValue StoredValue = Value;
 		if (FMaterialVectorParameterValue::SupportsType(Type))
@@ -527,13 +527,13 @@ namespace Durin
 					const auto Active = std::ranges::find(Selected->GetShaderMap().ActiveParameters,
 						Update.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
 					if (Active == Selected->GetShaderMap().ActiveParameters.end()) continue;
-					if (Active->Type != Type) return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
+					if (!Active->MatchesValue(Update.Value)) return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
 					bActive = true;
 				}
 				if (!bActive)
 					return Reject("The parameter is not reachable from the material outputs.", Index, Update.ParameterId);
 			}
-			if (Definition->Type != Type)
+			if (!Definition->Value.HasSameType(Update.Value))
 			{
 				return Reject("Material declaration type is invalid.", Index, Update.ParameterId);
 			}
@@ -541,8 +541,7 @@ namespace Durin
 				return Reject("Material declaration default must be finite.",
 					Index, Update.ParameterId);
 			if (Type == EMaterialParameterType::Texture
-				&& !IsValidMaterialSampling(Update.Value.GetTexture().SamplerState,
-					Update.Value.GetTexture().TextureFallback))
+				&& !Update.Value.GetTexture().IsValid())
 				return Reject("Material parameter value has an invalid sampling policy.",
 					Index, Update.ParameterId);
 
@@ -636,7 +635,7 @@ namespace Durin
 		FMaterialParameterValue LocalValue;
 		if (!GetLocalParameterValue(Id, LocalValue)) return false;
 		const auto* Definition = FindParameterDefinition(Id);
-		return !Definition || Definition->Type != LocalValue.GetType()
+		return !Definition || !Definition->Value.HasSameType(LocalValue)
 			|| !GetParameterReachability()->ParameterIds.contains(Id);
 	}
 
@@ -664,7 +663,7 @@ namespace Durin
 		return SetParameterValue(Definition->Id, FMaterialParameterValue::MakeVector4(FVector4(Value, 0)));
 	}
 
-	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture2D* Value) -> std::expected<void, std::string>
+	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture* Value) -> std::expected<void, std::string>
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		const auto Validated = ValidateNamedMaterialParameter(Definition, EMaterialParameterType::Texture);
@@ -742,7 +741,7 @@ namespace Durin
 			[](const FMaterialParameterValue& Value) { return FVector3(Value.GetVector4()); });
 	}
 
-	auto DMaterialInstance::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
+	auto DMaterialInstance::GetTextureParameterValue(FName Name, DTexture*& OutValue) const -> bool
 	{
 		return GetTypedParameterValue(*this, Name, EMaterialParameterType::Texture, OutValue,
 			[](const FMaterialParameterValue& Value) { return Value.GetTexture().Texture.Get(); });

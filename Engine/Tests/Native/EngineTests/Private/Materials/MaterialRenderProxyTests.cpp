@@ -544,7 +544,7 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			if (Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialProperty>(RoleIndex), Instance->GetStaticProperties()))
 			{
 				EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
-				std::vector<Durin::DTexture2D*> UsedTextures;
+				std::vector<Durin::DTexture*> UsedTextures;
 				Instance->GetUsedTextures(UsedTextures);
 				EXPECT_EQ(std::ranges::count(UsedTextures, OverrideTexture), 1);
 			}
@@ -581,7 +581,7 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 		++DefinitionIndex;
 	}
 	EXPECT_EQ(TextureRole, size_t{8});
-	std::vector<Durin::DTexture2D*> UsedTextures{OverrideTexture};
+	std::vector<Durin::DTexture*> UsedTextures{OverrideTexture};
 	Instance->GetUsedTextures(UsedTextures);
 	ASSERT_EQ(UsedTextures.size(), 1u);
 	EXPECT_EQ(UsedTextures.front(), BaseTexture);

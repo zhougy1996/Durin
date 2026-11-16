@@ -301,6 +301,8 @@ namespace Durin::MaterialEditor
 			if (Input.OutputId.IsValid() || Cast<DMaterialExpressionMaterialOutput>(E) || Cast<DMaterialExpressionFunctionOutput>(E)) return false;
 			if (Cast<DMaterialExpressionTextureSampleParameter2D>(E))
 				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Input.OutputIndex) != nullptr;
+			if (Cast<DMaterialExpressionTextureSampleParameterCube>(E)) return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameterCube, Input.OutputIndex) != nullptr;
+			if (Cast<DMaterialExpressionTextureSampleCube>(E)) return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleCube, Input.OutputIndex) != nullptr;
 			if (Cast<DMaterialExpressionTextureSample2D>(E))
 				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSample2D, Input.OutputIndex) != nullptr;
 			return Input.OutputIndex == 0;
@@ -469,6 +471,8 @@ namespace Durin::MaterialEditor
 		}
 		FGuid ParameterId;
 		std::string DisplayName;
+		if (auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression.Get()); Texture && Entry.ResultType == EMaterialProgramValueType::TextureCube)
+			Texture->DefaultValue.Dimension = EMaterialTextureDimension::TextureCube;
 		if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
 		{
 			if (!Schema.CanOwnParameters()) return RejectCommand("Functions cannot own root parameters.");

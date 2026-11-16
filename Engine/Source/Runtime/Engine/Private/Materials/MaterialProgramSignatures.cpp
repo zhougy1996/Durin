@@ -16,8 +16,15 @@ namespace Durin
 			FMaterialSampleOutputDefinition{Output::RGBA, "RGBA", Type::Float4},
 			FMaterialSampleOutputDefinition{Output::Texture, "Texture", Type::Texture2D},
 		};
+		static const auto CubeDefinitions = [] {
+			auto Values = Definitions;
+			Values.back().Type = Type::TextureCube;
+			return Values;
+		}();
 		switch (Opcode)
 		{
+		case EMaterialProgramOpcode::TextureSampleCube: return std::span{CubeDefinitions}.first(CubeDefinitions.size() - 1);
+		case EMaterialProgramOpcode::TextureSampleParameterCube: return CubeDefinitions;
 		case EMaterialProgramOpcode::TextureSample2D: return std::span{Definitions}.first(Definitions.size() - 1);
 		case EMaterialProgramOpcode::TextureSampleParameter2D: return Definitions;
 		default: return {};
@@ -33,7 +40,9 @@ namespace Durin
 
 	auto IsMaterialSamplingNode(EMaterialProgramOpcode Opcode) -> bool
 	{
-		return Opcode == EMaterialProgramOpcode::TextureSample2D
+		return Opcode == EMaterialProgramOpcode::TextureSampleCube
+			|| Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
+			|| Opcode == EMaterialProgramOpcode::TextureSample2D
 			|| Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
 	}
 
@@ -44,7 +53,7 @@ namespace Durin
 		using Type = EMaterialProgramValueType;
 		static constexpr std::array Types{
 			Type::Float, Type::Float2, Type::Float3, Type::Float4,
-			Type::Texture2D, Type::MaterialAttributes, Type::StaticBool};
+			Type::Texture2D, Type::TextureCube, Type::MaterialAttributes, Type::StaticBool};
 		const auto One = [](Type Value) -> std::span<const Type> {
 			return {&Types[static_cast<size_t>(Value)], 1};
 		};
@@ -110,7 +119,7 @@ namespace Durin
 			if (!bNumeric) return std::nullopt;
 			break;
 		case EMaterialProgramOpcode::TextureParameter:
-			if (ResultType != Type::Texture2D) return std::nullopt;
+			if (ResultType != Type::Texture2D && ResultType != Type::TextureCube) return std::nullopt;
 			break;
 		case EMaterialProgramOpcode::UVChannel:
 			if (ResultType != Type::Float2) return std::nullopt;
@@ -120,14 +129,15 @@ namespace Durin
 			if (ResultType != Type::Float2) return std::nullopt;
 			Same(1, Type::Float);
 			break;
+		case EMaterialProgramOpcode::TextureSampleParameterCube:
 		case EMaterialProgramOpcode::TextureSampleParameter2D:
 			if (ResultType != Type::Float4) return std::nullopt;
-			Same(1, Type::Float2);
+			Same(1, Opcode == EMaterialProgramOpcode::TextureSampleParameterCube ? Type::Float3 : Type::Float2);
 			if (ReadMode != EMaterialTextureReadMode::Implicit)
 			{
 				Signature.InputCount = ReadMode == EMaterialTextureReadMode::Grad ? 3 : 2;
-				Signature.Inputs[1] = One(ReadMode == EMaterialTextureReadMode::Grad ? Type::Float2 : Type::Float);
-				if (ReadMode == EMaterialTextureReadMode::Grad) Signature.Inputs[2] = One(Type::Float2);
+				Signature.Inputs[1] = One(ReadMode == EMaterialTextureReadMode::Grad ? Signature.Inputs[0].front() : Type::Float);
+				if (ReadMode == EMaterialTextureReadMode::Grad) Signature.Inputs[2] = Signature.Inputs[0];
 			}
 			break;
 		case EMaterialProgramOpcode::BlendMaterialAttributes:
@@ -149,16 +159,17 @@ namespace Durin
 			if (ResultType != Type::MaterialAttributes) return std::nullopt;
 			Same(1, Type::MaterialAttributes);
 			break;
+		case EMaterialProgramOpcode::TextureSampleCube:
 		case EMaterialProgramOpcode::TextureSample2D:
 			if (ResultType != Type::Float4) return std::nullopt;
 			Signature.InputCount = 2;
-			Signature.Inputs[0] = One(Type::Texture2D);
-			Signature.Inputs[1] = One(Type::Float2);
+			Signature.Inputs[0] = One(Opcode == EMaterialProgramOpcode::TextureSampleCube ? Type::TextureCube : Type::Texture2D);
+			Signature.Inputs[1] = One(Opcode == EMaterialProgramOpcode::TextureSampleCube ? Type::Float3 : Type::Float2);
 			if (ReadMode != EMaterialTextureReadMode::Implicit)
 			{
 				Signature.InputCount = ReadMode == EMaterialTextureReadMode::Grad ? 4 : 3;
-				Signature.Inputs[2] = One(ReadMode == EMaterialTextureReadMode::Grad ? Type::Float2 : Type::Float);
-				if (ReadMode == EMaterialTextureReadMode::Grad) Signature.Inputs[3] = One(Type::Float2);
+				Signature.Inputs[2] = One(ReadMode == EMaterialTextureReadMode::Grad ? Signature.Inputs[1].front() : Type::Float);
+				if (ReadMode == EMaterialTextureReadMode::Grad) Signature.Inputs[3] = Signature.Inputs[1];
 			}
 			break;
 		case EMaterialProgramOpcode::BlendNormalsRNM:
@@ -359,6 +370,15 @@ namespace Durin
 		case OpcodeType::UVChannel:
 		case OpcodeType::TextureCoordinates:
 			return NonSpatial();
+		case OpcodeType::TextureSampleCube:
+		case OpcodeType::TextureSampleParameterCube:
+		{
+			const uint32 CoordinateSlot = Opcode == OpcodeType::TextureSampleCube ? 1 : 0;
+			for (uint32 Slot = CoordinateSlot; Slot < Inputs.size(); ++Slot)
+				if (IsSpatial(Inputs[Slot]) && Inputs[Slot].Kind != Kind::Direction && Inputs[Slot].Kind != Kind::Normal)
+					return std::nullopt;
+			return WithStages(Result, Inputs, ReadMode == EMaterialTextureReadMode::Level ? Stage::Both : Stage::Pixel);
+		}
 		case OpcodeType::TextureSample2D:
 		case OpcodeType::TextureSampleParameter2D:
 			return NonSpatial(ReadMode == EMaterialTextureReadMode::Level ? Stage::Both : Stage::Pixel);

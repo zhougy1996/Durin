@@ -167,7 +167,7 @@ namespace Durin
 		for (const auto& Parameter : ProgramCandidate->GetShaderMap().ActiveParameters)
 		{
 			const auto* Definition = FindParameterDefinition(Parameter.Id);
-			if (!Definition || Definition->Type != Parameter.Type)
+			if (!Definition || !Parameter.MatchesValue(Definition->Value))
 			{
 				return std::unexpected("payload parameter contract does not match package metadata.");
 			}

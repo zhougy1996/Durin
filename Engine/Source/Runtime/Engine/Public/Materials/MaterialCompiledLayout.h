@@ -12,7 +12,12 @@ namespace Durin
 	{
 		FGuid Id;
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;
+		EMaterialTextureDimension TextureDimension = EMaterialTextureDimension::Texture2D;
 
+		auto MatchesValue(const FMaterialParameterValue& Value) const -> bool
+		{
+			return Type == Value.GetType() && (Type != EMaterialParameterType::Texture || TextureDimension == Value.GetTexture().Dimension);
+		}
 		auto operator==(const FMaterialCompilerParameterDeclaration&) const
 			-> bool = default;
 	};
@@ -30,6 +35,7 @@ namespace Durin
 		Vector3,
 		Vector4,
 		Texture2D,
+		TextureCube,
 		Vector2,
 	};
 
@@ -61,7 +67,7 @@ namespace Durin
 		auto operator==(const FMaterialRenderLayout&) const -> bool = default;
 	};
 
-	inline constexpr uint32 CompiledMaterialRenderLayoutVersion = 4;
+	inline constexpr uint32 CompiledMaterialRenderLayoutVersion = 5;
 	inline constexpr uint32 MaterialTextureBindingBase = 32;
 	// Reserved padding keeps authored offsets stable; view/pass controls are separate.
 	inline constexpr uint32 MaterialUniformHeaderBytes = 16;

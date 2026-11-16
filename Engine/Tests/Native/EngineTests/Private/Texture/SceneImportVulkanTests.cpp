@@ -271,7 +271,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	StandardPath = MaterialPath;
 	EXPECT_TRUE(StandardPath.GetView().starts_with(DestinationDirectory.ToString() + "/Materials/M_"));
 	ASSERT_TRUE(Durin::FindPackageExact(StandardPath));
-	Durin::DTexture2D* LiveTexture = nullptr;
+	Durin::DTexture* LiveTexture = nullptr;
 	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), LiveTexture));
 	ASSERT_NE(LiveTexture, nullptr);
@@ -557,7 +557,7 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	auto* ReloadedMaterial =
 		Durin::Cast<Durin::DMaterial>(Slot->DefaultMaterial.Get());
 	ASSERT_NE(ReloadedMaterial, nullptr);
-	Durin::DTexture2D* ReloadedTexture = nullptr;
+	Durin::DTexture* ReloadedTexture = nullptr;
 	ASSERT_TRUE(ReloadedMaterial->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
 	ASSERT_NE(ReloadedTexture, nullptr);
@@ -572,7 +572,8 @@ TEST_F(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_FALSE(ReloadedTexture->HasPendingRenderResourceInitialization());
 	ASSERT_NE(ReloadedTexture->GetResource(), nullptr);
 	ASSERT_TRUE(ReloadedTexture->GetResource()->GetTextureRHI_GameThread());
-	EXPECT_TRUE(ReloadedTexture->IsSRGB());
+	ASSERT_NE(Durin::Cast<Durin::DTexture2D>(ReloadedTexture), nullptr);
+	EXPECT_TRUE(Durin::Cast<Durin::DTexture2D>(ReloadedTexture)->IsSRGB());
 	Durin::FVector3 ImportedFactor;
 	ASSERT_TRUE(ReloadedMaterial->GetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), ImportedFactor));

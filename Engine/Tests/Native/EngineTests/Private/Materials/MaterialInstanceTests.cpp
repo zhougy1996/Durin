@@ -1128,7 +1128,7 @@ TEST(FMaterialInstanceTests, DuplicateInstancePreservesParentAndNestedTextureOve
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetParent(), Base);
 	EXPECT_TRUE(Duplicate->HasLocalParameterValue(Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture));
-	Durin::DTexture2D* DuplicateTexture = nullptr;
+	Durin::DTexture* DuplicateTexture = nullptr;
 	ASSERT_TRUE(Duplicate->GetTextureParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorTextureName(), DuplicateTexture));
 	EXPECT_EQ(DuplicateTexture, Texture);

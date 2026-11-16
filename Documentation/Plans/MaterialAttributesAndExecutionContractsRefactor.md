@@ -15,8 +15,10 @@ Cook and renderer admission. Pass templates own entry bodies, GBuffer packing
 and lighting execution. The five minimum source assets have been regenerated
 for the Stage 3 graph/function generation at their original logical paths.
 Validation and content disposition are recorded below. Stage 3 is in progress:
-the Texture2D sampling-mode slice is implemented; typed Cube resources, scene
-inputs and the full authoring-to-Cook/GPU exit gates remain open.
+Texture2D/Cube values now follow UE's base-texture reference and typed MIR
+boundary, with all four sampling modes, instance replacement, function/editor
+support, source-free DMAT and Vulkan pixel validation. Scene inputs and the
+remaining integrated authoring-to-Cook/backend exit gates remain open.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -374,8 +376,8 @@ codec coverage remain in the passing owner tests. Stage 3 remains unstarted.
 Outcome: resource reads have validated types, stages and Renderer-owned inputs.
 Depends on Stage 2.
 
-- [ ] Generalize material texture parameter values/layouts to support Texture2D and TextureCube, reusing existing texture asset/build/residency facilities. Migrate instance overrides, functions, reflection, fallback resources and cooked references.
-- [ ] Implement Implicit/Level/Bias/Grad read modes with dimensional coordinate validation. Explicit Level works in Vertex and Pixel; implicit derivatives, Bias and Grad are Pixel-only for this scope. Reject illegal combinations before Shader compilation.
+- [x] Generalize material texture parameter values/layouts to support Texture2D and TextureCube, reusing existing texture asset/build/residency facilities. Migrate instance overrides, functions, reflection, fallback resources and cooked references.
+- [x] Implement Implicit/Level/Bias/Grad read modes with dimensional coordinate validation. Explicit Level works in Vertex and Pixel; implicit derivatives, Bias and Grad are Pixel-only for this scope. Reject illegal combinations before Shader compilation.
 - [ ] Implement logical scene inputs for PostProcessInput0 and read-only SceneDepth, with declared filtering and conversion helpers. Do not expose an ambiguous writable current SceneColor.
 - [ ] Carry entry requirements through source-free Cook loading. Renderer material planning resolves them to counted resources, RDG declarations and pass bindings; unavailable required inputs fail locally without stale bindings.
 - [ ] Test cube face/orientation and mip selection, vertex texture WPO, per-instance resource replacement, missing resources, scene UV/depth reconstruction, subrects, resizing and incompatible-domain rejection. Inspect Vulkan and Metal reflection.
@@ -383,6 +385,27 @@ Depends on Stage 2.
 Exit: TextureCube and explicit sampling traverse authoring-to-Cook execution;
 scene reads have validated lifetimes and no attachment read/write feedback.
 Texture3D/Array and additional scene inputs remain future extensions.
+
+### Stage 3 UE interface alignment decision
+
+The 2026-11-16 continuation explicitly prioritizes UE alignment for primary
+interfaces and data structures. UE 5.8.0's MaterialExpressionTextureBase uses
+`TObjectPtr<UTexture>`, while MaterialIRTypes distinguishes Texture2D and
+TextureCube. Adopt the same boundary: reflected material values reference
+`DTexture`; detached declarations carry an explicit texture dimension, validated
+against the asset class, MIR type and compiled layout. This supersedes the frozen
+checked-variant storage choice below. It does not permit unchecked downcasts,
+unknown dimensions or replacement of a 2D declaration with a Cube override.
+Sampler policy and read mode remain independent from resource dimension.
+
+The first sampling slice already published intermediate Stage 3 artifacts.
+Changing the resource value and declaration representations must reject those
+products as well. Advance graph/function to 8/5, instance to 3, MIR/translation
+to 12/8, normalization/generator/adapter to 12/20/17, pass/DMAT to 16/19 and
+layout to 5. The later Stage 4 generations advance correspondingly to
+MIR/translation 13/9, normalization/generator/adapter 13/21/18 and pass/DMAT 17/20.
+Minimum source content is regenerated in the same change. Historical receipts
+remain associated with their original generations.
 
 ### Stage 3 incremental implementation
 
@@ -457,6 +480,76 @@ Debug, Tracy and 14 build jobs. The final source/test/asset SHA-256 manifest is
   qualification, new-mode Metal reflection, full workspace build or final
   source-free Game acceptance is claimed. These remain with the relevant stage
   and final acceptance gates.
+
+#### Cube resource continuation and validation receipt
+
+The continuation based on `43289f3df9644d34f46a01f2003bc2986da575f2`
+implements the UE-aligned decision above.
+`FMaterialTextureValue` retains `TObjectPtr<DTexture>` and a checked dimension;
+public texture setters/getters use the base type. Declarations, function ports,
+MIR, compact layouts, reflection, Cook schemas and Renderer binding retain the
+dimension. Null values preserve Cube identity. Value-only and instance setters
+reject dimension changes. Cube samples use Float3 directions/gradients and
+reject normal-map usage and flat-normal fallback. Renderer supplies typed
+white/black cubes and applies independent W addressing. Existing texture build,
+residency and reference publication remain authoritative.
+
+Validated on 2026-11-16 with windows-msvc-x64 / Win64-Debug-DurinEditor,
+MSVC 19.44, Debug, Tracy and 14 build jobs. Raw Cube sources, MSL inspection,
+Water receipts and the source/test/asset SHA-256 manifest reside under
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage3/Cube/`.
+
+- All 13 material feature targets passed. CTest receipt:
+  `Build/.agent-state/logs/20261116-175032-895327-5756-ctest.log`.
+  This includes Cube graph/catalog pins, Undo/Redo, functions and preview wrappers,
+  null Cube package reload with W addressing and gradients, all four modes in
+  both dimensions, detached translation and graph-stripped DMAT round-trips,
+  shader identities/reflection, instance validation and lifecycle behavior.
+  The final equivalent parameter-definition simplification was rebuilt and the
+  focused texture-read suite passed (`20261116-175207-557758-35880-MaterialCompilerTests.log`).
+- Workspace `all` passed after the shared interface migration; receipt
+  `Build/.agent-state/logs/20261116-180032-149207-43532-cmake.log`.
+  This broad build covers foundational reflected headers and cross-project
+  consumers that owner tests alone cannot establish.
+- The new bounded Vulkan Cube test passed, checking six axis-aligned faces,
+  two explicit mip levels, dynamic instance resource replacement, typed null
+  white/black recovery and rejection of a 2D replacement/flat-normal fallback.
+  The full StaticMeshRenderPreparationVulkanTests target passed all 22 cases;
+  receipt `20261116-175453-320083-9384-StaticMeshRenderPreparationVulkanTests.log`.
+  Level WPO is compiled/reflected for Local and Spline entries; this is not a
+  numerical WPO pixel-displacement proof or face-local corner-orientation proof.
+- Migrated consumers passed: SceneImportTests (34), SceneImportVulkanTests (2),
+  RenderShaderContractTests (72), RoadSceneIntegrationTests (5) and
+  SandboxGameplayTests (13). Their receipts under `Build/.agent-state/logs/`
+  are `20261116-175534-371523-44736-SceneImportTests.log`,
+  `20261116-175611-892854-19812-SceneImportVulkanTests.log`,
+  `20261116-175753-786725-26264-RenderShaderContractTests.log`,
+  `20261116-175831-584628-6976-RoadSceneIntegrationTests.log` and
+  `20261116-175848-787838-42044-SandboxGameplayTests.log`.
+  `affected --explain` expanded to all tests because shared fixture headers and
+  runtime assets changed. The bounded material, Shader, Renderer, import and
+  cross-project selections cover the changed behavior; unrelated engine services
+  were not selected. Later LF normalization changes source bytes without changing
+  semantics; passing results above remain applicable to those normalized inputs.
+  RendererResourceReloadVulkanTests also passed both cases after normalization;
+  receipt `20261116-180029-192392-46076-RendererResourceReloadVulkanTests.log`.
+- Recreated the four Engine assets and DefaultWater at their original paths.
+  The isolated Water author/material comparison passed; its temporary workspace
+  admission was restored byte-for-byte. No Water Game/Cook or GPU result is
+  claimed from that CPU probe.
+- Offline SDK Slang generated MSL for all four Cube fragment modes. Inspection
+  found `texturecube<float>` at texture 4 and its sampler at 2 in every entry;
+  sources and `metal-source-inspection.json` preserve that evidence. This is
+  supplemental MSL inspection, not production Metal reflection or execution.
+  The older SDK frontend rejected vertex `SV_StartInstanceLocation`; native
+  Metal compilation/reflection and WPO qualification require the supported
+  macOS toolchain. No shader semantics were changed to bypass that limitation.
+- Changed-document validation and `git diff --check` passed for the final change.
+
+The first two Stage 3 implementation tasks are complete. Scene inputs, resource
+planning/RDG lifetimes, subrect/resizing/depth proofs, native Metal acceptance
+and complete source-free Game/Cook execution remain open. The earlier sampling
+receipt is historical and does not claim these continuation inputs.
 
 ### Stage 4: Prove shading-model and domain extension
 
@@ -740,8 +833,9 @@ direction Float3; arrays/3D remain unavailable. Implicit, Bias and Grad are
 Pixel-only; Level is Vertex/Pixel. Coordinate space for Cube is an explicit
 author choice, not an automatic World transform. Add AddressW to sampler policy
 with Repeat default. Cube permits white/black six-face fallback; reject the 2D
-FlatRGNormal fallback. Resource defaults/overrides use a checked variant of
-Texture2D/TextureCube, never an unchecked cast from the existing DTexture2D field.
+FlatRGNormal fallback. The initial storage decision used a checked Texture2D/TextureCube variant. The
+Stage 3 UE interface alignment decision above supersedes that representation
+with a validated DTexture reference and explicit detached dimension.
 
 Version transitions are frozen below. Stage 5/6 do not change formats unless a
 newly discovered incompatibility is documented first. Stage-specific generations
@@ -750,11 +844,11 @@ remain unchanged unless their own representation changes.
 
 | Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4/final |
 | --- | --- | --- | --- | --- | --- |
-| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 7 / 4 / 4 | same |
+| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 8 / 4 / 5 | same |
 | MaterialInstance custom version | 2 | 2 | 2 | 3 | 3 |
-| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 11 / 7 | 12 / 8 |
-| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 11 / 19 / 16 | 12 / 20 / 17 |
-| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 15 / 18 | 16 / 19 |
+| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 12 / 8 | 13 / 9 |
+| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 12 / 20 / 17 | 13 / 21 / 18 |
+| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 16 / 19 | 17 / 20 |
 | RenderLayout identity and compiled-layout version | 4 / 4 | same | same | 5 / 5 | same |
 
 The existing shader-library container need not change solely because material
