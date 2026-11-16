@@ -94,6 +94,10 @@ namespace Durin
 		case EMaterialProgramOpcode::VertexNormal:
 			if (ResultType != Type::Float3) return std::nullopt;
 			break;
+		case EMaterialProgramOpcode::SceneTexture:
+		case EMaterialProgramOpcode::SceneDepth:
+			if (ResultType != (Opcode == EMaterialProgramOpcode::SceneTexture ? Type::Float4 : Type::Float3)) return std::nullopt;
+			Same(1, Type::Float2); break;
 		case EMaterialProgramOpcode::ScreenPosition:
 		case EMaterialProgramOpcode::ViewSize:
 			if (ResultType != Type::Float2) return std::nullopt;
@@ -354,6 +358,9 @@ namespace Durin
 		case OpcodeType::VertexNormal:
 			Result.Kind = Kind::Normal; Result.Space = Space::World;
 			return WithStages(Result, Inputs, Stage::Vertex);
+		case OpcodeType::SceneTexture:
+		case OpcodeType::SceneDepth:
+			return WithStages(Result, Inputs, Stage::Pixel);
 		case OpcodeType::ScreenPosition:
 			Result.Kind = Kind::ScreenCoordinate; Result.Space = Space::Screen;
 			return WithStages(Result, Inputs, Stage::Pixel);

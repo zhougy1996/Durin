@@ -384,5 +384,7 @@ namespace Durin
 		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult;
 	[[nodiscard]] ENGINE_API auto ValidateMaterialStaticProperties(
 		const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>;
+    [[nodiscard]] ENGINE_API auto ValidateMaterialConfiguration(EMaterialDomain Domain,
+        const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>;
 
 }

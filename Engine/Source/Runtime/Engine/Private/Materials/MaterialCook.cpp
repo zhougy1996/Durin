@@ -159,6 +159,12 @@ namespace Durin
 	auto DMaterialInterface::ValidatePreparedMaterialProgram(const FMaterialStaticProperties& PayloadProperties,
 		std::shared_ptr<const FMaterialProgram> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialProgram>, std::string>
 	{
+		FResolvedMaterialProperties Resolved;
+		if (!ProgramCandidate || !ResolveMaterialProperties(*this, Resolved))
+			return std::unexpected("payload material owner is unavailable.");
+		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Resolved.Root));
+		if (!Root || Root->GetDomain() != ProgramCandidate->GetShaderMap().Domain)
+			return std::unexpected("payload domain does not match package metadata.");
 		const auto ExpectedProperties = CanonicalizeMaterialShaderProperties(GetStaticProperties());
 		if (PayloadProperties != ExpectedProperties)
 		{

@@ -674,7 +674,7 @@ namespace Durin
 		FResolvedMaterialProperties Properties;
 		if (!ResolveMaterialProperties(*this, Properties)) return {};
 		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Properties.Root));
-		if (!Root) return {};
+		if (!Root || Root->GetDomain() != Program->GetShaderMap().Domain) return {};
 		FMaterialInstanceParameterSet Defaults;
 		for (const auto& Parameter : Program->GetShaderMap().ActiveParameters)
 		{

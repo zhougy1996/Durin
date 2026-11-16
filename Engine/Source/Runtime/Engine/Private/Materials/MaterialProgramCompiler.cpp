@@ -145,6 +145,8 @@ namespace Durin
 			AppendLittleEndian(Bytes, Node.GetTransform().Source);
 			AppendLittleEndian(Bytes, Node.GetTransform().Destination);
 			AppendLittleEndian(Bytes, Node.GetTextureReadMode());
+			if (const auto* Read = std::get_if<MIR::FSceneTextureRead>(&Node.Payload))
+			{ AppendLittleEndian(Bytes, Read->SceneTextureId); AppendLittleEndian(Bytes, Read->Filter); }
 			if (const auto* Read = std::get_if<MIR::FCustomDataRead>(&Node.Payload))
 				AppendLittleEndian(Bytes, Read->Index);
 		}
@@ -312,6 +314,8 @@ namespace Durin
 		MIR::FNormalizationResult Result;
 		const auto EnvironmentValidation = ValidateMaterialNormalizationEnvironment(Input);
 		if (!EnvironmentValidation) return EnvironmentValidation;
+		if (const auto Valid = ValidateMaterialConfiguration(Input.IR.Domain, Input.StaticProperties); !Valid)
+		{ Result.Diagnostics.push_back(MakeNormalizationFailure(Valid.error())); return Result; }
 		if (Input.Collections.size() > MaterialParameterCollectionMaxPerMaterial)
 		{
 			Result.Diagnostics.push_back(MakeNormalizationFailure(
@@ -450,11 +454,11 @@ namespace Durin
 		{
 			const FMaterialAttributeValues Defaults;
 			std::set<EMaterialProperty> Demanded;
-			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses))
+			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.IR.Domain))
 				for (const auto Property : GetMaterialEntryProperties(Entry, Input.StaticProperties)) Demanded.insert(Property);
 			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
 				if (!Demanded.contains(static_cast<EMaterialProperty>(Index))
-					|| !IsMaterialSurfaceOutputActive(static_cast<EMaterialProperty>(Index), Input.StaticProperties))
+					|| (IR.Domain == EMaterialDomain::Surface && !IsMaterialSurfaceOutputActive(static_cast<EMaterialProperty>(Index), Input.StaticProperties)))
 				{
 					auto& Root = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
 					Root.bExpression = false;
@@ -530,6 +534,8 @@ namespace Durin
 			Result.Diagnostics.push_back(MakeNormalizationFailure(std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Layout.Validation.Error), Layout.Validation.ParameterId.IsValid() ? std::format(" [parameter {}]", Layout.Validation.ParameterId.ToString()) : "", Layout.Validation.FieldIndex)));
 			return Result;
 		}
+		if (const auto Domain = ValidateMaterialEvaluationDomain(IR); !Domain)
+		{ Result.Diagnostics.push_back(MakeNormalizationFailure(Domain.error())); return Result; }
 		const auto Error = MIR::EncodeCanonical(IR, Result.CanonicalBytes);
 		if (!Error)
 		{
@@ -574,7 +580,7 @@ namespace Durin
 			}
 			AppendIRNode(OutBytes, Node);
 		}
-		if (IR.Domain != EMaterialDomain::Surface)
+		if (IR.Domain > EMaterialDomain::PostProcess)
 		{ OutBytes.clear(); return std::unexpected("Unsupported material domain."); }
 		AppendLittleEndian(OutBytes, IR.Domain);
 		AppendLittleEndian(OutBytes, static_cast<uint8>(IR.bAggregateAttributes));

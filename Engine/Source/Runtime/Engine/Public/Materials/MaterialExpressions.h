@@ -1363,6 +1363,35 @@ namespace Durin
 	};
 
 	DCLASS()
+	class DMaterialExpressionSceneTexture : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionSceneTexture(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput Coordinates{2};
+		DPROPERTY(Edit)
+		EMaterialSceneTextureId SceneTextureId = EMaterialSceneTextureId::PostProcessInput0;
+		DPROPERTY(Edit)
+		bool bFiltered = true;
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	// Device depth, positive view depth, validity. No-geometry is (clear, 0, 0).
+	DCLASS()
+	class DMaterialExpressionSceneDepth : public DMaterialExpression
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialExpressionSceneDepth(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		DPROPERTY()
+		FMaterialNumericInput Coordinates{2};
+		auto GetAuthoredInputCount() const -> uint32 override { return 1; }
+		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
+	};
+
+	DCLASS()
 	class DMaterialExpressionScreenPosition : public DMaterialExpression
 	{
 		GENERATED_BODY()

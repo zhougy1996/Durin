@@ -79,7 +79,7 @@ after preparation and recording. One recording boundary resolves validated
 backings into reusable temporary RHI batches; command recording copies those
 payloads without modifying the compiled plan.
 
-Graph-created textures and buffers use description-first `CreateTexture`/`CreateBuffer` declarations.
+Graph-created textures and buffers use description-first `CreateTexture`/`CreateBuffer` declarations. `GetTextureDesc` returns an owned description snapshot for a texture in this builder; invalid or foreign handles return absence, without exporting backing pointers or borrowing declaration storage.
 
 Non-const `Execute(CommandList, Allocator)` compiles, prepares retained
 resources, records passes, and publishes extraction outputs. The optional

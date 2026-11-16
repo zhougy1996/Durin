@@ -1,3 +1,5 @@
+#include "Materials/MaterialShaderMap.h"
+#include "Asset/OfflinePreparation.h"
 #include "MaterialGraphDocument.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -227,4 +229,39 @@ TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRound
 	EXPECT_EQ(Definition->Value.GetTexture().Dimension, EMaterialTextureDimension::TextureCube);
 	ASSERT_TRUE(UnloadPackage(Path));
 	CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FMaterialGraphPersistenceTests, SceneInputDomainCoordinatesAndFilteringSurvivePackageReload)
+{
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "SceneInputRoundTrip";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/SceneInputRoundTrip/", Root.generic_string() + "/");
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/SceneInputRoundTrip/Effect", Path));
+	DMaterial* Material = nullptr; ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialConfiguration Configuration; Configuration.Domain = EMaterialDomain::PostProcess;
+	Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+	ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+	auto Scene = Testing::MakeGraphExpression<DMaterialExpressionSceneTexture>();
+	Scene->bFiltered = false; Scene->Coordinates.SetConstant({.25f,.75f});
+	auto RGB = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Components = {0,1,2}; RGB->Input = {Scene->Id};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {RGB->Id};
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,2>{Scene.Get(),RGB.Get()}, Outputs));
+	const auto Expected = CaptureExpressions(*Material);
+	ASSERT_TRUE(SavePackage(Material->GetPackage())); Scene.Reset(); RGB.Reset();
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path)); ASSERT_NE(Material,nullptr);
+	EXPECT_EQ(Material->GetDomain(),EMaterialDomain::PostProcess); EXPECT_EQ(CaptureExpressions(*Material),Expected);
+	const auto Node = std::ranges::find_if(Material->GetExpressionCollection().Expressions, [](const auto& E) { return Cast<DMaterialExpressionSceneTexture>(E.Get()) != nullptr; });
+	ASSERT_NE(Node,Material->GetExpressionCollection().Expressions.end());
+	const auto* Loaded = Cast<DMaterialExpressionSceneTexture>(Node->Get()); EXPECT_FALSE(Loaded->bFiltered);
+	EXPECT_EQ(Loaded->SceneTextureId,EMaterialSceneTextureId::PostProcessInput0);
+	EXPECT_EQ(Loaded->Coordinates.Constant,(std::vector<float>{.25f,.75f}));
+	ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetShaderMap().Domain,EMaterialDomain::PostProcess);
+	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(EObjectFlags::Standalone);
 }

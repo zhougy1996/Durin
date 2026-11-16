@@ -91,7 +91,8 @@ TEST(FMaterialShaderStageTests, CanonicalEntryContractUsesStableShaderTypes)
 	constexpr std::array<std::string_view, 6> Names{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain"};
-	EXPECT_EQ(MaterialCompiledEntryPoints, Names);
+	EXPECT_TRUE(std::ranges::equal(std::span(MaterialCompiledEntryPoints).first(6), Names));
+	EXPECT_EQ(MaterialCompiledEntryPoints.back(), "PostProcessMaterialMain");
 	EXPECT_EQ(MaterialAllEntries.size(), 6u);
 	const auto Options = MakeMaterialShaderCompileRequest(FMaterialTranslatedProgram{.Status = EMaterialProgramStatus::Ok}, false);
 	ASSERT_EQ(Options.EntryPoints.size(), 6u);
@@ -3338,6 +3339,76 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 					EXPECT_TRUE(std::ranges::contains(Shader.Reflection.ResourceBindings, "MaterialTexture0", &FShaderResourceBinding::Name));
 		}
 		Input.IR.Nodes[Sample].Payload = MIR::FTextureRead{static_cast<Mode>(255)};
+		EXPECT_FALSE(MIR::Normalize(Input));
+	}
+}
+
+TEST(FMaterialSceneTextureTests, PostProcessReadsCompileReflectAndSurviveSourceFreeCook)
+{
+	using namespace Durin;
+	using Op = EMaterialProgramOpcode; using Type = EMaterialProgramValueType;
+	InitializeDObjectSystem();
+	for (const bool Depth : {false, true})
+	{
+		SCOPED_TRACE(Depth);
+		MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+		Input.IR.Domain = EMaterialDomain::PostProcess;
+		Input.StaticProperties.ShadingModel = EMaterialShadingModel::Unlit;
+		const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+		ASSERT_TRUE(EnvironmentResult) << EnvironmentResult.error();
+		const auto Add = [&](MIR::FNode Node) { ResolveNodeSemantics(Input.IR, Node); const auto I = uint32(Input.IR.Nodes.size()); Input.IR.Nodes.push_back(Node); return I; };
+		const auto UV = Add({.Opcode = Op::ScreenPosition, .ResultType = Type::Float2});
+		const auto Read = Add({.Opcode = Depth ? Op::SceneDepth : Op::SceneTexture, .ResultType = Depth ? Type::Float3 : Type::Float4,
+			.Inputs = {UV}, .Payload = MIR::FSceneTextureRead{Depth ? EMaterialSceneTextureId::SceneDepth : EMaterialSceneTextureId::PostProcessInput0,
+				Depth ? EMaterialSceneTextureFilter::Point : EMaterialSceneTextureFilter::Linear}});
+		const auto Color = Depth ? Read : Add({.Opcode = Op::Swizzle, .ResultType = Type::Float3, .Inputs = {Read}, .Payload = MIR::FSwizzle{3, {0,1,2}}});
+		auto& Root = Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor); Root.bExpression = true; Root.ExpressionIndex = Color;
+		const auto Translation = TranslatePreparedMaterialProgram({.Normalized = MIR::Normalize(Input), .StaticProperties = Input.StaticProperties, .Environment = Input.Environment});
+		ASSERT_TRUE(Translation) << FormatMaterialProgramDiagnostics(Translation.Diagnostics);
+		ASSERT_EQ(Translation.Entries.size(), 1u);
+        const auto Grouped = MakeMaterialShaderCompileRequest(Translation,false);
+        EXPECT_EQ(Grouped.EntryPoints,(std::vector<std::string>{"PostProcessMaterialMain"}));
+        if (const auto* Directory = std::getenv("DURIN_MATERIAL_SCENE_SOURCE_DIR"))
+        {
+            const auto File = std::filesystem::path(Directory) / (Depth ? "SceneDepth.slang" : "Input0.slang");
+            ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Translation.GeneratedSource)),File));
+        }
+		EXPECT_FALSE(Translation.Entries[0].Mesh);
+		EXPECT_EQ(Translation.Entries[0].Shader.ShaderType, "PostProcessMaterial");
+		EXPECT_EQ(Translation.Entries[0].Requirements.SceneTextures.size(), Depth ? 2u : 1u);
+        const auto Jobs = MakeMaterialShaderStageRequests(Translation, false); ASSERT_EQ(Jobs.size(), 1u);
+        const auto ShaderOutput = FShaderCompilingManager::Get().CompileGeneratedSync(Jobs[0]);
+        ASSERT_TRUE(ShaderOutput) << FormatShaderCompilerErrors(ShaderOutput.Errors);
+        std::string Reflected;
+        for (const auto& B : ShaderOutput.CompiledShaders[0].Reflection.ResourceBindings)
+            Reflected += std::format("{} set {} binding {} type {}\n", B.Name, B.SetIndex, B.BindingIndex, uint32(B.Type));
+        ASSERT_TRUE(ValidateMaterialCompiledStages(ShaderOutput.CompiledShaders, Translation.Layout, Translation.ResourceLimits,
+            Translation.ActiveCollections, Translation.RequiredEntries)) << Reflected;
+        ASSERT_TRUE(ValidateMaterialCompilationOutput(Translation, Translation.Identity, Translation.Target, ShaderOutput.CompiledShaders)) << Reflected;
+		const auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(Input); ASSERT_TRUE(Encoded);
+		const auto Decoded = MaterialBuildPrivate::DecodeTranslationInput(Encoded->GetBytes()); ASSERT_TRUE(Decoded);
+		EXPECT_EQ(Decoded->IR, Input.IR);
+		const auto Compiled = MIR::Compile(*Decoded); ASSERT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
+		ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), 1u);
+		const auto& Bindings = Compiled.GetShaderMap().CompiledShaders[0].Reflection.ResourceBindings;
+		EXPECT_TRUE(std::ranges::contains(Bindings, "PostProcessInput0", &FShaderResourceBinding::Name));
+		EXPECT_EQ(std::ranges::contains(Bindings, "MaterialSceneDepth", &FShaderResourceBinding::Name), Depth);
+		EXPECT_FALSE(std::ranges::contains(Bindings, "MaterialPrimitive", &FShaderResourceBinding::Name));
+		FByteBuffer Bytes;
+		auto Saved = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, Input.StaticProperties, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+		ASSERT_TRUE(Saved) << Saved.error();
+		FMaterialStaticProperties Properties; std::shared_ptr<const FMaterialProgram> Cooked;
+		Saved = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Compiled.Resource, Properties, Cooked);
+		ASSERT_TRUE(Saved) << Saved.error(); ASSERT_TRUE(Cooked);
+		EXPECT_TRUE(Cooked->GetDebugData().IR.Nodes.empty());
+		EXPECT_EQ(Cooked->GetShaderMap().Entries, Compiled.GetShaderMap().Entries);
+		Input.IR.Domain = EMaterialDomain::Surface; EXPECT_FALSE(MIR::Normalize(Input));
+        Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor).bExpression = false;
+        auto& Inactive = Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor); Inactive.bExpression = true; Inactive.ExpressionIndex = Color;
+        EXPECT_TRUE(MIR::Normalize(Input)); // Unlit Surface does not execute BaseColor.
+        Inactive.bExpression = false; Input.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor).bExpression = true;
+		Input.IR.Domain = EMaterialDomain::PostProcess;
+		Input.IR.Nodes[Read].Payload = MIR::FSceneTextureRead{EMaterialSceneTextureId::SceneDepth, EMaterialSceneTextureFilter::Linear};
 		EXPECT_FALSE(MIR::Normalize(Input));
 	}
 }

@@ -173,17 +173,27 @@ namespace Durin
 
 	auto DMaterial::SetMaterialConfiguration(const FMaterialConfiguration& Configuration) -> FMaterialProgramValidationResult
 	{
-		if (Configuration.Domain != EMaterialDomain::Surface)
-			return {.Diagnostics = {{.Message = "The selected material domain has no execution implementation."}}};
+        if (const auto Valid = ValidateMaterialConfiguration(Configuration.Domain, Configuration.Properties); !Valid)
+            return {.Diagnostics = {{.Message = Valid.error()}}};
+		const auto PreviousDomain = Domain;
+		Domain = Configuration.Domain;
 		const auto Result = SetStaticProperties(Configuration.Properties);
-		if (!Result) return {.Diagnostics = {{.Message = Result.error()}}};
+		if (!Result) { Domain = PreviousDomain; return {.Diagnostics = {{.Message = Result.error()}}}; }
+		if (PreviousDomain != Domain)
+		{
+			FObjectCacheContext Context;
+			AdvanceAuthoredRevision(&Context);
+			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this, &Context);
+			MarkPackageDirty();
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState, true, &Context);
+		}
 		return {.bSucceeded = true};
 	}
 
 	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> std::expected<void, std::string>
 	{
 		auto Properties = InProperties;
-		const auto Error = ValidateMaterialStaticProperties(Properties);
+		const auto Error = ValidateMaterialConfiguration(Domain, Properties);
 		if (!Error) return Error;
 		Properties.GeometryUsage &= 3;
 		if (StaticProperties == Properties) return {};

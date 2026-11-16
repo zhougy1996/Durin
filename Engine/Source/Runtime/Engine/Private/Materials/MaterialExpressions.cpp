@@ -101,6 +101,8 @@ namespace Durin
 				Result.push_back({static_cast<EMaterialOutputPin>(Definition.Property), Definition.Name, Definition.Semantics.Type});
 			return Result;
 		}();
+		static const std::array PostProcessPins{FMaterialOutputPinDefinition{EMaterialOutputPin::Emissive, "Emissive Color", EMaterialProgramValueType::Float3}};
+		if (Domain == EMaterialDomain::PostProcess) return PostProcessPins;
 		return Domain == EMaterialDomain::Surface ? std::span<const FMaterialOutputPinDefinition>(Pins) : std::span<const FMaterialOutputPinDefinition>{};
 	}
 

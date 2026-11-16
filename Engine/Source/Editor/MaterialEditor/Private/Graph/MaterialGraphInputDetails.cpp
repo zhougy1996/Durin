@@ -234,6 +234,21 @@ namespace Durin::MaterialEditor
 		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameterCube>(Expression.Get()));
 		EditSamplingMode(Cast<DMaterialExpressionTextureSample2D>(Expression.Get()));
 		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()));
+		if (const auto* Scene = Cast<DMaterialExpressionSceneTexture>(Expression.Get()); Scene && !Changed)
+		{
+			int Id = static_cast<int>(Scene->SceneTextureId);
+			bool Filtered = Scene->bFiltered;
+			const bool IdChanged = DetailsStyle::EditRow("Scene input", [&] { return ImGui::Combo("##Value", &Id, "PostProcessInput0\0Scene Depth\0"); });
+			if (Id == static_cast<int>(EMaterialSceneTextureId::SceneDepth)) Filtered = false;
+			const bool FilterChanged = Id == static_cast<int>(EMaterialSceneTextureId::PostProcessInput0)
+				&& DetailsStyle::EditRow("Linear filtering", [&] { return ImGui::Checkbox("##Value", &Filtered); });
+			if (IdChanged || FilterChanged)
+			{
+				TStrongObjectPtr<DMaterialExpressionSceneTexture> Copy(DuplicateObject(Scene, nullptr, NAME_None).value());
+				Copy->SceneTextureId = static_cast<EMaterialSceneTextureId>(Id); Copy->bFiltered = Filtered;
+				Submit(Document.ReplaceExpression(*Copy));
+			}
+		}
 		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)
 		{
 			DetailsStyle::EditRow("Channels", [&] {

@@ -17,8 +17,10 @@ for the Stage 3 graph/function generation at their original logical paths.
 Validation and content disposition are recorded below. Stage 3 is in progress:
 Texture2D/Cube values now follow UE's base-texture reference and typed MIR
 boundary, with all four sampling modes, instance replacement, function/editor
-support, source-free DMAT and Vulkan pixel validation. Scene inputs and the
-remaining integrated authoring-to-Cook/backend exit gates remain open.
+support, source-free DMAT and Vulkan pixel validation. PostProcessInput0 and
+read-only SceneDepth now traverse authoring, detached compilation, source-free
+Cook decoding and Renderer RDG planning/binding. The scene-input and RDG tasks
+are complete; the remaining Stage 3 backend/WPO qualification gates remain open.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -378,8 +380,8 @@ Depends on Stage 2.
 
 - [x] Generalize material texture parameter values/layouts to support Texture2D and TextureCube, reusing existing texture asset/build/residency facilities. Migrate instance overrides, functions, reflection, fallback resources and cooked references.
 - [x] Implement Implicit/Level/Bias/Grad read modes with dimensional coordinate validation. Explicit Level works in Vertex and Pixel; implicit derivatives, Bias and Grad are Pixel-only for this scope. Reject illegal combinations before Shader compilation.
-- [ ] Implement logical scene inputs for PostProcessInput0 and read-only SceneDepth, with declared filtering and conversion helpers. Do not expose an ambiguous writable current SceneColor.
-- [ ] Carry entry requirements through source-free Cook loading. Renderer material planning resolves them to counted resources, RDG declarations and pass bindings; unavailable required inputs fail locally without stale bindings.
+- [x] Implement logical scene inputs for PostProcessInput0 and read-only SceneDepth, with declared filtering and conversion helpers. Do not expose an ambiguous writable current SceneColor.
+- [x] Carry entry requirements through source-free Cook loading. Renderer material planning resolves them to counted resources, RDG declarations and pass bindings; unavailable required inputs fail locally without stale bindings.
 - [ ] Test cube face/orientation and mip selection, vertex texture WPO, per-instance resource replacement, missing resources, scene UV/depth reconstruction, subrects, resizing and incompatible-domain rejection. Inspect Vulkan and Metal reflection.
 
 Exit: TextureCube and explicit sampling traverse authoring-to-Cook execution;
@@ -387,6 +389,17 @@ scene reads have validated lifetimes and no attachment read/write feedback.
 Texture3D/Array and additional scene inputs remain future extensions.
 
 ### Stage 3 UE interface alignment decision
+
+The scene-input continuation follows UE 5.8's `UMaterialExpressionSceneTexture`
+(logical ID, coordinates and filtering) and ScreenPass texture/view-rect ownership.
+Scene reads remain detached logical values; Renderer resolves graph-local inputs
+and declares typed RDG reads with a distinct output. Stage 3 introduces the
+minimal PostProcess compilation entry needed to validate these reads, while the
+per-view effect slot and display-chain integration remain Stage 4 work.
+Because the Cube slice published intermediate artifacts, scene-node payloads and
+domain execution advance graph/function to 9/6, MIR/translation to 13/9,
+normalization/generator/adapter to 13/21/18, pass/DMAT to 17/20. Stage 4 must use
+subsequent generations when its representations change. Layout stays at 5.
 
 The 2026-11-16 continuation explicitly prioritizes UE alignment for primary
 interfaces and data structures. UE 5.8.0's MaterialExpressionTextureBase uses
@@ -550,6 +563,57 @@ The first two Stage 3 implementation tasks are complete. Scene inputs, resource
 planning/RDG lifetimes, subrect/resizing/depth proofs, native Metal acceptance
 and complete source-free Game/Cook execution remain open. The earlier sampling
 receipt is historical and does not claim these continuation inputs.
+
+#### Scene inputs and RDG continuation receipt
+
+Validated the working tree based on
+`716f05246c399f402688d1be0e8bc4f780d53dd7` on 2026-11-16, using
+windows-msvc-x64 / Win64-Debug-DurinEditor, MSVC 19.44, Debug, Tracy and 14 jobs.
+The implemented contract is [Material scene inputs](../Runtime/Rendering/Materials/MaterialSceneInputs.md).
+UE comparison used this session's local 5.8.0 installation, CL 53629095,
+`MaterialExpressionSceneTexture.h`, `MaterialIRTypes.h` and Renderer `ScreenPass.h`.
+
+- Logical IDs, coordinates and filtering are reflected authoring values; MIR
+  retains typed scene-read payloads. Domain policy has one shared configuration
+  validator. Execution legality follows static selection/inactive-root removal,
+  including function calls. PostProcess compilation emits one fragment entry
+  without mesh/VF/lighting requests. Grouped and per-stage requests agree.
+- Source-free DMAT retains canonical entry requirements, including Input0 alpha
+  preservation. Cooked admission checks the package root's domain. Renderer
+  resolves graph-owned texture/view-rect values, validates descriptors and
+  projection rows, declares exact reads and a separate raster output, and builds
+  counted views/samplers/uniform bindings inside resolver authority. Foreign
+  graph handles, missing inputs, zero rectangles and invalid projections reject.
+- All 13 material feature targets passed, including scene authoring/package
+  reload, functions inheriting caller-domain legality, inactive-root selection,
+  reflection, translation and graph-stripped DMAT. Receipt:
+  `Build/.agent-state/logs/20261116-191314-889436-46344-ctest.log`.
+- The isolated MaterialSceneTexturesVulkanTests target passed on NVIDIA GeForce
+  GTX 1060 6GB / Vulkan 1.4.312. It decodes Game-profile Cook payloads, shuts down
+  ShaderBuild before GPU execution, then verifies six material variants across
+  two input sizes, subrects, Point/Linear differences, boundary clamping,
+  NormalZ/ReversedZ oblique reconstruction, actual sampled texel centers,
+  no-geometry validity and alpha preservation. Missing/foreign/zero inputs and
+  injected allocation failure publish no stale output; subsequent planning and
+  draws succeed. Final receipt:
+  `Build/.agent-state/logs/20261116-191920-549506-42376-MaterialSceneTexturesVulkanTests.log`.
+  The final log contains no Vulkan validation errors. This is source-free program
+  execution in the Editor test host, not a packaged Game executable run.
+- Workspace `all` passed for the new shared material/RDG declarations and
+  reflected schemas; receipt
+  `Build/.agent-state/logs/20261116-191829-556061-30064-cmake.log`.
+  Recreated DefaultMaterial, the three standard functions and DefaultWater at
+  their existing paths. Water author/material CPU comparison passed; temporary
+  fixture admission was restored byte-for-byte. Raw Water logs and final
+  source/test/asset SHA-256 inventory are under
+  `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage3/Scene/`.
+- Affected analysis selected broad module consumers. The bounded material feature
+  set, isolated native scene proof and workspace build cover this continuation.
+  At the user's request to finish quickly, no further GPU suites, performance
+  qualification, native Metal reflection, packaged Game or full corpus Cook
+  were added. The remaining Stage 3 qualification checkbox stays open, including
+  earlier Cube corner-orientation/numerical WPO and native Metal gaps. Stage 4
+  still owns the per-view effect slot and final display-chain integration.
 
 ### Stage 4: Prove shading-model and domain extension
 
@@ -844,11 +908,11 @@ remain unchanged unless their own representation changes.
 
 | Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4/final |
 | --- | --- | --- | --- | --- | --- |
-| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 8 / 4 / 5 | same |
+| MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 9 / 4 / 6 | same |
 | MaterialInstance custom version | 2 | 2 | 2 | 3 | 3 |
-| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 12 / 8 | 13 / 9 |
-| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 12 / 20 / 17 | 13 / 21 / 18 |
-| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 16 / 19 | 17 / 20 |
+| MIR / TranslationSchema | 8 / 4 | 9 / 5 | 10 / 6 | 13 / 9 | 14 / 10 |
+| Normalization / Generator / CompileAdapter revisions | 8 / 16 / 13 | 9 / 17 / 14 | 10 / 18 / 15 | 13 / 21 / 18 | 14 / 22 / 19 |
+| MaterialPassContract / DMAT payload schema | 13 / 15 | 13 / 16 | 14 / 17 | 17 / 20 | 18 / 21 |
 | RenderLayout identity and compiled-layout version | 4 / 4 | same | same | 5 / 5 | same |
 
 The existing shader-library container need not change solely because material

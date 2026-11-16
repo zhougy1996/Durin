@@ -424,7 +424,7 @@ namespace Durin::MaterialEditor
 						.bUseConstant = Attribute.Source.UseConstant});
 				}
 			for (auto& Pin : View.Inputs)
-				if (Node.Opcode != EMaterialProgramOpcode::Normalize && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
+				if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
 					&& Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
 					&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4)
 					Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);

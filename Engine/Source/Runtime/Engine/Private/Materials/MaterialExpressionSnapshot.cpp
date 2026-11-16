@@ -118,6 +118,7 @@ namespace Durin
 				else if (const auto* Id = std::get_if<FGuid>(&Node.Payload)) Hash.UpdateValue(*Id);
 				else if (const auto* Read = std::get_if<MIR::FTextureRead>(&Node.Payload)) Hash.UpdateValue(Read->Mode);
 				else if (const auto* Read = std::get_if<MIR::FCustomDataRead>(&Node.Payload)) Hash.UpdateValue(Read->Index);
+				else if (const auto* Read = std::get_if<MIR::FSceneTextureRead>(&Node.Payload)) { Hash.UpdateValue(Read->SceneTextureId); Hash.UpdateValue(Read->Filter); }
 				else if (const auto* Collection = std::get_if<MIR::FCollectionParameter>(&Node.Payload))
 				{
 					Hash.UpdateValue(Collection->CollectionId);
@@ -222,6 +223,7 @@ namespace Durin
 		}, .Quality = Environment.Quality, .FeatureLevel = Environment.FeatureLevel,
 			.StaticBools = Environment.StaticBools});
 		auto Built = Context.FinishSurface(Owner->GetExpressionOutputs());
+		Built.IR.Domain = Owner->GetDomain();
 		if (!Built)
 		{
 			Result.Diagnostics = std::move(Built.Diagnostics);

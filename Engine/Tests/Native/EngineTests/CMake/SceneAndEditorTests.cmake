@@ -192,6 +192,38 @@ durin_add_native_test(PostProcessVulkanTests
 		"Verifies demand-driven post-process PSO variants and cache reuse with native Vulkan creation."
 )
 
+durin_add_native_test(MaterialSceneTexturesVulkanTests
+	KIND ${_durin_vulkan_integration_kind}
+	DOMAINS material renderer shader
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS renderer
+	TIMEOUT 900
+	SOURCES Private/MaterialSceneTexturesVulkanTests.cpp
+	LIBRARIES
+		Core
+		CoreDObject
+		Engine
+		ApplicationCore
+		DerivedDataCache
+		RenderCore
+		Renderer
+		ShaderBuild
+		Slang_Imported
+		VulkanRHI
+		VulkanRHITestSupport
+		Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+
+	REQUIRES editor
+	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
+	HEAVY_RUNTIME_RATIONALE
+		"Verifies source-free material scene reads, filtering, viewport mapping, depth reconstruction and RDG allocation lifetimes on Vulkan."
+)
+
 if(WIN32)
 	set(_water_plugin_test_libraries)
 	set(_water_plugin_test_definitions DURIN_WATER_PLUGIN_TESTS=0)

@@ -5,6 +5,7 @@ module MaterialCompilerEnvironment;
 // shared shader modules that generated vertex and fragment stages actually consume.
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
+import Material.GBufferDecode;
 import SceneData;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
@@ -16,5 +17,7 @@ import VertexFactory.LocalVertexFactory;
 import VertexFactory.SplineMeshVertexFactory;
 
 #include "Material/SurfacePasses.slang"
+#include "Material/SceneTextures.slang"
+#include "Material/PostProcessPass.slang"
 
 #include "Material/SurfacePassResources.slang"

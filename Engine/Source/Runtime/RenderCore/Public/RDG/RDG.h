@@ -34,6 +34,8 @@ namespace Durin
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGTextureHandle;
+		// Owned description snapshot; foreign or non-texture handles have no description.
+		RENDERCORE_API auto GetTextureDesc(FRDGTextureHandle Texture) const -> std::optional<FRHITextureDesc>;
 		RENDERCORE_API auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGBufferHandle;

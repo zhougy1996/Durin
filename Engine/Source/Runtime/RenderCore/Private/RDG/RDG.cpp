@@ -457,6 +457,14 @@ namespace Durin
 		return {State->Owner, Index};
 	}
 
+	auto FRDGBuilder::GetTextureDesc(FRDGTextureHandle Texture) const -> std::optional<FRHITextureDesc>
+	{
+		if (Texture.Owner != State->Owner || Texture.Index >= State->Resources.size()) return std::nullopt;
+		const auto& Resource = State->Resources[Texture.Index];
+		if (Resource.Kind != ERDGResourceKind::Texture) return std::nullopt;
+		return Resource.TextureDesc;
+	}
+
 	auto FRDGBuilder::FindExternalBuffer(FRHIBuffer* Buffer) const -> FRDGBufferHandle
 	{
 		if (!Buffer) return {};

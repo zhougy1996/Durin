@@ -314,6 +314,7 @@ enter MIR, while inactive authored values remain stored. Typed Cube resources
 traverse detached translation, graph-stripped DMAT, renderer binding and
 per-instance resource replacement. Renderer chooses a dimension-compatible
 fallback and validates the resident RHI texture against the compiled field.
+[Material scene inputs](MaterialSceneInputs.md) defines PostProcessInput0, read-only depth, viewport conversion and graph-owned resource binding.
 Synthetic expression source records retain authored node, input and call path.
 These authoring forms lower before normalization and do
 not change layout v5. Fresh materials own one material-output expression node
@@ -328,7 +329,7 @@ individual bindings. Both connection sets and retained fallbacks survive mode
 changes. Inactive known properties retain their authoring state and create no
 execution bindings. Unknown/duplicate IDs, malformed retained defaults and
 incompatible selected values reject before publication.
-Graph version 8, output version 4 and function version 5 reject older schemas
+Graph version 9, output version 4 and function version 6 reject older schemas
 explicitly. `asset material-foundation` recreates DefaultMaterial and the three
 standard functions at their existing Engine paths; use `--dry-run` to inspect
 the bounded write set. Instances use parameter-storage version 3.

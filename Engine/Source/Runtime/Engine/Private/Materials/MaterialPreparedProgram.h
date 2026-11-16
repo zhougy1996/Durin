@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	auto ValidateMaterialEvaluationDomain(const MIR::FModule& IR) -> std::expected<void, std::string>;
 	auto MakeMaterialShaderCompileOptions(FShaderTargetIdentity Target, const FMaterialStaticProperties& Properties) -> FShaderCompileOptions;
 
 	struct FMaterialTranslationInput

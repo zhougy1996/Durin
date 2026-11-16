@@ -31,6 +31,8 @@ namespace Durin::MaterialEditor
 			{&DMaterialExpressionVertexInterpolator::StaticClass, "Vertex", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionVertexNormal::StaticClass, "Inputs"},
 			{&DMaterialExpressionScreenPosition::StaticClass, "Inputs"},
+			{&DMaterialExpressionSceneTexture::StaticClass, "Scene"},
+			{&DMaterialExpressionSceneDepth::StaticClass, "Scene"},
 			{&DMaterialExpressionViewSize::StaticClass, "Inputs"},
 			{&DMaterialExpressionStaticBool::StaticClass, "Static Selection"},
 			{&DMaterialExpressionStaticSwitch::StaticClass, "Static Selection"},

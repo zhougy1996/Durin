@@ -111,6 +111,7 @@ requires; do not read unrelated topics or scan an entire directory.
 | Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/Features/DirectionalShadows.md) |
 | Loaded material dependency queries, batch caches, or notification reentrancy | [Scoped material queries](Runtime/Rendering/Materials/MaterialQueries.md) |
 | Material geometry/Pass usage, required shader stages, or vertex/pixel artifact reuse | [Shader stage selection and sharing](Runtime/Rendering/Materials/MaterialShaderStages.md) |
+| Material scene inputs, PostProcessInput0, SceneDepth, viewport conversion, or RDG input lifetimes | [Material scene inputs](Runtime/Rendering/Materials/MaterialSceneInputs.md) |
 | Material vertex roots, World Position Offset, or vertex-to-pixel interpolation | [Material vertex evaluation](Runtime/Rendering/Materials/MaterialVertexEvaluation.md) |
 | Primitive or Instance custom numeric channels, stable render instances, or material variation without separate instances | [Primitive and Instance material data](Runtime/Rendering/Materials/MaterialCustomData.md) |
 | Material expression emission, output registration, graph traversal, or function invocation caches | [Material expression building](Runtime/Rendering/Materials/MaterialExpressionBuilding.md) |

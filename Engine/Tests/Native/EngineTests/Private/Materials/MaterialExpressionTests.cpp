@@ -1667,3 +1667,28 @@ TEST(FMaterialExpressionTests, CubeFunctionPortsPreserveResourceDimensionAndVali
 	Sample->Direction.SetConstant({1,0,0}); Sample->ReadMode = EMaterialTextureReadMode::Grad; Sample->DDX.SetConstant({1,0});
 	EXPECT_FALSE(MIR::BuildGraph(Expressions,Roots,Environment));
 }
+
+TEST(FMaterialExpressionTests, SceneReadsInFunctionsInheritTheExecutingDomain)
+{
+    using namespace Durin;
+    InitializeDObjectSystem();
+    TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
+    TStrongObjectPtr<DMaterialExpressionSceneDepth> Depth(NewObject<DMaterialExpressionSceneDepth>(Function.Get(), NAME_None));
+    Depth->Id = FGuid::NewGuid();
+    TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None));
+    Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Port.Name = "Depth";
+    Output->Port.Type = EMaterialProgramValueType::Float3; Output->Port.Constraint.Stages = EMaterialEvaluationStage::Pixel;
+    Output->Source = {Depth->Id};
+    MIR::FFunctionBody Body; Body.Expressions = {Depth.Get(),Output.Get()}; Body.Signature.Outputs = {Output->Port}; Body.AssetPath = "/Test/SceneDepthFunction";
+    TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
+    Call->Id = FGuid::NewGuid(); Call->Function = Function.Get(); Call->Outputs = {{Output->Port.Id, EMaterialProgramValueType::Float3}};
+    MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) -> std::optional<MIR::FFunctionBody> { return Body; }};
+    const std::array<DMaterialExpression*,1> Nodes{Call.Get()}; MIR::FGraphBuilder Builder(Nodes,Environment);
+    FMaterialAttributeRoot Roots; Roots.Get(EMaterialProperty::MP_EmissiveColor) = {Call->Id,0,Output->Port.Id};
+    auto Built = Builder.FinishSurface(Roots); ASSERT_TRUE(Built) << FormatMaterialProgramDiagnostics(Built.Diagnostics);
+    MIR::FCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters)};
+    Input.StaticProperties.ShadingModel = EMaterialShadingModel::Unlit;
+    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+    EXPECT_FALSE(MIR::Normalize(Input));
+    Input.IR.Domain = EMaterialDomain::PostProcess; EXPECT_TRUE(MIR::Normalize(Input));
+}

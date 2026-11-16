@@ -367,6 +367,30 @@ namespace Durin
 			.ResultType = EMaterialProgramValueType::TypeValue})); \
 	}
 
+	namespace
+	{
+		auto SceneCoordinates(MIR::FEmitter& Emitter, const FMaterialNumericInput& Coordinates) -> uint32
+		{
+			if (!Coordinates.Connection.ExpressionId.IsValid() && (Coordinates.Connection.OutputIndex != 0 || Coordinates.Connection.OutputId.IsValid()))
+			{ Emitter.Fail("Disconnected scene coordinates have an output selector."); return MIR::InvalidIndex; }
+			if (Coordinates.Constant.size() != 2 || !std::ranges::all_of(Coordinates.Constant, [](float V) { return std::isfinite(V); }))
+			{ Emitter.Fail("Scene texture coordinates must be finite Float2."); return MIR::InvalidIndex; }
+			if (Coordinates.Connection.ExpressionId.IsValid()) return Emitter.ResolveIndex(Coordinates.Connection);
+			return Coordinates.UseConstant ? Emitter.Literal(Coordinates.Constant)
+				: Emitter.Emit({.Opcode = EMaterialProgramOpcode::ScreenPosition, .ResultType = EMaterialProgramValueType::Float2});
+		}
+	}
+	auto DMaterialExpressionSceneTexture::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::SceneTexture, .ResultType = EMaterialProgramValueType::Float4,
+			.Inputs = {SceneCoordinates(Emitter, Coordinates)}, .Payload = MIR::FSceneTextureRead{SceneTextureId,
+				bFiltered ? EMaterialSceneTextureFilter::Linear : EMaterialSceneTextureFilter::Point}}));
+	}
+	auto DMaterialExpressionSceneDepth::Build(MIR::FEmitter& Emitter) const -> void
+	{
+		Emitter.Output(0, Emitter.Emit({.Opcode = EMaterialProgramOpcode::SceneDepth, .ResultType = EMaterialProgramValueType::Float3,
+			.Inputs = {SceneCoordinates(Emitter, Coordinates)}, .Payload = MIR::FSceneTextureRead{EMaterialSceneTextureId::SceneDepth, EMaterialSceneTextureFilter::Point}}));
+	}
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionCameraPosition, CameraPosition, Float3)
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionCameraVector, CameraVector, Float3)
 	DURIN_DEFINE_MATERIAL_CONTEXT_BUILD(DMaterialExpressionObjectPosition, ObjectPosition, Float3)

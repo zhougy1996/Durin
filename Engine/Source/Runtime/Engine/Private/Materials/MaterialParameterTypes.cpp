@@ -297,4 +297,13 @@ namespace Durin
 		}
 		return {};
 	}
+    auto ValidateMaterialConfiguration(EMaterialDomain Domain, const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
+    {
+        if (Domain > EMaterialDomain::PostProcess) return std::unexpected("Unsupported material domain.");
+        if (const auto Valid = ValidateMaterialStaticProperties(Properties); !Valid) return Valid;
+        if (Domain == EMaterialDomain::PostProcess && (Properties.ShadingModel != EMaterialShadingModel::Unlit || Properties.BlendMode != EMaterialBlendMode::Opaque))
+            return std::unexpected("PostProcess requires opaque Unlit evaluation.");
+        return {};
+    }
+
 }

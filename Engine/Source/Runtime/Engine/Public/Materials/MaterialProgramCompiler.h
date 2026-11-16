@@ -19,14 +19,14 @@ namespace Durin
 
 	namespace MIR
 	{
-		inline constexpr uint32 CurrentVersion = 12;
+		inline constexpr uint32 CurrentVersion = 13;
 	}
 	// Opaque producer identity; algorithm changes invalidate builds, not DMAT admission.
 	ENGINE_API auto GetMaterialBuildVersion() -> uint64;
 	ENGINE_API auto GetMaterialCompileAdapterVersion() -> uint32;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 16;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 17;
 	// Classification only. Persisted requests use Shader type/entry identities.
-	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex };
+	enum class EMaterialShaderEntry : uint8 { Forward, GBuffer, Shadow, HitProxy, LocalVertex, SplineVertex, PostProcess };
 	using FMaterialShaderEntrySet = std::vector<EMaterialShaderEntry>;
 	struct FMaterialShaderEntryDescriptor
 	{
@@ -44,13 +44,15 @@ namespace Durin
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::Shadow, "SurfaceShadow", "ShadowFragmentMain", EShaderFrequency::Fragment, 3, 4},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::HitProxy, "SurfaceHitProxy", "HitProxyFragmentMain", EShaderFrequency::Fragment, 3, 8, true},
 		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::LocalVertex, "LocalMaterialVertex", "VertexMain", EShaderFrequency::Vertex, 1, 15},
-		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineMaterialVertex", "SplineVertexMain", EShaderFrequency::Vertex, 2, 15}};
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::SplineVertex, "SplineMaterialVertex", "SplineVertexMain", EShaderFrequency::Vertex, 2, 15},
+		FMaterialShaderEntryDescriptor{EMaterialShaderEntry::PostProcess, "PostProcessMaterial", "PostProcessMaterialMain", EShaderFrequency::Fragment, 0, 0}};
 	inline auto FindMaterialShaderEntry(EMaterialShaderEntry Entry) -> const FMaterialShaderEntryDescriptor*
 	{ for (const auto& D : MaterialShaderEntries) if (D.Entry == Entry) return &D; return nullptr; }
 	inline auto FindMaterialShaderEntry(std::string_view ShaderType) -> const FMaterialShaderEntryDescriptor*
 	{ for (const auto& D : MaterialShaderEntries) if (D.ShaderType == ShaderType) return &D; return nullptr; }
-	inline auto SelectMaterialShaderEntries(const FMaterialStaticProperties& Properties, bool bIncludeEditorPasses = true) -> FMaterialShaderEntrySet
+	inline auto SelectMaterialShaderEntries(const FMaterialStaticProperties& Properties, bool bIncludeEditorPasses = true, EMaterialDomain Domain = EMaterialDomain::Surface) -> FMaterialShaderEntrySet
 	{
+		if (Domain == EMaterialDomain::PostProcess) return {EMaterialShaderEntry::PostProcess};
 		FMaterialShaderEntrySet Result;
 		uint8 Passes = 0;
 		for (const auto& Entry : MaterialShaderEntries)
@@ -127,8 +129,14 @@ namespace Durin
 			EMaterialTextureReadMode Mode = EMaterialTextureReadMode::Implicit;
 			auto operator==(const FTextureRead&) const -> bool = default;
 		};
+		struct FSceneTextureRead
+		{
+			EMaterialSceneTextureId SceneTextureId = EMaterialSceneTextureId::PostProcessInput0;
+			EMaterialSceneTextureFilter Filter = EMaterialSceneTextureFilter::Linear;
+			auto operator==(const FSceneTextureRead&) const -> bool = default;
+		};
 		using FPayload = std::variant<std::monostate, FMaterialProgramLiteral, FGuid,
-			FSwizzle, FCollectionParameter, FMaterialTransformPayload, FCustomDataRead, FTextureRead>;
+			FSwizzle, FCollectionParameter, FMaterialTransformPayload, FCustomDataRead, FTextureRead, FSceneTextureRead>;
 
 		struct FNode
 		{
@@ -171,6 +179,11 @@ namespace Durin
 				const auto* Read = std::get_if<FTextureRead>(&Payload);
 				return Read ? Read->Mode : EMaterialTextureReadMode::Implicit;
 			}
+			auto GetSceneTextureRead() const -> FSceneTextureRead
+			{
+				const auto* Read = std::get_if<FSceneTextureRead>(&Payload);
+				return Read ? *Read : FSceneTextureRead{};
+			}
 			auto GetSemantics() const -> FMaterialValueSemantics
 			{
 				return {ResultType, LegalStages, SpatialKind, CoordinateSpace};
@@ -179,6 +192,15 @@ namespace Durin
 			{
 				switch (Opcode)
 				{
+				case EMaterialProgramOpcode::SceneTexture:
+				case EMaterialProgramOpcode::SceneDepth:
+				{
+					const auto* Read = std::get_if<FSceneTextureRead>(&Payload);
+					return Read && Read->SceneTextureId <= EMaterialSceneTextureId::SceneDepth
+						&& Read->Filter <= EMaterialSceneTextureFilter::Linear
+						&& (Read->SceneTextureId != EMaterialSceneTextureId::SceneDepth || Read->Filter == EMaterialSceneTextureFilter::Point)
+						&& (Opcode != EMaterialProgramOpcode::SceneDepth || Read->SceneTextureId == EMaterialSceneTextureId::SceneDepth);
+				}
 				case EMaterialProgramOpcode::PrimitiveCustomData:
 				case EMaterialProgramOpcode::InstanceCustomData:
 				{
@@ -301,8 +323,6 @@ namespace Durin
 		auto operator==(const FMaterialProgramRequirements&) const -> bool = default;
 	};
 
-	enum class EMaterialSceneTextureId : uint8 { PostProcessInput0, SceneDepth };
-	enum class EMaterialSceneTextureFilter : uint8 { Point, Linear };
 	// Logical renderer input only; Surface entries currently require none.
 	struct FMaterialSceneTextureRequirement
 	{

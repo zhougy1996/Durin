@@ -53,6 +53,7 @@ namespace Durin::MaterialBuildPrivate
 				else if constexpr (std::same_as<VType, FGuid>) Value(V);
 				else if constexpr (std::same_as<VType, MIR::FCustomDataRead>) Value(V.Index);
 				else if constexpr (std::same_as<VType, MIR::FTextureRead>) { Value(V.Mode); }
+				else if constexpr (std::same_as<VType, MIR::FSceneTextureRead>) { Value(V.SceneTextureId); Value(V.Filter); }
 				else if constexpr (std::same_as<VType, MIR::FSwizzle>) { Value(V.Length); for (auto& Part : V.Components) Value(Part); }
 				else if constexpr (std::same_as<VType, MIR::FCollectionParameter>) { Value(V.CollectionId); Value(V.ParameterId); }
 				else if constexpr (std::same_as<VType, FMaterialTransformPayload>) { Value(V.Source); Value(V.Destination); }
@@ -199,11 +200,11 @@ namespace Durin::MaterialBuildPrivate
 		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<true> Transfer{.Reader = &Reader}; FMaterialTranslatedProgram Product; FXxHash128 Identity;
 		Transfer.Product(Product, Identity); if (!Transfer.Valid() || Identity != InputIdentity) return {};
 		auto& Result = Product;
-		if (Product.RequiredEntries != SelectMaterialShaderEntries(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses)) return {};
+		if (Product.RequiredEntries != SelectMaterialShaderEntries(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses, Consumer.IR.Domain)) return {};
 		if (Product.ResourceLimits != Consumer.Environment.ResourceLimits || Product.StaticProperties != CanonicalizeMaterialShaderProperties(Consumer.StaticProperties)) return {};
 		if (Product)
 		{
-			if (!Result.Diagnostics.empty() || Result.GeneratedSource.empty() || !MIR::Validate(Result.IR, Result.ActiveParameters)) return {};
+			if (!Result.Diagnostics.empty() || Result.GeneratedSource.empty() || !MIR::Validate(Result.IR, Result.ActiveParameters) || !ValidateMaterialEvaluationDomain(Result.IR)) return {};
 			if (Result.Requirements != BuildMaterialProgramRequirements(Result.IR)
 				|| !std::ranges::is_sorted(Result.ActiveParameters, {}, &FMaterialCompilerParameterDeclaration::Id)
 				|| !std::ranges::is_sorted(Result.ActiveCollections, {}, &FMaterialParameterCollectionLayout::CollectionId)) return {};

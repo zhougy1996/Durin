@@ -122,6 +122,10 @@ namespace Durin
 	{
 		Implicit, Level, Bias, Grad,
 	};
+	DENUM()
+	enum class EMaterialSceneTextureId : uint8 { PostProcessInput0, SceneDepth };
+	DENUM()
+	enum class EMaterialSceneTextureFilter : uint8 { Point, Linear };
 
 	DENUM()
 	enum class EMaterialProgramOpcode : uint8
@@ -204,6 +208,8 @@ namespace Durin
 		BlendMaterialAttributes,
 		TextureSampleCube,
 		TextureSampleParameterCube,
+		SceneTexture,
+		SceneDepth,
 	};
 
 	struct FMaterialTransformPayload
@@ -234,7 +240,8 @@ namespace Durin
 	inline auto MaterialNumericInputAllowsScalarBroadcast(
 		EMaterialProgramOpcode Opcode, uint32 Slot) -> bool
 	{
-		if (Opcode == EMaterialProgramOpcode::TextureSample2D
+		if (Opcode == EMaterialProgramOpcode::SceneTexture || Opcode == EMaterialProgramOpcode::SceneDepth
+			|| Opcode == EMaterialProgramOpcode::TextureSample2D
 			|| Opcode == EMaterialProgramOpcode::TextureSampleCube
 			|| Opcode == EMaterialProgramOpcode::TextureSampleParameterCube
 			|| Opcode == EMaterialProgramOpcode::TextureSampleParameter2D
