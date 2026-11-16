@@ -11,6 +11,14 @@ namespace Durin
 {
 	namespace
 	{
+		auto UsesAuthoredSpecular(const MIR::FModule& IR) -> bool
+		{
+			const auto& Root = IR.GetAttribute(EMaterialProperty::MP_Specular);
+			if (!Root.bExpression) return Root.Literal != FMaterialProgramLiteral{.5f};
+			return IR.Nodes[Root.ExpressionIndex].Opcode != EMaterialProgramOpcode::Constant
+				|| IR.Nodes[Root.ExpressionIndex].GetLiteral() != FMaterialProgramLiteral{.5f};
+		}
+
 		auto DeriveMaterialProgramRequirements(const MIR::FModule& IR)
 			-> FMaterialProgramRequirements
 		{
@@ -274,7 +282,7 @@ FMaterialSurface MakeAuthoredSurface(float3 baseColor, float3 normal, float meta
     FMaterialSurface s;
     s.baseColor = baseColor; s.tangentNormal = normal; s.metallic = metallic;
     s.roughness = roughness; s.ambientOcclusion = ao; s.emissive = emissive;
-    s.opacity = opacity; s.opacityMask = mask;
+    s.opacity = opacity; s.opacityMask = mask; s.specular = 0.5;
     return s;
 }
 float3 MaterialSafeNormalize(float3 value)
@@ -597,39 +605,28 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			}
 			else
 			{
-				std::array<std::string, 8> Outputs;
-				for (size_t Index = 0; Index < Outputs.size(); ++Index)
+				using P = EMaterialProperty;
+				const std::array Fields{
+					std::pair{P::MP_BaseColor, "baseColor"}, std::pair{P::MP_Normal, "tangentNormal"},
+					std::pair{P::MP_Metallic, "metallic"}, std::pair{P::MP_Roughness, "roughness"},
+					std::pair{P::MP_AmbientOcclusion, "ambientOcclusion"}, std::pair{P::MP_EmissiveColor, "emissive"},
+					std::pair{P::MP_Opacity, "opacity"}, std::pair{P::MP_OpacityMask, "opacityMask"},
+					std::pair{P::MP_Specular, "specular"}};
+				OutSource += "    FMaterialSurface result;\n";
+				for (const auto& [Property, Field] : Fields)
 				{
-					const auto& Input = IR.GetAttribute(static_cast<EMaterialProperty>(Index));
-					if (Input.bExpression)
-					{
-						if (Input.ExpressionIndex >= Expressions.size())
-						{
-							OutSource.clear();
-							return std::unexpected("Per-property Surface Root expression is out of bounds.");
-						}
-						Outputs[Index] = Expressions[Input.ExpressionIndex];
-					}
-					else Outputs[Index] = LiteralExpression(Input.Type, Input.Literal);
+					const auto& Root = IR.GetAttribute(Property);
+					if (Root.bExpression && Root.ExpressionIndex >= Expressions.size())
+						return std::unexpected("Per-property Surface Root expression is out of bounds.");
+					const auto Value = Root.bExpression ? Expressions[Root.ExpressionIndex] : LiteralExpression(Root.Type, Root.Literal);
+					OutSource += std::format("    result.{} = {};\n", Field, Value);
 				}
-				OutSource += std::format(R"(    FMaterialSurface result;
-    result.baseColor = {};
-    result.tangentNormal = {};
-    result.metallic = {};
-    result.roughness = {};
-    result.ambientOcclusion = {};
-    result.emissive = {};
-    result.opacity = {};
-    result.opacityMask = {};
-    return EvaluateMaterialSurface(result);
-}}
-)", Outputs[0], Outputs[1], Outputs[2], Outputs[3], Outputs[4], Outputs[5],
-				Outputs[6], Outputs[7]);
+				OutSource += "    return EvaluateMaterialSurface(result);\n}\n";
 			}
 		} // Stage-specific expression closures.
 		if (IR.Domain == EMaterialDomain::PostProcess) OutSource += "#define DURIN_GENERATED_MATERIAL_POSTPROCESS 1\n#include \"Material/PostProcessPass.slang\"\n";
-		else OutSource += std::format("#define DURIN_GENERATED_MATERIAL 1\n#define DURIN_MATERIAL_VERTEX_STAGE {}\n#define DURIN_MATERIAL_PIXEL_STAGE {}\n#define DURIN_MATERIAL_PIXEL_PRIMITIVE_DATA {}\n#include \"Material/SurfacePasses.slang\"\n",
-			StageFilter != EMaterialEvaluationStage::Pixel ? 1 : 0,
+		else OutSource += std::format("#define DURIN_MATERIAL_AUTHORED_SPECULAR {}\n#define DURIN_GENERATED_MATERIAL 1\n#define DURIN_MATERIAL_VERTEX_STAGE {}\n#define DURIN_MATERIAL_PIXEL_STAGE {}\n#define DURIN_MATERIAL_PIXEL_PRIMITIVE_DATA {}\n#include \"Material/SurfacePasses.slang\"\n",
+			UsesAuthoredSpecular(IR) ? 1 : 0, StageFilter != EMaterialEvaluationStage::Pixel ? 1 : 0,
 			StageFilter != EMaterialEvaluationStage::Vertex ? 1 : 0, PixelNeedsPrimitiveData ? 1 : 0);
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{

@@ -195,6 +195,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         directional = EvaluateSurfaceDirectionalLighting(
             record.baseColor,
             record.metallic,
+        record.specular,
             record.roughness,
             frame,
             toLight,
@@ -205,12 +206,13 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 		return MakeDeferredLightingOutput(
 			float4(1.0 - contactVisibility, 0.0, 0.0, 1.0), directional);
 
-    float3 local = AccumulateViewLocalLights(float3(0.0), record.baseColor, record.metallic, record.roughness,
+    float3 local = AccumulateViewLocalLights(float3(0.0), record.baseColor, record.metallic, record.specular, record.roughness,
         worldPosition, frame, LocalLights, Lighting.Counts.y);
 
     float3 environment = EvaluateSurfaceEnvironmentLighting(
         record.baseColor,
         record.metallic,
+        record.specular,
         record.roughness,
 		record.ambientOcclusion * (gtaoEnabled
 			? GroundTruthAmbientOcclusionResolved.Load(int3(pixel, 0)) : 1.0),

@@ -366,12 +366,18 @@ namespace Durin
 
 		const GBufferContract::FDecodedRecord Record =
 			GBufferContract::DecodeRecord(
-				{0.25f, 0.5f, 0.75f, 0.125f},
+				{0.25f, 0.5f, 0.75f, 0.8f},
 				{0.5f, 0.5f, 0.5f, 0.5f},
-				{0.4f, 0.8f, 1.0f, 1.0f / 255.0f},
+				{0.125f, 0.5f, 0.4f, 1.0f / 255.0f},
 				{2.0f, 3.0f, 4.0f});
 		EXPECT_EQ(Record.BaseColor, FVector3f(0.25f, 0.5f, 0.75f));
 		EXPECT_FLOAT_EQ(Record.Metallic, 0.125f);
+		EXPECT_FLOAT_EQ(Record.Specular, .5f);
+		const auto Authored = GBufferContract::DecodeRecord({}, {.5f,.5f,.5f,.5f}, {0.f, .75f, .4f, 129.f/255.f}, {});
+		EXPECT_FLOAT_EQ(Authored.Specular, .75f);
+		EXPECT_TRUE(Authored.IsStandardLit());
+		const auto ExactDefault = GBufferContract::DecodeRecord({}, {.5f,.5f,.5f,.5f}, {0.f, 128.f/255.f, .4f, 1.f/255.f}, {});
+		EXPECT_FLOAT_EQ(ExactDefault.Specular, .5f);
 		EXPECT_FLOAT_EQ(Record.Roughness, 0.4f);
 		EXPECT_FLOAT_EQ(Record.AmbientOcclusion, 0.8f);
 		EXPECT_FLOAT_EQ(Record.EffectiveOpacity, 1.0f);

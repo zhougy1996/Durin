@@ -5,8 +5,8 @@
 namespace Durin::MaterialBuildPrivate
 {
 	// Bump for changes to normalization/folding or generated Slang, respectively.
-	inline constexpr uint32 NormalizationAlgorithmRevision = 13;
-	inline constexpr uint32 GeneratorAlgorithmRevision = 21;
+	inline constexpr uint32 NormalizationAlgorithmRevision = 14;
+	inline constexpr uint32 GeneratorAlgorithmRevision = 22;
 	// Request/result adaptation is independent of algorithms and cooked payloads.
-	inline constexpr uint32 CompileAdapterVersion = 18;
+	inline constexpr uint32 CompileAdapterVersion = 19;
 }

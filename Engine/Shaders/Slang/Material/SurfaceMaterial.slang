@@ -7,6 +7,7 @@ public struct FMaterialSurface
     public float3 baseColor;
     public float3 tangentNormal;
     public float metallic;
+    public float specular;
     public float roughness;
     public float ambientOcclusion;
     public float3 emissive;
@@ -67,6 +68,7 @@ public FMaterialSurface EvaluateMaterialSurface(FMaterialSurface result)
     result.baseColor = saturate(FiniteSurfaceColor(result.baseColor, 0.5));
     result.tangentNormal = SafeSurfaceNormal(result.tangentNormal);
     result.metallic = saturate(FiniteSurfaceValue(result.metallic, 0.0));
+    result.specular = saturate(FiniteSurfaceValue(result.specular, 0.5));
     result.roughness = clamp(FiniteSurfaceValue(result.roughness, 0.5), 0.045, 1.0);
     result.ambientOcclusion = saturate(FiniteSurfaceValue(result.ambientOcclusion, 1.0));
     // Preserve HDR without overflowing the finite R11G11B10 GBuffer transport.

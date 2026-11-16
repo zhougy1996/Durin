@@ -153,7 +153,7 @@ namespace
 		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		if (ShadingModel == Durin::EMaterialShadingModel::Unlit)
 			EXPECT_TRUE(Material->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::EmissiveName(),
-				Durin::FVector3(std::clamp(BaseColor.X, 0.0, 1.0), std::clamp(BaseColor.Y, 0.0, 1.0), std::clamp(BaseColor.Z, 0.0, 1.0))));
+				Durin::FVector3(std::clamp(BaseColor.x, 0.0, 1.0), std::clamp(BaseColor.y, 0.0, 1.0), std::clamp(BaseColor.z, 0.0, 1.0))));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), BaseColor));
 		EXPECT_TRUE(Material->SetScalarParameterValue(
@@ -698,20 +698,11 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	{
 		if (SpecularAADisabledSurface[Offset + 3] == std::byte{0}) continue;
 		++ValidPixels;
-		EXPECT_EQ(
-			SpecularAAEnabledSurface[Offset + 1],
-			SpecularAADisabledSurface[Offset + 1]);
-		EXPECT_EQ(
-			SpecularAAEnabledSurface[Offset + 2],
-			SpecularAADisabledSurface[Offset + 2]);
-		EXPECT_EQ(
-			SpecularAAEnabledSurface[Offset + 3],
-			SpecularAADisabledSurface[Offset + 3]);
-		EXPECT_GE(
-			std::to_integer<uint8>(SpecularAAEnabledSurface[Offset]),
-			std::to_integer<uint8>(SpecularAADisabledSurface[Offset]));
-		if (SpecularAAEnabledSurface[Offset]
-			> SpecularAADisabledSurface[Offset]) ++BroadenedPixels;
+		for (const size_t Channel : {0u, 1u, 3u})
+			EXPECT_EQ(SpecularAAEnabledSurface[Offset + Channel], SpecularAADisabledSurface[Offset + Channel]);
+		EXPECT_GE(std::to_integer<uint8>(SpecularAAEnabledSurface[Offset + 2]),
+			std::to_integer<uint8>(SpecularAADisabledSurface[Offset + 2]));
+		if (SpecularAAEnabledSurface[Offset + 2] > SpecularAADisabledSurface[Offset + 2]) ++BroadenedPixels;
 	}
 	EXPECT_GT(ValidPixels, 0u);
 	EXPECT_GT(BroadenedPixels, 0u);

@@ -55,6 +55,7 @@ namespace Durin::GBufferContract
 		const FVector4f& Surface,
 		const FVector3f& Emissive) -> FDecodedRecord
 	{
+		const auto Flags = static_cast<uint8>(std::clamp(std::lround(Surface.w * 255.f), 0l, 255l));
 		return {
 			.BaseColor = FVector3f(Material),
 			.ShadingNormal = DecodeOctahedralNormal(
@@ -62,12 +63,12 @@ namespace Durin::GBufferContract
 			.GeometricNormal = DecodeOctahedralNormal(
 				{Normals.z, Normals.w}),
 			.Emissive = Emissive,
-			.Metallic = Material.w,
-			.Roughness = Surface.x,
-			.AmbientOcclusion = Surface.y,
-			.EffectiveOpacity = Surface.z,
-			.Flags = static_cast<uint8>(std::clamp(
-				std::lround(Surface.w * 255.0f), 0l, 255l))};
+			.Metallic = Surface.x,
+			.Specular = (Flags & AuthoredSpecularFlag) ? std::clamp(Surface.y, 0.f, 1.f) : .5f,
+			.Roughness = Surface.z,
+			.AmbientOcclusion = Material.w,
+			.EffectiveOpacity = 1.f,
+			.Flags = Flags};
 	}
 
 	auto DecodeR11G11B10Float(uint32 Packed) -> FVector3f

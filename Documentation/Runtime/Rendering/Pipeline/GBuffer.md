@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-17
 
 ## Scope and Ownership
 
@@ -80,27 +80,33 @@ publishes incomplete geometry or performs an unordered late redraw.
 
 ## Record Encoding
 
-Every extent owns four cleared color attachments and uses the existing sampled
+Every extent owns four baseline cleared color attachments and uses the existing sampled
 `D32` scene depth:
 
 | Attachment | Format | Channels |
 | --- | --- | --- |
-| `GBufferMaterial` | `RGBA8_UNORM` | Base color RGB, metallic A |
+| `GBufferMaterial` | `RGBA8_UNORM` | Base color RGB, ambient occlusion A |
 | `GBufferNormals` | `RGBA8_UNORM` | Octahedral shading normal RG, octahedral geometric normal BA |
-| `GBufferSurface` | `RGBA8_UNORM` | Effective perceptual roughness R, ambient occlusion G, effective opacity B, flags/255 A |
+| `GBufferSurface` | `RGBA8_UNORM` | Metallic R, Specular G, effective perceptual roughness B, flags/255 A |
 | `GBufferEmissive` | `R11G11B10_FLOAT` | Finite non-negative scene-linear emissive RGB |
 
-All attachments clear to zero. Bit 0 of the decoded flags is
-`StandardLit`; a valid record has the exact flag value `1`, while zero is
-background or invalid. Unused flag bits must remain zero. Primitive identity
-is counter-owned and is not stored per pixel.
+All attachments clear to zero. Bit 0 of the decoded flags is `StandardLit`;
+baseline records use `1`. Bit 7 identifies authored nondefault or dynamic
+Specular; these DefaultLit records use `129`. Zero is background or invalid.
+Other flag bits remain zero. Without bit 7, Specular decodes as exactly 0.5,
+avoiding midpoint UNorm8 bias in baseline lighting. Authored Specular has error
+<=1/510 and dielectric F0 error <=0.08/510. This compatibility flag is a Durin
+policy, not UE's binary layout. The metallic/specular/roughness grouping follows
+UE's GBufferB semantic packing. Opaque/masked effective opacity decodes as one;
+translucent opacity remains in the forward path. Every Specular view retains
+four attachments. Primitive identity is counter-owned and not stored per pixel.
 
 The shading normal includes the authored normal-map perturbation. The
 geometric normal is the independently encoded, oriented visible-side normal
 before normal mapping. Both use the shared octahedral contract. Base color,
 metallic, authored roughness, AO, emissive, opacity, and mask decisions come
 from the same material evaluation used by forward rendering rather than a
-parallel material model. For standard-Lit records, `GBufferSurface.R` stores
+parallel material model. For standard-Lit records, `GBufferSurface.B` stores
 the effective roughness after the shared derivative-based specular-AA policy
 has combined authored roughness with bounded variance of the final world-space
 shading normal. Deferred consumers use that stored result directly and never
@@ -151,7 +157,7 @@ present a partial image or select another lighting owner. No
 view may sample stale attachments from another view or extent.
 
 The four attachments cost exactly 16 bytes per pixel, or `33,177,600` bytes at
-1920x1080. Scene Color/depth and final SDR output are accounted separately.
+1920x1080, including authored or dynamic Specular. Scene Color/depth and final SDR output are accounted separately.
 Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
 feature byte costs do not define independent cache quotas.
 

@@ -11,6 +11,7 @@ namespace Durin
 	{
 		FVector3f BaseColor{1.0f};
 		float Metallic = 0.0f;
+		float Specular = 0.5f;
 		float Roughness = 0.5f;
 		FVector3f Normal{0.0f, 0.0f, 1.0f};
 		FVector3f ToLight{0.0f, 0.0f, 1.0f};
@@ -32,6 +33,7 @@ namespace Durin
 	{
 		FVector3f BaseColor{1.0f};
 		float Metallic = 0.0f;
+		float Specular = 0.5f;
 		float Roughness = 0.5f;
 		float AmbientOcclusion = 1.0f;
 		float NoV = 1.0f;

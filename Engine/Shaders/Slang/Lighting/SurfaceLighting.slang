@@ -33,6 +33,7 @@ public FSurfaceLightingFrame BuildSurfaceLightingFrame(
 public float3 EvaluateSurfaceDirectionalLighting(
     float3 baseColor,
     float metallic,
+    float specular,
     float roughness,
     FSurfaceLightingFrame frame,
     float3 toLight,
@@ -40,13 +41,14 @@ public float3 EvaluateSurfaceDirectionalLighting(
     float shadowAttenuation)
 {
     return EvaluatePBRDirectLighting(
-        baseColor, metallic, roughness, frame.normal,
+        baseColor, metallic, specular, roughness, frame.normal,
         toLight, frame.toView, radiance) * shadowAttenuation;
 }
 
 public float3 EvaluateSurfaceLocalLighting(
     float3 baseColor,
     float metallic,
+    float specular,
     float roughness,
     float3 worldPosition,
     FSurfaceLightingFrame frame,
@@ -79,21 +81,22 @@ public float3 EvaluateSurfaceLocalLighting(
     float3 radiance = light.ColorIntensity.rgb * light.ColorIntensity.a
         * inverseSquare * rangeAttenuation * coneAttenuation;
     return EvaluatePBRDirectLighting(
-        baseColor, metallic, roughness, frame.normal,
+        baseColor, metallic, specular, roughness, frame.normal,
         toLight, frame.toView, radiance);
 }
 
-public float3 AccumulateViewLocalLights(float3 result, float3 baseColor, float metallic, float roughness,
+public float3 AccumulateViewLocalLights(float3 result, float3 baseColor, float metallic, float specular, float roughness,
     float3 worldPosition, FSurfaceLightingFrame frame, StructuredBuffer<FForwardLocalLightUniform> records, uint count)
 {
     for (uint i = 0; i < count; ++i)
-        result += EvaluateSurfaceLocalLighting(baseColor, metallic, roughness, worldPosition, frame, records[i]);
+        result += EvaluateSurfaceLocalLighting(baseColor, metallic, specular, roughness, worldPosition, frame, records[i]);
     return result;
 }
 
 public float3 EvaluateSurfaceEnvironmentLighting(
     float3 baseColor,
     float metallic,
+    float specular,
     float roughness,
     float ambientOcclusion,
     FSurfaceLightingFrame frame,
@@ -115,7 +118,7 @@ public float3 EvaluateSurfaceEnvironmentLighting(
     float2 environmentBrdf = brdfLutTexture.Sample(
         environmentSampler, float2(frame.NoV, roughness)).rg;
     return EvaluatePBREnvironmentLighting(
-        baseColor, metallic, roughness, ambientOcclusion,
+        baseColor, metallic, specular, roughness, ambientOcclusion,
         frame.NoV, irradiance, prefiltered, environmentBrdf);
 }
 

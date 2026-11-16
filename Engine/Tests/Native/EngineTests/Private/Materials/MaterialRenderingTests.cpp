@@ -1,6 +1,31 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialRenderingTestFixture.h"
 
+TEST(FMaterialRenderingTests, AuthoredSpecularMatchesIndependentAlignedDirectAndEnvironmentEquations)
+{
+	using namespace Durin;
+	constexpr float Pi = 3.14159265358979323846f;
+	for (const float Metallic : {0.f, .5f, 1.f})
+	for (const float Specular : {-1.f, 0.f, .25f, .5f, 1.f, 2.f})
+	{
+		SCOPED_TRACE(std::format("metallic {} specular {}", Metallic, Specular));
+		const float F0 = .08f * std::clamp(Specular, 0.f, 1.f) * (1.f - Metallic) + .5f * Metallic;
+		FPBRDirectLightingInput Direct; Direct.BaseColor = FVector3f(.5f);
+		Direct.Metallic = Metallic; Direct.Specular = Specular;
+		const float ExpectedDirect = ((1.f - F0) * (1.f - Metallic) * .5f + 4.f * F0) / Pi;
+		FPBREnvironmentLightingInput Environment; Environment.BaseColor = FVector3f(.5f);
+		Environment.Metallic = Metallic; Environment.Specular = Specular;
+		Environment.Irradiance = FVector3f(Pi); Environment.PrefilteredRadiance = FVector3f(2.f);
+		Environment.BrdfLut = {.5f, .125f};
+		const float ExpectedEnvironment = .5f * (1.f - F0) * (1.f - Metallic) + F0 + .25f;
+		for (uint32 C = 0; C < 3; ++C)
+		{
+			EXPECT_NEAR(EvaluatePBRDirectLighting(Direct)[C], ExpectedDirect, 1e-4f);
+			EXPECT_NEAR(EvaluatePBREnvironmentLighting(Environment)[C], ExpectedEnvironment, 1e-4f);
+		}
+	}
+}
+
 TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
 {
 	EXPECT_FLOAT_EQ(Durin::EvaluatePointLightAttenuation(1.0f, 1.0f), 0.0f);

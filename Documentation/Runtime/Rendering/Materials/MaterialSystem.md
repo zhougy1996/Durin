@@ -322,8 +322,8 @@ and twelve unconnected property defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
 OpacityMask `1`, WPO `(0,0,0)`, Specular `0.5`, ClearCoat `1`, and
-ClearCoatRoughness `0.1`. Specular and coat properties retain authored intent
-without execution until their shading implementation is available. Aggregate
+ClearCoatRoughness `0.1`. DefaultLit executes Specular; coat properties retain
+inactive authored intent until their shading implementation is available. Aggregate
 mode selects one MaterialAttributes source; per-property mode selects the
 individual bindings. Both connection sets and retained fallbacks survive mode
 changes. Inactive known properties retain their authoring state and create no
@@ -472,7 +472,7 @@ surface evaluation. The evaluator performs no texture lookup, normal decoding,
 factor composition, vertex-color multiplication or hidden parameter lookup.
 
 Base Color is linear reflectance clamped to 0..1, matching RGBA8 GBuffer transport
-for Lit and Unlit authoring. Metallic, AO, opacity and mask also clamp to 0..1;
+for Lit and Unlit authoring. Metallic, Specular, AO, opacity and mask also clamp to 0..1;
 perceptual roughness clamps to 0.045..1 before specular AA. Emissive preserves
 nonnegative HDR up to the finite R11G11B10 channel maxima (65024,65024,64512).
 Use Emissive for HDR output, including Unlit materials. This evaluates values
@@ -485,6 +485,23 @@ lengths at most 1e-8 recover to (0,0,1). Authored nonfinite literals/defaults st
 fail validation. Mask rejection remains strictly below cutoff. BRDF and specular-AA
 helpers retain their independent numerical safeguards; AA bounds its newly
 computed roughness and deferred lighting does not apply AA again.
+
+### DefaultLit Specular
+
+DefaultLit shares the same direct and environment BRDF in forward and deferred
+paths. Dielectric reflectance is `0.08 * saturate(Specular)`; metallic interpolation
+uses BaseColor, so Specular=0.5 preserves F0=0.04 and a fully metallic surface is
+independent of Specular. Nonfinite Specular falls back to 0.5. Unlit and
+PostProcess do not execute this property. Dynamic scalar changes update the
+existing uniform payload without compiling another program.
+
+Per-entry compilation requirements include reachable Specular parameters only
+for surface lighting entries. The updated pass ABI participates in canonical
+entry identity and source-free cooked admission. Renderer packs Specular in the
+existing surface target, keeping four attachments for every Specular view.
+An unconnected or constant 0.5 decodes exactly; dynamic/nondefault values use
+UNorm8 transport. Renderer owns the channel layout and compatibility flag in the
+[GBuffer contract](../Pipeline/GBuffer.md#record-encoding).
 
 ### Decoded normal sample output
 

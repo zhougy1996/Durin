@@ -13,14 +13,15 @@ internal float3 SafeNormalize(float3 value)
         : float3(0.0);
 }
 
-internal float3 ComputeF0(float3 baseColor, float metallic)
+internal float3 ComputeF0(float3 baseColor, float metallic, float specular)
 {
-    return lerp(float3(0.04), baseColor, metallic);
+    return lerp(float3(0.08 * saturate(specular)), baseColor, metallic);
 }
 
 public float3 EvaluatePBRDirectLighting(
     float3 baseColor,
     float metallic,
+    float specular,
     float roughness,
     float3 normal,
     float3 toLight,
@@ -44,7 +45,7 @@ public float3 EvaluatePBRDirectLighting(
         NoL * sqrt(NoV * NoV * (1.0 - alpha2) + alpha2)
             + NoV * sqrt(NoL * NoL * (1.0 - alpha2) + alpha2),
         MinBRDFDivisor);
-    float3 f0 = ComputeF0(baseColor, metallic);
+    float3 f0 = ComputeF0(baseColor, metallic, specular);
     float3 fresnel = f0 + (1.0 - f0) * pow(1.0 - VoH, 5.0);
     float3 diffuse = (1.0 - fresnel) * (1.0 - metallic)
         * baseColor / Pi;
@@ -55,6 +56,7 @@ public float3 EvaluatePBRDirectLighting(
 public float3 EvaluatePBREnvironmentLighting(
     float3 baseColor,
     float metallic,
+    float specular,
     float roughness,
     float ambientOcclusion,
     float NoV,
@@ -62,7 +64,7 @@ public float3 EvaluatePBREnvironmentLighting(
     float3 prefilteredRadiance,
     float2 environmentBrdf)
 {
-    float3 f0 = ComputeF0(baseColor, metallic);
+    float3 f0 = ComputeF0(baseColor, metallic, specular);
     float3 fresnel = f0
         + (max(float3(1.0 - roughness), f0) - f0)
             * pow(1.0 - NoV, 5.0);

@@ -25,6 +25,10 @@ including Cube face-local orientation and numerical explicit-LOD vertex WPO.
 Production Metal compilation/reflection remains a required open gate, so
 Stage 3 as a whole is not complete. Packaged Game/content closure and final
 integrated cost qualification remain in Stages 5 and 6.
+The owner authorized the Stage 4 DefaultLit Specular slice while retaining that
+Metal gap. Specular implementation and Windows forward/deferred qualification
+are complete on 2026-11-17, using UE-aligned packing in the existing four
+GBuffer targets. ClearCoat and display-chain PostProcess integration remain open.
 See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
 
 The 2026-11-16 rebase review below preserves the selected architecture, content
@@ -422,7 +426,7 @@ products as well. Advance graph/function to 8/5, instance to 3, MIR/translation
 to 12/8, normalization/generator/adapter to 12/20/17, pass/DMAT to 16/19 and
 layout to 5. The scene-input continuation subsequently consumed
 MIR/translation 13/9, normalization/generator/adapter 13/21/18 and pass/DMAT 17/20.
-The reserved Stage 4 generations are therefore MIR/translation 14/10,
+The Stage 4 Specular generations are therefore MIR/translation 14/10,
 normalization/generator/adapter 14/22/19 and pass/DMAT 18/21, as in the table below.
 Minimum source content is regenerated in the same change. Historical receipts
 remain associated with their original generations.
@@ -699,7 +703,22 @@ final workspace build and numerical cost gates.
 Outcome: new attributes, a second Lit model and a non-mesh domain execute without
 reintroducing fixed Surface or geometry assumptions. Depends on Stage 3.
 
-- [ ] Add DefaultLit Specular with the Stage 0 mapping and compatibility default; qualify direct and environment lighting in forward/deferred paths.
+2026-11-17 scope decision: the owner explicitly authorized the DefaultLit
+Specular slice on Windows while retaining Stage 3's Metal acceptance gap.
+This is a bounded exception to the prior-stage dependency, not completion or
+waiver of Metal qualification. ClearCoat and display-chain PostProcess remain
+outside this slice. The owner subsequently requested UE-aligned GBuffer packing.
+Local UE 5.8.2 (CL 56702186) `DeferredShadingCommon.ush` and `GBufferInfo.cpp`
+store Metallic/Specular/Roughness in GBufferB RGB. Supersede the frozen extra-attachment rule for Specular: retain
+four targets, pack BaseColor/AO together, and Metallic/Specular/Roughness/model
+flags together. Opaque/masked effective opacity is always one and needs no stored
+channel. Keep Durin's existing two octahedral normals and HDR emissive target.
+A high transport flag distinguishes authored Specular from the exact default
+0.5, preserving baseline lighting without midpoint UNorm8 bias; this is an
+explicit Durin compatibility detail, not UE's binary layout. The optional fifth
+ModelData attachment remains reserved for later ClearCoat, outside this slice.
+
+- [x] Add DefaultLit Specular with the Stage 0 mapping and compatibility default; qualify direct and environment lighting in Windows forward/deferred paths. Metal qualification remains open under the owner's bounded continuation decision.
 - [ ] Add the selected ClearCoat model, coat weight/roughness attributes, model identity and explicit GBuffer encode/decode. Share surface semantics across forward and deferred; qualify zero/full coat and roughness endpoints and reject translucent ClearCoat.
 - [ ] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. A neutral material preserves input; a color transform and depth visualization demonstrate actual execution. No mesh Vertex Factory or surface-lighting resources are requested.
 - [ ] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
@@ -708,6 +727,66 @@ reintroducing fixed Surface or geometry assumptions. Depends on Stage 3.
 Exit: all three extension proofs produce independently checked pixels and valid
 Cook output. ClearCoat and PostProcess unsupported paths are explicit, without
 silently falling back to DefaultLit or Surface.
+
+#### DefaultLit Specular implementation and Windows receipt
+
+Validated `2f2394693` plus this change on 2026-11-17 using
+windows-msvc-x64 / Win64-Debug-DurinEditor, MSVC 19.44, Debug, Tracy and
+18 build jobs. GPU: NVIDIA GeForce RTX 3090 / Vulkan 1.4.351, Khronos layer
+SDK 1.4.357.0. The final native mesh log contains no Vulkan validation errors.
+
+- DefaultLit activates the existing stable Specular attribute. Numeric roots,
+  functions, editor commands, instance values and per-entry reachability use
+  the shared registry. Generated surface evaluation clamps Specular to 0..1
+  and uses 0.5 for nonfinite values. Direct, local and environment lighting
+  share `F0=lerp(0.08*saturate(Specular),BaseColor,Metallic)`; Unlit/PostProcess
+  exclude the property. Parameter updates retain accepted/proxy program identity.
+- Four-target transport groups Metallic/Specular/Roughness/flags and
+  BaseColor/AO, following UE's semantic packing. Default-only and mixed views
+  both remain 16 color bytes/pixel, with no added target or descriptor. The
+  authored-Specular flag preserves exact default 0.5 decoding. Two octahedral
+  normals and the separate HDR emissive target remain Durin-specific; changing
+  SceneColor ownership to match UE's Base Pass is outside this slice.
+- Independent aligned CPU direct/IBL equations pass the 1e-4 budget. The GPU
+  fixture checks Specular -1/0/0.25/0.5/1/2, dielectric/metallic endpoints,
+  opaque deferred and alpha-one translucent solid forward execution, direct
+  directional light and filtered environment lighting. All 144 HDR channel
+  observations pass `max(0.005,0.01*abs(reference))`; maximum absolute errors
+  are 0.003752381 direct and 0.000126206 IBL. Packed Specular/F0 errors satisfy
+  1/510 and 0.08/510. The mixed view's default region is byte-equivalent in HDR.
+- All nine final/forward/local-light captures are byte-identical to the actual
+  Stage 0 raw files in `Stage0/captures`, not replacement baselines. Current
+  captures, full hashes, numerical CSV, copied receipts and source hashes are
+  under ignored
+  `Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage4/Specular/UE/`.
+  Set `DURIN_MATERIAL_SPECULAR_EVIDENCE_DIR` to an existing directory to retain
+  the mesh fixture's HDR/CSV output; use `DURIN_LOCAL_LIGHT_CAPTURES` for scene parity.
+
+Passing receipts are under `Build/.agent-state/logs/`:
+
+| Selection | Result | Receipt |
+| --- | --- | --- |
+| `@domain=material,kind=feature --test-jobs 2` | All 13 targets, including Specular reachability/identity, graph-stripped Game-profile DMAT, CPU reference and editor/instance coverage | `20261117-004008-422859-48380-ctest.log` |
+| `StaticMeshRenderPreparationVulkanTests` | 24 cases, including Specular and earlier Stage 3 Cube/WPO checks | `20261117-004359-442033-17420-StaticMeshRenderPreparationVulkanTests.log` |
+| `RendererSceneContractTests` / `RenderShaderContractTests` | 173 / 72 cases | `20261117-004321-297108-44868-RendererSceneContractTests.log`, `20261117-004613-522804-16824-RenderShaderContractTests.log` |
+| `VolumetricCloudSceneVulkanTests` | 1 case; all nine captures equal Stage 0 | `20261117-004514-720008-38708-VolumetricCloudSceneVulkanTests.log` |
+| `RoadSceneIntegrationTests` / `SandboxGameplayTests` | 5 / 13 cases | `20261117-004753-692041-26724-RoadSceneIntegrationTests.log`, `20261117-004800-926231-40964-SandboxGameplayTests.log` |
+| Workspace `all` / `GBufferQualificationTests` build | Shared API and cross-project build passed; migrated timing fixture compiles | `20261117-004203-685878-45756-cmake.log`, `20261117-004737-291514-14056-cmake.log` |
+
+MIR/translation are 14/10; normalization/generator/adapter are 14/22/19;
+pass/DMAT are 18/21. Authored graph/function/instance and layout remain
+9/6/3 and 5. Old compiled generations reject and must be rebuilt; no authored
+asset recreation is needed for this slice. Subsequent Stage 4 representation
+changes must advance beyond these published generations. The GBuffer timing
+fixture's pre-existing uppercase GLM component spelling was repaired while
+migrating its roughness channel assertion; timing execution was not selected.
+
+Affected analysis spans Engine/Renderer module consumers. The bounded material,
+Shader, renderer, Vulkan and cross-project coverage above plus the `all` build
+covers this slice; unrelated engine services were not rerun. Later changes are
+documentation only. Native Metal compilation/reflection (now also including the
+Specular and packed-GBuffer shaders), packaged Game/corpus Cook and final cost/
+timing qualification remain open. Stage 4 as a whole is not complete.
 
 ### Stage 5: Replace workspace content and retire legacy contracts
 
@@ -985,7 +1064,7 @@ newly discovered incompatibility is documented first. Stage-specific generations
 cannot consume prior intermediate products. Collection/texture-package formats
 remain unchanged unless their own representation changes.
 
-| Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4/final |
+| Version authority | Baseline | Stage 1 | Stage 2 | Stage 3 | Stage 4 Specular |
 | --- | --- | --- | --- | --- | --- |
 | MaterialGraph / Output / Function custom versions | 5 / 3 / 2 | 6 / 4 / 3 | same | 9 / 4 / 6 | same |
 | MaterialInstance custom version | 2 | 2 | 2 | 3 | 3 |
@@ -1072,10 +1151,13 @@ area-light specialization, or claim of pixel parity with UE ClearCoat is made.
 
 Keep the four baseline GBuffer targets (three RGBA8 and one R11G11B10).
 Model identity uses the existing flag byte: 0 invalid, 1 DefaultLit, 2 ClearCoat.
-Add one optional RGBA8 ModelData target if any admitted material needs ClearCoat
-or a nonconstant/nondefault Specular. Store R=Specular, G=coat weight,
-B=coat roughness, A=0; clamp/UNorm8 encode. Without this target decode Specular
-as exactly 0.5 and use DefaultLit. MRT/output-layout variants participate in
+The 2026-11-17 owner decision above supersedes the Specular part of this frozen
+layout: BaseColor/AO share one RGBA8 target, Metallic/Specular/Roughness/flags
+share another, and opaque/masked opacity decodes as one. Bit 7 identifies authored
+Specular; without it decode exactly 0.5. All Specular views retain four targets.
+For the later ClearCoat slice, add one optional RGBA8 ModelData target for coat
+weight/roughness (final channel assignment must be recorded before that slice);
+clamp/UNorm8 encode. Without this target use DefaultLit and its existing packed Specular. MRT/output-layout variants participate in
 Shader/PSO identity; a view with the target uses a matching common GBuffer layout
 for its participating draws. Inspect target-count capability before admission.
 

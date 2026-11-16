@@ -9,6 +9,7 @@ public struct FGBufferRecord
     public float3 geometricNormal;
     public float3 emissive;
     public float metallic;
+    public float specular;
     public float roughness;
     public float ambientOcclusion;
     public float effectiveOpacity;
@@ -40,10 +41,11 @@ public FGBufferRecord DecodeGBuffer(
     result.shadingNormal = DecodeOctahedralNormal(normals.rg);
     result.geometricNormal = DecodeOctahedralNormal(normals.ba);
     result.emissive = emissive;
-    result.metallic = material.a;
-    result.roughness = surface.r;
-    result.ambientOcclusion = surface.g;
-    result.effectiveOpacity = surface.b;
+    result.metallic = surface.r;
+    result.specular = ((uint)round(saturate(surface.a) * 255.0) & 128u) != 0u ? surface.g : 0.5;
+    result.roughness = surface.b;
+    result.ambientOcclusion = material.a;
+    result.effectiveOpacity = 1.0;
     result.flags = (uint)round(saturate(surface.a) * 255.0);
     return result;
 }

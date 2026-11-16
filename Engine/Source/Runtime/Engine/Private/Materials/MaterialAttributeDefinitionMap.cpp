@@ -70,7 +70,7 @@ namespace Durin
 				? std::vector<P>{P::MP_EmissiveColor} : std::vector<P>{};
 		std::vector<P> Result{P::MP_EmissiveColor, P::MP_WorldPositionOffset};
 		if (Model == EMaterialShadingModel::DefaultLit)
-			Result.insert(Result.end(), {P::MP_BaseColor,P::MP_Normal,P::MP_Metallic,P::MP_Roughness,P::MP_AmbientOcclusion});
+			Result.insert(Result.end(), {P::MP_BaseColor,P::MP_Normal,P::MP_Metallic,P::MP_Roughness,P::MP_AmbientOcclusion,P::MP_Specular});
 		if (Blend == EMaterialBlendMode::Translucent) Result.push_back(P::MP_Opacity);
 		if (Blend == EMaterialBlendMode::Masked) Result.push_back(P::MP_OpacityMask);
 		return Result;

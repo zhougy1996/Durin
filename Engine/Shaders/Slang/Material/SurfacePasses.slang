@@ -81,13 +81,15 @@ GeometryPassFragmentOutput GeometryFragmentMain(
         discard;
 #endif
     GeometryPassFragmentOutput o;
-    o.material = float4(s.baseColor, s.metallic);
+    o.material = float4(s.baseColor, s.ambientOcclusion);
     o.normals = float4(
         EncodeOctahedralNormal(shading.normalFrame.shadingNormal),
         EncodeOctahedralNormal(shading.normalFrame.geometricNormal));
-    o.surface = float4(shading.effectiveRoughness,
-        s.ambientOcclusion, s.opacity, 1.0 / 255.0);
+    o.surface = float4(s.metallic, s.specular, shading.effectiveRoughness, 1.0 / 255.0);
     o.emissive = float4(s.emissive, 0.0);
+#if DURIN_MATERIAL_AUTHORED_SPECULAR
+    o.surface.a = 129.0 / 255.0;
+#endif
     return o;
 #endif
 }
@@ -154,14 +156,14 @@ float4 FragmentMain(
                 DirectionalShadowTexture, DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
             return float4(shadow.diagnosticColor, s.opacity);
-        direct += EvaluateSurfaceDirectionalLighting(s.baseColor, s.metallic,
+        direct += EvaluateSurfaceDirectionalLighting(s.baseColor, s.metallic, s.specular,
             shading.effectiveRoughness, lightingFrame, toLight, radiance,
             shadow.attenuation);
     }
-    direct = AccumulateViewLocalLights(direct, s.baseColor, s.metallic, shading.effectiveRoughness,
+    direct = AccumulateViewLocalLights(direct, s.baseColor, s.metallic, s.specular, shading.effectiveRoughness,
         input.worldPosition, lightingFrame, LocalLights, Lighting.Counts.y);
     float3 environment = EvaluateSurfaceEnvironmentLighting(s.baseColor,
-        s.metallic, shading.effectiveRoughness, s.ambientOcclusion,
+        s.metallic, s.specular, shading.effectiveRoughness, s.ambientOcclusion,
         lightingFrame, EnvironmentIrradiance, EnvironmentPrefiltered,
         EnvironmentBrdfLut, EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
     return ComposeSurfaceLighting(direct, environment, s.emissive, s.opacity);

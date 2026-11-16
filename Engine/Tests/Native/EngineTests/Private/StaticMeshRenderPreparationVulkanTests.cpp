@@ -20,6 +20,10 @@
 #include "Materials/MaterialExpressions.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "PBRLighting.h"
+#include "Actors/SkyLightActor.h"
+#include "Components/SkyLightComponent.h"
+#include <glm/gtc/packing.hpp>
 #include "Asset/AssetCompilingManager.h"
 #include "LightSceneTestSupport.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -1336,6 +1340,7 @@ namespace
 		~FGeometryQualificationFrame()
 		{
 			Durin::SetGBufferCaptureSink(nullptr);
+			Durin::SetHDRSceneColorCaptureSink(nullptr);
 			Durin::SetShadowDepthCaptureSink(nullptr);
 			Durin::SetViewRenderTelemetrySink(nullptr);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(Commands);
@@ -5259,4 +5264,176 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ExplicitTextureLODVertexDisplaceme
 		Texture->ReleaseResource(); Cube->ReleaseResource(); FlushRenderingCommands();
 	}
 	CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, DefaultLitSpecularMatchesForwardDeferredDirectAndEnvironmentReferences)
+{
+    using namespace Durin;
+    using namespace Durin::Tests;
+    GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
+    InitializeDObjectSystem();
+    ASSERT_TRUE(FMountPaths::InitDefaultMountPoints()); ASSERT_TRUE(InitializeAssetRuntime()); ASSERT_TRUE(RefreshAssetRegistry());
+    RHIInit(GetVulkanEngineTestInitializationContext()); ASSERT_NE(GDynamicRHI,nullptr); InitRenderingThread();
+    FRendererModule Renderer; FModuleTestHarness Lifecycle("DefaultLitSpecular"); Lifecycle.Start(Renderer);
+    FGeometryRendererCleanup Cleanup(Lifecycle);
+    {
+        std::array<TStrongObjectPtr<DMaterial>,3> Materials;
+        for (uint32 Variant=0; Variant<Materials.size(); ++Variant)
+        {
+            auto& Material=Materials[Variant]; Material=TStrongObjectPtr<DMaterial>(NewObject<DMaterial>(nullptr,NAME_None));
+            Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+            FMaterialStaticProperties Properties; Properties.bTwoSided=true;
+            if (Variant==1) Properties.BlendMode=EMaterialBlendMode::Translucent; // Solid forward draw with alpha one.
+            ASSERT_TRUE(Material->SetStaticProperties(Properties));
+            FMaterialAttributeRoot Root; Root.Get(EMaterialProperty::MP_BaseColor).SetConstant({.2f,.4f,.6f});
+            Root.Get(EMaterialProperty::MP_Roughness).SetConstant({.6f});
+            std::vector<DMaterialExpression*> Expressions;
+            TStrongObjectPtr<DMaterialExpressionScalarParameter> Specular(NewObject<DMaterialExpressionScalarParameter>(nullptr,NAME_None));
+            TStrongObjectPtr<DMaterialExpressionScalarParameter> Metallic(NewObject<DMaterialExpressionScalarParameter>(nullptr,NAME_None));
+            if (Variant!=2)
+            {
+                Specular->Id=FGuid::NewGuid(); Specular->Metadata={.Id=FGuid::NewGuid(),.Name="Specular"}; Specular->DefaultValue=.5f;
+                Metallic->Id=FGuid::NewGuid(); Metallic->Metadata={.Id=FGuid::NewGuid(),.Name="Metallic"};
+                Root.Get(EMaterialProperty::MP_Specular)={Specular->Id}; Root.Get(EMaterialProperty::MP_Metallic)={Metallic->Id};
+                Expressions={Specular.Get(),Metallic.Get()};
+            }
+            ASSERT_TRUE(Material->SetMaterialExpressions(Expressions,Root)); ASSERT_TRUE(RequestMaterialRecompile(*Material));
+            FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+            for (const auto& Diagnostic:Material->GetMaterialCompileDiagnostics()) ADD_FAILURE()<<Diagnostic.Message;
+            ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+            EXPECT_EQ(Material->GetAcceptedCompiledProgram()->GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1")!=std::string::npos,Variant!=2);
+        }
+        std::array<TStrongObjectPtr<DMaterialInstance>,2> Instances{
+            TStrongObjectPtr<DMaterialInstance>(DMaterialInstance::CreateDynamic(Materials[0].Get())),
+            TStrongObjectPtr<DMaterialInstance>(DMaterialInstance::CreateDynamic(Materials[1].Get()))};
+        FSceneTestOwner Scene;
+        TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr,"SpecularWorld"));
+        World->InitializeSubsystems(); World->SetRenderScene(&*Scene);
+        struct FWorldCleanup { DWorld* World; ~FWorldCleanup() { World->SetCurrentLevel(nullptr); World->SetRenderScene(nullptr); World->CleanupWorld(); } } WorldCleanup{World.Get()};
+        ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World.Get(),"SpecularLevel")));
+        auto* SkyLight=World->SpawnActor<ASkyLightActor>("SpecularSky")->GetSkyLightComponent();
+        SkyLight->SetEnabled(false); SkyLight->SetRefreshPolicy(false,60.f);
+        TStrongObjectPtr<DTextureCube> Sky(NewObject<DTextureCube>(nullptr,NAME_None));
+        auto SkyData=std::make_unique<FTextureCubePlatformData>(); SkyData->PixelFormat=EPixelFormat::RGBA32_FLOAT;
+        for(auto& Face:SkyData->Faces)
+        {
+            Face.PixelFormat=SkyData->PixelFormat;
+            const std::array<float,4> Color{.25f,.25f,.25f,1.f};
+            FByteBuffer Bytes(sizeof(Color)); std::memcpy(Bytes.data(),Color.data(),sizeof(Color));
+            Face.Mips.push_back({FSharedByteBuffer::Take(std::move(Bytes)),1,1,16});
+        }
+        Sky->SetPlatformData(std::move(SkyData)); Sky->UpdateResource(); FlushRenderingCommands();
+        SkyLight->SetSource(ESkyLightSourceMode::SpecifiedCube,Sky.Get());
+        FProceduralGeometry Geometry;
+        EnqueueRenderCommand("SpecularGeometry",[&](FRHICommandListImmediate& C) { Geometry=FProceduralGeometry::Create(C,1,false); }); FlushRenderingCommands();
+        FSceneView View; View.ViewportWidth=View.ViewportHeight=96; View.ViewLocation={0,0,2};
+        View.Settings.Mode.RenderMode=ERenderMode::Lit; View.Settings.Mode.bEnableSpecularAA=false;
+        View.Settings.Mode.VisibilityMode=EViewVisibilityMode::FrustumCullingDisabled;
+        View.Settings.AmbientOcclusion.bEnabled=false;
+        struct FObservation { FByteBuffer HDR,Surface; FViewRenderTelemetry Telemetry; };
+        const auto Render=[&](FMaterialRenderProxyRef Left,FMaterialRenderProxyRef Right,FObservation& Observation) {
+            FlushRenderingCommands();
+            EnqueueRenderCommand("SpecularProxy",[&](FRHICommandListImmediate&) {
+                auto Proxy=std::make_unique<FProceduralProxy>(); Proxy->Geometry=Geometry;
+                Proxy->Materials={Left->GetMaterialWithFallback(),Right->GetMaterialWithFallback()};
+                ASSERT_TRUE(Proxy->PublishGeometry());
+                ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene,FPrimitiveComponentId(8010),std::move(Proxy),FMatrix(1.0)));
+            }); FlushRenderingCommands();
+            static FObservation* Sink=nullptr;
+            const auto Result=RenderPreparedGeometryView(Renderer,*Scene,View,
+                FRHITextureCreateDesc::Create2D("SpecularOutput",96,96,EPixelFormat::SRGBA8_UNORM).SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::SourceCopy),
+                [&] {
+                    Sink=&Observation;
+                    SetHDRSceneColorCaptureSink(+[](FRHICommandListImmediate& C,FRHITexture* HDR,FRHITexture*) { ReadGeometryTexture(C,HDR,Sink->HDR); });
+                    SetGBufferCaptureSink(+[](FRHICommandListImmediate& C,FRHITexture*,FRHITexture*,FRHITexture* Surface,FRHITexture*,FRHITexture*) { ReadGeometryTexture(C,Surface,Sink->Surface); });
+                    SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& T) { Sink->Telemetry=T; });
+                });
+            Sink=nullptr; EXPECT_EQ(Result,ERenderViewResult::Success);
+            ASSERT_EQ(Observation.HDR.size(),96u*96u*8u);
+        };
+        const auto Half=[](const FByteBuffer& Bytes,size_t Index) {
+            uint16 Bits; std::memcpy(&Bits,Bytes.data()+Index*2,2); return glm::unpackHalf2x16(uint32(Bits)).x;
+        };
+        FDirectionalLightSceneData Sun; Sun.Direction={0,0,-1}; Sun.Intensity=1; Sun.bCastShadows=false;
+        auto* SunToken=PublishLightForTest<FDirectionalLightSceneProxy>(*Scene,FLightComponentId(8011),Sun); ASSERT_NE(SunToken,nullptr);
+        FlushRenderingCommands();
+        FObservation DefaultOnly; Render(Materials[2]->GetRenderProxy(),Materials[2]->GetRenderProxy(),DefaultOnly);
+        ASSERT_EQ(DefaultOnly.HDR.size(),96u*96u*8u);
+        EXPECT_EQ(DefaultOnly.Telemetry.GBuffer.GBufferAttachmentBytes,96u*96u*16u);
+        FObservation Mixed; Render(Materials[2]->GetRenderProxy(),Instances[0]->GetRenderProxy(),Mixed);
+        ASSERT_EQ(Mixed.HDR.size(),96u*96u*8u);
+        EXPECT_EQ(Mixed.Telemetry.GBuffer.GBufferAttachmentBytes,96u*96u*16u);
+        for (uint32 Y=0;Y<96;++Y) for(uint32 X=0;X<48;++X) for(uint32 C=0;C<4;++C)
+            EXPECT_EQ(Half(DefaultOnly.HDR,(Y*96+X)*4+C),Half(Mixed.HDR,(Y*96+X)*4+C));
+        std::string Numerical="environment,metallic,specular,path,channel,expected,actual,error\n";
+        if(const auto* Directory=std::getenv("DURIN_MATERIAL_SPECULAR_EVIDENCE_DIR")) {
+            ASSERT_TRUE(FFileHelper::SaveArrayToFile(DefaultOnly.HDR,std::filesystem::path(Directory)/"default-only.rgba16f"));
+            ASSERT_TRUE(FFileHelper::SaveArrayToFile(Mixed.HDR,std::filesystem::path(Directory)/"mixed.rgba16f"));
+        }
+        for (const bool Environment : {false,true})
+        {
+            if(Environment)
+            {
+                ASSERT_TRUE(FSceneInterfaceTestAccess::TryRemoveLightProxy(*Scene,SunToken)); SkyLight->SetEnabled(true); FlushRenderingCommands();
+                const auto Deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30); bool Ready=false;
+                do { FObservation Warm; Render(Materials[2]->GetRenderProxy(),Materials[2]->GetRenderProxy(),Warm);
+                    EnqueueRenderCommand("SpecularSkyReady",[&](FRHICommandListImmediate&) { Ready=bool(Scene->SkyLighting->Published); }); FlushRenderingCommands();
+                } while(!Ready && std::chrono::steady_clock::now()<Deadline);
+                ASSERT_TRUE(Ready);
+            }
+            FByteBuffer Lut,Irradiance,Prefiltered; uint32 LutWidth=0,LutHeight=0;
+            if(Environment) { EnqueueRenderCommand("SpecularEnvironmentReference",[&](FRHICommandListImmediate& C) {
+                const auto& G=*Scene->SkyLighting->Published; LutWidth=G.BrdfLut->GetSizeX(); LutHeight=G.BrdfLut->GetSizeY();
+                ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(C,G.BrdfLut,0,0,Lut));
+                ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(C,G.Irradiance,0,4,Irradiance));
+                ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(C,G.Prefiltered,0,4,Prefiltered));
+            }); FlushRenderingCommands(); }
+            for(const float Metal:{0.f,1.f}) for(const float Spec:{-1.f,0.f,.25f,.5f,1.f,2.f})
+            {
+                SCOPED_TRACE(std::format("environment {} metallic {} specular {}",Environment,Metal,Spec));
+                std::array<FObservation,2> Observations;
+                for(uint32 Path=0;Path<2;++Path)
+                {
+                    ASSERT_TRUE(Instances[Path]->SetScalarParameterValue("Specular",Spec)); ASSERT_TRUE(Instances[Path]->SetScalarParameterValue("Metallic",Metal));
+                    Render(Instances[Path]->GetRenderProxy(),Instances[Path]->GetRenderProxy(),Observations[Path]);
+                    ASSERT_EQ(Observations[Path].HDR.size(),96u*96u*8u);
+                    const auto Proxy=Instances[Path]->GetRenderProxy(); const auto Accepted=Materials[Path]->GetAcceptedCompiledProgram();
+                    EnqueueRenderCommand("SpecularProgramReuse",[&](FRHICommandListImmediate&) { EXPECT_EQ(Proxy->GetMaterialWithFallback().CompiledProgram,Accepted); }); FlushRenderingCommands();
+                    if(Path==0) {
+                        ASSERT_EQ(Observations[Path].Surface.size(),96u*96u*4u);
+                        const float Encoded=float(std::to_integer<uint8>(Observations[Path].Surface[(48*96+26)*4+1]))/255.f;
+                        EXPECT_LE(std::abs(Encoded-std::clamp(Spec,0.f,1.f)),1.f/510.f+1e-7f);
+                        EXPECT_LE(.08f*std::abs(Encoded-std::clamp(Spec,0.f,1.f)),.08f/510.f+1e-8f);
+                    }
+                    const FVector3f Position{(26.5f/48.f)-1.f,1.f-(48.5f/48.f),.5f};
+                    const FVector3f ToView=Math::Normalize(FVector3f(0,0,2)-Position);
+                    FVector3f Expected;
+                    if(!Environment) {
+                        FPBRDirectLightingInput Input; Input.BaseColor={.2f,.4f,.6f}; Input.Metallic=Metal; Input.Specular=Spec; Input.Roughness=.6f; Input.ToView=ToView;
+                        Expected=EvaluatePBRDirectLighting(Input);
+                    } else {
+                        FPBREnvironmentLightingInput Input; Input.BaseColor={.2f,.4f,.6f}; Input.Metallic=Metal; Input.Specular=Spec; Input.Roughness=.6f; Input.NoV=ToView.z;
+                        for(uint32 C=0;C<3;++C) { Input.Irradiance[C]=Half(Irradiance,C); Input.PrefilteredRadiance[C]=Half(Prefiltered,C); }
+                        const float X=std::clamp(Input.NoV*LutWidth-.5f,0.f,float(LutWidth-1)); const float Y=std::clamp(.6f*LutHeight-.5f,0.f,float(LutHeight-1));
+                        const uint32 X0=uint32(X),Y0=uint32(Y),X1=std::min(X0+1,LutWidth-1),Y1=std::min(Y0+1,LutHeight-1);
+                        for(uint32 C=0;C<2;++C) { const auto Texel=[&](uint32 A,uint32 B) { return Half(Lut,(B*LutWidth+A)*4+C); };
+                            Input.BrdfLut[C]=std::lerp(std::lerp(Texel(X0,Y0),Texel(X1,Y0),X-X0),std::lerp(Texel(X0,Y1),Texel(X1,Y1),X-X0),Y-Y0); }
+                        Expected=EvaluatePBREnvironmentLighting(Input);
+                    }
+                    for(uint32 C=0;C<3;++C) {
+                        const float Actual=Half(Observations[Path].HDR,(48*96+26)*4+C);
+                        Numerical+=std::format("{},{},{},{},{},{},{},{}\n",Environment,Metal,Spec,Path,C,Expected[C],Actual,std::abs(Actual-Expected[C]));
+                        EXPECT_NEAR(Actual,Expected[C],std::max(.005f,.01f*std::abs(Expected[C]))) << "path "<<Path<<" channel "<<C;
+                    }
+                    if(const auto* Directory=std::getenv("DURIN_MATERIAL_SPECULAR_EVIDENCE_DIR"))
+                        ASSERT_TRUE(FFileHelper::SaveArrayToFile(Observations[Path].HDR,std::filesystem::path(Directory)/std::format("{}-metal{}-spec{}-{}.rgba16f",Environment?"ibl":"direct",uint32(Metal),Spec,Path?"forward":"deferred")));
+                }
+                for(uint32 C=0;C<3;++C) EXPECT_NEAR(Half(Observations[0].HDR,(48*96+26)*4+C),Half(Observations[1].HDR,(48*96+26)*4+C),.005f);
+            }
+        }
+        if(const auto* Directory=std::getenv("DURIN_MATERIAL_SPECULAR_EVIDENCE_DIR"))
+            ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Numerical)),std::filesystem::path(Directory)/"numerical.csv"));
+        Sky->ReleaseResource(); FlushRenderingCommands();
+    }
+    CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
 }

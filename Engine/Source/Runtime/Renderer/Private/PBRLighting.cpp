@@ -68,7 +68,7 @@ namespace Durin
 				+ NoV * std::sqrt(NoL * NoL * (1.0f - Alpha2) + Alpha2),
 			MinBRDFDivisor);
 		const float Visibility = 0.5f / VisibilityDenominator;
-		const FVector3f F0 = FVector3f(0.04f) * (1.0f - Metallic)
+		const FVector3f F0 = FVector3f(0.08f * (std::isfinite(Input.Specular) ? std::clamp(Input.Specular, 0.f, 1.f) : .5f)) * (1.0f - Metallic)
 			+ BaseColor * Metallic;
 		const float FresnelFactor = std::pow(1.0f - VoH, 5.0f);
 		const FVector3f Fresnel = F0
@@ -200,7 +200,7 @@ namespace Durin
 		const FVector2f Lut = std::isfinite(Input.BrdfLut.x)
 			&& std::isfinite(Input.BrdfLut.y)
 			? Math::Max(Input.BrdfLut, FVector2f(0.0f)) : FVector2f(0.0f);
-		const FVector3f F0 = FVector3f(0.04f) * (1.0f - Metallic)
+		const FVector3f F0 = FVector3f(0.08f * (std::isfinite(Input.Specular) ? std::clamp(Input.Specular, 0.f, 1.f) : .5f)) * (1.0f - Metallic)
 			+ BaseColor * Metallic;
 		const FVector3f Fresnel = F0
 			+ (Math::Max(FVector3f(1.0f - Roughness), F0) - F0)

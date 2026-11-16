@@ -3412,3 +3412,49 @@ TEST(FMaterialSceneTextureTests, PostProcessReadsCompileReflectAndSurviveSourceF
 		EXPECT_FALSE(MIR::Normalize(Input));
 	}
 }
+
+TEST(FMaterialSpecularTests, DefaultsReachabilityEntryIdentityAndSourceFreeCookRemainCanonical)
+{
+    using namespace Durin;
+    InitializeDObjectSystem();
+    MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
+    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+    const auto Baseline = MIR::Compile(Input); ASSERT_TRUE(Baseline) << FormatMaterialProgramDiagnostics(Baseline.Diagnostics);
+    EXPECT_EQ(Baseline.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
+    const auto FindGBuffer = [](const auto& Program) -> const FMaterialShaderEntryRequest& {
+        return *std::ranges::find(Program.GetShaderMap().Entries, "SurfaceGBuffer", [](const auto& E) { return E.Shader.ShaderType; });
+    };
+    Input.IR.GetAttribute(EMaterialProperty::MP_Specular).Literal = {0.f};
+    const auto NonDefault = MIR::Compile(Input); ASSERT_TRUE(NonDefault) << FormatMaterialProgramDiagnostics(NonDefault.Diagnostics);
+    EXPECT_NE(NonDefault.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
+    EXPECT_EQ(FindGBuffer(Baseline).Shader.OutputLayout, FindGBuffer(NonDefault).Shader.OutputLayout);
+    EXPECT_NE(Baseline.GetShaderMap().ShaderMapId,NonDefault.GetShaderMap().ShaderMapId);
+    Input.IR.GetAttribute(EMaterialProperty::MP_Specular).Literal = {.5f};
+    const FGuid Id{1,2,3,45};
+    Input.Parameters = {{Id, EMaterialParameterType::Scalar}};
+    Input.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::Parameter, .ResultType = EMaterialProgramValueType::Float, .Payload = Id});
+    auto& Specular = Input.IR.GetAttribute(EMaterialProperty::MP_Specular);
+    Specular.bExpression = true; Specular.ExpressionIndex = uint32(Input.IR.Nodes.size()-1);
+    const auto Dynamic = MIR::Compile(Input); ASSERT_TRUE(Dynamic) << FormatMaterialProgramDiagnostics(Dynamic.Diagnostics);
+    EXPECT_NE(Dynamic.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
+    EXPECT_EQ(Dynamic.GetShaderMap().Layout.Fields.size(), Baseline.GetShaderMap().Layout.Fields.size()+1);
+    for (const auto& Entry : Dynamic.GetShaderMap().Entries)
+        EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs,Id), Entry.Shader.ShaderType == "SurfaceForward" || Entry.Shader.ShaderType == "SurfaceGBuffer");
+    FByteBuffer Bytes;
+    const auto Encoded = Testing::EncodeMaterialCookedProgramFamilyForTest(Dynamic.Resource, Input.StaticProperties, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+    ASSERT_TRUE(Encoded) << Encoded.error();
+    FMaterialStaticProperties Properties; std::shared_ptr<const FMaterialProgram> Cooked;
+    const auto Decoded = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes,ECookTargetPlatform::Win64,ECookTargetProfile::Game,Dynamic.Resource,Properties,Cooked);
+    ASSERT_TRUE(Decoded) << Decoded.error(); ASSERT_TRUE(Cooked);
+    EXPECT_TRUE(Cooked->GetDebugData().IR.Nodes.empty());
+    EXPECT_EQ(Cooked->GetShaderMap().Entries,Dynamic.GetShaderMap().Entries);
+    auto Corrupt = static_cast<const FMaterialCompilationOutput&>(Cooked->GetShaderMap()); Corrupt.Entries.front().Shader.OutputLayout.Version--;
+    EXPECT_FALSE(ValidateMaterialCompilationOutput(Corrupt,Cooked->GetShaderMap().ShaderMapId,Cooked->GetShaderMap().Target,Cooked->GetShaderMap().CompiledShaders));
+    Input.StaticProperties.ShadingModel = EMaterialShadingModel::Unlit;
+    const auto Inactive = MIR::Compile(Input); ASSERT_TRUE(Inactive) << FormatMaterialProgramDiagnostics(Inactive.Diagnostics);
+    EXPECT_TRUE(Inactive.GetShaderMap().Layout.Fields.empty());
+    Input.StaticProperties.ShadingModel = EMaterialShadingModel::DefaultLit;
+    Input.IR.Nodes[Specular.ExpressionIndex] = {.Opcode = EMaterialProgramOpcode::Constant,.ResultType = EMaterialProgramValueType::Float,.Payload = FMaterialProgramLiteral{.5f}};
+    const auto ExplicitDefault = MIR::Compile(Input); ASSERT_TRUE(ExplicitDefault) << FormatMaterialProgramDiagnostics(ExplicitDefault.Diagnostics);
+    EXPECT_EQ(ExplicitDefault.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
+}

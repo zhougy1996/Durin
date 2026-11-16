@@ -8,6 +8,7 @@
 namespace Durin::GBufferContract
 {
 	inline constexpr uint8 StandardLitFlag = 1u;
+	inline constexpr uint8 AuthoredSpecularFlag = 128u;
 	inline constexpr float MaximumUNorm8Error = 1.0f / 510.0f;
 	inline constexpr double MaximumNormalErrorDegrees = 1.0;
 
@@ -18,6 +19,7 @@ namespace Durin::GBufferContract
 		FVector3f GeometricNormal{0.0f, 0.0f, 1.0f};
 		FVector3f Emissive{0.0f};
 		float Metallic = 0.0f;
+		float Specular = 0.5f;
 		float Roughness = 0.0f;
 		float AmbientOcclusion = 0.0f;
 		float EffectiveOpacity = 0.0f;
