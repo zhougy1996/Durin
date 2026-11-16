@@ -1,3 +1,4 @@
+#include "AssetImportTask.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "AssetForge/Builtins/VolumeTextureFactory.h"
@@ -428,6 +429,21 @@ namespace Durin::AssetForge::Builtins
 	{
 		SupportedClass = DVolumeTexture::StaticClass();
 		Formats = {"png"};
+	}
+
+	auto DVolumeTextureFactory::ConfigureImportTask(const DAssetImportTask& Task, const DObject* Existing,
+		FFeedbackContext* Warn, std::function<void()>& Restore) -> bool
+	{
+		if (!Super::ConfigureImportTask(Task, nullptr, Warn, Restore)) return false;
+		if (Existing && !Task.bReplaceExistingSettings)
+		{
+			Restore = [this, Settings = Settings] { this->Settings = Settings; };
+			const auto* Texture = Cast<DVolumeTexture>(Existing);
+			const auto* Data = dynamic_cast<const DVolumeTextureImportData*>(Texture->GetAssetImportData());
+			if (!Data) { (Warn ? *Warn : FFeedbackContext::Get()).Error("The existing volume has no import settings to retain."); return false; }
+			Settings = MakeImportSettings(Data->GetVolumeTextureState());
+		}
+		return true;
 	}
 
 	auto DVolumeTextureFactory::FactoryCreateFile(

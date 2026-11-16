@@ -1,4 +1,5 @@
 #include "Factories/Factory.h"
+#include "AssetImportTask.h"
 
 #include "DObject/Class.h"
 #include "Asset/SourceHint.h"
@@ -8,6 +9,21 @@
 
 namespace Durin
 {
+	auto DFactory::ConfigureImportTask(const DAssetImportTask& Task, const DObject* Existing, FFeedbackContext* Warn, std::function<void()>& Restore) -> bool
+	{
+		if (Task.Options)
+		{
+			(Warn ? *Warn : FFeedbackContext::Get()).Error("The selected factory does not support these import options.");
+			return false;
+		}
+		if (Existing && !Task.bReplaceExistingSettings)
+		{
+			(Warn ? *Warn : FFeedbackContext::Get()).Error("The selected factory cannot retain existing import settings.");
+			return false;
+		}
+		return true;
+	}
+
 	namespace
 	{
 		struct FFactoryCache

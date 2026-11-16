@@ -1,3 +1,4 @@
+#include "AssetImportTask.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/SceneImportData.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"
@@ -198,6 +199,21 @@ namespace Durin::AssetForge::Builtins
 		OutPrepared.ByteCount = Snapshot.FileSize;
 		OutPrepared.InferredSettings = InferTexture2DImportSettings(Filename, &OutPrepared.Source);
 		return OutPrepared;
+	}
+
+	auto DTexture2DFactory::ConfigureImportTask(const DAssetImportTask& Task, const DObject* Existing,
+		FFeedbackContext* Warn, std::function<void()>& Restore) -> bool
+	{
+		if (!Super::ConfigureImportTask(Task, nullptr, Warn, Restore)) return false;
+		if (Existing && !Task.bReplaceExistingSettings)
+		{
+			Restore = [this, Settings = Settings, AutoDetect = bAutoDetectSettings] { this->Settings = Settings; bAutoDetectSettings = AutoDetect; };
+			const auto* Texture = Cast<DTexture2D>(Existing);
+			Settings = {Texture->GetUsage(), Texture->GetCompressionQuality(), Texture->GetAlphaMipMode(),
+				Texture->GetAlphaCoverageThreshold(), Texture->GetMaxResolution(), Texture->IsSRGB()};
+			bAutoDetectSettings = false;
+		}
+		return true;
 	}
 
 	auto DTexture2DFactory::FactoryCreateFile(

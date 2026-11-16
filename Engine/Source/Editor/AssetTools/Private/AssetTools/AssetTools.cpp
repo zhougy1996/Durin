@@ -11,6 +11,9 @@
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Factories/Factory.h"
+#include "AssetImportTask.h"
+#include "FileHelpers.h"
+#include "Misc/StringConvert.h"
 #include "Editor/EditorEngine.h"
 #include "Import/AssetDestinationValidation.h"
 #include "Threading/RunnableThread.h"
@@ -94,6 +97,67 @@ namespace Durin
 		auto CreateUniqueAssetName(std::string_view Base, std::string_view Suffix, std::string& Package, std::string& Name) -> void override
 		{ MakeUniqueAssetName(Base, Suffix, Package, Name); }
 
+		auto ImportAssetTasks(std::span<DAssetImportTask* const> Tasks) -> void override
+		{
+			check(IsInGameThread());
+			// Snapshot and retain the entire selection before callbacks can collect or
+			// modify the caller's array. Each invocation also snapshots its inputs.
+			std::vector<TStrongObjectPtr<DAssetImportTask>> Owners;
+			for (auto* Task : Tasks) Owners.emplace_back(Task);
+			for (const auto& Owner : Owners)
+			{
+				auto* Task = Owner.Get();
+				if (!Task) { Feedback(nullptr).Warning("ImportAssetTasks supplied an empty task."); continue; }
+				if (Task->bRunning) { Reject(nullptr, "The import task is already running."); continue; }
+				Task->bRunning = true;
+				struct FCompletion { bool& Running; ~FCompletion() { Running = false; } } Completion{Task->bRunning};
+				Task->Results.clear(); Task->ObjectView.clear(); Task->ImportedObjectPaths.clear();
+				TStrongObjectPtr<DAssetImportTask> Inputs(NewObject<DAssetImportTask>(nullptr, "ImportTaskInputs", EObjectFlags::Transient));
+				Inputs->Filename = Task->Filename;
+				Inputs->DestinationPath = Task->DestinationPath;
+				Inputs->DestinationName = Task->DestinationName;
+				Inputs->bReplaceExisting = Task->bReplaceExisting;
+				Inputs->bReplaceExistingSettings = Task->bReplaceExistingSettings;
+				Inputs->bAutomated = Task->bAutomated;
+				Inputs->bSave = Task->bSave;
+				Inputs->bAsync = Task->bAsync;
+				Inputs->Factory = Task->Factory;
+				Inputs->Options = Task->Options;
+				const auto& Filename = Inputs->Filename;
+				const auto& Directory = Inputs->DestinationPath;
+				const std::string Name = Inputs->DestinationName.empty()
+					? StringUtils::SanitizeFileName(std::filesystem::path(Filename).stem().generic_string(), "Asset") : Inputs->DestinationName;
+				TStrongObjectPtr<DFactory> Factory(Inputs->Factory.Get());
+				if (Filename.empty()) { Reject(nullptr, "A source filename is required for import."); continue; }
+				if (!Factory)
+				{
+					const auto Candidates = DFactory::FindFactoriesByExtension(std::filesystem::path(Filename).extension().generic_string());
+					if (Candidates.size() != 1) { Reject(nullptr, "Import requires one unambiguous factory for this source extension."); continue; }
+					Factory = Cast<DFactory>(NewObject(Candidates.front()->GetClass(), nullptr, FName("ImportTaskFactory"), EObjectFlags::Transient));
+				}
+				if (Factory && Factory->IsClassDefaultObject())
+					Factory = Cast<DFactory>(NewObject(Factory->GetClass(), nullptr, FName("ImportTaskFactory"), EObjectFlags::Transient));
+				if (!Factory) { Reject(nullptr, "The import factory could not be created."); continue; }
+				FPackagePath PackagePath;
+				FTopLevelAssetPath Path;
+				std::string Prefix = Directory;
+				if (!Prefix.ends_with('/')) Prefix += '/';
+				if (!FPackagePath::TryCreate(Prefix + Name, PackagePath) || !FTopLevelAssetPath::TryCreate(PackagePath, Name, Path))
+				{ Reject(nullptr, "The destination identity is invalid."); continue; }
+				auto* Object = CreateWithFactory(Path, Factory->GetSupportedClass(), Factory.Get(), Filename, nullptr,
+					EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional,
+						&FFeedbackContext::Get(), {}, Inputs->bReplaceExisting, Inputs.Get());
+				if (!Object) continue;
+				Task->Results.emplace_back(Object);
+				Task->ImportedObjectPaths.push_back(Path.ToString());
+				if (Inputs->bSave)
+				{
+					auto* Package = Object->GetPackage();
+					DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true);
+				}
+			}
+		}
+
 		auto ImportAsset(const FTopLevelAssetPath& Path, DClass* Class, std::string_view Filename,
 			DFactory* RequestedFactory, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn) -> DObject* override
 		{
@@ -112,9 +176,10 @@ namespace Durin
 
 	private:
 		TMulticastDelegate<void(std::span<const FAssetRenameData>)> PostRename;
+		std::unordered_set<DFactory*> ActiveFactories;
 		auto CreateWithFactory(const FTopLevelAssetPath& Path, DClass* Class, DFactory* RequestedFactory,
 			std::string_view Filename, DObject* Context, EObjectFlags Flags, FFeedbackContext* Warn,
-			FName CallingContext = {}, bool Overwrite = false) -> DObject*
+			FName CallingContext = {}, bool Overwrite = false, const DAssetImportTask* ImportTask = nullptr) -> DObject*
 		{
 			checkf(IsInGameThread(), "Asset tools creation must run on the game thread.");
 			if (!Path.IsValid()) return Reject(Warn, "The destination asset path is invalid.");
@@ -132,6 +197,14 @@ namespace Durin
 				if (!Factory) return Reject(Warn, "The factory invocation could not be created.");
 				Invocation = TStrongObjectPtr<DFactory>(Factory);
 			}
+			if (Invocation && !ActiveFactories.insert(Invocation.Get()).second)
+				return Reject(Warn, "The factory is already executing another invocation.");
+			struct FFactoryScope
+			{
+				std::unordered_set<DFactory*>& Active;
+				DFactory* Factory;
+				~FFactoryScope() { if (Factory) Active.erase(Factory); }
+			} FactoryScope{ActiveFactories, Invocation.Get()};
 			const auto Destination = InspectAssetDestination(Path.GetPackagePath().GetView());
 			if (!Destination && !Destination.AssetExists()) return Reject(Warn, FormatAssetDestinationValidation(Destination));
 			std::error_code Error;
@@ -153,6 +226,13 @@ namespace Durin
 			}
 			FStrongObjectPtr PreviousOwner(Current);
 			const uint64 PreviousRevision = Current ? Current->GetEditRevision() : 0;
+			struct FImportConfiguration
+			{
+				std::function<void()> Restore;
+				~FImportConfiguration() { if (Restore) Restore(); }
+			} Configuration;
+			if (ImportTask && !Invocation->ConfigureImportTask(*ImportTask,
+				Current ? Current->FindTopLevelAsset(FName(Path.GetAssetName())) : nullptr, Warn, Configuration.Restore)) return nullptr;
 			auto* Package = NewObject<DPackage>(nullptr, FName(Path.GetPackagePath().GetPackageName()));
 			if (!Package || !Package->InitializePreparedAssetPackage(Path.GetPackagePath())) return Reject(Warn, "The destination package could not be prepared.");
 			const TStrongObjectPtr<DPackage> CandidateOwner(Package);

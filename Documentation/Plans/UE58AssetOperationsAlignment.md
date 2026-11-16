@@ -18,18 +18,30 @@ included in that baseline. Stage 1 is complete on 2026-11-16 against
 `394237cb6176aecc8b6e4b898a4851231557b336` plus its implementation working tree.
 Stage 2 is complete on 2026-11-16 against
 `793934ef450be2b3f46bf5b49777d92553fb5ddd` plus its implementation working tree.
-Acceptance evidence for both stages is recorded below; Stages 3-5 remain open.
+Acceptance evidence for both stages is recorded below. Stage 3 is in progress;
+Stages 4-5 remain open. The current increment adds task-backed standalone factory
+execution; scene adapters and removal of legacy entrypoints remain required.
 Stage 0 itself contained no implementation change or native execution.
 
 Stage 0 planning-document checks on 2026-11-16: changed-document validation passed for
 this file; all-plan validation passed for 11 active, 8 completed and 457 archived
 plans. No native build or test was run for this documentation-only change.
 
-The reference installation is `D:/Programs/UE_5.8`, version 5.8.2,
+The Stage 0-2 reference installation was `D:/Programs/UE_5.8`, version 5.8.2,
 CL 56702186, compatible CL 55116800, branch `++UE5+Release-5.8`, verified from
 `Engine/Build/Build.version`. Reference paths below are relative to its `Engine/`.
 Stage 0 reverified this identity. Later implementation must refresh inventory
 when the reference or relevant workspace inputs change.
+
+The user supplied the current reference at `E:/Programs/Epic Games/UE_5.8`.
+On 2026-11-16 its `Engine/Build/Build.version` reports **5.8.0**, CL 53629095,
+compatible CL 0, branch `++UE5+Release-5.8`. Stage 3 rechecked
+`Source/Editor/UnrealEd/Public/AssetImportTask.h` and
+`Source/Developer/AssetTools/Private/AssetTools.cpp` against that source: task
+defaults, managed factory/options/results, null-task skipping, successful object
+paths and optional package saving retain the selected roles. Earlier source
+locations and validation receipts remain historical evidence for their recorded
+baseline; this reference change does not retroactively revalidate other operations.
 
 This plan supersedes the retained public confirmed-deletion protocol selected by
 the completed [operation simplification plan](ContentBrowserUEOperationSimplification.md)
@@ -807,8 +819,11 @@ validation and `git diff --check` complete the documentation acceptance checks.
 Dependency: Stage 1; Stage 2 for replacement/identity interactions.
 Outcome: file-list and task imports share one pipeline with UE-shaped task data.
 
-- [ ] Add DAssetImportTask and IAssetTools import entrypoints with managed
-      factory/options/results lifetimes, complete flags and output paths.
+- [x] Add reflected DAssetImportTask and standalone ImportAssetTasks with managed
+      factory/options/results, synchronous completion, replacement settings and
+      optional save. Migrate Texture/StaticMesh UI admission to tasks.
+- [ ] Add the file-list import entrypoint and extend completion ownership to
+      registered multi-output scene adapters, including actual async waiting.
 - [ ] Adapt standalone factories and feature-owned multi-output sessions through
       registered adapters. Preserve detached build preparation and owner-thread
       publication; no AssetTools-to-AssetForgeBuiltins dependency.
@@ -818,6 +833,53 @@ Outcome: file-list and task imports share one pipeline with UE-shaped task data.
 - [ ] Preserve underlying cancellation/drain semantics behind task/session owners;
       do not expose a new generic cancellation ledger or fake pending results.
 - [ ] Remove Stage 3 ledger APIs, positional result assumptions and unused headers.
+
+Standalone increment accepted on 2026-11-16: `DAssetImportTask` is reflected in DurinEd and
+`ImportAssetTasks` runs standalone factories through the existing prepared-package
+publication boundary. Tasks retain inputs/results, reject recursive submission,
+clear completed-run results on reuse, and preserve live results independently
+from requested save success. Built-in factory configuration retains existing
+settings unless replacement settings are selected. Scene task dispatch, real
+asynchronous task completion/waiting, the file-list overload and old API removal
+are not yet accepted; the stage checklist remains open until those gates pass.
+
+Standalone increment validation (2026-11-16): tested `440e84730787bbe8c301b8eb69bbe8008d767a05`
+plus this implementation working tree, windows-msvc-x64 /
+Win64-Debug-DurinEditor, MSVC 14.44, 14 build jobs. Source/test/module SHA-256
+inputs, six raw passing receipts and the refreshed lexical consumer inventory
+are retained under ignored `Build/UE58AssetOperationsAlignment/`;
+`stage3-ue-reference-manifest.json` records the current UE reference identity.
+Receipt names below share the `20261116-` prefix and are copied into
+`stage3-receipts/`.
+
+| Selection | Result | Receipt suffix |
+| --- | --- | --- |
+| EditorOperationTests | 393 passed | 132141-987956-8348-EditorOperationTests.log |
+| TextureTests | 152 passed | 131559-918686-30036-TextureTests.log |
+| TextureImportWorkflowTests | 27 passed | 131706-112701-12000-TextureImportWorkflowTests.log |
+| StaticMeshTests | 201 passed | 131851-539421-32792-StaticMeshTests.log |
+| AssetImportTests | 22 passed | 131937-207381-27032-AssetImportTests.log |
+| SceneImportTests | 34 passed | 131959-511958-24304-SceneImportTests.log |
+
+Total: 829 passed, no failures or skips. Six new regressions cover managed
+factory/options/results across GC, null and failed peers, completed-task reuse,
+recursive task/shared-factory rejection, save failure/retry, automatic CDO-based
+factory selection without CDO mutation, default names and successful saving,
+unsupported options, and the real StaticMesh replacement/settings matrix.
+Invocation configuration restores the supplied factory's settings on every
+exit. The final operation suite supersedes its earlier 392-test receipt; its
+last change adds only an operation test and does not invalidate the other five
+suites' unchanged production, fixture or environment inputs.
+
+`test affected --explain` expands through public editor module labels into
+unrelated rendering/material/tool targets. These named owner/direct-consumer
+suites cover the changed factory dispatch, UI admission and existing scene
+callers; no GPU behavior changed. The initial sandbox build failed with the
+known MSVC C1902/PDB environment issue; all passing native validation ran outside
+the sandbox through DevTool, as prescribed by the build workflow. Stage 5 still
+owns the workspace all-build and startup gates. Changed-document/all-plan
+validation and `git diff --check` passed for this increment. No legacy import
+API or positional-result removal is claimed by this increment.
 
 Acceptance: one and multiple outputs, chosen/automatic factory, typed options,
 destination name/path, automated mode, each replacement/settings combination,

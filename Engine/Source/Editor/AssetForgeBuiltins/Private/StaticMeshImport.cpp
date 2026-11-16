@@ -1,3 +1,4 @@
+#include "AssetImportTask.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/SceneImportData.h"
@@ -344,6 +345,21 @@ namespace Durin::AssetForge::Builtins
 	{
 		SupportedClass = DStaticMesh::StaticClass();
 		Formats = {"obj", "fbx", "gltf", "glb", "dae", "3ds", "ply", "stl"};
+	}
+
+	auto DStaticMeshFactory::ConfigureImportTask(const DAssetImportTask& Task, const DObject* Existing,
+		FFeedbackContext* Warn, std::function<void()>& Restore) -> bool
+	{
+		if (!Super::ConfigureImportTask(Task, nullptr, Warn, Restore)) return false;
+		if (Existing && !Task.bReplaceExistingSettings)
+		{
+			Restore = [this, Settings = Settings] { this->Settings = Settings; };
+			const auto* Mesh = Cast<DStaticMesh>(Existing);
+			const auto* Data = dynamic_cast<const DStaticMeshImportData*>(Mesh->GetAssetImportData());
+			if (!Data) { (Warn ? *Warn : FFeedbackContext::Get()).Error("The existing mesh has no import settings to retain."); return false; }
+			Settings = Data->GetImportSettings();
+		}
+		return true;
 	}
 
 	auto DStaticMeshFactory::FactoryCreateFile(

@@ -1,3 +1,4 @@
+#include "AssetImportTask.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "AssetForge/Builtins/TextureCubeFactory.h"
 #include "Asset/AssetImportData.h"
@@ -200,6 +201,22 @@ namespace Durin::AssetForge::Builtins
 	{
 		SupportedClass = DTextureCube::StaticClass();
 		Formats = {"png", "jpg", "jpeg", "bmp", "tga", "hdr"};
+	}
+
+	auto DTextureCubeFactory::ConfigureImportTask(const DAssetImportTask& Task, const DObject* Existing,
+		FFeedbackContext* Warn, std::function<void()>& Restore) -> bool
+	{
+		if (!Super::ConfigureImportTask(Task, nullptr, Warn, Restore)) return false;
+		if (Existing && !Task.bReplaceExistingSettings)
+		{
+			Restore = [this, Faces = FaceSettings, Panorama = PanoramaSettings] { FaceSettings = Faces; PanoramaSettings = Panorama; };
+			const auto* Texture = Cast<DTextureCube>(Existing);
+			if (SourceLayout != Texture->GetSourceLayout())
+			{ (Warn ? *Warn : FFeedbackContext::Get()).Error("Retaining cube import settings requires the same source layout."); return false; }
+			FaceSettings.bSRGB = Texture->IsSRGB();
+			PanoramaSettings = {Texture->GetPanoramaFaceDimension(), Texture->GetPanoramaExposureEV(), Texture->GetOutput()};
+		}
+		return true;
 	}
 
 	auto DTextureCubeFactory::FactoryCreateFile(

@@ -15,6 +15,7 @@ namespace Durin
 	class DFactory;
 	class DPackage;
 	class DAssetRedirector;
+	class DAssetImportTask;
 
 	// Coordinates generic editor asset construction and delegates specialized
 	// initialization to factories when one is available. Returned assets are live
@@ -32,6 +33,8 @@ namespace Durin
 		virtual auto DuplicateAsset(std::string_view AssetName, std::string_view PackagePath, DObject* OriginalObject) -> DObject* = 0;
 		virtual auto CreateUniqueAssetName(std::string_view BasePackageName, std::string_view Suffix,
 			std::string& OutPackageName, std::string& OutAssetName) -> void = 0;
+
+		virtual auto ImportAssetTasks(std::span<DAssetImportTask* const> Tasks) -> void = 0;
 
 		// Input order; null entries denote rejected, canceled or unattempted imports.
 		ASSETTOOLS_API auto ImportAssets(const FAssetImportBatchRequest& Request,

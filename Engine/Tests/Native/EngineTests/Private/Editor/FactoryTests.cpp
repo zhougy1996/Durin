@@ -1,3 +1,4 @@
+#include "AssetImportTask.h"
 #include "AssetRegistry/Publication.h"
 #include "Editor/TransactionRecordTestSupport.h"
 #include "Asset/Redirector.h"
@@ -236,6 +237,7 @@ namespace
 			Durin::FFeedbackContext* Warn, Durin::FName CallingContext) -> Durin::DObject* override
 		{
 			++Calls;
+			if (OnCreate) OnCreate();
 			LastCallingContext = CallingContext;
 		Durin::FFactoryDiagnostics DiagnosticStorage(Warn);
 		auto* Diagnostics = &DiagnosticStorage;
@@ -275,6 +277,19 @@ namespace
 				InClass, InParent, InName, Flags, nullptr, Warn, {});
 		}
 
+		auto ConfigureImportTask(const Durin::DAssetImportTask& Task,
+			const Durin::DObject* Existing, Durin::FFeedbackContext* Warn, std::function<void()>& Restore) -> bool override
+		{
+			LastOptions = Task.Options.Get();
+			bSawExisting = Existing != nullptr;
+			bReplacedSettings = Task.bReplaceExistingSettings;
+			if (Task.Options && Task.Options->GetClass() != DFactoryAssetForTest::StaticClass())
+				return Durin::DFactory::ConfigureImportTask(Task, Existing, Warn, Restore);
+			return true;
+		}
+		std::function<void()> OnCreate;
+		Durin::DObject* LastOptions = nullptr;
+		bool bSawExisting = false, bReplacedSettings = false;
 		EMode Mode = EMode::Success;
 		uint32 Calls = 0;
 		Durin::FName LastCallingContext;
@@ -1664,4 +1679,132 @@ TEST(DAssetRenameTests, MixedPackageAliasSurvivesReadOnlyPersistentSoftReference
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Ref->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetImportTaskTests, DefaultsAndManagedInputsAndOutputsSurviveCollection)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "ManagedImportTask", EObjectFlags::Transient));
+	EXPECT_FALSE(Task->bReplaceExisting); EXPECT_FALSE(Task->bReplaceExistingSettings);
+	EXPECT_FALSE(Task->bAutomated); EXPECT_FALSE(Task->bSave); EXPECT_FALSE(Task->bAsync);
+	EXPECT_TRUE(Task->Filename.empty()); EXPECT_TRUE(Task->DestinationPath.empty()); EXPECT_TRUE(Task->DestinationName.empty());
+	EXPECT_FALSE(Task->Factory); EXPECT_FALSE(Task->Options);
+	EXPECT_TRUE(Task->GetObjects().empty()); EXPECT_TRUE(Task->ImportedObjectPaths.empty());
+	EXPECT_TRUE(Task->IsAsyncImportComplete());
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	Task->Factory = Factory;
+	Task->Options = NewObject<DFactoryAssetForTest>(nullptr, "ManagedImportOptions", EObjectFlags::Transient);
+	const FObjectKey FactoryKey(Factory), OptionsKey(Task->Options.Get());
+	CollectGarbage(EObjectFlags::Standalone);
+	ASSERT_NE(ResolveObjectKey(FactoryKey), nullptr); ASSERT_NE(ResolveObjectKey(OptionsKey), nullptr);
+	Task->Filename = "source.factorytest"; Task->DestinationPath = "/AssetToolsTests"; Task->DestinationName = "ManagedTask";
+	Task->bAsync = true; // Ordinary factories use the synchronous fallback.
+	auto* RawTask = Task.Get();
+	IAssetTools::Get().ImportAssetTasks(std::array{RawTask});
+	ASSERT_TRUE(Task->IsAsyncImportComplete()); ASSERT_EQ(Task->GetObjects().size(), 1u);
+	EXPECT_EQ(Factory->LastOptions, Task->Options.Get());
+	EXPECT_EQ(Task->ImportedObjectPaths, std::vector<std::string>{"/AssetToolsTests/ManagedTask.ManagedTask"});
+	const FObjectKey Output(Task->GetObjects().front());
+	CollectGarbage(EObjectFlags::NoFlags);
+	ASSERT_NE(ResolveObjectKey(Output), nullptr);
+	EXPECT_TRUE(Task->GetObjects().front()->GetPackage()->IsDirty());
+	const auto Path = Task->GetObjects().front()->GetPackage()->GetPackagePathIdentity();
+	Task.Reset();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetImportTaskTests, SkipsNullContinuesFailuresAndClearsCompletedResultsOnResubmission)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
+	TStrongObjectPtr<DAssetImportTask> Failed(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
+	Task->Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	Task->Filename = "source.factorytest"; Task->DestinationPath = "/AssetToolsTests"; Task->DestinationName = "TaskPeer";
+	Failed->Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Fail);
+	Failed->Filename = "source.factorytest"; Failed->DestinationPath = "/AssetToolsTests"; Failed->DestinationName = "FailedTaskPeer";
+	IAssetTools::Get().ImportAssetTasks(std::array<DAssetImportTask*, 3>{nullptr, Failed.Get(), Task.Get()});
+	EXPECT_TRUE(Failed->GetObjects().empty()); EXPECT_TRUE(Failed->ImportedObjectPaths.empty());
+	ASSERT_EQ(Task->GetObjects().size(), 1u);
+	const auto Path = Task->GetObjects().front()->GetPackage()->GetPackagePathIdentity();
+	Task->Filename.clear();
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	EXPECT_TRUE(Task->GetObjects().empty()); EXPECT_TRUE(Task->ImportedObjectPaths.empty());
+	EXPECT_TRUE(Task->IsAsyncImportComplete());
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetImportTaskTests, RecursiveSubmissionAndSharedFactoryReentryDoNotRepeatPublication)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient)), Other(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	Task->Factory = Factory; Other->Factory = Factory;
+	Task->Filename = Other->Filename = "source.factorytest";
+	Task->DestinationPath = Other->DestinationPath = "/AssetToolsTests";
+	Task->DestinationName = "RecursiveTask"; Other->DestinationName = "SharedFactoryTask";
+	Factory->OnCreate = [&] {
+		EXPECT_FALSE(Task->IsAsyncImportComplete());
+		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get(), Other.Get()});
+	};
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	Factory->OnCreate = {};
+	EXPECT_EQ(Factory->Calls, 1u); EXPECT_TRUE(Other->GetObjects().empty());
+	ASSERT_EQ(Task->GetObjects().size(), 1u);
+	const auto Path = Task->GetObjects().front()->GetPackage()->GetPackagePathIdentity();
+	Task.Reset(); Other.Reset();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(DAssetImportTaskTests, SaveFailureKeepsPublishedOutputAndOrdinarySaveRetriesIt)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
+	Task->Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	Task->Filename = "source.factorytest"; Task->DestinationPath = "/AssetToolsTests"; Task->DestinationName = "TaskSaveRetry";
+	Task->bSave = true;
+	{
+		Testing::FScopedPackageSaveFault Fault([](Testing::EPackageSaveFaultPoint Point, size_t) {
+			return Point == Testing::EPackageSaveFaultPoint::StagePackage;
+		});
+		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	}
+	ASSERT_EQ(Task->GetObjects().size(), 1u); ASSERT_EQ(Task->ImportedObjectPaths.size(), 1u);
+	auto* Package = Task->GetObjects().front()->GetPackage();
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::array{Package}, true));
+	EXPECT_FALSE(Package->IsDirty());
+	const auto Path = Package->GetPackagePathIdentity(); Task.Reset();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+}
+
+TEST(DAssetImportTaskTests, AutomaticFactoryUsesTransientInvocationAndRejectsUnsupportedOptions)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	const std::array Classes{DAssetToolsFactoryForTest::StaticClass()};
+	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
+	DFactory::InvalidateFactoryCache();
+	auto* Default = Cast<DAssetToolsFactoryForTest>(Classes.front()->GetDefaultObject());
+	ASSERT_NE(Default, nullptr);
+	const auto DefaultCalls = Default->Calls;
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AutoImportTask", EObjectFlags::Transient));
+	Task->Filename = "AutoTask.factorytest"; Task->DestinationPath = "/AssetToolsTests";
+	Task->bSave = true;
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	ASSERT_EQ(Task->GetObjects().size(), 1u);
+	EXPECT_EQ(Task->GetObjects().front()->GetClass(), DFactoryAssetForTest::StaticClass());
+	EXPECT_EQ(Default->Calls, DefaultCalls);
+	EXPECT_EQ(Task->ImportedObjectPaths, std::vector<std::string>{"/AssetToolsTests/AutoTask.AutoTask"});
+	EXPECT_FALSE(Task->GetObjects().front()->GetPackage()->IsDirty());
+	const auto Path = Task->GetObjects().front()->GetPackage()->GetPackagePathIdentity();
+	Task->Options = NewObject<DObject>(nullptr, "UnsupportedTaskOptions", EObjectFlags::Transient);
+	Task->DestinationName = "UnsupportedTaskOptions";
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	EXPECT_TRUE(Task->GetObjects().empty()); EXPECT_TRUE(Task->ImportedObjectPaths.empty());
+	Task.Reset();
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
 }

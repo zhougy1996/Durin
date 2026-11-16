@@ -34,6 +34,9 @@ namespace Durin::AssetForge::Builtins
 			return Settings;
 		}
 
+		ASSETFORGEBUILTINS_API auto ConfigureImportTask(const DAssetImportTask& Task,
+			const DObject* Existing, FFeedbackContext* Warn, std::function<void()>& Restore) -> bool override;
+
 		ASSETFORGEBUILTINS_API auto FactoryCreateFile(
 			DClass* InClass,
 			DObject* InParent,

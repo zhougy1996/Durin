@@ -1,3 +1,5 @@
+#include "AssetImportTask.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Import/TextureFileImport.h"
 #include "PackageTools.h"
 #include "Asset/Load.h"
@@ -59,8 +61,16 @@ namespace Durin::TextureEditor
 		Factory->SetAutoDetectSettings(true);
 		const bool bBatchImport = bool(Prepared);
 		Factory->SetPreparedImport(std::move(Prepared));
-		auto* Imported = IAssetTools::Get().ImportAsset(Destination, DTexture2D::StaticClass(), Filename, Factory,
-			nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), Warn);
+		TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
+		Task->Filename = Filename;
+		Task->DestinationPath = Directory;
+		Task->DestinationName = Destination.GetAssetName();
+		Task->Factory = Factory;
+		Task->bAutomated = true;
+		FScopedFeedbackContext Scope(Warn ? *Warn : FFeedbackContext::Get());
+		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+		const auto& Objects = Task->GetObjects();
+		auto* Imported = Objects.empty() ? nullptr : Objects.front();
 		if (!Imported || bBatchImport) return Imported;
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported);
 		if (!Save(Destination.GetPackagePath())) PendingSaves.push_back(Destination.GetPackagePath());

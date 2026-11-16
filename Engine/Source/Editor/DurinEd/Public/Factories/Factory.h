@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	class DAssetImportTask;
 	struct FStaticMeshImportSettingsError;
 	struct FSourceHintError;
 
@@ -78,6 +79,10 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
+		// Called before file creation. Implementations consume typed Options and may
+		// retain authored settings from Existing; false rejects before publication.
+		DURINED_API virtual auto ConfigureImportTask(const DAssetImportTask& Task,
+			const DObject* Existing, FFeedbackContext* Warn, std::function<void()>& Restore) -> bool;
 		auto GetSupportedClass() const -> DClass* { return SupportedClass; }
 		auto GetFormats() const -> const std::vector<std::string>& { return Formats; }
 

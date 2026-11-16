@@ -17,6 +17,7 @@
         "Projects"
     ],
     "ReflectHeaders": [
+        "Public/AssetImportTask.h",
         "Public/AssetDefinition/AssetDefinition.h",
         "Public/Toolkits/AssetEditor.h",
         "Private/Toolkits/GenericAssetEditor.h",

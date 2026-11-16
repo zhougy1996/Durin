@@ -1,3 +1,6 @@
+#include "AssetImportTask.h"
+#include "DObject/StrongObjectPtr.h"
+#include "AssetForge/Builtins/StaticMeshFactory.h"
 #include "Asset/AssetCompilingManager.h"
 #include "StaticMesh/StaticMeshImportSettings.h"
 #include "AssetForge/Builtins/ImportedScene.h"
@@ -304,4 +307,49 @@ TEST(FSingleAssetImportTests, TexturePreparationReturnsOwnedCaptureAndTranslatio
 	EXPECT_FALSE(Invalid.error().empty());
 	EXPECT_NE(Invalid.error(), Missing.error());
 	EXPECT_FALSE(Missing.error().empty());
+}
+
+TEST(FSingleAssetImportTests, TasksPreserveOrReplaceAuthoredSettingsWithoutMutatingConfiguredFactory)
+{
+	using namespace Durin;
+	using namespace Durin::AssetForge::Builtins;
+	InitializeSingleAssetImportTests();
+	FScopedDerivedDataCacheRoot CacheRoot(Testing::GetTestWorkDirectory() / "ImportTaskSettingsDdc");
+	TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "MeshImportTask", EObjectFlags::Transient));
+	auto* Factory = NewObject<DStaticMeshFactory>(nullptr, "TaskMeshFactory", EObjectFlags::Transient);
+	const auto OriginalSettings = FStaticMeshImportSettings::MakeDurin();
+	const auto IncomingSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
+	Factory->SetImportSettings(OriginalSettings);
+	Task->Factory = Factory;
+	Task->Filename = (std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj").generic_string();
+	Task->DestinationPath = "/SingleAssetStage2"; Task->DestinationName = "TaskSettings"; Task->bAutomated = true;
+	IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+	ASSERT_EQ(Task->GetObjects().size(), 1u);
+	auto* Mesh = Cast<DStaticMesh>(Task->GetObjects().front());
+	ASSERT_NE(Mesh, nullptr);
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	const FObjectKey OriginalKey(Mesh);
+	Factory->SetImportSettings(IncomingSettings);
+	for (const bool ReplaceSettings : {false, true})
+	{
+		Task->bReplaceExistingSettings = ReplaceSettings;
+		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+		EXPECT_TRUE(Task->GetObjects().empty());
+		EXPECT_EQ(ResolveObjectKey(OriginalKey), Mesh);
+		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(Mesh->GetAssetImportData());
+		ASSERT_NE(Data, nullptr); EXPECT_EQ(Data->GetImportSettings(), OriginalSettings);
+	}
+	Task->bReplaceExisting = true;
+	for (const bool ReplaceSettings : {false, true})
+	{
+		Task->bReplaceExistingSettings = ReplaceSettings;
+		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+		ASSERT_EQ(Task->GetObjects().size(), 1u);
+		Mesh = Cast<DStaticMesh>(Task->GetObjects().front()); ASSERT_NE(Mesh, nullptr);
+		FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(Mesh->GetAssetImportData());
+		ASSERT_NE(Data, nullptr);
+		EXPECT_EQ(Data->GetImportSettings(), ReplaceSettings ? IncomingSettings : OriginalSettings);
+		EXPECT_EQ(Factory->GetImportSettings(), IncomingSettings);
+	}
 }

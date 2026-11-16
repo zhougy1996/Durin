@@ -1,3 +1,5 @@
+#include "AssetImportTask.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Physics/BodySetup.h"
 #include "PackageTools.h"
 #include "Asset/Load.h"
@@ -261,9 +263,17 @@ namespace Durin::StaticMeshEditor
 				ResultError += Message;
 			}
 		});
-		const auto Result = IAssetTools::Get().ImportAsset(
-			TopLevelAssetPath, DStaticMesh::StaticClass(),
-			SourcePathBuffer.data(), Factory, nullptr, (Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone | Durin::EObjectFlags::Transactional), &ResultFeedback);
+		TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
+		Task->Filename = SourcePathBuffer.data();
+		const auto PackageName = AssetPath.ToString();
+		Task->DestinationPath = PackageName.substr(0, PackageName.find_last_of('/'));
+		Task->DestinationName = TopLevelAssetPath.GetAssetName();
+		Task->Factory = Factory;
+		Task->bAutomated = true;
+		FScopedFeedbackContext Scope(ResultFeedback);
+		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
+		const auto& Objects = Task->GetObjects();
+		auto* Result = Objects.empty() ? nullptr : Objects.front();
 		if (!Result)
 		{
 			Operation.reset();

@@ -147,6 +147,35 @@ cancellation history, mailbox, activity projection, or shutdown pump for these
 workflows. Missing or corrupt disposable data uses the owning family build or
 PostLoad policy rather than import `Recover` semantics.
 
+## Standalone Import Tasks
+
+`DAssetImportTask` belongs to DurinEd alongside `DFactory`. The five policy
+booleans default to false; factory/options, destination/source strings and output
+paths start empty. The task's reflected factory, options and output references
+participate in managed collection. `IAssetTools::ImportAssetTasks` retains the
+selected tasks through callbacks, skips null tasks and rejects submission of a
+task already executing. Completed resubmission clears that run's old outputs.
+
+Standalone factory execution is synchronous, including when `bAsync` is true;
+completion describes authored object publication, independently of family DDC
+compilation. Polling does no work. Reading results inside the same synchronous
+factory callback is a reentrant wait error. A completed task returns its managed
+live objects and exact object paths. Optional `bSave` uses the ordinary editor
+save facade after publication; a save failure retains those live outputs.
+
+`DFactory::ConfigureImportTask` is the lower-layer extension point for consuming
+typed `Options` and retaining existing authored settings. The default rejects
+unsupported non-null options and unsupported settings retention rather than
+silently ignoring them. A configuration hook can return a lexical restoration
+callback, which runs on every success/failure path before the factory owner is
+released; retained settings never replace the caller's configured settings for
+a later invocation. Built-in texture/mesh factories retain their family
+settings on same-class replacement unless `bReplaceExistingSettings` is true.
+Cube settings retention requires a matching source layout. Occupied destinations
+require `bReplaceExisting`; headless execution never prompts. Package graph
+replacement preserves siblings and revalidates the destination after callbacks.
+The legacy standalone batch and scene session entrypoints below remain available.
+
 ## Standalone Batch Admission
 
 Standalone creation and import return a live `DObject*`, or `nullptr` on failure.
