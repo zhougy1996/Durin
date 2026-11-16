@@ -526,13 +526,19 @@ Create and Import invocation share Content Browser's asset-mutation admission
 policy.
 
 TextureEditor uses a native multi-select file picker for Texture2D. Its private
-`FTextureFileImport` service owns a bounded batch queue, unique naming, factory
+`FTextureFileImport` service owns a bounded batch queue, factory
 invocation, save, and failed-save retry independently from UI. One detached source
 is captured, decoded, and classified on a worker at a time. A prepared-source
 factory opt-in submits asynchronous texture compilation; the accepted object is
 pinned until completion, and saving waits for successful build and provenance
 publication. Ordinary factory calls remain synchronous, and reimport preserves
 its configured settings.
+
+Texture destination names use `IAssetTools::CreateUniqueAssetName` with the source
+filename stem and an empty suffix, following the shared
+[naming policy](AssetTools.md#creation-and-duplication). Import uses both returned
+package and asset names; naming proposes a destination without reserving it, and
+task admission still checks occupancy before publishing the asset.
 
 The import queue directly consumes Engine's `DPackage::SaveAsync` Task for disk
 saving. The Task owns final persistence and Registry publication; the queue owns

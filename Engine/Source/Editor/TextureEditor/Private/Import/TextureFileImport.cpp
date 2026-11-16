@@ -12,8 +12,6 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
-#include "Import/AssetDestinationValidation.h"
-#include "Misc/StringConvert.h"
 #include "Asset/AssetCompilingManager.h"
 
 namespace Durin::TextureEditor
@@ -39,24 +37,14 @@ namespace Durin::TextureEditor
 		if (Directory.empty()) return Reject("Choose a destination folder in the Content Browser.");
 		std::string Prefix(Directory);
 		if (!Prefix.ends_with('/')) Prefix.push_back('/');
-		const std::string Name = StringUtils::SanitizeFileName(
-			std::filesystem::path(Filename).stem().generic_string(), "Texture");
-		FTopLevelAssetPath Destination;
-		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
-		{
-			const std::string CandidateName = Suffix == 0 ? Name : std::format("{}_{}", Name, Suffix);
-			const auto Candidate = InspectAssetDestination(Prefix + CandidateName);
-			if (Candidate.AssetExists()) continue;
-			if (!Candidate) return Reject(FormatAssetDestinationValidation(Candidate));
-			std::error_code Error;
-			const bool bExists = std::filesystem::exists(Candidate.PhysicalPath, Error);
-			if (Error) return Reject("Could not inspect the destination: " + Error.message());
-			if (bExists) continue;
-			if (!FTopLevelAssetPath::TryCreate(Candidate.AssetPath, CandidateName, Destination))
-				return Reject("The texture asset name is invalid.");
-			break;
-		}
-		if (!Destination.IsValid()) return Reject("Could not find an available texture name in this folder.");
+		std::string Name = std::filesystem::path(Filename).stem().generic_string();
+		if (Name.empty()) Name = "Texture";
+		FScopedFeedbackContext Scope(Warn ? *Warn : FFeedbackContext::Get());
+		std::string PackageName, AssetName;
+		IAssetTools::Get().CreateUniqueAssetName(Prefix + Name, {}, PackageName, AssetName);
+		if (PackageName.empty() || AssetName.empty()) return nullptr;
+		FPackagePath Destination;
+		if (!FPackagePath::TryCreate(PackageName, Destination)) return Reject("The texture destination is invalid.");
 		auto* Factory = NewObject<AssetForge::Builtins::DTexture2DFactory>(
 			nullptr, "TextureFileImportFactory", EObjectFlags::Transient);
 		Factory->SetAutoDetectSettings(true);
@@ -64,11 +52,10 @@ namespace Durin::TextureEditor
 		Factory->SetPreparedImport(std::move(Prepared));
 		TStrongObjectPtr<DAssetImportTask> Task(NewObject<DAssetImportTask>(nullptr, "AssetImportTask", EObjectFlags::Transient));
 		Task->Filename = Filename;
-		Task->DestinationPath = Directory;
-		Task->DestinationName = Destination.GetAssetName();
+		Task->DestinationPath = PackageName.substr(0, PackageName.find_last_of('/'));
+		Task->DestinationName = AssetName;
 		Task->Factory = Factory;
 		Task->bAutomated = true;
-		FScopedFeedbackContext Scope(Warn ? *Warn : FFeedbackContext::Get());
 		IAssetTools::Get().ImportAssetTasks(std::array{Task.Get()});
 		const auto& Objects = Task->GetObjects();
 		auto* Imported = Objects.empty() ? nullptr : Objects.front();
@@ -76,7 +63,7 @@ namespace Durin::TextureEditor
 		MarkAsGarbage(Task.Get()); Task.Reset();
 		if (!Imported || bBatchImport) return Imported;
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Imported);
-		if (!Save(Destination.GetPackagePath())) PendingSaves.push_back(Destination.GetPackagePath());
+		if (!Save(Destination)) PendingSaves.push_back(Destination);
 		return Imported;
 	}
 

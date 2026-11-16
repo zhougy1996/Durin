@@ -105,12 +105,33 @@ TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 		EXPECT_EQ(Texture->GetUsage(), ETextureUsage::Normal);
 		EXPECT_FALSE(Texture->IsSRGB());
 		EXPECT_FALSE(Result->GetPackage()->IsDirty());
-		EXPECT_EQ(Published.back(), std::format("/TextureFileImport/unnamed_{}", Index));
+		EXPECT_EQ(Published.back(), std::format("/TextureFileImport/unnamed{}", Index));
 		EXPECT_TRUE(UnloadPackage(Result->GetPackage()));
 	}
 	EXPECT_FALSE(Importer.HasPendingSaves());
 	EXPECT_EQ(Published.size(), 2u);
 	EXPECT_EQ(std::filesystem::file_size(Source), Tga.size());
+	// Share numeric-suffix policy with AssetTools across resident and physical occupancy.
+	auto* Occupied = IAssetTools::Get().CreateAsset("tile007", "/TextureFileImport", DObject::StaticClass(), nullptr);
+	ASSERT_NE(Occupied, nullptr);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Tga, Root / "Content" / "tile008.dasset"));
+	TextureEditor::FTextureFileImport NamingImporter({.ReportError = [&](std::string Message) { Error = std::move(Message); }});
+	for (const auto& [Stem, ExpectedName] : std::array<std::pair<std::string_view, std::string_view>, 2>{
+		std::pair{"tile007", "tile009"}, std::pair{"123", "123_2"}})
+	{
+		SCOPED_TRACE(Stem);
+		const auto NamedSource = Root / (std::string(Stem) + ".tga");
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Tga, NamedSource));
+		std::string PackageName, AssetName;
+		IAssetTools::Get().CreateUniqueAssetName("/TextureFileImport/" + std::string(Stem), {}, PackageName, AssetName);
+		EXPECT_EQ(AssetName, ExpectedName);
+		auto* Imported = NamingImporter.ImportFile(NamedSource.generic_string(), "/TextureFileImport/");
+		ASSERT_NE(Imported, nullptr) << Error;
+		EXPECT_EQ(Imported->GetName(), ExpectedName);
+		EXPECT_EQ(Imported->GetPackage()->GetPackagePath(), PackageName);
+		EXPECT_TRUE(UnloadPackage(Imported->GetPackage()));
+	}
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Occupied->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 	const auto Invalid = Importer.ImportFile((Root / "missing.png").generic_string(), "/TextureFileImport/");
 	EXPECT_FALSE(Invalid);
 	EXPECT_EQ(Published.size(), 2u);
@@ -132,7 +153,7 @@ TEST(FTextureFileImportTests, ImportsNormalSavesAndChoosesAvailableNames)
 	EXPECT_FALSE(RetryImporter.HasPendingSaves());
 	EXPECT_EQ(SaveAttempts, 2);
 	ASSERT_EQ(Published.size(), 3u);
-	EXPECT_EQ(Published.back(), "/TextureFileImport/unnamed_3");
+	EXPECT_EQ(Published.back(), "/TextureFileImport/unnamed3");
 }
 
 namespace
