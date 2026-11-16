@@ -5,7 +5,7 @@
 #include "Asset/LoadErrors.h"
 
 #include "Asset/PackageInspection.h"
-#include "AssetTools/MutationTypes.h"
+#include "AssetMutationResultInternal.h"
 #include "AssetTools/MutationTesting.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"

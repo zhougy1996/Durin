@@ -173,9 +173,10 @@ Revalidation, companion-ownership queries and file-validation callbacks return
 bool with optional diagnostics. Reference-store application also returns bool;
 the mutation owner tracks attempted/published effects. A callback rejection
 without a diagnostic still rejects the operation and cannot become success.
-ContentBrowser's validation query returns its existing Valid/Stale/Rejected
-business status, preserving the need to replace and reconfirm stale plans. Mutation ledgers and backup roots are kept in
-`FAssetMutationResultDetails`; physical save details stay with the package writer.
+Browser capability and execution queries return their operation-specific bools;
+there is no public Valid/Stale/Rejected deletion protocol. Private byte-transform
+ledgers retain affected files and backup roots at their I/O owner; physical save
+details stay with the package writer.
 AssetRegistry owns its native result and its `ToError` conversion. Physical
 writer outcomes cross the Engine boundary once to attach effects and recovery
 context. Errors format through `ToString` only at presentation boundaries.
@@ -231,8 +232,9 @@ catalog reconciliation. AssetTools owns relocation/fix-up preparation, validatio
 multifile staging, publication ordering, and retained-backup policy. `Asset/PackageRemoval.h` supplies bounded
 batch residency release and catalog removal against expected package metadata
 and revision. It owns no selection, warning, companion-provider, or physical
-deletion policy. `IAssetTools` owns asset creation, duplication,
-import, deletion planning and execution, and reusable editor acceptance. Editor hosts own UI and presentation;
+deletion policy. `IAssetTools` owns asset creation, duplication, import, rename and referencer
+fix-up. `ObjectTools` and `FAssetDeleteModel` own deletion policy, analysis and
+confirmation over a private native executor. Editor hosts own UI and presentation;
 ContentBrowser additionally owns recursive ordinary-file planning and permanent
 physical deletion for mixed selections. Successful authored operations advance
 DurinEd's mounted-content mutation revision exactly once and never enter the
@@ -240,7 +242,9 @@ global object-edit Undo/Redo history.
 
 ## Editor Operation Results
 
-Creation, standalone import and duplication return live Dirty objects or nullptr.
+Creation and duplication return live Dirty objects or nullptr. File-list imports
+return successful objects only; managed tasks retain zero or more actual outputs
+through completion, including outputs whose optional save failed.
 Editor package saving and prompt results belong to the
 [save facades](../../../Editor/Architecture/Assets/AssetTools.md#saving-and-feedback),
 not IAssetTools. Saving keeps physical commits separate from Registry failure;
@@ -248,12 +252,13 @@ lexical observers receive only their own batch's committed paths. Creation and
 copying use scoped feedback rather than trailing diagnostic parameters.
 Rename returns bool and referencer fix-up returns void, with scoped feedback and
 exact identity events as defined by [Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md#rename-and-referencer-fix-up).
-Deletion keeps its current operation-specific interface and optional feedback. No common editor result envelope is introduced.
+Deletion returns object/folder counts through ObjectTools and exposes incremental
+analysis through FAssetDeleteModel; see the [deletion contract](../../../Editor/Architecture/Assets/AssetTools.md#deletion).
+No common editor result envelope is introduced.
 
-Native `FAssetWriteResult` and `FAssetMutationResultDetails` retain disk effects
-and recovery paths at the owning I/O boundary. Deletion operations expose their
-native write result and affected files, retaining destructive evidence after
-rejected repeat execution. A false high-level return does not
+Native `FAssetWriteResult` and private byte-transform records retain disk effects
+and recovery paths at the owning I/O boundary. Private deletion attempts retain
+their native write result and affected files after rejected repeat execution. A false high-level return does not
 prove that no bytes changed: orchestration requiring partial-commit evidence
 observes the owning native persistence boundary. Browser commands return booleans and
 operation-specific item outputs. Their independent item-update notifier drives refresh from observed content changes;
@@ -372,17 +377,19 @@ valid content. These mechanisms provide no startup replay or multi-file crash
 atomicity. Retried editor identity operations recognize already moved objects;
 private byte repair prepares a new operation from current content.
 
-Native FAssetMutationResultDetails retains write effects, affected files and every
-backup location internally and in the explicit native test surface. These are
-not a public editor rename/fix-up result protocol. Reference stores retain their
+Private byte-transform records retain write effects, affected files and every
+backup location. The explicit native characterization surface copies this evidence
+into FPackageMutationTestResult; production commands have no dependency on that
+test result. These are not public editor rename/fix-up results. Reference stores retain their
 owned revalidation, application and verification callbacks; successful rewrites
 are verified before alias deletion. Later failures preserve valid aliases and
 previous committed work for a subsequent repair or manual recovery.
 
 ## Deletion And Fix-Up
 
-`FAssetDeletionOperation` in AssetTools owns the sole confirmed deletion state,
-including entries, blockers, detailed warnings, and the irreversible callback.
+ObjectTools and FAssetDeleteModel own editor deletion analysis and confirmation.
+The private FAssetDeletionOperation retains whole-package execution facts,
+including entries, blockers, detailed warnings and the irreversible callback.
 Engine exposes no deletion job or deletion-specific extension registry. AssetTools
 owns deletion contributors and companion-ownership queries; package and `.dbulk`
 inspection remain Engine mechanisms. Standard deletion companion ownership uses

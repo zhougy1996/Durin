@@ -207,7 +207,7 @@ feedback and directory creation utilities; Core owns path
 safety helpers. Native copy/move/save return bool directly. No generic
 `OperationResult`, prepared-transfer context or cross-provider claim ledger remains.
 
-Source feature version 16 uses UE bool aggregation: true means at least one
+Source feature version 18 uses UE bool aggregation: true means at least one
 contribution succeeded. Item Copy/Move call single-item source actions; service
 bulk calls public bulk overrides. Default bulk copy/move OR single-item results.
 Save/rename/copy/move/edit/duplicate capabilities also OR supported contributions.
@@ -220,7 +220,7 @@ Capability queries do not reserve destinations or replace execution checks.
 `CanRenameItem` accepts an optional name: absence checks permission; a proposal
 adds name/target validation. Native copy never replaces existing files. File
 moves verify bytes before source removal and stay within the source mount; Asset
-retains package relocation across writable mounts. Selected ownership, companions,
+uses object-based RenameAssets across writable mounts. Selected ownership, companions,
 reparse points, final paths and mount boundaries remain provider responsibilities.
 Save flags retain UE loaded/dirty predicates and reject unsupported flags;
 `SaveOnlyIfLoaded` retains resident packages/exports during execution.
@@ -236,8 +236,10 @@ while external notifications for committed changes remain deliverable.
 
 Diagnostics use feedback or Core logging; actual changes use `FContentChangeBatch`.
 Save collects only its own `OnSaved` changes; nested operations publish separately.
-Providers keep only local success/stop state for transfers and native recovery
-facts where needed. Backend diagnostics are forwarded without a browser result
+Providers keep local success/stop state for transfers and observed directory
+effects. Asset staging, persistence/recovery evidence and deletion attempts remain
+with their native owners. Creating an incidental parent directory does not make
+an asset transfer succeed; its actual directory effect is still published. Backend diagnostics are forwarded without a browser result
 ledger. Panels refresh after attempted commands, consume source updates and use
 explicit outputs for selection. Query cancellation is independent of mutation.
 

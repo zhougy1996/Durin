@@ -18,6 +18,7 @@
 #include "Misc/FileHelper.h"
 #include "AssetTools/IAssetTools.h"
 #include "AssetTools/ContentMutation.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include <gtest/gtest.h>
 
@@ -852,6 +853,41 @@ namespace
 		Duplicate->Shutdown();
 		EXPECT_TRUE(Data->ActivateDataSource(FName("File")));
 	}
+	TEST_F(FContentBrowserDataTests, DirectAssetToolsPublishExactRowsOnceWithoutBrowserCommandReplay)
+	{
+		auto Flush = [&] {
+			PublishedUpdates.clear();
+			(void)CaptureAssetQuerySnapshot();
+			PumpGameThreadDeferredWork();
+			Data->Tick(0.f);
+		};
+		auto Count = [&](EContentBrowserItemUpdateType Kind, std::string_view Path) {
+			return std::ranges::count_if(PublishedUpdates, [&](const auto& Update) {
+				return Update.GetUpdateType() == Kind && Update.GetItemData().GetVirtualPath() == Path;
+			});
+		};
+		Flush();
+		auto* Asset = IAssetTools::Get().CreateAsset("Direct", "/ProviderTests", DObject::StaticClass(), nullptr);
+		ASSERT_NE(nullptr, Asset);
+		const std::string Original = Asset->GetObjectPath();
+		Flush();
+		EXPECT_EQ(1, Count(EContentBrowserItemUpdateType::Added, Original));
+		auto* Copy = IAssetTools::Get().DuplicateAsset("DirectCopy", "/ProviderTests", Asset);
+		ASSERT_NE(nullptr, Copy);
+		Flush();
+		EXPECT_EQ(1, Count(EContentBrowserItemUpdateType::Added, Copy->GetObjectPath()));
+		const FAssetRenameData Rename(TWeakObjectPtr<DObject>(Asset), "/ProviderTests", "DirectRenamed");
+		ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+		Flush();
+		EXPECT_EQ(1, Count(EContentBrowserItemUpdateType::Moved, Asset->GetObjectPath()));
+		EXPECT_EQ(0, Count(EContentBrowserItemUpdateType::Added, Asset->GetObjectPath()));
+		EXPECT_TRUE(std::ranges::any_of(PublishedUpdates, [&](const auto& Update) {
+			return Update.GetUpdateType() == EContentBrowserItemUpdateType::Moved && Update.GetPreviousVirtualPath() == Original;
+		}));
+		Flush();
+		EXPECT_TRUE(PublishedUpdates.empty());
+	}
+
 	TEST_F(FContentBrowserDataTests, CommittedOperationsPublishIncrementalUpdatesAndFailuresPublishNothing)
 	{
 		auto Handle = File();

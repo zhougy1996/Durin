@@ -183,8 +183,10 @@ any selected write or Registry publication fails.
 
 `FScopedPackageSaveObserver` receives this lexical batch's actual committed
 package paths, including content committed with Registry publication pending.
-The observer is detached while the batch runs; nested saves need their own
-observer and cannot enter the caller's notification list. Diagnostics do not
+The observer is reserved before a save prompt and detached while prompting or
+writing; nested saves need their own observer and cannot enter the caller's
+notification list. Browser observers attach after loading, immediately around
+the selected save. Diagnostics do not
 stand in for physical persistence evidence. Browser saves translate their own
 observed paths into updates; native write effects remain at the writer boundary.
 

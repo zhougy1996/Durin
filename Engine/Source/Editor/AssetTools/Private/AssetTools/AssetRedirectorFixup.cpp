@@ -749,8 +749,8 @@ namespace Durin
 
 	auto FixupPackageFilesWithBeforeCommitForTesting(
 		std::span<const FPackagePath> Redirectors, EPackageAliasFixupTestMode Mode,
-		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
-	{ return FixUpRedirectorsImpl(Redirectors, static_cast<EPackageAliasFixupMode>(Mode), BeforeCommit); }
-	auto FixupPackageFilesForTesting(std::span<const FPackagePath> Paths, EPackageAliasFixupTestMode Mode) -> FAssetMutationResultDetails
-	{ return FixupPackageAliases(Paths, static_cast<EPackageAliasFixupMode>(Mode)); }
+		const std::function<void()>& BeforeCommit) -> FPackageMutationTestResult
+	{ auto Details = FixUpRedirectorsImpl(Redirectors, static_cast<EPackageAliasFixupMode>(Mode), BeforeCommit); return {std::move(Details.Result), std::move(Details.AffectedFiles), std::move(Details.BackupLocations)}; }
+	auto FixupPackageFilesForTesting(std::span<const FPackagePath> Paths, EPackageAliasFixupTestMode Mode) -> FPackageMutationTestResult
+	{ return FixupPackageFilesWithBeforeCommitForTesting(Paths, Mode, {}); }
 }

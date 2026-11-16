@@ -3,7 +3,6 @@
 #include "DObject/Function.h"
 #include "AssetTools/IAssetTools.h"
 #include "AssetMutationInternal.h"
-#include "AssetTools/MutationTesting.h"
 #include "FileHelpers.h"
 #include "PackageTools.h"
 #include "Asset/Load.h"

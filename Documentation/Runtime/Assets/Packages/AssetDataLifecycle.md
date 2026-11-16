@@ -92,8 +92,10 @@ A write report owns one optional structured `Error` and the observed write
 formats the retained error. Read failures propagate directly, and encoding failures
 convert once through `ObjectPackage::ToError` without changing their identity.
 Preparation failures never claim committed content. Mutation file ledgers and
-backup roots belong to `FAssetMutationResultDetails`; editor deletion operations
-expose their write report and affected file ledger directly. The physical package
+backup roots remain private to byte-transform executors; private deletion attempts
+retain their write report and affected files. Editor callers use the
+[operation-specific contracts](../../../Editor/Architecture/Assets/AssetTools.md),
+without a public native effect ledger. The physical package
 writer retains its native contract; the asset boundary preserves its failure
 identity, file evidence and retained backup paths in the report's error context.
 

@@ -1167,6 +1167,36 @@ TEST(DFactoryTests, SaveObserverExcludesNestedBatchesAndIncludesProjectionPendin
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(SecondPath));
 }
 
+TEST(DFactoryTests, PromptSaveObserverExcludesNestedPromptWritesAndObservesEverySelectedPackage)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	auto* First = IAssetTools::Get().CreateAsset("PromptObservedFirst", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	auto* Second = IAssetTools::Get().CreateAsset("PromptObservedSecond", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	auto* Nested = IAssetTools::Get().CreateAsset("PromptObservedNested", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(First, nullptr); ASSERT_NE(Second, nullptr); ASSERT_NE(Nested, nullptr);
+	std::array Packages{First->GetPackage(), Second->GetPackage()};
+	auto* NestedPackage = Nested->GetPackage();
+	const auto FirstPath = Packages[0]->GetPackagePathIdentity(), SecondPath = Packages[1]->GetPackagePathIdentity();
+	const auto NestedPath = NestedPackage->GetPackagePathIdentity();
+	std::vector<FPackagePath> Observed;
+	FEditorFileUtils::SetSavePrompt([&](auto, const auto&) {
+		EXPECT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&NestedPackage, 1}, true));
+		return FEditorFileUtils::PR_Success;
+	});
+	{
+		FScopedPackageSaveObserver Observer([&](const FPackagePath& Path) { Observed.push_back(Path); });
+		FEditorFileUtils::FPromptForCheckoutAndSaveParams Params;
+		Params.bPromptToSave = true;
+		EXPECT_EQ(FEditorFileUtils::PromptForCheckoutAndSave(Packages, Params), FEditorFileUtils::PR_Success);
+	}
+	FEditorFileUtils::SetSavePrompt({});
+	EXPECT_EQ(Observed, (std::vector{FirstPath, SecondPath}));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(FirstPath));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(SecondPath));
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(NestedPath));
+}
+
 TEST(DFactoryTests, ReloadModesPreserveDirtyStateUnlessExplicitlyAccepted)
 {
 	using namespace Durin;

@@ -112,7 +112,6 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 				if (!Admitted(Inputs, &Error) || !SafePath(*It, true, &Error)) { Stopped = true; break; }
 				if (std::filesystem::create_directory(*It, Ec))
 				{
-					Success = true;
 					Changes.Changes.push_back({EContentChangeKind::Added, {}, It->generic_string(), {}, {}, true});
 				}
 				if (Ec) break;

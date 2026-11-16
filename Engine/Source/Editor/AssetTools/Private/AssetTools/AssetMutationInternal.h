@@ -1,5 +1,6 @@
 #pragma once
-#include "AssetTools/MutationTypes.h"
+#include "CoreMinimal.h"
+#include "AssetMutationResultInternal.h"
 #include "Asset/MutationExtensions.h"
 namespace Durin
 {

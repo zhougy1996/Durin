@@ -4,8 +4,8 @@ Summary: Align editor asset operation interfaces, data structures, ownership, an
 
 Last reviewed: 2026-11-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-16
 
 ## Current Status
 
@@ -24,7 +24,11 @@ working tree. File-list and scene execution now share managed tasks, and the
 superseded import protocols are removed. Stage 4 is complete on 2026-11-16
 against `d570674d8f9ccd7446c96aad63a379c71b493270` plus its implementation working
 tree. ObjectTools and the delete model now own deletion policy; Browser deletion
-uses independent context-free provider dispatch. Stage 5 remains open.
+uses independent context-free provider dispatch. Stage 5 is complete on
+2026-11-16 against `30ee8234ab909a60356dbab0da558c8b05d8e5cb` plus the
+implementation inputs in `stage5-receipts/tested-inputs.json`. All removal,
+contract, workspace-build, selected-regression and bounded lifecycle gates passed.
+Final evidence is recorded in Stage 5 below.
 Stage 0 itself contained no implementation change or native execution.
 
 Stage 0 planning-document checks on 2026-11-16: changed-document validation passed for
@@ -557,7 +561,7 @@ mechanisms may survive under explicit ownership and names.
 | Public ContentBrowserDeleteRequestLease helper | Private model/executor reentry protection | Stage 4: delete header and all Data/Asset/File lease uses with the context protocol |
 | `PrepareDeleteItems`, context-taking `BulkDeleteItems`, `FContentBrowserDeleteContext`, `IContentBrowserDeleteRequest`, preview and validation protocol | UE-shaped `DeleteItem/BulkDeleteItems`; internal confirmation presentation | Stage 4: service, Item, providers, panels and extensions migrated together; increment source feature version |
 | Browser asset transfer/save/recovery orchestration | AssetTools/ObjectTools/save services | Stages 1-4: provider adapters retain item resolution, capability and projection only |
-| `FAssetMutationResultDetails` public workflow envelope | Private native evidence or operation-specific native reports | Stage 5: no Browser/public command dependency; retain writer evidence at I/O owner |
+| `FAssetMutationResultDetails` public workflow envelope | Private native evidence; distinct package-mutation characterization snapshot | Closed in Stage 5: public MutationTypes header removed; no Browser/public command dependency; writer evidence retained at I/O owner |
 | Const factory execution, FactoryCreateFromFile, discovery-CDO execution assumptions | Mutable FactoryCreateNew/FactoryCreateFile, transient invocation factories and scoped feedback | Stage 1: base and all built-in/test overrides and callers migrated; keep read-only discovery metadata |
 | Trailing public creation Flags/Context/Warn and DefaultAssetCreationFlags service exposure | Fixed UE creation flags, FName CallingContext and lexical feedback routing | Stage 1: project/program/feature consumers migrated; private primitive flags remain available where owned |
 
@@ -769,7 +773,7 @@ consumer targets were selected after `test affected --explain`: public module
 headers/shared fixtures expand the automatic selection beyond the changed
 behavior. The build graph is unchanged; the explicit CoreDObject,
 AssetRegistry/Engine, editor-family, package/cook and workspace-project coverage
-below covers the affected consumers. Final all-build/startup/all-native gates
+below covers the affected consumers. Final all-build/bounded-startup/selected-regression gates
 remain assigned to Stage 5; GPU, application-hosted and cross-platform execution
 are not claimed here.
 
@@ -1074,7 +1078,7 @@ shared workflow fixtures. These named owner, lifecycle, persistence, UI and dire
 consumer selections cover the changed behavior without GPU or startup execution.
 Passing receipts remain applicable across the final documentation and unused
 private test-include cleanup; effective production/test headers and runtime
-settings are unchanged. Full-workspace all-build/startup/all-native acceptance
+settings are unchanged. Full-workspace all-build/bounded-startup/selected-regression acceptance
 remains Stage 5. Changed-document/all-plan validation and `git diff --check`
 passed for this stage's final documentation and source set.
 
@@ -1083,23 +1087,23 @@ passed for this stage's final documentation and source set.
 Dependencies: Stages 1-4. Outcome: one supported API per responsibility, all
 workspace consumers migrated, no superseded public protocol or unresolved gate.
 
-- [ ] Audit Browser adapters: no package staging, direct relocation workflow,
+- [x] Audit Browser adapters: no package staging, direct relocation workflow,
       ad hoc save/recovery state or public native effect ledger remains there.
-- [ ] Verify registry/live-object event ownership, source item updates, directory
+- [x] Verify registry/live-object event ownership, source item updates, directory
       events and host history invalidation. Handle nested callbacks, reentry,
       provider retirement and committed projection-pending writes exactly once
       at each owning channel; do not infer effects from bool or diagnostic text.
-- [ ] Complete the removal ledger and whole-workspace symbol/include/link audit.
+- [x] Complete the removal ledger and whole-workspace symbol/include/link audit.
       Identify every surviving native type by an actual owner/consumer; remove
       dead adapters, duplicate enums, request types, test exports and module deps.
-- [ ] Update implemented contracts listed below, marking intentional deviations;
+- [x] Update implemented contracts listed below, marking intentional deviations;
       remove contradictory active contract text and link the authority once.
-- [ ] Run final owning/direct consumer regression selections on final relevant
+- [x] Run final owning/direct consumer regression selections on final relevant
       inputs, an explicit `all` build across the declared workspace, and one
       bounded startup/shutdown case covering operation-service registration and
       teardown. Public vtable/generated-type changes and module dependency moves
       justify this integration build; it is not repeated after every stage.
-- [ ] Run changed-document and all-plan validation, inspect the final diff, record
+- [x] Run changed-document and all-plan validation, inspect the final diff, record
       evidence and complete this plan only after every mandatory gate passes.
 
 Acceptance: every removal gate closed, supported API/behavior matrix complete,
@@ -1107,6 +1111,81 @@ no layering cycle, Engine/Sandbox/RoadWeaver accepted, lifecycle smoke passed,
 and no pending implementation or required validation. No GPU qualification,
 whole native-test suite or additional preset is implied absent changed behavior
 that requires it; record a specific uncovered risk before broadening coverage.
+
+Stage 5 acceptance (2026-11-16, windows-msvc-x64 / Win64-Debug-DurinEditor,
+MSVC 14.44, 18 build jobs):
+
+- Browser adapters delegate asset commands to their policy owners and retain
+  item resolution, admission and projection. Incidental target-parent creation
+  no longer reports successful asset transfer. Save observation starts after
+  loading; prompted saves reserve their observer before host callbacks, excluding
+  nested prompt writes while observing every selected package. The duplicate
+  deletion-prompt line and duplicate private rejection check were removed.
+- The public MutationTypes header is removed. FAssetMutationResultDetails is
+  private to byte-transform executors; native characterization adapters copy its
+  evidence into FPackageMutationTestResult. Existing native fault seams remain
+  because package, reference-store, material, mesh and texture tests consume them.
+  Duplicate test includes and an unused production testing include were removed.
+- The workspace symbol/include audit found no removed public command/protocol
+  consumer. Its 40 PrepareDeleteItems lexical matches are exclusively File's
+  private selection executor/module handoff and native test fixtures. Private
+  File scope/effect records and AssetTools deletion/staging records retain actual
+  owners. All 48 registered module descriptors form an acyclic dependency graph;
+  DurinEd retains no reverse dependency on AssetTools.
+- Registry/live-object events own asset identity and row projection, File owns
+  ordinary-file/directory effects, and the explicit host mutation callback owns
+  Transactor invalidation. Source projection does not replay asset command
+  results; external committed notifications survive provider retirement. Existing
+  nested feedback, projection-pending save, provider withdrawal, directory/history
+  and partial-deletion regressions passed. New direct AssetTools coverage proves
+  one Added/Added/Moved row sequence and no duplicate reconciliation event; the
+  new prompt regression proves nested-save isolation across a multi-package save.
+- Reviewed all contracts named in Validation And Evidence, plus Editor Asset
+  Tools and Asset Data Lifecycle. Corrected obsolete deletion ownership,
+  Valid/Stale/Rejected protocol, public native ledger, source feature version,
+  package-relocation and standalone-import return claims. Existing package
+  lifetime, native writer, task/import and document ownership contracts remain
+  applicable; their authority links are retained without duplicating them here.
+
+Final coverage is **1,541 passed across 21 distinct targets/case selections**,
+with **2 existing Windows symlink-privilege skips** and no failures. The final
+ContentBrowserDataTests selection supersedes its earlier 62-test batch result:
+
+| Selection | Result | Receipt in stage5-receipts/ |
+| --- | --- | --- |
+| `@asset-workflow` (11 targets) | 524 passed, 2 skipped | `asset-workflow.log`, `asset-workflow-ctest-raw.log` |
+| ContentBrowserDataTests, final | 63 passed | `ContentBrowserDataTests-final.log` |
+| EditorOperationTests | 392 passed | `EditorOperationTests.log` |
+| AssetPackageTests | 251 passed | `AssetPackageTests.log` |
+| AssetReferenceStoreTests | 15 passed | `AssetReferenceStoreTests-final.log` |
+| MaterialFunctionTests | 30 passed | `MaterialFunctionTests-final.log` |
+| StaticMeshTests / StaticMeshMaterialTests | 201 / 10 passed | corresponding `*-final.log` |
+| MaterialPackageTests / MaterialRuntimeTests | 6 / 99 passed | corresponding `*-final.log` |
+| TextureThumbnailTests | 11 passed | `TextureThumbnailTests-final.log` |
+| LaunchStartupCharacterizationTests bounded case | 1 passed | `startup-shutdown.log`, `startup-ctest-raw.log` |
+| Explicit workspace `all` build, final | passed | `build-all-final.log` |
+
+The bounded case is exactly
+`FLaunchStartupCharacterizationTests.BoundedTickExitUsesNormalApplicationShutdown`
+with `--mode characterization`; normal application teardown returned success.
+The workspace build includes Engine, Sandbox and RoadWeaver. The affected
+explanation expands through broad module labels; the asset-workflow domain and
+named direct native-test consumers cover the changed notification, lifetime,
+persistence and characterization boundaries. No GPU behavior changed; no whole
+native suite, GPU qualification or additional preset was required or executed.
+Earlier passing selections are reused only where later changes leave their
+relevant inputs unchanged; the final direct-source test has its own fresh receipt.
+
+Raw inventories, owner decisions, module graph, final result summary and SHA-256
+identities for all 16 changed/deleted native inputs are retained under ignored
+`Build/UE58AssetOperationsAlignment/stage5-receipts/`; DevTool logs retain their
+reported paths under `Build/.agent-state/logs/`. This stage changes no selected
+UE-shaped declaration or UE behavior branch. The user-supplied E:/ UE 5.8.0
+installation is unavailable on this host; the recorded D:/ UE 5.8.2 / CL 56702186
+Build.version was rechecked and retained, without claiming revalidation against
+the unavailable installation. Prior-stage reference receipts remain historical.
+Changed-document validation, all-plan validation and final diff review passed.
+No implementation task or mandatory acceptance gate remains open.
 
 ## Validation And Evidence
 

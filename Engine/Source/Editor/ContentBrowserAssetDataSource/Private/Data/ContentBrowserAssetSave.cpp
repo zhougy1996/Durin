@@ -78,11 +78,11 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 			});
 			FScopedFeedbackContext Scope(Feedback);
 			const auto OnSaved = [&](const FPackagePath& Path) {
+				if (Path != Item.PackagePath) return;
 				Committed = true;
 				const auto Physical = ContentStorage::FContentMountPaths::VirtualToPhysical(Path.ToString() + ".dasset");
 				Changes.Changes.push_back({EContentChangeKind::Modified, Physical, Physical, Path.ToString(), Path.ToString()});
 			};
-			FScopedPackageSaveObserver Observer(OnSaved);
 			auto* Package = FindResidentPackage(Item.PackagePath);
 			std::optional<UnifiedError::FError> LoadError;
 			if (!Package && IncludeClean) Package = LoadPackage(Item.PackagePath, nullptr, &LoadError);
@@ -94,6 +94,7 @@ namespace Durin::ContentBrowser::AssetDataSource::Private
 				for (auto* Asset : Package->GetTopLevelAssets()) Owners.emplace_back(Asset);
 			}
 			if (Host.CanMutateContent && !Host.CanMutateContent()) { Report(ELogLevel::Error, "Save admission was withdrawn during loading."); break; }
+			FScopedPackageSaveObserver Observer(OnSaved);
 			const bool Saved = Package && DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, !IncludeClean);
 
 			Success |= Committed;

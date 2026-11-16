@@ -559,11 +559,11 @@ namespace Durin
 
 
 	auto RelocatePackageFilesForTesting(std::span<const FPackageRelocationTestMapping> Mappings)
-		-> FAssetMutationResultDetails
-	{ return RelocateAssetsImpl(Mappings, {}); }
+		-> FPackageMutationTestResult
+	{ auto Details = RelocateAssetsImpl(Mappings, {}); return {std::move(Details.Result), std::move(Details.AffectedFiles), std::move(Details.BackupLocations)}; }
 
 	auto RelocatePackageFilesWithBeforeCommitForTesting(
 		std::span<const FPackageRelocationTestMapping> Mappings,
-		const std::function<void()>& BeforeCommit) -> FAssetMutationResultDetails
-	{ return RelocateAssetsImpl(Mappings, BeforeCommit); }
+		const std::function<void()>& BeforeCommit) -> FPackageMutationTestResult
+	{ auto Details = RelocateAssetsImpl(Mappings, BeforeCommit); return {std::move(Details.Result), std::move(Details.AffectedFiles), std::move(Details.BackupLocations)}; }
 }

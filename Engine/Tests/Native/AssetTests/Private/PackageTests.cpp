@@ -27,8 +27,6 @@
 	#include "PackageTools.h"
 	#include "Editor/EditorEngine.h"
 	#include "Transactions/Transactor.h"
-	#include "AssetTools/MutationTesting.h"
-	#include "AssetTools/MutationTesting.h"
 	#include "AssetMaintenance/CompatibilityAudit.h"
 	#include "AssetMaintenance/CanonicalResave.h"
 #endif

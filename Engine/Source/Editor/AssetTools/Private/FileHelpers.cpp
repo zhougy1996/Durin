@@ -78,6 +78,10 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		const auto Packages = FilterPackages(Input, Params.bCheckDirty);
+		// A prompt may invoke another save. Reserve this invocation's observer
+		// before handing control to the host, then expose it only to our writes.
+		auto* Observer = std::exchange(SaveObserver, nullptr);
+		struct FRestore { FScopedPackageSaveObserver* Value; ~FRestore() { SaveObserver = Value; } } Restore{Observer};
 		if (Params.OutFailedPackages) Params.OutFailedPackages->clear();
 		std::vector<FStrongObjectPtr> Owners;
 		for (auto* Package : Packages)
@@ -94,11 +98,15 @@ namespace Durin
 		}
 		bool Success = true;
 		for (auto* Package : Packages)
+		{
+			SaveObserver = Observer;
 			if (!DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, false))
 			{
 				Success = false;
 				if (Params.OutFailedPackages) Params.OutFailedPackages->push_back(Package);
 			}
+			SaveObserver = nullptr;
+		}
 		return Success ? PR_Success : PR_Failure;
 	}
 

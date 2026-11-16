@@ -316,7 +316,6 @@ namespace Durin
 			return {};
 		}});
 		if (!Accepted) return false;
-		if (!Accepted) return false;
 		for (const auto& Partial : S.Partial)
 		{
 			auto* Package = Cast<DPackage>(Partial.Package.Get());

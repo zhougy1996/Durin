@@ -91,7 +91,6 @@ namespace Durin::MainFrame
 			ObjectTools::SetDeletePrompt([](FAssetDeleteModel& Model, std::span<const std::string> Files, ObjectTools::EAllowCancelDuringDelete AllowCancel) {
 				std::string Message = "Permanently delete the selected content? This cannot be undone.\n" + Model.GetProgressText();
 				for (const auto& Pending : Model.GetPendingDeletedAssets()) if (auto* Object = Pending->GetObject()) Message += "\n" + Object->GetObjectPath();
-				for (const auto& Pending : Model.GetPendingDeletedAssets()) if (auto* Object = Pending->GetObject()) Message += "\n" + Object->GetObjectPath();
 				for (const auto& File : Files) Message += "\n" + File;
 				return ShowMessageDialog("Delete Content", Message, AllowCancel == ObjectTools::EAllowCancelDuringDelete::AllowCancel,
 					GEditor && GEditor->GetCapabilities().bPresentWorkspace) == EMessageDialogResult::Yes;
