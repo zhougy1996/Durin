@@ -65,8 +65,8 @@ folder. Module entrypoints and API export headers remain at the root.
 | `ContentBrowserFileDataSource` | Ordinary-file discovery, native file capabilities and provider bootstrap over the generic data service | [source](../../Engine/Source/Editor/ContentBrowserFileDataSource) |
 | `ContentBrowser` | Browser model, presentation, settings, extensions and asset thumbnails over generic data contracts | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Reflected per-editor PIE services and PIE Toolset, Level workspace, scene viewport, panels, documents, selection, Level settings, and editor visualization producers built on Engine primitive drawing | [source](../../Engine/Source/Editor/LevelEditor) |
-| `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
-| `TextureEditor` | Texture asset editor, import/build-setting UI, volume inspection, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
+| `MaterialEditor` | Shared private FMaterialEditor controller for material/function sessions, with family-specific editing and UI | [source](../../Engine/Source/Editor/MaterialEditor) |
+| `TextureEditor` | Shared private FTextureEditorToolkit controller for 2D/volume sessions, import/build-setting UI, previews and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
 | `AssetForgeBuiltins` | Direct built-in texture, static-mesh, Scene, and material import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |

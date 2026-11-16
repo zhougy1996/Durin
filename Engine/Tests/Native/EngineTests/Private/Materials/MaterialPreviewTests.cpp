@@ -1,8 +1,9 @@
 #include "NativeAssetBuildTestSupport.h"
 #include "MaterialRenderingTestFixture.h"
-#include "Widgets/MMaterialEditor.h"
+#include "FMaterialEditor.h"
 #include "Documents/EditorDocumentManager.h"
 #include "MaterialAssetDefinitions.h"
+#include "Materials/MaterialFunction.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
@@ -11,21 +12,21 @@ namespace Durin::MaterialEditor
 {
 	struct FMaterialEditorTestAccess
 	{
-		static auto CreatePreview(MMaterialEditor& Editor, uint64 Id) -> void
+		static auto CreatePreview(FMaterialEditor& Editor, uint64 Id) -> void
 		{
 			Editor.MaterialPreviews.emplace(Id, std::make_shared<FMaterialPreview>(Id));
 		}
 	};
 }
 
-TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesItsPreviewBeforeDestruction)
+TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesMaterialAndFunctionPreviewsBeforeDestruction)
 {
 	InitializeDObjectSystem();
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	Durin::InitializeAssetCompilingManager();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()) Durin::InitializeAssetCompilingManager();
 	FMaterialPreviewHarness Harness;
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -41,9 +42,19 @@ TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesItsPreviewBeforeDestru
 	constexpr uint64 PreviewId = 987654323;
 	const auto LightName = std::format("MaterialPreviewLight_{}", PreviewId);
 	Durin::MaterialEditor::FMaterialEditorTestAccess::CreatePreview(
-		static_cast<Durin::MaterialEditor::MMaterialEditor&>(*Toolkit), PreviewId);
+		static_cast<Durin::MaterialEditor::FMaterialEditor&>(*Toolkit), PreviewId);
 	ASSERT_NE(FindObjectByName(LightName), nullptr);
+	auto* Function = Durin::NewObject<Durin::DMaterialFunction>(Fixtures.Material->GetPackage(), "RetainedFunction");
+	auto* FunctionInstance = AssetEditorSubsystem->OpenAssetEditor(
+		Durin::MaterialEditor::Z_Construct_DClass_DMaterialFunctionAssetEditor(), {
+			.OpenArgs = {.AssetEditors = AssetEditorSubsystem}, .Assets = {Function}});
+	ASSERT_NE(FunctionInstance, nullptr);
+	const auto FunctionToolkit = FunctionInstance->GetToolkit();
+	const auto FunctionLightName = std::format("MaterialPreviewLight_{}",
+		FunctionInstance->GetDocumentManager()->GetDocuments().front().Id.Value);
+	ASSERT_NE(FindObjectByName(FunctionLightName), nullptr);
 	Editor->PreExit();
+	EXPECT_TRUE(FunctionToolkit->IsClosed());
 	EXPECT_TRUE(Toolkit->IsClosed());
 	EXPECT_TRUE(Toolkit->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
 	// Exercise renderer scene-count assertions before collecting the editor or World.
@@ -55,6 +66,7 @@ TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesItsPreviewBeforeDestru
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindObjectByName(LightName), nullptr);
+	EXPECT_EQ(FindObjectByName(FunctionLightName), nullptr);
 	EXPECT_EQ(Durin::FAssetRetentionService::NumRetained(), 0u);
 }
 

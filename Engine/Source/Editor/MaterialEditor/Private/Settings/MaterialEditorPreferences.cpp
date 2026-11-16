@@ -1,4 +1,4 @@
-#include "Widgets/MMaterialEditor.h"
+#include "FMaterialEditor.h"
 
 #include "Settings/MaterialEditorProfileSettings.h"
 #include "Widgets/MaterialEditingSession.h"
@@ -33,7 +33,7 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto MMaterialEditor::SetAutoCompile(bool bEnabled) -> void
+	auto FMaterialEditor::SetAutoCompile(bool bEnabled) -> void
 	{
 		ProfileSettings->bAutoCompile = bEnabled;
 		for (const auto& [Resource, Session] : EditingSessions)
@@ -41,7 +41,7 @@ namespace Durin::MaterialEditor
 				Material->SetEditCompileMode(bEnabled ? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 	}
 
-	auto MMaterialEditor::DrawPreferences(std::string& OutError) -> void
+	auto FMaterialEditor::DrawPreferences(std::string& OutError) -> void
 	{
 		const auto Previous = Capture(*ProfileSettings);
 		auto Next = Previous;
@@ -64,7 +64,7 @@ namespace Durin::MaterialEditor
 		OutError.clear();
 	}
 
-	auto MMaterialEditor::ResetPreferences() -> bool
+	auto FMaterialEditor::ResetPreferences() -> bool
 	{
 		const auto Previous = Capture(*ProfileSettings);
 		Apply(*ProfileSettings, FMaterialPreferences{});

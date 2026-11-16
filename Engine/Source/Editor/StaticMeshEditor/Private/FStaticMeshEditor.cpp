@@ -1,4 +1,4 @@
-#include "Widgets/MStaticMeshInspector.h"
+#include "FStaticMeshEditor.h"
 #include "Misc/UnifiedError.h"
 
 #include "Asset/Asset.h"
@@ -76,24 +76,24 @@ namespace Durin::StaticMeshEditor
 
 	}
 
-	MStaticMeshInspector::MStaticMeshInspector(FEditorDocumentManager& InDocumentManager)
+	FStaticMeshEditor::FStaticMeshEditor(FEditorDocumentManager& InDocumentManager)
 		: DocumentManager(InDocumentManager)
 	{
 	}
 
-	MStaticMeshInspector::~MStaticMeshInspector() = default;
-	auto MStaticMeshInspector::OnClose() -> void
+	FStaticMeshEditor::~FStaticMeshEditor() = default;
+	auto FStaticMeshEditor::OnClose() -> void
 	{
 		for (auto& [ResourceId, State] : Documents) State.Preview.reset();
 		FBaseAssetToolkit::OnClose();
 	}
 
-	auto MStaticMeshInspector::GetToolkitId() const -> const FAssetEditorToolkitId&
+	auto FStaticMeshEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
 		return Workspace::Type;
 	}
 
-	auto MStaticMeshInspector::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
+	auto FStaticMeshEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
 		std::optional<Durin::UnifiedError::FError> ResultError;
 		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
@@ -122,13 +122,13 @@ namespace Durin::StaticMeshEditor
 		return EDocumentOpenResult::Opened;
 	}
 
-	auto MStaticMeshInspector::ActivateDocument(const FEditorDocument& Document) -> void
+	auto FStaticMeshEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		FDocumentState* State = FindState(Document.ResourceId);
 		DocumentModel.Activate(Document, State ? State->Mesh.Get() : nullptr);
 	}
 
-	auto MStaticMeshInspector::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
+	auto FStaticMeshEditor::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
 		if (FDocumentState* State = FindState(Document.ResourceId); State && State->Preview)
 			State->Preview->SetVisible(false);
@@ -137,7 +137,7 @@ namespace Durin::StaticMeshEditor
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto MStaticMeshInspector::OnDrawToolkit(bool bActive) -> bool
+	auto FStaticMeshEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive)
 			for (auto& [ResourceId, State] : Documents)
@@ -152,7 +152,7 @@ namespace Durin::StaticMeshEditor
 			});
 	}
 
-	auto MStaticMeshInspector::ResetLayout() -> void
+	auto FStaticMeshEditor::ResetLayout() -> void
 	{
 		PreviewPaneRatio = DefaultPreviewPaneRatio;
 		for (auto& [ResourceId, State] : Documents)
@@ -162,19 +162,19 @@ namespace Durin::StaticMeshEditor
 		}
 	}
 
-	auto MStaticMeshInspector::FindState(std::string_view ResourceId) -> FDocumentState*
+	auto FStaticMeshEditor::FindState(std::string_view ResourceId) -> FDocumentState*
 	{
 		const auto It = Documents.find(std::string(ResourceId));
 		return It == Documents.end() ? nullptr : &It->second;
 	}
 
-	auto MStaticMeshInspector::FindState(std::string_view ResourceId) const -> const FDocumentState*
+	auto FStaticMeshEditor::FindState(std::string_view ResourceId) const -> const FDocumentState*
 	{
 		const auto It = Documents.find(std::string(ResourceId));
 		return It == Documents.end() ? nullptr : &It->second;
 	}
 
-	auto MStaticMeshInspector::DrawDocument(const FEditorDocument& Document, FDocumentState& State) -> void
+	auto FStaticMeshEditor::DrawDocument(const FEditorDocument& Document, FDocumentState& State) -> void
 	{
 		DStaticMesh* Mesh = State.Mesh.Get();
 		if (!Mesh)
@@ -226,7 +226,7 @@ namespace Durin::StaticMeshEditor
 			ImGui::TextWrapped("%s", ErrorMessage.c_str());
 	}
 
-	auto MStaticMeshInspector::DrawPreview(FDocumentState& State, float Height) -> void
+	auto FStaticMeshEditor::DrawPreview(FDocumentState& State, float Height) -> void
 	{
 		DStaticMesh* Mesh = State.Mesh.Get();
 		const FStaticMeshRenderResourceStatus Status = Mesh ? Mesh->GetRenderResourceStatus() : FStaticMeshRenderResourceStatus{};
@@ -235,7 +235,7 @@ namespace Durin::StaticMeshEditor
 		DrawingPreview->Draw(Mesh, Status.Revision, Height);
 	}
 
-	auto MStaticMeshInspector::DrawDetails(const FEditorDocument& Document, FDocumentState& State, float Height) -> void
+	auto FStaticMeshEditor::DrawDetails(const FEditorDocument& Document, FDocumentState& State, float Height) -> void
 	{
 		if (!ImGui::BeginChild("StaticMeshDetails", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
 		{
@@ -393,7 +393,7 @@ namespace Durin::StaticMeshEditor
 		}
 		ImGui::EndChild();
 	}
-	auto MStaticMeshInspector::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
+	auto FStaticMeshEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
 	{
 		if (auto Node = Documents.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; Documents.insert(std::move(Node)); }
 		DocumentModel.RemapResourceId(Source, Destination);

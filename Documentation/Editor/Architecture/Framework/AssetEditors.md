@@ -62,6 +62,23 @@ and close paths. Subsystem business queries `FindEditorForAsset`,
 `FindEditorsForAsset`, and `GetAllOpenEditors` cover asset associations rather than
 all toolkit roots.
 
+Concrete controllers are private module implementations: `FMaterialEditor`,
+`FTextureEditorToolkit`, `FStaticMeshEditor` and `FLevelEditorToolkit` live directly
+under their owning modules' `Private/` roots. Cross-module callers use the public
+module and toolkit interfaces. `FLevelEditorToolkit` names Durin's controller
+role; UE's `SLevelEditor` is a Slate surface/host.
+
+Materials and material functions share `FMaterialEditor`; 2D and volume textures
+share `FTextureEditorToolkit`. Family factories select an explicit controller
+mode while retaining their reflected editor classes and existing toolkit IDs.
+Shared C++ implementations do not share mutable document state or collapse
+family identities: `MaterialEditor`, `MaterialFunctionEditor`, `TextureEditor`
+and `VolumeTextureEditor` retain their layout profiles, snapshot routing and
+open-method policy. Restoring an existing snapshot selects the same family
+factory and persistence keys without a data migration.
+Material/function documents isolate their unpublished working graphs; Apply and
+Save publication follow the [material lifecycle](../Materials/MaterialEditorLifecycle.md#document-and-asset-lifecycle).
+
 Admission publishes only after document initialization and host attachment
 succeed. `InitializeAssetEditor` also accepts a caller-configured reflected editor,
 rejecting foreign outers and reused instances. Failure closes partial UI and

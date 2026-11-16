@@ -2,7 +2,7 @@
 
 Summary: Produce relocatable Source and Binary SDK archives that let external C++ projects build reflected modules and load them in DurinEditor.
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-16
 
 Status: Active
 Completed:
@@ -23,6 +23,13 @@ Package unloading now exports the reflected `DPackageTools` class from
 AssetTools `PackageTools.h` and the narrow collection bridge from Engine
 `Asset/PackageCollection.h`; packaging must include those public headers and
 AssetTools reflection inputs, without Engine private include paths.
+Toolkit consolidation places `FMaterialEditor`, `FTextureEditorToolkit`,
+`FStaticMeshEditor` and `FLevelEditorToolkit` directly in module `Private/`
+roots. The former public `Widgets/MLevelEditor.h` is removed; SDK consumers use
+`LevelEditorModule.h` and the public asset-editor/toolkit interfaces. Binary SDK
+header inventories must not expose the concrete controllers or add forwarding
+headers/private include paths. Source SDK layout follows their private placement.
+This migration does not qualify SDK packaging or change serialized editor IDs.
 
 The selected path is to deliver two compatible package kinds in order:
 

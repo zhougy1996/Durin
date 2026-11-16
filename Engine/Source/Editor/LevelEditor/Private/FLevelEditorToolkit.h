@@ -38,17 +38,17 @@ namespace Durin::LevelEditor
 	struct FLevelEditorContext;
 
 	// Hosts level documents, panels, play controls, and project settings.
-	class MLevelEditor final : public FBaseAssetToolkit
+	class FLevelEditorToolkit final : public FBaseAssetToolkit
 	{
 	public:
-		MLevelEditor(std::shared_ptr<FLevelEditorWorkspaceSettings> InWorkspaceSettings,
+		FLevelEditorToolkit(std::shared_ptr<FLevelEditorWorkspaceSettings> InWorkspaceSettings,
 			FEditorDocumentManager& InDocumentManager,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
 			std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost);
 		LEVELEDITOR_API auto OpenLevel(const std::string& AssetPath) -> bool;
 		LEVELEDITOR_API auto CancelPendingOpen() -> bool;
 		LEVELEDITOR_API auto OnClose() -> void override;
-		LEVELEDITOR_API ~MLevelEditor() override;
+		LEVELEDITOR_API ~FLevelEditorToolkit() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		LEVELEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;

@@ -1,8 +1,7 @@
 #include "TextureAssetDefinition.h"
 #include "Texture/Texture2D.h"
 
-#include "Widgets/MTextureEditor.h"
-#include "Widgets/MVolumeTextureEditor.h"
+#include "FTextureEditorToolkit.h"
 #include "Texture/VolumeTexture.h"
 #include "Texture/TextureCube.h"
 #include "Subsystems/AssetEditorSubsystem.h"
@@ -18,7 +17,7 @@ namespace Durin::TextureEditor
 	DTextureAssetEditor::DTextureAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DTextureAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
 	{
-		return std::make_shared<MTextureEditor>(*GetDocumentManager());
+		return std::make_shared<FTextureEditorToolkit>(*GetDocumentManager());
 	}
 	DTextureAssetDefinition::DTextureAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DTextureAssetDefinition::GetAssetClassPath() const -> std::string
@@ -28,7 +27,7 @@ namespace Durin::TextureEditor
 	auto DTextureAssetDefinition::GetAssetEditorClass() const -> DClass* { return DTextureAssetEditor::StaticClass(); }
 	DVolumeTextureAssetEditor::DVolumeTextureAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DVolumeTextureAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
-	{ return std::make_shared<MVolumeTextureEditor>(*GetDocumentManager()); }
+	{ return std::make_shared<FTextureEditorToolkit>(*GetDocumentManager(), ETextureEditorMode::Volume); }
 	DVolumeTextureAssetDefinition::DVolumeTextureAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DVolumeTextureAssetDefinition::GetAssetClassPath() const -> std::string { return DVolumeTexture::StaticClass()->GetQualifiedName().ToString(); }
 	auto DVolumeTextureAssetDefinition::GetAssetEditorClass() const -> DClass* { return DVolumeTextureAssetEditor::StaticClass(); }

@@ -10,18 +10,21 @@
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
 #include "Preview/TexturePreview.h"
+#include "VolumeTexturePreview.h"
 
-namespace Durin { class DTexture2D; struct FTexturePlatformData; }
+namespace Durin { class DTexture2D; class DVolumeTexture; struct FTexturePlatformData; struct FVolumeTexturePlatformData; }
 
 namespace Durin::TextureEditor
 {
-	// Hosts one texture document with preview, mip, and metadata controls.
-	class MTextureEditor final : public FBaseAssetToolkit
+	// Controls 2D and volume texture documents with family-specific preview state.
+	enum class ETextureEditorMode : uint8 { Texture2D, Volume };
+
+	class FTextureEditorToolkit final : public FBaseAssetToolkit
 	{
 	public:
 		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
-		explicit MTextureEditor(FEditorDocumentManager& InDocumentManager);
-		TEXTUREEDITOR_API ~MTextureEditor() override;
+		explicit FTextureEditorToolkit(FEditorDocumentManager& InDocumentManager, ETextureEditorMode InMode = ETextureEditorMode::Texture2D);
+		TEXTUREEDITOR_API ~FTextureEditorToolkit() override;
 		TEXTUREEDITOR_API auto OnClose() -> void override;
 		TEXTUREEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
@@ -45,10 +48,11 @@ namespace Durin::TextureEditor
 		TEXTUREEDITOR_API auto ResetLayout() -> void override;
 
 	private:
-		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*;
-		auto GetActiveTexture() const -> DTexture2D*;
-		auto SaveTexture(DTexture2D* Texture) -> bool;
-		auto CancelUnobservedCompilation(DTexture2D* Texture) -> void;
+		friend struct FTextureEditorToolkitTestAccess;
+		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture*;
+		auto GetActiveTexture() const -> DTexture*;
+		auto SaveTexture(DTexture* Texture) -> bool;
+		auto CancelUnobservedCompilation(DTexture* Texture) -> void;
 		auto DrawDocument(const FEditorDocument& Document, DTexture2D* Texture) -> void;
 		auto DrawToolbar(const FEditorDocument& Document, DTexture2D* Texture) -> void;
 		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
@@ -65,8 +69,27 @@ namespace Durin::TextureEditor
 		auto MakePropertyViewContext() -> FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
+
+		auto DrawDocument(const FEditorDocument& Document, DVolumeTexture* Texture) -> void;
+		auto DrawPreview(const std::string& ResourceId, DVolumeTexture* Texture) -> void;
+		auto DrawDetails(DVolumeTexture* Texture) -> void;
+		const ETextureEditorMode Mode;
+		struct FVolumePreviewState
+		{
+			std::unique_ptr<FTexturePreview> Preview = std::make_unique<FTexturePreview>();
+			EVolumeTexturePreviewAxis Axis = EVolumeTexturePreviewAxis::XY;
+			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA;
+			uint32 Mip = 0;
+			uint32 Slice = 0;
+			std::weak_ptr<const FVolumeTexturePlatformData> PlatformInput;
+			FXxHash128 SourceIdentity{};
+			uint64 SelectionKey = std::numeric_limits<uint64>::max();
+			float Zoom = 0.0f;
+		};
+		std::unordered_map<std::string, FVolumePreviewState> VolumePreviewStates;
+
 		FEditorDocumentManager& DocumentManager;
-		std::unordered_map<std::string, TObjectPtr<DTexture2D>> OpenTextures;
+		std::unordered_map<std::string, TObjectPtr<DTexture>> OpenTextures;
 		FEditableAssetDocumentModel Documents;
 		std::string ErrorMessage;
 		FPropertyView PropertyView;

@@ -22,11 +22,21 @@
 #include "MaterialGraphDocument.h"
 #include "MaterialFunctionPreview.h"
 #include "MaterialEditorModule.h"
-#include "Widgets/MMaterialFunctionEditor.h"
+#include "FMaterialEditor.h"
+#include "MaterialEditorFunctionDocument.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
+
+namespace Durin::MaterialEditor
+{
+	struct FMaterialFunctionEditorTestAccess
+	{
+		static auto& Document(FAssetEditorToolkit& Toolkit, std::string_view Resource)
+		{ return *static_cast<FMaterialEditor&>(Toolkit).FunctionDocuments.at(std::string(Resource)); }
+	};
+}
 
 namespace
 {

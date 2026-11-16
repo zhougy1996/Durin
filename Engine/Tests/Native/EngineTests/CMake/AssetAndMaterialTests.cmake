@@ -465,8 +465,11 @@ durin_add_native_test(AssetEditorFamilyTests
 	DOMAINS asset-workflow material texture static-mesh
 	MODULES durin-ed material-editor texture-editor static-mesh-editor asset-tools
 	STACKS editor renderer
+	PRIVATE_SOURCE_OWNER TextureEditor
+	PRIVATE_SOURCE_RATIONALE "Checks per-document 2D/volume preview selection across shared-controller reload and reset without exporting test APIs."
 	SOURCES Private/Editor/AssetEditorFamilyTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
 	LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer MonaCore Mona MonaImGui
 		DurinEd AssetTools AssetForgeBuiltins MaterialEditor TextureEditor StaticMeshEditor MeshBuilder
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport ${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -547,6 +550,7 @@ durin_add_native_test(MaterialEditingPersistenceTests
 		Private/Materials/MaterialFunctionPersistenceTests.cpp
 	PRIVATE_SOURCES
 		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
+		${_durin_material_editor_private}/MaterialEditorFunctionDocument.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}

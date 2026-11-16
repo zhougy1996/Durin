@@ -1,4 +1,4 @@
-#include "Widgets/MLevelEditor.h"
+#include "FLevelEditorToolkit.h"
 
 #include "Panels/SceneViewportPanel.h"
 #include "Settings/LevelEditorWorkspaceSettings.h"
@@ -35,7 +35,7 @@ namespace Durin::LevelEditor
 		}
 	}
 
-	auto MLevelEditor::DrawViewportPreferences(std::string& OutError) -> void
+	auto FLevelEditorToolkit::DrawViewportPreferences(std::string& OutError) -> void
 	{
 		if (!SceneViewportPanel) { ImGui::TextDisabled("The level viewport is unavailable."); return; }
 		const auto Previous = Capture(*SceneViewportPanel);
@@ -65,7 +65,7 @@ namespace Durin::LevelEditor
 		else OutError.clear();
 	}
 
-	auto MLevelEditor::ResetViewportPreferences() -> bool
+	auto FLevelEditorToolkit::ResetViewportPreferences() -> bool
 	{
 		if (!SceneViewportPanel) return false;
 		const auto Previous = Capture(*SceneViewportPanel);

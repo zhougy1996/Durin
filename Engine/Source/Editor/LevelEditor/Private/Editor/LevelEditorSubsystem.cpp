@@ -5,7 +5,7 @@
 #include "LevelEditorModule.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
-#include "Widgets/MLevelEditor.h"
+#include "FLevelEditorToolkit.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Threading/RunnableThread.h"
 
@@ -34,7 +34,7 @@ namespace Durin
 		auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>();
 		if (!Assets) return false;
 		auto* Owner = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor").GetOrCreateLevelEditor(*Assets);
-		const auto Toolkit = Owner ? std::dynamic_pointer_cast<LevelEditor::MLevelEditor>(Owner->GetToolkit()) : nullptr;
+		const auto Toolkit = Owner ? std::dynamic_pointer_cast<LevelEditor::FLevelEditorToolkit>(Owner->GetToolkit()) : nullptr;
 		return Toolkit && Toolkit->OpenLevel(AssetPath);
 	}
 	auto DLevelEditorSubsystem::CancelLevelLoad() -> void
@@ -42,7 +42,7 @@ namespace Durin
 		CheckGameThread();
 		if (auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>())
 			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Assets))
-				if (const auto Level = std::dynamic_pointer_cast<LevelEditor::MLevelEditor>(Toolkit)) (void)Level->CancelPendingOpen();
+				if (const auto Level = std::dynamic_pointer_cast<LevelEditor::FLevelEditorToolkit>(Toolkit)) (void)Level->CancelPendingOpen();
 	}
 	auto DLevelEditorSubsystem::Deinitialize() noexcept -> void
 	{

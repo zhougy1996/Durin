@@ -16,6 +16,8 @@ namespace Durin
 	class DMaterialInterface;
 	class DMaterial;
 	class DMaterialInstance;
+	class DMaterialFunction;
+	struct FTransactionEvent;
 }
 
 namespace Durin::MaterialEditor
@@ -28,17 +30,20 @@ namespace Durin::MaterialEditor
 	class FMaterialEditingSession;
 	struct FMaterialParameterPanelEntry;
 
-	// Hosts one material document with preview and parameter editing state.
-	class MMaterialEditor final : public FBaseAssetToolkit
+	// Controls material and function documents with isolated family editing policies.
+	enum class EMaterialEditorMode : uint8 { Material, Function };
+	inline const FAssetEditorToolkitId MaterialFunctionWorkspaceType("MaterialFunctionEditor");
+
+	class FMaterialEditor final : public FBaseAssetToolkit
 	{
 	public:
 		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
 		auto GetLayoutVersion() const -> uint32 override;
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
-		explicit MMaterialEditor(
-			FEditorDocumentManager& InDocumentManager);
+		explicit FMaterialEditor(
+			FEditorDocumentManager& InDocumentManager, EMaterialEditorMode InMode = EMaterialEditorMode::Material);
 
-		MATERIALEDITOR_API ~MMaterialEditor() override;
+		MATERIALEDITOR_API ~FMaterialEditor() override;
 		MATERIALEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		MATERIALEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
 		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
@@ -61,11 +66,13 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
 		auto OnHostChanged() -> void override;
 		auto OnClose() -> void override;
+		MATERIALEDITOR_API auto NavigateToNode(std::string_view Resource, const FGuid& NodeId) -> bool;
 	protected:
 		auto PostInitAssetEditor() -> void override;
 
 	private:
 		friend struct FMaterialEditorTestAccess;
+		friend struct FMaterialFunctionEditorTestAccess;
 		friend class FMaterialEditorReloadParticipant;
 		class FMaterialParameterRowScope;
 
@@ -104,6 +111,34 @@ namespace Durin::MaterialEditor
 			-> FMaterialGraphCanvas&;
 		auto CancelCanvasInteraction(uint64 DocumentId) -> void;
 		auto CaptureCanvasViewport(const FEditorDocument& Document) -> void;
+
+		struct FFunctionDocument;
+		auto ApplyFunctionDocument(std::string_view Resource, bool bForce = false) -> bool;
+		auto IsFunctionPublishing(std::string_view Resource) const -> bool;
+		auto ReleaseFunctionDocuments() -> void;
+		auto RegisterFunctionUndo() -> void;
+		auto UnregisterFunctionUndo() -> void;
+		auto HandleFunctionTransaction(const FTransactionEvent& Event) -> void;
+		auto SaveFunctionViewports() -> void;
+		auto FindOpenFunction(std::string_view Resource) const -> DMaterialFunction*;
+		auto SaveFunction(DMaterialFunction* Function) -> bool;
+		auto DiscardFunctionDocument(const FEditorDocument& Document) -> bool;
+		auto IsFunctionDocumentDirty(std::string_view Resource) const -> bool;
+		auto ResetFunctionDocument(std::string_view Resource) -> bool;
+		auto FindFunctionDocument(std::string_view Resource) const -> FFunctionDocument*;
+		auto OpenFunctionDocument(const FEditorDocument& Document) -> EDocumentOpenResult;
+		auto CancelFunctionInteractions() -> bool;
+		auto CloseFunctionDocument(const FEditorDocument& Document) -> void;
+		auto RebindFunctionDocuments(DPackage* Previous, DPackage* Replacement) -> void;
+		auto ResetFunctionLayout() -> void;
+		auto DrawFunctionDocuments(bool bActive) -> bool;
+		auto RemapFunctionDocuments(std::string_view Source, std::string_view Destination) -> void;
+		auto DrawDocument(const FEditorDocument& Tab, FFunctionDocument& Document) -> void;
+		auto DrawInterface(FFunctionDocument& Document) -> void;
+		auto DrawInputs(FFunctionDocument& Document) -> void;
+		const EMaterialEditorMode Mode;
+		std::unordered_map<std::string, std::shared_ptr<FFunctionDocument>> FunctionDocuments;
+		uint64 FunctionUndoHandle = 0;
 
 		FEditorDocumentManager& DocumentManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;

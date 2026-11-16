@@ -20,6 +20,20 @@ Canonical compatibility inspection and resave are not a mode of ordinary saving.
 The native package writer, graph replacement and reload mechanisms retain their
 typed errors, write effects and retirement ownership.
 
+Asset editor Save/Discard continues through each session's document model over
+these persistence services. The shared `FTextureEditorToolkit` implementation
+handles both 2D and volume texture sessions, retaining separate family factories,
+toolkit IDs and per-document preview selections. Volume axis/slice controls and
+2D Source/Built controls remain family-specific; close, save, reload, resource
+remapping and command ownership belong to the shared controller. Controller
+consolidation changes no package format or persistence-service ownership. See
+[editor ownership](../Framework/AssetEditors.md#editor-instance-and-toolkit-ownership).
+
+Texture toolkit logical close cancels only unobserved compilation while its
+owner is still available, releases previews and clears retained texture state.
+An externally retained closed toolkit performs no asset compilation cancellation
+when eventually destroyed; a reopened editor's work belongs to that new session.
+
 ## Creation And Duplication
 
 `CreateAsset(AssetName, PackagePath, AssetClass, Factory, CallingContext,

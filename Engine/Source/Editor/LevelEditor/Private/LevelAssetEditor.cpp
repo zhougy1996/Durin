@@ -7,14 +7,14 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Documents/EditorDocumentManager.h"
-#include "Widgets/MLevelEditor.h"
+#include "FLevelEditorToolkit.h"
 
 namespace Durin
 {
 	auto DLevelAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
 	{
 		if (!HostContext || GetToolkitMode() != EToolkitMode::WorldCentric) return {};
-		auto Toolkit = std::make_shared<LevelEditor::MLevelEditor>(HostContext->Settings, *GetDocumentManager(),
+		auto Toolkit = std::make_shared<LevelEditor::FLevelEditorToolkit>(HostContext->Settings, *GetDocumentManager(),
 			HostContext->Browser, HostContext->OpenProjectBrowser, *GetAssetEditorSubsystem()->GetEditor());
 		Toolkit->Construct();
 		return Toolkit;

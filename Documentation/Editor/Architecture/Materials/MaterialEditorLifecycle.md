@@ -4,11 +4,21 @@ Summary: Define material preview resources, compilation controls, Apply and Save
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-16
 
 Expression ownership and command publication are defined in
 [Material Graph Operations](MaterialGraphOperations.md#ownership). Panels and
 diagnostic navigation are defined in [Material Graph Canvas](MaterialGraphCanvas.md).
+
+`FMaterialEditor` is the private controller for both material and material-function
+sessions. Their reflected factories select Material or Function mode; each
+instance owns its document model, profiles, errors and preview state. Materials
+and material functions edit isolated transient working graphs. Function Apply
+validates and publishes the selected graph to the original function; Save applies
+before persisting its source package. Function preview materials remain transient
+shader-compilation consumers. Family toolkit IDs,
+layout versions (material 4, function 5), profile hashes and existing settings
+files remain stable across the controller consolidation.
 
 ## Preview Resources
 
@@ -142,6 +152,48 @@ working copy, including after Apply, and does not implicitly republish to the
 source. Apply invalidates the source's saved checkpoint; successful Save marks
 both source and working checkpoints. Closing or resetting the working copy
 forgets its transaction records and cancels its compile jobs before retirement.
+
+Each function document in `FMaterialEditor` owns one transient duplicate of the
+source function and its working package, canvas and derived preview. There is no
+separate function Session registry or applied-graph snapshot. The source is a weak
+reference to the asset retained by the reflected editor/document roots. Graph,
+port and layout edits affect only the draft; ordinary source-package saves and
+dependent materials cannot observe them. Working-package transaction checkpoints
+are the sole draft dirty authority. Source-package disk dirtiness does not set
+the function document's unapplied marker or require a second close confirmation.
+The derived preview uses a separate transient package so preview compilation and
+presentation mutations cannot dirty the editable draft.
+
+Function Apply checks a source function/package revision token for external
+conflicts, validates the prospective dependency closure (including recursion
+through the original source identity), then publishes expressions and presentation
+through the existing mutation APIs. It preserves source identity, notifies
+dependents and leaves the source package dirty without writing disk. Apply marks
+the working checkpoint only if notification callbacks did not edit the draft
+again. Save applies first and then persists the source. Function Apply is
+synchronous; shader compilation stays on the derived transient preview material
+and consuming materials. Compiler worker snapshots remain independent of this
+editor document state.
+
+Following UE's material-function editor, successful Undo/Redo republishes each
+function document touched by that transaction, including after Apply. The toolkit
+uses existing transaction notifications, so history replay from another toolkit
+also updates affected functions without applying unrelated dirty drafts.
+
+Function Discard drops only the draft and recreates it from the current in-memory
+source. Applied-but-unsaved source changes remain dirty and are not reverted.
+Explicit package reload remains a separate operation: document admission rejects
+a publishing or dirty draft, validates the prepared draft revision, and the normal
+reload completion notification rebuilds the clean draft against the replacement.
+Relocation preserves the draft and remaps its resource identity and source token.
+
+Publication and drawing hold local document leases across synchronous callbacks;
+publication also retains its source. A single scoped publication guard rejects
+reentrant Apply, Discard, normal close, function-toolkit history commands and reload. Forced toolkit
+close removes document ownership, unregisters history notifications and retires
+preview presentation immediately. An executing callback can finish safely but
+cannot perform a late Save or resume rendering a retired document. Final document
+destruction forgets working-package history and retires its transient packages.
 
 Discard cancels pending Apply. If the source is clean, it simply recreates the
 working copy from the source. If the source has unsaved applied changes, the

@@ -1,4 +1,4 @@
-#include "Widgets/MVolumeTextureEditor.h"
+#include "FTextureEditorToolkit.h"
 #include "Misc/UnifiedError.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Editor/EditorEngine.h"
@@ -66,152 +66,12 @@ namespace Durin::TextureEditor
 		}
 	}
 
-	MVolumeTextureEditor::MVolumeTextureEditor(
-		FEditorDocumentManager& InManager) : Manager(InManager)
-	{
-		if (auto* AssetEditorSubsystem = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor());
-
-	}
-
-	auto MVolumeTextureEditor::OnClose() -> void
-	{
-		for (auto& [ResourceId, State] : PreviewStates) State.Preview->Release();
-		FBaseAssetToolkit::OnClose();
-	}
-
-	auto MVolumeTextureEditor::GetToolkitId() const
-		-> const FAssetEditorToolkitId& { return VolumeWorkspace::Type; }
-
-	auto MVolumeTextureEditor::OpenDocument(const FEditorDocument& Document)
-		-> EDocumentOpenResult
-	{
-		std::optional<Durin::UnifiedError::FError> ResultError;
-		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
-		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FSoftObjectPath Path;
-		std::string Error;
-		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Document.ResourceId, Path); !PathValidation)
-		{
-			Error = ToString(PathValidation.error());
-			SetError(std::move(Error));
-			return EDocumentOpenResult::Rejected;
-		}
-		DVolumeTexture* Texture = nullptr;
-		const auto Result = LoadObject<DVolumeTexture>(Path, nullptr, &ResultError);
-		Texture = Result;
-		if (!Result || !Texture)
-		{
-			SetError(ResultError ? ResultError->ToString() : "The selected asset is not a VolumeTexture.");
-			return EDocumentOpenResult::Rejected;
-		}
-		OpenTextures.emplace(Document.ResourceId, Texture);
-		PreviewStates.try_emplace(Document.ResourceId);
-		return EDocumentOpenResult::Opened;
-	}
-
-	auto MVolumeTextureEditor::ActivateDocument(const FEditorDocument& Document) -> void
-	{
-		if (IsReadOnly()) Documents.ActivateReadOnly(Document, Find(Document.ResourceId));
-		else Documents.Activate(Document, Find(Document.ResourceId));
-	}
-
-	auto MVolumeTextureEditor::RequestCloseDocument(const FEditorDocument& Document)
-		-> EDocumentCloseResult
-	{
-		if (IsDocumentDirty(Document))
-			return EDocumentCloseResult::PendingConfirmation;
-		OpenTextures.erase(Document.ResourceId);
-		PreviewStates.erase(Document.ResourceId);
-		Documents.Close(Document.ResourceId);
-		return EDocumentCloseResult::Closed;
-	}
-
-	auto MVolumeTextureEditor::OnSaveDocument(const FEditorDocument& Document) -> bool
-	{
-		return Save(Find(Document.ResourceId));
-	}
-
-	auto MVolumeTextureEditor::OnDiscardDocument(const FEditorDocument& Document) -> bool
-	{
-		return Documents.Discard(Find(Document.ResourceId), {},
-			[this](DPackage* Previous, DPackage* Replacement) {
-				Manager.NotifyPackageReloaded(Previous, Replacement);
-			}, [this](std::string Message) { SetError(std::move(Message)); }, &Manager);
-	}
-
-	auto MVolumeTextureEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
-	{
-		for (auto& [ResourceId, Texture] : OpenTextures)
-			if (Texture.Get() && Texture->GetPackage() == Previous)
-			{
-				Texture = Cast<DVolumeTexture>(Replacement->FindTopLevelAsset(Texture->GetFName()));
-				if (auto It = PreviewStates.find(ResourceId); It != PreviewStates.end())
-				{
-					It->second.Preview = std::make_unique<FTexturePreview>();
-					It->second.PlatformInput.reset();
-					It->second.SelectionKey = std::numeric_limits<uint64>::max();
-				}
-			}
-	}
-
-	auto MVolumeTextureEditor::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool
-	{
-		return Documents.IsDirty(Find(Document.ResourceId));
-	}
-
-	auto MVolumeTextureEditor::OnCanSaveActiveDocument() const -> bool
-	{
-		return Documents.CanSave(Active());
-	}
-
-	auto MVolumeTextureEditor::OnSaveActiveDocument() -> bool { return Save(Active()); }
-
-	auto MVolumeTextureEditor::OnDrawToolkit(bool) -> bool
-	{
-		return Documents.GetTabManager().DrawDocuments(Manager,
-			VolumeWorkspace::Type, GetPresentationRootKey(VolumeWorkspace::RootKey),
-			[this](const auto& Document) { return Find(Document.ResourceId) != nullptr; },
-			[this](const auto& Document) { DrawDocument(Document, Find(Document.ResourceId)); });
-	}
-
-	auto MVolumeTextureEditor::ResetLayout() -> void
-	{
-		for (auto& [Id, State] : PreviewStates)
-		{
-			(void)Id;
-			State.Axis = EVolumeTexturePreviewAxis::XY;
-			State.Channel = ETexturePreviewChannel::RGBA;
-			State.Mip = 0;
-			State.Slice = 0;
-			State.Zoom = 0.0f;
-		}
-	}
-
-	auto MVolumeTextureEditor::Find(std::string_view ResourceId) const -> DVolumeTexture*
-	{
-		const auto It = OpenTextures.find(std::string(ResourceId));
-		return It == OpenTextures.end() ? nullptr : It->second.Get();
-	}
-
-	auto MVolumeTextureEditor::Active() const -> DVolumeTexture*
-	{
-		return Find(Documents.GetActiveResourceId());
-	}
-
-	auto MVolumeTextureEditor::Save(DVolumeTexture* Texture) -> bool
-	{
-		if (IsReadOnly() || !IsEditorOpen()) return false;
-		return Documents.Save(Texture, {}, [this](std::string Error) {
-			SetError(std::move(Error));
-		});
-	}
-
-	auto MVolumeTextureEditor::DrawDocument(const FEditorDocument& Document,
+	auto FTextureEditorToolkit::DrawDocument(const FEditorDocument& Document,
 		DVolumeTexture* Texture) -> void
 	{
 		if (!Texture) return;
 		ImGui::BeginDisabled(IsReadOnly());
-		if (ImGui::Button("Save")) Save(Texture);
+		if (ImGui::Button("Save")) SaveTexture(Texture);
 		ImGui::SameLine();
 		if (ImGui::Button("Refresh"))
 		{
@@ -233,10 +93,10 @@ namespace Durin::TextureEditor
 			MonaImGui::ErrorDialog("Volume Texture Editor Error", ErrorMessage);
 	}
 
-	auto MVolumeTextureEditor::DrawPreview(const std::string& ResourceId,
+	auto FTextureEditorToolkit::DrawPreview(const std::string& ResourceId,
 		DVolumeTexture* Texture) -> void
 	{
-		auto& State = PreviewStates.try_emplace(ResourceId).first->second;
+		auto& State = VolumePreviewStates.try_emplace(ResourceId).first->second;
 		const FVolumeTexturePlatformData* Platform = Texture->GetPlatformData();
 		const FTextureSource& Source = Texture->GetSource();
 		const bool bPlatform = Platform && Platform->IsValid()
@@ -322,7 +182,7 @@ namespace Durin::TextureEditor
 			ImGui::Dummy(ImVec2(Size.x, Size.y));
 	}
 
-	auto MVolumeTextureEditor::DrawDetails(DVolumeTexture* Texture) -> void
+	auto FTextureEditorToolkit::DrawDetails(DVolumeTexture* Texture) -> void
 	{
 		ImGui::TextDisabled("VOLUME DETAILS");
 		if (!MonaImGui::PropertyEdit::BeginTable("VolumeTextureFacts")) return;
@@ -378,12 +238,6 @@ namespace Durin::TextureEditor
 		}
 		ImGui::Spacing();
 		ImGui::TextWrapped("Reimport and source repair remain available from the Content Browser asset actions.");
-	}
-	auto MVolumeTextureEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
-	{
-		if (auto Node = OpenTextures.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; OpenTextures.insert(std::move(Node)); }
-		if (auto Node = PreviewStates.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; PreviewStates.insert(std::move(Node)); }
-		Documents.RemapResourceId(Source, Destination);
 	}
 
 }

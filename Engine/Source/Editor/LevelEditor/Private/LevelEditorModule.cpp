@@ -31,7 +31,7 @@
 #include "Customizations/ActorComponentDetails.h"
 #include "Actors/SplineMeshActor.h"
 #include "Workspace/LevelEditorWorkspace.h"
-#include "Widgets/MLevelEditor.h"
+#include "FLevelEditorToolkit.h"
 #include "Customizations/CameraEditorCustomizations.h"
 #include "Components/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
@@ -107,7 +107,7 @@ namespace Durin
 				[this](const FPackagePath& Path) {
 					for (const auto& Toolkit : FToolkitManager::Get().GetToolkits())
 						if (!Toolkit->IsClosed())
-							if (auto Workspace = std::dynamic_pointer_cast<MLevelEditor>(Toolkit)) Workspace->ApplyFixedUpDefaultLevelPath(Path);
+							if (auto Workspace = std::dynamic_pointer_cast<FLevelEditorToolkit>(Toolkit)) Workspace->ApplyFixedUpDefaultLevelPath(Path);
 				});
 		ProjectDefaultLevelReferenceStoreHandle =
 			RegisterAssetReferenceStore(
@@ -227,14 +227,14 @@ namespace Durin
 				auto* AssetEditorSubsystem = Invocation.Host.AssetEditors.Get();
 				if (!AssetEditorSubsystem) return;
 				for (const auto& Entry : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
-				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Entry))
+				if (auto Toolkit = std::dynamic_pointer_cast<FLevelEditorToolkit>(Entry))
 					Toolkit->RequestContentBrowserImport(Invocation.Context.VirtualDirectory, LevelEditor::EImportDialogType::Scene);
 			},
 			.DrawHostPresentation = [](const ContentBrowser::FExtensionHost& Host, bool bAllowed) {
 				auto* AssetEditorSubsystem = Host.AssetEditors.Get();
 				if (!AssetEditorSubsystem) return;
 				for (const auto& Entry : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
-				if (auto Toolkit = std::dynamic_pointer_cast<MLevelEditor>(Entry))
+				if (auto Toolkit = std::dynamic_pointer_cast<FLevelEditorToolkit>(Entry))
 					Toolkit->DrawContentBrowserImport(LevelEditor::EImportDialogType::Scene, bAllowed);
 			},
 			}, Error);
@@ -272,7 +272,7 @@ namespace Durin
 		DAssetEditorSubsystem& AssetEditors, std::string ProjectFile) -> bool
 	{
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors))
-			if (const auto Workspace = std::dynamic_pointer_cast<MLevelEditor>(Toolkit))
+			if (const auto Workspace = std::dynamic_pointer_cast<FLevelEditorToolkit>(Toolkit))
 			{ Workspace->RequestOpenProject(std::move(ProjectFile)); return true; }
 		return false;
 	}

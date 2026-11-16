@@ -1,13 +1,34 @@
 # Editor Responsibility And UE Interface Alignment Plan
 
-Summary: Align editor service updates, Content Browser data interfaces, shared texture previews, package tools, and toolkit identities with UE responsibilities.
+Summary: Align editor services, Content Browser interfaces, shared previews, package tools, and consolidated asset toolkits with UE responsibilities.
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-16
 
 ## Current Status
+
+Stage 6 UE document simplification completed on 2026-11-16 from `d5abd0a50`.
+Discard drops only the draft, Apply leaves source-package save state separate,
+and successful Undo/Redo republishes affected functions. The separate function
+Session class/map, deep Applied snapshots and cached source paths are removed.
+One toolkit-owned document retains the draft and preview; local publication leases
+and one scoped busy guard prevent reentrant reset/close/reload failures. Existing
+transaction checkpoints own draft dirty state. All 732 selected cases, the final
+incremental Editor all build and bounded normal Sandbox startup/shutdown smoke
+passed. Lasting contracts and final-input receipts are recorded below; no required
+acceptance gate remains open.
+
+Historical Stage 6 review follow-up completed on 2026-11-16 from `bac47219d`.
+Material functions now own isolated working copies, validated Apply publication
+and Apply-before-Save, superseding the earlier direct-function-editing adaptation.
+Logical texture close retires retained state; delayed destruction cannot cancel
+reopened-editor compilation. All 590 selected follow-up cases, the incremental
+Editor all build and bounded normal Sandbox startup/shutdown smoke passed.
+That increment closed its acceptance gates. Its function Session/Discard/Undo
+decisions are superseded by the UE document simplification below; texture
+retirement behavior remains unchanged. Earlier receipts are historical.
 
 Execution started on 2026-11-12 from clean revision `3563d2bbd`.
 The intervening startup consolidation already moved session maintenance into
@@ -30,10 +51,21 @@ Stage 4 is complete: shared texture preview and shader/resource ownership moved
 to DurinEd, MaterialEditor no longer depends on TextureEditor, and all 91
 selected regression cases passed. Stage 5 is complete: DPackageTools owns editor
 unload policy over an explicit Engine collection bridge; all 287 final selected
-cases passed. Stage 6 has not started.
+cases passed. Stage 6 completed on 2026-11-16 from `c9d49eae8`: shared material/
+function and 2D/volume controller implementations, all four concrete controllers
+in module Private/ roots, migrated consumers and lasting contracts are validated.
+Final evidence records 792 passes, two existing Windows symlink-privilege skips,
+the incremental Editor all build and normal Sandbox startup/shutdown smoke.
+The original Stage 6 gates and the follow-up below are complete. The Stage 6 scope was
+revised on 2026-11-16 against local UE 5.8 source: consolidate material/function
+controllers into FMaterialEditor and 2D/volume texture controllers into
+FTextureEditorToolkit, rather than rename four separate controllers. Concrete
+controllers belong in each module's Private/ root; no Toolkits/ folder is added.
 The follow-up [Content Browser UE architecture convergence plan](ContentBrowserUEArchitectureConvergence.md)
-owns deeper provider discovery, item/payload, execution, lifecycle and module
-alignment. This plan retains its existing toolkit scope and final gates.
+completed deeper provider discovery, item/payload, execution, lifecycle and module
+alignment on 2026-11-14. That completion does not close this plan's remaining
+toolkit consolidation or final integrated gates. Earlier stage evidence below
+remains historical evidence; reuse requires unchanged relevant inputs.
 The review baseline is `656742742dc515e159f1caa2a6e67d66c4324a0d`.
 Test target names were queried from the configured native registry for
 `Win64-Debug-DurinEditor`; execution evidence is recorded below.
@@ -72,7 +104,17 @@ the reference comparison:
 | Item ownership | `Source/Editor/ContentBrowserData/Public/ContentBrowserItemData.h` (including its payload, update and sink interfaces) | `FContentBrowserItemData`, `IContentBrowserItemDataPayload`, `FContentBrowserItemDataUpdate`, `IContentBrowserItemDataSink` and an aggregate `FContentBrowserItem`; operations route through the owning source. |
 | Shared texture preview | `Source/Editor/UnrealEd/Public/Texture2DPreview.h`, used by TextureEditor viewport code | Shared preview interpretation/rendering belongs in DurinEd `Preview/`, outside the concrete TextureEditor feature. Preserve Mona/RHI ownership rather than copying UE's canvas rendering implementation. |
 | Package editing policy | `Source/Editor/UnrealEd/Public/PackageTools.h`: `UPackageTools`, `FUnloadPackageParams`; `Source/Runtime/CoreUObject/Public/UObject/PackageReload.h` | Editor-side `DPackageTools` exposes UE-shaped static unload overloads and options. Engine exposes only the narrow collection mechanism required by that policy. |
-| Toolkit identity | `Source/Editor/MaterialEditor/Private/MaterialEditor.h`, `TextureEditor/Private/TextureEditorToolkit.h`, `StaticMeshEditor/Private/StaticMeshEditor.h` | Use `FMaterialEditor`, `FTextureEditorToolkit` and `FStaticMeshEditor` for toolkit controllers; keep actual Mona widgets under `Widgets/`. |
+| Toolkit identity and consolidation | `Source/Editor/MaterialEditor/Private/MaterialEditor.h`, `MaterialEditor/Private/MaterialEditorModule.cpp`, `TextureEditor/Private/TextureEditorToolkit.h`, `TextureEditor/Private/TextureEditorToolkit.cpp`, `StaticMeshEditor/Private/StaticMeshEditor.h` | Use one `FMaterialEditor` implementation for materials/functions and one `FTextureEditorToolkit` implementation for 2D/volume textures, plus `FStaticMeshEditor`. Put concrete controllers in each module's `Private/` root; keep actual Mona widgets under `Widgets/`. |
+
+The 2026-11-16 local source review verified that MaterialEditorModule's material
+and material-function creation overloads both instantiate FMaterialEditor, and
+FTextureEditorToolkit handles UVolumeTexture within the same texture controller.
+Separate FMaterialFunctionEditor and FVolumeTextureEditorToolkit controllers are
+therefore not selected. Consolidation shares controller implementation, not
+unrelated document state or asset-specific editing policy. UE's concrete
+controller headers above live directly under Private/, not a required Toolkits/
+subdirectory. Durin's FLevelEditorToolkit remains an explicit adaptation of its
+existing controller role; UE's SLevelEditor is a Slate surface/host.
 
 Public API cross-checks:
 [asset editor subsystem](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/UAssetEditorSubsystem),
@@ -124,12 +166,12 @@ companion-file policy, cancellation and recovery.
 
 ## Scope And Existing Plan Boundaries
 
-- [UE Asset Editor Architecture](UEAssetEditorArchitecture.md) continues to own
-  definition dispatch, reflected sessions, toolkit/host authority, presentation
-  consolidation and its remaining retirement/interaction qualification. This
-  plan owns only the service-update migration and toolkit identity changes
-  described here. Shared acceptance evidence may be reused, but neither plan
-  closes the other's unchecked gates.
+- [UE Asset Editor Architecture](UEAssetEditorArchitecture.md) completed its
+  selected definition-dispatch, reflected-session, toolkit/host and presentation
+  scope on 2026-11-13. Its native interaction exclusions and direct-toolkit
+  limitations remain unqualified. This plan owns the service-update migration
+  and toolkit consolidation described here. Shared applicable evidence may be
+  reused without claiming acceptance of those excluded interactions.
 - [Runtime Startup And Scene Activation](RuntimeStartupAndSceneActivation.md)
   retains project/scene readiness and the one-frame-loop contract. Service
   updates integrate with its current safe points; no second startup loop or
@@ -735,51 +777,367 @@ updated; subsequent changes after native validation are documentation only.
 
 ### Stage 6: Align toolkit identities and close integrated validation
 
-Dependencies: Stages 1-5. Outcome: type names/folders express the controller/view
-distinction, with final evidence covering the complete interface migration.
+Dependencies: Stages 1-5. Outcome: material/function and 2D/volume texture assets
+use their respective shared controller implementations, concrete controllers
+live in module Private/ roots, and final evidence covers the complete migration.
 
-Scope: toolkit controllers, their definitions/factories, preferences, public
-LevelEditor includes, module manifests, Engine/Sandbox/RoadWeaver consumers and
-owning architecture/module documentation.
+Scope: toolkit controllers, document/session integration, asset definitions and
+factories, preferences, public LevelEditor includes, module manifests,
+Engine/Sandbox/RoadWeaver consumers and owning architecture/module documentation.
+Execute the following increments in order; keep the final all-build gate once
+after consolidation and consumer migration.
 
-- [ ] Rename `MMaterialEditor` to `FMaterialEditor`, `MMaterialFunctionEditor`
-  to `FMaterialFunctionEditor`, `MTextureEditor` to `FTextureEditorToolkit`,
-  `MVolumeTextureEditor` to `FVolumeTextureEditorToolkit`, and
-  `MStaticMeshInspector` to `FStaticMeshEditor` while preserving read-only policy.
-- [ ] Rename `MLevelEditor` to `FLevelEditorToolkit`. This is an explicit Durin
+#### 6.1: Freeze consolidation and persistence mappings
+
+- [x] Refresh the controller/factory/definition and test inventory across all
+  three workspace projects. Record the UE material/function factory overloads
+  and texture volume handling as the implementation reference, distinguishing
+  shared C++ controller types from toolkit instances and document identities.
+- [x] Record how each existing asset family selects its controller mode,
+  document/session policy, toolkit ID, layout profile/version and settings.
+  Preserve existing serialized IDs and restore behavior through the merge,
+  including distinct family IDs where currently required. One implementation
+  may serve multiple explicit family modes; do not create separate derived
+  toolkit controllers or compatibility wrappers to retain the old split.
+- [x] Inventory public LevelEditor controller consumers and select the minimal
+  public module/interface access they need before moving its header private.
+  Migrate every workspace consumer without public forwarding headers or private
+  include-directory injection. Preserve required callable behavior through the
+  public module/interface boundary, not concrete controller exposure.
+
+Stage 6.1 decisions, 2026-11-16: the production/test inventory covers all six
+Engine/Sandbox/RoadWeaver roots and build metadata. No affected project consumer
+exists outside Engine. The former public LevelEditor controller is used only by
+LevelEditor implementation files; external access already uses FLevelEditorModule
+and DAssetEditor/FAssetEditorToolkit. Retain that public boundary without exposing
+the concrete renamed controller. Raw inventory is
+`Build/EditorResponsibilityAndUEInterfaceAlignment/stage6-consumers.txt`.
+
+| Asset family | Reflected editor/factory retained | Shared controller mode | Existing persistence retained |
+| --- | --- | --- | --- |
+| Material and material instance | DMaterialAssetEditor | FMaterialEditor / Material | MaterialEditor toolkit/root, layout version 4, existing material preferences |
+| Material function | DMaterialFunctionAssetEditor | FMaterialEditor / Function | MaterialFunctionEditor toolkit/root, layout version 5, MaterialFunctionPreferences.yaml |
+| Texture2D | DTextureAssetEditor | FTextureEditorToolkit / Texture2D | TextureEditor toolkit/root and existing preview/settings policy |
+| Volume texture | DVolumeTextureAssetEditor | FTextureEditorToolkit / Volume | VolumeTextureEditor toolkit/root and axis/slice/mip/channel state |
+
+Reflected editor class identities, per-instance ownership, role/asset-set keys and
+snapshot schemas remain unchanged. Material profile storage continues to use
+`MaterialEditor/Profiles/<layout-profile-hash>.yaml`, including function sessions.
+The controller mode is selected by the retained family factory, not serialized
+as a replacement for old IDs. Sharing an implementation does not permit grouping
+incompatible reflected editor families into one instance. Material parameter
+collections and cube texture inspection retain their existing separate policies.
+
+#### 6.2: Consolidate material and texture controller implementations
+
+- [x] Merge `MMaterialEditor` and `MMaterialFunctionEditor` into `FMaterialEditor`.
+  Route both asset-definition factories to that implementation. Preserve
+  material Compile/Apply/Save and function graph/interface/input editing,
+  navigation and validation. Function editing now uses isolated transient working
+  copies, validated Apply publication and Apply-before-Save, following UE 5.8
+  InitEditorForMaterialFunction/UpdateOriginalMaterial/SaveAsset_Execute.
+- [x] Merge `MTextureEditor` and `MVolumeTextureEditor` into
+  `FTextureEditorToolkit`, with both asset-definition factories using the shared
+  implementation. Preserve texture-specific details/import/build behavior and
+  Source/Built selection, plus volume axis/slice/mip/channel preview controls.
+  Keep selection, preview resources, errors and editable document state scoped
+  to their owning asset and lifetime.
+- [x] Consolidate shared open/activate/close, commands, Save/Discard, Undo/Redo,
+  resource remapping, package reload, host changes and teardown through each
+  merged controller. Retain family-specific helpers/models/widgets as needed,
+  without a second independent toolkit dispatch/lifecycle path. Verify multiple
+  open assets and alternating asset families do not share mutable session state.
+- [x] Remove the superseded material-function and volume-texture controller
+  classes, factories and source files after migrating consumers. Do not introduce
+  `FMaterialFunctionEditor` or `FVolumeTextureEditorToolkit` as replacement types,
+  aliases or wrappers.
+
+#### 6.3: Finish controller names, placement and public boundaries
+
+- [x] Rename `MStaticMeshInspector` to `FStaticMeshEditor` while preserving its
+  read-only policy; UE's name does not imply adopting all UE mesh editing tools.
+- [x] Rename `MLevelEditor` to `FLevelEditorToolkit`. This is an explicit Durin
   adaptation: UE's `SLevelEditor` is a Slate surface/host, while this Durin type
   is a `FBaseAssetToolkit` controller, not a Mona widget.
-- [ ] Move these controllers from `Widgets/` to matching `Toolkits/` source
-  folders and migrate public include paths where they already exist. Keep
-  feature namespaces and current public/private visibility; do not export
-  private controllers just to imitate a name.
-- [ ] Retain toolkit command/Apply/Save coordination and existing editing
-  sessions; separate actual widgets only when their responsibility requires it.
-  Keep serialized toolkit IDs, layout profile IDs, session snapshots and user
-  settings stable through C++ renames; add no persistence migration or aliases.
-- [ ] Update implemented contracts in the owning Framework, Assets and Materials
+- [x] Place `FMaterialEditor`, `FTextureEditorToolkit`, `FStaticMeshEditor` and
+  `FLevelEditorToolkit` headers/implementations directly under their modules'
+  `Private/` roots. Migrate the current public LevelEditor controller header to
+  private ownership using the boundary selected in 6.1. Retain feature namespaces
+  and actual widgets under `Widgets/`; add no `Toolkits/` controller folders.
+- [x] Migrate definitions/factories, preferences, includes, module manifests,
+  test dependencies and all workspace consumers. Preserve the 6.1 persistence
+  mapping without data migration or legacy C++ aliases. Remove obsolete names,
+  headers and duplicate execution paths before closing this stage.
+
+#### 6.4: Document and validate the consolidated final inputs
+
+- [x] Update implemented contracts in the owning Framework, Assets and Materials
   documents and the module ownership map. Record UE parity and every deliberate
-  adaptation, and reconcile shared evidence with the existing asset-editor plan.
-- [ ] Complete final integrated build, behavior checks and documentation
+  adaptation, shared controller implementations and family-specific session/
+  persistence policy. Reconcile shared evidence with the existing asset-editor
+  plan without qualifying interactions excluded from its completed scope.
+- [x] Complete final integrated build, behavior checks and documentation
   validation, recording remaining failures/skips without converting them to passes.
 
 Validation: affected cases from `EditorOperationTests`, `EditorHostToolTests`,
 `EditorShellTests`, `AssetEditorFamilyTests`, `MaterialEditorInteractionTests`
-and `ContentBrowserWorkflowTests`. Verify open/focus/close/restore, host transfer,
-material Apply/Save, read-only mesh inspection, stable layouts/settings and
-provider retirement. A bounded normal-editor startup/shutdown smoke covers
+and `ContentBrowserWorkflowTests`, plus registry-selected texture/volume editing
+and preview cases affected by the merge. Query current membership rather than
+assuming thumbnail-only tests cover controller behavior. Add focused regression
+coverage for material/function factory dispatch and graph editing, material
+Apply/Save, function Save/Discard and Undo/Redo, 2D/volume factory dispatch,
+volume axis/slice/mip controls, and document/preview isolation across multiple
+open assets. Verify open/focus/close/restore, host transfer, dirty-close
+Save/Discard/Cancel, resource remapping/package reload, read-only mesh inspection,
+stable family layouts/settings and provider retirement. Validate restoration of
+pre-merge family IDs/snapshots as well as new snapshots; a shared implementation
+must not silently merge existing family persistence identities. Cover preview
+release on close/reload and shared backend teardown with bounded existing GPU
+cases where affected. A bounded normal-editor startup/shutdown smoke covers
 service ordering, source activation and shared preview teardown; it does not
-replace the other plan's still-unqualified interactive gates.
+qualify native interactions excluded from the other plan's completed scope.
 
 Final build gate: one incremental default-profile Editor `all` build. The risk
 is the combined exported-header, reflection-input and dependency-graph migration
-across Engine, Sandbox and RoadWeaver; focused owner builds alone do not cover
-that combined closure. Do not repeat this broad gate after each rename.
+across Engine, Sandbox and RoadWeaver, including removal of the public concrete
+LevelEditor header; focused owner builds alone do not cover that combined
+closure. Do not repeat this broad gate after each consolidation or rename.
 
 Acceptance: all five review items have the selected responsibilities and public
-interfaces; removed symbols/headers have no workspace consumers; relevant final
-inputs have passing evidence or explicitly unresolved gates. The plan is not
-complete while a required gate remains open.
+interfaces; material/function and 2D/volume definitions use their respective
+single controller implementations; all four concrete controllers are owned by
+module Private/ roots and public consumers use declared module/interfaces.
+Removed symbols/headers have no workspace consumers; family behavior and
+persistence remain intact; relevant final inputs have passing evidence or
+explicitly unresolved gates. Earlier rename-only or browser acceptance does not
+qualify controller consolidation. The plan is not complete while a required
+gate remains open.
+
+### Stage 6 UE document simplification
+
+This decision supersedes the earlier function Session and package-Discard
+adaptations. UE references are MaterialEditor.cpp InitEditorForMaterialFunction,
+UpdateOriginalMaterial, OnRequestClose and PostUndo, plus MaterialEditor.h PostRedo.
+The graph/compiler/Cook contracts of MaterialAttributesAndExecutionContractsRefactor
+remain unchanged. ToolkitManager retains sole toolkit ownership.
+
+- [x] Consolidate function state into one private document owned by the toolkit;
+  delete the Session API/map, duplicate Working pointer and source-path cache.
+- [x] Reuse working-package transaction checkpoints for draft dirty state; remove
+  deep Applied snapshots and per-frame graph/property comparisons. Keep a source
+  revision token for Durin's supported concurrent roles, without a parallel graph
+  mutation or compilation authority.
+- [x] Protect publication with a scoped document/source lease; reject resetting,
+  ordinary close and reload during publication. Forced toolkit retirement releases
+  preview presentation immediately and lets the borrowed publication finish safely.
+- [x] Discard recreates the draft from the current source and never reloads disk.
+  Keep explicit package reload separate. Undo/Redo uses existing transaction
+  notifications to publish only affected function documents, matching UE PostUndo.
+- [x] Cover public Save/Apply reentry into Discard and retirement, discard after
+  Apply, Undo/Redo publication, cross-document history, conflict/reload/relocation,
+  and unchanged material attribute behavior. Update lasting contracts and receipts.
+
+Validation: current registry and affected analysis; owning persistence,
+interaction, family and session/host/shell selections; one final incremental
+Editor all build and bounded normal-editor smoke. Preview rendering and GPU
+algorithms are unchanged; preserve existing applicable GPU evidence boundaries.
+
+Simplification implementation, 2026-11-16: working changes based on
+`d5abd0a5098c510908b80718c0691e29d962797b`, Windows `windows-msvc-x64` /
+`Win64-Debug-DurinEditor`, outside-sandbox MSVC. One private `FFunctionDocument`
+now owns the duplicate function, working package, canvas and derived preview.
+The separate `FMaterialFunctionEditingSession`, same-key Session map, borrowed
+Working alias, cached source path and deep Applied graph/presentation copies are
+removed. Dirty queries use only the working package's existing transaction
+checkpoint; Apply and successful replay establish its published checkpoint while
+the original source's disk dirty state remains independent.
+
+The source revision token checks semantic and package edits for concurrent Durin
+roles. It is refreshed after source checkpoint invalidation, which itself advances
+the package edit revision. A local shared document/source lease spans synchronous
+publication notifications; a single scoped publishing flag vetoes destructive
+reentry. Forced close unregisters history notifications, hides/releases preview
+presentation and prevents a late disk Save. Drawing borrows the same document and
+checks membership after callback boundaries. Reload admission uses the existing
+document replacement participant, with weak prepared bindings and draft revisions;
+it adds no source owner or persistent registry.
+
+Discard now preserves applied in-memory source changes. Explicit reload uses the
+normal package replacement and completion notification to rebase a clean draft.
+Undo/Redo publication listens to existing transaction events and selects only
+affected working packages, including history invoked from another document.
+Discard/retirement forget working-package history. Separate derived-preview and
+working packages remain necessary because preview mutation must not dirty drafts.
+Shared graph commands, material attributes, compiler worker snapshots, Cook and
+M14 ownership/profile boundaries are unchanged.
+
+Registry and affected receipts are under
+`Build/EditorResponsibilityAndUEInterfaceAlignment/stage6-simplification-*`.
+The shared test registration/header changes expand affected analysis across Engine;
+the bounded selections below cover document semantics, integrated editor lifetime
+and unchanged shared function/attribute graph behavior. The final all build covers
+workspace consumers and linking; no runtime/compiler API changed.
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| MaterialEditingPersistenceTests | 26 passed | `20261116-181853-462420-43684-MaterialEditingPersistenceTests.log` |
+| MaterialEditorInteractionTests | 67 passed | `20261116-181908-681087-43816-MaterialEditorInteractionTests.log` |
+| AssetEditorFamilyTests | 13 passed | `20261116-181930-853639-2100-AssetEditorFamilyTests.log` |
+| EditorOperationTests | 388 passed | `20261116-181607-775982-43764-EditorOperationTests.log` |
+| EditorHostToolTests | 39 passed | `20261116-181628-237547-35132-EditorHostToolTests.log` |
+| EditorShellTests | 64 passed | `20261116-181631-093909-22560-EditorShellTests.log` |
+| MaterialFunctionTests | 30 passed | `20261116-181648-072597-43076-MaterialFunctionTests.log` |
+| MaterialGraphEditingTests | 105 passed | `20261116-181721-776540-36664-MaterialGraphEditingTests.log` |
+| Default Editor incremental all build | passed | `20261116-181947-242132-46012-cmake.log` |
+| Normal Sandbox editor, --exit-after-ticks=3, 180-second external bound | exit 0 | `20261116-181952-007141-31512-DurinEditor.log` |
+
+All 732 selected cases passed without skips. Final persistence coverage retains
+the former public Save -> source notification -> Discard crash as a regression,
+plus close/Undo/reload reentry, forced retirement with GC during publication,
+notification edits that must remain dirty, Apply/Save isolation, applied-source
+Discard, published Undo/Redo, cross-document history, discarded-history cleanup,
+external-role conflicts, recursion rejection, explicit reload and relocation.
+The existing reopened-volume retirement regression also passed unchanged.
+
+The operation/host/shell and shared function/graph receipts precede the last
+private function preview-hide/include cleanup and final test assertions. Those
+changes do not affect their source, fixtures, runtime settings or tested behavior;
+the final persistence/interaction/family runs cover the changed implementation
+and preview retirement boundary.
+No shader, rendering algorithm or GPU execution path changed; existing historical
+GPU evidence is not represented as a new qualification run.
+
+### Stage 6 review follow-up: function publication and texture retirement
+
+Decision: UE 5.8 duplicates the edited function into a transient working object;
+its shared FMaterialEditor publishes changes through UpdateOriginalMaterial and
+SaveAsset_Execute applies before saving. Durin will retain family IDs and its
+existing reflected editor factories while adopting those ownership/publication
+semantics. Function Apply performs authored-graph/dependency validation; the
+transient preview material remains the shader-compilation consumer. Original
+function object identity and dependent-material references stay stable on Apply.
+The owning reflected editor retains the source; working sessions borrow its
+identity weakly and release their transient packages/transaction history at close.
+
+- [x] Retire texture compilation and document state at logical close; a retained
+  closed toolkit's destructor must not cancel work belonging to a reopened editor.
+- [x] Introduce isolated function working sessions, shared graph/port editing and
+  Undo/Redo on the working package, source-conflict checks and validated Apply.
+- [x] Save applies the selected function before persisting the source; Discard
+  drops unapplied edits and reloads applied-but-unsaved source changes. Rebase
+  working state on source reload and preserve resource/profile identity.
+- [x] Cover retirement/reopen, multiple roles and function edit isolation,
+  Apply/Save/Discard, Undo/Redo, dependency notifications, conflicts, invalid
+  publication and reload. Update lasting contracts and final-input receipts.
+
+Validation: targeted AssetEditorFamilyTests, MaterialEditingPersistenceTests,
+MaterialEditorInteractionTests and affected session/host selections. Refresh
+registry/affected analysis. Use one final incremental Editor all build for the
+combined session/controller integration, plus the bounded normal-editor smoke;
+reuse unchanged GPU-preview evidence because preview rendering code is unchanged.
+Keep the existing symlink and native-interaction exclusions explicit.
+
+Follow-up final-input evidence, 2026-11-16: working changes based on
+`bac47219d`, Windows `windows-msvc-x64` / `Win64-Debug-DurinEditor`,
+outside-sandbox MSVC. Current registry and affected analysis are recorded under
+`Build/EditorResponsibilityAndUEInterfaceAlignment/stage6-followup-*`.
+Shared native-test CMake expands affected selection broadly; the owning
+persistence/interaction/family and session/host/shell targets cover this private
+controller/session change, while the all build covers the workspace link graph.
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| MaterialEditingPersistenceTests | 19 passed | `20261116-172629-233470-42504-MaterialEditingPersistenceTests.log` |
+| MaterialEditorInteractionTests | 67 passed | `20261116-172654-010746-37572-MaterialEditorInteractionTests.log` |
+| AssetEditorFamilyTests | 13 passed | `20261116-172744-884159-41752-AssetEditorFamilyTests.log` |
+| EditorOperationTests | 388 passed | `20261116-172803-683272-31660-EditorOperationTests.log` |
+| EditorHostToolTests | 39 passed | `20261116-172820-763639-43816-EditorHostToolTests.log` |
+| EditorShellTests | 64 passed | `20261116-172823-997842-36216-EditorShellTests.log` |
+| Default Editor incremental all build | passed | `20261116-172903-647960-34960-cmake.log` |
+| Normal Sandbox editor, --exit-after-ticks=3, 180-second external bound | exit 0 | `20261116-172910-736390-31596-DurinEditor.log` |
+
+All 590 executed follow-up cases passed without skips. The permanently registered
+retirement regression reproduces the prior cancellation failure and now preserves
+the reopened volume build. Function regressions cover draft isolation from
+source/dependents/ordinary source saves, Apply notifications, Save applying first,
+close cancellation, Undo/Redo, separate-role conflicts, rejected prospective
+recursion without source mutation, reentrant Apply rejection, clean-source
+Discard, applied-source disk reload/rebase and resource relocation with stable
+profile/draft identity. Layout ordering normalization prevents false initial,
+Undo or Discard dirty states.
+
+The 10 changed native input hashes in `stage6-followup-inputs.json` were verified
+after the final build/smoke; later changes are documentation only. No new GPU
+interpretation, shader, upload or preview-rendering implementation changed.
+The two earlier bounded Vulkan preview receipts remain applicable to those
+mechanisms; new function publication/lifetime behavior is qualified by the
+current owning tests and startup smoke, not by relabeling old GPU results.
+The two historical browser symlink-privilege skips and the related plan's native
+interaction exclusions remain unqualified; no new acceptance pass is claimed for
+those cases.
+
+Resolved intermediate diagnostics: initial new tests attempted a private callback
+entrypoint and were migrated to the public transaction context. Expanded tests
+then exposed comparison of unsorted source layout nodes against normalized
+working layouts; canonical snapshot comparison fixed the initial/Undo/Discard
+false dirty results. The final passing receipts above cover the corrected inputs.
+Lasting material/function ownership and texture-retirement contracts are updated.
+
+### Stage 6 final-input evidence (2026-11-16)
+
+Inputs are the Stage 6 working changes based on `c9d49eae8`, Windows
+`windows-msvc-x64` / `Win64-Debug-DurinEditor`, outside-sandbox MSVC. Native
+registry membership was queried before execution. Affected analysis expands to
+all ordinary tests through shared native-test CMake/header inputs; the named
+owning interaction, persistence, operation, host, shell, browser and family
+selections bound the changed behavior. The one explicit incremental all build
+covers the combined workspace header, reflection and dependency closure.
+
+| Selection | Result | Receipt under `Build/.agent-state/logs/` |
+| --- | --- | --- |
+| MaterialEditorInteractionTests | 67 passed | `20261116-132909-270407-22188-MaterialEditorInteractionTests.log` |
+| MaterialEditingPersistenceTests | 13 passed | `20261116-132945-009196-28628-MaterialEditingPersistenceTests.log` |
+| EditorOperationTests | 388 passed | `20261116-133009-049122-34936-EditorOperationTests.log` |
+| EditorHostToolTests | 39 passed | `20261116-133107-292498-1212-EditorHostToolTests.log` |
+| EditorShellTests | 64 passed | `20261116-133119-455925-6116-EditorShellTests.log` |
+| ContentBrowserWorkflowTests | 196 passed, 2 skipped | `20261116-133141-558092-19220-ContentBrowserWorkflowTests.log` |
+| AssetEditorFamilyTests | 12 passed | `20261116-133159-273251-37476-AssetEditorFamilyTests.log` |
+| TextureThumbnailTests | 11 passed | `20261116-133228-586071-37052-TextureThumbnailTests.log` |
+| ThumbnailVulkanTests, the two Stage 0 preview cases | 2 passed | `20261116-133343-538892-13632-ThumbnailVulkanTests.log` |
+| Default Editor incremental all build | passed | `20261116-133243-240280-38836-cmake.log` |
+| Normal Sandbox editor, --exit-after-ticks=3, 180-second external bound | exit 0 | `20261116-133421-610136-7708-DurinEditor.log` |
+
+All 792 executed cases passed. The two browser skips require unavailable Windows
+file/directory symlink privileges; they remain unqualified baseline limitations,
+not passes or controller-consolidation failures. The smoke completed normal
+presentation and exited without error/assertion diagnostics. The all build linked
+the Engine, Sandbox and RoadWeaver editor consumer closure.
+
+New regressions verify identical controller types across each merged family,
+legacy toolkit IDs/layout versions and snapshot/profile restoration, independent
+family dirty/focus state, close cancellation, 2D/volume preview isolation and
+volume selection retention across package reload. The retained-toolkit renderer
+teardown regression now opens both material and function previews and verifies
+that closing releases their scenes before controller destruction. Existing
+interaction/persistence coverage retains graph/port editing, Undo/Redo and
+material Apply/Save. CPU slice tests and bounded Vulkan cases retain axis,
+channel, source/built interpretation and backend teardown coverage.
+
+Source/test hashes, refreshed consumer/affected inventories, result summary and
+boundary audit are under `Build/EditorResponsibilityAndUEInterfaceAlignment/stage6-*`.
+All 24 changed native input hashes were rechecked after the final tests/build/
+smoke; subsequent edits only record documentation. No removed controller type
+or header has a remaining workspace source/test consumer. SDK include-ownership
+notes are updated without claiming SDK packaging acceptance. The related asset
+editor plan's explicit native interaction exclusions remain unqualified.
+
+Resolved intermediate failures are not acceptance evidence: the first compile
+found an incorrectly migrated document-manager method call; the first new family
+fixture left a close confirmation pending. New preview-test iterations exposed
+duplicate compiler initialization and cached-fixture mount reuse; the final test
+covers material/function teardown in one correctly initialized fixture. Regression
+review also caught and corrected resetting volume selection during reload. The
+passing final-input receipts above supersede those failed attempts.
 
 ## Validation And Handoff Policy
 

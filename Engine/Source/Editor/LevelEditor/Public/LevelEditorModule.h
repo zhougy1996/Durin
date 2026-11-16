@@ -27,7 +27,6 @@ namespace Durin
 namespace Durin::LevelEditor
 {
 	class FLevelEditorWorkspaceSettings;
-	class MLevelEditor;
 }
 
 namespace Durin

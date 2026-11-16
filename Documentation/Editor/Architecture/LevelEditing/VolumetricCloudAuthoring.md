@@ -91,7 +91,7 @@ before editor services are retired.
 
 ## Related code
 
-- `Engine/Source/Editor/TextureEditor/Private/Widgets/MVolumeTextureEditor.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/TextureEditorVolume.cpp`
 - `Engine/Source/Editor/TextureEditor/Public/VolumeTexturePreview.h`
 - `Engine/Source/Editor/LevelEditor/Private/Customizations/VolumetricCloudDetails.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.cpp`

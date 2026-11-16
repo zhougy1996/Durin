@@ -13,12 +13,12 @@ namespace Durin { class DStaticMesh; }
 namespace Durin::StaticMeshEditor
 {
 	// Hosts read-only, per-resource StaticMesh inspection documents.
-	class MStaticMeshInspector final : public FBaseAssetToolkit
+	class FStaticMeshEditor final : public FBaseAssetToolkit
 	{
 	public:
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
-		explicit MStaticMeshInspector(FEditorDocumentManager& InDocumentManager);
-		STATICMESHEDITOR_API ~MStaticMeshInspector() override;
+		explicit FStaticMeshEditor(FEditorDocumentManager& InDocumentManager);
+		STATICMESHEDITOR_API ~FStaticMeshEditor() override;
 		STATICMESHEDITOR_API auto OnClose() -> void override;
 		STATICMESHEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
 		STATICMESHEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;

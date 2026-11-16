@@ -1,7 +1,7 @@
 #include "StaticMeshAssetDefinitions.h"
 #include "DObject/Class.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "Widgets/MStaticMeshInspector.h"
+#include "FStaticMeshEditor.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
 
@@ -13,6 +13,6 @@ namespace Durin::StaticMeshEditor
 	auto DStaticMeshAssetDefinition::OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult
 	{
 		return OpenAssetsWithToolkit(Args, Workspace::Type,
-			[](FEditorDocumentManager& Documents) { return std::make_shared<MStaticMeshInspector>(Documents); });
+			[](FEditorDocumentManager& Documents) { return std::make_shared<FStaticMeshEditor>(Documents); });
 	}
 }
