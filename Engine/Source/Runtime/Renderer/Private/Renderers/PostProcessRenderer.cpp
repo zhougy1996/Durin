@@ -1,3 +1,4 @@
+#include "Shader/MaterialShader.h"
 #include "Renderers/PostProcessRenderer.h"
 
 #include "Renderers/DisplayMapping.h"
@@ -69,6 +70,15 @@ namespace Durin
 				EShaderFrequency::Fragment,
 				"FXAAFragmentMain");
 		};
+		class FPostProcessMaterialShader final : public FMaterialShader
+		{
+		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::PostProcess, .Domain = EMaterialDomain::PostProcess}; }
+			DURIN_DECLARE_MATERIAL_SHADER(FPostProcessMaterialShader, FMaterialShader,
+				"/Engine/PostProcess", EShaderFrequency::Fragment, "PostProcessMaterialMain");
+		};
+		DURIN_IMPLEMENT_MATERIAL_SHADER(FPostProcessMaterialShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FPostProcessVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCopySceneColorFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
@@ -353,7 +363,7 @@ namespace Durin
 		const auto& Map = Program->GetShaderMap();
 		if (Map.Domain != EMaterialDomain::PostProcess || Map.Entries.size() != 1
 			|| Map.CompiledShaders.size() != 1 || Map.Entries[0].Mesh
-			|| Map.Entries[0].Shader.ShaderType != "PostProcessMaterial"
+			|| Map.Entries[0].Shader.ShaderType != "FPostProcessMaterialShader"
 			|| Map.PassContractVersion != CurrentMaterialPassContractVersion) return {};
 		auto Found = std::ranges::find_if(State->MaterialSlots, [&](const auto& Item) { return Item.first == Program; });
 		if (Found == State->MaterialSlots.end())
@@ -369,7 +379,7 @@ namespace Durin
 			for (const auto& Slot : State->Slots)
 				if (Slot && Slot->GetPayload()) { Candidate.Vertex = Slot->GetPayload()->VertexShader.GetRHIShader(false); break; }
 			const auto& Code = Map.CompiledShaders[0];
-			auto Desc = FRHIShaderCreateDesc::Create("PostProcessMaterial", Code.Frequency, Code.Code, Code.CodeHash);
+			auto Desc = FRHIShaderCreateDesc::Create("FPostProcessMaterialShader", Code.Frequency, Code.Code, Code.CodeHash);
 			Desc.SetEntryPoint(Code.BinaryEntryPoint.c_str());
 			Candidate.Fragment = GDynamicRHI->RHICreateShader(Desc);
 			FPipelineLayoutDesc Layout;
@@ -379,11 +389,11 @@ namespace Durin
 				Targets.NumColorRenderTargets = 1;
 				Targets.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(EPixelFormat::RGBA16_FLOAT,
 					ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
-				Candidate.Pipeline = CreatePostProcessPipeline("PostProcessMaterial", Candidate.Vertex, Candidate.Fragment,
+				Candidate.Pipeline = CreatePostProcessPipeline("FPostProcessMaterialShader", Candidate.Vertex, Candidate.Fragment,
 					FullscreenGeometry.GetVertexDeclaration_RenderThread(), Layout, Targets);
 			}
 			if (!Candidate.Pipeline) return FResult::Failure(MakeRendererResourceCreateError(
-				ERenderResourceCreateErrorCategory::GraphicsPipeline, "PostProcessMaterial", "optional-effect",
+				ERenderResourceCreateErrorCategory::GraphicsPipeline, "FPostProcessMaterialShader", "optional-effect",
 				ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 				ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
 			return FResult::Success(std::move(Candidate));
@@ -393,19 +403,14 @@ namespace Durin
 		Prepared->Program = Program;
 		Prepared->bRejectBindings = bRejectBindings;
 		Prepared->Vertex = Pipeline->Vertex; Prepared->Fragment = Pipeline->Fragment; Prepared->Pipeline = Pipeline->Pipeline;
-		if (!ResolvePreparedMaterialBinding(*Data, Prepared->Material, "PostProcessMaterial")) return {};
+		if (!ResolvePreparedMaterialBinding(*Data, Prepared->Material, "FPostProcessMaterialShader")) return {};
 		if (!State->MaterialResources) State->MaterialResources = std::make_unique<FSurfaceMaterialResources>(Coordinator, GetDefaultTextureResources());
 		FResolvedSurfaceMaterial Material;
 		if (!State->MaterialResources->Ensure_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess)
 			|| !State->MaterialResources->Resolve_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess, {}, nullptr, nullptr, Material)) return {};
-		auto Reflection = Map.CompiledShaders[0].Reflection;
-		std::erase_if(Reflection.ResourceBindings, [](const auto& B) { return B.SetIndex == 0 && B.BindingIndex >= 40 && B.BindingIndex <= 44; });
-		const FCompiledSurfaceBindingLayout Layout(Reflection);
+		const auto Layout = FCompiledSurfaceBindingLayout(Map.Entries[0].Bindings, EMaterialDomain::PostProcess).WithoutSceneInputs();
 		if (!Layout.IsValid()) return {};
-		for (const auto& Entry : Layout.GetEntries())
-			if (Entry.Source != FCompiledSurfaceBindingLayout::ESource::View && Entry.Source != FCompiledSurfaceBindingLayout::ESource::Material
-				&& Entry.Source != FCompiledSurfaceBindingLayout::ESource::Texture && Entry.Source != FCompiledSurfaceBindingLayout::ESource::Sampler
-				&& Entry.Source != FCompiledSurfaceBindingLayout::ESource::Collection) return {};
+
 		const auto RetainUniform = [&](FByteView Payload) {
 			const auto Range = Payload.empty() ? FRHIUniformBufferRange{} : Commands.CreateUniformBufferRange(Payload.data(), Payload.size());
 			if (Range.Buffer) Prepared->Resources.emplace_back(Range.Buffer);
@@ -430,7 +435,6 @@ namespace Durin
 		Prepared->Bindings = std::move(Bindings.Parameters);
 		for (auto& Binding : Prepared->Bindings)
 		{
-			if (Binding.Type == ERHIBindingType::UniformBufferDynamic) Binding.Type = ERHIBindingType::UniformBuffer;
 			if (Binding.Resource) Prepared->Resources.emplace_back(Binding.Resource);
 		}
 		if (!State->MaterialOutput || State->MaterialOutput->GetSizeX() != Width || State->MaterialOutput->GetSizeY() != Height)
@@ -451,7 +455,7 @@ namespace Durin
 		const FMaterialSceneTextureUniform& Uniform) -> bool
 	{
 		if (Prepared.bRejectBindings || !Input0 || Input0 == Prepared.Output.GetReference() || !Prepared.Output || !Prepared.Pipeline) return false;
-		auto Scene = ResolveMaterialSceneTextureBindings(Commands, Prepared.Program->GetShaderMap().CompiledShaders[0].Reflection, Input0, Depth, Uniform);
+		auto Scene = ResolveMaterialSceneTextureBindings(Commands, std::span<const FMaterialShaderBinding>(Prepared.Program->GetShaderMap().Entries[0].Bindings), Input0, Depth, Uniform);
 		if (!Scene) return false;
 		auto Bindings = Prepared.Bindings;
 		Bindings.insert(Bindings.end(), Scene->Parameters.begin(), Scene->Parameters.end());

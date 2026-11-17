@@ -7,46 +7,6 @@ namespace Durin::RendererPrivate
 {
 	namespace
 	{
-		class FGBufferLocalVertexShader final : public FMeshMaterialShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferLocalVertexShader)
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader, FMeshMaterialShader,
-				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
-				"VertexMain");
-		};
-
-		class FGBufferSplineVertexShader final : public FMeshMaterialShader
-		{
-		public:
-			static auto ModifyCompilationEnvironment(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& Options) -> void
-			{
-				FSplineMeshVertexShader::ModifyCompilationEnvironment(Parameters, Options);
-			}
-			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferSplineVertexShader)
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader, FMeshMaterialShader,
-				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
-				"SplineVertexMain");
-		};
-
-		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader);
-		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader);
-
 		template <typename TShader, bool bSpline>
 		class TMeshVertexShaderBinding final : public FMeshVertexShaderBinding
 		{
@@ -102,9 +62,9 @@ namespace Durin::RendererPrivate
 			{
 				if (Pass > MaterialMeshPassShadow) return nullptr;
 				if constexpr (bSpline)
-					return Pass == MaterialMeshPassGBuffer ? &FGBufferSplineVertexShader::StaticType() : &FSplineMeshVertexShader::StaticType();
+					return &FSplineMeshVertexShader::StaticType();
 				else
-					return Pass == MaterialMeshPassGBuffer ? &FGBufferLocalVertexShader::StaticType() : &FStaticMeshVertexShader::StaticType();
+					return &FStaticMeshVertexShader::StaticType();
 			}
 			auto Resolve(const FMeshMaterialShaderMap& Map, uint32 Pass) const
 				-> std::shared_ptr<const FMeshVertexShaderBinding> override
@@ -112,12 +72,10 @@ namespace Durin::RendererPrivate
 				if (!GetShaderType(Pass)) return {};
 				if constexpr (bSpline)
 				{
-					if (Pass == MaterialMeshPassGBuffer) return std::make_shared<TMeshVertexShaderBinding<FGBufferSplineVertexShader, true>>(Map);
 					return std::make_shared<TMeshVertexShaderBinding<FSplineMeshVertexShader, true>>(Map);
 				}
 				else
 				{
-					if (Pass == MaterialMeshPassGBuffer) return std::make_shared<TMeshVertexShaderBinding<FGBufferLocalVertexShader, false>>(Map);
 					return std::make_shared<TMeshVertexShaderBinding<FStaticMeshVertexShader, false>>(Map);
 				}
 			}

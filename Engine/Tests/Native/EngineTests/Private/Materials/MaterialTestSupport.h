@@ -38,7 +38,7 @@
 #include "Misc/MountPaths.h"
 #include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
-#include "RendererModule.h"
+#include "MaterialShaderInventoryTestSupport.h"
 #include "SceneTestAccess.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"

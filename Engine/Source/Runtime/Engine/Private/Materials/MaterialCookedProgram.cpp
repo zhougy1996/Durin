@@ -215,7 +215,7 @@ namespace Durin
 					SerializeDependency(Inner, Dependency);
 				});
 			SerializeBoundedSequence(
-				Ar, Artifact.CompiledShaders, MaterialCompiledEntryPoints.size(),
+				Ar, Artifact.CompiledShaders, MaterialProgramMaxShaderEntries,
 				[](FArchive& Inner, FShaderCode& Shader) {
 					SerializeShader(Inner, Shader);
 				});
@@ -293,9 +293,6 @@ namespace Durin
 				if (!ShaderFormat::ValidateShaderCode(Shader))
 					return std::unexpected("Material cooked program target is incompatible; recook for this runtime.");
 			}
-			if (Program.GetShaderMap().RequiredEntries != SelectMaterialShaderEntries(StaticProperties, true, Program.GetShaderMap().Domain)
-				&& Program.GetShaderMap().RequiredEntries != SelectMaterialShaderEntries(StaticProperties, false, Program.GetShaderMap().Domain))
-				return std::unexpected("Material cooked program identity or environment is invalid.");
 			const auto Contract = ValidateMaterialProgram(Program);
 			if (!Contract) return std::unexpected(std::format("{}{} [index {}]", GetMaterialLayoutErrorText(Contract.Error),
 				Contract.ParameterId.IsValid() ? std::format(" [parameter {}]", Contract.ParameterId.ToString()) : "", Contract.FieldIndex));

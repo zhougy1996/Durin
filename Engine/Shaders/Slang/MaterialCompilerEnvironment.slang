@@ -16,6 +16,9 @@ import Lighting.SurfaceLighting;
 import VertexFactory.LocalVertexFactory;
 import VertexFactory.SplineMeshVertexFactory;
 
+#include "VertexFactory/MaterialVertexEvaluation.slang"
+#include "VertexFactory/LocalMaterialEntry.slang"
+#include "VertexFactory/SplineMaterialEntry.slang"
 #include "Material/SurfacePasses.slang"
 #include "Material/SceneTextures.slang"
 #include "Material/PostProcessPass.slang"

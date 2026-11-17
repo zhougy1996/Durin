@@ -57,7 +57,8 @@ namespace Durin
 			+ CollectionBytes(CollectionLayouts)
 			+ ActiveParameters.capacity() * sizeof(FMaterialCompilerParameterDeclaration)
 			+ Layout.Fields.capacity() * sizeof(FMaterialRenderField) + CompiledShaders.capacity() * sizeof(FShaderCode);
-		Size += RequiredEntries.capacity() * sizeof(EMaterialShaderEntry) + Entries.capacity() * sizeof(FMaterialShaderEntryRequest);
+		Size += RequiredEntries.capacity() * sizeof(std::string) + Entries.capacity() * sizeof(FMaterialShaderEntryRequest);
+		for (const auto& Name : RequiredEntries) Size += Name.capacity();
 		for (const auto& Entry : Entries)
 		{
 			const auto& Key = Entry.Shader; const auto& Q = Entry.Requirements;
@@ -66,7 +67,7 @@ namespace Durin
 				+ Entry.Mesh->Material.Target.capacity() + Entry.Mesh->VertexFactoryType.capacity();
 			Size += (Q.AttributeIDs.capacity() + Q.ParameterIDs.capacity() + Q.CollectionIDs.capacity()) * sizeof(FGuid)
 				+ Q.ResourceIndices.capacity() * sizeof(uint16) + Q.SceneTextures.capacity() * sizeof(FMaterialSceneTextureRequirement)
-				+ Q.Interpolators.capacity() * sizeof(FMaterialValueSemantics);
+				+ Q.Interpolators.capacity() * sizeof(FMaterialValueSemantics) + Entry.Bindings.capacity() * sizeof(FMaterialShaderBinding);
 		}
 		for (const auto& Dependency : Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
 		for (const auto& Shader : CompiledShaders) {

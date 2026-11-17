@@ -12,11 +12,11 @@ struct FMaterialSceneTextureUniform
     float4 ProjectionRow3;
     float4 DepthParameters; // x: clear depth
 };
-[[vk::binding(40, 0)]] ConstantBuffer<FMaterialSceneTextureUniform> MaterialSceneTextures;
-[[vk::binding(41, 0)]] Texture2D<float4> PostProcessInput0;
-[[vk::binding(42, 0)]] Texture2D<float> MaterialSceneDepth;
-[[vk::binding(43, 0)]] SamplerState MaterialScenePointSampler;
-[[vk::binding(44, 0)]] SamplerState MaterialSceneLinearSampler;
+#define DURIN_DECLARE_BINDINGS_SceneTextures 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
+#include "MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_SceneTextures
 
 float2 MaterialSceneTextureUV(float2 uv, float4 viewport, float4 size)
 {

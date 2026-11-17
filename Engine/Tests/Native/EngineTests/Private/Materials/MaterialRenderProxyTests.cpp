@@ -428,7 +428,8 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 	EXPECT_EQ(BaseBinding.Emissive, Durin::FVector3f(3.0f, 5.0f, 7.0f));
 	for (size_t Role = 0; Role < BaseBinding.UVChannels.size(); ++Role)
 	{
-		if (!Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialProperty>(Role), Base->GetStaticProperties()))
+		if (!Durin::IsMaterialSurfaceOutputActive(
+			Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties[Role], Base->GetStaticProperties()))
 		{
 			EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 0.0f);
 			EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(1.0f));
@@ -537,11 +538,12 @@ TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndI
 			const Durin::FRHITextureReferenceRef ExpectedTexture =
 				OverrideTexture->GetTextureReferenceRHI();
 			size_t RoleIndex = 0;
-			for (; RoleIndex < 8; ++RoleIndex)
-				if (Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(static_cast<Durin::EMaterialProperty>(RoleIndex),
+			const auto& Properties = Durin::AssetForge::Builtins::MaterialParameters::PBRMaterialProperties;
+			for (; RoleIndex < Properties.size(); ++RoleIndex)
+				if (Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Properties[RoleIndex],
 					Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterKind::Texture) == Definition.Id) break;
 			ASSERT_LT(RoleIndex, size_t{8});
-			if (Durin::IsMaterialSurfaceOutputActive(static_cast<Durin::EMaterialProperty>(RoleIndex), Instance->GetStaticProperties()))
+			if (Durin::IsMaterialSurfaceOutputActive(Properties[RoleIndex], Instance->GetStaticProperties()))
 			{
 				EXPECT_EQ(GetMaterialBinding(Overridden.RenderData).Textures[RoleIndex], ExpectedTexture);
 				std::vector<Durin::DTexture*> UsedTextures;

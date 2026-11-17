@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: Engine, RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-17
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -144,6 +144,16 @@ source-tree signature. Imported files still use sorted registered virtual paths
 and content hashes. The local import manifest may use physical facts and a source
 path hint, but those values do not enter the compiled-output DDC identity.
 Recovered imports are rechecked against the caller's virtual-prefix allowlist.
+
+Generated requests may declare `ExpectedSourceTree` and up to 64 total source
+roots through `AdditionalSourceTrees`. ShaderBuild verifies each root under its
+declared entry/macro context, then merges the captured files and search roots
+within the existing file/byte limits. Conflicting duplicate contents reject.
+Caller-supplied artifacts must contain every declared root; verification never
+fills missing captured files from disk. The complete verified union enters the
+portable source identity and supplies the compiler's immutable filesystem.
+Material VF registration uses this contract for geometry sources outside the
+base compiler-environment closure.
 
 ## Package compiled-output payload
 

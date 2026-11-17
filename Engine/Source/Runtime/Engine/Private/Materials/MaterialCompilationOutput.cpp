@@ -1,8 +1,15 @@
+#include "VertexFactory.h"
 #include "MaterialPreparedProgram.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 
 namespace Durin
 {
+	auto GetMaterialShaderOutputLayout(const FMaterialShaderEntryDescriptor& D, const FMaterialStaticProperties& P) -> FMaterialRenderLayoutIdentity
+	{
+		const uint32 Tag = D.Frequency == EShaderFrequency::Vertex ? 0u : uint32(D.Entry) + 1
+			+ (D.Entry == EMaterialShaderEntry::GBuffer && P.ShadingModel == EMaterialShadingModel::ClearCoat ? 0x100u : 0u);
+		return {CurrentMaterialPassContractVersion, {0x4d415450, 0x4f555450, 1, Tag}};
+	}
 	auto GetMaterialEntryProperties(EMaterialShaderEntry Entry, const FMaterialStaticProperties& Properties)
 		-> std::vector<EMaterialProperty>
 	{
@@ -23,22 +30,22 @@ namespace Durin
 		-> FMaterialCompilationOutput
 	{
 		FMaterialCompilationOutput Result;
-		Result.Domain = IR.Domain; Result.StaticProperties = CanonicalizeMaterialShaderProperties(Properties);
+		Result.Domain = IR.Domain; Result.bIncludeEditorPasses = Environment.bIncludeEditorPasses; Result.Quality = Environment.Quality; Result.FeatureLevel = Environment.FeatureLevel; Result.StaticProperties = CanonicalizeMaterialShaderProperties(Properties);
 		Result.Layout = Layout; Result.ActiveParameters.assign(Parameters.begin(), Parameters.end());
 		Result.Requirements = BuildMaterialProgramRequirements(IR);
 		Result.CollectionLayouts.assign(Collections.begin(), Collections.end());
 		for (auto& Collection : Result.CollectionLayouts) { Collection.AssetPath.clear(); Collection.DefaultPayload.clear(); }
-		const auto Selected = SelectMaterialShaderEntries(Properties, Environment.bIncludeEditorPasses, IR.Domain);
-		for (const auto Entry : Selected)
+		const auto Selected = SelectMaterialShaderEntries(Properties, Environment.bIncludeEditorPasses, IR.Domain, &Environment);
+		for (const auto& Entry : Selected)
 		{
 			const auto& Descriptor = *FindMaterialShaderEntry(Entry);
 			const bool Vertex = Descriptor.Frequency == EShaderFrequency::Vertex;
 			FMaterialShaderEntryRequest Request;
-			Request.Shader = {.Material = {.RenderLayout = Layout.Identity, .ProgramIdentity = Identity, .BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel, .OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Properties).OpacityMaskThreshold}, .ShaderType = std::string(Descriptor.ShaderType), .EntryPoint = std::string(Descriptor.Name), .Target = Environment.Target, .Frequency = Descriptor.Frequency, .PassContractVersion = Environment.PassContractVersion, .OutputLayout = {Environment.PassContractVersion, {0x4d415450, 0x4f555450, 1, Vertex ? 0u : uint32(Entry) + 1 + (Entry == EMaterialShaderEntry::GBuffer && Properties.ShadingModel == EMaterialShadingModel::ClearCoat ? 0x100u : 0u)}}};
-			if (Vertex) Request.Mesh = FMeshMaterialShaderPermutationIdentity{.Material = Request.Shader,
-				.VertexFactoryType = Entry == EMaterialShaderEntry::LocalVertex ? "LocalVertexFactory" : "SplineVertexFactory"};
+			Request.Shader = {.Material = {.RenderLayout = Layout.Identity, .ProgramIdentity = Identity, .BlendMode = Properties.BlendMode, .ShadingModel = Properties.ShadingModel, .OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Properties).OpacityMaskThreshold}, .ShaderType = std::string(Descriptor.ShaderType), .EntryPoint = std::string(Descriptor.Name), .Target = Environment.Target, .PermutationId = Descriptor.PermutationId, .Frequency = Descriptor.Frequency, .PassContractVersion = Environment.PassContractVersion, .OutputLayout = GetMaterialShaderOutputLayout(Descriptor, Properties)};
+			if (Descriptor.VertexFactory) Request.Mesh = FMeshMaterialShaderPermutationIdentity{.Material = Request.Shader,
+				.VertexFactoryType = std::string(Descriptor.VertexFactory()->GetName())};
 			auto& Requirements = Request.Requirements;
-			if (Entry == EMaterialShaderEntry::PostProcess) Requirements.SceneTextures.push_back({EMaterialSceneTextureId::PostProcessInput0, EMaterialSceneTextureFilter::Linear, true});
+			if (Descriptor.Entry == EMaterialShaderEntry::PostProcess) Requirements.SceneTextures.push_back({EMaterialSceneTextureId::PostProcessInput0, EMaterialSceneTextureFilter::Linear, true});
 			std::vector<bool> Visited(IR.Nodes.size());
 			std::function<void(uint32)> Visit = [&](uint32 Index) {
 				if (Visited[Index]) return;
@@ -46,7 +53,7 @@ namespace Durin
 				if (!Vertex && IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) return;
 				for (const auto Input : IR.Nodes[Index].Inputs) Visit(Input);
 			};
-			for (const auto Property : GetMaterialEntryProperties(Entry, Properties))
+			for (const auto Property : GetMaterialEntryProperties(Descriptor.Entry, Properties))
 			{
 				const auto& Root = IR.GetAttribute(Property);
 				Requirements.AttributeIDs.push_back(Root.AttributeID);
@@ -67,7 +74,7 @@ namespace Durin
 				};
 				for (const auto PixelEntry : Selected)
 					if (FindMaterialShaderEntry(PixelEntry)->Frequency == EShaderFrequency::Fragment)
-						for (const auto Property : GetMaterialEntryProperties(PixelEntry, Properties))
+						for (const auto Property : GetMaterialEntryProperties(FindMaterialShaderEntry(PixelEntry)->Entry, Properties))
 							if (const auto& Root = IR.GetAttribute(Property); Root.bExpression) VisitPixel(Root.ExpressionIndex);
 				for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
 					if (Pixel[Index] && IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) Visit(Index);
@@ -101,19 +108,37 @@ namespace Durin
 		std::ranges::sort(Result.Entries, [](const auto& A, const auto& B) { return MaterialShaderIdentityLess(A.Shader, B.Shader); });
 		return Result;
 	}
+    auto AcceptMaterialShaderBindings(FMaterialCompilationOutput& Output, std::span<const FShaderCode> Stages) -> FMaterialLayoutValidationResult
+    {
+        if (Stages.size() != Output.Entries.size()) return {.Error = EMaterialLayoutError::InvalidReflection};
+        std::vector<std::vector<FMaterialShaderBinding>> Accepted;
+        for (size_t I = 0; I < Stages.size(); ++I)
+        {
+            const auto* D = FindMaterialShaderEntry(Output.Entries[I].Shader.ShaderType);
+            if (!D) return {.Error = EMaterialLayoutError::InvalidReflection};
+            auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->Entry, D->Frequency,
+                Output.Layout.ResourceFieldCount, Output.CollectionLayouts.size());
+            if (!Bindings) return {.Error = EMaterialLayoutError::InvalidReflection};
+            Accepted.push_back(std::move(*Bindings));
+        }
+        for (size_t I = 0; I < Accepted.size(); ++I) Output.Entries[I].Bindings = std::move(Accepted[I]);
+        return {};
+    }
+
 	auto ValidateMaterialCompilationOutput(const FMaterialCompilationOutput& Output,
 		FMaterialProgramIdentity Identity, std::string_view Target, std::span<const FShaderCode> Stages)
 		-> FMaterialLayoutValidationResult
 	{
 		const FMaterialLayoutValidationResult Rejected{.Error = EMaterialLayoutError::InvalidReflection};
-		if (!ValidateMaterialConfiguration(Output.Domain, Output.StaticProperties)
+		if (Output.BindingSchemaVersion != MaterialBindingSchemaVersion || !IsSupportedMaterialQualityLevel(Output.Quality) || !IsSupportedMaterialFeatureLevel(Output.FeatureLevel)
+			|| !ValidateMaterialConfiguration(Output.Domain, Output.StaticProperties)
 			|| Output.StaticProperties != CanonicalizeMaterialShaderProperties(Output.StaticProperties)) return Rejected;
-		FMaterialCompilerEnvironment Environment; Environment.Target = Target;
-		Environment.bIncludeEditorPasses = std::ranges::any_of(Output.Entries, [](const auto& E) { return E.Shader.ShaderType == "SurfaceHitProxy"; });
+		FMaterialCompilerEnvironment Environment; Environment.Target = Target; Environment.Quality = Output.Quality; Environment.FeatureLevel = Output.FeatureLevel;
+		Environment.bIncludeEditorPasses = Output.bIncludeEditorPasses;
 		MIR::FModule ExpectedIR; ExpectedIR.Domain = Output.Domain;
 		const auto Expected = BuildMaterialCompilationOutput(ExpectedIR, Output.Layout,
 			Output.ActiveParameters, Output.CollectionLayouts, Output.StaticProperties, Environment, Identity);
-		if (Output.Entries.size() != Expected.Entries.size() || Stages.size() != Output.Entries.size()) return Rejected;
+		if (Output.Entries.size() > MaterialProgramMaxShaderEntries || Output.Entries.size() != Expected.Entries.size() || Stages.size() != Output.Entries.size()) return Rejected;
 		const auto Canonical = [](const auto& Values) {
 			return std::ranges::is_sorted(Values) && std::adjacent_find(Values.begin(), Values.end()) == Values.end();
 		};
@@ -145,27 +170,28 @@ namespace Durin
 				})) return Rejected;
 			for (const auto Id : Required.CollectionIDs)
 				if (std::ranges::find(Output.CollectionLayouts, Id, &FMaterialParameterCollectionLayout::CollectionId) == Output.CollectionLayouts.end()) return Rejected;
-			const auto Shader = std::ranges::find(Stages, Entry.Shader.EntryPoint, &FShaderCode::SourceEntryPoint);
-			if (Shader == Stages.end() || Shader->Frequency != Entry.Shader.Frequency) return Rejected;
-			for (const auto& Binding : Shader->Reflection.ResourceBindings)
-			{
-				if (Binding.SetIndex == 0 && Binding.BindingIndex >= 40 && Binding.BindingIndex <= 44)
-				{
-					if (Output.Domain != EMaterialDomain::PostProcess) return Rejected;
-					const auto Has = [&](EMaterialSceneTextureId Id, std::optional<EMaterialSceneTextureFilter> Filter = {}) {
-						return std::ranges::any_of(Required.SceneTextures, [&](const auto& R) { return R.InputId == Id && (!Filter || R.Filter == *Filter); });
-					};
-					if ((Binding.BindingIndex == 41 && !Has(EMaterialSceneTextureId::PostProcessInput0))
-						|| (Binding.BindingIndex == 42 && !Has(EMaterialSceneTextureId::SceneDepth))
-						|| (Binding.BindingIndex == 43 && !std::ranges::any_of(Required.SceneTextures, [](const auto& R) { return R.Filter == EMaterialSceneTextureFilter::Point; }))
-						|| (Binding.BindingIndex == 44 && !std::ranges::any_of(Required.SceneTextures, [](const auto& R) { return R.Filter == EMaterialSceneTextureFilter::Linear; }))) return Rejected;
-				}
-				if (Binding.SetIndex != 1) continue;
-				if (Binding.BindingIndex >= MaterialTextureBindingBase
-					&& !std::ranges::contains(Required.ResourceIndices, uint16((Binding.BindingIndex - MaterialTextureBindingBase) / 2))) return Rejected;
-				if (Binding.BindingIndex >= 3 && Binding.BindingIndex < 3 + Output.CollectionLayouts.size()
-					&& !std::ranges::contains(Required.CollectionIDs, Output.CollectionLayouts[Binding.BindingIndex - 3].CollectionId)) return Rejected;
-			}
+			// Stage products occupy the same canonical full-key slots as their contracts.
+			const auto* Shader = &Stages[Index];
+			if (Shader->SourceEntryPoint != Entry.Shader.EntryPoint || Shader->Frequency != Entry.Shader.Frequency) return Rejected;
+            const auto* D = FindMaterialShaderEntry(Entry.Shader.ShaderType);
+            const auto Bindings = ValidateMaterialShaderBindings(Shader->Reflection, D->Entry, D->Frequency,
+                Output.Layout.ResourceFieldCount, Output.CollectionLayouts.size());
+            if (!Bindings || *Bindings != Entry.Bindings) return Rejected;
+            for (const auto& Binding : Entry.Bindings)
+            {
+                using R = EMaterialBindingRole;
+                if (Binding.Role == R::Texture || Binding.Role == R::Sampler)
+                { if (!std::ranges::contains(Required.ResourceIndices, Binding.ResourceIndex)) return Rejected; }
+                if (Binding.Role == R::Collection && !std::ranges::contains(Required.CollectionIDs,
+                    Output.CollectionLayouts[Binding.ResourceIndex].CollectionId)) return Rejected;
+                const auto HasScene = [&](EMaterialSceneTextureId Id, std::optional<EMaterialSceneTextureFilter> Filter = {}) {
+                    return std::ranges::any_of(Required.SceneTextures, [&](const auto& Read) { return Read.InputId == Id && (!Filter || Read.Filter == *Filter); });
+                };
+                if ((Binding.Role == R::SceneInput0 && !HasScene(EMaterialSceneTextureId::PostProcessInput0))
+                    || (Binding.Role == R::SceneDepth && !HasScene(EMaterialSceneTextureId::SceneDepth))
+                    || (Binding.Role == R::ScenePointSampler && !std::ranges::any_of(Required.SceneTextures, [](const auto& Read) { return Read.Filter == EMaterialSceneTextureFilter::Point; }))
+                    || (Binding.Role == R::SceneLinearSampler && !std::ranges::any_of(Required.SceneTextures, [](const auto& Read) { return Read.Filter == EMaterialSceneTextureFilter::Linear; }))) return Rejected;
+            }
 		}
 		return {};
 	}

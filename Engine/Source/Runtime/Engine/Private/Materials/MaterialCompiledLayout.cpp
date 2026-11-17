@@ -1,4 +1,5 @@
 #include "Materials/MaterialCompiledLayout.h"
+#include "Materials/MaterialBindingSchema.h"
 
 namespace Durin
 {
@@ -12,7 +13,8 @@ namespace Durin
 					Bytes.push_back(static_cast<std::byte>((Value >> Shift) & 0xff));
 			};
 			Append(CompiledMaterialRenderLayoutVersion);
-			Append(MaterialTextureBindingBase);
+			Append(MaterialBindingSchemaVersion);
+			Append(GetMaterialBindingSlot(EMaterialBindingRole::Texture));
 			Append(MaterialUniformHeaderBytes);
 			Append(Layout.UniformPayloadSize);
 			Append(Layout.UniformFieldCount);

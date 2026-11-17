@@ -1,3 +1,4 @@
+#include "VertexFactory.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "MaterialPreparedProgram.h"
@@ -164,16 +165,35 @@ namespace Durin
 	auto MakeMaterialShaderCompileOptions(FShaderTargetIdentity Target, const FMaterialStaticProperties& Properties) -> FShaderCompileOptions
 	{
 		FShaderCompileOptions Options; Options.Target = Target;
-		for (const auto& Entry : MaterialShaderEntries)
+		auto OrderedEntries = GetDefaultMaterialShaderEntries();
+		std::ranges::sort(OrderedEntries);
+		for (const auto& Name : OrderedEntries)
 		{
-			if (!Entry.GeometryUsage) continue;
-			Options.EntryPoints.push_back(Entry.Name.data());
-			Options.Frequencies.push_back(Entry.Frequency);
+			const auto& Entry = *FindMaterialShaderEntry(Name);
+			if (!std::ranges::contains(Options.EntryPoints, std::string(Entry.Name))) {
+				Options.EntryPoints.emplace_back(Entry.Name.data()); Options.Frequencies.push_back(Entry.Frequency);
+			}
 		}
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Properties.BlendMode)));
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Properties.ShadingModel)));
 		Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Properties.OpacityMaskThreshold)));
 		return Options;
+	}
+
+	auto GetMaterialVertexFactorySourceRoots() -> std::vector<std::string>
+	{
+		std::set<std::string> ExtraRoots;
+		for (const auto& D : GetMaterialShaderEntries()) if (D.VertexFactory) {
+			const auto& VF = D.VertexFactory()->GetShaderDescription();
+			for (const auto ModuleName : VF.ShaderModules) {
+				std::string Module(ModuleName); std::ranges::replace(Module, '.', '/');
+				ExtraRoots.insert("/Engine/" + Module);
+			}
+			std::string Include(VF.MaterialEntryInclude);
+			if (Include.ends_with(".slang")) Include.resize(Include.size() - 6);
+			ExtraRoots.insert("/Engine/" + Include);
+		}
+		return {ExtraRoots.begin(), ExtraRoots.end()};
 	}
 
 	auto BuildDefaultMaterialCompilerEnvironment(
@@ -226,6 +246,17 @@ namespace Durin
 		Environment.Dependencies.push_back({
 			.VirtualPath = std::move(SourceTree.VirtualPath),
 			.ContentHash = SourceTree.ContentHash});
+		std::vector<FShaderSourceDependencyFingerprint> BaseClosure;
+		if (auto R = BuildShaderSourceDependencyManifest("/Engine/MaterialCompilerEnvironment", Options, BaseClosure); !R)
+			return std::unexpected(R.error());
+		const auto ExtraRoots = GetMaterialVertexFactorySourceRoots();
+		for (const auto& Root : ExtraRoots) {
+			if (std::ranges::any_of(BaseClosure, [&](const auto& D) { return D.VirtualPath == Root || D.VirtualPath == Root + ".slang"; })) continue;
+			FShaderSourceDependencyFingerprint Extra;
+			if (auto R = BuildShaderSourceTreeFingerprint(Root, Options, Extra); !R) return std::unexpected(R.error());
+			Environment.Dependencies.push_back({Extra.VirtualPath, Extra.ContentHash});
+		}
+		std::ranges::sort(Environment.Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		OutEnvironment = std::move(Environment);
 		return {};
 	}
@@ -454,8 +485,8 @@ namespace Durin
 		{
 			const FMaterialAttributeValues Defaults;
 			std::set<EMaterialProperty> Demanded;
-			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.IR.Domain))
-				for (const auto Property : GetMaterialEntryProperties(Entry, Input.StaticProperties)) Demanded.insert(Property);
+			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.IR.Domain, &Input.Environment))
+				for (const auto Property : GetMaterialEntryProperties(FindMaterialShaderEntry(Entry)->Entry, Input.StaticProperties)) Demanded.insert(Property);
 			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
 				if (!Demanded.contains(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property)
 					|| (IR.Domain == EMaterialDomain::Surface && !IsMaterialSurfaceOutputActive(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property, Input.StaticProperties)))
@@ -636,7 +667,7 @@ namespace Durin
 	static auto BuildInputIdentity(
 		const FMaterialStaticProperties& StaticProperties, const FMaterialCompilerEnvironment& Environment,
 		std::span<const FMaterialParameterCollectionLayout> ActiveCollections,
-		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout, EMaterialDomain Domain = EMaterialDomain::Surface)
 		-> FMaterialProgramIdentity
 	{
 		FByteBuffer Bytes;
@@ -696,25 +727,33 @@ namespace Durin
 		// Static selection is already represented by the selected normalized MIR.
 		// Do not salt the program identity with the request configuration itself:
 		// distinct configurations that select identical code share one retained program.
-		constexpr auto EntryPoints = MaterialCompiledEntryPoints;
-		AppendLittleEndian(Bytes, static_cast<uint32>(EntryPoints.size()));
-		for (size_t Index = 0; Index < EntryPoints.size(); ++Index)
+		const auto Selected = SelectMaterialShaderEntries(StaticProperties, Environment.bIncludeEditorPasses, Domain, &Environment);
+		AppendLittleEndian(Bytes, static_cast<uint32>(Selected.size()));
+		for (const auto& Name : Selected)
 		{
-			AppendString(Bytes, EntryPoints[Index]);
-			AppendLittleEndian(Bytes, static_cast<uint8>(MaterialShaderEntries[Index].Frequency));
+			const auto& D = *FindMaterialShaderEntry(Name);
+			AppendString(Bytes, D.ShaderType); AppendString(Bytes, D.Name);
+			AppendLittleEndian(Bytes, static_cast<uint8>(D.Frequency)); AppendLittleEndian(Bytes, D.PermutationId);
+			const auto Options = GetMaterialShaderCompilationOptions(Name, ShaderProperties, Domain, Environment);
+			AppendLittleEndian(Bytes, uint32(Options.Macros.size()));
+			for (const auto& M : Options.Macros) { AppendString(Bytes, M.Name); AppendLittleEndian(Bytes, uint8(M.Value.has_value())); if (M.Value) AppendString(Bytes, *M.Value); }
+			if (D.VertexFactory) {
+				const auto* VF = D.VertexFactory(); AppendString(Bytes, VF->GetName());
+				for (const auto Module : VF->GetShaderDescription().ShaderModules) AppendString(Bytes, Module); AppendString(Bytes, VF->GetShaderDescription().MaterialEntryInclude);
+			}
 		}
 		return {.Digest = FXxHash128::HashBuffer(Bytes)};
 	}
 
 	auto BuildMaterialProgramIdentity(const FMaterialStaticProperties& StaticProperties,
 		const FMaterialCompilerEnvironment& Environment, std::span<const FMaterialParameterCollectionLayout> Collections,
-		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity
-	{ return BuildInputIdentity(StaticProperties, Environment, Collections, CanonicalIR, Layout); }
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout, EMaterialDomain Domain) -> FMaterialProgramIdentity
+	{ return BuildInputIdentity(StaticProperties, Environment, Collections, CanonicalIR, Layout, Domain); }
 
 	auto BuildMaterialProgramIdentity(const MIR::FCompilerInput& Input,
 		FByteView CanonicalIR, const FMaterialRenderLayout& Layout) -> FMaterialProgramIdentity
 	{
-		return BuildInputIdentity(Input.StaticProperties, Input.Environment, Input.Collections, CanonicalIR, Layout);
+		return BuildInputIdentity(Input.StaticProperties, Input.Environment, Input.Collections, CanonicalIR, Layout, Input.IR.Domain);
 	}
 
 }

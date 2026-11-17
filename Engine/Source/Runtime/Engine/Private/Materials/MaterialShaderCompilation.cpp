@@ -443,8 +443,9 @@ namespace Durin
 			? ValidateMaterialCompiledStages(Output.CompiledShaders,
 				Artifact->Layout, Translation.ResourceLimits, Result.Resource.ActiveCollections, Artifact->RequiredEntries)
 			: FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
+		const auto AcceptedBindings = AcceptMaterialShaderBindings(*Artifact, Output.CompiledShaders);
 		const auto Execution = ValidateMaterialCompilationOutput(*Artifact, Artifact->ShaderMapId, Artifact->Target, Output.CompiledShaders);
-		if (!Reflection || !Execution)
+		if (!Reflection || !AcceptedBindings || !Execution)
 		{
 			Result.Diagnostics.push_back({.Message = std::format("{}{} [index {}]", GetMaterialLayoutErrorText(!Reflection ? Reflection.Error : Execution.Error), Reflection.ParameterId.IsValid() ? std::format(" [parameter {}]", Reflection.ParameterId.ToString()) : "", Reflection.FieldIndex)});
 			return Result;

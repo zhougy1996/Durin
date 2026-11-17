@@ -5,6 +5,7 @@
 #include "Shader/ShaderCompilingManager.h"
 #include "MaterialFunctionTestSupport.h"
 #include "MaterialCookedProgramTestSupport.h"
+#include "AssetForge/Builtins/PBRMaterialParameters.h"
 
 namespace
 {
@@ -150,7 +151,8 @@ TEST_F(FMaterialFunctionCookTests, StructuralNormalParentRoundTripsDuplicatesAnd
 	std::array<FImportedSurfaceRole, 8> Roles;
 	const FMaterialAttributeValues Defaults;
 	for (uint32 I = 0; I < Roles.size(); ++I)
-		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults, static_cast<EMaterialProperty>(I));
+		Roles[I].Value = GetMaterialSurfaceOutputDefault(Defaults,
+			AssetForge::Builtins::MaterialParameters::PBRMaterialProperties[I]);
 	Roles[1].Sample = FImportedSurfaceSample{.ResourceIdentity = "normal", .Usage = ETextureUsage::Normal,
 		.OutputIndex = 1};
 	const auto Recipe = MakeImportedSurfaceRecipe(Roles);

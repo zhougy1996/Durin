@@ -32,14 +32,7 @@ namespace Durin
 		class FCompiledSurfaceBindingLayout
 		{
 		public:
-			enum class ESource : uint8
-			{
-				View, Primitive, Lighting, LocalLights, Material, HitProxy, Texture, Sampler,
-				GPUScenePrimitive, GPUSceneInstance, GPUScenePayload, GPUSceneInstanceIds,
-				Collection,
-				EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut,
-				EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler
-			};
+			using ESource = EMaterialBindingRole;
 			struct FEntry
 			{
 				uint32 SetIndex = 0;
@@ -49,6 +42,10 @@ namespace Durin
 				uint32 ResourceIndex = 0;
 			};
 			RENDERER_API explicit FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection);
+			RENDERER_API explicit FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings,
+				EMaterialDomain Domain = EMaterialDomain::Surface);
+			auto WithoutSceneInputs() const -> FCompiledSurfaceBindingLayout
+			{ auto Result = *this; std::erase_if(Result.Entries, [](const auto& E) { return IsMaterialSceneBinding(E.Source); }); return Result; }
 			auto IsValid() const -> bool { return bValid; }
 			auto GetEntries() const -> std::span<const FEntry> { return Entries; }
 			auto ForSet(uint32 SetIndex) const -> FCompiledSurfaceBindingLayout
@@ -77,6 +74,9 @@ namespace Durin
 		class FSurfaceFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::Forward, .GeometryUsage = 255, .PassUsage = 1}; }
+
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
 				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(LocalLights);
@@ -96,17 +96,23 @@ namespace Durin
 				"FragmentMain");
 		};
 
-		class FSurfaceOpaqueShadowFragmentShader final : public FMeshMaterialShader
+		class FSurfaceOpaqueShadowFragmentShader final : public FMaterialShader
 		{
 		public:
-			DURIN_DECLARE_MESH_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader, FMeshMaterialShader,
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::Shadow, .GeometryUsage = 255, .PassUsage = 4, .BlendModes = 5}; }
+
+			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
-				"OpaqueShadowFragmentMain");
+				"ShadowFragmentMain");
 		};
 
 		class FSurfaceMaskedShadowFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::Shadow, .GeometryUsage = 255, .PassUsage = 4, .BlendModes = 2}; }
+
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);

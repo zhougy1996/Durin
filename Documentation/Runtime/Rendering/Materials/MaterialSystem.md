@@ -864,8 +864,10 @@ resource status and do not expose a separate compilation attempt.
 ShaderBuild owns compiled-output DDC and local dependency manifests as defined
 by [Shader Cache](../Shaders/ShaderCache.md). Engine owns the independent `Material.Translate`
 DDC product: bounded normalized MIR, active schemas/layout, requirements, generated
-source and typed deterministic diagnostics. Canonical input excludes compiler and
-Shader dependency identities, collection defaults/asset paths and consumer source
+source and typed deterministic diagnostics. Canonical input retains target,
+quality, feature level and editor policy because registered Shader/VF selection
+can depend on them. It excludes compiler and Shader dependency identities,
+collection defaults/asset paths and consumer source
 GUIDs/paths. Cached locations use snapshot-relative ordinals and remap for each
 consumer; final program identity binds the current compiler, target and verified
 immutable dependency closure. Typed invalid hits rebuild once without querying
@@ -932,7 +934,7 @@ consumes the qualified prepared bulk. The explicit target is independent of the
 active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v24 family per material or instance in the
+DMAT v26 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
 The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
 selections may retain a supported subset. Each uses that owner's
@@ -958,7 +960,7 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v24 contains no IR/generator/compiler producer version words. Older payload
+DMAT v26 contains no IR/generator/compiler producer version words. Older payload
 schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
@@ -1041,8 +1043,13 @@ not branch the geometry-family path or rebuild shader maps and pipelines.
 
 Engine represents those geometry/Pass resource sets with `FMeshMaterialShaderMap` and strongly owned
 `TMaterialShaderRef` values. Intrinsic generated fragments derive from
-`FMaterialShader`; Local, Spline, GBuffer, and opaque-shadow
-mesh stages derive from `FMeshMaterialShader`. Mesh compatibility adds only a
+`FMaterialShader`, including opaque shadow and PostProcess; Local and Spline
+vertex stages derive from `FMeshMaterialShader` and are reused by GBuffer.
+Compiled entries also publish exact optimized logical binding references. A shared
+C++/Slang catalog owns names, kinds, allocation and runtime projection; see
+[logical bindings](MaterialShaderStages.md#logical-bindings-and-runtime-projection).
+Registered types own compilation selection and exact execution identity; see
+[Shader/VF stage contracts](MaterialShaderStages.md). Mesh compatibility adds only a
 registered stable Vertex Factory descriptor, mesh-pass key, frequency, and
 local permutation to the existing Material identity. Runtime factory pointers,
 vertex declarations, streams, and PSO state remain outside shader identity.
@@ -1197,6 +1204,9 @@ assembles `FMaterialRenderRepresentation`. Render-thread consumers choose
   when its layout changes. Explicit cache invalidation does not replace programs
   or parameters. Native uniform evaluation remains lazy at the renderer binding
   path, where counted textures and resource members are available.
+  A proxy owns its stable cache. Independent render representations create their
+  fallback cache only on first render-thread access; copies of one publication
+  share it. Proxy-backed representations allocate no unused fallback cache.
   Resolution also remains lazy: consecutive updates without a consumer resolve
   only the resulting state. A dirty flag retains pre-start demand, and first
   proxy admission initializes every required channel before later draw commands.
@@ -1398,8 +1408,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 24, MIR 15, layout 5, pass contract 21,
-and material Cook class-schema version 7. The independent compile adapter is version 22;
+Current compatibility versions are DMAT 26, MIR 15, layout 5, pass contract 23,
+and material Cook class-schema version 7. The independent compile adapter is version 24;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11

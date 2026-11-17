@@ -1,3 +1,4 @@
+#include "Materials/MaterialPreparedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/MaterialShader.h"
@@ -100,12 +101,22 @@ namespace Durin
 		FShaderFactoryFunction InFactory,
 		FShouldCompilePermutationFunction InShouldCompilePermutation,
 		FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
-		const FShaderParametersMetadata* InParametersMetadata)
+		const FShaderParametersMetadata* InParametersMetadata,
+		std::optional<FMaterialShaderEntryDescriptor> InDescription,
+		bool (*InMaterialPolicy)(const FMaterialShaderPermutationParameters&),
+		void (*InMaterialEnvironment)(const FMaterialShaderPermutationParameters&, FShaderCompileOptions&))
 		: FShaderType(
 			InName, InVirtualShaderPath, InFrequency, InEntryPoint, {}, InFactory,
 			InShouldCompilePermutation, InModifyCompilationEnvironment,
-			InParametersMetadata)
+			InParametersMetadata), Description(std::move(InDescription)),
+		MaterialPolicy(InMaterialPolicy), MaterialEnvironment(InMaterialEnvironment)
 	{
+		if (Description) {
+			checkf((InFrequency != EShaderFrequency::Vertex || Description->VertexFactory)
+				&& (Description->Domain != EMaterialDomain::PostProcess || (!Description->VertexFactory && InFrequency == EShaderFrequency::Fragment)),
+				"Generated Material Shader descriptions require an applicable VF and domain/stage combination.");
+			Description->ShaderType = GetName(); Description->Name = GetEntryPoint(); Description->Frequency = GetFrequency();
+		}
 		GetMaterialShaderTypeRegistry().Register(this);
 	}
 
@@ -123,11 +134,14 @@ namespace Durin
 		FShaderFactoryFunction InFactory,
 		FShouldCompilePermutationFunction InShouldCompilePermutation,
 		FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
-		const FShaderParametersMetadata* InParametersMetadata)
+		const FShaderParametersMetadata* InParametersMetadata,
+		std::optional<FMaterialShaderEntryDescriptor> InDescription,
+		bool (*InMaterialPolicy)(const FMaterialShaderPermutationParameters&),
+		void (*InMaterialEnvironment)(const FMaterialShaderPermutationParameters&, FShaderCompileOptions&))
 		: FMaterialShaderType(
 			InName, InVirtualShaderPath, InFrequency, InEntryPoint, InFactory,
 			InShouldCompilePermutation, InModifyCompilationEnvironment,
-			InParametersMetadata)
+			InParametersMetadata, std::move(InDescription), InMaterialPolicy, InMaterialEnvironment)
 	{
 		GetMeshMaterialShaderTypeRegistry().Register(this);
 	}
@@ -136,6 +150,88 @@ namespace Durin
 		-> const std::vector<const FMeshMaterialShaderType*>&
 	{
 		return GetMeshMaterialShaderTypeRegistry().GetTypes();
+	}
+
+	auto GetMaterialShaderEntries() -> std::vector<FMaterialShaderEntryDescriptor>
+	{
+		std::vector<FMaterialShaderEntryDescriptor> Result;
+		for (const auto* Type : FMaterialShaderType::GetTypeList())
+			if (const auto* D = Type->GetMaterialEntryDescriptor()) Result.push_back(*D);
+		std::ranges::sort(Result, [](const auto& A, const auto& B) {
+			return std::tie(A.Entry, A.GeometryUsage, A.ShaderType) < std::tie(B.Entry, B.GeometryUsage, B.ShaderType);
+		});
+		return Result;
+	}
+	auto FindMaterialShaderEntry(std::string_view Name) -> const FMaterialShaderEntryDescriptor*
+	{
+		for (const auto* Type : FMaterialShaderType::GetTypeList())
+			if (Type->GetName() == Name) return Type->GetMaterialEntryDescriptor();
+		return nullptr;
+	}
+	auto GetMaterialCompiledEntryPoints() -> std::vector<std::string_view>
+	{
+		std::vector<std::string_view> Result;
+		for (const auto& D : GetMaterialShaderEntries())
+			if (!std::ranges::contains(Result, D.Name)) Result.push_back(D.Name);
+		return Result;
+	}
+	auto FMaterialShaderType::ShouldCompileMaterialPermutation(const FMaterialShaderPermutationParameters& P) const -> bool
+	{
+		if (!Description || P.ShaderType != this || P.Frequency != GetFrequency() || P.EntryPoint != GetEntryPoint()
+			|| P.PermutationId != Description->PermutationId || Description->Domain != P.Domain || (!P.bIncludeEditorPasses && Description->bEditorOnly)
+			|| !(Description->BlendModes & (1u << uint8(P.Properties.BlendMode)))
+			|| (P.Domain == EMaterialDomain::Surface && (!(Description->GeometryUsage & P.Properties.GeometryUsage)
+				|| !(Description->PassUsage & P.Properties.PassUsage)))) return false;
+		if (Description->VertexFactory && Description->VertexFactory() != P.VertexFactoryType) return false;
+		return ShouldCompilePermutation(P) && (!MaterialPolicy || MaterialPolicy(P))
+			&& (!P.VertexFactoryType || P.VertexFactoryType->ShouldCompilePermutation(P));
+	}
+	auto FMaterialShaderType::ModifyMaterialCompilationEnvironment(const FMaterialShaderPermutationParameters& P, FShaderCompileOptions& O) const -> void
+	{
+		ModifyCompilationEnvironment(P, O);
+		if (P.VertexFactoryType) P.VertexFactoryType->ModifyCompilationEnvironment(P, O);
+		if (MaterialEnvironment) MaterialEnvironment(P, O);
+	}
+	auto GetMaterialShaderCompilationOptions(std::string_view Name, const FMaterialStaticProperties& Properties,
+		EMaterialDomain Domain, const FMaterialCompilerEnvironment& E) -> FShaderCompileOptions
+	{
+		const auto* D = FindMaterialShaderEntry(Name);
+		check(D);
+		const auto* Type = *std::ranges::find_if(FMaterialShaderType::GetTypeList(), [&](const auto* T) { return T->GetName() == Name; });
+		FMaterialShaderPermutationParameters P;
+		P.ShaderType = Type; P.VirtualShaderPath = Type->GetVirtualShaderPath(); P.EntryPoint = D->Name; P.Frequency = D->Frequency;
+		P.Target = E.Target == "metal-library-1" ? MetalLibraryShaderTarget : E.Target.starts_with("metal") ? MetalShaderTarget : VulkanShaderTarget;
+		P.PermutationId = D->PermutationId; P.VertexFactoryType = D->VertexFactory ? D->VertexFactory() : nullptr;
+		P.Domain = Domain; P.Properties = CanonicalizeMaterialShaderProperties(Properties);
+		uint8 AvailablePasses = 0;
+		for (const auto& Entry : GetMaterialShaderEntries()) if (Entry.Frequency == EShaderFrequency::Fragment && (!Entry.bEditorOnly || E.bIncludeEditorPasses)) AvailablePasses |= Entry.PassUsage;
+		P.Properties.PassUsage &= AvailablePasses;
+		P.Quality = E.Quality; P.FeatureLevel = E.FeatureLevel; P.bIncludeEditorPasses = E.bIncludeEditorPasses;
+		auto O = MakeMaterialShaderCompileOptions(P.Target, D->Frequency == EShaderFrequency::Vertex ? FMaterialStaticProperties{} : Properties);
+		O.EntryPoints = {D->Name.data()}; O.Frequencies = {D->Frequency};
+		Type->ModifyMaterialCompilationEnvironment(P, O);
+		checkf(O.Target == P.Target && O.EntryPoints.size() == 1 && O.EntryPoints[0] == D->Name && O.Frequencies.size() == 1 && O.Frequencies[0] == D->Frequency,
+			"Material compilation callbacks must preserve registered target and entry identity.");
+		return O;
+	}
+	auto SelectMaterialShaderEntries(const FMaterialStaticProperties& Properties, bool Editor, EMaterialDomain Domain,
+		const FMaterialCompilerEnvironment* Environment) -> FMaterialShaderEntrySet
+	{
+		FMaterialShaderEntrySet Result;
+		uint8 Passes = 0;
+		for (const auto& D : GetMaterialShaderEntries())
+			if (D.Frequency == EShaderFrequency::Fragment && (!D.bEditorOnly || Editor)) Passes |= D.PassUsage;
+		for (const auto& D : GetMaterialShaderEntries()) {
+			const auto* Type = *std::ranges::find_if(FMaterialShaderType::GetTypeList(), [&](const auto* T) { return T->GetName() == D.ShaderType; });
+			FMaterialShaderPermutationParameters P;
+			P.ShaderType = Type; P.VirtualShaderPath = Type->GetVirtualShaderPath(); P.EntryPoint = D.Name; P.Frequency = D.Frequency;
+			P.Target = Environment && Environment->Target == "metal-library-1" ? MetalLibraryShaderTarget : Environment && Environment->Target.starts_with("metal") ? MetalShaderTarget : VulkanShaderTarget;
+			P.PermutationId = D.PermutationId; P.VertexFactoryType = D.VertexFactory ? D.VertexFactory() : nullptr;
+			P.Domain = Domain; P.Properties = CanonicalizeMaterialShaderProperties(Properties); P.Properties.PassUsage &= Passes; P.bIncludeEditorPasses = Editor;
+			if (Environment) { P.Quality = Environment->Quality; P.FeatureLevel = Environment->FeatureLevel; }
+			if (Type->ShouldCompileMaterialPermutation(P)) Result.emplace_back(D.ShaderType);
+		}
+		return Result;
 	}
 
 	auto FMeshMaterialShaderMap::TryCreate(
@@ -187,9 +283,14 @@ namespace Durin
 				.Frequency = Type->GetFrequency()};
 			if (Input.bContainsGeneratedMaterialStages)
 			{
-				const auto SourceEntry = Type->GetEntryPoint() == "OpaqueShadowFragmentMain" ? std::string_view("ShadowFragmentMain") : Type->GetEntryPoint();
+				if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D) {
+					if (D->PermutationId != Input.LocalPermutationId || (D->VertexFactory && D->VertexFactory() != Input.VertexFactoryType))
+						return std::unexpected(std::string("Registered Material Shader permutation or Vertex Factory is incompatible."));
+				}
+				const auto SourceEntry = Type->GetEntryPoint();
 				const auto Contract = std::ranges::find_if(Input.GeneratedEntries, [&](const auto& E) {
-					return E.Shader.EntryPoint == SourceEntry && E.Shader.Frequency == Type->GetFrequency();
+					return E.Shader.ShaderType == Type->GetName() && E.Shader.EntryPoint == SourceEntry
+						&& E.Shader.Frequency == Type->GetFrequency() && E.Shader.PermutationId == Input.LocalPermutationId;
 				});
 				// Indirect factories retain their own fixed vertex program.
 				if (Contract != Input.GeneratedEntries.end())
@@ -201,10 +302,19 @@ namespace Durin
 						|| Contract->Shader.PassContractVersion != CurrentMaterialPassContractVersion
 						|| (Contract->Mesh && (!Input.VertexFactoryType || Contract->Mesh->VertexFactoryType != Input.VertexFactoryType->GetName())))
 						return std::unexpected(std::format("Generated material execution contract is incompatible: requested {}, compiled {}, factory {}.", GetMaterialShaderIdentityText(Permutation), GetMaterialShaderIdentityText(Contract->Shader), Input.VertexFactoryType ? std::string(Input.VertexFactoryType->GetName()) : "none"));
+					if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D) {
+                        const auto Slot = std::ranges::find(Input.ShaderTypes, Type) - Input.ShaderTypes.begin();
+                        if (size_t(Slot) >= Input.CompilerOutput.CompiledShaders.size()) return std::unexpected(std::string("Material binding code slot is missing."));
+                        const auto Logical = ValidateMaterialShaderBindings(Input.CompilerOutput.CompiledShaders[Slot].Reflection, D->Entry, D->Frequency,
+                            MaterialRenderMaxResourceCount, MaterialParameterCollectionMaxPerMaterial);
+                        if (!Logical || *Logical != Contract->Bindings) return std::unexpected(std::string("Accepted material binding description does not match compiled reflection."));
+						FMaterialStaticProperties P; P.BlendMode = static_cast<EMaterialBlendMode>(uint8(Input.Identity.BlendMode)); P.ShadingModel = static_cast<EMaterialShadingModel>(uint8(Input.Identity.ShadingModel));
+						if (Contract->Shader.OutputLayout != GetMaterialShaderOutputLayout(*D, P)) return std::unexpected(std::string("Material Shader output contract is incompatible."));
+					}
 					Permutation.PassContractVersion = Contract->Shader.PassContractVersion;
 					Permutation.OutputLayout = Contract->Shader.OutputLayout;
 				}
-				else if (Type->GetFrequency() == EShaderFrequency::Fragment)
+				else if (Type->GetFrequency() == EShaderFrequency::Fragment || FindMaterialShaderEntry(Type->GetName()))
 					return std::unexpected(std::string("Generated material entry contract is missing."));
 			}
 			if (IsMeshMaterialShaderType(Type))
@@ -297,16 +407,18 @@ namespace Durin
 			{
 				return std::unexpected(std::string("Material shader map contains a null shader type."));
 			}
-			const auto Generated = std::ranges::find_if(
-				Input.GeneratedStages, [Type](const FShaderCode& Shader) {
-					return Shader.SourceEntryPoint == Type->GetEntryPoint()
-						&& Shader.Frequency == Type->GetFrequency();
-				});
-			if (Generated != Input.GeneratedStages.end())
-				SelectedGenerated[Index] = &*Generated;
+			const auto Contract = std::ranges::find_if(Input.GeneratedEntries, [&](const auto& E) {
+				return E.Shader.ShaderType == Type->GetName() && E.Shader.EntryPoint == Type->GetEntryPoint()
+					&& E.Shader.Frequency == Type->GetFrequency() && E.Shader.PermutationId == Input.LocalPermutationId;
+			});
+			const auto Generated = Contract == Input.GeneratedEntries.end() || Input.GeneratedEntries.size() != Input.GeneratedStages.size()
+				? Input.GeneratedStages.end() : Input.GeneratedStages.begin() + (Contract - Input.GeneratedEntries.begin());
+			if (Generated != Input.GeneratedStages.end() && (Generated->SourceEntryPoint != Type->GetEntryPoint() || Generated->Frequency != Type->GetFrequency()))
+				return std::unexpected(std::string("Generated material code does not match its registered execution contract."));
+			if (Generated != Input.GeneratedStages.end()) SelectedGenerated[Index] = &*Generated;
 			else if (!Input.GeneratedStages.empty()
 				&& IsMaterialShaderType(Type)
-				&& !IsMeshMaterialShaderType(Type))
+				&& (!IsMeshMaterialShaderType(Type) || FindMaterialShaderEntry(Type->GetName())))
 			{
 				return std::unexpected(std::format(
 				"Accepted material program has no {} stage for type '{}'.",
@@ -335,7 +447,7 @@ namespace Durin
 			Options.VirtualShaderPath = Group.front()->GetVirtualShaderPath();
 			Options.EntryPoints.clear(); Options.Frequencies.clear();
 			for (const auto* Type : Group)
-				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(), Type->GetFrequency()}, Options);
+				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(), Type->GetFrequency(), Options.Target, Input.LocalPermutationId, Input.VertexFactoryType}, Options);
 			const auto& RuntimeRequest = Group.front()->GetFrequency() == EShaderFrequency::Fragment
 				? Input.FixedFragmentRuntimeRequest : Input.FixedShaderRuntimeRequest;
 			if (!RuntimeRequest.empty() && GetShaderDataDomain() == EShaderDataDomain::Cooked)

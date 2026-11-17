@@ -1,3 +1,4 @@
+#include "RendererModule.h"
 #include "CoreMinimal.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
@@ -20,6 +21,7 @@ namespace
 int main(int Argc, char** Argv)
 {
 	using namespace Durin;
+	FRendererModule ShaderInventory;
 	if (Argc < 4) return 2;
 	GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true; FNameInit();
 	InitializeTaskScheduler(2);

@@ -2953,9 +2953,9 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
             bCaptureOutputs = true; bTimePasses = false; bDynamicInstancing = true; ViewOrigin = FVector3(0.0); ShadowCandidate = EDirectionalShadowCandidate::SingleMap;
             Instanced->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1000), std::make_shared<const std::vector<FStaticMeshRenderInstance>>(Instances));
         }
-		auto FindFragmentType = [](std::string_view Entry) -> const FShaderType* {
+		auto FindFragmentType = [](std::string_view Entry, std::string_view Name = {}) -> const FShaderType* {
 			for (const auto* Type : FShaderType::GetTypeList())
-				if (Type->GetFrequency() == EShaderFrequency::Fragment && Type->GetEntryPoint() == Entry) return Type;
+				if (Type->GetFrequency() == EShaderFrequency::Fragment && Type->GetEntryPoint() == Entry && (Name.empty() || Type->GetName() == Name)) return Type;
 			return nullptr;
 		};
 		// Local geometry uses the same entry for direct and GPU-selected instance IDs.
@@ -2997,7 +2997,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			FMeshMaterialShaderMap Rejected;
 			const auto Before = GetShaderBuildStats().Compilations;
 			const auto Factory = FindMeshVertexFactory(FXxHash64::HashBuffer("LocalVertexFactory", sizeof("LocalVertexFactory") - 1));
-			const auto* Fragment = FindFragmentType("OpaqueShadowFragmentMain");
+			const auto* Fragment = FindFragmentType("ShadowFragmentMain", "FSurfaceOpaqueShadowFragmentShader");
 			ASSERT_TRUE(Factory); ASSERT_NE(Fragment, nullptr);
 			const auto MissingPass = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassShadow),
 				*Fragment, Factory->GetType(), MaterialMeshPassShadow,

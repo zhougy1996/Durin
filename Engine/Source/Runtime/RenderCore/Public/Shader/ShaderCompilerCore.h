@@ -136,6 +136,8 @@ namespace Durin
 		bool bForceRecompile = false;
 		// Optional caller-declared environment, verified against immutable source bytes.
 		std::optional<FShaderSourceTreeDescription> ExpectedSourceTree;
+		// Additional registered geometry roots join the same verified immutable closure.
+		std::vector<FShaderSourceTreeDescription> AdditionalSourceTrees;
 		uint64 MaximumOutputBytes = 256ull * 1024 * 1024;
 	};
 

@@ -102,6 +102,7 @@ namespace Durin::MaterialBuildPrivate
 				uint32 Version = TranslationSchema; Value(Version); Good &= Version == TranslationSchema;
 				IR(Input.IR); Parameters(Input.Parameters); Collections(Input.Collections); Properties(Input.StaticProperties); Limits(Input.Environment.ResourceLimits);
 				Value(Input.Environment.bIncludeEditorPasses); Value(Input.Environment.Quality); Value(Input.Environment.FeatureLevel);
+				String(Input.Environment.Target, 128);
 				Sequence(Input.Environment.StaticBools, MaterialMaxStaticBoolDeclarations, [&](auto& V) { Value(V.DeclarationId); Value(V.Value); });
 				Sources(Input.Sources);
 			}
@@ -130,7 +131,6 @@ namespace Durin::MaterialBuildPrivate
 		auto ProducerEnvironment(MIR::FCompilerInput& Input) -> void
 		{
 			Input.Environment.CompilerIdentity = "Material.Translate";
-			Input.Environment.Target = "vulkan-spirv-1.5";
 			Input.Environment.BuilderVersion = GetMaterialBuildVersion();
 			Input.Environment.AdapterVersion = GetMaterialCompileAdapterVersion();
 			Input.Environment.Dependencies.clear();
@@ -200,7 +200,7 @@ namespace Durin::MaterialBuildPrivate
 		FBinaryReader Reader(Bytes, {.MaximumTotalBytes = TranslationOutputBytes}); FTransfer<true> Transfer{.Reader = &Reader}; FMaterialTranslatedProgram Product; FXxHash128 Identity;
 		Transfer.Product(Product, Identity); if (!Transfer.Valid() || Identity != InputIdentity) return {};
 		auto& Result = Product;
-		if (Product.RequiredEntries != SelectMaterialShaderEntries(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses, Consumer.IR.Domain)) return {};
+		if (Product.RequiredEntries != SelectMaterialShaderEntries(Consumer.StaticProperties, Consumer.Environment.bIncludeEditorPasses, Consumer.IR.Domain, &Consumer.Environment)) return {};
 		if (Product.ResourceLimits != Consumer.Environment.ResourceLimits || Product.StaticProperties != CanonicalizeMaterialShaderProperties(Consumer.StaticProperties)) return {};
 		if (Product)
 		{
@@ -214,10 +214,10 @@ namespace Durin::MaterialBuildPrivate
 			FByteBuffer Canonical;
 			if (!MIR::EncodeCanonical(Result.IR, Canonical)) return {};
 			if (SemanticIdentity(Product) != Result.Identity) return {};
-			auto Environment = Consumer.Environment; Environment.Target = "vulkan-spirv-1.5";
+			const auto& Environment = Consumer.Environment;
 			const auto Expected = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Product.StaticProperties, Environment, Result.Identity);
 			if (Result.Domain != Expected.Domain || Result.Entries != Expected.Entries) return {};
-			Result.Identity = BuildMaterialProgramIdentity(Consumer.StaticProperties, Consumer.Environment, Result.ActiveCollections, Canonical, Result.Layout);
+			Result.Identity = BuildMaterialProgramIdentity(Consumer.StaticProperties, Consumer.Environment, Result.ActiveCollections, Canonical, Result.Layout, Consumer.IR.Domain);
 			for (auto& Collection : Result.ActiveCollections)
 			{
 				const auto Current = std::ranges::find(Consumer.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);

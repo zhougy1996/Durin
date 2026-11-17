@@ -1,10 +1,11 @@
 module SceneData;
 import Material.MeshUniforms;
 
-[[vk::binding(27, 0)]] public StructuredBuffer<float4> GPUScenePrimitiveSceneData;
-[[vk::binding(28, 0)]] public StructuredBuffer<float4> GPUSceneInstanceSceneData;
-[[vk::binding(29, 0)]] public StructuredBuffer<float4> GPUSceneInstancePayloadData;
-[[vk::binding(31, 0)]] public StructuredBuffer<uint> GPUSceneInstanceIds;
+#define DURIN_DECLARE_BINDINGS_GPUScene 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] public Type Name;
+#include "Material/MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_GPUScene
 
 public struct FInstanceSceneData
 {

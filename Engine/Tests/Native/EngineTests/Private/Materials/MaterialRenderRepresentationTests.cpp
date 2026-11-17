@@ -4,6 +4,26 @@
 #include "Materials/MaterialShaderMap.h"
 #include "MaterialRenderRepresentationTestFixture.h"
 
+TEST(FMaterialRenderRepresentationTests, IndependentCacheIsSharedByCopiesAndIsolatedFromOtherPublications)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModule("RenderCore");
+	InitRenderingThread();
+	{
+		const auto Representation = MakeRenderFixture();
+		EnqueueRenderCommand("CheckIndependentMaterialCache",
+			[Representation, Copy = Representation, Independent = MakeRenderFixture()](FRHICommandListImmediate&) {
+				const auto Cache = Representation.GetUniformExpressionCache();
+				EXPECT_NE(Cache, nullptr);
+				EXPECT_EQ(Cache, Copy.GetUniformExpressionCache());
+				EXPECT_EQ(Cache, Representation.GetUniformExpressionCache());
+				EXPECT_NE(Cache, Independent.GetUniformExpressionCache());
+			});
+	}
+	FlushRenderingCommands();
+	ShutdownRenderingThread();
+}
+
 TEST(FMaterialRenderRepresentationTests, PublishedBindingsRetainOldRevisionWithoutCopying)
 {
 	using namespace Durin;

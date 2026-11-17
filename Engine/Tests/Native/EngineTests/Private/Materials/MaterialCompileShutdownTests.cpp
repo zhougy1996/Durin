@@ -1,5 +1,6 @@
 #include "MaterialResultFanoutTestSupport.h"
 #include "Materials/MaterialFunction.h"
+#include "MaterialShaderInventoryTestSupport.h"
 
 // Asset compiler shutdown is terminal for the process. Keep it in a dedicated
 // target so ordinary lifecycle cases can run independently and in any order.

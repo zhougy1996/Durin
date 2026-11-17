@@ -3,11 +3,8 @@ import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;
 import Lighting.ViewLightingUniform;
 import Lighting.SurfaceLighting;
-[[vk::binding(1, 0)]] ConstantBuffer<FViewLightingUniform> Lighting;
-[[vk::binding(30, 0)]] StructuredBuffer<FForwardLocalLightUniform> LocalLights;
-[[vk::binding(19, 0)]] TextureCube<float4> EnvironmentIrradiance;
-[[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
-[[vk::binding(21, 0)]] Texture2D<float4> EnvironmentBrdfLut;
-[[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
-[[vk::binding(25, 0)]] Texture2DArray<float> DirectionalShadowTexture;
-[[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
+#define DURIN_DECLARE_BINDINGS_Surface 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
+#include "MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_Surface

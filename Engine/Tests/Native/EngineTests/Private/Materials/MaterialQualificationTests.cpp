@@ -606,7 +606,7 @@ TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 	const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(
 		Input.Environment);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
-	ASSERT_EQ(Input.Environment.Dependencies.size(), 1u);
+	ASSERT_GE(Input.Environment.Dependencies.size(), 1u);
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
 		"/Engine/MaterialCompilerEnvironment");
 	EXPECT_FALSE(Input.Environment.Dependencies.front().ContentHash.IsZero());
@@ -634,7 +634,7 @@ TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		? "missing diagnostic"
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
-	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialAllEntries.size());
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::GetDefaultMaterialShaderEntries().size());
 	// Stage 0's captured forward contract has 22 descriptors. Check its named
 	// pass-owned LocalLights binding alongside the total.
 	const auto FindEntry = [&](std::string_view Name) -> const Durin::FShaderCode& {

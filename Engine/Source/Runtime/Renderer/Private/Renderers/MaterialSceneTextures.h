@@ -62,6 +62,10 @@ namespace Durin
 		FRHIUniformBufferRange Uniform;
 		std::vector<FRHIShaderParameterResource> Parameters;
 	};
+    RENDERER_API auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
+        std::span<const FMaterialShaderBinding> Bindings, FRHITexture* Input0, FRHITexture* Depth,
+        const FMaterialSceneTextureUniform& Uniform)
+        -> std::expected<FMaterialSceneTextureBindings, std::string>;
 	RENDERER_API auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
 		const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
 		const FMaterialSceneTextureUniform& Uniform)

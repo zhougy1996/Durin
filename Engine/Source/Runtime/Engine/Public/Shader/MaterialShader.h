@@ -7,6 +7,7 @@
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/Shader.h"
 #include "VertexFactory.h"
+#include "Materials/MaterialProgramCompiler.h"
 
 namespace Durin
 {
@@ -30,10 +31,21 @@ namespace Durin
 			FShaderFactoryFunction InFactory,
 			FShouldCompilePermutationFunction InShouldCompilePermutation,
 			FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
-			const FShaderParametersMetadata* InParametersMetadata = nullptr);
+			const FShaderParametersMetadata* InParametersMetadata = nullptr,
+			std::optional<FMaterialShaderEntryDescriptor> InDescription = {},
+			bool (*InMaterialPolicy)(const FMaterialShaderPermutationParameters&) = nullptr,
+			void (*InMaterialEnvironment)(const FMaterialShaderPermutationParameters&, FShaderCompileOptions&) = nullptr);
 
 		ENGINE_API static auto GetTypeList()
 			-> const std::vector<const FMaterialShaderType*>&;
+		auto GetMaterialEntryDescriptor() const -> const FMaterialShaderEntryDescriptor* { return Description ? &*Description : nullptr; }
+		ENGINE_API auto ShouldCompileMaterialPermutation(const FMaterialShaderPermutationParameters& Parameters) const -> bool;
+		ENGINE_API auto ModifyMaterialCompilationEnvironment(const FMaterialShaderPermutationParameters& Parameters, FShaderCompileOptions& Options) const -> void;
+	private:
+		std::optional<FMaterialShaderEntryDescriptor> Description;
+		bool (*MaterialPolicy)(const FMaterialShaderPermutationParameters&) = nullptr;
+		void (*MaterialEnvironment)(const FMaterialShaderPermutationParameters&, FShaderCompileOptions&) = nullptr;
+
 	};
 
 	class FMeshMaterialShader : public FMaterialShader
@@ -53,7 +65,10 @@ namespace Durin
 			FShaderFactoryFunction InFactory,
 			FShouldCompilePermutationFunction InShouldCompilePermutation,
 			FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
-			const FShaderParametersMetadata* InParametersMetadata = nullptr);
+			const FShaderParametersMetadata* InParametersMetadata = nullptr,
+			std::optional<FMaterialShaderEntryDescriptor> InDescription = {},
+			bool (*InMaterialPolicy)(const FMaterialShaderPermutationParameters&) = nullptr,
+			void (*InMaterialEnvironment)(const FMaterialShaderPermutationParameters&, FShaderCompileOptions&) = nullptr);
 
 		ENGINE_API static auto GetTypeList()
 			-> const std::vector<const FMeshMaterialShaderType*>&;
@@ -80,6 +95,27 @@ namespace Durin
 	}
 
 	template<typename ShaderType>
+	auto GetMaterialCompilationDescription() -> std::optional<FMaterialShaderEntryDescriptor>
+	{
+		if constexpr (requires { ShaderType::GetMaterialCompilationDescription(); })
+			return ShaderType::GetMaterialCompilationDescription();
+		return {};
+	}
+	template<typename ShaderType>
+	auto ShouldCompileMaterialPermutation(const FMaterialShaderPermutationParameters& P) -> bool
+	{
+		if constexpr (requires { ShaderType::ShouldCompileMaterialPermutation(P); })
+			return ShaderType::ShouldCompileMaterialPermutation(P);
+		return true;
+	}
+	template<typename ShaderType>
+	auto ModifyMaterialCompilationEnvironment(const FMaterialShaderPermutationParameters& P, FShaderCompileOptions& O) -> void
+	{
+		if constexpr (requires { ShaderType::ModifyMaterialCompilationEnvironment(P, O); })
+			ShaderType::ModifyMaterialCompilationEnvironment(P, O);
+	}
+
+	template<typename ShaderType>
 	auto MakeMaterialShaderType(
 		std::string_view InName,
 		std::string_view InVirtualShaderPath,
@@ -94,7 +130,8 @@ namespace Durin
 			&CreateDefaultShaderInstance<ShaderType>,
 			&ShouldCompileMaterialShaderPermutation<ShaderType>,
 			&ModifyMaterialShaderCompilationEnvironment<ShaderType>,
-			InParametersMetadata);
+			InParametersMetadata, GetMaterialCompilationDescription<ShaderType>(),
+			&ShouldCompileMaterialPermutation<ShaderType>, &ModifyMaterialCompilationEnvironment<ShaderType>);
 	}
 
 	#define DURIN_DECLARE_MATERIAL_SHADER(ShaderClass, SuperClass, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
@@ -133,7 +170,8 @@ namespace Durin
 			&CreateDefaultShaderInstance<ShaderType>,
 			&ShouldCompileMaterialShaderPermutation<ShaderType>,
 			&ModifyMaterialShaderCompilationEnvironment<ShaderType>,
-			InParametersMetadata);
+			InParametersMetadata, GetMaterialCompilationDescription<ShaderType>(),
+			&ShouldCompileMaterialPermutation<ShaderType>, &ModifyMaterialCompilationEnvironment<ShaderType>);
 	}
 
 	#define DURIN_DECLARE_MESH_MATERIAL_SHADER(ShaderClass, SuperClass, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
@@ -189,6 +227,8 @@ namespace Durin
 		FShaderCompileOptions CompileOptions;
 		std::string FixedShaderRuntimeRequest;
 		std::string FixedFragmentRuntimeRequest;
+		// Products and execution contracts share canonical full-key slots, including
+		// when multiple registered types use the same source entry spelling.
 		std::span<const FShaderCode> GeneratedStages;
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;

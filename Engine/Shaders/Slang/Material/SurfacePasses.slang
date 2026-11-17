@@ -4,39 +4,6 @@
 #if DURIN_GENERATED_MATERIAL
 #if DURIN_MATERIAL_VERTEX_STAGE
 
-[[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
-VSOutput EvaluateGeneratedGeometry(FLocalVertexFactoryIntermediates vertex, uint sceneInstanceId)
-{
-    VSOutput input = (VSOutput)0;
-    MaterialPrimitiveUniform primitive = TranslateMaterialPrimitive(GetMaterialPrimitiveData(sceneInstanceId), MaterialView);
-#if DURIN_MATERIAL_PIXEL_PRIMITIVE_DATA
-    input.sceneInstanceId = sceneInstanceId;
-#endif
-    input.pos = mul(MaterialView.WorldToClip, mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)));
-    input.color = vertex.color;
-    CopyPrimitiveCustomData(input, primitive);
-    input.worldPosition = mul(primitive.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
-    input.worldNormal = mul(primitive.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz;
-    input.worldTangent = float4(mul(primitive.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz,
-        vertex.localTangent.w * primitive.TransformParams.x);
-    input.uv0 = vertex.texCoords[0]; input.uv1 = vertex.texCoords[1];
-    input.uv2 = vertex.texCoords[2]; input.uv3 = vertex.texCoords[3];
-    float3 offset;
-    VSOutput output = EvaluateGeneratedVertex(input, primitive, offset);
-    output.pos += mul(MaterialView.WorldToClip, float4(offset, 0.0));
-    return output;
-}
-[shader("vertex")]
-VSOutput VertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
-{
-    return EvaluateGeneratedGeometry(GetLocalVertexFactoryIntermediates(input), ResolveSceneInstanceId(instanceId, firstInstance));
-}
-[shader("vertex")]
-VSOutput SplineVertexMain(FLocalVertexFactoryInput input, uint instanceId : SV_InstanceID, uint firstInstance : SV_StartInstanceLocation)
-{
-    return EvaluateGeneratedGeometry(GetSplineMeshVertexFactoryIntermediates(input, SplineMesh), ResolveSceneInstanceId(instanceId, firstInstance));
-}
-
 
 #endif
 #if DURIN_MATERIAL_PIXEL_STAGE
@@ -101,7 +68,12 @@ GeometryPassFragmentOutput GeometryFragmentMain(
 #endif
 }
 struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
-[[vk::binding(27, 1)]] ConstantBuffer<HitProxyUniform> HitProxy;
+#define DURIN_DECLARE_BINDINGS_HitProxy 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
+#include "MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_HitProxy
+
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0
 {

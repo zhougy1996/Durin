@@ -1,3 +1,4 @@
+#include "Shader/MaterialShader.h"
 #include "MaterialPreparedProgram.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Shader/ShaderCompilingManager.h"
@@ -145,9 +146,12 @@ namespace Durin
 	static auto GenerateMaterialProgramSlangImpl(const MIR::FModule& IR,
 		const FMaterialRenderLayout& Layout,
 		std::span<const FMaterialParameterCollectionLayout> Collections,
-		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}) -> std::expected<void, std::string>
+		std::string& OutSource, std::optional<EMaterialEvaluationStage> StageFilter = {}, const FVertexFactoryType* VertexFactory = nullptr) -> std::expected<void, std::string>
 	{
 		OutSource.clear();
+		if (IR.bAggregateAttributes || std::ranges::any_of(IR.Nodes, [](const auto& Node) {
+			return Node.Opcode == EMaterialProgramOpcode::MakeMaterialAttributes;
+		})) return std::unexpected("Material source generation requires lowered property roots; normalize aggregate attributes first.");
 		if (const auto Domain = ValidateMaterialEvaluationDomain(IR); !Domain) return Domain;
 		if (IR.Version != MIR::CurrentVersion
 			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
@@ -161,8 +165,7 @@ namespace Durin
             if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) return;
             for (const auto Child : IR.Nodes[Index].Inputs) VisitPixel(Child);
         };
-        if (IR.bAggregateAttributes) VisitPixel(IR.AggregateAttributesIndex);
-        else for (const auto& Root : IR.AttributeRoots) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) VisitPixel(Root.ExpressionIndex);
+        for (const auto& Root : IR.AttributeRoots) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) VisitPixel(Root.ExpressionIndex);
         bool PixelNeedsPrimitiveData = false;
         for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
         {
@@ -180,13 +183,19 @@ namespace Durin
 			if (IR.Nodes[Index].Opcode == EMaterialProgramOpcode::VertexInterpolator) Interpolators.push_back(Index);
 		if (Interpolators.size() > MaterialProgramMaxVertexInterpolators)
 			return std::unexpected("Invalid material IR for Slang generation.");
-		OutSource = R"(module DurinGeneratedMaterial;
+		std::string FactoryImports;
+		if (VertexFactory) for (const auto Module : VertexFactory->GetShaderDescription().ShaderModules) FactoryImports += "import " + std::string(Module) + ";\n";
+		else if (!StageFilter || *StageFilter == EMaterialEvaluationStage::Vertex) {
+			std::set<std::string_view> Modules;
+			for (const auto& D : GetMaterialShaderEntries()) if (D.VertexFactory) for (const auto Module : D.VertexFactory()->GetShaderDescription().ShaderModules) Modules.insert(Module);
+			for (const auto Module : Modules) FactoryImports += "import " + std::string(Module) + ";\n";
+		}
+		OutSource = "module DurinGeneratedMaterial;\n" + FactoryImports;
+		OutSource += R"(
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
 import Material.GBufferDecode;
 import SceneData;
-import VertexFactory.LocalVertexFactory;
-import VertexFactory.SplineMeshVertexFactory;
 #include "Material/SurfacePassResources.slang"
 
 struct VSOutput
@@ -233,25 +242,25 @@ struct VSOutput
 		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
-		OutSource += "};\n[[vk::binding(2, 1)]] ConstantBuffer<MaterialUniform> Material;\n"
-			"[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;\n";
+		OutSource += "};\n";
+		OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Material);
+		OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::View);
 		for (const auto& Field : Layout.Fields)
 		{
 			if (Field.Storage != EMaterialRenderFieldStorage::Resource) continue;
 			const auto Index = Field.CompactIndex;
-			OutSource += std::format(
-				"[[vk::binding({}, 1)]] {}<float4> MaterialTexture{};\n"
-				"[[vk::binding({}, 1)]] SamplerState MaterialSampler{};\n",
-				MaterialTextureBindingBase + 2 * Index, Field.Type == EMaterialRenderValueType::TextureCube ? "TextureCube" : "Texture2D", Index,
-				MaterialTextureBindingBase + 2 * Index + 1, Index);
+			OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Texture, Index,
+                Field.Type == EMaterialRenderValueType::TextureCube ? "TextureCube<float4>" : "Texture2D<float4>");
+            OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Sampler, Index);
 		}
 		for (uint32 Index = 0; Index < Collections.size(); ++Index)
 		{
 			OutSource += std::format("struct MaterialCollectionUniform{}\n{{\n    float4 Reserved;\n", Index);
 			for (uint32 Field = 0; Field < Collections[Index].UniformLayout.UniformFieldCount; ++Field)
 				OutSource += std::format("    float4 Value{};\n", Field);
-			OutSource += std::format("}};\n[[vk::binding({}, 1)]] ConstantBuffer<MaterialCollectionUniform{}> MaterialCollection{};\n",
-				3 + Index, Index, Index);
+			OutSource += "};\n";
+            OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Collection, Index,
+                std::format("ConstantBuffer<MaterialCollectionUniform{}>", Index));
 		}
 
 		auto FindField = [&](const FGuid& Id) -> const FMaterialRenderField* {
@@ -275,15 +284,6 @@ float2 SelectAuthoredUV(VSOutput input, float channel)
 {
     uint index = (uint)clamp(floor(channel + 0.5), 0.0, 3.0);
     return index == 1u ? input.uv1 : (index == 2u ? input.uv2 : (index == 3u ? input.uv3 : input.uv0));
-}
-FMaterialSurface MakeAuthoredSurface(float3 baseColor, float3 normal, float metallic,
-    float roughness, float ao, float3 emissive, float opacity, float mask)
-{
-    FMaterialSurface s;
-    s.baseColor = baseColor; s.tangentNormal = normal; s.metallic = metallic;
-    s.roughness = roughness; s.ambientOcclusion = ao; s.emissive = emissive;
-    s.opacity = opacity; s.opacityMask = mask; s.specular = 0.5; s.clearCoat = 0.0; s.clearCoatRoughness = 0.1;
-    return s;
 }
 float3 MaterialSafeNormalize(float3 value)
 {
@@ -319,7 +319,6 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				if (IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).bExpression) Visit(IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex);
 				for (const auto Index : Interpolators) Visit(IR.Nodes[Index].Inputs[0]);
 			}
-			else if (IR.bAggregateAttributes) Visit(IR.AggregateAttributesIndex);
 			else for (const auto& Root : IR.AttributeRoots) if (Root.bExpression && Root.LegalStages == EMaterialEvaluationStage::Pixel) Visit(Root.ExpressionIndex);
 			OutSource += bVertex
 				? "VSOutput EvaluateGeneratedVertex(VSOutput input, MaterialPrimitiveUniform MaterialPrimitive, out float3 offset)\n{\n"
@@ -345,6 +344,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				case EMaterialProgramOpcode::TextureSampleParameterCube:
 				case EMaterialProgramOpcode::TextureSampleParameter2D:
 				case EMaterialProgramOpcode::TextureCoordinates:
+				case EMaterialProgramOpcode::MakeMaterialAttributes:
 				case EMaterialProgramOpcode::GetMaterialAttributes:
 				case EMaterialProgramOpcode::SetMaterialAttributes:
 				case EMaterialProgramOpcode::AppendVector:
@@ -477,9 +477,6 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				case EMaterialProgramOpcode::SmoothStep: Expression = std::format("smoothstep({}, {}, {})", Input(0), Input(1), Input(2)); break;
 				case EMaterialProgramOpcode::Sign: Expression = std::format("sign({})", Input(0)); break;
 				case EMaterialProgramOpcode::Reflect: Expression = std::format("reflect({}, {})", Input(0), Input(1)); break;
-				case EMaterialProgramOpcode::MakeMaterialAttributes:
-					Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
-						Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;
 				case EMaterialProgramOpcode::Constant:
 					Expression = LiteralExpression(Node); break;
 				case EMaterialProgramOpcode::Parameter:
@@ -594,15 +591,6 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				OutSource += std::format("    offset = {};\n    input.worldPosition += offset;\n    return input;\n}}\n",
 					Offset.bExpression ? Expressions[Offset.ExpressionIndex] : LiteralExpression(Offset.Type, Offset.Literal));
 			}
-			else if (IR.bAggregateAttributes)
-			{
-				if (IR.AggregateAttributesIndex >= Expressions.size())
-				{
-					OutSource.clear();
-					return std::unexpected("Aggregate Surface Root expression is out of bounds.");
-				}
-				OutSource += (IR.Domain == EMaterialDomain::PostProcess ? std::format("    return {};\n}}\n", Expressions[IR.AggregateAttributesIndex]) : std::format("    return EvaluateMaterialSurface({});\n}}\n", Expressions[IR.AggregateAttributesIndex]));
-			}
 			else
 			{
 				using P = EMaterialProperty;
@@ -631,6 +619,13 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		else OutSource += std::format("#define DURIN_MATERIAL_AUTHORED_SPECULAR {}\n#define DURIN_GENERATED_MATERIAL 1\n#define DURIN_MATERIAL_VERTEX_STAGE {}\n#define DURIN_MATERIAL_PIXEL_STAGE {}\n#define DURIN_MATERIAL_PIXEL_PRIMITIVE_DATA {}\n#include \"Material/SurfacePasses.slang\"\n",
 			UsesAuthoredSpecular(IR) ? 1 : 0, StageFilter != EMaterialEvaluationStage::Pixel ? 1 : 0,
 			StageFilter != EMaterialEvaluationStage::Vertex ? 1 : 0, PixelNeedsPrimitiveData ? 1 : 0);
+		if (IR.Domain == EMaterialDomain::Surface && (!StageFilter || *StageFilter == EMaterialEvaluationStage::Vertex)) {
+			OutSource += "#include \"VertexFactory/MaterialVertexEvaluation.slang\"\n";
+			std::set<std::string_view> Includes;
+			if (VertexFactory) Includes.insert(VertexFactory->GetShaderDescription().MaterialEntryInclude);
+			else for (const auto& D : GetMaterialShaderEntries()) if (D.VertexFactory) Includes.insert(D.VertexFactory()->GetShaderDescription().MaterialEntryInclude);
+			for (const auto Include : Includes) OutSource += "#include \"" + std::string(Include) + "\"\n";
+		}
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutSource.clear();
@@ -1003,97 +998,21 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
 		if (RequiredEntries.empty() || Stages.size() != RequiredEntries.size()) return Rejected;
-		std::set<EMaterialShaderEntry> UniqueEntries;
+		std::set<std::string> UniqueEntries;
 		for (const auto Entry : RequiredEntries) if (!FindMaterialShaderEntry(Entry) || !UniqueEntries.insert(Entry).second) return Rejected;
-		if (!std::ranges::contains(RequiredEntries, EMaterialShaderEntry::PostProcess) && (!std::ranges::any_of(RequiredEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Vertex; })
+		if (!std::ranges::any_of(RequiredEntries, [](const auto& E) { return FindMaterialShaderEntry(E)->Domain == EMaterialDomain::PostProcess; }) && (!std::ranges::any_of(RequiredEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Vertex; })
 			|| !std::ranges::any_of(RequiredEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Fragment; }))) return Rejected;
-		for (const auto& Entry : MaterialShaderEntries)
+		auto OrderedEntries = RequiredEntries;
+		std::ranges::sort(OrderedEntries);
+		for (size_t Index = 0; Index < OrderedEntries.size(); ++Index)
 		{
-			if (!std::ranges::contains(RequiredEntries, Entry.Entry)) continue;
-			const auto Found = std::ranges::find(Stages, Entry.Name, &FShaderCode::SourceEntryPoint);
-			if (Found == Stages.end()) return Rejected;
-			const auto& Stage = *Found;
+			const auto& Entry = *FindMaterialShaderEntry(OrderedEntries[Index]);
+			const auto& Stage = Stages[Index];
 			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entry.Name
-				|| Stage.Frequency != Entry.Frequency || !Stage.Reflection.PushConstantRanges.empty()
-				|| Stage.Reflection.ResourceBindings.size()
-					> 2 * Layout.ResourceFieldCount + 13 + Collections.size())
+				|| Stage.Frequency != Entry.Frequency || !Stage.Reflection.PushConstantRanges.empty())
 				return Rejected;
-			std::unordered_set<uint64> Seen;
-			for (const auto& Binding : Stage.Reflection.ResourceBindings)
-			{
-				if (Binding.SetIndex > 1 || Binding.ArraySize != 1 || Binding.StageFlags != (Entry.Frequency == EShaderFrequency::Vertex ? EShaderStageFlags::Vertex : EShaderStageFlags::Fragment)
-					|| !Seen.insert((uint64(Binding.SetIndex) << 32) | Binding.BindingIndex).second) return Rejected;
-				if (Entry.Entry == EMaterialShaderEntry::PostProcess)
-				{
-					const auto S = Binding.BindingIndex;
-					if (Binding.SetIndex == 0 ? (S != 0 && (S < 40 || S > 44))
-						: (S != 2 && !(S >= 3 && S < 3 + Collections.size()) && !(S >= MaterialTextureBindingBase && S - MaterialTextureBindingBase < 2 * Layout.ResourceFieldCount))) return Rejected;
-				}
-				if (Entry.Entry == EMaterialShaderEntry::PostProcess && Binding.SetIndex == 0 && Binding.BindingIndex >= 40 && Binding.BindingIndex <= 44)
-				{
-					const auto Slot = Binding.BindingIndex;
-					const std::array Names{"MaterialSceneTextures", "PostProcessInput0", "MaterialSceneDepth", "MaterialScenePointSampler", "MaterialSceneLinearSampler"};
-					const auto Type = Slot == 40 ? ERHIBindingType::UniformBuffer : Slot < 43 ? ERHIBindingType::Texture : ERHIBindingType::Sampler;
-					if (Binding.Type != Type || Binding.Name != Names[Slot-40]) return Rejected;
-					continue;
-				}
-				ERHIBindingType Expected;
-				const auto Slot = Binding.BindingIndex;
-                if (Binding.SetIndex == 0 && (Slot == 27 || Slot == 28 || Slot == 29 || Slot == 31))
-                {
-                    const auto Name = Slot == 27 ? "GPUScenePrimitiveSceneData" : Slot == 28 ? "GPUSceneInstanceSceneData"
-                        : Slot == 29 ? "GPUSceneInstancePayloadData" : "GPUSceneInstanceIds";
-                    if (Binding.Name != Name || Binding.Type != ERHIBindingType::StorageBuffer) return Rejected;
-                    continue;
-                }
-				const bool bCollection = Slot >= 3 && Slot < 3 + Collections.size();
-				const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
-				const bool bMaterialSet = bPrimitive || Slot == 2 || Slot == 27 || (Entry.Frequency == EShaderFrequency::Vertex && Slot == 24)
-					|| bCollection || Slot >= MaterialTextureBindingBase;
-				if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return Rejected;
-				if (bPrimitive)
-				{
-					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != "MaterialPrimitive") return Rejected;
-				}
-				else if (Slot == 0)
-				{
-					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != "MaterialView") return Rejected;
-				}
-				else if (Entry.Entry == EMaterialShaderEntry::SplineVertex && Slot == 24)
-				{
-					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != "SplineMesh") return Rejected;
-				}
-				else if (Slot == 30 && Entry.Entry == EMaterialShaderEntry::Forward)
-				{
-					Expected = ERHIBindingType::StorageBuffer;
-					if (Binding.Name != "LocalLights") return Rejected;
-				}
-				else if (Slot == 2 || (Entry.Entry == EMaterialShaderEntry::Forward && Slot == 1))
-				{
-					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != (Slot == 2 ? "Material" : "Lighting")) return Rejected;
-				}
-				else if (Entry.Entry == EMaterialShaderEntry::HitProxy && Slot == 27)
-				{
-					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != "HitProxy") return Rejected;
-				}
-				else if (bCollection)
-				{
-					Expected = ERHIBindingType::UniformBuffer;
-					if (Binding.Name != std::format("MaterialCollection{}", Slot - 3))
-						return Rejected;
-				}
-				else if (Entry.Entry == EMaterialShaderEntry::Forward && (Slot == 19 || Slot == 20 || Slot == 21 || Slot == 25)) Expected = ERHIBindingType::Texture;
-				else if (Entry.Entry == EMaterialShaderEntry::Forward && (Slot == 22 || Slot == 26)) Expected = ERHIBindingType::Sampler;
-				else if (Slot >= MaterialTextureBindingBase && Slot - MaterialTextureBindingBase < 2u * Layout.ResourceFieldCount)
-					Expected = (Slot - MaterialTextureBindingBase) % 2 == 0 ? ERHIBindingType::Texture : ERHIBindingType::Sampler;
-				else return Rejected;
-				if (Binding.Type != Expected) return Rejected;
-			}
+            if (!ValidateMaterialShaderBindings(Stage.Reflection, Entry.Entry, Entry.Frequency,
+                Layout.ResourceFieldCount, Collections.size())) return Rejected;
 		}
 		return {};
 	}
@@ -1120,7 +1039,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		Result.CompilerIdentity = Input.Environment.CompilerIdentity;
 		Result.Target = Input.Environment.Target;
 		Result.PassContractVersion = Input.Environment.PassContractVersion;
-		Result.RequiredEntries = SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.Normalized.IR.Domain);
+		Result.RequiredEntries = SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.Normalized.IR.Domain, &Input.Environment);
 		Result.Quality = Input.Environment.Quality;
 		Result.FeatureLevel = Input.Environment.FeatureLevel;
 		Result.StaticBools = Input.Environment.StaticBools;
@@ -1169,28 +1088,29 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		Request.VirtualPath = "/Generated/Materials/" + Result.Identity.ToString();
 		Request.Source = Result.GeneratedSource;
 		auto Options = MakeMaterialShaderCompileOptions(Request.Target, CanonicalizeMaterialShaderProperties(Translation.StaticProperties));
-		for (const auto& Entry : MaterialShaderEntries)
-			if (std::ranges::contains(Translation.RequiredEntries, Entry.Entry))
-			{ Request.EntryPoints.emplace_back(Entry.Name); Request.Frequencies.push_back(Entry.Frequency); }
+		auto OrderedEntries = Translation.RequiredEntries;
+		std::ranges::sort(OrderedEntries);
+		for (const auto& Name : OrderedEntries)
+		{
+			const auto& Entry = *FindMaterialShaderEntry(Name);
+			Request.EntryPoints.emplace_back(Entry.Name); Request.Frequencies.push_back(Entry.Frequency);
+		}
 		Request.Macros = std::move(Options.Macros);
 		Request.AllowedImportVirtualPrefixes = {
-			"/Engine/Material/", "/Engine/Lighting/", "/Engine/VertexFactory/", "/Engine/SceneData"};
+			"/Engine/"};
 		Request.bForceRecompile = bForceRecompile;
 		Request.MaximumOutputBytes = 8ull * 1024 * 1024;
-		for (const auto& Dependency : Result.Dependencies)
-			if (Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment")
-				{
-				FShaderSourceTreeDescription Environment;
-				Environment.VirtualPath = Dependency.VirtualPath; Environment.ContentHash = Dependency.ContentHash;
-				for (const auto& Entry : MaterialShaderEntries)
-				{
-					if (!Entry.GeometryUsage) continue;
-					Environment.EntryPoints.emplace_back(Entry.Name);
-					Environment.Frequencies.push_back(Entry.Frequency);
-				}
-				Environment.Macros = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f}).Macros;
-				Environment.bCompleteClosure = true; Request.ExpectedSourceTree = std::move(Environment);
-			}
+		const auto ManifestOptions = MakeMaterialShaderCompileOptions(Request.Target, {.OpacityMaskThreshold = 0.5f});
+		const auto FactoryRoots = GetMaterialVertexFactorySourceRoots();
+		for (const auto& Dependency : Result.Dependencies) {
+			if (Dependency.VirtualPath != "/Engine/MaterialCompilerEnvironment" && !std::ranges::contains(FactoryRoots, Dependency.VirtualPath)) continue;
+			FShaderSourceTreeDescription Tree;
+			Tree.VirtualPath = Dependency.VirtualPath; Tree.ContentHash = Dependency.ContentHash;
+			for (const auto* Name : ManifestOptions.EntryPoints) Tree.EntryPoints.emplace_back(Name);
+			Tree.Frequencies = ManifestOptions.Frequencies; Tree.Macros = ManifestOptions.Macros; Tree.bCompleteClosure = true;
+			if (Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment") Request.ExpectedSourceTree = std::move(Tree);
+			else Request.AdditionalSourceTrees.push_back(std::move(Tree));
+		}
 		return Request;
 	}
 
@@ -1216,10 +1136,14 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				}
 			auto Request = Base;
 			if (!GenerateMaterialProgramSlangImpl(Projected, Translation.Layout, Translation.ActiveCollections, Request.Source,
-				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel)) return {};
+				Vertex ? EMaterialEvaluationStage::Vertex : EMaterialEvaluationStage::Pixel, Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr)) return {};
 			Request.VirtualPath = "/Generated/MaterialStages/" + FXxHash128::HashBuffer(Request.Source).ToString();
 			Request.EntryPoints = {Contract.Shader.EntryPoint}; Request.Frequencies = {Contract.Shader.Frequency};
-			if (Vertex) Request.Macros = MakeMaterialShaderCompileOptions(Request.Target, {}).Macros;
+			FMaterialCompilerEnvironment Environment;
+			Environment.Target = Translation.Target; Environment.Quality = Translation.Quality; Environment.FeatureLevel = Translation.FeatureLevel;
+			Environment.bIncludeEditorPasses = Translation.bIncludeEditorPasses;
+			Request.Macros = GetMaterialShaderCompilationOptions(Contract.Shader.ShaderType,
+				Translation.StaticProperties, Translation.IR.Domain, Environment).Macros;
 			Requests.push_back(std::move(Request));
 		}
 		return Requests;

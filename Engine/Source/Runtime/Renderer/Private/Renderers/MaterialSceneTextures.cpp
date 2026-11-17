@@ -27,23 +27,30 @@ namespace Durin
 		return ResolveMaterialSceneTextureBindings(Commands, Reflection,
 			Resolver.GetTexture(Parameters.PostProcessInput0), Resolver.GetTexture(Parameters.SceneDepth), Uniform);
 	}
-	auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
-		const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
-		const FMaterialSceneTextureUniform& Uniform)
-		-> std::expected<FMaterialSceneTextureBindings, std::string>
-	{
+    auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
+        const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
+        const FMaterialSceneTextureUniform& Uniform) -> std::expected<FMaterialSceneTextureBindings, std::string>
+    {
+        const auto Logical = DescribeMaterialShaderBindings(Reflection);
+        if (!Logical) return std::unexpected(Logical.error());
+        return ResolveMaterialSceneTextureBindings(Commands, *Logical, Input0, Depth, Uniform);
+    }
+    auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
+        std::span<const FMaterialShaderBinding> Bindings, FRHITexture* Input0, FRHITexture* Depth,
+        const FMaterialSceneTextureUniform& Uniform) -> std::expected<FMaterialSceneTextureBindings, std::string>
+    {
 		FMaterialSceneTextureBindings Result;
 		std::array<bool, 5> Seen{};
-		const std::array Names{"MaterialSceneTextures", "PostProcessInput0", "MaterialSceneDepth", "MaterialScenePointSampler", "MaterialSceneLinearSampler"};
-		for (const auto& Binding : Reflection.ResourceBindings)
-		{
-			if (Binding.SetIndex != 0 || Binding.BindingIndex < 40 || Binding.BindingIndex > 44) continue;
-			const auto Slot = Binding.BindingIndex - 40;
-			const auto Type = Slot == 0 ? ERHIBindingType::UniformBuffer : Slot < 3 ? ERHIBindingType::Texture : ERHIBindingType::Sampler;
-			if (Seen[Slot] || Binding.Name != Names[Slot] || Binding.Type != Type || Binding.ArraySize != 1)
-				return std::unexpected("Material scene binding reflection is incompatible.");
-			Seen[Slot] = true;
-			FRHIShaderParameterResource Parameter{.SetIndex = 0, .BindingIndex = Binding.BindingIndex, .Type = Type};
+        for (const auto& Binding : Bindings)
+        {
+            if (Binding.Role >= EMaterialBindingRole::Count) return std::unexpected("Material scene binding role is invalid.");
+            if (!IsMaterialSceneBinding(Binding.Role)) continue;
+            const auto Slot = uint32(Binding.Role) - uint32(EMaterialBindingRole::SceneUniform);
+            if (Seen[Slot] || Binding.ResourceIndex) return std::unexpected("Material scene binding description is incompatible.");
+            Seen[Slot] = true;
+            const auto& Definition = GetMaterialBindingDefinition(Binding.Role);
+            FRHIShaderParameterResource Parameter{.SetIndex = Definition.SetIndex,
+                .BindingIndex = GetMaterialBindingSlot(Binding.Role), .Type = GetMaterialRuntimeBindingType(Binding.Role, EMaterialDomain::PostProcess)};
 			if (Slot == 0)
 			{
 				Result.Uniform = Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
@@ -74,7 +81,7 @@ namespace Durin
 	auto PlanMaterialSceneTextures(FRDGBuilder& Graph, const FMaterialShaderEntryRequest& Entry,
 		const FMaterialSceneTextureInputs& Inputs, std::optional<FRDGTextureHandle> Output) -> std::expected<FMaterialSceneTexturePlan, std::string>
 	{
-		if (Entry.Shader.ShaderType != "PostProcessMaterial" || Entry.Shader.EntryPoint != "PostProcessMaterialMain"
+		if (Entry.Shader.ShaderType != "FPostProcessMaterialShader" || Entry.Shader.EntryPoint != "PostProcessMaterialMain"
 			|| Entry.Shader.Frequency != EShaderFrequency::Fragment || Entry.Shader.PassContractVersion != CurrentMaterialPassContractVersion || Entry.Mesh || Entry.Requirements.SceneTextures.empty())
 			return std::unexpected("Scene texture planning requires a PostProcess fragment entry.");
 		std::array<bool, 2> Required{};

@@ -176,7 +176,7 @@ namespace Durin
 		auto Properties = Configuration.Properties;
 		if (const auto Valid = ValidateMaterialConfiguration(Configuration.Domain, Properties); !Valid)
 			return {.Diagnostics = {{.Message = Valid.error()}}};
-		Properties.GeometryUsage &= 3;
+		Properties.GeometryUsage &= uint8(~4u);
 		const bool bDomainChanged = Domain != Configuration.Domain;
 		if (!bDomainChanged && StaticProperties == Properties) return {.bSucceeded = true};
 		const bool bShaderIdentityChanged = bDomainChanged
@@ -471,7 +471,7 @@ namespace Durin
 	auto DMaterial::PostLoad() -> void
 	{
 		Super::PostLoad();
-		StaticProperties.GeometryUsage &= 3;
+		StaticProperties.GeometryUsage &= uint8(~4u);
 		if (const auto Validation = ValidateMaterialStaticProperties(StaticProperties); !Validation)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Validation.error());

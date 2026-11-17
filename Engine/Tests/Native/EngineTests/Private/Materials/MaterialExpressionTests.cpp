@@ -961,18 +961,18 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	EXPECT_EQ(Built.Parameters[0].Id, Sample->Metadata.Id);
 	Built.IR.bAggregateAttributes = true;
 	Built.IR.AggregateAttributesIndex = Built.Roots[0];
-	const auto Layout = CompileMaterialLayout(Built.Parameters);
-	ASSERT_TRUE(Layout);
-	const auto Source = GenerateMaterialProgramSlang(Built.IR, Layout.Layout);
-	ASSERT_TRUE(Source);
-	EXPECT_NE(Source.Source.find("Sample("), std::string::npos);
 	MIR::FCompilerInput CompilerInput{.IR = Built.IR, .Parameters = Built.Parameters, .Sources = Built.Sources};
 
 	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(CompilerInput.Environment);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
+	const auto Normalized = MIR::Normalize(CompilerInput);
+	ASSERT_TRUE(Normalized);
+	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
+	ASSERT_TRUE(Source);
+	EXPECT_NE(Source.Source.find("Sample("), std::string::npos);
 	const auto Compiled = MIR::Compile(CompilerInput);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	Get->AttributeIDs = {FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_Normal)};
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 }

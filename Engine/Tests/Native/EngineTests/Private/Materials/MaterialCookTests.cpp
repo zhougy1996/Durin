@@ -787,8 +787,8 @@ TEST(FMaterialStage4CookTests, EditorAndSourceFreeGamePackagesKeepCommonShadersA
 		GamePrograms[Variant]=std::make_shared<FMaterialProgram>(std::move(Game.Resource));
 		const auto& EditorMap=EditorPrograms[Variant]->GetShaderMap(); const auto& GameMap=GamePrograms[Variant]->GetShaderMap();
 		EXPECT_EQ(EditorMap.Layout,GameMap.Layout); EXPECT_EQ(EditorMap.Domain,GameMap.Domain);
-		EXPECT_EQ(std::ranges::count(EditorMap.Entries,"SurfaceHitProxy",[](const auto& E) { return E.Shader.ShaderType; }),Variant<3 ? 1 : 0);
-		EXPECT_EQ(std::ranges::count(GameMap.Entries,"SurfaceHitProxy",[](const auto& E) { return E.Shader.ShaderType; }),0);
+		EXPECT_EQ(std::ranges::count(EditorMap.Entries,"FHitProxyFragmentShader",[](const auto& E) { return E.Shader.ShaderType; }),Variant<3 ? 1 : 0);
+		EXPECT_EQ(std::ranges::count(GameMap.Entries,"FHitProxyFragmentShader",[](const auto& E) { return E.Shader.ShaderType; }),0);
 		for (const auto& Entry:GameMap.Entries)
 		{
 			const auto Peer=std::ranges::find(EditorMap.Entries,Entry.Shader.ShaderType,[](const auto& E) { return E.Shader.ShaderType; }); ASSERT_NE(Peer,EditorMap.Entries.end());

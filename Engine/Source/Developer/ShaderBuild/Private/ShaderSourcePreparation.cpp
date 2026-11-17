@@ -1,6 +1,7 @@
 #include "ShaderBuilder.h"
 #include "Threading/RunnableThread.h"
 #include "ShaderBuildVersion.h"
+#include "ShaderCaptureLimits.h"
 #include "Hash/CanonicalHash.h"
 
 #include "ShaderCompileUtilities.h"
@@ -385,40 +386,66 @@ namespace Durin
 		Prefixes.erase(std::ranges::unique(Prefixes).begin(), Prefixes.end());
 		// Material identity is bound to this exact captured environment. The dependency
 		// resolver and compiler below read the same immutable bytes, including hits.
-		if (Request.ExpectedSourceTree)
-		{
-			FShaderCompileOptions EnvironmentOptions;
-			EnvironmentOptions.Target = Request.Target;
-			EnvironmentOptions.VirtualShaderPath = Request.ExpectedSourceTree->VirtualPath;
-			EnvironmentOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
-			for (const auto& Entry : Request.ExpectedSourceTree->EntryPoints) EnvironmentOptions.EntryPoints.push_back(Entry.c_str());
-			EnvironmentOptions.Frequencies = Request.ExpectedSourceTree->Frequencies;
-			EnvironmentOptions.Macros = Request.ExpectedSourceTree->Macros;
-			if (EnvironmentOptions.EntryPoints.empty() || EnvironmentOptions.EntryPoints.size() > 8
-				|| EnvironmentOptions.EntryPoints.size() != EnvironmentOptions.Frequencies.size() || !HasValidUniqueEntryPoints(EnvironmentOptions))
-				return std::unexpected(std::string("Generated shader request is invalid."));
-			FShaderMetaData EnvironmentMeta;
-			if (Options.SourceArtifacts)
-			{
-				EnvironmentOptions.SourceArtifacts = Options.SourceArtifacts;
-				std::vector<std::string> Paths;
-				const auto Root = Options.SourceArtifacts->GetFiles().contains(EnvironmentOptions.VirtualShaderPath) ? EnvironmentOptions.VirtualShaderPath : EnvironmentOptions.VirtualShaderPath + ".slang";
-				if (auto Result = DependencyResolver.Resolve(Root, EnvironmentOptions, Paths); !Result) return std::unexpected(Result.error());
-				auto Captured = CapturedMetaData(std::move(Paths), *Options.SourceArtifacts);
-				if (!Captured) return std::unexpected(Captured.error());
-				EnvironmentMeta = std::move(*Captured);
+		auto Trees = Request.AdditionalSourceTrees;
+		if (Request.ExpectedSourceTree) Trees.insert(Trees.begin(), *Request.ExpectedSourceTree);
+		if (Trees.size() > 64) return std::unexpected(std::string("Generated shader source-root limit exceeded."));
+		if (!Trees.empty()) {
+			const auto InitialArtifacts = Options.SourceArtifacts;
+			std::map<std::string, FSharedByteBuffer> Files;
+			std::vector<std::string> Roots;
+			uint64 TotalSourceBytes = 0;
+			for (const auto& Tree : Trees) {
+				Options.SourceArtifacts = InitialArtifacts;
+
+				FShaderCompileOptions EnvironmentOptions;
+				EnvironmentOptions.Target = Request.Target;
+				EnvironmentOptions.VirtualShaderPath = Tree.VirtualPath;
+				EnvironmentOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
+				for (const auto& Entry : Tree.EntryPoints) EnvironmentOptions.EntryPoints.push_back(Entry.c_str());
+				EnvironmentOptions.Frequencies = Tree.Frequencies;
+				EnvironmentOptions.Macros = Tree.Macros;
+				if (EnvironmentOptions.EntryPoints.empty() || EnvironmentOptions.EntryPoints.size() > 8
+					|| EnvironmentOptions.EntryPoints.size() != EnvironmentOptions.Frequencies.size() || !HasValidUniqueEntryPoints(EnvironmentOptions))
+					return std::unexpected(std::string("Generated shader request is invalid."));
+				FShaderMetaData EnvironmentMeta;
+				if (Options.SourceArtifacts)
+				{
+					EnvironmentOptions.SourceArtifacts = Options.SourceArtifacts;
+					std::vector<std::string> Paths;
+					const auto Root = Options.SourceArtifacts->GetFiles().contains(EnvironmentOptions.VirtualShaderPath) ? EnvironmentOptions.VirtualShaderPath : EnvironmentOptions.VirtualShaderPath + ".slang";
+					if (auto Result = DependencyResolver.Resolve(Root, EnvironmentOptions, Paths); !Result) return std::unexpected(Result.error());
+					auto Captured = CapturedMetaData(std::move(Paths), *Options.SourceArtifacts);
+					if (!Captured) return std::unexpected(Captured.error());
+					EnvironmentMeta = std::move(*Captured);
+				}
+				else if (auto Result = ResolveSourceMetaData(EnvironmentOptions.VirtualShaderPath, FShaderPaths::SourcePath(EnvironmentOptions.VirtualShaderPath), EnvironmentOptions, EnvironmentOptions.Macros, EnvironmentMeta); !Result)
+					return std::unexpected(Result.error());
+				if (EnvironmentMeta.SourceTreeSignature != Tree.ContentHash)
+					return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", Tree.VirtualPath));
+				if (!Options.SourceArtifacts)
+				{
+					auto Captured = ShaderCompileUtilities::CaptureSourceArtifacts(EnvironmentMeta);
+					if (!Captured) return std::unexpected(Captured.error());
+					Options.SourceArtifacts = std::move(*Captured);
+				}
+				for (const auto& [Path, Bytes] : Options.SourceArtifacts->GetFiles()) {
+					const auto [It, Added] = Files.emplace(Path, Bytes);
+					if (Added) {
+						const auto Size = FByteView(Bytes).size();
+						if (Files.size() > ShaderCaptureLimits::MaximumFiles || Size > ShaderCaptureLimits::MaximumFileBytes
+							|| Size > ShaderCaptureLimits::MaximumTotalBytes - TotalSourceBytes)
+							return std::unexpected(std::string("Captured shader source-root union exceeds canonical input limits."));
+						TotalSourceBytes += Size;
+					}
+					if (!Added && FXxHash128::HashBuffer(It->second) != FXxHash128::HashBuffer(Bytes))
+						return std::unexpected(std::string("Shader source roots resolve to conflicting content."));
+				}
+				for (const auto& Root : Options.SourceArtifacts->GetSearchRoots())
+					if (!std::ranges::contains(Roots, Root)) Roots.push_back(Root);
 			}
-			else if (auto Result = ResolveSourceMetaData(EnvironmentOptions.VirtualShaderPath, FShaderPaths::SourcePath(EnvironmentOptions.VirtualShaderPath), EnvironmentOptions, EnvironmentOptions.Macros, EnvironmentMeta); !Result)
-				return std::unexpected(Result.error());
-			if (EnvironmentMeta.SourceTreeSignature != Request.ExpectedSourceTree->ContentHash)
-				return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (std::string{})));
-			if (!Options.SourceArtifacts)
-			{
-				auto Captured = ShaderCompileUtilities::CaptureSourceArtifacts(EnvironmentMeta);
-				if (!Captured) return std::unexpected(Captured.error());
-				Options.SourceArtifacts = std::move(*Captured);
-			}
+			Options.SourceArtifacts = std::make_shared<const FShaderSourceArtifacts>(std::move(Files), std::move(Roots));
 		}
+
 		FShaderMetaData Meta;
 		FShaderArtifactResolver Resolve;
 		if (Options.SourceArtifacts)

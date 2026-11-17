@@ -9,35 +9,22 @@ Completed:
 
 ## Current Status
 
-On 2026-11-15 the owner selected M14, the
-[Material Attributes and Execution Contracts Refactor plan](../Plans/MaterialAttributesAndExecutionContractsRefactor.md),
-for planning, then authorized Stage 0 only. Stage 0 completed on 2026-11-16
-with frozen contracts, content dispositions and measured baseline receipts.
-The owner subsequently authorized Stage 1, now complete with typed attribute
-roots, migrated minimum content and validation receipts. Stage 2 is also complete:
-material evaluation composes with analyzed typed Shader/Pass/Vertex Factory
-contracts across translation, Cook, renderer admission and PSO precaching.
-Stage 3 typed Texture2D/Cube sampling and scene-input/RDG contracts are
-implemented; Windows/Vulkan qualification completed on 2026-11-17, including
-face-local Cube orientation and numerical explicit-LOD vertex displacement.
-Stage 3 remains in progress for required production Metal compilation/reflection
-on macOS. The owner authorized Stage 4 Specular while retaining that backend
-gap. DefaultLit Specular and its Windows forward/deferred direct/environment
-qualification completed on 2026-11-17, with UE-aligned packing in the existing
-four MRT outputs. The following Emissive-to-SceneColor alignment is Windows
-qualified: three RGBA8 GBuffer records (12 bytes/pixel) plus existing RGBA16F
-SceneColor, with both octahedral normals retained. The following ClearCoat
-slice implements the shared forward/deferred layer and optional ModelData,
-with Windows qualification completed on 2026-11-17. The ordered pre-tone-map PostProcess slot, studio preview and failure bypass
-are implemented and Windows qualified on 2026-11-17. The remaining Stage 4
-Windows editor/history/value-update and representative Editor/Game Cook/Shader
-identity gates are also qualified. Stage 4 remains open for native Metal.
-Stage 5 workspace source replacement and final Editor validation are complete;
-initial project Cook/Game checks passed. Final Shader separation requires Game
-recook/reverification and Water Game rendering, retained as open work after the
-owner requested immediate submission. Full content/Game closure and final
-qualification remain open;
-evidence and backend handoff belong to the child plan.
+M14's [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md)
+completed on 2026-11-17. Stages 0-2 and 5 passed their recorded gates and
+Stages 3/4 passed Windows qualification. The owner explicitly skipped native
+Metal acceptance and all Stage 6 gates; they are not qualified results.
+
+The owner activated the
+[Material Shader and Binding Contracts Refactor](../Plans/MaterialShaderAndBindingContractsRefactor.md)
+as M15. Stages 0-3 complete cleanup, registered Shader/VF compilation and shared
+binding rules/admission. Their recorded material, ShaderBuild, Vulkan, Cook,
+consumer and Editor/Game build coverage passes. The current catalog still owns
+fixed logical slots, so UE-style parameter allocation remains incomplete.
+Stage 4 now separates composable parameter metadata from compiler/backend
+allocation and migrates runtime/Cook to accepted allocation maps; final integrated
+packaging moves to Stage 5. Native Metal acceptance stays excluded. Compact
+uniform packing and preshader execution remain separate optimization work.
+
 M14 replaces the fixed-eight Surface boundary with UE-aligned
 attribute definitions, compilation requirements and separate evaluation/pass
 execution, with explicit content replacement permitted. M14 supersedes the
@@ -297,7 +284,8 @@ transition and qualification across StaticMesh, SplineMesh,
 | 11. Reusable material functions | Complete | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Expression semantics and bounded language completion | Complete | M8, M10, M11 and M13 complete | Stage/space-aware values, selected math and spatial/view expressions, and static/quality/feature selectors through existing Surface passes; excludes WPO, depth, new outputs/domains/passes |
 | 13. Material instance shader variants | Complete; remaining qualification waived by user | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import integration; retained evidence and waived gates recorded in the plan |
-| 14. Material attributes and execution contracts | Stages 0-2 complete; Stages 3/4 Windows acceptance complete; Stage 5 source replacement/Editor verified, final Game closure pending; native Metal open | Typed attributes, execution separation, typed sampling, scene inputs, Specular/ClearCoat, SceneColor emission and ordered PostProcess landed; owner authorized the bounded Stage 4 continuation with Metal acceptance retained | UE-aligned attributes/domains, per-entry compilation requirements, separate evaluation/pass contracts, typed sampling, Specular/ClearCoat/PostProcess proofs, closed content replacement inventory and cross-project qualification; exact stages and gates belong to the child plan |
+| 14. Material attributes and execution contracts | Complete; native Metal and Stage 6 skipped by owner | Typed attributes, execution separation, typed sampling, scene inputs, Specular/ClearCoat, SceneColor emission and ordered PostProcess landed; workspace content/Game closure passed; owner skipped remaining qualification | UE-aligned attributes/domains, per-entry compilation requirements, separate evaluation/pass contracts, typed sampling, Specular/ClearCoat/PostProcess proofs, closed content replacement inventory and cross-project qualification; exact stages and gates belong to the child plan |
+| 15. Material Shader and binding contracts | Active; Stages 0-3 complete | M14 completed with owner-skipped final qualification | Registered Shader/VF identity, composable parameter metadata, compiler-owned allocation and exact runtime admission |
 
 Parameter GUIDs identify declarations within a root material; node GUIDs identify
 expression occurrences. Names are case-insensitive lookup keys in one root scope.
@@ -326,22 +314,16 @@ in separate writer checkouts. M12 is selected as a bounded expression-language
 plan and does not activate WPO, SceneDepth, new outputs/domains, or new passes.
 M13 keeps runtime dynamic edits outside shader compilation.
 
-M14 owns the next output/domain/execution transition and may replace authored
-assets and compiled formats rather than preserve compatibility. Its scope
-overrides the earlier fixed-eight-output constraint, but does not activate Water
-optics, Substrate, or unspecified domains. Stages 0-2 are complete. Stage 3 typed
-sampling and scene inputs have passed Windows qualification; required Metal
-compilation/reflection remains open. The owner-authorized Stage 4 Specular slice
-and Emissive-to-SceneColor alignment are implemented and Windows-qualified,
-retaining both octahedral normals. ClearCoat uses a shared single-normal model
-and optional ModelData. PostProcess now executes before display mapping with
-preview and failure bypass. Windows domain/model history, Apply/save/reopen,
-value-only updates and representative Cook/identity parity are qualified. Native
-Metal, full content/Game closure and final qualification stay in the child plan.
+M14 completed the attribute/domain/execution transition with the owner's explicit
+waiver of native Metal and Stage 6 qualification. M15 now owns the Shader/VF and
+binding contract alignment. It preserves typed attributes and immutable runtime
+publication while allowing shared interfaces and derived artifacts to change.
+It does not activate Water optics, Substrate, additional domains or preshaders.
 
 | Proposed or completed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Stages 0-2 complete; Stages 3/4 Windows acceptance complete; Stage 5 source replacement/Editor verified, final Game closure pending; native Metal open |
+| [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Complete; native Metal and Stage 6 skipped by owner |
+| [Material Shader and Binding Contracts Refactor](../Plans/MaterialShaderAndBindingContractsRefactor.md) | M15 | Shader/VF compilation, normalized generator, binding metadata and runtime admission | Active |
 | [Material Parameter Domain Refactor](../Plans/Archive/2026-07/MaterialParameterDomainRefactor.md) | M1 | Runtime-owned parameter schema and editor integration | Complete |
 | [Static Mesh Material Slots](../Plans/Archive/2026-07/StaticMeshMaterialSlots.md) and [Static Mesh Indexed Material Overrides](../Plans/Archive/2026-08/StaticMeshIndexedMaterialOverrides.md) | M1 | Mesh slot identity, reconciliation, and component overrides | Complete |
 | [Material Render-Proxy Invalidation](../Plans/Archive/2026-08/MaterialRenderProxyInvalidation.md) | M2 | Stable proxy publication and scalable inherited invalidation | Complete |

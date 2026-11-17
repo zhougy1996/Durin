@@ -53,6 +53,7 @@ namespace Durin
 		ENGINE_API auto GetSamplers() const -> std::span<const FMaterialSamplerState>;
 		ENGINE_API auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>;
 		ENGINE_API auto GetRecordId() const -> uint64;
+		// Render-thread-only fallback for independent values; copies share the lazily created cache.
 		ENGINE_API auto GetUniformExpressionCache() const -> std::shared_ptr<FUniformExpressionCache>;
 		ENGINE_API auto GetContentHash() const -> uint64;
 

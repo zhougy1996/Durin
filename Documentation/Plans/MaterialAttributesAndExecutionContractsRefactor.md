@@ -4,54 +4,26 @@ Summary: Replace the fixed surface-output contract with UE-aligned material attr
 
 Last reviewed: 2026-11-17
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-17
 
 ## Current Status
 
-Stages 0-2 completed on 2026-11-16. Typed attributes, per-entry compilation
-requirements and canonical Shader/mesh execution requests now span translation,
-Cook and renderer admission. Pass templates own entry bodies, GBuffer packing
-and lighting execution. The five minimum source assets have been regenerated
-for the Stage 3 graph/function generation at their original logical paths.
-Validation and content disposition are recorded below. Stage 3 is in progress:
-Texture2D/Cube values now follow UE's base-texture reference and typed MIR
-boundary, with all four sampling modes, instance replacement, function/editor
-support, source-free DMAT and Vulkan pixel validation. PostProcessInput0 and
-read-only SceneDepth now traverse authoring, detached compilation, source-free
-Cook decoding and Renderer RDG planning/binding. The scene-input and RDG tasks
-are complete. Windows Stage 3 qualification is complete on 2026-11-17,
-including Cube face-local orientation and numerical explicit-LOD vertex WPO.
-Production Metal compilation/reflection remains a required open gate, so
-Stage 3 as a whole is not complete. Packaged Game/content closure and final
-integrated cost qualification remain in Stages 5 and 6.
-The owner authorized the Stage 4 DefaultLit Specular slice while retaining that
-Metal gap. Specular implementation and Windows forward/deferred qualification
-are complete on 2026-11-17. The following Emissive-to-SceneColor slice uses
-three RGBA8 GBuffer records plus existing RGBA16F SceneColor, retaining both
-octahedral normals. The ClearCoat continuation implements a shared forward/
-deferred layer and optional ModelData; Windows qualification completed on 2026-11-17.
-The ordered pre-tone-map PostProcess slot, studio preview and failure bypass
-are Windows-qualified on 2026-11-17. Stage 4 domain/model changes, value-only
-updates, editor history/Apply/save/reopen, representative Editor/Game Cook parity
-and Shader identity qualification are also complete on Windows. Stage 4 remains
-open solely for native Metal acceptance. Stage 5 source replacement closes the
-28-package census and passes final Editor coverage. Initial representative Game
-Cook/load/startup passed, but final deferred Shader separation and property-map
-cleanup require Game recook/reverification; the owner requested submission before
-that last sequence. Stage 5 remains open, along with Stage 6 integration/cost.
-See the implemented [material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
+Completed on 2026-11-17 by the owner's explicit acceptance-scope decision.
+Stages 0-2 and 5 passed their recorded gates; Stages 3/4 passed Windows
+qualification. The owner explicitly skipped the remaining Stage 3/4 native
+Metal acceptance and all of Stage 6, including final integrated coverage,
+workspace-build acceptance, numerical cost qualification and documentation
+closure. Skipped work is not recorded as passed, and historical receipts retain
+their actual tested inputs, backend and limitations. Earlier open-gate wording
+below describes the state at each historical handoff and is superseded by this
+decision. No new native or performance qualification was run for completion.
 
-The 2026-11-16 rebase review below preserves the selected architecture, content
-disposition and Stage 0 status. Later editor work must consume the new toolkit
-ownership/close contract. Historical measurements keep their actual tested
-revision; the rebase is not recorded as a new runtime qualification.
-
-This is M14 of the [Material System roadmap](../Roadmaps/MaterialSystem.md).
-Existing contracts and assets may change. Prefer UE-aligned names and boundaries
-where they fit Durin ownership. Asset compatibility is not an acceptance gate:
-content that is awkward to convert may be replaced with newly authored assets.
-Every retained consumer must nevertheless resolve to valid new content.
+The implemented behavior remains documented in the
+[material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
+Further architectural work proceeds under the
+[Material Shader and Binding Contracts Refactor](MaterialShaderAndBindingContractsRefactor.md).
+This completes M14 of the [Material System roadmap](../Roadmaps/MaterialSystem.md).
 
 ## Goal
 
@@ -402,7 +374,7 @@ Depends on Stage 2.
 - [x] Implement logical scene inputs for PostProcessInput0 and read-only SceneDepth, with declared filtering and conversion helpers. Do not expose an ambiguous writable current SceneColor.
 - [x] Carry entry requirements through source-free Cook loading. Renderer material planning resolves them to counted resources, RDG declarations and pass bindings; unavailable required inputs fail locally without stale bindings.
 - [x] Qualify Windows/Vulkan cube face-local orientation and mip selection, numerical vertex texture WPO, per-instance resource replacement, missing resources, scene UV/depth reconstruction, subrects, resizing and incompatible-domain rejection; inspect SPIR-V reflection. See the 2026-11-17 Windows receipt below.
-- [ ] Qualify production Metal compilation/reflection for Texture2D/Cube sampling, explicit-LOD vertex entries and PostProcess scene-input layouts on the supported macOS toolchain. Windows MSL text inspection does not satisfy this gate; see the handoff below.
+- **Skipped by owner on 2026-11-17; not passed.** Qualify production Metal compilation/reflection for Texture2D/Cube sampling, explicit-LOD vertex entries and PostProcess scene-input layouts on the supported macOS toolchain. Windows MSL text inspection does not satisfy this gate; see the handoff below.
 
 Exit: TextureCube and explicit sampling traverse authoring-to-Cook execution;
 scene reads have validated lifetimes and no attachment read/write feedback.
@@ -810,7 +782,7 @@ ModelData attachment remains reserved for later ClearCoat, outside this slice.
 - [x] Implement one ordered PostProcess material slot before tone mapping with PostProcessInput0 and optional depth. Windows neutral/color/depth pixels, subrect/resize, alpha, exposure and FXAA are qualified; no mesh Vertex Factory or surface-lighting resources are requested. Native Metal remains open.
 - [x] Define domain-appropriate preview and failure behavior: a failed PostProcess compile retains a complete last-known-good generation while pending, then bypasses the effect with diagnostics on failure; never bind a mesh ErrorMaterial to a fullscreen domain. Validate the selected publication policy against existing lifecycle contracts.
 - [x] Verify domain/model switches, parameter-only updates without compilation, graph Undo/Redo/Apply/save/reopen, representative cooked Editor/Game parity and distinct shader identities for semantically different contracts on Windows. See the closure receipt below.
-- [ ] Qualify Stage 4 Specular/ClearCoat/PostProcess compilation, reflection and execution on native Metal using the supported macOS toolchain; preserve the Stage 3 sampling/scene-input gap and the explicit backend handoffs.
+- **Skipped by owner on 2026-11-17; not passed.** Qualify Stage 4 Specular/ClearCoat/PostProcess compilation, reflection and execution on native Metal using the supported macOS toolchain; preserve the Stage 3 sampling/scene-input gap and the explicit backend handoffs.
 
 Exit: all three extension proofs produce independently checked pixels and valid
 Cook output. ClearCoat and PostProcess unsupported paths are explicit, without
@@ -1153,14 +1125,17 @@ Depends on Stages 1-4; incremental inventory updates occur throughout them.
 
 - [x] Close each inventory row with converted/recreated/removed assets and repaired references, including instances, functions, import parents, standard functions, defaults/error materials, examples, Water and test fixtures.
 - [x] Regenerate content from supported recipes; round-trip it and verify reimport/recreation produces the new schema. Check overridden values by declared identity or explicit replacement mappings.
-- [ ] Cook representative Engine, Sandbox and RoadWeaver content and the opt-in Water fixture into new generations. Verify source-free Game loads with authored graphs/compiler services unavailable, and resolve all required Shader/texture dependencies.
-- [ ] Remove obsolete root/field adapters, ordinal assumptions and duplicate semantics. If a one-shot conversion utility remains useful, keep it editor/tool-only with explicit supported input versions.
+- [x] Cook representative Engine, Sandbox and RoadWeaver content and the opt-in Water fixture into new generations. Verify source-free Game loads with authored graphs/compiler services unavailable, and resolve all required Shader/texture dependencies.
+- [x] Remove obsolete root/field adapters, ordinal assumptions and duplicate semantics. If a one-shot conversion utility remains useful, keep it editor/tool-only with explicit supported input versions.
 - [x] Test old authored/cooked artifacts for clear rejection, missing replacements for actionable diagnostics, and all repaired soft references/Cook roots for reachability. No dangling reference is accepted as an intentional appearance change.
 
 Exit: inventory has no unresolved retained consumer. New and regenerated content
 works without a legacy evaluator, old cooked products or runtime compilation.
 
 #### Workspace replacement and Windows progress receipt (2026-11-17)
+
+This is the original Stage 5 submission receipt. Its open work is historical
+and is closed by the final Stage 5 receipt below.
 
 Tested input: `8ca767d36` plus this Stage 5 change, Windows/MSVC Debug,
 RTX 3090 / Vulkan 1.4.351, SDK 1.4.357.0. Evidence root (ignored):
@@ -1256,7 +1231,8 @@ and leaves accepted state unchanged; package tests reject missing/old/future
 material versions before publication. The original Rust before-audit reports
 its incompatible SurfaceOutputs/texture field signatures in the evidence directory.
 
-Remaining Stage 5 work after this owner-requested immediate commit:
+Stage 5 handoff at the original owner-requested immediate commit (closed by the
+final receipt below):
 
 - Build final Debug Game receipts, regenerate all three Cook generations and
   rerun Sandbox/Road export verification and explicit source-free object loads.
@@ -1268,16 +1244,84 @@ Remaining Stage 5 work after this owner-requested immediate commit:
 - Close the two unchecked Stage 5 tasks only after these final inputs pass.
   Preserve native Metal and the explicit Stage 6 `all` build/cost gates.
 
+#### Final Stage 5 Windows closure receipt (2026-11-17)
+
+The owner authorized completing Stage 5 while keeping native Metal pending.
+Validated `d653ed3fa` plus this test-adapter cleanup on windows-msvc-x64,
+Win64-Debug-DurinEditor and Win64-Debug-DurinGame, Debug, Tracy, 14 build jobs;
+target ABI `MSVC-19.44.35219.0-8`. GPU correctness ran on NVIDIA GeForce GTX 1060
+6GB / Vulkan 1.4.312 with SDK 1.3.296.0 validation layers. This is a distinct
+host receipt, not reuse of the earlier RTX 3090 measurements or cost acceptance.
+Evidence root (ignored):
+`Build/AgentValidation/MaterialAttributesAndExecutionContracts/Stage5/Closure/`.
+
+- Removed the remaining property-ordinal casts from MaterialFunctionCookTests,
+  MaterialRenderProxyTests and MaterialGraphInteractionTests using explicit
+  named property mappings. MaterialCompilerTests' root-semantics helper now
+  iterates the definition map and resolves each root by its declared property.
+  No production material, Shader or asset input changed after these validations.
+- All affected Editor targets passed: MaterialCompilerTests (119), MaterialCookTests
+  (7), MaterialEditorInteractionTests (68) and MaterialRuntimeTests (102).
+  Their receipts under `Build/.agent-state/logs/` are respectively
+  `20261117-103937-903694-16668-MaterialCompilerTests.log`,
+  `20261117-104046-411693-18544-MaterialCookTests.log`,
+  `20261117-104132-995512-19384-MaterialEditorInteractionTests.log` and
+  `20261117-104216-116243-16076-MaterialRuntimeTests.log`.
+- Rebuilt SandboxGameReceipt, RoadWeaverGameReceipt,
+  WaterSurfaceFixtureGameReceipt, WorkspaceContentProbe and
+  WaterSurfaceFeatureProbe in Game, plus the Water Game plugin runtime inventory.
+  Re-Cooked the same representative roots above with `--no-incremental`, Debug
+  Game receipts and fresh output directories: Sandbox 18 packages, RoadWeaver 5,
+  Water 3. Reports are `Sandbox-cook.json`, `RoadWeaver-cook.json` and
+  `Water-final-cook.json`; the accepted Water generation is `Water-Final-Cooked/`.
+  A first Water Cook used a stale local fixture Level and captured only two
+  packages. It is not acceptance evidence: the current Editor probe regenerated
+  and round-tripped the disposable Level (`Water-persist.log`), then the fresh
+  final Cook reached DefaultWater through its saved component soft reference.
+  No extra Water material root was supplied.
+- Sandbox/RoadWeaver exports passed `--build reuse --cook reuse --verify` against
+  those Cook generations and wrote their final completion markers. Explicit
+  Game probes run beside the delivery DLLs loaded 10 Sandbox/Engine objects and
+  3 RoadWeaver/Engine objects, including Rust, default material, meshes, studio
+  Cubes, road graph and Levels. Each loaded material has an accepted platform
+  program, authored graph fields are compiled out, and ShaderBuild is not loaded.
+  Delivery scans found no ShaderBuild library, authored Shader, C++ source or
+  project/workspace descriptor. Logs are `Sandbox-game-load.log`,
+  `RoadWeaver-game-load.log`, the two export reports and `delivery-scan.json`.
+- The final Water `load-cooked` probe passed with the regenerated Level,
+  persisted settings, queries and accepted DefaultWater program in Game, without
+  ShaderBuild (`Water-game-load.log`). WaterSurfaceRenderingVulkanTests passed
+  both independent-wave and plugin-component cases in Editor (2) and Game (2).
+  Game selected `DURIN_WATER_COOK_DIR` as the final Cook directory; the independent
+  proof consumed the freshly prepared Editor output. Receipts:
+  `20261117-104314-758073-45248-WaterSurfaceRenderingVulkanTests.log` and
+  `20261117-105122-579084-43920-WaterSurfaceRenderingVulkanTests.log`.
+  Both contain no Vulkan validation errors.
+- Temporary Water workspace admission was restored byte-for-byte. Tracked
+  authored content is unchanged. Source/package hashes, raw reports and copied
+  test receipts remain in the evidence directory. Changed-document validation
+  and diff checks pass. A canceled affected-selection refresh required DevTool
+  recovery; its incremental Editor `all` build passed in
+  `20261117-103320-568578-47932-cmake.log`. The actual test execution was bounded
+  to the named targets above; no all-test or timing pass is claimed.
+
+All Stage 5 tasks are closed. Stage 3/4 native Metal acceptance and Stage 6 final
+coverage, integration/build applicability, numerical cost comparison and lasting
+documentation closure remain pending. This receipt does not complete the plan.
+
 ### Stage 6: Qualify the integrated contract and publish lasting documentation
 
-Outcome: final-state correctness, integration and cost evidence, with no deferred
+Disposition: the owner skipped this entire stage on 2026-11-17. The following
+original scope is retained as historical context.
+
+Original outcome: final-state correctness, integration and cost evidence, with no deferred
 required gate hidden by a completed checklist. Depends on Stage 5.
 
-- [ ] Run the final relevant coverage in the acceptance matrix below, reusing passing evidence only when relevant inputs/environment are unchanged and applicability is recorded.
-- [ ] Run the workspace `all` build after shared-interface migration. This explicit final gate covers cross-project foundational headers, reflected schemas, generated metadata and shader/build inventory consumers that bounded owner tests cannot fully cover.
-- [ ] Compare unchanged baseline scenes and the approved recreated/new fixtures against Stage 0 budgets. Record compilation/cache behavior, exact Shader entries, descriptors, GPU transport footprint and runtime upload work; investigate regressions before acceptance.
-- [ ] Publish implemented semantics in owning Runtime/Rendering and Editor documents; update the roadmap and content authoring guidance. Keep execution receipts/raw captures under ignored `Build/` artifact directories.
-- [ ] Record final tested inputs, selections, backend limits, migration inventory disposition and remaining optional work. Complete this plan only after every required gate passes or the owner explicitly changes its acceptance scope.
+- **Skipped by owner on 2026-11-17; not passed.** Run the final relevant coverage in the acceptance matrix below, reusing passing evidence only when relevant inputs/environment are unchanged and applicability is recorded.
+- **Skipped by owner on 2026-11-17; not passed.** Run the workspace `all` build after shared-interface migration. This explicit final gate covers cross-project foundational headers, reflected schemas, generated metadata and shader/build inventory consumers that bounded owner tests cannot fully cover.
+- **Skipped by owner on 2026-11-17; not passed.** Compare unchanged baseline scenes and the approved recreated/new fixtures against Stage 0 budgets. Record compilation/cache behavior, exact Shader entries, descriptors, GPU transport footprint and runtime upload work; investigate regressions before acceptance.
+- **Skipped by owner on 2026-11-17; not passed.** Publish implemented semantics in owning Runtime/Rendering and Editor documents; update the roadmap and content authoring guidance. Keep execution receipts/raw captures under ignored `Build/` artifact directories.
+- **Skipped by owner on 2026-11-17; not passed.** Record final tested inputs, selections, backend limits, migration inventory disposition and remaining optional work. Complete this plan only after every required gate passes or the owner explicitly changes its acceptance scope.
 
 ## Acceptance Matrix and Execution Policy
 

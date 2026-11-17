@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	auto AcceptMaterialShaderBindings(FMaterialCompilationOutput& Output, std::span<const FShaderCode> Stages) -> FMaterialLayoutValidationResult;
+	auto GetMaterialVertexFactorySourceRoots() -> std::vector<std::string>;
 	auto ValidateMaterialEvaluationDomain(const MIR::FModule& IR) -> std::expected<void, std::string>;
 	auto MakeMaterialShaderCompileOptions(FShaderTargetIdentity Target, const FMaterialStaticProperties& Properties) -> FShaderCompileOptions;
 
@@ -32,9 +34,7 @@ namespace Durin
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
-		FMaterialShaderEntrySet RequiredEntries = MaterialAllEntries;
-		EMaterialQualityLevel Quality = EMaterialQualityLevel::High;
-		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::SM5;
+		FMaterialShaderEntrySet RequiredEntries = GetDefaultMaterialShaderEntries();
 		std::vector<FMaterialCompilerEnvironment::FStaticBoolValue> StaticBools;
 		MIR::FModule IR;
 		std::vector<FMaterialParameterCollectionLayout> ActiveCollections;

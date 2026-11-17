@@ -27,6 +27,9 @@ namespace Durin
 		class FGBufferFragmentShader final : public RendererPrivate::FCompiledSurfaceMaterialShader
 		{
 		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::GBuffer, .GeometryUsage = 255, .PassUsage = 2}; }
+
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);

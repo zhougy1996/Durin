@@ -68,7 +68,6 @@ namespace Durin
 	};
 
 	inline constexpr uint32 CompiledMaterialRenderLayoutVersion = 5;
-	inline constexpr uint32 MaterialTextureBindingBase = 32;
 	// Reserved padding keeps authored offsets stable; view/pass controls are separate.
 	inline constexpr uint32 MaterialUniformHeaderBytes = 16;
 

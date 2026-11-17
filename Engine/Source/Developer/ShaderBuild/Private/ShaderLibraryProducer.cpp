@@ -14,9 +14,11 @@ namespace Durin
 	{
 		auto MakeCompileOptions(
 			std::span<const FShaderType* const> Types,
+			FShaderTargetIdentity Target,
 			FShaderCompileOptions& OutOptions) -> bool
 		{
 			OutOptions = {};
+			OutOptions.Target = Target;
 			if (Types.empty() || Types.front() == nullptr) return false;
 			OutOptions.VirtualShaderPath = Types.front()->GetVirtualShaderPath();
 			for (const FShaderType* Type : Types)
@@ -25,7 +27,7 @@ namespace Durin
 					!= OutOptions.VirtualShaderPath) return false;
 				OutOptions.EntryPoints.push_back(Type->GetEntryPoint().data());
 				OutOptions.Frequencies.push_back(Type->GetFrequency());
-				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(), Type->GetFrequency()}, OutOptions);
+				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(), Type->GetFrequency(), OutOptions.Target}, OutOptions);
 			}
 			return !OutOptions.VirtualShaderPath.empty();
 		}
@@ -67,7 +69,7 @@ namespace Durin
 			if (auto Result = GetShaderRuntimeRequestBuildTypes(Request, Types); !Result)
 				return Result;
 			FShaderCompileOptions Options;
-			if (!MakeCompileOptions(Types, Options))
+			if (!MakeCompileOptions(Types, TargetProfile == EShaderTargetProfile::Game ? Resolved->GetCookedShaderTarget() : Resolved->GetShaderTarget(), Options))
 				return std::unexpected(std::string("Shader request build types do not match canonical members."));
 			Options.Target = TargetProfile == EShaderTargetProfile::Game ? Resolved->GetCookedShaderTarget() : Resolved->GetShaderTarget();
 			Options.SourceArtifacts = Artifacts;

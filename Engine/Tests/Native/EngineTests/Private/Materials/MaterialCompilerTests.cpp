@@ -1,3 +1,4 @@
+#include "Shader/MaterialShader.h"
 #include "RequestOwnerAccess.h"
 #include "BuildServiceBackendPrivate.h"
 #include "BuildCacheRecordPrivate.h"
@@ -23,6 +24,39 @@
 
 namespace
 {
+	using namespace Durin;
+	// A registered extension reuses Local geometry code without changing compiler selection.
+	auto GetM15TestFactory() -> const Durin::FVertexFactoryType*
+	{
+		using namespace Durin;
+		static const FVertexFactoryType Type("M15TestVertexFactory", EVertexFactoryFlags::None, nullptr,
+			{.ShaderModules = {"VertexFactory.LocalVertexFactory"}, .MaterialEntryInclude = "Tests/M15MaterialEntry.slang",
+			 .ShouldCompile = [](const FShaderPermutationParameters& P) { return P.Target == VulkanShaderTarget && P.PermutationId == 37; },
+			 .ModifyEnvironment = [](const FShaderPermutationParameters& P, FShaderCompileOptions& O) {
+				O.Macros.emplace_back("DURIN_M15_VF_PROOF", std::to_string(P.PermutationId));
+			 }});
+		return &Type;
+	}
+	class FM15TestVertexShader final : public Durin::FMeshMaterialShader
+	{
+	public:
+		static auto GetMaterialCompilationDescription() -> Durin::FMaterialShaderEntryDescriptor
+		{ return {.Entry = Durin::EMaterialShaderEntry::LocalVertex, .GeometryUsage = 8, .PassUsage = 1,
+			.PermutationId = 37, .VertexFactory = &GetM15TestFactory}; }
+		static auto ShouldCompileMaterialPermutation(const Durin::FMaterialShaderPermutationParameters& P) -> bool
+		{
+			return P.Domain == Durin::EMaterialDomain::Surface && P.Quality == Durin::EMaterialQualityLevel::Low
+				&& P.FeatureLevel == Durin::ERHIFeatureLevel::SM5 && P.PermutationId == 37
+				&& (P.Properties.GeometryUsage & 8) && P.VertexFactoryType == GetM15TestFactory();
+		}
+		static auto ModifyMaterialCompilationEnvironment(const Durin::FMaterialShaderPermutationParameters& P,
+			Durin::FShaderCompileOptions& O) -> void
+		{ O.Macros.emplace_back("DURIN_M15_POLICY_PROOF", std::to_string(uint8(P.Quality))); }
+		DURIN_DECLARE_MESH_MATERIAL_SHADER(FM15TestVertexShader, Durin::FMeshMaterialShader,
+			"/Engine/StaticMeshBasePass", Durin::EShaderFrequency::Vertex, "VertexMain");
+	};
+	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FM15TestVertexShader);
+
 	auto FindCompiledMaterialStage(const Durin::FMaterialShaderMap& Map, std::string_view Name) -> const Durin::FShaderCode&
 	{
 		return *std::ranges::find(Map.CompiledShaders, Name, &Durin::FShaderCode::SourceEntryPoint);
@@ -85,24 +119,103 @@ TEST(FMaterialAttributeContractTests, GuidRootOrderDoesNotChangeCanonicalIdentit
 	EXPECT_EQ(First.Identity, Reordered.Identity);
 }
 
+TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOnlySubstitution)
+{
+	using namespace Durin;
+	auto Input = MakeSyntheticMaterialCompilerInput();
+	Input.StaticProperties.GeometryUsage = 8;
+	Input.StaticProperties.PassUsage = 1;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	Input.Environment.Quality = EMaterialQualityLevel::Low;
+	const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
+	ASSERT_TRUE(Translation);
+	ASSERT_EQ(Translation.RequiredEntries.size(), 2u);
+	EXPECT_TRUE(std::ranges::contains(Translation.RequiredEntries, std::string("FM15TestVertexShader")));
+	const auto Requests = MakeMaterialShaderStageRequests(Translation, false);
+	const auto Vertex = std::ranges::find_if(Requests, [](const auto& R) { return R.Frequencies[0] == EShaderFrequency::Vertex; });
+	ASSERT_NE(Vertex, Requests.end());
+	EXPECT_TRUE(std::ranges::any_of(Vertex->Macros, [](const auto& M) { return M.Name == "DURIN_M15_VF_PROOF" && M.Value == "37"; }));
+	EXPECT_TRUE(std::ranges::any_of(Vertex->Macros, [](const auto& M) { return M.Name == "DURIN_M15_POLICY_PROOF"; }));
+	ASSERT_FALSE(Vertex->AdditionalSourceTrees.empty());
+	auto CorruptSource = *Vertex;
+	CorruptSource.AdditionalSourceTrees[0].ContentHash.HashLow ^= 1;
+	const auto RejectedSource = FShaderCompilingManager::Get().CompileGeneratedSync(CorruptSource);
+	EXPECT_FALSE(RejectedSource);
+	const auto Compiled = MIR::Compile(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "Missing diagnostic" : Compiled.Diagnostics.front().Message);
+	const auto& Map = Compiled.GetShaderMap();
+	const auto Entry = std::ranges::find_if(Map.Entries, [](const auto& E) { return E.Shader.ShaderType == "FM15TestVertexShader"; });
+	ASSERT_NE(Entry, Map.Entries.end());
+	ASSERT_TRUE(Entry->Mesh);
+	EXPECT_EQ(Entry->Mesh->VertexFactoryType, "M15TestVertexFactory");
+	const FShaderType* Type = &FM15TestVertexShader::StaticType();
+	FMeshMaterialShaderMapCompileInput Admission{
+		.Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = 37,
+		.VertexFactoryType = GetM15TestFactory(), .ShaderTypes = std::span(&Type, 1),
+		.GeneratedStages = Map.CompiledShaders, .CompiledProgramIdentity = Map.ShaderMapId,
+		.CompiledTarget = Map.Target, .GeneratedEntries = Map.Entries, .bCreateRHIShaders = false};
+	FMeshMaterialShaderMap Accepted;
+	EXPECT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
+	EXPECT_TRUE(Accepted);
+	Admission.LocalPermutationId = 38;
+	EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
+	EXPECT_FALSE(Accepted);
+	FByteBuffer CookedBytes;
+	ASSERT_TRUE(Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, Input.StaticProperties,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes));
+	FMaterialStaticProperties CookedProperties;
+	std::shared_ptr<const FMaterialProgram> Cooked;
+	ASSERT_TRUE(Testing::DecodeMaterialCookedProgramFamilyForTest(CookedBytes, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, Compiled.Resource, CookedProperties, Cooked));
+	EXPECT_EQ(Cooked->GetShaderMap().Quality, EMaterialQualityLevel::Low);
+	EXPECT_EQ(Cooked->GetShaderMap().Entries, Map.Entries);
+	Admission.LocalPermutationId = 37;
+	Admission.VertexFactoryType = nullptr;
+	EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
+	Admission.VertexFactoryType = GetM15TestFactory();
+	auto WrongEntries = Map.Entries;
+	for (auto& E : WrongEntries) if (E.Shader.ShaderType == "FM15TestVertexShader") E.Shader.ShaderType = "DifferentTypeWithSameEntry";
+	Admission.GeneratedEntries = WrongEntries;
+	EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
+	Input.Environment.Quality = EMaterialQualityLevel::High;
+	EXPECT_FALSE(std::ranges::contains(SelectMaterialShaderEntries(Input.StaticProperties, true, Input.IR.Domain, &Input.Environment), std::string("FM15TestVertexShader")));
+	Input.Environment.Quality = EMaterialQualityLevel::Low;
+	Input.StaticProperties.GeometryUsage = 9;
+	const auto SameEntry = MIR::Compile(Input);
+	ASSERT_TRUE(SameEntry) << (SameEntry.Diagnostics.empty() ? "Missing diagnostic" : SameEntry.Diagnostics.front().Message);
+	EXPECT_EQ(std::ranges::count(SameEntry.GetShaderMap().CompiledShaders, std::string("VertexMain"), &FShaderCode::SourceEntryPoint), 2);
+	const auto& Both = SameEntry.GetShaderMap();
+	Admission.Identity = std::ranges::find_if(Both.Entries, [](const auto& E) { return E.Shader.ShaderType == "FM15TestVertexShader"; })->Shader.Material;
+	Admission.GeneratedEntries = Both.Entries; Admission.GeneratedStages = Both.CompiledShaders;
+	Admission.CompiledProgramIdentity = Both.ShaderMapId;
+	EXPECT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
+	auto Swapped = Both.CompiledShaders;
+	std::swap(Swapped[0], Swapped[2]);
+	EXPECT_FALSE(ValidateMaterialCompilationOutput(Both, Both.ShaderMapId, Both.Target, Swapped));
+}
+
 TEST(FMaterialShaderStageTests, CanonicalEntryContractUsesStableShaderTypes)
 {
 	using namespace Durin;
 	constexpr std::array<std::string_view, 6> Names{
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain"};
-	EXPECT_TRUE(std::ranges::equal(std::span(MaterialCompiledEntryPoints).first(6), Names));
-	EXPECT_EQ(MaterialCompiledEntryPoints.back(), "PostProcessMaterialMain");
-	EXPECT_EQ(MaterialAllEntries.size(), 6u);
+	const auto EntryPoints = GetMaterialCompiledEntryPoints();
+	ASSERT_GE(EntryPoints.size(), 6u);
+	EXPECT_TRUE(std::ranges::equal(std::span(EntryPoints).first(6), Names));
+	EXPECT_EQ(GetMaterialCompiledEntryPoints().back(), "PostProcessMaterialMain");
+	EXPECT_EQ(GetDefaultMaterialShaderEntries().size(), 6u);
 	const auto Options = MakeMaterialShaderCompileRequest(FMaterialTranslatedProgram{.Status = EMaterialProgramStatus::Ok}, false);
 	ASSERT_EQ(Options.EntryPoints.size(), 6u);
 	ASSERT_EQ(Options.Frequencies.size(), 6u);
+	auto OrderedEntries = GetDefaultMaterialShaderEntries();
+	std::ranges::sort(OrderedEntries);
 	for (size_t Index = 0; Index < Names.size(); ++Index)
 	{
-		EXPECT_EQ(static_cast<size_t>(MaterialShaderEntries[Index].Entry), Index);
-		EXPECT_EQ(FindMaterialShaderEntry(MaterialShaderEntries[Index].ShaderType), &MaterialShaderEntries[Index]);
-		EXPECT_EQ(Options.EntryPoints[Index], Names[Index]);
-		EXPECT_EQ(Options.Frequencies[Index], Index < 4 ? EShaderFrequency::Fragment : EShaderFrequency::Vertex);
+		const auto* Entry = FindMaterialShaderEntry(OrderedEntries[Index]);
+		ASSERT_NE(Entry, nullptr);
+		EXPECT_EQ(Options.EntryPoints[Index], Entry->Name);
+		EXPECT_EQ(Options.Frequencies[Index], Entry->Frequency);
 	}
 }
 
@@ -120,7 +233,7 @@ TEST(FMaterialShaderStageTests, UnrelatedPixelViewReadsDoNotMakeCoverageOrVertex
 	EXPECT_TRUE(Translation.Requirements.bMaterialView);
 	for (const auto& Entry : Translation.Entries)
 		EXPECT_EQ(Entry.Requirements.Context.bMaterialView,
-			Entry.Shader.ShaderType == "SurfaceForward" || Entry.Shader.ShaderType == "SurfaceGBuffer");
+			Entry.Shader.ShaderType == "FSurfaceFragmentShader" || Entry.Shader.ShaderType == "FGBufferFragmentShader");
 }
 
 TEST(FMaterialProgramOwnershipTests, ConfigurationCopiesShareArtifactsAndEditorData)
@@ -237,7 +350,7 @@ TEST(FMaterialCustomDataTests, TypedCrossSlotReadsCompileAndRoundTripDetachedTra
 	EXPECT_EQ(Decoded->IR, Input.IR);
 	const auto Compiled = MIR::Compile(*Decoded);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "no diagnostic" : Compiled.Diagnostics.front().Message);
-	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	EXPECT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	EXPECT_TRUE(Compiled.GetShaderMap().ActiveParameters.empty());
 	EXPECT_NE(Compiled.GetDebugData().GeneratedSource.find("nointerpolation float4 customInstanceData"), std::string::npos);
 	for (uint32 Width = 0; Width < 4; ++Width)
@@ -300,7 +413,7 @@ TEST(FMaterialShaderStageTests, GeometryPassSelectionAndDetachedRoundTripAreExac
 			}
 	Input.StaticProperties.GeometryUsage = 0;
 	EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
-	Input.StaticProperties.GeometryUsage = 8;
+	Input.StaticProperties.GeometryUsage = 128;
 	EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
 	Input.StaticProperties = {}; Input.StaticProperties.PassUsage = 16;
 	EXPECT_FALSE(ValidateMaterialStaticProperties(Input.StaticProperties));
@@ -374,7 +487,7 @@ TEST(FMaterialShaderStageTests, PixelEditsShareVertexProductsAndRequiredSetsAdmi
 	const auto Game = MIR::Compile(Input);
 	ASSERT_TRUE(Game);
 	EXPECT_EQ(Game.GetShaderMap().CompiledShaders.size(), 5u);
-	EXPECT_FALSE(std::ranges::contains(Game.GetShaderMap().RequiredEntries, EMaterialShaderEntry::HitProxy));
+	EXPECT_FALSE(std::ranges::contains(Game.GetShaderMap().RequiredEntries, std::string("FHitProxyFragmentShader")));
 	EXPECT_EQ(GetShaderBuildStats().Compilations, AfterPixel.Compilations);
 	Input.StaticProperties.GeometryUsage = 1; Input.StaticProperties.PassUsage = 1;
 	const auto Selected = MIR::Compile(Input);
@@ -477,11 +590,11 @@ namespace
 {
 	auto InitializeSurfaceRootSemantics(Durin::MIR::FModule& IR) -> void
 	{
-		for (uint32 Index = 0; Index < IR.AttributeRoots.size(); ++Index)
+		for (const auto& Definition : Durin::FMaterialAttributeDefinitionMap::GetDefinitions())
 		{
 			const auto Semantics = Durin::GetMaterialSurfaceOutputSemantics(
-				static_cast<Durin::EMaterialProperty>(Index));
-			auto& Input = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
+				Definition.Property);
+			auto& Input = IR.GetAttribute(Definition.Property);
 			Input.Type = Semantics.Type;
 			Input.LegalStages = Semantics.Stages;
 			Input.SpatialKind = Semantics.Kind;
@@ -599,12 +712,19 @@ TEST(FMaterialTranslationTests, CanonicalInputAndTypedOutputHaveIndependentConsu
 	auto Other = Input;
 	std::ranges::reverse(Other.Parameters);
 	Other.Environment.CompilerIdentity = "DifferentCompiler";
-	Other.Environment.Target = "metal-msl-2.0";
 	Other.Environment.Dependencies.clear();
 	for (auto& Source : Other.Sources) { Source.NodeId = FGuid::NewGuid(); Source.FunctionAssetPath = "AnotherAsset"; }
 	auto SameBytes = EncodeTranslationInput(Other);
 	ASSERT_TRUE(SameBytes);
 	EXPECT_TRUE(std::ranges::equal(Bytes->GetBytes(), SameBytes->GetBytes()));
+	Other.Environment.Target = "metal-msl-2.0";
+	const auto TargetBytes = EncodeTranslationInput(Other);
+	ASSERT_TRUE(TargetBytes);
+	EXPECT_NE(FXxHash128::HashBuffer(Bytes->GetBytes()), FXxHash128::HashBuffer(TargetBytes->GetBytes()));
+	const auto TargetInput = DecodeTranslationInput(TargetBytes->GetBytes());
+	ASSERT_TRUE(TargetInput);
+	EXPECT_EQ(TargetInput->Environment.Target, Other.Environment.Target);
+	Other.Environment.Target = Input.Environment.Target;
 	Other.Environment.ResourceLimits.SampledImages += 1;
 	auto Changed = EncodeTranslationInput(Other);
 	ASSERT_TRUE(Changed);
@@ -995,8 +1115,8 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 		Cache->OthersRelease.Trigger();
 		const auto DrainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		if (Canceled != 2) {
-			while (Cache->Stores.load() < MaterialAllEntries.size() && std::chrono::steady_clock::now() < DrainDeadline) std::this_thread::yield();
-			EXPECT_EQ(Cache->Stores.load(), MaterialAllEntries.size());
+			while (Cache->Stores.load() < GetDefaultMaterialShaderEntries().size() && std::chrono::steady_clock::now() < DrainDeadline) std::this_thread::yield();
+			EXPECT_EQ(Cache->Stores.load(), GetDefaultMaterialShaderEntries().size());
 		}
 		Cache->FirstRelease.Trigger(); Manager.FinishCompilation(Second); Manager.FinishCompilation(First);
 		for (size_t Index = 0; Index < Results.size(); ++Index) {
@@ -1011,12 +1131,12 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 				EXPECT_EQ(Location.Source.FunctionAssetPath, Consumer.Sources[Location.Ordinal].FunctionAssetPath);
 			}
 			const auto& Shaders = Results[Index].Program->GetShaderMap().CompiledShaders;
-			ASSERT_EQ(Shaders.size(), MaterialAllEntries.size());
-			const std::array<std::string_view, 6> CanonicalNames{"VertexMain", "SplineVertexMain", "FragmentMain", "GeometryFragmentMain", "HitProxyFragmentMain", "ShadowFragmentMain"};
+			ASSERT_EQ(Shaders.size(), GetDefaultMaterialShaderEntries().size());
+			const std::array<std::string_view, 6> CanonicalNames{"GeometryFragmentMain", "HitProxyFragmentMain", "SplineVertexMain", "VertexMain", "FragmentMain", "ShadowFragmentMain"};
 			for (size_t Stage = 0; Stage < Shaders.size(); ++Stage) EXPECT_EQ(Shaders[Stage].SourceEntryPoint, CanonicalNames[Stage]);
 		}
 		if (Canceled == -1) EXPECT_EQ(Results[0].Program->Resource.ShaderMap, Results[1].Program->Resource.ShaderMap);
-		if (Canceled != 2) EXPECT_EQ(GetShaderBuildStats().Compilations, MaterialAllEntries.size());
+		if (Canceled != 2) EXPECT_EQ(GetShaderBuildStats().Compilations, GetDefaultMaterialShaderEntries().size());
 		EXPECT_EQ(FShaderCompilingManager::Get().GetPeakJobStats().first, 2u);
 		EXPECT_LE(FShaderCompilingManager::Get().GetPeakJobStats().second, 2 * 256ull * 1024 * 1024);
 	}
@@ -1061,7 +1181,7 @@ TEST(FMaterialProgramOwnershipTests, SuccessfulSubmissionSupportsInlineShaderCal
 	ASSERT_TRUE(Compile);
 	if (Inline) EXPECT_EQ(Calls, 1u);
 	Manager.FinishCompilation(Compile); EXPECT_EQ(Calls, 1u);
-	ASSERT_TRUE(Result); EXPECT_EQ(Result.Program->GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	ASSERT_TRUE(Result); EXPECT_EQ(Result.Program->GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	RecordProperty("InlineExecution", Inline ? 1 : 0);
 }
 
@@ -1166,7 +1286,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	static_assert(!std::is_same_v<FMaterialProgramCompileHandle, std::shared_ptr<FMaterialShaderMap>>);
 	EXPECT_EQ((Producer)->GetShaderMapId(), First.Program->GetShaderMap().ShaderMapId);
 	const FMaterialShaderMap Copy(First.Program->GetShaderMap());
-	EXPECT_EQ(Copy.CompiledShaders.size(), MaterialAllEntries.size());
+	EXPECT_EQ(Copy.CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	std::vector<FMaterialProgramCompileHandle> Kept{Producer};
 	for (uint32 Index = 0; Index < 40; ++Index) {
 		FMaterialBuildResult Next;
@@ -1183,7 +1303,7 @@ TEST(FMaterialProgramOwnershipTests, ShaderMapOwnsCompiledContentAndCachedMapsDo
 	Manager.PrioritizeCompilation(Producer);
 	Manager.CancelCompilation(Producer);
 	Manager.FinishCompilation(Producer);
-	EXPECT_EQ(First.Program->GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	EXPECT_EQ(First.Program->GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 }
 
 TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedAndRetires)
@@ -1424,7 +1544,7 @@ TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompile
 	Emissive.bExpression = true; Emissive.ExpressionIndex = Color;
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
-	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	ASSERT_EQ(Compiled.GetShaderMap().ActiveParameters.size(), 1u);
 	EXPECT_EQ(Compiled.GetShaderMap().ActiveParameters.front().Id, ScaleId);
 	for (size_t Index = 0; Index < Compiled.GetShaderMap().CompiledShaders.size(); ++Index)
@@ -1437,7 +1557,7 @@ TEST(FMaterialVertexEvaluationTests, VertexResourcesAndPixelInterpolationCompile
 		if (Shader.Frequency == EShaderFrequency::Vertex) EXPECT_TRUE(std::ranges::contains(Bindings, "MaterialView", &FShaderResourceBinding::Name));
 	}
 	auto InvalidStages = Compiled.GetShaderMap().CompiledShaders;
-	InvalidStages.front().Frequency = EShaderFrequency::Fragment;
+	InvalidStages.front().Frequency = InvalidStages.front().Frequency == EShaderFrequency::Vertex ? EShaderFrequency::Fragment : EShaderFrequency::Vertex;
 	EXPECT_FALSE(ValidateMaterialCompiledStages(InvalidStages, Compiled.GetShaderMap().Layout));
 	auto PixelOffset = Input;
 	PixelOffset.IR.GetAttribute(EMaterialProperty::MP_WorldPositionOffset).ExpressionIndex = Color;
@@ -1463,7 +1583,7 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 		: Compiled.Diagnostics.front().Message);
-	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), MaterialAllEntries.size());
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	for (const auto& Shader : Compiled.GetShaderMap().CompiledShaders)
 	{
 		EXPECT_EQ(Shader.Target, MetalShaderTarget);
@@ -1837,7 +1957,7 @@ TEST(FMaterialProgramGeneratorTests, ContextAndSpatialTransformsCompileWithExact
 	EXPECT_TRUE(Compiled.GetShaderMap().Requirements.bObjectTransforms);
 	EXPECT_TRUE(Compiled.GetShaderMap().Requirements.bBoundsCenter);
 	EXPECT_TRUE(Compiled.GetShaderMap().Requirements.bTangentFrame);
-	for (const auto& Stage : Compiled.GetShaderMap().CompiledShaders | std::views::take(2))
+	for (const auto& Stage : Compiled.GetShaderMap().CompiledShaders | std::views::filter([](const auto& S) { return S.Frequency == EShaderFrequency::Vertex; }))
 	{
 		EXPECT_NE(std::ranges::find(Stage.Reflection.ResourceBindings, "MaterialView",
 			&FShaderResourceBinding::Name), Stage.Reflection.ResourceBindings.end());
@@ -2550,7 +2670,7 @@ TEST(FMaterialProgramCompilerTests,
 	const auto CompilerEnvironmentResult = Durin::BuildDefaultMaterialCompilerEnvironment(
 		Input.Environment);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
-	ASSERT_EQ(Input.Environment.Dependencies.size(), 1u);
+	ASSERT_GE(Input.Environment.Dependencies.size(), 1u);
 	EXPECT_EQ(Input.Environment.Dependencies.front().VirtualPath,
 		"/Engine/MaterialCompilerEnvironment");
 	EXPECT_FALSE(Input.Environment.Dependencies.front().ContentHash.IsZero());
@@ -2577,7 +2697,7 @@ TEST(FMaterialProgramCompilerTests,
 		? "missing diagnostic"
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
-	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialAllEntries.size());
+	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::GetDefaultMaterialShaderEntries().size());
 	const auto& ForwardBindings = FindCompiledMaterialStage(Compiled.GetShaderMap(), "FragmentMain").Reflection.ResourceBindings;
 	EXPECT_EQ(ForwardBindings.size(), 22u);
 	const auto LocalLights = std::ranges::find_if(ForwardBindings, [](const auto& Binding) {
@@ -2827,7 +2947,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	EXPECT_EQ(Compiled.GetShaderMap().Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
 	EXPECT_EQ(Compiled.GetShaderMap().Layout.Fields.size(), 4u);
 	const auto& Entries = Compiled.GetShaderMap().Entries;
-	const auto Shadow = std::ranges::find(Entries, "SurfaceShadow", [](const auto& E) { return E.Shader.ShaderType; });
+	const auto Shadow = std::ranges::find(Entries, "FSurfaceMaskedShadowFragmentShader", [](const auto& E) { return E.Shader.ShaderType; });
 	ASSERT_NE(Shadow, Entries.end());
 	EXPECT_EQ(Shadow->Requirements.AttributeIDs, (std::vector{FMaterialAttributeDefinitionMap::GetID(EMaterialProperty::MP_OpacityMask)}));
 	EXPECT_EQ(Shadow->Requirements.ParameterIDs, (std::vector{Amount}));
@@ -2835,7 +2955,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	EXPECT_TRUE(Shadow->Requirements.bUsesMask);
 	for (const auto Name : {"ShadowFragmentMain", "HitProxyFragmentMain"})
 		EXPECT_FALSE(std::ranges::any_of(FindCompiledMaterialStage(Compiled.GetShaderMap(), Name).Reflection.ResourceBindings,
-			[](const auto& B) { return B.SetIndex == 1 && B.BindingIndex >= MaterialTextureBindingBase; }));
+			[](const auto& B) { return B.SetIndex == 1 && B.BindingIndex >= GetMaterialBindingSlot(EMaterialBindingRole::Texture); }));
 	for (uint32 Mutation = 0; Mutation < 9; ++Mutation)
 	{
 		auto Broken = Compiled; auto Map = std::make_shared<FMaterialShaderMap>(Compiled.GetShaderMap()); Broken.Resource.ShaderMap = Map;
@@ -2843,10 +2963,13 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		if (Mutation == 1) Map->Entries.front().Shader.ShaderType = "UnknownMaterialEntry";
 		if (Mutation == 2) Map->Entries.push_back(Map->Entries.back());
 		if (Mutation == 3) Map->Entries.front().Shader.Target = "unsupported-target";
-		if (Mutation == 4) Map->Entries.front().Mesh->VertexFactoryType = "UnknownFactory";
+		if (Mutation == 4) {
+			const auto Mesh = std::ranges::find_if(Map->Entries, [](const auto& E) { return E.Mesh.has_value(); });
+			ASSERT_NE(Mesh, Map->Entries.end()); Mesh->Mesh->VertexFactoryType = "UnknownFactory";
+		}
 		if (Mutation == 5) Map->Entries.front().Requirements.ParameterIDs.push_back(FGuid::NewGuid());
 		if (Mutation == 6) Map->Entries.front().Requirements.SceneTextures.push_back({});
-		if (Mutation == 7) Map->Entries.front().Requirements.bUsesMask = true;
+		if (Mutation == 7) Map->Entries.front().Requirements.bUsesMask = !Map->Entries.front().Requirements.bUsesMask;
 		if (Mutation == 8) Map->Entries.front().Requirements.Interpolators.push_back({.Type = EMaterialProgramValueType(255)});
 		EXPECT_FALSE(ValidateMaterialCompilerResult(Broken)) << Mutation;
 		FByteBuffer Cooked;
@@ -3017,6 +3140,11 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	Input.IR.bAggregateAttributes = true;
 	Input.IR.AggregateAttributesIndex = Add(EMaterialProgramOpcode::MakeMaterialAttributes, EMaterialProgramValueType::MaterialAttributes,
 		{Color, Normal, Zero, One, One, Color, One, One, WPO, Specular, One, CoatRoughness});
+	const auto Unlowered = GenerateMaterialProgramSlang(Input.IR);
+	EXPECT_FALSE(Unlowered);
+	EXPECT_TRUE(Unlowered.Source.empty());
+	ASSERT_FALSE(Unlowered.Diagnostics.empty());
+	EXPECT_NE(Unlowered.Diagnostics.front().Message.find("normalize aggregate attributes first"), std::string::npos);
 	const auto Normalized = MIR::Normalize(Input);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(Normalized.Layout.Fields.size(), 2u);
@@ -3024,6 +3152,7 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	const auto Source = GenerateMaterialProgramSlang(Normalized.IR, Normalized.Layout);
 	ASSERT_TRUE(Source);
 	EXPECT_NE(Source.Source.find("SelectAuthoredUV(input,"), std::string::npos);
+	EXPECT_EQ(Source.Source.find("MakeAuthoredSurface"), std::string::npos);
 	Input.IR.Nodes.back().Inputs.pop_back();
 	EXPECT_FALSE(MIR::Normalize(Input));
 	Input.IR.Nodes.back().Inputs.push_back(One);
@@ -3105,6 +3234,17 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 {
 	using namespace Durin;
 	auto Individual = MakeSyntheticMaterialCompilerInput();
+	const std::array ExtendedValues{
+		std::pair{EMaterialProperty::MP_Specular, FMaterialProgramLiteral{.25f}},
+		std::pair{EMaterialProperty::MP_ClearCoat, FMaterialProgramLiteral{.75f}},
+		std::pair{EMaterialProperty::MP_ClearCoatRoughness, FMaterialProgramLiteral{.33f}},
+		std::pair{EMaterialProperty::MP_WorldPositionOffset, FMaterialProgramLiteral{.1f, .2f, .3f}}};
+	for (const auto& [Property, Value] : ExtendedValues)
+	{
+		auto& Root = Individual.IR.GetAttribute(Property);
+		Root.bExpression = false;
+		Root.Literal = Value;
+	}
 	auto Packed = Individual;
 	std::vector<uint32> Attributes;
 	for (const auto& Root : Packed.IR.AttributeRoots)
@@ -3130,12 +3270,17 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 	Packed.IR.Nodes.push_back({.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes,
 		.ResultType = EMaterialProgramValueType::MaterialAttributes,
 		.LegalStages = EMaterialEvaluationStage::Both, .Inputs = Attributes});
-	for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit})
+	for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit, EMaterialShadingModel::ClearCoat})
 		for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
 		{
 			Individual.StaticProperties.ShadingModel = Packed.StaticProperties.ShadingModel = Shading;
 			Individual.StaticProperties.BlendMode = Packed.StaticProperties.BlendMode = Blend;
 			const auto A = MIR::Normalize(Individual), B = MIR::Normalize(Packed);
+			if (Shading == EMaterialShadingModel::ClearCoat && Blend == EMaterialBlendMode::Translucent)
+			{
+				EXPECT_FALSE(A); EXPECT_FALSE(B);
+				continue;
+			}
 			ASSERT_TRUE(A); ASSERT_TRUE(B);
 			EXPECT_FALSE(A.IR.bAggregateAttributes); EXPECT_FALSE(B.IR.bAggregateAttributes);
 			for (size_t Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
@@ -3154,6 +3299,16 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 			ASSERT_TRUE((Error = MIR::EncodeCanonical(A.IR, BytesA)));
 			ASSERT_TRUE((Error = MIR::EncodeCanonical(B.IR, BytesB)));
 			EXPECT_EQ(BytesA, BytesB);
+			const auto SourceA = GenerateMaterialProgramSlang(A.IR, A.Layout);
+			const auto SourceB = GenerateMaterialProgramSlang(B.IR, B.Layout);
+			ASSERT_TRUE(SourceA); ASSERT_TRUE(SourceB);
+			EXPECT_EQ(SourceA.Source, SourceB.Source);
+			for (const auto& [Property, Value] : ExtendedValues)
+				if (IsMaterialSurfaceOutputActive(Property, Individual.StaticProperties))
+				{
+					const auto& Root = B.IR.GetAttribute(Property);
+					EXPECT_EQ(Root.bExpression ? B.IR.Nodes[Root.ExpressionIndex].GetLiteral() : Root.Literal, Value);
+				}
 		}
 }
 
@@ -3374,7 +3529,7 @@ TEST(FMaterialSceneTextureTests, PostProcessReadsCompileReflectAndSurviveSourceF
             ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Translation.GeneratedSource)),File));
         }
 		EXPECT_FALSE(Translation.Entries[0].Mesh);
-		EXPECT_EQ(Translation.Entries[0].Shader.ShaderType, "PostProcessMaterial");
+		EXPECT_EQ(Translation.Entries[0].Shader.ShaderType, "FPostProcessMaterialShader");
 		EXPECT_EQ(Translation.Entries[0].Requirements.SceneTextures.size(), Depth ? 2u : 1u);
         const auto Jobs = MakeMaterialShaderStageRequests(Translation, false); ASSERT_EQ(Jobs.size(), 1u);
         const auto ShaderOutput = FShaderCompilingManager::Get().CompileGeneratedSync(Jobs[0]);
@@ -3384,7 +3539,10 @@ TEST(FMaterialSceneTextureTests, PostProcessReadsCompileReflectAndSurviveSourceF
             Reflected += std::format("{} set {} binding {} type {}\n", B.Name, B.SetIndex, B.BindingIndex, uint32(B.Type));
         ASSERT_TRUE(ValidateMaterialCompiledStages(ShaderOutput.CompiledShaders, Translation.Layout, Translation.ResourceLimits,
             Translation.ActiveCollections, Translation.RequiredEntries)) << Reflected;
-        ASSERT_TRUE(ValidateMaterialCompilationOutput(Translation, Translation.Identity, Translation.Target, ShaderOutput.CompiledShaders)) << Reflected;
+        auto AcceptedOutput = static_cast<FMaterialCompilationOutput>(Translation);
+        const auto AcceptedBindings = DescribeMaterialShaderBindings(ShaderOutput.CompiledShaders[0].Reflection);
+        ASSERT_TRUE(AcceptedBindings); AcceptedOutput.Entries[0].Bindings = *AcceptedBindings;
+        ASSERT_TRUE(ValidateMaterialCompilationOutput(AcceptedOutput, Translation.Identity, Translation.Target, ShaderOutput.CompiledShaders)) << Reflected;
 		const auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(Input); ASSERT_TRUE(Encoded);
 		const auto Decoded = MaterialBuildPrivate::DecodeTranslationInput(Encoded->GetBytes()); ASSERT_TRUE(Decoded);
 		EXPECT_EQ(Decoded->IR, Input.IR);
@@ -3422,7 +3580,7 @@ TEST(FMaterialSpecularTests, DefaultsReachabilityEntryIdentityAndSourceFreeCookR
     const auto Baseline = MIR::Compile(Input); ASSERT_TRUE(Baseline) << FormatMaterialProgramDiagnostics(Baseline.Diagnostics);
     EXPECT_EQ(Baseline.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
     const auto FindGBuffer = [](const auto& Program) -> const FMaterialShaderEntryRequest& {
-        return *std::ranges::find(Program.GetShaderMap().Entries, "SurfaceGBuffer", [](const auto& E) { return E.Shader.ShaderType; });
+        return *std::ranges::find(Program.GetShaderMap().Entries, "FGBufferFragmentShader", [](const auto& E) { return E.Shader.ShaderType; });
     };
     Input.IR.GetAttribute(EMaterialProperty::MP_Specular).Literal = {0.f};
     const auto NonDefault = MIR::Compile(Input); ASSERT_TRUE(NonDefault) << FormatMaterialProgramDiagnostics(NonDefault.Diagnostics);
@@ -3439,7 +3597,7 @@ TEST(FMaterialSpecularTests, DefaultsReachabilityEntryIdentityAndSourceFreeCookR
     EXPECT_NE(Dynamic.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
     EXPECT_EQ(Dynamic.GetShaderMap().Layout.Fields.size(), Baseline.GetShaderMap().Layout.Fields.size()+1);
     for (const auto& Entry : Dynamic.GetShaderMap().Entries)
-        EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs,Id), Entry.Shader.ShaderType == "SurfaceForward" || Entry.Shader.ShaderType == "SurfaceGBuffer");
+        EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs,Id), Entry.Shader.ShaderType == "FSurfaceFragmentShader" || Entry.Shader.ShaderType == "FGBufferFragmentShader");
     FByteBuffer Bytes;
     const auto Encoded = Testing::EncodeMaterialCookedProgramFamilyForTest(Dynamic.Resource, Input.StaticProperties, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
     ASSERT_TRUE(Encoded) << Encoded.error();
@@ -3480,11 +3638,11 @@ TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFre
 	const auto Coat = MIR::Compile(Input);
 	ASSERT_TRUE(Coat) << FormatMaterialProgramDiagnostics(Coat.Diagnostics);
 	EXPECT_NE(Coat.GetShaderMap().ShaderMapId, Default.GetShaderMap().ShaderMapId);
-	const auto GBuffer = [](const auto& P) -> const FMaterialShaderEntryRequest& { return *std::ranges::find(P.GetShaderMap().Entries, "SurfaceGBuffer", [](const auto& E) { return E.Shader.ShaderType; }); };
+	const auto GBuffer = [](const auto& P) -> const FMaterialShaderEntryRequest& { return *std::ranges::find(P.GetShaderMap().Entries, "FGBufferFragmentShader", [](const auto& E) { return E.Shader.ShaderType; }); };
 	EXPECT_NE(GBuffer(Coat).Shader.OutputLayout, GBuffer(Default).Shader.OutputLayout);
 	for (const auto& Entry : Coat.GetShaderMap().Entries)
 	{
-		const bool Pixel = Entry.Shader.ShaderType == "SurfaceForward" || Entry.Shader.ShaderType == "SurfaceGBuffer";
+		const bool Pixel = Entry.Shader.ShaderType == "FSurfaceFragmentShader" || Entry.Shader.ShaderType == "FGBufferFragmentShader";
 		EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs, WeightId), Pixel);
 		EXPECT_EQ(std::ranges::contains(Entry.Requirements.ParameterIDs, RoughId), Pixel);
 	}
@@ -3509,4 +3667,77 @@ TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFre
 	const auto Inactive = MIR::Compile(Input);
 	ASSERT_TRUE(Inactive) << FormatMaterialProgramDiagnostics(Inactive.Diagnostics);
 	EXPECT_TRUE(Inactive.GetShaderMap().Layout.Fields.empty());
+}
+
+TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKindAndSchemaBeforeCook)
+{
+    using namespace Durin;
+    const auto Input = MakeSyntheticMaterialCompilerInput();
+    const auto Compiled = MIR::Compile(Input);
+    ASSERT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
+    const auto& Map = Compiled.GetShaderMap();
+    const auto Entry = std::ranges::find_if(Map.Entries, [](const auto& E) { return !E.Bindings.empty(); });
+    ASSERT_NE(Entry, Map.Entries.end());
+    const auto Slot = Entry - Map.Entries.begin();
+    for (size_t I = 0; I < Map.Entries.size(); ++I)
+    {
+        const auto Actual = DescribeMaterialShaderBindings(Map.CompiledShaders[I].Reflection);
+        ASSERT_TRUE(Actual); EXPECT_EQ(*Actual, Map.Entries[I].Bindings);
+    }
+    const auto& Types = FShaderType::GetTypeList();
+    const auto Type = std::ranges::find_if(Types, [&](const auto* T) { return T->GetName() == Entry->Shader.ShaderType; });
+    ASSERT_NE(Type, Types.end());
+    const FShaderType* RuntimeType = *Type;
+    auto RuntimeEntries = Map.Entries;
+    FMeshMaterialShaderMapCompileInput Admission{
+        .Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = Entry->Shader.PermutationId,
+        .ShaderTypes = std::span(&RuntimeType, 1), .GeneratedStages = Map.CompiledShaders,
+        .CompiledProgramIdentity = Map.ShaderMapId, .CompiledTarget = Map.Target,
+        .GeneratedEntries = RuntimeEntries, .bCreateRHIShaders = false};
+    FMeshMaterialShaderMap RuntimeMap;
+    ASSERT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
+    RuntimeEntries[Slot].Bindings.clear();
+    EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
+    EXPECT_FALSE(RuntimeMap);
+    for (uint32 Mutation = 0; Mutation < 12; ++Mutation)
+    {
+        SCOPED_TRACE(Mutation);
+        auto Bad = Compiled;
+        auto Artifact = std::make_shared<FMaterialShaderMap>(Map);
+        Bad.Resource.ShaderMap = Artifact;
+        auto& Reflected = Artifact->CompiledShaders[Slot].Reflection.ResourceBindings;
+        if (Mutation == 0) Artifact->Entries[Slot].Bindings.clear();
+        if (Mutation == 1) Reflected.erase(Reflected.begin());
+        if (Mutation == 2) Reflected.push_back(Reflected.front());
+        if (Mutation == 3) Reflected.front().Type = Reflected.front().Type == ERHIBindingType::Sampler ? ERHIBindingType::Texture : ERHIBindingType::Sampler;
+        if (Mutation == 4) Reflected.front().Name += "Undeclared";
+        if (Mutation == 5) Reflected.front().ArraySize = 2;
+        if (Mutation == 6) Reflected.front().BindingIndex = 65535;
+        if (Mutation == 7) Artifact->Entries[Slot].Bindings.front().ResourceIndex++;
+        if (Mutation == 8) Artifact->BindingSchemaVersion++;
+        if (Mutation == 9) Artifact->Entries[Slot].Bindings.front().Role = EMaterialBindingRole::Count;
+        if (Mutation == 10) { auto Extra = Reflected.front(); Extra.BindingIndex = 60000; Extra.Name = "UndeclaredMaterialResource"; Reflected.push_back(Extra); }
+        if (Mutation == 11) Artifact->Entries[Slot].Bindings.push_back(Artifact->Entries[Slot].Bindings.front());
+        EXPECT_FALSE(ValidateMaterialCompilerResult(Bad));
+        FByteBuffer Bytes;
+        EXPECT_FALSE(Testing::EncodeMaterialCookedProgramFamilyForTest(Bad.Resource, Input.StaticProperties,
+            ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes));
+        EXPECT_TRUE(Bytes.empty());
+    }
+    auto Reordered = Compiled;
+    auto ReorderedMap = std::make_shared<FMaterialShaderMap>(Map);
+    Reordered.Resource.ShaderMap = ReorderedMap;
+    const auto Multi = std::ranges::find_if(ReorderedMap->Entries, [](const auto& E) { return E.Bindings.size() > 1; });
+    ASSERT_NE(Multi, ReorderedMap->Entries.end());
+    std::ranges::reverse(Multi->Bindings);
+    EXPECT_FALSE(ValidateMaterialCompilerResult(Reordered));
+    auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
+    ASSERT_TRUE(Translation);
+    const auto EncodedInput = MaterialBuildPrivate::EncodeTranslationInput(Input);
+    ASSERT_TRUE(EncodedInput);
+    Translation.BindingSchemaVersion++;
+    EXPECT_FALSE(MaterialBuildPrivate::EncodeTranslationProduct(Translation, FXxHash128::HashBuffer(EncodedInput->GetBytes())));
+    FShaderReflectionData Empty;
+    EXPECT_FALSE(ValidateMaterialShaderBindings(Empty, EMaterialShaderEntry::HitProxy, EShaderFrequency::Fragment, 0, 0));
+    EXPECT_FALSE(ValidateMaterialShaderBindings(Empty, EMaterialShaderEntry::PostProcess, EShaderFrequency::Fragment, 0, 0));
 }

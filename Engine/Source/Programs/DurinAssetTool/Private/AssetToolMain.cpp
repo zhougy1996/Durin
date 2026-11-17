@@ -1117,7 +1117,7 @@ int main(int ArgC, char** ArgV)
 		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-		if (Options.Operation == EOperation::Cook)
+		// Load Shader type registrations for all material-aware authoring and Cook operations.
 		{
 			Durin::FModuleManager::Get().LoadModuleChecked("RenderCore");
 			const auto RendererPath = std::filesystem::u8path(Durin::FPlatformProcess::ExecutablePath()).parent_path()
@@ -1131,7 +1131,7 @@ int main(int ArgC, char** ArgV)
 				return 1;
 			}
 			ShaderInventoryModule.Handle = *Loaded;
-			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+			if (Options.Operation == EOperation::Cook) Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		}
 	}
 #endif

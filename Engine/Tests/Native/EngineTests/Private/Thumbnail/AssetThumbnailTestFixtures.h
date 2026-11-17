@@ -3,6 +3,7 @@
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "../Materials/ExplicitMaterialProgramTestFixture.h"
+#include "../Materials/MaterialShaderInventoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #pragma once
 

@@ -114,7 +114,7 @@ namespace
 		Cache->Release.Trigger(); ASSERT_TRUE(WaitForMaterialCompile(*A)); ASSERT_TRUE(WaitForMaterialCompile(*B));
 		EXPECT_GT(GetMaterialCompilationStatistics().SingleFlightConsumers, Before.SingleFlightConsumers);
 		EXPECT_NE(A->GetAcceptedCompiledProgram(), B->GetAcceptedCompiledProgram());
-		EXPECT_EQ(A->GetAcceptedCompiledProgram()->ShaderMap, B->GetAcceptedCompiledProgram()->ShaderMap); EXPECT_EQ(GetShaderBuildStats().Compilations, MaterialAllEntries.size());
+		EXPECT_EQ(A->GetAcceptedCompiledProgram()->ShaderMap, B->GetAcceptedCompiledProgram()->ShaderMap); EXPECT_EQ(GetShaderBuildStats().Compilations, GetDefaultMaterialShaderEntries().size());
 	}
 }
 

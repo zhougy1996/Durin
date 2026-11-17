@@ -64,6 +64,9 @@ namespace Durin
 		class FHitProxyFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::HitProxy, .GeometryUsage = 255, .PassUsage = 8, .bEditorOnly = true}; }
+
 			DURIN_BEGIN_SHADER_PARAMETERS(FHitProxyFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(HitProxy);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
@@ -209,7 +212,7 @@ namespace Durin
 				// a live-time hit map frame-dependent; unrelated surface roots cannot.
 				bFrameDependent |= View.MaterialTimeSeconds < 0.0 && Program && std::ranges::any_of(Program->GetShaderMap().Entries,
 					[&](const auto& Entry) { return Entry.Requirements.Context.bMaterialView
-						&& (Entry.Shader.ShaderType == "SurfaceHitProxy" || (VertexType && Entry.Shader.EntryPoint == VertexType->GetEntryPoint())); });
+						&& (Entry.Shader.ShaderType == "FHitProxyFragmentShader" || (VertexType && Entry.Shader.EntryPoint == VertexType->GetEntryPoint())); });
 				for (const auto& Texture : Binding.CompiledTextures)
 					if (Texture && Texture->GetReferencedTexture_RenderThread())
 						bFrameDependent |= EnumHasAnyFlags(Texture->GetReferencedTexture_RenderThread()->GetFlags(), ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::Storage);

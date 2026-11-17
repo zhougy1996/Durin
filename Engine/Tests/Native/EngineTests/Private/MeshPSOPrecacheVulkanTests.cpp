@@ -34,8 +34,38 @@
 
 namespace
 {
+    template<uint32 Missing>
+    class TLimitedVertexShader final : public Durin::RendererPrivate::FStaticMeshVertexShader
+    {
+    public:
+        using Durin::RendererPrivate::FStaticMeshVertexShader::FStaticMeshVertexShader;
+        // Capability-only PSO fixtures use their own fixed transport contract.
+        // Generated VF extensibility is covered by MaterialCompilerTests.
+        static auto GetMaterialCompilationDescription() -> std::optional<Durin::FMaterialShaderEntryDescriptor> { return {}; }
+        static auto StaticType() -> Durin::FMeshMaterialShaderType&
+        {
+            using namespace Durin; using namespace RendererPrivate;
+            static auto Type = MakeMeshMaterialShaderType<TLimitedVertexShader>(
+                Missing == MaterialMeshPassShadow ? "FPrecacheWithoutShadowVertexShader" :
+                Missing == MaterialMeshPassForward ? "FPrecacheWithoutForwardVertexShader" : "FPrecacheWithoutGBufferVertexShader",
+                "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain", GetParametersMetadata());
+            return Type;
+        }
+    };
+    template<uint32 Missing>
+    class TLimitedVertexBinding final : public Durin::RendererPrivate::FMeshVertexShaderBinding
+    {
+        Durin::TMaterialShaderRef<TLimitedVertexShader<Missing>> Shader;
+    public:
+        explicit TLimitedVertexBinding(const Durin::FMeshMaterialShaderMap& Map) : Shader(Map) {}
+        auto GetRHIShader(bool Required) const -> Durin::FRHIShader* override { return Shader.GetRHIShader(Required); }
+        auto GetReflection() const -> const Durin::FShaderReflectionData* override { return Shader ? &Shader.GetReflection() : nullptr; }
+        // This fixture collects real PSO initializers but never records geometry draws.
+        auto Prepare(Durin::FRHICommandListImmediate&, const Durin::FRHIUniformBufferRange&,
+            const Durin::FVertexFactoryBinding&) const -> Durin::RendererPrivate::FMeshDrawShaderBindings override { return {}; }
+    };
     // Real registry contributions must precede shader-inventory freeze. These
-    // reuse Local shader implementations and remove one capability each.
+    // reuse Local fixed geometry source and remove one capability each.
     class FLimitedPrecacheFactory final : public Durin::RendererPrivate::FMeshVertexFactoryImplementation
     {
         std::shared_ptr<const Durin::RendererPrivate::FMeshVertexFactoryImplementation> Base;
@@ -47,11 +77,23 @@ namespace
               Type(Name, Base->GetType().GetFlags(), &Durin::FLocalVertexFactory::GetPSOPrecacheVertexFetchElements), Missing(InMissing) {}
         auto GetType() const -> const Durin::FVertexFactoryType& override { return Type; }
         auto GetLayoutKey() const -> Durin::FXxHash64 override { return Base->GetLayoutKey(); }
-        auto GetShaderType(uint32 Pass) const -> Durin::FShaderType* override { return Pass == Missing ? nullptr : Base->GetShaderType(Pass); }
-        auto UsesGeneratedMaterialVertexStage(uint32 Pass) const -> bool override { return Base->UsesGeneratedMaterialVertexStage(Pass); }
+        auto GetShaderType(uint32 Pass) const -> Durin::FShaderType* override
+        {
+            using namespace Durin::RendererPrivate;
+            if (Pass == Missing || !Base->GetShaderType(Pass)) return nullptr;
+            if (Missing == MaterialMeshPassShadow) return &TLimitedVertexShader<MaterialMeshPassShadow>::StaticType();
+            if (Missing == MaterialMeshPassForward) return &TLimitedVertexShader<MaterialMeshPassForward>::StaticType();
+            return &TLimitedVertexShader<MaterialMeshPassGBuffer>::StaticType();
+        }
         auto Resolve(const Durin::FMeshMaterialShaderMap& Map, uint32 Pass) const
             -> std::shared_ptr<const Durin::RendererPrivate::FMeshVertexShaderBinding> override
-        { return Pass == Missing ? nullptr : Base->Resolve(Map, Pass); }
+        {
+            using namespace Durin::RendererPrivate;
+            if (!GetShaderType(Pass)) return {};
+            if (Missing == MaterialMeshPassShadow) return std::make_shared<TLimitedVertexBinding<MaterialMeshPassShadow>>(Map);
+            if (Missing == MaterialMeshPassForward) return std::make_shared<TLimitedVertexBinding<MaterialMeshPassForward>>(Map);
+            return std::make_shared<TLimitedVertexBinding<MaterialMeshPassGBuffer>>(Map);
+        }
     };
     std::atomic<int32> DeferredProbeCalls = 0, MobileProbeCalls = 0;
     class FIndependentProbeCollector final : public Durin::IPSOCollector

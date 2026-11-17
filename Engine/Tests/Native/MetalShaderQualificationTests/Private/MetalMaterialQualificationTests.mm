@@ -243,9 +243,9 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialDirectMslCompiles)
 			ASSERT_TRUE(Environment) << Environment.error();
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled);
-			for (size_t Index = 0; Index < Durin::MaterialCompiledEntryPoints.size(); ++Index)
+			for (size_t Index = 0; Index < Durin::GetMaterialCompiledEntryPoints().size(); ++Index)
 			{
-				const auto Entry = Durin::MaterialCompiledEntryPoints[Index];
+				const auto Entry = Durin::GetMaterialCompiledEntryPoints()[Index];
 				SCOPED_TRACE(std::string(bTextured ? "lit masked " : "unlit ") + std::string(Entry));
 				std::string Error;
 				const auto MSL = CompileMaterialDirectMSL(Compiled.GetDebugData().GeneratedSource, Entry, Error);
@@ -283,7 +283,7 @@ TEST(FMetalMaterialQualificationTests, ProductionMaterialVariantsCompileAsMetalL
 			const auto Compiled = Durin::MIR::Compile(Input);
 			ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 				: Compiled.Diagnostics.front().Message);
-			ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::MaterialCompiledEntryPoints.size());
+			ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::GetMaterialCompiledEntryPoints().size());
 			EXPECT_EQ(Compiled.GetShaderMap().Layout.ResourceFieldCount, bTextured ? 1u : 0u);
 			EXPECT_EQ(Compiled.GetShaderMap().Layout.Fields.size(), bTextured ? 4u : 0u);
 			ASSERT_TRUE(Durin::ValidateMaterialCompiledStages(

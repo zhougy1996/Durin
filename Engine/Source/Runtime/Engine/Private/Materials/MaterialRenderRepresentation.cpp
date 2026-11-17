@@ -1,6 +1,7 @@
 #include "Materials/MaterialRenderTypes.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Hash/XxHash.h"
+#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -14,10 +15,15 @@ namespace Durin
 		bool bError = false;
 		uint64 RecordId = 0;
 		uint64 ContentHash = 0;
-		std::shared_ptr<FUniformExpressionCache> UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
+		mutable std::shared_ptr<FUniformExpressionCache> UniformExpressionCache;
 	};
 	auto FMaterialRenderRepresentation::GetUniformExpressionCache() const -> std::shared_ptr<FUniformExpressionCache>
-	{ return Storage->UniformExpressionCache; }
+	{
+		CheckRenderingThread();
+		if (!Storage->UniformExpressionCache)
+			Storage->UniformExpressionCache = std::make_shared<FUniformExpressionCache>();
+		return Storage->UniformExpressionCache;
+	}
 	namespace
 	{
 		auto SetValidationFailure(FMaterialRenderValidationDiagnostic& OutDiagnostic,

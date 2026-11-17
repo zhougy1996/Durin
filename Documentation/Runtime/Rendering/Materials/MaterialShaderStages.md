@@ -3,7 +3,7 @@
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 ## Declared usages
 
@@ -27,19 +27,34 @@ rejected transactionally.
 | 4 | `ShadowFragmentMain` |
 | 8 | `HitProxyFragmentMain` |
 
-`MaterialShaderEntries` owns stable Shader type/source-entry pairs, frequencies,
-geometry/Pass eligibility and Editor selection. `SelectMaterialShaderEntries`
-returns typed classifications; serialized selections use stable Shader type
-names. No ordinal or six-bit stage mask is a persisted request identity.
-`FMaterialCompilationOutput::Entries` stores full existing RenderCore Shader keys,
-sorted by full key and paired with per-entry requirements. Keys include material
-identity/layout, Shader type, entry, target, frequency, permutation, pass version
-and output-layout identity. Vertex requests additionally carry a mesh key with
-`LocalVertexFactory` or `SplineVertexFactory`. Their shared vertex transport uses
-mesh pass key zero; renderer composition adds the actual pass key and registered
-runtime Shader type to its own mesh-map identity. Registered factories explicitly
-reusing built-in generated transport compose it with their own factory identity;
-fixed vertex implementations exclude generated vertex contracts even when source
+Registered `FMaterialShaderType` / `FMeshMaterialShaderType` descriptions own
+Shader type/source-entry pairs, frequency, domain, geometry/pass eligibility,
+blend applicability, permutation ID and editor selection. The type constructor
+supplies its actual registered name, source entry and frequency; no separate
+material entry table or alias registry participates. `SelectMaterialShaderEntries`
+returns actual Shader type names in deterministic order. Semantic entry roles
+remain only for attribute/resource analysis.
+
+`FShaderPermutationParameters` carries target, permutation ID and optional VF.
+`FMaterialShaderPermutationParameters` adds detached domain, static material
+properties, quality, feature level and editor policy. Type and VF policies see
+these captured facts; workers do not query authored objects. Their environment
+callbacks contribute effective macros to both request identity and compilation.
+Callbacks preserve the registered target, entry and frequency.
+
+`FMaterialCompilationOutput::Entries` stores full RenderCore Shader keys sorted
+by full key. Compiled products occupy the corresponding canonical slots; typed
+runtime lookup resolves the exact contract before selecting its code slot.
+Different types/VFs may use the same entry spelling without substituting each
+other's product. Keys include material identity/layout, actual Shader type, entry,
+target, frequency, permutation, pass version and output layout. Vertex requests
+also carry the registered VF mesh key. Renderer composition adds its mesh-pass
+key without rewriting the compiled type or VF identity. Local and Spline use
+`FStaticMeshVertexShader` and `FSplineMeshVertexShader` across all passes; GBuffer
+has no duplicate vertex types. Opaque and masked shadow fragments use their
+respective registered types with the canonical `ShadowFragmentMain` entry.
+PostProcess uses the registered `FPostProcessMaterialShader`. Fixed custom
+vertex implementations exclude generated vertex contracts even when source
 entry names collide. Opaque mask thresholds canonicalize before key comparison.
 HitProxy live-time cache invalidation consumes the coverage and selected vertex
 entry contexts rather than unrelated whole-module surface requirements.
@@ -56,17 +71,27 @@ GPU grouping remains an optional renderer optimization. Local geometry uses its
 same vertex stage with either direct or GPU-selected IDs; GeometryUsage no longer
 selects a culling algorithm. New materials default to mask 3. Load/edit and
 identity canonicalization strip legacy bit 4. Fixed custom vertex
-factories retain their existing explicit opt-in contract; these masks describe
-the built-in generated Local/Spline implementation.
+factories keep independent fixed Shader contracts; the built-in geometry bits
+remain valid before Renderer registration. Registered VF descriptions may
+contribute additional usage bits.
 
 ## Independent stage products
 
 Detached translation retains generated evaluation source for diagnostics.
-`Material/SurfacePasses.slang` owns geometry and fragment entry bodies, GBuffer
-packing and lighting execution; `Material/SurfacePassResources.slang` owns pass
-resource declarations. The expression generator composes these captured modules
-with typed attribute evaluation and material resource reads. Both files belong
-to the immutable material compiler environment dependency closure.
+`Material/SurfacePasses.slang` owns fragment entry bodies, GBuffer packing and
+lighting execution; `Material/SurfacePassResources.slang` owns pass resource
+declarations. RenderCore's `FVertexFactoryShaderDescription` owns geometry module
+imports, material entry includes and generic policy/environment callbacks. Local
+and Spline entry bodies live under `VertexFactory/`; their shared geometry
+adapter calls typed material evaluation. Spline's macro belongs to its VF.
+The expression generator consumes the selected VF description without choosing
+Local/Spline implementations itself. Module/include names are relative to the
+Engine shader mount. Registered roots outside the base compiler environment
+closure receive separate fingerprints and join its verified immutable source
+capture; missing or changed roots reject before compilation. The import closure
+remains conservative and reads no uncaptured filesystem fallback. Registered
+VF sources need not reside in the built-in VertexFactory directory. The Engine
+mount prefix bounds imports; the verified capture determines the available files.
 
 After normalization and static selection, `BuildMaterialCompilationOutput`
 analyzes demanded attribute roots per entry. Forward/GBuffer request applicable
@@ -91,7 +116,7 @@ remove unrelated parameters from their whole-module layout.
 Stage virtual paths derive from evaluation source content independently of the
 whole-material identity. ShaderBuild additionally keys entry/frequency, effective
 macros, target, compiler environment and immutable module dependencies. Vertex
-requests use neutral pixel macros. The import closure remains conservative.
+requests use neutral pixel macros plus the selected type/VF environment.
 
 ShaderBuild's existing bounded memory cache (128 outputs / 256 MiB) and DDC own
 stage retention. Immutable `FSharedByteBuffer` allocations share across accepted
@@ -99,8 +124,8 @@ programs. Whole-material semantic joining and its existing retention bounds
 remain in place. The program compiling manager submits at most two selected stages
 concurrently through a reentrancy-safe dispatch loop, tracks each request in a
 plain compile record for cancellation/priority/draining, and never
-blocks a material worker on ShaderBuild I/O. There are at most six selected
-requests per material. Completed stage metadata and backing capacities charge
+blocks a material worker on ShaderBuild I/O. The built-in default selects six requests; registered extensions may add
+requests within the existing bounded job/output limits. Completed stage metadata and backing capacities charge
 the existing aggregate 8 MiB material result cap before retention. Each submitted
 request receives the remaining aggregate output allowance; retained outputs plus
 the two live reservations total at most 16 MiB. This preserves the active-output
@@ -119,12 +144,42 @@ constant edits reuse both compatible vertex products and require at most
 four pixel compilations. These are work/artifact counts, not a cold-time or
 frame-time speedup claim.
 
+## Logical bindings and runtime projection
+
+`Material/MaterialBindingSchema.inl` is the shared resource catalog. Slang owners
+expand the appropriate declaration group; Engine's private implementation expands
+the same catalog into `FMaterialBindingDefinition` values. Public C++ headers expose
+logical roles and APIs without including shader-source files. Each definition owns
+name/type, reflected/runtime kind, descriptor set, fixed slot or indexed stride,
+array policy and stage/entry eligibility. Material texture/sampler and collection
+names/allocations derive from these rules; there is no separate texture-slot base.
+Uniform payload packing remains with the compiled layout and backend compact
+allocation remains with ShaderFormat.
+
+After reflection validation, each immutable entry publishes canonical logical
+`FMaterialShaderBinding` role/index references. Translation carries no accepted
+bindings. Final assembly and Cook admission require the exact optimized binding
+sequence to match reflection, with no unknown, duplicate, mistyped, wrong-array or
+out-of-scope resource. Material/collection reads must belong to the analyzed entry
+closure. Conservative analysis can exceed optimized reads; mandatory HitProxy and
+PostProcess alpha/input resources must remain present. Binding schema version 1
+travels with compilation output and incompatible versions reject before publication.
+
+Typed runtime maps verify accepted references against their code's reflection
+before creating resources. Renderer projects roles through the shared definitions;
+Surface and standalone PostProcess uniform-kind policy has one schema adapter.
+PostProcess consumes the accepted description directly for material and scene
+bindings. RDG continues to own declared scene reads, texture views and resource
+lifetimes; physical binding metadata does not manufacture graph dependencies.
+Failure rejects the complete candidate and preserves existing published content.
+
 ## Atomic admission and Cook
 
 Typed entry selections and complete requests persist with translated and cooked
 products. Admission checks the canonical full-key sequence, exact supported
 selection, target, pass/output ABI, factory and layout identity. Binary stages
-are matched by source entry and frequency rather than vector position. Missing,
+are paired with contracts in canonical full-key order and checked for entry and
+frequency agreement. Missing,
 extra, duplicate or mistyped entries reject the candidate. Reflection validates
 the closed pass allowlist and requires material resource/collection bindings to
 belong to that entry's analyzed closure. Optimization may remove conservative
@@ -133,19 +188,20 @@ Cook reconstructs collection schemas before admission and checks selection
 against saved material usage. Production Game excludes Editor HitProxy entries.
 
 Renderer Shader Map admission verifies required generated geometry and fragment
-entries before fixed-source fallback. This also applies to the fixed opaque
-shadow fragment, whose declared material Pass remains Shadow. Excluded uses
+entries before fixed-source fallback. This includes the registered opaque
+shadow type, whose declared material pass remains Shadow. Excluded uses
 fail admission without compiler work. Game continues to load accepted binaries
 without MIR, generated source, ShaderBuild or authoring graphs.
 
-Pass contract 14, DMAT 17, MIR 10 and detached translation schema 6 carry this
-contract. Normalization/generator revisions 10/18 and compile adapter 15 invalidate
-old producer results. Rebuild earlier compiled/Cook products; authored graph,
-output, function and instance versions remain 6/4/3/2 and layout remains 4.
+Pass contract 23, DMAT 26 and detached translation schema 15 carry this
+contract. Normalization/generator revisions 16/28, compile adapter 24 and the
+ShaderBuild compile algorithm revision 6 invalidate earlier producer artifacts.
+Recook incompatible derived products; authored graph schemas remain unchanged.
+The [material system](MaterialSystem.md) owns the remaining compatibility versions.
 
 The design follows UE's separation of material shaders, mesh material shaders
 and Vertex Factory permutations, and its sparse compilation selection described
 in [Shader Development](https://dev.epicgames.com/documentation/en-us/unreal-engine/shader-development-in-unreal-engine)
 and [FMeshMaterialShaderType](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FMeshMaterialShaderType).
-Durin uses bounded authored usage declarations and typed sparse entry requests;
-this does not implement UE's full permutation registry.
+Durin uses registered Shader/VF descriptions, bounded authored usage declarations
+and sparse typed requests. Full UE permutation domains remain outside this contract.

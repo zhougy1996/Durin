@@ -21,7 +21,7 @@ namespace Durin
 		std::string CompilerIdentity;
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
-		FMaterialShaderEntrySet RequiredEntries = MaterialAllEntries;
+		FMaterialShaderEntrySet RequiredEntries = GetDefaultMaterialShaderEntries();
 		std::shared_ptr<const FMaterialProgramDebugData> DebugData;
 		// Elapsed seconds for this map's shader-job stage; retained hits reuse this value.
 		float CompileTime = 0;

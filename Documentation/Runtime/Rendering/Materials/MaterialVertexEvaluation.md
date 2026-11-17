@@ -50,10 +50,10 @@ execute separately when both stages consume them.
 Accepted programs contain the exact declared geometry/Pass stage set, selected
 from four fragment entries and `VertexMain`/`SplineVertexMain`. Direct and
 indirect drawing share those geometry entries. Stage artifacts share independently through ShaderBuild;
-see [shader stage selection and sharing](MaterialShaderStages.md). The generated
-import closure conservatively includes both Local and Spline factories. MIR 10,
-generator revision 18, compile adapter 15, pass contract 14 and cooked payload
-schema 17 invalidate incompatible producer and runtime artifacts.
+see [shader stage selection and sharing](MaterialShaderStages.md). Registered Shader types and VF descriptions own executable selection and
+geometry source imports. The immutable source capture remains conservative;
+[Shader/VF stage contracts](MaterialShaderStages.md) owns this boundary and its
+current derived-format versions.
 
 Local and Spline vertices apply WPO after vertex-factory deformation using the
 selected GPUScene instance transform. Clip displacement transforms the

@@ -15,7 +15,7 @@ namespace Durin::RendererPrivate
 {
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader);
-	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader);
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader);
 	const auto GOpaqueShadowRequest = [] {
 		const FShaderType* Type = &FSurfaceOpaqueShadowFragmentShader::StaticType();
 		FShaderRequestRegistration Registration;
@@ -235,67 +235,28 @@ namespace Durin::RendererPrivate
 		return State->Counters;
 	}
 
-	FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection)
-	{
-		Entries.reserve(Reflection.ResourceBindings.size());
-		for (const auto& Binding : Reflection.ResourceBindings)
-		{
-			if (Binding.SetIndex > 1 || Binding.ArraySize != 1) return;
-			if (std::ranges::any_of(Entries, [&](const FEntry& Entry) {
-				return Entry.SetIndex == Binding.SetIndex && Entry.BindingIndex == Binding.BindingIndex;
-			})) return;
-			FEntry Entry{Binding.SetIndex, Binding.BindingIndex, Binding.Type};
-			const uint32 Slot = Binding.BindingIndex;
-			const bool bView = Binding.SetIndex == 0 && Slot == 0;
-			const bool bPrimitive = Binding.SetIndex == 1 && Slot == 0;
-			const bool bCollection = Slot >= 3
-				&& Slot < 3 + MaterialParameterCollectionMaxPerMaterial;
-			const bool bScene = Binding.SetIndex == 0 && (Slot == 27 || Slot == 28 || Slot == 29 || Slot == 31);
-			const bool bMaterialSet = !bScene && (bPrimitive || Slot == 2 || Slot == 27 || bCollection
-				|| Slot >= MaterialTextureBindingBase);
-			if (Binding.SetIndex != (bMaterialSet ? 1u : 0u)) return;
-			ERHIBindingType Expected = ERHIBindingType::Texture;
-			if (bScene)
-			{
-				Entry.Source = Slot == 27 ? ESource::GPUScenePrimitive : Slot == 28 ? ESource::GPUSceneInstance : Slot == 29 ? ESource::GPUScenePayload : ESource::GPUSceneInstanceIds;
-				Expected = ERHIBindingType::StorageBuffer;
-			}
-			else if (bView || bPrimitive || Slot == 1 || Slot == 2 || Slot == 27)
-			{
-				Entry.Source = bView ? ESource::View : bPrimitive ? ESource::Primitive : Slot == 27 ? ESource::HitProxy
-					: Slot == 1 ? ESource::Lighting : ESource::Material;
-				Expected = ERHIBindingType::UniformBuffer;
-				Entry.Type = ERHIBindingType::UniformBufferDynamic;
-			}
-			else if (bCollection)
-			{
-				Entry.Source = ESource::Collection;
-				Entry.ResourceIndex = Slot - 3;
-				Expected = ERHIBindingType::UniformBuffer;
-			}
-			else if (Slot >= MaterialTextureBindingBase)
-			{
-				Entry.ResourceIndex = (Slot - MaterialTextureBindingBase) / 2;
-				const bool bSampler = (Slot - MaterialTextureBindingBase) % 2 != 0;
-				Entry.Source = bSampler ? ESource::Sampler : ESource::Texture;
-				Expected = bSampler ? ERHIBindingType::Sampler : ERHIBindingType::Texture;
-			}
-			else switch (Slot)
-			{
-			case 30: Entry.Source = ESource::LocalLights; Expected = ERHIBindingType::StorageBuffer; break;
-			case 19: Entry.Source = ESource::EnvironmentIrradiance; break;
-			case 20: Entry.Source = ESource::EnvironmentPrefiltered; break;
-			case 21: Entry.Source = ESource::EnvironmentBrdfLut; break;
-			case 22: Entry.Source = ESource::EnvironmentSampler; Expected = ERHIBindingType::Sampler; break;
-			case 25: Entry.Source = ESource::DirectionalShadowTexture; break;
-			case 26: Entry.Source = ESource::DirectionalShadowSampler; Expected = ERHIBindingType::Sampler; break;
-			default: return;
-			}
-			if (Binding.Type != Expected) return;
-			Entries.push_back(Entry);
-		}
-		bValid = true;
-	}
+    FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection)
+    {
+        const auto Logical = DescribeMaterialShaderBindings(Reflection);
+        if (Logical) *this = FCompiledSurfaceBindingLayout(*Logical);
+    }
+    FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings, EMaterialDomain Domain)
+    {
+        std::set<std::pair<uint32, uint32>> Seen;
+        for (const auto& Binding : Bindings)
+        {
+            if (Binding.Role >= EMaterialBindingRole::Count) return;
+            const auto& D = GetMaterialBindingDefinition(Binding.Role);
+            const uint8 PostProcess = 1u << uint8(EMaterialShaderEntry::PostProcess);
+            if (Domain == EMaterialDomain::PostProcess ? !(D.Entries & PostProcess) : !(D.Entries & ~PostProcess)) return;
+            const auto Limit = Binding.Role == EMaterialBindingRole::Collection ? MaterialParameterCollectionMaxPerMaterial : MaterialRenderMaxResourceCount;
+            if (D.Stride && Binding.ResourceIndex >= Limit) return;
+            const auto Slot = GetMaterialBindingSlot(Binding.Role, Binding.ResourceIndex);
+            if ((!D.Stride && Binding.ResourceIndex) || !Seen.emplace(D.SetIndex, Slot).second) return;
+            Entries.push_back({D.SetIndex, Slot, GetMaterialRuntimeBindingType(Binding.Role, Domain), Binding.Role, Binding.ResourceIndex});
+        }
+        bValid = true;
+    }
 
 	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
 		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& MaterialBuffer,
@@ -371,6 +332,7 @@ namespace Durin::RendererPrivate
 			case ESource::EnvironmentSampler: Resource.Resource = Material.EnvironmentSampler; break;
 			case ESource::DirectionalShadowTexture: Resource.Resource = Material.DirectionalShadowTexture; break;
 			case ESource::DirectionalShadowSampler: Resource.Resource = Material.DirectionalShadowSampler; break;
+            default: return false;
 			}
 			if (Range)
 			{

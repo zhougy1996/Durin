@@ -688,16 +688,17 @@ durin_add_native_test(MaterialCompileLifecycleTests
 durin_add_native_test(MaterialCompileShutdownTests
 	KIND feature
 	DOMAINS material material-compilation
-	MODULES engine shader-build
+	MODULES engine renderer shader-build
 	SOURCES Private/Materials/MaterialCompileShutdownTests.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
-	LIBRARIES Core CoreDObject Engine RenderCore ShaderBuild DerivedDataCache
+	LIBRARIES Core CoreDObject Engine RenderCore Renderer ShaderBuild DerivedDataCache
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Exercises terminal shutdown of authored material compilation in its own process."
 	ENVIRONMENTS authored-shaders
+	HEAVY_RUNTIME_RATIONALE "Imports Renderer Shader registrations for detached material compilation without starting a renderer."
 )
 
 durin_add_native_test(MaterialCookTests

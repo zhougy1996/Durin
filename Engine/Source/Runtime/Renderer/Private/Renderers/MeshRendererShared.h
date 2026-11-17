@@ -38,7 +38,8 @@ namespace Durin::RendererPrivate
 	{
 		static const FVertexFactoryType Type("LocalVertexFactory",
 			EVertexFactoryFlags::SupportsPSOPrecaching | EVertexFactoryFlags::SupportsPositionOnly,
-			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements);
+			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements,
+			{.ShaderModules = {"VertexFactory.LocalVertexFactory"}, .MaterialEntryInclude = "VertexFactory/LocalMaterialEntry.slang"});
 		return Type;
 	}
 
@@ -46,7 +47,11 @@ namespace Durin::RendererPrivate
 	{
 		static const FVertexFactoryType Type("SplineVertexFactory",
 			EVertexFactoryFlags::SupportsPSOPrecaching | EVertexFactoryFlags::SupportsPositionOnly,
-			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements);
+			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements,
+			{.ShaderModules = {"VertexFactory.LocalVertexFactory", "VertexFactory.SplineMeshVertexFactory"}, .MaterialEntryInclude = "VertexFactory/SplineMaterialEntry.slang",
+			 .ModifyEnvironment = [](const FShaderPermutationParameters&, FShaderCompileOptions& O) {
+				if (!std::ranges::any_of(O.Macros, [](const auto& M) { return M.Name == "DURIN_SPLINE_MESH"; })) O.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
+			 }});
 		return Type;
 	}
 
@@ -98,9 +103,7 @@ namespace Durin::RendererPrivate
 		// compilation when its geometry or pass was excluded at material build.
 		if (MaterialProgram)
 		{
-			const auto RequiredFragment = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain"
-				? std::string_view("ShadowFragmentMain") : FragmentType.GetEntryPoint();
-			for (const auto Entry : {RequiredFragment,
+			for (const auto Entry : {FragmentType.GetEntryPoint(),
 				Factory->UsesGeneratedMaterialVertexStage(MeshPassKey) ? VertexType.GetEntryPoint() : std::string_view{}})
 				if (!Entry.empty() && !std::ranges::any_of(GeneratedStages,
 					[Entry](const auto& Stage) { return Stage.SourceEntryPoint == Entry; }))
@@ -121,16 +124,6 @@ namespace Durin::RendererPrivate
 				if (Entry.Shader.Frequency != EShaderFrequency::Vertex) FactoryCompatibleEntries.push_back(Entry);
 			GeneratedEntries = FactoryCompatibleEntries;
 		}
-		else if (MaterialProgram)
-		{
-			// Registered factories may explicitly reuse a built-in generated vertex
-			// implementation. Compose its transport with the consuming factory key.
-			FactoryCompatibleEntries.assign(GeneratedEntries.begin(), GeneratedEntries.end());
-			for (auto& Entry : FactoryCompatibleEntries)
-				if (Entry.Mesh && Entry.Shader.EntryPoint == VertexType.GetEntryPoint())
-					Entry.Mesh->VertexFactoryType = VertexFactoryType.GetName();
-			GeneratedEntries = FactoryCompatibleEntries;
-		}
 		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
 			.Generation = Generation,
@@ -141,7 +134,7 @@ namespace Durin::RendererPrivate
 			.ShaderTypes = Types,
 			.CompileOptions = VertexCompileOptions,
 			.FixedShaderRuntimeRequest = Factory->GetRuntimeRequestName(MeshPassKey),
-			.FixedFragmentRuntimeRequest = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain" ? "Surface.OpaqueShadow" : FragmentType.GetEntryPoint() == "HitProxyFragmentMain" ? "Surface.HitProxy" : "",
+			.FixedFragmentRuntimeRequest = FragmentType.GetName() == "FSurfaceOpaqueShadowFragmentShader" ? "Surface.OpaqueShadow" : FragmentType.GetEntryPoint() == "HitProxyFragmentMain" ? "Surface.HitProxy" : "",
 			.GeneratedStages = GeneratedStages,
 			.CompiledProgramIdentity = MaterialProgram
 				? MaterialProgram->GetShaderMap().ShaderMapId : FMaterialProgramIdentity{},
@@ -161,7 +154,7 @@ namespace Durin::RendererPrivate
 		std::vector<FShaderParameterBinding> Bindings(Content->GetParameterBindings().begin(), Content->GetParameterBindings().end());
 		// View and material uniforms are supplied by pass/material composition.
 		std::erase_if(Bindings, [](const auto& Parameter) {
-			return Parameter.SetIndex == 0 || (Parameter.SetIndex == 1 && Parameter.BindingIndex == 2);
+			return Parameter.SetIndex == 0 || (Parameter.SetIndex == GetMaterialBindingDefinition(EMaterialBindingRole::Material).SetIndex && Parameter.BindingIndex == GetMaterialBindingSlot(EMaterialBindingRole::Material));
 		});
 		FMeshDrawShaderBindings Result;
 		Result.Parameters = ResolveShaderParameterResources(*TShader::GetParametersMetadata(), Bindings, &Parameters);
@@ -201,6 +194,9 @@ namespace Durin::RendererPrivate
 	class FStaticMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::LocalVertex, .GeometryUsage = 1, .PassUsage = 15, .VertexFactory = []() -> const FVertexFactoryType* { return &GetLocalVertexFactoryShaderType(); }}; }
+
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
 			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
             DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
@@ -222,10 +218,12 @@ namespace Durin::RendererPrivate
 	class FSplineMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
-		static auto ModifyCompilationEnvironment(const FShaderPermutationParameters&, FShaderCompileOptions& Options) -> void
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::SplineVertex, .GeometryUsage = 2, .PassUsage = 15, .VertexFactory = []() -> const FVertexFactoryType* { return &GetSplineVertexFactoryShaderType(); }}; }
+
+		static auto ModifyCompilationEnvironment(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& Options) -> void
 		{
-			if (!std::ranges::any_of(Options.Macros, [](const auto& Macro) { return Macro.Name == "DURIN_SPLINE_MESH"; }))
-				Options.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
+			GetSplineVertexFactoryShaderType().ModifyCompilationEnvironment(Parameters, Options);
 		}
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
 			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);

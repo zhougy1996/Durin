@@ -7,19 +7,17 @@ namespace Durin::MaterialBuildPrivate
 {
 	template<class T> auto TransferMaterialEntrySet(T& Transfer, FMaterialShaderEntrySet& Entries) -> void
 	{
-		Transfer.Sequence(Entries, 64, [&](auto& Entry) {
-			std::string Name;
-			if (const auto* Definition = FindMaterialShaderEntry(Entry)) Name = Definition->ShaderType;
-			Transfer.String(Name, 128);
-			const auto* Definition = FindMaterialShaderEntry(Name);
-			Transfer.Check(Definition != nullptr);
-			if (Definition) Entry = Definition->Entry;
+		Transfer.Sequence(Entries, MaterialProgramMaxShaderEntries, [&](auto& Entry) {
+			Transfer.String(Entry, 128);
+			Transfer.Check(FindMaterialShaderEntry(Entry) != nullptr);
 		});
 	}
 	template<class T> auto TransferMaterialCompilationEntries(T& Transfer, FMaterialCompilationOutput& Output) -> void
 	{
-		Transfer.Value(Output.Domain);
-		Transfer.Sequence(Output.Entries, 64, [&](auto& Entry) {
+		Transfer.Value(Output.BindingSchemaVersion);
+		Transfer.Check(Output.BindingSchemaVersion == MaterialBindingSchemaVersion);
+		Transfer.Value(Output.Domain); Transfer.Value(Output.Quality); Transfer.Value(Output.FeatureLevel); Transfer.Value(Output.bIncludeEditorPasses);
+		Transfer.Sequence(Output.Entries, MaterialProgramMaxShaderEntries, [&](auto& Entry) {
 			auto& Key = Entry.Shader;
 			Transfer.Value(Key.Material.RenderLayout.Version); Transfer.Value(Key.Material.RenderLayout.Id);
 			Transfer.Value(Key.Material.ProgramIdentity.Digest);
@@ -38,6 +36,10 @@ namespace Durin::MaterialBuildPrivate
 				Transfer.Value(Entry.Mesh->MeshPassKey); Transfer.Value(Entry.Mesh->MeshPermutationId);
 			}
 			else Entry.Mesh.reset();
+            Transfer.Sequence(Entry.Bindings, 256, [&](auto& Binding) {
+                Transfer.Value(Binding.Role); Transfer.Value(Binding.ResourceIndex);
+                Transfer.Check(Binding.Role < EMaterialBindingRole::Count);
+            });
 			auto& Requirements = Entry.Requirements;
 			Transfer.Sequence(Requirements.AttributeIDs, 64, [&](auto& V) { Transfer.Value(V); });
 			Transfer.Sequence(Requirements.ParameterIDs, MaterialRenderMaxFieldCount, [&](auto& V) { Transfer.Value(V); });

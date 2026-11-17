@@ -7,6 +7,7 @@
 #include "RHI.h"
 #include "RenderResource.h"
 #include "Misc/EnumClassFlags.h"
+#include "Shader/Shader.h"
 
 namespace Durin
 {
@@ -33,12 +34,27 @@ namespace Durin
 
 	using FGetPSOPrecacheVertexFetchElements = void (*)(EVertexInputStreamType, FVertexDeclarationElementList&);
 
+	// Immutable geometry source and policy shared by generated material requests.
+	struct FVertexFactoryShaderDescription
+	{
+		std::vector<std::string_view> ShaderModules;
+		std::string_view MaterialEntryInclude;
+		FShouldCompilePermutationFunction ShouldCompile = nullptr;
+		FModifyCompilationEnvironmentFunction ModifyEnvironment = nullptr;
+	};
+
 	class FVertexFactoryType
 	{
 	public:
 		RENDERCORE_API explicit FVertexFactoryType(std::string_view InName);
 		RENDERCORE_API FVertexFactoryType(std::string_view InName, EVertexFactoryFlags InFlags,
-			FGetPSOPrecacheVertexFetchElements InGetPSOPrecacheVertexFetchElements = nullptr);
+			FGetPSOPrecacheVertexFetchElements InGetPSOPrecacheVertexFetchElements = nullptr,
+			FVertexFactoryShaderDescription InShaderDescription = {});
+		auto GetShaderDescription() const -> const FVertexFactoryShaderDescription& { return ShaderDescription; }
+		auto ShouldCompilePermutation(const FShaderPermutationParameters& P) const -> bool
+		{ return !ShaderDescription.ShouldCompile || ShaderDescription.ShouldCompile(P); }
+		auto ModifyCompilationEnvironment(const FShaderPermutationParameters& P, FShaderCompileOptions& Options) const -> void
+		{ if (ShaderDescription.ModifyEnvironment) ShaderDescription.ModifyEnvironment(P, Options); }
 		auto GetName() const -> std::string_view { return Name; }
 		auto GetStableKey() const -> FXxHash64 { return StableKey; }
 		auto GetFlags() const -> EVertexFactoryFlags { return Flags; }
@@ -50,6 +66,7 @@ namespace Durin
 			-> const std::vector<const FVertexFactoryType*>&;
 
 	private:
+		FVertexFactoryShaderDescription ShaderDescription;
 		std::string Name;
 		FXxHash64 StableKey;
 		EVertexFactoryFlags Flags = EVertexFactoryFlags::None;

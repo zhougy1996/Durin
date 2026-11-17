@@ -13,6 +13,12 @@ and `FCompilerInput` carries the detached compiler contract. IR operations use
 `MIR::Compile`. Material assets, expression objects, and runtime material
 interfaces remain in `Durin`.
 
+Source generation accepts property-root MIR after aggregate lowering by
+`MIR::Normalize`. Make/Get/Set Attributes remain authoring constructs; an
+aggregate root or residual Make Attributes node is rejected with an actionable
+diagnostic and no partial generated source. There is no separate fixed-eight
+aggregate evaluator in the source generator.
+
 `DMaterialExpression::Build(MIR::FEmitter&) const` builds a node,
 not a requested output. It registers indexed outputs with `Output(uint8, Value)`
 or stable function-port outputs with `Output(FGuid, Value)`. The virtual interface

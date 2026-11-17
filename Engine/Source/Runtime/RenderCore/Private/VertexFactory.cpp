@@ -20,8 +20,8 @@ namespace Durin
 		: FVertexFactoryType(InName, EVertexFactoryFlags::None) {}
 
 	FVertexFactoryType::FVertexFactoryType(std::string_view InName, EVertexFactoryFlags InFlags,
-		FGetPSOPrecacheVertexFetchElements InGetPSOPrecacheVertexFetchElements)
-		: Name(InName), StableKey(FXxHash64::HashBuffer(InName)), Flags(InFlags),
+		FGetPSOPrecacheVertexFetchElements InGetPSOPrecacheVertexFetchElements, FVertexFactoryShaderDescription InShaderDescription)
+		: ShaderDescription(InShaderDescription), Name(InName), StableKey(FXxHash64::HashBuffer(InName)), Flags(InFlags),
 		GetPSOPrecacheVertexFetchElementsFunction(InGetPSOPrecacheVertexFetchElements)
 	{
 		checkf(!Name.empty(), "Vertex Factory type name must not be empty");

@@ -30,10 +30,20 @@ struct VSOutput
 
 
 
-[[vk::binding(0, 0)]] ConstantBuffer<MaterialViewUniform> MaterialView;
+#define DURIN_DECLARE_BINDINGS_View 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
+#include "Material/MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_View
+
 
 #if DURIN_SPLINE_MESH
-[[vk::binding(24, 1)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
+#define DURIN_DECLARE_BINDINGS_Spline 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
+#include "Material/MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_Spline
+
 #endif
 
 VSOutput EvaluateFixedGeometry(FLocalVertexFactoryInput input, uint instanceId)
@@ -103,7 +113,12 @@ float4 FragmentMain(VSOutput input,
 }
 
 struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
-[[vk::binding(27, 1)]] ConstantBuffer<HitProxyUniform> HitProxy;
+#define DURIN_DECLARE_BINDINGS_HitProxy 1
+#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
+#include "Material/MaterialBindingSchema.inl"
+#undef DURIN_MATERIAL_BINDING
+#undef DURIN_DECLARE_BINDINGS_HitProxy
+
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0 { return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz))); }
 

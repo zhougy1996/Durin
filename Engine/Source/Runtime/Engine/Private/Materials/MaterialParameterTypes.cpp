@@ -1,3 +1,4 @@
+#include "Materials/MaterialProgramCompiler.h"
 #include "MaterialParameterValidation.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialParameterValues.h"
@@ -110,7 +111,7 @@ namespace Durin
 	auto CanonicalizeMaterialShaderProperties(FMaterialStaticProperties Properties)
 		-> FMaterialStaticProperties
 	{
-		Properties.GeometryUsage &= 3;
+		Properties.GeometryUsage &= uint8(~4u);
 		if (Properties.BlendMode != EMaterialBlendMode::Masked)
 			Properties.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
 		else if (Properties.OpacityMaskThreshold == 0.0f)
@@ -259,7 +260,10 @@ namespace Durin
 	auto ValidateMaterialStaticProperties(
 		const FMaterialStaticProperties& Properties) -> std::expected<void, std::string>
 	{
-		if (!Properties.GeometryUsage || (Properties.GeometryUsage & ~7)
+		// Built-in authored usage remains valid before renderer module registration.
+		uint8 GeometryMask = 7;
+		for (const auto& D : GetMaterialShaderEntries()) if (D.VertexFactory) GeometryMask |= D.GeometryUsage;
+		if (!Properties.GeometryUsage || (Properties.GeometryUsage & ~GeometryMask)
 			|| !Properties.PassUsage || (Properties.PassUsage & ~15)
 			|| ((Properties.GeometryUsage & 4) && !(Properties.GeometryUsage & 1)))
 			return std::unexpected("Material geometry/pass usage masks are invalid.");

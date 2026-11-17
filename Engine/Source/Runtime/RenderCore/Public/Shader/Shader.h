@@ -17,6 +17,7 @@ namespace Durin
 	class FShaderType;
 	class FShader;
 	class FShaderMapBase;
+	class FVertexFactoryType;
 
 	// Identifies the shader type and permutation being compiled or instantiated.
 	struct FShaderPermutationParameters
@@ -25,6 +26,9 @@ namespace Durin
 		std::string_view VirtualShaderPath;
 		std::string_view EntryPoint;
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		FShaderTargetIdentity Target;
+		uint32 PermutationId = 0;
+		const FVertexFactoryType* VertexFactoryType = nullptr;
 	};
 
 	using FShaderFactoryFunction = std::unique_ptr<FShader> (*)(

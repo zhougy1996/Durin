@@ -1387,7 +1387,10 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 	for (uint32 Index = 0; Index < Channels.size(); ++Index)
 	{
 		SCOPED_TRACE(Index);
-		const auto Role = static_cast<EMaterialProperty>(Index);
+		constexpr std::array Properties{EMaterialProperty::MP_BaseColor, EMaterialProperty::MP_Normal,
+			EMaterialProperty::MP_Metallic, EMaterialProperty::MP_Roughness, EMaterialProperty::MP_AmbientOcclusion,
+			EMaterialProperty::MP_EmissiveColor, EMaterialProperty::MP_Opacity, EMaterialProperty::MP_OpacityMask};
+		const auto Role = Properties[Index];
 		const bool bNormal = Role == EMaterialProperty::MP_Normal;
 		const auto Result = FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {.Output = Role, .X = 400, .Y = 200});
 		ASSERT_TRUE(Result) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Result);
@@ -1400,7 +1403,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		const FGuid ParameterId = Sample->Metadata.Id;
 		const auto ReadOutput = [&]() {
 			const auto& O = Material->GetExpressionOutputs();
-			return (std::array{O.Get(EMaterialProperty::MP_BaseColor), O.Get(EMaterialProperty::MP_Normal), O.Get(EMaterialProperty::MP_Metallic), O.Get(EMaterialProperty::MP_Roughness), O.Get(EMaterialProperty::MP_AmbientOcclusion), O.Get(EMaterialProperty::MP_EmissiveColor), O.Get(EMaterialProperty::MP_Opacity), O.Get(EMaterialProperty::MP_OpacityMask)})[Index];
+			return O.Get(Role);
 		};
 		EXPECT_EQ(ReadOutput().Connection.ExpressionId, SampleId);
 		EXPECT_EQ(ReadOutput().Connection.OutputIndex, Channels[Index]);
