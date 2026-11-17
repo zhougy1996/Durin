@@ -10,7 +10,6 @@
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
@@ -144,10 +143,7 @@ namespace Durin
 	auto FStreamableHandle::IsActive() const -> bool
 	{
 		CheckAsyncLoadThread();
-		return !Impl->bReleased && !Impl->bCanceled && (Impl->State == EAssetLoadState::Pending
-			|| Impl->State == EAssetLoadState::Loading || Impl->State == EAssetLoadState::Succeeded
-			|| Impl->Package.IsValid()
-			|| std::ranges::any_of(Impl->Assets, [](const auto& Asset) { return Asset.IsValid(); }));
+		return !Impl->bReleased && !Impl->bCanceled;
 	}
 
 	auto FStreamableHandle::HasLoadCompleted() const -> bool { CheckAsyncLoadThread(); return Impl->bLoadCompleted; }
@@ -189,6 +185,7 @@ namespace Durin
 	auto FStreamableHandle::GetOwningManager() const -> FStreamableManager*
 	{
 		CheckAsyncLoadThread();
+		if (!IsActive()) return nullptr;
 		const auto Owner = Impl->Manager.lock();
 		return Owner ? Owner->Owner : nullptr;
 	}
@@ -208,7 +205,6 @@ namespace Durin
 	{
 		if (Impl->bReleased) return;
 		const auto KeepAlive = weak_from_this().lock();
-		const bool bHadRetention = Impl->Package.IsValid() || Impl->Object.IsValid() || !Impl->Assets.empty();
 		Impl->LoadedPackage = Impl->Package.Get();
 		Impl->LoadedObject = Impl->Object.Get();
 		Impl->Object.Reset();
@@ -228,18 +224,18 @@ namespace Durin
 		Impl->bReleased = true;
 		if (const auto Owner = Impl->Manager.lock())
 			std::erase_if(Owner->Managed, [this](const auto& Handle) { return Handle.get() == this; });
-		if (bHadRetention) RequestGarbageCollection();
 	}
 	auto FStreamableHandle::ReleaseHandle() -> void
 	{
 		CheckAsyncLoadThread();
+		if (Impl->bReleased || Impl->bCanceled) return;
 		Impl->bReleaseRequested = true;
 		if (IsComplete() && !Impl->bCompletionPending) ReleaseRetention();
 	}
 	auto FStreamableHandle::CancelHandle() -> void
 	{
 		CheckAsyncLoadThread();
-		if (Impl->bCanceled) return;
+		if (Impl->bCanceled || Impl->bReleased) return;
 		const auto KeepAlive = weak_from_this().lock();
 		Impl->bCanceled = true;
 		Impl->Callback = {};

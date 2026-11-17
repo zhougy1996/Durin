@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject, Engine, Launch
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-17
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -314,7 +314,13 @@ The elapsed interval starts at `IntervalSeconds`. A collection with no sweep can
 `DEngine::ForceGarbageCollection(bForcePurge)` records a request. The Core-only
 extension is `RequestGarbageCollection(bForcePurge)`. Requests share one process-wide
 slot; full-purge intent is sticky until a full collection services it. Requests
-never carry KeepFlags. Execution takes explicit `EObjectFlags KeepFlags` and
+express explicit cleanup policy. Successful
+package loading and streamable-handle release, destruction or cancellation do
+not request GC; unowned objects remain eligible for a later policy-driven pass,
+as in UE 5.8's `StreamableManager.cpp`. Failed-graph rollback and explicit asset
+deletion may request collection after retiring their objects. Checked package
+unloading still establishes a synchronous collection boundary.
+Requests never carry KeepFlags. Execution takes explicit `EObjectFlags KeepFlags` and
 `bool bPerformFullPurge = true`, matching the UE argument shape. Tools and tests
 choose their retention policy explicitly; the Engine uses Standalone in editor
 mode and NoFlags otherwise. Explicit asset-package residency is a native root

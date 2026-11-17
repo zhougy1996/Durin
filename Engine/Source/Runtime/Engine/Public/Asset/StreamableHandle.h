@@ -13,7 +13,7 @@ namespace Durin
 	using FStreamableDelegate = std::function<void(FStreamableHandle&)>;
 
 	// GameThread-only. Active handles retain their loaded package and selected object.
-	// Release/destruction drops only this handle's references and schedules GC.
+	// Release/destruction drops only this handle's references, without scheduling GC.
 	class FStreamableHandle : public std::enable_shared_from_this<FStreamableHandle>
 	{
 	public:
@@ -22,6 +22,7 @@ namespace Durin
 		auto operator=(const FStreamableHandle&) -> FStreamableHandle& = delete;
 		ENGINE_API auto GetState() const -> EAssetLoadState;
 		ENGINE_API auto IsComplete() const -> bool;
+		// Active until released or canceled, including a completed failed load.
 		ENGINE_API auto IsActive() const -> bool;
 		ENGINE_API auto HasLoadCompleted() const -> bool;
 		ENGINE_API auto WasCanceled() const -> bool;
@@ -34,6 +35,7 @@ namespace Durin
 		// Input ordering and duplicates are preserved, including null failure slots.
 		ENGINE_API auto GetLoadedAssets() const -> std::vector<DObject*>;
 		ENGINE_API auto GetDebugName() const -> const std::string&;
+		// Only active handles report their manager.
 		ENGINE_API auto GetOwningManager() const -> FStreamableManager*;
 		ENGINE_API auto IsManaged() const -> bool;
 		ENGINE_API auto GetReport() const -> const FAssetLoadReport&;
@@ -41,7 +43,7 @@ namespace Durin
 		ENGINE_API auto GetLoadedAsset() const -> DObject*;
 		// During loading or queued completion, release is deferred until callback delivery.
 		ENGINE_API auto ReleaseHandle() -> void;
-		// Suppresses this request's completion and releases its retention; peers are unaffected.
+		// Suppresses completion and releases retention; an already released handle is unchanged.
 		ENGINE_API auto CancelHandle() -> void;
 	private:
 		FStreamableHandle();

@@ -625,8 +625,7 @@ namespace Durin
 			PendingLoads.erase(Member->Path);
 			CompletionStack.pop_back();
 		}
-		// Bare synchronous results are observations; publication adds no cache owner.
-		RequestGarbageCollection();
+		// Publication adds no cache owner and does not schedule global collection.
 		return {};
 	}
 

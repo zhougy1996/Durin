@@ -1977,6 +1977,7 @@ TEST_F(FAsyncAssetLoadTests, ColdObjectAndPackageRequestsSharePublicationAndReta
 	EXPECT_EQ(GPackageAssetPostLoadCount, Before + 1);
 	EXPECT_EQ(Object->GetLoadedPackage(), Package->GetLoadedPackage());
 	EXPECT_EQ(static_cast<DPackageAssetForTest*>(Object->GetLoadedAsset())->Value, 42);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	EXPECT_FALSE(UnloadPackage(Path));
 	Object.reset(); Package.reset();
 	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
@@ -1986,9 +1987,11 @@ TEST_F(FAsyncAssetLoadTests, RuntimeBareLoadsAndSoftReferencesDoNotCreateResiden
 {
 	using namespace Durin;
 	const auto Path = SaveAsset("RuntimeObservedAsset");
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 	const auto ObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(Path);
 	auto* Asset = LoadObject<DPackageAssetForTest>(ObjectPath);
 	ASSERT_NE(Asset, nullptr);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	EXPECT_FALSE(Asset->GetPackage()->HasAnyObjectFlags(EObjectFlags::Standalone));
 	TSoftObjectPtr<DPackageAssetForTest> Soft(ObjectPath);
 	EXPECT_EQ(Soft.Get(), Asset);
@@ -2665,6 +2668,29 @@ TEST_F(FAsyncAssetLoadTests, ManagedRequestsOutliveCallerUntilExplicitRelease)
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
+TEST_F(FAsyncAssetLoadTests, FailedManagedRequestsRemainActiveUntilExplicitRelease)
+{
+	using namespace Durin;
+	FStreamableManager Manager;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/AbsentManagedHandle", Path));
+	auto Handle = Manager.RequestAsyncLoad({
+		.TargetsToStream = {Testing::MakePackageLeafAssetObjectPathForTests(Path)},
+		.bManageActiveHandle = true});
+	ASSERT_TRUE(PumpUntil([&] { return Handle->HasLoadCompleted(); }));
+	ASSERT_TRUE(Handle->HasError());
+	EXPECT_TRUE(Handle->IsActive());
+	EXPECT_TRUE(Handle->IsManaged());
+	EXPECT_EQ(Handle->GetOwningManager(), &Manager);
+	std::weak_ptr<FStreamableHandle> Weak = Handle;
+	Handle.reset();
+	ASSERT_EQ(Manager.GetActiveHandles().size(), 1u);
+	EXPECT_FALSE(Weak.expired());
+	Manager.GetActiveHandles().front()->ReleaseHandle();
+	EXPECT_TRUE(Weak.expired());
+	EXPECT_TRUE(Manager.GetActiveHandles().empty());
+}
+
 TEST_F(FAsyncAssetLoadTests, CombinedLoadCompletionDoesNotWaitForChildPublicDelegates)
 {
 	using namespace Durin;
@@ -2858,15 +2884,18 @@ TEST_F(FAsyncAssetLoadTests, LastHandleReleasesNewResidencyWithoutInvalidatingOt
 	ASSERT_FALSE(First->HasError());
 	ASSERT_FALSE(Second->HasError());
 	DPackage* Package = Second->GetLoadedPackage();
+	const auto Serial = GetLastGarbageCollectionStats().CollectionSerial;
+	ASSERT_FALSE(IsGarbageCollectionRequested());
 	First.reset();
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	EXPECT_TRUE(IsGarbageCollectionRequested());
+	EXPECT_FALSE(IsGarbageCollectionRequested());
+	EXPECT_EQ(GetLastGarbageCollectionStats().CollectionSerial, Serial);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_EQ(Second->GetLoadedPackage(), Package);
 	Second.reset();
 	EXPECT_EQ(FindResidentPackage(Path), Package);
-	EXPECT_TRUE(IsGarbageCollectionRequested());
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
@@ -2882,14 +2911,17 @@ TEST_F(FAsyncAssetLoadTests, SyncAndAsyncHandlesShareRetentionWithoutOwningEachO
 	auto Async = GetStreamableManager().RequestAsyncLoadPackage(Path);
 	ASSERT_TRUE(PumpUntil([&] { return Async->IsComplete(); }));
 	ASSERT_FALSE(Async->HasError());
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	DPackage* Package = Sync->GetLoadedPackage();
 	EXPECT_EQ(Async->GetLoadedPackage(), Package);
 	Sync->ReleaseHandle();
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), Package);
 	EXPECT_FALSE(Sync->IsActive());
 	EXPECT_TRUE(Async->IsActive());
 	Async->ReleaseHandle();
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	EXPECT_EQ(Sync->GetLoadedAsset(), nullptr);
@@ -2912,6 +2944,8 @@ TEST_F(FAsyncAssetLoadTests, ReleaseWhileLoadingRetainsUntilCompletionDelivery)
 	EXPECT_TRUE(Handle->IsActive());
 	ASSERT_TRUE(PumpUntil([&] { return Calls == 1; }));
 	EXPECT_FALSE(Handle->IsActive());
+	EXPECT_EQ(Handle->GetOwningManager(), nullptr);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	EXPECT_EQ(Handle->GetLoadedPackage(), nullptr);
@@ -2929,6 +2963,8 @@ TEST_F(FAsyncAssetLoadTests, CancelQueuedCompletionSuppressesCallbackAndReleases
 	ASSERT_FALSE(Handle->HasError());
 	Handle->CancelHandle();
 	EXPECT_FALSE(Handle->IsActive());
+	EXPECT_EQ(Handle->GetOwningManager(), nullptr);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Handle->GetLoadedPackage(), nullptr);
 	ProcessAsyncLoading(100.0, 100);
@@ -2936,16 +2972,49 @@ TEST_F(FAsyncAssetLoadTests, CancelQueuedCompletionSuppressesCallbackAndReleases
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 }
 
-TEST_F(FAsyncAssetLoadTests, SyncFailureHasNoActiveRetention)
+TEST_F(FAsyncAssetLoadTests, SyncFailureRemainsActiveUntilReleased)
 {
 	using namespace Durin;
 	auto Handle = GetStreamableManager().RequestSyncLoadPackage(FPackagePath{});
 	EXPECT_TRUE(Handle->IsComplete());
-	EXPECT_FALSE(Handle->IsActive());
+	EXPECT_TRUE(Handle->IsActive());
+	EXPECT_EQ(Handle->GetOwningManager(), &GetStreamableManager());
 	ASSERT_TRUE(Handle->HasError());
 	EXPECT_TRUE(Handle->GetError().has_value());
 	Handle->ReleaseHandle();
+	EXPECT_FALSE(Handle->IsActive());
+	EXPECT_EQ(Handle->GetOwningManager(), nullptr);
 	Handle->CancelHandle();
+	EXPECT_FALSE(Handle->WasCanceled());
+	EXPECT_EQ(Handle->GetState(), EAssetLoadState::Failed);
+}
+
+TEST_F(FAsyncAssetLoadTests, ReleasedHandleIgnoresCancellationAndManagerDestruction)
+{
+	using namespace Durin;
+	const auto Path = SaveAsset("ReleasedHandleHistory");
+	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
+	auto Manager = std::make_unique<FStreamableManager>();
+	uint32 Cancels = 0;
+	auto Handle = Manager->RequestAsyncLoad({
+		.TargetsToStream = {Testing::MakePackageLeafAssetObjectPathForTests(Path)},
+		.OnCancel = [&](auto&) { ++Cancels; }});
+	ASSERT_TRUE(PumpUntil([&] { return Handle->HasLoadCompleted(); }));
+	ASSERT_FALSE(Handle->HasError());
+	Handle->ReleaseHandle();
+	EXPECT_EQ(Handle->GetOwningManager(), nullptr);
+	Handle->CancelHandle();
+	Handle->ReleaseHandle();
+	Manager.reset();
+	EXPECT_FALSE(Handle->IsActive());
+	EXPECT_FALSE(Handle->WasCanceled());
+	EXPECT_FALSE(Handle->HasError());
+	EXPECT_TRUE(Handle->HasLoadCompleted());
+	EXPECT_EQ(Handle->GetState(), EAssetLoadState::Succeeded);
+	EXPECT_EQ(Cancels, 0u);
+	EXPECT_FALSE(IsGarbageCollectionRequested());
+	CollectGarbage(EObjectFlags::Standalone);
+	EXPECT_EQ(Handle->GetLoadedAsset(), nullptr);
 }
 
 TEST_F(FAsyncAssetLoadTests, ResidentHitReleaseDoesNotCreateImplicitCacheResidency)
@@ -2957,6 +3026,7 @@ TEST_F(FAsyncAssetLoadTests, ResidentHitReleaseDoesNotCreateImplicitCacheResiden
 	ASSERT_TRUE(PumpUntil([&] { return Handle->IsComplete(); }));
 	ASSERT_FALSE(Handle->HasError());
 	Handle.reset();
+	EXPECT_FALSE(IsGarbageCollectionRequested());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(FindResidentPackage(Path), nullptr);
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
@@ -3182,7 +3252,10 @@ TEST_F(FAsyncAssetLoadTests, SynchronousHandleCannotEscapeGuardedConstruction)
 	ASSERT_NE(Escaped, nullptr);
 	ASSERT_TRUE(Escaped->HasError());
 	EXPECT_TRUE(Escaped->GetError().has_value());
-	EXPECT_FALSE(Escaped->IsActive());
+	EXPECT_TRUE(Escaped->IsActive());
+	EXPECT_TRUE(Escaped->HasLoadCompleted());
+	EXPECT_EQ(Escaped->GetLoadedPackage(), nullptr);
+	EXPECT_EQ(Escaped->GetLoadedAsset(), nullptr);
 	EXPECT_EQ(FindResidentPackage(Other), nullptr);
 }
 

@@ -3,7 +3,7 @@
 Summary: GameThread request ownership, batch results and completion over the shared asset loader.
 Modules: Engine
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-17
 
 ## Managers and requests
 
@@ -40,10 +40,10 @@ live manager instance, following the role of UE's
 [CreateErrorHandle](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FStreamableManager/CreateErrorHandle).
 
 Managed handles are strongly owned by their manager until explicit release,
-cancellation or manager destruction; failed requests without any successful
-retention are retired from managed ownership automatically. Other requests are
+cancellation or manager destruction, including completed failed requests. Other requests are
 tracked weakly. `GetActiveHandles`, `IsManaged`, `GetDebugName` and `GetOwningManager` expose
-the request owners without introducing another package table.
+the request owners without introducing another package table. `GetOwningManager`
+returns null for released or canceled handles, following UE 5.8.
 
 Choose the ownership required by the caller before selecting a load API:
 
@@ -66,8 +66,9 @@ actual native or reflected strong owner.
 `WasCanceled` is independent: cancellation before loading finishes leaves
 completion false; cancellation after loading does not erase that historical
 completion. `IsComplete` is a terminal-state convenience including cancellation.
-`IsActive` observes this request's retention, independently of whether a weak
-result remains resident through another owner. Object completion says nothing
+`IsActive` means the handle has not been released or canceled, following UE 5.8;
+a completed failed load remains active even with no loaded objects. A weak
+result can remain resident through another owner after release. Object completion says nothing
 about compilation or render-resource readiness.
 
 `GetRequestedAssets`, `GetLoadedAssets`, `GetTargetErrors` and `GetLoadReports`
@@ -87,12 +88,16 @@ keeps its successful objects active.
 Active requests retain selected objects and packages. `ReleaseHandle` drops
 only this request's ownership; before completion or while a callback is queued,
 release is deferred until delivery. Release never suppresses completion and
-never forces global GC. After release, successful result slots use weak identities
+never requests global GC. Destruction, cancellation and successful package-load
+publication likewise do not request collection merely because ownership changes.
+After release, successful result slots use weak identities
 and can become null after collection, while their historical reports remain.
 Editor Standalone flags retain individual objects independently of handles, as described in [Asset Residency](AssetResidency.md).
 
 `CancelHandle` suppresses undelivered completion, records cancellation, immediately
 drops this consumer's retention and invokes its cancel delegate at most once.
+Canceling an already released handle has no effect and preserves its result,
+error and completion history, including when its former manager is destroyed.
 It may be called in the queued-completion window. Moving callbacks out before
 invocation permits reentrant submission/cancellation; a recursive pump is ignored.
 Dropping caller references alone does not withdraw accepted work: explicitly

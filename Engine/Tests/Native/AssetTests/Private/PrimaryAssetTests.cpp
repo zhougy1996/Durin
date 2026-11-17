@@ -137,6 +137,13 @@ TEST_F(FPrimaryAssetTests, InvalidAndMissingIdsDoNotCreateUnloadableEntries)
 	const std::array MissingIds{Missing};
 	auto Preload = Manager->PreloadPrimaryAssets(MissingIds);
 	EXPECT_TRUE(Preload->WasCanceled()); EXPECT_TRUE(Preload->GetError().has_value());
+	// Failed observation handles stay active until their callers release them;
+	// they do not create primary-asset entries that UnloadPrimaryAsset can unload.
+	EXPECT_TRUE(Invalid->IsActive());
+	EXPECT_TRUE(Unknown->IsActive());
+	EXPECT_EQ(Manager->GetStreamableManager().GetActiveHandles().size(), 2u);
+	Invalid->ReleaseHandle();
+	Unknown->ReleaseHandle();
 	EXPECT_TRUE(Manager->GetStreamableManager().GetActiveHandles().empty());
 }
 
