@@ -12,7 +12,8 @@
 #include "Misc/EnumClassFlags.h"
 #include "Misc/Guid.h"
 #include "Misc/Name.h"
-#include "Misc/Failure.h"
+#include "Misc/UnifiedError.h"
+#include "Misc/StringHelper.h"
 #include "Misc/Time.h"
 #include "Modules/ModuleManager.h"
 
@@ -20,8 +21,12 @@
 #include "Templates/SmartPointers.h"
 #include "Templates/RefCounting.h"
 #include "Templates/MoveOnlyFunction.h"
+#include "Templates/AlignmentTemplates.h"
+#include "Templates/CheckedArithmetic.h"
+#include "Threading/ThreadEvent.h"
 #include "Hash/XxHash.h"
 #include "Serialization/SharedByteBuffer.h"
+#include "Serialization/Archive.h"
 #include "Math/DurinMath.h"
 
 #include "CoreGlobals.h"

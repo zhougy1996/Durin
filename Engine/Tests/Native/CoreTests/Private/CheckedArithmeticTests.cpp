@@ -21,13 +21,3 @@ TEST(FCheckedArithmeticTests, EnforcesBoundsWithoutChangingRejectedOutputs)
 	EXPECT_TRUE(Durin::TryAlignUp(17, 16, 32, Value));
 	EXPECT_EQ(Value, 32);
 }
-
-TEST(FFailureTests, StoresOptionalDiagnosticsAndReturnsFalse)
-{
-	std::string Error;
-	EXPECT_FALSE(Durin::Fail("pointer diagnostic", &Error));
-	EXPECT_EQ(Error, "pointer diagnostic");
-	EXPECT_FALSE(Durin::Fail("reference diagnostic", &Error));
-	EXPECT_EQ(Error, "reference diagnostic");
-	EXPECT_FALSE(Durin::Fail("ignored diagnostic"));
-}
