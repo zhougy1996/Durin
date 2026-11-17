@@ -23,6 +23,113 @@
 
 namespace Durin
 {
+	namespace
+	{
+#if DURIN_WITH_EDITOR
+		// Shared authored preparation; callers own admission, waiting and publication.
+		auto BeginMaterialCookPreparation(DMaterialInterface& Material, FCookPreparationContext& Preparation) -> void
+		{
+			auto& Context = Preparation.Lifecycle;
+			const auto Configurations = ResolveMaterialCookConfigurations(Preparation.Options.MaterialConfigurations);
+			const auto Target = ResolveTargetPlatform(Preparation.GetTargetPlatform());
+			if (!Configurations || !Target) { Context.Result = {EObjectCookError::InvalidInput, "Material Cook target or configuration is unsupported."}; return; }
+			// Per variant: bounded snapshot, translation/assembly, program and family encoding overlap.
+			if (!Preparation.ReserveWorkingSet(Configurations->size() * 64ull * 1024 * 1024)) return;
+			FMaterialCompilerEnvironment BaseEnvironment;
+			if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment) {
+				Context.Result = {EObjectCookError::Preparation, Environment.error()}; return;
+			}
+			BaseEnvironment.bIncludeEditorPasses = false;
+			struct FMaterialCookWork
+			{
+				std::vector<MaterialBuildPrivate::FMaterialProgramCompileHandle> Compiles;
+				std::vector<std::optional<FMaterialCompilerResult>> Results;
+				std::mutex Mutex;
+				std::atomic<bool> Failed = false;
+				std::string Failure;
+				Tasks::FCancellationToken Cancellation;
+				auto Cancel() -> void {
+					Cancellation.Cancel();
+					for (const auto& Compile : Compiles) FShaderCompilingManager::Get().CancelCompilation(Compile);
+				}
+			};
+			auto Work = std::make_shared<FMaterialCookWork>();
+			std::vector<std::shared_ptr<const MIR::FCompilerInput>> Inputs;
+			std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
+			Work->Results.resize(Configurations->size());
+			for (const auto& Configuration : *Configurations) {
+				if (Context.CheckCancellation()) return;
+				auto Environment = BaseEnvironment; Environment.Quality = Configuration.Quality; Environment.FeatureLevel = Configuration.FeatureLevel;
+				auto Snapshot = SnapshotMaterialCompilerInput(Material, std::move(Environment));
+				if (!Snapshot) { Context.Result = {EObjectCookError::Preparation, FormatMaterialProgramDiagnostics(Snapshot.Diagnostics, "Material Cook snapshot failed.")}; return; }
+				FunctionOwners.insert(FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
+				Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
+			}
+			struct FOwnerStamp { FObjectKey Owner; uint64 Authored; };
+			std::vector<FOwnerStamp> Owners;
+			for (const DMaterialInterface* Owner = &Material; Owner; Owner = Owner->GetParent()) {
+				const auto Revision = Owner->GetMaterialContentRevision();
+				Owners.push_back({FObjectKey(Owner), Revision});
+			}
+			Preparation.ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners), ShaderRevision = GetShaderReloadGeneration()] {
+				if (ShaderRevision != GetShaderReloadGeneration()) return false;
+				if (!AreMaterialFunctionOwnersCurrent(Functions)) return false;
+				for (const auto& Stamp : Owners) {
+					const auto* Owner = Cast<DMaterialInterface>(ResolveObjectKey(Stamp.Owner));
+					if (!Owner) return false;
+					const auto Revision = Owner->GetMaterialContentRevision();
+					if (Stamp.Authored != Revision) return false;
+				}
+				return true;
+			};
+			Preparation.CancelWork = [Work] { Work->Cancel(); };
+			Preparation.Lifecycle.WaitForCompletion = [Work, &Preparation, Platform = Preparation.GetTargetPlatform(),
+				Properties = CanonicalizeMaterialShaderProperties(Material.GetStaticProperties())] {
+				for (size_t Index = 0; Index < Work->Compiles.size(); ++Index) {
+					const auto& Compile = Work->Compiles[Index];
+					auto& Manager = FShaderCompilingManager::Get();
+					while (Manager.IsCompiling(Compile)) {
+						if (Preparation.Lifecycle.CheckCancellation() || Work->Failed.load()) Work->Cancel();
+						std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					}
+					Manager.FinishCompilation(Compile);
+				}
+				if (Preparation.Lifecycle.CheckCancellation()) return;
+				if (Work->Failed.load()) { Preparation.Lifecycle.Result = {EObjectCookError::Preparation, Work->Failure}; return; }
+				std::vector<const FMaterialProgram*> Programs;
+				for (const auto& Result : Work->Results) {
+					if (!Result || !*Result) { Preparation.Lifecycle.Result = {EObjectCookError::Cancelled, {}}; return; }
+					Programs.push_back(&Result->Resource);
+				}
+				FByteBuffer Bytes;
+				const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties, Platform, ECookTargetProfile::Game, Bytes);
+				if (!Encoded) { Preparation.Lifecycle.Result = {EObjectCookError::Preparation, Encoded.error()}; return; }
+				auto Bulk = FBulkData::TryCreateDetached(Bytes);
+				if (!Bulk) { Preparation.Lifecycle.Result = {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())}; return; }
+				Preparation.Primary = std::move(*Bulk);
+			};
+			for (size_t Index = 0; Index < Inputs.size(); ++Index) {
+				auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index],
+					{.IsCancellationRequested = [Weak = std::weak_ptr(Work)] { auto Owner = Weak.lock(); return !Owner || Owner->Cancellation.IsCanceled(); }},
+					[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
+						const auto& Result = *Build.Program;
+						std::lock_guard Lock(Work->Mutex);
+						if (!Result && Result.Status != EMaterialProgramStatus::Canceled && !Work->Failed.load()) {
+							Work->Failure = FormatMaterialProgramDiagnostics(Result.Diagnostics, "Material Cook compilation failed.");
+							Work->Failed.store(true);
+						}
+						Work->Results[Index] = Result;
+					});
+				if (!Submitted) {
+					{ std::lock_guard Lock(Work->Mutex); Work->Failure = "Material Cook compile admission failed."; Work->Failed.store(true); }
+					Work->Cancel(); break;
+				}
+				Work->Compiles.push_back(std::move(Submitted));
+			}
+		}
+#endif
+	}
+
 	auto DMaterialInterface::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
 	{
 		Super::BeginCacheForCookedPlatformData(Context);
@@ -38,102 +145,7 @@ namespace Durin
 			return;
 		}
 #if DURIN_WITH_EDITOR
-		const auto Configurations = ResolveMaterialCookConfigurations(Preparation->Options.MaterialConfigurations);
-		const auto Target = ResolveTargetPlatform(Preparation->GetTargetPlatform());
-		if (!Configurations || !Target) { Context.Result = {EObjectCookError::InvalidInput, "Material Cook target or configuration is unsupported."}; return; }
-		// Per variant: bounded snapshot, translation/assembly, program and family encoding overlap.
-		if (!Preparation->ReserveWorkingSet(Configurations->size() * 64ull * 1024 * 1024)) return;
-		FMaterialCompilerEnvironment BaseEnvironment;
-		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment) {
-			Context.Result = {EObjectCookError::Preparation, Environment.error()}; return;
-		}
-		BaseEnvironment.bIncludeEditorPasses = false;
-		struct FMaterialCookWork
-		{
-			std::vector<MaterialBuildPrivate::FMaterialProgramCompileHandle> Compiles;
-			std::vector<std::optional<FMaterialCompilerResult>> Results;
-			std::mutex Mutex;
-			std::atomic<bool> Failed = false;
-			std::string Failure;
-			Tasks::FCancellationToken Cancellation;
-			auto Cancel() -> void {
-				Cancellation.Cancel();
-				for (const auto& Compile : Compiles) FShaderCompilingManager::Get().CancelCompilation(Compile);
-			}
-		};
-		auto Work = std::make_shared<FMaterialCookWork>();
-		std::vector<std::shared_ptr<const MIR::FCompilerInput>> Inputs;
-		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
-		Work->Results.resize(Configurations->size());
-		for (const auto& Configuration : *Configurations) {
-			if (Context.CheckCancellation()) return;
-			auto Environment = BaseEnvironment; Environment.Quality = Configuration.Quality; Environment.FeatureLevel = Configuration.FeatureLevel;
-			auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
-			if (!Snapshot) { Context.Result = {EObjectCookError::Preparation, FormatMaterialProgramDiagnostics(Snapshot.Diagnostics, "Material Cook snapshot failed.")}; return; }
-			FunctionOwners.insert(FunctionOwners.end(), Snapshot.Snapshot->FunctionOwners.begin(), Snapshot.Snapshot->FunctionOwners.end());
-			Inputs.push_back(std::make_shared<const MIR::FCompilerInput>(std::move(Snapshot.Snapshot->Input)));
-		}
-		struct FOwnerStamp { FObjectKey Owner; uint64 Authored; };
-		std::vector<FOwnerStamp> Owners;
-		for (const DMaterialInterface* Owner = this; Owner; Owner = Owner->GetParent()) {
-			const auto Revision = Owner->GetMaterialContentRevision();
-			Owners.push_back({FObjectKey(Owner), Revision});
-		}
-		Preparation->ValidatePreparedInputs = [Owners = std::move(Owners), Functions = std::move(FunctionOwners), ShaderRevision = GetShaderReloadGeneration()] {
-			if (ShaderRevision != GetShaderReloadGeneration()) return false;
-			if (!AreMaterialFunctionOwnersCurrent(Functions)) return false;
-			for (const auto& Stamp : Owners) {
-				const auto* Owner = Cast<DMaterialInterface>(ResolveObjectKey(Stamp.Owner));
-				if (!Owner) return false;
-				const auto Revision = Owner->GetMaterialContentRevision();
-				if (Stamp.Authored != Revision) return false;
-			}
-			return true;
-		};
-		Preparation->CancelWork = [Work] { Work->Cancel(); };
-		Preparation->Lifecycle.WaitForCompletion = [Work, Preparation, Platform = Preparation->GetTargetPlatform(),
-			Properties = CanonicalizeMaterialShaderProperties(GetStaticProperties())] {
-			for (size_t Index = 0; Index < Work->Compiles.size(); ++Index) {
-				const auto& Compile = Work->Compiles[Index];
-				auto& Manager = FShaderCompilingManager::Get();
-				while (Manager.IsCompiling(Compile)) {
-					if (Preparation->Lifecycle.CheckCancellation() || Work->Failed.load()) Work->Cancel();
-					std::this_thread::sleep_for(std::chrono::milliseconds(1));
-				}
-				Manager.FinishCompilation(Compile);
-			}
-			if (Preparation->Lifecycle.CheckCancellation()) return;
-			if (Work->Failed.load()) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, Work->Failure}; return; }
-			std::vector<const FMaterialProgram*> Programs;
-			for (const auto& Result : Work->Results) {
-				if (!Result || !*Result) { Preparation->Lifecycle.Result = {EObjectCookError::Cancelled, {}}; return; }
-				Programs.push_back(&Result->Resource);
-			}
-			FByteBuffer Bytes;
-			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties, Platform, ECookTargetProfile::Game, Bytes);
-			if (!Encoded) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, Encoded.error()}; return; }
-			auto Bulk = FBulkData::TryCreateDetached(Bytes);
-			if (!Bulk) { Preparation->Lifecycle.Result = {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())}; return; }
-			Preparation->Primary = std::move(*Bulk);
-		};
-		for (size_t Index = 0; Index < Inputs.size(); ++Index) {
-			auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index],
-				{.IsCancellationRequested = [Weak = std::weak_ptr(Work)] { auto Owner = Weak.lock(); return !Owner || Owner->Cancellation.IsCanceled(); }},
-				[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
-					const auto& Result = *Build.Program;
-					std::lock_guard Lock(Work->Mutex);
-					if (!Result && Result.Status != EMaterialProgramStatus::Canceled && !Work->Failed.load()) {
-						Work->Failure = FormatMaterialProgramDiagnostics(Result.Diagnostics, "Material Cook compilation failed.");
-						Work->Failed.store(true);
-					}
-					Work->Results[Index] = Result;
-				});
-			if (!Submitted) {
-				{ std::lock_guard Lock(Work->Mutex); Work->Failure = "Material Cook compile admission failed."; Work->Failed.store(true); }
-				Work->Cancel(); break;
-			}
-			Work->Compiles.push_back(std::move(Submitted));
-		}
+		BeginMaterialCookPreparation(*this, *Preparation);
 #else
 		Context.Result = {EObjectCookError::Preparation, "Authored material Cook preparation is unavailable in this runtime."};
 #endif
@@ -271,39 +283,26 @@ namespace Durin
 			return std::move(*Bulk);
 		}
 #if DURIN_WITH_EDITOR
-		const auto Target = ResolveTargetPlatform(TargetPlatform);
-		if (!Target)
-			return FShaderCompletion::Failure("Material Cook target or configuration is unsupported.");
-		FMaterialCompilerEnvironment BaseEnvironment;
-		if (auto Environment = BuildDefaultMaterialCompilerEnvironment(BaseEnvironment, Target->GetCookedShaderTarget()); !Environment)
-			return FShaderCompletion::Failure(Environment.error());
-		BaseEnvironment.bIncludeEditorPasses = false;
-		std::vector<FMaterialCompilerResult> Variants;
-		Variants.reserve(Configurations->size());
-		for (const auto& Configuration : *Configurations)
-		{
-			if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-			auto Environment = BaseEnvironment;
-			Environment.Quality = Configuration.Quality;
-			Environment.FeatureLevel = Configuration.FeatureLevel;
-			auto Snapshot = SnapshotMaterialCompilerInput(*this, std::move(Environment));
-			if (!Snapshot) return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(Snapshot.Diagnostics, "Material cooked configuration snapshot failed."));
-			auto Compiled = MIR::Compile(Snapshot.Snapshot->Input);
-			if (Compiled.Status == EMaterialProgramStatus::Canceled || Control.IsCancelled()) return FShaderCompletion::Canceled();
-			if (!Compiled) return FShaderCompletion::Failure(FormatMaterialProgramDiagnostics(Compiled.Diagnostics, "Material cooked configuration compilation failed."));
-			Variants.push_back(std::move(Compiled));
-		}
-		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-		std::vector<const FMaterialProgram*> Programs;
-		for (const auto& Variant : Variants) Programs.push_back(&Variant.Resource);
-		FByteBuffer Bytes;
-		const auto Encoded = EncodeMaterialCookedProgramFamily(Programs,
-			CanonicalizeMaterialShaderProperties(GetStaticProperties()), TargetPlatform, ECookTargetProfile::Game, Bytes);
-		if (!Encoded) return FShaderCompletion::Failure(Encoded.error());
-		auto Bulk = FBulkData::TryCreateDetached(Bytes);
-		if (!Bulk) return FShaderCompletion::Failure(FormatBulkDataError(Bulk.error()));
-		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-		return std::move(*Bulk);
+		FCookPackagePreparationOptions Options{.TargetPlatform = TargetPlatform, .TargetProfile = ECookTargetProfile::Game};
+		Options.MaterialConfigurations.assign(Configurations->begin(), Configurations->end());
+		FCookPreparationContext Preparation{.Options = Options};
+		Preparation.Lifecycle.IsCancelled = [&Control] { return Control.IsCancelled(); };
+		Preparation.ReserveWorkingSet = [&](uint64 Bytes) {
+			if (Bytes > Control.MaximumWorkingSetBytes) {
+				Preparation.Lifecycle.Result = {EObjectCookError::Limit, "Material Cook preparation exceeds its working-set limit."};
+				return false;
+			}
+			Preparation.WorkingSetBytes = Bytes;
+			return true;
+		};
+		BeginMaterialCookPreparation(*this, Preparation);
+		auto Wait = std::exchange(Preparation.Lifecycle.WaitForCompletion, {});
+		if (Wait) Wait();
+		if (Preparation.Lifecycle.CheckCancellation()) return FShaderCompletion::Canceled();
+		if (!Preparation.Lifecycle.Result) return FShaderCompletion::Failure(Preparation.Lifecycle.Result.Diagnostic);
+		if (Preparation.ValidatePreparedInputs && !Preparation.ValidatePreparedInputs())
+			return FShaderCompletion::Failure("Material Cook prepared inputs changed.");
+		return std::move(Preparation.Primary);
 #else
 		return FShaderCompletion::Failure("Authored material Cook preparation is unavailable in this runtime.");
 #endif

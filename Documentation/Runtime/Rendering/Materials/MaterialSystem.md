@@ -931,7 +931,13 @@ installed compiler. Each selected stage retains its reflection and Metal binding
 metadata alongside its binary code. Older MacOS source-profile Game programs
 require recooking. Preparation runs before package Archive discovery/emission; serialization
 consumes the qualified prepared bulk. The explicit target is independent of the
-active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
+active RHI device. Package Cook and `PrepareCookedProgram` share authored
+snapshot capture, asynchronous variant submission, cancellation/draining, input
+revision validation and family encoding. The synchronous API waits for that
+same preparation and returns detached bulk without publishing it to the material;
+its task control bounds the preparation working set. Cooked-to-cooked subset
+preparation continues to decode and re-encode saved programs without compilation.
+[Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
 DMAT v28 family per material or instance in the

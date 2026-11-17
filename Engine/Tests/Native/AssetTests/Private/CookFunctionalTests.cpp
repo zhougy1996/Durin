@@ -975,6 +975,13 @@ TEST_F(FCookFunctionalTests, MaterialVariantsOverlapAndShuffledDeliveryKeepsMixe
 	});
 	FCookPackagePreparationOptions Options{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	Options.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}, {EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
+	const auto Prepared = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations);
+	ASSERT_TRUE(Prepared) << Prepared.Error;
+	ASSERT_FALSE(Order.empty()); EXPECT_EQ(Order.front(), EMaterialQualityLevel::High);
+	{
+		std::lock_guard Lock(Mutex);
+		HighDelivered = false; Order.clear();
+	}
 	FByteBuffer Shuffled, Sequential;
 	ASSERT_TRUE(SerializeCookedPackageBytes(Package, Shuffled, Options));
 	ASSERT_FALSE(Order.empty()); EXPECT_EQ(Order.front(), EMaterialQualityLevel::High);
@@ -1004,7 +1011,7 @@ TEST_F(FCookFunctionalTests, MaterialCancellationAfterResultReadinessJoinsBefore
 	Testing::FScopedMountRegistryFixture Mounts;
 	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
 	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/CancelReady", Path));
-	auto* Package = CreatePackage(Path); NewObject<DMaterial>(Package, "Material");
+	auto* Package = CreatePackage(Path); auto* Material = NewObject<DMaterial>(Package, "Material");
 	std::atomic<bool> Ready = false, Observed = false;
 	struct FResetHook { ~FResetHook() { MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({}); } } Reset;
 	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests([&](EMaterialQualityLevel, bool Before) {
@@ -1020,6 +1027,46 @@ TEST_F(FCookFunctionalTests, MaterialCancellationAfterResultReadinessJoinsBefore
 	FByteBuffer Bytes;
 	EXPECT_FALSE(SerializeCookedPackageBytes(Package, Bytes, Options));
 	EXPECT_TRUE(Observed.load()); EXPECT_TRUE(Bytes.empty());
+	Ready = false; Observed = false;
+	const FAssetBuildTaskContext Control{.IsCancellationRequested = Options.IsCancelled};
+	const auto Prepared = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations, Control);
+	EXPECT_TRUE(Observed.load());
+	EXPECT_EQ(Prepared.Status, EShaderBuildStatus::Canceled);
+	EXPECT_FALSE(Prepared.Value); EXPECT_TRUE(Prepared.Error.empty());
+}
+
+TEST_F(FCookFunctionalTests, DetachedMaterialPreparationRejectsInputsChangedWhileWaiting)
+{
+	Testing::FScopedRHIBackendOverride Backend("vulkan");
+	const auto Fixture = Testing::CreateTestFixtureDirectory("CookMaterialStaleReady");
+	Testing::FScopedMountRegistryFixture Mounts;
+	Testing::RegisterMountPointForTests("/CookTests/", (Fixture / "Content").generic_string());
+	FPackagePath Path; ASSERT_TRUE(FPackagePath::TryCreate("/CookTests/StaleReady", Path));
+	auto* Material = NewObject<DMaterial>(CreatePackage(Path), "Material");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	std::atomic<bool> Ready = false, Changed = false;
+	struct FResetHook { ~FResetHook() { MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests({}); } } Reset;
+	MaterialBuildPrivate::SetMaterialBuildCompletionHookForTests([&](EMaterialQualityLevel, bool Before) {
+		if (Before && !Ready.exchange(true)) {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+			while (!Changed.load() && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+			EXPECT_TRUE(Changed.load());
+		}
+	});
+	const FAssetBuildTaskContext Control{.IsCancellationRequested = [&] {
+		if (Ready.load() && !Changed.load()) {
+			auto Properties = Material->GetStaticProperties(); Properties.BlendMode = EMaterialBlendMode::Masked;
+			EXPECT_TRUE(Material->SetStaticProperties(Properties));
+			Changed = true;
+		}
+		return false;
+	}};
+	const std::array Configurations{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
+	const auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Control);
+	EXPECT_TRUE(Changed.load()); EXPECT_FALSE(Prepared);
+	EXPECT_EQ(Prepared.Status, EShaderBuildStatus::Error);
+	EXPECT_NE(Prepared.Error.find("changed"), std::string::npos);
+	EXPECT_FALSE(Material->GetCookedProgramData().HasData());
 }
 
 TEST_F(FCookFunctionalTests, PreSaveStillRejectsGraphGrowthAndInputMutation)
@@ -1187,7 +1234,11 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
 	EXPECT_FALSE(Canceled.Value);
 	EXPECT_TRUE(Canceled.Error.empty());
-
+	FAssetBuildTaskContext Limited;
+	Limited.MaximumWorkingSetBytes = 1;
+	const auto Rejected = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Limited);
+	EXPECT_FALSE(Rejected); EXPECT_FALSE(Rejected.Value);
+	EXPECT_EQ(GetShaderBuildStats().Compilations, BeforeSerialization);
 }
 
 TEST_F(FCookFunctionalTests, PreparationOmitsTransientAssetSubtrees)
