@@ -1,4 +1,6 @@
 #include "AssetRegistry/Publication.h"
+#include "Materials/MaterialExpressionVector.h"
+#include "Materials/MaterialExpressionScene.h"
 #include "ThumbnailManagerTestSupport.h"
 #include "DObject/PrimaryAssetId.h"
 #include "Engine/StreamableManager.h"

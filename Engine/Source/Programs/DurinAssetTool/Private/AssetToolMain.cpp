@@ -1,4 +1,9 @@
 #include "PackageTools.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "Misc/FeedbackContext.h"
 #include "HAL/PlatformLibrary.h"
 #include "Misc/UnifiedError.h"
@@ -13,7 +18,6 @@
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
 #include "AssetForge/Builtins/PBRSurfaceMaterial.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
-#include "Materials/MaterialExpressions.h"
 #endif
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"

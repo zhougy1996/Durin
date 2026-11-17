@@ -1,8 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialFunctionTypes.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "DObject/StrongObjectPtr.h"
-#include "Materials/MaterialExpressions.h"
 
 #include "MaterialEditorAPI.h"
 #include "Transactions/Transaction.h"

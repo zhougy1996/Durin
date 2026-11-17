@@ -1,4 +1,5 @@
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Components/PrimitiveComponent.h"
 #include "Materials/MaterialShaderMap.h"

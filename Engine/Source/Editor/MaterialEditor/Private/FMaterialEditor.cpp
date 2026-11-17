@@ -1,4 +1,7 @@
 #include "Materials/ObjectCacheContext.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "Misc/UnifiedError.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "FMaterialEditor.h"

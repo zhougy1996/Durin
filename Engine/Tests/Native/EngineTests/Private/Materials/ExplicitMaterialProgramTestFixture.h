@@ -1,6 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionVector.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialExpressionRecipeTestSupport.h"
 #include "EngineTestSupport.h"

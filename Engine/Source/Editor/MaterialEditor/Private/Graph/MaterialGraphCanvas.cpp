@@ -1,4 +1,6 @@
 #include "Graph/MaterialGraphNodeDisplay.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"

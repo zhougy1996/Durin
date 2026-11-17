@@ -1,4 +1,8 @@
 #include "Graph/MaterialGraphEditSession.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
 #include "FunctionPortTestFixture.h"
 #include "TypedMaterialGraphTestFixture.h"
 #include "Widgets/MaterialEditingSession.h"

@@ -1,4 +1,5 @@
 #include "SceneImportInternal.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "AssetForge/Builtins/PBRSurfaceMaterial.h"
 #include "Asset/Asset.h"
 #include "DObject/Package.h"

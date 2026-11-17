@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialProgramTypes.h"
 
-#include "Materials/MaterialExpressions.h"
 
 namespace Durin
 {

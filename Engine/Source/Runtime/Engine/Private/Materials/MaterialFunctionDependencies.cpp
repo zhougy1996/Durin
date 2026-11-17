@@ -1,4 +1,6 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "Threading/RunnableThread.h"

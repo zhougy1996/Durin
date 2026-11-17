@@ -3,6 +3,21 @@
 Summary: Material expressions register outputs through an emitter; graph builders own traversal, invocation caches, validation, and detached result publication.
 Modules: Engine
 
+## Header ownership
+
+`MaterialExpressionIO.h` declares graph connections, numeric defaults, attribute
+bindings, and material output types. `MaterialExpression.h` declares the expression
+base and reflected collection. Small related nodes share focused family headers,
+including `MaterialExpressionArithmetic.h`, `MaterialExpressionVector.h`, and
+`MaterialExpressionScene.h`. Parameter bases, function calls, and the material
+output retain dedicated headers. Each reflected header owns its corresponding
+generated files; node-specific auxiliary records remain with their owning family.
+
+`Material.h` and `MaterialFunction.h` include the expression foundation rather
+than the concrete node inventory. Sources that create, cast, or access a concrete
+node include its declaring header directly. Reflection type names, authored
+properties, and graph ownership do not depend on this header partition.
+
 ## Expression emission
 
 The material intermediate layer lives in `Durin::MIR`. `FModule`, `FNode`,

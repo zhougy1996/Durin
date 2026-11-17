@@ -1,12 +1,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
 
 #include "Asset/BulkData.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialProgramTypes.h"
-#include "Materials/MaterialExpressions.h"
 
 #include "Materials/MaterialGraphChanges.h"
 
@@ -14,6 +15,7 @@
 
 namespace Durin
 {
+	class DMaterialExpressionMaterialOutput;
 	class DTexture;
 	class IObjectReplacementParticipant;
 	struct FMaterialConfiguration

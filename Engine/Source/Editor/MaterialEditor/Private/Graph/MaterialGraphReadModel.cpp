@@ -1,4 +1,5 @@
 #include "MaterialGraphReadModel.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/Material.h"
 
 namespace Durin::MaterialEditor

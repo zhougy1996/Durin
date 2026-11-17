@@ -1,4 +1,8 @@
 #include "MaterialResourceTestSupport.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionVector4Parameter.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "MaterialProgramTestFixture.h"

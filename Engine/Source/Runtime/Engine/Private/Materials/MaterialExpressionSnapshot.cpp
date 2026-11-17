@@ -1,4 +1,8 @@
 #include "MaterialExpressionGraphBuilder.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Asset/Asset.h"
 

@@ -1,4 +1,7 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "AssetForge/Builtins/ImportedSurfaceRecipe.h"
 #include "MaterialExpressionRecipeBuilder.h"
 

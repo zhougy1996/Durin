@@ -36,8 +36,13 @@ def main():
     configs.RUNTIME_VARIANT = "DurinEditor"
     configs.init_configs()
     symbols = load_available_symbols(args.module)
-    headers = args.header or ["Public/Materials/MaterialExpressions.h", "Public/StaticMesh/StaticMesh.h",
-                              "Public/Components/PointLightComponent.h"]
+    headers = args.header or [
+        "Public/Materials/MaterialExpression.h",
+        "Public/Materials/MaterialExpressionIO.h",
+        "Public/Materials/MaterialExpressionArithmetic.h",
+        "Public/StaticMesh/StaticMesh.h",
+        "Public/Components/PointLightComponent.h",
+    ]
     # Warm native loading and filesystem caches. Generation itself never reads
     # phase bundles or publishes outputs, so each timed round parses the header.
     for header in headers:

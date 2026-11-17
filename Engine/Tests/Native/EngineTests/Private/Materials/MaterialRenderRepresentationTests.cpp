@@ -1,4 +1,5 @@
 #include "MaterialResourceTestSupport.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Materials/MaterialShaderMap.h"

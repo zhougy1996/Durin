@@ -1,4 +1,10 @@
 #include "AssetForge/Builtins/SceneImportOptions.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "SceneImportTaskTestSupport.h"
 using Durin::Testing::FSceneTaskHarness;
 using Durin::Testing::ImportSceneForTest;

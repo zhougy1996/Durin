@@ -1,4 +1,7 @@
 #include "Misc/Build.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionTextureParameter.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Materials/MaterialGraphChanges.h"
 #include "Materials/Material.h"

@@ -1,4 +1,11 @@
 #include "MaterialExpressionGraphBuilder.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialFunctionInterface.h"
 
 namespace Durin

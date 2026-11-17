@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Materials/MaterialExpressionFunctionCall.h"
 #include "NativeDObjectTestSupport.h"
 
 #include "DObject/DObjectGlobals.h"

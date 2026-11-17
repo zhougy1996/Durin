@@ -2,6 +2,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionIO.h"
 
 #include "TypedMaterialGraphTestFixture.h"
 #include "MaterialTestSupport.h"

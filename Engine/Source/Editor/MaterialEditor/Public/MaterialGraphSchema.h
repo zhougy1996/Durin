@@ -1,6 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionParameter.h"
 
 #include "MaterialGraphOperations.h"
 

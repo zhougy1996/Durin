@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "DObject/StrongObjectPtr.h"

@@ -1,4 +1,6 @@
 #include "Editor/EditorTransactionTestSupport.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialShaderMap.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"

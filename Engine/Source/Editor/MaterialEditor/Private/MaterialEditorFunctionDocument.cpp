@@ -1,4 +1,5 @@
 #include "MaterialEditorFunctionDocument.h"
+#include "Materials/MaterialExpression.h"
 
 #include "DObject/Archive.h"
 #include "DObject/Class.h"

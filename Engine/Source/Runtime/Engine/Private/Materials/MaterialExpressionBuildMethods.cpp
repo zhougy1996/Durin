@@ -1,4 +1,21 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionVector.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
+#include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionCollectionParameter.h"
+#include "Materials/MaterialExpressionSwitch.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionCustomData.h"
+#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionTextureCoordinates.h"
+#include "Materials/MaterialExpressionTextureParameter.h"
+#include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionTransform.h"
+#include "Materials/MaterialExpressionVector4Parameter.h"
+#include "Materials/MaterialExpressionVertexInterpolator.h"
 
 namespace Durin
 {

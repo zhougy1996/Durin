@@ -1,12 +1,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
 
-#include "Materials/MaterialExpressions.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 namespace Durin
 {
+	class DMaterialExpressionFunctionCall;
 	namespace MIR
 	{
 		inline constexpr uint32 InvalidIndex = 0xffffffffu;

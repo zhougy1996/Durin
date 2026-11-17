@@ -1,4 +1,7 @@
 #include "MaterialResultFanoutTestSupport.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialFunction.h"
 #include "MaterialShaderInventoryTestSupport.h"
 

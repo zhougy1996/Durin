@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
 
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"

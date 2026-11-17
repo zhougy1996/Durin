@@ -1,7 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Materials/MaterialExpressions.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
 
 namespace Durin::Testing
 {

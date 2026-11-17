@@ -1,4 +1,8 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "Misc/UnifiedError.h"
 #include "HAL/PlatformLTS.h"
 #include "Asset/Testing/PackageReloadTesting.h"

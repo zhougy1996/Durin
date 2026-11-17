@@ -1,4 +1,6 @@
 #include "MaterialGraphCanvas.h"
+#include "Materials/MaterialExpressionTextureParameter.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "RenderResource.h"
 #include "MaterialGraphEditSession.h"
 #include "Asset/Asset.h"

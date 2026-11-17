@@ -1,5 +1,7 @@
 #include "Materials/MaterialFunctionTypes.h"
-#include "Materials/MaterialExpressions.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
 
 namespace Durin
 {

@@ -1,6 +1,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionVector.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionParameter.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionTextureCoordinates.h"
+#include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionVector4Parameter.h"
 #include "AssetForge/Builtins/MaterialExpressionRecipe.h"
 
 namespace Durin::AssetForge::Builtins::Private

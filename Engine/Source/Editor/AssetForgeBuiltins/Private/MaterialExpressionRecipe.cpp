@@ -1,4 +1,6 @@
 #include "AssetForge/Builtins/MaterialExpressionRecipe.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 

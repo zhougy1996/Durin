@@ -1,6 +1,16 @@
 #pragma once
 
 #include "WaterMaterialRecipe.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionVector.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionCustomData.h"
+#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionTextureCoordinates.h"
+#include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionTransform.h"
 
 #if DURIN_WITH_EDITOR
 #include "Asset/PackageSerialization.h"
@@ -8,7 +18,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Materials/Material.h"
-#include "Materials/MaterialExpressions.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Misc/FileHelper.h"
 

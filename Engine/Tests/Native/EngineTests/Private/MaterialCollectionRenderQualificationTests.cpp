@@ -1,5 +1,8 @@
 #include "QualificationViewPreparation.h"
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionCollectionParameter.h"
+#include "Materials/MaterialExpressionIO.h"
 #include <gtest/gtest.h>
 #include "GeometrySubmissionTestSupport.h"
 #include "LightSceneTestSupport.h"
@@ -8,7 +11,6 @@
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
 #include "Materials/Material.h"
-#include "Materials/MaterialExpressions.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Misc/FileHelper.h"

@@ -1,7 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Materials/MaterialExpressions.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 

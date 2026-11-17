@@ -1,4 +1,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
 #include "FunctionPortTestFixture.h"
 #include "MaterialFunctionTestSupport.h"
 

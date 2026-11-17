@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
 
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/Archive.h"

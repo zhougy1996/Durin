@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Threading/TaskRuntime.h"
 
 #include <gtest/gtest.h>
@@ -23,7 +26,6 @@
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Materials/Material.h"
-#include "Materials/MaterialExpressions.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"

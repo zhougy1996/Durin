@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpressionParameter.h"
+#include "Materials/MaterialExpressionVector.h"
 #include "MaterialGraphOperations.h"
-#include "Materials/MaterialExpressions.h"
 #include "DObject/StrongObjectPtr.h"
 
 namespace Durin::MaterialEditor::GraphEditInternals

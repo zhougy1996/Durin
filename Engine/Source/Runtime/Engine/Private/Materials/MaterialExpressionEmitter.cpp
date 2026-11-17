@@ -1,4 +1,6 @@
 #include "MaterialExpressionGraphBuilder.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionIO.h"
 
 namespace Durin::MIR
 {

@@ -1,4 +1,5 @@
 #include "Widgets/MaterialEditingSession.h"
+#include "Materials/MaterialExpression.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Package.h"

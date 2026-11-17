@@ -1,4 +1,11 @@
 #include "AssetForge/Builtins/StandardMaterialFunctions.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionVector.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Misc/UnifiedError.h"
 
 #include "Asset/Asset.h"

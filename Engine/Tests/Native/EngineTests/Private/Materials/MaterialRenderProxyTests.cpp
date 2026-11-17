@@ -1,4 +1,5 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
 #include "MaterialCompileFailureTestSupport.h"
 #include "MaterialResourceTestSupport.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"

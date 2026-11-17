@@ -1,4 +1,8 @@
 #include "Materials/MaterialObjectValidation.h"
+#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "MaterialExpressionOwnership.h"

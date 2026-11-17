@@ -1,6 +1,7 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "WaterRenderingTestSupport.h"
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
 #include "CoreGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"

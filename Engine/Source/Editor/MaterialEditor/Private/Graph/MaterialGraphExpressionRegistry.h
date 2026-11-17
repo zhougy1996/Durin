@@ -1,10 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/MaterialExpression.h"
 
 #include "MaterialEditorAPI.h"
 #include "Materials/MaterialExpressionDescription.h"
-#include "Materials/MaterialExpressions.h"
 
 namespace Durin::MaterialEditor
 {

@@ -1,4 +1,6 @@
 #include "SceneImportTaskTestSupport.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 using Durin::Testing::FSceneTaskHarness;
 using Durin::Testing::ImportSceneForTest;
 #include "NativeAssetBuildTestSupport.h"

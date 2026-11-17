@@ -1,4 +1,6 @@
 #include "MaterialParameterMutation.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialCustomVersion.h"
