@@ -2,6 +2,7 @@
 #include "RenderResourcePreparation.h"
 #include "CoreGlobals.h"
 #include "RenderingThread.h"
+#include "Templates/AtomicSharedPtr.h"
 
 #include "Shader/ShaderCompilerCore.h"
 #include "Materials/MaterialShaderMap.h"
@@ -49,11 +50,11 @@ namespace Durin
 		std::vector<std::weak_ptr<FMaterialPSOPrecacheObserver>> Observers;
 		auto Notify() -> void;
 		using FResult = std::expected<void, std::string>;
-		std::atomic<std::shared_ptr<const FResult>> Result;
+		TAtomicSharedPtr<const FResult> Result;
 		auto GetState() const -> EMaterialPSOPrecacheState
 		{
 			const auto CurrentPhase = Phase.load();
-			const auto Completed = Result.load();
+			const auto Completed = Result.Load();
 			if (Completed && !*Completed) return EMaterialPSOPrecacheState::Failed;
 			if (CurrentPhase == EPSOPhase::Retired || !IsPreparationConfigCurrent()) return EMaterialPSOPrecacheState::Stale;
 			if (CurrentPhase == EPSOPhase::Completed) return EMaterialPSOPrecacheState::Ready;
@@ -75,7 +76,7 @@ namespace Durin
 		}
 		auto Fail(std::string Error) -> void
 		{
-			Result = std::make_shared<const FResult>(std::unexpected(std::move(Error)));
+			Result.Store(std::make_shared<const FResult>(std::unexpected(std::move(Error))));
 			Phase = EPSOPhase::Completed;
 		}
 	};
@@ -185,7 +186,7 @@ namespace Durin
 	auto FMaterialPSOPrecacheRequestID::GetDiagnostic() const -> std::string
 	{
 		if (!Observer) return "No material PSO request.";
-		const auto Result = Observer->Work->Result.load();
+		const auto Result = Observer->Work->Result.Load();
 		return Result && !*Result ? Result->error() : std::string{};
 	}
 	auto FMaterialPSOPrecacheRequestID::Cancel() const -> void
@@ -377,7 +378,7 @@ namespace Durin
 			if (Work->Phase == EPSOPhase::Compiling && !Pending) {
 				if (Work->OptionalError) Work->Fail(*Work->OptionalError);
 				else if (Failed) Work->Fail("One or more material PSO requests failed.");
-				else { Work->Result = std::make_shared<const FMaterialPSOPrecacheWork::FResult>(); Work->Phase = EPSOPhase::Completed; }
+				else { Work->Result.Store(std::make_shared<const FMaterialPSOPrecacheWork::FResult>()); Work->Phase = EPSOPhase::Completed; }
 			}
 		}
 		for (size_t Index = 0; Index < Entries.size(); ++Index) if (Before[Index] != Entries[Index]->GetProgress()) Entries[Index]->Notify();
