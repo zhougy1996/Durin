@@ -4,7 +4,7 @@ Summary: Align editor asset operation interfaces, data structures, ownership, an
 
 Last reviewed: 2026-11-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-16
 
 ## Current Status
@@ -637,7 +637,7 @@ Browser, all four built-in factories, Texture/StaticMesh imports, Level/Material
 editors, MainFrame, DurinAssetTool, RoadWeaverEditor and native fixtures use the
 new contracts. Document Save/Discard stays on native Engine mechanisms to avoid
 a DurinEd -> AssetTools dependency cycle. Lasting contracts are in
-[Editor Asset Tools](../Editor/Architecture/Assets/AssetTools.md).
+[Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md).
 
 The Stage 1 removal ledger is closed: full-path creation and its service test
 helper, request-based duplicate/AssetDuplicate.h, SaveAssets/AssetSave.h and its
@@ -1189,8 +1189,8 @@ No implementation task or mandatory acceptance gate remains open.
 
 ## Validation And Evidence
 
-Follow [build](../Agents/BuildAndRun.md), [testing](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md) workflows. Each stage uses its owning
+Follow [build](../../../Agents/BuildAndRun.md), [testing](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md) workflows. Each stage uses its owning
 and affected direct-consumer targets; refresh the registry/affected explanation
 when inputs or module boundaries change. Candidate existing coverage includes
 EditorOperationTests, ContentBrowserDataTests, ContentBrowserWorkflowTests,
@@ -1209,22 +1209,22 @@ handoff rules; do not claim implementation completion from planning validation.
 Contract updates are mandatory in the stage that changes behavior, with a final
 consistency pass in Stage 5:
 
-- [Asset catalog and mutation](../Runtime/Assets/Packages/AssetCatalogAndMutation.md):
+- [Asset catalog and mutation](../../../Runtime/Assets/Packages/AssetCatalogAndMutation.md):
   operation ownership, result boundaries, duplication, rename/reference strategy,
   deletion, fix-up and persistence evidence.
-- [Asset packages](../Runtime/Assets/Packages/AssetPackages.md),
-  [residency](../Runtime/Assets/Packages/AssetResidency.md), and
-  [package persistence](../Runtime/ObjectSystem/PackagePersistence.md): supported
+- [Asset packages](../../../Runtime/Assets/Packages/AssetPackages.md),
+  [residency](../../../Runtime/Assets/Packages/AssetResidency.md), and
+  [package persistence](../../../Runtime/ObjectSystem/PackagePersistence.md): supported
   capability entrypoints, lifetime, reload/save policy and native writer boundary.
-- [Async asset operations](../Editor/Architecture/Assets/AsyncAssetOperations.md)
-  and [import framework](../Editor/Architecture/Assets/AssetImportFramework.md):
+- [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
+  and [import framework](../../../Editor/Architecture/Assets/AssetImportFramework.md):
   task/session ownership, multi-output publication, cancellation and optional save.
-- [Browser data](../Editor/Architecture/Assets/ContentBrowserData.md): UE deletion
+- [Browser data](../../../Editor/Architecture/Assets/ContentBrowserData.md): UE deletion
   signatures, independent dispatch, item outputs, notifications and removal of
   public confirmation contexts. The existing Valid/Stale/Rejected type is real
   baseline API and becomes obsolete through Stage 4, not through a documentation fix.
-- [Code modules](../Workspace/CodeModules.md) and
-  [asset editors](../Editor/Architecture/Framework/AssetEditors.md): tool/facade
+- [Code modules](../../../Workspace/CodeModules.md) and
+  [asset editors](../../../Editor/Architecture/Framework/AssetEditors.md): tool/facade
   placement, dependency direction, document protection and migrated save/reload use.
 
 ## Risks And Completion Rules

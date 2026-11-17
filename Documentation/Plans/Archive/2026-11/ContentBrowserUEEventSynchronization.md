@@ -4,7 +4,7 @@ Summary: Replace browser/query revision polling with incremental events and expl
 
 Last reviewed: 2026-11-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-15
 
 ## Current Status
@@ -75,8 +75,8 @@ No generic retry, recovery or replacement result framework is introduced.
 
 ## Validation
 
-Follow [build](../Agents/BuildAndRun.md), [testing](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md) workflows. Use bounded browser and
+Follow [build](../../../Agents/BuildAndRun.md), [testing](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md) workflows. Use bounded browser and
 AssetMetadataQuery coverage during iteration. Final all build covers foundational
 AssetRegistry and browser public-interface migration across workspace projects.
 Preserve existing platform skips and required native safety checks.

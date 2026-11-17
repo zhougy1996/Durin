@@ -4,7 +4,7 @@ Summary: Align editor services, Content Browser interfaces, shared previews, pac
 
 Last reviewed: 2026-11-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-16
 
 ## Current Status
@@ -172,17 +172,17 @@ companion-file policy, cancellation and recovery.
   limitations remain unqualified. This plan owns the service-update migration
   and toolkit consolidation described here. Shared applicable evidence may be
   reused without claiming acceptance of those excluded interactions.
-- [Runtime Startup And Scene Activation](RuntimeStartupAndSceneActivation.md)
+- [Runtime Startup And Scene Activation](../../RuntimeStartupAndSceneActivation.md)
   retains project/scene readiness and the one-frame-loop contract. Service
   updates integrate with its current safe points; no second startup loop or
   readiness owner is introduced.
-- [Restart-Based Plugin System](RestartBasedPluginSystem.md) owns plugin
+- [Restart-Based Plugin System](../../RestartBasedPluginSystem.md) owns plugin
   enablement and loading. This plan adds no Python/MCP enablement policy or
   hot-reload guarantee.
-- [DurinEditor SDK Packaging](DurinEditorSdkPackaging.md) owns SDK distribution.
+- [DurinEditor SDK Packaging](../../DurinEditorSdkPackaging.md) owns SDK distribution.
   Export/include changes must be communicated there without claiming SDK
   packaging acceptance here.
-- The current [Content Browser contract](../Editor/Architecture/Assets/ContentBrowser.md#operations)
+- The current [Content Browser contract](../../../Editor/Architecture/Assets/ContentBrowser.md#operations)
   deliberately specifies a private concrete source with no provider registry.
   Stages 2-3 explicitly replace that selected design with UE-style modular
   sources; this is a new decision, not a claim about existing behavior.
@@ -193,7 +193,7 @@ companion-file policy, cancellation and recovery.
   alignment and are outside this plan.
 
 Search and migrate shared symbols across production and test roots of every
-project declared in [Durin.dworkspace](../../Durin.dworkspace): Engine, Sandbox
+project declared in [Durin.dworkspace](../../../../Durin.dworkspace): Engine, Sandbox
 and RoadWeaver. Include RoadWeaverEditor registrations and project-defined
 editors. Complete each interface migration without permanent aliases, forwarding
 headers or a second legacy dispatch path. Temporary migration helpers must be
@@ -388,7 +388,7 @@ Acceptance: built-in operations use their provider contracts. Provider withdrawa
 cannot leave callable stale payloads or publish retired async results. No parallel
 legacy source continues to execute migrated operations.
 
-The implemented [provider contract](../Editor/Architecture/Assets/ContentBrowserData.md)
+The implemented [provider contract](../../../Editor/Architecture/Assets/ContentBrowserData.md)
 owns the lasting API/lifetime rules. The old private source is now
 `FContentBrowserRequestContext`; existing panel adapters and native providers use
 that one operation implementation. Stage 3 still owns replacing the panel's direct
@@ -570,8 +570,8 @@ adapter or registration migration. Panel dispatch no longer references the nativ
 mutation request context or its save-mode/physical-destination APIs. Native
 maintenance commands remain explicit asset-provider utilities, independently of
 generic item routing. The lasting contracts are in
-[Content Browser](../Editor/Architecture/Assets/ContentBrowser.md) and
-[data providers](../Editor/Architecture/Assets/ContentBrowserData.md).
+[Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md) and
+[data providers](../../../Editor/Architecture/Assets/ContentBrowserData.md).
 
 The affected selector expands to the entire Engine test project because a test
 CMake declaration changed and private query sources were added. The named owning
@@ -1141,8 +1141,8 @@ passing final-input receipts above supersede those failed attempts.
 
 ## Validation And Handoff Policy
 
-Follow the [build workflow](../Agents/BuildAndRun.md) and
-[test selection/result reuse workflow](../Agents/Testing.md); query the registry
+Follow the [build workflow](../../../Agents/BuildAndRun.md) and
+[test selection/result reuse workflow](../../../Agents/Testing.md); query the registry
 again before execution instead of assuming target membership remains unchanged.
 Run affected-selection explanation for behavior changes and justify any narrower
 case selection. Test commands build their selected dependencies; avoid redundant
@@ -1158,6 +1158,6 @@ failures require reproduction and a disposition; they are not acceptance passes.
 Document-only authoring needs changed-document validation, all-plan validation
 and diff review; it does not require native builds or runtime tests. During
 implementation, update this plan and owning lasting contracts in the same commit.
-Use exact `Plan` provenance `Documentation/Plans/EditorResponsibilityAndUEInterfaceAlignment.md`
+Use exact `Plan` provenance `Documentation/Plans/Archive/2026-11/EditorResponsibilityAndUEInterfaceAlignment.md`
 and the corresponding `Stage N: <stage title>` trailer; do not borrow stage
 completion or provenance from the related asset-editor plan.

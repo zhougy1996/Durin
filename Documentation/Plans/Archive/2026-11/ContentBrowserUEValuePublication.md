@@ -4,7 +4,7 @@ Summary: Freeze inputs across provider calls and commit results through live own
 
 Last reviewed: 2026-11-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-15
 
 ## Current Status
@@ -66,6 +66,6 @@ final receipts; documentation, all-plan validation and diff checks close accepta
 
 ## Validation
 
-Follow [build](../Agents/BuildAndRun.md), [testing](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md). Test utilities may pump/wait the
+Follow [build](../../../Agents/BuildAndRun.md), [testing](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md). Test utilities may pump/wait the
 normal asynchronous model but introduce no synchronous production branch.

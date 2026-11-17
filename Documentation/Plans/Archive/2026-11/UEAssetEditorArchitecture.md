@@ -4,7 +4,7 @@ Summary: Replace workspace-bound registration with UE-aligned asset definitions,
 
 Last reviewed: 2026-11-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-13
 
 ## Current Status
@@ -175,7 +175,7 @@ host context/helper; Sandbox has no specialized definition/toolkit consumer to
 migrate. Reflected fixture definitions and session classes exercise extension
 without central dispatch edits, including generic Edit/View and grouped sessions.
 Lasting contracts are published in
-[Asset definitions and editor sessions](../Editor/Architecture/Framework/AssetEditors.md).
+[Asset definitions and editor sessions](../../../Editor/Architecture/Framework/AssetEditors.md).
 
 Final-input evidence, Windows `windows-msvc-x64`, `Win64-Debug-DurinEditor`,
 working changes based on `b2ea9f72d`: incremental `all` passed, covering the Engine,
@@ -403,7 +403,7 @@ scene controller and readiness callbacks while moving to an owned session;
 no parallel scene-loading state machine is introduced.
 
 The existing engine contract permits one activated `DEditorEngine` per process
-([editor subsystem lifetime](../Editor/Architecture/Framework/EditorSubsystems.md)).
+([editor subsystem lifetime](../../../Editor/Architecture/Framework/EditorSubsystems.md)).
 The two-editor isolation gate therefore uses successive activated lifetimes,
 including retained old toolkit/subscription handles, rather than bypassing engine
 activation to manufacture simultaneous engines. Multiple asset sessions and both
@@ -501,7 +501,7 @@ Native standalone windows, browser/category migration and
 the final `all` acceptance build remain later gates, not Stage 2 evidence.
 
 The implemented foundations are documented in
-[asset definitions and editor sessions](../Editor/Architecture/Framework/AssetEditors.md).
+[asset definitions and editor sessions](../../../Editor/Architecture/Framework/AssetEditors.md).
 
 Stage 1 uses an uncached ancestor walk with a membership revision rather than
 maintaining a class-pointer lookup cache. This deliberately removes invalidation
@@ -541,8 +541,8 @@ one `IAssetEditorInstance` adapter per committed asset document. MainFrame wires
 concrete editor modules through `IAssetEditorModule::RegisterToolkits`.
 
 The implemented contracts remain authoritative until their replacement stages
-land: [workspace framework](../Editor/Architecture/Framework/WorkspaceFramework.md#asset-editor-toolkit-registration)
-and [asset-editor subsystem](../Editor/Architecture/Framework/EditorSubsystems.md#asset-editors).
+land: [workspace framework](../../../Editor/Architecture/Framework/WorkspaceFramework.md#asset-editor-toolkit-registration)
+and [asset-editor subsystem](../../../Editor/Architecture/Framework/EditorSubsystems.md#asset-editors).
 This plan intentionally supersedes their fixed-composition and exact-class-only
 design decisions as implementation progresses; it does not describe them as
 already changed.
@@ -764,17 +764,17 @@ level must not remove it at the definition level.
 
 ## Dependencies and Boundaries
 
-- [Runtime Startup And Scene Activation](RuntimeStartupAndSceneActivation.md)
+- [Runtime Startup And Scene Activation](../../RuntimeStartupAndSceneActivation.md)
   owns the authoritative project/Level load and readiness state machine. Stage 5
   integrates with its current contract; do not introduce another readiness owner
   or claim its outstanding gates as passed here.
-- [UE-Aligned Override Loading](Archive/2026-10/UEAlignedOverrideLoading.md) owns loading
+- [UE-Aligned Override Loading](../2026-10/UEAlignedOverrideLoading.md) owns loading
   semantics; editor opening consumes those services without changing package
   serialization or class override policy.
-- [DurinEditor SDK Packaging](DurinEditorSdkPackaging.md) owns external SDK
+- [DurinEditor SDK Packaging](../../DurinEditorSdkPackaging.md) owns external SDK
   packaging. New exported APIs and dependencies must be communicated there;
   this plan qualifies a project-defined editor without claiming SDK delivery.
-- [Async asset operations](../Editor/Architecture/Assets/AsyncAssetOperations.md)
+- [Async asset operations](../../../Editor/Architecture/Assets/AsyncAssetOperations.md)
   and existing transaction/reload contracts remain the operation substrate.
 - Inspect all source and test roots declared by `Durin.dworkspace` (Engine,
   Sandbox, RoadWeaver) for each changed shared symbol and migrate all consumers.
@@ -1392,8 +1392,8 @@ Engine, Sandbox and RoadWeaver. No Game dependency change is intended.
 
 ## Validation Matrix and Evidence
 
-Follow [build selection](../Agents/BuildAndRun.md) and
-[test selection and result reuse](../Agents/Testing.md#choose-execution).
+Follow [build selection](../../../Agents/BuildAndRun.md) and
+[test selection and result reuse](../../../Agents/Testing.md#choose-execution).
 Resolve current registrations before execution; existing target names below
 are starting points, not an instruction to run every target at every stage.
 

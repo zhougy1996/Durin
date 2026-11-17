@@ -4,7 +4,7 @@ Summary: Align Content Browser interfaces and implementation with UE provider ow
 
 Last reviewed: 2026-11-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-14
 
 ## Current Status
@@ -144,8 +144,8 @@ compatibility interface when the verified UE structure already resolves the need
   the full browser presentation host context.
 
 Existing implemented contracts remain authoritative until each migration lands:
-[Content Browser](../Editor/Architecture/Assets/ContentBrowser.md) and
-[data providers](../Editor/Architecture/Assets/ContentBrowserData.md).
+[Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md) and
+[data providers](../../../Editor/Architecture/Assets/ContentBrowserData.md).
 No asset format, package serialization, renderer or unrelated toolkit redesign is
 included. No production remote backend is required to prove provider independence.
 
@@ -1160,8 +1160,8 @@ Selected-file safety and redundant-work convergence (2026-11-14, `8e40e2a27` plu
 
 ## Validation And Completion
 
-Follow the [build workflow](../Agents/BuildAndRun.md) and
-[test workflow](../Agents/Testing.md). Use focused owning/consumer targets during
+Follow the [build workflow](../../../Agents/BuildAndRun.md) and
+[test workflow](../../../Agents/Testing.md). Use focused owning/consumer targets during
 each stage; inspect affected selection and reuse passing final-input evidence.
 Verify test target names before executing them. Candidate coverage includes
 ContentBrowserDataTests, ContentBrowserWorkflowTests, EditorAssetWorkflowTests,

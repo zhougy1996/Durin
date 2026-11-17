@@ -4,7 +4,7 @@ Summary: Replace browser mount-version polling with committed mount events and U
 
 Last reviewed: 2026-11-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-15
 
 ## Current Status
@@ -77,6 +77,6 @@ No generic task manager, Session, result or recovery abstraction is introduced.
 
 ## Validation
 
-Follow [build](../Agents/BuildAndRun.md), [testing](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md). Native catalog and mount-registry
+Follow [build](../../../Agents/BuildAndRun.md), [testing](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md). Native catalog and mount-registry
 consistency counters used outside browser synchronization remain outside scope.

@@ -4,7 +4,7 @@ Summary: Adopt UE provider operation results and independent dispatch, remove ge
 
 Last reviewed: 2026-11-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-15
 
 ## Current Status
@@ -81,8 +81,8 @@ not that every selected contribution succeeded. Prior successes are retained.
 
 ## Validation
 
-Follow [build](../Agents/BuildAndRun.md), [testing](../Agents/Testing.md), and
-[documentation](../Agents/Documentation.md) workflows. Iteration uses owning
+Follow [build](../../../Agents/BuildAndRun.md), [testing](../../../Agents/Testing.md), and
+[documentation](../../../Agents/Documentation.md) workflows. Iteration uses owning
 ContentBrowserDataTests/ContentBrowserWorkflowTests; the browser module selector
 covers direct asset workflow, import, Python and thumbnail consumers. All build
 covers the public ABI and cross-project consumers; it does not imply GPU
@@ -119,5 +119,5 @@ only documentation status/receipts changed after these runs.
   unchanged. Changed-document and all-plan validation passed before commit.
 
 Implemented contracts live in
-[Content Browser Data](../Editor/Architecture/Assets/ContentBrowserData.md) and
-[Content Browser](../Editor/Architecture/Assets/ContentBrowser.md).
+[Content Browser Data](../../../Editor/Architecture/Assets/ContentBrowserData.md) and
+[Content Browser](../../../Editor/Architecture/Assets/ContentBrowser.md).

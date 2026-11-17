@@ -4,7 +4,7 @@ Summary: Consume complete provider deltas directly, preserve item and thumbnail 
 
 Last reviewed: 2026-11-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-16
 
 ## Current Status
@@ -130,9 +130,9 @@ retained. Package membership is indexed alongside folder counts; crossing the
 single/multiple-asset boundary emits complete Modified events for affected
 siblings, without recapturing unrelated rows or packages.
 
-Lasting contracts belong in [data providers](../Editor/Architecture/Assets/ContentBrowserData.md),
-[browser presentation](../Editor/Architecture/Assets/ContentBrowser.md) and
-[thumbnails](../Editor/Architecture/Assets/AssetThumbnails.md).
+Lasting contracts belong in [data providers](../../../Editor/Architecture/Assets/ContentBrowserData.md),
+[browser presentation](../../../Editor/Architecture/Assets/ContentBrowser.md) and
+[thumbnails](../../../Editor/Architecture/Assets/AssetThumbnails.md).
 
 ## Implementation Stages
 
@@ -159,7 +159,7 @@ Depends on Stage 0.
 Acceptance: native event items have correct names, class/extension/size/time and
 opaque payload ownership; per-item checks match baseline scope/filter behavior.
 Run owning provider/data tests and bounded consumer builds selected through the
-[build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md) workflows.
+[build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md) workflows.
 
 ### Stage 2: Merge ordinary item updates into the view
 

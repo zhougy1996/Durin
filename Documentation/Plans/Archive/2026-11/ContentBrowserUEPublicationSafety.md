@@ -4,7 +4,7 @@ Summary: Fix reentrant publication and scoped cancellation while removing test-o
 
 Last reviewed: 2026-11-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-15
 
 ## Current Status
@@ -70,6 +70,6 @@ all-plan validation and diff checks complete the handoff.
 
 ## Validation
 
-Follow [build](../Agents/BuildAndRun.md), [testing](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md). Native asset catalog consistency
+Follow [build](../../../Agents/BuildAndRun.md), [testing](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md). Native asset catalog consistency
 checks and navigation action identity remain outside the counter removal.

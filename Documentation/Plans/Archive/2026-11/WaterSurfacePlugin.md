@@ -4,7 +4,7 @@ Summary: Add an opt-in Engine water plugin for finite, animated water surfaces u
 
 Last reviewed: 2026-11-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-13
 
 ## Current Status
@@ -30,7 +30,7 @@ DMeshComponent's existing constructor for external component subclasses; its
 signature and behavior are unchanged. StaticMesh and Spline consumers were
 identified across every workspace project's source/test roots and validated.
 
-The implemented contract is [Finite Water Surfaces](../Runtime/World/WaterSurfaces.md).
+The implemented contract is [Finite Water Surfaces](../../../Runtime/World/WaterSurfaces.md).
 
 ### Material Cook follow-up
 
@@ -44,7 +44,7 @@ removed. Native builds do not generate material content. Runtime-only spawning
 requires the existing explicit Cook-root or asset-policy mechanism.
 
 The public UE comparison and lasting contract are recorded in
-[Finite Water Surfaces](../Runtime/World/WaterSurfaces.md#material-resources).
+[Finite Water Surfaces](../../../Runtime/World/WaterSurfaces.md#material-resources).
 The initial acceptance below describes the earlier resource mechanism; it is
 historical evidence for unchanged geometry/query behavior.
 
@@ -115,7 +115,7 @@ validated after workspace restoration.
   `4391372fc0c06daf55cf4ccd1488a3a948fe4fc8526531113b4601f5812d5e1f`.
 
 Reproduction and explicit resource generation are described in the
-[isolated fixture](../../Engine/Tests/Fixtures/WaterSurface/README.md). MSVC
+[isolated fixture](../../../../Engine/Tests/Fixtures/WaterSurface/README.md). MSVC
 native builds/tests ran outside the sandbox after its documented C1902 PDB
 failure. The affected-test heuristic selected all because it treats new plugin
 resources/test CMake declarations as unbounded inputs. Bounded coverage was used
@@ -148,7 +148,7 @@ allowance of fewer than one percent of pixels differing by more than two
 
 The production spectrum, parameter/grid limits, coordinate/time convention,
 query inversion and measured tolerances now belong to the
-[implemented contract](../Runtime/World/WaterSurfaces.md#wave-and-query-contract).
+[implemented contract](../../../Runtime/World/WaterSurfaces.md#wave-and-query-contract).
 
 ### Stage 0: Prove the rendering path
 
@@ -183,7 +183,7 @@ Completion: gameplay queries agree with the rendered water within the stated tol
 
 ## Validation and Deferred Work
 
-Use the repository [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md) workflows to select the smallest owning-module and consumer coverage. Validate both enabled and disabled project selection and one Editor/development Game scene. A Game preset is required for the runtime-variant boundary; a repository-wide `all` build is needed only if bounded targets cannot cover a shared renderer or build-graph change.
+Use the repository [build](../../../Agents/BuildAndRun.md) and [test](../../../Agents/Testing.md) workflows to select the smallest owning-module and consumer coverage. Validate both enabled and disabled project selection and one Editor/development Game scene. A Game preset is required for the runtime-variant boundary; a repository-wide `all` build is needed only if bounded targets cannot cover a shared renderer or build-graph change.
 
 Except for the user-authorized bounded precompilation of water validation
 resources, full Cook, Stage, packaged Game startup, and packaged asset/shader
@@ -192,4 +192,4 @@ is release-ready, open a follow-on stage or plan for those paths. The same appli
 to refraction, underwater effects, buoyancy, spline rivers, terrain interaction,
 and infinite ocean meshing.
 
-Related contracts: [plugin metadata and selection](../Workspace/Plugins.md), [material vertex evaluation](../Runtime/Rendering/Materials/MaterialVertexEvaluation.md), and [forward lighting](../Runtime/Rendering/Features/ForwardLighting.md).
+Related contracts: [plugin metadata and selection](../../../Workspace/Plugins.md), [material vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md), and [forward lighting](../../../Runtime/Rendering/Features/ForwardLighting.md).
