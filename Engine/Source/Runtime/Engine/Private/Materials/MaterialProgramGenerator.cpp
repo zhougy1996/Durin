@@ -349,6 +349,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 				case EMaterialProgramOpcode::TextureSampleParameter2D:
 				case EMaterialProgramOpcode::TextureCoordinates:
 				case EMaterialProgramOpcode::MakeMaterialAttributes:
+				case EMaterialProgramOpcode::BlendMaterialAttributes:
 				case EMaterialProgramOpcode::GetMaterialAttributes:
 				case EMaterialProgramOpcode::SetMaterialAttributes:
 				case EMaterialProgramOpcode::AppendVector:

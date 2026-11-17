@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Editor/EditorEngineTestSupport.h"
+#include "EditorEngineTestSupport.h"
 
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"

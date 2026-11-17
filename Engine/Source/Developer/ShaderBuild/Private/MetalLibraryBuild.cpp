@@ -67,11 +67,24 @@ namespace Durin
 			posix_spawn_file_actions_t Actions;
 			if (posix_spawn_file_actions_init(&Actions)) return std::unexpected("Cannot initialize Metal tool actions.");
 			struct FActions { posix_spawn_file_actions_t& Value; ~FActions() { posix_spawn_file_actions_destroy(&Value); } } ActionsLease{Actions};
+			const auto AddWorkingDirectory = [&]() -> int {
+				if (Directory.empty()) return 0;
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000
+				return posix_spawn_file_actions_addchdir(&Actions, Directory.c_str());
+#else
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+				if (__builtin_available(macOS 26.0, *))
+					return posix_spawn_file_actions_addchdir(&Actions, Directory.c_str());
+				else
+#endif
+					return posix_spawn_file_actions_addchdir_np(&Actions, Directory.c_str());
+#endif
+			};
 			if (posix_spawn_file_actions_adddup2(&Actions, Pipe[1], STDOUT_FILENO)
 				|| posix_spawn_file_actions_adddup2(&Actions, Pipe[1], STDERR_FILENO)
 				|| posix_spawn_file_actions_addclose(&Actions, Pipe[0])
 				|| posix_spawn_file_actions_addclose(&Actions, Pipe[1])
-				|| (!Directory.empty() && posix_spawn_file_actions_addchdir_np(&Actions, Directory.c_str())))
+				|| AddWorkingDirectory())
 				return std::unexpected("Cannot configure Metal tool actions.");
 			posix_spawnattr_t Attributes;
 			if (posix_spawnattr_init(&Attributes)) return std::unexpected("Cannot initialize Metal tool attributes.");

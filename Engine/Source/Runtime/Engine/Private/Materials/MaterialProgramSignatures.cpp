@@ -568,6 +568,7 @@ namespace Durin
 		case OpcodeType::Splat4:
 		case OpcodeType::AppendVector:
 			return NonSpatial();
+		case OpcodeType::BlendMaterialAttributes:
 		case OpcodeType::StaticBool:
 		case OpcodeType::StaticSwitch:
 		case OpcodeType::QualitySwitch:

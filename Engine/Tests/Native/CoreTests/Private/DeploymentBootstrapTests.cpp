@@ -61,6 +61,12 @@ namespace Durin
         Item.SetChildValue("Path","Config/Project.yaml"); Item.SetChildValue("Sha256",FileSha256(Root/"Config/Project.yaml"));
         EXPECT_FALSE(Read());
     }
+    TEST_F(FDeploymentBootstrapTests, PreservesUtf8DeploymentPaths)
+    {
+        const std::filesystem::path Relative(u8"Content/资源/材质.bin");
+        const auto Expected=std::filesystem::weakly_canonical(Root)/Relative;
+        EXPECT_EQ(ResolveDeploymentPath(Root,"Content/资源/材质.bin"),Expected);
+    }
     TEST_F(FDeploymentBootstrapTests, RejectsLexicalEscapesAndCanonicalAliases)
     {
         for (const auto* Text:{"../outside","/outside","C:outside","Data\\outside","Data/../outside","Data//file","Data/./file","Data/file:stream","Data/nul.txt","Data/file.","Data/file "})

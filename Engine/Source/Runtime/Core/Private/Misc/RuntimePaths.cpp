@@ -34,7 +34,7 @@ namespace Durin
             || Relative.find_first_of("\\:<>\"|?*")!=std::string_view::npos
             || std::ranges::any_of(Relative,[](unsigned char C){return C<32;}))
             throw std::runtime_error("Invalid deployment path: "+std::string(Relative));
-        const auto Path=std::filesystem::u8path(Relative);
+        const auto Path=std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
         if (Path.is_absolute() || Path.has_root_name() || Relative.find("//")!=std::string_view::npos)
             throw std::runtime_error("Invalid deployment path");
         for (const auto& Part:Path)

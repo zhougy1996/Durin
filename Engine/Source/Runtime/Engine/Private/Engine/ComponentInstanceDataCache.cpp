@@ -341,7 +341,8 @@ namespace Durin
 			std::string TypeName;
 			if (Archive.IsSaving())
 			{
-				if (!Data || Data->GetDataType().Type != typeid(*Data))
+				const auto* InstanceData = Data.get();
+				if (!InstanceData || InstanceData->GetDataType().Type != typeid(*InstanceData))
 				{ Archive.SetError("Component instance data has no matching registered type."); return; }
 				TypeName = Data->GetDataType().Name;
 			}

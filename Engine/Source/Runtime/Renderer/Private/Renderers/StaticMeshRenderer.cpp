@@ -257,13 +257,14 @@ namespace Durin
 		const FPreparedStaticMeshDraw& Draw, FResolvedMeshDrawRecord& Record, EStaticMeshSectionResourcePolicy Policy,
 		FStaticMeshSectionResourceContext* ResourceContext) -> bool
 	{
+		const auto* CollectedBinding = Primitive ? Primitive->CollectedBinding.get() : nullptr;
 		const bool bRetained =
 			ResourceContext && Primitive && Primitive->bRetainedStaticMesh &&
 			Primitive->VertexDomain == EVertexDeformationDomain::Local && Primitive->GeometryRecord &&
 			Primitive->GeometryRecord == Draw.Command->GeometryOwner && Primitive->CollectedBinding &&
 			Primitive->CollectedBinding == Primitive->GeometryRecord->GetBinding() &&
 			Primitive->CollectedBinding->Declaration && !Primitive->CollectedBinding->Streams.empty() &&
-			typeid(*Primitive->CollectedBinding) == typeid(FStaticMeshBatchBinding);
+			typeid(*CollectedBinding) == typeid(FStaticMeshBatchBinding);
 		FStaticMeshSectionResourceContext::FKey Key{};
 		FRenderResourceGeneration Generation;
 		uint64 ReleaseEpoch = 0;

@@ -701,10 +701,16 @@ namespace Durin
 				RefreshMaterialGraphObservers();
 #endif
 				for (const auto& Path : Paths)
+				{
 					if (auto* Package = FindResidentPackage(Path))
+					{
 						for (DObject* Object : Package->GetTopLevelAssets())
+						{
 							if (auto* Function = Cast<DMaterialFunctionInterface>(Object)) NotifyMaterialFunctionChanged(*Function);
 							else if (auto* Collection = Cast<DMaterialParameterCollection>(Object)) NotifyMaterialParameterCollectionChanged(*Collection);
+						}
+					}
+				}
 			}
 			catch (...)
 			{

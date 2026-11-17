@@ -186,7 +186,8 @@ namespace Durin::MaterialEditor
 			case EMaterialProgramValueType::Float2: return IM_COL32(100, 180, 220, 255);
 			case EMaterialProgramValueType::Float3: return IM_COL32(220, 170, 80, 255);
 			case EMaterialProgramValueType::Float4: return IM_COL32(210, 110, 180, 255);
-			case EMaterialProgramValueType::Texture2D: return IM_COL32(150, 110, 230, 255);
+			case EMaterialProgramValueType::Texture2D:
+			case EMaterialProgramValueType::TextureCube: return IM_COL32(150, 110, 230, 255);
 			case EMaterialProgramValueType::MaterialAttributes: return IM_COL32(235, 155, 70, 255);
 			case EMaterialProgramValueType::StaticBool: return IM_COL32(188, 125, 225, 255);
 			}

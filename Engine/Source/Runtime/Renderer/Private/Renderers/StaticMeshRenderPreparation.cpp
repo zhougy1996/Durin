@@ -150,7 +150,8 @@ namespace Durin
 		if (!Binding || !Binding->Declaration || Binding->Streams.empty()) return {};
 		// Only the ordinary local factory has an audited view-independent Section contract.
 		// Custom factories retain per-view preparation until they opt into an equivalent contract.
-		if (typeid(*Binding) != typeid(FStaticMeshBatchBinding)) return {};
+		const auto* BindingObject = Binding.get();
+		if (typeid(*BindingObject) != typeid(FStaticMeshBatchBinding)) return {};
 		auto Factory = FindMeshVertexFactory(Binding->GetFactoryKey());
 		// Missing registrations may arrive later; never retain a missing-factory result.
 		if (!Factory) return {};

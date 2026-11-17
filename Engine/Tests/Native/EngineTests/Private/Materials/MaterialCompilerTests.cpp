@@ -1616,19 +1616,19 @@ TEST(FMaterialCompilerTests, MetalMaterialProgramCompilesAndCooks)
 	FMaterialCompilerEnvironment CurrentEnvironment;
 	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(CurrentEnvironment));
 	Input.Environment.CompilerIdentity = CurrentEnvironment.CompilerIdentity;
-	Input.Environment.Target = "metal-msl-2.0";
+	Input.Environment.Target = "metal-library-1";
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic"
 		: Compiled.Diagnostics.front().Message);
 	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), GetDefaultMaterialShaderEntries().size());
 	for (const auto& Shader : Compiled.GetShaderMap().CompiledShaders)
 	{
-		EXPECT_EQ(Shader.Target, MetalShaderTarget);
-		EXPECT_EQ(Shader.CodeFormat, EShaderCodeFormat::Msl20Source);
+		EXPECT_EQ(Shader.Target, MetalLibraryShaderTarget);
+		EXPECT_EQ(Shader.CodeFormat, EShaderCodeFormat::MetalLibrary);
 		EXPECT_NE(ShaderFormat::DecodeMetalMetadata(Shader.Frequency, Shader.PlatformData.GetBytes())->Identity, FXxHash128{});
 	}
 	FByteBuffer Bytes;
-	const std::array Programs{&Compiled};
+	const std::array Programs{&Compiled.Resource};
 	auto Error = EncodeMaterialCookedProgramFamily(Programs,
 		Input.StaticProperties, ECookTargetPlatform::MacOS,
 		ECookTargetProfile::Game, Bytes);

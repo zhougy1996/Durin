@@ -94,7 +94,9 @@ namespace Durin
 			if (!Entry) return std::unexpected("Null component instance data cannot be reinstanced.");
 			auto Replacement = Entry->CreateReplacement(Map);
 			if (!Replacement) return std::unexpected(Replacement.error());
-			if (!*Replacement || Replacement->get() == Entry.get() || typeid(**Replacement) != typeid(*Entry))
+			const auto* ReplacementData = Replacement->get();
+			const auto* OriginalData = Entry.get();
+			if (!ReplacementData || ReplacementData == OriginalData || typeid(*ReplacementData) != typeid(*OriginalData))
 				return std::unexpected("Component instance reinstancing must return independent data of the same dynamic type.");
 			Entry = std::move(*Replacement);
 		}
