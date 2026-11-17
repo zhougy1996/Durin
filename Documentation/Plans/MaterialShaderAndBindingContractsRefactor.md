@@ -4,20 +4,21 @@ Summary: Align Shader/VF ownership and parameter binding with UE's separation of
 
 Last reviewed: 2026-11-17
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-17
 
 ## Current Status
 
-M15 of the [Material System roadmap](../Roadmaps/MaterialSystem.md). Stages 0-4
+M15 of the [Material System roadmap](../Roadmaps/MaterialSystem.md). Stages 0-5
 are complete: registered Shader/VF descriptions own compilation; composable
 parameter-owner metadata, compiler allocation and typed submission replace the
 intermediate global binding catalog. Material, ShaderBuild, Vulkan, Cook and
-workspace consumer coverage and Editor/Game `all` builds pass for Stage 4.
+workspace consumer coverage and final Editor/Game `all` builds pass.
 
 Stage 3 centralized the former global logical set/binding numbers. Stage 4 removes
 that catalog and separates composable parameter metadata from compiler allocation.
-The final integrated acceptance and publication work remains in Stage 5.
+Stage 5 completes isolated Cook/Game corpus execution, Windows rendering checks,
+size/work observations and final publication on 2026-11-17.
 Implemented contracts remain documented in
 [Material shader stages](../Runtime/Rendering/Materials/MaterialShaderStages.md).
 
@@ -30,14 +31,18 @@ global resource catalog and role enum. Accepted entries retain canonical schema
 and product-bound allocation identities, actual compiler locations, dimensions,
 array policy and constant layouts through shared ShaderBuild output, DDC and Cook.
 Renderer submits typed providers through those accepted records and partitions
-lifetimes by metadata scope. Stage 4's complete migration is validated; Stage 5
-remains pending, including its final isolated packaged material corpus.
+lifetimes by metadata scope. Stage 5 now validates an eight-material isolated Cook
+corpus, allocation preservation, compatible-instance sharing and numeric updates
+without source work in Editor and runtime-only Game test hosts. Cube, numerical texture WPO,
+ClearCoat and PostProcess Vulkan checks pass on the current Windows environment.
+The same corpus passes from a physically isolated exported Game runtime;
+the Sandbox delivery passes its separate 30-tick Launcher verification.
 
 The owner permits underlying API/derived-format changes. The preceding
 [M14 plan](MaterialAttributesAndExecutionContractsRefactor.md) was completed with
 its Stage 6 and native Metal acceptance explicitly skipped. Those skips are not
-passes. Native Metal acceptance remains excluded from M15; the new Stage 5
-Windows integration gates remain required.
+passes. Native Metal acceptance remains excluded from M15; the Stage 5
+Windows integration gates pass without treating those exclusions as results.
 
 ## Goal and Boundaries
 
@@ -118,10 +123,10 @@ submission remains correct through the accepted allocation map.
 Entry gate: Stage 4's metadata/allocation/runtime migration and extension tests
 pass; final acceptance does not substitute for implementing that boundary.
 
-- [ ] Validate owning and affected consumers across workspace projects, including isolated source-free Cook/Game execution for Surface, Cube/WPO, ClearCoat and PostProcess with final allocation maps and no shader-source/compiler fallback.
-- [ ] Satisfy the final workspace `all` gate for changed foundational headers/layouts/build inventory. Reuse Stage 4 Editor/Game results when relevant inputs and environment are unchanged; rebuild affected closure when they change.
-- [ ] Check rendering behavior, required resource/descriptor counts, parameter updates without compilation and compatible-instance sharing. Record actual size/work observations without claiming unmeasured timing acceptance.
-- [ ] Publish final ownership in Runtime/Rendering contracts, update the roadmap and record final tested inputs, selections and limits. Native Metal acceptance remains skipped by owner instruction and is not a passing result.
+- [x] Validate owning and affected consumers across workspace projects, including isolated source-free Cook/Game execution for Surface, Cube/WPO, ClearCoat and PostProcess with final allocation maps and no shader-source/compiler fallback.
+- [x] Satisfy the final workspace `all` gate for changed foundational headers/layouts/build inventory. Reuse Stage 4 Editor/Game results when relevant inputs and environment are unchanged; rebuild affected closure when they change.
+- [x] Check rendering behavior, required resource/descriptor counts, parameter updates without compilation and compatible-instance sharing. Record actual size/work observations without claiming unmeasured timing acceptance.
+- [x] Publish final ownership in Runtime/Rendering contracts, update the roadmap and record final tested inputs, selections and limits. Native Metal acceptance remains skipped by owner instruction and is not a passing result.
 
 ## Stage 4 Contract Freeze
 
@@ -328,6 +333,47 @@ behavior/resource-count checks; earlier Stage 3 receipts cannot cover these edit
 
 ## Completed Validation Summary
 
+### Stage 5 final integrated acceptance
+
+Validated on 2026-11-17 from `c6e27ab9f` plus the integrated Cook/Game tests,
+test registration and documentation changes, windows-msvc-x64, Debug/Tracy,
+MSVC 19.44.35228.0,
+18 build jobs. Current GPU execution uses RTX 3090, Vulkan 1.4.351 and SDK
+1.4.357.0 validation layers. Production source, formats and authored content are
+unchanged from Stage 4. Its owning/consumer results remain relevant; the current
+checkpoint adds the following evidence rather than repeating that entire set.
+
+- `MaterialCookTests` passes all 7 cases (`20261117-232009-545097-40816-MaterialCookTests.log`). Its integrated corpus covers Specular/DefaultLit, ClearCoat, Unlit, neutral/color/depth PostProcess, Cube and explicit-LOD Cube WPO. Editor/Game selections retain identical common shader code and Game excludes HitProxy. Replay renames the authored package tree out of reach, strips expressions/IR/generated source and preserves complete accepted entries, schema/map identities, actual allocations and code bytes. Six variants with active color fields exercise independent dynamic-instance updates and shared accepted programs. Shader compilation, dependency resolution and content-read counters do not increase during replay; instance creation/updates do not add material preparation requests.
+- Cube Cook fixtures use the declared null-Cube fallback. Real Cube faces, face-local orientation, mip selection, replacement/fallbacks and numerical Texture2D/Cube vertex displacement are covered by `StaticMeshRenderPreparationVulkanTests` cases `CubeMaterialFacesMipsInstanceReplacementAndFallbacks` and `ExplicitTextureLODVertexDisplacementMatchesNumericalDepth`. The same bounded run passes `ClearCoatMatchesForwardDeferredDirectAndEnvironmentReferences`: 3 cases, `20261117-232127-388210-43320-StaticMeshRenderPreparationVulkanTests.log`.
+- `MaterialSceneTexturesVulkanTests` passes its source-free scene-input case, including filtering, subrects, resize, depth conventions and RDG lifetime ownership (`20261117-232204-914909-35308-MaterialSceneTexturesVulkanTests.log`). Both GPU receipts contain no Vulkan validation errors.
+- `cook-contracts.csv` records package bytes / shader bytes / retained-map bytes / summed accepted binding records respectively: Specular 171626/160292/180837/23; ClearCoat 172539/161136/181745/23; Unlit 35485/27296/41390/12; PostNeutral 10777/6280/11015/4; PostColor 11321/6600/11857/5; PostDepth 15045/10200/15698/6; Cube 37281/28060/43012/14; CubeWPO 40380/30392/46964/18. Binding counts sum all accepted entries, not simultaneous GPU descriptors. Retained sizes are the map's accounting; shared storage may overlap across maps. These observations establish no timing threshold or performance comparison.
+
+- The final optional corpus export additionally writes the Game Shader library; its selected case passes in `20261117-232714-379355-21812-MaterialCookTests.log`. The other six Cook cases are reused because only that case's optional export block changed. `MaterialGameReplayTests` is registered only for Win64 Game and links runtime owners without ShaderBuild. It loads all eight packages, compares identities, stage bytes and aggregate accepted binding counts with the CSV, checks schema/map identities and stripped debug data, and exercises shared programs and numeric updates. Cooked Shader mode forbids ShaderBuild; neither ShaderBuild nor ShaderFormat is an active module.
+- `DevTool export --project Sandbox/Sandbox.dproject --output-dir Build/AgentValidation/MaterialShaderAndBindingContracts/Stage5/SandboxExport --configuration Debug --verify` completes with `ExportComplete.json` and a verified 30-tick staged Launcher run. A separate copy of that delivery, with the Game replay executable and isolated corpus, passes the eight-material replay from `IsolatedGameReplay/Binaries/Win64/MaterialGameReplayTests.exe` (`20261117-233445-006351-31124-MaterialGameReplayTests.log`). Its tree contains no shader sources, C++ sources/headers, ShaderBuild or Slang compiler binaries. This combines material-specific runtime checks in the Game native host with actual Launcher deployment/startup coverage; it does not claim full-image pixel comparisons from the Launcher.
+- Final workspace `all` builds pass for Editor (`20261117-233513-128548-21500-cmake.log`) and Game (`20261117-233525-675926-23832-cmake.log`). Earlier full dependency updates also passed; these final incremental runs include the Game-only test inventory and Editor exclusion. Test-CMake changes conservatively expand `affected` to the Engine test project. The bounded Cook/Game and GPU selections above cover the new fixtures; no production dependencies or APIs changed. Stage 4's unchanged owning/workspace consumer results are retained, with current SDK/build-graph closure supplied by these builds.
+
+Initial Game fixture attempts exposed undeclared includes, mount setup after
+manifest admission, incomplete resource preparation and an invalid blanket assertion
+that every optimized entry has bindings. The final fixture declares dependencies,
+sets mounts before admission, explicitly finishes material preparation and compares
+actual accepted aggregate counts. It shuts Renderer down while render-command
+admission remains open. Failed attempts and process exits are not passing evidence.
+The first export attempt rejected a stale component receipt; rebuilding
+`ExportComponent` refreshed it before the successful export.
+
+Raw logs, source hashes, reproduction selections and copied Cook outputs are under
+ignored `Build/AgentValidation/MaterialShaderAndBindingContracts/Stage5/`.
+Set `DURIN_MATERIAL_STAGE4_CLOSURE_EVIDENCE_DIR` to that absolute directory when
+running the Cook target to emit the CSV and packages; the existing environment
+variable name is retained. For Game replay, set `DURIN_MATERIAL_GAME_CORPUS_DIR`
+to the directory containing `Cooked/`, `Shaders/` and the CSV, then run
+`DevTool test MaterialGameReplayTests --preset Win64-Debug-DurinGame`.
+Set `DURIN_MATERIAL_GAME_REPLAY_EXECUTABLE` to a copy beside exported Game DLLs
+to repeat installed execution; the registered runner launches it with a bounded
+60-second lifetime and forwards its output. These correctness receipts establish
+no timing acceptance, Shipping qualification or clean-machine prerequisite result.
+Native Metal remains skipped by owner instruction, not passed.
+
 ### Stage 4 owner metadata and compiler allocation acceptance
 
 Validated on 2026-11-17 from base `b1a2db156` plus the final migration. Exact
@@ -344,8 +390,8 @@ changed-file SHA-256 inputs, selections and raw logs are recorded under ignored
 Formats are material binding schema 3, generic parameter schema/map 2, pass ABI 25,
 DMAT 28, detached translation 17, generator 29, material adapter 26, DSHD 7 and
 shared Shader output 8; ShaderBuild compile/reflection revisions are 7/4. Physical
-uniform packing remains 5. Stage 5's isolated final material corpus and final
-publication gates remain open; these results do not close that stage.
+uniform packing remains 5. This Stage 4 receipt did not close Stage 5's isolated
+final material corpus and publication gates; final evidence is recorded above.
 
 ### Test-contract cleanup during the allocation migration
 

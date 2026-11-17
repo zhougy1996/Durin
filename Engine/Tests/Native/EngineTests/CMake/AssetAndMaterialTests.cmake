@@ -741,6 +741,24 @@ durin_add_native_test(MaterialCookTests
 		"Exercises material cooking, function dependency fingerprints, and cooked-only loading."
 )
 
+if(WIN32 AND NOT DURIN_WITH_EDITOR)
+	durin_add_native_test(MaterialGameReplayTests
+		KIND integration
+		DOMAINS material material-cook
+		MODULES engine renderer
+		STACKS renderer
+		SOURCES Private/Materials/MaterialGameReplayTests.cpp
+		INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer
+		HEAVY_RUNTIME_RATIONALE "Loads an independently cooked material corpus in a runtime-only process; requires DURIN_MATERIAL_GAME_CORPUS_DIR from the Editor Cook export."
+	)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "The precompiled Game corpus replay requires the Win64 runtime-only configuration."
+		SOURCES Private/Materials/MaterialGameReplayTests.cpp
+	)
+endif()
+
 durin_add_native_test(MaterialPackageTests
 	KIND feature
 	DOMAINS material material-package

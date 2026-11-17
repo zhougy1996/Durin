@@ -215,6 +215,14 @@ shadow type, whose declared material pass remains Shadow. Excluded uses
 fail admission without compiler work. Game continues to load accepted binaries
 without MIR, generated source, ShaderBuild or authoring graphs.
 
+Cooked preparation validates the saved schema and product-bound allocation
+identities using registered runtime Shader/VF metadata before publication.
+Compatible dynamic instances share the immutable accepted program and allocation
+records; numeric updates replace parameter payloads without compiling another
+program. Optimized stages may retain no bindings when their entire parameter
+closure is unused; required-resource validation follows the accepted per-entry
+contract rather than a blanket nonempty-binding rule.
+
 Pass contract 25, DMAT 28 and detached translation schema 17 carry this
 contract. Normalization/generator revisions 16/29, compile adapter 26 and the
 ShaderBuild compile algorithm revision 7 invalidate earlier producer artifacts.
