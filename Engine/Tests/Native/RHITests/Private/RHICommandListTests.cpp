@@ -669,6 +669,78 @@ namespace Durin
 		EXPECT_EQ(Executor.GetLastSubmittedSerial(), 0u);
 	}
 
+	TEST(FRHICommandListTests, SubCommandListsPreserveOnePassAndOrderedPayloadOwnership)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Parent = Executor.GetImmediateCommandList();
+		Parent.SwitchPipeline(ERHIPipeline::Graphics);
+		Parent.BeginDiagnosticRegion("ParallelPass");
+		Parent.BeginRenderPass({}, "Parent");
+		std::vector<int> Order;
+		int Destroyed = 0;
+		Parent.EnqueueLambda([&] { Order.push_back(0); });
+		const auto Before = Parent.GetNumRecordedCommands();
+		{
+			FRHISubCommandList First(Parent), Second(Parent);
+			// Complete in reverse order; insertion still follows draw order.
+			Second.EnqueueLambda([&] { Order.push_back(2); });
+			Second.Draw(FRHIDrawArguments{.VertexCount = 3});
+			Second.FinishRecording();
+			First.EnqueueLambda([Owned = std::unique_ptr<int, FCountedDelete>(new int(1), FCountedDelete{&Destroyed}), &Order] { Order.push_back(*Owned); }, sizeof(int));
+			First.FinishRecording();
+			std::array Children{&First, &Second};
+			Parent.InsertParallelRenderPass(Children);
+			EXPECT_EQ(Parent.GetNumRecordedCommands(), Before + 3);
+			EXPECT_EQ(Parent.GetNumRecordedDrawCommands(), 1u);
+			EXPECT_TRUE(Parent.IsInsideRenderPass());
+			EXPECT_FALSE(First.IsFinished());
+			EXPECT_FALSE(Second.IsFinished());
+		}
+		EXPECT_EQ(Destroyed, 0);
+		EXPECT_TRUE(Order.empty());
+		Parent.EnqueueLambda([&] { Order.push_back(3); });
+		Parent.EndRenderPass();
+		Parent.EndDiagnosticRegion();
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Order, (std::vector<int>{0, 1, 2, 3}));
+		EXPECT_EQ(Destroyed, 1);
+		EXPECT_EQ(std::ranges::count(Context.Operations, "BeginRenderPass"), 1);
+		EXPECT_EQ(std::ranges::count(Context.Operations, "EndRenderPass"), 1);
+		EXPECT_TRUE(Context.ObservedDrawArguments.has_value());
+	}
+
+	TEST(FRHICommandListTests, SubCommandListsCannotBeSubmittedIndependently)
+	{
+		FRHICommandList Parent;
+		Parent.SwitchPipeline(ERHIPipeline::Graphics);
+		Parent.BeginRenderPass({}, "Parent");
+		FRHISubCommandList Child(Parent);
+		Child.FinishRecording();
+		FRHICommandListExecutor Executor;
+		EXPECT_FALSE(Executor.GetImmediateCommandList().TryQueueCommandList(std::move(Child)));
+		std::vector<FRHICommandList*> Lists{&Child};
+		EXPECT_EQ(Executor.TrySubmit(Lists, ERHISubmitFlags::None).Result, ERHICommandListSubmitResult::InvalidCommandList);
+		Parent.EndRenderPass();
+	}
+
+	TEST(FRHICommandListTests, SubCommandListsRejectWrongPassDuplicateAndParentClosure)
+	{
+		FRHICommandList Parent;
+		Parent.SwitchPipeline(ERHIPipeline::Graphics);
+		Parent.BeginRenderPass({}, "First");
+		FRHISubCommandList Child(Parent);
+		EXPECT_DEATH(Child.EndRenderPass(), "");
+		Child.FinishRecording();
+		std::array Duplicate{&Child, &Child};
+		EXPECT_DEATH(Parent.InsertParallelRenderPass(Duplicate), "");
+		Parent.EndRenderPass();
+		Parent.BeginRenderPass({}, "Second");
+		std::array Children{&Child};
+		EXPECT_DEATH(Parent.InsertParallelRenderPass(Children), "");
+		Parent.EndRenderPass();
+	}
+
 	TEST(FRHICommandListTests, ImmediateInsertionPreservesPrimaryTimelineOrder)
 	{
 		FRHICommandListExecutor Executor;
@@ -1639,7 +1711,16 @@ namespace Durin
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
 		auto DrawPipeline = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Graphics, "draw");
 		EXPECT_TRUE(DrawPipeline);
-		if (DrawPipeline) Commands.SetGraphicsPipelineState(*DrawPipeline);
+		Commands.BeginRenderPass({}, "PendingChildPipeline");
+		{
+			FRHISubCommandList Child(Commands);
+			if (DrawPipeline) Child.SetGraphicsPipelineState(*DrawPipeline);
+			Child.Draw(FRHIDrawArguments{.VertexCount = 3});
+			Child.FinishRecording();
+			std::array Children{&Child};
+			Commands.InsertParallelRenderPass(Children);
+		}
+		Commands.EndRenderPass();
 		std::weak_ptr<FGraphicsPipelineState> Identity;
 		if (Precached) Identity = *Precached;
 		Precached = std::unexpected(ERHIPipelineRequestRejection::Unsupported);
@@ -1655,7 +1736,7 @@ namespace Durin
 		EXPECT_TRUE(Context.Operations.empty());
 		Release.Trigger();
 		Executor.Submit({}, ERHISubmitFlags::None);
-		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"PipelineState", "ComputePipelineState", "Dispatch"}));
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"BeginRenderPass", "PipelineState", "Draw3", "EndRenderPass", "ComputePipelineState", "Dispatch"}));
 		EXPECT_EQ(RHI.GraphicsCreations, 1u);
 		EXPECT_EQ(RHI.ComputeCreations, 1u);
 	}

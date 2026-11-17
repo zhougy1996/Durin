@@ -70,7 +70,7 @@ namespace Durin
 			const FPreparedStaticMeshView& PreparedView, FResolvedStaticMeshView& ResolvedView,
 			FStaticMeshSectionResourceContext* ResourceContext = nullptr) -> FGeometryResolutionResult;
 		auto ExecutePass_RenderThread(FRHICommandListImmediate& CommandList, FResolvedStaticMeshView& ResolvedView,
-			RendererPrivate::FMeshPassKey Pass, EMeshBasePass Bucket) -> void;
+			RendererPrivate::FMeshPassKey Pass, EMeshBasePass Bucket, const FSceneView& View) -> void;
 		auto ExecutePreparedDraw_RenderThread(
 			FRHICommandListImmediate& CommandList, const FPreparedStaticMeshDraw& Draw, FResolvedStaticMeshView& ResolvedView, RendererPrivate::FMeshPassKey Pass, FMeshDrawCommandStateCache* BindingGroup = nullptr
 		) -> void;
@@ -79,6 +79,7 @@ namespace Durin
 		auto ExecuteGBuffer_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FResolvedStaticMeshView& ResolvedView,
+			const FSceneView& View,
 			const RendererPrivate::FMeshDrawCommandOverrideArgs& OverrideArgs = {}
 		) -> FGeometryExecutionResult;
 		auto ReleaseResources_RenderThread() -> void;

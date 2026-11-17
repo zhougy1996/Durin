@@ -209,6 +209,13 @@ namespace Durin::RendererPrivate
 			FMeshDrawCommandStateCache* Cache = nullptr, FMeshDrawCommandPassStats* Statistics = nullptr) const -> FMeshDrawCommandPassResult;
 		RENDERER_API auto Draw(FRHICommandList& Commands, uint32 StartIndex, uint32 NumMeshDrawCommands,
 			const FMeshDrawCommandOverrideArgs& OverrideArgs = {}, FMeshDrawCommandStateCache* Cache = nullptr, FMeshDrawCommandPassStats* Statistics = nullptr) const -> FMeshDrawCommandPassResult;
+		// Null selects the ordinary serial Draw path. Non-null partitions the final
+		// visible commands, including compacted instance-culling commands, in order.
+		RENDERER_API auto DispatchDraw(FParallelCommandListSet* ParallelCommandListSet, FRHICommandList& Commands,
+			const FMeshDrawCommandOverrideArgs& OverrideArgs = {}, FMeshDrawCommandPassStats* Statistics = nullptr) const -> FMeshDrawCommandPassResult;
+		RENDERER_API auto DispatchDraw(FParallelCommandListSet* ParallelCommandListSet, FRHICommandList& Commands,
+			uint32 StartIndex, uint32 NumMeshDrawCommands, const FMeshDrawCommandOverrideArgs& OverrideArgs = {},
+			FMeshDrawCommandPassStats* Statistics = nullptr) const -> FMeshDrawCommandPassResult;
 	private:
 		friend struct FMeshDrawCommandPassTestAccess;
 		friend RENDERER_API auto SetupMeshDrawCommands(FRHICommandListImmediate&, const FPreparedStaticMeshView&, FResolvedStaticMeshView&, bool) -> bool;

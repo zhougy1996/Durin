@@ -9,6 +9,7 @@
 #include "RenderResourceCreation.h"
 #include "RenderPipelineCreation.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialBindingSchema.h"
 #include "RHICapabilities.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -3156,6 +3157,9 @@ TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContrac
 		{.SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::UniformBuffer},
 		{.SetIndex = 1, .BindingIndex = 2, .Type = ERHIBindingType::UniformBuffer},
 		{.SetIndex = 1, .BindingIndex = 27, .Type = ERHIBindingType::UniformBuffer}};
+	Reflection.ResourceBindings[0].Name = GetMaterialBindingName(EMaterialBindingRole::View);
+	Reflection.ResourceBindings[1].Name = GetMaterialBindingName(EMaterialBindingRole::Material);
+	Reflection.ResourceBindings[2].Name = GetMaterialBindingName(EMaterialBindingRole::HitProxy);
 	const FCompiledSurfaceBindingLayout Layout(Reflection);
 	ASSERT_TRUE(Layout.IsValid());
 	ASSERT_EQ(Layout.GetEntries().size(), 3u);

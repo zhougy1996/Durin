@@ -3,9 +3,133 @@
 #include "RHICommandList.h"
 #include "Renderers/InstanceCulling.h"
 #include "InstanceUniformShaderParameters.h"
+#include "SceneView.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::RendererPrivate
 {
+	FParallelCommandListSet::FParallelCommandListSet(const FSceneView& View, FRHICommandList& InParent)
+		: Parent(InParent), ViewRect{float(View.ViewportX), float(View.ViewportY), float(View.ViewportWidth), float(View.ViewportHeight)}
+	{
+		require(Parent.IsInsideRenderPass());
+		const char* Setting = std::getenv("DURIN_MESH_DRAW_RECORDING");
+		const std::string_view Policy = Setting ? Setting : "auto";
+		if (Policy == "serial") Width = 1;
+		else if (Policy == "parallel") MinDrawsPerCommandList = 1;
+	}
+
+	FParallelCommandListSet::~FParallelCommandListSet()
+	{
+		// Drain even on an exceptional/failed recording path before borrowed pass
+		// data goes out of scope. Uninserted command payloads are simply discarded.
+		for (auto& Recording : Recordings)
+			if (Recording.Completion.IsValid()) require(Recording.Completion.Wait());
+	}
+
+	auto FParallelCommandListSet::NewParallelCommandList() -> FRHISubCommandList*
+	{
+		require(!bDispatched);
+		auto Commands = std::make_unique<FRHISubCommandList>(Parent);
+		Commands->SetViewport(ViewRect[0], ViewRect[1], 0, ViewRect[0] + ViewRect[2], ViewRect[1] + ViewRect[3], 1);
+		Commands->SetScissor(ViewRect[0], ViewRect[1], ViewRect[2], ViewRect[3]);
+		auto* Result = Commands.get();
+		Recordings.push_back({std::move(Commands), {}});
+		return Result;
+	}
+
+	auto FParallelCommandListSet::AddParallelCommandList(FRHISubCommandList* Commands, Tasks::FTask Completion) -> void
+	{
+		require(!bDispatched && Completion.IsValid());
+		const auto Found = std::ranges::find_if(Recordings, [Commands](const auto& Entry) { return Entry.Commands.get() == Commands; });
+		require(Found != Recordings.end() && !Found->Completion.IsValid());
+		Found->Completion = std::move(Completion);
+	}
+
+	auto FParallelCommandListSet::Dispatch() -> bool
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ParallelDraw.Join");
+		require(!bDispatched);
+		bDispatched = true;
+		bool bSucceeded = true;
+		std::vector<FRHISubCommandList*> Commands;
+		Commands.reserve(Recordings.size());
+		for (auto& Recording : Recordings)
+		{
+			require(Recording.Completion.IsValid());
+			const auto Wait = Recording.Completion.WaitDetailed();
+			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+			bSucceeded &= Wait.TaskState == ETaskState::Succeeded;
+			Commands.push_back(Recording.Commands.get());
+		}
+		if (bSucceeded) Parent.InsertParallelRenderPass(Commands);
+		return bSucceeded;
+	}
+
+	auto FParallelMeshDrawCommandPass::DispatchDraw(FParallelCommandListSet* ParallelCommandListSet, FRHICommandList& Commands,
+		const FMeshDrawCommandOverrideArgs& OverrideArgs, FMeshDrawCommandPassStats* Statistics) const -> FMeshDrawCommandPassResult
+	{
+		return DispatchDraw(ParallelCommandListSet, Commands, 0, static_cast<uint32>(VisibleMeshDrawCommands.size()), OverrideArgs, Statistics);
+	}
+
+	auto FParallelMeshDrawCommandPass::DispatchDraw(FParallelCommandListSet* ParallelCommandListSet, FRHICommandList& Commands,
+		uint32 StartIndex, uint32 NumMeshDrawCommands, const FMeshDrawCommandOverrideArgs& OverrideArgs,
+		FMeshDrawCommandPassStats* Statistics) const -> FMeshDrawCommandPassResult
+	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ParallelDraw.Dispatch");
+		if (StartIndex > VisibleMeshDrawCommands.size() || NumMeshDrawCommands > VisibleMeshDrawCommands.size() - StartIndex)
+			return {.bComplete = false};
+		const uint32 Workers = ParallelCommandListSet ? GetTaskSchedulerWorkerCount() : 0;
+		if (!ParallelCommandListSet || Workers < 2 || ParallelCommandListSet->Width < 2
+			|| NumMeshDrawCommands <= std::max(1u, ParallelCommandListSet->MinDrawsPerCommandList))
+			return Draw(Commands, StartIndex, NumMeshDrawCommands, OverrideArgs, nullptr, Statistics);
+		require(&ParallelCommandListSet->GetParentCommandList() == &Commands);
+		require(bFinalized);
+		const uint32 MinDraws = std::max(1u, ParallelCommandListSet->MinDrawsPerCommandList);
+		const uint32 NumTasks = std::min({Workers, ParallelCommandListSet->Width, 1u + (NumMeshDrawCommands - 1) / MinDraws});
+		const uint32 DrawsPerTask = 1u + (NumMeshDrawCommands - 1) / NumTasks;
+		struct FTaskOutput { FMeshDrawCommandPassResult Result; FMeshDrawCommandPassStats Statistics; };
+		// Output and handle storage is fixed before any callback borrows it.
+		std::vector<FTaskOutput> Outputs(NumTasks);
+		struct FDrainBeforeOutputs
+		{
+			std::vector<Tasks::FTask> Tasks;
+			~FDrainBeforeOutputs() { for (auto& Task : Tasks) require(Task.Wait()); }
+		} Drain;
+		Drain.Tasks.reserve(NumTasks);
+		for (uint32 TaskIndex = 0, First = 0; First < NumMeshDrawCommands; ++TaskIndex)
+		{
+			const uint32 Count = std::min(DrawsPerTask, NumMeshDrawCommands - First);
+			auto* Child = ParallelCommandListSet->NewParallelCommandList();
+			Tasks::FTaskExecutionOptions Options;
+			Options.Prerequisites = ParallelCommandListSet->GetPrereqs();
+			auto Task = Tasks::LaunchIndependentTask("Renderer.DrawVisibleMeshCommands",
+				[this, Child, First = StartIndex + First, Count, OverrideArgs, Output = &Outputs[TaskIndex], bStats = Statistics != nullptr] {
+					DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ParallelDraw.Record");
+					Output->Result = Draw(*Child, First, Count, OverrideArgs, nullptr, bStats ? &Output->Statistics : nullptr);
+					Child->FinishRecording();
+				}, Options);
+			Drain.Tasks.push_back(Task);
+			ParallelCommandListSet->AddParallelCommandList(Child, std::move(Task));
+			First += Count;
+		}
+		FMeshDrawCommandPassResult Result;
+		if (!ParallelCommandListSet->Dispatch())
+		{
+			for (const auto& Visible : std::span(VisibleMeshDrawCommands).subspan(StartIndex, NumMeshDrawCommands))
+				Result.Record(Visible.NumSourceDraws, false, 0, false);
+			return Result;
+		}
+		for (auto& Output : Outputs)
+		{
+			const auto& Part = Output.Result;
+			Result.Attempted += Part.Attempted; Result.Successful += Part.Successful; Result.Rejected += Part.Rejected;
+			Result.NativeSubmissions += Part.NativeSubmissions; Result.IndirectSubmissions += Part.IndirectSubmissions;
+			Result.bComplete &= Part.bComplete; Result.bRenderedGeometry |= Part.bRenderedGeometry;
+			if (Statistics) Statistics->DrawData.insert(Statistics->DrawData.end(), Output.Statistics.DrawData.begin(), Output.Statistics.DrawData.end());
+		}
+		return Result;
+	}
+
 	namespace
 	{
 		auto Combine(size_t& Hash, uint64 Value) -> void

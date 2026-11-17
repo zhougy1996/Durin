@@ -798,12 +798,13 @@ namespace Durin
 	}
 
 	auto FStaticMeshRenderer::ExecutePass_RenderThread(FRHICommandListImmediate& CommandList,
-		FResolvedStaticMeshView& ResolvedView, FMeshPassKey PassKey, EMeshBasePass Bucket) -> void
+		FResolvedStaticMeshView& ResolvedView, FMeshPassKey PassKey, EMeshBasePass Bucket, const FSceneView& View) -> void
 	{
 		check(IsInRenderingThread()); check(CommandList.IsInsideRenderPass());
 		const auto& Pass = std::as_const(ResolvedView).GetMeshDrawCommandPass(PassKey);
 		const auto Range = Pass.GetBasePassRange(Bucket);
-		const auto Result = Pass.Draw(CommandList, Range.FirstCommand, Range.NumCommands);
+		FParallelCommandListSet ParallelCommandLists(View, CommandList);
+		const auto Result = Pass.DispatchDraw(&ParallelCommandLists, CommandList, Range.FirstCommand, Range.NumCommands);
 		ResolvedView.Observations.AttemptedDraws += Result.Attempted;
 		ResolvedView.Observations.SuccessfulDraws += Result.Successful;
 		ResolvedView.Observations.RejectedDraws += Result.Rejected;
@@ -821,6 +822,7 @@ namespace Durin
 	auto FStaticMeshRenderer::ExecuteGBuffer_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FResolvedStaticMeshView& ResolvedView,
+		const FSceneView& View,
 		const FMeshDrawCommandOverrideArgs& OverrideArgs
 	) -> FGeometryExecutionResult
 	{
@@ -830,7 +832,8 @@ namespace Durin
 		auto& O = ResolvedView.Observations;
 		auto* Statistics = ResolvedView.GBufferPassStats;
 		if (Statistics) Statistics->DrawData.clear();
-		const auto Result = Pass.Draw(CommandList, OverrideArgs, nullptr, Statistics);
+		FParallelCommandListSet ParallelCommandLists(View, CommandList);
+		const auto Result = Pass.DispatchDraw(&ParallelCommandLists, CommandList, OverrideArgs, Statistics);
 		if (Statistics) ReduceGBufferMeshDrawCommandStats(*Statistics, O, ResolvedView.GBufferSourceFamilies);
 		O.GBufferAttemptedDraws += Result.Attempted; O.GBufferSuccessfulDraws += Result.Successful; O.GBufferRejectedDraws += Result.Rejected;
 		O.NativeDrawSubmissions += Result.NativeSubmissions; O.GBufferIndirectSubmissions += Result.IndirectSubmissions;

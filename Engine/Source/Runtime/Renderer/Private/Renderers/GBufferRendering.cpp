@@ -324,6 +324,7 @@ namespace Durin
 				);
 				const FGeometryExecutionResult StaticResult = StaticMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
+					RenderView,
 					OverrideArgs
 				);
 				if (Options.bEnableGPUCulling)

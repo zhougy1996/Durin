@@ -77,6 +77,14 @@ That contract is the authority for mesh submission; this document does not dupli
 its command-storage or culling tables. Unsupported factories use the explicit
 primitive-uniform fallback.
 
+GBuffer and opaque/masked forward recording partition the finalized visible list
+through `FParallelMeshDrawCommandPass::DispatchDraw`. Each worker records a
+subcommand list inside the same parent render pass, with independent state and
+statistics; joining and ordered insertion preserve scene-data lifetime and the
+single clear/load/store boundary. Small ranges and sorted translucency remain
+serial. The list ownership, prerequisite and comparison-policy contract lives in
+[RHI command execution](../RHI/RHICommandExecution.md#command-list-roles).
+
 Shadow recording consumes const prepared/resolved values and returns local
 observations on regular command lists. Each cascade owns its complete render pass
 and exact array layer; ordered list assembly precedes telemetry/depth capture.

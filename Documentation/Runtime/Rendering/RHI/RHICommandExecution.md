@@ -74,7 +74,7 @@ human-readable reasons; swapchain status handling follows `vk::Result`.
 
 ## Command-List Roles
 
-`FRHICommandListBase` owns the common recording surface. Both concrete list
+`FRHICommandListBase` owns the common recording surface. All concrete list
 types always use the same typed command representation:
 
 - `FRHICommandListImmediate` is the executor-owned primary timeline. It adds
@@ -82,6 +82,31 @@ types always use the same typed command representation:
 - `FRHICommandList` is a movable finite recorder. `FinishRecording()` validates
   and changes it from recording to finished without executing or submitting
   anything. A finished list can be admitted exactly once.
+- `FRHISubCommandList` records graphics inside one specific parent render-pass
+  invocation. It inherits pass placement, but no pipeline/binding state. It
+  cannot begin or end a render pass, change pipeline domain, or be submitted as
+  an independent list. `FinishRecording()` seals its locally balanced scopes.
+  `InsertParallelRenderPass()` transfers finished children to their parent in
+  array order, including command storage, resource ownership, pipeline creation
+  dependencies and draw counts. It preserves the parent's single clear,
+  load/store, diagnostic and timing scopes without a flush or GPU submission.
+
+Renderer mesh passes use `FParallelMeshDrawCommandPass::DispatchDraw` with an
+optional `FParallelCommandListSet`. A null set, unavailable scheduler or small
+draw range uses `Draw`. Larger ranges are partitioned in final visible-command
+order, after dynamic instancing and instance-culling compaction. Each recorder
+sets its viewport/scissor and owns a fresh draw-state cache and optional local
+statistics. Independent CPU task prerequisites gate recording; pending external
+events and owner-thread work are not valid recording dependencies. The set joins
+recording before insertion and merges observations in draw order, so prepared scene data may be
+borrowed until the call returns. Failed recording tasks insert no partial group.
+GBuffer, opaque/masked forward and retained-forward paths use this mechanism;
+sorted translucency retains serial ordered submission. Native RHI translation
+and submission retain the existing executor policy.
+`DURIN_MESH_DRAW_RECORDING=serial|parallel|auto` selects the diagnostic recording
+policy before tasks launch. Auto uses up to eight recorders, bounded by the
+scheduler's worker count, with UE's 64-command default target grain; parallel
+permits smaller ranges, while a singleton remains serial.
 
 `FRHICommandBatch` is the RHI module's private immutable transfer boundary.
 Renderer-facing code never receives or submits one directly. Queueing a

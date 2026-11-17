@@ -634,6 +634,95 @@ namespace
         FlushRenderingCommands();
     }
 
+    TEST_F(FGPUSceneTests, ParallelDrawRecordingMatchesSerialRangesSourcesAndCounters)
+    {
+        using namespace RendererPrivate;
+        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+            constexpr uint32 Count = 513;
+            const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+            FMeshPassPipelineInitializer Initializer;
+            Initializer.PipelineState = MakeRefCount<FRHIGraphicsPipelineState>();
+            const auto Pipeline = std::make_shared<const FMeshPassPipeline>(std::move(Initializer));
+            FMeshPassBindings Bindings; Bindings.Vertex.Shader = Shader;
+            std::vector<FMeshDrawCommand> Draws(Count);
+            FMeshCommandOneFrameArray Visible;
+            for (uint32 Index = 0; Index < Count; ++Index) {
+                auto& Draw = Draws[Index]; Draw.bFinalized = true; Draw.Pipeline = Pipeline.get();
+                Draw.VertexBindings.Shader = Shader;
+                Draw.DrawParameters = FRHIDrawArguments{.VertexCount = 3, .FirstVertex = Index * 3};
+                FVisibleMeshDrawCommand Item;
+                Item.Command = &Draw; Item.Pass = &Bindings; Item.SourceDrawIndex = Index;
+                Item.NumSourceDraws = Index % 5 + 1; Item.bSourceReady = Index % 17 != 0;
+                Visible.push_back(Item);
+            }
+            FParallelMeshDrawCommandPass Pass;
+            FMeshDrawCommandPassTestAccess::SetCommands(Pass, std::move(Visible));
+            FSceneView View; View.ViewportX = 7; View.ViewportY = 9; View.ViewportWidth = 64; View.ViewportHeight = 32;
+            for (const bool Parallel : {false, true}) {
+                FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass({}, "DrawTest");
+                FParallelCommandListSet Set(View, Parent); Set.Width = 4; Set.MinDrawsPerCommandList = 64;
+                FMeshDrawCommandPassStats Statistics;
+                const auto Result = Pass.DispatchDraw(Parallel ? &Set : nullptr, Parent, 3, Count - 7, {}, &Statistics);
+                size_t Attempted = 0, Successful = 0, Native = 0;
+                ASSERT_EQ(Statistics.DrawData.size(), Count - 7);
+                for (uint32 Offset = 0; Offset < Statistics.DrawData.size(); ++Offset) {
+                    const uint32 Source = Offset + 3;
+                    const auto& Data = Statistics.DrawData[Offset];
+                    EXPECT_EQ(Data.SourceDrawIndex, Source); EXPECT_EQ(Data.NumSourceDraws, Source % 5 + 1);
+                    EXPECT_EQ(Data.bSucceeded, Source % 17 != 0);
+                    Attempted += Source % 5 + 1;
+                    if (Data.bSucceeded) { Successful += Source % 5 + 1; ++Native; }
+                }
+                EXPECT_EQ(Result.Attempted, Attempted); EXPECT_EQ(Result.Successful, Successful);
+                EXPECT_EQ(Result.Rejected, Attempted - Successful); EXPECT_EQ(Result.NativeSubmissions, Native);
+                EXPECT_EQ(Parent.GetNumRecordedDrawCommands(), Native);
+                EXPECT_TRUE(Parent.IsInsideRenderPass());
+                Parent.EndRenderPass(); Parent.FinishRecording();
+            }
+        });
+        FlushRenderingCommands();
+    }
+
+    TEST_F(FGPUSceneTests, ParallelRecordingGroupHonorsPrerequisites)
+    {
+        using namespace RendererPrivate;
+        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+            FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass({}, "Prerequisites");
+            const auto Before = Parent.GetNumRecordedCommands();
+            FParallelCommandListSet Set(FSceneView{}, Parent);
+            auto* Child = Set.NewParallelCommandList();
+            bool bPrerequisiteRan = false, bVisited = false;
+            auto Prerequisite = Tasks::LaunchIndependentTask("Test.DrawPrerequisite", [&] { bPrerequisiteRan = true; });
+            Tasks::FTaskExecutionOptions Options; Options.Prerequisites.push_back(Prerequisite);
+            auto Task = Tasks::LaunchIndependentTask("Test.ParallelDraw", [Child, &bVisited, &bPrerequisiteRan] {
+                EXPECT_TRUE(bPrerequisiteRan); bVisited = true; Child->FinishRecording();
+            }, Options);
+            Set.AddParallelCommandList(Child, Task);
+            EXPECT_TRUE(Set.Dispatch()); EXPECT_TRUE(bVisited);
+            EXPECT_GT(Parent.GetNumRecordedCommands(), Before);
+            Parent.EndRenderPass(); Parent.FinishRecording();
+        });
+        FlushRenderingCommands();
+    }
+
+    TEST_F(FGPUSceneTests, ParallelRecordingFailureDoesNotInsertSuccessfulSiblings)
+    {
+        using namespace RendererPrivate;
+        EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+            FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass({}, "FailedGroup");
+            const auto Before = Parent.GetNumRecordedCommands();
+            FParallelCommandListSet Set(FSceneView{}, Parent);
+            auto* First = Set.NewParallelCommandList();
+            auto* Second = Set.NewParallelCommandList();
+            Set.AddParallelCommandList(First, Tasks::LaunchIndependentTask("Test.DrawSuccess", [First] { First->FinishRecording(); }));
+            Set.AddParallelCommandList(Second, Tasks::LaunchIndependentTask("Test.DrawFailure", [] { throw std::runtime_error("Expected recording failure"); }));
+            EXPECT_FALSE(Set.Dispatch());
+            EXPECT_EQ(Parent.GetNumRecordedCommands(), Before);
+            Parent.EndRenderPass(); Parent.FinishRecording();
+        });
+        FlushRenderingCommands();
+    }
+
     TEST_F(FGPUSceneTests, CullingDrawParametersResolveDeclaredRangesAndOffsetsOnce)
     {
         EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate& Commands) {

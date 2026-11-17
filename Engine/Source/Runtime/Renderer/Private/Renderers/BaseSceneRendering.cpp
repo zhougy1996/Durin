@@ -232,7 +232,7 @@ namespace Durin
 		SetViewRect(CommandList, View);
 		for (const auto Bucket : {EMeshBasePass::Opaque, EMeshBasePass::Masked})
 			StaticMeshRenderer.ExecutePass_RenderThread(CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
-				{RendererPrivate::EMeshPipelinePass::HybridRetainedForward}, Bucket);
+				{RendererPrivate::EMeshPipelinePass::HybridRetainedForward}, Bucket, View);
 		return {.Result = ERenderViewResult::Success};
 	}
 	auto FBaseSceneRecorder::RenderForwardScene_RenderThread(
@@ -278,7 +278,7 @@ namespace Durin
 			 })
 		{
 			StaticMeshRenderer.ExecutePass_RenderThread(CommandList, ResolvedSceneResources.Receiver.StaticMeshes,
-				{RendererPrivate::EMeshPipelinePass::Forward}, Pass);
+				{RendererPrivate::EMeshPipelinePass::Forward}, Pass, View);
 		}
 		FMeshDrawCommandStateCache TranslucentBindings;
 		for (const FPreparedStaticMeshDraw& Draw :

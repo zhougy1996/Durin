@@ -94,6 +94,26 @@ namespace
 {
 	using namespace Durin::Tests::Preparation;
 
+	struct FScopedMeshDrawRecordingPolicy
+	{
+		std::string Previous;
+		explicit FScopedMeshDrawRecordingPolicy(const char* Value)
+		{
+			if (const char* Existing = std::getenv("DURIN_MESH_DRAW_RECORDING")) Previous = Existing;
+			Set(Value);
+		}
+		~FScopedMeshDrawRecordingPolicy() { Set(Previous.c_str()); }
+		static auto Set(const char* Value) -> void
+		{
+#if defined(_WIN32)
+			_putenv_s("DURIN_MESH_DRAW_RECORDING", Value);
+#else
+			if (*Value) setenv("DURIN_MESH_DRAW_RECORDING", Value, 1);
+			else unsetenv("DURIN_MESH_DRAW_RECORDING");
+#endif
+		}
+	};
+
 	auto MakeMultiLODRenderData()
 		-> std::unique_ptr<Durin::FStaticMeshRenderData>
 	{
@@ -2518,6 +2538,22 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		{
 			bDynamicInstancing = false;
 			Render(Instanced.Get(), false, Mode, Direct);
+			// Force both policies on the same retained scene. Unlit exercises the
+			// forward pass; Lit exercises GBuffer with nonzero custom instance data.
+			FObservation SerialRecording, ParallelRecording;
+			{
+				FScopedMeshDrawRecordingPolicy Policy("serial");
+				Render(Instanced.Get(), false, Mode, SerialRecording);
+			}
+			{
+				FScopedMeshDrawRecordingPolicy Policy("parallel");
+				Render(Instanced.Get(), false, Mode, ParallelRecording);
+			}
+			EXPECT_EQ(ParallelRecording.Pixels, SerialRecording.Pixels);
+			EXPECT_EQ(ParallelRecording.GBuffer, SerialRecording.GBuffer);
+			EXPECT_EQ(ParallelRecording.Shadow, SerialRecording.Shadow);
+			EXPECT_EQ(ParallelRecording.Telemetry.StaticMesh.NativeDrawSubmissions, SerialRecording.Telemetry.StaticMesh.NativeDrawSubmissions);
+			EXPECT_EQ(ParallelRecording.Telemetry.GBuffer.GBufferSuccessfulDraws, SerialRecording.Telemetry.GBuffer.GBufferSuccessfulDraws);
 			Render(Dynamic.Get(), true, Mode, Baseline);
 			bDynamicInstancing = true;
 			FObservation CPUMerged; Render(Instanced.Get(), false, Mode, CPUMerged);

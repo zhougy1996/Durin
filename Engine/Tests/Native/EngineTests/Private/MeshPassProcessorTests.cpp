@@ -6,6 +6,7 @@
 #include "Renderers/GBufferRendering.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "Materials/MaterialBindingSchema.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 
 #include "CoreGlobals.h"
@@ -497,6 +498,7 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 	FShaderReflectionData Reflection;
 	Reflection.ResourceBindings = {{.SetIndex = 1, .BindingIndex = 2,
 		.Type = ERHIBindingType::UniformBuffer}};
+	Reflection.ResourceBindings[0].Name = GetMaterialBindingName(EMaterialBindingRole::Material);
 	const FCompiledSurfaceBindingLayout Layout(Reflection);
 	FResolvedSurfaceMaterial Material;
 	Material.bCompiledLayout = true;

@@ -353,6 +353,29 @@ namespace Durin
 			return true;
 		}
 		auto GetDependencies() const -> std::span<const FRHIPipelineCreationRequest> { return Dependencies; }
+		auto Append(FRHICommandStorage& Other) -> void
+		{
+			check(!PendingNode && !Other.PendingNode);
+			// Reserve before transferring ownership. A failed allocation leaves both
+			// lists intact. Each child keeps its ordinary per-recorder dependency cap.
+			Blocks.reserve(Blocks.size() + Other.Blocks.size());
+			Dependencies.reserve(Dependencies.size() + Other.Dependencies.size());
+			const size_t NewCount = CheckedAddPayloadBytes(CommandCount, Other.CommandCount);
+			const size_t NewBytes = CheckedAddPayloadBytes(PayloadBytes, Other.PayloadBytes);
+			for (const auto& Dependency : Other.Dependencies)
+				if (!std::ranges::contains(Dependencies, Dependency)) Dependencies.push_back(Dependency);
+			for (auto& Block : Other.Blocks) Blocks.push_back(std::move(Block));
+			if (Other.Head)
+			{
+				if (Tail) Tail->Next = Other.Head;
+				else Head = Other.Head;
+				Tail = Other.Tail;
+			}
+			CommandCount = NewCount;
+			PayloadBytes = NewBytes;
+			Other.Head = Other.Tail = nullptr;
+			Other.CommandCount = Other.PayloadBytes = 0;
+		}
 		FRHICommandStorage(const FRHICommandStorage&) = delete;
 		auto operator=(const FRHICommandStorage&) -> FRHICommandStorage& = delete;
 
@@ -1657,6 +1680,8 @@ namespace Durin
 		, ActiveGraphicsRequest(std::move(Other.ActiveGraphicsRequest))
 		, ActiveComputeRequest(std::move(Other.ActiveComputeRequest))
 		, bInsideRenderPass(Other.bInsideRenderPass)
+		, RenderPassParent(Other.RenderPassParent)
+		, RenderPassSerial(Other.RenderPassSerial)
 		, ActiveGPUSubmissionLease(std::move(Other.ActiveGPUSubmissionLease))
 		, DiagnosticRegionDepth(Other.DiagnosticRegionDepth)
 		, RenderPassDiagnosticRegionDepth(Other.RenderPassDiagnosticRegionDepth)
@@ -1671,6 +1696,7 @@ namespace Durin
 		Other.bHasActiveGraphicsPipelineState = false;
 		Other.ActiveComputePipelineState = nullptr;
 		Other.bInsideRenderPass = false;
+		Other.RenderPassParent = nullptr;
 		Other.DiagnosticRegionDepth = 0;
 		Other.RenderPassDiagnosticRegionDepth = 0;
 		Other.ActiveGPUTimingQueries.clear();
@@ -1695,6 +1721,8 @@ namespace Durin
 			ActiveGraphicsRequest = std::move(Other.ActiveGraphicsRequest);
 			ActiveComputeRequest = std::move(Other.ActiveComputeRequest);
 			bInsideRenderPass = Other.bInsideRenderPass;
+			RenderPassParent = Other.RenderPassParent;
+			RenderPassSerial = Other.RenderPassSerial;
 			ActiveGPUSubmissionLease = std::move(Other.ActiveGPUSubmissionLease);
 			DiagnosticRegionDepth = Other.DiagnosticRegionDepth;
 			RenderPassDiagnosticRegionDepth = Other.RenderPassDiagnosticRegionDepth;
@@ -1708,6 +1736,7 @@ namespace Durin
 			Other.bHasActiveGraphicsPipelineState = false;
 			Other.ActiveComputePipelineState = nullptr;
 			Other.bInsideRenderPass = false;
+			Other.RenderPassParent = nullptr;
 			Other.DiagnosticRegionDepth = 0;
 			Other.RenderPassDiagnosticRegionDepth = 0;
 			Other.ActiveGPUTimingQueries.clear();
@@ -1811,7 +1840,7 @@ namespace Durin
 	{
 		checkf(RecordingState == ERecordingState::Recording,
 			"FinishRecording requires a recording regular command list.");
-		checkf(!bInsideRenderPass,
+		checkf(!bInsideRenderPass || RenderPassParent,
 			"FinishRecording cannot seal a command list inside a render pass.");
 		requiref(!ActiveGPUSubmissionLease, "FinishRecording requires a closed GPU submission.");
 		if (DiagnosticRegionDepth != 0) RecordInvalidDiagnosticRegion();
@@ -1827,6 +1856,42 @@ namespace Durin
 	auto FRHICommandList::IsFinished() const -> bool
 	{
 		return FRHICommandListBase::IsFinished();
+	}
+
+	FRHISubCommandList::FRHISubCommandList(const FRHICommandList& Parent)
+	{
+		requiref(Parent.IsRecording() && Parent.bInsideRenderPass && !Parent.RenderPassParent,
+			"Subcommand lists require a recording parent inside a render pass.");
+		ActivePipeline = ERHIPipeline::Graphics;
+		bInsideRenderPass = true;
+		RenderPassParent = &Parent;
+		RenderPassSerial = Parent.RenderPassSerial;
+	}
+
+	auto FRHICommandList::InsertParallelRenderPass(std::span<FRHISubCommandList* const> CommandLists) -> void
+	{
+		requiref(IsRecording() && bInsideRenderPass && !RenderPassParent,
+			"Parallel render-pass insertion requires an active parent render pass.");
+		// Validate the entire group before admitting any child.
+		for (size_t Index = 0; Index < CommandLists.size(); ++Index)
+		{
+			const auto* Child = CommandLists[Index];
+			requiref(Child && Child->IsFinished() && Child->RenderPassParent == this
+				&& Child->RenderPassSerial == RenderPassSerial,
+				"Subcommand list is unfinished, already admitted, or belongs to another render pass.");
+			requiref(std::find(CommandLists.begin(), CommandLists.begin() + Index, Child) == CommandLists.begin() + Index,
+				"A subcommand list cannot be inserted twice.");
+		}
+		for (auto* Child : CommandLists)
+		{
+			Storage->Append(*Child->Storage);
+			NumRecordedDrawCommands = CheckedAddPayloadBytes(NumRecordedDrawCommands, Child->NumRecordedDrawCommands);
+			Child->MarkAdmitted();
+		}
+		// Children establish their own state; subsequent parent draws must bind
+		// their PSO again rather than inheriting the parent's pre-insertion state.
+		bHasActiveGraphicsPipelineState = false;
+		ActiveGraphicsRequest = {};
 	}
 
 	auto FRHICommandListBase::BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc)
@@ -1948,11 +2013,14 @@ namespace Durin
 			"BeginRenderPass cannot be nested while recording.");
 		RecordCommand<FBeginRenderPassCommand>(Info, Name);
 		bInsideRenderPass = true;
+		requiref(RenderPassSerial != std::numeric_limits<uint64>::max(), "Render-pass serial exhausted.");
+		++RenderPassSerial;
 		RenderPassDiagnosticRegionDepth = DiagnosticRegionDepth;
 	}
 
 	auto FRHICommandListBase::EndRenderPass() -> void
 	{
+		requiref(!RenderPassParent, "A subcommand list cannot end its parent's render pass.");
 		checkf(bInsideRenderPass,
 			"EndRenderPass requires a matching BeginRenderPass while recording.");
 		if (DiagnosticRegionDepth != RenderPassDiagnosticRegionDepth)
@@ -2678,7 +2746,7 @@ namespace Durin
 			"QueueCommandList cannot split active immediate diagnostic regions.");
 		checkf(CommandListImmediate.ActiveGPUTimingQueries.empty(),
 			"QueueCommandList cannot split an active immediate GPU timing query.");
-		if (!CommandList.IsFinished())
+		if (!CommandList.IsFinished() || CommandList.RenderPassParent)
 		{
 			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
 			return false;
@@ -2735,7 +2803,7 @@ namespace Durin
 		std::unordered_set<FRHICommandList*> UniqueLists;
 		for (FRHICommandList* CommandList : AdditionalCmdLists)
 		{
-			if (!CommandList || !CommandList->IsFinished())
+			if (!CommandList || !CommandList->IsFinished() || CommandList->RenderPassParent)
 			{
 				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
 				return {.Result = ERHICommandListSubmitResult::InvalidCommandList};

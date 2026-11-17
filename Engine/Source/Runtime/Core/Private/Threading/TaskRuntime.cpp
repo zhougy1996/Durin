@@ -2583,6 +2583,13 @@ namespace Durin
 		return GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running;
 	}
 
+	auto GetTaskSchedulerWorkerCount() -> uint32
+	{
+		std::lock_guard Lock(GTaskSchedulerMutex);
+		return GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running && GTaskScheduler
+			? GTaskScheduler->GetWorkerCount() : 0;
+	}
+
 	auto Private::GetTaskSchedulerLifetime() -> std::weak_ptr<const void>
 	{
 		std::lock_guard Lock(GTaskSchedulerMutex);

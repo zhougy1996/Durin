@@ -465,6 +465,8 @@ namespace Durin
 	CORE_API auto GetGameThreadDeferredWorkQueueDiagnostics() -> FGameThreadDeferredWorkQueueDiagnostics;
 	CORE_API auto ShutdownTaskSystem(ETaskShutdownMode Mode = ETaskShutdownMode::Drain) -> void;
 	CORE_API auto IsTaskSchedulerRunning() -> bool;
+	// Lightweight execution capacity query; zero when the scheduler is closed.
+	CORE_API auto GetTaskSchedulerWorkerCount() -> uint32;
 	// Returns the live lifetime snapshot, or the final snapshot after shutdown.
 	CORE_API auto GetTaskSchedulerDiagnostics() -> FTaskSchedulerDiagnostics;
 	// Publishes fixed task aggregates at the engine profiling/frame boundary.

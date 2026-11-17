@@ -247,6 +247,8 @@ namespace Durin
 		FRHIPipelineCreationRequest ActiveGraphicsRequest;
 		FRHIPipelineCreationRequest ActiveComputeRequest;
 		bool bInsideRenderPass = false;
+		const FRHICommandListBase* RenderPassParent = nullptr;
+		uint64 RenderPassSerial = 0;
 		std::shared_ptr<void> ActiveGPUSubmissionLease;
 		uint32 DiagnosticRegionDepth = 0;
 		uint32 RenderPassDiagnosticRegionDepth = 0;
@@ -256,11 +258,13 @@ namespace Durin
 		uint64 NumRecordedDrawCommands = 0;
 
 		friend class FRHICommandList;
+		friend class FRHISubCommandList;
 		friend class FRHICommandListImmediate;
 		friend class FRHICommandListExecutor;
 	};
 
 	// A finite movable recorder. FinishRecording seals it without submitting it.
+	class FRHISubCommandList;
 	class FRHICommandList : public FRHICommandListBase
 	{
 	public:
@@ -274,6 +278,20 @@ namespace Durin
 
 		RHI_API auto FinishRecording() -> void;
 		RHI_API auto IsFinished() const -> bool;
+		// Splices finished children into the current pass in array order. No pass,
+		// submission, diagnostic or timing boundary is introduced. Callers must
+		// reset any draw-state cache before recording further parent draws.
+		RHI_API auto InsertParallelRenderPass(std::span<FRHISubCommandList* const> CommandLists) -> void;
+	};
+
+	// A graphics recorder inside one specific parent render pass. It cannot end
+	// that pass or be queued as an independent command list.
+	class FRHISubCommandList final : public FRHICommandList
+	{
+	public:
+		RHI_API explicit FRHISubCommandList(const FRHICommandList& Parent);
+		FRHISubCommandList(const FRHISubCommandList&) = delete;
+		auto operator=(const FRHISubCommandList&) -> FRHISubCommandList& = delete;
 	};
 
 	// Selects how far an immediate command-list flush advances queued RHI work.
