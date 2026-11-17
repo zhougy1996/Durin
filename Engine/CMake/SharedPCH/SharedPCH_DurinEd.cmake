@@ -10,6 +10,6 @@ add_durin_shared_pch(SharedPCH_DurinEd
 
 if(TARGET SharedPCH_DurinEd)
     # DurinEd supplies public include paths, including reflected generated headers.
-    # DurinEd itself uses SharedPCH_Engine with its own export definitions.
+    # DurinEd itself uses a private PCH with its own export definitions.
     add_dependencies(SharedPCH_DurinEd DurinEd_DHT)
 endif()
