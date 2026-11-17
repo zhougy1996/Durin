@@ -29,6 +29,8 @@ namespace Durin
 			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> std::expected<void, UnifiedError::FError>;
 		COREDOBJECT_API auto BeginAsyncSavePublication(const std::shared_ptr<FAsyncSaveState>& Save) -> void;
 		COREDOBJECT_API auto EndAsyncSavePublication() -> void;
+		// Keep module-local logging out of this shared-header template.
+		COREDOBJECT_API auto ReportAsyncSaveAbandonmentException() -> void;
 
 		// Domain task factory: the result is returned by an ordinary publication body.
 		// Abandon handles a body that throws or never runs; it never supplies a result.
@@ -61,7 +63,7 @@ namespace Durin
 							catch (...) {
 								Callbacks->Publish.reset();
 								try { if (OnAbandon) OnAbandon(); }
-								catch (...) { DURIN_ERROR("Async save abandonment threw an exception."); }
+								catch (...) { ReportAsyncSaveAbandonmentException(); }
 								throw;
 							}
 						}, Disk);

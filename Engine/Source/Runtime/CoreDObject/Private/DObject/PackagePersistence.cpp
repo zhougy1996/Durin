@@ -73,6 +73,8 @@ namespace Durin
 			++SavePublicationDepth;
 		}
 		auto EndAsyncSavePublication() -> void { check(IsInGameThread() && SavePublicationDepth != 0); --SavePublicationDepth; }
+		auto ReportAsyncSaveAbandonmentException() -> void
+		{ DURIN_ERROR("Async save abandonment threw an exception."); }
 
 		auto SubmitAsyncSaveTask(uint64 Bytes, std::function<void()> Write,
 			FAsyncSavePublicationFactory MakePublication, std::function<void()> Cleanup) -> std::expected<void, UnifiedError::FError>
