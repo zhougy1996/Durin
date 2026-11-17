@@ -7,11 +7,20 @@ namespace Durin
 	struct FShaderParameterBindings::FRDGLayoutCache
 	{
 		std::mutex Mutex;
-		std::map<std::shared_ptr<const uint8>,
-			std::expected<std::shared_ptr<const std::vector<uint32>>, std::string>> Layouts;
+		std::map<std::weak_ptr<const uint8>,
+			std::expected<std::shared_ptr<const std::vector<uint32>>, std::string>,
+			std::owner_less<std::weak_ptr<const uint8>>> Layouts;
 	};
 
 	FShaderParameterBindings::FShaderParameterBindings() : RDGLayoutCache(std::make_shared<FRDGLayoutCache>()) {}
+
+	auto FShaderParameterBindings::Reset() -> void
+	{
+		Resources.clear();
+		// Copies can share immutable joins, but rebinding one copy must detach.
+		if (!RDGLayoutCache || RDGLayoutCache.use_count() != 1) RDGLayoutCache = std::make_shared<FRDGLayoutCache>();
+		else RDGLayoutCache->Layouts.clear();
+	}
 
 	auto FShaderParameterBindings::GetRDGLayoutBindings(const FRDGParameterLayout& Layout) const
 		-> std::expected<std::shared_ptr<const std::vector<uint32>>, std::string>
@@ -19,6 +28,7 @@ namespace Durin
 		std::lock_guard Lock(RDGLayoutCache->Mutex);
 		if (const auto Found = RDGLayoutCache->Layouts.find(Layout.Identity); Found != RDGLayoutCache->Layouts.end())
 			return Found->second;
+		std::erase_if(RDGLayoutCache->Layouts, [](const auto& Entry) { return Entry.first.expired(); });
 		auto Join = std::make_shared<std::vector<uint32>>();
 		Join->reserve(Resources.size());
 		std::expected<std::shared_ptr<const std::vector<uint32>>, std::string> Result = Join;
@@ -94,8 +104,7 @@ namespace Durin
 	auto FShaderParameterBindings::Bind(const FShaderType& Type, const FShaderReflectionData& Reflection)
 		-> FShaderOperationResult
 	{
-		Resources.clear();
-		RDGLayoutCache = std::make_shared<FRDGLayoutCache>();
+		Reset();
 		if (!Type.ParameterSchemaError.empty()) return std::unexpected(Type.ParameterSchemaError);
 		auto Map = Type.ParameterSchema
 			? Private::BuildShaderParameterMapFromCanonicalSchema(*Type.ParameterSchema, Type.GetFrequency(), Reflection)
@@ -116,8 +125,7 @@ namespace Durin
 	auto FShaderParameterBindings::Bind(const FShaderParametersMetadata* Metadata, const FShaderParameterMap& ParameterMap)
 		-> FShaderOperationResult
 	{
-		Resources.clear();
-		RDGLayoutCache = std::make_shared<FRDGLayoutCache>();
+		Reset();
 		if (!Metadata) return {};
 		std::vector<FShaderParameterBinding> Candidate;
 		std::vector<const FShaderParametersMetadata*> Stack;

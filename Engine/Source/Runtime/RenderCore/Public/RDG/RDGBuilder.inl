@@ -40,7 +40,7 @@ namespace Durin
 		std::construct_at(static_cast<T*>(Storage),
 			std::forward<Args>(ConstructorArgs)...);
 		MarkValueStorageConstructed(Index);
-		return {StateOwner(), Index};
+		return {GetGraphId(), Index};
 	}
 
 	template<typename ParameterStruct>

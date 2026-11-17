@@ -56,6 +56,7 @@ namespace Durin
 			-> FShaderOperationResult;
 		auto GetResources() const -> std::span<const FShaderParameterBinding> { return Resources; }
 	private:
+		auto Reset() -> void;
 		struct FRDGLayoutCache;
 		std::shared_ptr<FRDGLayoutCache> RDGLayoutCache;
 		std::vector<FShaderParameterBinding> Resources;

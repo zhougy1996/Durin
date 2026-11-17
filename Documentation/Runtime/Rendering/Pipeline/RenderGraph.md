@@ -205,7 +205,8 @@ unmanaged read aliases accumulate access without pairwise range comparisons;
 compilation and diagnostics reuse the collected buffer indices. Original fields
 and exact ranges remain authoritative for capabilities, initialization and
 conflict diagnostics. Writes, managed transitions and incompatible texture
-layouts retain exact overlap checks. Frozen declarations retain their validation.
+layouts retain exact overlap checks. Presence of the collected grouping is the
+sole validation state, including for empty passes; manual declarations invalidate it.
 
 The executable sequence is the declaration sequence filtered by retention.
 `AddPassDependency(Producer, Consumer)` is legal only while Building and requires

@@ -413,6 +413,37 @@ namespace
 		FlushRenderingCommands();
 	}
 
+	TEST_F(FGPUSceneTests, ReusedBuilderAddressDoesNotExposeAbandonedUpdateHandles)
+	{
+		Add(1); Run();
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			auto& GPU = *(*Scene)->GPUScene;
+			const auto Generation = GPU.GetResourceGeneration();
+			const auto Allocation = GPU.AllocateDynamicPrimitiveRange(32);
+			std::optional<FRDGBuilder> Graph;
+			Graph.emplace();
+			const auto* Address = &*Graph;
+			const auto OldId = Graph->GetGraphId();
+			auto Abandoned = GPU.Update(*Graph);
+			Graph.reset();
+			Graph.emplace();
+			ASSERT_EQ(&*Graph, Address);
+			EXPECT_NE(Graph->GetGraphId(), OldId);
+			const auto Read = GPU.GetShaderParameters(*Graph);
+			ASSERT_TRUE(Read.GPUSceneInstanceSceneData);
+			EXPECT_EQ(Read.GPUSceneInstanceSceneData->Buffer, Graph->FindExternalBuffer(GPU.GetResourceBuffers()[1]));
+			EXPECT_EQ(Read.GPUSceneResourceGeneration, Generation);
+			EXPECT_LT(Read.GPUSceneNumAllocatedInstances, Abandoned.Parameters.GPUSceneNumAllocatedInstances);
+			Abandoned = {};
+			EXPECT_TRUE(GPU.IsDirty());
+			const auto Retry = GPU.Update(*Graph);
+			ASSERT_TRUE(Graph->Execute(Executor.GetImmediateCommandList(), &Allocator));
+			EXPECT_TRUE(GPU.CompleteUpdate(*Graph, Retry));
+			GPU.ReleaseDynamicPrimitiveRange(Allocation);
+		});
+		FlushRenderingCommands();
+	}
+
 	TEST_F(FGPUSceneTests, TypedReadParametersShareSceneAttributesAndValidateExternalContracts)
 	{
 		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {

@@ -94,10 +94,11 @@ Mark shader-backed graph resources with `DURIN_SHADER_PARAMETER_GRAPH_TEXTURE`,
 supplies capability/range; shader reflection supplies actual descriptor positions.
 
 Each shader instance's bindings cache the static name/type/extent join against
-an immutable graph-layout identity; rebinding replaces that cache. Cache entries
-retain identity tokens so recycled layout addresses cannot select stale joins.
-No graph handles, resource values or descriptor locations from another product
-are cached. Domain, callback scope, engagement, backing, range and access remain
+a non-copyable immutable graph-layout identity. Cache keys observe its token
+weakly; misses prune expired layouts, and recycled addresses cannot select old
+joins. Rebinding clears unique cache storage or detaches from copied bindings.
+Binding is setup-only and must not race with submission. No graph handles,
+resource values or descriptor locations from another product are cached. Domain, callback scope, engagement, backing, range and access remain
 execution checks. A required reflected resource cannot use an absent optional.
 Ordinary fallback storage is permitted only for non-graph bindings. Temporary
 resource/view storage preserves exact-view lifetime and atomic publication; the

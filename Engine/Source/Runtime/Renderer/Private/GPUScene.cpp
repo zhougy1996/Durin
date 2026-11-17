@@ -9,7 +9,7 @@ namespace Durin
 {
 	struct FGPUSceneUpdate
 	{
-		const FRDGBuilder* Graph = nullptr;
+		uint64 GraphId = 0;
 		FBufferRHIRef Primitive, Instance, Payload;
 		FGPUSceneResourceParameters Parameters;
 		uint64 ResourceGeneration = 0;
@@ -332,7 +332,7 @@ namespace Durin
 		if (!IsInitialized()) InitResource(FRHICommandListImmediate::Get());
 
 		auto Transaction = std::make_shared<FGPUSceneUpdate>();
-		Transaction->Graph = &Graph; Transaction->ResourceGeneration = State->ResourceGeneration;
+		Transaction->GraphId = Graph.GetGraphId(); Transaction->ResourceGeneration = State->ResourceGeneration;
 		FGPUSceneUpdateResult Result;
 		Result.Update = Transaction; Result.Revision = State->Revision;
 		constexpr auto ReadAccess = ERHIAccess::GraphicsShaderRead;
@@ -393,7 +393,7 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		const auto Pending = State->Pending.lock();
-		if (Pending && !Pending->bCompleted && Pending->Graph == &Graph)
+		if (Pending && !Pending->bCompleted && Pending->GraphId == Graph.GetGraphId())
 		{
 			require(Pending->ResourceGeneration == State->ResourceGeneration);
 			return Pending->Parameters;
@@ -408,7 +408,7 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		const auto& Pending = Result.Update;
-		require(Pending && State->Pending.lock() == Pending && Pending->Graph == &Graph && !Pending->bCompleted);
+		require(Pending && State->Pending.lock() == Pending && Pending->GraphId == Graph.GetGraphId() && !Pending->bCompleted);
 		Pending->bCompleted = true;
 		const auto& Execution = Graph.GetExecutionResult();
 		if (!Execution || !Execution->has_value() || Pending->ResourceGeneration != State->ResourceGeneration)

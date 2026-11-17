@@ -12,9 +12,8 @@ namespace Durin
 	{
 		// Registered owner metadata is only the static projection. The complete
 		// dynamic Material/VF schema is admitted before accepted bindings publish.
-		Bindings = {};
 		auto Map = FShaderParameterMap::FromReflection(Reflection);
-		if (!Map) return std::unexpected(Map.error());
+		if (!Map) { Bindings = {}; return std::unexpected(Map.error()); }
 		return Bindings.Bind(Type ? Type->GetParametersMetadata() : nullptr, *Map);
 	}
 	namespace

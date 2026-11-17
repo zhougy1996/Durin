@@ -129,10 +129,9 @@ namespace Durin::RDGPrivate
 		// Terminal exports consume contents but may hand off a writable access state.
 		bool bExport = false;
 		std::string RootReason;
-		// Only frozen uses may retain validation across later graph declarations.
-		bool bDeclarationsValidated = false;
-		// Collected by declaration validation; compilation reuses this per-use index.
-		mutable std::vector<uint32> TrackingUseIndices;
+		// Presence means validation succeeded, including for empty declarations.
+		// Compilation and diagnostics reuse the collected per-use resource grouping.
+		mutable std::optional<std::vector<uint32>> TrackingUseIndices;
 		const FRDGParameterLayout* ParameterLayout = nullptr;
 		const void* Parameters = nullptr;
 		FOptionalAliasTable OptionalAliases;

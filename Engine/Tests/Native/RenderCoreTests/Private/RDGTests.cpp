@@ -1333,6 +1333,33 @@ namespace Durin
 		}
 	}
 
+	TEST_F(FRDGTests, ComposedJoinDoesNotOwnTransientLayoutsAndCopiedBindingsDetachOnRebind)
+	{
+		const std::array Resources{FShaderParameterBinding{.Name = "Textures", .Type = ERHIBindingType::Texture, .ArraySize = 2, .bGraphResource = true}};
+		auto Bindings = MakeTestShaderBindings(Resources);
+		const auto* Layout = GetRDGParameterLayout<FComposedTextureArrayParameters>();
+		std::weak_ptr<const uint8> Identity;
+		std::weak_ptr<const std::vector<uint32>> ExpiredJoin;
+		{
+			auto Transient = BuildRDGParameterLayout(Layout->Metadata, Layout->Metadata->StructSize, Layout->Metadata->StructAlignment);
+			ASSERT_TRUE(Transient);
+			Identity = (*Transient)->Identity;
+			const auto Join = Bindings.GetRDGLayoutBindings(**Transient);
+			ASSERT_TRUE(Join); ExpiredJoin = *Join;
+		}
+		EXPECT_TRUE(Identity.expired());
+		const auto StableJoin = Bindings.GetRDGLayoutBindings(*Layout);
+		ASSERT_TRUE(StableJoin);
+		EXPECT_TRUE(ExpiredJoin.expired());
+		auto Copy = Bindings;
+		EXPECT_EQ(*Copy.GetRDGLayoutBindings(*Layout), *StableJoin);
+		ASSERT_TRUE(Copy.Bind(nullptr, FShaderParameterMap{}));
+		const auto Empty = Copy.GetRDGLayoutBindings(*Layout);
+		ASSERT_TRUE(Empty); EXPECT_TRUE((*Empty)->empty());
+		EXPECT_EQ(*Bindings.GetRDGLayoutBindings(*Layout), *StableJoin);
+		EXPECT_EQ(Bindings.GetResources().size(), 1u);
+	}
+
 	TEST_F(FRDGTests, ComposedLayoutJoinIsProductLocalAndInvalidatedOnRebind)
 	{
 		const std::array Resources{FShaderParameterBinding{.Name = "Textures", .Type = ERHIBindingType::Texture, .ArraySize = 2, .bGraphResource = true}};

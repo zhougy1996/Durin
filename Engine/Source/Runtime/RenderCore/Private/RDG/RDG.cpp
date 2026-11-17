@@ -343,7 +343,7 @@ namespace Durin
 		State->ParameterStorage.Allocations[AllocationIndex]->bConstructed = true;
 	}
 
-	auto FRDGBuilder::StateOwner() const -> uint64
+	auto FRDGBuilder::GetGraphId() const -> uint64
 	{
 		return State->Owner;
 	}
@@ -899,7 +899,6 @@ namespace Durin
 			State->DeclarationErrors.push_back(std::move(UseError.error()));
 			return {};
 		}
-		ParameterizedPass.bDeclarationsValidated = true;
 		const uint32 Index = static_cast<uint32>(State->Passes.size());
 		State->Passes.push_back(std::move(ParameterizedPass));
 		return {State->Owner, Index};
@@ -921,6 +920,7 @@ namespace Durin
 					.Index = Pass.Index}});
 			return false;
 		}
+		State->Passes[Pass.Index].TrackingUseIndices.reset();
 		return true;
 	}
 

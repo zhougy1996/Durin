@@ -119,7 +119,8 @@ selection uses metadata scope. Instance-ID replacement retains its accepted loca
 `FGPUSceneShaderParameters` borrows native ranges. `FGPUScene::GetShaderParameters(Graph)`
 returns that graph's active update parameters, or registers the last committed
 buffers, counts and generation outside the update. Another graph never receives
-pending handles or uncommitted CPU counts. Retained `FGPUSceneBufferSet` snapshots
+pending handles or uncommitted CPU counts. Transactions match the builder's
+existing handle-owner ID, never its reusable memory address. Retained `FGPUSceneBufferSet` snapshots
 use the same `FGPUSceneResourceParameters::Register` path. Registration is scoped
 to the receiving graph; growth, abandonment and scene release cannot replace a
 retained snapshot's counted buffers. Builder handles never enter cached commands.

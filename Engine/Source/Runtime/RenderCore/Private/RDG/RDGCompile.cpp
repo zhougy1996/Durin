@@ -355,7 +355,7 @@ namespace Durin::RDGPrivate
 					if (auto Error = AddDependencyEdge(Graph, Prerequisite, PassIndex, "explicit",
 						ERDGDependencyKind::Explicit, true); !Error.has_value()) return Error;
 				}
-				if (!Pass.bDeclarationsValidated)
+				if (!Pass.TrackingUseIndices)
 					if (auto Error = ValidatePassDeclarations(Pass, Resources); !Error.has_value())
 					{
 						if (auto* Context = &Error.error().Context) Context->PassIndex = PassIndex;
@@ -552,6 +552,7 @@ namespace Durin::RDGPrivate
 		std::span<const FGraphResource> Resources)
 		-> std::expected<void, FRDGUseError>
 	{
+		Pass.TrackingUseIndices.reset();
 		struct FResourceState
 		{
 			std::vector<uint32> Declarations;
@@ -716,7 +717,7 @@ namespace Durin::RDGPrivate
 	auto BuildTrackingUses(const FGraphPass& Pass) -> FPassTrackingUses
 	{
 		const auto& Uses = Pass.Uses;
-		require(Pass.TrackingUseIndices.size() == Uses.size());
+		require(Pass.TrackingUseIndices && Pass.TrackingUseIndices->size() == Uses.size());
 		FPassTrackingUses Result;
 		Result.Uses.reserve(Uses.size());
 		Result.DeclarationOffsets.reserve(Uses.size() + 1);
@@ -726,7 +727,7 @@ namespace Durin::RDGPrivate
 			const auto& Use = Uses[UseIndex];
 			if (Use.Kind == ERDGResourceKind::Buffer)
 			{
-				const auto Index = Pass.TrackingUseIndices[UseIndex];
+				const auto Index = (*Pass.TrackingUseIndices)[UseIndex];
 				if (Index < Result.Uses.size())
 				{
 					++Result.DeclarationOffsets[Index + 1];
@@ -747,7 +748,7 @@ namespace Durin::RDGPrivate
 		auto Cursors = Result.DeclarationOffsets;
 		for (size_t Index = 0; Index < Uses.size(); ++Index)
 			if (Uses[Index].Kind == ERDGResourceKind::Buffer)
-				Result.BufferDeclarations[Cursors[Pass.TrackingUseIndices[Index]]++] = &Uses[Index];
+				Result.BufferDeclarations[Cursors[(*Pass.TrackingUseIndices)[Index]]++] = &Uses[Index];
 		return Result;
 	}
 

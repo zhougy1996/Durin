@@ -153,11 +153,10 @@ namespace Durin
 
 	auto FShader::InitializeParameterBindings() -> FShaderOperationResult
 	{
-		Bindings = {};
 		if (Type) return Bindings.Bind(*Type, Reflection);
 		auto Map = FShaderParameterMap::FromReflection(Reflection);
-		if (!Map) return std::unexpected(Map.error());
-		return Bindings.Bind(Type ? Type->GetParametersMetadata() : nullptr, *Map);
+		if (!Map) { Bindings = {}; return std::unexpected(Map.error()); }
+		return Bindings.Bind(nullptr, *Map);
 	}
 
 }

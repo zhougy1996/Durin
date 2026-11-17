@@ -26,6 +26,9 @@ namespace Durin
 		auto operator=(FRDGBuilder&&)
 			-> FRDGBuilder& = delete;
 
+		// The existing handle-owner identity survives address reuse; it grants no resource access.
+		RENDERCORE_API auto GetGraphId() const -> uint64;
+
 		// 1. Declare graph resources, uploads, and outputs. No GPU work runs here.
 		RENDERCORE_API auto RegisterExternalTexture(const FTextureRHIRef& Texture,
 			std::string_view Name, ERHIAccess InitialAccess,
@@ -279,7 +282,6 @@ namespace Durin
 			uint32 Index, const void* TypeIdentity, ERDGUse Use) -> void;
 		RENDERCORE_API auto ResolveValueAfterExecute(uint64 Owner, uint32 Index,
 			const void* TypeIdentity) const -> const void*;
-		RENDERCORE_API auto StateOwner() const -> uint64;
 		struct FState;
 		std::unique_ptr<FState> State;
 	};

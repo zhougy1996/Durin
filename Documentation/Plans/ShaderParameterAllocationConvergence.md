@@ -65,7 +65,8 @@ domains, invalid-access rejection and Material/Cook identities remain intact.
 
 ## UE Static Work And Registration Follow-up
 
-Implemented on top of `37ab72225`, following the local UE 5.8.2 review:
+The four changes are implemented. The latest recheck compares `89dc56fda`
+with local UE 5.8.2 CL 56702186:
 
 - Cache the composed shader/graph leaf join per product and immutable layout;
   retain dynamic capability/lifetime checks and atomic resource/view staging.
@@ -78,23 +79,29 @@ Implemented on top of `37ab72225`, following the local UE 5.8.2 review:
   committed generation and counts; retained snapshots remain independent.
   Visible draw submission owns direct/CPU-compacted versus indirect ID selection.
 
-Acceptance: Windows MSVC Debug, Vulkan, parent `37ab72225` plus this change:
+The lifetime recheck replaces update-builder addresses with existing graph owner
+IDs, uses weak layout identities and copy-safe cache reset, and makes collected
+grouping the sole RDG validation state. Shader initialization reuses binding
+storage; failure still clears it. Scene snapshots and retirement keep their
+existing owners. Regression cases cover transient-layout release, copied-binding
+rebind and a destroyed/reconstructed builder at the exact same address.
 
-- `RenderContractTests` 249, `RendererSceneContractTests` 177,
-  `RenderShaderContractTests` 83 and `MaterialCompilerTests` 122 cases passed.
-- Cache 15, cooked library 8, ShaderBuild/DDC 37 and complete Game Cook/map
-  initialization passed. Product formats and independent admission boundaries remain intact.
-- Shadow behavior/sub-texel and ContactShadow cases passed using qualification
-  mode; cloud/lighting/AO/culling and Material scene-texture GPU consumers passed.
+Acceptance: Windows MSVC Debug/Vulkan, parent `89dc56fda` plus this fix:
+
+- `RenderContractTests` 250, `RendererSceneContractTests` 177 and
+  `RenderShaderContractTests` 84 cases passed.
+- Complete Game Cook/map initialization passed. The two Material stage cases
+  `RegisteredFactoryPolicyCompilesAndRejectsEntryOnlySubstitution` and
+  `GeometryPassSelectionAndDetachedRoundTripAreExact` passed.
+- Shadow behavior/sub-texel and ContactShadow cases passed in qualification mode;
+  the cloud/lighting/AO/culling scene passed. Assertions and thresholds are unchanged.
 - Editor and Game workspace `all` builds passed.
 - Native Apple/Metal and timing qualification were not run; no frame-time claim.
 
-Raw receipts are under `Build/.agent-state/logs/`, including
-`20261118-034610-791497-40688-RenderContractTests.log`,
-`20261118-034222-416798-50316-RendererSceneContractTests.log`, and
-`20261118-034701-102580-49376-ctest.log`. Workspace build receipts are
-`20261118-034810-129307-37488-cmake.log` (Editor) and
-`20261118-034834-970681-34704-cmake.log` (Game). Runtime contracts own the lasting rules;
-the resolved investigation is removed. The earlier `37ab72225` cleanup removed
-metadata member-order mirrors; new tests cover cache invalidation/isolation,
-many-alias conflicts and committed-generation lifetime rather than metadata copies.
+Raw receipts under `Build/.agent-state/logs/` include
+`20261118-040748-124082-40932-RenderContractTests.log`,
+`20261118-040532-651838-26496-RendererSceneContractTests.log` and
+`20261118-040836-689793-24084-ctest.log`. Workspace build receipts are
+`20261118-040923-554336-19036-cmake.log` (Editor) and
+`20261118-041006-700005-34144-cmake.log` (Game). Runtime contracts own the lasting rules;
+Git retains prior migration inventories, superseded receipts and resolved reviews.
