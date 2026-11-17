@@ -834,7 +834,7 @@ namespace
 		FTestAssetEditorInstance Primary, Secondary;
 		Secondary.bPrimary = false;
 		AssetEditorSubsystem->NotifyAssetOpened(First, &Secondary);
-		AssetEditorSubsystem->NotifyAssetsOpened({First, Second, First}, &Primary);
+		for (auto* Asset : {First, Second, First}) AssetEditorSubsystem->NotifyAssetOpened(Asset, &Primary);
 		EXPECT_EQ(2u, AssetEditorSubsystem->FindEditorsForAsset(First).size());
 		EXPECT_EQ(2u, AssetEditorSubsystem->GetAllEditedAssets().size());
 		EXPECT_EQ(2u, AssetEditorSubsystem->GetAllOpenEditors().size());
@@ -884,8 +884,8 @@ namespace
 		auto* AssetEditorSubsystem = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 		auto* Asset = NewObject<DObject>(Host, "Asset");
 		FTestAssetEditorInstance First, Second;
-		AssetEditorSubsystem->NotifyAssetsOpened({Asset}, &First);
-		AssetEditorSubsystem->NotifyAssetsOpened({Asset}, &Second);
+		AssetEditorSubsystem->NotifyAssetOpened(Asset, &First);
+		AssetEditorSubsystem->NotifyAssetOpened(Asset, &Second);
 		EXPECT_FALSE(AssetEditorSubsystem->CloseAllAssetEditors());
 		EXPECT_EQ(EAssetEditorCloseReason::CloseAllAssetEditors, First.LastCloseReason);
 		EXPECT_EQ(0, AssetEditorSubsystem->CloseAllEditorsForAsset(Asset));

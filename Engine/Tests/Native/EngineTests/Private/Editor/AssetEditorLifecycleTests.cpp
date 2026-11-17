@@ -11,6 +11,8 @@
 #include "Editor/IMainFrameModule.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "Asset/PackageSerialization.h"
+#include "NativePackageUnloadTestSupport.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Misc/MountPathTestSupport.h"
@@ -563,6 +565,7 @@ namespace
 			ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
 			Targets.push_back({Path, Object->GetClass()->GetQualifiedName().ToString()});
 		}
+		ASSERT_TRUE(SavePackage(Package.Get()));
 		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = Targets,
 			.OpenMethod = EAssetOpenMethod::View, .ToolkitMode = EToolkitMode::WorldCentric,
 			.OpenLocation = EAssetEditorOpenLocation::NewWindow, .InstanceRole = "Inspect", .bPrimary = false,
@@ -573,7 +576,7 @@ namespace
 		const auto Captured = AssetEditorSubsystem->CaptureEditorState();
 		ASSERT_EQ(3u, Captured.size());
 		EXPECT_EQ(EAssetOpenMethod::View, Captured.front().Method);
-		EXPECT_EQ(Targets.front().AssetPath, Captured.front().Asset.AssetPath);
+		EXPECT_EQ(Targets.front().AssetPath, Captured.front().AssetPath);
 		const auto Earlier = Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).front();
 		const auto PreviousActivation = Earlier->GetLastActivationTime();
 		ASSERT_TRUE(AssetEditorSubsystem->ActivateAssetToolkit(*Earlier));
@@ -769,6 +772,51 @@ namespace
 			}
 	}
 
+	TEST_F(FAssetEditorLifecycleTests, CaptureOnlyIncludesAssetsPublishedOnDisk)
+	{
+		auto* Saved = Asset("SavedAsset");
+		ASSERT_TRUE(SavePackage(Package.Get()));
+		auto* Unsaved = Asset("UnsavedSibling");
+		ASSERT_NE(nullptr, Open({Saved, Unsaved}));
+		const auto Captured = AssetEditorSubsystem->CaptureEditorState();
+		ASSERT_EQ(1u, Captured.size());
+		EXPECT_EQ(Saved->GetObjectPath(), Captured.front().AssetPath.ToString());
+		ASSERT_TRUE(SavePackage(Package.Get()));
+		EXPECT_EQ(2u, AssetEditorSubsystem->CaptureEditorState().size());
+	}
+
+	TEST_F(FAssetEditorLifecycleTests, RestorationResolvesCurrentRegistryType)
+	{
+		auto* Definition = NewObject<FGenericEditorTestDefinition>(nullptr, {});
+		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
+		ASSERT_TRUE(Registration);
+		auto* Original = Asset("RegistryTypedAsset");
+		FAssetWriteResult Saved;
+		ASSERT_TRUE(SavePackage(Package.Get(), {}, &Saved)) << (Saved.Error ? Saved.Error->ToString() : "");
+		FSoftObjectPath Path;
+		ASSERT_TRUE(FSoftObjectPath::TryCreate(Original->GetObjectPath(), Path));
+		const auto ClassName = Original->GetClass()->GetQualifiedName().ToString();
+		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem,
+			.Assets = {{Path, ClassName}}, .OpenMethod = EAssetOpenMethod::View}));
+		const auto Captured = AssetEditorSubsystem->CaptureEditorState();
+		ASSERT_EQ(1u, Captured.size());
+		ASSERT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
+		const auto PackagePath = Package->GetPackagePathIdentity();
+		Package.Reset();
+		const auto Unloaded = UnloadPackage(PackagePath);
+		ASSERT_TRUE(Unloaded) << Unloaded.error();
+		std::string OpenedClass;
+		Definition->OpenOverride = [&](const FAssetOpenArgs& Args) {
+			OpenedClass = Args.Assets.front().AssetClassName;
+			return Definition->DAssetDefinitionDefault::OpenAssets(Args);
+		};
+		ASSERT_TRUE(AssetEditorSubsystem->RestoreEditorState(Captured));
+		EXPECT_EQ(ClassName, OpenedClass);
+		Package = FindPackage(PackagePath.ToString());
+		ASSERT_TRUE(Package);
+		EXPECT_EQ(ClassName, AssetEditorSubsystem->GetActiveAssetToolkit()->GetObjectsToEdit().front()->GetClass()->GetQualifiedName().ToString());
+	}
+
 	TEST_F(FAssetEditorLifecycleTests, RestoreRoundTripsAssetListAndViewAndReportsMissingItems)
 	{
 		auto* Definition = NewObject<FGenericEditorTestDefinition>(nullptr, {});
@@ -781,6 +829,7 @@ namespace
 		ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetEditorLifecycle/Missing.Missing", MissingPath));
 		const FAssetOpenTarget TargetA{PathA, A->GetClass()->GetQualifiedName().ToString()};
 		const FAssetOpenTarget TargetB{PathB, B->GetClass()->GetQualifiedName().ToString()};
+		ASSERT_TRUE(SavePackage(Package.Get()));
 		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem,
 			.Assets = {TargetA, TargetB}, .OpenMethod = EAssetOpenMethod::View,
 			.ToolkitMode = EToolkitMode::WorldCentric, .OpenLocation = EAssetEditorOpenLocation::NewWindow,
@@ -794,8 +843,17 @@ namespace
 		EXPECT_EQ(2, Saved.GetRootView().GetView("Version").GetInt());
 		const auto Nodes = Saved.GetRootView().GetView("OpenAssets");
 		ASSERT_EQ(2u, Nodes.Num());
+		EXPECT_FALSE(Nodes.GetView(size_t{0}).GetView("Class").IsValid());
+		const auto RecentNodes = Saved.GetRootView().GetView("Recent");
+		ASSERT_EQ(2u, RecentNodes.Num());
+		EXPECT_FALSE(RecentNodes.GetView(size_t{0}).GetView("Class").IsValid());
 		ASSERT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
+		const auto PackagePath = Package->GetPackagePathIdentity();
+		Package.Reset();
+		ASSERT_TRUE(UnloadPackage(PackagePath));
 		ASSERT_TRUE(AssetEditorSubsystem->LoadEditorState(Path));
+		Package = FindPackage(PackagePath.ToString());
+		ASSERT_TRUE(Package);
 		const auto Restored = AssetEditorSubsystem->CaptureEditorState();
 		ASSERT_EQ(2u, Restored.size());
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
@@ -806,8 +864,7 @@ namespace
 			EXPECT_TRUE(Toolkit->GetInstanceKey().empty());
 			EXPECT_TRUE(Toolkit->IsPrimaryEditor());
 		}
-		const std::vector<FAssetEditorRestoreEntry> Mixed{{.Asset = TargetA},
-			{.Asset = {MissingPath, TargetA.AssetClassName}}};
+		const std::vector<FAssetEditorRestoreEntry> Mixed{{.AssetPath = PathA}, {.AssetPath = MissingPath}};
 		const auto Result = AssetEditorSubsystem->RestoreEditorState(Mixed);
 		EXPECT_FALSE(Result);
 		EXPECT_FALSE(Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
@@ -837,9 +894,9 @@ namespace
 		ASSERT_TRUE(Registration);
 		auto* Object = Asset("OrdinaryRestoreFocus");
 		FSoftObjectPath Path; ASSERT_TRUE(FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path));
-		const FAssetOpenTarget Target{Path, Object->GetClass()->GetQualifiedName().ToString()};
-		const std::vector<FAssetEditorRestoreEntry> Entries{{.Asset = Target},
-			{.Asset = Target, .Method = EAssetOpenMethod::View}};
+		ASSERT_TRUE(SavePackage(Package.Get()));
+		const std::vector<FAssetEditorRestoreEntry> Entries{{.AssetPath = Path},
+			{.AssetPath = Path, .Method = EAssetOpenMethod::View}};
 		ASSERT_TRUE(AssetEditorSubsystem->RestoreEditorState(Entries));
 		auto* Edit = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Object, EAssetOpenMethod::Edit);
 		auto* View = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Object, EAssetOpenMethod::View);
@@ -1630,7 +1687,13 @@ namespace
 		ASSERT_NE(nullptr, Comparison);
 		EXPECT_NE(Secondary->GetToolkit()->GetPresentationRootKey("Editor"), Comparison->GetToolkit()->GetPresentationRootKey("Editor"));
 		EXPECT_NE(Primary->GetWindowId(), Secondary->GetWindowId());
-		EXPECT_NE(Primary->GetToolkit()->GetLayoutProfileKey(), Secondary->GetToolkit()->GetLayoutProfileKey());
+		EXPECT_EQ(Primary->GetToolkit()->GetLayoutProfileKey(), Secondary->GetToolkit()->GetLayoutProfileKey());
+		auto* World = Open({Object}, EAssetOpenMethod::Edit, true, {}, {}, EToolkitMode::WorldCentric);
+		auto* View = Open({Object}, EAssetOpenMethod::View);
+		ASSERT_NE(nullptr, World);
+		ASSERT_NE(nullptr, View);
+		EXPECT_EQ(Primary->GetToolkit()->GetLayoutProfileKey(), World->GetToolkit()->GetLayoutProfileKey());
+		EXPECT_NE(Primary->GetToolkit()->GetLayoutProfileKey(), View->GetToolkit()->GetLayoutProfileKey());
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, ScopedTestHostClosesNewDirectToolkitsAndKeepsExistingOnes)

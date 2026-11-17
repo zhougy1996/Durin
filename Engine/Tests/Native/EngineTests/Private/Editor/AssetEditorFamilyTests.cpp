@@ -17,7 +17,7 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Texture/VolumeTexture.h"
 #include "AssetTools/IAssetTools.h"
-#include "AssetTools/IAssetTools.h"
+#include "Asset/PackageSerialization.h"
 #include "DObject/Class.h"
 #include <gtest/gtest.h>
 

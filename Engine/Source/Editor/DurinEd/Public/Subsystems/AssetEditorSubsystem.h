@@ -65,7 +65,6 @@ namespace Durin
 		DURINED_API auto CloseOtherEditors(DObject* Asset, IAssetEditorInstance* OnlyEditor) -> void;
 		DURINED_API auto CloseAllAssetEditors() -> bool;
 		DURINED_API auto NotifyAssetOpened(DObject* Asset, IAssetEditorInstance* Instance) -> void;
-		DURINED_API auto NotifyAssetsOpened(const std::vector<DObject*>& Assets, IAssetEditorInstance* Instance) -> void;
 		DURINED_API auto NotifyAssetClosed(DObject* Asset, IAssetEditorInstance* Instance) -> void;
 		DURINED_API auto NotifyEditorClosed(IAssetEditorInstance* Instance) -> void;
 	private:

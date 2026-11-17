@@ -38,7 +38,7 @@ namespace Durin
 	// Reopen assets through current editor policy; do not reconstruct toolkit instances.
 	struct FAssetEditorRestoreEntry
 	{
-		FAssetOpenTarget Asset;
+		FSoftObjectPath AssetPath;
 		EAssetOpenMethod Method = EAssetOpenMethod::Edit;
 	};
 }

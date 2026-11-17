@@ -228,22 +228,8 @@ namespace Durin
 		return bInitialized && !bClosed && AssetEditorSubsystem && AssetEditorSubsystem->OwnsToolkit(*this);
 	}
 
-	namespace
-	{
-		auto ProfileScope(const FAssetEditorToolkit* Editor, EAssetOpenMethod Method) -> std::string
-		{
-			std::string Key;
-			if (Method == EAssetOpenMethod::View) Key += ".View";
-			if (Editor)
-			{
-				if (Editor->GetToolkitMode() == EToolkitMode::WorldCentric) Key += ".WorldCentric";
-				if (!Editor->GetInstanceKey().empty()) Key += ".Instance." + FXxHash128::HashBuffer(Editor->GetInstanceKey()).ToString();
-			}
-			return Key;
-		}
-	}
 	auto FAssetEditorToolkit::GetLayoutProfileKey() const -> std::string
-	{ return std::string(GetLayoutName()) + ".Layout.v" + std::to_string(GetLayoutVersion()) + ProfileScope(this, OpenMethod); }
+	{ return std::string(GetLayoutName()) + ".Layout.v" + std::to_string(GetLayoutVersion()) + (OpenMethod == EAssetOpenMethod::View ? ".View" : ""); }
 	auto FAssetEditorToolkit::GetPresentationRootKey(std::string_view EditorRootKey) const -> std::string
 	{
 		return std::string(EditorRootKey) + (GetWindowId().empty() ? std::string{} : ".Window." + std::string(GetWindowId()));

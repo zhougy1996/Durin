@@ -2,16 +2,23 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Toolkits/ToolkitHost.h"
-#include "DObject/Class.h"
 #include "Misc/Paths.h"
-#include "Misc/Time.h"
 #include "Yaml/Yaml.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/RegistryOperations.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto ResolveEditorAsset(const FSoftObjectPath& Path) -> std::optional<FAssetOpenTarget>
+		{
+			const auto Resolved = ResolveAssetObjectPathForOperation(Path);
+			if (!Resolved || !Resolved.FinalAssetData) return {};
+			return FAssetOpenTarget{Resolved.FinalPath, Resolved.FinalAssetData->AssetClassName};
+		}
+	}
+
 	struct DAssetEditorSubsystem::FLifecycleState
 	{
 		FLifecycleState()
@@ -66,14 +73,14 @@ namespace Durin
 			if (!Toolkit->SupportsRestore()) continue;
 			for (auto* Object : Toolkit->GetObjectsToEdit())
 			{
-				const auto ClassName = Object->GetClass()->GetQualifiedName().ToString();
 				FSoftObjectPath Path;
-				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path))
+				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path) && Path.IsTopLevelAsset()
+					&& FindAssetExact(Path.GetAssetPath(), EAssetQuerySource::OnDisk))
 				{
 					std::erase_if(Result, [&](const auto& Entry) {
-						return Entry.Asset.AssetPath == Path && Entry.Method == Toolkit->GetOpenMethod();
+						return Entry.AssetPath == Path && Entry.Method == Toolkit->GetOpenMethod();
 					});
-					Result.push_back({.Asset = {Path, ClassName}, .Method = Toolkit->GetOpenMethod()});
+					Result.push_back({.AssetPath = Path, .Method = Toolkit->GetOpenMethod()});
 				}
 			}
 		}
@@ -84,7 +91,9 @@ namespace Durin
 		bool Restored = true;
 		for (const auto& Entry : Entries)
 		{
-			auto Opened = OpenAssets({.AssetEditors = this, .Assets = {Entry.Asset}, .OpenMethod = Entry.Method,
+			const auto Asset = ResolveEditorAsset(Entry.AssetPath);
+			if (!Asset) { Restored = false; continue; }
+			auto Opened = OpenAssets({.AssetEditors = this, .Assets = {*Asset}, .OpenMethod = Entry.Method,
 				.OpenLocation = EAssetEditorOpenLocation::MainWindow, .bIsRestore = true});
 			Restored = Opened && Restored;
 		}
@@ -106,12 +115,11 @@ namespace Durin
 		{
 			auto Node = EditorEntries.AppendMap();
 			Node.SetChildValue("Method", Entry.Method == EAssetOpenMethod::View ? "View" : "Edit");
-			Node.SetChildValue("Path", Entry.Asset.AssetPath.ToString());
-			Node.SetChildValue("Class", Entry.Asset.AssetClassName);
+			Node.SetChildValue("Path", Entry.AssetPath.ToString());
 		}
 		auto Recent = Root.AddSequence("Recent");
 		for (const auto& Target : GetRecentAssets())
-		{ auto Node = Recent.AppendMap(); Node.SetChildValue("Path", Target.AssetPath.ToString()); Node.SetChildValue("Class", Target.AssetClassName); }
+		{ auto Node = Recent.AppendMap(); Node.SetChildValue("Path", Target.AssetPath.ToString()); }
 		FilePath = StatePath(std::move(FilePath));
 		std::error_code Error;
 		std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path(), Error);
@@ -135,7 +143,7 @@ namespace Durin
 			const auto OpenMethod = Method == "View" ? EAssetOpenMethod::View : Method == "Edit" ? EAssetOpenMethod::Edit : static_cast<EAssetOpenMethod>(255);
 			FSoftObjectPath Path;
 			FSoftObjectPath::TryCreate(Node.GetView("Path").GetString(), Path);
-			Entries.push_back({.Asset = {Path, Node.GetView("Class").GetString()}, .Method = OpenMethod});
+			Entries.push_back({.AssetPath = Path, .Method = OpenMethod});
 		}
 		if (!Lifecycle) Lifecycle = std::make_shared<FLifecycleState>();
 		Lifecycle->Recent.clear();
@@ -143,11 +151,11 @@ namespace Durin
 		for (size_t I = 0; I < std::min<size_t>(32, Recent.Num()); ++I)
 		{
 			FSoftObjectPath Path;
-			if (FSoftObjectPath::TryCreate(Recent.GetView(I).GetView("Path").GetString(), Path))
+			if (!FSoftObjectPath::TryCreate(Recent.GetView(I).GetView("Path").GetString(), Path)) continue;
+			if (const auto Asset = ResolveEditorAsset(Path))
 			{
-				if (const auto Resolved = ResolveAssetObjectPathForOperation(Path)) Path = Resolved.FinalPath;
-				if (std::ranges::none_of(Lifecycle->Recent, [&](const auto& Target) { return Target.AssetPath == Path; }))
-					Lifecycle->Recent.push_back({Path, Recent.GetView(I).GetView("Class").GetString()});
+				if (std::ranges::none_of(Lifecycle->Recent, [&](const auto& Target) { return Target.AssetPath == Asset->AssetPath; }))
+					Lifecycle->Recent.push_back(*Asset);
 			}
 		}
 		return RestoreEditorState(Entries);

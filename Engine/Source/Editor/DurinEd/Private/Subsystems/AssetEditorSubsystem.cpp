@@ -180,11 +180,6 @@ namespace Durin
 				.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
 	}
 
-	auto DAssetEditorSubsystem::NotifyAssetsOpened(const std::vector<DObject*>& Assets, IAssetEditorInstance* Instance) -> void
-	{
-		for (auto* Asset : Assets) NotifyAssetOpened(Asset, Instance);
-	}
-
 	auto DAssetEditorSubsystem::NotifyAssetClosed(DObject* Asset, IAssetEditorInstance* Instance) -> void
 	{
 		// Cleanup remains legal after admission closes, while host consumers shut down.

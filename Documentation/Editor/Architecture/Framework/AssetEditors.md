@@ -168,11 +168,11 @@ membership after eligibility callbacks. Closing clears callbacks even if a calle
 retains the toolkit.
 
 Runtime window and dock IDs belong to each `WindowId`. Stable layout profiles use
-`GetLayoutName`, `GetLayoutVersion`, method, host mode, and role, excluding asset
-paths and group hashes. Panel visibility is stored under `AssetEditorPanels/`;
-writes merge edited keys. Named dock templates use ImGui settings, with only the
-active toolkit updating the shared template. Transfer selects the new profile
-and resets that toolkit's live dock spaces.
+`GetLayoutName`, `GetLayoutVersion`, and Edit/View method, excluding host mode,
+instance role, asset paths, and group hashes. Panel visibility is stored under
+`AssetEditorPanels/`; writes merge edited keys. Named dock templates use ImGui settings, with only the
+active toolkit updating the shared template. Transfer retains the type profile
+and resets only that toolkit's live dock spaces.
 
 Material preferences and graph viewports use version-3 files under
 `MaterialEditor/Profiles/`, keyed by the same profile. Resource relocation rekeys
@@ -195,7 +195,11 @@ closing. Subscriber snapshots permit withdrawal and closing other editors.
 
 MainFrame saves version-2 restoration data under
 `AssetEditorState/<project-path-hash>.yaml`, with an embedded project identity.
-`OpenAssets` is a flat list of asset paths, classes, and Edit/View methods.
+`OpenAssets` is a flat list of asset paths and Edit/View methods. Only top-level
+assets present in the on-disk catalog are captured; unsaved assets are excluded,
+including new assets in an otherwise saved package. Restoration resolves the
+current asset type and redirects through the registry instead of caching class
+names. The Recent list also stores only paths and resolves types on load.
 Repeated instances of the same asset and method collapse to one entry, retaining
 their most recent toolkit activation order. Restoration creates ordinary primary
 editors through current definition/host policy; it does not recreate groups,
