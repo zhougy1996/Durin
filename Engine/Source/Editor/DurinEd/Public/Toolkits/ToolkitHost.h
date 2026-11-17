@@ -7,7 +7,6 @@
 namespace Durin
 {
 	class FAssetEditorToolkit;
-	struct FEditorTabWindowConfig;
 
 	// Presentation attachment never becomes another persistent toolkit owner.
 	class IToolkitHost
@@ -20,8 +19,6 @@ namespace Durin
 		virtual auto FocusToolkit(FAssetEditorToolkit& Toolkit) -> void = 0;
 		virtual auto RequestClose() -> bool = 0;
 		virtual auto IsAvailable() const -> bool = 0;
-		virtual auto IsReadyForFocus() const -> bool { return IsAvailable(); }
-		virtual auto PrepareRootWindow(FEditorTabWindowConfig&) -> void {}
 		virtual auto OnRootWindowShown(uint32) -> void {}
 	};
 

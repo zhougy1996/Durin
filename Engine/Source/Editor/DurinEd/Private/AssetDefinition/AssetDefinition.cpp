@@ -44,11 +44,8 @@ namespace Durin
 			{
 				for (const auto& Existing : FToolkitManager::Get().GetToolkits(Args.AssetEditors))
 				{
-					const auto* Owner = Existing->GetOwningAssetEditor();
-					const bool MatchesType = ReflectedType ? Owner && Owner->GetClass() == *ReflectedType
-						: Existing->GetToolkitId() == *std::get<const FAssetEditorToolkitId*>(EditorType);
-					if (!MatchesType || Existing->GetOpenMethod() != Args.OpenMethod
-						|| Existing->GetToolkitMode() != Args.ToolkitMode || Existing->GetInstanceKey() != Args.GetNormalizedRole()
+					if (!MatchesAssetEditorIdentity(*Existing, Args, ReflectedType ? *ReflectedType : nullptr,
+						ReflectedType ? nullptr : std::get<const FAssetEditorToolkitId*>(EditorType))
 						|| Existing->IsPrimaryEditor() != Args.bPrimary || (Args.Host && Existing->GetToolkitHost() != Args.Host)) continue;
 					const auto Objects = Existing->GetObjectsToEdit();
 					const bool MatchesAssets = Args.bCreateSingleEditor ? HaveSameEditedAssets(Objects, Assets)

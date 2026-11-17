@@ -35,13 +35,10 @@ namespace Durin
 	private:
 		std::function<void()> Release;
 	};
-	// Serialized identities contain no object pointers, live IDs or provider leases.
+	// Reopen assets through current editor policy; do not reconstruct toolkit instances.
 	struct FAssetEditorRestoreEntry
 	{
-		std::vector<FAssetOpenTarget> Assets;
+		FAssetOpenTarget Asset;
 		EAssetOpenMethod Method = EAssetOpenMethod::Edit;
-		EToolkitMode Mode = EToolkitMode::Standalone;
-		std::string Role;
-		bool bPrimary = true;
 	};
 }

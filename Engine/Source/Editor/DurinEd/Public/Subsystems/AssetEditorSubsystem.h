@@ -29,10 +29,6 @@ namespace Durin
 		DURINED_API auto Deinitialize() noexcept -> void override;
 		DURINED_API auto CanOpenEditorForAsset(DObject* Asset, std::string* OutErrorMsg = nullptr) -> bool;
 		DURINED_API auto OpenEditorForAsset(DObject* Asset) -> bool;
-		DURINED_API auto OpenEditorForAsset(const std::string& AssetPathName) -> void;
-		DURINED_API auto OpenEditorForAsset(const FSoftObjectPath& AssetPath) -> void;
-		DURINED_API auto OpenEditorForAssets(const std::vector<DObject*>& Assets) -> bool;
-		DURINED_API auto OpenEditorsForAssets(const std::vector<std::string>& AssetsToOpen) -> void;
 		DURINED_API auto CanOpenAsset(const FAssetOpenTarget& Target,
 			EAssetOpenMethod Method = EAssetOpenMethod::Edit) -> bool;
 		DURINED_API auto OpenAssets(const FAssetOpenArgs& Args) -> bool;
@@ -93,17 +89,14 @@ namespace Durin
 		auto SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit) -> void;
 		auto FinishToolkitClose(FAssetEditorToolkit& Toolkit, DAssetEditor* Editor,
 			IAssetEditorInstance* Instance) -> void;
-		auto CancelRestoreFocus() -> void { RestoreFocus.reset(); }
 		auto CanCall() const -> bool;
 		auto HasEditor(IAssetEditorInstance* Instance) const -> bool;
 		auto CreateAssetEditor(DAssetEditor& Editor, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
-		auto CompleteRestoreFocus() -> void;
 		std::unordered_set<FSoftObjectPath> OpeningPaths;
 		FStrongObjectPtr DispatchingDefinition;
 		std::weak_ptr<FAssetEditorToolkit> ActiveToolkit;
 		// A non-window shell owns only its presentation hosts, never toolkits/editors.
 		std::vector<std::shared_ptr<IToolkitHost>> FallbackHosts;
-		std::weak_ptr<FAssetEditorToolkit> RestoreFocus;
 		std::function<std::shared_ptr<IToolkitHost>(const FAssetOpenArgs&)> ToolkitHostFactory;
 		bool bClosingEditors = false;
 		struct FLifecycleState;

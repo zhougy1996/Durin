@@ -1,14 +1,11 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 
-#include "Asset/Load.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Editor/EditorEngine.h"
 #include "Threading/RunnableThread.h"
 #include "Documents/EditorDocumentManager.h"
-#include "AssetRegistry/Catalog.h"
-#include "DObject/SoftObjectPtr.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
 
@@ -92,47 +89,6 @@ namespace Durin
 			bOpened = bOpened && CanCall();
 		});
 		return bOpened;
-	}
-
-	auto DAssetEditorSubsystem::OpenEditorForAsset(const std::string& AssetPathName) -> void
-	{
-		if (!CanCall()) return;
-		FSoftObjectPath Path;
-		if (FSoftObjectPath::TryCreate(AssetPathName, Path)) OpenEditorForAsset(Path);
-	}
-
-	auto DAssetEditorSubsystem::OpenEditorForAsset(const FSoftObjectPath& AssetPath) -> void
-	{
-		if (!CanCall() || !AssetPath.IsValid()) return;
-		DispatchEditorCallback([&] {
-			FSoftObjectPtr Resident(AssetPath);
-			if (auto* Object = Resident.Get()) { (void)OpenEditorForAsset(Object); return; }
-			const auto Metadata = ResolveAssetObjectPath(AssetPath);
-			if (Metadata && Metadata.FinalAssetData)
-			{
-				(void)OpenAssets({.AssetEditors = this,
-					.Assets = {{Metadata.FinalPath, Metadata.FinalAssetData->AssetClassName}}});
-				return;
-			}
-			if (auto* Object = LoadObject<DObject>(AssetPath)) (void)OpenEditorForAsset(Object);
-		});
-	}
-
-	auto DAssetEditorSubsystem::OpenEditorForAssets(const std::vector<DObject*>& Assets) -> bool
-	{
-		if (!CanCall() || Assets.empty()) return false;
-		bool bAllOpened = true;
-		std::vector<TStrongObjectPtr<DObject>> KeepAlive;
-		std::unordered_set<DObject*> Seen;
-		for (auto* Asset : Assets)
-			if (Seen.insert(Asset).second) KeepAlive.emplace_back(Asset);
-		for (const auto& Asset : KeepAlive) bAllOpened = OpenEditorForAsset(Asset.Get()) && bAllOpened;
-		return bAllOpened;
-	}
-
-	auto DAssetEditorSubsystem::OpenEditorsForAssets(const std::vector<std::string>& AssetsToOpen) -> void
-	{
-		for (const auto& Path : AssetsToOpen) OpenEditorForAsset(Path);
 	}
 
 	auto DAssetEditorSubsystem::FindEditorsForAsset(DObject* Asset) -> std::vector<IAssetEditorInstance*>

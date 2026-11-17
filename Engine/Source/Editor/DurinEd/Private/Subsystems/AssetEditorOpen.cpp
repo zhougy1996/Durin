@@ -23,7 +23,6 @@ namespace Durin
 	auto DAssetEditorSubsystem::OpenAssets(const FAssetOpenArgs& Args) -> bool
 	{
 		if (!CanCall() || Args.AssetEditors != this || Args.Assets.empty()) return false;
-		CancelRestoreFocus();
 		struct FSelection
 		{
 			FAssetOpenTarget Target;

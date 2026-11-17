@@ -87,6 +87,7 @@ namespace Durin
 		DURINED_API auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost>;
 		DURINED_API auto TransferToHost(std::shared_ptr<IToolkitHost> NewHost) -> bool;
 		DURINED_API auto GetToolkitMode() const -> EToolkitMode;
+		auto GetOpenLocation() const -> EAssetEditorOpenLocation { return OpenLocation; }
 		DURINED_API auto GetInstanceKey() const -> std::string_view;
 		DURINED_API auto GetWindowId() const -> std::string_view;
 		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
@@ -156,6 +157,7 @@ namespace Durin
 		FStrongObjectPtr DefinitionProvider;
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
 		EToolkitMode ToolkitMode = EToolkitMode::Standalone;
+		EAssetEditorOpenLocation OpenLocation = EAssetEditorOpenLocation::MainWindow;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		std::weak_ptr<IToolkitHost> Host;
 		// Identity comparison only, including during host destruction when pinning fails.

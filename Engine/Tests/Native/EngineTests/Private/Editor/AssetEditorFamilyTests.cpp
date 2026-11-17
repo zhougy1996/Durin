@@ -442,11 +442,17 @@ namespace
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 		ASSERT_EQ(3u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
 		for (const auto& Toolkit : Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
+		{
+			EXPECT_EQ(1u, Toolkit->GetObjectsToEdit().size());
+			EXPECT_EQ(EAssetEditorOpenLocation::MainWindow, Toolkit->GetOpenLocation());
+			EXPECT_TRUE(Toolkit->IsPrimaryEditor());
+			EXPECT_TRUE(Toolkit->GetInstanceKey().empty());
 			if (Toolkit->GetOpenMethod() == EAssetOpenMethod::Edit)
 			{
 				EXPECT_EQ(Profile, Toolkit->GetLayoutProfileKey());
 				EXPECT_NE(Window, Toolkit->GetPresentationRootKey("StaticMeshEditor"));
 			}
+		}
 	}
 
 	TEST_F(FAssetEditorFamilyTests, MaterialRelocationRekeysWorkingEditorAndRetainsSave)

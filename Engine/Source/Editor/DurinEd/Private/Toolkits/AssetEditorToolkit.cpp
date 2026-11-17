@@ -41,13 +41,12 @@ namespace Durin
 				|| !DocumentOwner || !DocumentOwner->PrepareForExit()) return;
 			if (!IsEditorOpen()) return;
 			if (NewHost == PreviousHost) { Transferred = true; return; }
+			const FAssetOpenArgs Identity{.OpenMethod = OpenMethod, .ToolkitMode = NewHost->GetToolkitMode(), .InstanceRole = InstanceKey};
 			for (const auto& Other : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
 			{
-				if (Other.get() == this || Other->IsClosed() || Other->GetOpenMethod() != OpenMethod
-					|| Other->GetToolkitMode() != NewHost->GetToolkitMode() || Other->GetInstanceKey() != InstanceKey) continue;
-				const auto* OtherEditor = Other->GetOwningAssetEditor();
-				if (Editor ? !OtherEditor || OtherEditor->GetClass() != Editor->GetClass()
-					: OtherEditor || Other->GetToolkitId() != GetToolkitId()) continue;
+				if (Other.get() == this || Other->IsClosed()
+					|| !MatchesAssetEditorIdentity(*Other, Identity, Editor ? Editor->GetClass() : nullptr,
+						Editor ? nullptr : &GetToolkitId())) continue;
 				if (HaveSameEditedAssets(Other->GetObjectsToEdit(), GetObjectsToEdit())) return;
 			}
 			if (!NewHost->AttachToolkit(Lease)) return;
@@ -91,7 +90,6 @@ namespace Durin
 		if (!AssetEditorSubsystem || !IsEditorOpen()) return;
 		const auto Lease = shared_from_this();
 		const FStrongObjectPtr KeepAlive(OwningAssetEditor.Get());
-		AssetEditorSubsystem->CancelRestoreFocus();
 		AssetEditorSubsystem->DispatchEditorCallback([&] {
 			if (!AssetEditorSubsystem->ActivateAssetToolkit(*this)) return;
 			const auto Snapshot = DocumentOwner->GetDocuments();
@@ -151,6 +149,8 @@ namespace Durin
 		std::shared_ptr<FEditorDocumentManager> Documents, FStrongObjectPtr Provider, DAssetEditor* Editor) -> bool
 	{
 		if (bInitialized || bClosed || !Documents || !Args.OpenArgs.AssetEditors) return false;
+		checkf(Args.OpenArgs.OpenLocation == EAssetEditorOpenLocation::MainWindow
+			|| Args.OpenArgs.OpenLocation == EAssetEditorOpenLocation::NewWindow, "Unknown asset editor opening location");
 		bInitialized = true;
 		OwningAssetEditor = Editor;
 		AssetEditors = Args.OpenArgs.AssetEditors;
@@ -158,6 +158,7 @@ namespace Durin
 		Host = InitialHost;
 		HostIdentity = InitialHost.get();
 		ToolkitMode = Args.OpenArgs.ToolkitMode;
+		OpenLocation = Args.OpenArgs.OpenLocation;
 		InstanceKey = Args.OpenArgs.GetNormalizedRole();
 		bPrimary = Args.OpenArgs.bPrimary;
 		static uint64 NextId = 1;
@@ -207,7 +208,7 @@ namespace Durin
 		if (!AssetEditorSubsystem || !IsEditorOpen() || !FSoftObjectPath::TryCreate(Path, AssetPath)) return false;
 		return AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem,
 			.Assets = {{AssetPath, std::string(ClassName)}}, .OpenMethod = GetOpenMethod(),
-			.ToolkitMode = GetToolkitMode()});
+			.ToolkitMode = GetToolkitMode(), .OpenLocation = GetOpenLocation()});
 	}
 	auto FAssetEditorToolkit::ExecuteEditorCommand(const std::function<bool()>& Command) -> bool
 	{

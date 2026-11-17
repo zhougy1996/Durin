@@ -14,11 +14,6 @@ namespace Durin::TabLayout
 		return std::format("{}###Durin.Editor.Root.{}", DisplayName, RootKey);
 	}
 
-	auto MakeDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string
-	{
-		return std::format("{}.{}", WorkspaceRootKey, DocumentKey);
-	}
-
 	auto MakeDockClassName(const FAssetEditorToolkitId& ToolkitId) -> std::string
 	{
 		return std::format("Durin.DockClass.{}", ToolkitId.GetValue());

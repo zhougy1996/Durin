@@ -12,7 +12,6 @@ namespace Durin::TabLayout
 
 	DURINED_API auto MakeMainFrameDockSpaceName(uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakeRootWindowName(std::string_view DisplayName, std::string_view RootKey) -> std::string;
-	DURINED_API auto MakeDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string;
 	DURINED_API auto MakeDockClassName(const FAssetEditorToolkitId& ToolkitId) -> std::string;
 	DURINED_API auto MakeDockSpaceName(const FAssetEditorToolkitId& ToolkitId, uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakePanelWindowName(std::string_view DisplayName, const FAssetEditorToolkitId& ToolkitId, std::string_view PanelKey) -> std::string;

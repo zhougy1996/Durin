@@ -4,7 +4,7 @@ Summary: Define asset opening, toolkit ownership, host integration, and editor c
 
 Modules: DurinEd, LevelEditor, TextureEditor, StaticMeshEditor, MaterialEditor, MainFrame, ContentBrowser
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 ## Definition Discovery And Dispatch
 
@@ -86,7 +86,11 @@ publishes no associations. A toolkit initializes once.
 
 Each toolkit owns its method, role, activation time, and process-unique
 `WindowId`. Asset-set identity ignores order and duplicates. Identical editors
-require distinct stable roles. Resource relocation preserves window identity;
+require distinct stable roles. Reflected editor classes and direct toolkit IDs
+identify separate editor families. Definition reuse, reflected/direct admission,
+and host-transfer collision checks share the same family/method/mode/role rules;
+primary status and explicit host requirements additionally constrain reuse.
+Resource relocation preserves window identity;
 document reload participants migrate roots and notify feature caches through
 `OnResourceIdRemapped`.
 
@@ -118,6 +122,16 @@ Closing during attachment, detachment, or `OnHostChanged` fails transfer and
 removes provisional attachments.
 
 MainFrame supplies a shared world-centric host and independent standalone hosts.
+Headless fallback hosts are reclaimed at the end of an admitted editor Tick when
+no managed toolkit references them, after initialization and close callbacks settle.
+`EToolkitMode` selects that host relationship, independently of initial tab
+placement. `FAssetOpenArgs::OpenLocation` uses `EAssetEditorOpenLocation`:
+`MainWindow` (the default) opens in the main dock space; `NewWindow` starts
+undocked in a separate window. Both allow subsequent user docking and undocking.
+Opening an existing editor focuses it without changing its placement or identity.
+Session restoration always opens assets in `MainWindow`, independently of their
+previous opening preference or manual moves. Internal panel layouts retain their
+editor-type templates; asset root-window geometry is not restored.
 Native-window closure first requests editor permission. Closing one world-centric
 toolkit preserves other attachments. A grouped editor has one root and internal
 document tabs.
@@ -179,15 +193,21 @@ retain no editor. Requested precedes dispatch, Opened follows association
 publication, AssetRemoved follows index removal, and Closed follows committed
 closing. Subscriber snapshots permit withdrawal and closing other editors.
 
-MainFrame saves version-1 restoration data under
+MainFrame saves version-2 restoration data under
 `AssetEditorState/<project-path-hash>.yaml`, with an embedded project identity.
-The `OpenEditors` field contains asset groups, methods, modes, primary
-status, stable roles, and activation order. It stores no pointers, document IDs,
-provider leases, runtime window IDs, or geometry.
+`OpenAssets` is a flat list of asset paths, classes, and Edit/View methods.
+Repeated instances of the same asset and method collapse to one entry, retaining
+their most recent toolkit activation order. Restoration creates ordinary primary
+editors through current definition/host policy; it does not recreate groups,
+roles, secondary instances, previous host modes, or opening locations. Unsupported
+session formats are ignored without restoring tabs. Internal panel templates are
+independent of the session format. No pointers, live IDs, leases, or geometry are saved.
 
-Restore uses `OpenAssets` and reports missing assets/providers or rejected methods.
-Focus waits for engine and presentation readiness, then runs once; explicit
-opening or focus cancels it. Level opts out so configured startup-Level loading
+MainFrame requests restoration after workspace initialization and performs it once
+on its first admitted Tick. Restore uses `OpenAssets` and reports missing
+assets/providers or rejected methods. The ordinary open path requests focus for
+the next toolkit-root draw; there is no separate restore-focus wait or later
+focus override. Level opts out so configured startup-Level loading
 retains precedence. Level owns its deferred loading and cancellation; an accepted
 open does not imply rendering readiness. Startup observes pending documents and
 the actual World rather than historical request outcomes.

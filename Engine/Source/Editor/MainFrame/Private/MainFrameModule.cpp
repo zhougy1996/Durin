@@ -24,7 +24,6 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/ToolkitHost.h"
-#include "Framework/TabManager.h"
 #include "Viewport/ViewportClosePolicy.h"
 #include "Window/GenericWindow.h"
 #include "DObject/WeakObjectPtr.h"
@@ -127,6 +126,7 @@ namespace Durin::MainFrame
 
 		auto ReleaseAssetEditors() -> void
 		{
+			bRestoreAssetEditorsRequested = false;
 			if (auto* AssetEditorSubsystem = AssetEditors.Get())
 			{
 				if (!EditorStateProject.empty() && EditorStateProject == FPaths::ProjectFile())
@@ -142,6 +142,7 @@ namespace Durin::MainFrame
 		TWeakObjectPtr<DEditorEngine> Editor;
 		bool bHasProject = false;
 		std::string EditorStateProject;
+		bool bRestoreAssetEditorsRequested = false;
 		bool bProjectBrowserOpen = false;
 		bool bExitRequested = false;
 		bool bExitSaveFailed = false;
@@ -185,21 +186,6 @@ namespace Durin::MainFrame
 				const auto Owner = Context.lock();
 				return Owner && Owner->RootWindow && !Owner->bExitRequested && FNonWindowToolkitHost::IsAvailable()
 					&& (GetToolkitMode() != EToolkitMode::WorldCentric || Owner->LevelEditorModule);
-			}
-			auto PrepareRootWindow(FEditorTabWindowConfig& Config) -> void override
-			{
-				Config.bNativeStandalone = GetToolkitMode() == EToolkitMode::Standalone;
-				Config.bDockInEditorHost = !Config.bNativeStandalone;
-			}
-			auto IsReadyForFocus() const -> bool override
-			{
-				if (!IsAvailable()) return false;
-				const auto Owner = Context.lock();
-				const auto* Editor = Owner ? Owner->Editor.Get() : nullptr;
-				if (!Editor || !Editor->GetCapabilities().bTick) return false;
-				if (GetToolkitMode() == EToolkitMode::WorldCentric) return true;
-				const auto Window = MonaImGui::GetWindowForViewport(ViewportId);
-				return Window && Window->GetNativeWindow();
 			}
 			auto OnRootWindowShown(uint32 Id) -> void override
 			{
@@ -435,12 +421,7 @@ namespace Durin::MainFrame
 				Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
 			if (const auto* Project = GetCurrentProject(); Project && Project->bRecordInteractiveHistory)
 				Context.ProjectBrowser->RecordCurrentProject();
-			if (HasCurrentProject())
-			{
-				Context.EditorStateProject = FPaths::ProjectFile();
-				if (!Context.AssetEditors.Get()->LoadEditorState()) Context.Editor.Get()->GetNotificationManager().Post({
-					.Type = ENotificationType::Warning, .Message = "Some asset editors could not be restored."});
-			}
+			Context.bRestoreAssetEditorsRequested = HasCurrentProject();
 			Profiling::RecordStartupMilestone(
 				Profiling::EStartupMilestone::DefaultWorkspaceReady);
 			return true;
@@ -1407,6 +1388,12 @@ namespace Durin
 		if (!Context) return;
 		auto* Editor = Context->Editor.Get();
 		if (!Editor) return;
+		if (std::exchange(Context->bRestoreAssetEditorsRequested, false))
+		{
+			Context->EditorStateProject = FPaths::ProjectFile();
+			if (!Context->AssetEditors.Get()->LoadEditorState()) Editor->GetNotificationManager().Post({
+				.Type = ENotificationType::Warning, .Message = "Some asset editors could not be restored."});
+		}
 		ObserveMainWindowState(*Context->MainFrameSettings, *Context->RootWindow);
 		Context->AssetCompatibilityWindow->Tick(FPaths::ProjectFile(), Editor->GetCapabilities().bEditWorld && Editor->CanTransact());
 		Context->PythonScripts->Tick();

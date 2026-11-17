@@ -64,16 +64,18 @@ namespace Durin
 		for (const auto& Toolkit : Toolkits)
 		{
 			if (!Toolkit->SupportsRestore()) continue;
-			FAssetEditorRestoreEntry Entry{.Method = Toolkit->GetOpenMethod(), .Mode = Toolkit->GetToolkitMode(),
-				.Role = std::string(Toolkit->GetInstanceKey()), .bPrimary = Toolkit->IsPrimaryEditor()};
 			for (auto* Object : Toolkit->GetObjectsToEdit())
 			{
 				const auto ClassName = Object->GetClass()->GetQualifiedName().ToString();
 				FSoftObjectPath Path;
-				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path)) Entry.Assets.push_back({Path, ClassName});
+				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path))
+				{
+					std::erase_if(Result, [&](const auto& Entry) {
+						return Entry.Asset.AssetPath == Path && Entry.Method == Toolkit->GetOpenMethod();
+					});
+					Result.push_back({.Asset = {Path, ClassName}, .Method = Toolkit->GetOpenMethod()});
+				}
 			}
-			std::ranges::sort(Entry.Assets, {}, [](const auto& Target) { return Target.AssetPath.ToString(); });
-			if (!Entry.Assets.empty()) Result.push_back(std::move(Entry));
 		}
 		return Result;
 	}
@@ -82,24 +84,11 @@ namespace Durin
 		bool Restored = true;
 		for (const auto& Entry : Entries)
 		{
-			auto Opened = OpenAssets({.AssetEditors = this, .Assets = Entry.Assets, .OpenMethod = Entry.Method,
-				.ToolkitMode = Entry.Mode, .InstanceRole = Entry.Role, .bPrimary = Entry.bPrimary,
-				.bCreateSingleEditor = Entry.Assets.size() > 1, .bIsRestore = true});
+			auto Opened = OpenAssets({.AssetEditors = this, .Assets = {Entry.Asset}, .OpenMethod = Entry.Method,
+				.OpenLocation = EAssetEditorOpenLocation::MainWindow, .bIsRestore = true});
 			Restored = Opened && Restored;
 		}
-		const auto Toolkits = FToolkitManager::Get().GetToolkits(this);
-		if (!Toolkits.empty() && Toolkits.back()->SupportsRestore()) RestoreFocus = Toolkits.back();
-		CompleteRestoreFocus();
 		return Restored;
-	}
-	auto DAssetEditorSubsystem::CompleteRestoreFocus() -> void
-	{
-		const auto Toolkit = RestoreFocus.lock();
-		if (!Toolkit || !OwnsToolkit(*Toolkit) || Toolkit->IsClosed()) { RestoreFocus.reset(); return; }
-		for (const auto& Open : FToolkitManager::Get().GetToolkits(this))
-			if (const auto Host = Open->GetToolkitHost(); Host && !Host->IsReadyForFocus()) return;
-		RestoreFocus.reset();
-		Toolkit->FocusWindow();
 	}
 	namespace
 	{
@@ -110,21 +99,15 @@ namespace Durin
 	{
 		FYamlDocument Document;
 		auto Root = Document.GetMutableRoot();
-		Root.SetChildValue("Version", 1);
+		Root.SetChildValue("Version", 2);
 		Root.SetChildValue("Project", FPaths::ProjectFile());
-		auto EditorEntries = Root.AddSequence("OpenEditors");
+		auto EditorEntries = Root.AddSequence("OpenAssets");
 		for (const auto& Entry : CaptureEditorState())
 		{
 			auto Node = EditorEntries.AppendMap();
 			Node.SetChildValue("Method", Entry.Method == EAssetOpenMethod::View ? "View" : "Edit");
-			Node.SetChildValue("Mode", Entry.Mode == EToolkitMode::WorldCentric ? "WorldCentric" : "Standalone");
-			Node.SetChildValue("Role", Entry.Role); Node.SetChildValue("Primary", Entry.bPrimary);
-			auto Assets = Node.AddSequence("Assets");
-			for (const auto& Target : Entry.Assets)
-			{
-				auto Asset = Assets.AppendMap();
-				Asset.SetChildValue("Path", Target.AssetPath.ToString()); Asset.SetChildValue("Class", Target.AssetClassName);
-			}
+			Node.SetChildValue("Path", Entry.Asset.AssetPath.ToString());
+			Node.SetChildValue("Class", Entry.Asset.AssetClassName);
 		}
 		auto Recent = Root.AddSequence("Recent");
 		for (const auto& Target : GetRecentAssets())
@@ -139,27 +122,20 @@ namespace Durin
 		FYamlDocument Document;
 		FilePath = StatePath(std::move(FilePath));
 		if (!std::filesystem::exists(FilePath)) return true;
-		if (!Document.LoadFromFile(FilePath) || Document.GetRootView().GetView("Version").GetInt() != 1
-			|| Document.GetRootView().GetView("Project").GetString() != FPaths::ProjectFile())
-			return false;
+		if (!Document.LoadFromFile(FilePath)) return false;
 		const auto Root = Document.GetRootView();
-		const auto Nodes = Root.GetView("OpenEditors");
+		if (Root.GetView("Project").GetString() != FPaths::ProjectFile()) return false;
+		if (Root.GetView("Version").GetInt() != 2) return true;
+		const auto Nodes = Root.GetView("OpenAssets");
 		std::vector<FAssetEditorRestoreEntry> Entries;
 		for (size_t I = 0; I < Nodes.Num(); ++I)
 		{
 			const auto Node = Nodes.GetView(I);
 			const auto Method = Node.GetView("Method").GetString();
-			const auto Mode = Node.GetView("Mode").GetString();
-			FAssetEditorRestoreEntry Entry{.Method = Method == "View" ? EAssetOpenMethod::View : Method == "Edit" ? EAssetOpenMethod::Edit : static_cast<EAssetOpenMethod>(255),
-				.Mode = Mode == "WorldCentric" ? EToolkitMode::WorldCentric : Mode == "Standalone" ? EToolkitMode::Standalone : static_cast<EToolkitMode>(255),
-				.Role = Node.GetView("Role").GetString(), .bPrimary = Node.GetView("Primary").GetBool(true)};
-			const auto Assets = Node.GetView("Assets");
-			for (size_t J = 0; J < Assets.Num(); ++J)
-			{
-				FSoftObjectPath Path; FSoftObjectPath::TryCreate(Assets.GetView(J).GetView("Path").GetString(), Path);
-				Entry.Assets.push_back({Path, Assets.GetView(J).GetView("Class").GetString()});
-			}
-			Entries.push_back(std::move(Entry));
+			const auto OpenMethod = Method == "View" ? EAssetOpenMethod::View : Method == "Edit" ? EAssetOpenMethod::Edit : static_cast<EAssetOpenMethod>(255);
+			FSoftObjectPath Path;
+			FSoftObjectPath::TryCreate(Node.GetView("Path").GetString(), Path);
+			Entries.push_back({.Asset = {Path, Node.GetView("Class").GetString()}, .Method = OpenMethod});
 		}
 		if (!Lifecycle) Lifecycle = std::make_shared<FLifecycleState>();
 		Lifecycle->Recent.clear();

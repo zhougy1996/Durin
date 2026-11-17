@@ -48,8 +48,7 @@ namespace Durin
 		if (!Mode || (Args.Host && !Args.Host->IsAvailable())) return false;
 		auto Effective = Args; Effective.ToolkitMode = *Mode;
 		for (const auto& Existing : FToolkitManager::Get().GetToolkits(this))
-			if (Existing->GetToolkitId() == Toolkit->GetToolkitId() && Existing->GetOpenMethod() == Args.OpenMethod
-				&& Existing->GetToolkitMode() == Effective.ToolkitMode && Existing->GetInstanceKey() == Args.GetNormalizedRole()
+			if (MatchesAssetEditorIdentity(*Existing, Effective, nullptr, &Toolkit->GetToolkitId())
 				&& HaveSameEditedAssets(Existing->GetObjectsToEdit(), Assets)) return false;
 		bool Initialized = false;
 		DispatchEditorCallback([&] {

@@ -13,6 +13,8 @@ namespace Durin
 	// Separates inspection from editing before constructing an editor or loading an asset.
 	enum class EAssetOpenMethod : uint8 { Edit, View };
 	enum class EToolkitMode : uint8 { Standalone, WorldCentric };
+	// Initial tab placement is independent of toolkit ownership and host mode.
+	enum class EAssetEditorOpenLocation : uint8 { MainWindow, NewWindow };
 
 	struct FAssetOpenSupportArgs
 	{
@@ -57,6 +59,7 @@ namespace Durin
 		std::vector<FAssetOpenTarget> Assets;
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
 		EToolkitMode ToolkitMode = EToolkitMode::Standalone;
+		EAssetEditorOpenLocation OpenLocation = EAssetEditorOpenLocation::MainWindow;
 		std::shared_ptr<IToolkitHost> Host;
 		std::string InstanceRole;
 		bool bPrimary = true;

@@ -430,6 +430,7 @@ namespace Durin::LevelEditor
 			.RootKey = Workspace::RootKey,
 			.bDirty = bLevelDirty,
 			.bZeroPadding = true,
+			.OpenLocation = GetOpenLocation(),
 			.InternalDockSpace = FToolkitInternalDockSpace{
 				.ToolkitId = Workspace::Type,
 				.LayoutVersion = Workspace::LayoutVersion,

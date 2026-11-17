@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
+#include "AssetDefinition/AssetOpenTypes.h"
 #include "Documents/EditorDocumentTypes.h"
 #include "MonaImGui.h"
 
@@ -23,8 +24,7 @@ namespace Durin
 		std::string_view RootKey;
 		bool bDirty = false;
 		bool bZeroPadding = false;
-		bool bDockInEditorHost = true;
-		bool bNativeStandalone = false;
+		EAssetEditorOpenLocation OpenLocation = EAssetEditorOpenLocation::MainWindow;
 		ImGuiWindowFlags AdditionalFlags = ImGuiWindowFlags_None;
 		std::optional<FToolkitInternalDockSpace> InternalDockSpace;
 	};
@@ -59,7 +59,7 @@ namespace Durin
 	{
 	public:
 		DURINED_API auto RequestFocus(FDocumentId DocumentId) -> void;
-		// Draws every document of one toolkit and defers manager mutation until iteration completes.
+		// Draws one admitted toolkit root with internal document tabs and defers close requests.
 		DURINED_API auto DrawDocuments(
 			FEditorDocumentManager& DocumentManager,
 			const FAssetEditorToolkitId& ToolkitId,
@@ -70,9 +70,7 @@ namespace Durin
 		) -> bool;
 
 	private:
-		std::unordered_map<uint64, FEditorTabWindow> DocumentWindows;
 		FEditorTabWindow SessionWindow;
-		bool bSessionFocusRequested = false;
 		FDocumentId FocusDocument;
 	};
 

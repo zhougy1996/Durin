@@ -368,41 +368,6 @@ TEST(FEditorWorkspaceManagerTests, ExitVetoesUnsettledPreviewsAndPendingDocument
 	EXPECT_EQ(Workspace->SaveCount, 0);
 }
 
-TEST(FEditorWorkspaceManagerTests, ReportsDocumentVisibilityBeforeDrawing)
-{
-	ImGuiContext* Context = ImGui::CreateContext();
-	ASSERT_NE(Context, nullptr);
-	ImGuiIO& IO = ImGui::GetIO();
-	IO.IniFilename = nullptr;
-	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	IO.DisplaySize = ImVec2(1280.0f, 720.0f);
-	IO.DeltaTime = 1.0f / 60.0f;
-	IO.Fonts->Build();
-
-	Durin::FEditorDocumentManager Manager;
-	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	const bool Attached = Manager.AttachToolkit(Workspace, {});
-	ASSERT_TRUE(Attached);
-	ASSERT_TRUE(OpenResource(Manager, Workspace, "/Game/Materials/M_Visible").IsValid());
-
-	std::vector<std::string> Events;
-	ImGui::NewFrame();
-	Durin::FTabManager DocumentHost;
-	DocumentHost.DrawDocuments(
-		Manager,
-		Durin::FAssetEditorToolkitId("MaterialEditor"),
-		"MaterialEditor",
-		[](const Durin::FEditorDocument&) { return true; },
-		[&Events](const Durin::FEditorDocument&) { Events.emplace_back("draw"); },
-		[&Events](const Durin::FEditorDocument&, bool bVisible) {
-			Events.emplace_back(bVisible ? "visible" : "hidden");
-		});
-	ImGui::Render();
-	ImGui::DestroyContext(Context);
-
-	EXPECT_EQ(Events, (std::vector<std::string>{"visible", "draw"}));
-}
-
 TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsInOneWorkspace)
 {
 	Durin::FEditorDocumentManager Manager;
@@ -660,24 +625,8 @@ TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
 	EXPECT_TRUE(Manager.GetDocuments().empty());
 }
 
-TEST(FEditorWorkspaceUITests, DocumentRootKeysRemainDistinctForSameNamedAssets)
-{
-	const std::string First = Durin::TabLayout::MakeDocumentRootKey(
-		"MaterialEditor", "/Game/Environment/M_Stone"
-	);
-	const std::string Second = Durin::TabLayout::MakeDocumentRootKey(
-		"MaterialEditor", "/Game/Props/M_Stone"
-	);
-	EXPECT_NE(First, Second);
-	EXPECT_NE(
-		Durin::TabLayout::MakeRootWindowName("M_Stone", First),
-		Durin::TabLayout::MakeRootWindowName("M_Stone", Second)
-	);
-}
-
 TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 {
-	using namespace Durin;
 	using namespace Durin;
 	const FAssetEditorToolkitId ToolkitId("LevelEditor");
 
@@ -685,10 +634,6 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 	EXPECT_EQ(
 		TabLayout::MakeRootWindowName("Level Editor", "LevelEditor"),
 		"Level Editor###Durin.Editor.Root.LevelEditor"
-	);
-	EXPECT_EQ(
-		TabLayout::MakeDocumentRootKey("MaterialEditor", "/Game/Materials/M_Stone"),
-		"MaterialEditor./Game/Materials/M_Stone"
 	);
 	EXPECT_EQ(TabLayout::MakeDockClassName(ToolkitId), "Durin.DockClass.LevelEditor");
 	EXPECT_EQ(TabLayout::MakeDockSpaceName(ToolkitId, 4), "Durin.DockSpace.LevelEditor.v4");
@@ -702,7 +647,7 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 	EXPECT_EQ(TabLayout::MakeDockSpaceId(ToolkitId, 4), ImHashStr("Durin.DockSpace.LevelEditor.v4"));
 }
 
-TEST(FEditorWorkspaceUITests, StandaloneRootStartsWithUsableGeometryAndKeepsUserDocking)
+TEST(FEditorWorkspaceUITests, NewWindowRootStartsWithUsableGeometryAndKeepsUserDocking)
 {
 	using namespace Durin;
 	auto* Context = ImGui::CreateContext();
@@ -714,7 +659,7 @@ TEST(FEditorWorkspaceUITests, StandaloneRootStartsWithUsableGeometryAndKeepsUser
 	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	IO.Fonts->Build();
 	FEditorTabWindow Root;
-	const auto Name = TabLayout::MakeRootWindowName("Asset", "StandaloneDockRegression");
+	const auto Name = TabLayout::MakeRootWindowName("Asset", "NewWindowDockRegression");
 	const auto DockId = TabLayout::MakeMainFrameDockSpaceId(TabLayout::MainFrameLayoutVersion);
 	for (int Frame = 0; Frame < 4; ++Frame)
 	{
@@ -724,19 +669,90 @@ TEST(FEditorWorkspaceUITests, StandaloneRootStartsWithUsableGeometryAndKeepsUser
 		TabLayout::SubmitMainFrameDockSpace(TabLayout::MainFrameLayoutVersion, ImVec2(1400, 800));
 		ImGui::End();
 		if (Frame == 1) ImGui::DockBuilderDockWindow(Name.c_str(), DockId);
-		Root.Begin({.DisplayName = "Asset", .RootKey = "StandaloneDockRegression", .bNativeStandalone = true,
+		Root.Begin({.DisplayName = "Asset", .RootKey = "NewWindowDockRegression", .OpenLocation = EAssetEditorOpenLocation::NewWindow,
 			.AdditionalFlags = ImGuiWindowFlags_NoSavedSettings});
 		const auto* Window = ImGui::GetCurrentWindow();
 		EXPECT_EQ(0, Window->Flags & ImGuiWindowFlags_NoDocking);
 		EXPECT_EQ(TabLayout::MakeRootDockClassId(), Window->WindowClass.ClassId);
 		if (Frame == 0)
 		{
+			EXPECT_EQ(0u, Window->DockId);
 			EXPECT_GE(ImGui::GetContentRegionAvail().x, 980.0f);
 			EXPECT_GE(ImGui::GetContentRegionAvail().y, 600.0f);
 		}
 		else EXPECT_EQ(DockId, Window->DockId);
 		Root.End();
 		ImGui::Render();
+		EXPECT_EQ(0, Context->ErrorCountCurrentFrame);
+	}
+}
+
+TEST(FEditorWorkspaceUITests, DefaultRootDocksInMainWindowAndKeepsUserUndocking)
+{
+	using namespace Durin;
+	auto* Context = ImGui::CreateContext();
+	std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Guard(Context, &ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1600, 1000);
+	IO.DeltaTime = 1.0f / 60;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.Fonts->Build();
+	FEditorTabWindow Root;
+	const auto Name = TabLayout::MakeRootWindowName("Asset", "DefaultDockRegression");
+	const auto DockId = TabLayout::MakeMainFrameDockSpaceId(TabLayout::MainFrameLayoutVersion);
+	for (int Frame = 0; Frame < 4; ++Frame)
+	{
+		ImGui::NewFrame();
+		ImGui::SetNextWindowSize(ImVec2(1500, 900));
+		ImGui::Begin("Dock host");
+		TabLayout::SubmitMainFrameDockSpace(TabLayout::MainFrameLayoutVersion, ImVec2(1400, 800));
+		ImGui::End();
+		if (Frame == 2) ImGui::SetWindowDock(ImGui::FindWindowByName(Name.c_str()), 0, ImGuiCond_Always);
+		Root.Begin({.DisplayName = "Asset", .RootKey = "DefaultDockRegression",
+			.AdditionalFlags = ImGuiWindowFlags_NoSavedSettings});
+		const auto* Window = ImGui::GetCurrentWindow();
+		EXPECT_EQ(Frame < 2 ? DockId : 0u, Window->DockId);
+		EXPECT_EQ(0, Window->WindowClass.ViewportFlagsOverrideSet & ImGuiViewportFlags_NoAutoMerge);
+		Root.End();
+		ImGui::Render();
+		EXPECT_EQ(0, Context->ErrorCountCurrentFrame);
+	}
+}
+
+TEST(FEditorWorkspaceUITests, FocusRequestsSwitchBetweenDockedAndFloatingRoots)
+{
+	using namespace Durin;
+	auto* Context = ImGui::CreateContext();
+	std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Guard(Context, &ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1600, 1000);
+	IO.DeltaTime = 1.0f / 60;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.Fonts->Build();
+	FEditorTabWindow Docked, Floating;
+	const auto DockedName = TabLayout::MakeRootWindowName("Docked", "FocusDocked");
+	const auto FloatingName = TabLayout::MakeRootWindowName("Floating", "FocusFloating");
+	for (int Frame = 0; Frame < 4; ++Frame)
+	{
+		if (Frame == 1) Floating.RequestFocus();
+		if (Frame == 2) Docked.RequestFocus();
+		ImGui::NewFrame();
+		ImGui::SetNextWindowSize(ImVec2(1500, 900));
+		ImGui::Begin("Dock host");
+		TabLayout::SubmitMainFrameDockSpace(TabLayout::MainFrameLayoutVersion, ImVec2(1400, 800));
+		ImGui::End();
+		Floating.Begin({.DisplayName = "Floating", .RootKey = "FocusFloating", .OpenLocation = EAssetEditorOpenLocation::NewWindow});
+		Floating.End();
+		Docked.Begin({.DisplayName = "Docked", .RootKey = "FocusDocked"});
+		Docked.End();
+		ImGui::Render();
+		if (Frame > 0)
+		{
+			ASSERT_NE(nullptr, Context->NavWindow);
+			EXPECT_EQ(Frame == 1 ? FloatingName : DockedName, std::string(Context->NavWindow->Name));
+		}
 		EXPECT_EQ(0, Context->ErrorCountCurrentFrame);
 	}
 }

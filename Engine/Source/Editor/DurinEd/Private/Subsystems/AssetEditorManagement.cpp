@@ -74,14 +74,10 @@ namespace Durin
 			if (!IsValid(Asset)) return nullptr;
 			RequestedRoots.emplace_back(Asset);
 		}
-		const std::string Role = std::string(Args.OpenArgs.GetNormalizedRole());
 		for (const auto& ExistingToolkit : FToolkitManager::Get().GetToolkits(this))
 		{
-			auto* Existing = ExistingToolkit->GetOwningAssetEditor();
-			if (!Existing) continue;
-			if (Existing->GetClass() != EditorClass || Existing->GetOpenMethod() != Args.OpenArgs.OpenMethod
-				|| Existing->GetToolkitMode() != Args.OpenArgs.ToolkitMode || Existing->GetInstanceKey() != Role) continue;
-			const auto Objects = Existing->GetObjectsToEdit();
+			if (!MatchesAssetEditorIdentity(*ExistingToolkit, Args.OpenArgs, EditorClass)) continue;
+			const auto Objects = ExistingToolkit->GetObjectsToEdit();
 			if (HaveSameEditedAssets(Objects, Args.Assets)) return nullptr;
 		}
 		if (const auto Previous = GetActiveAssetToolkit())
@@ -124,7 +120,6 @@ namespace Durin
 		}
 		ActiveToolkit.reset();
 		FallbackHosts.clear();
-		RestoreFocus.reset();
 	}
 
 	auto DAssetEditorSubsystem::HandleTicker(float /*DeltaSeconds*/) -> void
@@ -144,7 +139,17 @@ namespace Durin
 				if (Documents->GetDocuments().empty() || Toolkit->bCloseRequested)
 					(void)Toolkit->CloseWindow(Toolkit->bCloseRequested ? Toolkit->CloseReason : EAssetEditorCloseReason::AssetEditorHostClosed);
 			}
-			if (CanCall()) CompleteRestoreFocus();
+			if (CanCall())
+			{
+				// Initialization and close callbacks have settled before reclaiming hosts.
+				if (!FallbackHosts.empty())
+				{
+					const auto OpenToolkits = FToolkitManager::Get().GetToolkits();
+					std::erase_if(FallbackHosts, [&](const auto& Host) {
+						return std::ranges::none_of(OpenToolkits, [&](const auto& Toolkit) { return Toolkit->GetToolkitHost() == Host; });
+					});
+				}
+			}
 		});
 	}
 }
