@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "CoreSharedPCH.h"
 
 #include "DObject/ObjectMacros.h"
 #include "DObject/DObjectGlobals.h"

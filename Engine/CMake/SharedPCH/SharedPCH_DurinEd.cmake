@@ -3,7 +3,7 @@
 include_guard(GLOBAL)
 
 add_durin_shared_pch(SharedPCH_DurinEd
-    HEADER "${DURIN_PROJECT_ROOT_DIR}/CMake/SharedPCH/SharedPCH_DurinEd.h"
+    HEADER "${DURIN_PROJECT_ROOT_DIR}/Source/Editor/DurinEd/Public/DurinEdSharedPCH.h"
     LINK_LIBRARIES
         DurinEd
 )

@@ -3,7 +3,7 @@
 include_guard(GLOBAL)
 
 add_durin_shared_pch(SharedPCH_Engine
-    HEADER "${DURIN_PROJECT_ROOT_DIR}/CMake/SharedPCH/SharedPCH_Engine.h"
+    HEADER "${DURIN_PROJECT_ROOT_DIR}/Source/Runtime/Engine/Public/EngineSharedPCH.h"
     LINK_LIBRARIES
         Engine
 )
