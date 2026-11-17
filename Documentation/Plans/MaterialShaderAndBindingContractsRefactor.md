@@ -22,6 +22,11 @@ compiler allocation; the former final-acceptance stage moves to Stage 5. This
 revision changes planning only; implemented contracts remain documented in
 [Material shader stages](../Runtime/Rendering/Materials/MaterialShaderStages.md).
 
+Stage 4 preparation has started. The contract freeze below records the selected
+interfaces and migration inventory before source edits. These are prospective
+contracts, not implemented APIs or evidence that Stage 4 passes. The metadata,
+compiler, codec and submission migration and all Stage 4/5 acceptance remain open.
+
 The owner permits underlying API/derived-format changes. The preceding
 [M14 plan](MaterialAttributesAndExecutionContractsRefactor.md) was completed with
 its Stage 6 and native Metal acceptance explicitly skipped. Those skips are not
@@ -111,6 +116,151 @@ pass; final acceptance does not substitute for implementing that boundary.
 - [ ] Satisfy the final workspace `all` gate for changed foundational headers/layouts/build inventory. Reuse Stage 4 Editor/Game results when relevant inputs and environment are unchanged; rebuild affected closure when they change.
 - [ ] Check rendering behavior, required resource/descriptor counts, parameter updates without compilation and compatible-instance sharing. Record actual size/work observations without claiming unmeasured timing acceptance.
 - [ ] Publish final ownership in Runtime/Rendering contracts, update the roadmap and record final tested inputs, selections and limits. Native Metal acceptance remains skipped by owner instruction and is not a passing result.
+
+## Stage 4 Contract Freeze
+
+This section selects the implementation interfaces; declarations below do not
+exist yet. Keep the freeze in this plan until implementation and validation allow
+the owning Runtime contracts to describe actual behavior.
+
+### Metadata and composition
+
+The existing `FShaderParametersMetadata` and member declarations live in RHI's
+`RHIShaderParameters.h`; RenderCore owns composition, reflection matching and
+submission in `ShaderParameters.cpp`. Extend these owners instead of creating a
+second material parameter system. Preserve the existing aggregate initializers
+and macros during migration by appending new semantic members with defaults.
+
+Add an owned, detached `FShaderParameterSchema` in RenderCore, containing a
+`uint32 Version`, `FXxHash128 Identity`, and a vector of
+`FShaderParameterField`. Each field contains owned `std::string QualifiedName`
+and `ShaderName`, `EShaderParameterMemberKind Kind`, `ERHIBindingType Type`,
+`uint32 ArraySize`, `uint32 ValueSize`, `uint32 ValueAlignment`, and
+`bool bOptional`. Texture dimensionality must be explicit in the field shape;
+samplers, buffers and textures cannot match solely through a broad resource kind.
+Neither schema nor member metadata contains descriptor set/binding numbers.
+Provider ownership is the qualified schema path, not another closed owner enum.
+
+Extend metadata with nested-structure metadata and a qualified namespace.
+Composition recursively adds parent byte offsets for C++ access and namespace
+segments for semantic identity. Reject cycles, duplicate qualified names,
+duplicate emitted shader names, empty segments, zero/unbounded arrays, invalid
+shape and out-of-bounds member storage. The detached schema excludes C++ pointers,
+byte offsets, padding and graph-resource addresses. Those remain process-local
+access metadata. Existing included metadata must flatten once, with consistent
+inherited offsets; runtime submission must no longer reject every included struct.
+
+Use these RenderCore signatures, returning diagnostics rather than assertions
+for detached/compiler/Cook inputs:
+
+```cpp
+auto BuildShaderParameterSchema(const FShaderParametersMetadata& Metadata)
+    -> std::expected<FShaderParameterSchema, std::string>;
+auto ComposeShaderParameterSchemas(std::span<const FShaderParameterSchema> Schemas)
+    -> std::expected<FShaderParameterSchema, std::string>;
+```
+
+Canonical order is bytewise qualified-name order. Hash versioned, length-prefixed
+UTF-8 names and fixed-width semantic values in that order; never hash object
+memory. Material fields use stable authored GUID segments for texture/collection
+identity. Registered Pass/VF descriptions supply their own schemas; Scene owns
+the scene schema and providers. Applicability is registered policy, not an ordinal
+entry mask. Engine generates the detached material fields from analyzed reads.
+ShaderBuild emits declarations from the composed schema and its shader names.
+
+### Compiled allocation and admission
+
+Add `FShaderParameterAllocation` with `std::string QualifiedName`,
+`uint32 SetIndex`, `uint32 BindingIndex`, `ERHIBindingType Type`,
+`uint32 ArraySize`, `uint32 ByteOffset`, and `uint32 ByteSize`.
+Constant offsets are compiler offsets within the allocated constant buffer;
+they are never C++ structure offsets. Add `FShaderParameterAllocationMap` with
+`uint32 Version`, `FXxHash128 SchemaIdentity`, `FXxHash128 Identity`,
+`FShaderTargetIdentity Target`, `std::string ShaderType`,
+`std::string VertexFactoryType`, `uint32 PermutationId`,
+`EShaderFrequency Frequency`, and a vector of allocations. Empty VF identity is
+valid only for a product whose registered type does not require a VF.
+
+ShaderBuild constructs maps from the schema plus final compiler reflection.
+ShaderFormat owns backend numeric remapping; reflection, emitted code and the
+persisted map must describe the same final locations. Allocation identity hashes
+all product identity and canonical allocation records. Engine admission also
+compares the complete existing material shader compile key, including source and
+output-layout identity; the allocation hash cannot replace that comparison.
+
+RenderCore exposes `ValidateShaderParameterAllocationMap(const
+FShaderParameterSchema&, const FShaderParameterAllocationMap&, const
+FShaderReflectionData&) -> FShaderOperationResult`. ShaderBuild supplies final
+reflection to this validator; Cook reads the persisted reflection and map through
+the same validator. Reject extra fields, duplicate fields/locations, wrong kinds,
+shapes or arrays, missing required fields, invalid constant ranges and mismatched
+schema/map hashes. Optional fields may disappear when optimized out; no fake
+allocation or mandatory runtime provider is synthesized. Required fields must
+remain reflected. Backend aliases are allowed only through a named ShaderFormat
+rule validated against emitted code. No fixed per-material-resource convention
+is grandfathered into the new contract.
+
+### Submission and persistence
+
+Use `FShaderParameterProvider` containing owned `std::string QualifiedName` and
+a vector of `FRHIShaderParameterResource` values. Provider-supplied location
+numbers are ignored: only the accepted allocation determines the submitted
+set/binding. Array element, resource range and lifetime still require validation.
+RenderCore exposes:
+
+```cpp
+auto ResolveShaderParameterAllocations(
+    const FShaderParameterSchema& Schema,
+    const FShaderParameterAllocationMap& AcceptedMap,
+    std::span<const FShaderParameterProvider> Providers)
+    -> std::expected<std::vector<FRHIShaderParameterResource>, std::string>;
+```
+
+Resolve only after product admission. Reject duplicate providers, absent required
+allocated resources, null required resources, incompatible types/array lengths
+and invalid ranges. Providers for declared optimized-out fields may be unused;
+unknown provider names are errors. Therefore submission retains the admitted
+schema alongside its map to distinguish unused declared fields from unknown
+ones. Prepared batches retain independent RHI references through
+the existing immutable `FRHIShaderParameterBatch` path. Uniform dynamic/static
+submission derives from metadata policy and pipeline requirements in lower
+layers, with no material-domain switch. RDG reads and handles stay explicit and
+are validated before conversion into providers; allocation never adds graph reads.
+
+Persist the full schema and map with each accepted compiled product using bounded,
+field-wise serialization, not native struct serialization. Replace the current
+`Entry.Bindings` role/index sequence; do not retain a compatibility reader.
+Version the generic Shader codec if its payload changes and bump DMAT, pass ABI,
+translation/generator and compile adapter identities together when switching the
+material pipeline. Existing physical uniform packing remains version 5 unless
+its actual representation changes. Recook isolated outputs; reject the old
+binding-schema-1 products before immutable publication. Never write device
+resource references or process-local access offsets into Cook content.
+
+### Migration inventory and validation closure
+
+Inventory scope is all three `Durin.dworkspace` projects: Engine, Sandbox and
+RoadWeaver. The production plugin found in the workspace is `Engine/Plugins/Water`;
+the PluginFixture plugins are test fixtures, not new rendering providers.
+
+| Owner / consumers | Required migration |
+| --- | --- |
+| RHI `RHIShaderParameters.h`; RenderCore `Shader.h`, `ShaderParameters.cpp`, compiler values and codecs | Extend existing metadata, owned detached schemas, canonical validation, accepted maps, nested access and immutable submission; preserve global shader/RDG consumers. |
+| Engine `MaterialBindingSchema`, `MaterialProgramGenerator`, `MaterialCompiledLayout`, `MaterialCompilationOutput`, its serialization and `MaterialShaderMap` | Replace catalog-generated slots and reverse role inference; compose analyzed material reads with registered owner schemas; persist/admit exact maps. Delete obsolete catalog and enum only after consumers migrate. |
+| ShaderBuild compiler/reflection, generated requests, shared output/DDC and cooked Shader library; ShaderFormat and native backends | Reflect final locations, backend remapping and canonical target constraints; include schema identity in requests/cache keys and preserve detached source closure. |
+| Renderer `SurfaceMaterial`, `MeshRendererShared`, `PostProcessRenderer`, `MaterialSceneTextures` | Build semantic providers for Surface/PostProcess, view/primitive, lighting, environment, shadow, hit proxy and scene reads; remove slot arithmetic and domain-specific uniform switches. |
+| Slang `Material/MaterialBindingSchema.inl`, `SurfacePassResources`, `SurfacePasses`, `SceneTextures`, `SceneData`, `StaticMeshBasePass`, `VertexFactory/SplineMaterialEntry` | Generate owner declarations without fixed slots, preserve Local/Spline geometry and stage applicability. |
+| MaterialEditor, StaticMeshEditor, Renderer PSO/preview/thumbnail paths and GameExport | Consume the same accepted product/map; preserve preview lifecycle and source-free Cook admission. |
+| Water resources/components/types; RoadWeaver scene/viewport integration; Sandbox | Validate material provider publication and compatible-instance sharing; compile all project/plugin consumers even where no direct old-catalog symbol occurs. |
+| RenderCore foundation/reflection, Engine material compiler/layout/runtime, ShaderBuild contracts/feature/Cook, Vulkan/PSO and editor tests | Extend rejection fixtures and source-free replay; add registered Pass/VF fields without changing Engine selection or a global enum, verify differing compiled locations and optimized-out optional fields. |
+
+The initial symbol inventory found direct old-catalog references in Engine source,
+Slang and material compiler tests; no direct references in Sandbox, RoadWeaver or
+Water source. This does not exempt their indirect integration coverage. Stage 4
+acceptance requires both Editor/Game workspace `all` builds because the migration
+changes shared metadata, compiler values and serialized layouts. Stage 5 retains
+the isolated final Surface/Cube/WPO/ClearCoat/PostProcess Cook/Game corpus and GPU
+behavior/resource-count checks; earlier Stage 3 receipts cannot cover these edits.
 
 ## Completed Validation Summary
 
