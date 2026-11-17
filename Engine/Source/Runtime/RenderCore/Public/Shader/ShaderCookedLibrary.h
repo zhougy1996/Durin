@@ -10,7 +10,7 @@
 namespace Durin
 {
 	class FShaderType;
-	inline constexpr uint32 ShaderCookedLibrarySchemaVersion = 6;
+	inline constexpr uint32 ShaderCookedLibrarySchemaVersion = 7;
 	inline constexpr std::string_view ShaderCookedLibraryRelativePath =
 		"Shaders/ShaderLibrary.dslb";
 
@@ -34,6 +34,7 @@ namespace Durin
 		std::string TypeName;
 		std::string EntryPoint;
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+		FXxHash128 ParameterSchemaIdentity{};
 
 		auto operator==(const FShaderRuntimeRequestMember&) const -> bool = default;
 	};

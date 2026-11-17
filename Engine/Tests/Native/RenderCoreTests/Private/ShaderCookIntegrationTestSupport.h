@@ -107,6 +107,9 @@ namespace Durin
 			FShaderCompilerOutput RuntimeOutput;
 			ASSERT_TRUE((Error = LoadCookedShaderRuntimeRequest(Request.Name, RuntimeTypes, RuntimeOutput))) << Request.Name << ": " << std::string(Error.error());
 			EXPECT_TRUE(RuntimeOutput);
+			FShaderMapBase RuntimeMap;
+			ASSERT_TRUE((Error = RuntimeMap.Initialize(RuntimeTypes, RuntimeOutput)))
+				<< Request.Name << ": " << std::string(Error.error());
 			if (Request.Owner == "MeshVertexFactory")
 			{
 				const auto& Factories = FVertexFactoryType::GetTypeList();

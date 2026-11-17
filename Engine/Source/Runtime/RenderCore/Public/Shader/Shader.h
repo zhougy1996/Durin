@@ -16,6 +16,7 @@ namespace Durin
 {
 	class FRHICommandListBase;
 	class FShaderType;
+	struct FShaderParameterSchema;
 	class FShader;
 	class FShaderMapBase;
 	class FVertexFactoryType;
@@ -68,6 +69,7 @@ namespace Durin
 		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
 		auto GetEntryPoint() const -> std::string_view { return EntryPoint; }
 		auto GetDebugName() const -> std::string_view { return DebugName; }
+		RENDERCORE_API auto GetParameterSchemaIdentity() const -> std::expected<FXxHash128, std::string>;
 		auto GetParametersMetadata() const -> const FShaderParametersMetadata* { return ParametersMetadata; }
 		auto GetParameterMetadata() const -> std::span<const FShaderParameterMemberMetadata>
 		{
@@ -77,10 +79,16 @@ namespace Durin
 		RENDERCORE_API auto CreateShaderInstance(FShaderMapBase* ShaderMap, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>;
 		RENDERCORE_API auto ShouldCompilePermutation(const FShaderPermutationParameters& Parameters) const -> bool;
 		RENDERCORE_API auto ModifyCompilationEnvironment(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& CompileOptions) const -> void;
+		// Idempotent parameter policy shared by direct, prepared and Cook requests.
+		RENDERCORE_API auto ApplyParameterCompilationEnvironment(FShaderCompileOptions& CompileOptions) const -> void;
 
 		RENDERCORE_API static auto GetTypeList() -> const std::vector<const FShaderType*>&;
 
 	private:
+		friend class FShaderParameterBindings;
+		std::unique_ptr<const FShaderParameterSchema> ParameterSchema;
+		std::string ParameterSchemaError;
+		std::vector<FShaderParameterBinding> ParameterHostBindings;
 		std::string Name;
 		FName TypeName;
 		std::string VirtualShaderPath;
@@ -103,10 +111,11 @@ namespace Durin
 		auto GetType() const -> const FShaderType* { return Type; }
 		auto GetShaderMap() const -> FShaderMapBase* { return ShaderMap; }
 		auto GetReflection() const -> const FShaderReflectionData& { return Reflection; }
+		auto GetBindings() const -> const FShaderParameterBindings& { return Bindings; }
 		auto GetParameterBindings() const -> std::span<const FShaderParameterBinding> { return Bindings.GetResources(); }
 
 		RENDERCORE_API auto GetOrCreateRHIShader(bool bRequired = true) -> FRHIShader*;
-		RENDERCORE_API auto InitializeParameterBindings() -> FShaderOperationResult;
+		RENDERCORE_API virtual auto InitializeParameterBindings() -> FShaderOperationResult;
 
 	protected:
 		const FShaderType* Type = nullptr;
@@ -226,7 +235,9 @@ namespace Durin
 	consteval auto MakeShaderParameterMemberMetadata(const char* Name, uint32 Offset) -> FShaderParameterMemberMetadata
 	{
 		using FExpectedType = typename TShaderParameterCppType<BindingType>::Type;
-		constexpr bool bScalar = std::same_as<MemberType, FExpectedType>;
+		constexpr bool bScalar = std::same_as<MemberType, FExpectedType>
+			|| ((BindingType == ERHIBindingType::Texture || BindingType == ERHIBindingType::StorageImage)
+				&& std::same_as<MemberType, FRHITextureView*>);
 		constexpr bool bArray =
 			TShaderParameterArrayInfo<MemberType, FExpectedType>::IsValid;
 		static_assert(bScalar || bArray,
@@ -316,7 +327,7 @@ namespace Durin
 		FRHIShader* RHIShader,
 		std::string_view ShaderName,
 		EShaderFrequency ShaderFrequency,
-		std::span<const FShaderParameterBinding> ParameterBindings,
+		const FShaderParameterBindings& ParameterBindings,
 		const FRDGShaderParameterScope& GraphParameters,
 		const FShaderParametersMetadata* OrdinaryParametersMetadata,
 		const void* OrdinaryParameterData
@@ -369,12 +380,20 @@ namespace Durin
 	#define DURIN_SHADER_PARAMETER_TEXTURE_ARRAY(MemberName, ArrayCount) \
 		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::Texture, false)
 
-	#define DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(MemberName) \
+	// Explicit views preserve exact subresource ranges in ordinary typed submission.
+	#define DURIN_SHADER_PARAMETER_TEXTURE_VIEW(MemberName) \
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHITextureView*, MemberName, ERHIBindingType::Texture, false)
+
+	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE_VIEW(MemberName) \
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHITextureView*, MemberName, ERHIBindingType::StorageImage, false)
+
+	#define DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(MemberName, ...) \
 		FRHITexture* MemberName = nullptr; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
 		{ \
-			return MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::MemberName), false, true>( \
+			auto Member = MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::MemberName), false, true>( \
 				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+			Member.ShaderType = "" __VA_ARGS__; return Member; \
 		}
 
 	#define DURIN_SHADER_PARAMETER_GRAPH_TEXTURE_ARRAY(MemberName, ArrayCount) \
@@ -400,12 +419,22 @@ namespace Durin
 	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE_ARRAY(MemberName, ArrayCount) \
 		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::StorageImage, false)
 
-	#define DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(MemberName) \
+	#define DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(MemberName, ...) \
 		FRHITexture* MemberName = nullptr; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
 		{ \
-			return MakeShaderParameterMemberMetadata<ERHIBindingType::StorageImage, decltype(FParameters::MemberName), false, true>( \
+			auto Member = MakeShaderParameterMemberMetadata<ERHIBindingType::StorageImage, decltype(FParameters::MemberName), false, true>( \
 				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+			Member.ShaderType = "" __VA_ARGS__; return Member; \
+		}
+
+	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_LAYOUT(MemberName, PayloadType, BindingTypeValue) \
+		FRHIUniformBufferRange MemberName{}; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			auto Member = MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName), false>( \
+				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+			Member.ConstantBufferSize = sizeof(PayloadType); Member.ConstantMembers = PayloadType::GetShaderConstantMembers(); return Member; \
 		}
 
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(MemberName) \
@@ -717,7 +746,7 @@ namespace Durin
 			ShaderTypeContent->GetName());
 		SetRDGShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
 			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
-			ShaderContent->GetParameterBindings(), GraphParameters,
+			ShaderContent->GetBindings(), GraphParameters,
 			ParametersMetadata, &OrdinaryParameters);
 	}
 
@@ -732,7 +761,7 @@ namespace Durin
 		checkf(ShaderTypeContent, "Composed shader submission requires a shader type");
 		SetRDGShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
 			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
-			ShaderContent->GetParameterBindings(), GraphParameters, nullptr, nullptr);
+			ShaderContent->GetBindings(), GraphParameters, nullptr, nullptr);
 	}
 	RENDERCORE_API auto BuildShaderMapCompileOptions(std::span<const FShaderType* const> ShaderTypes,
 		const FShaderCompileOptions* Input, FShaderCompileOptions& Output, bool AllowMixedSources = false) -> FShaderOperationResult;

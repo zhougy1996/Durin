@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-18
 
 ## Ownership and selection
 
@@ -102,6 +102,15 @@ Local opaque/masked commands use pass-local CPU ID runs; Spline and capability
 fallbacks retain independent submission. This shares preparation and command
 state without caching shadow-map contents. Legacy primitive-uniform counters
 measure unsupported-factory transport only; they do not measure scene updates.
+
+Each logical shadow pass declares its `FInstanceCullingDrawParams` snapshots,
+including common Scene attributes and direct/dynamic ID reads. The immediate
+path supplies all cascades; recorded cascade passes supply their own snapshot.
+RDG collects compatible aliased reads without clearing parameter fields or
+requiring a shadow-specific deduplication step. Distinct ID buffers, precise
+ranges, per-cascade bindings and allocation-count snapshots remain intact.
+External imports still validate entrance/final contracts, and RDG rejects
+incompatible accesses, overlapping writes and invalid ranges.
 
 ## Filter tiers and forward sampling
 

@@ -68,29 +68,29 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
     return output;
 }
 
-[[vk::binding(20, 0)]] Texture2D<float4> GBufferModelData;
-[[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
-[[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
-[[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
+Texture2D<float4> GBufferModelData;
+Texture2D<float4> GBufferMaterial;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> GBufferSurface;
 #if !DURIN_DEFERRED_PRODUCTION
-[[vk::binding(3, 0)]] Texture2D<float4> BasePassColor;
+Texture2D<float4> BasePassColor;
 #endif
-[[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
-[[vk::binding(5, 0)]] TextureCube<float4> EnvironmentIrradiance;
-[[vk::binding(6, 0)]] TextureCube<float4> EnvironmentPrefiltered;
-[[vk::binding(7, 0)]] Texture2D<float4> EnvironmentBrdfLut;
-[[vk::binding(8, 0)]] SamplerState EnvironmentSampler;
-[[vk::binding(9, 0)]] Texture2DArray<float> DirectionalShadowTexture;
-[[vk::binding(10, 0)]] SamplerComparisonState DirectionalShadowSampler;
-[[vk::binding(11, 0)]] ConstantBuffer<FDeferredDirectionalViewUniform> View;
-[[vk::binding(12, 0)]] ConstantBuffer<FViewLightingUniform> Lighting;
-[[vk::binding(19, 0)]] StructuredBuffer<FForwardLocalLightUniform> LocalLights;
-[[vk::binding(13, 0)]] Texture2D<float> GroundTruthAmbientOcclusionRaw;
-[[vk::binding(14, 0)]] Texture2D<float> GroundTruthAmbientOcclusionFiltered;
-[[vk::binding(15, 0)]] Texture2D<float> ContactVisibility;
-[[vk::binding(16, 0)]] Texture2D<float> GroundTruthAmbientOcclusionResolved;
-[[vk::binding(17, 0)]] Texture2D<float> GroundTruthAmbientOcclusionSelector;
-[[vk::binding(18, 0)]] Texture2D<float> VolumetricCloudVisibility;
+Texture2D<float> SceneDepth;
+TextureCube<float4> EnvironmentIrradiance;
+TextureCube<float4> EnvironmentPrefiltered;
+Texture2D<float4> EnvironmentBrdfLut;
+SamplerState EnvironmentSampler;
+Texture2DArray<float> DirectionalShadowTexture;
+SamplerComparisonState DirectionalShadowSampler;
+ConstantBuffer<FDeferredDirectionalViewUniform> View;
+ConstantBuffer<FViewLightingUniform> Lighting;
+StructuredBuffer<FForwardLocalLightUniform> LocalLights;
+Texture2D<float> GroundTruthAmbientOcclusionRaw;
+Texture2D<float> GroundTruthAmbientOcclusionFiltered;
+Texture2D<float> ContactVisibility;
+Texture2D<float> GroundTruthAmbientOcclusionResolved;
+Texture2D<float> GroundTruthAmbientOcclusionSelector;
+Texture2D<float> VolumetricCloudVisibility;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

@@ -17,6 +17,7 @@ namespace Durin
 	class FMaterialShader : public FShader
 	{
 	public:
+		ENGINE_API auto InitializeParameterBindings() -> FShaderOperationResult override;
 		using FShader::FShader;
 		auto GetAcceptedParameterBindings() const -> std::span<const FMaterialShaderBinding> { return AcceptedBindings; }
 		auto SetAcceptedParameterBindings(std::span<const FMaterialShaderBinding> Bindings) -> void

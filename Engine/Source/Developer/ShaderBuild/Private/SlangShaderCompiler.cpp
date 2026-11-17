@@ -707,7 +707,8 @@ namespace Durin
 				Output.AddError(std::move(Result.error()));
 				return Output;
 			}
-			if (std::ranges::any_of(Options.Macros, [](const auto& M) { return M.Name == "DURIN_STAGE_PARAMETER_SPACES" && M.Value == "1"; }))
+			if ((Options.Frequencies[Index] == EShaderFrequency::Vertex || Options.Frequencies[Index] == EShaderFrequency::Fragment)
+				&& std::ranges::any_of(Options.Macros, [](const auto& M) { return M.Name == "DURIN_STAGE_PARAMETER_SPACES" && M.Value == "1"; }))
 			{
 				if (auto Result = ShaderFormat::ApplyGraphicsStageParameterSpaces(Output.CompiledShaders[Index]); !Result)
 				{ Output.AddError(Result.error()); return Output; }

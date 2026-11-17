@@ -94,12 +94,16 @@ namespace Durin
 		}
 	}
 
-	TEST(FShaderRuntimeInventoryTests, RequestIdentityRemainsStableAcrossContainerChanges)
+	TEST(FShaderRuntimeInventoryTests, RequestIdentityIncludesSemanticParameterSchema)
 	{
 		FXxHash128 Identity;
 		const auto Result = BuildShaderRuntimeRequestIdentity(MakeRequest(), Identity);
 		ASSERT_TRUE(Result) << std::string(Result.error());
-		EXPECT_EQ(Identity.ToString(), "59028fd192e6cbbe8ec1fa7dea3f0817");
+		auto Changed = MakeRequest();
+        Changed.Members.front().ParameterSchemaIdentity = {.HashLow = 1};
+        FXxHash128 ChangedIdentity;
+        ASSERT_TRUE(BuildShaderRuntimeRequestIdentity(Changed, ChangedIdentity));
+        EXPECT_NE(Identity, ChangedIdentity);
 	}
 
 	TEST(FShaderRuntimeInventoryTests,
@@ -149,6 +153,10 @@ namespace Durin
 		FShaderCookedLibrary Library;
 		ASSERT_TRUE((Error = FShaderCookedLibrary::OpenBytes(std::make_shared<const Durin::FByteBuffer>(First), EShaderTargetPlatform::Win64, EShaderTargetProfile::Game, std::span(&Request, 1), Library))) << std::string(Error.error());
 		EXPECT_EQ(Library.GetRecordCount(), 1u);
+		auto ChangedSchema = Request;
+		ChangedSchema.Members.front().ParameterSchemaIdentity = {.HashLow = 1};
+		FShaderCompilerOutput RejectedSchema;
+		EXPECT_FALSE(Library.Load(ChangedSchema, RejectedSchema));
 		EXPECT_FALSE(Library.GetGenerationIdentity().IsZero());
 		FShaderCompilerOutput Loaded;
 		ASSERT_TRUE((Error = Library.Load(Request, Loaded))) << std::string(Error.error());

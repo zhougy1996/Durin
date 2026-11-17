@@ -37,14 +37,21 @@ namespace Durin
 				"VertexMain");
 		};
 
-		class FCopySceneColorFragmentShader : public FGlobalShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FCopySceneColorFragmentShader)
+        class FPostProcessInputParameters
+        {
+        public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FPostProcessInputParameters)
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
 				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
 			DURIN_END_SHADER_PARAMETERS();
+        };
+
+		class FCopySceneColorFragmentShader : public FGlobalShader
+		{
+		public:
+            using FParameters = FPostProcessInputParameters::FParameters;
+            DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FCopySceneColorFragmentShader, FPostProcessInputParameters);
 
 			DURIN_DECLARE_GLOBAL_SHADER(
 				FCopySceneColorFragmentShader,
@@ -57,11 +64,8 @@ namespace Durin
 		class FFXAAFragmentShader : public FGlobalShader
 		{
 		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FFXAAFragmentShader)
-				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
-				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
-			DURIN_END_SHADER_PARAMETERS();
+            using FParameters = FPostProcessInputParameters::FParameters;
+            DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FFXAAFragmentShader, FPostProcessInputParameters);
 
 			DURIN_DECLARE_GLOBAL_SHADER(
 				FFXAAFragmentShader,

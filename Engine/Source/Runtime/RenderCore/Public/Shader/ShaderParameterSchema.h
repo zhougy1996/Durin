@@ -72,6 +72,10 @@ namespace Durin
 	RENDERCORE_API auto BuildShaderParameterAllocationMap(const FShaderParameterSchema& Schema,
 		const FShaderParameterProduct& Product, const FShaderReflectionData& Reflection)
 		-> std::expected<FShaderParameterAllocationMap, std::string>;
+	// Shared semantic admission without constructing a detached product envelope.
+	RENDERCORE_API auto BuildShaderParameterMapFromSchema(const FShaderParameterSchema& Schema,
+		EShaderFrequency Frequency, const FShaderReflectionData& Reflection)
+		-> std::expected<FShaderParameterMap, std::string>;
 	RENDERCORE_API auto ValidateShaderParameterAllocationMap(const FShaderParameterSchema& Schema,
 		const FShaderParameterProduct& Product, const FShaderParameterAllocationMap& Map,
 		const FShaderReflectionData& Reflection) -> std::expected<void, std::string>;

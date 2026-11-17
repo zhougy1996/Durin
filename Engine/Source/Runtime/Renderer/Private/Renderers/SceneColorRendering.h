@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Renderers/GPUSceneRendering.h"
+#include "Renderers/InstanceCullingDrawParams.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 
@@ -18,7 +18,7 @@ namespace Durin
 
 	struct FSceneColorPassResources final
 	{
-		FGPUSceneReadParameters GPUScene;
+		FInstanceCullingDrawParams InstanceCulling;
 		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGColorAttachmentBinding> SceneColorOutput;
 		std::optional<FRDGDepthStencilAttachmentBinding> SceneDepthOutput;

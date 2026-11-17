@@ -160,11 +160,21 @@ namespace Durin::RendererPrivate
 		EMeshBasePass BasePass = EMeshBasePass::Opaque;
 		bool bSourceReady = true;
 		RENDERER_API auto MatchesForDynamicInstancing(const FVisibleMeshDrawCommand& Other) const -> bool;
-		auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr) const -> bool
+		auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr,
+			const FMeshDrawCommandOverrideArgs& Override = {}) const -> bool
 		{
-			return bSourceReady && Command && Pass && (!CachedInfo || CachedInfo->CommandIndex != INDEX_NONE)
-				&& Command->SubmitVisible(Commands, Pass->Vertex, Pass->Fragment, DepthBias, Cache,
-					{.PrimitiveIdsBuffer = InstanceBuffer, .PrimitiveIdOffset = PrimitiveIdBufferOffset, .NumInstances = NumInstances});
+			if (!bSourceReady || !Command || !Pass || (CachedInfo && CachedInfo->CommandIndex == INDEX_NONE)) return false;
+			// Generated IDs apply only to admitted indirect draws. Direct and CPU-merged
+			// fallbacks retain this command's ID stream and logical instance offset.
+			const bool bIndirect = Override.IndirectArgsBuffer != nullptr;
+			if (bIndirect && (!Override.InstanceBuffer || !Command->IndexBuffer)) return false;
+			return Command->SubmitVisible(Commands, Pass->Vertex, Pass->Fragment, DepthBias, Cache,
+				{.PrimitiveIdsBuffer = bIndirect ? Override.InstanceBuffer : InstanceBuffer,
+					.InstanceDataByteOffset = bIndirect ? Override.InstanceDataByteOffset : 0,
+					.IndirectArgsBuffer = Override.IndirectArgsBuffer,
+					.PrimitiveIdOffset = bIndirect ? INDEX_NONE_U32 : PrimitiveIdBufferOffset,
+					.IndirectArgsByteOffset = Override.IndirectArgsByteOffset,
+					.NumInstances = bIndirect ? 0 : NumInstances});
 		}
 	};
 	// Functional submission result; independent of optional feature statistics.

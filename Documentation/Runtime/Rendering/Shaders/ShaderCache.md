@@ -4,7 +4,7 @@ Summary: Define authored ShaderBuild caching and compiler-free cooked Shader del
 
 Modules: Engine, RenderCore, ShaderBuild, DerivedDataCache, RHI
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
 dependency manifests, DDC orchestration, and cooked-library production.
@@ -366,7 +366,7 @@ ShaderBuild to resolve each exact request through the ordinary memory/DDC/
 compiler path. It publishes `Shaders/ShaderLibrary.dslb` in the same Cook
 transaction as packages and records it in `CookManifest.bin`.
 
-`DSLB` schema 6 is exact for one target/profile. Its sorted directory maps a
+`DSLB` schema 7 is exact for one target/profile. Its sorted directory maps a
 source-independent runtime request identity to one complete embedded `DSHD`
 value and records production identity and payload digests. RenderCore preflights
 the full header, directory, bounds, alignment, target/profile, inventory closure
@@ -382,10 +382,23 @@ libraries and material programs from the former MSL profile require recooking.
 The native loader reads binary bytes and resolves the recorded function;
 `metallib` loading does not imply that device-specific PSOs are already created.
 
+Accepted compiler locations, resource shapes, stage identity and reflected
+constant layouts travel with each complete product through shared output, DDC
+and cooked payloads. Readers validate that product against its request and
+semantic schema; they must not reconstruct descriptor positions from names or
+a historical slot catalog. Runtime shader-map initialization joins the preserved
+allocations to typed host storage. See the
+[parameter contract](ShaderParameters.md#detached-semantic-schemas-and-allocation-candidates).
+
 ## Compatibility
 
 Runtime request identity has its own hash version, independent of the DSLB file
 schema. Changing the container layout does not change request membership keys.
+Request identity version 6 includes each registered member's semantic parameter
+schema identity. Registered compile requests also include the schema identity in
+their macro keys. DSLB v7 rejects libraries predating the common graphics
+stage-space policy; those libraries require recooking even when shader type and
+entry names are unchanged. The compile algorithm revision is 8.
 
 DSHD and DSLB omit the producer version word. DSLB uses a 108-byte
 header; older payloads and libraries require recook. Algorithm or compiler upgrades invalidate

@@ -15,7 +15,7 @@ namespace Durin
 		// Request hashing evolves independently of the DSLB wire layout.
 		// Retain the existing hash domain so current request identities stay stable.
 		// Exact runtime request inputs are independent of compiled-output/container schemas.
-		constexpr uint32 RuntimeRequestIdentityVersion = 5;
+		constexpr uint32 RuntimeRequestIdentityVersion = 6;
 		constexpr uint32 LibraryHeaderSize = 108;
 		constexpr uint32 LibraryDirectoryRecordSize = 80;
 		constexpr uint64 LibraryAlignment = 16;
@@ -244,6 +244,8 @@ namespace Durin
 			UpdateString(Builder, Member.TypeName);
 			UpdateString(Builder, Member.EntryPoint);
 			Builder.UpdateValue(static_cast<uint32>(Member.Frequency));
+			Builder.UpdateValue(Member.ParameterSchemaIdentity.HashLow);
+			Builder.UpdateValue(Member.ParameterSchemaIdentity.HashHigh);
 		}
 		OutIdentity = Builder.Finalize();
 
@@ -270,8 +272,13 @@ namespace Durin
 				[](const FShaderType* Type) { return Type->GetName(); });
 			Request.Members.clear();
 			for (const FShaderType* Type : CanonicalBuildTypes)
+			{
 				Request.Members.push_back({std::string(Type->GetName()),
 					std::string(Type->GetEntryPoint()), Type->GetFrequency()});
+				const auto Identity = Type->GetParameterSchemaIdentity();
+				if (!Identity) return std::unexpected(Identity.error());
+				Request.Members.back().ParameterSchemaIdentity = *Identity;
+			}
 		}
 		else
 		{

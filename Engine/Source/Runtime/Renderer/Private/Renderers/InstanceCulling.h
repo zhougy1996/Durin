@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Renderers/MeshDrawCommandSubmission.h"
 #include "RendererAPI.h"
+#include "Renderers/InstanceCullingDrawParams.h"
 #include "Renderers/GPUSceneRendering.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "Renderers/MeshPipelineDescription.h"
@@ -46,14 +47,6 @@ namespace Durin
 		size_t PreparationUnavailableCandidates = 0;
 	};
 
-	struct FInstanceCullingDrawParams
-	{
-		std::optional<FRDGBufferParameter> InstanceIdOffsetBuffer;
-		std::optional<FRDGBufferParameter> DrawIndirectArgsBuffer;
-		uint32 InstanceDataByteOffset = 0;
-		uint64 IndirectArgsByteOffset = 0;
-		RENDERER_API static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
-	};
 
 	RENDERER_API auto GetMeshDrawCommandOverrideArgs(const FInstanceCullingDrawParams& Parameters, const FRDGParameterResolver& Resolver) -> RendererPrivate::FMeshDrawCommandOverrideArgs;
 

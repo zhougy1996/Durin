@@ -70,7 +70,7 @@ namespace Durin
 	{
 		using FParameters = FDirectionalShadowPassResources;
 		static const std::array Members = {
-			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::GPUScene)>("GPUScene", offsetof(FParameters, GPUScene), FGPUSceneReadParameters::GetRDGParametersMetadata()),
+			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::InstanceCulling)>("InstanceCulling", offsetof(FParameters, InstanceCulling), FInstanceCullingDrawParams::GetRDGParametersMetadata()),
 			MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::DirectionalShadowOutput)>(
 				"DirectionalShadowOutput",
 				offsetof(FParameters, DirectionalShadowOutput),
@@ -140,7 +140,7 @@ namespace Durin
 						std::format("Scene.DirectionalShadow.Cascade{}", Cascade), "shadow-cascade-observations");
 					Complete->Cascades[Cascade] = TRDGValueRead<FStaticMeshRenderObservations>{.Value = Value};
 					auto Pass = Graph.AllocParameters<FCascadeParameters>();
-					Pass->Resources.GPUScene[Cascade] = Resolved->DirectionalShadow->StaticMeshes[Cascade].GetGPUSceneParameters(Graph);
+					Pass->Resources.InstanceCulling[Cascade] = Resolved->DirectionalShadow->StaticMeshes[Cascade].GetInstanceCullingDrawParams(Graph);
 					Pass->Completion = {.Value = Value};
 					Pass->Resources.DirectionalShadowOutput = {
 						.Texture = *Inputs.Shadow, .Range = {ERHITextureAspect::Depth, 0, 1, Cascade, 1}};
@@ -173,7 +173,7 @@ namespace Durin
 		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
 		if (Resolved->DirectionalShadow)
 			for (uint32 Cascade = 0; Cascade < Resolved->DirectionalShadow->StaticMeshes.size(); ++Cascade)
-				Parameters->Resources.GPUScene[Cascade] = Resolved->DirectionalShadow->StaticMeshes[Cascade].GetGPUSceneParameters(Graph);
+				Parameters->Resources.InstanceCulling[Cascade] = Resolved->DirectionalShadow->StaticMeshes[Cascade].GetInstanceCullingDrawParams(Graph);
 		Parameters->Completion = {.Value = DirectionalShadow};
 		if (Inputs.Shadow)
 		{

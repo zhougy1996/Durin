@@ -831,9 +831,16 @@ namespace Durin
 		return Result;
 	}
 
-	auto FResolvedStaticMeshView::GetGPUSceneParameters(FRDGBuilder& Graph) const -> FGPUSceneReadParameters
+	auto FResolvedStaticMeshView::GetInstanceCullingDrawParams(FRDGBuilder& Graph, FInstanceCullingDrawParams Parameters) const -> FInstanceCullingDrawParams
 	{
-		return GPUSceneBuffers ? GPUSceneBuffers->GetShaderParameters(Graph, DynamicInstancingInstanceIds) : FGPUSceneReadParameters{};
+		if (!GPUSceneBuffers) return Parameters;
+		Parameters.Scene = GPUSceneBuffers->GetShaderParameters(Graph);
+		// Direct and CPU-compacted commands may coexist with indirect draws.
+		// Each fallback command retains its selected ID buffer; the generated stream
+		// in InstanceIdOffsetBuffer overrides it only for admitted indirect draws.
+		Parameters.InstanceIdsBuffer = RegisterGPUSceneBuffer(Graph, GPUSceneBuffers->InstanceIds);
+		Parameters.DynamicInstanceIdsBuffer = RegisterGPUSceneBuffer(Graph, DynamicInstancingInstanceIds);
+		return Parameters;
 	}
 	auto CollectGPUScenePrimitives(const FPreparedStaticMeshView& Prepared, const std::shared_ptr<FGPUSceneDynamicContext>& Context)
 		-> std::vector<FGPUScenePrimitiveData>

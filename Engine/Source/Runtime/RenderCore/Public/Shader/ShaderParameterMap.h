@@ -8,6 +8,8 @@
 
 namespace Durin
 {
+	class FShaderType;
+	struct FRDGParameterLayout;
 	// One compiler-assigned resource location. No C++ member offsets belong here.
 	struct FParameterAllocation
 	{
@@ -42,11 +44,20 @@ namespace Durin
 	class FShaderParameterBindings
 	{
 	public:
+		RENDERCORE_API FShaderParameterBindings();
+		RENDERCORE_API auto GetRDGLayoutBindings(const FRDGParameterLayout& Layout) const
+			-> std::expected<std::shared_ptr<const std::vector<uint32>>, std::string>;
+		// Registered shader types own their immutable semantic schema. Admission and
+		// host-storage binding share this entry point for authored and cooked products.
+		RENDERCORE_API auto Bind(const FShaderType& Type, const FShaderReflectionData& Reflection)
+			-> FShaderOperationResult;
 		// Failure clears prior bindings; successful records own their emitted names.
 		RENDERCORE_API auto Bind(const FShaderParametersMetadata* Metadata, const FShaderParameterMap& ParameterMap)
 			-> FShaderOperationResult;
 		auto GetResources() const -> std::span<const FShaderParameterBinding> { return Resources; }
 	private:
+		struct FRDGLayoutCache;
+		std::shared_ptr<FRDGLayoutCache> RDGLayoutCache;
 		std::vector<FShaderParameterBinding> Resources;
 	};
 }

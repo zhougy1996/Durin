@@ -38,12 +38,12 @@ struct GBufferDebugUniform
     float4 Params; // x = mode, yz = inverse viewport, w = position scale
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
-[[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
-[[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
-[[vk::binding(3, 0)]] Texture2D<float4> BasePassColor;
-[[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
-[[vk::binding(5, 0)]] ConstantBuffer<GBufferDebugUniform> Params;
+Texture2D<float4> GBufferMaterial;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> GBufferSurface;
+Texture2D<float4> BasePassColor;
+Texture2D<float> SceneDepth;
+ConstantBuffer<GBufferDebugUniform> Params;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

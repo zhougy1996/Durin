@@ -484,6 +484,7 @@ namespace Durin
 
 			OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
 			OutCompileOptions.Frequencies.push_back(ShaderType->GetFrequency());
+			ShaderType->ApplyParameterCompilationEnvironment(OutCompileOptions);
 
 			if (InCompileOptions && !InCompileOptions->EntryPoints.empty())
 			{

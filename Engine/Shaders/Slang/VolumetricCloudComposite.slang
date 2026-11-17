@@ -11,10 +11,10 @@ static const int CloudDebugShadowVisibility = 4;
 struct VSInput { float2 pos : POSITION; float2 uv : TEXCOORD; };
 struct VSOutput { float4 pos : SV_Position; float2 uv : TEXCOORD; };
 
-[[vk::binding(0, 0)]] Texture2D<float4> SceneColorTexture;
-[[vk::binding(1, 0)]] Texture2D<float4> CloudTexture;
-[[vk::binding(2, 0)]] Texture2D<float> SceneDepthTexture;
-[[vk::binding(3, 0)]] Texture2D<float> DebugTexture;
+Texture2D<float4> SceneColorTexture;
+Texture2D<float4> CloudTexture;
+Texture2D<float> SceneDepthTexture;
+Texture2D<float> DebugTexture;
 
 struct VolumetricCloudCompositeUniform
 {
@@ -22,7 +22,7 @@ struct VolumetricCloudCompositeUniform
 	float4 Viewport; // full-resolution origin.xy and extent.zw
 	float4 Debug; // mode.x, temporal status.y (-1 unavailable), shadow available.z
 };
-[[vk::binding(4, 0)]] ConstantBuffer<VolumetricCloudCompositeUniform> Params;
+ConstantBuffer<VolumetricCloudCompositeUniform> Params;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

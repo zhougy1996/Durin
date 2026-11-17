@@ -163,10 +163,9 @@ namespace Durin
 		std::vector<uint32> VersionPasses(Cells.Ranges.size(), std::numeric_limits<uint32>::max());
 		std::vector<FPassTrackingUses> TrackingUses(Passes.size());
 		{
-			std::vector<size_t> BufferUseIndices(Compiled->Resources.size(), SIZE_MAX);
 			for (const auto& Pass : Compiled->Passes)
 				TrackingUses[Pass.DeclarationIndex] = BuildTrackingUses(
-					Passes[Pass.DeclarationIndex].Uses, BufferUseIndices);
+					Passes[Pass.DeclarationIndex]);
 		}
 		const bool bTraversed = TraverseExecutionStates(Cells, Compiled->Resources,
 			Passes, TrackingUses, Compiled->Passes, Compiled->ResourceLifetimes, nullptr, State->bAsyncComputeEnabled,

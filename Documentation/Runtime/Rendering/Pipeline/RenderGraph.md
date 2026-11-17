@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-18
 
 ## Reading and Calling the Graph
 
@@ -28,24 +28,10 @@ recording. Both consume typed parameters and derive resource dependencies from
 those parameters. CPU parallel recording and async-compute queue eligibility
 are separate declarations.
 
-Start in `Public/RDG/RDG.h` for this interface in call order. Its included
-`RDGBuilder.inl` owns template construction and callback adaptation. Internally,
-`RDGCompile.cpp` validates declarations, derives dependencies, culls passes, and
-builds the logical plan. `RDGExecution.cpp` makes the physical stages explicit:
-
-- `Execute`: single-use lifecycle and original execution result.
-- `Record`: ordered orchestration of the following stages and phase timing.
-- `AllocateResources`: acquire and validate the complete retained resource batch.
-- `PrepareExecution`: resolve barriers and prepare queue transfers and waits in
-  an execution-local `FExecutionContext`, before recording any callbacks.
-- `RecordPasses`: record callbacks and the epilogue in scheduled batches, including
-  dependency-safe parallel recording waves.
-- `PublishExtractions`: attach allocation retirement and publish output references
-  only after successful recording of all batches.
-
-These are private implementation stages, not additional caller obligations.
-Physical preparation does not modify the logical execution plan; preparation
-failure cannot publish extractions or invoke pass callbacks.
+Include `RDG/RDG.h` for graph authoring; `RDGBuilder.inl` adapts typed callbacks.
+`RDGCompile.cpp` builds the immutable logical plan. `RDGExecution.cpp` allocates
+and prepares physical resources before callbacks, then records and publishes
+extractions only after success. These are internal stages, not caller APIs.
 
 ## Ownership Boundary
 
@@ -140,9 +126,9 @@ execution state. Compilation never mutates a command list.
 
 `FindExternalBuffer(FRHIBuffer*)` returns an existing graph-local buffer handle,
 or an invalid handle for null/unknown buffers. It is a read-only identity query,
-not registration or access validation. GPUScene pass parameters deduplicate native
-resources and immutable buffer sets before registration within one collection.
-FindExternalBuffer avoids formatting an already registered resource's name.
+not registration or access validation. Repeated GPUScene imports share native identity through registration while
+retaining every parameter declaration. FindExternalBuffer avoids formatting an
+already registered resource's name.
 Each collection still validates the native resource's external contract, including
 manually prepopulated pass declarations; a declaration alone never authorizes
 skipping that check. Handles never cross graph ownership.
@@ -214,6 +200,13 @@ Captures distinguish planned handoffs from actual `AliasSourceId` publication.
 
 ## Compilation and Ordering
 
+Declaration validation collects the per-pass resource grouping once. Compatible
+unmanaged read aliases accumulate access without pairwise range comparisons;
+compilation and diagnostics reuse the collected buffer indices. Original fields
+and exact ranges remain authoritative for capabilities, initialization and
+conflict diagnostics. Writes, managed transitions and incompatible texture
+layouts retain exact overlap checks. Frozen declarations retain their validation.
+
 The executable sequence is the declaration sequence filtered by retention.
 `AddPassDependency(Producer, Consumer)` is legal only while Building and requires
 valid handles from this builder with `Producer.Index < Consumer.Index`. It may
@@ -244,7 +237,7 @@ produces linear rather than all-pairs dependencies.
 
 Compilation fails as one complete result for invalid or foreign handles,
 unnamed or duplicate identities, missing producers, illegal access/use pairs,
-overlapping declarations within a pass, invalid normalized ranges or usage,
+incompatible overlapping declarations within a pass, invalid normalized ranges or usage,
 pass-domain/access mismatch, and invalid dependency direction. No pass callback
 runs and no transition records when compilation fails.
 
@@ -272,6 +265,14 @@ Every resource reports its first/last retained scheduled pass. A resource used
 only by unreachable passes reports a culled lifetime. These logical intervals
 alone do not authorize physical aliasing; the optional policy below additionally
 proves submission reachability.
+
+Compatible reads of the same resource may appear in multiple fields of one pass.
+Buffer tracking combines their access masks into one resource state while keeping
+each declared byte range and parameter path for capability checks and diagnostics.
+Texture reads may overlap when their combined access has one representable layout.
+Managed transitions, overlapping writes and incompatible states remain rejected;
+range, use/access and external-import validation precede this compatibility rule.
+The rule is local to a pass and does not erase another pass's dependencies.
 
 ## Transition and Execution Contract
 
@@ -509,7 +510,7 @@ The parameterized `AddPass` consumes the mutable reference, freezes the
 allocation, and scans the layout elements once to lower engaged fields into
 the canonical compiler use model. Submission is atomic: malformed
 metadata, a foreign allocation or handle, an invalid range or access/domain
-combination, overlapping fields, or a reused reference publishes neither a
+combination, incompatible overlapping fields, or a reused reference publishes neither a
 pass callback nor a partial use set. The public `AddPass` requires a parameter
 object and a typed callback; raw declarations and resource-view callbacks are
 private test-accessor operations. Both test and production callbacks enter one
@@ -851,36 +852,17 @@ production acceptance gate.
 
 ## Production Authoring Contract
 
-New renderer work that crosses pass boundaries must use the graph path:
+Use the [authoring sequence](#reading-and-calling-the-graph),
+[typed parameters](#typed-pass-parameters) and
+[composed shader binding](#reflected-shader-composition) contracts above.
+Declare exact cross-pass access, explicit external-effect roots and graph budgets.
+Prepare resources before callbacks; preserve graph-owned transitions and failure
+handling. Do not add hidden inter-pass resources, mutable string blackboards or
+observer-controlled execution.
 
-- Submit one typed parameter object and a typed callback for every production
-  pass. The public API rejects raw authoring at compile time.
-- Use `MakeRDGTextureReadMetadata`, `MakeRDGComputeTextureWriteMetadata`,
-  `MakeRDGManagedTextureMetadata`, and `MakeRDGAttachmentMetadata` for common
-  texture roles. These infer or fix wrapper category, range kind, use, access,
-  and attachment discard intent. Shader bindings decorate the same declaration
-  with `WithRDGShaderBinding`; unusual low-level metadata still receives full
-  layout and submission validation.
-- Declare every cross-pass texture/buffer range with exact access and use a
-  graph-owned typed value for a non-RHI outcome. Tokens remain for unmigrated
-  execution-only compatibility edges.
-- Declare external effects such as presentation, offscreen output, readback,
-  capture, publication, and timestamps as explicit roots when culling is on.
-- Describe graph-created resources exactly and let the execution allocator
-  acquire retained resources; do not allocate inside pass callbacks.
-- Set named safety limits, structural regression budgets, and CPU budgets beside
-  every production graph authoring site. Raising a regression budget requires
-  explaining the new pass/resource relationship and extending its contract
-  coverage; safety limits change only when the supported graph scale changes.
-- Keep manual transitions out of migrated edges. A feature-owned render pass
-  may describe attachment layout, but its graph declarations own the outer
-  access handoff.
-- Extend `RenderContractTests` for compiler semantics and the owning capture, then
-  add a renderer integration test for production wiring and a Vulkan gate for
-  transition/backend equivalence.
-
-Bypass scheduling, hidden inter-pass resources, mutable string blackboards,
-and observer-controlled execution are not supported authoring patterns.
+Compiler semantics belong in `RenderContractTests`; production wiring belongs
+in the owning renderer's graph/output test. Retain backend equivalence checks
+when access or transition behavior changes, rather than copying metadata tables.
 
 ### Low-Level Compatibility Boundary
 

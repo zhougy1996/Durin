@@ -32,7 +32,7 @@ struct GridUniform
     float4 ClipPlane;
 };
 
-[[vk::binding(0, 0)]] ConstantBuffer<GridUniform> Grid;
+ConstantBuffer<GridUniform> Grid;
 
 // Bounded to roughly 1.2e-4 relative depth for normalized positive floats. This
 // absorbs independent plane/raster evaluation without turning the grid into X-ray.

@@ -4,7 +4,7 @@ Summary: Define registration, atomic set ownership, typed lookup, generation rec
 
 Modules: Engine, RenderCore, Renderer, ShaderFormat
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-18
 
 ## Category and Ownership
 
@@ -63,11 +63,19 @@ same typed construction consumes the exact `DSHD` output from the qualified
 `DSLB` library. Parameter binding, merged layouts, lazy RHI creation, generation
 coupling, and complete-or-null publication are shared after that data selection.
 
+Registered direct, prepared and Cook requests apply the same
+[parameter allocation policy](ShaderParameters.md#detached-semantic-schemas-and-allocation-candidates).
+Each shader instance admits its own semantic schema against the final reflected
+stage product and caches the resulting binding records. Shared parameter owners
+share names and types, not descriptor coordinates. Editor-only finite programs
+remain excluded from Game inventory; cooked initialization performs the same
+admission and layout construction without source compilation.
+
 Compiled stages retain immutable code and opaque, versioned target metadata.
 ShaderFormat owns target validation, the Metal metadata codec, and the shared
 `BuildLogicalBindings` conversion from reflection into logical declarations.
 RenderCore has no separate conversion adapter and allocates no native slots.
-DSHD v7, shared compiler output v8, and DSLB v6 preserve those bytes and validate
+DSHD v7, shared compiler output v8, and DSLB v7 preserve those bytes and validate
 the complete shader identity before publication. The identity covers target
 settings, format version, stage/group size, binary entry point, code, logical
 reflection (including resource shape and constant layouts), and execution metadata. `FShaderCode::CodeHash` remains the separately

@@ -15,7 +15,7 @@ struct TransformUniform
     float4 Color;
 };
 
-[[vk::binding(0, 0)]] ConstantBuffer<TransformUniform> Transform;
+ConstantBuffer<TransformUniform> Transform;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -53,7 +53,7 @@ struct LineStyleUniform
 };
 
 // Module-level resources need distinct bindings so per-entry-point reflection can identify the one actually used.
-[[vk::binding(1, 0)]] ConstantBuffer<LineStyleUniform> Style;
+ConstantBuffer<LineStyleUniform> Style;
 
 [shader("vertex")]
 LineVSOutput LineVertexMain(LineVSInput input)
@@ -95,9 +95,9 @@ struct IconStyleUniform
     float3 Padding;
 };
 
-[[vk::binding(2, 0)]] Texture2D<float4> Atlas;
-[[vk::binding(3, 0)]] SamplerState AtlasSampler;
-[[vk::binding(4, 0)]] ConstantBuffer<IconStyleUniform> IconStyle;
+Texture2D<float4> Atlas;
+SamplerState AtlasSampler;
+ConstantBuffer<IconStyleUniform> IconStyle;
 
 [shader("vertex")]
 IconVSOutput IconVertexMain(IconVSInput input)

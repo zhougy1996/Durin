@@ -48,11 +48,11 @@ struct FGTAOFilterUniform
     float4 DirectionAndThresholds; // xy tap direction, z normal dot, w relative depth
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> GBufferNormals;
-[[vk::binding(1, 0)]] Texture2D<float4> GBufferSurface;
-[[vk::binding(2, 0)]] Texture2D<float> SceneDepth;
-[[vk::binding(3, 0)]] ConstantBuffer<FGTAOViewUniform> View;
-[[vk::binding(10, 0)]] Texture2D<float> RawSelector;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> GBufferSurface;
+Texture2D<float> SceneDepth;
+ConstantBuffer<FGTAOViewUniform> View;
+Texture2D<float> RawSelector;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -295,12 +295,12 @@ float HalfRawFragmentMain(VSOutput input) : SV_Target0
     return EvaluateVisibility(int2(input.pos.xy), true, selector);
 }
 
-[[vk::binding(4, 0)]] Texture2D<float> FilterInputVisibility;
-[[vk::binding(5, 0)]] Texture2D<float4> FilterGBufferNormals;
-[[vk::binding(6, 0)]] Texture2D<float4> FilterGBufferSurface;
-[[vk::binding(7, 0)]] Texture2D<float> FilterSceneDepth;
-[[vk::binding(8, 0)]] ConstantBuffer<FGTAOFilterUniform> Filter;
-[[vk::binding(9, 0)]] Texture2D<float> FilterSelector;
+Texture2D<float> FilterInputVisibility;
+Texture2D<float4> FilterGBufferNormals;
+Texture2D<float4> FilterGBufferSurface;
+Texture2D<float> FilterSceneDepth;
+ConstantBuffer<FGTAOFilterUniform> Filter;
+Texture2D<float> FilterSelector;
 
 bool ReconstructFilterAt(int2 pixel, out float3 viewPosition)
 {

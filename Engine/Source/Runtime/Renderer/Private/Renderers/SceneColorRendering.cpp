@@ -16,7 +16,7 @@ namespace Durin
 	{
 		using FParameters = FSceneColorPassResources;
 		static const std::array Members = {
-			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::GPUScene)>("GPUScene", offsetof(FParameters, GPUScene), FGPUSceneReadParameters::GetRDGParametersMetadata()),
+			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::InstanceCulling)>("InstanceCulling", offsetof(FParameters, InstanceCulling), FInstanceCullingDrawParams::GetRDGParametersMetadata()),
 			MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)),
 			MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)),
 			MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput))
@@ -76,7 +76,7 @@ namespace Durin
 			"Scene.ColorValue", "scene-color-result"
 		);
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
-		if (bRequiresDeferredOpaque) Parameters->Resources.GPUScene = Inputs.Resolved.Receiver.StaticMeshes.GetGPUSceneParameters(Graph);
+		if (bRequiresDeferredOpaque) Parameters->Resources.InstanceCulling = Inputs.Resolved.Receiver.StaticMeshes.GetInstanceCullingDrawParams(Graph);
 		if (bRequiresDeferredOpaque) Parameters->Resources.LocalLights = Inputs.Resolved.Lighting.LocalRead;
 		Parameters->BaseScene = {.Value = Inputs.BaseScene.Completion};
 		if (Inputs.VolumetricCloud.Completion)

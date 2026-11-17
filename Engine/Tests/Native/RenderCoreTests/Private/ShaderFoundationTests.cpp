@@ -22,6 +22,67 @@
 
 namespace Durin
 {
+    TEST(ShaderParameterBindings, OrdinaryInitializationAdmitsCompleteSemanticSchema)
+    {
+        const std::array Constants{FShaderConstantMember{"Color", 0, 16}};
+        const std::array Members{
+            FShaderParameterMemberMetadata{.Name = "Input", .Offset = 0, .Size = 8,
+                .Type = ERHIBindingType::Texture, .ShaderType = "Texture2D"},
+            FShaderParameterMemberMetadata{.Name = "Params", .Offset = 8, .Size = sizeof(FRHIUniformBufferRange),
+                .Type = ERHIBindingType::UniformBuffer, .ConstantBufferSize = 16, .ConstantMembers = Constants},
+            FShaderParameterMemberMetadata{.Name = "Unused", .Offset = 0, .Size = 8,
+                .Type = ERHIBindingType::Texture, .bOptional = true}};
+        const FShaderParametersMetadata Metadata{.StructName = "Ordinary", .StructSize = 8 + sizeof(FRHIUniformBufferRange),
+            .StructAlignment = 8, .Members = Members};
+        FShaderType Type("OrdinarySchemaAdmission", "/Unit/Schema", EShaderFrequency::Fragment, "Main",
+            {}, nullptr, nullptr, nullptr, &Metadata);
+        FShaderReflectionData Reflection;
+        Reflection.ResourceBindings = {
+            {.Name = "Input", .StageFlags = EShaderStageFlags::Fragment, .SetIndex = 2, .BindingIndex = 9,
+                .Type = ERHIBindingType::Texture, .ResourceShape = EShaderResourceShape::Texture2D},
+            {.Name = "Params", .StageFlags = EShaderStageFlags::Fragment, .SetIndex = 3, .BindingIndex = 4,
+                .Type = ERHIBindingType::UniformBuffer, .ConstantBufferSize = 16, .ConstantMembers = {Constants.begin(), Constants.end()}}};
+        FShader Shader(&Type, nullptr, Reflection);
+        ASSERT_TRUE(Shader.InitializeParameterBindings());
+        ASSERT_EQ(Shader.GetParameterBindings().size(), 2u);
+        EXPECT_EQ(Shader.GetParameterBindings()[0].BindingIndex, 9u);
+        auto Relocated = Reflection;
+        Relocated.ResourceBindings[0].BindingIndex = 37;
+        FShader Other(&Type, nullptr, Relocated);
+        ASSERT_TRUE(Other.InitializeParameterBindings());
+        EXPECT_EQ(Other.GetParameterBindings()[0].BindingIndex, 37u);
+        EXPECT_EQ(Shader.GetParameterBindings()[0].BindingIndex, 9u);
+        const auto Reject = [&](FShaderReflectionData Invalid) {
+            FShader Candidate(&Type, nullptr, Invalid);
+            EXPECT_FALSE(Candidate.InitializeParameterBindings());
+            EXPECT_TRUE(Candidate.GetParameterBindings().empty());
+        };
+        auto Invalid = Reflection;
+        Invalid.ResourceBindings[0].ResourceShape = EShaderResourceShape::TextureCube;
+        Reject(Invalid);
+        Invalid = Reflection; Invalid.ResourceBindings[1].ConstantMembers[0].Offset = 4; Reject(Invalid);
+        Invalid = Reflection; Invalid.ResourceBindings[0].ArraySize = 2; Reject(Invalid);
+        Invalid = Reflection; Invalid.ResourceBindings[0].Name = "Extra"; Reject(Invalid);
+        Invalid = Reflection; Invalid.ResourceBindings.erase(Invalid.ResourceBindings.begin()); Reject(Invalid);
+        FShaderCompileOptions Options;
+        Type.ModifyCompilationEnvironment({}, Options);
+        const auto FirstKey = Options.Macros;
+		Options.Macros.front().Value = "0";
+		Options.Macros.back().Value = "stale";
+		Type.ApplyParameterCompilationEnvironment(Options);
+		EXPECT_EQ(Options.Macros.front().Value, FirstKey.front().Value);
+		EXPECT_EQ(Options.Macros.back().Value, FirstKey.back().Value);
+        auto ChangedMetadata = Metadata;
+        auto ChangedMembers = Members;
+        ChangedMembers[0].ShaderType = "TextureCube";
+        ChangedMetadata.Members = ChangedMembers;
+        FShaderType ChangedType("OrdinarySchemaAdmissionChanged", "/Unit/Schema", EShaderFrequency::Fragment,
+            "Main", {}, nullptr, nullptr, nullptr, &ChangedMetadata);
+        FShaderCompileOptions ChangedOptions;
+        ChangedType.ModifyCompilationEnvironment({}, ChangedOptions);
+        EXPECT_NE(FirstKey.back().Value, ChangedOptions.Macros.back().Value);
+    }
+
 	TEST(ShaderParameterMetadataBuilder, OwnsGeneratedNamesAndProducesBindableNestedMetadata)
 	{
 		auto MakeMetadata = [] {
@@ -127,6 +188,20 @@ namespace Durin
 		ASSERT_EQ(Schema->Fields.size(), 1u);
 		EXPECT_EQ(Schema->Fields[0].QualifiedName, "Pass.Texture");
 		EXPECT_EQ(Schema->Fields[0].ShaderName, "Pass_Texture");
+		{
+			FShaderType Type("NestedRegistrationOffsets", "/Unit/Nested", EShaderFrequency::Fragment,
+				"Main", {}, nullptr, nullptr, nullptr, &Root);
+			const auto Identity = Type.GetParameterSchemaIdentity();
+			ASSERT_TRUE(Identity); EXPECT_EQ(*Identity, Schema->Identity);
+			FShaderReflectionData Reflection;
+			Reflection.ResourceBindings.push_back({.Name = "Pass_Texture", .StageFlags = EShaderStageFlags::Fragment,
+				.SetIndex = 2, .BindingIndex = 37, .Type = ERHIBindingType::Texture});
+			FShader Shader(&Type, nullptr, Reflection);
+			ASSERT_TRUE(Shader.InitializeParameterBindings());
+			ASSERT_EQ(Shader.GetParameterBindings().size(), 1u);
+			EXPECT_EQ(Shader.GetParameterBindings()[0].Offset, 8u);
+			EXPECT_EQ(Shader.GetParameterBindings()[0].BindingIndex, 37u);
+		}
 		Nested.IncludedParameters = &Root;
 		EXPECT_FALSE(BuildShaderParameterSchema(Root));
 		Nested.IncludedParameters = nullptr;
@@ -2228,11 +2303,13 @@ namespace Durin
 			.ArraySize = 1
 		});
 
+        auto IncludedReflection = Reflection;
+        IncludedReflection.ResourceBindings.pop_back();
 		FShaderCompilerOutput Output;
 		Output.Status = EShaderBuildStatus::Ok;
 		Output.CompiledShaders = {
-			MakeCompiledShader(EShaderFrequency::Fragment, "includeBaseMain", "FIncludedParametersShader", 41, Reflection),
-			MakeCompiledShader(EShaderFrequency::Fragment, "includeOnlyMain", "FExplicitIncludeOnlyShader", 42, Reflection),
+			MakeCompiledShader(EShaderFrequency::Fragment, "includeBaseMain", "FIncludedParametersShader", 41, IncludedReflection),
+			MakeCompiledShader(EShaderFrequency::Fragment, "includeOnlyMain", "FExplicitIncludeOnlyShader", 42, IncludedReflection),
 			MakeCompiledShader(EShaderFrequency::Fragment, "includeOwnMain", "FExplicitIncludeWithOwnParametersShader", 43, Reflection)
 		};
 

@@ -68,6 +68,7 @@ namespace Durin
 		std::vector<FGPUScenePrimitiveHandle> PrimitivesToUpdate, PrimitiveUpdateScratch;
 		std::vector<FRetiredRange> FreePrimitives, FreeInstances;
 		FBufferRHIRef PrimitiveBuffer, InstanceBuffer, PayloadBuffer;
+		uint32 CommittedNumPrimitives = 0, CommittedNumInstances = 0;
 		FRHIGPUSyncPointRef LastUse;
 		std::weak_ptr<FGPUSceneUpdate> Pending;
 		uint64 Revision = 0, ResourceGeneration = 1;
@@ -388,12 +389,19 @@ namespace Durin
 		return Result;
 	}
 
-	auto FGPUScene::GetShaderParameters(const FRDGBuilder& Graph) const -> FGPUSceneResourceParameters
+	auto FGPUScene::GetShaderParameters(FRDGBuilder& Graph) const -> FGPUSceneResourceParameters
 	{
 		CheckRenderingThread();
 		const auto Pending = State->Pending.lock();
-		require(Pending && Pending->Graph == &Graph && !Pending->bCompleted && Pending->ResourceGeneration == State->ResourceGeneration);
-		return Pending->Parameters;
+		if (Pending && !Pending->bCompleted && Pending->Graph == &Graph)
+		{
+			require(Pending->ResourceGeneration == State->ResourceGeneration);
+			return Pending->Parameters;
+		}
+		// Other graphs read the last committed generation, never another graph's handles
+		// or counts from a CPU mirror which may already contain uncommitted changes.
+		return FGPUSceneResourceParameters::Register(Graph, GetResourceBuffers(),
+			State->CommittedNumPrimitives, State->CommittedNumInstances, State->ResourceGeneration);
 	}
 
 	auto FGPUScene::CompleteUpdate(const FRDGBuilder& Graph, const FGPUSceneUpdateResult& Result) -> bool
@@ -413,6 +421,8 @@ namespace Durin
 		require(Pending->Primitive && Pending->Instance && Pending->Payload);
 		State->PrimitiveBuffer = Pending->Primitive; State->InstanceBuffer = Pending->Instance; State->PayloadBuffer = Pending->Payload;
 		if (Pending->bRebuilt) ++State->ResourceGeneration;
+		State->CommittedNumPrimitives = Pending->Parameters.GPUSceneNumAllocatedPrimitives;
+		State->CommittedNumInstances = Pending->Parameters.GPUSceneNumAllocatedInstances;
 		State->PrimitiveDirty.Clear();
 		State->InstanceDirty.Clear();
 		State->PayloadDirty.Clear();
@@ -500,6 +510,7 @@ namespace Durin
 		CheckRenderingThread();
 		State->InstanceIdBuffers.clear();
 		State->PrimitiveBuffer = {}; State->InstanceBuffer = {}; State->PayloadBuffer = {};
+		State->CommittedNumPrimitives = 0; State->CommittedNumInstances = 0;
 		State->LastUse = {}; ++State->ResourceGeneration;
 		State->PrimitiveDirty.MarkAll();
 		State->InstanceDirty.MarkAll();

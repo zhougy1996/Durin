@@ -173,7 +173,7 @@ namespace Durin
 		FRHIShader* RHIShader,
 		std::string_view ShaderName,
 		EShaderFrequency ShaderFrequency,
-		std::span<const FShaderParameterBinding> ParameterBindings,
+		const FShaderParameterBindings& ShaderBindings,
 		const FRDGShaderParameterScope& GraphParameters,
 		const FShaderParametersMetadata* OrdinaryParametersMetadata,
 		const void* OrdinaryParameterData) -> void
@@ -199,37 +199,37 @@ namespace Durin
 			"Render graph pass '{}' has unavailable composed parameter layout",
 			Resolver.GetPassName());
 
-		size_t ResolvedCount = 0;
-		for (const FShaderParameterBinding& Binding : ParameterBindings)
+		const auto Join = ShaderBindings.GetRDGLayoutBindings(*Layout);
+		checkf(Join.has_value(), "Render graph pass '{}' shader '{}': {}", Resolver.GetPassName(), ShaderName,
+			Join ? std::string{} : Join.error());
+		const auto ParameterBindings = ShaderBindings.GetResources();
+
+		size_t ResolvedCount = 0, ExactViewCount = 0;
+		for (size_t Index = 0; Index < ParameterBindings.size(); ++Index)
+		{
+			const auto& Binding = ParameterBindings[Index];
 			ResolvedCount += Binding.ArraySize;
+			if ((**Join)[Index] != UINT32_MAX && (Binding.Type == ERHIBindingType::Texture || Binding.Type == ERHIBindingType::StorageImage))
+				ExactViewCount += Binding.ArraySize;
+		}
 		std::vector<FRHIShaderParameterResource> Resources;
 		Resources.reserve(ResolvedCount);
+		// Views must survive resolution until atomic command publication. The existing
+		// immutable RHI batch is a replay owner, not reusable resolution scratch.
 		std::vector<TRefCountPtr<FRHIResource>> ExactViews;
-		ExactViews.reserve(ResolvedCount);
+		ExactViews.reserve(ExactViewCount);
 		const auto* OrdinaryBytes = static_cast<const std::byte*>(
 			OrdinaryParameterData);
 
-		for (const FShaderParameterBinding& Binding : ParameterBindings)
+		for (size_t BindingIndex = 0; BindingIndex < ParameterBindings.size(); ++BindingIndex)
 		{
-			const auto Found = std::lower_bound(Layout->ShaderBindings.begin(),
-				Layout->ShaderBindings.end(), Binding.Name,
-				[](const FRDGParameterShaderBinding& Candidate,
-					std::string_view Name) { return Candidate.Name < Name; });
-			if (Found != Layout->ShaderBindings.end() && Found->Name == Binding.Name)
+			const auto& Binding = ParameterBindings[BindingIndex];
+			const uint32 LeafIndex = (**Join)[BindingIndex];
+			if (LeafIndex != UINT32_MAX)
 			{
-				const FRDGParameterLayoutLeaf& Leaf =
-					Layout->Leaves[Found->LeafIndex];
-				const FRDGParameterMemberMetadata& Member = *Leaf.Metadata;
-				const void* LeafData = static_cast<const std::byte*>(
-					GraphParameters.GetData()) + Leaf.Offset;
-				checkf(Member.ShaderBindingType == Binding.Type,
-					"Render graph pass '{}' parameter '{}' shader binding '{}' type "
-					"does not match shader '{}'",
-					Resolver.GetPassName(), Leaf.Path, Binding.Name, ShaderName);
-				checkf(Member.ArraySize == Binding.ArraySize,
-					"Render graph pass '{}' parameter '{}' shader binding '{}' array "
-					"extent does not match shader '{}'",
-					Resolver.GetPassName(), Leaf.Path, Binding.Name, ShaderName);
+				const auto& Leaf = Layout->Leaves[LeafIndex];
+				const auto& Member = *Leaf.Metadata;
+				const void* LeafData = static_cast<const std::byte*>(GraphParameters.GetData()) + Leaf.Offset;
 
 				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
 					++ArrayElement)
@@ -316,10 +316,6 @@ namespace Durin
 				continue;
 			}
 
-			checkf(!Binding.bGraphResource,
-				"Render graph pass '{}' shader '{}' binding '{}' is declared as a "
-				"graph resource but has no composed graph member",
-				Resolver.GetPassName(), ShaderName, Binding.Name);
 			checkf(OrdinaryParametersMetadata != nullptr
 				&& OrdinaryBytes != nullptr,
 				"Render graph pass '{}' shader '{}' binding '{}' has no composed "

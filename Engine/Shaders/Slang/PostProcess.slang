@@ -19,9 +19,9 @@ struct ViewUniform
     float Padding;
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> SceneColor;
-[[vk::binding(1, 0)]] SamplerState SceneColorSampler;
-[[vk::binding(2, 0)]] ConstantBuffer<ViewUniform> View;
+Texture2D<float4> SceneColor;
+SamplerState SceneColorSampler;
+ConstantBuffer<ViewUniform> View;
 
 static float Luma(float3 color)
 {

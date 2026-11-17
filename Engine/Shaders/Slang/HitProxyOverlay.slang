@@ -1,7 +1,7 @@
 struct VSInput { float4 Position : POSITION; float Distance : TEXCOORD0; };
 struct VSOutput { float4 Position : SV_Position; float Distance : TEXCOORD0; };
 struct IdUniform { uint4 Value; };
-[[vk::binding(0, 0)]] ConstantBuffer<IdUniform> Id;
+ConstantBuffer<IdUniform> Id;
 [shader("vertex")]
 VSOutput VertexMain(VSInput Input)
 {

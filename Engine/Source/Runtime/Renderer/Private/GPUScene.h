@@ -33,6 +33,9 @@ namespace Durin
 		RENDERER_API auto Resolve() const -> FPrimitiveSceneInfo*;
 	};
 
+	// Shared graph registration for scene snapshots and draw-mode ID dependencies.
+	RENDERER_API auto RegisterGPUSceneBuffer(FRDGBuilder& Graph, const FBufferRHIRef& Buffer) -> std::optional<FRDGBufferParameter>;
+
 	struct FGPUSceneResourceParameters
 	{
 		std::optional<FRDGBufferParameter> GPUScenePrimitiveSceneData;
@@ -41,6 +44,8 @@ namespace Durin
 		uint32 GPUSceneNumAllocatedPrimitives = 0;
 		uint32 GPUSceneNumAllocatedInstances = 0;
 		uint64 GPUSceneResourceGeneration = 0;
+		RENDERER_API static auto Register(FRDGBuilder& Graph, const std::array<FBufferRHIRef, 3>& Buffers,
+			uint32 NumPrimitives, uint32 NumInstances, uint64 Generation) -> FGPUSceneResourceParameters;
 		RENDERER_API static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
 	};
 
@@ -110,7 +115,7 @@ namespace Durin
 		RENDERER_API auto AddPrimitiveToUpdate(FPersistentPrimitiveIndex PrimitiveIndex, EGPUSceneDirtyState Dirty = EGPUSceneDirtyState::All) -> bool;
 		RENDERER_API auto UpdateCPUData() -> void;
 		RENDERER_API auto Update(FRDGBuilder& GraphBuilder) -> FGPUSceneUpdateResult;
-		RENDERER_API auto GetShaderParameters(const FRDGBuilder& GraphBuilder) const -> FGPUSceneResourceParameters;
+		RENDERER_API auto GetShaderParameters(FRDGBuilder& GraphBuilder) const -> FGPUSceneResourceParameters;
 		// Must be called after this exact graph executes; failed/unexecuted graphs
 		// never acknowledge dirty data. Dropping a result also leaves it pending.
 		RENDERER_API auto CompleteUpdate(const FRDGBuilder& GraphBuilder, const FGPUSceneUpdateResult& Result) -> bool;

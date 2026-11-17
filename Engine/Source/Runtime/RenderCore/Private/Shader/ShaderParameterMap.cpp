@@ -1,7 +1,54 @@
 #include "Shader/ShaderParameterMap.h"
+#include "Shader/Shader.h"
+#include "ShaderParameterSchemaInternal.h"
 
 namespace Durin
 {
+	struct FShaderParameterBindings::FRDGLayoutCache
+	{
+		std::mutex Mutex;
+		std::map<std::shared_ptr<const uint8>,
+			std::expected<std::shared_ptr<const std::vector<uint32>>, std::string>> Layouts;
+	};
+
+	FShaderParameterBindings::FShaderParameterBindings() : RDGLayoutCache(std::make_shared<FRDGLayoutCache>()) {}
+
+	auto FShaderParameterBindings::GetRDGLayoutBindings(const FRDGParameterLayout& Layout) const
+		-> std::expected<std::shared_ptr<const std::vector<uint32>>, std::string>
+	{
+		std::lock_guard Lock(RDGLayoutCache->Mutex);
+		if (const auto Found = RDGLayoutCache->Layouts.find(Layout.Identity); Found != RDGLayoutCache->Layouts.end())
+			return Found->second;
+		auto Join = std::make_shared<std::vector<uint32>>();
+		Join->reserve(Resources.size());
+		std::expected<std::shared_ptr<const std::vector<uint32>>, std::string> Result = Join;
+		for (const auto& Binding : Resources)
+		{
+			const auto Found = std::lower_bound(Layout.ShaderBindings.begin(), Layout.ShaderBindings.end(), Binding.Name,
+				[](const FRDGParameterShaderBinding& Candidate, std::string_view Name) { return Candidate.Name < Name; });
+			if (Found == Layout.ShaderBindings.end() || Found->Name != Binding.Name)
+			{
+				if (Binding.bGraphResource)
+				{
+					Result = std::unexpected(std::format("binding '{}' is declared as a graph resource but has no composed graph member", Binding.Name));
+					break;
+				}
+				Join->push_back(UINT32_MAX);
+				continue;
+			}
+			const auto& Leaf = Layout.Leaves[Found->LeafIndex];
+			if (Leaf.Metadata->ShaderBindingType != Binding.Type || Leaf.Metadata->ArraySize != Binding.ArraySize)
+			{
+				Result = std::unexpected(std::format("parameter '{}' shader binding '{}' {} does not match shader layout",
+					Leaf.Path, Binding.Name, Leaf.Metadata->ShaderBindingType != Binding.Type ? "type" : "array extent"));
+				break;
+			}
+			Join->push_back(Found->LeafIndex);
+		}
+		RDGLayoutCache->Layouts.emplace(Layout.Identity, Result);
+		return Result;
+	}
+
 	auto FShaderParameterMap::AddParameterAllocation(std::string_view Name, const FParameterAllocation& Allocation)
 		-> FShaderOperationResult
 	{
@@ -44,10 +91,33 @@ namespace Durin
 		return Map;
 	}
 
+	auto FShaderParameterBindings::Bind(const FShaderType& Type, const FShaderReflectionData& Reflection)
+		-> FShaderOperationResult
+	{
+		Resources.clear();
+		RDGLayoutCache = std::make_shared<FRDGLayoutCache>();
+		if (!Type.ParameterSchemaError.empty()) return std::unexpected(Type.ParameterSchemaError);
+		auto Map = Type.ParameterSchema
+			? Private::BuildShaderParameterMapFromCanonicalSchema(*Type.ParameterSchema, Type.GetFrequency(), Reflection)
+			: FShaderParameterMap::FromReflection(Reflection);
+		if (!Map) return std::unexpected(Map.error());
+		// Schema admission already checked names, types and extents. Only compiler
+		// locations vary between instances; host offsets belong to registration.
+		for (auto Binding : Type.ParameterHostBindings)
+			if (const auto* Allocation = Map->FindParameterAllocation(Binding.Name))
+			{
+				Binding.SetIndex = Allocation->SetIndex;
+				Binding.BindingIndex = Allocation->BaseIndex;
+				Resources.push_back(std::move(Binding));
+			}
+		return {};
+	}
+
 	auto FShaderParameterBindings::Bind(const FShaderParametersMetadata* Metadata, const FShaderParameterMap& ParameterMap)
 		-> FShaderOperationResult
 	{
 		Resources.clear();
+		RDGLayoutCache = std::make_shared<FRDGLayoutCache>();
 		if (!Metadata) return {};
 		std::vector<FShaderParameterBinding> Candidate;
 		std::vector<const FShaderParametersMetadata*> Stack;

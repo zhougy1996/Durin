@@ -1,6 +1,6 @@
-[[vk::binding(0, 0)]] StructuredBuffer<float4> ReadBuffer;
-[[vk::binding(1, 0)]] RWStructuredBuffer<float4> WriteBuffer;
-[[vk::binding(2, 0)]] RWTexture2D<float4> OutputImage;
+StructuredBuffer<float4> ReadBuffer;
+RWStructuredBuffer<float4> WriteBuffer;
+RWTexture2D<float4> OutputImage;
 
 [shader("fragment")]
 float4 fragmentMain(float4 Position : SV_Position) : SV_Target

@@ -368,6 +368,51 @@ namespace
 		EXPECT_EQ(Run().UploadBytes, 0u);
 	}
 
+	TEST_F(FGPUSceneTests, GraphRegistrationUsesCommittedGenerationOutsideUpdateAndAcrossAbandonment)
+	{
+		Add(1); Run();
+		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
+			auto& GPU = *(*Scene)->GPUScene;
+			const auto OldBuffers = GPU.GetResourceBuffers();
+			FRDGBuilder FirstGraph, SecondGraph;
+			const auto First = GPU.GetShaderParameters(FirstGraph);
+			const auto Again = GPU.GetShaderParameters(FirstGraph);
+			const auto Second = GPU.GetShaderParameters(SecondGraph);
+			ASSERT_TRUE(First.GPUSceneInstanceSceneData); ASSERT_TRUE(Second.GPUSceneInstanceSceneData);
+			EXPECT_EQ(First.GPUSceneInstanceSceneData->Buffer, Again.GPUSceneInstanceSceneData->Buffer);
+			EXPECT_NE(First.GPUSceneInstanceSceneData->Buffer, Second.GPUSceneInstanceSceneData->Buffer);
+			const auto Allocation = GPU.AllocateDynamicPrimitiveRange(32);
+			{
+				FRDGBuilder Abandoned;
+				const auto Pending = GPU.Update(Abandoned);
+				EXPECT_EQ(GPU.GetShaderParameters(Abandoned).GPUSceneResourceGeneration, Pending.Parameters.GPUSceneResourceGeneration);
+				FRDGBuilder Reader;
+				const auto Committed = GPU.GetShaderParameters(Reader);
+				EXPECT_EQ(Committed.GPUSceneNumAllocatedInstances, First.GPUSceneNumAllocatedInstances);
+				EXPECT_EQ(Committed.GPUSceneResourceGeneration, First.GPUSceneResourceGeneration);
+				EXPECT_LT(Committed.GPUSceneNumAllocatedInstances, Pending.Parameters.GPUSceneNumAllocatedInstances);
+			}
+			EXPECT_TRUE(GPU.IsDirty());
+			FRDGBuilder UpdateGraph;
+			const auto Update = GPU.Update(UpdateGraph);
+			ASSERT_TRUE(UpdateGraph.Execute(Executor.GetImmediateCommandList(), &Allocator));
+			ASSERT_TRUE(GPU.CompleteUpdate(UpdateGraph, Update));
+			FRDGBuilder NewGraph;
+			const auto New = GPU.GetShaderParameters(NewGraph);
+			EXPECT_GT(New.GPUSceneResourceGeneration, First.GPUSceneResourceGeneration);
+			EXPECT_NE(GPU.GetResourceBuffers()[1], OldBuffers[1]);
+			EXPECT_EQ(FirstGraph.FindExternalBuffer(OldBuffers[1]), First.GPUSceneInstanceSceneData->Buffer);
+			GPU.ReleaseDynamicPrimitiveRange(Allocation);
+			GPU.ReleaseRHI();
+			FRDGBuilder EmptyGraph;
+			const auto Empty = GPU.GetShaderParameters(EmptyGraph);
+			EXPECT_FALSE(Empty.GPUSceneInstanceSceneData);
+			EXPECT_EQ(Empty.GPUSceneNumAllocatedInstances, 0u);
+			EXPECT_EQ(FirstGraph.FindExternalBuffer(OldBuffers[1]), First.GPUSceneInstanceSceneData->Buffer);
+		});
+		FlushRenderingCommands();
+	}
+
 	TEST_F(FGPUSceneTests, TypedReadParametersShareSceneAttributesAndValidateExternalContracts)
 	{
 		EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
@@ -377,23 +422,26 @@ namespace
 			for (auto& Buffer : Set->SceneData) Buffer = MakeBuffer();
 			Set->InstanceIds = MakeBuffer();
 			FRDGBuilder Graph;
-			const auto First = Set->GetShaderParameters(Graph, Set->InstanceIds);
+			FResolvedStaticMeshView View; View.GPUSceneBuffers = Set; View.DynamicInstancingInstanceIds = Set->InstanceIds;
+			const auto First = View.GetInstanceCullingDrawParams(Graph);
 			const auto Again = Set->GetShaderParameters(Graph);
-			ASSERT_TRUE(First.GPUScene.GPUScenePrimitiveSceneData); ASSERT_TRUE(First.InstanceIds);
-			EXPECT_FALSE(First.DynamicInstanceIds);
-			EXPECT_EQ(First.GPUScene.GPUScenePrimitiveSceneData->Buffer, Again.GPUScene.GPUScenePrimitiveSceneData->Buffer);
-			EXPECT_EQ(First.InstanceIds->Buffer, Again.InstanceIds->Buffer);
+			ASSERT_TRUE(First.Scene.GPUScenePrimitiveSceneData); ASSERT_TRUE(First.InstanceIdsBuffer);
+			ASSERT_TRUE(First.DynamicInstanceIdsBuffer);
+			EXPECT_EQ(First.DynamicInstanceIdsBuffer->Buffer, First.InstanceIdsBuffer->Buffer);
+			EXPECT_EQ(First.Scene.GPUScenePrimitiveSceneData->Buffer, Again.GPUScenePrimitiveSceneData->Buffer);
+			EXPECT_EQ(First.InstanceIdsBuffer->Buffer, Graph.FindExternalBuffer(Set->InstanceIds));
 			// Independent pass ID lists do not accumulate into a receiver/cascade-shaped fixed array.
 			for (int Index = 0; Index < 64; ++Index)
 			{
-				const auto Other = MakeBuffer(); const auto Parameters = Set->GetShaderParameters(Graph, Other);
-				ASSERT_TRUE(Parameters.DynamicInstanceIds);
-				EXPECT_EQ(Parameters.GPUScene.GPUSceneInstanceSceneData->Buffer, First.GPUScene.GPUSceneInstanceSceneData->Buffer);
-				EXPECT_EQ(Parameters.DynamicInstanceIds->Buffer, Graph.FindExternalBuffer(Other));
+				const auto Other = MakeBuffer(); View.DynamicInstancingInstanceIds = Other;
+				const auto Parameters = View.GetInstanceCullingDrawParams(Graph);
+				ASSERT_TRUE(Parameters.DynamicInstanceIdsBuffer);
+				EXPECT_EQ(Parameters.Scene.GPUSceneInstanceSceneData->Buffer, First.Scene.GPUSceneInstanceSceneData->Buffer);
+				EXPECT_EQ(Parameters.DynamicInstanceIdsBuffer->Buffer, Graph.FindExternalBuffer(Other));
 			}
 			FRDGBuilder Conflict;
 			Conflict.RegisterExternalBuffer(Set->InstanceIds, "ConflictingRead", ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead);
-			(void)Set->GetShaderParameters(Conflict);
+			(void)View.GetInstanceCullingDrawParams(Conflict);
 			EXPECT_FALSE(Conflict.Execute(Executor.GetImmediateCommandList(), &Allocator));
 		});
 		FlushRenderingCommands();
@@ -420,8 +468,8 @@ namespace
 			EXPECT_EQ(Data[0].Buffers->SceneData, (*Scene)->GPUScene->GetResourceBuffers());
 			EXPECT_EQ(Data[0].InstanceId, Info().InstanceSceneDataOffset);
 			FRDGBuilder ParametersGraph; const auto Parameters = Data[0].Buffers->GetShaderParameters(ParametersGraph);
-			EXPECT_EQ(Parameters.GPUScene.GPUSceneNumAllocatedInstances, (*Scene)->GPUScene->GetInstanceSceneData().size());
-			EXPECT_EQ(Parameters.GPUScene.GPUSceneResourceGeneration, (*Scene)->GPUScene->GetResourceGeneration());
+			EXPECT_EQ(Parameters.GPUSceneNumAllocatedInstances, (*Scene)->GPUScene->GetInstanceSceneData().size());
+			EXPECT_EQ(Parameters.GPUSceneResourceGeneration, (*Scene)->GPUScene->GetResourceGeneration());
 			Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 			const auto& Ids = static_cast<FSceneBuffer*>(Data[0].Buffers->InstanceIds.GetReference())->Bytes;
 			ASSERT_GE(Ids.size(), 3 * sizeof(uint32));
@@ -1191,11 +1239,11 @@ namespace
             {
                 FRDGBuilder Rejected; Rejected.SetAsyncComputeEnabled(true);
                 const auto Params = Second->BuildRenderingCommands(Rejected, SecondTelemetry, true, false, EGPUCullingFailure::CommandAdmission);
-                auto Reads = Rejected.AllocParameters<FGPUSceneReadParameters>();
-                Reads->InstanceIds = FRDGBufferAccess{Params.InstanceIdOffsetBuffer->Buffer, 0, 128 * sizeof(uint32), ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
-                Reads->DynamicInstanceIds = FRDGBufferAccess{Params.DrawIndirectArgsBuffer->Buffer, 0, 2 * sizeof(FRHIDrawIndexedIndirectArguments), ERDGUse::Read, ERHIAccess::IndirectArgumentRead};
+                auto Reads = Rejected.AllocParameters<FInstanceCullingDrawParams>();
+                Reads->InstanceIdOffsetBuffer = Params.InstanceIdOffsetBuffer;
+                Reads->DrawIndirectArgsBuffer = Params.DrawIndirectArgsBuffer;
                 Rejected.AddPass("Culling.Consumer", ERDGPassType::Graphics, std::move(Reads),
-                    [](FRHICommandListImmediate&, const FGPUSceneReadParameters&, const FRDGParameterResolver&) {});
+                    [](FRHICommandListImmediate&, const FInstanceCullingDrawParams&, const FRDGParameterResolver&) {});
                 FRejectGPUSceneAllocator Reject;
                 EXPECT_FALSE(Rejected.Execute(Executor.GetImmediateCommandList(), &Reject));
                 EXPECT_TRUE(Rejected.HasCompiledPlan());
@@ -1397,10 +1445,10 @@ namespace
 			FRDGBuilder Drawing;
 			const auto Buffer = GPU.GetResourceBuffers()[1];
 			const auto Handle = Drawing.RegisterExternalBuffer(Buffer, "DynamicSharedRead", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			auto Reads = Drawing.AllocParameters<FGPUSceneReadParameters>();
-			Reads->InstanceIds = FRDGBufferAccess{Handle, 0, Buffer->GetSize(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+			auto Reads = Drawing.AllocParameters<FInstanceCullingDrawParams>();
+			Reads->InstanceIdsBuffer = FRDGBufferParameter{Handle, 0, Buffer->GetSize()};
 			Drawing.AddPass("DrawingUsesDynamicRange", ERDGPassType::Graphics, std::move(Reads),
-				[](FRHICommandListImmediate&, const FGPUSceneReadParameters&, const FRDGParameterResolver&) {});
+				[](FRHICommandListImmediate&, const FInstanceCullingDrawParams&, const FRDGParameterResolver&) {});
 			EXPECT_TRUE(Drawing.Execute(Executor.GetImmediateCommandList(), &Allocator));
 			Executor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 			GPU.RegisterGraphUse(Drawing); ASSERT_TRUE(Drawing.GetGPUCompletion()); EXPECT_FALSE(Drawing.GetGPUCompletion().IsComplete());

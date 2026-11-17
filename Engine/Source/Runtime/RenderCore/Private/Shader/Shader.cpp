@@ -1,4 +1,6 @@
 #include "Shader/Shader.h"
+#include "Shader/ShaderParameterSchema.h"
+#include "ShaderParameterSchemaInternal.h"
 
 namespace Durin
 {
@@ -75,7 +77,19 @@ namespace Durin
 		, ShouldCompilePermutationFn(InShouldCompilePermutation)
 		, ModifyCompilationEnvironmentFn(InModifyCompilationEnvironment)
 	{
+		if (ParametersMetadata)
+		{
+			auto Schema = Private::BuildRegisteredShaderParameterSchema(*ParametersMetadata, ParameterHostBindings);
+			if (Schema) ParameterSchema = std::make_unique<const FShaderParameterSchema>(std::move(*Schema));
+			else ParameterSchemaError = Schema.error();
+		}
 		GetShaderTypeRegistry().Register(this);
+	}
+
+	auto FShaderType::GetParameterSchemaIdentity() const -> std::expected<FXxHash128, std::string>
+	{
+		if (!ParameterSchemaError.empty()) return std::unexpected(ParameterSchemaError);
+		return ParameterSchema ? ParameterSchema->Identity : FXxHash128{};
 	}
 
 	FShaderType::~FShaderType()
@@ -93,12 +107,31 @@ namespace Durin
 		return ShouldCompilePermutationFn ? ShouldCompilePermutationFn(Parameters) : true;
 	}
 
+	auto FShaderType::ApplyParameterCompilationEnvironment(FShaderCompileOptions& CompileOptions) const -> void
+	{
+		const auto SetMacro = [&](std::string MacroName, std::string Value) {
+			const auto Existing = std::ranges::find(CompileOptions.Macros, MacroName, &FShaderMacroDefinition::Name);
+			if (Existing == CompileOptions.Macros.end()) CompileOptions.Macros.emplace_back(std::move(MacroName), std::move(Value));
+			else Existing->Value = std::move(Value);
+		};
+		if (Frequency == EShaderFrequency::Vertex || Frequency == EShaderFrequency::Fragment)
+			SetMacro("DURIN_STAGE_PARAMETER_SPACES", "1");
+		if (ParametersMetadata)
+		{
+			// Invalid metadata is rejected at binding admission; its distinct key must
+			// never select a previously accepted valid schema.
+			const auto MacroName = std::format("DURIN_PARAMETER_SCHEMA_{}", FXxHash128::HashBuffer(Name).ToString());
+			SetMacro(MacroName, ParameterSchema ? std::format("\"{}\"", ParameterSchema->Identity.ToString()) : "invalid");
+		}
+	}
+
 	auto FShaderType::ModifyCompilationEnvironment(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& CompileOptions) const -> void
 	{
 		if (ModifyCompilationEnvironmentFn)
 		{
 			ModifyCompilationEnvironmentFn(Parameters, CompileOptions);
 		}
+		ApplyParameterCompilationEnvironment(CompileOptions);
 	}
 
 	auto FShaderType::GetTypeList() -> const std::vector<const FShaderType*>&
@@ -121,6 +154,7 @@ namespace Durin
 	auto FShader::InitializeParameterBindings() -> FShaderOperationResult
 	{
 		Bindings = {};
+		if (Type) return Bindings.Bind(*Type, Reflection);
 		auto Map = FShaderParameterMap::FromReflection(Reflection);
 		if (!Map) return std::unexpected(Map.error());
 		return Bindings.Bind(Type ? Type->GetParametersMetadata() : nullptr, *Map);

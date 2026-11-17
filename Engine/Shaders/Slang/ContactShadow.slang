@@ -15,12 +15,12 @@ struct ContactShadowUniform
     float4 Trace;    // x = max screen displacement in pixels
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
-[[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
-[[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
-[[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
-[[vk::binding(5, 0)]] ConstantBuffer<ContactShadowUniform> Params;
-[[vk::binding(6, 0)]] RWTexture2D<unorm float> ContactVisibilityOutput;
+Texture2D<float4> GBufferMaterial;
+Texture2D<float4> GBufferNormals;
+Texture2D<float4> GBufferSurface;
+Texture2D<float> SceneDepth;
+ConstantBuffer<ContactShadowUniform> Params;
+RWTexture2D<unorm float> ContactVisibilityOutput;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

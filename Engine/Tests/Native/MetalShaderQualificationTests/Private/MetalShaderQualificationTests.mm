@@ -109,7 +109,7 @@ namespace
 
 	auto TranslateSpirvToMetal(const std::string& Spirv,
 		SpvExecutionModel Stage = SpvExecutionModelGLCompute,
-		bool bResourceArray = false, unsigned ComputeBufferCount = 4) -> std::string
+		bool bResourceArray = false, unsigned ComputeBufferCount = 4, bool bAuthoredCulling = false) -> std::string
 	{
 		if (Spirv.empty() || Spirv.size() % sizeof(SpvId) != 0)
 		{
@@ -143,20 +143,57 @@ namespace
 			if (BindingResult == SPVC_SUCCESS)
 				BindingResult = spvc_compiler_install_compiler_options(Compiler, Options);
 		}
-		if (BindingResult == SPVC_SUCCESS)
+        if (BindingResult == SPVC_SUCCESS && (Stage != SpvExecutionModelGLCompute || bAuthoredCulling))
+        {
+            spvc_resources Resources = nullptr;
+            spvc_set Active = nullptr;
+            BindingResult = spvc_compiler_get_active_interface_variables(Compiler, &Active);
+            if (BindingResult == SPVC_SUCCESS)
+                BindingResult = spvc_compiler_create_shader_resources_for_active_variables(Compiler, &Resources, Active);
+            const spvc_resource_type Types[] = {SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
+                SPVC_RESOURCE_TYPE_SEPARATE_IMAGE, SPVC_RESOURCE_TYPE_SEPARATE_SAMPLERS, SPVC_RESOURCE_TYPE_STORAGE_BUFFER};
+            for (const auto Type : Types)
+            {
+                if (BindingResult != SPVC_SUCCESS) break;
+                const spvc_reflected_resource* List = nullptr;
+                size_t Count = 0;
+                BindingResult = spvc_resources_get_resource_list_for_type(Resources, Type, &List, &Count);
+                for (size_t Index = 0; BindingResult == SPVC_SUCCESS && Index < Count; ++Index)
+                {
+                    spvc_msl_resource_binding_2 Binding;
+                    spvc_msl_resource_binding_init_2(&Binding);
+                    Binding.stage = Stage;
+                    Binding.desc_set = spvc_compiler_get_decoration(Compiler, List[Index].id, SpvDecorationDescriptorSet);
+                    Binding.binding = spvc_compiler_get_decoration(Compiler, List[Index].id, SpvDecorationBinding);
+                    Binding.count = 1;
+                    if (bAuthoredCulling) {
+                        const char* Names[] = {"Candidates", "VisibleInstances", "IndirectArguments", "Params", "InstanceSceneData"};
+                        const std::string Name = spvc_compiler_get_name(Compiler, List[Index].id);
+                        bool Found = false;
+                        for (unsigned Slot = 0; Slot < 5; ++Slot) {
+                            if (Name == Names[Slot]) { Binding.msl_buffer = Slot; Found = true; break; }
+                        }
+                        if (!Found) { ADD_FAILURE() << "Unknown culling resource: " << Name; BindingResult = SPVC_ERROR_INVALID_ARGUMENT; break; }
+                    }
+                    // Native buffer zero holds the ImGui vertex stream.
+                    else if (Type == SPVC_RESOURCE_TYPE_UNIFORM_BUFFER) Binding.msl_buffer = unsigned(Index) + 1;
+                    else if (Type == SPVC_RESOURCE_TYPE_SEPARATE_IMAGE) Binding.msl_texture = unsigned(Index);
+                    else Binding.msl_sampler = unsigned(Index);
+                    BindingResult = spvc_compiler_msl_add_resource_binding_2(Compiler, &Binding);
+                }
+            }
+        }
+		if (BindingResult == SPVC_SUCCESS && Stage == SpvExecutionModelGLCompute && !bAuthoredCulling)
 		{
-			// Fixture-specific explicit remaps also reserve vertex buffer 0 for
-			// the ImGui vertex stream. Production needs a checked allocation map.
-			const unsigned BindingCount = bResourceArray ? 3 :
-				Stage == SpvExecutionModelGLCompute ? ComputeBufferCount :
-				Stage == SpvExecutionModelVertex ? 1 : 2;
+            // Explicit compute fixture ABIs are independent of authored graphics allocation.
+			const unsigned BindingCount = bResourceArray ? 3 : ComputeBufferCount;
 			for (unsigned Index = 0; Index < BindingCount; ++Index)
 			{
 				spvc_msl_resource_binding_2 Binding;
 				spvc_msl_resource_binding_init_2(&Binding);
 				Binding.stage = Stage;
 				Binding.desc_set = 0;
-				Binding.binding = Stage == SpvExecutionModelVertex ? 2 : Index;
+				Binding.binding = Index;
 				Binding.count = bResourceArray && Index < 2 ? 2 : 1;
 				if (bResourceArray && Index == 0)
 					Binding.msl_texture = 0;
@@ -164,14 +201,7 @@ namespace
 					Binding.msl_sampler = 0;
 				else if (bResourceArray)
 					Binding.msl_buffer = 0;
-				else if (Stage == SpvExecutionModelGLCompute)
-					Binding.msl_buffer = Index;
-				else if (Stage == SpvExecutionModelVertex)
-					Binding.msl_buffer = 1;
-				else if (Index == 0)
-					Binding.msl_texture = 0;
-				else
-					Binding.msl_sampler = 0;
+                else Binding.msl_buffer = Index;
 				BindingResult = spvc_compiler_msl_add_resource_binding_2(Compiler, &Binding);
 				if (BindingResult != SPVC_SUCCESS) break;
 			}
@@ -861,7 +891,7 @@ namespace
 			const std::string Spirv = CompileShaderCode(
 				"InstanceCulling.slang", "CullMain", SLANG_SPIRV);
 			ASSERT_FALSE(Spirv.empty());
-			const std::string MetalCode = TranslateSpirvToMetal(Spirv, SpvExecutionModelGLCompute, false, 5);
+			const std::string MetalCode = TranslateSpirvToMetal(Spirv, SpvExecutionModelGLCompute, false, 5, true);
 			ASSERT_FALSE(MetalCode.empty());
 			NSString* MetalSource = [[NSString alloc] initWithBytes:MetalCode.data()
 				length:MetalCode.size() encoding:NSUTF8StringEncoding];

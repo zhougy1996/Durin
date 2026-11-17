@@ -21,10 +21,10 @@ namespace Durin
         {
         public:
             DURIN_BEGIN_SHADER_PARAMETERS(FSkyLightingShader)
-                DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(Source);
+                DURIN_SHADER_PARAMETER_TEXTURE_VIEW(Source);
                 DURIN_SHADER_PARAMETER_SAMPLER(SourceSampler);
                 DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
-                DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(Output);
+                DURIN_SHADER_PARAMETER_STORAGE_IMAGE_VIEW(Output);
             DURIN_END_SHADER_PARAMETERS();
             DURIN_DECLARE_GLOBAL_SHADER(FSkyLightingShader, FGlobalShader, "/Engine/SkyLighting", EShaderFrequency::Compute, "ComputeMain");
         };
@@ -310,14 +310,6 @@ namespace Durin
                     SourceDesc.Range=P.Source.Range;
                     auto SourceView=GDynamicRHI->RHIGetOrCreateTextureView(SourceTexture,SourceDesc);
                     requiref(SourceView,"Sky lighting source view is unavailable.");
-                    const auto& Reflection=State->Shader.GetShader()->GetReflection();
-                    const auto Bind=[&](std::string_view Name,FRHIResource* Resource,uint32 Offset=0,uint32 Size=0) {
-                        const auto Binding=std::ranges::find_if(Reflection.ResourceBindings,
-                            [Name](const auto& Candidate) { return Candidate.Name==Name; });
-                        requiref(Binding!=Reflection.ResourceBindings.end(), "Sky lighting binding is missing.");
-                        return FRHIShaderParameterResource{.Resource=Resource,.SetIndex=Binding->SetIndex,
-                            .BindingIndex=Binding->BindingIndex,.Type=Binding->Type,.Offset=Offset,.Size=Size};
-                    };
                     for(uint32 Face=0;Face<Faces;++Face)
                     {
                         auto Desc=MakeDefaultTextureViewDesc(*Texture,ERHITextureViewUsage::Storage);
@@ -329,12 +321,12 @@ namespace Durin
                         const auto Buffer=Cmd.CreateUniformBufferRange(&Uniform,sizeof(Uniform));
                         // A complete update keeps prior bindings alive until replacement,
                         // including Vulkan's pending descriptor resource owners.
-                        const std::array Parameters{
-                            Bind("Source",SourceView.GetReference()),
-                            Bind("SourceSampler",State->Sampler.GetReference()),
-                            Bind("Params",Buffer.Buffer,Buffer.Offset,Buffer.Size),
-                            Bind("Output",View.GetReference())};
-                        Cmd.SetShaderParameters(State->Shader.GetRHIShader(),Parameters);
+                        FSkyLightingShader::FParameters Parameters{};
+                        Parameters.Source = SourceView.GetReference();
+                        Parameters.SourceSampler = State->Sampler.GetReference();
+                        Parameters.Params = Buffer;
+                        Parameters.Output = View.GetReference();
+                        SetShaderParameters(Cmd, State->Shader, Parameters);
                         Cmd.Dispatch((Dimension+7)/8,(Dimension+7)/8,1);
                     }
                 });

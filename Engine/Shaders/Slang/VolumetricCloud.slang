@@ -24,13 +24,13 @@ struct VolumetricCloudUniform
     float4 Jitter;      // subpixel cloud-target jitter.xy
 };
 
-[[vk::binding(0, 0)]] Texture3D<float> BaseDensity;
-[[vk::binding(1, 0)]] Texture3D<float> DetailDensity;
-[[vk::binding(2, 0)]] Texture2D<float> WeatherTexture;
-[[vk::binding(3, 0)]] Texture2D<float> SceneDepth;
-[[vk::binding(4, 0)]] SamplerState DensitySampler;
-[[vk::binding(5, 0)]] ConstantBuffer<VolumetricCloudUniform> Params;
-[[vk::binding(6, 0), vk::image_format("rgba16f")]]
+Texture3D<float> BaseDensity;
+Texture3D<float> DetailDensity;
+Texture2D<float> WeatherTexture;
+Texture2D<float> SceneDepth;
+SamplerState DensitySampler;
+ConstantBuffer<VolumetricCloudUniform> Params;
+[[vk::image_format("rgba16f")]]
 RWTexture2D<float4> CloudOutput;
 
 [shader("vertex")]

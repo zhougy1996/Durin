@@ -19,9 +19,9 @@ struct ProjectionUniform {
     float2 uTranslate;
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> FontTexture;
-[[vk::binding(1, 0)]] SamplerState FontSampler;
-[[vk::binding(2, 0)]] ConstantBuffer<ProjectionUniform> Projection;
+Texture2D<float4> FontTexture;
+SamplerState FontSampler;
+ConstantBuffer<ProjectionUniform> Projection;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

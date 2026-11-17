@@ -17,6 +17,7 @@
 #include "Scene.h"
 #include "SceneView.h"
 #include "Renderers/GPUSceneRendering.h"
+#include "Renderers/InstanceCullingDrawParams.h"
 #include "Threading/Task.h"
 #include "Renderers/ViewPreparationMath.h"
 
@@ -369,7 +370,7 @@ namespace Durin
 		std::array<size_t, 2> GBufferSkippedSources{};
 		std::vector<uint8> GBufferSourceFamilies;
 		RendererPrivate::FMeshDrawCommandPassStats* GBufferPassStats = nullptr;
-		RENDERER_API auto GetGPUSceneParameters(FRDGBuilder& Graph) const -> FGPUSceneReadParameters;
+		RENDERER_API auto GetInstanceCullingDrawParams(FRDGBuilder& Graph, FInstanceCullingDrawParams Parameters = {}) const -> FInstanceCullingDrawParams;
 		FGPUScene* GPUScene = nullptr;
 		std::shared_ptr<FGPUSceneDynamicContext> GPUSceneDynamicContext;
 		std::vector<FGPUScenePrimitiveData> GPUScenePrimitives;

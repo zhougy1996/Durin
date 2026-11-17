@@ -157,39 +157,31 @@ namespace Durin
 		static const auto Metadata = MakeInlineRDGParametersMetadata<P>("FGPUSceneResourceParameters", Members);
 		return &Metadata;
 	}
-	auto FGPUSceneReadParameters::GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+	auto RegisterGPUSceneBuffer(FRDGBuilder& Graph, const FBufferRHIRef& Buffer) -> std::optional<FRDGBufferParameter>
 	{
-		using P = FGPUSceneReadParameters;
-		static const std::array Members{
-			MakeRDGNestedParameterMemberMetadata<P, decltype(GPUScene)>("GPUScene", offsetof(P, GPUScene), FGPUSceneResourceParameters::GetRDGParametersMetadata()),
-			MakeRDGBufferAccessMetadata<P, decltype(InstanceIds)>("InstanceIds", offsetof(P, InstanceIds)),
-			MakeRDGBufferAccessMetadata<P, decltype(DynamicInstanceIds)>("DynamicInstanceIds", offsetof(P, DynamicInstanceIds))};
-		static const auto Metadata = MakeInlineRDGParametersMetadata<P>("FGPUSceneReadParameters", Members);
-		return &Metadata;
+		if (!Buffer) return {};
+		const auto Existing = Graph.FindExternalBuffer(Buffer);
+		const auto Name = Existing.IsValid() ? std::string{} : std::format("GPUScene.Read.{}", reinterpret_cast<uintptr_t>(Buffer.GetReference()));
+		// Every registration still validates external entrance/final access.
+		const auto Handle = Graph.RegisterExternalBuffer(Buffer, Name, ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		return FRDGBufferParameter{Handle, 0, Buffer->GetSize()};
 	}
-	auto FGPUSceneBufferSet::GetShaderParameters(FRDGBuilder& Graph, const FBufferRHIRef& DynamicIds) const -> FGPUSceneReadParameters
+
+	auto FGPUSceneResourceParameters::Register(FRDGBuilder& Graph, const std::array<FBufferRHIRef, 3>& Buffers,
+		uint32 NumPrimitives, uint32 NumInstances, uint64 Generation) -> FGPUSceneResourceParameters
 	{
-		auto Import = [&](const FBufferRHIRef& Buffer) -> std::optional<FRDGBufferParameter> {
-			if (!Buffer) return {};
-			const auto Existing = Graph.FindExternalBuffer(Buffer);
-			const auto Name = Existing.IsValid() ? std::string{} : std::format("GPUScene.Read.{}", reinterpret_cast<uintptr_t>(Buffer.GetReference()));
-			// Registration still validates the external entrance/final contract on every import.
-			const auto Handle = Graph.RegisterExternalBuffer(Buffer, Name, ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			return FRDGBufferParameter{Handle, 0, Buffer->GetSize()};
-		};
-		auto Read = [&](const FBufferRHIRef& Buffer) -> std::optional<FRDGBufferAccess> {
-			const auto Parameter = Import(Buffer);
-			return Parameter ? std::optional(FRDGBufferAccess{Parameter->Buffer, 0, Parameter->Size, ERDGUse::Read, ERHIAccess::GraphicsShaderRead}) : std::nullopt;
-		};
-		FGPUSceneReadParameters Result;
-		Result.GPUScene.GPUSceneNumAllocatedPrimitives = NumAllocatedPrimitives;
-		Result.GPUScene.GPUSceneNumAllocatedInstances = NumAllocatedInstances;
-		Result.GPUScene.GPUSceneResourceGeneration = ResourceGeneration;
-		Result.GPUScene.GPUScenePrimitiveSceneData = Import(SceneData[0]);
-		Result.GPUScene.GPUSceneInstanceSceneData = Import(SceneData[1]);
-		Result.GPUScene.GPUSceneInstancePayloadData = Import(SceneData[2]);
-		Result.InstanceIds = Read(InstanceIds);
-		if (DynamicIds != InstanceIds) Result.DynamicInstanceIds = Read(DynamicIds);
+		FGPUSceneResourceParameters Result;
+		Result.GPUScenePrimitiveSceneData = RegisterGPUSceneBuffer(Graph, Buffers[0]);
+		Result.GPUSceneInstanceSceneData = RegisterGPUSceneBuffer(Graph, Buffers[1]);
+		Result.GPUSceneInstancePayloadData = RegisterGPUSceneBuffer(Graph, Buffers[2]);
+		Result.GPUSceneNumAllocatedPrimitives = NumPrimitives;
+		Result.GPUSceneNumAllocatedInstances = NumInstances;
+		Result.GPUSceneResourceGeneration = Generation;
 		return Result;
+	}
+
+	auto FGPUSceneBufferSet::GetShaderParameters(FRDGBuilder& Graph) const -> FGPUSceneResourceParameters
+	{
+		return FGPUSceneResourceParameters::Register(Graph, SceneData, NumAllocatedPrimitives, NumAllocatedInstances, ResourceGeneration);
 	}
 }

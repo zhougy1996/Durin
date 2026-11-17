@@ -1,6 +1,6 @@
 module QueueProducer;
-[[vk::binding(0, 0)]] RWStructuredBuffer<uint> Values;
-[[vk::binding(1, 0), vk::image_format("rgba8")]] RWTexture2D<float4> Image;
+RWStructuredBuffer<uint> Values;
+[[vk::image_format("rgba8")]] RWTexture2D<float4> Image;
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeMain(uint3 id : SV_DispatchThreadID)

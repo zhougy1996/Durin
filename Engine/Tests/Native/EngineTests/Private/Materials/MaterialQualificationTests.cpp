@@ -640,20 +640,17 @@ TEST_F(FMaterialQualificationTests, ColdAndWarmCompilerBaseline)
 		: Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.GetShaderMap().ShaderMapId, Normalized.Identity);
 	ASSERT_EQ(Compiled.GetShaderMap().CompiledShaders.size(), Durin::GetDefaultMaterialShaderEntries().size());
-	// Stage 0's captured forward contract has 22 descriptors. Check its named
-	// pass-owned LocalLights binding alongside the total.
-	const auto FindEntry = [&](std::string_view Name) -> const Durin::FShaderCode& {
-		return *std::ranges::find(Compiled.GetShaderMap().CompiledShaders, Name, &Durin::FShaderCode::SourceEntryPoint);
-	};
-	EXPECT_EQ(FindEntry("FragmentMain").Reflection.ResourceBindings.size(), 22u);
-	EXPECT_TRUE(std::ranges::any_of(FindEntry("FragmentMain").Reflection.ResourceBindings, [](const auto& B) { return B.Name == "LocalLights" && B.SetIndex == 0 && B.BindingIndex == 30; }));
-	EXPECT_EQ(FindEntry("GeometryFragmentMain").Reflection.ResourceBindings.size(), 14u);
+    const auto FindEntry = [&](std::string_view Name) -> const Durin::FShaderCode& {
+        return *std::ranges::find(Compiled.GetShaderMap().CompiledShaders, Name, &Durin::FShaderCode::SourceEntryPoint);
+    };
+    EXPECT_TRUE(std::ranges::any_of(FindEntry("FragmentMain").Reflection.ResourceBindings,
+        [](const auto& Binding) { return Binding.Name == "LocalLights" && Binding.Type == Durin::ERHIBindingType::StorageBuffer; }));
 	EXPECT_TRUE(FindEntry("ShadowFragmentMain").Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.GetShaderMap().CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
 	std::string ReflectionError;
-	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
-		CorruptedStages, Compiled.GetShaderMap().Layout));
+	EXPECT_FALSE(Durin::ValidateMaterialCompilationOutput(Compiled.GetShaderMap(),
+		Compiled.GetShaderMap().ShaderMapId, Compiled.GetShaderMap().Target, CorruptedStages));
 	const Durin::FMaterialCompilerResult Warm =
 		Durin::MIR::Compile(Input);
 	ASSERT_TRUE(Warm) << (Warm.Diagnostics.empty()

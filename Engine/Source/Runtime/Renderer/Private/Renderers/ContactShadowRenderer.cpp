@@ -18,6 +18,27 @@ namespace Durin
 	{
 		std::atomic<FContactShadowVisibilityRenderer::FTimingQuerySink>
 			GContactVisibilityTimingQuerySink = nullptr;
+		struct alignas(16) FContactVisibilityUniform
+		{
+			float InverseViewProjection[16]{};
+			float ViewProjection[16]{};
+			float ToLightMaxDistance[4]{0.0f, 0.0f, 0.0f, 0.20f};
+			float SurfaceBiasReversedZ[4]{1.5f, 0.0005f, 0.0f, 0.0f};
+			float Viewport[4]{1.0f, 1.0f, 0.0f, 0.0f};
+			float Trace[4]{48.0f, 0.0f, 0.0f, 0.0f};
+            static auto GetShaderConstantMembers() -> std::span<const FShaderConstantMember>
+            {
+                static const std::array Members = {
+                    FShaderConstantMember{"InverseViewProjection", offsetof(FContactVisibilityUniform, InverseViewProjection), 64},
+                    FShaderConstantMember{"ViewProjection", offsetof(FContactVisibilityUniform, ViewProjection), 64},
+                    FShaderConstantMember{"ToLightMaxDistance", offsetof(FContactVisibilityUniform, ToLightMaxDistance), 16},
+                    FShaderConstantMember{"SurfaceBiasReversedZ", offsetof(FContactVisibilityUniform, SurfaceBiasReversedZ), 16},
+                    FShaderConstantMember{"Viewport", offsetof(FContactVisibilityUniform, Viewport), 16},
+                    FShaderConstantMember{"Trace", offsetof(FContactVisibilityUniform, Trace), 16}};
+                return Members;
+            }
+		};
+		static_assert(sizeof(FContactVisibilityUniform) == 192);
 		class FContactVisibilityVertexShader final : public FGlobalShader
 		{
 		public:
@@ -29,11 +50,11 @@ namespace Durin
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityFragmentShader)
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial, "Texture2D");
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals, "Texture2D");
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface, "Texture2D");
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth, "Texture2D");
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_LAYOUT(Params, FContactVisibilityUniform, ERHIBindingType::UniformBufferDynamic);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_GLOBAL_SHADER(FContactVisibilityFragmentShader, FGlobalShader,
 				"/Engine/ContactShadow", EShaderFrequency::Fragment,
@@ -44,12 +65,12 @@ namespace Durin
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityComputeShader)
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
-				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(ContactVisibilityOutput);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial, "Texture2D");
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals, "Texture2D");
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface, "Texture2D");
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth, "Texture2D");
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_LAYOUT(Params, FContactVisibilityUniform, ERHIBindingType::UniformBuffer);
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(ContactVisibilityOutput, "RWTexture2D");
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_GLOBAL_SHADER(FContactVisibilityComputeShader, FGlobalShader,
 				"/Engine/ContactShadow", EShaderFrequency::Compute,
@@ -68,16 +89,7 @@ namespace Durin
 			{&FContactVisibilityVertexShader::StaticType(),
 			 &FContactVisibilityFragmentShader::StaticType()});
 
-		struct alignas(16) FContactVisibilityUniform
-		{
-			float InverseViewProjection[16]{};
-			float ViewProjection[16]{};
-			float ToLightMaxDistance[4]{0.0f, 0.0f, 0.0f, 0.20f};
-			float SurfaceBiasReversedZ[4]{1.5f, 0.0005f, 0.0f, 0.0f};
-			float Viewport[4]{1.0f, 1.0f, 0.0f, 0.0f};
-			float Trace[4]{48.0f, 0.0f, 0.0f, 0.0f};
-		};
-		static_assert(sizeof(FContactVisibilityUniform) == 192);
+
 	} // namespace
 
 	struct FContactShadowVisibilityRenderer::FState

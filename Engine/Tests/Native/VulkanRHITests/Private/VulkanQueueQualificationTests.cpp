@@ -167,8 +167,14 @@ namespace Durin::VulkanRHI
 					FRHITextureTransition{Readback, Whole, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
 				Commands.SwitchPipeline(ERHIPipeline::Compute);
 				Commands.SetComputePipelineState(*Pipeline);
-				const std::array Parameters{FRHIShaderParameterResource{.Resource = View.GetReference(), .BindingIndex = 0, .Type = ERHIBindingType::StorageBuffer},
-					FRHIShaderParameterResource{.Resource = Image.GetReference(), .BindingIndex = 1, .Type = ERHIBindingType::StorageImage}};
+                const auto& Bindings = Code.CompiledShaders[0].Reflection.ResourceBindings;
+                const auto Bind = [&](std::string_view Name, FRHIResource* Resource) {
+                    const auto Found = std::ranges::find(Bindings, Name, &FShaderResourceBinding::Name);
+                    requiref(Found != Bindings.end(), "Queue fixture binding is missing");
+                    return FRHIShaderParameterResource{.Resource = Resource, .SetIndex = Found->SetIndex,
+                        .BindingIndex = Found->BindingIndex, .Type = Found->Type};
+                };
+                const std::array Parameters{Bind("Values", View.GetReference()), Bind("Image", Image.GetReference())};
 				Commands.SetShaderParameters(Shader, Parameters);
 				Commands.Dispatch(1, 1, 1);
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);

@@ -22,9 +22,9 @@ struct PreviewSettingsUniform
     uint Padding;
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> PreviewTexture;
-[[vk::binding(1, 0)]] SamplerState PreviewSampler;
-[[vk::binding(2, 0)]] ConstantBuffer<PreviewSettingsUniform> PreviewSettings;
+Texture2D<float4> PreviewTexture;
+SamplerState PreviewSampler;
+ConstantBuffer<PreviewSettingsUniform> PreviewSettings;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

@@ -30,14 +30,14 @@ namespace Durin::Tests
 	{
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FShadowCaptureFragmentShader)
-			DURIN_SHADER_PARAMETER_TEXTURE(ShadowDepth);
+			DURIN_SHADER_PARAMETER_TEXTURE_VIEW(ShadowDepth);
 		DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_GLOBAL_SHADER(FShadowCaptureFragmentShader, FGlobalShader,
 			"/GeometryQualification/Depth", EShaderFrequency::Fragment, "ShadowMain");
 	};
 	inline constexpr std::string_view DepthCaptureSource = R"SLANG(
-[[vk::binding(0,0)]] Texture2D<float> SceneDepth;
-[[vk::binding(1,0)]] Texture2DArray<float> ShadowDepth;
+Texture2D<float> SceneDepth;
+Texture2DArray<float> ShadowDepth;
 [shader("vertex")]
 float4 VertexMain(uint id : SV_VertexID) : SV_Position {
  float2 p = float2((id << 1) & 2, id & 2);
@@ -107,9 +107,10 @@ float ShadowMain(float4 p : SV_Position) : SV_Target0 {
 			CommandList.SetScissor(0, 0, Source->GetSizeX(), Source->GetSizeY());
 			if (Source->GetArraySize() > 1)
 			{
-				const std::array Parameters{FRHIShaderParameterResource{.Resource = ShadowView.GetReference(),
-					.SetIndex = 0, .BindingIndex = 1, .Type = ERHIBindingType::Texture}};
-				CommandList.SetShaderParameters(Map.GetOrCreateShaderRHI(Types[1]), Parameters);
+				TShaderRef<FShadowCaptureFragmentShader> Fragment(static_cast<FShadowCaptureFragmentShader*>(Map.GetShader(Types[1])), &Map);
+				FShadowCaptureFragmentShader::FParameters Parameters;
+				Parameters.ShadowDepth = ShadowView.GetReference();
+				SetShaderParameters(CommandList, Fragment, Parameters);
 			}
 			else
 			{

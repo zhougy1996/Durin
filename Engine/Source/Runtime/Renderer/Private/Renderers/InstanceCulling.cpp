@@ -306,6 +306,9 @@ namespace Durin
 	{
 		using P = FInstanceCullingDrawParams;
 		static const std::array Members{
+			MakeRDGNestedParameterMemberMetadata<P, decltype(Scene)>("Scene", offsetof(P, Scene), FGPUSceneResourceParameters::GetRDGParametersMetadata()),
+			MakeRDGResourceParameterMemberMetadata<P, decltype(InstanceIdsBuffer), FRDGBufferParameter>("InstanceIdsBuffer", offsetof(P, InstanceIdsBuffer), ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer, ERDGParameterRangeKind::BufferBytes, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+			MakeRDGResourceParameterMemberMetadata<P, decltype(DynamicInstanceIdsBuffer), FRDGBufferParameter>("DynamicInstanceIdsBuffer", offsetof(P, DynamicInstanceIdsBuffer), ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer, ERDGParameterRangeKind::BufferBytes, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 			MakeRDGResourceParameterMemberMetadata<P, decltype(InstanceIdOffsetBuffer), FRDGBufferParameter>("InstanceIdOffsetBuffer", offsetof(P, InstanceIdOffsetBuffer), ERDGParameterMemberKind::Buffer, ERDGResourceKind::Buffer, ERDGParameterRangeKind::BufferBytes, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 			MakeRDGIndirectArgumentMetadata<P, decltype(DrawIndirectArgsBuffer)>("DrawIndirectArgsBuffer", offsetof(P, DrawIndirectArgsBuffer))};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<P>("FInstanceCullingDrawParams", Members);
@@ -431,21 +434,20 @@ namespace Durin
 			}
 			const uint32 Before = Cache.DrawCalls;
 			auto Submit = [&]() -> bool {
-				if (!Visible.bSourceReady || (Visible.CachedInfo && Visible.CachedInfo->CommandIndex == INDEX_NONE)) return false;
 				for (uint32 Source : MeshDrawCommandInfos[DrawIndex].Fallback.GetDrawIndices())
 					if (const auto& Original = FallbackCommands[Source]; !Original.bSourceReady
 						|| (Original.CachedInfo && Original.CachedInfo->CommandIndex == INDEX_NONE)) return false;
 				if (Index == InvalidArgument) return Visible.SubmitDraw(Commands, &Cache);
-				const auto* Command = Visible.Command;
-				if (!Command || !Visible.Pass || !OverrideArgs.IndirectArgsBuffer || !OverrideArgs.InstanceBuffer || !Command->IndexBuffer
+				if (!OverrideArgs.IndirectArgsBuffer || !OverrideArgs.InstanceBuffer
 					|| !EnumHasAnyFlags(OverrideArgs.IndirectArgsBuffer->GetUsage(), EBufferUsageFlags::DrawIndirect)) return false;
 				const uint64 Size = OverrideArgs.IndirectArgsBuffer->GetSize();
 				const uint64 RelativeOffset = uint64(Index) * sizeof(FRHIDrawIndexedIndirectArguments);
 				if (OverrideArgs.IndirectArgsByteOffset > Size || RelativeOffset > Size - OverrideArgs.IndirectArgsByteOffset
 					|| sizeof(FRHIDrawIndexedIndirectArguments) > Size - OverrideArgs.IndirectArgsByteOffset - RelativeOffset) return false;
-				return Command->SubmitVisible(Commands, Visible.Pass->Vertex, Visible.Pass->Fragment, Visible.DepthBias, &Cache,
-					{.PrimitiveIdsBuffer = OverrideArgs.InstanceBuffer, .InstanceDataByteOffset = OverrideArgs.InstanceDataByteOffset,
-					.IndirectArgsBuffer = OverrideArgs.IndirectArgsBuffer, .IndirectArgsByteOffset = OverrideArgs.IndirectArgsByteOffset + RelativeOffset});
+				return Visible.SubmitDraw(Commands, &Cache,
+					{.InstanceBuffer = OverrideArgs.InstanceBuffer, .IndirectArgsBuffer = OverrideArgs.IndirectArgsBuffer,
+						.InstanceDataByteOffset = OverrideArgs.InstanceDataByteOffset,
+						.IndirectArgsByteOffset = OverrideArgs.IndirectArgsByteOffset + RelativeOffset});
 			};
 			const bool Submitted = Submit();
 			Result.Record(Visible.NumSourceDraws, Submitted, Cache.DrawCalls - Before, Index != InvalidArgument);

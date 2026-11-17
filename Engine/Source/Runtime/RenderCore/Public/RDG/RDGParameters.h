@@ -235,6 +235,8 @@ namespace Durin
 	// declaration. Runtime values and graph-local handles remain outside it.
 	struct FRDGParameterLayout final
 	{
+		// Retained by static joins so recycled layout addresses cannot alias a cache key.
+		std::shared_ptr<const uint8> Identity = std::make_shared<const uint8>(0);
 		const FRDGParametersMetadata* Metadata = nullptr;
 		std::vector<FRDGParameterLayoutLeaf> Leaves;
 		std::vector<FRDGParameterLayoutElement> Elements;

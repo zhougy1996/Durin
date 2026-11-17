@@ -14,11 +14,11 @@ struct CullingUniform
     uint4 counts; // candidates, planes, padding, padding
 };
 
-[[vk::binding(0, 0)]] StructuredBuffer<Candidate> Candidates;
-[[vk::binding(1, 0)]] RWStructuredBuffer<uint> VisibleInstances;
-[[vk::binding(2, 0)]] RWByteAddressBuffer IndirectArguments;
-[[vk::binding(3, 0)]] ConstantBuffer<CullingUniform> Params;
-[[vk::binding(4, 0)]] StructuredBuffer<float4> InstanceSceneData;
+StructuredBuffer<Candidate> Candidates;
+RWStructuredBuffer<uint> VisibleInstances;
+RWByteAddressBuffer IndirectArguments;
+ConstantBuffer<CullingUniform> Params;
+StructuredBuffer<float4> InstanceSceneData;
 
 float4 ReadInstanceData(Candidate candidate, uint offset)
 {

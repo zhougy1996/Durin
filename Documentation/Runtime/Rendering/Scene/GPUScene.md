@@ -2,7 +2,7 @@
 
 Summary: Define scene-owned Primitive and Instance records, incremental uploads, selected-instance shader access and allocation retirement.
 Modules: RenderCore, Engine, Renderer
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-18
 
 ## Scope and Ownership
 
@@ -116,22 +116,34 @@ and uint Instance IDs. Attribute buffer stride is 16 bytes. Compiler reflection
 and accepted product maps own descriptor locations; scene/material lifetime
 selection uses metadata scope. Instance-ID replacement retains its accepted location.
 
-`FGPUSceneShaderParameters` borrows native ranges. `FGPUSceneBufferSet` retains
-counted owners for a submission; `FGPUSceneReadParameters` imports and declares
-those resources per consuming graph. Builder handles never enter cached mesh
-commands. Pass bindings resolve current buffers after growth or recovery.
+`FGPUSceneShaderParameters` borrows native ranges. `FGPUScene::GetShaderParameters(Graph)`
+returns that graph's active update parameters, or registers the last committed
+buffers, counts and generation outside the update. Another graph never receives
+pending handles or uncommitted CPU counts. Retained `FGPUSceneBufferSet` snapshots
+use the same `FGPUSceneResourceParameters::Register` path. Registration is scoped
+to the receiving graph; growth, abandonment and scene release cannot replace a
+retained snapshot's counted buffers. Builder handles never enter cached commands.
+The consuming owner still reports terminal completion through `RegisterGraphUse`.
 
 Each resolved view retains one scene-buffer/direct-ID domain, validated during
 `SetupMeshDrawCommands`; equivalent wrappers may share it, while conflicting
-attribute or direct-ID buffers reject preparation. `GetGPUSceneParameters(Graph)`
-imports this domain without scanning primitives. Its typed
-`FGPUSceneResourceParameters` declares the three optional attribute buffers and
-their allocation-count/resource-generation snapshot. `FGPUSceneReadParameters`
-adds explicit optional direct and dynamic-instancing ID reads. Imports still
-validate the graph's external entrance/final access contract, including resources
-registered earlier. Empty optional resources declare no use. Shadow features own
-their cascade parameter arrays; the generic resource block has no view/cascade
-capacity limit. Translucent consumers declare the same scene resources explicitly.
+attribute or direct-ID buffers reject preparation. Its
+`GetInstanceCullingDrawParams(Graph, DrawParams)` supplies the common `Scene`
+parameters plus optional direct/dynamic instance-ID buffers, preserving any
+culling-produced ID/indirect buffers and byte offsets in `DrawParams`.
+`FInstanceCullingDrawParams` is the shared dependency block for direct, instanced
+and indirect mesh passes. Scene attributes and all ID streams share the same
+external-registration contract. `FVisibleMeshDrawCommand::SubmitDraw` selects the
+command's direct/CPU-compacted IDs and logical offset for fallback draws; only an
+admitted indirect override selects generated IDs and byte offsets. Mixed batches
+retain both dependencies; culling does not erase fallback streams.
+
+Imports validate external entrance/final access contracts on every call. Empty
+optional resources declare no use; aliased fields remain truthful declarations,
+and RDG combines compatible read access within the consuming pass. Shadow
+features retain per-cascade draw-parameter snapshots because independently
+prepared domains may own distinct buffers. There is no generic view/cascade
+capacity limit, and translucent consumers declare their scene resources explicitly.
 
 Providers select `EPrimitiveIdMode` on each batch: built-in StaticMesh/Spline
 publication uses `PrimID_FromPrimitiveSceneInfo`; extension batches default to

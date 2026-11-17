@@ -22,6 +22,8 @@
 #include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "Shader/Shader.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "RenderingThread.h"
 #include "Threading/TaskRuntime.h"
 #include "RendererModule.h"
@@ -358,6 +360,167 @@ namespace Durin
 			return std::move(*Pixels);
 		}
 	} // namespace
+
+    TEST_F(FEditorGridVulkanTests, ImGuiAutomaticBindingsPreserveClippingAndColor)
+    {
+        FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+        FShaderCompileOptions Options;
+        Options.Target = VulkanShaderTarget;
+        Options.EntryPoints = {"VertexMain", "FragmentMain"};
+        Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+        auto VertexType = MakeShaderType<FShader>("ImGuiDrawVertex", "/Engine/ImGui", EShaderFrequency::Vertex, "VertexMain");
+        auto FragmentType = MakeShaderType<FShader>("ImGuiDrawFragment", "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
+        const std::array<const FShaderType*, 2> Types{&VertexType, &FragmentType};
+        FShaderMapBase Map;
+        const auto Prepared = InitializeShaderMapFromTypesSync(Map, Types, Options);
+        ASSERT_TRUE(Prepared) << Prepared.Error;
+        FShaderCompilerOutput Compiled{.Status = EShaderBuildStatus::Ok};
+        for (uint32 Index = 0; Index < Map.GetCode()->GetNumShaders(); ++Index)
+            Compiled.CompiledShaders.push_back(Map.GetCode()->GetCompiledShader(Index));
+        ASSERT_TRUE(RHIInit(Tests::GetVulkanEngineTestInitializationContext()));
+        InitRenderingThread();
+        struct FCleanup {
+            ~FCleanup() { ShutdownRenderingThread(); FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None); RHIExit(); }
+        } Cleanup;
+        EnqueueRenderCommand("ImGuiAllocationReadback", [&](FRHICommandListImmediate& Commands) {
+            Commands.SwitchPipeline(ERHIPipeline::Graphics);
+            const auto Vertex = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(Compiled.CompiledShaders[0]));
+            const auto Fragment = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(Compiled.CompiledShaders[1]));
+            ASSERT_TRUE(Vertex); ASSERT_TRUE(Fragment);
+				struct FImGuiVertex
+				{
+					float Position[2];
+					float UV[2];
+					float Color[4];
+				};
+				// Top-half UI rectangle: asymmetric coverage exposes clip-space Y inversion.
+				const FImGuiVertex Vertices[6] = {
+					{{0, 0}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+					{{4, 0}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+					{{0, 2}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+					{{4, 0}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+					{{4, 2}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}},
+					{{0, 2}, {0.5f, 0.5f}, {0.5f, 1, 1, 0.5f}}};
+				auto VertexDesc = FRHIBufferCreateDesc::Create(
+					"Authored ImGui vertices", sizeof(Vertices), sizeof(FImGuiVertex),
+					EBufferUsageFlags::VertexBuffer);
+				VertexDesc.InitialData = {.Data = Vertices, .Size = sizeof(Vertices)};
+				auto VertexResult = GDynamicRHI->RHICreateBuffer(
+					Commands, VertexDesc);
+				ASSERT_TRUE(VertexResult);
+				auto VertexBuffer = std::move(VertexResult);
+				FVertexDeclarationElementList Elements{};
+				Elements[0] = {0, 0, EVertexElementType::Float2, 0,
+					sizeof(FImGuiVertex)};
+				Elements[1] = {0, 8, EVertexElementType::Float2, 1,
+					sizeof(FImGuiVertex)};
+				Elements[2] = {0, 16, EVertexElementType::Float4, 2,
+					sizeof(FImGuiVertex)};
+				auto Declaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+				ASSERT_TRUE(Declaration);
+				const std::array<uint8_t, 4> FontPixel{128, 64, 255, 255};
+				auto FontDesc = FRHITextureCreateDesc::Create2D(
+					"Authored ImGui font", 1, 1, EPixelFormat::RGBA8_UNORM);
+				FontDesc.SetFlags(ETextureCreateFlags::ShaderResource);
+				auto FontResult = GDynamicRHI->RHICreateTexture(Commands, FontDesc);
+				ASSERT_TRUE(FontResult);
+				auto Font = std::move(FontResult);
+				Commands.UpdateTexture2D(Font.GetReference(),
+					0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 4,
+					std::as_bytes(std::span(FontPixel)));
+				Commands.TransitionTextures(std::array{FRHITextureTransition{
+					Font.GetReference(), {ERHITextureAspect::Color, 0, 1, 0, 1},
+					ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
+				auto FontView = GDynamicRHI->RHICreateTextureView(
+					Font.GetReference(), MakeDefaultTextureViewDesc(
+						*Font, ERHITextureViewUsage::Sampled));
+				auto Sampler = GDynamicRHI->RHICreateSampler(
+					FRHISamplerDesc::PointClamp());
+				ASSERT_TRUE(FontView);
+				ASSERT_TRUE(Sampler);
+				const float Projection[4] = {0.5f, 0.5f, -1, -1};
+				auto UniformDesc = FRHIBufferCreateDesc::Create(
+					"Authored ImGui projection", sizeof(Projection), sizeof(Projection),
+					EBufferUsageFlags::UniformBuffer);
+				UniformDesc.InitialData = {.Data = Projection, .Size = sizeof(Projection)};
+				auto UniformResult = GDynamicRHI->RHICreateBuffer(
+					Commands, UniformDesc);
+				ASSERT_TRUE(UniformResult);
+				auto Uniform = std::move(UniformResult);
+				auto UniformView = GDynamicRHI->RHICreateBufferView(
+					Uniform.GetReference(), {.Offset = 0, .Size = sizeof(Projection),
+						.Type = ERHIBufferViewType::Uniform});
+				ASSERT_TRUE(UniformView);
+				auto ColorDesc = FRHITextureCreateDesc::Create2D(
+					"Authored ImGui target", 4, 4, EPixelFormat::RGBA8_UNORM);
+				ColorDesc.SetFlags(ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::CPUReadback);
+				auto ColorResult = GDynamicRHI->RHICreateTexture(
+					Commands, ColorDesc);
+				ASSERT_TRUE(ColorResult);
+				auto Color = std::move(ColorResult);
+				FRHIRenderPassInfo Pass;
+				Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+				Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format =
+					EPixelFormat::RGBA8_UNORM;
+				Pass.ColorRenderTargets[0] = Color.GetReference();
+				Pass.ColorClearValues[0] = FClearValueBinding(0, 0, 1, 1);
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
+				Initializer.VertexDeclaration = Declaration.GetReference();
+				Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
+				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.ColorBlendStates[0] = FRHIColorBlendState::StraightAlpha();
+				ASSERT_TRUE(BuildPipelineLayoutFromShaders(
+					Compiled.CompiledShaders, Initializer.PipelineLayout));
+				auto Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState(
+					"AuthoredImGui", Initializer);
+				ASSERT_TRUE(Pipeline);
+                const auto Bind = [&](size_t Stage, std::string_view Name, FRHIResource* Resource) {
+                    const auto& Bindings = Compiled.CompiledShaders[Stage].Reflection.ResourceBindings;
+                    const auto Found = std::ranges::find(Bindings, Name, &FShaderResourceBinding::Name);
+                    requiref(Found != Bindings.end(), "Missing ImGui resource");
+                    return FRHIShaderParameterResource{.Resource = Resource, .SetIndex = Found->SetIndex,
+                        .BindingIndex = Found->BindingIndex, .Type = Found->Type};
+                };
+                const std::array VertexParameters{Bind(0, "Projection", UniformView.GetReference())};
+                const std::array FragmentParameters{Bind(1, "FontTexture", FontView.GetReference()),
+                    Bind(1, "FontSampler", Sampler.GetReference())};
+				const auto Signal = Commands.BeginGPUSubmission(
+					{.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+				Commands.BeginRenderPass(Pass, "AuthoredImGui");
+				Commands.SetGraphicsPipelineState(*Pipeline);
+				Commands.SetViewport(0, 0, 0, 4, 4, 1);
+				Commands.SetScissor(1, 0, 2, 3);
+				Commands.BindVertexBuffer(0, VertexBuffer.GetReference(), 0);
+				Commands.SetShaderParameters(Vertex.GetReference(), VertexParameters);
+				Commands.SetShaderParameters(Fragment.GetReference(), FragmentParameters);
+				Commands.Draw({.VertexCount = 6});
+				Commands.EndRenderPass();
+				Commands.EndGPUSubmission();
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::SubmitToGPU);
+				ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(
+					Signal, 1'000'000'000), ERHIGPUWaitResult::Complete);
+				FByteBuffer Pixels;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+					Commands, Color.GetReference(), 0, 0, Pixels));
+				ASSERT_EQ(Pixels.size(), 4u * 4u * 4u);
+				for (size_t Y = 0; Y < 4; ++Y)
+				for (size_t X = 0; X < 4; ++X)
+				{
+					const size_t Index = (Y * 4 + X) * 4;
+					const bool bClipped = X < 1 || X >= 3 || Y >= 2;
+					const int Expected = bClipped ? 0 : 32;
+					EXPECT_LE(std::abs(int(Pixels[Index]) - Expected), 1);
+					EXPECT_LE(std::abs(int(Pixels[Index + 1]) - Expected), 1);
+					EXPECT_EQ(Pixels[Index + 2], std::byte{255});
+					EXPECT_EQ(Pixels[Index + 3], std::byte{255});
+				}
+
+        });
+        FlushRenderingCommands();
+    }
 
 	TEST_F(FEditorGridVulkanTests, ReversedZGridRemainsStableAcrossCoplanarRotatedViews)
 	{

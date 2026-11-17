@@ -1,339 +1,144 @@
 # Shader Parameters
 
-Summary: Define reflected shader-parameter layouts, binding, validation, and RHI publication.
+Summary: Define compiler-owned resource allocation, typed binding and graph/RHI submission boundaries.
 
 Modules: RHI, RenderCore
 
-This document describes the current typed shader parameter path used by `RenderCore`, `RHI`, and `VulkanRHI`.
+Last reviewed: 2026-11-18
 
 ## High-Level Flow
 
-1. A shader type optionally declares parameter metadata.
-2. Shader compilation produces `FShaderReflectionData::ResourceBindings`.
-3. `FShader::InitializeParameterBindings()` resolves metadata fields to reflected bindings and stores the resolved result on the shader instance.
-4. Callers build a typed `FParameters` struct and call the typed `SetShaderParameters(...)` helper.
-5. The helper converts the typed struct into compact resolved `FRHIShaderParameterResource` entries.
-6. `FVulkanCommandListContext` merges those entries into the active graphics or compute pending bindings.
-7. `Draw()`, `DrawIndexed()`, or `Dispatch()` materializes the complete descriptor snapshot for the active pipeline layout.
-8. Vulkan binds the descriptor sets at the matching graphics or compute bind point and submits the command.
+Declare `FParameters` with `DURIN_BEGIN_SHADER_PARAMETERS` and typed resource
+macros; register it through the shader type. Compilation owns descriptor
+coordinates. Shader-map initialization admits reflection and caches
+`FShaderParameterBindings`. Ordinary `SetShaderParameters` reads those offsets;
+RHI receives resolved resources and retains their views/ranges through replay.
 
-## Public Types
+## Fixed-layout boundaries
 
-### Detached semantic schemas and allocation candidates
+Ordinary shader declarations and generated emitters omit `vk::binding` and HLSL
+resource `register(t/s/u/bN)` coordinates. Do not add resource-role slot tables
+or share an allocation merely because names/source modules match. Storage image
+formats, vertex/output locations and push constants are separate constraints.
 
-`RenderCore/Public/Shader/ShaderParameterSchema.h` exposes an owned projection of
-`FShaderParametersMetadata`. `BuildShaderParameterSchema` recursively qualifies
-nested members and rejects invalid storage bounds, metadata cycles and ambiguous
-qualified or emitted names. `ComposeShaderParameterSchemas` checks input schema
-identities and rejects duplicate fields. Canonical field ordering makes semantic
-identity independent of declaration order, C++ offsets and registration lifetime.
-Nested struct arrays are currently rejected. Flattened inherited metadata clears
-its include pointer after collecting inherited members, so it is traversed once
-and can use the ordinary typed resource submission path.
+`FShaderSourcePolicyTests.FixedLocationsRequireExactBoundaryExceptions` in
+`ShaderReflectionTests.cpp` scans the Shaders/Source/Tests/Plugins trees of every
+`Durin.dworkspace` project, including inline sources and emitters. Third-party
+and build/output trees are excluded. Exact file/test exceptions specify allowed
+coordinates and reasons; stale or changed exceptions fail. This is a source
+syntax guard; numeric provider changes still require review against reflection.
 
-`FShaderParametersMetadataBuilder` creates data-driven resource and nested
-structures through the same metadata types. Its result owns generated names and
-member storage. Referenced nested metadata must outlive the result.
+Approved exceptions are independent low-level RHI/native fixtures and controlled
+Material/ContactShadow relocation cases. Native MSL buffer/texture/sampler
+indices and synthetic reflection/negative inputs are not production conventions.
+The executable exception table is authoritative; there is no directory exemption.
 
-`FShaderParameterMap` owns named `FParameterAllocation` compiler locations and
-rejects duplicate names/locations and invalid arrays. `FShaderParameterBindings`
-joins that map to typed metadata once per shader instance. Included structures
-preserve the enclosing name prefix; nested structures add their member name and
-byte offset. Generated binding names are owned by the binding records.
-`FShader::InitializeParameterBindings`, the reflection adapter, and pipeline
-uniform policy all use this binding path. Typed submission reads accepted offsets
-and locations, including nested structures, without per-draw name resolution.
+## Detached semantic schemas and allocation candidates
 
-`BuildShaderParameterAllocationMap` matches resource schema fields to compiler
-reflection by emitted name and records the reflected descriptor locations.
-Optional fields may be optimized out; required fields must remain reflected.
-Admission rejects extra/duplicate resources, duplicate locations, kind/dimension/array/stage
-mismatches, invalid constant layouts and unsupported push constants. Dynamic uniform metadata accepts
-constant-buffer reflection while retaining its dynamic submission policy.
-Its product envelope contains the same `FShaderParameterMap`, rather than a second
-allocation table. Envelope identity includes schema, target, shader/VF type, permutation, frequency,
-caller-supplied complete compile-key digest and canonical allocation records,
-including constant-buffer sizes and member offsets/sizes. Schema and allocation
-envelopes use version 2.
-`ValidateShaderParameterAllocationMap` reconstructs and compares the complete
-candidate against the expected product and reflection.
+`FShaderParametersMetadata` describes names, C++ offsets, kinds, array extents,
+optionality, owners and Draw/Pass scope. C++ offsets never choose GPU locations.
+Included owners preserve names; nested structures prefix emitted names.
+Metadata and referenced member storage must remain immutable and outlive users.
+`FShaderParametersMetadataBuilder` owns data-driven names/member storage; nested
+metadata still requires an independent owner.
 
-Material owners compose the same metadata through a product-specific accepted
-envelope; named fields, schema identity, actual compiler allocation and reflected
-constant layouts survive Cook. See [material binding ownership](../Materials/MaterialShaderStages.md#logical-bindings-and-runtime-projection).
-Inline value allocation remains unsupported; uniform-buffer member layouts are
-compiler reflection, rather than C++ parameter-structure offsets. Device resources
-and C++ storage offsets are absent from detached schemas and maps.
+`FShaderType` collects its canonical schema and host-offset records once at
+registration. Compilation, Cook request identity and instance binding reuse them.
+`FShaderParameterBindings::Bind(Type, Reflection)` still admits each compiled
+product, then applies its locations to the validated host records. Independently
+supplied metadata/maps keep their own validation. The registration cache contains
+no descriptor map.
 
-The public low-level types live in `Engine/Source/Runtime/RHI/Public/RHIShaderParameters.h`.
+`FShaderParameterMap` owns compiler locations. Admission rejects unknown/duplicate
+resources or locations, missing required fields, incompatible kind/shape/array/
+stage, and declared constant-layout mismatches. Optional fields may be optimized
+out. Dynamic-uniform metadata accepts uniform-buffer reflection while retaining
+its submission policy. Failure clears bindings; complete maps publish atomically.
 
-### `FShaderParameterMemberMetadata`
+Detached `FShaderParameterSchema` excludes C++ offsets and device resources.
+`BuildShaderParameterAllocationMap` adds exact target/type/VF/permutation/stage/
+compile-key context around the same map. External schemas and allocation
+candidates retain canonical identity validation. Both schema/envelope versions
+are 2. Material-specific composition and Cook acceptance belong to
+[material binding ownership](../Materials/MaterialShaderStages.md#logical-bindings-and-runtime-projection).
 
-Describes a parameter field declared by a shader class:
+Registered graphics requests apply `DURIN_STAGE_PARAMETER_SPACES=1`: default-space
+vertex resources use set 0 and fragment resources set 1. Explicit nonzero spaces
+remain unchanged; collisions reject. Mixed compute entries keep compiler
+allocation. Raw compiler fixtures opt in explicitly. The policy runs before
+Metal translation and is idempotent across direct, prepared and Cook requests.
 
-- `Name`: field name expected to match reflection
-- `Offset` and `Size`: storage within the containing C++ parameter struct
-- `Kind`: resource, inline value or nested structure
-- `StructMetadata`: nested structure declaration
-- `bOptional`: allows an optimized-out resource to lack a compiled allocation
-- `Type`: expected RHI binding type
-- `ArraySize`: expected reflected array size
-- `ShaderType` and `OwnerName`: shared shader declaration and semantic provider owner
-- `Scope`: Draw or Pass lifetime policy, independent of descriptor sets
+## Typed Submission Helper
 
-This is declaration-time metadata, not a runtime binding.
+Use `SetShaderParameters(CommandList, ShaderRef, Parameters)` with the same
+retained shader-map generation used to build the pipeline. Required resources
+must be present; optional metadata permits an absent compiled allocation, not a
+null resource when reflection requires one. Arrays must match reflected extent.
+The reflection adapter `BuildShaderParameterBindings` shares map/binding logic.
 
-### `FShaderParameterBinding`
+Uniform payloads use explicit `FRHIUniformBufferRange` snapshots; host parameter
+structs are not byte-upload blocks. `DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_LAYOUT`
+can declare expected payload size and named constant members. Compiler layouts
+remain independent of the enclosing C++ resource struct.
 
-Describes a resolved runtime binding:
+`DURIN_SHADER_PARAMETER_TEXTURE_VIEW` and `...STORAGE_IMAGE_VIEW` retain exact
+counted texture views. Use them for explicit mip/layer/face selection. Graph
+callbacks first resolve declared ranges; writable cube faces use 2D/array views,
+while sampling preserves cube interpretation.
 
-- `Name`
-- `Offset`
-- `SetIndex`
-- `BindingIndex`
-- `Type`
-- `ArraySize`
-- `OwnerName` and `Scope`
+## Render Graph Composed Submission
 
-This is the bridge between shader-declared fields and backend descriptor layout.
+Mark shader-backed graph resources with `DURIN_SHADER_PARAMETER_GRAPH_TEXTURE`,
+`...GRAPH_STORAGE_IMAGE` or `...GRAPH_STORAGE_BUFFER`. Supply the callback-local
+`FRDGShaderParameterScope` to the composed submission overload. The graph layout
+supplies capability/range; shader reflection supplies actual descriptor positions.
 
-### `FRHIShaderParameterResource`
+Each shader instance's bindings cache the static name/type/extent join against
+an immutable graph-layout identity; rebinding replaces that cache. Cache entries
+retain identity tokens so recycled layout addresses cannot select stale joins.
+No graph handles, resource values or descriptor locations from another product
+are cached. Domain, callback scope, engagement, backing, range and access remain
+execution checks. A required reflected resource cannot use an absent optional.
+Ordinary fallback storage is permitted only for non-graph bindings. Temporary
+resource/view storage preserves exact-view lifetime and atomic publication; the
+existing immutable RHI batch is a replay owner, not reusable resolution scratch.
+Buffer-only submissions allocate no exact-view staging.
 
-This is now an internal-style resolved submission record rather than a user-authored descriptor description. It contains:
-
-- `Resource`
-- `SetIndex`
-- `BindingIndex`
-- `Type`
-- `Offset` and `Size` for compatibility buffer-range submissions
-
-Callers are not expected to fill this by hand in the normal path.
-
-Resource submission is canonicalized while the RHI command is recorded.
-Buffer and texture entries become counted `FRHIBufferView` or
-`FRHITextureView` objects, including canonical whole-resource views when the
-compatibility scalar form is used. The recorded command retains those views,
-and Vulkan descriptor writes consume their exact native interpretation. See
-[RHI resource views and transfers](../RHI/RHIResourceViewsAndTransfers.md).
+The scope borrows frozen parameters and the active resolver; do not retain it
+outside the callback. Captures expose authoring fields, normalized uses and
+parameter paths; descriptor coordinates stay in shader reflection. Graph
+capabilities and optional-wrapper address handling belong to
+[Render Graph](../Pipeline/RenderGraph.md#reflected-shader-composition).
 
 ## Scene resource bindings
 
-Built-in Local/Spline graphics use named counted storage ranges for Primitive
-scene data, Instance scene data, Instance payload and selected Instance IDs.
-The accepted compiler allocation supplies their descriptor locations; owner
-metadata supplies Pass lifetime policy. Reachability controls which resources reflect in each
-stage; selected-instance fragment expressions follow the same contract. Scene
-buffers belong to scene/dynamic upload owners and ID lists belong to submissions.
-Pass bindings declare RDG reads; retained geometry commands never own graph-local
-scene selections. `MaterialPrimitive` is reserved for the explicit unsupported-VF
-uniform path. Packing and lifecycle are owned by [GPUScene](../Scene/GPUScene.md).
-
-## RenderCore Responsibilities
-
-RenderCore owns shader parameter declaration, validation, and cached binding resolution.
-
-### Shader Type Declaration
-
-`FShaderType` accepts an optional `const FShaderParametersMetadata*` in its constructor. This allows a shader type to publish parameter field metadata alongside its virtual path, frequency, and entry point.
-
-Example pattern:
-
-```cpp
-class FExampleShader : public FShader
-{
-public:
-    DURIN_BEGIN_SHADER_PARAMETERS(FExampleShader)
-        DURIN_SHADER_PARAMETER_TEXTURE(ExampleTexture);
-        DURIN_SHADER_PARAMETER_SAMPLER(ExampleSampler);
-    DURIN_END_SHADER_PARAMETERS();
-
-    DURIN_DECLARE_SHADER(FExampleShader, FShader, "/Engine/Example",
-        EShaderFrequency::Fragment, "fragmentMain");
-};
-```
-
-The typed parameter macros declare fields and their metadata using `offsetof(FParameters, ...)`.
-
-### Binding Resolution
-
-`BuildShaderParameterBindings(...)` adapts reflection into `FShaderParameterMap` and delegates to `FShaderParameterBindings::Bind`. Shader instances use that same map/bindings implementation directly.
-
-It validates:
-
-- parameter name exists in reflection
-- reflected binding type matches declared type
-- reflected array size matches declared array size
-
-On success it emits resolved `FShaderParameterBinding` entries.
-
-### Cached Per-Shader Bindings
-
-Each `FShader` owns `FShaderParameterBindings` and exposes its resource records through `GetParameterBindings()`.
-
-This is built once via `FShader::InitializeParameterBindings(...)` during shader map initialization. That means runtime parameter submission does not need repeated string lookup or repeated reflection walking.
-
-### Typed Submission Helper
-
-`RenderCore/Public/Shader/Shader.h` provides:
-
-```cpp
-template<typename ShaderType>
-auto SetShaderParameters(
-    FRHICommandListBase& RHICmdList,
-    const TShaderRef<ShaderType>& Shader,
-    const typename ShaderType::FParameters& Parameters
-) -> void;
-```
-
-This helper:
-
-- reads the cached `FShaderParameterBinding` list from the shader instance
-- uses each binding's byte offset to read the matching resource pointer from the typed `FParameters` struct
-- emits resolved `FRHIShaderParameterResource` entries
-- forwards them to the low-level RHI command list
-
-The helper intentionally keeps the public callsite free from descriptor set and binding knowledge.
-
-### Render Graph Composed Submission
-
-Shaders used by a composed graph pass mark graph-backed declarations with
-`DURIN_SHADER_PARAMETER_GRAPH_TEXTURE`,
-`DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE`, or
-`DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER`. The marker is cached on
-`FShaderParameterBinding`; it does not change reflection, shader bytecode, or
-the compatibility manual submission path.
-
-The pass calls the overload that accepts its callback-lifetime
-`FRDGShaderParameterScope` scope. For every reflected binding marked as a
-graph resource, RenderCore locates the uniquely named composed graph member,
-validates binding type and array extent, checks graphics/compute domain and
-graph access, and resolves the member through the active pass resolver. It
-creates an exact counted texture view or supplies the exact buffer range only
-after all structural checks have succeeded. Samplers, uniform-buffer ranges,
-and other ordinary fields can be supplied from the existing typed shader
-parameter struct in the same call; graph-backed fields in that compatibility
-struct are not read.
-
-Composed submission uses the pass allocation's immutable graph-parameter
-layout. Its validated name-sorted binding table identifies the leaf group, and
-the group's precomputed element offsets enumerate fixed arrays. Execution does
-not rebuild a composed-member list, recount names, construct paths, or recurse
-through graph metadata; shader reflection remains authoritative for descriptor
-coordinates and required array extent.
-
-Selected shaders may consume subsets of a pass object. An optional graph field
-may therefore be absent when its binding is not present in active reflection.
-Once reflection requires the binding, absence is an initialization error rather
-than a null or partially bound descriptor. The complete resolved resource list
-is forwarded to RHI atomically, preserving the existing pipeline-ownership,
-descriptor-occupancy, replay-retention, and Vulkan snapshot contracts.
-
-Render Graph captures expose composed authoring before descriptor publication.
-Each submitted graph field records its full parameter path, engagement,
-canonical resource ID when present, shader binding name/type, and declared
-graph capability. The normalized use record carries the same pass declaration
-index and field path after compiler range partitioning. Inspect these records
-together when diagnosing reflection drift: the field record answers what the
-pass granted, while the use and dependency records answer what the compiler
-scheduled. Descriptor coordinates remain shader-reflection evidence and are
-not copied into graph identity.
-
-## RHI Responsibilities
-
-RHI now exposes a single low-level resource-submission path:
-
-- `FRHICommandListBase::SetShaderParameters(FRHIShader*, span<FRHIShaderParameterResource>)`
-
-At this layer, bindings are already resolved. RHI no longer has a byte-blob
-parameter path and no longer expects callers to hand-build descriptor details
-in normal usage. Graphics updates accept vertex or fragment shaders owned by
-the active graphics PSO; compute updates accept only the compute shader owned by
-the active compute PSO. Both paths retain canonical views and parent resources
-through replay and require every reflected descriptor element before draw or
-dispatch.
+Local/Spline graphics bind named Primitive/Instance/payload/selected-ID storage
+ranges at accepted locations. Attributes belong to scene/submission owners; IDs
+belong to draw domains. Cached commands never retain graph handles. Unsupported
+vertex factories retain the explicit `MaterialPrimitive` uniform path. Scene
+packing, draw parameters and retirement belong to [GPUScene](../Scene/GPUScene.md).
 
 ## Backend and Material Boundaries
 
-`FVulkanCommandListContext` owns pending per-draw resources and descriptor
-materialization; the PSO owns immutable pipeline/layout state. Binding updates
-merge by exact `(SetIndex, BindingIndex, ArrayElement)`, replacing that location
-while retaining unrelated bindings. Descriptor write vectors remain alive
-through `updateDescriptorSets(...)`.
+`FRHICommandListBase::SetShaderParameters` receives resolved
+`FRHIShaderParameterResource` records. Ordinary feature code uses typed providers.
+Graphics/compute updates must target shaders owned by the active pipeline.
+Every reflected descriptor element is required before draw/dispatch.
 
-Snapshot validation, cache identity, bounds, eviction, and GPU-completion-gated
-pool reuse are defined by [Graphics State and Bindings](../RHI/GraphicsStateAndBindings.md).
-[Material System](../Materials/MaterialSystem.md#renderer-surface-execution) owns material
-representation decoding, resource fallbacks, and the resolved surface packet before
-it reaches this typed submission boundary.
+RHI canonicalizes and retains exact buffer/texture views and parent resources.
+Vulkan merges snapshots by `(SetIndex, BindingIndex, ArrayElement)`; Metal consumes
+the compiler-agreed compact map. Native indices do not become portable resource
+roles. See [binding snapshots](../RHI/GraphicsStateAndBindings.md) and
+[views/ranges](../RHI/RHIResourceViewsAndTransfers.md). Cache versions, stale-data
+rejection and source-free loading belong to [Shader Cache](ShaderCache.md).
 
-## Example: ImGui Submission
+## Limits and Validation
 
-`MonaImGui` declares a typed fragment parameter struct:
+Typed parameter structs currently describe resources. Inline values, root-constant
+blocks, bindless and partially-bound arrays are unsupported; push constants use
+a separate path. These are capability limits, not reasons to invent fixed slots.
 
-```cpp
-struct FParameters
-{
-    FRHITexture* fontTexture = nullptr;
-    FRHISampler* fontSampler = nullptr;
-};
-```
-
-The metadata names intentionally match Slang reflection names from `Engine/Shaders/Slang/ImGui.slang`:
-
-- `fontTexture`
-- `fontSampler`
-
-At draw time the backend submits:
-
-```cpp
-FImGuiFragmentShader::FParameters ShaderParameters;
-ShaderParameters.fontTexture = *TextureRefPtr;
-ShaderParameters.fontSampler = GBackendState.LinearSampler;
-SetShaderParameters(CommandList, GBackendState.FragmentShader, ShaderParameters);
-```
-
-No descriptor set index or binding index appears at the callsite.
-
-## Tests
-
-`RenderCoreTests` currently cover:
-
-- successful metadata-to-reflection binding resolution
-- missing reflection binding rejection
-- reflected type mismatch rejection
-- shader instance caching of resolved parameter bindings
-- composed owner identity, graph access/type validation, exact texture views
-  and buffer ranges, required optionals, arrays, shader subsets, and domains
-- stable graph field-to-shader binding capture evidence
-
-These tests live in:
-
-- `Engine/Tests/Native/RenderCoreTests/Private/ShaderFoundationTests.cpp`
-
-## Current Limitations
-
-This remains a staged design rather than the final compute/bindless end-state.
-
-- parameter structs currently model resource bindings only
-- uniform bytes are not yet modeled as a typed parameter block
-- push constants remain a separate manual path
-- bindless and partially-bound arrays are not supported
-- descriptor snapshot invalidation remains frame-local while native pool reuse
-  follows the completed-token contract
-
-## Practical Guidance
-
-When adding a new shader to this system:
-
-1. create a shader subclass with an `FParameters` struct
-2. declare metadata with the typed `DURIN_SHADER_PARAMETER_*` macros; use a
-   `*_GRAPH_*` macro when a migrated graph pass must supply that binding
-3. pass that metadata into the `FShaderType` constructor
-4. make sure the field names match reflected shader resource names
-5. call the typed `SetShaderParameters(...)` helper, passing the exact graph
-   shader scope for a composed pass
-6. assert capture correlation for the graph field, canonical resource,
-   normalized use, and reflected binding in the owning RenderCore or Renderer
-   contract test
-
-If binding resolution fails during shader-map initialization, treat it as a contract mismatch between shader code reflection and the declared `FParameters` struct.
+Use `RenderShaderContractTests` for schema/binding/relocation/source-policy
+coverage, cache/library/Cook targets for transport, and the affected feature GPU
+case for output. Keep rejection, lifetime and source-free replay assertions;
+avoid tests that only restate metadata member order or historical coordinates.

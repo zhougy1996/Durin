@@ -4,7 +4,7 @@ Summary: Define portable graphics-pipeline identity, draw submission, reflected 
 
 Modules: RHI, RenderCore, ShaderFormat, MetalRHI, VulkanRHI, Renderer
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 ## Graphics Pipeline Contract
 
@@ -78,6 +78,17 @@ complete PSO and the usual vertex/index/descriptor state. One exact
 published nor emulated.
 
 ## Reflected Binding Snapshots
+
+Descriptor set/binding numbers at the RHI boundary are resolved compiler output.
+Ordinary providers use their own shader's cached accepted records; the RHI does
+not assign stable numbers to resource roles. Vulkan constructs set layouts from
+the final merged reflection and writes those exact logical addresses. Metal
+compacts the same addresses into native resource namespaces using ShaderFormat's
+compiler-agreed map. Native slots do not become portable descriptor coordinates.
+Arrays, stage visibility, uniform ranges and resource kinds remain validated
+regardless of the numbers selected by the compiler. Explicit low-level fixtures
+are bounded by the [fixed-layout contract](../Shaders/ShaderParameters.md#fixed-layout-boundaries).
+
 
 Metal pipelines prepare immutable binding operations from the merged logical
 layout and each admitted shader's compiler-agreed map before publication. The

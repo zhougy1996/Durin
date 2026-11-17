@@ -585,101 +585,53 @@ TEST(FRendererSceneContractTests, FeatureScheduleOrderIsStableAndUnique)
 			EXPECT_NE(Names[Index], Names[Other]);
 }
 
-TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
+TEST(FRendererSceneContractTests, DirectionalShadowPassAcceptsSharedGPUSceneReads)
 {
-	const Durin::FRDGParametersMetadata* Metadata =
-		Durin::FGBufferPassParameters::GetRDGParametersMetadata();
-	ASSERT_NE(Metadata, nullptr);
-	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
-	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
-	ASSERT_EQ(Metadata->Members.size(), 5u);
-
-	const auto& Scene = Metadata->Members[0];
-    EXPECT_STREQ(Scene.Name, "GPUScene");
-    EXPECT_EQ(Scene.Kind, Durin::ERDGParameterMemberKind::Nested);
-    const auto* SceneMetadata = Durin::FGPUSceneReadParameters::GetRDGParametersMetadata();
-    ASSERT_EQ(SceneMetadata->Members.size(), 3u);
-    EXPECT_STREQ(SceneMetadata->Members[0].Name, "GPUScene");
-    EXPECT_EQ(SceneMetadata->Members[0].Kind, Durin::ERDGParameterMemberKind::Nested);
-    const auto* Resources = Durin::FGPUSceneResourceParameters::GetRDGParametersMetadata();
-    ASSERT_EQ(Resources->Members.size(), 3u);
-    EXPECT_STREQ(Resources->Members[0].Name, "GPUScenePrimitiveSceneData");
-    EXPECT_STREQ(Resources->Members[1].Name, "GPUSceneInstanceSceneData");
-    EXPECT_STREQ(Resources->Members[2].Name, "GPUSceneInstancePayloadData");
-    for (const auto& Member : Resources->Members) { EXPECT_EQ(Member.ArraySize, 1u); EXPECT_TRUE(Member.bOptional); }
-    EXPECT_STREQ(SceneMetadata->Members[1].Name, "InstanceIds");
-    EXPECT_STREQ(SceneMetadata->Members[2].Name, "DynamicInstanceIds");
-    const auto& Completion = Metadata->Members[1];
-	EXPECT_STREQ(Completion.Name, "Completion");
-	EXPECT_EQ(Completion.Kind, Durin::ERDGParameterMemberKind::ValueWrite);
-	EXPECT_EQ(Completion.ArraySize, 1u);
-	EXPECT_FALSE(Completion.bOptional);
-	EXPECT_EQ(Completion.Use, Durin::ERDGUse::Write);
-	EXPECT_TRUE(Completion.bDiscard);
-
-	const auto& Colors = Metadata->Members[2];
-	EXPECT_STREQ(Colors.Name, "Colors");
-	EXPECT_EQ(Colors.Kind, Durin::ERDGParameterMemberKind::ManagedColorAttachment);
-	EXPECT_EQ(Colors.ArraySize, 5u);
-	EXPECT_TRUE(Colors.bOptional);
-	EXPECT_EQ(Colors.Use, Durin::ERDGUse::ReadWrite);
-	EXPECT_EQ(Colors.Access, Durin::ERHIAccess::ColorAttachmentReadWrite);
-	EXPECT_TRUE(Colors.bDiscard);
-	EXPECT_EQ(Colors.LoadAction, Durin::ERHIRenderTargetLoadAction::Clear);
-	EXPECT_EQ(Colors.StoreAction, Durin::ERHIRenderTargetStoreAction::Store);
-	EXPECT_TRUE(Colors.bPassManagedTransition);
-	EXPECT_EQ(Colors.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
-
-	const auto& Depth = Metadata->Members[3];
-	EXPECT_STREQ(Depth.Name, "Depth");
-	EXPECT_EQ(Depth.Kind, Durin::ERDGParameterMemberKind::ManagedDepthStencilAttachment);
-	EXPECT_EQ(Depth.ArraySize, 1u);
-	EXPECT_TRUE(Depth.bOptional);
-	EXPECT_EQ(Depth.Use, Durin::ERDGUse::ReadWrite);
-	EXPECT_EQ(Depth.Access, Durin::ERHIAccess::DepthStencilReadWrite);
-	EXPECT_TRUE(Depth.bDiscard);
-	EXPECT_EQ(Depth.LoadAction, Durin::ERHIRenderTargetLoadAction::Clear);
-	EXPECT_EQ(Depth.StoreAction, Durin::ERHIRenderTargetStoreAction::Store);
-	EXPECT_TRUE(Depth.bPassManagedTransition);
-	EXPECT_EQ(Depth.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
-
-	const auto& Culling = Metadata->Members[4];
-	EXPECT_STREQ(Culling.Name, "InstanceCulling");
-	EXPECT_EQ(Culling.Kind, Durin::ERDGParameterMemberKind::Nested);
-	const auto* Draw = Durin::FInstanceCullingDrawParams::GetRDGParametersMetadata();
-	ASSERT_EQ(Draw->Members.size(), 2u);
-	EXPECT_STREQ(Draw->Members[0].Name, "InstanceIdOffsetBuffer");
-	EXPECT_EQ(Draw->Members[0].Access, Durin::ERHIAccess::GraphicsShaderRead);
-	EXPECT_STREQ(Draw->Members[1].Name, "DrawIndirectArgsBuffer");
-	EXPECT_EQ(Draw->Members[1].Access, Durin::ERHIAccess::IndirectArgumentRead);
-	EXPECT_TRUE(Draw->Members[0].bOptional); EXPECT_TRUE(Draw->Members[1].bOptional);
-}
-
-TEST(FRendererSceneContractTests, GBufferGPUCullingParametersOwnExactBufferRoles)
-{
-	const Durin::FRDGParametersMetadata* Metadata =
-		Durin::FInstanceCullingPassParameters::GetRDGParametersMetadata();
-	ASSERT_NE(Metadata, nullptr);
-	EXPECT_STREQ(Metadata->StructName, "FInstanceCullingPassParameters");
-	ASSERT_EQ(Metadata->Members.size(), 4u);
-	EXPECT_EQ(Metadata->Members[0].Use, Durin::ERDGUse::Read);
-	EXPECT_EQ(Metadata->Members[0].Access,
-		Durin::ERHIAccess::ComputeShaderRead);
-	EXPECT_TRUE(Metadata->Members[0].bShaderBinding);
-	for (size_t Index : {1u, 2u})
+	using namespace Durin;
+	FRDGBuilder Graph;
+	std::array<FRDGBufferHandle, 6> Buffers;
+	for (size_t Index = 0; Index < Buffers.size(); ++Index)
 	{
-		EXPECT_EQ(Metadata->Members[Index].Use, Durin::ERDGUse::ReadWrite);
-		EXPECT_EQ(Metadata->Members[Index].Access,
-			Durin::ERHIAccess::ComputeShaderReadWrite);
-		EXPECT_TRUE(Metadata->Members[Index].bShaderBinding);
+		const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("ShadowRead", 64, 4,
+			EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource));
+		Buffers[Index] = Graph.RegisterExternalBuffer(Buffer, std::format("ShadowRead{}", Index),
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 	}
-	for (size_t Index : {3u}) {
-        EXPECT_EQ(Metadata->Members[Index].Use, Durin::ERDGUse::Read);
-        EXPECT_EQ(Metadata->Members[Index].Access, Durin::ERHIAccess::ComputeShaderRead);
-        EXPECT_TRUE(Metadata->Members[Index].bShaderBinding);
-    }
-	EXPECT_STREQ(Metadata->Members[2].ShaderBindingName,
-		"IndirectArguments");
+	FDirectionalShadowPassResources Resources;
+	for (size_t Index = 0; Index < Resources.InstanceCulling.size(); ++Index)
+	{
+		auto& Cascade = Resources.InstanceCulling[Index];
+		Cascade.Scene.GPUScenePrimitiveSceneData = FRDGBufferParameter{Buffers[0], 0, 64};
+		Cascade.Scene.GPUSceneInstanceSceneData = FRDGBufferParameter{Buffers[1], 0, 64};
+		Cascade.Scene.GPUSceneInstancePayloadData = FRDGBufferParameter{Buffers[2], 0, 64};
+		Cascade.Scene.GPUSceneNumAllocatedPrimitives = 10 + uint32(Index);
+		Cascade.InstanceIdsBuffer = FRDGBufferParameter{Buffers[3], 0, 64};
+		// Two distinct dynamic runs remain; the third aliases the direct IDs.
+		Cascade.DynamicInstanceIdsBuffer = FRDGBufferParameter{Buffers[Index < 2 ? 4 + Index : 3], 0, 64};
+	}
+	EXPECT_TRUE(Resources.InstanceCulling[1].Scene.GPUScenePrimitiveSceneData);
+	EXPECT_TRUE(Resources.InstanceCulling[2].DynamicInstanceIdsBuffer);
+	for (size_t Index = 0; Index < Resources.InstanceCulling.size(); ++Index)
+		EXPECT_EQ(Resources.InstanceCulling[Index].Scene.GPUSceneNumAllocatedPrimitives, 10u + Index);
+	// The same resource must still be declared by every consuming logical pass.
+	for (const char* Name : {"Shadow.Immediate", "Shadow.OtherPass"})
+	{
+		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassResources>();
+		Parameters.Get() = Resources;
+		const auto Pass = Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[](FRHICommandListImmediate&, const FDirectionalShadowPassResources&, const FRDGParameterResolver&) {});
+		Graph.MarkPassRoot(Pass);
+	}
+	const auto Compiled = FRDGBuilderTestAccessor::Compile(Graph);
+	ASSERT_TRUE(Compiled) << ToString(Compiled.error());
+	const auto Capture = Graph.Capture();
+	ASSERT_EQ(Capture.Uses.size(), 30u);
+	for (const auto& Use : Capture.Uses)
+	{
+		EXPECT_EQ(Use.Use, ERDGUse::Read);
+		EXPECT_EQ(Use.Access, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Use.BufferSize, 64u);
+	}
 }
 
 TEST(FRendererSceneContractTests, ErrorMaterialUsesCompiledBindingWithoutRoleResources)

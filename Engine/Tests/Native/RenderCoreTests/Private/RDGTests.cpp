@@ -20,6 +20,26 @@ namespace Durin
 
 	namespace
 	{
+		auto MakeTestShaderBindings(std::span<const FShaderParameterBinding> Resources) -> FShaderParameterBindings
+		{
+			std::vector<FShaderParameterMemberMetadata> Members;
+			FShaderParameterMap Map;
+			uint32 Offset = 0;
+			for (const auto& Resource : Resources)
+			{
+				const uint32 Size = sizeof(FRHIStorageBufferRange) * Resource.ArraySize;
+				Members.push_back({.Name = Resource.Name.c_str(), .Offset = Offset, .Size = Size,
+					.ArraySize = Resource.ArraySize, .Type = Resource.Type, .bGraphResource = Resource.bGraphResource});
+				EXPECT_TRUE(Map.AddParameterAllocation(Resource.Name, {Resource.SetIndex, Resource.BindingIndex, Resource.ArraySize, Resource.Type}));
+				Offset += Size;
+			}
+			const FShaderParametersMetadata Metadata{.StructName = "Fixture", .StructSize = Offset,
+				.StructAlignment = 8, .Members = Members};
+			FShaderParameterBindings Bindings;
+			EXPECT_TRUE(Bindings.Bind(&Metadata, Map));
+			return Bindings;
+		}
+
 		template<typename Builder>
 		concept CPublicRawPass = requires(Builder& Graph) {
 			Graph.AddPass("Raw", ERDGPassType::Graphics);
@@ -1266,6 +1286,130 @@ namespace Durin
 		}
 	}
 
+	TEST_F(FRDGTests, ManyAliasReadsKeepExactRangesAndReportConflictingWriter)
+	{
+		struct FParameters
+		{
+			std::array<FRDGBufferAccess, 256> Reads;
+			static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+			{
+				static const std::array Members{MakeRDGBufferAccessMetadata<FParameters, decltype(Reads)>("Reads", offsetof(FParameters, Reads))};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>("AliasReads", Members);
+				return &Metadata;
+			}
+		};
+		for (bool bConflict : {false, true})
+		{
+			FRDGBuilder Graph;
+			const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("Aliases", 4096, 4,
+				EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::UnorderedAccess));
+			const auto Handle = Graph.RegisterExternalBuffer(Buffer, "Aliases", ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead);
+			auto Parameters = Graph.AllocParameters<FParameters>();
+			for (uint32 Index = 0; Index < 256; ++Index)
+				Parameters->Reads[Index] = {Handle, Index * 4, 2048, ERDGUse::Read,
+					Index % 2 ? ERHIAccess::VertexBufferRead : ERHIAccess::GraphicsShaderRead};
+			if (bConflict) Parameters->Reads.back() = {Handle, 1020, 2048, ERDGUse::Write, ERHIAccess::GraphicsShaderReadWrite};
+			const auto Pass = Graph.AddPass("Aliases", ERDGPassType::Graphics, std::move(Parameters),
+				[](FRHICommandListImmediate&, const FParameters&, const FRDGParameterResolver&) {});
+			if (Pass.IsValid()) Graph.MarkPassRoot(Pass);
+			const auto Result = FRDGBuilderTestAccessor::Compile(Graph);
+			if (bConflict)
+			{
+				ASSERT_FALSE(Result);
+				const auto* Context = FindRDGTestDetail<FRDGUseErrorContext>(Result.error());
+				ASSERT_NE(Context, nullptr);
+				EXPECT_EQ(Context->UseIndex, 255u); EXPECT_EQ(Context->OtherUseIndex, 0u);
+				EXPECT_EQ(Context->ParameterPath, "AliasReads.Reads[255]");
+				continue;
+			}
+			ASSERT_TRUE(Result) << ToString(Result.error());
+			const auto Capture = Graph.Capture();
+			ASSERT_EQ(Capture.Uses.size(), 256u);
+			EXPECT_EQ(Capture.Uses.back().BufferOffset, 1020u);
+			EXPECT_EQ(Capture.Uses.back().BufferSize, 2048u);
+			const auto Barriers = Graph.GetPasses()[0].Barriers.GetBufferTransitions();
+			ASSERT_EQ(Barriers.size(), 1u);
+			EXPECT_EQ(Barriers[0].RequiredAfter, ERHIAccess::GraphicsShaderRead | ERHIAccess::VertexBufferRead);
+		}
+	}
+
+	TEST_F(FRDGTests, ComposedLayoutJoinIsProductLocalAndInvalidatedOnRebind)
+	{
+		const std::array Resources{FShaderParameterBinding{.Name = "Textures", .Type = ERHIBindingType::Texture, .ArraySize = 2, .bGraphResource = true}};
+		auto Bindings = MakeTestShaderBindings(Resources);
+		const auto* Layout = GetRDGParameterLayout<FComposedTextureArrayParameters>();
+		const auto First = Bindings.GetRDGLayoutBindings(*Layout);
+		ASSERT_TRUE(First) << First.error();
+		EXPECT_EQ(*First, *Bindings.GetRDGLayoutBindings(*Layout));
+		// Same metadata at a distinct immutable layout identity cannot reuse a join.
+		const auto OtherLayout = BuildRDGParameterLayout(Layout->Metadata, Layout->Metadata->StructSize, Layout->Metadata->StructAlignment);
+		ASSERT_TRUE(OtherLayout);
+		const auto Other = Bindings.GetRDGLayoutBindings(**OtherLayout);
+		ASSERT_TRUE(Other); EXPECT_NE(*First, *Other); EXPECT_EQ(**First, **Other);
+		auto Relocated = Resources; Relocated[0].BindingIndex = 37;
+		auto OtherProduct = MakeTestShaderBindings(Relocated);
+		ASSERT_TRUE(OtherProduct.GetRDGLayoutBindings(*Layout));
+		EXPECT_EQ(OtherProduct.GetResources()[0].BindingIndex, 37u);
+		EXPECT_EQ(Bindings.GetResources()[0].BindingIndex, 0u);
+		// Rebinding a product clears successful and failed joins alike.
+		auto Wrong = Resources; Wrong[0].ArraySize = 1;
+		Bindings = MakeTestShaderBindings(Wrong);
+		EXPECT_FALSE(Bindings.GetRDGLayoutBindings(*Layout));
+		ASSERT_TRUE(Bindings.Bind(nullptr, FShaderParameterMap{}));
+		const auto Cleared = Bindings.GetRDGLayoutBindings(*Layout);
+		ASSERT_TRUE(Cleared); EXPECT_TRUE((*Cleared)->empty());
+		Bindings = MakeTestShaderBindings(Resources);
+		EXPECT_TRUE(Bindings.GetRDGLayoutBindings(*Layout));
+	}
+
+	TEST_F(FRDGTests, CompatibleBufferReadsMergeAccessAndKeepDeclarationRanges)
+	{
+		for (uint32 Variant = 0; Variant < 5; ++Variant)
+		{
+			SCOPED_TRACE(Variant);
+			FRDGBuilder Graph;
+			const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("SharedRead", 64, 4,
+				EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource
+				| EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::UnorderedAccess));
+			const auto Handle = Graph.RegisterExternalBuffer(Buffer, "SharedRead",
+				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead);
+			auto Parameters = Graph.AllocParameters<FNestedInstanceAccessParameters>();
+			Parameters->Inputs[0].Buffer = FRDGBufferAccess{Handle, 0, 64, ERDGUse::Read, ERHIAccess::GraphicsShaderRead};
+			const uint64 Offset = Variant == 1 ? 16 : Variant == 4 ? 64 : 0;
+			const uint64 Size = Variant == 1 ? 32 : 64;
+			const auto Access = Variant == 2 ? ERHIAccess::VertexBufferRead
+				: Variant == 3 ? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
+			Parameters->Inputs[1].Buffer = FRDGBufferAccess{Handle, Offset, Size,
+				Variant == 3 ? ERDGUse::Write : ERDGUse::Read, Access};
+			const auto Pass = Graph.AddPass("Read", ERDGPassType::Graphics, std::move(Parameters),
+				[](FRHICommandListImmediate&, const FNestedInstanceAccessParameters&, const FRDGParameterResolver&) {});
+			if (Pass.IsValid()) Graph.MarkPassRoot(Pass);
+			const auto Result = FRDGBuilderTestAccessor::Compile(Graph);
+			if (Variant >= 3)
+			{
+				ASSERT_FALSE(Result);
+				EXPECT_TRUE(HasRDGTestReason(Result.error(), Variant == 3
+					? ERDGUseError::UsesOverlap : ERDGUseError::BufferRangeInvalid));
+				const auto* Context = FindRDGTestDetail<FRDGUseErrorContext>(Result.error());
+				ASSERT_NE(Context, nullptr);
+				EXPECT_EQ(Context->ParameterPath, "FNestedInstanceAccessParameters.Inputs[1].Buffer");
+				if (Variant == 3) {
+					EXPECT_EQ(Context->OtherParameterPath, "FNestedInstanceAccessParameters.Inputs[0].Buffer");
+					EXPECT_EQ(Context->UseIndex, 1u); EXPECT_EQ(Context->OtherUseIndex, 0u);
+				}
+				continue;
+			}
+			ASSERT_TRUE(Result) << ToString(Result.error());
+			const auto Capture = Graph.Capture();
+			ASSERT_EQ(Capture.Uses.size(), 2u);
+			EXPECT_EQ(Capture.Uses[1].BufferOffset, Offset);
+			EXPECT_EQ(Capture.Uses[1].BufferSize, Size);
+			const auto Transitions = Graph.GetPasses()[0].Barriers.GetBufferTransitions();
+			ASSERT_EQ(Transitions.size(), 1u);
+			EXPECT_EQ(Transitions[0].RequiredAfter, ERHIAccess::GraphicsShaderRead | Access);
+		}
+	}
+
 	TEST_F(FRDGTests, InstanceAccessSharesLayoutAcrossDomainsAndResolvesExactMembers)
 	{
 		const auto* Layout = GetRDGParameterLayout<FInstanceAccessParameters>();
@@ -1453,7 +1597,7 @@ namespace Durin
 						.Type = ERHIBindingType::StorageBuffer, .bGraphResource = true}};
 				const auto Scope = Resolver.GetShaderParameters(Values);
 				SetRDGShaderParametersImpl(Commands, Shader.GetReference(), "FInstanceFixture",
-					EShaderFrequency::Fragment, Bindings, Scope, nullptr, nullptr);
+					EShaderFrequency::Fragment, MakeTestShaderBindings(Bindings), Scope, nullptr, nullptr);
 				EXPECT_GT(Commands.GetNumRecordedCommands(), 0u);
 				++Calls;
 			});
@@ -2347,7 +2491,7 @@ namespace Durin
 				const auto GraphShaderParameters =
 					Resolver.GetShaderParameters(Values);
 				SetRDGShaderParametersImpl(Commands, Shader.GetReference(),
-					"FExtentFixture", EShaderFrequency::Fragment, Bindings,
+					"FExtentFixture", EShaderFrequency::Fragment, MakeTestShaderBindings(Bindings),
 					GraphShaderParameters, nullptr, nullptr);
 			});
 
@@ -2376,7 +2520,7 @@ namespace Durin
 				const auto GraphShaderParameters =
 					Resolver.GetShaderParameters(Values);
 				SetRDGShaderParametersImpl(Commands, Shader.GetReference(),
-					"FOptionalFixture", EShaderFrequency::Fragment, Bindings,
+					"FOptionalFixture", EShaderFrequency::Fragment, MakeTestShaderBindings(Bindings),
 					GraphShaderParameters, nullptr, nullptr);
 			});
 
@@ -2410,7 +2554,7 @@ namespace Durin
 						Shader.GetReference(), "FAuthorityFixture",
 						bWrongDomain ? EShaderFrequency::Compute
 							: EShaderFrequency::Fragment,
-						Bindings, GraphShaderParameters, nullptr, nullptr);
+						MakeTestShaderBindings(Bindings), GraphShaderParameters, nullptr, nullptr);
 				});
 			return Builder.Execute(GetCommandList());
 		};
@@ -3136,27 +3280,20 @@ namespace Durin
 		}
 
 		{
-			auto BuildOverlapError = [&] {
+			auto BuildCompatibleReads = [&] {
 				FRDGBuilder Builder;
 				const auto Local = Builder.RegisterExternalTexture(Texture, "Texture", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 				auto Parameters =
 					Builder.AllocParameters<FTwoTextureGraphParameters>();
 				Parameters->Textures = {{{Local, WholeColor()},
 					{Local, {ERHITextureAspect::Color, 0, 1, 0, 1}}}};
-				EXPECT_FALSE(FRDGBuilderTestAccessor::AddPass(Builder, "Overlap",
+				EXPECT_TRUE(FRDGBuilderTestAccessor::AddPass(Builder, "Overlap",
 					ERDGPassType::Graphics,
 					std::move(Parameters)).IsValid());
 				return FRDGBuilderTestAccessor::Compile(Builder);
 			};
-			const auto Error = BuildOverlapError();
-			EXPECT_TRUE(HasRDGTestReason(Error.error(), ERDGUseError::UsesOverlap));
-			const auto& Context = (*FindRDGTestDetail<FRDGUseErrorContext>(Error.error()));
-			EXPECT_EQ(Context.PassName, "Overlap");
-			EXPECT_EQ(Context.ParameterPath, "FTwoTextureGraphParameters.Textures[1]");
-			EXPECT_EQ(Context.OtherParameterPath, "FTwoTextureGraphParameters.Textures[0]");
-			EXPECT_EQ(Context.UseIndex, 1u);
-			EXPECT_EQ(Context.OtherUseIndex, 0u);
-			EXPECT_EQ(ToString(BuildOverlapError().error()), ToString(Error.error()));
+			const auto Compatible = BuildCompatibleReads();
+			ASSERT_TRUE(Compatible) << ToString(Compatible.error());
 		}
 
 		{

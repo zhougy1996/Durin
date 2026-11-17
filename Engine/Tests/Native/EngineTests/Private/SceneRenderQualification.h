@@ -101,6 +101,7 @@ namespace Durin
 
 		FShaderRHIRef GCullingDepthShader;
 		FComputePipelineStateRHIRef GCullingDepthPipeline;
+        std::array<FShaderResourceBinding, 2> GCullingDepthBindings;
 		std::array<std::shared_ptr<FRHITextureReadback>, 5> GCullingAttachments;
 		auto CaptureCullingAttachments(FRHICommandListImmediate& Commands, FRHITexture* Material,
 			FRHITexture* Normals, FRHITexture* Surface, FRHITexture* Emissive, FRHITexture* Depth) -> void
@@ -129,8 +130,8 @@ namespace Durin
 					ASSERT_NE(BufferView, nullptr);
 					Commands.SwitchPipeline(ERHIPipeline::Compute);
 					Commands.SetComputePipelineState(*GCullingDepthPipeline);
-					const std::array Parameters{FRHIShaderParameterResource{.Resource = Source, .BindingIndex = 0, .Type = ERHIBindingType::Texture},
-						FRHIShaderParameterResource{.Resource = BufferView.GetReference(), .BindingIndex = 1, .Type = ERHIBindingType::StorageBuffer}};
+					const std::array Parameters{FRHIShaderParameterResource{.Resource = Source, .SetIndex = GCullingDepthBindings[0].SetIndex, .BindingIndex = GCullingDepthBindings[0].BindingIndex, .Type = ERHIBindingType::Texture},
+						FRHIShaderParameterResource{.Resource = BufferView.GetReference(), .SetIndex = GCullingDepthBindings[1].SetIndex, .BindingIndex = GCullingDepthBindings[1].BindingIndex, .Type = ERHIBindingType::StorageBuffer}};
 					Commands.SetShaderParameters(GCullingDepthShader, Parameters);
 					Commands.Dispatch((Source->GetSizeX() + 7) / 8, (Source->GetSizeY() + 7) / 8, 1);
 					Commands.SwitchPipeline(ERHIPipeline::Graphics);
@@ -1184,6 +1185,12 @@ namespace Durin
 			}
 			const auto DepthCode = FShaderCompilingManager::Get().CompileMountedSync("/Engine/Qualification/DepthObservation", DepthOptions);
 			ASSERT_TRUE(DepthCode) << FormatShaderCompilerErrors(DepthCode.Errors);
+            for (size_t Index = 0; Index < 2; ++Index) {
+                const auto& Bindings = DepthCode.CompiledShaders[0].Reflection.ResourceBindings;
+                const auto Found = std::ranges::find(Bindings, Index == 0 ? "Depth" : "Output", &FShaderResourceBinding::Name);
+                ASSERT_NE(Found, Bindings.end());
+                GCullingDepthBindings[Index] = *Found;
+            }
 			EnqueueRenderCommand<FSceneCloudRender>([&](FRHICommandListImmediate&) {
 				GCullingDepthShader = GDynamicRHI->RHICreateShader(MakeShaderCreateDesc(DepthCode.CompiledShaders[0]));
 				ASSERT_NE(GCullingDepthShader, nullptr);

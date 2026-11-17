@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Renderers/GPUSceneRendering.h"
+#include "Renderers/InstanceCullingDrawParams.h"
 #include "Renderers/DirectionalShadowView.h"
 
 #include "Renderers/SceneRenderResults.h"
@@ -17,7 +17,7 @@ namespace Durin
 
 	struct FDirectionalShadowPassResources final
 	{
-		std::array<FGPUSceneReadParameters, DirectionalShadowCascadeCount> GPUScene;
+		std::array<FInstanceCullingDrawParams, DirectionalShadowCascadeCount> InstanceCulling;
 		std::optional<FRDGDepthStencilAttachmentParameter>
 			DirectionalShadowOutput;
 

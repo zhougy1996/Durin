@@ -14,9 +14,9 @@ struct SkyBoxUniform
     float4 DepthParams;
 };
 
-[[vk::binding(0, 0)]] TextureCube<float4> SkyTexture;
-[[vk::binding(1, 0)]] SamplerState SkySampler;
-[[vk::binding(2, 0)]] ConstantBuffer<SkyBoxUniform> Sky;
+TextureCube<float4> SkyTexture;
+SamplerState SkySampler;
+ConstantBuffer<SkyBoxUniform> Sky;
 
 [shader("vertex")]
 SkyBoxVSOutput VertexMain(uint vertexId : SV_VulkanVertexID)

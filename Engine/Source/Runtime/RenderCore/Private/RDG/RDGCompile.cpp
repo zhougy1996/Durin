@@ -552,7 +552,17 @@ namespace Durin::RDGPrivate
 		std::span<const FGraphResource> Resources)
 		-> std::expected<void, FRDGUseError>
 	{
-		std::unordered_map<uint32, std::vector<uint32>> ResourceUses;
+		struct FResourceState
+		{
+			std::vector<uint32> Declarations;
+			uint32 TrackingIndex = UINT32_MAX;
+			ERHIAccess ReadAccess = ERHIAccess::None;
+			bool bCompatibleReads = true;
+		};
+		std::unordered_map<uint32, FResourceState> ResourceUses;
+		std::vector<uint32> TrackingUseIndices;
+		TrackingUseIndices.reserve(Pass.Uses.size());
+		uint32 TrackingCount = 0;
 		for (uint32 UseIndex = 0; UseIndex < Pass.Uses.size(); ++UseIndex)
 		{
 			const auto& Use = Pass.Uses[UseIndex];
@@ -658,15 +668,42 @@ namespace Durin::RDGPrivate
 			{
 				return std::unexpected(FRDGUseError{ERDGUseError::TextureRangeInvalid, UseContext(Pass, Use, &Resource, UseIndex)});
 			}
-			auto& EarlierUses = ResourceUses[Use.ResourceIndex];
-			for (uint32 OtherUse : EarlierUses)
-				if (RangesOverlap(Use, Pass.Uses[OtherUse]))
-				{
-					return std::unexpected(FRDGUseError{ERDGUseError::UsesOverlap,
-						UseContext(Pass, Use, &Resource, UseIndex, OtherUse, Pass.Uses[OtherUse].ParameterPath)});
-				}
-			EarlierUses.push_back(UseIndex);
+			auto& State = ResourceUses[Use.ResourceIndex];
+			const bool bRead = Use.Use == ERDGUse::Read && !Use.bPassManagedTransition;
+			ERHITextureLayout ReadLayout;
+			const bool bCompatibleReads = State.bCompatibleReads && bRead
+				&& (Use.Kind == ERDGResourceKind::Buffer || (Use.Kind == ERDGResourceKind::Texture
+					&& GetTextureLayoutForAccess(State.ReadAccess | Use.Access, ReadLayout)));
+			// Compatible alias reads require no pairwise range comparisons. Writes,
+			// managed transitions and disjoint incompatible texture layouts retain exact checks.
+			if (!bCompatibleReads)
+			{
+				for (uint32 OtherUse : State.Declarations)
+					if (RangesOverlap(Use, Pass.Uses[OtherUse]))
+					{
+						const auto& Earlier = Pass.Uses[OtherUse];
+						// Parameter fields retain their exact capabilities. Tracking combines
+						// compatible reads by resource, as UE does when collecting pass access.
+						if (Use.Use == ERDGUse::Read && Earlier.Use == ERDGUse::Read
+							&& !Use.bPassManagedTransition && !Earlier.bPassManagedTransition)
+						{
+							ERHITextureLayout Layout;
+							if (Use.Kind == ERDGResourceKind::Buffer
+								|| (Use.Kind == ERDGResourceKind::Texture
+									&& GetTextureLayoutForAccess(Use.Access | Earlier.Access, Layout))) continue;
+						}
+						return std::unexpected(FRDGUseError{ERDGUseError::UsesOverlap,
+							UseContext(Pass, Use, &Resource, UseIndex, OtherUse, Earlier.ParameterPath)});
+					}
+			}
+			State.Declarations.push_back(UseIndex);
+			State.bCompatibleReads = bCompatibleReads;
+			State.ReadAccess |= Use.Access;
+			if (Use.Kind != ERDGResourceKind::Buffer || State.TrackingIndex == UINT32_MAX)
+				State.TrackingIndex = TrackingCount++;
+			TrackingUseIndices.push_back(State.TrackingIndex);
 		}
+		Pass.TrackingUseIndices = std::move(TrackingUseIndices);
 		return {};
 	}
 
@@ -676,19 +713,21 @@ namespace Durin::RDGPrivate
 		return {Dimension, Actual, Limit};
 	}
 
-	auto BuildTrackingUses(std::span<const FGraphUse> Uses,
-		std::span<size_t> BufferUseIndices) -> FPassTrackingUses
+	auto BuildTrackingUses(const FGraphPass& Pass) -> FPassTrackingUses
 	{
+		const auto& Uses = Pass.Uses;
+		require(Pass.TrackingUseIndices.size() == Uses.size());
 		FPassTrackingUses Result;
 		Result.Uses.reserve(Uses.size());
 		Result.DeclarationOffsets.reserve(Uses.size() + 1);
 		Result.DeclarationOffsets.push_back(0);
-		for (const auto& Use : Uses)
+		for (size_t UseIndex = 0; UseIndex < Uses.size(); ++UseIndex)
 		{
+			const auto& Use = Uses[UseIndex];
 			if (Use.Kind == ERDGResourceKind::Buffer)
 			{
-				auto& Index = BufferUseIndices[Use.ResourceIndex];
-				if (Index != SIZE_MAX)
+				const auto Index = Pass.TrackingUseIndices[UseIndex];
+				if (Index < Result.Uses.size())
 				{
 					++Result.DeclarationOffsets[Index + 1];
 					auto& Combined = Result.Uses[Index];
@@ -697,7 +736,6 @@ namespace Durin::RDGPrivate
 					Combined.bDiscard = false;
 					continue;
 				}
-				Index = Result.Uses.size();
 			}
 			Result.Uses.push_back(Use);
 			Result.DeclarationOffsets.push_back(
@@ -707,13 +745,9 @@ namespace Durin::RDGPrivate
 			Result.DeclarationOffsets.end(), Result.DeclarationOffsets.begin());
 		Result.BufferDeclarations.resize(Result.DeclarationOffsets.back());
 		auto Cursors = Result.DeclarationOffsets;
-		for (const auto& Use : Uses)
-			if (Use.Kind == ERDGResourceKind::Buffer)
-				Result.BufferDeclarations[
-					Cursors[BufferUseIndices[Use.ResourceIndex]]++] = &Use;
-		for (const auto& Use : Result.Uses)
-			if (Use.Kind == ERDGResourceKind::Buffer)
-				BufferUseIndices[Use.ResourceIndex] = SIZE_MAX;
+		for (size_t Index = 0; Index < Uses.size(); ++Index)
+			if (Uses[Index].Kind == ERDGResourceKind::Buffer)
+				Result.BufferDeclarations[Cursors[Pass.TrackingUseIndices[Index]]++] = &Uses[Index];
 		return Result;
 	}
 
@@ -911,9 +945,8 @@ namespace Durin
 		TrackingUses.reserve(PassCount);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("RDG.BuildTrackingUses");
-			std::vector<size_t> BufferUseIndices(ResourceCount, SIZE_MAX);
 			for (uint32 Index = 0; Index < PassCount; ++Index)
-				TrackingUses.push_back(BuildTrackingUses(Passes[Index].Uses, BufferUseIndices));
+				TrackingUses.push_back(BuildTrackingUses(Passes[Index]));
 		}
 		if (auto Error = BuildHazardDependencies(Passes,
 			TrackingUses, State->Resources, Cells, DependencyGraph, Work); !Error.has_value())

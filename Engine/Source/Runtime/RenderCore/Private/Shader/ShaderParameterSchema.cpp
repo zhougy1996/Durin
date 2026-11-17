@@ -1,4 +1,5 @@
 #include "Shader/ShaderParameterSchema.h"
+#include "ShaderParameterSchemaInternal.h"
 
 namespace Durin
 {
@@ -66,7 +67,8 @@ namespace Durin
 		}
 
 		auto Collect(const FShaderParametersMetadata& Metadata, std::string_view Prefix,
-			std::vector<const FShaderParametersMetadata*>& Stack, FShaderParameterSchema& Schema)
+			std::vector<const FShaderParametersMetadata*>& Stack, FShaderParameterSchema& Schema,
+			uint32 Offset = 0, std::vector<FShaderParameterBinding>* HostBindings = nullptr)
 			-> std::expected<void, std::string>
 		{
 			if (std::ranges::contains(Stack, &Metadata) || Stack.size() >= 64)
@@ -76,7 +78,7 @@ namespace Durin
 			{
 				if (Metadata.IncludedParameters->StructSize > Metadata.StructSize)
 					return std::unexpected("Included shader parameters exceed structure storage");
-				auto Result = Collect(*Metadata.IncludedParameters, Prefix, Stack, Schema);
+				auto Result = Collect(*Metadata.IncludedParameters, Prefix, Stack, Schema, Offset, HostBindings);
 				if (!Result) return Result;
 			}
 			for (const auto& Member : Metadata.Members)
@@ -90,7 +92,7 @@ namespace Durin
 				{
 					if (!Member.StructMetadata || Member.ArraySize != 1 || Member.StructMetadata->StructSize > Member.Size)
 						return std::unexpected("Invalid nested shader parameter metadata");
-					auto Result = Collect(*Member.StructMetadata, Path, Stack, Schema);
+					auto Result = Collect(*Member.StructMetadata, Path, Stack, Schema, Offset + Member.Offset, HostBindings);
 					if (!Result) return Result;
 				}
 				else
@@ -104,8 +106,14 @@ namespace Durin
 						Member.Type == ERHIBindingType::UniformBufferDynamic ? ERHIBindingType::UniformBuffer : Member.Type,
 						Member.ArraySize, Member.Kind == EShaderParameterMemberKind::Value ? Member.Size : 0, Member.bOptional,
 						Member.ShaderType ? Member.ShaderType : "", Member.OwnerName ? Member.OwnerName : "", Member.Type, Member.Scope});
+					if (HostBindings && Member.Kind == EShaderParameterMemberKind::Resource)
+						HostBindings->push_back({Schema.Fields.back().ShaderName, Offset + Member.Offset,
+							0, 0, Member.Type, Member.ArraySize, Member.bGraphResource,
+							Member.OwnerName ? Member.OwnerName : "", Member.Scope});
 					Schema.Fields.back().ResourceShape = InferShaderParameterResourceShape(
 						Schema.Fields.back().ShaderType, Member.Type);
+					Schema.Fields.back().ConstantBufferSize = Member.ConstantBufferSize;
+					Schema.Fields.back().ConstantMembers.assign(Member.ConstantMembers.begin(), Member.ConstantMembers.end());
 				}
 			}
 			Stack.pop_back();
@@ -119,6 +127,16 @@ namespace Durin
 		FShaderParameterSchema Schema;
 		std::vector<const FShaderParametersMetadata*> Stack;
 		auto Result = Collect(Metadata, {}, Stack, Schema);
+		if (!Result) return std::unexpected(Result.error());
+		return Canonicalize(std::move(Schema));
+	}
+
+	auto Private::BuildRegisteredShaderParameterSchema(const FShaderParametersMetadata& Metadata,
+		std::vector<FShaderParameterBinding>& HostBindings) -> std::expected<FShaderParameterSchema, std::string>
+	{
+		FShaderParameterSchema Schema;
+		std::vector<const FShaderParametersMetadata*> Stack;
+		auto Result = Collect(Metadata, {}, Stack, Schema, 0, &HostBindings);
 		if (!Result) return std::unexpected(Result.error());
 		return Canonicalize(std::move(Schema));
 	}
@@ -163,27 +181,21 @@ namespace Durin
 		return Canonicalize(std::move(Combined));
 	}
 
-	auto BuildShaderParameterAllocationMap(const FShaderParameterSchema& Schema,
-		const FShaderParameterProduct& Product, const FShaderReflectionData& Reflection)
-		-> std::expected<FShaderParameterAllocationMap, std::string>
+	auto Private::BuildShaderParameterMapFromCanonicalSchema(const FShaderParameterSchema& Schema,
+		EShaderFrequency Frequency, const FShaderReflectionData& Reflection)
+		-> std::expected<FShaderParameterMap, std::string>
 	{
-		auto Canonical = Canonicalize(Schema);
-		if (Schema.Version != 2 || !Canonical || Canonical->Identity != Schema.Identity
-			|| Canonical->Fields != Schema.Fields || Product.ShaderType.empty()
-			|| (Product.Frequency != EShaderFrequency::Vertex && Product.Frequency != EShaderFrequency::Fragment
-				&& Product.Frequency != EShaderFrequency::Compute)
-			|| !Reflection.PushConstantRanges.empty())
-			return std::unexpected("Invalid parameter schema, product or unsupported push constants");
-		FShaderParameterAllocationMap Map;
-		Map.SchemaIdentity = Schema.Identity;
-		Map.Product = Product;
+		if ((Frequency != EShaderFrequency::Vertex && Frequency != EShaderFrequency::Fragment
+			&& Frequency != EShaderFrequency::Compute) || !Reflection.PushConstantRanges.empty())
+			return std::unexpected("Invalid shader frequency or unsupported push constants");
+		FShaderParameterMap Map;
 		std::set<std::pair<uint32, uint32>> Locations;
 		std::set<std::string> Names;
 		for (const auto& Binding : Reflection.ResourceBindings)
 		{
 			const auto Field = std::ranges::find(Schema.Fields, Binding.Name, &FShaderParameterField::ShaderName);
-			const auto Stage = Product.Frequency == EShaderFrequency::Vertex ? EShaderStageFlags::Vertex
-				: Product.Frequency == EShaderFrequency::Fragment ? EShaderStageFlags::Fragment
+			const auto Stage = Frequency == EShaderFrequency::Vertex ? EShaderStageFlags::Vertex
+				: Frequency == EShaderFrequency::Fragment ? EShaderStageFlags::Fragment
 				: EShaderStageFlags::Compute;
 			if (Field == Schema.Fields.end() || Field->Kind != EShaderParameterMemberKind::Resource
 				|| (Binding.Type != Field->Type && !(Binding.Type == ERHIBindingType::UniformBuffer
@@ -193,7 +205,7 @@ namespace Durin
                 || Binding.StageFlags != Stage || !Names.insert(Binding.Name).second
 				|| !Locations.emplace(Binding.SetIndex, Binding.BindingIndex).second)
 				return std::unexpected("Reflected parameter is extra, duplicated or incompatible with its schema");
-			auto Added = Map.Parameters.AddParameterAllocation(Field->ShaderName,
+			auto Added = Map.AddParameterAllocation(Field->ShaderName,
 				{Binding.SetIndex, Binding.BindingIndex, Binding.ArraySize, Binding.Type, Binding.ResourceShape, Binding.ConstantBufferSize, Binding.ConstantMembers});
 			if (!Added) return std::unexpected(Added.error());
 		}
@@ -205,6 +217,30 @@ namespace Durin
 			if (!Field.bOptional && !Names.contains(Field.ShaderName))
 				return std::unexpected("Required shader parameter is absent from reflection");
 		}
+        return Map;
+    }
+
+	auto BuildShaderParameterMapFromSchema(const FShaderParameterSchema& Schema,
+		EShaderFrequency Frequency, const FShaderReflectionData& Reflection)
+		-> std::expected<FShaderParameterMap, std::string>
+	{
+		auto Canonical = Canonicalize(Schema);
+		if (!Canonical || Canonical->Identity != Schema.Identity || Canonical->Fields != Schema.Fields)
+			return std::unexpected("Invalid parameter schema");
+		return Private::BuildShaderParameterMapFromCanonicalSchema(Schema, Frequency, Reflection);
+	}
+
+    auto BuildShaderParameterAllocationMap(const FShaderParameterSchema& Schema,
+        const FShaderParameterProduct& Product, const FShaderReflectionData& Reflection)
+        -> std::expected<FShaderParameterAllocationMap, std::string>
+    {
+        if (Product.ShaderType.empty()) return std::unexpected("Parameter product has no shader type");
+        auto Parameters = BuildShaderParameterMapFromSchema(Schema, Product.Frequency, Reflection);
+        if (!Parameters) return std::unexpected(Parameters.error());
+        FShaderParameterAllocationMap Map;
+        Map.SchemaIdentity = Schema.Identity;
+        Map.Product = Product;
+        Map.Parameters = std::move(*Parameters);
 		FXxHash128Builder Hash;
 		const auto String = [&](std::string_view Value) {
 			Hash.UpdateValue(static_cast<uint32>(Value.size())); Hash.Update(Value);

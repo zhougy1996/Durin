@@ -48,6 +48,8 @@ namespace Durin
 		const char* ShaderType = nullptr;
 		const char* OwnerName = nullptr;
 		EShaderParameterBindingScope Scope = EShaderParameterBindingScope::Draw;
+		uint32 ConstantBufferSize = 0;
+		std::span<const FShaderConstantMember> ConstantMembers;
 	};
 
 	// Describes a complete shader-parameter structure without owning its member storage.

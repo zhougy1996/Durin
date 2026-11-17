@@ -12,7 +12,6 @@ namespace Durin
 {
 	class FGPUSceneDynamicContext;
 	class FGPUScenePrimitiveCollector;
-	struct FGPUSceneReadParameters;
 	struct FGPUSceneBufferSet
 	{
 		std::array<FBufferRHIRef, 3> SceneData;
@@ -22,7 +21,7 @@ namespace Durin
 		uint32 NumAllocatedPrimitives = 0, NumAllocatedInstances = 0;
 		uint64 ResourceGeneration = 0;
 		RENDERER_API auto GetShaderParameters() const -> FGPUSceneShaderParameters;
-		RENDERER_API auto GetShaderParameters(FRDGBuilder& Graph, const FBufferRHIRef& DynamicInstanceIds = {}) const -> FGPUSceneReadParameters;
+		RENDERER_API auto GetShaderParameters(FRDGBuilder& Graph) const -> FGPUSceneResourceParameters;
 	};
 	struct FGPUScenePrimitiveData
 	{
@@ -90,12 +89,4 @@ namespace Durin
 		std::vector<std::shared_ptr<FGPUSceneInstanceIdBuffer>> InstanceIdUploads;
 	};
 
-	// Scene attributes and pass-local ID reads; independent of providers/cascade count.
-	struct FGPUSceneReadParameters
-	{
-		FGPUSceneResourceParameters GPUScene;
-		std::optional<FRDGBufferAccess> InstanceIds;
-		std::optional<FRDGBufferAccess> DynamicInstanceIds;
-		RENDERER_API static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*;
-	};
 }

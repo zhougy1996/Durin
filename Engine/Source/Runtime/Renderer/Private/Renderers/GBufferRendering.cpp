@@ -42,7 +42,6 @@ namespace Durin
 		-> const FRDGParametersMetadata*
 	{
 		static const std::array Members{
-            MakeRDGNestedParameterMemberMetadata<FGBufferPassParameters, decltype(GPUScene)>("GPUScene", offsetof(FGBufferPassParameters, GPUScene), FGPUSceneReadParameters::GetRDGParametersMetadata()),
 			MakeRDGValueParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Completion),
 				FGBufferPassResult>("Completion",
@@ -177,7 +176,6 @@ namespace Durin
 
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
 		Parameters->Completion = {GBufferCompletion};
-		Parameters->GPUScene = Inputs.Resolved.Receiver.StaticMeshes.GetGPUSceneParameters(Graph);
 		for (uint32 Index = 0; Index < GBuffer->Colors.size(); ++Index)
 			Parameters->Colors[Index] = FRDGColorAttachmentParameter{GBuffer->Colors[Index], {ERHITextureAspect::Color, 0, 1, 0, 1}};
 		Parameters->Colors[3] = FRDGColorAttachmentParameter{Inputs.SceneColor, {ERHITextureAspect::Color, 0, 1, 0, 1}};
@@ -185,7 +183,7 @@ namespace Durin
 		Parameters->Depth = FRDGDepthStencilAttachmentParameter{
 			.Texture = Inputs.Depth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
-		Parameters->InstanceCulling = DrawParams;
+		Parameters->InstanceCulling = Inputs.Resolved.Receiver.StaticMeshes.GetInstanceCullingDrawParams(Graph, DrawParams);
 		const auto GBufferPass = Graph.AddPass(GBufferPassName, ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&StaticMeshes = Inputs.StaticMeshes,

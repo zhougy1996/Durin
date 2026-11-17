@@ -131,6 +131,8 @@ namespace Durin::RDGPrivate
 		std::string RootReason;
 		// Only frozen uses may retain validation across later graph declarations.
 		bool bDeclarationsValidated = false;
+		// Collected by declaration validation; compilation reuses this per-use index.
+		mutable std::vector<uint32> TrackingUseIndices;
 		const FRDGParameterLayout* ParameterLayout = nullptr;
 		const void* Parameters = nullptr;
 		FOptionalAliasTable OptionalAliases;
@@ -335,9 +337,8 @@ namespace Durin::RDGPrivate
 		std::vector<const FGraphUse*> BufferDeclarations;
 	};
 
-	// Scratch is resource-indexed and restored to SIZE_MAX after each pass.
-	auto BuildTrackingUses(std::span<const FGraphUse> Uses,
-		std::span<size_t> BufferUseIndices) -> FPassTrackingUses;
+	// Uses the resource grouping already collected during declaration validation.
+	auto BuildTrackingUses(const FGraphPass& Pass) -> FPassTrackingUses;
 
 	// Both compilation and lazy diagnostics consume this event stream. The caller
 	// owns the layout; no diagnostic records are retained by normal compilation.

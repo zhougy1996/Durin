@@ -13,10 +13,10 @@ struct VolumetricCloudTemporalUniform
 	float4 Target;   // target extent.xy, history weight.z, history valid.w
 };
 
-[[vk::binding(0, 0)]] Texture2D<float4> CurrentCloud;
-[[vk::binding(1, 0)]] Texture2D<float4> PreviousCloud;
-[[vk::binding(2, 0)]] SamplerState HistorySampler;
-[[vk::binding(3, 0)]] ConstantBuffer<VolumetricCloudTemporalUniform> Params;
+Texture2D<float4> CurrentCloud;
+Texture2D<float4> PreviousCloud;
+SamplerState HistorySampler;
+ConstantBuffer<VolumetricCloudTemporalUniform> Params;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)

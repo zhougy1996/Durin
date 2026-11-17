@@ -77,6 +77,8 @@ static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTar
 	Options.EntryPoints = {"VertexMain", "FragmentMain"};
 	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
 		Durin::EShaderFrequency::Fragment};
+    Durin::FShaderType Policy("ImGuiHeadlessPolicy", "/Engine/ImGui", Durin::EShaderFrequency::Vertex, "VertexMain");
+    Policy.ApplyParameterCompilationEnvironment(Options);
 	const auto MetalCompiled = Durin::FShaderCompilingManager::Get().CompileMountedSync("/Engine/ImGui", Options);
 	ASSERT_TRUE(MetalCompiled) << Durin::FormatShaderCompilerErrors(MetalCompiled.Errors);
 	ASSERT_EQ(MetalCompiled.CompiledShaders.size(), 2u);
@@ -217,16 +219,16 @@ static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTar
 				auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 					"AuthoredImGui", Initializer);
 				ASSERT_TRUE(Pipeline);
-				const std::array VertexParameters{Durin::FRHIShaderParameterResource{
-					.Resource = UniformView.GetReference(), .SetIndex = 0,
-					.BindingIndex = 2, .Type = Durin::ERHIBindingType::UniformBuffer}};
-				const std::array FragmentParameters{
-					Durin::FRHIShaderParameterResource{.Resource = FontView.GetReference(),
-						.SetIndex = 0, .BindingIndex = 0,
-						.Type = Durin::ERHIBindingType::Texture},
-					Durin::FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
-						.SetIndex = 0, .BindingIndex = 1,
-						.Type = Durin::ERHIBindingType::Sampler}};
+                const auto Bind = [&](size_t Stage, std::string_view Name, Durin::FRHIResource* Resource) {
+                    const auto& Bindings = Compiled.CompiledShaders[Stage].Reflection.ResourceBindings;
+                    const auto Found = std::ranges::find(Bindings, Name, &Durin::FShaderResourceBinding::Name);
+                    requiref(Found != Bindings.end(), "Missing ImGui resource");
+                    return Durin::FRHIShaderParameterResource{.Resource = Resource, .SetIndex = Found->SetIndex,
+                        .BindingIndex = Found->BindingIndex, .Type = Found->Type};
+                };
+                const std::array VertexParameters{Bind(0, "Projection", UniformView.GetReference())};
+                const std::array FragmentParameters{Bind(1, "FontTexture", FontView.GetReference()),
+                    Bind(1, "FontSampler", Sampler.GetReference())};
 				const auto Signal = Commands.BeginGPUSubmission(
 					{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 				Commands.BeginRenderPass(Pass, "AuthoredImGui");
@@ -296,7 +298,7 @@ TEST(FMetalRHIHeadlessTests, BinaryComputeWritesStorageInBothExecutionModes)
 	FGeneratedShaderCompileRequest Request;
 	Request.Target = MetalLibraryShaderTarget;
 	Request.VirtualPath = "/Generated/MetalBinaryComputeQualification";
-	Request.Source = "[[vk::binding(0,0)]] RWStructuredBuffer<uint> Result; [shader(\"compute\")][numthreads(1,1,1)] void ComputeMain(uint3 id : SV_DispatchThreadID) { Result[id.x] = 0x12345678u; }";
+	Request.Source = "RWStructuredBuffer<uint> Result; [shader(\"compute\")][numthreads(1,1,1)] void ComputeMain(uint3 id : SV_DispatchThreadID) { Result[id.x] = 0x12345678u; }";
 	Request.EntryPoints = {"ComputeMain"}; Request.Frequencies = {EShaderFrequency::Compute};
 	const auto Built = Durin::FShaderCompilingManager::Get().CompileGeneratedSync(Request);
 	ASSERT_TRUE(Built) << Durin::FormatShaderCompilerErrors(Built.Errors);
@@ -322,7 +324,9 @@ TEST(FMetalRHIHeadlessTests, BinaryComputeWritesStorageInBothExecutionModes)
 			ASSERT_TRUE(Buffer);
 			auto View = GDynamicRHI->RHICreateBufferView(Buffer.GetReference(), {.Offset = 0, .Size = 4, .Type = ERHIBufferViewType::StructuredStorage});
 			ASSERT_TRUE(View);
-			const FRHIShaderParameterResource Parameter{.Resource = View.GetReference(), .SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::StorageBuffer};
+            const auto& Binding = Built.CompiledShaders[0].Reflection.ResourceBindings.front();
+            const FRHIShaderParameterResource Parameter{.Resource = View.GetReference(), .SetIndex = Binding.SetIndex,
+                .BindingIndex = Binding.BindingIndex, .Type = Binding.Type};
 			const auto Signal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 			Commands.SwitchPipeline(ERHIPipeline::Compute);
 			Commands.SetComputePipelineState(*Pipeline);
@@ -359,6 +363,8 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 	Options.EntryPoints = {"VertexMain", "FragmentMain"};
 	Options.Frequencies = {Durin::EShaderFrequency::Vertex,
 		Durin::EShaderFrequency::Fragment};
+    Durin::FShaderType Policy("HitProxyHeadlessPolicy", "/Engine/HitProxyOverlay", Durin::EShaderFrequency::Vertex, "VertexMain");
+    Policy.ApplyParameterCompilationEnvironment(Options);
 	const auto MetalCompiled = Durin::FShaderCompilingManager::Get().CompileMountedSync("/Engine/HitProxyOverlay", Options);
 	ASSERT_TRUE(MetalCompiled) << Durin::FormatShaderCompilerErrors(MetalCompiled.Errors);
 	ASSERT_EQ(MetalCompiled.CompiledShaders.size(), 2u);
@@ -446,8 +452,10 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 					"AuthoredHitProxy", Initializer);
 				ASSERT_TRUE(Pipeline);
 				const std::array Parameters{Durin::FRHIShaderParameterResource{
-					.Resource = UniformView.GetReference(), .SetIndex = 0,
-					.BindingIndex = 0, .Type = Durin::ERHIBindingType::UniformBuffer}};
+					.Resource = UniformView.GetReference(),
+                    .SetIndex = Compiled.CompiledShaders[1].Reflection.ResourceBindings.front().SetIndex,
+                    .BindingIndex = Compiled.CompiledShaders[1].Reflection.ResourceBindings.front().BindingIndex,
+                    .Type = Durin::ERHIBindingType::UniformBuffer}};
 				const auto Signal = Commands.BeginGPUSubmission(
 					{.Queue = Durin::GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 				Commands.BeginRenderPass(Pass, "AuthoredHitProxy");

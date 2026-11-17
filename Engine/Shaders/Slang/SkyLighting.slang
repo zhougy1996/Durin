@@ -12,10 +12,10 @@ struct FSkyLightingUniform
     uint4 Dispatch; // operation, face, dimension, sample count
     float4 Filter; // roughness, source dimension, source mip count, reserved
 };
-[[vk::binding(0, 0)]] TextureCube<float4> Source;
-[[vk::binding(1, 0)]] SamplerState SourceSampler;
-[[vk::binding(2, 0)]] ConstantBuffer<FSkyLightingUniform> Params;
-[[vk::binding(3, 0)]] RWTexture2D<float4> Output;
+TextureCube<float4> Source;
+SamplerState SourceSampler;
+ConstantBuffer<FSkyLightingUniform> Params;
+RWTexture2D<float4> Output;
 
 static const float Pi = 3.141592653589793;
 float2 Hammersley(uint i, uint n)
