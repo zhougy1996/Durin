@@ -36,6 +36,7 @@ namespace Durin::MonaImGui
 	auto ImGuiMonaImpl_Init() -> void;
 	auto ImGuiMonaImpl_Shutdown() -> void;
 	auto ImGuiMonaImpl_NewFrame() -> void;
+	MONAIMGUI_API auto ImGuiMonaImpl_UpdateMouseData() -> void;
 	auto ImGuiMonaImpl_BindMainViewport(const std::shared_ptr<MWindow>& Window) -> void;
 	auto ImGuiMonaImpl_GetViewportWindow(ImGuiViewport* Viewport) -> std::shared_ptr<MWindow>;
 	MONAIMGUI_API auto ImGuiMonaImpl_CreateEventHandler() -> std::unique_ptr<Mona::FMonaEventHandler>;

@@ -407,7 +407,7 @@ namespace Durin::MonaImGui
 		}
 	}
 
-	static auto UpdateMouseData() -> void
+	auto ImGuiMonaImpl_UpdateMouseData() -> void
 	{
 		ImGuiIO& IO = ImGui::GetIO();
 		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
@@ -415,16 +415,11 @@ namespace Durin::MonaImGui
 		ImGuiViewport* HoveredViewport = nullptr;
 		ImGuiViewport* FocusedViewport = nullptr;
 		const std::shared_ptr<FGenericWindow> MouseWindow = GMonaImGuiMouseState.MouseWindow.lock();
+		const bool bDragging = ImGui::GetCurrentContext()->MovingWindow != nullptr || ImGui::IsDragDropActive();
 		for (ImGuiViewport* Viewport : PlatformIO.Viewports)
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.MouseViewportScan");
-			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
-			if (Window == nullptr)
-			{
-				continue;
-			}
-
-			const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow();
+			const auto* NativeWindow = static_cast<FGenericWindow*>(Viewport->PlatformHandle);
 			if (NativeWindow == nullptr)
 			{
 				continue;
@@ -440,10 +435,11 @@ namespace Durin::MonaImGui
 				continue;
 			}
 
-			// Cursor-enter/leave events already track the hovered window. Avoid
-			// querying the window server for every viewport on every frame.
-			if (MouseWindow == NativeWindow && !IsMouseCaptured(NativeWindow)
-				&& (Viewport->Flags & ImGuiViewportFlags_NoInputs) == 0)
+			// Drag events can still come from the mouse-transparent source window.
+			// Query the actual destination while dragging; otherwise use the event cache.
+			if ((Viewport->Flags & ImGuiViewportFlags_NoInputs) == 0
+				&& NativeWindow->GetCursorMode() != ECursorMode::Captured
+				&& (bDragging ? NativeWindow->IsHovered() : MouseWindow.get() == NativeWindow))
 			{
 				HoveredViewport = Viewport;
 			}
@@ -1237,7 +1233,7 @@ namespace Durin::MonaImGui
 		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.UpdateMouseData");
-			UpdateMouseData();
+			ImGuiMonaImpl_UpdateMouseData();
 		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("MonaImGui.UpdateMouseCursor");

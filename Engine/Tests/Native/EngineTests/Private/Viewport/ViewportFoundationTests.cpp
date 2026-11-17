@@ -13,6 +13,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiMonaImpl.h"
 #include "Runtime/MonaImGui/Private/Backend/ImGuiModifierRecovery.h"
 #include "Viewport/ViewportPresentation.h"
@@ -304,6 +305,69 @@ TEST(FGenericWindowTitleBarTests, ActivatesTheWindowsCustomFrameAndNativeHitTest
 	ShutdownApplicationCore();
 }
 #endif
+
+TEST(FMonaImGuiInputTests, FindsDockDestinationWhenDragEventsStillBelongToSource)
+{
+	class FHoverWindow final : public Durin::FGenericWindow
+	{
+	public:
+		bool bHovered = false;
+		mutable int HoverQueries = 0;
+		auto IsHovered() const -> bool override { ++HoverQueries; return bHovered; }
+	};
+	auto* Context = ImGui::CreateContext();
+	std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Guard(Context, &ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(800, 600);
+	IO.DeltaTime = 1.0f / 60;
+	IO.BackendFlags |= ImGuiBackendFlags_HasMouseHoveredViewport;
+	IO.Fonts->Build();
+	const auto Handler = Durin::MonaImGui::ImGuiMonaImpl_CreateEventHandler();
+	const auto Source = std::make_shared<FHoverWindow>();
+	const auto Destination = std::make_shared<FHoverWindow>();
+	ImGuiViewport SourceViewport;
+	SourceViewport.ID = 123;
+	SourceViewport.PlatformHandle = Source.get();
+	SourceViewport.Flags |= ImGuiViewportFlags_NoInputs;
+	auto* DestinationViewport = ImGui::GetMainViewport();
+	DestinationViewport->PlatformHandle = Destination.get();
+	auto UpdateHover = [&](bool bDragging) {
+		Context->DragDropActive = bDragging;
+		ImGui::GetPlatformIO().Viewports.push_back(&SourceViewport);
+		Durin::MonaImGui::ImGuiMonaImpl_UpdateMouseData();
+		ImGui::GetPlatformIO().Viewports.pop_back();
+		Context->DragDropActive = false;
+		ImGui::NewFrame();
+		ImGui::EndFrame();
+		return IO.MouseHoveredViewport;
+	};
+	Destination->bHovered = true;
+	// Native capture still directs move/release events to the dragged source.
+	Handler->OnMouseMove(Source, {64, 48});
+	EXPECT_EQ(UpdateHover(true), DestinationViewport->ID);
+	EXPECT_EQ(Source->HoverQueries, 0);
+	EXPECT_EQ(Destination->HoverQueries, 1);
+	// Missing enter events and leaving every application window must also work.
+	Handler->OnMouseLeave(Source);
+	EXPECT_EQ(UpdateHover(true), DestinationViewport->ID);
+	Handler->OnMouseMove(Destination, {64, 48});
+	Destination->bHovered = false;
+	EXPECT_EQ(UpdateHover(true), 0u);
+	// Ordinary hovering retains the event-only fast path.
+	const int Queries = Destination->HoverQueries;
+	EXPECT_EQ(UpdateHover(false), DestinationViewport->ID);
+	Handler->OnMouseMove(Source, {64, 48});
+	EXPECT_EQ(UpdateHover(false), 0u);
+	EXPECT_EQ(Destination->HoverQueries, Queries);
+	// Viewport camera capture must remain isolated from UI input.
+	Destination->SetCursorMode(Durin::ECursorMode::Captured);
+	Destination->bHovered = true;
+	EXPECT_EQ(UpdateHover(true), 0u);
+	EXPECT_EQ(Destination->HoverQueries, Queries);
+	Handler->OnMouseLeave(Source);
+	DestinationViewport->PlatformHandle = nullptr;
+}
 
 TEST(FMonaImGuiInputTests, KeepsCapturedVirtualMouseEventsOutOfTheUI)
 {
