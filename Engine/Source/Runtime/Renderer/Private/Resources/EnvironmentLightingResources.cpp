@@ -61,7 +61,7 @@ namespace Durin
     {
         FGlobalShaderSetRef ShaderSet;
         TShaderMapRef<FSkyLightingShader> Shader;
-        FComputePipelineStateRHIRef Pipeline;
+        FComputePipelineStateRef Pipeline;
         FSamplerRHIRef Sampler;
         FTextureRHIRef Lut;
         FRenderResourceGeneration Generation;
@@ -303,7 +303,7 @@ namespace Durin
             Graph.AddPass(std::format("Sky.{}.Mip{}",Op,Mip),ERDGPassType::Compute,std::move(P),
                 [this,Uniform,Dimension,Faces,Mip](FRHICommandListImmediate& Cmd,const FPassParameters& P,const FRDGParameterResolver& Resolver) mutable {
                     Cmd.SwitchPipeline(ERHIPipeline::Compute);
-                    Cmd.SetComputePipelineState(*State->Pipeline);
+                    Cmd.SetComputePipelineState(State->Pipeline);
                     auto* Texture=Resolver.GetTexture(P.Output);
                     auto* SourceTexture=Resolver.GetTexture(P.Source);
                     auto SourceDesc=MakeDefaultTextureViewDesc(*SourceTexture,ERHITextureViewUsage::Sampled);

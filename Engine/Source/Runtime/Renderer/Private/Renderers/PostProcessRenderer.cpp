@@ -121,7 +121,7 @@ namespace Durin
 			const FVertexDeclarationRHIRef& VertexDeclaration,
 			const FPipelineLayoutDesc& PipelineLayout,
 			const FRHIRenderTargetLayout& RenderTargetLayout)
-			-> FGraphicsPipelineStateRHIRef
+			-> FGraphicsPipelineStateRef
 		{
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderTargetLayout = RenderTargetLayout;
@@ -144,13 +144,13 @@ namespace Durin
 			TShaderMapRef<FPostProcessVertexShader> VertexShader;
 			TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
 			TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
-			FGraphicsPipelineStateRHIRef Pipeline;
+			FGraphicsPipelineStateRef Pipeline;
 			FSamplerRHIRef SceneColorSampler;
 		};
 		using FSlot = TRenderResourceCreationSlot<FPayload>;
 		// Two shader routes, two formats, and three output attachment layouts.
 		std::array<std::unique_ptr<FSlot>, 12> Slots;
-		struct FMaterialPipeline { FShaderRHIRef Vertex, Fragment; FGraphicsPipelineStateRHIRef Pipeline; };
+		struct FMaterialPipeline { FShaderRHIRef Vertex, Fragment; FGraphicsPipelineStateRef Pipeline; };
 		using FMaterialSlot = TRenderResourceCreationSlot<FMaterialPipeline>;
 		std::vector<std::pair<std::shared_ptr<const FMaterialProgram>, std::unique_ptr<FMaterialSlot>>> MaterialSlots;
 		std::unique_ptr<RendererPrivate::FSurfaceMaterialResources> MaterialResources;
@@ -267,7 +267,7 @@ namespace Durin
 			bEnableFXAA, bHasEditorAssistance, OutputFormat)];
 		const FState::FPayload* Payload = Slot ? Slot->GetPayload() : nullptr;
 		if (!Payload) return;
-		const FGraphicsPipelineStateRHIRef& PipelineState = Payload->Pipeline;
+		const FGraphicsPipelineStateRef& PipelineState = Payload->Pipeline;
 		if (PipelineState == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
@@ -275,7 +275,7 @@ namespace Durin
 			return;
 		}
 
-		CommandList.SetGraphicsPipelineState(*PipelineState);
+		CommandList.SetGraphicsPipelineState(PipelineState);
 		CommandList.SetViewport(
 			0.0f,
 			0.0f,
@@ -470,7 +470,7 @@ namespace Durin
 			ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
 		Pass.ColorRenderTargets[0] = Prepared.Output;
 		Commands.BeginRenderPass(Pass, "Scene.PostProcessMaterial");
-		Commands.SetGraphicsPipelineState(*Prepared.Pipeline);
+		Commands.SetGraphicsPipelineState(Prepared.Pipeline);
 		const auto Width = Prepared.Output->GetSizeX(), Height = Prepared.Output->GetSizeY();
 		Commands.SetViewport(0, 0, 0, Width, Height, 1); Commands.SetScissor(0, 0, Width, Height);
 		Commands.SetShaderParameters(Prepared.Fragment, Bindings);

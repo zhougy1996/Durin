@@ -2,7 +2,6 @@
 #include "Hash/CanonicalHash.h"
 #include "DynamicRHI.h"
 #include "RHIGlobals.h"
-#include "RenderResourcePreparation.h"
 #include "RenderPipelineCreation.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderData.h"
@@ -225,8 +224,6 @@ namespace Durin
 
 			const FShaderCode& CompiledShader = Code->GetCompiledShader(ShaderIndex);
 			const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(Code->GetSharedShaderCode(ShaderIndex));
-			if (!FRenderResourcePreparationScope::TryBeforeShader())
-			{ FRenderPipelineRequestScope::MarkResourcePending(); return nullptr; }
 			Shaders[ShaderIndex] = GDynamicRHI->RHICreateShader(ShaderCreateDesc);
 
 			if (bRequired)
@@ -313,17 +310,6 @@ namespace Durin
 			Resource = std::move(CacheEntry.Resource);
 		}
 
-		if (FRenderResourcePreparationScope::IsActive())
-		{
-			uint64 Bytes = sizeof(FShaderMapResourceCode);
-			for (uint32 Index = 0; Index < Code->GetNumShaders(); ++Index)
-			{
-				const auto& Stage = Code->GetCompiledShader(Index);
-				Bytes += sizeof(FShaderCode) + Stage.Code.size() + Stage.PlatformData.size();
-			}
-			FRenderResourcePreparationScope::Retain(Code, Bytes);
-			FRenderResourcePreparationScope::Retain(Resource, sizeof(FShaderMapResource));
-		}
 
 		for (uint32 ShaderIndex = 0; ShaderIndex < ShaderTypes.size(); ++ShaderIndex)
 		{

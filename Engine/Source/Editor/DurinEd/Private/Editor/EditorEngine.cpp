@@ -2,7 +2,6 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
-#include "ShaderPipelineCache.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
@@ -127,7 +126,6 @@ namespace Durin
 	auto DEditorEngine::InitEditorInternal(const FEngineInitContext& InitContext)
 		-> bool
 	{
-		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Fast);
 		if (!DEngine::Init(InitContext))
 			return false;
 		EditorWorld = GetWorld();
@@ -177,7 +175,6 @@ namespace Durin
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
 			if (HasCurrentProject()) OpenDefaultLevel();
 		}
-		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
 		Profiling::TryLogStartupTimingSummary();
 		DURIN_DEBUG("Editor services initialized");
 		return true;
@@ -342,7 +339,6 @@ namespace Durin
 	auto DEditorEngine::PreExit() -> void
 	{
 		requiref(!EditorSubsystems.IsPopulating(), "PreExit cannot run from subsystem lifecycle callbacks.");
-		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
 		Super::PreExit();
 		if (bShutdownComplete && GEditor == this) GEditor = nullptr;
 	}

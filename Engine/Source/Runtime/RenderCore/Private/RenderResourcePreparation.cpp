@@ -1,81 +1,19 @@
 #include "RenderResourcePreparation.h"
 #include "RenderingThread.h"
 #include "Shader/ShaderCompilerCore.h"
-#include "ShaderPipelineCache.h"
+#include "PipelineStateCache.h"
 
 namespace Durin
 {
 	struct FRenderResourcePreparationState
 	{
-		std::atomic<ERenderResourcePreparationState> Status{ERenderResourcePreparationState::Pending};
-		std::atomic_bool Canceled = false;
+		std::mutex Mutex;
+		ERenderResourcePreparationState Status = ERenderResourcePreparationState::Pending;
 		uint64 ShaderGeneration = GetShaderReloadGeneration();
-		std::atomic<uint64> Objects = 0, Bytes = 0, Shaders = 0, Pipelines = 0, UncoveredShaders = 0, UncoveredPipelines = 0;
-		struct FRetained { std::shared_ptr<const void> Resource; uint64 Bytes; };
-		std::vector<FRetained> Resources;
+		bool bHasOwner = false;
+		std::weak_ptr<const void> Owner;
+		std::vector<std::shared_ptr<FPipelineState>> Requests;
 	};
-	static thread_local FRenderResourceAdmissionScope* CurrentAdmission = nullptr;
-	auto FRenderResourceAdmissionBudget::BeginFrame(uint64 InFrame) -> void
-	{
-		if (Frame == InFrame) return;
-		Frame = InFrame; Shaders = Pipelines = Deferred = 0;
-		if (bUseBatchMode)
-		{
-			const auto Policy = FShaderPipelineCache::GetBatchBudget();
-			MaximumShaders = Policy.Shaders;
-			MaximumPipelines = Policy.Pipelines;
-			TimeBudget = Policy.Time;
-		}
-		Start = std::chrono::steady_clock::now();
-	}
-	auto FRenderResourceAdmissionBudget::Admit(bool bShader) -> bool
-	{
-		if ((bShader ? Shaders >= MaximumShaders : Pipelines >= MaximumPipelines)
-			|| ((Shaders + Pipelines) != 0 && std::chrono::steady_clock::now() - Start >= TimeBudget))
-		{
-			++Deferred; return false;
-		}
-		if (Shaders + Pipelines == 0) Start = std::chrono::steady_clock::now();
-		if (bShader) ++Shaders; else ++Pipelines;
-		return true;
-	}
-	FRenderResourceAdmissionScope::FRenderResourceAdmissionScope(FRenderResourceAdmissionBudget& InBudget, uint64 Frame)
-		: Budget(InBudget), Previous(CurrentAdmission)
-	{
-		if (Budget.Frame != Frame) Budget.BeginFrame(Frame);
-		CurrentAdmission = this;
-	}
-	FRenderResourceAdmissionScope::~FRenderResourceAdmissionScope() { CurrentAdmission = Previous; }
-	auto FRenderResourceAdmissionScope::GetDeferredAdmissions() -> uint32
-	{ return CurrentAdmission ? CurrentAdmission->Budget.Deferred : 0; }
-
-	static thread_local FRenderResourcePreparationScope* CurrentPreparation = nullptr;
-	static thread_local FRenderResourcePreparationUseScope* CurrentUse = nullptr;
-	FRenderResourcePreparationUseScope::FRenderResourcePreparationUseScope(const FRenderResourcePreparation& Preparation)
-		: State(Preparation.State), Previous(CurrentUse)
-	{
-		CheckRenderingThread();
-		if (Preparation.GetProgress().State != ERenderResourcePreparationState::Ready) State.reset();
-		CurrentUse = this;
-	}
-	FRenderResourcePreparationUseScope::FRenderResourcePreparationUseScope(FRenderResourcePreparationScope& Preparation)
-		: State(Preparation.State), Previous(CurrentUse), SuspendedPreparation(&Preparation)
-	{
-		CheckRenderingThread();
-		require(CurrentPreparation == &Preparation);
-		if (State->Canceled) throw FRenderResourcePreparationYield{};
-		CurrentPreparation = nullptr;
-		CurrentUse = this;
-	}
-	FRenderResourcePreparationUseScope::~FRenderResourcePreparationUseScope()
-	{
-		CurrentUse = Previous;
-		if (SuspendedPreparation)
-		{
-			require(CurrentPreparation == nullptr);
-			CurrentPreparation = SuspendedPreparation;
-		}
-	}
 	auto FRenderResourcePreparation::Create() -> FRenderResourcePreparation
 	{
 		FRenderResourcePreparation Result;
@@ -85,104 +23,61 @@ namespace Durin
 	auto FRenderResourcePreparation::GetProgress() const -> FRenderResourcePreparationProgress
 	{
 		if (!State) return {.State = ERenderResourcePreparationState::Failed};
-		const auto Status = State->Status.load();
-		const bool Terminal = Status == ERenderResourcePreparationState::Failed || Status == ERenderResourcePreparationState::Canceled;
-		return {Terminal ? Status : State->Canceled ? ERenderResourcePreparationState::Canceled
-			: State->ShaderGeneration != GetShaderReloadGeneration() ? ERenderResourcePreparationState::Stale : Status, State->Objects.load(), State->Bytes.load(), State->Shaders.load(), State->Pipelines.load(), State->UncoveredShaders.load(), State->UncoveredPipelines.load()};
+		std::lock_guard Lock(State->Mutex);
+		auto Retire = [&](ERenderResourcePreparationState Result) {
+			State->Status = Result;
+			State->Requests.clear();
+			return FRenderResourcePreparationProgress{Result};
+		};
+		auto Status = State->Status;
+		if (Status == ERenderResourcePreparationState::Failed || Status == ERenderResourcePreparationState::Canceled
+			|| Status == ERenderResourcePreparationState::Stale) return {Status, State->Requests.size()};
+		if (State->ShaderGeneration != GetShaderReloadGeneration() || (State->bHasOwner && State->Owner.expired()))
+			return Retire(ERenderResourcePreparationState::Stale);
+		for (const auto& Request : State->Requests)
+		{
+			const auto RequestState = Request->GetState();
+			if (RequestState == ERHIPipelineRequestState::Failed) return Retire(ERenderResourcePreparationState::Failed);
+			if (RequestState == ERHIPipelineRequestState::Canceled) return Retire(ERenderResourcePreparationState::Stale);
+			if (RequestState == ERHIPipelineRequestState::Pending) Status = ERenderResourcePreparationState::Pending;
+		}
+		return {Status, State->Requests.size()};
+	}
+	auto FRenderResourcePreparation::NeedsPreparation() const -> bool
+	{
+		if (!State) return false;
+		std::lock_guard Lock(State->Mutex);
+		return State->Status == ERenderResourcePreparationState::Pending;
 	}
 	auto FRenderResourcePreparation::RequestCancel() const -> void
 	{
-		if (State) State->Canceled = true;
+		if (!State) return;
+		std::lock_guard Lock(State->Mutex);
+		if (State->Status != ERenderResourcePreparationState::Failed) State->Status = ERenderResourcePreparationState::Canceled;
+		State->Requests.clear();
+	}
+	auto FRenderResourcePreparation::Complete_RenderThread(ERenderResourcePreparationState Result,
+		std::vector<std::shared_ptr<FPipelineState>> Requests, const std::shared_ptr<const void>& Owner) const -> void
+	{
+		CheckRenderingThread();
+		if (!State) return;
+		std::lock_guard Lock(State->Mutex);
+		if (State->Status == ERenderResourcePreparationState::Failed || State->Status == ERenderResourcePreparationState::Canceled
+			|| State->Status == ERenderResourcePreparationState::Stale) return;
+		if (State->bHasOwner && State->Owner.lock() != Owner) Result = ERenderResourcePreparationState::Failed;
+		State->Status = Result;
+		State->Requests = Result == ERenderResourcePreparationState::Failed ? std::vector<std::shared_ptr<FPipelineState>>{} : std::move(Requests);
+		State->Owner = Owner;
+		State->bHasOwner = Owner != nullptr;
 	}
 	auto FRenderResourcePreparation::Retire_RenderThread(ERenderResourcePreparationState Reason) const -> void
 	{
 		CheckRenderingThread();
 		if (!State) return;
-		State->Resources.clear();
-		State->Objects = 0; State->Bytes = 0;
-		const auto Current = State->Status.load();
-		if (Current != ERenderResourcePreparationState::Failed && Current != ERenderResourcePreparationState::Canceled)
+		std::lock_guard Lock(State->Mutex);
+		if (State->Status != ERenderResourcePreparationState::Failed && State->Status != ERenderResourcePreparationState::Canceled)
 			State->Status = Reason;
-	}
-	FRenderResourcePreparationScope::FRenderResourcePreparationScope(const FRenderResourcePreparation& Preparation)
-		: State(Preparation.State), Previous(CurrentPreparation)
-	{
-		CheckRenderingThread();
-		require(State != nullptr);
-		LocalBudget.BeginFrame(0);
-		Budget = CurrentPreparation ? CurrentPreparation->Budget
-			: CurrentAdmission ? &CurrentAdmission->Budget : &LocalBudget;
-		if (State->Status == ERenderResourcePreparationState::Ready)
-		{
-			State->Resources.clear();
-			State->Objects = 0; State->Bytes = 0;
-		}
-		State->Status = ERenderResourcePreparationState::Pending;
-		CurrentPreparation = this;
-	}
-	FRenderResourcePreparationScope::~FRenderResourcePreparationScope() { CurrentPreparation = Previous; }
-	auto FRenderResourcePreparationScope::IsActive() -> bool { return CurrentPreparation != nullptr; }
-	auto FRenderResourcePreparationScope::Complete(ERenderResourcePreparationState Result) -> void
-	{
-		require(Result == ERenderResourcePreparationState::Pending || Result == ERenderResourcePreparationState::Ready
-			|| Result == ERenderResourcePreparationState::Failed);
-		if (State->Canceled) Result = ERenderResourcePreparationState::Canceled;
-		if (Result == ERenderResourcePreparationState::Failed || Result == ERenderResourcePreparationState::Canceled)
-		{
-			State->Resources.clear();
-			State->Objects = 0; State->Bytes = 0;
-		}
-		State->Status = Result;
-	}
-	auto FRenderResourcePreparationScope::Admit(bool Shader) -> void
-	{
-		if (State->Canceled || !Budget->Admit(Shader))
-		{
-			throw FRenderResourcePreparationYield{};
-		}
-		if (Shader) ++State->Shaders;
-		else ++State->Pipelines;
-	}
-	auto FRenderResourcePreparationScope::BeforeShader() -> void
-	{
-		if (CurrentPreparation) CurrentPreparation->Admit(true);
-		else if (CurrentUse && CurrentUse->State) ++CurrentUse->State->UncoveredShaders;
-	}
-	auto FRenderResourcePreparationScope::BeforePipeline() -> void
-	{
-		if (CurrentPreparation) CurrentPreparation->Admit(false);
-		else if (CurrentUse && CurrentUse->State) ++CurrentUse->State->UncoveredPipelines;
-	}
-	auto FRenderResourcePreparationScope::TryBeforeShader() -> bool
-	{
-		if (!CurrentPreparation && CurrentAdmission && !CurrentAdmission->Budget.Admit(true)) return false;
-		BeforeShader(); return true;
-	}
-	auto FRenderResourcePreparationScope::TryBeforePipeline() -> bool
-	{
-		if (!CurrentPreparation && CurrentAdmission && !CurrentAdmission->Budget.Admit(false)) return false;
-		BeforePipeline(); return true;
-	}
-
-	auto FRenderResourcePreparationScope::Retain(std::shared_ptr<const void> Resource, uint64 Bytes) -> void
-	{
-		if (!CurrentPreparation || !Resource) return;
-		auto& State = *CurrentPreparation->State;
-		if (State.Canceled) throw FRenderResourcePreparationYield{};
-		for (auto& Existing : State.Resources)
-			if (Existing.Resource.get() == Resource.get())
-			{
-				if (Bytes <= Existing.Bytes) return;
-				const auto Additional = Bytes - Existing.Bytes;
-				if (Additional > 256ull * 1024 * 1024 - State.Bytes.load()) throw FRenderResourcePreparationCapacityExceeded{};
-				Existing.Bytes = Bytes; State.Bytes += Additional;
-				return;
-			}
-		if (State.Resources.size() >= 4096 || Bytes > 256ull * 1024 * 1024 - State.Bytes.load())
-			throw FRenderResourcePreparationCapacityExceeded{};
-		State.Resources.push_back({std::move(Resource), Bytes});
-		State.Objects = State.Resources.size();
-		State.Bytes += Bytes;
+		State->Requests.clear();
 	}
 	static thread_local uint32 PreparedScopeDepth = 0;
 	static thread_local uint32 CaptureOnlyDepth = 0;

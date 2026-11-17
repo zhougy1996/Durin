@@ -6,6 +6,7 @@
 
 #include "RHICommandList.h"
 #include "RenderResource.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -150,14 +151,21 @@ namespace Durin
 			});
 	}
 
-	auto FRenderCommandFence::Wait() -> void
+	auto FRenderCommandFence::Wait(std::source_location Caller) -> void
 	{
 		check(IsInGameThread());
 		if (!CompletionTask.IsValid()) return;
+		const auto Started = std::chrono::steady_clock::now();
 		const FTaskWaitResult Result = WaitTask(CompletionTask);
+		const auto RenderCompleted = std::chrono::steady_clock::now();
 		requiref(Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded,
 			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
 		if (RHIFence) RHIFence->Wait();
+		const double RenderMS = std::chrono::duration<double, std::milli>(RenderCompleted - Started).count();
+		const double RHIMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - RenderCompleted).count();
+		if (Profiling::AreStartupDiagnosticsEnabled() && RenderMS + RHIMS >= 20.0)
+			DURIN_DEBUG("Render fence wait: task={} | caller={}:{} ({}) | render={:.3f} ms | rhi={:.3f} ms",
+				CompletionTask.GetTaskId(), Caller.file_name(), Caller.line(), Caller.function_name(), RenderMS, RHIMS);
 		CompletionTask = {};
 		RHIFence.reset();
 	}
@@ -200,6 +208,7 @@ namespace Durin
 		auto Sync(EFlushMode FlushMode) -> void
 		{
 			check(IsInGameThread());
+			const auto SyncStarted = std::chrono::steady_clock::now();
 			bool bFullSync = (FlushMode == EFlushMode::Threads);
 
 			RenderThreadFences[NextFenceIndex].emplace(
@@ -224,6 +233,9 @@ namespace Durin
 					RenderThreadFences[NextFenceIndex].reset();
 				}
 			}
+			const double SyncMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - SyncStarted).count();
+			if (Profiling::AreStartupDiagnosticsEnabled() && SyncMS >= 20.0)
+				DURIN_DEBUG("Render frame sync: mode={} | {:.3f} ms", bFullSync ? "Threads" : "EndFrame", SyncMS);
 		}
 	} // namespace FFrameSync
 

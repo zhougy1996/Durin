@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PipelineStateCache.h"
 
 #include "Renderers/SimpleElement/SimpleElementCollector.h"
 #include "Shader/GlobalShader.h"
@@ -13,7 +14,7 @@ namespace Durin
 	struct FPreparedSimpleElementDraw
 	{
 		FSimpleElementBatchKey Key;
-		FGraphicsPipelineStateRHIRef Pipeline;
+		FGraphicsPipelineStateRef Pipeline;
 		FGlobalShaderSetRef ShaderSet;
 		FTextureRHIRef Texture;
 		FSamplerRHIRef Sampler;

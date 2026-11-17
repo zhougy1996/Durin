@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	struct FPreparedShaderMapState
+	struct FPreparedShaderMapState : FRenderPreparationDependency
 	{
 		uint64 Generation = 0;
 		uint64 Epoch = 0;
@@ -18,6 +18,7 @@ namespace Durin
 		std::optional<FShaderCompilerOutput> Output;
 		FShaderBuildHandle Handle;
 		EShaderBuildPriority Priority = EShaderBuildPriority::Low;
+		auto IsPending() const -> bool override;
 	};
 
 	namespace
@@ -99,6 +100,12 @@ namespace Durin
 			if (bSubmit) FShaderCompilingManager::Get().SubmitJobs(State->Handle);
 			return State;
 		}
+	}
+	auto FPreparedShaderMapState::IsPending() const -> bool
+	{
+		if (Generation != GetShaderReloadGeneration() || Epoch != PreparationEpoch.load()) return false;
+		std::lock_guard Lock(Mutex);
+		return !Output.has_value();
 	}
 	auto FShaderMapPreparation::Request(std::string_view Owner,
 		std::initializer_list<std::string_view> Programs, EShaderBuildPriority Priority) -> FShaderMapPreparation

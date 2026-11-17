@@ -87,13 +87,13 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FContactVisibilityVertexShader> VertexShader;
 			TShaderMapRef<FContactVisibilityFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRef PipelineState;
 		};
 		struct FComputePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FContactVisibilityComputeShader> ComputeShader;
-			FComputePipelineStateRHIRef PipelineState;
+			FComputePipelineStateRef PipelineState;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
 			ERenderResourceGenerationDependency::Shader
@@ -387,7 +387,7 @@ namespace Durin
 				if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
 			}
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
-			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
+			CommandList.SetComputePipelineState(ComputePayload->PipelineState);
 			FContactVisibilityComputeShader::FParameters Parameters;
 			Parameters.Params = UniformBuffer;
 			if (Policy.GraphShaderParameters)
@@ -447,7 +447,7 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = FragmentTargets->Visibility;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "ContactVisibilityRenderPass");
-		CommandList.SetGraphicsPipelineState(*FragmentPayload->PipelineState);
+		CommandList.SetGraphicsPipelineState(FragmentPayload->PipelineState);
 		CommandList.SetViewport(static_cast<float>(View.ViewportX),
 					static_cast<float>(View.ViewportY), 0.0f,
 					static_cast<float>(View.ViewportX + View.ViewportWidth),

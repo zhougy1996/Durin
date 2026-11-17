@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PipelineStateCache.h"
 
 #include "EditorGridRendering.h"
 #include "Misc/CoreTypes.h"
@@ -94,7 +95,7 @@ namespace Durin::RendererEditorAssistance
 	struct FPreparedPipeline
 	{
 		FPipelineKey Key;
-		FGraphicsPipelineStateRHIRef Pipeline;
+		FGraphicsPipelineStateRef Pipeline;
 		FGlobalShaderSetRef ShaderSet;
 	};
 

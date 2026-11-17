@@ -179,27 +179,27 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudVertexShader> VertexShader;
 			TShaderMapRef<FCloudFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRef PipelineState;
 		};
 		struct FComputePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudComputeShader> ComputeShader;
-			FComputePipelineStateRHIRef PipelineState;
+			FComputePipelineStateRef PipelineState;
 		};
 		struct FCompositePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudCompositeVertexShader> VertexShader;
 			TShaderMapRef<FCloudCompositeFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRef PipelineState;
 		};
 		struct FTemporalPayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudTemporalVertexShader> VertexShader;
 			TShaderMapRef<FCloudTemporalFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRef PipelineState;
 		};
 		struct FFallbackPayload
 		{
@@ -727,7 +727,7 @@ namespace Durin
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(OutputToCompute);
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
-			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
+			CommandList.SetComputePipelineState(ComputePayload->PipelineState);
 			FCloudComputeShader::FParameters Params;
 			Params.BaseDensity = Input.Textures.BaseDensity;
 			Params.DetailDensity = Input.Textures.DetailDensity;
@@ -757,7 +757,7 @@ namespace Durin
 			PassInfo.ColorRenderTargets[0] = FragmentTargets->Cloud;
 			PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 			CommandList.BeginRenderPass(PassInfo, "VolumetricCloudRenderPass");
-			CommandList.SetGraphicsPipelineState(*FragmentPayload->PipelineState);
+			CommandList.SetGraphicsPipelineState(FragmentPayload->PipelineState);
 			CommandList.SetViewport(static_cast<float>(CloudView.ViewportX), static_cast<float>(CloudView.ViewportY), 0.0f, static_cast<float>(CloudView.ViewportX + CloudView.ViewportWidth), static_cast<float>(CloudView.ViewportY + CloudView.ViewportHeight), 1.0f);
 			CommandList.SetScissor(static_cast<float>(CloudView.ViewportX), static_cast<float>(CloudView.ViewportY), static_cast<float>(CloudView.ViewportWidth), static_cast<float>(CloudView.ViewportHeight));
 			CommandList.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
@@ -956,7 +956,7 @@ namespace Durin
 		PassInfo.ColorClearValues[0] =
 			FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "VolumetricCloudTemporalRenderPass");
-		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
+		CommandList.SetGraphicsPipelineState(Payload->PipelineState);
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 		CommandList.BindVertexBuffer(
@@ -1027,7 +1027,7 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = CompositeTargets.Cloud;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "VolumetricCloudCompositeRenderPass");
-		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
+		CommandList.SetGraphicsPipelineState(Payload->PipelineState);
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(CompositeTargets.Cloud->GetSizeX()), static_cast<float>(CompositeTargets.Cloud->GetSizeY()), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(CompositeTargets.Cloud->GetSizeX()), static_cast<float>(CompositeTargets.Cloud->GetSizeY()));
 		CommandList.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);

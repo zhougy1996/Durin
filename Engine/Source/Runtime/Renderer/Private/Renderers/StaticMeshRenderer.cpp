@@ -1,4 +1,5 @@
 #include "Profiling/Profiling.h"
+#include "Renderers/RenderStageTimings.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "GPUScene.h"
 #include "SceneInfo.h"
@@ -330,6 +331,8 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureSectionResources");
+		RendererPrivate::FRenderStageTimings Timings(false, bShadowDepth ? "ShadowSection" : "MeshSection",
+			bShadowDepth && GRenderFrameCounterRenderThread <= 5 ? 0.25 : 20.0);
 		OutPipeline.reset();
 		check(IsInRenderingThread());
 		if (Primitive.CollectedBinding == nullptr)
@@ -356,18 +359,24 @@ namespace Durin
 			.VertexDomain = Primitive.VertexDomain,
 			.FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey
 		};
+		Timings.Next("ShaderMapCache");
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
 		auto& ShaderMapEntry = ShaderMapCache.FindOrAddBounded(
 			ShaderMapKey, MaterialShaderMapCacheEntryBudget, MaterialShaderMapCacheByteBudget);
+		Timings.Next("PrepareShaders");
 		FState::FShaderMapPayload* ShaderMapPayload =
 			ShaderMapEntry.Slot.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
-				[this, &Material, &Processor, &Batch]() -> FShaderMapResult {
+				[this, &Material, &Processor, &Batch, bShadowDepth]() -> FShaderMapResult {
 					FState::FShaderMapPayload Candidate;
 					FShaderCompileOptions Options;
 					Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
 					ERenderResourceCreateErrorCategory FailureCategory;
 					const auto Result = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), Material.CompiledProgram.get(), Options, Candidate, &FailureCategory);
+					if (Profiling::AreStartupDiagnosticsEnabled() && bShadowDepth && GRenderFrameCounterRenderThread <= 5)
+						DURIN_DEBUG("Shadow shader preparation: frame={} | program={} | status={}",
+							GRenderFrameCounterRenderThread, Material.PlanningPassIdentity.ShaderMap.ProgramIdentity.ToString(),
+							static_cast<uint32>(Result.Status));
 					if (Result.Status == EShaderBuildStatus::Pending) return FShaderMapResult::Pending();
 					if (Result.Status == EShaderBuildStatus::Canceled) return FShaderMapResult::Canceled();
 					if (!Result) return FShaderMapResult::Failure(MakeRendererResourceCreateError(
@@ -385,6 +394,7 @@ namespace Durin
 			return false;
 		}
 
+		Timings.Next("PipelineCache");
 		using FPipelineResult =
 			TRenderResourceCreateResult<FState::FPipelinePayload>;
 		FEffectiveMeshPipelineKey EffectivePipelineKey =
@@ -398,6 +408,7 @@ namespace Durin
 			Coordinator.GetGeneration_RenderThread();
 		PipelineGeneration.Shader =
 			ShaderMapPayload->ShaderMap.GetGeneration().Shader;
+		Timings.Next("PreparePipeline");
 		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
 			PipelineGeneration,
 			[&PipelineEntry, ShaderMapPayload, &EffectivePipelineKey, &VertexFactory, &Processor, &Batch]() -> FPipelineResult {
@@ -418,6 +429,7 @@ namespace Durin
 			return false;
 		}
 
+		Timings.Next("SurfaceMaterial");
 		const ESurfaceMaterialPass SurfacePass = bShadowDepth
 			? (Item.Command->PipelineKey.Material.ShaderMap.BlendMode
 					== EMaterialBlendMode::Masked

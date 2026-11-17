@@ -153,7 +153,7 @@ Qualification/debug work uses the same prepared model and graph. The private sco
 qualification policy is captured once at entry and passed explicitly; resource
 pools and callbacks do not reread changing global policy. Preparation-only calls
 never open temporal candidates. Capture owners wait for readiness first; recording
-and readback have no preparation-time budget. Admission allowances are defined by
+and readback have no preparation-time budget. Request ownership and readiness are defined by
 [Load Preparation](LoadPreparation.md#scene-resource-readiness).
 
 ## Typed Results and Failure Policy

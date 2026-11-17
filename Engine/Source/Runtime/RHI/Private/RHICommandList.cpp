@@ -2076,6 +2076,7 @@ namespace Durin
 		const auto& Request = Pipeline->Request;
 		check(ActivePipeline == ERHIPipeline::Graphics && Request.IsAccepted() && !Request.IsCompute());
 		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
+		if (Pipeline->GetState() == ERHIPipelineRequestState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
 		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		bHasActiveGraphicsPipelineState = true;
 		ActiveGraphicsRequest = Request;
@@ -2087,6 +2088,7 @@ namespace Durin
 		check(ActivePipeline == ERHIPipeline::Compute && !bInsideRenderPass && Request.IsCompute());
 		check(Request.GetPipelineLayout());
 		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
+		if (Pipeline->GetState() == ERHIPipelineRequestState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
 		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		ActiveComputePipelineState = nullptr;
 		ActiveComputeRequest = Request;

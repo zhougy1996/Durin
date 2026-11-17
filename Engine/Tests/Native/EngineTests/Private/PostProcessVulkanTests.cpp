@@ -11,7 +11,6 @@
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Rendering/SceneInterface.h"
-#include "ShaderPipelineCache.h"
 #include "Threading/TaskRuntime.h"
 
 namespace Durin
@@ -38,7 +37,6 @@ namespace Durin
 		{
 			FModuleTestHarness& Lifecycle;
 			FScenePtr& Scene;
-			FShaderPipelineCache::BatchMode PreviousMode;
 			~FCleanup()
 			{
 				if (Scene)
@@ -52,11 +50,9 @@ namespace Durin
 				FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 				RHIExit();
 				FModuleManager::Get().ShutdownModule("ShaderBuild");
-				FShaderPipelineCache::SetBatchMode(PreviousMode);
 			}
-		} Cleanup{Lifecycle, Scene, FShaderPipelineCache::GetBatchMode()};
+		} Cleanup{Lifecycle, Scene};
 		Scene = Renderer.CreateScene();
-		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Fast);
 		auto Prepare = [&](bool FXAA, EPixelFormat Format) {
 			FTextureRHIRef Output;
 			const auto Preparation = FRenderResourcePreparation::Create();
@@ -97,7 +93,6 @@ namespace Durin
 			Prepare(FXAA, Format);
 			EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, ++Expected);
 		}
-		FShaderPipelineCache::SetBatchMode(FShaderPipelineCache::BatchMode::Background);
 		Prepare(false, EPixelFormat::SRGBA8_UNORM);
 		Prepare(true, EPixelFormat::SBGRA8_UNORM);
 		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, Expected);

@@ -637,11 +637,40 @@ namespace
     TEST_F(FGPUSceneTests, ParallelDrawRecordingMatchesSerialRangesSourcesAndCounters)
     {
         using namespace RendererPrivate;
+        FRHIPipelineCompileBackend CompileBackend{
+            .FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
+            .FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
+            .CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return MakeRefCount<FRHIGraphicsPipelineState>(); },
+            .CreateCompute = [](const auto&, const auto&) -> FComputePipelineStateRHIRef { return {}; }
+        };
+        auto Capabilities = *RHI.RHIGetCapabilities();
+        Capabilities.MaxColorAttachments = 1;
+        FRHIPipelineStateCache Cache(Capabilities, std::move(CompileBackend));
+        FGraphicsPipelineStateInitializer Description;
+        const auto VertexShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+        const auto FragmentShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
+        Description.BoundShaders = {VertexShader, FragmentShader};
+        class FDeclaration final : public FRHIVertexDeclaration
+        {
+        public:
+            FVertexDeclarationElementList Elements{};
+            auto GetElements() const -> const FVertexDeclarationElementList& override { return Elements; }
+        };
+        const auto Declaration = MakeRefCount<FDeclaration>();
+        Description.VertexDeclaration = Declaration;
+        Description.DepthStencilState.bEnableTest = false;
+        Description.DepthStencilState.bEnableWrite = false;
+        Description.RenderTargetLayout.NumColorRenderTargets = 1;
+        Description.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+        auto Key = BuildGraphicsPipelineStateKey(Description, &Capabilities);
+        ASSERT_TRUE(Key) << ToString(Key.error());
+        auto Cached = Cache.GetGraphics(Description, "parallel recording");
+        ASSERT_TRUE(Cached); ASSERT_TRUE((*Cached)->Wait());
         EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
             constexpr uint32 Count = 513;
             const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
             FMeshPassPipelineInitializer Initializer;
-            Initializer.PipelineState = MakeRefCount<FRHIGraphicsPipelineState>();
+            Initializer.PipelineState = *Cached;
             const auto Pipeline = std::make_shared<const FMeshPassPipeline>(std::move(Initializer));
             FMeshPassBindings Bindings; Bindings.Vertex.Shader = Shader;
             std::vector<FMeshDrawCommand> Draws(Count);

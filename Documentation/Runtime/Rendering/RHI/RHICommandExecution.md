@@ -207,6 +207,11 @@ event submissions retain an aggregate dependency gate and execute their events
 only after all dependencies succeed. Drain preserves readiness waits, while
 explicit external failure cancels queued continuations and wakes waiters.
 
+Binding a cached graphics or compute PSO retains its compilation dependency and
+promotes unfinished work to Highest priority. This demand path reuses the same
+cache identity as precaching; it does not restart compilation, wait on the
+recording thread, or apply a per-frame creation quota.
+
 Ordered events execute in this sequence:
 
 1. replay every batch;

@@ -1688,6 +1688,50 @@ namespace Durin
 		ClearShaderMapPreparations();
 	}
 
+	TEST_F(FShaderFoundationTests, PendingResourceSlotPollsSharedShaderWorkAndRetriesAfterInvalidation)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		ClearShaderMapPreparations();
+		FScopedShaderCompletionStub Backend;
+		struct FPreparationCleanup
+		{
+			FCompletionShaderStub& Stub;
+			~FPreparationCleanup()
+			{
+				for (auto& Pending : Stub.Pending) if (auto Callback = std::move(Pending)) Callback();
+				ClearShaderMapPreparations();
+			}
+		} Cleanup{*Backend.Stub};
+		Backend.Stub->DeferMounted = true;
+		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Canceled};
+		const FShaderType* Types[] = {&FGlobalFixtureVertexShader::StaticType()};
+		TRenderResourceCreationSlot<int> Slot;
+		using FResult = TRenderResourceCreateResult<int>;
+		uint32 Attempts = 0;
+		auto Factory = [&] {
+			++Attempts;
+			FShaderMapBase Map;
+			const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
+			if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
+			EXPECT_EQ(Completion.Status, EShaderBuildStatus::Canceled);
+			return FResult::Canceled();
+		};
+		auto Report = [](const auto&) { ADD_FAILURE() << "Cancellation must remain observable without failure diagnostics"; };
+		for (uint32 Index = 0; Index < 15; ++Index) EXPECT_EQ(Slot.Resolve({}, Factory, Report), nullptr);
+		EXPECT_EQ(Attempts, 1u);
+		EXPECT_EQ(Backend.Stub->Compiles, 1u);
+		// A preparation epoch can change without the slot's render generation changing.
+		InvalidateShaderMapPreparations(false);
+		EXPECT_EQ(Slot.Resolve({}, Factory, Report), nullptr);
+		EXPECT_EQ(Attempts, 2u);
+		EXPECT_EQ(Backend.Stub->Compiles, 2u);
+		for (auto& Pending : Backend.Stub->Pending) if (auto Callback = std::move(Pending)) Callback();
+		EXPECT_EQ(Slot.Resolve({}, Factory, Report), nullptr);
+		EXPECT_EQ(Attempts, 3u);
+		EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Canceled);
+		EXPECT_EQ(Backend.Stub->Waits, 0u);
+	}
+
 	TEST_F(FShaderFoundationTests, CompletedPreparationOutputLivesOnlyWhileAnExplicitOwnerNeedsIt)
 	{
 		ASSERT_TRUE(InitializeGlobalShaderFixture());

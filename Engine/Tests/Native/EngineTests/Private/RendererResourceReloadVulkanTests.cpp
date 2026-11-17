@@ -501,7 +501,7 @@ float4 FragmentMain() : SV_Target
 			return Observation;
 		};
 		auto RenderPipeline =
-			[](FGraphicsPipelineStateRHIRef PipelineState) {
+			[](auto PipelineState) {
 				auto Pixels = std::make_shared<Durin::FByteBuffer>();
 				struct FRenderReloadValidationResource
 				{
@@ -577,8 +577,9 @@ float4 FragmentMain() : SV_Target
 							0.0f,
 							17.0f,
 							17.0f);
-						CommandList.SetGraphicsPipelineState(
-							*PipelineState);
+						if constexpr (std::same_as<decltype(PipelineState), FGraphicsPipelineStateRef>)
+							CommandList.SetGraphicsPipelineState(PipelineState);
+						else CommandList.SetGraphicsPipelineState(*PipelineState);
 						CommandList.BindVertexBuffer(0, InstanceBuffer, 0);
 						CommandList.BindIndexBuffer(
 							IndexBuffer,
@@ -702,15 +703,15 @@ float4 FragmentMain() : SV_Target
 		EXPECT_EQ(CacheAfterForcedReload.StructuralLayouts.Evictions, 0u);
 
 		// Exercise the production slot helper on the actual render thread. Each
-		// preparation attempt returns; only a complete PSO is published.
-		TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> AsyncSlot;
-		FGraphicsPipelineStateRHIRef PreparedPipeline;
+		// metadata publishes the shared PSO handle; drawing retains its completion dependency.
+		TRenderResourceCreationSlot<FGraphicsPipelineStateRef> AsyncSlot;
+		FGraphicsPipelineStateRef PreparedPipeline;
 		const auto PrewarmDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 		do
 		{
 			struct FPrewarmReloadPipeline { static constexpr auto GetName() -> const char* { return "PrewarmReloadPipeline"; } };
 			EnqueueRenderCommand<FPrewarmReloadPipeline>([&](FRHICommandListImmediate&) {
-				using FResult = TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+				using FResult = TRenderResourceCreateResult<FGraphicsPipelineStateRef>;
 				auto* Ready = AsyncSlot.Resolve({}, [&]() -> FResult {
 					FGraphicsPipelineStateInitializer Initializer;
 					Initializer.RenderTargetLayout = MakeReloadRenderTargetLayout();

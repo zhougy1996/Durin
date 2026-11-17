@@ -22,7 +22,6 @@
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Rendering/SceneInterface.h"
-#include "ShaderPipelineCache.h"
 #include "Threading/TaskRuntime.h"
 
 namespace Durin

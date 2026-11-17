@@ -235,20 +235,21 @@ factories use `FRenderPipelineRequestScope` inside their owning slot. Logical
 resource preparation before consuming passes is the prewarm trigger. A slot
 retains normalized shared cache identities across attempts (at most 256 keys and
 1 MiB of key storage). Precache and drawing share the same compilation; resetting
-a slot releases its handle without canceling queued or active creation. Pending and
-global admission pressure retry on later preparation without a failure
-diagnostic or a synchronous wait in the factory. Bare preparation callers see
-unavailable on every Pending request, including same-device replacement. Scene submission provides an explicit first-consumer boundary: it
-collects required Pending compilations within each resource phase and joins them
-at `ResolvePipelineStage_RenderThread`. Only that phase is revisited to publish
-completed slot candidates; scene collection and logical preparation are retained.
-The batch returns Empty, Ready, Failed, WaitUnavailable or CapacityExceeded, rather
-than a boolean that conflates an empty batch with a failed wait. All admitted
-requests are joined even if one fails. Preparation and admission errors remain owned by their slots; native creation
-faults cannot reach this batch as recoverable failures.
-Each phase admits at most 4,096 joined compilation dependencies, including dependent request
-waves; overflow is explicit. A consumed graph is never replayed. Replacements join the same consumption batch
-as initial creation. Multi-PSO groups publish only when all members are Ready.
+a slot releases its handle without canceling queued or active creation. CPU
+preparation and request admission pressure retry on later preparation without a
+failure diagnostic or a synchronous wait in the factory. Accepted native PSOs
+publish cached handles before compilation completes. Scene preparation collects
+these handles explicitly at each resource phase, including ready cache hits,
+and the caller-owned view request observes native completion without revisiting
+resolved phases. Normal drawing records the handles and their completion
+dependencies; the RHI executor gates replay at closed command scopes.
+Explicit synchronous pipeline-only callers can still join a batch. Its result
+separates Empty, Ready, Failed, WaitUnavailable and CapacityExceeded. The batch
+joins every admitted request even when one fails; CPU resource preparation and
+admission errors remain owned by their slots. A view observation retains at most
+4,096 unique pipeline handles, and overflow is explicit. A consumed graph is
+never replayed. A multi-PSO resource publishes its metadata after all handles
+are accepted; explicit prewarm readiness requires those handles to finish.
 A slot invalidates its previous payload before attempting the requested generation;
 neither Pending nor Failed returns an earlier shader/PSO/binding version.
 Generation changes release obsolete cache identities. Late results may populate

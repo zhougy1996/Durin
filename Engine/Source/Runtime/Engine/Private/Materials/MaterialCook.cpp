@@ -171,8 +171,10 @@ namespace Durin
 	auto DMaterialInterface::ValidatePreparedMaterialProgram(const FMaterialStaticProperties& PayloadProperties,
 		std::shared_ptr<const FMaterialProgram> ProgramCandidate) -> std::expected<std::shared_ptr<const FMaterialProgram>, std::string>
 	{
+		if (!ProgramCandidate || !ValidateMaterialProgram(*ProgramCandidate))
+			return std::unexpected("payload material program contract is invalid.");
 		FResolvedMaterialProperties Resolved;
-		if (!ProgramCandidate || !ResolveMaterialProperties(*this, Resolved))
+		if (!ResolveMaterialProperties(*this, Resolved))
 			return std::unexpected("payload material owner is unavailable.");
 		const auto* Root = Cast<DMaterial>(ResolveObjectKey(Resolved.Root));
 		if (!Root || Root->GetDomain() != ProgramCandidate->GetShaderMap().Domain)
@@ -220,6 +222,7 @@ namespace Durin
 		std::shared_ptr<const FMaterialProgram> ProgramCandidate,
 		std::shared_ptr<FMaterialResource> Resource) -> std::expected<void, std::string>
 	{
+		if (!ProgramCandidate) return std::unexpected("payload material program is unavailable.");
 		if (!Resource)
 		{
 			Resource = GetCompilationResource(ProgramCandidate->FeatureLevel, ProgramCandidate->Quality, true);

@@ -96,9 +96,9 @@ namespace Durin
 			TShaderMapRef<FDeferredProductionVertexShader> ProductionVertexShader;
 			TShaderMapRef<FDeferredDirectionalFragmentShader> FragmentShader;
 			TShaderMapRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
-			FGraphicsPipelineStateRHIRef ProductionPipelineState;
-			FGraphicsPipelineStateRHIRef DiagnosticPipelineState;
+			FGraphicsPipelineStateRef PipelineState;
+			FGraphicsPipelineStateRef ProductionPipelineState;
+			FGraphicsPipelineStateRef DiagnosticPipelineState;
 			FSamplerRHIRef FallbackEnvironmentSampler;
 			FSamplerRHIRef FallbackShadowSampler;
 		};
@@ -319,7 +319,7 @@ namespace Durin
 			return false;
 		const bool bReplaceDiagnostic = Parameters.bContactVisibilityDebug
 			|| View->Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit;
-		FGraphicsPipelineStateRHIRef& Pipeline = bProduction
+		FGraphicsPipelineStateRef& Pipeline = bProduction
 			? (bReplaceDiagnostic ? Payload->DiagnosticPipelineState : Payload->ProductionPipelineState)
 			: Payload->PipelineState;
 		if (Pipeline == nullptr
@@ -371,7 +371,7 @@ namespace Durin
 		);
 		if (ProductionPass) PassInfo = *ProductionPass;
 		CommandList.BeginRenderPass(PassInfo, bProduction ? "DeferredProductionLightingRenderPass" : "DeferredDirectionalQualificationRenderPass");
-		CommandList.SetGraphicsPipelineState(*Pipeline);
+		CommandList.SetGraphicsPipelineState(Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(View->ViewportX),
 			static_cast<float>(View->ViewportY), 0.0f,

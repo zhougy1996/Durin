@@ -40,7 +40,7 @@ namespace Durin
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FInstanceCullingComputeShader> Shader;
-			FComputePipelineStateRHIRef Pipeline;
+			FComputePipelineStateRef Pipeline;
 		};
 		TRenderResourceCreationSlot<FGPUCullingPayload> GPUCulling{
 			ERenderResourceGenerationDependency::Shader
@@ -148,7 +148,7 @@ namespace Durin
 		);
 		if (!UniformBuffer.Buffer) return false;
 		CommandList.SwitchPipeline(ERHIPipeline::Compute);
-		CommandList.SetComputePipelineState(*Payload->Pipeline);
+		CommandList.SetComputePipelineState(Payload->Pipeline);
 		FInstanceCullingComputeShader::FParameters Parameters;
 		Parameters.Params = UniformBuffer;
 		SetShaderParameters(CommandList, Payload->Shader, GraphShaderParameters, Parameters);

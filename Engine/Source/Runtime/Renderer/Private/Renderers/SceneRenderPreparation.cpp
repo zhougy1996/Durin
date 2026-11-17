@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/RenderStageTimings.h"
 #include "Renderers/GPUSceneRendering.h"
 #include "GPUScene.h"
 #include "Renderers/RendererRDGAllocator.h"
@@ -360,6 +361,8 @@ namespace Durin
 	) -> ERenderViewResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ResolveSceneResources");
+		RendererPrivate::FRenderStageTimings Timings(bPrepareOnly, "ResolveSceneResources");
+		Timings.Next("CollectGPUScene");
 		const auto& PreparedView = *Context.Logical.PreparedView;
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		if (!Context.Resolved.GPUSceneDynamicContext)
@@ -378,6 +381,7 @@ namespace Durin
 					if (Resolved.GPUScenePrimitives.size() != Prepared.Primitives.size()) return ERenderViewResult::RendererResourcesUnavailable;
 				}
 			}
+			Timings.Next("UploadGPUScene");
 			FRendererRDGAllocator UploadAllocator(Service.GetResourceCoordinator());
 			if (!Dynamic->Upload(CommandList, UploadAllocator)) return ERenderViewResult::RendererResourcesUnavailable;
 			ResolvedSceneResources.Receiver.StaticMeshes.GPUSceneDynamicContext = Dynamic;
@@ -386,6 +390,7 @@ namespace Durin
 			Context.Resolved.GPUSceneDynamicContext = std::move(Dynamic);
 		}
 
+		Timings.Next("StaticMeshResources");
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.View;
 		if (PreparedView.Receiver.StaticMeshes.bResourceFailure
@@ -398,6 +403,7 @@ namespace Durin
 		const FGeometryResolutionResult GeometryResolution =
 			Service.StaticMeshRenderer.PrepareResources_RenderThread(CommandList, PreparedView.Receiver.StaticMeshes,
 				ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque, &SectionResources);
+		Timings.Next("DirectionalShadowResources");
 		// Preparation callers wait for complete geometry; interactive views admit ready components.
 		if (bPrepareOnly && !GeometryResolution) return ERenderViewResult::RendererResourcesUnavailable;
 		if (PreparedView.DirectionalShadow)
@@ -409,6 +415,7 @@ namespace Durin
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
 
+		Timings.Next("LocalLightResources");
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow
 			&& ResolvedSceneResources.DirectionalShadow->bEnabled;
 		FRHITexture* DirectionalShadowTexture =

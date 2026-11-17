@@ -61,8 +61,8 @@ namespace Durin
 			TShaderMapRef<FSkyBoxVertexShader> VertexShader;
 			TShaderMapRef<FSkyBoxFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef PipelineState;
-			FGraphicsPipelineStateRHIRef HybridBootstrapPipelineState;
+			FGraphicsPipelineStateRef PipelineState;
+			FGraphicsPipelineStateRef HybridBootstrapPipelineState;
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef Sampler;
 		};
@@ -225,7 +225,7 @@ namespace Durin
 	) -> bool
 	{
 		const FState::FPayload* Payload = State->Slot.GetPayload();
-		FRHIGraphicsPipelineState* Pipeline = Payload != nullptr ? (bHybridBootstrap ? Payload->HybridBootstrapPipelineState.GetReference() : Payload->PipelineState.GetReference()) : nullptr;
+		FGraphicsPipelineStateRef Pipeline = Payload != nullptr ? (bHybridBootstrap ? Payload->HybridBootstrapPipelineState : Payload->PipelineState) : nullptr;
 		if (Texture == nullptr || Payload == nullptr
 			|| Pipeline == nullptr
 			|| Payload->Sampler == nullptr
@@ -242,7 +242,7 @@ namespace Durin
 			return false;
 		}
 
-		CommandList.SetGraphicsPipelineState(*Pipeline);
+		CommandList.SetGraphicsPipelineState(Pipeline);
 		CommandList.BindIndexBuffer(Payload->IndexBuffer, 0);
 		FSkyBoxFragmentShader::FParameters Parameters;
 		Parameters.SkyTexture = Texture;

@@ -243,7 +243,7 @@ namespace Durin
 		auto FindPreparedPipeline(
 			const FPrepared& Prepared,
 			EDepthMode DepthMode,
-			EGizmoTopology Topology) -> FGraphicsPipelineStateRHIRef
+			EGizmoTopology Topology) -> FGraphicsPipelineStateRef
 		{
 			const auto It = std::ranges::find_if(
 				Prepared.Pipelines,
@@ -271,7 +271,7 @@ namespace Durin
 
 		struct FPipelinePayload
 		{
-			FGraphicsPipelineStateRHIRef Pipeline;
+			FGraphicsPipelineStateRef Pipeline;
 			FGlobalShaderSetRef ShaderSet;
 		};
 
@@ -465,7 +465,7 @@ namespace Durin
 							GetVisibleDepthCompareOp(Key.DepthConvention);
 						Initializer.PipelineLayout =
 							Base->ShaderSet.GetPipelineLayout();
-						FGraphicsPipelineStateRHIRef Candidate =
+						FGraphicsPipelineStateRef Candidate =
 							FRenderPipelineRequestScope::Graphics(
 								FName(PipelineName), Initializer);
 						if (Candidate == nullptr)
@@ -521,14 +521,14 @@ namespace Durin
 		for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
 		{
 			const EGizmoTopology Topology = EGizmoTopology::Solid;
-			const FGraphicsPipelineStateRHIRef Pipeline =
+			const FGraphicsPipelineStateRef Pipeline =
 				FindPreparedPipeline(Prepared, DepthMode, Topology);
 			if (Pipeline == nullptr)
 				continue;
 			const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
 			if (ShapeIndex >= Base->MeshRanges.size())
 				continue;
-			CommandList.SetGraphicsPipelineState(*Pipeline);
+			CommandList.SetGraphicsPipelineState(Pipeline);
 			const FGizmoMeshRange& Range = Base->MeshRanges[ShapeIndex];
 			FGizmoTransformUniform Uniform;
 			Uniform.LocalToClip = Math::TransposeToFloat(

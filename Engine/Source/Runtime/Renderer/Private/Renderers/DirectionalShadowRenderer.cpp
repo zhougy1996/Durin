@@ -1,4 +1,5 @@
 #include "Renderers/DirectionalShadowRenderer.h"
+#include "Renderers/RenderStageTimings.h"
 #include "Renderers/StaticMeshSectionResources.h"
 
 #include "RenderResourceCreation.h"
@@ -68,6 +69,9 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
+		RendererPrivate::FRenderStageTimings Timings(false, "DirectionalShadow",
+			GRenderFrameCounterRenderThread <= 5 ? 0.0 : 20.0);
+		Timings.Next("TargetResources");
 		const auto PreparationStart = std::chrono::steady_clock::now();
 		struct FPreparationTimingScope
 		{
@@ -153,11 +157,14 @@ namespace Durin
 		{
 			const auto& Prepared = Shadow.StaticMeshes[Cascade];
 			auto& Resolved = ResolvedShadow.StaticMeshes[Cascade];
+			Timings.Next("CascadeGeometry");
 			const auto Geometry = StaticMeshes.PrepareShadowResources_RenderThread(CommandList, Prepared, Resolved, ResourceContext);
 			bComplete = !Prepared.bResourceFailure && bool(Geometry) && bComplete;
 			if (Prepared.bResourceFailure && Prepared.ResourceFailurePrimitives.empty()) bReady = false;
+			Timings.Next("CascadeUniforms");
 			if (bReady) bReady = StaticMeshes.PrepareUniforms_RenderThread(CommandList, Scene,
 				Shadow.View.Cascades[Cascade].CasterView, Prepared, Resolved, false, false, true, bAllowPartial);
+			Timings.Next("CascadeBindings");
 			if (bReady)
 			{
 				const bool bBindingsReady = StaticMeshes.PrepareBindings_RenderThread(CommandList, nullptr,

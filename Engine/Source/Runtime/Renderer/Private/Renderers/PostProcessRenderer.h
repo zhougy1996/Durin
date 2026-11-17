@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PipelineStateCache.h"
 
 #include "RHIResources.h"
 #include "RHIShaderParameters.h"
@@ -21,7 +22,7 @@ namespace Durin
 		FMaterialRenderBinding Material;
 		FShaderRHIRef Fragment;
 		FShaderRHIRef Vertex;
-		FGraphicsPipelineStateRHIRef Pipeline;
+		FGraphicsPipelineStateRef Pipeline;
 		FTextureRHIRef Output;
 		std::vector<FRHIShaderParameterResource> Bindings;
 		std::vector<TRefCountPtr<FRHIResource>> Resources;

@@ -9,6 +9,7 @@ namespace Durin
 	RENDERER_API auto BuildSceneViewRequirements(const FSceneView& View, const FSceneViewRenderOptions& Options,
 		const FRendererQualificationPolicy& Qualification) -> FSceneViewRequirements;
 
+	class FPipelineState;
 	class FRDGBuilder;
 	class FSceneRenderingService;
 
@@ -35,7 +36,8 @@ namespace Durin
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
 			FRDGCapture* OutRenderGraphCapture,
-			bool bPrepareOnly = false
+			bool bPrepareOnly = false,
+			std::vector<std::shared_ptr<FPipelineState>>* OutPreparationRequests = nullptr
 		) -> ERenderViewResult;
 
 	private:
@@ -70,6 +72,7 @@ namespace Durin
 			const FRendererQualificationPolicy& Qualification
 		) -> bool;
 
+		std::vector<std::shared_ptr<FPipelineState>>* PreparationRequests = nullptr;
 		FSceneRenderingService& Service;
 	};
 } // namespace Durin

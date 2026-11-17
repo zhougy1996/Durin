@@ -102,13 +102,13 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudShadowVertexShader> VertexShader;
 			TShaderMapRef<FCloudShadowFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRef PipelineState;
 		};
 		struct FComputePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudShadowComputeShader> ComputeShader;
-			FComputePipelineStateRHIRef PipelineState;
+			FComputePipelineStateRef PipelineState;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
 			ERenderResourceGenerationDependency::Shader
@@ -395,7 +395,7 @@ namespace Durin
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(Inputs);
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
-			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
+			CommandList.SetComputePipelineState(ComputePayload->PipelineState);
 			FCloudShadowComputeShader::FParameters Params;
 			Params.BaseDensity = Input.BaseDensity;
 			Params.DetailDensity = Input.DetailDensity;
@@ -426,7 +426,7 @@ namespace Durin
 			Pass.ColorRenderTargets[0] = FragmentTargets->Visibility;
 			Pass.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 			CommandList.BeginRenderPass(Pass, "VolumetricCloudShadowRenderPass");
-			CommandList.SetGraphicsPipelineState(*FragmentPayload->PipelineState);
+			CommandList.SetGraphicsPipelineState(FragmentPayload->PipelineState);
 			CommandList.SetViewport(static_cast<float>(View->ViewportX), static_cast<float>(View->ViewportY), 0.0f,
 				static_cast<float>(View->ViewportX + View->ViewportWidth),
 				static_cast<float>(View->ViewportY + View->ViewportHeight), 1.0f);

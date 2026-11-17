@@ -4,7 +4,7 @@ Summary: Prepare cooked material programs and exact scene Shader/PSO resources b
 
 Modules: Engine, RenderCore, Renderer, DurinEd, LevelEditor
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-18
 
 ## Object and program readiness
 
@@ -64,6 +64,12 @@ Preparation queries the prepared material resource, accepted program and effecti
 properties directly, following the [material renderer boundary](../Materials/MaterialSystem.md#renderer-boundary).
 `HasValidGameThreadShaderMap` checks accepted program and ShaderMap presence,
 independently of compilation progress, textures and component PSOs.
+Engine validates the complete material program before accepting and publishing
+an authored compiler result or admitting a cooked program. Renderer consumption
+uses that immutable accepted result and checks the requested program/layout/pass
+identity; it does not repeat full compiler-output, layout and reflection
+validation for each section, cascade or Pending retry. Public requests that
+admit an external program retain their input validation.
 The proxy separates `GetMaterialNoFallback`
 from `GetMaterialWithFallback`. The former returns null when no valid accepted
 material exists; the latter explicitly permits ErrorMaterial. Compilation is
@@ -90,8 +96,9 @@ resident routes selected by those inputs, not every future scene combination.
 
 Preparation runs normal logical, view-resource, scene-resource and feature-resource
 phases with their normal typed ShaderMaps and exact PSO descriptions. It returns
-before graph authoring, temporal-history Begin/Commit or scene drawing. A pending
-pipeline returns Pending without joining its compile task. Rendering pipeline
+before graph authoring, temporal-history Begin/Commit or scene drawing. Actual
+unfinished CPU Shader compilation or native PSO work keeps this explicit
+preparation Pending without joining its compile task. Rendering pipeline
 requests require both an owning request scope and a running task scheduler;
 missing host state never falls back to direct native PSO creation. Each pump rebuilds a
 local logical snapshot; no borrowed frame/proxy values are sent to workers.
@@ -124,6 +131,18 @@ unresolved slots without a Shader-specific thread-local counter or a fabricated
 error. Nested slots remain retryable while independent terminal errors stay
 observable. Read-only preparation lookup does not submit, retire or reprioritize
 requests; creation, priority promotion and submission use the request path.
+
+Pending slots retain typed preparation dependencies and the pending state
+observed by their last attempt. With an unchanged render generation, unresolved
+dependencies whose states have not changed defer the factory and propagate
+Pending through the ordinary nested scope/batch. Completion, including error or
+cancellation, and preparation invalidation make the attempt retryable. Shader
+preparation checks both shader generation and its independent invalidation epoch.
+An attempt observes its current dependencies and drops obsolete ones; publication
+releases the preparation leases. A bare Pending without such dependencies still
+retries normally, so transient request-capacity pressure and unrelated resource
+work can progress. Native Shader creation has no frame budget and does not
+manufacture Pending. Independent sibling failures remain observable.
 
 The shared preparation index holds weak references, not completed compiler
 outputs. Explicit `FShaderMapPreparation` observers own their declared capture
@@ -166,60 +185,55 @@ buffer residency. Type registrations must outlive the collected values.
 `MatchesVertexElements` compares canonical input layouts for coverage validation;
 the native request and the precache path share RHI's element validation rules.
 
-`FShaderPipelineCache::SetBatchMode(BatchMode::Fast/Background)` selects one
-RenderCore admission policy. Background admits eight missing native Shaders and
-sixteen pipeline requests with a nominal 2 ms interval; Fast admits 32 Shaders
-and 64 pipeline requests with an 8 ms interval. Editor initialization selects
-Fast; host readiness, startup failure and shutdown restore Background. The mode
-does not enable component PSO precaching or alter request priority/readiness.
-Policies are snapshotted at the next frame or standalone preparation pump.
-The time interval starts at the first admitted operation and is checked between
-operations, allowing one operation for progress. A native call is not preemptible and cached
-logical traversal is not a hard frame-time bound. Pending work is revisited by the
-owner. Pipeline requests inherit the existing normal service priority; loading
-owners choose pump order rather than introducing a second scheduling queue. Terminal resource errors produce Failed rather than false readiness.
+Native Shaders are created lazily by `FShaderMapResource` on demand and reused
+from the ShaderMap resource cache. A null native result is a creation failure;
+there is no per-frame Shader count or elapsed-time admission gate.
 
-`PrepareViewResources` owns the budgeted preparation scope and never draws.
-`RenderView` has no preparation observer or loading deadline. Normal resource
-resolution, view preparation and the material PSO pump share a per-render-frame
-admission allowance across views. Nested preparation scopes reuse the enclosing
-allowance; standalone scopes use a local pump with the same policy. Re-entering
-the same frame cannot reset or enlarge its allowance. In normal draws, exhaustion
-leaves local attempts Pending without throwing or failing the view; preparation
-maps its control-flow yields to Pending. A deferred single pipeline also marks
-its enclosing resource batch Pending, even before a compile request exists.
-Cache hits remain usable. The allowance ends before graph
-recording. Explicit renderer preparation owners advance the logical render frame
-when pumping another loading frame, including in native test hosts.
-A capture owner
-pumps preparation until Ready before submitting its draw and readback; GPU
-recording and large readbacks cannot change preparation back to Pending.
-Preparation does not permit synchronous Shader compilation or render-thread waits.
+Graphics and compute PSOs use the existing device-owned
+`PipelineStateCache::GetAndOrCreate*` services. Renderer payloads retain
+`FGraphicsPipelineStateRef` / `FComputePipelineStateRef`, which may refer to
+in-progress compilation. Accepted handles publish resource metadata once;
+`SetGraphicsPipelineState` / `SetComputePipelineState` records the handle and
+its completion dependency. The RHI executor gates replay at the recorded closed
+scope rather than forcing Renderer to rebuild resources on later frames. Native
+compilation remains bounded by the existing device queue and request priority,
+not a second RenderCore frame budget. Failed or canceled native requests make
+cached payloads unavailable and are diagnosed through the resource slot on its
+next resolution; no partially initialized native PSO is exposed.
+
+`PrepareViewResources` never draws. Its caller-owned request retains shared PSO
+handles collected explicitly from each preparation stage, including cache hits.
+After all resource descriptions resolve, progress reads those handles directly;
+accepted native compilation does not rerun scene preparation. Pending CPU Shader
+preparation or incomplete scene resources still require another preparation call.
+Ordinary drawing records accepted pending handles and their execution dependencies.
+Explicit captures defer drawing and readback until every selected request is Ready.
+There is no thread-local render-resource preparation scope, creation interception,
+retained payload/code list, or preparation accounting quota. Preparation does not
+permit synchronous source Shader compilation or render-thread waits.
 
 Post-process resources are prepared only for the requested Copy/FXAA route,
 RGBA/BGRA output and intermediate/offscreen/present attachment layout. Each
 combination has an independent generation-aware transactional slot. Preparing a
 new combination preserves completed peers and never waits for unused variants.
 
-The handle retains ShaderMap code/resources, successful transactional slot
-payloads and shared pipeline request identities. Resident slots also keep their
-bounded request identities, so normal drawing can reuse the same weak-cache
-entry. Existing ready slots participate in retention. Each of at most four active
-scene owners admits 4,096 retained objects and 256 MiB of accounted code/metadata.
-The accounting includes explicit code bytes, payload objects and PSO keys; nested
-payload allocations, driver allocations and process RSS are not measured by it.
+ShaderMaps and renderer resource slots own their code, metadata and native
+resources. The preparation request owns only shared PSO handles; the existing
+PSO request collector bounds a view observation to 4,096 unique handles. The
+device queue retains its own admission and compilation limits. There is no
+four-observer service limit or separate 256 MiB retained-resource budget.
 
-Copies alias one preparation observer. Separate owners share normal ShaderMap and
-pipeline caches. Canceling one observer does not cancel shared compilation.
-Renderer prunes released, canceled and failed owners on its render thread.
-Failed/canceled attempts immediately release preparation-only references and
-accounted bytes; keeping a diagnostic handle does not keep an active service
-slot. Failed remains the observable terminal result after cancellation, reload
-or scene retirement. Pending and Ready observers still become Stale on
-invalidation. Scene release and
-renderer Shader/device invalidation retire matching ownership as Stale, clear
-retained resources and prevent reuse of that readiness result. The caller must
-create a new request after invalidation.
+Copies alias one request. Separate requests share normal ShaderMap and pipeline
+caches. Canceling or dropping a request releases its PSO observations without
+canceling compilation shared by other owners. No service registry retains
+preparation requests or scans them each frame. A scene-owned lifetime token is
+observed weakly by its requests; scene release, preparation configuration changes
+and renderer Shader/device invalidation retire that token. Shader reload also
+invalidates the captured Shader generation. Requests report Stale and release
+their observations when polled after invalidation; callers create a new request.
+Native failure reports Failed, and failed requests retain their terminal status
+after cancellation or scene retirement. Polling observes completion without
+submitting work or joining tasks.
 
 ## Activation and uncovered work
 

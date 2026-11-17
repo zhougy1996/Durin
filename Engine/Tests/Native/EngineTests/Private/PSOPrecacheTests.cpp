@@ -1167,7 +1167,7 @@ TEST(FPSOPrecacheTests, NativeAdmissionPressureIsTrackedAsLateRatherThanMissingC
     EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 5).Result, EResult::Hit);
 }
 
-TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWorkAcrossTheFrameBudget)
+TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWork)
 {
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
@@ -1181,8 +1181,7 @@ TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWorkAcrossTheFram
         if (P.Material.ShaderMap.OpacityMaskThreshold < 1) Out.PSOInitializers.push_back(Pipelines.Describe(Optional, false));
         Out.bRequiredPSOsCollected = true; return true;
     };
-    FRenderResourceAdmissionBudget Budget(64, 1, std::chrono::seconds(1));
-    auto Pump = [&](uint64 Frame) { FRenderResourceAdmissionScope Scope(Budget, Frame); Manager.Pump(Collect); };
+    auto Pump = [&](uint64) { Manager.Pump(Collect); };
     Pump(1); ASSERT_TRUE(Old.GetProgress().bRequiredReady);
     Params.Material.ShaderMap.OpacityMaskThreshold = 2;
     auto Urgent = Manager.PrecachePSOs(Params);
@@ -1211,16 +1210,17 @@ TEST(FPSOPrecacheTests, ImmediateCollectionsReturnTheirSlotWithinTheSamePump)
     for (const auto& Request : Requests) EXPECT_TRUE(Request.GetProgress().bRequiredReady);
 }
 
-TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeNativeAdmissionAndWithdrawnOnAbandonment)
+TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeRequestAcceptanceAndWithdrawnOnAbandonment)
 {
     using namespace Durin; using namespace PSOPrecacheValidation;
     SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
     FMaterialPSOTestPipelines Pipelines;
     auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
-    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
+    FMaterialPSORequestManager Manager([](const FPSOPrecacheData&) -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
+        return std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded);
+    });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    FRenderResourceAdmissionBudget Budget(64, 1, std::chrono::seconds(1));
-    { FRenderResourceAdmissionScope Scope(Budget, 1);
+    {
       Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         Out.PSOInitializers.push_back(Pipelines.Describe(Ready));
         for (uint32 Index = 0; Index < 8; ++Index) { auto Data = Pipelines.DescribeSlot(Index); Data.bRequired = false; Out.PSOInitializers.push_back(Data); }
@@ -1317,11 +1317,11 @@ TEST(FPSOPrecacheTests, RequiredShaderPreparationPrecedesOlderOptionalPreparatio
     auto Collect = [&](const auto& P, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
         if (P.Material.ShaderMap.OpacityMaskThreshold < 1) {
             if (Phase == EPSOPrecacheCollectionPhase::Required) { Out.bRequiredPSOsCollected = true; return false; }
-            if (Measure) { Order.push_back("optional"); return FRenderResourcePreparationScope::TryBeforeShader(); }
+            if (Measure) { Order.push_back("optional"); return true; }
             return false;
         }
         Order.push_back("required");
-        if (!FRenderResourcePreparationScope::TryBeforeShader()) return false;
+
         Out.bRequiredPSOsCollected = true; return true;
     };
     Manager.Pump(Collect);
@@ -1329,10 +1329,9 @@ TEST(FPSOPrecacheTests, RequiredShaderPreparationPrecedesOlderOptionalPreparatio
     Params.Material.ShaderMap.OpacityMaskThreshold = 2;
     auto Urgent = Manager.PrecachePSOs(Params);
     Measure = true;
-    FRenderResourceAdmissionBudget Budget(1, 64, std::chrono::seconds(1));
-    { FRenderResourceAdmissionScope Scope(Budget, 1); Manager.Pump(Collect); }
+    { Manager.Pump(Collect); }
     EXPECT_TRUE(Urgent.GetProgress().bRequiredReady);
-    EXPECT_EQ(Old.GetProgress().State, EMaterialPSOPrecacheState::Pending);
+    EXPECT_EQ(Old.GetProgress().State, EMaterialPSOPrecacheState::Ready);
     EXPECT_EQ(Order, (std::vector<std::string>{"required", "optional"}));
 }
 

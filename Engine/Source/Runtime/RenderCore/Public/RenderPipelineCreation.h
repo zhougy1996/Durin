@@ -9,6 +9,14 @@
 namespace Durin
 {
 	struct FRenderResourceGeneration;
+	// A retained CPU preparation reports completion (including failure/cancel) or
+	// invalidation by leaving Pending. Polling never submits or joins work.
+	class FRenderPreparationDependency
+	{
+	public:
+		virtual ~FRenderPreparationDependency() = default;
+		virtual auto IsPending() const -> bool = 0;
+	};
 	enum class ERenderPipelinePreparationWait : uint8
 	{
 		Empty, Ready, Failed, WaitUnavailable, CapacityExceeded
@@ -23,6 +31,8 @@ namespace Durin
 		~FRenderPipelinePreparationBatch();
 		FRenderPipelinePreparationBatch(const FRenderPipelinePreparationBatch&) = delete;
 		auto Wait() -> ERenderPipelinePreparationWait;
+		auto CollectRequests(std::vector<std::shared_ptr<FPipelineState>>& Out) const -> bool;
+		auto HasResourcePending() const -> bool { return bResourcePending; }
 		auto GetRequestCount() const -> size_t { return Requests.size(); }
 		auto HasCapacityExceeded() const -> bool { return bCapacityExceeded; }
 		static constexpr size_t MaximumRequests = 4096;
@@ -46,6 +56,8 @@ namespace Durin
 		RENDERCORE_API auto operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests&;
 		RENDERCORE_API auto Reset() -> void;
 		RENDERCORE_API auto RetainForPreparation() const -> void;
+		RENDERCORE_API auto HasFailed() const -> bool;
+		RENDERCORE_API auto CanDeferAttempt(const FRenderResourceGeneration& Generation) const -> bool;
 	private:
 		struct FState;
 		std::shared_ptr<FState> State;
@@ -64,11 +76,11 @@ namespace Durin
 		auto MarkPending() -> void { bPending = true; }
 		auto PropagatePending(bool bResourcePending) -> void;
 		// CPU preparation is owned only until this resource attempt publishes or resets.
-		static auto RetainPreparation(std::shared_ptr<const void> Preparation) -> void;
+		static auto RetainPreparation(std::shared_ptr<const FRenderPreparationDependency> Preparation) -> void;
 		static auto MarkResourcePending() -> void;
 		auto ReleasePreparations() -> void;
-		static auto Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef;
-		static auto Compute(FName Name, const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRHIRef;
+		static auto Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRef;
+		static auto Compute(FName Name, const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRef;
 	private:
 		FRenderPipelineRequests& Requests;
 		FRenderPipelineRequestScope* Previous;

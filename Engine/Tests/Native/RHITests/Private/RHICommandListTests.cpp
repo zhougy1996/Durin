@@ -1813,6 +1813,7 @@ namespace Durin
 				FRHICommandList Dependent;
 				Dependent.SwitchPipeline(ERHIPipeline::Compute);
 				Dependent.SetComputePipelineState(*Cached);
+				EXPECT_EQ((*Cached)->GetPriority(), EPSOPrecachePriority::Highest);
 				Dependent.EnqueueLambda([&] { Order.push_back(2); });
 				Dependent.FinishRecording();
 				Commands.QueueCommandList(std::move(Dependent));

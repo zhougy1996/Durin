@@ -279,7 +279,7 @@ namespace Durin::RendererPrivate
 			|| (Pipeline->GetInitializer().FragmentLayout && (!FragmentBindings || !FragmentPass))) return false;
 		if (Cache.Pipeline != Pipeline)
 		{
-			Commands.SetGraphicsPipelineState(*Pipeline->GetInitializer().PipelineState);
+			Commands.SetGraphicsPipelineState(Pipeline->GetInitializer().PipelineState);
 			Cache.Pipeline = Pipeline;
 			Cache.Vertex.Shader = Cache.Fragment.Shader = nullptr;
 			Cache.Vertex.Parameters.clear(); Cache.Fragment.Parameters.clear();
@@ -494,14 +494,13 @@ namespace Durin::RendererPrivate
 			Factory.GetType(), MeshPass, Batch.Material.ShaderMap, Generation,
 			Program, Options, Candidate.ShaderMap);
 		if (!Result) return Result;
-		const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
+
 		Candidate.VertexShader = Factory.Resolve(Candidate.ShaderMap, MeshPass);
 		Candidate.FragmentShader = Fragment.Resolve(Candidate.ShaderMap);
 		if (!Candidate.VertexShader || !Candidate.VertexShader->GetRHIShader(false) || !Candidate.FragmentShader)
 		{
 			if (FailureCategory) *FailureCategory = ERenderResourceCreateErrorCategory::RHIResource;
-			return FRenderResourceAdmissionScope::GetDeferredAdmissions() != DeferredBefore
-				? FShaderCompletion::Pending() : FShaderCompletion::Failure("Mesh pass shader creation failed.");
+			return FShaderCompletion::Failure("Mesh pass shader creation failed.");
 		}
 		Candidate.FragmentLayout = Fragment.ResolveLayout ? Fragment.ResolveLayout(Candidate.ShaderMap) : nullptr;
 		Candidate.VertexFactoryPass = MeshPass;

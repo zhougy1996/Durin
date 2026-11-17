@@ -383,11 +383,11 @@ namespace Durin
                     static_cast<FMaterialShader*>(Shader)->SetAcceptedParameterBindings(*Bindings);
                 }
             }
-			const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
+
 			if (Input.bCreateRHIShaders
 				&& Shader->GetOrCreateRHIShader(false) == nullptr)
 			{
-				if (FRenderResourceAdmissionScope::GetDeferredAdmissions() != DeferredBefore) return FShaderCompletion::Pending();
+
 				return std::unexpected(std::format("RHI shader creation returned null for Material type '{}'.", (std::string(Type->GetName()))));
 			}
 		}

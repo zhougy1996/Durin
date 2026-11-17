@@ -52,7 +52,7 @@ namespace Durin
 			 &FEditorGridFragmentShader::StaticType()});
 
 		auto FindPreparedPipeline(const FPrepared& Prepared)
-			-> FGraphicsPipelineStateRHIRef
+			-> FGraphicsPipelineStateRef
 		{
 			const auto It = std::ranges::find_if(
 				Prepared.Pipelines,
@@ -68,7 +68,7 @@ namespace Durin
 	{
 		struct FPipelinePayload
 		{
-			FGraphicsPipelineStateRHIRef Pipeline;
+			FGraphicsPipelineStateRef Pipeline;
 			FGlobalShaderSetRef ShaderSet;
 		};
 
@@ -163,7 +163,7 @@ namespace Durin
 							== RenderTargetLayouts::EViewportOutput::Present
 						? "Present"
 						: "Offscreen");
-				FGraphicsPipelineStateRHIRef Candidate =
+				FGraphicsPipelineStateRef Candidate =
 					FRenderPipelineRequestScope::Graphics(
 						FName(PipelineName), Initializer);
 				if (Candidate == nullptr)
@@ -206,7 +206,7 @@ namespace Durin
 			Prepared.Pipelines, [](const FPreparedPipeline& Item) {
 				return Item.Key.Feature == EFeature::EditorGrid;
 			});
-		const FGraphicsPipelineStateRHIRef Pipeline =
+		const FGraphicsPipelineStateRef Pipeline =
 			PreparedIt != Prepared.Pipelines.end() ? PreparedIt->Pipeline : nullptr;
 		if (!Prepared.EditorGridUniform.has_value()
 			|| PreparedIt == Prepared.Pipelines.end()
@@ -216,7 +216,7 @@ namespace Durin
 		{
 			return;
 		}
-		CommandList.SetGraphicsPipelineState(*Pipeline);
+		CommandList.SetGraphicsPipelineState(Pipeline);
 		CommandList.BindVertexBuffer(
 			0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
 		CommandList.BindIndexBuffer(

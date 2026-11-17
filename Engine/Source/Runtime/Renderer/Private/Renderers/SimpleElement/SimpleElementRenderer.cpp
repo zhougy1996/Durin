@@ -136,7 +136,7 @@ namespace Durin
 
 		struct FPipelinePayload
 		{
-			FGraphicsPipelineStateRHIRef Pipeline;
+			FGraphicsPipelineStateRef Pipeline;
 			FGlobalShaderSetRef ShaderSet;
 		};
 
@@ -417,7 +417,7 @@ namespace Durin
 					Initializer.DepthStencilState.CompareOp =
 						GetVisibleDepthCompareOp(Key.DepthConvention);
 					Initializer.PipelineLayout = ShaderSet.GetPipelineLayout();
-					FGraphicsPipelineStateRHIRef Candidate =
+					FGraphicsPipelineStateRef Candidate =
 						FRenderPipelineRequestScope::Graphics(
 							FName(PipelineName), Initializer);
 					if (!Candidate)
@@ -482,7 +482,7 @@ namespace Durin
 			if (Draw.Key.DepthPriorityGroup != DepthPriorityGroup
 				|| !Draw.Pipeline)
 				continue;
-			CommandList.SetGraphicsPipelineState(*Draw.Pipeline);
+			CommandList.SetGraphicsPipelineState(Draw.Pipeline);
 			CommandList.BindVertexBuffer(0, State->VertexBuffer, 0);
 			CommandList.BindIndexBuffer(State->IndexBuffer, 0);
 			const FSimpleStyleUniform Style;

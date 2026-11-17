@@ -154,12 +154,12 @@ namespace Durin
 			TShaderMapRef<FGTAOFilterFragmentShader> FilterFragmentShader;
 			TShaderMapRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
 			TShaderMapRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
-			FGraphicsPipelineStateRHIRef SelectorPipelineState;
-			FGraphicsPipelineStateRHIRef HalfPipelineState;
-			FGraphicsPipelineStateRHIRef FilterPipelineState;
-			FGraphicsPipelineStateRHIRef HalfFilterPipelineState;
-			FGraphicsPipelineStateRHIRef ResolvePipelineState;
+			FGraphicsPipelineStateRef PipelineState;
+			FGraphicsPipelineStateRef SelectorPipelineState;
+			FGraphicsPipelineStateRef HalfPipelineState;
+			FGraphicsPipelineStateRef FilterPipelineState;
+			FGraphicsPipelineStateRef HalfFilterPipelineState;
+			FGraphicsPipelineStateRef ResolvePipelineState;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Resources{
@@ -423,7 +423,7 @@ namespace Durin
 		FState::FPayload* Payload = State->Resources.GetPayload();
 		const bool bHalf = Targets.Quality
 			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-		FGraphicsPipelineStateRHIRef Pipeline = bHalf
+		FGraphicsPipelineStateRef Pipeline = bHalf
 			? Payload != nullptr ? Payload->HalfPipelineState : nullptr
 			: Payload != nullptr ? Payload->PipelineState : nullptr;
 		if (Payload == nullptr || Pipeline == nullptr
@@ -474,7 +474,7 @@ namespace Durin
 				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 			CommandList.BeginRenderPass(
 				SelectorPassInfo, "GroundTruthAmbientOcclusionSelectorPass");
-			CommandList.SetGraphicsPipelineState(*Payload->SelectorPipelineState);
+			CommandList.SetGraphicsPipelineState(Payload->SelectorPipelineState);
 			CommandList.SetViewport(
 				static_cast<float>(RenderViewport.X),
 				static_cast<float>(RenderViewport.Y), 0.0f,
@@ -507,7 +507,7 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = Targets.Raw;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "GroundTruthAmbientOcclusionRawPass");
-		CommandList.SetGraphicsPipelineState(*Pipeline);
+		CommandList.SetGraphicsPipelineState(Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(RenderViewport.X),
 			static_cast<float>(RenderViewport.Y), 0.0f,
@@ -569,7 +569,7 @@ namespace Durin
 		FState::FPayload* Payload = State->Resources.GetPayload();
 		const bool bHalf = Targets.Quality
 			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-		FGraphicsPipelineStateRHIRef Pipeline = bHalf
+		FGraphicsPipelineStateRef Pipeline = bHalf
 			? Payload != nullptr ? Payload->HalfFilterPipelineState : nullptr
 			: Payload != nullptr ? Payload->FilterPipelineState : nullptr;
 		if (Payload == nullptr || Pipeline == nullptr
@@ -619,7 +619,7 @@ namespace Durin
 			PassInfo.ColorClearValues[0] =
 				FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 			CommandList.BeginRenderPass(PassInfo, PassName);
-			CommandList.SetGraphicsPipelineState(*Pipeline);
+			CommandList.SetGraphicsPipelineState(Pipeline);
 			CommandList.SetViewport(
 				static_cast<float>(RenderViewport.X),
 				static_cast<float>(RenderViewport.Y), 0.0f,
@@ -733,7 +733,7 @@ namespace Durin
 			FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(
 			PassInfo, "GroundTruthAmbientOcclusionResolvePass");
-		CommandList.SetGraphicsPipelineState(*Payload->ResolvePipelineState);
+		CommandList.SetGraphicsPipelineState(Payload->ResolvePipelineState);
 		CommandList.SetViewport(
 			static_cast<float>(View.ViewportX),
 			static_cast<float>(View.ViewportY), 0.0f,

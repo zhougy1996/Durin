@@ -726,8 +726,7 @@ namespace
 			const Durin::FRenderResourcePreparation& Preparation) -> Durin::FRenderResourcePreparationProgress override
 		{
 			++PrepareCount;
-			Durin::FRenderResourcePreparationScope Scope(Preparation);
-			Scope.Complete(Request.View.ViewportWidth == 64 ? Durin::ERenderResourcePreparationState::Ready
+			Preparation.Complete_RenderThread(Request.View.ViewportWidth == 64 ? Durin::ERenderResourcePreparationState::Ready
 				: Durin::ERenderResourcePreparationState::Pending);
 			return Preparation.GetProgress();
 		}
@@ -3732,51 +3731,6 @@ TEST(FRendererSceneContractTests, UnreadyReceiverComponentIsExcludedAcrossItsBat
 }
 
 
-TEST(FRendererSceneContractTests, AdmissionBudgetIsSharedByViewsAndDefersResourceSlotsWithoutFailure)
-{
-    using namespace Durin;
-    FRenderResourceAdmissionBudget Budget(1, 1, std::chrono::seconds(30));
-    TRenderResourceCreationSlot<int> Slot;
-    FRenderResourceGeneration Generation;
-    auto Create = []() {
-        if (!FRenderResourcePreparationScope::TryBeforeShader())
-        {
-            FRenderPipelineRequestScope::MarkResourcePending();
-            return TRenderResourceCreateResult<int>::Pending();
-        }
-        return TRenderResourceCreateResult<int>::Success(42);
-    };
-    auto Report = [](const auto&) { ADD_FAILURE() << "Budget deferral is not a resource failure."; };
-    {
-        FRenderResourceAdmissionScope FirstView(Budget, 7);
-        EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
-        EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforePipeline());
-    }
-    {
-        Budget.BeginFrame(7); // Re-entering the same frame must preserve its allowance.
-        FRenderResourceAdmissionScope SecondView(Budget, 7);
-        EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforePipeline());
-        EXPECT_EQ(Slot.Resolve(Generation, Create, Report), nullptr);
-        EXPECT_EQ(Budget.GetShaderAdmissions(), 1u);
-        EXPECT_EQ(Budget.GetPipelineAdmissions(), 1u);
-        EXPECT_EQ(Budget.GetDeferredAdmissions(), 2u);
-    }
-    {
-        FRenderResourceAdmissionScope NextFrame(Budget, 8);
-        const auto* Payload = Slot.Resolve(Generation, Create, Report);
-        ASSERT_NE(Payload, nullptr);
-        EXPECT_EQ(*Payload, 42);
-    }
-    {
-        FRenderResourceAdmissionBudget PipelineLimited(1, 0, std::chrono::seconds(30));
-        FRenderResourceAdmissionScope View(PipelineLimited, 9);
-        EXPECT_FALSE(FRenderResourcePreparationScope::TryBeforePipeline());
-        const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
-        EXPECT_TRUE(FRenderResourcePreparationScope::TryBeforeShader());
-        // Pipeline backpressure must not turn an admitted Shader failure into Pending.
-        EXPECT_EQ(FRenderResourceAdmissionScope::GetDeferredAdmissions(), DeferredBefore);
-    }
-}
 
 TEST(FRendererSceneContractTests, ShadowOnlyPendingComponentIsExcludedFromItsOwnCascade)
 {

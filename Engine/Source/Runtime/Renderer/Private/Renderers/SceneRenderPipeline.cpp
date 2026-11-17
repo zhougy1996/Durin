@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/RenderStageTimings.h"
 #include "Renderers/SceneRenderingService.h"
 #include "Renderers/SceneViewPreparation.h"
 #include "Renderers/SceneRenderer.h"
@@ -68,11 +69,13 @@ namespace Durin
 	auto FSceneRenderPipeline::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
 		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
-		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly) -> ERenderViewResult
+		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture, bool bPrepareOnly,
+		std::vector<std::shared_ptr<FPipelineState>>* OutPreparationRequests) -> ERenderViewResult
 	{
+		PreparationRequests = OutPreparationRequests;
+		RendererPrivate::FRenderStageTimings Timings(bPrepareOnly, "RenderView",
+			GRenderFrameCounterRenderThread <= 5 ? 0.0 : 20.0);
 		FPreparedShaderMapScope ShaderScope(true);
-		std::optional<FRenderResourceAdmissionScope> Admission;
-		if (!bPrepareOnly) Admission.emplace(Service.AdmissionBudget, GRenderFrameCounterRenderThread);
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
 		FSceneRenderer Submission(Service);
@@ -106,14 +109,16 @@ namespace Durin
 		Context.Logical.Width = Width;
 		Context.Logical.Height = Height;
 		Context.Logical.bPresentOutput = bPresentOutput;
+		Timings.Next("PrepareView");
 		std::expected<FSceneRenderPlan, ERenderViewResult> Preparation;
 		{
 			// Material resolution belongs to logical collection, before the resource
 			// stages. Preserve its pending result with the same preparation batch.
 			FRenderPipelinePreparationBatch Batch;
 			Preparation = PrepareView_RenderThread(CommandList, Context);
-			if (bPrepareOnly && Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
-			if (bPrepareOnly && FRenderPipelinePreparationBatch::HasPending()) return ERenderViewResult::RendererResourcesPending;
+			if (bPrepareOnly && (Batch.HasCapacityExceeded()
+				|| (PreparationRequests && !Batch.CollectRequests(*PreparationRequests)))) return ERenderViewResult::RendererResourcesUnavailable;
+			if (bPrepareOnly && Batch.HasResourcePending()) return ERenderViewResult::RendererResourcesPending;
 		}
 		if (!Preparation) return Preparation.error();
 		Context.Logical.PreparedView = std::move(*Preparation);
@@ -124,12 +129,15 @@ namespace Durin
 		if ((Context.Features.RequiresProductionDeferred() ? !Settings.bHybrid : !Settings.bForward)
 			|| ((Context.Features.RequiresDeferredInputs() || Context.Features.GBuffer.IsEnabled()) && !Settings.bHybrid))
 			return ERenderViewResult::RendererResourcesUnavailable;
+		Timings.Next("PrepareViewResources");
 		const auto ResourceResult = ResolvePipelineStage_RenderThread(CommandList, Context,
 			&FSceneRenderPipeline::PrepareViewResources_RenderThread, bPrepareOnly);
 		if (ResourceResult != ERenderViewResult::Success) return ResourceResult;
+		Timings.Next("ResolveSceneResources");
 		const auto ResolutionResult = ResolvePipelineStage_RenderThread(CommandList, Context,
 			&FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread, bPrepareOnly);
 		if (ResolutionResult != ERenderViewResult::Success) return ResolutionResult;
+		Timings.Next("ViewState");
 		SelectViewState_RenderThread(Context);
 		// Route preparation only needs the sampling sequence. Do not begin history
 		// mutation while resource routes and component admission are being decided.
@@ -161,10 +169,12 @@ namespace Durin
 			}
 			if (bPrepareOnly) return ERenderViewResult::RendererResourcesPending;
 		}
+		Timings.Next("PrepareFeatureResources");
 		const auto FeatureResult = ResolvePipelineStage_RenderThread(CommandList, Context,
 			&FSceneRenderPipeline::PrepareFeatureResources_RenderThread, bPrepareOnly);
 		if (FeatureResult != ERenderViewResult::Success) return FeatureResult;
 		if (bPrepareOnly) return ERenderViewResult::Success;
+		Timings.Next("SetupMeshDrawCommands");
 		auto& ViewPlan = *Context.Logical.PreparedView;
 		Telemetry.View.StaticMesh.WithheldPrimitives = AdmitStaticMeshDraws(
 			ViewPlan.Receiver.StaticMeshes, Context.Resolved.Scene.Receiver.StaticMeshes);
@@ -181,12 +191,14 @@ namespace Durin
 					return ERenderViewResult::RendererResourcesUnavailable;
 			}
 		if (Qualification.ObserveAdmittedDraws) Qualification.ObserveAdmittedDraws(ViewPlan);
-		Admission.reset();
+		Timings.Next("BuildGraph");
 		FCloudHistoryCandidateScope CloudHistoryCandidate(ViewState);
 		BeginTemporalState_RenderThread(Context);
 		FRDGBuilder Graph;
 		Submission.Render(Graph);
+		Timings.Next("ExecuteGraph");
 		const bool GraphExecuted = ExecuteGraph_RenderThread(Graph, CommandList, OutRenderGraphCapture, Qualification);
+		Timings.Next("Finalize");
 		if (Context.Resolved.GPUSceneDynamicContext) Context.Resolved.GPUSceneDynamicContext->RegisterGraphUse(Graph);
 		if (!GraphExecuted)
 			return ERenderViewResult::RendererResourcesUnavailable;
@@ -222,8 +234,10 @@ namespace Durin
 	{
 		FRenderPipelinePreparationBatch Batch;
 		const auto Result = (this->*Stage)(CommandList, Context, bPrepareOnly);
-		if (bPrepareOnly && Batch.HasCapacityExceeded()) return ERenderViewResult::RendererResourcesUnavailable;
-		if ((bPrepareOnly || Result != ERenderViewResult::Success) && FRenderPipelinePreparationBatch::HasPending())
+		if (bPrepareOnly && (Batch.HasCapacityExceeded()
+				|| (PreparationRequests && !Batch.CollectRequests(*PreparationRequests)))) return ERenderViewResult::RendererResourcesUnavailable;
+		if ((bPrepareOnly && Batch.HasResourcePending())
+			|| (Result != ERenderViewResult::Success && FRenderPipelinePreparationBatch::HasPending()))
 			return ERenderViewResult::RendererResourcesPending;
 		return Result;
 	}
@@ -500,7 +514,7 @@ namespace Durin
 					if (bPrepareOnly) FixedPipelinesReady = bTemporalReady && FixedPipelinesReady;
 				}
 			}
-			if (!FixedPipelinesReady || (bPrepareOnly && FRenderPipelinePreparationBatch::HasPending()))
+			if (!FixedPipelinesReady)
 				return ERenderViewResult::RendererResourcesUnavailable;
 		}
 		return ERenderViewResult::Success;

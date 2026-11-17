@@ -74,7 +74,7 @@ namespace Durin
 		auto ReleaseViewStates_RenderThread() -> size_t;
 		auto GetViewStateCount_RenderThread() const -> size_t;
 		auto RenderHitProxies_RenderThread(FRHICommandListImmediate&, FScene*, const FHitProxyRenderRequest&) -> std::shared_ptr<const FHitProxyMap>;
-		auto RetirePreparations_RenderThread(FScene* Scene = nullptr) -> void;
+		auto InvalidatePreparationOwners_RenderThread(FScene* Scene = nullptr) -> void;
 		auto PrepareViewResources_RenderThread(FRHICommandListImmediate& CommandList, FScene* Scene,
 			const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput,
 			const FSceneViewRenderOptions& Options, const FRenderResourcePreparation& Preparation) -> void;
@@ -111,12 +111,9 @@ namespace Durin
 			ERendererResourceInvalidationCause Cause
 		) -> void;
 
-		struct FPreparationOwner { FScene* Scene; FRenderResourcePreparation Preparation; };
-		std::vector<FPreparationOwner> Preparations;
-		auto PrunePreparations_RenderThread() -> void;
-		auto AdmitPreparation_RenderThread(FScene* Scene, FRHITexture* Output,
-			const FRenderResourcePreparation& Preparation) -> bool;
-		FRenderResourceAdmissionBudget AdmissionBudget;
+		// Scene lifetime tokens invalidate observations without retaining requests or
+		// their PSOs. Request handles belong to viewports and capture owners.
+		std::unordered_map<FScene*, std::shared_ptr<const void>> PreparationOwners;
 		FSceneRenderPreparationConfig PreparationConfigGameThread;
 		FSceneRenderPreparationConfig PreparationConfigRenderThread;
 		FRendererResourceCoordinator Coordinator;

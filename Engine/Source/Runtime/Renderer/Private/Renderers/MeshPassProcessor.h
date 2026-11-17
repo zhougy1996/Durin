@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PipelineStateCache.h"
 #include "Renderers/MeshDrawCommandSubmission.h"
 #include "Renderers/MeshDrawCommandStats.h"
 #include "PSOPrecacheMaterial.h"
@@ -76,7 +77,7 @@ namespace Durin::RendererPrivate
 	struct FMeshPassPipelineInitializer : FMeshPassShaders
 	{
 		FVertexDeclarationRHIRef VertexDeclaration;
-		FGraphicsPipelineStateRHIRef PipelineState;
+		FGraphicsPipelineStateRef PipelineState;
 		FMeshPipelineDescription Description;
 		EMeshPipelinePass Pass = EMeshPipelinePass::Forward;
 	};

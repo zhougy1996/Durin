@@ -263,7 +263,7 @@ namespace Durin
 		FGlobalShaderSetRef OverlayShaders;
 		TShaderMapRef<FHitProxyOverlayFragmentShader> OverlayFragment;
 		FBufferRHIRef OverlayBuffer;
-		std::array<FGraphicsPipelineStateRHIRef, 2> OverlayPipelines;
+		std::array<FGraphicsPipelineStateRef, 2> OverlayPipelines;
 		std::vector<FRHIUniformBufferRange> OverlayIds;
 		std::vector<uint32> OverlayOrder;
 		if (!Request.Overlays.empty())
@@ -343,7 +343,7 @@ namespace Durin
 			Commands.BindVertexBuffer(0, OverlayBuffer, 0);
 			for (uint32 Foreground = 0; Foreground < 2; ++Foreground)
 			{
-				Commands.SetGraphicsPipelineState(*OverlayPipelines[Foreground]);
+				Commands.SetGraphicsPipelineState(OverlayPipelines[Foreground]);
 				for (const uint32 Index : OverlayOrder)
 				{
 					if (Request.Overlays[Index].bForeground != bool(Foreground)) continue;

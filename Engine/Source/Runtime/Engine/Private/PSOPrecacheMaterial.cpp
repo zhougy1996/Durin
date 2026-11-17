@@ -355,7 +355,6 @@ namespace Durin
 						else { if (!Work->OptionalError) Work->OptionalError = std::move(Error); Slot.bAdmitted = true; Data = {}; }
 					};
 					if (!Data.IsValid()) { Reject("Invalid PSO precache initializer or priority."); if (Required) break; else continue; }
-					if (!FRenderResourcePreparationScope::TryBeforePipeline()) break;
 					try {
 						auto Pipeline = State->Submitter(Data);
 						if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break;

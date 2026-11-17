@@ -66,7 +66,7 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FGBufferDebugVertexShader> VertexShader;
 			TShaderMapRef<FGBufferDebugFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRef PipelineState;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Slot{
@@ -227,7 +227,7 @@ namespace Durin
 			RenderTargetLayouts::MakeGBufferDebugOutput();
 		PassInfo.ColorRenderTargets[0] = Output;
 		CommandList.BeginRenderPass(PassInfo, "GBufferDebugRenderPass");
-		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
+		CommandList.SetGraphicsPipelineState(Payload->PipelineState);
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f,
 			static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f,

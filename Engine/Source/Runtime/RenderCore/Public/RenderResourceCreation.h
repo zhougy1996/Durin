@@ -213,9 +213,20 @@ namespace Durin
 			}
 
 			ApplyDeviceGeneration(Generation);
+			if (Availability == ERenderResourceAvailability::Ready && PipelineRequests.HasFailed())
+			{
+				Payload.reset();
+				PayloadGeneration = {};
+				Availability = ERenderResourceAvailability::Uninitialized;
+			}
 			if (ShouldSuppressAttempt(Generation))
 			{
 				return GetPayload();
+			}
+			if (Availability == ERenderResourceAvailability::Pending && PipelineRequests.CanDeferAttempt(Generation))
+			{
+				FRenderPipelineRequestScope::MarkResourcePending();
+				return nullptr;
 			}
 
 			bResolving = true;
@@ -279,17 +290,15 @@ namespace Durin
 
 		auto GetPayload() -> PayloadType*
 		{
-			if (Availability != ERenderResourceAvailability::Ready || !Payload) return nullptr;
+			if (Availability != ERenderResourceAvailability::Ready || !Payload || PipelineRequests.HasFailed()) return nullptr;
 			PipelineRequests.RetainForPreparation();
-			FRenderResourcePreparationScope::Retain(Payload, sizeof(PayloadType));
 			return Payload.get();
 		}
 
 		auto GetPayload() const -> const PayloadType*
 		{
-			if (Availability != ERenderResourceAvailability::Ready || !Payload) return nullptr;
+			if (Availability != ERenderResourceAvailability::Ready || !Payload || PipelineRequests.HasFailed()) return nullptr;
 			PipelineRequests.RetainForPreparation();
-			FRenderResourcePreparationScope::Retain(Payload, sizeof(PayloadType));
 			return Payload.get();
 		}
 

@@ -73,7 +73,7 @@ namespace Durin
 				TShaderRef<FTexturePreviewVertexShader> VertexShader;
 				TShaderRef<FTexturePreviewFragmentShader> FragmentShader;
 				FVertexDeclarationRHIRef VertexDeclaration;
-				FGraphicsPipelineStateRHIRef PipelineState;
+				FGraphicsPipelineStateRef PipelineState;
 				FBufferRHIRef VertexBuffer;
 				FBufferRHIRef IndexBuffer;
 				FSamplerRHIRef Sampler;
@@ -228,7 +228,7 @@ namespace Durin
 						Candidate.ShaderMap->GetMergedPipelineLayout();
 					Candidate.PipelineState = FPreparedShaderMapScope::IsActive()
 						? FRenderPipelineRequestScope::Graphics("TexturePreviewChannelPipeline", PipelineInitializer)
-						: GDynamicRHI->RHICreateGraphicsPipelineState("TexturePreviewChannelPipeline", PipelineInitializer);
+						: PipelineStateCache::GetAndOrCreateGraphicsPipelineState(PipelineInitializer, "TexturePreviewChannelPipeline").value_or(nullptr);
 
 					if (Candidate.PipelineState == nullptr)
 						return FResult::Failure(MakeError(
@@ -300,7 +300,7 @@ namespace Durin
 
 		const auto& State = *Resources;
 		CommandList.BeginRenderPass(PassInfo, "TexturePreviewChannelPass");
-		CommandList.SetGraphicsPipelineState(*State.PipelineState);
+		CommandList.SetGraphicsPipelineState(State.PipelineState);
 		const float Scale = std::min(static_cast<float>(Width) / InputTexture->GetSizeX(),
 			static_cast<float>(Height) / InputTexture->GetSizeY());
 		const float DrawWidth = std::max(1.0f, std::floor(InputTexture->GetSizeX() * Scale));

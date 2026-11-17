@@ -4717,7 +4717,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				const auto DrawContext = DirectCollector->PreparePipeline(Batch, "AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
 				CommandReady = static_cast<bool>(DrawContext);
 				if (CommandReady) {
-					EXPECT_EQ(Command->GetInitializer().PipelineState, ExpectedCommandPipeline->GetRHIPipeline());
+					EXPECT_EQ(Command->GetInitializer().PipelineState, ExpectedCommandPipeline);
 					EXPECT_EQ(Command->GetInitializer().VertexShader->GetRHIShader(false), Initializer.BoundShaders.VertexShader);
 					EXPECT_EQ(Command->GetInitializer().FragmentShader, Initializer.BoundShaders.FragmentShader);
 					EXPECT_EQ(Command->GetInitializer().VertexDeclaration, Initializer.VertexDeclaration);

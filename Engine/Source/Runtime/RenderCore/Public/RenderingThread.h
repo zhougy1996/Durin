@@ -35,7 +35,7 @@ namespace Durin
 			ERenderCommandFenceMode Mode =
 				ERenderCommandFenceMode::RenderThread) -> void;
 
-		RENDERCORE_API auto Wait() -> void;
+		RENDERCORE_API auto Wait(std::source_location Caller = std::source_location::current()) -> void;
 		RENDERCORE_API auto IsFenceComplete() const -> bool;
 	private:
 		Tasks::FTask CompletionTask;

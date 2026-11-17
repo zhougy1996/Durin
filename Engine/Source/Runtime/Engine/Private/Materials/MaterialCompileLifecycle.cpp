@@ -172,8 +172,7 @@ namespace Durin
 			Status.CacheInfo = Result.CacheInfo;
 			Resource->Diagnostics = std::move(Result.Diagnostics);
 			if (Result.Outcome == EMaterialProgramStatus::Ok
-				&& Result.CompiledProgram
-				&& ValidateMaterialProgram(*Result.CompiledProgram))
+				&& Result.CompiledProgram)
 			{
 				if (!Result.Request->CompilerInput)
 				{
@@ -198,7 +197,7 @@ namespace Durin
 				Properties = Material.GetStaticProperties();
 				Properties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
 				Program = Material.BindMaterialDefaultParameters(std::move(Program));
-				if (!Program) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
+				if (!Program || !ValidateMaterialProgram(*Program)) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
 				Resource->CompiledProgram = std::move(Program);
 				Resource->AcceptedProperties = std::move(Properties);
 				Resource->AcceptedExpressionSources = Resource->RequestedExpressionSources;

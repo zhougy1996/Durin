@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Renderers/RenderStageTimings.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Renderers/MeshVertexFactory.h"
 
@@ -93,10 +94,15 @@ namespace Durin::RendererPrivate
 		const FShaderCompileOptions& VertexCompileOptions,
 		FMeshMaterialShaderMap& OutShaderMap) -> FShaderCompletion
 	{
+		RendererPrivate::FRenderStageTimings Timings(false, "InitializeMaterialShaderMap",
+			GRenderFrameCounterRenderThread <= 5 ? 0.25 : 20.0);
+		Timings.Next("CheckAcceptedProgramIdentity");
 		if (MaterialProgram != nullptr)
 		{
-			if (!ValidateMaterialProgram(*MaterialProgram))
-				return std::unexpected(std::string("Accepted material compiler result is invalid."));
+			// Engine validates the immutable program before publication. Consumption
+			// checks this request's identity; Pending must not revalidate the artifact.
+			if (!MaterialProgram->HasShaderMap())
+				return std::unexpected(std::string("Accepted material program has no shader map."));
 			if (MaterialProgram->GetShaderMap().ShaderMapId != Identity.ProgramIdentity)
 				return std::unexpected(std::format(
 				"Compiled material program identity '{}' does not match requested identity '{}'.",
@@ -107,6 +113,7 @@ namespace Durin::RendererPrivate
 			if (MaterialProgram->GetShaderMap().PassContractVersion != CurrentMaterialPassContractVersion)
 				return std::unexpected(std::format("Material pass contract {} does not match {}.", (MaterialProgram->GetShaderMap().PassContractVersion), (CurrentMaterialPassContractVersion)));
 		}
+		Timings.Next("AdaptGeneratedStages");
 		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
 		if (!Factory)
 		{
@@ -142,6 +149,7 @@ namespace Durin::RendererPrivate
 				if (Entry.Shader.Frequency != EShaderFrequency::Vertex) FactoryCompatibleEntries.push_back(Entry);
 			GeneratedEntries = FactoryCompatibleEntries;
 		}
+		Timings.Next("TryCompileShaderMap");
 		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
 			.Generation = Generation,

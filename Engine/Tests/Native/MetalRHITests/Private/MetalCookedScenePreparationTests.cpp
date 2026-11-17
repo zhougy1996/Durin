@@ -138,7 +138,6 @@ namespace Durin
 				EXPECT_GT(Prepared.BinaryLoadAttempts, Initial.BinaryLoadAttempts);
 				EXPECT_GT(Prepared.ComputePipelinesCreated, Initial.ComputePipelinesCreated);
 				EXPECT_EQ(Prepared.SourceCompileAttempts, Initial.SourceCompileAttempts);
-				FRenderResourcePreparationUseScope Use(Preparation);
 				FSceneViewStatistics Statistics;
 				EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}, &Statistics}), ERenderViewResult::Success);
 				EXPECT_GT(Statistics.Summary.DrawCalls, 0u);
@@ -148,15 +147,12 @@ namespace Durin
 				EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Ready);
 				Preparation.RequestCancel();
 				Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Peer);
-				EXPECT_EQ(Preparation.GetProgress().RetainedObjects, 0u);
 				EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Ready);
 				const auto Drawn = GetMetalShaderCreationStatistics();
 				EXPECT_EQ(Drawn.FunctionsCreated, Prepared.FunctionsCreated);
 				EXPECT_EQ(Drawn.GraphicsPipelinesCreated, Prepared.GraphicsPipelinesCreated);
 				EXPECT_EQ(Drawn.ComputePipelinesCreated, Prepared.ComputePipelinesCreated);
 				EXPECT_EQ(Drawn.SourceCompileAttempts, Initial.SourceCompileAttempts);
-				EXPECT_EQ(Preparation.GetProgress().UncoveredShaderAdmissions, 0u);
-				EXPECT_EQ(Preparation.GetProgress().UncoveredPipelineAdmissions, 0u);
 				GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				FByteBuffer PreparedPixels, DemandPixels;
@@ -178,12 +174,10 @@ namespace Durin
 				AdvanceShaderReloadGeneration();
 				EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Stale);
 				Renderer.BeginFrame_RenderThread(Commands);
-				EXPECT_EQ(Peer.GetProgress().RetainedObjects, 0u);
 			});
 			FlushRenderingCommands();
 			Scene->Release(); Scene.reset(); FlushRenderingCommands();
 			EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Stale);
-			EXPECT_EQ(Peer.GetProgress().RetainedObjects, 0u);
 			EnqueueRenderCommand("ReleaseCookedSceneResources", [&](FRHICommandListImmediate&) { Geometry->ReleaseResources(); Material = nullptr; MaskedMaterial = nullptr; InstanceMaterial = nullptr; });
 			FlushRenderingCommands(); Lifecycle.Shutdown(); FlushRenderingCommands();
 			ShutdownRenderingThread(); FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None); RHIExit();
