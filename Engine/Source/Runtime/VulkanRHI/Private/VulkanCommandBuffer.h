@@ -93,7 +93,6 @@ namespace Durin::VulkanRHI
 			std::vector<uint32> DynamicOffsets;
 		};
 		std::array<FDescriptorBinding, 2> RecordedDescriptors;
-		bool bRenderPassDebugLabelOpen = false;
 		uint32 DiagnosticRegionDepth = 0;
 
 		friend class FVulkanQueue;

@@ -35,9 +35,9 @@ namespace Durin
 			for (const auto& Request : Requests)
 			{
 				const auto Current = Request->GetState();
-				bFailed |= Current == ERHIPipelineRequestState::Failed;
-				bCanceled |= Current == ERHIPipelineRequestState::Canceled;
-				bPending |= Current == ERHIPipelineRequestState::Pending;
+				bFailed |= Current == ERHIPipelineState::Failed;
+				bCanceled |= Current == ERHIPipelineState::Canceled;
+				bPending |= Current == ERHIPipelineState::Pending;
 			}
 			if (bFailed) return Retire(ERenderResourcePreparationState::Failed);
 			if (bCanceled || ShaderGeneration != GetShaderReloadGeneration() || (bHasOwner && Owner.expired()))

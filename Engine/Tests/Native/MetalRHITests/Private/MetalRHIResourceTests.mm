@@ -2782,18 +2782,18 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 				ASSERT_NE(Cache, nullptr);
 				auto Requested = Cache->GetCompute(Initializer, "first");
 				ASSERT_TRUE(Requested);
-				First = *Requested;
+				First = Requested;
 				Desc.SetEntryPoint("mainB");
 				auto OtherShader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 				ASSERT_TRUE(OtherShader);
 				Initializer.ComputeShader = OtherShader.GetReference();
 				auto Other = Cache->GetCompute(Initializer, "replacement");
 				ASSERT_TRUE(Other);
-				Replacement = *Other;
+				Replacement = Other;
 				Shader = nullptr;
 				OtherShader = nullptr;
-				ASSERT_TRUE(First->Wait());
-				ASSERT_TRUE(Replacement->Wait());
+				ASSERT_EQ(First->Wait(), Durin::ERHIPipelineState::Ready);
+				ASSERT_EQ(Replacement->Wait(), Durin::ERHIPipelineState::Ready);
 				Desc.SetEntryPoint("mainC");
 				auto LateShader = Durin::GDynamicRHI->RHICreateShader(Durin::FinalizeMetalFixture(Desc));
 				ASSERT_TRUE(LateShader);
@@ -2802,11 +2802,11 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 				ASSERT_TRUE(Late);
 				LateShader = nullptr;
 				Cache->StopAndWait();
-				EXPECT_TRUE((*Late)->IsComplete());
-				EXPECT_TRUE((*Late)->GetState() == Durin::ERHIPipelineRequestState::Ready
-					|| (*Late)->GetState() == Durin::ERHIPipelineRequestState::Canceled);
-				if ((*Late)->GetState() == Durin::ERHIPipelineRequestState::Canceled)
-					EXPECT_FALSE((*Late)->GetRHIPipeline());
+				EXPECT_NE(Late->GetState(), Durin::ERHIPipelineState::Pending);
+				EXPECT_TRUE(Late->GetState() == Durin::ERHIPipelineState::Ready
+					|| Late->GetState() == Durin::ERHIPipelineState::Canceled);
+				if (Late->GetState() == Durin::ERHIPipelineState::Canceled)
+					EXPECT_FALSE(Late->GetRHIPipeline());
 				auto Native = First->GetRHIPipeline();
 				ASSERT_TRUE(Native);
 				EXPECT_NE(Native.GetReference(), Replacement->GetRHIPipeline().GetReference());

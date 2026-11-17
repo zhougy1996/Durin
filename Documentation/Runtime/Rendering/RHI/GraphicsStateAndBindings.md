@@ -25,14 +25,14 @@ read descriptions through their shared const references. The
 [resource recovery contract](../Pipeline/RendererResourceRecovery.md#pipeline-cache-and-binding)
 owns description budgets, cache retention, and retirement.
 
-Description-pool exhaustion returns the key builder's `CapacityExceeded` error,
-distinct from an invalid initializer. Request admission preserves this as
-capacity backpressure so preparation can retry after owners release entries.
+Description interning has no artificial capacity admission limit. Allocation
+failure follows the RHI out-of-memory policy.
 
-The backend-only `FRHIPipelineStateCacheBackend` entry points reuse a key
-already validated against the same device's capabilities. They preserve the
-ordinary cache's lifecycle, payload-budget, and independent-CPU admission checks. Renderer
-and feature callers use the validating `GetGraphics`/`GetCompute` APIs.
+The backend-only `FRHIPipelineStateCacheBackend` entry points reuse a key already
+validated against the same device capabilities. They preserve cache lifecycle
+and independent-CPU execution protection. Ordinary rendering uses required-success
+`GetAndOrCreate*PipelineState`; optional preparation uses nullable `Precache*`.
+Precaching and drawing share the same identity and completion event.
 
 Accepted floating-point key fields use ordinary finite numeric equality.
 Key construction therefore canonicalizes either signed-zero representation to

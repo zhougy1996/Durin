@@ -50,6 +50,7 @@ namespace Durin::VulkanRHI
 		uint64 NamingUnavailableSkipCount = 0;
 		uint64 LabelBeginCount = 0;
 		uint64 LabelEndCount = 0;
+		uint64 LabelInsertCount = 0;
 		uint64 LabelUnavailableSkipCount = 0;
 		uint64 ActiveLabelDepth = 0;
 		uint64 LabelHighWater = 0;
@@ -92,7 +93,7 @@ namespace Durin::VulkanRHI
 		}
 
 		auto CanNameObjects() const -> bool { return Device && SetObjectName; }
-		auto BeginNameLabel(vk::CommandBuffer CommandBuffer, FName Name) -> bool;
+		auto InsertNameLabel(vk::CommandBuffer CommandBuffer, FName Name) -> void;
 		auto BeginLabel(vk::CommandBuffer CommandBuffer,
 			std::string_view Name) -> bool;
 		auto EndLabel(vk::CommandBuffer CommandBuffer) -> void;
@@ -109,6 +110,7 @@ namespace Durin::VulkanRHI
 		PFN_vkSetDebugUtilsObjectNameEXT SetObjectName = nullptr;
 		PFN_vkCmdBeginDebugUtilsLabelEXT BeginCommandLabel = nullptr;
 		PFN_vkCmdEndDebugUtilsLabelEXT EndCommandLabel = nullptr;
+		PFN_vkCmdInsertDebugUtilsLabelEXT InsertCommandLabel = nullptr;
 		bool bExtensionActive = false;
 		std::atomic<uint64> NextInternalNameIndex = 0;
 		std::atomic<uint64> NamingAttemptCount = 0;
@@ -116,6 +118,7 @@ namespace Durin::VulkanRHI
 		std::atomic<uint64> NamingUnavailableSkipCount = 0;
 		std::atomic<uint64> LabelBeginCount = 0;
 		std::atomic<uint64> LabelEndCount = 0;
+		std::atomic<uint64> LabelInsertCount = 0;
 		std::atomic<uint64> LabelUnavailableSkipCount = 0;
 		std::atomic<uint64> ActiveLabelDepth = 0;
 		std::atomic<uint64> LabelHighWater = 0;

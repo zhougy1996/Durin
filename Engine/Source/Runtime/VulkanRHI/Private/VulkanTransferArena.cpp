@@ -132,8 +132,6 @@ namespace Durin::VulkanRHI
 			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Submitted
 			|| SyncPoint.GetState() == ERHIGPUSubmissionState::Complete);
 		ReclaimCompleted();
-		if (Config.MaxAllocation && Size > Config.MaxAllocation)
-			return {.AllocationResult = vk::Result::eErrorOutOfPoolMemory};
 		if (Config.AllocationClass == EVulkanAllocationClassCandidate::DynamicUpload)
 		{
 			for (const auto& Page : OversizePages)

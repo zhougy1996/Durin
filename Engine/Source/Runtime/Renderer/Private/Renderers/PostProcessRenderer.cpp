@@ -134,7 +134,7 @@ namespace Durin
 			Initializer.VertexDeclaration = VertexDeclaration;
 			Initializer.RasterizerState.CullMode = ERHICullMode::None;
 			Initializer.PipelineLayout = PipelineLayout;
-			return FRenderPipelineRequestScope::Graphics(
+			return FRenderPipelinePreparationScope::Graphics(
 				PipelineName,
 				Initializer);
 		}

@@ -300,7 +300,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					CandidatePayload.ShaderSet.GetPipelineLayout();
 				CandidatePayload.PipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"VolumetricCloudTemporalPipeline", Initializer
 					);
 				if (!CandidatePayload.PipelineState)
@@ -354,7 +354,7 @@ namespace Durin
 				Initializer.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(
+				Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(
 					"VolumetricCloudCompositePipeline", Initializer
 				);
 				if (!Candidate.PipelineState)
@@ -450,7 +450,7 @@ namespace Durin
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelineRequestScope::Compute(
+				Candidate.PipelineState = FRenderPipelinePreparationScope::Compute(
 					"VolumetricCloudComputePipeline", Initializer);
 				if (!Candidate.PipelineState)
 					return FResult::Failure(MakeFailure("VolumetricCloudCompute", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
@@ -502,7 +502,7 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(
+				Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(
 					"VolumetricCloudFragmentPipeline", Initializer);
 				if (!Candidate.PipelineState)
 					return FResult::Failure(MakeFailure("VolumetricCloudFragment", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));

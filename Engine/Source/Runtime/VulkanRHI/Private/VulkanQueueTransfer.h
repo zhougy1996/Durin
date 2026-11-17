@@ -19,16 +19,19 @@ namespace Durin::VulkanRHI
 	class FVulkanQueueTransfer final : public FRHIQueueTransfer
 	{
 	public:
-		VULKANRHI_API FVulkanQueueTransfer(FVulkanDevice& Device, FRHIQueueId Source, FRHIQueueId Destination,
-			std::span<const FRHIBufferTransition> Buffers, std::span<const FRHITextureTransition> Textures,
-			bool bUseSynchronization2 = true);
+		// The sole creation boundary: invalid queue/range descriptions return null.
+		VULKANRHI_API static auto Create(FVulkanDevice& Device, const FRHIQueueTransferDesc& Desc,
+			bool bUseSynchronization2 = true) -> std::shared_ptr<FVulkanQueueTransfer>;
 		VULKANRHI_API ~FVulkanQueueTransfer() override;
+
 		auto RecordRelease(FVulkanQueue& Queue, vk::CommandBuffer Commands,
 			const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		auto RecordAcquire(FVulkanQueue& Queue, vk::CommandBuffer Commands,
 			const FRHIGPUSyncPointRef& SyncPoint) -> void;
 		auto GetReleaseSyncPoint() const -> FRHIGPUSyncPointRef;
 	private:
+		FVulkanQueueTransfer(FVulkanDevice& Device, const FRHIQueueTransferDesc& Desc,
+			bool bUseSynchronization2);
 		struct FState;
 		std::unique_ptr<FState> State;
 	};

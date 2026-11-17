@@ -221,7 +221,7 @@ namespace Durin
 			: FindPreparation(StableTypes, EffectiveCompileOptions);
 		if (Prepared)
 		{
-			FRenderPipelineRequestScope::RetainPreparation(Prepared);
+			FRenderPipelinePreparationScope::RetainPreparation(Prepared);
 			std::lock_guard Lock(Prepared->Mutex);
 			if (Prepared->Output && *Prepared->Output)
 			{

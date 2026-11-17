@@ -191,6 +191,11 @@ allocation or pairing rejection cannot partially change the tracked resources.
 `RHICreateQueueTransfer` exposes this protocol as a shared `FRHIQueueTransfer`.
 Creation copies metadata and retains resources without submitting GPU work or
 waiting for RHI replay. Invalid or unsupported descriptions return null.
+Vulkan routes creation and native test helpers through `FVulkanQueueTransfer::Create`.
+It validates queue identities and static range descriptions once before invoking
+a private constructor; construction does not repeat batch validation. Release and
+acquire still validate the execution phase, current ownership/access state, and
+producer sync point independently of this static creation boundary.
 `ReleaseQueueOwnership` and `AcquireQueueOwnership` record owning references
 outside render passes; within a GPU submission scope, their source or destination
 must match the scope's physical queue. Discarding a recording releases its

@@ -89,6 +89,8 @@ namespace Durin::VulkanRHI
 			vkGetDeviceProcAddr(NativeDevice, "vkCmdBeginDebugUtilsLabelEXT"));
 		EndCommandLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
 			vkGetDeviceProcAddr(NativeDevice, "vkCmdEndDebugUtilsLabelEXT"));
+		InsertCommandLabel = reinterpret_cast<PFN_vkCmdInsertDebugUtilsLabelEXT>(
+			vkGetDeviceProcAddr(NativeDevice, "vkCmdInsertDebugUtilsLabelEXT"));
 	}
 
 	auto FVulkanDebugUtils::ResetDevice() -> void
@@ -97,6 +99,7 @@ namespace Durin::VulkanRHI
 		SetObjectName = nullptr;
 		BeginCommandLabel = nullptr;
 		EndCommandLabel = nullptr;
+		InsertCommandLabel = nullptr;
 	}
 
 	auto FVulkanDebugUtils::NameObjectRaw(
@@ -117,31 +120,34 @@ namespace Durin::VulkanRHI
 		if (Result != VK_SUCCESS) Increment(NamingFailureCount);
 	}
 
-	auto FVulkanDebugUtils::BeginNameLabel(vk::CommandBuffer CommandBuffer,
-		FName Name) -> bool
+	auto FVulkanDebugUtils::InsertNameLabel(vk::CommandBuffer CommandBuffer, FName Name) -> void
 	{
-		if (!CommandBuffer || Name.IsNone()) return false;
-		if (!BeginCommandLabel)
+		if (!CommandBuffer || Name.IsNone()) return;
+		if (!InsertCommandLabel)
 		{
 			Increment(LabelUnavailableSkipCount);
-			return false;
+			return;
 		}
 		char Buffer[FName::StringBufferSize];
 		size_t Length = 0;
 		require(Name.TryWriteString(Buffer, Length));
-		return BeginLabel(CommandBuffer, std::string_view(Buffer, Length));
+		const auto BoundedName = BoundUtf8(std::string_view(Buffer, Length));
+		const VkDebugUtilsLabelEXT Label{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+			nullptr, BoundedName.data(), {0.18f, 0.55f, 0.95f, 1.0f}};
+		InsertCommandLabel(static_cast<VkCommandBuffer>(CommandBuffer), &Label);
+		Increment(LabelInsertCount);
 	}
 
 	auto FVulkanDebugUtils::BeginLabel(
 		vk::CommandBuffer CommandBuffer, std::string_view Name) -> bool
 	{
-		if (!CommandBuffer || Name.empty()) return false;
+		if (!CommandBuffer) return false;
 		if (!BeginCommandLabel)
 		{
 			Increment(LabelUnavailableSkipCount);
 			return false;
 		}
-		const auto BoundedName = BoundUtf8(Name);
+		const auto BoundedName = BoundUtf8(Name.empty() ? std::string_view("Unnamed") : Name);
 		VkDebugUtilsLabelEXT Label{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
 			nullptr, BoundedName.data(), {0.18f, 0.55f, 0.95f, 1.0f}};
 		BeginCommandLabel(static_cast<VkCommandBuffer>(CommandBuffer), &Label);
@@ -184,6 +190,7 @@ namespace Durin::VulkanRHI
 			.NamingUnavailableSkipCount = NamingUnavailableSkipCount.load(std::memory_order_relaxed),
 			.LabelBeginCount = LabelBeginCount.load(std::memory_order_relaxed),
 			.LabelEndCount = LabelEndCount.load(std::memory_order_relaxed),
+			.LabelInsertCount = LabelInsertCount.load(std::memory_order_relaxed),
 			.LabelUnavailableSkipCount = LabelUnavailableSkipCount.load(std::memory_order_relaxed),
 			.ActiveLabelDepth = ActiveLabelDepth.load(std::memory_order_relaxed),
 			.LabelHighWater = LabelHighWater.load(std::memory_order_relaxed),
@@ -197,6 +204,7 @@ namespace Durin::VulkanRHI
 		NamingUnavailableSkipCount.store(0, std::memory_order_relaxed);
 		LabelBeginCount.store(0, std::memory_order_relaxed);
 		LabelEndCount.store(0, std::memory_order_relaxed);
+		LabelInsertCount.store(0, std::memory_order_relaxed);
 		LabelUnavailableSkipCount.store(0, std::memory_order_relaxed);
 		LabelHighWater.store(
 			ActiveLabelDepth.load(std::memory_order_relaxed),

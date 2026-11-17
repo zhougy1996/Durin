@@ -751,7 +751,12 @@ namespace
 			if (!Durin::IsTaskSchedulerRunning()) require(Durin::InitializeTaskScheduler(2));
 			Durin::InitRenderingThread();
 		}
-		~FRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
+		~FRenderingThreadScope()
+		{
+			// Scene destruction may enqueue resource cleanup; finish it before closing admission.
+			Durin::FlushRenderingCommands();
+			Durin::ShutdownRenderingThread();
+		}
 	};
 
 	class FTrackedStaticMeshSceneProxy final

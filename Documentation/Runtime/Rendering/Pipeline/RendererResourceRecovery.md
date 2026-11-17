@@ -4,7 +4,7 @@ Summary: Define asynchronous Renderer readiness, asset/shader preparation errors
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 ## Required-Success Native Construction
 
@@ -124,9 +124,8 @@ a replacement device starts with fresh admission state and a new capability
 snapshot. Surviving old identities expose terminal metadata without native PSOs.
 
 The cache owns a private `FPipelineCompileQueue`, with one Worker drain task,
-a bounded queue, and one active native creator. Limits across graphics and compute
-are 256 unfinished unique requests, 16 MiB of
-conservatively charged unfinished descriptions, and 1 MiB per description.
+a queue, and one active native creator. Valid requests are not rejected by
+artificial request-count, description-size, or metadata-budget limits.
 Each live key shares one compilation state, priority, result, and completion
 event. The queue retains unfinished work independently of caller handles; dropping
 a caller does not cancel compilation. There is no per-caller cancellation,
@@ -143,18 +142,19 @@ Core is never started implicitly.
 Internal completion edges observe terminal notification and carry no native
 resource references. Accepted compilation completes Ready or Failed, or is canceled
 by its owner/lifetime. Native allocation/device errors terminate from the creator.
-Only Ready exposes complete native resources; rejected admission remains explicit.
+Only Ready exposes complete native resources. Unavailable precache acquisition
+returns empty; required acquisition or required compilation failure is fatal.
 
 RHI interns canonical pipeline-layout, vertex-input, and blend descriptions in
-weak CPU-only indexes, capped at 4,096 live descriptions per family. Their shared
-64 MiB budget charges dynamic container capacities once, plus conservative
-object/node overhead. Keys retain immutable shared descriptions; the last strong
-description owner releases its reservation. Descriptions contain no device or
+weak CPU-only indexes without a live-description cap. Shared metadata accounting
+charges dynamic container capacities once, plus conservative object/node overhead.
+Keys retain immutable shared descriptions; the last strong
+description owner releases its accounting lease. Descriptions contain no device or
 shader resources and may survive backend shutdown.
 
-Vulkan optional PSO request metadata has its own 64 MiB admission budget. Native
-pipeline/dependency accounting is separate and does not reject creation at that
-budget. Retained PSO tables remain capped at 2,048 entries per type and structural
+Vulkan PSO request metadata and native pipeline/dependency metadata have separate
+lifetime accounting; neither counter rejects creation.
+Retained PSO tables remain capped at 2,048 entries per type and structural
 layouts at 256; evicted objects can remain alive under external ownership.
 Descriptor-set layouts and render passes are interned until device teardown,
 without artificial live-object count limits. Accounting is logical CPU metadata,
@@ -170,7 +170,7 @@ survive shutdown. `StopAndWait()` first preserves Ready publications for already
 accepted command consumers; after replay drains, `ReleaseResources()` releases
 those RHI references and a second retirement flush precedes native teardown.
 Immutable request layout aliases remain valid after backend module unload;
-their metadata budget and deleter are owned by RHI, not the Vulkan module.
+their metadata accounting and deleter are owned by RHI, not the Vulkan module.
 Callers must still release explicit RHI references copied out of a Ready result
 before device destruction. The owning shutdown thread performs stop and release;
 creation callbacks must never attempt to close their own compile queue.
@@ -181,15 +181,29 @@ creation callbacks must never attempt to close their own compile queue.
 `FComputePipelineState` cache identities from complete native RHI PSOs.
 `PipelineStateCache::GetAndOrCreate*PipelineState` and `Precache*PipelineState`
 return the same shared identity for an equal normalized key while an owner or
-recorded command retains it. Names are diagnostic only. Admission returns an
-`expected` identity or an explicit request rejection; accepted identities expose
-Pending/Ready/Failed/Canceled, immutable layout metadata, terminal readiness,
-permitted waits, and nullable pipeline results. RHI requests have no per-caller
-cancellation authority. Completion events retain no native resources. A rejected request is not a
-failed native identity; admission pressure can be retried before creation.
+recorded command retains it. Names are diagnostic only. Ordinary acquisition
+returns a typed reference and must succeed; unavailable acquisition is fatal.
+Like UE, ordinary acquisition receives the recording command list and attaches
+the internal compilation dependency there. Native compilation may still be Pending;
+command dispatch joins its shared completion event before replay. A failed PSO required by draw/dispatch is fatal,
+including a failure first discovered during precaching. `Precache*` may return
+an empty reference when acquisition is unavailable or the description is invalid;
+an acquired precache identity may settle as Failed without terminating rendering.
+There is no public rejection enum or `expected` acquisition protocol.
 
-The device-owned PipelineStateCache has a weak table capped at 4,096 entries. Keys and
-identity metadata are charged against the device metadata budget; shared
+Identities expose Pending/Ready/Failed/Canceled, immutable layout metadata, and
+type-specific nullable `GetRHIPipeline()` results. `Wait()` returns the observed
+domain state: Pending means the caller cannot safely wait; the other states are
+terminal. Completion tasks, typed native accessors, executor wait preflight, and
+`FPipelineCompilation` belong to the Backend implementation seam. Public state
+objects hide compilation storage behind an incomplete type.
+`GetStateObservation()` returns read-only outcome metadata without atomic storage,
+native ownership, or a completion task. It is not proof of GPU completion.
+Dropping a state reference never cancels shared compilation. Device closure and
+retirement preserve Canceled semantics and native lifetime protection.
+
+The device-owned PipelineStateCache has a weak table without a live-identity cap. Keys and
+identity metadata participate in device metadata accounting; shared
 descriptions are charged only by their RHI owner. Unfinished initializer/name
 reservations are released when compilation finishes; retained shared states pay
 for one key and compilation identity regardless of handle count. The private
@@ -197,9 +211,8 @@ compilation cache stores hashes and weak state references, compares full keys on
 hash matches, and prunes expired entries on cold acquisition. It retains no
 descriptors or native results after the last shared state is released. Device
 retirement visits live shared cache entries to clear their native results while
-preserving immutable layout metadata. Individual cache metadata payloads
-are capped at 1 MiB. Acquisition prunes expired identities every 60 seconds and
-at entry capacity or metadata pressure.
+preserving immutable layout metadata. Acquisition prunes expired public cache
+identities every 60 seconds; no metadata-pressure retry path is required.
 
 At frame begin, Vulkan retains at most 64 cache-only graphics and 64 cache-only
 compute PSOs, evicting older entries first. This periodic trim preserves externally
@@ -216,14 +229,12 @@ private queue. The queue owns shutdown serialization and joins its last drain,
 including earlier compiler capture retirement. Native results retire through the
 existing two-phase shutdown boundary.
 
-Drawing binds an explicit typed cache request through the command-list overload,
-which records its completion dependency. Cache/precache acquisition returns
-`expected` so the resource owner chooses retry or failure policy. There is no
-initializer-binding helper or scheduler-dependent synchronous fallback. Without
-Core, cache/precache acquisition returns Unsupported; startup tools that require
-native creation must call the required-success RHI factories explicitly.
-Command-list overloads accept typed cache references or complete native RHI
-objects. Recording never waits for native compilation.
+Drawing binds an explicit typed pipeline state through the command-list overload,
+which records its internal compilation dependency. Command-list overloads accept
+typed cache references or complete native RHI objects. Recording never waits for
+native compilation. There is no scheduler-dependent synchronous fallback. Without
+Core, precache returns empty and required acquisition is fatal; startup tools use
+the explicit native creation factories.
 
 ## Transactional Resource Slots
 
@@ -231,21 +242,21 @@ Resource factories return exactly one owned result: Pending, Canceled, payload o
 error. A tagged union prevents empty or contradictory result combinations.
 
 With Core running, production fixed graphics/compute and static-mesh PSO
-factories use `FRenderPipelineRequestScope` inside their owning slot. Logical
+factories use `FRenderPipelinePreparationScope` inside their owning slot. Logical
 resource preparation before consuming passes is the prewarm trigger. A slot
-retains normalized shared cache identities across attempts (at most 256 keys and
-1 MiB of key storage). Precache and drawing share the same compilation; resetting
-a slot releases its handle without canceling queued or active creation. CPU
-preparation and request admission pressure retry on later preparation without a
-failure diagnostic or a synchronous wait in the factory. Accepted native PSOs
+retains normalized shared cache identities across attempts without a key-count
+or metadata-size admission cap. Precache and drawing share the same compilation;
+resetting a slot releases its handle without canceling queued or active creation.
+CPU preparation retries on later preparation without a failure diagnostic or a
+synchronous wait in the factory. Accepted native PSOs
 publish cached handles before compilation completes. Scene preparation collects
 these handles explicitly at each resource phase, including ready cache hits,
 and the caller-owned view request observes native completion without revisiting
 resolved phases. Normal drawing records the handles and their completion
 dependencies; the RHI executor gates replay at closed command scopes.
 Resource-phase batches collect shared dependencies without joining compilation.
-CPU preparation and admission errors remain owned by their slots. A view
-observation admits at most 4,096 unique handles; overflow fails explicitly.
+CPU preparation and admission errors remain owned by their slots. View
+observations have no artificial handle-count admission limit.
 Multi-PSO metadata publishes after all handles are accepted, while explicit
 prewarm readiness requires native completion. Request ownership, cancellation
 and invalidation follow [load preparation](LoadPreparation.md#scene-resource-readiness).
@@ -258,24 +269,28 @@ compatibility. Shader preparation itself is not made asynchronous by this helper
 Recorded command lists retain typed cache identities and their internal creation
 dependencies. Pending identities expose immutable layout metadata, never
 unfinished native handles.
-Submission retains up to 256 distinct shared compilation dependencies per group. The
-threaded queue preserves FIFO serial order and wakes from Core completion; its
-replay thread does not wait inside a command. A failed or canceled dependency
-skips the whole batch and terminates its CPU fence with the corresponding state,
+Submission deduplicates shared compilation dependencies without a PSO-count cap.
+The threaded queue preserves FIFO serial order and wakes from Core completion; its
+replay thread does not wait inside a command. A failed required compilation is fatal. A canceled dependency
+skips the whole batch and terminates its CPU fence as Canceled,
 while later independent batches can proceed. Inline submission waits before
-replay only on permitted callers; rejection preserves commands for retry.
+replay only on permitted callers. Ordinary Submit and QueueCommandList are
+required-success operations; invalid input and submission after queue closure are
+internal errors, not a public retry protocol.
 Neither creator work nor its dependencies may depend on replay. Compute stage
 and binding validation remains active; a pipeline becoming Ready does not make
 missing bindings valid.
 
-`FRHICommandListFence` reports Pending, Succeeded, Failed, Canceled, or Expired.
+`FRHICommandListFence` reports Pending, Succeeded, Canceled, or Expired.
 Completed serials describe terminal CPU queue progress, not successful native
 execution or GPU completion. Captured fences retain their batch outcome; render
 fences capture that receipt on the rendering thread. Late serial lookup uses a
 fixed 4,096-entry history and returns Expired when a needed receipt has been
-overwritten, never an inferred success. `TryWait` returns false for unsuccessful
-outcomes; `Wait` requires success. Queue payload accounting reserves dependency
-wake storage, and rejected/retired groups cancel their unused wake tasks.
+overwritten, never an inferred success. `Wait` blocks and returns the final batch
+state, including Canceled or Expired. GetState/IsComplete are nonblocking queries;
+there is no TryWait wrapper. Required-success owners such as render fences check
+the returned state before releasing their completion receipt. Queue payload
+accounting reserves dependency wake storage; retired groups release subscriptions.
 
 Fixed Renderer resources, static-mesh shader and pipeline identities, editor
 assistance, shared fullscreen geometry, and Texture Editor previews use
@@ -314,8 +329,8 @@ allocation retry exists.
 `FRenderResourceCreateError` owns an optional Shader cause plus resource context,
 identity, category and reason. Native error details remain at the backend logging
 boundary. Accepted async compilation may publish Failed with no pipeline, while
-allocation/device faults terminate. Request scopes preserve this distinction
-from pre-admission rejection. `FormatRenderResourceCreateError`
+allocation/device faults terminate. Preparation scopes distinguish an empty
+acquisition result from an acquired identity whose compilation failed. `FormatRenderResourceCreateError`
 formats owner diagnostics when they are reported. Material validation formats its
 own typed error at its logging boundary.
 
@@ -444,7 +459,7 @@ producers can share one normalized key while replay progresses, but background
 execution does not promise lower native driver latency or eliminate first use
 waits. Compare median and p95 using identical input bytes, cache policy, host
 configuration, and process lifecycle order. Process private peaks include driver
-and allocator retention across device lifetimes; the bounded RHI metadata budget
+and allocator retention across device lifetimes; RHI metadata accounting
 does not bound them. Preserve absolute timing differences and measurement
 uncertainty instead of treating microsecond percentage drift as a functional gate.
 

@@ -65,7 +65,7 @@ namespace Durin
         FSamplerRHIRef Sampler;
         FTextureRHIRef Lut;
         FRenderResourceGeneration Generation;
-        FRenderPipelineRequests Requests;
+        FRenderPipelineStateSet Requests;
     };
     FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator, FRendererResourceRetirementQueue& InRetirement)
         : Retirement(InRetirement), State(std::make_unique<FState>()), Coordinator(InCoordinator) {}
@@ -124,7 +124,7 @@ namespace Durin
         if (State->Generation != Generation) { State=std::make_unique<FState>(); State->Generation=Generation; }
         if (State->Pipeline && State->Sampler) return ERenderResourceAvailability::Ready;
         if (!GDynamicRHI) return ERenderResourceAvailability::Failed;
-        FRenderPipelineRequestScope Requests(State->Requests, Generation);
+        FRenderPipelinePreparationScope Requests(State->Requests, Generation);
         const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
         const auto Completion=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
         State->ShaderSet=Completion.Value.value_or(FGlobalShaderSetRef{});
@@ -137,7 +137,7 @@ namespace Durin
         FComputePipelineStateInitializer Initializer;
         Initializer.ComputeShader=Shader;
         Initializer.PipelineLayout=State->ShaderSet.GetPipelineLayout();
-        State->Pipeline=FRenderPipelineRequestScope::Compute("SkyLightingCompute",Initializer);
+        State->Pipeline=FRenderPipelinePreparationScope::Compute("SkyLightingCompute",Initializer);
         if (!State->Pipeline)
             return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
         State->Sampler=RHICreateSampler(FRHISamplerDesc::LinearClamp());

@@ -41,7 +41,7 @@ Debug names and regions are diagnostic metadata. They never participate in
 resource, view, descriptor, render-pass, framebuffer, pipeline, or cache
 identity. Public descriptor names propagate to their native resource family;
 internal objects use deterministic `Durin.<role>[.<stable-index>]` names without
-addresses, frame numbers, CPU serials, or completion tokens. Names are bounded
+addresses, frame numbers, CPU serials, or completion tokens. Native names are bounded
 to 255 UTF-8 bytes at a code-point boundary. Unavailable debug utils is a
 counted no-op.
 
@@ -54,21 +54,28 @@ recreated. Explicit view factories remain uncached for callers that request
 distinct logical view objects.
 
 `FRHICommandListBase::BeginDiagnosticRegion` and `EndDiagnosticRegion` record
-owned names and replay identically inline or on the RHI thread. Regions nest to
-64 levels. Empty/oversized names, underflow, overflow, an unclosed list, or a
-region crossing a render-pass boundary is invalid command admission and
-increments the saturating invalid-region observation. Render-pass and internal
-transfer labels nest inside public regions; every successful begin owns one
-matching end. Metal currently provides no native region labels: validated region
-commands replay as no-ops, preserving executable command semantics without
-requiring optional diagnostic support.
+owned names and replay identically inline or on the RHI thread. Names and nesting
+depth do not gate admission. Empty names use `Unnamed`; Vulkan bounds native names
+to 255 UTF-8 bytes at a code-point boundary. An unmatched end increments the
+saturating invalid-region observation and records no command, including in Shipping.
+Finishing a regular or render-pass subcommand list with open regions records one
+invalid-region observation and appends the matching ends before sealing. Thus a
+child cannot close or leak regions into its parent. Immediate-list regions may
+remain open across dispatch, regular-list insertion, and GPU submissions on the
+same physical queue; names remain owned by the backend logical stack after replay.
 
-Public command-list flush admission requires closed diagnostic and timing
-regions. Internal Vulkan submissions during replay may split a native command
-buffer: the context closes its native diagnostic labels before sealing and
-reopens their owned names in nesting order on the next command buffer. Logical
-region scope remains open until the recorded end; native label statistics count
-the actual close/reopen operations.
+Regions may cross render-pass boundaries. Vulkan emits render-pass names as point
+markers, independently of public region nesting. Internal transfer labels remain
+nested pairs. Metal currently provides no native region labels: region commands
+replay as no-ops without requiring optional diagnostic support.
+
+Vulkan closes native region labels before sealing a command buffer and reopens
+the owned logical names in nesting order when the next command buffer begins.
+Native begin/end statistics count those close/reopen operations; point markers
+have separate insertion accounting. Missing debug utils remains a counted no-op.
+Open regions still forbid changing physical queues. GPU timing intervals retain
+their existing pairing, dispatch, submission, and physical-queue restrictions;
+relaxing label metadata does not relax query lifetime or synchronization.
 
 ## GPU Timing
 

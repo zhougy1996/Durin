@@ -48,14 +48,14 @@ namespace Durin
 
 	TEST_F(FRHIPipelineCreationTests, SharedCompletionPublishesOneReadyOrFailedOutcome)
 	{
-		for (const auto Expected : {ERHIPipelineRequestState::Ready, ERHIPipelineRequestState::Failed})
+		for (const auto Expected : {ERHIPipelineState::Ready, ERHIPipelineState::Failed})
 		{
 			SCOPED_TRACE(static_cast<int>(Expected));
 			std::promise<void> Release;
 			auto Released = Release.get_future().share();
 			FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
 				Released.wait();
-				return Expected == ERHIPipelineRequestState::Ready ? MakeRefCount<FRHIComputePipelineState>() : nullptr;
+				return Expected == ERHIPipelineState::Ready ? MakeRefCount<FRHIComputePipelineState>() : nullptr;
 			}));
 			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 			FComputePipelineStateInitializer Initializer;
@@ -63,16 +63,16 @@ namespace Durin
 			auto Request = Owner.RequestCompute(Initializer, "shared outcome");
 			auto Peer = Owner.RequestCompute(Initializer, "same compilation");
 			EXPECT_EQ(Request, Peer);
-			EXPECT_EQ(Request.GetTaskHandle().GetTaskId(), Peer.GetTaskHandle().GetTaskId());
+			EXPECT_EQ(FRHIPipelineStateCacheBackend::GetCompletionTask(Request).GetTaskId(), FRHIPipelineStateCacheBackend::GetCompletionTask(Peer).GetTaskId());
 			EXPECT_EQ(Request.GetStateObservation(), Peer.GetStateObservation());
-			std::promise<FRHIPipelineCreationResult> Publication;
+			std::promise<FComputePipelineStateRHIRef> Publication;
 			auto Published = Publication.get_future();
-			auto Subscription = Tasks::SubscribeTask(Peer.GetTaskHandle(), [&](ETaskState) {
-				EXPECT_TRUE(Peer.GetTaskHandle().IsCompleted());
+			auto Subscription = Tasks::SubscribeTask(FRHIPipelineStateCacheBackend::GetCompletionTask(Peer), [&](ETaskState) {
+				EXPECT_TRUE(FRHIPipelineStateCacheBackend::GetCompletionTask(Peer).IsCompleted());
 				EXPECT_EQ(Peer.GetState(), Expected);
 				// Notification is outside the queue lock and may reenter acquisition.
 				EXPECT_EQ(Owner.RequestCompute(Initializer, "completion lookup"), Peer);
-				Publication.set_value(Peer.GetResult());
+				Publication.set_value(FRHIPipelineStateCacheBackend::GetComputePipeline(Peer));
 			});
 			Release.set_value();
 			const auto Ready = Published.wait_for(std::chrono::seconds(5));
@@ -80,11 +80,11 @@ namespace Durin
 			if (Ready == std::future_status::ready)
 			{
 				const auto Result = Published.get();
-				EXPECT_EQ(Result.State, Expected);
-				EXPECT_EQ(Result.Compute != nullptr, Expected == ERHIPipelineRequestState::Ready);
+				EXPECT_EQ(Peer.GetState(), Expected);
+				EXPECT_EQ(Result != nullptr, Expected == ERHIPipelineState::Ready);
 			}
 			Owner.StopAndWait();
-			EXPECT_EQ(ETaskState::Succeeded, Request.GetTaskHandle().GetState());
+			EXPECT_EQ(ETaskState::Succeeded, FRHIPipelineStateCacheBackend::GetCompletionTask(Request).GetState());
 		}
 	}
 
@@ -101,13 +101,13 @@ namespace Durin
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
 		auto Request = Owner.RequestCompute(Initializer, "dropped observer");
-		ASSERT_TRUE(Request.IsAccepted());
+		ASSERT_TRUE(Request.IsValid());
 		Entered.get_future().wait();
-		auto Signal = Request.GetTaskHandle();
+		auto Signal = FRHIPipelineStateCacheBackend::GetCompletionTask(Request);
 		Request = {};
 		EXPECT_FALSE(Signal.IsCompleted());
 		auto Replacement = Owner.RequestCompute(Initializer, "reattach to shared compilation");
-		EXPECT_EQ(Replacement.GetTaskHandle().GetTaskId(), Signal.GetTaskId());
+		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetCompletionTask(Replacement).GetTaskId(), Signal.GetTaskId());
 		Replacement = {};
 		EXPECT_FALSE(Retired.load());
 		Release.set_value(); Owner.StopAndWait();
@@ -127,8 +127,8 @@ namespace Durin
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		const auto Request = Owner.RequestCompute(Initializer, "stale queue");
-		EXPECT_FALSE(Request.IsAccepted());
-		EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_FALSE(Request);
+		EXPECT_FALSE(Request);
 	}
 	TEST_F(FRHIPipelineCreationTests, PriorityBoostReordersQueuedSharedWorkWithoutPreemptingActiveCompile)
 	{
@@ -157,10 +157,10 @@ namespace Durin
 		Peer.BoostPriority(EPSOPrecachePriority::Low);
 		Second.BoostPriority(EPSOPrecachePriority::Highest);
 		EXPECT_EQ(First.GetPriority(), EPSOPrecachePriority::Highest);
-		EXPECT_EQ(First.GetTaskHandle().GetTaskId(), Peer.GetTaskHandle().GetTaskId());
+		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetCompletionTask(First).GetTaskId(), FRHIPipelineStateCacheBackend::GetCompletionTask(Peer).GetTaskId());
 		Peer = {};
 		Release.set_value();
-		EXPECT_TRUE(Active.Wait()); EXPECT_TRUE(First.Wait()); EXPECT_TRUE(Second.Wait()); EXPECT_TRUE(Medium.Wait());
+		EXPECT_EQ(Active.Wait(), ERHIPipelineState::Ready); EXPECT_EQ(First.Wait(), ERHIPipelineState::Ready); EXPECT_EQ(Second.Wait(), ERHIPipelineState::Ready); EXPECT_EQ(Medium.Wait(), ERHIPipelineState::Ready);
 		Queue.StopAndWait();
 		EXPECT_EQ(Order, (std::vector<std::string>{"active", "first urgent", "second urgent", "medium"}));
 		EXPECT_EQ(Queue.GetStatistics().NativeRequests, 4u);
@@ -190,16 +190,16 @@ namespace Durin
 		EXPECT_TRUE(Second);
 		if (First && Second)
 		{
-			EXPECT_EQ(*First, *Second);
-			EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Pending);
-			EXPECT_EQ((*First)->GetPipelineLayout()->PushConstantRanges.size(), 1u);
-			EXPECT_FALSE((*First)->GetRHIPipeline());
+			EXPECT_EQ(First, Second);
+			EXPECT_EQ(First->GetState(), ERHIPipelineState::Pending);
+			EXPECT_EQ(First->GetPipelineLayout()->PushConstantRanges.size(), 1u);
+			EXPECT_FALSE(First->GetRHIPipeline());
 			EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 1u);
-			First = std::unexpected(ERHIPipelineRequestRejection::Unsupported);
-			EXPECT_EQ((*Second)->GetState(), ERHIPipelineRequestState::Pending);
+			First = {};
+			EXPECT_EQ(Second->GetState(), ERHIPipelineState::Pending);
 		}
 		Release.set_value();
-		if (Second) EXPECT_TRUE((*Second)->Wait());
+		if (Second) EXPECT_EQ(Second->Wait(), ERHIPipelineState::Ready);
 		EXPECT_EQ(Calls, 1u);
 	}
 
@@ -217,61 +217,41 @@ namespace Durin
 		auto& Cache = Owner;
 		auto Failed = Cache.GetCompute(Initializer, "failure");
 		ASSERT_TRUE(Failed);
-		EXPECT_TRUE((*Failed)->Wait());
-		EXPECT_TRUE((*Failed)->GetResult().Compute);
+		EXPECT_EQ(Failed->Wait(), ERHIPipelineState::Ready);
+		EXPECT_TRUE(Failed->GetRHIPipeline());
 		auto Retried = Cache.GetCompute(Initializer, "retry");
 		ASSERT_TRUE(Retried);
-		EXPECT_EQ(*Failed, *Retried);
-		EXPECT_TRUE((*Retried)->Wait());
-		EXPECT_TRUE((*Retried)->GetRHIPipeline());
+		EXPECT_EQ(Failed, Retried);
+		EXPECT_EQ(Retried->Wait(), ERHIPipelineState::Ready);
+		EXPECT_TRUE(Retried->GetRHIPipeline());
 		EXPECT_EQ(Calls, 1u);
+		const auto Outcome = Retried->GetStateObservation();
 		Owner.StopAndWait();
 		Owner.StopAndWait();
-		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Ready);
-		EXPECT_EQ(Cache.GetCompute(Initializer, "closed").error(), ERHIPipelineRequestRejection::Closed);
+		EXPECT_EQ(Retried->GetState(), ERHIPipelineState::Ready);
+		EXPECT_FALSE(Cache.GetCompute(Initializer, "closed"));
 		Owner.ReleaseResources();
 		Owner.ReleaseResources();
-		EXPECT_EQ((*Retried)->GetState(), ERHIPipelineRequestState::Canceled);
-		EXPECT_FALSE((*Retried)->GetRHIPipeline());
-		EXPECT_TRUE((*Retried)->IsComplete());
+		EXPECT_EQ(Retried->GetState(), ERHIPipelineState::Canceled);
+		EXPECT_EQ(Retried->Wait(), ERHIPipelineState::Canceled);
+		EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Canceled);
+		EXPECT_FALSE(Retried->GetRHIPipeline());
+		EXPECT_EQ(Retried->GetState(), ERHIPipelineState::Canceled);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, CacheReclaimsExpiredKeysUnderMetadataPressureBeforeEntryCapacity)
+	TEST_F(FRHIPipelineCreationTests, MetadataAccountingDoesNotLimitAdmissionAndOutlivesTracker)
 	{
-		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-		FComputePipelineStateInitializer Initializer;
-		Initializer.ComputeShader = Shader;
-		Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
-		std::atomic<uint64> CacheEntryBytes = 0;
-		std::atomic<uint32> CacheLeases = 0;
-		auto Callbacks = Backend([](const auto&, const auto&) { return MakeRefCount<FRHIComputePipelineState>(); });
-		Callbacks.ReserveMetadata = [&](uint64 Bytes) -> std::shared_ptr<void> {
-			uint64 Expected = 0;
-			CacheEntryBytes.compare_exchange_strong(Expected, Bytes);
-			if (Bytes != CacheEntryBytes.load()) return {};
-			if (CacheLeases.fetch_add(1) != 0)
-			{
-				CacheLeases.fetch_sub(1);
-				throw FRHIResourceCapacityError("pipeline metadata budget exhausted");
-			}
-			return {nullptr, [&](void*) { CacheLeases.fetch_sub(1); }};
-		};
-		FRHIPipelineStateCache Owner(Capabilities(), std::move(Callbacks));
-		auto& Cache = Owner;
+		std::shared_ptr<void> Lease;
 		{
-			auto First = Cache.GetCompute(Initializer, "first");
-			ASSERT_TRUE(First);
-			EXPECT_TRUE((*First)->Wait());
+			FRHIPipelineMetadataTracker Metadata;
+			Lease = Metadata.Reserve(128ull * 1024 * 1024);
+			EXPECT_EQ(Metadata.GetUsedBytes(), 128ull * 1024 * 1024);
+			auto Second = Metadata.Reserve(1);
+			EXPECT_EQ(Metadata.GetUsedBytes(), 128ull * 1024 * 1024 + 1);
+			Second.reset();
+			EXPECT_EQ(Metadata.GetUsedBytes(), 128ull * 1024 * 1024);
 		}
-		EXPECT_EQ(CacheLeases, 1u);
-		Initializer.PipelineLayout.PushConstantRanges[0].Offset = 4;
-		auto Second = Cache.GetCompute(Initializer, "second");
-		ASSERT_TRUE(Second);
-		EXPECT_TRUE((*Second)->Wait());
-		EXPECT_EQ(CacheLeases, 1u);
-		Owner.ReleaseResources();
-		Second = std::unexpected(ERHIPipelineRequestRejection::Closed);
-		EXPECT_EQ(CacheLeases, 0u);
+		Lease.reset();
 	}
 
 	TEST_F(FRHIPipelineCreationTests, ColdWorkerAdmissionStaysOnCallerAndDoesNotNestCompilation)
@@ -296,9 +276,8 @@ namespace Durin
 			auto Result = Owner.GetCompute(Initializer, "cold PSO");
 			if (Result)
 			{
-				EXPECT_EQ((*Result)->GetState(), ERHIPipelineRequestState::Pending);
-				EXPECT_FALSE((*Result)->CanWait());
-				EXPECT_FALSE((*Result)->Wait());
+				EXPECT_EQ(Result->GetState(), ERHIPipelineState::Pending);
+				EXPECT_EQ(Result->Wait(), ERHIPipelineState::Pending);
 			}
 			return Result;
 		});
@@ -312,7 +291,7 @@ namespace Durin
 		ASSERT_TRUE(Parent.Wait(5));
 		const auto& Result = Parent.GetResult();
 		ASSERT_TRUE(Result);
-		EXPECT_TRUE((*Result)->Wait());
+		EXPECT_EQ(Result->Wait(), ERHIPipelineState::Ready);
 	}
 
 	TEST_F(FRHIPipelineCreationTests, QueueAdmitsOrdinaryTasksButRejectsIndependentCpuWork)
@@ -330,13 +309,13 @@ namespace Durin
 			});
 			ASSERT_TRUE(Task.Wait(5));
 			const auto& Request = Task.GetResult();
-			ASSERT_TRUE(Request.IsAccepted());
-			EXPECT_TRUE(Request.Wait());
+			ASSERT_TRUE(Request.IsValid());
+			EXPECT_EQ(Request.Wait(), ERHIPipelineState::Ready);
 		}
 		auto Independent = Tasks::LaunchIndependentTask("direct queue CPU rejection", [&] {
-			return Owner.RequestCompute(Initializer, "independent PSO").GetRejection();
+			return Owner.RequestCompute(Initializer, "independent PSO");
 		});
-		EXPECT_EQ(Independent.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_FALSE(Independent.GetResult());
 	}
 
 	TEST_F(FRHIPipelineCreationTests, ConcurrentWorkerAdmissionsShareCompilationAndCacheClose)
@@ -354,7 +333,7 @@ namespace Durin
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
-		using TResult = std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
+		using TResult = FComputePipelineStateRef;
 		std::vector<Tasks::TTask<TResult>> Admissions;
 		for (uint32 Index = 0; Index < 8; ++Index)
 			Admissions.push_back(Tasks::LaunchTask("concurrent PSO admission", [&] { return Owner.GetCompute(Initializer, "shared PSO"); }));
@@ -363,21 +342,21 @@ namespace Durin
 		{
 			const bool Completed = Task.Wait(5);
 			EXPECT_TRUE(Completed);
-			if (Completed && Task.GetResult()) Pipelines.push_back(*Task.GetResult());
+			if (Completed && Task.GetResult()) Pipelines.push_back(Task.GetResult());
 		}
 		Release.set_value();
 		ASSERT_EQ(Pipelines.size(), Admissions.size());
 		for (const auto& Pipeline : Pipelines)
 		{
 			EXPECT_EQ(Pipeline, Pipelines.front());
-			EXPECT_TRUE(Pipeline->Wait());
+			EXPECT_EQ(Pipeline->Wait(), ERHIPipelineState::Ready);
 		}
 		EXPECT_EQ(Calls.load(), 1u);
 		auto ConcurrentStop = std::async(std::launch::async, [&] { Owner.StopAndWait(); });
 		Owner.StopAndWait();
 		ConcurrentStop.get();
-		EXPECT_EQ(Owner.GetCompute(Initializer, "closed").error(), ERHIPipelineRequestRejection::Closed);
-		EXPECT_EQ(Pipelines.front()->GetState(), ERHIPipelineRequestState::Ready);
+		EXPECT_FALSE(Owner.GetCompute(Initializer, "closed"));
+		EXPECT_EQ(Pipelines.front()->GetState(), ERHIPipelineState::Ready);
 		Owner.ReleaseResources();
 		EXPECT_FALSE(Pipelines.front()->GetRHIPipeline());
 	}
@@ -390,23 +369,22 @@ namespace Durin
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
 		FComputePipelineStateInitializer Initializer;
-		EXPECT_EQ(Owner.GetCompute(Initializer, "invalid").error(), ERHIPipelineRequestRejection::InvalidDescription);
+		EXPECT_FALSE(Owner.GetCompute(Initializer, "invalid"));
 		FGraphicsPipelineStateInitializer GraphicsInitializer;
-		EXPECT_EQ(Owner.GetGraphics(GraphicsInitializer, "invalid graphics").error(),
-			ERHIPipelineRequestRejection::InvalidDescription);
+		EXPECT_FALSE(Owner.GetGraphics(GraphicsInitializer, "invalid graphics"));
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		Initializer.ComputeShader = Shader;
 		auto Task = Tasks::LaunchIndependentTask("cache leaf rejection", [&] {
-			return Owner.GetCompute(Initializer, "cpu leaf").error();
+			return Owner.GetCompute(Initializer, "cpu leaf");
 		});
-		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_FALSE(Task.GetResult());
 		auto Parent = Tasks::LaunchIndependentTask("cache inherited CPU rejection", [&] {
 			auto Child = Tasks::LaunchTask("cache inherited CPU child", [&] {
-				return Owner.GetCompute(Initializer, "cpu child").error();
+				return Owner.GetCompute(Initializer, "cpu child");
 			});
 			return Child.GetResult();
 		});
-		EXPECT_EQ(Parent.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_FALSE(Parent.GetResult());
 		EXPECT_EQ(Calls, 0u);
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
 	}
@@ -424,16 +402,18 @@ namespace Durin
 		Initializer.ComputeShader = Shader;
 		auto Key = BuildComputePipelineStateKey(Initializer, &Caps);
 		ASSERT_TRUE(Key);
-		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
-			std::string(1024 * 1024, 'x'), *Key).error(), ERHIPipelineRequestRejection::CapacityExceeded);
+		auto LargeName = FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
+			std::string(1024 * 1024, 'x'), *Key);
+		ASSERT_TRUE(LargeName);
+		EXPECT_EQ(LargeName->Wait(), ERHIPipelineState::Ready);
 		auto Task = Tasks::LaunchIndependentTask("validated cache leaf rejection", [&] {
-			return FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer, "cpu leaf", *Key).error();
+			return FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer, "cpu leaf", *Key);
 		});
-		EXPECT_EQ(Task.GetResult(), ERHIPipelineRequestRejection::Unsupported);
+		EXPECT_FALSE(Task.GetResult());
 		Owner.StopAndWait();
-		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
-			"closed", *Key).error(), ERHIPipelineRequestRejection::Closed);
-		EXPECT_EQ(Calls, 0u);
+		EXPECT_FALSE(FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
+			"closed", *Key));
+		EXPECT_EQ(Calls, 1u);
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
 	}
 
@@ -469,20 +449,20 @@ namespace Durin
 		Shader = nullptr;
 		Name.assign("modified");
 		EXPECT_EQ(First, Second);
-		EXPECT_EQ(First.GetTaskHandle().GetTaskId(), Second.GetTaskHandle().GetTaskId());
+		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetCompletionTask(First).GetTaskId(), FRHIPipelineStateCacheBackend::GetCompletionTask(Second).GetTaskId());
 		First = {};
-		EXPECT_EQ(Second.GetState(), ERHIPipelineRequestState::Pending);
+		EXPECT_EQ(Second.GetState(), ERHIPipelineState::Pending);
 		Release.set_value();
-		EXPECT_TRUE(Second.Wait());
-		EXPECT_TRUE(Second.GetResult().Compute);
+		EXPECT_EQ(Second.Wait(), ERHIPipelineState::Ready);
+		EXPECT_TRUE(FRHIPipelineStateCacheBackend::GetComputePipeline(Second));
 		EXPECT_EQ(Calls, 1u);
 		EXPECT_EQ(Owner.GetStatistics().SharedPendingHits, 1u);
 		Owner.ReleaseResources();
-		EXPECT_EQ(Second.GetState(), ERHIPipelineRequestState::Canceled);
-		EXPECT_FALSE(Second.GetResult().Compute);
+		EXPECT_EQ(Second.GetState(), ERHIPipelineState::Canceled);
+		EXPECT_FALSE(FRHIPipelineStateCacheBackend::GetComputePipeline(Second));
 	}
 
-	TEST_F(FRHIPipelineCreationTests, UniqueWorkSaturationDoesNotLimitSharedHandles)
+	TEST_F(FRHIPipelineCreationTests, LargePendingQueueSharesHandlesAndSerializesNativeCompilation)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
@@ -497,34 +477,32 @@ namespace Durin
 			if (++Calls == 1) { Entered.set_value(); Released.wait(); }
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
-		std::vector<FRHIPipelineCreationRequest> Requests;
+		std::vector<FPipelineCompilation> Requests;
 		Requests.push_back(Owner.RequestCompute(Initializer, "first"));
 		EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
-		for (uint32 Index = 1; Index < 256; ++Index)
+		for (uint32 Index = 1; Index < 512; ++Index)
 		{
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
 			Requests.push_back(Owner.RequestCompute(Initializer, "queued"));
-			EXPECT_TRUE(Requests.back().IsAccepted());
+			EXPECT_TRUE(Requests.back().IsValid());
 		}
-		Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 256;
-		EXPECT_EQ(Owner.RequestCompute(Initializer, "overflow").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
 		Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 0;
 		const auto PendingBytes = Owner.GetStatistics().UnfinishedDescriptionBytes;
 		while (Requests.size() < 5000) Requests.push_back(Owner.RequestCompute(Initializer, "shared"));
-		EXPECT_TRUE(Requests.back().IsAccepted());
+		EXPECT_TRUE(Requests.back().IsValid());
 		EXPECT_EQ(Requests.back(), Requests.front());
-		EXPECT_EQ(Requests.back().GetTaskHandle().GetTaskId(), Requests.front().GetTaskHandle().GetTaskId());
-		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 256u);
+		EXPECT_EQ(FRHIPipelineStateCacheBackend::GetCompletionTask(Requests.back()).GetTaskId(), FRHIPipelineStateCacheBackend::GetCompletionTask(Requests.front()).GetTaskId());
+		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 512u);
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, PendingBytes);
 		Release.set_value();
-		for (auto& Request : Requests) EXPECT_TRUE(Request.Wait());
-		EXPECT_EQ(Calls, 256u);
+		for (auto& Request : Requests) EXPECT_EQ(Request.Wait(), ERHIPipelineState::Ready);
+		EXPECT_EQ(Calls, 512u);
 		Owner.ReleaseResources();
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
 
-	TEST_F(FRHIPipelineCreationTests, SharedDescriptionCapacityRejectsAndRecoversAfterRelease)
+	TEST_F(FRHIPipelineCreationTests, LiveKeysAndCacheIdentitiesExceedFormerCapacity)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
@@ -533,41 +511,31 @@ namespace Durin
 			EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
 		auto Caps = Capabilities();
 		std::vector<FComputePipelineStateKey> Keys;
-		bool Rejected = false;
-		for (uint32 Index = 0; Index <= 4096; ++Index)
+		std::vector<FComputePipelineStateRef> Pipelines;
+		FRHIPipelineStateCache Cache(Caps, Backend([](const auto&, const auto&) { return MakeRefCount<FRHIComputePipelineState>(); }));
+		for (uint32 Index = 0; Index < 4100; ++Index)
 		{
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
 			auto Key = BuildComputePipelineStateKey(Initializer, &Caps);
-			if (!Key)
-			{
-				EXPECT_EQ(Key.error(), ERHIComputePipelineError::CapacityExceeded);
-				Rejected = true;
-				break;
-			}
-			Keys.push_back(std::move(*Key));
+			ASSERT_TRUE(Key);
+			Keys.push_back(*Key);
+			auto Cached = Cache.GetCompute(Initializer, "live identity");
+			ASSERT_TRUE(Cached);
+			Pipelines.push_back(Cached);
 		}
-		ASSERT_TRUE(Rejected);
-		ASSERT_FALSE(Keys.empty());
-		auto Create = [](const auto&, const auto&) { return MakeRefCount<FRHIComputePipelineState>(); };
-		FPipelineCompileQueue Queue(Caps, Backend(Create));
-		FRHIPipelineStateCache Cache(Caps, Backend(Create));
-		EXPECT_EQ(Queue.RequestCompute(Initializer, "full").GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
-		EXPECT_EQ(Cache.GetCompute(Initializer, "full").error(), ERHIPipelineRequestRejection::CapacityExceeded);
-		Keys.clear();
-		auto Request = Queue.RequestCompute(Initializer, "retry");
-		ASSERT_TRUE(Request.IsAccepted());
-		EXPECT_TRUE(Request.Wait());
-		auto Cached = Cache.GetCompute(Initializer, "retry");
-		ASSERT_TRUE(Cached);
-		EXPECT_TRUE((*Cached)->Wait());
+		EXPECT_EQ(Keys.size(), 4100u);
+		for (const auto& Pipeline : Pipelines) EXPECT_EQ(Pipeline->Wait(), ERHIPipelineState::Ready);
+		auto Again = Cache.GetCompute(Initializer, "shared");
+		ASSERT_TRUE(Again);
+		EXPECT_EQ(Again, Pipelines.back());
 	}
 
-	TEST_F(FRHIPipelineCreationTests, CompiledInputsReleaseBudgetWhileSharedHandlesRetainLayout)
+	TEST_F(FRHIPipelineCreationTests, CompiledInputsReleaseAccountingWhileSharedHandlesRetainLayout)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
-		FRHIPipelineMetadataBudget Budget;
+		FRHIPipelineMetadataTracker Budget;
 		std::promise<void> Release;
 		auto Released = Release.get_future().share();
 		auto Callbacks = Backend([&](const auto&, const auto&) {
@@ -577,12 +545,12 @@ namespace Durin
 		Callbacks.ReserveMetadata = [&](uint64 Bytes) { return Budget.Reserve(Bytes); };
 		FPipelineCompileQueue Owner(Capabilities(), std::move(Callbacks));
 		auto Request = Owner.RequestCompute(Initializer, std::string(64 * 1024, 'x'));
-		ASSERT_TRUE(Request.IsAccepted());
+		ASSERT_TRUE(Request.IsValid());
 		EXPECT_GT(Budget.GetUsedBytes(), 64 * 1024u);
 		auto Layout = Request.GetPipelineLayout();
 		ASSERT_TRUE(Layout);
 		Release.set_value();
-		EXPECT_TRUE(Request.Wait());
+		EXPECT_EQ(Request.Wait(), ERHIPipelineState::Ready);
 		Owner.StopAndWait();
 		EXPECT_LT(Budget.GetUsedBytes(), 1024u);
 		EXPECT_GT(Budget.GetUsedBytes(), 0u);
@@ -591,7 +559,7 @@ namespace Durin
 		EXPECT_TRUE(Layout->BindingLayouts.empty());
 	}
 
-	TEST_F(FRHIPipelineCreationTests, UnfinishedPayloadBudgetRejectsBeforeRequestCountLimit)
+	TEST_F(FRHIPipelineCreationTests, LargePendingPayloadsRemainAccepted)
 	{
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
@@ -604,24 +572,19 @@ namespace Durin
 			Released.wait();
 			return MakeRefCount<FRHIComputePipelineState>();
 		}));
-		std::vector<FRHIPipelineCreationRequest> Requests;
+		std::vector<FPipelineCompilation> Requests;
 		const std::string Name(900 * 1024, 'x');
 		for (uint32 Index = 0; Index < 32; ++Index)
 		{
 			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
 			auto Request = Owner.RequestCompute(Initializer, Name);
-			if (!Request.IsAccepted())
-			{
-				EXPECT_EQ(Request.GetRejection(), ERHIPipelineRequestRejection::CapacityExceeded);
-				break;
-			}
+			EXPECT_TRUE(Request.IsValid());
 			Requests.push_back(Request);
 		}
-		EXPECT_GT(Requests.size(), 0u);
-		EXPECT_LT(Requests.size(), 32u);
-		EXPECT_LE(Owner.GetStatistics().UnfinishedDescriptionBytes, 16ull * 1024 * 1024);
+		EXPECT_EQ(Requests.size(), 32u);
+		EXPECT_GT(Owner.GetStatistics().UnfinishedDescriptionBytes, 16ull * 1024 * 1024);
 		Release.set_value();
-		for (const auto& Request : Requests) EXPECT_TRUE(Request.Wait());
+		for (const auto& Request : Requests) EXPECT_EQ(Request.Wait(), ERHIPipelineState::Ready);
 		Owner.ReleaseResources();
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedDescriptionBytes, 0u);
 	}
@@ -646,14 +609,13 @@ namespace Durin
 		Items[2].Initializer.ComputeShader = nullptr;
 		auto Batch = Owner.RequestComputeBatch(Items);
 		ASSERT_EQ(Batch.Items.size(), 3u);
-		EXPECT_TRUE(Batch.Items[0].Wait());
-		EXPECT_TRUE(Batch.Items[1].Wait());
-		EXPECT_EQ(Batch.Items[2].GetRejection(), ERHIPipelineRequestRejection::InvalidDescription);
-		EXPECT_TRUE(Owner.RequestCompute(Items[1].Initializer, "retry").Wait());
+		EXPECT_EQ(Batch.Items[0].Wait(), ERHIPipelineState::Ready);
+		EXPECT_EQ(Batch.Items[1].Wait(), ERHIPipelineState::Ready);
+		EXPECT_FALSE(Batch.Items[2]);
+		EXPECT_EQ(Owner.RequestCompute(Items[1].Initializer, "retry").Wait(), ERHIPipelineState::Ready);
 		Items.resize(257);
-		EXPECT_EQ(Owner.RequestComputeBatch(Items).Rejection, ERHIPipelineRequestRejection::CapacityExceeded);
-		EXPECT_EQ(Owner.RequestCompute(Items[0].Initializer, std::string(1024 * 1024, 'x')).GetRejection(),
-			ERHIPipelineRequestRejection::CapacityExceeded);
+		EXPECT_EQ(Owner.RequestComputeBatch(Items).Items.size(), 257u);
+		EXPECT_EQ(Owner.RequestCompute(Items[0].Initializer, std::string(1024 * 1024, 'x')).Wait(), ERHIPipelineState::Ready);
 	}
 
 	TEST_F(FRHIPipelineCreationTests, AcceptedCompilationFailureIsSharedWithoutAutomaticRetry)
@@ -668,16 +630,16 @@ namespace Durin
 									 }));
 		auto First = Owner.GetCompute(Initializer, "compile failure");
 		ASSERT_TRUE(First);
-		EXPECT_FALSE((*First)->Wait());
-		EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Failed);
-		EXPECT_FALSE((*First)->GetRHIPipeline());
+		EXPECT_EQ(First->Wait(), ERHIPipelineState::Failed);
+		EXPECT_EQ(First->GetState(), ERHIPipelineState::Failed);
+		EXPECT_FALSE(First->GetRHIPipeline());
 		auto Again = Owner.GetCompute(Initializer, "same failed compilation");
 		ASSERT_TRUE(Again);
-		EXPECT_EQ(*First, *Again);
-		EXPECT_FALSE((*Again)->Wait());
+		EXPECT_EQ(First, Again);
+		EXPECT_EQ(Again->Wait(), ERHIPipelineState::Failed);
 		EXPECT_EQ(Calls, 1u);
 		Owner.ReleaseResources();
-		EXPECT_EQ((*First)->GetState(), ERHIPipelineRequestState::Canceled);
+		EXPECT_EQ(First->GetState(), ERHIPipelineState::Canceled);
 	}
 
 	TEST_F(FRHIPipelineCreationTests, UnexpectedExceptionsRemainTerminalFromBackgroundCreator)
@@ -707,7 +669,7 @@ namespace Durin
 		auto EnteredFuture = Entered.get_future();
 		auto Released = Release.get_future().share();
 		std::atomic<bool> Exited = false;
-		FRHIPipelineCreationRequest Request;
+		FPipelineCompilation Request;
 		{
 			FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) {
 				Entered.set_value();
@@ -721,22 +683,23 @@ namespace Durin
 			auto Queued = Owner.RequestCompute(Initializer, "never started");
 			auto ConcurrentStop = std::async(std::launch::async, [&] { Owner.StopAndWait(); });
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-			while ((!Owner.IsClosed() || !Queued.GetTaskHandle().IsCompleted())
+			while ((!Owner.IsClosed() || !FRHIPipelineStateCacheBackend::GetCompletionTask(Queued).IsCompleted())
 				&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
 			EXPECT_TRUE(Owner.IsClosed());
-			EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Pending);
-			EXPECT_FALSE(Request.GetTaskHandle().IsCompleted());
+			EXPECT_EQ(Request.GetState(), ERHIPipelineState::Pending);
+			EXPECT_FALSE(FRHIPipelineStateCacheBackend::GetCompletionTask(Request).IsCompleted());
 			EXPECT_FALSE(Exited.load());
 			// Queued work can settle immediately; the active compile must retire first.
-			EXPECT_EQ(Queued.GetState(), ERHIPipelineRequestState::Canceled);
+			EXPECT_EQ(Queued.GetState(), ERHIPipelineState::Canceled);
+			EXPECT_EQ(Queued.Wait(), ERHIPipelineState::Canceled);
 			Release.set_value();
 			Owner.ReleaseResources();
 			ConcurrentStop.get();
 			EXPECT_TRUE(Exited.load());
-			EXPECT_EQ(Owner.RequestCompute(Initializer, "closed").GetRejection(), ERHIPipelineRequestRejection::Closed);
+			EXPECT_FALSE(Owner.RequestCompute(Initializer, "closed"));
 		}
-		EXPECT_EQ(Request.GetState(), ERHIPipelineRequestState::Canceled);
-		EXPECT_TRUE(Request.GetTaskHandle().IsCompleted());
+		EXPECT_EQ(Request.GetState(), ERHIPipelineState::Canceled);
+		EXPECT_TRUE(FRHIPipelineStateCacheBackend::GetCompletionTask(Request).IsCompleted());
 	}
 }
 
@@ -766,7 +729,7 @@ namespace Durin
             explicit FObservedPipeline(std::atomic<uint32>& InDestroyed) : Destroyed(InDestroyed) {}
             ~FObservedPipeline() override { ++Destroyed; }
         };
-        std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome;
+        FRHIPipelineStateObservation Outcome;
         Tasks::FTask Completion;
         {
             FPipelineCompileQueue Owner(Capabilities(), Backend([&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
@@ -775,16 +738,16 @@ namespace Durin
             auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
             FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
             auto Request = Owner.RequestCompute(Initializer, "outcome lifetime");
-            ASSERT_TRUE(Request.IsAccepted()); Outcome = Request.GetStateObservation();
-            Completion = Request.GetTaskHandle();
-            ASSERT_TRUE(Request.Wait());
-            EXPECT_EQ(Outcome->load(), ERHIPipelineRequestState::Ready);
+            ASSERT_TRUE(Request.IsValid()); Outcome = Request.GetStateObservation();
+            Completion = FRHIPipelineStateCacheBackend::GetCompletionTask(Request);
+            ASSERT_EQ(Request.Wait(), ERHIPipelineState::Ready);
+            EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Ready);
             Request = {};
             Owner.ReleaseResources();
         }
         RHIFlushDeferredResources();
         EXPECT_EQ(Destroyed.load(), 1u);
         EXPECT_TRUE(Completion.IsCompleted());
-        EXPECT_EQ(Outcome->load(), ERHIPipelineRequestState::Ready);
+        EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Ready);
     }
 }

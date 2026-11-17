@@ -225,7 +225,7 @@ namespace Durin
 			}
 			if (Availability == ERenderResourceAvailability::Pending && PipelineRequests.CanDeferAttempt(Generation))
 			{
-				FRenderPipelineRequestScope::MarkResourcePending();
+				FRenderPipelinePreparationScope::MarkResourcePending();
 				return nullptr;
 			}
 
@@ -235,7 +235,7 @@ namespace Durin
 			PayloadGeneration = {};
 			Availability = ERenderResourceAvailability::Pending;
 			FPreparedShaderMapScope ShaderScope(true);
-			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation);
+			FRenderPipelinePreparationScope PipelineScope(PipelineRequests, Generation);
 			auto Result = std::forward<FactoryType>(Factory)();
 			bResolving = false;
 			if (Result.IsPending() || PipelineScope.HasPending())
@@ -390,7 +390,7 @@ namespace Durin
 		}
 
 		ERenderResourceGenerationDependency PayloadDependencies;
-		FRenderPipelineRequests PipelineRequests;
+		FRenderPipelineStateSet PipelineRequests;
 		std::shared_ptr<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Failure;
 		std::optional<size_t> FailureFingerprint;

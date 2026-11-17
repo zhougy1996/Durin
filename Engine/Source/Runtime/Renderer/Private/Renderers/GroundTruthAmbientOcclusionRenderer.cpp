@@ -278,7 +278,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.RawShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GroundTruthAmbientOcclusionRawPipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
 				{
@@ -295,11 +295,11 @@ namespace Durin
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
 				Initializer.BoundShaders.FragmentShader = SelectorRHI;
 				Candidate.SelectorPipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GroundTruthAmbientOcclusionSelectorPipeline", Initializer);
 				Initializer.BoundShaders.FragmentShader = HalfFragmentRHI;
 				Candidate.HalfPipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GroundTruthAmbientOcclusionHalfRawPipeline", Initializer);
 				if (Candidate.SelectorPipelineState == nullptr
 					|| Candidate.HalfPipelineState == nullptr)
@@ -320,7 +320,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.FilterShaderSet.GetPipelineLayout();
 				Candidate.FilterPipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GroundTruthAmbientOcclusionFilterPipeline", Initializer);
 				if (Candidate.FilterPipelineState == nullptr)
 				{
@@ -335,11 +335,11 @@ namespace Durin
 				}
 				Initializer.BoundShaders.FragmentShader = HalfFilterRHI;
 				Candidate.HalfFilterPipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GroundTruthAmbientOcclusionHalfFilterPipeline", Initializer);
 				Initializer.BoundShaders.FragmentShader = ResolveRHI;
 				Candidate.ResolvePipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GroundTruthAmbientOcclusionResolvePipeline", Initializer);
 				if (Candidate.HalfFilterPipelineState == nullptr
 					|| Candidate.ResolvePipelineState == nullptr)

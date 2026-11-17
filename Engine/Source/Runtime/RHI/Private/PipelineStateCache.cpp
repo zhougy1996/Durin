@@ -7,6 +7,21 @@
 
 namespace Durin
 {
+	FPipelineState::FPipelineState(FPipelineCompilation&& InCompilation, std::shared_ptr<void> InMetadata)
+		: Compilation(std::make_unique<FPipelineCompilation>(std::move(InCompilation))), Metadata(std::move(InMetadata)) {}
+	FPipelineState::~FPipelineState() = default;
+	auto FPipelineState::GetState() const -> ERHIPipelineState { return Compilation->GetState(); }
+	auto FPipelineState::GetStateObservation() const -> FRHIPipelineStateObservation { return Compilation->GetStateObservation(); }
+	auto FPipelineState::GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc> { return Compilation->GetPipelineLayout(); }
+	auto FPipelineState::Wait() const -> ERHIPipelineState { return Compilation->Wait(); }
+	auto FPipelineState::BoostPriority(EPSOPrecachePriority Priority) const -> void { Compilation->BoostPriority(Priority); }
+	auto FPipelineState::GetPriority() const -> EPSOPrecachePriority { return Compilation->GetPriority(); }
+
+	auto FGraphicsPipelineState::GetRHIPipeline() const -> FGraphicsPipelineStateRHIRef
+	{ return FRHIPipelineStateCacheBackend::GetGraphicsPipeline(*this); }
+	auto FComputePipelineState::GetRHIPipeline() const -> FComputePipelineStateRHIRef
+	{ return FRHIPipelineStateCacheBackend::GetComputePipeline(*this); }
+
 	struct FRHIPipelineStateCache::FState
 	{
 		using FKey = std::variant<FGraphicsPipelineStateKey, FComputePipelineStateKey>;
@@ -34,7 +49,7 @@ namespace Durin
 		{
 			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
 			using TPipeline = std::conditional_t<Graphics, FGraphicsPipelineState, FComputePipelineState>;
-			using TResult = std::expected<std::shared_ptr<TPipeline>, ERHIPipelineRequestRejection>;
+			using TResult = std::shared_ptr<TPipeline>;
 			std::lock_guard Lock(Mutex);
 			const auto Now = std::chrono::steady_clock::now();
 			if (Now - LastPrune >= std::chrono::seconds(60))
@@ -42,20 +57,15 @@ namespace Durin
 				std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
 				LastPrune = Now;
 			}
-			if (Closed || Queue.IsClosed()) return TResult(std::unexpected(ERHIPipelineRequestRejection::Closed));
+			if (Closed || Queue.IsClosed()) return TResult{};
 			if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU())
-				return TResult(std::unexpected(ERHIPipelineRequestRejection::Unsupported));
-			if (!IsPipelineCreationPayloadBounded(Initializer, Name))
-				return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
+				return TResult{};
 			try
 			{
 				auto Valid = MakeKey();
 				if (!Valid)
 				{
-					if constexpr (requires { Valid.error(); })
-						if (Valid.error() == std::remove_cvref_t<decltype(Valid.error())>::CapacityExceeded)
-							return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
-					return TResult(std::unexpected(ERHIPipelineRequestRejection::InvalidDescription));
+					return TResult{};
 				}
 				FKey Key(std::move(*Valid));
 				if (auto Existing = Entries.find(Key); Existing != Entries.end())
@@ -63,38 +73,24 @@ namespace Durin
 					if (auto Pipeline = Existing->second.Pipeline.lock())
 					{
 						const auto Status = Pipeline->GetState();
-						if (Status == ERHIPipelineRequestState::Pending || Status == ERHIPipelineRequestState::Ready
-							|| Status == ERHIPipelineRequestState::Failed)
+						if (Status == ERHIPipelineState::Pending || Status == ERHIPipelineState::Ready
+							|| Status == ERHIPipelineState::Failed)
 							return TResult(std::static_pointer_cast<TPipeline>(std::move(Pipeline)));
 					}
 					Entries.erase(Existing);
 				}
-				if (Entries.size() >= 4096)
-					std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
-				if (Entries.size() >= 4096) return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
 				const uint64 Bytes = sizeof(FEntry) + sizeof(TPipeline) + 256
 					+ std::visit([](const auto& Value) { return GetPipelineKeyOwnedBytes(Value); }, Key);
-				if (Bytes > 1024 * 1024) return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded));
-				auto Metadata = [&] {
-					try { return Queue.ReserveCacheMetadata(Bytes); }
-					catch (const FRHIResourceCapacityError&)
-					{
-						// Weak keys must not consume the device budget indefinitely
-						// when owners have released their identities below entry capacity.
-						std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
-						return Queue.ReserveCacheMetadata(Bytes);
-					}
-				}();
+				auto Metadata = Queue.ReserveCacheMetadata(Bytes);
 				auto Observation = [&] {
 					if constexpr (Graphics) return Queue.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
 					else return Queue.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
 				}();
-				if (!Observation.IsAccepted()) return TResult(std::unexpected(Observation.GetRejection()));
+				if (!Observation.IsValid()) return TResult{};
 				auto Pipeline = std::shared_ptr<TPipeline>(new TPipeline(std::move(Observation), Metadata));
 				Entries.emplace(std::move(Key), FEntry{Pipeline, std::move(Metadata)});
 				return TResult(std::move(Pipeline));
 			}
-			catch (const FRHIResourceCapacityError&) { return TResult(std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded)); }
 			catch (const std::bad_alloc&)
 			{
 				RHITerminateOnOutOfMemory("RHI pipeline metadata");
@@ -113,14 +109,14 @@ namespace Durin
 		: State(std::make_unique<FState>(Capabilities, std::move(Backend))) {}
 	FRHIPipelineStateCache::~FRHIPipelineStateCache() { ReleaseResources(); }
 	auto FRHIPipelineStateCache::GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
-		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>
+		-> FGraphicsPipelineStateRef
 	{
 		return State->Get(Initializer, Name, [&] {
 			return BuildGraphicsPipelineStateKey(Initializer, &State->Capabilities);
 		});
 	}
 	auto FRHIPipelineStateCache::GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
-		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
+		-> FComputePipelineStateRef
 	{
 		return State->Get(Initializer, Name, [&] {
 			return BuildComputePipelineStateKey(Initializer, &State->Capabilities);
@@ -128,13 +124,13 @@ namespace Durin
 	}
 	auto FRHIPipelineStateCacheBackend::GetGraphicsValidated(FRHIPipelineStateCache& Cache,
 		const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name, FGraphicsPipelineStateKey Key)
-		-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>
+		-> FGraphicsPipelineStateRef
 	{
 		return Cache.State->Get(Initializer, Name, [&] { return std::optional{std::move(Key)}; });
 	}
 	auto FRHIPipelineStateCacheBackend::GetComputeValidated(FRHIPipelineStateCache& Cache,
 		const FComputePipelineStateInitializer& Initializer, std::string_view Name, FComputePipelineStateKey Key)
-		-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
+		-> FComputePipelineStateRef
 	{
 		return Cache.State->Get(Initializer, Name, [&] { return std::optional{std::move(Key)}; });
 	}
@@ -163,46 +159,46 @@ namespace Durin
 
 	namespace PipelineStateCache
 	{
-		auto GetAndOrCreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer, FName Name)
-			-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>
+		template<typename T> static auto Precache(const T& Initializer, FName Name)
 		{
-			if (!GDynamicRHI) return std::unexpected(ERHIPipelineRequestRejection::Unsupported);
+			constexpr bool Graphics = std::same_as<T, FGraphicsPipelineStateInitializer>;
+			using TResult = std::conditional_t<Graphics, FGraphicsPipelineStateRef, FComputePipelineStateRef>;
+			if (!GDynamicRHI) return TResult{};
 			auto* Cache = GDynamicRHI->RHIGetPipelineStateCache();
-			if (!Cache) return std::unexpected(GDynamicRHI->RHIIsPipelineCreationClosed()
-				? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
+			if (!Cache) return TResult{};
 			char NameBuffer[FName::StringBufferSize];
 			std::string_view NameView = Name.GetPlainNameView();
 			if (Name.HasNumber())
 			{
 				size_t Length = 0;
-				require(Name.TryWriteString(NameBuffer, Length));
+				const bool Written = Name.TryWriteString(NameBuffer, Length);
+				require(Written);
 				NameView = std::string_view(NameBuffer, Length);
 			}
-			return Cache->GetGraphics(Initializer, NameView);
+			if constexpr (Graphics) return Cache->GetGraphics(Initializer, NameView);
+			else return Cache->GetCompute(Initializer, NameView);
 		}
-		auto GetAndOrCreateComputePipelineState(const FComputePipelineStateInitializer& Initializer, FName Name)
-			-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
+		auto PrecacheGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer, FName Name) -> FGraphicsPipelineStateRef
+		{ return Precache(Initializer, Name); }
+		auto PrecacheComputePipelineState(const FComputePipelineStateInitializer& Initializer, FName Name) -> FComputePipelineStateRef
+		{ return Precache(Initializer, Name); }
+		auto GetAndOrCreateGraphicsPipelineState(FRHICommandListBase& CommandList, const FGraphicsPipelineStateInitializer& Initializer, FName Name) -> FGraphicsPipelineStateRef
 		{
-			if (!GDynamicRHI) return std::unexpected(ERHIPipelineRequestRejection::Unsupported);
-			auto* Cache = GDynamicRHI->RHIGetPipelineStateCache();
-			if (!Cache) return std::unexpected(GDynamicRHI->RHIIsPipelineCreationClosed()
-				? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
-			char NameBuffer[FName::StringBufferSize];
-			std::string_view NameView = Name.GetPlainNameView();
-			if (Name.HasNumber())
-			{
-				size_t Length = 0;
-				require(Name.TryWriteString(NameBuffer, Length));
-				NameView = std::string_view(NameBuffer, Length);
-			}
-			return Cache->GetCompute(Initializer, NameView);
+			auto Pipeline = PrecacheGraphicsPipelineState(Initializer, Name);
+			if (!Pipeline) RHITerminateOnFailure("Graphics PSO", "Required pipeline could not be acquired");
+			if (Pipeline->GetState() == ERHIPipelineState::Failed)
+				RHITerminateOnFailure("Graphics PSO", "Required pipeline compilation failed");
+			CommandList.AddPipelineDependency(Pipeline);
+			return Pipeline;
 		}
-		auto PrecacheGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer, FName Name)
-			-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>
-		{ return GetAndOrCreateGraphicsPipelineState(Initializer, Name); }
-		auto PrecacheComputePipelineState(const FComputePipelineStateInitializer& Initializer, FName Name)
-			-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>
-		{ return GetAndOrCreateComputePipelineState(Initializer, Name); }
+		auto GetAndOrCreateComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer, FName Name) -> FComputePipelineStateRef
+		{
+			auto Pipeline = PrecacheComputePipelineState(Initializer, Name);
+			if (!Pipeline) RHITerminateOnFailure("Compute PSO", "Required pipeline could not be acquired");
+			if (Pipeline->GetState() == ERHIPipelineState::Failed)
+				RHITerminateOnFailure("Compute PSO", "Required pipeline compilation failed");
+			CommandList.AddPipelineDependency(Pipeline);
+			return Pipeline;
+		}
 	}
-
 }

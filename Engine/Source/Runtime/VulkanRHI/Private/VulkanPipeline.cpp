@@ -1051,7 +1051,6 @@ namespace Durin::VulkanRHI
 				require(DebugName.TryWriteString(NameBuffer, Length));
 				Name = std::string_view(NameBuffer, Length);
 			}
-			if (!IsPipelineCreationPayloadBounded(Initializer, Name)) return nullptr;
 			auto ValidationResult = [&] {
 				if constexpr (Graphics) return BuildGraphicsPipelineStateKey(Initializer, RHI.RHIGetCapabilities());
 				else return BuildComputePipelineStateKey(Initializer, RHI.RHIGetCapabilities());

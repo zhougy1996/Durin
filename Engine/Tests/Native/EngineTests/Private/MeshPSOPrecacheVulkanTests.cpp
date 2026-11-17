@@ -411,8 +411,8 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             auto Validation = PSOPrecacheValidation::Track(Data);
             ASSERT_TRUE(Validation);
             const auto Native = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GetGraphicsInitializer(), "ValidationContract");
-            ASSERT_TRUE(Native); ASSERT_TRUE((*Native)->Wait());
-            PSOPrecacheValidation::Observe(Validation, (*Native)->GetStateObservation());
+            ASSERT_TRUE(Native); ASSERT_EQ(Native->Wait(), ERHIPipelineState::Ready);
+            PSOPrecacheValidation::Observe(Validation, Native->GetStateObservation());
             EXPECT_EQ(PSOPrecacheValidation::Check(Data.GetGraphicsInitializer(), Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
                 PSOPrecacheValidation::EResult::Hit);
             auto DifferentState = Data.GetGraphicsInitializer();

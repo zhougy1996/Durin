@@ -21,7 +21,7 @@ namespace Durin
 	{
 		std::shared_ptr<FPipelineState> Pipeline;
 		bool bRequired = true, bAdmitted = false;
-		ERHIPipelineRequestState CompletedState = ERHIPipelineRequestState::Failed;
+		ERHIPipelineState CompletedState = ERHIPipelineState::Failed;
 		std::shared_ptr<PSOPrecacheValidation::FRecord> Validation;
 		FSubmittedMaterialPSO() = default;
 		FSubmittedMaterialPSO(FSubmittedMaterialPSO&&) noexcept = default;
@@ -215,16 +215,10 @@ namespace Durin
 		: State(std::make_unique<FState>())
 	{
 		State->Submitter = Submitter ? std::move(Submitter) : FMaterialPSOSubmitter{
-			[](const FPSOPrecacheData& Data) -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
+			[](const FPSOPrecacheData& Data) -> std::shared_ptr<FPipelineState> {
 				if (Data.GetType() == FPSOPrecacheData::EType::Graphics)
-				{
-					auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Data.GetGraphicsInitializer(), "MaterialPSOPrecache");
-					if (!Pipeline) return std::unexpected(Pipeline.error());
-					return std::move(*Pipeline);
-				}
-				auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Data.GetComputeInitializer(), "MaterialPSOPrecache");
-				if (!Pipeline) return std::unexpected(Pipeline.error());
-				return std::move(*Pipeline);
+					return PipelineStateCache::PrecacheGraphicsPipelineState(Data.GetGraphicsInitializer(), "MaterialPSOPrecache");
+				return PipelineStateCache::PrecacheComputePipelineState(Data.GetComputeInitializer(), "MaterialPSOPrecache");
 			}};
 	}
 	FMaterialPSORequestManager::~FMaterialPSORequestManager() { Close(); }
@@ -358,11 +352,10 @@ namespace Durin
 					try {
 						auto Pipeline = State->Submitter(Data);
 						if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break;
-						if (!Pipeline && Pipeline.error() == ERHIPipelineRequestRejection::CapacityExceeded) break;
-						if (!Pipeline || !*Pipeline) { Reject("Material PSO pipeline admission failed."); if (Required) break; else continue; }
-						(*Pipeline)->BoostPriority(Required ? std::max(Data.Priority, Work->Priority.load()) : Data.Priority);
-						Slot.Pipeline = *Pipeline; Slot.bAdmitted = true;
-						PSOPrecacheValidation::Observe(Slot.Validation, (*Pipeline)->GetStateObservation());
+						if (!Pipeline) { Reject("Material PSO pipeline admission failed."); if (Required) break; else continue; }
+						Pipeline->BoostPriority(Required ? std::max(Data.Priority, Work->Priority.load()) : Data.Priority);
+						Slot.Pipeline = Pipeline; Slot.bAdmitted = true;
+						PSOPrecacheValidation::Observe(Slot.Validation, Pipeline->GetStateObservation());
 						Data = {};
 					} catch (const std::exception& Error) { if (Work->GetState() != EMaterialPSOPrecacheState::Pending) break; Reject(Error.what()); if (Required) break; }
 				}
@@ -372,11 +365,11 @@ namespace Durin
 			if (Work->GetState() != EMaterialPSOPrecacheState::Pending) continue;
 			uint32 Pending = 0, RequiredPending = 0, Failed = 0, RequiredFailed = 0;
 			for (auto& Slot : Work->Submitted) {
-				const auto Status = !Slot.bAdmitted ? ERHIPipelineRequestState::Pending
+				const auto Status = !Slot.bAdmitted ? ERHIPipelineState::Pending
 					: Slot.Pipeline ? Slot.Pipeline->GetState() : Slot.CompletedState;
-				if (Slot.bAdmitted && Status != ERHIPipelineRequestState::Pending) { Slot.CompletedState = Status; Slot.Pipeline.reset(); }
-				if (Status == ERHIPipelineRequestState::Pending) { ++Pending; if (Slot.bRequired) ++RequiredPending; }
-				else if (Status != ERHIPipelineRequestState::Ready) { ++Failed; if (Slot.bRequired) ++RequiredFailed; }
+				if (Slot.bAdmitted && Status != ERHIPipelineState::Pending) { Slot.CompletedState = Status; Slot.Pipeline.reset(); }
+				if (Status == ERHIPipelineState::Pending) { ++Pending; if (Slot.bRequired) ++RequiredPending; }
+				else if (Status != ERHIPipelineState::Ready) { ++Failed; if (Slot.bRequired) ++RequiredFailed; }
 			}
 			Work->Pipelines = uint32(Work->Submitted.size());
 			Work->Pending = Pending; Work->RequiredPending = RequiredPending; Work->Failed = Failed;

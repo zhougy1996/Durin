@@ -48,8 +48,8 @@ Detailed resource, transfer, transition, indirect-command, and shader-binding
 validation belongs to `Backend/RHIValidation.h`. RHI recording and backend
 execution own the checks and diagnostics; ordinary consumers do not receive
 operation-specific validation errors. Attachment selection may query
-`IsTextureViewDescValid` without consuming diagnostic details. Pipeline admission
-may report `InvalidDescription`.
+`IsTextureViewDescValid` without consuming diagnostic details. Optional pipeline
+precaching returns empty for an invalid description; required acquisition is fatal.
 `ToString` formats at presentation boundaries; semantic tests assert codes and
 context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
 
@@ -57,10 +57,12 @@ context, never classify by text. Formatting lives in `RHIErrorStrings.cpp`.
 terminate through the required-success boundary below. Thread work
 callbacks return `void`; the queue does not catch execution exceptions. An
 exception escaping the RHI worker terminates the process; inline execution
-propagates it to the caller. Explicit external failure notification stops
-admission, releases queued work, and wakes waiters. `FailedSerial` records that
-terminal state without retaining exception text. Synchronous submission returns
-admission and completion status without an error payload.
+propagates it to the caller. There is no external-failure injection protocol or
+failed-serial state machine. Thread enqueue returns its serial, or zero on closed
+admission without consuming producer work. Invalid work, self-enqueue, impossible
+frame counts, and serial overflow are internal errors. Synchronous initialization
+returns a completion boolean; ordinary command submission is required-success
+and returns its serial without a second rejection enum or result wrapper.
 Backend `Init` owns partial-state cleanup before propagating its original
 exception to the initialization operation's handler. The RHI owner
 then destroys the failed backend and releases its module; it does not call
@@ -162,8 +164,10 @@ payload or resource-lifetime contract.
 
 Recorded diagnostic regions and GPU timing begin/end commands follow the same
 ownership and replay rules. Region names and timing queries are retained by the
-command batch; unbalanced/crossed regions or timing intervals invalidate
-admission before replay. Timing result reads are nonblocking observations, not
+command batch. Diagnostic regions may cross render-pass and same-queue
+submission boundaries; regular lists close their own unbalanced regions when
+finished. Timing intervals retain their stricter pairing and admission rules.
+Timing result reads are nonblocking observations, not
 synchronous-result operations. See
 [RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md).
 
@@ -188,7 +192,7 @@ later work waits for its completion. Each submission carrying `EndFrame`
 charges one frame until replay finishes or rejects the work. This is a CPU
 queue latency limit, independent of Vulkan's two-slot GPU pacing. A producer
 that would cross a bound waits for capacity and wakes
-on completion, failure, or admission close. Admission is explicit
+on completion or admission close. Admission is explicit
 `Stopped -> Running -> Draining -> Stopped`; rejection never consumes the
 producer's work. The RHI thread is the sole runtime owner of command-context
 replay, Vulkan command-pool/buffer mutation, graphics and present queue
@@ -200,12 +204,12 @@ submission, render pass, timing/diagnostic interval, buffer lock, or split
 transition. Immediate GPU-submission ends preserve such boundaries in storage.
 The partial work keeps its queue serial, capacity charge, and storage owners;
 later entries cannot overtake it, and its fence remains pending. Ready adjacent
-scopes replay together without another queue round trip. Dependency failure or
-cancellation discards the remaining suffix and publishes the group's failed or
-canceled outcome; it cannot undo the already executed prefix. Frame/resource
+scopes replay together without another queue round trip. Required PSO failure is fatal. Dependency
+cancellation discards the remaining suffix and publishes the group's canceled
+outcome; it cannot undo the already executed prefix. Frame/resource
 event submissions retain an aggregate dependency gate and execute their events
-only after all dependencies succeed. Drain preserves readiness waits, while
-explicit external failure cancels queued continuations and wakes waiters.
+only after all dependencies succeed. Drain preserves readiness waits and accepted continuation ownership until
+completion. Closing admission wakes blocked producers without consuming their work.
 
 Binding a cached graphics or compute PSO retains its compilation dependency and
 promotes unfinished work to Highest priority. This demand path reuses the same
@@ -337,8 +341,10 @@ Cache misses and pre-admission rejection remain separate from compilation.
 Native factories (including cached view creation) and the asynchronous creator
 execution boundary are `noexcept`. Unexpected C++ exceptions reach the existing
 process terminate policy; they cannot become ordinary task/asset failures.
-A known nullable PSO result publishes Failed for accepted async work. A rejected
-request has no accepted work; inspect its rejection before polling completion.
+A known nullable PSO result publishes Failed for accepted optional async work.
+Empty precache acquisition has no compilation to poll. Required drawing failure
+is fatal before replay. Compilation stores one native pipeline alternative and
+one authoritative outcome; typed accessors replace the generic result snapshot.
 Failed pipeline identities are shared while retained and Renderer resource slots
 suppress another attempt until the relevant content/generation changes.
 
@@ -528,7 +534,7 @@ releases the backend owner.
 The final rendering-thread audit logs cumulative command count, payload bytes,
 submitted batches, submission groups, replay time, wait count and duration,
 synchronous-operation count, peak queued-or-active entries/batches/bytes,
-backpressure, and rejected submissions. `FRHICommandListExecutor::GetStats()`
+and backpressure. `FRHICommandListExecutor::GetStats()`
 exposes the same CPU-side snapshot. These values diagnose executor stalls and
 queue sizing; they are not GPU timing measurements.
 

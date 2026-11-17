@@ -86,28 +86,30 @@ namespace Durin::VulkanRHI
 		}
 	};
 
-	FVulkanQueueTransfer::FVulkanQueueTransfer(FVulkanDevice& Device, FRHIQueueId Source, FRHIQueueId Destination,
-		std::span<const FRHIBufferTransition> Buffers, std::span<const FRHITextureTransition> Textures, bool bUseSynchronization2)
-		: FRHIQueueTransfer(Source, Destination)
-		, State(std::make_unique<FState>(Device, Source, Destination, bUseSynchronization2 && Device.SupportsSynchronization2()))
+	auto FVulkanQueueTransfer::Create(FVulkanDevice& Device, const FRHIQueueTransferDesc& Desc,
+		bool bUseSynchronization2) -> std::shared_ptr<FVulkanQueueTransfer>
 	{
-		require(Source != Destination && Device.FindQueue(Source) && Device.FindQueue(Destination));
-		require(!Buffers.empty() || !Textures.empty());
+		if (Desc.Source == Desc.Destination || !Device.FindQueue(Desc.Source)
+			|| !Device.FindQueue(Desc.Destination) || (Desc.Buffers.empty() && Desc.Textures.empty())) return {};
+		if (!ValidateBufferTransitions(Desc.Buffers) || !ValidateTextureTransitions(Desc.Textures)) return {};
+		return std::shared_ptr<FVulkanQueueTransfer>(new FVulkanQueueTransfer(Device, Desc, bUseSynchronization2));
+	}
 
-		const auto BufferResult = ValidateBufferTransitions(Buffers);
-		requiref(BufferResult, "{}", ToString(BufferResult.error()));
-		const auto TextureResult = ValidateTextureTransitions(Textures);
-		requiref(TextureResult, "{}", ToString(TextureResult.error()));
-		State->Buffers.assign(Buffers.begin(), Buffers.end());
-		State->Textures.assign(Textures.begin(), Textures.end());
+	FVulkanQueueTransfer::FVulkanQueueTransfer(FVulkanDevice& Device, const FRHIQueueTransferDesc& Desc,
+		bool bUseSynchronization2)
+		: FRHIQueueTransfer(Desc.Source, Desc.Destination)
+		, State(std::make_unique<FState>(Device, Desc.Source, Desc.Destination, bUseSynchronization2 && Device.SupportsSynchronization2()))
+	{
+		State->Buffers = Desc.Buffers;
+		State->Textures = Desc.Textures;
 		static std::atomic<uint64> NextId = 1;
-		for (const auto& Transition : Buffers)
+		for (const auto& Transition : Desc.Buffers)
 		{
 			State->BufferOwners.emplace_back(Transition.Buffer);
 			State->BufferIds.push_back(NextId.fetch_add(1));
 			require(State->BufferIds.back() != 0);
 		}
-		for (const auto& Transition : Textures)
+		for (const auto& Transition : Desc.Textures)
 		{
 			State->TextureOwners.emplace_back(Transition.Texture);
 			State->TextureIds.push_back(NextId.fetch_add(1));

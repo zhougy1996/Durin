@@ -538,7 +538,7 @@ namespace Durin
 			LaterWorkStarted.Trigger();
 			ReleaseLaterWork.Wait();
 		};
-		EXPECT_TRUE(RHIThread.Enqueue(LaterWork).IsAccepted());
+		EXPECT_TRUE(RHIThread.Enqueue(LaterWork) != 0);
 		ReleaseWork.Trigger();
 		LaterWorkStarted.Wait();
 		Fence.Wait();

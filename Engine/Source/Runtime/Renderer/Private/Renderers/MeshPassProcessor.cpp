@@ -540,7 +540,7 @@ namespace Durin::RendererPrivate
 		Candidate.VertexDeclaration = Declaration;
 		Candidate.Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
 		Candidate.Pass = GetPass();
-		Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(Name, Initializer);
+		Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(Name, Initializer);
 		if (!Candidate.PipelineState) return FShaderCompletion::Failure("Mesh pass pipeline creation failed.");
 		Out = std::make_shared<const FMeshPassPipeline>(std::move(Candidate));
 		return FShaderCompletion{};

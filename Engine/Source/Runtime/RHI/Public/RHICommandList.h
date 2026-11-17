@@ -234,7 +234,11 @@ namespace Durin
 		}
 		RHI_API auto CommitCommand(void* Node, size_t OwnedPayloadBytes) -> void;
 		static auto RecordInvalidDiagnosticRegion() -> void;
-		auto TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool;
+		friend auto PipelineStateCache::GetAndOrCreateGraphicsPipelineState(FRHICommandListBase&,
+			const FGraphicsPipelineStateInitializer&, FName) -> FGraphicsPipelineStateRef;
+		friend auto PipelineStateCache::GetAndOrCreateComputePipelineState(FRHICommandListBase&,
+			const FComputePipelineStateInitializer&, FName) -> FComputePipelineStateRef;
+		auto AddPipelineDependency(const std::shared_ptr<FPipelineState>& Pipeline) -> void;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;
@@ -244,14 +248,13 @@ namespace Durin
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 		bool bHasActiveGraphicsPipelineState = false;
 		FRHIComputePipelineState* ActiveComputePipelineState = nullptr;
-		FRHIPipelineCreationRequest ActiveGraphicsRequest;
-		FRHIPipelineCreationRequest ActiveComputeRequest;
+		std::shared_ptr<FPipelineState> ActiveGraphicsPipeline;
+		std::shared_ptr<FPipelineState> ActiveComputePipeline;
 		bool bInsideRenderPass = false;
 		const FRHICommandListBase* RenderPassParent = nullptr;
 		uint64 RenderPassSerial = 0;
 		std::shared_ptr<void> ActiveGPUSubmissionLease;
 		uint32 DiagnosticRegionDepth = 0;
-		uint32 RenderPassDiagnosticRegionDepth = 0;
 		std::vector<FRHIGPUTimingQuery*> ActiveGPUTimingQueries;
 		std::vector<std::shared_ptr<void>> ActiveGPUTimingReservations;
 		std::vector<std::shared_ptr<FRHITransition>> ActiveTransitions;
@@ -316,31 +319,6 @@ namespace Durin
 
 	ENUM_CLASS_FLAGS(ERHISubmitFlags)
 
-	enum class ERHICommandListSubmitResult : uint8
-	{
-		Accepted,
-		InvalidCommandList,
-		ThreadStopped,
-		ThreadDraining,
-		ThreadFailed,
-		Oversized,
-		SerialExhausted,
-		SelfEnqueue,
-		DependencyWaitUnsupported,
-	};
-
-	struct FRHICommandListSubmission
-	{
-		ERHICommandListSubmitResult Result =
-			ERHICommandListSubmitResult::InvalidCommandList;
-		uint64 Serial = 0;
-
-		auto IsAccepted() const -> bool
-		{
-			return Result == ERHICommandListSubmitResult::Accepted;
-		}
-	};
-
 	// Owns the primary timeline and immediate-only coordination operations.
 	class FRHICommandListImmediate final : public FRHICommandList
 	{
@@ -355,7 +333,6 @@ namespace Durin
 		RHI_API static auto Get() -> FRHICommandListImmediate&;
 		RHI_API ~FRHICommandListImmediate() override;
 		RHI_API auto QueueCommandList(FRHICommandList&& CommandList) -> void;
-		RHI_API auto TryQueueCommandList(FRHICommandList&& CommandList) -> bool;
 		// Preserve a closed submission boundary for dependency-gated replay.
 		RHI_API auto EndGPUSubmission() -> void;
 		// Hands recorded work to the RHI executor without a completion wait or GPU flush.
@@ -392,7 +369,7 @@ namespace Durin
 		friend class FDynamicRHI;
 	};
 
-	enum class ERHICommandBatchState : uint8 { Pending, Succeeded, Failed, Canceled, Expired };
+	enum class ERHICommandBatchState : uint8 { Pending, Succeeded, Canceled, Expired };
 	struct FRHICommandBatchCompletion
 	{
 		std::atomic<ERHICommandBatchState> State = ERHICommandBatchState::Pending;
@@ -404,8 +381,7 @@ namespace Durin
 
 		RHI_API auto IsComplete() const -> bool;
 		RHI_API auto GetState() const -> ERHICommandBatchState;
-		RHI_API auto TryWait() const -> bool;
-		RHI_API auto Wait() const -> void;
+		RHI_API auto Wait() const -> ERHICommandBatchState;
 		FORCEINLINE auto GetTargetSerial() const -> uint64 { return TargetSerial; }
 
 	private:
@@ -435,11 +411,6 @@ namespace Durin
 		auto operator=(const FRHICommandListExecutor&) -> FRHICommandListExecutor& = delete;
 
 		RHI_API auto GetImmediateCommandList() -> FRHICommandListImmediate&;
-		// Rejection preserves command ownership in the executor for a later retry.
-		RHI_API auto TrySubmit(
-			const std::vector<FRHICommandList*>& AdditionalCmdLists,
-			ERHISubmitFlags SubmitFlags)
-			-> FRHICommandListSubmission;
 		RHI_API auto Submit(
 			const std::vector<FRHICommandList*>& AdditionalCmdLists,
 			ERHISubmitFlags SubmitFlags) -> uint64;
@@ -452,8 +423,6 @@ namespace Durin
 		RHI_API auto CreateFence(uint64 TargetSerial) -> FRHICommandListFence;
 		RHI_API auto SetThreadedMode(FRHIThread& InRHIThread) -> void;
 		RHI_API auto SetInlineMode() -> void;
-		// Called before a background device fault is captured by Core.
-		RHI_API auto ReportExternalFailure() -> void;
 		// Runs one ordered operation on the active replay owner. Threaded callers
 		// block for the exact queue serial; inline diagnostics execute locally.
 		// Callers report heap storage exclusively owned by the queued callback so
@@ -466,12 +435,11 @@ namespace Durin
 	private:
 		class FState;
 
-		auto TryQueueCommandList(FRHICommandList& CommandList) -> bool;
+		auto QueueCommandList(FRHICommandList& CommandList) -> void;
 		auto SealImmediateSegment() -> void;
 		RHI_API auto IsSerialComplete(uint64 Serial) const -> bool;
-		RHI_API auto IsSerialFailed(uint64 Serial) const -> bool;
-		RHI_API auto TryWaitForSerial(uint64 Serial) const -> bool;
-		auto WaitForSerial(uint64 Serial) const -> void;
+		RHI_API auto IsSerialCanceled(uint64 Serial) const -> bool;
+		RHI_API auto WaitForSerial(uint64 Serial) const -> ERHICommandBatchState;
 		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
 			std::function<void(IRHICommandContext&)> Operation,

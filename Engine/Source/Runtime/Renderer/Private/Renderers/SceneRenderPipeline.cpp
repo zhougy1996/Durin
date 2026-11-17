@@ -116,8 +116,7 @@ namespace Durin
 			// stages. Preserve its pending result with the same preparation batch.
 			FRenderPipelinePreparationBatch Batch;
 			Preparation = PrepareView_RenderThread(CommandList, Context);
-			if (bPrepareOnly && (Batch.HasCapacityExceeded()
-				|| (PreparationRequests && !Batch.CollectRequests(*PreparationRequests)))) return ERenderViewResult::RendererResourcesUnavailable;
+			if (bPrepareOnly && PreparationRequests) Batch.CollectRequests(*PreparationRequests);
 			if (bPrepareOnly && Batch.HasResourcePending()) return ERenderViewResult::RendererResourcesPending;
 		}
 		if (!Preparation) return Preparation.error();
@@ -234,8 +233,7 @@ namespace Durin
 	{
 		FRenderPipelinePreparationBatch Batch;
 		const auto Result = (this->*Stage)(CommandList, Context, bPrepareOnly);
-		if (bPrepareOnly && (Batch.HasCapacityExceeded()
-				|| (PreparationRequests && !Batch.CollectRequests(*PreparationRequests)))) return ERenderViewResult::RendererResourcesUnavailable;
+		if (bPrepareOnly && PreparationRequests) Batch.CollectRequests(*PreparationRequests);
 		if ((bPrepareOnly && Batch.HasResourcePending())
 			|| (Result != ERenderViewResult::Success && FRenderPipelinePreparationBatch::HasPending()))
 			return ERenderViewResult::RendererResourcesPending;

@@ -23,7 +23,6 @@ namespace Durin::VulkanRHI
 		const char* DebugName = nullptr;
 		// Dynamic binding pools include normal and oversize pages in this hard cap.
 		uint64 MaxCapacity = 0;
-		uint64 MaxAllocation = 0;
 		EBufferUsageFlags BindingUsage = EBufferUsageFlags::None;
 	};
 
@@ -71,8 +70,6 @@ namespace Durin::VulkanRHI
 		FVulkanTransferRange Range;
 		FRHIGPUSyncPointRef WaitSyncPoint;
 		std::weak_ptr<void> WaitOwner;
-		// eErrorOutOfPoolMemory also represents the configured per-allocation limit.
-		vk::Result AllocationResult = vk::Result::eSuccess;
 	};
 
 	// Owns bounded mapped pages; range reuse follows CPU and payload lease release.

@@ -1,4 +1,5 @@
 #include "VulkanPipelinePrecacheTestSupport.h"
+#include "Threading/TaskRuntime.h"
 #include "VulkanTestSupport.h"
 #include <gtest/gtest.h>
 #include <barrier>
@@ -532,7 +533,7 @@ namespace Durin::VulkanRHI
 				Records[Index].Returned = VulkanCreationTimestamp();
 				EXPECT_TRUE(Records[Index].Request.IsAccepted());
 			};
-			if (Scenario == "hot") { Request(0); ASSERT_TRUE(Records[0].Request.Wait()); }
+			if (Scenario == "hot") { Request(0); ASSERT_EQ(Records[0].Request.Wait(), ERHIPipelineState::Ready); }
 			FCreationMemorySampler Memory;
 			const auto Before = GCommandListExecutor.GetStats();
 			const auto BeforeCache = GDynamicRHI->RHIGetPipelineCacheStatistics();
@@ -554,7 +555,7 @@ namespace Durin::VulkanRHI
 			for (auto& Record : Records)
 			{
 				const auto Start = VulkanCreationTimestamp();
-				EXPECT_TRUE(Record.Request.Wait());
+				EXPECT_EQ(Record.Request.Wait(), ERHIPipelineState::Ready);
 				Record.Ready = VulkanCreationTimestamp(); Record.Wait = Record.Ready - Start;
 			}
 			const auto Ready = VulkanCreationTimestamp();

@@ -38,7 +38,7 @@ namespace Durin
 				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
 				"{} synchronous operation(s), "
 				"{} ns wait duration, peak queue {} entry(s)/{} batch(es)/{} byte(s), "
-				"{} backpressure event(s), {} rejection(s).",
+				"{} backpressure event(s).",
 				ExecutorMode,
 				ExecutorStats.RecordedCommandCount,
 				ExecutorStats.RecordedPayloadBytes,
@@ -51,8 +51,7 @@ namespace Durin
 				ExecutorStats.PeakQueueEntryCount,
 				ExecutorStats.PeakQueueBatchCount,
 				ExecutorStats.PeakQueuePayloadBytes,
-				ExecutorStats.BackpressureWaitCount,
-				ExecutorStats.RejectedSubmissionCount);
+				ExecutorStats.BackpressureWaitCount);
 			const auto UploadStats = GetBufferUploadStats();
 			DURIN_TRACE("RHI upload/frame bounds: peak queued frames={}, frame-pressure waits={} ({} ns), "
 				"CPU upload live/peak={}/{}, backing reserved live/peak/capacity={}/{}/{}.",
@@ -160,7 +159,11 @@ namespace Durin
 		const auto RenderCompleted = std::chrono::steady_clock::now();
 		requiref(Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded,
 			"Render fence completion failed: {}", CompletionTask.GetDiagnostic());
-		if (RHIFence) RHIFence->Wait();
+		if (RHIFence)
+		{
+			const auto Outcome = RHIFence->Wait();
+			requiref(Outcome == ERHICommandBatchState::Succeeded, "RHI render fence did not succeed.");
+		}
 		const double RenderMS = std::chrono::duration<double, std::milli>(RenderCompleted - Started).count();
 		const double RHIMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - RenderCompleted).count();
 		if (Profiling::AreStartupDiagnosticsEnabled() && RenderMS + RHIMS >= 20.0)

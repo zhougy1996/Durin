@@ -201,7 +201,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"DeferredDirectionalLightingPipeline", Initializer
 					);
 				Initializer.RenderTargetLayout =
@@ -212,11 +212,11 @@ namespace Durin
 				Initializer.ColorBlendStates[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
 					.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
 				Candidate.ProductionPipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"DeferredProductionLightingPipeline", Initializer
 					);
 				Initializer.ColorBlendStates[0].bEnable = false;
-				Candidate.DiagnosticPipelineState = FRenderPipelineRequestScope::Graphics(
+				Candidate.DiagnosticPipelineState = FRenderPipelinePreparationScope::Graphics(
 					"DeferredProductionDiagnosticPipeline", Initializer);
 				Candidate.FallbackEnvironmentSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());

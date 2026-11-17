@@ -152,7 +152,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"GBufferDebugPipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
 				{

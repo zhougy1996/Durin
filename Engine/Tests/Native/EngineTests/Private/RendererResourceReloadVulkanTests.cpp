@@ -719,7 +719,7 @@ float4 FragmentMain() : SV_Target
 					Initializer.VertexDeclaration = Forced->Payload->VertexDeclaration;
 					Initializer.RasterizerState.CullMode = ERHICullMode::None;
 					Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
-					auto Candidate = FRenderPipelineRequestScope::Graphics("AsyncReloadPrewarm", Initializer);
+					auto Candidate = FRenderPipelinePreparationScope::Graphics("AsyncReloadPrewarm", Initializer);
 					if (Candidate) return FResult::Success(std::move(Candidate));
 					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, {}));
 				}, [](const auto&) { ADD_FAILURE() << "Pending must not report a candidate failure"; });

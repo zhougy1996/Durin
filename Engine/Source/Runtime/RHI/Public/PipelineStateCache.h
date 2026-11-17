@@ -8,37 +8,35 @@ namespace Durin
 {
 	class FRHICommandListBase;
 	class FRHIPipelineStateCache;
+	class FPipelineCompilation;
 
 	// Cache identity may exist before its complete native PSO. Drawing retains
 	// shared compilation without owning cancellation authority.
 	class RHI_API FPipelineState
 	{
 	public:
-		virtual ~FPipelineState() = default;
+		virtual ~FPipelineState();
 		FPipelineState(const FPipelineState&) = delete;
 		auto operator=(const FPipelineState&) -> FPipelineState& = delete;
-		auto GetState() const -> ERHIPipelineRequestState { return Request.GetState(); }
-		auto GetStateObservation() const -> std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> { return Request.GetStateObservation(); }
-		auto IsComplete() const -> bool { return Request.GetTaskHandle().IsCompleted(); }
-		auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc> { return Request.GetPipelineLayout(); }
-		auto GetResult() const -> FRHIPipelineCreationResult { return Request.GetResult(); }
-		auto CanWait() const -> bool { return Request.CanWait(); }
-		auto Wait() const -> bool { return Request.Wait(); }
-		auto BoostPriority(EPSOPrecachePriority Priority) const -> void { Request.BoostPriority(Priority); }
-		auto GetPriority() const -> EPSOPrecachePriority { return Request.GetPriority(); }
+		auto GetState() const -> ERHIPipelineState;
+		auto GetStateObservation() const -> FRHIPipelineStateObservation;
+		auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>;
+		auto Wait() const -> ERHIPipelineState;
+		auto BoostPriority(EPSOPrecachePriority Priority) const -> void;
+		auto GetPriority() const -> EPSOPrecachePriority;
 	protected:
-		explicit FPipelineState(FRHIPipelineCreationRequest InRequest, std::shared_ptr<void> InMetadata)
-			: Request(std::move(InRequest)), Metadata(std::move(InMetadata)) {}
-		FRHIPipelineCreationRequest Request;
+		explicit FPipelineState(FPipelineCompilation&& InCompilation, std::shared_ptr<void> InMetadata);
 	private:
+		std::unique_ptr<FPipelineCompilation> Compilation;
 		std::shared_ptr<void> Metadata;
 		friend class FRHICommandListBase;
+		friend class FRHIPipelineStateCacheBackend;
 	};
 
 	class RHI_API FGraphicsPipelineState final : public FPipelineState
 	{
 	public:
-		auto GetRHIPipeline() const -> FGraphicsPipelineStateRHIRef { return Request.GetResult().Graphics; }
+		auto GetRHIPipeline() const -> FGraphicsPipelineStateRHIRef;
 	private:
 		using FPipelineState::FPipelineState;
 		friend class FRHIPipelineStateCache;
@@ -46,7 +44,7 @@ namespace Durin
 	class RHI_API FComputePipelineState final : public FPipelineState
 	{
 	public:
-		auto GetRHIPipeline() const -> FComputePipelineStateRHIRef { return Request.GetResult().Compute; }
+		auto GetRHIPipeline() const -> FComputePipelineStateRHIRef;
 	private:
 		using FPipelineState::FPipelineState;
 		friend class FRHIPipelineStateCache;
@@ -54,7 +52,7 @@ namespace Durin
 	using FGraphicsPipelineStateRef = std::shared_ptr<FGraphicsPipelineState>;
 	using FComputePipelineStateRef = std::shared_ptr<FComputePipelineState>;
 
-	// One device-owned, bounded weak cache. The backend owns ready native reuse.
+	// One device-owned weak cache. The backend owns ready native reuse.
 	// Ordinary tasks admit cold requests directly; native creation runs on the
 	// device-owned Worker drain. Independent CPU tasks cannot acquire identities.
 	class RHI_API FRHIPipelineStateCache
@@ -63,9 +61,9 @@ namespace Durin
 		FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCompileBackend Backend);
 		~FRHIPipelineStateCache();
 		auto GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
-			-> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>;
+			-> FGraphicsPipelineStateRef;
 		auto GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
-			-> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
+			-> FComputePipelineStateRef;
 		// Reject new requests and join compilation, preserving already Ready native PSOs.
 		auto StopAndWait() -> void;
 		// Stop compilation first, then invalidate native results in surviving handles.
@@ -80,16 +78,18 @@ namespace Durin
 
 	namespace PipelineStateCache
 	{
-		RHI_API auto GetAndOrCreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
-			FName Name = {}) -> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>;
-		RHI_API auto GetAndOrCreateComputePipelineState(const FComputePipelineStateInitializer& Initializer,
-			FName Name = {}) -> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
+		RHI_API auto GetAndOrCreateGraphicsPipelineState(FRHICommandListBase& CommandList, const FGraphicsPipelineStateInitializer& Initializer,
+			FName Name = {}) -> FGraphicsPipelineStateRef;
+		RHI_API auto GetAndOrCreateComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer,
+			FName Name = {}) -> FComputePipelineStateRef;
+		// Draw acquisition must succeed; native compilation is joined before replay.
+		// Precache may return empty and its shared compilation may fail.
 		// Precache and draw use the same identity. Dropping a precache reference
 		// does not cancel creation retained by another owner or recorded command.
 		RHI_API auto PrecacheGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
-			FName Name = {}) -> std::expected<FGraphicsPipelineStateRef, ERHIPipelineRequestRejection>;
+			FName Name = {}) -> FGraphicsPipelineStateRef;
 		RHI_API auto PrecacheComputePipelineState(const FComputePipelineStateInitializer& Initializer,
-			FName Name = {}) -> std::expected<FComputePipelineStateRef, ERHIPipelineRequestRejection>;
+			FName Name = {}) -> FComputePipelineStateRef;
 	}
 
 }

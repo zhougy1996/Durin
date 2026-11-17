@@ -17,6 +17,7 @@
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanMemory.h"
+#include "VulkanQueueTransfer.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanTransferArena.h"
@@ -65,9 +66,34 @@ namespace Durin::VulkanRHI
 					auto ToCompute = GDynamicRHI->RHICreateQueueTransfer(Forward);
 					auto ToGraphics = GDynamicRHI->RHICreateQueueTransfer(Backward);
 					ASSERT_TRUE(ToCompute && ToGraphics);
-					EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer({}));
-					Forward.Destination = Forward.Source;
-					EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer(Forward));
+					auto& Device = *GetVulkanDeviceForTest(FVulkanDynamicRHI::Get());
+					const auto Reject = [&](const FRHIQueueTransferDesc& Invalid) {
+						EXPECT_FALSE(GDynamicRHI->RHICreateQueueTransfer(Invalid));
+						EXPECT_FALSE(FVulkanQueueTransfer::Create(Device, Invalid, true));
+						EXPECT_FALSE(FVulkanQueueTransfer::Create(Device, Invalid, false));
+					};
+					Reject({});
+					auto Invalid = Forward;
+					Invalid.Textures.clear(); Reject(Invalid);
+					Invalid = Forward; Invalid.Destination = Invalid.Source; Reject(Invalid);
+					Invalid = Forward; Invalid.Source = {UINT32_MAX}; Reject(Invalid);
+					Invalid = Forward; Invalid.Destination = {UINT32_MAX}; Reject(Invalid);
+					Invalid = Forward; Invalid.Textures[0].Texture = nullptr; Reject(Invalid);
+					Invalid = Forward; Invalid.Textures[0].Range.NumMips = 0; Reject(Invalid);
+					Invalid = Forward; Invalid.Textures[0].Range.FirstMip = UINT32_MAX; Reject(Invalid);
+					Invalid = Forward; Invalid.Textures[0].Range.Aspects = ERHITextureAspect::Depth; Reject(Invalid);
+					Invalid = Forward; Invalid.Textures.push_back(Invalid.Textures.front()); Reject(Invalid);
+					auto Buffer = GDynamicRHI->RHICreateBuffer(Commands,
+						FRHIBufferCreateDesc::Create("QueueTransferValidation", 64, 4,
+							EBufferUsageFlags::Static | EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+					ASSERT_TRUE(Buffer);
+					FRHIQueueTransferDesc BufferDesc{.Source = Queues.Graphics, .Destination = Queues.Compute,
+						.Buffers = {FRHIBufferTransition::Whole(Buffer, ERHIAccess::None, ERHIAccess::TransferWrite)}};
+					Invalid = BufferDesc; Invalid.Buffers[0].Buffer = nullptr; Reject(Invalid);
+					Invalid = BufferDesc; Invalid.Buffers[0].Size = 0; Reject(Invalid);
+					Invalid = BufferDesc; Invalid.Buffers[0].Offset = UINT64_MAX; Reject(Invalid);
+					Invalid = BufferDesc; Invalid.Buffers[0].RequiredAfter = ERHIAccess::DepthStencilReadWrite; Reject(Invalid);
+					Invalid = BufferDesc; Invalid.Buffers.push_back(Invalid.Buffers.front()); Reject(Invalid);
 					const auto Release = Commands.BeginGPUSubmission({.Queue = Queues.Graphics});
 					Commands.ReleaseQueueOwnership(ToCompute);
 					Commands.EndGPUSubmission();
@@ -498,7 +524,7 @@ namespace Durin::VulkanRHI
 			FVulkanTransferArena Arena(*Device, {
 				.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
 				.PageSize = 256, .MaxPageCount = 2, .DebugName = "BoundedBindingPages",
-				.MaxCapacity = 768, .MaxAllocation = 512, .BindingUsage = EBufferUsageFlags::UniformBuffer});
+				.MaxCapacity = 768, .BindingUsage = EBufferUsageFlags::UniformBuffer});
 			auto A = Arena.Acquire(256, 256, Signal);
 			auto B = Arena.Acquire(512, 256, Signal);
 			ASSERT_TRUE(A.Range && B.Range);
@@ -513,7 +539,6 @@ namespace Durin::VulkanRHI
 			EXPECT_FALSE(Pressure.Range);
 			EXPECT_EQ(Pressure.WaitOwner.lock(), LeaseA);
 			EXPECT_EQ(Arena.GetCapacity(), 768u);
-			EXPECT_EQ(Arena.Acquire(513, 16, Signal).AllocationResult, vk::Result::eErrorOutOfPoolMemory);
 			const auto NextSignal = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
 			Commands.EndGPUSubmission();
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);

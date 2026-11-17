@@ -195,11 +195,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckRHIExecutionThread();
 		check(State == EState::IsInsideBegin);
-		if (!DebugName.IsNone())
-		{
-			bRenderPassDebugLabelOpen =
-				Device.GetRHI().GetDebugUtils().BeginNameLabel(Handle, DebugName);
-		}
+		Device.GetRHI().GetDebugUtils().InsertNameLabel(Handle, DebugName);
 		vk::RenderPassBeginInfo BeginInfo;
 
 		BeginInfo
@@ -218,11 +214,6 @@ namespace Durin::VulkanRHI
 		CheckRHIExecutionThread();
 		check(State == EState::IsInsideRenderPass);
 		Handle.endRenderPass();
-		if (bRenderPassDebugLabelOpen)
-		{
-			Device.GetRHI().GetDebugUtils().EndLabel(Handle);
-			bRenderPassDebugLabelOpen = false;
-		}
 		State = EState::IsInsideBegin;
 	}
 

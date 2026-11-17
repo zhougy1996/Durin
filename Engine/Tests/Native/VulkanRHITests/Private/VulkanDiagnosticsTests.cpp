@@ -94,14 +94,14 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Statistics.NamingFailureCount, 0u);
 	}
 
-	TEST(FVulkanDebugUtilsTests, UnavailableNameLabelsAreCountedAndNonFatal)
+	TEST(FVulkanDebugUtilsTests, UnavailableNameMarkersAreCountedAndNonFatal)
 	{
 		FVulkanDebugUtils DebugUtils;
 		const auto CommandBuffer = vk::CommandBuffer(
 			reinterpret_cast<VkCommandBuffer>(uintptr_t{1}));
-		EXPECT_FALSE(DebugUtils.BeginNameLabel(CommandBuffer, FName{}));
+		DebugUtils.InsertNameLabel(CommandBuffer, FName{});
 		EXPECT_EQ(DebugUtils.Snapshot().LabelUnavailableSkipCount, 0u);
-		EXPECT_FALSE(DebugUtils.BeginNameLabel(CommandBuffer, FName("Pass_42")));
+		DebugUtils.InsertNameLabel(CommandBuffer, FName("Pass_42"));
 		EXPECT_EQ(DebugUtils.Snapshot().LabelUnavailableSkipCount, 1u);
 		EXPECT_EQ(DebugUtils.Snapshot().LabelBeginCount, 0u);
 	}
@@ -204,84 +204,136 @@ namespace Durin::VulkanRHI
 	TEST_F(FVulkanDiagnosticsIntegrationTests,
 		PublicBufferNamingAndNestedDiagnosticRegionsRemainBalanced)
 	{
-		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			_putenv_s("DURIN_VULKAN_VALIDATION", "on");
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDebugUtils().ResetStatistics();
+
+				FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
+				FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
+					Immediate, FRHIBufferCreateDesc::Create(
+						"Stage2NamedBuffer", 256, 16,
+						EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static));
+				ASSERT_TRUE(Buffer);
+				std::string Utf8BoundaryName(254, 'a');
+				Utf8BoundaryName += "\xc3\xa9";
+				auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
+				VulkanRHI->GetDebugUtils().NameObject(
+					static_cast<FVulkanBuffer*>(Buffer.GetReference())->GetHandle(),
+					Utf8BoundaryName);
+				std::string Outer = "Stage2Outer";
+				Immediate.BeginDiagnosticRegion(Outer);
+				Outer = "MutatedAfterRecording";
+				Immediate.BeginDiagnosticRegion("Stage2Inner");
+				Immediate.EndDiagnosticRegion();
+				Immediate.EndDiagnosticRegion();
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+					ERHISubmitFlags::SubmitToGPU);
+				GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+					auto* Context = GDynamicRHI->RHIGetDefaultContext();
+					Context->RHIBeginDiagnosticRegion("NativeOuter");
+					Context->RHIBeginDiagnosticRegion("NativeInner");
+					Context->RHISubmitCommands();
+					Context->RHIEndDiagnosticRegion();
+					Context->RHIEndDiagnosticRegion();
+					Context->RHISubmitCommands();
+				});
+
+				const auto BeforePass = VulkanRHI->GetDebugUtils().Snapshot();
+				EXPECT_GE(BeforePass.NamingAttemptCount, 2u);
+				EXPECT_EQ(BeforePass.NamingFailureCount, 0u);
+				EXPECT_EQ(BeforePass.LabelBeginCount, 6u);
+				EXPECT_EQ(BeforePass.LabelEndCount, 6u);
+				EXPECT_EQ(BeforePass.ActiveLabelDepth, 0u);
+				EXPECT_GE(BeforePass.LabelHighWater, 2u);
+
+				FRHITextureCreateDesc RenderTargetDesc = FRHITextureCreateDesc::Create2D(
+					"Stage2RegionRenderTarget", 4, 4, EPixelFormat::RGBA8_UNORM);
+				RenderTargetDesc.Flags = ETextureCreateFlags::RenderTargetable;
+				FTextureRHIRef RenderTarget =
+					GDynamicRHI->RHICreateTexture(Immediate, RenderTargetDesc);
+				ASSERT_TRUE(RenderTarget);
+				FRHIRenderPassInfo PassInfo;
+				PassInfo.RenderTargetLayout.NumColorRenderTargets = 1;
+				auto& Attachment =
+					PassInfo.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+				Attachment.Format = EPixelFormat::RGBA8_UNORM;
+				Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
+				Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
+				Attachment.InitialLayout = ERHITextureLayout::Undefined;
+				Attachment.InitialAccess = ERHIAccess::None;
+				Attachment.FinalLayout = ERHITextureLayout::ColorAttachment;
+				Attachment.FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
+				PassInfo.ColorRenderTargets[0] = RenderTarget;
+				Immediate.SwitchPipeline(ERHIPipeline::Graphics);
+				Immediate.BeginDiagnosticRegion("Stage2OutsidePass");
+				Immediate.BeginRenderPass(PassInfo, "Stage2RenderPass_42");
+				Immediate.EndDiagnosticRegion();
+				Immediate.BeginDiagnosticRegion("Stage2InsidePass");
+				Immediate.EndRenderPass();
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				Immediate.EndDiagnosticRegion();
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				const auto AfterPass = VulkanRHI->GetDebugUtils().Snapshot();
+				EXPECT_EQ(AfterPass.LabelBeginCount - BeforePass.LabelBeginCount, 3u);
+				EXPECT_EQ(AfterPass.LabelEndCount - BeforePass.LabelEndCount, 3u);
+				EXPECT_EQ(AfterPass.LabelInsertCount - BeforePass.LabelInsertCount, 1u);
+				EXPECT_EQ(AfterPass.ActiveLabelDepth, 0u);
+
+				Buffer = nullptr;
+				RenderTarget = nullptr;
+				Immediate.ImmediateFlush(
+					EImmediateFlushType::FlushRHIThreadFlushResources);
+			});
+			RHIExit();
+		}
+	}
+
+	TEST_F(FVulkanDiagnosticsIntegrationTests, RegionsRemainOptionalAcrossSubmissions)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			_putenv_s("DURIN_VULKAN_VALIDATION", "off");
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				auto& Immediate = FRHICommandListImmediate::Get();
+				Immediate.EndDiagnosticRegion(); // Malformed metadata cannot poison dispatch.
+				Immediate.BeginDiagnosticRegion({});
+				Immediate.BeginDiagnosticRegion(std::string(254, 'x') + "\xc3\xa9");
+				for (uint32 Index = 0; Index < 80; ++Index) Immediate.BeginDiagnosticRegion("Deep");
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				for (uint32 Index = 0; Index < 82; ++Index) Immediate.EndDiagnosticRegion();
+				Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+				const auto Stats = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDebugUtils().Snapshot();
+				EXPECT_EQ(Stats.LabelBeginCount, 0u);
+				EXPECT_EQ(Stats.LabelEndCount, 0u);
+				EXPECT_EQ(Stats.ActiveLabelDepth, 0u);
+			});
+			RHIExit();
+		}
+	}
+
+	TEST_F(FVulkanDiagnosticsIntegrationTests, OpenRegionsStillRejectPhysicalQueueChanges)
+	{
+		struct FRestoreQueuePolicy
+		{
+			std::string Previous = std::getenv("DURIN_VULKAN_COMPUTE_QUEUE")
+				? std::getenv("DURIN_VULKAN_COMPUTE_QUEUE") : "";
+			~FRestoreQueuePolicy() { _putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", Previous.c_str()); }
+		} RestoreQueuePolicy;
+		_putenv_s("DURIN_VULKAN_COMPUTE_QUEUE", "same-family");
 		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-		::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
-			static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDebugUtils().ResetStatistics();
-
-			FRHICommandListImmediate& Immediate = FRHICommandListImmediate::Get();
-			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
-				Immediate, FRHIBufferCreateDesc::Create(
-					"Stage2NamedBuffer", 256, 16,
-					EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static));
-			ASSERT_TRUE(Buffer);
-			std::string Utf8BoundaryName(254, 'a');
-			Utf8BoundaryName += "\xc3\xa9";
-			auto* VulkanRHI = static_cast<FVulkanDynamicRHI*>(GDynamicRHI);
-			VulkanRHI->GetDebugUtils().NameObject(
-				static_cast<FVulkanBuffer*>(Buffer.GetReference())->GetHandle(),
-				Utf8BoundaryName);
-			std::string Outer = "Stage2Outer";
-			Immediate.BeginDiagnosticRegion(Outer);
-			Outer = "MutatedAfterRecording";
-			Immediate.BeginDiagnosticRegion("Stage2Inner");
-			Immediate.EndDiagnosticRegion();
-			Immediate.EndDiagnosticRegion();
-			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-				ERHISubmitFlags::SubmitToGPU);
-			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
-				auto* Context = GDynamicRHI->RHIGetDefaultContext();
-				Context->RHIBeginDiagnosticRegion("NativeOuter");
-				Context->RHIBeginDiagnosticRegion("NativeInner");
-				Context->RHISubmitCommands();
-				Context->RHIEndDiagnosticRegion();
-				Context->RHIEndDiagnosticRegion();
-				Context->RHISubmitCommands();
-			});
-
-			const auto BeforePass = VulkanRHI->GetDebugUtils().Snapshot();
-			EXPECT_GE(BeforePass.NamingAttemptCount, 2u);
-			EXPECT_EQ(BeforePass.NamingFailureCount, 0u);
-			EXPECT_EQ(BeforePass.LabelBeginCount, 6u);
-			EXPECT_EQ(BeforePass.LabelEndCount, 6u);
-			EXPECT_EQ(BeforePass.ActiveLabelDepth, 0u);
-			EXPECT_GE(BeforePass.LabelHighWater, 2u);
-
-			FRHITextureCreateDesc RenderTargetDesc = FRHITextureCreateDesc::Create2D(
-				"Stage2RegionRenderTarget", 4, 4, EPixelFormat::RGBA8_UNORM);
-			RenderTargetDesc.Flags = ETextureCreateFlags::RenderTargetable;
-			FTextureRHIRef RenderTarget =
-				GDynamicRHI->RHICreateTexture(Immediate, RenderTargetDesc);
-			ASSERT_TRUE(RenderTarget);
-			FRHIRenderPassInfo PassInfo;
-			PassInfo.RenderTargetLayout.NumColorRenderTargets = 1;
-			auto& Attachment =
-				PassInfo.RenderTargetLayout.ColorAttachments[0].RenderTarget;
-			Attachment.Format = EPixelFormat::RGBA8_UNORM;
-			Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
-			Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
-			Attachment.InitialLayout = ERHITextureLayout::Undefined;
-			Attachment.InitialAccess = ERHIAccess::None;
-			Attachment.FinalLayout = ERHITextureLayout::ColorAttachment;
-			Attachment.FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
-			PassInfo.ColorRenderTargets[0] = RenderTarget;
-			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-				auto* Context = GDynamicRHI->RHIGetDefaultContext();
-				Context->RHIBeginDiagnosticRegion("Stage2OutsidePass");
-				Context->RHIBeginRenderPass(PassInfo, "Stage2RenderPass_42");
-				Context->RHIEndRenderPass();
-				Context->RHIEndDiagnosticRegion();
-			});
-			const auto AfterPass = VulkanRHI->GetDebugUtils().Snapshot();
-			EXPECT_EQ(AfterPass.LabelBeginCount - BeforePass.LabelBeginCount, 2u);
-			EXPECT_EQ(AfterPass.LabelEndCount - BeforePass.LabelEndCount, 2u);
-			EXPECT_EQ(AfterPass.ActiveLabelDepth, 0u);
-
-			Buffer = nullptr;
-			RenderTarget = nullptr;
-			Immediate.ImmediateFlush(
-				EImmediateFlushType::FlushRHIThreadFlushResources);
-		});
+		const auto& Queues = GDynamicRHI->RHIGetQueueCapabilities();
+		if (Queues.Compute == Queues.Graphics) GTEST_SKIP() << "Independent physical compute queue unavailable.";
+		EXPECT_DEATH(GCommandListExecutor.ExecuteSynchronousOperation(false, [&] {
+			auto* Context = GDynamicRHI->RHIGetDefaultContext();
+			Context->RHIBeginDiagnosticRegion("MustStayOnGraphics");
+			Context->RHIGetQueueContext(Queues.Compute);
+		}), "Diagnostic and timing intervals must close");
 	}
 
 	TEST_F(FVulkanDiagnosticsIntegrationTests,

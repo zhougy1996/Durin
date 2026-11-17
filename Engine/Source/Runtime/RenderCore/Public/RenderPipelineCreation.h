@@ -24,29 +24,26 @@ namespace Durin
 		FRenderPipelinePreparationBatch();
 		~FRenderPipelinePreparationBatch();
 		FRenderPipelinePreparationBatch(const FRenderPipelinePreparationBatch&) = delete;
-		auto CollectRequests(std::vector<std::shared_ptr<FPipelineState>>& Out) const -> bool;
+		auto CollectRequests(std::vector<std::shared_ptr<FPipelineState>>& Out) const -> void;
 		auto HasResourcePending() const -> bool { return bResourcePending; }
-		auto GetRequestCount() const -> size_t { return Requests.size(); }
-		auto HasCapacityExceeded() const -> bool { return bCapacityExceeded; }
-		static constexpr size_t MaximumRequests = 4096;
+		auto GetPipelineCount() const -> size_t { return PipelineStates.size(); }
 		static auto HasPending() -> bool;
 		static auto MarkResourcePending() -> void;
 		static auto Add(const std::shared_ptr<FPipelineState>& Pipeline) -> void;
 	private:
 		FRenderPipelinePreparationBatch* Previous;
-		bool bCapacityExceeded = false;
 		bool bResourcePending = false;
-		std::vector<std::shared_ptr<FPipelineState>> Requests;
+		std::vector<std::shared_ptr<FPipelineState>> PipelineStates;
 	};
 
 	// Retains shared cache identities for one transactional slot.
-	class FRenderPipelineRequests
+	class FRenderPipelineStateSet
 	{
 	public:
-		RENDERCORE_API FRenderPipelineRequests();
-		RENDERCORE_API ~FRenderPipelineRequests();
-		RENDERCORE_API FRenderPipelineRequests(FRenderPipelineRequests&&) noexcept;
-		RENDERCORE_API auto operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests&;
+		RENDERCORE_API FRenderPipelineStateSet();
+		RENDERCORE_API ~FRenderPipelineStateSet();
+		RENDERCORE_API FRenderPipelineStateSet(FRenderPipelineStateSet&&) noexcept;
+		RENDERCORE_API auto operator=(FRenderPipelineStateSet&&) noexcept -> FRenderPipelineStateSet&;
 		RENDERCORE_API auto Reset() -> void;
 		RENDERCORE_API auto CollectPreparationRequests() const -> void;
 		RENDERCORE_API auto HasFailed() const -> bool;
@@ -54,17 +51,17 @@ namespace Durin
 	private:
 		struct FState;
 		std::unique_ptr<FState> State;
-		friend class FRenderPipelineRequestScope;
+		friend class FRenderPipelinePreparationScope;
 	};
 
 	// Nested resource slots each capture their own requests. A Pending candidate
 	// exposes no payload and does not consume a failure retry.
-	class RENDERCORE_API FRenderPipelineRequestScope
+	class RENDERCORE_API FRenderPipelinePreparationScope
 	{
 	public:
-		FRenderPipelineRequestScope(FRenderPipelineRequests& Requests, const FRenderResourceGeneration& Generation);
-		~FRenderPipelineRequestScope();
-		FRenderPipelineRequestScope(const FRenderPipelineRequestScope&) = delete;
+		FRenderPipelinePreparationScope(FRenderPipelineStateSet& PipelineStates, const FRenderResourceGeneration& Generation);
+		~FRenderPipelinePreparationScope();
+		FRenderPipelinePreparationScope(const FRenderPipelinePreparationScope&) = delete;
 		auto HasPending() const -> bool { return bPending; }
 		auto MarkPending() -> void { bPending = true; }
 		auto PropagatePending(bool bResourcePending) -> void;
@@ -75,8 +72,8 @@ namespace Durin
 		static auto Graphics(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRef;
 		static auto Compute(FName Name, const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRef;
 	private:
-		FRenderPipelineRequests& Requests;
-		FRenderPipelineRequestScope* Previous;
+		FRenderPipelineStateSet& PipelineStates;
+		FRenderPipelinePreparationScope* Previous;
 		const FRenderResourceGeneration& Generation;
 		bool bPending = false;
 

@@ -32,7 +32,6 @@ namespace Durin
 		uint64 ReplayDurationNanoseconds = 0;
 		uint64 WaitCount = 0;
 		uint64 SynchronousOperationCount = 0;
-		uint64 RejectedSubmissionCount = 0;
 		uint64 PendingBatchCount = 0;
 		uint64 PendingPayloadBytes = 0;
 		uint64 LastSubmittedSerial = 0;

@@ -147,7 +147,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"SkyBoxPipeline",
 						Initializer
 					);
@@ -157,7 +157,7 @@ namespace Durin
 				Initializer.DepthStencilState.bEnableWrite = false;
 				Initializer.DepthStencilState.CompareOp = ERHIDepthCompareOp::Equal;
 				Candidate.HybridBootstrapPipelineState =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						"SkyBoxHybridBootstrapPipeline", Initializer
 					);
 

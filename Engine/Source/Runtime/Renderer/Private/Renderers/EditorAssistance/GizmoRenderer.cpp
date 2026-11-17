@@ -466,7 +466,7 @@ namespace Durin
 						Initializer.PipelineLayout =
 							Base->ShaderSet.GetPipelineLayout();
 						FGraphicsPipelineStateRef Candidate =
-							FRenderPipelineRequestScope::Graphics(
+							FRenderPipelinePreparationScope::Graphics(
 								FName(PipelineName), Initializer);
 						if (Candidate == nullptr)
 						{

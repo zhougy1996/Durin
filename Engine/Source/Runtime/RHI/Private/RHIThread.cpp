@@ -1,3 +1,4 @@
+#include "Backend/RHICreation.h"
 #include "RHIThread.h"
 
 #include "CoreGlobals.h"
@@ -35,7 +36,6 @@ namespace Durin
 		std::deque<FRHIThreadQueueEntry> Queue;
 		uint64 LastSubmittedSerial = 0;
 		uint64 CompletedSerial = 0;
-		uint64 FailedSerial = 0;
 		uint32 OutstandingEntryCount = 0;
 		uint32 OutstandingBatchCount = 0;
 		uint32 OutstandingFrameCount = 0;
@@ -112,11 +112,8 @@ namespace Durin
 				if (Entry.Work.IsComplete && !Entry.Work.IsComplete())
 				{
 					std::lock_guard Lock(State.Mutex);
-					if (State.FailedSerial == 0)
-					{
-						State.Queue.push_front(std::move(Entry));
-						continue;
-					}
+					State.Queue.push_front(std::move(Entry));
+					continue;
 				}
 
 				const uint32 CompletedFrameCount = Entry.Work.FrameCount;
@@ -126,22 +123,14 @@ namespace Durin
 					DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Consumer.ReleaseWork");
 					Entry.Work = {};
 				}
-				bool bFailed;
 				{
 					std::lock_guard Lock(State.Mutex);
 					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes, CompletedFrameCount);
-					bFailed = State.FailedSerial != 0;
-					if (!bFailed)
-					{
-						State.CompletedSerial = Entry.Serial;
-					}
+					State.CompletedSerial = Entry.Serial;
 				}
 				State.CompletionCV.notify_all();
 				State.WorkCV.notify_all();
-				if (bFailed)
-				{
-					break;
-				}
+
 			}
 
 			{
@@ -207,7 +196,6 @@ namespace Durin
 			State->AdmissionState = ERHIThreadAdmissionState::Running;
 			State->LastSubmittedSerial = 0;
 			State->CompletedSerial = 0;
-			State->FailedSerial = 0;
 			State->OutstandingEntryCount = 0;
 			State->OutstandingBatchCount = 0;
 			State->OutstandingPayloadBytes = 0;
@@ -272,30 +260,6 @@ namespace Durin
 		RunnableOwner.reset();
 	}
 
-	auto FRHIThread::ReportExternalFailure() -> void
-	{
-		std::deque<FRHIThreadQueueEntry> Rejected;
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (State->FailedSerial != 0) return;
-			State->FailedSerial = State->CompletedSerial == std::numeric_limits<uint64>::max()
-				? State->CompletedSerial : State->CompletedSerial + 1;
-			State->AdmissionState = ERHIThreadAdmissionState::Draining;
-			Rejected.swap(State->Queue);
-			for (const auto& Entry : Rejected)
-			{
-				--State->OutstandingEntryCount;
-				State->OutstandingBatchCount -= Entry.Work.BatchCount;
-				State->OutstandingFrameCount -= Entry.Work.FrameCount;
-				State->OutstandingPayloadBytes -= Entry.Work.PayloadBytes;
-			}
-			State->RejectedWorkCount += Rejected.size();
-		}
-		Rejected.clear();
-		State->CompletionCV.notify_all();
-		State->WorkCV.notify_all();
-	}
-
 	auto FRHIThread::GetWakeCallback() const -> std::function<void()>
 	{
 		return [Weak = std::weak_ptr<FState>(State)] {
@@ -307,41 +271,32 @@ namespace Durin
 		};
 	}
 
-	auto FRHIThread::Enqueue(FRHIThreadWork& Work) -> FRHIThreadSubmission
+	auto FRHIThread::Enqueue(FRHIThreadWork& Work) -> uint64
 	{
 		if (IsInRHIThread())
 		{
 			std::lock_guard Lock(State->Mutex);
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::SelfEnqueue};
+			RHITerminateOnFailure("RHI queue", "SelfEnqueue");
 		}
 		if (!Work.Execute)
 		{
 			std::lock_guard Lock(State->Mutex);
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::InvalidWork};
+			RHITerminateOnFailure("RHI queue", "InvalidWork");
 		}
 
 		std::unique_lock Lock(State->Mutex);
 		if (Work.FrameCount > State->Limits.MaxFrames)
 		{
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::Oversized};
+			RHITerminateOnFailure("RHI queue", "Oversized");
 		}
 
-		auto GetAdmissionFailure = [this]() -> ERHIThreadEnqueueResult {
-			if (State->FailedSerial != 0)
-			{
-				return ERHIThreadEnqueueResult::Failed;
-			}
-			return State->AdmissionState == ERHIThreadAdmissionState::Draining
-				? ERHIThreadEnqueueResult::Draining
-				: ERHIThreadEnqueueResult::Stopped;
-		};
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
 			++State->RejectedWorkCount;
-			return {.Result = GetAdmissionFailure()};
+			return 0;
 		}
 
 		auto HasCapacity = [this, &Work]() {
@@ -374,12 +329,12 @@ namespace Durin
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
 			++State->RejectedWorkCount;
-			return {.Result = GetAdmissionFailure()};
+			return 0;
 		}
 		if (State->LastSubmittedSerial == std::numeric_limits<uint64>::max())
 		{
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::SerialExhausted};
+			RHITerminateOnFailure("RHI queue", "SerialExhausted");
 		}
 
 		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.Admit");
@@ -401,47 +356,35 @@ namespace Durin
 		// Make accepted submission ownership explicit on every standard library.
 		Work = {};
 		State->WorkCV.notify_one();
-		return {
-			.Result = ERHIThreadEnqueueResult::Accepted,
-			.Serial = Serial
-		};
+		return Serial;
 	}
 
 	auto FRHIThread::EnqueueTerminal(FRHIThreadWork& Work)
-		-> FRHIThreadSubmission
+		-> uint64
 	{
 		if (IsInRHIThread())
 		{
 			std::lock_guard Lock(State->Mutex);
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::SelfEnqueue};
+			RHITerminateOnFailure("RHI queue", "SelfEnqueue");
 		}
 		if (!Work.Execute || Work.BatchCount != 0 || Work.PayloadBytes != 0 || Work.FrameCount != 0)
 		{
 			std::lock_guard Lock(State->Mutex);
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::InvalidWork};
+			RHITerminateOnFailure("RHI queue", "InvalidWork");
 		}
 
 		std::lock_guard Lock(State->Mutex);
-		if (State->FailedSerial != 0)
-		{
-			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::Failed};
-		}
 		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
 		{
 			++State->RejectedWorkCount;
-			return {
-				.Result = State->AdmissionState == ERHIThreadAdmissionState::Draining
-					? ERHIThreadEnqueueResult::Draining
-					: ERHIThreadEnqueueResult::Stopped
-			};
+			return 0;
 		}
 		if (State->LastSubmittedSerial == std::numeric_limits<uint64>::max())
 		{
 			++State->RejectedWorkCount;
-			return {.Result = ERHIThreadEnqueueResult::SerialExhausted};
+			RHITerminateOnFailure("RHI queue", "SerialExhausted");
 		}
 
 		State->AdmissionState = ERHIThreadAdmissionState::Draining;
@@ -463,29 +406,20 @@ namespace Durin
 		Work = {};
 		State->WorkCV.notify_all();
 		State->CompletionCV.notify_all();
-		return {
-			.Result = ERHIThreadEnqueueResult::Accepted,
-			.Serial = Serial
-		};
+		return Serial;
 	}
 
-	auto FRHIThread::EnqueueSynchronous(FRHIThreadWork& Work)
-		-> FRHIThreadSynchronousResult
+	auto FRHIThread::EnqueueSynchronous(FRHIThreadWork& Work) -> bool
 	{
-		FRHIThreadSynchronousResult Result;
-		Result.Submission = Enqueue(Work);
-		if (Result.Submission.IsAccepted())
-		{
-			Result.WaitResult = WaitForSerial(Result.Submission.Serial);
-		}
-		return Result;
+		const uint64 Serial = Enqueue(Work);
+		return Serial != 0 && WaitForSerial(Serial) == ERHIThreadWaitResult::Completed;
 	}
 
 	auto FRHIThread::WaitForSerial(uint64 Serial) const -> ERHIThreadWaitResult
 	{
 		if (IsInRHIThread())
 		{
-			return ERHIThreadWaitResult::SelfWait;
+			RHITerminateOnFailure("RHI queue", "SelfWait");
 		}
 		if (Serial == 0)
 		{
@@ -494,18 +428,13 @@ namespace Durin
 		std::unique_lock Lock(State->Mutex);
 		State->CompletionCV.wait(Lock, [this, Serial]() {
 			return State->CompletedSerial >= Serial
-				|| State->FailedSerial != 0
 				|| State->AdmissionState == ERHIThreadAdmissionState::Stopped;
 		});
 		if (State->CompletedSerial >= Serial)
 		{
 			return ERHIThreadWaitResult::Completed;
 		}
-		if (State->FailedSerial != 0)
-		{
-			return ERHIThreadWaitResult::Failed;
-		}
-		return ERHIThreadWaitResult::Stopped;
+		return ERHIThreadWaitResult::Canceled;
 	}
 
 	auto FRHIThread::Flush() const -> ERHIThreadWaitResult
@@ -526,7 +455,6 @@ namespace Durin
 			.AdmissionState = State->AdmissionState,
 			.LastSubmittedSerial = State->LastSubmittedSerial,
 			.CompletedSerial = State->CompletedSerial,
-			.FailedSerial = State->FailedSerial,
 			.OutstandingEntryCount = State->OutstandingEntryCount,
 			.OutstandingBatchCount = State->OutstandingBatchCount,
 			.OutstandingFrameCount = State->OutstandingFrameCount,

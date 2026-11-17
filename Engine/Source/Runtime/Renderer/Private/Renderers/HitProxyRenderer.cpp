@@ -140,10 +140,10 @@ namespace Durin
 		const uint64 Height = uint64(View.ViewportY) + View.ViewportHeight;
 		if ((Request.bSceneGeometry && !Scene) || !View.ViewportWidth || !View.ViewportHeight || !FHitProxyMap::IsValidExtent(Width, Height) || Commands.IsInsideRenderPass()) { return {}; }
 		auto& Preparations = Request.Cache ? Request.Cache->GetPreparations_RenderThread() : *Request.Preparations;
-		FRenderPipelineRequestScope PreparationScope(Preparations, Coordinator.GetGeneration_RenderThread());
+		FRenderPipelinePreparationScope PreparationScope(Preparations, Coordinator.GetGeneration_RenderThread());
 		struct FReleasePreparations
 		{
-			FRenderPipelineRequestScope& Scope;
+			FRenderPipelinePreparationScope& Scope;
 			~FReleasePreparations() { if (!Scope.HasPending()) Scope.ReleasePreparations(); }
 		} ReleasePreparations{PreparationScope};
 		FViewRenderTelemetry Telemetry;
@@ -292,7 +292,7 @@ namespace Durin
 				Pipeline.DepthStencilState.bEnableWrite = !Foreground;
 				Pipeline.DepthStencilState.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
 				Pipeline.PipelineLayout = OverlayShaders.GetPipelineLayout();
-				OverlayPipelines[Foreground] = FRenderPipelineRequestScope::Graphics("HitProxyOverlay", Pipeline);
+				OverlayPipelines[Foreground] = FRenderPipelinePreparationScope::Graphics("HitProxyOverlay", Pipeline);
 				if (!OverlayPipelines[Foreground]) { return {}; }
 			}
 			std::vector<FHitProxyOverlayVertex> Vertices;

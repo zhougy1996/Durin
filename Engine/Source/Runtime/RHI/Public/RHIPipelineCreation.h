@@ -3,29 +3,24 @@
 #include "CoreMinimal.h"
 
 #include "RHIResources.h"
-#include "Threading/TaskRuntime.h"
 
 namespace Durin
 {
 	class FRHIPipelineStateCache;
 	// Monotonic shared-work priority; an executing native compile is not preempted.
 	enum class EPSOPrecachePriority : uint8 { Low, Medium, High, Highest, Num, NotSet = Num };
-	// Budget control blocks are owned by RHI, so backend unload does not invalidate
+	// Accounting control blocks are owned by RHI, so backend unload does not invalidate
 	// metadata-only request/layout handles retained after device shutdown.
-	class RHI_API FRHIPipelineMetadataBudget
+	// Logical CPU metadata only; accounting never rejects resource creation.
+	class RHI_API FRHIPipelineMetadataTracker
 	{
 	public:
-		explicit FRHIPipelineMetadataBudget(uint64 InCapacity = 64ull * 1024 * 1024);
+		FRHIPipelineMetadataTracker();
 		auto Reserve(uint64 Bytes) -> std::shared_ptr<void>;
 		auto GetUsedBytes() const -> uint64 { return Used->load(); }
 	private:
 		std::shared_ptr<std::atomic<uint64>> Used;
-		uint64 Capacity;
 	};
-	RHI_API auto IsPipelineCreationPayloadBounded(const FGraphicsPipelineStateInitializer& Initializer,
-		std::string_view DebugName) -> bool;
-	RHI_API auto IsPipelineCreationPayloadBounded(const FComputePipelineStateInitializer& Initializer,
-		std::string_view DebugName) -> bool;
 	struct FRHIGraphicsPipelineCreationInputs
 	{
 		FRHIGraphicsPipelineCreationInputs(const FGraphicsPipelineStateInitializer& InInitializer,
@@ -50,57 +45,29 @@ namespace Durin
 		const FShaderRHIRef Shader;
 	};
 
-	// For accepted requests, Failed means compilation returned no usable pipeline.
-	enum class ERHIPipelineRequestState : uint8 { Pending, Ready, Failed, Canceled };
-	enum class ERHIPipelineRequestRejection : uint8
-	{
-		None, Unsupported, Closed, InvalidDescription, CapacityExceeded
-	};
+	// Failed means compilation returned no usable pipeline.
+	enum class ERHIPipelineState : uint8 { Pending, Ready, Failed, Canceled };
 
-	struct FRHIPipelineCreationResult
-	{
-		ERHIPipelineRequestState State = ERHIPipelineRequestState::Pending;
-		FGraphicsPipelineStateRHIRef Graphics;
-		FComputePipelineStateRHIRef Compute;
-	};
-
-	// Handles for the same live pipeline key share compilation state and completion.
-	// Dropping a handle never cancels compilation retained by the device queue.
-	class FRHIPipelineCreationRequest
+	// Read-only shared outcome metadata. Retains no native pipeline or completion task.
+	class RHI_API FRHIPipelineStateObservation
 	{
 	public:
-		FRHIPipelineCreationRequest() = default;
-		auto operator==(const FRHIPipelineCreationRequest&) const -> bool = default;
-		RHI_API static auto Rejected(ERHIPipelineRequestRejection Reason) -> FRHIPipelineCreationRequest;
-		auto IsAccepted() const -> bool { return State != nullptr; }
-		auto GetRejection() const -> ERHIPipelineRequestRejection { return Rejection; }
-		RHI_API auto GetState() const -> ERHIPipelineRequestState;
-		// Shares only the authoritative outcome, without retaining native resources.
-		RHI_API auto GetStateObservation() const -> std::shared_ptr<const std::atomic<ERHIPipelineRequestState>>;
-		RHI_API auto GetResult() const -> FRHIPipelineCreationResult;
-		// One completion signal per compilation. Canceled means device closure or
-		// retirement; dropping a caller never signals completion or cancels work.
-		RHI_API auto GetTaskHandle() const -> Tasks::FTask;
-		RHI_API auto IsCompute() const -> bool;
-		// Immutable recording metadata is available before the native pipeline.
-		RHI_API auto GetPipelineLayout() const -> std::shared_ptr<const FPipelineLayoutDesc>;
-		RHI_API auto BoostPriority(EPSOPrecachePriority Priority) const -> void;
-		RHI_API auto GetPriority() const -> EPSOPrecachePriority;
-		// Pending waits reject replay and Core workers; asynchronous callers use completion edges.
-		RHI_API auto Wait() const -> bool;
-		RHI_API auto CanWait() const -> bool;
+		FRHIPipelineStateObservation() = default;
+		explicit operator bool() const { return Outcome != nullptr; }
+		auto operator==(const FRHIPipelineStateObservation&) const -> bool = default;
+		auto GetState() const -> ERHIPipelineState;
 	private:
-		struct FState;
-		std::shared_ptr<FState> State;
-		ERHIPipelineRequestRejection Rejection = ERHIPipelineRequestRejection::Unsupported;
-		friend class FPipelineCompileQueue;
+		explicit FRHIPipelineStateObservation(std::shared_ptr<const std::atomic<ERHIPipelineState>> InOutcome)
+			: Outcome(std::move(InOutcome)) {}
+		std::shared_ptr<const std::atomic<ERHIPipelineState>> Outcome;
+		friend class FPipelineCompilation;
 	};
+
 
 	struct FRHIPipelineCreationStatistics
 	{
 		uint32 UnfinishedRequests = 0;
 		uint64 UnfinishedDescriptionBytes = 0;
-		uint64 RejectedRequests = 0;
 		uint64 SharedPendingHits = 0;
 		uint64 NativeRequests = 0;
 	};

@@ -1,4 +1,5 @@
 #include "VulkanUniformBufferPool.h"
+#include "Threading/TaskRuntime.h"
 #include "VulkanDynamicBufferPool.h"
 
 #include "VulkanDevice.h"

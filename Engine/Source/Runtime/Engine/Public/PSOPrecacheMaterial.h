@@ -87,8 +87,7 @@ namespace Durin
 	using FMaterialPSOCollector = std::function<std::expected<bool, std::string>(
 		const FMaterialPSOPrecacheParams&, FMaterialPSOPrecacheCollection&, EPSOPrecacheCollectionPhase)>;
 
-	using FMaterialPSOSubmitter = std::function<std::expected<std::shared_ptr<FPipelineState>,
-		ERHIPipelineRequestRejection>(const FPSOPrecacheData&)>;
+	using FMaterialPSOSubmitter = std::function<std::shared_ptr<FPipelineState>(const FPSOPrecacheData&)>;
 
 
 	class FMaterialPSORequestManager

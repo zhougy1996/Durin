@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "RHIPipelineCreation.h"
+#include "Backend/RHIPipelineCompilation.h"
 
 namespace Durin
 {
@@ -15,11 +15,10 @@ namespace Durin
 	using FRHIComputePipelineBatchItem = TRHIPipelineBatchItem<FComputePipelineStateInitializer>;
 	struct FRHIPipelineCreationBatch
 	{
-		ERHIPipelineRequestRejection Rejection = ERHIPipelineRequestRejection::None;
-		std::vector<FRHIPipelineCreationRequest> Items;
+		std::vector<FPipelineCompilation> Items;
 	};
 
-	// Owns a bounded device queue and one counted Core drain task. Native callbacks
+	// Owns a device queue and one counted Core drain task. Native callbacks
 	// must never schedule replay or wait for a consuming command batch.
 	class RHI_API FPipelineCompileQueue
 	{
@@ -29,9 +28,9 @@ namespace Durin
 		FPipelineCompileQueue(const FRHICapabilities& Capabilities, FBackend Backend);
 		~FPipelineCompileQueue();
 		auto RequestGraphics(const FGraphicsPipelineStateInitializer& Initializer,
-			std::string_view DebugName) -> FRHIPipelineCreationRequest;
+			std::string_view DebugName) -> FPipelineCompilation;
 		auto RequestCompute(const FComputePipelineStateInitializer& Initializer,
-			std::string_view DebugName) -> FRHIPipelineCreationRequest;
+			std::string_view DebugName) -> FPipelineCompilation;
 		auto RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
 		auto RequestComputeBatch(std::span<const FRHIComputePipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
 		auto StopAndWait() -> void;
@@ -41,9 +40,9 @@ namespace Durin
 	private:
 		// Cache keys were validated against the cache's capability snapshot.
 		auto RequestValidated(const FGraphicsPipelineStateInitializer& Initializer,
-			std::string_view DebugName, const FGraphicsPipelineStateKey& Key) -> FRHIPipelineCreationRequest;
+			std::string_view DebugName, const FGraphicsPipelineStateKey& Key) -> FPipelineCompilation;
 		auto RequestValidated(const FComputePipelineStateInitializer& Initializer,
-			std::string_view DebugName, const FComputePipelineStateKey& Key) -> FRHIPipelineCreationRequest;
+			std::string_view DebugName, const FComputePipelineStateKey& Key) -> FPipelineCompilation;
 		auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
 		friend class FRHIPipelineStateCache;
 		struct FState;

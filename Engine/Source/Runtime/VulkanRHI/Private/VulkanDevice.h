@@ -333,8 +333,8 @@ namespace Durin::VulkanRHI
 		std::array<FVulkanFrame*, FrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;
 
-		FRHIPipelineMetadataBudget CacheMetadata;
-		FRHIPipelineMetadataBudget NativeMetadata{std::numeric_limits<uint64>::max()};
+		FRHIPipelineMetadataTracker CacheMetadata;
+		FRHIPipelineMetadataTracker NativeMetadata;
 		FRHIPipelineCacheStatistics PipelineCacheStatistics;
 		mutable std::recursive_mutex PipelineCacheStatisticsMutex;
 

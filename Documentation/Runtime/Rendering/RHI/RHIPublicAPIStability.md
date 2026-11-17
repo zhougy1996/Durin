@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 ## Directory Contract
 
@@ -26,8 +26,10 @@ prefer a complete header boundary rather than adding unrelated unstable members
 to a stable type.
 
 Detailed parameter-validation errors and validators live in
-`Backend/RHIValidation.h`. Internal cache-capacity exceptions live in
-`Backend/RHICreation.h`. Recording and execution report validation diagnostics inside
+`Backend/RHIValidation.h`. Required-success native creation failures terminate through
+`Backend/RHICreation.h`. Internal PSO completion tasks and typed native accessors
+live in `Backend/RHIPipelineStateCacheBackend.h`; ordinary callers use typed cache
+identities and read-only state observations. Recording and execution report validation diagnostics inside
 RHI. Ordinary consumers use resource descriptions and commands, or the boolean
 `IsTextureViewDescValid` query when selecting attachment views. Conformance
 fixtures may inspect the backend-only error codes and context.
@@ -99,21 +101,23 @@ blend descriptions; consumers retain the shared references instead of copying
 or mutating description arrays. Content equality and hashing remain the owning
 [graphics contract](GraphicsStateAndBindings.md#graphics-pipeline-contract).
 
-Pipeline creation requests expose `GetTaskHandle()` for CPU completion
-dependencies. It is a result-free task event; successful event completion means
-only that the shared compilation settled. Equal live keys share the same state
-and event; inspect request GetState/GetResult for domain failure or device
-closure. Dropping a handle never cancels compilation. Requests expose no
-individual Cancel operation. StopAndWait closes admission, settles queued work,
-and joins active compilation and LastDrain capture retirement before resource
-release. The erased Core handle contains no native result or cancellation
-authority. The declaration depends on `Threading/TaskRuntime.h`, while task/event
-composition belongs to the [Core task API](../../Core/TaskSystem.md#composition).
-The request publishes its outcome and native result before notifying terminal
-subscribers, including queued-work cancellation during device closure. Active
-compilation signals only after its native call returns. RHI queue readiness reads
-the shared outcome; subscribers can inspect the published result without another
-wait. Core owns completion notification ordering.
+Public pipeline acquisition exposes typed state objects, not per-caller creation
+requests. `GetAndOrCreate*PipelineState` must acquire a valid identity;
+the recording command list receives its compilation dependency during acquisition.
+`Precache*PipelineState` allows an empty result and compilation failure. Required
+compilation failure is fatal before draw/dispatch replay. Public identities expose
+state, immutable layout metadata, and typed native access. Their internal
+`FPipelineCompilation`, typed native storage, and CPU completion event belong to the
+Backend seam. Equal live keys share one state and completion event. Successful
+CPU event completion means compilation settled, not that it succeeded or the GPU
+finished. Read-only state observations retain no native resources.
+
+Dropping a reference never cancels compilation. StopAndWait closes acquisition,
+settles queued work, and joins active compilation and drain capture retirement.
+Resource retirement then clears native results in surviving identities. The shared
+outcome and native result publish before terminal subscribers are notified;
+active compilation signals only after its native call returns. Task/event
+composition follows the [Core task API](../../Core/TaskSystem.md#composition).
 
 An enum value, resource flag, shader frequency, or feature level is vocabulary,
 not proof that a backend implements the feature. Runtime support requires a

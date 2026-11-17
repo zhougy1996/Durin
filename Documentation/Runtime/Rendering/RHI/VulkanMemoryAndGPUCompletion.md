@@ -199,8 +199,9 @@ Normal pressure does not wait for unrelated device work. Arena teardown
 drains submitted queues before destroying native pages.
 
 Arena acquisition retains explicit configured-capacity pressure and retirement
-waits. `eErrorOutOfPoolMemory` can represent the configured per-allocation limit;
-it is not a native OOM classification. Actual native page allocation errors,
+waits. Acquisition returns a mapped range or the retirement owner/sync point
+needed for a capacity wait. It has no artificial per-allocation limit or synthetic
+Vulkan error result. Actual native page allocation errors,
 including host/device OOM, terminate through the common RHI failure boundary.
 Readback may reject logical admission without converting a native allocation
 failure into a recoverable request result.

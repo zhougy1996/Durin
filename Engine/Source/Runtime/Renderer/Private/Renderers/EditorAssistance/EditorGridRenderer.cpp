@@ -164,7 +164,7 @@ namespace Durin
 						? "Present"
 						: "Offscreen");
 				FGraphicsPipelineStateRef Candidate =
-					FRenderPipelineRequestScope::Graphics(
+					FRenderPipelinePreparationScope::Graphics(
 						FName(PipelineName), Initializer);
 				if (Candidate == nullptr)
 				{

@@ -41,12 +41,13 @@ all selected resources and native PSOs completed, not coverage of future routes.
 | Unfinished work | Owner and progress rule |
 | --- | --- |
 | CPU Shader compilation | `FShaderMapPreparation` and compiler requests; unchanged dependencies suppress the slot factory until progress or invalidation. |
-| Unsubmitted PSO admission | The resource/material owner retries rejected capacity work, preserving accepted identities. |
+| Unsubmitted PSO descriptions | The resource/material owner submits through the shared cache, preserving accepted identities without synthetic capacity rejection. |
 | Accepted native PSO compilation | Shared `FPipelineState` handles; polling reads completion without resubmission or scene traversal. |
 | Terminal error, cancellation or stale generation | No automatic retry of that handle; retain diagnostics and create a new request when appropriate. |
 
-Native Shaders are created lazily by `FShaderMapResource`. PSOs use
-`PipelineStateCache::GetAndOrCreate*`; renderer payloads retain cached
+Native Shaders are created lazily by `FShaderMapResource`. Preparation uses
+`PipelineStateCache::Precache*PipelineState`; required draw acquisition uses
+`GetAndOrCreate*PipelineState` with a command list. Renderer payloads retain cached
 `FGraphicsPipelineStateRef` / `FComputePipelineStateRef` before native completion.
 Drawing records the handle, boosts pending demand and attaches its execution
 dependency. The RHI executor gates replay at closed command scopes. There is no
@@ -55,8 +56,8 @@ general frame quota or render-thread compile wait. See
 [resource recovery](RendererResourceRecovery.md).
 
 Preparation batches collect shared PSO handles, including ready cache hits,
-without waiting. A view observation admits at most 4,096 unique handles; overflow
-fails explicitly. Completed resource descriptions are not rerun just because a
+without waiting or an artificial handle-count admission cap. Completed resource
+descriptions are not rerun just because a
 native PSO is Pending. CPU/resource prerequisites can still require another pump.
 
 The request retains PSO handles only. ShaderMaps, renderer slots and recorded RHI
@@ -145,19 +146,19 @@ must be declared before proxy readiness is known; an explicitly empty set is
 ready. Optional compilation or failure cannot revoke completed required coverage.
 At most eight requests collect required coverage concurrently; completed required
 collection releases its slot immediately. This is a concurrency limit, not a
-per-frame budget. Capacity rejection retries only unsubmitted descriptions;
-accepted requests are observed rather than recreated. Invalid descriptions and
+per-frame budget. Accepted requests are observed rather than recreated. Invalid descriptions and
 terminal admission/compilation errors do not retry each frame.
 
-Material/component observer counts are not fixed quotas. The device queue and
-pipeline identity cache own their separate capacity limits. Completed collection
+Material/component observer counts and pipeline cache identities have no
+artificial admission quotas. The device queue retains ordinary backpressure
+and serialized native compilation. Completed collection
 releases program/initializer/native observations on the resource-owning thread;
 its weak sharing index does not keep abandoned work alive. A successful precache
 records preparation, not permanent native residency. Drawing still uses the
 shared cache and recorded execution dependencies after native cache eviction.
 
 `PSOPrecacheValidation` is optional observation. Collection registers descriptions
-before admission, including a capacity-deferred suffix. Canceling an unsubmitted
+before submission, including the complete unsubmitted suffix. Canceling an unsubmitted
 observer withdraws its coverage. Shared native outcome observations outlive their
 observer without retaining native resources. `Check` is read-only; `RecordUse`
 counts actual submitted draws once per full identity. Invalidation clears capture

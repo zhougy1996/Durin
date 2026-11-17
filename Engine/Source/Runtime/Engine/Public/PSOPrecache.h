@@ -96,7 +96,7 @@ namespace Durin
 		ENGINE_API auto Clear() -> void;
 		ENGINE_API auto Track(const FPSOPrecacheData& Data) -> std::shared_ptr<FRecord>;
 		ENGINE_API auto Observe(const std::shared_ptr<FRecord>& Record,
-			std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome) -> void;
+			FRHIPipelineStateObservation Outcome) -> void;
 		ENGINE_API auto Withdraw(const std::shared_ptr<FRecord>& Record) -> void;
 		ENGINE_API auto Check(const FGraphicsPipelineStateInitializer& Initializer, int32 CollectorIndex,
 			const FVertexFactoryType* VertexFactoryType) -> FCheckResult;

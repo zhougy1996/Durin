@@ -510,14 +510,14 @@ namespace Durin
 
 	namespace
 	{
-		auto SharedDescriptionBudget() -> FRHIPipelineMetadataBudget&
+		auto SharedDescriptionMetadata() -> FRHIPipelineMetadataTracker&
 		{
-			static FRHIPipelineMetadataBudget Budget;
-			return Budget;
+			static FRHIPipelineMetadataTracker Metadata;
+			return Metadata;
 		}
 
 		// Weak indexes retain no description data. Equality checks resolve hash
-		// collisions; live keys retain the canonical object and its budget lease.
+		// collisions; live keys retain the canonical object and its accounting lease.
 		template<typename T>
 		auto SharePipelineDescription(T Value, uint64 Bytes, uint64 Hash)
 			-> std::shared_ptr<const T>
@@ -534,10 +534,8 @@ namespace Durin
 				if (auto Existing = It->second.lock(); Existing && *Existing == Value)
 					return Existing;
 			std::erase_if(Pool.Entries, [](const auto& Entry) { return Entry.second.expired(); });
-			if (Pool.Entries.size() >= 4096)
-				throw FRHIResourceCapacityError("shared pipeline description capacity exhausted");
 			struct FOwner { T Value; std::shared_ptr<void> Metadata; };
-			auto Lease = SharedDescriptionBudget().Reserve(Bytes + sizeof(FOwner) + 128);
+			auto Lease = SharedDescriptionMetadata().Reserve(Bytes + sizeof(FOwner) + 128);
 			auto Owner = std::make_shared<FOwner>(std::move(Value), std::move(Lease));
 			std::shared_ptr<const T> Result(Owner, &Owner->Value);
 			Pool.Entries.emplace(Hash, Result);
@@ -732,7 +730,6 @@ namespace Durin
 			Key.PrimitiveTopology = Initializer.PrimitiveTopology;
 			return Key;
 		}
-		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIGraphicsPipelineError::CapacityExceeded); }
 		catch (const std::bad_alloc&)
 		{
 			RHITerminateOnOutOfMemory("RHI pipeline metadata");
@@ -868,7 +865,6 @@ namespace Durin
 			Key.PipelineLayout = SharePipelineLayout(Initializer.PipelineLayout);
 			return Key;
 		}
-		catch (const FRHIResourceCapacityError&) { return std::unexpected(ERHIComputePipelineError::CapacityExceeded); }
 		catch (const std::bad_alloc&)
 		{
 			RHITerminateOnOutOfMemory("RHI pipeline metadata");

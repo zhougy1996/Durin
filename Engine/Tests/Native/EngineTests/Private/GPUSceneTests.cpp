@@ -713,12 +713,12 @@ namespace
         auto Key = BuildGraphicsPipelineStateKey(Description, &Capabilities);
         ASSERT_TRUE(Key) << ToString(Key.error());
         auto Cached = Cache.GetGraphics(Description, "parallel recording");
-        ASSERT_TRUE(Cached); ASSERT_TRUE((*Cached)->Wait());
+        ASSERT_TRUE(Cached); ASSERT_EQ(Cached->Wait(), ERHIPipelineState::Ready);
         EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
             constexpr uint32 Count = 513;
             const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
             FMeshPassPipelineInitializer Initializer;
-            Initializer.PipelineState = *Cached;
+            Initializer.PipelineState = Cached;
             const auto Pipeline = std::make_shared<const FMeshPassPipeline>(std::move(Initializer));
             FMeshPassBindings Bindings; Bindings.Vertex.Shader = Shader;
             std::vector<FMeshDrawCommand> Draws(Count);

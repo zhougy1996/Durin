@@ -304,7 +304,7 @@ TEST_F(FThumbnailVulkanTests, ImageCaptureKeepsSubmittedReadbackWhileNativeObser
 	ASSERT_TRUE(Entered.WaitFor(5.0));
 	std::atomic<uint32> ImageCalls = 0;
 	FThumbnailCapture Capture(Contract.Output);
-	Capture.SetImageRenderer([Pipeline = *Pending, &ImageCalls](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
+	Capture.SetImageRenderer([Pipeline = Pending, &ImageCalls](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
 		++ImageCalls;
 		FRenderPipelinePreparationBatch::Add(Pipeline);
 		auto Output = GDynamicRHI->RHICreateTexture(Commands,
@@ -329,7 +329,7 @@ TEST_F(FThumbnailVulkanTests, ImageCaptureKeepsSubmittedReadbackWhileNativeObser
 	}));
 	EXPECT_TRUE(bCaptured) << Error;
 	EXPECT_EQ(ImageCalls.load(), 1u);
-	EXPECT_EQ((*Pending)->GetState(), ERHIPipelineRequestState::Pending);
+	EXPECT_EQ(Pending->GetState(), ERHIPipelineState::Pending);
 }
 
 TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)

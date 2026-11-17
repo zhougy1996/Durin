@@ -227,11 +227,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateQueueTransfer(const FRHIQueueTransferDesc& Desc) -> std::shared_ptr<FRHIQueueTransfer>
 	{
-		if (!Device || Desc.Source == Desc.Destination || !Device->FindQueue(Desc.Source)
-			|| !Device->FindQueue(Desc.Destination) || (Desc.Buffers.empty() && Desc.Textures.empty())) return {};
-
-		if (!ValidateBufferTransitions(Desc.Buffers) || !ValidateTextureTransitions(Desc.Textures)) return {};
-		return std::make_shared<FVulkanQueueTransfer>(*Device, Desc.Source, Desc.Destination, Desc.Buffers, Desc.Textures);
+		return Device ? FVulkanQueueTransfer::Create(*Device, Desc) : nullptr;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTransition(FRHITransitionDesc Desc)

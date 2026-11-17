@@ -1,4 +1,5 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
+#include "Threading/TaskRuntime.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionArithmetic.h"
 #include "Materials/MaterialExpressionScene.h"
@@ -4652,14 +4653,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	EXPECT_EQ(Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel()), InitialConfig);
 	std::unique_ptr<RendererPrivate::FMeshPassProcessor> DirectCollector;
 	FMaterialPSOPrecacheParams DirectParams;
-	FRenderPipelineRequests DirectCommandRequests;
+	FRenderPipelineStateSet DirectCommandRequests;
 	FGraphicsPipelineStateRef ExpectedCommandPipeline;
 	FPSOPrecacheDataArray DirectInitializers;
 	DirectInitializers.emplace_back(); // The append interface must preserve its prefix.
 	struct FDirectCollectorCleanup {
 		std::unique_ptr<RendererPrivate::FMeshPassProcessor>& Processor;
 		FPSOPrecacheDataArray& Initializers;
-		FRenderPipelineRequests& Requests;
+		FRenderPipelineStateSet& Requests;
 		FGraphicsPipelineStateRef& Expected;
 		~FDirectCollectorCleanup() {
 			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); Requests.Reset(); Expected.reset(); });
@@ -4710,9 +4711,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				const auto& Initializer = DirectInitializers[1].GetGraphicsInitializer();
 				if (!ExpectedCommandPipeline) {
 					const auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, "ExpectedPrecachedMeshCommand");
-					ASSERT_TRUE(Request); ExpectedCommandPipeline = *Request;
+					ASSERT_TRUE(Request); ExpectedCommandPipeline = Request;
 				}
-				FRenderPipelineRequestScope Requests(DirectCommandRequests, Generation);
+				FRenderPipelinePreparationScope Requests(DirectCommandRequests, Generation);
 				std::shared_ptr<const FMeshPassPipeline> Command;
 				const auto DrawContext = DirectCollector->PreparePipeline(Batch, "AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
 				CommandReady = static_cast<bool>(DrawContext);
@@ -4763,8 +4764,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					ValidationData.VertexFactoryType = &Factory->GetType();
 					const auto ValidationNative = PipelineStateCache::PrecacheGraphicsPipelineState(ValidationInitializer, "MeshSubmissionValidation");
 					ASSERT_TRUE(ValidationNative);
-					ASSERT_EQ((*ValidationNative)->GetState(), ERHIPipelineRequestState::Ready);
-					PSOPrecacheValidation::Observe(PSOPrecacheValidation::Track(ValidationData), (*ValidationNative)->GetStateObservation());
+					ASSERT_EQ(ValidationNative->GetState(), ERHIPipelineState::Ready);
+					PSOPrecacheValidation::Observe(PSOPrecacheValidation::Track(ValidationData), ValidationNative->GetStateObservation());
 
 					FMaterialRenderBinding Binding;
 					FMaterialRenderValidationDiagnostic BindingDiagnostic;

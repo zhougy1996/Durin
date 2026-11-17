@@ -18,7 +18,7 @@ namespace
 	class FMaterialPSOTestPipelines
 	{
 	public:
-		FMaterialPSOTestPipelines() : Released(Gate.get_future().share())
+		explicit FMaterialPSOTestPipelines(bool FailNative = false) : Released(Gate.get_future().share())
 		{
 			using namespace Durin;
 			OwnsScheduler = !IsTaskSchedulerRunning();
@@ -29,9 +29,9 @@ namespace
 				.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
 				.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
 				.CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
-				.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Input, const auto&) -> FComputePipelineStateRHIRef {
+				.CreateCompute = [this, FailNative](const FRHIComputePipelineCreationInputs& Input, const auto&) -> FComputePipelineStateRHIRef {
 					if (Input.DebugName == "gated") Released.wait();
-					return MakeRefCount<FRHIComputePipelineState>();
+					return FailNative ? nullptr : MakeRefCount<FRHIComputePipelineState>();
 				},
 			};
 			Cache = std::make_unique<FRHIPipelineStateCache>(Caps, std::move(Backend));
@@ -43,8 +43,9 @@ namespace
 			if (OwnsScheduler) Durin::ShutdownTaskScheduler();
 			Durin::RHIFlushDeferredResources();
 		}
+		auto Retire() -> void { Release(); Cache->ReleaseResources(); }
 		auto Release() -> void { if (!GateReleased) { GateReleased = true; Gate.set_value(); } }
-		auto TryRequestSlot(uint32 Slot) -> std::expected<std::shared_ptr<Durin::FComputePipelineState>, Durin::ERHIPipelineRequestRejection>
+		auto TryRequestSlot(uint32 Slot) -> std::shared_ptr<Durin::FComputePipelineState>
 		{
 			using namespace Durin;
 			FComputePipelineStateInitializer Input;
@@ -52,7 +53,7 @@ namespace
 			Input.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
 				EShaderStageFlags::Compute, Slot, ERHIBindingType::UniformBuffer);
 			auto Result = Cache->GetCompute(Input, "slot");
-			if (Result) Descriptions.insert_or_assign(Result->get(), FPSOPrecacheData(Input));
+			if (Result) Descriptions.insert_or_assign(Result.get(), FPSOPrecacheData(Input));
 			return Result;
 		}
 		auto Request(bool Gated, bool Failed = false) -> std::shared_ptr<Durin::FPipelineState>
@@ -62,9 +63,9 @@ namespace
 			Input.ComputeShader = Shader;
 			Input.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, Failed ? 12u : Gated ? 8u : 4u});
 			const auto Result = Cache->GetCompute(Input, Failed ? "failed" : Gated ? "gated" : "ready");
-			require(Result.has_value());
-			Descriptions.insert_or_assign(Result->get(), FPSOPrecacheData(Input));
-			return *Result;
+			require(Result);
+			Descriptions.insert_or_assign(Result.get(), FPSOPrecacheData(Input));
+			return Result;
 		}
 		auto Describe(const std::shared_ptr<Durin::FPipelineState>& Pipeline, bool Required = true)
 			-> Durin::FPSOPrecacheData
@@ -81,15 +82,14 @@ namespace
 			return FPSOPrecacheData(Input);
 		}
 		auto Submit(const Durin::FPSOPrecacheData& Data)
-			-> std::expected<std::shared_ptr<Durin::FPipelineState>, Durin::ERHIPipelineRequestRejection>
+			-> std::shared_ptr<Durin::FPipelineState>
 		{
 			using namespace Durin;
 			const auto& Input = Data.GetComputeInitializer();
 			const uint32 Size = Input.PipelineLayout.PushConstantRanges.empty() ? 0 : Input.PipelineLayout.PushConstantRanges.front().Size;
-			if (Size == 12) return std::unexpected(ERHIPipelineRequestRejection::InvalidDescription);
+			if (Size == 12) return {};
 			auto Result = Cache->GetCompute(Input, Size == 12 ? "failed" : Size == 8 ? "gated" : "ready");
-			if (!Result) return std::unexpected(Result.error());
-			return *Result;
+			return Result;
 		}
 
 	private:
@@ -213,8 +213,8 @@ TEST(FPSOPrecacheTests, MaterialPSOInitializerValidationAndInvalidationPrecedePu
     using namespace Durin;
     uint32 Submissions = 0;
     FMaterialPSORequestManager Invalid([&](const FPSOPrecacheData&)
-        -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
-        ++Submissions; return std::unexpected(ERHIPipelineRequestRejection::InvalidDescription);
+        -> std::shared_ptr<FPipelineState> {
+        ++Submissions; return {};
     });
     auto Request = Invalid.PrecachePSOs(MaterialPSOTestParams());
     Invalid.Pump([](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
@@ -226,7 +226,7 @@ TEST(FPSOPrecacheTests, MaterialPSOInitializerValidationAndInvalidationPrecedePu
 
     FMaterialPSOTestPipelines Pipelines;
     auto Ready = Pipelines.Request(false);
-    ASSERT_TRUE(Ready->Wait());
+    ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     FMaterialPSORequestManager* Current = nullptr;
     FMaterialPSORequestManager Retiring([&](const FPSOPrecacheData& Data) {
         const auto Copy = Data; Current->Invalidate(); return Pipelines.Submit(Copy);
@@ -267,8 +267,8 @@ TEST(FPSOPrecacheTests, RejectedOptionalPSODiagnosticsDoNotAuthorizeAnInvalidate
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
     auto Ready = Pipelines.Request(false), Failed = Pipelines.Request(false, true);
-    ASSERT_TRUE(Ready->Wait());
-	EXPECT_TRUE(Failed->Wait());
+    ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
+	EXPECT_EQ(Failed->Wait(), ERHIPipelineState::Ready);
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Shared = Manager.PrecachePSOs(MaterialPSOTestParams());
     FMaterialPSOPrecacheOwner Owner;
@@ -333,7 +333,7 @@ TEST(FPSOPrecacheTests, MaterialPSORequestsShareWorkWithoutSharingCancellationOr
 	using namespace Durin;
 	FMaterialPSOTestPipelines Pipelines;
 	auto Ready = Pipelines.Request(false);
-	ASSERT_TRUE(Ready->Wait());
+	ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
 	auto First = Manager.PrecachePSOs(MaterialPSOTestParams());
 	auto Params = MaterialPSOTestParams();
@@ -367,7 +367,7 @@ TEST(FPSOPrecacheTests, ComponentPSOSetsSeparateRequiredReadinessFromAllWorkAndI
 	using namespace Durin;
 	FMaterialPSOTestPipelines Pipelines;
 	auto Ready = Pipelines.Request(false);
-	ASSERT_TRUE(Ready->Wait());
+	ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
 	auto Gated = Pipelines.Request(true);
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
 	auto First = Manager.PrecachePSOs(MaterialPSOTestParams());
@@ -391,7 +391,7 @@ TEST(FPSOPrecacheTests, ComponentPSOSetsSeparateRequiredReadinessFromAllWorkAndI
 	EXPECT_EQ(Component.Poll(), EMaterialPSOPrecacheState::Ready);
 	EXPECT_EQ(NewCallbacks, 1u);
 	Component.Poll(); EXPECT_EQ(NewCallbacks, 1u);
-	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
+	Pipelines.Release(); ASSERT_EQ(Gated->Wait(), ERHIPipelineState::Ready);
 	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	EXPECT_FALSE(Component.SetLatestJobSetCompleted(OldBatch));
 	EXPECT_EQ(OldCallbacks, 0u);
@@ -412,7 +412,7 @@ TEST(FPSOPrecacheTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggr
 {
 	using namespace Durin;
 	FMaterialPSOTestPipelines Pipelines;
-	auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+	auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
 	auto Failure = Manager.PrecachePSOs(MaterialPSOTestParams());
 	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { return std::unexpected(std::string("fixture collection failure")); });
@@ -426,7 +426,7 @@ TEST(FPSOPrecacheTests, MaterialPSOFailuresRemainObservableAndRequestsHaveNoAggr
 	Manager.Invalidate();
 	auto RejectedInput = Pipelines.Request(false, true);
 	(void)RejectedInput->Wait();
-	ASSERT_EQ(RejectedInput->GetState(), ERHIPipelineRequestState::Ready);
+	ASSERT_EQ(RejectedInput->GetState(), ERHIPipelineState::Ready);
 	Failure = Manager.PrecachePSOs(MaterialPSOTestParams());
 	Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { Out.PSOInitializers = {Pipelines.Describe(RejectedInput, true)}; return true; });
 	const auto NativeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -470,7 +470,7 @@ TEST(FPSOPrecacheTests, MaterialPSOCompletionReleasesPipelinesAndResourcesButKee
 {
 	using namespace Durin;
 	FMaterialPSOTestPipelines Pipelines;
-	auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+	auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
 	std::weak_ptr<FPipelineState> WeakPipeline = Ready;
 	auto Resources = std::make_shared<int>(42);
 	std::weak_ptr<int> WeakResources = Resources;
@@ -510,13 +510,13 @@ TEST(FPSOPrecacheTests, CompletedCollectionDoesNotOccupySlotsDuringNativeCompila
 	};
 	for (uint32 Frame = 0; Frame < 5; ++Frame) Manager.Pump(Collect);
 	EXPECT_EQ(Collections, 24u);
-	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
+	Pipelines.Release(); ASSERT_EQ(Gated->Wait(), ERHIPipelineState::Ready);
 	for (uint32 Frame = 0; Frame < 4; ++Frame) Manager.Pump(Collect);
 	EXPECT_EQ(Collections, 24u);
 	EXPECT_EQ(Manager.GetPendingRequestCount(), 0u);
 }
 
-TEST(FPSOPrecacheTests, MaterialPSOResumesAfterNativeCapacityWithoutResubmittingAcceptedPrefix)
+TEST(FPSOPrecacheTests, MaterialPSOAcceptsWorkBeyondFormerNativeQueueCapacity)
 {
 	using namespace Durin;
 	FMaterialPSOTestPipelines Pipelines;
@@ -525,14 +525,14 @@ TEST(FPSOPrecacheTests, MaterialPSOResumesAfterNativeCapacityWithoutResubmitting
 	for (uint32 Slot = 0; Slot < 254; ++Slot)
 	{
 		auto Result = Pipelines.TryRequestSlot(Slot); ASSERT_TRUE(Result);
-		Occupied.push_back(*Result);
+		Occupied.push_back(Result);
 	}
-	uint32 Accepted = 0, Rejected = 0;
+	uint32 Accepted = 0;
 	std::weak_ptr<FPipelineState> Prefix;
 	FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) {
 		auto Result = Pipelines.Submit(Data);
-		if (Result) { ++Accepted; if (Accepted == 1) Prefix = *Result; }
-		else { EXPECT_EQ(Result.error(), ERHIPipelineRequestRejection::CapacityExceeded); ++Rejected; }
+		if (Result) { ++Accepted; if (Accepted == 1) Prefix = Result; }
+		else { ADD_FAILURE() << "Valid material pipeline was rejected"; }
 		return Result;
 	});
 	auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
@@ -543,13 +543,13 @@ TEST(FPSOPrecacheTests, MaterialPSOResumesAfterNativeCapacityWithoutResubmitting
 		return true;
 	};
 	Manager.Pump(Collect); Manager.Pump(Collect);
-	EXPECT_EQ(Accepted, 1u); EXPECT_EQ(Rejected, 2u);
+	EXPECT_EQ(Accepted, 2u);
 	EXPECT_EQ(Collections, 1u);
 	EXPECT_EQ(Request.GetProgress().Pipelines, 2u);
 	EXPECT_GE(Request.GetProgress().Pending, 1u);
 	EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Pending);
-	Pipelines.Release(); ASSERT_TRUE(Gated->Wait());
-	for (auto& Pipeline : Occupied) ASSERT_TRUE(Pipeline->Wait());
+	Pipelines.Release(); ASSERT_EQ(Gated->Wait(), ERHIPipelineState::Ready);
+	for (auto& Pipeline : Occupied) ASSERT_EQ(Pipeline->Wait(), ERHIPipelineState::Ready);
 
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	while (Request.GetProgress().State == EMaterialPSOPrecacheState::Pending && std::chrono::steady_clock::now() < Deadline)
@@ -594,7 +594,7 @@ TEST(FPSOPrecacheTests, RequiredPSOCollectionDoesNotWaitForOptionalShaders)
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
     auto Ready = Pipelines.Request(false);
-    ASSERT_TRUE(Ready->Wait());
+    ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
     bool OptionalReady = false;
@@ -659,9 +659,9 @@ TEST(FPSOPrecacheTests, EmptyApplicableMaterialPSOSetPublishesReadinessWithoutNa
     using namespace Durin;
     uint32 Submissions = 0;
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData&)
-        -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
+        -> std::shared_ptr<FPipelineState> {
         ++Submissions;
-        return std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded);
+        return {};
     });
     auto Params = MaterialPSOTestParams();
     Params.PrecachePSOParams.Participation = {true, false};
@@ -713,13 +713,13 @@ TEST(FPSOPrecacheTests, OptionalPSOAdmissionFailuresDoNotWithholdRequiredPipelin
         SCOPED_TRACE(Failure);
         FMaterialPSOTestPipelines Pipelines;
         auto Ready = Pipelines.Request(false);
-        ASSERT_TRUE(Ready->Wait());
+        ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
         FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data)
-            -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
+            -> std::shared_ptr<FPipelineState> {
             if (Data.bRequired) return Pipelines.Submit(Data);
             if (Failure == 1) return std::shared_ptr<FPipelineState>{};
             if (Failure == 2) throw std::runtime_error("Optional backend rejection");
-            return std::unexpected(ERHIPipelineRequestRejection::Unsupported);
+            return {};
         });
         auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
         Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
@@ -823,7 +823,7 @@ TEST(FPSOPrecacheTests, ComponentPriorityBoostReachesSharedMaterialCollectionAnd
 	EXPECT_EQ(Order, (std::vector<bool>{true, false}));
 	EXPECT_EQ(Native->GetPriority(), EPSOPrecachePriority::Highest);
 	EXPECT_FALSE(Component.IsReadyForProxyCreation());
-	Pipelines.Release(); EXPECT_TRUE(Native->Wait());
+	Pipelines.Release(); EXPECT_EQ(Native->Wait(), ERHIPipelineState::Ready);
 	Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
 	EXPECT_TRUE(Component.IsReadyForProxyCreation());
 	EXPECT_FALSE(Component.CheckPSOPrecachingAndBoostPriority(EPSOPrecachePriority::Highest));
@@ -837,10 +837,10 @@ TEST(FPSOPrecacheTests, OptionalAdmissionFailureStillObservesPendingAndRejectedR
         SCOPED_TRACE(bRequiredFails);
         FMaterialPSOTestPipelines Pipelines;
         auto Required = Pipelines.Request(!bRequiredFails, bRequiredFails);
-		if (bRequiredFails) EXPECT_TRUE(Required->Wait());
+		if (bRequiredFails) EXPECT_EQ(Required->Wait(), ERHIPipelineState::Ready);
 		FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data)
-            -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
-            if (!Data.bRequired) return std::unexpected(ERHIPipelineRequestRejection::Unsupported);
+            -> std::shared_ptr<FPipelineState> {
+            if (!Data.bRequired) return {};
             return Pipelines.Submit(Data);
         });
         auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
@@ -854,7 +854,7 @@ TEST(FPSOPrecacheTests, OptionalAdmissionFailureStillObservesPendingAndRejectedR
             EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Pending);
             EXPECT_EQ(Request.GetProgress().RequiredPending, 1u);
             Pipelines.Release();
-            ASSERT_TRUE(Required->Wait());
+            ASSERT_EQ(Required->Wait(), ERHIPipelineState::Ready);
             Manager.Pump([](const auto&, auto&, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> { ADD_FAILURE(); return false; });
         }
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -1019,7 +1019,7 @@ TEST(FPSOPrecacheTests, OptionalCompilationDoesNotBlockNewUrgentRequiredCollecti
 {
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     auto Optional = Pipelines.Request(true);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     std::vector<FMaterialPSOPrecacheRequestID> Requests;
@@ -1046,7 +1046,7 @@ TEST(FPSOPrecacheTests, LargeOptionalCoverageAndComponentSetsDoNotRejectRequired
 {
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
     Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
@@ -1068,7 +1068,7 @@ TEST(FPSOPrecacheTests, FullPSOValidationDistinguishesMissLateHitAndFailureWithP
     using namespace PSOPrecacheValidation;
     struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     auto Data = Pipelines.Describe(Ready);
     Data.PSOCollectorIndex = 3;
     Data.VertexFactoryType = MaterialPSOTestParams().VertexFactoryData.VertexFactoryType;
@@ -1078,7 +1078,9 @@ TEST(FPSOPrecacheTests, FullPSOValidationDistinguishesMissLateHitAndFailureWithP
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Missed);
     auto Record = Track(Data); ASSERT_TRUE(Record);
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::TooLate);
-    Observe(Record, std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Failed));
+    FMaterialPSOTestPipelines Failing(true);
+    auto Failed = Failing.Request(false); ASSERT_EQ(Failed->Wait(), ERHIPipelineState::Failed);
+    Observe(Record, Failed->GetStateObservation());
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Failed);
     auto Successful = Track(Data);
     Observe(Successful, Ready->GetStateObservation());
@@ -1087,7 +1089,10 @@ TEST(FPSOPrecacheTests, FullPSOValidationDistinguishesMissLateHitAndFailureWithP
     EXPECT_EQ(Hit.PSOCollectorIndex, 3);
     EXPECT_EQ(Hit.VertexFactoryType, Data.VertexFactoryType);
     auto Canceled = Track(Data);
-    Observe(Canceled, std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Canceled));
+    FMaterialPSOTestPipelines Retired;
+    auto RetiredNative = Retired.Request(false); ASSERT_EQ(RetiredNative->Wait(), ERHIPipelineState::Ready);
+    Retired.Retire();
+    Observe(Canceled, RetiredNative->GetStateObservation());
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Hit);
     EXPECT_EQ(Check(Pipelines.DescribeSlot(7).GetComputeInitializer(), 3).Result, EResult::Missed);
     EXPECT_EQ(GetStatistics().Hit, 0u); // Lookup and preparation are not draw/dispatch usage.
@@ -1110,7 +1115,7 @@ TEST(FPSOPrecacheTests, MaterialSubmissionPublishesValidationBeforeReleasingNati
     SetEnabled(true);
     struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
     Manager.Pump([&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
@@ -1139,39 +1144,11 @@ TEST(FPSOPrecacheTests, PendingRequiredCollectionRemainsBoundedAcrossPumps)
     for (const auto& Request : Requests) EXPECT_FALSE(Request.GetProgress().bRequiredReady);
 }
 
-TEST(FPSOPrecacheTests, NativeAdmissionPressureIsTrackedAsLateRatherThanMissingCoverage)
-{
-    using namespace Durin;
-    using namespace PSOPrecacheValidation;
-    SetEnabled(true);
-    struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
-    FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
-    bool Admit = false;
-    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data)
-        -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
-        if (!Admit) return std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded);
-        return Pipelines.Submit(Data);
-    });
-    auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
-    auto Collect = [&](const auto&, auto& Out, EPSOPrecacheCollectionPhase Phase) -> std::expected<bool, std::string> {
-        auto Data = Pipelines.Describe(Ready); Data.PSOCollectorIndex = 5;
-        Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
-    };
-    Manager.Pump(Collect);
-    EXPECT_FALSE(Request.GetProgress().bRequiredReady);
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 5).Result, EResult::TooLate);
-    Admit = true;
-    Manager.Pump(Collect);
-    EXPECT_TRUE(Request.GetProgress().bRequiredReady);
-    EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 5).Result, EResult::Hit);
-}
-
 TEST(FPSOPrecacheTests, RequiredSubmissionPrecedesOlderOptionalWork)
 {
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     auto Optional = Pipelines.Request(true);
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) { return Pipelines.Submit(Data); });
     auto Params = MaterialPSOTestParams(); Params.Priority = EPSOPrecachePriority::Highest;
@@ -1210,14 +1187,18 @@ TEST(FPSOPrecacheTests, ImmediateCollectionsReturnTheirSlotWithinTheSamePump)
     for (const auto& Request : Requests) EXPECT_TRUE(Request.GetProgress().bRequiredReady);
 }
 
-TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeRequestAcceptanceAndWithdrawnOnAbandonment)
+TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeSubmissionAndWithdrawnOnRejection)
 {
     using namespace Durin; using namespace PSOPrecacheValidation;
     SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
-    FMaterialPSORequestManager Manager([](const FPSOPrecacheData&) -> std::expected<std::shared_ptr<FPipelineState>, ERHIPipelineRequestRejection> {
-        return std::unexpected(ERHIPipelineRequestRejection::CapacityExceeded);
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
+    uint32 Submissions = 0;
+    FMaterialPSORequestManager Manager([&](const FPSOPrecacheData&) -> std::shared_ptr<FPipelineState> {
+        ++Submissions;
+        for (uint32 Index = 0; Index < 8; ++Index)
+            EXPECT_EQ(Check(Pipelines.DescribeSlot(Index).GetComputeInitializer(), 4).Result, EResult::TooLate);
+        return {};
     });
     auto Request = Manager.PrecachePSOs(MaterialPSOTestParams());
     {
@@ -1227,8 +1208,8 @@ TEST(FPSOPrecacheTests, EntireCollectedSuffixIsTrackedBeforeRequestAcceptanceAnd
         Out.bRequiredPSOsCollected = true; return true;
       });
     }
-    for (uint32 Index = 0; Index < 8; ++Index)
-        EXPECT_EQ(Check(Pipelines.DescribeSlot(Index).GetComputeInitializer(), 4).Result, EResult::TooLate);
+    EXPECT_EQ(Submissions, 1u);
+    EXPECT_EQ(Request.GetProgress().State, EMaterialPSOPrecacheState::Failed);
     Request = {};
     Manager.Pump({});
     EXPECT_EQ(Check(Pipelines.DescribeSlot(7).GetComputeInitializer(), 4).Result, EResult::Failed);
@@ -1247,12 +1228,12 @@ TEST(FPSOPrecacheTests, NativeCompletionAndCancellationAreVisibleWithoutAnotherM
         Out.PSOInitializers.push_back(Data); Out.bRequiredPSOsCollected = true; return true;
     });
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::TooLate);
-    Pipelines.Release(); ASSERT_TRUE(Native->Wait());
+    Pipelines.Release(); ASSERT_EQ(Native->Wait(), ERHIPipelineState::Ready);
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Hit);
     Request = {}; Native.reset(); Manager.Pump({});
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Hit);
     // Outcome observation retains readiness independently of the native object.
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     auto A = Track(Pipelines.Describe(Ready)), B = Track(Pipelines.Describe(Ready));
     Withdraw(A);
     EXPECT_EQ(Check(Pipelines.Describe(Ready).GetComputeInitializer(), 2).Result, EResult::TooLate);
@@ -1278,9 +1259,9 @@ TEST(FPSOPrecacheTests, AbandonedMaterialRequestStillObservesSharedCompilationOu
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::TooLate);
     Pipelines.Release();
     const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (Outcome->load() == ERHIPipelineRequestState::Pending
+    while (Outcome.GetState() == ERHIPipelineState::Pending
         && std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
-    EXPECT_EQ(Outcome->load(), ERHIPipelineRequestState::Ready);
+    EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Ready);
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 2).Result, EResult::Hit);
 }
 
@@ -1339,7 +1320,7 @@ TEST(FPSOPrecacheTests, HigherPriorityRequiredSubmissionPrecedesLowerPriorityPre
 {
     using namespace Durin;
     FMaterialPSOTestPipelines Pipelines;
-    auto Ready = Pipelines.Request(false); ASSERT_TRUE(Ready->Wait());
+    auto Ready = Pipelines.Request(false); ASSERT_EQ(Ready->Wait(), ERHIPipelineState::Ready);
     bool Submitted = false, PreparedLower = false;
     FMaterialPSORequestManager Manager([&](const FPSOPrecacheData& Data) {
         Submitted = true; return Pipelines.Submit(Data);
@@ -1427,9 +1408,12 @@ TEST(FPSOPrecacheTests, ValidationCompactsRepeatedSuccessfulCanceledAndConcurren
     using namespace Durin; using namespace PSOPrecacheValidation;
     SetEnabled(true); struct FCleanup { ~FCleanup() { SetEnabled(false); } } Cleanup;
     FMaterialPSOTestPipelines Pipelines;
-    auto Native = Pipelines.Request(false); ASSERT_TRUE(Native->Wait());
+    auto Native = Pipelines.Request(false); ASSERT_EQ(Native->Wait(), ERHIPipelineState::Ready);
     const auto Data = Pipelines.Describe(Native);
-    const auto Canceled = std::make_shared<const std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Canceled);
+    FMaterialPSOTestPipelines Retired;
+    auto RetiredNative = Retired.Request(false); ASSERT_EQ(RetiredNative->Wait(), ERHIPipelineState::Ready);
+    Retired.Retire();
+    const auto Canceled = RetiredNative->GetStateObservation();
     for (uint32 Index = 0; Index < 2048; ++Index) {
         auto Attempt = Track(Data); Withdraw(Attempt);
         Attempt = Track(Data); Observe(Attempt, Canceled);
@@ -1437,11 +1421,12 @@ TEST(FPSOPrecacheTests, ValidationCompactsRepeatedSuccessfulCanceledAndConcurren
     EXPECT_EQ(GetStatistics().Identities, 1u); EXPECT_EQ(GetStatistics().RetainedAttempts, 0u);
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 1).Result, EResult::Failed);
     auto A = Track(Data), B = Track(Data);
-    auto Pending = std::make_shared<std::atomic<ERHIPipelineRequestState>>(ERHIPipelineRequestState::Pending);
+    auto PendingNative = Pipelines.Request(true);
+    const auto Pending = PendingNative->GetStateObservation();
     Observe(A, Pending); Withdraw(B);
     EXPECT_EQ(GetStatistics().RetainedAttempts, 1u);
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 1).Result, EResult::TooLate);
-    Pending->store(ERHIPipelineRequestState::Ready, std::memory_order_release);
+    Pipelines.Release(); ASSERT_EQ(PendingNative->Wait(), ERHIPipelineState::Ready);
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 1).Result, EResult::Hit);
     EXPECT_EQ(GetStatistics().RetainedAttempts, 0u);
     for (uint32 Index = 0; Index < 2048; ++Index) {

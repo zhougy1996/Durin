@@ -65,7 +65,7 @@ namespace Durin::PSOPrecacheValidation
     {
         std::weak_ptr<FEntry> Entry;
         bool Queued = true;
-        std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome;
+        FRHIPipelineStateObservation Outcome;
         int32 CollectorIndex = -1;
         const FVertexFactoryType* VertexFactoryType = nullptr;
     };
@@ -113,12 +113,12 @@ namespace Durin::PSOPrecacheValidation
             if (!Entry.Successful) {
                 std::erase_if(Entry.Queued, [](const auto& Weak) { const auto Record = Weak.lock(); return !Record || !Record->Queued; });
                 std::erase_if(Entry.Admitted, [&](const auto& Record) {
-                    const auto State = Record->Outcome->load(std::memory_order_acquire);
-                    if (State == ERHIPipelineRequestState::Ready) {
+                    const auto State = Record->Outcome.GetState();
+                    if (State == ERHIPipelineState::Ready) {
                         Entry.Successful = true;
                         Entry.CollectorIndex = Record->CollectorIndex; Entry.VertexFactoryType = Record->VertexFactoryType;
                     }
-                    return State != ERHIPipelineRequestState::Pending;
+                    return State != ERHIPipelineState::Pending;
                 });
             }
             if (Entry.Successful) { Entry.Queued.clear(); Entry.Admitted.clear(); }
@@ -184,7 +184,7 @@ namespace Durin::PSOPrecacheValidation
         Entry->Queued.push_back(Record);
         return Record;
     }
-    auto Observe(const std::shared_ptr<FRecord>& Record, std::shared_ptr<const std::atomic<ERHIPipelineRequestState>> Outcome) -> void
+    auto Observe(const std::shared_ptr<FRecord>& Record, FRHIPipelineStateObservation Outcome) -> void
     {
         if (!Record) return;
         std::lock_guard Lock(Mutex);

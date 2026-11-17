@@ -227,8 +227,8 @@ namespace Durin
 					PipelineInitializer.PipelineLayout =
 						Candidate.ShaderMap->GetMergedPipelineLayout();
 					Candidate.PipelineState = FPreparedShaderMapScope::IsActive()
-						? FRenderPipelineRequestScope::Graphics("TexturePreviewChannelPipeline", PipelineInitializer)
-						: PipelineStateCache::GetAndOrCreateGraphicsPipelineState(PipelineInitializer, "TexturePreviewChannelPipeline").value_or(nullptr);
+						? FRenderPipelinePreparationScope::Graphics("TexturePreviewChannelPipeline", PipelineInitializer)
+						: PipelineStateCache::PrecacheGraphicsPipelineState(PipelineInitializer, "TexturePreviewChannelPipeline");
 
 					if (Candidate.PipelineState == nullptr)
 						return FResult::Failure(MakeError(

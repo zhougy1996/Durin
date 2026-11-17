@@ -97,7 +97,7 @@ namespace Durin
 					   FComputePipelineStateInitializer Initializer;
 					   Initializer.ComputeShader = ComputeRHI;
 					   Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-					   Candidate.Pipeline = FRenderPipelineRequestScope::Compute(
+					   Candidate.Pipeline = FRenderPipelinePreparationScope::Compute(
 						   "InstanceCullingPipeline", Initializer
 					   );
 					   if (Candidate.Pipeline == nullptr)

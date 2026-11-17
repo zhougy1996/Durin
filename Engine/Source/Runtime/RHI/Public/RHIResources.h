@@ -1667,7 +1667,6 @@ namespace Durin
 		UnsupportedFillMode,
 		UnsupportedDepthClamp,
 		UnsupportedWideLines,
-		CapacityExceeded,
 	};
 
 	RHI_API auto ToString(ERHIGraphicsPipelineError Error) -> std::string_view;
@@ -1715,7 +1714,6 @@ namespace Durin
 		InvalidPushConstants,
 		OverlappingPushConstants,
 		MissingDispatchLimits,
-		CapacityExceeded,
 	};
 
 	RHI_API auto ToString(ERHIComputePipelineError Error) -> std::string_view;

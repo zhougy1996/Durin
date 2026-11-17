@@ -120,9 +120,9 @@ namespace Durin
 				}
 				FRHIThreadWork InitWork;
 				InitWork.Execute = InitializeBackend;
-				const FRHIThreadSynchronousResult InitResult =
+				const bool InitResult =
 					RHIThreadOwner->EnqueueSynchronous(InitWork);
-				if (!InitResult.IsCompleted())
+				if (!InitResult)
 				{
 					DURIN_ERROR("RHI thread rejected backend initialization.");
 					ReleaseFailedInitialization(bOwnsBackendModule);
@@ -294,17 +294,16 @@ namespace Durin
 					"RHI shutdown marker found pending RHI resource deletions.");
 				GDynamicRHI->Shutdown();
 			};
-			const FRHIThreadSubmission ShutdownSubmission =
+			const uint64 ShutdownSerial =
 				RHIThreadOwner->EnqueueTerminal(ShutdownWork);
-			if (!ShutdownSubmission.IsAccepted())
+			if (!ShutdownSerial)
 			{
 				DURIN_FATAL(
-					"Failed to atomically install the dynamic RHI shutdown marker ({}).",
-					static_cast<uint32>(ShutdownSubmission.Result));
+					"Failed to atomically install the dynamic RHI shutdown marker.");
 				std::terminate();
 			}
 			const ERHIThreadWaitResult ShutdownWaitResult =
-				RHIThreadOwner->WaitForSerial(ShutdownSubmission.Serial);
+				RHIThreadOwner->WaitForSerial(ShutdownSerial);
 			if (ShutdownWaitResult != ERHIThreadWaitResult::Completed)
 			{
 				DURIN_FATAL(

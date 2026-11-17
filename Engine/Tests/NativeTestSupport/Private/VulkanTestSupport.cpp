@@ -170,8 +170,11 @@ namespace Durin::VulkanRHI
 			vk::ClearColorValue(std::array<float, 4>{1, 0, 0, 1}), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 1, 1, 0, 1), GetTestDispatcher());
 		const std::array BufferTransitions{FRHIBufferTransition{Shared.GetReference(), 16, 16, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
 		const std::array TextureTransitions{FRHITextureTransition{Texture.GetReference(), Range, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}};
-		auto Transfer = std::make_shared<FVulkanQueueTransfer>(Device, SourceQueue.GetId(), DestinationQueue.GetId(),
-			BufferTransitions, TextureTransitions, bSynchronization2);
+		FRHIQueueTransferDesc Desc{.Source = SourceQueue.GetId(), .Destination = DestinationQueue.GetId()};
+		Desc.Buffers.assign(BufferTransitions.begin(), BufferTransitions.end());
+		Desc.Textures.assign(TextureTransitions.begin(), TextureTransitions.end());
+		auto Transfer = FVulkanQueueTransfer::Create(Device, Desc, bSynchronization2);
+		require(Transfer);
 		// A canceled later recording must not replace the release's producer sync point.
 		auto LaterGraphics = std::make_unique<FVulkanPayload>(SourceQueue,
 			SourceQueue.GetCompletionTracker().ReserveSyncPoint());
@@ -585,7 +588,7 @@ namespace Durin::VulkanRHI
 			FVulkanTransferArena Arena(Device, {
 				.AllocationClass = EVulkanAllocationClassCandidate::DynamicUpload,
 				.PageSize = 256, .MaxPageCount = 1, .DebugName = "SealedPressurePage",
-				.MaxCapacity = 256, .MaxAllocation = 256, .BindingUsage = EBufferUsageFlags::UniformBuffer});
+				.MaxCapacity = 256, .BindingUsage = EBufferUsageFlags::UniformBuffer});
 			auto Allocation = Arena.Acquire(256, 256, GetRecordingSyncPoint(Context));
 			require(Allocation.Range);
 			auto Owner = Allocation.Range.GetAllocationOwner();

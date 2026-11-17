@@ -24,25 +24,7 @@ namespace Durin
 		Draining,
 	};
 
-	enum class ERHIThreadEnqueueResult : uint8
-	{
-		Accepted,
-		Stopped,
-		Draining,
-		Failed,
-		Oversized,
-		SerialExhausted,
-		InvalidWork,
-		SelfEnqueue,
-	};
-
-	enum class ERHIThreadWaitResult : uint8
-	{
-		Completed,
-		Failed,
-		Stopped,
-		SelfWait,
-	};
+	enum class ERHIThreadWaitResult : uint8 { Completed, Canceled };
 
 	struct FRHIThreadQueueLimits
 	{
@@ -77,35 +59,11 @@ namespace Durin
 		uint32 FrameCount = 0;
 	};
 
-	struct FRHIThreadSubmission
-	{
-		ERHIThreadEnqueueResult Result = ERHIThreadEnqueueResult::Stopped;
-		uint64 Serial = 0;
-
-		auto IsAccepted() const -> bool
-		{
-			return Result == ERHIThreadEnqueueResult::Accepted;
-		}
-	};
-
-	struct FRHIThreadSynchronousResult
-	{
-		FRHIThreadSubmission Submission;
-		ERHIThreadWaitResult WaitResult = ERHIThreadWaitResult::Stopped;
-
-		auto IsCompleted() const -> bool
-		{
-			return Submission.IsAccepted()
-				&& WaitResult == ERHIThreadWaitResult::Completed;
-		}
-	};
-
 	struct FRHIThreadStats
 	{
 		ERHIThreadAdmissionState AdmissionState = ERHIThreadAdmissionState::Stopped;
 		uint64 LastSubmittedSerial = 0;
 		uint64 CompletedSerial = 0;
-		uint64 FailedSerial = 0;
 		uint32 OutstandingEntryCount = 0;
 		uint32 OutstandingBatchCount = 0;
 		uint32 OutstandingFrameCount = 0;
@@ -134,20 +92,19 @@ namespace Durin
 		RHI_API auto Start(const FRHIThreadQueueLimits& InLimits = {}) -> bool;
 		// Closes admission but preserves accepted work and its readiness dependencies.
 		RHI_API auto BeginDrain() -> void;
-		// Explicit terminal notification cancels queued work and wakes waiters.
-		RHI_API auto ReportExternalFailure() -> void;
 		RHI_API auto GetWakeCallback() const -> std::function<void()>;
 		RHI_API auto Stop() -> void;
 
-		// On success this moves Work into the queue. Rejection leaves Work intact.
-		RHI_API auto Enqueue(FRHIThreadWork& Work) -> FRHIThreadSubmission;
+		// Returns the queue serial, or zero if closed without moving Work.
+		// Invalid work, self-enqueue, and serial overflow are programming errors.
+		RHI_API auto Enqueue(FRHIThreadWork& Work) -> uint64;
 		// Installs the final internal work item and closes public admission in the
 		// same queue critical section. The marker is ordered after every accepted
 		// item and is not subject to public producer backpressure.
 		RHI_API auto EnqueueTerminal(FRHIThreadWork& Work)
-			-> FRHIThreadSubmission;
+			-> uint64;
 		RHI_API auto EnqueueSynchronous(FRHIThreadWork& Work)
-			-> FRHIThreadSynchronousResult;
+			-> bool;
 		RHI_API auto WaitForSerial(uint64 Serial) const -> ERHIThreadWaitResult;
 		RHI_API auto Flush() const -> ERHIThreadWaitResult;
 		RHI_API auto CaptureLastSubmittedSerial() const -> uint64;

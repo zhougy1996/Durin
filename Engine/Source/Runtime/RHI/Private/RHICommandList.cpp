@@ -1,9 +1,11 @@
 #include "Backend/RHITextureUpload.h"
 #include "Backend/RHIDynamicBufferWrite.h"
 #include "RHICommandList.h"
+#include "Backend/RHICreation.h"
 #include "Threading/Task.h"
 #include "Backend/RHIValidation.h"
 #include "Backend/RHICompletionBackend.h"
+#include "Backend/RHIPipelineStateCacheBackend.h"
 
 #include "DynamicRHI.h"
 #include "RHIContext.h"
@@ -345,19 +347,17 @@ namespace Durin
 		};
 
 		FRHICommandStorage() = default;
-		auto AddDependency(const FRHIPipelineCreationRequest& Request) -> bool
+		auto AddDependency(const FPipelineCompilation& Request) -> void
 		{
-			if (std::ranges::contains(Dependencies, Request)) return true;
-			if (Dependencies.size() >= 256) return false;
+			if (std::ranges::contains(Dependencies, Request)) return;
 			Dependencies.push_back(Request);
-			return true;
 		}
-		auto GetDependencies() const -> std::span<const FRHIPipelineCreationRequest> { return Dependencies; }
+		auto GetDependencies() const -> std::span<const FPipelineCompilation> { return Dependencies; }
 		auto Append(FRHICommandStorage& Other) -> void
 		{
 			check(!PendingNode && !Other.PendingNode);
 			// Reserve before transferring ownership. A failed allocation leaves both
-			// lists intact. Each child keeps its ordinary per-recorder dependency cap.
+			// lists intact. Dependencies are deduplicated without a PSO-count limit.
 			Blocks.reserve(Blocks.size() + Other.Blocks.size());
 			Dependencies.reserve(Dependencies.size() + Other.Dependencies.size());
 			const size_t NewCount = CheckedAddPayloadBytes(CommandCount, Other.CommandCount);
@@ -454,9 +454,9 @@ namespace Durin
 
 		auto GetPayloadBytes() const -> size_t
 		{
-			return CheckedAddPayloadBytes(PayloadBytes, Dependencies.capacity() * sizeof(FRHIPipelineCreationRequest));
+			return CheckedAddPayloadBytes(PayloadBytes, Dependencies.capacity() * sizeof(FPipelineCompilation));
 		}
-		std::vector<FRHIPipelineCreationRequest> Dependencies;
+		std::vector<FPipelineCompilation> Dependencies;
 
 	private:
 		struct alignas(std::max_align_t) FCommandNode
@@ -877,16 +877,24 @@ namespace Durin
 		};
 		struct FSetCachedPipelineStateCommand
 		{
-			explicit FSetCachedPipelineStateCommand(FRHIPipelineCreationRequest InRequest, std::shared_ptr<FPipelineState> InPipeline)
+			explicit FSetCachedPipelineStateCommand(FPipelineCompilation InRequest, std::shared_ptr<FPipelineState> InPipeline)
 				: Request(std::move(InRequest)), Pipeline(std::move(InPipeline)) {}
 			auto Execute(void* Context) -> void
 			{
-				const auto Result = Request.GetResult();
-				check(Result.State == ERHIPipelineRequestState::Ready);
-				if (Request.IsCompute()) GetReplayContext(Context).GetComputeContext("SetComputePipelineState").RHISetComputePipelineState(*Result.Compute);
-				else GetReplayContext(Context).GetGraphicsContext("SetGraphicsPipelineState").RHISetGraphicsPipelineState(*Result.Graphics);
+				if (Request.IsCompute())
+				{
+					auto Native = FRHIPipelineStateCacheBackend::GetComputePipeline(Request);
+					if (!Native) RHITerminateOnFailure("Compute PSO", "Required pipeline is not ready for replay");
+					GetReplayContext(Context).GetComputeContext("SetComputePipelineState").RHISetComputePipelineState(*Native);
+				}
+				else
+				{
+					auto Native = FRHIPipelineStateCacheBackend::GetGraphicsPipeline(Request);
+					if (!Native) RHITerminateOnFailure("Graphics PSO", "Required pipeline is not ready for replay");
+					GetReplayContext(Context).GetGraphicsContext("SetGraphicsPipelineState").RHISetGraphicsPipelineState(*Native);
+				}
 			}
-			FRHIPipelineCreationRequest Request;
+			FPipelineCompilation Request;
 			std::shared_ptr<FPipelineState> Pipeline;
 		};
 
@@ -1474,7 +1482,7 @@ namespace Durin
 			}
 
 			FBatch(FBatch&&) noexcept = default;
-			auto GetDependencies() const -> std::span<const FRHIPipelineCreationRequest> { return Storage->GetDependencies(); }
+			auto GetDependencies() const -> std::span<const FPipelineCompilation> { return Storage->GetDependencies(); }
 			auto EndsReplayScope() const -> bool { return bSafeBoundary; }
 			auto operator=(FBatch&&) noexcept -> FBatch& = default;
 			FBatch(const FBatch&) = delete;
@@ -1547,15 +1555,16 @@ namespace Durin
 					for (const auto& Request : (*Batches)[Index].GetDependencies())
 					{
 						const auto State = Request.GetState();
-						if (State == ERHIPipelineRequestState::Failed) return ERHICommandBatchState::Failed;
-						Canceled |= State == ERHIPipelineRequestState::Canceled;
-						Pending |= State == ERHIPipelineRequestState::Pending;
+						if (State == ERHIPipelineState::Failed)
+							RHITerminateOnFailure("PSO", "Required pipeline compilation failed");
+						Canceled |= State == ERHIPipelineState::Canceled;
+						Pending |= State == ERHIPipelineState::Pending;
 					}
 				}
 				return Canceled ? ERHICommandBatchState::Canceled : Pending ? ERHICommandBatchState::Pending : ERHICommandBatchState::Succeeded;
 			}
 			std::vector<Tasks::FTaskSubscription> WakeSubscriptions;
-			std::vector<FRHIPipelineCreationRequest> Dependencies;
+			std::vector<FPipelineCompilation> Dependencies;
 			std::shared_ptr<FRHICommandBatchCompletion> Completion = std::make_shared<FRHICommandBatchCompletion>();
 
 			FSubmissionGroup(FSubmissionGroup&&) noexcept = default;
@@ -1579,12 +1588,7 @@ namespace Durin
 				Batches.reset();
 			}
 
-			auto TakeBatches() -> std::vector<FBatch>
-			{
-				return std::move(*Batches);
-			}
 			auto GetStorageOwner() const -> std::shared_ptr<void> { return Batches; }
-
 			auto GetFlags() const -> ERHISubmitFlags { return Flags; }
 			auto GetBatchCount() const -> size_t { return BatchCount; }
 			auto GetCommandCount() const -> size_t { return CommandCount; }
@@ -1631,7 +1635,6 @@ namespace Durin
 		FRHIThread* RHIThread = nullptr;
 		std::atomic<uint64> LastSubmittedSerial = 0;
 		std::atomic<uint64> CompletedSerial = 0;
-		std::atomic<uint64> FailedSerial = 0;
 		std::atomic<uint64> FrameNumber = 0;
 		std::atomic<uint64> RecordedCommandCount = 0;
 		std::atomic<uint64> RecordedPayloadBytes = 0;
@@ -1641,7 +1644,6 @@ namespace Durin
 		mutable std::atomic<uint64> WaitCount = 0;
 		std::atomic<uint64> SynchronousOperationCount = 0;
 		mutable std::atomic<uint64> WaitDurationNanoseconds = 0;
-		std::atomic<uint64> RejectedSubmissionCount = 0;
 		mutable std::mutex CompletionMutex;
 		mutable std::condition_variable CompletionCV;
 	};
@@ -1677,14 +1679,13 @@ namespace Durin
 		, ActivePipeline(Other.ActivePipeline)
 		, bHasActiveGraphicsPipelineState(Other.bHasActiveGraphicsPipelineState)
 		, ActiveComputePipelineState(Other.ActiveComputePipelineState)
-		, ActiveGraphicsRequest(std::move(Other.ActiveGraphicsRequest))
-		, ActiveComputeRequest(std::move(Other.ActiveComputeRequest))
+		, ActiveGraphicsPipeline(std::move(Other.ActiveGraphicsPipeline))
+		, ActiveComputePipeline(std::move(Other.ActiveComputePipeline))
 		, bInsideRenderPass(Other.bInsideRenderPass)
 		, RenderPassParent(Other.RenderPassParent)
 		, RenderPassSerial(Other.RenderPassSerial)
 		, ActiveGPUSubmissionLease(std::move(Other.ActiveGPUSubmissionLease))
 		, DiagnosticRegionDepth(Other.DiagnosticRegionDepth)
-		, RenderPassDiagnosticRegionDepth(Other.RenderPassDiagnosticRegionDepth)
 		, ActiveGPUTimingQueries(std::move(Other.ActiveGPUTimingQueries))
 		, ActiveGPUTimingReservations(
 			std::move(Other.ActiveGPUTimingReservations))
@@ -1698,7 +1699,6 @@ namespace Durin
 		Other.bInsideRenderPass = false;
 		Other.RenderPassParent = nullptr;
 		Other.DiagnosticRegionDepth = 0;
-		Other.RenderPassDiagnosticRegionDepth = 0;
 		Other.ActiveGPUTimingQueries.clear();
 		Other.ActiveGPUTimingReservations.clear();
 		Other.ActiveTransitions.clear();
@@ -1718,14 +1718,13 @@ namespace Durin
 			ActivePipeline = Other.ActivePipeline;
 			bHasActiveGraphicsPipelineState = Other.bHasActiveGraphicsPipelineState;
 			ActiveComputePipelineState = Other.ActiveComputePipelineState;
-			ActiveGraphicsRequest = std::move(Other.ActiveGraphicsRequest);
-			ActiveComputeRequest = std::move(Other.ActiveComputeRequest);
+			ActiveGraphicsPipeline = std::move(Other.ActiveGraphicsPipeline);
+			ActiveComputePipeline = std::move(Other.ActiveComputePipeline);
 			bInsideRenderPass = Other.bInsideRenderPass;
 			RenderPassParent = Other.RenderPassParent;
 			RenderPassSerial = Other.RenderPassSerial;
 			ActiveGPUSubmissionLease = std::move(Other.ActiveGPUSubmissionLease);
 			DiagnosticRegionDepth = Other.DiagnosticRegionDepth;
-			RenderPassDiagnosticRegionDepth = Other.RenderPassDiagnosticRegionDepth;
 			ActiveGPUTimingQueries = std::move(Other.ActiveGPUTimingQueries);
 			ActiveGPUTimingReservations =
 				std::move(Other.ActiveGPUTimingReservations);
@@ -1738,7 +1737,6 @@ namespace Durin
 			Other.bInsideRenderPass = false;
 			Other.RenderPassParent = nullptr;
 			Other.DiagnosticRegionDepth = 0;
-			Other.RenderPassDiagnosticRegionDepth = 0;
 			Other.ActiveGPUTimingQueries.clear();
 			Other.ActiveGPUTimingReservations.clear();
 			Other.ActiveTransitions.clear();
@@ -1844,8 +1842,7 @@ namespace Durin
 			"FinishRecording cannot seal a command list inside a render pass.");
 		requiref(!ActiveGPUSubmissionLease, "FinishRecording requires a closed GPU submission.");
 		if (DiagnosticRegionDepth != 0) RecordInvalidDiagnosticRegion();
-		checkf(DiagnosticRegionDepth == 0,
-			"FinishRecording cannot seal a command list with open diagnostic regions.");
+		while (DiagnosticRegionDepth != 0) EndDiagnosticRegion();
 		checkf(ActiveGPUTimingQueries.empty(),
 			"FinishRecording cannot seal a command list with an open GPU timing query.");
 		checkf(ActiveTransitions.empty(),
@@ -1891,7 +1888,7 @@ namespace Durin
 		// Children establish their own state; subsequent parent draws must bind
 		// their PSO again rather than inheriting the parent's pre-insertion state.
 		bHasActiveGraphicsPipelineState = false;
-		ActiveGraphicsRequest = {};
+		ActiveGraphicsPipeline = {};
 	}
 
 	auto FRHICommandListBase::BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc)
@@ -1951,28 +1948,23 @@ namespace Durin
 		ActivePipeline = Pipeline;
 		bHasActiveGraphicsPipelineState = false;
 		ActiveComputePipelineState = nullptr;
-		ActiveGraphicsRequest = {};
-		ActiveComputeRequest = {};
+		ActiveGraphicsPipeline = {};
+		ActiveComputePipeline = {};
 	}
 
 	auto FRHICommandListBase::BeginDiagnosticRegion(std::string_view Name) -> void
 	{
-		if (Name.empty() || Name.size() > 255 || DiagnosticRegionDepth >= 64)
-			RecordInvalidDiagnosticRegion();
-		checkf(!Name.empty(), "Diagnostic region names cannot be empty.");
-		checkf(Name.size() <= 255,
-			"Diagnostic region names cannot exceed 255 bytes.");
-		checkf(DiagnosticRegionDepth < 64,
-			"Diagnostic region nesting cannot exceed 64 levels.");
-		RecordCommand<FBeginDiagnosticRegionCommand>(Name);
+		RecordCommand<FBeginDiagnosticRegionCommand>(Name.empty() ? std::string_view("Unnamed") : Name);
 		++DiagnosticRegionDepth;
 	}
 
 	auto FRHICommandListBase::EndDiagnosticRegion() -> void
 	{
-		if (DiagnosticRegionDepth == 0) RecordInvalidDiagnosticRegion();
-		checkf(DiagnosticRegionDepth != 0,
-			"EndDiagnosticRegion requires a matching begin.");
+		if (DiagnosticRegionDepth == 0)
+		{
+			RecordInvalidDiagnosticRegion();
+			return;
+		}
 		RecordCommand<FEndDiagnosticRegionCommand>();
 		--DiagnosticRegionDepth;
 	}
@@ -2015,7 +2007,6 @@ namespace Durin
 		bInsideRenderPass = true;
 		requiref(RenderPassSerial != std::numeric_limits<uint64>::max(), "Render-pass serial exhausted.");
 		++RenderPassSerial;
-		RenderPassDiagnosticRegionDepth = DiagnosticRegionDepth;
 	}
 
 	auto FRHICommandListBase::EndRenderPass() -> void
@@ -2023,13 +2014,8 @@ namespace Durin
 		requiref(!RenderPassParent, "A subcommand list cannot end its parent's render pass.");
 		checkf(bInsideRenderPass,
 			"EndRenderPass requires a matching BeginRenderPass while recording.");
-		if (DiagnosticRegionDepth != RenderPassDiagnosticRegionDepth)
-			RecordInvalidDiagnosticRegion();
-		checkf(DiagnosticRegionDepth == RenderPassDiagnosticRegionDepth,
-			"Diagnostic regions cannot cross a render-pass boundary.");
 		RecordCommand<FEndRenderPassCommand>();
 		bInsideRenderPass = false;
-		RenderPassDiagnosticRegionDepth = 0;
 	}
 
 	auto FRHICommandListBase::BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void
@@ -2052,7 +2038,7 @@ namespace Durin
 			"SetGraphicsPipelineState requires an active graphics pipeline while recording.");
 		RecordCommand<FSetGraphicsPipelineStateCommand>(State);
 		bHasActiveGraphicsPipelineState = true;
-		ActiveGraphicsRequest = {};
+		ActiveGraphicsPipeline = {};
 	}
 
 	auto FRHICommandListBase::SetComputePipelineState(
@@ -2064,34 +2050,35 @@ namespace Durin
 			"SetComputePipelineState cannot be recorded inside a render pass.");
 		RecordCommand<FSetComputePipelineStateCommand>(State);
 		ActiveComputePipelineState = &State;
-		ActiveComputeRequest = {};
+		ActiveComputePipeline = {};
 	}
-	auto FRHICommandListBase::TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool
+	auto FRHICommandListBase::AddPipelineDependency(const std::shared_ptr<FPipelineState>& Pipeline) -> void
 	{
-		return IsRecording() && Request.IsAccepted() && Storage->AddDependency(Request);
+		require(IsRecording() && Pipeline);
+		Storage->AddDependency(*Pipeline->Compilation);
 	}
 	auto FRHICommandListBase::SetGraphicsPipelineState(const FGraphicsPipelineStateRef& Pipeline) -> void
 	{
 		check(Pipeline);
-		const auto& Request = Pipeline->Request;
-		check(ActivePipeline == ERHIPipeline::Graphics && Request.IsAccepted() && !Request.IsCompute());
-		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
-		if (Pipeline->GetState() == ERHIPipelineRequestState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
+		const auto& Request = *Pipeline->Compilation;
+		check(ActivePipeline == ERHIPipeline::Graphics && Request.IsValid() && !Request.IsCompute());
+		AddPipelineDependency(Pipeline);
+		if (Pipeline->GetState() == ERHIPipelineState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
 		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		bHasActiveGraphicsPipelineState = true;
-		ActiveGraphicsRequest = Request;
+		ActiveGraphicsPipeline = Pipeline;
 	}
 	auto FRHICommandListBase::SetComputePipelineState(const FComputePipelineStateRef& Pipeline) -> void
 	{
 		check(Pipeline);
-		const auto& Request = Pipeline->Request;
+		const auto& Request = *Pipeline->Compilation;
 		check(ActivePipeline == ERHIPipeline::Compute && !bInsideRenderPass && Request.IsCompute());
 		check(Request.GetPipelineLayout());
-		requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
-		if (Pipeline->GetState() == ERHIPipelineRequestState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
+		AddPipelineDependency(Pipeline);
+		if (Pipeline->GetState() == ERHIPipelineState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
 		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		ActiveComputePipelineState = nullptr;
-		ActiveComputeRequest = Request;
+		ActiveComputePipeline = Pipeline;
 	}
 
 	auto FRHICommandListBase::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
@@ -2248,7 +2235,7 @@ namespace Durin
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"Draw requires an active graphics pipeline while recording.");
 		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
-		if (ActiveGraphicsRequest.IsAccepted()) requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
+		if (ActiveGraphicsPipeline) AddPipelineDependency(ActiveGraphicsPipeline);
 		RecordCommand<FDrawCommand>(Arguments);
 		CountRecordedDrawCommand();
 	}
@@ -2259,7 +2246,7 @@ namespace Durin
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"DrawIndexed requires an active graphics pipeline while recording.");
 		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
-		if (ActiveGraphicsRequest.IsAccepted()) requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
+		if (ActiveGraphicsPipeline) AddPipelineDependency(ActiveGraphicsPipeline);
 		RecordCommand<FDrawIndexedCommand>(Arguments);
 		CountRecordedDrawCommand();
 	}
@@ -2276,8 +2263,8 @@ namespace Durin
 		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
 			ArgumentSize, Capabilities && Capabilities->bSupportsIndirectDraw);
 		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
-		if (ActiveGraphicsRequest.IsAccepted())
-			requiref(TryAddPipelineDependency(ActiveGraphicsRequest), "Command pipeline dependency capacity exceeded.");
+		if (ActiveGraphicsPipeline)
+			AddPipelineDependency(ActiveGraphicsPipeline);
 	}
 
 	auto FRHICommandListBase::CountRecordedDrawCommand() -> void
@@ -2316,7 +2303,7 @@ namespace Durin
 			"Dispatch requires an active compute pipeline while recording.");
 		checkf(!bInsideRenderPass,
 			"Dispatch cannot be recorded inside a render pass.");
-		checkf(ActiveComputePipelineState || ActiveComputeRequest.IsAccepted(),
+		checkf(ActiveComputePipelineState || bool(ActiveComputePipeline),
 			"Dispatch requires an active compute pipeline state while recording.");
 		const FRHICapabilities* Capabilities = GDynamicRHI
 			? GDynamicRHI->RHIGetCapabilities() : nullptr;
@@ -2329,7 +2316,7 @@ namespace Durin
 				|| Counts[Axis] <= Capabilities->MaxComputeWorkGroupCount[Axis],
 				"Dispatch group count exceeds the published device limit.");
 		}
-		if (ActiveComputeRequest.IsAccepted()) requiref(TryAddPipelineDependency(ActiveComputeRequest), "Command pipeline dependency capacity exceeded.");
+		if (ActiveComputePipeline) AddPipelineDependency(ActiveComputePipeline);
 		RecordCommand<FDispatchCommand>(GroupCountX, GroupCountY, GroupCountZ);
 	}
 
@@ -2339,15 +2326,15 @@ namespace Durin
 		require(IsRecording());
 		requiref(ActivePipeline == ERHIPipeline::Compute, "DispatchIndirect requires the compute pipeline domain.");
 		requiref(!bInsideRenderPass, "DispatchIndirect has invalid render-pass placement.");
-		requiref(ActiveComputePipelineState || ActiveComputeRequest.IsAccepted(), "DispatchIndirect requires an active pipeline state.");
+		requiref(ActiveComputePipelineState || bool(ActiveComputePipeline), "DispatchIndirect requires an active pipeline state.");
 		const FRHICapabilities* Capabilities = GDynamicRHI
 			? GDynamicRHI->RHIGetCapabilities() : nullptr;
 		const auto Validation = ValidateIndirectArgumentBuffer(ArgumentBuffer, Offset,
 			sizeof(FRHIDispatchIndirectArguments), Capabilities
 				&& Capabilities->bSupportsIndirectDispatch);
 		requiref(Validation.has_value(), "Invalid indirect arguments: {}", ToString(Validation.error()));
-		if (ActiveComputeRequest.IsAccepted())
-			requiref(TryAddPipelineDependency(ActiveComputeRequest), "Command pipeline dependency capacity exceeded.");
+		if (ActiveComputePipeline)
+			AddPipelineDependency(ActiveComputePipeline);
 		RecordCommand<FDispatchIndirectCommand>(ArgumentBuffer, Offset);
 	}
 
@@ -2449,8 +2436,8 @@ namespace Durin
 		checkf(ActivePipeline != ERHIPipeline::Compute
 			|| StageFlags == EShaderStageFlags::Compute,
 			"Compute push constants require compute-only stage visibility.");
-		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputeRequest : ActiveGraphicsRequest;
-		if (Request.IsAccepted()) requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
+		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputePipeline : ActiveGraphicsPipeline;
+		if (Request) AddPipelineDependency(Request);
 		RecordCommand<FPushConstantsCommand>(StageFlags, Offset, Size, Data);
 	}
 
@@ -2465,8 +2452,8 @@ namespace Durin
 		std::vector<FRHIShaderParameterResource> CanonicalParameters;
 		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
 		if (!CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters, CreatedViews)) return;
-		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputeRequest : ActiveGraphicsRequest;
-		if (Request.IsAccepted()) requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
+		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputePipeline : ActiveGraphicsPipeline;
+		if (Request) AddPipelineDependency(Request);
 		RecordCommand<FSetShaderParametersCommand>(InShader, CanonicalParameters);
 	}
 
@@ -2476,8 +2463,8 @@ namespace Durin
 			"Prepared shader parameters require a batch and an active pipeline.");
 		checkf(ActivePipeline != ERHIPipeline::Compute || Batch->GetShader()->GetFrequency() == EShaderFrequency::Compute,
 			"Compute shader parameters require a compute shader.");
-		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputeRequest : ActiveGraphicsRequest;
-		if (Request.IsAccepted()) requiref(TryAddPipelineDependency(Request), "Command pipeline dependency capacity exceeded.");
+		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputePipeline : ActiveGraphicsPipeline;
+		if (Request) AddPipelineDependency(Request);
 		RecordCommand<FSetPreparedShaderParametersCommand>(std::move(Batch));
 	}
 
@@ -2495,21 +2482,8 @@ namespace Durin
 		return GCommandListExecutor.GetImmediateCommandList();
 	}
 
-	auto FRHICommandListImmediate::QueueCommandList(
-		FRHICommandList&& CommandList) -> void
-	{
-		if (!TryQueueCommandList(std::move(CommandList)))
-		{
-			checkf(false,
-				"QueueCommandList requires a finished command list that has not been admitted.");
-		}
-	}
-
-	auto FRHICommandListImmediate::TryQueueCommandList(
-		FRHICommandList&& CommandList) -> bool
-	{
-		return Executor->TryQueueCommandList(CommandList);
-	}
+	auto FRHICommandListImmediate::QueueCommandList(FRHICommandList&& CommandList) -> void
+	{ Executor->QueueCommandList(CommandList); }
 
 	auto FRHICommandListImmediate::DispatchToRHIThread() -> uint64
 	{
@@ -2530,7 +2504,7 @@ namespace Durin
 
 	auto FRHICommandListImmediate::CanDispatchToRHIThread() const -> bool
 	{
-		return !bInsideRenderPass && DiagnosticRegionDepth == 0
+		return !bInsideRenderPass
 			&& ActiveGPUTimingQueries.empty() && !HasOpenBufferLocks()
 			&& !ActiveGPUSubmissionLease;
 	}
@@ -2679,29 +2653,22 @@ namespace Durin
 	}
 	auto FRHICommandListFence::GetState() const -> ERHICommandBatchState
 	{
-		if (Executor && Executor->IsSerialFailed(TargetSerial)) return ERHICommandBatchState::Failed;
+		if (Executor && Executor->IsSerialCanceled(TargetSerial)) return ERHICommandBatchState::Canceled;
 		if (Completion)
 		{
 			const auto State = Completion->State.load();
-			if (State == ERHICommandBatchState::Failed || State == ERHICommandBatchState::Canceled
+			if (State == ERHICommandBatchState::Canceled
 				|| State == ERHICommandBatchState::Expired) return State;
 		}
 		return !Executor || Executor->IsSerialComplete(TargetSerial)
 			? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Pending;
 	}
-	auto FRHICommandListFence::TryWait() const -> bool
-	{
-		if (Executor && !Executor->TryWaitForSerial(TargetSerial)) return false;
-		return IsComplete();
-	}
 
-	auto FRHICommandListFence::Wait() const -> void
+	auto FRHICommandListFence::Wait() const -> ERHICommandBatchState
 	{
-		if (!TryWait())
-		{
-			DURIN_FATAL("RHI command batch did not complete successfully.");
-			std::terminate();
-		}
+		if (Executor && Executor->WaitForSerial(TargetSerial) == ERHICommandBatchState::Canceled)
+			return ERHICommandBatchState::Canceled;
+		return GetState();
 	}
 
 	FRHICommandListExecutor::FRHICommandListExecutor()
@@ -2729,7 +2696,9 @@ namespace Durin
 	{
 		if (State->RHIThread)
 		{
-			WaitForSerial(GetLastSubmittedSerial());
+			const auto WaitState = WaitForSerial(GetLastSubmittedSerial());
+			if (WaitState != ERHICommandBatchState::Succeeded)
+				RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
 		}
 	}
 
@@ -2739,24 +2708,21 @@ namespace Durin
 		return CommandListImmediate;
 	}
 
-	auto FRHICommandListExecutor::TryQueueCommandList(
-		FRHICommandList& CommandList) -> bool
+	auto FRHICommandListExecutor::QueueCommandList(
+		FRHICommandList& CommandList) -> void
 	{
 		checkf(!CommandListImmediate.bInsideRenderPass,
 			"QueueCommandList cannot split an active immediate render pass.");
-		checkf(CommandListImmediate.DiagnosticRegionDepth == 0,
-			"QueueCommandList cannot split active immediate diagnostic regions.");
 		checkf(CommandListImmediate.ActiveGPUTimingQueries.empty(),
 			"QueueCommandList cannot split an active immediate GPU timing query.");
 		if (!CommandList.IsFinished() || CommandList.RenderPassParent)
 		{
-			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-			return false;
+			RHITerminateOnFailure("QueueCommandList", "Command list is not finished or is a render-pass child");
 		}
 		if (CommandList.GetNumRecordedCommands() == 0)
 		{
 			CommandList.MarkAdmitted();
-			return true;
+			return;
 		}
 		SealImmediateSegment();
 		const ERHIPipeline InsertedFinalPipeline = CommandList.ActivePipeline;
@@ -2768,7 +2734,7 @@ namespace Durin
 			CommandListImmediate.RecordCommand<FSwitchPipelineCommand>(
 				CommandListImmediate.ActivePipeline);
 		}
-		return true;
+		return;
 	}
 
 	auto FRHICommandListExecutor::SealImmediateSegment() -> void
@@ -2782,38 +2748,27 @@ namespace Durin
 			CommandListImmediate.CanDispatchToRHIThread() && CommandListImmediate.ActiveTransitions.empty());
 	}
 
-	auto FRHICommandListExecutor::TrySubmit(
+	auto FRHICommandListExecutor::Submit(
 		const std::vector<FRHICommandList*>& AdditionalCmdLists,
 		ERHISubmitFlags SubmitFlags)
-		-> FRHICommandListSubmission
+		-> uint64
 	{
-		if (State->FailedSerial.load())
-		{
-			++State->RejectedSubmissionCount;
-			return {.Result = ERHICommandListSubmitResult::ThreadFailed};
-		}
-		if (CommandListImmediate.DiagnosticRegionDepth != 0)
-			FRHICommandListBase::RecordInvalidDiagnosticRegion();
 		if (CommandListImmediate.HasOpenBufferLocks()
 			|| CommandListImmediate.bInsideRenderPass
-			|| CommandListImmediate.DiagnosticRegionDepth != 0
 			|| !CommandListImmediate.ActiveGPUTimingQueries.empty())
 		{
-			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-			return {.Result = ERHICommandListSubmitResult::InvalidCommandList};
+			RHITerminateOnFailure("RHI submission", "InvalidCommandList");
 		}
 		std::unordered_set<FRHICommandList*> UniqueLists;
 		for (FRHICommandList* CommandList : AdditionalCmdLists)
 		{
 			if (!CommandList || !CommandList->IsFinished() || CommandList->RenderPassParent)
 			{
-				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-				return {.Result = ERHICommandListSubmitResult::InvalidCommandList};
+				RHITerminateOnFailure("RHI submission", "InvalidCommandList");
 			}
 			if (!UniqueLists.emplace(CommandList).second)
 			{
-				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-				return {.Result = ERHICommandListSubmitResult::InvalidCommandList};
+				RHITerminateOnFailure("RHI submission", "InvalidCommandList");
 			}
 		}
 
@@ -2851,29 +2806,20 @@ namespace Durin
 			const uint64 Serial = GetLastSubmittedSerial();
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
-				WaitForSerial(Serial);
+				const auto WaitState = WaitForSerial(Serial);
+				if (WaitState != ERHICommandBatchState::Succeeded)
+					RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
 			}
-			return {
-				.Result = ERHICommandListSubmitResult::Accepted,
-				.Serial = Serial
-			};
+			return Serial;
 		}
 
 		auto SubmissionGroup = std::make_shared<FState::FSubmissionGroup>(
 			SubmitFlags, std::move(State->PendingBatches));
 		State->PendingBatches.clear();
-		if (SubmissionGroup->Dependencies.size() > 256)
-		{
-			State->PendingBatches = SubmissionGroup->TakeBatches();
-			++State->RejectedSubmissionCount;
-			return {.Result = ERHICommandListSubmitResult::Oversized};
-		}
 		if (!State->RHIThread && std::ranges::any_of(SubmissionGroup->Dependencies,
-			[](const auto& Request) { return !Request.CanWait(); }))
+			[](const auto& Request) { return !FRHIPipelineStateCacheBackend::CanWait(Request); }))
 		{
-			State->PendingBatches = SubmissionGroup->TakeBatches();
-			++State->RejectedSubmissionCount;
-			return {.Result = ERHICommandListSubmitResult::DependencyWaitUnsupported};
+			RHITerminateOnFailure("RHI submission", "DependencyWaitUnsupported");
 		}
 		const size_t GroupCommandCount = SubmissionGroup->GetCommandCount();
 		const size_t GroupPayloadBytes = SubmissionGroup->GetPayloadBytes();
@@ -2985,10 +2931,7 @@ namespace Durin
 			static_assert(sizeof(size_t) <= sizeof(uint64));
 			if (GroupBatchCount > std::numeric_limits<uint32>::max())
 			{
-				State->PendingBatches = SubmissionGroup->TakeBatches();
-				State->RejectedSubmissionCount.fetch_add(
-					1, std::memory_order_relaxed);
-				return {.Result = ERHICommandListSubmitResult::Oversized};
+				RHITerminateOnFailure("RHI submission", "Oversized");
 			}
 			FRHIThreadWork Work;
 			Work.FrameCount = EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::EndFrame) ? 1u : 0u;
@@ -2997,10 +2940,10 @@ namespace Durin
 			Work.IsReady = [SubmissionGroup] { return SubmissionGroup->GetDependencyState() != ERHICommandBatchState::Pending; };
 			for (const auto& Request : SubmissionGroup->Dependencies)
 			{
-				if (Request.GetState() != ERHIPipelineRequestState::Pending) continue;
+				if (Request.GetState() != ERHIPipelineState::Pending) continue;
 				// Wake after public completion for every outcome. The queue can inspect
 				// completion/results immediately, without scheduling a Worker continuation.
-				SubmissionGroup->WakeSubscriptions.push_back(Tasks::SubscribeTask(Request.GetTaskHandle(),
+				SubmissionGroup->WakeSubscriptions.push_back(Tasks::SubscribeTask(FRHIPipelineStateCacheBackend::GetCompletionTask(Request),
 					[Wake = State->RHIThread->GetWakeCallback()](ETaskState) { Wake(); }));
 			}
 			Work.Execute = [Replay, SubmissionGroup]() mutable {
@@ -3019,61 +2962,24 @@ namespace Durin
 			Work.IsComplete = [SubmissionGroup] {
 				return SubmissionGroup->Completion->State.load() != ERHICommandBatchState::Pending;
 			};
-			const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
-			if (!Submission.IsAccepted())
-			{
-				// Enqueue rejection preserves Work, so release its shared capture before
-				// returning every batch to the executor for a later retry.
-				Work.Execute = {};
-				State->PendingBatches = SubmissionGroup->TakeBatches();
-				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-				ERHICommandListSubmitResult Result =
-					ERHICommandListSubmitResult::InvalidCommandList;
-				switch (Submission.Result)
-				{
-				case ERHIThreadEnqueueResult::Stopped:
-					Result = ERHICommandListSubmitResult::ThreadStopped;
-					break;
-				case ERHIThreadEnqueueResult::Draining:
-					Result = ERHICommandListSubmitResult::ThreadDraining;
-					break;
-				case ERHIThreadEnqueueResult::Failed:
-					Result = ERHICommandListSubmitResult::ThreadFailed;
-					break;
-				case ERHIThreadEnqueueResult::Oversized:
-					Result = ERHICommandListSubmitResult::Oversized;
-					break;
-				case ERHIThreadEnqueueResult::SerialExhausted:
-					Result = ERHICommandListSubmitResult::SerialExhausted;
-					break;
-				case ERHIThreadEnqueueResult::SelfEnqueue:
-					Result = ERHICommandListSubmitResult::SelfEnqueue;
-					break;
-				case ERHIThreadEnqueueResult::InvalidWork:
-				case ERHIThreadEnqueueResult::Accepted:
-					break;
-				}
-				return {.Result = Result};
-			}
+			const uint64 Serial = State->RHIThread->Enqueue(Work);
+			if (!Serial) RHITerminateOnFailure("RHI submission", "RHI thread is closed");
 			RecordAcceptedSubmission();
-			State->RememberCompletion(Submission.Serial, SubmissionGroup->Completion);
+			State->RememberCompletion(Serial, SubmissionGroup->Completion);
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
-				WaitForSerial(Submission.Serial);
+				const auto WaitState = WaitForSerial(Serial);
+				if (WaitState != ERHICommandBatchState::Succeeded)
+					RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
 			}
-			return {
-				.Result = ERHICommandListSubmitResult::Accepted,
-				.Serial = Submission.Serial
-			};
+			return Serial;
 		}
 
 		const uint64 PreviousSerial =
 			State->LastSubmittedSerial.load(std::memory_order_relaxed);
 		if (PreviousSerial == std::numeric_limits<uint64>::max())
 		{
-			State->PendingBatches = SubmissionGroup->TakeBatches();
-			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-			return {.Result = ERHICommandListSubmitResult::SerialExhausted};
+			RHITerminateOnFailure("RHI submission", "SerialExhausted");
 		}
 		const uint64 Serial = PreviousSerial + 1;
 		RecordAcceptedSubmission();
@@ -3091,37 +2997,16 @@ namespace Durin
 		SubmissionGroup.reset();
 		{
 			std::lock_guard Lock(State->CompletionMutex);
-			if (!State->FailedSerial.load()) State->CompletedSerial.store(Serial, std::memory_order_release);
+			State->CompletedSerial.store(Serial, std::memory_order_release);
 		}
 		State->CompletionCV.notify_all();
 		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 		{
-			WaitForSerial(Serial);
+			const auto WaitState = WaitForSerial(Serial);
+			if (WaitState != ERHICommandBatchState::Succeeded)
+				RHITerminateOnFailure("RHI wait", "Accepted work did not complete");
 		}
-		return {
-			.Result = ERHICommandListSubmitResult::Accepted,
-			.Serial = Serial
-		};
-	}
-
-	auto FRHICommandListExecutor::Submit(
-		const std::vector<FRHICommandList*>& AdditionalCmdLists,
-		ERHISubmitFlags SubmitFlags) -> uint64
-	{
-		const FRHICommandListSubmission Submission =
-			TrySubmit(AdditionalCmdLists, SubmitFlags);
-		if (!Submission.IsAccepted())
-		{
-			const FRHIThreadStats ThreadStats = State->RHIThread
-				? State->RHIThread->GetStats()
-				: FRHIThreadStats{};
-			DURIN_FATAL(
-				"RHI command-list submission rejected (result {}, state {}).",
-				static_cast<uint32>(Submission.Result),
-				static_cast<uint32>(ThreadStats.AdmissionState));
-			std::terminate();
-		}
-		return Submission.Serial;
+		return Serial;
 	}
 
 	auto FRHICommandListExecutor::ExecuteSynchronousOperation(
@@ -3165,15 +3050,10 @@ namespace Durin
 			Operation(State->ReplayContext.GetOperationContext(
 				"Synchronous RHI operation"));
 		};
-		const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
-		if (!Submission.IsAccepted())
-		{
-			DURIN_FATAL(
-				"RHI thread rejected synchronous operation ({}).",
-				static_cast<uint32>(Submission.Result));
-			std::terminate();
-		}
-		WaitForSerial(Submission.Serial);
+		const uint64 Serial = State->RHIThread->Enqueue(Work);
+		if (!Serial) RHITerminateOnFailure("Synchronous RHI operation", "RHI thread is closed");
+		if (WaitForSerial(Serial) != ERHICommandBatchState::Succeeded)
+			RHITerminateOnFailure("Synchronous RHI operation", "RHI thread wait was canceled");
 	}
 
 	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence
@@ -3245,7 +3125,6 @@ namespace Durin
 			.WaitCount = State->WaitCount.load(std::memory_order_relaxed),
 			.SynchronousOperationCount = State->SynchronousOperationCount.load(
 				std::memory_order_relaxed),
-			.RejectedSubmissionCount = State->RejectedSubmissionCount.load(std::memory_order_relaxed),
 			.PendingBatchCount = static_cast<uint64>(State->PendingBatches.size())
 				+ ThreadStats.OutstandingBatchCount,
 			.PendingPayloadBytes = CheckedAddPayloadBytes(
@@ -3286,14 +3165,12 @@ namespace Durin
 		{
 			const FRHIThreadStats ThreadStats = State->RHIThread->GetStats();
 			const uint64 LastSubmittedSerial = ThreadStats.LastSubmittedSerial;
-			if (ThreadStats.FailedSerial == 0)
-			{
-				WaitForSerial(LastSubmittedSerial);
-			}
+			if (WaitForSerial(LastSubmittedSerial) != ERHICommandBatchState::Succeeded)
+				RHITerminateOnFailure("RHI inline mode", "Accepted work has not completed");
 			State->LastSubmittedSerial.store(
 				LastSubmittedSerial, std::memory_order_release);
 			State->CompletedSerial.store(
-				State->FailedSerial.load() ? ThreadStats.CompletedSerial : LastSubmittedSerial,
+				LastSubmittedSerial,
 				std::memory_order_release);
 			State->RHIThread = nullptr;
 		}
@@ -3304,41 +3181,23 @@ namespace Durin
 		return GetCompletedSerial() >= Serial;
 	}
 
-	auto FRHICommandListExecutor::ReportExternalFailure() -> void
+	auto FRHICommandListExecutor::IsSerialCanceled(uint64 Serial) const -> bool
 	{
-		{
-			std::lock_guard Lock(State->CompletionMutex);
-			if (State->FailedSerial.load()) return;
-			const auto Completed = GetCompletedSerial();
-			State->FailedSerial.store(Completed == std::numeric_limits<uint64>::max() ? Completed : Completed + 1);
-		}
-		if (State->RHIThread) State->RHIThread->ReportExternalFailure();
-		State->CompletionCV.notify_all();
+		return !IsSerialComplete(Serial) && State->RHIThread
+			&& State->RHIThread->GetStats().AdmissionState == ERHIThreadAdmissionState::Stopped;
 	}
 
-	auto FRHICommandListExecutor::IsSerialFailed(uint64 Serial) const -> bool
-	{
-		if (IsSerialComplete(Serial))
-		{
-			return false;
-		}
-		if (State->FailedSerial.load()) return true;
-		if (!State->RHIThread) return false;
-		const FRHIThreadStats ThreadStats = State->RHIThread->GetStats();
-		return ThreadStats.FailedSerial != 0
-			|| ThreadStats.AdmissionState == ERHIThreadAdmissionState::Stopped;
-	}
-
-	auto FRHICommandListExecutor::TryWaitForSerial(uint64 Serial) const -> bool
+	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> ERHICommandBatchState
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.WaitForSerial");
 		State->WaitCount.fetch_add(1, std::memory_order_relaxed);
 		const auto WaitStart = std::chrono::steady_clock::now();
 		if (IsSerialComplete(Serial))
 		{
-			return true;
+			return ERHICommandBatchState::Succeeded;
 		}
 
+		if (IsExecutingRHICommands()) RHITerminateOnFailure("RHI wait", "SelfWait");
 		bool bCompleted = true;
 		if (State->RHIThread)
 		{
@@ -3349,7 +3208,7 @@ namespace Durin
 		{
 			std::unique_lock Lock(State->CompletionMutex);
 			State->CompletionCV.wait(Lock, [this, Serial]() {
-				return IsSerialComplete(Serial) || IsSerialFailed(Serial);
+				return IsSerialComplete(Serial) || IsSerialCanceled(Serial);
 			});
 			bCompleted = IsSerialComplete(Serial);
 		}
@@ -3357,16 +3216,7 @@ namespace Durin
 		State->WaitDurationNanoseconds.fetch_add(
 			static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				WaitEnd - WaitStart).count()), std::memory_order_relaxed);
-		return bCompleted;
+		return bCompleted ? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Canceled;
 	}
 
-	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> void
-	{
-		if (!TryWaitForSerial(Serial))
-		{
-			DURIN_FATAL(
-				"RHI thread failed while waiting for serial {}.", Serial);
-			std::terminate();
-		}
-	}
 } // namespace Durin
