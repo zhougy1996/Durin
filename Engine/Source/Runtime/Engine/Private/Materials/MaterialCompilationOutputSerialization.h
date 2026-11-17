@@ -38,7 +38,10 @@ namespace Durin::MaterialBuildPrivate
 			else Entry.Mesh.reset();
             Transfer.Sequence(Entry.Bindings, 256, [&](auto& Binding) {
                 Transfer.Value(Binding.Role); Transfer.Value(Binding.ResourceIndex);
+                Transfer.Value(Binding.SetIndex); Transfer.Value(Binding.BindingIndex);
+                Transfer.Value(Binding.Type); Transfer.Value(Binding.ArraySize);
                 Transfer.Check(Binding.Role < EMaterialBindingRole::Count);
+                Transfer.Check(Binding.Type <= ERHIBindingType::StorageImage && Binding.ArraySize == 1);
             });
 			auto& Requirements = Entry.Requirements;
 			Transfer.Sequence(Requirements.AttributeIDs, 64, [&](auto& V) { Transfer.Value(V); });

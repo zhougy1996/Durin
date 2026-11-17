@@ -750,7 +750,7 @@ TEST(FEditorTransactionManagerTests, ClearForgetsMetadataWithoutReusingRevisionI
 	EXPECT_GT(Manager->GetPackageRevisionState(*Second)->CurrentRevision, BeforeClear);
 }
 
-TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollection)
+TEST(FLevelDocumentResidencyTests, CloseReleasesWorldAndLoadHandleOwnership)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -772,7 +772,7 @@ TEST(FLevelDocumentResidencyTests, CloseReleasesWorldReferenceAndSchedulesCollec
 		LoadHandle->ReleaseHandle();
 		EXPECT_EQ(WeakPackage.Get(), Package);
 		EXPECT_FALSE(Package->HasAnyObjectFlags(EObjectFlags::Standalone));
-		EXPECT_TRUE(IsGarbageCollectionRequested());
+		EXPECT_FALSE(LoadHandle->IsActive());
 	}
 	EXPECT_TRUE(TryCollectGarbage(EObjectFlags::NoFlags));
 	EXPECT_EQ(WeakPackage.Get(), nullptr);

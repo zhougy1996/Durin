@@ -496,7 +496,7 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 	using namespace Durin;
 	using namespace Durin::RendererPrivate;
 	FShaderReflectionData Reflection;
-	Reflection.ResourceBindings = {{.SetIndex = 1, .BindingIndex = 2,
+	Reflection.ResourceBindings = {{.Name = "Material", .SetIndex = 2, .BindingIndex = 11,
 		.Type = ERHIBindingType::UniformBuffer}};
 	Reflection.ResourceBindings[0].Name = GetMaterialBindingName(EMaterialBindingRole::Material);
 	const FCompiledSurfaceBindingLayout Layout(Reflection);
@@ -510,6 +510,8 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 	ASSERT_TRUE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
 		Range, {}, {}, {}, {}, Bindings));
 	ASSERT_EQ(Bindings.GetResources().size(), 1u);
+	EXPECT_EQ(Bindings.GetResources()[0].SetIndex, 2u);
+	EXPECT_EQ(Bindings.GetResources()[0].BindingIndex, 11u);
 	EXPECT_EQ(Bindings.GetResources()[0].Offset, 16u);
 	EXPECT_EQ(Bindings.GetResources()[0].Resource, Buffer.GetReference());
 	EXPECT_FALSE(PrepareCompiledSurfaceMaterial(Shader.GetReference(), Layout, Material,
@@ -723,7 +725,8 @@ TEST(FRendererSceneContractTests, InstanceBindingOverridesPreserveSourcesAndRest
     const auto A = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("OriginalIds", 64, 4, EBufferUsageFlags::StructuredBuffer));
     const auto B = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("OverrideIds", 96, 4, EBufferUsageFlags::StructuredBuffer));
     FMeshDrawShaderBindings Bindings; Bindings.Shader = Shader;
-    Bindings.Parameters = {{A.GetReference(), 0, 31, 0, ERHIBindingType::StorageBuffer, 0, 64}};
+    Bindings.Parameters = {{A.GetReference(), 2, 7, 0, ERHIBindingType::StorageBuffer, 0, 64}};
+    Bindings.InstanceIdsAllocation = std::pair{2u, 7u};
     FShaderBindingState State;
     const auto Before = Commands.GetNumRecordedCommands();
     ASSERT_TRUE(Bindings.SetOnCommandList(Commands, State));

@@ -152,24 +152,29 @@ the same catalog into `FMaterialBindingDefinition` values. Public C++ headers ex
 logical roles and APIs without including shader-source files. Each definition owns
 name/type, reflected/runtime kind, descriptor set, fixed slot or indexed stride,
 array policy and stage/entry eligibility. Material texture/sampler and collection
-names/allocations derive from these rules; there is no separate texture-slot base.
+declarations still derive from these rules. Accepted allocation is independent of
+those declaration-time numbers; there is no separate runtime texture-slot base.
 Uniform payload packing remains with the compiled layout and backend compact
 allocation remains with ShaderFormat.
 
 After reflection validation, each immutable entry publishes canonical logical
-`FMaterialShaderBinding` role/index references. Translation carries no accepted
+`FMaterialShaderBinding` role/index references together with the compiler's actual
+set, binding, resource kind and array size. Translation carries no accepted
 bindings. Final assembly and Cook admission require the exact optimized binding
 sequence to match reflection, with no unknown, duplicate, mistyped, wrong-array or
 out-of-scope resource. Material/collection reads must belong to the analyzed entry
 closure. Conservative analysis can exceed optimized reads; mandatory HitProxy and
-PostProcess alpha/input resources must remain present. Binding schema version 1
+PostProcess alpha/input resources must remain present. Semantic matching uses names
+and types, not descriptor-number inference. Binding schema version 2
 travels with compilation output and incompatible versions reject before publication.
 
 Typed runtime maps verify accepted references against their code's reflection
-before creating resources. Renderer projects roles through the shared definitions;
+before creating resources. Renderer uses the accepted physical locations;
 Surface and standalone PostProcess uniform-kind policy has one schema adapter.
 PostProcess consumes the accepted description directly for material and scene
-bindings. RDG continues to own declared scene reads, texture views and resource
+bindings. Mesh pass/material lifetime filtering follows provider semantics rather
+than descriptor set numbers; instance-selection replacement retains its accepted
+location instead of assuming set 0/binding 31. RDG continues to own declared scene reads, texture views and resource
 lifetimes; physical binding metadata does not manufacture graph dependencies.
 Failure rejects the complete candidate and preserves existing published content.
 
@@ -193,8 +198,8 @@ shadow type, whose declared material pass remains Shadow. Excluded uses
 fail admission without compiler work. Game continues to load accepted binaries
 without MIR, generated source, ShaderBuild or authoring graphs.
 
-Pass contract 23, DMAT 26 and detached translation schema 15 carry this
-contract. Normalization/generator revisions 16/28, compile adapter 24 and the
+Pass contract 24, DMAT 27 and detached translation schema 16 carry this
+contract. Normalization/generator revisions 16/28, compile adapter 25 and the
 ShaderBuild compile algorithm revision 6 invalidate earlier producer artifacts.
 Recook incompatible derived products; authored graph schemas remain unchanged.
 The [material system](MaterialSystem.md) owns the remaining compatibility versions.

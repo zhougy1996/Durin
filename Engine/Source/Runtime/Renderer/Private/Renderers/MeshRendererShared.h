@@ -144,7 +144,7 @@ namespace Durin::RendererPrivate
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 
-	// The factory owns set 1; camera/cascade set 0 is supplied by the pass.
+	// The factory supplies geometry parameters; pass/material owners supply their scopes.
 	template<typename TShader>
 	auto PrepareMeshVertexFactoryParameters(const TMaterialShaderRef<TShader>& Shader,
 		const typename TShader::FParameters& Parameters) -> FMeshDrawShaderBindings
@@ -154,7 +154,7 @@ namespace Durin::RendererPrivate
 		std::vector<FShaderParameterBinding> Bindings(Content->GetParameterBindings().begin(), Content->GetParameterBindings().end());
 		// View and material uniforms are supplied by pass/material composition.
 		std::erase_if(Bindings, [](const auto& Parameter) {
-			return Parameter.SetIndex == 0 || (Parameter.SetIndex == GetMaterialBindingDefinition(EMaterialBindingRole::Material).SetIndex && Parameter.BindingIndex == GetMaterialBindingSlot(EMaterialBindingRole::Material));
+			return IsMaterialPassParameter(Parameter.Name) || Parameter.Name == "Material";
 		});
 		FMeshDrawShaderBindings Result;
 		Result.Parameters = ResolveShaderParameterResources(*TShader::GetParametersMetadata(), Bindings, &Parameters);
@@ -175,7 +175,7 @@ namespace Durin::RendererPrivate
 		if (!Reflection) return Bindings;
 		auto Remaining = *Reflection;
 		std::erase_if(Remaining.ResourceBindings, [&](const auto& Binding) {
-			if (bStableOnly && Binding.SetIndex == 0) return true;
+			if (bStableOnly && IsMaterialPassParameter(Binding.Name)) return true;
 			return std::ranges::any_of(Bindings.GetResources(), [&](const auto& Resource) {
 				return Resource.SetIndex == Binding.SetIndex && Resource.BindingIndex == Binding.BindingIndex;
 			});
@@ -188,6 +188,7 @@ namespace Durin::RendererPrivate
 		std::vector<FRHIShaderParameterResource> Resources(Bindings.GetResources().begin(), Bindings.GetResources().end());
 		Resources.insert(Resources.end(), Additional.GetResources().begin(), Additional.GetResources().end());
 		Bindings.Parameters = std::move(Resources);
+		if (Additional.InstanceIdsAllocation) Bindings.InstanceIdsAllocation = Additional.InstanceIdsAllocation;
 		return Bindings;
 	}
 

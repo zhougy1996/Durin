@@ -1408,8 +1408,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 26, MIR 15, layout 5, pass contract 23,
-and material Cook class-schema version 7. The independent compile adapter is version 24;
+Current compatibility versions are DMAT 27, MIR 15, layout 5, pass contract 24,
+and material Cook class-schema version 7. The independent compile adapter is version 25;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11

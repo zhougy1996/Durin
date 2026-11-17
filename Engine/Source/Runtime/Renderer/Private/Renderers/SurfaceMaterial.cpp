@@ -251,9 +251,9 @@ namespace Durin::RendererPrivate
             if (Domain == EMaterialDomain::PostProcess ? !(D.Entries & PostProcess) : !(D.Entries & ~PostProcess)) return;
             const auto Limit = Binding.Role == EMaterialBindingRole::Collection ? MaterialParameterCollectionMaxPerMaterial : MaterialRenderMaxResourceCount;
             if (D.Stride && Binding.ResourceIndex >= Limit) return;
-            const auto Slot = GetMaterialBindingSlot(Binding.Role, Binding.ResourceIndex);
-            if ((!D.Stride && Binding.ResourceIndex) || !Seen.emplace(D.SetIndex, Slot).second) return;
-            Entries.push_back({D.SetIndex, Slot, GetMaterialRuntimeBindingType(Binding.Role, Domain), Binding.Role, Binding.ResourceIndex});
+            if (Binding.Type != D.ReflectionType || Binding.ArraySize != D.ArraySize
+                || (!D.Stride && Binding.ResourceIndex) || !Seen.emplace(Binding.SetIndex, Binding.BindingIndex).second) return;
+            Entries.push_back({Binding.SetIndex, Binding.BindingIndex, GetMaterialRuntimeBindingType(Binding.Role, Domain), Binding.Role, Binding.ResourceIndex});
         }
         bValid = true;
     }
@@ -269,6 +269,7 @@ namespace Durin::RendererPrivate
 		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
 			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
 		std::vector<FRHIShaderParameterResource> Resources;
+		std::optional<std::pair<uint32, uint32>> InstanceIdsAllocation;
 		Resources.reserve(Layout.GetEntries().size());
 		using ESource = FCompiledSurfaceBindingLayout::ESource;
 		const auto* Uniform = MaterialBuffer.Buffer && MaterialBuffer.Buffer->GetResourceType() == ERHIResourceType::UniformBuffer
@@ -298,6 +299,8 @@ namespace Durin::RendererPrivate
             case ESource::GPUScenePayload:
             case ESource::GPUSceneInstanceIds:
             {
+                if (Entry.Source == ESource::GPUSceneInstanceIds)
+                    InstanceIdsAllocation = std::pair{Entry.SetIndex, Entry.BindingIndex};
                 const auto& Data = Entry.Source == ESource::GPUScenePrimitive ? GPUScene.GPUScenePrimitiveSceneData
                     : Entry.Source == ESource::GPUSceneInstance ? GPUScene.GPUSceneInstanceSceneData
                     : Entry.Source == ESource::GPUScenePayload ? GPUScene.GPUSceneInstancePayloadData : GPUScene.GPUSceneInstanceIds;
@@ -352,6 +355,7 @@ namespace Durin::RendererPrivate
 			Resources.push_back(Resource);
 		}
 		OutBindings.Shader = Shader; OutBindings.Parameters = std::move(Resources);
+		OutBindings.InstanceIdsAllocation = InstanceIdsAllocation;
 		return true;
 	}
 

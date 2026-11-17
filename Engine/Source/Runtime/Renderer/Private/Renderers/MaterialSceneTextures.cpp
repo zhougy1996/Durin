@@ -49,8 +49,10 @@ namespace Durin
             if (Seen[Slot] || Binding.ResourceIndex) return std::unexpected("Material scene binding description is incompatible.");
             Seen[Slot] = true;
             const auto& Definition = GetMaterialBindingDefinition(Binding.Role);
-            FRHIShaderParameterResource Parameter{.SetIndex = Definition.SetIndex,
-                .BindingIndex = GetMaterialBindingSlot(Binding.Role), .Type = GetMaterialRuntimeBindingType(Binding.Role, EMaterialDomain::PostProcess)};
+            if (Binding.Type != Definition.ReflectionType || Binding.ArraySize != Definition.ArraySize)
+                return std::unexpected("Material scene binding kind or array is incompatible.");
+            FRHIShaderParameterResource Parameter{.SetIndex = Binding.SetIndex,
+                .BindingIndex = Binding.BindingIndex, .Type = Binding.Type};
 			if (Slot == 0)
 			{
 				Result.Uniform = Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));

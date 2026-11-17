@@ -59,6 +59,9 @@ namespace
 		auto TearDown() -> void override
 		{
 			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+			Durin::InitRenderingThread();
+			Durin::FModuleManager::Get().ShutdownModule("Renderer");
+			Durin::ShutdownRenderingThread();
 			Durin::ShutdownAssetCompilingManager();
 		}
 	};
@@ -99,6 +102,7 @@ namespace
 		InitializeDObjectSystem();
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("Renderer");
 		Durin::FModuleManager::Get().LoadModuleChecked("MeshBuilder");
 		auto RenderingThread =
 			std::make_unique<FSceneFixture::FRenderingThreadScope>();

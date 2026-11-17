@@ -14,7 +14,6 @@ namespace Durin
 			};
 			Append(CompiledMaterialRenderLayoutVersion);
 			Append(MaterialBindingSchemaVersion);
-			Append(GetMaterialBindingSlot(EMaterialBindingRole::Texture));
 			Append(MaterialUniformHeaderBytes);
 			Append(Layout.UniformPayloadSize);
 			Append(Layout.UniformFieldCount);

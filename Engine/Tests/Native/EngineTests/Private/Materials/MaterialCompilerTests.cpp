@@ -2704,16 +2704,9 @@ TEST(FMaterialProgramCompilerTests,
 		return Binding.Name == "LocalLights";
 	});
 	ASSERT_NE(LocalLights, ForwardBindings.end());
-	EXPECT_EQ(LocalLights->SetIndex, 0u);
-	EXPECT_EQ(LocalLights->BindingIndex, 30u);
 	EXPECT_EQ(LocalLights->Type, Durin::ERHIBindingType::StorageBuffer);
 	EXPECT_EQ(FindCompiledMaterialStage(Compiled.GetShaderMap(), "GeometryFragmentMain").Reflection.ResourceBindings.size(), 14u);
 	EXPECT_TRUE(FindCompiledMaterialStage(Compiled.GetShaderMap(), "ShadowFragmentMain").Reflection.ResourceBindings.empty());
-	std::vector CorruptedStages = Compiled.GetShaderMap().CompiledShaders;
-	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
-	std::string ReflectionError;
-	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
-		CorruptedStages, Compiled.GetShaderMap().Layout));
 
 	Durin::MIR::FModule InvalidIR = Normalized.IR;
 	InvalidIR.Version++;
@@ -2955,7 +2948,7 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 	EXPECT_TRUE(Shadow->Requirements.bUsesMask);
 	for (const auto Name : {"ShadowFragmentMain", "HitProxyFragmentMain"})
 		EXPECT_FALSE(std::ranges::any_of(FindCompiledMaterialStage(Compiled.GetShaderMap(), Name).Reflection.ResourceBindings,
-			[](const auto& B) { return B.SetIndex == 1 && B.BindingIndex >= GetMaterialBindingSlot(EMaterialBindingRole::Texture); }));
+			[](const auto& B) { return B.Type == ERHIBindingType::Texture || B.Type == ERHIBindingType::Sampler; }));
 	for (uint32 Mutation = 0; Mutation < 9; ++Mutation)
 	{
 		auto Broken = Compiled; auto Map = std::make_shared<FMaterialShaderMap>(Compiled.GetShaderMap()); Broken.Resource.ShaderMap = Map;
@@ -3092,7 +3085,6 @@ TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsC
 		{
 			ASSERT_EQ(Stage.Reflection.ResourceBindings.size(), 1u);
 			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().Name, "HitProxy");
-			EXPECT_EQ(Stage.Reflection.ResourceBindings.front().BindingIndex, 27u);
 		}
 		else if (Stage.Frequency == EShaderFrequency::Fragment) EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
 	}
@@ -3216,15 +3208,8 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 		const auto Uniform = std::ranges::find(Stage.Reflection.ResourceBindings, "MaterialView",
 			&FShaderResourceBinding::Name);
 		ASSERT_NE(Uniform, Stage.Reflection.ResourceBindings.end()) << Stage.SourceEntryPoint;
-		EXPECT_EQ(Uniform->SetIndex, 0u);
-		EXPECT_EQ(Uniform->BindingIndex, 0u);
-		for (const auto& Binding : Stage.Reflection.ResourceBindings)
-			if (Binding.Name == "Material") EXPECT_EQ(Binding.SetIndex, 1u);
+		EXPECT_EQ(Uniform->Type, ERHIBindingType::UniformBuffer);
 	}
-	auto WrongSet = Compiled.GetShaderMap().CompiledShaders;
-	for (auto& Binding : WrongSet.front().Reflection.ResourceBindings)
-		if (Binding.Name == "MaterialView") Binding.SetIndex = 1;
-	EXPECT_FALSE(ValidateMaterialCompiledStages(WrongSet, Compiled.GetShaderMap().Layout));
 
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::WorldPosition, EMaterialProgramValueType::Float4));
 	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Time, EMaterialProgramValueType::Float3));
@@ -3667,6 +3652,71 @@ TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFre
 	const auto Inactive = MIR::Compile(Input);
 	ASSERT_TRUE(Inactive) << FormatMaterialProgramDiagnostics(Inactive.Diagnostics);
 	EXPECT_TRUE(Inactive.GetShaderMap().Layout.Fields.empty());
+}
+
+TEST(FMaterialBindingContractTests, CompilerLocationsSurviveAdmissionAndSourceFreeCookReplay)
+{
+    using namespace Durin;
+    auto Input = MakeSyntheticMaterialCompilerInput();
+    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+    const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
+    ASSERT_TRUE(Translation);
+    auto Requests = MakeMaterialShaderStageRequests(Translation, false);
+    ASSERT_FALSE(Requests.empty());
+    std::vector<FShaderCode> Stages;
+    const auto Original = GenerateMaterialBindingDeclaration(EMaterialBindingRole::Material);
+    const std::string Relocated = "[[vk::binding(11, 2)]] ConstantBuffer<MaterialUniform> Material;\n";
+    bool FoundMaterial = false;
+    for (auto& Request : Requests)
+    {
+        const auto Position = Request.Source.find(Original);
+        ASSERT_NE(Position, std::string::npos);
+        Request.Source.replace(Position, Original.size(), Relocated);
+        Request.VirtualPath = "/Generated/AllocationIndependence/" + FXxHash128::HashBuffer(Request.Source).ToString();
+        const auto Output = FShaderCompilingManager::Get().CompileGeneratedSync(Request);
+        ASSERT_TRUE(Output) << FormatShaderCompilerErrors(Output.Errors);
+        ASSERT_EQ(Output.CompiledShaders.size(), 1u);
+        for (const auto& B : Output.CompiledShaders[0].Reflection.ResourceBindings)
+            if (B.Name == "Material") { FoundMaterial = true; EXPECT_EQ(B.SetIndex, 2u); EXPECT_EQ(B.BindingIndex, 11u); }
+        Stages.push_back(Output.CompiledShaders[0]);
+    }
+    ASSERT_TRUE(FoundMaterial);
+    auto Accepted = static_cast<FMaterialCompilationOutput>(Translation);
+    for (size_t I = 0; I < Stages.size(); ++I)
+    {
+        const auto* D = FindMaterialShaderEntry(Accepted.Entries[I].Shader.ShaderType);
+        ASSERT_NE(D, nullptr);
+        auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->Entry, D->Frequency,
+            Accepted.Layout.ResourceFieldCount, Accepted.CollectionLayouts.size());
+        ASSERT_TRUE(Bindings);
+        Accepted.Entries[I].Bindings = std::move(*Bindings);
+    }
+    ASSERT_TRUE(ValidateMaterialCompilationOutput(Accepted, Translation.Identity, Translation.Target, Stages));
+    auto Program = MIR::Compile(Input);
+    ASSERT_TRUE(Program) << FormatMaterialProgramDiagnostics(Program.Diagnostics);
+    auto Map = std::make_shared<FMaterialShaderMap>(Program.GetShaderMap());
+    Map->CompiledShaders = Stages;
+    Map->Entries = Accepted.Entries;
+    Program.Resource.ShaderMap = Map;
+    ASSERT_TRUE(ValidateMaterialCompilerResult(Program));
+    FByteBuffer Bytes;
+    ASSERT_TRUE(Testing::EncodeMaterialCookedProgramFamilyForTest(Program.Resource, Input.StaticProperties,
+        ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes));
+    FMaterialStaticProperties Properties;
+    std::shared_ptr<const FMaterialProgram> Replayed;
+    ASSERT_TRUE(Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64,
+        ECookTargetProfile::Game, Program.Resource, Properties, Replayed));
+    ASSERT_TRUE(Replayed);
+    EXPECT_EQ(Replayed->GetShaderMap().Entries, Accepted.Entries);
+    for (size_t I = 0; I < Stages.size(); ++I)
+    {
+        auto Bad = Accepted;
+        if (!Bad.Entries[I].Bindings.empty())
+        {
+            ++Bad.Entries[I].Bindings[0].BindingIndex;
+            EXPECT_FALSE(ValidateMaterialCompilationOutput(Bad, Translation.Identity, Translation.Target, Stages));
+        }
+    }
 }
 
 TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKindAndSchemaBeforeCook)

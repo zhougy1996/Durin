@@ -18,8 +18,8 @@ workspace builds pass for those stages.
 The Stage 3 catalog still assigns global logical set/binding numbers. Centralizing
 those rules is a completed intermediate result, not completion of UE-style
 parameter binding. Stage 4 now separates composable parameter metadata from
-compiler allocation; the former final-acceptance stage moves to Stage 5. This
-revision changes planning only; implemented contracts remain documented in
+compiler allocation; the former final-acceptance stage moves to Stage 5.
+Implemented contracts remain documented in
 [Material shader stages](../Runtime/Rendering/Materials/MaterialShaderStages.md).
 
 Stage 4 implementation has started in the existing RHI/RenderCore parameter
@@ -29,10 +29,14 @@ uses `FShaderParametersMetadataBuilder`. Owned schemas project/compose nested
 metadata with canonical identity, and the candidate product envelope retains the
 same parameter map. Typed submission handles nested resource offsets/prefixes;
 pipeline uniform policy consumes the compiled binding records. Flattened inherited metadata no longer retains an include pointer
-that causes typed submission to reject it. The material catalog is still active;
-compiler-service integration, shape/constant reflection, codecs and material/runtime
-submission migration and all Stage 4/5 acceptance remain open. No stage checklist
-is closed by this foundation work.
+that causes typed submission to reject it. Material accepted entries now carry
+actual compiler set/binding/kind/array records through Cook; Renderer consumes
+these locations and partitions pass/material providers independently of descriptor
+set numbers. The declaration catalog and semantic-role enum are still active.
+Registered owner-schema composition, compiler-service integration, shape/constant
+reflection and removal of the remaining catalog/uniform-kind policy remain open,
+along with all Stage 4/5 acceptance. No stage checklist is closed by this
+intermediate migration.
 
 The owner permits underlying API/derived-format changes. The preceding
 [M14 plan](MaterialAttributesAndExecutionContractsRefactor.md) was completed with
@@ -319,6 +323,59 @@ the isolated final Surface/Cube/WPO/ClearCoat/PostProcess Cook/Game corpus and G
 behavior/resource-count checks; earlier Stage 3 receipts cannot cover these edits.
 
 ## Completed Validation Summary
+
+### Test-contract cleanup during the allocation migration
+
+Owner requested a review of tests that no longer match the architecture.
+Material compiler tests no longer require View/Material/lighting/HitProxy to
+occupy particular global descriptor numbers. Resource kinds, analyzed read
+closure, required resources and immutable admission remain checked; the dedicated
+binding-admission suite owns negative map/name/kind/array coverage. A real
+compiler relocation and Cook replay case now checks location independence.
+Renderer fixtures supply explicit semantic names and verify relocated submission
+and provider-lifetime selection. Instance selection explicitly declares its
+accepted location instead of relying on the old set 0/binding 31 convention.
+
+Cook, import and reload fixtures now declare/load their Renderer dependency so
+registered material Shader/VF types exist, and close Renderer while render-command
+admission is open. The level-residency test checks released handle ownership and
+collection after an explicit GC; it no longer requires releasing a handle to set
+a global immediate-GC request flag, which is absent from the current residency
+contract. No production GC policy was changed. Required binding rejection,
+source-free Cook, resource retention and collection coverage were retained.
+
+Compiler-location checkpoint, 2026-11-17, base `f5e0c20bb` plus this migration:
+binding schema 2, pass ABI 24, DMAT 27, translation schema 16 and material compile
+adapter 25. MIR 15, physical layout 5 and normalization/generator revisions 16/28
+remain unchanged because authored semantics, uniform packing and default generated
+declarations did not change. Old derived containers reject; no compatibility reader
+was added. The new test recompiles the Material uniform at set 2/binding 11 and
+checks accepted records, Cook encode/decode and rejection of altered locations.
+
+On windows-msvc-x64, Debug/Tracy, MSVC 19.44, 14 jobs, the initial affected run
+selected 62 targets: 56 passed and six failed. All six were rerun successfully
+after the test-contract/fixture migrations: CookFunctional 45, SceneImport 38,
+AssetPackageReload 22, MaterialCompiler 122, RendererSceneContract 174 and
+Viewport 119 cases. RoadSceneIntegration passed 5 cases; the initial run covered
+Sandbox and Water consumers. The 56 passing results are reused: subsequent
+production edits only make failed binding preparation publish no partial instance
+location; successful submissions are unchanged, and the final Renderer contract
+run covers preparation/failure behavior. Remaining edits change only the six
+rerun fixtures/tests, their explicit test dependencies and documentation.
+Test-CMake edits conservatively expand `affected` to the whole Engine test project;
+that label expansion does not add a production dependency or execution change to
+the other targets.
+
+Final Editor/Game workspace `all` builds passed in
+`20261117-171522-974606-16952-cmake.log` and
+`20261117-171541-741721-24904-cmake.log`. Raw logs and final source hashes are under
+ignored `Build/AgentValidation/MaterialShaderAndBindingContracts/Stage4/CompilerLocations/`.
+The first link attempt used a non-exported internal acceptance function from a
+test; the test now uses the exported admission validator. Intermediate fixture
+shutdown failures were corrected by closing Renderer with render-command admission
+open; passing case output with a failed process exit was never counted as a pass.
+This checkpoint does not complete owner-schema composition, catalog removal,
+uniform submission policy migration or Stage 5's final packaged corpus.
 
 UE interface foundation validation, 2026-11-17: base `f7091a4d2` plus the
 uncommitted parameter foundation, on windows-msvc-x64, Debug/Tracy, MSVC 19.44,

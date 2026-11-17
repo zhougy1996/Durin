@@ -7,6 +7,7 @@
 #include "CoreGlobals.h"
 #include "Asset/AssetObjectLoadTiming.h"
 #include "NativeAssetBuildTestSupport.h"
+#include "RenderingThread.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Materials/FunctionPortTestFixture.h"
@@ -97,11 +98,16 @@ namespace
 			ASSERT_TRUE(Durin::InitializeAssetRuntime(Durin::FAssetRuntimeConfiguration::Authored()));
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+			Durin::FModuleManager::Get().LoadModuleChecked("Renderer");
 			Durin::InitializeAssetCompilingManager();
 		}
 
 		static auto TearDownTestSuite() -> void
 		{
+			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+			Durin::InitRenderingThread();
+			Durin::FModuleManager::Get().ShutdownModule("Renderer");
+			Durin::ShutdownRenderingThread();
 			Durin::ShutdownAssetCompilingManager();
 			Durin::ShutdownAssetRuntime();
 			Durin::CollectGarbage(Durin::EObjectFlags::Standalone);

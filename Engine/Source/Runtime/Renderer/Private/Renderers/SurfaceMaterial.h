@@ -48,10 +48,10 @@ namespace Durin
 			{ auto Result = *this; std::erase_if(Result.Entries, [](const auto& E) { return IsMaterialSceneBinding(E.Source); }); return Result; }
 			auto IsValid() const -> bool { return bValid; }
 			auto GetEntries() const -> std::span<const FEntry> { return Entries; }
-			auto ForSet(uint32 SetIndex) const -> FCompiledSurfaceBindingLayout
+			auto ForMaterialParameters(bool bMaterial) const -> FCompiledSurfaceBindingLayout
 			{
 				auto Result = *this;
-				std::erase_if(Result.Entries, [SetIndex](const auto& Entry) { return Entry.SetIndex != SetIndex; });
+				std::erase_if(Result.Entries, [bMaterial](const auto& Entry) { return IsMaterialPassBinding(Entry.Source) == bMaterial; });
 				return Result;
 			}
 		private:
@@ -165,6 +165,8 @@ namespace Durin
 		{
 			FRHIShader* Shader = nullptr;
 			std::vector<FRHIShaderParameterResource> Parameters;
+			// Accepted location of the instance selection provider, when this stage reads it.
+			std::optional<std::pair<uint32, uint32>> InstanceIdsAllocation;
 			FMeshDrawShaderBindings() = default;
 			auto GetShader() const -> FRHIShader* { return Shader; }
 			auto GetResources() const -> std::span<const FRHIShaderParameterResource> { return Parameters; }

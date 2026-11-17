@@ -44,23 +44,26 @@ namespace Durin
         if (Reflection.ResourceBindings.size() > 256) return std::unexpected("Material binding description exceeds the supported bound.");
         std::vector<FMaterialShaderBinding> Result;
         std::set<std::pair<uint32, uint32>> Seen;
+        std::set<std::string> Names;
         for (const auto& B : Reflection.ResourceBindings)
         {
-            if (!Seen.emplace(B.SetIndex, B.BindingIndex).second)
+            if (!Seen.emplace(B.SetIndex, B.BindingIndex).second || !Names.insert(B.Name).second)
                 return std::unexpected("Material binding array or duplicate slot is invalid.");
             bool Found = false;
             for (const auto& D : Definitions)
             {
-                if (D.SetIndex != B.SetIndex || B.BindingIndex < D.BindingIndex) continue;
-                const uint32 Offset = B.BindingIndex - D.BindingIndex;
-                if (D.Stride ? Offset % D.Stride != 0 : Offset != 0) continue;
-                const uint32 Index = D.Stride ? Offset / D.Stride : 0;
                 const uint32 Limit = D.Role == EMaterialBindingRole::Collection ? MaterialParameterCollectionMaxPerMaterial
                     : D.Stride ? MaterialRenderMaxResourceCount : 1;
-                if (Index >= Limit || B.ArraySize != D.ArraySize || B.Type != D.ReflectionType || B.Name != GetMaterialBindingName(D.Role, Index)) continue;
-                Result.push_back({D.Role, uint16(Index)}); Found = true; break;
+                if (B.ArraySize != D.ArraySize || B.Type != D.ReflectionType) continue;
+                for (uint32 Index = 0; Index < Limit; ++Index)
+                {
+                    if (B.Name != GetMaterialBindingName(D.Role, Index)) continue;
+                    Result.push_back({D.Role, uint16(Index), B.SetIndex, B.BindingIndex, B.Type, B.ArraySize});
+                    Found = true; break;
+                }
+                if (Found) break;
             }
-            if (!Found) return std::unexpected("Material binding name, kind or allocation is incompatible with the logical schema.");
+            if (!Found) return std::unexpected("Material binding name, kind or array is incompatible with the semantic schema.");
         }
         std::ranges::sort(Result, [](const auto& A, const auto& B) { return std::tie(A.Role, A.ResourceIndex) < std::tie(B.Role, B.ResourceIndex); });
         return Result;

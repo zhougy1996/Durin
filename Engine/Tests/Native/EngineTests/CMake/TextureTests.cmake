@@ -57,10 +57,11 @@ durin_add_native_test(SceneImportTests
 		"Texture processing and scene import require TextureCompressor and AssetForgeBuiltins editor services."
 	KIND integration
 	DOMAINS asset-import
-	MODULES engine texture-compressor asset-forge-builtins content-browser
+	MODULES engine renderer texture-compressor asset-forge-builtins content-browser
 	STACKS editor
 	TIMEOUT 600
 	SOURCES Private/Texture/SceneImportTests.cpp
+	DEPENDENCIES Renderer
 	INCLUDE_DIRECTORIES ${_durin_texture_test_include_directories}
 	LIBRARIES ShaderBuild ${_durin_texture_test_libraries} TextureCompressor ContentBrowser bc7enc_rdo::bc7enc_rdo
 	HEAVY_RUNTIME_RATIONALE

@@ -3154,9 +3154,9 @@ TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContrac
 	using namespace Durin::RendererPrivate;
 	FShaderReflectionData Reflection;
 	Reflection.ResourceBindings = {
-		{.SetIndex = 0, .BindingIndex = 0, .Type = ERHIBindingType::UniformBuffer},
-		{.SetIndex = 1, .BindingIndex = 2, .Type = ERHIBindingType::UniformBuffer},
-		{.SetIndex = 1, .BindingIndex = 27, .Type = ERHIBindingType::UniformBuffer}};
+		{.SetIndex = 3, .BindingIndex = 9, .Type = ERHIBindingType::UniformBuffer},
+		{.SetIndex = 2, .BindingIndex = 11, .Type = ERHIBindingType::UniformBuffer},
+		{.SetIndex = 0, .BindingIndex = 7, .Type = ERHIBindingType::UniformBuffer}};
 	Reflection.ResourceBindings[0].Name = GetMaterialBindingName(EMaterialBindingRole::View);
 	Reflection.ResourceBindings[1].Name = GetMaterialBindingName(EMaterialBindingRole::Material);
 	Reflection.ResourceBindings[2].Name = GetMaterialBindingName(EMaterialBindingRole::HitProxy);
@@ -3166,16 +3166,20 @@ TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContrac
 	EXPECT_EQ(Layout.GetEntries()[0].Source, FCompiledSurfaceBindingLayout::ESource::View);
 	EXPECT_EQ(Layout.GetEntries()[1].Source, FCompiledSurfaceBindingLayout::ESource::Material);
 	EXPECT_EQ(Layout.GetEntries()[2].Source, FCompiledSurfaceBindingLayout::ESource::HitProxy);
+	EXPECT_EQ(Layout.GetEntries()[0].SetIndex, 3u);
+	EXPECT_EQ(Layout.GetEntries()[1].BindingIndex, 11u);
+	EXPECT_EQ(Layout.ForMaterialParameters(true).GetEntries().size(), 2u);
+	EXPECT_EQ(Layout.ForMaterialParameters(false).GetEntries().size(), 1u);
 	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
 	{
 		auto Invalid = Reflection;
 		switch (Mutation)
 		{
-		case 0: Invalid.ResourceBindings[0].SetIndex = 2; break;
+		case 0: Invalid.ResourceBindings[0].Name = "Undeclared"; break;
 		case 1: Invalid.ResourceBindings[0].Type = ERHIBindingType::Texture; break;
 		case 2: Invalid.ResourceBindings[0].ArraySize = 2; break;
 		case 3: Invalid.ResourceBindings.push_back(Invalid.ResourceBindings[0]); break;
-		case 4: Invalid.ResourceBindings[0].BindingIndex = 18; break;
+		case 4: Invalid.ResourceBindings[0].SetIndex = 2; Invalid.ResourceBindings[0].BindingIndex = 11; break;
 		}
 		EXPECT_FALSE(FCompiledSurfaceBindingLayout(Invalid).IsValid()) << Mutation;
 	}

@@ -12,11 +12,15 @@ namespace Durin
     {
         View, Primitive, Material, Collection, Texture, Sampler, Lighting, LocalLights, EnvironmentIrradiance, EnvironmentPrefiltered, EnvironmentBrdfLut, EnvironmentSampler, DirectionalShadowTexture, DirectionalShadowSampler, GPUScenePrimitive, GPUSceneInstance, GPUScenePayload, GPUSceneInstanceIds, Spline, HitProxy, SceneUniform, SceneInput0, SceneDepth, ScenePointSampler, SceneLinearSampler, Count
     };
-    // Logical references persist with accepted compiled content; allocation is schema-owned.
+    // Accepted compiler locations persist with semantic provider references.
     struct FMaterialShaderBinding
     {
         EMaterialBindingRole Role = EMaterialBindingRole::View;
         uint16 ResourceIndex = 0;
+        uint32 SetIndex = 0;
+        uint32 BindingIndex = 0;
+        ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+        uint32 ArraySize = 1;
         auto operator==(const FMaterialShaderBinding&) const -> bool = default;
     };
     struct FMaterialBindingDefinition
@@ -30,7 +34,7 @@ namespace Durin
         uint8 Stages, Entries;
         uint32 ArraySize = 1;
     };
-    inline constexpr uint32 MaterialBindingSchemaVersion = 1;
+    inline constexpr uint32 MaterialBindingSchemaVersion = 2;
     ENGINE_API auto GetMaterialBindingDefinitions() -> std::span<const FMaterialBindingDefinition>;
     ENGINE_API auto GetMaterialBindingDefinition(EMaterialBindingRole Role) -> const FMaterialBindingDefinition&;
     ENGINE_API auto GetMaterialBindingSlot(EMaterialBindingRole Role, uint32 Index = 0) -> uint32;
@@ -46,4 +50,17 @@ namespace Durin
         -> std::expected<std::vector<FMaterialShaderBinding>, std::string>;
     inline auto IsMaterialSceneBinding(EMaterialBindingRole Role) -> bool
     { return Role >= EMaterialBindingRole::SceneUniform && Role <= EMaterialBindingRole::SceneLinearSampler; }
+    // Provider lifetime classification is independent of compiled descriptor locations.
+    inline auto IsMaterialPassBinding(EMaterialBindingRole Role) -> bool
+    {
+        using R = EMaterialBindingRole;
+        return Role != R::Primitive && Role != R::Material && Role != R::Collection
+            && Role != R::Texture && Role != R::Sampler && Role != R::Spline && Role != R::HitProxy;
+    }
+    inline auto IsMaterialPassParameter(std::string_view Name) -> bool
+    {
+        return std::ranges::any_of(GetMaterialBindingDefinitions(), [&](const auto& Definition) {
+            return Definition.Name == Name && IsMaterialPassBinding(Definition.Role);
+        });
+    }
 }

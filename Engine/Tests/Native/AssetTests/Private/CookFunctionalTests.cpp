@@ -4,6 +4,7 @@
 #include "NativePackageUnloadTestSupport.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "NativeAssetBuildTestSupport.h"
+#include "RenderingThread.h"
 #include "Asset/Cook.h"
 #include "Engine/AssetManager.h"
 #include "Engine/PrimaryDataAsset.h"
@@ -259,10 +260,14 @@ namespace
 			FShaderPaths::RegisterMountPoint("/CookFixture/", ShaderRoot.generic_string(),
 				(Testing::GetTestWorkDirectory() / "CookShaderCache").generic_string());
 			FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+			FModuleManager::Get().LoadModuleChecked("Renderer");
 		}
 		static auto TearDownTestSuite() -> void
 		{
 			FAssetCompilingManager::Get().FinishAllCompilation();
+			InitRenderingThread();
+			FModuleManager::Get().ShutdownModule("Renderer");
+			ShutdownRenderingThread();
 			ShutdownAssetCompilingManager();
 			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		}

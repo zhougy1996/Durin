@@ -24,7 +24,9 @@ namespace Durin::RendererPrivate
 		State.Changed.clear();
 		for (auto Parameter : Parameters)
 		{
-			if (InstanceBuffer && Parameter.SetIndex == 0 && Parameter.BindingIndex == 31 && Parameter.Type == ERHIBindingType::StorageBuffer)
+			if (InstanceBuffer && InstanceIdsAllocation
+				&& Parameter.SetIndex == InstanceIdsAllocation->first && Parameter.BindingIndex == InstanceIdsAllocation->second
+				&& Parameter.Type == ERHIBindingType::StorageBuffer)
 			{ Parameter.Resource = InstanceBuffer; Parameter.Offset = InstanceDataByteOffset; Parameter.Size = InstanceBuffer->GetSize() - InstanceDataByteOffset; }
 			const auto Found = std::ranges::find_if(State.Parameters, [&](const auto& Previous) {
 				return Previous.SetIndex == Parameter.SetIndex && Previous.BindingIndex == Parameter.BindingIndex
@@ -40,7 +42,8 @@ namespace Durin::RendererPrivate
 	}
 	auto FMeshDrawShaderBindings::operator==(const FMeshDrawShaderBindings& Other) const -> bool
 	{
-		return Shader == Other.Shader && std::ranges::equal(Parameters, Other.Parameters, [](const auto& A, const auto& B) {
+		return Shader == Other.Shader && InstanceIdsAllocation == Other.InstanceIdsAllocation
+			&& std::ranges::equal(Parameters, Other.Parameters, [](const auto& A, const auto& B) {
 			return A.Resource == B.Resource && A.SetIndex == B.SetIndex && A.BindingIndex == B.BindingIndex
 				&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Offset == B.Offset && A.Size == B.Size && A.ResourceIndex == B.ResourceIndex;
 		});
@@ -426,7 +429,7 @@ namespace Durin::RendererPrivate
 			else
 			{
 				FMeshDrawShaderBindings Bindings;
-				if (!PrepareCompiledSurfaceMaterial(Pipeline->GetInitializer().FragmentShader, Layout.ForSet(1), Input.Material.Surface,
+				if (!PrepareCompiledSurfaceMaterial(Pipeline->GetInitializer().FragmentShader, Layout.ForMaterialParameters(true), Input.Material.Surface,
 					Input.Material.Uniform, {}, Input.HitProxy, {}, Input.PrimitiveUniform, Input.Material.CollectionUniforms, Bindings))
 				{ return FShaderCompletion::Failure("Mesh stable fragment binding collection failed."); }
 				Command->FragmentBindings = std::move(Bindings);
@@ -453,7 +456,7 @@ namespace Durin::RendererPrivate
 			if (!Input.HitProxy.Buffer)
 				if (const auto Found = Cache.Passes.find(Key); Found != Cache.Passes.end()) { Bindings = Found->second; return true; }
 			FMeshDrawShaderBindings Prepared;
-			if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForSet(0), Input.Material.Surface, {}, Input.Lighting,
+			if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForMaterialParameters(false), Input.Material.Surface, {}, Input.Lighting,
 				Input.HitProxy, Input.ViewUniform, {}, {}, Prepared, Input.LocalLights, Input.GPUScene)) return false;
 			Bindings = std::move(Prepared);
 			if (!Input.HitProxy.Buffer) Cache.Passes.emplace(Key, Bindings);
@@ -467,7 +470,7 @@ namespace Durin::RendererPrivate
 			{
 				if (!Vertex->GetReflection()) return FShaderCompletion::Failure("Mesh vertex reflection is unavailable.");
 				auto Reflection = *Vertex->GetReflection();
-				std::erase_if(Reflection.ResourceBindings, [](const auto& Binding) { return Binding.SetIndex != 0; });
+				std::erase_if(Reflection.ResourceBindings, [](const auto& Binding) { return !IsMaterialPassParameter(Binding.Name); });
 				if (!Collect(Vertex->GetRHIShader(false), FCompiledSurfaceBindingLayout(Reflection), Out.Vertex))
 					return FShaderCompletion::Failure("Mesh view vertex binding collection failed.");
 			}

@@ -569,9 +569,10 @@ durin_add_native_test(AssetPackageReloadVulkanTests
 durin_add_native_test(AssetPackageReloadTests
 	KIND feature
 	DOMAINS asset-package editor-shell
-	MODULES durin-ed engine texture-compressor shader-build
+	MODULES durin-ed engine renderer texture-compressor shader-build
 	STACKS editor
 	SOURCES Private/AssetPackageReloadTests.cpp
+	DEPENDENCIES Renderer
 	LIBRARIES Core CoreDObject Engine DurinEd TextureCompressor ShaderBuild MeshBuilder
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	REQUIRES editor
