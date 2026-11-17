@@ -51,7 +51,7 @@ namespace Durin::MainFrame
 		uint64 EvictedLogRecordCount = 0;
 		std::array<char, 128> SearchText{};
 		std::array<char, 512> CommandText{};
-		ELogLevel MinimumLogLevel = ELogLevel::Trace;
+		ELogLevel MinimumLogLevel = ELogLevel::Debug;
 		std::vector<size_t> VisibleRecordIndices;
 		std::vector<float> VisibleRecordOffsets;
 		std::vector<std::string> History;
