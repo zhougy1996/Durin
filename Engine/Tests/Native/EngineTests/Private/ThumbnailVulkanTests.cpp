@@ -11,6 +11,7 @@
 #include "Engine/Actor.h"
 #include "PSOPrecacheMaterial.h"
 #include "VertexFactory.h"
+#include "Shader/ShaderCompilingManager.h"
 
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
@@ -344,6 +345,8 @@ TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)
 	EXPECT_EQ((**Capture).size(), Contract.Output.Width * Contract.Output.Height * 4u);
 	// Cold view preparation may resolve a fixed Vertex Factory shader after the
 	// material/global session is ready. Measure consumption after that boundary.
+	FShaderCompilingManager::Get().FinishAllCompilation();
+	FlushRenderingCommands();
 	const auto Before = GetShaderBuildStats();
 	ASSERT_TRUE(Preview.BeginCapture());
 	ASSERT_TRUE(WaitForResourcePublication([&] {

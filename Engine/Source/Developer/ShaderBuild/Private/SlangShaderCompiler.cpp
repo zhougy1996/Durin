@@ -4,6 +4,7 @@
 #include "RHIResources.h"
 #include "MetalShaderTranslator.h"
 #include "SlangSessionEnvironment.h"
+#include "ShaderFormat.h"
 
 namespace Durin
 {
@@ -409,6 +410,40 @@ namespace Durin
 						break;
 					}
 
+                    auto* Leaf = TypeLayout->getBindingRangeLeafTypeLayout(BindingRangeIndex);
+                    if (Binding.Type == ERHIBindingType::StorageBuffer) Binding.ResourceShape = EShaderResourceShape::Buffer;
+                    if ((Binding.Type == ERHIBindingType::Texture || Binding.Type == ERHIBindingType::StorageImage) && Leaf) {
+                        using S = EShaderResourceShape;
+                        switch (Leaf->getResourceShape()) {
+                        case SLANG_TEXTURE_1D: Binding.ResourceShape = S::Texture1D; break;
+                        case SLANG_TEXTURE_1D_ARRAY: Binding.ResourceShape = S::Texture1DArray; break;
+                        case SLANG_TEXTURE_2D: Binding.ResourceShape = S::Texture2D; break;
+                        case SLANG_TEXTURE_2D_ARRAY: Binding.ResourceShape = S::Texture2DArray; break;
+                        case SLANG_TEXTURE_3D: Binding.ResourceShape = S::Texture3D; break;
+                        case SLANG_TEXTURE_CUBE: Binding.ResourceShape = S::TextureCube; break;
+                        case SLANG_TEXTURE_CUBE_ARRAY: Binding.ResourceShape = S::TextureCubeArray; break;
+                        case SLANG_TEXTURE_2D_MULTISAMPLE: Binding.ResourceShape = S::Texture2DMS; break;
+                        case SLANG_TEXTURE_2D_MULTISAMPLE_ARRAY: Binding.ResourceShape = S::Texture2DMSArray; break;
+                        case SLANG_TEXTURE_BUFFER: Binding.ResourceShape = S::Buffer; break;
+                        default: break;
+                        }
+                    }
+                    if (Binding.Type == ERHIBindingType::UniformBuffer && Leaf) {
+                        Binding.ConstantBufferSize = ResolvePushConstantByteSize(Leaf);
+                        auto* Data = Leaf;
+                        if (Leaf->getKind() == slang::TypeReflection::Kind::ConstantBuffer || Leaf->getKind() == slang::TypeReflection::Kind::ParameterBlock)
+                            Data = Leaf->getElementTypeLayout();
+                        if (!Data || Data->getFieldCount() > 2048) return std::unexpected("Unsupported constant-buffer layout");
+                        for (uint32 I = 0; I < Data->getFieldCount(); ++I) {
+                            auto* Field = Data->getFieldByIndex(I);
+                            const auto Offset = Field->getOffset(slang::ParameterCategory::Uniform);
+                            const auto Size = Field->getTypeLayout()->getSize(slang::ParameterCategory::Uniform);
+                            const char* Name = Field->getVariable()->getName();
+                            if (!Name || Offset > Binding.ConstantBufferSize || Size > Binding.ConstantBufferSize - Offset)
+                                return std::unexpected("Invalid reflected constant member range");
+                            Binding.ConstantMembers.push_back({Name, static_cast<uint32>(Offset), static_cast<uint32>(Size)});
+                        }
+                    }
 					AppendResourceBinding(OutReflection, std::move(Binding));
 					break;
 				}
@@ -671,6 +706,11 @@ namespace Durin
 			{
 				Output.AddError(std::move(Result.error()));
 				return Output;
+			}
+			if (std::ranges::any_of(Options.Macros, [](const auto& M) { return M.Name == "DURIN_STAGE_PARAMETER_SPACES" && M.Value == "1"; }))
+			{
+				if (auto Result = ShaderFormat::ApplyGraphicsStageParameterSpaces(Output.CompiledShaders[Index]); !Result)
+				{ Output.AddError(Result.error()); return Output; }
 			}
 			if (Options.Target == MetalShaderTarget)
 			{

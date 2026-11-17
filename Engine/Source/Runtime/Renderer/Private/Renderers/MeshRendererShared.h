@@ -34,12 +34,30 @@
 
 namespace Durin::RendererPrivate
 {
+    class FLocalVFParameterOwner {
+    public:
+        DURIN_BEGIN_SHADER_PARAMETERS(FLocalVFParameterOwner)
+#include "Material/GPUSceneParameters.inl"
+        DURIN_END_SHADER_PARAMETERS();
+        static auto GetParametersMetadata() -> const FShaderParametersMetadata*
+        { return GetShaderParametersMetadataOrNull<FLocalVFParameterOwner>(); }
+    };
+    class FSplineVFParameterOwner {
+    public:
+        DURIN_BEGIN_SHADER_PARAMETERS(FSplineVFParameterOwner)
+#include "Material/GPUSceneParameters.inl"
+#include "Material/SplineParameters.inl"
+        DURIN_END_SHADER_PARAMETERS();
+        static auto GetParametersMetadata() -> const FShaderParametersMetadata*
+        { return GetShaderParametersMetadataOrNull<FSplineVFParameterOwner>(); }
+    };
 	inline auto GetLocalVertexFactoryShaderType() -> const FVertexFactoryType&
 	{
 		static const FVertexFactoryType Type("LocalVertexFactory",
 			EVertexFactoryFlags::SupportsPSOPrecaching | EVertexFactoryFlags::SupportsPositionOnly,
 			&FLocalVertexFactory::GetPSOPrecacheVertexFetchElements,
-			{.ShaderModules = {"VertexFactory.LocalVertexFactory"}, .MaterialEntryInclude = "VertexFactory/LocalMaterialEntry.slang"});
+			{.ShaderModules = {"VertexFactory.LocalVertexFactory"}, .MaterialEntryInclude = "VertexFactory/LocalMaterialEntry.slang",
+             .ParametersMetadata = FLocalVFParameterOwner::GetParametersMetadata()});
 		return Type;
 	}
 
@@ -51,7 +69,7 @@ namespace Durin::RendererPrivate
 			{.ShaderModules = {"VertexFactory.LocalVertexFactory", "VertexFactory.SplineMeshVertexFactory"}, .MaterialEntryInclude = "VertexFactory/SplineMaterialEntry.slang",
 			 .ModifyEnvironment = [](const FShaderPermutationParameters&, FShaderCompileOptions& O) {
 				if (!std::ranges::any_of(O.Macros, [](const auto& M) { return M.Name == "DURIN_SPLINE_MESH"; })) O.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
-			 }});
+			 }, .ParametersMetadata = FSplineVFParameterOwner::GetParametersMetadata()});
 		return Type;
 	}
 
@@ -141,6 +159,7 @@ namespace Durin::RendererPrivate
 			.CompiledTarget = MaterialProgram
 				? MaterialProgram->GetShaderMap().Target : std::string{},
 			.GeneratedEntries = GeneratedEntries,
+            .CompiledParameters = MaterialProgram ? MaterialProgram->ShaderMap : nullptr,
 			.bCreateRHIShaders = true}, OutShaderMap);
 	}
 
@@ -154,7 +173,7 @@ namespace Durin::RendererPrivate
 		std::vector<FShaderParameterBinding> Bindings(Content->GetParameterBindings().begin(), Content->GetParameterBindings().end());
 		// View and material uniforms are supplied by pass/material composition.
 		std::erase_if(Bindings, [](const auto& Parameter) {
-			return IsMaterialPassParameter(Parameter.Name) || Parameter.Name == "Material";
+			return Parameter.Scope == EShaderParameterBindingScope::Pass || Parameter.OwnerName == "Material";
 		});
 		FMeshDrawShaderBindings Result;
 		Result.Parameters = ResolveShaderParameterResources(*TShader::GetParametersMetadata(), Bindings, &Parameters);
@@ -171,17 +190,15 @@ namespace Durin::RendererPrivate
 	{
 		if (!Base) return {};
 		FMeshDrawShaderBindings Bindings(std::move(Base));
-		const auto* Reflection = Shader.GetReflection();
-		if (!Reflection) return Bindings;
-		auto Remaining = *Reflection;
-		std::erase_if(Remaining.ResourceBindings, [&](const auto& Binding) {
-			if (bStableOnly && IsMaterialPassParameter(Binding.Name)) return true;
-			return std::ranges::any_of(Bindings.GetResources(), [&](const auto& Resource) {
-				return Resource.SetIndex == Binding.SetIndex && Resource.BindingIndex == Binding.BindingIndex;
-			});
-		});
-		if (Remaining.ResourceBindings.empty()) return Bindings;
-		FCompiledSurfaceBindingLayout Layout(Remaining);
+        auto Remaining = std::vector<FMaterialShaderBinding>(Shader.GetAcceptedParameterBindings().begin(), Shader.GetAcceptedParameterBindings().end());
+        std::erase_if(Remaining, [&](const auto& B) {
+            if (bStableOnly && B.Scope == EShaderParameterBindingScope::Pass) return true;
+            return std::ranges::any_of(Bindings.GetResources(), [&](const auto& R) {
+                return R.SetIndex == B.SetIndex && R.BindingIndex == B.BindingIndex;
+            });
+        });
+        if (Remaining.empty()) return Bindings;
+        FCompiledSurfaceBindingLayout Layout(Remaining);
 		FMeshDrawShaderBindings Additional;
 		if (!PrepareCompiledSurfaceMaterial(Shader.GetRHIShader(false), Layout, Material, Uniform,
 			{}, {}, View, {}, Collections, Additional)) return {};
@@ -199,13 +216,10 @@ namespace Durin::RendererPrivate
 			{ return {.Entry = EMaterialShaderEntry::LocalVertex, .GeometryUsage = 1, .PassUsage = 15, .VertexFactory = []() -> const FVertexFactoryType* { return &GetLocalVertexFactoryShaderType(); }}; }
 
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
-            DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
-            DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
-            DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-		DURIN_END_SHADER_PARAMETERS();
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
 
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(
 			FStaticMeshVertexShader,
@@ -227,14 +241,11 @@ namespace Durin::RendererPrivate
 			GetSplineVertexFactoryShaderType().ModifyCompilationEnvironment(Parameters, Options);
 		}
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUScenePrimitiveSceneData);
-            DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceSceneData);
-            DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstancePayloadData);
-            DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(GPUSceneInstanceIds);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
-		DURIN_END_SHADER_PARAMETERS();
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+#include "Material/SplineParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "SplineVertexMain");
 	};
 

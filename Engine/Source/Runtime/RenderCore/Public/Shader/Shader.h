@@ -342,6 +342,16 @@ namespace Durin
 			); \
 		}
 
+	#define DURIN_MATERIAL_PARAMETER(Owner, MemberName, SlangType, Reflected, Runtime, Optional, Usage) \
+		typename TShaderParameterCppType<ERHIBindingType::Runtime>::Type MemberName{}; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			auto Member = MakeShaderParameterMemberMetadata<ERHIBindingType::Runtime, decltype(FParameters::MemberName), Optional>( \
+				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+			Member.ShaderType = #SlangType; Member.OwnerName = #Owner; \
+			Member.Scope = EShaderParameterBindingScope::Usage; return Member; \
+		}
+
 	#define DURIN_BEGIN_SHADER_PARAMETERS(ShaderClass) \
 	private: \
 		using FShaderParametersOwner = ShaderClass; \

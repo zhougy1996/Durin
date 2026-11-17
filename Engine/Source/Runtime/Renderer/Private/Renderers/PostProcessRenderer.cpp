@@ -75,6 +75,11 @@ namespace Durin
 		public:
 			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
 			{ return {.Entry = EMaterialShaderEntry::PostProcess, .Domain = EMaterialDomain::PostProcess}; }
+			DURIN_BEGIN_SHADER_PARAMETERS(FPostProcessMaterialShader)
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBuffer, true, Draw);
+				DURIN_MATERIAL_PARAMETER(View, MaterialView, ConstantBuffer<MaterialViewUniform>, UniformBuffer, UniformBuffer, true, Pass);
+#include "Material/SceneTexturesParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FPostProcessMaterialShader, FMaterialShader,
 				"/Engine/PostProcess", EShaderFrequency::Fragment, "PostProcessMaterialMain");
 		};
@@ -408,7 +413,7 @@ namespace Durin
 		FResolvedSurfaceMaterial Material;
 		if (!State->MaterialResources->Ensure_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess)
 			|| !State->MaterialResources->Resolve_RenderThread(Prepared->Material, ESurfaceMaterialPass::PostProcess, {}, nullptr, nullptr, Material)) return {};
-		const auto Layout = FCompiledSurfaceBindingLayout(Map.Entries[0].Bindings, EMaterialDomain::PostProcess).WithoutSceneInputs();
+		const auto Layout = FCompiledSurfaceBindingLayout(Map.Entries[0].Bindings).WithoutSceneInputs();
 		if (!Layout.IsValid()) return {};
 
 		const auto RetainUniform = [&](FByteView Payload) {

@@ -12,7 +12,7 @@ namespace Durin
 {
 	inline constexpr uint32 ShaderCompileBuildFunctionVersion = 5;
 	inline constexpr uint32 ShaderCompileConstantsSchemaVersion = 3;
-	inline constexpr uint32 ShaderCompileOutputSchemaVersion = 7;
+	inline constexpr uint32 ShaderCompileOutputSchemaVersion = 8;
 	SHADERBUILD_API auto GetShaderBuildDescriptor() -> DerivedData::FBuildFunctionDescriptor;
 	using FShaderArtifactResolver = std::function<std::expected<std::shared_ptr<const FShaderSourceArtifacts>, std::string>()>;
 	// Request data lives in constants/request input, never in the registered function.

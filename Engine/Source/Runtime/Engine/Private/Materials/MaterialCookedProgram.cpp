@@ -64,6 +64,12 @@ namespace Durin
 				Ar, Binding.Name, MaterialCookedProgramMaxStringBytes);
 			Ar << Binding.StageFlags << Binding.SetIndex << Binding.BindingIndex
 				<< Binding.Type << Binding.ArraySize;
+            Ar << Binding.ResourceShape << Binding.ConstantBufferSize;
+            SerializeBoundedSequence(Ar, Binding.ConstantMembers, 2048, [&](FArchive& A, auto& M) {
+                SerializeBoundedString(A, M.Name, 256); A << M.Offset << M.Size;
+                if (M.Offset > Binding.ConstantBufferSize || M.Size > Binding.ConstantBufferSize - M.Offset)
+                    A.Fail(EArchiveFailureCode::InvalidData, "Invalid constant member allocation");
+            });
 		}
 
 		auto SerializePushRange(FArchive& Ar, FPushConstantRange& Range) -> void

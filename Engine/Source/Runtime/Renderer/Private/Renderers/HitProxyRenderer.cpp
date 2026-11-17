@@ -68,10 +68,11 @@ namespace Durin
 			{ return {.Entry = EMaterialShaderEntry::HitProxy, .GeometryUsage = 255, .PassUsage = 8, .bEditorOnly = true}; }
 
 			DURIN_BEGIN_SHADER_PARAMETERS(FHitProxyFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(HitProxy);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+#include "Material/HitProxyParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FHitProxyFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "HitProxyFragmentMain");

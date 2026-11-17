@@ -498,8 +498,12 @@ TEST(FRendererSceneContractTests, PreparedSurfaceBindingsClearPreviousPayloadOnF
 	FShaderReflectionData Reflection;
 	Reflection.ResourceBindings = {{.Name = "Material", .SetIndex = 2, .BindingIndex = 11,
 		.Type = ERHIBindingType::UniformBuffer}};
-	Reflection.ResourceBindings[0].Name = GetMaterialBindingName(EMaterialBindingRole::Material);
-	const FCompiledSurfaceBindingLayout Layout(Reflection);
+	auto Schema = BuildShaderParameterSchema(*FSurfaceParameterProviders::GetParametersMetadata());
+    ASSERT_TRUE(Schema);
+    std::erase_if(Schema->Fields, [](const auto& F) { return F.ShaderName != "Material"; });
+    Schema = CanonicalizeShaderParameterSchema(std::move(*Schema)); ASSERT_TRUE(Schema);
+    const auto Accepted = DescribeMaterialShaderBindings(Reflection, *Schema); ASSERT_TRUE(Accepted);
+    const FCompiledSurfaceBindingLayout Layout(*Accepted);
 	FResolvedSurfaceMaterial Material;
 	Material.bCompiledLayout = true;
 	FMeshDrawShaderBindings Bindings;

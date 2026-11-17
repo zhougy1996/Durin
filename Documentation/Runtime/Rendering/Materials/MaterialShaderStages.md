@@ -146,31 +146,48 @@ frame-time speedup claim.
 
 ## Logical bindings and runtime projection
 
-`Material/MaterialBindingSchema.inl` is the shared resource catalog. Slang owners
-expand the appropriate declaration group; Engine's private implementation expands
-the same catalog into `FMaterialBindingDefinition` values. Public C++ headers expose
-logical roles and APIs without including shader-source files. Each definition owns
-name/type, reflected/runtime kind, descriptor set, fixed slot or indexed stride,
-array policy and stage/entry eligibility. Material texture/sampler and collection
-declarations still derive from these rules. Accepted allocation is independent of
-those declaration-time numbers; there is no separate runtime texture-slot base.
-Uniform payload packing remains with the compiled layout and backend compact
-allocation remains with ShaderFormat.
+Each parameter owner shares its declaration list between Slang and registered
+C++ parameter metadata: View, Primitive, Surface, GPUScene, Spline, HitProxy and
+SceneTextures. Members describe names, shader types, resource/runtime kinds,
+required/optional policy and Draw/Pass lifetime scope. They contain no descriptor
+numbers or ordinal pass masks. Material resources and collections use
+`FShaderParametersMetadataBuilder`; their qualified identities contain parameter
+or collection GUIDs. Registered Shader and VF metadata compose with that dynamic
+schema before compilation. Extensions add owner metadata and source declarations
+without changing a global resource enum or material selection switch.
+
+ShaderBuild reflects compiler allocation, resource dimensions and top-level
+constant member offsets/sizes. ShaderFormat owns the named graphics root-layout
+exception: default-space graphics descriptors occupy set 0 for vertex products
+and set 1 for fragment products, keeping independently optimized stages disjoint.
+It rewrites SPIR-V and reflection together, rejects collisions and preserves
+explicit nonzero spaces. Resources within each stage retain compiler allocation.
+Uniform payload packing remains version 5; admission checks its expected members
+against compiler constant layout.
 
 After reflection validation, each immutable entry publishes canonical logical
-`FMaterialShaderBinding` role/index references together with the compiler's actual
-set, binding, resource kind and array size. Translation carries no accepted
+`FMaterialShaderBinding` names, qualified identities, owner/provider references,
+runtime kind and lifetime scope together with the compiler's actual set, binding,
+resource kind, dimension, array size and constant-buffer size. Translation carries no accepted
 bindings. Final assembly and Cook admission require the exact optimized binding
 sequence to match reflection, with no unknown, duplicate, mistyped, wrong-array or
 out-of-scope resource. Material/collection reads must belong to the analyzed entry
 closure. Conservative analysis can exceed optimized reads; mandatory HitProxy and
 PostProcess alpha/input resources must remain present. Semantic matching uses names
-and types, not descriptor-number inference. Binding schema version 2
+and types. Binding schema version 3
 travels with compilation output and incompatible versions reject before publication.
+Each entry retains a semantic schema identity and a product-bound allocation
+identity covering Shader/VF/target/permutation, code, locations and constant layout.
+The material compiler environment hashes registered Shader/VF parameter-owner
+schemas so metadata edits invalidate translated products. Generated stage requests
+also include their exact composed schema identity. Static runtime preparation
+applies the same registered-type compilation environment as the Cook producer;
+parameter metadata does not introduce separate per-type backend macro variants.
 
 Typed runtime maps verify accepted references against their code's reflection
 before creating resources. Renderer uses the accepted physical locations;
-Surface and standalone PostProcess uniform-kind policy has one schema adapter.
+Surface providers resolve compiled C++ member offsets using generic typed binding;
+uniform-kind policy comes from owner metadata.
 PostProcess consumes the accepted description directly for material and scene
 bindings. Mesh pass/material lifetime filtering follows provider semantics rather
 than descriptor set numbers; instance-selection replacement retains its accepted
@@ -198,9 +215,12 @@ shadow type, whose declared material pass remains Shadow. Excluded uses
 fail admission without compiler work. Game continues to load accepted binaries
 without MIR, generated source, ShaderBuild or authoring graphs.
 
-Pass contract 24, DMAT 27 and detached translation schema 16 carry this
-contract. Normalization/generator revisions 16/28, compile adapter 25 and the
-ShaderBuild compile algorithm revision 6 invalidate earlier producer artifacts.
+Pass contract 25, DMAT 28 and detached translation schema 17 carry this
+contract. Normalization/generator revisions 16/29, compile adapter 26 and the
+ShaderBuild compile algorithm revision 7 invalidate earlier producer artifacts.
+Generic parameter schemas/allocation envelopes use version 2, DSHD uses version 7
+and shared ShaderBuild output uses version 8. These codecs retain resource shape
+and constant layouts through DDC and Cook.
 Recook incompatible derived products; authored graph schemas remain unchanged.
 The [material system](MaterialSystem.md) owns the remaining compatibility versions.
 

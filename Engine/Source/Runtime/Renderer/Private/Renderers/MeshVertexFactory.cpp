@@ -13,6 +13,8 @@ namespace Durin::RendererPrivate
 		public:
 			explicit TMeshVertexShaderBinding(const FMeshMaterialShaderMap& Map) : Shader(Map) {}
 			auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
+			auto GetAcceptedParameterBindings() const -> std::span<const FMaterialShaderBinding> override
+			{ return Shader ? Shader.GetShader()->GetAcceptedParameterBindings() : std::span<const FMaterialShaderBinding>{}; }
 			auto GetRHIShader(bool bRequired) const -> FRHIShader* override
 			{
 				return Shader.GetRHIShader(bRequired);

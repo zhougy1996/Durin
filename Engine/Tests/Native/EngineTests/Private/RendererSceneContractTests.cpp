@@ -3154,20 +3154,23 @@ TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContrac
 	using namespace Durin::RendererPrivate;
 	FShaderReflectionData Reflection;
 	Reflection.ResourceBindings = {
-		{.SetIndex = 3, .BindingIndex = 9, .Type = ERHIBindingType::UniformBuffer},
-		{.SetIndex = 2, .BindingIndex = 11, .Type = ERHIBindingType::UniformBuffer},
-		{.SetIndex = 0, .BindingIndex = 7, .Type = ERHIBindingType::UniformBuffer}};
-	Reflection.ResourceBindings[0].Name = GetMaterialBindingName(EMaterialBindingRole::View);
-	Reflection.ResourceBindings[1].Name = GetMaterialBindingName(EMaterialBindingRole::Material);
-	Reflection.ResourceBindings[2].Name = GetMaterialBindingName(EMaterialBindingRole::HitProxy);
-	const FCompiledSurfaceBindingLayout Layout(Reflection);
+		{.Name = "MaterialView", .SetIndex = 3, .BindingIndex = 9, .Type = ERHIBindingType::UniformBuffer},
+		{.Name = "Material", .SetIndex = 2, .BindingIndex = 11, .Type = ERHIBindingType::UniformBuffer},
+		{.Name = "HitProxy", .SetIndex = 0, .BindingIndex = 7, .Type = ERHIBindingType::UniformBuffer}};
+	auto Schema = BuildShaderParameterSchema(*FSurfaceParameterProviders::GetParametersMetadata());
+    ASSERT_TRUE(Schema);
+    std::erase_if(Schema->Fields, [](const auto& F) { return F.ShaderName != "MaterialView" && F.ShaderName != "Material" && F.ShaderName != "HitProxy"; });
+    Schema = CanonicalizeShaderParameterSchema(std::move(*Schema));
+    ASSERT_TRUE(Schema);
+    const auto Accepted = DescribeMaterialShaderBindings(Reflection, *Schema);
+    ASSERT_TRUE(Accepted);
+    const FCompiledSurfaceBindingLayout Layout(*Accepted);
 	ASSERT_TRUE(Layout.IsValid());
 	ASSERT_EQ(Layout.GetEntries().size(), 3u);
-	EXPECT_EQ(Layout.GetEntries()[0].Source, FCompiledSurfaceBindingLayout::ESource::View);
-	EXPECT_EQ(Layout.GetEntries()[1].Source, FCompiledSurfaceBindingLayout::ESource::Material);
-	EXPECT_EQ(Layout.GetEntries()[2].Source, FCompiledSurfaceBindingLayout::ESource::HitProxy);
-	EXPECT_EQ(Layout.GetEntries()[0].SetIndex, 3u);
-	EXPECT_EQ(Layout.GetEntries()[1].BindingIndex, 11u);
+    const auto View = std::ranges::find(Layout.GetEntries(), std::string("MaterialView"), &FCompiledSurfaceBindingLayout::FEntry::Name);
+    const auto Material = std::ranges::find(Layout.GetEntries(), std::string("Material"), &FCompiledSurfaceBindingLayout::FEntry::Name);
+    ASSERT_NE(View, Layout.GetEntries().end()); ASSERT_NE(Material, Layout.GetEntries().end());
+    EXPECT_EQ(View->SetIndex, 3u); EXPECT_EQ(Material->BindingIndex, 11u);
 	EXPECT_EQ(Layout.ForMaterialParameters(true).GetEntries().size(), 2u);
 	EXPECT_EQ(Layout.ForMaterialParameters(false).GetEntries().size(), 1u);
 	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
@@ -3181,7 +3184,7 @@ TEST(FRendererSceneContractTests, CompiledSurfaceLayoutsRejectUnsupportedContrac
 		case 3: Invalid.ResourceBindings.push_back(Invalid.ResourceBindings[0]); break;
 		case 4: Invalid.ResourceBindings[0].SetIndex = 2; Invalid.ResourceBindings[0].BindingIndex = 11; break;
 		}
-		EXPECT_FALSE(FCompiledSurfaceBindingLayout(Invalid).IsValid()) << Mutation;
+		EXPECT_FALSE(DescribeMaterialShaderBindings(Invalid, *Schema)) << Mutation;
 	}
 }
 

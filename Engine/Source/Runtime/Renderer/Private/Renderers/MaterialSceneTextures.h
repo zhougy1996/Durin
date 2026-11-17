@@ -5,9 +5,19 @@
 #include "Materials/MaterialProgramCompiler.h"
 #include "RDG/RDG.h"
 #include "RHIShaderParameters.h"
+#include "Shader/Shader.h"
 
 namespace Durin
 {
+	class FMaterialSceneTextureParameterOwner
+	{
+	public:
+		DURIN_BEGIN_SHADER_PARAMETERS(FMaterialSceneTextureParameterOwner)
+#include "Material/SceneTexturesParameters.inl"
+		DURIN_END_SHADER_PARAMETERS();
+		static auto GetParametersMetadata() -> const FShaderParametersMetadata*
+		{ return GetShaderParametersMetadataOrNull<FMaterialSceneTextureParameterOwner>(); }
+	};
 	// ScreenPass-style ownership: graph identity and active rectangle travel together.
 	struct FScreenPassTexture
 	{
@@ -66,13 +76,4 @@ namespace Durin
         std::span<const FMaterialShaderBinding> Bindings, FRHITexture* Input0, FRHITexture* Depth,
         const FMaterialSceneTextureUniform& Uniform)
         -> std::expected<FMaterialSceneTextureBindings, std::string>;
-	RENDERER_API auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
-		const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
-		const FMaterialSceneTextureUniform& Uniform)
-		-> std::expected<FMaterialSceneTextureBindings, std::string>;
-	// Counted bindings are built atomically from this pass's resolver authority.
-	RENDERER_API auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
-		const FShaderReflectionData& Reflection, const FMaterialSceneTexturePassParameters& Parameters,
-		const FRDGParameterResolver& Resolver, const FMaterialSceneTextureUniform& Uniform)
-		-> std::expected<FMaterialSceneTextureBindings, std::string>;
 }

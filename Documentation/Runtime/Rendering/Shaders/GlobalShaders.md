@@ -67,12 +67,12 @@ Compiled stages retain immutable code and opaque, versioned target metadata.
 ShaderFormat owns target validation, the Metal metadata codec, and the shared
 `BuildLogicalBindings` conversion from reflection into logical declarations.
 RenderCore has no separate conversion adapter and allocates no native slots.
-DSHD v6, shared compiler output v7, and DSLB v6 preserve those bytes and validate
+DSHD v7, shared compiler output v8, and DSLB v6 preserve those bytes and validate
 the complete shader identity before publication. The identity covers target
 settings, format version, stage/group size, binary entry point, code, logical
-reflection, and execution metadata. `FShaderCode::CodeHash` remains the separately
+reflection (including resource shape and constant layouts), and execution metadata. `FShaderCode::CodeHash` remains the separately
 checked code-only hash. Obsolete cache values miss; incompatible cooked libraries
-require recooking. Material cooked payload/family schema v14 uses the same opaque
+require recooking. Material cooked payload/family schema v28 uses the same opaque
 metadata and shader validation rather than serializing Metal fields itself.
 Compiler, cache and cooked stages use this same `FShaderCode` representation.
 Reflection is the only stored declaration list; merged pipeline layouts and

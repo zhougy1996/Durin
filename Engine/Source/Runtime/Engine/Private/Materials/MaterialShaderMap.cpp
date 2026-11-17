@@ -68,11 +68,16 @@ namespace Durin
 			Size += (Q.AttributeIDs.capacity() + Q.ParameterIDs.capacity() + Q.CollectionIDs.capacity()) * sizeof(FGuid)
 				+ Q.ResourceIndices.capacity() * sizeof(uint16) + Q.SceneTextures.capacity() * sizeof(FMaterialSceneTextureRequirement)
 				+ Q.Interpolators.capacity() * sizeof(FMaterialValueSemantics) + Entry.Bindings.capacity() * sizeof(FMaterialShaderBinding);
+			for (const auto& Binding : Entry.Bindings)
+				Size += Binding.Name.capacity() + Binding.QualifiedName.capacity() + Binding.OwnerName.capacity();
 		}
 		for (const auto& Dependency : Dependencies) Size += sizeof(Dependency) + Dependency.VirtualPath.capacity();
 		for (const auto& Shader : CompiledShaders) {
 			Size += Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity() + Shader.Code.GetRetainedCapacityBytes();
-			for (const auto& Binding : Shader.Reflection.ResourceBindings) Size += sizeof(Binding) + Binding.Name.capacity();
+			for (const auto& Binding : Shader.Reflection.ResourceBindings) {
+				Size += sizeof(Binding) + Binding.Name.capacity() + Binding.ConstantMembers.capacity() * sizeof(FShaderConstantMember);
+				for (const auto& M : Binding.ConstantMembers) Size += M.Name.capacity();
+			}
 			Size += Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange) + Shader.PlatformData.GetRetainedCapacityBytes();
 		}
 		return Size;

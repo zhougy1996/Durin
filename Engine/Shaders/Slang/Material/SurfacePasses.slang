@@ -1,6 +1,11 @@
 // Pass execution owns lighting, attachments and geometry entry bodies.
 // Included after generated evaluation functions; the environment includes this
 // file without instantiation so its exact bytes participate in dependency identity.
+#if !DURIN_GENERATED_MATERIAL
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage)
+#include "HitProxyParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
+#endif
 #if DURIN_GENERATED_MATERIAL
 #if DURIN_MATERIAL_VERTEX_STAGE
 
@@ -68,11 +73,9 @@ GeometryPassFragmentOutput GeometryFragmentMain(
 #endif
 }
 struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
-#define DURIN_DECLARE_BINDINGS_HitProxy 1
-#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
-#include "MaterialBindingSchema.inl"
-#undef DURIN_MATERIAL_BINDING
-#undef DURIN_DECLARE_BINDINGS_HitProxy
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "HitProxyParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
 
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0

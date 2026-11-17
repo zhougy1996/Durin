@@ -1,5 +1,10 @@
 module MeshUniforms;
 
+// Retain the view declaration owner in detached generated-source closures.
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage)
+#include "ViewParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
+
 public struct MaterialViewUniform
 {
     public float4 Parameters;

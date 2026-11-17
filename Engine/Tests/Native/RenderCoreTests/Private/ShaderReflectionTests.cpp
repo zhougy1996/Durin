@@ -594,12 +594,14 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		);
 
 		ASSERT_EQ(VertexShader.Reflection.ResourceBindings.size(), 5u);
-		ExpectBinding(VertexShader, "MaterialView", 0,
-			ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex, 0);
-		ExpectBinding(VertexShader, "GPUScenePrimitiveSceneData", 27, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
-		ExpectBinding(VertexShader, "GPUSceneInstanceSceneData", 28, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
-		ExpectBinding(VertexShader, "GPUSceneInstancePayloadData", 29, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
-		ExpectBinding(VertexShader, "GPUSceneInstanceIds", 31, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
+		for (const auto Name : {"MaterialView", "GPUScenePrimitiveSceneData", "GPUSceneInstanceSceneData",
+			"GPUSceneInstancePayloadData", "GPUSceneInstanceIds"}) {
+			const auto* Binding = FindBinding(VertexShader, Name);
+			ASSERT_NE(Binding, nullptr) << Name;
+			EXPECT_EQ(Binding->Type, std::string_view(Name) == "MaterialView" ? ERHIBindingType::UniformBuffer : ERHIBindingType::StorageBuffer);
+			EXPECT_EQ(Binding->ArraySize, 1u);
+			EXPECT_EQ(Binding->StageFlags, EShaderStageFlags::Vertex);
+		}
 		EXPECT_TRUE(FragmentShader.Reflection.ResourceBindings.empty());
 		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
@@ -608,15 +610,12 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& ViewLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
 		ASSERT_EQ(ViewLayout.size(), 5u);
-		EXPECT_EQ(ViewLayout[0].Slot, 0u);
-		EXPECT_EQ(ViewLayout[0].Type, ERHIBindingType::UniformBuffer);
-		EXPECT_EQ(ViewLayout[0].StageFlags, EShaderStageFlags::Vertex);
-		const std::array<uint32, 4> SceneSlots{27, 28, 29, 31};
-		for (size_t Index = 0; Index < SceneSlots.size(); ++Index)
+		for (const auto& Binding : VertexShader.Reflection.ResourceBindings)
 		{
-			EXPECT_EQ(ViewLayout[Index + 1].Slot, SceneSlots[Index]);
-			EXPECT_EQ(ViewLayout[Index + 1].Type, ERHIBindingType::StorageBuffer);
-			EXPECT_EQ(ViewLayout[Index + 1].StageFlags, EShaderStageFlags::Vertex);
+			const auto Slot = std::ranges::find(ViewLayout, Binding.BindingIndex, &FBindingLayoutItem::Slot);
+			ASSERT_NE(Slot, ViewLayout.end());
+			EXPECT_EQ(Slot->Type, Binding.Type);
+			EXPECT_EQ(Slot->StageFlags, Binding.StageFlags);
 		}
 	}
 

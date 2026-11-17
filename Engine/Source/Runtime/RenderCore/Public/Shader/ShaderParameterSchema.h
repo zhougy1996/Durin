@@ -17,13 +17,21 @@ namespace Durin
 		uint32 ArraySize = 1;
 		uint32 ValueSize = 0;
 		bool bOptional = false;
+		std::string ShaderType;
+		std::string OwnerName;
+		ERHIBindingType RuntimeType = ERHIBindingType::UniformBuffer;
+		EShaderParameterBindingScope Scope = EShaderParameterBindingScope::Draw;
+		uint32 ProviderIndex = 0;
+		EShaderResourceShape ResourceShape = EShaderResourceShape::Unknown;
+		uint32 ConstantBufferSize = 0;
+		std::vector<FShaderConstantMember> ConstantMembers;
 		auto operator==(const FShaderParameterField&) const -> bool = default;
 	};
 
 	// Owns canonical fields independently of registration and C++ structure lifetimes.
 	struct FShaderParameterSchema
 	{
-		uint32 Version = 1;
+		uint32 Version = 2;
 		FXxHash128 Identity{};
 		std::vector<FShaderParameterField> Fields;
 	};
@@ -33,6 +41,10 @@ namespace Durin
 		-> std::expected<FShaderParameterSchema, std::string>;
 	RENDERCORE_API auto ComposeShaderParameterSchemas(std::span<const FShaderParameterSchema> Schemas)
 		-> std::expected<FShaderParameterSchema, std::string>;
+	RENDERCORE_API auto CanonicalizeShaderParameterSchema(FShaderParameterSchema Schema)
+		-> std::expected<FShaderParameterSchema, std::string>;
+	RENDERCORE_API auto InferShaderParameterResourceShape(std::string_view ShaderType, ERHIBindingType Kind)
+		-> EShaderResourceShape;
 
 	// Exact compiled-product context; callers include their complete compile-key digest.
 	struct FShaderParameterProduct
@@ -49,7 +61,7 @@ namespace Durin
 	// Value-owned candidate; publish only after validation against schema/product/reflection.
 	struct FShaderParameterAllocationMap
 	{
-		uint32 Version = 1;
+		uint32 Version = 2;
 		FXxHash128 SchemaIdentity{};
 		FXxHash128 Identity{};
 		FShaderParameterProduct Product;

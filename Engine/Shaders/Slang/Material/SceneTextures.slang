@@ -12,11 +12,9 @@ struct FMaterialSceneTextureUniform
     float4 ProjectionRow3;
     float4 DepthParameters; // x: clear depth
 };
-#define DURIN_DECLARE_BINDINGS_SceneTextures 1
-#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
-#include "MaterialBindingSchema.inl"
-#undef DURIN_MATERIAL_BINDING
-#undef DURIN_DECLARE_BINDINGS_SceneTextures
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "SceneTexturesParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
 
 float2 MaterialSceneTextureUV(float2 uv, float4 viewport, float4 size)
 {

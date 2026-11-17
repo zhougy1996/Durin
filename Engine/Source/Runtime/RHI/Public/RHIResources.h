@@ -256,6 +256,21 @@ namespace Durin
 		auto operator==(const FPushConstantRange&) const -> bool = default;
 	};
 
+	enum class EShaderResourceShape : uint8
+	{
+		Unknown, Buffer, Texture1D, Texture2D, Texture2DArray, Texture3D, TextureCube,
+		TextureCubeArray, Texture2DMS, Texture2DMSArray, Texture1DArray
+	};
+
+	// Compiler offsets within a constant buffer, independent of C++ parameter storage.
+	struct FShaderConstantMember
+	{
+		std::string Name;
+		uint32 Offset = 0;
+		uint32 Size = 0;
+		auto operator==(const FShaderConstantMember&) const -> bool = default;
+	};
+
 	// Describes one resource binding reflected from a compiled shader stage.
 	struct FShaderResourceBinding
 	{
@@ -265,6 +280,9 @@ namespace Durin
 		uint32 BindingIndex = 0;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		uint32 ArraySize = 1;
+		EShaderResourceShape ResourceShape = EShaderResourceShape::Unknown;
+		uint32 ConstantBufferSize = 0;
+		std::vector<FShaderConstantMember> ConstantMembers;
 
 		auto operator==(const FShaderResourceBinding& Other) const -> bool
 		{
@@ -273,7 +291,8 @@ namespace Durin
 				&& SetIndex == Other.SetIndex
 				&& BindingIndex == Other.BindingIndex
 				&& Type == Other.Type
-				&& ArraySize == Other.ArraySize;
+				&& ArraySize == Other.ArraySize && ResourceShape == Other.ResourceShape
+				&& ConstantBufferSize == Other.ConstantBufferSize && ConstantMembers == Other.ConstantMembers;
 		}
 	};
 

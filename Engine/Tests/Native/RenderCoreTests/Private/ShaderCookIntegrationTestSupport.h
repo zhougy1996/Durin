@@ -146,8 +146,12 @@ namespace Durin
 				}
 				ComposedStages = {RuntimeOutput.CompiledShaders.front(), MaterialStages[FragmentPass].front()};
                 for (size_t I = 0; I < Entries.size(); ++I) {
-                    const auto Logical = DescribeMaterialShaderBindings(ComposedStages[I].Reflection);
+                    const auto Schema = BuildMaterialParameterSchema(Entries[I].Shader.ShaderType, {}, {});
+                    ASSERT_TRUE(Schema); Entries[I].ParameterSchemaIdentity = Schema->Identity;
+                    const auto Logical = ValidateMaterialShaderBindings(ComposedStages[I].Reflection, Entries[I].Shader.ShaderType,
+                        Entries[I].Shader.Frequency, {}, {});
                     ASSERT_TRUE(Logical); Entries[I].Bindings = *Logical;
+                    Entries[I].ParameterMapIdentity = GetMaterialParameterMapIdentity(Entries[I], ComposedStages[I]);
                 }
 				if (MaterialShaderIdentityLess(Entries[1].Shader, Entries[0].Shader))
 				{
@@ -158,7 +162,7 @@ namespace Durin
 					.VertexFactoryType = *Factory, .MeshPassKey = static_cast<uint32>(Pass),
 					.ShaderTypes = ComposedTypes, .FixedShaderRuntimeRequest = Request.Name,
 					.GeneratedStages = ComposedStages, .CompiledProgramIdentity = Program,
-					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .GeneratedEntries = Entries, .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Error;
+					.CompiledTarget = (Metal ? "metal-library-1" : "vulkan-spirv-1.5"), .GeneratedEntries = Entries, .CompiledParameters = std::make_shared<FMaterialCompilationOutput>(), .bCreateRHIShaders = false}, Map))) << Request.Name << ": " << ShaderResult.Error;
 				if (Pass == 2)
 				{
 					const std::array<const FShaderType*, 2> OpaqueTypes{RuntimeTypes.front(), FragmentTypes[3]};

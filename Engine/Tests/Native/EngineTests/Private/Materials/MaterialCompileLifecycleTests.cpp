@@ -1303,15 +1303,12 @@ TEST(FMaterialCompileLifecycleTests,
 	WrongMap->Target = "wrong-target";
 	for (auto& Entry : WrongMap->Entries) { Entry.Shader.Target = WrongMap->Target; if (Entry.Mesh) Entry.Mesh->Material = Entry.Shader; }
 	WrongEnvironment.ShaderMap = WrongMap;
-	ASSERT_TRUE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
+	EXPECT_FALSE((Error = Durin::Testing::EncodeMaterialCookedProgramFamilyForTest(
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
-		WrongEnvironmentBytes))) << Error.error();
-	EXPECT_FALSE((Error = Durin::Testing::DecodeMaterialCookedProgramFamilyForTest(
-		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game,
-		WrongEnvironment, DecodedProperties, DecodedProgram)));
+		WrongEnvironmentBytes)));
+	EXPECT_TRUE(WrongEnvironmentBytes.empty());
 	Durin::FByteBuffer OldSchemaBytes = FirstBytes;
 	ASSERT_TRUE(Durin::Testing::SetMaterialCookedProgramFamilyVersionForTest(
 		OldSchemaBytes, 2));
@@ -1376,6 +1373,9 @@ TEST(FMaterialCompileLifecycleTests, MetalCookedProgramPreservesStageBindingMaps
 		Shader.Code = Durin::FSharedByteBuffer::Take(std::move(Library));
 		Shader.CodeHash = Durin::FXxHash128::HashBuffer(Shader.Code);
 	}
+	for (size_t Index = 0; Index < Artifact->Entries.size(); ++Index)
+		Artifact->Entries[Index].ParameterMapIdentity = Durin::GetMaterialParameterMapIdentity(
+			Artifact->Entries[Index], Artifact->CompiledShaders[Index]);
 	auto Result = Durin::EncodeMaterialCookedProgramFamily(Programs,
 		Material->GetStaticProperties(), Durin::ECookTargetPlatform::MacOS,
 		Durin::ECookTargetProfile::Game, Bytes);

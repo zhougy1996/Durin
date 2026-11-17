@@ -305,9 +305,15 @@ namespace Durin
 					if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D) {
                         const auto Slot = std::ranges::find(Input.ShaderTypes, Type) - Input.ShaderTypes.begin();
                         if (size_t(Slot) >= Input.CompilerOutput.CompiledShaders.size()) return std::unexpected(std::string("Material binding code slot is missing."));
-                        const auto Logical = ValidateMaterialShaderBindings(Input.CompilerOutput.CompiledShaders[Slot].Reflection, D->Entry, D->Frequency,
-                            MaterialRenderMaxResourceCount, MaterialParameterCollectionMaxPerMaterial);
-                        if (!Logical || *Logical != Contract->Bindings) return std::unexpected(std::string("Accepted material binding description does not match compiled reflection."));
+                        if (!Input.CompiledParameters) return std::unexpected(std::string("Compiled parameter metadata is missing."));
+                        const auto& Parameters = *Input.CompiledParameters;
+                        const auto Schema = BuildMaterialParameterSchema(D->ShaderType, Parameters.Layout, Parameters.CollectionLayouts);
+                        const auto Logical = ValidateMaterialShaderBindings(Input.CompilerOutput.CompiledShaders[Slot].Reflection,
+                            D->ShaderType, D->Frequency, Parameters.Layout, Parameters.CollectionLayouts);
+                        if (!Schema || Contract->ParameterSchemaIdentity != Schema->Identity || !Logical || *Logical != Contract->Bindings
+                            || Contract->ParameterMapIdentity != GetMaterialParameterMapIdentity(*Contract, Input.CompilerOutput.CompiledShaders[Slot]))
+                            return std::unexpected(std::string("Accepted material schema/allocation does not match its compiled product."));
+
 						FMaterialStaticProperties P; P.BlendMode = static_cast<EMaterialBlendMode>(uint8(Input.Identity.BlendMode)); P.ShadingModel = static_cast<EMaterialShadingModel>(uint8(Input.Identity.ShadingModel));
 						if (Contract->Shader.OutputLayout != GetMaterialShaderOutputLayout(*D, P)) return std::unexpected(std::string("Material Shader output contract is incompatible."));
 					}
@@ -368,6 +374,15 @@ namespace Durin
 			{
 				return std::unexpected(std::format("Material shader map is missing type '{}'.", (std::string(Type->GetName()))));
 			}
+            if (IsMaterialShaderType(Type)) {
+                const auto Entry = std::ranges::find(Input.GeneratedEntries, std::string(Type->GetName()), [](const auto& E) { return E.Shader.ShaderType; });
+                if (Entry != Input.GeneratedEntries.end()) static_cast<FMaterialShader*>(Shader)->SetAcceptedParameterBindings(Entry->Bindings);
+                else if (const auto* D = FindMaterialShaderEntry(Type->GetName()); D && !Input.bContainsGeneratedMaterialStages) {
+                    const auto Bindings = ValidateMaterialShaderBindings(Shader->GetReflection(), D->ShaderType, D->Frequency, {}, {});
+                    if (!Bindings) return std::unexpected(Bindings.error());
+                    static_cast<FMaterialShader*>(Shader)->SetAcceptedParameterBindings(*Bindings);
+                }
+            }
 			const auto DeferredBefore = FRenderResourceAdmissionScope::GetDeferredAdmissions();
 			if (Input.bCreateRHIShaders
 				&& Shader->GetOrCreateRHIShader(false) == nullptr)
@@ -497,6 +512,7 @@ namespace Durin
 			.CompiledProgramIdentity = Input.CompiledProgramIdentity,
 			.CompiledTarget = std::move(Input.CompiledTarget),
 			.GeneratedEntries = Input.GeneratedEntries,
+            .CompiledParameters = Input.CompiledParameters,
 			.bCreateRHIShaders = Input.bCreateRHIShaders}, OutMap);
 	}
 

@@ -388,14 +388,14 @@ Context and spatial-transform expressions use pass-owned data only when reachabl
 Runtime [Primitive and Instance custom data](MaterialCustomData.md) provides
 indexed numeric variation without separate material owners.
 Their World positions follow [camera relative rendering](../Scene/CameraRelativeRendering.md#material-positions).
-Set 0 binding 0 is `MaterialView`: material time and flags, camera world position,
+`MaterialView` contains material time and flags, camera world position,
 viewport origin/size and reciprocal size, plus World-to-View and View-to-World.
 Built-in geometry obtains Local-to-World, Normal-to-World, World-to-Local,
 bounds, transform flags, split origin and custom channels from selected
-[GPUScene records](../Scene/GPUScene.md#shader-access-and-submission). Set 0
-storage bindings 27/28/29/31 carry Primitive, Instance, payload and selected IDs.
+[GPUScene records](../Scene/GPUScene.md#shader-access-and-submission). Named
+storage parameters carry Primitive, Instance, payload and selected IDs.
 Fragments needing object-space values use the selected Instance ID as well.
-Set 1 binding 0 `MaterialPrimitive` remains the explicit unsupported-factory
+`MaterialPrimitive` remains the explicit unsupported-factory
 uniform fallback. World-to-Clip belongs to `MaterialView`. Forward, GBuffer,
 masked shadow, hit proxy, preview and thumbnail share these access semantics. StaticMesh and SplineMesh
 publish their post-factory tangent basis. Reflection is reachability exact, so
@@ -934,7 +934,7 @@ consumes the qualified prepared bulk. The explicit target is independent of the
 active RHI device. [Target policy](../../Assets/Build/TargetPlatforms.md) owns platform
 capabilities; the material family owns legal variant selection and its Cook
 dependency projection. Authored expression collections and their owned descendants are stripped from cooked packages. One
-DMAT v26 family per material or instance in the
+DMAT v28 family per material or instance in the
 `DMaterialInterface::ProgramData` BulkData field stores the selected exact configurations.
 The default is Low and High quality crossed with ES3_1, SM5, and SM6; explicit
 selections may retain a supported subset. Each uses that owner's
@@ -960,7 +960,7 @@ opaque 64-bit identity. `GetMaterialCompileAdapterVersion()` independently
 versions request/result adaptation. Both are captured in the compiler environment
 and program digest; execution rejects a stale producer or adapter before generation.
 The MIR version remains a contract for live typed IR, not compiled DMAT admission.
-DMAT v26 contains no IR/generator/compiler producer version words. Older payload
+DMAT v28 contains no IR/generator/compiler producer version words. Older payload
 schemas require recook; algorithm upgrades alone do not change the payload schema. Payload schema, runtime pass ABI, target,
 layout, bindings, shader hashes and configuration remain admission checks.
 Loading rejects a missing configuration, truncated, corrupt, trailing,
@@ -1045,8 +1045,9 @@ Engine represents those geometry/Pass resource sets with `FMeshMaterialShaderMap
 `TMaterialShaderRef` values. Intrinsic generated fragments derive from
 `FMaterialShader`, including opaque shadow and PostProcess; Local and Spline
 vertex stages derive from `FMeshMaterialShader` and are reused by GBuffer.
-Compiled entries also publish exact optimized logical binding references. A shared
-C++/Slang catalog owns names, kinds, allocation and runtime projection; see
+Compiled entries publish exact optimized named allocations. Per-owner C++/Slang
+metadata owns names, kinds and runtime policy; compiler reflection owns locations.
+Accepted maps retain schema/product identity, dimensions and constant layout; see
 [logical bindings](MaterialShaderStages.md#logical-bindings-and-runtime-projection).
 Registered types own compilation selection and exact execution identity; see
 [Shader/VF stage contracts](MaterialShaderStages.md). Mesh compatibility adds only a
@@ -1408,8 +1409,8 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 27, MIR 15, layout 5, pass contract 24,
-and material Cook class-schema version 7. The independent compile adapter is version 25;
+Current compatibility versions are DMAT 28, MIR 15, layout 5, pass contract 25,
+and material Cook class-schema version 7. The independent compile adapter is version 26;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11

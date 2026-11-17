@@ -256,7 +256,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             Case.Initializers.emplace_back(); // Caller-owned prefix must survive collection.
             Cases.push_back(std::move(Case));
         }
-        bool Complete = false; std::string Error;
+        bool Complete = false; std::string Error, Pending;
         const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
         do {
             EnqueueRenderCommand("CollectMeshPSOContract", [&](FRHICommandListImmediate& Commands) {
@@ -278,7 +278,10 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                     const auto Ready = Case.Processor->PreparePSOResources(Params,
                         Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation, false);
                     if (!Ready) { Error = Ready.error(); return; }
-                    if (*Ready == EPSOCollectorPreparation::Pending) { Complete = false; continue; }
+                    if (*Ready == EPSOCollectorPreparation::Pending) {
+                        Pending = std::format("scenario={} pass={} factory={}", Case.Scenario, uint8(Case.Pass), Case.Factory->GetType().GetName());
+                        Complete = false; continue;
+                    }
                     if (*Ready == EPSOCollectorPreparation::Ready) {
                         if (Case.Scenario == 18 && Case.Collected) {
                             FPSOPrecacheDataArray NewFactory;
@@ -337,7 +340,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             if (!Error.empty() || Complete) break;
             std::this_thread::yield();
         } while (std::chrono::steady_clock::now() < Deadline);
-        ASSERT_TRUE(Error.empty()) << Error; ASSERT_TRUE(Complete);
+        ASSERT_TRUE(Error.empty()) << Error; ASSERT_TRUE(Complete) << Pending;
         for (const auto& Case : Cases) {
             SCOPED_TRACE(std::format("pass={} topology={} main={} shadow={}", uint8(Case.Pass), uint8(Case.Params.Topology),
                 Case.Params.Participation.bRenderInMainPass, Case.Params.Participation.bCastShadow));

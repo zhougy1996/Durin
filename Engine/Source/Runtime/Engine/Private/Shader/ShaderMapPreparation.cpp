@@ -141,6 +141,11 @@ namespace Durin
 			FShaderCompileOptions Options;
 			if (auto Result = BuildShaderMapCompileOptions(Types, nullptr, Options); !Result)
 			{ Error = std::string(Result.error()); return; }
+			// Match the registered-type environment used by the Cook producer and
+			// material fixed-stage compilation before publishing a preparation key.
+			for (const auto* Type : Types)
+				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(),
+					Type->GetFrequency(), Options.Target}, Options);
 			Options.bForceRecompile = ForcePreparation.load();
 			std::vector<FShaderMacroDefinition> Macros;
 			if (auto Result = NormalizeShaderMacros(Options, Macros); !Result)

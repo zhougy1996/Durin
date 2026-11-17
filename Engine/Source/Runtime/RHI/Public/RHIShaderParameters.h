@@ -8,6 +8,7 @@ namespace Durin
 {
 	class FRHIResource;
 	struct FShaderParametersMetadata;
+	enum class EShaderParameterBindingScope : uint8 { Draw, Pass };
 
 	// Distinguishes resource bindings from inline values and nested parameter structures.
 	enum class EShaderParameterMemberKind : uint8
@@ -27,6 +28,8 @@ namespace Durin
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		uint32 ArraySize = 1;
 		bool bGraphResource = false;
+		std::string OwnerName;
+		EShaderParameterBindingScope Scope = EShaderParameterBindingScope::Draw;
 	};
 
 	// Describes the layout and binding semantics of one C++ shader-parameter member.
@@ -42,6 +45,9 @@ namespace Durin
 		bool bGraphResource = false;
 		// Nested metadata uses Offset relative to the containing structure.
 		const FShaderParametersMetadata* StructMetadata = nullptr;
+		const char* ShaderType = nullptr;
+		const char* OwnerName = nullptr;
+		EShaderParameterBindingScope Scope = EShaderParameterBindingScope::Draw;
 	};
 
 	// Describes a complete shader-parameter structure without owning its member storage.

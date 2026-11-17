@@ -111,9 +111,10 @@ compute consumers must declare read ranges and queue uses in their graphs.
 `SceneData.slang` decodes the packed ABI through `GetPrimitiveData`,
 `GetInstanceSceneData` and `GetMaterialPrimitiveData`. The material adapter combines
 Primitive custom channels with the selected Instance transform, bounds and payload.
-Set 0 bindings 27, 28, 29 and 31 contain Primitive words, Instance words, payload
-words and uint Instance IDs. Attribute buffer stride is 16 bytes. Set 1 material
-bindings remain independent.
+Named owner parameters contain Primitive words, Instance words, payload words
+and uint Instance IDs. Attribute buffer stride is 16 bytes. Compiler reflection
+and accepted product maps own descriptor locations; scene/material lifetime
+selection uses metadata scope. Instance-ID replacement retains its accepted location.
 
 `FGPUSceneShaderParameters` borrows native ranges. `FGPUSceneBufferSet` retains
 counted owners for a submission; `FGPUSceneReadParameters` imports and declares

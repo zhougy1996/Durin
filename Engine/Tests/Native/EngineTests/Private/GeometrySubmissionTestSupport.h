@@ -179,9 +179,9 @@ namespace Durin::Tests
 	{
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FQualificationVertexShader)
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MaterialView);
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Deformation);
+			DURIN_MATERIAL_PARAMETER(VertexFactory, Transform, ConstantBuffer<MaterialPrimitiveUniform>, UniformBuffer, UniformBufferDynamic, false, Draw);
+			DURIN_MATERIAL_PARAMETER(View, MaterialView, ConstantBuffer<MaterialViewUniform>, UniformBuffer, UniformBufferDynamic, false, Pass);
+			DURIN_MATERIAL_PARAMETER(VertexFactory, Deformation, ConstantBuffer<DeformationData>, UniformBuffer, UniformBufferDynamic, false, Draw);
 		DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FQualificationVertexShader, FMeshMaterialShader,
 			"/GeometryQualification/Vertex", EShaderFrequency::Vertex, "VertexMain");
@@ -190,7 +190,14 @@ namespace Durin::Tests
 	class FQualificationShaderBinding final : public RendererPrivate::FMeshVertexShaderBinding
 	{
 	public:
-		explicit FQualificationShaderBinding(const FMeshMaterialShaderMap& Map) : Shader(Map) {}
+		explicit FQualificationShaderBinding(const FMeshMaterialShaderMap& Map) : Shader(Map) {
+			if (!Shader) return;
+			auto Accepted = ValidateMaterialShaderBindings(Shader.GetShader()->GetReflection(),
+				FQualificationVertexShader::StaticType().GetName(), EShaderFrequency::Vertex, {}, {});
+			require(Accepted.has_value());
+			Bindings = std::move(*Accepted);
+		}
+		auto GetAcceptedParameterBindings() const -> std::span<const FMaterialShaderBinding> override { return Bindings; }
 		auto GetReflection() const -> const FShaderReflectionData* override { return Shader ? &Shader.GetShader()->GetReflection() : nullptr; }
 		auto GetRHIShader(bool bRequired) const -> FRHIShader* override { return Shader.GetRHIShader(bRequired); }
 		auto Prepare(FRHICommandListImmediate& CommandList, const FRHIUniformBufferRange& Transform,
@@ -207,6 +214,7 @@ namespace Durin::Tests
 		}
 	private:
 		TMaterialShaderRef<FQualificationVertexShader> Shader;
+		std::vector<FMaterialShaderBinding> Bindings;
 	};
 
 	class FQualificationFactory final : public RendererPrivate::FMeshVertexFactoryImplementation
@@ -290,9 +298,9 @@ struct Output {
  float2 uv0:TEXCOORD3; float2 uv1:TEXCOORD4; float2 uv2:TEXCOORD5; float2 uv3:TEXCOORD6;
 };
 struct DeformationData { float4 displacementScale; };
-[[vk::binding(0,1)]] ConstantBuffer<MaterialPrimitiveUniform> Transform;
-[[vk::binding(0,0)]] ConstantBuffer<MaterialViewUniform> MaterialView;
-[[vk::binding(24,1)]] ConstantBuffer<DeformationData> Deformation;
+ConstantBuffer<MaterialPrimitiveUniform> Transform;
+ConstantBuffer<MaterialViewUniform> MaterialView;
+ConstantBuffer<DeformationData> Deformation;
 [shader("vertex")]
 Output VertexMain(Input input) {
  float3 p = input.position * Deformation.displacementScale.w + Deformation.displacementScale.xyz + input.instanceOffset.xyz;

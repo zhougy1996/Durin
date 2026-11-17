@@ -30,19 +30,15 @@ struct VSOutput
 
 
 
-#define DURIN_DECLARE_BINDINGS_View 1
-#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
-#include "Material/MaterialBindingSchema.inl"
-#undef DURIN_MATERIAL_BINDING
-#undef DURIN_DECLARE_BINDINGS_View
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "Material/ViewParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
 
 
 #if DURIN_SPLINE_MESH
-#define DURIN_DECLARE_BINDINGS_Spline 1
-#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
-#include "Material/MaterialBindingSchema.inl"
-#undef DURIN_MATERIAL_BINDING
-#undef DURIN_DECLARE_BINDINGS_Spline
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "Material/SplineParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
 
 #endif
 
@@ -113,11 +109,9 @@ float4 FragmentMain(VSOutput input,
 }
 
 struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
-#define DURIN_DECLARE_BINDINGS_HitProxy 1
-#define DURIN_MATERIAL_BINDING(Role, Name, Type, Reflected, Runtime, Set, Slot, Stride, Stages, Entries) [[vk::binding(Slot, Set)]] Type Name;
-#include "Material/MaterialBindingSchema.inl"
-#undef DURIN_MATERIAL_BINDING
-#undef DURIN_DECLARE_BINDINGS_HitProxy
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "Material/HitProxyParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
 
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0 { return uint2(HitProxy.Id.x, asuint(length(input.worldPosition - HitProxy.ViewOrigin.xyz))); }

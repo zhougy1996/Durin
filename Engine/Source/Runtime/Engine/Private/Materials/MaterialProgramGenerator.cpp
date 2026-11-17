@@ -239,19 +239,24 @@ struct VSOutput
 		if (PixelNeedsPrimitiveData) OutSource += std::format("    nointerpolation uint sceneInstanceId : TEXCOORD{};\n", CustomLocation);
 		OutSource += "};\n";
 		OutSource += CopyCustomData + "}\n";
-		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls live in descriptor set 0.\n    float4 Reserved;\n";
+        const auto MaterialParameters = BuildMaterialBaseParameterSchema(Layout, Collections);
+        if (!MaterialParameters) return std::unexpected(MaterialParameters.error());
+        auto Declaration = [&](std::string_view Name) {
+            const auto Field = std::ranges::find(MaterialParameters->Fields, Name, &FShaderParameterField::ShaderName);
+            return Field == MaterialParameters->Fields.end() ? std::string{} : GenerateShaderParameterDeclaration(Field->ShaderType, Field->ShaderName);
+        };
+		OutSource += "struct MaterialUniform\n{\n    // Reserved header; view/pass controls are independent parameter owners.\n    float4 Reserved;\n";
 		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
 			OutSource += std::format("    float4 Value{};\n", Index);
 		OutSource += "};\n";
-		OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Material);
-		OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::View);
+		OutSource += Declaration("Material");
+		OutSource += std::string("#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;\n#include \"Material/ViewParameters.inl\"\n#undef DURIN_MATERIAL_PARAMETER\n");
 		for (const auto& Field : Layout.Fields)
 		{
 			if (Field.Storage != EMaterialRenderFieldStorage::Resource) continue;
 			const auto Index = Field.CompactIndex;
-			OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Texture, Index,
-                Field.Type == EMaterialRenderValueType::TextureCube ? "TextureCube<float4>" : "Texture2D<float4>");
-            OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Sampler, Index);
+			OutSource += Declaration(GetMaterialTextureParameterName(Index));
+            OutSource += Declaration(GetMaterialSamplerParameterName(Index));
 		}
 		for (uint32 Index = 0; Index < Collections.size(); ++Index)
 		{
@@ -259,8 +264,7 @@ struct VSOutput
 			for (uint32 Field = 0; Field < Collections[Index].UniformLayout.UniformFieldCount; ++Field)
 				OutSource += std::format("    float4 Value{};\n", Field);
 			OutSource += "};\n";
-            OutSource += GenerateMaterialBindingDeclaration(EMaterialBindingRole::Collection, Index,
-                std::format("ConstantBuffer<MaterialCollectionUniform{}>", Index));
+            OutSource += Declaration(GetMaterialCollectionParameterName(Index));
 		}
 
 		auto FindField = [&](const FGuid& Id) -> const FMaterialRenderField* {
@@ -1011,8 +1015,8 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entry.Name
 				|| Stage.Frequency != Entry.Frequency || !Stage.Reflection.PushConstantRanges.empty())
 				return Rejected;
-            if (!ValidateMaterialShaderBindings(Stage.Reflection, Entry.Entry, Entry.Frequency,
-                Layout.ResourceFieldCount, Collections.size())) return Rejected;
+            if (!ValidateMaterialShaderBindings(Stage.Reflection, Entry.ShaderType, Entry.Frequency,
+                Layout, Collections)) return Rejected;
 		}
 		return {};
 	}
@@ -1144,6 +1148,9 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			Environment.bIncludeEditorPasses = Translation.bIncludeEditorPasses;
 			Request.Macros = GetMaterialShaderCompilationOptions(Contract.Shader.ShaderType,
 				Translation.StaticProperties, Translation.IR.Domain, Environment).Macros;
+            Request.Macros.emplace_back("DURIN_PARAMETER_SCHEMA", std::format("\"{}\"", Contract.ParameterSchemaIdentity.ToString()));
+			if (!std::ranges::any_of(Request.Macros, [](const auto& M) { return M.Name == "DURIN_STAGE_PARAMETER_SPACES"; }))
+				Request.Macros.emplace_back("DURIN_STAGE_PARAMETER_SPACES", "1");
 			Requests.push_back(std::move(Request));
 		}
 		return Requests;

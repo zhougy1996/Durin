@@ -19,66 +19,54 @@ namespace Durin
 		const auto Pixel = FVector2f(Min) + glm::clamp(UV, FVector2f(0), FVector2f(1)) * FVector2f(Size);
 		return glm::clamp(Pixel, FVector2f(Min) + .5f, FVector2f(Min + Size) - .5f) / FVector2f(Extent);
 	}
-	auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
-		const FShaderReflectionData& Reflection, const FMaterialSceneTexturePassParameters& Parameters,
-		const FRDGParameterResolver& Resolver, const FMaterialSceneTextureUniform& Uniform)
-		-> std::expected<FMaterialSceneTextureBindings, std::string>
-	{
-		return ResolveMaterialSceneTextureBindings(Commands, Reflection,
-			Resolver.GetTexture(Parameters.PostProcessInput0), Resolver.GetTexture(Parameters.SceneDepth), Uniform);
-	}
-    auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
-        const FShaderReflectionData& Reflection, FRHITexture* Input0, FRHITexture* Depth,
-        const FMaterialSceneTextureUniform& Uniform) -> std::expected<FMaterialSceneTextureBindings, std::string>
-    {
-        const auto Logical = DescribeMaterialShaderBindings(Reflection);
-        if (!Logical) return std::unexpected(Logical.error());
-        return ResolveMaterialSceneTextureBindings(Commands, *Logical, Input0, Depth, Uniform);
-    }
     auto ResolveMaterialSceneTextureBindings(FRHICommandListImmediate& Commands,
         std::span<const FMaterialShaderBinding> Bindings, FRHITexture* Input0, FRHITexture* Depth,
         const FMaterialSceneTextureUniform& Uniform) -> std::expected<FMaterialSceneTextureBindings, std::string>
     {
-		FMaterialSceneTextureBindings Result;
-		std::array<bool, 5> Seen{};
-        for (const auto& Binding : Bindings)
-        {
-            if (Binding.Role >= EMaterialBindingRole::Count) return std::unexpected("Material scene binding role is invalid.");
-            if (!IsMaterialSceneBinding(Binding.Role)) continue;
-            const auto Slot = uint32(Binding.Role) - uint32(EMaterialBindingRole::SceneUniform);
-            if (Seen[Slot] || Binding.ResourceIndex) return std::unexpected("Material scene binding description is incompatible.");
-            Seen[Slot] = true;
-            const auto& Definition = GetMaterialBindingDefinition(Binding.Role);
-            if (Binding.Type != Definition.ReflectionType || Binding.ArraySize != Definition.ArraySize)
-                return std::unexpected("Material scene binding kind or array is incompatible.");
-            FRHIShaderParameterResource Parameter{.SetIndex = Binding.SetIndex,
-                .BindingIndex = Binding.BindingIndex, .Type = Binding.Type};
-			if (Slot == 0)
-			{
-				Result.Uniform = Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
-				Parameter.Resource = Result.Uniform.Buffer; Parameter.Offset = Result.Uniform.Offset; Parameter.Size = Result.Uniform.Size;
-			}
-			else if (Slot < 3)
-			{
-				auto* Texture = Slot == 1 ? Input0 : Depth;
-				if (!Texture) return std::unexpected("A required material scene texture is unavailable during binding.");
-				auto View = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
-				View.Range = {Slot == 1 ? ERHITextureAspect::Color : ERHITextureAspect::Depth, 0, 1, 0, 1};
-				Result.Textures[Slot-1] = GDynamicRHI->RHICreateTextureView(Texture, View);
-				Parameter.Resource = Result.Textures[Slot-1];
-			}
-			else
-			{
-				auto Desc = FRHISamplerDesc::PointClamp();
-				if (Slot == 4) { Desc.MinFilter = ESamplerFilter::Linear; Desc.MagFilter = ESamplerFilter::Linear; }
-				Result.Samplers[Slot-3] = GDynamicRHI->RHICreateSampler(Desc);
-				Parameter.Resource = Result.Samplers[Slot-3];
-			}
-			if (!Parameter.Resource) return std::unexpected("Material scene binding allocation failed.");
-			Result.Parameters.push_back(Parameter);
-		}
-		return Result;
-	}
+        FShaderParameterMap Map;
+        for (const auto& B : Bindings) {
+            if (B.OwnerName != "SceneTextures") continue;
+            auto Added = Map.AddParameterAllocation(B.Name, {B.SetIndex, B.BindingIndex, B.ArraySize, B.Type});
+            if (!Added) return std::unexpected(Added.error());
+        }
+        FShaderParameterBindings Resolved;
+        auto Bound = Resolved.Bind(FMaterialSceneTextureParameterOwner::GetParametersMetadata(), Map);
+        if (!Bound) return std::unexpected(Bound.error());
+        FMaterialSceneTextureBindings Result;
+        FMaterialSceneTextureParameterOwner::FParameters Values;
+        if (Map.ContainsParameterAllocation("MaterialSceneTextures")) {
+            Result.Uniform = Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
+            Values.MaterialSceneTextures = Result.Uniform;
+        }
+        for (uint32 I = 0; I < 2; ++I) {
+            const auto Name = I == 0 ? "PostProcessInput0" : "MaterialSceneDepth";
+            if (!Map.ContainsParameterAllocation(Name)) continue;
+            auto* Texture = I == 0 ? Input0 : Depth;
+            if (!Texture) return std::unexpected("A required scene texture provider is unavailable");
+            auto View = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
+            View.Range = {I == 0 ? ERHITextureAspect::Color : ERHITextureAspect::Depth, 0, 1, 0, 1};
+            Result.Textures[I] = GDynamicRHI->RHICreateTextureView(Texture, View);
+            if (!Result.Textures[I]) return std::unexpected("Scene texture view allocation failed");
+        }
+        Values.PostProcessInput0 = Input0; Values.MaterialSceneDepth = Depth;
+        for (uint32 I = 0; I < 2; ++I) {
+            const auto Name = I == 0 ? "MaterialScenePointSampler" : "MaterialSceneLinearSampler";
+            if (!Map.ContainsParameterAllocation(Name)) continue;
+            auto Desc = FRHISamplerDesc::PointClamp();
+            if (I == 1) { Desc.MinFilter = ESamplerFilter::Linear; Desc.MagFilter = ESamplerFilter::Linear; }
+            Result.Samplers[I] = GDynamicRHI->RHICreateSampler(Desc);
+            if (!Result.Samplers[I]) return std::unexpected("Scene sampler allocation failed");
+        }
+        Values.MaterialScenePointSampler = Result.Samplers[0]; Values.MaterialSceneLinearSampler = Result.Samplers[1];
+        Result.Parameters = ResolveShaderParameterResources(*FMaterialSceneTextureParameterOwner::GetParametersMetadata(), Resolved.GetResources(), &Values);
+        // The owner lowers the two texture members to its retained, aspect-specific views.
+        for (size_t I = 0; I < Resolved.GetResources().size(); ++I) {
+            const auto Offset = Resolved.GetResources()[I].Offset;
+            if (Offset == offsetof(FMaterialSceneTextureParameterOwner::FParameters, PostProcessInput0)) Result.Parameters[I].Resource = Result.Textures[0];
+            if (Offset == offsetof(FMaterialSceneTextureParameterOwner::FParameters, MaterialSceneDepth)) Result.Parameters[I].Resource = Result.Textures[1];
+        }
+        return Result;
+    }
 
 	auto PlanMaterialSceneTextures(FRDGBuilder& Graph, const FMaterialShaderEntryRequest& Entry,
 		const FMaterialSceneTextureInputs& Inputs, std::optional<FRDGTextureHandle> Output) -> std::expected<FMaterialSceneTexturePlan, std::string>

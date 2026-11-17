@@ -79,6 +79,15 @@ namespace Durin::ShaderSharedOutput
 		}
 		auto ValidBinding(const FShaderResourceBinding& Binding) -> bool
 		{
+			if (Binding.ResourceShape > EShaderResourceShape::Texture1DArray || Binding.ConstantBufferSize > 16 * 1024 * 1024
+				|| Binding.ConstantMembers.size() > 2048) return false;
+			std::set<std::string_view> Names;
+			uint32 End = 0;
+			for (const auto& M : Binding.ConstantMembers) {
+				if (M.Name.empty() || M.Name.size() > 256 || !Names.insert(M.Name).second || !M.Size
+					|| M.Offset < End || M.Offset > Binding.ConstantBufferSize || M.Size > Binding.ConstantBufferSize - M.Offset) return false;
+				End = M.Offset + M.Size;
+			}
 			return Binding.Name.size() <= MaximumStringBytes && ValidFlags(uint32(Binding.StageFlags))
 				&& Binding.SetIndex <= MaximumDescriptorIndex && Binding.BindingIndex <= MaximumDescriptorIndex
 				&& uint32(Binding.Type) <= uint32(ERHIBindingType::StorageImage)
@@ -119,6 +128,17 @@ namespace Durin::ShaderSharedOutput
 					|| Type > uint32(ERHIBindingType::StorageImage) || !ValidFlags(Flags))
 					return std::unexpected(std::string("Shader payload resource reflection is invalid."));
 				Binding.StageFlags = EShaderStageFlags(Flags); Binding.Type = ERHIBindingType(Type);
+				uint32 Shape = 0, Members = 0;
+				if (!Reader.ReadU32(Shape) || Shape > uint32(EShaderResourceShape::Texture1DArray)
+					|| !Reader.ReadU32(Binding.ConstantBufferSize) || !Reader.ReadU32(Members) || Members > 2048)
+					return std::unexpected("Invalid shared shader constant layout");
+				Binding.ResourceShape = EShaderResourceShape(Shape);
+				for (uint32 M = 0; M < Members; ++M) {
+					FShaderConstantMember Member;
+					if (!Reader.ReadString(Member.Name, 256) || !Reader.ReadU32(Member.Offset) || !Reader.ReadU32(Member.Size))
+						return std::unexpected("Invalid shared shader constant member");
+					Binding.ConstantMembers.push_back(std::move(Member));
+				}
 				if (!ValidBinding(Binding)) return std::unexpected(std::string("Shader payload resource reflection is invalid."));
 				Shader.Reflection.ResourceBindings.push_back(std::move(Binding));
 			}
@@ -240,6 +260,11 @@ namespace Durin::ShaderSharedOutput
 				Descriptor.WriteString(Binding.Name); Descriptor.WriteU32(uint32(Binding.StageFlags));
 				Descriptor.WriteU32(Binding.SetIndex); Descriptor.WriteU32(Binding.BindingIndex);
 				Descriptor.WriteU32(uint32(Binding.Type)); Descriptor.WriteU32(Binding.ArraySize);
+				Descriptor.WriteU32(uint32(Binding.ResourceShape)); Descriptor.WriteU32(Binding.ConstantBufferSize);
+				Descriptor.WriteU32(uint32(Binding.ConstantMembers.size()));
+				for (const auto& M : Binding.ConstantMembers) {
+					Descriptor.WriteString(M.Name); Descriptor.WriteU32(M.Offset); Descriptor.WriteU32(M.Size);
+				}
 			}
 			Descriptor.WriteU32(uint32(Reflection.PushConstantRanges.size()));
 			for (const auto& Range : Reflection.PushConstantRanges)

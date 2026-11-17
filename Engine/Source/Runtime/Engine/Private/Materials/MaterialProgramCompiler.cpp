@@ -1,6 +1,7 @@
 #include "VertexFactory.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialBindingSchema.h"
 #include "MaterialPreparedProgram.h"
 #include "MaterialBuildVersion.h"
 #include "Hash/XxHash.h"
@@ -237,6 +238,20 @@ namespace Durin
 		const auto Adapter = ShaderBuild->GetCompileAdapterVersion();
 		Environment.CompilerIdentity = std::format("ShaderBuild:{:016x};adapter={}:{}:{}",
 			ShaderBuildVersion, Adapter.FunctionVersion, Adapter.ConstantsSchema, Adapter.OutputSchema);
+		std::vector<std::pair<std::string, FXxHash128>> ParameterOwners;
+		for (const auto& Entry : GetMaterialShaderEntries()) {
+			const auto Schema = BuildMaterialParameterSchema(Entry.ShaderType, {}, {});
+			if (!Schema) return std::unexpected(Schema.error());
+			ParameterOwners.emplace_back(Entry.ShaderType, Schema->Identity);
+		}
+		std::ranges::sort(ParameterOwners, {}, &std::pair<std::string, FXxHash128>::first);
+		FXxHash128Builder ParameterIdentity;
+		ParameterIdentity.UpdateValue(static_cast<uint32>(ParameterOwners.size()));
+		for (const auto& [Name, Identity] : ParameterOwners) {
+			ParameterIdentity.UpdateValue(static_cast<uint32>(Name.size())); ParameterIdentity.Update(Name);
+			ParameterIdentity.UpdateValue(Identity.HashLow); ParameterIdentity.UpdateValue(Identity.HashHigh);
+		}
+		Environment.CompilerIdentity += ";parameters=" + ParameterIdentity.Finalize().ToString();
 		if (SelectedTarget == MetalLibraryShaderTarget)
 		{
 			const auto Producer = ShaderBuild->GetTargetProducerIdentity(SelectedTarget);

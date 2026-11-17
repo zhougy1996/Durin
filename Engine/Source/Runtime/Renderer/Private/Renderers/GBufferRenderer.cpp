@@ -31,9 +31,10 @@ namespace Durin
 			{ return {.Entry = EMaterialShaderEntry::GBuffer, .GeometryUsage = 255, .PassUsage = 2}; }
 
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FGBufferFragmentShader, RendererPrivate::FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,

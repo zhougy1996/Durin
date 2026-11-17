@@ -29,47 +29,57 @@ namespace Durin
 			PostProcess,
 		};
 
-		class FCompiledSurfaceBindingLayout
+		class FSurfaceParameterProviders
 		{
 		public:
-			using ESource = EMaterialBindingRole;
-			struct FEntry
-			{
-				uint32 SetIndex = 0;
-				uint32 BindingIndex = 0;
-				ERHIBindingType Type = ERHIBindingType::Texture;
-				ESource Source = ESource::Texture;
-				uint32 ResourceIndex = 0;
-			};
-			RENDERER_API explicit FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection);
-			RENDERER_API explicit FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings,
-				EMaterialDomain Domain = EMaterialDomain::Surface);
-			auto WithoutSceneInputs() const -> FCompiledSurfaceBindingLayout
-			{ auto Result = *this; std::erase_if(Result.Entries, [](const auto& E) { return IsMaterialSceneBinding(E.Source); }); return Result; }
-			auto IsValid() const -> bool { return bValid; }
-			auto GetEntries() const -> std::span<const FEntry> { return Entries; }
-			auto ForMaterialParameters(bool bMaterial) const -> FCompiledSurfaceBindingLayout
-			{
-				auto Result = *this;
-				std::erase_if(Result.Entries, [bMaterial](const auto& Entry) { return IsMaterialPassBinding(Entry.Source) == bMaterial; });
-				return Result;
-			}
-		private:
-			bool bValid = false;
-			std::vector<FEntry> Entries;
+			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceParameterProviders)
+                DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/SurfaceParameters.inl"
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+#include "Material/SplineParameters.inl"
+#include "Material/HitProxyParameters.inl"
+#include "Material/SceneTexturesParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
+            static auto GetParametersMetadata() -> const FShaderParametersMetadata*
+            { return GetShaderParametersMetadataOrNull<FSurfaceParameterProviders>(); }
 		};
 
-		// Typed surface shaders compile their resource mapping at instance creation.
-		class FCompiledSurfaceMaterialShader : public FMaterialShader
-		{
-		public:
-			FCompiledSurfaceMaterialShader(const FShaderType* Type, FShaderMapBase* Map,
-				const FShaderReflectionData& Reflection)
-				: FMaterialShader(Type, Map, Reflection), SurfaceLayout(Reflection) {}
-			auto GetSurfaceLayout() const -> const FCompiledSurfaceBindingLayout& { return SurfaceLayout; }
-		private:
-			FCompiledSurfaceBindingLayout SurfaceLayout;
-		};
+        // Storage dispatch is local to this adapter; field identity comes from owner metadata.
+        class FCompiledSurfaceBindingLayout
+        {
+        public:
+            enum class EStorage : uint8 { Structure, Texture, Sampler, Collection };
+            struct FEntry : FMaterialShaderBinding
+            {
+                EStorage Storage = EStorage::Structure;
+                std::optional<FShaderParameterBinding> StructureBinding;
+            };
+            FCompiledSurfaceBindingLayout() = default;
+            RENDERER_API explicit FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings);
+            auto WithoutSceneInputs() const -> FCompiledSurfaceBindingLayout
+            { auto R = *this; std::erase_if(R.Entries, [](const auto& E) { return E.OwnerName == "SceneTextures"; }); return R; }
+            auto IsValid() const -> bool { return bValid; }
+            auto GetEntries() const -> std::span<const FEntry> { return Entries; }
+            auto ForMaterialParameters(bool Material) const -> FCompiledSurfaceBindingLayout
+            { auto R = *this; std::erase_if(R.Entries, [=](const auto& E) { return (E.Scope == EShaderParameterBindingScope::Pass) == Material; }); return R; }
+        private:
+            bool bValid = false;
+            std::vector<FEntry> Entries;
+        };
+
+        class FCompiledSurfaceMaterialShader : public FMaterialShader
+        {
+        public:
+            using FMaterialShader::FMaterialShader;
+            auto GetSurfaceLayout() const -> const FCompiledSurfaceBindingLayout& { return SurfaceLayout; }
+        protected:
+            auto OnAcceptedParameterBindings() -> void override
+            { SurfaceLayout = FCompiledSurfaceBindingLayout(GetAcceptedParameterBindings()); }
+        private:
+            FCompiledSurfaceBindingLayout SurfaceLayout;
+        };
 
 		class FSurfaceFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
@@ -78,17 +88,11 @@ namespace Durin
 			{ return {.Entry = EMaterialShaderEntry::Forward, .GeometryUsage = 255, .PassUsage = 1}; }
 
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER_OPTIONAL(LocalLights);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentIrradiance);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentPrefiltered);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentBrdfLut);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(EnvironmentSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(DirectionalShadowTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(DirectionalShadowSampler);
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/SurfaceParameters.inl"
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceFragmentShader, FCompiledSurfaceMaterialShader,
@@ -114,9 +118,10 @@ namespace Durin
 			{ return {.Entry = EMaterialShaderEntry::Shadow, .GeometryUsage = 255, .PassUsage = 4, .BlendModes = 2}; }
 
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialView);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MaterialPrimitive);
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FCompiledSurfaceMaterialShader,

@@ -101,10 +101,11 @@ immutable bytecode. Slang adopts its copied blob buffer; its reflection word
 conversion remains a separate recipe cost. Package decoding adopts decoded
 bytes without changing the package format.
 
-ShaderBuild also provides the private `Shader.Output` schema-7 representation.
+ShaderBuild also provides the private `Shader.Output` schema-8 representation.
 Bounded metadata describes ordered source/binary entries, frequencies and hashes;
 `Entry/<n>/Code` retains code storage and `Entry/<n>/Reflection` holds canonical
-binding and push-constant descriptors. Validation checks the representation
+binding and push-constant descriptors, including resource dimensions and bounded
+constant-buffer member layouts. Validation checks the representation
 without creating a compiler product or copying bytecode. Assembly reconstructs
 debug names and reflection while retaining code blocks, including raw/compressed
 cache-record subviews. Production sessions return this representation directly. The compiled-output
@@ -128,7 +129,7 @@ memory-cache identities include the composed build identity.
 
 The session carries a named 64-bit `BuilderVersion` constant and verifies it
 against the compiler service before decoding recipe options. Adapter function
-version 5, constants schema 3 and `Shader.Output` schema 7 have independent
+version 5, constants schema 3 and `Shader.Output` schema 8 have independent
 ownership. `GetCompileAdapterVersion()` exposes those contracts to authored
 Material fingerprints separately from the build identity. One descriptor supplies
 registration and test action construction.
@@ -157,12 +158,13 @@ base compiler-environment closure.
 
 ## Package compiled-output payload
 
-The separate `DSHD` schema-6 little-endian package codec contains the complete
+The separate `DSHD` schema-7 little-endian package codec contains the complete
 ordered `FShaderCompilerOutput`. The header contains magic, schema,
 endianness marker, a zero reserved field, target/profile, and entry count.
 Each `FShaderCode` entry stores source/binary entry points, stage/format/group
 metadata, debug name, code-only hash and bytes, canonical named reflection and
-push ranges, versioned opaque platform bytes, and complete shader identity.
+push ranges, resource dimensions, constant-buffer sizes/member offsets, versioned
+opaque platform bytes, and complete shader identity.
 There is no separately serialized logical interface or name digest; see the
 [compiled-stage contract](GlobalShaders.md#atomic-shader-sets).
 

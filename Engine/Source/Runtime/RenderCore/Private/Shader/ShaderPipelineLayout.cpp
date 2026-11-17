@@ -89,6 +89,11 @@ namespace Durin
 				"Conflicting shader binding array sizes at set {}, binding {} (expected {}, actual {})",
 				(Binding.SetIndex), (Binding.BindingIndex), (ExistingBinding.ArraySize), (Binding.ArraySize)));
 				}
+                if ((ExistingBinding.ResourceShape != EShaderResourceShape::Unknown && Binding.ResourceShape != EShaderResourceShape::Unknown
+                    && ExistingBinding.ResourceShape != Binding.ResourceShape)
+                    || (ExistingBinding.ConstantBufferSize && Binding.ConstantBufferSize
+                        && (ExistingBinding.ConstantBufferSize != Binding.ConstantBufferSize || ExistingBinding.ConstantMembers != Binding.ConstantMembers)))
+                    return std::unexpected("Conflicting resource shape or constant layout at a shared shader allocation");
 
 				ExistingBinding.StageFlags |= Binding.StageFlags;
 				if (ExistingBinding.Name.empty())

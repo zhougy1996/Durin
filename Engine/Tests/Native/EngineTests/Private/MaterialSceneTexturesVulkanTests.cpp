@@ -162,9 +162,12 @@ TEST(FMaterialSceneTextureVulkanTests, SourceFreeInputsOwnRDGLifetimesAcrossFilt
 			const auto Pass=Graph.AddRasterPass("Material.SceneTextures",std::move(Plan.Parameters),[&](FRHICommandListImmediate& Cmd,const FMaterialSceneTexturePassParameters& P,const FRDGParameterResolver& Resolver) {
 				RendererPrivate::FMaterialViewUniform View; View.Viewport={0,0,4,4}; View.ReciprocalViewport={.25f,.25f,0,0};
 				const auto ViewBuffer=Cmd.CreateUniformBufferRange(&View,sizeof(View));
-				auto SceneBindings=ResolveMaterialSceneTextureBindings(Cmd,PixelCode.Reflection,P,Resolver,Uniform); ASSERT_TRUE(SceneBindings) << SceneBindings.error();
+				const auto& Accepted = Program.GetShaderMap().Entries[0].Bindings;
+				auto SceneBindings=ResolveMaterialSceneTextureBindings(Cmd,Accepted,Resolver.GetTexture(P.PostProcessInput0),Resolver.GetTexture(P.SceneDepth),Uniform); ASSERT_TRUE(SceneBindings) << SceneBindings.error();
 				auto Bindings=SceneBindings->Parameters;
-				Bindings.push_back({.Resource=ViewBuffer.Buffer,.SetIndex=0,.BindingIndex=0,.Type=ERHIBindingType::UniformBuffer,.Offset=ViewBuffer.Offset,.Size=ViewBuffer.Size});
+				const auto ViewBinding = std::ranges::find(Accepted, std::string("MaterialView"), &FMaterialShaderBinding::Name);
+				if (ViewBinding != Accepted.end())
+					Bindings.push_back({.Resource=ViewBuffer.Buffer,.SetIndex=ViewBinding->SetIndex,.BindingIndex=ViewBinding->BindingIndex,.Type=ViewBinding->RuntimeType,.Offset=ViewBuffer.Offset,.Size=ViewBuffer.Size});
 				Cmd.SetGraphicsPipelineState(*Pipeline); Cmd.SetViewport(0,0,0,4,4,1); Cmd.SetScissor(0,0,4,4); Cmd.SetShaderParameters(Fragment,Bindings); Cmd.BindVertexBuffer(0,Geometry.GetVertexBuffer_RenderThread(),0); Cmd.BindIndexBuffer(Geometry.GetIndexBuffer_RenderThread(),0); Cmd.DrawIndexed(3,0,0);
 			}); Graph.MarkPassRoot(Pass,"pixel-proof");
 			FTextureRHIRef Output; Graph.QueueTextureExtraction(Plan.Output.Texture,&Output,ERHIAccess::TransferRead);

@@ -18,6 +18,13 @@ namespace Durin
 	{
 	public:
 		using FShader::FShader;
+		auto GetAcceptedParameterBindings() const -> std::span<const FMaterialShaderBinding> { return AcceptedBindings; }
+		auto SetAcceptedParameterBindings(std::span<const FMaterialShaderBinding> Bindings) -> void
+		{ AcceptedBindings.assign(Bindings.begin(), Bindings.end()); OnAcceptedParameterBindings(); }
+	protected:
+		virtual auto OnAcceptedParameterBindings() -> void {}
+	private:
+		std::vector<FMaterialShaderBinding> AcceptedBindings;
 	};
 
 	class FMaterialShaderType : public FShaderType
@@ -88,6 +95,8 @@ namespace Durin
 		const FShaderPermutationParameters& Parameters,
 		FShaderCompileOptions& Options) -> void
 	{
+        if (!std::ranges::any_of(Options.Macros, [](const auto& M) { return M.Name == "DURIN_STAGE_PARAMETER_SPACES"; }))
+            Options.Macros.emplace_back("DURIN_STAGE_PARAMETER_SPACES", "1");
 		if constexpr (requires {
 			ShaderType::ModifyCompilationEnvironment(Parameters, Options);
 		})
@@ -211,6 +220,7 @@ namespace Durin
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;
 		std::span<const FMaterialShaderEntryRequest> GeneratedEntries;
+		std::shared_ptr<const FMaterialCompilationOutput> CompiledParameters;
 		bool bCreateRHIShaders = true;
 	};
 
@@ -233,6 +243,7 @@ namespace Durin
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;
 		std::span<const FMaterialShaderEntryRequest> GeneratedEntries;
+		std::shared_ptr<const FMaterialCompilationOutput> CompiledParameters;
 		bool bCreateRHIShaders = true;
 	};
 

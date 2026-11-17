@@ -134,6 +134,29 @@ namespace Durin
 		EXPECT_FALSE(BuildShaderParameterSchema(Root));
 	}
 
+	TEST(ShaderParameterSchema, ConstantLayoutParticipatesInAcceptedAllocationIdentity)
+	{
+		FShaderParametersMetadataBuilder Builder;
+		ASSERT_TRUE(Builder.AddResourceParameter("Constants", ERHIBindingType::UniformBuffer));
+		const auto Metadata = Builder.Build("ConstantsOwner");
+		ASSERT_TRUE(Metadata);
+		const auto Schema = BuildShaderParameterSchema((*Metadata)->Metadata);
+		ASSERT_TRUE(Schema);
+		FShaderParameterProduct Product{.ShaderType = "ConstantsPass", .Frequency = EShaderFrequency::Fragment};
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({.Name = "Constants", .StageFlags = EShaderStageFlags::Fragment,
+			.Type = ERHIBindingType::UniformBuffer, .ConstantBufferSize = 32, .ConstantMembers = {{"Value", 0, 16}}});
+		const auto First = BuildShaderParameterAllocationMap(*Schema, Product, Reflection);
+		ASSERT_TRUE(First);
+		Reflection.ResourceBindings[0].ConstantMembers[0].Offset = 16;
+		const auto Second = BuildShaderParameterAllocationMap(*Schema, Product, Reflection);
+		ASSERT_TRUE(Second);
+		EXPECT_NE(First->Identity, Second->Identity);
+		EXPECT_FALSE(ValidateShaderParameterAllocationMap(*Schema, Product, *First, Reflection));
+		Reflection.ResourceBindings[0].ConstantMembers[0].Offset = 17;
+		EXPECT_FALSE(BuildShaderParameterAllocationMap(*Schema, Product, Reflection));
+	}
+
 	TEST(ShaderParameterSchema, AllocationUsesCompilerLocationsAndRejectsCrossProductMaps)
 	{
 		std::array<FShaderParameterMemberMetadata, 2> Members{{

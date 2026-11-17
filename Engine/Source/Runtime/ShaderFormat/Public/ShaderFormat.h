@@ -11,6 +11,9 @@ namespace Durin::ShaderFormat
 	SHADERFORMAT_API auto ValidateExecutionMetadata(const FShaderTargetIdentity& Target,
 		EShaderFrequency Frequency, const std::array<uint32, 3>& GroupSize) -> bool;
 	SHADERFORMAT_API auto ComputeShaderIdentity(const FShaderCode& Shader) -> FXxHash128;
+	// Independently compiled graphics stages use distinct default descriptor spaces.
+	// Explicit nonzero spaces are preserved. This is a backend root-layout policy.
+	SHADERFORMAT_API auto ApplyGraphicsStageParameterSpaces(FShaderCode& Shader) -> std::expected<void, std::string>;
 	SHADERFORMAT_API auto ValidateShaderCode(const FShaderCode& Shader) -> bool;
 	SHADERFORMAT_API auto ValidateCode(const FShaderTargetIdentity& Target,
 		EShaderCodeFormat Format, FByteView Code) -> bool;

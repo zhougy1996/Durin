@@ -18,6 +18,7 @@ namespace Durin::RendererPrivate
 		virtual ~FMeshVertexShaderBinding() = default;
 		virtual auto GetRHIShader(bool bRequired = true) const -> FRHIShader* = 0;
 		virtual auto GetReflection() const -> const FShaderReflectionData* = 0;
+		virtual auto GetAcceptedParameterBindings() const -> std::span<const FMaterialShaderBinding> { return {}; }
 		// Runs before recording. Prepare primitive/factory data and return borrowed
 		// parameters without binding a pipeline or emitting draw commands. Factory
 		// sources own every resource referenced by the returned parameters; the result

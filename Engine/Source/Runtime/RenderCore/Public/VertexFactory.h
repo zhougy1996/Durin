@@ -41,6 +41,7 @@ namespace Durin
 		std::string_view MaterialEntryInclude;
 		FShouldCompilePermutationFunction ShouldCompile = nullptr;
 		FModifyCompilationEnvironmentFunction ModifyEnvironment = nullptr;
+		const FShaderParametersMetadata* ParametersMetadata = nullptr;
 	};
 
 	class FVertexFactoryType

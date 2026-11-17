@@ -47,21 +47,23 @@ and locations, including nested structures, without per-draw name resolution.
 `BuildShaderParameterAllocationMap` matches resource schema fields to compiler
 reflection by emitted name and records the reflected descriptor locations.
 Optional fields may be optimized out; required fields must remain reflected.
-Admission rejects extra/duplicate resources, duplicate locations, kind/array/stage
-mismatches and unsupported push constants. Dynamic uniform metadata accepts
+Admission rejects extra/duplicate resources, duplicate locations, kind/dimension/array/stage
+mismatches, invalid constant layouts and unsupported push constants. Dynamic uniform metadata accepts
 constant-buffer reflection while retaining its dynamic submission policy.
 Its product envelope contains the same `FShaderParameterMap`, rather than a second
 allocation table. Envelope identity includes schema, target, shader/VF type, permutation, frequency,
-caller-supplied complete compile-key digest and canonical allocation records.
+caller-supplied complete compile-key digest and canonical allocation records,
+including constant-buffer sizes and member offsets/sizes. Schema and allocation
+envelopes use version 2.
 `ValidateShaderParameterAllocationMap` reconstructs and compares the complete
 candidate against the expected product and reflection.
 
-These generic resource allocation APIs do not yet replace the material binding
-catalog or participate in material Cook publication. Inline constant allocation,
-texture-shape reflection remain outside the supported
-allocation path; inline fields fail allocation admission rather than receiving
-invented offsets. Device resources and C++ storage offsets are absent from the
-detached schema and map.
+Material owners compose the same metadata through a product-specific accepted
+envelope; named fields, schema identity, actual compiler allocation and reflected
+constant layouts survive Cook. See [material binding ownership](../Materials/MaterialShaderStages.md#logical-bindings-and-runtime-projection).
+Inline value allocation remains unsupported; uniform-buffer member layouts are
+compiler reflection, rather than C++ parameter-structure offsets. Device resources
+and C++ storage offsets are absent from detached schemas and maps.
 
 The public low-level types live in `Engine/Source/Runtime/RHI/Public/RHIShaderParameters.h`.
 
@@ -76,6 +78,8 @@ Describes a parameter field declared by a shader class:
 - `bOptional`: allows an optimized-out resource to lack a compiled allocation
 - `Type`: expected RHI binding type
 - `ArraySize`: expected reflected array size
+- `ShaderType` and `OwnerName`: shared shader declaration and semantic provider owner
+- `Scope`: Draw or Pass lifetime policy, independent of descriptor sets
 
 This is declaration-time metadata, not a runtime binding.
 
@@ -89,6 +93,7 @@ Describes a resolved runtime binding:
 - `BindingIndex`
 - `Type`
 - `ArraySize`
+- `OwnerName` and `Scope`
 
 This is the bridge between shader-declared fields and backend descriptor layout.
 
@@ -113,9 +118,10 @@ and Vulkan descriptor writes consume their exact native interpretation. See
 
 ## Scene resource bindings
 
-Built-in Local/Spline graphics use counted storage ranges at set 0 bindings
-27/28/29/31 for Primitive scene data, Instance scene data, Instance payload and
-selected Instance IDs. Reachability controls which resources reflect in each
+Built-in Local/Spline graphics use named counted storage ranges for Primitive
+scene data, Instance scene data, Instance payload and selected Instance IDs.
+The accepted compiler allocation supplies their descriptor locations; owner
+metadata supplies Pass lifetime policy. Reachability controls which resources reflect in each
 stage; selected-instance fragment expressions follow the same contract. Scene
 buffers belong to scene/dynamic upload owners and ID lists belong to submissions.
 Pass bindings declare RDG reads; retained geometry commands never own graph-local
@@ -257,7 +263,7 @@ through `updateDescriptorSets(...)`.
 Snapshot validation, cache identity, bounds, eviction, and GPU-completion-gated
 pool reuse are defined by [Graphics State and Bindings](../RHI/GraphicsStateAndBindings.md).
 [Material System](../Materials/MaterialSystem.md#renderer-surface-execution) owns material
-representation decoding, role fallbacks, and the resolved surface packet before
+representation decoding, resource fallbacks, and the resolved surface packet before
 it reaches this typed submission boundary.
 
 ## Example: ImGui Submission

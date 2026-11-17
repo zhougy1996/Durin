@@ -25,6 +25,14 @@
 namespace
 {
 	using namespace Durin;
+    class FM15VFParameterOwner {
+    public:
+        DURIN_BEGIN_SHADER_PARAMETERS(FM15VFParameterOwner)
+#include "Tests/M15VFParameters.inl"
+        DURIN_END_SHADER_PARAMETERS();
+        static auto GetParametersMetadata() -> const FShaderParametersMetadata*
+        { return GetShaderParametersMetadataOrNull<FM15VFParameterOwner>(); }
+    };
 	// A registered extension reuses Local geometry code without changing compiler selection.
 	auto GetM15TestFactory() -> const Durin::FVertexFactoryType*
 	{
@@ -34,7 +42,7 @@ namespace
 			 .ShouldCompile = [](const FShaderPermutationParameters& P) { return P.Target == VulkanShaderTarget && P.PermutationId == 37; },
 			 .ModifyEnvironment = [](const FShaderPermutationParameters& P, FShaderCompileOptions& O) {
 				O.Macros.emplace_back("DURIN_M15_VF_PROOF", std::to_string(P.PermutationId));
-			 }});
+			 }, .ParametersMetadata = FM15VFParameterOwner::GetParametersMetadata()});
 		return &Type;
 	}
 	class FM15TestVertexShader final : public Durin::FMeshMaterialShader
@@ -52,6 +60,11 @@ namespace
 		static auto ModifyMaterialCompilationEnvironment(const Durin::FMaterialShaderPermutationParameters& P,
 			Durin::FShaderCompileOptions& O) -> void
 		{ O.Macros.emplace_back("DURIN_M15_POLICY_PROOF", std::to_string(uint8(P.Quality))); }
+        DURIN_BEGIN_SHADER_PARAMETERS(FM15TestVertexShader)
+#include "Tests/M15VFParameters.inl"
+#include "Material/ViewParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+        DURIN_END_SHADER_PARAMETERS();
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FM15TestVertexShader, Durin::FMeshMaterialShader,
 			"/Engine/StaticMeshBasePass", Durin::EShaderFrequency::Vertex, "VertexMain");
 	};
@@ -125,7 +138,8 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	auto Input = MakeSyntheticMaterialCompilerInput();
 	Input.StaticProperties.GeometryUsage = 8;
 	Input.StaticProperties.PassUsage = 1;
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	const auto Environment = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+	ASSERT_TRUE(Environment) << Environment.error();
 	Input.Environment.Quality = EMaterialQualityLevel::Low;
 	const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
 	ASSERT_TRUE(Translation);
@@ -153,11 +167,24 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 		.Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = 37,
 		.VertexFactoryType = GetM15TestFactory(), .ShaderTypes = std::span(&Type, 1),
 		.GeneratedStages = Map.CompiledShaders, .CompiledProgramIdentity = Map.ShaderMapId,
-		.CompiledTarget = Map.Target, .GeneratedEntries = Map.Entries, .bCreateRHIShaders = false};
+		.CompiledTarget = Map.Target, .GeneratedEntries = Map.Entries, .CompiledParameters = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
 	FMeshMaterialShaderMap Accepted;
 	EXPECT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
-	EXPECT_TRUE(Accepted);
-	Admission.LocalPermutationId = 38;
+    ASSERT_TRUE(Accepted);
+    const auto* Runtime = TMaterialShaderRef<FM15TestVertexShader>(Accepted).GetShader();
+    ASSERT_NE(Runtime, nullptr);
+    const auto Offset = std::ranges::find(Runtime->GetParameterBindings(), std::string("M15Offset"), &FShaderParameterBinding::Name);
+    ASSERT_NE(Offset, Runtime->GetParameterBindings().end());
+    EXPECT_FALSE(std::ranges::contains(Runtime->GetParameterBindings(), std::string("M15Unused"), &FShaderParameterBinding::Name));
+    auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("VFExtension", 64, 16, EBufferUsageFlags::UniformBuffer));
+    FM15TestVertexShader::FParameters Values;
+    Values.M15Offset = {Buffer.GetReference(), 16, 16};
+    const auto Submitted = ResolveShaderParameterResources(*FM15TestVertexShader::GetParametersMetadata(), std::span(&*Offset, 1), &Values);
+    ASSERT_EQ(Submitted.size(), 1u);
+    EXPECT_EQ(Submitted[0].Resource, Buffer.GetReference());
+    EXPECT_EQ(Submitted[0].SetIndex, Offset->SetIndex); EXPECT_EQ(Submitted[0].BindingIndex, Offset->BindingIndex);
+    EXPECT_EQ(Submitted[0].Offset, 16u);
+    Admission.LocalPermutationId = 38;
 	EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
 	EXPECT_FALSE(Accepted);
 	FByteBuffer CookedBytes;
@@ -187,6 +214,7 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	const auto& Both = SameEntry.GetShaderMap();
 	Admission.Identity = std::ranges::find_if(Both.Entries, [](const auto& E) { return E.Shader.ShaderType == "FM15TestVertexShader"; })->Shader.Material;
 	Admission.GeneratedEntries = Both.Entries; Admission.GeneratedStages = Both.CompiledShaders;
+    Admission.CompiledParameters = SameEntry.Resource.ShaderMap;
 	Admission.CompiledProgramIdentity = Both.ShaderMapId;
 	EXPECT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
 	auto Swapped = Both.CompiledShaders;
@@ -3525,8 +3553,11 @@ TEST(FMaterialSceneTextureTests, PostProcessReadsCompileReflectAndSurviveSourceF
         ASSERT_TRUE(ValidateMaterialCompiledStages(ShaderOutput.CompiledShaders, Translation.Layout, Translation.ResourceLimits,
             Translation.ActiveCollections, Translation.RequiredEntries)) << Reflected;
         auto AcceptedOutput = static_cast<FMaterialCompilationOutput>(Translation);
-        const auto AcceptedBindings = DescribeMaterialShaderBindings(ShaderOutput.CompiledShaders[0].Reflection);
+        const auto Schema = BuildMaterialParameterSchema(Translation.Entries[0].Shader.ShaderType, Translation.Layout, Translation.CollectionLayouts);
+        ASSERT_TRUE(Schema);
+        const auto AcceptedBindings = DescribeMaterialShaderBindings(ShaderOutput.CompiledShaders[0].Reflection, *Schema);
         ASSERT_TRUE(AcceptedBindings); AcceptedOutput.Entries[0].Bindings = *AcceptedBindings;
+        AcceptedOutput.Entries[0].ParameterMapIdentity = GetMaterialParameterMapIdentity(AcceptedOutput.Entries[0], ShaderOutput.CompiledShaders[0]);
         ASSERT_TRUE(ValidateMaterialCompilationOutput(AcceptedOutput, Translation.Identity, Translation.Target, ShaderOutput.CompiledShaders)) << Reflected;
 		const auto Encoded = MaterialBuildPrivate::EncodeTranslationInput(Input); ASSERT_TRUE(Encoded);
 		const auto Decoded = MaterialBuildPrivate::DecodeTranslationInput(Encoded->GetBytes()); ASSERT_TRUE(Decoded);
@@ -3658,13 +3689,14 @@ TEST(FMaterialBindingContractTests, CompilerLocationsSurviveAdmissionAndSourceFr
 {
     using namespace Durin;
     auto Input = MakeSyntheticMaterialCompilerInput();
-    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+    const auto Environment = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+    ASSERT_TRUE(Environment) << Environment.error();
     const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
     ASSERT_TRUE(Translation);
     auto Requests = MakeMaterialShaderStageRequests(Translation, false);
     ASSERT_FALSE(Requests.empty());
     std::vector<FShaderCode> Stages;
-    const auto Original = GenerateMaterialBindingDeclaration(EMaterialBindingRole::Material);
+    const auto Original = GenerateShaderParameterDeclaration("ConstantBuffer<MaterialUniform>", "Material");
     const std::string Relocated = "[[vk::binding(11, 2)]] ConstantBuffer<MaterialUniform> Material;\n";
     bool FoundMaterial = false;
     for (auto& Request : Requests)
@@ -3686,10 +3718,11 @@ TEST(FMaterialBindingContractTests, CompilerLocationsSurviveAdmissionAndSourceFr
     {
         const auto* D = FindMaterialShaderEntry(Accepted.Entries[I].Shader.ShaderType);
         ASSERT_NE(D, nullptr);
-        auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->Entry, D->Frequency,
-            Accepted.Layout.ResourceFieldCount, Accepted.CollectionLayouts.size());
+        auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->ShaderType, D->Frequency,
+            Accepted.Layout, Accepted.CollectionLayouts);
         ASSERT_TRUE(Bindings);
         Accepted.Entries[I].Bindings = std::move(*Bindings);
+        Accepted.Entries[I].ParameterMapIdentity = GetMaterialParameterMapIdentity(Accepted.Entries[I], Stages[I]);
     }
     ASSERT_TRUE(ValidateMaterialCompilationOutput(Accepted, Translation.Identity, Translation.Target, Stages));
     auto Program = MIR::Compile(Input);
@@ -3731,7 +3764,9 @@ TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKind
     const auto Slot = Entry - Map.Entries.begin();
     for (size_t I = 0; I < Map.Entries.size(); ++I)
     {
-        const auto Actual = DescribeMaterialShaderBindings(Map.CompiledShaders[I].Reflection);
+        const auto Schema = BuildMaterialParameterSchema(Map.Entries[I].Shader.ShaderType, Map.Layout, Map.CollectionLayouts);
+        ASSERT_TRUE(Schema);
+        const auto Actual = DescribeMaterialShaderBindings(Map.CompiledShaders[I].Reflection, *Schema);
         ASSERT_TRUE(Actual); EXPECT_EQ(*Actual, Map.Entries[I].Bindings);
     }
     const auto& Types = FShaderType::GetTypeList();
@@ -3743,13 +3778,13 @@ TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKind
         .Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = Entry->Shader.PermutationId,
         .ShaderTypes = std::span(&RuntimeType, 1), .GeneratedStages = Map.CompiledShaders,
         .CompiledProgramIdentity = Map.ShaderMapId, .CompiledTarget = Map.Target,
-        .GeneratedEntries = RuntimeEntries, .bCreateRHIShaders = false};
+        .GeneratedEntries = RuntimeEntries, .CompiledParameters = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
     FMeshMaterialShaderMap RuntimeMap;
     ASSERT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
     RuntimeEntries[Slot].Bindings.clear();
     EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
     EXPECT_FALSE(RuntimeMap);
-    for (uint32 Mutation = 0; Mutation < 12; ++Mutation)
+    for (uint32 Mutation = 0; Mutation < 16; ++Mutation)
     {
         SCOPED_TRACE(Mutation);
         auto Bad = Compiled;
@@ -3765,9 +3800,17 @@ TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKind
         if (Mutation == 6) Reflected.front().BindingIndex = 65535;
         if (Mutation == 7) Artifact->Entries[Slot].Bindings.front().ResourceIndex++;
         if (Mutation == 8) Artifact->BindingSchemaVersion++;
-        if (Mutation == 9) Artifact->Entries[Slot].Bindings.front().Role = EMaterialBindingRole::Count;
+        if (Mutation == 9) Artifact->Entries[Slot].ParameterSchemaIdentity.HashLow ^= 1;
         if (Mutation == 10) { auto Extra = Reflected.front(); Extra.BindingIndex = 60000; Extra.Name = "UndeclaredMaterialResource"; Reflected.push_back(Extra); }
         if (Mutation == 11) Artifact->Entries[Slot].Bindings.push_back(Artifact->Entries[Slot].Bindings.front());
+        if (Mutation == 12) Artifact->Entries[Slot].ParameterMapIdentity.HashLow ^= 1;
+        if (Mutation == 13) Reflected.front().ResourceShape = EShaderResourceShape::Texture3D;
+        if (Mutation == 14) ++Reflected.front().ConstantBufferSize;
+        if (Mutation == 15) {
+            auto Uniform = std::ranges::find_if(Reflected, [](const auto& B) { return !B.ConstantMembers.empty(); });
+            ASSERT_NE(Uniform, Reflected.end());
+            ++Uniform->ConstantMembers.front().Offset;
+        }
         EXPECT_FALSE(ValidateMaterialCompilerResult(Bad));
         FByteBuffer Bytes;
         EXPECT_FALSE(Testing::EncodeMaterialCookedProgramFamilyForTest(Bad.Resource, Input.StaticProperties,
@@ -3788,6 +3831,6 @@ TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKind
     Translation.BindingSchemaVersion++;
     EXPECT_FALSE(MaterialBuildPrivate::EncodeTranslationProduct(Translation, FXxHash128::HashBuffer(EncodedInput->GetBytes())));
     FShaderReflectionData Empty;
-    EXPECT_FALSE(ValidateMaterialShaderBindings(Empty, EMaterialShaderEntry::HitProxy, EShaderFrequency::Fragment, 0, 0));
-    EXPECT_FALSE(ValidateMaterialShaderBindings(Empty, EMaterialShaderEntry::PostProcess, EShaderFrequency::Fragment, 0, 0));
+    EXPECT_FALSE(ValidateMaterialShaderBindings(Empty, "FHitProxyFragmentShader", EShaderFrequency::Fragment, {}, {}));
+    EXPECT_FALSE(ValidateMaterialShaderBindings(Empty, "FPostProcessMaterialShader", EShaderFrequency::Fragment, {}, {}));
 }

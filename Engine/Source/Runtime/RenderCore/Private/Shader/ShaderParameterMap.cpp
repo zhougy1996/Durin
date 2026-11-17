@@ -6,11 +6,21 @@ namespace Durin
 		-> FShaderOperationResult
 	{
 		if (Name.empty() || !Allocation.Size || ParameterMap.contains(Name)
-			|| static_cast<uint8>(Allocation.Type) > static_cast<uint8>(ERHIBindingType::StorageImage))
+			|| static_cast<uint8>(Allocation.Type) > static_cast<uint8>(ERHIBindingType::StorageImage)
+			|| Allocation.ResourceShape > EShaderResourceShape::Texture1DArray || Allocation.ConstantBufferSize > 16 * 1024 * 1024)
 			return std::unexpected("Invalid or duplicate shader parameter allocation");
 		if (std::ranges::any_of(ParameterMap, [&](const auto& Pair) {
 			return Pair.second.SetIndex == Allocation.SetIndex && Pair.second.BaseIndex == Allocation.BaseIndex;
 		})) return std::unexpected("Overlapping shader parameter resource allocations");
+		if (Allocation.ConstantMembers.size() > 2048) return std::unexpected("Oversized shader constant layout");
+		std::set<std::string_view> Names;
+		uint32 End = 0;
+		for (const auto& M : Allocation.ConstantMembers) {
+			if (M.Name.empty() || M.Name.size() > 256 || !Names.insert(M.Name).second || !M.Size || M.Offset < End
+				|| M.Offset > Allocation.ConstantBufferSize || M.Size > Allocation.ConstantBufferSize - M.Offset)
+				return std::unexpected("Invalid shader constant allocation");
+			End = M.Offset + M.Size;
+		}
 		ParameterMap.emplace(std::string(Name), Allocation);
 		return {};
 	}
@@ -28,7 +38,7 @@ namespace Durin
 		for (const auto& Resource : Reflection.ResourceBindings)
 		{
 			auto Result = Map.AddParameterAllocation(Resource.Name,
-				{Resource.SetIndex, Resource.BindingIndex, Resource.ArraySize, Resource.Type});
+				{Resource.SetIndex, Resource.BindingIndex, Resource.ArraySize, Resource.Type, Resource.ResourceShape, Resource.ConstantBufferSize, Resource.ConstantMembers});
 			if (!Result) return std::unexpected(Result.error());
 		}
 		return Map;
@@ -81,7 +91,7 @@ namespace Durin
 					&& Member.Type == ERHIBindingType::UniformBufferDynamic)) || Allocation->Size != Member.ArraySize)
 					return std::unexpected(std::format("Shader parameter '{}' kind or array does not match compiler allocation", Name));
 				Candidate.push_back({Name, Offset + Member.Offset, Allocation->SetIndex, Allocation->BaseIndex,
-					Member.Type, Allocation->Size, Member.bGraphResource});
+					Member.Type, Allocation->Size, Member.bGraphResource, Member.OwnerName ? Member.OwnerName : "", Member.Scope});
 			}
 			Stack.pop_back();
 			return {};

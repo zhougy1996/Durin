@@ -103,7 +103,9 @@ namespace Durin
 			std::ranges::sort(Requirements.SceneTextures, [](const auto& A, const auto& B) { return std::tie(A.InputId, A.Filter) < std::tie(B.InputId, B.Filter); });
 			Requirements.SceneTextures.erase(std::ranges::unique(Requirements.SceneTextures).begin(), Requirements.SceneTextures.end());
 			Unique(Requirements.AttributeIDs); Unique(Requirements.ParameterIDs); Unique(Requirements.ResourceIndices); Unique(Requirements.CollectionIDs);
-			Result.Entries.push_back(std::move(Request));
+			if (auto Schema = BuildMaterialParameterSchema(Request.Shader.ShaderType, Layout, Collections))
+                Request.ParameterSchemaIdentity = Schema->Identity;
+            Result.Entries.push_back(std::move(Request));
 		}
 		std::ranges::sort(Result.Entries, [](const auto& A, const auto& B) { return MaterialShaderIdentityLess(A.Shader, B.Shader); });
 		return Result;
@@ -116,12 +118,15 @@ namespace Durin
         {
             const auto* D = FindMaterialShaderEntry(Output.Entries[I].Shader.ShaderType);
             if (!D) return {.Error = EMaterialLayoutError::InvalidReflection};
-            auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->Entry, D->Frequency,
-                Output.Layout.ResourceFieldCount, Output.CollectionLayouts.size());
+            auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->ShaderType, D->Frequency,
+                Output.Layout, Output.CollectionLayouts);
             if (!Bindings) return {.Error = EMaterialLayoutError::InvalidReflection};
             Accepted.push_back(std::move(*Bindings));
         }
-        for (size_t I = 0; I < Accepted.size(); ++I) Output.Entries[I].Bindings = std::move(Accepted[I]);
+        for (size_t I = 0; I < Accepted.size(); ++I) {
+            Output.Entries[I].Bindings = std::move(Accepted[I]);
+            Output.Entries[I].ParameterMapIdentity = GetMaterialParameterMapIdentity(Output.Entries[I], Stages[I]);
+        }
         return {};
     }
 
@@ -174,23 +179,25 @@ namespace Durin
 			const auto* Shader = &Stages[Index];
 			if (Shader->SourceEntryPoint != Entry.Shader.EntryPoint || Shader->Frequency != Entry.Shader.Frequency) return Rejected;
             const auto* D = FindMaterialShaderEntry(Entry.Shader.ShaderType);
-            const auto Bindings = ValidateMaterialShaderBindings(Shader->Reflection, D->Entry, D->Frequency,
-                Output.Layout.ResourceFieldCount, Output.CollectionLayouts.size());
-            if (!Bindings || *Bindings != Entry.Bindings) return Rejected;
+            const auto Bindings = ValidateMaterialShaderBindings(Shader->Reflection, D->ShaderType, D->Frequency,
+                Output.Layout, Output.CollectionLayouts);
+            if (!Bindings || *Bindings != Entry.Bindings
+                || Entry.ParameterSchemaIdentity != Expected.Entries[Index].ParameterSchemaIdentity
+                || Entry.ParameterSchemaIdentity == FXxHash128{}
+                || Entry.ParameterMapIdentity != GetMaterialParameterMapIdentity(Entry, *Shader)) return Rejected;
             for (const auto& Binding : Entry.Bindings)
             {
-                using R = EMaterialBindingRole;
-                if (Binding.Role == R::Texture || Binding.Role == R::Sampler)
+                if (Binding.OwnerName == "Material" && (Binding.Type == ERHIBindingType::Texture || Binding.Type == ERHIBindingType::Sampler))
                 { if (!std::ranges::contains(Required.ResourceIndices, Binding.ResourceIndex)) return Rejected; }
-                if (Binding.Role == R::Collection && !std::ranges::contains(Required.CollectionIDs,
+                if (Binding.OwnerName == "Material" && Binding.Name.starts_with("MaterialCollection") && !std::ranges::contains(Required.CollectionIDs,
                     Output.CollectionLayouts[Binding.ResourceIndex].CollectionId)) return Rejected;
                 const auto HasScene = [&](EMaterialSceneTextureId Id, std::optional<EMaterialSceneTextureFilter> Filter = {}) {
                     return std::ranges::any_of(Required.SceneTextures, [&](const auto& Read) { return Read.InputId == Id && (!Filter || Read.Filter == *Filter); });
                 };
-                if ((Binding.Role == R::SceneInput0 && !HasScene(EMaterialSceneTextureId::PostProcessInput0))
-                    || (Binding.Role == R::SceneDepth && !HasScene(EMaterialSceneTextureId::SceneDepth))
-                    || (Binding.Role == R::ScenePointSampler && !std::ranges::any_of(Required.SceneTextures, [](const auto& Read) { return Read.Filter == EMaterialSceneTextureFilter::Point; }))
-                    || (Binding.Role == R::SceneLinearSampler && !std::ranges::any_of(Required.SceneTextures, [](const auto& Read) { return Read.Filter == EMaterialSceneTextureFilter::Linear; }))) return Rejected;
+                if ((Binding.Name == "PostProcessInput0" && !HasScene(EMaterialSceneTextureId::PostProcessInput0))
+                    || (Binding.Name == "MaterialSceneDepth" && !HasScene(EMaterialSceneTextureId::SceneDepth))
+                    || (Binding.Name == "MaterialScenePointSampler" && !std::ranges::any_of(Required.SceneTextures, [](const auto& Read) { return Read.Filter == EMaterialSceneTextureFilter::Point; }))
+                    || (Binding.Name == "MaterialSceneLinearSampler" && !std::ranges::any_of(Required.SceneTextures, [](const auto& Read) { return Read.Filter == EMaterialSceneTextureFilter::Linear; }))) return Rejected;
             }
 		}
 		return {};

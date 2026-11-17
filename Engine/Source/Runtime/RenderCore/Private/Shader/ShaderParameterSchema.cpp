@@ -7,7 +7,7 @@ namespace Durin
 		auto Canonicalize(FShaderParameterSchema Schema)
 			-> std::expected<FShaderParameterSchema, std::string>
 		{
-			if (Schema.Version != 1 || Schema.Fields.size() > 4096)
+			if (Schema.Version != 2 || Schema.Fields.size() > 4096)
 				return std::unexpected("Unsupported or oversized shader parameter schema");
 			std::ranges::sort(Schema.Fields, {}, &FShaderParameterField::QualifiedName);
 			std::set<std::string> Names;
@@ -22,8 +22,20 @@ namespace Durin
 					|| Field.QualifiedName.back() == '.' || Field.QualifiedName.find("..") != std::string::npos
 					|| Field.ShaderName.empty() || !Names.insert(Field.ShaderName).second || !Field.ArraySize
 					|| static_cast<uint8>(Field.Type) > static_cast<uint8>(ERHIBindingType::StorageImage)
+					|| Field.RuntimeType > ERHIBindingType::StorageImage || Field.Scope > EShaderParameterBindingScope::Pass
+					|| Field.ResourceShape > EShaderResourceShape::Texture1DArray || Field.ConstantMembers.size() > 2048
+					|| Field.ConstantBufferSize > 16 * 1024 * 1024
 					|| (Field.Kind != EShaderParameterMemberKind::Resource && Field.Kind != EShaderParameterMemberKind::Value))
 					return std::unexpected("Invalid or ambiguous shader parameter field");
+				std::set<std::string> ConstantNames;
+				uint32 PreviousEnd = 0;
+				for (const auto& Member : Field.ConstantMembers) {
+					if (Member.Name.empty() || Member.Name.size() > 256 || !ConstantNames.insert(Member.Name).second
+						|| !Member.Size || Member.Offset < PreviousEnd || Member.Offset > Field.ConstantBufferSize
+						|| Member.Size > Field.ConstantBufferSize - Member.Offset)
+						return std::unexpected("Invalid shader constant member layout");
+					PreviousEnd = Member.Offset + Member.Size;
+				}
 				Previous = Field.QualifiedName;
 				for (const auto* Name : {&Field.QualifiedName, &Field.ShaderName})
 				{
@@ -35,6 +47,19 @@ namespace Durin
 				Hash.UpdateValue(Field.ArraySize);
 				Hash.UpdateValue(Field.ValueSize);
 				Hash.UpdateValue(static_cast<uint8>(Field.bOptional));
+				Hash.UpdateValue(static_cast<uint8>(Field.RuntimeType));
+				Hash.UpdateValue(static_cast<uint8>(Field.Scope));
+				Hash.UpdateValue(Field.ProviderIndex);
+				Hash.UpdateValue(static_cast<uint8>(Field.ResourceShape)); Hash.UpdateValue(Field.ConstantBufferSize);
+				Hash.UpdateValue(static_cast<uint32>(Field.ConstantMembers.size()));
+				for (const auto& M : Field.ConstantMembers) {
+					Hash.UpdateValue(static_cast<uint32>(M.Name.size())); Hash.Update(M.Name);
+					Hash.UpdateValue(M.Offset); Hash.UpdateValue(M.Size);
+				}
+				for (const auto* Text : {&Field.ShaderType, &Field.OwnerName})
+				{
+					Hash.UpdateValue(static_cast<uint32>(Text->size())); Hash.Update(*Text);
+				}
 			}
 			Schema.Identity = Hash.Finalize();
 			return Schema;
@@ -75,8 +100,12 @@ namespace Durin
 						return std::unexpected("Invalid shader parameter member kind");
 					std::string ShaderName = Path;
 					std::ranges::replace(ShaderName, '.', '_');
-					Schema.Fields.push_back({Path, std::move(ShaderName), Member.Kind, Member.Type,
-						Member.ArraySize, Member.Kind == EShaderParameterMemberKind::Value ? Member.Size : 0, Member.bOptional});
+					Schema.Fields.push_back({Path, std::move(ShaderName), Member.Kind,
+						Member.Type == ERHIBindingType::UniformBufferDynamic ? ERHIBindingType::UniformBuffer : Member.Type,
+						Member.ArraySize, Member.Kind == EShaderParameterMemberKind::Value ? Member.Size : 0, Member.bOptional,
+						Member.ShaderType ? Member.ShaderType : "", Member.OwnerName ? Member.OwnerName : "", Member.Type, Member.Scope});
+					Schema.Fields.back().ResourceShape = InferShaderParameterResourceShape(
+						Schema.Fields.back().ShaderType, Member.Type);
 				}
 			}
 			Stack.pop_back();
@@ -92,6 +121,31 @@ namespace Durin
 		auto Result = Collect(Metadata, {}, Stack, Schema);
 		if (!Result) return std::unexpected(Result.error());
 		return Canonicalize(std::move(Schema));
+	}
+
+	auto CanonicalizeShaderParameterSchema(FShaderParameterSchema Schema)
+		-> std::expected<FShaderParameterSchema, std::string>
+	{
+		return Canonicalize(std::move(Schema));
+	}
+
+	auto InferShaderParameterResourceShape(std::string_view Type, ERHIBindingType Kind) -> EShaderResourceShape
+	{
+		using S = EShaderResourceShape;
+		if (Kind == ERHIBindingType::StorageBuffer) return S::Buffer;
+		if (Kind != ERHIBindingType::Texture && Kind != ERHIBindingType::StorageImage) return S::Unknown;
+		if (Type.starts_with("RW")) Type.remove_prefix(2);
+		if (Type.starts_with("TextureCubeArray")) return S::TextureCubeArray;
+		if (Type.starts_with("TextureCube")) return S::TextureCube;
+		if (Type.starts_with("Texture2DMSArray")) return S::Texture2DMSArray;
+		if (Type.starts_with("Texture2DMS")) return S::Texture2DMS;
+		if (Type.starts_with("Texture2DArray")) return S::Texture2DArray;
+		if (Type.starts_with("Texture1DArray")) return S::Texture1DArray;
+		if (Type.starts_with("Texture2D")) return S::Texture2D;
+		if (Type.starts_with("Texture1D")) return S::Texture1D;
+		if (Type.starts_with("Texture3D")) return S::Texture3D;
+		if (Type.starts_with("Buffer")) return S::Buffer;
+		return S::Unknown;
 	}
 
 	auto ComposeShaderParameterSchemas(std::span<const FShaderParameterSchema> Schemas)
@@ -114,7 +168,7 @@ namespace Durin
 		-> std::expected<FShaderParameterAllocationMap, std::string>
 	{
 		auto Canonical = Canonicalize(Schema);
-		if (Schema.Version != 1 || !Canonical || Canonical->Identity != Schema.Identity
+		if (Schema.Version != 2 || !Canonical || Canonical->Identity != Schema.Identity
 			|| Canonical->Fields != Schema.Fields || Product.ShaderType.empty()
 			|| (Product.Frequency != EShaderFrequency::Vertex && Product.Frequency != EShaderFrequency::Fragment
 				&& Product.Frequency != EShaderFrequency::Compute)
@@ -134,11 +188,13 @@ namespace Durin
 			if (Field == Schema.Fields.end() || Field->Kind != EShaderParameterMemberKind::Resource
 				|| (Binding.Type != Field->Type && !(Binding.Type == ERHIBindingType::UniformBuffer
 					&& Field->Type == ERHIBindingType::UniformBufferDynamic)) || Binding.ArraySize != Field->ArraySize
-				|| Binding.StageFlags != Stage || !Names.insert(Binding.Name).second
+				|| (Field->ResourceShape != EShaderResourceShape::Unknown && Binding.ResourceShape != Field->ResourceShape)
+                || (Field->ConstantBufferSize && (Binding.ConstantBufferSize != Field->ConstantBufferSize || Binding.ConstantMembers != Field->ConstantMembers))
+                || Binding.StageFlags != Stage || !Names.insert(Binding.Name).second
 				|| !Locations.emplace(Binding.SetIndex, Binding.BindingIndex).second)
 				return std::unexpected("Reflected parameter is extra, duplicated or incompatible with its schema");
 			auto Added = Map.Parameters.AddParameterAllocation(Field->ShaderName,
-				{Binding.SetIndex, Binding.BindingIndex, Binding.ArraySize, Binding.Type});
+				{Binding.SetIndex, Binding.BindingIndex, Binding.ArraySize, Binding.Type, Binding.ResourceShape, Binding.ConstantBufferSize, Binding.ConstantMembers});
 			if (!Added) return std::unexpected(Added.error());
 		}
 		for (const auto& Field : Schema.Fields)
@@ -169,6 +225,9 @@ namespace Durin
 			String(Name);
 			Hash.UpdateValue(Allocation.SetIndex); Hash.UpdateValue(Allocation.BaseIndex);
 			Hash.UpdateValue(static_cast<uint8>(Allocation.Type)); Hash.UpdateValue(Allocation.Size);
+            Hash.UpdateValue(static_cast<uint8>(Allocation.ResourceShape)); Hash.UpdateValue(Allocation.ConstantBufferSize);
+            Hash.UpdateValue(static_cast<uint32>(Allocation.ConstantMembers.size()));
+            for (const auto& M : Allocation.ConstantMembers) { String(M.Name); Hash.UpdateValue(M.Offset); Hash.UpdateValue(M.Size); }
 		}
 		Map.Identity = Hash.Finalize();
 		return Map;

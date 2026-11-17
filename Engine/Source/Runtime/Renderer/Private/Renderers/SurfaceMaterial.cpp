@@ -235,129 +235,112 @@ namespace Durin::RendererPrivate
 		return State->Counters;
 	}
 
-    FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(const FShaderReflectionData& Reflection)
-    {
-        const auto Logical = DescribeMaterialShaderBindings(Reflection);
-        if (Logical) *this = FCompiledSurfaceBindingLayout(*Logical);
-    }
-    FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings, EMaterialDomain Domain)
+    FCompiledSurfaceBindingLayout::FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings)
     {
         std::set<std::pair<uint32, uint32>> Seen;
-        for (const auto& Binding : Bindings)
+        std::set<std::string> Names;
+        const auto* Metadata = FSurfaceParameterProviders::GetParametersMetadata();
+        for (const auto& B : Bindings)
         {
-            if (Binding.Role >= EMaterialBindingRole::Count) return;
-            const auto& D = GetMaterialBindingDefinition(Binding.Role);
-            const uint8 PostProcess = 1u << uint8(EMaterialShaderEntry::PostProcess);
-            if (Domain == EMaterialDomain::PostProcess ? !(D.Entries & PostProcess) : !(D.Entries & ~PostProcess)) return;
-            const auto Limit = Binding.Role == EMaterialBindingRole::Collection ? MaterialParameterCollectionMaxPerMaterial : MaterialRenderMaxResourceCount;
-            if (D.Stride && Binding.ResourceIndex >= Limit) return;
-            if (Binding.Type != D.ReflectionType || Binding.ArraySize != D.ArraySize
-                || (!D.Stride && Binding.ResourceIndex) || !Seen.emplace(Binding.SetIndex, Binding.BindingIndex).second) return;
-            Entries.push_back({Binding.SetIndex, Binding.BindingIndex, GetMaterialRuntimeBindingType(Binding.Role, Domain), Binding.Role, Binding.ResourceIndex});
+            if (B.Name.empty() || B.OwnerName.empty() || !B.ArraySize || B.ArraySize > 1024
+                || B.Type > ERHIBindingType::StorageImage || B.RuntimeType > ERHIBindingType::StorageImage
+                || (B.Type != B.RuntimeType && !(B.Type == ERHIBindingType::UniformBuffer && B.RuntimeType == ERHIBindingType::UniformBufferDynamic))
+                || !Seen.emplace(B.SetIndex, B.BindingIndex).second || !Names.insert(B.Name).second) return;
+            FEntry E; static_cast<FMaterialShaderBinding&>(E) = B;
+            if (B.QualifiedName.starts_with("Material.Texture.")) E.Storage = EStorage::Texture;
+            else if (B.QualifiedName.starts_with("Material.Sampler.")) E.Storage = EStorage::Sampler;
+            else if (B.QualifiedName.starts_with("Material.Collection.")) E.Storage = EStorage::Collection;
+            else {
+                const auto M = std::ranges::find_if(Metadata->Members, [&](const auto& V) { return V.Name && B.Name == V.Name; });
+                if (M != Metadata->Members.end()) E.StructureBinding = FShaderParameterBinding{
+                    B.Name, M->Offset, B.SetIndex, B.BindingIndex, B.RuntimeType, B.ArraySize, false, B.OwnerName, B.Scope};
+            }
+            Entries.push_back(std::move(E));
         }
         bValid = true;
     }
 
-	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
-		const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& MaterialBuffer,
-		const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
-		const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
-		std::span<const FRHIUniformBufferRange> Collections,
-		FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights, const FGPUSceneShaderParameters& GPUScene) -> bool
-	{
-		OutBindings = {};
-		if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
-			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
-		std::vector<FRHIShaderParameterResource> Resources;
-		std::optional<std::pair<uint32, uint32>> InstanceIdsAllocation;
-		Resources.reserve(Layout.GetEntries().size());
-		using ESource = FCompiledSurfaceBindingLayout::ESource;
-		const auto* Uniform = MaterialBuffer.Buffer && MaterialBuffer.Buffer->GetResourceType() == ERHIResourceType::UniformBuffer
-			? static_cast<const FRHIUniformBuffer*>(MaterialBuffer.Buffer) : nullptr;
-		auto BindMember = [&](FRHIShaderParameterResource& Resource, uint32 Index) {
-			if (!Uniform || Index >= Uniform->GetLayout().Resources.size()) return false;
-			Resource.Resource = MaterialBuffer.Buffer; Resource.ResourceIndex = Index; return true;
-		};
-		for (const auto& Entry : Layout.GetEntries())
-		{
-			FRHIShaderParameterResource Resource;
-			Resource.SetIndex = Entry.SetIndex;
-			Resource.BindingIndex = Entry.BindingIndex;
-			Resource.Type = Entry.Type;
-			const FRHIUniformBufferRange* Range = nullptr;
-			switch (Entry.Source)
-			{
-			case ESource::View: Range = &View; break;
-			case ESource::Primitive: Range = &Primitive; break;
-			case ESource::LocalLights:
-				Resource.Resource = LocalLights.Buffer;
-				Resource.Offset = LocalLights.Offset;
-				Resource.Size = LocalLights.Size;
-				break;
-			case ESource::GPUScenePrimitive:
-            case ESource::GPUSceneInstance:
-            case ESource::GPUScenePayload:
-            case ESource::GPUSceneInstanceIds:
-            {
-                if (Entry.Source == ESource::GPUSceneInstanceIds)
-                    InstanceIdsAllocation = std::pair{Entry.SetIndex, Entry.BindingIndex};
-                const auto& Data = Entry.Source == ESource::GPUScenePrimitive ? GPUScene.GPUScenePrimitiveSceneData
-                    : Entry.Source == ESource::GPUSceneInstance ? GPUScene.GPUSceneInstanceSceneData
-                    : Entry.Source == ESource::GPUScenePayload ? GPUScene.GPUSceneInstancePayloadData : GPUScene.GPUSceneInstanceIds;
-                Resource.Resource = Data.Buffer; Resource.Offset = Data.Offset; Resource.Size = Data.Size;
-                break;
+    auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader, const FCompiledSurfaceBindingLayout& Layout,
+        const FResolvedSurfaceMaterial& Material, const FRHIUniformBufferRange& MaterialBuffer,
+        const FRHIUniformBufferRange& Lighting, const FRHIUniformBufferRange& HitProxy,
+        const FRHIUniformBufferRange& View, const FRHIUniformBufferRange& Primitive,
+        std::span<const FRHIUniformBufferRange> Collections,
+        FMeshDrawShaderBindings& OutBindings, FRHIStorageBufferRange LocalLights, const FGPUSceneShaderParameters& GPUScene) -> bool
+    {
+        OutBindings = {};
+        if (!Shader || !Layout.IsValid() || !Material.bCompiledLayout
+            || Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
+        FSurfaceParameterProviders::FParameters Values;
+        Values.Material = MaterialBuffer; Values.MaterialView = View; Values.MaterialPrimitive = Primitive;
+        Values.Lighting = Lighting; Values.HitProxy = HitProxy; Values.LocalLights = LocalLights;
+        Values.GPUScenePrimitiveSceneData = GPUScene.GPUScenePrimitiveSceneData;
+        Values.GPUSceneInstanceSceneData = GPUScene.GPUSceneInstanceSceneData;
+        Values.GPUSceneInstancePayloadData = GPUScene.GPUSceneInstancePayloadData;
+        Values.GPUSceneInstanceIds = GPUScene.GPUSceneInstanceIds;
+        Values.EnvironmentIrradiance = Material.EnvironmentIrradiance;
+        Values.EnvironmentPrefiltered = Material.EnvironmentPrefiltered;
+        Values.EnvironmentBrdfLut = Material.EnvironmentBrdfLut;
+        Values.EnvironmentSampler = Material.EnvironmentSampler;
+        Values.DirectionalShadowTexture = Material.DirectionalShadowTexture;
+        Values.DirectionalShadowSampler = Material.DirectionalShadowSampler;
+        const auto* Uniform = MaterialBuffer.Buffer && MaterialBuffer.Buffer->GetResourceType() == ERHIResourceType::UniformBuffer
+            ? static_cast<const FRHIUniformBuffer*>(MaterialBuffer.Buffer) : nullptr;
+        std::vector<FRHIShaderParameterResource> Resources;
+        std::optional<std::pair<uint32, uint32>> InstanceIds;
+        auto Member = [&](FRHIShaderParameterResource& Resource, uint32 Index) {
+            if (!Uniform || Index >= Uniform->GetLayout().Resources.size()) return false;
+            Resource.Resource = MaterialBuffer.Buffer; Resource.ResourceIndex = Index; return true;
+        };
+        auto ValidUniformRange = [](FRHIResource* Resource, uint32 Offset, uint32 Size, uint32 Minimum) {
+            if (!Resource || !Size || Size < Minimum) return false;
+            const uint64 Capacity = Resource->GetResourceType() == ERHIResourceType::UniformBuffer
+                ? static_cast<const FRHIUniformBuffer*>(Resource)->GetSize() : IsBufferResource(Resource)
+                    ? static_cast<const FRHIBuffer*>(Resource)->GetSize() : 0;
+            return Offset <= Capacity && Size <= Capacity - Offset;
+        };
+        for (const auto& E : Layout.GetEntries())
+        {
+            FRHIShaderParameterResource R;
+            R.SetIndex = E.SetIndex; R.BindingIndex = E.BindingIndex; R.Type = E.RuntimeType;
+            if (E.Storage == FCompiledSurfaceBindingLayout::EStorage::Structure) {
+                if (!E.StructureBinding) return false;
+                auto Resolved = ResolveShaderParameterResources(*FSurfaceParameterProviders::GetParametersMetadata(),
+                    std::span(&*E.StructureBinding, 1), &Values);
+                for (const auto& V : Resolved) {
+                    if (!V.Resource) return false;
+                    if ((V.Type == ERHIBindingType::UniformBuffer || V.Type == ERHIBindingType::UniformBufferDynamic)
+                        && !ValidUniformRange(V.Resource, V.Offset, V.Size, E.ConstantBufferSize)) return false;
+                    Resources.push_back(V);
+                }
+            } else {
+                const uint32 I = E.ResourceIndex;
+                if (E.ArraySize != 1) return false;
+                if (E.Storage == FCompiledSurfaceBindingLayout::EStorage::Collection) {
+                    if (I >= Collections.size()) return false;
+                    const auto& Range = Collections[I];
+                    if (!Member(R, static_cast<uint32>(Material.CompiledTextures.size() * 3) + I)) {
+                        if (!ValidUniformRange(Range.Buffer, Range.Offset, Range.Size, E.ConstantBufferSize)) return false;
+                        R.Resource = Range.Buffer; R.Offset = Range.Offset; R.Size = Range.Size;
+                    }
+                } else if (E.Storage == FCompiledSurfaceBindingLayout::EStorage::Texture) {
+                    if (I >= Material.CompiledTextures.size()) return false;
+                    R.Resource = Material.CompiledTextures[I];
+                    if (!Member(R, I * 3) && R.Resource && R.Resource->GetResourceType() == ERHIResourceType::TextureReference) {
+                        R.Resource = static_cast<FRHITextureReference*>(R.Resource)->GetReferencedTexture_RenderThread();
+                        if (!R.Resource && I < Material.CompiledTextureFallbacks.size()) R.Resource = Material.CompiledTextureFallbacks[I];
+                    }
+                } else {
+                    if (I >= Material.CompiledSamplers.size()) return false;
+                    R.Resource = Material.CompiledSamplers[I]; Member(R, I * 3 + 1);
+                }
+                if (!R.Resource) return false;
+                Resources.push_back(R);
             }
-            case ESource::Lighting: Range = &Lighting; break;
-			case ESource::Material: Range = &MaterialBuffer; break;
-			case ESource::HitProxy: Range = &HitProxy; break;
-			case ESource::Collection:
-				if (Entry.ResourceIndex >= Collections.size()) return false;
-				Range = &Collections[Entry.ResourceIndex];
-				if (BindMember(Resource, static_cast<uint32>(Material.CompiledTextures.size() * 3) + Entry.ResourceIndex)) Range = nullptr;
-				break;
-			case ESource::Texture:
-				if (Entry.ResourceIndex >= Material.CompiledTextures.size()) return false;
-				Resource.Resource = Material.CompiledTextures[Entry.ResourceIndex];
-				if (!BindMember(Resource, Entry.ResourceIndex * 3) && Resource.Resource && Resource.Resource->GetResourceType() == ERHIResourceType::TextureReference)
-				{
-					Resource.Resource = static_cast<FRHITextureReference*>(Resource.Resource)->GetReferencedTexture_RenderThread();
-					if (!Resource.Resource && Entry.ResourceIndex < Material.CompiledTextureFallbacks.size()) Resource.Resource = Material.CompiledTextureFallbacks[Entry.ResourceIndex];
-				}
-				break;
-			case ESource::Sampler:
-				if (Entry.ResourceIndex >= Material.CompiledSamplers.size()) return false;
-				Resource.Resource = Material.CompiledSamplers[Entry.ResourceIndex];
-				BindMember(Resource, Entry.ResourceIndex * 3 + 1);
-				break;
-			case ESource::EnvironmentIrradiance: Resource.Resource = Material.EnvironmentIrradiance; break;
-			case ESource::EnvironmentPrefiltered: Resource.Resource = Material.EnvironmentPrefiltered; break;
-			case ESource::EnvironmentBrdfLut: Resource.Resource = Material.EnvironmentBrdfLut; break;
-			case ESource::EnvironmentSampler: Resource.Resource = Material.EnvironmentSampler; break;
-			case ESource::DirectionalShadowTexture: Resource.Resource = Material.DirectionalShadowTexture; break;
-			case ESource::DirectionalShadowSampler: Resource.Resource = Material.DirectionalShadowSampler; break;
-            default: return false;
-			}
-			if (Range)
-			{
-				if (!Range->Buffer || Range->Size == 0) return false;
-				uint32 BufferSize = 0;
-				if (Range->Buffer->GetResourceType() == ERHIResourceType::UniformBuffer)
-					BufferSize = static_cast<const FRHIUniformBuffer*>(Range->Buffer)->GetSize();
-				else if (IsBufferResource(Range->Buffer))
-					BufferSize = static_cast<const FRHIBuffer*>(Range->Buffer)->GetSize();
-				else return false;
-				if (Range->Offset > BufferSize || Range->Size > BufferSize - Range->Offset) return false;
-				Resource.Resource = Range->Buffer;
-				Resource.Offset = Range->Offset;
-				Resource.Size = Range->Size;
-			}
-			if (!Resource.Resource) return false;
-			Resources.push_back(Resource);
-		}
-		OutBindings.Shader = Shader; OutBindings.Parameters = std::move(Resources);
-		OutBindings.InstanceIdsAllocation = InstanceIdsAllocation;
-		return true;
-	}
+            if (E.Name == "GPUSceneInstanceIds") InstanceIds = std::pair{E.SetIndex, E.BindingIndex};
+        }
+        OutBindings.Shader = Shader; OutBindings.Parameters = std::move(Resources); OutBindings.InstanceIdsAllocation = InstanceIds;
+        return true;
+    }
 
 	auto PrepareCompiledSurfaceMaterial(FRHIShader* Shader,
 		const FCompiledSurfaceBindingLayout& Layout,

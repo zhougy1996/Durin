@@ -32,7 +32,10 @@ namespace Durin
 				+ Shader.Reflection.PushConstantRanges.capacity() * sizeof(FPushConstantRange)
 				+ Shader.PlatformData.GetRetainedCapacityBytes()
 				+ Shader.SourceEntryPoint.capacity() + Shader.BinaryEntryPoint.capacity() + Shader.DebugName.capacity();
-			for (const auto& Binding : Shader.Reflection.ResourceBindings) Bytes += Binding.Name.capacity();
+			for (const auto& Binding : Shader.Reflection.ResourceBindings) {
+				Bytes += Binding.Name.capacity() + Binding.ConstantMembers.capacity() * sizeof(FShaderConstantMember);
+				for (const auto& M : Binding.ConstantMembers) Bytes += M.Name.capacity();
+			}
 		}
 		if (Bytes > 256ull * 1024 * 1024) return;
 		std::lock_guard Lock(Mutex);

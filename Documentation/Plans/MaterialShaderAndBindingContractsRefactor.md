@@ -9,34 +9,29 @@ Completed:
 
 ## Current Status
 
-M15 of the [Material System roadmap](../Roadmaps/MaterialSystem.md). Stages 0-3
-are complete: obsolete paths are removed, registered Shader/VF descriptions own
-compilation, and one C++/Slang catalog unifies existing binding rules and admission.
-Recorded material, ShaderBuild, Vulkan, Cook and consumer tests and Editor/Game
-workspace builds pass for those stages.
+M15 of the [Material System roadmap](../Roadmaps/MaterialSystem.md). Stages 0-4
+are complete: registered Shader/VF descriptions own compilation; composable
+parameter-owner metadata, compiler allocation and typed submission replace the
+intermediate global binding catalog. Material, ShaderBuild, Vulkan, Cook and
+workspace consumer coverage and Editor/Game `all` builds pass for Stage 4.
 
-The Stage 3 catalog still assigns global logical set/binding numbers. Centralizing
-those rules is a completed intermediate result, not completion of UE-style
-parameter binding. Stage 4 now separates composable parameter metadata from
-compiler allocation; the former final-acceptance stage moves to Stage 5.
+Stage 3 centralized the former global logical set/binding numbers. Stage 4 removes
+that catalog and separates composable parameter metadata from compiler allocation.
+The final integrated acceptance and publication work remains in Stage 5.
 Implemented contracts remain documented in
 [Material shader stages](../Runtime/Rendering/Materials/MaterialShaderStages.md).
 
-Stage 4 implementation has started in the existing RHI/RenderCore parameter
-foundation. UE-style `FShaderParameterMap`/`FParameterAllocation` and
-`FShaderParameterBindings` now drive shader-instance binding; generated metadata
-uses `FShaderParametersMetadataBuilder`. Owned schemas project/compose nested
-metadata with canonical identity, and the candidate product envelope retains the
-same parameter map. Typed submission handles nested resource offsets/prefixes;
-pipeline uniform policy consumes the compiled binding records. Flattened inherited metadata no longer retains an include pointer
-that causes typed submission to reject it. Material accepted entries now carry
-actual compiler set/binding/kind/array records through Cook; Renderer consumes
-these locations and partitions pass/material providers independently of descriptor
-set numbers. The declaration catalog and semantic-role enum are still active.
-Registered owner-schema composition, compiler-service integration, shape/constant
-reflection and removal of the remaining catalog/uniform-kind policy remain open,
-along with all Stage 4/5 acceptance. No stage checklist is closed by this
-intermediate migration.
+Stage 4 implementation now composes dynamic Material/collection metadata with
+registered Shader/VF owner metadata. UE-style
+`FShaderParameterMap`/`FParameterAllocation` and `FShaderParameterBindings` drive
+shader-instance binding; generated metadata uses
+`FShaderParametersMetadataBuilder`. Per-owner C++/Slang declarations replace the
+global resource catalog and role enum. Accepted entries retain canonical schema
+and product-bound allocation identities, actual compiler locations, dimensions,
+array policy and constant layouts through shared ShaderBuild output, DDC and Cook.
+Renderer submits typed providers through those accepted records and partitions
+lifetimes by metadata scope. Stage 4's complete migration is validated; Stage 5
+remains pending, including its final isolated packaged material corpus.
 
 The owner permits underlying API/derived-format changes. The preceding
 [M14 plan](MaterialAttributesAndExecutionContractsRefactor.md) was completed with
@@ -111,12 +106,12 @@ Outcome: adding a parameter to a registered Pass/VF changes its owning schema,
 not a central material role/slot list; compiled locations can change while runtime
 submission remains correct through the accepted allocation map.
 
-- [ ] Freeze metadata composition, stable field identity, compiler allocation records, accepted-map validation and runtime submission signatures across RenderCore/Engine/ShaderBuild/ShaderFormat/Renderer; inventory all workspace and selected-plugin consumers.
-- [ ] Compose Material, Pass, VF and Scene parameter schemas through existing metadata facilities. Describe names/qualified paths, kinds, dimensions/arrays and usage/ownership without global per-resource set/binding assignments. Generate matching shader declarations; remove ordinal pass masks and central-enum edits as extension requirements.
-- [ ] Use compiler layout/reflection to construct the deterministic field-to-location allocation map, including target/type/permutation, schema identity, actual resource location/kind/array and relevant constant offsets. Keep numeric allocation/remapping in compilation/backend ownership; validate any named fixed-convention exceptions explicitly.
-- [ ] Persist the accepted allocation map through compiled content and Cook. Migrate Surface/PostProcess, Local/Spline/custom VF, shadows, hit proxies, PSO/preview/thumbnail and scene-resource consumers to bind via metadata and accepted maps. Remove slot arithmetic, reflection-to-global-role inference, domain-specific binding-kind switches and the obsolete fixed-slot catalog in the same migration.
-- [ ] Preserve analyzed material/collection/scene reads, required/optional rules, optimized-out fields, RDG lifetimes, atomic publication and source-free execution. Bump affected derived identities/formats together; reject missing/extra/wrong-kind/array, wrong schema/map identity and cross-product substitution before publication.
-- [ ] Prove extensibility with a new Pass/VF parameter without editing material core selection or a global resource enum. Prove allocation independence with differing locations across products and with unused fields optimized out; exercise runtime submission and source-free Cook replay through the accepted maps. Run owning/affected consumer coverage and stable Editor/Game workspace `all` builds for the shared API/layout migration.
+- [x] Freeze metadata composition, stable field identity, compiler allocation records, accepted-map validation and runtime submission signatures across RenderCore/Engine/ShaderBuild/ShaderFormat/Renderer; inventory all workspace and selected-plugin consumers.
+- [x] Compose Material, Pass, VF and Scene parameter schemas through existing metadata facilities. Describe names/qualified paths, kinds, dimensions/arrays and usage/ownership without global per-resource set/binding assignments. Generate matching shader declarations; remove ordinal pass masks and central-enum edits as extension requirements.
+- [x] Use compiler layout/reflection to construct the deterministic field-to-location allocation map, including target/type/permutation, schema identity, actual resource location/kind/array and relevant constant offsets. Keep numeric allocation/remapping in compilation/backend ownership; validate any named fixed-convention exceptions explicitly.
+- [x] Persist the accepted allocation map through compiled content and Cook. Migrate Surface/PostProcess, Local/Spline/custom VF, shadows, hit proxies, PSO/preview/thumbnail and scene-resource consumers to bind via metadata and accepted maps. Remove slot arithmetic, reflection-to-global-role inference, domain-specific binding-kind switches and the obsolete fixed-slot catalog in the same migration.
+- [x] Preserve analyzed material/collection/scene reads, required/optional rules, optimized-out fields, RDG lifetimes, atomic publication and source-free execution. Bump affected derived identities/formats together; reject missing/extra/wrong-kind/array, wrong schema/map identity and cross-product substitution before publication.
+- [x] Prove extensibility with a new Pass/VF parameter without editing material core selection or a global resource enum. Prove allocation independence with differing locations across products and with unused fields optimized out; exercise runtime submission and source-free Cook replay through the accepted maps. Run owning/affected consumer coverage and stable Editor/Game workspace `all` builds for the shared API/layout migration.
 
 ### Stage 5: Validate integrated consumers and publish contracts
 
@@ -131,6 +126,15 @@ pass; final acceptance does not substitute for implementing that boundary.
 ## Stage 4 Contract Freeze
 
 ### UE 5.8 interface alignment
+
+Final Stage 4 migration selection: registered parameter members carry owned-schema
+shader type and provider scope names in addition to kind/array/optional metadata.
+The detached projection preserves these values. Built-in owners share declaration
+lists between C++ metadata and Slang without descriptor numbers or pass masks.
+Accepted entries retain the composed schema identity, named allocations and their
+complete Shader/VF product identity. Renderer provider scopes and typed member
+offsets replace the role enum. All Stage 4 gates passed on 2026-11-17; the receipts
+below identify the tested working tree and selections.
 
 Owner direction: align the main interfaces with the local UE 5.8 reference.
 Existing Durin API, ownership and derived-format contracts may be changed as
@@ -172,9 +176,9 @@ records and `ShaderParameterStruct.cpp` recursive member binding. This selects
 responsibilities and major API vocabulary; UE binary layouts, UObject machinery,
 bindless infrastructure and legacy entry points are not required dependencies.
 
-This section selects the final implementation interfaces; only the resource-schema
-and candidate-allocation subset described above exists. Keep the freeze in this plan until implementation and validation allow
-the owning Runtime contracts to describe actual behavior.
+This section records the selected implementation interfaces. The owning Runtime
+contracts now describe their implemented behavior. The prototype interfaces below
+remain historical design context where superseded by the UE-aligned selection.
 
 ### Metadata and composition
 
@@ -323,6 +327,25 @@ the isolated final Surface/Cube/WPO/ClearCoat/PostProcess Cook/Game corpus and G
 behavior/resource-count checks; earlier Stage 3 receipts cannot cover these edits.
 
 ## Completed Validation Summary
+
+### Stage 4 owner metadata and compiler allocation acceptance
+
+Validated on 2026-11-17 from base `b1a2db156` plus the final migration. Exact
+changed-file SHA-256 inputs, selections and raw logs are recorded under ignored
+`Build/AgentValidation/MaterialShaderAndBindingContracts/Stage4/OwnerMetadata/`.
+
+- Final routine selection: `@domain=material+shader+renderer+viewport+static-mesh+asset-cook+asset-package+thumbnail+road-graph+road-scene+gameplay+asset-import`, 71 targets. The 20261117-191808 CTest receipt passes 70 targets; its single thumbnail warm-counter failure was repaired with an explicit cold-job drain. The complete `ThumbnailVulkanTests` target then passed all 14 cases in 20261117-192319. Only that fixture and documentation changed after the broad run; the other 70 passing results are reused.
+- Coverage includes Material compiler/runtime/lifecycle/editor/Cook, generic schema/allocation and ShaderBuild/DDC codecs, isolated source-free Shader library replay, Renderer/RDG, Local/Spline and custom geometry, PSO/preview/thumbnail, PostProcess scene/depth pixels, Water Vulkan integration, scene import, RoadWeaver and Sandbox consumers. GPU execution used the Windows Vulkan lane; native Metal remains excluded. The synthetic Metal codec test validates persistence, not native Metal execution.
+- The registered M15 VF adds required `M15Offset` and optional `M15Unused` through its own shared declaration and metadata. Tests verify the required allocation and typed submission, removal of the unused allocation, exact Shader/VF/permutation rejection and Cook replay without editing core material selection or a global resource enum. Relocation to explicit set 2/binding 11 survives admission and Cook; corrupted kinds, arrays, dimensions, constant layout, schema/map identity and cross-product substitutions reject.
+- Fixed-slot reflection assertions were replaced with name/type and reflection-to-pipeline agreement. Codec golden bytes moved with DSHD v7. Scene-input and independent geometry fixtures consume accepted allocations; forged-target Cook fixtures now reject at encode admission. Warm thumbnail counting waits for the cold Shader jobs it initiated, preserving the no-further-compilation assertion.
+- `test affected --explain` expanded beyond semantic coverage because shared test headers select the Engine test project. The bounded domain union above covers the changed owners and consumers. The broader ABI/build-graph risk is closed by workspace `all` builds for `Win64-Debug-DurinEditor` (20261117-192354) and `Win64-Debug-DurinGame` (20261117-192451), both passing with 14 build jobs.
+- Exact-symbol inventory across Engine, Sandbox and RoadWeaver source/tests/shaders finds no old catalog, role enum, binding-definition adapter or declaration pass masks. Changed-document validation and `git diff --check` pass.
+
+Formats are material binding schema 3, generic parameter schema/map 2, pass ABI 25,
+DMAT 28, detached translation 17, generator 29, material adapter 26, DSHD 7 and
+shared Shader output 8; ShaderBuild compile/reflection revisions are 7/4. Physical
+uniform packing remains 5. Stage 5's isolated final material corpus and final
+publication gates remain open; these results do not close that stage.
 
 ### Test-contract cleanup during the allocation migration
 

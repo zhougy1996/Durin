@@ -142,6 +142,15 @@ namespace Durin::ShaderCompiledOutput
 				Writer.WriteU32(Binding.BindingIndex);
 				Writer.WriteU32(Type);
 				Writer.WriteU32(Binding.ArraySize);
+                if (Binding.ResourceShape > EShaderResourceShape::Texture1DArray || Binding.ConstantBufferSize > 16 * 1024 * 1024
+                    || Binding.ConstantMembers.size() > 2048) return std::unexpected("Invalid reflected resource shape or constant layout");
+                Writer.WriteU32(static_cast<uint32>(Binding.ResourceShape)); Writer.WriteU32(Binding.ConstantBufferSize);
+                Writer.WriteU32(static_cast<uint32>(Binding.ConstantMembers.size()));
+                for (const auto& M : Binding.ConstantMembers) {
+                    if (M.Name.size() > 256 || M.Offset > Binding.ConstantBufferSize || M.Size > Binding.ConstantBufferSize - M.Offset)
+                        return std::unexpected("Invalid reflected constant member");
+                    Writer.WriteString(M.Name); Writer.WriteU32(M.Offset); Writer.WriteU32(M.Size);
+                }
 			}
 			Writer.WriteU32(static_cast<uint32>(
 				Shader.Reflection.PushConstantRanges.size()));
@@ -262,6 +271,18 @@ namespace Durin::ShaderCompiledOutput
 					return std::unexpected(std::string("Shader payload resource reflection is invalid."));
 				Binding.StageFlags = static_cast<EShaderStageFlags>(Flags);
 				Binding.Type = static_cast<ERHIBindingType>(Type);
+                uint32 Shape = 0, Count = 0;
+                if (!Reader.ReadU32(Shape) || Shape > static_cast<uint32>(EShaderResourceShape::Texture1DArray)
+                    || !Reader.ReadU32(Binding.ConstantBufferSize) || Binding.ConstantBufferSize > 16 * 1024 * 1024
+                    || !Reader.ReadU32(Count) || Count > 2048) return std::unexpected("Invalid reflected resource shape or constant layout");
+                Binding.ResourceShape = static_cast<EShaderResourceShape>(Shape);
+                for (uint32 I = 0; I < Count; ++I) {
+                    FShaderConstantMember M;
+                    if (!Reader.ReadString(M.Name, 256) || !Reader.ReadU32(M.Offset) || !Reader.ReadU32(M.Size)
+                        || M.Offset > Binding.ConstantBufferSize || M.Size > Binding.ConstantBufferSize - M.Offset)
+                        return std::unexpected("Invalid reflected constant member");
+                    Binding.ConstantMembers.push_back(std::move(M));
+                }
 				Shader.Reflection.ResourceBindings.push_back(std::move(Binding));
 			}
 

@@ -37,12 +37,18 @@ namespace Durin::MaterialBuildPrivate
 			}
 			else Entry.Mesh.reset();
             Transfer.Sequence(Entry.Bindings, 256, [&](auto& Binding) {
-                Transfer.Value(Binding.Role); Transfer.Value(Binding.ResourceIndex);
+                Transfer.String(Binding.Name, 256); Transfer.String(Binding.QualifiedName, 1024);
+                Transfer.String(Binding.OwnerName, 128); Transfer.Value(Binding.ResourceIndex);
                 Transfer.Value(Binding.SetIndex); Transfer.Value(Binding.BindingIndex);
-                Transfer.Value(Binding.Type); Transfer.Value(Binding.ArraySize);
-                Transfer.Check(Binding.Role < EMaterialBindingRole::Count);
-                Transfer.Check(Binding.Type <= ERHIBindingType::StorageImage && Binding.ArraySize == 1);
+                Transfer.Value(Binding.Type); Transfer.Value(Binding.RuntimeType); Transfer.Value(Binding.ArraySize);
+                Transfer.Value(Binding.Scope);
+                Transfer.Value(Binding.ResourceShape); Transfer.Value(Binding.ConstantBufferSize);
+                Transfer.Check(!Binding.Name.empty() && !Binding.QualifiedName.empty() && !Binding.OwnerName.empty());
+                Transfer.Check(Binding.Type <= ERHIBindingType::StorageImage && Binding.RuntimeType <= ERHIBindingType::StorageImage
+                    && Binding.Scope <= EShaderParameterBindingScope::Pass && Binding.ArraySize > 0 && Binding.ArraySize <= 1024);
+                Transfer.Check(Binding.ResourceShape <= EShaderResourceShape::Texture1DArray && Binding.ConstantBufferSize <= 16 * 1024 * 1024);
             });
+            Transfer.Value(Entry.ParameterSchemaIdentity); Transfer.Value(Entry.ParameterMapIdentity);
 			auto& Requirements = Entry.Requirements;
 			Transfer.Sequence(Requirements.AttributeIDs, 64, [&](auto& V) { Transfer.Value(V); });
 			Transfer.Sequence(Requirements.ParameterIDs, MaterialRenderMaxFieldCount, [&](auto& V) { Transfer.Value(V); });

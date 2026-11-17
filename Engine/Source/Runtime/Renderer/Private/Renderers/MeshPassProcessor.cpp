@@ -416,7 +416,7 @@ namespace Durin::RendererPrivate
 		if (Pipeline->GetInitializer().FragmentLayout)
 		{
 			const auto& Layout = *Pipeline->GetInitializer().FragmentLayout;
-			const bool UsesPrimitive = std::ranges::any_of(Layout.GetEntries(), [](const auto& Entry) { return Entry.Source == FCompiledSurfaceBindingLayout::ESource::Primitive; });
+			const bool UsesPrimitive = std::ranges::any_of(Layout.GetEntries(), [](const auto& Entry) { return Entry.OwnerName == "Primitive"; });
 			const auto FragmentKey = std::make_tuple(Draw.MaterialUniformIndex, BindingPass,
 				UsesPrimitive ? Draw.PrimitiveIndex : std::numeric_limits<uint32>::max(), Pipeline->GetInitializer().FragmentShader.GetReference());
 			if (Command->FragmentBindings)
@@ -469,9 +469,7 @@ namespace Durin::RendererPrivate
 			else
 			{
 				if (!Vertex->GetReflection()) return FShaderCompletion::Failure("Mesh vertex reflection is unavailable.");
-				auto Reflection = *Vertex->GetReflection();
-				std::erase_if(Reflection.ResourceBindings, [](const auto& Binding) { return !IsMaterialPassParameter(Binding.Name); });
-				if (!Collect(Vertex->GetRHIShader(false), FCompiledSurfaceBindingLayout(Reflection), Out.Vertex))
+                if (!Collect(Vertex->GetRHIShader(false), FCompiledSurfaceBindingLayout(Vertex->GetAcceptedParameterBindings()), Out.Vertex))
 					return FShaderCompletion::Failure("Mesh view vertex binding collection failed.");
 			}
 		}

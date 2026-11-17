@@ -15,6 +15,9 @@ namespace Durin
 		uint32 BaseIndex = 0;
 		uint32 Size = 1;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+        EShaderResourceShape ResourceShape = EShaderResourceShape::Unknown;
+        uint32 ConstantBufferSize = 0;
+        std::vector<FShaderConstantMember> ConstantMembers;
 		auto operator==(const FParameterAllocation&) const -> bool = default;
 	};
 

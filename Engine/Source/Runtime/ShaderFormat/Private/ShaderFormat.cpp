@@ -64,7 +64,7 @@ namespace Durin::ShaderFormat
 	{
 		if (Shader.Reflection.ResourceBindings.size() > 65536 || Shader.Reflection.PushConstantRanges.size() > 65536)
 			return {};
-		// Retain the v1 wire identity while deriving it directly from reflection.
+		// Canonical identity includes the compiler's resource and constant layout.
 		std::vector<const FShaderResourceBinding*> Bindings;
 		Bindings.reserve(Shader.Reflection.ResourceBindings.size());
 		for (const auto& Binding : Shader.Reflection.ResourceBindings)
@@ -84,7 +84,7 @@ namespace Durin::ShaderFormat
 			UpdateCanonicalHashString(Names, Binding->Name);
 		}
 		FXxHash128Builder Hash;
-		UpdateCanonicalHashString(Hash, "Durin.Shader.Artifact.v1");
+		UpdateCanonicalHashString(Hash, "Durin.Shader.Artifact.v2");
 		UpdateCanonicalHash(Hash, Shader.Target.Platform);
 		UpdateCanonicalHash(Hash, Shader.Target.Backend);
 		UpdateCanonicalHash(Hash, Shader.Target.IntermediateFormat);
@@ -112,6 +112,11 @@ namespace Durin::ShaderFormat
 				const auto& Binding = *Bindings[Slot];
 				UpdateCanonicalHash(Hash, Binding.StageFlags); UpdateCanonicalHash(Hash, Binding.BindingIndex);
 				UpdateCanonicalHash(Hash, Binding.Type); UpdateCanonicalHash(Hash, Binding.ArraySize);
+                UpdateCanonicalHash(Hash, Binding.ResourceShape); UpdateCanonicalHash(Hash, Binding.ConstantBufferSize);
+                UpdateCanonicalHash(Hash, uint64(Binding.ConstantMembers.size()));
+                for (const auto& M : Binding.ConstantMembers) {
+                    UpdateCanonicalHashString(Hash, M.Name); UpdateCanonicalHash(Hash, M.Offset); UpdateCanonicalHash(Hash, M.Size);
+                }
 			}
 		}
 		auto Ranges = Shader.Reflection.PushConstantRanges;
@@ -143,6 +148,17 @@ namespace Durin::ShaderFormat
 		if (!ValidateExecutionMetadata(Shader.Target, Shader.Frequency, Shader.ComputeThreadGroupSize)
 			|| !ValidateCodeHash(Shader.Code, Shader.CodeHash)
 			|| Shader.Reflection.ResourceBindings.size() > 65536 || Shader.Reflection.PushConstantRanges.size() > 65536) return false;
+		for (const auto& Binding : Shader.Reflection.ResourceBindings) {
+			if (Binding.ResourceShape > EShaderResourceShape::Texture1DArray || Binding.ConstantBufferSize > 16 * 1024 * 1024
+				|| Binding.ConstantMembers.size() > 2048) return false;
+			std::set<std::string_view> Names;
+			uint32 End = 0;
+			for (const auto& M : Binding.ConstantMembers) {
+				if (M.Name.empty() || M.Name.size() > 256 || !Names.insert(M.Name).second || !M.Size || M.Offset < End
+					|| M.Offset > Binding.ConstantBufferSize || M.Size > Binding.ConstantBufferSize - M.Offset) return false;
+				End = M.Offset + M.Size;
+			}
+		}
 		const auto Bindings = BuildLogicalBindings(Shader.Reflection);
 		return ValidateShaderCodeParts(Shader.Target, Shader.CodeFormat, Shader.PlatformDataVersion, Shader.Frequency,
 			Shader.Code.GetBytes(), Shader.BinaryEntryPoint, Shader.PlatformData.GetBytes(), Bindings, Shader.Reflection.PushConstantRanges);
