@@ -50,6 +50,9 @@
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/Shader.h"
 #include "RenderResourceCreation.h"
+#include "RenderPipelineCreation.h"
+#include "PipelineStateCache.h"
+#include "Threading/ThreadEvent.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
@@ -278,6 +281,55 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 	ClearShaderMapPreparations();
 	auto Invalid = FShaderMapPreparation::Request("DurinEd", {"Missing.Program"});
 	EXPECT_FALSE(Invalid.Poll().has_value());
+}
+
+TEST_F(FThumbnailVulkanTests, ImageCaptureKeepsSubmittedReadbackWhileNativeObservationIsPending)
+{
+	using namespace Durin;
+	FThreadEvent Entered, Release;
+	FRHIPipelineStateCache Cache(*GDynamicRHI->RHIGetCapabilities(), {
+		.FindGraphics = [](const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
+		.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; },
+		.CreateGraphics = [](const auto&, const auto&) -> FGraphicsPipelineStateRHIRef { return {}; },
+		.CreateCompute = [&](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+			Entered.Trigger(); Release.Wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		},
+	});
+	struct FReleaseOnExit { FThreadEvent& Event; ~FReleaseOnExit() { Event.Trigger(); } } Unlock{Release};
+	auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+	FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
+	auto Pending = Cache.GetCompute(Initializer, "thumbnail observation");
+	ASSERT_TRUE(Pending);
+	ASSERT_TRUE(Entered.WaitFor(5.0));
+	std::atomic<uint32> ImageCalls = 0;
+	FThumbnailCapture Capture(Contract.Output);
+	Capture.SetImageRenderer([Pipeline = *Pending, &ImageCalls](FRHICommandListImmediate& Commands, uint32 W, uint32 H) {
+		++ImageCalls;
+		FRenderPipelinePreparationBatch::Add(Pipeline);
+		auto Output = GDynamicRHI->RHICreateTexture(Commands,
+			FRHITextureCreateDesc::Create2D("AcceptedCapture", W, H, EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+		if (Output)
+		{
+			const FByteBuffer Pixels(static_cast<size_t>(W) * H * 4, std::byte{127});
+			Commands.UpdateTexture2D(Output, 0, 0, FUpdateTextureRegion2D(0, 0, 0, 0, W, H), W * 4, Pixels);
+			Commands.TransitionTextures(std::array{FRHITextureTransition::Whole(Output,
+				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead)});
+		}
+		return Output;
+	});
+	ASSERT_TRUE(Capture.BeginCapture());
+	bool bCaptured = false;
+	ASSERT_TRUE(WaitForResourcePublication([&] {
+		auto Result = Capture.PollCapture();
+		if (!Result) Error = Result.error();
+		bCaptured = Result && Result->has_value();
+		return !Result || bCaptured || ImageCalls.load() > 1;
+	}));
+	EXPECT_TRUE(bCaptured) << Error;
+	EXPECT_EQ(ImageCalls.load(), 1u);
+	EXPECT_EQ((*Pending)->GetState(), ERHIPipelineRequestState::Pending);
 }
 
 TEST_F(FThumbnailVulkanTests, StaticMeshDrawWaitsForMaterialPublication)

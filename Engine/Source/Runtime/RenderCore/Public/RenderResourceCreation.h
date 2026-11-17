@@ -291,14 +291,14 @@ namespace Durin
 		auto GetPayload() -> PayloadType*
 		{
 			if (Availability != ERenderResourceAvailability::Ready || !Payload || PipelineRequests.HasFailed()) return nullptr;
-			PipelineRequests.RetainForPreparation();
+			PipelineRequests.CollectPreparationRequests();
 			return Payload.get();
 		}
 
 		auto GetPayload() const -> const PayloadType*
 		{
 			if (Availability != ERenderResourceAvailability::Ready || !Payload || PipelineRequests.HasFailed()) return nullptr;
-			PipelineRequests.RetainForPreparation();
+			PipelineRequests.CollectPreparationRequests();
 			return Payload.get();
 		}
 

@@ -1,6 +1,6 @@
 # Load Preparation
 
-Summary: Prepare cooked material programs and exact scene Shader/PSO resources before covered drawing, with bounded ownership and explicit readiness.
+Summary: Define ownership, readiness and invalidation for material programs, exact-view preparation and component PSO precaching.
 
 Modules: Engine, RenderCore, Renderer, DurinEd, LevelEditor
 
@@ -8,664 +8,200 @@ Last reviewed: 2026-11-18
 
 ## Object and program readiness
 
-Async asset completion retains its existing object-readiness meaning. Materials
-start preparation through `CacheResourceShadersForRendering`; callers observe
-`IsCompiling`, `IsComplete`, the existing compile status and owner diagnostic.
-There is no separate public program-preparation handle or terminal state machine.
-Explicit offline waits and cancellation use the existing shader compiler manager.
-The internal request snapshots cooked bulk content revision, configuration,
-quality, feature level and backend. Parameter-only publications do not invalidate
-decoding. A same-sized inline replacement or admitted write changes the bulk
-revision and prevents stale publication. Package I/O and family decode never
-dereference live objects; the compiler queue publishes current results on the
-game thread through existing declaration, collection, properties and proxy checks.
+Asset completion means object readiness, not completed Shader/PSO work. Cooked
+materials start `CacheResourceShadersForRendering` in PostLoad; consumers inspect
+`IsCompiling`, `IsComplete`, compile status and diagnostics. Program getters do
+not submit work or wait. The shader compiler manager owns asynchronous decode,
+admission and publication; stale owner/content/configuration results cannot publish.
+Full program validation happens at admission, not again for each draw or cascade.
+See [material program lifecycle](../Materials/MaterialSystem.md).
 
-Unload, retired storage, changed configuration or replaced content prevents
-pending publication. Failure stays on the material rather than failing asset
-loading. At most 16 read/decode continuations are admitted; each releases its
-admission on exit, including cancellation and failure. Each request retains the
-existing 8 MiB encoded family limit. Decoded products and package-task storage
-have additional allocation cost; these limits are not a process RSS bound.
-
-Resource preparation is independent of MapChange. Mesh components request CPU/GPU
-residency on registration and use existing render-data change notifications.
-Mesh admission pressure retains only weak owner identities in the existing cooked
-load manager; its ordinary pump retries without allocating extra read/decode work.
-Cancel, shutdown and owner destruction retire those intents.
-Cooked materials start `CacheResourceShadersForRendering` in PostLoad. Their
-compilation owner retains only the internal decode request; the shader compiler's
-retry queue pumps admission and publication. The 16-request decode bound defers
-excess work instead of reporting a permanent failure. Program getters are pure;
-offline consumers explicitly finish compilation before inspecting accepted programs.
-Dynamic instances may retain declared parameter overrides while a cooked parent
-program is pending. Normal publication applies those overrides when it becomes ready;
-failed parents and ready-program reachability validation retain their existing rules.
-Cooked textures asynchronously read/decode platform data after PostLoad, then
-apply on GameThread and upload through the existing resource-update path and
-stable texture reference. Offline and reload callers use the same
-`FinishCachePlatformData` completion boundary; see the
+Mesh components request residency on registration. Cooked textures use their
+normal asynchronous cache/upload path and stable texture reference; offline
+callers use `FinishCachePlatformData`. See the
 [texture cache contract](../../Assets/Families/TextureSystem.md#derived-platform-data).
-SkyLight and cloud proxies begin caching without blocking
-registration and retain stable references for late texture publication.
-Texture read/decode failures retain their detailed message
-in the existing resource diagnostic.
-`IsCompiling`, `IsComplete` and texture resource state queries
-do not perform blocking preparation. MapChange retains no resource lists or budgets.
-MapChange does not scan or wait for component PSOs. Components use their existing
-delay-proxy policy and owner notifications to appear after required PSOs become
-ready, including after map activation. Required PSO failures remain observable on
-the component's requests and keep its proxy withheld without failing MapChange.
-No candidate offscreen view is rendered. View-dependent Shader/PSO preparation
-continues through the committed viewport; startup retains the generation-scoped
-output and primary-window presentation gates. Later
-streamed products retain their normal component/demand preparation gates.
 
-Preparation queries the prepared material resource, accepted program and effective
-properties directly, following the [material renderer boundary](../Materials/MaterialSystem.md#renderer-boundary).
-`HasValidGameThreadShaderMap` checks accepted program and ShaderMap presence,
-independently of compilation progress, textures and component PSOs.
-Engine validates the complete material program before accepting and publishing
-an authored compiler result or admitting a cooked program. Renderer consumption
-uses that immutable accepted result and checks the requested program/layout/pass
-identity; it does not repeat full compiler-output, layout and reflection
-validation for each section, cascade or Pending retry. Public requests that
-admit an external program retain their input validation.
-The proxy separates `GetMaterialNoFallback`
-from `GetMaterialWithFallback`. The former returns null when no valid accepted
-material exists; the latter explicitly permits ErrorMaterial. Compilation is
-queried independently through `IsCompiling`. Missing programs while compilation
-is active do not increment invalid-material diagnostics. Mesh collection uses
-the non-fallback query and propagates unresolved compilation into the existing
-resource preparation batch around logical collection. An accepted previous
-program remains usable during edits. PSO collection snapshots that program and
-its effective properties together, without selecting a rendering fallback.
-Unassigned slots still select the authored default material, while invalid
-material data retains the explicit ErrorMaterial path.
-
-The Editor thumbnail pool continues polling and retiring accepted jobs during
-required scene loading, but `EndFrame(false)` defers new optional admissions.
-Queued requests remain available when the host and required scene are ready.
+MapChange neither scans component PSOs nor renders a candidate offscreen view.
+Components own proxy readiness, and the committed viewport owns view preparation.
+Startup keeps its generation-scoped output/presentation gates. Shader or PSO
+failure remains with its resource owner rather than changing asset-load success.
 
 ## Scene resource readiness
 
-A caller creates `FRenderResourcePreparation`, then pumps
-`IRendererModule::PrepareViewResources` on the render thread with the actual
-scene, view, output texture, present policy and render options. It must preserve
-the intended configuration through activation. The result covers the reachable,
-resident routes selected by those inputs, not every future scene combination.
+`FRenderResourcePreparation` is a caller-owned request handle for one actual
+scene/view/output/options configuration. Pump `IRendererModule::PrepareViewResources`
+on the render thread while resource descriptions need resolution. Preserve that
+configuration through use; create a new request for changed coverage.
 
-Preparation runs normal logical, view-resource, scene-resource and feature-resource
-phases with their normal typed ShaderMaps and exact PSO descriptions. It returns
-before graph authoring, temporal-history Begin/Commit or scene drawing. Actual
-unfinished CPU Shader compilation or native PSO work keeps this explicit
-preparation Pending without joining its compile task. Rendering pipeline
-requests require both an owning request scope and a running task scheduler;
-missing host state never falls back to direct native PSO creation. Each pump rebuilds a
-local logical snapshot; no borrowed frame/proxy values are sent to workers.
-Each resource stage runs once per pump. Pipeline-batch capacity exhaustion is
-reported as unavailable through a nonblocking check before Pending is returned.
-Loading preparation and normal draws share asynchronous Shader/PSO caches.
-Only preparation pumps own the bounded observer scope and its exception-to-status
-mapping. Normal draws handle pending components and optional features locally.
+Preparation runs the normal logical and resource phases, stopping before graph
+authoring, temporal-history mutation, drawing or readback. Each call builds its
+own snapshot; borrowed frame/proxy values never escape to workers. Ready means
+all selected resources and native PSOs completed, not coverage of future routes.
 
-Authored rendering demand shares CPU ShaderMap requests with `FShaderMapPreparation`.
-Missing outputs are submitted asynchronously through `FShaderCompilingManager`,
-and resource attempts remain Pending until a later frame consumes the completed
-output. `InitializeShaderMapFromTypes` never compiles inline or waits, on any thread.
-Shader reloads retire stale requests; terminal errors and cancellation retain
-their existing outcomes. Startup and tools explicitly use
-`InitializeShaderMapFromTypesSync`, `TryCompileSync`, or the manager's
-`CompileMountedSync` / `CompileGeneratedSync` interfaces. These interfaces reject
-rendering-thread calls; consumption-only capture also rejects synchronous map
-initialization. Inline submissions are rejected by both the manager and backend
-on the rendering thread, where shader request waits return WouldBlock.
-Appending programs to `FShaderMapPreparation` resolves only the new entries;
-invalidation or retrying a prior resolution error refreshes the complete list.
+| Unfinished work | Owner and progress rule |
+| --- | --- |
+| CPU Shader compilation | `FShaderMapPreparation` and compiler requests; unchanged dependencies suppress the slot factory until progress or invalidation. |
+| Unsubmitted PSO admission | The resource/material owner retries rejected capacity work, preserving accepted identities. |
+| Accepted native PSO compilation | Shared `FPipelineState` handles; polling reads completion without resubmission or scene traversal. |
+| Terminal error, cancellation or stale generation | No automatic retry of that handle; retain diagnostics and create a new request when appropriate. |
 
-The default `FPreparedShaderMapScope` remains consumption-only for thumbnail
-capture. Resource resolution opts into asynchronous demand, but a nested capture
-forbids new requests throughout its scope. ShaderMap resolution returns explicit
-Pending, success, failure or cancellation. Resource factories return Pending to
-their slots, and the existing resource/pipeline preparation batch aggregates
-unresolved slots without a Shader-specific thread-local counter or a fabricated
-error. Nested slots remain retryable while independent terminal errors stay
-observable. Read-only preparation lookup does not submit, retire or reprioritize
-requests; creation, priority promotion and submission use the request path.
+Native Shaders are created lazily by `FShaderMapResource`. PSOs use
+`PipelineStateCache::GetAndOrCreate*`; renderer payloads retain cached
+`FGraphicsPipelineStateRef` / `FComputePipelineStateRef` before native completion.
+Drawing records the handle, boosts pending demand and attaches its execution
+dependency. The RHI executor gates replay at closed command scopes. There is no
+general frame quota or render-thread compile wait. See
+[RHI command execution](../RHI/RHICommandExecution.md) and
+[resource recovery](RendererResourceRecovery.md).
 
-Pending slots retain typed preparation dependencies and the pending state
-observed by their last attempt. With an unchanged render generation, unresolved
-dependencies whose states have not changed defer the factory and propagate
-Pending through the ordinary nested scope/batch. Completion, including error or
-cancellation, and preparation invalidation make the attempt retryable. Shader
-preparation checks both shader generation and its independent invalidation epoch.
-An attempt observes its current dependencies and drops obsolete ones; publication
-releases the preparation leases. A bare Pending without such dependencies still
-retries normally, so transient request-capacity pressure and unrelated resource
-work can progress. Native Shader creation has no frame budget and does not
-manufacture Pending. Independent sibling failures remain observable.
+Preparation batches collect shared PSO handles, including ready cache hits,
+without waiting. A view observation admits at most 4,096 unique handles; overflow
+fails explicitly. Completed resource descriptions are not rerun just because a
+native PSO is Pending. CPU/resource prerequisites can still require another pump.
 
-The shared preparation index holds weak references, not completed compiler
-outputs. Explicit `FShaderMapPreparation` observers own their declared capture
-window. Rendering resource slots retain shared preparation only while an attempt
-is pending, then release it on publication, failure, cancellation, reset or
-generation change. Published ShaderMaps retain their own code/resources; the
-ShaderBuild output LRU remains the bounded compilation-output cache. Completion
-callbacks hold weak preparation references, so abandoning the last owner cancels
-unneeded work without a callback/handle ownership cycle. Other owners continue
-sharing the same request. Direct thumbnail captures retain preparation through
-their Preparing retries and release it before readback or on cancellation.
-Hit-proxy queries use their cache or copied request as the owner of their
-transient preparation window.
+The request retains PSO handles only. ShaderMaps, renderer slots and recorded RHI
+commands own their respective code, payloads and native resources. Copies alias
+one request; independent requests share compilation. Canceling or dropping an
+observer releases its references without canceling another owner's compilation.
+No service registry retains view requests or scans them each frame.
 
-Material mesh passes share `MeshPipelineDescription`: raster options and the
-effective material identity produce value-only raster/depth/blend state, and
-explicit Forward, hybrid retained, sorted translucency, shadow, GBuffer and
-HitProxy routes describe their attachment and pass-specific state. Collection
-does not require a Scene, View, CommandList, native Shader or resident vertex
-buffer. `MakeInitializer` adds the resolved Shader pair, vertex declaration and
-pipeline layout before submission to the existing pipeline service. Normal
-drawing and view preparation use these same builders. Shadow slot keys use the
-same dynamic-bias normalization as the descriptions. This boundary does not
-enumerate potential component uses or introduce automatic component precaching;
-Shader selection and vertex declaration preparation remain separate contracts.
+A scene-resource lifetime token is observed weakly. Scene release, preparation
+configuration changes and renderer invalidation retire that token; Shader reload
+also invalidates the captured generation. Every query or transition observes
+existing native outcomes and invalidation before changing state. Failed,
+Canceled and Stale are terminal. A completed failure is preserved even if the
+caller cancels before its first progress query. Late or duplicate completion
+cannot revive a terminal request or discard already accepted PSO handles.
 
-Vertex Factory types opt in with `EVertexFactoryFlags::SupportsPSOPrecaching`.
-Their `GetPSOPrecacheVertexFetchElements(EVertexInputStreamType, Elements)` callback
-describes fixed Default, PositionOnly or PositionAndNormalOnly input layouts
-without creating RHI resources. Local and Spline use the same packed layout
-provider as Local's actual stream setup; reduced layouts preserve stream indices
-and strides. These layouts do not enable new drawing or Shader routes.
-`FPSOPrecacheVertexFactoryData` owns an optional explicit Default element list
-for mesh-dependent factories. Other stream types still resolve through the type.
-Unsupported factories/streams, missing metadata and malformed declarations return
-explicit errors; empty Default layouts require `SupportsManualVertexFetch`.
-The value lives in Engine's `PSOPrecache.h` and retains CPU elements rather
-than UE's native custom declaration, so collection requires no device or GPU
-buffer residency. Type registrations must outlive the collected values.
-`MatchesVertexElements` compares canonical input layouts for coverage validation;
-the native request and the precache path share RHI's element validation rules.
-
-Native Shaders are created lazily by `FShaderMapResource` on demand and reused
-from the ShaderMap resource cache. A null native result is a creation failure;
-there is no per-frame Shader count or elapsed-time admission gate.
-
-Graphics and compute PSOs use the existing device-owned
-`PipelineStateCache::GetAndOrCreate*` services. Renderer payloads retain
-`FGraphicsPipelineStateRef` / `FComputePipelineStateRef`, which may refer to
-in-progress compilation. Accepted handles publish resource metadata once;
-`SetGraphicsPipelineState` / `SetComputePipelineState` records the handle and
-its completion dependency. The RHI executor gates replay at the recorded closed
-scope rather than forcing Renderer to rebuild resources on later frames. Native
-compilation remains bounded by the existing device queue and request priority,
-not a second RenderCore frame budget. Failed or canceled native requests make
-cached payloads unavailable and are diagnosed through the resource slot on its
-next resolution; no partially initialized native PSO is exposed.
-
-`PrepareViewResources` never draws. Its caller-owned request retains shared PSO
-handles collected explicitly from each preparation stage, including cache hits.
-After all resource descriptions resolve, progress reads those handles directly;
-accepted native compilation does not rerun scene preparation. Pending CPU Shader
-preparation or incomplete scene resources still require another preparation call.
-Ordinary drawing records accepted pending handles and their execution dependencies.
-Explicit captures defer drawing and readback until every selected request is Ready.
-There is no thread-local render-resource preparation scope, creation interception,
-retained payload/code list, or preparation accounting quota. Preparation does not
-permit synchronous source Shader compilation or render-thread waits.
-
-Post-process resources are prepared only for the requested Copy/FXAA route,
-RGBA/BGRA output and intermediate/offscreen/present attachment layout. Each
-combination has an independent generation-aware transactional slot. Preparing a
-new combination preserves completed peers and never waits for unused variants.
-
-ShaderMaps and renderer resource slots own their code, metadata and native
-resources. The preparation request owns only shared PSO handles; the existing
-PSO request collector bounds a view observation to 4,096 unique handles. The
-device queue retains its own admission and compilation limits. There is no
-four-observer service limit or separate 256 MiB retained-resource budget.
-
-Copies alias one request. Separate requests share normal ShaderMap and pipeline
-caches. Canceling or dropping a request releases its PSO observations without
-canceling compilation shared by other owners. No service registry retains
-preparation requests or scans them each frame. A scene-owned lifetime token is
-observed weakly by its requests; scene release, preparation configuration changes
-and renderer Shader/device invalidation retire that token. Shader reload also
-invalidates the captured Shader generation. Requests report Stale and release
-their observations when polled after invalidation; callers create a new request.
-Native failure reports Failed, and failed requests retain their terminal status
-after cancellation or scene retirement. Polling observes completion without
-submitting work or joining tasks.
+Authored Shader demand uses asynchronous `FShaderCompilingManager` requests.
+`InitializeShaderMapFromTypes` never compiles inline or waits. Explicit synchronous
+compiler/map entrypoints are for startup/offline callers and reject render-thread
+use. `FPreparedShaderMapScope` restricts capture to completed outputs; resource
+resolution can opt into asynchronous demand. Pending slots retain typed compiler
+dependencies only until publication, reset, failure or invalidation. Published
+ShaderMaps retain their own code; the shader-build output cache owns completed
+compiler products. See [shader cache and delivery](../Shaders/ShaderCache.md).
 
 ## Activation and uncovered work
 
-`FSceneViewport::RequestResourcePreparation` enables background view preparation.
-The viewport pumps `PrepareViewResources` and then calls `RenderView` independently,
-including while preparation is Pending. Ready resources and components continue
-to render. Failed preparation remains observable without suppressing unrelated
-scene content. A Ready observer stops background pumping; explicit requests and
-Stale invalidation restart it. Later view/output/feature changes use normal local
-resource admission until another preparation is requested. Readiness describes
-the prepared configuration. The receiver and enabled cascades admit interactive
-draws independently. Strict preparation waits for every requested collection,
-including each eligible caster. An ordinary Unlit request has no shadow-map dependency.
+`FSceneViewport::RequestResourcePreparation` enables background preparation.
+The viewport pumps it and draws independently, so already ready content remains
+visible while other resources are Pending. Ready stops background preparation;
+an explicit request or Stale observation starts a new request. Failure remains
+observable without hiding unrelated scene content.
 
-Screenshots, thumbnails, offline output and deterministic tests own their waiting
-policy: retain a preparation request, pump it for the actual scene/view/output,
-and defer rendering and readback until Ready. Pending yields to a later frame;
-Failed, Canceled and Stale must be handled explicitly. No global strict rendering
-mode or preparation field exists in `FSceneViewRenderRequest`. Capture component
-gates check `IsReadyForProxyCreation`, independently of `IsPSOPrecaching`; unrelated
-optional material variants may remain Pending. Exact selected feature and draw
-resources must still finish view preparation before capture. Component PSO
-admission continues to use `EPSOPrecacheProxyCreationStrategy` and
-`PrecacheMaterialPSOs`, independently of a view preparation request.
-
-A preparation handle can be released after the renderer slots have adopted the
-ready resources. Residency and cache eviction remain bounded by their existing
-owners. Holding a preparation handle extends resource residency through its
-declared activation window; it does not promise universal PSO coverage.
+Screenshots, thumbnails and deterministic tests own the stricter policy: retain
+the request and postpone drawing/readback until Ready. Handle Failed, Canceled
+and Stale explicitly. Component gates use `IsReadyForProxyCreation`, not overall
+`IsPSOPrecaching`, because unrelated optional PSOs must not delay capture.
+There is no global strict mode in `FSceneViewRenderRequest`. Once an image
+renderer has submitted valid drawing and readback, native PSO dependencies belong
+to that submission; a Pending observation must not restart capture. Missing CPU
+resources or an absent output can still defer submission.
 
 ## Material and component PSO requests
 
 ### Renderer preparation configuration
 
-`IRendererModule::GetSceneRenderPreparationConfig(FeatureLevel)` returns a
-Renderer-owned `FSceneRenderPreparationConfig` value snapshot. It combines the
-Scene's immutable level with supported Forward, Hybrid and HitProxy routes,
-the captured device wireframe capability, and a module-local configuration
-version. FeatureLevel selects material programs; it does not force a rendering
-path. Views still select their routes within the supported set.
+`GetSceneRenderPreparationConfig(FeatureLevel)` returns the Renderer-owned
+`FSceneRenderPreparationConfig`: scene FeatureLevel, supported routes, captured
+device capabilities and configuration version. FeatureLevel selects material
+programs; it does not force a render path. Collectors and view planning consume
+the same snapshot.
 
-`SetPreparationSettings` publishes policy on the GameThread and applies the
-same snapshot through the ordered render-command queue. Equal settings preserve
-the version. Changes immediately make old material PSO observers non-current;
-render-thread application retires obsolete collection resources and view
-preparations, and invalidates view histories. Requests admitted with the new
-version survive that retirement and wait for its render-thread snapshot before
-collection. Failed request diagnostics remain available without authorizing reuse.
-
-Scene plans and pass collectors consume these snapshots rather than reading
-capabilities independently. Unsupported view and picking routes reject admission;
-HitProxy cache identity includes the configuration version. This follows the
-explicit scene-configuration boundary of [UE PSO collectors](https://dev.epicgames.com/documentation/unreal-engine/pso-precaching-for-unreal-engine).
-Configuration versions describe coverage, independently of existing shader,
-device and manual resource generations. Equal native PSO descriptions continue
-to reuse the device cache after policy changes. Device capability capture lasts
-for the Renderer module lifetime and is renewed when the module is recreated.
+`SetPreparationSettings` publishes on GameThread and applies through ordered
+render commands. Equal settings preserve the version. Changed settings make old
+observers non-current and retire obsolete collection/view preparation and view
+history. Newly admitted requests wait for their matching render-thread snapshot.
+Configuration identity governs coverage; equal native PSOs can still share the
+device cache across policy changes. HitProxy cache identity includes the version.
 
 ### Material requests
 
-Engine's `PSOPrecache.h` owns common collection parameters, initializer data and
-CPU Vertex Factory snapshots; RenderCore owns the Vertex Factory type and element
-callbacks. `PSOPrecacheMaterial.h` owns `IPSOCollector`, collector registration and material
-request/owner contracts. Collection sessions remain private to Renderer. `PSOPrecacheComponent.h` retains the component policy and observer set.
-Both material submission overloads require an explicit FeatureLevel; the host
-convenience overload resolves only the Renderer and forwards to the same core
-implementation. Renderer collection enumerates independently registered PSO collectors;
-there is no separate pass-planning interface for tests.
+`DMaterialInterface::PrecachePSOs` snapshots the accepted program, effective
+properties, FeatureLevel, Vertex Factory data, primitive participation and
+Renderer configuration. Rejection preserves the caller's output array. Engine's
+`PSOPrecache.h` owns initializer/parameter values; `PSOPrecacheMaterial.h` owns
+collectors and material request contracts. Renderer selects applicable passes,
+variants and required coverage using the same shader selection and initializer
+builders as drawing. No Scene, live vertex buffer or draw submission is required.
 
-`DMaterialInterface::PrecachePSOs` explicitly snapshots the accepted program and
-effective material planning identity for a bounded list of Vertex Factories.
-`FPSOPrecacheParams` carries primitive participation and geometry/raster facts;
-Renderer owns applicable pass selection and required classification.
-Components prepare and snapshot the material resource for their Scene's
-FeatureLevel. `FMaterialPSOPrecacheParams::FeatureLevel` participates in request
-sharing, and collection rejects a program with a different level. Material
-bindings use the same level's stable proxy; draw preparation rejects mismatched
-programs. Separate Scenes can therefore share material assets while retaining
-different program selections. Cooked selections reuse the bounded decode reader
-and its admission limit; missing variants report failure without substituting
-another level.
-The default overload uses the active engine's Renderer; preview/test owners may
-pass an initialized `IRendererModule` explicitly. Rejection preserves the output
-array and reports an error. Program loading remains a separate readiness step.
+`FMaterialPSORequestManager` shares work by those immutable inputs. Each admission
+creates an independent observer; copies alias it. Cancellation withdraws that
+observer only. Material ShaderMap, pipeline, parent-chain changes or destruction
+invalidate matching material observers; numeric parameter changes preserve them.
+Shader/device invalidation and Renderer shutdown retire matching work. Failed
+diagnostics remain available, but `IsCurrent` independently prevents reuse.
 
-`FMaterialPSORequestManager` shares collection and compilation by material
-identity, accepted target, canonical Default vertex elements, factory type and
-`FPSOPrecacheParams`, and the full Renderer preparation snapshot. Explicit and
-type-provided equal layouts share work within that snapshot.
-Each call creates an independent `FMaterialPSOPrecacheRequestID` observer; copies
-alias that observer. Canceling one observer does not cancel another's native
-compilation. Failed collections remain observable rather than retrying each
-frame. Shader reload, device/resource invalidation and Renderer shutdown retire
-matching work as Stale and release collected resources on the render thread.
-Material-owned observation scopes additionally retire that material's observers on
-ShaderMap, pipeline, parent-chain changes and destruction, without invalidating
-other materials sharing the same work. Dynamic parameter changes preserve them.
-`IsCurrent` qualifies observer reuse independently of the work outcome: failed
-diagnostics remain Failed after invalidation, but cannot authorize an old owner
-even when its required PSOs completed before an optional PSO failed.
+Collectors append owned `FPSOPrecacheData` descriptions with required/optional
+classification and provenance. `PreparePSOResources` is a nonblocking readiness
+hook; `CollectPSOInitializers` only appends prepared descriptions. Registration
+is keyed by shading path and stable collector index, completed at module startup;
+removal requires quiescent users. Local/Spline fixed vertex-fetch layouts share
+the actual drawing layout provider and require no native vertex declaration.
 
-`FPSOPrecacheData` in Engine's `PSOPrecache.h` describes a graphics or
-compute initializer with `bRequired`, `Priority`, collector index and Vertex Factory provenance. `FMaterialPSOPrecacheCollection`
-exposes `PSOInitializers`; collectors append descriptions without submitting native
-requests. Each description owns counted Shader/declaration inputs, so collector reuse cannot invalidate an earlier result.
-Constructors and `SetGraphicsInitializer` / `SetComputeInitializer` capture new
-inputs before releasing previous owners; initializer access is const. The request
-manager submits descriptions to the shared pipeline cache, consumes accepted
-initializer payloads, and retains asynchronous observations privately.
-Capacity pressure retries only the first unsubmitted description, preserving the
-accepted prefix. Invalid descriptions and terminal admission errors remain failures.
-A rejected, null or throwing optional submission records a failed optional slot
-without retiring observations of required pipelines. Required pending/failure
-still withholds the proxy; a failure confined to optional work remains diagnostic.
-Renderer collection selects each description's `bRequired`; required readiness
-remains unknown until collection declares required coverage and is independent
-of optional native work. A successfully declared empty applicable set is Ready
-without native submissions. Collectors publish
-`bRequiredPSOsCollected` after all required descriptions have been appended;
-subsequent pumps may only append optional descriptions. Fixed and material
-Shaders for required passes resolve before optional passes, so an optional Shader
-still compiling or failing cannot withhold an otherwise ready proxy. Overall
-completion and failure diagnostics remain observable separately.
+Required work is prepared and submitted before optional work. Required coverage
+must be declared before proxy readiness is known; an explicitly empty set is
+ready. Optional compilation or failure cannot revoke completed required coverage.
+At most eight requests collect required coverage concurrently; completed required
+collection releases its slot immediately. This is a concurrency limit, not a
+per-frame budget. Capacity rejection retries only unsubmitted descriptions;
+accepted requests are observed rather than recreated. Invalid descriptions and
+terminal admission/compilation errors do not retry each frame.
 
-PSO work has one phase: Queued, Collecting, Compiling, Completed or Retired.
-Completed work publishes one immutable success/error result; retirement revokes
-reuse without erasing failure diagnostics. The first three phases map to public
-Pending. Required readiness remains separate from all-work completion; priority
-sorting uses a stable per-pump snapshot.
+Material/component observer counts are not fixed quotas. The device queue and
+pipeline identity cache own their separate capacity limits. Completed collection
+releases program/initializer/native observations on the resource-owning thread;
+its weak sharing index does not keep abandoned work alive. A successful precache
+records preparation, not permanent native residency. Drawing still uses the
+shared cache and recorded execution dependencies after native cache eviction.
 
-The Renderer permits up to eight simultaneous requests still collecting required
-coverage. Finishing, failing or retiring required collection returns its slot
-immediately within the same pump; this is not a per-frame request-count quota.
-Native compilation and optional collection do not occupy those slots. The manager
-passes an explicit Required or Optional collection phase to the collector. Resource
-preparation and submission visit Required across all requests before Optional,
-using request priority within each group. Each request submits its ready Required
-descriptions before preparing the next request. Existing Required observations
-receive priority promotions before further preparation or submission; Optional
-retains its collector-authored priority. Native submissions retain the
-shared per-frame admission budget and queue limits.
-`FMeshPassProcessor` implementations own eligibility, shader selection, raster
-variants, required classification and draw pipeline descriptions for Forward,
-ShadowDepth, GBuffer, hybrid retained, sorted translucency and HitProxy. Actual
-mesh preparation and pipeline creation enter each processor through `AddMeshBatch`.
-`FMeshPassProcessorBatch` borrows the accepted material, Vertex Factory and effective
-state from an admitted prepared batch element, avoiding a second geometry capture.
-The pass performs final material/participation/factory filtering, selects its vertex
-and fragment stages and describes pipeline state. `SelectMeshPass` shares this
-selection across typed resource preparation, command building and GPU completion.
-`PrepareShaders` initializes the existing ShaderMap resources and resolves stages;
-`PreparePipeline` uses `BuildPSOInitializer` and the existing pipeline request service.
-PSO collection uses the same initializer builder without creating a native pipeline
-or recording a draw. Material ShaderMap identity, factory/layout and selected
-shader stages must match before a prepared payload can emit an initializer.
-Owned `FMeshPassPipeline` resources retain the ShaderMap, shaders/layout, declaration,
-native pipeline, pass/route and the description used to create the PSO. Command
-building and late GPU completion validate this description against the admitted batch.
-Geometry visibility, uniform allocation, cache retention, retirement and render-pass
-orchestration remain with their existing owners.
+`PSOPrecacheValidation` is optional observation. Collection registers descriptions
+before admission, including a capacity-deferred suffix. Canceling an unsubmitted
+observer withdraws its coverage. Shared native outcome observations outlive their
+observer without retaining native resources. `Check` is read-only; `RecordUse`
+counts actual submitted draws once per full identity. Invalidation clears capture
+identities. Validation never controls readiness or adds a scheduling budget.
 
-`SurfaceMaterial` owns resolved surface state and uniform preparation through
-`FSurfaceMaterialResources::Prepare_RenderThread`. `StaticMeshRenderPreparation`
-owns primitive uniform layout/building, admitted-geometry declaration resolution
-and prepared-view bucket traversal. `SceneViewPreparation` owns material view
-uniform layout/building. Geometry outcome values live with common preparation
-data; draw-count conservation checks stay local to the recording renderer.
-These owners replace the former `StaticMeshDrawExecution` and
-`MeshRendererExecution` files without a parallel execution layer.
-
-`FMeshPassDrawListContext` only receives and publishes mesh commands through
-`AddCommand` and `FinalizeCommand`. Cached and dynamic contexts choose stable or
-view-complete output; neither context stores preparation requests, build inputs,
-resource results or failure categories. A candidate is built in context-local storage
-and reaches the owning pass list only at successful finalization. Builds return
-`FShaderCompletion` directly; filtered, pending and failed attempts preserve the
-previous output, including failures after a candidate has been added.
-`AddMeshBatch` receives explicit binding inputs and a view-local sharing cache,
-then calls shared `BuildMeshDrawCommands` to gather bindings and finalize geometry.
-`BuildGPUCullingCommand` completes an already prepared dynamic command with typed
-RDG buffer ranges through the same publication protocol. Existing ShaderMap/native
-pipeline cache owners keep their generation, pending/error and retirement handling;
-no new resource service or asynchronous request framework is introduced.
-
-`FMeshDrawCommand` stores non-owning draw and shader-binding values. Cached storage
-owns command memory; dynamic storage owns frame-local command values. Neither
-extends source-resource lifetime. Resolved records own the frame resources needed
-for recording, and RHI commands retain their copied payloads for replay. Resolved
-view state and frame-list receipts cannot be replayed across render frames or source removal.
-
-`BuildMeshDrawCommands` validates geometry and assembles stable/pass bindings before
-recording. `SubmitDraw` records those values; pass owners supply viewport/scissor
-and attachments. `FMeshDrawCommandStateCache` borrows binding values from stable
-recording storage and compares them by value, including view/pass bindings.
-Geometry and bias apply to every draw. Reset the cache at pass boundaries or after
-foreign state commands. It does not retain pipelines or resources.
-
-`BuildGPUCullingCommand` validates graph buffer ranges and publishes a replacement
-dynamic command at the existing receipt. Retained command memory remains immutable,
-but its resources still follow the source and frame lifetime contract. HitProxy
-uses request-local dynamic storage and owns its temporary resources separately.
-The authoritative preparation, submission and invalidation rules are in
-[Renderer Frame Preparation](RendererFramePreparation.md#required-recording-and-invalidation-contracts).
-
-A view-local `FMeshDrawCommandBindingCache` reuses material/primitive binding values
-and GPU grouping. Uniform/surface resource producers keep their existing caches;
-the Static Mesh renderer owns the persistent pass storage with one shared LRU budget
-of 2048 commands across all passes/variants, preserving the former retention budget. Each pass is probed,
-built and cached independently. Keys include captured geometry description,
-primitive/batch identity, pass, GPU route and pipeline identity. Optional
-GPU dynamic binding failure publishes no frame receipt and cannot suppress a later
-GPU retry. A stable command successfully finalized before a later dynamic failure
-can remain cached; its dependencies are revalidated on subsequent preparation.
-Cache reuse checks input/state and current stable material resources; changed
-Collection ranges rebuild stable bindings while retaining compatible uniforms and
-pipelines. Dynamic contexts also validate captured primitive/material buffer ranges,
-textures and samplers before reusing stable bindings. They reject mismatched dependencies without replacing
-their previous output. Device/Shader/manual generations and release still clear the
-owner's caches through the existing resource coordinator and retirement flow.
-
-Filtered, pending or failed attempts leave the output payload untouched. Commands
-retain their geometry, binding resources and pipeline/ShaderMap independently of
-cache eviction or source-view lifetime; the ShaderMap owns the compiled fragment
-layout. View/pass packets belong only to dynamic commands and retire with their
-view's existing resolved-resource owner. Contexts are call-local on the render
-thread; immutable draw prototypes keep no request-specific context.
-
-Concrete processors and their creation-function registrations live with their
-passes: Base Scene owns Forward, hybrid retained and sorted translucency;
-Directional Shadow, GBuffer and HitProxy own their corresponding processors.
-`MeshPassProcessor.h/.cpp` contains the base, shared initializer/command helpers
-and draw-pass registry. `FRegisterPassProcessorCreateFunction` and
-`FPassProcessorManager` retain draw factories and immutable description prototypes.
-The independent Engine `FPSOCollectorCreateManager` provides `GetCreateFunction`,
-`GetIndex`, `GetName` and `GetPSOCollectorCount`, keyed by `EShadingPath`, name and
-stable collector index. `FRegisterPSOCollectorCreateFunction` rejects duplicate
-names within a path, null factories and invalid paths. Removal leaves live indices
-unchanged; free slots can be reused and trailing holes are trimmed. Lookups are
-locked; factories are invoked outside locks. Registration completes during module
-initialization before material admission; updates and removal require quiescent
-users, including borrowed names,
-copied factory functions, collectors and sessions. Mesh passes register both
-factories in their own implementation files and share the same processor class.
-Current desktop Forward and Hybrid both collect from Deferred; lower material
-FeatureLevels do not imply a Mobile renderer. Mobile registrations remain isolated.
-
-Engine's `IPSOCollector::CollectPSOInitializers` retains the UE-shaped `void` append
-interface: scene configuration, accepted material program and effective properties, Vertex Factory data,
-primitive parameters and an output `FPSOPrecacheDataArray`. `PSOCollectorIndex`
-identifies the contribution. The append implementation consumes prepared resources;
-it never pumps async work. `PreparePSOResources` is a nonblocking readiness hook
-needed by Durin's render-thread native Shader creation. Ordinary collectors use its
-default Required admission and append once; optional descriptions are buffered.
-Mesh processors retain only reusable native Shader/declaration preparation caches.
-The cache refreshes on accepted program, ShaderMap identity, Vertex Factory input
-or resource generation changes. It retains no collection phase, emission cursor
-or first-request binding. Append consumes the current explicit material, factory,
-participation and raster inputs and emits all applicable variants on every call.
-Repeated calls and reuse with another accepted program or factory are supported.
-Native preparation errors return through the readiness hook; append introduces no
-expected/exception conversion protocol. Unsupported mesh factories are skipped
-without rejecting independent collectors for the same factory.
-
-The material owner advances every unfinished collector on each pump. It invokes
-each ready collector once for that request, publishes Required contributions and
-buffers Optional descriptions until all Required coverage is known. Optional-only
-passes start no work during Required. The owner publishes `bRequiredPSOsCollected`
-at that boundary; later pumps emit only Optional descriptions. An Optional failure
-does not revoke Required readiness. Preparation and append reuse the same shader
-selection, eligibility filters and `BuildPSOInitializer` as drawing.
-Existing request completion, invalidation and shutdown retire their resources.
-GPU-culling and global feature PSOs remain outside this material collector.
-Native compilation uses the existing service queue;
-no additional compile thread pool is introduced.
-
-Material requests, initializer arrays and component observer sets have no fixed
-count limit. Waiting requests share accepted immutable programs; PSO admission does
-not impose another code-size cap over the material compiler's validation. Required
-coverage cannot fail merely because optional variants or material slots exceed a
-fixed count. Collection concurrency and the native queue bound expanded work,
-not total queued metadata or process RSS.
-Only pending work participates in the render-thread pump. Completed observers
-retain identity and progress, while terminal pipeline observations, collection
-resources and accepted-program references are released on the render thread.
-The sharing index holds weak work references and prunes expired keys on admission.
-Admission is thread-safe; Pump, Invalidate and Close are serialized on the
-resource-owning thread. Close must precede backend/module shutdown.
-
-Lower-level limits remain independent: the native queue admits 256 unfinished
-requests, 16 MiB of pending descriptions and 4,096 observers; the shared pipeline
-identity cache admits 4,096 live entries and metadata remains budgeted. Collector
-admission pressure preserves completed passes and retries only the unfinished
-suffix. Terminal pipeline references are released even while another pass awaits
-capacity. A completed precache records successful preparation, not permanent
-native residency. Vulkan can release retained cache entries while live draw/command
-references keep their native objects valid. Recreation can reuse the driver cache;
-drawing still requires a real ready pipeline through normal render preparation.
-
-`FPSOPrecacheComponentData::SetMaterialPSOPrecacheData` replaces one component's
-observer set and advances its JobSet. `Poll` runs on GameThread and invokes the
-current set's successful completion callback once; old JobSet completions cannot
-complete a replacement. Reset, unregister, proxy/material changes and teardown
-withdraw the component's observation without canceling
-peers. Callbacks may reset, replace or destroy their owner. Required-PSO readiness
-is separate from all-work completion: `IsReadyForProxyCreation` checks required
-requests, while `IsPSOPrecaching` includes outstanding optional compilation.
-Failed, canceled and stale required requests never authorize readiness.
-
-`PSOPrecacheValidation::SetEnabled(true)` starts an optional full-identity capture.
-Collection registers the entire graphics/compute suffix before native admission,
-including descriptions deferred by frame or queue capacity. Each admission owns
-an independent validation token; withdrawing one does not cancel peer coverage.
-Accepted submissions attach RHI's shared creation-outcome observation. The scalar
-outcome is authoritative, updates without a material pump, survives observer
-release and retains no native resources. Abandoned unsubmitted tokens withdraw
-queued status instead of leaving permanent Pending records. Successful outcomes
-remain Hit after native eviction; shader/device/manual invalidation and renderer
-shutdown clear capture identities.
-Each identity owns one coverage and first-use record. Only unresolved attempts
-retain individual metadata; failed, canceled and withdrawn attempts are compacted,
-and success preserves coverage without retaining attempt history. `Identities`
-and `RetainedAttempts` expose current storage independently of first-use counts.
-
-`Check` is read-only and returns Untracked, Missed, TooLate, Hit or Failed with
-collector/factory provenance. Preparation and retries never increment use counts.
-`RecordUse` runs after actual mesh draw submission, including cached commands,
-and counts each full graphics/compute identity only once per capture. The first
-use classification remains in `GetStatistics`; a later lookup can still observe
-completion. Full keys include attachment, vertex-input and render state. Global
-and GPU-culling routes remain outside material coverage; compute dispatch owners
-can call the compute `RecordUse` overload. Disabling releases validation keys.
+Draw preparation, command ownership, pass registration and cache invalidation
+follow [renderer frame preparation](RendererFramePreparation.md), not a second
+precache execution path.
 
 ## Automatic component collection and proxy publication
 
-`IsComponentPSOPrecachingEnabled` centralizes automatic component admission and
-proxy waiting. `EComponentPSOPrecacheMode::Automatic` uses the engine host's
-initial world type: editor hosts (including their PIE and preview worlds) disable
-automatic requests; game hosts enable them, even in an editor-capable build.
-Before a host exists, the runtime variant supplies the default (editor off,
-game on). `SetComponentPSOPrecacheMode` is GameThread-only and allows an explicit
-Enabled/Disabled override. Changing the mode wakes existing weak automatic
-request owners once; disabling releases their observers at the next owner tick
-or readiness check and allows withheld proxies to publish, without canceling shared work.
-Enabling applies at the next normal component request/registration; it does not
-withdraw already published proxies solely to warm PSOs.
+`DPrimitiveComponent` owns automatic requests, controlled by
+`IsComponentPSOPrecachingEnabled`. Registration/PostLoad and structural
+mesh/material/participation changes collect a fresh set. Disabling automatic
+requests drains those owners without disabling explicit material requests or
+normal drawing preparation. Custom scenes without a PSO Renderer keep their
+existing publication contract.
 
-The policy does not gate explicit material PSO requests, material compilation,
-view/draw resource preparation, or shared Shader/pipeline caches. Components still
-publish participation and geometry facts, and Renderer pass processors retain
-the common draw/precache selection and pipeline initializer builders. Disabling
-automatic requests therefore permits proxy publication, not unprepared drawing.
+Components snapshot their Scene's FeatureLevel and material/Vertex Factory facts.
+Renderer owns Forward/Hybrid/shadow/GBuffer/translucency/HitProxy eligibility and
+raster variants. Main-pass active raster/depth variants and both shadow winding
+variants are required; other warming variants and HitProxy are optional. Excluded
+components emit no requests. Ordinary transforms and instance numeric data do not
+recreate the PSO set. Global, GPU-culling and ErrorMaterial fallback PSOs are outside
+component coverage; exact-view preparation covers the selected drawing route.
 
-`DPrimitiveComponent::PrecachePSOs` snapshots participation through virtual
-`SetupPrecachePSOParams`, then calls the virtual `CollectPSOPrecacheData`
-with an `FComponentPSOPrecacheParamsList`, checks readiness of the entire set, then submits its
-material/Vertex Factory descriptions. PostLoad queues this work for the owner
-thread, registration requests it before proxy publication, and mesh/material
-replacement collects a fresh set. Missing Renderer, RHI or accepted material programs
-defer submission before any prefix is accepted; no partial set authorizes a proxy.
-Invalid or closed admissions remain terminal and observable. Lower-level capacity
-pressure stays with the accepted material collection rather than resubmitting
-the component's complete set. Proxy readiness checks do not retry deferred submission.
-`GetPSOPrecacheDiagnostic` exposes submission
-diagnostics; individual handles separate collection/admission rejection from accepted
-PSO compilation failure. Failed compilation remains observable without per-frame
-retry. Native allocation/device faults terminate through RHI.
+Default `DelayUntilPSOPrecached` withholds a proxy until every required request is
+ready. Failed/canceled/stale required work never authorizes publication. Optional
+failure remains diagnostic. `AlwaysCreate` allows drawing during preparation.
+Submission readiness is checked for the entire collection before any prefix can
+authorize a proxy; lower-level capacity pressure remains with its accepted owner.
 
-`DPrimitiveComponent` owns reflected `bCastShadow` and `bRenderInMainPass`
-properties. Their setters and property edits retire the old component PSO set
-and recreate its proxy. Scene publication copies `FPrimitiveRenderParticipation`
-into the proxy before enqueueing it. Both receiver and shadow logical collection
-check that same participation value before capturing mesh/material snapshots,
-including retained StaticMesh publications and dynamic SplineMesh collection.
-There is no independent depth prepass participation switch until such a drawing
-route exists; main-pass depth writes and shadow rendering remain separate concepts.
+`FPSOPrecacheComponentData` owns the observer set and JobSet identity. Reset,
+replacement, unregister and destruction withdraw it. Weak subscriptions notify
+only affected owners; render-thread notifications enter a coalesced GameThread
+mailbox. Every callback rechecks the JobSet, so an old completion cannot publish a
+replacement proxy or retain a destroyed component. There is no per-frame scan of
+all registered components. Engine/world ticks pump unsubmitted work and owner
+notifications, including paused/editor worlds. Stale owners request current work.
 
-Static and Spline Mesh collectors deduplicate effective material slots, including
-the initialized authored default material, and emit material/Vertex Factory and
-geometry facts without choosing passes or required work. Their fixed layouts
-need no resident mesh buffers. Fully excluded components emit no requests.
-Renderer's supported configuration covers both selectable Forward and Hybrid
-paths. Per-pass eligibility shares material rules with drawing: shadows exclude
-translucency, GBuffer requires non-translucent Lit material and a supported
-Vertex Factory, Hybrid retained Forward covers remaining non-translucent draws,
-and sorted translucency covers translucent draws. Receiver routes also require
-the factory's Forward shader entry, matching actual receiver collection; an
-unavailable shadow shader excludes casting without rejecting valid receivers.
-HitProxy is optional.
-Renderer expands up to eight raster variants covering wireframe/solid, normal/reversed
-depth and both transform/instance windings; unsupported wireframe is omitted.
-Shadow descriptions use only their two effective winding variants: solid fill
-and forward depth regardless of the receiver mode. HitProxy uses four solid-fill
-winding/depth variants. Normalized duplicates are not emitted.
-Spline scale sign changes additionally select the matching no-cull policy.
-Both shadow winding variants remain required independently of the receiver
-wireframe/depth settings. For main passes, both winding variants of the requested
-wireframe and depth convention are required for proxy creation. Other raster/depth variants are optional warming
-work. The renderer resolves required descriptions before optional descriptions.
-Exact view preparation covers additional selected routes before deterministic
-output. Ordinary transform, instance-count and instance-custom-data changes
-preserve the set. An unavailable default retains the existing ErrorMaterial
-fallback path; that path and global/GPU-culling PSOs are outside this component
-coverage.
-
-The default `EPSOPrecacheProxyCreationStrategy::DelayUntilPSOPrecached` withholds
-the proxy until every required request is ready. Failed required work remains withheld
-and observable; optional failures do not revoke current required readiness. `AlwaysCreate` explicitly permits ordinary rendering while
-preparation continues. Custom scenes without a PSO Renderer retain their existing
-publication contract. Material ShaderMap/pipeline/parent changes immediately
-withdraw affected gated proxies; dynamic numeric parameters preserve them.
-Shader/device stale observations are resubmitted on the next owner tick.
-
-Engine and world ticks call `ProcessPSOPrecacheRequests`, including paused and
-editor worlds; disabled owners are drained without collecting or submitting work. Unsubmitted material/RHI demand is retried by its owner. Accepted
-requests subscribe to their shared work and material-owner scope; progress,
-required readiness, cancellation and invalidation wake only the subscribed
-components. There is no global invalidation serial, shader-generation polling
-or per-frame all-component registry scan. Policy changes wake only weak owners
-of automatic requests. Render-thread notifications enter a coalesced
-mailbox and are delivered on GameThread. GameThread material changes withdraw
-affected gated proxies immediately. Each delivery checks the weak job-set identity,
-so reset, replacement, destruction and unregister reject old notifications.
-Neither subscriptions nor worker callbacks retain live component pointers.
-
-`CheckPSOPrecachingAndBoostPriority` exists on both the component and its request
-set. `DMaterialInterface::PrecachePSOs` also accepts `EPSOPrecachePriority`.
-Priority is shared by work identity, excluded from the key, and only increases.
-Visible proxy requests use Highest; hidden requests use High. Material collection
-selects urgent work before ordinary work; its pump forwards promotions only to required native
-PSO observations. Optional warming retains its authored priority. The RHI queue selects the most urgent queued compile, preserving
-FIFO order for ties and never preempting an executing driver call. Direct native
-requests start at Medium, so Low promotion requests do not demote them.
+`CheckPSOPrecachingAndBoostPriority` promotes shared work monotonically. Visible
+components use Highest, hidden components High; optional warming keeps its
+collector priority. The native queue selects the most urgent queued task with
+FIFO ties and never preempts an executing driver call.
 
 ## Related contracts
 

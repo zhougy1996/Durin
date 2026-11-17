@@ -35,24 +35,6 @@ namespace Durin
 		}
 		return true;
 	}
-	auto FRenderPipelinePreparationBatch::Wait() -> ERenderPipelinePreparationWait
-	{
-		if (bCapacityExceeded) return ERenderPipelinePreparationWait::CapacityExceeded;
-		if (bResourcePending) return ERenderPipelinePreparationWait::WaitUnavailable;
-		if (Requests.empty()) return ERenderPipelinePreparationWait::Empty;
-		for (const auto& Request : Requests)
-			if (!Request->CanWait()) return ERenderPipelinePreparationWait::WaitUnavailable;
-		bool bReady = true;
-		for (const auto& Request : Requests)
-		{
-			(void)Request->Wait();
-			if (Request->GetState() == ERHIPipelineRequestState::Pending)
-				return ERenderPipelinePreparationWait::WaitUnavailable;
-			(void)Request->GetResult(); // Preserve terminal creator exceptions.
-			bReady = Request->GetState() == ERHIPipelineRequestState::Ready && bReady;
-		}
-		return bReady ? ERenderPipelinePreparationWait::Ready : ERenderPipelinePreparationWait::Failed;
-	}
 	struct FRenderPipelineRequests::FState
 	{
 		using FKey = std::variant<FGraphicsPipelineStateKey, FComputePipelineStateKey>;
@@ -125,7 +107,7 @@ namespace Durin
 	FRenderPipelineRequests::FRenderPipelineRequests(FRenderPipelineRequests&&) noexcept = default;
 	auto FRenderPipelineRequests::operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests& = default;
 	auto FRenderPipelineRequests::Reset() -> void { State.reset(); }
-	auto FRenderPipelineRequests::RetainForPreparation() const -> void
+	auto FRenderPipelineRequests::CollectPreparationRequests() const -> void
 	{
 		if (!State) return;
 		for (const auto& Entry : State->Entries)
@@ -171,7 +153,7 @@ namespace Durin
 		if (!Current || !Preparation) return;
 		if (!Current->Requests.State)
 		{
-			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
+			Current->Requests.State = std::make_unique<FRenderPipelineRequests::FState>();
 			Current->Requests.State->Generation = Current->Generation;
 		}
 		auto& Owners = Current->Requests.State->Preparations;
@@ -202,7 +184,7 @@ namespace Durin
 		if (!Current || !IsTaskSchedulerRunning() || !GDynamicRHI) return nullptr;
 		if (!Current->Requests.State)
 		{
-			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
+			Current->Requests.State = std::make_unique<FRenderPipelineRequests::FState>();
 			Current->Requests.State->Generation = Current->Generation;
 		}
 		bool RetryAdmission = false;
@@ -226,7 +208,7 @@ namespace Durin
 		if (!Current || !IsTaskSchedulerRunning() || !GDynamicRHI) return nullptr;
 		if (!Current->Requests.State)
 		{
-			Current->Requests.State = std::make_shared<FRenderPipelineRequests::FState>();
+			Current->Requests.State = std::make_unique<FRenderPipelineRequests::FState>();
 			Current->Requests.State->Generation = Current->Generation;
 		}
 		bool RetryAdmission = false;

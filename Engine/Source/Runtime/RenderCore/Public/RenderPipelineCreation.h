@@ -17,20 +17,13 @@ namespace Durin
 		virtual ~FRenderPreparationDependency() = default;
 		virtual auto IsPending() const -> bool = 0;
 	};
-	enum class ERenderPipelinePreparationWait : uint8
-	{
-		Empty, Ready, Failed, WaitUnavailable, CapacityExceeded
-	};
-
-	// Collects unresolved resource attempts and native pipeline requests before
-	// graph authoring. Explicit synchronous callers may join pipeline-only batches.
+	// Collects resource readiness and shared PSO handles without joining tasks.
 	class RENDERCORE_API FRenderPipelinePreparationBatch
 	{
 	public:
 		FRenderPipelinePreparationBatch();
 		~FRenderPipelinePreparationBatch();
 		FRenderPipelinePreparationBatch(const FRenderPipelinePreparationBatch&) = delete;
-		auto Wait() -> ERenderPipelinePreparationWait;
 		auto CollectRequests(std::vector<std::shared_ptr<FPipelineState>>& Out) const -> bool;
 		auto HasResourcePending() const -> bool { return bResourcePending; }
 		auto GetRequestCount() const -> size_t { return Requests.size(); }
@@ -55,12 +48,12 @@ namespace Durin
 		RENDERCORE_API FRenderPipelineRequests(FRenderPipelineRequests&&) noexcept;
 		RENDERCORE_API auto operator=(FRenderPipelineRequests&&) noexcept -> FRenderPipelineRequests&;
 		RENDERCORE_API auto Reset() -> void;
-		RENDERCORE_API auto RetainForPreparation() const -> void;
+		RENDERCORE_API auto CollectPreparationRequests() const -> void;
 		RENDERCORE_API auto HasFailed() const -> bool;
 		RENDERCORE_API auto CanDeferAttempt(const FRenderResourceGeneration& Generation) const -> bool;
 	private:
 		struct FState;
-		std::shared_ptr<FState> State;
+		std::unique_ptr<FState> State;
 		friend class FRenderPipelineRequestScope;
 	};
 

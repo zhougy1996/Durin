@@ -243,13 +243,12 @@ these handles explicitly at each resource phase, including ready cache hits,
 and the caller-owned view request observes native completion without revisiting
 resolved phases. Normal drawing records the handles and their completion
 dependencies; the RHI executor gates replay at closed command scopes.
-Explicit synchronous pipeline-only callers can still join a batch. Its result
-separates Empty, Ready, Failed, WaitUnavailable and CapacityExceeded. The batch
-joins every admitted request even when one fails; CPU resource preparation and
-admission errors remain owned by their slots. A view observation retains at most
-4,096 unique pipeline handles, and overflow is explicit. A consumed graph is
-never replayed. A multi-PSO resource publishes its metadata after all handles
-are accepted; explicit prewarm readiness requires those handles to finish.
+Resource-phase batches collect shared dependencies without joining compilation.
+CPU preparation and admission errors remain owned by their slots. A view
+observation admits at most 4,096 unique handles; overflow fails explicitly.
+Multi-PSO metadata publishes after all handles are accepted, while explicit
+prewarm readiness requires native completion. Request ownership, cancellation
+and invalidation follow [load preparation](LoadPreparation.md#scene-resource-readiness).
 A slot invalidates its previous payload before attempting the requested generation;
 neither Pending nor Failed returns an earlier shader/PSO/binding version.
 Generation changes release obsolete cache identities. Late results may populate

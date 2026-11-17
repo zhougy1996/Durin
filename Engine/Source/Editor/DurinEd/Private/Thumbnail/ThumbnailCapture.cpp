@@ -347,10 +347,13 @@ namespace Durin
 					FRenderPipelinePreparationBatch Batch;
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					auto Image = ImageRenderer(CommandList, Output.Width, Output.Height);
-					bPending = FRenderPipelinePreparationBatch::HasPending();
-					if (Image && Image->GetSizeX() == Output.Width && Image->GetSizeY() == Output.Height
+					bPending = Batch.HasResourcePending();
+					if (!bPending && Image && Image->GetSizeX() == Output.Width && Image->GetSizeY() == Output.Height
 						&& Image->GetFormat() == EPixelFormat::SRGBA8_UNORM)
 						Readback = CommandList.EnqueueTextureReadback(Image);
+					// Accepted drawing/readback already carries PSO execution dependencies.
+					// Only retry when no output was submitted or a CPU resource is missing.
+					if (!Readback) bPending |= FRenderPipelinePreparationBatch::HasPending();
 					if (!Readback && !bPending) Error = "Thumbnail image rendering or readback failed.";
 				}
 				else if (!bPending && (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr))
