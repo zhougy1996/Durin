@@ -22,10 +22,17 @@ compiler allocation; the former final-acceptance stage moves to Stage 5. This
 revision changes planning only; implemented contracts remain documented in
 [Material shader stages](../Runtime/Rendering/Materials/MaterialShaderStages.md).
 
-Stage 4 preparation has started. The contract freeze below records the selected
-interfaces and migration inventory before source edits. These are prospective
-contracts, not implemented APIs or evidence that Stage 4 passes. The metadata,
-compiler, codec and submission migration and all Stage 4/5 acceptance remain open.
+Stage 4 implementation has started in the existing RHI/RenderCore parameter
+foundation. UE-style `FShaderParameterMap`/`FParameterAllocation` and
+`FShaderParameterBindings` now drive shader-instance binding; generated metadata
+uses `FShaderParametersMetadataBuilder`. Owned schemas project/compose nested
+metadata with canonical identity, and the candidate product envelope retains the
+same parameter map. Typed submission handles nested resource offsets/prefixes;
+pipeline uniform policy consumes the compiled binding records. Flattened inherited metadata no longer retains an include pointer
+that causes typed submission to reject it. The material catalog is still active;
+compiler-service integration, shape/constant reflection, codecs and material/runtime
+submission migration and all Stage 4/5 acceptance remain open. No stage checklist
+is closed by this foundation work.
 
 The owner permits underlying API/derived-format changes. The preceding
 [M14 plan](MaterialAttributesAndExecutionContractsRefactor.md) was completed with
@@ -119,11 +126,60 @@ pass; final acceptance does not substitute for implementing that boundary.
 
 ## Stage 4 Contract Freeze
 
-This section selects the implementation interfaces; declarations below do not
-exist yet. Keep the freeze in this plan until implementation and validation allow
+### UE 5.8 interface alignment
+
+Owner direction: align the main interfaces with the local UE 5.8 reference.
+Existing Durin API, ownership and derived-format contracts may be changed as
+needed; preserving them is not a prerequisite for the refactor. Migrate consumers
+and invalidate incompatible derived products together when those contracts change.
+The following selection supersedes the prototype naming and submission interface
+in the initial freeze below; the remaining ownership and acceptance gates stand.
+
+- Extend the existing `FShaderParametersMetadata` foundation with member shape,
+  nested/included structures, use-case and layout identity. Follow
+  `ShaderParameterMetadata.h` and `FShaderParametersMetadataBuilder` in
+  `ShaderParameterMetadataBuilder.h` for dynamically generated Material/collection
+  structures. Detached worker metadata is an owned projection of this facility,
+  not a separately authored schema system.
+- Use `FShaderParameterMap` and `FParameterAllocation` as the main compiler-output
+  interfaces, following `ShaderCore.h`: named allocation lookup, kind, resource
+  location and constant size/offset. Backend remapping remains below this layer;
+  retain Durin's explicit set/binding representation where needed instead of
+  copying UE's register field widths or interpreting register indices as sets.
+- Add `FShaderParameterBindings` as the compiled bridge from metadata member byte
+  offsets to allocation records, following `Shader.h` and
+  `ShaderParameterStruct.cpp`. Binding validates the metadata/map once; typed
+  runtime submission traverses accepted records rather than repeating semantic
+  string lookup for every draw. Distinguish inline values, resources and uniform
+  references. Included structs keep the enclosing shader-name prefix; nested
+  structs extend it and add their C++ member offset.
+- Preserve the established typed `SetShaderParameters` and prepared-batch paths.
+  Material, Pass, VF and Scene populate their owning parameter structures/providers
+  before the common binding layer. The prototype's name-vector provider resolver
+  is not the selected per-draw submission interface.
+- Keep complete product/schema/allocation identity and fail-closed Cook admission
+  in Durin's accepted-product envelope. UE's mutable `bBound` bookkeeping is not
+  part of immutable published identity. Keep explicit RDG read/lifetime ownership.
+
+Reference inspected locally on 2026-11-17: UE `ShaderCore.h` allocation/map
+declarations, `ShaderParameterMetadata.h` member/use-case declarations,
+`ShaderParameterMetadataBuilder.h` included/nested builders, `Shader.h` binding
+records and `ShaderParameterStruct.cpp` recursive member binding. This selects
+responsibilities and major API vocabulary; UE binary layouts, UObject machinery,
+bindless infrastructure and legacy entry points are not required dependencies.
+
+This section selects the final implementation interfaces; only the resource-schema
+and candidate-allocation subset described above exists. Keep the freeze in this plan until implementation and validation allow
 the owning Runtime contracts to describe actual behavior.
 
 ### Metadata and composition
+
+Implementation refinement: the initial resource-only allocation API groups target,
+type, VF, permutation, frequency and the complete caller compile-key digest in
+`FShaderParameterProduct`. Its validator receives this expected product explicitly;
+this prevents a self-consistent map from authorizing a different compiled product.
+Constant offsets and shape reflection must be added before material integration;
+the initial builder rejects inline allocation instead of fabricating offsets.
 
 The existing `FShaderParametersMetadata` and member declarations live in RHI's
 `RHIShaderParameters.h`; RenderCore owns composition, reflection matching and
@@ -263,6 +319,33 @@ the isolated final Surface/Cube/WPO/ClearCoat/PostProcess Cook/Game corpus and G
 behavior/resource-count checks; earlier Stage 3 receipts cannot cover these edits.
 
 ## Completed Validation Summary
+
+UE interface foundation validation, 2026-11-17: base `f7091a4d2` plus the
+uncommitted parameter foundation, on windows-msvc-x64, Debug/Tracy, MSVC 19.44,
+14 jobs. `RenderShaderContractTests` passed 79 cases; after migrating pipeline
+uniform policy to compiled binding records, `test affected` passed all 15 targets
+again (`20261117-163514-026361-18388-ctest.log`). Editor and Game workspace `all`
+passed (`20261117-163605-392684-38232-cmake.log` and
+`20261117-163812-183184-14724-cmake.log`). The final builds include removal of the
+unused binding compatibility helper; no executable source changed after them.
+Source hashes and copied receipts are under ignored
+`Build/AgentValidation/MaterialShaderAndBindingContracts/Stage4/UEFoundation/`.
+These results cover the Map/Bindings/Builder API migration and nested resource
+submission, not the still-pending replacement of the material catalog, constant
+and texture-shape reflection, new material codecs or Stage 5's final corpus.
+
+Stage 4 foundation validation (not Stage 4 acceptance): on 2026-11-17, base
+`f7091a4d2` plus the RHI/RenderCore schema/allocation changes, Win64 Debug/Tracy,
+MSVC 19.44 and 14 jobs, `RenderShaderContractTests` passed all 76 cases, including
+three new schema/allocation cases. `test affected` passed all 15 selected targets,
+covering RHI commands/resources, RenderCore contracts, ShaderBuild/cache,
+source-free Shader Cook/library and Vulkan integration. Receipts are
+`20261117-161838-292660-3884-RenderShaderContractTests.log` and
+`20261117-162009-025213-44720-ctest.log`; source SHA256 values and copies of the logs
+are under ignored `Build/AgentValidation/MaterialShaderAndBindingContracts/Stage4/Foundation/`.
+An initial sandbox C1902 PDB-service failure was superseded by successful
+execution outside the sandbox. No Editor/Game workspace `all` or final
+material-allocation/Cook corpus acceptance is claimed for this foundation.
 
 Stages 1-3 were validated on 2026-11-17, windows-msvc-x64, Debug/Tracy,
 MSVC 19.44, 14 jobs, with the applicable Win64-Debug-DurinEditor/Game presets.

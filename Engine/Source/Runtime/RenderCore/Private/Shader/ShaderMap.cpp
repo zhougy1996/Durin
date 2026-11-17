@@ -6,7 +6,6 @@
 #include "RenderPipelineCreation.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderData.h"
-#include "ShaderBindingInternal.h"
 
 namespace Durin
 {
@@ -20,7 +19,6 @@ namespace Durin
 
 	namespace
 	{
-		using ShaderPrivate::AreShaderBindingTypesCompatible;
 
 
 
@@ -89,7 +87,7 @@ namespace Durin
 		}
 
 		auto ApplyShaderParameterBindingOverrides(
-			const FShaderType& ShaderType,
+			std::span<const FShaderParameterBinding> Bindings,
 			const FShaderReflectionData& InReflection,
 			FShaderReflectionData& OutReflection
 		) -> void
@@ -97,16 +95,10 @@ namespace Durin
 			OutReflection = InReflection;
 			for (FShaderResourceBinding& ResourceBinding : OutReflection.ResourceBindings)
 			{
-				const std::span<const FShaderParameterMemberMetadata> ParameterMetadata = ShaderType.GetParameterMetadata();
-				const auto FoundIt = std::ranges::find_if(ParameterMetadata, [&ResourceBinding](const FShaderParameterMemberMetadata& Parameter) {
-					return Parameter.Kind == EShaderParameterMemberKind::Resource
-						&& Parameter.Name != nullptr
-						&& ResourceBinding.Name == Parameter.Name;
+				const auto Found = std::ranges::find_if(Bindings, [&](const auto& Binding) {
+					return Binding.SetIndex == ResourceBinding.SetIndex && Binding.BindingIndex == ResourceBinding.BindingIndex;
 				});
-				if (FoundIt != ParameterMetadata.end() && AreShaderBindingTypesCompatible(ResourceBinding.Type, FoundIt->Type))
-				{
-					ResourceBinding.Type = FoundIt->Type;
-				}
+				if (Found != Bindings.end()) ResourceBinding.Type = Found->Type;
 			}
 		}
 
@@ -379,7 +371,7 @@ namespace Durin
 		for (uint32 ShaderIndex = 0; ShaderIndex < ShaderTypes.size(); ++ShaderIndex)
 		{
 			FShaderReflectionData ReflectionWithOverrides;
-			ApplyShaderParameterBindingOverrides(*ShaderTypes[ShaderIndex], Code->GetCompiledShader(ShaderIndex).Reflection, ReflectionWithOverrides);
+			ApplyShaderParameterBindingOverrides(GetShader(ShaderTypes[ShaderIndex])->GetParameterBindings(), Code->GetCompiledShader(ShaderIndex).Reflection, ReflectionWithOverrides);
 			PipelineReflectionData.push_back(std::move(ReflectionWithOverrides));
 		}
 

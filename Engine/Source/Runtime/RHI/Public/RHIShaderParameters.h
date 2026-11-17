@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class FRHIResource;
+	struct FShaderParametersMetadata;
 
 	// Distinguishes resource bindings from inline values and nested parameter structures.
 	enum class EShaderParameterMemberKind : uint8
@@ -19,7 +20,7 @@ namespace Durin
 	// Identifies one reflected shader resource at its byte offset and descriptor location.
 	struct FShaderParameterBinding
 	{
-		const char* Name = nullptr;
+		std::string Name;
 		uint32 Offset = 0;
 		uint32 SetIndex = 0;
 		uint32 BindingIndex = 0;
@@ -39,6 +40,8 @@ namespace Durin
 		EShaderParameterMemberKind Kind = EShaderParameterMemberKind::Resource;
 		bool bOptional = false;
 		bool bGraphResource = false;
+		// Nested metadata uses Offset relative to the containing structure.
+		const FShaderParametersMetadata* StructMetadata = nullptr;
 	};
 
 	// Describes a complete shader-parameter structure without owning its member storage.
@@ -56,6 +59,8 @@ namespace Durin
 	{
 		std::vector<FShaderParameterMemberMetadata> OwnedMembers;
 		FShaderParametersMetadata Metadata;
+		std::vector<std::string> OwnedNames;
+		std::string OwnedStructName;
 	};
 
 	// Carries one resolved RHI resource binding for command submission.

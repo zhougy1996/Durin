@@ -120,8 +120,10 @@ namespace Durin
 
 	auto FShader::InitializeParameterBindings() -> FShaderOperationResult
 	{
-		ParameterBindings.clear();
-		return BuildShaderParameterBindings(Type ? Type->GetParametersMetadata() : nullptr, Reflection, ParameterBindings);
+		Bindings = {};
+		auto Map = FShaderParameterMap::FromReflection(Reflection);
+		if (!Map) return std::unexpected(Map.error());
+		return Bindings.Bind(Type ? Type->GetParametersMetadata() : nullptr, *Map);
 	}
 
 }

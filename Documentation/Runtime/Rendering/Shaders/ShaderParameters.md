@@ -19,14 +19,61 @@ This document describes the current typed shader parameter path used by `RenderC
 
 ## Public Types
 
+### Detached semantic schemas and allocation candidates
+
+`RenderCore/Public/Shader/ShaderParameterSchema.h` exposes an owned projection of
+`FShaderParametersMetadata`. `BuildShaderParameterSchema` recursively qualifies
+nested members and rejects invalid storage bounds, metadata cycles and ambiguous
+qualified or emitted names. `ComposeShaderParameterSchemas` checks input schema
+identities and rejects duplicate fields. Canonical field ordering makes semantic
+identity independent of declaration order, C++ offsets and registration lifetime.
+Nested struct arrays are currently rejected. Flattened inherited metadata clears
+its include pointer after collecting inherited members, so it is traversed once
+and can use the ordinary typed resource submission path.
+
+`FShaderParametersMetadataBuilder` creates data-driven resource and nested
+structures through the same metadata types. Its result owns generated names and
+member storage. Referenced nested metadata must outlive the result.
+
+`FShaderParameterMap` owns named `FParameterAllocation` compiler locations and
+rejects duplicate names/locations and invalid arrays. `FShaderParameterBindings`
+joins that map to typed metadata once per shader instance. Included structures
+preserve the enclosing name prefix; nested structures add their member name and
+byte offset. Generated binding names are owned by the binding records.
+`FShader::InitializeParameterBindings`, the reflection adapter, and pipeline
+uniform policy all use this binding path. Typed submission reads accepted offsets
+and locations, including nested structures, without per-draw name resolution.
+
+`BuildShaderParameterAllocationMap` matches resource schema fields to compiler
+reflection by emitted name and records the reflected descriptor locations.
+Optional fields may be optimized out; required fields must remain reflected.
+Admission rejects extra/duplicate resources, duplicate locations, kind/array/stage
+mismatches and unsupported push constants. Dynamic uniform metadata accepts
+constant-buffer reflection while retaining its dynamic submission policy.
+Its product envelope contains the same `FShaderParameterMap`, rather than a second
+allocation table. Envelope identity includes schema, target, shader/VF type, permutation, frequency,
+caller-supplied complete compile-key digest and canonical allocation records.
+`ValidateShaderParameterAllocationMap` reconstructs and compares the complete
+candidate against the expected product and reflection.
+
+These generic resource allocation APIs do not yet replace the material binding
+catalog or participate in material Cook publication. Inline constant allocation,
+texture-shape reflection remain outside the supported
+allocation path; inline fields fail allocation admission rather than receiving
+invented offsets. Device resources and C++ storage offsets are absent from the
+detached schema and map.
+
 The public low-level types live in `Engine/Source/Runtime/RHI/Public/RHIShaderParameters.h`.
 
-### `FShaderParameterMetadata`
+### `FShaderParameterMemberMetadata`
 
 Describes a parameter field declared by a shader class:
 
 - `Name`: field name expected to match reflection
-- `Offset`: byte offset inside the shader `FParameters` struct
+- `Offset` and `Size`: storage within the containing C++ parameter struct
+- `Kind`: resource, inline value or nested structure
+- `StructMetadata`: nested structure declaration
+- `bOptional`: allows an optimized-out resource to lack a compiled allocation
 - `Type`: expected RHI binding type
 - `ArraySize`: expected reflected array size
 
@@ -40,7 +87,6 @@ Describes a resolved runtime binding:
 - `Offset`
 - `SetIndex`
 - `BindingIndex`
-- `ArrayElement`
 - `Type`
 - `ArraySize`
 
@@ -82,7 +128,7 @@ RenderCore owns shader parameter declaration, validation, and cached binding res
 
 ### Shader Type Declaration
 
-`FShaderType` accepts an optional `std::span<const FShaderParameterMetadata>` in its constructor. This allows a shader type to publish parameter field metadata alongside its virtual path, frequency, and entry point.
+`FShaderType` accepts an optional `const FShaderParametersMetadata*` in its constructor. This allows a shader type to publish parameter field metadata alongside its virtual path, frequency, and entry point.
 
 Example pattern:
 
@@ -90,30 +136,21 @@ Example pattern:
 class FExampleShader : public FShader
 {
 public:
-    using FShader::FShader;
+    DURIN_BEGIN_SHADER_PARAMETERS(FExampleShader)
+        DURIN_SHADER_PARAMETER_TEXTURE(ExampleTexture);
+        DURIN_SHADER_PARAMETER_SAMPLER(ExampleSampler);
+    DURIN_END_SHADER_PARAMETERS();
 
-    struct FParameters
-    {
-        FRHITexture* ExampleTexture = nullptr;
-        FRHISampler* ExampleSampler = nullptr;
-    };
-
-    static auto GetParametersMetadata() -> std::span<const FShaderParameterMetadata>
-    {
-        static const std::array Parameters = {
-            DURIN_SHADER_PARAMETER(ExampleTexture, ERHIBindingType::Texture),
-            DURIN_SHADER_PARAMETER(ExampleSampler, ERHIBindingType::Sampler)
-        };
-        return Parameters;
-    }
+    DURIN_DECLARE_SHADER(FExampleShader, FShader, "/Engine/Example",
+        EShaderFrequency::Fragment, "fragmentMain");
 };
 ```
 
-The helper macro `DURIN_SHADER_PARAMETER(...)` converts a field into metadata using `offsetof(FParameters, ...)`.
+The typed parameter macros declare fields and their metadata using `offsetof(FParameters, ...)`.
 
 ### Binding Resolution
 
-`BuildShaderParameterBindings(...)` compares declared metadata against `FShaderReflectionData::ResourceBindings`.
+`BuildShaderParameterBindings(...)` adapts reflection into `FShaderParameterMap` and delegates to `FShaderParameterBindings::Bind`. Shader instances use that same map/bindings implementation directly.
 
 It validates:
 
@@ -125,7 +162,7 @@ On success it emits resolved `FShaderParameterBinding` entries.
 
 ### Cached Per-Shader Bindings
 
-Each `FShader` stores a `std::vector<FShaderParameterBinding>` as `ParameterBindings`.
+Each `FShader` owns `FShaderParameterBindings` and exposes its resource records through `GetParameterBindings()`.
 
 This is built once via `FShader::InitializeParameterBindings(...)` during shader map initialization. That means runtime parameter submission does not need repeated string lookup or repeated reflection walking.
 

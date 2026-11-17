@@ -10,6 +10,8 @@
 #include "Shader/GlobalShader.h"
 #include "Shader/MaterialShader.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderParameterSchema.h"
+#include "Shader/ShaderParameterMetadataBuilder.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "MetalShaderFormat.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -20,6 +22,148 @@
 
 namespace Durin
 {
+	TEST(ShaderParameterMetadataBuilder, OwnsGeneratedNamesAndProducesBindableNestedMetadata)
+	{
+		auto MakeMetadata = [] {
+			FShaderParametersMetadataBuilder Builder;
+			const std::string TemporaryName = "Texture";
+			EXPECT_TRUE(Builder.AddResourceParameter(TemporaryName, ERHIBindingType::Texture, 2));
+			EXPECT_FALSE(Builder.AddResourceParameter(TemporaryName, ERHIBindingType::Texture));
+			EXPECT_FALSE(Builder.AddResourceParameter("Invalid", ERHIBindingType::Sampler, 0));
+			return Builder.Build("GeneratedMaterial");
+		};
+		auto Child = MakeMetadata();
+		ASSERT_TRUE(Child) << Child.error();
+		EXPECT_STREQ((*Child)->Metadata.StructName, "GeneratedMaterial");
+		EXPECT_STREQ((*Child)->Metadata.Members[0].Name, "Texture");
+		EXPECT_EQ((*Child)->Metadata.StructSize, sizeof(FRHITexture*) * 2);
+		FShaderParametersMetadataBuilder Parent;
+		ASSERT_TRUE(Parent.AddNestedStruct("Material", (*Child)->Metadata));
+		auto Root = Parent.Build("Pass");
+		ASSERT_TRUE(Root) << Root.error();
+		FShaderParameterMap Map;
+		ASSERT_TRUE(Map.AddParameterAllocation("Material_Texture", {2, 7, 2, ERHIBindingType::Texture}));
+		FShaderParameterBindings Bindings;
+		ASSERT_TRUE(Bindings.Bind(&(*Root)->Metadata, Map));
+		ASSERT_EQ(Bindings.GetResources().size(), 1u);
+		EXPECT_EQ(Bindings.GetResources()[0].Name, "Material_Texture");
+		EXPECT_EQ(Bindings.GetResources()[0].ArraySize, 2u);
+	}
+	TEST(ShaderParameterBindings, NestedOffsetsAndCompilerLocationsDriveTypedSubmission)
+	{
+		struct FNested { FRHIStorageBufferRange Buffer; };
+		struct FParameters { uint64 Padding = 0; FNested Pass; };
+		const std::array Members{MakeShaderParameterMemberMetadata<ERHIBindingType::StorageBuffer,
+			decltype(FNested::Buffer)>("Buffer", offsetof(FNested, Buffer))};
+		const auto Nested = MakeInlineShaderParametersMetadata<FNested>("Nested", Members);
+		const std::array RootMembers{FShaderParameterMemberMetadata{.Name = "Pass",
+			.Offset = offsetof(FParameters, Pass), .Size = sizeof(FNested),
+			.Kind = EShaderParameterMemberKind::Struct, .StructMetadata = &Nested}};
+		const auto Root = MakeInlineShaderParametersMetadata<FParameters>("Root", RootMembers);
+		FShaderParameterMap Map;
+		ASSERT_TRUE(Map.AddParameterAllocation("Pass_Buffer", {4, 19, 1, ERHIBindingType::StorageBuffer}));
+		FShaderParameterBindings Bindings;
+		ASSERT_TRUE(Bindings.Bind(&Root, Map));
+		ASSERT_EQ(Bindings.GetResources().size(), 1u);
+		EXPECT_EQ(Bindings.GetResources()[0].Offset, offsetof(FParameters, Pass) + offsetof(FNested, Buffer));
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("NestedBinding", 64, 4, EBufferUsageFlags::StructuredBuffer));
+		FParameters Parameters{.Pass = {.Buffer = {Buffer.GetReference(), 16, 32}}};
+		const auto Resources = ResolveShaderParameterResources(Root, Bindings.GetResources(), &Parameters);
+		ASSERT_EQ(Resources.size(), 1u);
+		EXPECT_EQ(Resources[0].Resource, Buffer.GetReference());
+		EXPECT_EQ(Resources[0].SetIndex, 4u);
+		EXPECT_EQ(Resources[0].BindingIndex, 19u);
+		EXPECT_EQ(Resources[0].Offset, 16u);
+		EXPECT_EQ(Resources[0].Size, 32u);
+		FShaderParameterMap Other;
+		ASSERT_TRUE(Other.AddParameterAllocation("Pass_Buffer", {0, 2, 1, ERHIBindingType::StorageBuffer}));
+		ASSERT_TRUE(Bindings.Bind(&Root, Other));
+		EXPECT_EQ(Bindings.GetResources()[0].BindingIndex, 2u);
+		FShaderParameterMap Missing;
+		EXPECT_FALSE(Bindings.Bind(&Root, Missing));
+		EXPECT_TRUE(Bindings.GetResources().empty());
+	}
+
+	TEST(ShaderParameterMap, RejectsDuplicateNamesLocationsAndZeroArrays)
+	{
+		FShaderParameterMap Map;
+		ASSERT_TRUE(Map.AddParameterAllocation("First", {0, 0, 1, ERHIBindingType::Texture}));
+		EXPECT_FALSE(Map.AddParameterAllocation("First", {0, 1, 1, ERHIBindingType::Texture}));
+		EXPECT_FALSE(Map.AddParameterAllocation("Other", {0, 0, 1, ERHIBindingType::Sampler}));
+		EXPECT_FALSE(Map.AddParameterAllocation("Zero", {0, 2, 0, ERHIBindingType::Texture}));
+		EXPECT_TRUE(Map.ContainsParameterAllocation("First"));
+		EXPECT_FALSE(Map.ContainsParameterAllocation("Other"));
+	}
+	TEST(ShaderParameterSchema, CompositionIsCanonicalAndIndependentOfCppOffsets)
+	{
+		std::array<FShaderParameterMemberMetadata, 2> Members{{
+			{.Name = "Pass", .Offset = 0, .Size = 8},
+			{.Name = "Scene", .Offset = 8, .Size = 8, .bOptional = true}}};
+		FShaderParametersMetadata Metadata{.StructSize = 24, .StructAlignment = 8, .Members = Members};
+		const auto First = BuildShaderParameterSchema(Metadata);
+		ASSERT_TRUE(First) << First.error();
+		std::swap(Members[0], Members[1]);
+		Members[0].Offset = 16;
+		const auto Second = BuildShaderParameterSchema(Metadata);
+		ASSERT_TRUE(Second) << Second.error();
+		EXPECT_EQ(First->Identity, Second->Identity);
+		EXPECT_EQ(First->Fields, Second->Fields);
+		const std::array Schemas{*First, *Second};
+		EXPECT_FALSE(ComposeShaderParameterSchemas(Schemas));
+		Members[0].ArraySize = 0;
+		EXPECT_FALSE(BuildShaderParameterSchema(Metadata));
+	}
+
+	TEST(ShaderParameterSchema, NestedFieldsAreQualifiedAndCyclesAreRejected)
+	{
+		FShaderParameterMemberMetadata Child{.Name = "Texture", .Offset = 0, .Size = 8,
+			.Type = ERHIBindingType::Texture};
+		FShaderParametersMetadata Nested{.StructSize = 8, .StructAlignment = 8, .Members = std::span(&Child, 1)};
+		FShaderParameterMemberMetadata Parent{.Name = "Pass", .Offset = 8, .Size = 8,
+			.Kind = EShaderParameterMemberKind::Struct, .StructMetadata = &Nested};
+		FShaderParametersMetadata Root{.StructSize = 16, .StructAlignment = 8, .Members = std::span(&Parent, 1)};
+		auto Schema = BuildShaderParameterSchema(Root);
+		ASSERT_TRUE(Schema) << Schema.error();
+		ASSERT_EQ(Schema->Fields.size(), 1u);
+		EXPECT_EQ(Schema->Fields[0].QualifiedName, "Pass.Texture");
+		EXPECT_EQ(Schema->Fields[0].ShaderName, "Pass_Texture");
+		Nested.IncludedParameters = &Root;
+		EXPECT_FALSE(BuildShaderParameterSchema(Root));
+		Nested.IncludedParameters = nullptr;
+		Parent.Offset = 9;
+		EXPECT_FALSE(BuildShaderParameterSchema(Root));
+	}
+
+	TEST(ShaderParameterSchema, AllocationUsesCompilerLocationsAndRejectsCrossProductMaps)
+	{
+		std::array<FShaderParameterMemberMetadata, 2> Members{{
+			{.Name = "PassTexture", .Size = 8, .Type = ERHIBindingType::Texture},
+			{.Name = "Unused", .Offset = 8, .Size = 8, .Type = ERHIBindingType::Sampler, .bOptional = true}}};
+		FShaderParametersMetadata Metadata{.StructSize = 16, .StructAlignment = 8, .Members = Members};
+		auto Schema = BuildShaderParameterSchema(Metadata);
+		ASSERT_TRUE(Schema) << Schema.error();
+		FShaderParameterProduct Product{.ShaderType = "ExtensionPass", .Frequency = EShaderFrequency::Fragment};
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({.Name = "PassTexture", .StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 3, .BindingIndex = 17, .Type = ERHIBindingType::Texture});
+		auto First = BuildShaderParameterAllocationMap(*Schema, Product, Reflection);
+		ASSERT_TRUE(First) << First.error();
+		ASSERT_EQ(First->Parameters.GetParameterAllocations().size(), 1u);
+		ASSERT_NE(First->Parameters.FindParameterAllocation("PassTexture"), nullptr);
+		EXPECT_EQ(First->Parameters.FindParameterAllocation("PassTexture")->BaseIndex, 17u);
+		EXPECT_TRUE(ValidateShaderParameterAllocationMap(*Schema, Product, *First, Reflection));
+		Reflection.ResourceBindings[0].BindingIndex = 2;
+		auto Second = BuildShaderParameterAllocationMap(*Schema, Product, Reflection);
+		ASSERT_TRUE(Second) << Second.error();
+		EXPECT_NE(First->Identity, Second->Identity);
+		EXPECT_FALSE(ValidateShaderParameterAllocationMap(*Schema, Product, *First, Reflection));
+		++Product.PermutationId;
+		EXPECT_FALSE(ValidateShaderParameterAllocationMap(*Schema, Product, *Second, Reflection));
+		Reflection.ResourceBindings[0].ArraySize = 2;
+		EXPECT_FALSE(BuildShaderParameterAllocationMap(*Schema, Product, Reflection));
+		Reflection.ResourceBindings.clear();
+		EXPECT_FALSE(BuildShaderParameterAllocationMap(*Schema, Product, Reflection));
+	}
 		namespace
 		{
 		class FGlobalFixtureVertexShader : public FGlobalShader
@@ -883,12 +1027,12 @@ namespace Durin
 		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
 		ASSERT_TRUE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings))) << std::string(ErrorMessage.error());
 		ASSERT_EQ(Bindings.size(), 2u);
-		EXPECT_STREQ(Bindings[0].Name, "FontTexture");
+		EXPECT_EQ(Bindings[0].Name, "FontTexture");
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, FontTexture));
 		EXPECT_EQ(Bindings[0].SetIndex, 2u);
 		EXPECT_EQ(Bindings[0].BindingIndex, 4u);
 		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::Texture);
-		EXPECT_STREQ(Bindings[1].Name, "FontSampler");
+		EXPECT_EQ(Bindings[1].Name, "FontSampler");
 		EXPECT_EQ(Bindings[1].SetIndex, 2u);
 		EXPECT_EQ(Bindings[1].BindingIndex, 5u);
 		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::Sampler);
@@ -1090,15 +1234,16 @@ namespace Durin
 
 	TEST_F(FShaderFoundationTests, ShaderMapInitializeUsesDynamicUniformMetadataInPipelineLayout)
 	{
-		struct FParameters
-		{
-			FRHIUniformBufferRange SceneUniform;
-		};
+		struct FNested { FRHIUniformBufferRange SceneUniform; };
+		struct FParameters { FNested Pass; };
 
 		const std::array Metadata = {
-			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::SceneUniform)>("SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)))
+			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FNested::SceneUniform)>("SceneUniform", static_cast<uint32>(offsetof(FNested, SceneUniform)))
 		};
-		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		const auto Nested = MakeTestParametersMetadata<FNested>(Metadata);
+		const std::array RootMembers{FShaderParameterMemberMetadata{.Name = "Pass", .Offset = offsetof(FParameters, Pass),
+			.Size = sizeof(FNested), .Kind = EShaderParameterMemberKind::Struct, .StructMetadata = &Nested}};
+		const auto ParametersMetadata = MakeTestParametersMetadata<FParameters>(RootMembers);
 		FShaderType VertexShaderType(
 			"UnitDynamicUniformVertexShader",
 			"/Unit/TestShader",
@@ -1114,7 +1259,7 @@ namespace Durin
 
 		FShaderReflectionData Reflection;
 		Reflection.ResourceBindings.push_back({
-			.Name = "SceneUniform",
+			.Name = "Pass_SceneUniform",
 			.StageFlags = EShaderStageFlags::Vertex,
 			.SetIndex = 0,
 			.BindingIndex = 0,
@@ -1187,7 +1332,7 @@ namespace Durin
 			MakeTestParametersMetadata<FParameters>(Metadata);
 		ASSERT_TRUE((ErrorMessage = BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings))) << std::string(ErrorMessage.error());
 		ASSERT_EQ(Bindings.size(), 1u);
-		EXPECT_STREQ(Bindings.front().Name, "Material");
+		EXPECT_EQ(Bindings.front().Name, "Material");
 		EXPECT_EQ(Bindings.front().BindingIndex, 2u);
 	}
 
@@ -1995,6 +2140,8 @@ namespace Durin
 		ASSERT_EQ(IncludeWithOwnType.GetParameterMetadata().size(), 2u);
 		EXPECT_STREQ(IncludeWithOwnType.GetParameterMetadata()[0].Name, "FontTexture");
 		EXPECT_STREQ(IncludeWithOwnType.GetParameterMetadata()[1].Name, "FontSampler");
+		EXPECT_EQ(IncludeWithOwnType.GetParametersMetadata()->IncludedParameters, nullptr);
+		EXPECT_TRUE(BuildShaderParameterSchema(*IncludeWithOwnType.GetParametersMetadata()));
 
 		FShaderReflectionData Reflection;
 		Reflection.ResourceBindings.push_back({

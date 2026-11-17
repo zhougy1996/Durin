@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Shader/ShaderDiagnostics.h"
+#include "Shader/ShaderParameterMap.h"
 
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
@@ -102,7 +103,7 @@ namespace Durin
 		auto GetType() const -> const FShaderType* { return Type; }
 		auto GetShaderMap() const -> FShaderMapBase* { return ShaderMap; }
 		auto GetReflection() const -> const FShaderReflectionData& { return Reflection; }
-		auto GetParameterBindings() const -> std::span<const FShaderParameterBinding> { return ParameterBindings; }
+		auto GetParameterBindings() const -> std::span<const FShaderParameterBinding> { return Bindings.GetResources(); }
 
 		RENDERCORE_API auto GetOrCreateRHIShader(bool bRequired = true) -> FRHIShader*;
 		RENDERCORE_API auto InitializeParameterBindings() -> FShaderOperationResult;
@@ -111,7 +112,7 @@ namespace Durin
 		const FShaderType* Type = nullptr;
 		FShaderMapBase* ShaderMap = nullptr;
 		FShaderReflectionData Reflection;
-		std::vector<FShaderParameterBinding> ParameterBindings;
+		FShaderParameterBindings Bindings;
 	};
 
 	template<typename ShaderType>

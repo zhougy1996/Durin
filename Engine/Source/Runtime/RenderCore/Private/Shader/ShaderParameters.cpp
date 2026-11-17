@@ -2,14 +2,11 @@
 
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
-#include "ShaderBindingInternal.h"
 
 namespace Durin
 {
 	namespace
 	{
-		using ShaderPrivate::AreShaderBindingTypesCompatible;
-
 		auto FlattenShaderParameterMembers(
 			const FShaderParametersMetadata* ParametersMetadata,
 			std::vector<FShaderParameterMemberMetadata>& OutMembers,
@@ -49,59 +46,12 @@ namespace Durin
 		std::vector<FShaderParameterBinding>& OutBindings) -> FShaderOperationResult
 	{
 		OutBindings.clear();
-
-		const std::span<const FShaderParameterMemberMetadata> ParameterMetadata = ParametersMetadata ? ParametersMetadata->Members : std::span<const FShaderParameterMemberMetadata>{};
-		for (const FShaderParameterMemberMetadata& Parameter : ParameterMetadata)
-		{
-			if (Parameter.Kind != EShaderParameterMemberKind::Resource)
-			{
-				continue;
-			}
-
-			if (Parameter.Name == nullptr || Parameter.Name[0] == '\0')
-			{
-				return std::unexpected(std::string("Shader parameter metadata contains an empty name"));
-			}
-
-			const auto FoundIt = std::ranges::find_if(Reflection.ResourceBindings, [&Parameter](const FShaderResourceBinding& Binding) {
-				return Binding.Name == Parameter.Name;
-			});
-
-			if (FoundIt == Reflection.ResourceBindings.end())
-			{
-				if (Parameter.bOptional)
-				{
-					continue;
-				}
-				return std::unexpected(std::format("Shader parameter '{}' was not found in shader reflection", (Parameter.Name)));
-			}
-
-			if (!AreShaderBindingTypesCompatible(FoundIt->Type, Parameter.Type))
-			{
-				return std::unexpected(std::format(
-				"Shader parameter '{}' type does not match reflection (expected {}, actual {})",
-				(Parameter.Name), (static_cast<uint64>(Parameter.Type)), (static_cast<uint64>(FoundIt->Type))));
-			}
-
-			if (FoundIt->ArraySize != Parameter.ArraySize)
-			{
-				return std::unexpected(std::format(
-				"Shader parameter '{}' array size does not match reflection (expected {}, actual {})",
-				(Parameter.Name), (Parameter.ArraySize), (FoundIt->ArraySize)));
-			}
-
-			FShaderParameterBinding Binding;
-			Binding.Name = Parameter.Name;
-			Binding.Offset = Parameter.Offset;
-			Binding.SetIndex = FoundIt->SetIndex;
-			Binding.BindingIndex = FoundIt->BindingIndex;
-			Binding.Type = Parameter.Type;
-			Binding.ArraySize = FoundIt->ArraySize;
-			Binding.bGraphResource = Parameter.bGraphResource;
-			OutBindings.push_back(Binding);
-		}
-
-		return {};
+		auto Map = FShaderParameterMap::FromReflection(Reflection);
+		if (!Map) return std::unexpected(Map.error());
+		FShaderParameterBindings Bindings;
+		auto Result = Bindings.Bind(ParametersMetadata, *Map);
+		if (Result) OutBindings.assign(Bindings.GetResources().begin(), Bindings.GetResources().end());
+		return Result;
 	}
 
 	auto BuildCombinedShaderParametersMetadataStorage(
@@ -133,7 +83,8 @@ namespace Durin
 		Storage.Metadata.StructName = StructName.data();
 		Storage.Metadata.StructSize = StructSize;
 		Storage.Metadata.StructAlignment = StructAlignment;
-		Storage.Metadata.IncludedParameters = IncludedParameters;
+		// OwnedMembers already contains the complete inherited layout.
+		Storage.Metadata.IncludedParameters = nullptr;
 		Storage.Metadata.Members = Storage.OwnedMembers;
 		return Storage;
 	}
@@ -145,19 +96,6 @@ namespace Durin
 	) -> std::vector<FRHIShaderParameterResource>
 	{
 		checkf(ParameterData != nullptr, "Shader parameter data must not be null");
-		checkf(
-			ParametersMetadata.IncludedParameters == nullptr,
-			"SetShaderParameters does not support included shader parameter metadata until parameter layout composition is implemented"
-		);
-		for (const FShaderParameterMemberMetadata& Member : ParametersMetadata.Members)
-		{
-			checkf(
-				Member.Kind == EShaderParameterMemberKind::Resource,
-				"Unsupported shader parameter kind {} in '{}'",
-				static_cast<uint32>(Member.Kind),
-				Member.Name ? Member.Name : "<unnamed>"
-			);
-		}
 
 		size_t ResolvedCount = 0;
 		for (const FShaderParameterBinding& Binding : ParameterBindings)
