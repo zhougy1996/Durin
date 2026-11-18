@@ -228,7 +228,6 @@ namespace Durin::MaterialEditor
 	{
 		if (!Impl->bActive) return RejectCommand("No material parameter edit is active.");
 		DMaterial* Material = Impl->Material.Get();
-		Impl->bActive = false;
 		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
 			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
 		if (!Material)
@@ -244,6 +243,7 @@ namespace Durin::MaterialEditor
 		}
 		Impl->BeforeTexture.Reset();
 		Impl->CurrentTexture.Reset();
+		Impl->bActive = false;
 		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
 			: EMaterialGraphCommandStatus::NoChange};
 	}

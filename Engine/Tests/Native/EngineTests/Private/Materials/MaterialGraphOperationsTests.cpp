@@ -3618,7 +3618,13 @@ TEST(FMaterialGraphOperationsTests, ParameterSessionRejectionsReportFailureAndAl
 	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Id, Durin::ETransactionMode::NotTransactable));
 	const auto Restore = Edit.Cancel();
 	EXPECT_EQ(Restore.Message.find("The material rejected the original parameter value."), 0u);
+	EXPECT_TRUE(Edit.IsActive());
+	Definition.Id = Id;
+	Definition.Value = FMaterialParameterValue::MakeScalar(.5f);
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Edit.Cancel());
 	EXPECT_FALSE(Edit.IsActive());
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Id)->Value.GetScalar(), .75f);
 }
 
 TEST(FMaterialGraphOperationsTests, BaseParameterMutationRetainsFailuresBeforePublication)

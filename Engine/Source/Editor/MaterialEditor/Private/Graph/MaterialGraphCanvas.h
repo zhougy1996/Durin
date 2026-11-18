@@ -208,7 +208,7 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterSession;
-		MonaImGui::PropertyEdit::FColorPickerInteraction ParameterColorPicker;
+		MonaImGui::PropertyEdit::FPropertyEditInteraction ParameterInteraction;
 		FGuid EditingParameterId;
 		ImGuiID ParameterWidget = 0;
 		int ParameterFrame = -1;

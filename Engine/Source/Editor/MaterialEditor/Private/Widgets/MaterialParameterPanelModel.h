@@ -68,7 +68,7 @@ namespace Durin::MaterialEditor
 			const FMaterialParameterPanelEntry& Entry,
 			const FMaterialParameterValue& Value,
 			bool bContinuous,
-			const MonaImGui::PropertyEdit::FColorPickerState* Picker = nullptr,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr,
 			bool bChanged = true
 		) const -> bool;
 		auto SetOverrideEnabled(

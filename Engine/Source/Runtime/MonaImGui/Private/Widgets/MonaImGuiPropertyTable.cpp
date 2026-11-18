@@ -348,7 +348,7 @@ namespace Durin::MonaImGui::PropertyEdit
 	}
 
 	auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly,
-		FWidgetState* OutState, FLabelTooltip LabelTooltip, FColorPickerState* OutPickerState) -> bool
+		FWidgetState* OutState, FLabelTooltip LabelTooltip, FPropertyInteractionState* OutPickerState) -> bool
 	{
 		ImGui::PushID(Label);
 		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
@@ -358,30 +358,34 @@ namespace Durin::MonaImGui::PropertyEdit
 		return bChanged;
 	}
 
-	auto FColorPickerInteraction::Observe(const FColorPickerState& State) -> void
+	auto FPropertyEditInteraction::Observe(const FPropertyInteractionState& State) -> void
 	{
-		if (State.PopupId == 0 || (PopupId != 0 && State.PopupId != PopupId)) return;
-		if (PopupId == 0 && !State.bOpen) return;
+		if (State.PopupId == 0 && State.WidgetId == 0) return;
+		if (IsActive() && (PopupId != State.PopupId || WidgetId != State.WidgetId)) return;
+		if (!IsActive() && State.PopupId != 0 && !State.bOpen) return;
 		PopupId = State.PopupId;
+		WidgetId = State.WidgetId;
 		LastDrawFrame = ImGui::GetFrameCount();
 		bCancelPending |= State.bCancelled;
+		if (PopupId == 0) bCommitPending |= State.bDeactivatedAfterEdit || !State.bActive;
 	}
 
-	auto FColorPickerInteraction::Poll(bool bEndOfFrame) -> EColorPickerEnd
+	auto FPropertyEditInteraction::Poll(bool bEndOfFrame) -> EPropertyInteractionEnd
 	{
-		if (PopupId == 0) return EColorPickerEnd::None;
+		if (!IsActive()) return EPropertyInteractionEnd::None;
 		const int FramesSinceDraw = ImGui::GetFrameCount() - LastDrawFrame;
 		if (bCancelPending || FramesSinceDraw > (bEndOfFrame ? 0 : 1) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 		{
 			RequestCancel();
-			return EColorPickerEnd::Cancel;
+			return EPropertyInteractionEnd::Cancel;
 		}
+		if (PopupId == 0) return bCommitPending ? EPropertyInteractionEnd::Commit : EPropertyInteractionEnd::None;
 		return ImGui::IsPopupOpen(PopupId, ImGuiPopupFlags_AnyPopupLevel)
-			? EColorPickerEnd::None : EColorPickerEnd::Commit;
+			? EPropertyInteractionEnd::None : EPropertyInteractionEnd::Commit;
 	}
 
 	auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode, bool bShowAlpha,
-		bool bReadOnly, FColorPickerState* OutPickerState, FWidgetState* OutState) -> bool
+		bool bReadOnly, FPropertyInteractionState* OutPickerState, FWidgetState* OutState) -> bool
 	{
 		const bool bSRGB = Mode == EColorPickerMode::SRGB;
 		FLinearColor DisplayColor = bSRGB ? FLinearColor(ColorConvert::LinearToSRGB(Color.R),

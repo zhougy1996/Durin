@@ -58,7 +58,7 @@ namespace Durin::MaterialEditor
 			EPropertyChangeKind Kind,
 			bool bContinuous,
 			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate,
-			const MonaImGui::PropertyEdit::FColorPickerState* Picker = nullptr,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr,
 			bool bChanged = true
 		) -> bool
 		{
@@ -72,7 +72,7 @@ namespace Durin::MaterialEditor
 				Assign = [Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					Mutate(*static_cast<FArrayProperty*>(ScratchProperty), ScratchContainer, ScratchArrayIndex);
 				};
-			return PropertyView.SubmitPropertyValueEdit(Context, Target, Assign, bContinuous, Picker);
+			return PropertyView.SubmitPropertyValueEdit(Context, Target, Assign, bContinuous, Interaction);
 		}
 
 		template<typename TRecord>
@@ -221,7 +221,7 @@ namespace Durin::MaterialEditor
 		const FMaterialParameterPanelEntry& Entry,
 		const FMaterialParameterValue& Value,
 		bool bContinuous,
-		const MonaImGui::PropertyEdit::FColorPickerState* Picker,
+		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction,
 		bool bChanged
 	) const -> bool
 	{
@@ -240,7 +240,7 @@ namespace Durin::MaterialEditor
 						void* ScratchContainer, uint32 ScratchArrayIndex) {
 						if (auto* Override = FindScratchEntry<TRecord>(ScratchProperty, ScratchContainer,
 							ScratchArrayIndex, Id, &TRecord::ParameterId)) Override->SetValue(CanonicalValue);
-					}, Picker, bChanged);
+					}, Interaction, bChanged);
 			});
 		}
 		return false;

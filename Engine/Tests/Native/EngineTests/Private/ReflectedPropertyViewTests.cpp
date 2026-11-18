@@ -561,6 +561,76 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	EXPECT_EQ(Object.Value, 5);
 }
 
+TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivationAndRetainsFailedRestore)
+{
+	using namespace Durin;
+	using namespace MonaImGui::PropertyEdit;
+	Testing::InitializeAssetSystemForTests();
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "InteractionCancel"));
+	FPropertyViewTestTransactorOwner Transactions;
+	FPropertyView View;
+	int Errors = 0;
+	const FPropertyViewContext Context{.ReportError = [&](std::string) { ++Errors; }};
+	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property);
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.ConfigInputTrickleEventQueue = false;
+	IO.DisplaySize = {600, 400}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	const auto Frame = [&](int Value, bool bActive = true, bool bVisible = true) {
+		ImGui::NewFrame();
+		ImGui::Begin("Continuous interaction");
+		if (bVisible)
+		{
+			const FPropertyInteractionState Interaction{.WidgetId = ImGui::GetID("Value"),
+				.bActive = bActive, .bDeactivatedAfterEdit = !bActive};
+			std::function<void(FProperty*, void*, uint32)> Assign;
+			if (Value >= 0) Assign = [Value](FProperty* Property, void* Container, uint32 Index) {
+				*Property->ContainerPtrToValuePtr<int32>(Container, Index) = Value;
+			};
+			View.SubmitPropertyValueEdit(Context, Target, Assign, true, &Interaction);
+		}
+		View.EndInteractionFrame(Context);
+		ImGui::End(); ImGui::Render();
+	};
+	Frame(7); Frame(8);
+	EXPECT_TRUE(View.IsEditing());
+	Frame(-1, false);
+	EXPECT_FALSE(View.IsEditing());
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	ASSERT_TRUE(Transactions.Get()->TryReset());
+	Frame(8);
+	IO.AddKeyEvent(ImGuiKey_Escape, true);
+	Frame(9, false);
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	IO.AddKeyEvent(ImGuiKey_Escape, false);
+	Frame(8);
+	Frame(-1, false, false);
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(View.IsEditing());
+	Frame(8);
+	Object->bAllowRestore = false;
+	IO.AddKeyEvent(ImGuiKey_Escape, true);
+	Frame(-1, false);
+	EXPECT_TRUE(View.IsEditing());
+	EXPECT_EQ(Object->Value, 8);
+	IO.AddKeyEvent(ImGuiKey_Escape, false);
+	Frame(9, false);
+	EXPECT_TRUE(View.IsEditing());
+	EXPECT_EQ(Object->Value, 8);
+	Object->bAllowRestore = true;
+	Frame(-1, false);
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	EXPECT_GT(Errors, 0);
+}
+
 TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilRequested)
 {
 	EnsureSoftObjectPropertyViewMount();
@@ -750,6 +820,82 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftMap.at("Alpha").ToSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftMap.at("Alpha").ToSoftObjectPath(), Fourth);
+}
+
+TEST(FReflectedPropertyViewTests, MapKeyInteractionRetainsIdentityAndCancelsHiddenOrEscapedEdits)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	for (int EndMode = 0; EndMode < 3; ++EndMode)
+	{
+		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "MapInteraction"));
+		Object->SoftMap["Alpha"] = nullptr;
+		FPropertyViewTestTransactorOwner Transactions;
+		FPropertyView View;
+		const FPropertyViewContext Context{.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }};
+		const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
+		auto& IO = ImGui::GetIO();
+		IO.ConfigInputTrickleEventQueue = false;
+		IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		IO.DisplaySize = {900, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+		const auto Frame = [&](bool bVisible = true) {
+			ImGui::NewFrame();
+			ImGui::SetNextWindowSize({800, 500});
+			ImGui::Begin("Map interaction");
+			if (bVisible && MonaImGui::PropertyEdit::BeginTable("MapRows"))
+			{
+				ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+				View.EditProperty(Context, Object.Get(), Reflection.MapProperty);
+				MonaImGui::PropertyEdit::EndTable();
+			}
+			View.EndInteractionFrame(Context);
+			ImGui::End(); ImGui::Render();
+		};
+		const auto FocusKey = [&] {
+			Frame();
+			auto* Window = ImGui::FindWindowByName("Map interaction");
+			ImGui::FocusWindow(Window);
+			ImGui::NavInitWindow(Window, true);
+			Frame();
+			for (int Attempt = 0; Attempt < 24 && (GImGui->ActiveId == 0 || !ImGui::GetInputTextState(GImGui->ActiveId)
+				|| std::string_view(GImGui->InputTextState.GetText()) != "Alpha"); ++Attempt)
+			{
+				IO.AddKeyEvent(ImGuiKey_Tab, true); Frame();
+				IO.AddKeyEvent(ImGuiKey_Tab, false); Frame();
+			}
+			ASSERT_NE(GImGui->ActiveId, 0u);
+			ASSERT_NE(ImGui::GetInputTextState(GImGui->ActiveId), nullptr);
+			EXPECT_STREQ(GImGui->InputTextState.TextA.Data, "Alpha");
+		};
+		const auto Rename = [&](const char* Name) {
+			IO.AddKeyEvent(ImGuiMod_Ctrl, true); IO.AddKeyEvent(ImGuiKey_A, true); Frame();
+			IO.AddKeyEvent(ImGuiKey_A, false); IO.AddKeyEvent(ImGuiMod_Ctrl, false);
+			IO.AddInputCharactersUTF8(Name); Frame(); Frame();
+			EXPECT_TRUE(Object->SoftMap.contains(Name)) << "Expected " << Name << ", actual "
+				<< Object->SoftMap.begin()->first << ", active widget " << GImGui->ActiveId;
+		};
+		Frame(); Frame(); FocusKey();
+		Rename("Beta"); Rename("Gamma");
+		EXPECT_TRUE(View.IsEditing());
+		if (EndMode == 0)
+		{
+			IO.AddKeyEvent(ImGuiKey_Enter, true); Frame();
+			IO.AddKeyEvent(ImGuiKey_Enter, false); Frame();
+			EXPECT_FALSE(View.IsEditing());
+			ASSERT_TRUE(Transactions.Get()->Undo());
+		}
+		else if (EndMode == 1)
+		{
+			IO.AddKeyEvent(ImGuiKey_Escape, true); Frame();
+			IO.AddKeyEvent(ImGuiKey_Escape, false); Frame();
+		}
+		else Frame(false);
+		EXPECT_TRUE(Object->SoftMap.contains("Alpha"));
+		EXPECT_FALSE(View.IsEditing());
+		EXPECT_FALSE(Transactions.Get()->CanUndo());
+	}
 }
 
 TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)

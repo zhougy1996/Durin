@@ -230,14 +230,6 @@ namespace Durin::LevelEditor
 				return Result;
 			}
 
-			static auto FinishContinuousEdit(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
-				const FPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
-			{
-				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
-				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
-					PropertyView.FinishActiveEdit(&ViewContext, true);
-			}
-
 			static auto DrawAspectRatioMode(FPropertyView& PropertyView, const FPropertyViewContext& ViewContext,
 				DCameraComponent& Camera, const FReflection& Reflection) -> void
 			{
@@ -276,16 +268,17 @@ namespace Durin::LevelEditor
 				ImGui::PushID(Field);
 				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly, 0.0f, "Type: Float");
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);
-				const MonaImGui::PropertyEdit::FWidgetState State{
-					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
+				const MonaImGui::PropertyEdit::FPropertyInteractionState State{
+					.bCancelled = ViewContext.bReadOnly, .WidgetId = ImGui::GetID("##Value"),
+					.bActive = ImGui::IsItemActive(), .bDeactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit()};
+				std::function<void(FProperty*, void*, uint32)> Assign;
 				if (bChanged && !ViewContext.bReadOnly)
 				{
-					PropertyView.SubmitPropertyValueEdit(ViewContext, Target,
-						[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+					Assign = [Value](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 							*ScratchProperty->ContainerPtrToValuePtr<float>(ScratchContainer, ScratchArrayIndex) = Value;
-					}, true);
+					};
 				}
-				FinishContinuousEdit(PropertyView, ViewContext, Target, State);
+				PropertyView.SubmitPropertyValueEdit(ViewContext, Target, Assign, true, &State);
 				MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
 				ImGui::PopID();
 			}

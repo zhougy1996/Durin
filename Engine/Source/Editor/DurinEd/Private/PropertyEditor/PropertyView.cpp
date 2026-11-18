@@ -574,7 +574,7 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.ReflectedRow");
-		if (!ReconcileColorPicker(Context)) return false;
+		if (!ReconcileInteraction(Context)) return false;
 		std::string Label;
 		bool bReadOnly = false;
 		{
@@ -645,8 +645,15 @@ namespace Durin
 			Edit = EditPropertyWidget(Context, Property, Container, ArrayIndex, Label,
 				bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly), bShowTransformHeader);
 		}
+		if (Edit.Interaction.PopupId == 0)
+		{
+			Edit.Interaction.WidgetId = ImGui::GetID(Label.c_str());
+			Edit.Interaction.bActive = Edit.bActive;
+			Edit.Interaction.bDeactivatedAfterEdit = Edit.bDeactivatedAfterEdit;
+		}
 		const bool bNeedsTarget = (Edit.bChanged && Edit.AssignValue) || Edit.bDeactivatedAfterEdit
-			|| (Edit.ColorPicker.PopupId != 0 && Edit.ColorPicker.PopupId == ColorPickerInteraction.GetPopupId())
+			|| (Edit.Interaction.WidgetId != 0 && Edit.Interaction.WidgetId == EditInteraction.GetWidgetId())
+			|| (Edit.Interaction.PopupId != 0 && Edit.Interaction.PopupId == EditInteraction.GetPopupId())
 			|| (Edit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape));
 		if (!bNeedsTarget) return false;
 		if (ExistingTarget && !bStructMember) return SubmitWidgetEdit(Context, *ExistingTarget, Edit);
@@ -737,11 +744,11 @@ namespace Durin
 		if (Struct == Z_Construct_DStruct_FLinearColor())
 		{
 			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
-			MonaImGui::PropertyEdit::FColorPickerState Picker;
+			MonaImGui::PropertyEdit::FPropertyInteractionState Interaction;
 			auto Edit = EditMathStruct.template operator()<FLinearColor>([&](FLinearColor& EditedValue, auto& State) {
-				return MonaImGui::PropertyEdit::EditColor(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State, TypeTooltip, &Picker);
+				return MonaImGui::PropertyEdit::EditColor(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State, TypeTooltip, &Interaction);
 			});
-			Edit.ColorPicker = Picker;
+			Edit.Interaction = Interaction;
 			return Edit;
 		}
 
@@ -1170,9 +1177,10 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.SubmitEdit");
-		if (Edit.ColorPicker.bCancelled)
+		if (Edit.Interaction.bCancelled || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+			|| (IsEditingTarget(EditTarget) && EditInteraction.IsCancelPending()))
 		{
-			if (Edit.ColorPicker.PopupId == ColorPickerInteraction.GetPopupId() && IsEditingTarget(EditTarget))
+			if (IsEditingTarget(EditTarget))
 				FinishActiveEdit(&Context, true);
 			return false;
 		}
@@ -1194,12 +1202,11 @@ namespace Durin
 				bChanged = SubmitPropertyEdit(Context, EditTarget, Proposed, Edit.bContinuous);
 			}
 		}
-		if (Edit.ColorPicker.PopupId != 0 && IsEditingTarget(EditTarget))
+		if (IsEditingTarget(EditTarget))
 		{
-			ColorPickerInteraction.Observe(Edit.ColorPicker);
+			EditInteraction.Observe(Edit.Interaction);
+			ReconcileInteraction(Context);
 		}
-		else if (Edit.bDeactivatedAfterEdit && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, false);
-		else if (Edit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, true);
 		return bChanged;
 	}
 
@@ -1482,11 +1489,9 @@ namespace Durin
 				const void* Key = Entries[static_cast<size_t>(Index)].Key;
 				void* Value = Entries[static_cast<size_t>(Index)].Value;
 				if (!Key || !Value) continue;
-				ImGui::PushID(Key);
 				FPropertyValueSnapshot KeySnapshot;
 				if (!CapturePropertyValue(Property->GetKeyProp(), Key, 0, KeySnapshot))
 				{
-					ImGui::PopID();
 					continue;
 				}
 				const FByteBuffer SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
@@ -1494,9 +1499,22 @@ namespace Durin
 				FPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
 					Property->GetKeyProp(), KeySnapshot, SerializedKey);
 				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
+				const bool bCurrentKey = IsEditingTarget(KeyTarget) && ActiveMapKey == KeySnapshot;
+				const ImGuiID KeyId = bCurrentKey ? ActiveMapKeyId : ImGui::GetID(Key);
+				ImGui::PushOverrideID(KeyId);
+				ImGui::PushID("Key");
 				const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
-					Context, Property->GetKeyProp(), const_cast<void*>(Key), 0, std::format("[{}] Key", Index), bReadOnly);
-				const bool bKeyChanged = KeyEdit.bChanged;
+					Context, Property->GetKeyProp(), const_cast<void*>(Key), 0, "Key", bReadOnly);
+				ImGui::PopID();
+				const bool bCancelKey = KeyEdit.Interaction.bCancelled || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+					|| (bCurrentKey && EditInteraction.IsCancelPending());
+				if (bCurrentKey && bCancelKey)
+				{
+					FinishActiveEdit(&Context, true);
+					ImGui::PopID();
+					break;
+				}
+				const bool bKeyChanged = KeyEdit.bChanged && !bCancelKey;
 				const FPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), KeySnapshot, SerializedKey);
 				const bool bValueChanged = EditPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly, ValueTarget);
 				bChanged |= bValueChanged;
@@ -1525,6 +1543,11 @@ namespace Durin
 				}
 				else if (bKeyChanged)
 				{
+					if (IsEditingTarget(KeyTarget) && !bCurrentKey && !FinishActiveEdit(&Context, false))
+					{
+						ImGui::PopID();
+						break;
+					}
 					FReflectedValueStorage ProposedKeyStorage;
 					std::string ProposedKeyError;
 					if (!AcceptPropertyResult(ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0), ProposedKeyError)
@@ -1553,7 +1576,7 @@ namespace Durin
 						}
 						else
 						{
-							bChanged |= SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
+							const bool bRenamed = SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
 								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft) -> std::expected<void, std::string> {
 									const FProperty* DraftProperty = nullptr;
 									void* DraftContainer = nullptr;
@@ -1567,12 +1590,27 @@ namespace Durin
 										DraftContainer, Key, ProposedKey, DraftArrayIndex);
 									return CheckMapMutation(Result, "key rename");
 								}, true);
+							bChanged |= bRenamed;
+							if (bRenamed)
+							{
+								ActiveMapKey = ProposedKeySnapshot;
+								ActiveMapKeyId = KeyId;
+							}
 						}
 					}
 				}
-				if (KeyEdit.bDeactivatedAfterEdit && IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, false);
-				else if ((KeyEdit.ColorPicker.bCancelled || (KeyEdit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape)))
-					&& IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, true);
+				if (IsEditingTarget(KeyTarget) && ActiveMapKeyId == KeyId)
+				{
+					auto State = KeyEdit.Interaction;
+					if (State.PopupId == 0)
+					{
+						State.WidgetId = KeyId;
+						State.bActive = KeyEdit.bActive;
+						State.bDeactivatedAfterEdit = KeyEdit.bDeactivatedAfterEdit;
+					}
+					EditInteraction.Observe(State);
+					ReconcileInteraction(Context);
+				}
 				ImGui::PopID();
 				// Rename and erase may change iteration order, so resume traversal next frame.
 				if (bRemove || bKeyChanged) break;
@@ -1619,12 +1657,12 @@ namespace Durin
 		const FPropertyEditTarget& Target,
 		const std::function<void(FProperty*, void*, uint32)>& AssignValue,
 		bool bContinuous,
-		const MonaImGui::PropertyEdit::FColorPickerState* Picker
+		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction
 	) -> bool
 	{
-		if (Picker)
+		if (Interaction)
 			return SubmitWidgetEdit(Context, Target, {.AssignValue = AssignValue,
-				.bChanged = static_cast<bool>(AssignValue), .bContinuous = true, .ColorPicker = *Picker});
+				.bChanged = static_cast<bool>(AssignValue), .bContinuous = true, .Interaction = *Interaction});
 		if (!AssignValue)
 		{
 			ReportError(Context, "The reflected property assignment is unavailable.");
@@ -1647,18 +1685,17 @@ namespace Durin
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
 		if (!EditSession.IsActive()) return true;
-		if (ColorPickerInteraction.GetPopupId() != 0)
-		{
-			if (bCancel) ColorPickerInteraction.RequestCancel();
-			bCancel = ColorPickerInteraction.IsCancelPending();
-		}
+		if (bCancel) EditInteraction.RequestCancel();
+		bCancel = EditInteraction.IsCancelPending();
 		const auto Result = bCancel ? EditSession.Cancel() : EditSession.Commit();
 		if (!Result && Context) ReportError(*Context, Result.Message);
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
-			ColorPickerInteraction = {};
+			EditInteraction = {};
+			ActiveMapKey = {};
+			ActiveMapKeyId = 0;
 		}
 		return static_cast<bool>(Result);
 	}
@@ -1672,20 +1709,20 @@ namespace Durin
 		}
 		if (OwnerContextObject != Object || Context.bReadOnly) MapInsertDraft = {};
 		OwnerContextObject = Object;
-		return ReconcileColorPicker(Context);
+		return ReconcileInteraction(Context);
 	}
 
-	auto FPropertyView::EndColorPickerFrame(const FPropertyViewContext& Context) -> bool
+	auto FPropertyView::EndInteractionFrame(const FPropertyViewContext& Context) -> bool
 	{
-		return ReconcileColorPicker(Context, true);
+		return ReconcileInteraction(Context, true);
 	}
 
-	auto FPropertyView::ReconcileColorPicker(const FPropertyViewContext& Context, bool bEndOfFrame) -> bool
+	auto FPropertyView::ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame) -> bool
 	{
-		using MonaImGui::PropertyEdit::EColorPickerEnd;
-		if (Context.bReadOnly && ColorPickerInteraction.GetPopupId() != 0) ColorPickerInteraction.RequestCancel();
-		const auto End = ColorPickerInteraction.Poll(bEndOfFrame);
-		return End == EColorPickerEnd::None || FinishActiveEdit(&Context, End == EColorPickerEnd::Cancel);
+		using MonaImGui::PropertyEdit::EPropertyInteractionEnd;
+		if (Context.bReadOnly && EditInteraction.IsActive()) EditInteraction.RequestCancel();
+		const auto End = EditInteraction.Poll(bEndOfFrame);
+		return End == EPropertyInteractionEnd::None || FinishActiveEdit(&Context, End == EPropertyInteractionEnd::Cancel);
 	}
 
 	auto FPropertyView::ReportError(const FPropertyViewContext& Context, std::string Error) const -> void

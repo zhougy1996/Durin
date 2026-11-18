@@ -33,7 +33,7 @@ namespace Durin::MaterialEditor
 		MonaImGui::PropertyEdit::BeginRow("Default value");
 		const ImGuiID Widget = ImGui::GetID("##Value");
 		using namespace MonaImGui::PropertyEdit;
-		FColorPickerState Picker;
+		FPropertyInteractionState Interaction;
 		auto Value = Parameter.Value;
 		bool Edited = false;
 		const float Minimum = Parameter.bHasRange ? Parameter.MinimumValue : 0.0f;
@@ -57,7 +57,7 @@ namespace Durin::MaterialEditor
 			if (Parameter.Presentation == EMaterialParameterPresentation::Color)
 			{
 				FLinearColor Color(Components[0], Components[1], Components[2], Components[3]);
-				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Picker);
+				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction);
 				if (Edited) Value.GetVector4() = FVector4(Color.R, Color.G, Color.B, Color.A);
 			}
 			else
@@ -68,13 +68,19 @@ namespace Durin::MaterialEditor
 		}
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
-		if (Edited)
+		if (Interaction.PopupId == 0)
+		{
+			Interaction.WidgetId = Widget;
+			Interaction.bActive = Active;
+			Interaction.bDeactivatedAfterEdit = Deactivated;
+		}
+		if (Edited && !ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 		{
 			if (ParameterSession.IsActive() && (ParameterWidget != Widget || EditingParameterId != Parameter.Id))
 			{
-				const bool bCancel = ParameterColorPicker.Poll(true) == EColorPickerEnd::Cancel;
+				const bool bCancel = ParameterInteraction.Poll(true) == EPropertyInteractionEnd::Cancel;
 				CheckCommand(bCancel ? ParameterSession.Cancel() : ParameterSession.Commit());
-				if (!ParameterSession.IsActive()) ParameterColorPicker = {};
+				if (!ParameterSession.IsActive()) ParameterInteraction = {};
 			}
 			if (!ParameterSession.IsActive() && CheckCommand(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
 			{
@@ -82,15 +88,13 @@ namespace Durin::MaterialEditor
 				EditingParameterId = Parameter.Id;
 			}
 			if (ParameterSession.IsActive() && ParameterWidget == Widget && EditingParameterId == Parameter.Id
-				&& !ParameterColorPicker.IsCancelPending()) CheckCommand(ParameterSession.Apply(Value));
+				&& !ParameterInteraction.IsCancelPending()) CheckCommand(ParameterSession.Apply(Value));
 		}
 		if (ParameterSession.IsActive() && ParameterWidget == Widget && EditingParameterId == Parameter.Id)
 		{
 			ParameterFrame = ImGui::GetFrameCount();
 			// Escape may deactivate an ImGui input before this check; cancellation wins.
-			if (Picker.PopupId != 0) ParameterColorPicker.Observe(Picker);
-			else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CheckCommand(ParameterSession.Cancel());
-			else if (Deactivated || (!Active && Edited)) CheckCommand(ParameterSession.Commit());
+			ParameterInteraction.Observe(Interaction);
 		}
 		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
@@ -98,15 +102,15 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
 	{
-		using MonaImGui::PropertyEdit::EColorPickerEnd;
+		using MonaImGui::PropertyEdit::EPropertyInteractionEnd;
 		if (ParameterSession.IsActive())
 		{
-			const auto End = ParameterColorPicker.Poll(true);
-			if (End == EColorPickerEnd::Cancel || ParameterFrame != ImGui::GetFrameCount())
+			const auto End = ParameterInteraction.Poll(true);
+			if (End == EPropertyInteractionEnd::Cancel || ParameterFrame != ImGui::GetFrameCount())
 				CheckCommand(ParameterSession.Cancel());
-			else if (End == EColorPickerEnd::Commit) CheckCommand(ParameterSession.Commit());
+			else if (End == EPropertyInteractionEnd::Commit) CheckCommand(ParameterSession.Commit());
 		}
-		if (!ParameterSession.IsActive()) ParameterColorPicker = {};
+		if (!ParameterSession.IsActive()) ParameterInteraction = {};
 	}
 
 	auto FMaterialGraphCanvas::PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&
@@ -211,7 +215,7 @@ namespace Durin::MaterialEditor
 					CommitParameter();
 				}
 				MonaImGui::PropertyEdit::BeginRow("Texture");
-				const auto Picker = AssetPicker::Draw({.RequiredClass = Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
+				const auto Interaction = AssetPicker::Draw({.RequiredClass = Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
 					.CurrentSelection = Parameter.Value.GetTexture().Texture.Get(), .SearchText = NodeTextureSearch,
 					.AssignSelection = [&](DObject* Object, std::string& Error) {
 						auto Value = Parameter.Value;
@@ -221,7 +225,7 @@ namespace Durin::MaterialEditor
 						return static_cast<bool>(Result);
 					}});
 				MonaImGui::PropertyEdit::EndRow();
-				if (!Picker.Error.empty()) ReportError(Picker.Error);
+				if (!Interaction.Error.empty()) ReportError(Interaction.Error);
 				if (MonaImGui::PropertyEdit::BeginGroup("Sampler", "Sampler settings", ImGuiTreeNodeFlags_None))
 				{
 					const auto Combo = [&](const char* Label, auto& Value, const char* Names) {

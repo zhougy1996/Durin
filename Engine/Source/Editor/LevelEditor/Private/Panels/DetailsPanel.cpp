@@ -217,6 +217,7 @@ namespace Durin::LevelEditor
 		ImGui::InputTextWithHint("##PropertySearch", "Search properties...", PropertySearchText.data(), PropertySearchText.size());
 		if (!ImGui::BeginChild("DetailsPropertyRows", ImVec2(0.0f, 0.0f)))
 		{
+			PropertyView.EndInteractionFrame(ViewContext);
 			ImGui::EndChild();
 			return;
 		}
@@ -229,6 +230,7 @@ namespace Durin::LevelEditor
 			.ExtendLayout = [&](FDetailLayoutBuilder& Layout) {
 				BuildActorComponentDetails(Context, Cast<AActor>(Object), Layout, PropertySearchText.data());
 			}});
+		PropertyView.EndInteractionFrame(ViewContext);
 		ImGui::EndChild();
 	}
 

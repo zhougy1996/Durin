@@ -324,16 +324,16 @@ namespace Durin::MaterialEditor
 		auto SubmitContinuousEdit(bool bChanged, const FMaterialParameterValue& Value,
 			bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
-			if (bChanged && bOverrideEnabled
-				&& !Model.SubmitValueEdit(Editor.PropertyView,
-					Editor.MakePropertyViewContext(), Entry, Value, true))
-				Editor.SetError(std::format("The reflected {} parameter is unavailable.",
-					Entry.Definition->DisplayName));
-			HandleContinuousEdit(bDeactivatedAfterEdit, bActive);
+			const MonaImGui::PropertyEdit::FPropertyInteractionState Interaction{
+				.WidgetId = ImGui::GetID("##ParameterInteraction"), .bActive = bActive,
+				.bDeactivatedAfterEdit = bDeactivatedAfterEdit};
+			if (bOverrideEnabled)
+				Model.SubmitValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Value,
+					true, &Interaction, bChanged);
 		}
 
 		auto SubmitColorEdit(bool bChanged, const FMaterialParameterValue& Value,
-			const MonaImGui::PropertyEdit::FColorPickerState& Picker) -> void
+			const MonaImGui::PropertyEdit::FPropertyInteractionState& Picker) -> void
 		{
 			if (bOverrideEnabled)
 				Model.SubmitValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Value,
@@ -343,15 +343,6 @@ namespace Durin::MaterialEditor
 		auto IsReadOnly() const -> bool { return bDisabled; }
 
 	private:
-		auto HandleContinuousEdit(bool bDeactivatedAfterEdit, bool bActive) -> void
-		{
-			if ((bActive || bDeactivatedAfterEdit) && ImGui::IsKeyPressed(ImGuiKey_Escape)
-				&& Editor.PropertyView.IsEditing())
-				Editor.FinishActivePropertyEdit(true);
-			else if (bDeactivatedAfterEdit && Editor.PropertyView.IsEditing())
-				Editor.FinishActivePropertyEdit(false);
-		}
-
 		FMaterialEditor& Editor;
 		const FMaterialParameterPanelModel& Model;
 		const FMaterialParameterPanelEntry& Entry;
@@ -720,7 +711,7 @@ namespace Durin::MaterialEditor
 		ImGui::Spacing();
 
 		DrawDockLayout(Document, Material);
-		PropertyView.EndColorPickerFrame(MakePropertyViewContext());
+		PropertyView.EndInteractionFrame(MakePropertyViewContext());
 		if (const auto Canvas = MaterialGraphCanvases.find(Document.Id.Value); Canvas != MaterialGraphCanvases.end())
 			Canvas->second->EndParameterFrame();
 
@@ -1499,7 +1490,7 @@ namespace Durin::MaterialEditor
 		FVector4& Value = Edited.GetVector4();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
 		using namespace MonaImGui::PropertyEdit;
-		FColorPickerState Picker;
+		FPropertyInteractionState Picker;
 		FLinearColor Color(static_cast<float>(Value.x), static_cast<float>(Value.y),
 			static_cast<float>(Value.z), static_cast<float>(Value.w));
 		const bool bChanged = DrawColorPicker(Color, EColorPickerMode::Linear, true, Row.IsReadOnly(), &Picker);

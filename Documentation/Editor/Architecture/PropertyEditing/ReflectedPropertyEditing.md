@@ -210,7 +210,19 @@ edit session; subsequent picker gestures update the same preview until the popup
 closes. Normal dismissal commits the session, while Escape or losing the
 editable target cancels it. The picker reports its lifetime separately from
 the activation state of its nested controls; it does not write reflected
-storage or own history. Map keys remain structural edits.
+storage or own history. Map keys remain structural edits and retain their widget
+identity across renames, with uniqueness validation on the structural write path.
+
+`FPropertyEditInteraction` observes `FPropertyInteractionState` independently of
+the writer. Numeric/vector gestures and text confirmation use control activation;
+colors use popup lifetime. This follows UE's separation of interactive property
+updates from the enclosing transaction boundary. Escape takes precedence over
+deactivation and new proposals. Hosts call `EndInteractionFrame` after all their
+rows to cancel abandoned previews; per-row reconciliation also detects missing
+controls on the next frame. Failed restoration retains the session and a sticky
+cancel request, preventing subsequent input or normal dismissal from committing
+the rejected preview. Material graph sessions keep their domain setter and
+likewise remain active until restoration succeeds.
 
 `CancelUnchanged()` closes an active unchanged session with no deferred work,
 emits Cancelled for a live target, and ends its transaction scope. It preserves

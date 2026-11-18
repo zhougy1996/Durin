@@ -395,12 +395,12 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 			if (bClose) ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 		}
-		const FColorPickerState Picker{PopupId, false, bIsOpen};
+		const FPropertyInteractionState Picker{PopupId, false, bIsOpen};
 		const FMaterialParameterPanelModel Model(Instance.Get());
 		const auto* Entry = FindEntry(Model, Id);
 		ASSERT_NE(Entry, nullptr);
 		Model.SubmitValueEdit(View, Context, *Entry, Edited ? *Edited : Entry->Value, true, &Picker, Edited != nullptr);
-		EXPECT_TRUE(View.EndColorPickerFrame(Context));
+		EXPECT_TRUE(View.EndInteractionFrame(Context));
 		ImGui::End(); ImGui::Render();
 	};
 	Frame(nullptr, true);
@@ -426,6 +426,73 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 	EXPECT_FALSE(View.IsEditing());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_TRUE(Error.empty()) << Error;
+}
+
+TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBoundariesAndCancelMissingControls)
+{
+	using namespace Durin;
+	using namespace Durin::MaterialEditor;
+	using namespace MonaImGui::PropertyEdit;
+	using namespace AssetForge::Builtins::MaterialParameters;
+	InitializeDObjectSystem();
+	for (const auto Role : {EMaterialBuiltinParameterRole::Opacity, EMaterialBuiltinParameterRole::BaseColor})
+	{
+		TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("ContinuousBase"));
+		TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ContinuousInstance"));
+		ASSERT_TRUE(Instance->SetParent(Base.Get()));
+		FPropertyTransactionHarness Transactions;
+		FPropertyView View;
+		std::string Error;
+		const auto Context = MakeContext(Transactions, Error);
+		const auto Id = GetBuiltinParameterIds(Role).Value;
+		FMaterialParameterPanelModel Model(Instance.Get());
+		ASSERT_TRUE(Model.SetOverrideEnabled(View, Context, *FindEntry(Model, Id), true));
+		ASSERT_TRUE(Transactions->TryReset());
+		const auto Read = [&] {
+			FMaterialParameterValue Value;
+			EXPECT_TRUE(Instance->GetLocalParameterValue(Id, Value));
+			return Value;
+		};
+		const auto Original = Read();
+		const auto Edited = Role == EMaterialBuiltinParameterRole::Opacity
+			? FMaterialParameterValue::MakeScalar(.25f) : FMaterialParameterValue::MakeVector4({.25, .5, .75, 1});
+		const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
+		auto& IO = ImGui::GetIO();
+		IO.ConfigInputTrickleEventQueue = false;
+		IO.DisplaySize = {900, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+		const auto Frame = [&](bool bChange, bool bActive = true, bool bVisible = true) {
+			ImGui::NewFrame(); ImGui::Begin("Continuous instance");
+			if (bVisible)
+			{
+				const FMaterialParameterPanelModel Current(Instance.Get());
+				const auto* Entry = FindEntry(Current, Id);
+				const FPropertyInteractionState State{.WidgetId = ImGui::GetID("Value"),
+					.bActive = bActive, .bDeactivatedAfterEdit = !bActive};
+				Current.SubmitValueEdit(View, Context, *Entry, Edited, true, &State, bChange);
+			}
+			EXPECT_TRUE(View.EndInteractionFrame(Context));
+			ImGui::End(); ImGui::Render();
+		};
+		Frame(true); Frame(false);
+		EXPECT_EQ(Read(), Edited);
+		EXPECT_TRUE(View.IsEditing());
+		Frame(false, false);
+		EXPECT_FALSE(View.IsEditing());
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Read(), Original);
+		EXPECT_FALSE(Transactions->CanUndo());
+		ASSERT_TRUE(Transactions->TryReset());
+		Frame(true);
+		IO.AddKeyEvent(ImGuiKey_Escape, true); Frame(true, false);
+		EXPECT_EQ(Read(), Original);
+		IO.AddKeyEvent(ImGuiKey_Escape, false); Frame(true);
+		Frame(false, false, false);
+		EXPECT_EQ(Read(), Original);
+		EXPECT_FALSE(View.IsEditing());
+		EXPECT_FALSE(Transactions->CanUndo());
+		EXPECT_TRUE(Error.empty()) << Error;
+	}
 }
 
 TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScoped)

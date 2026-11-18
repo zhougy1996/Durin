@@ -29,33 +29,40 @@ namespace Durin::MonaImGui::PropertyEdit
 		bool bDeactivatedAfterEdit = false;
 	};
 
-	struct FColorPickerState
+	struct FPropertyInteractionState
 	{
 		ImGuiID PopupId = 0;
 		bool bCancelled = false;
 		bool bOpen = false;
+		ImGuiID WidgetId = 0;
+		bool bActive = false;
+		bool bDeactivatedAfterEdit = false;
 	};
 
-	enum class EColorPickerEnd { None, Commit, Cancel };
+	enum class EPropertyInteractionEnd { None, Commit, Cancel };
 	enum class EColorPickerMode { SRGB, Linear, LinearHDR };
 
-	class FColorPickerInteraction
+	class FPropertyEditInteraction
 	{
 	public:
-		MONAIMGUI_API auto Observe(const FColorPickerState& State) -> void;
-		MONAIMGUI_API auto Poll(bool bEndOfFrame = false) -> EColorPickerEnd;
+		MONAIMGUI_API auto Observe(const FPropertyInteractionState& State) -> void;
+		MONAIMGUI_API auto Poll(bool bEndOfFrame = false) -> EPropertyInteractionEnd;
 		auto GetPopupId() const -> ImGuiID { return PopupId; }
+		auto GetWidgetId() const -> ImGuiID { return WidgetId; }
+		auto IsActive() const -> bool { return PopupId != 0 || WidgetId != 0; }
 		auto RequestCancel() -> void { bCancelPending = true; }
 		auto IsCancelPending() const -> bool { return bCancelPending; }
 
 	private:
 		ImGuiID PopupId = 0;
+		ImGuiID WidgetId = 0;
 		int LastDrawFrame = 0;
 		bool bCancelPending = false;
+		bool bCommitPending = false;
 	};
 
 	MONAIMGUI_API auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode,
-		bool bShowAlpha, bool bReadOnly, FColorPickerState* OutPickerState,
+		bool bShowAlpha, bool bReadOnly, FPropertyInteractionState* OutPickerState,
 		FWidgetState* OutState = nullptr) -> bool;
 
 	// Defines labels, sizing, and table flags shared by property editors.
@@ -156,5 +163,5 @@ namespace Durin::MonaImGui::PropertyEdit
 	// Edits linear storage through an sRGB-facing picker. Must be called inside a property table.
 	MONAIMGUI_API auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha = true,
 		bool bReadOnly = false, FWidgetState* OutState = nullptr, FLabelTooltip LabelTooltip = nullptr,
-		FColorPickerState* OutPickerState = nullptr) -> bool;
+		FPropertyInteractionState* OutPickerState = nullptr) -> bool;
 } // namespace Durin::MonaImGui::PropertyEdit
