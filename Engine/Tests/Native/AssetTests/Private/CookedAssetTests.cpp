@@ -625,7 +625,7 @@ TEST(FCookInputTests, DiscoveryLimitsAndRootClassRetainFirstCause)
 TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 {
 	const FCookPackagePreparationOptions Options;
-	FCookPreparationContext Context{Options};
+	FCookedPlatformData Context{Options};
 	FByteBuffer Bytes{std::byte{1}};
 	std::string Name = "missing-value";
 	const auto Result = Context.ReadDeclaredInput(ECookBuildDependencyKind::ConfigurationValue, Name, Bytes);
@@ -647,33 +647,16 @@ TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 
 }
 
-TEST(FCookObjectLifecycleTests, FamilyRejectionsOwnTargetAndNestedPlanContext)
+TEST(FCookObjectLifecycleTests, PackageAdmissionOwnsTargetAndPlanDiagnostic)
 {
-	(void)MakePackageBytes();
-	auto* Texture = NewObject<DTexture2D>(nullptr, "ContributionFailure");
-	ASSERT_NE(Texture, nullptr);
-	FCookContext Context(ECookTargetPlatform::Invalid, ECookTargetProfile::Game);
-	std::string Path = "/Game/Rejected";
-	auto Rejected = SaveCookPackage((*Texture).GetPackage(), Path, Context);
-	EXPECT_FALSE(Rejected);
-	EXPECT_EQ(Rejected.Error, ECookContributionError::Target);
-	EXPECT_EQ(Rejected.TargetPlatform, ECookTargetPlatform::Invalid);
-	EXPECT_EQ(Rejected.TargetProfile, ECookTargetProfile::Game);
-	EXPECT_TRUE(Rejected.ObjectPath.empty()); // Target admission precedes object preparation.
-	Path.clear();
-	EXPECT_EQ(Rejected.VirtualPath, "/Game/Rejected");
-	Rejected.Status = ECookContributionStatus::Error;
-	Rejected.Error = ECookContributionError::Plan;
-	Rejected.PlanCause = FCookPlanError{.Code = ECookPlanError::DuplicatePath,
-		.VirtualPath = Rejected.VirtualPath};
-	const auto Adapted = Rejected;
-	Rejected = {};
-	EXPECT_FALSE(Adapted);
-	EXPECT_EQ(Adapted.Error, ECookContributionError::Plan);
-	EXPECT_NE(FormatCookContributionError(Adapted).find("/Game/Rejected"), std::string::npos);
-
-	EXPECT_TRUE(FCookContributionResult{});
-
+    FCookContext Context(ECookTargetPlatform::Invalid, ECookTargetProfile::Game);
+    const auto Rejected = Context.AddPackage("/Game/Rejected", static_cast<DPackage*>(nullptr));
+    ASSERT_FALSE(Rejected);
+    EXPECT_EQ(Rejected.Error.Code, ECookPlanError::Target);
+    EXPECT_EQ(Rejected.Error.TargetPlatform, ECookTargetPlatform::Invalid);
+    EXPECT_EQ(Rejected.Error.TargetProfile, ECookTargetProfile::Game);
+    EXPECT_FALSE(FormatCookPlanError(Rejected.Error).empty());
+    EXPECT_TRUE(FCookPlanResult{});
 }
 
 TEST(FCookObjectLifecycleTests, FamilyCookHelpersAreNotPublicApi)

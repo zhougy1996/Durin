@@ -54,8 +54,8 @@ if(DURIN_WITH_EDITOR)
 	durin_add_native_test(CookFunctionalTests
 		KIND feature
 		DOMAINS asset-cook
-		MODULES engine renderer texture-compressor static-mesh-build shader-build
-		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder ShaderBuild
+		MODULES engine renderer texture-compressor static-mesh-build shader-build target-platform
+		LIBRARIES Core CoreDObject Engine TextureCompressor MeshBuilder ShaderBuild TargetPlatform
 		DEPENDENCIES Renderer
 		TIMEOUT 600
 		SOURCES Private/CookFunctionalTests.cpp

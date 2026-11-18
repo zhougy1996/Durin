@@ -31,9 +31,12 @@ TEST(FTargetPlatformTests, ResolutionExposesPlatformCapabilities)
 	ASSERT_TRUE(Mac);
 	EXPECT_EQ(Mac->GetShaderTarget(), MetalShaderTarget);
 	EXPECT_FALSE(Mac->SupportsCollisionPayload());
+	EXPECT_EQ(Mac->GetPlatform(), ECookTargetPlatform::MacOS);
+	EXPECT_EQ(Mac->GetTextureFormat(ETargetTextureUsage::Color, true, true), EPixelFormat::BC3_UNORM_SRGB);
 	const auto Windows = ResolveTargetPlatform(ECookTargetPlatform::Win64);
 	ASSERT_TRUE(Windows);
 	EXPECT_EQ(Windows->GetShaderTarget(), VulkanShaderTarget);
 	EXPECT_TRUE(Windows->SupportsCollisionPayload());
+	EXPECT_EQ(Windows->GetTextureFormat(ETargetTextureUsage::Normal, false, false), EPixelFormat::BC5_UNORM);
 	EXPECT_FALSE(ResolveTargetPlatform(ECookTargetPlatform::Invalid));
 }

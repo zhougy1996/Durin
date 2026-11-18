@@ -18,15 +18,37 @@
 
 namespace Durin
 {
-	auto DObject::BeginCacheForCookedPlatformData(FObjectCookContext&) -> void {}
-	auto DObject::IsCachedCookedPlatformDataLoaded(const FObjectCookContext&) const -> bool { return true; }
-	auto DObject::ClearCachedCookedPlatformData(const FObjectCookContext&) -> void {}
+	auto DObject::BeginCacheForCookedPlatformData(const ITargetPlatform*) -> void {}
+	auto DObject::IsCachedCookedPlatformDataLoaded(const ITargetPlatform* Target) -> bool
+	{ auto Data = GetCachedCookedPlatformData(Target); return !Data || Data->Poll(); }
+	auto DObject::ClearCachedCookedPlatformData(const ITargetPlatform* Target) -> void
+	{
+		auto Data = GetCachedCookedPlatformData(Target);
+		if (!Data) return;
+		Data->Cancel();
+		Data->Wait();
+		CookedPlatformDataCache.erase(Target);
+	}
+	auto DObject::ClearAllCachedCookedPlatformData() -> void
+	{
+		for (const auto& [Target, Data] : CookedPlatformDataCache) Data->Cancel();
+		for (const auto& [Target, Data] : CookedPlatformDataCache) Data->Wait();
+		CookedPlatformDataCache.clear();
+	}
+	auto DObject::WillNeverCacheCookedPlatformDataAgain() -> void { ClearAllCachedCookedPlatformData(); }
+	auto DObject::SetCookedPlatformData(const ITargetPlatform* Target, std::shared_ptr<ICookedPlatformData> Data) -> bool
+	{ return Target && Data && CookedPlatformDataCache.emplace(Target, std::move(Data)).second; }
+	auto DObject::GetCachedCookedPlatformData(const ITargetPlatform* Target) const -> std::shared_ptr<ICookedPlatformData>
+	{
+		const auto Found = CookedPlatformDataCache.find(Target);
+		return Found == CookedPlatformDataCache.end() ? nullptr : Found->second;
+	}
 	auto DObject::IsEditorOnly() const -> bool { return false; }
-	auto DObject::NeedsLoadForTargetPlatform(const FArchiveTarget&) const -> bool { return true; }
+	auto DObject::NeedsLoadForTargetPlatform(const ITargetPlatform*) const -> bool { return true; }
 	auto DObject::OnCookEvent(ECookEvent, FObjectCookContext&) const -> void {}
 	auto DObject::PreSave(FObjectPreSaveContext&) -> void {}
 	auto DObject::AppendToClassSchema(FObjectCookContext&) -> void {}
-	auto IsObjectIncludedForCook(const DObject* Object, const FArchiveTarget& Target) -> bool
+	auto IsObjectIncludedForCook(const DObject* Object, const ITargetPlatform* Target) -> bool
 	{
 		if (!Object) return false;
 		for (auto* Current = Object; Current; Current = Current->GetOuter())
@@ -494,6 +516,7 @@ namespace Durin
 
 	auto DObject::BeginDestroy() -> void
 	{
+		ClearAllCachedCookedPlatformData();
 	}
 
 	auto DObject::IsReadyForFinishDestroy() -> bool

@@ -2,7 +2,7 @@
 
 Summary: Define offline Cook inputs, dependency reuse, typed failures, and transactional output publication.
 
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-18
 
 ## Coordinator and input ownership
 
@@ -13,17 +13,18 @@ Family source roots own native recipe declarations; material configurations are
 declared before Cook lookup. Unrelated family settings do not enter every DDC key.
 
 Engine package capture prepares material programs and StaticMesh render/collision
-products once before Archive discovery/emission. A bounded invocation-scoped
-table retains detached bulk by object handle, package revision and exact target.
-Serializers only consume these values; direct Engine package serialization uses
-the same preparation entrypoint. Cancellation/failure destroys the table before
-publication. Preparation does not depend on an accepted live material render
+products before Archive discovery/emission. Each asset owns `FCookedPlatformData`
+keyed by target platform, including pending work, input stamps and detached bulk.
+Serializers borrow completed products directly from the asset; there is no TLS
+product table. Direct Engine package serialization uses the same preparation
+entrypoint. Cancellation/failure drains work and clears the acquired entries
+before returning without publication. Preparation does not depend on an accepted live material render
 program or apply a compiled candidate to the asset.
 
 `FCookContext::AddPackage` accepts canonical cooked package bytes; package
 serialization captures any `FBulkData` ranges and produces the optional raw
 segment. `AddRawPackage` admits an already laid-out opaque segment. Asset classes
-own their Cook lifecycle overrides. `SaveCookPackage` and direct package saves use
+own their Cook lifecycle overrides. `FCookContext::AddPackage` and direct package saves use
 one common package capture; object hooks cannot publish plans. There is no Cook
 contributor registry, registration scope, handle, or registration snapshot.
 
@@ -207,8 +208,13 @@ without rewriting the authored inputs.
 
 ## Object lifecycle and selection
 
-`DObject` provides default begin/completion/clear, `PreSave`, dependency-event and
-target-eligibility hooks. `FObjectCookContext` carries generic target/request
+`DObject` exposes `BeginCacheForCookedPlatformData`,
+`IsCachedCookedPlatformDataLoaded` and `ClearCachedCookedPlatformData` with a
+`const ITargetPlatform*`, following UE's target-keyed lifecycle. The object owns
+each pending cache entry; polling does not depend on an active serialization
+scope. `NeedsLoadForTargetPlatform` receives the same platform pointer for
+selection and package capture. `PreSave` derives cooking state from that pointer.
+`FObjectCookContext` carries dependency-event target/request
 values, declarations and typed results without depending on Engine or its build
 providers. Required named request values become captured dependencies. Native
 `AppendToClassSchema` hooks bind through `FClassParams` and intrinsic construction;
@@ -225,13 +231,20 @@ configuration/producer-version values. Declare package and external-file inputs
 in `OnCookEvent`, where the instance and package are available. This prevents a
 once-per-class cache from reusing declarations chosen for the first package.
 
-Engine starts independent selected objects before joining, subject to bounded
-admission. Mesh Begin captures immutable source/settings and physics-input tasks;
+Asset Begin creates its own queued target entry, independently of package capture.
+Repeated Begin reuses an entry while its inputs remain current. Reuse and capture
+check family input guards as well as package revision; texture source/settings
+invalidation advances a private authored-build revision even without package edits.
+First polling admits queued work before snapshot capture; the package scheduler configures the
+request before that first poll. `FPackageCookPreparation::Poll` returns Success,
+Error or Incomplete and never waits for budget or task completion. An unavailable
+reservation leaves work queued while other entries progress. Mesh captures
+immutable source/settings and physics-input tasks;
 worker work builds/encodes detached products without reading Mesh or BodySetup.
 Material Begin snapshots every configuration on the game thread and submits
 `FMaterialBuildOperation` requests; completed variants are encoded in canonical
 order, independent of callback order. Neither path publishes live editor resources.
-Texture retains its existing platform-cache lifecycle. Small/cooked-only paths and
+Texture preparation builds a detached product for the requested target; it never installs or serializes the running preview. Small/cooked-only paths and
 explicit synchronous adapters remain supported. Without a running task scheduler,
 detached adapters execute synchronously; ordinary load-time compilation retains its
 existing policy.
@@ -243,16 +256,17 @@ target, input reader, scheduler or preparation-result channel.
 
 `SerializeCookedPackageBytes` and `SerializeCookedPackageClosure` accept separate
 `FCookPackagePreparationOptions` and serialization options. The Cook owner first
-prepares selected objects, then supplies their scoped products and target to the
-private encoder. Ordinary capture never starts platform-data work. Prepared inputs
+polls selected objects to completion, then supplies the target to the private
+encoder, whose family serializers read asset-owned products. These explicit
+synchronous entrypoints wait between polls; the scheduler itself does not wait. Ordinary capture never starts platform-data work. Prepared inputs
 are revalidated after capture, before output buffers are replaced. The optional
-`FCookPackagePreparationReport` is reset on every invocation and owns its failure
-and metrics values directly; it is not shared through input options.
+`FCookPackagePreparationReport` is reset on every invocation and contains only
+metrics. Both Cook serialization functions return `FObjectCookResult` directly.
 
 `FCookPackagePreparationOptions` defaults to four outstanding preparation
 reservations, 512 MiB of working reservations, and a separate 1 GiB retained-product
-limit. Reserve before capturing inputs; admission can join/adopt earlier operations
-to make progress under smaller budgets. Mesh uses checked geometry/physics envelopes;
+limit. Reserve before capturing inputs; completed operations release reservations
+so later polls can admit queued work under smaller budgets. Mesh uses checked geometry/physics envelopes;
 Material reserves 64 MiB per variant for snapshot, compilation and encoding overlap.
 Oversized work fails explicitly. Owner-thread report metrics record
 reservation peaks and retained product bytes, not physical allocator measurements.
@@ -262,8 +276,19 @@ Completion is distinct from success and from request termination. Common teardow
 cancels all outstanding work, joins owned tasks/requests and clears every started
 object, including failed, canceled and nested captures. Worker callbacks never need
 a game-thread pump to finish. Request cancellation is polled on the owner thread
-and latched into provider tokens. Joining is cooperative and has no hard timeout;
-a lifecycle query still reporting incomplete after its join adapter fails the save.
+and latched into lightweight provider tokens and CPU producer loops. Accepted DDC
+work may finish normally; its result is not installed for a canceled asset.
+Polling returns false while work is pending and true after either success or
+failure; the separate result carries failure or cancellation. Clear cancels and
+drains pending work before removing the cache entry. `ClearAllCachedCookedPlatformData`
+signals every entry before draining any, and object destruction invokes it.
+`WillNeverCacheCookedPlatformDataAgain` releases retained entries as a lifecycle hint.
+Draining uses native task/request waits and has no hard timeout. Each detached
+operation owns a lightweight CPU cancellation token and its DDC request owner.
+Cancel signals the token; family adapters, including mesh collision preparation,
+borrow the owner until their DDC requests have drained. Package Poll remains
+Incomplete during canceled-work retirement and starts no further queued work.
+Token callbacks and observer registrations are not involved.
 Cross-package overlap and simultaneous targets on one object are unsupported.
 
 `PreSave` executes once per selected object before archive discovery/emission,
@@ -331,7 +356,7 @@ Declarations use stable logical names and these semantics:
   Cycles terminate once per node. Build-only packages do not become runtime roots.
 - External files are hashed during discovery and read again when requested; their
   locator is excluded from identity. Configuration and schema/producer values are owned canonical bytes.
-  Preparation hooks read them through `FCookPreparationContext::ReadDeclaredInput`; undeclared
+  Preparation hooks read them through `FCookedPlatformData::ReadDeclaredInput`; undeclared
   access fails the run even if its immediate error is ignored.
 - Names, kinds, lengths, and values are canonically framed. Family behavior
   versions, relevant reflected schema, target/profile, and editor retention are
@@ -400,13 +425,14 @@ cancellation between directory entries, read chunks, and library requests.
 ## Results and failure ownership
 
 `FObjectCookResult` separates generic typed failure/cancellation from completion.
-Engine preparation retains its family-specific `FCookContributionResult` cause;
-registration errors and duplicate route/name diagnostics no longer exist.
+Texture, mesh and material preparation share this result. Producer diagnostics
+are returned by value rather than recovered from logs. Preparation has no
+family-specific failure side channel or report-owned duplicate result.
 
 Cook discovery retains its first `FCookInputFailure` in its own failure channel;
 `FCookRunResult::InputDiagnostic` receives that owned record alongside the run
-`FCookInputResult` status and diagnostic text. Engine preparation returns
-`FCookContributionResult` directly; dependency graphs adapt to Cook input
+`FCookInputResult` status and diagnostic text. Package planning adapts preparation
+errors once to its result; cancellation remains distinct. Dependency graphs adapt to Cook input
 status without passing through asset read or write classifications. Cancellation, input write conflicts, file IO,
 file/aggregate byte and package-count limits, unknown packages, undeclared
 values and missing readers have typed codes with owned identities and limits.
@@ -463,10 +489,10 @@ output root. Its `AddPackage` overloads return `FCookPlanResult`, distinguishing
 invalid path/source identity, empty bytes, duplicate path, invalid package and
 projection failure. Errors retain the virtual path and complete serialization
 result for projection failures; admission failure publishes no plan.
-Family preparation returns `FCookContributionResult`, retaining object/virtual
-paths, target settings and preparation diagnostics. The coordinator retains the
-complete `ContributionCause`, package and family identity before formatting the
-run presentation. Starting another run clears this prior failure state.
+Family preparation returns `FObjectCookResult` with an owned diagnostic.
+`FCookContext::AddPackage` adapts it once to the plan result. The coordinator
+retains that error as `PreparationCause`; no contribution-result wrapper or
+separate family failure channel exists. Starting another run clears the cause.
 Metadata admission rejects explicit roots with no runtime exports and runtime
 hard references to excluded source-only objects before any CookState reuse.
 Source-only objects and their descendants are omitted from runtime exports;

@@ -51,12 +51,8 @@ namespace Durin
 		{
 		public:
 			FCancellationToken() = default;
-			FCancellationToken(const FCancellationToken& Other) : bCanceled(Other.IsCanceled()) {}
-			FCancellationToken(FCancellationToken&& Other) noexcept : bCanceled(Other.IsCanceled()) {}
-			auto operator=(const FCancellationToken& Other) -> FCancellationToken&
-			{ bCanceled.store(Other.IsCanceled(), std::memory_order_relaxed); return *this; }
-			auto operator=(FCancellationToken&& Other) noexcept -> FCancellationToken&
-			{ return *this = Other; }
+			FCancellationToken(const FCancellationToken&) = delete;
+			auto operator=(const FCancellationToken&) -> FCancellationToken& = delete;
 			auto Cancel() -> void { bCanceled.store(true, std::memory_order_relaxed); }
 			auto IsCanceled() const -> bool { return bCanceled.load(std::memory_order_relaxed); }
 		private:

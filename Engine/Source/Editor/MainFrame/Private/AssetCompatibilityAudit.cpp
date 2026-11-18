@@ -230,7 +230,7 @@ namespace Durin
 		InvalidatePresentation();
 
 		State = EAssetCompatibilityAuditState::Running;
-		Cancellation = Tasks::FCancellationToken{};
+		Cancellation.emplace();
 		Tasks::FTaskExecutionOptions Options;
 
 		const uint64 Serial = RequestSerial;
@@ -238,7 +238,7 @@ namespace Durin
 		const FAssetCompatibilityProbe WorkerProbe = Probe;
 		auto WorkerTask = Tasks::LaunchTask("AssetCompatibility.Audit",
 			[Serial, WorkerMailbox, WorkerProbe, Inputs = std::move(Inputs),
-				Catalog = std::move(Catalog), Token = &Cancellation]() mutable -> FTerminalSummary {
+				Catalog = std::move(Catalog), Token = &*Cancellation]() mutable -> FTerminalSummary {
 				auto Queue = [&](FNotice Notice) {
 					std::lock_guard Lock(WorkerMailbox->Mutex);
 					WorkerMailbox->Notices.push_back(std::move(Notice));
@@ -287,7 +287,7 @@ namespace Durin
 				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;
 				if (Model.RequestSerial != Serial || !Model.bAdmissionOpen) return;
 				Model.DrainMailbox();
-				if (Model.Cancellation.IsCanceled())
+				if (Model.Cancellation->IsCanceled())
 				{
 					Model.State = EAssetCompatibilityAuditState::Cancelled;
 					Model.Failure.clear();
@@ -314,7 +314,7 @@ namespace Durin
 	auto FAssetCompatibilityAuditModel::Cancel() -> bool
 	{
 		if (State != EAssetCompatibilityAuditState::Running) return false;
-		Cancellation.Cancel();
+		Cancellation->Cancel();
 
 		return true;
 	}

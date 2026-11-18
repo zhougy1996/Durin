@@ -26,7 +26,7 @@ namespace Durin
 		}
 
 		auto BuildMesh(FStaticMeshRenderData& OutRenderData,
-			const FStaticMeshBuildParameters& Parameters) -> bool override
+			const FStaticMeshBuildParameters& Parameters) -> std::expected<void, std::string> override
 		{
 			return FStaticMeshBuilder::Build(OutRenderData, Parameters);
 		}

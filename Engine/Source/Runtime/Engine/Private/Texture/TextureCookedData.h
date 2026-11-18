@@ -13,14 +13,15 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Threading/Task.h"
 #include "../Asset/CookedArchiveTarget.h"
+#include "Asset/CookedPreparation.h"
+#include "Asset/AssetBuildTaskContext.h"
 
 namespace Durin::TexturePrivate
 {
 	// The caller supplies the historical wire owner; storage ownership must not
 	// change the native field identity or the family-specific payload codec.
-	template<class TPlatformData>
-	auto SerializeCookedPlatformData(FArchive& Ar, FBulkData& CookedData,
-		TPlatformData* PlatformData, FName WireOwner, std::string_view Family) -> void
+	inline auto SerializeCookedPlatformData(FArchive& Ar, FBulkData& CookedData,
+		const DTexture& Texture, FName WireOwner, std::string_view Family) -> void
 	{
 		if ((Ar.GetTarget().Platform != "Win64"
 				&& Ar.GetTarget().Platform != "MacOS")
@@ -30,35 +31,42 @@ namespace Durin::TexturePrivate
 				std::format("{} cooked platform data requires a Win64 or MacOS Game target.", Family));
 			return;
 		}
-		FBulkData Projection;
 		FBulkData* Value = &CookedData;
 		if (Ar.IsSaving())
 		{
-			if (!PlatformData || !PlatformData->IsValid())
+			auto* Prepared = FCookedPlatformData::Find(Texture, Ar.GetTarget());
+			if (!Prepared || !Prepared->Primary.HasData())
 			{
-				Ar.Fail(EArchiveFailureCode::InvalidData,
-					std::format("{} cooked platform data is unavailable.", Family));
+				Ar.Fail(EArchiveFailureCode::InvalidData, std::format("{} has no prepared data for this target.", Family));
 				return;
 			}
-			FByteBuffer Bytes;
-			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = Ar.GetTarget()});
-			PlatformData->Serialize(Writer);
-			auto Bulk = Writer.IsError() ? std::expected<FBulkData, FBulkDataError>{}
-				: FBulkData::TryCreateDetached(Bytes);
-			if (Writer.IsError() || !Bulk)
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Writer.IsError()
-					? std::string(Writer.GetError()) : FormatBulkDataError(Bulk.error()));
-				return;
-			}
-			Projection = std::move(*Bulk);
-			Value = &Projection;
+			Value = &Prepared->Primary;
 		}
 		auto Field = EnterArchiveField(Ar, {WireOwner,
 			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
 		Value->Serialize(Ar, {.Alignment = TexturePayloadAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
+
+#if DURIN_WITH_EDITORONLY_DATA
+	template<class BuildProduct>
+	auto StartTextureCook(FCookedPlatformData& Preparation, BuildProduct Build) -> void
+	{
+		Preparation.StartDetachedWork([Build = std::move(Build), Target = Preparation.GetArchiveTarget()]
+			(const FAssetBuildTaskContext& Control) mutable -> std::expected<FCookPreparationProducts, std::string> {
+			auto Product = Build(Control);
+			if (!Product) return std::unexpected(std::move(Product.error()));
+			if (Control.IsCancelled()) return std::unexpected("Texture Cook cancelled.");
+			FByteBuffer Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = Target});
+			Product->Serialize(Writer);
+			if (Writer.IsError()) return std::unexpected(std::string(Writer.GetError()));
+			auto Bulk = FBulkData::TryCreateDetached(Bytes);
+			if (!Bulk) return std::unexpected(FormatBulkDataError(Bulk.error()));
+			return FCookPreparationProducts{.Primary = std::move(*Bulk)};
+		});
+	}
+#endif
 
 	// Both execution modes decode the same detached product and use the same
 	// owner publication. The queued callback is only an automatic wakeup.

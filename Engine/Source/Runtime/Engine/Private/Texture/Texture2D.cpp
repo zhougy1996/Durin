@@ -1,6 +1,7 @@
 #include "Texture/Texture2D.h"
 #include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
+#include "Texture2DBuildDiagnostics.h"
 
 #include "DObject/Package.h"
 
@@ -80,7 +81,7 @@ namespace Durin
 	{
 		Super::SerializeCooked(Ar);
 		TexturePrivate::SerializeCookedPlatformData(Ar, GetMutableCookedPlatformData(),
-			PlatformData.get(), FName("Durin::DTexture2D"), "Texture2D");
+			*this, FName("Durin::DTexture2D"), "Texture2D");
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
@@ -110,6 +111,23 @@ namespace Durin
 			TextureReference,
 			PlatformData);
 	}
+
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DTexture2D::PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void
+	{
+		if (!Preparation.ReserveWorkingSet(std::max<uint64>(1, GetSource().GetDecodedPayloadSize() * 4))) return;
+		FTexture2DBuildRequest Request{.Source = GetSource().CopyTornOff(), .Settings = {
+			.Usage = Usage, .CompressionQuality = CompressionQuality, .AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold, .MaxResolution = MaxResolution, .bSRGB = bSRGB},
+			.TargetPlatform = Preparation.GetTargetPlatform(), .TargetProfile = Preparation.GetTargetProfile()};
+		TexturePrivate::StartTextureCook(Preparation, [Request = std::move(Request)](const FAssetBuildTaskContext& Control)
+			-> std::expected<FTexturePlatformData, std::string> {
+			auto Built = BuildTexture2DPlatformData(Request, Control.RequestOwner);
+			if (!Built) return std::unexpected(FormatTexture2DBuildError(Built.error()));
+			return std::move(*Built);
+		});
+	}
+#endif
 
 	auto DTexture2D::BuildPlatformDataForLoad(bool bAsyncCache) -> void
 	{

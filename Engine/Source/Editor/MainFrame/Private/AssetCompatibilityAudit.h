@@ -112,7 +112,7 @@ namespace Durin
 
 		FAssetCompatibilityProbe Probe;
 		std::shared_ptr<FMailbox> Mailbox;
-		Tasks::FCancellationToken Cancellation;
+		std::optional<Tasks::FCancellationToken> Cancellation;
 		Tasks::FTask Task;
 		Tasks::FTask TerminalTask;
 		std::shared_ptr<FPublicationLifetime> PublicationLifetime;

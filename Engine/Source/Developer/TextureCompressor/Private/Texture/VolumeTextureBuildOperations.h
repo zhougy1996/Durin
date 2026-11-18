@@ -7,7 +7,7 @@
 
 namespace Durin
 {
-	// Logs failures and returns no partial product; cancellation belongs to the caller.
+	// Returns no partial product on failure or cancellation.
 	TEXTURECOMPRESSOR_API auto BuildVolumeTexture(
-		const FVolumeTextureBuildInput& Request) -> std::optional<FVolumeTexturePlatformData>;
+		const FVolumeTextureBuildInput& Request) -> std::expected<FVolumeTexturePlatformData, std::string>;
 }

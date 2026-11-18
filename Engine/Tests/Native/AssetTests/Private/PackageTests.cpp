@@ -616,7 +616,7 @@ namespace
 	{
 	public:
         static inline std::function<void(Durin::FObjectCookContext&)> CookSchemaHook, CookInstanceHook;
-        static inline std::function<Durin::FCookContributionResult(Durin::DObject&, std::string_view, Durin::FCookPreparationContext&)> CookPrepareHook;
+        static inline std::function<Durin::FObjectCookResult(Durin::DObject&, std::string_view, Durin::FCookedPlatformData&)> CookPrepareHook;
         static inline uint32 CookVersion = 1;
         static auto AppendToClassSchema(Durin::FObjectCookContext& Context) -> void {
             Durin::FBinaryWriter Writer; Writer.WriteU32(CookVersion);
@@ -626,10 +626,14 @@ namespace
         auto OnCookEvent(Durin::ECookEvent Event, Durin::FObjectCookContext& Context) const -> void override {
             DObject::OnCookEvent(Event, Context); if (Context.bCooking && CookInstanceHook) CookInstanceHook(Context);
         }
-        auto BeginCacheForCookedPlatformData(Durin::FObjectCookContext& Context) -> void override {
-            DObject::BeginCacheForCookedPlatformData(Context);
-            if (CookPrepareHook) { auto* Preparation = Durin::FCookPreparationContext::Get(*this, Context);
-                ASSERT_NE(Preparation, nullptr); Preparation->Failure = CookPrepareHook(*this, Context.Package, *Preparation); }
+        auto BeginCacheForCookedPlatformData(const Durin::ITargetPlatform* Target) -> void override {
+            DObject::BeginCacheForCookedPlatformData(Target);
+            Durin::FCookedPlatformData::Begin(*this, Target, [this](Durin::FCookedPlatformData& Preparation) {
+                if (CookPrepareHook) {
+                    const auto Result = CookPrepareHook(*this, Preparation.Package, Preparation);
+                    if (!Result) Preparation.Result = Result;
+                }
+            });
         }
 		explicit DPackageAssetForTest(const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
 			: DObject(Initializer)
@@ -8298,7 +8302,7 @@ TEST(FPackageAssetTests, CookedArchiveDispatchesImmutableTargetProjection)
 	GCookedSerializeCount = 0;
 	const auto CookResult =
 		Durin::SerializeCookedPackageBytes(Source->GetPackage(), Bytes, Options);
-	ASSERT_TRUE(CookResult) << CookResult.Message;
+	ASSERT_TRUE(CookResult) << CookResult.Diagnostic;
 	EXPECT_GT(GCookedSerializeCount, 0u);
 	Durin::ObjectPackage::FLinkerTables VersionLinker;
 	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(Bytes, {}, Path, VersionLinker));
@@ -12315,9 +12319,9 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	ASSERT_EQ(FindPackage(Path.GetView()), nullptr);
 	std::vector<int32> Values;
 	uint32 Declarations = 0;
-	std::function<void(DObject&, FCookPreparationContext&)> OnContribution;
+	std::function<void(DObject&, FCookedPlatformData&)> OnContribution;
     FScopedPackageCookHooks Hooks;
-    DPackageAssetForTest::CookPrepareHook = [&](DObject& Object, std::string_view, FCookPreparationContext& Context) -> FCookContributionResult {
+    DPackageAssetForTest::CookPrepareHook = [&](DObject& Object, std::string_view, FCookedPlatformData& Context) -> FObjectCookResult {
         EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate()); EXPECT_EQ(FindPackage(Path.GetView()), Object.GetPackage());
         Values.push_back(static_cast<DPackageAssetForTest&>(Object).Value);
         if (OnContribution) OnContribution(Object, Context); return {};
@@ -12326,7 +12330,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "CapturedCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
 	TStrongObjectPtr<DPackage> IndependentOwner;
-	OnContribution = [&](DObject&, FCookPreparationContext&) {
+	OnContribution = [&](DObject&, FCookedPlatformData&) {
 		DPackage* LoadedOther = nullptr;
 		{
 			std::optional<Durin::UnifiedError::FError> LoadedValueError;
@@ -12405,7 +12409,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
-	OnContribution = [&](DObject&, FCookPreparationContext& Context) {
+	OnContribution = [&](DObject&, FCookedPlatformData& Context) {
 		FByteBuffer Missing;
 		EXPECT_FALSE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ExternalFile, "not-declared", Missing));
 	};
@@ -12428,7 +12432,7 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	ExpectPriorManifest();
 	Request.IsCancelled = {}; Request.ReportProgress = {};
 	// Reentrant Cook fails before invoking callbacks and does not poison its caller.
-	OnContribution = [&](DObject&, FCookPreparationContext&) {
+	OnContribution = [&](DObject&, FCookedPlatformData&) {
 		FCookRunResult Nested;
 		EXPECT_FALSE(FCookCoordinator().Run(Request, Nested));
 		EXPECT_EQ(Nested.Error, ECookRunError::CookInUse);
@@ -12489,7 +12493,7 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	uint32 Contributions = 0;
 	FByteBuffer ObservedFile, ObservedConfiguration;
     FScopedPackageCookHooks Hooks;
-    DPackageAssetForTest::CookPrepareHook = [&](DObject&, std::string_view Name, FCookPreparationContext& Context) -> FCookContributionResult {
+    DPackageAssetForTest::CookPrepareHook = [&](DObject&, std::string_view Name, FCookedPlatformData& Context) -> FObjectCookResult {
         ++Contributions; EXPECT_EQ(Name, Paths[0].GetView());
         EXPECT_TRUE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ExternalFile,"recipe",ObservedFile));
         EXPECT_TRUE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ConfigurationValue,"quality",ObservedConfiguration)); return {};
@@ -12572,7 +12576,7 @@ TEST(FPackageAssetTests, CookReadsOrdinaryLazyBulk)
 	BulkFile.replace_extension(".dbulk");
 	MarkObjectHierarchyAsGarbage(Asset->GetPackage()); CollectGarbage(Durin::EObjectFlags::Standalone);
 	bool ReadCaptured = false;
-    DBulkPackageAssetForTest::CookHook = [&](DBulkPackageAssetForTest& BulkAsset, FObjectCookContext&) {
+    DBulkPackageAssetForTest::CookHook = [&](DBulkPackageAssetForTest& BulkAsset, FCookedPlatformData&) {
         const auto Read = BulkAsset.Payload.GetPayload().Wait(); EXPECT_TRUE(Read);
         ReadCaptured = Read && std::ranges::equal(Read->GetBytes(), Payload);
     };

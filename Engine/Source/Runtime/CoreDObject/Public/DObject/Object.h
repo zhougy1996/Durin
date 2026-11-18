@@ -153,11 +153,13 @@ namespace Durin
 		COREDOBJECT_API virtual auto SerializeCooked(FArchive& Ar) -> void;
 
 		// Preparation completes before capture; completion does not imply success.
-		COREDOBJECT_API virtual auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void;
-		COREDOBJECT_API virtual auto IsCachedCookedPlatformDataLoaded(const FObjectCookContext& Context) const -> bool;
-		COREDOBJECT_API virtual auto ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void;
+		COREDOBJECT_API virtual auto BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void;
+		COREDOBJECT_API virtual auto IsCachedCookedPlatformDataLoaded(const ITargetPlatform* TargetPlatform) -> bool;
+		COREDOBJECT_API virtual auto ClearCachedCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void;
+		COREDOBJECT_API virtual auto ClearAllCachedCookedPlatformData() -> void;
+		COREDOBJECT_API virtual auto WillNeverCacheCookedPlatformDataAgain() -> void;
 		COREDOBJECT_API virtual auto IsEditorOnly() const -> bool;
-		COREDOBJECT_API virtual auto NeedsLoadForTargetPlatform(const FArchiveTarget& Target) const -> bool;
+		COREDOBJECT_API virtual auto NeedsLoadForTargetPlatform(const ITargetPlatform* Target) const -> bool;
 		COREDOBJECT_API virtual auto OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void;
 		COREDOBJECT_API virtual auto PreSave(FObjectPreSaveContext& Context) -> void;
 		// Static binding permits schema queries for classes without a CDO.
@@ -263,7 +265,11 @@ namespace Durin
 		auto ClearInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags &= ~InFlags; }
 		COREDOBJECT_API auto SetOuterPrivate(DObject* NewOuter) -> void;
 
+	public:
+		COREDOBJECT_API auto SetCookedPlatformData(const ITargetPlatform* Target, std::shared_ptr<ICookedPlatformData> Data) -> bool;
+		COREDOBJECT_API auto GetCachedCookedPlatformData(const ITargetPlatform* Target) const -> std::shared_ptr<ICookedPlatformData>;
 	private:
+		std::unordered_map<const ITargetPlatform*, std::shared_ptr<ICookedPlatformData>> CookedPlatformDataCache;
 		friend class FSerializedObjectDataReader;
 		// Called only after transaction metadata/reference preflight; preserves package indexes.
 		COREDOBJECT_API auto RestoreTransactionMetadata(FName Name, DObject* Outer, EObjectFlags Flags) -> void;

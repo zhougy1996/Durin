@@ -10,7 +10,7 @@ namespace Durin
 {
 	TEXTURECOMPRESSOR_API auto NormalizeTextureCube(
 		const FTextureCubeNormalizeRequest& Request) -> std::expected<FTextureCubeCanonicalBuildInput, FTextureCompressorDiagnostic>;
-	// Logs failures and returns no partial product; cancellation belongs to the caller.
+	// Returns no partial product on failure or cancellation.
 	TEXTURECOMPRESSOR_API auto BuildTextureCube(
-		const FTextureCubeBuildInput& Request) -> std::optional<FTextureCubePlatformData>;
+		const FTextureCubeBuildInput& Request) -> std::expected<FTextureCubePlatformData, std::string>;
 }

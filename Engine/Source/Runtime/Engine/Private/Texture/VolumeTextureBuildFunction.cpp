@@ -96,9 +96,10 @@ namespace Durin::TexturePrivate
 				Source.CanonicalSourceIdentity = SourceInput->Identity.Identity;
 				if (!Source.Voxels.UpdatePayload(SourceInput->Values[0].Data) || !Source.IsValid()) return Fail("Volume voxel byte count is invalid.");
 				auto Built = Module->BuildVolumeTexture({.SourceData = std::cref(Source), .Settings = Constants->Settings,
-					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile});
+					.TargetPlatform = Constants->TargetPlatform, .TargetProfile = Constants->TargetProfile,
+					.ShouldCancel = [&Context] { return Context.IsCanceled(); }});
 				if (Context.IsCanceled()) return;
-				if (!Built) return Context.FailExecution("VolumeTexture build failed; see TextureCompressor logs for details.");
+				if (!Built) return Context.FailExecution(std::move(Built.error()));
 				auto Output = MakeVolumeTextureSharedOutput(*Built, Constants->TargetPlatform, Constants->TargetProfile);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());

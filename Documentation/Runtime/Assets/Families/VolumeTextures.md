@@ -106,7 +106,7 @@ floating inputs must be finite. Numeric filtering explicitly converts at the
 The canonical DDC key includes the canonical voxel identity and dimensions,
 source/output format, mip filter, opaque builder identity, adapter and shared-output
 schema versions, and
-Win64/Game target identity. It excludes source hints and physical files. A
+requested target platform and profile. It excludes source hints and physical files. A
 validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
 the asset's last-known-good CPU or GPU result. Engine supplies a definition and typed adapter to the

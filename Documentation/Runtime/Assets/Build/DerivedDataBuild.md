@@ -4,7 +4,7 @@ Summary: Define the local build service, immutable request inputs, canonical act
 
 Modules: DerivedDataCache, Engine, ShaderBuild
 
-Last reviewed: 2026-11-06
+Last reviewed: 2026-11-18
 
 ## Ownership
 
@@ -257,9 +257,10 @@ the caller owner cancellation state directly; canceling one owner does not affec
 requests submitted through another owner. Resolvers receive `IRequestOwner&`,
 and build contexts query that same owner through `IsCanceled()`. Cancellation is execution state and never
 becomes a deterministic producer error or cache entry. The asynchronous asset
-layer bridges its cancellation source to a private nonblocking owner cancellation signal and decides
-whether to accept completed products. Started synchronous Cook, mesh, and texture
-algorithms may finish. Owner waiting still includes callback completion.
+layer withdraws demand and decides whether to accept completed products. Accepted
+DDC requests may finish and persist reusable output even when the asset consumer
+has canceled. Explicit DDC owner cancellation is synchronous and includes callback
+completion; it must run outside that owner's callbacks and held manager locks.
 
 `FBuildSession::Build` takes an explicit `IRequestOwner` and returns void. Every
 request invokes its completion exactly once, including missing functions, invalid
@@ -424,8 +425,8 @@ session locks; callback exceptions cannot break accounting.
 updates. `IRequestOwner` registers raw request pointers through `Begin` and returns
 the retained `TRefCountPtr<IRequest>` through `End`. Its callback overload begins a
 barrier, ends tracking, invokes the callback while retaining the request, then
-releases the barrier. Barrier counters and nonblocking cancellation signals remain
-private. Early failure callbacks use the same callback scope and barrier, and
+releases the barrier. Barrier counters remain private; there is no separate
+nonblocking owner-cancellation interface. Early failure callbacks use the same callback scope and barrier, and
 partial admission failure ends every registered request before reporting errors.
 
 `FRequestOwner` is a movable, noncopyable RAII facade, with conversions to
@@ -435,6 +436,17 @@ called. KeepAlive leaves requests and barriers owning the internal state after t
 facade is destroyed. Destroying or synchronously waiting on an owner from one of
 its callbacks is rejected. Requests and barriers retain the internal state,
 independently of the facade lifetime.
+
+`FRequestOwner` takes only priority, as in UE. Detached Cook operations own their
+CPU cancellation token and DDC request owner for the entire operation. Family
+adapters borrow that owner for asynchronous session submission and cooperative
+waiting; mesh collision builds borrow the same owner as mesh render preparation.
+Asset cancellation signals the lightweight token and rejects result installation.
+The package preparation remains pending until canceled tasks retire; teardown
+waits for the worker, which drains submitted DDC requests before returning.
+Standalone synchronous calls create a local owner. `FRequestOwner::Cancel` follows
+UE semantics: cancel registered requests and wait for their callbacks and barriers.
+It does not forcibly interrupt accepted native task bodies.
 
 Owner completion means it has no active requests or barriers. Public
 `IRequestOwner::LaunchTask` uses a native task request and a publication event:
@@ -489,10 +501,11 @@ undispatched asset records therefore do not retain Core shutdown. Requests retai
 internal owner state rather than the facade; facade destruction cancels and joins
 its work. Asset managers drain producers and their owners before Core shutdown.
 
-Task completion does not forward cancellation. Render and texture managers signal
-their request owners; physics owner abort withdraws only unstarted cooks and lets
-started work finish normally. Internal batch cancellation affects only that batch; public cancellation is scoped
-to the request owner. LaunchTask reads
+Task completion does not forward cancellation. Mesh, texture and physics managers
+withdraw demand, retain accepted work through retirement, and discard canceled
+products. Shader subscribers detach independently; abandoned shared producers stay
+alive until their DDC requests complete. Internal batch cancellation affects only
+that batch; explicit DDC cancellation is scoped to the request owner. LaunchTask reads
 current owner priority and uses the process scheduler lifetime.
 Schedulers and DDC callbacks must progress without GameThread pumping. Native
 dispatch handles and the scheduling protocol live in private implementation headers;
@@ -654,8 +667,9 @@ owner for their own completion and a separate build owner for producer work. The
 caller owner tracks the producer through the existing IRequest conversion. Joining
 transfers that dependency under a publication barrier without replacing the caller
 owner. Shared results end the dependency while publishing each caller's own completion
-task; caller Wait/Poll does not include peer callbacks. Cancellation of shared work
-and its priority propagation target the producer boundary. Managers drain production
+task; caller Wait/Poll does not include peer callbacks. Last-consumer cancellation
+withdraws shader jobs without synchronously canceling the shared DDC owner. Priority
+propagation still targets the producer boundary. Managers drain production
 before releasing family services. Complete
 assembled material candidates remain in the shared bounded process cache only.
 

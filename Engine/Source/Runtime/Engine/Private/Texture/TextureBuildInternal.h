@@ -14,6 +14,8 @@
 #include "DerivedDataStatus.h"
 #endif
 
+namespace Durin::DerivedData { class FRequestOwner; }
+
 namespace Durin::TexturePrivate
 {
 	struct FPreparedTextureCubeBuild
@@ -29,7 +31,7 @@ namespace Durin::TexturePrivate
 
 	ENGINE_API auto BuildTextureCubeSource(const FTextureSource& Source, bool bSRGB,
 		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile, bool bPersist,
-		const FTextureCubeCanonicalBuildInput* PreparedInput = nullptr)
+		const FTextureCubeCanonicalBuildInput* PreparedInput = nullptr, DerivedData::FRequestOwner* RequestOwner = nullptr)
 		-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>;
 
 	inline auto ReportBuildFailure(const FTextureBuildError& Error) -> FTextureBuildOperationError

@@ -12,6 +12,7 @@
 namespace Durin
 {
 	class DPackage;
+	class ITargetPlatform;
 	// Transient or explicitly omitted outers exclude their entire subtree.
 	COREDOBJECT_API auto IsPackageCaptureObjectOmitted(const DObject* Object,
 		const FObjectSaveOverrides* Overrides = nullptr) -> bool;
@@ -83,6 +84,7 @@ namespace Durin
 		bool bCooking = false;
 		bool bRetainEditorOnlyData = false;
 		FArchiveTarget Target;
+		const ITargetPlatform* TargetPlatform = nullptr;
 		std::shared_ptr<const FObjectSaveOverrides> SaveOverrides;
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
 		std::function<bool(const DObject*)> ObjectFilter;

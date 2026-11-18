@@ -122,6 +122,9 @@ namespace Durin
 #endif
 
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
+#if DURIN_WITH_EDITORONLY_DATA
+		auto PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void override;
+#endif
 		auto BuildPlatformDataForLoad(bool bAsyncCache) -> void override;
 		auto LoadCookedPlatformData(bool bAsync) -> void override;
 

@@ -56,7 +56,7 @@ namespace Durin
 						&& Output == ETextureCubeOutput::HDR && Source.GetSourceChannelCount() == 4
 						&& !Source.HasTransparency() && Source.GetFormat() == ETextureSourceFormat::RGBA32_FLOAT);
 			}
-			auto Build() const -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>;
+			auto Build(ECookTargetPlatform Platform, ECookTargetProfile Profile, DerivedData::FRequestOwner* RequestOwner = nullptr) const -> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>;
 			auto Dispatch(DerivedData::IRequestOwner& Owner, std::function<bool()> ShouldCancel,
 				std::function<void(DerivedData::EStatus, std::unique_ptr<FTexturePlatformCacheResult>, std::string)> Completion) const -> void override;
 		};
@@ -121,17 +121,20 @@ namespace Durin
 			return true;
 		}
 
-		auto FCubeCacheInput::Build() const
+		auto FCubeCacheInput::Build(ECookTargetPlatform Platform, ECookTargetProfile Profile, DerivedData::FRequestOwner* RequestOwner) const
 			-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
 		{
 			if (CanBuildSourceDirectly())
 				return TexturePrivate::BuildTextureCubeSource(Source, bSRGB, FaceDimension, Exposure,
-					ECookTargetPlatform::Win64, ECookTargetProfile::Game, true);
+					Platform, Profile, true, nullptr, RequestOwner);
 			FTextureCubeBuildRequest Request;
 			std::string Error;
 			if (!MakeTextureCubeBuildRequest(*this, Request, Error))
 				return std::unexpected(FTextureBuildError{ETextureBuildFailure::InvalidInput,
 					ETextureBuildStage::Normalize, Error.empty() ? "Invalid cube source payload." : std::move(Error)});
+			Request.TargetPlatform = Platform;
+			Request.TargetProfile = Profile;
+			Request.RequestOwner = RequestOwner;
 			auto Built = TexturePrivate::BuildTextureCubeWithDiagnostic(Request);
 			if (!Built) return std::unexpected(std::move(Built.error()));
 			return std::make_unique<FTextureCubePlatformData>(std::move(Built->PlatformData));
@@ -300,7 +303,7 @@ namespace Durin
 	{
 		Super::SerializeCooked(Ar);
 		TexturePrivate::SerializeCookedPlatformData(Ar, GetMutableCookedPlatformData(),
-			PlatformData.get(), FName("Durin::DTextureCube"), "TextureCube");
+			*this, FName("Durin::DTextureCube"), "TextureCube");
 	}
 
 	auto DTextureCube::GetSizeX() const -> uint32
@@ -342,6 +345,20 @@ namespace Durin
 	}
 
 
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DTextureCube::PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void
+	{
+		FCubeCacheInput Input(*this);
+		if (!Preparation.ReserveWorkingSet(std::max<uint64>(1, Input.EstimatedBytes))) return;
+		TexturePrivate::StartTextureCook(Preparation, [Input = std::move(Input), Platform = Preparation.GetTargetPlatform(),
+			Profile = Preparation.GetTargetProfile()](const FAssetBuildTaskContext& Control) -> std::expected<FTextureCubePlatformData, std::string> {
+			auto Built = Input.Build(Platform, Profile, Control.RequestOwner);
+			if (!Built) return std::unexpected(std::move(Built.error().Diagnostic));
+			return std::move(**Built);
+		});
+	}
+#endif
+
 	auto DTextureCube::BuildPlatformDataForLoad(bool bAsyncCache) -> void
 	{
 #if DURIN_WITH_EDITORONLY_DATA
@@ -352,7 +369,7 @@ namespace Durin
 			return;
 		}
 		BlockOnAnyAsyncBuild();
-		auto Built = FCubeCacheInput(*this).Build();
+		auto Built = FCubeCacheInput(*this).Build(GetHostCookPlatform(), ECookTargetProfile::Game);
 		if (!Built) { (void)TexturePrivate::ReportBuildFailure(Built.error()); return; }
 		SetPlatformData(std::move(*Built));
 		UpdateResource();

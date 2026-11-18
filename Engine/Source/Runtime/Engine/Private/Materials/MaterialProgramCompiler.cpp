@@ -206,7 +206,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		const auto Platform = ToCookTargetPlatform(SelectedTarget.Platform);
 		const auto Resolved = Platform ? ResolveTargetPlatform(*Platform)
-			: std::expected<FTargetPlatformDescription, ETargetPlatformError>{std::unexpected(ETargetPlatformError::UnknownPlatform)};
+			: nullptr;
 		if (!Resolved || (Resolved->GetShaderTarget() != SelectedTarget && Resolved->GetCookedShaderTarget() != SelectedTarget)) return std::unexpected("Material shader target is unsupported.");
 #endif
 		const bool bMetal = IsMetalShaderTarget(SelectedTarget);

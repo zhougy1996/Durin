@@ -4,7 +4,7 @@ Summary: Resolve explicit tool targets into immutable capabilities while keeping
 
 Modules: Core, RHI, TargetPlatform, Engine, ShaderBuild, TextureCompressor
 
-Last reviewed: 2026-10-18
+Last reviewed: 2026-11-18
 
 ## Identities and dependencies
 
@@ -23,7 +23,7 @@ load a compiler, inspect the active GPU, acquire DDC sessions, or create tasks.
 ## Immutable resolution
 
 `ResolveTargetPlatform` validates the platform and returns an immutable
-`FTargetPlatformDescription`. Current Win64 and MacOS Shader selections are
+`ITargetPlatform` pointer with module lifetime (null for an unknown identity). Current Win64 and MacOS Shader selections are
 Vulkan/SPIR-V and Metal/MSL respectively. Explicit material Shader identities
 are validated against the resolved authoring or Cook selection by the material
 compiler. `GetShaderTarget` preserves the authoring selection;
@@ -39,18 +39,17 @@ the active RHI device's feature/resource limits.
 | --- | --- |
 | Texture metadata/key validation | Win64 or MacOS, Game or EditorValidation |
 | Texture production | Win64 or MacOS, Game |
-| Offline Cook | Win64 or MacOS, Game |
+| Tool-hosted Game Cook | Win64 on Windows; MacOS on macOS |
 | Collision payload representation | Win64; MacOS remains unsupported |
 
 Known targets, supported representations and local producer availability are
 different questions. Providers own compiler/SDK execution failures. Resolution
 itself does not require a producer to be executable and does not disable valid
-cache reuse. Material owns quality/FeatureLevel/pass legality; texture owns
-usage-dependent pixel format selection; physics owns geometry and payload layout.
+cache reuse. Material owns quality/FeatureLevel/pass legality; texture supplies usage, color space and transparency to the platform format policy; physics owns geometry and payload layout.
 No platform module depends on these asset types or their builders.
 
 Profile admission belongs to Cook, Shader and texture boundaries. The platform
-description exposes `SupportsCollisionPayload()` and its Shader target; it has no
+interface exposes collision support, desktop block texture format selection and Shader targets; it has no
 generic operation switch or profile state.
 
 ## Cook settings and preparation
@@ -69,11 +68,11 @@ within one group fail admission. Missing or non-reevaluable instance projections
 require loading/rebuilding. The common publisher is independent of export order;
 the generic coordinator does not compose builder versions.
 
-Engine's package capture finishes every eligible texture compilation and prepares
-material programs and StaticMesh render/
-collision payloads before generic Archive discovery/emission. A bounded scoped
-table owns detached BulkData by object handle, package revision and exact Archive
-target. Nested captures use independent tables. Preparation observes cancellation,
+Engine's package capture prepares target-specific texture payloads, material programs
+and StaticMesh render/collision payloads before generic Archive discovery/emission.
+Assets own their target-keyed pending state and detached BulkData, guarded by
+package revision and family input stamps. Nested captures of disjoint assets are
+independent; concurrent capture of the same asset/target is rejected. Preparation observes cancellation,
 limits traversal to 65536 objects and retained prepared payloads to 1 GiB, and
 rejects package revision changes or newly introduced unprepared objects. Preparation
 and capture share transient-subtree, explicit omission and object eligibility
@@ -89,13 +88,14 @@ Material and StaticMesh `SerializeCooked` only consume current prepared values;
 they initiate no compiler, geometry builder or cache request. Raw saving Archive
 calls without preparation fail before writing fields. Existing Engine package-save
 entrypoints install preparation automatically, including direct callers outside
-the Cook coordinator. Runtime loading needs no preparation table or Developer
+the Cook coordinator. Runtime loading needs no pending Cook state or Developer
 service. Cooked-only resaving requires data for the same target and never rebuilds
 authored inputs. Its material preparation validates the requested configuration
 set, decodes each required existing variant and re-encodes only that selection.
 Missing variants fail, including when the default all-variant selection cannot
 be satisfied. It does not invoke producers. Material/mesh preparation does not install results into live asset fields or
-accepted render programs. Texture completion may apply transient platform data. Ordinary offline input stability remains the
+accepted render programs. Texture Cook preparation also keeps detached products
+instead of applying preview platform data. Ordinary offline input stability remains the
 [Cook workflow's](Cooking.md) responsibility.
 
 ## Cache and format compatibility

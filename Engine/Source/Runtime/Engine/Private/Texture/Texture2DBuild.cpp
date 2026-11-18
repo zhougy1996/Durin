@@ -1,6 +1,6 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITOR
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 #include "Asset/ResourceBuildSessions.h"
 #endif
 #if DURIN_WITH_EDITORONLY_DATA
@@ -190,17 +190,18 @@ namespace Durin
 #endif
 
 	auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		const FTexture2DBuildExecutionControl* ExecutionControl) -> std::expected<FTexturePlatformData, FTexture2DBuildError>
+		DerivedData::FRequestOwner* RequestOwner) -> std::expected<FTexturePlatformData, FTexture2DBuildError>
 	{
 		if (auto Valid = ValidateTexture2DBuildRequest(Request); !Valid) return std::unexpected(std::move(Valid.error()));
 #if DURIN_WITH_EDITOR
 		auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(Request);
 		if (!Definition) return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::InvalidInput});
-		if (ExecutionControl && ExecutionControl->ShouldCancel && ExecutionControl->ShouldCancel())
+		if (RequestOwner && RequestOwner->IsCanceled())
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		auto Built = TexturePrivate::Build(std::move(*Definition),
-			TexturePrivate::MakeTexture2DInputResolver(Request.Source), Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery);
-		if (ExecutionControl && ExecutionControl->ShouldCancel && ExecutionControl->ShouldCancel())
+			TexturePrivate::MakeTexture2DInputResolver(Request.Source), Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery,
+			RequestOwner);
+		if (RequestOwner && RequestOwner->IsCanceled())
 			return std::unexpected(FTexture2DBuildError{.Code = ETexture2DBuildError::Cancelled});
 		return ConsumeTexture2DBuild(Built, Request.TargetPlatform, Request.TargetProfile);
 #else

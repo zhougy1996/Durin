@@ -78,6 +78,19 @@ using namespace StaticMeshBuildTestSupport;
 
 using namespace Durin::Testing;
 
+TEST(FStaticMeshBuildCancellationTests, ReturnsDiagnosticWithoutPublishingCanceledProduct)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	auto* Module = IMeshBuilderModule::Get();
+	ASSERT_NE(Module, nullptr);
+	FStaticMeshRenderData Product;
+	const auto Result = Module->BuildMesh(Product, {.ShouldCancel = [] { return true; }});
+	ASSERT_FALSE(Result);
+	EXPECT_NE(Result.error().find("cancel"), std::string::npos);
+	EXPECT_TRUE(Product.LODResources.empty());
+}
+
 namespace
 {
 	inline auto GetCollisionKey(const Durin::FStaticMeshRenderData& Render)
@@ -370,7 +383,7 @@ TEST(FStaticMeshLODTests, CookedCollisionLODLoadsWithoutEditorSourceAndDrivesRun
 	EXPECT_EQ(CollisionInspection.RemovedTriangles, 0u);
 	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(SaveCookPackage(Fixture.Mesh->GetPackage(), "/Game/CollisionLOD", Context));
+	ASSERT_TRUE(Context.AddPackage("/Game/CollisionLOD", Fixture.Mesh->GetPackage()));
 	ASSERT_TRUE(PublishCookContext(Context, CookRoot));
 	Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 	Testing::FScopedAssetRuntimeForTests Runtime;
@@ -671,7 +684,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	{
 		Durin::FCookContext Context(Durin::ECookTargetPlatform::Win64,
 			Durin::ECookTargetProfile::Game);
-		ASSERT_TRUE(Durin::SaveCookPackage((*Fixture.Mesh).GetPackage(), "/Game/CookedCollisionMesh", Context)) << Error;
+		ASSERT_TRUE(Context.AddPackage("/Game/CookedCollisionMesh", (*Fixture.Mesh).GetPackage())) << Error;
 		ASSERT_TRUE(Durin::PublishCookContext(Context, Root)) << Error;
 	}
 	Durin::FByteBuffer FirstPackage, SecondPackage, SecondBulk, FirstManifest, SecondManifest;
@@ -804,10 +817,10 @@ TEST(FStaticMeshDerivedDataCacheTests, ComplexProxyRoundTripsAndCookedSplineNeed
 	auto* EmptyProxy = NewObject<DStaticMesh>(nullptr, "UnusableCookProxy");
 	ASSERT_TRUE(Primary.Mesh->SetComplexCollisionMesh(EmptyProxy));
 	FCookContext RejectedCook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	EXPECT_FALSE(SaveCookPackage(Primary.Mesh->GetPackage(), "/Game/ComplexProxy", RejectedCook));
+	EXPECT_FALSE(RejectedCook.AddPackage("/Game/ComplexProxy", Primary.Mesh->GetPackage()));
 	ASSERT_TRUE(Primary.Mesh->SetComplexCollisionMesh(SelectedProxy));
 	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(SaveCookPackage(Primary.Mesh->GetPackage(), "/Game/ComplexProxy", Cook));
+	ASSERT_TRUE(Cook.AddPackage("/Game/ComplexProxy", Primary.Mesh->GetPackage()));
 	ASSERT_TRUE(PublishCookContext(Cook, CookRoot));
 	// Publish only the primary asset. Editor reference and both source trees are absent.
 	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/StaticMeshComplexProxySource"));
@@ -890,13 +903,13 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::SaveCookPackage((*Fixture.Mesh).GetPackage(), "/Game/CookedMesh", First)) << Error;
+	ASSERT_TRUE(First.AddPackage("/Game/CookedMesh", (*Fixture.Mesh).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot)) << Error;
 
 	Durin::FCookContext Second(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::SaveCookPackage((*Fixture.Mesh).GetPackage(), "/Game/CookedMesh", Second)) << Error;
+	ASSERT_TRUE(Second.AddPackage("/Game/CookedMesh", (*Fixture.Mesh).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot)) << Error;
 	Durin::FByteBuffer FirstPackage;
 	Durin::FByteBuffer SecondPackage;
@@ -2115,7 +2128,7 @@ TEST(FStaticMeshAuthoredCompilationTests, CookProjectsMissingCpuDataWithoutPubli
 	ASSERT_TRUE(SerializeAssetPackageBytes(Fixture.Mesh->GetPackage(), Before));
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(SaveCookPackage((*Fixture.Mesh).GetPackage(), "/Game/Projection", Context)) << Error;
+	ASSERT_TRUE(Context.AddPackage("/Game/Projection", (*Fixture.Mesh).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Context, std::filesystem::absolute(Fixture.Root / "Cook"))) << Error;
 	EXPECT_EQ(nullptr, Fixture.Mesh->GetRenderData());
 	EXPECT_EQ(Revision, Fixture.Mesh->GetRenderResourceStatus().Revision);
@@ -2380,7 +2393,7 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 		<< (Fixture.Mesh->GetCollisionBuildError() ? *Fixture.Mesh->GetCollisionBuildError() : std::string{});
 	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(SaveCookPackage((*Fixture.Mesh).GetPackage(), "/Game/InspectionMesh", Context)) << Error;
+	ASSERT_TRUE(Context.AddPackage("/Game/InspectionMesh", (*Fixture.Mesh).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot)) << Error;
 	FPackagePath CookedPath;
 	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/InspectionMesh", CookedPath));
@@ -2481,7 +2494,7 @@ TEST(FStaticMeshReplacementTests, CollisionConfigurationCanPrecedeCpuData)
 	MarkObjectHierarchyAsGarbage(Mesh);
 }
 
-TEST(FStaticMeshRenderBuildTests, RejectionLogsMeshIndexAndPreservesOutput)
+TEST(FStaticMeshRenderBuildTests, RejectionReturnsMeshIndexAndPreservesOutput)
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
@@ -2490,8 +2503,6 @@ TEST(FStaticMeshRenderBuildTests, RejectionLogsMeshIndexAndPreservesOutput)
 	Source->Sections[0].Indices[1] = 99;
 	const auto Module = IMeshBuilderModule::Get();
 	ASSERT_TRUE(Module);
-	FCacheLogCapture LogSession;
-	const auto Cursor = FLogger::Get().ReadRecords(0, 1).NewestAvailableSequence + 1;
 	FStaticMeshRenderData Product;
 	ASSERT_TRUE(Module->BuildMesh(Product, {.Geometry = std::make_shared<const FMeshDescription>(MakeResidencyGeometry()),
 		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}}));
@@ -2499,7 +2510,7 @@ TEST(FStaticMeshRenderBuildTests, RejectionLogsMeshIndexAndPreservesOutput)
 	const auto Bounds = Product.LocalBounds;
 	const auto Result = Module->BuildMesh(Product, {.Geometry = Source,
 		.MaterialSlots = std::array{FStaticMeshBuildMaterialSlot{FName("Material"), "Material", 0}}});
-	EXPECT_FALSE(Result);
+	ASSERT_FALSE(Result);
 	Source.reset();
 	ASSERT_EQ(Product.LODResources.size(), 1u);
 	EXPECT_EQ(Product.LODResources.front().VertexBuffers.PositionVertexBuffer.GetPositions().data(), Positions);
@@ -2507,15 +2518,9 @@ TEST(FStaticMeshRenderBuildTests, RejectionLogsMeshIndexAndPreservesOutput)
 	EXPECT_EQ(Product.LocalBounds.Max, Bounds.Max);
 	ASSERT_EQ(Product.MaterialSlots.size(), 1u);
 	EXPECT_EQ(Product.MaterialSlots.front().Name, "Material");
-	FLogger::Get().Flush();
-	const auto Records = FLogger::Get().ReadRecords(Cursor).Records;
-	const auto Record = std::ranges::find_if(Records, [](const auto& Value) {
-		return Value.Module == "MeshBuilder" && Value.Level == ELogLevel::Error;
-	});
-	ASSERT_NE(Record, Records.end());
-	EXPECT_TRUE(Record->Message.contains("out-of-range index"));
-	EXPECT_TRUE(Record->Message.contains("RejectedMesh"));
-	EXPECT_TRUE(Record->Message.contains("index 1, actual 99, expected 3"));
+	EXPECT_TRUE(Result.error().contains("out-of-range index"));
+	EXPECT_TRUE(Result.error().contains("RejectedMesh"));
+	EXPECT_TRUE(Result.error().contains("index 1, actual 99, expected 3"));
 }
 
 TEST(FPhysicsCookTests, InvalidInputAndBudgetFailWithoutInstallingGeometry)
@@ -2551,6 +2556,12 @@ TEST(FPhysicsCookTests, SynchronousEntryPointsReturnCompleteProductsWithoutPubli
 	EXPECT_EQ(Direct->Complex.GetTriangleCount(), Captured->Complex.GetTriangleCount());
 	EXPECT_FALSE(FPhysicsCookHelper::Capture(Info, 1));
 	EXPECT_FALSE(FPhysicsCookHelper::CookCaptured(*Input, 1));
+#if DURIN_WITH_EDITOR
+	DerivedData::FRequestOwner Owner;
+	Owner.Cancel();
+	EXPECT_FALSE(FPhysicsCookHelper::CookCaptured(*Input, Owner));
+	EXPECT_TRUE(Owner.Poll());
+#endif
 	const auto Empty = FPhysicsCookHelper::Cook({});
 	ASSERT_TRUE(Empty) << Empty.error();
 	EXPECT_FALSE(Empty->Simple || Empty->Complex);
@@ -2655,17 +2666,17 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdAndWarmAssemblyRepairFiniteIncorrectB
 		uint32 BuildCount = 0;
 		explicit FIncorrectBoundsModule(IMeshBuilderModule& InOriginal) : Original(InOriginal) {}
 		auto GetBuildVersion() const -> uint64 override { return 778; }
-		auto BuildMesh(FStaticMeshRenderData& Render, const FStaticMeshBuildParameters& Parameters) -> bool override
+		auto BuildMesh(FStaticMeshRenderData& Render, const FStaticMeshBuildParameters& Parameters) -> std::expected<void, std::string> override
 		{
 			++BuildCount;
-			if (!Original.BuildMesh(Render, Parameters)) return false;
+			if (auto Built = Original.BuildMesh(Render, Parameters); !Built) return Built;
 			Render.LocalBounds = FBox(FVector3(100), FVector3(101));
 			for (auto& LOD : Render.LODResources)
 			{
 				LOD.LocalBounds = Render.LocalBounds;
 				for (auto& Section : LOD.Sections) Section.LocalBounds = Render.LocalBounds;
 			}
-			return true;
+			return {};
 		}
 	};
 	auto Implementation = std::make_unique<FIncorrectBoundsModule>(static_cast<IMeshBuilderModule&>(*Restore.Original));
@@ -2699,9 +2710,10 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailure)
 			return 777;
 		}
 		auto BuildMesh(FStaticMeshRenderData&,
-			const FStaticMeshBuildParameters&) -> bool override
+			const FStaticMeshBuildParameters&) -> std::expected<void, std::string> override
 		{
-			return !bFail;
+			if (bFail) return std::unexpected("Injected mesh build failure.");
+			return {};
 		}
 	};
 	const FScopedDerivedDataCacheRestore CacheRestore;
@@ -2752,11 +2764,11 @@ TEST(FStaticMeshDerivedDataCacheTests, BuildBoundariesTranslateModuleFailure)
 		.Source = Source, .bPersistDerivedData = false});
 	ASSERT_FALSE(Failed);
 
-	EXPECT_NE(Failed.error().find("see MeshBuilder logs"), std::string::npos) << Failed.error();
+	EXPECT_NE(Failed.error().find("Injected mesh build failure."), std::string::npos) << Failed.error();
 
 }
 
-TEST(FStaticMeshAuthoredCompilationTests, CancellationDuringNativeBuildLetsItFinishAndDiscardsItsProduct)
+TEST(FStaticMeshAuthoredCompilationTests, CancellationRetainsNativeBuildAndDiscardsItsProduct)
 {
 	using namespace Durin;
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -2791,15 +2803,15 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDuringNativeBuildLetsItFin
 		FGate& Gate;
 		FBlockingBuilder(IMeshBuilderModule& Original, FGate& Gate) : Original(Original), Gate(Gate) {}
 		auto GetBuildVersion() const -> uint64 override { return Original.GetBuildVersion() ^ 0x98765; }
-		auto BuildMesh(FStaticMeshRenderData& Product, const FStaticMeshBuildParameters& Parameters) -> bool override
+		auto BuildMesh(FStaticMeshRenderData& Product, const FStaticMeshBuildParameters& Parameters) -> std::expected<void, std::string> override
 		{
 			{
 				std::unique_lock Lock(Gate.Mutex);
 				Gate.bStarted = true;
 				Gate.Changed.notify_all();
-				if (!Gate.Changed.wait_for(Lock, std::chrono::seconds(10), [&] { return Gate.bReleased; })) return false;
+				if (!Gate.Changed.wait_for(Lock, std::chrono::seconds(10), [&] { return Gate.bReleased; })) return std::unexpected("Build gate timed out.");
 			}
-			const bool Built = Original.BuildMesh(Product, Parameters);
+			const auto Built = Original.BuildMesh(Product, Parameters);
 			Gate.bBuilt = Built && !Product.LODResources.empty();
 			return Built;
 		}

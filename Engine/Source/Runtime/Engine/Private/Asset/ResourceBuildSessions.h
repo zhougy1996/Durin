@@ -34,10 +34,12 @@ namespace Durin::AssetPrivate
 		auto Reset() -> void { SetService({}); }
 		auto Build(DerivedData::FBuildDefinition Definition,
 			std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-			DerivedData::FBuildPolicy Policy = {}) -> DerivedData::FBuildCompleteParams
+			DerivedData::FBuildPolicy Policy = {}, DerivedData::FRequestOwner* RequestOwner = nullptr) -> DerivedData::FBuildCompleteParams
 		{
 			auto Session = Get(std::move(Resolver));
-			DerivedData::FRequestOwner Owner;
+			std::optional<DerivedData::FRequestOwner> LocalOwner;
+			if (!RequestOwner) RequestOwner = &LocalOwner.emplace();
+			auto& Owner = *RequestOwner;
 			std::optional<DerivedData::FBuildCompleteParams> Completion;
 			Session.Build(std::move(Definition), {}, Policy, Owner, [&](auto Value) { Completion = std::move(Value); });
 			Owner.Wait();

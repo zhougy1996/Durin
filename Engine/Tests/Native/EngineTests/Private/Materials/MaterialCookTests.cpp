@@ -47,7 +47,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 		Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::SaveCookPackage((*Source).GetPackage(), Durin::DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Cook.AddPackage(std::string(Durin::DefaultMaterialPackagePath), (*Source).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
@@ -413,7 +413,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::SaveCookPackage((*Source).GetPackage(), Durin::DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Cook.AddPackage(std::string(Durin::DefaultMaterialPackagePath), (*Source).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
@@ -663,7 +663,7 @@ TEST(FDefaultMaterialCookTests, CustomLayoutAndSamplingSurvivePackageCookAndGrap
 	const auto CookRoot = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CustomLayoutMaterialCook"));
 	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(SaveCookPackage((*Source).GetPackage(), DefaultMaterialPackagePath, Cook)) << Error;
+	ASSERT_TRUE(Cook.AddPackage(std::string(DefaultMaterialPackagePath), (*Source).GetPackage())) << Error;
 	ASSERT_TRUE(PublishCookContext(Cook, CookRoot)) << Error;
 	ShutdownAssetRuntime(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	auto Configuration = FAssetRuntimeConfiguration::Authored();
@@ -828,7 +828,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			EXPECT_NE(EditorMap.ShaderMapId,EditorPrograms[Other]->GetShaderMap().ShaderMapId);
 		}
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
-		ASSERT_TRUE(SaveCookPackage(Material->GetPackage(),std::string("/Game/MaterialContracts/")+Names[Variant],Cook));
+		ASSERT_TRUE(Cook.AddPackage(std::string("/Game/MaterialContracts/")+Names[Variant], Material->GetPackage()));
 	}
 	const auto CookRoot=std::filesystem::absolute(Root/"Cooked");
 	ASSERT_TRUE(PublishCookContext(Cook,CookRoot));

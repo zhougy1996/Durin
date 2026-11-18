@@ -24,9 +24,9 @@ namespace Durin
 		// Nonzero opaque identity combining implementation, algorithm, and dependency versions. Immutable for the editor lifetime.
 		virtual auto GetBuildVersion() const -> uint64 = 0;
 		// Synchronous CPU construction runs to completion; failure preserves the output.
-		// Build failures are logged by the module. Scheduling owns cancellation.
+		// Build failures return an owned diagnostic; cancellation is cooperative.
 		virtual auto BuildMesh(FStaticMeshRenderData& OutRenderData,
-			const FStaticMeshBuildParameters& Parameters) -> bool = 0;
+			const FStaticMeshBuildParameters& Parameters) -> std::expected<void, std::string> = 0;
 	};
 }
 

@@ -6,12 +6,12 @@
 
 namespace Durin
 {
-	auto BuildTexture2D(const FTexture2DBuildInput& Request) -> std::optional<FTexturePlatformData>
+	auto BuildTexture2D(const FTexture2DBuildInput& Request) -> std::expected<FTexturePlatformData, std::string>
 	{
-		auto Fail = [](std::string_view Reason) -> std::optional<FTexturePlatformData>
+		if (Request.ShouldCancel && Request.ShouldCancel()) return std::unexpected("Texture build cancelled.");
+		auto Fail = [](std::string_view Reason) -> std::expected<FTexturePlatformData, std::string>
 		{
-			DURIN_ERROR_CATEGORY("TextureCompressor", "Texture2D build failed: {}", Reason);
-			return std::nullopt;
+			return std::unexpected(std::string(Reason));
 		};
 		if (const auto Validation = ValidateTexture2DBuildSettings(Request.Settings); !Validation)
 			return Fail(FormatTexture2DInputError(Validation.error()));
@@ -23,8 +23,9 @@ namespace Durin
 		const bool bHasTransparency = TextureMipBuilder::AnalyzeTransparency(Request.SourceMips);
 		auto Settings = Request.Settings;
 		Settings.bSRGB = ResolveTexture2DSRGB(Settings);
+		const TextureMipBuilder::FBuildExecutionOptions Execution{.ShouldCancel = Request.ShouldCancel};
 		auto Built = TextureMipBuilder::BuildTextureMips({.SourceMips = Request.SourceMips, .Settings = Settings,
-			.PixelFormat = TextureMipBuilder::SelectPixelFormat(Settings.Usage, *Settings.bSRGB, bHasTransparency)});
+			.PixelFormat = TextureMipBuilder::SelectPixelFormat(Request.TargetPlatform, Settings.Usage, *Settings.bSRGB, bHasTransparency)}, &Execution);
 		if (!Built) return Fail(Built.error());
 		return std::move(Built->PlatformData);
 	}

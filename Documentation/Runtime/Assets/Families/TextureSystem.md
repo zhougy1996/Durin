@@ -182,7 +182,7 @@ the family dispatch boundary. Cube-specific and volume-specific payload rules
 remain in [Cube Textures](CubeTextures.md) and
 [Volume Textures](VolumeTextures.md).
 
-Cooked-runtime package mode accepts only Win64/Game and schema 3. Metadata load
+Cooked-runtime package mode accepts Win64/Game or MacOS/Game and schema 3. Metadata load
 attaches the field without reading its range; first platform-data/resource
 access locks and decodes it. Decode validates every mip
 dimension, block row pitch, byte range, padding, format, checksum, and allocation
@@ -197,13 +197,14 @@ fallback.
 rejected settings, mip index, image descriptors and accumulated bytes with distinct
 failure reasons.
 `ITextureCompressorModule::BuildTexture2D` returns
-`std::optional<FTexturePlatformData>` by value. It logs a failure once inside
-TextureCompressor and returns no partial product. The synchronous recipe accepts no
-cancellation control; Engine adapters own derived-data policy and cancellation.
+`std::expected<FTexturePlatformData, std::string>` by value. It returns an owned
+failure diagnostic and no partial product. The synchronous recipe observes its
+optional `ShouldCancel` callback during mip generation and compression;
+Engine adapters connect it to DDC request cancellation.
 `BuildTextureCube` and `BuildVolumeTexture` follow the same contract, returning
-`std::optional<FTextureCubePlatformData>` and
-`std::optional<FVolumeTexturePlatformData>` without pointer wrappers. Detailed
-recipe failure reasons remain in module logs.
+`std::expected<FTextureCubePlatformData, std::string>` and
+`std::expected<FVolumeTexturePlatformData, std::string>` without pointer wrappers.
+Recipe failure reasons propagate to callers without requiring log inspection.
 Object-level platform-data work follows the UE cache lifecycle names:
 `DTexture2D::BeginCachePlatformData(Request, Completion)` admits explicit asynchronous
 work; `DTexture2D::CachePlatformData`, `DTextureCube::CachePlatformData` and
@@ -257,7 +258,7 @@ larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
 Each request carries owned source mip images or a detached deferred source, content identity, all build
-settings, Win64/Game target identity, and scheduling identity. Key computation and a warm DDC
+settings, target platform/profile identity, and scheduling identity. Key computation and a warm DDC
 lookup use source metadata and content identity only. Explicit edit requests can
 carry decoded images; authored PostLoad defers payload recovery until a worker
 cache miss. Workers consume those images to generate mips, compress,

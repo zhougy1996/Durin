@@ -1,6 +1,6 @@
 #include "BuildServiceBackendPrivate.h"
 #include "BuildCacheRecordPrivate.h"
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 #include "CacheBackend.h"
 #include "DerivedDataBuildSession.h"
 
@@ -143,8 +143,8 @@ TEST(FBuildContinuationTests, CancellationCannotRetireUnpublishedSubmission)
 {
 	FRequestOwner Owner; FThreadEvent Entered, Release, Waiting, Retired;
 	std::thread Submitter([&] { FRequestBarrier Submission(Owner); Entered.Trigger(); Release.Wait(); });
-	Entered.Wait(); Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); EXPECT_FALSE(Owner.Poll());
-	std::thread Waiter([&] { Waiting.Trigger(); Owner.Wait(); Retired.Trigger(); });
+	Entered.Wait(); EXPECT_FALSE(Owner.Poll());
+	std::thread Waiter([&] { Waiting.Trigger(); Owner.Cancel(); Retired.Trigger(); });
 	Waiting.Wait(); EXPECT_FALSE(Retired.WaitFor(0.02));
 	Release.Trigger(); Submitter.join(); Waiter.join(); EXPECT_TRUE(Owner.Poll());
 }
@@ -453,7 +453,8 @@ TEST(FBuildContinuationTests, SlowCoreIOLeavesSingleWorkerAvailableAndOwnerWaits
 	const auto StartStatus = Started.wait_for(std::chrono::seconds(5));
 	auto Other = Tasks::LaunchTask("DDCWorkerProgress", [&] { WorkerProgress.set_value(); });
 	const auto ProgressStatus = Progress.wait_for(std::chrono::seconds(5));
-	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(RequestOwner);
+	std::jthread Canceler([&] { RequestOwner.Cancel(); });
+	while (!RequestOwner.IsCanceled()) std::this_thread::yield();
 
 	EXPECT_FALSE(RequestOwner.Poll());
 	Release.set_value();
@@ -795,7 +796,11 @@ TEST(FBuildSessionTests, ReusedPolicyDoesNotShareCancellationAcrossOwners)
 	FRequestOwner First, Second;
 	const auto SharedOptions = Options();
 	uint32 Canceled = 0, Completed = 0;
-	Fixture.Function->OnBuild = [&] { Durin::DerivedData::Private::FOwnerAccess::RequestCancel(First); };
+	std::jthread Canceler;
+	Fixture.Function->OnBuild = [&] {
+		if (!Canceler.joinable()) Canceler = std::jthread([&] { First.Cancel(); });
+		while (!First.IsCanceled()) std::this_thread::yield();
+	};
 	Session->Build(Definition(), {}, SharedOptions, First, [&](auto Result) {
 		EXPECT_EQ(Result.Status, EStatus::Canceled);
 		EXPECT_TRUE(Result.Output.IsValid());
@@ -860,17 +865,22 @@ TEST(FBuildSessionTests, EmptyOwnerIsAlreadyComplete)
 	Owner.Wait();
 }
 
-TEST(FBuildSessionTests, OwnerMayRequestCancellationInsideItsCompletion)
+TEST(FBuildSessionTests, CancellationWaitsForCompletionCallback)
 {
 	FFixture Fixture;
 	auto Session = Fixture.Session();
-	auto Owner = std::make_unique<FRequestOwner>();
-	uint32 Calls = 0;
-	Session->Build(Definition(), {}, Options(), *Owner, [&](auto) {
-		++Calls; Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner); });
-	EXPECT_EQ(Calls, 1u);
-	(*Owner).Wait();
-
+	FRequestOwner Owner;
+	FThreadEvent Entered, Release;
+	std::atomic_bool Returned = false;
+	std::jthread Submitter([&] { Session->Build(Definition(), {}, Options(), Owner, [&](auto) {
+		Entered.Trigger(); Release.Wait();
+	}); });
+	Entered.Wait();
+	std::jthread Canceler([&] { Owner.Cancel(); Returned = true; });
+	while (!Owner.IsCanceled()) std::this_thread::yield();
+	EXPECT_FALSE(Returned.load()); EXPECT_FALSE(Owner.Poll());
+	Release.Trigger(); Submitter.join(); Canceler.join();
+	EXPECT_TRUE(Returned.load()); EXPECT_TRUE(Owner.Poll());
 }
 
 TEST(FBuildSessionDeathTests, OwnerDestructionInsideCompletionIsRejected)
@@ -983,7 +993,11 @@ TEST(FBuildSessionTests, CancellationPreservesProducerDiagnostics)
 	FFixture Fixture;
 	FRequestOwner Owner;
 	Fixture.Function->Negative = true;
-	Fixture.Function->OnBuild = [&] { Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); };
+	std::jthread Canceler;
+	Fixture.Function->OnBuild = [&] {
+		Canceler = std::jthread([&] { Owner.Cancel(); });
+		while (!Owner.IsCanceled()) std::this_thread::yield();
+	};
 	uint32 Calls = 0;
 	Fixture.Session()->Build(Definition(), {}, Options(), Owner, [&](auto Completion) {
 		++Calls; EXPECT_EQ(Completion.Status, EStatus::Canceled);
@@ -1047,7 +1061,8 @@ TEST(FBuildContinuationTests, CancellationWhileStoreRunningWaitsForStoreRetireme
 	std::jthread Worker([&] { IO->Run(); });
 	const bool Started = Entered.WaitFor(5.0);
 	EXPECT_TRUE(Started);
-	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner);
+	std::jthread Canceler([&] { Owner.Cancel(); });
+	while (!Owner.IsCanceled()) std::this_thread::yield();
 	EXPECT_EQ(Calls.load(), 0u); EXPECT_FALSE(Owner.Poll()); EXPECT_FALSE(Weak.expired());
 	Release.Trigger(); Worker.join();
 	Owner.Wait();
@@ -1206,13 +1221,12 @@ TEST(FBuildSessionTests, ReleasingSessionAndServiceDoesNotCancelOwnerRequests)
 
 namespace
 {
-	class FOwnerTestRequest final : public IRequest, public Durin::DerivedData::Private::ICancelableRequest
+	class FOwnerTestRequest final : public IRequest
 	{
 	public:
 		std::function<void(ERequestPriority)> OnPriority;
 		std::shared_ptr<bool> Destroyed;
 		~FOwnerTestRequest() override { if (Destroyed) *Destroyed = true; }
-		auto RequestCancel() -> bool override { return false; }
 		auto Cancel() -> void override {}
 		auto Wait() -> void override {}
 		auto SetPriority(ERequestPriority Priority) -> void override { if (OnPriority) OnPriority(Priority); }
@@ -1481,21 +1495,22 @@ TEST(FBuildSessionTests, ResolverFailureAndCancellationUseTheCompletionProtocol)
 	}
 }
 
-TEST(FRequestOwnerTests, NonblockingCancellationDoesNotExecuteQueuedNativeTasks)
+TEST(FRequestOwnerTests, CancellationDrainsAcceptedNativeTasks)
 {
 	ShutdownTaskScheduler(false); ASSERT_TRUE(InitializeTaskScheduler(1));
 	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(true); } } Shutdown;
-	FRequestOwner Owner; uint32 Calls = 0; std::atomic_bool Signaling = false;
-	FThreadEvent Entered, Release, Signaled;
-	Owner.LaunchTask("SignalCancellation", [&] {
-		Entered.Trigger(); Release.Wait(); Signaling = true;
-		Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner);
-		Signaling = false; Signaled.Trigger();
-	});
+	FRequestOwner Owner;
+	std::atomic_uint32_t Calls = 0;
+	std::atomic_bool Returned = false;
+	FThreadEvent Entered, Release;
+	Owner.LaunchTask("RunningNativeTask", [&] { Entered.Trigger(); Release.Wait(); ++Calls; });
 	Entered.Wait();
-	Owner.LaunchTask("QueuedNativeTask", [&] { EXPECT_FALSE(Signaling.load()); EXPECT_TRUE(Owner.IsCanceled()); ++Calls; });
-	Release.Trigger(); Signaled.Wait();
-	Owner.Wait(); EXPECT_EQ(Calls, 1u); EXPECT_TRUE(Owner.Poll());
+	Owner.LaunchTask("QueuedNativeTask", [&] { ++Calls; });
+	std::jthread Canceler([&] { Owner.Cancel(); Returned = true; });
+	while (!Owner.IsCanceled()) std::this_thread::yield();
+	EXPECT_FALSE(Returned.load());
+	Release.Trigger(); Canceler.join();
+	EXPECT_EQ(Calls.load(), 2u); EXPECT_TRUE(Returned.load()); EXPECT_TRUE(Owner.Poll());
 }
 
 TEST(FBuildSessionTests, DeferredSubmissionExceptionsCompleteWithError)

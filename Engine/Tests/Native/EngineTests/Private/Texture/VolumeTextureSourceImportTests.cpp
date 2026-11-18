@@ -538,7 +538,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Testing::RemoveTestWorkDirectory(CookRoot);
 	FCookContext Cook(ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game);
-	ASSERT_TRUE(SaveCookPackage((*Imported.Asset).GetPackage(), "/Game/ProductionVolume", Cook)) << Error;
+	ASSERT_TRUE(Cook.AddPackage("/Game/ProductionVolume", (*Imported.Asset).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
@@ -589,7 +589,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Testing::RemoveTestWorkDirectory(RollbackCookRoot);
 	FCookContext RollbackCook(
 		ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(SaveCookPackage((*Reloaded).GetPackage(), "/Game/ProductionVolume", RollbackCook)) << Error;
+	ASSERT_TRUE(RollbackCook.AddPackage("/Game/ProductionVolume", (*Reloaded).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(RollbackCook, RollbackCookRoot)) << Error;
 	Durin::FByteBuffer RepeatedCookedPackage;
 	Durin::FByteBuffer RepeatedCookedBulk;

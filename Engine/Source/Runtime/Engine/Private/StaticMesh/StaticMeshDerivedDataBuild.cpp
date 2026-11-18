@@ -5,7 +5,7 @@
 #include "StaticMesh/StaticMeshCompilationTestSupport.h"
 
 #if DURIN_WITH_EDITOR
-	#include "RequestOwnerAccess.h"
+	#include "DerivedDataRequestOwner.h"
 	#include "BuildServiceBackendPrivate.h"
 	#include "CacheDispatchPrivate.h"
 	#include "DerivedDataBuildSession.h"
@@ -201,7 +201,7 @@ namespace Durin
 		// The resolver retains canonical bulk, not the request's optional decoded residency.
 		Request.Source.ReleaseGeometry();
 		DerivedData::FBuildPolicy Policy = Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
-		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), Policy);
+		auto Built = Sessions.Build(std::move(*Definition), std::move(Inputs), Policy, Request.RequestOwner);
 		return StaticMeshPrivate::ConsumeRenderBuild(Request.Settings, std::move(Built), MaximumWorkingSetBytes);
 #endif
 	}

@@ -1,9 +1,8 @@
 #include "Misc/Build.h"
 #if DURIN_WITH_EDITORONLY_DATA
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 #include "Texture/TextureCompilingManager.h"
 #include "TextureBuildInternal.h"
-#include "DerivedDataRequestOwner.h"
 
 #include "Texture/Texture2DBuild.h"
 #include "Texture/ITextureCompressorModule.h"
@@ -374,17 +373,14 @@ namespace Durin
 
 		auto Cancel(uint64 RequestId) -> bool
 		{
-			std::shared_ptr<DerivedData::FRequestOwner> Owner;
 			bool Changed;
 			{
 				std::lock_guard Lock(Mutex);
 				const auto Iterator = Requests.find(RequestId);
 				if (Iterator == Requests.end() || Iterator->second->bDelivered) return false;
 				Changed = !Iterator->second->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
-				Owner = Iterator->second->BuildOperation;
 			}
-			// Signal without joining a producer on GameThread; the pump consumes its mailbox.
-			if (Owner) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
+			// The pump retires accepted work and discards canceled results.
 			return Changed;
 		}
 
@@ -500,7 +496,6 @@ namespace Durin
 		auto Shutdown() -> void
 		{
 			std::vector<std::shared_ptr<FRequestState>> Queued;
-			std::vector<std::shared_ptr<DerivedData::FRequestOwner>> BuildOperations;
 
 			{
 				std::lock_guard Lock(Mutex);
@@ -510,13 +505,11 @@ namespace Durin
 				for (const auto& [RequestId, RequestState] : Requests)
 				{
 					RequestState->bCancellationRequested.store(true, std::memory_order_release);
-					if (RequestState->BuildOperation) BuildOperations.push_back(RequestState->BuildOperation);
 
 				}
 				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
 				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
 			}
-			for (const auto& Owner : BuildOperations) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
 			for (const auto& RequestState : Queued)
 				CompleteWithoutWorker(RequestState, DerivedData::EStatus::Canceled);
 

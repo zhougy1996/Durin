@@ -129,7 +129,7 @@ namespace Durin
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
-		ENGINE_API auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void override;
+		ENGINE_API auto BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void override;
 		ENGINE_API auto OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void override;
 		ENGINE_API static auto AppendToClassSchema(FObjectCookContext& Context) -> void;
 		// Owner-thread detached preparation; output fields are not installed on the mesh.

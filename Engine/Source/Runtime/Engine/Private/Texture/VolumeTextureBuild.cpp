@@ -6,6 +6,7 @@
 #include "Logging/LogMacros.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/VolumeTextureBuild.h"
+#include "TextureCookedData.h"
 #include "Texture/ITextureCompressorModule.h"
 
 #include "Texture/TextureDerivedData.h"
@@ -81,7 +82,7 @@ namespace Durin
 		auto Definition = PrepareVolumeDefinition(Request);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
 		auto Completion = TexturePrivate::Build(std::move(*Definition),
-			TexturePrivate::MakeVolumeTextureInputResolver(Request.Source), Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery);
+			TexturePrivate::MakeVolumeTextureInputResolver(Request.Source), Request.bPersistDerivedData ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery, Request.RequestOwner);
 		return ConsumeVolumeBuild(Completion, Request.TargetPlatform, Request.TargetProfile);
 #endif
 	}
@@ -128,7 +129,7 @@ namespace Durin
 					std::string Diagnostic;
 					try
 					{
-						auto Product = ConsumeVolumeBuild(Built, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+						auto Product = ConsumeVolumeBuild(Built, GetHostCookPlatform(), ECookTargetProfile::Game);
 						if (Product)
 						{
 							auto Volume = std::make_unique<FVolumeCacheResult>();
@@ -157,6 +158,20 @@ namespace Durin
 		auto Result = BuildVolumeTextureWithDiagnostic(Request);
 		if (!Result) return std::unexpected(TexturePrivate::ReportBuildFailure(Result.error()));
 		return std::move(**Result);
+	}
+
+	auto DVolumeTexture::PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void
+	{
+		if (!Preparation.ReserveWorkingSet(std::max<uint64>(1, GetSource().GetDecodedPayloadSize() * 4))) return;
+		FVolumeTextureBuildRequest Request{.Source = GetSource().CopyTornOff(), .Settings = GetBuildSettings(),
+			.TargetPlatform = Preparation.GetTargetPlatform(), .TargetProfile = Preparation.GetTargetProfile()};
+		TexturePrivate::StartTextureCook(Preparation, [Request = std::move(Request)](const FAssetBuildTaskContext& Control) mutable
+			-> std::expected<FVolumeTexturePlatformData, std::string> {
+			Request.RequestOwner = Control.RequestOwner;
+			auto Built = BuildVolumeTextureWithDiagnostic(Request);
+			if (!Built) return std::unexpected(std::move(Built.error().Diagnostic));
+			return std::move(**Built);
+		});
 	}
 
 	auto DVolumeTexture::CachePlatformData(const FVolumeTextureBuildRequest& Request, const FTextureBuildApplicationContext& Context) -> std::expected<void, FTextureBuildOperationError>

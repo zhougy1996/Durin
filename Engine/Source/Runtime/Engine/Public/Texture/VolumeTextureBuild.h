@@ -10,6 +10,8 @@
 #include "Texture/VolumeTextureBuildTypes.h"
 #include "Texture/VolumeTexture.h"
 
+namespace Durin::DerivedData { class FRequestOwner; }
+
 namespace Durin
 {
 	// Captured source and cache policy; payload resolution is deferred until a miss.
@@ -17,9 +19,10 @@ namespace Durin
 	{
 		FTextureSource Source;
 		FVolumeTextureBuildSettings Settings;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
+		DerivedData::FRequestOwner* RequestOwner = nullptr;
 	};
 
 	ENGINE_API auto BuildVolumeTextureDetached(const FVolumeTextureBuildRequest& Request)

@@ -194,7 +194,7 @@ namespace Durin
 
 				auto BuildResult = TextureMipBuilder::BuildTextureMips({.SourceMips = std::span(&Source, 1),
 					.Settings = {.Usage = Usage, .bSRGB = bSrgb},
-					.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, bSrgb, bHasTransparency)});
+					.PixelFormat = TextureMipBuilder::SelectPixelFormat(Durin::GetHostCookPlatform(), Usage, bSrgb, bHasTransparency)});
 				if (!BuildResult)
 				{
 					ADD_FAILURE() << BuildResult.error();

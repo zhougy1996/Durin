@@ -972,6 +972,24 @@ TEST(FTexture2DBuildModuleTests, KeepsProductsValueOwned)
 	EXPECT_TRUE(BuildResult->IsValid());
 }
 
+TEST(FTexture2DBuildModuleTests, ReturnsDiagnosticsAndCancelsInsideMipGeneration)
+{
+	using namespace Durin;
+	const auto Invalid = BuildTexture2D({});
+	ASSERT_FALSE(Invalid);
+	EXPECT_FALSE(Invalid.error().empty());
+	auto Source = Image::FImage::TryCreate({.Width = 8, .Height = 8,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(8 * 8 * 4));
+	ASSERT_TRUE(Source);
+	std::vector<Image::FImage> Mips{std::move(*Source)};
+	uint32 Checks = 0;
+	const auto Canceled = BuildTexture2D({.SourceMips = Mips,
+		.ShouldCancel = [&] { return ++Checks >= 3; }});
+	ASSERT_FALSE(Canceled);
+	EXPECT_GE(Checks, 3u);
+	EXPECT_NE(Canceled.error().find("cancel"), std::string::npos);
+}
+
 TEST(FTexture2DTests, TerminalRequestsRetireObjectRecordsAndBoundDiagnostics)
 {
 	InitializeDObjectSystem();
@@ -1547,23 +1565,25 @@ TEST(FVolumeTextureTests, RejectsInvalidMipFilterBeforeSourceReplacement)
 	EXPECT_EQ(Texture->GetPlatformData(), nullptr);
 }
 
-TEST(FTextureCubeTests, RecipeReturnsValuesAndLogsFailuresOnce)
+TEST(FTextureCubeTests, RecipeReturnsValuesAndOwnedDiagnostics)
 {
 	InitializeDObjectSystem();
 	FCacheLogCapture BuildLog("TextureCompressor");
 	Durin::FTextureCubeFaceImages Faces;
 	const Durin::FTextureCubeBuildInput LDRRequest{
 		.Pixels = Durin::FTextureCubeLDRBuildInput{.FaceImages = std::cref(Faces)}};
-	EXPECT_FALSE(Durin::BuildTextureCube(LDRRequest));
-	ASSERT_EQ(BuildLog.size(), 1u);
-	EXPECT_EQ(BuildLog.front().Message, "TextureCube build failed: TextureCube canonical build request is invalid.");
+	const auto InvalidLDR = Durin::BuildTextureCube(LDRRequest);
+	ASSERT_FALSE(InvalidLDR);
+	EXPECT_EQ(InvalidLDR.error(), "TextureCube canonical build request is invalid.");
+	EXPECT_TRUE(BuildLog.empty());
 
 	BuildLog.Reset();
 	const Durin::Image::FImage InvalidPanorama;
-	EXPECT_FALSE(Durin::BuildTextureCube({.Pixels = Durin::FTextureCubeHDRBuildInput{
-		.Panorama = std::cref(InvalidPanorama), .FaceDimension = 1}}));
-	ASSERT_EQ(BuildLog.size(), 1u);
-	EXPECT_EQ(BuildLog.front().Message, "TextureCube build failed: HDR cube requires a single linear RGBA32F panorama.");
+	const auto InvalidHDR = Durin::BuildTextureCube({.Pixels = Durin::FTextureCubeHDRBuildInput{
+		.Panorama = std::cref(InvalidPanorama), .FaceDimension = 1}});
+	ASSERT_FALSE(InvalidHDR);
+	EXPECT_EQ(InvalidHDR.error(), "HDR cube requires a single linear RGBA32F panorama.");
+	EXPECT_TRUE(BuildLog.empty());
 
 	BuildLog.Reset();
 	for (auto& Face : Faces.Faces)
@@ -1591,22 +1611,24 @@ TEST(FTextureCubeTests, RecipeReturnsValuesAndLogsFailuresOnce)
 	EXPECT_TRUE(BuildLog.empty());
 }
 
-TEST(FVolumeTextureTests, RecipeReturnsValuesAndLogsFailuresOnce)
+TEST(FVolumeTextureTests, RecipeReturnsValuesAndOwnedDiagnostics)
 {
 	InitializeDObjectSystem();
 	FCacheLogCapture BuildLog("TextureCompressor");
 	Durin::FVolumeTextureSourceData Source;
-	EXPECT_FALSE(Durin::BuildVolumeTexture({.SourceData = std::cref(Source)}));
-	ASSERT_EQ(BuildLog.size(), 1u);
-	EXPECT_EQ(BuildLog.front().Message, "VolumeTexture build failed: Volume texture build source, settings, or target is incompatible.");
+	const auto InvalidSource = Durin::BuildVolumeTexture({.SourceData = std::cref(Source)});
+	ASSERT_FALSE(InvalidSource);
+	EXPECT_EQ(InvalidSource.error(), "Volume texture build source, settings, or target is incompatible.");
+	EXPECT_TRUE(BuildLog.empty());
 
 	Source.Width = Source.Height = Source.Depth = 2;
 	ASSERT_TRUE(Source.SetVoxelBytes(Durin::FByteBuffer(8, std::byte{42})));
 	BuildLog.Reset();
-	EXPECT_FALSE(Durin::BuildVolumeTexture({.SourceData = std::cref(Source),
-		.Settings = {.MipFilter = static_cast<Durin::EVolumeTextureMipFilter>(255)}}));
-	ASSERT_EQ(BuildLog.size(), 1u);
-	EXPECT_EQ(BuildLog.front().Message, "VolumeTexture build failed: Volume texture build requires valid source with matching output format and box filtering.");
+	const auto InvalidSettings = Durin::BuildVolumeTexture({.SourceData = std::cref(Source),
+		.Settings = {.MipFilter = static_cast<Durin::EVolumeTextureMipFilter>(255)}});
+	ASSERT_FALSE(InvalidSettings);
+	EXPECT_EQ(InvalidSettings.error(), "Volume texture build requires valid source with matching output format and box filtering.");
+	EXPECT_TRUE(BuildLog.empty());
 
 	BuildLog.Reset();
 	auto Built = Durin::BuildVolumeTexture({.SourceData = std::cref(Source)});
@@ -1861,7 +1883,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Durin::FCookContext Cook(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::SaveCookPackage((*Texture).GetPackage(), "/Game/CookedVolume", Cook)) << Error;
+	ASSERT_TRUE(Cook.AddPackage("/Game/CookedVolume", (*Texture).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot)) << Error;
 	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/CookedVolume.dbulk"));
 	Durin::FAssetPackageInspection CookedInspection;
@@ -2707,7 +2729,7 @@ TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 	EXPECT_FALSE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
 }
 
-TEST(FTexture2DTests, RecipeFailureLogsOnceAndReturnsNoProduct)
+TEST(FTexture2DTests, RecipeFailureReturnsDiagnosticWithoutProduct)
 {
 	InitializeDObjectSystem();
 	FCacheLogCapture BuildLog("TextureCompressor");
@@ -2728,11 +2750,9 @@ TEST(FTexture2DTests, RecipeFailureLogsOnceAndReturnsNoProduct)
 	{
 		BuildLog.Reset();
 		const auto Built = Durin::BuildTexture2D(Requests[Index]);
-		EXPECT_FALSE(Built);
-		const auto Records = BuildLog.Records();
-		ASSERT_EQ(Records.size(), 1u);
-		EXPECT_EQ(Records.front().Level, Durin::ELogLevel::Error);
-		EXPECT_EQ(Records.front().Message, std::string("Texture2D build failed: ") + std::string(Reasons[Index]));
+		ASSERT_FALSE(Built);
+		EXPECT_EQ(Built.error(), Reasons[Index]);
+		EXPECT_TRUE(BuildLog.empty());
 	}
 	BuildLog.Reset();
 	const auto Built = Durin::BuildTexture2D({.SourceMips = std::span(&*Source, 1)});
@@ -2812,7 +2832,7 @@ TEST(FTexture2DTests, ParallelCompressionMatchesSerialBytes)
 			const TextureMipBuilder::FBuildExecutionOptions Control{.bParallelCompression = false};
 			const TextureMipBuilder::FBuildTextureMipsRequest Request{
 				.SourceMips = std::span(&Source, 1), .Settings = {.Usage = Usage, .CompressionQuality = Quality, .bSRGB = false},
-				.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, false, Transparent)};
+				.PixelFormat = TextureMipBuilder::SelectPixelFormat(Durin::GetHostCookPlatform(), Usage, false, Transparent)};
 			auto SerialResult = TextureMipBuilder::BuildTextureMips(Request, &Control);
 			auto ParallelResult = TextureMipBuilder::BuildTextureMips(Request);
 			ASSERT_TRUE(SerialResult);

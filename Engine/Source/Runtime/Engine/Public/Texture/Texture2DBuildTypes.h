@@ -44,8 +44,9 @@ namespace Durin
 	{
 		std::span<const Image::FImage> SourceMips;
 		FTexture2DBuildSettings Settings;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+		std::function<bool()> ShouldCancel;
 	};
 
 	ENGINE_API auto ValidateTexture2DSourceMips(

@@ -15,8 +15,9 @@ namespace Durin
 	{
 		std::reference_wrapper<const FVolumeTextureSourceData> SourceData;
 		FVolumeTextureBuildSettings Settings;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+		std::function<bool()> ShouldCancel;
 	};
 
 }

@@ -247,7 +247,7 @@ namespace Durin
 		case ECookRunError::InvalidTopLevelAsset: return "invalid-top-level-asset";
 		case ECookRunError::PrepareInjectedFailure: return "prepare-injected-failure";
 		case ECookRunError::MissingPackage: return "missing-package";
-		case ECookRunError::ContributionFailed: return "contribution-failed";
+		case ECookRunError::PreparationFailed: return "preparation-failed";
 		case ECookRunError::CaptureInjectedFailure: return "capture-injected-failure";
 		case ECookRunError::CaptureFailed: return "capture-failed";
 		case ECookRunError::AuxiliaryInjectedFailure: return "auxiliary-injected-failure";
@@ -294,7 +294,7 @@ namespace Durin
 		case ECookRunError::OutputLimit: return std::format("Cook detached output byte limit exceeded: retained={}, package={}, bulk={}, maximum={}.", Result.RetainedOutputBytes, Result.RequestedPackageBytes, Result.RequestedBulkBytes, Result.MaximumOutputBytes);
 		case ECookRunError::InvalidTopLevelAsset: return std::format("CookInvalidTopLevelAsset: {}.", Result.AssetIdentity);
 		case ECookRunError::MissingPackage: return std::format("CookMissingPackage: package={}, serializer={}", Result.CurrentPackage.ToString(), Result.CurrentSerializer);
-		case ECookRunError::ContributionFailed: return std::format("CookContributionFailed: package={}, provider={}, stage=prepare: {}", Result.ContributionPackage.ToString(), Result.ContributionProvider, Result.ContributionCause ? FormatCookContributionError(*Result.ContributionCause) : "Contribution failed");
+		case ECookRunError::PreparationFailed: return Result.PreparationCause ? FormatCookPlanError(*Result.PreparationCause) : "Cook preparation failed";
 		case ECookRunError::CaptureFailed: return Result.CaptureCause ? FormatCookCaptureError(*Result.CaptureCause) : "Cook capture failed.";
 		case ECookRunError::ShaderLibraryFailed: return !Result.ShaderDiagnostic.empty() ? Result.ShaderDiagnostic : "Cook shader library failed.";
 		case ECookRunError::PublicationFailed: return Result.PublicationCause ? FormatCookPublishError(*Result.PublicationCause) : "Cook publication failed.";
@@ -564,16 +564,14 @@ namespace Durin
 							return Finish(ECookRunStatus::Failed, ECookRunError::PrepareInjectedFailure);
 						if (!AuthoredPackage)
 							return Finish(ECookRunStatus::Failed, ECookRunError::MissingPackage);
-						const FCookContributionResult Contribution = SaveCookPackage(AuthoredPackage, Path.GetView(), Context);
+						const auto Prepared = Context.AddPackage(Path.ToString(), AuthoredPackage);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
-						if (Contribution.Status == ECookContributionStatus::Canceled)
+						if (Prepared.Error.Code == ECookPlanError::Canceled)
 							return Finish(ECookRunStatus::Cancelled, ECookRunError::Cancelled);
-						if (!Contribution)
+						if (!Prepared)
 						{
-							OutResult.ContributionCause = std::make_shared<FCookContributionResult>(Contribution);
-							OutResult.ContributionPackage = Path;
-							OutResult.ContributionProvider = Contribution.Provider.empty() ? OutResult.CurrentSerializer : Contribution.Provider;
-							return Finish(ECookRunStatus::Failed, ECookRunError::ContributionFailed);
+							OutResult.PreparationCause = std::make_shared<FCookPlanError>(Prepared.Error);
+							return Finish(ECookRunStatus::Failed, ECookRunError::PreparationFailed);
 						}
 						if (Injected(ECookOperationStage::Capture, Index))
 							return Finish(ECookRunStatus::Failed, ECookRunError::CaptureInjectedFailure);

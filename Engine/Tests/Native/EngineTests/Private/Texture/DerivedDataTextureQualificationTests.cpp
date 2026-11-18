@@ -1,4 +1,4 @@
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 #include "Texture/Texture2DBuildDiagnostics.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
@@ -43,7 +43,7 @@ namespace
 			for (const auto& Mip : Platform.Mips) ReturnedBlocks.emplace_back(Mip.Pixels);
 		}
 		auto BuildTexture2D(const FTexture2DBuildInput& Request)
-			-> std::optional<FTexturePlatformData> override
+			-> std::expected<FTexturePlatformData, std::string> override
 		{
 			++BuildCalls;
 			auto Built = Durin::BuildTexture2D(Request);
@@ -63,7 +63,7 @@ namespace
 			return std::move(*Normalized);
 		}
 		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
-			-> std::optional<FTextureCubePlatformData> override
+			-> std::expected<FTextureCubePlatformData, std::string> override
 		{
 			++BuildCalls;
 			auto Built = Durin::BuildTextureCube(Request);
@@ -75,7 +75,7 @@ namespace
 			return Built;
 		}
 		auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
-			-> std::optional<FVolumeTexturePlatformData> override
+			-> std::expected<FVolumeTexturePlatformData, std::string> override
 		{
 			++BuildCalls;
 			auto Built = Durin::BuildVolumeTexture(Request);
@@ -144,7 +144,11 @@ namespace
 			FPaths::SetDerivedDataCacheDirForTests((Root / Fixture).generic_string());
 			Provider->ResetObservation();
 			DerivedData::FRequestOwner Owner;
-			Provider->OnRecipeCompleted = [&] { Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); };
+			std::jthread Canceler;
+			Provider->OnRecipeCompleted = [&] {
+				Canceler = std::jthread([&] { Owner.Cancel(); });
+				while (!Owner.IsCanceled()) std::this_thread::yield();
+			};
 			auto Session = DerivedData::GetBuild().CreateSession("Fixture", Resolver);
 			std::optional<DerivedData::FBuildCompleteParams> Result;
 			Session.Build(Definition, {}, {}, Owner, [&](auto Value) { Result = std::move(Value); });
@@ -250,23 +254,25 @@ TEST_F(FDerivedDataTextureQualificationTests, CancellationDiscardsCompletedRecip
 	ASSERT_TRUE(Request);
 	FPaths::SetDerivedDataCacheDirForTests((Root / "CanceledRecipe").generic_string());
 	Provider->ResetObservation();
-	std::atomic<bool> bCancelled = false;
+	DerivedData::FRequestOwner Owner;
 	// Cancellation arrives after the synchronous recipe has produced valid data.
-	Provider->OnRecipeCompleted = [&] { bCancelled.store(true); };
-	const FTexture2DBuildExecutionControl Control{.ShouldCancel = [&] { return bCancelled.load(); }};
-	const auto Built = BuildTexture2DPlatformData(*Request, &Control);
+	std::jthread Canceler;
+	Provider->OnRecipeCompleted = [&] {
+		Canceler = std::jthread([&] { Owner.Cancel(); });
+		while (!Owner.IsCanceled()) std::this_thread::yield();
+	};
+	const auto Built = BuildTexture2DPlatformData(*Request, &Owner);
 	ASSERT_FALSE(Built);
 	EXPECT_EQ(Built.error().Code, ETexture2DBuildError::Cancelled);
 	EXPECT_EQ(Provider->BuildCalls, 1u);
 	EXPECT_FALSE(Provider->ReturnedBlocks.empty());
 
-	// The caller discards its result. A completed DDC store remains reusable.
+	// Cancellation reaches the DDC owner before store; retry executes the recipe again.
 	Provider->OnRecipeCompleted = {};
-	bCancelled.store(false);
-	const auto Rebuilt = BuildTexture2DPlatformData(*Request, &Control);
+	const auto Rebuilt = BuildTexture2DPlatformData(*Request);
 	ASSERT_TRUE(Rebuilt);
 	EXPECT_TRUE(Rebuilt->IsValid());
-	EXPECT_EQ(Provider->BuildCalls, 1u);
+	EXPECT_EQ(Provider->BuildCalls, 2u);
 }
 
 TEST_F(FDerivedDataTextureQualificationTests, CubeCancellationDiscardsCompletedRecipeProduct)

@@ -853,11 +853,11 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	std::string Error;
 	Durin::FCookContext First(Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::SaveCookPackage((*Import.Asset).GetPackage(), "/Game/CookedCube", First)) << Error;
+	ASSERT_TRUE(First.AddPackage("/Game/CookedCube", (*Import.Asset).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(First, FirstRoot)) << Error;
 	Durin::FCookContext Second(Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::SaveCookPackage((*Import.Asset).GetPackage(), "/Game/CookedCube", Second)) << Error;
+	ASSERT_TRUE(Second.AddPackage("/Game/CookedCube", (*Import.Asset).GetPackage())) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondRoot)) << Error;
 
 	Durin::FByteBuffer FirstPackage;

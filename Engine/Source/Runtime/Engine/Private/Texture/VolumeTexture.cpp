@@ -158,7 +158,7 @@ namespace Durin
 	{
 		Super::SerializeCooked(Ar);
 		TexturePrivate::SerializeCookedPlatformData(Ar, GetMutableCookedPlatformData(),
-			PlatformData.get(), FName("Durin::DVolumeTexture"), "VolumeTexture");
+			*this, FName("Durin::DVolumeTexture"), "VolumeTexture");
 	}
 
 	auto DVolumeTexture::CreateResource(

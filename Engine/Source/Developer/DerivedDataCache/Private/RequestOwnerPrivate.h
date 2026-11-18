@@ -24,7 +24,7 @@ namespace Durin::DerivedData::Private
 		}
 	};
 	// Requests own callback completion; dispatch publication belongs to the submitter.
-	struct FRequestCompletion : IRequest, ICancelableRequest
+	struct FRequestCompletion : IRequest
 	{
 		std::mutex Mutex;
 		std::condition_variable Changed;
@@ -32,10 +32,11 @@ namespace Durin::DerivedData::Private
 		IRequestOwner* Group = nullptr;
 		std::shared_ptr<IBuildScheduledWork> Scheduled;
 		virtual auto OnFinished() -> void {}
+		virtual auto CancelPending() -> bool = 0;
 		auto Cancel() -> void final
 		{
-			requiref(!FRequestOwnerScope::Blocks(this), "Synchronous cancellation cannot wait for its own callback; use RequestCancel.");
-			RequestCancel();
+			requiref(!FRequestOwnerScope::Blocks(this), "Requests must be canceled outside their callbacks.");
+			CancelPending();
 			requiref(WaitInternal() == ERequestWaitResult::Completed, "Synchronous cancellation must wait for request end.");
 		}
 		template <typename F> auto Complete(F&& Callback) -> void

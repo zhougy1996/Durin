@@ -7,6 +7,8 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
+namespace Durin::DerivedData { class FRequestOwner; }
+
 namespace Durin
 {
 	// Immutable object facts captured before StaticMesh build work begins.
@@ -24,6 +26,7 @@ namespace Durin
 		FStaticMeshBuildSettings Settings;
 		FStaticMeshSource Source;
 		bool bPersistDerivedData = true;
+		DerivedData::FRequestOwner* RequestOwner = nullptr;
 	};
 
 	ENGINE_API auto MakeStaticMeshBuildSettings(std::span<const FMeshMaterialSlotDefinition> MaterialSlots,

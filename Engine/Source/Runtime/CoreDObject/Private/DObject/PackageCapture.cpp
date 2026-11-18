@@ -300,8 +300,8 @@ namespace Durin::PackagePrivate
 				// Runtime-only targets have no persistent identity, including children
 				// whose own flags do not repeat their transient Outer's flags.
 				const bool bExcluded = Value && ((Options.ObjectFilter && !Options.ObjectFilter(Value))
-					|| (Options.bCooking && !IsObjectIncludedForCook(Value, Options.Target)));
-				const bool bPolicyStripped = Value && Options.bCooking && !IsObjectIncludedForCook(Value, Options.Target);
+					|| (Options.bCooking && !IsObjectIncludedForCook(Value, Options.TargetPlatform)));
+				const bool bPolicyStripped = Value && Options.bCooking && !IsObjectIncludedForCook(Value, Options.TargetPlatform);
 				if (bExcluded && !bPolicyStripped && !std::ranges::any_of(NodeStack, [](const FCapturedNode* Node) {
 					return Node && Node->ReflectedProperty && Node->ReflectedProperty->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
 				}))
@@ -1402,9 +1402,9 @@ namespace Durin
 		for (DObject* Object : FrozenObjects)
 		{
 			if (Object->IsTemplateObject() || IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())
-				|| (Options.bCooking && !IsObjectIncludedForCook(Object, Options.Target))
+				|| (Options.bCooking && !IsObjectIncludedForCook(Object, Options.TargetPlatform))
 				|| (Options.ObjectFilter && !Options.ObjectFilter(Object))) continue;
-			FObjectPreSaveContext Context{Options.bCooking, Options.Target};
+			FObjectPreSaveContext Context{Options.TargetPlatform};
 			Object->PreSave(Context);
 			if (!Context.Result)
 				return std::unexpected(FPackageCaptureError{.Reason = EPackageCaptureReason::ArchiveFailure,
@@ -1463,7 +1463,7 @@ namespace Durin
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
 			if (!IsPackageCaptureObjectOmitted(Object, Options.SaveOverrides.get())
-				&& (!Options.bCooking || IsObjectIncludedForCook(Object, Options.Target))
+				&& (!Options.bCooking || IsObjectIncludedForCook(Object, Options.TargetPlatform))
 				&& (!Options.ObjectFilter || Options.ObjectFilter(Object)))
 				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;

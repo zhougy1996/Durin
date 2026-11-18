@@ -8,6 +8,9 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITOR
+	namespace DerivedData { class FRequestOwner; }
+#endif
 	struct FPhysicsCookResult
 	{
 		FCollisionGeometryRef Simple;
@@ -42,6 +45,10 @@ namespace Durin
 			-> std::expected<FPhysicsCookInput, std::string>;
 		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, uint64 MaximumWorkingSetBytes = UINT64_MAX)
 			-> std::expected<FPhysicsCookResult, std::string>;
+#if DURIN_WITH_EDITOR
+		ENGINE_API static auto CookCaptured(const FPhysicsCookInput& Input, DerivedData::FRequestOwner& Owner,
+			uint64 MaximumWorkingSetBytes = UINT64_MAX) -> std::expected<FPhysicsCookResult, std::string>;
+#endif
 		ENGINE_API static auto Cook(const FCookBodySetupInfo& Info, uint64 MaximumWorkingSetBytes = UINT64_MAX)
 			-> std::expected<FPhysicsCookResult, std::string>;
 	};

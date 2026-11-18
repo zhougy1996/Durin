@@ -1,4 +1,4 @@
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 
 #include "ShaderBuilder.h"
 #include "Threading/RunnableThread.h"
@@ -35,6 +35,7 @@ namespace Durin
 			bool Published = false;
 			bool BinaryMetal = false;
 			std::atomic_bool NativeStarted = false;
+			std::atomic_bool Canceled = false;
 			std::string NativeProducer;
 			DerivedData::FRequestOwner RequestOwner;
 			FShaderCompilerOutput NativeOutput;
@@ -60,7 +61,7 @@ namespace Durin
 					Delivery = EDelivery::Delivering;
 					Callback = std::move(Completion);
 				}
-				try { if (RequestOwner.IsCanceled() || (Options.IsCancelled && Options.IsCancelled())) Output = CanceledShader(); } catch (...) { Output = FShaderCompilerOutput::Failure("Shader cancellation observer failed."); }
+				try { if (Canceled.load() || (Options.IsCancelled && Options.IsCancelled())) Output = CanceledShader(); } catch (...) { Output = FShaderCompilerOutput::Failure("Shader cancellation observer failed."); }
 				ShaderCallbacks.push_back(this);
 				try { if (Callback) Callback(std::move(Output)); } catch (...) { }
 				Callback = {};
@@ -133,13 +134,13 @@ namespace Durin
 		}
 		auto Prepare(const std::shared_ptr<FSubscriber>& Subscriber) -> void
 		{
-			if (Subscriber->RequestOwner.IsCanceled() || (Subscriber->Options.IsCancelled && Subscriber->Options.IsCancelled())) return Subscriber->Finish(CanceledShader());
+			if (Subscriber->Canceled.load() || (Subscriber->Options.IsCancelled && Subscriber->Options.IsCancelled())) return Subscriber->Finish(CanceledShader());
 			if (Subscriber->BinaryMetal && !Subscriber->Options.NativeProducerIdentity.empty())
 				Subscriber->NativeProducer = Subscriber->Options.NativeProducerIdentity;
 			else if (Subscriber->BinaryMetal)
 			{
 				const auto Producer = GetMetalLibraryProducerIdentity([Weak = std::weak_ptr(Subscriber)] {
-					const auto Owner = Weak.lock(); return !Owner || Owner->RequestOwner.IsCanceled()
+					const auto Owner = Weak.lock(); return !Owner || Owner->Canceled.load()
 					|| (Owner->Options.IsCancelled && Owner->Options.IsCancelled());
 				});
 				if (!Producer) return Subscriber->Finish(FShaderCompilerOutput::Failure(Producer.error()));
@@ -147,7 +148,7 @@ namespace Durin
 			}
 			auto Prepared = Subscriber->SourceKind == ESourceKind::Mounted ? Builder->PrepareMounted(Subscriber->Request) : Builder->PrepareGenerated(Subscriber->Request);
 			if (!Prepared) return Subscriber->Finish(FShaderCompilerOutput::Failure(Prepared.error()));
-			if (Subscriber->RequestOwner.IsCanceled()) return Subscriber->Finish(CanceledShader());
+			if (Subscriber->Canceled.load()) return Subscriber->Finish(CanceledShader());
 			if (!Subscriber->Request->bForceRecompile)
 			{
 				auto Retained = Builder->OutputCache.Find((*Prepared)->OutputKey, std::min(ShaderCompiledOutput::MaximumValueBytes, Subscriber->Request->MaximumOutputBytes));
@@ -163,7 +164,7 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				PruneCompilerOperations();
-				if (Subscriber->RequestOwner.IsCanceled() || Closed) { }
+				if (Subscriber->Canceled.load() || Closed) { }
 				else
 				{
 					const auto Key = (*Prepared)->OutputKey + (Subscriber->Request->bForceRecompile ? "/Forced" : "/Cached") + std::format("/Budget{}", Subscriber->Request->MaximumOutputBytes);
@@ -196,7 +197,7 @@ namespace Durin
 		{
 			using namespace DerivedData;
 			FRequestBarrier Barrier(Subscriber->RequestOwner);
-			if (Subscriber->RequestOwner.IsCanceled()) return Subscriber->Finish(CanceledShader());
+			if (Subscriber->Canceled.load()) return Subscriber->Finish(CanceledShader());
 			if (Subscriber->NativeIndex == Subscriber->NativeOutput.CompiledShaders.size())
 				return Subscriber->Finish(std::move(Subscriber->NativeOutput));
 			auto Request = MakeMetalLibraryBuildRequest(Subscriber->NativeOutput.CompiledShaders[Subscriber->NativeIndex], Subscriber->NativeProducer);
@@ -277,8 +278,7 @@ namespace Durin
 	};
 	auto FShaderBuilder::FAsyncState::FSubscriber::RequestCancel() -> bool
 	{
-		if (!Durin::DerivedData::Private::FOwnerAccess::RequestCancel(RequestOwner)) return false;
-		std::shared_ptr<FFlight> CancelFlight;
+		if (Canceled.exchange(true)) return false;
 		if (auto Owner = State.lock())
 		{
 			std::lock_guard Lock(Owner->Mutex);
@@ -290,13 +290,12 @@ namespace Durin
 					const auto It = Owner->Flights.find(Pending->Key);
 					if (It != Owner->Flights.end() && It->second == Pending) {
 						Owner->Flights.erase(It);
-						CancelFlight = std::move(Pending);
 					}
 				}
 				else Owner->Priority(Pending);
 			}
 		}
-		if (CancelFlight) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(CancelFlight->Owner);
+		// CompilerOperations retains abandoned producers until their owner and callbacks finish.
 		bool PublishedNow;
 		{ std::lock_guard Lock(Mutex); PublishedNow = Published; }
 		if (PublishedNow) Finish(CanceledShader());
@@ -357,14 +356,14 @@ namespace Durin
 			Condition.notify_all();
 		};
 		const auto Complete = [this, &Publish](FShaderCompilerOutput Output) { Finish(std::move(Output)); Publish(); };
-		if (!Owner) { DerivedData::Private::FOwnerAccess::RequestCancel(RequestOwner); return Complete(CanceledShader()); }
+		if (!Owner) { Canceled = true; return Complete(CanceledShader()); }
 		bool Closed;
 		{
 			std::lock_guard Lock(Owner->Mutex);
 			Closed = Owner->Closed;
 		}
-		if (Closed) DerivedData::Private::FOwnerAccess::RequestCancel(RequestOwner);
-		if (RequestOwner.IsCanceled()) return Complete(CanceledShader());
+		if (Closed) Canceled = true;
+		if (Canceled.load()) return Complete(CanceledShader());
 		if ((!BinaryMetal && (!Options.NativeProducerIdentity.empty() || Options.bNativeCacheOnly))
 			|| Options.NativeProducerIdentity.size() > 512
 			|| std::ranges::any_of(Options.NativeProducerIdentity, [](unsigned char Value) { return Value < 32 || Value > 126; })
@@ -390,8 +389,8 @@ namespace Durin
 			Closed = Owner->Closed;
 			if (!Closed) Owner->Operations.push_back(Subscriber);
 		}
-		if (Closed) DerivedData::Private::FOwnerAccess::RequestCancel(RequestOwner);
-		if (RequestOwner.IsCanceled()) return Complete(CanceledShader());
+		if (Closed) Canceled = true;
+		if (Canceled.load()) return Complete(CanceledShader());
 		if (Options.bInlineExecution) {
 			try { Owner->Prepare(Subscriber); }
 			catch (...) { Finish(FShaderCompilerOutput::Failure("Shader entry-point request is invalid.")); }
@@ -401,7 +400,7 @@ namespace Durin
 			{ std::lock_guard Lock(Owner->Mutex); Priority = Options.Priority; }
 			auto Dispatch = Private::LaunchTaskWithCompletion("ShaderPrepare",
 				[Owner, Subscriber]() {
-					try { if (Subscriber->RequestOwner.IsCanceled()) Subscriber->Finish(CanceledShader()); else Owner->Prepare(Subscriber); }
+					try { if (Subscriber->Canceled.load()) Subscriber->Finish(CanceledShader()); else Owner->Prepare(Subscriber); }
 					catch (...) { Subscriber->Finish(FShaderCompilerOutput::Failure("Shader entry-point request is invalid.")); }
 				}, [Subscriber](ETaskState State) {
 					if (State != ETaskState::Succeeded) Subscriber->Finish(FShaderCompilerOutput::Failure("Shader preparation task failed."));

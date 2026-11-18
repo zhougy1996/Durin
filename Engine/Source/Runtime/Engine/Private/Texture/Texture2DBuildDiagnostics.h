@@ -3,6 +3,8 @@
 #include "Texture/Texture2DBuild.h"
 
 #if DURIN_WITH_EDITORONLY_DATA
+namespace Durin::DerivedData { class FRequestOwner; }
+
 namespace Durin
 {
 	// Engine orchestration diagnostics; recipes report failures through module logs.
@@ -40,15 +42,9 @@ namespace Durin
 
 	ENGINE_API auto ReportTextureCompilationFailure(const FTexture2DCompilationError& Error) -> FTextureBuildOperationError;
 
-	// This cancellation value is borrowed only for the duration of Build.
-	struct FTexture2DBuildExecutionControl
-	{
-		std::function<bool()> ShouldCancel;
-	};
-
 	// Returns a complete value-owned CPU product; failures expose no partial product.
 	ENGINE_API auto BuildTexture2DPlatformData(const FTexture2DBuildRequest& Request,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr)
+		DerivedData::FRequestOwner* RequestOwner = nullptr)
 		-> std::expected<FTexturePlatformData, FTexture2DBuildError>;
 }
 #endif

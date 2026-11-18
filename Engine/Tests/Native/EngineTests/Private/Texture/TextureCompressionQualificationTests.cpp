@@ -33,7 +33,7 @@ TEST(FTextureCompressionQualificationTests, SerialAndParallelCompression)
 				.bParallelCompression = Mode != 0};
 			auto Built = TextureMipBuilder::BuildTextureMips({.SourceMips = std::span(&Source, 1),
 				.Settings = {.Usage = Usage, .bSRGB = false},
-				.PixelFormat = TextureMipBuilder::SelectPixelFormat(Usage, false, false)}, &Control);
+				.PixelFormat = TextureMipBuilder::SelectPixelFormat(Durin::GetHostCookPlatform(), Usage, false, false)}, &Control);
 			ASSERT_TRUE(Built);
 			const auto& Platform = Built->PlatformData;
 			const auto& Metrics = Built->Metrics;

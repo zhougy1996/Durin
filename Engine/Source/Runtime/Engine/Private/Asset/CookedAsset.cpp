@@ -1,3 +1,6 @@
+#if DURIN_WITH_EDITOR
+#include "TargetPlatform.h"
+#endif
 #include "Asset/RegistryOperations.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
@@ -542,6 +545,7 @@ namespace Durin
 		switch (Error.Code)
 		{
 		case ECookPlanError::None: return {};
+		case ECookPlanError::Canceled: return "Cook was cancelled.";
 		case ECookPlanError::Target: return "Cook save-plan target is invalid.";
 		case ECookPlanError::Canonicalization: return "Cook package " + Error.VirtualPath + " could not be canonicalized: " + Error.CanonicalizationDiagnostic;
 		case ECookPlanError::Resolution: return "Cook output path " + Error.VirtualPath + " does not resolve to a final real asset.";
@@ -609,7 +613,6 @@ namespace Durin
 		DPackage* Package
 	) -> FCookPlanResult
 	{
-		PreparationFailure = {};
 		if (!IsValidTarget(TargetPlatform, TargetProfile))
 			return {.Error = {.Code = ECookPlanError::Target, .TargetPlatform = TargetPlatform, .TargetProfile = TargetProfile}};
 		if (const auto Validated = ValidateCookPlanPath(VirtualPackagePath); !Validated) return Validated;
@@ -625,17 +628,19 @@ namespace Durin
 
 		const auto Options = MakePackagePreparationOptions();
 		FCookPackagePreparationReport Report;
-		const FArchiveTarget Target{std::string(GetTargetPlatformName(TargetPlatform)), std::string(GetTargetProfileName(TargetProfile))};
+		const ITargetPlatform* Target = nullptr;
+#if DURIN_WITH_EDITOR
+		Target = ResolveTargetPlatform(TargetPlatform);
+#endif
 		if (std::ranges::none_of(Package->GetTopLevelAssets(), [&](const auto* Object) { return IsObjectIncludedForCook(Object, Target); })) return {};
 		FByteBuffer PackageBytes;
 		FByteBuffer Segment;
 		const auto Result = SerializeCookedPackageClosure(
 			Package, PackageBytes, Segment, Options, &Report,
 			{.bRetainEditorOnlyData = bRetainEditorOnlyData});
-		PreparationFailure = std::move(Report.Failure);
 		if (!Result)
-			return {{.Code = ECookPlanError::Projection, .VirtualPath = VirtualPackagePath,
-				.SourcePath = SourcePackagePath.ToString(), .ProjectionDiagnostic = ObjectPackage::FormatPackageError(Result)}};
+			return {{.Code = Result.Error == EObjectCookError::Cancelled ? ECookPlanError::Canceled : ECookPlanError::Projection, .VirtualPath = VirtualPackagePath,
+				.SourcePath = SourcePackagePath.ToString(), .ProjectionDiagnostic = Result.Diagnostic}};
 		FPackageBulkSegmentSummary Summary{
 			.Extent = Segment.size(),
 			.Digest = Segment.empty() ? FXxHash128{} : FXxHash128::HashBuffer(Segment)};

@@ -14,13 +14,11 @@ namespace Durin::AssetPrivate
   SaveContext.Options.Mode = DeltaMode == EDefaultDeltaMode::NoDelta ? EPackageSaveMode::Complete : EPackageSaveMode::Delta;
   auto& Capture = SaveContext.Options.Capture;
   Capture.bCooking = Options.CookTarget.has_value();
+  Capture.TargetPlatform = Options.TargetPlatform;
   Capture.bRetainEditorOnlyData = Options.Serialization.bRetainEditorOnlyData;
   if (Options.CookTarget) Capture.Target = *Options.CookTarget;
   Capture.SaveOverrides = Options.Serialization.SaveOverrides;
   Capture.PropertyFilter = Options.Serialization.PropertyFilter;
-  if (Capture.bCooking) Capture.ObjectFilter = [Target = Capture.Target](const DObject* Object) {
-   return IsObjectIncludedForCook(Object, Target);
-  };
   if (Package) for (DObject* Asset : Package->GetTopLevelAssets())
    if (auto* Redirector = Cast<DAssetRedirector>(Asset))
    {

@@ -143,9 +143,10 @@ namespace Durin::StaticMeshPrivate
 				if (!Geometry) return Fail(FormatStaticMeshSourceError(Geometry.error()));
 				if (Geometry->size() != LODCount) return Fail("StaticMesh LOD count does not match source metadata.");
 				auto Product = std::make_unique<FStaticMeshRenderData>();
-				const bool bBuilt = Module->BuildMesh(*Product, {.Geometry = Geometry->front(), .MaterialSlots = Slots, .NormalizedSize = Size,
-					.LODGeometries = *Geometry});
-				if (!bBuilt) return Context.FailExecution("StaticMesh render construction failed; see MeshBuilder logs for details.");
+				const auto Built = Module->BuildMesh(*Product, {.Geometry = Geometry->front(), .MaterialSlots = Slots, .NormalizedSize = Size,
+					.LODGeometries = *Geometry, .ShouldCancel = [&Context] { return Context.IsCanceled(); }});
+				if (Context.IsCanceled()) return;
+				if (!Built) return Context.FailExecution(Built.error());
 				auto Output = MakeSharedOutput(std::move(Product), *Count);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));
 				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());

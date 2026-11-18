@@ -20,26 +20,27 @@
 
 namespace Durin
 {
-	auto DTexture::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
+	auto DTexture::BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void
 	{
-		Super::BeginCacheForCookedPlatformData(Context);
-		auto* Preparation = FCookPreparationContext::Get(*this, Context);
-		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing texture Cook preparation context."}; return; }
-		if (Context.CheckCancellation()) return;
-		BeginCachePlatformData();
-		Context.WaitForCompletion = [this, Preparation, &Context] {
-			if (!FinishCachePlatformData() || !HasPlatformData())
-				Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::PlatformData,
-					.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package,
-					.TargetPlatform = Preparation->GetTargetPlatform(), .TargetProfile = Preparation->GetTargetProfile()};
-			(void)Context.CheckCancellation();
-		};
-	}
-	auto DTexture::IsCachedCookedPlatformDataLoaded(const FObjectCookContext&) const -> bool { return IsAsyncCacheComplete(); }
-	auto DTexture::ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void
-	{
-		if (!IsAsyncCacheComplete()) BlockOnAnyAsyncBuild();
-		Super::ClearCachedCookedPlatformData(Context);
+		Super::BeginCacheForCookedPlatformData(TargetPlatform);
+		FCookedPlatformData::Begin(*this, TargetPlatform, [this](FCookedPlatformData& Context) {
+			if (Context.CheckCancellation()) return;
+			if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			{
+				if (GetAssetRuntimeConfiguration().GetCookTargetPlatform() == Context.GetTargetPlatform() && CookedPlatformData.HasData())
+					Context.Primary = CookedPlatformData;
+				else Context.Result = {EObjectCookError::InvalidInput, "Cooked texture is missing or targets another platform."};
+				return;
+			}
+#if DURIN_WITH_EDITORONLY_DATA
+			Context.ValidatePreparedInputs = [this, Revision = AuthoredBuildRevision] {
+				return Revision == AuthoredBuildRevision;
+			};
+			PrepareCookedPlatformData(Context);
+#else
+			Context.Result = {EObjectCookError::InvalidInput, "Authored texture Cook requires editor data."};
+#endif
+		});
 	}
 	namespace
 	{
@@ -296,6 +297,7 @@ namespace Durin
 	auto DTexture::InvalidateAuthoredBuild() -> void
 	{
 		CheckGameThread();
+		++AuthoredBuildRevision;
 		ResetPlatformData();
 		CookedPlatformData = {};
 		InvalidateRenderResource();

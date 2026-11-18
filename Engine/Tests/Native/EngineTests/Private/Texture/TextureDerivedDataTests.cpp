@@ -1,4 +1,4 @@
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheBackend.h"
 #include "CacheRecordFixtureCodec.h"
@@ -1044,7 +1044,7 @@ TEST(FTexturePlatformSessionTests, SyncCompletionCarriesCancellationAndFailureDi
 	ASSERT_TRUE(Request);
 	auto Definition = TexturePrivate::MakeTexture2DSessionDefinition(*Request);
 	ASSERT_TRUE(Definition);
-	DerivedData::FRequestOwner Owner; Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner);
+	DerivedData::FRequestOwner Owner; Owner.Cancel();
 	auto Session = std::make_shared<DerivedData::FBuildSession>(DerivedData::GetBuild().CreateSession("Fixture"));
 	std::optional<DerivedData::FBuildCompleteParams> CanceledResult;
 	Session->Build(*Definition, {}, {}, Owner, [&](auto Value) { CanceledResult = std::move(Value); });

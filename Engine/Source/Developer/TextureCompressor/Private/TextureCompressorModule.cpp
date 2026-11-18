@@ -47,7 +47,7 @@ namespace Durin
 			return 0;
 		}
 		auto BuildTexture2D(const FTexture2DBuildInput& Request)
-			-> std::optional<FTexturePlatformData> override
+			-> std::expected<FTexturePlatformData, std::string> override
 		{
 			return Durin::BuildTexture2D(Request);
 		}
@@ -59,12 +59,12 @@ namespace Durin
 			return std::move(*Normalized);
 		}
 		auto BuildTextureCube(const FTextureCubeBuildInput& Request)
-			-> std::optional<FTextureCubePlatformData> override
+			-> std::expected<FTextureCubePlatformData, std::string> override
 		{
 			return Durin::BuildTextureCube(Request);
 		}
 		auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
-			-> std::optional<FVolumeTexturePlatformData> override
+			-> std::expected<FVolumeTexturePlatformData, std::string> override
 		{
 			return Durin::BuildVolumeTexture(Request);
 		}

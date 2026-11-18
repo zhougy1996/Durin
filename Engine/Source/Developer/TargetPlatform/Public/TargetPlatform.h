@@ -3,33 +3,23 @@
 #include "CoreMinimal.h"
 #include "Misc/TargetIdentity.h"
 #include "RHIDefinitions.h"
+#include "PixelFormat.h"
 #include "TargetPlatformAPI.h"
 
 namespace Durin
 {
-	enum class ETargetPlatformError : uint8 { UnknownPlatform };
+	enum class ETargetTextureUsage : uint8 { Color, Normal, DataMask };
 
-	// Immutable resolved policy. Family algorithms and cache identity stay with consumers.
-	class FTargetPlatformDescription
+	class ITargetPlatform
 	{
 	public:
-		auto GetPlatform() const -> ECookTargetPlatform { return Platform; }
-		auto GetShaderTarget() const -> const FShaderTargetIdentity& { return ShaderTarget; }
-		auto GetCookedShaderTarget() const -> FShaderTargetIdentity
-		{
-			return Platform == ECookTargetPlatform::MacOS ? MetalLibraryShaderTarget : ShaderTarget;
-		}
-		TARGETPLATFORM_API auto SupportsCollisionPayload() const -> bool;
-	private:
-		friend TARGETPLATFORM_API auto ResolveTargetPlatform(ECookTargetPlatform)
-			-> std::expected<FTargetPlatformDescription, ETargetPlatformError>;
-		FTargetPlatformDescription(ECookTargetPlatform Platform, FShaderTargetIdentity Shader)
-			: Platform(Platform), ShaderTarget(Shader) {}
-		ECookTargetPlatform Platform;
-		FShaderTargetIdentity ShaderTarget;
+		virtual ~ITargetPlatform() = default;
+		virtual auto GetPlatform() const -> ECookTargetPlatform = 0;
+		virtual auto GetShaderTarget() const -> const FShaderTargetIdentity& = 0;
+		virtual auto GetCookedShaderTarget() const -> FShaderTargetIdentity = 0;
+		virtual auto GetTextureFormat(ETargetTextureUsage Usage, bool bSRGB, bool bHasTransparency) const -> EPixelFormat = 0;
+		virtual auto SupportsCollisionPayload() const -> bool = 0;
 	};
 
-	// Pure resolution does not load providers, query RHI devices, or require a compiler.
-	TARGETPLATFORM_API auto ResolveTargetPlatform(ECookTargetPlatform Platform)
-		-> std::expected<FTargetPlatformDescription, ETargetPlatformError>;
+	TARGETPLATFORM_API auto ResolveTargetPlatform(ECookTargetPlatform Platform) -> const ITargetPlatform*;
 }

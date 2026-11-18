@@ -126,9 +126,10 @@ namespace Durin::TexturePrivate
 				if (auto Valid = ValidateTexture2DSourceMips(Mips); !Valid)
 					return Fail(FormatTexture2DInputError(Valid.error()));
 				Input->SourceMips = Mips;
+				Input->ShouldCancel = [&Context] { return Context.IsCanceled(); };
 				auto Built = Module->BuildTexture2D(*Input);
 				if (Context.IsCanceled()) return;
-				if (!Built) return Context.FailExecution("Texture2D build failed; see TextureCompressor logs for details.");
+				if (!Built) return Context.FailExecution(std::move(Built.error()));
 				auto Output = MakeTexture2DSharedOutput(*Built,
 					Input->TargetPlatform, Input->TargetProfile);
 				if (!Output) return Context.FailExecution(std::move(Output.error()));

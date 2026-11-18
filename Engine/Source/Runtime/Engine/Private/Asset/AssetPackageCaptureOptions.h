@@ -5,6 +5,8 @@
 #include "DObject/Archive.h"
 #include "DObject/ObjectKey.h"
 
+namespace Durin { class ITargetPlatform; }
+
 namespace Durin::AssetPrivate
 {
 	// Cook targets reach the encoder only after the Cook owner prepares its products.
@@ -12,6 +14,7 @@ namespace Durin::AssetPrivate
 	{
 		FAssetPackageSerializationOptions Serialization;
 		std::optional<FArchiveTarget> CookTarget;
+		const ITargetPlatform* TargetPlatform = nullptr;
 		std::vector<FObjectKey>* OutExports = nullptr;
 	};
 }

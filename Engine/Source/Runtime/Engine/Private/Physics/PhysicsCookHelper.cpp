@@ -115,7 +115,18 @@ namespace Durin
 		return CookCaptured(*Input, MaximumWorkingSetBytes);
 	}
 
+#if DURIN_WITH_EDITOR
 	auto FPhysicsCookHelper::CookCaptured(const FPhysicsCookInput& Input, uint64 MaximumWorkingSetBytes)
+		-> std::expected<FPhysicsCookResult, std::string>
+	{
+		DerivedData::FRequestOwner Owner;
+		return CookCaptured(Input, Owner, MaximumWorkingSetBytes);
+	}
+	auto FPhysicsCookHelper::CookCaptured(const FPhysicsCookInput& Input, DerivedData::FRequestOwner& Owner,
+		uint64 MaximumWorkingSetBytes)
+#else
+	auto FPhysicsCookHelper::CookCaptured(const FPhysicsCookInput& Input, uint64 MaximumWorkingSetBytes)
+#endif
 		-> std::expected<FPhysicsCookResult, std::string>
 	{
 		if (Input.GetMode() == EBodySetupCollisionSourceMode::None) return FPhysicsCookResult{};
@@ -131,7 +142,6 @@ namespace Durin
 		auto Session = GetPhysicsSession(PhysicsPrivate::MakeCollisionInputResolver(Input));
 
 		DerivedData::FBuildPolicy Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
-		DerivedData::FRequestOwner Owner;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;
 		Session.Build(std::move(*Definition), {}, Policy, Owner, [&](auto Value) { Completion.emplace(std::move(Value)); });
 

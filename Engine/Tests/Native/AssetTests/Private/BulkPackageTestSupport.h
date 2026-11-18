@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Asset/Cook.h"
 
 #include "Asset/EditorBulkData.h"
 #include "DObject/Class.h"
@@ -11,9 +12,12 @@ namespace
 	class DBulkPackageAssetForTest : public Durin::DObject
 	{
 	public:
-        static inline std::function<void(DBulkPackageAssetForTest&, Durin::FObjectCookContext&)> CookHook;
-        auto BeginCacheForCookedPlatformData(Durin::FObjectCookContext& Context) -> void override {
-            DObject::BeginCacheForCookedPlatformData(Context); if (CookHook) CookHook(*this, Context);
+        static inline std::function<void(DBulkPackageAssetForTest&, Durin::FCookedPlatformData&)> CookHook;
+        auto BeginCacheForCookedPlatformData(const Durin::ITargetPlatform* Target) -> void override {
+            DObject::BeginCacheForCookedPlatformData(Target);
+            Durin::FCookedPlatformData::Begin(*this, Target, [this](Durin::FCookedPlatformData& Preparation) {
+                if (CookHook) CookHook(*this, Preparation);
+            });
         }
 		explicit DBulkPackageAssetForTest(
 			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())

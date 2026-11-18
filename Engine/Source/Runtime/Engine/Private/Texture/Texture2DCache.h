@@ -11,7 +11,7 @@ namespace Durin
 	{
 		FCacheKeyProxy Key;
 		std::span<const uint32> MipIndices;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		uint64 MaximumEncodedBytes = 2ull * 1024 * 1024 * 1024 + 2 * 1024 * 1024;
 		uint64 MaximumWorkingSetBytes = 4ull * 1024 * 1024 * 1024;

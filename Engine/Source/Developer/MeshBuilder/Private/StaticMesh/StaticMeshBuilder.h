@@ -12,6 +12,6 @@ namespace Durin
 	{
 	public:
 		static auto Build(FStaticMeshRenderData& OutRenderData,
-			const FStaticMeshBuildParameters& Parameters) -> bool;
+			const FStaticMeshBuildParameters& Parameters) -> std::expected<void, std::string>;
 	};
 }

@@ -68,48 +68,47 @@ namespace Durin
 		}
 	}
 
-	auto DStaticMesh::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
+	auto DStaticMesh::BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void
 	{
-		Super::BeginCacheForCookedPlatformData(Context);
-		RefreshComplexCollisionSource();
-		auto* Preparation = FCookPreparationContext::Get(*this, Context);
-		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing mesh Cook preparation context."}; return; }
-		if (Context.CheckCancellation()) return;
-		if (bHasComplexCollisionSource && (ComplexCollisionPositions.empty() || ComplexCollisionIndices.empty()))
-		{
-			Context.Result = {EObjectCookError::InvalidInput, "Selected complex collision mesh has no usable input."};
-			return;
-		}
-		if (HasPendingStaticMeshSourceMutation(*this)) {
-			Preparation->Failure = {.Status = ECookContributionStatus::Error, .Error = ECookContributionError::SourceMutation,
-				.ObjectPath = GetObjectPath(), .VirtualPath = Context.Package}; return;
-		}
-		auto Bytes = EstimateMeshCookWork(*this);
-		if (!Bytes) { Context.Result = {EObjectCookError::Limit, std::move(Bytes.error())}; return; }
-		if (!Preparation->ReserveWorkingSet(*Bytes)) return;
-		const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }, .MaximumWorkingSetBytes = *Bytes};
-		auto Captured = CaptureMeshCookWork(*this, Preparation->GetTargetPlatform(), Control);
-		if (!Captured) { Context.Result = {EObjectCookError::Preparation, std::move(Captured.error())}; return; }
-		const auto Metadata = BuildStaticCookedMetadataIdentity(*this);
-		const auto RenderRevision = GetRenderResourceStatus().Revision;
-		const auto CollisionRevision = GetCollisionSourceRevision();
+		Super::BeginCacheForCookedPlatformData(TargetPlatform);
+		FCookedPlatformData::Begin(*this, TargetPlatform, [this](FCookedPlatformData& Context) {
+			RefreshComplexCollisionSource();
+			if (Context.CheckCancellation()) return;
+			if (bHasComplexCollisionSource && (ComplexCollisionPositions.empty() || ComplexCollisionIndices.empty()))
+			{
+				Context.Result = {EObjectCookError::InvalidInput, "Selected complex collision mesh has no usable input."};
+				return;
+			}
+			if (HasPendingStaticMeshSourceMutation(*this)) {
+				Context.Result = {EObjectCookError::Preparation, "Cook cannot settle authored source mutation after capture."}; return;
+			}
+			auto Bytes = EstimateMeshCookWork(*this);
+			if (!Bytes) { Context.Result = {EObjectCookError::Limit, std::move(Bytes.error())}; return; }
+			if (!Context.ReserveWorkingSet(*Bytes)) return;
+			const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }, .MaximumWorkingSetBytes = *Bytes};
+			auto Captured = CaptureMeshCookWork(*this, Context.GetTargetPlatform(), Control);
+			if (!Captured) { Context.Result = {EObjectCookError::Preparation, std::move(Captured.error())}; return; }
+			const auto Metadata = BuildStaticCookedMetadataIdentity(*this);
+			const auto RenderRevision = GetRenderResourceStatus().Revision;
+			const auto CollisionRevision = GetCollisionSourceRevision();
 #if DURIN_WITH_EDITORONLY_DATA
-		const auto SourceIdentity = GetSource().GetIdentity();
-		const auto Size = GetNormalizedSize();
+			const auto SourceIdentity = GetSource().GetIdentity();
+			const auto Size = GetNormalizedSize();
 #endif
-		Preparation->ValidatePreparedInputs = [this, Metadata, RenderRevision, CollisionRevision
+			Context.ValidatePreparedInputs = [this, Metadata, RenderRevision, CollisionRevision
 #if DURIN_WITH_EDITORONLY_DATA
-			, SourceIdentity, Size
+				, SourceIdentity, Size
 #endif
-		] {
-			return CollisionRevision == GetCollisionSourceRevision()
-				&& Metadata == BuildStaticCookedMetadataIdentity(*this) && RenderRevision == GetRenderResourceStatus().Revision
+			] {
+				return CollisionRevision == GetCollisionSourceRevision()
+					&& Metadata == BuildStaticCookedMetadataIdentity(*this) && RenderRevision == GetRenderResourceStatus().Revision
 #if DURIN_WITH_EDITORONLY_DATA
-				&& SourceIdentity == GetSource().GetIdentity() && Size == GetNormalizedSize()
+					&& SourceIdentity == GetSource().GetIdentity() && Size == GetNormalizedSize()
 #endif
-				;
-		};
-		Preparation->StartDetachedWork(std::move(*Captured));
+					;
+			};
+			Context.StartDetachedWork(std::move(*Captured));
+		});
 	}
 
 	auto DStaticMesh::OnCookEvent(ECookEvent Event, FObjectCookContext& Context) const -> void
@@ -262,6 +261,7 @@ namespace Durin
 				if (Control.IsCancelled()) return std::unexpected("Cook mesh preparation was cancelled.");
 #if DURIN_WITH_EDITORONLY_DATA
 				if (Request) {
+					Request->RequestOwner = Control.RequestOwner;
 					auto Built = BuildStaticMeshRenderData(std::move(*Request), Control.MaximumWorkingSetBytes); Request.reset();
 					if (Control.IsCancelled()) return std::unexpected("Cook render construction was cancelled.");
 					if (!Built) return std::unexpected(Built.error());
@@ -287,7 +287,12 @@ namespace Durin
 					CookInfo.TriangleMeshDesc = std::move(*Data);
 					auto Input = FPhysicsCookHelper::Capture(std::move(CookInfo), Control.MaximumWorkingSetBytes, static_cast<EAssetPayloadTargetPlatform>(Platform));
 					if (!Input) return std::unexpected(Input.error());
+#if DURIN_WITH_EDITOR
+					require(Control.RequestOwner);
+					auto Built = FPhysicsCookHelper::CookCaptured(*Input, *Control.RequestOwner, Control.MaximumWorkingSetBytes);
+#else
 					auto Built = FPhysicsCookHelper::CookCaptured(*Input, Control.MaximumWorkingSetBytes);
+#endif
 					if (!Built) return std::unexpected(Built.error());
 					const auto& Geometry = Input->GetMode() == EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Built->Simple : Built->Complex;
 					FPhysicsCollisionPayloadData Payload;
@@ -321,7 +326,7 @@ namespace Durin
 
 	auto DStaticMesh::SerializeCooked(FArchive& Ar) -> void
 	{
-		auto* Prepared = Ar.IsSaving() ? AssetPrivate::FScopedCookedPreparation::Find(*this, Ar.GetTarget()) : nullptr;
+		auto* Prepared = Ar.IsSaving() ? FCookedPlatformData::Find(*this, Ar.GetTarget()) : nullptr;
 		if (Ar.IsSaving() && !Prepared)
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData, "StaticMesh serialization requires current prepared Cook data.");

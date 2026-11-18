@@ -7,10 +7,11 @@ namespace Durin::DerivedData
 	thread_local Private::FRequestOwnerScope* Private::FRequestOwnerScope::Current = nullptr;
 	namespace Private
 	{
-		class FRequestOwnerShared final : public IRequestOwner, public IRequest, public ICancelableRequest
+		class FRequestOwnerShared final : public IRequestOwner, public IRequest
 		{
 		public:
-			explicit FRequestOwnerShared(ERequestPriority Value) : Priority(Value) { AddRef(); }
+			explicit FRequestOwnerShared(ERequestPriority Value)
+				: Priority(Value) { AddRef(); }
 			auto Begin(IRequest* Request) -> void override
 			{
 				bool Replay;
@@ -49,13 +50,6 @@ namespace Durin::DerivedData
 					Priority.store(Value, std::memory_order_relaxed); PriorityChangedInBarrier = PriorityBarriers != 0;
 				}
 				for (const auto& Request : Snapshot) ApplyPriority(*Request);
-			}
-			auto RequestCancel() -> bool override
-			{
-				std::vector<TRefCountPtr<IRequest>> Snapshot;
-				{ std::lock_guard Lock(Mutex); if (Canceled.exchange(true)) return false; for (const auto& [Key, Request] : Requests) Snapshot.push_back(Request); }
-				for (const auto& Request : Snapshot) FOwnerAccess::RequestCancel(*Request);
-				return true;
 			}
 			auto Cancel() -> void override { Canceled = true; Drain(true); }
 			auto Wait() -> void override { Drain(false); }
@@ -107,12 +101,12 @@ namespace Durin::DerivedData
 				Complete([&] { try { if (Invoke) Invoke(); } catch (...) {} Invoke = {}; });
 				return true;
 			}
-			auto RequestCancel() -> bool override { return Run(true); }
+			auto CancelPending() -> bool override { return Run(true); }
 		};
 		struct FTaskDispatch
 		{
 			TRefCountPtr<FOwnerTask> Task;
-			~FTaskDispatch() { Task->RequestCancel(); }
+			~FTaskDispatch() { Task->CancelPending(); }
 		};
 	}
 	auto Private::FOwnerAccess::LaunchTask(IRequestOwner& Owner, IBuildScheduler& Scheduler, std::string_view Name,
@@ -132,7 +126,7 @@ namespace Durin::DerivedData
 				if (Priority == Owner.GetPriority()) break;
 			}
 			return TRefCountPtr<IRequest>(Task);
-		} catch (...) { Task->RequestCancel(); Task->Wait(); throw; }
+		} catch (...) { Task->CancelPending(); Task->Wait(); throw; }
 	}
 	static thread_local FRequestBarrier* RequestBarriersByThread = nullptr;
 	FRequestBarrier::FRequestBarrier(IRequestOwner& Owner, ERequestBarrierFlags Flags)
@@ -144,7 +138,8 @@ namespace Durin::DerivedData
 	{ for (auto* It = RequestBarriersByThread; It; It = It->NextOnThread) if (&It->Owner == &Owner) return true; return false; }
 	IRequestOwner::~IRequestOwner() = default;
 	auto FRequestOwner::FDeleteOwner::operator()(IRequestOwner* Owner) const -> void { ToSharedOwner(*Owner).Destroy(); }
-	FRequestOwner::FRequestOwner(ERequestPriority Priority) : Owner(new Private::FRequestOwnerShared(Priority)) {}
+	FRequestOwner::FRequestOwner(ERequestPriority Priority)
+		: Owner(new Private::FRequestOwnerShared(Priority)) {}
 	FRequestOwner::~FRequestOwner() = default;
 	FRequestOwner::FRequestOwner(FRequestOwner&& Other) noexcept = default;
 	auto FRequestOwner::operator=(FRequestOwner&& Other) noexcept -> FRequestOwner& = default;

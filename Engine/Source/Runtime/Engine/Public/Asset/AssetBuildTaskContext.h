@@ -2,6 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "Misc/CoreTypes.h"
+#include "Threading/TaskRuntime.h"
+
+namespace Durin::DerivedData { class FRequestOwner; }
 
 namespace Durin
 {
@@ -33,6 +36,9 @@ namespace Durin
 	struct FAssetBuildTaskContext
 	{
 		std::function<bool()> IsCancellationRequested;
+		const Tasks::FCancellationToken* Cancellation = nullptr;
+		// Borrowed DDC owner; the operation signals cancellation and drains work before release.
+		DerivedData::FRequestOwner* RequestOwner = nullptr;
 		FAssetBuildTaskMetrics* Metrics = nullptr;
 		// Construction envelope. Providers must reject expansion before allocating scratch/products.
 		uint64 MaximumWorkingSetBytes = std::numeric_limits<uint64>::max();
@@ -40,7 +46,7 @@ namespace Durin
 		auto IsCancelled() const -> bool
 		{
 			if (Metrics) ++Metrics->CancellationCheckpoints;
-			return IsCancellationRequested && IsCancellationRequested();
+			return (Cancellation && Cancellation->IsCanceled()) || (IsCancellationRequested && IsCancellationRequested());
 		}
 	};
 

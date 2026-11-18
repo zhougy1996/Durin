@@ -265,6 +265,11 @@ namespace
 				OutError = "cook requires --target=win64|macos --profile=game.";
 				return false;
 			}
+			if (Durin::ParseTargetPlatform(Options.Target) != Durin::GetHostCookPlatform())
+			{
+				OutError = "Game Cook requires a native host for the requested target platform.";
+				return false;
+			}
 			return true;
 		}
 		if (Options.Operation == EOperation::MaterialTemplate)

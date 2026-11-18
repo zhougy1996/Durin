@@ -24,7 +24,7 @@ namespace Durin::DerivedData::Private
 		uint64 RetainedBytes = 0;
 		auto IsCanceled() const -> bool { return Canceled.load() || Group->IsCanceled(); }
 		auto OnFinished() -> void override;
-		auto RequestCancel() -> bool override;
+		auto CancelPending() -> bool override;
 		auto Finish(FCacheGetResult GetResult, FCachePutResult PutResult) -> void;
 		auto Run() -> void;
 
@@ -76,7 +76,7 @@ namespace Durin::DerivedData::Private
 		});
 
 	}
-	auto FCacheOperation::RequestCancel() -> bool
+	auto FCacheOperation::CancelPending() -> bool
 	{
 		const bool Changed = !Canceled.exchange(true);
 		bool Pending = false, CompleteNow = false;
@@ -136,7 +136,7 @@ namespace Durin::DerivedData::Private
 			try
 			{
 				// The scheduled closure owns this same request; dropping it completes queued work.
-				Dispatch = std::shared_ptr<FCacheOperation>(Op.GetReference(), [KeepAlive = Op](FCacheOperation*) { KeepAlive->RequestCancel(); });
+				Dispatch = std::shared_ptr<FCacheOperation>(Op.GetReference(), [KeepAlive = Op](FCacheOperation*) { KeepAlive->CancelPending(); });
 				auto Scheduled = Scheduler->Schedule({"DerivedDataCacheIO", Op->Group->GetPriority()}, [Dispatch] { Dispatch->Run(); });
 				{ std::lock_guard Lock(Op->Mutex); Op->Scheduled = Scheduled; }
 				Op->Changed.notify_all();
@@ -220,7 +220,7 @@ namespace Durin::DerivedData::Private
 				}
 				State->RetainedBytes += BatchBytes;
 			}
-			for (auto& Op : Operations) if (Op->IsCanceled()) Op->RequestCancel();
+			for (auto& Op : Operations) if (Op->IsCanceled()) Op->CancelPending();
 			State->Pump(); return {};
 		}
 		auto Submit(const std::vector<TRefCountPtr<FCacheOperation>>& Operations, IRequestOwner& Owner) -> void
@@ -243,7 +243,7 @@ namespace Durin::DerivedData::Private
 			}
 		}
 		auto Close() -> void
-		{ std::vector<TRefCountPtr<FCacheOperation>> Snapshot; { std::lock_guard Lock(State->Mutex); State->Closed = true; Snapshot = State->All; } for (const auto& Op : Snapshot) Op->RequestCancel(); }
+		{ std::vector<TRefCountPtr<FCacheOperation>> Snapshot; { std::lock_guard Lock(State->Mutex); State->Closed = true; Snapshot = State->All; } for (const auto& Op : Snapshot) Op->CancelPending(); }
 		auto Drain() -> ERequestWaitResult
 		{
 			for (;;)

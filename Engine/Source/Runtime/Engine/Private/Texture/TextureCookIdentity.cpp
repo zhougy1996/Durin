@@ -15,7 +15,7 @@ namespace Durin
 	{
 		auto AppendTextureCookSchema(FObjectCookContext& Context, std::string_view Family, uint32 FamilyIndex) -> void
 		{
-			AssetPrivate::AppendCookSchemaVersion(Context, Family, 2);
+			AssetPrivate::AppendCookSchemaVersion(Context, Family, 3);
 #if DURIN_WITH_EDITORONLY_DATA
 			const auto* Module = ITextureCompressorModule::Get();
 			const auto Kind = FamilyIndex == 0 ? ETextureBuildKind::Texture2D

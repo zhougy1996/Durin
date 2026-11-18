@@ -27,11 +27,11 @@ namespace Durin
 	{
 #if DURIN_WITH_EDITOR
 		// Shared authored preparation; callers own admission, waiting and publication.
-		auto BeginMaterialCookPreparation(DMaterialInterface& Material, FCookPreparationContext& Preparation) -> void
+		auto BeginMaterialCookPreparation(DMaterialInterface& Material, FCookedPlatformData& Preparation) -> void
 		{
-			auto& Context = Preparation.Lifecycle;
+			auto& Context = Preparation;
 			const auto Configurations = ResolveMaterialCookConfigurations(Preparation.Options.MaterialConfigurations);
-			const auto Target = ResolveTargetPlatform(Preparation.GetTargetPlatform());
+			const auto Target = Context.GetPlatform();
 			if (!Configurations || !Target) { Context.Result = {EObjectCookError::InvalidInput, "Material Cook target or configuration is unsupported."}; return; }
 			// Per variant: bounded snapshot, translation/assembly, program and family encoding overlap.
 			if (!Preparation.ReserveWorkingSet(Configurations->size() * 64ull * 1024 * 1024)) return;
@@ -83,30 +83,27 @@ namespace Durin
 				return true;
 			};
 			Preparation.CancelWork = [Work] { Work->Cancel(); };
-			Preparation.Lifecycle.WaitForCompletion = [Work, &Preparation, Platform = Preparation.GetTargetPlatform(),
+			Preparation.WaitWork = [Work] { for (const auto& Compile : Work->Compiles) FShaderCompilingManager::Get().FinishCompilation(Compile); };
+			Preparation.PollWork = [Work, &Preparation, Platform = Preparation.GetTargetPlatform(),
 				Properties = CanonicalizeMaterialShaderProperties(Material.GetStaticProperties())] {
-				for (size_t Index = 0; Index < Work->Compiles.size(); ++Index) {
-					const auto& Compile = Work->Compiles[Index];
-					auto& Manager = FShaderCompilingManager::Get();
-					while (Manager.IsCompiling(Compile)) {
-						if (Preparation.Lifecycle.CheckCancellation() || Work->Failed.load()) Work->Cancel();
-						std::this_thread::sleep_for(std::chrono::milliseconds(1));
-					}
-					Manager.FinishCompilation(Compile);
-				}
-				if (Preparation.Lifecycle.CheckCancellation()) return;
-				if (Work->Failed.load()) { Preparation.Lifecycle.Result = {EObjectCookError::Preparation, Work->Failure}; return; }
+				if (Preparation.CheckCancellation() || Work->Failed.load()) Work->Cancel();
+				for (const auto& Compile : Work->Compiles)
+					if (FShaderCompilingManager::Get().IsCompiling(Compile)) return false;
+				for (const auto& Compile : Work->Compiles) FShaderCompilingManager::Get().FinishCompilation(Compile);
+				if (Preparation.CheckCancellation()) return true;
+				if (Work->Failed.load()) { Preparation.Result = {EObjectCookError::Preparation, Work->Failure}; return true; }
 				std::vector<const FMaterialProgram*> Programs;
 				for (const auto& Result : Work->Results) {
-					if (!Result || !*Result) { Preparation.Lifecycle.Result = {EObjectCookError::Cancelled, {}}; return; }
+					if (!Result || !*Result) { Preparation.Result = {EObjectCookError::Cancelled, {}}; return true; }
 					Programs.push_back(&Result->Resource);
 				}
 				FByteBuffer Bytes;
 				const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties, Platform, ECookTargetProfile::Game, Bytes);
-				if (!Encoded) { Preparation.Lifecycle.Result = {EObjectCookError::Preparation, Encoded.error()}; return; }
+				if (!Encoded) { Preparation.Result = {EObjectCookError::Preparation, Encoded.error()}; return true; }
 				auto Bulk = FBulkData::TryCreateDetached(Bytes);
-				if (!Bulk) { Preparation.Lifecycle.Result = {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())}; return; }
+				if (!Bulk) { Preparation.Result = {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())}; return true; }
 				Preparation.Primary = std::move(*Bulk);
+				return true;
 			};
 			for (size_t Index = 0; Index < Inputs.size(); ++Index) {
 				auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index],
@@ -130,25 +127,25 @@ namespace Durin
 #endif
 	}
 
-	auto DMaterialInterface::BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void
+	auto DMaterialInterface::BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void
 	{
-		Super::BeginCacheForCookedPlatformData(Context);
-		if (IsDynamicInstance() || Context.CheckCancellation()) return;
-		auto* Preparation = FCookPreparationContext::Get(*this, Context);
-		if (!Preparation) { Context.Result = {EObjectCookError::InvalidInput, "Missing material Cook preparation context."}; return; }
-		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) {
-			const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }};
-			auto Built = PrepareCookedProgram(Preparation->GetTargetPlatform(), Preparation->Options.MaterialConfigurations, Control);
-			if (Built.Status == EShaderBuildStatus::Canceled) Context.Result = {EObjectCookError::Cancelled, {}};
-			else if (!Built) Context.Result = {EObjectCookError::Preparation, std::string(Built.Error)};
-			else Preparation->Primary = std::move(*Built);
-			return;
-		}
+		Super::BeginCacheForCookedPlatformData(TargetPlatform);
+		FCookedPlatformData::Begin(*this, TargetPlatform, [this](FCookedPlatformData& Context) {
+			if (IsDynamicInstance()) return;
+			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) {
+				const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }};
+				auto Built = PrepareCookedProgram(Context.GetTargetPlatform(), Context.Options.MaterialConfigurations, Control);
+				if (Built.Status == EShaderBuildStatus::Canceled) Context.Result = {EObjectCookError::Cancelled, {}};
+				else if (!Built) Context.Result = {EObjectCookError::Preparation, std::string(Built.Error)};
+				else Context.Primary = std::move(*Built);
+				return;
+			}
 #if DURIN_WITH_EDITOR
-		BeginMaterialCookPreparation(*this, *Preparation);
+			BeginMaterialCookPreparation(*this, Context);
 #else
-		Context.Result = {EObjectCookError::Preparation, "Authored material Cook preparation is unavailable in this runtime."};
+			Context.Result = {EObjectCookError::Preparation, "Authored material Cook preparation is unavailable in this runtime."};
 #endif
+		});
 	}
 	namespace
 	{
@@ -288,21 +285,20 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		FCookPackagePreparationOptions Options{.TargetPlatform = TargetPlatform, .TargetProfile = ECookTargetProfile::Game};
 		Options.MaterialConfigurations.assign(Configurations->begin(), Configurations->end());
-		FCookPreparationContext Preparation{.Options = Options};
-		Preparation.Lifecycle.IsCancelled = [&Control] { return Control.IsCancelled(); };
-		Preparation.ReserveWorkingSet = [&](uint64 Bytes) {
+		Options.IsCancelled = [&Control] { return Control.IsCancelled(); };
+		FCookedPlatformData Preparation(Options);
+		Preparation.TryReserveWorkingSet = [&](uint64 Bytes) {
 			if (Bytes > Control.MaximumWorkingSetBytes) {
-				Preparation.Lifecycle.Result = {EObjectCookError::Limit, "Material Cook preparation exceeds its working-set limit."};
+				Preparation.Result = {EObjectCookError::Limit, "Material Cook preparation exceeds its working-set limit."};
 				return false;
 			}
 			Preparation.WorkingSetBytes = Bytes;
 			return true;
 		};
 		BeginMaterialCookPreparation(*this, Preparation);
-		auto Wait = std::exchange(Preparation.Lifecycle.WaitForCompletion, {});
-		if (Wait) Wait();
-		if (Preparation.Lifecycle.CheckCancellation()) return FShaderCompletion::Canceled();
-		if (!Preparation.Lifecycle.Result) return FShaderCompletion::Failure(Preparation.Lifecycle.Result.Diagnostic);
+		Preparation.Wait();
+		if (Preparation.CheckCancellation()) return FShaderCompletion::Canceled();
+		if (!Preparation.Result) return FShaderCompletion::Failure(Preparation.Result.Diagnostic);
 		if (Preparation.ValidatePreparedInputs && !Preparation.ValidatePreparedInputs())
 			return FShaderCompletion::Failure("Material Cook prepared inputs changed.");
 		return std::move(Preparation.Primary);
@@ -314,7 +310,7 @@ namespace Durin
 	auto DMaterialInterface::SerializeCooked(FArchive& Ar) -> void
 	{
 		auto* Prepared = Ar.IsSaving() && !IsDynamicInstance()
-			? AssetPrivate::FScopedCookedPreparation::Find(*this, Ar.GetTarget()) : nullptr;
+			? FCookedPlatformData::Find(*this, Ar.GetTarget()) : nullptr;
 		if (Ar.IsSaving() && !IsDynamicInstance() && !Prepared)
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData, "Material serialization requires current prepared Cook data.");

@@ -8,7 +8,7 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionScene.h"
-#include "RequestOwnerAccess.h"
+#include "DerivedDataRequestOwner.h"
 #include "BuildServiceBackendPrivate.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheDispatchPrivate.h"
@@ -922,7 +922,7 @@ TEST(FMaterialTranslationTests, RejectedHitsRebuildOnceAndStoreFailureKeepsLocal
 	Cache->FailStore = true;
 	FMaterialTranslatedProgram Local; Run(Local, true); ASSERT_TRUE(Local);
 	EXPECT_EQ(Local.GeneratedSource, Cold.GeneratedSource);
-	FRequestOwner Canceled; Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Canceled); uint32 Completions = 0;
+	FRequestOwner Canceled; Canceled.Cancel(); uint32 Completions = 0;
 	SubmitTranslation(Input, true, Canceled, [&](auto Product) { EXPECT_FALSE(Product); EXPECT_EQ(Product.Status, EMaterialProgramStatus::Canceled); EXPECT_TRUE(Product.Diagnostics.empty()); ++Completions; });
 	Canceled.Wait(); EXPECT_EQ(Completions, 1u);
 }
@@ -1140,7 +1140,7 @@ TEST(FMaterialProgramOwnershipTests, SharedProgramSubscriptionsCancelIndependent
 			else if (Canceled >= 0) Manager.CancelCompilation(Canceled == 0 ? First : Second);
 		}
 		EXPECT_FALSE(FirstOwner->IsCanceled());
-		EXPECT_EQ(FirstBuildOwner->IsCanceled(), Canceled == 2);
+		EXPECT_FALSE(FirstBuildOwner->IsCanceled());
 		// Cancellation may finish inline or on the completion worker. A terminal
 		// record can release its owner; a live subscription must keep its own.
 		const auto CheckOwner = [](const auto& Request, const auto& Expected) {
@@ -1359,7 +1359,7 @@ TEST(FMaterialProgramOwnershipTests, CancellationBeforeSubmissionRemainsLatchedA
 		EXPECT_EQ(Result.Program->Status, EMaterialProgramStatus::Canceled);
 		EXPECT_FALSE(Result.RetainedHit);
 		EXPECT_FALSE(Request->Owner->IsCanceled());
-		EXPECT_TRUE(Request->BuildOwner->IsCanceled());
+		EXPECT_FALSE(Request->BuildOwner->IsCanceled());
 		++Calls;
 	});
 	ASSERT_TRUE(Compile); Manager.FinishCompilation(Compile);

@@ -36,6 +36,7 @@ namespace Durin
 		uint64 MaximumWorkingSetBytes = UINT64_MAX;
 		std::span<const FMeshDescriptionReadHandle> LODGeometries;
 		FMeshDescriptionReadHandle NormalizationGeometry;
+		std::function<bool()> ShouldCancel;
 	};
 
 }

@@ -68,7 +68,7 @@ namespace Durin
 			return;
 		}
 		auto Definition = PrepareCubeDefinition(Source, bSRGB, FaceDimension, Exposure,
-			ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+			GetHostCookPlatform(), ECookTargetProfile::Game);
 		if (!Definition) { Completion(DerivedData::EStatus::Error, {}, std::move(Definition.error().Diagnostic)); return; }
 		auto Callback = [Completion](DerivedData::FBuildCompleteParams Result) mutable {
 			const auto Status = Result.Status;
@@ -81,7 +81,7 @@ namespace Durin
 			std::string Diagnostic;
 			try
 			{
-				auto Built = ConsumeCubeBuild(Result, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+				auto Built = ConsumeCubeBuild(Result, GetHostCookPlatform(), ECookTargetProfile::Game);
 				if (Built) Product = std::move(*Built);
 				else Diagnostic = std::move(Built.error().Diagnostic);
 			}
@@ -96,7 +96,7 @@ namespace Durin
 
 	auto TexturePrivate::BuildTextureCubeSource(const FTextureSource& Source, bool bSRGB,
 		uint32 FaceDimension, float Exposure, ECookTargetPlatform Platform, ECookTargetProfile Profile, bool bPersist,
-		const FTextureCubeCanonicalBuildInput* PreparedInput)
+		const FTextureCubeCanonicalBuildInput* PreparedInput, DerivedData::FRequestOwner* RequestOwner)
 		-> std::expected<std::unique_ptr<FTextureCubePlatformData>, FTextureBuildError>
 	{
 #if !DURIN_WITH_EDITOR
@@ -106,7 +106,7 @@ namespace Durin
 		auto Definition = PrepareCubeDefinition(Source, bSRGB, FaceDimension, Exposure, Platform, Profile);
 		if (!Definition) return std::unexpected(std::move(Definition.error()));
 		auto Built = TexturePrivate::Build(std::move(*Definition),
-			MakeTextureCubeInputResolver(Source, PreparedInput), bPersist ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery);
+			MakeTextureCubeInputResolver(Source, PreparedInput), bPersist ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery, RequestOwner);
 		auto& Completion = Built;
 		return ConsumeCubeBuild(Completion, Platform, Profile);
 #endif

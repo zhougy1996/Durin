@@ -8,7 +8,8 @@
 namespace Durin
 {
 	class DObject;
-	COREDOBJECT_API auto IsObjectIncludedForCook(const DObject* Object, const FArchiveTarget& Target) -> bool;
+	class ITargetPlatform;
+	COREDOBJECT_API auto IsObjectIncludedForCook(const DObject* Object, const ITargetPlatform* Target) -> bool;
 	// Shared by type schemas and object events; acquisition paths are not identities.
 	enum class ECookBuildDependencyKind : uint8
 	{
@@ -32,6 +33,16 @@ namespace Durin
 		explicit operator bool() const { return Error == EObjectCookError::None; }
 	};
 
+	class ICookedPlatformData
+	{
+	public:
+		virtual ~ICookedPlatformData() = default;
+		virtual auto Poll() -> bool = 0;
+		virtual auto Cancel() -> void = 0;
+		virtual auto Wait() -> void = 0;
+		virtual auto GetResult() const -> const FObjectCookResult& = 0;
+	};
+
 	enum class ECookEvent : uint8 { PlatformCookDependencies };
 
 	// Invocation-owned generic inputs. Engine-specific settings use canonical named
@@ -46,9 +57,6 @@ namespace Durin
 		// Set false when native inputs cannot be fully declared; independent of loading.
 		bool bDependenciesComplete = true;
 		std::function<bool()> IsCancelled;
-		// Owner-thread blocking completion adapter. It must join owned work and
-		// report a bounded result, including cancellation; never throw on teardown.
-		std::function<void()> WaitForCompletion;
 		std::map<std::string, FByteBuffer> RequestValues;
 		std::set<std::string> RequestedValues;
 		std::function<std::expected<FByteBuffer, FObjectCookResult>(std::string_view)> RequestReader;
@@ -91,8 +99,9 @@ namespace Durin
 
 	struct FObjectPreSaveContext
 	{
-		bool bCooking = false;
-		FArchiveTarget Target;
+		const ITargetPlatform* TargetPlatform = nullptr;
 		FObjectCookResult Result;
+		auto IsCooking() const -> bool { return TargetPlatform != nullptr; }
+		auto GetTargetPlatform() const -> const ITargetPlatform* { return TargetPlatform; }
 	};
 }

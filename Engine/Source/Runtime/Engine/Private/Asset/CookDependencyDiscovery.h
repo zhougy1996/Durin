@@ -69,8 +69,8 @@ namespace Durin::AssetPrivate
 		auto Fail(FCookInputFailure Cause) -> FCookInputResult;
 		auto Fail(const FCookInputResult& Result) -> FCookInputResult;
 		auto Fail(const std::expected<void, Durin::UnifiedError::FError>& Result) -> FCookInputResult { if (auto Cancellation = CheckCancellation(); !Cancellation) return Cancellation; return Fail(ToCookInputResult(Result)); }
-		auto Fail(const FCookContributionResult& Result) -> FCookInputResult { return Fail(Result.Status == ECookContributionStatus::Canceled ? FCookInputResult{ECookInputStatus::Cancelled} : FCookInputResult{ECookInputStatus::InvalidDependency, FormatCookContributionError(Result)}); }
 		const FCookRequest& Request;
+		const ITargetPlatform* Platform = nullptr;
 		FAssetRegistrySnapshot Registry;
 		FPackageLoadTransaction& LoadScope;
 		std::unordered_map<std::string, const FCookInputProjection*> PreviousProjections;

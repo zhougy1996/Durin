@@ -186,8 +186,9 @@ namespace Durin::TextureCubeBuilder
 	}
 
 	auto BuildHDRTextureCube(const Image::FImage& Panorama,
-		const FTextureCubePanoramaBuildSettings& Settings) -> std::expected<FTextureCubePlatformData, std::string>
+		const FTextureCubePanoramaBuildSettings& Settings, std::function<bool()> ShouldCancel) -> std::expected<FTextureCubePlatformData, std::string>
 	{
+		if (ShouldCancel && ShouldCancel()) return std::unexpected("Texture build cancelled.");
 		if (!Panorama.IsValid() || Panorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
 			|| Panorama.GetInfo().GammaSpace != Image::EImageGammaSpace::Linear
 			|| Panorama.GetInfo().Depth != 1 || Panorama.GetInfo().SliceCount != 1)
@@ -211,6 +212,7 @@ namespace Durin::TextureCubeBuilder
 			Output.PixelFormat = Candidate.PixelFormat;
 			for (uint32 Dimension = BaseDimension;; Dimension = std::max(Dimension / 2, 1u))
 			{
+				if (ShouldCancel && ShouldCancel()) return std::unexpected("Texture build cancelled.");
 				FTexture2DMipData Mip;
 				Mip.Width = Mip.Height = Dimension;
 				Mip.RowPitch = Dimension * 16;
@@ -221,6 +223,7 @@ namespace Durin::TextureCubeBuilder
 				for (uint32 Y = 0; Y < Dimension; ++Y)
 					for (uint32 X = 0; X < Dimension; ++X)
 					{
+						if (X == 0 && ShouldCancel && ShouldCancel()) return std::unexpected("Texture build cancelled.");
 						std::array<double, 3> Sum{};
 						double Weight = 0;
 						for (uint32 SY = 0; SY < Grid; ++SY)

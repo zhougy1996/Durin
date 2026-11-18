@@ -138,7 +138,7 @@ TEST(FPathIdentityContractTests, EqualityHashingAndOrderingAreCaseInsensitiveAnd
 	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/Game/a.asset:child", NestedLower));
 	EXPECT_EQ(Upper, Lower);
 	EXPECT_EQ(Upper.ToString(), "/Game/A.Asset");
-	EXPECT_EQ(Lower.ToString(), "/Game/A.Asset");
+	EXPECT_EQ(Lower.ToString(), "/Game/a.Asset");
 	EXPECT_EQ(std::hash<Durin::FSoftObjectPath>{}(Upper), std::hash<Durin::FSoftObjectPath>{}(Lower));
 	EXPECT_EQ((std::unordered_set<Durin::FSoftObjectPath>{Upper, Lower}).size(), 1u);
 	EXPECT_EQ(Nested, NestedLower);

@@ -4,7 +4,7 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-10-31
+Last reviewed: 2026-11-18
 
 ## Construction And Acceptance
 
@@ -204,22 +204,25 @@ executor queue locks. Before a task exposes terminal state or completes a wait,
 its scheduler-owned callable and completion callback have been released. This
 does not release results or shared captures still owned by callers.
 Executor entries retain task state rather than user callables. `Tasks::FCancellationToken`
-matches UE's cooperative interface: `Cancel()` sets its atomic flag and `IsCanceled()`
-reads it. The caller owns its lifetime and captures it explicitly. Copies snapshot
-the flag; they do not share cancellation. Capture the same instance by reference,
-or retain it through an owning operation, when multiple tasks should observe one request.
+matches UE's lightweight cooperative interface: one atomic flag, `Cancel()` and
+`IsCanceled()`. It is neither copyable nor movable and has no reset, registration,
+callback, allocation or waiting mechanism. The caller owns its lifetime and
+captures it explicitly. Capture the same instance by reference, or retain it
+through an owning operation, when multiple tasks should observe one request.
+A new request creates a new token after earlier users have drained.
 The scheduler does not know about these tokens. There is no task-handle cancellation,
 launch-time cancellation option, or injected token argument. Tasks still wait for
 prerequisites and execute; bodies choose whether to return early. Ignoring a request
 permits normal successful completion and result retention. `ETaskState::Canceled`
 remains an explicit producer outcome, independent of a token request.
-Business operations embed the same lightweight token in their operation owner.
+Business operations embed the same token in their operation owner.
 Tasks retain that owner, or borrow its token only when the owner drains them before
-destruction. A copied token is never used to share cancellation. Business contexts
+destruction. Business contexts
 expose read-only cancellation predicates; external predicates are evaluated and
 latched by the owning operation, outside manager/lifecycle locks. DDC cancellation
-views query their request and request owner directly. There is no global shared
-token or observer-composition API.
+views query their request and request owner directly. An asset operation owns both
+its CPU token and DDC request owner, signals each when canceled, and drains them
+before release. Cancellation coordination belongs to that operation, not the token.
 Publication follows body exit and callable destruction. Destructors may query task state, but must
 not wait for their own task's completion. A terminal handle does not retain a
 runnable callback.

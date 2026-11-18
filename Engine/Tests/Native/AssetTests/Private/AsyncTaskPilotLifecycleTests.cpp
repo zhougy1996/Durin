@@ -320,7 +320,8 @@ namespace
 		EXPECT_TRUE(Cubes[2]->HasPlatformData());
 		EXPECT_EQ(2u, Cubes[2]->GetSizeX());
 		EXPECT_EQ(3u, Cache->Reads.load());
-		EXPECT_EQ(2u, Cache->Writes.load());
+		// Accepted DDC work may persist output even when its asset subscription is canceled.
+		EXPECT_EQ(3u, Cache->Writes.load());
 		EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 		ASSERT_TRUE(HDRProbe);
 		EXPECT_EQ(1u, HDRProbe->GetReadStats().RequestCount);
@@ -330,7 +331,7 @@ namespace
 		Cubes[1]->BeginCachePlatformData();
 		ASSERT_TRUE(Cubes[1]->FinishCachePlatformData());
 		EXPECT_EQ(4u, Cache->Reads.load());
-		EXPECT_EQ(2u, Cache->Writes.load());
+		EXPECT_EQ(3u, Cache->Writes.load());
 		EXPECT_EQ(1u, HDRProbe->GetReadStats().RequestCount);
 		Cache->Release.Reset();
 		// Mutation completes the pending read before applying the new settings.
@@ -352,7 +353,7 @@ namespace
 		EXPECT_EQ(4u, Cubes[1]->GetSizeX());
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		EXPECT_EQ(4u, Cubes[1]->GetSizeX());
-		EXPECT_EQ(3u, Cache->Writes.load());
+		EXPECT_EQ(4u, Cache->Writes.load());
 	}
 	// The aggregate has terminal shutdown, so this target owns one full lifecycle.
 	struct FPilotLifecycle
@@ -444,7 +445,7 @@ namespace
 			EXPECT_FALSE(Owners[0]->HasPlatformData());
 			FAssetCompilingManager::Get().FinishAllCompilation();
 			EXPECT_EQ(1u, Deliveries[0]);
-			EXPECT_EQ(1u, Cache->Writes.load());
+			EXPECT_EQ(2u, Cache->Writes.load());
 			EXPECT_EQ(0u, FAssetCompilingManager::Get().GetNumRemainingAssets());
 			// A failing internal assembly/publication callback still produces a terminal result.
 			AssetPrivate::SetTexture2DCompilationPhaseHookForTests([](uint64, ETexture2DCompilationPhase Phase) {

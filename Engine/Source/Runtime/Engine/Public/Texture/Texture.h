@@ -36,9 +36,7 @@ namespace Durin
 
 	public:
 		ENGINE_API ~DTexture() override;
-		ENGINE_API auto BeginCacheForCookedPlatformData(FObjectCookContext& Context) -> void override;
-		ENGINE_API auto IsCachedCookedPlatformDataLoaded(const FObjectCookContext& Context) const -> bool override;
-		ENGINE_API auto ClearCachedCookedPlatformData(const FObjectCookContext& Context) -> void override;
+		ENGINE_API auto BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void override;
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto Modify(bool bAlwaysMarkDirty = true) -> bool override;
@@ -131,6 +129,9 @@ namespace Durin
 		virtual auto ResetPlatformData() -> void = 0;
 		// Begins authored caching with load-time mutation policy and updates resources on completion.
 		// Logs failures locally, including the texture path.
+#if DURIN_WITH_EDITORONLY_DATA
+		virtual auto PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void = 0;
+#endif
 		virtual auto BuildPlatformDataForLoad(bool bAsyncCache) -> void = 0;
 
 		virtual auto CreateResource(
@@ -157,6 +158,7 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		FTextureSource Source;
+		uint64 AuthoredBuildRevision = 0;
 #endif
 
 		FBulkData CookedPlatformData;

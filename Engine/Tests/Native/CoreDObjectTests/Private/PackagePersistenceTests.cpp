@@ -194,7 +194,7 @@ TEST_F(FPackagePersistenceTests, PreSaveRunsOnceBeforeBothArchivePasses)
 {
 	uint32 Calls = 0;
 	Asset->SaveHook = [&](FObjectPreSaveContext& Context) {
-		EXPECT_FALSE(Context.bCooking);
+		EXPECT_FALSE(Context.IsCooking());
 		++Calls;
 	};
 	Asset->CaptureHook = [&](FArchive&) { EXPECT_EQ(Calls, 1u); };
@@ -421,7 +421,9 @@ TEST_F(FPackagePersistenceTests, StaleEditsAndCancellationRejectButDroppedHandle
 		const auto Failure = Operation.GetResult();
 		EXPECT_TRUE(Failure.Error && Failure.Error->Is(PackageSaveErrors::Cancelled));
 	}
-	Cancellation = Tasks::FCancellationToken{};
+	// A new request gets a new token; cancellation cannot be reset or copied.
+	Tasks::FCancellationToken RetryCancellation;
+	Options.IsCancellationRequested = [&RetryCancellation] { return RetryCancellation.IsCanceled(); };
 	Operation = FSavePackageContext{Options}.SaveAsync(Package);
 	ASSERT_TRUE(Operation.IsValid());
 	Operation = {};

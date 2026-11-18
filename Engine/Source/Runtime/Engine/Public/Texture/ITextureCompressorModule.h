@@ -27,17 +27,17 @@ namespace Durin
 		// Each kind has an independent identity, immutable for the editor lifetime; compare only for equality.
 		// Unsupported kinds return zero.
 		virtual auto GetBuildVersion(ETextureBuildKind TextureKind) const -> uint64 = 0;
-		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.
+		// Synchronous construction returns an owned diagnostic on failure.
 		virtual auto BuildTexture2D(const FTexture2DBuildInput& Request)
-			-> std::optional<FTexturePlatformData> = 0;
+			-> std::expected<FTexturePlatformData, std::string> = 0;
 		virtual auto NormalizeTextureCube(const FTextureCubeNormalizeRequest& Request)
 			-> std::expected<FTextureCubeCanonicalBuildInput, FTextureBuildOperationError> = 0;
-		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.
+		// Synchronous construction returns an owned diagnostic on failure.
 		virtual auto BuildTextureCube(const FTextureCubeBuildInput& Request)
-			-> std::optional<FTextureCubePlatformData> = 0;
-		// Synchronous and non-cancelable. Failure is logged by TextureCompressor.
+			-> std::expected<FTextureCubePlatformData, std::string> = 0;
+		// Synchronous construction returns an owned diagnostic on failure.
 		virtual auto BuildVolumeTexture(const FVolumeTextureBuildInput& Request)
-			-> std::optional<FVolumeTexturePlatformData> = 0;
+			-> std::expected<FVolumeTexturePlatformData, std::string> = 0;
 	};
 }
 

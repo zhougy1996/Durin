@@ -16,7 +16,7 @@ namespace Durin
 	{
 		FTextureSource Source;
 		FTexture2DBuildSettings Settings;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
 	};

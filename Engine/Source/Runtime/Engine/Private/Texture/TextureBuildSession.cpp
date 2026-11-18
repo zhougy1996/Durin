@@ -63,10 +63,10 @@ namespace Durin::TexturePrivate
 
 	auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildPolicy Policy)
+		DerivedData::FBuildPolicy Policy, DerivedData::FRequestOwner* RequestOwner)
 		-> DerivedData::FBuildCompleteParams
 	{
-		return Sessions.Build(std::move(Definition), std::move(Resolver), Policy);
+		return Sessions.Build(std::move(Definition), std::move(Resolver), Policy, RequestOwner);
 	}
 }
 

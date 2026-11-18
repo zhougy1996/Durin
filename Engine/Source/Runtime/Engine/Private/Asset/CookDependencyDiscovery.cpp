@@ -16,6 +16,9 @@
 #include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/CustomVersion.h"
+#if DURIN_WITH_EDITOR
+#include "TargetPlatform.h"
+#endif
 
 namespace Durin
 {
@@ -95,6 +98,9 @@ namespace Durin::AssetPrivate
 		: Request(InRequest), Registry(std::move(InRegistry)), LoadScope(InLoadScope),
 		Schema(FReflectionSchemaCatalog::Capture())
 	{
+#if DURIN_WITH_EDITOR
+		Platform = ResolveTargetPlatform(Request.TargetPlatform);
+#endif
 		if (PreviousState) for (const auto& Input : PreviousState->Inputs)
 			PreviousProjections.emplace(Input.VirtualPackagePath, &Input);
 	}
@@ -310,7 +316,7 @@ namespace Durin::AssetPrivate
 				if (Found == Objects.end()) return Fail(FCookInputFailure{.Error = ECookInputError::SchemaClass, .Package = Path, .Name = Stored.ObjectPath});
 				auto Context = MakeContext(Path);
 				auto* Object = Found->second;
-				const bool Included = IsObjectIncludedForCook(Object, Context.Target);
+				const bool Included = IsObjectIncludedForCook(Object, Platform);
 				if (!Included) Input.ExcludedObjects.insert(Stored.ObjectPath);
 				Input.Projection.Records.push_back({ECookBuildDependencyKind::SourcePackage, Stored.ObjectPath, {Included ? std::byte{1} : std::byte{0}}});
 				Object->OnCookEvent(ECookEvent::PlatformCookDependencies, Context);

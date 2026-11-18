@@ -99,10 +99,12 @@ namespace Durin::TextureMipBuilder
 			(Layout.BlocksHigh + 7ull) / 8);
 		const auto Compression = ParallelFor("Texture.CompressRows", Layout.BlocksHigh,
 			[&](uint64 Row) {
+			if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return;
 			const uint32 BlockY = static_cast<uint32>(Row);
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
 			for (uint32 BlockX = 0; BlockX < Layout.BlocksWide; ++BlockX)
 			{
+				if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return;
 				GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
 				uint8* DestBlock = reinterpret_cast<uint8*>(Pixels.data())
 					+ static_cast<size_t>(BlockY) * OutMip.RowPitch
@@ -130,6 +132,7 @@ namespace Durin::TextureMipBuilder
 				}
 			}
 		}, {.MinBatchSize = bParallel ? RowsPerChunk : std::numeric_limits<uint64>::max()});
+		if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return std::unexpected("Texture build cancelled.");
 		if (Compression.State != ETaskState::Succeeded)
 			return std::unexpected(std::format("Texture compression task failed (state {}).", static_cast<int>(Compression.State)));
 		OutMip.Pixels = FSharedByteBuffer::Take(std::move(Pixels));

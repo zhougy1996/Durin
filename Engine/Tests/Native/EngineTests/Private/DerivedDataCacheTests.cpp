@@ -1,4 +1,3 @@
-#include "RequestOwnerAccess.h"
 #include "BuildServiceBackendPrivate.h"
 #include "CacheRecordStorage.h"
 #include "BuildCacheRecordPrivate.h"
@@ -601,13 +600,13 @@ TEST(FAsyncCacheTests, CancellationDropsExceptionsAndCallbackRetirementCompleteE
 		Async->Get(Requests, *Owner, [&](auto Response) {
 			ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Error);
 
-			Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner); ++Callbacks; throw std::runtime_error("callback");
+			++Callbacks; throw std::runtime_error("callback");
 		});
 		Scheduler->Run(); Owner.reset(); EXPECT_FALSE(Owner);
 	}
 	EXPECT_EQ(Callbacks, 3u);
 	FRequestOwner Owner;
-	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Canceled); });
+	Owner.Cancel(); Async->Get(Requests, Owner, [&](auto Response) { EXPECT_EQ(Response.Status, EStatus::Canceled); });
 }
 
 TEST(FAsyncCacheTests, OwnerCancellationRetainsPutPayloadsThroughCompletion)
@@ -621,7 +620,7 @@ TEST(FAsyncCacheTests, OwnerCancellationRetainsPutPayloadsThroughCompletion)
 	Requests = {}; Scheduler->Run(); EXPECT_EQ(Backend->Puts, 1u);
 	const std::array Reads{FCacheGetRequest{Key}, FCacheGetRequest{Key}};
 	Async->Get(Reads, Owner, [&](auto Response) { ASSERT_NE(Response.Status, EStatus::Ok); EXPECT_EQ(Response.Status, EStatus::Canceled); ++Callbacks; });
-	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); while (!Scheduler->Work.empty()) Scheduler->Run();
+	Owner.Cancel(); while (!Scheduler->Work.empty()) Scheduler->Run();
 	EXPECT_EQ(Callbacks, 3u); EXPECT_EQ(Backend->Gets, 0u); EXPECT_TRUE(Owner.Poll()); Owner.Wait();
 }
 
@@ -664,7 +663,9 @@ TEST(FAsyncCacheTests, CoreShutdownDrainsRunningAndPendingAcceptedRequests)
 	std::atomic<uint32> Callbacks = 0;
 	Async->Get(Requests, Owner, [&](auto Response) { EXPECT_NE(Response.Status, EStatus::Ok); ++Callbacks; });
 	const auto Started = Entered.wait_for(std::chrono::seconds(5));
-	Durin::DerivedData::Private::FOwnerAccess::RequestCancel(Owner); Release.set_value(); ShutdownTaskScheduler(false);
+	std::jthread Canceler([&] { Owner.Cancel(); });
+	while (!Owner.IsCanceled()) std::this_thread::yield();
+	Release.set_value(); Canceler.join(); ShutdownTaskScheduler(false);
 	EXPECT_EQ(Started, std::future_status::ready); Owner.Wait();
 	Owner.Wait(); EXPECT_EQ(Callbacks, 2u); EXPECT_EQ(Cache->Gets, 1u);
 }

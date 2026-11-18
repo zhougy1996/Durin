@@ -4,7 +4,7 @@
 #include "MaterialPreparedProgram.h"
 
 #if DURIN_WITH_EDITOR
-	#include "RequestOwnerAccess.h"
+	#include "DerivedDataRequestOwner.h"
 	#include "MaterialTranslation.h"
 	#include "MaterialTranslationCodec.h"
 	#include "Shader/IShaderBuildModule.h"
@@ -210,10 +210,10 @@ namespace Durin
 				if (!Subscriber->Cancellation.IsCanceled()) return;
 			ShaderMap->BuildCancellation.Cancel();
 		}
-		std::shared_ptr<DerivedData::FRequestOwner> Owner;
-		{ std::lock_guard Lock(ShaderMap->Mutex); Owner = ShaderMap->BuildOwner; }
-		// Owner propagation includes shader jobs. Accepted CPU tasks still retire.
-		if (Owner) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Owner);
+		std::shared_ptr<FShaderBuildHandle> Jobs;
+		{ std::lock_guard Lock(ShaderMap->Mutex); Jobs = ShaderMap->ShaderJobs; }
+		// Withdraw queued shader jobs without waiting on a callback of this build owner.
+		if (Jobs) Jobs->RequestCancel();
 	}
 	auto FShaderCompilingManager::IsCompiling(const FMaterialProgramCompileHandle& Handle) const -> bool
 	{

@@ -96,18 +96,16 @@ The module-private Developer `FStaticMeshBuilder::Build` receives
 normalization and a working-set byte budget.
 `IMeshBuilderModule::BuildMesh(FStaticMeshRenderData& OutRenderData,
 const FStaticMeshBuildParameters& Parameters)` synchronously writes detached CPU
-render data and returns `bool`. The output must have no initialized GPU resources
+render data and returns `std::expected<void, std::string>`. The output must have no initialized GPU resources
 or vertex factories; failure preserves its previous CPU data.
 The builder moves CPU streams into uninitialized vertex/index buffers. Engine
 freezes those allocations into shared DDC outputs without copying; GPU resource
 initialization and material object binding remain with Engine.
-MeshBuilder logs construction failures with mesh/section identity, rejected
-indices/values and budget facts directly at the failure site, without an error
-object crossing the module contract. The synchronous module entry follows the
-UE `BuildMesh(OutRenderData, BuildParameters)` shape and runs to completion without
-cancellation controls. Physics cooking is independent of the render build module.
-The asynchronous owner may withdraw queued work and discards obsolete or canceled
-results after already-started construction finishes.
+MeshBuilder returns construction diagnostics with mesh/section identity, rejected
+indices/values and budget facts. The synchronous module entry follows the
+UE `BuildMesh(OutRenderData, BuildParameters)` shape and observes an optional
+`ShouldCancel` callback at LOD and section boundaries. Cancellation preserves
+the previous output. Physics cooking is independent of the render build module.
 A warm hit
 uses source identity even with unreadable canonical bulk; a miss resolves the
 captured canonical bytes and decodes them inside the registered function.

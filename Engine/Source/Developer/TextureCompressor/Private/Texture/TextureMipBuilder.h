@@ -26,11 +26,12 @@ namespace Durin::TextureMipBuilder
 	{
 		// Diagnostic/reference execution; production uses bounded scheduler parallelism.
 		bool bParallelCompression = true;
+		std::function<bool()> ShouldCancel;
 	};
 
 	inline constexpr uint32 ChannelCount = 4;
 
-	TEXTURECOMPRESSOR_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
+	TEXTURECOMPRESSOR_API auto SelectPixelFormat(ECookTargetPlatform Platform, ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
 	// Borrows source storage until all compression tasks drain. Family entrypoints
 	// resolve Settings.bSRGB and choose PixelFormat for the entire texture.

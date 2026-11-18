@@ -44,7 +44,7 @@ namespace Durin::TexturePrivate
 		DerivedData::FBuildPolicy Policy = {}) -> void;
 	ENGINE_API auto Build(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,
-		DerivedData::FBuildPolicy Policy = {})
-		-> DerivedData::FBuildCompleteParams;
+		DerivedData::FBuildPolicy Policy = {}, DerivedData::FRequestOwner* RequestOwner = nullptr)
+			-> DerivedData::FBuildCompleteParams;
 }
 #endif

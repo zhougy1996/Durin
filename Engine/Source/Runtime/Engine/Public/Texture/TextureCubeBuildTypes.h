@@ -67,7 +67,7 @@ namespace Durin
 	struct FTextureCubeNormalizeRequest
 	{
 		std::reference_wrapper<const FTextureCubeNormalizationInput> Input;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 	};
 
@@ -129,8 +129,9 @@ namespace Durin
 	struct FTextureCubeBuildInput
 	{
 		std::variant<FTextureCubeLDRBuildInput, FTextureCubeHDRBuildInput> Pixels;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+		std::function<bool()> ShouldCancel;
 	};
 
 }

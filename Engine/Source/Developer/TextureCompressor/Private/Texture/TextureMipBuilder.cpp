@@ -1,3 +1,4 @@
+#include "TargetPlatform.h"
 #include "Texture/TextureMipBuilder.h"
 
 #include "Math/Color.h"
@@ -158,10 +159,11 @@ namespace Durin::TextureMipBuilder
 		}
 
 		auto GenerateMipChain(const FBuildTextureMipsRequest& Request,
-			FBuildTimings& Metrics)
+			FBuildTimings& Metrics, const FBuildExecutionOptions* ExecutionOptions)
 			-> std::expected<std::vector<Image::FImage>, std::string>
 		{
 			using FClock = std::chrono::steady_clock;
+			if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return std::unexpected("Texture build cancelled.");
 			const auto SourceMips = Request.SourceMips;
 			const auto& Settings = Request.Settings;
 			const auto Usage = Settings.Usage;
@@ -206,19 +208,16 @@ namespace Durin::TextureMipBuilder
 		}
 	}
 
-	auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
+	auto SelectPixelFormat(ECookTargetPlatform Platform, ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
 	{
+		const auto* Target = ResolveTargetPlatform(Platform);
+		if (!Target) return EPixelFormat::Unknown;
 		switch (Usage)
 		{
-		case ETextureUsage::Color:
-			if (bHasTransparency) return bSRGB ? EPixelFormat::BC3_UNORM_SRGB : EPixelFormat::BC3_UNORM;
-			return bSRGB ? EPixelFormat::BC1_UNORM_SRGB : EPixelFormat::BC1_UNORM;
-		case ETextureUsage::Normal:
-			return EPixelFormat::BC5_UNORM;
-		case ETextureUsage::DataMask:
-			return bSRGB ? EPixelFormat::BC7_UNORM_SRGB : EPixelFormat::BC7_UNORM;
-		default:
-			return EPixelFormat::Unknown;
+		case ETextureUsage::Color: return Target->GetTextureFormat(ETargetTextureUsage::Color, bSRGB, bHasTransparency);
+		case ETextureUsage::Normal: return Target->GetTextureFormat(ETargetTextureUsage::Normal, bSRGB, bHasTransparency);
+		case ETextureUsage::DataMask: return Target->GetTextureFormat(ETargetTextureUsage::DataMask, bSRGB, bHasTransparency);
+		default: return EPixelFormat::Unknown;
 		}
 	}
 
@@ -249,6 +248,7 @@ namespace Durin::TextureMipBuilder
 		const FBuildExecutionOptions* ExecutionOptions) -> std::expected<FBuildOutput, std::string>
 	{
 		using FClock = std::chrono::steady_clock;
+		if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return std::unexpected("Texture build cancelled.");
 		const auto SourceMips = Request.SourceMips;
 		const auto& Settings = Request.Settings;
 		const auto MaxResolution = Settings.MaxResolution;
@@ -265,7 +265,7 @@ namespace Durin::TextureMipBuilder
 		{
 			return std::unexpected(std::string("Selected pixel format is unsupported by the texture encoder."));
 		}
-		auto Generated = GenerateMipChain(Request, Metrics);
+		auto Generated = GenerateMipChain(Request, Metrics, ExecutionOptions);
 		if (!Generated) return std::unexpected(Generated.error());
 		auto UncompressedMips = std::move(*Generated);
 		size_t FirstMipIndex = 0;
@@ -282,6 +282,7 @@ namespace Durin::TextureMipBuilder
 		const FClock::time_point CompressionStart = FClock::now();
 		for (size_t MipIndex = FirstMipIndex; MipIndex < UncompressedMips.size(); ++MipIndex)
 		{
+			if (ExecutionOptions && ExecutionOptions->ShouldCancel && ExecutionOptions->ShouldCancel()) return std::unexpected("Texture build cancelled.");
 			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
 			const std::expected<void, std::string> CompressionResult = CompressTextureMip(
 				UncompressedMips[MipIndex], OutPlatformData.PixelFormat,

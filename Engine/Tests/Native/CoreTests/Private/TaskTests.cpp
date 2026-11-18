@@ -50,19 +50,15 @@ namespace Durin
 	static_assert(!CHasTaskCancellationQuery<Tasks::FTask>);
 	static_assert(!CHasTaskCancellationQuery<Tasks::TTask<int>>);
 
-	TEST(FCancellationTokenTests, CopiesSnapshotCancellationState)
+	static_assert(!std::is_copy_constructible_v<Tasks::FCancellationToken>);
+	static_assert(!std::is_move_constructible_v<Tasks::FCancellationToken>);
+	static_assert(sizeof(Tasks::FCancellationToken) == sizeof(std::atomic<bool>));
+	TEST(FCancellationTokenTests, CancellationIsAnIdempotentFlag)
 	{
 		Tasks::FCancellationToken Token;
-		auto Snapshot = Token;
 		EXPECT_FALSE(Token.IsCanceled());
-		Token.Cancel();
-		Token.Cancel();
+		Token.Cancel(); Token.Cancel();
 		EXPECT_TRUE(Token.IsCanceled());
-		EXPECT_FALSE(Snapshot.IsCanceled());
-		Snapshot = Token;
-		EXPECT_TRUE(Snapshot.IsCanceled());
-		auto Moved = std::move(Snapshot);
-		EXPECT_TRUE(Moved.IsCanceled());
 	}
 
 	static_assert(!std::is_same_v<Tasks::FTask, Tasks::TTask<void>>);

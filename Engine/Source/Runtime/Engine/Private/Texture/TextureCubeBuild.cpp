@@ -63,7 +63,7 @@ namespace Durin
 		auto& CanonicalInput = Prepared->CanonicalInput;
 		auto Product = BuildTextureCubeSource(Prepared->Source, CanonicalInput.GetSRGB(),
 			CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV,
-			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput);
+			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput, Request.RequestOwner);
 		if (!Product) return std::unexpected(std::move(Product.error()));
 		return FTextureCubeBuildValue{std::move(CanonicalInput), std::move(**Product)};
 	}
@@ -89,7 +89,7 @@ namespace Durin
 		const auto& CanonicalInput = Prepared->CanonicalInput;
 		auto Product = TexturePrivate::BuildTextureCubeSource(Prepared->Source, CanonicalInput.GetSRGB(),
 			CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV,
-			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput);
+			Request.TargetPlatform, Request.TargetProfile, Request.bPersistDerivedData, &CanonicalInput, Request.RequestOwner);
 		if (!Product) return std::unexpected(TexturePrivate::ReportBuildFailure(Product.error()));
 		SetSource(std::move(Prepared->Source));
 		SetBuildSettings(CanonicalInput.GetSourceLayout(), CanonicalInput.PanoramaFaceDimension,

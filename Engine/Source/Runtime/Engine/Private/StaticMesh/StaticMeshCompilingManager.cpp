@@ -6,7 +6,6 @@
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMeshBuildPrivate.h"
 #if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-	#include "RequestOwnerAccess.h"
 	#include "DerivedDataRequestOwner.h"
 #endif
 
@@ -346,9 +345,6 @@ namespace Durin
 			if (Record.Terminal) return;
 			Record.Terminal = Status;
 			Record.Work->Cancellation.Cancel();
-#if DURIN_WITH_EDITOR && DURIN_WITH_EDITORONLY_DATA
-			if (Record.Work->BuildOperation) Durin::DerivedData::Private::FOwnerAccess::RequestCancel(*Record.Work->BuildOperation);
-#endif
 			if (Record.Work->Phase.load(std::memory_order_acquire) == EWorkPhase::Queued)
 			{
 				Record.Work->ReleaseInput();

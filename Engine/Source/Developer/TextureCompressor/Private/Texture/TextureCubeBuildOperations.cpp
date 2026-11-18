@@ -118,19 +118,19 @@ namespace Durin
 		}, Panorama.Image);
 	}
 
-	auto BuildTextureCube(const FTextureCubeBuildInput& Request) -> std::optional<FTextureCubePlatformData>
+	auto BuildTextureCube(const FTextureCubeBuildInput& Request) -> std::expected<FTextureCubePlatformData, std::string>
 	{
-		auto Fail = [](std::string_view Reason) -> std::optional<FTextureCubePlatformData>
+		if (Request.ShouldCancel && Request.ShouldCancel()) return std::unexpected("Texture build cancelled.");
+		auto Fail = [](std::string_view Reason) -> std::expected<FTextureCubePlatformData, std::string>
 		{
-			DURIN_ERROR_CATEGORY("TextureCompressor", "TextureCube build failed: {}", Reason);
-			return std::nullopt;
+			return std::unexpected(std::string(Reason));
 		};
 		if (const auto* HDR = std::get_if<FTextureCubeHDRBuildInput>(&Request.Pixels))
 		{
 			if (!TextureCompressorPrivate::IsSupportedBuildTarget(Request.TargetPlatform, Request.TargetProfile))
 				return Fail("HDR cube build target or color space is invalid.");
 			auto Result = TextureCubeBuilder::BuildHDRTextureCube(HDR->Panorama.get(),
-				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR});
+				{.FaceDimension = HDR->FaceDimension, .ExposureEV = HDR->ExposureEV, .Output = ETextureCubeOutput::HDR}, Request.ShouldCancel);
 			if (!Result) return Fail(Result.error());
 			return std::move(*Result);
 		}
@@ -139,14 +139,15 @@ namespace Durin
 			|| !LDR.FaceImages.get().IsValid())
 			return Fail("TextureCube canonical build request is invalid.");
 		const FTextureCubeFaceImages& SourceData = LDR.FaceImages.get();
-		const auto PixelFormat = TextureMipBuilder::SelectPixelFormat(ETextureUsage::Color, LDR.bSRGB, SourceData.TransparencyMask != 0);
+		const auto PixelFormat = TextureMipBuilder::SelectPixelFormat(Request.TargetPlatform, ETextureUsage::Color, LDR.bSRGB, SourceData.TransparencyMask != 0);
+		const TextureMipBuilder::FBuildExecutionOptions Execution{.ShouldCancel = Request.ShouldCancel};
 		FTextureCubePlatformData PlatformData;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			auto BuildResult = TextureMipBuilder::BuildTextureMips({
 				.SourceMips = std::span(&SourceData.Faces[Index], 1),
 				.Settings = {.bSRGB = LDR.bSRGB},
-				.PixelFormat = PixelFormat});
+				.PixelFormat = PixelFormat}, &Execution);
 			if (!BuildResult)
 				return Fail(std::format("{} face platform build failed: {}", FaceNames[Index], BuildResult.error()));
 			PlatformData.Faces[Index] = std::move(BuildResult->PlatformData);

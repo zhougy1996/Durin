@@ -4,7 +4,7 @@
 #include "Materials/MaterialPreparedProgram.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #if DURIN_WITH_EDITOR
-	#include "RequestOwnerAccess.h"
+	#include "DerivedDataRequestOwner.h"
 	#include "Materials/MaterialTranslation.h"
 #endif
 
@@ -18,13 +18,12 @@ namespace Durin
 
 	}
 	#if DURIN_WITH_EDITOR
-	class FShaderJobsRequest final : public DerivedData::IRequest, public DerivedData::Private::ICancelableRequest
+	class FShaderJobsRequest final : public DerivedData::IRequest
 	{
 	public:
 		std::shared_ptr<FShaderBuildHandle> Jobs;
 		DerivedData::IRequestOwner* Owner = nullptr;
-		auto RequestCancel() -> bool override { return Jobs->RequestCancel(); }
-		auto Cancel() -> void override { RequestCancel(); Wait(); }
+		auto Cancel() -> void override { Jobs->RequestCancel(); Wait(); }
 		auto Wait() -> void override { require(Jobs->Wait() == EShaderBuildWaitResult::Completed); }
 		auto SetPriority(DerivedData::ERequestPriority Priority) -> void override
 		{ Jobs->SetPriority(static_cast<EShaderBuildPriority>(Priority)); }

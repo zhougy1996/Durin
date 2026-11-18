@@ -104,8 +104,9 @@ namespace Durin::VolumeTextureMipGenerator
 	}
 
 	auto GenerateMipChain(const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings) -> std::expected<FVolumeTexturePlatformData, std::string>
+		const FVolumeTextureBuildSettings& Settings, std::function<bool()> ShouldCancel) -> std::expected<FVolumeTexturePlatformData, std::string>
 	{
+		if (ShouldCancel && ShouldCancel()) return std::unexpected("Texture build cancelled.");
 		if (!SourceData.IsValid() || SourceData.Format != Settings.OutputFormat
 			|| Settings.MipFilter != EVolumeTextureMipFilter::Box)
 		{
@@ -147,6 +148,7 @@ namespace Durin::VolumeTextureMipGenerator
 			const FVolumeTextureMipData& Previous = Candidate.Mips.back();
 			const auto PreviousBytes = Previous.Voxels.GetBytes();
 			FVolumeTextureMipData Next;
+			if (ShouldCancel && ShouldCancel()) return std::unexpected("Texture build cancelled.");
 			Next.Width = std::max(1u, Previous.Width / 2);
 			Next.Height = std::max(1u, Previous.Height / 2);
 			Next.Depth = std::max(1u, Previous.Depth / 2);
@@ -157,6 +159,7 @@ namespace Durin::VolumeTextureMipGenerator
 				for (uint32 Y = 0; Y < Next.Height; ++Y)
 					for (uint32 X = 0; X < Next.Width; ++X)
 					{
+						if (X == 0 && ShouldCancel && ShouldCancel()) return std::unexpected("Texture build cancelled.");
 						const uint32 X0 = X * 2, Y0 = Y * 2, Z0 = Z * 2;
 						const uint32 X1 = std::min(X0 + 2, Previous.Width);
 						const uint32 Y1 = std::min(Y0 + 2, Previous.Height);

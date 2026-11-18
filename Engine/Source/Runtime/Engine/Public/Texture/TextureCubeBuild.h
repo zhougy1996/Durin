@@ -10,15 +10,18 @@
 #include "Texture/TextureCubeBuildTypes.h"
 #include "Texture/TextureCube.h"
 
+namespace Durin::DerivedData { class FRequestOwner; }
+
 namespace Durin
 {
 	// Engine-owned input and cache policy for detached construction.
 	struct FTextureCubeBuildRequest
 	{
 		FTextureCubeNormalizationInput Input;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetPlatform TargetPlatform = GetHostCookPlatform();
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
+		DerivedData::FRequestOwner* RequestOwner = nullptr;
 	};
 
 	struct FTextureCubeBuildValue

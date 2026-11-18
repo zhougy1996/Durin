@@ -114,35 +114,31 @@ namespace Durin
 			});
 		}
 
-		auto ValidateImportedMesh(const FMeshDescriptionSection& Mesh, std::span<const FVector3f> Positions) -> bool
+		auto ValidateImportedMesh(const FMeshDescriptionSection& Mesh, std::span<const FVector3f> Positions) -> std::expected<void, std::string>
 		{
 			if (Positions.size() > std::numeric_limits<uint32>::max())
 			{
-				DURIN_ERROR("StaticMesh render build: mesh '{}' exceeds the uint32 vertex limit (actual {}, expected {}).",
-					Mesh.Name, Positions.size(), std::numeric_limits<uint32>::max());
-				return false;
+				return std::unexpected(std::format("StaticMesh render build: mesh '{}' exceeds the uint32 vertex limit (actual {}, expected {}).",
+					Mesh.Name, Positions.size(), std::numeric_limits<uint32>::max()));
 			}
 			if (Mesh.Indices.size() % 3 != 0)
 			{
-				DURIN_ERROR("StaticMesh render build: mesh '{}' index count {} is not a triangle list.", Mesh.Name, Mesh.Indices.size());
-				return false;
+				return std::unexpected(std::format("StaticMesh render build: mesh '{}' index count {} is not a triangle list.", Mesh.Name, Mesh.Indices.size()));
 			}
 			for (size_t Vertex = 0; Vertex < Positions.size(); ++Vertex)
 			{
 				if (Math::IsFinite(Positions[Vertex])) continue;
 				const auto& Position = Positions[Vertex];
-				DURIN_ERROR("StaticMesh render build: mesh '{}' has non-finite position {} ({}, {}, {}).",
-					Mesh.Name, Vertex, Position.x, Position.y, Position.z);
-				return false;
+				return std::unexpected(std::format("StaticMesh render build: mesh '{}' has non-finite position {} ({}, {}, {}).",
+					Mesh.Name, Vertex, Position.x, Position.y, Position.z));
 			}
 			for (size_t Offset = 0; Offset < Mesh.Indices.size(); ++Offset)
 			{
 				if (Mesh.Indices[Offset] < Positions.size()) continue;
-				DURIN_ERROR("StaticMesh render build: mesh '{}' contains an out-of-range index (index {}, actual {}, expected {}).",
-					Mesh.Name, Offset, Mesh.Indices[Offset], Positions.size());
-				return false;
+				return std::unexpected(std::format("StaticMesh render build: mesh '{}' contains an out-of-range index (index {}, actual {}, expected {}).",
+					Mesh.Name, Offset, Mesh.Indices[Offset], Positions.size()));
 			}
-			return true;
+			return {};
 		}
 
 		auto MakeUniqueSectionName(std::string Name, uint32 Index, std::unordered_map<std::string, uint32>& NameCounts) -> std::string
@@ -155,7 +151,7 @@ namespace Durin
 		}
 
 		auto BuildLODStreams(const FStaticMeshBuildParameters& Parameters,
-			FBuildLOD& LOD, uint64 MaximumWorkingSetBytes) -> bool
+			FBuildLOD& LOD, uint64 MaximumWorkingSetBytes) -> std::expected<void, std::string>
 		{
 			const auto& ImportedData = *Parameters.Geometry;
 			const auto MaterialSlots = Parameters.MaterialSlots;
@@ -169,9 +165,8 @@ namespace Durin
 			}
 			if (!bFits)
 			{
-				DURIN_ERROR("StaticMesh render build: working-set reservation exceeded (reserved {} bytes, accepted {} bytes, rejected {} x {} bytes).",
-					Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth);
-				return false;
+				return std::unexpected(std::format("StaticMesh render build: working-set reservation exceeded (reserved {} bytes, accepted {} bytes, rejected {} x {} bytes).",
+					Memory.Limit, Memory.Bytes, Memory.RejectedCount, Memory.RejectedWidth));
 			}
 			std::unordered_map<uint32, uint32> SourceToStableSlot;
 			for (const auto& Imported : ImportedData.PolygonGroups)
@@ -180,13 +175,11 @@ namespace Durin
 					&FStaticMeshBuildMaterialSlot::SourceMaterialIndex);
 				if (Slot == MaterialSlots.end())
 				{
-					DURIN_ERROR("StaticMesh render build: polygon group references missing source material {}.", Imported.SourceMaterialIndex);
-					return false;
+					return std::unexpected(std::format("StaticMesh render build: polygon group references missing source material {}.", Imported.SourceMaterialIndex));
 				}
 				if (!SourceToStableSlot.emplace(Imported.SourceMaterialIndex, static_cast<uint32>(Slot - MaterialSlots.begin())).second)
 				{
-					DURIN_ERROR("StaticMesh render build: duplicate polygon-group source material {}.", Imported.SourceMaterialIndex);
-					return false;
+					return std::unexpected(std::format("StaticMesh render build: duplicate polygon-group source material {}.", Imported.SourceMaterialIndex));
 				}
 			}
 
@@ -199,6 +192,7 @@ namespace Durin
 			std::unordered_map<std::string, uint32> SectionNameCounts;
 			for (const FMeshDescriptionSection& SourceMesh : ImportedData.Sections)
 			{
+				if (Parameters.ShouldCancel && Parameters.ShouldCancel()) return std::unexpected("StaticMesh build cancelled.");
 				// Split source vertices at instance boundaries before generating render streams.
 				std::vector<FVector3f> ExpandedPositions;
 				std::span<const FVector3f> MeshPositions = SourceMesh.Positions;
@@ -209,23 +203,21 @@ namespace Durin
 					{
 						if (Vertex >= SourceMesh.Positions.size())
 						{
-							DURIN_ERROR("StaticMesh render build: mesh '{}' instance mapping has out-of-range vertex {} (vertex count {}).",
-								SourceMesh.Name, Vertex, SourceMesh.Positions.size());
-							return false;
+							return std::unexpected(std::format("StaticMesh render build: mesh '{}' instance mapping has out-of-range vertex {} (vertex count {}).",
+								SourceMesh.Name, Vertex, SourceMesh.Positions.size()));
 						}
 						ExpandedPositions.push_back(SourceMesh.Positions[Vertex]);
 					}
 					MeshPositions = ExpandedPositions;
 				}
 				if (MeshPositions.empty() || SourceMesh.Indices.empty()) continue;
-				if (!ValidateImportedMesh(SourceMesh, MeshPositions)) return false;
+				if (auto Valid = ValidateImportedMesh(SourceMesh, MeshPositions); !Valid) return Valid;
 				if (Positions.size() > std::numeric_limits<uint32>::max() - MeshPositions.size()
 					|| Indices.size() > std::numeric_limits<uint32>::max() - SourceMesh.Indices.size())
 				{
-					DURIN_ERROR("StaticMesh render build: mesh '{}' exceeds uint32 render limits ({} vertices, {} indices, limit {}).",
+					return std::unexpected(std::format("StaticMesh render build: mesh '{}' exceeds uint32 render limits ({} vertices, {} indices, limit {}).",
 						SourceMesh.Name, Positions.size() + MeshPositions.size(), Indices.size() + SourceMesh.Indices.size(),
-						std::numeric_limits<uint32>::max());
-					return false;
+						std::numeric_limits<uint32>::max()));
 				}
 
 				const uint32 BaseVertexIndex = static_cast<uint32>(Positions.size());
@@ -340,9 +332,8 @@ namespace Durin
 				const auto Slot = SourceToStableSlot.find(SourceMesh.SourceMaterialIndex);
 				if (Slot == SourceToStableSlot.end())
 				{
-					DURIN_ERROR("StaticMesh render build: mesh '{}' section '{}' references missing source material {}.",
-						SourceMesh.Name, Section.Name, SourceMesh.SourceMaterialIndex);
-					return false;
+					return std::unexpected(std::format("StaticMesh render build: mesh '{}' section '{}' references missing source material {}.",
+						SourceMesh.Name, Section.Name, SourceMesh.SourceMaterialIndex));
 				}
 				Section.MaterialSlotIndex = Slot->second;
 				LOD.Sections.emplace_back(std::move(Section));
@@ -350,9 +341,8 @@ namespace Durin
 
 			if (Positions.empty() || Indices.empty() || LOD.Sections.empty())
 			{
-				DURIN_ERROR("StaticMesh render build: source has no renderable geometry ({} vertices, {} indices, {} sections).",
-					Positions.size(), Indices.size(), LOD.Sections.size());
-				return false;
+				return std::unexpected(std::format("StaticMesh render build: source has no renderable geometry ({} vertices, {} indices, {} sections).",
+					Positions.size(), Indices.size(), LOD.Sections.size()));
 			}
 
 			FBox SourceBounds;
@@ -365,10 +355,9 @@ namespace Durin
 			const auto Normalization = GetStaticMeshPositionNormalization(SourceBounds, Parameters.NormalizedSize);
 			if (!Normalization)
 			{
-				DURIN_ERROR("StaticMesh render build: invalid bounds (valid {}, min [{}, {}, {}], max [{}, {}, {}], normalized size {}).",
+				return std::unexpected(std::format("StaticMesh render build: invalid bounds (valid {}, min [{}, {}, {}], max [{}, {}, {}], normalized size {}).",
 					SourceBounds.bIsValid, SourceBounds.Min.x, SourceBounds.Min.y, SourceBounds.Min.z,
-					SourceBounds.Max.x, SourceBounds.Max.y, SourceBounds.Max.z, Parameters.NormalizedSize);
-				return false;
+					SourceBounds.Max.x, SourceBounds.Max.y, SourceBounds.Max.z, Parameters.NormalizedSize));
 			}
 			for (FVector3f& Position : Positions)
 			{
@@ -387,20 +376,20 @@ namespace Durin
 					Section.LocalBounds.AddPoint(FVector3(Positions[Indices[Section.FirstIndex + Offset]]));
 				}
 			}
-			return true;
+			return {};
 		}
 
 	}
 
 	auto FStaticMeshBuilder::Build(FStaticMeshRenderData& OutRenderData,
-		const FStaticMeshBuildParameters& Parameters) -> bool
+		const FStaticMeshBuildParameters& Parameters) -> std::expected<void, std::string>
 	{
+		if (Parameters.ShouldCancel && Parameters.ShouldCancel()) return std::unexpected("StaticMesh build cancelled.");
 		check(OutRenderData.GetNumInitializedResources() == 0 && OutRenderData.LODVertexFactories.empty());
 
 		if (!Parameters.Geometry)
 		{
-			DURIN_ERROR("StaticMesh render build: requires decoded geometry.");
-			return false;
+			return std::unexpected("StaticMesh render build: requires decoded geometry.");
 		}
 		FStaticMeshRenderData Product;
 		for (const auto& Slot : Parameters.MaterialSlots)
@@ -408,27 +397,28 @@ namespace Durin
 		const std::array Fallback{Parameters.Geometry};
 		const auto Geometries = Parameters.LODGeometries.empty()
 			? std::span<const FMeshDescriptionReadHandle>(Fallback) : Parameters.LODGeometries;
-		if (Geometries.empty() || Geometries.size() > MaximumStaticMeshLODs) return false;
+		if (Geometries.empty() || Geometries.size() > MaximumStaticMeshLODs) return std::unexpected("StaticMesh build input or working-set limit is invalid.");
 		const auto ScreenSizes = GenerateDefaultStaticMeshLODScreenSizes(static_cast<uint32>(Geometries.size()));
 		FAssetBuildMemoryEstimate Memory{Parameters.MaximumWorkingSetBytes};
-		if (!Memory.Add(1, 1024 * 1024)) return false;
+		if (!Memory.Add(1, 1024 * 1024)) return std::unexpected("StaticMesh build input or working-set limit is invalid.");
 		for (const auto& Geometry : Geometries)
 		{
 			if (!Geometry || !Memory.Add(Geometry->PolygonGroups.size(), 32768)
-				|| !Memory.Add(Geometry->Sections.size(), 1024)) return false;
+				|| !Memory.Add(Geometry->Sections.size(), 1024)) return std::unexpected("StaticMesh build input or working-set limit is invalid.");
 			for (const auto& Section : Geometry->Sections)
 			{
 				if (!Memory.Add(std::max(Section.Positions.size(), Section.GetVertexInstanceCount()), 512)
-					|| !Memory.Add(Section.Indices.size(), 192)) return false;
+					|| !Memory.Add(Section.Indices.size(), 192)) return std::unexpected("StaticMesh build input or working-set limit is invalid.");
 			}
 		}
 		for (uint32 Index = 0; Index < Geometries.size(); ++Index)
 		{
+			if (Parameters.ShouldCancel && Parameters.ShouldCancel()) return std::unexpected("StaticMesh build cancelled.");
 			FStaticMeshBuildParameters LODParameters = Parameters;
 			LODParameters.Geometry = Geometries[Index];
 			LODParameters.NormalizationGeometry = Geometries.front();
 			FBuildLOD Source;
-			if (!BuildLODStreams(LODParameters, Source, Parameters.MaximumWorkingSetBytes)) return false;
+			if (auto Built = BuildLODStreams(LODParameters, Source, Parameters.MaximumWorkingSetBytes); !Built) return Built;
 			Product.LocalBounds.AddPoint(Source.LocalBounds.Min);
 			Product.LocalBounds.AddPoint(Source.LocalBounds.Max);
 			auto& LOD = Product.LODResources.emplace_back();
@@ -446,7 +436,8 @@ namespace Durin
 			LOD.bHasColorVertexData = Source.bHasColorVertexData;
 			Buffers.Finalize(LOD.NumTexCoords, LOD.bHasColorVertexData);
 		}
+		if (Parameters.ShouldCancel && Parameters.ShouldCancel()) return std::unexpected("StaticMesh build cancelled.");
 		OutRenderData = std::move(Product);
-		return true;
+		return {};
 	}
 }

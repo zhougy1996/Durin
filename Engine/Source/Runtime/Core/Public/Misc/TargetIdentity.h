@@ -13,6 +13,17 @@ namespace Durin
 	enum class EShaderTargetPlatform : uint32 { Invalid = 0, Win64 = 1, MacOS = 2 };
 	enum class EShaderTargetProfile : uint32 { Invalid = 0, Game = 1, EditorValidation = 2 };
 
+	inline constexpr auto GetHostCookPlatform() -> ECookTargetPlatform
+	{
+#if defined(_WIN64)
+		return ECookTargetPlatform::Win64;
+#elif defined(__APPLE__)
+		return ECookTargetPlatform::MacOS;
+#else
+		return ECookTargetPlatform::Invalid;
+#endif
+	}
+
 	// Parsing and adaptation reject unknown values; names of unknown values are empty.
 	enum class ETargetIdentityError : uint8 { UnknownPlatform, UnknownProfile };
 	CORE_API auto ParseTargetPlatform(std::string_view Name) -> std::expected<ECookTargetPlatform, ETargetIdentityError>;

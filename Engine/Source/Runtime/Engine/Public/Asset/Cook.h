@@ -63,7 +63,7 @@ namespace Durin
 
 	enum class ECookManifestError : uint8
 	{
-		None, Target, EntryCount, Entry, RecordLimit, Encoding, Truncated,
+		None, Canceled, Target, EntryCount, Entry, RecordLimit, Encoding, Truncated,
 		Header, Checksum, Record, PathTruncated, TrailingBytes
 	};
 	struct FCookManifestResult
@@ -215,7 +215,7 @@ namespace Durin
 		BulkIdentity, SchemaClass, SchemaDepth, SchemaFields, SchemaField, SchemaType, SchemaEncoding,
 		SchemaStorage, RootLimit, RootClass, RuntimeEdgeLimit, ReferenceClass, DependencyStorage
 	};
-	struct FCookContributionResult;
+	struct FCookPlanError;
 	struct FCookInputFailure
 	{
 		ECookInputError Error = ECookInputError::None;
@@ -257,7 +257,7 @@ namespace Durin
 		InvalidTopLevelAsset,
 		PrepareInjectedFailure,
 		MissingPackage,
-		ContributionFailed,
+		PreparationFailed,
 		CaptureInjectedFailure,
 		CaptureFailed,
 		AuxiliaryInjectedFailure,
@@ -307,9 +307,7 @@ namespace Durin
 		std::shared_ptr<const FObjectPathError> DefaultLevelCause;
 		std::string ShaderDiagnostic;
 		std::shared_ptr<const FCookCaptureResult> CaptureCause;
-		std::shared_ptr<const FCookContributionResult> ContributionCause;
-		FPackagePath ContributionPackage;
-		std::string ContributionProvider;
+		std::shared_ptr<const FCookPlanError> PreparationCause;
 		explicit operator bool() const { return Error == ECookRunError::None; }
 	};
 
@@ -480,7 +478,7 @@ namespace Durin
 		ECookTargetProfile TargetProfile
 	) -> std::unique_ptr<ICookOutputStore>;
 
-	enum class ECookPlanError : uint8 { None, Path, SourceIdentity, EmptyPackage, DuplicatePath, InvalidPackage, Projection, EmptyRawPackage, SegmentLimit, Target, Canonicalization, Resolution, CanonicalDuplicate };
+	enum class ECookPlanError : uint8 { None, Canceled, Path, SourceIdentity, EmptyPackage, DuplicatePath, InvalidPackage, Projection, EmptyRawPackage, SegmentLimit, Target, Canonicalization, Resolution, CanonicalDuplicate };
 	struct FCookPlanError
 	{
 		ECookPlanError Code = ECookPlanError::None;
@@ -516,28 +514,6 @@ namespace Durin
 	ENGINE_API auto FormatCookCaptureError(const FCookCaptureResult& Result) -> std::string;
 
 
-	enum class ECookContributionError : uint8
-	{
-		None, Target, PlatformData, Contract, Plan,
-		SourceMutation, RecipeProvider, ShaderInputs, Preparation, EmptyRuntimeRoot
-	};
-	enum class ECookContributionStatus : uint8 { Ok, Error, Canceled };
-	struct FCookContributionResult
-	{
-		ECookContributionStatus Status = ECookContributionStatus::Ok;
-		ECookContributionError Error = ECookContributionError::None;
-		std::string ObjectPath;
-		std::string VirtualPath;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		std::optional<FCookPlanError> PlanCause;
-		std::string ActualClass;
-		std::string Provider;
-		std::string Diagnostic;
-		explicit operator bool() const { return Status == ECookContributionStatus::Ok; }
-	};
-	ENGINE_API auto FormatCookContributionError(const FCookContributionResult& Result) -> std::string;
-
 	// Inputs to platform-data preparation, independent of package encoding rules.
 	struct FCookPackagePreparationOptions
 	{
@@ -562,7 +538,6 @@ namespace Durin
 	};
 	struct FCookPackagePreparationReport
 	{
-		FCookContributionResult Failure;
 		FCookPreparationMetrics Metrics;
 	};
 	// Prepare platform data first, then encode using scoped products. Outputs are
@@ -570,11 +545,11 @@ namespace Durin
 	ENGINE_API auto SerializeCookedPackageClosure(DPackage* Package, FByteBuffer& OutBytes,
 		FByteBuffer& OutBulkBytes, const FCookPackagePreparationOptions& Preparation,
 		FCookPackagePreparationReport* Report = nullptr,
-		const FAssetPackageSerializationOptions& Serialization = {}) -> ObjectPackage::FPackageWriterResult;
+		const FAssetPackageSerializationOptions& Serialization = {}) -> FObjectCookResult;
 	ENGINE_API auto SerializeCookedPackageBytes(DPackage* Package, FByteBuffer& OutBytes,
 		const FCookPackagePreparationOptions& Preparation,
 		FCookPackagePreparationReport* Report = nullptr,
-		const FAssetPackageSerializationOptions& Serialization = {}) -> ObjectPackage::FPackageWriterResult;
+		const FAssetPackageSerializationOptions& Serialization = {}) -> FObjectCookResult;
 
 	// Builds detached package plans without owning a disk publication destination.
 	class FCookContext
@@ -617,12 +592,10 @@ namespace Durin
 		auto SetMaterialConfigurations(std::span<const FMaterialCookConfiguration> Values) -> void
 			{ MaterialConfigurations.assign(Values.begin(), Values.end()); }
 		auto SetCancellationCheck(FCookCancellationCheck Check) -> void { IsCancelled = std::move(Check); }
-		auto GetPreparationFailure() const -> const FCookContributionResult& { return PreparationFailure; }
 		ENGINE_API auto MakePackagePreparationOptions() const
 			-> FCookPackagePreparationOptions;
 
 	private:
-		FCookContributionResult PreparationFailure;
 		FReadInput ReadInput;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -657,34 +630,54 @@ namespace Durin
 	};
 	using FCookDetachedWork = TMoveOnlyFunction<std::expected<FCookPreparationProducts, std::string>(const FAssetBuildTaskContext&)>;
 
-	// Object preparation can produce scoped payloads and read frozen inputs, but
-	// cannot capture packages or publish output.
-	struct FCookPreparationContext
+	// Asset-owned per-target build state and products. Begin queues work; polling
+	// admits it before snapshot capture. Package capture only borrows these products.
+	struct FCookedPlatformData final : ICookedPlatformData
 	{
-		const FCookPackagePreparationOptions& Options;
+		FCookPackagePreparationOptions Options;
 		FBulkData Primary;
 		FBulkData Collision;
-		FObjectCookContext Lifecycle;
+		FObjectCookResult Result;
+		std::string Package;
 		DObject* Object = nullptr;
-		FCookContributionResult Failure;
 		// Reserve before capturing inputs. Only the capture owner invokes this adapter.
-		std::function<bool(uint64)> ReserveWorkingSet;
+		std::function<bool(uint64)> TryReserveWorkingSet;
+		ENGINE_API auto ReserveWorkingSet(uint64 Bytes) -> bool;
 		uint64 WorkingSetBytes = 0;
-		bool bAdopted = false;
+		uint64 PackageRevision = 0;
+		bool bInUse = false;
 		std::function<void()> CancelWork;
+		std::function<bool()> PollWork;
+		std::function<void()> WaitWork;
+		std::function<void(FCookedPlatformData&)> StartWork;
+		ENGINE_API explicit FCookedPlatformData(const FCookPackagePreparationOptions& InOptions);
+		ENGINE_API ~FCookedPlatformData() override;
+		ENGINE_API auto Poll() -> bool override;
+		ENGINE_API auto Cancel() -> void override;
+		auto GetResult() const -> const FObjectCookResult& override { return Result; }
+		ENGINE_API auto CheckCancellation() -> bool;
+		auto GetPlatform() const -> const ITargetPlatform* { return Platform; }
+		ENGINE_API auto GetArchiveTarget() const -> FArchiveTarget;
+		ENGINE_API auto Wait() -> void override;
+		auto IsReady() const -> bool { return bReady; }
+		auto HasStarted() const -> bool { return bStarted; }
+		ENGINE_API static auto Begin(DObject& Object, const ITargetPlatform* Target, std::function<void(FCookedPlatformData&)> Start) -> void;
+		ENGINE_API static auto Find(const DObject& Object, const FArchiveTarget& Target) -> FCookedPlatformData*;
 		// Owner-thread guard, also checked after PreSave before prepared data is read.
 		std::function<bool()> ValidatePreparedInputs;
 		ENGINE_API auto StartDetachedWork(FCookDetachedWork Work) -> void;
-		// Available only for the exact active object and lifecycle invocation.
-		ENGINE_API static auto Get(DObject& Object, const FObjectCookContext& Invocation) -> FCookPreparationContext*;
+		// Finds the object's cache entry for this target, independently of capture scopes.
+		ENGINE_API static auto Get(const DObject& Object, const ITargetPlatform* Target) -> FCookedPlatformData*;
 		ENGINE_API auto GetTargetPlatform() const -> ECookTargetPlatform;
 		ENGINE_API auto GetTargetProfile() const -> ECookTargetProfile;
 		ENGINE_API auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) const -> FCookInputResult;
+	private:
+		const ITargetPlatform* Platform = nullptr;
+		bool bCancelled = false;
+		bool bReady = false;
+		bool bStarted = false;
+		bool bAwaitingBudget = false;
 	};
-	ENGINE_API auto SaveCookPackage(
-		DPackage* Package,
-		std::string_view VirtualPackagePath,
-		FCookContext& Context) -> FCookContributionResult;
 
 	enum class ECookOutputRootError : uint8
 	{

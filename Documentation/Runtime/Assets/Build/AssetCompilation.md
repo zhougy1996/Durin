@@ -174,8 +174,9 @@ publication. Cancellation is consumer-scoped; last-consumer cancellation latches
 the operation and prevents reattachment. Request cancellation and shared-build
 cancellation are separate scopes; CPU work uses the shared-build state rather
 than another cancellation source. Explicit cancellation, external observers and
-asset-owner detachment enter the same manager cancellation path, which propagates
-to the DDC owner and shader jobs outside manager locks. External observers are
+asset-owner detachment enter the same manager cancellation path, which withdraws
+shader jobs outside manager locks. Accepted DDC work may finish; its owner and
+captured inputs remain alive until completion. External observers are
 polled at stage boundaries, result processing and before blocking finish.
 Selected finish raises downstream DDC
 and Shader priority and joins all dispatch publication, cache owners, subscribers
