@@ -147,7 +147,7 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 	auto Input = MakeSyntheticMaterialCompilerInput();
 	Input.StaticProperties.GeometryUsage = 8;
 	Input.StaticProperties.PassUsage = 1;
-	const auto Environment = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+	const auto Environment = BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget);
 	ASSERT_TRUE(Environment) << Environment.error();
 	Input.Environment.Quality = EMaterialQualityLevel::Low;
 	const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
@@ -177,8 +177,10 @@ TEST(FMaterialShaderStageTests, RegisteredFactoryPolicyCompilesAndRejectsEntryOn
 		.VertexFactoryType = GetM15TestFactory(), .ShaderTypes = std::span(&Type, 1),
 		.GeneratedStages = Map.CompiledShaders, .CompiledProgramIdentity = Map.ShaderMapId,
 		.CompiledTarget = Map.Target, .GeneratedEntries = Map.Entries, .CompiledParameters = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
+	Admission.CompileOptions.Target = VulkanShaderTarget;
 	FMeshMaterialShaderMap Accepted;
-	EXPECT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted));
+	const auto Admitted = FMeshMaterialShaderMap::TryCompileSync(Admission, Accepted);
+	ASSERT_TRUE(Admitted) << Admitted.Error;
     ASSERT_TRUE(Accepted);
     const auto* Runtime = TMaterialShaderRef<FM15TestVertexShader>(Accepted).GetShader();
     ASSERT_NE(Runtime, nullptr);
@@ -3437,7 +3439,7 @@ TEST(FMaterialTextureReadTests, ModesCompileReflectAndRoundTripDetachedTranslati
 		SCOPED_TRACE(static_cast<uint32>(ReadMode));
 		MIR::FCompilerInput Input;
 		Input.IR = MakeDefaultMaterialCompilerIR();
-		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+		ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget));
 		const FGuid TextureId{1, 2, 3, 4};
 		Input.Parameters = {{TextureId, EMaterialParameterType::Texture, Dimension}};
 		const bool Cube = Dimension == EMaterialTextureDimension::TextureCube;
@@ -3531,7 +3533,7 @@ TEST(FMaterialSceneTextureTests, PostProcessReadsCompileReflectAndSurviveSourceF
 		MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
 		Input.IR.Domain = EMaterialDomain::PostProcess;
 		Input.StaticProperties.ShadingModel = EMaterialShadingModel::Unlit;
-		const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+		const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget);
 		ASSERT_TRUE(EnvironmentResult) << EnvironmentResult.error();
 		const auto Add = [&](MIR::FNode Node) { ResolveNodeSemantics(Input.IR, Node); const auto I = uint32(Input.IR.Nodes.size()); Input.IR.Nodes.push_back(Node); return I; };
 		const auto UV = Add({.Opcode = Op::ScreenPosition, .ResultType = Type::Float2});
@@ -3601,7 +3603,7 @@ TEST(FMaterialSpecularTests, DefaultsReachabilityEntryIdentityAndSourceFreeCookR
     using namespace Durin;
     InitializeDObjectSystem();
     MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
-    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget));
     const auto Baseline = MIR::Compile(Input); ASSERT_TRUE(Baseline) << FormatMaterialProgramDiagnostics(Baseline.Diagnostics);
     EXPECT_EQ(Baseline.GetDebugData().GeneratedSource.find("#define DURIN_MATERIAL_AUTHORED_SPECULAR 1"),std::string::npos);
     const auto FindGBuffer = [](const auto& Program) -> const FMaterialShaderEntryRequest& {
@@ -3647,7 +3649,7 @@ TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFre
 	using namespace Durin;
 	InitializeDObjectSystem();
 	MIR::FCompilerInput Input{.IR = MakeDefaultMaterialCompilerIR()};
-	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment));
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget));
 	const auto Default = MIR::Compile(Input);
 	ASSERT_TRUE(Default) << FormatMaterialProgramDiagnostics(Default.Diagnostics);
 	Input.StaticProperties.ShadingModel = EMaterialShadingModel::ClearCoat;
@@ -3698,7 +3700,7 @@ TEST(FMaterialBindingContractTests, CompilerLocationsSurviveAdmissionAndSourceFr
 {
     using namespace Durin;
     auto Input = MakeSyntheticMaterialCompilerInput();
-    const auto Environment = BuildDefaultMaterialCompilerEnvironment(Input.Environment);
+    const auto Environment = BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget);
     ASSERT_TRUE(Environment) << Environment.error();
     const auto Translation = MaterialBuildPrivate::TranslateMaterialInput(Input, false);
     ASSERT_TRUE(Translation);
@@ -3764,9 +3766,14 @@ TEST(FMaterialBindingContractTests, CompilerLocationsSurviveAdmissionAndSourceFr
 TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKindAndSchemaBeforeCook)
 {
     using namespace Durin;
-    const auto Input = MakeSyntheticMaterialCompilerInput();
+    auto Input = MakeSyntheticMaterialCompilerInput();
+    ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, VulkanShaderTarget));
     const auto Compiled = MIR::Compile(Input);
     ASSERT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
+    FByteBuffer ValidBytes;
+    const auto Encoded = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, Input.StaticProperties,
+        ECookTargetPlatform::Win64, ECookTargetProfile::Game, ValidBytes);
+    ASSERT_TRUE(Encoded) << Encoded.error();
     const auto& Map = Compiled.GetShaderMap();
     const auto Entry = std::ranges::find_if(Map.Entries, [](const auto& E) { return !E.Bindings.empty(); });
     ASSERT_NE(Entry, Map.Entries.end());
@@ -3782,14 +3789,19 @@ TEST(FMaterialBindingContractTests, PublishedBindingsRejectMissingExtraWrongKind
     const auto Type = std::ranges::find_if(Types, [&](const auto* T) { return T->GetName() == Entry->Shader.ShaderType; });
     ASSERT_NE(Type, Types.end());
     const FShaderType* RuntimeType = *Type;
+    const auto* Descriptor = FindMaterialShaderEntry(Entry->Shader.ShaderType);
+    ASSERT_NE(Descriptor, nullptr);
     auto RuntimeEntries = Map.Entries;
     FMeshMaterialShaderMapCompileInput Admission{
         .Identity = Entry->Shader.Material, .Target = Map.Target, .LocalPermutationId = Entry->Shader.PermutationId,
+        .VertexFactoryType = Descriptor->VertexFactory ? Descriptor->VertexFactory() : nullptr,
         .ShaderTypes = std::span(&RuntimeType, 1), .GeneratedStages = Map.CompiledShaders,
         .CompiledProgramIdentity = Map.ShaderMapId, .CompiledTarget = Map.Target,
         .GeneratedEntries = RuntimeEntries, .CompiledParameters = Compiled.Resource.ShaderMap, .bCreateRHIShaders = false};
+    Admission.CompileOptions.Target = VulkanShaderTarget;
     FMeshMaterialShaderMap RuntimeMap;
-    ASSERT_TRUE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
+    const auto Admitted = FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap);
+    ASSERT_TRUE(Admitted) << Admitted.Error;
     RuntimeEntries[Slot].Bindings.clear();
     EXPECT_FALSE(FMeshMaterialShaderMap::TryCompileSync(Admission, RuntimeMap));
     EXPECT_FALSE(RuntimeMap);
