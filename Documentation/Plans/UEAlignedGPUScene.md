@@ -2,18 +2,19 @@
 
 Summary: Track persistent scene storage, shared mesh commands and UE-aligned pass submission; lasting contracts live in GPUScene.
 
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-19
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stages 0-4 and 6-30 are implemented. Stage 30 makes context finalization the
-completion boundary, requires matching cached Pipeline ownership, and removes
-dynamic storage's standalone publication path. Windows bounded owner/consumer
-builds and 215 regressions pass. Stage 5's native Metal, independent GPU queue
-and exclusive timing gates remain open.
+Stages 0-4 and 6-30 are implemented. Stage 5 is in correctness acceptance.
+The current revision is blocked on native Metal compilation, workspace all-build
+validation, and access to a Vulkan device with an independent compute queue.
+The macOS acceptance scope is native Metal. Performance qualification is outside
+this closeout. See [correctness acceptance](#correctness-acceptance-2026-11-19)
+for the current evidence and blockers.
 
 ## Goal and References
 
@@ -52,12 +53,12 @@ local UE 5.8.2 reference; Durin keeps its explicit RDG resolver and counted owne
 
 - [x] Retire obsolete supported-path uniforms/stages and document capability fallbacks.
 - [x] Publish lasting ownership, update and submission contracts.
-- [ ] Complete native Metal and independent-queue qualification, including output
-  parity, growth, teardown/recovery and legacy-factory/cooked-product cases.
-- [ ] Compare static/dynamic, small/large, multi-view and shadow-heavy workloads
-  in an exclusive Release lane; record CPU preparation, upload bytes, native
-  submissions, GPU time and retained memory. Earlier samples are historical and
-  do not establish performance acceptance for the current architecture.
+- [ ] Qualify native Metal output parity, growth, teardown/recovery and
+  legacy-factory/cooked-product cases.
+- [ ] Qualify GPU Scene on a Vulkan device with an independent compute queue.
+
+The exclusive Release workload comparison is deferred outside this correctness
+closeout. Earlier samples remain historical evidence.
 
 ### Stage 6: Align mesh submission interfaces with UE
 
@@ -342,6 +343,25 @@ Raw XML, logs, scripts and hashes belong under ignored `Build/Qualification/`.
 Earlier stage receipts remain there and in Git history before this cleanup;
 completed decisions are documented once in their owning runtime contracts.
 
+### Correctness Acceptance (2026-11-19)
+
+Tested revision `595521bd7` on Apple M4 with `macos-xcode-arm64` and
+`MacOS-arm64-Debug-DurinEditor`. Application-hosted tests were disabled.
+
+| Selection | Result |
+| --- | --- |
+| `./DevTool test '@module=rhi+rendercore+renderer,kind=contract'` | All 14 targets passed with `GTEST_DEATH_TEST_STYLE=threadsafe`, including Renderer Scene, RDG allocator and render contracts. The default death-test style produced a game-thread assertion mismatch in `RHIInitializationTests` and a timeout in `RHIPipelineCreationTests`. Both targets passed their individual reruns with `threadsafe` before the full rerun. Reports are `contracts.xml` and `contracts-threadsafe.xml`. |
+| `./DevTool build all` | Failed at `DurinPython/Private/PythonReflection.cpp:222` because the Python type flags expression narrows to `unsigned int` with the configured CPython 3.13 SDK. `Build/.agent-state/logs/20261119-003223-585204-61276-cmake.log` records the diagnostic. |
+| `MetalSceneQualificationTests` and `MetalCookedScenePreparationTests` in qualification mode | Blocked at `MetalPipeline.cpp:43-45`. The metal-cpp headers lack `RenderPipelineErrorDomain`, `RenderPipelineErrorInvalidInput` and `LibraryErrorDomain`. The scene and Cook fixtures did not execute. The selected Xcode installation also reports a missing Metal Toolchain when invoking `xcrun -sdk macosx metal -v`. |
+| Independent compute queue | Requires a Vulkan device with a second graphics-family queue or a compute-only family. The local MoltenVK 1.4.1 topology exposes four graphics/compute/transfer families with one queue each. macOS Vulkan correctness tests were excluded from the closeout. |
+
+The test reports, Metal attempt logs and Vulkan SDK 1.4.357 topology probe are under
+`Build/Qualification/UEAlignedGPUSceneCloseout/`. Reproduce Metal execution with
+`MTL_DEBUG_LAYER=1 ./DevTool test MetalSceneQualificationTests '*/metal_*' --mode qualification --report`
+and `MTL_DEBUG_LAYER=1 ./DevTool test MetalCookedScenePreparationTests --mode qualification --report`.
+The earlier Windows build and GPU tests remain historical evidence. Later shared
+Renderer/RHI changes and Metal/Cook changes require validation of current inputs.
+
 ## Completion Gates
 
 - Camera-only movement and additional views upload no unchanged scene attributes;
@@ -351,8 +371,7 @@ completed decisions are documented once in their owning runtime contracts.
   source mutation, growth, cancellation, teardown and recovery on supported backends.
 - Retain the final shared-ABI workspace all-build gate; reuse passing evidence while
   relevant inputs remain unchanged. New broad ABI migrations require a new gate.
-- Stage 5's native platform and exclusive timing requirements remain open. Fewer
-  draw submissions alone do not prove a frame-time improvement.
+- Complete the Stage 5 native Metal and independent-queue correctness gates.
 
 Stage 20 validation uses `windows-msvc-x64` / `Win64-Debug-DurinEditor` with
 application-hosted tests off. CMake changes only remove the unused source-scan macro;
