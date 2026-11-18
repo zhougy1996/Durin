@@ -75,7 +75,7 @@ namespace Durin
 		for (const auto& ExistingToolkit : FToolkitManager::Get().GetToolkits(this))
 		{
 			if (!MatchesAssetEditorIdentity(*ExistingToolkit, Args.OpenArgs, EditorClass)) continue;
-			const auto Objects = ExistingToolkit->GetObjectsToEdit();
+			const auto Objects = ExistingToolkit->GetEditingObjects();
 			if (HaveSameEditedAssets(Objects, Args.Assets)) return nullptr;
 		}
 		if (const auto Previous = GetActiveAssetToolkit())

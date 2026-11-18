@@ -125,6 +125,8 @@ namespace Durin
 		std::vector<std::shared_ptr<IPackageReloadParticipant>> Participants;
 		FPackageReloadBudget Budget;
 		std::function<bool()> IsCancelled;
+		// Runs synchronously after commit and before external binding notifications.
+		std::function<void()> OnPublished;
 	};
 
 	struct FPackageReloadResult

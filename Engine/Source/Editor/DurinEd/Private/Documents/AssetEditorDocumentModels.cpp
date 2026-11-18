@@ -12,6 +12,7 @@
 #include "Transactions/Transactor.h"
 
 #include "Documents/EditorDocumentManager.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin
 {
@@ -101,8 +102,17 @@ namespace Durin
 		FPackagePath PackagePath;
 		if (!FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PackagePath)) return false;
 		FPackageReloadRequest Request{.Packages = {PreviousPackage}};
-		if (DocumentManager) Request.Participants.push_back(DocumentManager->CreateDocumentReloadParticipant());
-		if (GetEditor() && GetEditor()->GetTransactor())
+		auto* Editors = DocumentManager ? DocumentManager->GetAssetEditorSubsystem() : nullptr;
+		if (Editors)
+		{
+			if (!Editors->AddPackageReloadParticipants(Request))
+			{
+				if (ReportError) ReportError("Discard requires idle editor and transaction state.");
+				return false;
+			}
+		}
+		else if (DocumentManager) Request.Participants.push_back(DocumentManager->CreateDocumentReloadParticipant());
+		if (!Editors && GetEditor() && GetEditor()->GetTransactor())
 		{
 			auto Participant = CreateTransactorReloadParticipant(
 				*GetEditor()->GetTransactor(), Request.Packages);
@@ -128,7 +138,7 @@ namespace Durin
 			if (ReportError) ReportError("Discard did not publish a replacement package.");
 			return false;
 		}
-		if (AfterReload) AfterReload(PreviousPackage, ReplacementPackage);
+		if (!Editors && AfterReload) AfterReload(PreviousPackage, ReplacementPackage);
 		Result = Operation.Wait();
 		if (!Result.Succeeded())
 		{

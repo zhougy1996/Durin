@@ -386,14 +386,10 @@ TEST_F(FMaterialFunctionDocumentTests, ExplicitReloadRejectsDirtyDraftAndRebases
 	ASSERT_TRUE(Rename(*Document().Function(), "Unapplied"));
 	auto Reload = [&] {
 		auto* Previous = Document().GetSource()->GetPackage();
-		const auto PackagePath = Previous->GetPackagePath();
 		FPackageReloadRequest Request{.Packages = {Previous}};
-		Request.Participants.push_back(Toolkit->GetDocumentManager()->CreateDocumentReloadParticipant());
-		Request.Participants.push_back(CreateTransactorReloadParticipant(
-			*Host->GetAssetEditorSubsystem()->GetEditor()->GetTransactor(), Request.Packages));
+		EXPECT_TRUE(Host->GetAssetEditorSubsystem()->AddPackageReloadParticipants(Request));
 		Source.Reset();
 		const auto Result = ReloadPackages(Request).Wait();
-		if (Result.Succeeded()) Toolkit->GetDocumentManager()->NotifyPackageReloaded(Previous, FindPackage(PackagePath));
 		Source = Document().GetSource();
 		return Result;
 	};

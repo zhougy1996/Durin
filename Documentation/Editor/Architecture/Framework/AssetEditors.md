@@ -58,8 +58,10 @@ one subsystem, including asset-less and deferred-document roots.
 The ownership chain is:
 
 - ToolkitManager strongly owns open toolkits.
-- A toolkit owns its document controller and provider lease, and strongly retains
-  its optional reflected `DAssetEditor` while open.
+- A toolkit owns its provider lease and strongly retains its optional reflected
+  `DAssetEditor` while open. `GetEditingObjects()` supplies its source objects.
+  Material sessions and the instance Toolkit own their source references.
+  Legacy Toolkits derive the query from their compatibility document roots.
 - `DAssetEditor` supplies reflected identity, `CreateToolkit`, and instance
   forwarding; its toolkit back-reference is weak.
 - Toolkits and host attachments reference each other weakly. MainFrame owns its
@@ -80,8 +82,9 @@ under their owning modules' `Private/` roots. Cross-module callers use the publi
 module and toolkit interfaces. `FLevelEditorToolkit` names Durin's controller
 role; UE's `SLevelEditor` is a Slate surface/host.
 
-Materials and material functions share `FMaterialEditor`; 2D and volume textures
-share `FTextureEditorToolkit`. Family factories select an explicit controller
+Materials and material functions share the `FMaterialEditor` implementation.
+Material instances open a dedicated `FMaterialInstanceEditor`. 2D and volume
+textures share `FTextureEditorToolkit`. Family factories select an explicit controller
 mode while retaining their reflected editor classes and existing toolkit IDs.
 Shared C++ implementations do not share mutable document state or collapse
 family identities: `MaterialEditor`, `MaterialFunctionEditor`, `TextureEditor`
@@ -102,9 +105,13 @@ require distinct stable roles. Reflected editor classes and direct toolkit IDs
 identify separate editor families. Definition reuse, reflected/direct admission,
 and host-transfer collision checks share the same family/method/mode/role rules;
 primary status and explicit host requirements additionally constrain reuse.
-Resource relocation preserves window identity;
-document reload participants migrate roots and notify feature caches through
-`OnResourceIdRemapped`.
+The subsystem forwards asset relocation to the Toolkit and its remaining host
+record through `OnResourceIdRemapped`. This preserves the window identity.
+Explicit package reload and editor Discard use the same subsystem participant
+assembly. Affected Toolkits are selected through the asset association index.
+Participants validate their source binding and commit replacement references.
+On publication the subsystem refreshes Toolkit presentation and updates the
+asset association indexes before broadcasting replacement associations.
 
 ## Methods, Close Policy, And Hosts
 

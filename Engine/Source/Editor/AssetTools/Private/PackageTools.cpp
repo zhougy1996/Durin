@@ -4,6 +4,7 @@
 #include "DObject/Package.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Editor/EditorEngine.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Transactions/Transactor.h"
 #include "Asset/PackageReload.h"
 #include "Threading/RunnableThread.h"
@@ -47,11 +48,19 @@ namespace Durin
 			if (Mode == EReloadPackagesInteractionMode::AssumeNegative || !Prompt || !Prompt(Dirty))
 			{ Error = "Reload declined; packages have unsaved changes."; return false; }
 		}
-		if (auto* Editor = GetTransactionEditor(); Editor && Editor->GetTransactor())
+		if (auto* Editor = GetTransactionEditor())
 		{
-			auto Participant = CreateTransactorReloadParticipant(*Editor->GetTransactor(), Request.Packages);
-			if (!Participant) { Error = "Reload requires idle transaction history."; return false; }
-			Request.Participants.push_back(std::move(Participant));
+			if (auto* Editors = Editor->GetEditorSubsystem<DAssetEditorSubsystem>())
+			{
+				if (!Editors->AddPackageReloadParticipants(Request))
+				{ Error = "Reload requires idle editor and transaction state."; return false; }
+			}
+			else if (Editor->GetTransactor())
+			{
+				auto Participant = CreateTransactorReloadParticipant(*Editor->GetTransactor(), Request.Packages);
+				if (!Participant) { Error = "Reload requires idle transaction history."; return false; }
+				Request.Participants.push_back(std::move(Participant));
+			}
 		}
 		for (size_t Index = 0; Index < Paths.size(); ++Index)
 			if (FindResidentPackage(Paths[Index]) != Request.Packages[Index]) { Error = "Reload selection changed during confirmation."; return false; }

@@ -48,7 +48,7 @@ namespace Durin
 					if (!MatchesAssetEditorIdentity(*Existing, Args, ReflectedType ? *ReflectedType : nullptr,
 						ReflectedType ? nullptr : std::get<const FAssetEditorToolkitId*>(EditorType))
 						|| Existing->IsPrimaryEditor() != Args.bPrimary || (Args.Host && Existing->GetToolkitHost() != Args.Host)) continue;
-					const auto Objects = Existing->GetObjectsToEdit();
+					const auto Objects = Existing->GetEditingObjects();
 					const bool MatchesAssets = Args.bCreateSingleEditor ? HaveSameEditedAssets(Objects, Assets)
 						: std::ranges::find(Objects, Assets.front()) != Objects.end();
 					if (MatchesAssets && (!Toolkit || Existing->GetLastActivationTime() > Toolkit->GetLastActivationTime())) Toolkit = Existing;

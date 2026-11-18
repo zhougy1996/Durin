@@ -27,7 +27,16 @@ interaction, and persistence targets. The
 passed with pending Apply cancellation coverage, and the persistence target
 covered forced close during function publication. The test runtime needed
 its TextureCompressor deployment refreshed to match the current Engine build.
-Stage 2 starts the migration of source ownership and reload participation.
+Stage 2 passed on macOS arm64 with `MacOS-arm64-Debug-DurinEditor` on
+base revision `612ccae56` plus the Stage 2 changes. `AssetEditorFamilyTests`
+(15 cases), `MaterialEditingPersistenceTests` (30), `AssetPackageReloadTests`
+(22), and `EditorShellTests` (64) passed. The tests verify failed publication,
+replacement lookup during the function notification, and Discard with two
+editors open on the same texture. The subsystem adds one participant per
+affected Toolkit and one for transaction history. A synchronous publication
+callback refreshes editor presentation and indexes after runtime commit and
+before external notifications. Commit and retirement retain their existing
+runtime authority.
 
 ## Goal
 
@@ -114,24 +123,24 @@ implementation uses different mechanics.
 
 ### Stage 2: Move edited-object ownership and reload to Toolkits
 
-- [ ] Introduce the `GetEditingObjects()` Toolkit query and migrate subsystem
+- [x] Introduce the `GetEditingObjects()` Toolkit query and migrate subsystem
   association, saveable-object discovery, and workspace restore callers. Keep
   one owning reference to each source per Toolkit. During migration, let
   legacy Toolkit queries read their current records. When a family moves
   ownership, its compatibility record derives its object from the new owner
   and releases its corresponding `AssetRoots` entry.
-- [ ] Move editor-side reload participant discovery to the asset editor
+- [x] Move editor-side reload participant discovery to the asset editor
   subsystem. Find affected editors from the existing association index and
   obtain participants from the Toolkit owners. Use one editor-side participant
   assembly path from both explicit Package Reload and editor Discard. Reuse the
   existing transactor participant and deduplicate participants per operation.
-- [ ] Validate the editor identity, source mapping, and relevant draft revision
+- [x] Validate the editor identity, source mapping, and relevant draft revision
   at the reload barrier. Replace object references at commit. Refresh derived
   previews and synchronize indexes after publication, before external
   notifications observe the replacement. On failure retain the original source
   reference, association, and session. Move rename handling to the subsystem
   and Toolkit notifications as each family migrates.
-- [ ] Verify repeat open and focus, restored editor state, rename, replacement
+- [x] Verify repeat open and focus, restored editor state, rename, replacement
   admission, rollback, and reopen against the new association. Exercise both
   explicit reload and Discard with an affected editor already open.
 

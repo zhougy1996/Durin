@@ -112,12 +112,12 @@ TEST_F(FTextureAssetEditorTests, DiscardMigratesEditorRootsAndRebindsAssetAssoci
 	ASSERT_TRUE(AssetEditorSubsystem->OpenAssets(Args));
 	ASSERT_EQ(1u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).size());
 	const auto EditorInstance = Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front();
-	const auto Objects = EditorInstance->GetObjectsToEdit();
+	const auto Objects = EditorInstance->GetEditingObjects();
 	ASSERT_EQ(1u, Objects.size());
 	const Durin::FObjectKey Old(Objects.front());
 	const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
 	ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document));
-	const auto Replacements = EditorInstance->GetObjectsToEdit();
+	const auto Replacements = EditorInstance->GetEditingObjects();
 	ASSERT_EQ(1u, Replacements.size());
 	EXPECT_NE(Old, Durin::FObjectKey(Replacements.front()));
 	EXPECT_EQ(EditorInstance.Get(), AssetEditorSubsystem->FindEditorForAsset(Replacements.front(), false));

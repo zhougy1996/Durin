@@ -14,8 +14,11 @@ namespace Durin
 	DAssetEditorSubsystem::DAssetEditorSubsystem(const FObjectInitializer& Initializer)
 		: Super(Initializer) {}
 
-	auto DAssetEditorSubsystem::Initialize(FSubsystemCollection& Collection) -> void
+	auto DAssetEditorSubsystem::Initialize(FSubsystemCollection&) -> void
 	{
+		AssetRelocationHandle = OnAssetRenamed().AddLambda([this](const FAssetData& Asset, const FSoftObjectPath& Previous) {
+			OnAssetRelocated(Asset, Previous);
+		});
 	}
 
 	auto DAssetEditorSubsystem::CanCall() const -> bool
@@ -28,6 +31,8 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::Deinitialize() noexcept -> void
 	{
+		OnAssetRenamed().Remove(AssetRelocationHandle);
+		AssetRelocationHandle = {};
 		CloseAssetEditorsForShutdown();
 		ToolkitHostFactory = {};
 		Lifecycle.reset();
@@ -168,6 +173,12 @@ namespace Durin
 
 	auto DAssetEditorSubsystem::NotifyAssetOpened(DObject* Asset, IAssetEditorInstance* Instance) -> void
 	{
+		AddAssetAssociation(Asset, Instance, nullptr);
+	}
+
+	auto DAssetEditorSubsystem::AddAssetAssociation(DObject* Asset, IAssetEditorInstance* Instance,
+		std::vector<FAssetEditorEvent>* Events) -> void
+	{
 		if (!CanCall() || !IsValid(Asset) || !Instance) return;
 		const FObjectKey Key(Asset);
 		auto& Editors = OpenedAssets[Key];
@@ -176,20 +187,35 @@ namespace Durin
 		OpenedEditors[Instance].push_back(Key);
 		FSoftObjectPath Path;
 		if (FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path))
-			PublishEvent({.Type = EAssetEditorEvent::Opened, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
-				.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())});
+		{
+			FAssetEditorEvent Event{.Type = EAssetEditorEvent::Opened,
+				.Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
+				.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(),
+				.InstanceId = std::string(Instance->GetInstanceId())};
+			if (Events) Events->push_back(std::move(Event));
+			else PublishEvent(std::move(Event));
+		}
 	}
 
 	auto DAssetEditorSubsystem::NotifyAssetClosed(DObject* Asset, IAssetEditorInstance* Instance) -> void
 	{
 		// Cleanup remains legal after admission closes, while host consumers shut down.
-		if (!IsInGameThread() || !Asset || !Instance) return;
-		const FObjectKey Key(Asset);
+		if (Asset) RemoveAssetAssociation(FObjectKey(Asset), Instance, nullptr);
+	}
+
+	auto DAssetEditorSubsystem::RemoveAssetAssociation(const FObjectKey& Key, IAssetEditorInstance* Instance,
+		std::vector<FAssetEditorEvent>* Events) -> void
+	{
+		if (!IsInGameThread() || !Instance) return;
 		const auto FoundEditor = OpenedEditors.find(Instance);
 		if (FoundEditor == OpenedEditors.end() || std::ranges::find(FoundEditor->second, Key) == FoundEditor->second.end()) return;
-		FSoftObjectPath Path;
-		FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path);
-		FAssetEditorEvent Event{.Type = EAssetEditorEvent::AssetRemoved, .Target = {Path, Asset->GetClass()->GetQualifiedName().ToString()},
+		FAssetOpenTarget Target;
+		if (const auto* Asset = Key.ResolveObjectPtr())
+		{
+			FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Target.AssetPath);
+			Target.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString();
+		}
+		FAssetEditorEvent Event{.Type = EAssetEditorEvent::AssetRemoved, .Target = std::move(Target),
 			.Editor = FObjectKey(dynamic_cast<DAssetEditor*>(Instance)), .Method = Instance->GetOpenMethod(), .InstanceId = std::string(Instance->GetInstanceId())};
 		if (auto Found = OpenedAssets.find(Key); Found != OpenedAssets.end())
 		{

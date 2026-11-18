@@ -49,7 +49,7 @@ namespace Durin
 		auto Effective = Args; Effective.ToolkitMode = *Mode;
 		for (const auto& Existing : FToolkitManager::Get().GetToolkits(this))
 			if (MatchesAssetEditorIdentity(*Existing, Effective, nullptr, &Toolkit->GetToolkitId())
-				&& HaveSameEditedAssets(Existing->GetObjectsToEdit(), Assets)) return false;
+				&& HaveSameEditedAssets(Existing->GetEditingObjects(), Assets)) return false;
 		bool Initialized = false;
 		DispatchEditorCallback([&] {
 			if (const auto Previous = GetActiveAssetToolkit(); Previous && !Previous->RequestDeactivate()) return;
@@ -65,21 +65,21 @@ namespace Durin
 		});
 		return Initialized;
 	}
-	auto DAssetEditorSubsystem::SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit) -> void
+	auto DAssetEditorSubsystem::SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit, std::vector<FAssetEditorEvent>* Events) -> void
 	{
 		if (!OwnsToolkit(Toolkit) || Toolkit.IsClosed()) return;
 		auto* Instance = Toolkit.GetEditorInstance();
 		if (!Instance) return;
-		const auto Objects = Toolkit.GetObjectsToEdit();
+		const auto Objects = Toolkit.GetEditingObjects();
 		const auto Found = OpenedEditors.find(Instance);
 		const auto Previous = Found == OpenedEditors.end() ? std::vector<FObjectKey>{} : Found->second;
 		for (const auto& Key : Previous)
 			if (std::ranges::none_of(Objects, [&](auto* Object) { return FObjectKey(Object) == Key; }))
-				if (auto* Object = Key.ResolveObjectPtr()) NotifyAssetClosed(Object, Instance);
+				RemoveAssetAssociation(Key, Instance, Events);
 		for (auto* Object : Objects)
 		{
 			if (!OwnsToolkit(Toolkit) || Toolkit.IsClosed()) break;
-			NotifyAssetOpened(Object, Instance);
+			AddAssetAssociation(Object, Instance, Events);
 		}
 	}
 	auto DAssetEditorSubsystem::FinishToolkitClose(FAssetEditorToolkit& Toolkit,

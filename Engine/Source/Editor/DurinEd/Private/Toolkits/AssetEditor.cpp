@@ -69,8 +69,8 @@ namespace Durin
 	auto DAssetEditor::GetLastActivationTime() -> double { const auto Lease = Toolkit.lock(); return Lease ? Lease->GetLastActivationTime() : 0; }
 	auto DAssetEditor::GetOpenMethod() const -> EAssetOpenMethod
 	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetOpenMethod() : EAssetOpenMethod::Edit; }
-	auto DAssetEditor::GetObjectsToEdit() const -> std::vector<DObject*>
-	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetObjectsToEdit() : std::vector<DObject*>{}; }
+	auto DAssetEditor::GetEditingObjects() const -> std::vector<DObject*>
+	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetEditingObjects() : std::vector<DObject*>{}; }
 	auto DAssetEditor::FocusWindow(DObject* Object) -> void
 	{ if (const auto Lease = Toolkit.lock()) Lease->FocusWindow(Object); }
 	auto DAssetEditor::CloseWindow(EAssetEditorCloseReason Reason) -> bool

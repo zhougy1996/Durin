@@ -11,7 +11,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "AssetEditorSubsystem.gen.h"
 
-namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAssetEditorToolkit; struct FAssetEditorInitArgs; }
+namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAssetEditorToolkit; struct FAssetEditorInitArgs; struct FPackageReloadRequest; struct FAssetData; }
 namespace Durin::MainFrame { struct FMainFrameContext; }
 
 namespace Durin
@@ -59,6 +59,8 @@ namespace Durin
 		DURINED_API auto LoadEditorState(std::string FilePath = {}) -> bool;
 		DURINED_API auto FindEditorForAsset(DObject* Asset, bool bFocusIfOpen) -> IAssetEditorInstance*;
 		DURINED_API auto FindEditorsForAsset(DObject* Asset) -> std::vector<IAssetEditorInstance*>;
+		// Registers one participation set for the affected open Toolkits and transaction history.
+		DURINED_API auto AddPackageReloadParticipants(FPackageReloadRequest& Request) -> bool;
 		DURINED_API auto GetAllEditedAssets() -> std::vector<DObject*>;
 		DURINED_API auto GetAllOpenEditors() -> std::vector<IAssetEditorInstance*>;
 		DURINED_API auto CloseAllEditorsForAsset(DObject* Asset) -> int32;
@@ -85,9 +87,12 @@ namespace Durin
 		// Deinitialize and shell teardown share this to preserve UI/provider release order.
 		DURINED_API auto CloseAssetEditorsForShutdown() -> void;
 		DURINED_API auto PublishEvent(FAssetEditorEvent Event) -> void;
-		auto SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit) -> void;
+		auto SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit, std::vector<FAssetEditorEvent>* Events = nullptr) -> void;
+		auto AddAssetAssociation(DObject* Asset, IAssetEditorInstance* Instance, std::vector<FAssetEditorEvent>* Events) -> void;
+		auto RemoveAssetAssociation(const FObjectKey& Key, IAssetEditorInstance* Instance, std::vector<FAssetEditorEvent>* Events) -> void;
 		auto FinishToolkitClose(FAssetEditorToolkit& Toolkit, DAssetEditor* Editor,
 			IAssetEditorInstance* Instance) -> void;
+		auto OnAssetRelocated(const FAssetData& Asset, const FSoftObjectPath& Previous) -> void;
 		auto CanCall() const -> bool;
 		auto HasEditor(IAssetEditorInstance* Instance) const -> bool;
 		auto CreateAssetEditor(DAssetEditor& Editor, const FAssetEditorInitArgs& Args) -> DAssetEditor*;
@@ -97,6 +102,7 @@ namespace Durin
 		// A non-window shell owns only its presentation hosts, never toolkits/editors.
 		std::vector<std::shared_ptr<IToolkitHost>> FallbackHosts;
 		std::function<std::shared_ptr<IToolkitHost>(const FAssetOpenArgs&)> ToolkitHostFactory;
+		FDelegateHandle AssetRelocationHandle;
 		bool bClosingEditors = false;
 		struct FLifecycleState;
 		std::shared_ptr<FLifecycleState> Lifecycle;

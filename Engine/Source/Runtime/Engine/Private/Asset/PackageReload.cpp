@@ -682,6 +682,15 @@ namespace Durin
 
 			State->Result = {.Status = Status::Pending};
 			State->Replacement = std::move(Replacement);
+			if (Request.OnPublished)
+			{
+				try { Request.OnPublished(); }
+				catch (...)
+				{
+					State->Result.Diagnostics.push_back({.Stage = Stage::Publish,
+						.Message = DescribeFailure(Reason::ObserverException, {})});
+				}
+			}
 			try
 			{
 				Graphs.clear();

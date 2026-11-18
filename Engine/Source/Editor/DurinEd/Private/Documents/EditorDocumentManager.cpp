@@ -104,7 +104,8 @@ namespace Durin
 
 	FEditorDocumentManager::FEditorDocumentManager()
 		: State(std::make_shared<DocumentPrivate::FEditorDocumentState>())
-	{ AssetRenameHandle = Durin::OnAssetRenamed().AddLambda([this](const FAssetData& Asset, const FSoftObjectPath& Old) { OnAssetRenamed(Asset, Old); }); }
+	{
+	}
 
 	FEditorDocumentManager::~FEditorDocumentManager()
 	{
@@ -115,6 +116,13 @@ namespace Durin
 
 	auto FEditorDocumentManager::SynchronizeAssets() -> void
 	{
+		if (const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
+			Toolkit && Toolkit->GetOwnedEditingObjects())
+		{
+			State->AssetRoots.clear();
+			if (State->AssetsChanged) State->AssetsChanged();
+			return;
+		}
 		std::unordered_set<uint64> OpenDocuments;
 		for (const auto& Document : State->Documents)
 		{
@@ -140,6 +148,10 @@ namespace Durin
 		State->AssetEditorSubsystem = AssetEditorSubsystem;
 		State->Toolkit = Toolkit;
 		State->AssetsChanged = std::move(AssetsChanged);
+		if (!AssetEditorSubsystem)
+			AssetRenameHandle = Durin::OnAssetRenamed().AddLambda([this](const FAssetData& Asset, const FSoftObjectPath& Old) {
+				OnAssetRenamed(Asset, Old);
+			});
 		return true;
 	}
 	auto FEditorDocumentManager::AssociateDocumentAsset(FDocumentId Id, DObject* Asset) -> bool

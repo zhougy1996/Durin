@@ -50,6 +50,7 @@ namespace Durin::MaterialEditor
 		std::shared_ptr<FMaterialFunctionEditingSession> FunctionSession;
 		FObjectKey Previous;
 		TStrongObjectPtr<DMaterial> Replacement;
+		TStrongObjectPtr<DMaterialFunction> FunctionReplacement;
 		uint64 WorkingRevision = 0;
 		bool bCommitted = false;
 	public:
@@ -72,6 +73,9 @@ namespace Durin::MaterialEditor
 			{
 				if (Function->bPublishing || Function->IsDirty())
 					return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
+				FunctionReplacement = Cast<DMaterialFunction>(Entry->Replacement);
+				if (!FunctionReplacement)
+					return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
 				FunctionSession = Function;
 				WorkingRevision = Function->WorkingPackage->GetEditRevision();
 			}
@@ -97,13 +101,18 @@ namespace Durin::MaterialEditor
 		}
 		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }
 		auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
-		{ return MaterialSession && FObjectKey(&Object) == Previous ? 1 : 0; }
+		{ return (MaterialSession || FunctionSession) && FObjectKey(&Object) == Previous ? 1 : 0; }
 		auto Commit() noexcept -> void override
 		{
 			if (MaterialSession)
 			{
 				MaterialSession->Source = std::move(Replacement);
 				MaterialSession->SourceRevision = MaterialSession->Source->GetPackage()->GetEditRevision();
+			}
+			if (FunctionSession)
+			{
+				FunctionSession->Source = std::move(FunctionReplacement);
+				FunctionSession->RefreshSourceRevision();
 			}
 			bCommitted = true;
 		}
@@ -112,10 +121,18 @@ namespace Durin::MaterialEditor
 			MaterialSession.reset();
 			FunctionSession.reset();
 			Replacement.Reset();
+			FunctionReplacement.Reset();
 			Previous = {};
 		}
 		auto CanRetire() const -> bool override { return bCommitted; }
 	};
+	auto FMaterialEditor::GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>>
+	{
+		auto* Source = FunctionSession ? static_cast<DObject*>(FunctionSession->GetSource())
+			: EditingSession ? EditingSession->GetSourceMaterial() : nullptr;
+		return IsValid(Source) ? std::vector<DObject*>{Source} : std::vector<DObject*>{};
+	}
+
 	auto FMaterialEditor::CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant>
 	{
 		const auto Owner = std::dynamic_pointer_cast<FMaterialEditor>(weak_from_this().lock());

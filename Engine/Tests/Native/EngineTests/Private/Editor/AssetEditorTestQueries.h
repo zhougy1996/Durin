@@ -31,7 +31,7 @@ namespace Durin::Testing
 			if (!Editor || !Toolkit->IsEditorOpen() || !Toolkit->IsPrimaryEditor()
 				|| Toolkit->GetOpenMethod() != Method || Toolkit->GetToolkitMode() != Mode
 				|| !Toolkit->GetInstanceKey().empty() || (Host && Toolkit->GetToolkitHost().get() != Host)) continue;
-			const auto Assets = Toolkit->GetObjectsToEdit();
+			const auto Assets = Toolkit->GetEditingObjects();
 			if (std::ranges::find(Assets, Asset) != Assets.end()
 				&& (!Result || Toolkit->GetLastActivationTime() > Result->GetLastActivationTime()
 					|| (Toolkit->GetLastActivationTime() == Result->GetLastActivationTime()

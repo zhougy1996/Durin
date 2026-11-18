@@ -1,4 +1,6 @@
 #include "ObjectTools.h"
+#include "PackageTools.h"
+#include "Transactions/Transactor.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Editor/AssetEditorTestQueries.h"
 #include "Asset/Testing/PackageReloadTesting.h"
@@ -143,7 +145,7 @@ namespace
 			Object->MarkPackageDirty();
 			const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
 			ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document)) << EditorInstance->GetToolkit()->GetLastOperationError();
-			Object = EditorInstance->GetObjectsToEdit().front();
+			Object = EditorInstance->GetEditingObjects().front();
 			EXPECT_FALSE(Open(*Object, EAssetOpenMethod::View));
 			EXPECT_EQ(nullptr, AssetEditorSubsystem->OpenAssetEditor(EditorInstance->GetClass(), {
 				.OpenArgs = {.AssetEditors = AssetEditorSubsystem, .OpenMethod = EAssetOpenMethod::View, .InstanceRole = "BypassAttempt"}, .Assets = {Object}}));
@@ -178,7 +180,7 @@ namespace
 			ASSERT_TRUE(AssetEditorSubsystem->OpenAssets(Args));
 			const auto Toolkits = FToolkitManager::Get().GetToolkits(AssetEditorSubsystem);
 			ASSERT_EQ(2u, Toolkits.size());
-			for (const auto& Toolkit : Toolkits) EXPECT_EQ(1u, Toolkit->GetObjectsToEdit().size());
+			for (const auto& Toolkit : Toolkits) EXPECT_EQ(1u, Toolkit->GetEditingObjects().size());
 			const auto* Editor = Toolkits.front()->GetOwningAssetEditor();
 			ASSERT_NE(nullptr, Editor);
 			EditorClasses.insert(Editor->GetClass());
@@ -393,10 +395,10 @@ namespace
 			});
 			EXPECT_EQ(EPackageReloadStatus::Failed, ReloadPackages(FailedReload).Wait().Status);
 		}
-		EXPECT_EQ(Collection, EditorInstance->GetObjectsToEdit().front());
+		EXPECT_EQ(Collection, EditorInstance->GetEditingObjects().front());
 		EXPECT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(8)));
 		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document)) << EditorInstance->GetToolkit()->GetLastOperationError();
-		const auto Objects = EditorInstance->GetObjectsToEdit();
+		const auto Objects = EditorInstance->GetEditingObjects();
 		ASSERT_EQ(1u, Objects.size());
 		EXPECT_NE(Collection, Objects.front());
 		EXPECT_EQ(EditorInstance, AssetEditorSubsystem->FindEditorForAsset(Objects.front(), false));
@@ -437,8 +439,7 @@ namespace
 		const auto Window = Edit->GetPresentationRootKey("StaticMeshEditor");
 		const auto Profile = Edit->GetLayoutProfileKey();
 		FPackageReloadRequest Request{.Packages = {Object->GetPackage()}};
-		Request.Participants.push_back(Edit->GetDocumentManager()->CreateDocumentReloadParticipant());
-		Request.Participants.push_back(View->GetDocumentManager()->CreateDocumentReloadParticipant());
+		ASSERT_TRUE(AssetEditorSubsystem->AddPackageReloadParticipants(Request));
 		const auto Reload = ReloadPackages(Request).Wait();
 		EXPECT_EQ(EPackageReloadStatus::Failed, Reload.Status);
 		EXPECT_EQ(EPackageReloadFailure::Unsupported, Reload.Failure);
@@ -479,7 +480,7 @@ namespace
 		ASSERT_EQ(3u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
 		for (const auto& Toolkit : Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
 		{
-			EXPECT_EQ(1u, Toolkit->GetObjectsToEdit().size());
+			EXPECT_EQ(1u, Toolkit->GetEditingObjects().size());
 			EXPECT_EQ(EAssetEditorOpenLocation::MainWindow, Toolkit->GetOpenLocation());
 			EXPECT_TRUE(Toolkit->IsPrimaryEditor());
 			EXPECT_TRUE(Toolkit->GetInstanceKey().empty());
@@ -522,6 +523,42 @@ namespace
 		EXPECT_NE(Window, Restored->GetToolkit()->GetPresentationRootKey("MaterialEditor"));
 	}
 
+	TEST_F(FAssetEditorFamilyTests, ExplicitReloadPublishesTheNewAssociationBeforeFunctionObservers)
+	{
+		const FScopedEditorTransactionContext Context(Host.Get());
+		auto* Original = Create<DMaterialFunction>("ExplicitReloadFunction");
+		ASSERT_NE(nullptr, Original);
+		ASSERT_TRUE(SavePackage(Original->GetPackage()));
+		ASSERT_TRUE(Open(*Original));
+		const auto Toolkit = AssetEditorSubsystem->GetActiveAssetToolkit();
+		const auto PackagePath = Original->GetPackage()->GetPackagePathIdentity();
+		auto* EditorInstance = Toolkit->GetEditorInstance();
+		ASSERT_NE(nullptr, EditorInstance);
+		std::string Error;
+		{
+			Testing::FScopedPackageReloadFault Fail([](auto Point, uint64, uint64) {
+				return Point == Testing::EPackageReloadFaultPoint::BeforeCommit;
+			});
+			EXPECT_FALSE(DPackageTools::ReloadPackages(std::array{Original->GetPackage()}, Error)) << Error;
+			EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Original});
+			EXPECT_EQ(AssetEditorSubsystem->FindEditorForAsset(Original, false), EditorInstance);
+		}
+		DObject* Published = nullptr;
+		const auto Observer = GetMaterialFunctionChangedEvent().AddLambda([&](const DMaterialFunctionInterface& Function) {
+			if (Function.GetPackage()->GetPackagePathIdentity() != PackagePath) return;
+			Published = const_cast<DMaterialFunctionInterface*>(&Function);
+			EXPECT_EQ(AssetEditorSubsystem->FindEditorForAsset(Published, false), EditorInstance);
+			EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Published});
+		});
+		const bool bReloaded = DPackageTools::ReloadPackages(std::array{Original->GetPackage()}, Error);
+		GetMaterialFunctionChangedEvent().Remove(Observer);
+		ASSERT_TRUE(bReloaded) << Error;
+		ASSERT_NE(nullptr, Published);
+		EXPECT_NE(Original, Published);
+		ASSERT_TRUE(Open(*Published));
+		EXPECT_EQ(Toolkit, AssetEditorSubsystem->GetActiveAssetToolkit());
+	}
+
 	TEST_F(FAssetEditorFamilyTests, VolumeDiscardReloadsItsSavedSourceThroughTheOwnedEditor)
 	{
 		auto* Volume = Create<DVolumeTexture>("ReloadVolume");
@@ -540,6 +577,9 @@ namespace
 		ASSERT_TRUE(Open(*Volume));
 		auto* EditorInstance = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Volume, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, EditorInstance);
+		ASSERT_TRUE(Open(*Volume, EAssetOpenMethod::View));
+		auto* View = Testing::FindReflectedEditor(AssetEditorSubsystem, Volume, EAssetOpenMethod::View);
+		ASSERT_NE(nullptr, View);
 		using FPreviewAccess = TextureEditor::FTextureEditorToolkitTestAccess;
 		const auto Resource = Volume->GetObjectPath();
 		FPreviewAccess::SelectVolume(*EditorInstance->GetToolkit(), Resource);
@@ -547,7 +587,10 @@ namespace
 		ASSERT_TRUE(SetSource(std::byte{39}));
 		const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
 		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document)) << EditorInstance->GetToolkit()->GetLastOperationError();
-		EXPECT_NE(Volume, EditorInstance->GetObjectsToEdit().front());
+		auto* Replacement = EditorInstance->GetEditingObjects().front();
+		EXPECT_NE(Volume, Replacement);
+		EXPECT_EQ(View->GetEditingObjects(), std::vector<DObject*>{Replacement});
+		EXPECT_EQ(AssetEditorSubsystem->FindEditorsForAsset(Replacement).size(), 2u);
 		EXPECT_EQ(Selection, FPreviewAccess::VolumeSelection(*EditorInstance->GetToolkit(), Resource));
 		EXPECT_TRUE(EditorInstance->GetToolkit()->SaveActiveDocument());
 	}

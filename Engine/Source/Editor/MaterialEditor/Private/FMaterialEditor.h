@@ -50,6 +50,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
 		MATERIALEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
 		MATERIALEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
+		auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> override;
 		auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> override;
 		MATERIALEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
 		MATERIALEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;

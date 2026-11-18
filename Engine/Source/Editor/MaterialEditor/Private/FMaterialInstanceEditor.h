@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DObject/ObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Documents/AssetEditorDocumentModels.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Settings/EditorSettings.h"
@@ -29,6 +29,8 @@ namespace Durin::MaterialEditor
 		auto ActivateDocument(const FEditorDocument& Document) -> void override;
 		auto RequestDeactivate() -> bool override;
 		auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
+		auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> override;
+		auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> override;
 		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
 		auto OnClose() -> void override;
@@ -51,6 +53,7 @@ namespace Durin::MaterialEditor
 		auto OnRedo() -> bool override { return RequestDeactivate() && Documents.Redo(); }
 
 	private:
+		class FReloadParticipant;
 		class FMaterialParameterRowScope;
 		auto DrawDocument(const FEditorDocument& Document, DMaterialInstance& Instance) -> void;
 		auto DrawToolbar(DMaterialInstance& Instance) -> void;
@@ -72,7 +75,7 @@ namespace Durin::MaterialEditor
 
 		FEditorDocumentManager& Manager;
 		FEditableAssetDocumentModel Documents;
-		TObjectPtr<DMaterialInstance> Source;
+		TStrongObjectPtr<DMaterialInstance> Source;
 		FPropertyView PropertyView;
 		std::shared_ptr<FMaterialPreview> Preview;
 		std::unique_ptr<FMaterialEditorProfileSettings> ProfileSettings;

@@ -169,8 +169,8 @@ both source and working checkpoints. Closing or resetting the working copy
 forgets its transaction records and cancels its compile jobs before retirement.
 
 Each `FMaterialFunctionEditingSession` owns a transient duplicate of the source
-function and its working package, canvas, and derived preview. The compatibility
-host record retains the source while it is open. Graph,
+function and its working package, canvas, and derived preview. The session
+also retains the source while it is open. Graph,
 port and layout edits affect only the draft; ordinary source-package saves and
 dependent materials cannot observe them. Working-package transaction checkpoints
 are the sole draft dirty authority. Source-package disk dirtiness does not set
@@ -228,9 +228,9 @@ layout-profile identity remains independent of resource names. Window IDs are
 runtime-only. Persistence and the intentional removal of old layout namespaces
 follow [asset editor layout profiles](../Framework/AssetEditors.md#panels-and-tool-extensions).
 
-Session document controllers observe authoritative Engine relocation and remap
-resource IDs, per-resource document keys and labels without changing document
-identity. Material Toolkit callbacks update stored viewport and source revision state.
+The asset editor subsystem observes Engine relocation and remaps the host
+record's resource path and label. Material Toolkit callbacks update stored
+viewport and source revision state.
 A module-scoped observer separately updates stored profile viewport records and
 unregisters when the module retires. There is no local
 asset catalog mirror. Deletion is observed through the existing object handle;

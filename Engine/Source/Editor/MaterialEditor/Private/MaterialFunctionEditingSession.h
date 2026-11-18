@@ -16,7 +16,7 @@ namespace Durin::MaterialEditor
 	// Owns the editable function draft and its derived presentation.
 	struct FMaterialFunctionEditingSession
 	{
-		TWeakObjectPtr<DMaterialFunction> Source;
+		TStrongObjectPtr<DMaterialFunction> Source;
 		TStrongObjectPtr<DPackage> WorkingPackage;
 		TStrongObjectPtr<DMaterialFunction> Working;
 		TWeakObjectPtr<DTransactor> Transactor;

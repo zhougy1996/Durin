@@ -5,6 +5,7 @@
 #include "Asset/AssetPicker.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/ObjectGraphReplacement.h"
 #include "DObject/Package.h"
 #include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorUI.h"
@@ -182,12 +183,12 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialInstanceEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
-		if (Source.IsValid())
+		if (IsValid(Source.Get()))
 			return Source->GetObjectPath() == Document.ResourceId ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
 		FSoftObjectPath Path;
 		if (!FSoftObjectPath::TryCreate(Document.ResourceId, Path)) return EDocumentOpenResult::Rejected;
 		Source = LoadObject<DMaterialInstance>(Path);
-		return Source.IsValid() ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
+		return IsValid(Source.Get()) ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
 	}
 
 	auto FMaterialInstanceEditor::ActivateDocument(const FEditorDocument& Document) -> void
@@ -233,13 +234,69 @@ namespace Durin::MaterialEditor
 			[this](std::string Message) { SetError(std::move(Message)); }, &Manager);
 	}
 
+	auto FMaterialInstanceEditor::GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>>
+	{
+		auto* Instance = Source.Get();
+		return IsValid(Instance) ? std::vector<DObject*>{Instance} : std::vector<DObject*>{};
+	}
+
+	class FMaterialInstanceEditor::FReloadParticipant final : public IObjectReplacementParticipant
+	{
+	public:
+		explicit FReloadParticipant(std::shared_ptr<FMaterialInstanceEditor> InOwner) : Owner(std::move(InOwner)) {}
+
+		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
+		{
+			Abort();
+			const auto* Entry = Map.Find(Owner->Source.Get());
+			if (!Entry) return {};
+			if (!Owner->RequestDeactivate() || !Owner->IsEditorOpen()
+				|| Owner->Source.Get() != Entry->Previous)
+				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
+			Replacement = Cast<DMaterialInstance>(Entry->Replacement);
+			if (!Replacement)
+				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
+			Previous = FObjectKey(Entry->Previous);
+			return {};
+		}
+		auto Validate() const -> bool override
+		{
+			return Owner->IsEditorOpen() && (!Replacement || Owner->Source.GetKey() == Previous);
+		}
+		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }
+		auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
+		{
+			return Previous == FObjectKey(&Object) ? 1 : 0;
+		}
+		auto Commit() noexcept -> void override
+		{
+			if (Replacement) Owner->Source = std::move(Replacement);
+		}
+		auto Abort() noexcept -> void override
+		{
+			Replacement.Reset();
+			Previous = {};
+		}
+		auto CanRetire() const -> bool override { return true; }
+	private:
+		std::shared_ptr<FMaterialInstanceEditor> Owner;
+		FObjectKey Previous;
+		TStrongObjectPtr<DMaterialInstance> Replacement;
+	};
+
+	auto FMaterialInstanceEditor::CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant>
+	{
+		auto Owner = std::dynamic_pointer_cast<FMaterialInstanceEditor>(weak_from_this().lock());
+		return Owner ? std::make_shared<FReloadParticipant>(std::move(Owner)) : nullptr;
+	}
+
 	auto FMaterialInstanceEditor::OnPackageReloaded(DPackage*, DPackage* Replacement) -> void
 	{
 		const auto* Active = Manager.GetActiveDocument();
 		FSoftObjectPath Path;
 		if (!Active || !FSoftObjectPath::TryCreate(Active->ResourceId, Path)
 			|| Path.GetPackagePath() != Replacement->GetPackagePathIdentity() || !RequestDeactivate()) return;
-		Source = Cast<DMaterialInstance>(Replacement->FindTopLevelAsset(Path.GetAssetPath().GetAssetName()));
+		check(!Source || Source->GetPackage() == Replacement);
 		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
 		ReleasePreview();
 		ActivateDocument(*Active);
@@ -310,13 +367,13 @@ namespace Durin::MaterialEditor
 	auto FMaterialInstanceEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive) RequestDeactivate();
-		if (!Source.IsValid())
+		if (!IsValid(Source.Get()))
 		{
 			CloseWindow(EAssetEditorCloseReason::AssetUnloadingOrInvalid);
 			return false;
 		}
 		return Documents.GetTabManager().DrawDocuments(Manager, Workspace::Type, GetPresentationRootKey(Workspace::RootKey),
-			[this](const auto&) { return Source.IsValid(); },
+			[this](const auto&) { return IsValid(Source.Get()); },
 			[this](const auto& Document) {
 				const TStrongObjectPtr<DMaterialInstance> DrawingSource(Source.Get());
 				if (DrawingSource) DrawDocument(Document, *DrawingSource);

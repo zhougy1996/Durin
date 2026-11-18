@@ -64,6 +64,7 @@ namespace Durin
 		DURINED_API auto GetToolkit() const -> std::shared_ptr<IAssetEditorToolkit>;
 
 	private:
+		friend class DAssetEditorSubsystem;
 		auto SynchronizeAssets() -> void;
 		auto OnAssetRenamed(const FAssetData& Asset, const FSoftObjectPath& OldPath) -> void;
 		auto FindDocument(FDocumentId DocumentId) -> FEditorDocument*;

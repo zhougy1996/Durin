@@ -92,7 +92,9 @@ namespace Durin
 		DURINED_API auto GetWindowId() const -> std::string_view;
 		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
 		auto GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager> { return DocumentOwner; }
-		DURINED_API auto GetObjectsToEdit() const -> std::vector<DObject*>;
+		DURINED_API auto GetEditingObjects() const -> std::vector<DObject*>;
+		// Migrated Toolkits supply their actual source owners. Legacy Toolkits use host roots.
+		virtual auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> { return std::nullopt; }
 		DURINED_API auto SupportsRestore() const -> bool;
 		DURINED_API auto GetEditorName() const -> FName override;
 		DURINED_API auto IsPrimaryEditor() const -> bool override;

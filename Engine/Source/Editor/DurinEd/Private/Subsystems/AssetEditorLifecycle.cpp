@@ -2,6 +2,7 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Documents/EditorDocumentManager.h"
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
 #include "AssetRegistry/Catalog.h"
@@ -21,23 +22,26 @@ namespace Durin
 
 	struct DAssetEditorSubsystem::FLifecycleState
 	{
-		FLifecycleState()
-		{
-			RenameHandle = OnAssetRenamed().AddLambda([this](const FAssetData& Asset, const FSoftObjectPath& Old) {
-				for (auto& Target : Recent)
-					if (Target.AssetPath.GetAssetPath() == Old.GetAssetPath())
-					{
-						FSoftObjectPath Replacement;
-						if (FSoftObjectPath::TryCreate(Asset.AssetPath, Target.AssetPath.GetSubobjectNames(), Replacement)) Target.AssetPath = Replacement;
-					}
-			});
-		}
-		~FLifecycleState() { OnAssetRenamed().Remove(RenameHandle); }
-		FDelegateHandle RenameHandle;
 		uint64 NextId = 1;
 		std::map<uint64, std::function<void(const FAssetEditorEvent&)>> Subscribers;
 		std::vector<FAssetOpenTarget> Recent;
 	};
+	auto DAssetEditorSubsystem::OnAssetRelocated(const FAssetData& Asset, const FSoftObjectPath& Previous) -> void
+	{
+		if (!CanCall()) return;
+		if (Lifecycle)
+			for (auto& Target : Lifecycle->Recent)
+			{
+				if (Target.AssetPath.GetAssetPath() != Previous.GetAssetPath()) continue;
+				FSoftObjectPath Replacement;
+				if (FSoftObjectPath::TryCreate(Asset.AssetPath, Target.AssetPath.GetSubobjectNames(), Replacement))
+					Target.AssetPath = Replacement;
+			}
+		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
+			if (OwnsToolkit(*Toolkit) && !Toolkit->IsClosed())
+				Toolkit->GetDocumentManager()->OnAssetRenamed(Asset, Previous);
+	}
+
 	auto DAssetEditorSubsystem::Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription
 	{
 		if (!CanCall() || !Callback) return {};
@@ -71,7 +75,7 @@ namespace Durin
 		for (const auto& Toolkit : Toolkits)
 		{
 			if (!Toolkit->SupportsRestore()) continue;
-			for (auto* Object : Toolkit->GetObjectsToEdit())
+			for (auto* Object : Toolkit->GetEditingObjects())
 			{
 				FSoftObjectPath Path;
 				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Path) && Path.IsTopLevelAsset()

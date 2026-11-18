@@ -587,7 +587,7 @@ namespace
 		ASSERT_EQ(3u, Restored.size());
 		for (const auto& Toolkit : Restored)
 		{
-			EXPECT_EQ(1u, Toolkit->GetObjectsToEdit().size());
+			EXPECT_EQ(1u, Toolkit->GetEditingObjects().size());
 			EXPECT_EQ(EAssetEditorOpenLocation::MainWindow, Toolkit->GetOpenLocation());
 			EXPECT_EQ(EToolkitMode::Standalone, Toolkit->GetToolkitMode());
 			EXPECT_TRUE(Toolkit->IsPrimaryEditor());
@@ -634,7 +634,7 @@ namespace
 		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = Targets, .bCreateSingleEditor = true}));
 		EXPECT_EQ(1, Calls);
 		ASSERT_EQ(1u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).size());
-		EXPECT_EQ(2u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front()->GetObjectsToEdit().size());
+		EXPECT_EQ(2u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front()->GetEditingObjects().size());
 		ASSERT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
 		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem, .Assets = Targets}));
 		EXPECT_EQ(2, Calls);
@@ -815,7 +815,7 @@ namespace
 		EXPECT_EQ(ClassName, OpenedClass);
 		Package = FindPackage(PackagePath.ToString());
 		ASSERT_TRUE(Package);
-		EXPECT_EQ(ClassName, AssetEditorSubsystem->GetActiveAssetToolkit()->GetObjectsToEdit().front()->GetClass()->GetQualifiedName().ToString());
+		EXPECT_EQ(ClassName, AssetEditorSubsystem->GetActiveAssetToolkit()->GetEditingObjects().front()->GetClass()->GetQualifiedName().ToString());
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, RestoreRoundTripsAssetListAndViewAndReportsMissingItems)
@@ -836,7 +836,7 @@ namespace
 			.ToolkitMode = EToolkitMode::WorldCentric, .OpenLocation = EAssetEditorOpenLocation::NewWindow,
 			.InstanceRole = "RestoreInspection", .bPrimary = false, .bCreateSingleEditor = true}));
 		ASSERT_EQ(1u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).size());
-		EXPECT_EQ(2u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front()->GetObjectsToEdit().size());
+		EXPECT_EQ(2u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).front()->GetEditingObjects().size());
 		const auto Path = (Testing::GetTestWorkDirectory() / "AssetEditorRestore.yaml").generic_string();
 		ASSERT_TRUE(AssetEditorSubsystem->SaveEditorState(Path));
 		FYamlDocument Saved;
@@ -1274,7 +1274,7 @@ namespace
 		auto* Primary = Open({A, B});
 		ASSERT_NE(nullptr, Primary);
 		EXPECT_EQ(1u, AssetEditorSubsystem->GetAllOpenEditors().size());
-		EXPECT_EQ(2u, Primary->GetObjectsToEdit().size());
+		EXPECT_EQ(2u, Primary->GetEditingObjects().size());
 		EXPECT_EQ(Primary, AssetEditorSubsystem->FindEditorForAsset(A, false));
 		EXPECT_EQ(Primary, AssetEditorSubsystem->FindEditorForAsset(B, false));
 		auto* Secondary = Open({A}, EAssetOpenMethod::Edit, false);

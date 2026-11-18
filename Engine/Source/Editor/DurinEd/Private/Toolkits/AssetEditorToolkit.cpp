@@ -34,7 +34,7 @@ namespace Durin
 		bool Transferred = false;
 		AssetEditorSubsystem->DispatchEditorCallback([&] {
 			const auto PreviousHost = GetToolkitHost();
-			const auto Objects = GetObjectsToEdit();
+			const auto Objects = GetEditingObjects();
 			const auto Support = GetAssetSelectionOpenSupport(Objects, OpenMethod,
 				Editor ? Editor->GetAssetOpenSupport({OpenMethod}) : GetDefaultAssetOpenSupport({OpenMethod}));
 			if (!Support.ResolveToolkitMode(NewHost->GetToolkitMode(), NewHost->GetToolkitMode())
@@ -47,7 +47,7 @@ namespace Durin
 				if (Other.get() == this || Other->IsClosed()
 					|| !MatchesAssetEditorIdentity(*Other, Identity, Editor ? Editor->GetClass() : nullptr,
 						Editor ? nullptr : &GetToolkitId())) continue;
-				if (HaveSameEditedAssets(Other->GetObjectsToEdit(), GetObjectsToEdit())) return;
+				if (HaveSameEditedAssets(Other->GetEditingObjects(), GetEditingObjects())) return;
 			}
 			if (!NewHost->AttachToolkit(Lease)) return;
 			if (!IsEditorOpen() || !NewHost->IsAvailable())
@@ -66,8 +66,12 @@ namespace Durin
 	auto FAssetEditorToolkit::GetInstanceKey() const -> std::string_view { return InstanceKey; }
 	auto FAssetEditorToolkit::GetWindowId() const -> std::string_view { return WindowId; }
 	auto FAssetEditorToolkit::GetEditorName() const -> FName { return FName(GetToolkitId().GetValue()); }
-	auto FAssetEditorToolkit::GetObjectsToEdit() const -> std::vector<DObject*>
-	{ return !bClosed && DocumentOwner ? DocumentOwner->GetEditedAssets() : std::vector<DObject*>{}; }
+	auto FAssetEditorToolkit::GetEditingObjects() const -> std::vector<DObject*>
+	{
+		if (bClosed) return {};
+		if (auto Owned = GetOwnedEditingObjects()) return std::move(*Owned);
+		return DocumentOwner ? DocumentOwner->GetEditedAssets() : std::vector<DObject*>{};
+	}
 	auto FAssetEditorToolkit::SupportsRestore() const -> bool
 	{ if (bClosed) return false; if (auto* Editor = OwningAssetEditor.Get()) return Editor->SupportsRestore(); return bInitialized && OwningAssetEditor.GetKey().IsNull(); }
 	auto FAssetEditorToolkit::IsPrimaryEditor() const -> bool { return bPrimary; }
@@ -100,7 +104,7 @@ namespace Durin
 					LastActivationTime = FTime::Seconds();
 					if (const auto CurrentHost = Host.lock()) CurrentHost->FocusToolkit(*this);
 					FAssetOpenTarget Target;
-					for (auto* Asset : GetObjectsToEdit()) if (Asset->GetObjectPath() == Document.ResourceId)
+					for (auto* Asset : GetEditingObjects()) if (Asset->GetObjectPath() == Document.ResourceId)
 					{ FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Target.AssetPath); Target.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString(); break; }
 					AssetEditorSubsystem->PublishEvent({.Type = EAssetEditorEvent::Focused, .Target = std::move(Target), .Editor = FObjectKey(OwningAssetEditor.Get()), .Method = OpenMethod, .InstanceId = std::string(GetInstanceId())});
 					return;

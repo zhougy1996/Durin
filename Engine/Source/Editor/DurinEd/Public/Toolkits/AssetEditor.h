@@ -47,7 +47,7 @@ namespace Durin
 		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
 		DURINED_API auto GetWindowId() const -> std::string_view;
 		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
-		DURINED_API auto GetObjectsToEdit() const -> std::vector<DObject*>;
+		DURINED_API auto GetEditingObjects() const -> std::vector<DObject*>;
 		DURINED_API auto IsClosed() const -> bool;
 		auto IsInitialized() const -> bool { return bInitialized; }
 		virtual auto GetAssetOpenSupport(const FAssetOpenSupportArgs& Args) const -> FAssetOpenSupport { return GetDefaultAssetOpenSupport(Args); }
