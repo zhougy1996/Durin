@@ -21,19 +21,19 @@ def add_water_surface():
         )
 
     actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
-    level = actors.get_editor_level()
+    level = actors.GetEditorLevel()
     if level is None:
         raise RuntimeError("Open a writable Level and stop Play before running this example.")
 
     marker = durin.Name("Durin.Examples.AddWaterSurface")
     if any(marker in actor.get_editor_property("tags")
-           for actor in actors.get_all_level_actors(level)):
+           for actor in actors.GetAllLevelActors(level)):
         raise RuntimeError(
             "The example water surface is already present. Undo its creation or remove it before running again."
         )
 
     with durin.ScopedEditorTransaction("Python: Add water surface"):
-        water = actors.spawn_actor(level, water_type, durin.types.Durin.Transform(), label="Example_WaterSurface")
+        water = actors.SpawnActor(level, water_type, durin.types.Durin.Transform(), label="Example_WaterSurface")
         if water is None:
             raise RuntimeError("Could not create water; check Level write access and Play state.")
         water.set_editor_property("tags", [marker])

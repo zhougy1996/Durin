@@ -106,8 +106,7 @@ namespace Durin::PythonReflection::Private
         for (const auto& [Native, Entry] : Registry->Types) Names.emplace(Native, Entry.Alias);
         if (Function)
         {
-            const auto Method = Name(Function->GetScriptExposure().Name.empty() ? Function->GetName() : Function->GetScriptExposure().Name);
-            auto Text = Signature(Method, *Function, Names) + "\n\n" + Qualified(Type) + "::" + Function->GetName();
+            auto Text = Signature(FunctionName(*Function), *Function, Names) + "\n\n" + Qualified(Type) + "::" + Function->GetName();
             if (!Function->GetToolTip().empty()) Text += "\n" + Function->GetToolTip();
             return Text;
         }

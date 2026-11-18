@@ -57,31 +57,31 @@ namespace Durin
 	public:
 		DURINED_API explicit DEditorActorSubsystem(const FObjectInitializer& Initializer);
 		// Script queries require this Host's active job and inspect only its current editor Level.
-		DFUNCTION(ScriptCallable, ScriptName = "get_editor_level")
+		DFUNCTION(ScriptCallable, ScriptName = "GetEditorLevel")
 		DURINED_API auto ScriptGetEditorLevel() const -> DLevel*;
-		DFUNCTION(ScriptCallable, ScriptName = "get_all_level_actors")
+		DFUNCTION(ScriptCallable, ScriptName = "GetAllLevelActors")
 		DURINED_API auto ScriptGetAllLevelActors(DLevel* Level) const -> std::vector<TObjectPtr<AActor>>;
-		DFUNCTION(ScriptCallable, ScriptName = "get_actor_info")
+		DFUNCTION(ScriptCallable, ScriptName = "GetActorInfo")
 		DURINED_API auto ScriptGetActorInfo(DLevel* Level, AActor* Actor) const -> FActorScriptInfo;
-		DFUNCTION(ScriptCallable, ScriptName = "get_components")
+		DFUNCTION(ScriptCallable, ScriptName = "GetComponents")
 		DURINED_API auto ScriptGetComponents(DLevel* Level, AActor* Actor, DClass* ComponentClass = nullptr) const
 			-> std::vector<TObjectPtr<DActorComponent>>;
 		// Script edits return native payloads; domain rejection returns None, an empty array or false.
-		DFUNCTION(ScriptCallable, ScriptName = "spawn_actor")
+		DFUNCTION(ScriptCallable, ScriptName = "SpawnActor")
 		DURINED_API auto ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name = "",
 			const std::string& Label = "", ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> AActor*;
-		DFUNCTION(ScriptCallable, ScriptName = "destroy_actors")
+		DFUNCTION(ScriptCallable, ScriptName = "DestroyActors")
 		DURINED_API auto ScriptDestroyActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors) -> bool;
-		DFUNCTION(ScriptCallable, ScriptName = "duplicate_actors")
+		DFUNCTION(ScriptCallable, ScriptName = "DuplicateActors")
 		DURINED_API auto ScriptDuplicateActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors) -> std::vector<TObjectPtr<AActor>>;
-		DFUNCTION(ScriptCallable, ScriptName = "rename_actor")
+		DFUNCTION(ScriptCallable, ScriptName = "RenameActor")
 		DURINED_API auto ScriptRenameActor(DLevel* Level, AActor* Actor, const std::string& Name,
 			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> bool;
-		DFUNCTION(ScriptCallable, ScriptName = "set_actor_label")
+		DFUNCTION(ScriptCallable, ScriptName = "SetActorLabel")
 		DURINED_API auto ScriptSetActorLabel(DLevel* Level, AActor* Actor, const std::string& Label, bool MakeUnique = true) -> bool;
-		DFUNCTION(ScriptCallable, ScriptName = "attach_actors")
+		DFUNCTION(ScriptCallable, ScriptName = "AttachActors")
 		DURINED_API auto ScriptAttachActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors, AActor* Parent, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
-		DFUNCTION(ScriptCallable, ScriptName = "detach_actors")
+		DFUNCTION(ScriptCallable, ScriptName = "DetachActors")
 		DURINED_API auto ScriptDetachActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors, EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 		// Failed creation returns null, failed duplication an empty array, and other failures false.
 		// Successful no-ops return true without new history. Detailed recovery state belongs to the transactor.

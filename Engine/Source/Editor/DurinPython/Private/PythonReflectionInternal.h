@@ -90,6 +90,7 @@ namespace Durin::PythonReflection::Private
     auto IsUpper(char C) -> bool;
     auto IsLower(char C) -> bool;
     auto Name(std::string Value, bool Type = false) -> std::string;
+    auto FunctionName(const DFunction& Function) -> std::string;
     auto ValidName(const std::string& Value) -> bool;
     auto Qualified(DType* Type) -> std::string;
     auto ModuleAvailable(DType* Type) -> bool;

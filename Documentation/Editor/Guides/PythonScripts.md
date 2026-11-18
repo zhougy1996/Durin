@@ -165,19 +165,19 @@ explicitly grant NonDocumentReadWrite when creating the session.
 import durin
 
 actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
-level = actors.get_editor_level()
+level = actors.GetEditorLevel()
 if level is None:
     raise RuntimeError('No editor Level')
 
 with durin.ScopedEditorTransaction('Create empty Actor and camera'):
-    empty = actors.spawn_actor(level, durin.types.Durin.Actor, durin.types.Durin.Transform(),
+    empty = actors.SpawnActor(level, durin.types.Durin.Actor, durin.types.Durin.Transform(),
                                label='PythonEmptyActor')
-    camera = actors.spawn_actor(level, durin.types.Durin.CameraActor, durin.types.Durin.Transform(),
+    camera = actors.SpawnActor(level, durin.types.Durin.CameraActor, durin.types.Durin.Transform(),
                                 label='PythonCamera')
     if empty is None or camera is None:
         raise RuntimeError('Actor creation failed')
 
-    root = actors.get_actor_info(level, camera).root_component
+    root = actors.GetActorInfo(level, camera).root_component
     pose = root.get_editor_property('relative_transform')
     position = pose.translation
     position.x += 100.0
@@ -193,10 +193,10 @@ component; the camera above supplies one for transform editing. After the scope
 ends, Ctrl+Z removes both actors and Ctrl+Y restores them with the edited camera
 transform as one history entry.
 
-`actor.get_name()` returns its internal object Name; `actor.get_actor_label()` and
-`actors.get_actor_info(level, actor).label` return the display label. Use
-`actors.set_actor_label(level, actor, 'Camera')` for ordinary editor renaming.
-`rename_actor` is an internal-name operation and leaves the label unchanged.
+`actor.get_name()` returns its internal object Name; `actor.GetActorLabel()` and
+`actors.GetActorInfo(level, actor).label` return the display label. Use
+`actors.SetActorLabel(level, actor, 'Camera')` for ordinary editor renaming.
+`RenameActor` is an internal-name operation and leaves the label unchanged.
 Labels are not identity keys. For application membership, use a persistent marker
 such as `actor.set_editor_property('tags', [durin.Name('MyTool.Scene')])`.
 
@@ -204,10 +204,10 @@ The `name` argument requests an internal name and may receive a numeric suffix.
 For an exact internal name, pass
 `name_mode=durin.types.Durin.SpawnActorNameMode.REQUIRED_RETURN_NULL`; a conflict returns None
 without construction or history. `REQUIRED_ERROR_AND_RETURN_NULL` also logs an
-error. `REQUESTED` is the default. These policies also apply to `rename_actor`.
+error. `REQUESTED` is the default. These policies also apply to `RenameActor`.
 
-The same service provides duplicate_actors, destroy_actors, set_actor_label, rename_actor,
-attach_actors and detach_actors. Supply explicit Level and Actor arguments;
+The same service provides DuplicateActors, DestroyActors, SetActorLabel, RenameActor,
+AttachActors and DetachActors. Supply explicit Level and Actor arguments;
 selection does not determine targets. Creation returns Actor or None, duplication
 returns an Actor list (empty on failure), and other edits return bool. Successful
 no-ops also return true and create no history. Per-operation failure details are
@@ -218,7 +218,7 @@ stopped play.
 
 ## Edit Reflected Properties
 
-Use `actors.get_components(level, actor, durin.types.Durin.CameraComponent)` to
+Use `actors.GetComponents(level, actor, durin.types.Durin.CameraComponent)` to
 find an Actor's camera components, including non-root components. Omit the
 type argument to list all its live owned components. A type filter also matches
 derived types.
@@ -257,7 +257,7 @@ synchronous helper.
 Use `dir(durin.types)` to discover namespaces and `dir(durin.types.Durin)` to
 find the native types published in `Durin` by loaded modules. Use
 `dir(durin.types.Durin.EditorActorSubsystem)` to find its methods. Inspect a method's
-`__doc__` or call `help(durin.types.Durin.EditorActorSubsystem.spawn_actor)` for its Python
+`__doc__` or call `help(durin.types.Durin.EditorActorSubsystem.SpawnActor)` for its Python
 signature. Type docstrings retain the native qualified name for `get_type`.
 
 Run this in an editor Python job to write completion declarations, using your
@@ -294,7 +294,9 @@ Exposed native types are available through durin.get_type(qualified_name), and
 get_editor_subsystem(type) returns an existing exposed service on the selected
 Host. These object wrappers support identity, inheritance, get_name/get_class
 introspection and direct calls to methods explicitly marked ScriptCallable.
-Calls accept positional/keyword arguments and reflected defaults. Native-only
+Reflected methods keep their C++ names or the exact `ScriptName` alias. Python
+helpers, property keys and keyword arguments use snake_case. Calls accept
+positional and keyword arguments and reflected defaults. Native-only
 defaults require explicit arguments; unsupported signatures are not published.
 Services must opt their methods into script exposure. The Actor subsystem above
 uses ordinary reflected native methods and result types.

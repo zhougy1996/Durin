@@ -229,7 +229,7 @@ namespace Durin::PythonFixtures
         GENERATED_BODY()
     public:
         explicit DSecondaryService(const FObjectInitializer& Initializer) : Super(Initializer) {}
-        DFUNCTION(ScriptCallable)
+        DFUNCTION(ScriptCallable, ScriptName = "JoinValues")
         auto Join(const std::vector<std::string>& Values, const std::string& Suffix = "!") const -> std::string
         { std::string Result; for (const auto& V : Values) Result += V; return Result + Suffix; }
     };

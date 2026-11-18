@@ -102,6 +102,11 @@ namespace Durin::PythonReflection::Private
     auto ValueType(PyObject* Value) -> DType* { return NativeType(reinterpret_cast<PyObject*>(Py_TYPE(Value))); }
     auto Intrinsic(DType* Type) -> bool
     { return Cast<DStruct>(Type) && Type->HasAnyObjectFlags(EObjectFlags::Intrinsic) && Type->GetScriptExposure().Module == "CoreDObject"; }
+    auto FunctionName(const DFunction& Function) -> std::string
+    {
+        const auto& Alias = Function.GetScriptExposure().Name;
+        return Alias.empty() ? Function.GetName() : Alias;
+    }
     auto PropertyName(const FProperty& P) -> std::string
     {
         auto Native = P.NamePrivate.ToString(); auto Script = P.GetMetaData("ScriptName");
@@ -111,8 +116,7 @@ namespace Durin::PythonReflection::Private
     static auto ValidateMembers(DType* Type) -> bool
     {
         std::map<std::string, std::string> Members;
-        auto Add = [&](std::string Native, std::string Script, std::string Kind) {
-            const auto Alias = Name(Script.empty() ? Native : Script);
+        auto Add = [&](const std::string& Native, const std::string& Alias, const std::string& Kind) {
             static const std::unordered_set<std::string> Reserved{
                 "get_name", "get_class", "get_editor_property", "list_editor_properties", "set_editor_property"};
             if (!ValidName(Alias) || Reserved.contains(Alias))
@@ -127,7 +131,7 @@ namespace Durin::PythonReflection::Private
         if (auto* Class = Cast<DClass>(Type)) Class->ForEachFunction([&](const DFunction& Function) {
             const auto& Exposure = Function.GetScriptExposure();
             if (Success && Exposure.Has(EScriptExposure::Callable) && !Exposure.Has(EScriptExposure::NoExport))
-                Success = Add(Function.GetName(), Exposure.Name, "function ");
+                Success = Add(Function.GetName(), FunctionName(Function), "function ");
         });
         for (auto* Struct = Cast<DStructBase>(Type); Struct && Success; Struct = Struct->GetSuperStructBase())
             for (auto* Field = Struct->GetChildProperties(); Field && Success; Field = Field->GetNext())

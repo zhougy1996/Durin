@@ -10,7 +10,7 @@ import durin
 
 def create_test_scene():
     actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
-    level = actors.get_editor_level()
+    level = actors.GetEditorLevel()
     if level is None:
         raise RuntimeError("Open a writable Level and stop Play before running this example.")
 
@@ -18,7 +18,7 @@ def create_test_scene():
     # A persistent tag identifies this example independently of names and labels.
     marker = durin.Name("Durin.Examples.CreateTestScene")
     if any(marker in actor.get_editor_property("tags")
-           for actor in actors.get_all_level_actors(level)):
+           for actor in actors.GetAllLevelActors(level)):
         raise RuntimeError("The example is already present. Undo its creation or remove its Actors before running again.")
 
     def spawn(actor_type, name, position=(0.0, 0.0, 0.0)):
@@ -26,14 +26,14 @@ def create_test_scene():
         translation = pose.translation
         translation.x, translation.y, translation.z = position
         pose.translation = translation
-        actor = actors.spawn_actor(level, actor_type, pose, label=name)
+        actor = actors.SpawnActor(level, actor_type, pose, label=name)
         if actor is None:
             raise RuntimeError(f"Could not create {name}; check Level write access and Play state.")
         actor.set_editor_property("tags", [marker])
         return actor
 
     def root(actor):
-        return actors.get_actor_info(level, actor).root_component
+        return actors.GetActorInfo(level, actor).root_component
 
     with durin.ScopedEditorTransaction("Python: Create test scene"):
         spawn(durin.types.Durin.Actor, "Example_Origin")

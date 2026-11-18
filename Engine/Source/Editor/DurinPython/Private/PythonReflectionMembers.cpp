@@ -239,7 +239,7 @@ namespace Durin::PythonReflection::Private
                 if (!Supported(P)) { DURIN_WARN("Omitting unsupported Python signature {}::{}.{}", Qualified(Type), F.GetName(), P.NamePrivate.ToString()); return; }
                 if (!ValidName(N) || !Parameters.insert(N).second) { Error(PyExc_ValueError, Qualified(Type) + "::" + F.GetName() + ": invalid/duplicate script parameter " + N); Success = false; return; }
             }
-            Success = Add(Name(F.GetScriptExposure().Name.empty() ? F.GetName() : F.GetScriptExposure().Name), Member(&F, nullptr, Type));
+            Success = Add(FunctionName(F), Member(&F, nullptr, Type));
         }, false);
         return Success;
     }

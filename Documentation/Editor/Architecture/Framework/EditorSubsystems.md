@@ -284,17 +284,17 @@ reflection bridge without an Actor Toolset dependency.
 
 | Script method | Inputs / result |
 | --- | --- |
-| `get_editor_level()` | Current editor Level, or None when absent |
-| `get_all_level_actors(level)` | Live published Actors in Level order |
-| `get_actor_info(level, actor)` | ActorScriptInfo snapshot |
-| `get_components(level, actor, component_class=None)` | Live owned Component proxies in Actor component order |
-| `spawn_actor(level, actor_class, transform, name="", label="", name_mode=SpawnActorNameMode.REQUESTED)` | Actor or None |
-| `destroy_actors(level, actors)` | bool |
-| `duplicate_actors(level, actors)` | Array[Actor], empty on failure |
-| `rename_actor(level, actor, name, name_mode=SpawnActorNameMode.REQUESTED)` | bool |
-| `set_actor_label(level, actor, label, make_unique=True)` | bool |
-| `attach_actors(level, actors, parent, rule=AttachmentTransformRule.KEEP_WORLD)` | bool |
-| `detach_actors(level, actors, rule=DetachmentTransformRule.KEEP_WORLD)` | bool |
+| `GetEditorLevel()` | Current editor Level, or None when absent |
+| `GetAllLevelActors(level)` | Live published Actors in Level order |
+| `GetActorInfo(level, actor)` | ActorScriptInfo snapshot |
+| `GetComponents(level, actor, component_class=None)` | Live owned Component proxies in Actor component order |
+| `SpawnActor(level, actor_class, transform, name="", label="", name_mode=SpawnActorNameMode.REQUESTED)` | Actor or None |
+| `DestroyActors(level, actors)` | bool |
+| `DuplicateActors(level, actors)` | Array[Actor], empty on failure |
+| `RenameActor(level, actor, name, name_mode=SpawnActorNameMode.REQUESTED)` | bool |
+| `SetActorLabel(level, actor, label, make_unique=True)` | bool |
+| `AttachActors(level, actors, parent, rule=AttachmentTransformRule.KEEP_WORLD)` | bool |
+| `DetachActors(level, actors, rule=DetachmentTransformRule.KEEP_WORLD)` | bool |
 
 Queries require the active job's Host and current editor Level. They may inspect
 that editor Level during PIE, but never substitute the play World. An invalid
@@ -306,7 +306,7 @@ an ActorComponent type and matches derived classes. The returned list is a
 detached snapshot whose entries retain their actual native component types.
 An invalid Actor, Level, or filter class raises a script access error.
 
-`rename_actor` changes the internal object Name. `set_actor_label` changes only
+`RenameActor` changes the internal object Name. `SetActorLabel` changes only
 its display label, with ordinary admission, dirty state and history; exact replay
 does not uniquify recorded labels. The serialized label field is excluded from
 automatic whole-object transaction snapshots because the label command owns its

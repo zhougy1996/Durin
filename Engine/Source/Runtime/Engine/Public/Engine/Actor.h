@@ -42,7 +42,7 @@ namespace Durin
 		ENGINE_API ~AActor() override;
 
 		// Human-readable editor label; legacy objects without a label use their object name.
-		DFUNCTION(ScriptCallable, ScriptName = "get_actor_label")
+		DFUNCTION(ScriptCallable)
 		ENGINE_API auto GetActorLabel() const -> std::string;
 		// Mechanism only. Editor callers use the Actor subsystem for admission and history.
 		ENGINE_API auto SetActorLabel(const std::string& Label) -> bool;

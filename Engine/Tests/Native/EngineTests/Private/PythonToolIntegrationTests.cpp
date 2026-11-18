@@ -132,7 +132,7 @@ else:
         const auto After = Wait(Submit(R"(
 import durin
 assert durin.get_type('Durin::DEditorActorSubsystem') is durin.types.Durin.EditorActorSubsystem
-assert durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem).get_editor_level() is None
+assert durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem).GetEditorLevel() is None
 )"));
         EXPECT_EQ(After.State, EPythonJobState::Succeeded) << After.Error;
     }

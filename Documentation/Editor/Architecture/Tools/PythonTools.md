@@ -81,7 +81,7 @@ or grant native construction/edit authority.
 The Actor and ActorComponent bases declare `ScriptType`, so active providers'
 derived types, including CameraActor and CameraComponent, are discoverable before
 any instances are queried or created. Scripts can pass `durin.types.Durin.Actor` or
-`durin.types.Durin.CameraActor` directly to `spawn_actor` in an empty writable Level. A plain
+`durin.types.Durin.CameraActor` directly to `SpawnActor` in an empty writable Level. A plain
 Actor has no default root component; CameraActor supplies its camera root.
 Reflected types are published under `durin.types` using the native namespace
 path and the script type name. For example, `Durin::DCameraComponent` is
@@ -101,8 +101,12 @@ access and discovery without registering Python submodule import paths.
 wrapped with native identity and a non-owning Python factory observation. Object
 wrappers expose get_name/get_class as bootstrap introspection helpers. Classes
 are immutable and native object classes cannot be instantiated or subclassed in
-Python. `ScriptCallable` methods use ordinary bound or unbound Python calls,
-including positional/keyword arguments and reflected defaults. Dispatch uses
+Python. `ScriptCallable` methods keep their C++ names by default and use the
+exact `ScriptName` spelling when supplied. For example, `GetActorLabel` keeps
+its native name and `ScriptGetComponents` is published as `GetComponents` using
+`ScriptName`. Methods use ordinary bound or unbound Python calls, including
+positional and keyword arguments and reflected defaults. Keyword arguments,
+property keys and Python binding helpers use snake_case. Dispatch uses
 `FFunctionParameterBuffer` and `DObject::ProcessEvent`; an unmarked/excluded
 effective override blocks inherited descriptors and previously bound methods.
 Unsupported signatures are omitted with a qualified member/parameter diagnostic.
