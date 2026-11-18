@@ -245,7 +245,7 @@ namespace Durin
 		IMainFrameModule* MainFrameModule = nullptr;
 		std::weak_ptr<MWindow> StartupWindow;
 
-		friend auto GLevelEditorModeTools(DEditorEngine&) -> LevelEditor::FEditorModeTools&;
+		friend DURINED_API auto GLevelEditorModeTools(DEditorEngine&) -> LevelEditor::FEditorModeTools&;
 		std::unique_ptr<LevelEditor::FEditorModeTools> LevelEditorModeTools;
 		friend struct FEditorEngineTestAccess;
 		friend class FEditorSubsystemCollection;
