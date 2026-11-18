@@ -249,19 +249,16 @@ failures preserve the interactive error/browser UI. Editor loads
 `AssetForgeBuiltins` and project roots before the atomic catalog scan, then
 reconciles subsystems before creating workspace consumers. Project Browser skips
 project and workspace loading. Once Ready, Editor submits the ordinary optional
-default-document request; its loading remains asynchronous in the normal frame
-loop. Presentation does not gate service initialization.
+default-map load synchronously. Presentation does not gate service initialization.
 
-Editor default/open-Level and authored/cooked Game loading share Engine-owned
-map changes. `OpenLevel(FMapChangeRequest)` is the only admission boundary. It
-accepts one operation, and the owner frame automatically prepares and publishes
-it after successful registration and the optional `BeforeCommit` veto. Callers
-can observe `GetMapChangeProgress` and cancel through `CancelPendingMapChange`;
-there is no public Prepare/Commit/readiness-polling protocol or commit-request
-flag. Closed admission or an already pending change rejects a new request
-without changing existing progress. Opening never publishes a World inline.
+Runtime `OpenLevel(FMapChangeRequest)` admits one asynchronous map change; the
+owner frame prepares and publishes it after successful registration. Runtime
+callers observe `GetMapChangeProgress` and cancel through `CancelPendingMapChange`.
+Closed admission or an already pending change rejects the request without changing
+existing progress. Editor hosts reject runtime travel, including calls through a
+base Engine pointer; editor loading uses synchronous `FEditorFileUtils::LoadMap`.
 
-The private `FMapChangeHandler` retains the asynchronous asset handle and
+For runtime hosts, the private `FMapChangeHandler` retains the asynchronous asset handle and
 initializes an isolated World/Scene. Resources own preparation, publication and
 diagnostics. Cooked materials cache programs through their compilation owner and
 existing retry queue; textures begin asynchronous platform-data caching in PostLoad
@@ -277,22 +274,41 @@ creates the proxy. Failed required requests keep that component withheld and
 diagnosable without failing or rolling back the map change.
 View-dependent renderer preparation runs through the committed viewport, and
 Game startup and editor automation still wait for its actual presentation receipt.
-Failure or cancellation retires the unpublished candidate. Editor-level confirmation,
-current-document changes and cleanup remain the Level controller's responsibility;
-complete preservation of the previous editor scene is not an editor contract.
+Runtime failure or cancellation retires the unpublished candidate.
+Editor map opening has a separate editor-owned destructive lifecycle, matching
+UE's `Map_Load`: an admitted owner call validates the map, resets transactions,
+destroys the current editor World and scene, releases document references and
+collects map packages before loading. Both same-map reopening and switching maps
+follow this path. Asset definitions, startup, and scripting all execute the
+same synchronous file utility; there is no editor map request queue, completion
+callback, cancel API, or document-loading progress state. The file utility settles
+world-centric toolkits through their existing deactivation contract before
+resetting transactions. Level deactivation ends edit modes and transform gestures.
+Preflight rejection preserves the current World. An admitted load cannot be
+canceled midway through teardown and accepts no runtime preload or BeginPlay options.
 
-Requests may supply a `BeforeCommit` veto and an `OnComplete` notification.
-Editor document/transaction and viewport coordination uses these callbacks rather
-than a separate polling state machine. The Level document controller keeps one
-pending action and one path for either Level opening or project switching. A
-terminal completion consumes that action and clears the path before notifying
-the document owner; there is no additional pending-document flag.
-Callbacks run on GameThread under the host lifecycle/GC guard. Completion is
-delivered once at an ordinary frame boundary after releasing the Handler; it
-may start another change. Host shutdown discards callbacks before retiring their
-owners. Closing an editor document invalidates its deferred callback lifetime.
+Runtime `FMapChangeRequest` carries only loading inputs and an `OnComplete` result
+notification, not caller-supplied preparation or commit callbacks. Runtime
+loading retains its asynchronous candidate handler. The editor engine owns
+`EditorDestroyWorld`, `Map_Load` and `NewMap`; `MapChanged` notifications allow
+editor views to release references and observe replacement, without delegating
+the lifecycle itself to them. Once a World is published, notification exceptions
+are logged without changing the operation's success. `NewMap` rejects nested map operations; both loading and standalone new-map creation
+hold the same owner-operation guard. `FEditorFileUtils::LoadMap` owns feedback and
+blank-map recovery; `DEditorLoadingAndSavingUtils::LoadMap` returns the loaded World
+or nullptr. The utility accepts object/package paths; template instancing and OS
+filename conversion are not exposed as unsupported options. After an admitted load fails, even if the old World survives, the file utility creates a fresh transient
+World with an editable untitled Level and a new scene; it does not retain the
+old empty World or restore discarded edits. If renderer or world initialization
+also prevents blank-map creation, the diagnostic includes that failure.
 
-Expected loading failures remain explicit results and phases; internal steps do
+Runtime completion runs once on the ordinary frame after the pending request is
+released and may start another request. Shutdown discards runtime completion
+notifications before retiring their owners. Editor map notifications directly
+release old document roots and associate the published World. Blank-map recovery
+clears the document's saved resource identity.
+
+Expected runtime loading failures remain explicit results and phases; internal steps do
 not throw to signal Pending, cancellation or a veto. Unexpected preparation
 exceptions become one failed progress diagnostic at their owner boundary. Actual
 World publication remains outside the recoverable preparation catch: a publication
@@ -304,9 +320,8 @@ callers do not need exception handling or duplicate fallback messages. A callbac
 that cancels and then reports an error still completes as Canceled, without a
 second failure notification.
 
-`GetMapChangeProgress` returns a value snapshot of current preparation or the
-last terminal result, with frozen terminal timing. MainFrame/LevelEditor project
-this business progress directly into SlowTask display. On successful commit,
+Runtime `GetMapChangeProgress` returns a value snapshot of current preparation or the
+last terminal result, with frozen terminal timing. On successful commit,
 asset residency transfers to the active World and is released when its Level is
 replaced or detached. No completed loading Handler is retained by callers.
 Native World initialization/registration callbacks

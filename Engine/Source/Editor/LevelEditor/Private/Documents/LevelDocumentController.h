@@ -6,13 +6,12 @@
 #include "Asset/Load.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
-#include "Feedback/SlowTaskWidget.h"
 
 namespace Durin
 {
+	class FEditorDocumentManager;
 	class DLevel;
 	class DWorld;
-	struct FMapChangeProgress;
 }
 
 namespace Durin::LevelEditor
@@ -22,45 +21,24 @@ namespace Durin::LevelEditor
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
-	// Identifies the pending level-document workflow requested by the user.
-	enum class ELevelDocumentAction
-	{
-		None,
-		OpenLevel,
-		OpenProject
-	};
-
-	// Pending confirmation and loading are distinct; only Opened means activation completed.
-	enum class ELevelDocumentOpenResult
-	{
-		Rejected,
-		Opened,
-		AwaitingConfirmation,
-		Loading,
-	};
-
 	// Coordinates new/open/save/close flows and their confirmation popups.
 	class FLevelDocumentController
 	{
 	public:
 		FLevelDocumentController(
 			FLevelEditorContext& InContext,
+			FEditorDocumentManager& InDocuments,
 			FLevelEditorWorkspaceSettings& InWorkspaceSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 			std::function<void()> InClearError,
-			std::function<void(std::string)> InReportError,
-			std::function<void(bool)> InCompleteDeferredOpen
+			std::function<void(std::string)> InReportError
 		);
 
+		~FLevelDocumentController();
 		auto RequestOpenProject(std::string ProjectFile) -> void;
-		// Interactive entry point: resolves unsaved changes before loading the selected level.
-		auto OpenLevel(std::string Path) -> ELevelDocumentOpenResult;
-		auto LoadLevel(std::string Path) -> bool;
 		auto DrawDialogs() -> void;
 		auto CanSaveCurrentLevel() const -> bool;
-		auto IsOpening() const -> bool;
-		auto CancelPendingOpen() -> void;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 		auto CloseLevel() -> bool;
@@ -73,30 +51,21 @@ namespace Durin::LevelEditor
 			UnsavedLevel
 		};
 
-		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
-		// No save prompt. Completion is delivered after activation by the ordinary host frame.
-		auto StartLevelLoad(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
-		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
 		auto AssociateCurrentLevel() -> bool;
-		auto PrepareLevelActivation(DLevel& Level) -> bool;
-		auto CompleteMapChange(const FMapChangeProgress& Progress) -> void;
 		auto SetError(std::string Message) const -> void;
 
+		FDelegateHandle MapChangedHandle;
 		FLevelEditorContext& Context;
+		FEditorDocumentManager& Documents;
 		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
-		std::function<void(bool)> CompleteDeferredOpen;
-		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingPath;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
-		FSlowTaskDialogPresenter LoadingDialog;
-		// Deferred completion must not borrow a controller after its document closes.
-		std::shared_ptr<void> CallbackLifetime = std::make_shared<uint8>(0);
 		TWeakObjectPtr<DPackage> DocumentPackage;
 		TWeakObjectPtr<DWorld> DocumentWorld;
 	};

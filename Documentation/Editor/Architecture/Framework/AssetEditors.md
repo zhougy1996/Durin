@@ -4,7 +4,7 @@ Summary: Define asset opening, toolkit ownership, host integration, and editor c
 
 Modules: DurinEd, LevelEditor, TextureEditor, StaticMeshEditor, MaterialEditor, MainFrame, ContentBrowser
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 ## Definition Discovery And Dispatch
 
@@ -20,6 +20,18 @@ ordered batch per definition. Invalid ordinary inputs make the aggregate result
 false without suppressing valid inputs; an explicitly grouped selection rejects
 atomically at metadata preflight. Definitions return `EAssetCommandResult`.
 Unhandled commands do not fall back to a generic editor.
+
+Content Browser editing performs activation inside the asset data source's
+existing `EditItem` operation, without a separate public activation executor.
+`FAssetActivateArgs` carries the activation method (DoubleClicked, Opened or
+Previewed) and the editor-host context. Asset definitions return a filtered
+selection from `PrepareToActivateAssets`; an empty selection stops the command.
+Admitted assets are loaded before their `ActivateAssets` override is called;
+Unhandled falls through to the ordinary host open callback. Recent Assets
+performs preflight directly in its menu handler. The current browser editing API
+is single-item and introduces no bulk or preview API. The subsystem's `OpenAssets`
+does not perform activation preflight. Scripts, startup and material-reference
+navigation retain direct opening semantics.
 
 `GetAssetOpenSupport` is metadata-only. Required modes override preferences;
 incompatible explicit hosts reject. Group requirements are combined before

@@ -1,4 +1,9 @@
 #include "TickableEditorObject.h"
+#include "Asset/Load.h"
+#include "Asset/PackageCollection.h"
+#include "DObject/DObjectArray.h"
+#include "IRendererModule.h"
+#include "Rendering/SceneInterface.h"
 #include "Toolkits/ToolkitManager.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
@@ -44,6 +49,25 @@ namespace Durin
 {
 	DEditorEngine* GEditor = nullptr;
 
+	namespace
+	{
+		struct FUnpublishedEditorWorld
+		{
+			DWorld* World;
+			~FUnpublishedEditorWorld()
+			{
+				if (World) { World->CleanupWorld(); MarkObjectHierarchyAsGarbage(World); }
+			}
+		};
+		struct FScopedEditorMapOperation
+		{
+			bool& Active;
+			explicit FScopedEditorMapOperation(bool& InActive) : Active(InActive) { Active = true; }
+			~FScopedEditorMapOperation() { Active = false; }
+		};
+	}
+
+
 	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer), EditorSubsystems(*this)
 	{
@@ -75,7 +99,7 @@ namespace Durin
 	auto DEditorEngine::GetCapabilities() const -> FEditorCapabilities
 	{
 		const bool bReady = !bShutdownRequested && GetStartupState() == EHostStartupState::Ready;
-		const bool bRunTools = bReady && !IsPreparingMapChange();
+		const bool bRunTools = bReady && !bLoadingEditorMap;
 		return {
 			.bTick = bReady,
 			.bRunTools = bRunTools,
@@ -189,13 +213,9 @@ namespace Durin
 		if (!StartupError.empty()) return EHostStartupState::Failed;
 		if (InitialLevelPath.IsValid())
 		{
-			if (const auto* Assets = GetEditorSubsystem<DAssetEditorSubsystem>())
-				for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Assets))
-					if (Toolkit->GetDocumentManager()->IsDocumentOpenPending(InitialLevelPath.ToString())) return EHostStartupState::Pending;
 			if (!GetWorld() || !GetWorld()->GetCurrentLevel() || GetWorld()->GetCurrentLevel()->GetObjectPath() != InitialLevelPath.ToString())
 			{
-				const auto Progress = GetMapChangeProgress();
-				OutError = Progress && !Progress->Diagnostic.empty() ? Progress->Diagnostic : "The initial level did not become active or was closed before presentation.";
+				OutError = "The initial level did not become active or was closed before presentation.";
 				return EHostStartupState::Failed;
 			}
 		}
@@ -219,6 +239,107 @@ namespace Durin
 		}
 		else return EHostStartupState::Pending;
 		return EHostStartupState::Ready;
+	}
+
+	auto DEditorEngine::EditorDestroyWorld() -> void
+	{
+		auto* Previous = EditorWorld.Get();
+		MapChanged.Broadcast(Previous, EMapChangeType::TearDownWorld);
+		if (Previous) Previous->CleanupWorld();
+		SetWorld(nullptr);
+		EditorWorld = nullptr;
+		EditorLevel = nullptr;
+		if (MainScene) { MainScene->Release(); MainScene.reset(); }
+		// Consume component removal commands before collecting the old object graph.
+		FlushRenderingCommands();
+		if (Previous) MarkObjectHierarchyAsGarbage(Previous);
+	}
+
+	auto DEditorEngine::Map_Load(const FSoftObjectPath& Path, std::string& Error) -> bool
+	{
+		CheckGameThread();
+		Error.clear();
+		if (bShutdownRequested || IsPlaying() || bLoadingEditorMap)
+		{ Error = "Map loading requires an idle editor outside Play in Editor."; return false; }
+		FScopedEditorMapOperation Operation(bLoadingEditorMap);
+		FSoftObjectPath Resolved;
+		if (const auto Validation = ResolveLevelPackage(Path.GetPackagePath(), Resolved); !Validation)
+		{ Error = Validation.error().ToString(); return false; }
+		if (Resolved != Path) { Error = "The requested object is not the map package's level."; return false; }
+		if (const auto Admission = CheckPackageCollectionAllowed(); !Admission)
+		{ Error = Admission.error().ToString(); return false; }
+		if (!RendererModule) { Error = "Renderer services are unavailable."; return false; }
+		if (Trans)
+		{
+			const auto Reset = Trans->TryReset("Loading map");
+			if (!Reset && Reset.Code != ETransactorResultCode::NoOp) { Error = FormatTransactorResult(Reset); return false; }
+		}
+		const auto PreviousPackage = EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage()
+			? EditorWorld->GetCurrentLevel()->GetPackage()->GetPackagePathIdentity() : FPackagePath{};
+		std::vector<TWeakObjectPtr<DPackage>> Packages;
+		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+			if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate()
+				&& (!Package->IsNewlyCreated() || (EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage() == Package))
+				&& std::ranges::any_of(Package->GetTopLevelAssets(), [](DObject* Asset) { return Cast<DLevel>(Asset) != nullptr; }))
+				Packages.emplace_back(Package);
+		EditorDestroyWorld();
+		const auto Collection = CollectPackageExports(Packages);
+		if (!Collection.Admission) { Error = Collection.Admission.error().ToString(); return false; }
+		for (const auto& Referenced : Collection.ReferencedPackages)
+			if (Referenced == Path.GetPackagePath() || Referenced == PreviousPackage)
+				Error += Referenced.ToString() + " remains referenced.\n";
+		if (!Error.empty()) return false;
+		std::optional<UnifiedError::FError> LoadError;
+		TStrongObjectPtr<DLevel> Level(LoadObject<DLevel>(Path, nullptr, &LoadError));
+		if (!Level) { Error = LoadError ? LoadError->ToString() : "Map package contains no level."; return false; }
+		auto Scene = RendererModule->CreateScene();
+		if (!Scene) { Error = "Map scene creation failed."; return false; }
+		TStrongObjectPtr<DWorld> World(NewObject<DWorld>(this, {}));
+		FUnpublishedEditorWorld Unpublished{World.Get()};
+		World->SetWorldType(EWorldType::Editor);
+		World->SetRenderScene(Scene.get());
+		World->InitializeSubsystems(this);
+		if (bShutdownRequested || World->IsShutdownRequested() || !World->SetCurrentLevel(Level.Get()))
+		{ Error = "Map world initialization failed."; return false; }
+		AdoptSceneWorld(World.Get(), std::move(Scene), GetSceneGeneration() + 1);
+		Unpublished.World = nullptr;
+		// Publication is final; observer failures must not report the map operation as failed.
+		try { MapChanged.Broadcast(World.Get(), EMapChangeType::LoadMap); }
+		catch (const std::exception& Exception) { DURIN_ERROR("Map change notification failed: {}", Exception.what()); }
+		catch (...) { DURIN_ERROR("Map change notification failed."); }
+		return true;
+	}
+
+	auto DEditorEngine::NewMap() -> DWorld*
+	{
+		CheckGameThread();
+		if (bShutdownRequested || IsPlaying() || bLoadingEditorMap || !RendererModule) return nullptr;
+		FScopedEditorMapOperation Operation(bLoadingEditorMap);
+		if (EditorWorld)
+		{
+			if (Trans)
+			{
+				const auto Reset = Trans->TryReset("New map");
+				if (!Reset && Reset.Code != ETransactorResultCode::NoOp) return nullptr;
+			}
+			EditorDestroyWorld();
+		}
+		auto Scene = RendererModule->CreateScene();
+		if (!Scene) return nullptr;
+		TStrongObjectPtr<DWorld> World(NewObject<DWorld>(this, {}));
+		FUnpublishedEditorWorld Unpublished{World.Get()};
+		World->SetWorldType(EWorldType::Editor);
+		World->SetRenderScene(Scene.get());
+		World->InitializeSubsystems(this);
+		auto* Level = NewObject<DLevel>(World.Get(), "Untitled", EObjectFlags::Transient);
+		if (bShutdownRequested || World->IsShutdownRequested() || !World->SetCurrentLevel(Level)) return nullptr;
+		AdoptSceneWorld(World.Get(), std::move(Scene), GetSceneGeneration() + 1);
+		Unpublished.World = nullptr;
+		// Publication is final; observer failures must not report the map operation as failed.
+		try { MapChanged.Broadcast(World.Get(), EMapChangeType::NewMap); }
+		catch (const std::exception& Exception) { DURIN_ERROR("Map change notification failed: {}", Exception.what()); }
+		catch (...) { DURIN_ERROR("Map change notification failed."); }
+		return World.Get();
 	}
 
 	auto DEditorEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void

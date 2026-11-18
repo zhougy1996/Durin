@@ -659,7 +659,7 @@ durin_add_native_test(EditorHostToolTests
 		${_durin_main_frame_private}/Settings/MainFrameSettings.cpp
 		${_durin_main_frame_private}/AssetCompatibilityWindow.cpp
 		${_durin_main_frame_private}/Widgets/EditorNotificationOverlay.cpp
-	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor MainFrame AssetMaintenance AssetTools
+	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor MainFrame AssetMaintenance AssetTools ContentBrowserData ContentBrowserAssetDataSource
 	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
 	COMPILE_DEFINITIONS MAINFRAME_EXPORTS
 	REQUIRES editor

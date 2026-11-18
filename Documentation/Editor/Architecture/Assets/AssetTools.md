@@ -4,16 +4,17 @@ Summary: Define editor creation, duplication, rename/reference handling, package
 
 Modules: AssetTools, DurinEd, AssetMaintenance, MainFrame, Core, CoreDObject, ApplicationCore
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 ## Ownership
 
 `IAssetTools` owns creation, explicit-target duplication, unique naming and the
 object rename, referencer fix-up and standalone import entrypoints. `ObjectTools`
 owns batch duplicate naming, deletion and presentation policy. Package saving belongs to
-`DEditorLoadingAndSavingUtils` and `FEditorFileUtils` in `FileHelpers.h`;
-`DPackageTools` owns unload/reload policy. These services share the AssetTools
-module without making DurinEd depend on AssetTools.
+`DEditorLoadingAndSavingUtils` and `FEditorFileUtils` in DurinEd's `FileHelpers.h`;
+these utilities also own synchronous editor map-loading results and recovery.
+`DPackageTools` remains in AssetTools and owns general package unload/reload policy.
+AssetTools depends on DurinEd; editor-engine loading does not depend on AssetTools.
 
 AssetMaintenance's PlanAssetCanonicalResaves/ApplyAssetCanonicalResaves own explicit canonical resave batches.
 Canonical compatibility inspection and resave are not a mode of ordinary saving.

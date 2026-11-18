@@ -15,6 +15,7 @@
 #include "Misc/UnifiedError.h"
 #include "Factories/Factory.h"
 #include "FileHelpers.h"
+#include "Engine/Level.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "AssetTools/IAssetTools.h"
 #include "Import/EditorReimportHandler.h"
@@ -1187,6 +1188,54 @@ TEST(DFactoryTests, SaveFilteringAndPromptDecisionsDoNotConfuseDeclineWithCancel
 	FScopedPackageSaveObserver Observer([&](const FPackagePath&) { ++Saves; });
 	EXPECT_TRUE(DEditorLoadingAndSavingUtils::SavePackages(std::span{&Package, 1}, true));
 	EXPECT_EQ(Saves, 0u);
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
+}
+
+TEST(DFactoryTests, DirtyPackageTransitionGateDistinguishesDeclineCancelAndWriteFailure)
+{
+	using namespace Durin;
+	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetToolsTests/GateMap", Path));
+	DLevel* Map = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Map));
+	auto* Content = IAssetTools::Get().CreateAsset("GateContent", "/AssetToolsTests", DFactoryAssetForTest::StaticClass(), nullptr);
+	ASSERT_NE(Content, nullptr);
+	auto* MapPackage = Map->GetPackage();
+	MapPackage->MarkDirty();
+	struct FResetPrompt { ~FResetPrompt() { FEditorFileUtils::SetSavePrompt({}); } } ResetPrompt;
+	bool Maps = false, Assets = false;
+	int Prompts = 0;
+	auto Decision = FEditorFileUtils::PR_Declined;
+	FEditorFileUtils::SetSavePrompt([&](auto Packages, const auto& Params) {
+		++Prompts;
+		EXPECT_TRUE(Params.bIsExplicitSave);
+		EXPECT_EQ(std::ranges::contains(Packages, MapPackage), Maps);
+		EXPECT_EQ(std::ranges::contains(Packages, Content->GetPackage()), Assets);
+		return Decision;
+	});
+	EXPECT_TRUE(FEditorFileUtils::SaveDirtyPackages(true, false, false));
+	EXPECT_EQ(Prompts, 0);
+	Assets = true;
+	EXPECT_TRUE(FEditorFileUtils::SaveDirtyPackages(true, false, true));
+	Maps = true;
+	Decision = FEditorFileUtils::PR_Cancelled;
+	EXPECT_FALSE(FEditorFileUtils::SaveDirtyPackages(true, true, true));
+	EXPECT_EQ(Prompts, 2);
+	EXPECT_TRUE(MapPackage->IsDirty());
+	EXPECT_TRUE(Content->GetPackage()->IsDirty());
+	Assets = false;
+	Decision = FEditorFileUtils::PR_Success;
+	{
+		Testing::FScopedPackageSaveFault Fault([](auto Phase, size_t) { return Phase == Testing::EPackageSaveFaultPoint::StagePackage; });
+		EXPECT_FALSE(FEditorFileUtils::SaveDirtyPackages(true, true, false));
+	}
+	EXPECT_TRUE(MapPackage->IsDirty());
+	EXPECT_TRUE(FEditorFileUtils::SaveDirtyPackages(false, true, false));
+	EXPECT_EQ(Prompts, 3);
+	EXPECT_FALSE(MapPackage->IsDirty());
+	EXPECT_TRUE(Content->GetPackage()->IsDirty());
+	EXPECT_TRUE(Testing::EnsurePackageNotResident(Content->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Path));
 }
 

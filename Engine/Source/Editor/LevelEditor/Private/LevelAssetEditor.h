@@ -44,6 +44,7 @@ namespace Durin
 		auto GetAssetDisplayName() const -> std::string override { return "Level"; }
 		auto GetAssetIcon() const -> std::string override;
 		auto GetAssetCategories() const -> std::vector<std::vector<std::string>> override { return {{"Level"}}; }
+		auto PrepareToActivateAssets(const FAssetActivateArgs& Args) const -> std::vector<FAssetOpenTarget> override;
 		auto OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult override;
 	};
 }

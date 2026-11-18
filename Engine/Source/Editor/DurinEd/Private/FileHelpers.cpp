@@ -1,4 +1,10 @@
 #include "FileHelpers.h"
+#include "Asset/PackageCollection.h"
+#include "Toolkits/ToolkitManager.h"
+#include "Toolkits/AssetEditorToolkit.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Editor/EditorEngine.h"
+#include "Engine/World.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
@@ -33,6 +39,58 @@ namespace Durin
 				}
 			return Result;
 		}
+	}
+
+	auto FEditorFileUtils::LoadMap(const std::string& Filename) -> bool
+	{
+		CheckGameThread();
+		auto* Editor = GEditor;
+		if (!Editor) return false;
+		if (!Editor->GetCapabilities().bRunTools || Editor->IsPlaying())
+		{ FFeedbackContext::Get().Error("Map loading requires an idle editor outside Play in Editor."); return false; }
+		FSoftObjectPath Path;
+		if (!FSoftObjectPath::TryCreate(Filename, Path))
+		{
+			FPackagePath PackagePath;
+			if (!FPackagePath::TryCreate(Filename, PackagePath))
+			{ FFeedbackContext::Get().Error("Invalid map path: " + Filename); return false; }
+			if (const auto Resolved = ResolveLevelPackage(PackagePath, Path); !Resolved)
+			{ FFeedbackContext::Get().Error(Resolved.error().ToString()); return false; }
+		}
+		FSoftObjectPath Resolved;
+		if (const auto Validation = ResolveLevelPackage(Path.GetPackagePath(), Resolved); !Validation)
+		{ FFeedbackContext::Get().Error(Validation.error().ToString()); return false; }
+		if (Resolved != Path)
+		{ FFeedbackContext::Get().Error("The requested object is not the map package's level."); return false; }
+		if (const auto Admission = CheckPackageCollectionAllowed(); !Admission)
+		{ FFeedbackContext::Get().Error(Admission.error().ToString()); return false; }
+		if (!Editor->GetRendererModule())
+		{ FFeedbackContext::Get().Error("Renderer services are unavailable."); return false; }
+		// Settle existing editor gestures before Map_Load resets transactions and collects objects.
+		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Editor->GetEditorSubsystem<DAssetEditorSubsystem>()))
+			if (Toolkit->GetToolkitMode() == EToolkitMode::WorldCentric && !Toolkit->RequestDeactivate())
+			{ FFeedbackContext::Get().Error("Finish the current edit before opening a level."); return false; }
+		if (const auto* Trans = Editor->GetTransactor(); Trans && (!Trans->CanTransact() || Trans->IsActive()))
+		{ FFeedbackContext::Get().Error("Finish the current transaction or recovery before opening a level."); return false; }
+		std::string Error;
+		bool Succeeded = false;
+		try { Succeeded = Editor->Map_Load(Path, Error); }
+		catch (const std::exception& Exception) { Error = Exception.what(); }
+		catch (...) { Error = "Unknown map loading exception."; }
+		if ((!Succeeded || !Editor->GetEditorWorld()) && !Editor->IsShutdownRequested())
+		{
+			Succeeded = false;
+			try { if (!Editor->NewMap()) Error += " Could not create a blank map."; }
+			catch (const std::exception& Exception) { Error += std::format(" Blank map creation failed: {}", Exception.what()); }
+			catch (...) { Error += " Blank map creation failed."; }
+		}
+		if (!Succeeded) FFeedbackContext::Get().Error(Error.empty() ? "Map loading failed." : Error);
+		return Succeeded;
+	}
+
+	auto DEditorLoadingAndSavingUtils::LoadMap(const std::string& Filename) -> DWorld*
+	{
+		return FEditorFileUtils::LoadMap(Filename) ? GEditor->GetEditorWorld() : nullptr;
 	}
 
 	FScopedPackageSaveObserver::FScopedPackageSaveObserver(std::function<void(const FPackagePath&)> OnSaved)
@@ -72,6 +130,17 @@ namespace Durin
 
 	auto FEditorFileUtils::SetSavePrompt(FSavePrompt Prompt) -> void
 	{ check(IsInGameThread()); SavePrompt = std::move(Prompt); }
+
+	auto FEditorFileUtils::SaveDirtyPackages(bool bPromptUserToSave, bool bSaveMapPackages, bool bSaveContentPackages) -> bool
+	{
+		check(IsInGameThread());
+		FPromptForCheckoutAndSaveParams Params;
+		Params.bCheckDirty = true;
+		Params.bPromptToSave = bPromptUserToSave;
+		Params.bIsExplicitSave = bPromptUserToSave;
+		const auto Result = PromptForCheckoutAndSave(DirtyPackages(bSaveMapPackages, bSaveContentPackages), Params);
+		return Result == PR_Success || Result == PR_Declined;
+	}
 
 	auto FEditorFileUtils::PromptForCheckoutAndSave(std::span<DPackage* const> Input,
 		FPromptForCheckoutAndSaveParams& Params) -> EPromptReturnCode

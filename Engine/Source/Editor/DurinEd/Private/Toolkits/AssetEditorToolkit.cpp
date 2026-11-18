@@ -201,15 +201,6 @@ namespace Durin
 		Result.DocumentKey = GetPresentationRootKey("Document");
 		return Result;
 	}
-	auto FAssetEditorToolkit::OpenRelatedAsset(std::string_view Path, std::string_view ClassName) -> bool
-	{
-		FSoftObjectPath AssetPath;
-		auto* AssetEditorSubsystem = GetAssetEditorSubsystem();
-		if (!AssetEditorSubsystem || !IsEditorOpen() || !FSoftObjectPath::TryCreate(Path, AssetPath)) return false;
-		return AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem,
-			.Assets = {{AssetPath, std::string(ClassName)}}, .OpenMethod = GetOpenMethod(),
-			.ToolkitMode = GetToolkitMode(), .OpenLocation = GetOpenLocation()});
-	}
 	auto FAssetEditorToolkit::ExecuteEditorCommand(const std::function<bool()>& Command) -> bool
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();

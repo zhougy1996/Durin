@@ -1,12 +1,8 @@
 #include "Editor/LevelEditorSubsystem.h"
-#include "Toolkits/ToolkitManager.h"
+#include "FileHelpers.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/World.h"
-#include "LevelEditorModule.h"
 #include "Subsystems/AssetEditorSubsystem.h"
-#include "Toolkits/AssetEditor.h"
-#include "FLevelEditorToolkit.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -19,34 +15,11 @@ namespace Durin
 	auto DLevelEditorSubsystem::LoadLevel(const std::string& AssetPath) -> bool
 	{
 		if (!GetActiveEditor()) return false;
-		auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>();
-		if (!Assets) return false;
-		auto* Owner = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor").GetOrCreateLevelEditor(*Assets);
-		if (!Owner) return false;
-		const auto Toolkit = Owner->GetToolkit();
-		const auto Documents = Toolkit->GetDocumentManager();
-		return Documents->OpenDocument({.ToolkitId = Toolkit->GetToolkitId(), .DocumentKey = "LevelEditor",
-			.ResourceId = AssetPath, .Label = "Level Editor"}).IsValid();
+		return DEditorLoadingAndSavingUtils::LoadMap(AssetPath) != nullptr;
 	}
-	auto DLevelEditorSubsystem::OpenLevel(const std::string& AssetPath) -> bool
-	{
-		if (!GetActiveEditor()) return false;
-		auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>();
-		if (!Assets) return false;
-		auto* Owner = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor").GetOrCreateLevelEditor(*Assets);
-		const auto Toolkit = Owner ? std::dynamic_pointer_cast<LevelEditor::FLevelEditorToolkit>(Owner->GetToolkit()) : nullptr;
-		return Toolkit && Toolkit->OpenLevel(AssetPath);
-	}
-	auto DLevelEditorSubsystem::CancelLevelLoad() -> void
-	{
-		CheckGameThread();
-		if (auto* Assets = GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>())
-			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Assets))
-				if (const auto Level = std::dynamic_pointer_cast<LevelEditor::FLevelEditorToolkit>(Toolkit)) (void)Level->CancelPendingOpen();
-	}
+
 	auto DLevelEditorSubsystem::Deinitialize() noexcept -> void
 	{
-		CancelLevelLoad();
 		HostContext.reset();
 	}
 

@@ -42,7 +42,6 @@ namespace Durin
 		FScenePtr Scene;
 		bool bAdvancing = false, bCancelRequested = false;
 		std::optional<DClass*> GameMode;
-		std::function<bool(DLevel&)> BeforeCommit;
 		std::function<void(const FMapChangeProgress&)> OnComplete;
 	};
 }

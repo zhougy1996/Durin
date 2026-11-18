@@ -17,12 +17,9 @@ namespace Durin
 		LEVELEDITOR_API explicit DLevelEditorSubsystem(const FObjectInitializer& Initializer);
 		LEVELEDITOR_API auto Initialize(FSubsystemCollection& Collection) -> void override;
 		LEVELEDITOR_API auto Deinitialize() noexcept -> void override;
-		// Starts programmatic loading without an unsaved-changes dialog; completion is owned by Level.
+		// Synchronously loads without a save prompt; true means the requested map is active.
 		DFUNCTION(Category = "Level")
 		LEVELEDITOR_API auto LoadLevel(const std::string& AssetPath) -> bool;
-		// Interactive opening resolves unsaved changes before loading.
-		LEVELEDITOR_API auto OpenLevel(const std::string& AssetPath) -> bool;
-		LEVELEDITOR_API auto CancelLevelLoad() -> void;
 		DFUNCTION(Category = "Play in Editor")
 		LEVELEDITOR_API auto IsInPlayInEditor() const -> bool;
 		DFUNCTION(Category = "Play in Editor")

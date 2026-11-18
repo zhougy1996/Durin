@@ -154,16 +154,9 @@ TEST_F(FEditorToolTests, PresentationDoesNotGateEditorCapabilities)
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 }
 
-TEST_F(FEditorToolTests, MapChangesFailureAndShutdownCloseTheirOwnCapabilityGates)
+TEST_F(FEditorToolTests, FailureAndShutdownCloseTheirOwnCapabilityGates)
 {
 	auto* Editor = MakeHost();
-	ASSERT_TRUE(Editor->OpenLevel(FMapChangeRequest{}));
-	const auto Loading = Editor->GetCapabilities();
-	EXPECT_TRUE(Loading.bTick);
-	EXPECT_TRUE(Loading.bPresentWorkspace);
-	EXPECT_FALSE(Loading.bRunTools);
-	EXPECT_FALSE(Loading.bEditWorld);
-	EXPECT_FALSE(Editor->CanTransact());
 	FEditorEngineTestAccess::SetStartupState(*Editor, EHostStartupState::Failed, "startup failed");
 	EXPECT_EQ(EHostStartupState::Failed, Editor->GetStartupState());
 	EXPECT_FALSE(Editor->GetCapabilities().bTick);
@@ -409,7 +402,6 @@ TEST_F(FEditorToolTests, ServiceReadinessDoesNotBypassThePresentationRequirement
 	EXPECT_EQ(EHostStartupState::Ready, Editor->GetStartupState());
 	EXPECT_EQ(EHostStartupState::Pending, Editor->GetStartupCompletion(Error));
 	EXPECT_TRUE(Error.empty());
-	EXPECT_FALSE(Editor->IsPreparingMapChange());
 }
 
 TEST_F(FEditorToolTests, PublishesSortedOwnedCatalogsAndRefreshesOnlyAfterRegistrationChanges)

@@ -49,6 +49,15 @@ namespace Durin
 		std::string AssetClassName;
 	};
 
+	enum class EAssetActivationMethod : uint8 { DoubleClicked, Opened, Previewed };
+
+	struct FAssetActivateArgs
+	{
+		DAssetEditorSubsystem* AssetEditors = nullptr;
+		std::vector<FAssetOpenTarget> Assets;
+		EAssetActivationMethod ActivationMethod = EAssetActivationMethod::Opened;
+	};
+
 	// Whether a definition handled the command; subsequent Level loading stays with its owner.
 	enum class EAssetCommandResult : uint8 { Handled, Unhandled };
 
@@ -66,8 +75,6 @@ namespace Durin
 		// Execute this selection as one compatible editor, e.g. grouped restore.
 		bool bCreateSingleEditor = false;
 		bool bIsRestore = false;
-		// Interactive callers may request unsaved-scene confirmation; scripts/startup do not.
-		bool bPromptToSave = false;
 
 		auto GetNormalizedRole() const -> std::string_view
 		{ return InstanceRole.empty() && !bPrimary ? std::string_view("Secondary") : std::string_view(InstanceRole); }

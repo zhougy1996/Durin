@@ -4,6 +4,7 @@
 
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
+#include "Delegates/Delegate.h"
 #include "Engine/HostStartup.h"
 #include "Editor/EditorSubsystem.h"
 #include "Editor/EditorStartup.h"
@@ -76,6 +77,7 @@ namespace Durin
 
 namespace Durin
 {
+	enum class EMapChangeType : uint8 { TearDownWorld, LoadMap, NewMap };
 	class DWorld;
 	class AActor;
 	class DObject;
@@ -146,6 +148,11 @@ namespace Durin
 		auto GetPlayState() const -> EPlayState { return PlayState; }
 		auto IsPlaying() const -> bool { return PlayState != EPlayState::Stopped; }
 		auto IsPlaySessionPaused() const -> bool { return PlayState == EPlayState::Paused; }
+		// Notifications release UI references; the editor engine owns teardown and loading.
+		TMulticastDelegate<void(DWorld*, EMapChangeType)> MapChanged;
+		// Synchronous engine operation; file utilities own failure recovery and feedback.
+		DURINED_API auto Map_Load(const FSoftObjectPath& Path, std::string& Error) -> bool;
+		DURINED_API auto NewMap() -> DWorld*;
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;
@@ -166,6 +173,14 @@ namespace Durin
 			const FPlayRequest& Request,
 			std::optional<DClass*> GameModeOverride,
 			std::string* OutError) -> bool;
+		auto AreHostConsumersIdle() -> bool override { return !bLoadingEditorMap && Super::AreHostConsumersIdle(); }
+		auto EditorDestroyWorld() -> void;
+		// Runtime travel is not an editor map-loading API.
+		using DEngine::OpenLevel;
+		using DEngine::CancelPendingMapChange;
+		using DEngine::GetMapChangeProgress;
+		using DEngine::IsPreparingMapChange;
+		bool bLoadingEditorMap = false;
 		auto TeardownPlaySession() -> void;
 		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
 		auto SuspendPlayMouseCapture() -> void;

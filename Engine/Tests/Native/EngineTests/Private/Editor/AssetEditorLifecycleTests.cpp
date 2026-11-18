@@ -671,7 +671,7 @@ namespace
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, StartupLevelObservationUsesPendingDocumentAndActualWorldInsteadOfRequestHistory)
+	TEST_F(FAssetEditorLifecycleTests, StartupLevelObservationUsesActualWorldRegardlessOfDeferredDocuments)
 	{
 		auto* EditorInstance = Open({Asset("ExistingDocument")});
 		ASSERT_NE(nullptr, EditorInstance);
@@ -688,8 +688,9 @@ namespace
 			.DocumentKey = Original.DocumentKey, .ResourceId = Path.ToString(), .Label = "Initial Level"});
 		ASSERT_TRUE(Deferred.IsValid());
 		std::string Error;
-		EXPECT_EQ(EHostStartupState::Pending, Host->GetStartupCompletion(Error));
-		EXPECT_TRUE(Error.empty());
+		// Generic deferred documents cannot impersonate a synchronous map load.
+		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(Error));
+		EXPECT_FALSE(Error.empty());
 		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Deferred, false));
 		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(Error));
 		EXPECT_FALSE(Error.empty());

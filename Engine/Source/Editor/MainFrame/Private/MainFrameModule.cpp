@@ -1,5 +1,7 @@
 #include "AssetTools/AssetImportAdapter.h"
 #include "MainFrameModule.h"
+#include "AssetDefinition/AssetDefinition.h"
+#include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "Toolkits/ToolkitManager.h"
 #include "ExportWindow.h"
 #include "Misc/UnifiedError.h"
@@ -369,8 +371,7 @@ namespace Durin::MainFrame
 						if (!AssetEditors) return false;
 						FSoftObjectPath ObjectPath;
 						if (!FSoftObjectPath::TryCreate(Path, ObjectPath)) return false;
-						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
-							.Assets = {{ObjectPath, AssetClassName}}, .bPromptToSave = true});
+						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors, .Assets = {{ObjectPath, AssetClassName}}});
 					},
 					.MountedContentChanged = GEditor ? &GEditor->GetTransactor()->OnMountedContentChanged() : nullptr,
 					.NotifyContentMutation = [](FContentChangeBatch Changes) {
@@ -621,7 +622,13 @@ namespace Durin::MainFrame
 					for (const auto& Target : AssetEditors.GetRecentAssets())
 						if (ImGui::MenuItem(Target.AssetPath.ToString().c_str()))
 						{
-							if (!AssetEditors.OpenAssets({.AssetEditors = &AssetEditors, .Assets = {Target}, .bPromptToSave = true}))
+							const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Target.AssetClassName);
+							if (!Definition) continue;
+							FStrongObjectPtr DefinitionLifetime(const_cast<DAssetDefinition*>(Definition));
+							FAssetActivateArgs Args{.AssetEditors = &AssetEditors, .Assets = {Target}};
+							Args.Assets = Definition->PrepareToActivateAssets(Args);
+							if (Args.Assets.empty()) continue;
+							if (!AssetEditors.OpenAssets({.AssetEditors = &AssetEditors, .Assets = std::move(Args.Assets)}))
 								if (auto* Editor = AssetEditors.GetEditor()) Editor->GetNotificationManager().Post({.Type = ENotificationType::Warning,
 									.Message = "The recent asset could not be opened.", .Details = Target.AssetPath.ToString()});
 						}

@@ -71,6 +71,7 @@ namespace Durin::MaterialEditor
 		auto PostInitAssetEditor() -> void override;
 
 	private:
+		auto OpenReferencedMaterialAsset(std::string_view Path, std::string_view ClassName) -> bool;
 		friend struct FMaterialEditorTestAccess;
 		friend struct FMaterialFunctionEditorTestAccess;
 		friend class FMaterialEditorReloadParticipant;

@@ -41,6 +41,15 @@
 
 namespace Durin::MaterialEditor
 {
+	auto FMaterialEditor::OpenReferencedMaterialAsset(std::string_view Path, std::string_view ClassName) -> bool
+	{
+		auto* Editors = GetAssetEditorSubsystem();
+		FSoftObjectPath Target;
+		return Editors && IsEditorOpen() && FSoftObjectPath::TryCreate(Path, Target)
+			&& Editors->OpenAssets({.AssetEditors = Editors, .Assets = {{Target, std::string(ClassName)}},
+				.OpenMethod = GetOpenMethod(), .ToolkitMode = GetToolkitMode(), .OpenLocation = GetOpenLocation()});
+	}
+
 	// Reuse document reload admission for function drafts and rebind the base
 	// material helper's retained source in the same atomic replacement.
 	class FMaterialEditorReloadParticipant final : public IObjectReplacementParticipant
@@ -893,7 +902,7 @@ namespace Durin::MaterialEditor
 						Call && Call->Id == *Id && Call->Function.IsValid())
 					{
 						ImGui::PushID(Id->ToString().c_str());
-						if (ImGui::Button("Open Function")) OpenRelatedAsset(Call->Function->GetObjectPath(),
+						if (ImGui::Button("Open Function")) OpenReferencedMaterialAsset(Call->Function->GetObjectPath(),
 							Call->Function->GetClass()->GetQualifiedName().ToString());
 						ImGui::PopID();
 					}
@@ -1269,7 +1278,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
 	{
 		if (auto* Parent = Instance->GetParent(); Parent && ImGui::Button("Open Parent Material"))
-			OpenRelatedAsset(Parent->GetObjectPath(), Parent->GetClass()->GetQualifiedName().ToString());
+			OpenReferencedMaterialAsset(Parent->GetObjectPath(), Parent->GetClass()->GetQualifiedName().ToString());
 		ImGui::SeparatorText("Inheritance");
 		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent", MakeMaterialPropertyTableConfig()))
 		{
@@ -1647,7 +1656,7 @@ namespace Durin::MaterialEditor
 			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*FindOpenMaterial(Document.ResourceId)),
 				FMaterialGraphEditorServices{
 					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
-					.OpenFunction = [this](std::string_view Path) { OpenRelatedAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+					.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 			if (const FMaterialGraphViewportState* State =
 				ProfileSettings->FindViewport(Document.ResourceId))
 				Canvas->SetViewport(State->Zoom, State->Pan);

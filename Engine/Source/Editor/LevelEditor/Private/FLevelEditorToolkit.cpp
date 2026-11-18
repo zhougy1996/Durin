@@ -136,9 +136,12 @@ namespace Durin::LevelEditor
 		Context->OpenAsset = [this](const FPackagePath& Path, std::string& Error) {
 			const FPackagePathResolveResult Resolution =
 				ResolvePackagePathForOperation(Path);
-			if (Resolution && Resolution.FinalPackageData
-				&& Resolution.FinalPackageData->TopLevelAssets.size() == 1
-				&& OpenRelatedAsset(Resolution.FinalPath.ToString(), Resolution.FinalPackageData->TopLevelAssets.front().AssetClassName)) return true;
+			if (auto* Editors = GetAssetEditorSubsystem(); Editors && Resolution && Resolution.FinalPackageData
+				&& Resolution.FinalPackageData->TopLevelAssets.size() == 1)
+			{
+				const auto& Asset = Resolution.FinalPackageData->TopLevelAssets.front();
+				if (Editors->OpenAssets({.AssetEditors = Editors, .Assets = {{FSoftObjectPath(Asset.AssetPath), Asset.AssetClassName}}})) return true;
+			}
 			Error = "The loaded asset could not be opened.";
 			return false;
 		};
@@ -183,23 +186,12 @@ namespace Durin::LevelEditor
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
 			*Context,
+			DocumentManager,
 			WorkspaceSettings,
 			*SceneViewportPanel,
 			*AssetMoveCoordinator,
 			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](bool bSucceeded) {
-				if (!DeferredOpenDocumentId.IsValid())
-				{
-					if (bSucceeded && Context && Context->Level)
-						DocumentManager.OpenDocument({.ToolkitId = GetToolkitId(), .DocumentKey = "LevelEditor",
-							.ResourceId = Context->Level->GetObjectPath(), .Label = "Level Editor"});
-					return;
-				}
-				const FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
-				if (!DocumentManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
-					SetError("The deferred level document request is no longer available.");
-			}
+			[this](std::string Message) { SetError(std::move(Message)); }
 		);
 	}
 
@@ -326,31 +318,11 @@ namespace Durin::LevelEditor
 		return Workspace::Type;
 	}
 
-	auto FLevelEditorToolkit::OpenLevel(const std::string& AssetPath) -> bool
-	{
-		if (!DocumentController) return false;
-		const auto Result = DocumentController->OpenLevel(AssetPath);
-		if (Result == ELevelDocumentOpenResult::Rejected) return false;
-		if (Result == ELevelDocumentOpenResult::Opened)
-			return DocumentManager.OpenDocument({.ToolkitId = GetToolkitId(), .DocumentKey = "LevelEditor",
-				.ResourceId = AssetPath, .Label = "Level Editor"}).IsValid();
-		return true;
-	}
-	auto FLevelEditorToolkit::CancelPendingOpen() -> bool
-	{
-		if (!DocumentController || !DocumentController->IsOpening()) return true;
-		DocumentController->CancelPendingOpen();
-		return !DocumentController->IsOpening();
-	}
-
 	auto FLevelEditorToolkit::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return EDocumentOpenResult::Opened;
-		if (!DocumentController) return EDocumentOpenResult::Rejected;
-		if (!DocumentController->LoadLevel(Document.ResourceId)) return EDocumentOpenResult::Rejected;
-		if (!DocumentController->IsOpening()) return EDocumentOpenResult::Opened;
-		DeferredOpenDocumentId = Document.Id;
-		return EDocumentOpenResult::Deferred;
+		// The workspace presents the authoritative editor world; opening an asset uses LoadMap.
+		return Document.ResourceId.empty() || (Context && Context->Level && Context->Level->GetObjectPath() == Document.ResourceId)
+			? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
 	}
 
 	auto FLevelEditorToolkit::ActivateDocument(const FEditorDocument& Document) -> void
@@ -361,7 +333,9 @@ namespace Durin::LevelEditor
 
 	auto FLevelEditorToolkit::RequestDeactivate() -> bool
 	{
-		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
+		if (!Context) return true;
+		if (DetailsPanel && !DetailsPanel->RequestDeactivate(*Context)) return false;
+		return !SceneViewportPanel || SceneViewportPanel->PrepareForLevelChange(*Context);
 	}
 
 	auto FLevelEditorToolkit::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
@@ -449,15 +423,14 @@ namespace Durin::LevelEditor
 		}
 
 		bool bPlaying = Context->EditorHost && Context->EditorHost->IsPlaying();
-		Context->bReadOnly = DocumentController->IsOpening()
-			|| (Context->EditorHost && !Context->EditorHost->GetCapabilities().bEditWorld);
+		Context->bReadOnly = (Context->EditorHost && !Context->EditorHost->GetCapabilities().bEditWorld);
 		Context->Synchronize(Context->EditorHost != nullptr
 			? (bPlaying ? Context->EditorHost->GetPlayWorld() : Context->EditorHost->GetEditorWorld())
 			: (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (bActive || RootWindowState.bFocused)
 		{
-			if (!DocumentController->IsOpening() && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && Context->EditorHost)
+			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && Context->EditorHost && Context->EditorHost->GetCapabilities().bRunTools)
 			{
 				if (Context->EditorHost->IsPlaying()) Context->EditorHost->StopPlaySession();
 				else
@@ -471,8 +444,7 @@ namespace Durin::LevelEditor
 		if (Context->EditorHost && bPlaying != Context->EditorHost->IsPlaying())
 		{
 			bPlaying = Context->EditorHost->IsPlaying();
-			Context->bReadOnly = DocumentController->IsOpening()
-				|| !Context->EditorHost->GetCapabilities().bEditWorld;
+			Context->bReadOnly = !Context->EditorHost->GetCapabilities().bEditWorld;
 			Context->Synchronize(bPlaying ? Context->EditorHost->GetPlayWorld() : Context->EditorHost->GetEditorWorld());
 		}
 		ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
@@ -525,15 +497,13 @@ namespace Durin::LevelEditor
 	auto FLevelEditorToolkit::OnCanUndo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		return !(DocumentController && DocumentController->IsOpening())
-			&& !(Context->EditorHost && Context->EditorHost->IsPlaying()) && !bDragging && Context->EditorHost && Context->EditorHost->GetTransactor()->CanUndo();
+		return Context->EditorHost && Context->EditorHost->GetCapabilities().bEditWorld && !bDragging && Context->EditorHost->GetTransactor()->CanUndo();
 	}
 
 	auto FLevelEditorToolkit::OnCanRedo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		return !(DocumentController && DocumentController->IsOpening())
-			&& !(Context->EditorHost && Context->EditorHost->IsPlaying()) && !bDragging && Context->EditorHost && Context->EditorHost->GetTransactor()->CanRedo();
+		return Context->EditorHost && Context->EditorHost->GetCapabilities().bEditWorld && !bDragging && Context->EditorHost->GetTransactor()->CanRedo();
 	}
 
 	auto FLevelEditorToolkit::GetUndoDescription() const -> std::string
@@ -712,8 +682,7 @@ namespace Durin::LevelEditor
 
 	auto FLevelEditorToolkit::StartPlay(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void
 	{
-		if (DocumentController && DocumentController->IsOpening()) return;
-		if (!Context->EditorHost || !Context || !Context->Level) return;
+		if (!Context || !Context->EditorHost || !Context->Level || !Context->EditorHost->GetCapabilities().bEditWorld) return;
 		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
 		FPlayRequest Request;

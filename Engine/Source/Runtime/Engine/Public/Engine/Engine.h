@@ -106,7 +106,7 @@ namespace Durin
 		ENGINE_API auto UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void;
 		ENGINE_API virtual auto SetWorld(DWorld* InWorld) -> void;
 		ENGINE_API auto CancelPendingMapChange() -> void;
-		// Accepts one map change; the owner frame prepares and commits it automatically.
+		// Runtime-only map change; the owner frame prepares and commits it automatically.
 		// A second pending change or closed host admission is rejected.
 		ENGINE_API auto OpenLevel(FMapChangeRequest Request) -> bool;
 		ENGINE_API auto OpenLevel(const FSoftObjectPath& Path) -> bool;

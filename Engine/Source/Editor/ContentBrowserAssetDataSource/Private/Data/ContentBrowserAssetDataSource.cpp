@@ -1,5 +1,6 @@
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "AssetDefinition/AssetDefinition.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Data/ContentBrowserNativeUpdates.h"
 #include "ContentBrowserAssetDataSource.h"
 #include "ContentBrowserAssetDataPayload.h"
@@ -294,14 +295,31 @@ namespace Durin
 		TStrongObjectPtr<DContentBrowserDataSource> Lifetime(this);
 		auto P = Payload(*this, Data);
 		if (!P || !CanEditItem(Data)) return false;
-		if (P->Item.Kind == EContentBrowserItemKind::Redirector)
+		FSoftObjectPath Path;
+		if (!FSoftObjectPath::TryCreate(P->Item.VirtualPath, Path)) return false;
+		const auto Resolved = ResolveAssetObjectPathForOperation(Path);
+		if (!Resolved || !Resolved.FinalAssetData) return false;
+		auto* Editor = GetOwningEditor();
+		auto* Editors = Editor ? Editor->GetEditorSubsystem<DAssetEditorSubsystem>() : nullptr;
+		const auto* Definition = FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Resolved.FinalAssetData->AssetClassName);
+		if (!Definition) return P->Host->OpenAsset(Resolved.FinalPath.ToString(), Resolved.FinalAssetData->AssetClassName);
+		FStrongObjectPtr DefinitionLifetime(const_cast<DAssetDefinition*>(Definition));
+		FAssetActivateArgs Args{.AssetEditors = Editors,
+			.Assets = {{Resolved.FinalPath, Resolved.FinalAssetData->AssetClassName}}, .ActivationMethod = EAssetActivationMethod::Opened};
+		Args.Assets = Definition->PrepareToActivateAssets(Args);
+		if (Args.Assets.empty()) return true;
+		FAssetOpenArgs OpenArgs{.AssetEditors = Editors, .Assets = Args.Assets};
+		for (const auto& Target : Args.Assets)
 		{
-			FSoftObjectPath Path;
-			if (!FSoftObjectPath::TryCreate(P->Item.VirtualPath, Path)) return false;
-			const auto Result = ResolveAssetObjectPathForOperation(Path);
-			return Result && Result.FinalAssetData && P->Host->OpenAsset(Result.FinalPath.ToString(), Result.FinalAssetData->AssetClassName);
+			auto* Asset = OpenArgs.LoadAsset(Target);
+			if (!Asset) return false;
 		}
-		return P->Host->OpenAsset(P->Item.VirtualPath, P->Item.AssetClassName);
+		if (!IsActive()) return false;
+		if (Definition->ActivateAssets(Args) == EAssetCommandResult::Handled) return true;
+		bool Opened = true;
+		for (const auto& Target : Args.Assets)
+			Opened = P->Host->OpenAsset(Target.AssetPath.ToString(), Target.AssetClassName) && Opened;
+		return Opened;
 	}
 
 	auto DContentBrowserAssetDataSource::CanDuplicateItem(const FContentBrowserItemData& Data, std::string* Error) const -> bool

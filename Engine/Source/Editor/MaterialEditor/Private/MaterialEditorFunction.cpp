@@ -189,7 +189,7 @@ namespace Durin::MaterialEditor
 		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),
 			FMaterialGraphEditorServices{
 				.ReportError = [this](std::string Message) { ErrorMessage = std::move(Message); },
-				.OpenFunction = [this](std::string_view Path) { OpenRelatedAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+				.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
 		if (const auto* State = ProfileSettings->FindViewport(Tab.ResourceId))
 			Document->Canvas->SetViewport(State->Zoom, State->Pan);
 		Document->PreviewInvalidation.SetFunction(Function);
@@ -254,7 +254,7 @@ namespace Durin::MaterialEditor
 		FFunctionDocument* Document = nullptr;
 		if (auto* Owner = GetOwningAssetEditor())
 		{
-			if (!OpenRelatedAsset(Resource, DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
+			if (!OpenReferencedMaterialAsset(Resource, DMaterialFunction::StaticClass()->GetQualifiedName().ToString())) return false;
 			for (const auto& Entry : FToolkitManager::Get().GetToolkits(Owner->GetAssetEditorSubsystem()))
 				if (auto Toolkit = std::dynamic_pointer_cast<FMaterialEditor>(Entry))
 					if ((Document = Toolkit->FindFunctionDocument(Resource))) break;
@@ -340,7 +340,7 @@ namespace Durin::MaterialEditor
 		if (Selected == Expressions.end()) return;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected->Get()); Call && Call->Function.IsValid())
 		{
-			if (ImGui::Button("Open Function")) OpenRelatedAsset(Call->Function->GetObjectPath(),
+			if (ImGui::Button("Open Function")) OpenReferencedMaterialAsset(Call->Function->GetObjectPath(),
 				Call->Function->GetClass()->GetQualifiedName().ToString());
 			DrawMaterialFunctionCallInputs(Function, *Id, *Documents.GetEditor()->GetTransactor(), ErrorMessage);
 		}

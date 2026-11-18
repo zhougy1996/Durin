@@ -113,7 +113,6 @@ namespace Durin
 		DURINED_API auto GetLayoutProfileKey() const -> std::string;
 		DURINED_API auto GetPresentationRootKey(std::string_view EditorRootKey) const -> std::string;
 		DURINED_API auto GetPresentationDocument(const FEditorDocument& Document) const -> FEditorDocument;
-		DURINED_API auto OpenRelatedAsset(std::string_view Path, std::string_view ClassName) -> bool;
 		// Called once after closing is committed, while host/rendering services exist.
 		virtual auto OnClose() -> void {}
 		virtual auto OnHostChanged() -> void {}

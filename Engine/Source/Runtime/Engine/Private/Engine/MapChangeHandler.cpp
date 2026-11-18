@@ -48,7 +48,7 @@ namespace Durin
 	}
 	FMapChangeHandler::FMapChangeHandler(DEngine& InHost, FMapChangeRequest Request)
 		: Host(InHost), Path(std::move(Request.Path)), GameMode(Request.GameMode),
-		  Preload(std::move(Request.Preload)), BeforeCommit(std::move(Request.BeforeCommit)),
+		  Preload(std::move(Request.Preload)),
 		  OnComplete(std::move(Request.OnComplete))
 	{
 		CheckGameThread();
@@ -102,11 +102,6 @@ namespace Durin
 		try
 		{
 			Advance();
-			if (Phase == EMapChangePhase::Ready && BeforeCommit)
-			{
-				auto PrepareCommit = std::move(BeforeCommit);
-				if (!PrepareCommit(*GetLevel())) Fail("Map activation was rejected by the caller.");
-			}
 		}
 		catch (...) { Fail(DescribeException()); }
 		// Publishing the World is irreversible. Do not turn a publication fault

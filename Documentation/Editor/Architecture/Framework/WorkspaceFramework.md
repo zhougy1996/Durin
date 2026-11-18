@@ -124,7 +124,7 @@ process result and shutdown ordering.
 
 Once services are Ready, DurinEd resolves the optional default Level and submits
 one ordinary asset-editor document request. LevelEditor owns unsaved-change
-confirmation, asynchronous MapChange, document association, transaction revision
+confirmation, map notification handling, document association, transaction revision
 handoff and viewport restoration through the same path as later opens. Empty
 default-Level configuration submits no request. No startup-specific workspace
 callbacks or separately owned loading operation exist. Document failure leaves
@@ -225,48 +225,64 @@ The read-only StaticMesh inspector and specialized Level workspace do not use
 this editable composition because their document semantics differ.
 
 Document open and close operations return explicit results. A deferred singleton
-open preserves the current document until its replacement succeeds. For dirty
+open normally preserves the current document until its replacement succeeds;
+editor map teardown has the destructive boundary described below. For dirty
 closes, each `FEditorDocumentManager` owns its single pending document and routes
 Save, Discard, or Cancel back to resource-specific toolkit callbacks.
 `MainFrame` renders the oldest outstanding close in one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.
 
-The Level document controller separates interactive `OpenLevel` (including the
-unsaved-change decision) from `LoadLevel` (a specified path without a save
-prompt). Its immediate results distinguish `AwaitingConfirmation`, `Loading`,
-`Opened`, and `Rejected`; the workspace adapter maps both pending states to a
-deferred document open. Completion publishes success only after activation and
-viewport/session restoration. Concurrent level or project opens are rejected
-without replacing the pending request. Default-Level startup uses the same load
-path with the host's existing startup presentation instead of a second modal.
+Interactive level activation selects the first level and resolves its identity.
+It offers to save
+dirty map and content packages. Declining permits the switch; cancellation or
+save failure leaves the current level active. The level definition copies the
+asset path and directly calls synchronous `FEditorFileUtils::LoadMap`, matching
+UE's World asset definition. Content Browser preloading holds no asset roots
+across activation/opening; the target may be collected during same-map reload.
+Default-level startup uses the same synchronous asset-open path.
+Scripting `DLevelEditorSubsystem::LoadLevel` calls
+`DEditorLoadingAndSavingUtils::LoadMap`; true means the requested map is active.
+Neither route queues a document open. The Level toolkit presents the authoritative
+World; its document-open callback does not initiate another load.
 
-Interactive Level loading uses the startup presentation style: a centered
-360-unit content column, centered level name and preparation phase, and an
-8-unit indeterminate progress bar. Elapsed time and Cancel share a subdued
-footer; the full target path is available on hover over the level name. Resource
-counts are omitted because they do not measure completion.
+The file utility settles world-centric toolkits through `RequestDeactivate`
+before invoking `Map_Load`. Level deactivation ends edit modes and transform
+gestures while their original targets remain valid. Failure feedback and blank-map
+recovery belong to the file utility. Direct asset opening rejects never-saved
+level packages and searches for the first valid level. Loading entrypoints do
+not prompt to save; interactive activation owns that prompt. `Handled` reports
+asset-command dispatch, while the file utility bool and scripting World result
+report actual loading success. There is no editor map queue or cancellation API.
 
-Startup and Level loading project their authoritative bootstrap/scene-load
-state directly into `FSlowTaskSnapshot` and reuse the `DurinEd` progress widget.
-The Level controller presents a modal snapshot for interactive opens; MainFrame
-startup presents inline progress without a second feedback lifecycle. Elapsed
-time comes from the scene operation when available. MainFrame also observes the
-default thread-local feedback context for generic slow tasks. See
-[slow task feedback](../../../Runtime/Core/SlowTasks.md) for projection,
-nesting, cancellation, and execution boundaries.
+The editor engine owns map teardown and loading for both reopening and switching
+levels. At an admitted owner boundary it validates the target, resets transaction
+history, notifies views to release selection and document roots, and destroys the
+old World, including its timers, subsystems, components, scene and context.
+Map packages are collected before reading the target from disk. Remaining external
+references reject loading with a diagnostic; the destroyed world is not revived.
+After a destructive failure the engine creates a new transient World and editable
+untitled Level, and clears the document's saved resource identity. This recovery
+Level is transient; assigning a persistent path through Save As is not provided
+by the current Level save workflow. Successful
+loading publishes the newly initialized World and document association. Map
+notifications release old UI roots and associate the published World directly,
+including script loads and standalone new-map creation. No pending document
+metadata or completion callback participates in map loading.
+`AssociateDocumentAsset(Id, nullptr)` releases the root; the subsequent map
+notification replaces its resource identity or clears it for a blank map.
 
-Cancellation and failure preserve the previous document; the modal closes when
-the pending operation ends. Save confirmation is a separate modal preceding
-loading. Dialogs are drawn even when the Level workspace has no visible root.
-Loading and confirmation block Level edits and play shortcuts. Only ordinary
-host frames advance and commit scene operations; modal callbacks observe
-progress or request cancellation, and never run a nested engine tick or wait
-loop. This preserves the [runtime scene-load contract](../../../Runtime/Application/RuntimeLifecycle.md).
+MainFrame startup presents inline bootstrap/presentation progress and observes
+the default thread-local feedback context for generic slow tasks. Editor map
+loading is synchronous and has no cancelable modal or synthetic phase queue.
+Save confirmation precedes interactive loading. Preflight rejection preserves the
+previous document; an admitted load failure attempts a fresh untitled map, even
+if the previous World survived. See [runtime lifecycle](../../../Runtime/Application/RuntimeLifecycle.md)
+for the separate asynchronous runtime map-change contract.
 
 Level, Material, Texture, and StaticMesh workspaces apply the same compatibility
 policy after loading and before document activation. A load report containing any
-compatibility issue rejects the requested document, leaves the previous active
-document or world unchanged, and reports one error directing the user to Asset
+compatibility issue rejects the requested document and reports one error directing
+the user to Asset
 Compatibility Audit for full details. Each request captures package ownership
 before loading so rejection or activation failure releases only packages
 introduced by that request; packages that were already loaded remain owned by

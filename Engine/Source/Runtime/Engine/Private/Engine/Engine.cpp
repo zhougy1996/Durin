@@ -557,7 +557,7 @@ namespace Durin
 	auto DEngine::OpenLevel(FMapChangeRequest Request) -> bool
 	{
 		CheckGameThread();
-		if (bShutdownRequested || MapChange) return false;
+		if (bShutdownRequested || MapChange || GetInitialWorldType() == EWorldType::Editor) return false;
 		LastMapChangeProgress.reset();
 		MapChange.reset(new FMapChangeHandler(*this, std::move(Request)));
 		return true;

@@ -45,8 +45,6 @@ namespace Durin::LevelEditor
 			FEditorDocumentManager& InDocumentManager,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
 			std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost);
-		LEVELEDITOR_API auto OpenLevel(const std::string& AssetPath) -> bool;
-		LEVELEDITOR_API auto CancelPendingOpen() -> bool;
 		LEVELEDITOR_API auto OnClose() -> void override;
 		LEVELEDITOR_API ~FLevelEditorToolkit() override;
 		LEVELEDITOR_API auto Construct() -> void;
@@ -120,7 +118,6 @@ namespace Durin::LevelEditor
 		TSoftObjectPtr<DLevel> DefaultLevel;
 		TSoftObjectPtr<DLevel> PendingDefaultLevel;
 		std::string EditorError;
-		FDocumentId DeferredOpenDocumentId;
 		bool bReleased = false;
 	};
 } // namespace Durin::LevelEditor

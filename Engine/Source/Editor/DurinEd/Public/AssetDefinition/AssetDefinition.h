@@ -29,6 +29,8 @@ namespace Durin
 		{ return {Args.OpenMethod, Args.OpenMethod == EAssetOpenMethod::Edit}; }
 		// Dynamic-only definitions opt out; registration never creates a toolkit.
 		virtual auto CanRegisterStatically() const -> bool { return true; }
+		virtual auto PrepareToActivateAssets(const FAssetActivateArgs& Args) const -> std::vector<FAssetOpenTarget> { return Args.Assets; }
+		virtual auto ActivateAssets(const FAssetActivateArgs&) const -> EAssetCommandResult { return EAssetCommandResult::Unhandled; }
 		DURINED_API virtual auto OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult;
 	};
 

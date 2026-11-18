@@ -936,14 +936,6 @@ TEST(FWorldTests, MapChangeCommitsWithoutAViewportOrWaitingForComponentPSOs)
 	const auto Request = FMaterialPSOPrecacheRequestID::Rejected("Required pipeline failed");
 	Component->SetMaterialPSOPrecacheData({Request});
 	ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
-		.BeforeCommit = [&](DLevel&) {
-			EXPECT_TRUE(Component->IsRegistered());
-			EXPECT_FALSE(Component->IsPSOPrecacheReadyForProxyCreation());
-			EXPECT_EQ(Host->GetWorld(), Previous);
-			EXPECT_EQ(Completions, 0);
-			EXPECT_EQ(Renderer.RenderCalls, 0);
-			return true;
-		},
 		.OnComplete = [&](const FMapChangeProgress& Progress) {
 			++Completions;
 			EXPECT_EQ(Progress.Phase, EMapChangePhase::Committed);
@@ -1035,7 +1027,7 @@ TEST(FWorldTests, PrimaryMapPreloadTransfersRetentionToTheWorld)
 	if (FindResidentPackage(PackagePath)) EXPECT_TRUE(UnloadPackage(PackagePath));
 }
 
-TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorld)
+TEST(FWorldTests, MapChangeInitializationFailurePreservesTheCurrentWorld)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -1046,11 +1038,9 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 	Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	FPreviewLifecycleRenderer Renderer;
-	for (int FailureMode : {0, 1, 2, 3, 4})
 	{
-		SCOPED_TRACE(FailureMode);
 		FPackagePath PackagePath;
-		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/MapChangeFailures/Candidate{}", FailureMode), PackagePath));
+		ASSERT_TRUE(FPackagePath::TryCreate("/MapChangeFailures/Candidate", PackagePath));
 		DLevel* Level = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(PackagePath, Level));
 		TStrongObjectPtr<DEngine> Host(NewObject<DEngine>(nullptr, "MapBuilderFailureHost"));
@@ -1058,7 +1048,6 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 		auto* Previous = CreateWorld(Host.Get(), EWorldType::Editor);
 		Host->SetWorld(Previous);
 		std::optional<FWorldSubsystemRegistration> ThrowingService;
-		if (FailureMode == 4)
 		{
 			const std::array Classes{FThrowingWorldSubsystem::StaticClass()};
 			DObjectForceRegistration(Classes.front());
@@ -1067,15 +1056,9 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 		}
 		int Completions = 0;
 		ASSERT_TRUE(Host->OpenLevel({.Path = Testing::MakePackageLeafAssetObjectPathForTests(PackagePath),
-			.BeforeCommit = [FailureMode, &Host](DLevel&) {
-				if (FailureMode == 0) throw std::runtime_error("Commit veto failure");
-				if (FailureMode == 1) throw 42;
-				if (FailureMode == 3) Host->CancelPendingMapChange();
-				return false;
-			},
 			.OnComplete = [&](const FMapChangeProgress& Progress) {
 				++Completions;
-				EXPECT_EQ(Progress.Phase, FailureMode == 3 ? EMapChangePhase::Canceled : EMapChangePhase::Failed);
+				EXPECT_EQ(Progress.Phase, EMapChangePhase::Failed);
 			}}));
 		for (int Frame = 0; Frame < 12 && Host->IsPreparingMapChange(); ++Frame)
 		{
@@ -1086,11 +1069,8 @@ TEST(FWorldTests, MapChangeInitializationAndCommitFailuresPreserveTheCurrentWorl
 		EXPECT_FALSE(Host->IsPreparingMapChange());
 		const auto Progress = Host->GetMapChangeProgress();
 		ASSERT_TRUE(Progress);
-		EXPECT_EQ(Progress->Phase, FailureMode == 3 ? EMapChangePhase::Canceled : EMapChangePhase::Failed);
-		if (FailureMode < 3) EXPECT_NE(Progress->Diagnostic.find("Ready to commit"), std::string::npos) << Progress->Diagnostic;
-		const auto Expected = FailureMode == 0 ? "Commit veto failure" : FailureMode == 1 ? "Unknown native exception"
-			: FailureMode == 2 ? "Map activation was rejected" : FailureMode == 3 ? "Map change canceled" : "World callback exception";
-		EXPECT_NE(Progress->Diagnostic.find(Expected), std::string::npos) << Progress->Diagnostic;
+		EXPECT_EQ(Progress->Phase, EMapChangePhase::Failed);
+		EXPECT_NE(Progress->Diagnostic.find("World callback exception"), std::string::npos) << Progress->Diagnostic;
 		EXPECT_EQ(Host->GetWorld(), Previous);
 		EXPECT_FALSE(Previous->IsShutdownRequested());
 		EXPECT_EQ(Level->GetWorld(), nullptr);

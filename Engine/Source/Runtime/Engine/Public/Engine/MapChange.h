@@ -45,9 +45,6 @@ namespace Durin
 		std::shared_ptr<FStreamableHandle> Preload;
 		// An engaged null class requests lifecycle-only BeginPlay.
 		std::optional<DClass*> GameMode;
-		// GameThread callbacks run within the host lifecycle/GC guard.
-		// Returning false rejects activation and preserves the current World.
-		std::function<bool(DLevel&)> BeforeCommit;
 		// Delivered once at an ordinary frame boundary, including cancellation.
 		// Host shutdown discards callbacks before retiring their owners.
 		std::function<void(const FMapChangeProgress&)> OnComplete;
