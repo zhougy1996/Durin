@@ -29,6 +29,12 @@ namespace Durin::MonaImGui::PropertyEdit
 		bool bDeactivatedAfterEdit = false;
 	};
 
+	struct FColorPickerState
+	{
+		ImGuiID PopupId = 0;
+		bool bCancelled = false;
+	};
+
 	// Defines labels, sizing, and table flags shared by property editors.
 	struct FTableConfig
 	{
@@ -126,5 +132,6 @@ namespace Durin::MonaImGui::PropertyEdit
 		FWidgetState* OutState = nullptr, FLabelTooltip LabelTooltip = nullptr, bool bShowHeader = true) -> bool;
 	// Edits linear storage through an sRGB-facing picker. Must be called inside a property table.
 	MONAIMGUI_API auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha = true,
-		bool bReadOnly = false, FWidgetState* OutState = nullptr, FLabelTooltip LabelTooltip = nullptr) -> bool;
+		bool bReadOnly = false, FWidgetState* OutState = nullptr, FLabelTooltip LabelTooltip = nullptr,
+		FColorPickerState* OutPickerState = nullptr) -> bool;
 } // namespace Durin::MonaImGui::PropertyEdit

@@ -574,6 +574,7 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.ReflectedRow");
+		if (!ReconcileColorPicker(Context)) return false;
 		std::string Label;
 		bool bReadOnly = false;
 		{
@@ -645,6 +646,7 @@ namespace Durin
 				bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly), bShowTransformHeader);
 		}
 		const bool bNeedsTarget = (Edit.bChanged && Edit.AssignValue) || Edit.bDeactivatedAfterEdit
+			|| (Edit.ColorPickerId != 0 && Edit.ColorPickerId == ActiveColorPickerId)
 			|| (Edit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape));
 		if (!bNeedsTarget) return false;
 		if (ExistingTarget && !bStructMember) return SubmitWidgetEdit(Context, *ExistingTarget, Edit);
@@ -735,9 +737,13 @@ namespace Durin
 		if (Struct == Z_Construct_DStruct_FLinearColor())
 		{
 			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
-			return EditMathStruct.template operator()<FLinearColor>([&](FLinearColor& EditedValue, auto& State) {
-				return MonaImGui::PropertyEdit::EditColor(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State, TypeTooltip);
+			MonaImGui::PropertyEdit::FColorPickerState Picker;
+			auto Edit = EditMathStruct.template operator()<FLinearColor>([&](FLinearColor& EditedValue, auto& State) {
+				return MonaImGui::PropertyEdit::EditColor(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State, TypeTooltip, &Picker);
 			});
+			Edit.ColorPickerId = Picker.PopupId;
+			Edit.bColorPickerCancelled = Picker.bCancelled;
+			return Edit;
 		}
 
 		MonaImGui::PropertyEdit::BeginRow(Label.c_str(), bReadOnly, 0.0f, TypeTooltip);
@@ -1165,6 +1171,11 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.SubmitEdit");
+		if (Edit.bColorPickerCancelled)
+		{
+			if (Edit.ColorPickerId == ActiveColorPickerId && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, true);
+			return false;
+		}
 		bool bChanged = false;
 		if (Edit.bChanged && Edit.AssignValue)
 		{
@@ -1183,7 +1194,12 @@ namespace Durin
 				bChanged = SubmitPropertyEdit(Context, EditTarget, Proposed, Edit.bContinuous);
 			}
 		}
-		if (Edit.bDeactivatedAfterEdit && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, false);
+		if (Edit.ColorPickerId != 0 && IsEditingTarget(EditTarget))
+		{
+			ActiveColorPickerId = Edit.ColorPickerId;
+			ColorPickerLastDrawFrame = ImGui::GetFrameCount();
+		}
+		else if (Edit.bDeactivatedAfterEdit && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, false);
 		else if (Edit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, true);
 		return bChanged;
 	}
@@ -1556,7 +1572,8 @@ namespace Durin
 					}
 				}
 				if (KeyEdit.bDeactivatedAfterEdit && IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, false);
-				else if (KeyEdit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, true);
+				else if ((KeyEdit.bColorPickerCancelled || (KeyEdit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape)))
+					&& IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, true);
 				ImGui::PopID();
 				// Rename and erase may change iteration order, so resume traversal next frame.
 				if (bRemove || bKeyChanged) break;
@@ -1573,8 +1590,7 @@ namespace Durin
 		bool bContinuous
 	) -> bool
 	{
-		if (EditSession.IsActive() && !IsEditingTarget(Target))
-			FinishActiveEdit(&Context, false);
+		if (EditSession.IsActive() && !IsEditingTarget(Target) && !FinishActiveEdit(&Context, false)) return false;
 
 		if (!EditSession.IsActive())
 		{
@@ -1628,12 +1644,19 @@ namespace Durin
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
 		if (!EditSession.IsActive()) return true;
+		if (ActiveColorPickerId != 0)
+		{
+			bCancelColorPickerPending |= bCancel;
+			bCancel = bCancelColorPickerPending;
+		}
 		const auto Result = bCancel ? EditSession.Cancel() : EditSession.Commit();
 		if (!Result && Context) ReportError(*Context, Result.Message);
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
+			ActiveColorPickerId = 0;
+			bCancelColorPickerPending = false;
 		}
 		return static_cast<bool>(Result);
 	}
@@ -1647,7 +1670,16 @@ namespace Durin
 		}
 		if (OwnerContextObject != Object || Context.bReadOnly) MapInsertDraft = {};
 		OwnerContextObject = Object;
-		return true;
+		return ReconcileColorPicker(Context);
+	}
+
+	auto FPropertyView::ReconcileColorPicker(const FPropertyViewContext& Context) -> bool
+	{
+		if (ActiveColorPickerId == 0) return true;
+		if (bCancelColorPickerPending || Context.bReadOnly || ImGui::GetFrameCount() - ColorPickerLastDrawFrame > 1)
+			return FinishActiveEdit(&Context, true);
+		if (ImGui::IsPopupOpen(ActiveColorPickerId, ImGuiPopupFlags_AnyPopupLevel)) return true;
+		return FinishActiveEdit(&Context, ImGui::IsKeyPressed(ImGuiKey_Escape, false));
 	}
 
 	auto FPropertyView::ReportError(const FPropertyViewContext& Context, std::string Error) const -> void

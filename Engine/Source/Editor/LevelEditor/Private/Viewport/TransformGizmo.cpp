@@ -691,7 +691,8 @@ namespace Durin::LevelEditor
 		{
 			// Restore only after the foreign recorder/replay has released GUndo.
 			if (IsDragging()) bRestorePending = true;
-			return false;
+			HoveredHandle = ETransformGizmoHandle::None;
+			return true;
 		}
 		if (IsDragging())
 		{

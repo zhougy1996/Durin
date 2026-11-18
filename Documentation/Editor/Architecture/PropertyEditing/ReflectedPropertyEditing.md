@@ -197,12 +197,20 @@ Cancel()
 ```
 
 Checkboxes, selections, and structural buttons normally begin and commit in one
-frame. Drag, text, color, vector, and transform widgets keep the session active
+frame. Drag, text, vector, and transform widgets keep the session active
 until deactivation. Repeated `Apply()` calls therefore produce preview events
 but only one transaction. Escape restores the original value. Every successful
 Begin has exactly one terminal Committed or Cancelled event, including an
 interaction that never changes or returns to its original snapshot; those no-op
 interactions do not dirty the package or enter history.
+
+Reflected color values use the picker popup as the edit boundary. Opening the
+popup does not begin a transaction. The first proposal begins a normal property
+edit session; subsequent picker gestures update the same preview until the popup
+closes. Normal dismissal commits the session, while Escape or losing the
+editable target cancels it. The picker reports its lifetime separately from
+the activation state of its nested controls; it does not write reflected
+storage or own history. Map keys remain structural edits.
 
 `CancelUnchanged()` closes an active unchanged session with no deferred work,
 emits Cancelled for a live target, and ends its transaction scope. It preserves

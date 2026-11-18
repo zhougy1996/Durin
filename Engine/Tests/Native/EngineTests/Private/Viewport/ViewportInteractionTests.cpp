@@ -862,10 +862,24 @@ TEST(FTransformGizmoTests, ForeignRecordingDefersRestoreWithoutJoiningItsHistory
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); const auto Preview = Probe.Objects[0]->Transform;
 	ASSERT_GE(Buffer->Begin("ForeignEdit", "Foreign edit"), 0);
 	Probe.Input.bCancel = true;
-	EXPECT_FALSE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
+	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_TRUE(Probe.Gizmo.IsDragging()); ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Preview.Translation);
 	Buffer->End();
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_FALSE(Probe.Gizmo.IsDragging()); ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Initial.Translation);
+	EXPECT_FALSE(Buffer->CanUndo());
+}
+
+TEST(FTransformGizmoTests, IdleGizmoYieldsToPropertyRecordingWithoutReportingFailure)
+{
+	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
+	Durin::Tests::FTestTransactorOwner Buffer;
+	ASSERT_GE(Buffer->Begin("ReflectedProperty", "Edit Color"), 0);
+	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
+	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
+	EXPECT_FALSE(Probe.Gizmo.IsDragging());
+	EXPECT_FALSE(Probe.Gizmo.IsHovered());
+	EXPECT_TRUE(Buffer->IsActive());
+	Buffer->End();
 	EXPECT_FALSE(Buffer->CanUndo());
 }

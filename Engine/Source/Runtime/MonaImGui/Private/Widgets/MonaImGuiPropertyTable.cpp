@@ -347,8 +347,9 @@ namespace Durin::MonaImGui::PropertyEdit
 	}
 
 	auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly,
-		FWidgetState* OutState, FLabelTooltip LabelTooltip) -> bool
+		FWidgetState* OutState, FLabelTooltip LabelTooltip, FColorPickerState* OutPickerState) -> bool
 	{
+		if (OutPickerState) *OutPickerState = {};
 		ImGui::PushID(Label);
 		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
 		FLinearColor DisplayColor(ColorConvert::LinearToSRGB(Color.R), ColorConvert::LinearToSRGB(Color.G), ColorConvert::LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
@@ -363,12 +364,19 @@ namespace Durin::MonaImGui::PropertyEdit
 		if (ImGui::ColorButton("##Value", ImVec4(DisplayColor.R, DisplayColor.G, DisplayColor.B, DisplayColor.A),
 			PreviewFlags, PreviewSize))
 			ImGui::OpenPopup("##Picker");
+		const ImGuiID PickerId = ImGui::GetID("##Picker");
 		if (ImGui::BeginPopup("##Picker"))
 		{
-			bChanged |= bShowAlpha
-				? ImGui::ColorPicker4("##PickerValue", DisplayColor.RGBA, Flags | ImGuiColorEditFlags_AlphaBar)
-				: ImGui::ColorPicker3("##PickerValue", DisplayColor.RGBA, Flags);
-			AccumulateLastItemState(OutState);
+			const bool bCancel = bReadOnly || (OutPickerState && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+			if (OutPickerState) *OutPickerState = {PickerId, bCancel};
+			if (bCancel) ImGui::CloseCurrentPopup();
+			else
+			{
+				bChanged = bShowAlpha
+					? ImGui::ColorPicker4("##PickerValue", DisplayColor.RGBA, Flags | ImGuiColorEditFlags_AlphaBar)
+					: ImGui::ColorPicker3("##PickerValue", DisplayColor.RGBA, Flags);
+				AccumulateLastItemState(OutState);
+			}
 			ImGui::EndPopup();
 		}
 		if (bChanged)

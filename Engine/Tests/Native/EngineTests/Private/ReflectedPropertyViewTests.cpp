@@ -7,6 +7,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -18,10 +19,12 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
+#include "Math/Color.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeAssetTestSupport.h"
@@ -852,6 +855,112 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 		ImGui::DestroyContext(ImContext);
 	}
 	Reflection.Property->SetTypedMetadata(&OriginalParams);
+}
+
+TEST(FReflectedPropertyViewTests, ColorPickerGroupsMultipleDragsAndCancelsAbandonedPreview)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	auto* Light = NewObject<DDirectionalLightComponent>(nullptr, "ColorPickerSession");
+	TStrongObjectPtr<DObject> LightRoot(Light);
+	FProperty* ColorProperty = Light->GetClass()->FindPropertyByName("Color");
+	ASSERT_NE(ColorProperty, nullptr);
+	const auto* Color = ColorProperty->ContainerPtrToValuePtr<FLinearColor>(Light);
+	const FLinearColor Original = *Color;
+	FPropertyViewTestTransactorOwner Transactions;
+	FPropertyView View;
+	const FPropertyViewContext Context{.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }};
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.ConfigInputTrickleEventQueue = false;
+	IO.DisplaySize = {1200.0f, 900.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	ImGui::SetColorEditOptions(ImGuiColorEditFlags_PickerHueBar);
+	ImGuiID PickerId = 0;
+	const auto DrawFrame = [&](bool bOpenPicker = false, bool bDrawColor = true) {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({600.0f, 300.0f});
+		ImGui::Begin("Color Picker Session", nullptr, ImGuiWindowFlags_NoTitleBar);
+		if (View.HandleOwnerContext(Context, Light) && MonaImGui::PropertyEdit::BeginTable("ColorRows"))
+		{
+			if (bOpenPicker)
+			{
+				ImGui::PushID(ColorProperty);
+				ImGui::PushID(0);
+				ImGui::PushID("Color");
+				PickerId = ImGui::GetID("##Picker");
+				ImGui::OpenPopup("##Picker");
+				ImGui::PopID();
+				ImGui::PopID();
+				ImGui::PopID();
+			}
+			if (bDrawColor) View.EditProperty(Context, Light, ColorProperty);
+			MonaImGui::PropertyEdit::EndTable();
+		}
+		ImGui::End();
+		ImGui::Render();
+	};
+	const auto EditPicker = [&](float Offset) {
+		const ImGuiWindow* Picker = ImGui::FindWindowByName(std::format("##Popup_{:08x}", PickerId).c_str());
+		ASSERT_NE(Picker, nullptr);
+		const ImVec2 Position = Picker->DC.CursorStartPos;
+		IO.AddMousePosEvent(Position.x + Offset, Position.y + Offset);
+		DrawFrame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+		DrawFrame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		DrawFrame();
+	};
+	DrawFrame();
+	DrawFrame(true);
+	DrawFrame();
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	EditPicker(10.0f);
+	const FLinearColor FirstPreview = *Color;
+	EXPECT_NE(FirstPreview, Original);
+	EXPECT_TRUE(Transactions.Get()->IsActive());
+	EditPicker(20.0f);
+	const FLinearColor FinalPreview = *Color;
+	EXPECT_NE(FinalPreview, FirstPreview);
+	EXPECT_TRUE(Transactions.Get()->IsActive());
+	IO.AddMousePosEvent(1100.0f, 850.0f);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(*Color, Original);
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(*Color, FinalPreview);
+	ASSERT_TRUE(Transactions.Get()->TryReset());
+	IO.AddMousePosEvent(350.0f, 60.0f);
+	DrawFrame();
+	DrawFrame(true);
+	DrawFrame();
+	EditPicker(10.0f);
+	EXPECT_NE(*Color, FinalPreview);
+	IO.AddKeyEvent(ImGuiKey_Escape, true);
+	DrawFrame();
+	EXPECT_EQ(*Color, FinalPreview);
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	IO.AddKeyEvent(ImGuiKey_Escape, false);
+	DrawFrame(true);
+	DrawFrame();
+	EditPicker(10.0f);
+	EXPECT_NE(*Color, FinalPreview);
+	DrawFrame(false, false);
+	DrawFrame(false, false);
+	EXPECT_EQ(*Color, FinalPreview);
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
 }
 
 TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
