@@ -6,7 +6,7 @@
 
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
@@ -217,8 +217,7 @@ namespace Durin::AssetToolsPrivate
 			bCreatedRoot = std::filesystem::create_directories(
 				Root, DirectoryError);
 			if (DirectoryError)
-				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories,
-					.NativeError = DirectoryError, .Path = Root}));
+				return Reject(OutError, ToError(FFileSystemError{std::format("Failed to create parent directories: {}.", FFilePath(Root).generic_string()), DirectoryError}));
 			if (!bCreatedRoot)
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::AlreadyExists, std::format(
 					"Asset mutation staging root already exists: {}.",
@@ -283,7 +282,7 @@ namespace Durin::AssetToolsPrivate
 			std::error_code RemoveError;
 			if (!std::filesystem::remove(Entry.PhysicalPath, RemoveError)
 				&& RemoveError)
-				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Remove, .NativeError = RemoveError, .Path = Entry.PhysicalPath}));
+				return Reject(OutError, ToError(FFileSystemError{std::format("Failed to remove: {}.", FFilePath(Entry.PhysicalPath).generic_string()), RemoveError}));
 			return true;
 		}
 		FByteBuffer Bytes;
@@ -293,7 +292,7 @@ namespace Durin::AssetToolsPrivate
 		std::filesystem::create_directories(
 			Entry.PhysicalPath.parent_path(), DirectoryError);
 		if (DirectoryError)
-			return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories, .NativeError = DirectoryError, .Path = Entry.PhysicalPath.parent_path()}));
+			return Reject(OutError, ToError(FFileSystemError{std::format("Failed to create parent directories: {}.", (Entry.PhysicalPath.parent_path()).generic_string()), DirectoryError}));
 		return SaveRelocationBytes(Entry.PhysicalPath, Bytes, OutError);
 	}
 

@@ -15,7 +15,7 @@
 #include "Asset/BulkData.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Materials/MaterialCookConfiguration.h"
 #include "Plugins/PluginCook.h"
 
@@ -227,7 +227,7 @@ namespace Durin
 		uint64 Maximum = 0;
 		uint64 Retained = 0;
 		uint64 MaximumRetained = 0;
-		std::optional<FFileError> FileCause;
+		std::optional<FFileSystemError> FileCause;
 		std::shared_ptr<const FObjectPathError> PathCause;
 		std::string Member;
 		uint64 Expected = 0;

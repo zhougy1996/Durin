@@ -256,10 +256,10 @@ TEST_F(FTextureImportQueueTests, AsyncSavePublishesVerifiedBulkOnlyOnCompletion)
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	FByteBuffer PackageBytes, BulkBytes;
 	auto PackageBytesRead = FFileHelper::LoadFileToArray(Root / "Content/save.dasset");
-	ASSERT_TRUE(PackageBytesRead) << PackageBytesRead.error().ToString();
+	ASSERT_TRUE(PackageBytesRead) << PackageBytesRead.error().GetMessage();
 	PackageBytes = std::move(*PackageBytesRead);
 	auto BulkBytesRead = FFileHelper::LoadFileToArray(Root / "Content/save.dbulk");
-	ASSERT_TRUE(BulkBytesRead) << BulkBytesRead.error().ToString();
+	ASSERT_TRUE(BulkBytesRead) << BulkBytesRead.error().GetMessage();
 	BulkBytes = std::move(*BulkBytesRead);
 	EXPECT_TRUE(ValidateAssetPackageBytes(PackageBytes, Path, BulkBytes));
 }
@@ -385,7 +385,7 @@ TEST_F(FTextureImportQueueTests, SaveTransactionsIgnoreUnownedStagingAndBackups)
 		{
 			FByteBuffer Actual;
 			auto ActualRead = FFileHelper::LoadFileToArray(File);
-			ASSERT_TRUE(ActualRead) << ActualRead.error().ToString();
+			ASSERT_TRUE(ActualRead) << ActualRead.error().GetMessage();
 			Actual = std::move(*ActualRead);
 			EXPECT_EQ(Actual, UnownedBytes);
 			ASSERT_TRUE(std::filesystem::remove(File));
@@ -469,7 +469,7 @@ TEST_F(FTextureImportQueueTests, AsyncSaveRejectsNewDestinationOccupant)
 	EXPECT_FALSE(FinishSave(Save));
 	FByteBuffer Actual;
 	auto ActualRead = FFileHelper::LoadFileToArray(Root / "Content/save.dasset");
-	ASSERT_TRUE(ActualRead) << ActualRead.error().ToString();
+	ASSERT_TRUE(ActualRead) << ActualRead.error().GetMessage();
 	Actual = std::move(*ActualRead);
 	EXPECT_EQ(Actual, OtherBytes);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/save.dbulk"));
@@ -481,10 +481,10 @@ TEST_F(FTextureImportQueueTests, AsyncSaveDistinguishesPrecommitFailureFromCommi
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
 	FByteBuffer BeforePackage, BeforeBulk;
 	auto BeforePackageRead = FFileHelper::LoadFileToArray(Root / "Content/save.dasset");
-	ASSERT_TRUE(BeforePackageRead) << BeforePackageRead.error().ToString();
+	ASSERT_TRUE(BeforePackageRead) << BeforePackageRead.error().GetMessage();
 	BeforePackage = std::move(*BeforePackageRead);
 	auto BeforeBulkRead = FFileHelper::LoadFileToArray(Root / "Content/save.dbulk");
-	ASSERT_TRUE(BeforeBulkRead) << BeforeBulkRead.error().ToString();
+	ASSERT_TRUE(BeforeBulkRead) << BeforeBulkRead.error().GetMessage();
 	BeforeBulk = std::move(*BeforeBulkRead);
 	auto ImageResult4 = Image::FImage::TryCreate({.Width = 512, .Height = 512,
 		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(512 * 512 * 4, std::byte{33}));
@@ -502,10 +502,10 @@ TEST_F(FTextureImportQueueTests, AsyncSaveDistinguishesPrecommitFailureFromCommi
 		EXPECT_EQ(Texture->GetPackage()->IsDirty(), Failure != Durin::Testing::EPackageSaveFaultPoint::PublishRegistry);
 		FByteBuffer AfterPackage, AfterBulk;
 		auto AfterPackageRead = FFileHelper::LoadFileToArray(Root / "Content/save.dasset");
-		ASSERT_TRUE(AfterPackageRead) << AfterPackageRead.error().ToString();
+		ASSERT_TRUE(AfterPackageRead) << AfterPackageRead.error().GetMessage();
 		AfterPackage = std::move(*AfterPackageRead);
 		auto AfterBulkRead = FFileHelper::LoadFileToArray(Root / "Content/save.dbulk");
-		ASSERT_TRUE(AfterBulkRead) << AfterBulkRead.error().ToString();
+		ASSERT_TRUE(AfterBulkRead) << AfterBulkRead.error().GetMessage();
 		AfterBulk = std::move(*AfterBulkRead);
 		if (Failure == Durin::Testing::EPackageSaveFaultPoint::PublishRegistry)
 		{

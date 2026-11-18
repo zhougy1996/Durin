@@ -80,7 +80,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	const auto CookedFile = CookRoot / "Engine/Materials/DefaultMaterial.dasset";
 	Durin::FByteBuffer OriginalBytes;
 	auto OriginalBytesRead = Durin::FFileHelper::LoadFileToArray(CookedFile);
-	ASSERT_TRUE(OriginalBytesRead) << OriginalBytesRead.error().ToString();
+	ASSERT_TRUE(OriginalBytesRead) << OriginalBytesRead.error().GetMessage();
 	OriginalBytes = std::move(*OriginalBytesRead);
 	Durin::ObjectPackage::FLinkerTables VersionLinker;
 	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(OriginalBytes, {}, Path, VersionLinker));

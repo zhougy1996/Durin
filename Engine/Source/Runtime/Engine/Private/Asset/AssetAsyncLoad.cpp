@@ -52,7 +52,7 @@ namespace Durin
 				{
 					auto Loaded = FFileHelper::LoadFileToArray(Input.PhysicalPath);
 					if (!Loaded)
-						Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, Loaded.error().ToString()});
+						Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, Loaded.error().GetMessage()});
 					else if (Loaded->size() > MaximumClosureBytes - RetainedBytes)
 						Input.Result = std::unexpected(Durin::UnifiedError::FError{Durin::AssetLoadErrors::StaleData, "Package size changed during async read."});
 					else Input.Bytes = std::move(*Loaded);

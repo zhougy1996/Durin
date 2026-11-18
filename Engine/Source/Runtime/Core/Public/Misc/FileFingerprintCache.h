@@ -7,7 +7,7 @@
 #include "CoreAPI.h"
 #include "Hash/XxHash.h"
 #include "Misc/CoreMiscDefines.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin
 {
@@ -28,7 +28,7 @@ namespace Durin
 		Stale
 	};
 
-	using FFileFingerprintReuseResult = std::expected<EFileFingerprintReuseStatus, FFileError>;
+	using FFileFingerprintReuseResult = std::expected<EFileFingerprintReuseStatus, FFileSystemError>;
 
 	// Reuses content hashes while size and modification time still match.
 	class FFileFingerprintCache
@@ -37,7 +37,7 @@ namespace Durin
 		CORE_API FFileFingerprintCache();
 		CORE_API ~FFileFingerprintCache();
 
-		[[nodiscard]] CORE_API auto Get(const FFilePath& FilePath) -> std::expected<FFileFingerprint, FFileError>;
+		[[nodiscard]] CORE_API auto Get(const FFilePath& FilePath) -> std::expected<FFileFingerprint, FFileSystemError>;
 		// Reuses a persisted content hash when size and modification time still match.
 		CORE_API auto TryReuse(const FFileFingerprint& StoredFingerprint)
 			-> FFileFingerprintReuseResult;

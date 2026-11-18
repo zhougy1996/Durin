@@ -1427,7 +1427,7 @@ TEST(FCacheStorageTests, LockedEntryPreservesReadAndPublicationDiagnostics)
 		const auto Get = Cache.Get({Key, 1024});
 		ASSERT_FALSE(Get);
 		EXPECT_EQ(Get.error().Code, ECacheError::StorageFailure);
-		EXPECT_NE(Get.error().Diagnostic.find("open for reading"), std::string::npos);
+		EXPECT_NE(Get.error().Diagnostic.find("for reading"), std::string::npos);
 		EXPECT_NE(Get.error().Diagnostic.find(Path.generic_string()), std::string::npos);
 		EXPECT_NE(Get.error().Diagnostic.find(std::format(":{}:", ERROR_SHARING_VIOLATION)), std::string::npos);
 		const auto Put = Cache.Put({Key, Bytes({4, 5}), 1024});

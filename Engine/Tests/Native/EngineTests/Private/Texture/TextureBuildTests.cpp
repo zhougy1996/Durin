@@ -1779,7 +1779,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 						   / (Key.ToString() + ".bin");
 	Durin::FByteBuffer CachedBytes;
 	auto CachedBytesRead = Durin::FFileHelper::LoadFileToArray(CachePath);
-	ASSERT_TRUE(CachedBytesRead) << CachedBytesRead.error().ToString();
+	ASSERT_TRUE(CachedBytesRead) << CachedBytesRead.error().GetMessage();
 	CachedBytes = std::move(*CachedBytesRead);
 	CachedBytes.push_back(std::byte{1});
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(CachedBytes, CachePath));
@@ -2063,7 +2063,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	std::filesystem::rename(HeldCompanion, EditorBulkDataFiles.front());
 	Durin::FByteBuffer CompanionBytes;
 	auto CompanionBytesRead = Durin::FFileHelper::LoadFileToArray(EditorBulkDataFiles.front());
-	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().ToString();
+	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().GetMessage();
 	CompanionBytes = std::move(*CompanionBytesRead);
 	Durin::FByteBuffer CorruptCompanion = CompanionBytes;
 	CorruptCompanion.back() ^= std::byte{1};
@@ -2291,7 +2291,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(std::filesystem::is_regular_file(Companions.front()));
 	Durin::FByteBuffer CompanionBytes;
 	auto CompanionBytesRead = Durin::FFileHelper::LoadFileToArray(Companions.front());
-	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().ToString();
+	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().GetMessage();
 	CompanionBytes = std::move(*CompanionBytesRead);
 
 	const std::filesystem::path CachePath = GetTextureCachePath(*Imported.Asset);
@@ -2356,7 +2356,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	EXPECT_TRUE(std::filesystem::exists(Backup));
 	Durin::FByteBuffer AfterRejectedLoad;
 	auto AfterRejectedLoadRead = Durin::FFileHelper::LoadFileToArray(Companions.front());
-	ASSERT_TRUE(AfterRejectedLoadRead) << AfterRejectedLoadRead.error().ToString();
+	ASSERT_TRUE(AfterRejectedLoadRead) << AfterRejectedLoadRead.error().GetMessage();
 	AfterRejectedLoad = std::move(*AfterRejectedLoadRead);
 	EXPECT_EQ(AfterRejectedLoad, CorruptBytes);
 	ASSERT_TRUE(std::filesystem::remove(Backup));

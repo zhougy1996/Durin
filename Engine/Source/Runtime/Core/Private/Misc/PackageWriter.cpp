@@ -80,26 +80,24 @@ namespace Durin
 						if (Path.empty()) continue;
 						std::error_code Ec;
 						const bool Exists = std::filesystem::exists(Path, Ec);
-						if (Ec || Exists) return Reject(ToError(FFileError{.Operation = EFileOperation::Inspect,
-							.NativeError = Ec ? Ec : std::make_error_code(std::errc::file_exists), .Path = Path}));
+						if (Ec || Exists) return Reject(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Path).generic_string()), Ec ? Ec : std::make_error_code(std::errc::file_exists)}));
 					}
 				}
 				for (auto& File : Files)
 				{
 					std::error_code Ec;
 					std::filesystem::create_directories(File.Replacement.Destination.parent_path(), Ec);
-					std::expected<void, FFileError> Saved;
+					std::expected<void, FFileSystemError> Saved;
 					if (!Ec && !File.Replacement.Staged.empty())
 						Saved = FFileHelper::SaveArrayToNewFile(File.Bytes, File.Replacement.Staged);
 					if (Ec || !Saved)
 					{
-						const auto FileFailure = Ec ? FFileError{.Operation = EFileOperation::CreateParentDirectories,
-							.NativeError = Ec, .Path = File.Replacement.Destination.parent_path()} : Saved.error();
+						const auto FileFailure = Ec ? FFileSystemError{std::format("Failed to create parent directories: {}.", (File.Replacement.Destination.parent_path()).generic_string()), Ec} : Saved.error();
 						return Reject(ToError(FileFailure));
 					}
 					if (!File.Replacement.Staged.empty()) OwnedStages.push_back(File.Replacement.Staged);
 					FFilePublicationStamp Stamp;
-					std::optional<FFileError> InspectionError;
+					std::optional<FFileSystemError> InspectionError;
 					if (!File.Replacement.Staged.empty()
 						&& (!FFilePublicationStamp::Inspect(File.Replacement.Staged, Stamp, &InspectionError)
 							|| !Stamp.Exists || Stamp.Size != File.Bytes.size()))
@@ -128,7 +126,7 @@ namespace Durin
 				{
 					const auto& File = Files[Index];
 					FFilePublicationStamp Current;
-					std::optional<FFileError> InspectionError;
+					std::optional<FFileSystemError> InspectionError;
 					if (!FFilePublicationStamp::Inspect(File.Replacement.Destination, Current, &InspectionError))
 					{ Access.reset(); return FPackageWriteResult{.Error = ToError(*InspectionError)}; }
 					if (Current != File.Expected)
@@ -143,7 +141,7 @@ namespace Durin
 				}
 				for (auto& File : Files)
 				{
-					std::optional<FFileError> Error;
+					std::optional<FFileSystemError> Error;
 					if (!File.Replacement.Publish(&Error))
 					{
 						auto Restored = Rollback();
@@ -170,11 +168,11 @@ namespace Durin
 				Result = {};
 				for (auto It = Files.rbegin(); It != Files.rend(); ++It)
 				{
-					std::optional<FFileError> Error;
+					std::optional<FFileSystemError> Error;
 					if (!It->Replacement.Rollback(&Error))
 					{
 						if (!Result.Error) Result.Error = ToError(*Error);
-						else Result.Error->PushContext("additional file failure", Error->ToString());
+						else Result.Error->PushContext("additional file failure", Error->GetMessage());
 						Result.State = EPackageWriteState::RecoveryRequired;
 					}
 				}
@@ -190,11 +188,11 @@ namespace Durin
 				if (!bCommitted) return Failure(PackageWriteErrors::InvalidState, "No committed output to finalize.");
 				for (auto& File : Files)
 				{
-					std::optional<FFileError> Error;
+					std::optional<FFileSystemError> Error;
 					if (!File.Replacement.Finalize(&Error))
 					{
 						if (!Result.Error) Result.Error = ToError(*Error);
-						else Result.Error->PushContext("additional file failure", Error->ToString());
+						else Result.Error->PushContext("additional file failure", Error->GetMessage());
 					}
 				}
 				RecoveryFiles(Result);

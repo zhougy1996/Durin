@@ -213,7 +213,7 @@ namespace Durin
 		FProjectDescriptor Validated; if (!Validated.Read(Output,File,OutFailReason)) return false;
 		const auto Text=Output.ToString();
 		if (auto Saved=FFileHelper::SaveArrayToFileAtomically(FByteView(reinterpret_cast<const std::byte*>(Text.data()),Text.size()),std::string(File)); !Saved)
-			return Fail(OutFailReason,Saved.error().ToString());
+			return Fail(OutFailReason,Saved.error().GetMessage());
 		OutFailReason.clear(); return true;
 	}
 

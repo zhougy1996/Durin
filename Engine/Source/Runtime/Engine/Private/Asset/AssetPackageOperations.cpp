@@ -148,7 +148,7 @@ namespace Durin
 			if (!ReadAccess) return Error(AssetLoadErrors::InUse, "Package output is being written.");
 			auto Companion = Prepared.Destination; Companion.replace_extension(".dbulk");
 			FFilePublicationStamp MainStamp, BulkStamp;
-			std::optional<FFileError> InspectionError;
+			std::optional<FFileSystemError> InspectionError;
 			if (!FFilePublicationStamp::Inspect(Prepared.Destination, MainStamp, &InspectionError)
 				|| !FFilePublicationStamp::Inspect(Companion, BulkStamp, &InspectionError))
 				return std::unexpected(ToError(*InspectionError));

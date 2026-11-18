@@ -1,3 +1,4 @@
+#include "HAL/FileManager.h"
 #include "Backend/RHIPipelineStateCacheBackend.h"
 
 #include "Backend/RHICreation.h"
@@ -887,7 +888,7 @@ namespace Durin::VulkanRHI
 		FRHIPipelineCacheStatistics Stats;
 		const auto& Properties = Device.GetGpuProperties();
 		const std::filesystem::path Path = PipelineCachePath();
-		if (auto Exists = FFileHelper::FileExists(Path); Exists && *Exists)
+		if (IFileManager::Get().FileExists(Path))
 		{
 			auto Loaded = FFileHelper::LoadFileToArray(Path);
 			if (Loaded) FileBytes = std::move(*Loaded);
@@ -973,7 +974,7 @@ namespace Durin::VulkanRHI
 			if (auto Error = FFileHelper::SaveArrayToFileAtomically(Bytes, PipelineCachePath()); !Error)
 			{
 				++Stats.PersistentRejects;
-				DURIN_WARN("Could not save Vulkan pipeline cache: {}", Error.error().ToString());
+				DURIN_WARN("Could not save Vulkan pipeline cache: {}", Error.error().GetMessage());
 				return;
 			}
 			++Stats.PersistentSaves;

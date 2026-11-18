@@ -566,8 +566,8 @@ namespace Durin
 	{
 		OutLibrary = {};
 		return FFileHelper::LoadFileToArray(Path)
-			.transform_error([](FFileError Error) {
-				return (std::move(Error)).ToString();
+			.transform_error([](FFileSystemError Error) {
+				return Error.GetMessage();
 			})
 			.and_then([&](FByteBuffer Bytes) {
 				return OpenBytes(std::make_shared<FByteBuffer>(std::move(Bytes)),

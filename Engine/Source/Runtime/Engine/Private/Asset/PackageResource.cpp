@@ -1,3 +1,4 @@
+#include "HAL/PlatformFile.h"
 #include "Misc/PackageWriter.h"
 #include "Asset/PackageResource.h"
 
@@ -72,15 +73,15 @@ namespace Durin
 				Error.Summary = Summary;
 				return std::unexpected(std::format("{}: {}", Path.generic_string(), FormatBulkFailure(Error)));
 			};
-			auto File = FFileHelper::OpenRead(Path);
+			auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 			if (!File)
 			{
-				return std::unexpected(File.error().ToString());
+				return std::unexpected(File.error().GetMessage());
 			}
-			if ((*File)->GetSize() != Summary.Extent)
+			if ((*File)->Size() != Summary.Extent)
 			{
 				return RejectBulk({.Code = EPackageBulkDataError::ExtentMismatch,
-					.Actual = (*File)->GetSize(), .Expected = Summary.Extent});
+					.Actual = static_cast<uint64>((*File)->Size()), .Expected = Summary.Extent});
 			}
 
 			std::array<std::byte, PackageValidationScratchBytes> Scratch{};
@@ -100,9 +101,9 @@ namespace Durin
 				const size_t Count = static_cast<size_t>(std::min<uint64>(
 					Scratch.size(), Summary.Extent - Offset));
 				auto Bytes = std::span(Scratch).first(Count);
-				if (auto Read = (*File)->ReadAt(Offset, Bytes); !Read)
+				if (auto Read = (*File)->ReadAt(reinterpret_cast<uint8*>((Bytes).data()), static_cast<int64>(std::span(Bytes).size_bytes()), static_cast<int64>(Offset)); !Read)
 				{
-					return std::unexpected(Read.error().ToString());
+					return std::unexpected(std::format("Package file read failed at offset {}.", Offset));
 				}
 				++Stats.ValidationReadCount;
 				Stats.ValidationBytesRead += Count;
@@ -263,12 +264,12 @@ namespace Durin
 			FXxHash128 Digest, const std::function<bool()>& IsCancelled)
 			-> FPreparedPackageResourceResult
 		{
-			auto File = FFileHelper::OpenRead(Path);
+			auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 			if (!File) return PreparationFailed(EPreparedStatus::IoError,
-				File.error().ToString());
-			if ((*File)->GetSize() != Extent)
+				File.error().GetMessage());
+			if ((*File)->Size() != Extent)
 				return PreparationFailed(EPreparedStatus::Stale,
-					std::format("Package closure extent changed. Path: {}. Actual: {}. Expected: {}.", Path.generic_string(), (*File)->GetSize(), Extent));
+					std::format("Package closure extent changed. Path: {}. Actual: {}. Expected: {}.", Path.generic_string(), (*File)->Size(), Extent));
 			std::array<std::byte, PackageValidationScratchBytes> Scratch{};
 			FXxHash128Builder Hash;
 			for (uint64 Offset = 0; Offset < Extent;)
@@ -278,9 +279,9 @@ namespace Durin
 						std::format("Package closure operation was cancelled. Path: {}.", Path.generic_string()));
 				auto Bytes = std::span(Scratch).first(static_cast<size_t>(
 					std::min<uint64>(Scratch.size(), Extent - Offset)));
-				if (auto Read = (*File)->ReadAt(Offset, Bytes); !Read)
+				if (auto Read = (*File)->ReadAt(reinterpret_cast<uint8*>((Bytes).data()), static_cast<int64>(std::span(Bytes).size_bytes()), static_cast<int64>(Offset)); !Read)
 					return PreparationFailed(EPreparedStatus::IoError,
-						Read.error().ToString());
+						std::format("Package file read failed at offset {}.", Offset));
 				Hash.Update(Bytes);
 				Offset += Bytes.size();
 			}
@@ -320,10 +321,13 @@ namespace Durin
 				std::format("A valid logical package identity is required. Path: {}.", PackagePath.generic_string()));
 		try
 		{
-			auto File = FFileHelper::OpenRead(PackagePath);
+			auto File = IPlatformFile::GetPlatformPhysical().OpenRead(PackagePath, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 			if (!File) return PreparationFailed(EPreparedStatus::IoError,
-				File.error().ToString());
-			const uint64 MainSize = (*File)->GetSize();
+				File.error().GetMessage());
+			const int64 FileSize = (*File)->Size();
+			if (FileSize < 0) return PreparationFailed(EPreparedStatus::IoError,
+				std::format("Cannot query package main file size: {}.", PackagePath.generic_string()));
+			const uint64 MainSize = static_cast<uint64>(FileSize);
 			if (MainSize > MaximumRetainedBytes || MainSize > std::numeric_limits<size_t>::max())
 				return PreparationFailed(EPreparedStatus::BudgetExceeded,
 					std::format("Package main file exceeds the retained byte budget. Path: {}. MainBytes: {}. MaximumBytes: {}.", PackagePath.generic_string(), MainSize, MaximumRetainedBytes));
@@ -335,9 +339,9 @@ namespace Durin
 						std::format("Package closure operation was cancelled. Path: {}.", PackagePath.generic_string()));
 				auto Chunk = std::span(Main).subspan(static_cast<size_t>(Offset),
 					static_cast<size_t>(std::min<uint64>(PackageValidationScratchBytes, MainSize - Offset)));
-				if (auto Read = (*File)->ReadAt(Offset, Chunk); !Read)
+				if (auto Read = (*File)->ReadAt(reinterpret_cast<uint8*>((Chunk).data()), static_cast<int64>(std::span(Chunk).size_bytes()), static_cast<int64>(Offset)); !Read)
 					return PreparationFailed(EPreparedStatus::IoError,
-						Read.error().ToString());
+						std::format("Package file read failed at offset {}.", Offset));
 				Offset += Chunk.size();
 			}
 			(*File).reset();
@@ -348,7 +352,7 @@ namespace Durin
 			const bool bHasBulk = std::filesystem::exists(BulkPath, Error);
 			if (!Error && bHasBulk) BulkSize = std::filesystem::file_size(BulkPath, Error);
 			if (Error) return PreparationFailed(EPreparedStatus::IoError,
-				(FFileError{EFileOperation::Inspect, Error, BulkPath}).ToString());
+				(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(BulkPath).generic_string()), Error}).GetMessage());
 			if (BulkSize > MaximumRetainedBytes - MainSize)
 				return PreparationFailed(EPreparedStatus::BudgetExceeded,
 					std::format("Package closure exceeds the retained byte budget. Path: {}. MainBytes: {}. BulkBytes: {}. MaximumBytes: {}.", PackagePath.generic_string(), MainSize, BulkSize, MaximumRetainedBytes));
@@ -432,12 +436,12 @@ namespace Durin
 			{
 				auto BulkPath = PackagePath;
 				BulkPath.replace_extension(".dbulk");
-				auto File = FFileHelper::OpenRead(BulkPath);
+				auto File = IPlatformFile::GetPlatformPhysical().OpenRead(BulkPath, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 				if (!File) return PreparationFailed(EPreparedStatus::IoError,
-					File.error().ToString());
-				if ((*File)->GetSize() != Summary.Extent)
+					File.error().GetMessage());
+				if ((*File)->Size() != Summary.Extent)
 					return PreparationFailed(EPreparedStatus::InvalidClosure,
-						std::format("Package bulk extent does not match main metadata. Path: {}. Actual: {}. Expected: {}.", BulkPath.generic_string(), (*File)->GetSize(), Summary.Extent));
+						std::format("Package bulk extent does not match main metadata. Path: {}. Actual: {}. Expected: {}.", BulkPath.generic_string(), (*File)->Size(), Summary.Extent));
 				FByteBuffer Bytes(static_cast<size_t>(Summary.Extent));
 				for (uint64 Offset = 0; Offset < Summary.Extent;)
 				{
@@ -446,9 +450,9 @@ namespace Durin
 							std::format("Package closure operation was cancelled. Path: {}.", PackagePath.generic_string()));
 					auto Chunk = std::span(Bytes).subspan(static_cast<size_t>(Offset),
 						static_cast<size_t>(std::min<uint64>(PackageValidationScratchBytes, Summary.Extent - Offset)));
-					if (auto Read = (*File)->ReadAt(Offset, Chunk); !Read)
+					if (auto Read = (*File)->ReadAt(reinterpret_cast<uint8*>((Chunk).data()), static_cast<int64>(std::span(Chunk).size_bytes()), static_cast<int64>(Offset)); !Read)
 						return PreparationFailed(EPreparedStatus::IoError,
-							Read.error().ToString());
+							std::format("Package file read failed at offset {}.", Offset));
 					Offset += Chunk.size();
 				}
 				if (auto Validation = ValidatePackageBulkDataSegment(Summary, Entries, Bytes); !Validation)
@@ -493,7 +497,7 @@ namespace Durin
 			std::error_code Error;
 			const bool bExists = std::filesystem::exists(BulkPath, Error);
 			if (Error) return PreparationFailed(EPreparedStatus::IoError,
-				(FFileError{EFileOperation::Inspect, Error, BulkPath}).ToString());
+				(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(BulkPath).generic_string()), Error}).GetMessage());
 			if (bExists) return PreparationFailed(EPreparedStatus::InvalidClosure,
 				std::format("Package has an undeclared bulk companion. Path: {}.", BulkPath.generic_string()));
 		}

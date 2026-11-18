@@ -220,7 +220,7 @@ namespace Durin
 			FindPackageExact(MaterialPath)->PhysicalPath;
 		Durin::FByteBuffer BeforeSave;
 		auto BeforeSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
-		ASSERT_TRUE(BeforeSaveRead) << BeforeSaveRead.error().ToString();
+		ASSERT_TRUE(BeforeSaveRead) << BeforeSaveRead.error().GetMessage();
 		BeforeSave = std::move(*BeforeSaveRead);
 		Durin::FMaterialEditorModule MaterialEditorModule;
 		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
@@ -239,7 +239,7 @@ namespace Durin
 		EXPECT_FALSE(LoadedMaterial->GetPackage()->IsDirty());
 		Durin::FByteBuffer AfterSave;
 		auto AfterSaveRead = FFileHelper::LoadFileToArray(MaterialFile);
-		ASSERT_TRUE(AfterSaveRead) << AfterSaveRead.error().ToString();
+		ASSERT_TRUE(AfterSaveRead) << AfterSaveRead.error().GetMessage();
 		AfterSave = std::move(*AfterSaveRead);
 		EXPECT_EQ(AfterSave, BeforeSave);
 		EXPECT_EQ(FindPackageExact(MaterialPath)

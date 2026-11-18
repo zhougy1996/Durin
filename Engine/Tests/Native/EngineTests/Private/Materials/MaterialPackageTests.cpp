@@ -306,12 +306,12 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 
 	Durin::FByteBuffer BaseBytes;
 	auto BaseBytesRead = Durin::FFileHelper::LoadFileToArray((Root / "Base.dasset"));
-	ASSERT_TRUE(BaseBytesRead) << BaseBytesRead.error().ToString();
+	ASSERT_TRUE(BaseBytesRead) << BaseBytesRead.error().GetMessage();
 	BaseBytes = std::move(*BaseBytesRead);
 
 	Durin::FByteBuffer InstanceBytes;
 	auto InstanceBytesRead = Durin::FFileHelper::LoadFileToArray((Root / "Instance.dasset"));
-	ASSERT_TRUE(InstanceBytesRead) << InstanceBytesRead.error().ToString();
+	ASSERT_TRUE(InstanceBytesRead) << InstanceBytesRead.error().GetMessage();
 	InstanceBytes = std::move(*InstanceBytesRead);
 	Durin::ObjectPackage::FLinkerTables Linker;
 	ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(InstanceBytes, {}, InstancePath, Linker));
@@ -339,7 +339,7 @@ TEST(FMaterialPackageTests, MissingInstanceCustomVersionRejectsInstanceWithoutCh
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(BasePath));
 	Durin::FByteBuffer After;
 	auto AfterRead = Durin::FFileHelper::LoadFileToArray(Root / "Base.dasset");
-	ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
+	ASSERT_TRUE(AfterRead) << AfterRead.error().GetMessage();
 	After = std::move(*AfterRead);
 	EXPECT_EQ(After, BaseBytes);
 }
@@ -369,7 +369,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 	FByteBuffer Original;
 	auto OriginalRead = FFileHelper::LoadFileToArray(Root / "Base.dasset");
-	ASSERT_TRUE(OriginalRead) << OriginalRead.error().ToString();
+	ASSERT_TRUE(OriginalRead) << OriginalRead.error().GetMessage();
 	Original = std::move(*OriginalRead);
 	ObjectPackage::FLinkerTables Saved;
 	ASSERT_TRUE(ObjectPackage::ReadPackage(Original, {}, Path, Saved));
@@ -456,7 +456,7 @@ TEST(FMaterialPackageTests, AuthoredGraphVersionsLoadAfterRestartAndFunctionsDup
 		ASSERT_NE(Data, nullptr);
 		FByteBuffer Bytes;
 		auto BytesRead = FFileHelper::LoadFileToArray(Data->PhysicalPath);
-		ASSERT_TRUE(BytesRead) << BytesRead.error().ToString();
+		ASSERT_TRUE(BytesRead) << BytesRead.error().GetMessage();
 		Bytes = std::move(*BytesRead);
 		ObjectPackage::FLinkerTables Linker;
 		ASSERT_TRUE(ObjectPackage::ReadPackage(Bytes, {}, Path, Linker));

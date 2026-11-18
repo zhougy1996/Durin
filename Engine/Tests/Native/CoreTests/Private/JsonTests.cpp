@@ -24,9 +24,9 @@ namespace
 		ASSERT_FALSE(std::filesystem::exists(Path));
 		const auto Loaded = Document.LoadFromFile(Path);
 		ASSERT_FALSE(Loaded);
-		ASSERT_TRUE(std::holds_alternative<Durin::FFileError>(Loaded.error().Cause));
-		EXPECT_EQ(std::get<Durin::FFileError>(Loaded.error().Cause).NativeError, std::errc::no_such_file_or_directory);
-		EXPECT_NE(Loaded.error().ToString().find("open for reading"), std::string::npos);
+		ASSERT_TRUE(std::holds_alternative<Durin::FFileSystemError>(Loaded.error().Cause));
+		EXPECT_EQ(std::get<Durin::FFileSystemError>(Loaded.error().Cause).NativeError, std::errc::no_such_file_or_directory);
+		EXPECT_NE(Loaded.error().ToString().find("for reading"), std::string::npos);
 		EXPECT_NE(Loaded.error().ToString().find(Path.filename().string()), std::string::npos);
 	}
 

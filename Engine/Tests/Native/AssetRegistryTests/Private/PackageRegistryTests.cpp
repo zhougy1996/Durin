@@ -253,7 +253,7 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		CacheRoot / "AssetRegistry" / "Registry.bin";
 	Durin::FByteBuffer CorruptCache;
 	auto CorruptCacheRead = Durin::FFileHelper::LoadFileToArray(CacheFile);
-	ASSERT_TRUE(CorruptCacheRead) << CorruptCacheRead.error().ToString();
+	ASSERT_TRUE(CorruptCacheRead) << CorruptCacheRead.error().GetMessage();
 	CorruptCache = std::move(*CorruptCacheRead);
 	ASSERT_GE(CorruptCache.size(), sizeof(uint32) * 2);
 	const uint32 UnknownSchema = 99;

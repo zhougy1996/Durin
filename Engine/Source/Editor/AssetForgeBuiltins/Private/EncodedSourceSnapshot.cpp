@@ -13,11 +13,11 @@ namespace Durin::AssetForge::Builtins
 		{
 		case EEncodedSourceError::None: return {};
 		case EEncodedSourceError::FileSize:
-		case EEncodedSourceError::Timestamp: return Error.FileError ? Error.FileError->ToString() : "Unable to inspect the source file.";
+		case EEncodedSourceError::Timestamp: return Error.FileError ? Error.FileError->GetMessage() : "Unable to inspect the source file.";
 		case EEncodedSourceError::Limit: return "Encoded source exceeds the configured limit.";
-		case EEncodedSourceError::Read: return Error.FileError ? Error.FileError->ToString()
+		case EEncodedSourceError::Read: return Error.FileError ? Error.FileError->GetMessage()
 			: std::format("Failed to read source file '{}'.", Error.Filename);
-		case EEncodedSourceError::Changed: return Error.FileError ? Error.FileError->ToString()
+		case EEncodedSourceError::Changed: return Error.FileError ? Error.FileError->GetMessage()
 			: "Source file changed while its snapshot was captured.";
 		}
 		return {};
@@ -29,14 +29,14 @@ namespace Durin::AssetForge::Builtins
 		FEncodedSourceError Context{.Filename = Filename, .PhysicalPath = PhysicalPath,
 			.MaximumEncodedBytes = MaximumEncodedBytes};
 		auto Fail = [&](EEncodedSourceError Code, std::error_code SystemError = {},
-			EFileOperation Operation = EFileOperation::Inspect) -> std::expected<FEncodedSourceSnapshot, FEncodedSourceError> {
+			std::string_view Operation = "inspect") -> std::expected<FEncodedSourceSnapshot, FEncodedSourceError> {
 			Context.Code = Code;
-			if (SystemError) Context.FileError = FFileError{Operation, SystemError, PhysicalPath};
+			if (SystemError) Context.FileError = FFileSystemError{std::format("Failed to {}: {}.", Operation, FFilePath(PhysicalPath).generic_string()), SystemError};
 			return std::unexpected(std::move(Context));
 		};
 		std::error_code Error;
 		const uint64 FileSize = std::filesystem::file_size(PhysicalPath, Error);
-		if (Error) return Fail(EEncodedSourceError::FileSize, Error, EFileOperation::QuerySize);
+		if (Error) return Fail(EEncodedSourceError::FileSize, Error, "query size");
 		Context.SizeBefore = FileSize;
 		if (FileSize > MaximumEncodedBytes || FileSize > static_cast<uint64>(std::numeric_limits<size_t>::max()))
 			return Fail(EEncodedSourceError::Limit);
@@ -51,7 +51,7 @@ namespace Durin::AssetForge::Builtins
 		auto Bytes = std::make_shared<FByteBuffer>(std::move(*Loaded));
 		Context.BytesRead = Bytes->size();
 		Context.SizeAfter = std::filesystem::file_size(PhysicalPath, Error);
-		if (Error) return Fail(EEncodedSourceError::Changed, Error, EFileOperation::QuerySize);
+		if (Error) return Fail(EEncodedSourceError::Changed, Error, "query size");
 		const auto TimeAfter = std::filesystem::last_write_time(PhysicalPath, Error);
 		if (Error) return Fail(EEncodedSourceError::Changed, Error);
 		if (Context.SizeAfter != FileSize || TimeAfter != LastWriteTime || Bytes->size() != FileSize)

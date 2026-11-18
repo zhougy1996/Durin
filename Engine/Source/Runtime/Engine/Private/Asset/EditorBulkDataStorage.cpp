@@ -1,7 +1,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 
 #include "Serialization/Archive.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin
 {
@@ -107,7 +107,7 @@ namespace Durin
 		case EEditorBulkDataStorageError::FileSystem: Code = "FileSystem"; break;
 		}
 		auto Error = Native.Code == EEditorBulkDataStorageError::FileSystem
-			? ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Native.SystemError, .Path = Native.Path})
+			? ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Native.Path).generic_string()), Native.SystemError})
 			: UnifiedError::FError{{"EditorBulkDataStorage", Code}, FormatEditorBulkDataStorageError(Native)};
 		Error.PushContext("object id", std::to_string(Native.ObjectId))
 			.PushContext("depth", std::to_string(Native.Depth))

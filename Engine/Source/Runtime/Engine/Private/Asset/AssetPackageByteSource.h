@@ -3,8 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Asset/PackageSchema.h"
-#include "Misc/FileHandle.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
 
@@ -24,7 +23,7 @@ namespace Durin::AssetPrivate
 	public:
 		explicit FFileAssetPackageByteSource(std::unique_ptr<IFileHandle> InHandle)
 			: Handle(std::move(InHandle)) {}
-		auto GetSize() const -> uint64 override { return Handle ? Handle->GetSize() : 0; }
+		auto GetSize() const -> uint64 override { return Handle ? Handle->Size() : 0; }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool override
 		{
@@ -34,9 +33,9 @@ namespace Durin::AssetPrivate
 				if (OutError) OutError->emplace(PackageReadErrors::IoError, "Package byte source has no file handle.");
 				return false;
 			}
-			auto Read = Handle->ReadAt(Offset, Output);
-			if (!Read && OutError) *OutError = ToError(Read.error());
-			return Read.has_value();
+			auto Read = Handle->ReadAt(reinterpret_cast<uint8*>((Output).data()), static_cast<int64>(std::span(Output).size_bytes()), static_cast<int64>(Offset));
+			if (!Read && OutError) *OutError = UnifiedError::FError{PackageReadErrors::IoError, std::format("Package file read failed at offset {}, size {}.", Offset, Output.size_bytes())};
+			return Read;
 		}
 	private:
 		std::unique_ptr<IFileHandle> Handle;
@@ -47,14 +46,14 @@ namespace Durin::AssetPrivate
 	public:
 		explicit FBorrowedFileAssetPackageByteSource(IFileHandle& InHandle)
 			: Handle(InHandle) {}
-		auto GetSize() const -> uint64 override { return Handle.GetSize(); }
+		auto GetSize() const -> uint64 override { return Handle.Size(); }
 		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::optional<UnifiedError::FError>* OutError = nullptr) -> bool override
 		{
 			if (OutError) OutError->reset();
-			auto Read = Handle.ReadAt(Offset, Output);
-			if (!Read && OutError) *OutError = ToError(Read.error());
-			return Read.has_value();
+			auto Read = Handle.ReadAt(reinterpret_cast<uint8*>((Output).data()), static_cast<int64>(std::span(Output).size_bytes()), static_cast<int64>(Offset));
+			if (!Read && OutError) *OutError = UnifiedError::FError{PackageReadErrors::IoError, std::format("Package file read failed at offset {}, size {}.", Offset, Output.size_bytes())};
+			return Read;
 		}
 	private:
 		IFileHandle& Handle;

@@ -442,7 +442,7 @@ namespace
 			/ FixtureName / "Component.dasset";
 		Durin::FByteBuffer FixtureBytes;
 		auto FixtureBytesRead = Durin::FFileHelper::LoadFileToArray(FixturePath);
-		ASSERT_TRUE(FixtureBytesRead) << FixtureBytesRead.error().ToString();
+		ASSERT_TRUE(FixtureBytesRead) << FixtureBytesRead.error().GetMessage();
 		FixtureBytes = std::move(*FixtureBytesRead);
 		Durin::ObjectPackage::FLinkerTables ComponentLinker;
 		ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
@@ -480,7 +480,7 @@ namespace
 		EXPECT_EQ(Loaded->GetMaterial(1)->GetPackage()->GetPackagePath(), SecondMaterialPath.ToString());
 		ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
 		auto FixtureBytesRead2 = Durin::FFileHelper::LoadFileToArray(FixturePath);
-		ASSERT_TRUE(FixtureBytesRead2) << FixtureBytesRead2.error().ToString();
+		ASSERT_TRUE(FixtureBytesRead2) << FixtureBytesRead2.error().GetMessage();
 		FixtureBytes = std::move(*FixtureBytesRead2);
 		ASSERT_TRUE(Durin::ObjectPackage::ReadPackage(FixtureBytes, {}, ComponentPath, ComponentLinker));
 		EXPECT_FALSE(ContainsSerializedField(ComponentLinker, "OverrideMaterials_DEPRECATED"));

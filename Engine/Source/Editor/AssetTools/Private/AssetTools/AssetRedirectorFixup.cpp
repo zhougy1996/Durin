@@ -14,7 +14,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -77,8 +77,7 @@ namespace Durin
 			{
 				if (!ErrorCode || ErrorCode == std::errc::no_such_file_or_directory)
 					return true;
-				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect,
-					.NativeError = ErrorCode, .Path = BulkPath}));
+				return Reject(OutError, ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(BulkPath).generic_string()), ErrorCode}));
 			}
 			{
 				auto Prepared = LoadRelocationBytes(BulkPath, OutBytes);

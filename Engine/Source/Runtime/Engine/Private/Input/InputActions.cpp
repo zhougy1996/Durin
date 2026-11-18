@@ -304,7 +304,7 @@ namespace Durin
 			Stream << std::quoted(Key.first) << ' ' << std::quoted(Key.second) << ' ' << static_cast<unsigned>(Source.Kind) << ' ' << Source.Code << '\n';
 		const std::string Text = Stream.str();
 		if (auto FileError = FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), Path); !FileError)
-			return {EInputBindingError::WriteFailed, FileError.error().ToString()};
+			return {EInputBindingError::WriteFailed, FileError.error().GetMessage()};
 		return {};
 	}
 
@@ -315,7 +315,7 @@ namespace Durin
 		if (FileError) return {EInputBindingError::ReadFailed, "Cannot read input overrides: " + Path.string() + ": " + FileError.message()};
 		if (Size > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB: " + Path.string()};
 		auto Text = FFileHelper::LoadFileToString(Path);
-		if (!Text) return {EInputBindingError::ReadFailed, Text.error().ToString()};
+		if (!Text) return {EInputBindingError::ReadFailed, Text.error().GetMessage()};
 		if (Text->size() > 1024 * 1024) return {EInputBindingError::InvalidFile, "Input override file exceeds 1 MiB."};
 		std::istringstream Stream(std::move(*Text));
 		std::string Header;

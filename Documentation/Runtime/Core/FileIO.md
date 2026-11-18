@@ -1,10 +1,10 @@
 # File I/O
 
-Summary: Define physical-path validation, byte I/O, and atomic file-publication behavior.
+Summary: Define physical-path validation, directory traversal, byte I/O, and atomic file-publication behavior.
 
 Modules: Core
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-11-18
 
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
@@ -13,29 +13,38 @@ paths and atomic byte publication.
 
 `Misc/FilePath.h` defines `Durin::FFilePath` as an alias of
 `std::filesystem::path` for physical paths, not mounted or asset identities.
-`Misc/FileHelper.h` defines the file-operation functions in `Durin::FFileHelper`.
-The old bool/output-parameter overloads and the transitional `FFileIO` namespace
-have been removed. `Misc/FileError.h` defines `Durin::FFileError` and
-`Durin::EFileOperation`; `Misc/FileHandle.h` defines `Durin::IFileHandle`.
-These shared types live outside the helper namespace so diagnostics and byte
-readers can depend on their contracts without importing the operation API.
-Operations return
-`std::expected<T, FFileError>`; writes and exact range reads use `void` as `T`.
-Errors preserve the operation, system error category/code, physical path and,
-where applicable, a related path and byte range. `ToString()` formats diagnostic
-text without logging. Callers own severity, recovery and final presentation.
+`HAL/FileManager.h` provides `IFileManager::Get()` for file and directory queries,
+creation, and traversal. `Misc/FileHelper.h` provides whole-file byte operations
+and the existing diagnostic read/write interfaces in `Durin::FFileHelper`.
+`HAL/PlatformFile.h` exposes `FFileSystemError`, `IFileHandle`, and
+`FFileOpenResult` from `GenericPlatform/GenericPlatformFile.h`. The old
+`FFileError`, `EFileOperation`, and standalone file-error/handle headers are
+removed. `FFileSystemError` owns a diagnostic message and a native
+`std::error_code`; `GetMessage()` formats them without logging. Path and range
+context belongs in the message, not separate public fields. `ToError()` converts
+the diagnostic at a business boundary. Callers use native error codes, not text,
+for recovery decisions.
+
+Whole-file helpers retain value-returning `std::expected<T, FFileSystemError>`;
+writes use `void`. They do not add parallel bool/output-parameter overloads.
+This differs from UE's legacy synchronous helper signatures while matching the
+value-or-error shape of its modern file-open interfaces.
 
 Ordinary reads and writes do not retry. Whole-file reads return bytes only on
 success; `ReadAt` can modify part of the caller's buffer before failure. Text
 loads preserve exact bytes, including embedded NULs. Hashing uses bounded memory.
-`FileExists` returns a successful `false` for a missing path; its result's bool
-conversion means the query succeeded, not that the path exists.
+`IFileManager::FileExists` returns `bool` and excludes directories;
+`DirectoryExists` tests directories. Both return `false` on query failure.
+`FileSize` returns `-1` on failure. `MakeDirectory(Path, Tree)` creates one
+directory or the parent chain and succeeds for an existing directory.
+Consumers needing to distinguish absence from access failures should attempt
+the actual read and inspect its native error, as Cook manifest loading does.
 
 `LoadFileToArray(Path, FFileReadOptions)` checks the opened handle's size before
 allocating. `MaximumBytes` bounds the allocation; optional `ExpectedBytes`
-rejects a changed size. Both return `QuerySize` errors: `file_too_large` for a
-limit and `message_size` for a size mismatch (checked first). Exact reads preserve
-ordinary I/O causes. Content hash verification, aggregate closure budgets and
+rejects a changed size. Both return native error codes: `file_too_large` for a
+limit and `message_size` for a size mismatch (checked first). Open failures preserve native causes; post-open read failures report contextual
+I/O errors. Content hash verification, aggregate closure budgets and
 cancellation remain caller-owned; a successful size check is not proof of an
 immutable file generation.
 
@@ -50,14 +59,14 @@ No disk-durability guarantee is added to ordinary writes.
 
 JSON/YAML `Parse` returns `expected<void, FJsonParseError/FYamlParseError>`.
 `LoadFromFile` accepts `FFilePath` and returns a load error whose `Cause` is a
-variant of `FFileError` and the corresponding parse error. Callers can inspect
-the native missing-file code without parsing diagnostic text; `ToString()`
+variant of `FFileSystemError` and the corresponding parse error. Callers can inspect
+the native missing-file code without parsing diagnostic text; The load error's `ToString()`
 formats either cause, including source coordinates for parse failures. A read
 failure preserves the previous document; a parse failure invalidates it.
 
-`FFileFingerprintCache::Get` returns `expected<FFileFingerprint, FFileError>`;
+`FFileFingerprintCache::Get` returns `expected<FFileFingerprint, FFileSystemError>`;
 successful cached and freshly computed fingerprints have the same value shape.
-Its reuse API returns `expected<EFileFingerprintReuseStatus, FFileError>`:
+Its reuse API returns `expected<EFileFingerprintReuseStatus, FFileSystemError>`:
 current and stale are successful inspections, while failed checks retain their
 native cause. Source capture returns
 `expected<FEncodedSourceSnapshot, FEncodedSourceError>` and
@@ -78,6 +87,44 @@ result value: request readiness, binding, cancellation and waiting remain on
 needs it. Rejected waits remain caller-local failures and do not change the
 eventual request outcome.
 
+## Directory Traversal
+
+`IFileManager::Get().IterateDirectory` enumerates immediate children;
+`IterateDirectoryRecursively` also enumerates accepted directories. Both accept
+`IPlatformFile::FDirectoryVisitor&` or a synchronous callable and return `bool`.
+Names, ownership, and simple return shapes follow UE's file interfaces;
+physical paths remain `FFilePath`, and callables use `std::function`.
+The manager delegates to `IPlatformFile::GetPlatformPhysical()`. The platform
+interface owns physical queries and single-directory enumeration; its shared
+recursive implementation uses the single-directory operation.
+
+`ShouldVisitLeafPathname(std::string_view)` runs before entry metadata queries.
+Returning `false` skips the entry and its subtree. `Visit(const FFilePath&, bool)`
+returns `true` to continue or `false` to stop the whole traversal. The root itself
+is not visited. Callbacks run on the calling thread with normalized absolute
+paths; enumeration order is unspecified. Dot entries, extensions, and generated
+folder exclusions remain caller policy. There is no optional-root flag; callers
+such as shader policy scans decide which roots are optional.
+
+A missing or non-directory root returns `false`; visitor termination also returns
+`false`. Existing directories that cannot be enumerated are skipped when their
+existence can be established. Disappearing or inaccessible descendant entries
+and iterator failures stop only the affected entry/directory, allowing remaining
+directories to be scanned. `true` means traversal was not stopped, not proof of
+an exhaustive filesystem snapshot. Unlike the previous helper API, Core does
+not collect an error vector or prioritize errors over visitor termination.
+
+Traversal retains Durin's no-link policy: symbolic links and Windows reparse
+points, including junctions, are skipped without callbacks or recursion, also
+when supplied as the root. This is not full UE link-behavior parity. Ancestors
+of the supplied root are not checked; callers requiring an ancestor policy must
+validate them. This API is not a security boundary.
+
+The current manager is a focused subset of UE's API. Archive readers/writers,
+copy/move/delete, stat visitors, and a replaceable platform-file chain are not
+introduced by this change. Existing random reads and atomic publication remain
+under their documented contracts below.
+
 ## Mounted Path Results
 
 `FMountPaths` lookup, resolution/classification, and dependency checks return
@@ -93,26 +140,39 @@ Startup registry publication/default configuration still exposes its existing
 boolean and textual diagnostic adapter. Its callers display configuration
 errors; they do not branch on generated strings.
 
-## Synchronous Random Reads
+## Platform Read/Write Handles
 
-`FFileHelper::OpenRead()` returns an expected, uniquely owned `IFileHandle` for a
-physical path. The handle captures its size from the opened native resource and
-closes that resource on destruction. `ReadAt()` is an exact synchronous read:
-it fills the complete destination span or fails, rejects overflow and ranges
-past the captured size before issuing I/O, and accepts an empty range at any
-offset through `GetSize()`. Calls expose no mutable stream cursor. The initial
-contract requires callers to serialize access to one handle; consumers that
-need concurrent reads open independent handles.
+`IPlatformFile::OpenRead(Path, EOpenReadFlags)` and
+`OpenWrite(Path, EOpenWriteFlags)` return `FFileOpenResult`, an expected uniquely
+owned `IFileHandle` or `FFileSystemError`. There is no `FFileHelper::OpenRead`
+forwarder or legacy bool-argument opening overload. Destroying the handle closes
+its native resource. Opens do not create parent directories; whole-file save
+helpers retain that responsibility.
 
-`FFileError` reports open, size-query, and read failures with the same structured
-contract as file publication, including the normalized path and requested extent. The
-handle is a low-level byte capability, not an asynchronous request, immutable
-snapshot guarantee, package resource, or cancellation owner. Higher layers
-bound individual reads, check their own cancellation token, and compare
-before/after file metadata when stable snapshot semantics are required.
+Read flags are `None`, `AllowWrite`, `AllowDelete`, and `NoBuffering`; write flags
+are `None`, `AllowRead`, and `Append`. Windows enforces sharing flags.
+`NoBuffering` uses native Windows alignment requirements and currently reports
+`operation_not_supported` on other platforms. Migrated readers and whole-file
+helpers explicitly retain their previous write/delete sharing.
 
-Complete-buffer loads and incremental XXH128 hashing use this handle while
-retaining their existing result and bounded-memory contracts.
+The handle follows UE names and parameter order: `Tell`, `Seek`, `SeekFromEnd`,
+`Size`, `Read`, `ReadAt(Destination, Count, Offset)`, `Write`, `Flush`, and
+`Truncate`. Positions and sizes use `int64`; operations return `bool`, with `-1`
+for failed position/size queries. `Size()` queries the open file, not a path or
+cached snapshot. Append starts at the current end without truncating the file;
+it is not a concurrent append transaction. `AllowRead` permits reads through a
+write handle. Ordinary writes do not promise durable storage.
+
+Reads are exact; failures can modify part of the buffer. `ReadAt` rejects invalid
+ranges before reading and restores the cursor. Empty reads at EOF succeed.
+Callers serialize handle access; no thread-safety or immutable snapshot guarantee
+is added. Post-open boolean failures are translated to contextual I/O errors by
+whole-file or package adapters; they do not carry the removed operation enum.
+`Flush(true)` requests native full flushing. Exclusive creation and atomic
+publication keep their stronger flush/close and cleanup rules below.
+
+Complete-buffer loads and bounded-memory hashing use the same platform handles;
+they do not maintain a second native reader or stdio writer implementation.
 
 ## Physical Path Contract
 
@@ -178,15 +238,16 @@ atomic temporaries are recovery state, not submitted content.
 
 ## Diagnostics
 
-Atomic publication failures identify the failed operation, native error code,
-and normalized destination. Their formatted diagnostics include total path
-length and longest component length. Callers should preserve the returned error
-rather than replace it with a generic write failure.
+Atomic publication errors include native causes and relevant paths in their
+messages. Callers preserve that diagnostic rather than substituting a generic
+write failure. Temporary-file ownership is explicit internal state; cleanup and
+retry decisions do not depend on a diagnostic operation identifier. Only a file
+created by the current operation is eligible for failure cleanup.
 
-A long total path with ordinary components is supported on a configured Windows
-host. An overlong component remains unsupported and should be diagnosed using
-the reported component length. Missing host policy is a build prerequisite
-failure, not a reason for runtime code to modify the registry or Group Policy.
+Long total paths with ordinary components are supported on configured Windows
+hosts; overlong individual components remain unsupported. File diagnostics no
+longer calculate path-length metrics for every failure. Missing host policy is
+a build prerequisite failure, not a reason to modify system configuration.
 
 ## Related Documentation
 

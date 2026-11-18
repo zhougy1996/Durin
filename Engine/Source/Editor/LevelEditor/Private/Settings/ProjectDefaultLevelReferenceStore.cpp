@@ -7,7 +7,7 @@
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Misc/FileHelper.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Project/Project.h"
 
 namespace Durin::LevelEditor
@@ -67,8 +67,7 @@ namespace Durin::LevelEditor
 			OutState.bFileExists = std::filesystem::exists(
 				OutState.SettingsFile, ExistsError);
 			if (ExistsError)
-				return std::unexpected(ToError(FFileError{.Operation = EFileOperation::Inspect,
-					.NativeError = ExistsError, .Path = OutState.SettingsFile}));
+				return std::unexpected(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(OutState.SettingsFile).generic_string()), ExistsError}));
 			if (!OutState.bFileExists)
 			{
 				OutState.Fingerprint = MakeFingerprint(
@@ -172,8 +171,7 @@ namespace Durin::LevelEditor
 			| std::filesystem::perms::group_write
 			| std::filesystem::perms::others_write;
 		if (StatusError)
-			return std::unexpected(ToError(FFileError{.Operation = EFileOperation::Inspect,
-				.NativeError = StatusError, .Path = PreState.SettingsFile}));
+			return std::unexpected(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(PreState.SettingsFile).generic_string()), StatusError}));
 		if ((Permissions & WritePermissions)
 			== std::filesystem::perms::none)
 			return StoreError(

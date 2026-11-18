@@ -1,7 +1,7 @@
 #include "AssetTools/AssetRenameReferences.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Misc/FileTime.h"
 #include "Asset/AssetWriteResult.h"
 

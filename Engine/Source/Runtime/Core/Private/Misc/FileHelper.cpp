@@ -7,157 +7,18 @@
 #include <unistd.h>
 #endif
 
-namespace Durin
-{
-	namespace
-	{
-		auto FileOperationName(EFileOperation Operation) -> std::string_view
-		{
-			switch (Operation)
-			{
-			case EFileOperation::NormalizePath: return "normalize path";
-			case EFileOperation::Inspect: return "inspect";
-			case EFileOperation::OpenRead: return "open for reading";
-			case EFileOperation::QuerySize: return "query size";
-			case EFileOperation::Read: return "read";
-			case EFileOperation::CreateParentDirectories: return "create parent directories";
-			case EFileOperation::OpenWrite: return "open for writing";
-			case EFileOperation::Write: return "write";
-			case EFileOperation::Close: return "close";
-			case EFileOperation::CreateTemporaryFile: return "create temporary file";
-			case EFileOperation::WriteTemporaryFile: return "write temporary file";
-			case EFileOperation::FlushTemporaryFile: return "flush temporary file";
-			case EFileOperation::CloseTemporaryFile: return "close temporary file";
-			case EFileOperation::ReplaceDestination: return "replace destination";
-			case EFileOperation::Rename: return "rename";
-			case EFileOperation::Remove: return "remove";
-			case EFileOperation::QueryTime: return "query modification time";
-			}
-			return "unknown";
-		}
-	}
-	auto FFileError::ToString() const -> std::string
-	{
-		const auto Name = FileOperationName(Operation);
-		size_t Longest = 0;
-		for (const auto& Component : Path) Longest = std::max(Longest, Component.native().size());
-		auto Message = std::format("File I/O failed to {}: {} ({}:{}: {}; path length {}, longest component {}).",
-			Name, Path.generic_string(), NativeError.category().name(), NativeError.value(),
-			NativeError.message(), Path.native().size(), Longest);
-		if (!RelatedPath.empty()) Message += std::format(" Related path: {}.", RelatedPath.generic_string());
-		if (Range) Message += std::format(" Offset: {}, size: {}.", Range->Offset, Range->Size);
-		return Message;
-	}
-	auto ToError(const FFileError& File) -> UnifiedError::FError
-	{
-		auto Error = UnifiedError::FError{{"File", "IoError"}, File.NativeError.message()};
-		Error.PushContext("file", File.Path.generic_string())
-			.PushContext("file operation", std::string(FileOperationName(File.Operation)))
-			.PushContext("system category", File.NativeError.category().name())
-			.PushContext("system code", std::to_string(File.NativeError.value()));
-		if (!File.RelatedPath.empty()) Error.PushContext("related file", File.RelatedPath.generic_string());
-		if (File.Range) Error.PushContext("offset", std::to_string(File.Range->Offset))
-			.PushContext("size", std::to_string(File.Range->Size));
-		return Error;
-	}
-
-}
-
 namespace Durin::FFileHelper
 {
 	namespace
 	{
-		auto Normalize(const FFilePath& Path) -> std::expected<FFilePath, FFileError>
+		auto Normalize(const FFilePath& Path) -> std::expected<FFilePath, FFileSystemError>
 		{
 			std::error_code Error;
 			auto Absolute = std::filesystem::absolute(Path, Error);
-			if (Error) return std::unexpected(FFileError{EFileOperation::NormalizePath, Error, Path});
+			if (Error) return std::unexpected(FFileSystemError{std::format("Failed to normalize path: {}.", FFilePath(Path).generic_string()), Error});
 			return Absolute.lexically_normal();
 		}
 
-#if defined(_WIN32)
-		class FNativeFileHandle final : public IFileHandle
-		{
-		public:
-			FNativeFileHandle(HANDLE InHandle, uint64 InSize, std::filesystem::path InPath)
-				: Handle(InHandle), Size(InSize), Path(std::move(InPath)) {}
-			~FNativeFileHandle() override { if (Handle != INVALID_HANDLE_VALUE) CloseHandle(Handle); }
-			auto GetSize() const -> uint64 override { return Size; }
-			auto ReadAt(uint64 Offset, FMutableByteView Output) -> std::expected<void, FFileError> override
-			{
-				if (Offset > Size || Output.size_bytes() > Size - Offset)
-				{
-					return std::unexpected(FFileError{EFileOperation::Read,
-						std::make_error_code(std::errc::result_out_of_range), Path, {}, FFileError::FRange{Offset, Output.size_bytes()}});
-				}
-				if (Output.empty()) return {};
-				LARGE_INTEGER Position; Position.QuadPart = static_cast<LONGLONG>(Offset);
-				if (!SetFilePointerEx(Handle, Position, nullptr, FILE_BEGIN))
-				{
-					return std::unexpected(FFileError{EFileOperation::Read,
-						{static_cast<int>(GetLastError()), std::system_category()}, Path, {}, FFileError::FRange{Offset, Output.size_bytes()}});
-				}
-				size_t Complete = 0;
-				while (Complete < Output.size_bytes())
-				{
-					const DWORD Requested = static_cast<DWORD>(std::min<size_t>(
-						Output.size_bytes() - Complete, MAXDWORD));
-					DWORD Read = 0;
-					if (!ReadFile(Handle, Output.data() + Complete, Requested, &Read, nullptr)
-						|| Read != Requested)
-					{
-						const DWORD Native = GetLastError();
-						return std::unexpected(FFileError{EFileOperation::Read,
-							{static_cast<int>(Native == ERROR_SUCCESS ? ERROR_HANDLE_EOF : Native),
-								std::system_category()}, Path, {}, FFileError::FRange{Offset + Complete, Output.size_bytes() - Complete}});
-					}
-					Complete += Read;
-				}
-				return {};
-			}
-		private:
-			HANDLE Handle = INVALID_HANDLE_VALUE;
-			uint64 Size = 0;
-			std::filesystem::path Path;
-		};
-#else
-		class FNativeFileHandle final : public IFileHandle
-		{
-		public:
-			FNativeFileHandle(int InFile, uint64 InSize, std::filesystem::path InPath)
-				: File(InFile), Size(InSize), Path(std::move(InPath)) {}
-			~FNativeFileHandle() override { if (File >= 0) close(File); }
-			auto GetSize() const -> uint64 override { return Size; }
-			auto ReadAt(uint64 Offset, FMutableByteView Output) -> std::expected<void, FFileError> override
-			{
-				if (Offset > Size || Output.size_bytes() > Size - Offset
-					|| Offset > static_cast<uint64>(std::numeric_limits<off_t>::max()))
-				{
-					return std::unexpected(FFileError{EFileOperation::Read,
-						std::make_error_code(std::errc::result_out_of_range), Path, {}, FFileError::FRange{Offset, Output.size_bytes()}});
-				}
-				size_t Complete = 0;
-				while (Complete < Output.size_bytes())
-				{
-					const size_t Requested = std::min<size_t>(Output.size_bytes() - Complete,
-						static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
-					const ssize_t Read = pread(File, Output.data() + Complete, Requested,
-						static_cast<off_t>(Offset + Complete));
-					if (Read <= 0)
-					{
-						return std::unexpected(FFileError{EFileOperation::Read,
-							{Read == 0 ? EIO : errno, std::system_category()}, Path, {}, FFileError::FRange{Offset + Complete, Output.size_bytes() - Complete}});
-					}
-					Complete += static_cast<size_t>(Read);
-				}
-				return {};
-			}
-		private:
-			int File = -1;
-			uint64 Size = 0;
-			std::filesystem::path Path;
-		};
-#endif
 
 		auto MakeTemporaryPath(const std::filesystem::path& Destination) -> std::filesystem::path
 		{
@@ -173,11 +34,12 @@ namespace Durin::FFileHelper
 		}
 
 #if defined(_WIN32)
-		auto WriteTemporaryFile(
+		auto WriteNewFile(
 			const std::filesystem::path& TemporaryPath,
-			FByteView Array
-		) -> std::expected<void, FFileError>
+			FByteView Array, bool& bCreated
+		) -> std::expected<void, FFileSystemError>
 		{
+			bCreated = false;
 			const HANDLE File = CreateFileW(
 				TemporaryPath.c_str(),
 				GENERIC_WRITE,
@@ -189,10 +51,10 @@ namespace Durin::FFileHelper
 			);
 			if (File == INVALID_HANDLE_VALUE)
 			{
-				return std::unexpected(FFileError{EFileOperation::CreateTemporaryFile,
-					{static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath});
+				return std::unexpected(FFileSystemError{std::format("Failed to create temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {static_cast<int>(GetLastError()), std::system_category()}});
 			}
 
+			bCreated = true;
 			size_t Offset = 0;
 			while (Offset < Array.size_bytes())
 			{
@@ -202,8 +64,7 @@ namespace Durin::FFileHelper
 				{
 					const DWORD Error = GetLastError();
 					CloseHandle(File);
-					return std::unexpected(FFileError{EFileOperation::WriteTemporaryFile,
-						{static_cast<int>(Error), std::system_category()}, TemporaryPath});
+					return std::unexpected(FFileSystemError{std::format("Failed to write temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {static_cast<int>(Error), std::system_category()}});
 				}
 				Offset += BytesWritten;
 			}
@@ -212,29 +73,28 @@ namespace Durin::FFileHelper
 			{
 				const DWORD Error = GetLastError();
 				CloseHandle(File);
-				return std::unexpected(FFileError{EFileOperation::FlushTemporaryFile,
-					{static_cast<int>(Error), std::system_category()}, TemporaryPath});
+				return std::unexpected(FFileSystemError{std::format("Failed to flush temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {static_cast<int>(Error), std::system_category()}});
 			}
 			if (!CloseHandle(File))
 			{
-				return std::unexpected(FFileError{EFileOperation::CloseTemporaryFile,
-					{static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath});
+				return std::unexpected(FFileSystemError{std::format("Failed to close temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {static_cast<int>(GetLastError()), std::system_category()}});
 			}
 			return {};
 		}
 #else
-		auto WriteTemporaryFile(
+		auto WriteNewFile(
 			const std::filesystem::path& TemporaryPath,
-			FByteView Array
-		) -> std::expected<void, FFileError>
+			FByteView Array, bool& bCreated
+		) -> std::expected<void, FFileSystemError>
 		{
+			bCreated = false;
 			const int File = open(TemporaryPath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
 			if (File == -1)
 			{
-				return std::unexpected(FFileError{EFileOperation::CreateTemporaryFile,
-					{errno, std::system_category()}, TemporaryPath});
+				return std::unexpected(FFileSystemError{std::format("Failed to create temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {errno, std::system_category()}});
 			}
 
+			bCreated = true;
 			size_t Offset = 0;
 			while (Offset < Array.size_bytes())
 			{
@@ -243,8 +103,7 @@ namespace Durin::FFileHelper
 				{
 					const int Error = errno;
 					close(File);
-					return std::unexpected(FFileError{EFileOperation::WriteTemporaryFile,
-						{Error, std::system_category()}, TemporaryPath});
+					return std::unexpected(FFileSystemError{std::format("Failed to write temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {Error, std::system_category()}});
 				}
 				Offset += static_cast<size_t>(BytesWritten);
 			}
@@ -253,188 +112,115 @@ namespace Durin::FFileHelper
 			{
 				const int Error = errno;
 				close(File);
-				return std::unexpected(FFileError{EFileOperation::FlushTemporaryFile,
-					{Error, std::system_category()}, TemporaryPath});
+				return std::unexpected(FFileSystemError{std::format("Failed to flush temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {Error, std::system_category()}});
 			}
 			if (close(File) != 0)
 			{
-				return std::unexpected(FFileError{EFileOperation::CloseTemporaryFile,
-					{errno, std::system_category()}, TemporaryPath});
+				return std::unexpected(FFileSystemError{std::format("Failed to close temporary file: {}.", FFilePath(TemporaryPath).generic_string()), {errno, std::system_category()}});
 			}
 			return {};
 		}
 #endif
 		template<typename T>
-		auto Load(const FFilePath& Path) -> std::expected<T, FFileError>
+		auto Load(const FFilePath& Path) -> std::expected<T, FFileSystemError>
 		{
-			auto File = OpenRead(Path);
+			auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 			if (!File) return std::unexpected(std::move(File.error()));
 			T Bytes;
-			const uint64 Size = (*File)->GetSize();
+			const int64 FileSize = (*File)->Size();
+			if (FileSize < 0) return std::unexpected(FFileSystemError{std::format("Cannot query file size: {}.", Path.generic_string()), std::make_error_code(std::errc::io_error)});
+			const uint64 Size = static_cast<uint64>(FileSize);
 			if (Size > Bytes.max_size())
-				return std::unexpected(FFileError{EFileOperation::QuerySize,
-					std::make_error_code(std::errc::file_too_large), Path});
+				return std::unexpected(FFileSystemError{std::format("Failed to query size: {}.", FFilePath(Path).generic_string()), std::make_error_code(std::errc::file_too_large)});
 			Bytes.resize(static_cast<size_t>(Size));
-			auto Read = (*File)->ReadAt(0, std::as_writable_bytes(std::span(Bytes)));
-			if (!Read) return std::unexpected(std::move(Read.error()));
+			auto Read = (*File)->Read(reinterpret_cast<uint8*>(Bytes.data()), static_cast<int64>(Size));
+			if (!Read) return std::unexpected(FFileSystemError{std::format("Cannot read file: {}.", Path.generic_string()), std::make_error_code(std::errc::io_error)});
 			return Bytes;
 		}
 	}
 
-	auto OpenRead(const FFilePath& FilePath) -> std::expected<std::unique_ptr<IFileHandle>, FFileError>
-	{
-		auto Absolute = Normalize(FilePath);
-		if (!Absolute) return std::unexpected(std::move(Absolute.error()));
-		const auto& Path = *Absolute;
-#if defined(_WIN32)
-		const HANDLE File = CreateFileW(Path.c_str(), GENERIC_READ,
-			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-			FILE_ATTRIBUTE_NORMAL, nullptr);
-		if (File == INVALID_HANDLE_VALUE)
-		{
-			return std::unexpected(FFileError{EFileOperation::OpenRead,
-				{static_cast<int>(GetLastError()), std::system_category()}, Path});
-		}
-		LARGE_INTEGER Size;
-		if (!GetFileSizeEx(File, &Size) || Size.QuadPart < 0)
-		{
-			const DWORD Error = GetLastError(); CloseHandle(File);
-			return std::unexpected(FFileError{EFileOperation::QuerySize,
-				{static_cast<int>(Error), std::system_category()}, Path});
-		}
-		return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Size.QuadPart), Path);
-#else
-		const int File = open(Path.c_str(), O_RDONLY);
-		if (File == -1)
-		{
-			return std::unexpected(FFileError{EFileOperation::OpenRead,
-				{errno, std::system_category()}, Path});
-		}
-		struct stat Status{};
-		if (fstat(File, &Status) != 0 || Status.st_size < 0)
-		{
-			const int Error = errno; close(File);
-			return std::unexpected(FFileError{EFileOperation::QuerySize,
-				{Error, std::system_category()}, Path});
-		}
-		return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Status.st_size), Path);
-#endif
-	}
-
-	auto FileExists(const FFilePath& Path) -> std::expected<bool, FFileError>
-	{
-		auto Absolute = Normalize(Path);
-		if (!Absolute) return std::unexpected(std::move(Absolute.error()));
-#if defined(_WIN32)
-		if (GetFileAttributesW(Absolute->c_str()) != INVALID_FILE_ATTRIBUTES) return true;
-		const DWORD NativeError = GetLastError();
-		if (NativeError == ERROR_FILE_NOT_FOUND || NativeError == ERROR_PATH_NOT_FOUND) return false;
-		return std::unexpected(FFileError{EFileOperation::Inspect,
-			{static_cast<int>(NativeError), std::system_category()}, *Absolute});
-#else
-		std::error_code Error;
-		const bool Exists = std::filesystem::exists(*Absolute, Error);
-		if (Error) return std::unexpected(FFileError{EFileOperation::Inspect, Error, *Absolute});
-		return Exists;
-#endif
-	}
-
-	auto LoadFileToArray(const FFilePath& Path) -> std::expected<FByteBuffer, FFileError>
+	auto LoadFileToArray(const FFilePath& Path) -> std::expected<FByteBuffer, FFileSystemError>
 	{
 		return Load<FByteBuffer>(Path);
 	}
 
-	auto LoadFileToArray(const FFilePath& Path, FFileReadOptions Options) -> std::expected<FByteBuffer, FFileError>
+	auto LoadFileToArray(const FFilePath& Path, FFileReadOptions Options) -> std::expected<FByteBuffer, FFileSystemError>
 	{
-		auto File = OpenRead(Path);
+		auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 		if (!File) return std::unexpected(std::move(File.error()));
-		const uint64 Size = (*File)->GetSize();
+		const int64 FileSize = (*File)->Size();
+		if (FileSize < 0) return std::unexpected(FFileSystemError{std::format("Cannot query file size: {}.", Path.generic_string()), std::make_error_code(std::errc::io_error)});
+		const uint64 Size = static_cast<uint64>(FileSize);
 		if (Options.ExpectedBytes && Size != *Options.ExpectedBytes)
-			return std::unexpected(FFileError{EFileOperation::QuerySize,
-				std::make_error_code(std::errc::message_size), Path, {}, FFileError::FRange{0, Size}});
+			return std::unexpected(FFileSystemError{std::format("Failed to query size: {}. Offset: {}, size: {}.", FFilePath(Path).generic_string(), 0, Size), std::make_error_code(std::errc::message_size)});
 		if (Size > Options.MaximumBytes || Size > FByteBuffer{}.max_size())
-			return std::unexpected(FFileError{EFileOperation::QuerySize,
-				std::make_error_code(std::errc::file_too_large), Path, {}, FFileError::FRange{0, Size}});
+			return std::unexpected(FFileSystemError{std::format("Failed to query size: {}. Offset: {}, size: {}.", FFilePath(Path).generic_string(), 0, Size), std::make_error_code(std::errc::file_too_large)});
 		FByteBuffer Bytes(static_cast<size_t>(Size));
-		if (auto Read = (*File)->ReadAt(0, Bytes); !Read) return std::unexpected(std::move(Read.error()));
+		if (auto Read = (*File)->Read(reinterpret_cast<uint8*>(Bytes.data()), static_cast<int64>(Size)); !Read) return std::unexpected(FFileSystemError{std::format("Cannot read file: {}.", Path.generic_string()), std::make_error_code(std::errc::io_error)});
 		return Bytes;
 	}
 
-	auto LoadFileToString(const FFilePath& Path) -> std::expected<std::string, FFileError>
+	auto LoadFileToString(const FFilePath& Path) -> std::expected<std::string, FFileSystemError>
 	{
 		return Load<std::string>(Path);
 	}
 
-	auto HashFileXx128(const FFilePath& Path) -> std::expected<FXxHash128, FFileError>
+	auto HashFileXx128(const FFilePath& Path) -> std::expected<FXxHash128, FFileSystemError>
 	{
-		auto File = OpenRead(Path);
+		auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 		if (!File) return std::unexpected(std::move(File.error()));
 		std::array<std::byte, 64 * 1024> Buffer{};
 		FXxHash128Builder Builder;
-		for (uint64 Offset = 0; Offset < (*File)->GetSize();)
+		const int64 Size = (*File)->Size();
+		if (Size < 0) return std::unexpected(FFileSystemError{std::format("Cannot query file size: {}.", Path.generic_string()), std::make_error_code(std::errc::io_error)});
+		for (int64 Offset = 0; Offset < Size;)
 		{
-			const auto Count = static_cast<size_t>(std::min<uint64>(Buffer.size(), (*File)->GetSize() - Offset));
-			auto Read = (*File)->ReadAt(Offset, std::span(Buffer).first(Count));
-			if (!Read) return std::unexpected(std::move(Read.error()));
+			const auto Count = static_cast<size_t>(std::min<uint64>(Buffer.size(), Size - Offset));
+			auto Read = (*File)->Read(reinterpret_cast<uint8*>(Buffer.data()), static_cast<int64>(Count));
+			if (!Read) return std::unexpected(FFileSystemError{std::format("Cannot read file: {}.", Path.generic_string()), std::make_error_code(std::errc::io_error)});
 			Builder.Update(Buffer.data(), Count);
 			Offset += Count;
 		}
 		return Builder.Finalize();
 	}
 
-	auto SaveArrayToFile(FByteView Bytes, const FFilePath& Path) -> std::expected<void, FFileError>
+	auto SaveArrayToFile(FByteView Bytes, const FFilePath& Path) -> std::expected<void, FFileSystemError>
 	{
 		auto Absolute = Normalize(Path);
 		if (!Absolute) return std::unexpected(std::move(Absolute.error()));
 		std::error_code Error;
 		std::filesystem::create_directories(Absolute->parent_path(), Error);
-		if (Error) return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, Error, *Absolute});
-		std::FILE* File = nullptr;
-#if defined(_WIN32)
-		const int OpenError = _wfopen_s(&File, Absolute->c_str(), L"wb");
-#else
-		File = std::fopen(Absolute->c_str(), "wb");
-		const int OpenError = File ? 0 : errno;
-#endif
-		if (!File) return std::unexpected(FFileError{EFileOperation::OpenWrite,
-			{OpenError, std::generic_category()}, *Absolute});
-		errno = 0;
-		const size_t Written = Bytes.empty() ? 0 : std::fwrite(Bytes.data(), 1, Bytes.size_bytes(), File);
-		if (Written != Bytes.size_bytes())
-		{
-			const int WriteError = errno ? errno : EIO;
-			std::fclose(File);
-			return std::unexpected(FFileError{EFileOperation::Write, {WriteError, std::generic_category()},
-				*Absolute, {}, FFileError::FRange{Written, Bytes.size_bytes() - Written}});
-		}
-		errno = 0;
-		if (std::fclose(File) != 0)
-			return std::unexpected(FFileError{EFileOperation::Close,
-				{errno ? errno : EIO, std::generic_category()}, *Absolute});
+		if (Error) return std::unexpected(FFileSystemError{std::format("Failed to create parent directories: {}.", FFilePath(*Absolute).generic_string()), Error});
+		auto File = IPlatformFile::GetPlatformPhysical().OpenWrite(*Absolute, IPlatformFile::EOpenWriteFlags::None);
+		if (!File) return std::unexpected(std::move(File.error()));
+		if (Bytes.size_bytes() > static_cast<uint64>(std::numeric_limits<int64>::max())
+			|| !(*File)->Write(reinterpret_cast<const uint8*>(Bytes.data()), static_cast<int64>(Bytes.size_bytes())))
+			return std::unexpected(FFileSystemError{std::format("Cannot write file: {}.", Absolute->generic_string()), std::make_error_code(std::errc::io_error)});
 		return {};
 	}
 
 	auto SaveArrayToNewFile(
 		FByteView Array,
 		const std::filesystem::path& FilePath
-	) -> std::expected<void, FFileError>
+	) -> std::expected<void, FFileSystemError>
 	{
 		std::error_code ErrorCode;
 		const auto Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, FilePath});
+			return std::unexpected(FFileSystemError{std::format("Failed to normalize path: {}.", FFilePath(FilePath).generic_string()), ErrorCode});
 		}
 		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, ErrorCode, Destination});
+			return std::unexpected(FFileSystemError{std::format("Failed to create parent directories: {}.", FFilePath(Destination).generic_string()), ErrorCode});
 		}
-		auto Written = WriteTemporaryFile(Destination, Array);
+		bool bCreated = false;
+		auto Written = WriteNewFile(Destination, Array, bCreated);
 		if (Written) return {};
 		auto Error = std::move(Written.error());
 		// A failed exclusive create never grants ownership of the existing path.
-		if (Error.Operation != EFileOperation::CreateTemporaryFile)
+		if (bCreated)
 			std::filesystem::remove(Destination, ErrorCode);
 		return std::unexpected(std::move(Error));
 	}
@@ -442,31 +228,32 @@ namespace Durin::FFileHelper
 	auto SaveArrayToFileAtomically(
 		FByteView Array,
 		const std::filesystem::path& FilePath
-	) -> std::expected<void, FFileError>
+	) -> std::expected<void, FFileSystemError>
 	{
 		std::error_code ErrorCode;
 		const std::filesystem::path Destination = std::filesystem::absolute(FilePath, ErrorCode).lexically_normal();
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, FilePath});
+			return std::unexpected(FFileSystemError{std::format("Failed to normalize path: {}.", FFilePath(FilePath).generic_string()), ErrorCode});
 		}
 
 		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, ErrorCode, Destination});
+			return std::unexpected(FFileSystemError{std::format("Failed to create parent directories: {}.", FFilePath(Destination).generic_string()), ErrorCode});
 		}
 
-		FFileError Error{};
+		FFileSystemError Error{};
 		std::filesystem::path TemporaryPath;
 		bool bCreated = false;
-		for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
+		bool bWritten = false;
+		for (uint32 Attempt = 0; Attempt < 64 && !bWritten; ++Attempt)
 		{
 			TemporaryPath = MakeTemporaryPath(Destination);
-			auto Written = WriteTemporaryFile(TemporaryPath, Array);
-			bCreated = Written.has_value();
+			auto Written = WriteNewFile(TemporaryPath, Array, bCreated);
+			bWritten = Written.has_value();
 			if (!Written) Error = std::move(Written.error());
-			if (!bCreated && Error.Operation == EFileOperation::CreateTemporaryFile)
+			if (!bWritten && !bCreated)
 			{
 				bool bRetryable = Error.NativeError == std::errc::file_exists;
 #if defined(_WIN32)
@@ -480,11 +267,11 @@ namespace Durin::FFileHelper
 					continue;
 				}
 			}
-			if (!bCreated) break;
+			if (!bWritten) break;
 		}
-		if (!bCreated)
+		if (!bWritten)
 		{
-			if (Error.Operation != EFileOperation::CreateTemporaryFile)
+			if (bCreated)
 			{
 				std::filesystem::remove(TemporaryPath, ErrorCode);
 			}
@@ -495,7 +282,7 @@ namespace Durin::FFileHelper
 		ErrorCode.clear();
 		if (std::filesystem::is_directory(Destination, ErrorCode))
 		{
-			Error = FFileError{EFileOperation::ReplaceDestination, {ERROR_ACCESS_DENIED, std::system_category()}, Destination};
+			Error = FFileSystemError{std::format("Failed to replace destination: {}.", FFilePath(Destination).generic_string()), {ERROR_ACCESS_DENIED, std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
@@ -521,7 +308,7 @@ namespace Durin::FFileHelper
 		}
 		if (!bReplaced)
 		{
-			Error = FFileError{EFileOperation::ReplaceDestination, {static_cast<int>(ReplacementError), std::system_category()}, Destination};
+			Error = FFileSystemError{std::format("Failed to replace destination: {}.", FFilePath(Destination).generic_string()), {static_cast<int>(ReplacementError), std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
@@ -529,7 +316,7 @@ namespace Durin::FFileHelper
 		std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
 		if (ErrorCode)
 		{
-			Error = FFileError{EFileOperation::ReplaceDestination, ErrorCode, Destination};
+			Error = FFileSystemError{std::format("Failed to replace destination: {}.", FFilePath(Destination).generic_string()), ErrorCode};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
@@ -540,28 +327,28 @@ namespace Durin::FFileHelper
 	auto CopyFileAtomically(
 		const std::filesystem::path& SourcePath,
 		const std::filesystem::path& DestinationPath
-	) -> std::expected<void, FFileError>
+	) -> std::expected<void, FFileSystemError>
 	{
 		std::error_code ErrorCode;
 		const std::filesystem::path Source =
 			std::filesystem::absolute(SourcePath, ErrorCode).lexically_normal();
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, SourcePath, SourcePath});
+			return std::unexpected(FFileSystemError{std::format("Failed to normalize path: {}. Related path: {}.", FFilePath(SourcePath).generic_string(), FFilePath(SourcePath).generic_string()), ErrorCode});
 		}
 		const std::filesystem::path Destination =
 			std::filesystem::absolute(DestinationPath, ErrorCode).lexically_normal();
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::NormalizePath, ErrorCode, DestinationPath, SourcePath});
+			return std::unexpected(FFileSystemError{std::format("Failed to normalize path: {}. Related path: {}.", FFilePath(DestinationPath).generic_string(), FFilePath(SourcePath).generic_string()), ErrorCode});
 		}
 		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
 		if (ErrorCode)
 		{
-			return std::unexpected(FFileError{EFileOperation::CreateParentDirectories, ErrorCode, Destination, SourcePath});
+			return std::unexpected(FFileSystemError{std::format("Failed to create parent directories: {}. Related path: {}.", FFilePath(Destination).generic_string(), FFilePath(SourcePath).generic_string()), ErrorCode});
 		}
 
-		FFileError Error{};
+		FFileSystemError Error{};
 		std::filesystem::path TemporaryPath;
 		bool bCreated = false;
 		for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
@@ -572,9 +359,9 @@ namespace Durin::FFileHelper
 				std::filesystem::copy_options::none, ErrorCode);
 			if (!bCreated)
 			{
-				Error = FFileError{ErrorCode == std::errc::file_exists
-						? EFileOperation::CreateTemporaryFile
-						: EFileOperation::WriteTemporaryFile, ErrorCode, TemporaryPath, SourcePath};
+				Error = FFileSystemError{std::format("Failed to {}: {}. Related path: {}.", ErrorCode == std::errc::file_exists
+						? "create temporary file"
+						: "write temporary file", FFilePath(TemporaryPath).generic_string(), FFilePath(SourcePath).generic_string()), ErrorCode};
 				if (ErrorCode == std::errc::file_exists && Attempt + 1 < 64)
 				{
 					if (Attempt < 8) std::this_thread::yield();
@@ -593,13 +380,13 @@ namespace Durin::FFileHelper
 		{
 			const DWORD NativeError = GetLastError();
 			if (TemporaryFile != INVALID_HANDLE_VALUE) CloseHandle(TemporaryFile);
-			Error = FFileError{EFileOperation::FlushTemporaryFile, {static_cast<int>(NativeError), std::system_category()}, TemporaryPath, SourcePath};
+			Error = FFileSystemError{std::format("Failed to flush temporary file: {}. Related path: {}.", FFilePath(TemporaryPath).generic_string(), FFilePath(SourcePath).generic_string()), {static_cast<int>(NativeError), std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
 		if (!CloseHandle(TemporaryFile))
 		{
-			Error = FFileError{EFileOperation::CloseTemporaryFile, {static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath, SourcePath};
+			Error = FFileSystemError{std::format("Failed to close temporary file: {}. Related path: {}.", FFilePath(TemporaryPath).generic_string(), FFilePath(SourcePath).generic_string()), {static_cast<int>(GetLastError()), std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
@@ -621,7 +408,7 @@ namespace Durin::FFileHelper
 		}
 		if (!bReplaced)
 		{
-			Error = FFileError{EFileOperation::ReplaceDestination, {static_cast<int>(ReplacementError), std::system_category()}, Destination, SourcePath};
+			Error = FFileSystemError{std::format("Failed to replace destination: {}. Related path: {}.", FFilePath(Destination).generic_string(), FFilePath(SourcePath).generic_string()), {static_cast<int>(ReplacementError), std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
@@ -631,20 +418,20 @@ namespace Durin::FFileHelper
 		{
 			const int NativeError = errno;
 			if (TemporaryFile != -1) close(TemporaryFile);
-			Error = FFileError{EFileOperation::FlushTemporaryFile, {NativeError, std::system_category()}, TemporaryPath, SourcePath};
+			Error = FFileSystemError{std::format("Failed to flush temporary file: {}. Related path: {}.", FFilePath(TemporaryPath).generic_string(), FFilePath(SourcePath).generic_string()), {NativeError, std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
 		if (close(TemporaryFile) != 0)
 		{
-			Error = FFileError{EFileOperation::CloseTemporaryFile, {errno, std::system_category()}, TemporaryPath, SourcePath};
+			Error = FFileSystemError{std::format("Failed to close temporary file: {}. Related path: {}.", FFilePath(TemporaryPath).generic_string(), FFilePath(SourcePath).generic_string()), {errno, std::system_category()}};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}
 		std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
 		if (ErrorCode)
 		{
-			Error = FFileError{EFileOperation::ReplaceDestination, ErrorCode, Destination, SourcePath};
+			Error = FFileSystemError{std::format("Failed to replace destination: {}. Related path: {}.", FFilePath(Destination).generic_string(), FFilePath(SourcePath).generic_string()), ErrorCode};
 			std::filesystem::remove(TemporaryPath, ErrorCode);
 			return std::unexpected(std::move(Error));
 		}

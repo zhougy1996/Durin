@@ -863,10 +863,10 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FByteBuffer FirstPackage;
 	Durin::FByteBuffer SecondPackage;
 	auto FirstPackageRead = Durin::FFileHelper::LoadFileToArray((FirstRoot / "Game/CookedCube.dasset"));
-	ASSERT_TRUE(FirstPackageRead) << FirstPackageRead.error().ToString();
+	ASSERT_TRUE(FirstPackageRead) << FirstPackageRead.error().GetMessage();
 	FirstPackage = std::move(*FirstPackageRead);
 	auto SecondPackageRead = Durin::FFileHelper::LoadFileToArray((SecondRoot / "Game/CookedCube.dasset"));
-	ASSERT_TRUE(SecondPackageRead) << SecondPackageRead.error().ToString();
+	ASSERT_TRUE(SecondPackageRead) << SecondPackageRead.error().GetMessage();
 	SecondPackage = std::move(*SecondPackageRead);
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_FALSE(std::filesystem::exists(FirstRoot / "Game/CookedCube.dbulk"));

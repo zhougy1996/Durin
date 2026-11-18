@@ -2,7 +2,7 @@
 #include "Misc/ContentPathInspection.h"
 #include "Misc/ContentMountPaths.h"
 #include "Misc/ContentFilesystem.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "Asset/AssetWriteResult.h"
 #include "AssetRegistry/ContentChangeScopes.h"
 
@@ -37,9 +37,9 @@ namespace Durin::ContentStorage
 		std::error_code Error;
 		std::filesystem::path Reparse;
 		const bool DirectoryExists = std::filesystem::is_directory(Directory, Error);
-		if (Error) return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Error, .Path = Directory}));
+		if (Error) return Reject(OutError, ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Directory).generic_string()), Error}));
 		const bool HasReparse = DirectoryExists && FindReparsePointInPath(Mount.Mount->GetContentDir(), Directory, Reparse, Error);
-		if (Error) return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Error, .Path = Directory}));
+		if (Error) return Reject(OutError, ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Directory).generic_string()), Error}));
 		if (!DirectoryExists || HasReparse)
 			return Reject(OutError, UnifiedError::FError(AssetWriteErrors::InvalidPath, "The target must be an existing directory without reparse points."));
 		const auto Path = (std::filesystem::path(Directory) / Name).generic_string();
@@ -47,7 +47,7 @@ namespace Durin::ContentStorage
 		if (!Destination || Destination.Mount != Mount.Mount)
 			return Reject(OutError, UnifiedError::FError(AssetWriteErrors::InvalidPath, "The new folder would leave its content mount."));
 		const auto Probe = ContentStorage::Filesystem::Probe(Path);
-		if (Probe.Error) return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Probe.Error, .Path = Path}));
+		if (Probe.Error) return Reject(OutError, ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Path).generic_string()), Probe.Error}));
 		if (Probe.Exists()) return Reject(OutError, UnifiedError::FError(AssetWriteErrors::AlreadyExists, "An item with this name already exists."));
 		OutNewItem = NormalizePath(Path);
 		return true;
@@ -69,7 +69,7 @@ namespace Durin::ContentStorage
 		if (!ValidateFolder(Directory, Name, Candidate, &Error)) return ReportContentMutationFailure(Policy, *Error);
 		std::error_code Ec;
 		const bool Created = std::filesystem::create_directory(Candidate, Ec);
-		if (Ec) return ReportContentMutationFailure(Policy, ToError(FFileError{.Operation = EFileOperation::CreateParentDirectories, .NativeError = Ec, .Path = Candidate}));
+		if (Ec) return ReportContentMutationFailure(Policy, ToError(FFileSystemError{std::format("Failed to create parent directories: {}.", FFilePath(Candidate).generic_string()), Ec}));
 		if (!Created) return ReportContentMutationFailure(Policy, UnifiedError::FError{AssetWriteErrors::AlreadyExists, "An item with this name already exists."});
 		OutNewItem = std::move(Candidate);
 		FContentChangeBatch Changes;

@@ -242,7 +242,7 @@ namespace
 			if (!Entry.is_regular_file()) continue;
 			FByteBuffer Bytes;
 			auto BytesRead = FFileHelper::LoadFileToArray(Entry.path());
-			EXPECT_TRUE(BytesRead) << BytesRead.error().ToString();
+			EXPECT_TRUE(BytesRead) << BytesRead.error().GetMessage();
 			if (BytesRead) Bytes = std::move(*BytesRead);
 			Result.emplace(Entry.path().lexically_relative(Root).generic_string(), FXxHash128::HashBuffer(Bytes));
 		}
@@ -2250,7 +2250,7 @@ TEST_F(FCookFunctionalTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	const auto Configured = Inventory(Output / "Game");
 	FByteBuffer StateBytes;
 	auto StateBytesRead = FFileHelper::LoadFileToArray(Output / "CookState.bin");
-	ASSERT_TRUE(StateBytesRead) << StateBytesRead.error().ToString();
+	ASSERT_TRUE(StateBytesRead) << StateBytesRead.error().GetMessage();
 	StateBytes = std::move(*StateBytesRead);
 	FCookState State;
 	ASSERT_TRUE(DecodeCookState(StateBytes, State));

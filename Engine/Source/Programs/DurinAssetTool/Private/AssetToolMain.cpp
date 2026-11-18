@@ -487,7 +487,7 @@ namespace
 								|| Descriptor.StoredByteCount
 									> Segment->size() - Descriptor.SegmentOffset)
 							{
-								Item.Diagnostic = Segment ? "Package bulk field range is invalid." : Segment.error().ToString();
+								Item.Diagnostic = Segment ? "Package bulk field range is invalid." : Segment.error().GetMessage();
 								Item.bReachable = false;
 							}
 							else

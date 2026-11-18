@@ -55,7 +55,7 @@ namespace Durin
             const auto Loaded = Layer.LoadFromFile(File);
             if (!Loaded)
             {
-                const auto* Error = std::get_if<FFileError>(&Loaded.error().Cause);
+                const auto* Error = std::get_if<FFileSystemError>(&Loaded.error().Cause);
                 if (Error && Error->NativeError == std::errc::no_such_file_or_directory) continue;
                 OutReason = File.generic_string() + ": " + Loaded.error().ToString(); return false;
             }

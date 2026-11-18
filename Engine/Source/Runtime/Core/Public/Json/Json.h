@@ -5,7 +5,7 @@
 #include "CoreAPI.h"
 #include "CoreFwd.h"
 #include "Misc/CoreTypes.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin
 {
@@ -24,7 +24,7 @@ namespace Durin
 
 	struct FJsonLoadError
 	{
-		std::variant<FFileError, FJsonParseError> Cause;
+		std::variant<FFileSystemError, FJsonParseError> Cause;
 		CORE_API auto ToString() const -> std::string;
 	};
 

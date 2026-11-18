@@ -1,3 +1,4 @@
+#include "HAL/FileManager.h"
 #include "MetalShaderFormat.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheRecordFixtureCodec.h"
@@ -10,6 +11,7 @@
 #include "Shader/ShaderCompiledOutput.h"
 #include "Shader/ShaderCookedLibrary.h"
 #include "Misc/FileHelper.h"
+#include "Misc/ContentPathInspection.h"
 #include "SlangShaderCompiler.h"
 #include "SlangShaderDependencyResolver.h"
 
@@ -286,7 +288,7 @@ namespace Durin
 		};
 		const auto Root = std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR).parent_path().parent_path().parent_path();
 		const auto Workspace = FFileHelper::LoadFileToString(Root / "Durin.dworkspace");
-		ASSERT_TRUE(Workspace);
+		ASSERT_TRUE(Workspace) << Workspace.error().GetMessage();
 		const std::regex ProjectPattern(R"re("([^"]+\.dproject)")re");
 		const std::regex TestPattern(R"(\bTEST(?:_F)?\s*\(\s*(\w+)\s*,\s*(\w+)\s*\))");
 		const std::set<std::string> Extensions{".slang", ".hlsl", ".hlsli", ".fx", ".cpp", ".h", ".hpp", ".inl", ".mm", ".metal"};
@@ -295,25 +297,48 @@ namespace Durin
 		{
 			++ProjectCount;
 			const auto ProjectFile = Root / (*Project)[1].str();
-			ASSERT_TRUE(std::filesystem::is_regular_file(ProjectFile));
+			std::error_code Error;
+			std::filesystem::path ReparsePoint;
+			if (ContentStorage::FindReparsePointInPath(Root, ProjectFile.parent_path(), ReparsePoint, Error)) continue;
+			if (Error)
+			{
+				ADD_FAILURE() << ProjectFile.parent_path().string() << ": " << Error.message();
+				continue;
+			}
+			const bool IsProjectFile = std::filesystem::is_regular_file(ProjectFile, Error);
+			if (Error || !IsProjectFile)
+			{
+				ADD_FAILURE() << ProjectFile.string() << ": " << (Error ? Error.message() : "not a regular project file");
+				continue;
+			}
 			for (const char* Subtree : {"Shaders", "Source", "Tests", "Plugins"})
 			{
 				const auto Directory = ProjectFile.parent_path() / Subtree;
-				if (!std::filesystem::exists(Directory)) continue;
-				for (std::filesystem::recursive_directory_iterator File(Directory), FilesEnd; File != FilesEnd; ++File)
+				struct FSourceVisitor final : IPlatformFile::FDirectoryVisitor
 				{
-					if (File->is_directory())
+					std::function<void(const FFilePath&)> OnFile;
+					auto ShouldVisitLeafPathname(std::string_view Name) -> bool override
 					{
-						const auto Name = File->path().filename();
-						if (Name == "ThirdParty" || Name == "Binaries" || Name == "Build" || Name == "Intermediate" || Name == ".git")
-							File.disable_recursion_pending();
-						continue;
+						return !Name.starts_with('.') && Name != "ThirdParty" && Name != "Binaries"
+							&& Name != "Build" && Name != "Intermediate";
 					}
-					if (!Extensions.contains(File->path().extension().string())) continue;
-					const auto Path = File->path().lexically_relative(Root).generic_string();
-					const auto Source = FFileHelper::LoadFileToString(File->path());
-					ASSERT_TRUE(Source) << Path;
-					if (!(Source->contains("vk") && Source->contains("binding")) && !Source->contains("register") && !Source->contains("[[")) continue;
+					auto Visit(const FFilePath& File, bool bIsDirectory) -> bool override
+					{
+						if (!bIsDirectory) OnFile(File);
+						return true;
+					}
+				} Visitor;
+				Visitor.OnFile = [&](const FFilePath& File)
+				{
+					if (!Extensions.contains(File.extension().string())) return;
+					const auto Path = File.lexically_relative(Root).generic_string();
+					const auto Source = FFileHelper::LoadFileToString(File);
+					if (!Source)
+					{
+						ADD_FAILURE() << File.string() << ": " << Source.error().GetMessage();
+						return;
+					}
+					if (!(Source->contains("vk") && Source->contains("binding")) && !Source->contains("register") && !Source->contains("[[")) return;
 					for (const auto& [Position, Token] : FindFixedResourceLocations(*Source))
 					{
 						std::string Test;
@@ -328,7 +353,10 @@ namespace Durin
 						EXPECT_NE(Exception, Exceptions.end()) << Path << ':' << Line << " unapproved fixed resource location";
 						if (Exception != Exceptions.end()) Exception->Observed.push_back(Token);
 					}
-				}
+				};
+				auto& Files = IFileManager::Get();
+				if (Files.DirectoryExists(Directory))
+					EXPECT_TRUE(Files.IterateDirectoryRecursively(Directory, Visitor)) << Directory.string();
 			}
 		}
 		EXPECT_GT(ProjectCount, 0u);

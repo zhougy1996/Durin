@@ -2709,7 +2709,7 @@ TEST_F(FContentBrowserModelTests, DeletionRechecksLevelOpenedAfterConfirmationAn
 		.ValidateFiles = [&](FAssetDeletionFileIdentities& Identities, std::optional<UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
 			if (!World->SetCurrentLevel(Level)) { if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::InUse, "Could not open level."}; return false; }
 			const auto Identity = FFileHelper::HashFileXx128(File);
-			if (!Identity) { if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Identity.error().ToString()}; return false; }
+			if (!Identity) { if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Identity.error().GetMessage()}; return false; }
 			Identities.emplace(File.generic_string(), *Identity);
 			return true;
 		}}));
@@ -2759,7 +2759,7 @@ TEST_F(FContentBrowserModelTests, DeletionSharesFreshHostHashesAndRequiresComple
 			if (bOmitIdentity) return true;
 			auto Identity = FFileHelper::HashFileXx128(File);
 			if (!Identity)
-				{ if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Identity.error().ToString()}; return false; }
+				{ if (OutError) *OutError = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Identity.error().GetMessage()}; return false; }
 			++Hashes;
 			Identities.emplace(File.generic_string(), *Identity);
 #ifdef _WIN32

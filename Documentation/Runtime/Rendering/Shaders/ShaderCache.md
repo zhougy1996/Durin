@@ -39,7 +39,7 @@ a second Shader-wide error-code taxonomy. Source extraction is for navigation,
 not control-flow classification. Diagnostic count and external text are bounded.
 
 `FShaderOperationResult` is `std::expected<void, std::string>` for non-compilation
-validation. Filesystem adapters format the existing `FFileError` at that boundary.
+validation. Filesystem adapters format the `FFileSystemError` at that boundary.
 `FShaderCompletion` and `TShaderValueResult` remain for non-compilation operations
 with cancellation and optional Cook/build products; they do not wrap shader output.
 Runtime resource creation uses its existing category, reason, identity and retry

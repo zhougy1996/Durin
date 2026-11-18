@@ -201,9 +201,9 @@ namespace Durin::Image
 		case EImageDecodeError::EncodedLimit: return "The encoded image is too large.";
 		case EImageDecodeError::InvalidImage: return "The image is unsupported or corrupt.";
 		case EImageDecodeError::PixelLimit: return "The decoded image is too large.";
-		case EImageDecodeError::FileStat: return Error.FileError ? Error.FileError->ToString() : "Unable to inspect the image file.";
+		case EImageDecodeError::FileStat: return Error.FileError ? Error.FileError->GetMessage() : "Unable to inspect the image file.";
 		case EImageDecodeError::FileSize: return "The image file is empty or too large.";
-		case EImageDecodeError::FileRead: return Error.FileError ? Error.FileError->ToString() : "Unable to read the image file.";
+		case EImageDecodeError::FileRead: return Error.FileError ? Error.FileError->GetMessage() : "Unable to read the image file.";
 		}
 		return {};
 	}
@@ -273,7 +273,7 @@ namespace Durin::Image
 		{
 			return std::unexpected(FImageDecodeError{.Code = EImageDecodeError::FileStat, .Limits = Limits,
 				.Filename = std::string(FilePath),
-				.FileError = FFileError{EFileOperation::QuerySize, ErrorCode, FFilePath(FilePath)}});
+				.FileError = FFileSystemError{std::format("Failed to query size: {}.", (FFilePath(FilePath)).generic_string()), ErrorCode}});
 		}
 		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes || FileSize > static_cast<uintmax_t>(std::numeric_limits<int>::max()))
 		{
@@ -295,7 +295,7 @@ namespace Durin::Image
 
 	auto ToString(const FGrayscale16DecodeError& Error) -> std::string
 	{
-		if (Error.FileError) return Error.FileError->ToString();
+		if (Error.FileError) return Error.FileError->GetMessage();
 		std::string_view Reason;
 		switch (Error.Code)
 		{
@@ -315,7 +315,7 @@ namespace Durin::Image
 
 	auto ToString(const FRadianceHDRDecodeError& Error) -> std::string
 	{
-		if (Error.FileError) return Error.FileError->ToString();
+		if (Error.FileError) return Error.FileError->GetMessage();
 		std::string_view Reason;
 		switch (Error.Code)
 		{
@@ -420,8 +420,7 @@ namespace Durin::Image
 		const auto FileSize = std::filesystem::file_size(FFilePath(FilePath), NativeError);
 		if (NativeError) return std::unexpected(FGrayscale16DecodeError{.Code = EGrayscale16DecodeError::FileStat,
 			.Limits = Limits, .Filename = std::string(FilePath),
-			.FileError = FFileError{.Operation = EFileOperation::QuerySize,
-				.NativeError = NativeError, .Path = FFilePath(FilePath)}});
+			.FileError = FFileSystemError{std::format("Failed to query size: {}.", (FFilePath(FilePath)).generic_string()), NativeError}});
 		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes
 			|| FileSize > std::numeric_limits<size_t>::max())
 			return std::unexpected(FGrayscale16DecodeError{.Code = EGrayscale16DecodeError::FileSize,
@@ -547,8 +546,7 @@ namespace Durin::Image
 		const auto FileSize = std::filesystem::file_size(FFilePath(FilePath), NativeError);
 		if (NativeError) return std::unexpected(FRadianceHDRDecodeError{.Code = ERadianceHDRDecodeError::FileStat,
 			.Limits = Limits, .Filename = std::string(FilePath),
-			.FileError = FFileError{.Operation = EFileOperation::QuerySize,
-				.NativeError = NativeError, .Path = FFilePath(FilePath)}});
+			.FileError = FFileSystemError{std::format("Failed to query size: {}.", (FFilePath(FilePath)).generic_string()), NativeError}});
 		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes
 			|| FileSize > std::numeric_limits<size_t>::max())
 			return std::unexpected(FRadianceHDRDecodeError{.Code = ERadianceHDRDecodeError::FileSize,

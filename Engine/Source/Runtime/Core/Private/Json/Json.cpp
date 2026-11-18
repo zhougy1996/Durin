@@ -882,7 +882,7 @@ namespace Durin
 
 	auto FJsonLoadError::ToString() const -> std::string
 	{
-		if (const auto* File = std::get_if<FFileError>(&Cause)) return File->ToString();
+		if (const auto* File = std::get_if<FFileSystemError>(&Cause)) return File->GetMessage();
 		const auto& Parse = std::get<FJsonParseError>(Cause);
 		return std::format("{} (line {}, column {})", Parse.Message, Parse.Line, Parse.Column);
 	}

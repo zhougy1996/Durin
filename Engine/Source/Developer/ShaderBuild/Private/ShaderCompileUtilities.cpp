@@ -47,10 +47,9 @@ namespace Durin::ShaderCompileUtilities
 				{.MaximumBytes = ShaderCaptureLimits::MaximumFileBytes, .ExpectedBytes = Expected.FileSize});
 			if (!Loaded)
 			{
-				if (Loaded.error().Operation == EFileOperation::QuerySize
-					&& Loaded.error().NativeError == std::errc::message_size)
+				if (Loaded.error().NativeError == std::errc::message_size)
 					return std::unexpected(std::format("Shader virtual dependency '{}' resolves to conflicting content.", (Portable.VirtualPath)));
-				return std::unexpected((std::move(Loaded.error())).ToString());
+				return std::unexpected((std::move(Loaded.error())).GetMessage());
 			}
 			auto& Bytes = *Loaded;
 			if (FXxHash64::HashBuffer(Bytes) != Expected.ContentHash || Expected.ContentHash != Portable.ContentHash)
@@ -81,7 +80,7 @@ namespace Durin::ShaderCompileUtilities
 			auto Fingerprint = FileFingerprintCache.Get(DependencyPath);
 			if (!Fingerprint)
 			{
-				return std::unexpected((std::move(Fingerprint.error())).ToString());
+				return std::unexpected((std::move(Fingerprint.error())).GetMessage());
 			}
 
 			std::string VirtualPath;
@@ -225,7 +224,7 @@ namespace Durin::ShaderCompileUtilities
 			if (!ReuseResult)
 			{
 				return {.Status = EMetaDataReuseStatus::Failed,
-					.Error = (std::move(ReuseResult.error())).ToString()};
+					.Error = (std::move(ReuseResult.error())).GetMessage()};
 			}
 			if (*ReuseResult == EFileFingerprintReuseStatus::Stale)
 			{

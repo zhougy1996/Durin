@@ -1,3 +1,4 @@
+#include "HAL/PlatformFile.h"
 #pragma once
 
 #include "CoreMinimal.h"
@@ -36,14 +37,14 @@ namespace Durin::AssetPrivate
 		const std::array Paths{Path};
 		auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 		if (!Access) return false;
-		auto File = FFileHelper::OpenRead(Path);
-		if (!File || (*File)->GetSize() != Size) return false;
+		auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
+		if (!File || (*File)->Size() != Size) return false;
 		FByteBuffer Buffer(static_cast<size_t>(std::min<uint64>(Size, 1024 * 1024)));
 		FXxHash128Builder Hash;
 		for (uint64 Offset = 0; Offset < Size; Offset += Buffer.size())
 		{
 			const auto Chunk = std::span(Buffer).first(static_cast<size_t>(std::min<uint64>(Buffer.size(), Size - Offset)));
-			if ((Continue && !Continue()) || !(*File)->ReadAt(Offset, Chunk)) return false;
+			if ((Continue && !Continue()) || !(*File)->ReadAt(reinterpret_cast<uint8*>((Chunk).data()), static_cast<int64>(std::span(Chunk).size_bytes()), static_cast<int64>(Offset))) return false;
 			Hash.Update(Chunk);
 		}
 		return (!Continue || Continue()) && Hash.Finalize() == Digest;

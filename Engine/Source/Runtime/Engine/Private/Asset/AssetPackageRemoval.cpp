@@ -11,7 +11,7 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Engine/Level.h"
 #include "Threading/RunnableThread.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin
 {
@@ -130,8 +130,7 @@ namespace Durin
 		{
 			std::error_code Ec;
 			const bool bExists = std::filesystem::exists(Entry.PhysicalPath, Ec);
-			if (Ec) return std::unexpected(ToError(FFileError{.Operation = EFileOperation::Inspect,
-				.NativeError = Ec, .Path = Entry.PhysicalPath}));
+			if (Ec) return std::unexpected(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Entry.PhysicalPath).generic_string()), Ec}));
 			if (bExists)
 				return WriteFailure(AssetWriteErrors::StaleData, "The removed package file is still present.");
 		}

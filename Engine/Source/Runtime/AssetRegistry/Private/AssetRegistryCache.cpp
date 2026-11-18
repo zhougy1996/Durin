@@ -86,7 +86,7 @@ namespace Durin::AssetPrivate
 		auto Bytes = FFileHelper::LoadFileToArray(Path);
 		if (!Bytes)
 		{
-			OutWarning = Bytes.error().ToString();
+			OutWarning = Bytes.error().GetMessage();
 			return false;
 		}
 		FBinaryReader Reader(*Bytes);
@@ -301,7 +301,7 @@ namespace Durin::AssetPrivate
 		}
 		if (auto FileError = FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), RegistryCachePath()); !FileError)
 		{
-			OutWarning = FileError.error().ToString();
+			OutWarning = FileError.error().GetMessage();
 			return false;
 		}
 		return true;

@@ -118,13 +118,13 @@ namespace
 		{
 			FByteBuffer Main, Bulk;
 			auto MainRead = FFileHelper::LoadFileToArray(Options.Destination);
-			EXPECT_TRUE(MainRead) << MainRead.error().ToString();
+			EXPECT_TRUE(MainRead) << MainRead.error().GetMessage();
 			if (MainRead) Main = std::move(*MainRead);
 			auto Companion = Options.Destination; Companion.replace_extension(".dbulk");
 			if (std::filesystem::exists(Companion))
 			{
 				auto BulkRead = FFileHelper::LoadFileToArray(Companion);
-				EXPECT_TRUE(BulkRead) << BulkRead.error().ToString();
+				EXPECT_TRUE(BulkRead) << BulkRead.error().GetMessage();
 				if (BulkRead) Bulk = std::move(*BulkRead);
 			}
 			ObjectPackage::FLinkerTables Linker;
@@ -220,7 +220,7 @@ TEST_F(FPackagePersistenceTests, AsyncCompletionMatchesSynchronousBytes)
 	ASSERT_TRUE(Package->Save(Options));
 	FByteBuffer Before, After;
 	auto BeforeRead = FFileHelper::LoadFileToArray(Options.Destination);
-	ASSERT_TRUE(BeforeRead) << BeforeRead.error().ToString();
+	ASSERT_TRUE(BeforeRead) << BeforeRead.error().GetMessage();
 	Before = std::move(*BeforeRead);
 	Package->MarkDirty();
 	auto Operation = FSavePackageContext{Options}.SaveAsync(Package);
@@ -230,7 +230,7 @@ TEST_F(FPackagePersistenceTests, AsyncCompletionMatchesSynchronousBytes)
 	EXPECT_TRUE(Operation.IsCompleted());
 	EXPECT_TRUE(Operation.GetResult());
 	auto AfterRead = FFileHelper::LoadFileToArray(Options.Destination);
-	ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
+	ASSERT_TRUE(AfterRead) << AfterRead.error().GetMessage();
 	After = std::move(*AfterRead);
 	EXPECT_EQ(Before, After);
 	EXPECT_FALSE(Package->IsDirty());
@@ -490,7 +490,7 @@ TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDir
 			EXPECT_TRUE(Entry.path().filename().string().ends_with(".stage.tmp"));
 			FByteBuffer Bytes;
 			auto BytesRead = FFileHelper::LoadFileToArray(Entry.path());
-			ASSERT_TRUE(BytesRead) << BytesRead.error().ToString();
+			ASSERT_TRUE(BytesRead) << BytesRead.error().GetMessage();
 			Bytes = std::move(*BytesRead);
 			ASSERT_FALSE(Bytes.empty());
 			Bytes.back() ^= std::byte{1};
@@ -514,7 +514,7 @@ TEST_F(FPackagePersistenceTests, ChangedStageAndDestinationConflictDoNotClearDir
 	}
 	FByteBuffer Current;
 	auto CurrentRead = FFileHelper::LoadFileToArray(Options.Destination);
-	ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+	ASSERT_TRUE(CurrentRead) << CurrentRead.error().GetMessage();
 	Current = std::move(*CurrentRead);
 	EXPECT_EQ(Current, FByteBuffer{std::byte{1}});
 }
@@ -608,7 +608,7 @@ TEST_F(FPackagePersistenceTests, StagedMetadataChecksDetectChangesWithoutReading
 		const auto Result = Write->Commit();
 		FByteBuffer Current;
 		auto CurrentRead = FFileHelper::LoadFileToArray(Destination);
-		ASSERT_TRUE(CurrentRead) << CurrentRead.error().ToString();
+		ASSERT_TRUE(CurrentRead) << CurrentRead.error().GetMessage();
 		Current = std::move(*CurrentRead);
 		if (Change >= 3)
 		{
@@ -716,7 +716,7 @@ TEST_F(FPackagePersistenceTests, SharedWriterIsolatesOperationsAndRetainsOccupie
 		EXPECT_FALSE(Write->Stage(&Error));
 		ASSERT_TRUE(Error);
 		EXPECT_TRUE(Error->Is({"File", "IoError"}));
-		EXPECT_TRUE(std::ranges::any_of(Error->GetContexts(), [&](const auto& C) { return C.Key == "file" && C.Value == Stage.generic_string(); }));
+		EXPECT_NE(Error->GetMessage().find(Stage.generic_string()), std::string::npos);
 	}
 	EXPECT_TRUE(std::filesystem::exists(Stage));
 	std::filesystem::remove(Stage);
@@ -1172,22 +1172,17 @@ TEST_F(FPackagePersistenceTests, RejectedStageWithoutDiagnosticNeverPublishes)
 	EXPECT_FALSE(std::filesystem::exists(Options.Destination));
 }
 
-TEST(FPackageWriteErrorTests, FileErrorConversionOwnsNativePathsAndRange)
+TEST(FPackageWriteErrorTests, FileErrorConversionOwnsContextAndNativeCause)
 {
 	const auto Error = [] {
-		FFileError Native{.Operation = EFileOperation::Read,
-			.NativeError = std::make_error_code(std::errc::permission_denied),
-			.Path = "input.dasset", .RelatedPath = "input.dbulk",
-			.Range = FFileError::FRange{17, 29}};
+		FFileSystemError Native{"Cannot read input.dasset (input.dbulk), offset 17, size 29.",
+			std::make_error_code(std::errc::permission_denied)};
 		return ToError(Native);
 	}();
 	EXPECT_TRUE(Error.Is({"File", "IoError"}));
-	for (const auto& [Key, Value] : std::array{
-		std::pair{"file", "input.dasset"}, std::pair{"related file", "input.dbulk"},
-		std::pair{"offset", "17"}, std::pair{"size", "29"}, std::pair{"file operation", "read"}})
-		EXPECT_TRUE(std::ranges::any_of(Error.GetContexts(), [&](const auto& Entry) {
-			return Entry.Key == Key && Entry.Value == Value;
-		}));
+	for (const char* Text : {"input.dasset", "input.dbulk", "offset 17", "size 29"})
+		EXPECT_NE(Error.GetMessage().find(Text), std::string::npos);
+	EXPECT_NE(Error.GetMessage().find(std::make_error_code(std::errc::permission_denied).message()), std::string::npos);
 }
 
 TEST_F(FPackagePersistenceTests, FailedReplacementLeavesRollbackToClosureOwner)
@@ -1197,12 +1192,12 @@ TEST_F(FPackagePersistenceTests, FailedReplacementLeavesRollbackToClosureOwner)
 	const auto Backup = Root / "original.backup";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{7}}, Destination));
 	FFileReplacement Replacement{Destination, MissingStage, Backup};
-	std::optional<FFileError> Error;
+	std::optional<FFileSystemError> Error;
 	ASSERT_FALSE(Replacement.Publish(&Error));
 	ASSERT_TRUE(Error);
-	EXPECT_EQ(Error->Operation, EFileOperation::Rename);
-	EXPECT_EQ(Error->Path, MissingStage);
-	EXPECT_EQ(Error->RelatedPath, Destination);
+	EXPECT_NE(Error->GetMessage().find("rename"), std::string::npos);
+	EXPECT_NE(Error->GetMessage().find(MissingStage.generic_string()), std::string::npos);
+	EXPECT_NE(Error->GetMessage().find(Destination.generic_string()), std::string::npos);
 	EXPECT_TRUE(Replacement.bBackedUp);
 	EXPECT_FALSE(std::filesystem::exists(Destination));
 	EXPECT_TRUE(std::filesystem::exists(Backup));

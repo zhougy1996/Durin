@@ -1,3 +1,5 @@
+#include "HAL/PlatformFile.h"
+#include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/FileFingerprintCache.h"
 #include "Image/ImageDecoder.h"
@@ -67,6 +69,211 @@ namespace
 	}
 }
 
+namespace
+{
+	struct FTestDirectoryVisitor final : Durin::IPlatformFile::FDirectoryVisitor
+	{
+		std::function<bool(std::string_view)> Filter;
+		std::function<bool(const Durin::FFilePath&, bool)> Callback;
+		std::set<std::string> Files;
+		std::set<std::string> Directories;
+		auto ShouldVisitLeafPathname(std::string_view Name) -> bool override
+		{
+			return !Filter || Filter(Name);
+		}
+		auto Visit(const Durin::FFilePath& Path, bool bIsDirectory) -> bool override
+		{
+			(bIsDirectory ? Directories : Files).insert(Path.filename().string());
+			return !Callback || Callback(Path, bIsDirectory);
+		}
+	};
+}
+
+TEST(FFileManagerTests, DirectorySingleLayerAndRecursiveVisits)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryDepth");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "top"));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "nested" / "deep" / "leaf"));
+	FTestDirectoryVisitor Visitor;
+	auto Result = IFileManager::Get().IterateDirectory(Root, Visitor);
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Visitor.Files, (std::set<std::string>{"top"}));
+	EXPECT_EQ(Visitor.Directories, (std::set<std::string>{"nested"}));
+	Visitor = {};
+	Result = IFileManager::Get().IterateDirectoryRecursively(Root, Visitor);
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Visitor.Files, (std::set<std::string>{"top", "leaf"}));
+	EXPECT_EQ(Visitor.Directories, (std::set<std::string>{"nested", "deep"}));
+}
+
+TEST(FFileManagerTests, QueriesDistinguishFilesDirectoriesAndFailures)
+{
+	using namespace Durin;
+	auto& Files = IFileManager::Get();
+	const auto Root = TestRoot("ManagerQueries");
+	const auto Path = Root / "data";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{1}, std::byte{2}}, Path));
+	EXPECT_TRUE(Files.FileExists(Path));
+	EXPECT_FALSE(Files.DirectoryExists(Path));
+	EXPECT_FALSE(Files.FileExists(Root));
+	EXPECT_TRUE(Files.DirectoryExists(Root));
+	EXPECT_EQ(Files.FileSize(Path), 2);
+	EXPECT_EQ(Files.FileSize(Root), -1);
+	EXPECT_EQ(Files.FileSize(Root / "missing"), -1);
+	EXPECT_FALSE(Files.FileExists(Root / "missing"));
+	EXPECT_FALSE(Files.DirectoryExists(Root / "missing"));
+	EXPECT_FALSE(Files.MakeDirectory(Root / "parent" / "child"));
+	EXPECT_TRUE(Files.MakeDirectory(Root / "parent" / "child", true));
+	EXPECT_TRUE(Files.MakeDirectory(Root / "parent" / "child"));
+	EXPECT_FALSE(Files.MakeDirectory(Path));
+	EXPECT_FALSE(Files.MakeDirectory(Path / "child", true));
+}
+
+TEST(FFileManagerTests, CallableVisitorsPreserveDepthAndStop)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("ManagerCallable");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "nested" / "leaf"));
+	for (bool bRecursive : {false, true})
+	{
+		size_t Count = 0;
+		auto Visitor = [&](const FFilePath&, bool) { ++Count; return true; };
+		auto& Files = IFileManager::Get();
+		EXPECT_TRUE(bRecursive ? Files.IterateDirectoryRecursively(Root, Visitor) : Files.IterateDirectory(Root, Visitor));
+		EXPECT_EQ(Count, bRecursive ? 2u : 1u);
+		Count = 0;
+		auto Stop = [&](const FFilePath&, bool) { ++Count; return false; };
+		EXPECT_FALSE(bRecursive ? Files.IterateDirectoryRecursively(Root, Stop) : Files.IterateDirectory(Root, Stop));
+		EXPECT_EQ(Count, 1u);
+	}
+}
+
+TEST(FFileManagerTests, DirectoryFilterPrunesBeforeMetadata)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryFilter");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / ".hidden" / "excluded"));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "kept" / "leaf"));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "removed"));
+	FTestDirectoryVisitor Visitor;
+	Visitor.Filter = [&](std::string_view Name)
+	{
+		if (Name == "removed")
+		{
+			EXPECT_TRUE(std::filesystem::remove(Root / Name));
+			return false;
+		}
+		return !Name.starts_with('.');
+	};
+	const auto Result = IFileManager::Get().IterateDirectoryRecursively(Root, Visitor);
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Visitor.Files, (std::set<std::string>{"leaf"}));
+	EXPECT_EQ(Visitor.Directories, (std::set<std::string>{"kept"}));
+}
+
+TEST(FFileManagerTests, DirectoryVisitorStopsGlobally)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryStop");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "one" / "child"));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "two" / "child"));
+	for (bool bRecursive : {false, true})
+	{
+		FTestDirectoryVisitor Visitor;
+		Visitor.Callback = [](const FFilePath&, bool) { return false; };
+		const auto Result = bRecursive ? IFileManager::Get().IterateDirectoryRecursively(Root, Visitor)
+			: IFileManager::Get().IterateDirectory(Root, Visitor);
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(Visitor.Files.size() + Visitor.Directories.size(), 1u);
+	}
+}
+
+TEST(FFileManagerTests, DirectoryMissingRootIsExplicitAndNotDirectoryIsAnError)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryMissing");
+	FTestDirectoryVisitor Visitor;
+	for (bool bRecursive : {false, true})
+	{
+		const auto Missing = Root / "missing";
+		const auto Result = bRecursive ? IFileManager::Get().IterateDirectoryRecursively(Missing, Visitor)
+			: IFileManager::Get().IterateDirectory(Missing, Visitor);
+		ASSERT_FALSE(Result);
+	}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "file"));
+	const auto Result = IFileManager::Get().IterateDirectory(Root / "file", Visitor);
+	ASSERT_FALSE(Result);
+	EXPECT_TRUE(Visitor.Files.empty());
+}
+
+TEST(FFileManagerTests, DirectoryDisappearingChildrenAreSkipped)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryErrors");
+	for (const char* Name : {"removed1", "removed2", "kept"})
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / Name / "leaf"));
+	FTestDirectoryVisitor Visitor;
+	Visitor.Callback = [](const FFilePath& Path, bool bIsDirectory)
+	{
+		if (bIsDirectory && Path.filename().string().starts_with("removed"))
+		{
+			std::error_code Error;
+			Durin::Testing::RemoveTestWorkDirectory(Path, Error);
+			EXPECT_FALSE(Error);
+		}
+		return true;
+	};
+	const auto Result = IFileManager::Get().IterateDirectoryRecursively(Root, Visitor);
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(Visitor.Files, (std::set<std::string>{"leaf"}));
+}
+
+TEST(FFileManagerTests, DirectoryMissingEntryDoesNotPreventVisitorStop)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryMetadataError");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "one"));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "two"));
+	FTestDirectoryVisitor Visitor;
+	FFilePath Removed;
+	Visitor.Filter = [&](std::string_view Name)
+	{
+		if (Removed.empty())
+		{
+			Removed = Root / Name;
+			EXPECT_TRUE(std::filesystem::remove(Removed));
+		}
+		return true;
+	};
+	Visitor.Callback = [](const FFilePath&, bool) { return false; };
+	const auto Result = IFileManager::Get().IterateDirectory(Root, Visitor);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Visitor.Files.size(), 1u);
+}
+
+TEST(FFileManagerTests, DirectoryDoesNotFollowLinksOrCycles)
+{
+	using namespace Durin;
+	const auto Root = TestRoot("DirectoryLinks");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Root / "real" / "leaf"));
+	std::error_code Error;
+	std::filesystem::create_directory_symlink(Root, Root / "real" / "cycle", Error);
+	if (Error) GTEST_SKIP() << "Directory symlink fixture unavailable: " << Error.message();
+	std::filesystem::create_symlink(Root / "absent", Root / "dangling", Error);
+	ASSERT_FALSE(Error);
+	FTestDirectoryVisitor Visitor;
+	const auto Result = IFileManager::Get().IterateDirectoryRecursively(Root, Visitor);
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Visitor.Files, (std::set<std::string>{"leaf"}));
+	EXPECT_EQ(Visitor.Directories, (std::set<std::string>{"real"}));
+	Visitor = {};
+	const auto LinkedRoot = IFileManager::Get().IterateDirectoryRecursively(Root / "real" / "cycle", Visitor);
+	ASSERT_TRUE(LinkedRoot);
+	EXPECT_TRUE(Visitor.Files.empty());
+	EXPECT_TRUE(Visitor.Directories.empty());
+}
+
 TEST(FFileHelperTests, ReturnsValuesAndExactTextWithoutOutputParameters)
 {
 	using namespace Durin;
@@ -75,24 +282,21 @@ TEST(FFileHelperTests, ReturnsValuesAndExactTextWithoutOutputParameters)
 	const std::string Text("a\0b\r\n", 5);
 	const auto Bytes = std::as_bytes(std::span(Text));
 	auto Saved = FFileHelper::SaveArrayToFile(Bytes, Path);
-	ASSERT_TRUE(Saved) << Saved.error().ToString();
+	ASSERT_TRUE(Saved) << Saved.error().GetMessage();
 	auto Loaded = FFileHelper::LoadFileToString(Path);
-	ASSERT_TRUE(Loaded) << Loaded.error().ToString();
+	ASSERT_TRUE(Loaded) << Loaded.error().GetMessage();
 	EXPECT_EQ(*Loaded, Text);
 	auto Hash = FFileHelper::HashFileXx128(Path);
-	ASSERT_TRUE(Hash) << Hash.error().ToString();
+	ASSERT_TRUE(Hash) << Hash.error().GetMessage();
 	EXPECT_EQ(*Hash, FXxHash128::HashBuffer(Bytes));
-	auto File = FFileHelper::OpenRead(Path);
-	ASSERT_TRUE(File) << File.error().ToString();
+	auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, Durin::IPlatformFile::EOpenReadFlags::AllowWrite | Durin::IPlatformFile::EOpenReadFlags::AllowDelete);
+	ASSERT_TRUE(File) << File.error().GetMessage();
 	std::array<std::byte, 2> Part{};
-	ASSERT_TRUE((*File)->ReadAt(1, Part));
+	ASSERT_TRUE((*File)->ReadAt(reinterpret_cast<uint8*>((Part).data()), static_cast<int64>(std::span(Part).size_bytes()), static_cast<int64>(1)));
 	EXPECT_EQ(Part[0], std::byte{0});
 	EXPECT_EQ(Part[1], std::byte{'b'});
-	auto Invalid = (*File)->ReadAt(5, Part);
+	auto Invalid = (*File)->ReadAt(reinterpret_cast<uint8*>((Part).data()), static_cast<int64>(std::span(Part).size_bytes()), static_cast<int64>(5));
 	ASSERT_FALSE(Invalid);
-	ASSERT_TRUE(Invalid.error().Range);
-	EXPECT_EQ(Invalid.error().Range->Offset, 5u);
-	EXPECT_EQ(Invalid.error().NativeError, std::errc::result_out_of_range);
 	File->reset();
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Path));
 	auto Empty = FFileHelper::LoadFileToArray(Path);
@@ -129,10 +333,10 @@ TEST(FFileHelperTests, ReadWrappersPreserveSharingFailure)
 	EXPECT_EQ(Decoded.error().Code, Image::EImageDecodeError::FileRead);
 	ASSERT_TRUE(Decoded.error().FileError);
 	EXPECT_EQ(Decoded.error().FileError->NativeError.value(), ERROR_SHARING_VIOLATION);
-	for (const auto& Diagnostic : {JsonResult.error().ToString(), YamlResult.error().ToString(), Fingerprint.error().ToString(),
+	for (const auto& Diagnostic : {JsonResult.error().ToString(), YamlResult.error().ToString(), Fingerprint.error().GetMessage(),
 		Image::ToString(Decoded.error())})
 	{
-		EXPECT_NE(Diagnostic.find("open for reading"), std::string::npos);
+		EXPECT_NE(Diagnostic.find("for reading"), std::string::npos);
 		EXPECT_NE(Diagnostic.find("Locked.bin"), std::string::npos);
 	}
 	Lock.reset();
@@ -173,23 +377,18 @@ TEST(FFileHelperTests, DistinguishesMissingFilesFromQueryFailure)
 	using namespace Durin;
 	const FFilePath Root = TestRoot("ResultErrors");
 	const FFilePath Missing = Root / "Missing.bin";
-	auto Exists = FFileHelper::FileExists(Missing);
-	ASSERT_TRUE(Exists);
-	EXPECT_FALSE(*Exists);
+	EXPECT_FALSE(IFileManager::Get().FileExists(Missing));
 	auto Loaded = FFileHelper::LoadFileToArray(Missing);
 	ASSERT_FALSE(Loaded);
-	EXPECT_EQ(Loaded.error().Operation, EFileOperation::OpenRead);
 	EXPECT_EQ(Loaded.error().NativeError, std::errc::no_such_file_or_directory);
-	EXPECT_EQ(Loaded.error().Path, std::filesystem::absolute(Missing).lexically_normal());
-	EXPECT_NE(Loaded.error().ToString().find("Missing.bin"), std::string::npos);
-	// Overlong components fail as an inspection error, not successful absence.
-	auto Invalid = FFileHelper::FileExists(Root / std::string(300, 'x'));
+	EXPECT_NE(Loaded.error().GetMessage().find((std::filesystem::absolute(Missing).lexically_normal()).generic_string()), std::string::npos);
+	EXPECT_NE(Loaded.error().GetMessage().find("Missing.bin"), std::string::npos);
+	auto Invalid = IFileManager::Get().FileExists(Root / std::string(300, 'x'));
 	EXPECT_FALSE(Invalid);
 	const FFilePath Blocker = Root / "Blocker";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Blocker));
 	auto Saved = FFileHelper::SaveArrayToFile({}, Blocker / "Child");
 	ASSERT_FALSE(Saved);
-	EXPECT_EQ(Saved.error().Operation, EFileOperation::CreateParentDirectories);
 	EXPECT_TRUE(Saved.error().NativeError);
 }
 
@@ -225,7 +424,6 @@ TEST(FFileHelperTests, PublicationResultsPreserveExistingBytes)
 	ASSERT_TRUE(FFileHelper::SaveArrayToNewFile(Bytes, Path));
 	auto Existing = FFileHelper::SaveArrayToNewFile({}, Path);
 	ASSERT_FALSE(Existing);
-	EXPECT_EQ(Existing.error().Operation, EFileOperation::CreateTemporaryFile);
 	auto Loaded = FFileHelper::LoadFileToArray(Path);
 	ASSERT_TRUE(Loaded);
 	EXPECT_EQ(*Loaded, Bytes);
@@ -236,7 +434,6 @@ TEST(FFileHelperTests, PublicationResultsPreserveExistingBytes)
 	EXPECT_EQ(*Loaded, Bytes);
 	auto Failed = FFileHelper::SaveArrayToFileAtomically(Bytes, Root);
 	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.error().Operation, EFileOperation::ReplaceDestination);
 	EXPECT_TRUE(std::filesystem::is_directory(Root));
 }
 
@@ -246,11 +443,10 @@ TEST(FFileHelperTests, ExclusivelyCreatesCompleteBytes)
 	const auto Destination = Root / "Nested" / "Stage.bin";
 	const Durin::FByteBuffer Payload(128 * 1024 + 7, std::byte{0x53});
 	auto Created = Durin::FFileHelper::SaveArrayToNewFile(Payload, Destination);
-	ASSERT_TRUE(Created) << Created.error().ToString();
+	ASSERT_TRUE(Created) << Created.error().GetMessage();
 	EXPECT_EQ(ReadBytes(Destination), Payload);
 	auto Existing = Durin::FFileHelper::SaveArrayToNewFile({}, Destination);
 	ASSERT_FALSE(Existing);
-	EXPECT_EQ(Existing.error().Operation, Durin::EFileOperation::CreateTemporaryFile);
 	EXPECT_EQ(ReadBytes(Destination), Payload);
 	EXPECT_FALSE(Durin::FFileHelper::SaveArrayToNewFile({}, Destination));
 	EXPECT_EQ(ReadBytes(Destination), Payload);
@@ -258,7 +454,7 @@ TEST(FFileHelperTests, ExclusivelyCreatesCompleteBytes)
 	EXPECT_FALSE(Directory);
 	EXPECT_TRUE(std::filesystem::is_directory(Root));
 	auto Empty = Durin::FFileHelper::SaveArrayToNewFile({}, Root / "Empty.bin");
-	ASSERT_TRUE(Empty) << Empty.error().ToString();
+	ASSERT_TRUE(Empty) << Empty.error().GetMessage();
 	EXPECT_TRUE(ReadBytes(Root / "Empty.bin").empty());
 }
 
@@ -296,11 +492,11 @@ TEST(FFileHelperTests, PublishesAndReplacesCompleteBytes)
 	const std::array Second{std::byte{0x33}, std::byte{0x44}, std::byte{0x55}};
 
 	auto FirstWrite = Durin::FFileHelper::SaveArrayToFileAtomically(First, Destination);
-	ASSERT_TRUE(FirstWrite) << FirstWrite.error().ToString();
+	ASSERT_TRUE(FirstWrite) << FirstWrite.error().GetMessage();
 	EXPECT_EQ(ReadBytes(Destination), std::vector(First.begin(), First.end()));
 
 	auto SecondWrite = Durin::FFileHelper::SaveArrayToFileAtomically(Second, Destination);
-	ASSERT_TRUE(SecondWrite) << SecondWrite.error().ToString();
+	ASSERT_TRUE(SecondWrite) << SecondWrite.error().GetMessage();
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Second.begin(), Second.end()));
 	auto Loaded = Durin::FFileHelper::LoadFileToArray(Destination);
 	ASSERT_TRUE(Loaded);
@@ -321,9 +517,11 @@ TEST(FFileHelperTests, CopiesFilesThroughAtomicReplacement)
 
 	auto Copied = Durin::FFileHelper::CopyFileAtomically(Source, Destination);
 	ASSERT_TRUE(Copied)
-		<< Copied.error().ToString();
+		<< Copied.error().GetMessage();
 	EXPECT_EQ(ReadBytes(Source), Expected);
 	EXPECT_EQ(ReadBytes(Destination), Expected);
+	for (const auto& Entry : std::filesystem::directory_iterator(Root))
+		EXPECT_TRUE(Entry.path() == Source || Entry.path() == Destination) << Entry.path();
 
 	auto Missing = Durin::FFileHelper::CopyFileAtomically(Root / "Missing.bin", Destination);
 	EXPECT_FALSE(Missing);
@@ -338,7 +536,7 @@ TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
 		Bytes[Index] = static_cast<std::byte>((Index * 37) & 0xff);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
 	auto Actual = Durin::FFileHelper::HashFileXx128(FilePath);
-	ASSERT_TRUE(Actual) << Actual.error().ToString();
+	ASSERT_TRUE(Actual) << Actual.error().GetMessage();
 	EXPECT_EQ(*Actual, Durin::FXxHash128::HashBuffer(Bytes));
 	auto Missing = Durin::FFileHelper::HashFileXx128(FilePath.parent_path() / "Missing.bin");
 	ASSERT_FALSE(Missing);
@@ -353,16 +551,16 @@ TEST(FFileHelperTests, RandomReadHandleSupportsExactOutOfOrderRanges)
 		Bytes[Index] = static_cast<std::byte>((Index * 29) & 0xff);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
 
-	auto Handle = Durin::FFileHelper::OpenRead(FilePath);
-	ASSERT_TRUE(Handle) << Handle.error().ToString();
-	EXPECT_EQ((*Handle)->GetSize(), Bytes.size());
+	auto Handle = Durin::IPlatformFile::GetPlatformPhysical().OpenRead(FilePath, Durin::IPlatformFile::EOpenReadFlags::AllowWrite | Durin::IPlatformFile::EOpenReadFlags::AllowDelete);
+	ASSERT_TRUE(Handle) << Handle.error().GetMessage();
+	EXPECT_EQ((*Handle)->Size(), Bytes.size());
 	std::array<std::byte, 13> Tail{};
-	ASSERT_TRUE((*Handle)->ReadAt(201, Tail));
+	ASSERT_TRUE((*Handle)->ReadAt(reinterpret_cast<uint8*>((Tail).data()), static_cast<int64>(std::span(Tail).size_bytes()), static_cast<int64>(201)));
 	EXPECT_TRUE(std::ranges::equal(Tail, std::span(Bytes).subspan(201, Tail.size())));
 	std::array<std::byte, 17> Head{};
-	ASSERT_TRUE((*Handle)->ReadAt(3, Head));
+	ASSERT_TRUE((*Handle)->ReadAt(reinterpret_cast<uint8*>((Head).data()), static_cast<int64>(std::span(Head).size_bytes()), static_cast<int64>(3)));
 	EXPECT_TRUE(std::ranges::equal(Head, std::span(Bytes).subspan(3, Head.size())));
-	EXPECT_TRUE((*Handle)->ReadAt((*Handle)->GetSize(), {}));
+	EXPECT_TRUE((*Handle)->ReadAt(nullptr, 0, static_cast<int64>((*Handle)->Size())));
 }
 
 TEST(FFileHelperTests, RandomReadHandleRejectsInvalidRangesDeterministically)
@@ -370,21 +568,15 @@ TEST(FFileHelperTests, RandomReadHandleRejectsInvalidRangesDeterministically)
 	const std::filesystem::path FilePath = TestRoot("RandomReadBounds") / "Value.bin";
 	const std::array Bytes{std::byte{0x11}, std::byte{0x22}};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
-	auto Handle = Durin::FFileHelper::OpenRead(FilePath);
+	auto Handle = Durin::IPlatformFile::GetPlatformPhysical().OpenRead(FilePath, Durin::IPlatformFile::EOpenReadFlags::AllowWrite | Durin::IPlatformFile::EOpenReadFlags::AllowDelete);
 	ASSERT_TRUE(Handle);
 	std::array<std::byte, 1> Output{};
-	auto Invalid = (*Handle)->ReadAt(3, Output);
+	auto Invalid = (*Handle)->ReadAt(reinterpret_cast<uint8*>((Output).data()), static_cast<int64>(std::span(Output).size_bytes()), static_cast<int64>(3));
 	ASSERT_FALSE(Invalid);
-	ASSERT_TRUE(Invalid.error().Range);
-	EXPECT_EQ(Invalid.error().Operation, Durin::EFileOperation::Read);
-	EXPECT_EQ(Invalid.error().Range->Offset, 3);
-	EXPECT_EQ(Invalid.error().Range->Size, 1);
-	EXPECT_EQ(Invalid.error().NativeError, std::make_error_code(std::errc::result_out_of_range));
-	EXPECT_FALSE((*Handle)->ReadAt(std::numeric_limits<uint64>::max(), Output));
+	EXPECT_FALSE((*Handle)->ReadAt(reinterpret_cast<uint8*>((Output).data()), static_cast<int64>(std::span(Output).size_bytes()), static_cast<int64>(std::numeric_limits<uint64>::max())));
 
-	auto Missing = Durin::FFileHelper::OpenRead(FilePath.parent_path() / "Missing.bin");
+	auto Missing = Durin::IPlatformFile::GetPlatformPhysical().OpenRead(FilePath.parent_path() / "Missing.bin", Durin::IPlatformFile::EOpenReadFlags::AllowWrite | Durin::IPlatformFile::EOpenReadFlags::AllowDelete);
 	ASSERT_FALSE(Missing);
-	EXPECT_EQ(Missing.error().Operation, Durin::EFileOperation::OpenRead);
 	EXPECT_TRUE(Missing.error().NativeError);
 }
 
@@ -396,12 +588,12 @@ TEST(FFileHelperTests, RandomReadHandleSupportsSparseFilesBeyondFourGiB)
 	std::error_code Error;
 	std::filesystem::resize_file(FilePath, SparseSize, Error);
 	if (Error) GTEST_SKIP() << "Sparse/large fixture is unavailable: " << Error.message();
-	auto Handle = Durin::FFileHelper::OpenRead(FilePath);
+	auto Handle = Durin::IPlatformFile::GetPlatformPhysical().OpenRead(FilePath, Durin::IPlatformFile::EOpenReadFlags::AllowWrite | Durin::IPlatformFile::EOpenReadFlags::AllowDelete);
 	ASSERT_TRUE(Handle);
-	EXPECT_EQ((*Handle)->GetSize(), SparseSize);
+	EXPECT_EQ((*Handle)->Size(), SparseSize);
 	std::array<std::byte, 16> Tail;
 	Tail.fill(std::byte{0xff});
-	ASSERT_TRUE((*Handle)->ReadAt(SparseSize - Tail.size(), Tail));
+	ASSERT_TRUE((*Handle)->ReadAt(reinterpret_cast<uint8*>((Tail).data()), static_cast<int64>(std::span(Tail).size_bytes()), static_cast<int64>(SparseSize - Tail.size())));
 	EXPECT_TRUE(std::ranges::all_of(Tail, [](std::byte Value) { return Value == std::byte{0}; }));
 }
 
@@ -410,12 +602,79 @@ TEST(FFileHelperTests, EmptyFilesReturnEmptyValues)
 	const auto Path = TestRoot("EmptyRead") / "Empty.bin";
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile({}, Path));
 	auto Bytes = Durin::FFileHelper::LoadFileToArray(Path);
-	ASSERT_TRUE(Bytes) << Bytes.error().ToString();
+	ASSERT_TRUE(Bytes) << Bytes.error().GetMessage();
 	EXPECT_TRUE(Bytes->empty());
 	auto Text = Durin::FFileHelper::LoadFileToString(Path);
-	ASSERT_TRUE(Text) << Text.error().ToString();
+	ASSERT_TRUE(Text) << Text.error().GetMessage();
 	EXPECT_TRUE(Text->empty());
 }
+
+TEST(FPlatformFileTests, ReadWriteSeekAppendAndTruncate)
+{
+	using namespace Durin;
+	const auto Path = TestRoot("PlatformReadWrite") / "data.bin";
+	auto& Platform = IPlatformFile::GetPlatformPhysical();
+	auto File = Platform.OpenWrite(Path, IPlatformFile::EOpenWriteFlags::AllowRead);
+	ASSERT_TRUE(File) << File.error().GetMessage();
+	const std::array<uint8, 4> Bytes{1, 2, 3, 4};
+	ASSERT_TRUE((*File)->Write(Bytes.data(), Bytes.size()));
+	EXPECT_EQ((*File)->Tell(), 4);
+	EXPECT_EQ((*File)->Size(), 4);
+	ASSERT_TRUE((*File)->Seek(1));
+	std::array<uint8, 2> Read{};
+	ASSERT_TRUE((*File)->ReadAt(Read.data(), Read.size(), 2));
+	EXPECT_EQ(Read, (std::array<uint8, 2>{3, 4}));
+	EXPECT_EQ((*File)->Tell(), 1);
+	ASSERT_TRUE((*File)->Read(Read.data(), Read.size()));
+	EXPECT_EQ(Read, (std::array<uint8, 2>{2, 3}));
+	EXPECT_FALSE((*File)->Seek(-1));
+	EXPECT_FALSE((*File)->SeekFromEnd(1));
+	ASSERT_TRUE((*File)->Truncate(2));
+	EXPECT_EQ((*File)->Size(), 2);
+	ASSERT_TRUE((*File)->Flush(true));
+	File->reset();
+	File = Platform.OpenWrite(Path, IPlatformFile::EOpenWriteFlags::Append);
+	ASSERT_TRUE(File);
+	EXPECT_EQ((*File)->Tell(), 2);
+	ASSERT_TRUE((*File)->Write(Bytes.data() + 2, 2));
+	File->reset();
+	File = Platform.OpenRead(Path, IPlatformFile::EOpenReadFlags::None);
+	ASSERT_TRUE(File);
+	EXPECT_EQ((*File)->Size(), 4);
+	ASSERT_TRUE((*File)->SeekFromEnd(-2));
+	ASSERT_TRUE((*File)->Read(Read.data(), Read.size()));
+	EXPECT_EQ(Read, (std::array<uint8, 2>{3, 4}));
+	EXPECT_FALSE((*File)->Read(Read.data(), 1));
+	EXPECT_FALSE((*File)->Write(Bytes.data(), 1));
+	EXPECT_FALSE((*File)->Truncate(0));
+	EXPECT_FALSE((*File)->ReadAt(Read.data(), -1, 0));
+	EXPECT_FALSE((*File)->ReadAt(Read.data(), 1, -1));
+}
+
+#if defined(_WIN32)
+TEST(FPlatformFileTests, ReadSharingFlagsAreExplicit)
+{
+	using namespace Durin;
+	const auto Path = TestRoot("PlatformSharing") / "data.bin";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile({}, Path));
+	auto& Platform = IPlatformFile::GetPlatformPhysical();
+	auto Reader = Platform.OpenRead(Path, IPlatformFile::EOpenReadFlags::None);
+	ASSERT_TRUE(Reader);
+	auto Writer = Platform.OpenWrite(Path, IPlatformFile::EOpenWriteFlags::AllowRead);
+	ASSERT_FALSE(Writer);
+	EXPECT_EQ(Writer.error().NativeError.value(), ERROR_SHARING_VIOLATION);
+	Reader->reset();
+	Reader = Platform.OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
+	ASSERT_TRUE(Reader);
+	Writer = Platform.OpenWrite(Path, IPlatformFile::EOpenWriteFlags::AllowRead);
+	ASSERT_TRUE(Writer) << Writer.error().GetMessage();
+	Writer->reset();
+	std::error_code Error;
+	std::filesystem::rename(Path, Path.parent_path() / "renamed.bin", Error);
+	EXPECT_FALSE(Error);
+	EXPECT_EQ((*Reader)->Size(), 0);
+}
+#endif
 
 TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 {
@@ -428,16 +687,15 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 	const std::vector Initial(PayloadSizes.front(), std::byte{0x01});
 	auto InitialWrite = Durin::FFileHelper::SaveArrayToFileAtomically(Initial, Destination);
 	ASSERT_TRUE(InitialWrite)
-		<< InitialWrite.error().ToString();
+		<< InitialWrite.error().GetMessage();
 
 	std::atomic_bool bStart = false;
 	std::atomic_bool bStopReader = false;
 	std::atomic_bool bObservedPartial = false;
-	std::optional<Durin::FFileError> ReadError;
+	std::optional<Durin::FFileSystemError> ReadError;
 	size_t SuccessfulReads = 0; // Reader-owned until join.
 	std::atomic_bool bPublicationFailed = false;
 	std::atomic_int PublicationErrorCode = 0;
-	std::atomic_int PublicationOperation = 0;
 	std::vector<std::thread> Writers;
 	for (size_t WriterIndex = 0; WriterIndex < WriterCount; ++WriterIndex)
 	{
@@ -451,7 +709,6 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 				if (auto Saved = Durin::FFileHelper::SaveArrayToFileAtomically(Payload, Destination); !Saved)
 				{
 					PublicationErrorCode.store(Saved.error().NativeError.value(), std::memory_order_release);
-					PublicationOperation.store(static_cast<int>(Saved.error().Operation), std::memory_order_release);
 					bPublicationFailed.store(true, std::memory_order_release);
 					return;
 				}
@@ -471,8 +728,7 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 			for (size_t Attempt = 1; !Bytes && Attempt < MaxReadAttempts; ++Attempt)
 			{
 				const auto& Error = Bytes.error();
-				if (Error.Operation != Durin::EFileOperation::OpenRead
-					|| Error.NativeError.category() != std::system_category()
+				if (Error.NativeError.category() != std::system_category()
 					|| (Error.NativeError.value() != ERROR_ACCESS_DENIED
 						&& Error.NativeError.value() != ERROR_SHARING_VIOLATION
 						&& Error.NativeError.value() != ERROR_FILE_NOT_FOUND))
@@ -501,8 +757,8 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 	Reader.join();
 
 	EXPECT_FALSE(bPublicationFailed.load())
-		<< "operation " << PublicationOperation.load() << ", native error " << PublicationErrorCode.load();
-	EXPECT_FALSE(ReadError.has_value()) << (ReadError ? ReadError->ToString() : "");
+		<< "native error " << PublicationErrorCode.load();
+	EXPECT_FALSE(ReadError.has_value()) << (ReadError ? ReadError->GetMessage() : "");
 	EXPECT_GT(SuccessfulReads, 0u);
 	EXPECT_FALSE(bObservedPartial.load());
 	EXPECT_TRUE(IsCompleteWriterPayload(ReadBytes(Destination), PayloadSizes));
@@ -517,10 +773,9 @@ TEST(FFileHelperTests, FailedReplacementPreservesDestinationAndCleansTemporaryFi
 
 	auto Failed = Durin::FFileHelper::SaveArrayToFileAtomically(Payload, Destination);
 	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.error().Operation, Durin::EFileOperation::ReplaceDestination);
 	EXPECT_NE(Failed.error().NativeError.value(), 0);
-	EXPECT_EQ(Failed.error().Path, std::filesystem::absolute(Destination).lexically_normal());
-	EXPECT_NE(Failed.error().ToString().find("longest component"), std::string::npos);
+	EXPECT_NE(Failed.error().GetMessage().find((std::filesystem::absolute(Destination).lexically_normal()).generic_string()), std::string::npos);
+	EXPECT_NE(Failed.error().GetMessage().find(Destination.filename().generic_string()), std::string::npos);
 	EXPECT_TRUE(std::filesystem::is_directory(Destination));
 
 	for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(Root))
@@ -554,7 +809,7 @@ TEST(FFileHelperTests, SupportsStandardAndAtomicIoBeyondMaxPath)
 
 	const std::array Second{std::byte{0x44}, std::byte{0x55}};
 	auto Saved = Durin::FFileHelper::SaveArrayToFileAtomically(Second, Destination);
-	ASSERT_TRUE(Saved) << Saved.error().ToString();
+	ASSERT_TRUE(Saved) << Saved.error().GetMessage();
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Second.begin(), Second.end()));
 
 	std::error_code CleanupError;
@@ -575,7 +830,7 @@ TEST(FFileHelperTests, FixedTemporaryNameAvoidsHistoricalMaxPathInflation)
 
 	const std::array Payload{std::byte{0x71}, std::byte{0x72}};
 	auto Saved = Durin::FFileHelper::SaveArrayToFileAtomically(Payload, Destination);
-	ASSERT_TRUE(Saved) << Saved.error().ToString();
+	ASSERT_TRUE(Saved) << Saved.error().GetMessage();
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Payload.begin(), Payload.end()));
 }
 
@@ -587,9 +842,8 @@ TEST(FFileHelperTests, OverlongComponentFailsWithPathMetricsAndNoOrphan)
 
 	auto Failed = Durin::FFileHelper::SaveArrayToFileAtomically(Payload, Destination);
 	ASSERT_FALSE(Failed);
-	EXPECT_EQ(Failed.error().Operation, Durin::EFileOperation::ReplaceDestination);
 	EXPECT_NE(Failed.error().NativeError.value(), 0);
-	EXPECT_NE(Failed.error().ToString().find("longest component 256"), std::string::npos);
+	EXPECT_NE(Failed.error().GetMessage().find(Destination.filename().generic_string()), std::string::npos);
 
 	for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(Root))
 	{
@@ -606,7 +860,7 @@ TEST(FFileHelperTests, BoundedReadRejectsSizeChangesAndLimitsBeforeReading)
 	auto Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 3, .ExpectedBytes = 3});
 	ASSERT_TRUE(Read); EXPECT_EQ(*Read, Payload);
 	Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 2});
-	ASSERT_FALSE(Read); EXPECT_EQ(Read.error().Operation, EFileOperation::QuerySize);
+	ASSERT_FALSE(Read);
 	EXPECT_EQ(Read.error().NativeError, std::errc::file_too_large);
 	Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 100, .ExpectedBytes = 2});
 	ASSERT_FALSE(Read); EXPECT_EQ(Read.error().NativeError, std::errc::message_size);
@@ -614,6 +868,6 @@ TEST(FFileHelperTests, BoundedReadRejectsSizeChangesAndLimitsBeforeReading)
 	Read = FFileHelper::LoadFileToArray(Path, {.MaximumBytes = 0, .ExpectedBytes = 0});
 	ASSERT_TRUE(Read); EXPECT_TRUE(Read->empty());
 	Read = FFileHelper::LoadFileToArray(Path.parent_path() / "Missing", {.MaximumBytes = 1});
-	ASSERT_FALSE(Read); EXPECT_EQ(Read.error().Operation, EFileOperation::OpenRead);
+	ASSERT_FALSE(Read);
 	Durin::Testing::RemoveTestWorkDirectory(Path.parent_path());
 }

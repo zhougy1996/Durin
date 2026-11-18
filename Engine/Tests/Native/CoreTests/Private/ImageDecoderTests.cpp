@@ -340,21 +340,20 @@ namespace Durin::Image
 		EXPECT_EQ(Result.error().Limits.MaximumDecodedPixels, 1u);
 	}
 
-	TEST(FImageDecoderTests, FileDecodeErrorsRetainNativePathAndOperation)
+	TEST(FImageDecoderTests, FileDecodeErrorsRetainNativeCauseAndContext)
 	{
 		const auto Missing = Durin::Testing::GetTestWorkDirectory() / "Missing-image-input";
 		const auto Hdr = DecodeRadianceHDRFromFile(Missing.generic_string());
 		ASSERT_FALSE(Hdr);
 		EXPECT_EQ(Hdr.error().Code, ERadianceHDRDecodeError::FileStat);
 		ASSERT_TRUE(Hdr.error().FileError);
-		EXPECT_EQ(Hdr.error().FileError->Operation, EFileOperation::QuerySize);
-		EXPECT_EQ(Hdr.error().FileError->Path, Missing);
+		EXPECT_NE(Hdr.error().FileError->GetMessage().find(Missing.generic_string()), std::string::npos);
 		EXPECT_TRUE(Hdr.error().FileError->NativeError);
 		const auto Gray = DecodeGrayscale16PngFromFile(Missing.generic_string());
 		ASSERT_FALSE(Gray);
 		EXPECT_EQ(Gray.error().Code, EGrayscale16DecodeError::FileStat);
 		ASSERT_TRUE(Gray.error().FileError);
-		EXPECT_EQ(Gray.error().FileError->Path, Missing);
+		EXPECT_NE(Gray.error().FileError->GetMessage().find(Missing.generic_string()), std::string::npos);
 		EXPECT_TRUE(Gray.error().FileError->NativeError);
 	}
 

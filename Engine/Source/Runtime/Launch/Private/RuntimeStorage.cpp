@@ -43,12 +43,12 @@ namespace Durin
                 else
                 {
                     auto Legacy=FFileHelper::LoadFileToArray(Paths.LegacyUserConfig,{.MaximumBytes=1024*1024});
-                    if (!Legacy) { Warnings.push_back("Cannot read explicit user config migration: "+Legacy.error().ToString()); return; }
+                    if (!Legacy) { Warnings.push_back("Cannot read explicit user config migration: "+Legacy.error().GetMessage()); return; }
                     Bytes=std::move(*Legacy);
                 }
                 const auto Saved=FFileHelper::SaveArrayToNewFile(Bytes,AppConfigPath);
                 if (!Saved && Saved.error().NativeError!=std::errc::file_exists)
-                    Warnings.push_back("Could not create user-only overrides: "+Saved.error().ToString());
+                    Warnings.push_back("Could not create user-only overrides: "+Saved.error().GetMessage());
                 return;
             }
 

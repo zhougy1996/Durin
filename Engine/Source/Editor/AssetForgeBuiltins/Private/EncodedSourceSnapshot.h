@@ -4,7 +4,7 @@
 
 #include "SceneSourceSnapshot.h"
 #include "AssetForgeBuiltinsAPI.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -34,7 +34,7 @@ namespace Durin::AssetForge::Builtins
 		uint64 SizeBefore = 0;
 		uint64 SizeAfter = 0;
 		uint64 BytesRead = 0;
-		std::optional<FFileError> FileError;
+		std::optional<FFileSystemError> FileError;
 	};
 	ASSETFORGEBUILTINS_API auto FormatEncodedSourceError(const FEncodedSourceError& Error) -> std::string;
 

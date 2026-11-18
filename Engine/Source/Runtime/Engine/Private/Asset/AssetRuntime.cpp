@@ -709,7 +709,7 @@ namespace Durin
 				auto Failure = UnifiedError::FError{
 					Loaded.error().NativeError == std::errc::no_such_file_or_directory
 						? AssetLoadErrors::NotFound : PackageReadErrors::IoError,
-					Loaded.error().ToString()};
+					Loaded.error().GetMessage()};
 				Failure.PushContext("package", Path.ToString()).PushContext("file", std::string(PhysicalPath));
 				return std::unexpected(std::move(Failure));
 			}

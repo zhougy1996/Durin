@@ -258,7 +258,7 @@ namespace Durin::AssetForge::Builtins
 					if (!Saved)
 					{
 						OutError = std::format("Failed to stage captured Scene source {}: {}",
-							Source.StableIdentity, Saved.error().ToString());
+							Source.StableIdentity, Saved.error().GetMessage());
 						return false;
 					}
 					if (Source.StableIdentity == "root") PhysicalRoot = Target;

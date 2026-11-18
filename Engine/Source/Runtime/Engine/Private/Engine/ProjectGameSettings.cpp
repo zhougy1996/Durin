@@ -24,10 +24,10 @@ namespace Durin
 		{
 			if (const auto Loaded = Document.LoadFromFile(File); !Loaded)
 			{
-				if (const auto* FileError = std::get_if<FFileError>(&Loaded.error().Cause))
+				if (const auto* FileError = std::get_if<FFileSystemError>(&Loaded.error().Cause))
 				{
 					if (FileError->NativeError == std::errc::no_such_file_or_directory) return {};
-					return Failure(EProjectGameSettingsError::IoError, std::format("Could not read project game settings '{}': {}", File.generic_string(), FileError->ToString()));
+					return Failure(EProjectGameSettingsError::IoError, std::format("Could not read project game settings '{}': {}", File.generic_string(), FileError->GetMessage()));
 				}
 				return Failure(EProjectGameSettingsError::MalformedYaml, std::format("Project game settings '{}' are malformed: {}", File.generic_string(), Loaded.error().ToString()));
 			}
@@ -147,7 +147,7 @@ namespace Durin
 				Bytes,
 				SettingsFile); !PublicationError)
 		{
-			return Failure(EProjectGameSettingsError::IoError, std::format("Could not save project game settings: {}", PublicationError.error().ToString()));
+			return Failure(EProjectGameSettingsError::IoError, std::format("Could not save project game settings: {}", PublicationError.error().GetMessage()));
 		}
 		return {};
 	}

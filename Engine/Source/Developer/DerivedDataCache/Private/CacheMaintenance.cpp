@@ -38,7 +38,7 @@ namespace Durin::DerivedData
 				if (Ec) return Error(ECacheError::StorageFailure, "Cannot stat maintenance input.");
 				if (Size > Budget) return Error(ECacheError::ValueTooLarge, "Verification read/workspace limit reached; increase explicit limits to continue.");
 				auto Bytes = FFileHelper::LoadFileToArray(Resolved, {.MaximumBytes = Budget});
-				if (!Bytes) return Error(ECacheError::StorageFailure, Bytes.error().ToString());
+				if (!Bytes) return Error(ECacheError::StorageFailure, Bytes.error().GetMessage());
 				Report.ReadBytes += Bytes->size(); return FSharedByteBuffer::Take(std::move(*Bytes));
 			}
 			auto VerifyBlob(const std::filesystem::path& Path, const FValue* Expected = nullptr, uint64 RetainedBytes = 0) -> std::expected<void, FCacheError>

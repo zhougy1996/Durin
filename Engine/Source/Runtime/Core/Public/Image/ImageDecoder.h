@@ -8,7 +8,7 @@
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
 #include "Image/Image.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin::Image
 {
@@ -31,7 +31,7 @@ namespace Durin::Image
 		int32 Height = 0;
 		FImageDecodeLimits Limits;
 		std::string Filename;
-		std::optional<FFileError> FileError;
+		std::optional<FFileSystemError> FileError;
 	};
 	CORE_API auto ToString(const FImageDecodeError& Error) -> std::string;
 
@@ -64,7 +64,7 @@ namespace Durin::Image
 		uint32 Height = 0;
 		FImageDecodeLimits Limits;
 		std::string Filename;
-		std::optional<FFileError> FileError;
+		std::optional<FFileSystemError> FileError;
 	};
 	CORE_API auto ToString(const FGrayscale16DecodeError& Error) -> std::string;
 
@@ -105,7 +105,7 @@ namespace Durin::Image
 		uint32 Height = 0;
 		FRadianceHDRDecodeLimits Limits;
 		std::string Filename;
-		std::optional<FFileError> FileError;
+		std::optional<FFileSystemError> FileError;
 	};
 	CORE_API auto ToString(const FRadianceHDRDecodeError& Error) -> std::string;
 

@@ -519,7 +519,7 @@ namespace Durin::AssetForge::Builtins
 				return {false, std::format("{} face source format is unsupported.", FaceNames[Index])};
 			auto Loaded = FFileHelper::LoadFileToArray(FaceFiles[Index]);
 			if (!Loaded)
-				return {false, std::format("{} face read failed: {}", FaceNames[Index], Loaded.error().ToString())};
+				return {false, std::format("{} face read failed: {}", FaceNames[Index], Loaded.error().GetMessage())};
 			Bytes[Index] = std::move(*Loaded);
 			EncodedFaces[Index] = Bytes[Index];
 		}
@@ -544,7 +544,7 @@ namespace Durin::AssetForge::Builtins
 			std::filesystem::path(PanoramaFile).extension().generic_string()))
 			return {false, "Panorama source format is unsupported."};
 		auto Loaded = FFileHelper::LoadFileToArray(PanoramaFile);
-		if (!Loaded) return {false, std::format("Panorama source read failed: {}", Loaded.error().ToString())};
+		if (!Loaded) return {false, std::format("Panorama source read failed: {}", Loaded.error().GetMessage())};
 		FByteBuffer Bytes = std::move(*Loaded);
 		std::string Error;
 		FTextureCubeCanonicalBuildInput CanonicalInput;

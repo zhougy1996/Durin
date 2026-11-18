@@ -137,6 +137,8 @@ if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
 		REUSE_FROM SharedPCH_Core)
 endif()
 
+set_source_files_properties(Private/FileHelperTests.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 durin_add_native_test(CoreFileSystemTests
 	KIND contract
 	DOMAINS core

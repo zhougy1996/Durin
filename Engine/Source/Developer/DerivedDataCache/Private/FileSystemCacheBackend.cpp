@@ -121,7 +121,7 @@ namespace Durin::DerivedData
 				return std::unexpected(FCacheError{ECacheError::ValueTooLarge,
 					"Cache entry exceeds its configured size limit."});
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
-				std::format("Failed to read cache entry: {}", Bytes.error().ToString())});
+				std::format("Failed to read cache entry: {}", Bytes.error().GetMessage())});
 		}
 		// Record decoding owns integrity validation; storage returns the exact bytes.
 		return std::optional<FSharedByteBuffer>{FSharedByteBuffer::Take(std::move(*Bytes))};
@@ -158,7 +158,7 @@ namespace Durin::DerivedData
 		auto Saved = FFileHelper::SaveArrayToFileAtomically(Request.Value, ResolvedPath);
 		if (!Saved)
 			return std::unexpected(FCacheError{ECacheError::StorageFailure,
-				std::format("Failed to write cache entry: {}", Saved.error().ToString())});
+				std::format("Failed to write cache entry: {}", Saved.error().GetMessage())});
 		return {};
 	}
 

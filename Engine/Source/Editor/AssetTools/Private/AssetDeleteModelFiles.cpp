@@ -1,5 +1,5 @@
 #include "AssetTools/FileDeletionState.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 #include "AssetTools/DeleteItemsHost.h"
 #include "Misc/ContentMountPaths.h"
 #include "Misc/ContentPathInspection.h"
@@ -621,12 +621,12 @@ namespace Durin::AssetToolsPrivate
 		if (OutError) OutError->reset();
 		if (!Snapshot.Blockers.empty()) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::InvalidData, "The deletion plan is unavailable."});
 		const auto InspectionFailure = [OutError](const std::filesystem::path& Path, const std::error_code& Error,
-			EFileOperation Operation = EFileOperation::Inspect) -> bool {
+			std::string_view Operation = "inspect") -> bool {
 			const bool bMissing = Error == std::errc::no_such_file_or_directory
 				|| Error == std::errc::not_a_directory;
 			if (bMissing) return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData,
 				std::format("Deletion source disappeared: {}", Path.generic_string())});
-			return Reject(OutError, ToError(FFileError{.Operation = Operation, .NativeError = Error, .Path = Path}));
+			return Reject(OutError, ToError(FFileSystemError{std::format("Failed to {}: {}.", Operation, FFilePath(Path).generic_string()), Error}));
 		};
 		const auto Changed = [OutError](const std::filesystem::path& Path) -> bool {
 			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, std::format("Deletion source changed: {}.", Path.generic_string())});
@@ -654,7 +654,7 @@ namespace Durin::AssetToolsPrivate
 			if (!bDirectory)
 			{
 				const uintmax_t Size = std::filesystem::file_size(Path, Error);
-				if (Error) return InspectionFailure(Path, Error, EFileOperation::QuerySize);
+				if (Error) return InspectionFailure(Path, Error, "query size");
 				if (Size != Entry.FileSize) return Changed(Path);
 				auto Identity = FFileHelper::HashFileXx128(Path);
 				if (!Identity)
@@ -666,7 +666,7 @@ namespace Durin::AssetToolsPrivate
 				VerifiedFiles.emplace(Path.generic_string(), *Identity);
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
-			if (Error) return InspectionFailure(Path, Error, EFileOperation::QueryTime);
+			if (Error) return InspectionFailure(Path, Error, "query modification time");
 			if (!(OwnedOnly && bDirectory) && static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks) return Changed(Path);
 		}
 
@@ -738,7 +738,7 @@ namespace Durin::AssetToolsPrivate
 			const bool Invalid = !Mount || !Mount.Mount->bContentWritable
 				|| FindReparsePointInPath(Mount.Mount->GetContentDir(), Entry.PhysicalPath, Reparse, Ec) || Ec;
 			if (Ec && Ec != std::errc::no_such_file_or_directory && Ec != std::errc::not_a_directory)
-			{ Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
+			{ Fail(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Entry.PhysicalPath).generic_string()), Ec})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
 			const auto Current = std::filesystem::symlink_status(Entry.PhysicalPath, Ec);
 			if (!DeleteAssets && Entry.Kind == EFileDeletionEntryKind::Directory && (Ec == std::errc::no_such_file_or_directory || Current.type() == std::filesystem::file_type::not_found)) { Effects.bNoChanges = true; continue; }
 			if (!DeleteAssets && Entry.Kind == EFileDeletionEntryKind::OrdinaryFile)
@@ -751,7 +751,7 @@ namespace Durin::AssetToolsPrivate
 				{ Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "File ownership changed before deletion."); Effects.bStopped = true; Fail(UnifiedError::FError{AssetWriteErrors::StaleData, "File ownership changed."}); continue; }
 			}
 			if (Ec && Ec != std::errc::no_such_file_or_directory && Ec != std::errc::not_a_directory)
-			{ Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
+			{ Fail(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Entry.PhysicalPath).generic_string()), Ec})); Effects.bStopped = true; Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, Status.Error->ToString()); continue; }
 			bool Changed = Invalid || Ec || std::filesystem::is_symlink(Current) || !std::filesystem::exists(Current);
 			if (!Changed && Entry.Kind != EFileDeletionEntryKind::Directory)
 			{
@@ -774,8 +774,8 @@ namespace Durin::AssetToolsPrivate
 			{
 				const auto Message = "Could not permanently delete " + Entry.PhysicalPath + ": " + (Error ? Error.message() : "the entry remains");
 				Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Failed, Message);
-				if (Error) Fail(ToError(FFileError{.Operation = EFileOperation::Remove, .NativeError = Error, .Path = Entry.PhysicalPath}));
-				else if (Ec) Fail(ToError(FFileError{.Operation = EFileOperation::Inspect, .NativeError = Ec, .Path = Entry.PhysicalPath}));
+				if (Error) Fail(ToError(FFileSystemError{std::format("Failed to remove: {}.", FFilePath(Entry.PhysicalPath).generic_string()), Error}));
+				else if (Ec) Fail(ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Entry.PhysicalPath).generic_string()), Ec}));
 				else Fail(UnifiedError::FError{AssetWriteErrors::IoError, Message});
 				if (Ec && Ec != std::errc::no_such_file_or_directory)
 				{ bUncertain = true; Effects.bStopped = true; Effects.Effects.back().RecoveryLocations.push_back(Entry.PhysicalPath); }

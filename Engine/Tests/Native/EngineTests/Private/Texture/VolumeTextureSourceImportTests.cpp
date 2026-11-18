@@ -545,16 +545,16 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Durin::FByteBuffer V6CookedPackage;
 	Durin::FByteBuffer V6CookedBulk;
 	auto V6CookedPackageRead = FFileHelper::LoadFileToArray(CookRoot / "Game/ProductionVolume.dasset");
-	ASSERT_TRUE(V6CookedPackageRead) << V6CookedPackageRead.error().ToString();
+	ASSERT_TRUE(V6CookedPackageRead) << V6CookedPackageRead.error().GetMessage();
 	V6CookedPackage = std::move(*V6CookedPackageRead);
 	auto V6CookedBulkRead = FFileHelper::LoadFileToArray(CookRoot / "Game/ProductionVolume.dbulk");
-	ASSERT_TRUE(V6CookedBulkRead) << V6CookedBulkRead.error().ToString();
+	ASSERT_TRUE(V6CookedBulkRead) << V6CookedBulkRead.error().GetMessage();
 	V6CookedBulk = std::move(*V6CookedBulkRead);
 
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	Durin::FByteBuffer CompanionBytes;
 	auto CompanionBytesRead = FFileHelper::LoadFileToArray(SourceStoragePath);
-	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().ToString();
+	ASSERT_TRUE(CompanionBytesRead) << CompanionBytesRead.error().GetMessage();
 	CompanionBytes = std::move(*CompanionBytesRead);
 	ASSERT_FALSE(CompanionBytes.empty());
 	CompanionBytes.back() ^= std::byte{1};
@@ -594,10 +594,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Durin::FByteBuffer RepeatedCookedPackage;
 	Durin::FByteBuffer RepeatedCookedBulk;
 	auto RepeatedCookedPackageRead = FFileHelper::LoadFileToArray(RollbackCookRoot / "Game/ProductionVolume.dasset");
-	ASSERT_TRUE(RepeatedCookedPackageRead) << RepeatedCookedPackageRead.error().ToString();
+	ASSERT_TRUE(RepeatedCookedPackageRead) << RepeatedCookedPackageRead.error().GetMessage();
 	RepeatedCookedPackage = std::move(*RepeatedCookedPackageRead);
 	auto RepeatedCookedBulkRead = FFileHelper::LoadFileToArray(RollbackCookRoot / "Game/ProductionVolume.dbulk");
-	ASSERT_TRUE(RepeatedCookedBulkRead) << RepeatedCookedBulkRead.error().ToString();
+	ASSERT_TRUE(RepeatedCookedBulkRead) << RepeatedCookedBulkRead.error().GetMessage();
 	RepeatedCookedBulk = std::move(*RepeatedCookedBulkRead);
 	EXPECT_EQ(RepeatedCookedPackage, V6CookedPackage);
 	EXPECT_EQ(RepeatedCookedBulk, V6CookedBulk);

@@ -5,7 +5,7 @@
 #include "CoreAPI.h"
 #include "CoreFwd.h"
 #include "Misc/CoreTypes.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin
 {
@@ -21,7 +21,7 @@ namespace Durin
 
 	struct FYamlLoadError
 	{
-		std::variant<FFileError, FYamlParseError> Cause;
+		std::variant<FFileSystemError, FYamlParseError> Cause;
 		CORE_API auto ToString() const -> std::string;
 	};
 

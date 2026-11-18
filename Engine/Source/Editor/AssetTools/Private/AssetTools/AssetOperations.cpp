@@ -125,7 +125,7 @@ namespace Durin
 			if (!Data.bOnlyFixSoftReferences && SourcePackage && !SourcePackage->IsNewlyCreated())
 			{
 				const auto Fingerprint = FFileHelper::HashFileXx128(SourceDestination.PhysicalPath);
-				if (!Fingerprint) return Reject(Fingerprint.error().ToString());
+				if (!Fingerprint) return Reject(Fingerprint.error().GetMessage());
 				const auto Base = SourcePackage->GetDiskImageDigest();
 				if (Base != FXxHash128{} && Base != *Fingerprint) return Reject("The saved source changed outside the loaded package; reload it before renaming.");
 				SourceFingerprint = *Fingerprint;
@@ -197,7 +197,7 @@ namespace Durin
 				if (SourceFingerprint)
 				{
 					const auto Current = FFileHelper::HashFileXx128(SourceDestination.PhysicalPath);
-					if (!Current) return Reject(Current.error().ToString());
+					if (!Current) return Reject(Current.error().GetMessage());
 					if (*Current != *SourceFingerprint) return Reject("The source file changed while rename was preparing.");
 				}
 			}

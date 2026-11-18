@@ -4,7 +4,7 @@
 #include "DObject/Class.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
-#include "Misc/FileError.h"
+#include "HAL/PlatformFile.h"
 
 namespace Durin
 {
@@ -168,8 +168,7 @@ namespace Durin
 					|| ExistenceError == std::errc::not_a_directory))
 				continue;
 			if (ExistenceError)
-				return Reject(OutError, ToError(FFileError{.Operation = EFileOperation::Inspect,
-					.NativeError = ExistenceError, .Path = Data.PhysicalPath}).PushContext("companion owner", Path.ToString()));
+				return Reject(OutError, ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Data.PhysicalPath).generic_string()), ExistenceError}).PushContext("companion owner", Path.ToString()));
 			std::vector<std::filesystem::path> CompanionFiles;
 			bool bHasContributor = false;
 			const bool Result = AssetToolsPrivate::InspectAssetCompanionFiles(

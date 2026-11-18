@@ -656,7 +656,7 @@ TEST(FStaticMeshPayloadCodecTests,
 		std::filesystem::path(FPaths::EngineDir())
 		/ "Shaders/Slang/StaticMeshBasePass.slang";
 	auto EntryPointSourceRead = FFileHelper::LoadFileToString(EntryPointPath.generic_string());
-	ASSERT_TRUE(EntryPointSourceRead) << EntryPointSourceRead.error().ToString();
+	ASSERT_TRUE(EntryPointSourceRead) << EntryPointSourceRead.error().GetMessage();
 	EntryPointSource = std::move(*EntryPointSourceRead);
 	EXPECT_NE(
 		EntryPointSource.find(
@@ -689,7 +689,7 @@ TEST(FStaticMeshPayloadCodecTests,
 		EntryPointPath.parent_path()
 		/ "VertexFactory/LocalVertexFactory.slang";
 	auto VertexFactorySourceRead = FFileHelper::LoadFileToString(VertexFactoryPath.generic_string());
-	ASSERT_TRUE(VertexFactorySourceRead) << VertexFactorySourceRead.error().ToString();
+	ASSERT_TRUE(VertexFactorySourceRead) << VertexFactorySourceRead.error().GetMessage();
 	VertexFactorySource = std::move(*VertexFactorySourceRead);
 	EXPECT_NE(
 		VertexFactorySource.find(

@@ -1,3 +1,4 @@
+#include "HAL/PlatformFile.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 
 #include "Hash/XxHash.h"
@@ -356,17 +357,17 @@ namespace Durin
 			.ReportContentHash = Input.ExpectedReportContentHash,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible};
-		auto Handle = FFileHelper::OpenRead(Input.PhysicalPath);
+		auto Handle = IPlatformFile::GetPlatformPhysical().OpenRead(Input.PhysicalPath, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 		if (!Handle)
 		{
-			UnifiedError::FError Cause(PackageReadErrors::IoError, Handle.error().ToString());
+			UnifiedError::FError Cause(PackageReadErrors::IoError, Handle.error().GetMessage());
 			Cause.PushContext("file", Input.PhysicalPath);
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
 				Cause);
 			Result.Record = std::move(Record);
 			return Result;
 		}
-		Record.Fingerprint = {.FileSize = (*Handle)->GetSize(),
+		Record.Fingerprint = {.FileSize = static_cast<uint64>((*Handle)->Size()),
 			.ContentHash = Input.ExpectedContentHash};
 		std::error_code TimeError;
 		const auto InitialTime = std::filesystem::last_write_time(Input.PhysicalPath, TimeError);

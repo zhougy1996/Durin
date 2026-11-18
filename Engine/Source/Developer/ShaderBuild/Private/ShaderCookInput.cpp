@@ -1,3 +1,4 @@
+#include "HAL/PlatformFile.h"
 #include "ShaderCookInput.h"
 #include "ShaderBuilder.h"
 #include "ShaderBuildVersion.h"
@@ -40,27 +41,27 @@ namespace Durin
 			SearchRoots.push_back(Mount.VirtualRoot);
 			auto FailurePath = Root;
 			std::filesystem::recursive_directory_iterator It(Root, Error), End;
-			if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
+			if (Error) { return std::unexpected(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(FailurePath).generic_string()), Error}.GetMessage()); }
 			for (; It != End; It.increment(Error))
 			{
 				if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
 				if (++Entries > MaximumDirectoryEntries)
 					return CaptureLimitFailure("directory entry count", MaximumDirectoryEntries, Entries, Root.generic_string());
-				if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
+				if (Error) { return std::unexpected(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(FailurePath).generic_string()), Error}.GetMessage()); }
 				FailurePath = It->path();
 				if (It->is_symlink(Error))
 				{ return std::unexpected(std::format("Shader capture requires regular source files, not symbolic links: '{}'.", (It->path().generic_string()))); }
-				if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
+				if (Error) { return std::unexpected(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(FailurePath).generic_string()), Error}.GetMessage()); }
 				if (!It->is_regular_file(Error))
 				{
-					if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
+					if (Error) { return std::unexpected(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(FailurePath).generic_string()), Error}.GetMessage()); }
 					continue;
 				}
 				const auto Name = (std::filesystem::path(Mount.VirtualRoot)
 					/ It->path().lexically_relative(Root)).lexically_normal().generic_string();
-				auto File = FFileHelper::OpenRead(It->path());
-				if (!File) { return std::unexpected((File.error()).ToString()); }
-				const auto Size = (*File)->GetSize();
+				auto File = IPlatformFile::GetPlatformPhysical().OpenRead(It->path(), IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
+				if (!File) { return std::unexpected((File.error()).GetMessage()); }
+				const auto Size = (*File)->Size();
 				if (Files.size() >= MaximumFiles)
 					return CaptureLimitFailure("file count", MaximumFiles, Files.size() + 1, Name);
 				if (Name.size() > MaximumPathBytes)
@@ -73,14 +74,14 @@ namespace Durin
 				for (size_t Offset = 0; Offset < Bytes.size(); Offset += ReadChunkBytes)
 				{
 					if (IsCancelled && IsCancelled()) { return FShaderCompletion::Canceled(); }
-					if (auto Read = (*File)->ReadAt(Offset, std::span(Bytes).subspan(Offset, std::min(ReadChunkBytes, Bytes.size() - Offset))); !Read)
-					{ return std::unexpected((Read.error()).ToString()); }
+					if (auto Read = (*File)->ReadAt(reinterpret_cast<uint8*>(Bytes.data() + Offset), static_cast<int64>(std::min(ReadChunkBytes, Bytes.size() - Offset)), static_cast<int64>(Offset)); !Read)
+					{ return std::unexpected(std::format("Cannot read shader input: {} at offset {}.", It->path().generic_string(), Offset)); }
 				}
 				TotalBytes += Size;
 				if (!Files.emplace(Name, FXxHash128::HashBuffer(Bytes)).second)
 				{ return std::unexpected(std::format("Shader capture contains duplicate logical file '{}'.", (Name))); }
 			}
-			if (Error) { return std::unexpected(FFileError{EFileOperation::Inspect, Error, FailurePath}.ToString()); }
+			if (Error) { return std::unexpected(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(FailurePath).generic_string()), Error}.GetMessage()); }
 		}
 		FBinaryWriter Identity;
 		Identity.WriteU64(Builder.GetBuildVersion());

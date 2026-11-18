@@ -214,13 +214,13 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	ASSERT_TRUE(Entry);
 	FByteBuffer Before;
 	auto BeforeRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
-	ASSERT_TRUE(BeforeRead) << BeforeRead.error().ToString();
+	ASSERT_TRUE(BeforeRead) << BeforeRead.error().GetMessage();
 	Before = std::move(*BeforeRead);
 	std::filesystem::path BulkPath = Entry->PhysicalPath;
 	BulkPath.replace_extension(".dbulk");
 	FByteBuffer BulkBefore;
 	auto BulkBeforeRead = FFileHelper::LoadFileToArray(BulkPath);
-	ASSERT_TRUE(BulkBeforeRead) << BulkBeforeRead.error().ToString();
+	ASSERT_TRUE(BulkBeforeRead) << BulkBeforeRead.error().GetMessage();
 	BulkBefore = std::move(*BulkBeforeRead);
 	const auto MakePlan = [&]() {
 		const FAssetPackageCompatibilityRecord Record{
@@ -250,10 +250,10 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 		EXPECT_EQ(Texture->GetSource().GetBulkData().GetInstanceId(), Source.GetBulkData().GetInstanceId());
 		FByteBuffer After, BulkAfter;
 		auto AfterRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
-		ASSERT_TRUE(AfterRead) << AfterRead.error().ToString();
+		ASSERT_TRUE(AfterRead) << AfterRead.error().GetMessage();
 		After = std::move(*AfterRead);
 		auto BulkAfterRead = FFileHelper::LoadFileToArray(BulkPath);
-		ASSERT_TRUE(BulkAfterRead) << BulkAfterRead.error().ToString();
+		ASSERT_TRUE(BulkAfterRead) << BulkAfterRead.error().GetMessage();
 		BulkAfter = std::move(*BulkAfterRead);
 		EXPECT_EQ(After, Before);
 		EXPECT_EQ(BulkAfter, BulkBefore);
@@ -263,14 +263,14 @@ TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserv
 	EXPECT_EQ(Texture->GetSource().GetCompression(), ETextureSourceCompression::Zstd);
 	EXPECT_FALSE(std::filesystem::exists(BulkPath));
 	auto BeforeRead2 = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
-	ASSERT_TRUE(BeforeRead2) << BeforeRead2.error().ToString();
+	ASSERT_TRUE(BeforeRead2) << BeforeRead2.error().GetMessage();
 	Before = std::move(*BeforeRead2);
 	const auto Repeated = ApplyAssetCanonicalResaves(MakePlan(), {});
 	ASSERT_EQ(Repeated.Status, EAssetCanonicalResaveApplyStatus::Succeeded);
 	EXPECT_TRUE(Repeated.ChangedPaths.empty());
 	FByteBuffer AfterRepeat;
 	auto AfterRepeatRead = FFileHelper::LoadFileToArray(Entry->PhysicalPath);
-	ASSERT_TRUE(AfterRepeatRead) << AfterRepeatRead.error().ToString();
+	ASSERT_TRUE(AfterRepeatRead) << AfterRepeatRead.error().GetMessage();
 	AfterRepeat = std::move(*AfterRepeatRead);
 	EXPECT_EQ(AfterRepeat, Before);
 	ASSERT_TRUE(UnloadPackage(Path));

@@ -245,7 +245,7 @@ namespace Durin
 			{
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
-				std::expected<FByteBuffer, FFileError> CompanionBytes;
+				std::expected<FByteBuffer, FFileSystemError> CompanionBytes;
 				std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Storage;
 				if (Package.PhysicalPath.empty()
 					|| !(Storage = InspectEditorBulkDataCompanionPaths(

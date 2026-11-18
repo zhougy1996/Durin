@@ -287,6 +287,19 @@ TEST(FCookedPathTests, RuntimeConfigurationUsesPublishedMacOSTarget)
 	EXPECT_EQ(Runtime.GetCookTargetPlatform(), ECookTargetPlatform::MacOS);
 }
 
+TEST(FCookedPathTests, ManifestReadFailureIsNotTreatedAsMissing)
+{
+	const auto Root = Testing::CreateTestFixtureDirectory("CookedManifestReadFailure");
+	const auto Path = Root / "CookManifest.bin";
+	std::filesystem::create_directory(Path);
+	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
+	const auto Original = Runtime;
+	EXPECT_FALSE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
+	EXPECT_EQ(Runtime, Original);
+	std::filesystem::remove(Path);
+	EXPECT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
+}
+
 TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigurations)
 {
 	Testing::InitializeAssetSystemForTests();
@@ -635,14 +648,13 @@ TEST(FCookInputTests, MissingReaderClearsOutputAndClassifiesFailure)
 	EXPECT_EQ(Result.Status, ECookInputStatus::InvalidDependency);
 
 	FCookInputFailure Io{.Error = ECookInputError::FileIo, .File = "input.bin",
-		.FileCause = FFileError{.Operation = EFileOperation::Read,
-			.NativeError = std::make_error_code(std::errc::io_error), .Path = "input.bin", .Range = {{42, 128}}}};
+		.FileCause = FFileSystemError{"Failed to read input.bin at offset 42, size 7.", std::make_error_code(std::errc::io_error)}};
 	const auto Adapted = Io.ToInputResult();
 	EXPECT_EQ(Adapted.Status, ECookInputStatus::IoError);
 	Io = {};
 	ASSERT_TRUE(Adapted.GetDiagnostic());
 	ASSERT_TRUE(Adapted.GetDiagnostic()->FileCause);
-	EXPECT_EQ(Adapted.GetDiagnostic()->FileCause->Range->Offset, 42u);
+	EXPECT_NE(Adapted.GetDiagnostic()->FileCause->GetMessage().find("offset 42"), std::string::npos);
 	EXPECT_NE(Adapted.ToString().find("input.bin"), std::string::npos);
 
 }
@@ -932,19 +944,19 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	ASSERT_TRUE(PublishResult) << FormatCookPublishError(PublishResult);
 	Durin::FByteBuffer PriorPackage, PriorSegment, PriorLibrary, PriorManifest, PriorState;
 	auto PriorPackageRead = FFileHelper::LoadFileToArray(Root / "Game/Transactional.dasset");
-	ASSERT_TRUE(PriorPackageRead) << PriorPackageRead.error().ToString();
+	ASSERT_TRUE(PriorPackageRead) << PriorPackageRead.error().GetMessage();
 	PriorPackage = std::move(*PriorPackageRead);
 	auto PriorSegmentRead = FFileHelper::LoadFileToArray(Root / "Game/Transactional.dbulk");
-	ASSERT_TRUE(PriorSegmentRead) << PriorSegmentRead.error().ToString();
+	ASSERT_TRUE(PriorSegmentRead) << PriorSegmentRead.error().GetMessage();
 	PriorSegment = std::move(*PriorSegmentRead);
 	auto PriorLibraryRead = FFileHelper::LoadFileToArray(Root / "Shaders/ShaderLibrary.dslb");
-	ASSERT_TRUE(PriorLibraryRead) << PriorLibraryRead.error().ToString();
+	ASSERT_TRUE(PriorLibraryRead) << PriorLibraryRead.error().GetMessage();
 	PriorLibrary = std::move(*PriorLibraryRead);
 	auto PriorManifestRead = FFileHelper::LoadFileToArray(Root / "CookManifest.bin");
-	ASSERT_TRUE(PriorManifestRead) << PriorManifestRead.error().ToString();
+	ASSERT_TRUE(PriorManifestRead) << PriorManifestRead.error().GetMessage();
 	PriorManifest = std::move(*PriorManifestRead);
 	auto PriorStateRead = FFileHelper::LoadFileToArray(Root / "CookState.bin");
-	ASSERT_TRUE(PriorStateRead) << PriorStateRead.error().ToString();
+	ASSERT_TRUE(PriorStateRead) << PriorStateRead.error().GetMessage();
 	PriorState = std::move(*PriorStateRead);
 
 	std::vector<FCookSavePlan> Second = Capture(
@@ -973,23 +985,23 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 		EXPECT_EQ(PublishResult.Status, ECookPublishStatus::Failed);
 		Durin::FByteBuffer Bytes;
 		auto BytesRead = FFileHelper::LoadFileToArray(Root / "Game/Transactional.dasset");
-		ASSERT_TRUE(BytesRead) << BytesRead.error().ToString();
+		ASSERT_TRUE(BytesRead) << BytesRead.error().GetMessage();
 		Bytes = std::move(*BytesRead);
 		EXPECT_EQ(Bytes, PriorPackage);
 		auto BytesRead2 = FFileHelper::LoadFileToArray(Root / "Game/Transactional.dbulk");
-		ASSERT_TRUE(BytesRead2) << BytesRead2.error().ToString();
+		ASSERT_TRUE(BytesRead2) << BytesRead2.error().GetMessage();
 		Bytes = std::move(*BytesRead2);
 		EXPECT_EQ(Bytes, PriorSegment);
 		auto BytesRead3 = FFileHelper::LoadFileToArray(Root / "Shaders/ShaderLibrary.dslb");
-		ASSERT_TRUE(BytesRead3) << BytesRead3.error().ToString();
+		ASSERT_TRUE(BytesRead3) << BytesRead3.error().GetMessage();
 		Bytes = std::move(*BytesRead3);
 		EXPECT_EQ(Bytes, PriorLibrary);
 		auto BytesRead4 = FFileHelper::LoadFileToArray(Root / "CookManifest.bin");
-		ASSERT_TRUE(BytesRead4) << BytesRead4.error().ToString();
+		ASSERT_TRUE(BytesRead4) << BytesRead4.error().GetMessage();
 		Bytes = std::move(*BytesRead4);
 		EXPECT_EQ(Bytes, PriorManifest);
 		auto BytesRead5 = FFileHelper::LoadFileToArray(Root / "CookState.bin");
-		ASSERT_TRUE(BytesRead5) << BytesRead5.error().ToString();
+		ASSERT_TRUE(BytesRead5) << BytesRead5.error().GetMessage();
 		Bytes = std::move(*BytesRead5);
 		EXPECT_EQ(Bytes, PriorState);
 		EXPECT_EQ(std::filesystem::last_write_time(Root / "Game/Unchanged.dbulk"), UnchangedTime);
@@ -1008,23 +1020,23 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	EXPECT_EQ(PublishResult.OperationCause->Path, Root / "Game/Transactional.dasset");
 	Durin::FByteBuffer Bytes;
 	auto BytesRead6 = FFileHelper::LoadFileToArray(Root / "Game/Transactional.dasset");
-	ASSERT_TRUE(BytesRead6) << BytesRead6.error().ToString();
+	ASSERT_TRUE(BytesRead6) << BytesRead6.error().GetMessage();
 	Bytes = std::move(*BytesRead6);
 	EXPECT_EQ(Bytes, PriorPackage);
 	auto BytesRead7 = FFileHelper::LoadFileToArray(Root / "Game/Transactional.dbulk");
-	ASSERT_TRUE(BytesRead7) << BytesRead7.error().ToString();
+	ASSERT_TRUE(BytesRead7) << BytesRead7.error().GetMessage();
 	Bytes = std::move(*BytesRead7);
 	EXPECT_EQ(Bytes, PriorSegment);
 	auto BytesRead8 = FFileHelper::LoadFileToArray(Root / "Shaders/ShaderLibrary.dslb");
-	ASSERT_TRUE(BytesRead8) << BytesRead8.error().ToString();
+	ASSERT_TRUE(BytesRead8) << BytesRead8.error().GetMessage();
 	Bytes = std::move(*BytesRead8);
 	EXPECT_EQ(Bytes, PriorLibrary);
 	auto BytesRead9 = FFileHelper::LoadFileToArray(Root / "CookManifest.bin");
-	ASSERT_TRUE(BytesRead9) << BytesRead9.error().ToString();
+	ASSERT_TRUE(BytesRead9) << BytesRead9.error().GetMessage();
 	Bytes = std::move(*BytesRead9);
 	EXPECT_EQ(Bytes, PriorManifest);
 	auto BytesRead10 = FFileHelper::LoadFileToArray(Root / "CookState.bin");
-	ASSERT_TRUE(BytesRead10) << BytesRead10.error().ToString();
+	ASSERT_TRUE(BytesRead10) << BytesRead10.error().GetMessage();
 	Bytes = std::move(*BytesRead10);
 	EXPECT_EQ(Bytes, PriorState);
 }
@@ -1054,7 +1066,7 @@ TEST(FCookOutputStoreTests, RepairsCorruptReusedOutputAndRejectsCompetingWriter)
 	ASSERT_TRUE(PublishResult) << FormatCookPublishError(PublishResult);
 	Durin::FByteBuffer Repaired;
 	auto RepairedRead = FFileHelper::LoadFileToArray(Root / "Game/Repair.dbulk");
-	ASSERT_TRUE(RepairedRead) << RepairedRead.error().ToString();
+	ASSERT_TRUE(RepairedRead) << RepairedRead.error().GetMessage();
 	Repaired = std::move(*RepairedRead);
 	EXPECT_EQ(Repaired, Plans[0].BulkBytes);
 

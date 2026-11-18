@@ -153,7 +153,7 @@ namespace Durin::MainFrame
 		{
 			if (Tokens.size() != 2) return std::unexpected("Usage: <toolset>/<tool> --args-file <path>; do not mix field options.");
 			auto Bytes = FFileHelper::LoadFileToArray(std::filesystem::u8path(Tokens[1]), {.MaximumBytes = MaxConsoleToolTextBytes});
-			if (!Bytes) return std::unexpected(Bytes.error().ToString());
+			if (!Bytes) return std::unexpected(Bytes.error().GetMessage());
 			std::string_view Text(reinterpret_cast<const char*>(Bytes->data()), Bytes->size());
 			if (Text.starts_with("\xef\xbb\xbf")) Text.remove_prefix(3);
 			FJsonDocument Document;

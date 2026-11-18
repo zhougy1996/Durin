@@ -1,3 +1,4 @@
+#include "HAL/PlatformFile.h"
 #include "Misc/PackageWriter.h"
 #include "PackageLoadTransaction.h"
 #include "CookDependencyDiscovery.h"
@@ -30,7 +31,7 @@ namespace Durin
 		case ECookInputError::ShaderInput: return Failure.ShaderDiagnostic;
 		case ECookInputError::Cancelled: return "Cook cancelled.";
 		case ECookInputError::WriteConflict: return std::format("Cook input is being written: {}", Failure.File.string());
-		case ECookInputError::FileIo: return Failure.FileCause ? Failure.FileCause->ToString() : "Cook input IO failed.";
+		case ECookInputError::FileIo: return Failure.FileCause ? Failure.FileCause->GetMessage() : "Cook input IO failed.";
 		case ECookInputError::ByteLimit: return std::format("Cook input byte limit exceeded: file={}, size={}, maximum={}, retained={}, maximum retained={}", Failure.File.string(), Failure.Actual, Failure.Maximum, Failure.Retained, Failure.MaximumRetained);
 		case ECookInputError::PackageLimit: return std::format("Cook input package limit exceeded: count={}, maximum={}", Failure.Actual, Failure.Maximum);
 		case ECookInputError::UnknownPackage: return std::format("Cook input not found: {}", Failure.Package.ToString());
@@ -390,9 +391,9 @@ namespace Durin::AssetPrivate
 		const std::array Paths{Path};
 		auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 		if (!Access) return Fail(FCookInputFailure{.Error = ECookInputError::WriteConflict, .File = Path});
-		auto File = FFileHelper::OpenRead(Path);
+		auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
 		if (!File) return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .FileCause = File.error()});
-		const uint64 Size = (*File)->GetSize();
+		const uint64 Size = (*File)->Size();
 		if (Size > MaximumDiscoveryFileBytes || Size > MaximumDiscoveryBytes - RetainedBytes)
 			return Fail(FCookInputFailure{.Error = ECookInputError::ByteLimit, .File = Path, .Actual = Size, .Maximum = MaximumDiscoveryFileBytes, .Retained = RetainedBytes, .MaximumRetained = MaximumDiscoveryBytes});
 		FByteBuffer Candidate(static_cast<size_t>(Size));
@@ -400,8 +401,8 @@ namespace Durin::AssetPrivate
 		for (size_t Offset = 0; Offset < Candidate.size(); Offset += Chunk)
 		{
 			if (auto Result = CheckCancellation(); !Result) return Result;
-			if (auto Read = (*File)->ReadAt(Offset, std::span(Candidate).subspan(Offset, std::min(Chunk, Candidate.size() - Offset))); !Read)
-				return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .FileCause = Read.error()});
+			if (auto Read = (*File)->ReadAt(reinterpret_cast<uint8*>(Candidate.data() + Offset), static_cast<int64>(std::min(Chunk, Candidate.size() - Offset)), static_cast<int64>(Offset)); !Read)
+				return Fail(FCookInputFailure{.Error = ECookInputError::FileIo, .FileCause = FFileSystemError{std::format("Cannot read cook input: {} at offset {}.", Path.generic_string(), Offset), std::make_error_code(std::errc::io_error)}});
 		}
 		Out = std::move(Candidate);
 		return {};

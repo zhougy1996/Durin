@@ -265,7 +265,7 @@ namespace Durin
 		if (!ReadAccess) { if (OutError) *OutError = UnifiedError::FError{PackageSaveErrors::Busy, "Package output is being written."}; return {}; }
 		BulkFile.Destination = MainFile.Destination;
 		BulkFile.Destination.replace_extension(".dbulk");
-		std::optional<FFileError> InspectionError;
+		std::optional<FFileSystemError> InspectionError;
 		if (!FFilePublicationStamp::Inspect(MainFile.Destination, MainStamp, &InspectionError)
 			|| !FFilePublicationStamp::Inspect(BulkFile.Destination, BulkStamp, &InspectionError))
 		{ if (OutError) *OutError = ToError(*InspectionError); return {}; }

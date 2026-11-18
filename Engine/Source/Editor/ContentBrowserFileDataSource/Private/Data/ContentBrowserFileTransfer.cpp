@@ -139,7 +139,7 @@ namespace Durin::ContentBrowser::FileDataSource::Private
 			{ ReportDiagnostic(Inputs, ELogLevel::Error, "Destination ownership changed before transfer."); Stopped = true; break; }
 			if (!Admitted(Inputs, &Error)) { ReportDiagnostic(Inputs, ELogLevel::Error, Error); Stopped = true; break; }
 			const auto Identity = FFileHelper::HashFileXx128(Entry.Source);
-			if (!Identity) { ReportDiagnostic(Inputs, ELogLevel::Error, Identity.error().ToString()); continue; }
+			if (!Identity) { ReportDiagnostic(Inputs, ELogLevel::Error, Identity.error().GetMessage()); continue; }
 			if (!std::filesystem::copy_file(Entry.Source, Entry.Target, std::filesystem::copy_options::none, Ec))
 			{
 				ReportDiagnostic(Inputs, ELogLevel::Error, "Copy failed: " + Ec.message());

@@ -1,3 +1,4 @@
+#include "HAL/PlatformFile.h"
 #include "Misc/PackageWriter.h"
 #include "PackageLoadTransaction.h"
 #include "CookOutputInternal.h"
@@ -51,13 +52,15 @@ namespace Durin
 			auto Access = FPackageFileAccess::TryAcquire(Paths, false);
 			if (!Access) return false;
 			Out.clear();
-			auto File = FFileHelper::OpenRead(Path);
-			if (!File || (*File)->GetSize() > MaximumCookStateBytes) return false;
-			Out.resize(static_cast<size_t>((*File)->GetSize()));
+			auto File = IPlatformFile::GetPlatformPhysical().OpenRead(Path, IPlatformFile::EOpenReadFlags::AllowWrite | IPlatformFile::EOpenReadFlags::AllowDelete);
+			if (!File) return false;
+			const int64 Size = (*File)->Size();
+			if (Size < 0 || static_cast<uint64>(Size) > MaximumCookStateBytes) return false;
+			Out.resize(static_cast<size_t>(Size));
 			constexpr size_t Chunk = 4 * 1024 * 1024;
 			for (size_t Offset = 0; Offset < Out.size(); Offset += Chunk)
-				if ((Continue && !Continue()) || !(*File)->ReadAt(Offset,
-					std::span(Out).subspan(Offset, std::min(Chunk, Out.size() - Offset))))
+				if ((Continue && !Continue()) || !(*File)->ReadAt(reinterpret_cast<uint8*>(Out.data() + Offset),
+					static_cast<int64>(std::min(Chunk, Out.size() - Offset)), static_cast<int64>(Offset)))
 				{
 					Out.clear(); return false;
 				}

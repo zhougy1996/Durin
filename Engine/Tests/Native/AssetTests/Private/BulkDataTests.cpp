@@ -531,7 +531,7 @@ TEST_F(FPreparedPackageResourceTests, FailurePreservesOutputAndDoesNotRecoverBac
 	EXPECT_EQ(Prepared.GetBulkResource(), Original);
 	FByteBuffer Actual;
 	auto ActualRead = FFileHelper::LoadFileToArray(BulkPath);
-	ASSERT_TRUE(ActualRead) << ActualRead.error().ToString();
+	ASSERT_TRUE(ActualRead) << ActualRead.error().GetMessage();
 	Actual = std::move(*ActualRead);
 	EXPECT_EQ(Actual, Bulk);
 	EXPECT_TRUE(std::filesystem::exists(Backup));
@@ -1142,7 +1142,7 @@ TEST(FPackageResourceTests, GenerationFailurePreservesUnownedBackupAndOwnsCause)
 	EXPECT_TRUE(std::filesystem::exists(BackupPath));
 	FByteBuffer Unchanged;
 	auto UnchangedRead = FFileHelper::LoadFileToArray(SegmentPath);
-	ASSERT_TRUE(UnchangedRead) << UnchangedRead.error().ToString();
+	ASSERT_TRUE(UnchangedRead) << UnchangedRead.error().GetMessage();
 	Unchanged = std::move(*UnchangedRead);
 	EXPECT_EQ(Unchanged, MakeBytes({1, 2}));
 	// Repair is explicit; registration only validates and publishes the resource.

@@ -229,15 +229,14 @@ namespace Durin
 		Result.PayloadPolicy = EAssetPayloadPolicy::CookedPayloadRequired;
 		Result.CookRoot = std::move(InCookRoot);
 		const auto ManifestPath = Result.CookRoot / "CookManifest.bin";
-		const auto ManifestExists = FFileHelper::FileExists(ManifestPath);
-		if (!ManifestExists)
-			return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Cannot inspect cooked asset manifest."});
-		if (*ManifestExists)
+		const auto ManifestBytes = FFileHelper::LoadFileToArray(ManifestPath,
+			{.MaximumBytes = ManifestHeaderSize + MaximumManifestRecordBytes});
+		if (!ManifestBytes && ManifestBytes.error().NativeError != std::errc::no_such_file_or_directory)
+			return std::unexpected(ToError(ManifestBytes.error()));
+		if (ManifestBytes)
 		{
-			const auto ManifestBytes = FFileHelper::LoadFileToArray(ManifestPath,
-				{.MaximumBytes = ManifestHeaderSize + MaximumManifestRecordBytes});
 			FCookManifest Manifest;
-			if (!ManifestBytes || !DecodeCookManifest(*ManifestBytes, Manifest)
+			if (!DecodeCookManifest(*ManifestBytes, Manifest)
 				|| Manifest.TargetProfile != ECookTargetProfile::Game)
 				return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Cooked asset manifest is invalid or has a non-game target."});
 			Result.CookTargetPlatform = Manifest.TargetPlatform;
@@ -249,13 +248,14 @@ namespace Durin
 	auto AssetPrivate::InitializeCookedAssetRegistry(const FAssetRuntimeConfiguration& Configuration) -> std::expected<void, Durin::UnifiedError::FError>
 	{
 		const auto ManifestPath = Configuration.GetCookRoot() / "CookManifest.bin";
-		const auto Exists = FFileHelper::FileExists(ManifestPath);
-		if (!Exists) return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "Cannot inspect cooked asset manifest."});
-		// Loose cooked fixtures without a manifest retain their explicit catalog setup.
-		if (!*Exists) return {};
 		const auto Bytes = FFileHelper::LoadFileToArray(ManifestPath, {.MaximumBytes = ManifestHeaderSize + MaximumManifestRecordBytes});
+		if (!Bytes)
+		{
+			if (Bytes.error().NativeError == std::errc::no_such_file_or_directory) return {};
+			return std::unexpected(ToError(Bytes.error()));
+		}
 		FCookManifest Manifest;
-		if (!Bytes || !DecodeCookManifest(*Bytes, Manifest) || Manifest.TargetProfile != ECookTargetProfile::Game
+		if (!DecodeCookManifest(*Bytes, Manifest) || Manifest.TargetProfile != ECookTargetProfile::Game
 			|| Manifest.TargetPlatform != Configuration.GetCookTargetPlatform())
 			return std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::CorruptFile, "Cooked asset manifest is invalid or has changed since configuration."});
 		FAssetRegistryPublication Publication;

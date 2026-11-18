@@ -46,7 +46,7 @@ namespace Durin
 				return {};
 			}
 			auto Loaded = FFileHelper::LoadFileToArray(BulkPath);
-			if (!Loaded) return Error(Durin::PackageReadErrors::IoError, Loaded.error().ToString());
+			if (!Loaded) return Error(Durin::PackageReadErrors::IoError, Loaded.error().GetMessage());
 			OutBytes = std::move(*Loaded);
 			return {};
 		}
@@ -294,7 +294,7 @@ namespace Durin
 		auto ReadAccess = FPackageFileAccess::TryReadPackage(std::filesystem::path(PhysicalPath));
 		if (!ReadAccess) return Error(Durin::AssetLoadErrors::InUse, "Package output is being written.");
 		auto Bytes = FFileHelper::LoadFileToArray(PhysicalPath);
-		if (!Bytes) return Error(Durin::PackageReadErrors::IoError, Bytes.error().ToString());
+		if (!Bytes) return Error(Durin::PackageReadErrors::IoError, Bytes.error().GetMessage());
 		return InspectAssetPackageBytes(PhysicalPath, *Bytes, PackagePath, OutInspection);
 	}
 

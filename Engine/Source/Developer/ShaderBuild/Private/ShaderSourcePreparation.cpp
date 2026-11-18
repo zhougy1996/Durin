@@ -195,7 +195,7 @@ namespace Durin
 			if (!ContentHash)
 			{
 				OutDependencies.clear();
-				return std::unexpected((std::move(ContentHash.error())).ToString());
+				return std::unexpected((std::move(ContentHash.error())).GetMessage());
 			}
 			OutDependencies.push_back({
 				.VirtualPath = std::move(VirtualPath),

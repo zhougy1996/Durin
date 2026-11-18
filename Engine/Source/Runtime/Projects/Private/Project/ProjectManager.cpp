@@ -245,7 +245,7 @@ namespace Durin
                 if (Error) return Fail("Cannot create plugin startup configuration directory: " + Error.message(), &OutReason);
                 const auto Text = Output.ToString();
                 if (auto Saved = FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(Text.data(), Text.size())), File); !Saved)
-                    return Fail(Saved.error().ToString(), &OutReason);
+                    return Fail(Saved.error().GetMessage(), &OutReason);
                 LastError.clear(); OutReason.clear(); return true;
             }
 

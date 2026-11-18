@@ -38,7 +38,7 @@ The LDR `DecodeImageFromMemory` and `DecodeImageFromFile` APIs return
 `std::expected<FDecodedImage, FImageDecodeError>`, owning pixels only on success.
 Failures retain encoded size, decoded header dimensions, caller limits, and an
 owned filename for file calls. File inspection and reading share one optional
-`FFileError` cause, preserving the operation, path and native error without a
+`FFileSystemError` cause, preserving contextual text and the native error without a
 duplicate system-error field.
 Local `ToString` overloads in `ImageDecoder.cpp` are the presentation adapters.
 Import and thumbnail contracts that still expose strings call them explicitly.

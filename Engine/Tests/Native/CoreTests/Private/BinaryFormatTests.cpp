@@ -91,11 +91,11 @@ TEST(FBinaryFormatTests, SerializedDataRoundTripsBeyondMaxPath)
 	const Durin::FByteBuffer Expected = Writer.TakeBytes();
 
 	auto Saved = Durin::FFileHelper::SaveArrayToFileAtomically(Expected, Path);
-	ASSERT_TRUE(Saved) << Saved.error().ToString();
+	ASSERT_TRUE(Saved) << Saved.error().GetMessage();
 
 	Durin::FByteBuffer Stored;
 	auto StoredRead = Durin::FFileHelper::LoadFileToArray(Path);
-	ASSERT_TRUE(StoredRead) << StoredRead.error().ToString();
+	ASSERT_TRUE(StoredRead) << StoredRead.error().GetMessage();
 	Stored = std::move(*StoredRead);
 	Durin::FBinaryReader Reader(Stored);
 	std::string Identity;

@@ -133,7 +133,7 @@ namespace Durin::AssetPrivate
 		// Until physical commit succeeds, the writer owns failed-write cleanup.
 		if (auto Result = ToAssetWriteResult(Write.Commit()); !Result) return Result;
 		FFilePublicationStamp Stamp;
-		std::optional<FFileError> InspectionError;
+		std::optional<FFileSystemError> InspectionError;
 		if (!FFilePublicationStamp::Inspect(Destination, Stamp, &InspectionError))
 			return RollbackAssetWrite(Write, FAssetWriteResult{.Error = ToError(*InspectionError)});
 		if (!Stamp.Exists)
