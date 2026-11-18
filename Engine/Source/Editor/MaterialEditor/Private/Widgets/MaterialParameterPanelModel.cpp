@@ -57,7 +57,9 @@ namespace Durin::MaterialEditor
 			const FGuid& ParameterId,
 			EPropertyChangeKind Kind,
 			bool bContinuous,
-			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate
+			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate,
+			const MonaImGui::PropertyEdit::FColorPickerState* Picker = nullptr,
+			bool bChanged = true
 		) -> bool
 		{
 			if (!Object || !Property || !Mutate) return false;
@@ -65,10 +67,12 @@ namespace Durin::MaterialEditor
 			Target.LogicalIdentity.resize(sizeof(ParameterId));
 			std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
 			Target.Kind = Kind;
-			return PropertyView.SubmitPropertyValueEdit(Context, Target,
-				[Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+			std::function<void(FProperty*, void*, uint32)> Assign;
+			if (bChanged)
+				Assign = [Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					Mutate(*static_cast<FArrayProperty*>(ScratchProperty), ScratchContainer, ScratchArrayIndex);
-				}, bContinuous);
+				};
+			return PropertyView.SubmitPropertyValueEdit(Context, Target, Assign, bContinuous, Picker);
 		}
 
 		template<typename TRecord>
@@ -216,7 +220,9 @@ namespace Durin::MaterialEditor
 		const FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry,
 		const FMaterialParameterValue& Value,
-		bool bContinuous
+		bool bContinuous,
+		const MonaImGui::PropertyEdit::FColorPickerState* Picker,
+		bool bChanged
 	) const -> bool
 	{
 		if (!Entry.Definition || Entry.bOrphan || !Material || Entry.Definition->Type != Value.GetType()) return false;
@@ -234,7 +240,7 @@ namespace Durin::MaterialEditor
 						void* ScratchContainer, uint32 ScratchArrayIndex) {
 						if (auto* Override = FindScratchEntry<TRecord>(ScratchProperty, ScratchContainer,
 							ScratchArrayIndex, Id, &TRecord::ParameterId)) Override->SetValue(CanonicalValue);
-					});
+					}, Picker, bChanged);
 			});
 		}
 		return false;

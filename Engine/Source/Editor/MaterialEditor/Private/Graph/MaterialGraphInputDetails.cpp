@@ -17,6 +17,7 @@
 #include "Materials/MaterialExpressionInputs.h"
 #include "MaterialGraphValueTypes.h"
 #include "Asset/AssetPicker.h"
+#include "Math/Color.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin::MaterialEditor
@@ -31,6 +32,8 @@ namespace Durin::MaterialEditor
 		ImGui::PushID(Parameter.Id.ToString().c_str());
 		MonaImGui::PropertyEdit::BeginRow("Default value");
 		const ImGuiID Widget = ImGui::GetID("##Value");
+		using namespace MonaImGui::PropertyEdit;
+		FColorPickerState Picker;
 		auto Value = Parameter.Value;
 		bool Edited = false;
 		const float Minimum = Parameter.bHasRange ? Parameter.MinimumValue : 0.0f;
@@ -51,29 +54,42 @@ namespace Durin::MaterialEditor
 		{
 			const auto V = Value.GetVector4();
 			float Components[]{static_cast<float>(V.x), static_cast<float>(V.y), static_cast<float>(V.z), static_cast<float>(V.w)};
-			Edited = Parameter.Presentation == EMaterialParameterPresentation::Color
-				? ImGui::ColorEdit4("##Value", Components, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB | ImGuiColorEditFlags_HDR)
-				: ImGui::DragFloat4("##Value", Components, 0.01f, Minimum, Maximum, "%.4g", Flags);
-			Value.GetVector4() = FVector4(Components[0], Components[1], Components[2], Components[3]);
+			if (Parameter.Presentation == EMaterialParameterPresentation::Color)
+			{
+				FLinearColor Color(Components[0], Components[1], Components[2], Components[3]);
+				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Picker);
+				if (Edited) Value.GetVector4() = FVector4(Color.R, Color.G, Color.B, Color.A);
+			}
+			else
+			{
+				Edited = ImGui::DragFloat4("##Value", Components, 0.01f, Minimum, Maximum, "%.4g", Flags);
+				Value.GetVector4() = FVector4(Components[0], Components[1], Components[2], Components[3]);
+			}
 		}
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
 		if (Edited)
 		{
 			if (ParameterSession.IsActive() && (ParameterWidget != Widget || EditingParameterId != Parameter.Id))
-				CheckCommand(ParameterSession.Commit());
+			{
+				const bool bCancel = ParameterColorPicker.Poll(true) == EColorPickerEnd::Cancel;
+				CheckCommand(bCancel ? ParameterSession.Cancel() : ParameterSession.Commit());
+				if (!ParameterSession.IsActive()) ParameterColorPicker = {};
+			}
 			if (!ParameterSession.IsActive() && CheckCommand(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
 			{
 				ParameterWidget = Widget;
 				EditingParameterId = Parameter.Id;
 			}
-			if (ParameterSession.IsActive() && ParameterWidget == Widget) CheckCommand(ParameterSession.Apply(Value));
+			if (ParameterSession.IsActive() && ParameterWidget == Widget && EditingParameterId == Parameter.Id
+				&& !ParameterColorPicker.IsCancelPending()) CheckCommand(ParameterSession.Apply(Value));
 		}
-		if (ParameterSession.IsActive() && ParameterWidget == Widget)
+		if (ParameterSession.IsActive() && ParameterWidget == Widget && EditingParameterId == Parameter.Id)
 		{
 			ParameterFrame = ImGui::GetFrameCount();
 			// Escape may deactivate an ImGui input before this check; cancellation wins.
-			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CheckCommand(ParameterSession.Cancel());
+			if (Picker.PopupId != 0) ParameterColorPicker.Observe(Picker);
+			else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CheckCommand(ParameterSession.Cancel());
 			else if (Deactivated || (!Active && Edited)) CheckCommand(ParameterSession.Commit());
 		}
 		MonaImGui::PropertyEdit::EndRow();
@@ -82,8 +98,15 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
 	{
-		// A hidden/collapsed panel or a changed selection cannot retain a live draft.
-		if (ParameterSession.IsActive() && ParameterFrame != ImGui::GetFrameCount()) ParameterSession.Cancel();
+		using MonaImGui::PropertyEdit::EColorPickerEnd;
+		if (ParameterSession.IsActive())
+		{
+			const auto End = ParameterColorPicker.Poll(true);
+			if (End == EColorPickerEnd::Cancel || ParameterFrame != ImGui::GetFrameCount())
+				CheckCommand(ParameterSession.Cancel());
+			else if (End == EColorPickerEnd::Commit) CheckCommand(ParameterSession.Commit());
+		}
+		if (!ParameterSession.IsActive()) ParameterColorPicker = {};
 	}
 
 	auto FMaterialGraphCanvas::PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&

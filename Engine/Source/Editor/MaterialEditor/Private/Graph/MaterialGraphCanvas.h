@@ -6,6 +6,7 @@
 #include "MaterialGraphReadModel.h"
 #include "MaterialGraphDocument.h"
 #include "MonaImGui.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin
 {
@@ -207,6 +208,7 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterSession;
+		MonaImGui::PropertyEdit::FColorPickerInteraction ParameterColorPicker;
 		FGuid EditingParameterId;
 		ImGuiID ParameterWidget = 0;
 		int ParameterFrame = -1;

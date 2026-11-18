@@ -33,7 +33,30 @@ namespace Durin::MonaImGui::PropertyEdit
 	{
 		ImGuiID PopupId = 0;
 		bool bCancelled = false;
+		bool bOpen = false;
 	};
+
+	enum class EColorPickerEnd { None, Commit, Cancel };
+	enum class EColorPickerMode { SRGB, Linear, LinearHDR };
+
+	class FColorPickerInteraction
+	{
+	public:
+		MONAIMGUI_API auto Observe(const FColorPickerState& State) -> void;
+		MONAIMGUI_API auto Poll(bool bEndOfFrame = false) -> EColorPickerEnd;
+		auto GetPopupId() const -> ImGuiID { return PopupId; }
+		auto RequestCancel() -> void { bCancelPending = true; }
+		auto IsCancelPending() const -> bool { return bCancelPending; }
+
+	private:
+		ImGuiID PopupId = 0;
+		int LastDrawFrame = 0;
+		bool bCancelPending = false;
+	};
+
+	MONAIMGUI_API auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode,
+		bool bShowAlpha, bool bReadOnly, FColorPickerState* OutPickerState,
+		FWidgetState* OutState = nullptr) -> bool;
 
 	// Defines labels, sizing, and table flags shared by property editors.
 	struct FTableConfig

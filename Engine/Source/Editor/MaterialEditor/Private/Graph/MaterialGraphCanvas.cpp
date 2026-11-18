@@ -292,6 +292,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::CancelInteraction() -> void
 	{
 		if (ParameterSession.IsActive()) ParameterSession.Cancel();
+		ParameterColorPicker = {};
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();

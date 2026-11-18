@@ -1,6 +1,7 @@
 #include "Widgets/MonaImGuiPropertyTable.h"
 
 #include "Math/Color.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
 #include "Math/Operations.h"
 #include "Math/Transform.h"
 #include "MonaImGui.h"
@@ -349,11 +350,44 @@ namespace Durin::MonaImGui::PropertyEdit
 	auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly,
 		FWidgetState* OutState, FLabelTooltip LabelTooltip, FColorPickerState* OutPickerState) -> bool
 	{
-		if (OutPickerState) *OutPickerState = {};
 		ImGui::PushID(Label);
 		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
-		FLinearColor DisplayColor(ColorConvert::LinearToSRGB(Color.R), ColorConvert::LinearToSRGB(Color.G), ColorConvert::LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
-		const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB;
+		const bool bChanged = DrawColorPicker(Color, EColorPickerMode::SRGB, bShowAlpha, bReadOnly, OutPickerState, OutState);
+		EndRow(bReadOnly);
+		ImGui::PopID();
+		return bChanged;
+	}
+
+	auto FColorPickerInteraction::Observe(const FColorPickerState& State) -> void
+	{
+		if (State.PopupId == 0 || (PopupId != 0 && State.PopupId != PopupId)) return;
+		if (PopupId == 0 && !State.bOpen) return;
+		PopupId = State.PopupId;
+		LastDrawFrame = ImGui::GetFrameCount();
+		bCancelPending |= State.bCancelled;
+	}
+
+	auto FColorPickerInteraction::Poll(bool bEndOfFrame) -> EColorPickerEnd
+	{
+		if (PopupId == 0) return EColorPickerEnd::None;
+		const int FramesSinceDraw = ImGui::GetFrameCount() - LastDrawFrame;
+		if (bCancelPending || FramesSinceDraw > (bEndOfFrame ? 0 : 1) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			RequestCancel();
+			return EColorPickerEnd::Cancel;
+		}
+		return ImGui::IsPopupOpen(PopupId, ImGuiPopupFlags_AnyPopupLevel)
+			? EColorPickerEnd::None : EColorPickerEnd::Commit;
+	}
+
+	auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode, bool bShowAlpha,
+		bool bReadOnly, FColorPickerState* OutPickerState, FWidgetState* OutState) -> bool
+	{
+		const bool bSRGB = Mode == EColorPickerMode::SRGB;
+		FLinearColor DisplayColor = bSRGB ? FLinearColor(ColorConvert::LinearToSRGB(Color.R),
+			ColorConvert::LinearToSRGB(Color.G), ColorConvert::LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f)) : Color;
+		const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB
+			| (Mode == EColorPickerMode::LinearHDR ? ImGuiColorEditFlags_HDR : ImGuiColorEditFlags_None);
 		bool bChanged = false;
 
 		// Match details panels that treat color as a swatch rather than an inline
@@ -365,10 +399,11 @@ namespace Durin::MonaImGui::PropertyEdit
 			PreviewFlags, PreviewSize))
 			ImGui::OpenPopup("##Picker");
 		const ImGuiID PickerId = ImGui::GetID("##Picker");
+		if (OutPickerState) *OutPickerState = {PickerId};
 		if (ImGui::BeginPopup("##Picker"))
 		{
 			const bool bCancel = bReadOnly || (OutPickerState && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
-			if (OutPickerState) *OutPickerState = {PickerId, bCancel};
+			if (OutPickerState) *OutPickerState = {PickerId, bCancel, true};
 			if (bCancel) ImGui::CloseCurrentPopup();
 			else
 			{
@@ -381,13 +416,11 @@ namespace Durin::MonaImGui::PropertyEdit
 		}
 		if (bChanged)
 		{
-			Color.R = ColorConvert::SRGBToLinear(DisplayColor.R);
-			Color.G = ColorConvert::SRGBToLinear(DisplayColor.G);
-			Color.B = ColorConvert::SRGBToLinear(DisplayColor.B);
+			Color.R = bSRGB ? ColorConvert::SRGBToLinear(DisplayColor.R) : DisplayColor.R;
+			Color.G = bSRGB ? ColorConvert::SRGBToLinear(DisplayColor.G) : DisplayColor.G;
+			Color.B = bSRGB ? ColorConvert::SRGBToLinear(DisplayColor.B) : DisplayColor.B;
 			if (bShowAlpha) Color.A = DisplayColor.A;
 		}
-		EndRow(bReadOnly);
-		ImGui::PopID();
 		return bChanged;
 	}
 } // namespace Durin::MonaImGui::PropertyEdit

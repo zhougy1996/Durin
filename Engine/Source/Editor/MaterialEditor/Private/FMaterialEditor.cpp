@@ -332,6 +332,16 @@ namespace Durin::MaterialEditor
 			HandleContinuousEdit(bDeactivatedAfterEdit, bActive);
 		}
 
+		auto SubmitColorEdit(bool bChanged, const FMaterialParameterValue& Value,
+			const MonaImGui::PropertyEdit::FColorPickerState& Picker) -> void
+		{
+			if (bOverrideEnabled)
+				Model.SubmitValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Value,
+					true, &Picker, bChanged);
+		}
+
+		auto IsReadOnly() const -> bool { return bDisabled; }
+
 	private:
 		auto HandleContinuousEdit(bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
@@ -710,6 +720,7 @@ namespace Durin::MaterialEditor
 		ImGui::Spacing();
 
 		DrawDockLayout(Document, Material);
+		PropertyView.EndColorPickerFrame(MakePropertyViewContext());
 		if (const auto Canvas = MaterialGraphCanvases.find(Document.Id.Value); Canvas != MaterialGraphCanvases.end())
 			Canvas->second->EndParameterFrame();
 
@@ -1487,13 +1498,13 @@ namespace Durin::MaterialEditor
 		FMaterialParameterValue Edited = Entry.Value;
 		FVector4& Value = Edited.GetVector4();
 		FMaterialParameterRowScope Row(*this, Model, Entry);
-		float Color[4] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z), static_cast<float>(Value.w)};
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		const bool bChanged = ImGui::ColorEdit4("##Value", Color,
-			ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB);
-		if (bChanged) Value = FVector4(Color[0], Color[1], Color[2], Color[3]);
-		Row.SubmitContinuousEdit(bChanged, Edited,
-			ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
+		using namespace MonaImGui::PropertyEdit;
+		FColorPickerState Picker;
+		FLinearColor Color(static_cast<float>(Value.x), static_cast<float>(Value.y),
+			static_cast<float>(Value.z), static_cast<float>(Value.w));
+		const bool bChanged = DrawColorPicker(Color, EColorPickerMode::Linear, true, Row.IsReadOnly(), &Picker);
+		if (bChanged) Value = FVector4(Color.R, Color.G, Color.B, Color.A);
+		Row.SubmitColorEdit(bChanged, Edited, Picker);
 	}
 
 	auto FMaterialEditor::DrawScalarParameter(

@@ -20,8 +20,7 @@
 TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCancel)
 {
 	InitializeDObjectSystem();
-	for (const auto Presentation : {EMaterialParameterPresentation::Drag, EMaterialParameterPresentation::Default,
-		EMaterialParameterPresentation::Color})
+	for (const auto Presentation : {EMaterialParameterPresentation::Drag, EMaterialParameterPresentation::Default})
 	{
 		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
@@ -87,6 +86,95 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		Canvas.CancelInteraction();
 		ImGui::DestroyContext(Context);
 	}
+}
+
+TEST(FMaterialGraphInteractionTests, ColorPopupCommitsOnceOrRestoresHDRDefault)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "HDRColor";
+	Definition.DisplayName = "HDR Color";
+	Definition.Presentation = EMaterialParameterPresentation::Color;
+	Definition.Type = EMaterialParameterType::Vector4;
+	Definition.Value = FMaterialParameterValue::MakeVector4({2.5, 0.3, 0.4, 1});
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, Durin::ETransactionMode::NotTransactable));
+	const auto Read = [&] { return Material->FindParameterDefinition(Definition.Id)->Value; };
+	const auto Original = Read();
+	ASSERT_GT(Original.GetVector4().x, 1.0);
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material),
+		{.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Context(ImGui::CreateContext(), ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.ConfigInputTrickleEventQueue = false;
+	IO.DisplaySize = {900, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	ImGui::SetColorEditOptions(ImGuiColorEditFlags_PickerHueBar);
+	ImGuiID PickerId = 0;
+	const auto Frame = [&](bool bOpen = false, bool bVisible = true) {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({650, 350});
+		ImGui::Begin("Graph color parameter", nullptr, ImGuiWindowFlags_NoTitleBar);
+		if (bVisible && MonaImGui::PropertyEdit::BeginTable("Values", DetailsStyle::MakeTableConfig()))
+		{
+			if (bOpen)
+			{
+				ImGui::PushID(Definition.Id.ToString().c_str());
+				PickerId = ImGui::GetID("##Picker");
+				ImGui::OpenPopup("##Picker");
+				ImGui::PopID();
+			}
+			Canvas.DrawParameterValue(*Material->FindParameterDefinition(Definition.Id), *Transactions.Get());
+			MonaImGui::PropertyEdit::EndTable();
+		}
+		Canvas.EndParameterFrame();
+		ImGui::End(); ImGui::Render();
+	};
+	const auto Click = [&](ImVec2 Position) {
+		IO.AddMousePosEvent(Position.x, Position.y); Frame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true); Frame();
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Frame();
+	};
+	const auto Edit = [&](float Offset) {
+		const auto* Popup = ImGui::FindWindowByName(std::format("##Popup_{:08x}", PickerId).c_str());
+		ASSERT_NE(Popup, nullptr);
+		const auto Position = Popup->DC.CursorStartPos;
+		Click({Position.x + Offset, Position.y + Offset});
+	};
+	IO.AddMousePosEvent(300, 60);
+	Frame(); Frame(true); Frame();
+	EXPECT_EQ(Read(), Original);
+	Edit(10);
+	const auto First = Read();
+	EXPECT_NE(First, Original);
+	Edit(20);
+	const auto Final = Read();
+	EXPECT_NE(Final, First);
+	EXPECT_FALSE(Transactions->CanUndo());
+	Click({850, 550});
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Read(), Original);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Read(), Final);
+	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Transactions->TryReset());
+	IO.AddMousePosEvent(300, 60);
+	Frame(); Frame(true); Frame();
+	Edit(10);
+	EXPECT_NE(Read(), Original);
+	IO.AddKeyEvent(ImGuiKey_Escape, true); Frame();
+	EXPECT_EQ(Read(), Original);
+	EXPECT_FALSE(Transactions->CanUndo());
+	IO.AddKeyEvent(ImGuiKey_Escape, false); Frame(true); Frame();
+	Edit(20);
+	EXPECT_NE(Read(), Original);
+	Frame(false, false);
+	EXPECT_EQ(Read(), Original);
+	EXPECT_FALSE(Transactions->CanUndo());
 }
 
 namespace

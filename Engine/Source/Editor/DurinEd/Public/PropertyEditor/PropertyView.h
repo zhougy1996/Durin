@@ -4,6 +4,7 @@
 
 #include "DObject/AssetPath.h"
 #include "PropertyEditor/PropertyEditing.h"
+#include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin
 {
@@ -116,8 +117,10 @@ namespace Durin
 			const FPropertyViewContext& Context,
 			const FPropertyEditTarget& Target,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue,
-			bool bContinuous
+			bool bContinuous,
+			const MonaImGui::PropertyEdit::FColorPickerState* Picker = nullptr
 		) -> bool;
+		DURINED_API auto EndColorPickerFrame(const FPropertyViewContext& Context) -> bool;
 
 		// Returns false only when the requested terminal action failed and the
 		// recoverable edit must remain active.
@@ -138,8 +141,7 @@ namespace Durin
 			bool bContinuous = false;
 			bool bActive = false;
 			bool bDeactivatedAfterEdit = false;
-			uint32 ColorPickerId = 0;
-			bool bColorPickerCancelled = false;
+			MonaImGui::PropertyEdit::FColorPickerState ColorPicker;
 		};
 
 		// Retains detached key/value drafts while a map insertion UI is active.
@@ -186,7 +188,7 @@ namespace Durin
 			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
 			const FPropertyEditTarget& EditTarget) -> bool;
 		auto ReportError(const FPropertyViewContext& Context, std::string Error) const -> void;
-		auto ReconcileColorPicker(const FPropertyViewContext& Context) -> bool;
+		auto ReconcileColorPicker(const FPropertyViewContext& Context, bool bEndOfFrame = false) -> bool;
 
 		std::array<char, 256> AssetSearchText{};
 		FMapInsertDraft MapInsertDraft;
@@ -194,9 +196,7 @@ namespace Durin
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;
 		DObject* ActiveEditObject = nullptr;
-		uint32 ActiveColorPickerId = 0;
-		int ColorPickerLastDrawFrame = 0;
-		bool bCancelColorPickerPending = false;
+		MonaImGui::PropertyEdit::FColorPickerInteraction ColorPickerInteraction;
 	};
 
 	DURINED_API auto MakePropertyDisplayName(

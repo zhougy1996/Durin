@@ -574,6 +574,13 @@ graph command because type adaptation, expression membership and shared
 parameter references require one validated publication and compensation boundary.
 Sparse GUID-keyed presentation gestures preserve unrelated positions/labels;
 parameter gestures replay through the owner's expression-backed parameter setter.
+
+Material-instance color overrides and graph color defaults share the color picker
+and its popup lifetime, not the property write path. Both preview while the popup
+is open and commit one undo step on normal dismissal. Escape or losing the edited
+row restores the original value without history. Instance colors use the reflected
+override array and linear LDR controls; graph defaults use the parameter setter
+and linear HDR controls, including numeric RGB values above one.
 These retained custom responsibilities and participants are listed in the
 [transactor consumer audit](../Transactions/Transactors.md#structural-history-and-barriers).
 

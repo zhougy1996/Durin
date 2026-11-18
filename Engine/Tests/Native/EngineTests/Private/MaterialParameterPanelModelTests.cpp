@@ -355,6 +355,79 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAndCancels)
+{
+	using namespace Durin;
+	using namespace Durin::MaterialEditor;
+	using namespace MonaImGui::PropertyEdit;
+	using namespace AssetForge::Builtins::MaterialParameters;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("ColorPopupBase"));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ColorPopupInstance"));
+	ASSERT_TRUE(Instance->SetParent(Base.Get()));
+	ASSERT_TRUE(Instance->SetVectorParameterValue(BaseColorName(), FVector3(0.25, 0.5, 0.75)));
+	const auto Id = GetBuiltinParameterIds(EMaterialBuiltinParameterRole::BaseColor).Value;
+	const auto Read = [&] {
+		FMaterialParameterValue Value;
+		EXPECT_TRUE(Instance->GetLocalParameterValue(Id, Value));
+		return Value;
+	};
+	const auto Original = Read();
+	const auto First = FMaterialParameterValue::MakeVector4({0.5, 0.5, 0.75, 1});
+	const auto Final = FMaterialParameterValue::MakeVector4({0.75, 0.5, 0.75, 1});
+	FPropertyTransactionHarness Transactions;
+	FPropertyView View;
+	std::string Error;
+	const auto Context = MakeContext(Transactions, Error);
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.ConfigInputTrickleEventQueue = false;
+	IO.DisplaySize = {900, 600}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	const auto Frame = [&](const FMaterialParameterValue* Edited = nullptr, bool bOpen = false, bool bClose = false) {
+		ImGui::NewFrame();
+		ImGui::Begin("Instance color parameter");
+		const ImGuiID PopupId = ImGui::GetID("##Picker");
+		if (bOpen) ImGui::OpenPopup("##Picker");
+		const bool bIsOpen = ImGui::BeginPopup("##Picker");
+		if (bIsOpen)
+		{
+			if (bClose) ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+		}
+		const FColorPickerState Picker{PopupId, false, bIsOpen};
+		const FMaterialParameterPanelModel Model(Instance.Get());
+		const auto* Entry = FindEntry(Model, Id);
+		ASSERT_NE(Entry, nullptr);
+		Model.SubmitValueEdit(View, Context, *Entry, Edited ? *Edited : Entry->Value, true, &Picker, Edited != nullptr);
+		EXPECT_TRUE(View.EndColorPickerFrame(Context));
+		ImGui::End(); ImGui::Render();
+	};
+	Frame(nullptr, true);
+	EXPECT_FALSE(View.IsEditing());
+	Frame(&First);
+	EXPECT_EQ(Read(), First);
+	Frame();
+	EXPECT_TRUE(View.IsEditing());
+	Frame(&Final);
+	EXPECT_EQ(Read(), Final);
+	Frame(nullptr, false, true);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Read(), Original);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Read(), Final);
+	ASSERT_TRUE(Transactions->TryReset());
+	Frame(nullptr, true);
+	Frame(&First);
+	EXPECT_EQ(Read(), First);
+	IO.AddKeyEvent(ImGuiKey_Escape, true); Frame();
+	EXPECT_EQ(Read(), Final);
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_FALSE(Transactions->CanUndo());
+	EXPECT_TRUE(Error.empty()) << Error;
+}
+
 TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScoped)
 {
 	InitializeDObjectSystem();
