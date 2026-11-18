@@ -155,11 +155,15 @@ Native-window closure first requests editor permission. Closing one world-centri
 toolkit preserves other attachments. A grouped editor has one root and internal
 document tabs.
 
-EditorEngine refreshes documents and pending closes once per admitted Tick.
-MainFrame presents the oldest pending close across controllers; failed saves keep
-that controller's request pending. Closing the last document closes its toolkit
-on reconciliation. Shutdown stops new admission but lets an admitted operation
-finish before moving to the next toolkit or service phase.
+The asset editor subsystem owns one pending close per Toolkit and orders
+confirmations by arrival. MainFrame presents the oldest prompt and submits its
+decision using the request identity. Failed Save or Discard retains the same
+request. Cancellation withdraws the request and cancels an enclosing MainFrame
+exit or restart. A confirmed window close resumes through the Toolkit on the
+next admitted Editor tick. Closing a grouped editor's last asset also retires
+the Toolkit. Approved application exit routes through the Toolkit's close
+policy after the workspace snapshot is saved. Forced host teardown releases
+pending requests and source references before renderer shutdown.
 
 PreExit settles document operations and commits editor closes before releasing
 thumbnail previews and unloading rendering services. Feature `OnClose` releases

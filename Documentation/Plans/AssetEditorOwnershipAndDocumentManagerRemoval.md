@@ -38,6 +38,15 @@ callback refreshes editor presentation and indexes after runtime commit and
 before external notifications. Commit and retirement retain their existing
 runtime authority.
 
+Stage 3 passed on macOS arm64 with `MacOS-arm64-Debug-DurinEditor` on
+base revision `54c5b2092` plus the Stage 3 changes. `EditorOperationTests`
+(402 cases with `GTEST_DEATH_TEST_STYLE=threadsafe`), `EditorHostToolTests`
+(57), `EditorShellTests` (63), and `MaterialEditingPersistenceTests` (30)
+passed. Coverage includes request order, failed Save and Discard, retry,
+cancellation, stale responses, grouped window continuation, and forced close
+releasing the source root. MainFrame exit and export use Toolkit operations.
+The application startup and shutdown smoke remains at the final integration gate.
+
 ## Goal
 
 The Toolkit owns its editing objects and feature state. The asset editor
@@ -146,19 +155,19 @@ implementation uses different mechanics.
 
 ### Stage 3: Give closing a single request owner
 
-- [ ] Route window close, close-all, asset removal, and exit through
+- [x] Route window close, close-all, asset removal, and exit through
   `CloseWindow(Reason)` and Toolkit `OnRequestClose(Reason)`. The Toolkit
   supplies the operation to resolve a dirty edit. Store pending requests once in
   the subsystem, keyed by Toolkit identity and ordered by request arrival.
   MainFrame renders the next request and submits its decision.
-- [ ] Move exit and export preparation and save traversal to Toolkit-facing
+- [x] Move exit and export preparation and save traversal to Toolkit-facing
   operations. Keep package save handling at its existing service boundary.
   Resume a pending close from its result, after checking that the Toolkit and
   targeted edit still match. Clear the request on cancellation or retirement.
-- [ ] Remove the document-level pending close ID, sequence, and cancellation
+- [x] Remove the document-level pending close ID, sequence, and cancellation
   revision, and the Toolkit retry state that mirrors them. Retain the current
   guards for read-only editors, busy edits, save failure, and reentrant close.
-- [ ] Verify one confirmation per request, cancellation, retry after save
+- [x] Verify one confirmation per request, cancellation, retry after save
   failure, closing the last asset, application exit, export, and forced
   shutdown. Check that closed Toolkits release their asset references once.
 

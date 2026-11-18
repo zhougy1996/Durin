@@ -16,6 +16,16 @@ namespace Durin::MainFrame { struct FMainFrameContext; }
 
 namespace Durin
 {
+	enum class EDocumentCloseResult : uint8;
+	enum class EDocumentCloseResponse : uint8;
+
+	struct FAssetEditorClosePrompt
+	{
+		uint64 RequestId = 0;
+		std::string WindowId;
+		std::string Label;
+	};
+
 	// Tracks asset/editor associations per Editor host, independently of the main frame.
 	// Business calls run on the game thread. Callbacks may request shutdown/GC, but
 	// must not drive host updates, teardown, collection or provider unload themselves.
@@ -63,6 +73,8 @@ namespace Durin
 		DURINED_API auto AddPackageReloadParticipants(FPackageReloadRequest& Request) -> bool;
 		DURINED_API auto GetAllEditedAssets() -> std::vector<DObject*>;
 		DURINED_API auto GetAllOpenEditors() -> std::vector<IAssetEditorInstance*>;
+		DURINED_API auto GetPendingClosePrompt() const -> std::optional<FAssetEditorClosePrompt>;
+		DURINED_API auto ResolvePendingClose(uint64 RequestId, EDocumentCloseResponse Response) -> EDocumentCloseResult;
 		DURINED_API auto CloseAllEditorsForAsset(DObject* Asset) -> int32;
 		DURINED_API auto CloseOtherEditors(DObject* Asset, IAssetEditorInstance* OnlyEditor) -> void;
 		DURINED_API auto CloseAllAssetEditors() -> bool;
@@ -85,13 +97,30 @@ namespace Durin
 		DURINED_API auto HandleTicker(float DeltaSeconds) -> void;
 		// Lifecycle owners only, after callbacks and exit/save policy have settled.
 		// Deinitialize and shell teardown share this to preserve UI/provider release order.
-		DURINED_API auto CloseAssetEditorsForShutdown() -> void;
+		DURINED_API auto CloseAssetEditorsForShutdown(bool bExitApproved = false) -> void;
 		DURINED_API auto PublishEvent(FAssetEditorEvent Event) -> void;
 		auto SynchronizeToolkitAssets(FAssetEditorToolkit& Toolkit, std::vector<FAssetEditorEvent>* Events = nullptr) -> void;
 		auto AddAssetAssociation(DObject* Asset, IAssetEditorInstance* Instance, std::vector<FAssetEditorEvent>* Events) -> void;
 		auto RemoveAssetAssociation(const FObjectKey& Key, IAssetEditorInstance* Instance, std::vector<FAssetEditorEvent>* Events) -> void;
 		auto FinishToolkitClose(FAssetEditorToolkit& Toolkit, DAssetEditor* Editor,
 			IAssetEditorInstance* Instance) -> void;
+		struct FPendingClose
+		{
+			FAssetEditorClosePrompt Prompt;
+			std::weak_ptr<FAssetEditorToolkit> Toolkit;
+			std::optional<EAssetEditorCloseReason> WindowReason;
+			std::function<EDocumentCloseResult(EDocumentCloseResponse)> Resolve;
+			uint64 LegacyDocumentId = 0;
+			bool bResolving = false;
+			bool bResume = false;
+		};
+		auto FindPendingClose(const FAssetEditorToolkit& Toolkit) const -> std::shared_ptr<FPendingClose>;
+		auto QueueClose(FAssetEditorToolkit& Toolkit, uint64 DocumentId, std::string Label,
+			std::function<EDocumentCloseResult(EDocumentCloseResponse)> Resolve) -> void;
+		auto ResumeReadyCloseRequests() -> void;
+		std::deque<std::shared_ptr<FPendingClose>> PendingCloses;
+		uint64 NextCloseRequest = 1;
+
 		auto OnAssetRelocated(const FAssetData& Asset, const FSoftObjectPath& Previous) -> void;
 		auto CanCall() const -> bool;
 		auto HasEditor(IAssetEditorInstance* Instance) const -> bool;

@@ -26,9 +26,6 @@ namespace Durin::DocumentPrivate
 	struct FEditorDocumentState
 	{
 		FDocumentId ActiveDocumentId;
-		FDocumentId PendingCloseDocumentId;
-		uint64 PendingCloseSequence = 0;
-		uint64 CloseCancellationRevision = 0;
 		std::vector<FEditorDocument> Documents;
 		std::unordered_map<uint64, FEditorDocument> DeferredDocumentOpens;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditorSubsystem;
@@ -114,6 +111,15 @@ namespace Durin
 		Durin::OnAssetRenamed().Remove(AssetRenameHandle);
 	}
 
+	auto FEditorDocumentManager::RetireToolkit() -> void
+	{
+		State->Toolkit.reset();
+		State->AssetsChanged = {};
+		State->AssetRoots.clear();
+		Durin::OnAssetRenamed().Remove(AssetRenameHandle);
+		AssetRenameHandle = {};
+	}
+
 	auto FEditorDocumentManager::SynchronizeAssets() -> void
 	{
 		if (const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
@@ -172,9 +178,10 @@ namespace Durin
 	auto FEditorDocumentManager::GetEditedAssets() const -> std::vector<DObject*>
 	{
 		std::vector<DObject*> Assets;
-		for (const auto& [Id, Root] : State->AssetRoots)
-			if (auto* Object = Root->GetAsset(); Object && std::ranges::find(Assets, Object) == Assets.end())
-				Assets.push_back(Object);
+		for (const auto& Document : State->Documents)
+			if (const auto Root = State->AssetRoots.find(Document.Id.Value); Root != State->AssetRoots.end())
+				if (auto* Object = Root->second->GetAsset(); Object && !std::ranges::contains(Assets, Object))
+					Assets.push_back(Object);
 		return Assets;
 	}
 
@@ -322,12 +329,24 @@ namespace Durin
 
 	auto FEditorDocumentManager::RequestCloseDocument(FDocumentId DocumentId) -> EDocumentCloseResult
 	{
-		if (State->PendingCloseDocumentId.IsValid())
-		{
-			return State->PendingCloseDocumentId == DocumentId
-				? EDocumentCloseResult::PendingConfirmation
-				: EDocumentCloseResult::Rejected;
-		}
+		auto* Editors = GetAssetEditorSubsystem();
+		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
+		if (Editors && Toolkit)
+			if (const auto Pending = Editors->FindPendingClose(*Toolkit))
+				return Pending->LegacyDocumentId == DocumentId.Value && !Pending->bResume
+					? EDocumentCloseResult::PendingConfirmation : EDocumentCloseResult::Rejected;
+
+		const auto Result = TryCloseDocument(DocumentId);
+		if (Result != EDocumentCloseResult::PendingConfirmation) return Result;
+		const auto* Document = FindDocument(DocumentId);
+		if (!Editors || !Toolkit || !Document || !Toolkit->IsEditorOpen()) return EDocumentCloseResult::Rejected;
+		Editors->QueueClose(*Toolkit, DocumentId.Value, Document->Label,
+			[this, Requested = *Document](EDocumentCloseResponse Response) { return ResolveCloseDocument(Requested, Response); });
+		return Result;
+	}
+
+	auto FEditorDocumentManager::TryCloseDocument(FDocumentId DocumentId) -> EDocumentCloseResult
+	{
 		if (State->DeferredDocumentOpens.erase(DocumentId.Value) != 0)
 		{
 			return EDocumentCloseResult::Closed;
@@ -336,19 +355,16 @@ namespace Durin
 		if (Found == State->Documents.end() || !Found->bClosable) return EDocumentCloseResult::Rejected;
 		const std::shared_ptr<IAssetEditorToolkit> Workspace = FindToolkit(Found->ToolkitId);
 		if (!Workspace) return EDocumentCloseResult::Rejected;
-		const EDocumentCloseResult CloseResult = Workspace->RequestCloseDocument(*Found);
-		if (CloseResult == EDocumentCloseResult::PendingConfirmation)
-		{
-			State->PendingCloseDocumentId = DocumentId;
-			static uint64 NextCloseSequence = 1;
-			State->PendingCloseSequence = NextCloseSequence++;
-			return CloseResult;
-		}
-		if (CloseResult == EDocumentCloseResult::Rejected) return CloseResult;
+		const FEditorDocument Snapshot = *Found;
+		const EDocumentCloseResult CloseResult = Workspace->RequestCloseDocument(Snapshot);
+		if (CloseResult != EDocumentCloseResult::Closed) return CloseResult;
+		const auto Closed = std::ranges::find(State->Documents, DocumentId, &FEditorDocument::Id);
+		if (Closed == State->Documents.end()) return EDocumentCloseResult::Closed;
+		if (Closed->ResourceId != Snapshot.ResourceId) return EDocumentCloseResult::Rejected;
 
-		const size_t ClosedIndex = static_cast<size_t>(std::distance(State->Documents.begin(), Found));
+		const size_t ClosedIndex = static_cast<size_t>(std::distance(State->Documents.begin(), Closed));
 		const bool bWasActive = State->ActiveDocumentId == DocumentId;
-		State->Documents.erase(Found);
+		State->Documents.erase(Closed);
 		SynchronizeAssets();
 		if (!bWasActive) return EDocumentCloseResult::Closed;
 
@@ -359,38 +375,35 @@ namespace Durin
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto FEditorDocumentManager::ResolvePendingDocumentClose(
-		EDocumentCloseResponse Response
-	) -> EDocumentCloseResult
+	auto FEditorDocumentManager::ResolvePendingDocumentClose(EDocumentCloseResponse Response) -> EDocumentCloseResult
 	{
-		FEditorDocument* Document = FindDocument(State->PendingCloseDocumentId);
-		if (!Document)
-		{
-			State->PendingCloseDocumentId = {};
-			return EDocumentCloseResult::Rejected;
-		}
-		if (Response == EDocumentCloseResponse::Cancel)
-		{
-			++State->CloseCancellationRevision;
-			State->PendingCloseDocumentId = {};
-			return EDocumentCloseResult::Cancelled;
-		}
+		auto* Editors = GetAssetEditorSubsystem();
+		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
+		const auto Pending = Editors && Toolkit ? Editors->FindPendingClose(*Toolkit) : nullptr;
+		return Pending ? Editors->ResolvePendingClose(Pending->Prompt.RequestId, Response) : EDocumentCloseResult::Rejected;
+	}
 
-		const std::shared_ptr<IAssetEditorToolkit> Workspace = FindToolkit(Document->ToolkitId);
-		if (!Workspace) return EDocumentCloseResult::Rejected;
+	auto FEditorDocumentManager::ResolveCloseDocument(const FEditorDocument& Requested, EDocumentCloseResponse Response) -> EDocumentCloseResult
+	{
+		const FDocumentId DocumentId = Requested.Id;
+		const auto* Document = FindDocument(DocumentId);
+		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
+		if (!Document || Document->ResourceId != Requested.ResourceId || Document->DocumentKey != Requested.DocumentKey
+			|| !Toolkit || !Toolkit->IsEditorOpen()) return EDocumentCloseResult::Rejected;
+		const FEditorDocument Snapshot = *Document;
 		const bool bResolved = Response == EDocumentCloseResponse::Save
-			? Workspace->SaveDocument(*Document)
-			: Workspace->DiscardDocument(*Document);
+			? Toolkit->SaveDocument(Snapshot) : Toolkit->DiscardDocument(Snapshot);
+		const auto* Current = FindDocument(DocumentId);
+		if (!Toolkit->IsEditorOpen() || !Current || Current->ResourceId != Snapshot.ResourceId)
+			return Toolkit->IsClosed() ? EDocumentCloseResult::Closed : EDocumentCloseResult::Rejected;
 		if (!bResolved) return EDocumentCloseResult::PendingConfirmation;
-
-		const FDocumentId DocumentId = Document->Id;
-		State->PendingCloseDocumentId = {};
-		return RequestCloseDocument(DocumentId);
+		const auto Result = TryCloseDocument(DocumentId);
+		return Result == EDocumentCloseResult::Rejected ? EDocumentCloseResult::PendingConfirmation : Result;
 	}
 
 	auto FEditorDocumentManager::PrepareForExit() -> bool
 	{
-		if (State->PendingCloseDocumentId.IsValid() || !State->DeferredDocumentOpens.empty()) return false;
+		if (GetPendingCloseSequence() != 0 || !State->DeferredDocumentOpens.empty()) return false;
 		if (const auto Workspace = GetToolkit())
 			if (!Workspace->RequestDeactivate()) return false;
 		RefreshDocumentState();
@@ -471,15 +484,21 @@ namespace Durin
 
 	auto FEditorDocumentManager::GetPendingCloseDocument() const -> const FEditorDocument*
 	{
-		const auto Found = std::ranges::find(State->Documents, State->PendingCloseDocumentId, &FEditorDocument::Id);
+		const auto* Editors = GetAssetEditorSubsystem();
+		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
+		const auto Pending = Editors && Toolkit ? Editors->FindPendingClose(*Toolkit) : nullptr;
+		if (!Pending || Pending->bResume) return nullptr;
+		const auto Found = std::ranges::find(State->Documents, FDocumentId{Pending->LegacyDocumentId}, &FEditorDocument::Id);
 		return Found == State->Documents.end() ? nullptr : &*Found;
 	}
 
 	auto FEditorDocumentManager::GetPendingCloseSequence() const -> uint64
 	{
-		return GetPendingCloseDocument() ? State->PendingCloseSequence : 0;
+		const auto* Editors = GetAssetEditorSubsystem();
+		const auto Toolkit = std::dynamic_pointer_cast<FAssetEditorToolkit>(GetToolkit());
+		const auto Pending = Editors && Toolkit ? Editors->FindPendingClose(*Toolkit) : nullptr;
+		return Pending ? Pending->Prompt.RequestId : 0;
 	}
-	auto FEditorDocumentManager::GetCloseCancellationRevision() const -> uint64 { return State->CloseCancellationRevision; }
 
 	auto FEditorDocumentManager::FindToolkit(const FAssetEditorToolkitId& ToolkitId) const -> std::shared_ptr<IAssetEditorToolkit>
 	{

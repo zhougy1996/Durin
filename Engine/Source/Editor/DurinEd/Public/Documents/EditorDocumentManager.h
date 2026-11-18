@@ -59,17 +59,20 @@ namespace Durin
 		DURINED_API auto GetActiveDocument() const -> const FEditorDocument*;
 		DURINED_API auto GetPendingCloseDocument() const -> const FEditorDocument*;
 		DURINED_API auto GetPendingCloseSequence() const -> uint64;
-		DURINED_API auto GetCloseCancellationRevision() const -> uint64;
 		DURINED_API auto FindToolkit(const FAssetEditorToolkitId& ToolkitId) const -> std::shared_ptr<IAssetEditorToolkit>;
 		DURINED_API auto GetToolkit() const -> std::shared_ptr<IAssetEditorToolkit>;
 
 	private:
 		friend class DAssetEditorSubsystem;
+		friend class FAssetEditorToolkit;
+		auto RetireToolkit() -> void;
 		auto SynchronizeAssets() -> void;
 		auto OnAssetRenamed(const FAssetData& Asset, const FSoftObjectPath& OldPath) -> void;
 		auto FindDocument(FDocumentId DocumentId) -> FEditorDocument*;
 		auto FindDocument(const FAssetEditorToolkitId& ToolkitId, std::string_view DocumentKey) -> FEditorDocument*;
 		auto RequestDeactivateActiveDocument(FDocumentId NextDocumentId = {}) -> bool;
+		auto TryCloseDocument(FDocumentId DocumentId) -> EDocumentCloseResult;
+		auto ResolveCloseDocument(const FEditorDocument& Requested, EDocumentCloseResponse Response) -> EDocumentCloseResult;
 
 		static auto AssetLabel(std::string_view ResourceId) -> std::string;
 

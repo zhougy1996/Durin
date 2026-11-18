@@ -85,6 +85,7 @@ namespace Durin
 	auto DAssetEditorSubsystem::FinishToolkitClose(FAssetEditorToolkit& Toolkit,
 		DAssetEditor* Editor, IAssetEditorInstance* Instance) -> void
 	{
+		if (const auto Request = FindPendingClose(Toolkit)) std::erase(PendingCloses, Request);
 		const FAssetEditorEvent Event{.Type = EAssetEditorEvent::Closed, .Editor = FObjectKey(Editor),
 			.Method = Toolkit.GetOpenMethod(), .InstanceId = std::string(Toolkit.GetInstanceId())};
 		NotifyEditorClosed(Instance);

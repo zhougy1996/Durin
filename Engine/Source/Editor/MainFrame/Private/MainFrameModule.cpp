@@ -19,7 +19,6 @@
 #include "Modules/ModularFeature.h"
 
 #include "Documents/EditorDocumentManager.h"
-#include "Documents/EditorDocumentUI.h"
 #include "Framework/TabLayout.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/HostStartup.h"
@@ -118,9 +117,9 @@ namespace Durin::MainFrame
 			// Release every UI-held FAssetThumbnail reference before renderer
 			// registrations and their owning modules begin retirement.
 			ContentBrowserTool.reset();
+			ReleaseAssetEditors();
 			if (LevelEditorModule)
 				if (auto* AssetEditorSubsystem = AssetEditors.Get()) LevelEditorModule->ReleaseLevelEditor(*AssetEditorSubsystem);
-			ReleaseAssetEditors();
 			GetDefaultThumbnailManager().ResetSharedPool();
 			Activity.reset();
 			Console.reset();
@@ -135,7 +134,7 @@ namespace Durin::MainFrame
 					if (!AssetEditorSubsystem->SaveEditorState()) DURIN_WARN("Could not save open asset editor state.");
 				EditorStateProject.clear();
 				AssetEditorSubsystem->SetToolkitHostFactory({});
-				AssetEditorSubsystem->CloseAssetEditorsForShutdown();
+				AssetEditorSubsystem->CloseAssetEditorsForShutdown(bExitApproved);
 			}
 
 		}
@@ -147,6 +146,7 @@ namespace Durin::MainFrame
 		bool bRestoreAssetEditorsRequested = false;
 		bool bProjectBrowserOpen = false;
 		bool bExitRequested = false;
+		bool bExitApproved = false;
 		bool bExitSaveFailed = false;
         std::string PluginRestartProject;
         FPluginManagementWindow PluginWindow;
@@ -427,15 +427,52 @@ namespace Durin::MainFrame
 				Profiling::EStartupMilestone::DefaultWorkspaceReady);
 			return true;
 		}
+		auto DrawAssetEditorCloseConfirmation(FMainFrameContext& Context) -> void
+		{
+			auto* Editors = Context.AssetEditors.Get();
+			const auto Prompt = Editors ? Editors->GetPendingClosePrompt() : std::nullopt;
+			constexpr auto Popup = "Confirm Close Asset Editor###Durin.Editor.AssetCloseConfirmation";
+			if (Prompt) ImGui::OpenPopup(Popup);
+			else if (!ImGui::IsPopupOpen(Popup)) return;
+			if (!ImGui::BeginPopupModal(Popup, nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+				return;
+			if (!Prompt)
+			{
+				ImGui::CloseCurrentPopup();
+				ImGui::EndPopup();
+				return;
+			}
+
+			ImGui::TextWrapped("Save changes to \"%s\" before closing?", Prompt->Label.c_str());
+			ImGui::Spacing();
+			const auto Submit = [&](EDocumentCloseResponse Response) {
+				const auto Result = Editors->ResolvePendingClose(Prompt->RequestId, Response);
+				if (Result == EDocumentCloseResult::Cancelled)
+				{
+					Context.bExitRequested = false;
+					Context.bExitSaveFailed = false;
+					Context.PluginRestartProject.clear();
+				}
+				if (Result != EDocumentCloseResult::PendingConfirmation) ImGui::CloseCurrentPopup();
+			};
+			if (ImGui::Button("Save", ImVec2(100, 0))) Submit(EDocumentCloseResponse::Save);
+			ImGui::SameLine();
+			if (ImGui::Button("Discard", ImVec2(100, 0))) Submit(EDocumentCloseResponse::Discard);
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(100, 0))) Submit(EDocumentCloseResponse::Cancel);
+			ImGui::EndPopup();
+		}
+
 		auto DrawExitConfirmation(FMainFrameContext& Context) -> void
 		{
 			if (!Context.bExitRequested) return;
-			std::vector<std::shared_ptr<FEditorDocumentManager>> Managers;
-			if (auto* AssetEditorSubsystem = Context.AssetEditors.Get())
-				for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem)) Managers.push_back(Toolkit->GetDocumentManager());
+			auto* Editors = Context.AssetEditors.Get();
+			if (Editors && Editors->GetPendingClosePrompt()) return;
+			const auto Toolkits = Editors ? FToolkitManager::Get().GetToolkits(Editors) : std::vector<std::shared_ptr<FAssetEditorToolkit>>{};
 			const auto Prepare = [&] {
 				bool Ready = true;
-				for (const auto& Documents : Managers) Ready = Documents->PrepareForExit() && Ready;
+				for (const auto& Toolkit : Toolkits) Ready = Toolkit->PrepareForExit() && Ready;
 				return Ready;
 			};
             const auto CompleteExit = [&] {
@@ -445,16 +482,25 @@ namespace Durin::MainFrame
                     if (!Context.PluginWindow.CheckRestartReady(Error))
                     { Context.PluginWindow.Report(Error); Context.PluginRestartProject.clear(); Context.bExitRequested = false; return; }
                     const auto Project = std::exchange(Context.PluginRestartProject, {});
+                    Context.bExitApproved = true;
                     RelaunchEditorForProject(Project);
                 }
-                else Context.RootWindow->RequestDestroyWindow();
+                else
+                {
+                    Context.bExitApproved = true;
+                    Context.RootWindow->RequestDestroyWindow();
+                }
             };
 			const bool bPrepared = Prepare();
 			// Packages remain engine-owned even after their last editor view closes.
 			const auto DirtyPackages = FEditorFileUtils::GetDirtyPackages(true, true);
-			const bool bDirty = !DirtyPackages.empty() || std::ranges::any_of(Managers, [](const auto& Documents) {
-				return std::ranges::any_of(Documents->GetDocuments(), &FEditorDocument::bDirty);
-			});
+			std::vector<FAssetEditorUnsavedChange> UnsavedChanges;
+			for (const auto& Toolkit : Toolkits)
+			{
+				auto Changes = Toolkit->GetUnsavedChanges();
+				UnsavedChanges.insert(UnsavedChanges.end(), std::make_move_iterator(Changes.begin()), std::make_move_iterator(Changes.end()));
+			}
+			const bool bDirty = !DirtyPackages.empty() || !UnsavedChanges.empty();
 			if (bPrepared && !bDirty && !Context.bExitSaveFailed)
 			{
 				Context.bExitRequested = false;
@@ -465,28 +511,24 @@ namespace Durin::MainFrame
 			if (!ImGui::BeginPopupModal("Exit Editor###Durin.Editor.ExitConfirmation", nullptr,
 				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
 			ImGui::TextUnformatted(Context.PluginRestartProject.empty() ? "Save all changes before exiting?" : "Save all changes before restarting?");
-			for (const auto& Documents : Managers)
-				for (const auto& Document : Documents->GetDocuments())
-					if (Document.bDirty) ImGui::BulletText("%s", Document.Label.c_str());
+			for (const auto& Change : UnsavedChanges) ImGui::BulletText("%s", Change.Label.c_str());
 			for (auto* Package : DirtyPackages)
 			{
-				const bool bShownAsDocument = std::ranges::any_of(Managers, [&](const auto& Documents) {
-					return std::ranges::any_of(Documents->GetDocuments(), [&](const FEditorDocument& Document) {
-						FSoftObjectPath AssetPath;
-						return Document.bDirty && FSoftObjectPath::TryCreate(Document.ResourceId, AssetPath)
-							&& AssetPath.GetPackagePath().ToString() == Package->GetPackagePath();
-					});
+				const bool bShownAsDocument = std::ranges::any_of(UnsavedChanges, [&](const auto& Change) {
+					FSoftObjectPath AssetPath;
+					return FSoftObjectPath::TryCreate(Change.ResourcePath, AssetPath)
+						&& AssetPath.GetPackagePath().ToString() == Package->GetPackagePath();
 				});
 				if (!bShownAsDocument) ImGui::BulletText("%s", Package->GetPackagePath().c_str());
 			}
-			if (!bPrepared) ImGui::TextWrapped("Finish the pending document operation before exiting.");
+			if (!bPrepared) ImGui::TextWrapped("Finish the pending editor operation before exiting.");
 			if (Context.bExitSaveFailed) ImGui::TextWrapped("Some changes could not be saved. Resolve the error and retry, or cancel exit.");
 			bool bExit = false;
 			ImGui::BeginDisabled(!bPrepared);
 			if (ImGui::Button(Context.PluginRestartProject.empty() ? "Save All and Exit" : "Save All and Restart"))
 			{
 				bExit = true;
-				for (const auto& Documents : Managers) bExit = Documents->SaveDocumentsForExit() && bExit;
+				for (const auto& Toolkit : Toolkits) bExit = Toolkit->SaveForExit() && bExit;
 				if (bExit) bExit = DEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
 				Context.bExitSaveFailed = !bExit;
 			}
@@ -1133,20 +1175,8 @@ namespace Durin::MainFrame
 			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
 			ContentBrowserTool.DrawHostPresenters(bAllowAssetMutation);
 
-			{
-				const auto Toolkits = FToolkitManager::Get().GetToolkits(&AssetEditors);
-				std::vector<FEditorDocumentManager*> CloseControllers;
-				std::vector<std::shared_ptr<FEditorDocumentManager>> ControllerLeases;
-				for (const auto& Toolkit : Toolkits)
-				{
-					const auto Documents = Toolkit->GetDocumentManager();
-					if (!Documents) continue;
-					if (Toolkit->DrawToolkit(Toolkit == ActiveWorkspace)) AssetEditors.ActivateAssetToolkit(*Toolkit);
-					CloseControllers.push_back(Documents.get());
-					ControllerLeases.push_back(Documents);
-				}
-				if (auto* Pending = DocumentUI::FindPendingClose(CloseControllers)) DocumentUI::DrawCloseConfirmation(*Pending);
-			}
+			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors))
+				if (Toolkit->DrawToolkit(Toolkit == ActiveWorkspace)) AssetEditors.ActivateAssetToolkit(*Toolkit);
 			Activity.DrawHistoryWindow();
 			PythonScripts.Draw(ViewState.bPythonOpen);
 			if (GEditor)
@@ -1252,14 +1282,8 @@ namespace Durin
 		Context.RootWindow->SetCloseRequestHandler([WeakContext] {
 			if (const auto Context = WeakContext.lock())
 			{
-				// An existing document confirmation retains ownership of its response.
-				const auto* AssetEditorSubsystem = Context->AssetEditors.Get();
-				const auto Toolkits = AssetEditorSubsystem ? FToolkitManager::Get().GetToolkits(AssetEditorSubsystem) : std::vector<std::shared_ptr<FAssetEditorToolkit>>{};
-				if (std::ranges::none_of(Toolkits, [](const auto& Toolkit) {
-					const auto Documents = Toolkit->GetDocumentManager();
-					return Documents && Documents->GetPendingCloseDocument();
-				}))
-					Context->bExitRequested = true;
+				const auto* Editors = Context->AssetEditors.Get();
+				if (!Editors || !Editors->GetPendingClosePrompt()) Context->bExitRequested = true;
 			}
 		});
 		Context.ProjectBrowser->SetOpenProject([WeakContext](
@@ -1341,6 +1365,7 @@ namespace Durin
                         if (const auto* Project = GetCurrentProject())
                         { Context->PluginRestartProject = Project->ProjectFile; Context->bExitRequested = true; }
                     });
+				DrawAssetEditorCloseConfirmation(*Context);
 				DrawExitConfirmation(*Context);
 				return;
 			}
@@ -1350,11 +1375,13 @@ namespace Durin
 				Context->ProjectBrowser->Draw(
 					BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen, Editor->GetStartupError());
 				Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
+				DrawAssetEditorCloseConfirmation(*Context);
 				DrawExitConfirmation(*Context);
 				return;
 			}
 			DrawLoadingState();
 			Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
+			DrawAssetEditorCloseConfirmation(*Context);
 			DrawExitConfirmation(*Context);
 		});
 		Context.RootWindow->SetContent(EditorRootWidget);

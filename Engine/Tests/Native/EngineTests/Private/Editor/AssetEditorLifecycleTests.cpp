@@ -6,7 +6,6 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Documents/EditorDocumentManager.h"
-#include "Documents/EditorDocumentUI.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Editor/IMainFrameModule.h"
 #include "DObject/Class.h"
@@ -58,7 +57,7 @@ namespace Durin
 		{ if (DirtyQuery) DirtyQuery(); return bDirty || DirtyDocuments.contains(Document.Id.Value); }
 		auto OnSaveDocument(const FEditorDocument& Document) -> bool override
 		{ if (!bSaveSucceeds) return false; bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
-		auto OnDiscardDocument(const FEditorDocument& Document) -> bool override { bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
+		auto OnDiscardDocument(const FEditorDocument& Document) -> bool override { if (!bDiscardSucceeds) return false; bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
 		auto OnCanSaveActiveDocument() const -> bool override { return true; }
 		auto OnSaveActiveDocument() -> bool override { ++Saves; return true; }
 		auto OnCanUndo() const -> bool override { return true; }
@@ -67,6 +66,7 @@ namespace Durin
 		bool bDeferOpen = false;
 		std::unordered_set<uint64> DirtyDocuments;
 		bool bSaveSucceeds = true;
+		bool bDiscardSucceeds = true;
 		bool bCanDeactivate = true;
 		std::function<bool()> Deactivate;
 		std::function<void()> HostChanged;
@@ -1490,18 +1490,30 @@ namespace
 		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, FailedSaveRetainsPendingCloseAndEditorUntilResolution)
+	TEST_F(FAssetEditorLifecycleTests, FailedSaveAndDiscardRetainPendingCloseUntilResolution)
 	{
 		auto* EditorInstance = Open({Asset("A")});
 		ASSERT_NE(nullptr, EditorInstance);
 		auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit());
 		Toolkit->bDirty = true;
 		Toolkit->bSaveSucceeds = false;
+		Toolkit->bDiscardSucceeds = false;
+		int Requests = 0;
+		auto Subscription = AssetEditorSubsystem->Subscribe([&](const FAssetEditorEvent& Event) {
+			if (Event.Type == EAssetEditorEvent::CloseRequested) ++Requests;
+		});
 		EXPECT_FALSE(EditorInstance->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
-		EXPECT_NE(nullptr, EditorInstance->GetDocumentManager()->GetPendingCloseDocument());
+		const auto Prompt = AssetEditorSubsystem->GetPendingClosePrompt();
+		ASSERT_TRUE(Prompt);
+		EXPECT_FALSE(EditorInstance->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
+		EXPECT_EQ(1, Requests);
 		const auto Documents = EditorInstance->GetDocumentManager();
 		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation,
-			Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
+			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EDocumentCloseResponse::Save));
+		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation,
+			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EDocumentCloseResponse::Discard));
+		ASSERT_TRUE(AssetEditorSubsystem->GetPendingClosePrompt());
+		EXPECT_EQ(Prompt->RequestId, AssetEditorSubsystem->GetPendingClosePrompt()->RequestId);
 		EXPECT_EQ(1u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).size());
 		EXPECT_EQ(1u, Documents->GetDocuments().size());
 		Toolkit->bSaveSucceeds = true;
@@ -1509,6 +1521,29 @@ namespace
 		TickHost();
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
+	}
+
+	TEST_F(FAssetEditorLifecycleTests, ForcedCloseRetiresPendingRequestAndAssetRoot)
+	{
+		auto* Object = Asset("ForcedClose");
+		const FObjectKey Key(Object);
+		const auto Roots = Private::GetStrongObjectReferenceCount(Key);
+		auto* Editor = Open({Object});
+		ASSERT_NE(nullptr, Editor);
+		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Editor->GetToolkit());
+		const auto Documents = Editor->GetDocumentManager();
+		Toolkit->bDirty = true;
+		EXPECT_FALSE(Editor->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
+		const auto Prompt = AssetEditorSubsystem->GetPendingClosePrompt();
+		ASSERT_TRUE(Prompt);
+		EXPECT_GT(Private::GetStrongObjectReferenceCount(Key), Roots);
+		FToolkitManager::Get().CloseToolkit(*Toolkit);
+		EXPECT_TRUE(Toolkit->IsClosed());
+		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		EXPECT_EQ(Roots, Private::GetStrongObjectReferenceCount(Key));
+		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
+		EXPECT_EQ(EDocumentCloseResult::Rejected, AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EDocumentCloseResponse::Save));
+		EXPECT_EQ(1, Toolkit->Closes);
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, GroupCloseContinuesAfterSaveAndStopsAfterCancel)
@@ -1656,7 +1691,7 @@ namespace
 		if (auto* Remaining = AssetEditorSubsystemLifetime.Get()) EXPECT_TRUE(Remaining->IsReadyForFinishDestroy());
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, CloseConfirmationKeepsRequestOrderAcrossIndependentControllers)
+	TEST_F(FAssetEditorLifecycleTests, CloseConfirmationKeepsRequestOrderAcrossToolkits)
 	{
 		auto* A = Open({Asset("A")});
 		auto* B = Open({Asset("B")});
@@ -1664,16 +1699,19 @@ namespace
 		ASSERT_NE(nullptr, B);
 		std::dynamic_pointer_cast<FLifecycleTestToolkit>(A->GetToolkit())->bDirty = true;
 		std::dynamic_pointer_cast<FLifecycleTestToolkit>(B->GetToolkit())->bDirty = true;
-		const auto ADocuments = A->GetDocumentManager();
-		const auto BDocuments = B->GetDocumentManager();
 		EXPECT_FALSE(B->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 		EXPECT_FALSE(A->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-		const std::array<FEditorDocumentManager*, 2> Controllers{ADocuments.get(), BDocuments.get()};
-		EXPECT_EQ(BDocuments.get(), DocumentUI::FindPendingClose(Controllers));
-		EXPECT_EQ(EDocumentCloseResult::Cancelled, BDocuments->ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel));
-		EXPECT_EQ(ADocuments.get(), DocumentUI::FindPendingClose(Controllers));
-		EXPECT_EQ(EDocumentCloseResult::Closed, ADocuments->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
-		EXPECT_EQ(nullptr, DocumentUI::FindPendingClose(Controllers));
+		const auto First = AssetEditorSubsystem->GetPendingClosePrompt();
+		ASSERT_TRUE(First);
+		EXPECT_EQ(B->GetInstanceId(), First->WindowId);
+		EXPECT_FALSE(B->GetToolkit()->PrepareForExit());
+		EXPECT_EQ(EDocumentCloseResult::Cancelled, AssetEditorSubsystem->ResolvePendingClose(First->RequestId, EDocumentCloseResponse::Cancel));
+		const auto Second = AssetEditorSubsystem->GetPendingClosePrompt();
+		ASSERT_TRUE(Second);
+		EXPECT_EQ(A->GetInstanceId(), Second->WindowId);
+		EXPECT_EQ(EDocumentCloseResult::Rejected, AssetEditorSubsystem->ResolvePendingClose(First->RequestId, EDocumentCloseResponse::Save));
+		EXPECT_EQ(EDocumentCloseResult::Closed, AssetEditorSubsystem->ResolvePendingClose(Second->RequestId, EDocumentCloseResponse::Discard));
+		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, AdditionalEditorsRequireDistinctStableRoles)

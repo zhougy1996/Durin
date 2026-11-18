@@ -12,6 +12,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/EditorEngine.h"
 #include "Misc/Time.h"
+#include "Transactions/Transactor.h"
 
 namespace Durin
 {
@@ -38,7 +39,7 @@ namespace Durin
 			const auto Support = GetAssetSelectionOpenSupport(Objects, OpenMethod,
 				Editor ? Editor->GetAssetOpenSupport({OpenMethod}) : GetDefaultAssetOpenSupport({OpenMethod}));
 			if (!Support.ResolveToolkitMode(NewHost->GetToolkitMode(), NewHost->GetToolkitMode())
-				|| !DocumentOwner || !DocumentOwner->PrepareForExit()) return;
+				|| !PrepareForExit()) return;
 			if (!IsEditorOpen()) return;
 			if (NewHost == PreviousHost) { Transferred = true; return; }
 			const FAssetOpenArgs Identity{.OpenMethod = OpenMethod, .ToolkitMode = NewHost->GetToolkitMode(), .InstanceRole = InstanceKey};
@@ -81,8 +82,8 @@ namespace Durin
 	{
 		if (bClosed) return;
 		bClosed = true;
-		bCloseRequested = false;
 		OnClose();
+		if (DocumentOwner) DocumentOwner->RetireToolkit();
 		const auto ClosingHost = Host.lock();
 		Host.reset();
 		HostIdentity = nullptr;
@@ -113,42 +114,76 @@ namespace Durin
 	}
 	auto FAssetEditorToolkit::CloseWindow(EAssetEditorCloseReason Reason) -> bool
 	{
+		return CloseWindowInternal(Reason, true);
+	}
+
+	auto FAssetEditorToolkit::CloseWindowInternal(EAssetEditorCloseReason Reason, bool bPublishRequest) -> bool
+	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (bClosed) return true;
 		auto* AssetEditorSubsystem = GetAssetEditorSubsystem();
-		if (!AssetEditorSubsystem || !IsEditorOpen()) return false;
+		struct FCloseScope
+		{
+			std::optional<EAssetEditorCloseReason>& Active;
+			FCloseScope(std::optional<EAssetEditorCloseReason>& InActive, EAssetEditorCloseReason Reason) : Active(InActive) { Active = Reason; }
+			~FCloseScope() { Active.reset(); }
+		};
+		if (Reason == EAssetEditorCloseReason::EditorExit)
+		{
+			if (!AssetEditorSubsystem || !AssetEditorSubsystem->bClosingEditors || ActiveCloseReason) return false;
+			const auto Lease = shared_from_this();
+			const FCloseScope CloseScope(ActiveCloseReason, Reason);
+			const FScopedEditorTransactionContext Context(AssetEditorSubsystem->GetEditor());
+			if (!OnRequestClose(Reason)) return false;
+			FToolkitManager::Get().CloseToolkit(*this);
+			return bClosed;
+		}
+		if (!AssetEditorSubsystem || !IsEditorOpen() || ActiveCloseReason
+			|| AssetEditorSubsystem->FindPendingClose(*this)) return false;
 		const auto Lease = shared_from_this();
 		const FStrongObjectPtr KeepAlive(OwningAssetEditor.Get());
 		bool Closed = false;
 		AssetEditorSubsystem->DispatchEditorCallback([&] {
-			const bool bNotify = !bCloseRequested;
-			bCloseRequested = true;
-			CloseReason = Reason;
-			CloseCancellationRevision = DocumentOwner->GetCloseCancellationRevision();
-			if (bNotify) AssetEditorSubsystem->PublishEvent({.Type = EAssetEditorEvent::CloseRequested,
-				.Editor = FObjectKey(OwningAssetEditor.Get()), .Method = OpenMethod, .InstanceId = WindowId});
+			const FCloseScope CloseScope(ActiveCloseReason, Reason);
+			if (bPublishRequest)
+				AssetEditorSubsystem->PublishEvent({.Type = EAssetEditorEvent::CloseRequested,
+					.Editor = FObjectKey(OwningAssetEditor.Get()), .Method = OpenMethod, .InstanceId = WindowId});
 			if (bClosed) { Closed = true; return; }
-			bCloseRequested = false;
 			if (!OnRequestClose(Reason)) return;
 			if (!bClosed) FToolkitManager::Get().CloseToolkit(*this);
 			Closed = bClosed;
 		});
 		return Closed;
 	}
-	auto FAssetEditorToolkit::OnRequestClose(EAssetEditorCloseReason /*Reason*/) -> bool
+
+	auto FAssetEditorToolkit::OnRequestClose(EAssetEditorCloseReason Reason) -> bool
 	{
+		if (Reason == EAssetEditorCloseReason::EditorExit) return PrepareForExit();
 		const auto Snapshot = DocumentOwner->GetDocuments();
 		for (const auto& Document : Snapshot)
-		{
-			const auto Result = DocumentOwner->RequestCloseDocument(Document.Id);
-			if (Result != EDocumentCloseResult::Closed)
-			{
-				bCloseRequested = Result == EDocumentCloseResult::PendingConfirmation;
-				return false;
-			}
-		}
+			if (DocumentOwner->RequestCloseDocument(Document.Id) != EDocumentCloseResult::Closed) return false;
 		return true;
 	}
+
+	auto FAssetEditorToolkit::PrepareForExit() -> bool
+	{
+		return IsClosed() || (DocumentOwner && DocumentOwner->PrepareForExit());
+	}
+
+	auto FAssetEditorToolkit::SaveForExit() -> bool
+	{
+		return IsClosed() || (DocumentOwner && DocumentOwner->SaveDocumentsForExit());
+	}
+
+	auto FAssetEditorToolkit::GetUnsavedChanges() const -> std::vector<FAssetEditorUnsavedChange>
+	{
+		std::vector<FAssetEditorUnsavedChange> Changes;
+		if (!IsClosed() && DocumentOwner)
+			for (const auto& Document : DocumentOwner->GetDocuments())
+				if (IsDocumentDirty(Document)) Changes.push_back({Document.Label, Document.ResourceId});
+		return Changes;
+	}
+
 	auto FAssetEditorToolkit::InitAssetEditor(const FAssetEditorInitArgs& Args,
 		std::shared_ptr<FEditorDocumentManager> Documents, FStrongObjectPtr Provider, DAssetEditor* Editor) -> bool
 	{

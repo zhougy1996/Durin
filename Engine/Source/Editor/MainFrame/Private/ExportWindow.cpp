@@ -8,7 +8,7 @@
 #include "Project/Project.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
-#include "Documents/EditorDocumentManager.h"
+#include "Toolkits/AssetEditorToolkit.h"
 #include "ThirdParty/ImGui/imgui.h"
 namespace Durin::MainFrame {
     FExportWindow::~FExportWindow() { Stop(); }
@@ -57,8 +57,8 @@ namespace Durin::MainFrame {
             ImGui::TextWrapped("Save changes before exporting? Inputs must stay unchanged until export finishes.");
             if(ImGui::Button("Save All and Export")) {
                 bool Ready=Editors!=nullptr;
-                if(Editors) for(const auto& Toolkit:FToolkitManager::Get().GetToolkits(Editors)) Ready=Toolkit->GetDocumentManager()->PrepareForExit() && Ready;
-                if(Ready) for(const auto& Toolkit:FToolkitManager::Get().GetToolkits(Editors)) Ready=Toolkit->GetDocumentManager()->SaveDocumentsForExit() && Ready;
+                if(Editors) for(const auto& Toolkit:FToolkitManager::Get().GetToolkits(Editors)) Ready=Toolkit->PrepareForExit() && Ready;
+                if(Ready) for(const auto& Toolkit:FToolkitManager::Get().GetToolkits(Editors)) Ready=Toolkit->SaveForExit() && Ready;
                 if(Ready) {ConfirmSave=false; Start(false);} else {std::lock_guard Lock(Mutex); Message="Save could not finish. Resolve pending changes and retry.";}
             }
             ImGui::SameLine(); if(ImGui::Button("Cancel export")) ConfirmSave=false;

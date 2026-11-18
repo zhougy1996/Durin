@@ -72,6 +72,12 @@ namespace Durin
 		DURINED_API virtual auto ResetLayout() -> void = 0;
 	};
 
+	struct FAssetEditorUnsavedChange
+	{
+		std::string Label;
+		std::string ResourcePath;
+	};
+
 	class DAssetEditor;
 	class FEditorDocumentManager;
 	struct FAssetEditorInitArgs;
@@ -105,6 +111,10 @@ namespace Durin
 		auto IsClosed() const -> bool { return bClosed; }
 		// CloseWindow asks permission before ToolkitManager releases ownership.
 		DURINED_API virtual auto OnRequestClose(EAssetEditorCloseReason Reason) -> bool;
+
+		DURINED_API virtual auto PrepareForExit() -> bool;
+		DURINED_API virtual auto SaveForExit() -> bool;
+		DURINED_API virtual auto GetUnsavedChanges() const -> std::vector<FAssetEditorUnsavedChange>;
 
 		virtual auto GetLastOperationError() const -> std::string { return {}; }
 		auto IsReadOnly() const -> bool { return OpenMethod == EAssetOpenMethod::View || !CanEditAssets(); }
@@ -150,6 +160,7 @@ namespace Durin
 		friend class DAssetEditor;
 		friend class FToolkitManager;
 		auto NotifyClosed() -> void;
+		auto CloseWindowInternal(EAssetEditorCloseReason Reason, bool bPublishRequest) -> bool;
 		auto InitAssetEditor(const FAssetEditorInitArgs& Args, std::shared_ptr<FEditorDocumentManager> Documents,
 			FStrongObjectPtr Provider, DAssetEditor* Editor = nullptr) -> bool;
 		DURINED_API auto ExecuteEditorCommand(const std::function<bool()>& Command) -> bool;
@@ -166,11 +177,9 @@ namespace Durin
 		std::string InstanceKey;
 		std::string WindowId;
 		double LastActivationTime = 0;
-		EAssetEditorCloseReason CloseReason = EAssetEditorCloseReason::AssetEditorHostClosed;
-		uint64 CloseCancellationRevision = 0;
+		std::optional<EAssetEditorCloseReason> ActiveCloseReason;
 		bool bPrimary = true;
 		bool bInitialized = false;
-		bool bCloseRequested = false;
 		bool bClosed = false;
 	};
 

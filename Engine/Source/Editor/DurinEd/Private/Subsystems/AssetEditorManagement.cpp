@@ -107,14 +107,23 @@ namespace Durin
 		return true;
 	}
 
-	auto DAssetEditorSubsystem::CloseAssetEditorsForShutdown() -> void
+	auto DAssetEditorSubsystem::CloseAssetEditorsForShutdown(bool bExitApproved) -> void
 	{
 		if (bClosingEditors) return;
+		PendingCloses.clear();
 		struct FStopScope { bool& Flag; explicit FStopScope(bool& Value) : Flag(Value) { Flag = true; } ~FStopScope() { Flag = false; } } StopScope(bClosingEditors);
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
 		{
-			requiref(Toolkit->GetDocumentManager()->PrepareForExit(), "Toolkit operations must settle before host teardown");
-			FToolkitManager::Get().CloseToolkit(*Toolkit);
+			if (bExitApproved)
+			{
+				requiref(Toolkit->CloseWindow(EAssetEditorCloseReason::EditorExit),
+					"Toolkit operations must settle before approved editor exit");
+			}
+			else
+			{
+				requiref(Toolkit->PrepareForExit(), "Toolkit operations must settle before host teardown");
+				FToolkitManager::Get().CloseToolkit(*Toolkit);
+			}
 		}
 		ActiveToolkit.reset();
 		FallbackHosts.clear();
@@ -124,6 +133,7 @@ namespace Durin
 	{
 		if (!CanCall()) return;
 		DispatchEditorCallback([&] {
+			ResumeReadyCloseRequests();
 			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
 			{
 				if (!CanCall()) return;
@@ -132,10 +142,8 @@ namespace Durin
 				Documents->RefreshDocumentState();
 				if (!CanCall()) return;
 				if (!OwnsToolkit(*Toolkit) || Toolkit->IsClosed()) continue;
-				if (Toolkit->bCloseRequested && Documents->GetCloseCancellationRevision() != Toolkit->CloseCancellationRevision)
-					Toolkit->bCloseRequested = false;
-				if (Documents->GetDocuments().empty() || Toolkit->bCloseRequested)
-					(void)Toolkit->CloseWindow(Toolkit->bCloseRequested ? Toolkit->CloseReason : EAssetEditorCloseReason::AssetEditorHostClosed);
+				if (Documents->GetDocuments().empty())
+					(void)Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed);
 			}
 			if (CanCall())
 			{

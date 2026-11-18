@@ -19,6 +19,7 @@ namespace Durin
 		AssetUnloadingOrInvalid,
 		EditorRefreshRequested,
 		AssetForceDeleted,
+		EditorExit,
 	};
 
 	// Native editor instance contract shared by the asset service and document hosts.
