@@ -16,6 +16,14 @@
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Settings/MaterialEditorProfileSettings.h"
 #include "Misc/Paths.h"
+#include "FMaterialEditor.h"
+#include "MaterialEditorModule.h"
+#include "Documents/EditorDocumentManager.h"
+#include "Editor/AssetEditorTestHost.h"
+#include "Editor/AssetEditorTestQueries.h"
+#include "Modules/ModuleTestSupport.h"
+#include "Asset/Testing.h"
+#include "Asset/PackageReload.h"
 
 TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCancel)
 {
@@ -189,6 +197,15 @@ namespace Durin::MaterialEditor
 {
 	struct FMaterialGraphCanvasTestAccess
 	{
+		static auto Install(FMaterialEditor& Editor, uint64 Id, DMaterial& Material) -> FMaterialGraphCanvas&
+		{
+			auto Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(Material), FMaterialGraphEditorServices{});
+			auto& Result = *Canvas;
+			Editor.MaterialGraphCanvases.emplace(Id, std::move(Canvas));
+			return Result;
+		}
+		static auto HasCanvas(const FMaterialEditor& Editor, uint64 Id) -> bool
+		{ return Editor.MaterialGraphCanvases.contains(Id); }
 		static auto BeginParameter(FMaterialGraphCanvas& Canvas, DMaterial& Material, const FGuid& Id, DTransactor& Transactions) -> void
 		{
 			ASSERT_TRUE(Canvas.ParameterSession.Begin(Material, Id, &Transactions));
@@ -305,8 +322,8 @@ TEST(FMaterialGraphInteractionTests, FailedParameterRestoreReportsOnceAndRetries
 	ImGui::NewFrame();
 	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, *Material, Definition.Id, *Transactions.Get());
 	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Definition.Id, ETransactionMode::NotTransactable));
-	Canvas.CancelInteraction();
-	Canvas.CancelInteraction();
+	EXPECT_FALSE(Canvas.CancelInteraction());
+	EXPECT_FALSE(Canvas.CancelInteraction());
 	Canvas.EndParameterFrame();
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
 	EXPECT_EQ(Errors, 1);
@@ -321,6 +338,96 @@ TEST(FMaterialGraphInteractionTests, FailedParameterRestoreReportsOnceAndRetries
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
 	EXPECT_FALSE(Transactions->CanUndo());
+	ImGui::EndFrame();
+}
+
+TEST(FMaterialGraphInteractionTests, FailedCancelVetoesDocumentDeactivateDiscardAndCloseUntilRestored)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("GraphCancelLifecycle");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/GraphCancelLifecycle/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/GraphCancelLifecycle/Material", Path));
+	DMaterial* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	FPackagePath SecondPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/GraphCancelLifecycle/Second", SecondPath));
+	DMaterial* Second = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+	struct FModuleScope
+	{
+		FMaterialEditorModule Module;
+		FModuleTestHarness Harness{"MaterialEditor"};
+		FModuleScope() { Harness.Start(Module); }
+		~FModuleScope() { Harness.Shutdown(); }
+	} ModuleScope;
+	Testing::FScopedAssetEditorTestHost Host;
+	ASSERT_TRUE(Host.Open(Source->GetObjectPath(), DMaterial::StaticClass()->GetQualifiedName().ToString()));
+	const auto Editors = Testing::GetReflectedEditors(Host.GetAssetEditorSubsystem());
+	ASSERT_EQ(Editors.size(), 1u);
+	auto& Manager = *Editors.front()->GetDocumentManager();
+	const auto Tab = *Manager.GetActiveDocument();
+	const auto Toolkit = Editors.front()->GetToolkit();
+	auto& Editor = static_cast<FMaterialEditor&>(*Toolkit);
+	const auto SecondId = Manager.OpenDocument({.ToolkitId = Toolkit->GetToolkitId(),
+		.DocumentKey = Second->GetObjectPath(), .ResourceId = Second->GetObjectPath(), .Label = "Second"});
+	ASSERT_TRUE(SecondId.IsValid());
+	ASSERT_TRUE(Manager.ActivateDocument(Tab.Id));
+	TStrongObjectPtr<DMaterial> Preview(NewObject<DMaterial>(nullptr, NAME_None));
+	Preview->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid(); Definition.Name = "RetryClose";
+	Definition.Type = EMaterialParameterType::Scalar;
+	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Preview, Definition, ETransactionMode::NotTransactable));
+	auto& Canvas = FMaterialGraphCanvasTestAccess::Install(Editor, Tab.Id.Value, *Preview);
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Context(ImGui::CreateContext(), ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {600, 400}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	ImGui::NewFrame();
+	auto* Transactions = Host.GetAssetEditorSubsystem()->GetEditor()->GetTransactor();
+	ASSERT_NE(Transactions, nullptr);
+	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, *Preview, Definition.Id, *Transactions);
+	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Preview, Definition.Id, ETransactionMode::NotTransactable));
+	EXPECT_FALSE(Manager.RequestDeactivateActiveToolkit());
+	EXPECT_FALSE(Manager.ActivateDocument(SecondId));
+	FObjectReplacementMap ReplacementMap;
+	const std::array Replacements{
+		FObjectReplacementMap::FEntry{.Previous = Source->GetPackage(), .Replacement = Second->GetPackage()},
+		FObjectReplacementMap::FEntry{.Previous = Source, .Replacement = Second}};
+	ASSERT_TRUE(ReplacementMap.BuildFromObjects(Replacements));
+	auto Reload = Manager.CreateDocumentReloadParticipant();
+	const auto Prepared = Reload->Prepare(ReplacementMap);
+	EXPECT_FALSE(Prepared);
+	if (!Prepared) EXPECT_EQ(Prepared.error().Code, EObjectReplacementError::Busy);
+	Reload->Abort();
+	EXPECT_FALSE(Editor.OnDiscardDocument(Tab));
+	EXPECT_EQ(Manager.RequestCloseDocument(Tab.Id), EDocumentCloseResult::Rejected);
+	EXPECT_FALSE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+	EXPECT_FALSE(Toolkit->IsClosed());
+	ASSERT_NE(Manager.GetActiveDocument(), nullptr);
+	EXPECT_EQ(Manager.GetActiveDocument()->Id, Tab.Id);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::HasCanvas(Editor, Tab.Id.Value));
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
+	Definition.Value = FMaterialParameterValue::MakeScalar(.75f);
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Preview, Definition, ETransactionMode::NotTransactable));
+	ImGui::EndFrame(); ImGui::NewFrame();
+	EXPECT_TRUE(Manager.RequestDeactivateActiveToolkit());
+	EXPECT_TRUE(Reload->Prepare(ReplacementMap));
+	Reload->Abort();
+	EXPECT_FLOAT_EQ(Preview->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
+	EXPECT_FALSE(Transactions->CanUndo());
+	EXPECT_TRUE(Manager.ActivateDocument(SecondId));
+	EXPECT_EQ(Manager.RequestCloseDocument(Tab.Id), EDocumentCloseResult::Closed);
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::HasCanvas(Editor, Tab.Id.Value));
 	ImGui::EndFrame();
 }
 

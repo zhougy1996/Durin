@@ -73,6 +73,7 @@ namespace Durin::MaterialEditor
 	private:
 		auto OpenReferencedMaterialAsset(std::string_view Path, std::string_view ClassName) -> bool;
 		friend struct FMaterialEditorTestAccess;
+		friend struct FMaterialGraphCanvasTestAccess;
 		friend struct FMaterialFunctionEditorTestAccess;
 		friend class FMaterialEditorReloadParticipant;
 		class FMaterialParameterRowScope;
@@ -110,7 +111,7 @@ namespace Durin::MaterialEditor
 		auto SetError(std::string Message) -> void;
 		auto GetOrCreateCanvas(const FEditorDocument& Document)
 			-> FMaterialGraphCanvas&;
-		auto CancelCanvasInteraction(uint64 DocumentId) -> void;
+		auto CancelCanvasInteraction(uint64 DocumentId) -> bool;
 		auto CaptureCanvasViewport(const FEditorDocument& Document) -> void;
 
 		struct FFunctionDocument;

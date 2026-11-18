@@ -107,12 +107,6 @@ namespace Durin
 			const FPropertyViewOptions& Options = {}
 		) -> bool;
 
-		DURINED_API auto SubmitPropertyEdit(
-			const FPropertyViewContext& Context,
-			const FPropertyEditTarget& Target,
-			const FPropertyValueSnapshot& ProposedValue,
-			bool bContinuous
-		) -> bool;
 		DURINED_API auto SubmitPropertyValueEdit(
 			const FPropertyViewContext& Context,
 			const FPropertyEditTarget& Target,
@@ -191,10 +185,13 @@ namespace Durin
 			const FPropertyEditTarget& EditTarget) -> bool;
 		auto ReportError(const FPropertyViewContext& Context, std::string Error) const -> void;
 		auto ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame = false) -> bool;
-		auto ApplyPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		auto PreparePropertyWrite(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> FPropertyEditOperationResult;
+		auto ApplyPreparedPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 			const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> FPropertyEditOperationResult;
 		auto ApplyPropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-			const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous) -> FPropertyEditOperationResult;
+			const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> FPropertyEditOperationResult;
 
 		std::array<char, 256> AssetSearchText{};
 		FMapInsertDraft MapInsertDraft;

@@ -76,6 +76,12 @@ namespace Durin::MaterialEditor
 		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
 		{
 			Bindings.clear(); FunctionBindings.clear(); bCommitted = false;
+			const bool bAffected = std::ranges::any_of(Owner->OpenMaterials,
+				[&](const auto& Entry) { return Map.Find(Entry.second.Get()) != nullptr; })
+				|| std::ranges::any_of(Owner->FunctionDocuments,
+					[&](const auto& Entry) { return Map.Find(Entry.second->GetSource()) != nullptr; });
+			if (bAffected && !Owner->RequestDeactivate())
+				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
 			for (const auto& [Resource, Document] : Owner->FunctionDocuments)
 				if (Map.Find(Document->GetSource()))
 				{
@@ -411,12 +417,11 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
-		if (Mode == EMaterialEditorMode::Function) RequestDeactivate();
+		if (Mode == EMaterialEditorMode::Function && !RequestDeactivate()) return;
 		DObject* Material = Mode == EMaterialEditorMode::Function
 			? static_cast<DObject*>(FindOpenFunction(Document.ResourceId)) : FindOpenMaterial(Document.ResourceId);
 		if (const FEditorDocument* Active = DocumentManager.GetActiveDocument();
-			Active && Active->Id != Document.Id)
-			CancelCanvasInteraction(Active->Id.Value);
+			Active && Active->Id != Document.Id && !CancelCanvasInteraction(Active->Id.Value)) return;
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
 		Documents.Activate(Document, Material);
 	}
@@ -424,8 +429,8 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::RequestDeactivate() -> bool
 	{
 		if (Mode == EMaterialEditorMode::Function) return CancelFunctionInteractions();
-		if (const FEditorDocument* Active = DocumentManager.GetActiveDocument())
-			CancelCanvasInteraction(Active->Id.Value);
+		for (auto& [Id, Canvas] : MaterialGraphCanvases)
+			if (!Canvas->CancelInteraction()) return false;
 		return FinishActivePropertyEdit(true);
 	}
 
@@ -434,13 +439,13 @@ namespace Durin::MaterialEditor
 		if (Mode == EMaterialEditorMode::Function)
 		{
 			if (IsFunctionPublishing(Document.ResourceId)) return EDocumentCloseResult::Rejected;
-			RequestDeactivate();
+			if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
 			if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
 			CloseFunctionDocument(Document);
 			Documents.Close(Document.ResourceId);
 			return EDocumentCloseResult::Closed;
 		}
-		CancelCanvasInteraction(Document.Id.Value);
+		if (!CancelCanvasInteraction(Document.Id.Value)) return EDocumentCloseResult::Rejected;
 		const auto SessionIt = EditingSessions.find(Document.ResourceId);
 		auto* EditingMaterial = SessionIt == EditingSessions.end()
 			? FindOpenMaterial(Document.ResourceId) : SessionIt->second->GetWorkingMaterial();
@@ -468,7 +473,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::OnDiscardDocument(const FEditorDocument& Document) -> bool
 	{
 		if (Mode == EMaterialEditorMode::Function) return DiscardFunctionDocument(Document);
-		CancelCanvasInteraction(Document.Id.Value);
+		if (!CancelCanvasInteraction(Document.Id.Value)) return false;
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		if (!Material) return false;
 		if (!FinishActivePropertyEdit(true)) return false;
@@ -494,7 +499,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
 	{
 		if (Mode == EMaterialEditorMode::Function) { RebindFunctionDocuments(Previous, Replacement); return; }
-		FinishActivePropertyEdit(true);
+		if (!RequestDeactivate()) return;
 		std::unordered_set<std::string> ReboundResources;
 		for (auto& [ResourceId, Open] : OpenMaterials)
 			if (Open.Get() && Open->GetPackage() == Previous)
@@ -617,6 +622,9 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::ResetEditingSession(std::string_view ResourceId) -> bool
 	{
+		for (const auto& Document : DocumentManager.GetDocuments())
+			if (Document.ResourceId == ResourceId && !CancelCanvasInteraction(Document.Id.Value)) return false;
+		if (PropertyView.IsEditingObject(FindOpenMaterial(ResourceId)) && !FinishActivePropertyEdit(true)) return false;
 		const std::string Key(ResourceId);
 		EditingSessions.erase(Key);
 		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
@@ -645,8 +653,8 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
 	{
-		if (const auto* Active = DocumentManager.GetActiveDocument())
-			CancelCanvasInteraction(Active->Id.Value);
+		for (const auto& Document : DocumentManager.GetDocuments())
+			if (FindOpenMaterial(Document.ResourceId) == Material && !CancelCanvasInteraction(Document.Id.Value)) return false;
 		if (!FinishActivePropertyEdit(false)) return false;
 		auto* Session = FindEditingSession(Material);
 		if (Session)
@@ -731,10 +739,12 @@ namespace Durin::MaterialEditor
 					if (ImGui::Button(Session->IsApplyPending() ? "Applying..." : "Apply")
 						&& FinishActivePropertyEdit(false))
 					{
-						if (const auto* Active = DocumentManager.GetActiveDocument())
-							CancelCanvasInteraction(Active->Id.Value);
-						std::string Error;
-						if (!Session->RequestApply(Error)) SetError(std::move(Error));
+						const auto* Active = DocumentManager.GetActiveDocument();
+						if (!Active || CancelCanvasInteraction(Active->Id.Value))
+						{
+							std::string Error;
+							if (!Session->RequestApply(Error)) SetError(std::move(Error));
+						}
 					}
 					ImGui::EndDisabled();
 					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Apply the preview changes to the source material and scene.");
@@ -1638,11 +1648,12 @@ namespace Durin::MaterialEditor
 
 
 
-	auto FMaterialEditor::CancelCanvasInteraction(uint64 DocumentId) -> void
+	auto FMaterialEditor::CancelCanvasInteraction(uint64 DocumentId) -> bool
 	{
 		if (const auto It = MaterialGraphCanvases.find(DocumentId);
 			It != MaterialGraphCanvases.end())
-			It->second->CancelInteraction();
+			return It->second->CancelInteraction();
+		return true;
 	}
 
 	auto FMaterialEditor::GetOrCreateCanvas(

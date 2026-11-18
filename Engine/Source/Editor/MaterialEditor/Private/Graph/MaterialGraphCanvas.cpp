@@ -289,15 +289,16 @@ namespace Durin::MaterialEditor
 		return false;
 	}
 
-	auto FMaterialGraphCanvas::CancelInteraction() -> void
+	auto FMaterialGraphCanvas::CancelInteraction() -> bool
 	{
-		FinishParameterEdit(true);
+		if (!FinishParameterEdit(true)) return false;
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();
 		}
 		Interaction = FIdleInteraction{};
 		bViewStale = true;
+		return true;
 	}
 
 	auto FMaterialGraphCanvas::ResetInteraction() -> void

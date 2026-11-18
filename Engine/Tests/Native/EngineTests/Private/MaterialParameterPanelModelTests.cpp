@@ -494,6 +494,62 @@ TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBound
 	}
 }
 
+TEST(FMaterialParameterPanelModelTests, SwitchingOverridesAfterFailedCancelDoesNotResurrectPreviousPreview)
+{
+	using namespace Durin;
+	using namespace Durin::MaterialEditor;
+	using namespace AssetForge::Builtins::MaterialParameters;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Base(MakeExpandedBase("SwitchOverridesBase"));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "SwitchOverridesInstance"));
+	ASSERT_TRUE(Instance->SetParent(Base.Get()));
+	FPropertyTransactionHarness Transactions;
+	FPropertyView View;
+	std::string Error;
+	const auto Context = MakeContext(Transactions, Error);
+	const auto Alpha = GetBuiltinParameterIds(EMaterialBuiltinParameterRole::Opacity).Value;
+	const auto Beta = GetBuiltinParameterIds(EMaterialBuiltinParameterRole::Roughness).Value;
+	FMaterialParameterPanelModel Model(Instance.Get());
+	ASSERT_TRUE(Model.SetOverrideEnabled(View, Context, *FindEntry(Model, Alpha), true));
+	ASSERT_TRUE(Model.SetOverrideEnabled(View, Context, *FindEntry(Model, Beta), true));
+	Model.Refresh();
+	ASSERT_TRUE(Transactions->TryReset());
+	const auto Read = [&](const FGuid& Id) {
+		FMaterialParameterValue Value;
+		EXPECT_TRUE(Instance->GetLocalParameterValue(Id, Value));
+		return Value;
+	};
+	const auto BeforeAlpha = Read(Alpha), BeforeBeta = Read(Beta);
+	bool bAllowRestore = false;
+	struct FExtensionScope
+	{
+		FPropertyEditExtensionHandle Handle;
+		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
+	} Extension{RegisterPropertyEditExtension({.PreEdit = [&](DObject& Object, FPropertyEditProposal& Proposal)
+		-> std::expected<void, FObjectValidationError> {
+		if (&Object == Instance.Get() && Proposal.Phase == EPropertyChangePhase::Cancelled && !bAllowRestore)
+			return RejectPropertyEdit(Object, Proposal, EPropertyEditRejection::Rejected);
+		return {};
+	}})};
+	const auto Edited = FMaterialParameterValue::MakeScalar(.123f);
+	ASSERT_TRUE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Alpha), Edited, true)) << Error;
+	ASSERT_FALSE(View.FinishActiveEdit(&Context, true));
+	EXPECT_FALSE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Alpha), Edited, false));
+	EXPECT_FALSE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Beta), Edited, false));
+	EXPECT_EQ(Read(Beta), BeforeBeta);
+	bAllowRestore = true;
+	ASSERT_TRUE(Model.SubmitValueEdit(View, Context, *FindEntry(Model, Beta), Edited, false));
+	EXPECT_EQ(Read(Alpha), BeforeAlpha);
+	EXPECT_EQ(Read(Beta), Edited);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Read(Alpha), BeforeAlpha);
+	EXPECT_EQ(Read(Beta), BeforeBeta);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Read(Alpha), BeforeAlpha);
+	EXPECT_EQ(Read(Beta), Edited);
+}
+
 TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScoped)
 {
 	InitializeDObjectSystem();

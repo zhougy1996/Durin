@@ -233,6 +233,24 @@ snapshot preparation and property-session writer. Widget adapters reduce raw
 activation or popup state to one identity, boundary kind, and terminal request;
 the graph canvas does not maintain a second widget identity or visibility clock.
 
+All property writers prepare the write before copying the root into a detached
+proposal. Preparation checks read-only state, pending cancellation, logical
+target, and (for widget writes) control identity and boundary. A different
+control or target must finish the preceding interaction successfully first;
+restoration failure rejects the new assignment without invoking it. Input from
+the cancelled gesture cannot restart it. Container mutations use the same gate
+and retain detached map keys across restoration. Prebuilt root snapshots are
+private to the prepared write path, so callers cannot submit a stale snapshot
+that resurrects another field's cancelled preview.
+
+Material canvas cancellation returns success to the document controller.
+Deactivate, close, discard, and working-copy reset must preserve the canvas and
+working object if restoration fails; retrying the operation retries cancellation.
+Object replacement admission likewise rejects an affected material document
+before publication if its interaction cannot be restored.
+This failure propagation is a Durin requirement for rejectable restoration, not
+a claim that UE's color-picker reset callbacks provide a retry protocol.
+
 This division follows UE 5.8's `IPropertyHandle::SetValue`,
 `SPropertyEditorNumeric::OnBeginSliderMovement`/`OnEndSliderMovement`, and
 `FColorStructCustomization` callbacks: interactive updates are distinct from

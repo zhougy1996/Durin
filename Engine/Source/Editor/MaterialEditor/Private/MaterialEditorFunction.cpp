@@ -153,7 +153,7 @@ namespace Durin::MaterialEditor
 		if (IsFunctionPublishing(Resource)) { SetError("Function publication is in progress."); return false; }
 		if (const auto* Document = FindFunctionDocument(Resource))
 		{
-			Document->Canvas->CancelInteraction();
+			if (!Document->Canvas->CancelInteraction()) return false;
 			const auto [Zoom, Pan] = Document->Canvas->GetViewport();
 			ProfileSettings->SetViewport(Resource, {.Zoom = Zoom, .Pan = Pan});
 		}
@@ -216,7 +216,8 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::CancelFunctionInteractions() -> bool
 	{
 		if (std::ranges::any_of(FunctionDocuments, [](const auto& Entry) { return Entry.second->bPublishing; })) return false;
-		for (auto& [Resource, Document] : FunctionDocuments) Document->Canvas->CancelInteraction();
+		for (auto& [Resource, Document] : FunctionDocuments)
+			if (!Document->Canvas->CancelInteraction()) return false;
 		return true;
 	}
 	auto FMaterialEditor::CloseFunctionDocument(const FEditorDocument& Tab) -> void

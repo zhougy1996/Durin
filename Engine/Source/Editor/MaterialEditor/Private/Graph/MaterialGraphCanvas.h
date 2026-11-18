@@ -44,7 +44,7 @@ namespace Durin::MaterialEditor
 		auto EndParameterFrame() -> void;
 		auto SelectAndFrameDiagnostic(
 			const FMaterialProgramDiagnostic& Diagnostic) -> bool;
-		auto CancelInteraction() -> void;
+		auto CancelInteraction() -> bool;
 		// Sets detached viewport state for editor automation and rendered qualification.
 		auto SetViewport(float InZoom, const ImVec2& InPan) -> void
 		{
