@@ -2,7 +2,6 @@
 
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
 #include "Toolkits/ToolkitHost.h"
 #include "Threading/RunnableThread.h"

@@ -243,11 +243,11 @@ and retain detached map keys across restoration. Prebuilt root snapshots are
 private to the prepared write path, so callers cannot submit a stale snapshot
 that resurrects another field's cancelled preview.
 
-Material canvas cancellation returns success to the document controller.
+Material canvas cancellation reports whether the Toolkit may proceed.
 Deactivate, close, discard, and working-copy reset must preserve the canvas and
 working object if restoration fails; retrying the operation retries cancellation.
-Object replacement admission likewise rejects an affected material document
-before publication if its interaction cannot be restored.
+An affected material Toolkit rejects object replacement before publication if
+its interaction cannot be restored.
 This failure propagation is a Durin requirement for rejectable restoration, not
 a claim that UE's color-picker reset callbacks provide a retry protocol.
 

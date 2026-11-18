@@ -26,7 +26,6 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Rendering/StaticMeshSceneProxy.h"
-#include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialTypes.h"

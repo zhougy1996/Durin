@@ -93,7 +93,7 @@ Callback cleanup, GC, and module-unload remain owned by lifecycle boundaries.
 The active editor owns `DAssetEditorSubsystem`. It dispatches definition-based
 opening, tracks non-owning many-to-many asset/instance associations, and keeps
 weak active and restore-focus selections. `FToolkitManager` owns open toolkits;
-each toolkit owns its document controller and optional reflected editor.
+each Toolkit owns its editing objects and optional reflected editor.
 
 `OpenEditorForAsset` focuses an existing primary instance before dispatching.
 Batch opening deduplicates inputs and returns aggregate success. Path overloads

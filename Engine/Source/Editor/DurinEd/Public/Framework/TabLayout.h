@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
-#include "Documents/EditorDocumentTypes.h"
+#include "Toolkits/AssetEditorTypes.h"
 #include "MonaImGui.h"
 
 namespace Durin::TabLayout

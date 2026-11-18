@@ -9,7 +9,6 @@
 #include "Toolkits/ToolkitHost.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
-#include "Documents/EditorDocumentManager.h"
 #include "DObject/Package.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"

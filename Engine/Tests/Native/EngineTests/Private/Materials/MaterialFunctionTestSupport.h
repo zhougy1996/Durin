@@ -28,7 +28,6 @@
 #include "MaterialEditorModule.h"
 #include "FMaterialEditor.h"
 #include "MaterialFunctionEditingSession.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"

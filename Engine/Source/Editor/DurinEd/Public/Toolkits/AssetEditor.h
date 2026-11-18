@@ -6,13 +6,11 @@
 #include "DObject/StrongObjectPtr.h"
 #include "AssetDefinition/AssetOpenTypes.h"
 #include "Toolkits/IAssetEditorInstance.h"
-#include "Documents/EditorDocumentTypes.h"
 #include "AssetEditor.gen.h"
 
 namespace Durin
 {
 	class FAssetEditorToolkit;
-	class FEditorDocumentManager;
 
 	// Loaded execution inputs stay separate from immutable definition metadata.
 	struct FAssetEditorInitArgs
@@ -40,7 +38,6 @@ namespace Durin
 		DURINED_API auto GetOpenMethod() const -> EAssetOpenMethod override;
 		DURINED_API auto GetToolkitMode() const -> EToolkitMode;
 		auto GetToolkit() const -> std::shared_ptr<FAssetEditorToolkit> { return Toolkit.lock(); }
-		DURINED_API auto GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager>;
 		DURINED_API auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost>;
 		DURINED_API auto GetInstanceKey() const -> std::string_view;
 		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
@@ -60,7 +57,6 @@ namespace Durin
 		auto ReleaseToolkit() -> void;
 		// Borrowed only while CreateToolkit runs; never retained as runtime state.
 		const FAssetEditorInitArgs* InitializingArgs = nullptr;
-		std::shared_ptr<FEditorDocumentManager> InitializingDocuments;
 		std::weak_ptr<FAssetEditorToolkit> Toolkit;
 		bool bInitialized = false;
 		bool bClosed = false;

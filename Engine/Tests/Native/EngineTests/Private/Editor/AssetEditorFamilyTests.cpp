@@ -10,7 +10,6 @@
 #include "Toolkits/AssetEditorToolkit.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
-#include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorModule.h"
 #include "StaticMeshEditorModule.h"
 #include "TextureEditorModule.h"
@@ -143,8 +142,7 @@ namespace
 			EXPECT_TRUE(EditorInstance->GetToolkit()->CanSaveActiveDocument());
 			EXPECT_TRUE(EditorInstance->GetToolkit()->SaveActiveDocument());
 			Object->MarkPackageDirty();
-			const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
-			ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document)) << EditorInstance->GetToolkit()->GetLastOperationError();
+			ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardAsset(*Object)) << EditorInstance->GetToolkit()->GetLastOperationError();
 			Object = EditorInstance->GetEditingObjects().front();
 			EXPECT_FALSE(Open(*Object, EAssetOpenMethod::View));
 			EXPECT_EQ(nullptr, AssetEditorSubsystem->OpenAssetEditor(EditorInstance->GetClass(), {
@@ -294,11 +292,10 @@ namespace
 		const auto FunctionProfile = FunctionToolkit->GetLayoutProfileKey();
 		EXPECT_NE(MaterialProfile, FunctionProfile);
 		Function->MarkPackageDirty();
-		const auto Document = FunctionToolkit->GetDocumentManager()->GetDocuments().front();
 		// An applied source's disk dirtiness is independent of the isolated draft.
-		EXPECT_FALSE(FunctionToolkit->IsDocumentDirty(Document));
-		ASSERT_TRUE(FunctionToolkit->SaveDocument(Document));
-		EXPECT_FALSE(FunctionToolkit->IsDocumentDirty(Document));
+		EXPECT_FALSE(FunctionToolkit->IsAssetDirty(*Function));
+		ASSERT_TRUE(FunctionToolkit->SaveAsset(*Function));
+		EXPECT_FALSE(FunctionToolkit->IsAssetDirty(*Function));
 		ASSERT_TRUE(Open(*Material));
 		EXPECT_EQ(MaterialToolkit, AssetEditorSubsystem->GetActiveAssetToolkit());
 		const auto Snapshot = AssetEditorSubsystem->CaptureEditorState();
@@ -350,10 +347,9 @@ namespace
 		EXPECT_EQ((std::tuple{TextureEditor::EVolumeTexturePreviewAxis::XY, 0u, 0u,
 			ETexturePreviewChannel::RGBA, 0.0f}), FPreviewAccess::VolumeSelection(*VolumeToolkit, VolumeResource));
 		Volume->MarkPackageDirty();
-		const auto Document = VolumeToolkit->GetDocumentManager()->GetDocuments().front();
-		EXPECT_TRUE(VolumeToolkit->IsDocumentDirty(Document));
-		EXPECT_FALSE(TextureToolkit->IsDocumentDirty(TextureToolkit->GetDocumentManager()->GetDocuments().front()));
-		ASSERT_TRUE(VolumeToolkit->SaveDocument(Document));
+		EXPECT_TRUE(VolumeToolkit->IsAssetDirty(*Volume));
+		EXPECT_FALSE(TextureToolkit->IsAssetDirty(*TextureToolkit->GetActiveAsset()));
+		ASSERT_TRUE(VolumeToolkit->SaveAsset(*Volume));
 		const auto Snapshot = AssetEditorSubsystem->CaptureEditorState();
 		ASSERT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
 		ASSERT_TRUE(AssetEditorSubsystem->RestoreEditorState(Snapshot));
@@ -383,12 +379,10 @@ namespace
 		ASSERT_TRUE(Open(*Collection));
 		auto* EditorInstance = Durin::Testing::FindReflectedEditor(AssetEditorSubsystem, Collection, EAssetOpenMethod::Edit);
 		ASSERT_NE(nullptr, EditorInstance);
-		const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
 		ASSERT_TRUE(Collection->SetDefaultValue(Declaration.Id, FVector4(3)));
-		EXPECT_TRUE(EditorInstance->GetToolkit()->IsDocumentDirty(Document));
+		EXPECT_TRUE(EditorInstance->GetToolkit()->IsAssetDirty(*Collection));
 		FPackageReloadRequest FailedReload{.Packages = {Collection->GetPackage()}};
-		FailedReload.Participants.push_back(EditorInstance->GetDocumentManager()->CreateDocumentReloadParticipant());
-		FailedReload.Participants.push_back(CreateTransactorReloadParticipant(*Host->GetTransactor(), FailedReload.Packages));
+		ASSERT_TRUE(AssetEditorSubsystem->AddPackageReloadParticipants(FailedReload));
 		{
 			Testing::FScopedPackageReloadFault FaultScope([](auto Point, uint64, uint64) {
 				return Point == Testing::EPackageReloadFaultPoint::BeforeCommit;
@@ -397,7 +391,7 @@ namespace
 		}
 		EXPECT_EQ(Collection, EditorInstance->GetEditingObjects().front());
 		EXPECT_TRUE(WorldState->SetValue(*Collection, Declaration.Id, FVector4(8)));
-		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document)) << EditorInstance->GetToolkit()->GetLastOperationError();
+		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardAsset(*Collection)) << EditorInstance->GetToolkit()->GetLastOperationError();
 		const auto Objects = EditorInstance->GetEditingObjects();
 		ASSERT_EQ(1u, Objects.size());
 		EXPECT_NE(Collection, Objects.front());
@@ -450,7 +444,7 @@ namespace
 		const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), TargetText.substr(0, TargetText.find_last_of('/')), Destination.GetPackageName()};
 		ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
 		for (const auto& Toolkit : {Edit, View})
-			EXPECT_EQ(Object->GetObjectPath(), Toolkit->GetDocumentManager()->GetDocuments().front().ResourceId);
+			EXPECT_EQ(Object->GetObjectPath(), Toolkit->GetActiveAsset()->GetObjectPath());
 		EXPECT_EQ(Window, Edit->GetPresentationRootKey("StaticMeshEditor"));
 		EXPECT_EQ(Profile, Edit->GetLayoutProfileKey());
 		CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -464,7 +458,7 @@ namespace
 			.Assets = {{MovedPath, Object->GetClass()->GetQualifiedName().ToString()}, {SecondPath, Second->GetClass()->GetQualifiedName().ToString()}},
 			.OpenMethod = EAssetOpenMethod::View, .ToolkitMode = EToolkitMode::WorldCentric,
 			.InstanceRole = "GroupInspection", .bPrimary = false, .bCreateSingleEditor = true}));
-		EXPECT_EQ(2u, AssetEditorSubsystem->GetActiveAssetToolkit()->GetDocumentManager()->GetDocuments().size());
+		EXPECT_EQ(2u, AssetEditorSubsystem->GetActiveAssetToolkit()->GetEditingObjects().size());
 		const auto Group = AssetEditorSubsystem->GetActiveAssetToolkit();
 		ASSERT_TRUE(AssetEditorSubsystem->OpenAssets({.AssetEditors = AssetEditorSubsystem,
 			.Assets = {{SecondPath, Second->GetClass()->GetQualifiedName().ToString()}, {MovedPath, Object->GetClass()->GetQualifiedName().ToString()}},
@@ -509,7 +503,7 @@ namespace
 		const auto TargetText = Destination.ToString();
 		const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), TargetText.substr(0, TargetText.find_last_of('/')), Destination.GetPackageName()};
 		ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
-		EXPECT_EQ(Object->GetObjectPath(), EditorInstance->GetDocumentManager()->GetDocuments().front().ResourceId);
+		EXPECT_EQ(Object->GetObjectPath(), EditorInstance->GetToolkit()->GetActiveAsset()->GetObjectPath());
 		EXPECT_EQ(Window, EditorInstance->GetToolkit()->GetPresentationRootKey("MaterialEditor"));
 		EXPECT_EQ(Profile, EditorInstance->GetToolkit()->GetLayoutProfileKey());
 		EXPECT_TRUE(EditorInstance->GetToolkit()->CanSaveActiveDocument());
@@ -585,8 +579,7 @@ namespace
 		FPreviewAccess::SelectVolume(*EditorInstance->GetToolkit(), Resource);
 		const auto Selection = FPreviewAccess::VolumeSelection(*EditorInstance->GetToolkit(), Resource);
 		ASSERT_TRUE(SetSource(std::byte{39}));
-		const auto Document = EditorInstance->GetDocumentManager()->GetDocuments().front();
-		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardDocument(Document)) << EditorInstance->GetToolkit()->GetLastOperationError();
+		ASSERT_TRUE(EditorInstance->GetToolkit()->DiscardAsset(*Volume)) << EditorInstance->GetToolkit()->GetLastOperationError();
 		auto* Replacement = EditorInstance->GetEditingObjects().front();
 		EXPECT_NE(Volume, Replacement);
 		EXPECT_EQ(View->GetEditingObjects(), std::vector<DObject*>{Replacement});

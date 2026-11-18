@@ -12,7 +12,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DynamicRHI.h"
-#include "Documents/AssetEditorDocumentModels.h"
+#include "Toolkits/AssetEditorSession.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -235,8 +235,8 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	};
 	const auto Saved = Render();
 	SaveEvidence("saved", Saved);
-	FEditableAssetDocumentModel Documents;
-	ASSERT_TRUE(Documents.Activate({.Id = {1}, .ResourceId = WeatherPath.ToString()}, Weather));
+	FAssetEditorSession Session;
+	ASSERT_TRUE(Session.Activate(Weather));
 	SetWeather(*Weather, 0);
 	Weather->GetPackage()->MarkDirty();
 	const auto EditedWeather = Render();
@@ -255,7 +255,7 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 		EXPECT_TRUE(Weather->GetPackage()->IsDirty());
 		EXPECT_EQ(Render(), EditedWeather);
 	}
-	ASSERT_TRUE(Documents.Discard(Weather));
+	ASSERT_TRUE(Session.Discard(Weather));
 	Weather = Cloud->GetWeatherTexture();
 	ASSERT_NE(Weather, nullptr);
 	EXPECT_EQ(Weather->GetSource().GetIdentity(), WeatherIdentity);
@@ -263,13 +263,13 @@ TEST(FAssetPackageReloadVulkanTests, DiscardRestoresRenderedWeatherAndVolumeFrom
 	EXPECT_EQ(RestoredWeather, Saved);
 	SaveEvidence("weather-discarded", RestoredWeather);
 
-	ASSERT_TRUE(Documents.Activate({.Id = {2}, .ResourceId = VolumePath.ToString()}, Volume));
+	ASSERT_TRUE(Session.Activate(Volume));
 	SetDensity(*Volume, 0);
 	Volume->GetPackage()->MarkDirty();
 	const auto EditedVolume = Render();
 	EXPECT_NE(EditedVolume, Saved);
 	SaveEvidence("volume-edited", EditedVolume);
-	ASSERT_TRUE(Documents.Discard(Volume));
+	ASSERT_TRUE(Session.Discard(Volume));
 	Volume = Cloud->GetBaseDensityTexture();
 	ASSERT_NE(Volume, nullptr);
 	EXPECT_EQ(Volume->GetSource().GetIdentity(), VolumeIdentity);

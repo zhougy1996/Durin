@@ -1,11 +1,11 @@
 #include "ThumbnailManagerTestSupport.h"
+#include "Toolkits/ToolkitManager.h"
 #include "Editor/AssetEditorTestQueries.h"
 #include "Editor/AssetEditorTestHost.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
-#include "Documents/EditorDocumentManager.h"
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "Misc/Paths.h"
@@ -59,7 +59,6 @@ TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministicall
 TEST(FStaticMeshEditorTests, ModulePublishesMetadataAndRendererWithoutCreatingASharedToolkit)
 {
 	InitializeDObjectSystem();
-	Durin::FEditorDocumentManager Manager;
 	auto& Thumbnails = Durin::GetDefaultThumbnailManager();
 	Durin::FStaticMeshEditorModule Module;
 	Durin::FModuleTestHarness Harness("StaticMeshEditor");
@@ -69,7 +68,7 @@ TEST(FStaticMeshEditorTests, ModulePublishesMetadataAndRendererWithoutCreatingAS
 	const auto* Definition = Durin::FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(Class);
 	ASSERT_NE(nullptr, Definition);
 	EXPECT_EQ("StaticMesh", Definition->GetAssetDisplayName());
-	EXPECT_TRUE(!Manager.GetToolkit());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 	Harness.Shutdown();
 	EXPECT_FALSE(Thumbnails.Find(Class));
 }
@@ -98,7 +97,6 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 
 TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 {
-	Durin::FEditorDocumentManager Manager;
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass());
@@ -112,9 +110,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictDoesNotAffectEditorDiscovery)
 	ModuleHarness.Start(Module);
 	EXPECT_FALSE(ThumbnailManager.RegisterCustomRenderer(Durin::DStaticMesh::StaticClass(), Durin::StaticMeshEditor::DStaticMeshThumbnailRenderer::StaticClass()));
 	EXPECT_NE(nullptr, Durin::FAssetDefinitionRegistry::Get().GetAssetDefinitionForClass(ClassName));
-	EXPECT_EQ(
-		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),
-		nullptr);
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 	EXPECT_EQ(ThumbnailManager.Find(ClassName), ExistingRenderer);
 	ModuleHarness.Shutdown();
 }
@@ -151,7 +147,7 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	ASSERT_TRUE(TestHost.Open(SecondPath, ClassName));
 	ASSERT_EQ(2u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
 	const auto ActiveBeforeUnsupported = AssetEditorSubsystem->GetActiveAssetToolkit();
-	EXPECT_EQ(SecondPath, ActiveBeforeUnsupported->GetDocumentManager()->GetActiveDocument()->ResourceId);
+	EXPECT_EQ(SecondPath, ActiveBeforeUnsupported->GetActiveAsset()->GetObjectPath());
 	EXPECT_FALSE(TestHost.Open(FirstPath, "Durin::DTexture2D"));
 	EXPECT_EQ(ActiveBeforeUnsupported, AssetEditorSubsystem->GetActiveAssetToolkit());
 	EXPECT_TRUE(FirstToolkit->CloseWindow(Durin::EAssetEditorCloseReason::AssetEditorHostClosed));
@@ -159,8 +155,8 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	ASSERT_TRUE(TestHost.Open(FirstPath, ClassName));
 	EXPECT_EQ(2u, Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
 	for (const auto& Toolkit : Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
-		for (const auto& Document : Toolkit->GetDocumentManager()->GetDocuments())
-			EXPECT_FALSE(Toolkit->IsDocumentDirty(Document));
+		for (const auto* Asset : Toolkit->GetEditingObjects())
+			EXPECT_FALSE(Toolkit->IsAssetDirty(*Asset));
 	EXPECT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
 	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
 	TestHost.Shutdown();

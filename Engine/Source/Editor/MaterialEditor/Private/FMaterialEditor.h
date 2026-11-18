@@ -4,7 +4,7 @@
 
 #include "Asset/MutationExtensions.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Documents/AssetEditorDocumentModels.h"
+#include "Toolkits/AssetEditorSession.h"
 #include "MaterialEditorAPI.h"
 #include "DObject/ObjectPtr.h"
 #include "PropertyEditor/PropertyView.h"
@@ -39,20 +39,20 @@ namespace Durin::MaterialEditor
 		auto GetLayoutVersion() const -> uint32 override;
 		auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
 		explicit FMaterialEditor(
-			FEditorDocumentManager& InDocumentManager, EMaterialEditorMode InMode = EMaterialEditorMode::Material);
+			EMaterialEditorMode InMode = EMaterialEditorMode::Material);
 
 		MATERIALEDITOR_API ~FMaterialEditor() override;
 		MATERIALEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
-		MATERIALEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
-		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
+		MATERIALEDITOR_API auto OnOpenAsset(DObject& Object) -> bool override;
+		MATERIALEDITOR_API auto OnActivateAsset(DObject& Object) -> void override;
 		MATERIALEDITOR_API auto RequestDeactivate() -> bool override;
-		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		MATERIALEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
-		MATERIALEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
+		MATERIALEDITOR_API auto OnCloseAsset(DObject& Object) -> void override;
+		MATERIALEDITOR_API auto OnSaveAsset(DObject& Object) -> bool override;
+		MATERIALEDITOR_API auto OnDiscardAsset(DObject& Object) -> bool override;
 		MATERIALEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> override;
 		auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> override;
-		MATERIALEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
+		MATERIALEDITOR_API auto OnIsAssetDirty(const DObject& Object) const -> bool override;
 		MATERIALEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
 		MATERIALEDITOR_API auto OnSaveActiveDocument() -> bool override;
 		MATERIALEDITOR_API auto OnCanUndo() const -> bool override;
@@ -79,22 +79,22 @@ namespace Durin::MaterialEditor
 		auto ReleaseMaterialSession() -> void;
 		auto GetActiveMaterial() const -> DMaterialInterface*;
 		auto SaveMaterial() -> bool;
-		auto DrawDocument(const FEditorDocument& Document, DMaterialInterface* Material) -> void;
+		auto DrawDocument(std::string_view Resource, DMaterialInterface* Material) -> void;
 		auto DrawToolbar(DMaterialInterface* Material) -> void;
 		auto DrawPreferences(std::string& OutError) -> void;
 		auto GetPreferencesPageId() const -> std::string;
 		auto SetAutoCompile(bool bEnabled) -> void;
 		auto ResetPreferences() -> bool;
-		auto DrawDockLayout(const FEditorDocument& Document, DMaterialInterface* Material) -> void;
+		auto DrawDockLayout(std::string_view Resource, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(DMaterialInterface* Material, float Height) -> void;
-		auto DrawGraphPanel(const FEditorDocument& Document, float Height) -> void;
-		auto DrawDetailsPanel(const FEditorDocument& Document, DMaterialInterface* Material) -> void;
-		auto DrawParametersPanel(const FEditorDocument& Document, DMaterialInterface* Material) -> void;
-		auto DrawSelectedFunction(const FEditorDocument& Document, DMaterial* Base) -> void;
+		auto DrawGraphPanel(std::string_view Resource, float Height) -> void;
+		auto DrawDetailsPanel(std::string_view Resource, DMaterialInterface* Material) -> void;
+		auto DrawParametersPanel(std::string_view Resource, DMaterialInterface* Material) -> void;
+		auto DrawSelectedFunction(std::string_view Resource, DMaterial* Base) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
-		auto GetOrCreateCanvas(const FEditorDocument& Document)
+		auto GetOrCreateCanvas()
 			-> FMaterialGraphCanvas&;
 		auto CancelCanvasInteraction() -> bool;
 		auto CaptureCanvasViewport() -> void;
@@ -107,20 +107,18 @@ namespace Durin::MaterialEditor
 		auto UnregisterFunctionUndo() -> void;
 		auto HandleFunctionTransaction(const FTransactionEvent& Event) -> void;
 		auto SaveFunctionViewport() -> void;
-		auto OpenFunctionDocument(const FEditorDocument& Document) -> EDocumentOpenResult;
 		auto CancelFunctionInteractions() -> bool;
 		auto ResetFunctionLayout() -> void;
 		auto DrawFunction(bool bActive) -> bool;
-		auto DrawDocument(const FEditorDocument& Tab, FMaterialFunctionEditingSession& Document) -> void;
+		auto DrawDocument(std::string_view Resource, FMaterialFunctionEditingSession& Document) -> void;
 		auto DrawInterface(FMaterialFunctionEditingSession& Document) -> void;
 		auto DrawInputs(FMaterialFunctionEditingSession& Document) -> void;
 		const EMaterialEditorMode Mode;
 		std::shared_ptr<FMaterialFunctionEditingSession> FunctionSession;
 		uint64 FunctionUndoHandle = 0;
 
-		FEditorDocumentManager& DocumentManager;
 		std::shared_ptr<FMaterialEditingSession> EditingSession;
-		FEditableAssetDocumentModel Documents;
+		FAssetEditorSession EditorSession;
 		std::unique_ptr<FMaterialEditorProfileSettings> ProfileSettings;
 		FEditorSettingsPageRegistration SettingsPage;
 		std::array<char, 128> ParameterSearchText{};

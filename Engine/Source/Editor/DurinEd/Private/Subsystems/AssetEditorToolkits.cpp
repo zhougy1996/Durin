@@ -5,7 +5,6 @@
 #include "Toolkits/AssetEditorIdentity.h"
 #include "Toolkits/ToolkitHost.h"
 #include "Toolkits/ToolkitManager.h"
-#include "Documents/EditorDocumentManager.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "DObject/Class.h"
@@ -29,10 +28,10 @@ namespace Durin
 		return true;
 	}
 	auto DAssetEditorSubsystem::InitializeDirectToolkit(std::shared_ptr<FAssetEditorToolkit> Toolkit,
-		std::shared_ptr<FEditorDocumentManager> Documents, const FAssetOpenArgs& Args,
+		const FAssetOpenArgs& Args,
 		std::span<DObject* const> Assets) -> bool
 	{
-		if (!CanCall() || Args.AssetEditors != this || !Toolkit || Toolkit->GetEditorInstance() || Toolkit->IsClosed() || !Documents || Assets.empty()) return false;
+		if (!CanCall() || Args.AssetEditors != this || !Toolkit || Toolkit->GetEditorInstance() || Toolkit->IsClosed() || Assets.empty()) return false;
 		// Direct admission remains restricted to inspection.
 		// Immutable inspectors may use Edit; editable features must be fixed to View.
 		if (Args.OpenMethod == EAssetOpenMethod::Edit && Toolkit->CanEditAssets()) return false;
@@ -54,7 +53,7 @@ namespace Durin
 		DispatchEditorCallback([&] {
 			if (const auto Previous = GetActiveAssetToolkit(); Previous && !Previous->RequestDeactivate()) return;
 			if (!CanCall()) return;
-			if (!Toolkit->InitAssetEditor({.OpenArgs = Effective, .Assets = {Assets.begin(), Assets.end()}}, Documents, DispatchingDefinition) || !CanCall())
+			if (!Toolkit->InitAssetEditor({.OpenArgs = Effective, .Assets = {Assets.begin(), Assets.end()}}, DispatchingDefinition) || !CanCall())
 			{ Toolkit->NotifyClosed(); return; }
 			if (!FToolkitManager::Get().RegisterNewToolkit(Toolkit))
 			{ Toolkit->NotifyClosed(); return; }

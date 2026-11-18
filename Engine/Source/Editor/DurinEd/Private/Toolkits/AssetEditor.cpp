@@ -2,7 +2,6 @@
 
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitManager.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "DObject/ObjectLifecycle.h"
 
@@ -41,12 +40,10 @@ namespace Durin
 			InitialRoots.emplace_back(Asset);
 		}
 		InitializingArgs = &Args;
-		InitializingDocuments = std::make_shared<FEditorDocumentManager>();
 		const auto Candidate = CreateToolkit();
 		Toolkit = Candidate;
-		auto Documents = std::move(InitializingDocuments);
 		InitializingArgs = nullptr;
-		if (!Candidate || !Candidate->InitAssetEditor(Args, std::move(Documents), std::move(Provider), this))
+		if (!Candidate || !Candidate->InitAssetEditor(Args, std::move(Provider), this))
 		{ ReleaseToolkit(); return {}; }
 		bInitialized = true;
 		return Candidate;
@@ -56,8 +53,6 @@ namespace Durin
 	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetToolkitMode() : InitializingArgs ? InitializingArgs->OpenArgs.ToolkitMode : EToolkitMode::Standalone; }
 	auto DAssetEditor::GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*
 	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetAssetEditorSubsystem() : InitializingArgs ? InitializingArgs->OpenArgs.AssetEditors : nullptr; }
-	auto DAssetEditor::GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager>
-	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetDocumentManager() : InitializingDocuments; }
 	auto DAssetEditor::GetToolkitHost() const -> std::shared_ptr<IToolkitHost>
 	{ const auto Lease = Toolkit.lock(); return Lease ? Lease->GetToolkitHost() : nullptr; }
 	auto DAssetEditor::GetInstanceKey() const -> std::string_view

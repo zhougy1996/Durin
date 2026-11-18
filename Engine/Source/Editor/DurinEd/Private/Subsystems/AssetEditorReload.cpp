@@ -3,7 +3,6 @@
 #include "Asset/Load.h"
 #include "Asset/PackageReload.h"
 #include "DObject/Package.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitManager.h"
@@ -19,8 +18,7 @@ namespace Durin
 		public:
 			explicit FEditorReloadParticipant(std::shared_ptr<FAssetEditorToolkit> InToolkit)
 				: Toolkit(std::move(InToolkit))
-				, Participant(Toolkit->GetOwnedEditingObjects()
-					? Toolkit->CreateReloadParticipant() : Toolkit->GetDocumentManager()->CreateDocumentReloadParticipant())
+				, Participant(Toolkit->CreateReloadParticipant())
 			{
 				for (auto* Object : Toolkit->GetEditingObjects()) Objects.emplace_back(Object);
 			}

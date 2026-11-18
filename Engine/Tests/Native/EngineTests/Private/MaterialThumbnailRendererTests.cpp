@@ -1,4 +1,5 @@
 #include "Thumbnail/AssetThumbnailKey.h"
+#include "Toolkits/ToolkitManager.h"
 #include "ThumbnailManagerTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "DObject/WeakObjectPtr.h"
@@ -9,7 +10,6 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "MaterialEditorModule.h"
-#include "Documents/EditorDocumentManager.h"
 
 #include "Materials/MaterialTestSupport.h"
 
@@ -109,14 +109,13 @@ TEST(FMaterialThumbnailRendererTests, OneReflectedRendererClassServesDistinctAss
 TEST(FMaterialThumbnailRendererTests, ModuleStartupPublishesIndependentRenderersWithoutSharedToolkits)
 {
 	InitializeDObjectSystem();
-	Durin::FEditorDocumentManager Manager;
 	auto& ThumbnailManager = Durin::GetDefaultThumbnailManager();
 	Durin::FMaterialEditorModule Module;
 	Durin::FModuleTestHarness Harness("MaterialEditor");
 	Harness.Start(Module);
 	EXPECT_TRUE(ThumbnailManager.Find(Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_TRUE(!Manager.GetToolkit());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 	Harness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_FALSE(ThumbnailManager.Find(Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
@@ -127,7 +126,6 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictDoesNotAffectIndependentMo
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		Durin::InitializeAssetCompilingManager();
-	Durin::FEditorDocumentManager Manager;
 	Durin::DThumbnailManager ThumbnailManager;
 	std::string Error;
 	auto Existing = ThumbnailManager.RegisterCustomRenderer(Durin::DMaterialInstance::StaticClass(), Durin::MaterialEditor::DMaterialThumbnailRenderer::StaticClass());
@@ -141,8 +139,7 @@ TEST(FMaterialThumbnailRendererTests, RendererConflictDoesNotAffectIndependentMo
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(ThumbnailManager.Find(
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_EQ(Manager.FindToolkit(
-		Durin::FAssetEditorToolkitId("MaterialEditor")), nullptr);
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 	ModuleHarness.Shutdown();
 }
 

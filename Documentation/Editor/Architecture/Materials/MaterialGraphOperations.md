@@ -175,7 +175,7 @@ reflection but is excluded from program validation, normalized IR, compile
 snapshots, shader-map identity, derived data, and the cooked DMAT payload.
 
 MaterialEditor owns transient pan, zoom, hover, selection, marquee, link drag,
-and per-document controller state. None of those values are serialized.
+and the graph session state. These interaction values are transient.
 
 ## Standard function authoring
 

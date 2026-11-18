@@ -22,7 +22,7 @@
 
 // Editor services, property UI, documents and transactions.
 #include "MonaImGui.h"
-#include "Documents/EditorDocumentTypes.h"
+#include "Toolkits/AssetEditorTypes.h"
 #include "Editor/EditorEngine.h"
 #include "Factories/Factory.h"
 #include "Import/EditorReimportHandler.h"

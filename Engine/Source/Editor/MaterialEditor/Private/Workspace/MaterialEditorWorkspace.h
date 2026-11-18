@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Documents/EditorDocumentTypes.h"
+#include "Toolkits/AssetEditorTypes.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "Framework/TabLayout.h"
 #include "Widgets/MonaImGuiWidgets.h"
@@ -19,16 +19,15 @@ namespace Durin::MaterialEditor::Workspace
 	inline constexpr uint32 FunctionLayoutVersion = 5;
 
 	// Isolates panel docking and persisted layouts for each material document.
-	inline auto MakeDocumentDockType(const FEditorDocument& Document)
+	inline auto MakeDockType(std::string_view PresentationKey)
 		-> FAssetEditorToolkitId
 	{
-		return FAssetEditorToolkitId(std::format("MaterialEditor.{}", Document.DocumentKey));
+		return FAssetEditorToolkitId(std::format("MaterialEditor.{}", PresentationKey));
 	}
 
 	inline auto BuildDefaultLayout(
-		const FEditorDocument& Document, const ImVec2& Size, bool bFunction = false) -> void
+		const FAssetEditorToolkitId& DockType, const ImVec2& Size, bool bFunction = false) -> void
 	{
-		const auto DockType = MakeDocumentDockType(Document);
 		const ImGuiID DockSpaceId = TabLayout::MakeDockSpaceId(DockType, bFunction ? FunctionLayoutVersion : LayoutVersion);
 		ImGui::DockBuilderRemoveNode(DockSpaceId);
 		ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);

@@ -81,13 +81,11 @@ overload obtains the eligible snapshot and forwards cancellation to that context
 MainFrame continues to observe the default owner-thread context for generic slow
 tasks on ordinary UI frames.
 
-Editor service/workspace initialization is synchronous and does not own a
-per-frame progress state machine. Once Ready, the Level document controller projects
-`GetMapChangeProgress()` into a modal snapshot for both default-Level and later
-document opens. Cancel calls `CancelPendingMapChange()`; ordinary owner frames
-still process its terminal result and publish deferred document completion.
-Default-Level opening does not add another progress window. Neither startup nor
-Level switching retains a feedback Task or context alongside business state.
+Editor service and workspace initialization are synchronous. Default-Level and
+interactive Level activation use the map file utility, which owns the
+synchronous load and reports its result. The Level Toolkit reads the current
+world after the load. MainFrame continues to present general feedback-context
+tasks during ordinary editor frames.
 
 Existing business progress can also project directly to `FSlowTaskSnapshot`
 without creating a task or feedback context. `DrawSlowTaskProgress` accepts these

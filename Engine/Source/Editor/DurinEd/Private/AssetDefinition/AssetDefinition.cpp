@@ -9,7 +9,6 @@
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/AssetEditorIdentity.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin
@@ -81,13 +80,12 @@ namespace Durin
 	}
 
 	auto DAssetDefinitionDefault::OpenAssetsWithToolkit(const FAssetOpenArgs& Args, const FAssetEditorToolkitId& ToolkitId,
-		const std::function<std::shared_ptr<FAssetEditorToolkit>(FEditorDocumentManager&)>& CreateToolkit) const -> EAssetCommandResult
+		const std::function<std::shared_ptr<FAssetEditorToolkit>()>& CreateToolkit) const -> EAssetCommandResult
 	{
 		return ExecuteOpenAssets(Args, &ToolkitId,
 			[&](std::span<DObject* const> Assets) -> std::shared_ptr<FAssetEditorToolkit> {
-				auto Documents = std::make_shared<FEditorDocumentManager>();
-				auto Toolkit = CreateToolkit(*Documents);
-				return Args.AssetEditors->InitializeDirectToolkit(Toolkit, Documents, Args, Assets) ? Toolkit : nullptr;
+				auto Toolkit = CreateToolkit();
+				return Args.AssetEditors->InitializeDirectToolkit(Toolkit, Args, Assets) ? Toolkit : nullptr;
 			});
 	}
 

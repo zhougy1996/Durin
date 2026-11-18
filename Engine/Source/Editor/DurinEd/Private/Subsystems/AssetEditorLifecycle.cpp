@@ -2,7 +2,6 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
 #include "AssetRegistry/Catalog.h"
@@ -38,8 +37,16 @@ namespace Durin
 					Target.AssetPath = Replacement;
 			}
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
-			if (OwnsToolkit(*Toolkit) && !Toolkit->IsClosed())
-				if (const auto Documents = Toolkit->GetDocumentManager()) Documents->OnAssetRenamed(Asset, Previous);
+		{
+			if (!OwnsToolkit(*Toolkit) || Toolkit->IsClosed()) continue;
+			for (auto* Object : Toolkit->GetEditingObjects())
+			{
+				FSoftObjectPath Current, Old;
+				if (FSoftObjectPath::TryCreate(Object->GetObjectPath(), Current) && Current.GetAssetPath() == Asset.AssetPath
+					&& FSoftObjectPath::TryCreate(Previous.GetAssetPath(), Current.GetSubobjectNames(), Old))
+					Toolkit->OnResourceIdRemapped(Old.ToString(), Current.ToString());
+			}
+		}
 	}
 
 	auto DAssetEditorSubsystem::Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription

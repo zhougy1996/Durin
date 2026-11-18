@@ -40,8 +40,6 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	ASSERT_TRUE(TestHost.Open(Resource, Class));
 	ASSERT_EQ(Durin::Testing::GetReflectedEditors(TestHost.GetAssetEditorSubsystem()).size(), 1u);
 	auto* FirstEditor = Durin::Testing::GetReflectedEditors(TestHost.GetAssetEditorSubsystem()).front().Get();
-	auto& Manager = *FirstEditor->GetDocumentManager();
-	const auto FirstTab = *Manager.GetActiveDocument();
 	ASSERT_TRUE(TestHost.Open(Second->GetObjectPath(), Class));
 	ASSERT_EQ(Durin::Testing::GetReflectedEditors(TestHost.GetAssetEditorSubsystem()).size(), 2u);
 	auto Workspace = FirstEditor->GetToolkit();
@@ -51,15 +49,16 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	auto Signature = Working->GetFunctionSignature();
 	Signature.Outputs[0].Name = "Saved Surface";
 	ASSERT_TRUE(FMaterialGraphDocument(*Working).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
-	EXPECT_TRUE(Workspace->IsDocumentDirty(FirstTab));
-	EXPECT_EQ(Manager.RequestCloseDocument(FirstTab.Id), EDocumentCloseResult::PendingConfirmation);
-	EXPECT_EQ(Manager.ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel), EDocumentCloseResult::Cancelled);
+	EXPECT_TRUE(Workspace->IsAssetDirty(*First));
+	EXPECT_EQ(Workspace->RequestCloseAsset(*First), EAssetEditorCloseResult::PendingConfirmation);
+	EXPECT_EQ(TestHost.GetAssetEditorSubsystem()->ResolvePendingClose(
+		TestHost.GetAssetEditorSubsystem()->GetPendingClosePrompt()->RequestId, EAssetEditorCloseResponse::Cancel), EAssetEditorCloseResult::Cancelled);
 	EXPECT_NE(First->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	std::string ApplyError;
 	ASSERT_TRUE(FMaterialFunctionEditorTestAccess::Document(*Workspace, Resource).Publish(ApplyError)) << ApplyError;
 	EXPECT_TRUE(First->GetPackage()->IsDirty());
-	ASSERT_TRUE(Workspace->SaveDocument(FirstTab));
-	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
+	ASSERT_TRUE(Workspace->SaveAsset(*First));
+	EXPECT_FALSE(Workspace->IsAssetDirty(*First));
 	const auto CopiedCallId = GetFunctionCalls(*Second)[0]->Id;
 	FMaterialGraphClipboardPayload Clipboard;
 	ASSERT_TRUE(FMaterialGraphDocument(*Second).CopySelection(std::span(&CopiedCallId, 1), Clipboard));
@@ -69,7 +68,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	Signature.Outputs[0].Name = "Discarded Surface";
 	ASSERT_TRUE(FMaterialGraphDocument(*Working).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(PreviewInvalidation.ConsumeRefreshRequest());
-	const bool Discarded = Workspace->DiscardDocument(FirstTab);
+	const bool Discarded = Workspace->DiscardAsset(*First);
 	if (!Discarded)
 	{
 		const auto Error = Workspace->GetLastOperationError();
@@ -90,7 +89,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300, Durin::ETransactionMode::NotTransactable);
 	EXPECT_TRUE(Pasted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
-	EXPECT_FALSE(Workspace->IsDocumentDirty(FirstTab));
+	EXPECT_FALSE(Workspace->IsAssetDirty(*First));
 	TestHost.Shutdown(); Workspace.reset();
 	Harness.Shutdown();
 }
@@ -119,7 +118,6 @@ namespace
 			ASSERT_TRUE(Host->Open(Resource, Source->GetClass()->GetQualifiedName().ToString()));
 			Toolkit = Host->GetAssetEditorSubsystem()->GetActiveAssetToolkit();
 			ASSERT_TRUE(Toolkit);
-			Tab = Toolkit->GetDocumentManager()->GetDocuments().front();
 		}
 		auto TearDown() -> void override
 		{
@@ -147,7 +145,6 @@ namespace
 		std::unique_ptr<FModuleTestHarness> Harness;
 		std::unique_ptr<Testing::FScopedAssetEditorTestHost> Host;
 		std::shared_ptr<FAssetEditorToolkit> Toolkit;
-		FEditorDocument Tab;
 		std::string Resource;
 	};
 }
@@ -164,9 +161,10 @@ TEST_F(FMaterialFunctionDocumentTests, WorkingEditsStayIsolatedAndUndoRedoPublis
 	ASSERT_TRUE(Rename(*Working, "Draft", true));
 	EXPECT_EQ(Initial, Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_FALSE(Source->GetPackage()->IsDirty());
-	EXPECT_TRUE(Toolkit->IsDocumentDirty(Tab));
-	EXPECT_EQ(EDocumentCloseResult::PendingConfirmation, Toolkit->GetDocumentManager()->RequestCloseDocument(Tab.Id));
-	EXPECT_EQ(EDocumentCloseResult::Cancelled, Toolkit->GetDocumentManager()->ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel));
+	EXPECT_TRUE(Toolkit->IsAssetDirty(*Source));
+	EXPECT_EQ(EAssetEditorCloseResult::PendingConfirmation, Toolkit->RequestCloseAsset(*Source));
+	EXPECT_EQ(EAssetEditorCloseResult::Cancelled, Host->GetAssetEditorSubsystem()->ResolvePendingClose(
+		Host->GetAssetEditorSubsystem()->GetPendingClosePrompt()->RequestId, EAssetEditorCloseResponse::Cancel));
 	EXPECT_EQ("Draft", Working->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_FALSE(Invalidation.ConsumeRefreshRequest());
 	ASSERT_TRUE(Toolkit->CanUndo());
@@ -183,10 +181,10 @@ TEST_F(FMaterialFunctionDocumentTests, WorkingEditsStayIsolatedAndUndoRedoPublis
 	EXPECT_TRUE(Source->GetPackage()->IsDirty());
 	EXPECT_FALSE(Document().IsDirty());
 	EXPECT_FALSE(Invalidation.ConsumeRefreshRequest());
-	ASSERT_TRUE(Toolkit->SaveDocument(Tab)) << Toolkit->GetLastOperationError();
+	ASSERT_TRUE(Toolkit->SaveAsset(*Source)) << Toolkit->GetLastOperationError();
 	EXPECT_FALSE(Source->GetPackage()->IsDirty());
 	EXPECT_FALSE(Working->GetPackage()->IsDirty());
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 }
 
 TEST_F(FMaterialFunctionDocumentTests, SeparateRolesCannotOverwriteAppliedSourceChanges)
@@ -219,23 +217,23 @@ TEST_F(FMaterialFunctionDocumentTests, DiscardDropsOnlyTheDraftAndPreservesAppli
 	const auto Initial = Source->GetFunctionSignature().Outputs.front().Name;
 	ASSERT_TRUE(Rename(*Document().Function(), "Unapplied", true));
 	auto* Original = Source.Get();
-	ASSERT_TRUE(Toolkit->DiscardDocument(Tab)) << Toolkit->GetLastOperationError();
+	ASSERT_TRUE(Toolkit->DiscardAsset(*Source)) << Toolkit->GetLastOperationError();
 	EXPECT_EQ(Original, Document().GetSource());
 	EXPECT_EQ(Initial, Document().Function()->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 	EXPECT_FALSE(Toolkit->CanUndo());
 	ASSERT_TRUE(Rename(*Document().Function(), "Applied but unsaved"));
 	std::string Error;
 	ASSERT_TRUE(Document().Publish(Error)) << Error;
 	EXPECT_TRUE(Source->GetPackage()->IsDirty());
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 	ASSERT_TRUE(Rename(*Document().Function(), "Discard this draft", true));
-	ASSERT_TRUE(Toolkit->DiscardDocument(Tab)) << Toolkit->GetLastOperationError();
+	ASSERT_TRUE(Toolkit->DiscardAsset(*Source)) << Toolkit->GetLastOperationError();
 	EXPECT_EQ(Original, Document().GetSource());
 	EXPECT_EQ("Applied but unsaved", Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_EQ("Applied but unsaved", Document().Function()->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_TRUE(Source->GetPackage()->IsDirty());
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 	EXPECT_FALSE(Toolkit->CanUndo());
 	ASSERT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 	EXPECT_EQ("Applied but unsaved", Source->GetFunctionSignature().Outputs.front().Name);
@@ -253,9 +251,9 @@ TEST_F(FMaterialFunctionDocumentTests, ApplyRejectsProspectiveSourceRecursionWit
 	EXPECT_EQ(Initial, Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_FALSE(Source->GetPackage()->IsDirty());
 	EXPECT_TRUE(Document().IsDirty());
-	EXPECT_FALSE(Toolkit->SaveDocument(Tab));
+	EXPECT_FALSE(Toolkit->SaveAsset(*Source));
 	EXPECT_FALSE(Source->GetPackage()->IsDirty());
-	ASSERT_TRUE(Toolkit->DiscardDocument(Tab));
+	ASSERT_TRUE(Toolkit->DiscardAsset(*Source));
 	EXPECT_FALSE(Document().IsDirty());
 }
 
@@ -291,14 +289,13 @@ TEST_F(FMaterialFunctionDocumentTests, RelocationKeepsTheDraftAndPublishesToTheR
 	const FAssetRenameData Data{TWeakObjectPtr<DObject>(Source.Get()), Text.substr(0, Text.find_last_of('/')), Destination.GetPackageName()};
 	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Data, 1}));
 	Resource = Source->GetObjectPath();
-	Tab = Toolkit->GetDocumentManager()->GetDocuments().front();
-	EXPECT_EQ(Resource, Tab.ResourceId);
+	EXPECT_EQ(Resource, Toolkit->GetActiveAsset()->GetObjectPath());
 	EXPECT_EQ(Working, Document().Function());
 	EXPECT_EQ(Profile, Toolkit->GetLayoutProfileKey());
 	EXPECT_EQ(Destination.ToString(), Document().GetSource()->GetPackage()->GetPackagePath());
-	ASSERT_TRUE(Toolkit->SaveDocument(Tab)) << Toolkit->GetLastOperationError();
+	ASSERT_TRUE(Toolkit->SaveAsset(*Source)) << Toolkit->GetLastOperationError();
 	EXPECT_EQ("Draft across relocation", Source->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 }
 
 TEST_F(FMaterialFunctionDocumentTests, SaveRejectsReentrantDiscardCloseAndUndo)
@@ -309,18 +306,18 @@ TEST_F(FMaterialFunctionDocumentTests, SaveRejectsReentrantDiscardCloseAndUndo)
 	const auto Handle = GetMaterialFunctionChangedEvent().AddLambda([&](const DMaterialFunctionInterface& Changed) {
 		if (&Changed != Source.Get()) return;
 		++Notifications;
-		EXPECT_FALSE(Toolkit->DiscardDocument(Tab));
-		EXPECT_EQ(EDocumentCloseResult::Rejected, Toolkit->RequestCloseDocument(Tab));
+		EXPECT_FALSE(Toolkit->DiscardAsset(*Source));
+		EXPECT_EQ(EAssetEditorCloseResult::Rejected, Toolkit->RequestCloseAsset(*Source));
 		EXPECT_FALSE(Toolkit->Undo());
 		EXPECT_EQ(Working, Document().Function());
 	});
-	const bool Saved = Toolkit->SaveDocument(Tab);
+	const bool Saved = Toolkit->SaveAsset(*Source);
 	GetMaterialFunctionChangedEvent().Remove(Handle);
 	ASSERT_TRUE(Saved) << Toolkit->GetLastOperationError();
 	EXPECT_EQ(1, Notifications);
 	EXPECT_EQ("Saved despite callbacks", Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_FALSE(Source->GetPackage()->IsDirty());
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 }
 
 TEST_F(FMaterialFunctionDocumentTests, ForcedCloseDuringSaveRetiresPreviewAndSkipsDiskSave)
@@ -336,7 +333,7 @@ TEST_F(FMaterialFunctionDocumentTests, ForcedCloseDuringSaveRetiresPreviewAndSki
 		EXPECT_TRUE(Preview.expired());
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 	});
-	const bool Saved = Toolkit->SaveDocument(Tab);
+	const bool Saved = Toolkit->SaveAsset(*Source);
 	GetMaterialFunctionChangedEvent().Remove(Handle);
 	EXPECT_FALSE(Saved);
 	EXPECT_EQ(1, Notifications);
@@ -359,10 +356,10 @@ TEST_F(FMaterialFunctionDocumentTests, PublicationKeepsNewDraftEditsFromNotifica
 	ASSERT_TRUE(Applied) << Error;
 	EXPECT_EQ("Published", Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_EQ("Newer draft", Document().Function()->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_TRUE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_TRUE(Toolkit->IsAssetDirty(*Source));
 	ASSERT_TRUE(Document().Publish(Error)) << Error;
 	EXPECT_EQ("Newer draft", Source->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 }
 
 TEST_F(FMaterialFunctionDocumentTests, UndoRedoAfterApplyRepublishTheWorkingGraph)
@@ -373,10 +370,10 @@ TEST_F(FMaterialFunctionDocumentTests, UndoRedoAfterApplyRepublishTheWorkingGrap
 	ASSERT_TRUE(Document().Publish(Error)) << Error;
 	ASSERT_TRUE(Toolkit->Undo());
 	EXPECT_EQ(Initial, Source->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 	ASSERT_TRUE(Toolkit->Redo());
 	EXPECT_EQ("Applied transaction", Source->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 	EXPECT_TRUE(Source->GetPackage()->IsDirty());
 }
 
@@ -395,7 +392,7 @@ TEST_F(FMaterialFunctionDocumentTests, ExplicitReloadRejectsDirtyDraftAndRebases
 	};
 	EXPECT_FALSE(Reload().Succeeded());
 	EXPECT_EQ("Unapplied", Document().Function()->GetFunctionSignature().Outputs.front().Name);
-	ASSERT_TRUE(Toolkit->DiscardDocument(Tab));
+	ASSERT_TRUE(Toolkit->DiscardAsset(*Source));
 	ASSERT_TRUE(Rename(*Document().Function(), "Applied but unsaved"));
 	std::string Error;
 	ASSERT_TRUE(Document().Publish(Error)) << Error;
@@ -403,7 +400,7 @@ TEST_F(FMaterialFunctionDocumentTests, ExplicitReloadRejectsDirtyDraftAndRebases
 	ASSERT_TRUE(Result.Succeeded()) << (Result.Diagnostics.empty() ? "" : FormatPackageReloadDiagnostic(Result.Diagnostics.front()));
 	EXPECT_EQ(Initial, Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_EQ(Initial, Document().Function()->GetFunctionSignature().Outputs.front().Name);
-	EXPECT_FALSE(Toolkit->IsDocumentDirty(Tab));
+	EXPECT_FALSE(Toolkit->IsAssetDirty(*Source));
 }
 
 TEST_F(FMaterialFunctionDocumentTests, GlobalHistoryPublishesOnlyTheAffectedDocument)
@@ -428,7 +425,7 @@ TEST_F(FMaterialFunctionDocumentTests, GlobalHistoryPublishesOnlyTheAffectedDocu
 	EXPECT_EQ("Other transaction", OtherSource->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_EQ(FirstInitial, Source->GetFunctionSignature().Outputs.front().Name);
 	EXPECT_TRUE(Document().IsDirty());
-	ASSERT_TRUE(Toolkit->DiscardDocument(Tab));
+	ASSERT_TRUE(Toolkit->DiscardAsset(*Source));
 }
 
 TEST_F(FMaterialFunctionDocumentTests, ReloadAdmissionRejectsPublicationAndChangesAfterPreparation)
@@ -438,7 +435,7 @@ TEST_F(FMaterialFunctionDocumentTests, ReloadAdmissionRejectsPublicationAndChang
 		FObjectReplacementMap::FEntry{.Previous = Source->GetPackage(), .Replacement = Document().WorkingPackage.Get()},
 		FObjectReplacementMap::FEntry{.Previous = Source.Get(), .Replacement = Document().Function()}};
 	ASSERT_TRUE(Map.BuildFromObjects(Entries));
-	auto Participant = Toolkit->GetDocumentManager()->CreateDocumentReloadParticipant();
+	auto Participant = Toolkit->CreateReloadParticipant();
 	ASSERT_TRUE(Participant->Prepare(Map));
 	ASSERT_TRUE(Participant->Validate());
 	ASSERT_TRUE(Rename(*Document().Function(), "Changed after prepare"));
@@ -448,7 +445,7 @@ TEST_F(FMaterialFunctionDocumentTests, ReloadAdmissionRejectsPublicationAndChang
 	const auto Handle = GetMaterialFunctionChangedEvent().AddLambda([&](const DMaterialFunctionInterface& Changed) {
 		if (&Changed != Source.Get()) return;
 		++Notifications;
-		auto Reentrant = Toolkit->GetDocumentManager()->CreateDocumentReloadParticipant();
+		auto Reentrant = Toolkit->CreateReloadParticipant();
 		const auto Prepared = Reentrant->Prepare(Map);
 		EXPECT_FALSE(Prepared.has_value());
 		if (!Prepared) EXPECT_EQ(EObjectReplacementError::Busy, Prepared.error().Code);

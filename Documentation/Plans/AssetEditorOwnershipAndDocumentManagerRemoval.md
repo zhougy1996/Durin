@@ -4,8 +4,8 @@ Summary: Align editor ownership and principal interfaces with UE, give each mate
 
 Last reviewed: 2026-11-19
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-19
 
 ## Current Status
 
@@ -54,6 +54,31 @@ base revision `956d58a66` plus the Stage 4 changes. `EditorHostToolTests`
 map, an empty editor, an untitled map, Save As and first save, cancellation,
 map and view closure, and map recovery. Level Tools no longer use an initial
 document or an associated document root.
+
+Stage 5 migrated grouped Texture, Static Mesh, Material Parameter Collection,
+and generic Toolkit consumers and removed the shared document records,
+deferred opens, and compatibility APIs. The source and test audit covered
+Engine, Sandbox, RoadWeaver, and SDK packaging references. The Toolkit owns
+grouped assets and exposes them to tab presentation. The subsystem holds the
+pending request identity and routes decisions back to the Toolkit.
+
+On macOS arm64 with `MacOS-arm64-Debug-DurinEditor`, the Editor and consumer
+builds passed (`DurinEditor`, `MainFrame`, `Sandbox`, `RoadWeaver`, and the
+Editor modules built by the tests). `AssetEditorFamilyTests` (15),
+`EditorOperationTests` (403 with `GTEST_DEATH_TEST_STYLE=threadsafe`),
+`AssetPackageReloadTests` (22), `EditorShellTests` (54), `EditorHostToolTests`
+(60), `@material-editing` (all three targets), `StaticMeshTests` (202),
+`EditorRenderingTests` (93), and the material, mesh, and texture thumbnail
+targets passed. `AssetPackageReloadVulkanTests` passed with GPU access outside
+the sandbox and `DURIN_RHI_BACKEND=vulkan`.
+
+The Sandbox Editor smoke used the Vulkan backend and exited normally after
+three completed ticks. The launcher receipt is
+`Build/.agent-state/logs/20261119-013903-892476-79259-DurinEditor.log`.
+The broader `build all` attempt stopped in unchanged `MetalPipeline.cpp`
+(commit `5a885d38a` introduced references absent from the local
+`metal-cpp` headers). The owning modules and affected workspace targets passed
+the focused build gate. Native Metal startup remains unverified.
 
 ## Goal
 
@@ -195,23 +220,23 @@ implementation uses different mechanics.
 
 ### Stage 5: Migrate remaining consumers and delete the manager
 
-- [ ] Migrate Texture Editor, Static Mesh Editor, Material Parameter Collection
+- [x] Migrate Texture Editor, Static Mesh Editor, Material Parameter Collection
   Editor, the generic asset editor, and remaining MainFrame and host consumers.
   Preserve supported grouped asset editing with Toolkit-local presentation
   state and the shared Toolkit lifecycle. Remove the temporary compatibility
   path after the last consumer switches.
-- [ ] Remove `FEditorDocumentManager`, its stored document records and
+- [x] Remove `FEditorDocumentManager`, its stored document records and
   `GetDocumentManager()` entry points, and the document close UI adapter.
   Remove `FDocumentId`, `FEditorDocument`, `FDocumentRequest`, and deferred
   document-open state once their remaining consumers are migrated or retired.
   Audit deferred-open use in production and tests before removing it. Preserve
   asset-load or graph readiness behavior through its owning feature.
-- [ ] Audit source, tests, and SDK consumers in every project in
+- [x] Audit source, tests, and SDK consumers in every project in
   `Durin.dworkspace`. Build the owning Editor modules and affected project
   consumers. Run focused editor and reload coverage and one bounded Editor
   startup and shutdown smoke, since this stage changes host initialization
   and exit across asset families.
-- [ ] Update the lasting asset editor, material editor, and Level Editor
+- [x] Update the lasting asset editor, material editor, and Level Editor
   contracts. Record acceptance evidence and close the plan when all gates pass.
 
 ## Acceptance

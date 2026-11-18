@@ -310,11 +310,10 @@ Presentation never turns a resave recommendation into an unsaved-change
 decoration or close prompt. Registry and item snapshots refresh only after
 verified publication.
 
-Double-click routing is resolved by the live `FEditorDocumentManager` exact-class
-route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their
-respective asset routes; StaticMesh opens a closable per-resource document in
-the user-visible **StaticMesh Inspector** workspace. The Content Browser does
-not name or construct a concrete asset editor.
+Double-click routes through the asset editor subsystem and its registered exact-class
+asset definitions. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` register
+their asset routes. Each StaticMesh asset opens in the **StaticMesh Inspector**
+workspace, which also supports grouped inspection.
 
 ## Thumbnail Requests And Refresh
 

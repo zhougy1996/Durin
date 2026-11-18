@@ -11,16 +11,15 @@ namespace Durin
 		return Found == PendingCloses.end() ? nullptr : *Found;
 	}
 
-	auto DAssetEditorSubsystem::QueueClose(FAssetEditorToolkit& Toolkit, uint64 DocumentId, std::string Label,
-		std::function<EDocumentCloseResult(EDocumentCloseResponse)> Resolve) -> void
+	auto DAssetEditorSubsystem::QueueClose(FAssetEditorToolkit& Toolkit, FObjectKey Asset, std::string Label) -> void
 	{
 		if (!Toolkit.IsEditorOpen() || FindPendingClose(Toolkit)) return;
 		PendingCloses.push_back(std::make_shared<FPendingClose>(FPendingClose{
 			.Prompt = {NextCloseRequest++, std::string(Toolkit.GetWindowId()), std::move(Label)},
 			.Toolkit = Toolkit.weak_from_this(),
-			.WindowReason = Toolkit.ActiveCloseReason,
-			.Resolve = std::move(Resolve),
-			.LegacyDocumentId = DocumentId}));
+			.WindowReason = Toolkit.ActiveCloseReason ? Toolkit.ActiveCloseReason
+				: Toolkit.GetEditingObjects().size() == 1 ? std::optional(EAssetEditorCloseReason::AssetEditorHostClosed) : std::nullopt,
+			.Asset = Asset}));
 	}
 
 	auto DAssetEditorSubsystem::GetPendingClosePrompt() const -> std::optional<FAssetEditorClosePrompt>
@@ -29,32 +28,32 @@ namespace Durin
 		return Found == PendingCloses.end() ? std::nullopt : std::optional((*Found)->Prompt);
 	}
 
-	auto DAssetEditorSubsystem::ResolvePendingClose(uint64 RequestId, EDocumentCloseResponse Response) -> EDocumentCloseResult
+	auto DAssetEditorSubsystem::ResolvePendingClose(uint64 RequestId, EAssetEditorCloseResponse Response) -> EAssetEditorCloseResult
 	{
-		if (!CanCall()) return EDocumentCloseResult::Rejected;
+		if (!CanCall()) return EAssetEditorCloseResult::Rejected;
 		const auto Found = std::ranges::find_if(PendingCloses,
 			[RequestId](const auto& Request) { return Request->Prompt.RequestId == RequestId; });
-		if (Found == PendingCloses.end()) return EDocumentCloseResult::Rejected;
+		if (Found == PendingCloses.end()) return EAssetEditorCloseResult::Rejected;
 		const auto Request = *Found;
-		if (Request->bResolving || Request->bResume) return EDocumentCloseResult::Rejected;
+		if (Request->bResolving || Request->bResume) return EAssetEditorCloseResult::Rejected;
 		const auto Toolkit = Request->Toolkit.lock();
 		if (!Toolkit || !Toolkit->IsEditorOpen())
 		{
 			std::erase(PendingCloses, Request);
-			return EDocumentCloseResult::Rejected;
+			return EAssetEditorCloseResult::Rejected;
 		}
-		if (Response == EDocumentCloseResponse::Cancel)
+		if (Response == EAssetEditorCloseResponse::Cancel)
 		{
 			std::erase(PendingCloses, Request);
-			return EDocumentCloseResult::Cancelled;
+			return EAssetEditorCloseResult::Cancelled;
 		}
-		EDocumentCloseResult Result = EDocumentCloseResult::Rejected;
+		EAssetEditorCloseResult Result = EAssetEditorCloseResult::Rejected;
 		Request->bResolving = true;
-		DispatchEditorCallback([&] { Result = Request->Resolve(Response); });
+		DispatchEditorCallback([&] { Result = Toolkit->ResolveAssetClose(Request->Asset, Response); });
 		Request->bResolving = false;
-		if (Result == EDocumentCloseResult::Closed && Request->WindowReason && Toolkit->IsEditorOpen())
+		if (Result == EAssetEditorCloseResult::Closed && Request->WindowReason && Toolkit->IsEditorOpen())
 			Request->bResume = true;
-		else if (Result != EDocumentCloseResult::PendingConfirmation || !Toolkit->IsEditorOpen())
+		else if (Result != EAssetEditorCloseResult::PendingConfirmation || !Toolkit->IsEditorOpen())
 			std::erase(PendingCloses, Request);
 		return Result;
 	}

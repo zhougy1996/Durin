@@ -446,21 +446,21 @@ namespace Durin::MainFrame
 
 			ImGui::TextWrapped("Save changes to \"%s\" before closing?", Prompt->Label.c_str());
 			ImGui::Spacing();
-			const auto Submit = [&](EDocumentCloseResponse Response) {
+			const auto Submit = [&](EAssetEditorCloseResponse Response) {
 				const auto Result = Editors->ResolvePendingClose(Prompt->RequestId, Response);
-				if (Result == EDocumentCloseResult::Cancelled)
+				if (Result == EAssetEditorCloseResult::Cancelled)
 				{
 					Context.bExitRequested = false;
 					Context.bExitSaveFailed = false;
 					Context.PluginRestartProject.clear();
 				}
-				if (Result != EDocumentCloseResult::PendingConfirmation) ImGui::CloseCurrentPopup();
+				if (Result != EAssetEditorCloseResult::PendingConfirmation) ImGui::CloseCurrentPopup();
 			};
-			if (ImGui::Button("Save", ImVec2(100, 0))) Submit(EDocumentCloseResponse::Save);
+			if (ImGui::Button("Save", ImVec2(100, 0))) Submit(EAssetEditorCloseResponse::Save);
 			ImGui::SameLine();
-			if (ImGui::Button("Discard", ImVec2(100, 0))) Submit(EDocumentCloseResponse::Discard);
+			if (ImGui::Button("Discard", ImVec2(100, 0))) Submit(EAssetEditorCloseResponse::Discard);
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel", ImVec2(100, 0))) Submit(EDocumentCloseResponse::Cancel);
+			if (ImGui::Button("Cancel", ImVec2(100, 0))) Submit(EAssetEditorCloseResponse::Cancel);
 			ImGui::EndPopup();
 		}
 
@@ -661,10 +661,10 @@ namespace Durin::MainFrame
 
 		auto DrawWorkspaceMenus(
 			DAssetEditorSubsystem& AssetEditors,
-			const std::shared_ptr<IAssetEditorToolkit>& ActiveWorkspace,
+			const std::shared_ptr<FAssetEditorToolkit>& ActiveWorkspace,
 			FMainFrameViewState& ViewState) -> void
 		{
-			std::vector<std::shared_ptr<IAssetEditorToolkit>> Toolkits;
+			std::vector<std::shared_ptr<FAssetEditorToolkit>> Toolkits;
 			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors)) Toolkits.push_back(Toolkit);
 			if (ImGui::BeginMenu("File"))
 			{
@@ -672,7 +672,7 @@ namespace Durin::MainFrame
 				if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
 					ActiveWorkspace->SaveActiveDocument();
 				ImGui::Separator();
-				for (const std::shared_ptr<IAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawFileMenu();
+				for (const std::shared_ptr<FAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawFileMenu();
 				if (ImGui::BeginMenu("Recent Assets"))
 				{
 					for (const auto& Target : AssetEditors.GetRecentAssets())
@@ -705,7 +705,7 @@ namespace Durin::MainFrame
 				ImGui::Separator();
 				ImGui::MenuItem("Plugins...", nullptr, &ViewState.bPluginsOpen);
                 if (ImGui::MenuItem("Editor Preferences...")) FEditorSettingsRegistry::Get().RequestOpen("editor.appearance");
-				for (const std::shared_ptr<IAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawEditMenu();
+				for (const std::shared_ptr<FAssetEditorToolkit>& Workspace : Toolkits) Workspace->DrawEditMenu();
 				ImGui::EndMenu();
 			}
 			DrawToolsMenu(ViewState.bAssetUpgradeOpen);
@@ -855,7 +855,7 @@ namespace Durin::MainFrame
 			}
 
 			const float FirstMenuX = ImGui::GetCursorScreenPos().x;
-			std::shared_ptr<IAssetEditorToolkit> ActiveWorkspace;
+			std::shared_ptr<FAssetEditorToolkit> ActiveWorkspace;
 			ActiveWorkspace = AssetEditors.GetActiveAssetToolkit();
 			if (bDrawWorkspaceMenus)
 			{
@@ -960,7 +960,7 @@ namespace Durin::MainFrame
 			ImGui::Begin("###Durin.Editor.WorkspaceHost", nullptr, MainFrameFlags);
 			ImGui::PopStyleVar(3);
 
-			std::shared_ptr<IAssetEditorToolkit> ActiveWorkspace;
+			std::shared_ptr<FAssetEditorToolkit> ActiveWorkspace;
 			ActiveWorkspace = AssetEditors.GetActiveAssetToolkit();
 			const ImGuiIO& IO = ImGui::GetIO();
 			if (ActiveWorkspace && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))

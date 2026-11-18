@@ -10,8 +10,7 @@ namespace Durin
 {
 	class FAssetEditorToolkit;
 	class FAssetEditorToolkitId;
-	class FEditorDocumentManager;
-	// Immutable type behavior; document and preview state belong to editors.
+		// Immutable type behavior; document and preview state belong to editors.
 	DCLASS(Abstract)
 	class DAssetDefinition : public DObject
 	{
@@ -54,7 +53,7 @@ namespace Durin
 		// Implementation reuse for direct inspectors. Public opening remains OpenAssets;
 		// the definition supplies its Toolkit identity and construction only.
 		DURINED_API auto OpenAssetsWithToolkit(const FAssetOpenArgs& Args, const FAssetEditorToolkitId& ToolkitId,
-			const std::function<std::shared_ptr<FAssetEditorToolkit>(FEditorDocumentManager&)>& CreateToolkit) const -> EAssetCommandResult;
+			const std::function<std::shared_ptr<FAssetEditorToolkit>()>& CreateToolkit) const -> EAssetCommandResult;
 	private:
 		auto ExecuteOpenAssets(const FAssetOpenArgs& Args,
 			std::variant<DClass*, const FAssetEditorToolkitId*> EditorType,

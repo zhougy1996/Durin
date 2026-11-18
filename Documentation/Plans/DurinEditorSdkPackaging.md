@@ -29,7 +29,10 @@ roots. The former public `Widgets/MLevelEditor.h` is removed; SDK consumers use
 `LevelEditorModule.h` and the public asset-editor/toolkit interfaces. Binary SDK
 header inventories must not expose the concrete controllers or add forwarding
 headers/private include paths. Source SDK layout follows their private placement.
-This migration does not qualify SDK packaging or change serialized editor IDs.
+Editor IDs remain stable. The public Toolkit interfaces now reside in
+`Toolkits/AssetEditor.h`, `Toolkits/AssetEditorToolkit.h`, and
+`Toolkits/AssetEditorTypes.h`. SDK inventories must drop the deleted shared
+asset-document headers and include the current Toolkit headers.
 
 The selected path is to deliver two compatible package kinds in order:
 

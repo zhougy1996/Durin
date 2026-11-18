@@ -12,16 +12,16 @@ namespace Durin::MaterialEditor
 {
 	DMaterialAssetEditor::DMaterialAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
-	{ return std::make_shared<FMaterialEditor>(*GetDocumentManager()); }
+	{ return std::make_shared<FMaterialEditor>(); }
 	DMaterialInstanceAssetEditor::DMaterialInstanceAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialInstanceAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
-	{ return std::make_shared<FMaterialInstanceEditor>(*GetDocumentManager()); }
+	{ return std::make_shared<FMaterialInstanceEditor>(); }
 	DMaterialFunctionAssetEditor::DMaterialFunctionAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialFunctionAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
-	{ return std::make_shared<FMaterialEditor>(*GetDocumentManager(), EMaterialEditorMode::Function); }
+	{ return std::make_shared<FMaterialEditor>(EMaterialEditorMode::Function); }
 	DMaterialParameterCollectionAssetEditor::DMaterialParameterCollectionAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialParameterCollectionAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
-	{ return std::make_shared<MMaterialParameterCollectionEditor>(*GetDocumentManager()); }
+	{ return std::make_shared<MMaterialParameterCollectionEditor>(); }
 	DMaterialAssetDefinition::DMaterialAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialAssetDefinition::GetAssetClassPath() const -> std::string { return DMaterial::StaticClass()->GetQualifiedName().ToString(); }
 	auto DMaterialAssetDefinition::GetAssetEditorClass() const -> DClass* { return DMaterialAssetEditor::StaticClass(); }

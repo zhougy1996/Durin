@@ -15,7 +15,6 @@
 #include "Notifications/EditorNotificationSubsystem.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 #include "Thumbnail/ThumbnailManager.h"

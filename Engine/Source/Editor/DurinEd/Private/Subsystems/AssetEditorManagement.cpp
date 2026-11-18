@@ -8,7 +8,6 @@
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
@@ -134,18 +133,6 @@ namespace Durin
 		if (!CanCall()) return;
 		DispatchEditorCallback([&] {
 			ResumeReadyCloseRequests();
-			for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
-			{
-				if (!CanCall()) return;
-				if (!OwnsToolkit(*Toolkit) || Toolkit->IsClosed()) continue;
-				if (!Toolkit->UsesDocumentRecords()) continue;
-				const auto Documents = Toolkit->GetDocumentManager();
-				Documents->RefreshDocumentState();
-				if (!CanCall()) return;
-				if (!OwnsToolkit(*Toolkit) || Toolkit->IsClosed()) continue;
-				if (Documents->GetDocuments().empty())
-					(void)Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed);
-			}
 			if (CanCall())
 			{
 				// Initialization and close callbacks have settled before reclaiming hosts.

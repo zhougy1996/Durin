@@ -53,15 +53,16 @@ authorize unloading provider machine code; module-unload preflight still applies
 
 `FToolkitManager` persistently owns every admitted `FAssetEditorToolkit`.
 `GetToolkits` returns an activation-ordered strong snapshot, optionally scoped to
-one subsystem, including asset-less and deferred-document roots.
+one subsystem, including the Level Toolkit when no level is active.
 
 The ownership chain is:
 
 - ToolkitManager strongly owns open toolkits.
 - A toolkit owns its provider lease and strongly retains its optional reflected
   `DAssetEditor` while open. `GetEditingObjects()` supplies its source objects.
-  Material sessions and the instance Toolkit own their source references.
-  Legacy Toolkits derive the query from their compatibility document roots.
+  Material sessions and the instance Toolkit own their source references. The
+  shared Toolkit maintains the edited-object collection for grouped asset
+  editors. The Level Toolkit reads the current level from the editor world.
 - `DAssetEditor` supplies reflected identity, `CreateToolkit`, and instance
   forwarding; its toolkit back-reference is weak.
 - Toolkits and host attachments reference each other weakly. MainFrame owns its
@@ -86,15 +87,15 @@ Materials and material functions share the `FMaterialEditor` implementation.
 Material instances open a dedicated `FMaterialInstanceEditor`. 2D and volume
 textures share `FTextureEditorToolkit`. Family factories select an explicit controller
 mode while retaining their reflected editor classes and existing toolkit IDs.
-Shared C++ implementations do not share mutable document state or collapse
+Shared C++ implementations do not share mutable session state or collapse
 family identities: `MaterialEditor`, `MaterialFunctionEditor`, `TextureEditor`
 and `VolumeTextureEditor` retain their layout profiles, snapshot routing and
 open-method policy. Restoring an existing snapshot selects the same family
 factory and persistence keys without a data migration.
-Material/function documents isolate their unpublished working graphs; Apply and
+Material and function sessions isolate their unpublished working graphs; Apply and
 Save publication follow the [material lifecycle](../Materials/MaterialEditorLifecycle.md#document-and-asset-lifecycle).
 
-Admission publishes only after document initialization and host attachment
+Admission publishes only after asset initialization and host attachment
 succeed. `InitializeAssetEditor` also accepts a caller-configured reflected editor,
 rejecting foreign outers and reused instances. Failure closes partial UI and
 publishes no associations. A toolkit initializes once.
@@ -105,8 +106,8 @@ require distinct stable roles. Reflected editor classes and direct toolkit IDs
 identify separate editor families. Definition reuse, reflected/direct admission,
 and host-transfer collision checks share the same family/method/mode/role rules;
 primary status and explicit host requirements additionally constrain reuse.
-The subsystem forwards asset relocation to the Toolkit and its remaining host
-record through `OnResourceIdRemapped`. This preserves the window identity.
+The subsystem forwards asset relocation to the owning Toolkit through
+`OnResourceIdRemapped`. This preserves the window identity.
 Explicit package reload and editor Discard use the same subsystem participant
 assembly. Affected Toolkits are selected through the asset association index.
 Participants validate their source binding and commit replacement references.
@@ -115,12 +116,12 @@ asset association indexes before broadcasting replacement associations.
 
 ## Methods, Close Policy, And Hosts
 
-`CloseWindow` requests permission through `OnRequestClose`, whose default uses
-document Save/Discard/Cancel. A veto or pending confirmation keeps the editor open.
+`CloseWindow` requests permission through `OnRequestClose`, whose default asks the Toolkit to close each edited asset. Dirty assets
+request Save, Discard, or Cancel. A veto or pending confirmation keeps the editor open.
 `FToolkitManager::CloseToolkit` commits closing in this order:
 
-1. Mark closed before invoking feature `OnClose` exactly once.
-2. Release feature previews and UI, then detach the host.
+1. Mark closed and invoke the Toolkit's asset and window close hooks.
+2. Release edited-object roots, previews, and UI, then detach the host.
 3. Remove manager ownership and release the reflected-editor reference.
 4. Remove subsystem associations and publish the captured close identity.
 
@@ -135,7 +136,7 @@ a non-owning identity without dereferencing the destroyed host. Cached toolkit
 mode survives host destruction.
 
 `FAssetEditorToolkit::TransferToHost` handles both editor shapes. It settles
-document operations, validates mode policy and destination identity, attaches the
+active edits, validates mode policy and destination identity, attaches the
 destination, then detaches the source. Liveness is rechecked after callbacks.
 Closing during attachment, detachment, or `OnHostChanged` fails transfer and
 removes provisional attachments.
@@ -153,7 +154,7 @@ previous opening preference or manual moves. Internal panel layouts retain their
 editor-type templates; asset root-window geometry is not restored.
 Native-window closure first requests editor permission. Closing one world-centric
 toolkit preserves other attachments. A grouped editor has one root and internal
-document tabs.
+asset tabs.
 
 The asset editor subsystem owns one pending close per Toolkit and orders
 confirmations by arrival. MainFrame presents the oldest prompt and submits its
@@ -165,7 +166,7 @@ the Toolkit. Approved application exit routes through the Toolkit's close
 policy after the workspace snapshot is saved. Forced host teardown releases
 pending requests and source references before renderer shutdown.
 
-PreExit settles document operations and commits editor closes before releasing
+PreExit settles active asset edits and commits editor closes before releasing
 thumbnail previews and unloading rendering services. Feature `OnClose` releases
 preview resources; preview draws hold local shared leases against reentrant
 closing. Thumbnail resource release preserves renderer registrations for later
@@ -177,8 +178,8 @@ context and retain active callback inputs. Nested contexts restore their caller
 without changing `GEditor`. Callbacks may close another editor or withdraw a
 subscription. They must not drive another frame, run PreExit or immediate GC,
 change subsystem membership, or unload providers. Query callbacks must not mutate
-their queried collections; document operations must not structurally mutate or
-reenter their borrowed inputs. Owners perform teardown and GC after the callback
+their queried collections; asset operations must preserve borrowed inputs
+across callbacks and revalidate Toolkit ownership before continuing. Owners perform teardown and GC after the callback
 chain returns. See the [subsystem host contract](EditorSubsystems.md).
 
 ## Panels And Tool Extensions
@@ -235,9 +236,8 @@ on its first admitted Tick. Restore uses `OpenAssets` and reports missing
 assets/providers or rejected methods. The ordinary open path requests focus for
 the next toolkit-root draw; there is no separate restore-focus wait or later
 focus override. Level opts out so configured startup-Level loading
-retains precedence. Level owns its deferred loading and cancellation; an accepted
-open does not imply rendering readiness. Startup observes pending documents and
-the actual World rather than historical request outcomes.
+retains precedence. Level activation synchronously requests map loading.
+Startup checks the actual World and its presentation readiness.
 
 The [workspace framework](WorkspaceFramework.md) owns startup and presentation
 integration. Native real-window interaction remains unqualified; headless tests

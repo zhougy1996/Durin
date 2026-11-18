@@ -1,4 +1,5 @@
 #include "Thumbnail/AssetThumbnailKey.h"
+#include "Toolkits/ToolkitManager.h"
 #include "ThumbnailManagerTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "Editor/ContentBrowserItemTestSupport.h"
@@ -20,7 +21,6 @@
 #include "Asset/AssetCook.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -494,7 +494,6 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 
-	Durin::FEditorDocumentManager Manager;
 	auto& ThumbnailManager = Durin::GetDefaultThumbnailManager();
 	Durin::FMaterialEditorModule MaterialModule;
 	Durin::FTextureEditorModule TextureModule;
@@ -507,7 +506,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	StaticMeshHarness.Start(StaticMeshModule);
 	// Material, Material Function, Material Parameter Collection, Texture,
 	// Volume Texture, and Static Mesh.
-	EXPECT_TRUE(!Manager.GetToolkit());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 
 	const std::string MaterialClass =
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
@@ -548,29 +547,21 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_FALSE(ThumbnailManager.Find(StaticMeshClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
-	EXPECT_EQ(
-		Manager.FindToolkit(Durin::FAssetEditorToolkitId("StaticMeshEditor")),
-		nullptr);
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 	Cache.Tick();
 
 	TextureHarness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
 	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
-	EXPECT_EQ(
-		Manager.FindToolkit(Durin::FAssetEditorToolkitId("TextureEditor")),
-		nullptr);
-	EXPECT_EQ(
-		Manager.FindToolkit(Durin::FAssetEditorToolkitId("VolumeTextureEditor")),
-		nullptr);
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 
 	MaterialHarness.Shutdown();
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_FALSE(ThumbnailManager.Find(MaterialInstanceClass));
-	EXPECT_EQ(
-		Manager.FindToolkit(Durin::FAssetEditorToolkitId("MaterialEditor")),
-		nullptr);
-	EXPECT_TRUE(!Manager.GetToolkit());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
+	EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits().empty());
 
 	Cache.CancelPendingRequests();
 	Cache.Clear();

@@ -1,4 +1,4 @@
-#include "Documents/AssetEditorDocumentModels.h"
+#include "Toolkits/AssetEditorSession.h"
 
 #include "Asset/PackageReload.h"
 
@@ -11,33 +11,16 @@
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 
-#include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin
 {
-	auto FEditableAssetDocumentModel::BindEditor(DEditorEngine* Editor) -> void { BoundEditor = Editor; bEditorBound = true; }
-	auto FEditableAssetDocumentModel::GetEditor() const -> DEditorEngine*
+	auto FAssetEditorSession::BindEditor(DEditorEngine* Editor) -> void { BoundEditor = Editor; bEditorBound = true; }
+	auto FAssetEditorSession::GetEditor() const -> DEditorEngine*
 	{ return bEditorBound ? BoundEditor.Get() : GetTransactionEditor(); }
-	auto FReadOnlyAssetDocumentModel::RemapResourceId(std::string_view Source, std::string_view Destination) -> void
-	{ if (ActiveResourceId == Source) ActiveResourceId = Destination; }
-	auto FEditableAssetDocumentModel::ActivateReadOnly(const FEditorDocument& Document, DObject* Object) -> bool
+	auto FAssetEditorSession::Activate(DObject* Object) -> bool
 	{
-		DocumentHost.RequestFocus(Document.Id);
-		if (!Object) return false;
-		ActiveResourceId = Document.ResourceId;
-		return true;
-	}
-
-	auto FEditableAssetDocumentModel::RemapResourceId(std::string_view Source, std::string_view Destination) -> void
-	{
-		if (ActiveResourceId == Source) ActiveResourceId = Destination;
-	}
-
-	auto FEditableAssetDocumentModel::Activate(
-		const FEditorDocument& Document, DObject* Object) -> bool
-	{
-		if (!ActivateReadOnly(Document, Object)) return false;
+		if (!IsValid(Object)) return false;
 		std::vector<DObject*> AuthoredObjects{Object};
 		for (size_t Index = 0; Index < AuthoredObjects.size(); ++Index)
 		{
@@ -60,22 +43,17 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditableAssetDocumentModel::Close(std::string_view ResourceId) -> void
-	{
-		if (ActiveResourceId == ResourceId) ActiveResourceId.clear();
-	}
-
-	auto FEditableAssetDocumentModel::IsDirty(const DObject* Object) const -> bool
+	auto FAssetEditorSession::IsDirty(const DObject* Object) const -> bool
 	{
 		return Object && Object->GetPackage() && Object->GetPackage()->IsDirty();
 	}
 
-	auto FEditableAssetDocumentModel::CanSave(const DObject* Object) const -> bool
+	auto FAssetEditorSession::CanSave(const DObject* Object) const -> bool
 	{
 		return Object && Object->GetPackage();
 	}
 
-	auto FEditableAssetDocumentModel::Save(DObject* Object,
+	auto FAssetEditorSession::Save(DObject* Object,
 		const std::function<bool()>& BeforeSave,
 		const std::function<void(std::string)>& ReportError) -> bool
 	{
@@ -90,11 +68,9 @@ namespace Durin
 		return false;
 	}
 
-	auto FEditableAssetDocumentModel::Discard(DObject* Object,
+	auto FAssetEditorSession::Discard(DObject* Object,
 		const std::function<void()>& BeforeDiscard,
-		const std::function<void(DPackage*, DPackage*)>& AfterReload,
-		const std::function<void(std::string)>& ReportError,
-		FEditorDocumentManager* DocumentManager) -> bool
+		const std::function<void(std::string)>& ReportError) -> bool
 	{
 		if (!CanSave(Object)) return false;
 		if (BeforeDiscard) BeforeDiscard();
@@ -102,7 +78,8 @@ namespace Durin
 		FPackagePath PackagePath;
 		if (!FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PackagePath)) return false;
 		FPackageReloadRequest Request{.Packages = {PreviousPackage}};
-		auto* Editors = DocumentManager ? DocumentManager->GetAssetEditorSubsystem() : nullptr;
+		auto* Editor = GetEditor();
+		auto* Editors = Editor ? Editor->GetEditorSubsystem<DAssetEditorSubsystem>() : nullptr;
 		if (Editors)
 		{
 			if (!Editors->AddPackageReloadParticipants(Request))
@@ -111,7 +88,6 @@ namespace Durin
 				return false;
 			}
 		}
-		else if (DocumentManager) Request.Participants.push_back(DocumentManager->CreateDocumentReloadParticipant());
 		if (!Editors && GetEditor() && GetEditor()->GetTransactor())
 		{
 			auto Participant = CreateTransactorReloadParticipant(
@@ -138,7 +114,6 @@ namespace Durin
 			if (ReportError) ReportError("Discard did not publish a replacement package.");
 			return false;
 		}
-		if (!Editors && AfterReload) AfterReload(PreviousPackage, ReplacementPackage);
 		Result = Operation.Wait();
 		if (!Result.Succeeded())
 		{
@@ -151,49 +126,36 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditableAssetDocumentModel::CanUndo() const -> bool
+	auto FAssetEditorSession::CanUndo() const -> bool
 	{
 		return GetEditor() && GetEditor()->GetTransactor() && GetEditor()->GetTransactor()->CanUndo();
 	}
 
-	auto FEditableAssetDocumentModel::CanRedo() const -> bool
+	auto FAssetEditorSession::CanRedo() const -> bool
 	{
 		return GetEditor() && GetEditor()->GetTransactor() && GetEditor()->GetTransactor()->CanRedo();
 	}
 
-	auto FEditableAssetDocumentModel::GetUndoDescription() const -> std::string
+	auto FAssetEditorSession::GetUndoDescription() const -> std::string
 	{
 		return CanUndo()
 			? GetEditor()->GetTransactor()->GetUndoContext().Description : std::string{};
 	}
 
-	auto FEditableAssetDocumentModel::GetRedoDescription() const -> std::string
+	auto FAssetEditorSession::GetRedoDescription() const -> std::string
 	{
 		return CanRedo()
 			? GetEditor()->GetTransactor()->GetRedoContext().Description : std::string{};
 	}
 
-	auto FEditableAssetDocumentModel::Undo() -> bool
+	auto FAssetEditorSession::Undo() -> bool
 	{
 		return CanUndo() && GetEditor()->GetTransactor()->Undo();
 	}
 
-	auto FEditableAssetDocumentModel::Redo() -> bool
+	auto FAssetEditorSession::Redo() -> bool
 	{
 		return CanRedo() && GetEditor()->GetTransactor()->Redo();
 	}
 
-	auto FReadOnlyAssetDocumentModel::Activate(
-		const FEditorDocument& Document, const DObject* Object) -> bool
-	{
-		DocumentHost.RequestFocus(Document.Id);
-		if (!Object) return false;
-		ActiveResourceId = Document.ResourceId;
-		return true;
-	}
-
-	auto FReadOnlyAssetDocumentModel::Close(std::string_view ResourceId) -> void
-	{
-		if (ActiveResourceId == ResourceId) ActiveResourceId.clear();
-	}
 }

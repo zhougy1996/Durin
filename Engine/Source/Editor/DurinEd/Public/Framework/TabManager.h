@@ -3,13 +3,15 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
+#include "DObject/ObjectKey.h"
 #include "AssetDefinition/AssetOpenTypes.h"
-#include "Documents/EditorDocumentTypes.h"
+#include "Toolkits/AssetEditorTypes.h"
 #include "MonaImGui.h"
 
 namespace Durin
 {
-	class FEditorDocumentManager;
+	class DObject;
+	class FAssetEditorToolkit;
 	// Describes an optional dock space nested inside a toolkit root window.
 	struct FToolkitInternalDockSpace
 	{
@@ -53,25 +55,18 @@ namespace Durin
 		bool bWindowBegun = false;
 	};
 
-	// Presents document tabs for one toolkit; it owns no assets or document lifetime.
-	// Focus and close intentions are submitted to FEditorDocumentManager.
+	// Presents the Toolkit's assets and forwards focus and close requests.
 	class FTabManager
 	{
 	public:
-		DURINED_API auto RequestFocus(FDocumentId DocumentId) -> void;
-		// Draws one admitted toolkit root with internal document tabs and defers close requests.
-		DURINED_API auto DrawDocuments(
-			FEditorDocumentManager& DocumentManager,
-			const FAssetEditorToolkitId& ToolkitId,
-			std::string_view WorkspaceRootKey,
-			const std::function<bool(const FEditorDocument&)>& CanDrawDocument,
-			const std::function<void(const FEditorDocument&)>& DrawDocument,
-			const std::function<void(const FEditorDocument&, bool)>& UpdateDocumentVisibility = {}
-		) -> bool;
+		DURINED_API auto RequestFocus(DObject& Asset) -> void;
+		auto SelectAsset(FObjectKey Asset) noexcept -> void { FocusedAsset = Asset; }
+		DURINED_API auto DrawAssets(FAssetEditorToolkit& Toolkit, std::string_view RootKey,
+			const std::function<void(DObject&)>& DrawAsset,
+			const std::function<void(DObject&, bool)>& UpdateVisibility) -> bool;
 
 	private:
 		FEditorTabWindow SessionWindow;
-		FDocumentId FocusDocument;
+		FObjectKey FocusedAsset;
 	};
-
 }

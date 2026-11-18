@@ -5,7 +5,7 @@
 #include "DObject/ObjectPtr.h"
 #include "Texture/Texture.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Documents/AssetEditorDocumentModels.h"
+#include "Toolkits/AssetEditorSession.h"
 #include "PropertyEditor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
@@ -23,19 +23,19 @@ namespace Durin::TextureEditor
 	{
 	public:
 		auto GetLastOperationError() const -> std::string override { return ErrorMessage; }
-		explicit FTextureEditorToolkit(FEditorDocumentManager& InDocumentManager, ETextureEditorMode InMode = ETextureEditorMode::Texture2D);
+		explicit FTextureEditorToolkit(ETextureEditorMode InMode = ETextureEditorMode::Texture2D);
 		TEXTUREEDITOR_API ~FTextureEditorToolkit() override;
 		TEXTUREEDITOR_API auto OnClose() -> void override;
 		TEXTUREEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
-		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
-		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
+		TEXTUREEDITOR_API auto OnOpenAsset(DObject& Object) -> bool override;
+		TEXTUREEDITOR_API auto OnActivateAsset(DObject& Object) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
-		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		TEXTUREEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
-		TEXTUREEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
+		TEXTUREEDITOR_API auto OnCloseAsset(DObject& Object) -> void override;
+		TEXTUREEDITOR_API auto OnSaveAsset(DObject& Object) -> bool override;
+		TEXTUREEDITOR_API auto OnDiscardAsset(DObject& Object) -> bool override;
 		TEXTUREEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		TEXTUREEDITOR_API auto OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void override;
-		TEXTUREEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
+		TEXTUREEDITOR_API auto OnIsAssetDirty(const DObject& Object) const -> bool override;
 		TEXTUREEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
 		TEXTUREEDITOR_API auto OnSaveActiveDocument() -> bool override;
 		TEXTUREEDITOR_API auto OnCanUndo() const -> bool override;
@@ -47,14 +47,15 @@ namespace Durin::TextureEditor
 		TEXTUREEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		TEXTUREEDITOR_API auto ResetLayout() -> void override;
 
+	protected:
+		auto PostInitAssetEditor() -> void override;
 	private:
 		friend struct FTextureEditorToolkitTestAccess;
-		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture*;
 		auto GetActiveTexture() const -> DTexture*;
 		auto SaveTexture(DTexture* Texture) -> bool;
 		auto CancelUnobservedCompilation(DTexture* Texture) -> void;
-		auto DrawDocument(const FEditorDocument& Document, DTexture2D* Texture) -> void;
-		auto DrawToolbar(const FEditorDocument& Document, DTexture2D* Texture) -> void;
+		auto DrawDocument(DTexture2D* Texture) -> void;
+		auto DrawToolbar(DTexture2D* Texture) -> void;
 		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawNarrowLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawPreviewPanel(const std::string& ResourceId, DTexture2D* Texture, float Width, float Height) -> void;
@@ -70,7 +71,7 @@ namespace Durin::TextureEditor
 		auto SetError(std::string Message) -> void;
 
 
-		auto DrawDocument(const FEditorDocument& Document, DVolumeTexture* Texture) -> void;
+		auto DrawDocument(DVolumeTexture* Texture) -> void;
 		auto DrawPreview(const std::string& ResourceId, DVolumeTexture* Texture) -> void;
 		auto DrawDetails(DVolumeTexture* Texture) -> void;
 		const ETextureEditorMode Mode;
@@ -88,9 +89,7 @@ namespace Durin::TextureEditor
 		};
 		std::unordered_map<std::string, FVolumePreviewState> VolumePreviewStates;
 
-		FEditorDocumentManager& DocumentManager;
-		std::unordered_map<std::string, TObjectPtr<DTexture>> OpenTextures;
-		FEditableAssetDocumentModel Documents;
+		FAssetEditorSession Session;
 		std::string ErrorMessage;
 		FPropertyView PropertyView;
 		FSourceReferenceIndex SourceReferenceIndex;

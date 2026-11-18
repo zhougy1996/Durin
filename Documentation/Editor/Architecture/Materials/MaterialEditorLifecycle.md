@@ -162,7 +162,7 @@ than one asset from these families are rejected before opening any editor.
 `FMaterialEditingSession` strongly owns the working material and its unique
 transient package under the source mount. The transient material is not a
 top-level asset export. That package supplies isolated transaction revisions;
-it is never saved or used as the document resource identity. Undo/Redo edits the
+the source asset supplies the Toolkit's resource identity. Undo/Redo edits the
 working copy, including after Apply, and does not implicitly republish to the
 source. Apply invalidates the source's saved checkpoint; successful Save marks
 both source and working checkpoints. Closing or resetting the working copy
@@ -174,7 +174,7 @@ also retains the source while it is open. Graph,
 port and layout edits affect only the draft; ordinary source-package saves and
 dependent materials cannot observe them. Working-package transaction checkpoints
 are the sole draft dirty authority. Source-package disk dirtiness does not set
-the function document's unapplied marker or require a second close confirmation.
+the function Toolkit's unapplied marker or require a second close confirmation.
 The derived preview uses a separate transient package so preview compilation and
 presentation mutations cannot dirty the editable draft.
 
@@ -187,7 +187,7 @@ the working checkpoint only if notification callbacks did not edit the draft
 again. Save applies first and then persists the source. Function Apply is
 synchronous; shader compilation stays on the derived transient preview material
 and consuming materials. Compiler worker snapshots remain independent of this
-editor document state.
+editor session state.
 
 Following UE's material-function editor, successful Undo/Redo republishes each
 function session touched by that transaction, including after Apply. The toolkit
@@ -196,9 +196,9 @@ also updates affected functions without applying unrelated dirty drafts.
 
 Function Discard drops only the draft and recreates it from the current in-memory
 source. Applied-but-unsaved source changes remain dirty and are not reverted.
-Explicit package reload remains a separate operation: document admission rejects
-a publishing or dirty draft, validates the prepared draft revision, and the normal
-reload completion notification rebuilds the clean draft against the replacement.
+Explicit package reload asks the Toolkit for a replacement participant. It rejects
+a publishing or dirty draft and validates the prepared revision before commit.
+The Toolkit rebuilds the clean draft against the committed replacement.
 Relocation preserves the draft and remaps its resource identity and source token.
 
 Publication and drawing keep the session alive across synchronous callbacks, and
@@ -206,15 +206,15 @@ publication also retains its source. A single scoped publication guard rejects
 reentrant Apply, Discard, normal close, function-toolkit history commands and reload. Forced Toolkit
 close releases the session, unregisters history notifications and retires
 preview presentation immediately. An executing callback can finish safely but
-cannot perform a late Save or resume rendering a retired document. Final session
+cannot perform a late Save or resume rendering a retired session. Final session
 destruction forgets working-package history and retires its transient packages.
 
 Discard cancels pending Apply. If the source is clean, it simply recreates the
 working copy from the source. If the source has unsaved applied changes, the
 ordinary package-discard reload restores disk state and rebuilds the working
 copy. External package replacement also resets the working copy; relocation
-retains it while remapping the existing document. Deletion and module shutdown
-release the working copy with its canvas and preview. Material-instance documents
+retains it while updating the Toolkit's resource path. Deletion and module shutdown
+release the working copy with its canvas and preview. Material-instance Toolkits
 continue editing their own overrides live and see base edits only after Apply.
 Material callbacks remain synchronous. Runtime discovery is sealed before
 notifications, and edits performed by listeners use fresh batches; see
@@ -228,13 +228,13 @@ layout-profile identity remains independent of resource names. Window IDs are
 runtime-only. Persistence and the intentional removal of old layout namespaces
 follow [asset editor layout profiles](../Framework/AssetEditors.md#panels-and-tool-extensions).
 
-The asset editor subsystem observes Engine relocation and remaps the host
-record's resource path and label. Material Toolkit callbacks update stored
-viewport and source revision state.
+The asset editor subsystem observes Engine relocation and notifies the owning
+Toolkit. Material Toolkit callbacks update stored viewport keys and source
+revision state, and presentation reads the current source name.
 A module-scoped observer separately updates stored profile viewport records and
 unregisters when the module retires. There is no local
 asset catalog mirror. Deletion is observed through the existing object handle;
-before drawing, an invalid owner closes its document and releases canvas and
+before drawing, a missing source closes the Toolkit and releases canvas and
 preview state. Active graph gestures are canceled before switch, discard,
 close, deletion cleanup, module unload, or shutdown.
 
@@ -248,4 +248,4 @@ transaction path, so Undo/Redo and direct setters trigger the same owner revisio
 and variant rules. Toolbar cancellation/recompile, diagnostics, last-known-good
 status and thumbnail readiness refer to the instance owner. Submitted work stays
 queued in the manager until execution; it never requires an editor capacity retry. Graph navigation still belongs
-to the root material document.
+to the root material Toolkit.

@@ -197,39 +197,29 @@ for menus, drawing, close confirmation, and exit preparation. It owns presentati
 hosts and closes toolkits after exit/save policy settles, before feature services
 and rendering stop.
 
-Level uses a specialized reflected editor and document controller. Startup,
+Level uses a specialized reflected editor and level controller. Startup,
 scene activation, PIE, and project switching remain with Engine/Level services.
 Feature modules register their own contributions and drain work before unloading;
 weak browser contexts reject callbacks after their host stops.
 
-## Document Ownership
+## Toolkit Assets And Current Level
 
-`FEditorDocument` is document identity and presentation metadata, not a
-resource controller. Each toolkit remains responsible for loading, saving,
-discarding, releasing, and drawing its resource.
+The Toolkit owns the edited asset or group of assets. The asset editor
+subsystem indexes the current associations and owns pending close requests.
+`FEditorTabWindow` handles root-window presentation. `FTabManager` draws
+internal asset tabs for grouped editors from their Toolkit's current asset
+collection. Feature Toolkits own previews, panels, and layout state.
 
-`FEditorTabWindow` provides the shared root-window state transition,
-while `FTabManager` composes that transition across the
-internal document tabs within toolkit roots used by Material, Texture and Mesh editors. The
-singleton Level workspace keeps its specialized internal dock-space lifecycle.
+`FAssetEditorSession` provides package save/discard and requesting-editor
+transaction commands for editable property-based Toolkits. The Texture Editor
+retains build cancellation and save admission, and the StaticMesh Inspector
+keeps its read-only preview. MainFrame renders the subsystem's oldest pending
+close request and submits Save, Discard, or Cancel to the subsystem.
 
-Material and Texture additionally compose
-`FEditableAssetDocumentModel`. It owns active-resource identity,
-document focus, package dirty/save/discard behavior, and forwarding to the
-bound requesting-editor transactor without depending on either concrete editor module.
-Concrete workspaces still load exact asset types and run hooks before a switch,
-close, discard, or save; Texture retains build cancellation and pending-build
-rejection, while each editor retains its preview and type-specific diagnostics.
-The read-only StaticMesh inspector and specialized Level workspace do not use
-this editable composition because their document semantics differ.
-
-Document open and close operations return explicit results. A deferred singleton
-open normally preserves the current document until its replacement succeeds;
-editor map teardown has the destructive boundary described below. For dirty
-closes, each `FEditorDocumentManager` owns its single pending document and routes
-Save, Discard, or Cancel back to resource-specific toolkit callbacks.
-`MainFrame` renders the oldest outstanding close in one shared confirmation modal. Repeated close requests
-cannot create duplicate confirmations.
+The Level Toolkit uses its own dock space and reads the current level from the
+editor world. `FLevelDocumentController` handles level transitions, transaction
+checkpoints, and viewport state. Closing the Level Editor window preserves the
+current world; Close Level runs the map-close workflow.
 
 Interactive level activation selects the first level and resolves its identity.
 It offers to save

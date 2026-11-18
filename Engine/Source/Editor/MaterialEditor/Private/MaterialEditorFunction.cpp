@@ -25,7 +25,6 @@
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Misc/MountPaths.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
@@ -76,7 +75,7 @@ namespace Durin::MaterialEditor
 	{
 		const auto Session = FunctionSession;
 		if (!Session || !RequestDeactivate() || !ApplyFunction() || FunctionSession != Session) return false;
-		return Documents.Save(Session->GetSource(), {}, [this](std::string Message) { SetError(std::move(Message)); });
+		return EditorSession.Save(Session->GetSource(), {}, [this](std::string Message) { SetError(std::move(Message)); });
 	}
 
 	auto FMaterialEditor::ReleaseFunctionSession() -> void
@@ -86,8 +85,8 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::RegisterFunctionUndo() -> void
 	{
-		if (FunctionUndoHandle || !Documents.GetEditor()) return;
-		FunctionUndoHandle = Documents.GetEditor()->GetTransactor()->AddTransactionListener(
+		if (FunctionUndoHandle || !EditorSession.GetEditor()) return;
+		FunctionUndoHandle = EditorSession.GetEditor()->GetTransactor()->AddTransactionListener(
 			[Weak = weak_from_this()](const FTransactionEvent& Event) {
 				if (auto Owner = std::dynamic_pointer_cast<FMaterialEditor>(Weak.lock()); Owner && Owner->IsEditorOpen())
 					Owner->HandleFunctionTransaction(Event);
@@ -96,15 +95,15 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::UnregisterFunctionUndo() -> void
 	{
-		if (FunctionUndoHandle && Documents.GetEditor())
-			Documents.GetEditor()->GetTransactor()->RemoveTransactionListener(FunctionUndoHandle);
+		if (FunctionUndoHandle && EditorSession.GetEditor())
+			EditorSession.GetEditor()->GetTransactor()->RemoveTransactionListener(FunctionUndoHandle);
 		FunctionUndoHandle = 0;
 	}
 
 	auto FMaterialEditor::HandleFunctionTransaction(const FTransactionEvent& Event) -> void
 	{
 		if (Event.Type != ETransactionEventType::Undone && Event.Type != ETransactionEventType::Redone) return;
-		auto* Transactions = Documents.GetEditor()->GetTransactor();
+		auto* Transactions = EditorSession.GetEditor()->GetTransactor();
 		std::vector<DPackage*> Packages;
 		for (size_t Index = 0; Index < Transactions->GetQueueLength(); ++Index)
 			if (const auto* Entry = Transactions->GetTransaction(Index); Entry && Entry->GetId() == Event.Id)
@@ -126,7 +125,7 @@ namespace Durin::MaterialEditor
 		}
 		auto Document = std::make_shared<FMaterialFunctionEditingSession>();
 		std::string Error;
-		if (!Document->Initialize(Source, Documents.GetEditor() ? Documents.GetEditor()->GetTransactor() : nullptr, Error))
+		if (!Document->Initialize(Source, EditorSession.GetEditor() ? EditorSession.GetEditor()->GetTransactor() : nullptr, Error))
 		{ SetError(std::move(Error)); return false; }
 		auto* Function = Document->Function();
 		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),
@@ -156,19 +155,6 @@ namespace Durin::MaterialEditor
 		ReleaseFunctionSession();
 		FunctionSession = std::move(Document);
 		return true;
-	}
-
-	auto FMaterialEditor::OpenFunctionDocument(const FEditorDocument& Tab) -> EDocumentOpenResult
-	{
-		const auto* Current = FunctionSession ? FunctionSession->GetSource() : nullptr;
-		if (FunctionSession)
-			return Current && Current->GetObjectPath() == Tab.ResourceId ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
-		std::optional<UnifiedError::FError> Error;
-		FSoftObjectPath Path;
-		if (!FSoftObjectPath::TryCreate(Tab.ResourceId, Path)) return EDocumentOpenResult::Rejected;
-		auto* Source = LoadObject<DMaterialFunction>(Path, nullptr, &Error);
-		if (!Source) { SetError(Error ? Error->ToString() : "The asset is not an editable function."); return EDocumentOpenResult::Rejected; }
-		return ResetFunctionSession(*Source) ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
 	}
 
 	auto FMaterialEditor::CancelFunctionInteractions() -> bool
@@ -204,14 +190,15 @@ namespace Durin::MaterialEditor
 			CloseWindow(EAssetEditorCloseReason::AssetUnloadingOrInvalid);
 			return false;
 		}
-		return Documents.GetTabManager().DrawDocuments(DocumentManager, MaterialFunctionWorkspaceType, GetPresentationRootKey("MaterialFunctionEditor"),
-			[&](const FEditorDocument&) { return Session == FunctionSession && Session->Function(); },
-			[&](const FEditorDocument& Tab) { DrawDocument(Tab, *Session); },
-			[&](const FEditorDocument& Tab, bool Visible) {
+		return DrawAssetTabs("MaterialFunctionEditor",
+			[&](DObject& Source) {
+				if (FunctionSession == Session && Session->Function()) DrawDocument(Source.GetObjectPath(), *Session);
+			},
+			[&](DObject&, bool Visible) {
 				if (Session->Preview) Session->Preview->SetVisible(Visible);
 				if (!Visible)
 				{
-					const auto DockType = Workspace::MakeDocumentDockType(Tab);
+					const auto DockType = Workspace::MakeDockType(GetPresentationRootKey("Document"));
 					if (ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
 						TabLayout::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion,
 							{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
@@ -272,7 +259,7 @@ namespace Durin::MaterialEditor
 		{
 			if (ImGui::Button("Open Function")) OpenReferencedMaterialAsset(*this, Call->Function->GetObjectPath(),
 				Call->Function->GetClass()->GetQualifiedName().ToString());
-			DrawMaterialFunctionCallInputs(Function, *Id, *Documents.GetEditor()->GetTransactor(), ErrorMessage);
+			DrawMaterialFunctionCallInputs(Function, *Id, *EditorSession.GetEditor()->GetTransactor(), ErrorMessage);
 		}
 		const auto* Input = Cast<DMaterialExpressionFunctionInput>(Selected->Get());
 		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Selected->Get());
@@ -359,18 +346,18 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto FMaterialEditor::DrawDocument(const FEditorDocument& Tab, FMaterialFunctionEditingSession& Document) -> void
+	auto FMaterialEditor::DrawDocument(std::string_view Resource, FMaterialFunctionEditingSession& Document) -> void
 	{
 		auto& Function = *Document.Function();
 		const auto PreviewLease = Document.Preview;
 		const auto IsCurrent = [&] { return IsEditorOpen() && FunctionSession.get() == &Document; };
-		if (!Documents.GetEditor()) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
+		if (!EditorSession.GetEditor()) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
 		if (ImGui::Button("Apply"))
 		{
 			if (RequestDeactivate()) ApplyFunction();
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Save")) SaveDocument(Tab);
+		if (ImGui::Button("Save")) SaveActiveDocument();
 		if (!IsCurrent()) return;
 		ImGui::SameLine();
 		if (ImGui::Button("Compile Preview")) Document.PreviewInvalidation.RequestRefresh();
@@ -405,14 +392,14 @@ namespace Durin::MaterialEditor
 		else if (Document.Material()->GetMaterialCompileStatus().HasUnsubmittedEdits())
 			Document.Material()->CompileEdits();
 		if (!IsCurrent()) return;
-		const auto DockType = Workspace::MakeDocumentDockType(Tab);
+		const auto DockType = Workspace::MakeDockType(GetPresentationRootKey("Document"));
 		static constexpr std::string_view PanelIds[]{"Graph", "Preview", "Details", "Inputs"};
 		RestoreDockLayout("Document", DockType, Workspace::FunctionLayoutVersion, PanelIds);
 		const auto Size = ImGui::GetContentRegionAvail();
 		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
 		if (bPendingLayoutReset || !ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::FunctionLayoutVersion)))
 		{
-			Workspace::BuildDefaultLayout(Tab, Size, true);
+			Workspace::BuildDefaultLayout(DockType, Size, true);
 			bPendingLayoutReset = false;
 		}
 		TabLayout::SubmitDockSpace(DockType, Workspace::FunctionLayoutVersion, Size);
@@ -421,14 +408,14 @@ namespace Durin::MaterialEditor
 				ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
 		};
 		if (BeginPanel("Material Graph", "Graph"))
-			Document.Canvas->Draw(*Documents.GetEditor()->GetTransactor(), 0);
+			Document.Canvas->Draw(*EditorSession.GetEditor()->GetTransactor(), 0);
 		ImGui::End();
 		if (!IsCurrent()) return;
 		if (ProfileSettings->bDetailsVisible)
 		{
 			if (BeginPanel("Details", "Details", &ProfileSettings->bDetailsVisible))
 			{
-				Document.Canvas->DrawSelectionDetails(*Documents.GetEditor()->GetTransactor());
+				Document.Canvas->DrawSelectionDetails(*EditorSession.GetEditor()->GetTransactor());
 				if (IsCurrent()) DrawInterface(Document);
 			}
 			ImGui::End();

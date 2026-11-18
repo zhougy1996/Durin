@@ -13,6 +13,6 @@ namespace Durin::StaticMeshEditor
 	auto DStaticMeshAssetDefinition::OpenAssets(const FAssetOpenArgs& Args) const -> EAssetCommandResult
 	{
 		return OpenAssetsWithToolkit(Args, Workspace::Type,
-			[](FEditorDocumentManager& Documents) { return std::make_shared<FStaticMeshEditor>(Documents); });
+			[] { return std::make_shared<FStaticMeshEditor>(); });
 	}
 }

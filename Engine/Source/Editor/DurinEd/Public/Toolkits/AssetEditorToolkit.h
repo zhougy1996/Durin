@@ -3,75 +3,18 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
-#include "Documents/EditorDocumentTypes.h"
+#include "Toolkits/AssetEditorTypes.h"
 #include "AssetDefinition/AssetOpenTypes.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Toolkits/ToolkitUI.h"
+#include "Framework/TabManager.h"
 #include "Toolkits/IAssetEditorInstance.h"
 
 namespace Durin { class DPackage; class IObjectReplacementParticipant; }
 
 namespace Durin
 {
-	// Defines document, history, menu, and layout services hosted by the editor shell.
-	// Callbacks run synchronously on the game thread. Do not drive host updates,
-	// teardown, physical GC or provider unload; request shutdown/GC for the owner.
-	// Do not structurally mutate the manager operation's borrowed documents or
-	// recursively enter that same operation. Calls to other editors remain legal.
-	class IAssetEditorToolkit
-	{
-	public:
-		virtual ~IAssetEditorToolkit() = default;
-
-		DURINED_API virtual auto GetToolkitId() const -> const FAssetEditorToolkitId& = 0;
-		// Deferred opens keep the current tab metadata until the toolkit reports completion.
-		virtual auto OpenDocument(const FEditorDocument&) -> EDocumentOpenResult { return EDocumentOpenResult::Rejected; }
-		virtual auto ActivateDocument(const FEditorDocument&) -> void {}
-		// Called before the manager changes the active document or toolkit.
-		// Returning false keeps the current host state active.
-		virtual auto RequestDeactivate() -> bool { return true; }
-		// Release toolkit-owned document state only when returning Closed.
-		// An admitted close may complete after a callback requests host shutdown;
-		// that request closes new admission, rather than canceling this operation.
-		virtual auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
-		{
-			return Document.bDirty ? EDocumentCloseResult::PendingConfirmation : EDocumentCloseResult::Closed;
-		}
-		// Resolve resource-specific persistence before the manager retries a pending close.
-		virtual auto SaveDocument(const FEditorDocument& Document) -> bool
-		{
-			(void)Document;
-			return false;
-		}
-		// Resolve resource-specific rollback before the manager retries a pending close.
-		virtual auto DiscardDocument(const FEditorDocument& Document) -> bool
-		{
-			(void)Document;
-			return false;
-		}
-		// Called during package reload publication, before the old graph retires.
-		virtual auto OnPackageReloaded(DPackage*, DPackage*) -> void {}
-		virtual auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> { return {}; }
-		virtual auto OnResourceIdRemapped(std::string_view, std::string_view) -> void {}
-		// Queries must not mutate document/editor membership or perform lifecycle work.
-		// A shutdown/GC request is permitted; owners act after the current operation returns.
-		virtual auto IsDocumentDirty(const FEditorDocument& Document) const -> bool { return Document.bDirty; }
-		virtual auto CanSaveActiveDocument() const -> bool { return false; }
-		virtual auto SaveActiveDocument() -> bool { return false; }
-		virtual auto CanUndo() const -> bool { return false; }
-		virtual auto CanRedo() const -> bool { return false; }
-		virtual auto GetUndoDescription() const -> std::string { return {}; }
-		virtual auto GetRedoDescription() const -> std::string { return {}; }
-		virtual auto Undo() -> bool { return false; }
-		virtual auto Redo() -> bool { return false; }
-		virtual auto DrawFileMenu() -> void {}
-		virtual auto DrawEditMenu() -> void {}
-		virtual auto DrawWindowMenu() -> void {}
-		DURINED_API virtual auto DrawToolkit(bool bActive) -> bool = 0;
-		DURINED_API virtual auto ResetLayout() -> void = 0;
-	};
-
 	struct FAssetEditorUnsavedChange
 	{
 		std::string Label;
@@ -79,11 +22,11 @@ namespace Durin
 	};
 
 	class DAssetEditor;
-	class FEditorDocumentManager;
+	class FToolkitAssetReloadParticipant;
 	struct FAssetEditorInitArgs;
 
 	// Editor-instance commands enforce View policy before feature callbacks.
-	class FAssetEditorToolkit : public IAssetEditorToolkit, public IAssetEditorInstance, public std::enable_shared_from_this<FAssetEditorToolkit>
+	class FAssetEditorToolkit : public IAssetEditorInstance, public std::enable_shared_from_this<FAssetEditorToolkit>
 	{
 	public:
 		DURINED_API ~FAssetEditorToolkit() override;
@@ -97,9 +40,8 @@ namespace Durin
 		DURINED_API auto GetInstanceKey() const -> std::string_view;
 		DURINED_API auto GetWindowId() const -> std::string_view;
 		auto GetInstanceId() const -> std::string_view override { return GetWindowId(); }
-		auto GetDocumentManager() const -> std::shared_ptr<FEditorDocumentManager> { return DocumentOwner; }
 		DURINED_API auto GetEditingObjects() const -> std::vector<DObject*>;
-		// Migrated Toolkits supply their actual source owners. Legacy Toolkits use host roots.
+		// A concrete session may own its source directly. Otherwise this Toolkit owns the asset list.
 		virtual auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> { return std::nullopt; }
 		DURINED_API auto SupportsRestore() const -> bool;
 		DURINED_API auto GetEditorName() const -> FName override;
@@ -116,45 +58,60 @@ namespace Durin
 		DURINED_API virtual auto SaveForExit() -> bool;
 		DURINED_API virtual auto GetUnsavedChanges() const -> std::vector<FAssetEditorUnsavedChange>;
 		DURINED_API virtual auto GetEditorDisplayName() const -> std::string;
-		virtual auto UsesDocumentRecords() const -> bool { return true; }
+		virtual auto GetToolkitId() const -> const FAssetEditorToolkitId& = 0;
+		virtual auto RequestDeactivate() -> bool { return true; }
+		virtual auto OnPackageReloaded(DPackage*, DPackage*) -> void {}
+		DURINED_API virtual auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant>;
+		virtual auto OnResourceIdRemapped(std::string_view, std::string_view) -> void {}
+		virtual auto GetUndoDescription() const -> std::string { return {}; }
+		virtual auto GetRedoDescription() const -> std::string { return {}; }
+		virtual auto DrawFileMenu() -> void {}
+		virtual auto DrawEditMenu() -> void {}
+		virtual auto DrawWindowMenu() -> void {}
+		virtual auto ResetLayout() -> void = 0;
+		DURINED_API auto GetActiveAsset() const -> DObject*;
+		DURINED_API auto ActivateAsset(DObject& Asset) -> bool;
+		DURINED_API auto RequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult;
+		DURINED_API auto IsAssetDirty(const DObject& Asset) const -> bool;
+		DURINED_API auto SaveAsset(DObject& Asset) -> bool;
+		DURINED_API auto DiscardAsset(DObject& Asset) -> bool;
 
 		virtual auto GetLastOperationError() const -> std::string { return {}; }
 		auto IsReadOnly() const -> bool { return OpenMethod == EAssetOpenMethod::View || !CanEditAssets(); }
 		DURINED_API auto IsEditorOpen() const -> bool;
-		DURINED_API auto DrawToolkit(bool bActive) -> bool final;
+		DURINED_API auto DrawToolkit(bool bActive) -> bool;
 		virtual auto GetLayoutVersion() const -> uint32 { return 1; }
 		virtual auto GetLayoutName() const -> std::string_view { return GetToolkitId().GetValue(); }
 		DURINED_API auto GetLayoutProfileKey() const -> std::string;
 		DURINED_API auto GetPresentationRootKey(std::string_view EditorRootKey) const -> std::string;
-		DURINED_API auto GetPresentationDocument(const FEditorDocument& Document) const -> FEditorDocument;
 		// Called once after closing is committed, while host/rendering services exist.
 		virtual auto OnClose() -> void {}
 		virtual auto OnHostChanged() -> void {}
 		auto GetOwningAssetEditor() const -> DAssetEditor* { return OwningAssetEditor.Get(); }
-		auto SaveDocument(const FEditorDocument& Document) -> bool final
-		{ return ExecuteEditorCommand([&] { return OnSaveDocument(Document); }); }
-		auto DiscardDocument(const FEditorDocument& Document) -> bool final
-		{ return ExecuteEditorCommand([&] { return OnDiscardDocument(Document); }); }
-		auto IsDocumentDirty(const FEditorDocument& Document) const -> bool final
-		{ return IsEditorOpen() && !IsReadOnly() && OnIsDocumentDirty(Document); }
-		auto CanSaveActiveDocument() const -> bool final { return IsEditorOpen() && !IsReadOnly() && OnCanSaveActiveDocument(); }
-		auto SaveActiveDocument() -> bool final { return ExecuteEditorCommand([&] { return OnSaveActiveDocument(); }); }
-		auto CanUndo() const -> bool final { return IsEditorOpen() && !IsReadOnly() && OnCanUndo(); }
-		auto CanRedo() const -> bool final { return IsEditorOpen() && !IsReadOnly() && OnCanRedo(); }
-		auto Undo() -> bool final { return ExecuteEditorCommand([&] { return OnUndo(); }); }
-		auto Redo() -> bool final { return ExecuteEditorCommand([&] { return OnRedo(); }); }
+		auto CanSaveActiveDocument() const -> bool { return IsEditorOpen() && !IsReadOnly() && OnCanSaveActiveDocument(); }
+		auto SaveActiveDocument() -> bool { return ExecuteEditorCommand([&] { return OnSaveActiveDocument(); }); }
+		auto CanUndo() const -> bool { return IsEditorOpen() && !IsReadOnly() && OnCanUndo(); }
+		auto CanRedo() const -> bool { return IsEditorOpen() && !IsReadOnly() && OnCanRedo(); }
+		auto Undo() -> bool { return ExecuteEditorCommand([&] { return OnUndo(); }); }
+		auto Redo() -> bool { return ExecuteEditorCommand([&] { return OnRedo(); }); }
 	protected:
 		virtual auto CanEditAssets() const -> bool { return true; }
 		DURINED_API auto NotifyEditingObjectsChanged() -> void;
 		virtual auto FocusEditorView() -> void {}
 		virtual auto PostInitAssetEditor() -> void {}
 		virtual auto OnDrawToolkit(bool) -> bool { return false; }
-		virtual auto OnSaveDocument(const FEditorDocument&) -> bool { return false; }
-		virtual auto OnDiscardDocument(const FEditorDocument&) -> bool { return false; }
-		// Same query contract as IsDocumentDirty; const does not enforce it for providers.
-		virtual auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool { return Document.bDirty; }
+		virtual auto OnOpenAsset(DObject&) -> bool { return true; }
+		virtual auto OnActivateAsset(DObject&) -> void {}
+		DURINED_API virtual auto OnRequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult;
+		virtual auto OnCloseAsset(DObject&) -> void {}
+		virtual auto OnSaveAsset(DObject&) -> bool { return false; }
+		virtual auto OnDiscardAsset(DObject&) -> bool { return false; }
+		virtual auto OnIsAssetDirty(const DObject&) const -> bool { return false; }
 		virtual auto OnCanSaveActiveDocument() const -> bool { return false; }
-		virtual auto OnSaveActiveDocument() -> bool { return false; }
+		DURINED_API virtual auto OnSaveActiveDocument() -> bool;
+		DURINED_API auto DrawAssetTabs(std::string_view RootKey,
+			const std::function<void(DObject&)>& DrawAsset,
+			const std::function<void(DObject&, bool)>& UpdateVisibility = {}) -> bool;
 		virtual auto OnCanUndo() const -> bool { return false; }
 		virtual auto OnCanRedo() const -> bool { return false; }
 		virtual auto OnUndo() -> bool { return false; }
@@ -165,11 +122,16 @@ namespace Durin
 		friend class FToolkitManager;
 		auto NotifyClosed() -> void;
 		auto CloseWindowInternal(EAssetEditorCloseReason Reason, bool bPublishRequest) -> bool;
-		auto InitAssetEditor(const FAssetEditorInitArgs& Args, std::shared_ptr<FEditorDocumentManager> Documents,
-			FStrongObjectPtr Provider, DAssetEditor* Editor = nullptr) -> bool;
+		friend class FToolkitAssetReloadParticipant;
+		auto InitAssetEditor(const FAssetEditorInitArgs& Args, FStrongObjectPtr Provider, DAssetEditor* Editor = nullptr) -> bool;
+		auto HasEditingObject(const DObject& Object) const -> bool;
+		auto TryCloseAsset(DObject& Asset) -> EAssetEditorCloseResult;
+		auto ResolveAssetClose(FObjectKey& Key, EAssetEditorCloseResponse Response) -> EAssetEditorCloseResult;
 		DURINED_API auto ExecuteEditorCommand(const std::function<bool()>& Command) -> bool;
 		TStrongObjectPtr<DAssetEditor> OwningAssetEditor;
-		std::shared_ptr<FEditorDocumentManager> DocumentOwner;
+		std::vector<FStrongObjectPtr> EditingAssets;
+		FObjectKey ActiveAsset;
+		FTabManager Tabs;
 		FStrongObjectPtr DefinitionProvider;
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
 		EToolkitMode ToolkitMode = EToolkitMode::Standalone;

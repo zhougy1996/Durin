@@ -8,50 +8,29 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "ThirdParty/ImGui/imgui.h"
 #include "Workspace/MaterialEditorWorkspace.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 
 namespace Durin::MaterialEditor
 {
-	MMaterialParameterCollectionEditor::MMaterialParameterCollectionEditor(FEditorDocumentManager& InManager) : Manager(InManager)
-	{ if (auto* AssetEditorSubsystem = Manager.GetAssetEditorSubsystem()) Documents.BindEditor(AssetEditorSubsystem->GetEditor()); }
-	auto MMaterialParameterCollectionEditor::GetToolkitId() const
-		-> const FAssetEditorToolkitId&
+	auto MMaterialParameterCollectionEditor::PostInitAssetEditor() -> void
+	{
+		FBaseAssetToolkit::PostInitAssetEditor();
+		Session.BindEditor(GetAssetEditorSubsystem()->GetEditor());
+	}
+
+	auto MMaterialParameterCollectionEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
 	{
 		return Workspace::CollectionType;
 	}
 
-	auto MMaterialParameterCollectionEditor::OpenDocument(
-		const FEditorDocument& Document) -> EDocumentOpenResult
+	auto MMaterialParameterCollectionEditor::OnOpenAsset(DObject& Object) -> bool
 	{
-		std::optional<Durin::UnifiedError::FError> LoadedError;
-		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
-		if (Find(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FSoftObjectPath Path;
-		if (const auto Parsed = FSoftObjectPath::TryCreateWithDiagnostic(
-			Document.ResourceId, Path); !Parsed)
-		{
-			Report(ToString(Parsed.error()));
-			return EDocumentOpenResult::Rejected;
-		}
-		auto Loaded = LoadObject<DMaterialParameterCollection>(Path, nullptr, &LoadedError);
-		if (!Loaded)
-		{
-			Report(LoadedError->ToString());
-			return EDocumentOpenResult::Rejected;
-		}
-		Collections.emplace(Document.ResourceId, Loaded);
-		return EDocumentOpenResult::Opened;
+		return Cast<DMaterialParameterCollection>(&Object) != nullptr;
 	}
 
-	auto MMaterialParameterCollectionEditor::ActivateDocument(
-		const FEditorDocument& Document) -> void
+	auto MMaterialParameterCollectionEditor::OnActivateAsset(DObject& Object) -> void
 	{
-		auto* Collection = Find(Document.ResourceId);
-		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Collection))
-			if (!FinishEdit(true)) return;
-		if (IsReadOnly()) Documents.ActivateReadOnly(Document, Collection);
-		else Documents.Activate(Document, Collection);
+		if (!IsReadOnly()) Session.Activate(&Object);
 	}
 
 	auto MMaterialParameterCollectionEditor::RequestDeactivate() -> bool
@@ -59,76 +38,44 @@ namespace Durin::MaterialEditor
 		return FinishEdit(true);
 	}
 
-	auto MMaterialParameterCollectionEditor::RequestCloseDocument(
-		const FEditorDocument& Document) -> EDocumentCloseResult
+	auto MMaterialParameterCollectionEditor::OnClose() -> void
 	{
-		if (PropertyView.IsEditingObject(Find(Document.ResourceId))
-			&& !FinishEdit(true)) return EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document))
-			return EDocumentCloseResult::PendingConfirmation;
-		Collections.erase(Document.ResourceId);
-		Documents.Close(Document.ResourceId);
-		return EDocumentCloseResult::Closed;
+		FinishEdit(true);
+		FBaseAssetToolkit::OnClose();
 	}
 
-	auto MMaterialParameterCollectionEditor::OnSaveDocument(
-		const FEditorDocument& Document) -> bool
+	auto MMaterialParameterCollectionEditor::OnSaveAsset(DObject& Object) -> bool
 	{
-		if (!FinishEdit(false)) return false;
-		return Documents.Save(Find(Document.ResourceId), {},
+		return FinishEdit(false) && Session.Save(&Object, {},
 			[this](std::string Message) { Report(std::move(Message)); });
 	}
 
-	auto MMaterialParameterCollectionEditor::OnDiscardDocument(
-		const FEditorDocument& Document) -> bool
+	auto MMaterialParameterCollectionEditor::OnDiscardAsset(DObject& Object) -> bool
 	{
-		auto* Collection = Find(Document.ResourceId);
-		if (!Collection || !FinishEdit(true)) return false;
-		return Documents.Discard(Collection, {},
-			[this](DPackage* Previous, DPackage* Replacement) {
-				Manager.NotifyPackageReloaded(Previous, Replacement);
-			}, [this](std::string Message) { Report(std::move(Message)); }, &Manager);
+		return FinishEdit(true) && Session.Discard(&Object, {},
+			[this](std::string Message) { Report(std::move(Message)); });
 	}
 
-	auto MMaterialParameterCollectionEditor::OnPackageReloaded(
-		DPackage* Previous, DPackage* Replacement) -> void
+	auto MMaterialParameterCollectionEditor::OnPackageReloaded(DPackage*, DPackage*) -> void
 	{
-		FinishEdit(true);
-		for (auto& [ResourceId, Collection] : Collections)
-			if (Collection && Collection->GetPackage() == Previous)
-				Collection = Cast<DMaterialParameterCollection>(
-					Replacement->FindTopLevelAsset(Collection->GetFName()));
+		if (auto* Object = GetActiveAsset()) OnActivateAsset(*Object);
 	}
 
-	auto MMaterialParameterCollectionEditor::OnIsDocumentDirty(
-		const FEditorDocument& Document) const -> bool
+	auto MMaterialParameterCollectionEditor::OnIsAssetDirty(const DObject& Object) const -> bool
 	{
-		return Documents.IsDirty(Find(Document.ResourceId));
+		return Session.IsDirty(&Object);
 	}
 
 	auto MMaterialParameterCollectionEditor::OnCanSaveActiveDocument() const -> bool
 	{
-		return Documents.CanSave(Active());
-	}
-
-	auto MMaterialParameterCollectionEditor::OnSaveActiveDocument() -> bool
-	{
-		const auto Resource = std::string(Documents.GetActiveResourceId());
-		if (Resource.empty()) return false;
-		if (!FinishEdit(false)) return false;
-		return Documents.Save(Find(Resource), {},
-			[this](std::string Message) { Report(std::move(Message)); });
+		return Session.CanSave(GetActiveAsset());
 	}
 
 	auto MMaterialParameterCollectionEditor::OnDrawToolkit(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishEdit(true);
-		return Documents.GetTabManager().DrawDocuments(
-			Manager, Workspace::CollectionType, GetPresentationRootKey(Workspace::CollectionRootKey),
-			[this](const FEditorDocument& Document) {
-				return Find(Document.ResourceId) != nullptr;
-			}, [this](const FEditorDocument& Document) {
-				auto* Collection = Find(Document.ResourceId);
+		return DrawAssetTabs(Workspace::CollectionRootKey, [this](DObject& Object) {
+				auto* Collection = Cast<DMaterialParameterCollection>(&Object);
 				if (!Collection) return;
 				ImGui::TextDisabled("Up to %u numeric declarations; names are case-insensitively unique.",
 					MaterialParameterCollectionMaxDeclarationCount);
@@ -152,20 +99,6 @@ namespace Durin::MaterialEditor
 			});
 	}
 
-	auto MMaterialParameterCollectionEditor::Find(
-		std::string_view ResourceId) const -> DMaterialParameterCollection*
-	{
-		const auto It = Collections.find(std::string(ResourceId));
-		return It == Collections.end() || !It->second.IsValid()
-			? nullptr : It->second.Get();
-	}
-
-	auto MMaterialParameterCollectionEditor::Active() const
-		-> DMaterialParameterCollection*
-	{
-		return Find(Documents.GetActiveResourceId());
-	}
-
 	auto MMaterialParameterCollectionEditor::FinishEdit(bool bCancel) -> bool
 	{
 		const auto ViewContext = Context();
@@ -184,10 +117,4 @@ namespace Durin::MaterialEditor
 	{
 		ErrorMessage = std::move(Message);
 	}
-	auto MMaterialParameterCollectionEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
-	{
-		if (auto Node = Collections.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; Collections.insert(std::move(Node)); }
-		Documents.RemapResourceId(Source, Destination);
-	}
-
 }

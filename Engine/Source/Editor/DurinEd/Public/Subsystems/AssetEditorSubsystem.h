@@ -11,13 +11,13 @@
 #include "DObject/StrongObjectPtr.h"
 #include "AssetEditorSubsystem.gen.h"
 
-namespace Durin { class FEditorDocumentManager; class DAssetEditor; class FAssetEditorToolkit; struct FAssetEditorInitArgs; struct FPackageReloadRequest; struct FAssetData; }
+namespace Durin { class DAssetEditor; class FAssetEditorToolkit; struct FAssetEditorInitArgs; struct FPackageReloadRequest; struct FAssetData; }
 namespace Durin::MainFrame { struct FMainFrameContext; }
 
 namespace Durin
 {
-	enum class EDocumentCloseResult : uint8;
-	enum class EDocumentCloseResponse : uint8;
+	enum class EAssetEditorCloseResult : uint8;
+	enum class EAssetEditorCloseResponse : uint8;
 
 	struct FAssetEditorClosePrompt
 	{
@@ -54,7 +54,7 @@ namespace Durin
 		// Direct admission supports read-only instances only.
 		// Mutable-feature Toolkits require View; writable Edit is rejected before host/document work.
 		DURINED_API auto InitializeDirectToolkit(std::shared_ptr<FAssetEditorToolkit> Toolkit,
-			std::shared_ptr<FEditorDocumentManager> Documents, const FAssetOpenArgs& Args,
+			const FAssetOpenArgs& Args,
 			std::span<DObject* const> Assets) -> bool;
 		DURINED_API auto ActivateAssetToolkit(FAssetEditorToolkit& Toolkit) -> bool;
 		DURINED_API auto GetActiveAssetToolkit() const -> std::shared_ptr<FAssetEditorToolkit>;
@@ -74,7 +74,7 @@ namespace Durin
 		DURINED_API auto GetAllEditedAssets() -> std::vector<DObject*>;
 		DURINED_API auto GetAllOpenEditors() -> std::vector<IAssetEditorInstance*>;
 		DURINED_API auto GetPendingClosePrompt() const -> std::optional<FAssetEditorClosePrompt>;
-		DURINED_API auto ResolvePendingClose(uint64 RequestId, EDocumentCloseResponse Response) -> EDocumentCloseResult;
+		DURINED_API auto ResolvePendingClose(uint64 RequestId, EAssetEditorCloseResponse Response) -> EAssetEditorCloseResult;
 		DURINED_API auto CloseAllEditorsForAsset(DObject* Asset) -> int32;
 		DURINED_API auto CloseOtherEditors(DObject* Asset, IAssetEditorInstance* OnlyEditor) -> void;
 		DURINED_API auto CloseAllAssetEditors() -> bool;
@@ -109,14 +109,12 @@ namespace Durin
 			FAssetEditorClosePrompt Prompt;
 			std::weak_ptr<FAssetEditorToolkit> Toolkit;
 			std::optional<EAssetEditorCloseReason> WindowReason;
-			std::function<EDocumentCloseResult(EDocumentCloseResponse)> Resolve;
-			uint64 LegacyDocumentId = 0;
+			FObjectKey Asset;
 			bool bResolving = false;
 			bool bResume = false;
 		};
 		auto FindPendingClose(const FAssetEditorToolkit& Toolkit) const -> std::shared_ptr<FPendingClose>;
-		auto QueueClose(FAssetEditorToolkit& Toolkit, uint64 DocumentId, std::string Label,
-			std::function<EDocumentCloseResult(EDocumentCloseResponse)> Resolve) -> void;
+		auto QueueClose(FAssetEditorToolkit& Toolkit, FObjectKey Asset, std::string Label) -> void;
 		auto ResumeReadyCloseRequests() -> void;
 		std::deque<std::shared_ptr<FPendingClose>> PendingCloses;
 		uint64 NextCloseRequest = 1;
@@ -139,6 +137,5 @@ namespace Durin
 		std::unordered_map<FObjectKey, std::vector<IAssetEditorInstance*>, FObjectKeyHash> OpenedAssets;
 		std::unordered_map<IAssetEditorInstance*, std::vector<FObjectKey>> OpenedEditors;
 		std::unordered_set<FObjectKey, FObjectKeyHash> OpeningAssets;
-		friend class FEditorDocumentManager;
 	};
 }

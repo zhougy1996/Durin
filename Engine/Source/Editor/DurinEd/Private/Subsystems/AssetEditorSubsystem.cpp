@@ -5,7 +5,6 @@
 #include "DObject/StrongObjectPtr.h"
 #include "Editor/EditorEngine.h"
 #include "Threading/RunnableThread.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitManager.h"

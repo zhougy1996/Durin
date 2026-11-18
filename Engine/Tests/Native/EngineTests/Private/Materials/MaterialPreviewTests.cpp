@@ -2,7 +2,6 @@
 #include "MaterialRenderingTestFixture.h"
 #include "FMaterialEditor.h"
 #include "Widgets/MaterialEditingSession.h"
-#include "Documents/EditorDocumentManager.h"
 #include "MaterialAssetDefinitions.h"
 #include "Materials/MaterialFunction.h"
 #include "Editor/EditorEngineTestSupport.h"

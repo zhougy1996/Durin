@@ -5,7 +5,6 @@
 #include "Toolkits/ToolkitHost.h"
 #include "Toolkits/ToolkitManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Editor/IMainFrameModule.h"
 #include "DObject/Class.h"
@@ -22,7 +21,7 @@
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
-#include "Documents/AssetEditorDocumentModels.h"
+#include "Toolkits/AssetEditorSession.h"
 #include "Transactions/Transactor.h"
 #include "Yaml/Yaml.h"
 #include <gtest/gtest.h>
@@ -33,8 +32,6 @@ namespace Durin
 	{
 	public:
 		auto GetToolkitId() const -> const FAssetEditorToolkitId& override { return Type; }
-		auto OpenDocument(const FEditorDocument&) -> EDocumentOpenResult override { return bDeferOpen ? EDocumentOpenResult::Deferred : EDocumentOpenResult::Opened; }
-		auto ActivateDocument(const FEditorDocument&) -> void override {}
 		auto OnDrawToolkit(bool) -> bool override { return Drawing ? Drawing() : false; }
 		auto ResetLayout() -> void override {}
 		auto RequestDeactivate() -> bool override { return Deactivate ? Deactivate() : bCanDeactivate; }
@@ -51,20 +48,19 @@ namespace Durin
 			if (Closing) Closing();
 			FBaseAssetToolkit::OnClose();
 		}
-		auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override
-		{ return CloseRequest ? CloseRequest(Document) : IsDocumentDirty(Document) ? EDocumentCloseResult::PendingConfirmation : EDocumentCloseResult::Closed; }
-		auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override
-		{ if (DirtyQuery) DirtyQuery(); return bDirty || DirtyDocuments.contains(Document.Id.Value); }
-		auto OnSaveDocument(const FEditorDocument& Document) -> bool override
-		{ if (!bSaveSucceeds) return false; bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
-		auto OnDiscardDocument(const FEditorDocument& Document) -> bool override { if (!bDiscardSucceeds) return false; bDirty = false; DirtyDocuments.erase(Document.Id.Value); return true; }
+		auto OnRequestCloseAsset(DObject& Asset) -> EAssetEditorCloseResult override
+		{ return CloseRequest ? CloseRequest(Asset) : FBaseAssetToolkit::OnRequestCloseAsset(Asset); }
+		auto OnIsAssetDirty(const DObject& Asset) const -> bool override
+		{ if (DirtyQuery) DirtyQuery(); return bDirty || DirtyAssets.contains(FObjectKey(&Asset)); }
+		auto OnSaveAsset(DObject& Asset) -> bool override
+		{ if (!bSaveSucceeds) return false; bDirty = false; DirtyAssets.erase(FObjectKey(&Asset)); return true; }
+		auto OnDiscardAsset(DObject& Asset) -> bool override { if (!bDiscardSucceeds) return false; bDirty = false; DirtyAssets.erase(FObjectKey(&Asset)); return true; }
 		auto OnCanSaveActiveDocument() const -> bool override { return true; }
 		auto OnSaveActiveDocument() -> bool override { ++Saves; return true; }
 		auto OnCanUndo() const -> bool override { return true; }
 		auto OnUndo() -> bool override { ++Undos; return true; }
 		bool bDirty = false;
-		bool bDeferOpen = false;
-		std::unordered_set<uint64> DirtyDocuments;
+		std::unordered_set<FObjectKey, FObjectKeyHash> DirtyAssets;
 		bool bSaveSucceeds = true;
 		bool bDiscardSucceeds = true;
 		bool bCanDeactivate = true;
@@ -72,7 +68,7 @@ namespace Durin
 		std::function<void()> HostChanged;
 		std::function<bool()> Drawing;
 		std::function<void()> DirtyQuery;
-		std::function<EDocumentCloseResult(const FEditorDocument&)> CloseRequest;
+		std::function<EAssetEditorCloseResult(DObject&)> CloseRequest;
 		int Saves = 0;
 		int Undos = 0;
 		bool bAllowClose = true;
@@ -161,7 +157,7 @@ namespace
 				: std::vector<TStrongObjectPtr<DAssetEditor>>{};
 			for (const auto& EditorInstance : Remaining)
 			{
-				if (auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit())) { Toolkit->bDirty = false; Toolkit->DirtyDocuments.clear(); }
+				if (auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit())) { Toolkit->bDirty = false; Toolkit->DirtyAssets.clear(); }
 				(void)EditorInstance->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed);
 			}
 			Host->PreExit();
@@ -180,6 +176,11 @@ namespace
 			return AssetEditorSubsystem->OpenAssetEditor(FLifecycleTestEditor::StaticClass(), {
 				.OpenArgs = {.AssetEditors = AssetEditorSubsystem, .OpenMethod = Method, .ToolkitMode = Mode, .Host = std::move(ToolkitHost), .InstanceRole = std::move(Role), .bPrimary = bPrimary},
 				.Assets = std::move(Assets)});
+		}
+		auto ResolveClose(EAssetEditorCloseResponse Response) -> EAssetEditorCloseResult
+		{
+			const auto Prompt = AssetEditorSubsystem->GetPendingClosePrompt();
+			return Prompt ? AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, Response) : EAssetEditorCloseResult::Rejected;
 		}
 		auto TickHost() -> void
 		{
@@ -240,7 +241,7 @@ namespace
 		const auto Reflected = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Editor->GetToolkit());
 		const auto Direct = std::make_shared<FReadOnlyDirectTestToolkit>();
 		const std::vector<DObject*> Assets{Asset("HostOwnedDirect")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Direct, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Direct,
 			{.AssetEditors = AssetEditorSubsystem, .Host = Presentation}, Assets));
 		Reflected->bAllowClose = false;
 		Direct->bAllowClose = false;
@@ -285,7 +286,7 @@ namespace
 		EXPECT_EQ(1, Toolkit->CloseRequests);
 		EXPECT_EQ(0, Toolkit->Closes);
 		EXPECT_TRUE(Toolkit->IsEditorOpen());
-		EXPECT_FALSE(Toolkit->GetDocumentManager()->GetDocuments().empty());
+		EXPECT_FALSE(Toolkit->GetEditingObjects().empty());
 		Toolkit->bAllowClose = true;
 		bool ClosedDuringNotification = false;
 		Toolkit->Closing = [&] {
@@ -381,8 +382,8 @@ namespace
 		EXPECT_EQ(EditorInstance, AssetEditorSubsystem->FindEditorForAsset(Object, false));
 		EXPECT_TRUE(Toolkit->IsEditorOpen());
 		EXPECT_FALSE(EditorInstance->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-		EXPECT_EQ(EDocumentCloseResult::Closed,
-			EditorInstance->GetDocumentManager()->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
+		EXPECT_EQ(EAssetEditorCloseResult::Closed,
+			ResolveClose(EAssetEditorCloseResponse::Discard));
 		TickHost();
 		EXPECT_EQ(nullptr, AssetEditorSubsystem->FindEditorForAsset(Object, false));
 		EXPECT_TRUE(Toolkit->IsClosed());
@@ -407,22 +408,22 @@ namespace
 		class FCountingToolkit final : public FLifecycleTestToolkit
 		{
 		public:
-			auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override
-			{ ++DocumentsOpened; return FLifecycleTestToolkit::OpenDocument(Document); }
-			int DocumentsOpened = 0;
+			auto OnOpenAsset(DObject&) -> bool override
+			{ ++AssetsOpened; return true; }
+			int AssetsOpened = 0;
 		};
 		auto Toolkit = std::make_shared<FCountingToolkit>();
 		const std::vector<DObject*> Objects{Asset("ReadOnlyDirectContract")};
-		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
 			{.AssetEditors = AssetEditorSubsystem}, Objects));
 		EXPECT_EQ(0, Hosts);
-		EXPECT_EQ(0, Toolkit->DocumentsOpened);
+		EXPECT_EQ(0, Toolkit->AssetsOpened);
 		EXPECT_EQ(nullptr, Toolkit->GetEditorInstance());
 		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
 			{.AssetEditors = AssetEditorSubsystem, .OpenMethod = EAssetOpenMethod::View}, Objects));
 		EXPECT_EQ(1, Hosts);
-		EXPECT_EQ(1, Toolkit->DocumentsOpened);
+		EXPECT_EQ(1, Toolkit->AssetsOpened);
 		EXPECT_TRUE(Toolkit->IsReadOnly());
 		EXPECT_FALSE(Toolkit->SaveActiveDocument());
 		EXPECT_FALSE(Toolkit->Undo());
@@ -459,11 +460,11 @@ namespace
 		ASSERT_TRUE(Registration);
 		const std::vector<DObject*> Objects{Asset("DirectRequiredMode")};
 		auto Rejected = std::make_shared<FReadOnlyDirectTestToolkit>();
-		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Rejected, std::make_shared<FEditorDocumentManager>(),
+		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Rejected,
 			{.AssetEditors = AssetEditorSubsystem, .Host = std::make_shared<FNonWindowToolkitHost>()}, Objects));
 		EXPECT_TRUE(Durin::FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
 		auto Accepted = std::make_shared<FReadOnlyDirectTestToolkit>();
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Accepted, std::make_shared<FEditorDocumentManager>(), {.AssetEditors = AssetEditorSubsystem}, Objects));
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Accepted, {.AssetEditors = AssetEditorSubsystem}, Objects));
 		EXPECT_EQ(EToolkitMode::WorldCentric, Accepted->GetToolkitMode());
 		EXPECT_TRUE(Accepted->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 	}
@@ -486,7 +487,7 @@ namespace
 		EXPECT_FALSE(Toolkit->SaveActiveDocument());
 		auto* Object = Asset("FailedDirect");
 		const std::vector<DObject*> Objects{Object};
-		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
 			{.AssetEditors = AssetEditorSubsystem, .Host = std::make_shared<FRejectingHost>()}, Objects));
 		EXPECT_TRUE(Toolkit->IsClosed());
 		EXPECT_FALSE(Toolkit->DrawToolkit(true));
@@ -508,10 +509,9 @@ namespace
 		auto Subscription = AssetEditorSubsystem->Subscribe([&](const auto& Event) { Events.push_back(Event); });
 		Definition->OpenOverride = [&](const FAssetOpenArgs& Args) {
 			Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
-			auto Documents = std::make_shared<FEditorDocumentManager>();
 			std::vector<DObject*> Objects;
 			for (const auto& Target : Args.Assets) Objects.push_back(Args.LoadAsset(Target));
-			const bool Opened = AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, Documents, Args, Objects);
+			const bool Opened = AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, Args, Objects);
 			return Opened ? EAssetCommandResult::Handled : EAssetCommandResult::Unhandled;
 		};
 		auto* Object = Asset("DirectProvider");
@@ -555,7 +555,7 @@ namespace
 			auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
 			std::vector<DObject*> Objects;
 			for (const auto& Target : Args.Assets) Objects.push_back(Args.LoadAsset(Target));
-			const bool Opened = AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(), Args, Objects);
+			const bool Opened = AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, Args, Objects);
 			return Opened ? EAssetCommandResult::Handled : EAssetCommandResult::Unhandled;
 		};
 		std::vector<FAssetOpenTarget> Targets;
@@ -671,32 +671,16 @@ namespace
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, StartupLevelObservationUsesActualWorldRegardlessOfDeferredDocuments)
+	TEST_F(FAssetEditorLifecycleTests, StartupLevelObservationRequiresAnActualWorld)
 	{
-		auto* EditorInstance = Open({Asset("ExistingDocument")});
-		ASSERT_NE(nullptr, EditorInstance);
-		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit());
-		const auto Documents = Toolkit->GetDocumentManager();
-		const auto Original = Documents->GetDocuments().front();
 		auto* Level = NewObject<DLevel>(Package.Get(), "InitialLevel");
 		FSoftObjectPath Path;
 		ASSERT_TRUE(FSoftObjectPath::TryCreate(Level->GetObjectPath(), Path));
 		FEditorEngineTestAccess::SetInitialLevelPath(*Host, Path);
 		FEditorEngineTestAccess::SetStartupState(*Host, EHostStartupState::Ready);
-		Toolkit->bDeferOpen = true;
-		const auto Deferred = Documents->OpenDocument({.ToolkitId = Toolkit->GetToolkitId(),
-			.DocumentKey = Original.DocumentKey, .ResourceId = Path.ToString(), .Label = "Initial Level"});
-		ASSERT_TRUE(Deferred.IsValid());
 		std::string Error;
-		// Generic deferred documents cannot impersonate a synchronous map load.
 		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(Error));
 		EXPECT_FALSE(Error.empty());
-		ASSERT_TRUE(Documents->CompleteDeferredDocumentOpen(Deferred, false));
-		EXPECT_EQ(EHostStartupState::Failed, Host->GetStartupCompletion(Error));
-		EXPECT_FALSE(Error.empty());
-		Toolkit->bDeferOpen = false;
-		ASSERT_TRUE(Documents->OpenDocument({.ToolkitId = Toolkit->GetToolkitId(),
-			.DocumentKey = Original.DocumentKey, .ResourceId = Path.ToString(), .Label = "Initial Level"}).IsValid());
 		auto* World = NewObject<DWorld>(Host.Get(), "InitialWorld");
 		World->SetWorldType(EWorldType::Editor);
 		World->InitializeSubsystems();
@@ -1064,11 +1048,10 @@ namespace
 		IO.DeltaTime = 1.0f / 60;
 		IO.Fonts->Build();
 		FTabManager Tabs;
-		Tabs.RequestFocus(EditorInstance->GetDocumentManager()->GetDocuments().front().Id);
+		Tabs.RequestFocus(*Toolkit->GetActiveAsset());
 		std::vector<std::string> Events;
 		ImGui::NewFrame();
-		Tabs.DrawDocuments(*EditorInstance->GetDocumentManager(), Toolkit->GetToolkitId(),
-			Toolkit->GetPresentationRootKey("VisibilityTest"), [](const auto&) { return true; },
+		Tabs.DrawAssets(*Toolkit, Toolkit->GetPresentationRootKey("VisibilityTest"),
 			[&](const auto&) { Events.emplace_back("draw"); },
 			[&](const auto&, bool bVisible) { Events.emplace_back(bVisible ? "visible" : "hidden"); });
 		ImGui::Render();
@@ -1104,8 +1087,8 @@ namespace
 		{
 		public:
 			explicit FRejectingToolkit(std::weak_ptr<IToolkitHost>& InHost) : ObservedHost(InHost) {}
-			auto OpenDocument(const FEditorDocument&) -> EDocumentOpenResult override
-			{ ObservedHost = GetToolkitHost(); return EDocumentOpenResult::Rejected; }
+			auto OnOpenAsset(DObject&) -> bool override
+			{ ObservedHost = GetToolkitHost(); return false; }
 			std::weak_ptr<IToolkitHost>& ObservedHost;
 		};
 		std::weak_ptr<IToolkitHost> UnusedHost;
@@ -1127,11 +1110,11 @@ namespace
 		const auto Direct = std::make_shared<FReadOnlyDirectTestToolkit>();
 		ASSERT_EQ(Reflected->GetToolkit()->GetToolkitId(), Direct->GetToolkitId());
 		const std::vector<DObject*> Assets{Object};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Direct, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Direct,
 			{.AssetEditors = AssetEditorSubsystem}, Assets));
 		EXPECT_EQ(nullptr, Open({Object}));
 		const auto Duplicate = std::make_shared<FReadOnlyDirectTestToolkit>();
-		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Duplicate, std::make_shared<FEditorDocumentManager>(),
+		EXPECT_FALSE(AssetEditorSubsystem->InitializeDirectToolkit(Duplicate,
 			{.AssetEditors = AssetEditorSubsystem}, Assets));
 		EXPECT_EQ(2u, FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size());
 	}
@@ -1145,15 +1128,14 @@ namespace
 		const auto First = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Group->GetToolkit());
 		const auto Second = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Single->GetToolkit());
 		FTabManager FirstTabs, SecondTabs;
-		auto Configure = [](DAssetEditor& EditorInstance, FLifecycleTestToolkit& Toolkit, FTabManager& Tabs) {
-			Toolkit.Drawing = [&EditorInstance, &Toolkit, &Tabs] {
-				return Tabs.DrawDocuments(*EditorInstance.GetDocumentManager(), Toolkit.GetToolkitId(),
-					Toolkit.GetPresentationRootKey("LifecycleTest"), [](const auto&) { return true; },
-					[](const auto&) { ImGui::TextUnformatted("Document content"); });
+		auto Configure = [](FLifecycleTestToolkit& Toolkit, FTabManager& Tabs) {
+			Toolkit.Drawing = [&Toolkit, &Tabs] {
+				return Tabs.DrawAssets(Toolkit, Toolkit.GetPresentationRootKey("LifecycleTest"),
+					[](const auto&) { ImGui::TextUnformatted("Asset content"); }, {});
 			};
 		};
-		Configure(*Group, *First, FirstTabs);
-		Configure(*Single, *Second, SecondTabs);
+		Configure(*First, FirstTabs);
+		Configure(*Second, SecondTabs);
 		int FirstPanels = 0, SecondPanels = 0;
 		auto FirstPanel = First->RegisterUIExtension({.Panels = {{"Details", "Details", [&] { ++FirstPanels; }}}});
 		auto SecondPanel = Second->RegisterUIExtension({.Panels = {{"Details", "Details", [&] { ++SecondPanels; }}}});
@@ -1243,7 +1225,7 @@ namespace
 			EXPECT_EQ(Other.Get(), GetTransactionEditor());
 		}
 		EXPECT_EQ(ProcessEditor, GetTransactionEditor());
-		FEditableAssetDocumentModel Documents;
+		FAssetEditorSession Documents;
 		Documents.BindEditor(nullptr);
 		EXPECT_EQ(nullptr, Documents.GetEditor());
 		EXPECT_FALSE(Documents.CanUndo());
@@ -1259,8 +1241,8 @@ namespace
 		ASSERT_NE(nullptr, First);
 		ASSERT_NE(nullptr, Second);
 		EXPECT_NE(First, Second);
-		EXPECT_NE(First->GetDocumentManager(), Second->GetDocumentManager());
-		EXPECT_NE(First->GetDocumentManager()->GetDocuments().front().Id, Second->GetDocumentManager()->GetDocuments().front().Id);
+		EXPECT_NE(First->GetToolkit(), Second->GetToolkit());
+		EXPECT_NE(First->GetInstanceId(), Second->GetInstanceId());
 		EXPECT_EQ(2u, AssetEditorSubsystem->GetAllOpenEditors().size());
 		EXPECT_EQ(First, AssetEditorSubsystem->FindEditorForAsset(FirstAsset, false));
 		EXPECT_EQ(Second, AssetEditorSubsystem->FindEditorForAsset(SecondAsset, false));
@@ -1296,39 +1278,51 @@ namespace
 		EXPECT_FALSE(Toolkit->SaveActiveDocument());
 		EXPECT_FALSE(Toolkit->CanUndo());
 		EXPECT_FALSE(Toolkit->Undo());
-		EXPECT_FALSE(Toolkit->SaveDocument(EditorInstance->GetDocumentManager()->GetDocuments().front()));
-		EXPECT_FALSE(Toolkit->DiscardDocument(EditorInstance->GetDocumentManager()->GetDocuments().front()));
+		EXPECT_FALSE(Toolkit->SaveAsset(*Toolkit->GetActiveAsset()));
+		EXPECT_FALSE(Toolkit->DiscardAsset(*Toolkit->GetActiveAsset()));
 		EXPECT_EQ(0, Toolkit->Saves);
 		EXPECT_EQ(0, Toolkit->Undos);
 		EXPECT_TRUE(EditorInstance->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, HeadlessEditorTickRefreshesDocumentsOnceAndClosesEmptyEditors)
+	TEST_F(FAssetEditorLifecycleTests, LastAssetClosesItsToolkitAndDirtyQueriesUseCurrentState)
 	{
-		auto* EditorInstance = Open({Asset("HeadlessRefresh")});
+		auto* Object = Asset("HeadlessAsset");
+		auto* EditorInstance = Open({Object});
 		ASSERT_NE(nullptr, EditorInstance);
 		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit());
-		const auto Documents = EditorInstance->GetDocumentManager();
-		int Queries = 0;
-		Toolkit->DirtyQuery = [&] { ++Queries; };
 		Toolkit->bDirty = true;
-		TickHost();
-		EXPECT_EQ(1, Queries);
-		ASSERT_EQ(1u, Documents->GetDocuments().size());
-		EXPECT_TRUE(Documents->GetDocuments().front().bDirty);
+		EXPECT_TRUE(Toolkit->IsAssetDirty(*Object));
 		Toolkit->bDirty = false;
-		TickHost();
-		EXPECT_EQ(2, Queries);
-		EXPECT_FALSE(Documents->GetDocuments().front().bDirty);
-		ASSERT_EQ(EDocumentCloseResult::Closed, Documents->RequestCloseDocument(Documents->GetDocuments().front().Id));
-		EXPECT_FALSE(EditorInstance->IsClosed());
-		TickHost();
+		EXPECT_FALSE(Toolkit->IsAssetDirty(*Object));
+		ASSERT_EQ(EAssetEditorCloseResult::Closed, Toolkit->RequestCloseAsset(*Object));
 		EXPECT_TRUE(EditorInstance->IsClosed());
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, ShellObservesRefreshedDocumentsWithoutAdvancingEditorsAgain)
+	TEST_F(FAssetEditorLifecycleTests, ExitSaveTraversesGroupedAssetsWithoutClosingTheToolkit)
+	{
+		auto* First = Asset("ExitFirst");
+		auto* Second = Asset("ExitSecond");
+		auto* Editor = Open({First, Second});
+		ASSERT_NE(nullptr, Editor);
+		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Editor->GetToolkit());
+		Toolkit->DirtyAssets = {FObjectKey(First), FObjectKey(Second)};
+		Toolkit->bCanDeactivate = false;
+		EXPECT_FALSE(Toolkit->PrepareForExit());
+		Toolkit->bCanDeactivate = true;
+		Toolkit->bSaveSucceeds = false;
+		EXPECT_FALSE(Toolkit->SaveForExit());
+		EXPECT_EQ(Toolkit->GetUnsavedChanges().size(), 2u);
+		Toolkit->bSaveSucceeds = true;
+		EXPECT_TRUE(Toolkit->SaveForExit());
+		EXPECT_TRUE(Toolkit->GetUnsavedChanges().empty());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), (std::vector<DObject*>{First, Second}));
+		EXPECT_TRUE(Toolkit->IsEditorOpen());
+	}
+
+	TEST_F(FAssetEditorLifecycleTests, ShellQueriesCurrentDirtyAssetsWithoutTickPolling)
 	{
 		class FEditorFrame final : public IMainFrameModule
 		{
@@ -1343,7 +1337,7 @@ namespace
 		auto* EditorInstance = Open({Asset("ShellRefresh")});
 		ASSERT_NE(nullptr, EditorInstance);
 		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit());
-		const auto Documents = EditorInstance->GetDocumentManager();
+
 		int Queries = 0;
 		Toolkit->DirtyQuery = [&] { ++Queries; };
 		Toolkit->bDirty = true;
@@ -1351,8 +1345,8 @@ namespace
 		int ShellTicks = 0;
 		Frame.Observe = [&] {
 			++ShellTicks;
-			EXPECT_EQ(1, Queries);
-			EXPECT_TRUE(Documents->GetDocuments().front().bDirty);
+			EXPECT_EQ(0, Queries);
+			EXPECT_EQ(1u, Toolkit->GetUnsavedChanges().size());
 		};
 		auto* Previous = FEditorEngineTestAccess::BindMainFrameModule(*Host, &Frame);
 		TickHost();
@@ -1362,7 +1356,7 @@ namespace
 		Toolkit->DirtyQuery = {};
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, HeadlessRefreshShutdownStopsUpdatesUntilOwnerTeardown)
+	TEST_F(FAssetEditorLifecycleTests, DirtyQueryCanRequestShutdownWithoutClosingEditors)
 	{
 		auto* First = Open({Asset("RefreshShutdown")});
 		auto* Later = Open({Asset("AfterRefreshShutdown")});
@@ -1378,13 +1372,12 @@ namespace
 			EXPECT_EQ(AssetEditorSubsystem, Host->GetEditorSubsystem<DAssetEditorSubsystem>());
 			EXPECT_FALSE(First->IsClosed());
 		};
-		TickHost();
+		EXPECT_EQ(1u, Toolkit->GetUnsavedChanges().size());
 		EXPECT_TRUE(Host->IsShutdownRequested());
 		EXPECT_TRUE(IsGarbageCollectionRequested());
 		EXPECT_EQ(0, LaterQueries);
 		EXPECT_EQ(AssetEditorSubsystem, Host->GetEditorSubsystem<DAssetEditorSubsystem>());
 		EXPECT_FALSE(First->IsClosed());
-		EXPECT_TRUE(First->GetDocumentManager()->GetDocuments().front().bDirty); // The admitted refresh completed.
 		Toolkit->DirtyQuery = {};
 		LaterToolkit->DirtyQuery = {};
 		Host->PreExit();
@@ -1398,9 +1391,9 @@ namespace
 		auto* Other = Open({Asset("OtherClose")});
 		ASSERT_NE(nullptr, First); ASSERT_NE(nullptr, Other);
 		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(First->GetToolkit());
-		Toolkit->CloseRequest = [&](const FEditorDocument&) {
+		Toolkit->CloseRequest = [&](DObject&) {
 			EXPECT_TRUE(Other->CloseWindow(EAssetEditorCloseReason::CloseOtherEditors));
-			return EDocumentCloseResult::Closed;
+			return EAssetEditorCloseResult::Closed;
 		};
 		EXPECT_TRUE(First->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
 		EXPECT_TRUE(First->IsClosed());
@@ -1417,17 +1410,17 @@ namespace
 		const auto LaterToolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Later->GetToolkit());
 		Toolkit->bDirty = true;
 		ASSERT_FALSE(First->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
-		const auto Documents = First->GetDocumentManager();
-		ASSERT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
-		ASSERT_EQ(2u, Documents->GetDocuments().size());
+
+		ASSERT_EQ(EAssetEditorCloseResult::Closed, ResolveClose(EAssetEditorCloseResponse::Discard));
+		ASSERT_EQ(2u, Toolkit->GetEditingObjects().size());
 		int CloseCalls = 0;
 		int LaterQueries = 0;
 		LaterToolkit->DirtyQuery = [&] { ++LaterQueries; };
-		Toolkit->CloseRequest = [&](const FEditorDocument&) {
+		Toolkit->CloseRequest = [&](DObject&) {
 			++CloseCalls;
 			Host->RequestShutdown();
 			EXPECT_EQ(AssetEditorSubsystem, Host->GetEditorSubsystem<DAssetEditorSubsystem>());
-			return EDocumentCloseResult::Closed;
+			return EAssetEditorCloseResult::Closed;
 		};
 		TickHost();
 		EXPECT_TRUE(Host->IsShutdownRequested());
@@ -1470,19 +1463,19 @@ namespace
 	TEST_F(FAssetEditorLifecycleTests, DirectPendingCloseCancellationStopsWholeWindowContinuation)
 	{
 		auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
-		auto Documents = std::make_shared<FEditorDocumentManager>();
+
 		std::vector<DObject*> Assets{Asset("DirectA"), Asset("DirectB")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, Documents, {.AssetEditors = AssetEditorSubsystem}, Assets));
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, {.AssetEditors = AssetEditorSubsystem}, Assets));
 		int Requests = 0;
-		Toolkit->CloseRequest = [&](const FEditorDocument&) {
-			++Requests; return EDocumentCloseResult::PendingConfirmation;
+		Toolkit->CloseRequest = [&](DObject&) {
+			++Requests; return EAssetEditorCloseResult::PendingConfirmation;
 		};
 		EXPECT_FALSE(Toolkit->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
 		EXPECT_EQ(1, Requests);
-		(void)Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel);
+		(void)ResolveClose(EAssetEditorCloseResponse::Cancel);
 		TickHost();
 		EXPECT_EQ(1, Requests);
-		EXPECT_EQ(2u, Documents->GetDocuments().size());
+		EXPECT_EQ(2u, Toolkit->GetEditingObjects().size());
 		EXPECT_TRUE(FToolkitManager::Get().Contains(*Toolkit));
 		Toolkit->CloseRequest = {};
 		EXPECT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
@@ -1507,17 +1500,17 @@ namespace
 		ASSERT_TRUE(Prompt);
 		EXPECT_FALSE(EditorInstance->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
 		EXPECT_EQ(1, Requests);
-		const auto Documents = EditorInstance->GetDocumentManager();
-		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation,
-			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EDocumentCloseResponse::Save));
-		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation,
-			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EDocumentCloseResponse::Discard));
+
+		EXPECT_EQ(EAssetEditorCloseResult::PendingConfirmation,
+			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EAssetEditorCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::PendingConfirmation,
+			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EAssetEditorCloseResponse::Discard));
 		ASSERT_TRUE(AssetEditorSubsystem->GetPendingClosePrompt());
 		EXPECT_EQ(Prompt->RequestId, AssetEditorSubsystem->GetPendingClosePrompt()->RequestId);
 		EXPECT_EQ(1u, Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).size());
-		EXPECT_EQ(1u, Documents->GetDocuments().size());
+		EXPECT_EQ(1u, Toolkit->GetEditingObjects().size());
 		Toolkit->bSaveSucceeds = true;
-		EXPECT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::Closed, ResolveClose(EAssetEditorCloseResponse::Save));
 		TickHost();
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
@@ -1531,7 +1524,7 @@ namespace
 		auto* Editor = Open({Object});
 		ASSERT_NE(nullptr, Editor);
 		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(Editor->GetToolkit());
-		const auto Documents = Editor->GetDocumentManager();
+
 		Toolkit->bDirty = true;
 		EXPECT_FALSE(Editor->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
 		const auto Prompt = AssetEditorSubsystem->GetPendingClosePrompt();
@@ -1539,10 +1532,10 @@ namespace
 		EXPECT_GT(Private::GetStrongObjectReferenceCount(Key), Roots);
 		FToolkitManager::Get().CloseToolkit(*Toolkit);
 		EXPECT_TRUE(Toolkit->IsClosed());
-		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		EXPECT_TRUE(Toolkit->GetEditingObjects().empty());
 		EXPECT_EQ(Roots, Private::GetStrongObjectReferenceCount(Key));
 		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
-		EXPECT_EQ(EDocumentCloseResult::Rejected, AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EDocumentCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::Rejected, AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EAssetEditorCloseResponse::Save));
 		EXPECT_EQ(1, Toolkit->Closes);
 	}
 
@@ -1551,25 +1544,25 @@ namespace
 		auto* EditorInstance = Open({Asset("GroupA"), Asset("GroupB")});
 		ASSERT_NE(nullptr, EditorInstance);
 		const auto Toolkit = std::dynamic_pointer_cast<FLifecycleTestToolkit>(EditorInstance->GetToolkit());
-		const auto Documents = EditorInstance->GetDocumentManager();
-		for (const auto& Document : Documents->GetDocuments()) Toolkit->DirtyDocuments.insert(Document.Id.Value);
+
+		for (auto* Asset : Toolkit->GetEditingObjects()) Toolkit->DirtyAssets.emplace(Asset);
 		EXPECT_FALSE(EditorInstance->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
-		const auto Sequence = Documents->GetPendingCloseSequence();
+		const auto Sequence = AssetEditorSubsystem->GetPendingClosePrompt()->RequestId;
 		Toolkit->bSaveSucceeds = false;
-		EXPECT_EQ(EDocumentCloseResult::PendingConfirmation, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::PendingConfirmation, ResolveClose(EAssetEditorCloseResponse::Save));
 		TickHost();
-		EXPECT_EQ(Sequence, Documents->GetPendingCloseSequence());
+		EXPECT_EQ(Sequence, AssetEditorSubsystem->GetPendingClosePrompt()->RequestId);
 		Toolkit->bSaveSucceeds = true;
-		EXPECT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::Closed, ResolveClose(EAssetEditorCloseResponse::Save));
 		TickHost();
-		ASSERT_NE(nullptr, Documents->GetPendingCloseDocument());
-		EXPECT_EQ(1u, Documents->GetDocuments().size());
-		EXPECT_EQ(EDocumentCloseResult::Cancelled, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel));
+		ASSERT_TRUE(AssetEditorSubsystem->GetPendingClosePrompt());
+		EXPECT_EQ(1u, Toolkit->GetEditingObjects().size());
+		EXPECT_EQ(EAssetEditorCloseResult::Cancelled, ResolveClose(EAssetEditorCloseResponse::Cancel));
 		TickHost();
-		EXPECT_EQ(nullptr, Documents->GetPendingCloseDocument());
+		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
 		EXPECT_FALSE(EditorInstance->IsClosed());
 		EXPECT_FALSE(EditorInstance->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors));
-		EXPECT_EQ(EDocumentCloseResult::Closed, Documents->ResolvePendingDocumentClose(EDocumentCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::Closed, ResolveClose(EAssetEditorCloseResponse::Save));
 		TickHost();
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 	}
@@ -1626,8 +1619,8 @@ namespace
 		EXPECT_FALSE(ToolkitHost->RequestClose());
 		EXPECT_TRUE(ToolkitHost->IsAvailable());
 		EXPECT_FALSE(EditorInstance->IsClosed());
-		EXPECT_EQ(EDocumentCloseResult::Closed,
-			EditorInstance->GetDocumentManager()->ResolvePendingDocumentClose(EDocumentCloseResponse::Discard));
+		EXPECT_EQ(EAssetEditorCloseResult::Closed,
+			ResolveClose(EAssetEditorCloseResponse::Discard));
 		TickHost();
 		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
 		EXPECT_TRUE(ToolkitHost->RequestClose());
@@ -1705,12 +1698,12 @@ namespace
 		ASSERT_TRUE(First);
 		EXPECT_EQ(B->GetInstanceId(), First->WindowId);
 		EXPECT_FALSE(B->GetToolkit()->PrepareForExit());
-		EXPECT_EQ(EDocumentCloseResult::Cancelled, AssetEditorSubsystem->ResolvePendingClose(First->RequestId, EDocumentCloseResponse::Cancel));
+		EXPECT_EQ(EAssetEditorCloseResult::Cancelled, AssetEditorSubsystem->ResolvePendingClose(First->RequestId, EAssetEditorCloseResponse::Cancel));
 		const auto Second = AssetEditorSubsystem->GetPendingClosePrompt();
 		ASSERT_TRUE(Second);
 		EXPECT_EQ(A->GetInstanceId(), Second->WindowId);
-		EXPECT_EQ(EDocumentCloseResult::Rejected, AssetEditorSubsystem->ResolvePendingClose(First->RequestId, EDocumentCloseResponse::Save));
-		EXPECT_EQ(EDocumentCloseResult::Closed, AssetEditorSubsystem->ResolvePendingClose(Second->RequestId, EDocumentCloseResponse::Discard));
+		EXPECT_EQ(EAssetEditorCloseResult::Rejected, AssetEditorSubsystem->ResolvePendingClose(First->RequestId, EAssetEditorCloseResponse::Save));
+		EXPECT_EQ(EAssetEditorCloseResult::Closed, AssetEditorSubsystem->ResolvePendingClose(Second->RequestId, EAssetEditorCloseResponse::Discard));
 		EXPECT_FALSE(AssetEditorSubsystem->GetPendingClosePrompt());
 	}
 
@@ -1739,14 +1732,14 @@ namespace
 	{
 		const auto Existing = std::make_shared<FReadOnlyDirectTestToolkit>();
 		const std::vector<DObject*> ExistingAssets{Asset("ExistingDirectScope")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Existing, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Existing,
 			{.AssetEditors = AssetEditorSubsystem}, ExistingAssets));
 		const auto Created = std::make_shared<FReadOnlyDirectTestToolkit>();
 		{
 			Testing::FScopedAssetEditorTestHost Scope;
 			ASSERT_EQ(Scope.GetAssetEditorSubsystem(), AssetEditorSubsystem);
 			const std::vector<DObject*> CreatedAssets{Asset("CreatedDirectScope")};
-			ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Created, std::make_shared<FEditorDocumentManager>(),
+			ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Created,
 				{.AssetEditors = AssetEditorSubsystem}, CreatedAssets));
 			EXPECT_EQ(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size(), 2u);
 		}
@@ -1759,20 +1752,20 @@ namespace
 	{
 		const std::vector<DObject*> Assets{Asset("DirectTransfer")};
 		const auto First = std::make_shared<FReadOnlyDirectTestToolkit>();
-		const auto Documents = std::make_shared<FEditorDocumentManager>();
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(First, Documents, {.AssetEditors = AssetEditorSubsystem}, Assets));
+
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(First, {.AssetEditors = AssetEditorSubsystem}, Assets));
 		const auto Source = First->GetToolkitHost();
 		const std::string Identity(First->GetInstanceId());
 		auto Destination = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
 		const auto Other = std::make_shared<FReadOnlyDirectTestToolkit>();
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Other, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Other,
 			{.AssetEditors = AssetEditorSubsystem, .ToolkitMode = EToolkitMode::WorldCentric, .Host = Destination}, Assets));
 		EXPECT_FALSE(First->TransferToHost(Destination));
 		EXPECT_EQ(First->GetToolkitHost(), Source);
 		FToolkitManager::Get().CloseToolkit(*Other);
 		ASSERT_TRUE(First->TransferToHost(Destination));
 		EXPECT_EQ(First->GetToolkitMode(), EToolkitMode::WorldCentric);
-		EXPECT_EQ(First->GetDocumentManager(), Documents);
+		EXPECT_EQ(First->GetEditingObjects(), Assets);
 		EXPECT_EQ(First->GetInstanceId(), Identity);
 		EXPECT_EQ(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size(), 1u);
 		EXPECT_EQ(AssetEditorSubsystem->GetAllOpenEditors().front(), First.get());
@@ -1789,7 +1782,7 @@ namespace
 		ASSERT_TRUE(Registration);
 		const auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
 		const std::vector<DObject*> Assets{Asset("DirectTransferPolicy")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
 			{.AssetEditors = AssetEditorSubsystem}, Assets));
 		const auto Source = Toolkit->GetToolkitHost();
 		const auto Standalone = std::make_shared<FNonWindowToolkitHost>();
@@ -1803,7 +1796,7 @@ namespace
 	{
 		const auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
 		const std::vector<DObject*> Assets{Asset("TransferCallbackClose")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit, std::make_shared<FEditorDocumentManager>(),
+		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
 			{.AssetEditors = AssetEditorSubsystem}, Assets));
 		const auto Destination = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
 		int Changes = 0;
@@ -1858,14 +1851,14 @@ namespace
 		auto* EditorInstance = Open({Object});
 		ASSERT_NE(nullptr, EditorInstance);
 		const auto Toolkit = EditorInstance->GetToolkit();
-		const auto Documents = EditorInstance->GetDocumentManager();
+
 		const auto OriginalKey = Toolkit->GetPresentationRootKey("Editor");
 		const auto WorldHost = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
 		ASSERT_TRUE(EditorInstance->GetToolkit()->TransferToHost(WorldHost));
 		EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstance->GetToolkitMode());
 		EXPECT_EQ(WorldHost, EditorInstance->GetToolkitHost());
 		EXPECT_EQ(Toolkit, EditorInstance->GetToolkit());
-		EXPECT_EQ(Documents, EditorInstance->GetDocumentManager());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Object});
 		EXPECT_EQ(OriginalKey, Toolkit->GetPresentationRootKey("Editor"));
 		auto* Other = Open({Object});
 		ASSERT_NE(nullptr, Other);

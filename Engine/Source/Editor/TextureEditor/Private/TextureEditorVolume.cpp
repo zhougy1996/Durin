@@ -6,7 +6,6 @@
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Diagnostics/TexturePayloadInspection.h"
-#include "Documents/EditorDocumentManager.h"
 #include "MonaCoreGlobals.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
@@ -66,8 +65,7 @@ namespace Durin::TextureEditor
 		}
 	}
 
-	auto FTextureEditorToolkit::DrawDocument(const FEditorDocument& Document,
-		DVolumeTexture* Texture) -> void
+	auto FTextureEditorToolkit::DrawDocument(DVolumeTexture* Texture) -> void
 	{
 		if (!Texture) return;
 		ImGui::BeginDisabled(IsReadOnly());
@@ -79,17 +77,17 @@ namespace Durin::TextureEditor
 		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		ImGui::TextDisabled("%s", Document.ResourceId.c_str());
+		ImGui::TextDisabled("%s", Texture->GetObjectPath().c_str());
 		ImGui::Separator();
 		const ImVec2 Available = ImGui::GetContentRegionAvail();
 		if (ImGui::BeginChild("VolumePreviewPane", ImVec2(Available.x * 0.68f, Available.y), ImGuiChildFlags_Borders))
-			DrawPreview(Document.ResourceId, Texture);
+			DrawPreview(Texture->GetObjectPath(), Texture);
 		ImGui::EndChild();
 		ImGui::SameLine();
 		if (ImGui::BeginChild("VolumeDetailsPane", ImVec2(0.0f, Available.y), ImGuiChildFlags_Borders))
 			DrawDetails(Texture);
 		ImGui::EndChild();
-		if (Documents.GetActiveResourceId() == Document.ResourceId)
+		if (GetActiveAsset() == Texture)
 			MonaImGui::ErrorDialog("Volume Texture Editor Error", ErrorMessage);
 	}
 

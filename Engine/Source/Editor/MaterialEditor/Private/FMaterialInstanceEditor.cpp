@@ -7,7 +7,6 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "DObject/Package.h"
-#include "Documents/EditorDocumentManager.h"
 #include "MaterialEditorUI.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/ObjectCacheContext.h"
@@ -159,9 +158,8 @@ namespace Durin::MaterialEditor
 		bool bDisabled = false;
 	};
 
-	FMaterialInstanceEditor::FMaterialInstanceEditor(FEditorDocumentManager& InManager)
-		: Manager(InManager)
-		, ProfileSettings(std::make_unique<FMaterialEditorProfileSettings>())
+	FMaterialInstanceEditor::FMaterialInstanceEditor()
+		: ProfileSettings(std::make_unique<FMaterialEditorProfileSettings>())
 		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
 	{
 	}
@@ -181,19 +179,16 @@ namespace Durin::MaterialEditor
 		return Workspace::LayoutVersion;
 	}
 
-	auto FMaterialInstanceEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
+	auto FMaterialInstanceEditor::OnOpenAsset(DObject& Object) -> bool
 	{
-		if (IsValid(Source.Get()))
-			return Source->GetObjectPath() == Document.ResourceId ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
-		FSoftObjectPath Path;
-		if (!FSoftObjectPath::TryCreate(Document.ResourceId, Path)) return EDocumentOpenResult::Rejected;
-		Source = LoadObject<DMaterialInstance>(Path);
-		return IsValid(Source.Get()) ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
+		if (Source) return false;
+		Source = Cast<DMaterialInstance>(&Object);
+		return IsValid(Source.Get());
 	}
 
-	auto FMaterialInstanceEditor::ActivateDocument(const FEditorDocument& Document) -> void
+	auto FMaterialInstanceEditor::OnActivateAsset(DObject& Object) -> void
 	{
-		Documents.Activate(Document, Source.Get());
+		EditorSession.Activate(&Object);
 	}
 
 	auto FMaterialInstanceEditor::RequestDeactivate() -> bool
@@ -201,37 +196,32 @@ namespace Durin::MaterialEditor
 		return FinishActivePropertyEdit(true);
 	}
 
-	auto FMaterialInstanceEditor::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
+	auto FMaterialInstanceEditor::OnCloseAsset(DObject&) -> void
 	{
-		if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
-		Documents.Close(Document.ResourceId);
-		Source = nullptr;
+		Source.Reset();
 		ReleasePreview();
-		return EDocumentCloseResult::Closed;
 	}
 
-	auto FMaterialInstanceEditor::OnIsDocumentDirty(const FEditorDocument&) const -> bool
+	auto FMaterialInstanceEditor::OnIsAssetDirty(const DObject& Object) const -> bool
 	{
-		return Documents.IsDirty(Source.Get());
+		return EditorSession.IsDirty(&Object);
 	}
 
 	auto FMaterialInstanceEditor::OnCanSaveActiveDocument() const -> bool
 	{
-		return Documents.CanSave(Source.Get());
+		return EditorSession.CanSave(Source.Get());
 	}
 
 	auto FMaterialInstanceEditor::OnSaveActiveDocument() -> bool
 	{
 		return FinishActivePropertyEdit(false) && IsEditorOpen()
-			&& Documents.Save(Source.Get(), {}, [this](std::string Message) { SetError(std::move(Message)); });
+			&& EditorSession.Save(Source.Get(), {}, [this](std::string Message) { SetError(std::move(Message)); });
 	}
 
-	auto FMaterialInstanceEditor::OnDiscardDocument(const FEditorDocument&) -> bool
+	auto FMaterialInstanceEditor::OnDiscardAsset(DObject& Object) -> bool
 	{
-		return RequestDeactivate() && Documents.Discard(Source.Get(), {},
-			[this](DPackage* Previous, DPackage* Replacement) { Manager.NotifyPackageReloaded(Previous, Replacement); },
-			[this](std::string Message) { SetError(std::move(Message)); }, &Manager);
+		return RequestDeactivate() && EditorSession.Discard(&Object, {},
+			[this](std::string Message) { SetError(std::move(Message)); });
 	}
 
 	auto FMaterialInstanceEditor::GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>>
@@ -292,25 +282,17 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialInstanceEditor::OnPackageReloaded(DPackage*, DPackage* Replacement) -> void
 	{
-		const auto* Active = Manager.GetActiveDocument();
-		FSoftObjectPath Path;
-		if (!Active || !FSoftObjectPath::TryCreate(Active->ResourceId, Path)
-			|| Path.GetPackagePath() != Replacement->GetPackagePathIdentity() || !RequestDeactivate()) return;
-		check(!Source || Source->GetPackage() == Replacement);
+		auto* Instance = Source.Get();
+		if (!Instance || Instance->GetPackage() != Replacement || !RequestDeactivate()) return;
 		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
 		ReleasePreview();
-		ActivateDocument(*Active);
-	}
-
-	auto FMaterialInstanceEditor::OnResourceIdRemapped(std::string_view Previous, std::string_view Current) -> void
-	{
-		Documents.RemapResourceId(Previous, Current);
+		OnActivateAsset(*Instance);
 	}
 
 	auto FMaterialInstanceEditor::PostInitAssetEditor() -> void
 	{
 		FBaseAssetToolkit::PostInitAssetEditor();
-		if (auto* Editors = GetAssetEditorSubsystem()) Documents.BindEditor(Editors->GetEditor());
+		if (auto* Editors = GetAssetEditorSubsystem()) EditorSession.BindEditor(Editors->GetEditor());
 		ProfileSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
 		SettingsPage = FEditorSettingsPageRegistration({
 			.Id = GetPreferencesPageId(),
@@ -372,16 +354,15 @@ namespace Durin::MaterialEditor
 			CloseWindow(EAssetEditorCloseReason::AssetUnloadingOrInvalid);
 			return false;
 		}
-		return Documents.GetTabManager().DrawDocuments(Manager, Workspace::Type, GetPresentationRootKey(Workspace::RootKey),
-			[this](const auto&) { return IsValid(Source.Get()); },
-			[this](const auto& Document) {
-				const TStrongObjectPtr<DMaterialInstance> DrawingSource(Source.Get());
-				if (DrawingSource) DrawDocument(Document, *DrawingSource);
+		return DrawAssetTabs(Workspace::RootKey,
+			[this](DObject& Object) {
+				const TStrongObjectPtr<DMaterialInstance> DrawingSource(Cast<DMaterialInstance>(&Object));
+				if (DrawingSource) DrawDocument(*DrawingSource);
 			},
-			[this](const auto& Document, bool bVisible) {
+			[this](DObject&, bool bVisible) {
 				if (bVisible) return;
 				if (Preview) Preview->SetVisible(false);
-				const auto DockType = Workspace::MakeDocumentDockType(Document);
+				const auto DockType = Workspace::MakeDockType(GetPresentationRootKey("Document"));
 				if (ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::LayoutVersion)))
 					TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion, {0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
 			});
@@ -424,19 +405,19 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto FMaterialInstanceEditor::DrawDocument(const FEditorDocument& Document, DMaterialInstance& Instance) -> void
+	auto FMaterialInstanceEditor::DrawDocument(DMaterialInstance& Instance) -> void
 	{
 		DrawToolbar(Instance);
 		if (!IsEditorOpen() || Source.Get() != &Instance) return;
 		ImGui::Spacing();
-		const auto DockType = Workspace::MakeDocumentDockType(Document);
+		const auto DockType = Workspace::MakeDockType(GetPresentationRootKey("Document"));
 		static constexpr std::string_view PanelIds[]{"Graph", "Preview", "Details", "Parameters", "Diagnostics"};
 		RestoreDockLayout("Document", DockType, Workspace::LayoutVersion, PanelIds);
 		const ImVec2 Size = ImGui::GetContentRegionAvail();
 		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
 		const bool bReset = std::exchange(bPendingLayoutReset, false);
 		if (bReset || !ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::LayoutVersion)))
-			Workspace::BuildDefaultLayout(Document, Size);
+			Workspace::BuildDefaultLayout(DockType, Size);
 		TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size);
 
 		const auto Panel = [&](const char* Label, const char* Id, bool* Open, auto Draw) {
@@ -457,7 +438,7 @@ namespace Durin::MaterialEditor
 		}) && Preview) Preview->SetVisible(false);
 		Panel("Details", "Details", &ProfileSettings->bDetailsVisible, [&] {
 			MonaImGui::TextName(Instance.GetFName());
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Document.ResourceId.c_str());
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Instance.GetObjectPath().c_str());
 			ImGui::TextDisabled("Material Instance");
 			ImGui::Spacing();
 			DrawMaterialInstance(&Instance);

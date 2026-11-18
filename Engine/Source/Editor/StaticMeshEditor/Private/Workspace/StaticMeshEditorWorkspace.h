@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 
-#include "Documents/EditorDocumentTypes.h"
+#include "Toolkits/AssetEditorTypes.h"
 
 namespace Durin::StaticMeshEditor::Workspace
 {

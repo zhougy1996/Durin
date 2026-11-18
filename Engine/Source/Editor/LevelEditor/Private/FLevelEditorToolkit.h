@@ -47,7 +47,6 @@ namespace Durin::LevelEditor
 		LEVELEDITOR_API ~FLevelEditorToolkit() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
-		auto UsesDocumentRecords() const -> bool override { return false; }
 		LEVELEDITOR_API auto GetEditorDisplayName() const -> std::string override;
 		auto GetLastOperationError() const -> std::string override { return EditorError; }
 		auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> override;

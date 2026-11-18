@@ -21,7 +21,6 @@
 #include "FMaterialEditor.h"
 #include "Widgets/MaterialEditingSession.h"
 #include "MaterialEditorModule.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Editor/AssetEditorTestHost.h"
 #include "Editor/AssetEditorTestQueries.h"
 #include "Modules/ModuleTestSupport.h"
@@ -375,14 +374,8 @@ TEST(FMaterialGraphInteractionTests, FailedCancelVetoesDocumentDeactivateDiscard
 	ASSERT_TRUE(Host.Open(Source->GetObjectPath(), DMaterial::StaticClass()->GetQualifiedName().ToString()));
 	const auto Editors = Testing::GetReflectedEditors(Host.GetAssetEditorSubsystem());
 	ASSERT_EQ(Editors.size(), 1u);
-	auto& Manager = *Editors.front()->GetDocumentManager();
-	const auto Tab = *Manager.GetActiveDocument();
 	const auto Toolkit = Editors.front()->GetToolkit();
 	auto& Editor = static_cast<FMaterialEditor&>(*Toolkit);
-	const auto RejectedId = Manager.OpenDocument({.ToolkitId = Toolkit->GetToolkitId(),
-		.DocumentKey = Second->GetObjectPath(), .ResourceId = Second->GetObjectPath(), .Label = "Second"});
-	ASSERT_FALSE(RejectedId.IsValid());
-	ASSERT_TRUE(Manager.ActivateDocument(Tab.Id));
 	TStrongObjectPtr<DMaterial> Preview(NewObject<DMaterial>(nullptr, NAME_None));
 	Preview->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	FMaterialParameterDefinition Definition;
@@ -400,34 +393,33 @@ TEST(FMaterialGraphInteractionTests, FailedCancelVetoesDocumentDeactivateDiscard
 	ASSERT_NE(Transactions, nullptr);
 	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, *Preview, Definition.Id, *Transactions);
 	ASSERT_TRUE(FMaterialGraphDocument(*Preview).DeleteParameter(Definition.Id, ETransactionMode::NotTransactable));
-	EXPECT_FALSE(Manager.RequestDeactivateActiveToolkit());
+	EXPECT_FALSE(Toolkit->RequestDeactivate());
 	FObjectReplacementMap ReplacementMap;
 	const std::array Replacements{
 		FObjectReplacementMap::FEntry{.Previous = Source->GetPackage(), .Replacement = Second->GetPackage()},
 		FObjectReplacementMap::FEntry{.Previous = Source, .Replacement = Second}};
 	ASSERT_TRUE(ReplacementMap.BuildFromObjects(Replacements));
-	auto Reload = Manager.CreateDocumentReloadParticipant();
+	auto Reload = Toolkit->CreateReloadParticipant();
 	const auto Prepared = Reload->Prepare(ReplacementMap);
 	EXPECT_FALSE(Prepared);
 	if (!Prepared) EXPECT_EQ(Prepared.error().Code, EObjectReplacementError::Busy);
 	Reload->Abort();
-	EXPECT_FALSE(Editor.OnDiscardDocument(Tab));
-	EXPECT_EQ(Manager.RequestCloseDocument(Tab.Id), EDocumentCloseResult::Rejected);
+	EXPECT_FALSE(Toolkit->DiscardAsset(*Source));
+	EXPECT_EQ(Toolkit->RequestCloseAsset(*Source), EAssetEditorCloseResult::Rejected);
 	EXPECT_FALSE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 	EXPECT_FALSE(Toolkit->IsClosed());
-	ASSERT_NE(Manager.GetActiveDocument(), nullptr);
-	EXPECT_EQ(Manager.GetActiveDocument()->Id, Tab.Id);
+	EXPECT_EQ(Source, Toolkit->GetActiveAsset());
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::HasCanvas(Editor));
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
 	Definition.Value = FMaterialParameterValue::MakeScalar(.75f);
 	ASSERT_TRUE(FMaterialGraphDocument(*Preview).CreateParameter(Definition, ETransactionMode::NotTransactable));
 	ImGui::EndFrame(); ImGui::NewFrame();
-	EXPECT_TRUE(Manager.RequestDeactivateActiveToolkit());
+	EXPECT_TRUE(Toolkit->RequestDeactivate());
 	EXPECT_TRUE(Reload->Prepare(ReplacementMap));
 	Reload->Abort();
 	EXPECT_FLOAT_EQ(Preview->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
 	EXPECT_FALSE(Transactions->CanUndo());
-	EXPECT_EQ(Manager.RequestCloseDocument(Tab.Id), EDocumentCloseResult::Closed);
+	EXPECT_EQ(Toolkit->RequestCloseAsset(*Source), EAssetEditorCloseResult::Closed);
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::HasCanvas(Editor));
 	ImGui::EndFrame();
 }
@@ -1716,10 +1708,10 @@ TEST(FMaterialGraphInteractionTests, DocumentDockLayoutsRemainIsolatedAndSurvive
 	IO.DisplaySize = {1600.0f, 1000.0f};
 	IO.DeltaTime = 1.0f / 60.0f;
 	IO.Fonts->Build();
-	const FEditorDocument Wide{.DocumentKey = "/Test/Wide"};
-	const FEditorDocument Narrow{.DocumentKey = "/Test/Narrow"};
-	const auto WideType = Workspace::MakeDocumentDockType(Wide);
-	const auto NarrowType = Workspace::MakeDocumentDockType(Narrow);
+	constexpr std::string_view Wide = "/Test/Wide";
+	constexpr std::string_view Narrow = "/Test/Narrow";
+	const auto WideType = Workspace::MakeDockType(Wide);
+	const auto NarrowType = Workspace::MakeDockType(Narrow);
 	const ImGuiID WideId = TabLayout::MakeDockSpaceId(WideType, Workspace::LayoutVersion);
 	const ImGuiID NarrowId = TabLayout::MakeDockSpaceId(NarrowType, Workspace::LayoutVersion);
 	EXPECT_NE(WideId, NarrowId);
@@ -1732,12 +1724,12 @@ TEST(FMaterialGraphInteractionTests, DocumentDockLayoutsRemainIsolatedAndSurvive
 		ImGui::NewFrame();
 		for (const auto* Document : {&Wide, &Narrow})
 		{
-			const auto DockType = Workspace::MakeDocumentDockType(*Document);
+			const auto DockType = Workspace::MakeDockType(*Document);
 			const bool bWide = Document == &Wide;
 			const ImVec2 Size = bWide ? ImVec2(1400.0f, 800.0f) : ImVec2(600.0f, 500.0f);
 			ImGui::SetNextWindowSize(Size);
 			ImGui::Begin(bWide ? "WideHost" : "NarrowHost");
-			if (Frame == 0) Workspace::BuildDefaultLayout(*Document, Size);
+			if (Frame == 0) Workspace::BuildDefaultLayout(DockType, Size);
 			TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size,
 				Frame == 2 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
 			if (Frame != 2)
