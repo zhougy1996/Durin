@@ -1,7 +1,7 @@
 #include "Tools/PIEToolset.h"
 #include "Tools/EditorToolService.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 
 namespace Durin
 {

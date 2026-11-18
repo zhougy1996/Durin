@@ -6,7 +6,7 @@ namespace Durin { class DEditorEngine; }
 
 #include "Panels/LevelEditorPanel.h"
 #include "Viewport/TransformGizmo.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "Widgets/MWidget.h"
 #include "Console/ConsoleCommand.h"
 
@@ -40,7 +40,7 @@ namespace Durin::LevelEditor
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
 	public:
-		explicit FSceneViewportPanel(DEditorEngine* Editor = nullptr);
+		explicit FSceneViewportPanel(DEditorEngine& Editor);
 		~FSceneViewportPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Scene Viewport"; }
@@ -89,7 +89,7 @@ namespace Durin::LevelEditor
 		std::shared_ptr<MViewport> CameraPreviewViewportWidget;
 		std::shared_ptr<FSceneViewport> CameraPreviewSceneViewport;
 		std::unique_ptr<FViewportToolbar> ViewportToolbar;
-		FEditorModeTools EditModeManager;
+		FEditorModeTools& EditModeManager;
 		bool bViewportHovered = false;
 		bool bInitialPresentationRequested = false;
 		bool bViewportFocused = false;

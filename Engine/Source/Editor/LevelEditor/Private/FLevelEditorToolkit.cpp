@@ -3,7 +3,7 @@
 #include "Asset/LoadErrors.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "FLevelEditorToolkit.h"
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetPicker.h"
@@ -80,9 +80,6 @@ namespace Durin::LevelEditor
 			WorkspaceSettings.Save(SceneViewportPanel);
 		}
 		if (DocumentController) (void)DocumentController->CloseDocument();
-		if (auto* Editor = EditorOwner.Get())
-			if (auto* Levels = Editor->GetEditorSubsystem<DLevelEditorSubsystem>(); Levels && SceneViewportPanel && Levels->ModeTools == &SceneViewportPanel->GetEditModeManager())
-				Levels->ModeTools = nullptr;
 		DocumentController.reset();
 		AssetMoveCoordinator.reset();
 		SceneImportDialog.reset();
@@ -98,8 +95,6 @@ namespace Durin::LevelEditor
 		InitializeContext();
 		PruneAndSaveWorkspaceSettings();
 		CreatePanels();
-		if (auto* Levels = Context->EditorHost->GetEditorSubsystem<DLevelEditorSubsystem>())
-			Levels->ModeTools = &SceneViewportPanel->GetEditModeManager();
 		CreateDocumentControllers();
 		CreateImportDialogs();
 		Context->Synchronize(Context->EditorHost->GetEditorWorld());
@@ -162,7 +157,7 @@ namespace Durin::LevelEditor
 
 	auto FLevelEditorToolkit::CreatePanels() -> void
 	{
-		auto SceneViewport = std::make_unique<FSceneViewportPanel>(Context->EditorHost);
+		auto SceneViewport = std::make_unique<FSceneViewportPanel>(*Context->EditorHost);
 		SceneViewportPanel = SceneViewport.get();
 		Context->FocusActor = [this](AActor* Actor) {
 			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);

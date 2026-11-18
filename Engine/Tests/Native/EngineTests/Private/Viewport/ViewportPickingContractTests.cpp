@@ -4,7 +4,7 @@
 #include "ViewportTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"

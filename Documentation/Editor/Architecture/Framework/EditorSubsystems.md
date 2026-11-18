@@ -111,7 +111,7 @@ constraints, hosts, and restoration. This contract also applies without MainFram
 
 ## Level Editor Play Controls
 
-`DLevelEditorSubsystem` in `Editor/LevelEditorSubsystem.h` belongs to LevelEditor,
+`DLevelEditorSubsystem` in `LevelEditorSubsystem.h` belongs to LevelEditor,
 which depends publicly on DurinEd's subsystem contract. Each editor owns one instance
 that survives repeated PIE sessions. Its main reflected interfaces follow UE's
 LevelEditorSubsystem: `EditorRequestBeginPlay()` and `EditorRequestEndPlay()`

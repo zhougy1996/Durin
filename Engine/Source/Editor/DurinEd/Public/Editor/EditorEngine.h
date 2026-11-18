@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
+#include "EditorModeManager.h"
 #include "Engine/Engine.h"
 #include "Delegates/Delegate.h"
 #include "Engine/HostStartup.h"
@@ -244,6 +245,8 @@ namespace Durin
 		IMainFrameModule* MainFrameModule = nullptr;
 		std::weak_ptr<MWindow> StartupWindow;
 
+		friend auto GLevelEditorModeTools(DEditorEngine&) -> LevelEditor::FEditorModeTools&;
+		std::unique_ptr<LevelEditor::FEditorModeTools> LevelEditorModeTools;
 		friend struct FEditorEngineTestAccess;
 		friend class FEditorSubsystemCollection;
 		friend class FSubsystemEditorHost;

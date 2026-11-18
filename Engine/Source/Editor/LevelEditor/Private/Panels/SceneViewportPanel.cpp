@@ -49,8 +49,9 @@ namespace Durin::LevelEditor
 
 	} // namespace
 
-	FSceneViewportPanel::FSceneViewportPanel(DEditorEngine* Editor)
-		: EditorOwner(Editor)
+	FSceneViewportPanel::FSceneViewportPanel(DEditorEngine& Editor)
+		: EditorOwner(&Editor)
+		, EditModeManager(GLevelEditorModeTools(Editor))
 		, PreferredPlayStartLocation(EPlayStartLocation::LevelStart)
 		, PreferredPlayDestination(EPlayDestination::EmbeddedViewport)
 	{
@@ -95,6 +96,8 @@ namespace Durin::LevelEditor
 
 	FSceneViewportPanel::~FSceneViewportPanel()
 	{
+		try { EditModeManager.DeactivateAllModes(); }
+		catch (const std::exception& Error) { DURIN_ERROR("Viewport mode shutdown failed: {}", Error.what()); }
 		for (const FConsoleCommandHandle Handle : ViewportConsoleCommandHandles)
 			FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		if (EditorOwner.Get() != nullptr) EditorOwner.Get()->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());

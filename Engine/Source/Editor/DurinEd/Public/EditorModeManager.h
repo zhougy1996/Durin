@@ -9,6 +9,7 @@
 namespace Durin
 {
 	class DTransactor;
+	class DEditorEngine;
 }
 
 namespace Durin::LevelEditor
@@ -85,3 +86,9 @@ namespace Durin::LevelEditor
 		FLevelEditorContext* LastContext = nullptr;
 	};
 } // namespace Durin::LevelEditor
+
+namespace Durin
+{
+	// Returns the actual host-owned Level Editor mode manager.
+	DURINED_API auto GLevelEditorModeTools(DEditorEngine& Editor) -> LevelEditor::FEditorModeTools&;
+}

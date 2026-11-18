@@ -14,7 +14,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "HAL/PlatformLTS.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "Materials/Material.h"
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"

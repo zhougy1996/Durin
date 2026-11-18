@@ -1,7 +1,6 @@
 #include "FileHelpers.h"
 #include "Asset/PackageCollection.h"
-#include "Editor/LevelEditorSubsystem.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/World.h"
 #include "Asset/PackageSerialization.h"
@@ -68,8 +67,7 @@ namespace Durin
 		// As in UE FileHelpers, map loading explicitly deactivates editor modes.
 		try
 		{
-			if (auto* Levels = Editor->GetEditorSubsystem<DLevelEditorSubsystem>())
-				if (auto* Modes = Levels->GetLevelEditorModeManager()) Modes->DeactivateAllModes();
+			GLevelEditorModeTools(*Editor).DeactivateAllModes();
 		}
 		catch (const std::exception& Exception) { FFeedbackContext::Get().Error(Exception.what()); return false; }
 		if (const auto* Trans = Editor->GetTransactor(); Trans && (!Trans->CanTransact() || Trans->IsActive()))

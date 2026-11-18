@@ -3,7 +3,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/GameMode.h"
 #include "Actors/PlayerStart.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "Math/Operations.h"
 
 namespace

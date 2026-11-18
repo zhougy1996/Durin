@@ -1,4 +1,8 @@
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
+#include "EditorModeManager.h"
+#include "LevelAssetEditor.h"
+#include "Toolkits/ToolkitManager.h"
+#include "Toolkits/AssetEditorToolkit.h"
 #include "FileHelpers.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/World.h"
@@ -20,8 +24,18 @@ namespace Durin
 
 	auto DLevelEditorSubsystem::Deinitialize() noexcept -> void
 	{
-		ModeTools = nullptr;
 		HostContext.reset();
+	}
+
+	auto DLevelEditorSubsystem::GetLevelEditorModeManager() const -> LevelEditor::FEditorModeTools*
+	{
+		auto* Editor = GetActiveEditor();
+		if (!Editor) return nullptr;
+		auto* AssetEditors = Editor->GetEditorSubsystem<DAssetEditorSubsystem>();
+		if (!AssetEditors) return nullptr;
+		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(AssetEditors))
+			if (Cast<DLevelAssetEditor>(Toolkit->GetOwningAssetEditor())) return &GLevelEditorModeTools(*Editor);
+		return nullptr;
 	}
 
 	auto DLevelEditorSubsystem::GetActiveEditor() const -> DEditorEngine*

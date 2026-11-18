@@ -8,7 +8,7 @@
 #include "FileHelpers.h"
 #include "Misc/FeedbackContext.h"
 #include "Transactions/Transactor.h"
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 #include "Engine/Level.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/Class.h"

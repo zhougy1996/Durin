@@ -12,7 +12,7 @@
 #include "Widgets/MonaImGuiPropertyTable.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorUILayout.h"
 #include "Settings/EditorSettings.h"

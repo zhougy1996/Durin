@@ -4,7 +4,7 @@
 #include "PropertyEditor/DetailCustomization.h"
 
 #include "LevelEditorCustomizations.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 
 namespace Durin
 {

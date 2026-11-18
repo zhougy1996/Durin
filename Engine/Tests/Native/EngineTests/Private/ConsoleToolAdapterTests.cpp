@@ -3,7 +3,7 @@
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Modules/ModuleManager.h"
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 #include "DObject/Class.h"
 #include "DObject/FunctionParameters.h"
 #include "DObject/StrongObjectPtr.h"

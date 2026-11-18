@@ -244,7 +244,7 @@ Scripting `DLevelEditorSubsystem::LoadLevel` calls
 Neither route queues a document open. The Level toolkit presents the authoritative
 World; its document-open callback does not initiate another load.
 
-The file utility calls `GetLevelEditorModeManager()->DeactivateAllModes()`
+The file utility calls `GLevelEditorModeTools(Editor).DeactivateAllModes()`
 before invoking `Map_Load`. Mode exit ends gestures while their original targets
 remain valid. Ordinary toolkit `RequestDeactivate` settles Details editing only;
 it does not deactivate modes or clear viewport selection. Failure feedback and blank-map
@@ -342,3 +342,10 @@ current selection.
 - `Documentation/Editor/Design/UIStyle.md`
 - `Documentation/Editor/Guides/StaticMeshInspector.md`
 - `Documentation/Runtime/Application/RuntimeLifecycle.md`
+
+`DLevelEditorSubsystem` belongs to LevelEditor. Core `Misc/FileHelper.h` owns
+byte and text file I/O; DurinEd `FileHelpers.h` owns editor map/package loading
+and saving. `FEditorModeTools` and its host-owned storage belong to DurinEd.
+Unlike UE's declared UnrealEd/LevelEditor circular link dependency, this build
+keeps linked dependencies acyclic: FileHelpers accesses the actual mode manager
+directly through the UE-style accessor, with explicit host selection.

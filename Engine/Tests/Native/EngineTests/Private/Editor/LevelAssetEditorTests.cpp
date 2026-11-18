@@ -1,13 +1,13 @@
 #include "CoreMinimal.h"
 #include "AssetEditorTestQueries.h"
 #include "LevelEditorModule.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "FileHelpers.h"
 #include "Misc/FeedbackContext.h"
 #include "ContentBrowserAssetDataSource.h"
 #include "ContentBrowserAssetDataPayload.h"
 
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 #include "EditorEngineTestSupport.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
@@ -410,6 +410,10 @@ namespace
 		auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>();
 		auto* Modes = Levels->GetLevelEditorModeManager();
 		ASSERT_NE(Modes, nullptr);
+		EXPECT_EQ(Modes, &GLevelEditorModeTools(*Host));
+		TStrongObjectPtr<DEditorEngine> OtherHost(NewObject<DEditorEngine>(nullptr, "OtherModeHost"));
+		EXPECT_NE(&GLevelEditorModeTools(*OtherHost), Modes);
+		EXPECT_EQ(GLevelEditorModeTools(*OtherHost).GetActiveMode(), nullptr);
 		ASSERT_EQ(Modes->GetActiveModeId(), "Select");
 		const auto Toolkit = Module->GetOrCreateLevelEditor(*Editors)->GetToolkit();
 		ASSERT_TRUE(Toolkit->RequestDeactivate());
@@ -454,8 +458,11 @@ namespace
 	TEST_F(FLevelMapLifecycleTests, ClosingToolkitReleasesViewsWithoutUnloadingWorld)
 	{
 		const auto WorldGeneration = Host->GetSceneGeneration();
+		auto* Modes = &GLevelEditorModeTools(*Host);
 		Module->ReleaseLevelEditor(*Editors);
 		EXPECT_TRUE(FToolkitManager::Get().GetToolkits(Editors).empty());
+		EXPECT_EQ(Modes, &GLevelEditorModeTools(*Host));
+		EXPECT_EQ(Modes->GetActiveMode(), nullptr);
 		EXPECT_EQ(Host->GetEditorSubsystem<DLevelEditorSubsystem>()->GetLevelEditorModeManager(), nullptr);
 		EXPECT_EQ(Host->GetEditorWorld(), World);
 		EXPECT_EQ(World->GetCurrentLevel(), Level);
@@ -468,6 +475,7 @@ namespace
 		EXPECT_TRUE(Documents->GetEditedAssets().empty());
 		ASSERT_TRUE(Module->InitializeLevelEditor(*Editors, {}, [] {}));
 		auto Reopened = Module->GetOrCreateLevelEditor(*Editors)->GetDocumentManager();
+		EXPECT_EQ(Host->GetEditorSubsystem<DLevelEditorSubsystem>()->GetLevelEditorModeManager(), Modes);
 		ASSERT_NE(Reopened->GetActiveDocument(), nullptr);
 		EXPECT_EQ(Reopened->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
 		EXPECT_EQ(Reopened->GetEditedAssets(), (std::vector<DObject*>{Level}));

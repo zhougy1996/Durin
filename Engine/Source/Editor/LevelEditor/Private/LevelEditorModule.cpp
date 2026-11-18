@@ -6,7 +6,7 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/ToolkitHost.h"
-#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 #include "Tools/PIEToolset.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"

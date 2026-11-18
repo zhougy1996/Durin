@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "LevelEditorAPI.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 
 namespace Durin::LevelEditor
 {

@@ -1,4 +1,6 @@
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
+#include "Editor/EditorEngine.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin::LevelEditor
 {
@@ -107,3 +109,13 @@ namespace Durin::LevelEditor
 		LastContext = nullptr;
 	}
 } // namespace Durin::LevelEditor
+
+namespace Durin
+{
+	auto GLevelEditorModeTools(DEditorEngine& Editor) -> LevelEditor::FEditorModeTools&
+	{
+		CheckGameThread();
+		if (!Editor.LevelEditorModeTools) Editor.LevelEditorModeTools = std::make_unique<LevelEditor::FEditorModeTools>();
+		return *Editor.LevelEditorModeTools;
+	}
+}

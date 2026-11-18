@@ -6,7 +6,7 @@
 #include "Modules/ModuleManager.h"
 #include "LevelEditorCustomizations.h"
 #include "PropertyEditor/DetailCustomizationRegistry.h"
-#include "LevelEditorViewportEditing.h"
+#include "EditorModeManager.h"
 #include "LevelEditorContentBrowserCallbacks.h"
 
 namespace Durin
