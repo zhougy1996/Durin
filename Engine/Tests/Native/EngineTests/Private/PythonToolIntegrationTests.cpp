@@ -118,7 +118,7 @@ namespace
         {
             const auto Before = Wait(Submit(R"(
 import durin
-assert not hasattr(durin, 'EditorActorSubsystem')
+assert not hasattr(getattr(durin.types, 'Durin', None), 'EditorActorSubsystem')
 try:
     durin.get_type('Durin::DEditorActorSubsystem')
 except durin.ScriptAccessError:
@@ -131,8 +131,8 @@ else:
         ASSERT_TRUE(FModuleManager::Get().LoadModule("Engine"));
         const auto After = Wait(Submit(R"(
 import durin
-assert durin.get_type('Durin::DEditorActorSubsystem') is durin.EditorActorSubsystem
-assert durin.get_editor_subsystem(durin.EditorActorSubsystem).get_editor_level() is None
+assert durin.get_type('Durin::DEditorActorSubsystem') is durin.types.Durin.EditorActorSubsystem
+assert durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem).get_editor_level() is None
 )"));
         EXPECT_EQ(After.State, EPythonJobState::Succeeded) << After.Error;
     }

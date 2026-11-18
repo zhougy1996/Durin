@@ -79,6 +79,7 @@ namespace Durin::PythonABI
         decltype(&::PyModule_AddObjectRef) pPyModule_AddObjectRef = nullptr;
         decltype(&::PyModule_Create2) pPyModule_Create2 = nullptr;
         decltype(&::PyModule_GetDict) pPyModule_GetDict = nullptr;
+        decltype(&::PyModule_New) pPyModule_New = nullptr;
         decltype(&::PyObject_CallFunction) pPyObject_CallFunction = nullptr;
         decltype(&::PyObject_CallMethod) pPyObject_CallMethod = nullptr;
         decltype(&::PyObject_GetAttrString) pPyObject_GetAttrString = nullptr;
@@ -268,6 +269,9 @@ namespace Durin::PythonABI
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyModule_GetDict"); Symbol)
                 pPyModule_GetDict = reinterpret_cast<decltype(pPyModule_GetDict)>(*Symbol);
             else return std::unexpected(Symbol.error());
+            if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyModule_New"); Symbol)
+                pPyModule_New = reinterpret_cast<decltype(pPyModule_New)>(*Symbol);
+            else return std::unexpected(Symbol.error());
             if (const auto Symbol = FPlatformLibrary::FindSymbol(Library, "PyObject_CallFunction"); Symbol)
                 pPyObject_CallFunction = reinterpret_cast<decltype(pPyObject_CallFunction)>(*Symbol);
             else return std::unexpected(Symbol.error());
@@ -421,6 +425,7 @@ namespace Durin::PythonABI
 #define PyModule_AddObjectRef Durin::PythonABI::API.pPyModule_AddObjectRef
 #define PyModule_Create2 Durin::PythonABI::API.pPyModule_Create2
 #define PyModule_GetDict Durin::PythonABI::API.pPyModule_GetDict
+#define PyModule_New Durin::PythonABI::API.pPyModule_New
 #define PyObject_CallFunction Durin::PythonABI::API.pPyObject_CallFunction
 #define PyObject_CallMethod Durin::PythonABI::API.pPyObject_CallMethod
 #define PyObject_GetAttrString Durin::PythonABI::API.pPyObject_GetAttrString

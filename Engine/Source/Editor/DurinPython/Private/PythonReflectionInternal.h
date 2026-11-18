@@ -27,6 +27,21 @@ namespace Durin::PythonReflection::Private
     struct FObject { PyObject_HEAD FObjectState* State; };
     struct FValueState;
     struct FValue { PyObject_HEAD FValueState* State; };
+    struct FPyOwner
+    {
+        PyObject* Value = nullptr;
+        explicit FPyOwner(PyObject* In = nullptr) : Value(In) {}
+        ~FPyOwner() { Py_XDECREF(Value); }
+        FPyOwner(const FPyOwner&) = delete;
+        auto Release() -> PyObject* { return std::exchange(Value, nullptr); }
+    };
+    struct FTypeNamespace
+    {
+        FPyOwner Module;
+        std::map<std::string, std::unique_ptr<FTypeNamespace>> Children;
+        // Null entries remember ambiguous names so a later type cannot claim them.
+        std::map<std::string, DType*> Types;
+    };
     struct FType { PyObject* Python = nullptr; std::string Qualified, Alias; };
     struct FRegistry
     {
@@ -34,7 +49,7 @@ namespace Durin::PythonReflection::Private
         PyObject* AccessError;
         std::function<std::optional<FEditorScriptCallContext>()> Context;
         std::map<DType*, FType> Types;
-        std::map<std::string, DType*> Aliases;
+        FTypeNamespace TypeNamespace;
         // Borrowed reverse index; Types owns the Python type references.
         std::unordered_map<PyObject*, DType*> NativeTypes;
         // Non-owning observations, removed synchronously by tp_dealloc (UE factory model).
@@ -61,14 +76,6 @@ namespace Durin::PythonReflection::Private
         bool Purged = false;
         auto Purge() -> void;
         ~FValueState();
-    };
-    struct FPyOwner
-    {
-        PyObject* Value = nullptr;
-        explicit FPyOwner(PyObject* In = nullptr) : Value(In) {}
-        ~FPyOwner() { Py_XDECREF(Value); }
-        FPyOwner(const FPyOwner&) = delete;
-        auto Release() -> PyObject* { return std::exchange(Value, nullptr); }
     };
     struct FBudget
     {

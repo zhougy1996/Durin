@@ -75,7 +75,7 @@ namespace
         auto Pass(std::string Source) -> void
         { const auto Result = Run(std::move(Source)); EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error; }
         auto Save() -> void
-        { Pass("builtins.proxy = durin.get_editor_subsystem(durin.ReflectionService)\nbuiltins.cached = builtins.proxy.get_name\nbuiltins.identity = hash(builtins.proxy)"); }
+        { Pass("builtins.proxy = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)\nbuiltins.cached = builtins.proxy.get_name\nbuiltins.identity = hash(builtins.proxy)"); }
         auto PrepareScene(EPythonEditPolicy Policy = EPythonEditPolicy::NonDocumentReadWrite, bool WithActor = true) -> void
         {
             static const bool Registered = [] {
@@ -110,25 +110,26 @@ namespace
             Host->GetTransactor()->EstablishSavedState(*ScenePackage);
         }
         auto ActorPass(std::string Source) -> void
-        { Pass("actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)\nlevel = actors.get_editor_level()\n" + Source); }
+        { Pass("actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)\nlevel = actors.get_editor_level()\n" + Source); }
     };
     TEST_F(PythonReflectionTests, InheritedScriptTypesPublishWithoutInstancesAndExclusionsWin)
     {
         EXPECT_FALSE(DInheritedScriptType::StaticClass()->GetScriptExposure().Has(EScriptExposure::Type));
         Host->GetEditorSubsystem<DReflectionService>()->EditTarget = NewObject<DExcludedScriptGrandchild>(Host.Get(), "Excluded");
         Pass(R"PY(
-assert issubclass(durin.InheritedScriptType, durin.ScriptTypeBase)
-assert issubclass(durin.InheritedScriptGrandchild, durin.InheritedScriptType)
-assert durin.get_type('Durin::PythonFixtures::DInheritedScriptGrandchild') is durin.InheritedScriptGrandchild
+import re
+assert issubclass(durin.types.Durin.PythonFixtures.InheritedScriptType, durin.types.Durin.PythonFixtures.ScriptTypeBase)
+assert issubclass(durin.types.Durin.PythonFixtures.InheritedScriptGrandchild, durin.types.Durin.PythonFixtures.InheritedScriptType)
+assert durin.get_type('Durin::PythonFixtures::DInheritedScriptGrandchild') is durin.types.Durin.PythonFixtures.InheritedScriptGrandchild
 for name in ('ExcludedScriptType', 'ExcludedScriptGrandchild'):
-    assert not hasattr(durin, name)
+    assert not hasattr(durin.types.Durin.PythonFixtures, name)
     try:
         durin.get_type('Durin::PythonFixtures::D' + name)
     except AttributeError:
         pass
     else:
         raise AssertionError('Excluded class hierarchy was exposed')
-service = durin.get_editor_subsystem(durin.ReflectionService)
+service = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 assert not hasattr(service, 'inherited_hidden_dependency')
 try:
     service.get_edit_target()
@@ -137,7 +138,9 @@ except TypeError:
 else:
     raise AssertionError('Excluded dynamic type was wrapped through Object')
 stubs = durin.generate_stubs()
-assert 'class InheritedScriptGrandchild(InheritedScriptType):' in stubs
+parent = re.search(r'InheritedScriptType: _TypeAlias = (_Native\d+)', stubs)[1]
+child = re.search(r'InheritedScriptGrandchild: _TypeAlias = (_Native\d+)', stubs)[1]
+assert f'class {child}({parent}):' in stubs
 assert 'ExcludedScriptType' not in stubs and 'ExcludedScriptGrandchild' not in stubs
 )PY");
     }
@@ -149,23 +152,23 @@ assert 'ExcludedScriptType' not in stubs and 'ExcludedScriptGrandchild' not in s
         EXPECT_FALSE(ACameraActor::StaticClass()->GetScriptExposure().Has(EScriptExposure::Type));
         ActorPass(R"PY(
 assert actors.get_all_level_actors(level) == []
-assert durin.get_type('Durin::ACameraActor') is durin.CameraActor
-assert durin.get_type('Durin::AActor') is durin.Actor
-assert issubclass(durin.CameraActor, durin.Actor)
-assert issubclass(durin.CameraComponent, durin.ActorComponent)
+assert durin.get_type('Durin::ACameraActor') is durin.types.Durin.CameraActor
+assert durin.get_type('Durin::AActor') is durin.types.Durin.Actor
+assert issubclass(durin.types.Durin.CameraActor, durin.types.Durin.Actor)
+assert issubclass(durin.types.Durin.CameraComponent, durin.types.Durin.ActorComponent)
 with durin.ScopedEditorTransaction('Create camera and empty Actor'):
-    empty = actors.spawn_actor(level, durin.Actor, durin.Transform(), name='PythonEmpty')
-    camera = actors.spawn_actor(level, durin.CameraActor, durin.Transform(), name='PythonCamera')
-    assert type(empty) is durin.Actor and type(camera) is durin.CameraActor
+    empty = actors.spawn_actor(level, durin.types.Durin.Actor, durin.types.Durin.Transform(), name='PythonEmpty')
+    camera = actors.spawn_actor(level, durin.types.Durin.CameraActor, durin.types.Durin.Transform(), name='PythonCamera')
+    assert type(empty) is durin.types.Durin.Actor and type(camera) is durin.types.Durin.CameraActor
     assert actors.get_actor_info(level, empty).root_component is None
     root = actors.get_actor_info(level, camera).root_component
-    assert isinstance(root, durin.CameraComponent)
+    assert isinstance(root, durin.types.Durin.CameraComponent)
     transform = root.get_editor_property('relative_transform')
     position = transform.translation
     position.x = 125.0
     transform.translation = position
     root.set_editor_property('relative_transform', transform)
-assert 'class CameraActor(Actor):' in durin.generate_stubs()
+assert 'CameraActor: _TypeAlias = ' in durin.generate_stubs()
 )PY");
         auto* Empty = EditLevel->FindActorByName("PythonEmpty"); ASSERT_NE(Empty, nullptr);
         auto* Camera = EditLevel->FindActorByName("PythonCamera"); ASSERT_NE(Camera, nullptr);
@@ -184,15 +187,15 @@ assert 'class CameraActor(Actor):' in durin.generate_stubs()
         PrepareScene(EPythonEditPolicy::NonDocumentReadWrite, false);
         ActorPass(R"PY(
 with durin.ScopedEditorTransaction('Label and tags'):
-    item = actors.spawn_actor(level, durin.Actor, durin.Transform(), name='Internal', label='Display')
+    item = actors.spawn_actor(level, durin.types.Durin.Actor, durin.types.Durin.Transform(), name='Internal', label='Display')
     builtins.label_actor = item
     assert item.get_name() == 'Internal' and item.get_actor_label() == 'Display'
     assert actors.get_actor_info(level, item).label == 'Display'
     assert actors.set_actor_label(level, item, 'Renamed display')
     item.set_editor_property('tags', [durin.Name('Example.Marker')])
 assert item.get_name() == 'Internal'
-assert actors.spawn_actor(level, durin.Actor, durin.Transform(), name='Internal', name_mode=durin.SpawnActorNameMode.REQUIRED_RETURN_NULL) is None
-assert actors.rename_actor(level, item, 'Internal', name_mode=durin.SpawnActorNameMode.REQUIRED_RETURN_NULL)
+assert actors.spawn_actor(level, durin.types.Durin.Actor, durin.types.Durin.Transform(), name='Internal', name_mode=durin.types.Durin.SpawnActorNameMode.REQUIRED_RETURN_NULL) is None
+assert actors.rename_actor(level, item, 'Internal', name_mode=durin.types.Durin.SpawnActorNameMode.REQUIRED_RETURN_NULL)
 assert actors.set_actor_label(level, item, 'Renamed display', make_unique=False)
 )PY");
         ASSERT_TRUE(Host->GetTransactor()->Undo());
@@ -213,10 +216,10 @@ assert actors.set_actor_label(level, item, 'Renamed display')
         PrepareActorScene();
         ActorPass(R"(
 assert actors is durin.get_editor_subsystem(durin.get_type('Durin::DEditorActorSubsystem'))
-assert not hasattr(durin, 'ActorScriptEditResult')
-assert not hasattr(durin, 'ActorScriptHistoryResult')
-assert not hasattr(durin, 'ActorEditStatus')
-assert not hasattr(durin, 'ActorEditError')
+assert not hasattr(durin.types.Durin, 'ActorScriptEditResult')
+assert not hasattr(durin.types.Durin, 'ActorScriptHistoryResult')
+assert not hasattr(durin.types.Durin, 'ActorEditStatus')
+assert not hasattr(durin.types.Durin, 'ActorEditError')
 items = actors.get_all_level_actors(level)
 assert [a.get_name() for a in items] == ['Editable', 'Seed']
 rootless = actors.get_actor_info(level, items[0])
@@ -261,7 +264,7 @@ assert actors.detach_actors(level, [seed]) is True
 seed = actors.get_actor_info(level, actors.get_all_level_actors(level)[-1])
 with durin.ScopedEditorTransaction('Create and move preview Actor'):
     created = actors.spawn_actor(level, seed.actor_class, seed.world_transform, name='PreviewActor')
-    assert isinstance(created, durin.Actor)
+    assert isinstance(created, durin.types.Durin.Actor)
     builtins.preview = created
     renamed = actors.rename_actor(level, builtins.preview, 'PreviewActorRenamed')
     assert renamed is True
@@ -304,7 +307,7 @@ with durin.ScopedEditorTransaction('Duplicate and attach preview'):
     assert actors.attach_actors(level, [builtins.duplicate], seed) is True
     assert actors.attach_actors(level, [seed], builtins.duplicate) is False
     assert actors.detach_actors(level, [builtins.duplicate]) is True
-    assert actors.detach_actors(level, [builtins.duplicate], durin.DetachmentTransformRule.KEEP_RELATIVE) is True
+    assert actors.detach_actors(level, [builtins.duplicate], durin.types.Durin.DetachmentTransformRule.KEEP_RELATIVE) is True
     failed = actors.destroy_actors(level, [seed, seed])
     assert failed is False
     assert seed in actors.get_all_level_actors(level)
@@ -336,7 +339,7 @@ with durin.ScopedEditorTransaction('Actor batch'):
     assert copied
     builtins.batch = copied
     assert [a.get_name() for a in builtins.batch] == ['Second_2', 'Seed_2']
-    attached = actors.attach_actors(level, list(reversed(builtins.batch)), seed, durin.AttachmentTransformRule.SNAP_TO_TARGET)
+    attached = actors.attach_actors(level, list(reversed(builtins.batch)), seed, durin.types.Durin.AttachmentTransformRule.SNAP_TO_TARGET)
     assert attached is True
     assert actors.get_actor_info(level, seed).children == builtins.batch
     assert all((actors.get_actor_info(level, a).parent is seed for a in builtins.batch))
@@ -385,10 +388,10 @@ assert len(actors.get_all_level_actors(level)) == 2
         ActorPass(R"(
 seed = actors.get_all_level_actors(level)[-1]
 info = actors.get_actor_info(level, seed)
-foreign = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
-assert actors.spawn_actor(foreign, info.actor_class, durin.Transform()) is None
-assert actors.spawn_actor(None, info.actor_class, durin.Transform()) is None
-assert actors.spawn_actor(level, durin.EditorActorSubsystem, durin.Transform()) is None
+foreign = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
+assert actors.spawn_actor(foreign, info.actor_class, durin.types.Durin.Transform()) is None
+assert actors.spawn_actor(None, info.actor_class, durin.types.Durin.Transform()) is None
+assert actors.spawn_actor(level, durin.types.Durin.EditorActorSubsystem, durin.types.Durin.Transform()) is None
 assert actors.destroy_actors(level, []) is False
 assert not actors.duplicate_actors(level, [seed, seed])
 assert actors.attach_actors(level, [seed, seed], seed) is False
@@ -417,7 +420,7 @@ assert actors.get_all_level_actors(level)[-1] is seed
         PrepareActorScene();
         FEditorEngineTestAccess::SetState(*Host, EPlayState::Playing);
         const auto Result = Run(R"(
-actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
+actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
 level = actors.get_editor_level()
 seed = actors.get_all_level_actors(level)[-1]
 assert actors.get_actor_info(level, seed).name == 'Seed'
@@ -435,14 +438,14 @@ assert actors.rename_actor(level, seed, 'DuringPIE') is False
         });
         AReflectionLifecycleActor::ConstructCallback = [&](AReflectionLifecycleActor&) { Writable = false; };
         ActorPass(R"(
-result = actors.spawn_actor(level, durin.ReflectionLifecycleActor, durin.Transform(), 'DeniedConstruction')
+result = actors.spawn_actor(level, durin.types.Durin.PythonFixtures.ReflectionLifecycleActor, durin.types.Durin.Transform(), 'DeniedConstruction')
 assert result is None
 assert len(actors.get_all_level_actors(level)) == 2
 )");
         Writable = true;
         AReflectionLifecycleActor::ConstructCallback = [](AReflectionLifecycleActor& Actor) { MarkObjectHierarchyAsGarbage(&Actor); };
         ActorPass(R"(
-result = actors.spawn_actor(level, durin.ReflectionLifecycleActor, durin.Transform(), 'RetiredConstruction')
+result = actors.spawn_actor(level, durin.types.Durin.PythonFixtures.ReflectionLifecycleActor, durin.types.Durin.Transform(), 'RetiredConstruction')
 assert result is None
 assert len(actors.get_all_level_actors(level)) == 2
 )");
@@ -453,8 +456,8 @@ assert len(actors.get_all_level_actors(level)) == 2
         PrepareActorScene();
         AReflectionLifecycleActor::ConstructCallback = [&](AReflectionLifecycleActor&) { Host->RequestShutdown(); };
         const auto Result = Run(R"(
-actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
-actors.spawn_actor(actors.get_editor_level(), durin.ReflectionLifecycleActor, durin.Transform(), 'ClosedHost')
+actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
+actors.spawn_actor(actors.get_editor_level(), durin.types.Durin.PythonFixtures.ReflectionLifecycleActor, durin.types.Durin.Transform(), 'ClosedHost')
 )");
         EXPECT_NE(Result.State, EPythonJobState::Succeeded);
         EXPECT_EQ(EditLevel->FindActorByName("ClosedHost"), nullptr);
@@ -498,7 +501,7 @@ else:
     {
         PrepareScene();
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 assert a.value == 1
 assert a.set_editor_property('value', 200) is None
 assert a.value == 100 and a.get_editor_property('value') == 100
@@ -517,7 +520,7 @@ assert a.value == 100 and a.get_editor_property('value') == 100
     {
         PrepareScene();
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 with durin.ScopedEditorTransaction('Python compound properties'):
     a.value = 9
     value = a.get_editor_property('data')
@@ -551,7 +554,7 @@ assert a.get_editor_property('data').pose.translation.x == 23
     {
         PrepareScene();
         const auto Result = Run(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 with durin.ScopedEditorTransaction('Keep completed edits'):
     a.value = 10
     a.value = -1
@@ -565,7 +568,7 @@ with durin.ScopedEditorTransaction('Keep completed edits'):
     {
         PrepareScene();
         Pass(R"(
-s = durin.get_editor_subsystem(durin.ReflectionService)
+s = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 a = s.get_edit_target()
 for operation in (lambda: setattr(a, 'helper_only', 8),
                   lambda: a.set_editor_property('locked', 8),
@@ -611,7 +614,7 @@ assert a.get_editor_property('numbers') == before
         });
         EditActor->BeforePublication = [&] { Writable = false; };
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 try:
     a.value = 19
 except durin.ScriptAccessError:
@@ -627,7 +630,7 @@ assert a.value == 1
     {
         PrepareScene(EPythonEditPolicy::DocumentManaged);
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 try:
     a.set_editor_property('value', 5)
 except durin.ScriptAccessError:
@@ -640,7 +643,7 @@ assert a.value == 1
         const auto RW = Runtime.CreateSession(Tools->GetService(), EToolSource::External, {}, {.EditPolicy = EPythonEditPolicy::NonDocumentReadWrite});
         ASSERT_TRUE(RW);
         const auto Result = Run(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 try:
     a.value = 5
 except durin.ScriptAccessError:
@@ -658,7 +661,7 @@ else:
         auto* ForeignActor = Foreign->SpawnActor<AReflectionActor>("ForeignActor"); ASSERT_NE(ForeignActor, nullptr);
         Host->GetEditorSubsystem<DReflectionService>()->EditTarget = ForeignActor;
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 try:
     a.value = 9
 except durin.ScriptAccessError:
@@ -685,7 +688,7 @@ else:
         ASSERT_NE(Component, nullptr); ASSERT_TRUE(EditActor->SetRootComponent(Component));
         Host->GetEditorSubsystem<DReflectionService>()->EditTarget = Component;
         Pass(R"(
-component = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target()
+component = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target()
 pose = component.get_editor_property('relative_transform')
 translation = pose.translation
 translation.x = 42
@@ -700,7 +703,7 @@ component.set_editor_property('relative_transform', pose)
     TEST_F(PythonReflectionTests, ClosedHostRejectsCachedPropertySetter)
     {
         PrepareScene();
-        Pass("builtins.closed_setter = durin.get_editor_subsystem(durin.ReflectionService).get_edit_target().set_editor_property");
+        Pass("builtins.closed_setter = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target().set_editor_property");
         Host->PreExit();
         TStrongObjectPtr<DEditorEngine> Other(NewObject<DEditorEngine>(nullptr, {}));
         ASSERT_NO_THROW(FEditorEngineTestAccess::StartEditor(*Other));
@@ -726,7 +729,7 @@ else:
             if (&Object == EditActor) Proposal.Defer([&](FPropertyEditDeferredCompletion) { Started = true; return [] {}; });
             return {};
         }});
-        const auto Result = Run("durin.get_editor_subsystem(durin.ReflectionService).get_edit_target().value = 9");
+        const auto Result = Run("durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).get_edit_target().value = 9");
         UnregisterPropertyEditExtension(Extension);
         EXPECT_EQ(Result.State, EPythonJobState::Failed); EXPECT_FALSE(Started); EXPECT_EQ(EditActor->Value, 1);
         EXPECT_FALSE(Host->GetTransactor()->CanUndo());
@@ -736,12 +739,14 @@ else:
         Pass(R"PY(
 import ast
 import pydoc
-assert 'EditorActorSubsystem' in dir(durin)
-assert 'spawn_actor' in dir(durin.EditorActorSubsystem)
-assert 'EditorActorSubsystem' in durin.EditorActorSubsystem.__doc__
-assert 'spawn_actor(self' in durin.EditorActorSubsystem.spawn_actor.__doc__
-assert 'spawn_actor(self' in pydoc.render_doc(durin.EditorActorSubsystem.spawn_actor, renderer=pydoc.plaintext)
-service = durin.get_editor_subsystem(durin.ReflectionService)
+assert 'Durin' in dir(durin.types)
+assert 'EditorActorSubsystem' in dir(durin.types.Durin)
+assert 'EditorActorSubsystem' not in dir(durin)
+assert 'spawn_actor' in dir(durin.types.Durin.EditorActorSubsystem)
+assert 'EditorActorSubsystem' in durin.types.Durin.EditorActorSubsystem.__doc__
+assert 'spawn_actor(self' in durin.types.Durin.EditorActorSubsystem.spawn_actor.__doc__
+assert 'spawn_actor(self' in pydoc.render_doc(durin.types.Durin.EditorActorSubsystem.spawn_actor, renderer=pydoc.plaintext)
+service = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 assert 'amount: int = ...' in service.add.__doc__
 assert '-> int | None' in service.try_value.__doc__
 source = durin.generate_stubs()
@@ -749,19 +754,27 @@ assert source == durin.generate_stubs()
 tree = ast.parse(source)
 compile(tree, '<durin-stubs>', 'exec')
 classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
-assert 'SharedAlias' not in classes
-service = classes['ReflectionService']
+native = next(node for node in classes['types'].body if isinstance(node, ast.ClassDef) and node.name == 'Durin')
+fixtures = next(node for node in native.body if isinstance(node, ast.ClassDef) and node.name == 'PythonFixtures')
+def aliases(scope):
+    return {node.target.id: node.value.id for node in scope.body if isinstance(node, ast.AnnAssign)}
+assert 'SharedAlias' not in aliases(fixtures)
+service = classes[aliases(fixtures)['ReflectionService']]
 methods = {node.name: node for node in service.body if isinstance(node, ast.FunctionDef)}
 assert ast.unparse(methods['multi'].returns) == 'tuple[int, str, int]'
 assert ast.unparse(methods['try_value'].returns) == 'int | None'
 assert not methods['native_only'].args.defaults
 assert len(methods['add'].args.defaults) == 1
 assert 'unsupported' not in methods
-actor = classes['EditorActorSubsystem']
+actor = classes[aliases(native)['EditorActorSubsystem']]
 methods = {node.name: node for node in actor.body if isinstance(node, ast.FunctionDef)}
-assert ast.unparse(methods['spawn_actor'].returns) == 'Actor | None'
-assert ast.unparse(methods['duplicate_actors'].returns) == 'list[Actor | None]'
+actor_class = aliases(native)['Actor']
+assert ast.unparse(methods['spawn_actor'].returns) == f'{actor_class} | None'
+assert ast.unparse(methods['duplicate_actors'].returns) == f'list[{actor_class} | None]'
 assert ast.unparse(methods['destroy_actors'].returns) == 'bool'
+first = next(node for node in fixtures.body if isinstance(node, ast.ClassDef) and node.name == 'First')
+second = next(node for node in fixtures.body if isinstance(node, ast.ClassDef) and node.name == 'Second')
+assert classes[aliases(first)['SharedType']] is not classes[aliases(second)['SharedType']]
 assert 'FActorEditResult' not in source and 'ActorScriptEditResult' not in source
 builtins.reflection_stub_source = source
 )PY");
@@ -773,28 +786,43 @@ builtins.reflection_stub_source = source
     TEST_F(PythonReflectionTests, RuntimeTypesPreserveInheritanceAndFactoryIdentity)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
-b = durin.get_editor_subsystem(durin.SecondaryService)
-assert a is durin.get_editor_subsystem(durin.ReflectionService)
-assert type(a) is durin.ReflectionService and a.get_class() is type(a)
-assert isinstance(a, durin.ReflectionBase) and isinstance(a, durin.EditorSubsystem)
-assert issubclass(durin.EditorSubsystem, durin.DynamicSubsystem)
-assert issubclass(durin.DynamicSubsystem, durin.Subsystem)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
+b = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.SecondaryService)
+assert a is durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
+assert type(a) is durin.types.Durin.PythonFixtures.ReflectionService and a.get_class() is type(a)
+assert isinstance(a, durin.types.Durin.PythonFixtures.ReflectionBase) and isinstance(a, durin.types.Durin.EditorSubsystem)
+assert issubclass(durin.types.Durin.EditorSubsystem, durin.types.Durin.DynamicSubsystem)
+assert issubclass(durin.types.Durin.DynamicSubsystem, durin.types.Durin.Subsystem)
 assert a != b and a == a and isinstance(a.get_name(), str)
 assert durin.get_type('Durin::PythonFixtures::DReflectionService') is type(a)
 assert isinstance(durin.get_type('Durin::PythonFixtures::FSignatureDependency'), type)
-assert isinstance(durin.ReflectionMode, type)
-assert not hasattr(durin, 'SharedAlias')
+assert isinstance(durin.types.Durin.PythonFixtures.ReflectionMode, type)
+assert not hasattr(durin.types.Durin.PythonFixtures, 'SharedAlias')
 assert durin.get_type('Durin::PythonFixtures::DFirstAlias') is not durin.get_type('Durin::PythonFixtures::DSecondAlias')
 )");
+    }
+    TEST_F(PythonReflectionTests, SameNameTypesCoexistInDifferentNamespaces)
+    {
+        Pass(R"PY(
+fixtures = durin.types.Durin.PythonFixtures
+assert {'First', 'Second'} <= set(dir(fixtures))
+assert 'SharedType' in dir(fixtures.First) and 'SharedType' in dir(fixtures.Second)
+first = fixtures.First.SharedType
+second = fixtures.Second.SharedType
+assert first is not second
+assert first is durin.get_type('Durin::PythonFixtures::First::DSharedType')
+assert second is durin.get_type('Durin::PythonFixtures::Second::DSharedType')
+assert first.__module__ == 'durin.types.Durin.PythonFixtures.First'
+assert second.__module__ == 'durin.types.Durin.PythonFixtures.Second'
+)PY");
     }
     TEST_F(PythonReflectionTests, NativeConstructionSubclassingAndHiddenTypesAreRejected)
     {
         Pass(R"(
-for operation in (lambda: durin.ReflectionService(), lambda: type('Derived', (durin.ReflectionService,), {}),
-                  lambda: type('DerivedValue', (durin.SignatureDependency,), {}),
-                  lambda: type('DerivedEnum', (durin.ReflectionMode,), {}),
-                  lambda: durin.get_editor_subsystem(int), lambda: setattr(durin.ReflectionService, 'extra', 1)):
+for operation in (lambda: durin.types.Durin.PythonFixtures.ReflectionService(), lambda: type('Derived', (durin.types.Durin.PythonFixtures.ReflectionService,), {}),
+                  lambda: type('DerivedValue', (durin.types.Durin.PythonFixtures.SignatureDependency,), {}),
+                  lambda: type('DerivedEnum', (durin.types.Durin.PythonFixtures.ReflectionMode,), {}),
+                  lambda: durin.get_editor_subsystem(int), lambda: setattr(durin.types.Durin.PythonFixtures.ReflectionService, 'extra', 1)):
     try:
         operation()
     except TypeError:
@@ -812,8 +840,8 @@ else:
     TEST_F(PythonReflectionTests, GenericMethodsBindKeywordsDefaultsAndIndependentServices)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
-b = durin.get_editor_subsystem(durin.SecondaryService)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
+b = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.SecondaryService)
 assert a.add(2) == 7
 assert a.add(amount=8, value=3) == 11
 assert a.native_only(19) == 19
@@ -822,9 +850,9 @@ assert b.join(('a', 'b'), suffix='?') == 'ab?'
 assert a.describe().value == 7
 assert a.echo_object(a) is a
 assert a.echo_object(None) is None
-assert a.echo_class(durin.ReflectionService) is durin.ReflectionService
+assert a.echo_class(durin.types.Durin.PythonFixtures.ReflectionService) is durin.types.Durin.PythonFixtures.ReflectionService
 assert a.echo_class(None) is None
-assert a.echo_mode(durin.ReflectionMode.READY) == durin.ReflectionMode.READY
+assert a.echo_mode(durin.types.Durin.PythonFixtures.ReflectionMode.READY) == durin.types.Durin.PythonFixtures.ReflectionMode.READY
 assert not hasattr(a, 'hidden_dependency') and not hasattr(a, 'unsupported')
 assert a.nothing() is None
 assert a.calls == 9
@@ -833,14 +861,14 @@ assert a.calls == 9
     TEST_F(PythonReflectionTests, InheritanceUsesEffectiveOverrideAndMasksUnexposedMethods)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 assert a.virtual_value(3) == 13
-base = durin.ReflectionBase.virtual_value.__get__(a, type(a))
+base = durin.types.Durin.PythonFixtures.ReflectionBase.virtual_value.__get__(a, type(a))
 assert base(4) == 14
-assert durin.ReflectionBase.virtual_value(a, 5) == 15
+assert durin.types.Durin.PythonFixtures.ReflectionBase.virtual_value(a, 5) == 15
 assert not hasattr(a, 'masked_value')
 try:
-    durin.ReflectionBase.masked_value.__get__(a, type(a))()
+    durin.types.Durin.PythonFixtures.ReflectionBase.masked_value.__get__(a, type(a))()
 except AttributeError:
     pass
 else:
@@ -850,7 +878,7 @@ else:
     TEST_F(PythonReflectionTests, InvalidArgumentsNeverEnterNativeMethod)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 invalid = [
     (TypeError, lambda: a.add()),
     (TypeError, lambda: a.add(1, value=2)),
@@ -869,8 +897,8 @@ invalid = [
     (ValueError, lambda: a.echo_float(float('inf'))),
     (TypeError, lambda: a.echo_float(True)),
     (TypeError, lambda: a.echo_mode(1)),
-    (TypeError, lambda: a.echo_mode(durin.OtherMode.READY)),
-    (TypeError, lambda: a.echo_object(durin.ReflectionService)),
+    (TypeError, lambda: a.echo_mode(durin.types.Durin.PythonFixtures.OtherMode.READY)),
+    (TypeError, lambda: a.echo_object(durin.types.Durin.PythonFixtures.ReflectionService)),
     (TypeError, lambda: a.echo_class(a)),
     (TypeError, lambda: a.echo_value({})),
     (TypeError, lambda: a.echo_value(a.describe())),
@@ -893,8 +921,8 @@ assert a.echo_unsigned(2**64 - 1) == 2**64 - 1
     TEST_F(PythonReflectionTests, StructsAndMathAreTypedDetachedCopies)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
-v = durin.ReflectionValue(text='hello', numbers=[1, 2], target=a)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
+v = durin.types.Durin.PythonFixtures.ReflectionValue(text='hello', numbers=[1, 2], target=a)
 p = v.pose
 t = p.translation
 t.x = 17.5
@@ -902,7 +930,7 @@ assert v.pose.translation.x == 0
 p.translation = t
 v.pose = p
 copy = a.echo_value(v)
-assert type(copy) is durin.ReflectionValue
+assert type(copy) is durin.types.Durin.PythonFixtures.ReflectionValue
 assert copy.target is a and copy.text == 'hello'
 assert copy.pose.translation.x == 17.5
 numbers = copy.numbers
@@ -914,8 +942,8 @@ assert v.fixed == [1, 2, 3]
 v.fixed = (4, 5, 6)
 assert a.echo_value(v).fixed == [4, 5, 6]
 for operation in (lambda: setattr(a, 'calls', 4), lambda: setattr(a.describe(), 'value', 2),
-                  lambda: durin.SignatureDependency(), lambda: durin.ReflectionValue(1),
-                  lambda: durin.ReflectionValue(unknown=1)):
+                  lambda: durin.types.Durin.PythonFixtures.SignatureDependency(), lambda: durin.types.Durin.PythonFixtures.ReflectionValue(1),
+                  lambda: durin.types.Durin.PythonFixtures.ReflectionValue(unknown=1)):
     try:
         operation()
     except (AttributeError, TypeError):
@@ -942,7 +970,7 @@ assert v.fixed == [4, 5, 6]
     TEST_F(PythonReflectionTests, ContainerBudgetsCyclesAndKeyCollisionsRejectBeforeDispatch)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 key = durin.Name('item')
 assert a.echo_map({'item': [1, 2]}) == {key: [1, 2]}
 assert a.echo_map({key: (3, 4)}) == {key: [3, 4]}
@@ -951,7 +979,7 @@ cycle.append(cycle)
 for operation in (lambda: a.echo_map({'x': cycle}),
                   lambda: a.echo_map({'item': [], key: []}),
                   lambda: a.echo_map({'x': [0] * 65537}),
-                  lambda: a.echo_value(durin.ReflectionValue(text='x' * (16 * 1024 * 1024)))):
+                  lambda: a.echo_value(durin.types.Durin.PythonFixtures.ReflectionValue(text='x' * (16 * 1024 * 1024)))):
     before = a.calls
     try:
         operation()
@@ -966,12 +994,12 @@ for operation in (lambda: a.echo_map({'x': cycle}),
     {
         const auto LiveBefore = FReflectionValue::Live;
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 assert a.multi('text', 2) == (42, 'text!', 3)
 assert a.try_value(True, 0) == 9
 assert a.try_value(False, 0) is None
 for operation, expected in ((a.reject, durin.ScriptAccessError),
-                            (lambda: a.throw(durin.ReflectionValue(text='temporary')), RuntimeError)):
+                            (lambda: a.throw(durin.types.Durin.PythonFixtures.ReflectionValue(text='temporary')), RuntimeError)):
     try:
         operation()
     except expected:
@@ -993,7 +1021,7 @@ assert a.calls == before + 1
     TEST_F(PythonReflectionTests, NamesAndGuidsHaveTypedValueIdentity)
     {
         Pass(R"(
-a = durin.get_editor_subsystem(durin.ReflectionService)
+a = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 name = durin.Name('fixture')
 assert str(name) == 'fixture' and a.echo_name(name) == name
 assert a.echo_name('fixture') == name
@@ -1002,15 +1030,15 @@ guid = durin.Guid('00112233-4455-6677-8899-aabbccddeeff')
 assert a.echo_guid(str(guid)) == guid
 assert a.echo_guid(guid) == guid
 assert len({guid, a.echo_guid(guid)}) == 1
-assert durin.ReflectionMode.IDLE != durin.OtherMode.IDLE
+assert durin.types.Durin.PythonFixtures.ReflectionMode.IDLE != durin.types.Durin.PythonFixtures.OtherMode.IDLE
 )");
     }
     TEST_F(PythonReflectionTests, ReflectedCachedMethodsAndStructRootsRetireWithHost)
     {
         Pass(R"(
-builtins.proxy = durin.get_editor_subsystem(durin.ReflectionService)
+builtins.proxy = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 builtins.reflected = builtins.proxy.add
-builtins.value = durin.ReflectionValue(target=builtins.proxy)
+builtins.value = durin.types.Durin.PythonFixtures.ReflectionValue(target=builtins.proxy)
 )");
         CollectGarbage(Durin::EObjectFlags::Standalone);
         Pass("assert builtins.reflected(1) == 6\nassert builtins.value.target is builtins.proxy");
@@ -1029,7 +1057,7 @@ for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
     {
         Save(); CollectGarbage(Durin::EObjectFlags::Standalone);
         const auto Other = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Other);
-        auto Result = Run("assert builtins.proxy is durin.get_editor_subsystem(durin.ReflectionService)\nassert builtins.cached() == builtins.proxy.get_name()", *Other);
+        auto Result = Run("assert builtins.proxy is durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)\nassert builtins.cached() == builtins.proxy.get_name()", *Other);
         EXPECT_EQ(Result.State, EPythonJobState::Succeeded) << Result.Error;
         Runtime.CloseSession(Session);
         Result = Run("assert builtins.cached() == builtins.proxy.get_name()", *Other);
@@ -1042,7 +1070,7 @@ for operation in (lambda: builtins.reflected(1), lambda: builtins.value.target):
         auto* OtherTools = Other->GetEditorSubsystem<DEditorToolSubsystem>(); ASSERT_NE(OtherTools, nullptr);
         auto Created = Runtime.CreateSession(OtherTools->GetService()); ASSERT_TRUE(Created);
         const auto Result = Run(R"(
-assert builtins.proxy != durin.get_editor_subsystem(durin.ReflectionService)
+assert builtins.proxy != durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 try:
     builtins.cached()
 except ReferenceError:
@@ -1061,7 +1089,7 @@ else:
         First = Register(DReflectionService::StaticClass()); ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems());
         Pass(R"(
 assert hash(builtins.proxy) == builtins.identity
-assert builtins.proxy != durin.get_editor_subsystem(durin.ReflectionService)
+assert builtins.proxy != durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)
 try:
     builtins.cached()
 except ReferenceError:
@@ -1074,7 +1102,7 @@ else:
 
     TEST_F(PythonReflectionTests, DetachedValuesRejectAndReleaseRetiredServiceReferences)
     {
-        Pass("builtins.value = durin.ReflectionValue(target=durin.get_editor_subsystem(durin.ReflectionService))");
+        Pass("builtins.value = durin.types.Durin.PythonFixtures.ReflectionValue(target=durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService))");
         TWeakObjectPtr<DReflectionService> Old(Host->GetEditorSubsystem<DReflectionService>());
         Host->RemoveEditorSubsystem(DReflectionService::StaticClass()); First.reset();
         CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_TRUE(Old.IsValid());
@@ -1124,7 +1152,7 @@ else:
     {
         Save(); Runtime.Stop(); ASSERT_TRUE(Runtime.Start());
         const auto Created = Runtime.CreateSession(Tools->GetService()); ASSERT_TRUE(Created); Session = *Created;
-        Pass("assert not hasattr(builtins, 'proxy')\na = durin.get_editor_subsystem(durin.ReflectionService)\nassert a.get_class() is durin.ReflectionService");
+        Pass("assert not hasattr(builtins, 'proxy')\na = durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService)\nassert a.get_class() is durin.types.Durin.PythonFixtures.ReflectionService");
     }
     TEST_F(PythonReflectionTests, CancelledJobDoesNotInvalidateSameHostObjects)
     {

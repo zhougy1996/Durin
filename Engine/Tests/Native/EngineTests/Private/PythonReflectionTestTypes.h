@@ -248,4 +248,25 @@ namespace Durin::PythonFixtures
         explicit DSecondAlias(const FObjectInitializer& Initializer) : Super(Initializer) {}
     };
 
+    namespace First
+    {
+        DCLASS(ScriptType, NoClassDefaultObject)
+        class DSharedType : public DObject
+        {
+            GENERATED_BODY()
+        public:
+            explicit DSharedType(const FObjectInitializer& Initializer) : Super(Initializer) {}
+        };
+    }
+
+    namespace Second
+    {
+        DCLASS(ScriptType, NoClassDefaultObject)
+        class DSharedType : public DObject
+        {
+            GENERATED_BODY()
+        public:
+            explicit DSharedType(const FObjectInitializer& Initializer) : Super(Initializer) {}
+        };
+    }
 }

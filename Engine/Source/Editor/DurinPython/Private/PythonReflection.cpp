@@ -197,6 +197,64 @@ namespace Durin::PythonReflection::Private
         });
         return Missing;
     }
+    static auto ResolveTypeNamespace(const std::string& QualifiedName, std::string& Path,
+        FTypeNamespace*& Scope) -> bool
+    {
+        Scope = &Registry->TypeNamespace;
+        size_t Begin = 0;
+        for (auto End = QualifiedName.find("::"); End != std::string::npos; End = QualifiedName.find("::", Begin))
+        {
+            const auto Segment = QualifiedName.substr(Begin, End - Begin);
+            Path += "." + Segment;
+            Begin = End + 2;
+            if (!ValidName(Segment))
+            {
+                DURIN_WARN("Cannot publish Python namespace {} for {}; use durin.get_type.", Path, QualifiedName);
+                Scope = nullptr;
+                return true;
+            }
+            auto Child = Scope->Children.find(Segment);
+            if (Child == Scope->Children.end())
+            {
+                auto NewScope = std::make_unique<FTypeNamespace>();
+                NewScope->Module.Value = PyModule_New(Path.c_str());
+                if (!NewScope->Module.Value ||
+                    PyModule_AddObjectRef(Scope->Module.Value, Segment.c_str(), NewScope->Module.Value) < 0) return false;
+                if (auto Existing = Scope->Types.find(Segment); Existing != Scope->Types.end() && Existing->second)
+                {
+                    DURIN_WARN("Python namespace {} hides the type name for {}; use durin.get_type.", Path, Qualified(Existing->second));
+                    Scope->Types.erase(Existing);
+                }
+                Child = Scope->Children.emplace(Segment, std::move(NewScope)).first;
+            }
+            Scope = Child->second.get();
+        }
+        return true;
+    }
+    static auto PublishTypeName(FTypeNamespace& Scope, const std::string& Path, const std::string& Alias,
+        DType* Type, PyObject* Python) -> bool
+    {
+        if (Scope.Children.contains(Alias))
+        {
+            DURIN_WARN("Python namespace {}.{} hides the type name for {}; use durin.get_type.", Path, Alias, Qualified(Type));
+            return true;
+        }
+        const auto Existing = Scope.Types.find(Alias);
+        if (Existing == Scope.Types.end())
+        {
+            if (PyModule_AddObjectRef(Scope.Module.Value, Alias.c_str(), Python) < 0) return false;
+            Scope.Types.emplace(Alias, Type);
+        }
+        else if (Existing->second)
+        {
+            DURIN_WARN("Ambiguous Python type name {}.{}: {} and {}; set a distinct ScriptName or use durin.get_type.",
+                Path, Alias, Qualified(Existing->second), Qualified(Type));
+            if (PyDict_GetItemString(PyModule_GetDict(Scope.Module.Value), Alias.c_str()) &&
+                PyObject_SetAttrString(Scope.Module.Value, Alias.c_str(), nullptr) < 0) return false;
+            Existing->second = nullptr;
+        }
+        return true;
+    }
     auto Build(DType* Type) -> PyObject*
     {
         if (!Type || IsExcluded(Type)) return Error(PyExc_TypeError, "Type is excluded from scripts.");
@@ -208,6 +266,9 @@ namespace Durin::PythonReflection::Private
         auto ShortName = QualifiedName.substr(QualifiedName.rfind("::") == std::string::npos ? 0 : QualifiedName.rfind("::") + 2);
         const auto Alias = Type->GetScriptExposure().Name.empty() ? Name(ShortName, true) : Type->GetScriptExposure().Name;
         if (!ValidName(Alias)) return Error(PyExc_ValueError, "Invalid script type name: " + QualifiedName);
+        std::string Path = "durin.types";
+        FTypeNamespace* Scope = nullptr;
+        if (!ResolveTypeNamespace(QualifiedName, Path, Scope)) return nullptr;
         PyObject* Bases = nullptr;
         const bool ObjectType = Cast<DClass>(Type) != nullptr;
         if (auto* Class = Cast<DClass>(Type); Class && Class->GetSuperClass())
@@ -215,7 +276,7 @@ namespace Durin::PythonReflection::Private
             auto* Base = Build(Class->GetSuperClass()); if (!Base) return nullptr;
             Bases = PyTuple_Pack(1, Base); Py_DECREF(Base); if (!Bases) return nullptr;
         }
-        const auto PythonName = "durin." + Alias;
+        const auto PythonName = Path + "." + Alias;
         const auto Slots = ObjectType ? ObjectTypeSlots() : ValueTypeSlots();
         std::vector<PyType_Slot> ActiveSlots(Slots.begin(), Slots.end());
         const auto Flags = static_cast<decltype(PyType_Spec::flags)>(
@@ -225,23 +286,9 @@ namespace Durin::PythonReflection::Private
         auto* Python = PyType_FromSpecWithBases(&Spec, Bases); Py_XDECREF(Bases); if (!Python) return nullptr;
         Registry->Types.emplace(Type, FType{Python, QualifiedName, Alias});
         Registry->NativeTypes.emplace(Python, Type);
-        if (!PublishMembers(Type, Python)) return nullptr;
-        if (!RegisterDependencies(Type))
+        if (!PublishMembers(Type, Python) || !RegisterDependencies(Type) ||
+            (Scope && !PublishTypeName(*Scope, Path, Alias, Type, Python)))
         { Registry->NativeTypes.erase(Python); Registry->Types.erase(Type); Py_DECREF(Python); return nullptr; }
-        auto [It, Inserted] = Registry->Aliases.emplace(Alias, Type);
-        if (!Inserted && It->second != Type)
-        {
-            if (It->second) DURIN_WARN("Ambiguous Python type alias {}: {} and {}; use durin.get_type.", Alias, Qualified(It->second), QualifiedName);
-            It->second = nullptr;
-            if (PyDict_GetItemString(PyModule_GetDict(Registry->Module), Alias.c_str()))
-                if (PyObject_SetAttrString(Registry->Module, Alias.c_str(), nullptr) < 0) return nullptr;
-        }
-        else if (Inserted)
-        {
-            if (PyDict_GetItemString(PyModule_GetDict(Registry->Module), Alias.c_str()))
-                return Error(PyExc_ValueError, "Script type collides with reserved durin member: " + Alias);
-            if (PyModule_AddObjectRef(Registry->Module, Alias.c_str(), Python) < 0) return nullptr;
-        }
         Py_IncRef(Python); return Python;
     }
 }
@@ -254,6 +301,9 @@ namespace Durin::PythonReflection
     {
         Registry = std::make_unique<FRegistry>(); Registry->Module = Module; Registry->AccessError = AccessError;
         Registry->Context = std::move(GetContext);
+        Registry->TypeNamespace.Module.Value = PyModule_New("durin.types");
+        if (!Registry->TypeNamespace.Module.Value ||
+            PyModule_AddObjectRef(Module, "types", Registry->TypeNamespace.Module.Value) < 0) return false;
         Registry->PurgeRegistration = std::make_unique<FObjectReferencePurgeRegistration>([](DObject& Object) {
             const FObjectKey Key(&Object);
             for (auto* Proxy : Registry->Objects)

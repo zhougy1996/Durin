@@ -279,7 +279,7 @@ See [structural history](../LevelEditing/ViewportEditing.md#actor-structure-comm
 
 The Actor subsystem publishes ScriptCallable native adapters with explicit
 ScriptName aliases. Scripts resolve the existing service through
-`durin.get_editor_subsystem(durin.EditorActorSubsystem)`; methods use the generic
+`durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)`; methods use the generic
 reflection bridge without an Actor Toolset dependency.
 
 | Script method | Inputs / result |

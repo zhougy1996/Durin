@@ -9,7 +9,7 @@ import durin
 
 
 def create_test_scene():
-    actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
+    actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
     level = actors.get_editor_level()
     if level is None:
         raise RuntimeError("Open a writable Level and stop Play before running this example.")
@@ -22,7 +22,7 @@ def create_test_scene():
         raise RuntimeError("The example is already present. Undo its creation or remove its Actors before running again.")
 
     def spawn(actor_type, name, position=(0.0, 0.0, 0.0)):
-        pose = durin.Transform()
+        pose = durin.types.Durin.Transform()
         translation = pose.translation
         translation.x, translation.y, translation.z = position
         pose.translation = translation
@@ -36,12 +36,12 @@ def create_test_scene():
         return actors.get_actor_info(level, actor).root_component
 
     with durin.ScopedEditorTransaction("Python: Create test scene"):
-        spawn(durin.Actor, "Example_Origin")
-        camera = spawn(durin.CameraActor, "Example_Camera", (-8.0, 0.0, 3.0))
-        sun = spawn(durin.DirectionalLightActor, "Example_Sun", (0.0, 0.0, 6.0))
-        spawn(durin.ProceduralSkyActor, "Example_Sky")
-        fill = spawn(durin.PointLightActor, "Example_FillLight", (2.0, -2.0, 3.0))
-        spawn(durin.PlayerStart, "Example_PlayerStart", (0.0, 0.0, 1.0))
+        spawn(durin.types.Durin.Actor, "Example_Origin")
+        camera = spawn(durin.types.Durin.CameraActor, "Example_Camera", (-8.0, 0.0, 3.0))
+        sun = spawn(durin.types.Durin.DirectionalLightActor, "Example_Sun", (0.0, 0.0, 6.0))
+        spawn(durin.types.Durin.ProceduralSkyActor, "Example_Sky")
+        fill = spawn(durin.types.Durin.PointLightActor, "Example_FillLight", (2.0, -2.0, 3.0))
+        spawn(durin.types.Durin.PlayerStart, "Example_PlayerStart", (0.0, 0.0, 1.0))
 
         root(sun).set_editor_property("intensity", 3.0)
         root(fill).set_editor_property("intensity", 8.0)

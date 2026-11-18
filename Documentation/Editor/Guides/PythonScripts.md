@@ -164,15 +164,15 @@ explicitly grant NonDocumentReadWrite when creating the session.
 ```python
 import durin
 
-actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
+actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
 level = actors.get_editor_level()
 if level is None:
     raise RuntimeError('No editor Level')
 
 with durin.ScopedEditorTransaction('Create empty Actor and camera'):
-    empty = actors.spawn_actor(level, durin.Actor, durin.Transform(),
+    empty = actors.spawn_actor(level, durin.types.Durin.Actor, durin.types.Durin.Transform(),
                                label='PythonEmptyActor')
-    camera = actors.spawn_actor(level, durin.CameraActor, durin.Transform(),
+    camera = actors.spawn_actor(level, durin.types.Durin.CameraActor, durin.types.Durin.Transform(),
                                 label='PythonCamera')
     if empty is None or camera is None:
         raise RuntimeError('Actor creation failed')
@@ -202,7 +202,7 @@ such as `actor.set_editor_property('tags', [durin.Name('MyTool.Scene')])`.
 
 The `name` argument requests an internal name and may receive a numeric suffix.
 For an exact internal name, pass
-`name_mode=durin.SpawnActorNameMode.REQUIRED_RETURN_NULL`; a conflict returns None
+`name_mode=durin.types.Durin.SpawnActorNameMode.REQUIRED_RETURN_NULL`; a conflict returns None
 without construction or history. `REQUIRED_ERROR_AND_RETURN_NULL` also logs an
 error. `REQUESTED` is the default. These policies also apply to `rename_actor`.
 
@@ -247,9 +247,10 @@ synchronous helper.
 
 ## Discover Native APIs and Generate IDE Hints
 
-Use `dir(durin)` to find the native types published by loaded modules and
-`dir(durin.EditorActorSubsystem)` to find its methods. Inspect a method's
-`__doc__` or call `help(durin.EditorActorSubsystem.spawn_actor)` for its Python
+Use `dir(durin.types)` to discover namespaces and `dir(durin.types.Durin)` to
+find the native types published in `Durin` by loaded modules. Use
+`dir(durin.types.Durin.EditorActorSubsystem)` to find its methods. Inspect a method's
+`__doc__` or call `help(durin.types.Durin.EditorActorSubsystem.spawn_actor)` for its Python
 signature. Type docstrings retain the native qualified name for `get_type`.
 
 Run this in an editor Python job to write completion declarations, using your

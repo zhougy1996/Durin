@@ -13,14 +13,14 @@ import durin
 
 
 def add_water_surface():
-    water_type = getattr(durin, "WaterSurfaceActor", None)
+    water_type = getattr(durin.types.Durin, "WaterSurfaceActor", None)
     if water_type is None:
         raise RuntimeError(
             'Water is unavailable. Enable "Plugins": {"Water": true} in the '
             "project's Configs/Plugins.json, build its <Project>PluginBuild target and restart the editor."
         )
 
-    actors = durin.get_editor_subsystem(durin.EditorActorSubsystem)
+    actors = durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)
     level = actors.get_editor_level()
     if level is None:
         raise RuntimeError("Open a writable Level and stop Play before running this example.")
@@ -33,7 +33,7 @@ def add_water_surface():
         )
 
     with durin.ScopedEditorTransaction("Python: Add water surface"):
-        water = actors.spawn_actor(level, water_type, durin.Transform(), label="Example_WaterSurface")
+        water = actors.spawn_actor(level, water_type, durin.types.Durin.Transform(), label="Example_WaterSurface")
         if water is None:
             raise RuntimeError("Could not create water; check Level write access and Play state.")
         water.set_editor_property("tags", [marker])

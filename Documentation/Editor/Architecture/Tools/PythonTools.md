@@ -80,12 +80,22 @@ or grant native construction/edit authority.
 
 The Actor and ActorComponent bases declare `ScriptType`, so active providers'
 derived types, including CameraActor and CameraComponent, are discoverable before
-any instances are queried or created. Scripts can pass `durin.Actor` or
-`durin.CameraActor` directly to `spawn_actor` in an empty writable Level. A plain
+any instances are queried or created. Scripts can pass `durin.types.Durin.Actor` or
+`durin.types.Durin.CameraActor` directly to `spawn_actor` in an empty writable Level. A plain
 Actor has no default root component; CameraActor supplies its camera root.
-Top-level aliases omit the native type prefix. Colliding aliases are omitted with
-a diagnostic, leaving qualified lookup available. Generated Python declarations
-are not executable binding implementations.
+Reflected types are published under `durin.types` using the native namespace
+path and the script type name. For example, `Durin::DCameraComponent` is
+`durin.types.Durin.CameraComponent`. Namespace segments preserve their spelling
+and must be public Python identifiers. A type in the global C++ namespace
+appears directly under `durin.types`. The final segment uses `ScriptName` when
+provided and otherwise strips the usual native type prefix.
+
+Same-name types in different namespaces coexist. If two types map to the same
+name in one namespace, that name is omitted and a diagnostic identifies both
+types. If a type name matches a child namespace, the namespace takes precedence.
+Canonical `get_type()` lookup remains available and returns the same wrapper
+as the namespace attribute when one exists. Namespace objects support attribute
+access and discovery without registering Python submodule import paths.
 
 `durin.get_editor_subsystem(type)` returns the selected Host's existing service,
 wrapped with native identity and a non-owning Python factory observation. Object
@@ -180,7 +190,7 @@ Native validation failures raise `ValueError`, admission failures raise
 The native editing contract belongs to
 [reflected property editing](../PropertyEditing/ReflectedPropertyEditing.md).
 
-`durin.get_editor_subsystem(durin.EditorActorSubsystem)` exposes reflected
+`durin.get_editor_subsystem(durin.types.Durin.EditorActorSubsystem)` exposes reflected
 queries and six structural Actor edits through the same generic descriptors,
 class/transform codecs and native ProcessEvent dispatch. DurinEd owns the
 language-neutral adapters; DurinPython contains no Actor-specific codec or edit
@@ -195,8 +205,9 @@ The full API and admission rules belong to
 
 ## Discovery and IDE Declarations
 
-Standard `dir(durin)`, `dir(type)` and `dir(instance)` expose published aliases
-and inherited members. Native type docstrings identify the canonical qualified
+Standard `dir(durin.types)` and `dir(durin.types.Durin)` expose published namespaces
+and types. `dir(type)` and `dir(instance)` expose members, including inherited
+members. Native type docstrings identify the canonical qualified
 name; method/property descriptor docstrings describe Python signatures and
 read/write status. Method documentation includes native tooltips when present.
 `help()` consumes these same docstrings. Defaults shown as `...` denote available
@@ -205,10 +216,10 @@ required arguments. An unexposed effective override still rejects an inherited
 descriptor at invocation, even if ordinary Python inheritance lists its name.
 
 `durin.generate_stubs()` returns declaration text for the current interpreter's
-published native registry. It reads the actual type dictionaries, including enum
-constants, rather than maintaining another exposure list. Types and members are
-sorted by canonical names and script names, so repeated generation with the same
-published schema produces identical bytes across jobs/sessions. Loading more
+published native registry. It reads the runtime namespace tree and actual type
+dictionaries, including enum constants. Types and members are sorted by canonical
+names and script names, so repeated generation with the same published schema
+produces identical bytes across jobs and sessions. Loading more
 modules can change the snapshot. Generation does not invoke native business
 methods or load additional providers.
 
@@ -222,10 +233,10 @@ shapes while outputs describe detached lists/dicts. Object annotations permit
 None; liveness, numeric ranges, exact container/enum identity, fixed-array lengths,
 admission and conversion budgets remain runtime checks.
 
-Ambiguous short aliases have private deterministic declaration names and typed
-`get_type` overloads for canonical qualified lookup. These private names are
-annotation identities, not extra runtime exports. Stubs describe published
-reflection and a small generic facade; dynamic Toolset schemas remain `Any`.
+Namespace type aliases and typed `get_type` overloads refer to the same private,
+deterministically named declarations. These names exist only in annotations.
+Stubs describe published reflection and a small generic facade. Dynamic Toolset
+schemas remain `Any`.
 They do not grant constructors, native subclassing, hidden members or edit
 authority. They are completion/type hints rather than a replacement runtime.
 
