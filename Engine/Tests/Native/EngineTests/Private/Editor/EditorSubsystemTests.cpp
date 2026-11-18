@@ -567,11 +567,11 @@ namespace
 		};
 		ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems()); EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorB>());
 		ASSERT_NO_THROW(Host->AddRegisteredEditorSubsystems()); ASSERT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorB>());
-		Host->DispatchSubsystemCallback([&] {
+		{
 			// Callback callers defer membership changes to their owning safe point.
 			A.reset();
 			EXPECT_NE(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
-		});
+		}
 		ASSERT_NO_THROW(Host->RemoveEditorSubsystem(FDynamicEditorA::StaticClass())); EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		FDynamicEditorA::Init = {};
 	}
@@ -605,7 +605,7 @@ namespace
 		int Cleanups = 0, Destructions = 0;
 		FDynamicEditorA::Deinit = [&](auto&) { ++Cleanups; };
 		FDynamicEditorA::Destroy = [&](auto&) { ++Destructions; };
-		Host->DispatchSubsystemCallback([&] {
+		{
 			Host->RequestShutdown();
 			EXPECT_TRUE(Host->IsShutdownRequested());
 			EXPECT_TRUE(Host->IsReadyForFinishDestroy());
@@ -614,7 +614,7 @@ namespace
 			RequestGarbageCollection();
 			EXPECT_TRUE(IsGarbageCollectionRequested());
 			EXPECT_EQ(0, Cleanups); EXPECT_EQ(0, Destructions);
-		});
+		}
 		EXPECT_EQ(0, Cleanups); EXPECT_EQ(0, Destructions);
 		Host->PreExit();
 		EXPECT_EQ(1, Cleanups); EXPECT_EQ(0, Destructions);
@@ -661,11 +661,11 @@ namespace
 		TStrongObjectPtr<FDynamicEditorA> Object(Host->GetEditorSubsystem<FDynamicEditorA>());
 
 		bool bUnloadRequested = false;
-		Host->DispatchSubsystemCallback([&] {
+		{
 			bUnloadRequested = true;
 			EXPECT_EQ(0, *Stopped);
 			EXPECT_EQ(EModuleState::Active, FModuleManager::Get().FindModule(Name)->State.load());
-		});
+		}
 		ASSERT_TRUE(bUnloadRequested);
 		// The owner unloads only after provider callbacks have returned.
 		EXPECT_TRUE(FModuleManager::Get().UnloadModule(Name));
@@ -684,10 +684,10 @@ namespace
 		FDynamicProvider Provider(Stopped);
 		FModuleTestHarness Module("EditorModuleStartupRollback");
 		Provider.DuringStartup = [] { throw std::runtime_error("Module startup exception"); };
-		Host->DispatchSubsystemCallback([&] {
+		{
 			EXPECT_THROW(Module.Start(Provider), std::runtime_error);
 			EXPECT_NO_THROW(Provider.ShutdownModule());
-		});
+		}
 		EXPECT_EQ(1, *Stopped);
 		EXPECT_EQ(nullptr, Host->GetEditorSubsystem<FDynamicEditorA>());
 		EXPECT_TRUE(Host->AreEditorSubsystemsInitialized());
@@ -700,7 +700,7 @@ namespace
 		auto Stopped = std::make_shared<int>(0);
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(Name, std::make_unique<FDynamicProvider>(Stopped)));
 		Host->AddRegisteredEditorSubsystems();
-		Host->DispatchSubsystemCallback([&] { Host->RequestShutdown(); });
+		{ Host->RequestShutdown(); }
 		ASSERT_TRUE(Host->IsShutdownRequested());
 		EXPECT_EQ(GEditor, Host);
 		EXPECT_FALSE(FModuleManager::Get().UnloadModule(Name));

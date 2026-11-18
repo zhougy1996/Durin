@@ -83,10 +83,10 @@ safe points, not inside callbacks.
 Tool subsystem synchronous calls, submissions, availability queries and pumps
 call their service directly after `CanCallNow` admits them. Service admission
 checks endpoint state and `HostReady`/`CanTransact`, including host retirement,
-without an intervening user callback. These paths do not additionally wrap the
-call in `DispatchSubsystemCallback`. Other external callback owners retain that
-wrapper where it supplies their shutdown gate. This does not change callback
-cleanup, GC, or module-unload contracts.
+without an intervening user callback. Other external callback owners check host
+shutdown directly before invocation. There is no generic Engine dispatch wrapper.
+Asset-editor callbacks retain their meaningful scoped transaction context.
+Callback cleanup, GC, and module-unload remain owned by lifecycle boundaries.
 
 ## Asset Editors
 

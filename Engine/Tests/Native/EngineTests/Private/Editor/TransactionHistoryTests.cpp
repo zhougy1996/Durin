@@ -1872,7 +1872,7 @@ TEST(FTransBufferTests, HostDestructionInvalidatesSuspendedScopeAndReleasesGcRef
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "SuspendedScopeTarget"));
 	TWeakObjectPtr<DTransactionRecordParticipant> WeakTarget(Target.Get());
 	FScopedTransaction Scope(Host->GetTransactor(), {.Description = "Across collection"});
-	Host->DispatchSubsystemCallback([&] { ASSERT_TRUE(Target->Modify()); Target->Value = 1; });
+	{ ASSERT_TRUE(Target->Modify()); Target->Value = 1; }
 	Target.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_NE(nullptr, WeakTarget.Get());
 	EXPECT_TRUE(Scope.IsOutstanding());

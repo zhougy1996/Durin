@@ -77,8 +77,8 @@ endpoint methods independently validate their owned state under the endpoint loc
 Execution rechecks host admission between availability checking and execution,
 and before every queued invocation. Same-service reentrant execution returns Busy.
 
-All provider callbacks run through the active editor's `DispatchSubsystemCallback`, preserving host
-and GC lifetime through synchronous return. A provider may request host shutdown;
+Provider callbacks use the service admission checks above; host and GC cleanup
+remain deferred to their owning lifecycle boundary. A provider may request host shutdown;
 the endpoint closes and cancels its jobs immediately while destruction waits for
 the host boundary. The host stops the remaining frame stages after a tool,
 script, World or shell callback requests shutdown. A native immediate

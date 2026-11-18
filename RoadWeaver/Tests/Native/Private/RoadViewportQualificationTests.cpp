@@ -1,3 +1,5 @@
+#include "Modules/ModuleManager.h"
+#include "LevelEditorModule.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -273,7 +275,8 @@ namespace
 		ASSERT_TRUE(Client.ProjectWorldToViewport(Midpoint, {256, 192}, Position));
 		FLevelEditorContext Context;
 		Context.Synchronize(World);
-		FLevelViewportEditModeManager Modes;
+		Durin::FModuleManager::LoadModuleChecked<Durin::FLevelEditorModule>("LevelEditor");
+		FEditorModeTools Modes;
 		const auto ClickAndWait = [&](FVector2f Pixel, bool Ctrl, bool Selected) {
 			// The real editor encloses input-triggered hit-proxy work in its RHI frame.
 			ENQUEUE_RENDER_COMMAND(BeginRoadPickFrame)([](FRHICommandListImmediate& Commands) {
@@ -304,7 +307,7 @@ namespace
 		ClickAndWait(Position, true, false);
 		ClickAndWait(Position, false, true);
 		ClickAndWait({0, 0}, false, false);
-		Modes.Shutdown(&Context);
+		Modes.DeactivateAllModes(&Context);
 
 		auto* Green = MakeMaterial({0, 1, 0}, "GreenRoad");
 		for (auto* Component : Actor->FindComponentsByClass<DSplineMeshComponent>()) Component->SetMaterial(0, Green);

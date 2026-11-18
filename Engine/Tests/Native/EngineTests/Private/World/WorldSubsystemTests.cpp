@@ -1303,7 +1303,7 @@ TEST_F(FWorldSubsystemTests, PendingHostShutdownDoesNotStartEngineServices)
 	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	int Constructions = 0;
 	FEngineSubsystemProbe::ConstructorCallback = [&](auto&) { ++Constructions; };
-	Host->DispatchSubsystemCallback([&] { Host->RequestShutdown(); });
+	{ Host->RequestShutdown(); }
 	EXPECT_NO_THROW(Host->StartEngine());
 	FEngineSubsystemProbe::ConstructorCallback = {};
 	EXPECT_EQ(Constructions, 0);
@@ -1452,7 +1452,7 @@ TEST_F(FWorldSubsystemTests, ReentrantShutdownRequestsNotifyOnceAndRetireAfterTh
 	TStrongObjectPtr<FSubsystemEditorHost> Host(NewObject<FSubsystemEditorHost>(nullptr, {}));
 	ASSERT_NO_THROW(Host->StartEngine());
 	ASSERT_NO_THROW(Host->StartEditor());
-	int Cleanups = 0, ExternalCalls = 0;
+	int Cleanups = 0;
 	FEngineSubsystemProbe::Callback = [&](auto&, bool bInit) {
 		if (bInit) return;
 		++Cleanups;
@@ -1467,9 +1467,8 @@ TEST_F(FWorldSubsystemTests, ReentrantShutdownRequestsNotifyOnceAndRetireAfterTh
 	};
 	Host->Dispatch([&] {
 		Host->RequestShutdown(); Host->RequestShutdown();
-		Host->DispatchSubsystemCallback([&] { ++ExternalCalls; });
 		EXPECT_EQ(1, Host->ShutdownRequests);
-		EXPECT_EQ(0, Cleanups); EXPECT_EQ(0, ExternalCalls);
+		EXPECT_EQ(0, Cleanups);
 	});
 	EXPECT_EQ(0, Cleanups);
 	Host->PreExit();
@@ -1720,7 +1719,7 @@ TEST_F(FWorldSubsystemTests, UnpublishedWorldClosesAdmissionWhenItsEngineRetires
 		Host->RequestShutdown();
 		EXPECT_TRUE(Service.GetWorld()->IsShutdownRequested());
 		EXPECT_NE(Host->GetSubsystem<FEngineSubsystemProbe>(), nullptr);
-		Host->DispatchSubsystemCallback([] { ADD_FAILURE() << "Retired hosts must reject external work during initialization."; });
+		EXPECT_TRUE(Host->IsShutdownRequested());
 	};
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	EXPECT_EQ(Initializations, 2);

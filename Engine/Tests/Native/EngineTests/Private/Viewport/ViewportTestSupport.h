@@ -3,6 +3,7 @@
 #include "Actors/ActorChange.h"
 
 #include "CoreMinimal.h"
+#include "Viewport/SelectViewportEditMode.h"
 
 #include "Viewport/ViewportPickingService.h"
 
@@ -56,6 +57,20 @@
 
 namespace
 {
+	struct FScopedSelectModeRegistration
+	{
+		Durin::LevelEditor::FLevelViewportEditModeHandle Handle;
+		FScopedSelectModeRegistration()
+		{
+			if (!Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Find("Select"))
+				Handle = Durin::LevelEditor::RegisterSelectViewportEditMode();
+		}
+		~FScopedSelectModeRegistration()
+		{
+			if (Handle) Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Unregister(Handle);
+		}
+	};
+
 	class FCountingTransaction final : public Durin::FActorCommandChange
 	{
 	public:

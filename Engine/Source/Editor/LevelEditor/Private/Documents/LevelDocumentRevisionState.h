@@ -34,10 +34,5 @@ namespace Durin::LevelEditor
 				Transactions->EstablishSavedState(*Package);
 		}
 
-		static auto Discard(DTransactor* Transactions, DPackage& Package) -> void
-		{
-			if (Transactions) Transactions->ForgetPackage(Package);
-			Package.ClearDirty();
-		}
 	};
 }

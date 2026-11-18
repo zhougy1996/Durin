@@ -93,8 +93,9 @@ TEST(FLevelViewportEditModeTests, KeepsInstancesPerManagerAndRepairsUnavailableM
 	ASSERT_TRUE(Handle);
 	Durin::LevelEditor::FLevelEditorContext ContextA;
 	Durin::LevelEditor::FLevelEditorContext ContextB;
-	Durin::LevelEditor::FLevelViewportEditModeManager ManagerA;
-	Durin::LevelEditor::FLevelViewportEditModeManager ManagerB;
+	FScopedSelectModeRegistration SelectRegistration;
+	Durin::LevelEditor::FEditorModeTools ManagerA;
+	Durin::LevelEditor::FEditorModeTools ManagerB;
 	ASSERT_TRUE(ManagerA.Activate("Probe", ContextA));
 	ASSERT_TRUE(ManagerB.Activate("Probe", ContextB));
 	EXPECT_EQ(FactoryCount, 2);
@@ -362,6 +363,7 @@ TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExist
 TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 {
 	InitializeDObjectSystem();
+	FScopedSelectModeRegistration SelectRegistration;
 	Durin::DPackage* Package = MakeRevisionTestPackage("GizmoPackage");
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Package, "GizmoWorld");
 	EXPECT_NO_THROW(World->InitializeSubsystems());
@@ -400,7 +402,8 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	DragInput.bLeftMouseDown = true;
 	DragInput.ViewportSize = {800.0f, 600.0f};
 	DragInput.MousePosition = HandleScreen;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
+	Durin::LevelEditor::FEditorModeTools Modes;
+	Modes.Tick(Context, Client, TranslateView, DragInput, TransformTransactions.Get());
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
 	DragInput.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
@@ -411,8 +414,9 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
 	EXPECT_FALSE(Package->IsDirty()); // Preview is not a committed package write.
 	Package->MarkDirty(); // An unrelated write arrives while the gesture is active.
-	DragInput.bCancel = true;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
+	Modes.DeactivateAllModes();
+	EXPECT_EQ(Modes.GetActiveMode(), nullptr);
+	EXPECT_FALSE(Client.GetTransformGizmo().IsDragging());
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
 	EXPECT_TRUE(Package->IsDirty()); // Cancel must not clear that outside write.
 	TransformTransactions->MarkSaved(*Package);

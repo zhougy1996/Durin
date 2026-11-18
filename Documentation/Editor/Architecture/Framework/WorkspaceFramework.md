@@ -123,12 +123,11 @@ callbacks only present state and never advance initialization. The runtime
 process result and shutdown ordering.
 
 Once services are Ready, DurinEd resolves the optional default Level and submits
-one ordinary asset-editor document request. LevelEditor owns unsaved-change
+one synchronous asset-open call. LevelEditor owns unsaved-change
 confirmation, map notification handling, document association, transaction revision
 handoff and viewport restoration through the same path as later opens. Empty
-default-Level configuration submits no request. No startup-specific workspace
-callbacks or separately owned loading operation exist. Document failure leaves
-the usable workspace available and is reported by the normal document UI.
+default-Level configuration starts no load. No startup-specific workspace
+callbacks or separately owned loading operation exist. Load failure leaves the workspace available and is reported through editor feedback.
 
 Normal editor ticks drain tools/scripts, update Worlds, then call
 `IMainFrameModule::TickMainFrame` before rendering and ticking notifications.
@@ -245,9 +244,10 @@ Scripting `DLevelEditorSubsystem::LoadLevel` calls
 Neither route queues a document open. The Level toolkit presents the authoritative
 World; its document-open callback does not initiate another load.
 
-The file utility settles world-centric toolkits through `RequestDeactivate`
-before invoking `Map_Load`. Level deactivation ends edit modes and transform
-gestures while their original targets remain valid. Failure feedback and blank-map
+The file utility calls `GetLevelEditorModeManager()->DeactivateAllModes()`
+before invoking `Map_Load`. Mode exit ends gestures while their original targets
+remain valid. Ordinary toolkit `RequestDeactivate` settles Details editing only;
+it does not deactivate modes or clear viewport selection. Failure feedback and blank-map
 recovery belong to the file utility. Direct asset opening rejects never-saved
 level packages and searches for the first valid level. Loading entrypoints do
 not prompt to save; interactive activation owns that prompt. `Handled` reports
@@ -267,7 +267,10 @@ by the current Level save workflow. Successful
 loading publishes the newly initialized World and document association. Map
 notifications release old UI roots and associate the published World directly,
 including script loads and standalone new-map creation. No pending document
-metadata or completion callback participates in map loading.
+metadata or completion callback participates in map loading. Closing a dirty Level view does not prompt to discard or clear package dirtiness. Exit preparation checks live dirty packages independently of open documents and saves them through `DEditorLoadingAndSavingUtils` before exit. Closing a Level
+document or toolkit saves viewport preferences and releases view/document roots;
+it does not detach the current Level, reset transactions, or destroy the editor
+World. Only editor engine map operations own those transitions.
 `AssociateDocumentAsset(Id, nullptr)` releases the root; the subsequent map
 notification replaces its resource identity or clears it for a blank map.
 

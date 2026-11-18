@@ -20,6 +20,7 @@ namespace Durin
 
 	auto DLevelEditorSubsystem::Deinitialize() noexcept -> void
 	{
+		ModeTools = nullptr;
 		HostContext.reset();
 	}
 

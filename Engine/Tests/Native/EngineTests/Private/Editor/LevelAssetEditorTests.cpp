@@ -1,6 +1,7 @@
 #include "CoreMinimal.h"
 #include "AssetEditorTestQueries.h"
 #include "LevelEditorModule.h"
+#include "LevelEditorViewportEditing.h"
 #include "FileHelpers.h"
 #include "Misc/FeedbackContext.h"
 #include "ContentBrowserAssetDataSource.h"
@@ -402,6 +403,76 @@ namespace
 		EXPECT_EQ(Notifications, 4);
 		Host->MapChanged.Remove(Handle);
 		EXPECT_TRUE(Host->GetCapabilities().bRunTools);
+	}
+
+	TEST_F(FLevelMapLifecycleTests, ToolkitDeactivationPreservesModesButMapLoadDeactivatesThem)
+	{
+		auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>();
+		auto* Modes = Levels->GetLevelEditorModeManager();
+		ASSERT_NE(Modes, nullptr);
+		ASSERT_EQ(Modes->GetActiveModeId(), "Select");
+		const auto Toolkit = Module->GetOrCreateLevelEditor(*Editors)->GetToolkit();
+		ASSERT_TRUE(Toolkit->RequestDeactivate());
+		EXPECT_EQ(Modes->GetActiveModeId(), "Select");
+		EXPECT_EQ(Host->GetEditorWorld(), World);
+		ASSERT_TRUE(Levels->LoadLevel(Target.AssetPath.ToString()));
+		EXPECT_TRUE(Modes->GetActiveModeId().empty());
+		EXPECT_EQ(Modes->GetActiveMode(), nullptr);
+		EXPECT_FALSE(PreviousLevel.IsValid());
+	}
+
+	TEST_F(FLevelMapLifecycleTests, ClosingDirtyDocumentPreservesMapAndCanReopen)
+	{
+		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
+		EXPECT_EQ(Documents->RequestCloseDocument(Documents->GetActiveDocument()->Id), EDocumentCloseResult::Closed);
+		EXPECT_TRUE(Documents->GetDocuments().empty());
+		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		EXPECT_EQ(Host->GetEditorWorld(), World);
+		EXPECT_EQ(World->GetCurrentLevel(), Level);
+		EXPECT_EQ(Actor->GetActorLabel(), "Unsaved edit");
+		EXPECT_TRUE(Level->GetPackage()->IsDirty());
+		ASSERT_NE(Module->GetOrCreateLevelEditor(*Editors), nullptr);
+		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
+		EXPECT_EQ(Documents->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
+		EXPECT_EQ(Documents->GetEditedAssets(), (std::vector<DObject*>{Level}));
+		EXPECT_TRUE(Level->GetPackage()->IsDirty());
+	}
+
+	TEST_F(FLevelMapLifecycleTests, SaveDirtyPackagesIncludesMapAfterDocumentCloses)
+	{
+		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
+		ASSERT_EQ(Documents->RequestCloseDocument(Documents->GetActiveDocument()->Id), EDocumentCloseResult::Closed);
+		ASSERT_TRUE(Documents->GetDocuments().empty());
+		ASSERT_TRUE(DEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true));
+		EXPECT_FALSE(Level->GetPackage()->IsDirty());
+		ASSERT_TRUE(FEditorFileUtils::LoadMap(Target.AssetPath.ToString()));
+		auto* Reloaded = Host->GetEditorWorld()->GetCurrentLevel()->FindActorByName("SavedActor");
+		ASSERT_NE(Reloaded, nullptr);
+		EXPECT_EQ(Reloaded->GetActorLabel(), "Unsaved edit");
+	}
+
+	TEST_F(FLevelMapLifecycleTests, ClosingToolkitReleasesViewsWithoutUnloadingWorld)
+	{
+		const auto WorldGeneration = Host->GetSceneGeneration();
+		Module->ReleaseLevelEditor(*Editors);
+		EXPECT_TRUE(FToolkitManager::Get().GetToolkits(Editors).empty());
+		EXPECT_EQ(Host->GetEditorSubsystem<DLevelEditorSubsystem>()->GetLevelEditorModeManager(), nullptr);
+		EXPECT_EQ(Host->GetEditorWorld(), World);
+		EXPECT_EQ(World->GetCurrentLevel(), Level);
+		EXPECT_TRUE(OriginalWorld.IsValid());
+		EXPECT_TRUE(PreviousComponent.IsValid());
+		EXPECT_TRUE(Component->IsRegistered());
+		EXPECT_EQ(Actor->GetActorLabel(), "Unsaved edit");
+		EXPECT_TRUE(Level->GetPackage()->IsDirty());
+		EXPECT_EQ(Host->GetSceneGeneration(), WorldGeneration);
+		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		ASSERT_TRUE(Module->InitializeLevelEditor(*Editors, {}, [] {}));
+		auto Reopened = Module->GetOrCreateLevelEditor(*Editors)->GetDocumentManager();
+		ASSERT_NE(Reopened->GetActiveDocument(), nullptr);
+		EXPECT_EQ(Reopened->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
+		EXPECT_EQ(Reopened->GetEditedAssets(), (std::vector<DObject*>{Level}));
+		EXPECT_EQ(Host->GetEditorWorld(), World);
+		EXPECT_EQ(Actor->GetActorLabel(), "Unsaved edit");
 	}
 
 	TEST_F(FLevelMapLifecycleTests, ScriptLoadReturnsActualResultWithoutCreatingToolkit)

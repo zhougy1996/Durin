@@ -1,8 +1,7 @@
 #include "FileHelpers.h"
 #include "Asset/PackageCollection.h"
-#include "Toolkits/ToolkitManager.h"
-#include "Toolkits/AssetEditorToolkit.h"
-#include "Subsystems/AssetEditorSubsystem.h"
+#include "Editor/LevelEditorSubsystem.h"
+#include "LevelEditorViewportEditing.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/World.h"
 #include "Asset/PackageSerialization.h"
@@ -66,10 +65,13 @@ namespace Durin
 		{ FFeedbackContext::Get().Error(Admission.error().ToString()); return false; }
 		if (!Editor->GetRendererModule())
 		{ FFeedbackContext::Get().Error("Renderer services are unavailable."); return false; }
-		// Settle existing editor gestures before Map_Load resets transactions and collects objects.
-		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(Editor->GetEditorSubsystem<DAssetEditorSubsystem>()))
-			if (Toolkit->GetToolkitMode() == EToolkitMode::WorldCentric && !Toolkit->RequestDeactivate())
-			{ FFeedbackContext::Get().Error("Finish the current edit before opening a level."); return false; }
+		// As in UE FileHelpers, map loading explicitly deactivates editor modes.
+		try
+		{
+			if (auto* Levels = Editor->GetEditorSubsystem<DLevelEditorSubsystem>())
+				if (auto* Modes = Levels->GetLevelEditorModeManager()) Modes->DeactivateAllModes();
+		}
+		catch (const std::exception& Exception) { FFeedbackContext::Get().Error(Exception.what()); return false; }
 		if (const auto* Trans = Editor->GetTransactor(); Trans && (!Trans->CanTransact() || Trans->IsActive()))
 		{ FFeedbackContext::Get().Error("Finish the current transaction or recovery before opening a level."); return false; }
 		std::string Error;

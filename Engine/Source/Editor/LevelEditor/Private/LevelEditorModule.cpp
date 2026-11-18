@@ -32,6 +32,7 @@
 #include "Actors/SplineMeshActor.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "FLevelEditorToolkit.h"
+#include "Viewport/SelectViewportEditMode.h"
 #include "Customizations/CameraEditorCustomizations.h"
 #include "Components/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
@@ -85,6 +86,7 @@ namespace Durin
 	struct FLevelEditorModule::FIntegrationState
 	{
 		FName Provider;
+		FLevelViewportEditModeHandle SelectMode;
 		std::unique_ptr<FEditorSubsystemRegistration> Levels;
 		std::unique_ptr<FNativeToolset> PIE;
 		FModularFeatureRegistration PIERegistration;
@@ -133,6 +135,7 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
 		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
 		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
+		Integration->SelectMode = RegisterSelectViewportEditMode();
 		SplineEditModeHandle = RegisterSplineViewportEditMode();
 		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
 		DetailCustomizationHandles.push_back(FDetailCustomizationRegistry::Get().RegisterDetailCustomization(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
@@ -173,6 +176,8 @@ namespace Durin
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		if (SplineEditModeHandle) FLevelViewportEditModeRegistry::Get().Unregister(SplineEditModeHandle);
 		SplineEditModeHandle = {};
+		FLevelViewportEditModeRegistry::Get().Unregister(Integration->SelectMode);
+		Integration->SelectMode = {};
 		for (auto It = CustomizationHandles.rbegin(); It != CustomizationHandles.rend(); ++It) Registry.Unregister(*It);
 		CustomizationHandles.clear();
 		for (auto It = DetailCustomizationHandles.rbegin(); It != DetailCustomizationHandles.rend(); ++It) FDetailCustomizationRegistry::Get().Unregister(*It);
@@ -250,7 +255,14 @@ namespace Durin
 	auto FLevelEditorModule::GetOrCreateLevelEditor(DAssetEditorSubsystem& AssetEditors) -> DAssetEditor*
 	{
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors))
-			if (auto* Level = Cast<DLevelAssetEditor>(Toolkit->GetOwningAssetEditor())) { Level->FocusWindow(); return Level; }
+			if (auto* Level = Cast<DLevelAssetEditor>(Toolkit->GetOwningAssetEditor()))
+			{
+				if (Level->GetDocumentManager()->GetDocuments().empty())
+					Level->GetDocumentManager()->OpenDocument({.ToolkitId = Workspace::Type,
+						.DocumentKey = "LevelEditor", .Label = "Level Editor"});
+				Level->FocusWindow();
+				return Level;
+			}
 		auto* Levels = AssetEditors.GetEditor()->GetEditorSubsystem<DLevelEditorSubsystem>();
 		if (!Levels || !Levels->GetHostContext()) return nullptr;
 		auto* Editor = NewObject<DLevelAssetEditor>(AssetEditors.GetEditor(), {});

@@ -66,6 +66,8 @@ by execution; requests never change retention. Pending destruction advances on
 subsequent frames independently of the next reachability scan.
 
 Business callbacks request GC and return to their owner before physical collection.
+There is no Engine callback-dispatch wrapper: callers enforce shutdown admission
+directly, and editor-specific scopes retain their transaction-context ownership.
 They must not invoke synchronous collection or reenter frame scheduling. The owner
 establishes the safe point after complete operations, exception cleanup and borrowed
 storage have ended. There is no business deferral counter or scope-exit collection.
@@ -203,9 +205,9 @@ there is no generic asset-open outcome or request-history cache. An empty defaul
 Level setting starts no load.
 
 Automation has a separate `GetStartupCompletion(OutError)` observation boundary.
-It checks whether that Level document is still pending, then verifies that the
-actual editor World contains the configured Level. Failure/cancellation or closing
-the initial scene cannot be masked by a previously successful request receipt.
+It verifies that the actual editor World contains the configured Level. Load
+failure or replacing the initial map cannot be masked by a previously successful
+request receipt; closing a toolkit does not unload the World.
 Once the correct scene is active, automation separately requires its actual
 primary-window presentation. `FSceneViewport::QueryPresentation()`
 validates scene generation and render outcome, then delegates current-window
@@ -281,9 +283,8 @@ destroys the current editor World and scene, releases document references and
 collects map packages before loading. Both same-map reopening and switching maps
 follow this path. Asset definitions, startup, and scripting all execute the
 same synchronous file utility; there is no editor map request queue, completion
-callback, cancel API, or document-loading progress state. The file utility settles
-world-centric toolkits through their existing deactivation contract before
-resetting transactions. Level deactivation ends edit modes and transform gestures.
+callback, cancel API, or document-loading progress state. The file utility explicitly deactivates the Level editor mode manager before
+resetting transactions. Generic toolkit deactivation is not a map lifecycle hook.
 Preflight rejection preserves the current World. An admitted load cannot be
 canceled midway through teardown and accepts no runtime preload or BeginPlay options.
 

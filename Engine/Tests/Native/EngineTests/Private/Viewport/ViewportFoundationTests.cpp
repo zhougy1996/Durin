@@ -825,7 +825,7 @@ TEST(FLevelDocumentRevisionStateTests, AdvancesCheckpointOnlyAfterSuccessfulSave
 	EXPECT_FALSE(Package->IsDirty());
 }
 
-TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateAndDiscardsMetadata)
+TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateWithoutClearingDirtyPackages)
 {
 	Durin::DPackage* Previous = MakeRevisionTestPackage("Previous");
 	Durin::DPackage* CleanReplacement = MakeRevisionTestPackage("CleanReplacement");
@@ -848,9 +848,6 @@ TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateAndDiscardsMetadat
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement)->bCheckpointValid);
 	EXPECT_TRUE(DirtyReplacement->IsDirty());
 
-	Durin::LevelEditor::FLevelDocumentRevisionState::Discard(Manager.Get(), *DirtyReplacement);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement).has_value());
-	EXPECT_FALSE(DirtyReplacement->IsDirty());
 }
 
 TEST(FLevelDocumentRevisionStateTests, PreservesUnrelatedUndoRedoAndSavedCheckpoints)

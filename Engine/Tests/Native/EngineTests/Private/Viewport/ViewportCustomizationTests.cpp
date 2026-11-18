@@ -258,7 +258,8 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 
 	const Durin::LevelEditor::FLevelViewportEditModeHandle Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
-	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
+	FScopedSelectModeRegistration SelectRegistration;
+	Durin::LevelEditor::FEditorModeTools Manager;
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
 	const Durin::LevelEditor::FTransformGizmoTargetSet Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	ASSERT_EQ(Targets.Targets.size(), 2u);
@@ -286,7 +287,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_EQ(Manager.GetActiveModeId(), "Select");
 	EXPECT_EQ(Context.GetSelectedComponent(), Spline);
-	Manager.Shutdown(&Context);
+	Manager.DeactivateAllModes(&Context);
 	EXPECT_TRUE(Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -324,7 +325,8 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 		{Durin::LevelEditor::EEditorSubElementKind::Point, MiddleId});
 	const auto Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
-	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
+	FScopedSelectModeRegistration SelectRegistration;
+	Durin::LevelEditor::FEditorModeTools Manager;
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
 	auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	ASSERT_EQ(Targets.Targets.size(), 1u);
@@ -358,7 +360,7 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 	EXPECT_NE(std::ranges::find(Segments, RestoredSecond), Segments.end());
 	EXPECT_EQ(RestoredFirst->GetSplineMeshParams().EndPosition, Spline->GetSplinePoint(1)->Position);
 
-	Manager.Shutdown(&Context);
+	Manager.DeactivateAllModes(&Context);
 	EXPECT_TRUE(Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkAsGarbage(Mesh);

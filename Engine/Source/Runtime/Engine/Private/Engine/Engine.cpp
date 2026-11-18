@@ -150,14 +150,6 @@ namespace Durin
 		std::erase(Host.InitializingWorlds, &World);
 	}
 
-	auto DEngine::DispatchSubsystemCallback(std::function<void()> Callback) -> void
-	{
-		if (bShutdownRequested) return;
-		// Callbacks may request retirement or GC; owners execute both at safe points.
-
-		Callback();
-	}
-
 	auto DEngine::InitializeEngineSubsystems() -> void
 	{
 		requiref(!bShutdownComplete, "Engine subsystem initialization is one-shot.");

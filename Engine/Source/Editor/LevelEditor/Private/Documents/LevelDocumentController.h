@@ -41,9 +41,10 @@ namespace Durin::LevelEditor
 		auto CanSaveCurrentLevel() const -> bool;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
-		auto CloseLevel() -> bool;
+		auto CloseDocument() -> bool;
 
 	private:
+		friend class FLevelEditorToolkit;
 		// Selects the modal confirmation that must be resolved before continuing.
 		enum class EQueuedPopup
 		{
@@ -67,6 +68,5 @@ namespace Durin::LevelEditor
 		std::string PendingPath;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		TWeakObjectPtr<DPackage> DocumentPackage;
-		TWeakObjectPtr<DWorld> DocumentWorld;
 	};
 } // namespace Durin::LevelEditor

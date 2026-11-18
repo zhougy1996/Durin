@@ -54,7 +54,6 @@ namespace Durin::LevelEditor
 		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
 		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
 		LEVELEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
-		LEVELEDITOR_API auto OnDiscardDocument(const FEditorDocument& Document) -> bool override;
 		LEVELEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
 		LEVELEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
 		LEVELEDITOR_API auto OnSaveActiveDocument() -> bool override;

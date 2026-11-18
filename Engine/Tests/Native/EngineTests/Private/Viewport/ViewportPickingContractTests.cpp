@@ -134,7 +134,8 @@ TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHis
 	Context.EditorHost = Fixture.Editor.GetEditor();
 	Context.Synchronize(Fixture.World);
 	Context.SelectActor(Fixture.Actor);
-	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
+	FScopedSelectModeRegistration SelectRegistration;
+	Durin::LevelEditor::FEditorModeTools Manager;
 	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bDuplicate = true;
 	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, Transactions));
@@ -153,7 +154,7 @@ TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHis
 	EXPECT_TRUE(Context.GetSelectedActors().empty());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Fixture.Level->ContainsActor(Copy));
-	Manager.Shutdown(&Context);
+	Manager.DeactivateAllModes(&Context);
 }
 
 TEST(FViewportPickingContractTests, SelectModeAppliesCtrlIntentWithinInputEvent)
@@ -168,7 +169,8 @@ TEST(FViewportPickingContractTests, SelectModeAppliesCtrlIntentWithinInputEvent)
 	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(Fixture.World);
 	Context.SelectActor(Existing);
-	Durin::LevelEditor::FLevelViewportEditModeManager Manager;
+	FScopedSelectModeRegistration SelectRegistration;
+	Durin::LevelEditor::FEditorModeTools Manager;
 	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bRequestSelection = true;
 	Input.bCtrl = true;
@@ -179,7 +181,7 @@ TEST(FViewportPickingContractTests, SelectModeAppliesCtrlIntentWithinInputEvent)
 	Input = {};
 	EXPECT_FALSE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, nullptr));
 	EXPECT_EQ(State->Requests.size(), 1u);
-	Manager.Shutdown(&Context);
+	Manager.DeactivateAllModes(&Context);
 }
 
 TEST(FViewportPickingContractTests, KeepsViewportQueriesAndCacheInvalidationIndependent)

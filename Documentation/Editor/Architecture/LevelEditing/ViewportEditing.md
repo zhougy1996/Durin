@@ -19,7 +19,7 @@ FLevelViewportEditModeRegistry
             |
             v
 FSceneViewportPanel (one workspace viewport)
-  owns FLevelViewportEditModeManager
+  owns FEditorModeTools
   owns FLevelEditorViewportClient and FTransformGizmo
   owns FViewportPickingService through its viewport client
             |
@@ -34,10 +34,17 @@ Duplicate/invalid registrations are rejected. `GetAvailable()` filters against
 the current workspace context and sorts by priority. Unregistration invalidates
 an active instance at its next synchronization.
 
-Every Scene Viewport owns an independent `FLevelViewportEditModeManager`.
-`Select` is always registered and is the safe default. Mode instances are
+Every Scene Viewport owns an independent `FEditorModeTools`.
+`Select` is registered by the LevelEditor provider and is the default while
+that provider is loaded. Mode instances are
 created per manager and must not store state in component visualizers or the
-global registry.
+global registry. The actual registry and manager lifecycle implementation live in
+DurinEd; concrete Select/Spline modes and viewport rendering remain in LevelEditor.
+`DLevelEditorSubsystem::GetLevelEditorModeManager()` exposes the live workspace
+manager without creating a toolkit. `DeactivateAllModes()` exits active modes
+and clears their context; loading calls it explicitly. Ordinary toolkit switching
+retains modes. Toolkit closure deactivates its manager and unregisters the
+subsystem pointer before destroying panels, without changing the engine World.
 
 ## Shared Selection
 
@@ -312,7 +319,7 @@ unregistration, document/PIE transitions, and shutdown.
 
 ```text
 Engine/Source/Editor/LevelEditor/Public/LevelEditorSelection.h
-Engine/Source/Editor/LevelEditor/Public/LevelEditorViewportEditing.h
+Engine/Source/Editor/DurinEd/Public/LevelEditorViewportEditing.h
 Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h
 Engine/Source/Editor/LevelEditor/Public/LevelEditorViewportPicking.h
 Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportEditing.cpp

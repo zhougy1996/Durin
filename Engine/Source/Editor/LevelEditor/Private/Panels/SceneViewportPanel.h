@@ -56,7 +56,7 @@ namespace Durin::LevelEditor
 		auto SetPreferredPlayMode(EPlayStartLocation StartLocation, EPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
-		auto GetEditModeManager() -> FLevelViewportEditModeManager& { return EditModeManager; }
+		auto GetEditModeManager() -> FEditorModeTools& { return EditModeManager; }
 		auto IsGridVisible() const -> bool;
 		auto SetGridVisible(bool bVisible) -> void;
 		auto GetCameraMovementSpeed() const -> float;
@@ -89,7 +89,7 @@ namespace Durin::LevelEditor
 		std::shared_ptr<MViewport> CameraPreviewViewportWidget;
 		std::shared_ptr<FSceneViewport> CameraPreviewSceneViewport;
 		std::unique_ptr<FViewportToolbar> ViewportToolbar;
-		FLevelViewportEditModeManager EditModeManager;
+		FEditorModeTools EditModeManager;
 		bool bViewportHovered = false;
 		bool bInitialPresentationRequested = false;
 		bool bViewportFocused = false;

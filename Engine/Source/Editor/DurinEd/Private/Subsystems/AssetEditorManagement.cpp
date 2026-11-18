@@ -20,11 +20,9 @@ namespace Durin
 	auto DAssetEditorSubsystem::DispatchEditorCallback(std::function<void()> Callback) -> void
 	{
 		auto* Editor = GetEditor();
-		if (!IsValid(Editor)) return;
-		Editor->DispatchSubsystemCallback([&] {
-			FScopedEditorTransactionContext Context(Editor);
-			Callback();
-		});
+		if (!IsValid(Editor) || Editor->IsShutdownRequested()) return;
+		FScopedEditorTransactionContext Context(Editor);
+		Callback();
 	}
 	auto DAssetEditorSubsystem::CreateToolkitHost(const FAssetOpenArgs& Args) -> std::shared_ptr<IToolkitHost>
 	{

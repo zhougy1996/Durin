@@ -85,9 +85,9 @@ using `Collection.InitializeDependency<T>()`. Lifecycle methods return void;
 single-service addition and dependency initialization return pointers. There is
 no subsystem result structure or error enum. Implement `Deinitialize` as non-throwing cleanup
 that also tolerates failed initialization. External callbacks that use host
-resources use `DispatchSubsystemCallback` unless their concrete endpoint already
-enforces equivalent host admission with no intervening user callback. The wrapper
-only gates new work after shutdown; it does not own lifecycle or GC scopes.
+resources check host admission at their concrete endpoint before invoking user
+code. Engine has no generic callback dispatch wrapper; lifecycle and GC cleanup
+remain owned by host boundaries.
 
 Dependency initialization runs on demand before returning to the consumer's
 Initialize callback. Missing or excluded dependencies return null. Invalid scope

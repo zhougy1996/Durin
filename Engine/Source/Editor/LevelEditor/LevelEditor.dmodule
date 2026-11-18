@@ -7,7 +7,6 @@
         "Projects"
     ],
     "ReflectHeaders": [
-        "Public/Editor/LevelEditorSubsystem.h",
         "Private/LevelAssetEditor.h"
     ],
     "PrivateDependencies": [

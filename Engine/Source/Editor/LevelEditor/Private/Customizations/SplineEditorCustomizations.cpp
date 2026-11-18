@@ -256,7 +256,7 @@ namespace Durin::LevelEditor
 			auto Exit(FLevelEditorContext& Context, bool) -> void override
 			{
 				if (LastClient && !LastClient->GetTransformGizmo().CancelDrag())
-					Context.SetError("Unable to restore the transform gesture.");
+					throw std::runtime_error("Unable to restore the transform gesture.");
 				if (Context.GetSelectedComponent() == LastSpline.Get()) Context.ClearSubElementSelection();
 				LastClient = nullptr;
 				LastSpline = nullptr;

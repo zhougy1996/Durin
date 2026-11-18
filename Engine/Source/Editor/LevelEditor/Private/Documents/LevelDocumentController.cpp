@@ -43,10 +43,11 @@ namespace Durin::LevelEditor
 			{
 				WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
 				WorkspaceSettings.Save(&SceneViewportPanel);
+				if (!SceneViewportPanel.PrepareForLevelChange(Context))
+					throw std::runtime_error("Unable to release viewport edits before world teardown.");
 				Context.Synchronize(nullptr);
 				SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
 				DocumentPackage.Reset();
-				DocumentWorld.Reset();
 				for (const auto& Document : Documents.GetDocuments()) Documents.AssociateDocumentAsset(Document.Id, nullptr);
 			}
 			else AssociateCurrentLevel();
@@ -114,7 +115,6 @@ namespace Durin::LevelEditor
 			Context.Synchronize(World);
 			WorkspaceSettings.RestoreViewportState(Level, SceneViewportPanel);
 			DocumentPackage = Level->GetPackage();
-			DocumentWorld = World;
 		}
 		else Context.Synchronize(World);
 		if (Level)
@@ -228,27 +228,17 @@ namespace Durin::LevelEditor
 		return MoveResult;
 	}
 
-	auto FLevelDocumentController::CloseLevel() -> bool
+	auto FLevelDocumentController::CloseDocument() -> bool
 	{
 		QueuedPopup = EQueuedPopup::None;
 		PendingPath.clear();
-		if (DocumentWorld.IsValid() && Context.EditorHost && Context.EditorHost->IsPlaying()) return false;
-		DWorld* World = DocumentWorld.Get();
-		DPackage* Package = DocumentPackage.Get();
-		if (World && World->GetCurrentLevel())
-		{
-			// The authoritative world can have been updated by package reload.
-			Package = World->GetCurrentLevel()->GetPackage();
-			WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
-			WorkspaceSettings.Save(&SceneViewportPanel);
-			if (!SceneViewportPanel.PrepareForLevelChange(Context)) return false;
-			if (!World->SetCurrentLevel(nullptr)) return false;
-			FLevelDocumentRevisionState::Activate((Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr), Package, nullptr);
-			Context.Synchronize(World);
-			SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
-		}
+		WorkspaceSettings.CaptureViewportState(Context, SceneViewportPanel);
+		WorkspaceSettings.Save(&SceneViewportPanel);
+		if (!SceneViewportPanel.PrepareForLevelChange(Context)) return false;
+		Context.Synchronize(nullptr);
+		SceneViewportPanel.RestoreCameraState(nullptr, nullptr);
+		for (const auto& Document : Documents.GetDocuments()) Documents.AssociateDocumentAsset(Document.Id, nullptr);
 		DocumentPackage.Reset();
-		DocumentWorld.Reset();
 		return true;
 	}
 

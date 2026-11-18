@@ -25,6 +25,7 @@
         "Public/Actors/EditorActorSubsystem.h",
         "Public/Tools/EditorToolSubsystem.h",
         "Public/Editor/EditorSubsystem.h",
+        "Public/Editor/LevelEditorSubsystem.h",
         "Public/Notifications/EditorNotificationSubsystem.h",
         "Public/Factories/Factory.h",
         "Public/Transactions/Transactor.h",

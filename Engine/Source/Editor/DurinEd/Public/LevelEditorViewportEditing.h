@@ -2,8 +2,8 @@
 
 #include "CoreMinimal.h"
 
-#include "LevelEditorAPI.h"
-#include "LevelEditorTransformTargets.h"
+#include "DurinEdAPI.h"
+#include "Viewport/TransformGizmoTypes.h"
 #include "SceneView.h"
 
 namespace Durin
@@ -48,13 +48,13 @@ namespace Durin::LevelEditor
 	class FLevelViewportEditModeRegistry
 	{
 	public:
-		LEVELEDITOR_API static auto Get() -> FLevelViewportEditModeRegistry&;
-		LEVELEDITOR_API auto Register(
+		DURINED_API static auto Get() -> FLevelViewportEditModeRegistry&;
+		DURINED_API auto Register(
 			FLevelViewportEditModeDescriptor Descriptor) -> FLevelViewportEditModeHandle;
 
-		LEVELEDITOR_API auto Unregister(FLevelViewportEditModeHandle Handle) -> bool;
-		LEVELEDITOR_API auto Find(std::string_view Id) const -> const FLevelViewportEditModeDescriptor*;
-		LEVELEDITOR_API auto GetAvailable(const FLevelEditorContext& Context) const -> std::vector<const FLevelViewportEditModeDescriptor*>;
+		DURINED_API auto Unregister(FLevelViewportEditModeHandle Handle) -> bool;
+		DURINED_API auto Find(std::string_view Id) const -> const FLevelViewportEditModeDescriptor*;
+		DURINED_API auto GetAvailable(const FLevelEditorContext& Context) const -> std::vector<const FLevelViewportEditModeDescriptor*>;
 
 	private:
 		uint64 NextHandleId = 1;
@@ -66,16 +66,16 @@ namespace Durin::LevelEditor
 		std::vector<FEntry> Entries;
 	};
 
-	class FLevelViewportEditModeManager
+	class FEditorModeTools
 	{
 	public:
-		LEVELEDITOR_API FLevelViewportEditModeManager();
-		LEVELEDITOR_API ~FLevelViewportEditModeManager();
-		LEVELEDITOR_API auto Activate(std::string_view Id, FLevelEditorContext& Context) -> bool;
-		LEVELEDITOR_API auto Synchronize(FLevelEditorContext& Context) -> void;
-		LEVELEDITOR_API auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
+		DURINED_API FEditorModeTools();
+		DURINED_API ~FEditorModeTools();
+		DURINED_API auto Activate(std::string_view Id, FLevelEditorContext& Context) -> bool;
+		DURINED_API auto Synchronize(FLevelEditorContext& Context) -> void;
+		DURINED_API auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
 			FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool;
-		LEVELEDITOR_API auto Shutdown(FLevelEditorContext* Context = nullptr) -> void;
+		DURINED_API auto DeactivateAllModes(FLevelEditorContext* Context = nullptr) -> void;
 		auto GetActiveModeId() const -> std::string_view { return ActiveId; }
 		auto GetActiveMode() const -> ILevelViewportEditMode* { return ActiveMode.get(); }
 

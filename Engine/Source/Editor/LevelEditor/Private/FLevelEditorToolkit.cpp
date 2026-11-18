@@ -3,6 +3,7 @@
 #include "Asset/LoadErrors.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "FLevelEditorToolkit.h"
+#include "Editor/LevelEditorSubsystem.h"
 
 #include "Asset/Asset.h"
 #include "Asset/AssetPicker.h"
@@ -78,7 +79,10 @@ namespace Durin::LevelEditor
 			WorkspaceSettings.CaptureViewportState(*Context, *SceneViewportPanel);
 			WorkspaceSettings.Save(SceneViewportPanel);
 		}
-		if (DocumentController) (void)DocumentController->CloseLevel();
+		if (DocumentController) (void)DocumentController->CloseDocument();
+		if (auto* Editor = EditorOwner.Get())
+			if (auto* Levels = Editor->GetEditorSubsystem<DLevelEditorSubsystem>(); Levels && SceneViewportPanel && Levels->ModeTools == &SceneViewportPanel->GetEditModeManager())
+				Levels->ModeTools = nullptr;
 		DocumentController.reset();
 		AssetMoveCoordinator.reset();
 		SceneImportDialog.reset();
@@ -94,9 +98,12 @@ namespace Durin::LevelEditor
 		InitializeContext();
 		PruneAndSaveWorkspaceSettings();
 		CreatePanels();
+		if (auto* Levels = Context->EditorHost->GetEditorSubsystem<DLevelEditorSubsystem>())
+			Levels->ModeTools = &SceneViewportPanel->GetEditModeManager();
 		CreateDocumentControllers();
 		CreateImportDialogs();
 		Context->Synchronize(Context->EditorHost->GetEditorWorld());
+		SceneViewportPanel->GetEditModeManager().Synchronize(*Context);
 		ViewportSettingsPage = FEditorSettingsPageRegistration({
 			.Id = "editor.viewport.host." + std::to_string(FObjectKeyHash{}(FObjectKey(EditorOwner.Get()))), .Label = "Viewport and Controls",
 			.Keywords = "camera movement speed grid statistics snap translation rotation scale gizmo",
@@ -328,21 +335,20 @@ namespace Durin::LevelEditor
 	auto FLevelEditorToolkit::ActivateDocument(const FEditorDocument& Document) -> void
 	{
 		(void)Document;
+		if (DocumentController) DocumentController->AssociateCurrentLevel();
 		RootWindow.RequestFocus();
 	}
 
 	auto FLevelEditorToolkit::RequestDeactivate() -> bool
 	{
-		if (!Context) return true;
-		if (DetailsPanel && !DetailsPanel->RequestDeactivate(*Context)) return false;
-		return !SceneViewportPanel || SceneViewportPanel->PrepareForLevelChange(*Context);
+		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
 	}
 
 	auto FLevelEditorToolkit::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
 		if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
-		if (DocumentController && !DocumentController->CloseLevel()) return EDocumentCloseResult::Rejected;
+		// Closing a view does not discard or save the engine-owned map.
+		if (DocumentController && !DocumentController->CloseDocument()) return EDocumentCloseResult::Rejected;
 		return EDocumentCloseResult::Closed;
 	}
 
@@ -350,17 +356,6 @@ namespace Durin::LevelEditor
 	{
 		(void)Document;
 		return SaveActiveDocument();
-	}
-
-	auto FLevelEditorToolkit::OnDiscardDocument(const FEditorDocument& Document) -> bool
-	{
-		(void)Document;
-		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
-		DPackage* Package = Context->Level->GetPackage();
-		FLevelDocumentRevisionState::Discard(
-			Context->EditorHost ? Context->EditorHost->GetTransactor() : nullptr, *Package
-		);
-		return true;
 	}
 
 	auto FLevelEditorToolkit::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool

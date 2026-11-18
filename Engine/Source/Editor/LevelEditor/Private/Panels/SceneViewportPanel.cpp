@@ -181,7 +181,8 @@ namespace Durin::LevelEditor
 	auto FSceneViewportPanel::PrepareForLevelChange(FLevelEditorContext& Context) -> bool
 	{
 		// End edits while their original world and target policies are still valid.
-		EditModeManager.Shutdown(&Context);
+		try { EditModeManager.DeactivateAllModes(&Context); }
+		catch (const std::exception& Error) { Context.SetError(Error.what()); return false; }
 		if (ViewportClient)
 		{
 			if (!ViewportClient->GetTransformGizmo().CancelDrag())

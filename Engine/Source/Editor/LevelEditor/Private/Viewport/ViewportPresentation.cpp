@@ -723,7 +723,7 @@ namespace Durin::LevelEditor
 	auto FViewportToolbar::CalculateLayout(
 		const FViewportClient* RenderSettingsClient,
 		bool bRenderSettingsTargetIsPlayWindow,
-		const FLevelViewportEditModeManager* EditModeManager,
+		const FEditorModeTools* EditModeManager,
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax
 	) const -> FViewportToolbarLayout
@@ -791,7 +791,7 @@ namespace Durin::LevelEditor
 		FLevelEditorContext& Context,
 		FLevelEditorViewportClient* EditorViewportClient,
 		FViewportClient* RenderSettingsClient,
-		FLevelViewportEditModeManager* EditModeManager,
+		FEditorModeTools* EditModeManager,
 		EPlayStartLocation& PreferredPlayStartLocation,
 		EPlayDestination& PreferredPlayDestination,
 		const FViewportToolbarLayout& Layout

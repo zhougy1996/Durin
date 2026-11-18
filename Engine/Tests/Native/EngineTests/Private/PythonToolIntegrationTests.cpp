@@ -809,7 +809,7 @@ def edit():
 )PY");
         Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
         EXPECT_TRUE(Host->GetTransactor()->IsActive()); EXPECT_FALSE(Host->GetTransactor()->CanUndo());
-        Host->DispatchSubsystemCallback([&] { EXPECT_TRUE(UiObject->Modify()); UiObject->SetRelativeLocation({9, 0, 0}); });
+        { EXPECT_TRUE(UiObject->Modify()); UiObject->SetRelativeLocation({9, 0, 0}); }
         auto Other = Submit("import durin\ndurin.tools.call('python.tests', 'echo', {'value': 2})");
         EXPECT_EQ(EPythonJobState::Succeeded, Wait(Other).State);
         EXPECT_EQ(2.0, Object->GetRelativeLocation().x); EXPECT_TRUE(Host->GetTransactor()->IsActive());
@@ -1094,10 +1094,10 @@ def prepare():
 )PY");
         for (int I = 0; I < 3; ++I) Host->Tick(0.0f, false);
         ASSERT_EQ(1, PendingCalls); EXPECT_FALSE(Host->GetTransactor()->IsActive());
-        Host->DispatchSubsystemCallback([&] {
+        {
             FScopedTransaction Ui(Host->GetTransactor(), {.Description = "UI changes revision"});
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({2, 0, 0}); ++Revision;
-        });
+        }
         Preparation.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"value", 4}, {"revision", uint64{1}}, {"target", "fixture"}}});
         Host->Tick(0.0f, false);
         auto Rejected = Runtime.GetJobResult(Stale); ASSERT_TRUE(Rejected);
@@ -1122,13 +1122,13 @@ def edit():
         ASSERT_TRUE(Host->GetTransactor()->IsActive()); EXPECT_FALSE(Host->GetTransactor()->CanUndo());
         auto Other = Submit("import durin\ndurin.tools.call('python.tests', 'echo', {'value': 7, 'revision': 3, 'target': 'fixture'})");
         EXPECT_EQ(EPythonJobState::Succeeded, Wait(Other).State);
-        Host->DispatchSubsystemCallback([&] { EXPECT_TRUE(UiObject->Modify()); UiObject->SetRelativeLocation({9, 0, 0}); });
+        { EXPECT_TRUE(UiObject->Modify()); UiObject->SetRelativeLocation({9, 0, 0}); }
 
         TStrongObjectPtr<DSceneComponent> OtherDocument(NewObject<DSceneComponent>(nullptr, "IntegratedOtherDocument", EObjectFlags::Transactional));
-        Host->DispatchSubsystemCallback([&] {
+        {
             FScopedTransaction Scope("Other document");
             EXPECT_TRUE(OtherDocument->Modify()); OtherDocument->SetRelativeLocation({4, 0, 0});
-        });
+        }
         EXPECT_EQ(4.0, OtherDocument->GetRelativeLocation().x);
         EXPECT_TRUE(Host->GetTransactor()->IsActive()); EXPECT_EQ(7.0, Object->GetRelativeLocation().x);
         ASSERT_TRUE(Runtime.CancelJob(Cancelled)); EXPECT_TRUE(PendingCancellation.IsCancellationRequested());

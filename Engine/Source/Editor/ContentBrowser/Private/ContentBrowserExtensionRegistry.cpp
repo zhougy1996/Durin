@@ -18,14 +18,9 @@ namespace Durin::ContentBrowser
 			auto* Service = Owner.Get();
 			if (!Service || !IsValid(Service->GetEditor()) || Service->GetEditor()->IsShutdownRequested()
 				|| Service->GetEditor()->GetEditorSubsystem<DAssetEditorSubsystem>() != Service) return false;
-			bool Invoked = false;
-			auto* Editor = Service->GetEditor();
-			Editor->DispatchSubsystemCallback([&] {
-				FScopedEditorTransactionContext Context(Editor);
-				Invoked = true;
-				Callback();
-			});
-			return Invoked;
+			FScopedEditorTransactionContext Context(Service->GetEditor());
+			Callback();
+			return true;
 		}
 	}
 	auto MakeImportDialogCallbacks(const FExtensionInvocation& Invocation, std::string ClassName) -> FImportDialogCallbacks

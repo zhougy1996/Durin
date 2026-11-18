@@ -62,6 +62,7 @@
 #include "ObjectTools.h"
 #include "AssetDeleteModel.h"
 #include "DObject/Package.h"
+#include "DObject/DObjectArray.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -450,7 +451,12 @@ namespace Durin::MainFrame
                 else Context.RootWindow->RequestDestroyWindow();
             };
 			const bool bPrepared = Prepare();
-			const bool bDirty = std::ranges::any_of(Managers, [](const auto& Documents) {
+			// Packages remain engine-owned even after their last editor view closes.
+			std::vector<DPackage*> DirtyPackages;
+			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+				if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage()
+					&& !Package->IsGraphPrivate() && Package->IsDirty()) DirtyPackages.push_back(Package);
+			const bool bDirty = !DirtyPackages.empty() || std::ranges::any_of(Managers, [](const auto& Documents) {
 				return std::ranges::any_of(Documents->GetDocuments(), &FEditorDocument::bDirty);
 			});
 			if (bPrepared && !bDirty && !Context.bExitSaveFailed)
@@ -466,6 +472,7 @@ namespace Durin::MainFrame
 			for (const auto& Documents : Managers)
 				for (const auto& Document : Documents->GetDocuments())
 					if (Document.bDirty) ImGui::BulletText("%s", Document.Label.c_str());
+			for (auto* Package : DirtyPackages) ImGui::BulletText("%s", Package->GetPackagePath().c_str());
 			if (!bPrepared) ImGui::TextWrapped("Finish the pending document operation before exiting.");
 			if (Context.bExitSaveFailed) ImGui::TextWrapped("Some changes could not be saved. Resolve the error and retry, or cancel exit.");
 			bool bExit = false;
@@ -474,6 +481,7 @@ namespace Durin::MainFrame
 			{
 				bExit = true;
 				for (const auto& Documents : Managers) bExit = Documents->SaveDocumentsForExit() && bExit;
+				if (bExit) bExit = DEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true);
 				Context.bExitSaveFailed = !bExit;
 			}
 			ImGui::SameLine();
@@ -1290,59 +1298,58 @@ namespace Durin
 			ViewState = FMainFrameViewState{}]() mutable {
 			auto* Editor = GEditor;
 			if (!Editor) return;
-			Editor->DispatchSubsystemCallback([&] {
-				const std::shared_ptr<FMainFrameContext> Context =
-					WeakContext.lock();
-				if (!Context) return;
-				const bool bReadyWorkspace = Editor->GetCapabilities().bPresentWorkspace
-					&& Context->bHasProject && Context->LevelEditorModule
-					&& Context->ContentBrowserTool;
-				const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
-				if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
-				{
-					DrawCustomEditorTitleBar(
-						*Context->AssetEditors.Get(),
-						*Context->RootWindow,
-						BrandTexture,
-						bReadyWorkspace && !Context->bProjectBrowserOpen,
-						ViewState);
-				}
-				if (bReadyWorkspace && !Context->bProjectBrowserOpen)
-				{
-					auto& ThumbnailPool = GetDefaultThumbnailManager().GetSharedPool();
-					DrawMainFrame(
-						*Context->AssetEditors.Get(),
-						*Context->MainFrameSettings,
-						*Context->RootWindow,
-						ViewState,
-						*Context->AssetCompatibilityWindow,
-						*Context->ContentBrowserTool,
-						*Context->Console,
-						*Context->PythonScripts,
-						*Context->Activity);
-					ThumbnailPool.Tick(Editor->GetCapabilities().bRunTools);
-					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
+			if (Editor->IsShutdownRequested()) return;
+			const std::shared_ptr<FMainFrameContext> Context =
+				WeakContext.lock();
+			if (!Context) return;
+			const bool bReadyWorkspace = Editor->GetCapabilities().bPresentWorkspace
+				&& Context->bHasProject && Context->LevelEditorModule
+				&& Context->ContentBrowserTool;
+			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
+			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
+			{
+				DrawCustomEditorTitleBar(
+					*Context->AssetEditors.Get(),
+					*Context->RootWindow,
+					BrandTexture,
+					bReadyWorkspace && !Context->bProjectBrowserOpen,
+					ViewState);
+			}
+			if (bReadyWorkspace && !Context->bProjectBrowserOpen)
+			{
+				auto& ThumbnailPool = GetDefaultThumbnailManager().GetSharedPool();
+				DrawMainFrame(
+					*Context->AssetEditors.Get(),
+					*Context->MainFrameSettings,
+					*Context->RootWindow,
+					ViewState,
+					*Context->AssetCompatibilityWindow,
+					*Context->ContentBrowserTool,
+					*Context->Console,
+					*Context->PythonScripts,
+					*Context->Activity);
+				ThumbnailPool.Tick(Editor->GetCapabilities().bRunTools);
+				Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
                     Context->ExportWindow.Draw(ViewState.bExportOpen,Context->AssetEditors.Get());
                     Context->PluginWindow.Draw(ViewState.bPluginsOpen, [&] {
                         if (const auto* Project = GetCurrentProject())
                         { Context->PluginRestartProject = Project->ProjectFile; Context->bExitRequested = true; }
                     });
-					DrawExitConfirmation(*Context);
-					return;
-				}
-				if (Context->bProjectBrowserOpen || !Context->bHasProject
-					|| Editor->GetStartupState() == EHostStartupState::Failed)
-				{
-					Context->ProjectBrowser->Draw(
-						BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen, Editor->GetStartupError());
-					Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
-					DrawExitConfirmation(*Context);
-					return;
-				}
-				DrawLoadingState();
+				DrawExitConfirmation(*Context);
+				return;
+			}
+			if (Context->bProjectBrowserOpen || !Context->bHasProject
+				|| Editor->GetStartupState() == EHostStartupState::Failed)
+			{
+				Context->ProjectBrowser->Draw(
+					BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen, Editor->GetStartupError());
 				Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
 				DrawExitConfirmation(*Context);
-			});
+				return;
+			}
+			DrawLoadingState();
+			Context->SlowTaskDialogs.Draw(FFeedbackContext::Get());
+			DrawExitConfirmation(*Context);
 		});
 		Context.RootWindow->SetContent(EditorRootWidget);
 
