@@ -586,7 +586,7 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 		ImGui::Begin("Continuous interaction");
 		if (bVisible)
 		{
-			const auto Interaction = FPropertyInteractionState::FromWidget(ImGui::GetID("Value"), {bActive, false, !bActive});
+			const auto Interaction = FPropertyInteractionState::FromWidget(ImGui::GetID("Value"), {bActive, !bActive});
 			std::function<void(FProperty*, void*, uint32)> Assign;
 			if (Value >= 0) Assign = [Value](FProperty* Property, void* Container, uint32 Index) {
 				*Property->ContainerPtrToValuePtr<int32>(Container, Index) = Value;

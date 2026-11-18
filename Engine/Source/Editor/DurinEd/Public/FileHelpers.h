@@ -39,6 +39,8 @@ namespace Durin
 	class FEditorFileUtils
 	{
 	public:
+		// Loaded, dirty asset packages eligible for saving; excludes graph-private packages.
+		DURINED_API static auto GetDirtyPackages(bool bSaveMapPackages, bool bSaveContentPackages) -> std::vector<DPackage*>;
 		// Loads a saved map by object or package path; never prompts to save dirty packages.
 		DURINED_API static auto LoadMap(const std::string& Filename) -> bool;
 		enum EPromptReturnCode { PR_Success, PR_Failure, PR_Declined, PR_Cancelled };

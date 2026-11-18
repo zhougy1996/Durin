@@ -40,8 +40,8 @@ that provider is loaded. Mode instances are
 created per manager and must not store state in component visualizers or the
 global registry. The actual registry and manager lifecycle implementation live in
 DurinEd; concrete Select/Spline modes and viewport rendering remain in LevelEditor.
-`DLevelEditorSubsystem::GetLevelEditorModeManager()` exposes the live workspace
-manager by querying open toolkits, without caching a raw manager pointer or creating a toolkit. `DeactivateAllModes()` exits active modes
+`GLevelEditorModeTools(Editor)` is the shared access point and does not require an
+open toolkit. `DeactivateAllModes()` exits active modes
 and clears their context; loading calls it explicitly. Ordinary toolkit switching
 retains modes. Toolkit closure deactivates modes before destroying panels, without changing
 the engine World. The empty manager survives until its editor host is destroyed.

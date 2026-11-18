@@ -29,6 +29,11 @@ namespace Durin
 	{
 		using StringUtils::ContainsInsensitive;
 
+		auto HasSubmittedChange(const FPropertyEditOperationResult& Result) -> bool
+		{
+			return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+		}
+
 		auto AcceptPropertyResult(const std::expected<void, FPropertyValueError>& Result, std::string& OutError) -> bool
 		{
 			if (Result) return true;
@@ -895,7 +900,7 @@ namespace Durin
 			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Speed, Minimum, Maximum,
 				Format, ImGuiSliderFlags_ClampZeroRange);
 			const MonaImGui::PropertyEdit::FWidgetState State{
-				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
+				ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()
 			};
 			if (bChanged)
 			{
@@ -924,7 +929,7 @@ namespace Durin
 			auto* StringProperty = static_cast<FStringProperty*>(Property);
 			std::string Value = *StringProperty->GetStringValuePtr(Container, ArrayIndex);
 			const bool bChanged = MonaImGui::InputText("##Value", Value);
-			CaptureResult(bChanged, true, {ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()});
+			CaptureResult(bChanged, true, {ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()});
 			if (bChanged) Result.AssignValue = [Value = std::move(Value)](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 				*static_cast<FStringProperty*>(DestinationProperty)->GetStringValuePtr(DestinationContainer, DestinationArrayIndex) = Value;
 			};
@@ -934,7 +939,7 @@ namespace Durin
 			auto* NameProperty = static_cast<FNameProperty*>(Property);
 			std::string Value = NameProperty->GetNameValuePtr(Container, ArrayIndex)->ToString();
 			const bool bChanged = MonaImGui::InputText("##Value", Value);
-			CaptureResult(bChanged, true, {ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()});
+			CaptureResult(bChanged, true, {ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()});
 			if (bChanged) Result.AssignValue = [Value = std::move(Value)](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 				*static_cast<FNameProperty*>(DestinationProperty)->GetNameValuePtr(DestinationContainer, DestinationArrayIndex) = FName(Value);
 			};
@@ -945,7 +950,7 @@ namespace Durin
 			std::string Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex)->ToString();
 			const bool bTextChanged = MonaImGui::InputText("##Value", Value);
 			const MonaImGui::PropertyEdit::FWidgetState State{
-				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
+				ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()
 			};
 			FGuid ParsedValue;
 			const bool bChanged = bTextChanged && FGuid::Parse(Value, ParsedValue);
@@ -1169,7 +1174,7 @@ namespace Durin
 		if (Edit.bContinuous)
 		{
 			const auto Result = UpdatePropertyValueEdit(Context, EditTarget, Edit.Interaction, Edit.AssignValue);
-			return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+			return HasSubmittedChange(Result);
 		}
 		return Edit.bChanged && SubmitPropertyValueEdit(Context, EditTarget, Edit.AssignValue, false);
 	}
@@ -1229,7 +1234,7 @@ namespace Durin
 				return false;
 			}
 			const auto Result = ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, false);
-			return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+			return HasSubmittedChange(Result);
 		};
 		if (ImGui::SmallButton("+"))
 		{
@@ -1331,7 +1336,7 @@ namespace Durin
 			}
 
 			const auto Result = ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, bContinuous);
-			return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+			return HasSubmittedChange(Result);
 		};
 		if (ImGui::SmallButton("+ Add"))
 		{
@@ -1642,7 +1647,7 @@ namespace Durin
 	) -> bool
 	{
 		const auto Result = ApplyPropertyValueEdit(Context, Target, AssignValue, bContinuous);
-		return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+		return HasSubmittedChange(Result);
 	}
 
 	auto FPropertyView::ApplyPropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,

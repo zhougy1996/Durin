@@ -467,7 +467,7 @@ TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBound
 			{
 				const FMaterialParameterPanelModel Current(Instance.Get());
 				const auto* Entry = FindEntry(Current, Id);
-				const auto State = FPropertyInteractionState::FromWidget(ImGui::GetID("Value"), {bActive, false, !bActive});
+				const auto State = FPropertyInteractionState::FromWidget(ImGui::GetID("Value"), {bActive, !bActive});
 				EXPECT_TRUE(Current.UpdateValueEdit(View, Context, *Entry, State, bChange ? &Edited : nullptr));
 			}
 			EXPECT_TRUE(View.EndInteractionFrame(Context));

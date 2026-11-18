@@ -25,7 +25,6 @@ namespace Durin::MonaImGui::PropertyEdit
 		// Compound controls aggregate every child item so callers can treat a
 		// vector or transform drag as one continuous property interaction.
 		bool bActive = false;
-		bool bActivated = false;
 		bool bDeactivatedAfterEdit = false;
 	};
 

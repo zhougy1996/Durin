@@ -269,7 +269,7 @@ namespace Durin::LevelEditor
 				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly, 0.0f, "Type: Float");
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);
 				const auto State = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID("##Value"),
-					{ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()}, ViewContext.bReadOnly);
+					{ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()}, ViewContext.bReadOnly);
 				std::function<void(FProperty*, void*, uint32)> Assign;
 				if (bChanged && !ViewContext.bReadOnly)
 				{

@@ -14,7 +14,6 @@ namespace Durin::MonaImGui::PropertyEdit
 		{
 			if (!State) return;
 			State->bActive |= ImGui::IsItemActive();
-			State->bActivated |= ImGui::IsItemActivated();
 			State->bDeactivatedAfterEdit |= ImGui::IsItemDeactivatedAfterEdit();
 		}
 

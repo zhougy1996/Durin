@@ -331,7 +331,7 @@ namespace Durin::MaterialEditor
 			bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
 			const auto Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(
-				ImGui::GetID("##ParameterInteraction"), {bActive, false, bDeactivatedAfterEdit});
+				ImGui::GetID("##ParameterInteraction"), {bActive, bDeactivatedAfterEdit});
 			if (bOverrideEnabled)
 				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Interaction, bChanged ? &Value : nullptr);
 		}

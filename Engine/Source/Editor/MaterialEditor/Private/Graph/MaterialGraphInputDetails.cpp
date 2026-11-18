@@ -68,7 +68,7 @@ namespace Durin::MaterialEditor
 		}
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
-		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, false, Deactivated});
+		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, Deactivated});
 		if (Edited && !Interaction.IsCancelled())
 		{
 			if (ParameterSession.IsActive() && (!ParameterInteraction.Matches(Interaction) || EditingParameterId != Parameter.Id))

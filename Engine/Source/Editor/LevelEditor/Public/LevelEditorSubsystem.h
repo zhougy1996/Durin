@@ -5,8 +5,6 @@
 #include "LevelEditorAPI.h"
 #include "LevelEditorSubsystem.gen.h"
 
-namespace Durin::LevelEditor { class FEditorModeTools; }
-
 namespace Durin
 {
 	struct FLevelEditorHostContext;
@@ -34,7 +32,6 @@ namespace Durin
 		LEVELEDITOR_API auto IsPlaySessionPaused() const -> bool;
 		auto SetHostContext(std::shared_ptr<FLevelEditorHostContext> Context) -> void { HostContext = std::move(Context); }
 		auto GetHostContext() const -> std::shared_ptr<FLevelEditorHostContext> { return HostContext; }
-		LEVELEDITOR_API auto GetLevelEditorModeManager() const -> LevelEditor::FEditorModeTools*;
 	private:
 		std::shared_ptr<FLevelEditorHostContext> HostContext;
 		auto GetActiveEditor() const -> DEditorEngine*;

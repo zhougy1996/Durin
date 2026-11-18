@@ -408,9 +408,7 @@ namespace
 	TEST_F(FLevelMapLifecycleTests, ToolkitDeactivationPreservesModesButMapLoadDeactivatesThem)
 	{
 		auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>();
-		auto* Modes = Levels->GetLevelEditorModeManager();
-		ASSERT_NE(Modes, nullptr);
-		EXPECT_EQ(Modes, &GLevelEditorModeTools(*Host));
+		auto* Modes = &GLevelEditorModeTools(*Host);
 		TStrongObjectPtr<DEditorEngine> OtherHost(NewObject<DEditorEngine>(nullptr, "OtherModeHost"));
 		EXPECT_NE(&GLevelEditorModeTools(*OtherHost), Modes);
 		EXPECT_EQ(GLevelEditorModeTools(*OtherHost).GetActiveMode(), nullptr);
@@ -447,8 +445,11 @@ namespace
 		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
 		ASSERT_EQ(Documents->RequestCloseDocument(Documents->GetActiveDocument()->Id), EDocumentCloseResult::Closed);
 		ASSERT_TRUE(Documents->GetDocuments().empty());
+		EXPECT_TRUE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(true, false), Level->GetPackage()));
+		EXPECT_FALSE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(false, true), Level->GetPackage()));
 		ASSERT_TRUE(DEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true));
 		EXPECT_FALSE(Level->GetPackage()->IsDirty());
+		EXPECT_FALSE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(true, true), Level->GetPackage()));
 		ASSERT_TRUE(FEditorFileUtils::LoadMap(Target.AssetPath.ToString()));
 		auto* Reloaded = Host->GetEditorWorld()->GetCurrentLevel()->FindActorByName("SavedActor");
 		ASSERT_NE(Reloaded, nullptr);
@@ -461,9 +462,7 @@ namespace
 		auto* Modes = &GLevelEditorModeTools(*Host);
 		Module->ReleaseLevelEditor(*Editors);
 		EXPECT_TRUE(FToolkitManager::Get().GetToolkits(Editors).empty());
-		EXPECT_EQ(Modes, &GLevelEditorModeTools(*Host));
 		EXPECT_EQ(Modes->GetActiveMode(), nullptr);
-		EXPECT_EQ(Host->GetEditorSubsystem<DLevelEditorSubsystem>()->GetLevelEditorModeManager(), nullptr);
 		EXPECT_EQ(Host->GetEditorWorld(), World);
 		EXPECT_EQ(World->GetCurrentLevel(), Level);
 		EXPECT_TRUE(OriginalWorld.IsValid());
@@ -475,7 +474,7 @@ namespace
 		EXPECT_TRUE(Documents->GetEditedAssets().empty());
 		ASSERT_TRUE(Module->InitializeLevelEditor(*Editors, {}, [] {}));
 		auto Reopened = Module->GetOrCreateLevelEditor(*Editors)->GetDocumentManager();
-		EXPECT_EQ(Host->GetEditorSubsystem<DLevelEditorSubsystem>()->GetLevelEditorModeManager(), Modes);
+		EXPECT_EQ(&GLevelEditorModeTools(*Host), Modes);
 		ASSERT_NE(Reopened->GetActiveDocument(), nullptr);
 		EXPECT_EQ(Reopened->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
 		EXPECT_EQ(Reopened->GetEditedAssets(), (std::vector<DObject*>{Level}));

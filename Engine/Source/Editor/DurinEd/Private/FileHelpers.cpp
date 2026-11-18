@@ -26,17 +26,18 @@ namespace Durin
 					&& (!OnlyDirty || Package->IsDirty()) && !std::ranges::contains(Result, Package)) Result.push_back(Package);
 			return Result;
 		}
-		auto DirtyPackages(bool Maps, bool Content) -> std::vector<DPackage*>
-		{
-			std::vector<DPackage*> Result;
-			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-				if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage() && Package->IsDirty())
-				{
-					const bool Map = std::ranges::any_of(Package->GetTopLevelAssets(), [](auto* Asset) { return Cast<DLevel>(Asset) != nullptr; });
-					if (Map ? Maps : Content) Result.push_back(Package);
-				}
-			return Result;
-		}
+	}
+
+	auto FEditorFileUtils::GetDirtyPackages(bool Maps, bool Content) -> std::vector<DPackage*>
+	{
+		std::vector<DPackage*> Result;
+		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+			if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate() && Package->IsDirty())
+			{
+				const bool Map = std::ranges::any_of(Package->GetTopLevelAssets(), [](auto* Asset) { return Cast<DLevel>(Asset) != nullptr; });
+				if (Map ? Maps : Content) Result.push_back(Package);
+			}
+		return Result;
 	}
 
 	auto FEditorFileUtils::LoadMap(const std::string& Filename) -> bool
@@ -138,7 +139,7 @@ namespace Durin
 		Params.bCheckDirty = true;
 		Params.bPromptToSave = bPromptUserToSave;
 		Params.bIsExplicitSave = bPromptUserToSave;
-		const auto Result = PromptForCheckoutAndSave(DirtyPackages(bSaveMapPackages, bSaveContentPackages), Params);
+		const auto Result = PromptForCheckoutAndSave(GetDirtyPackages(bSaveMapPackages, bSaveContentPackages), Params);
 		return Result == PR_Success || Result == PR_Declined;
 	}
 
@@ -199,7 +200,7 @@ namespace Durin
 	auto DEditorLoadingAndSavingUtils::SavePackagesWithDialog(std::span<DPackage* const> Packages, bool Dirty) -> bool
 	{ return FEditorFileUtils::PromptForCheckoutAndSave(Packages, Dirty, true) == FEditorFileUtils::PR_Success; }
 	auto DEditorLoadingAndSavingUtils::SaveDirtyPackages(bool Maps, bool Content) -> bool
-	{ return SavePackages(DirtyPackages(Maps, Content), true); }
+	{ return SavePackages(FEditorFileUtils::GetDirtyPackages(Maps, Content), true); }
 	auto DEditorLoadingAndSavingUtils::SaveDirtyPackagesWithDialog(bool Maps, bool Content) -> bool
-	{ return SavePackagesWithDialog(DirtyPackages(Maps, Content), true); }
+	{ return SavePackagesWithDialog(FEditorFileUtils::GetDirtyPackages(Maps, Content), true); }
 }

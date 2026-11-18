@@ -62,7 +62,6 @@
 #include "ObjectTools.h"
 #include "AssetDeleteModel.h"
 #include "DObject/Package.h"
-#include "DObject/DObjectArray.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -452,10 +451,7 @@ namespace Durin::MainFrame
             };
 			const bool bPrepared = Prepare();
 			// Packages remain engine-owned even after their last editor view closes.
-			std::vector<DPackage*> DirtyPackages;
-			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-				if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage()
-					&& !Package->IsGraphPrivate() && Package->IsDirty()) DirtyPackages.push_back(Package);
+			const auto DirtyPackages = FEditorFileUtils::GetDirtyPackages(true, true);
 			const bool bDirty = !DirtyPackages.empty() || std::ranges::any_of(Managers, [](const auto& Documents) {
 				return std::ranges::any_of(Documents->GetDocuments(), &FEditorDocument::bDirty);
 			});
@@ -472,7 +468,17 @@ namespace Durin::MainFrame
 			for (const auto& Documents : Managers)
 				for (const auto& Document : Documents->GetDocuments())
 					if (Document.bDirty) ImGui::BulletText("%s", Document.Label.c_str());
-			for (auto* Package : DirtyPackages) ImGui::BulletText("%s", Package->GetPackagePath().c_str());
+			for (auto* Package : DirtyPackages)
+			{
+				const bool bShownAsDocument = std::ranges::any_of(Managers, [&](const auto& Documents) {
+					return std::ranges::any_of(Documents->GetDocuments(), [&](const FEditorDocument& Document) {
+						FSoftObjectPath AssetPath;
+						return Document.bDirty && FSoftObjectPath::TryCreate(Document.ResourceId, AssetPath)
+							&& AssetPath.GetPackagePath().ToString() == Package->GetPackagePath();
+					});
+				});
+				if (!bShownAsDocument) ImGui::BulletText("%s", Package->GetPackagePath().c_str());
+			}
 			if (!bPrepared) ImGui::TextWrapped("Finish the pending document operation before exiting.");
 			if (Context.bExitSaveFailed) ImGui::TextWrapped("Some changes could not be saved. Resolve the error and retry, or cancel exit.");
 			bool bExit = false;
