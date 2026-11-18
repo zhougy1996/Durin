@@ -4,7 +4,7 @@ Summary: Replace the fixed surface-output contract with UE-aligned material attr
 
 Last reviewed: 2026-11-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-17
 
 ## Current Status
@@ -20,10 +20,10 @@ below describes the state at each historical handoff and is superseded by this
 decision. No new native or performance qualification was run for completion.
 
 The implemented behavior remains documented in the
-[material contract](../Runtime/Rendering/Materials/MaterialSystem.md).
+[material contract](../../../Runtime/Rendering/Materials/MaterialSystem.md).
 Further architectural work proceeds under the
 [Material Shader and Binding Contracts Refactor](MaterialShaderAndBindingContractsRefactor.md).
-This completes M14 of the [Material System roadmap](../Roadmaps/MaterialSystem.md).
+This completes M14 of the [Material System roadmap](../../../Roadmaps/MaterialSystem.md).
 
 ## Goal
 
@@ -204,9 +204,9 @@ logical-asset identities; this adds no Water optical or renderer functionality.
 Validated the Stage 1 working tree based on `766f38d30`, committed with this
 receipt, using windows-msvc-x64 / Win64-Debug-DurinEditor, Debug, Tracy and
 18 build jobs. Runtime/editor authorities are the linked
-[material system](../Runtime/Rendering/Materials/MaterialSystem.md),
-[expression building](../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
-and [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md)
+[material system](../../../Runtime/Rendering/Materials/MaterialSystem.md),
+[expression building](../../../Runtime/Rendering/Materials/MaterialExpressionBuilding.md)
+and [graph operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
 contracts.
 
 - One immutable twelve-property registry owns GUIDs, types, defaults, stages,
@@ -563,7 +563,7 @@ receipt is historical and does not claim these continuation inputs.
 Validated the working tree based on
 `716f05246c399f402688d1be0e8bc4f780d53dd7` on 2026-11-16, using
 windows-msvc-x64 / Win64-Debug-DurinEditor, MSVC 19.44, Debug, Tracy and 14 jobs.
-The implemented contract is [Material scene inputs](../Runtime/Rendering/Materials/MaterialSceneInputs.md).
+The implemented contract is [Material scene inputs](../../../Runtime/Rendering/Materials/MaterialSceneInputs.md).
 UE comparison used this session's local 5.8.0 installation, CL 53629095,
 `MaterialExpressionSceneTexture.h`, `MaterialIRTypes.h` and Renderer `ScreenPass.h`.
 
@@ -1325,8 +1325,8 @@ required gate hidden by a completed checklist. Depends on Stage 5.
 
 ## Acceptance Matrix and Execution Policy
 
-Follow [build selection](../Agents/BuildAndRun.md) and
-[test selection/result reuse](../Agents/Testing.md). Discover current registered
+Follow [build selection](../../../Agents/BuildAndRun.md) and
+[test selection/result reuse](../../../Agents/Testing.md). Discover current registered
 targets at implementation time; do not invent target names or automatically run
 all native tests. The matrix specifies required behavior, not repeated full-suite
 runs after every stage.
@@ -1950,7 +1950,7 @@ tests. At review time it implemented no M14 stage; Stage 1 was still unstarted.
 | Tests and support | AssetEditorLifecycleTests replaces AssetEditorSessionTests. Material editor/function tests use current toolkit queries, and FMaterialPreviewHarness has idempotent explicit ShutdownRenderer. Update future fixtures through these seams; material graph editing sessions remain valid and are distinct from the retired asset-editor Session ownership API. |
 
 The owning implemented editor rules are
-[Asset Editors](../Editor/Architecture/Framework/AssetEditors.md).
+[Asset Editors](../../../Editor/Architecture/Framework/AssetEditors.md).
 Stage 1's root/command/UI migration and later domain previews must additionally
 retain these focused regression scenarios:
 

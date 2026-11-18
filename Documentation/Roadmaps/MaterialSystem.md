@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-M14's [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md)
+M14's [Material Attributes and Execution Contracts Refactor](../Plans/Archive/2026-11/MaterialAttributesAndExecutionContractsRefactor.md)
 completed on 2026-11-17. Stages 0-2 and 5 passed their recorded gates and
 Stages 3/4 passed Windows qualification. The owner explicitly skipped native
 Metal acceptance and all Stage 6 gates; they are not qualified results.
 
 The owner activated the
-[Material Shader and Binding Contracts Refactor](../Plans/MaterialShaderAndBindingContractsRefactor.md)
+[Material Shader and Binding Contracts Refactor](../Plans/Archive/2026-11/MaterialShaderAndBindingContractsRefactor.md)
 as M15. Stages 0-4 complete cleanup, registered Shader/VF compilation and the
 separation of composable parameter metadata from compiler/backend allocation.
 The fixed-slot catalog is removed; runtime and Cook consume accepted allocation
@@ -325,8 +325,8 @@ It does not activate Water optics, Substrate, additional domains or preshaders.
 
 | Proposed or completed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Material Attributes and Execution Contracts Refactor](../Plans/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Complete; native Metal and Stage 6 skipped by owner |
-| [Material Shader and Binding Contracts Refactor](../Plans/MaterialShaderAndBindingContractsRefactor.md) | M15 | Shader/VF compilation, normalized generator, binding metadata and runtime admission | Complete |
+| [Material Attributes and Execution Contracts Refactor](../Plans/Archive/2026-11/MaterialAttributesAndExecutionContractsRefactor.md) | M14 | Attribute/root schemas, compilation output, evaluation/pass separation, typed resources, selected model/domain proofs and workspace content replacement | Complete; native Metal and Stage 6 skipped by owner |
+| [Material Shader and Binding Contracts Refactor](../Plans/Archive/2026-11/MaterialShaderAndBindingContractsRefactor.md) | M15 | Shader/VF compilation, normalized generator, binding metadata and runtime admission | Complete |
 | [Material Parameter Domain Refactor](../Plans/Archive/2026-07/MaterialParameterDomainRefactor.md) | M1 | Runtime-owned parameter schema and editor integration | Complete |
 | [Static Mesh Material Slots](../Plans/Archive/2026-07/StaticMeshMaterialSlots.md) and [Static Mesh Indexed Material Overrides](../Plans/Archive/2026-08/StaticMeshIndexedMaterialOverrides.md) | M1 | Mesh slot identity, reconciliation, and component overrides | Complete |
 | [Material Render-Proxy Invalidation](../Plans/Archive/2026-08/MaterialRenderProxyInvalidation.md) | M2 | Stable proxy publication and scalable inherited invalidation | Complete |

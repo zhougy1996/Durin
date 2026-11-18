@@ -4,12 +4,12 @@ Summary: Align Shader/VF ownership and parameter binding with UE's separation of
 
 Last reviewed: 2026-11-17
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-17
 
 ## Current Status
 
-M15 of the [Material System roadmap](../Roadmaps/MaterialSystem.md). Stages 0-5
+M15 of the [Material System roadmap](../../../Roadmaps/MaterialSystem.md). Stages 0-5
 are complete: registered Shader/VF descriptions own compilation; composable
 parameter-owner metadata, compiler allocation and typed submission replace the
 intermediate global binding catalog. Material, ShaderBuild, Vulkan, Cook and
@@ -20,7 +20,7 @@ that catalog and separates composable parameter metadata from compiler allocatio
 Stage 5 completes isolated Cook/Game corpus execution, Windows rendering checks,
 size/work observations and final publication on 2026-11-17.
 Implemented contracts remain documented in
-[Material shader stages](../Runtime/Rendering/Materials/MaterialShaderStages.md).
+[Material shader stages](../../../Runtime/Rendering/Materials/MaterialShaderStages.md).
 
 Stage 4 implementation now composes dynamic Material/collection metadata with
 registered Shader/VF owner metadata. UE-style
@@ -498,11 +498,11 @@ translation schema 15, normalization/generator revisions 16/28 and compile adapt
 24. Physical uniform packing remains version 5; Stage 4 must version its own
 incompatible transition. Authored schemas and the workspace descriptor were
 unchanged in completed stages. Detailed implemented contracts live in
-[MaterialShaderStages](../Runtime/Rendering/Materials/MaterialShaderStages.md) and
-[MaterialSystem](../Runtime/Rendering/Materials/MaterialSystem.md); Git history
+[MaterialShaderStages](../../../Runtime/Rendering/Materials/MaterialShaderStages.md) and
+[MaterialSystem](../../../Runtime/Rendering/Materials/MaterialSystem.md); Git history
 preserves the expanded completed-stage notes.
 
-Follow the [build](../Agents/BuildAndRun.md),
-[test selection/result reuse](../Agents/Testing.md) and
-[documentation](../Agents/Documentation.md) workflows. Keep raw evidence under
+Follow the [build](../../../Agents/BuildAndRun.md),
+[test selection/result reuse](../../../Agents/Testing.md) and
+[documentation](../../../Agents/Documentation.md) workflows. Keep raw evidence under
 ignored `Build/AgentValidation/MaterialShaderAndBindingContracts/`.

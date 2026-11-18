@@ -4,7 +4,7 @@ Summary: Completed migration to compiler-owned shader allocations with explicit 
 
 Last reviewed: 2026-11-18
 
-Status: Completed
+Status: Archived
 Completed: 2026-11-18
 
 ## Current Status
@@ -16,9 +16,9 @@ shadow and UE interface work established the main interfaces at `a9653dcde`;
 the four follow-ups below implement the remaining static-work and registration convergence.
 
 Use the runtime contracts for new work:
-[shader parameters](../Runtime/Rendering/Shaders/ShaderParameters.md),
-[GPUScene](../Runtime/Rendering/Scene/GPUScene.md),
-[RDG](../Runtime/Rendering/Pipeline/RenderGraph.md).
+[shader parameters](../../../Runtime/Rendering/Shaders/ShaderParameters.md),
+[GPUScene](../../../Runtime/Rendering/Scene/GPUScene.md),
+[RDG](../../../Runtime/Rendering/Pipeline/RenderGraph.md).
 Old inventories, superseded designs and per-stage logs remain in Git history;
 this completed plan is not a second architecture specification.
 
