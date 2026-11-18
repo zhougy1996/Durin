@@ -167,7 +167,13 @@ change this policy.
 
 Object wrappers expose `get_editor_property(name)` for supported `Edit` fields
 unless `ScriptNoExport` excludes them. Names use the normal reflected snake-case
-mapping. `set_editor_property(name, value)` requires `Edit`, rejects `ReadOnly`,
+mapping. `list_editor_properties()` lists these readable fields by script name in
+sorted order, including inherited fields. Each entry contains a display type
+string and a `writable` boolean. The boolean reflects the field's transactional
+write support and the target's current editor edit policy. Applying a new value
+still runs the transaction and native property validation.
+
+`set_editor_property(name, value)` requires `Edit`, rejects `ReadOnly`,
 `NonTransactional` and `ScriptNoExport`, and accepts only live Actors or owned
 Components in the selected Host's current editor Level. Direct attribute writes
 additionally require `ScriptReadWrite`; both entry points share the same writer.

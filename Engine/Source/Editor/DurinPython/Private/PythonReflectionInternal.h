@@ -138,6 +138,8 @@ namespace Durin::PythonReflection::Private
     // Editor-object writes share the native property session and Host history.
     auto WriteObjectProperty(FObject* Self, const FProperty& Property, PyObject* Value) -> PyObject*;
     auto GetEditorProperty(FObject* Self, PyObject* Name) -> PyObject*;
+    auto ListEditorProperties(FObject* Self, PyObject*) -> PyObject*;
+    auto EditorPropertyType(const FProperty& Property) -> std::string;
     auto SetEditorProperty(FObject* Self, PyObject* Args) -> PyObject*;
 }
 #endif

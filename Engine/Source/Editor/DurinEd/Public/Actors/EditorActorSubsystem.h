@@ -63,6 +63,9 @@ namespace Durin
 		DURINED_API auto ScriptGetAllLevelActors(DLevel* Level) const -> std::vector<TObjectPtr<AActor>>;
 		DFUNCTION(ScriptCallable, ScriptName = "get_actor_info")
 		DURINED_API auto ScriptGetActorInfo(DLevel* Level, AActor* Actor) const -> FActorScriptInfo;
+		DFUNCTION(ScriptCallable, ScriptName = "get_components")
+		DURINED_API auto ScriptGetComponents(DLevel* Level, AActor* Actor, DClass* ComponentClass = nullptr) const
+			-> std::vector<TObjectPtr<DActorComponent>>;
 		// Script edits return native payloads; domain rejection returns None, an empty array or false.
 		DFUNCTION(ScriptCallable, ScriptName = "spawn_actor")
 		DURINED_API auto ScriptSpawnActor(DLevel* Level, DClass* ActorClass, const FTransform& Transform, const std::string& Name = "",

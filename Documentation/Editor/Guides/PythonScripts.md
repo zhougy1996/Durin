@@ -218,8 +218,15 @@ stopped play.
 
 ## Edit Reflected Properties
 
-When an exposed native method returns an Actor or Component, use editor-property
-helpers to read and replace eligible fields:
+Use `actors.get_components(level, actor, durin.types.Durin.CameraComponent)` to
+find an Actor's camera components, including non-root components. Omit the
+type argument to list all its live owned components. A type filter also matches
+derived types.
+
+Use `component.list_editor_properties()` to discover readable editor properties.
+The returned dictionary is keyed by the names accepted by the read and write
+helpers. Each entry reports a display type and whether the field is writable
+under the current editor policy. Use the helpers to read and replace a value.
 
 ```python
 def move_component(component):

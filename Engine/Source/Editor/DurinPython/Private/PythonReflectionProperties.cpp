@@ -7,6 +7,25 @@
 
 namespace Durin::PythonReflection::Private
 {
+    static auto IsEditorProperty(const FProperty& Property) -> bool
+    {
+        return Property.HasAnyPropertyFlags(EPropertyFlags::Edit)
+            && !Property.HasAnyPropertyFlags(EPropertyFlags::ScriptNoExport);
+    }
+
+    static auto SupportsEditorPropertyWrite(const FProperty& Property) -> bool
+    {
+        return IsEditorProperty(Property) && Property.GetArrayDim() == 1
+            && !Property.HasAnyPropertyFlags(EPropertyFlags::ReadOnly | EPropertyFlags::NonTransactional)
+            && Supported(Property);
+    }
+
+    static auto HasEditorPropertyWriteAccess(FScopedEditorScriptCall& Call, DObject& Object) -> bool
+    {
+        return (Cast<AActor>(&Object) || Cast<DActorComponent>(&Object))
+            && Call.ResolveEditAccess(Object) == EEditorScriptTargetAccess::Writable;
+    }
+
     static auto FindEditorProperty(DClass* Class, PyObject* Name) -> const FProperty*
     {
         std::string Key;
@@ -16,8 +35,7 @@ namespace Durin::PythonReflection::Private
             for (auto* Field = Type->GetChildProperties(); Field; Field = Field->GetNext())
             {
                 const auto* P = static_cast<const FProperty*>(Field);
-                if (!P->HasAnyPropertyFlags(EPropertyFlags::Edit)
-                    || P->HasAnyPropertyFlags(EPropertyFlags::ScriptNoExport) || PropertyName(*P) != Key) continue;
+                if (!IsEditorProperty(*P) || PropertyName(*P) != Key) continue;
                 if (Found) { Error(PyExc_AttributeError, Qualified(Class) + ": ambiguous editor property " + Key); return nullptr; }
                 Found = P;
             }
@@ -32,12 +50,9 @@ namespace Durin::PythonReflection::Private
         if (!Call.IsAdmitted()) return Error(Registry->AccessError, "Script admission closed.");
         auto* Object = Resolve(Self, *C); if (!Object) return nullptr;
         const auto Path = Qualified(Object->GetClass()) + "." + PropertyName(P);
-        if (!P.HasAnyPropertyFlags(EPropertyFlags::Edit)
-            || P.HasAnyPropertyFlags(EPropertyFlags::ReadOnly | EPropertyFlags::NonTransactional | EPropertyFlags::ScriptNoExport)
-            || P.GetArrayDim() != 1 || !Supported(P))
+        if (!SupportsEditorPropertyWrite(P))
             return Error(PyExc_AttributeError, Path + ": property does not support transactional script writes");
-        if ((!Cast<AActor>(Object) && !Cast<DActorComponent>(Object))
-            || Call.ResolveEditAccess(*Object) != EEditorScriptTargetAccess::Writable)
+        if (!HasEditorPropertyWriteAccess(Call, *Object))
             return Error(Registry->AccessError, Path + ": target is not owned by the writable editor Level");
         // Complete all input conversion before opening a native edit/history scope.
         FReflectedValueStorage Draft;
@@ -94,6 +109,42 @@ namespace Durin::PythonReflection::Private
         }
         catch (const std::exception& E) { return Error(PyExc_RuntimeError, std::string("get_editor_property: ") + E.what()); }
         catch (...) { return Error(PyExc_RuntimeError, "Native editor property read threw an exception."); }
+    }
+
+    auto ListEditorProperties(FObject* Self, PyObject*) -> PyObject*
+    {
+        try
+        {
+            auto C = Context(); if (!C) return nullptr; FScopedEditorScriptCall Call(*C);
+            if (!Call.IsAdmitted()) return Error(Registry->AccessError, "Script admission closed.");
+            auto* Object = Resolve(Self, *C); if (!Object) return nullptr;
+            const bool CanWrite = HasEditorPropertyWriteAccess(Call, *Object);
+            if (!Resolve(Self, *C)) return nullptr;
+
+            std::map<std::string, const FProperty*> Properties;
+            Object->GetClass()->ForEachProperty([&](const FProperty* Property) {
+                if (!IsEditorProperty(*Property)) return;
+                const auto [Entry, Added] = Properties.emplace(PropertyName(*Property), Property);
+                if (!Added) Entry->second = nullptr;
+            });
+
+            FPyOwner Result(PyDict_New());
+            if (!Result.Value) return nullptr;
+            for (const auto& [Name, Property] : Properties)
+            {
+                if (!Property || !Supported(*Property)) continue;
+                FPyOwner Info(PyDict_New());
+                FPyOwner Type(PyUnicode_FromString(EditorPropertyType(*Property).c_str()));
+                FPyOwner Writable(PyBool_FromLong(CanWrite && SupportsEditorPropertyWrite(*Property)));
+                if (!Info.Value || !Type.Value || !Writable.Value
+                    || PyDict_SetItemString(Info.Value, "type", Type.Value) < 0
+                    || PyDict_SetItemString(Info.Value, "writable", Writable.Value) < 0
+                    || PyDict_SetItemString(Result.Value, Name.c_str(), Info.Value) < 0) return nullptr;
+            }
+            return Result.Release();
+        }
+        catch (const std::exception& E) { return Error(PyExc_RuntimeError, std::string("list_editor_properties: ") + E.what()); }
+        catch (...) { return Error(PyExc_RuntimeError, "Native editor property discovery threw an exception."); }
     }
 
     auto SetEditorProperty(FObject* Self, PyObject* Args) -> PyObject*

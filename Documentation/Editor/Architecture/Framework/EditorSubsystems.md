@@ -287,6 +287,7 @@ reflection bridge without an Actor Toolset dependency.
 | `get_editor_level()` | Current editor Level, or None when absent |
 | `get_all_level_actors(level)` | Live published Actors in Level order |
 | `get_actor_info(level, actor)` | ActorScriptInfo snapshot |
+| `get_components(level, actor, component_class=None)` | Live owned Component proxies in Actor component order |
 | `spawn_actor(level, actor_class, transform, name="", label="", name_mode=SpawnActorNameMode.REQUESTED)` | Actor or None |
 | `destroy_actors(level, actors)` | bool |
 | `duplicate_actors(level, actors)` | Array[Actor], empty on failure |
@@ -300,6 +301,10 @@ that editor Level during PIE, but never substitute the play World. An invalid
 query raises a script access error rather than returning an empty snapshot.
 ActorScriptInfo contains actor, internal name, display label, actor_class, parent, direct children in Level
 order, root_component and world_transform, all read-only detached fields.
+Component queries include root and non-root components. The optional filter is
+an ActorComponent type and matches derived classes. The returned list is a
+detached snapshot whose entries retain their actual native component types.
+An invalid Actor, Level, or filter class raises a script access error.
 
 `rename_actor` changes the internal object Name. `set_actor_label` changes only
 its display label, with ordinary admission, dirty state and history; exact replay

@@ -1,6 +1,7 @@
 #include "Actors/EditorActorSubsystem.h"
 #include "Editor/EditorEngine.h"
 #include "Tools/EditorScriptCall.h"
+#include "Components/ActorComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -66,6 +67,24 @@ namespace Durin
         Info.RootComponent = Actor->GetRootComponent();
         Info.WorldTransform = Actor->GetActorTransform();
         return Info;
+    }
+    auto DEditorActorSubsystem::ScriptGetComponents(DLevel* Level, AActor* Actor, DClass* ComponentClass) const
+        -> std::vector<TObjectPtr<DActorComponent>>
+    {
+        auto* Current = ScriptGetEditorLevel();
+        if (!IsValid(Level) || Level != Current || !IsValid(Actor) || Actor->IsBeingDestroyed()
+            || Actor->GetOuter() != Level || !Level->ContainsActor(Actor))
+        { RejectScriptCall("Component query requires a live published Actor in the current editor Level."); return {}; }
+        if (ComponentClass && !ComponentClass->IsChildOf(DActorComponent::StaticClass()))
+        { RejectScriptCall("Component query requires an ActorComponent class."); return {}; }
+
+        auto Components = Actor->GetComponentsSnapshot();
+        std::erase_if(Components, [Actor, ComponentClass](const auto& Entry) {
+            auto* Component = Entry.Get();
+            return !IsValid(Component) || Component->IsBeingDestroyed() || Component->GetOwner() != Actor
+                || (ComponentClass && !Component->GetClass()->IsChildOf(ComponentClass));
+        });
+        return Components;
     }
     auto DEditorActorSubsystem::ScriptEditContext(DLevel* Level) const -> std::optional<FActorEditContext>
     {

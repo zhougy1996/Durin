@@ -81,6 +81,7 @@ namespace Durin::PythonReflection::Private
         {"get_name", reinterpret_cast<PyCFunction>(GetName), METH_NOARGS, "Return the native object name after Host/lifetime admission."},
         {"get_class", reinterpret_cast<PyCFunction>(GetClass), METH_NOARGS, "Return the actual reflected Python class."},
         {"get_editor_property", reinterpret_cast<PyCFunction>(GetEditorProperty), METH_O, "Read an editable native property as a detached value."},
+        {"list_editor_properties", reinterpret_cast<PyCFunction>(ListEditorProperties), METH_NOARGS, "List readable editor properties and their current write eligibility."},
         {"set_editor_property", reinterpret_cast<PyCFunction>(SetEditorProperty), METH_VARARGS, "Validate and edit a native property through editor history."},
         {"__init_subclass__", Subclass, METH_CLASS | METH_NOARGS, nullptr}, {nullptr, nullptr, 0, nullptr}};
     auto Wrap(DObject* Object, const FEditorScriptCallContext& Context) -> PyObject*

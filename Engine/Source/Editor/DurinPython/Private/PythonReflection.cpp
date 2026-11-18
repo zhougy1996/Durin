@@ -113,7 +113,8 @@ namespace Durin::PythonReflection::Private
         std::map<std::string, std::string> Members;
         auto Add = [&](std::string Native, std::string Script, std::string Kind) {
             const auto Alias = Name(Script.empty() ? Native : Script);
-            static const std::unordered_set<std::string> Reserved{"get_name", "get_class", "get_editor_property", "set_editor_property"};
+            static const std::unordered_set<std::string> Reserved{
+                "get_name", "get_class", "get_editor_property", "list_editor_properties", "set_editor_property"};
             if (!ValidName(Alias) || Reserved.contains(Alias))
             { Error(PyExc_ValueError, "Invalid or reserved reflected member " + Qualified(Type) + "::" + Native); return false; }
             const auto Identity = Kind + Native;

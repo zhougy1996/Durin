@@ -16,6 +16,7 @@
 #include "NativeTestSupport.h"
 #include "Transactions/Transactor.h"
 #include "Components/SceneComponent.h"
+#include "Components/CameraComponent.h"
 #include "Actors/EditorActorSubsystem.h"
 #include "Actors/CameraActor.h"
 #include "PropertyEditor/PropertyEditing.h"
@@ -699,6 +700,59 @@ component.set_editor_property('relative_transform', pose)
         EXPECT_DOUBLE_EQ(Component->GetWorldTransform().Translation.x, 42);
         ASSERT_TRUE(Host->GetTransactor()->Undo()); EXPECT_DOUBLE_EQ(Component->GetWorldTransform().Translation.x, 0);
         ASSERT_TRUE(Host->GetTransactor()->Redo()); EXPECT_DOUBLE_EQ(Component->GetWorldTransform().Translation.x, 42);
+    }
+    TEST_F(PythonReflectionTests, FindsNonRootComponentAndUndoesDiscoveredPropertyEdit)
+    {
+        PrepareScene();
+        auto* Root = Cast<DSceneComponent>(EditActor->AddInstanceComponent(DSceneComponent::StaticClass(), "Root"));
+        ASSERT_NE(Root, nullptr);
+        ASSERT_TRUE(EditActor->SetRootComponent(Root));
+        auto* Camera = Cast<DCameraComponent>(EditActor->AddInstanceComponent(DCameraComponent::StaticClass(), "Lens"));
+        ASSERT_NE(Camera, nullptr);
+        ASSERT_NE(Camera, EditActor->GetRootComponent());
+        const auto OriginalX = Camera->GetRelativeTransform().Translation.x;
+        ASSERT_FALSE(Host->GetTransactor()->CanUndo());
+
+        ActorPass(R"PY(
+types = durin.types.Durin
+actor = actors.get_all_level_actors(level)[0]
+root = actors.get_actor_info(level, actor).root_component
+camera, = actors.get_components(level, actor, component_class=types.CameraComponent)
+assert type(camera) is types.CameraComponent and camera is not root
+assert actors.get_components(level, actor) == [root, camera]
+assert actors.get_components(level, actor, types.SceneComponent) == [root, camera]
+assert actors.get_components(level, actor, types.ActorComponent) == [root, camera]
+for bad_level, bad_type in ((None, types.CameraComponent), (level, types.Actor)):
+    try:
+        actors.get_components(bad_level, actor, bad_type)
+    except durin.ScriptAccessError:
+        pass
+    else:
+        raise AssertionError('invalid component query succeeded')
+properties = camera.list_editor_properties()
+assert properties['relative_transform'] == {'type': 'Durin::FTransform', 'writable': True}
+assert 'world_transform' not in properties
+pose = camera.get_editor_property('relative_transform')
+translation = pose.translation
+translation.x = 42
+pose.translation = translation
+with durin.ScopedEditorTransaction('Move camera component'):
+    camera.set_editor_property('relative_transform', pose)
+assert camera.get_editor_property('relative_transform').translation.x == 42
+)PY");
+        EXPECT_DOUBLE_EQ(Camera->GetRelativeTransform().Translation.x, 42);
+        ASSERT_EQ(Host->GetTransactor()->GetQueueLength(), 1u);
+        ASSERT_TRUE(Host->GetTransactor()->Undo());
+        EXPECT_DOUBLE_EQ(Camera->GetRelativeTransform().Translation.x, OriginalX);
+        EXPECT_FALSE(Host->GetTransactor()->CanUndo());
+
+        FEditorScriptTargetPolicyRegistration Policy(*Host, *EditLevel, [] { return EEditorScriptTargetAccess::ReadOnly; });
+        ActorPass(R"PY(
+actor = actors.get_all_level_actors(level)[0]
+camera, = actors.get_components(level, actor, durin.types.Durin.CameraComponent)
+assert camera.list_editor_properties()['relative_transform']['writable'] is False
+camera.get_editor_property('relative_transform')
+)PY");
     }
     TEST_F(PythonReflectionTests, ClosedHostRejectsCachedPropertySetter)
     {
