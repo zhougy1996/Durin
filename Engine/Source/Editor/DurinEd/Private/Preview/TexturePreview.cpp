@@ -73,7 +73,7 @@ namespace Durin
 				TShaderRef<FTexturePreviewVertexShader> VertexShader;
 				TShaderRef<FTexturePreviewFragmentShader> FragmentShader;
 				FVertexDeclarationRHIRef VertexDeclaration;
-				FGraphicsPipelineStateRef PipelineState;
+				FGraphicsPipelineStateInitializer PipelineInitializer;
 				FBufferRHIRef VertexBuffer;
 				FBufferRHIRef IndexBuffer;
 				FSamplerRHIRef Sampler;
@@ -226,15 +226,7 @@ namespace Durin
 						ERHICullMode::None;
 					PipelineInitializer.PipelineLayout =
 						Candidate.ShaderMap->GetMergedPipelineLayout();
-					Candidate.PipelineState = FPreparedShaderMapScope::IsActive()
-						? FRenderPipelinePreparationScope::Graphics("TexturePreviewChannelPipeline", PipelineInitializer)
-						: PipelineStateCache::PrecacheGraphicsPipelineState(PipelineInitializer, "TexturePreviewChannelPipeline");
-
-					if (Candidate.PipelineState == nullptr)
-						return FResult::Failure(MakeError(
-							ERenderResourceCreateErrorCategory::GraphicsPipeline,
-							ERenderResourceCreateErrorReason::PipelinePreparationRejected
-						));
+					Candidate.PipelineInitializer = PipelineInitializer;
 					return FResult::Success(std::move(Candidate));
 				},
 				[](const FRenderResourceCreateDiagnostic& Diagnostic) {
@@ -255,6 +247,13 @@ namespace Durin
 						Diagnostic.Error->AttemptedGeneration.Manual,
 						FormatRenderResourceCreateError(*Diagnostic.Error));
 				});
+			if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+			{
+				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "TexturePreviewChannelPipeline");
+				if (!Request) return nullptr;
+				FRenderPipelinePreparationBatch::Add(Request);
+				if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return nullptr;
+			}
 			return Payload;
 		}
 
@@ -300,7 +299,7 @@ namespace Durin
 
 		const auto& State = *Resources;
 		CommandList.BeginRenderPass(PassInfo, "TexturePreviewChannelPass");
-		CommandList.SetGraphicsPipelineState(State.PipelineState);
+		SetGraphicsPipelineState(CommandList, State.PipelineInitializer);
 		const float Scale = std::min(static_cast<float>(Width) / InputTexture->GetSizeX(),
 			static_cast<float>(Height) / InputTexture->GetSizeY());
 		const float DrawWidth = std::max(1.0f, std::floor(InputTexture->GetSizeX() * Scale));

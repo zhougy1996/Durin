@@ -175,7 +175,7 @@ namespace Durin
 			PipelineGeneration,
 			[&PipelineEntry, Shaders, PipelineKey, &Processor, &Batch, VertexDeclaration = Request.VertexDeclaration]() -> FPipelineResult {
 				std::shared_ptr<const FPipeline> Candidate;
-				const auto Preparation = Processor.PreparePipeline(Batch, FName(std::format("GBufferPipeline_{}", PipelineEntry.Index)),
+				const auto Preparation = Processor.PreparePipeline(Batch,
 					*Shaders, VertexDeclaration, Candidate);
 				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "GBufferPipeline", GetGBufferPlanningPassIdentity(PipelineKey),
@@ -185,6 +185,13 @@ namespace Durin
 				return FPipelineResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnostic);
+		if (Pipeline && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(*(*Pipeline)->GetInitializer().PipelineInitializer);
+			if (!Request) return nullptr;
+			FRenderPipelinePreparationBatch::Add(Request);
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return nullptr;
+		}
 		return Pipeline != nullptr ? *Pipeline : nullptr;
 	}
 

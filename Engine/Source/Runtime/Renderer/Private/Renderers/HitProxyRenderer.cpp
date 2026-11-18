@@ -226,7 +226,14 @@ namespace Durin
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
-				if (!Processor.PreparePipeline(Batch, "HitProxy", Item, Item.Primitive->CollectedBinding->Declaration, Item.Pipeline)) { bReady = false; break; }
+				if (!Processor.PreparePipeline(Batch, Item, Item.Primitive->CollectedBinding->Declaration, Item.Pipeline)) { bReady = false; break; }
+				if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+				{
+					auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(*Item.Pipeline->GetInitializer().PipelineInitializer, "HitProxy");
+					if (!Pipeline) { bReady = false; break; }
+					FRenderPipelinePreparationBatch::Add(Pipeline);
+					if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) { bReady = false; break; }
+				}
 				if (!Factory->SupportsGPUScene()) Item.Transform = PrepareFallbackPrimitiveUniform(Commands, *Item.Primitive);
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };
@@ -263,7 +270,8 @@ namespace Durin
 		FGlobalShaderSetRef OverlayShaders;
 		TShaderMapRef<FHitProxyOverlayFragmentShader> OverlayFragment;
 		FBufferRHIRef OverlayBuffer;
-		std::array<FGraphicsPipelineStateRef, 2> OverlayPipelines;
+		FVertexDeclarationRHIRef OverlayDeclaration;
+		std::array<std::optional<FGraphicsPipelineStateInitializer>, 2> OverlayPipelines;
 		std::vector<FRHIUniformBufferRange> OverlayIds;
 		std::vector<uint32> OverlayOrder;
 		if (!Request.Overlays.empty())
@@ -278,7 +286,7 @@ namespace Durin
 			FVertexDeclarationElementList Elements{};
 			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float4, 0, sizeof(FHitProxyOverlayVertex));
 			Elements[1] = FVertexElement(0, 16, EVertexElementType::Float1, 1, sizeof(FHitProxyOverlayVertex));
-			const auto Declaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			const auto Declaration = OverlayDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 			if (!Declaration) { return {}; }
 			for (uint32 Foreground = 0; Foreground < 2; ++Foreground)
 			{
@@ -292,8 +300,8 @@ namespace Durin
 				Pipeline.DepthStencilState.bEnableWrite = !Foreground;
 				Pipeline.DepthStencilState.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
 				Pipeline.PipelineLayout = OverlayShaders.GetPipelineLayout();
-				OverlayPipelines[Foreground] = FRenderPipelinePreparationScope::Graphics("HitProxyOverlay", Pipeline);
-				if (!OverlayPipelines[Foreground]) { return {}; }
+				OverlayPipelines[Foreground] = Pipeline;
+
 			}
 			std::vector<FHitProxyOverlayVertex> Vertices;
 			Vertices.reserve(Request.Overlays.size() * 6);
@@ -343,7 +351,7 @@ namespace Durin
 			Commands.BindVertexBuffer(0, OverlayBuffer, 0);
 			for (uint32 Foreground = 0; Foreground < 2; ++Foreground)
 			{
-				Commands.SetGraphicsPipelineState(OverlayPipelines[Foreground]);
+				SetGraphicsPipelineState(Commands, *OverlayPipelines[Foreground]);
 				for (const uint32 Index : OverlayOrder)
 				{
 					if (Request.Overlays[Index].bForeground != bool(Foreground)) continue;

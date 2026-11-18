@@ -577,8 +577,8 @@ float4 FragmentMain() : SV_Target
 							0.0f,
 							17.0f,
 							17.0f);
-						if constexpr (std::same_as<decltype(PipelineState), FGraphicsPipelineStateRef>)
-							CommandList.SetGraphicsPipelineState(PipelineState);
+						if constexpr (std::same_as<decltype(PipelineState), FGraphicsPipelineStateInitializer>)
+							SetGraphicsPipelineState(CommandList, PipelineState);
 						else CommandList.SetGraphicsPipelineState(*PipelineState);
 						CommandList.BindVertexBuffer(0, InstanceBuffer, 0);
 						CommandList.BindIndexBuffer(
@@ -702,35 +702,26 @@ float4 FragmentMain() : SV_Target
 			CacheAfterForcedReload.StructuralLayouts.Capacity);
 		EXPECT_EQ(CacheAfterForcedReload.StructuralLayouts.Evictions, 0u);
 
-		// Exercise the production slot helper on the actual render thread. Each
-		// metadata publishes the shared PSO handle; drawing retains its completion dependency.
-		TRenderResourceCreationSlot<FGraphicsPipelineStateRef> AsyncSlot;
-		FGraphicsPipelineStateRef PreparedPipeline;
-		const auto PrewarmDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-		do
+		FGraphicsPipelineStateInitializer PreparedPipeline;
+		FGraphicsPipelineStateRef PrewarmRequest;
+		struct FPrewarmReloadPipeline { static constexpr auto GetName() -> const char* { return "PrewarmReloadPipeline"; } };
+		EnqueueRenderCommand<FPrewarmReloadPipeline>([&](FRHICommandListImmediate&) {
+			PreparedPipeline.RenderTargetLayout = MakeReloadRenderTargetLayout();
+			PreparedPipeline.BoundShaders = {Forced->Payload->VertexShader.GetRHIShader(), Forced->Payload->FragmentShader.GetRHIShader()};
+			PreparedPipeline.VertexDeclaration = Forced->Payload->VertexDeclaration;
+			PreparedPipeline.RasterizerState.CullMode = ERHICullMode::None;
+			PreparedPipeline.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
+			PrewarmRequest = PipelineStateCache::PrecacheGraphicsPipelineState(PreparedPipeline, "AsyncReloadPrewarm");
+		});
+		FlushRenderingCommands();
+		EXPECT_TRUE(PrewarmRequest);
+		if (PrewarmRequest)
 		{
-			struct FPrewarmReloadPipeline { static constexpr auto GetName() -> const char* { return "PrewarmReloadPipeline"; } };
-			EnqueueRenderCommand<FPrewarmReloadPipeline>([&](FRHICommandListImmediate&) {
-				using FResult = TRenderResourceCreateResult<FGraphicsPipelineStateRef>;
-				auto* Ready = AsyncSlot.Resolve({}, [&]() -> FResult {
-					FGraphicsPipelineStateInitializer Initializer;
-					Initializer.RenderTargetLayout = MakeReloadRenderTargetLayout();
-					Initializer.BoundShaders = {Forced->Payload->VertexShader.GetRHIShader(), Forced->Payload->FragmentShader.GetRHIShader()};
-					Initializer.VertexDeclaration = Forced->Payload->VertexDeclaration;
-					Initializer.RasterizerState.CullMode = ERHICullMode::None;
-					Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
-					auto Candidate = FRenderPipelinePreparationScope::Graphics("AsyncReloadPrewarm", Initializer);
-					if (Candidate) return FResult::Success(std::move(Candidate));
-					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, {}));
-				}, [](const auto&) { ADD_FAILURE() << "Pending must not report a candidate failure"; });
-				if (Ready) PreparedPipeline = *Ready;
-			});
-			FlushRenderingCommands();
-		} while (!PreparedPipeline && std::chrono::steady_clock::now() < PrewarmDeadline);
-		EXPECT_TRUE(PreparedPipeline);
-		if (PreparedPipeline) ExpectReloadColor(*RenderPipeline(PreparedPipeline), 0, 255);
-		AsyncSlot.Reset();
-		PreparedPipeline = nullptr;
+			EXPECT_EQ(PrewarmRequest->Wait(), ERHIPipelineState::Ready);
+			ExpectReloadColor(*RenderPipeline(PreparedPipeline), 0, 255);
+		}
+		PrewarmRequest.reset();
+		PreparedPipeline = {};
 
 		struct FReleaseReloadValidationResource
 		{

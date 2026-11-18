@@ -179,27 +179,30 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudVertexShader> VertexShader;
 			TShaderMapRef<FCloudFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 		};
 		struct FComputePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudComputeShader> ComputeShader;
-			FComputePipelineStateRef PipelineState;
+			FComputePipelineStateInitializer PipelineInitializer;
 		};
 		struct FCompositePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudCompositeVertexShader> VertexShader;
 			TShaderMapRef<FCloudCompositeFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 		};
 		struct FTemporalPayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudTemporalVertexShader> VertexShader;
 			TShaderMapRef<FCloudTemporalFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 		};
 		struct FFallbackPayload
 		{
@@ -295,26 +298,22 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+					CandidatePayload.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					CandidatePayload.ShaderSet.GetPipelineLayout();
-				CandidatePayload.PipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"VolumetricCloudTemporalPipeline", Initializer
-					);
-				if (!CandidatePayload.PipelineState)
-				{
-					return FCreateResult::Failure(MakeFailure(
-						"VolumetricCloudTemporal", "pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceCreateErrorCategory::GraphicsPipeline
-					));
-				}
+				CandidatePayload.PipelineInitializer = Initializer;
 				return FCreateResult::Success(std::move(CandidatePayload));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
 		);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "VolumetricCloudTemporalPipeline");
+			if (!Request) return false;
+			FRenderPipelinePreparationBatch::Add(Request);
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
+		}
 		return Payload != nullptr;
 	}
 
@@ -351,18 +350,21 @@ namespace Durin
 					RenderTargetLayouts::MakeVolumetricCloudComposite();
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+				Initializer.VertexDeclaration = Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(
-					"VolumetricCloudCompositePipeline", Initializer
-				);
-				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudComposite", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
 		);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "VolumetricCloudCompositePipeline");
+			if (!PipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(PipelineState);
+			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+		}
 		return Payload != nullptr;
 	}
 
@@ -427,7 +429,7 @@ namespace Durin
 	{
 		using FPayload = FState::FComputePayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
-		return State->ComputeResources.Resolve(
+		auto* Payload = State->ComputeResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
 				const std::array<const FGlobalShaderType*, 1> Types{
 					&FCloudComputeShader::StaticType()};
@@ -450,13 +452,17 @@ namespace Durin
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelinePreparationScope::Compute(
-					"VolumetricCloudComputePipeline", Initializer);
-				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudCompute", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
-			!= nullptr;
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer);
+			if (!Pipeline) return false;
+			FRenderPipelinePreparationBatch::Add(Pipeline);
+			if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) return false;
+		}
+		return Payload != nullptr;
 	}
 
 	auto FVolumetricCloudRenderer::EnsureFragmentResources_RenderThread(
@@ -464,7 +470,7 @@ namespace Durin
 	{
 		using FPayload = FState::FFragmentPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
-		return State->FragmentResources.Resolve(
+		auto* Payload = State->FragmentResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
 				const std::array<const FGlobalShaderType*, 2> Types{
 					&FCloudVertexShader::StaticType(),
@@ -499,16 +505,20 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(
-					"VolumetricCloudFragmentPipeline", Initializer);
-				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudFragment", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
-			!= nullptr;
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);
+			if (!Pipeline) return false;
+			FRenderPipelinePreparationBatch::Add(Pipeline);
+			if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) return false;
+		}
+		return Payload != nullptr;
 	}
 
 	// Resource resolution, binding, and execution continue below to keep target
@@ -727,7 +737,7 @@ namespace Durin
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(OutputToCompute);
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
-			CommandList.SetComputePipelineState(ComputePayload->PipelineState);
+			SetComputePipelineState(CommandList, ComputePayload->PipelineInitializer);
 			FCloudComputeShader::FParameters Params;
 			Params.BaseDensity = Input.Textures.BaseDensity;
 			Params.DetailDensity = Input.Textures.DetailDensity;
@@ -757,7 +767,7 @@ namespace Durin
 			PassInfo.ColorRenderTargets[0] = FragmentTargets->Cloud;
 			PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 			CommandList.BeginRenderPass(PassInfo, "VolumetricCloudRenderPass");
-			CommandList.SetGraphicsPipelineState(FragmentPayload->PipelineState);
+			SetGraphicsPipelineState(CommandList, FragmentPayload->PipelineInitializer);
 			CommandList.SetViewport(static_cast<float>(CloudView.ViewportX), static_cast<float>(CloudView.ViewportY), 0.0f, static_cast<float>(CloudView.ViewportX + CloudView.ViewportWidth), static_cast<float>(CloudView.ViewportY + CloudView.ViewportHeight), 1.0f);
 			CommandList.SetScissor(static_cast<float>(CloudView.ViewportX), static_cast<float>(CloudView.ViewportY), static_cast<float>(CloudView.ViewportWidth), static_cast<float>(CloudView.ViewportHeight));
 			CommandList.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
@@ -883,7 +893,7 @@ namespace Durin
 										  PolicyKey, Input.CloudHistoryKey, Width, Height
 									  );
 		FTextureRHIRef Candidate = History.TakeReusable(Width, Height);
-		if (Candidate == nullptr)
+		if (!Candidate)
 		{
 			Candidate = RHICreateTexture(FRHITextureCreateDesc::Create2D(
 											 "VolumetricCloudTemporalHistory", Width, Height,
@@ -892,7 +902,7 @@ namespace Durin
 											 .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
 											 .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)));
 		}
-		if (Candidate == nullptr)
+		if (!Candidate)
 			return Result;
 
 		EnsureTemporalResources_RenderThread(CommandList);
@@ -956,7 +966,7 @@ namespace Durin
 		PassInfo.ColorClearValues[0] =
 			FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "VolumetricCloudTemporalRenderPass");
-		CommandList.SetGraphicsPipelineState(Payload->PipelineState);
+		SetGraphicsPipelineState(CommandList, Payload->PipelineInitializer);
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 		CommandList.BindVertexBuffer(
@@ -1027,7 +1037,7 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = CompositeTargets.Cloud;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "VolumetricCloudCompositeRenderPass");
-		CommandList.SetGraphicsPipelineState(Payload->PipelineState);
+		SetGraphicsPipelineState(CommandList, Payload->PipelineInitializer);
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(CompositeTargets.Cloud->GetSizeX()), static_cast<float>(CompositeTargets.Cloud->GetSizeY()), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(CompositeTargets.Cloud->GetSizeX()), static_cast<float>(CompositeTargets.Cloud->GetSizeY()));
 		CommandList.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);

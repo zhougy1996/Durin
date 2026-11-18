@@ -114,7 +114,7 @@ namespace Durin
 		{
 			// Material resolution belongs to logical collection, before the resource
 			// stages. Preserve its pending result with the same preparation batch.
-			FRenderPipelinePreparationBatch Batch;
+			FRenderPipelinePreparationBatch Batch(bPrepareOnly);
 			Preparation = PrepareView_RenderThread(CommandList, Context);
 			if (bPrepareOnly && PreparationRequests) Batch.CollectRequests(*PreparationRequests);
 			if (bPrepareOnly && Batch.HasResourcePending()) return ERenderViewResult::RendererResourcesPending;
@@ -231,7 +231,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, FSceneFrameContext& Context,
 		FResourcePreparationStage Stage, bool bPrepareOnly) -> ERenderViewResult
 	{
-		FRenderPipelinePreparationBatch Batch;
+		FRenderPipelinePreparationBatch Batch(bPrepareOnly);
 		const auto Result = (this->*Stage)(CommandList, Context, bPrepareOnly);
 		if (bPrepareOnly && PreparationRequests) Batch.CollectRequests(*PreparationRequests);
 		if ((bPrepareOnly && Batch.HasResourcePending())
@@ -253,7 +253,7 @@ namespace Durin
 			// environment fallback set instead.
 			if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
 			{
-				FRenderPipelinePreparationBatch OptionalBatch;
+				FRenderPipelinePreparationBatch OptionalBatch(false);
 				Service.UpdateSkyLighting_RenderThread(CommandList, *Scene);
 			}
 			// Sky resources include a static index upload, so initialize them before
@@ -460,7 +460,7 @@ namespace Durin
 			{
 				FeaturePlan.GBuffer.InstanceCullingMode = !Capabilities || !Capabilities->bSupportsIndirectDraw
 					? EInstanceCullingMode::Unsupported
-					: Service.InstanceCullingManager.EnsureResources_RenderThread(Qualification.GPUCullingFailure)
+					: Service.InstanceCullingManager.EnsureResources_RenderThread(Qualification.GPUCullingFailure, bPrepareOnly)
 						? EInstanceCullingMode::Enabled : EInstanceCullingMode::ResourcesUnavailable;
 			}
 			if (FeaturePlan.GBuffer.IsEnabled())
@@ -487,7 +487,7 @@ namespace Durin
 				else FeaturePlan.AmbientOcclusion.Purposes = ESceneFeaturePurpose::None;
 			}
 			if (FeaturePlan.GBufferDebug.IsEnabled()
-				&& !Service.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList))
+				&& !Service.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList, bPrepareOnly))
 			{
 				if (bPrepareOnly) FixedPipelinesReady = false;
 				else FeaturePlan.GBufferDebug.Purposes = ESceneFeaturePurpose::None;

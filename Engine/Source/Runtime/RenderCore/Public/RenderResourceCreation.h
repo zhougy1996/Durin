@@ -98,6 +98,26 @@ namespace Durin
 		}
 	};
 
+	class FRenderResourceAttemptState
+	{
+	public:
+		FRenderResourceAttemptState() = default;
+		FRenderResourceAttemptState(FRenderResourceAttemptState&&) noexcept = default;
+		auto operator=(FRenderResourceAttemptState&&) noexcept -> FRenderResourceAttemptState& = default;
+		auto Reset() -> void { *this = {}; }
+		RENDERCORE_API auto CanDeferAttempt(const FRenderResourceGeneration& CurrentGeneration) const -> bool;
+	private:
+		friend class FRenderPipelinePreparationScope;
+		struct FDependency
+		{
+			std::shared_ptr<const FRenderPreparationDependency> Owner;
+			bool bWasPending;
+			bool bObserved;
+		};
+		FRenderResourceGeneration Generation;
+		std::vector<FDependency> RetryDependencies;
+	};
+
 	constexpr auto HasSelectedRenderResourceGenerationChanged(
 		const FRenderResourceGeneration& Earlier,
 		const FRenderResourceGeneration& Later,
@@ -187,7 +207,6 @@ namespace Durin
 	};
 
 	// Owns one complete renderer payload and its generation-scoped attempt state.
-	// Shader preparation and pipeline requests may defer an attempt.
 	// Only Ready exposes a payload;
 	// a new attempt invalidates the previous generation before invoking its factory.
 	template <typename PayloadType>
@@ -213,17 +232,11 @@ namespace Durin
 			}
 
 			ApplyDeviceGeneration(Generation);
-			if (Availability == ERenderResourceAvailability::Ready && PipelineRequests.HasFailed())
-			{
-				Payload.reset();
-				PayloadGeneration = {};
-				Availability = ERenderResourceAvailability::Uninitialized;
-			}
 			if (ShouldSuppressAttempt(Generation))
 			{
 				return GetPayload();
 			}
-			if (Availability == ERenderResourceAvailability::Pending && PipelineRequests.CanDeferAttempt(Generation))
+			if (Availability == ERenderResourceAvailability::Pending && Attempt.CanDeferAttempt(Generation))
 			{
 				FRenderPipelinePreparationScope::MarkResourcePending();
 				return nullptr;
@@ -235,7 +248,7 @@ namespace Durin
 			PayloadGeneration = {};
 			Availability = ERenderResourceAvailability::Pending;
 			FPreparedShaderMapScope ShaderScope(true);
-			FRenderPipelinePreparationScope PipelineScope(PipelineRequests, Generation);
+			FRenderPipelinePreparationScope PipelineScope(Attempt, Generation);
 			auto Result = std::forward<FactoryType>(Factory)();
 			bResolving = false;
 			if (Result.IsPending() || PipelineScope.HasPending())
@@ -244,7 +257,7 @@ namespace Durin
 				return nullptr;
 			}
 			PipelineScope.ReleasePreparations();
-			if (Result.IsCanceled()) { PipelineRequests.Reset(); Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
+			if (Result.IsCanceled()) { Attempt.Reset(); Failure.reset(); FailureFingerprint.reset(); bFailureReported = false; Availability = ERenderResourceAvailability::Canceled; return nullptr; }
 			AttemptedGeneration = Generation;
 			if (Result.HasPayload())
 			{
@@ -270,7 +283,7 @@ namespace Durin
 				return GetPayload();
 			}
 
-			PipelineRequests.Reset();
+			Attempt.Reset();
 			const auto PreviousFingerprint = FailureFingerprint;
 			Failure.emplace(Result.TakeError());
 			Failure->AttemptedGeneration = Generation;
@@ -290,15 +303,13 @@ namespace Durin
 
 		auto GetPayload() -> PayloadType*
 		{
-			if (Availability != ERenderResourceAvailability::Ready || !Payload || PipelineRequests.HasFailed()) return nullptr;
-			PipelineRequests.CollectPreparationRequests();
+			if (Availability != ERenderResourceAvailability::Ready || !Payload) return nullptr;
 			return Payload.get();
 		}
 
 		auto GetPayload() const -> const PayloadType*
 		{
-			if (Availability != ERenderResourceAvailability::Ready || !Payload || PipelineRequests.HasFailed()) return nullptr;
-			PipelineRequests.CollectPreparationRequests();
+			if (Availability != ERenderResourceAvailability::Ready || !Payload) return nullptr;
 			return Payload.get();
 		}
 
@@ -329,7 +340,7 @@ namespace Durin
 
 		auto Reset() -> void
 		{
-			PipelineRequests.Reset();
+			Attempt.Reset();
 			Payload.reset();
 			Failure.reset();
 			FailureFingerprint.reset();
@@ -390,7 +401,7 @@ namespace Durin
 		}
 
 		ERenderResourceGenerationDependency PayloadDependencies;
-		FRenderPipelineStateSet PipelineRequests;
+		FRenderResourceAttemptState Attempt;
 		std::shared_ptr<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Failure;
 		std::optional<size_t> FailureFingerprint;

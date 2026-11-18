@@ -95,7 +95,8 @@ namespace Durin::RendererEditorAssistance
 	struct FPreparedPipeline
 	{
 		FPipelineKey Key;
-		FGraphicsPipelineStateRef Pipeline;
+		FVertexDeclarationRHIRef PipelineVertexDeclaration;
+		FGraphicsPipelineStateInitializer PipelineInitializer;
 		FGlobalShaderSetRef ShaderSet;
 	};
 

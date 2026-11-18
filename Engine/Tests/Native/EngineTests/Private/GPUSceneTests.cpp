@@ -154,6 +154,8 @@ namespace
                 Queues.bIndependentCompute = true; Queues.Compute = {1};
                 Queues.Queues.push_back({.Id = {1}, .OwnershipDomain = 1, .bCompute = true});
             }
+			FRHIPipelineStateCache* PipelineCache = nullptr;
+			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override { return PipelineCache; }
 			~FGPUSceneTestRHI() override { ClearCapabilities(); }
 			auto Init(const FRHIInitializationContext&) -> void override {}
 			auto Shutdown() -> void override {}
@@ -713,7 +715,7 @@ namespace
         FlushRenderingCommands();
     }
 
-    TEST_F(FGPUSceneTests, ParallelDrawRecordingMatchesSerialRangesSourcesAndCounters)
+    TEST_F(FGPUSceneTests, ColdParallelDrawRecordingMatchesSerialRangesSourcesAndCounters)
     {
         using namespace RendererPrivate;
         FRHIPipelineCompileBackend CompileBackend{
@@ -725,6 +727,8 @@ namespace
         auto Capabilities = *RHI.RHIGetCapabilities();
         Capabilities.MaxColorAttachments = 1;
         FRHIPipelineStateCache Cache(Capabilities, std::move(CompileBackend));
+        RHI.PipelineCache = &Cache;
+        struct FCacheGuard { FGPUSceneTestRHI& RHI; ~FCacheGuard() { RHI.PipelineCache = nullptr; } } CacheGuard{RHI};
         FGraphicsPipelineStateInitializer Description;
         const auto VertexShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
         const auto FragmentShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));
@@ -743,13 +747,13 @@ namespace
         Description.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
         auto Key = BuildGraphicsPipelineStateKey(Description, &Capabilities);
         ASSERT_TRUE(Key) << ToString(Key.error());
-        auto Cached = Cache.GetGraphics(Description, "parallel recording");
-        ASSERT_TRUE(Cached); ASSERT_EQ(Cached->Wait(), ERHIPipelineState::Ready);
         EnqueueRenderCommand<FTestCommand>([&](FRHICommandListImmediate&) {
             constexpr uint32 Count = 513;
             const auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
             FMeshPassPipelineInitializer Initializer;
-            Initializer.PipelineState = Cached;
+            Initializer.PipelineInitializer = Description;
+            Initializer.VertexDeclaration = Declaration;
+            Initializer.FragmentShader = FragmentShader;
             const auto Pipeline = std::make_shared<const FMeshPassPipeline>(std::move(Initializer));
             FMeshPassBindings Bindings; Bindings.Vertex.Shader = Shader;
             std::vector<FMeshDrawCommand> Draws(Count);
@@ -766,8 +770,10 @@ namespace
             FParallelMeshDrawCommandPass Pass;
             FMeshDrawCommandPassTestAccess::SetCommands(Pass, std::move(Visible));
             FSceneView View; View.ViewportX = 7; View.ViewportY = 9; View.ViewportWidth = 64; View.ViewportHeight = 32;
-            for (const bool Parallel : {false, true}) {
-                FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass({}, "DrawTest");
+            for (const bool Parallel : {true, false}) {
+                FRHIRenderPassInfo PassInfo;
+                PassInfo.RenderTargetLayout = Description.RenderTargetLayout;
+                FRHICommandList Parent; Parent.SwitchPipeline(ERHIPipeline::Graphics); Parent.BeginRenderPass(PassInfo, "DrawTest");
                 FParallelCommandListSet Set(View, Parent); Set.Width = 4; Set.MinDrawsPerCommandList = 64;
                 FMeshDrawCommandPassStats Statistics;
                 const auto Result = Pass.DispatchDraw(Parallel ? &Set : nullptr, Parent, 3, Count - 7, {}, &Statistics);

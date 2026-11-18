@@ -86,6 +86,7 @@ namespace Durin
 		RHI_API auto GetNumRecordedCommands() const -> size_t;
 		// Returns the monotonic number of non-empty graphics draws recorded by this list.
 		RHI_API auto GetNumRecordedDrawCommands() const -> uint64;
+		auto GetActiveRenderTargetLayout() const -> const FRHIRenderTargetLayout* { return bInsideRenderPass ? &ActiveRenderTargetLayout : nullptr; }
 		auto IsInsideRenderPass() const -> bool { return bInsideRenderPass; }
 		auto GetDiagnosticRegionDepth() const -> uint32 { return DiagnosticRegionDepth; }
 		RHI_API static auto GetInvalidDiagnosticRegionCount() -> uint64;
@@ -251,6 +252,7 @@ namespace Durin
 		std::shared_ptr<FPipelineState> ActiveGraphicsPipeline;
 		std::shared_ptr<FPipelineState> ActiveComputePipeline;
 		bool bInsideRenderPass = false;
+		FRHIRenderTargetLayout ActiveRenderTargetLayout;
 		const FRHICommandListBase* RenderPassParent = nullptr;
 		uint64 RenderPassSerial = 0;
 		std::shared_ptr<void> ActiveGPUSubmissionLease;

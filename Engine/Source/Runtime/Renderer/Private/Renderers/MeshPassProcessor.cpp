@@ -275,11 +275,11 @@ namespace Durin::RendererPrivate
             || SceneArgs.InstanceDataByteOffset >= SceneArgs.PrimitiveIdsBuffer->GetSize())) return false;
 		FMeshDrawCommandStateCache Local;
 		auto& Cache = StateCache ? *StateCache : Local;
-		if (!Pipeline->GetInitializer().PipelineState || !VertexBindings || !VertexPass
+		if (!Pipeline->GetInitializer().PipelineInitializer || !VertexBindings || !VertexPass
 			|| (Pipeline->GetInitializer().FragmentLayout && (!FragmentBindings || !FragmentPass))) return false;
 		if (Cache.Pipeline != Pipeline)
 		{
-			Commands.SetGraphicsPipelineState(Pipeline->GetInitializer().PipelineState);
+			SetGraphicsPipelineState(Commands, *Pipeline->GetInitializer().PipelineInitializer);
 			Cache.Pipeline = Pipeline;
 			Cache.Vertex.Shader = Cache.Fragment.Shader = nullptr;
 			Cache.Vertex.Parameters.clear(); Cache.Fragment.Parameters.clear();
@@ -379,7 +379,7 @@ namespace Durin::RendererPrivate
 			|| Pipeline->GetInitializer().FactoryKey != Key.FactoryKey || Pipeline->GetInitializer().LayoutKey != Key.LayoutKey
 			|| (DrawContext.IsCached() && Input.HitProxy.Buffer))
 		{ return FShaderCompletion::Failure("Mesh command binding context does not match the selected pass and admitted batch."); }
-		if (!Pipeline->GetInitializer().PipelineState || !Pipeline->GetInitializer().VertexShader || !Pipeline->GetInitializer().FragmentShader)
+		if (!Pipeline->GetInitializer().PipelineInitializer || !Pipeline->GetInitializer().VertexShader || !Pipeline->GetInitializer().FragmentShader)
 		{ return FShaderCompletion::Failure("Mesh command binding requires prepared native resources."); }
 		FMeshDrawCommand Initializer;
 		auto* Command = &DrawContext.AddCommand(Initializer);
@@ -529,7 +529,7 @@ namespace Durin::RendererPrivate
 			Declaration, Shaders.ShaderMap.GetPipelineLayout());
 		return FShaderCompletion{};
 	}
-	auto FMeshPassProcessor::PreparePipeline(const FMeshPassProcessorBatch& Batch, FName Name,
+	auto FMeshPassProcessor::PreparePipeline(const FMeshPassProcessorBatch& Batch,
 		const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion
 	{
 		FGraphicsPipelineStateInitializer Initializer;
@@ -540,8 +540,7 @@ namespace Durin::RendererPrivate
 		Candidate.VertexDeclaration = Declaration;
 		Candidate.Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
 		Candidate.Pass = GetPass();
-		Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(Name, Initializer);
-		if (!Candidate.PipelineState) return FShaderCompletion::Failure("Mesh pass pipeline creation failed.");
+		Candidate.PipelineInitializer = Initializer;
 		Out = std::make_shared<const FMeshPassPipeline>(std::move(Candidate));
 		return FShaderCompletion{};
 	}

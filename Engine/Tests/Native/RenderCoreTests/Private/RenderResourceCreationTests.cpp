@@ -420,165 +420,6 @@ namespace Durin
 			for (const auto& Request : Requests) EXPECT_EQ(Request->Wait(), ERHIPipelineState::Failed);
 		}
 
-		TEST(FRenderResourceCreationTests, OneSlotRetainsMoreThanFormerPipelineIdentityLimit)
-		{
-			ASSERT_EQ(GDynamicRHI, nullptr);
-			ASSERT_TRUE(InitializeTaskScheduler(2));
-			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
-			FPipelineSlotTestRHI RHI;
-			GDynamicRHI = &RHI;
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Initializer;
-			Initializer.ComputeShader = Shader;
-			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
-				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
-			FRenderPipelineStateSet Requests;
-			FRenderPipelinePreparationScope Scope(Requests, {});
-			FRenderPipelinePreparationBatch Batch;
-			for (uint32 Index = 0; Index < 300; ++Index)
-			{
-				Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
-				(void)FRenderPipelinePreparationScope::Compute("large slot", Initializer);
-			}
-			std::vector<std::shared_ptr<FPipelineState>> Collected;
-			Batch.CollectRequests(Collected);
-			for (const auto& Request : Collected) (void)Request->Wait();
-			for (uint32 Index = 0; Index < 300; ++Index)
-			{
-				Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = Index;
-				EXPECT_TRUE(FRenderPipelinePreparationScope::Compute("reuse", Initializer));
-			}
-			EXPECT_EQ(RHI.Creations.load(), 300u);
-		}
-
-		TEST(FRenderResourceCreationTests, PipelineRequestsNeverFallBackToDirectCreation)
-		{
-			ASSERT_EQ(GDynamicRHI, nullptr);
-			ASSERT_FALSE(IsTaskSchedulerRunning());
-			FPipelineSlotTestRHI RHI;
-			GDynamicRHI = &RHI;
-			struct FReset { ~FReset() { GDynamicRHI = nullptr; RHIFlushDeferredResources(); } } Reset;
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Compute;
-			Compute.ComputeShader = Shader;
-			EXPECT_FALSE(FRenderPipelinePreparationScope::Compute("no scope", Compute));
-			FRenderPipelineStateSet Requests;
-			FRenderPipelinePreparationScope Scope(Requests, {});
-			EXPECT_FALSE(FRenderPipelinePreparationScope::Compute("no scheduler", Compute));
-			EXPECT_FALSE(FRenderPipelinePreparationScope::Graphics("no scheduler", {}));
-			EXPECT_EQ(RHI.Creations, 0u);
-		}
-
-		TEST(FRenderResourceCreationTests, PendingPipelineHandlesPublishOnceAndLateGenerationsCannotReplaceCurrentPayload)
-		{
-			ASSERT_EQ(GDynamicRHI, nullptr);
-			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-			GIsGameThreadIdInitialized = true;
-			ASSERT_TRUE(InitializeTaskScheduler(1));
-			struct FCoreGuard { ~FCoreGuard() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
-			FPipelineSlotTestRHI RHI;
-			GDynamicRHI = &RHI;
-			FThreadEvent Entered, Release, RefreshEntered, RefreshRelease;
-			RHI.BeforeCreate = [&](uint32 Variant) {
-				if (Variant == 0) { Entered.Trigger(); Release.Wait(); }
-				if (Variant == 2) { RefreshEntered.Trigger(); RefreshRelease.Wait(); }
-			};
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Initializer;
-			Initializer.ComputeShader = Shader;
-			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
-				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
-			using FPipelineResult = TRenderResourceCreateResult<FComputePipelineStateRef>;
-			TRenderResourceCreationSlot<FComputePipelineStateRef> Slot(EDependency::Shader | EDependency::Device | EDependency::Manual);
-			FRenderResourceGeneration Generation;
-			uint32 Diagnostics = 0, Attempts = 0;
-			const auto Resolve = [&] {
-				return Slot.Resolve(Generation, [&] {
-					++Attempts;
-					auto Result = FRenderPipelinePreparationScope::Compute("same diagnostic name", Initializer);
-					return Result ? FPipelineResult::Success(Result) : FPipelineResult::Failure(MakeError());
-				}, [&](const auto&) { ++Diagnostics; });
-			};
-			EXPECT_NE(Resolve(), nullptr);
-			EXPECT_TRUE(Entered.WaitFor(5.0));
-			EXPECT_NE(Resolve(), nullptr);
-			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Ready);
-			EXPECT_EQ(RHI.RHIGetPipelineCreationStatistics().UnfinishedRequests, 1u);
-			EXPECT_EQ(Attempts, 1u);
-			EXPECT_EQ((*Slot.GetPayload())->GetState(), ERHIPipelineState::Pending);
-			++Generation.Shader;
-			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
-			EXPECT_NE(Resolve(), nullptr);
-			Release.Trigger();
-			auto Current = PipelineStateCache::PrecacheComputePipelineState(Initializer, "wait current");
-			ASSERT_TRUE(Current);
-			EXPECT_EQ(Current->Wait(), ERHIPipelineState::Ready);
-			ASSERT_NE(Resolve(), nullptr);
-			EXPECT_EQ(*Slot.GetPayload(), Current);
-			EXPECT_EQ(RHI.Creations.load(), 2u);
-			const auto Old = *Slot.GetPayload();
-			FRenderPipelinePreparationBatch RefreshBatch;
-			++Generation.Manual;
-			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 2;
-			EXPECT_NE(Resolve(), nullptr);
-			EXPECT_NE(Slot.GetPayload(), nullptr);
-			EXPECT_TRUE(RefreshEntered.WaitFor(5.0));
-			EXPECT_EQ(RefreshBatch.GetPipelineCount(), 1u);
-			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Ready);
-			++Generation.Device;
-			Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 3;
-			EXPECT_NE(Resolve(), nullptr);
-			RefreshRelease.Trigger();
-			std::vector<std::shared_ptr<FPipelineState>> RefreshRequests;
-			RefreshBatch.CollectRequests(RefreshRequests);
-			for (const auto& Request : RefreshRequests) (void)Request->Wait();
-			auto Latest = PipelineStateCache::PrecacheComputePipelineState(Initializer, "wait latest");
-			ASSERT_TRUE(Latest);
-			EXPECT_EQ(Latest->Wait(), ERHIPipelineState::Ready);
-			ASSERT_NE(Resolve(), nullptr);
-			EXPECT_EQ(*Slot.GetPayload(), Latest);
-			EXPECT_NE(*Slot.GetPayload(), Old);
-			EXPECT_EQ(Diagnostics, 0u);
-			Slot.Reset();
-		}
-
-		TEST(FRenderResourceCreationTests, NativePipelineFailureInvalidatesPublishedMetadataWithoutRetryingCompilation)
-		{
-			ASSERT_EQ(GDynamicRHI, nullptr);
-			GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
-			ASSERT_TRUE(InitializeTaskScheduler(1));
-			struct FStop { ~FStop() { GDynamicRHI = nullptr; ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } Stop;
-			FPipelineSlotTestRHI RHI; GDynamicRHI = &RHI;
-			FThreadEvent Entered, Release;
-			RHI.BeforeCreate = [&](uint32) { Entered.Trigger(); Release.Wait(); };
-			RHI.FailCreate = [](uint32) { return true; };
-			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
-			FComputePipelineStateInitializer Initializer; Initializer.ComputeShader = Shader;
-			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
-				EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
-			FSlot Slot; FComputePipelineStateRef Pipeline; uint32 Diagnostics = 0, Attempts = 0;
-			auto Factory = [&] {
-				++Attempts;
-				auto Candidate = FRenderPipelinePreparationScope::Compute("terminal failure", Initializer);
-				if (!Candidate) return FResult::Failure(MakeError());
-				Pipeline = Candidate;
-				return FResult::Success(42);
-			};
-			auto Report = [&](const auto&) { ++Diagnostics; };
-			EXPECT_NE(Slot.Resolve({}, Factory, Report), nullptr);
-			EXPECT_TRUE(Entered.WaitFor(5.0));
-			EXPECT_NE(Slot.Resolve({}, Factory, Report), nullptr);
-			EXPECT_EQ(Attempts, 1u);
-			Release.Trigger();
-			ASSERT_NE(Pipeline, nullptr); (void)Pipeline->Wait();
-			EXPECT_EQ(Pipeline->GetState(), ERHIPipelineState::Failed);
-			EXPECT_EQ(Slot.GetPayload(), nullptr);
-			EXPECT_EQ(Slot.Resolve({}, Factory, Report), nullptr);
-			EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Failed);
-			EXPECT_EQ(Attempts, 2u); EXPECT_EQ(Diagnostics, 1u);
-			EXPECT_EQ(RHI.Creations.load(), 1u);
-		}
-
 		TEST(
 			FRenderResourceCreationTests,
 			InitialFailureIsSuppressedUntilRelevantGenerationChanges)
@@ -910,7 +751,7 @@ namespace Durin
 			Thread->WaitForCompletion();
 		}
 
-		TEST(FRenderResourceCreationTests, PreparedPipelineRequestsSurviveSlotEviction)
+		TEST(FRenderResourceCreationTests, PreparedPipelineRequestsSurviveBatchDestruction)
 		{
 			ASSERT_EQ(GDynamicRHI, nullptr);
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId(); GIsGameThreadIdInitialized = true;
@@ -930,23 +771,20 @@ namespace Durin
 					Initializer.ComputeShader = Shader;
 					Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
 						EShaderStageFlags::Compute, 0, ERHIBindingType::UniformBuffer);
-					uint32 FactoryCalls = 0;
-					auto Factory = [&] {
-						++FactoryCalls;
-						auto Pipeline = FRenderPipelinePreparationScope::Compute("retained", Initializer);
-						return Pipeline ? FResult::Success(42) : FResult::Failure(MakeError());
-					};
-					FSlot PreparedSlot;
 					std::weak_ptr<FPipelineState> PipelineLifetime;
 					auto Preparation = FRenderResourcePreparation::Create();
 					FThreadEvent Entered, Release;
 					RHI.BeforeCreate = [&](uint32) { Entered.Trigger(); Release.Wait(); };
 					{
 						FRenderPipelinePreparationBatch Batch;
-						PreparedSlot.Resolve({}, Factory, [](const auto&) {});
+						auto Request = PipelineStateCache::PrecacheComputePipelineState(Initializer, "retained");
+						EXPECT_TRUE(Request);
+						if (!Request) { RHI.BeforeCreate = {}; return 1; }
+						FRenderPipelinePreparationBatch::Add(Request);
 						std::vector<std::shared_ptr<FPipelineState>> Requests;
 						Batch.CollectRequests(Requests);
 						EXPECT_EQ(Requests.size(), 1u);
+						if (Requests.size() != 1u) { Release.Trigger(); (void)Request->Wait(); RHI.BeforeCreate = {}; return 1; }
 						PipelineLifetime = Requests.front();
 						auto Peer = FRenderResourcePreparation::Create();
 						Peer.Complete_RenderThread(ERenderResourcePreparationState::Ready, Requests);
@@ -961,36 +799,37 @@ namespace Durin
 						EXPECT_EQ(Peer.GetProgress().State, ERenderResourcePreparationState::Canceled);
 						EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Pending);
 					}
-					PreparedSlot.Reset();
 					Release.Trigger();
 					const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
 					while (Preparation.GetProgress().State == ERenderResourcePreparationState::Pending && std::chrono::steady_clock::now() < Deadline)
 						std::this_thread::yield();
 					RHI.BeforeCreate = {};
-					EXPECT_EQ(FactoryCalls, 1u);
 					EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Ready);
 					EXPECT_EQ(RHI.Creations.load(), 1u);
-					PreparedSlot.Reset();
-					FSlot ActivatedSlot;
-					const auto* Activated = ActivatedSlot.Resolve({}, Factory, [](const auto&) {});
+					auto Activated = PipelineStateCache::PrecacheComputePipelineState(Initializer, "retained");
 					EXPECT_NE(Activated, nullptr);
+					if (!Activated) return 1;
 					EXPECT_EQ(RHI.Creations.load(), 1u);
 					Preparation.Retire_RenderThread(ERenderResourcePreparationState::Canceled);
-					EXPECT_NE(ActivatedSlot.GetPayload(), nullptr);
+					EXPECT_EQ(Activated->GetState(), ERHIPipelineState::Ready);
 					EXPECT_FALSE(PipelineLifetime.expired());
-					ActivatedSlot.Reset();
+					Activated.reset();
 					EXPECT_TRUE(PipelineLifetime.expired());
 					RHI.FailCreate = [](uint32) { return true; };
 					Initializer.PipelineLayout.BindingLayouts[0].BindingLayouts[0].Slot = 1;
 					auto Failed = FRenderResourcePreparation::Create();
 					auto Retired = FRenderResourcePreparation::Create();
 					std::shared_ptr<FPipelineState> FailedPipeline;
-					FSlot FailedSlot;
 					{
 						FRenderPipelinePreparationBatch Batch;
-						FailedSlot.Resolve({}, Factory, [](const auto&) {});
+						auto Request = PipelineStateCache::PrecacheComputePipelineState(Initializer, "failure");
+						EXPECT_TRUE(Request);
+						if (!Request) { RHI.BeforeCreate = {}; return 1; }
+						FRenderPipelinePreparationBatch::Add(Request);
 						std::vector<std::shared_ptr<FPipelineState>> Requests;
 						Batch.CollectRequests(Requests);
+						EXPECT_EQ(Requests.size(), 1u);
+						if (Requests.size() != 1u) return 1;
 						FailedPipeline = Requests.front();
 						Retired.Complete_RenderThread(ERenderResourcePreparationState::Ready, Requests);
 						Failed.Complete_RenderThread(ERenderResourcePreparationState::Ready, std::move(Requests));

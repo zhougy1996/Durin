@@ -136,7 +136,8 @@ namespace Durin
 
 		struct FPipelinePayload
 		{
-			FGraphicsPipelineStateRef Pipeline;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 			FGlobalShaderSetRef ShaderSet;
 		};
 
@@ -417,24 +418,12 @@ namespace Durin
 					Initializer.DepthStencilState.CompareOp =
 						GetVisibleDepthCompareOp(Key.DepthConvention);
 					Initializer.PipelineLayout = ShaderSet.GetPipelineLayout();
-					FGraphicsPipelineStateRef Candidate =
-						FRenderPipelinePreparationScope::Graphics(
-							FName(PipelineName), Initializer);
-					if (!Candidate)
-					{
-						return FPipelineResult::Failure(MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::GraphicsPipeline,
-							"SimpleElement", PipelineName,
-							ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual
-						));
-					}
+
 					return FPipelineResult::Success({
-						.Pipeline = std::move(Candidate), .ShaderSet = ShaderSet});
+						.PipelineVertexDeclaration = Initializer.VertexDeclaration,
+						.PipelineInitializer = Initializer, .ShaderSet = ShaderSet});
 				}, ReportRendererResourceCreateDiagnostic);
-			if (Pipeline == nullptr)
+			if (!Pipeline)
 				continue;
 
 			FTextureRHIRef Texture;
@@ -453,9 +442,17 @@ namespace Durin
 				if (!Texture)
 					continue;
 			}
+			if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+			{
+				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer, FName(PipelineName));
+				if (!Request) continue;
+				FRenderPipelinePreparationBatch::Add(Request);
+				if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
+			}
 			Prepared.Draws.push_back({
 				.Key = Batch.Key,
-				.Pipeline = Pipeline->Pipeline,
+				.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
+				.PipelineInitializer = Pipeline->PipelineInitializer,
 				.ShaderSet = Pipeline->ShaderSet,
 				.Texture = std::move(Texture),
 				.Sampler = Base->Sampler,
@@ -479,10 +476,9 @@ namespace Durin
 			return;
 		for (const FPreparedSimpleElementDraw& Draw : Prepared.Draws)
 		{
-			if (Draw.Key.DepthPriorityGroup != DepthPriorityGroup
-				|| !Draw.Pipeline)
+			if (Draw.Key.DepthPriorityGroup != DepthPriorityGroup)
 				continue;
-			CommandList.SetGraphicsPipelineState(Draw.Pipeline);
+			SetGraphicsPipelineState(CommandList, Draw.PipelineInitializer);
 			CommandList.BindVertexBuffer(0, State->VertexBuffer, 0);
 			CommandList.BindIndexBuffer(State->IndexBuffer, 0);
 			const FSimpleStyleUniform Style;

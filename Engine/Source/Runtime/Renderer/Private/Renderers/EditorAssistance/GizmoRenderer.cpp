@@ -243,7 +243,7 @@ namespace Durin
 		auto FindPreparedPipeline(
 			const FPrepared& Prepared,
 			EDepthMode DepthMode,
-			EGizmoTopology Topology) -> FGraphicsPipelineStateRef
+			EGizmoTopology Topology) -> const FGraphicsPipelineStateInitializer*
 		{
 			const auto It = std::ranges::find_if(
 				Prepared.Pipelines,
@@ -252,7 +252,7 @@ namespace Durin
 						&& Pipeline.Key.DepthMode == DepthMode
 						&& Pipeline.Key.GizmoTopology == Topology;
 				});
-			return It != Prepared.Pipelines.end() ? It->Pipeline : nullptr;
+			return It != Prepared.Pipelines.end() ? &It->PipelineInitializer : nullptr;
 		}
 	} // namespace
 
@@ -271,7 +271,8 @@ namespace Durin
 
 		struct FPipelinePayload
 		{
-			FGraphicsPipelineStateRef Pipeline;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 			FGlobalShaderSetRef ShaderSet;
 		};
 
@@ -465,36 +466,26 @@ namespace Durin
 							GetVisibleDepthCompareOp(Key.DepthConvention);
 						Initializer.PipelineLayout =
 							Base->ShaderSet.GetPipelineLayout();
-						FGraphicsPipelineStateRef Candidate =
-							FRenderPipelinePreparationScope::Graphics(
-								FName(PipelineName), Initializer);
-						if (Candidate == nullptr)
-						{
-							return FPipelineResult::Failure(
-								MakeRendererResourceCreateError(
-									ERenderResourceCreateErrorCategory::
-										GraphicsPipeline,
-									"Gizmo",
-									PipelineName,
-									ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-									ERenderResourceGenerationDependency::Shader
-										| ERenderResourceGenerationDependency::
-											Device
-										| ERenderResourceGenerationDependency::
-											Manual
-								)
-							);
-						}
+
 						return FPipelineResult::Success({
-							.Pipeline = std::move(Candidate),
+							.PipelineVertexDeclaration = Initializer.VertexDeclaration,
+							.PipelineInitializer = Initializer,
 							.ShaderSet = Base->ShaderSet});
 					},
 					ReportRendererResourceCreateDiagnostic);
 				if (Pipeline != nullptr)
 				{
+					if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+					{
+						auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer, FName(PipelineName));
+						if (!Request) continue;
+						FRenderPipelinePreparationBatch::Add(Request);
+						if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
+					}
 					Prepared.Pipelines.push_back({
 						.Key = Key,
-						.Pipeline = Pipeline->Pipeline,
+						.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
+						.PipelineInitializer = Pipeline->PipelineInitializer,
 						.ShaderSet = Pipeline->ShaderSet,
 					});
 				}
@@ -521,14 +512,14 @@ namespace Durin
 		for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
 		{
 			const EGizmoTopology Topology = EGizmoTopology::Solid;
-			const FGraphicsPipelineStateRef Pipeline =
+			const auto* Pipeline =
 				FindPreparedPipeline(Prepared, DepthMode, Topology);
-			if (Pipeline == nullptr)
+			if (!Pipeline)
 				continue;
 			const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
 			if (ShapeIndex >= Base->MeshRanges.size())
 				continue;
-			CommandList.SetGraphicsPipelineState(Pipeline);
+			SetGraphicsPipelineState(CommandList, *Pipeline);
 			const FGizmoMeshRange& Range = Base->MeshRanges[ShapeIndex];
 			FGizmoTransformUniform Uniform;
 			Uniform.LocalToClip = Math::TransposeToFloat(

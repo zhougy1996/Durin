@@ -119,13 +119,12 @@ namespace Durin
 		static_assert(alignof(FPostProcessViewUniform) == alignof(float));
 
 		auto CreatePostProcessPipeline(
-			FName PipelineName,
 			FRHIShader* VertexShader,
 			FRHIShader* FragmentShader,
 			const FVertexDeclarationRHIRef& VertexDeclaration,
 			const FPipelineLayoutDesc& PipelineLayout,
 			const FRHIRenderTargetLayout& RenderTargetLayout)
-			-> FGraphicsPipelineStateRef
+			-> FGraphicsPipelineStateInitializer
 		{
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderTargetLayout = RenderTargetLayout;
@@ -134,9 +133,7 @@ namespace Durin
 			Initializer.VertexDeclaration = VertexDeclaration;
 			Initializer.RasterizerState.CullMode = ERHICullMode::None;
 			Initializer.PipelineLayout = PipelineLayout;
-			return FRenderPipelinePreparationScope::Graphics(
-				PipelineName,
-				Initializer);
+			return Initializer;
 		}
 	} // namespace
 
@@ -148,13 +145,14 @@ namespace Durin
 			TShaderMapRef<FPostProcessVertexShader> VertexShader;
 			TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
 			TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
-			FGraphicsPipelineStateRef Pipeline;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 			FSamplerRHIRef SceneColorSampler;
 		};
 		using FSlot = TRenderResourceCreationSlot<FPayload>;
 		// Two shader routes, two formats, and three output attachment layouts.
 		std::array<std::unique_ptr<FSlot>, 12> Slots;
-		struct FMaterialPipeline { FShaderRHIRef Vertex, Fragment; FGraphicsPipelineStateRef Pipeline; };
+		struct FMaterialPipeline { FShaderRHIRef Vertex, Fragment; FVertexDeclarationRHIRef PipelineVertexDeclaration; FGraphicsPipelineStateInitializer PipelineInitializer; };
 		using FMaterialSlot = TRenderResourceCreationSlot<FMaterialPipeline>;
 		std::vector<std::pair<std::shared_ptr<const FMaterialProgram>, std::unique_ptr<FMaterialSlot>>> MaterialSlots;
 		std::unique_ptr<RendererPrivate::FSurfaceMaterialResources> MaterialResources;
@@ -183,7 +181,7 @@ namespace Durin
 			bEnableFXAA, bHasEditorAssistance, OutputFormat)];
 		if (!Slot) Slot = std::make_unique<FState::FSlot>(
 			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device);
-		return Slot->Resolve(Coordinator.GetGeneration_RenderThread(),
+		auto* Payload = Slot->Resolve(Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList, bPresentOutput, bEnableFXAA, bHasEditorAssistance, OutputFormat]() -> FResult {
 				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
 					&FPostProcessVertexShader::StaticType(),
@@ -226,18 +224,18 @@ namespace Durin
 					? RenderTargetLayouts::MakeScenePostProcessOutput(Format)
 					: RenderTargetLayouts::MakeFinalScenePostProcessOutput(bPresentOutput
 						? RenderTargetLayouts::EViewportOutput::Present : RenderTargetLayouts::EViewportOutput::Offscreen, Format);
-				const FName Name(std::format("PostProcess{}{}{}Pipeline", bEnableFXAA ? "FXAA" : "Copy",
-					bBGRA ? "BGRA" : "", bHasEditorAssistance ? "Intermediate" : bPresentOutput ? "Present" : "Offscreen"));
-				Candidate.Pipeline = CreatePostProcessPipeline(Name, VertexRHI, FragmentRHI,
-					FullscreenGeometry.GetVertexDeclaration_RenderThread(), Candidate.ShaderSet.GetPipelineLayout(), Layout);
-				if (!Candidate.Pipeline) return FResult::Failure(MakeRendererResourceCreateError(
-					ERenderResourceCreateErrorCategory::GraphicsPipeline, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
-					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device
-						| ERenderResourceGenerationDependency::Manual
-				));
+				Candidate.PipelineInitializer = CreatePostProcessPipeline(VertexRHI, FragmentRHI,
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread(), Candidate.ShaderSet.GetPipelineLayout(), Layout);
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable) != nullptr;
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);
+			if (!Request) return false;
+			FRenderPipelinePreparationBatch::Add(Request);
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
+		}
+		return Payload != nullptr;
 	}
 
 	auto FPostProcessRenderer::DescribeSceneTargets(uint32 Width, uint32 Height)
@@ -271,15 +269,14 @@ namespace Durin
 			bEnableFXAA, bHasEditorAssistance, OutputFormat)];
 		const FState::FPayload* Payload = Slot ? Slot->GetPayload() : nullptr;
 		if (!Payload) return;
-		const FGraphicsPipelineStateRef& PipelineState = Payload->Pipeline;
-		if (PipelineState == nullptr
-			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
+		const FGraphicsPipelineStateInitializer& PipelineInitializer = Payload->PipelineInitializer;
+		if (FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 		{
 			return;
 		}
 
-		CommandList.SetGraphicsPipelineState(PipelineState);
+		SetGraphicsPipelineState(CommandList, PipelineInitializer);
 		CommandList.SetViewport(
 			0.0f,
 			0.0f,
@@ -398,20 +395,28 @@ namespace Durin
 				Targets.NumColorRenderTargets = 1;
 				Targets.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(EPixelFormat::RGBA16_FLOAT,
 					ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
-				Candidate.Pipeline = CreatePostProcessPipeline("FPostProcessMaterialShader", Candidate.Vertex, Candidate.Fragment,
-					FullscreenGeometry.GetVertexDeclaration_RenderThread(), Layout, Targets);
+				Candidate.PipelineInitializer = CreatePostProcessPipeline(Candidate.Vertex, Candidate.Fragment,
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread(), Layout, Targets);
 			}
-			if (!Candidate.Pipeline) return FResult::Failure(MakeRendererResourceCreateError(
+			else return FResult::Failure(MakeRendererResourceCreateError(
 				ERenderResourceCreateErrorCategory::GraphicsPipeline, "FPostProcessMaterialShader", "optional-effect",
 				ERenderResourceCreateErrorReason::PipelinePreparationRejected,
 				ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
 			return FResult::Success(std::move(Candidate));
 		}, ReportRendererResourceCreateDiagnostic);
 		if (!Pipeline) return {};
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer);
+			if (!Request) return {};
+			FRenderPipelinePreparationBatch::Add(Request);
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return {};
+		}
 		auto Prepared = std::make_shared<FPreparedPostProcessMaterial>();
 		Prepared->Program = Program;
 		Prepared->bRejectBindings = bRejectBindings;
-		Prepared->Vertex = Pipeline->Vertex; Prepared->Fragment = Pipeline->Fragment; Prepared->Pipeline = Pipeline->Pipeline;
+		Prepared->PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration;
+		Prepared->Vertex = Pipeline->Vertex; Prepared->Fragment = Pipeline->Fragment; Prepared->PipelineInitializer = Pipeline->PipelineInitializer;
 		if (!ResolvePreparedMaterialBinding(*Data, Prepared->Material, "FPostProcessMaterialShader")) return {};
 		if (!State->MaterialResources) State->MaterialResources = std::make_unique<FSurfaceMaterialResources>(Coordinator, GetDefaultTextureResources());
 		FResolvedSurfaceMaterial Material;
@@ -463,7 +468,7 @@ namespace Durin
 		const FPreparedPostProcessMaterial& Prepared, FRHITexture* Input0, FRHITexture* Depth,
 		const FMaterialSceneTextureUniform& Uniform) -> bool
 	{
-		if (Prepared.bRejectBindings || !Input0 || Input0 == Prepared.Output.GetReference() || !Prepared.Output || !Prepared.Pipeline) return false;
+		if (Prepared.bRejectBindings || !Input0 || Input0 == Prepared.Output.GetReference() || !Prepared.Output) return false;
 		auto Scene = ResolveMaterialSceneTextureBindings(Commands, std::span<const FMaterialShaderBinding>(Prepared.Program->GetShaderMap().Entries[0].Bindings), Input0, Depth, Uniform);
 		if (!Scene) return false;
 		auto Bindings = Prepared.Bindings;
@@ -474,7 +479,7 @@ namespace Durin
 			ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
 		Pass.ColorRenderTargets[0] = Prepared.Output;
 		Commands.BeginRenderPass(Pass, "Scene.PostProcessMaterial");
-		Commands.SetGraphicsPipelineState(Prepared.Pipeline);
+		SetGraphicsPipelineState(Commands, Prepared.PipelineInitializer);
 		const auto Width = Prepared.Output->GetSizeX(), Height = Prepared.Output->GetSizeY();
 		Commands.SetViewport(0, 0, 0, Width, Height, 1); Commands.SetScissor(0, 0, Width, Height);
 		Commands.SetShaderParameters(Prepared.Fragment, Bindings);

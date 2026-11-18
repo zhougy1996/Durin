@@ -118,7 +118,7 @@ namespace Durin
 		RENDERER_API explicit FInstanceCullingManager(FRendererResourceCoordinator& Coordinator);
 		RENDERER_API ~FInstanceCullingManager();
 		RENDERER_API auto ResetViews() -> void;
-		RENDERER_API auto EnsureResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None) -> bool;
+		RENDERER_API auto EnsureResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None, bool bPrecachePipeline = false) -> bool;
 		RENDERER_API auto Dispatch_RenderThread(FRHICommandListImmediate& Commands, const FVector3& ViewLocation, const std::optional<FViewFrustum>& Frustum, uint32 CandidateCount, const FRDGShaderParameterScope& Parameters, EGPUCullingFailure Failure) -> bool;
 		RENDERER_API auto ReleaseResources_RenderThread() -> void;
 		RENDERER_API auto RegisterView(const FSceneView& View, std::optional<FViewFrustum> Frustum = {}) -> uint32;

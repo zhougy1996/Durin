@@ -96,9 +96,10 @@ namespace Durin
 			TShaderMapRef<FDeferredProductionVertexShader> ProductionVertexShader;
 			TShaderMapRef<FDeferredDirectionalFragmentShader> FragmentShader;
 			TShaderMapRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
-			FGraphicsPipelineStateRef ProductionPipelineState;
-			FGraphicsPipelineStateRef DiagnosticPipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
+			FGraphicsPipelineStateInitializer ProductionPipelineInitializer;
+			FGraphicsPipelineStateInitializer DiagnosticPipelineInitializer;
 			FSamplerRHIRef FallbackEnvironmentSampler;
 			FSamplerRHIRef FallbackShadowSampler;
 		};
@@ -196,14 +197,11 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"DeferredDirectionalLightingPipeline", Initializer
-					);
+				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridDeferredOutput();
 				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
@@ -211,13 +209,9 @@ namespace Durin
 				Initializer.PipelineLayout = Candidate.ProductionShaderSet.GetPipelineLayout();
 				Initializer.ColorBlendStates[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
 					.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
-				Candidate.ProductionPipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"DeferredProductionLightingPipeline", Initializer
-					);
+				Candidate.ProductionPipelineInitializer = Initializer;
 				Initializer.ColorBlendStates[0].bEnable = false;
-				Candidate.DiagnosticPipelineState = FRenderPipelinePreparationScope::Graphics(
-					"DeferredProductionDiagnosticPipeline", Initializer);
+				Candidate.DiagnosticPipelineInitializer = Initializer;
 				Candidate.FallbackEnvironmentSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
 				FRHISamplerDesc ShadowDesc = FRHISamplerDesc::LinearClamp();
@@ -228,16 +222,13 @@ namespace Durin
 				ShadowDesc.bEnableCompare = true;
 				ShadowDesc.CompareOp = ESamplerCompareOp::LessOrEqual;
 				Candidate.FallbackShadowSampler = RHICreateSampler(ShadowDesc);
-				if (Candidate.PipelineState == nullptr
-					|| Candidate.ProductionPipelineState == nullptr
-					|| Candidate.DiagnosticPipelineState == nullptr
-					|| Candidate.FallbackEnvironmentSampler == nullptr
+				if (Candidate.FallbackEnvironmentSampler == nullptr
 					|| Candidate.FallbackShadowSampler == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"DeferredDirectionalLighting", "pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"DeferredDirectionalLighting", "fallback samplers",
+						ERenderResourceCreateErrorReason::Unspecified,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual
@@ -247,6 +238,21 @@ namespace Durin
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
 		);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "DeferredDirectionalLightingPipeline");
+			if (!PipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(PipelineState);
+			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto ProductionPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->ProductionPipelineInitializer, "DeferredProductionLightingPipeline");
+			if (!ProductionPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(ProductionPipelineState);
+			if (ProductionPipelineState->GetState() == ERHIPipelineState::Failed || ProductionPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto DiagnosticPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->DiagnosticPipelineInitializer, "DeferredProductionDiagnosticPipeline");
+			if (!DiagnosticPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(DiagnosticPipelineState);
+			if (DiagnosticPipelineState->GetState() == ERHIPipelineState::Failed || DiagnosticPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+		}
 		return Payload != nullptr;
 	}
 
@@ -319,11 +325,10 @@ namespace Durin
 			return false;
 		const bool bReplaceDiagnostic = Parameters.bContactVisibilityDebug
 			|| View->Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit;
-		FGraphicsPipelineStateRef& Pipeline = bProduction
-			? (bReplaceDiagnostic ? Payload->DiagnosticPipelineState : Payload->ProductionPipelineState)
-			: Payload->PipelineState;
-		if (Pipeline == nullptr
-			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
+		const FGraphicsPipelineStateInitializer& Pipeline = bProduction
+			? (bReplaceDiagnostic ? Payload->DiagnosticPipelineInitializer : Payload->ProductionPipelineInitializer)
+			: Payload->PipelineInitializer;
+		if (FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 		{
 			return false;
@@ -371,7 +376,7 @@ namespace Durin
 		);
 		if (ProductionPass) PassInfo = *ProductionPass;
 		CommandList.BeginRenderPass(PassInfo, bProduction ? "DeferredProductionLightingRenderPass" : "DeferredDirectionalQualificationRenderPass");
-		CommandList.SetGraphicsPipelineState(Pipeline);
+		SetGraphicsPipelineState(CommandList, Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(View->ViewportX),
 			static_cast<float>(View->ViewportY), 0.0f,

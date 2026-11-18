@@ -154,12 +154,13 @@ namespace Durin
 			TShaderMapRef<FGTAOFilterFragmentShader> FilterFragmentShader;
 			TShaderMapRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
 			TShaderMapRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
-			FGraphicsPipelineStateRef SelectorPipelineState;
-			FGraphicsPipelineStateRef HalfPipelineState;
-			FGraphicsPipelineStateRef FilterPipelineState;
-			FGraphicsPipelineStateRef HalfFilterPipelineState;
-			FGraphicsPipelineStateRef ResolvePipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
+			FGraphicsPipelineStateInitializer SelectorPipelineInitializer;
+			FGraphicsPipelineStateInitializer HalfPipelineInitializer;
+			FGraphicsPipelineStateInitializer FilterPipelineInitializer;
+			FGraphicsPipelineStateInitializer HalfFilterPipelineInitializer;
+			FGraphicsPipelineStateInitializer ResolvePipelineInitializer;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Resources{
@@ -273,89 +274,58 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = RawVertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					Candidate.RawShaderSet.GetPipelineLayout();
-				Candidate.PipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GroundTruthAmbientOcclusionRawPipeline", Initializer);
-				if (Candidate.PipelineState == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"GroundTruthAmbientOcclusion", "raw-pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
+				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
 				Initializer.BoundShaders.FragmentShader = SelectorRHI;
-				Candidate.SelectorPipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GroundTruthAmbientOcclusionSelectorPipeline", Initializer);
+				Candidate.SelectorPipelineInitializer = Initializer;
 				Initializer.BoundShaders.FragmentShader = HalfFragmentRHI;
-				Candidate.HalfPipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GroundTruthAmbientOcclusionHalfRawPipeline", Initializer);
-				if (Candidate.SelectorPipelineState == nullptr
-					|| Candidate.HalfPipelineState == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"GroundTruthAmbientOcclusion", "half-raw-pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
+				Candidate.HalfPipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
 				Initializer.BoundShaders.VertexShader = FilterVertexRHI;
 				Initializer.BoundShaders.FragmentShader = FilterRHI;
 				Initializer.PipelineLayout =
 					Candidate.FilterShaderSet.GetPipelineLayout();
-				Candidate.FilterPipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GroundTruthAmbientOcclusionFilterPipeline", Initializer);
-				if (Candidate.FilterPipelineState == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"GroundTruthAmbientOcclusion", "filter-pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
+				Candidate.FilterPipelineInitializer = Initializer;
 				Initializer.BoundShaders.FragmentShader = HalfFilterRHI;
-				Candidate.HalfFilterPipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GroundTruthAmbientOcclusionHalfFilterPipeline", Initializer);
+				Candidate.HalfFilterPipelineInitializer = Initializer;
 				Initializer.BoundShaders.FragmentShader = ResolveRHI;
-				Candidate.ResolvePipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GroundTruthAmbientOcclusionResolvePipeline", Initializer);
-				if (Candidate.HalfFilterPipelineState == nullptr
-					|| Candidate.ResolvePipelineState == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"GroundTruthAmbientOcclusion", "half-filter-resolve-pipeline",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
+				Candidate.ResolvePipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "GroundTruthAmbientOcclusionRawPipeline");
+			if (!PipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(PipelineState);
+			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto SelectorPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->SelectorPipelineInitializer, "GroundTruthAmbientOcclusionSelectorPipeline");
+			if (!SelectorPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(SelectorPipelineState);
+			if (SelectorPipelineState->GetState() == ERHIPipelineState::Failed || SelectorPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto HalfPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->HalfPipelineInitializer, "GroundTruthAmbientOcclusionHalfRawPipeline");
+			if (!HalfPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(HalfPipelineState);
+			if (HalfPipelineState->GetState() == ERHIPipelineState::Failed || HalfPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto FilterPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->FilterPipelineInitializer, "GroundTruthAmbientOcclusionFilterPipeline");
+			if (!FilterPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(FilterPipelineState);
+			if (FilterPipelineState->GetState() == ERHIPipelineState::Failed || FilterPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto HalfFilterPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->HalfFilterPipelineInitializer, "GroundTruthAmbientOcclusionHalfFilterPipeline");
+			if (!HalfFilterPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(HalfFilterPipelineState);
+			if (HalfFilterPipelineState->GetState() == ERHIPipelineState::Failed || HalfFilterPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto ResolvePipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->ResolvePipelineInitializer, "GroundTruthAmbientOcclusionResolvePipeline");
+			if (!ResolvePipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(ResolvePipelineState);
+			if (ResolvePipelineState->GetState() == ERHIPipelineState::Failed || ResolvePipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+		}
 		return Payload != nullptr;
 	}
 
@@ -423,11 +393,8 @@ namespace Durin
 		FState::FPayload* Payload = State->Resources.GetPayload();
 		const bool bHalf = Targets.Quality
 			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-		FGraphicsPipelineStateRef Pipeline = bHalf
-			? Payload != nullptr ? Payload->HalfPipelineState : nullptr
-			: Payload != nullptr ? Payload->PipelineState : nullptr;
-		if (Payload == nullptr || Pipeline == nullptr
-			|| (bHalf && Payload->SelectorPipelineState == nullptr)
+		const auto* Pipeline = Payload ? &(bHalf ? Payload->HalfPipelineInitializer : Payload->PipelineInitializer) : nullptr;
+		if (Payload == nullptr || !Pipeline
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 			return false;
@@ -474,7 +441,7 @@ namespace Durin
 				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 			CommandList.BeginRenderPass(
 				SelectorPassInfo, "GroundTruthAmbientOcclusionSelectorPass");
-			CommandList.SetGraphicsPipelineState(Payload->SelectorPipelineState);
+			SetGraphicsPipelineState(CommandList, Payload->SelectorPipelineInitializer);
 			CommandList.SetViewport(
 				static_cast<float>(RenderViewport.X),
 				static_cast<float>(RenderViewport.Y), 0.0f,
@@ -507,7 +474,7 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = Targets.Raw;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "GroundTruthAmbientOcclusionRawPass");
-		CommandList.SetGraphicsPipelineState(Pipeline);
+		SetGraphicsPipelineState(CommandList, *Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(RenderViewport.X),
 			static_cast<float>(RenderViewport.Y), 0.0f,
@@ -569,10 +536,8 @@ namespace Durin
 		FState::FPayload* Payload = State->Resources.GetPayload();
 		const bool bHalf = Targets.Quality
 			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-		FGraphicsPipelineStateRef Pipeline = bHalf
-			? Payload != nullptr ? Payload->HalfFilterPipelineState : nullptr
-			: Payload != nullptr ? Payload->FilterPipelineState : nullptr;
-		if (Payload == nullptr || Pipeline == nullptr
+		const auto* Pipeline = Payload ? &(bHalf ? Payload->HalfFilterPipelineInitializer : Payload->FilterPipelineInitializer) : nullptr;
+		if (Payload == nullptr || !Pipeline
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 			return false;
@@ -619,7 +584,7 @@ namespace Durin
 			PassInfo.ColorClearValues[0] =
 				FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 			CommandList.BeginRenderPass(PassInfo, PassName);
-			CommandList.SetGraphicsPipelineState(Pipeline);
+			SetGraphicsPipelineState(CommandList, *Pipeline);
 			CommandList.SetViewport(
 				static_cast<float>(RenderViewport.X),
 				static_cast<float>(RenderViewport.Y), 0.0f,
@@ -691,7 +656,7 @@ namespace Durin
 			return false;
 		if (!EnsureResources_RenderThread(CommandList)) return false;
 		FState::FPayload* Payload = State->Resources.GetPayload();
-		if (Payload == nullptr || Payload->ResolvePipelineState == nullptr
+		if (Payload == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 			return false;
@@ -733,7 +698,7 @@ namespace Durin
 			FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(
 			PassInfo, "GroundTruthAmbientOcclusionResolvePass");
-		CommandList.SetGraphicsPipelineState(Payload->ResolvePipelineState);
+		SetGraphicsPipelineState(CommandList, Payload->ResolvePipelineInitializer);
 		CommandList.SetViewport(
 			static_cast<float>(View.ViewportX),
 			static_cast<float>(View.ViewportY), 0.0f,

@@ -77,7 +77,7 @@ namespace Durin::RendererPrivate
 	struct FMeshPassPipelineInitializer : FMeshPassShaders
 	{
 		FVertexDeclarationRHIRef VertexDeclaration;
-		FGraphicsPipelineStateRef PipelineState;
+		std::optional<FGraphicsPipelineStateInitializer> PipelineInitializer;
 		FMeshPipelineDescription Description;
 		EMeshPipelinePass Pass = EMeshPipelinePass::Forward;
 	};
@@ -403,7 +403,7 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
 			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderCompletion;
-		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch, FName Name,
+		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch,
 			const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion;
 		RENDERER_API auto BuildPSOInitializer(const FMeshPassProcessorBatch& Batch, const FMeshPassShaders& Shaders,
 			FRHIVertexDeclaration* Declaration, FGraphicsPipelineStateInitializer& Out) const -> FShaderCompletion;

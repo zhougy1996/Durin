@@ -58,8 +58,6 @@ namespace Durin
 				LastPrune = Now;
 			}
 			if (Closed || Queue.IsClosed()) return TResult{};
-			if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU())
-				return TResult{};
 			try
 			{
 				auto Valid = MakeKey();
@@ -79,6 +77,7 @@ namespace Durin
 					}
 					Entries.erase(Existing);
 				}
+				if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU()) return TResult{};
 				const uint64 Bytes = sizeof(FEntry) + sizeof(TPipeline) + 256
 					+ std::visit([](const auto& Value) { return GetPipelineKeyOwnedBytes(Value); }, Key);
 				auto Metadata = Queue.ReserveCacheMetadata(Bytes);
@@ -182,23 +181,51 @@ namespace Durin
 		{ return Precache(Initializer, Name); }
 		auto PrecacheComputePipelineState(const FComputePipelineStateInitializer& Initializer, FName Name) -> FComputePipelineStateRef
 		{ return Precache(Initializer, Name); }
+		template<typename T> static auto AcquireRequired(const T& Initializer, FName Name)
+		{
+			const char* Kind = std::same_as<T, FGraphicsPipelineStateInitializer> ? "Graphics PSO" : "Compute PSO";
+			auto Pipeline = Precache(Initializer, Name);
+			if (!Pipeline) RHITerminateOnFailure(Kind, "Required pipeline could not be acquired");
+			if (Pipeline->GetState() == ERHIPipelineState::Failed)
+				RHITerminateOnFailure(Kind, "Required pipeline compilation failed");
+			if (Pipeline->GetState() == ERHIPipelineState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
+			return Pipeline;
+		}
 		auto GetAndOrCreateGraphicsPipelineState(FRHICommandListBase& CommandList, const FGraphicsPipelineStateInitializer& Initializer, FName Name) -> FGraphicsPipelineStateRef
 		{
-			auto Pipeline = PrecacheGraphicsPipelineState(Initializer, Name);
-			if (!Pipeline) RHITerminateOnFailure("Graphics PSO", "Required pipeline could not be acquired");
-			if (Pipeline->GetState() == ERHIPipelineState::Failed)
-				RHITerminateOnFailure("Graphics PSO", "Required pipeline compilation failed");
+			auto Pipeline = AcquireRequired(Initializer, Name);
 			CommandList.AddPipelineDependency(Pipeline);
 			return Pipeline;
 		}
 		auto GetAndOrCreateComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer, FName Name) -> FComputePipelineStateRef
 		{
-			auto Pipeline = PrecacheComputePipelineState(Initializer, Name);
-			if (!Pipeline) RHITerminateOnFailure("Compute PSO", "Required pipeline could not be acquired");
-			if (Pipeline->GetState() == ERHIPipelineState::Failed)
-				RHITerminateOnFailure("Compute PSO", "Required pipeline compilation failed");
+			auto Pipeline = AcquireRequired(Initializer, Name);
 			CommandList.AddPipelineDependency(Pipeline);
 			return Pipeline;
 		}
+	}
+
+	auto SetGraphicsPipelineState(FRHICommandListBase& CommandList, const FGraphicsPipelineStateInitializer& Initializer, FName Name) -> void
+	{
+		const auto* Active = CommandList.GetActiveRenderTargetLayout();
+		const auto& Layout = Initializer.RenderTargetLayout;
+		requiref(Active && Layout.NumColorRenderTargets <= MaxSimultaneousRenderTargets && Active->NumColorRenderTargets == Layout.NumColorRenderTargets
+			&& Active->bHasDepthStencil == Layout.bHasDepthStencil, "Graphics PSO requires matching active render-pass attachments.");
+		const auto Matches = [](const FRHIAttachmentLayout& Left, const FRHIAttachmentLayout& Right) {
+			return Left.Format == Right.Format && Left.NumSamples == Right.NumSamples;
+		};
+		for (uint32 Index = 0; Index < Layout.NumColorRenderTargets; ++Index)
+		{
+			const auto& Expected = Layout.ColorAttachments[Index];
+			const auto& Actual = Active->ColorAttachments[Index];
+			requiref(Matches(Expected.RenderTarget, Actual.RenderTarget) && Expected.bHasResolveTarget == Actual.bHasResolveTarget
+				&& (!Expected.bHasResolveTarget || Matches(Expected.ResolveTarget, Actual.ResolveTarget)), "Graphics PSO color attachment mismatch.");
+		}
+		requiref(!Layout.bHasDepthStencil || Matches(Layout.DepthStencilAttachment, Active->DepthStencilAttachment), "Graphics PSO depth/stencil attachment mismatch.");
+		CommandList.SetGraphicsPipelineState(PipelineStateCache::GetAndOrCreateGraphicsPipelineState(CommandList, Initializer, Name));
+	}
+	auto SetComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer, FName Name) -> void
+	{
+		CommandList.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(CommandList, Initializer, Name));
 	}
 }

@@ -87,7 +87,12 @@ namespace Durin::RendererPrivate
 		const uint32 MinDraws = std::max(1u, ParallelCommandListSet->MinDrawsPerCommandList);
 		const uint32 NumTasks = std::min({Workers, ParallelCommandListSet->Width, 1u + (NumMeshDrawCommands - 1) / MinDraws});
 		const uint32 DrawsPerTask = 1u + (NumMeshDrawCommands - 1) / NumTasks;
-		struct FTaskOutput { FMeshDrawCommandPassResult Result; FMeshDrawCommandPassStats Statistics; };
+		struct FTaskOutput
+		{
+			FMeshDrawCommandPassResult Result;
+			FMeshDrawCommandPassStats Statistics;
+			std::vector<FGraphicsPipelineStateRef> RequiredPipelines;
+		};
 		// Output and handle storage is fixed before any callback borrows it.
 		std::vector<FTaskOutput> Outputs(NumTasks);
 		struct FDrainBeforeOutputs
@@ -100,6 +105,16 @@ namespace Durin::RendererPrivate
 		{
 			const uint32 Count = std::min(DrawsPerTask, NumMeshDrawCommands - First);
 			auto* Child = ParallelCommandListSet->NewParallelCommandList();
+			const FMeshPassPipeline* PreviousPipeline = nullptr;
+			for (const auto& Visible : std::span(VisibleMeshDrawCommands).subspan(StartIndex + First, Count))
+			{
+				const auto* Pipeline = Visible.Command ? Visible.Command->Pipeline : nullptr;
+				if (!Visible.bSourceReady || !Pipeline || Pipeline == PreviousPipeline) continue;
+				PreviousPipeline = Pipeline;
+				if (const auto& Initializer = Pipeline->GetInitializer().PipelineInitializer)
+					Outputs[TaskIndex].RequiredPipelines.push_back(
+						PipelineStateCache::GetAndOrCreateGraphicsPipelineState(*Child, *Initializer));
+			}
 			Tasks::FTaskExecutionOptions Options;
 			Options.Prerequisites = ParallelCommandListSet->GetPrereqs();
 			auto Task = Tasks::LaunchIndependentTask("Renderer.DrawVisibleMeshCommands",

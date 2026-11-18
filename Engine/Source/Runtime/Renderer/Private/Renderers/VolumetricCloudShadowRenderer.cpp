@@ -102,13 +102,14 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudShadowVertexShader> VertexShader;
 			TShaderMapRef<FCloudShadowFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 		};
 		struct FComputePayload
 		{
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudShadowComputeShader> ComputeShader;
-			FComputePipelineStateRef PipelineState;
+			FComputePipelineStateInitializer PipelineInitializer;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
 			ERenderResourceGenerationDependency::Shader
@@ -179,7 +180,7 @@ namespace Durin
 	{
 		using FPayload = FState::FComputePayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
-		return State->ComputeResources.Resolve(
+		auto* Payload = State->ComputeResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
 				const std::array<const FGlobalShaderType*, 1> Types{
 					&FCloudShadowComputeShader::StaticType()};
@@ -202,13 +203,17 @@ namespace Durin
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelinePreparationScope::Compute(
-					"VolumetricCloudShadowComputePipeline", Initializer);
-				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
-			!= nullptr;
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer);
+			if (!Pipeline) return false;
+			FRenderPipelinePreparationBatch::Add(Pipeline);
+			if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) return false;
+		}
+		return Payload != nullptr;
 	}
 
 	auto FVolumetricCloudShadowRenderer::EnsureFragmentResources_RenderThread(
@@ -216,7 +221,7 @@ namespace Durin
 	{
 		using FPayload = FState::FFragmentPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
-		return State->FragmentResources.Resolve(
+		auto* Payload = State->FragmentResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
 				const std::array<const FGlobalShaderType*, 2> Types{
 					&FCloudShadowVertexShader::StaticType(),
@@ -250,16 +255,20 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = FRenderPipelinePreparationScope::Graphics(
-					"VolumetricCloudShadowPipeline", Initializer);
-				if (!Candidate.PipelineState)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "pipeline", ERenderResourceCreateErrorReason::PipelinePreparationRejected, ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
-			!= nullptr;
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);
+			if (!Pipeline) return false;
+			FRenderPipelinePreparationBatch::Add(Pipeline);
+			if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) return false;
+		}
+		return Payload != nullptr;
 	}
 
 	auto FVolumetricCloudShadowRenderer::Render_RenderThread(
@@ -395,7 +404,7 @@ namespace Durin
 			if (!Policy.bGraphManagedTextureAccess)
 				CommandList.TransitionTextures(Inputs);
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
-			CommandList.SetComputePipelineState(ComputePayload->PipelineState);
+			SetComputePipelineState(CommandList, ComputePayload->PipelineInitializer);
 			FCloudShadowComputeShader::FParameters Params;
 			Params.BaseDensity = Input.BaseDensity;
 			Params.DetailDensity = Input.DetailDensity;
@@ -426,7 +435,7 @@ namespace Durin
 			Pass.ColorRenderTargets[0] = FragmentTargets->Visibility;
 			Pass.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 			CommandList.BeginRenderPass(Pass, "VolumetricCloudShadowRenderPass");
-			CommandList.SetGraphicsPipelineState(FragmentPayload->PipelineState);
+			SetGraphicsPipelineState(CommandList, FragmentPayload->PipelineInitializer);
 			CommandList.SetViewport(static_cast<float>(View->ViewportX), static_cast<float>(View->ViewportY), 0.0f,
 				static_cast<float>(View->ViewportX + View->ViewportWidth),
 				static_cast<float>(View->ViewportY + View->ViewportHeight), 1.0f);

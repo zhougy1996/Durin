@@ -20,7 +20,7 @@
 #include "StaticMeshTestAccess.h"
 #include "PSOPrecache.h"
 #include "PSOPrecacheComponent.h"
-#include "RenderPipelineCreation.h"
+#include "RenderResourceCreation.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "Renderers/InstanceCulling.h"
@@ -4653,14 +4653,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	EXPECT_EQ(Renderer.GetSceneRenderPreparationConfig(LowScene->GetFeatureLevel()), InitialConfig);
 	std::unique_ptr<RendererPrivate::FMeshPassProcessor> DirectCollector;
 	FMaterialPSOPrecacheParams DirectParams;
-	FRenderPipelineStateSet DirectCommandRequests;
+	FRenderResourceAttemptState DirectCommandRequests;
 	FGraphicsPipelineStateRef ExpectedCommandPipeline;
 	FPSOPrecacheDataArray DirectInitializers;
 	DirectInitializers.emplace_back(); // The append interface must preserve its prefix.
 	struct FDirectCollectorCleanup {
 		std::unique_ptr<RendererPrivate::FMeshPassProcessor>& Processor;
 		FPSOPrecacheDataArray& Initializers;
-		FRenderPipelineStateSet& Requests;
+		FRenderResourceAttemptState& Requests;
 		FGraphicsPipelineStateRef& Expected;
 		~FDirectCollectorCleanup() {
 			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([this](FRHICommandListImmediate&) { Initializers.clear(); Processor.reset(); Requests.Reset(); Expected.reset(); });
@@ -4715,10 +4715,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				}
 				FRenderPipelinePreparationScope Requests(DirectCommandRequests, Generation);
 				std::shared_ptr<const FMeshPassPipeline> Command;
-				const auto DrawContext = DirectCollector->PreparePipeline(Batch, "AddMeshBatchCommand", Shaders, Initializer.VertexDeclaration, Command);
+				const auto DrawContext = DirectCollector->PreparePipeline(Batch, Shaders, Initializer.VertexDeclaration, Command);
 				CommandReady = static_cast<bool>(DrawContext);
 				if (CommandReady) {
-					EXPECT_EQ(Command->GetInitializer().PipelineState, ExpectedCommandPipeline);
+					ASSERT_TRUE(Command->GetInitializer().PipelineInitializer);
+					EXPECT_EQ(PipelineStateCache::GetAndOrCreateGraphicsPipelineState(
+						Commands, *Command->GetInitializer().PipelineInitializer), ExpectedCommandPipeline);
 					EXPECT_EQ(Command->GetInitializer().VertexShader->GetRHIShader(false), Initializer.BoundShaders.VertexShader);
 					EXPECT_EQ(Command->GetInitializer().FragmentShader, Initializer.BoundShaders.FragmentShader);
 					EXPECT_EQ(Command->GetInitializer().VertexDeclaration, Initializer.VertexDeclaration);
@@ -4729,7 +4731,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 				const auto WrongMaterial = DirectCollector->BuildPSOInitializer(Batch, Shaders, Initializer.VertexDeclaration, Rejected);
 				EXPECT_EQ(WrongMaterial.Status, EShaderBuildStatus::Error);
                 const auto PublishedPipeline = Command;
-                const auto RejectedPipeline = DirectCollector->PreparePipeline(Batch, "RejectedMeshPipeline", Shaders, Initializer.VertexDeclaration, Command);
+                const auto RejectedPipeline = DirectCollector->PreparePipeline(Batch, Shaders, Initializer.VertexDeclaration, Command);
                 EXPECT_EQ(RejectedPipeline.Status, EShaderBuildStatus::Error);
                 EXPECT_EQ(Command, PublishedPipeline); // Failed preparation never replaces an immutable publication.
 				EXPECT_EQ(Rejected.BoundShaders.VertexShader, nullptr);
@@ -4752,7 +4754,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					if (ShaderContext.Status == EShaderBuildStatus::Pending) { CommandReady = false; return; }
 					ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 					std::shared_ptr<const FMeshPassPipeline> Pipeline;
-					const auto PipelineContext = PassProcessor.PreparePipeline(ShadowBatch, "BindingContextShadow", ShadowShaders, Primitive->CollectedBinding->Declaration, Pipeline);
+					const auto PipelineContext = PassProcessor.PreparePipeline(ShadowBatch, ShadowShaders, Primitive->CollectedBinding->Declaration, Pipeline);
 					if (!PipelineContext && Requests.HasPending()) { CommandReady = false; return; }
 					ASSERT_TRUE(PipelineContext) << PipelineContext.Error;
 					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Missed, 0u);

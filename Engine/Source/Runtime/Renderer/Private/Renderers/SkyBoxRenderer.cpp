@@ -61,8 +61,8 @@ namespace Durin
 			TShaderMapRef<FSkyBoxVertexShader> VertexShader;
 			TShaderMapRef<FSkyBoxFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRef PipelineState;
-			FGraphicsPipelineStateRef HybridBootstrapPipelineState;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
+			FGraphicsPipelineStateInitializer HybridBootstrapPipelineInitializer;
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef Sampler;
 		};
@@ -146,20 +146,13 @@ namespace Durin
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"SkyBoxPipeline",
-						Initializer
-					);
+				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
 				Initializer.DepthStencilState.bEnableTest = true;
 				Initializer.DepthStencilState.bEnableWrite = false;
 				Initializer.DepthStencilState.CompareOp = ERHIDepthCompareOp::Equal;
-				Candidate.HybridBootstrapPipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"SkyBoxHybridBootstrapPipeline", Initializer
-					);
+				Candidate.HybridBootstrapPipelineInitializer = Initializer;
 
 				const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
 				FRHIBufferCreateDesc IndexBufferDesc =
@@ -177,25 +170,21 @@ namespace Durin
 				Candidate.Sampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
 
-				if (Candidate.PipelineState == nullptr
-					|| Candidate.HybridBootstrapPipelineState == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::GraphicsPipeline,
-							"SkyBox",
-							"default",
-							ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual
-						)
-					);
-				}
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
 		);
+		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "SkyBoxPipeline");
+			if (!PipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(PipelineState);
+			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+			auto HybridBootstrapPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->HybridBootstrapPipelineInitializer, "SkyBoxHybridBootstrapPipeline");
+			if (!HybridBootstrapPipelineState) return false;
+			FRenderPipelinePreparationBatch::Add(HybridBootstrapPipelineState);
+			if (HybridBootstrapPipelineState->GetState() == ERHIPipelineState::Failed || HybridBootstrapPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
+		}
 		return Payload != nullptr;
 	}
 
@@ -225,9 +214,9 @@ namespace Durin
 	) -> bool
 	{
 		const FState::FPayload* Payload = State->Slot.GetPayload();
-		FGraphicsPipelineStateRef Pipeline = Payload != nullptr ? (bHybridBootstrap ? Payload->HybridBootstrapPipelineState : Payload->PipelineState) : nullptr;
+		const auto* Pipeline = Payload ? &(bHybridBootstrap ? Payload->HybridBootstrapPipelineInitializer : Payload->PipelineInitializer) : nullptr;
 		if (Texture == nullptr || Payload == nullptr
-			|| Pipeline == nullptr
+			|| !Pipeline
 			|| Payload->Sampler == nullptr
 			|| !Payload->VertexShader
 			|| !Payload->FragmentShader
@@ -242,7 +231,7 @@ namespace Durin
 			return false;
 		}
 
-		CommandList.SetGraphicsPipelineState(Pipeline);
+		SetGraphicsPipelineState(CommandList, *Pipeline);
 		CommandList.BindIndexBuffer(Payload->IndexBuffer, 0);
 		FSkyBoxFragmentShader::FParameters Parameters;
 		Parameters.SkyTexture = Texture;

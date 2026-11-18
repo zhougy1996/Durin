@@ -1682,6 +1682,7 @@ namespace Durin
 		, ActiveGraphicsPipeline(std::move(Other.ActiveGraphicsPipeline))
 		, ActiveComputePipeline(std::move(Other.ActiveComputePipeline))
 		, bInsideRenderPass(Other.bInsideRenderPass)
+		, ActiveRenderTargetLayout(Other.ActiveRenderTargetLayout)
 		, RenderPassParent(Other.RenderPassParent)
 		, RenderPassSerial(Other.RenderPassSerial)
 		, ActiveGPUSubmissionLease(std::move(Other.ActiveGPUSubmissionLease))
@@ -1721,6 +1722,7 @@ namespace Durin
 			ActiveGraphicsPipeline = std::move(Other.ActiveGraphicsPipeline);
 			ActiveComputePipeline = std::move(Other.ActiveComputePipeline);
 			bInsideRenderPass = Other.bInsideRenderPass;
+			ActiveRenderTargetLayout = Other.ActiveRenderTargetLayout;
 			RenderPassParent = Other.RenderPassParent;
 			RenderPassSerial = Other.RenderPassSerial;
 			ActiveGPUSubmissionLease = std::move(Other.ActiveGPUSubmissionLease);
@@ -1861,6 +1863,7 @@ namespace Durin
 			"Subcommand lists require a recording parent inside a render pass.");
 		ActivePipeline = ERHIPipeline::Graphics;
 		bInsideRenderPass = true;
+		ActiveRenderTargetLayout = Parent.ActiveRenderTargetLayout;
 		RenderPassParent = &Parent;
 		RenderPassSerial = Parent.RenderPassSerial;
 	}
@@ -2004,6 +2007,7 @@ namespace Durin
 		checkf(!bInsideRenderPass,
 			"BeginRenderPass cannot be nested while recording.");
 		RecordCommand<FBeginRenderPassCommand>(Info, Name);
+		ActiveRenderTargetLayout = Info.RenderTargetLayout;
 		bInsideRenderPass = true;
 		requiref(RenderPassSerial != std::numeric_limits<uint64>::max(), "Render-pass serial exhausted.");
 		++RenderPassSerial;
@@ -2062,8 +2066,6 @@ namespace Durin
 		check(Pipeline);
 		const auto& Request = *Pipeline->Compilation;
 		check(ActivePipeline == ERHIPipeline::Graphics && Request.IsValid() && !Request.IsCompute());
-		AddPipelineDependency(Pipeline);
-		if (Pipeline->GetState() == ERHIPipelineState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
 		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		bHasActiveGraphicsPipelineState = true;
 		ActiveGraphicsPipeline = Pipeline;
@@ -2074,8 +2076,6 @@ namespace Durin
 		const auto& Request = *Pipeline->Compilation;
 		check(ActivePipeline == ERHIPipeline::Compute && !bInsideRenderPass && Request.IsCompute());
 		check(Request.GetPipelineLayout());
-		AddPipelineDependency(Pipeline);
-		if (Pipeline->GetState() == ERHIPipelineState::Pending) Pipeline->BoostPriority(EPSOPrecachePriority::Highest);
 		RecordCommand<FSetCachedPipelineStateCommand>(Request, Pipeline);
 		ActiveComputePipelineState = nullptr;
 		ActiveComputePipeline = Pipeline;

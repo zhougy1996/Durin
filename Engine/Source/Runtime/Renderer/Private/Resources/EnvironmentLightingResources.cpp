@@ -1,5 +1,6 @@
 #include "Resources/EnvironmentLightingResources.h"
 #include "RDG/RDG.h"
+#include "RenderResourceCreation.h"
 
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RendererResourceRetirement.h"
@@ -61,11 +62,11 @@ namespace Durin
     {
         FGlobalShaderSetRef ShaderSet;
         TShaderMapRef<FSkyLightingShader> Shader;
-        FComputePipelineStateRef Pipeline;
+        std::optional<FComputePipelineStateInitializer> PipelineInitializer;
         FSamplerRHIRef Sampler;
         FTextureRHIRef Lut;
         FRenderResourceGeneration Generation;
-        FRenderPipelineStateSet Requests;
+        FRenderResourceAttemptState Requests;
     };
     FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator, FRendererResourceRetirementQueue& InRetirement)
         : Retirement(InRetirement), State(std::make_unique<FState>()), Coordinator(InCoordinator) {}
@@ -122,25 +123,33 @@ namespace Durin
         CheckRenderingThread();
         const auto Generation=Coordinator.GetGeneration_RenderThread();
         if (State->Generation != Generation) { State=std::make_unique<FState>(); State->Generation=Generation; }
-        if (State->Pipeline && State->Sampler) return ERenderResourceAvailability::Ready;
-        if (!GDynamicRHI) return ERenderResourceAvailability::Failed;
-        FRenderPipelinePreparationScope Requests(State->Requests, Generation);
-        const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
-        const auto Completion=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
-        State->ShaderSet=Completion.Value.value_or(FGlobalShaderSetRef{});
-        if (!State->ShaderSet)
-            return Completion.Status == EShaderBuildStatus::Pending ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
-        State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
-        auto* Shader=State->Shader.GetRHIShader(false);
-        if (!Shader)
-            return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
-        FComputePipelineStateInitializer Initializer;
-        Initializer.ComputeShader=Shader;
-        Initializer.PipelineLayout=State->ShaderSet.GetPipelineLayout();
-        State->Pipeline=FRenderPipelinePreparationScope::Compute("SkyLightingCompute",Initializer);
-        if (!State->Pipeline)
-            return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
-        State->Sampler=RHICreateSampler(FRHISamplerDesc::LinearClamp());
+        if (!State->PipelineInitializer || !State->Sampler)
+        {
+            if (!GDynamicRHI) return ERenderResourceAvailability::Failed;
+            FRenderPipelinePreparationScope Requests(State->Requests, Generation);
+            const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
+            const auto Completion=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
+            State->ShaderSet=Completion.Value.value_or(FGlobalShaderSetRef{});
+            if (!State->ShaderSet)
+                return Completion.Status == EShaderBuildStatus::Pending ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
+            State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
+            auto* Shader=State->Shader.GetRHIShader(false);
+            if (!Shader)
+                return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
+            FComputePipelineStateInitializer Initializer;
+            Initializer.ComputeShader=Shader;
+            Initializer.PipelineLayout=State->ShaderSet.GetPipelineLayout();
+            State->PipelineInitializer = Initializer;
+            State->Sampler=RHICreateSampler(FRHISamplerDesc::LinearClamp());
+        }
+        if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+        {
+            auto Request = PipelineStateCache::PrecacheComputePipelineState(*State->PipelineInitializer, "SkyLightingCompute");
+            if (!Request) return ERenderResourceAvailability::Failed;
+            FRenderPipelinePreparationBatch::Add(Request);
+            if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled)
+                return ERenderResourceAvailability::Failed;
+        }
 		return ERenderResourceAvailability::Ready;
 	}
 
@@ -303,7 +312,7 @@ namespace Durin
             Graph.AddPass(std::format("Sky.{}.Mip{}",Op,Mip),ERDGPassType::Compute,std::move(P),
                 [this,Uniform,Dimension,Faces,Mip](FRHICommandListImmediate& Cmd,const FPassParameters& P,const FRDGParameterResolver& Resolver) mutable {
                     Cmd.SwitchPipeline(ERHIPipeline::Compute);
-                    Cmd.SetComputePipelineState(State->Pipeline);
+                    SetComputePipelineState(Cmd, *State->PipelineInitializer);
                     auto* Texture=Resolver.GetTexture(P.Output);
                     auto* SourceTexture=Resolver.GetTexture(P.Source);
                     auto SourceDesc=MakeDefaultTextureViewDesc(*SourceTexture,ERHITextureViewUsage::Sampled);

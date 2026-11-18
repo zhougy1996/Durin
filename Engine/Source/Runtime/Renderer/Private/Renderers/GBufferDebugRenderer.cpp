@@ -66,7 +66,8 @@ namespace Durin
 			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FGBufferDebugVertexShader> VertexShader;
 			TShaderMapRef<FGBufferDebugFragmentShader> FragmentShader;
-			FGraphicsPipelineStateRef PipelineState;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Slot{
@@ -95,7 +96,7 @@ namespace Durin
 			.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 	}
 
-	auto FGBufferDebugRenderer::EnsureResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool
+	auto FGBufferDebugRenderer::EnsureResources_RenderThread(FRHICommandListImmediate& CommandList, bool bPrecachePipeline) -> bool
 	{
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
@@ -141,34 +142,25 @@ namespace Durin
 					return FResult::Pending();
 				}
 
-				FGraphicsPipelineStateInitializer Initializer;
+				auto& Initializer = Candidate.PipelineInitializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGBufferDebugOutput();
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState =
-					FRenderPipelinePreparationScope::Graphics(
-						"GBufferDebugPipeline", Initializer);
-				if (Candidate.PipelineState == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"GBufferDebug", "debug",
-						ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
-		return Payload != nullptr;
+		if (!Payload || !bPrecachePipeline) return Payload != nullptr;
+		auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "GBufferDebugPipeline");
+		if (!Pipeline) return false;
+		FRenderPipelinePreparationBatch::Add(Pipeline);
+		const auto Status = Pipeline->GetState();
+		return Status != ERHIPipelineState::Failed && Status != ERHIPipelineState::Canceled;
 	}
 
 	auto FGBufferDebugRenderer::Render_RenderThread(
@@ -227,7 +219,7 @@ namespace Durin
 			RenderTargetLayouts::MakeGBufferDebugOutput();
 		PassInfo.ColorRenderTargets[0] = Output;
 		CommandList.BeginRenderPass(PassInfo, "GBufferDebugRenderPass");
-		CommandList.SetGraphicsPipelineState(Payload->PipelineState);
+		SetGraphicsPipelineState(CommandList, Payload->PipelineInitializer, "GBufferDebugPipeline");
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f,
 			static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f,

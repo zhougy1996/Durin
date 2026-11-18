@@ -51,24 +51,14 @@ namespace Durin
 			{&FEditorGridVertexShader::StaticType(),
 			 &FEditorGridFragmentShader::StaticType()});
 
-		auto FindPreparedPipeline(const FPrepared& Prepared)
-			-> FGraphicsPipelineStateRef
-		{
-			const auto It = std::ranges::find_if(
-				Prepared.Pipelines,
-				[](const FPreparedPipeline& Pipeline) {
-					return Pipeline.Key.Feature == EFeature::EditorGrid
-						&& Pipeline.Key.DepthMode == EDepthMode::Visible;
-				});
-			return It != Prepared.Pipelines.end() ? It->Pipeline : nullptr;
-		}
 	} // namespace
 
 	struct FEditorGridRenderer::FState
 	{
 		struct FPipelinePayload
 		{
-			FGraphicsPipelineStateRef Pipeline;
+			FVertexDeclarationRHIRef PipelineVertexDeclaration;
+			FGraphicsPipelineStateInitializer PipelineInitializer;
 			FGlobalShaderSetRef ShaderSet;
 		};
 
@@ -157,42 +147,28 @@ namespace Durin
 					GetVisibleDepthCompareOp(Key.DepthConvention);
 				Initializer.PipelineLayout =
 					ShaderSet.GetPipelineLayout();
-				const std::string PipelineName = std::format(
-					"EditorGridVisible{}Pipeline",
-					Key.Output
-							== RenderTargetLayouts::EViewportOutput::Present
-						? "Present"
-						: "Offscreen");
-				FGraphicsPipelineStateRef Candidate =
-					FRenderPipelinePreparationScope::Graphics(
-						FName(PipelineName), Initializer);
-				if (Candidate == nullptr)
-				{
-					return FPipelineResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::
-								GraphicsPipeline,
-							"EditorGrid",
-							PipelineName,
-							ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual
-						)
-					);
-				}
+
 				return FPipelineResult::Success({
-					.Pipeline = std::move(Candidate),
+					.PipelineVertexDeclaration = Initializer.VertexDeclaration,
+					.PipelineInitializer = Initializer,
 					.ShaderSet = ShaderSet});
 			},
 			ReportRendererResourceCreateDiagnostic);
-		if (Pipeline == nullptr)
+		if (!Pipeline)
 			return;
 
 		Prepared.EditorGridUniform = Uniform;
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer, "EditorGridPipeline");
+			if (!Request) return;
+			FRenderPipelinePreparationBatch::Add(Request);
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return;
+		}
 		Prepared.Pipelines.push_back({
 			.Key = Key,
-			.Pipeline = Pipeline->Pipeline,
+			.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
+			.PipelineInitializer = Pipeline->PipelineInitializer,
 			.ShaderSet = Pipeline->ShaderSet,
 		});
 	}
@@ -206,17 +182,17 @@ namespace Durin
 			Prepared.Pipelines, [](const FPreparedPipeline& Item) {
 				return Item.Key.Feature == EFeature::EditorGrid;
 			});
-		const FGraphicsPipelineStateRef Pipeline =
-			PreparedIt != Prepared.Pipelines.end() ? PreparedIt->Pipeline : nullptr;
+		const auto* Pipeline =
+			PreparedIt != Prepared.Pipelines.end() ? &PreparedIt->PipelineInitializer : nullptr;
 		if (!Prepared.EditorGridUniform.has_value()
 			|| PreparedIt == Prepared.Pipelines.end()
-			|| Pipeline == nullptr
+			|| !Pipeline
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 		{
 			return;
 		}
-		CommandList.SetGraphicsPipelineState(Pipeline);
+		SetGraphicsPipelineState(CommandList, *Pipeline);
 		CommandList.BindVertexBuffer(
 			0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
 		CommandList.BindIndexBuffer(

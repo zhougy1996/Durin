@@ -413,7 +413,7 @@ namespace Durin
 			PipelineGeneration,
 			[&PipelineEntry, ShaderMapPayload, &EffectivePipelineKey, &VertexFactory, &Processor, &Batch]() -> FPipelineResult {
 				std::shared_ptr<const FMeshPassPipeline> Candidate;
-				const auto Preparation = Processor.PreparePipeline(Batch, FName(std::format("StaticMeshPipeline_{}", PipelineEntry.Index)),
+				const auto Preparation = Processor.PreparePipeline(Batch,
 					*ShaderMapPayload, VertexFactory.Declaration, Candidate);
 				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::GraphicsPipeline, "StaticMeshPipeline", GetIdentityText(EffectivePipelineKey),
@@ -429,6 +429,13 @@ namespace Durin
 			return false;
 		}
 
+		if (Pipeline && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(*(*Pipeline)->GetInitializer().PipelineInitializer);
+			if (!Request) return false;
+			FRenderPipelinePreparationBatch::Add(Request);
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
+		}
 		Timings.Next("SurfaceMaterial");
 		const ESurfaceMaterialPass SurfacePass = bShadowDepth
 			? (Item.Command->PipelineKey.Material.ShaderMap.BlendMode

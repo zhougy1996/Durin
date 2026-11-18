@@ -14,7 +14,8 @@ namespace Durin
 	struct FPreparedSimpleElementDraw
 	{
 		FSimpleElementBatchKey Key;
-		FGraphicsPipelineStateRef Pipeline;
+		FVertexDeclarationRHIRef PipelineVertexDeclaration;
+		FGraphicsPipelineStateInitializer PipelineInitializer;
 		FGlobalShaderSetRef ShaderSet;
 		FTextureRHIRef Texture;
 		FSamplerRHIRef Sampler;

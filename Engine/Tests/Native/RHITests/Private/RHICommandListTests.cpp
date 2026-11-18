@@ -181,6 +181,7 @@ namespace Durin
 		class FPipelineCacheTestRHI final : public FIndirectTestRHI
 		{
 		public:
+			FRHIPipelineStateCache* ExternalCache = nullptr;
 			std::atomic<uint32> GraphicsCreations = 0, ComputeCreations = 0;
 			std::function<void()> BeforeCreate;
 			bool FailCompilation = false;
@@ -190,6 +191,7 @@ namespace Durin
 			{ ++ComputeCreations; return FailCompilation ? nullptr : MakeRefCount<FRHIComputePipelineState>(); }
 			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
 			{
+				if (ExternalCache) return ExternalCache;
 				std::lock_guard Lock(DeviceState.Mutex);
 				if (DeviceState.Closed || !IsTaskSchedulerRunning() || !RHIGetCapabilities()) return nullptr;
 				if (!DeviceState.PipelineCache) DeviceState.PipelineCache = std::make_unique<FRHIPipelineStateCache>(*RHIGetCapabilities(), CreatePipelineCompileBackend());
@@ -1689,12 +1691,12 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
-		auto DrawPipeline = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Commands, Graphics, "draw");
-		EXPECT_TRUE(DrawPipeline);
-		Commands.BeginRenderPass({}, "PendingChildPipeline");
+		FRHIRenderPassInfo Pass;
+		Pass.RenderTargetLayout = Graphics.RenderTargetLayout;
+		Commands.BeginRenderPass(Pass, "PendingChildPipeline");
 		{
 			FRHISubCommandList Child(Commands);
-			if (DrawPipeline) Child.SetGraphicsPipelineState(DrawPipeline);
+			SetGraphicsPipelineState(Child, Graphics, "draw");
 			Child.Draw(FRHIDrawArguments{.VertexCount = 3});
 			Child.FinishRecording();
 			std::array Children{&Child};
@@ -1709,9 +1711,7 @@ namespace Durin
 		EXPECT_TRUE(Hit);
 		if (Hit) EXPECT_EQ(Hit, Identity.lock());
 		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		auto DispatchPipeline = PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Compute, "dispatch");
-		EXPECT_TRUE(DispatchPipeline);
-		if (DispatchPipeline) Commands.SetComputePipelineState(DispatchPipeline);
+		SetComputePipelineState(Commands, Compute, "cold dispatch");
 		Commands.Dispatch(1, 1, 1);
 		EXPECT_TRUE(Context.Operations.empty());
 		Release.Trigger();
@@ -1719,6 +1719,23 @@ namespace Durin
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{"BeginRenderPass", "PipelineState", "Draw3", "EndRenderPass", "ComputePipelineState", "Dispatch"}));
 		EXPECT_EQ(RHI.GraphicsCreations, 1u);
 		EXPECT_EQ(RHI.ComputeCreations, 1u);
+	}
+
+	TEST(FRHICommandListTests, InitializerBindingRejectsIncompatiblePassBeforeAcquisition)
+	{
+		FRHICommandList Commands;
+		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		FGraphicsPipelineStateInitializer Graphics;
+		FRHIRenderPassInfo Pass;
+		Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+		Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+		Graphics.RenderTargetLayout = Pass.RenderTargetLayout;
+		Commands.BeginRenderPass(Pass, "Compatibility");
+		Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.NumSamples = 4;
+		EXPECT_DEATH(SetGraphicsPipelineState(Commands, Graphics), "color attachment mismatch");
+		Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget = {.Format = EPixelFormat::RGBA16_FLOAT};
+		EXPECT_DEATH(SetGraphicsPipelineState(Commands, Graphics), "color attachment mismatch");
+		Commands.EndRenderPass();
 	}
 
 	TEST(FRHICommandListTests, AbsentSchedulerAllowsEmptyPrecacheButRequiredAcquisitionIsFatal)
@@ -1766,15 +1783,11 @@ namespace Durin
 		ASSERT_EQ(Precached->Wait(), ERHIPipelineState::Failed);
 		EXPECT_FALSE(Precached->GetRHIPipeline());
 		EXPECT_EQ(PipelineStateCache::PrecacheComputePipelineState(Initializer), Precached);
-		// A caller may bind a state acquired while precaching, including Pending work.
-		// Submission must apply the required-success policy to that path as well.
+		// Required acquisition rejects a failed optional precache before recording.
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		EXPECT_DEATH(PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer), "Required pipeline compilation failed");
-		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		Commands.SetComputePipelineState(Precached);
-		EXPECT_DEATH(Executor.Submit({}, ERHISubmitFlags::None), "Required pipeline compilation failed");
 	}
 
 	TEST(FRHICommandListTests, RequiredAcquisitionAttachesPendingCompilationAndFailsBeforeReplay)
@@ -1845,9 +1858,9 @@ namespace Durin
 							auto Shader = MakeRefCount<FTestShader>(EShaderFrequency::Compute, 1 + ListIndex * 320 + Index);
 							FComputePipelineStateInitializer Initializer;
 							Initializer.ComputeShader = Shader;
-							auto Pipeline = PipelineStateCache::GetAndOrCreateComputePipelineState(List, Initializer);
+							auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Initializer);
 							if (!Pending) EXPECT_EQ(Pipeline->Wait(), ERHIPipelineState::Ready);
-							List.SetComputePipelineState(Pipeline);
+							List.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(List, Initializer));
 						}
 						List.FinishRecording();
 						Commands.QueueCommandList(std::move(List));
@@ -1888,6 +1901,9 @@ namespace Durin
 					return MakeRefCount<FRHIComputePipelineState>();
 				};
 				FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
+		FPipelineCacheTestRHI RHI;
+		RHI.ExternalCache = &Cache;
+		FScopedDynamicRHI Active(RHI);
 				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = Shader;
@@ -1909,7 +1925,7 @@ namespace Durin
 				Commands.BeginGPUSubmission({});
 				FRHICommandList Dependent;
 				Dependent.SwitchPipeline(ERHIPipeline::Compute);
-				Dependent.SetComputePipelineState(Cached);
+				Dependent.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(Dependent, Initializer));
 				EXPECT_EQ(Cached->GetPriority(), EPSOPrecachePriority::Highest);
 				Dependent.EnqueueLambda([&] { Order.push_back(2); });
 				Dependent.FinishRecording();
@@ -1984,6 +2000,9 @@ namespace Durin
 				return MakeRefCount<FRHIComputePipelineState>();
 			};
 			FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
+		FPipelineCacheTestRHI RHI;
+		RHI.ExternalCache = &Cache;
+		FScopedDynamicRHI Active(RHI);
 			FRHIThread Thread;
 			ASSERT_TRUE(Thread.Start());
 			FRecordingCommandContext Context;
@@ -2006,7 +2025,7 @@ namespace Durin
 			}
 			auto& Commands = Executor.GetImmediateCommandList();
 			Commands.SwitchPipeline(ERHIPipeline::Compute);
-			Commands.SetComputePipelineState(Pipeline);
+			Commands.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer));
 			Commands.Dispatch(1, 1, 1);
 			std::vector<int> Order;
 			Commands.EnqueueLambda([&] { Order.push_back(1); });
@@ -2070,18 +2089,21 @@ namespace Durin
 			return MakeRefCount<FRHIComputePipelineState>();
 		};
 		FRHIPipelineStateCache Cache(Capabilities, std::move(Backend));
+		FPipelineCacheTestRHI RHI;
+		RHI.ExternalCache = &Cache;
+		FScopedDynamicRHI Active(RHI);
 		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
 		FComputePipelineStateInitializer Initializer;
 		Initializer.ComputeShader = Shader;
 		auto Cached = Cache.GetCompute(Initializer, "failed");
 		ASSERT_TRUE(Cached);
 		ASSERT_EQ(Cached->Wait(), ERHIPipelineState::Ready);
-		Cache.ReleaseResources();
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		Commands.SwitchPipeline(ERHIPipeline::Compute);
-		Commands.SetComputePipelineState(Cached);
+		Commands.SetComputePipelineState(PipelineStateCache::GetAndOrCreateComputePipelineState(Commands, Initializer));
+		Cache.ReleaseResources();
 		Commands.SwitchPipeline(ERHIPipeline::None);
 		bool Replayed = false;
 		Commands.EnqueueLambda([&] { Replayed = true; });

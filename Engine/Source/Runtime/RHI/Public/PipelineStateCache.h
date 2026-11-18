@@ -54,7 +54,8 @@ namespace Durin
 
 	// One device-owned weak cache. The backend owns ready native reuse.
 	// Ordinary tasks admit cold requests directly; native creation runs on the
-	// device-owned Worker drain. Independent CPU tasks cannot acquire identities.
+	// device-owned Worker drain. Independent CPU tasks may look up retained
+	// identities, but cannot admit cold requests.
 	class RHI_API FRHIPipelineStateCache
 	{
 	public:
@@ -75,6 +76,9 @@ namespace Durin
 		struct FState;
 		std::unique_ptr<FState> State;
 	};
+
+	RHI_API auto SetGraphicsPipelineState(FRHICommandListBase& CommandList, const FGraphicsPipelineStateInitializer& Initializer, FName Name = {}) -> void;
+	RHI_API auto SetComputePipelineState(FRHICommandListBase& CommandList, const FComputePipelineStateInitializer& Initializer, FName Name = {}) -> void;
 
 	namespace PipelineStateCache
 	{

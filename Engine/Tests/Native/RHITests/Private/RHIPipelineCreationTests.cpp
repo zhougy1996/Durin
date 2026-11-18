@@ -361,7 +361,7 @@ namespace Durin
 		EXPECT_FALSE(Pipelines.front()->GetRHIPipeline());
 	}
 
-	TEST_F(FRHIPipelineCreationTests, CacheRejectsInvalidDescriptionsAndIndependentCpuTasks)
+	TEST_F(FRHIPipelineCreationTests, CacheRejectsInvalidDescriptionsAndIndependentCpuMisses)
 	{
 		std::atomic<uint32> Calls = 0;
 		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
@@ -389,6 +389,31 @@ namespace Durin
 		EXPECT_EQ(Owner.GetStatistics().UnfinishedRequests, 0u);
 	}
 
+	TEST_F(FRHIPipelineCreationTests, IndependentRecordingCanLookUpPendingIdentityWithoutJoiningCompilation)
+	{
+		std::promise<void> Release;
+		auto Released = Release.get_future().share();
+		std::atomic<uint32> Calls = 0;
+		FRHIPipelineStateCache Owner(Capabilities(), Backend([&](const auto&, const auto&) {
+			++Calls;
+			Released.wait();
+			return MakeRefCount<FRHIComputePipelineState>();
+		}));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		auto Required = Owner.GetCompute(Initializer, "required before recording");
+		auto Recording = Tasks::LaunchIndependentTask("pending identity lookup", [&] {
+			return Owner.GetCompute(Initializer, "recording lookup");
+		});
+		EXPECT_EQ(Recording.GetResult(), Required);
+		if (Required) EXPECT_EQ(Required->GetState(), ERHIPipelineState::Pending);
+		Release.set_value();
+		ASSERT_TRUE(Required);
+		EXPECT_EQ(Required->Wait(), ERHIPipelineState::Ready);
+		EXPECT_EQ(Calls, 1u);
+	}
+
 	TEST_F(FRHIPipelineCreationTests, ValidatedCacheEntryPreservesAdmissionGates)
 	{
 		std::atomic<uint32> Calls = 0;
@@ -406,10 +431,10 @@ namespace Durin
 			std::string(1024 * 1024, 'x'), *Key);
 		ASSERT_TRUE(LargeName);
 		EXPECT_EQ(LargeName->Wait(), ERHIPipelineState::Ready);
-		auto Task = Tasks::LaunchIndependentTask("validated cache leaf rejection", [&] {
+		auto Task = Tasks::LaunchIndependentTask("validated cache identity lookup", [&] {
 			return FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer, "cpu leaf", *Key);
 		});
-		EXPECT_FALSE(Task.GetResult());
+		EXPECT_EQ(Task.GetResult(), LargeName);
 		Owner.StopAndWait();
 		EXPECT_FALSE(FRHIPipelineStateCacheBackend::GetComputeValidated(Owner, Initializer,
 			"closed", *Key));

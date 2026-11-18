@@ -22,7 +22,8 @@ namespace Durin
 		FMaterialRenderBinding Material;
 		FShaderRHIRef Fragment;
 		FShaderRHIRef Vertex;
-		FGraphicsPipelineStateRef Pipeline;
+		FVertexDeclarationRHIRef PipelineVertexDeclaration;
+		FGraphicsPipelineStateInitializer PipelineInitializer;
 		FTextureRHIRef Output;
 		std::vector<FRHIShaderParameterResource> Bindings;
 		std::vector<TRefCountPtr<FRHIResource>> Resources;
