@@ -25,8 +25,6 @@ namespace Durin
 
 		DURINED_API auto AttachToolkit(std::shared_ptr<IAssetEditorToolkit> Toolkit,
 			std::function<void()> AssetsChanged, DAssetEditorSubsystem* AssetEditorSubsystem = nullptr) -> bool;
-		// Publishes an already activated scene without re-entering the loading operation.
-		DURINED_API auto AssociateDocumentAsset(FDocumentId Id, DObject* Asset) -> bool;
 		DURINED_API auto GetEditedAssets() const -> std::vector<DObject*>;
 		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
 		DURINED_API auto OpenDocument(FDocumentRequest Request) -> FDocumentId;

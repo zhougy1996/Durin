@@ -138,6 +138,7 @@ namespace Durin
 			{
 				if (!CanCall()) return;
 				if (!OwnsToolkit(*Toolkit) || Toolkit->IsClosed()) continue;
+				if (!Toolkit->UsesDocumentRecords()) continue;
 				const auto Documents = Toolkit->GetDocumentManager();
 				Documents->RefreshDocumentState();
 				if (!CanCall()) return;

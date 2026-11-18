@@ -660,7 +660,7 @@ durin_add_native_test(EditorHostToolTests
 		${_durin_main_frame_private}/AssetCompatibilityWindow.cpp
 		${_durin_main_frame_private}/Widgets/EditorNotificationOverlay.cpp
 	LIBRARIES Core CoreDObject Engine ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditor MainFrame AssetMaintenance AssetTools ContentBrowserData ContentBrowserAssetDataSource
-	INCLUDE_DIRECTORIES ${_durin_main_frame_private}
+	INCLUDE_DIRECTORIES ${_durin_main_frame_private} ${_durin_level_editor_private}
 	COMPILE_DEFINITIONS MAINFRAME_EXPORTS
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."

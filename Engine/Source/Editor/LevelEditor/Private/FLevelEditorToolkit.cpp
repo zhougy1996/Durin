@@ -10,7 +10,6 @@
 #include "Editor/EditorEngine.h"
 #include "Notifications/Notification.h"
 #include "Transactions/Transaction.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Framework/TabLayout.h"
 #include "Settings/LevelEditorWorkspaceSettings.h"
@@ -52,13 +51,11 @@ namespace Durin::LevelEditor
 
 	// FLevelEditorToolkit is the composition root for the editor-specific controllers.
 	FLevelEditorToolkit::FLevelEditorToolkit(std::shared_ptr<FLevelEditorWorkspaceSettings> InWorkspaceSettings,
-		FEditorDocumentManager& InDocumentManager,
 		FContentBrowserCallbacks InContentBrowserCallbacks,
 		std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost)
 		: EditorOwner(&EditorHost)
 		, WorkspaceSettingsOwner(std::move(InWorkspaceSettings))
 		, WorkspaceSettings(*WorkspaceSettingsOwner)
-		, DocumentManager(InDocumentManager)
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 		, OpenProjectBrowser(std::move(InOpenProjectBrowser))
 	{
@@ -79,7 +76,7 @@ namespace Durin::LevelEditor
 			WorkspaceSettings.CaptureViewportState(*Context, *SceneViewportPanel);
 			WorkspaceSettings.Save(SceneViewportPanel);
 		}
-		if (DocumentController) (void)DocumentController->CloseDocument();
+		if (DocumentController) (void)DocumentController->ReleaseLevelView();
 		DocumentController.reset();
 		AssetMoveCoordinator.reset();
 		SceneImportDialog.reset();
@@ -188,10 +185,10 @@ namespace Durin::LevelEditor
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
 			*Context,
-			DocumentManager,
 			WorkspaceSettings,
 			*SceneViewportPanel,
 			*AssetMoveCoordinator,
+			[this] { NotifyEditingObjectsChanged(); },
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); }
 		);
@@ -320,17 +317,14 @@ namespace Durin::LevelEditor
 		return Workspace::Type;
 	}
 
-	auto FLevelEditorToolkit::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
+	auto FLevelEditorToolkit::PostInitAssetEditor() -> void
 	{
-		// The workspace presents the authoritative editor world; opening an asset uses LoadMap.
-		return Document.ResourceId.empty() || (Context && Context->Level && Context->Level->GetObjectPath() == Document.ResourceId)
-			? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
+		FBaseAssetToolkit::PostInitAssetEditor();
+		DocumentController->ActivateCurrentLevel();
 	}
 
-	auto FLevelEditorToolkit::ActivateDocument(const FEditorDocument& Document) -> void
+	auto FLevelEditorToolkit::FocusEditorView() -> void
 	{
-		(void)Document;
-		if (DocumentController) DocumentController->AssociateCurrentLevel();
 		RootWindow.RequestFocus();
 	}
 
@@ -339,24 +333,49 @@ namespace Durin::LevelEditor
 		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
 	}
 
-	auto FLevelEditorToolkit::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
+	auto FLevelEditorToolkit::OnRequestClose(EAssetEditorCloseReason) -> bool
 	{
-		if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
-		// Closing a view does not discard or save the engine-owned map.
-		if (DocumentController && !DocumentController->CloseDocument()) return EDocumentCloseResult::Rejected;
-		return EDocumentCloseResult::Closed;
+		return PrepareForExit();
 	}
 
-	auto FLevelEditorToolkit::OnSaveDocument(const FEditorDocument& Document) -> bool
+	auto FLevelEditorToolkit::PrepareForExit() -> bool
 	{
-		(void)Document;
-		return SaveActiveDocument();
+		return RequestDeactivate() && (!DocumentController || !DocumentController->HasPendingTransition());
 	}
 
-	auto FLevelEditorToolkit::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool
+	auto FLevelEditorToolkit::SaveForExit() -> bool
 	{
-		(void)Document;
-		return Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
+		return PrepareForExit() && (GetUnsavedChanges().empty() || SaveActiveDocument());
+	}
+
+	auto FLevelEditorToolkit::GetEditorDisplayName() const -> std::string
+	{
+		const auto* Level = DocumentController ? DocumentController->GetCurrentLevel() : nullptr;
+		if (!Level) return "Level Editor";
+		return DocumentController->GetCurrentLevelAsset() ? Level->GetName() : "Untitled";
+	}
+
+	auto FLevelEditorToolkit::GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>>
+	{
+		auto* Level = DocumentController ? DocumentController->GetCurrentLevelAsset() : nullptr;
+		return Level ? std::vector<DObject*>{Level} : std::vector<DObject*>{};
+	}
+
+	auto FLevelEditorToolkit::GetUnsavedChanges() const -> std::vector<FAssetEditorUnsavedChange>
+	{
+		if (!DocumentController || !DocumentController->IsCurrentLevelDirty()) return {};
+		const auto* Asset = DocumentController->GetCurrentLevelAsset();
+		return {{GetEditorDisplayName(), Asset ? Asset->GetObjectPath() : std::string{}}};
+	}
+
+	auto FLevelEditorToolkit::RequestCloseLevel() -> bool
+	{
+		return IsEditorOpen() && RequestDeactivate() && DocumentController && DocumentController->RequestCloseLevel();
+	}
+
+	auto FLevelEditorToolkit::SaveLevelAs(const FPackagePath& Path) -> bool
+	{
+		return IsEditorOpen() && DocumentController && DocumentController->SaveCurrentLevelAs(Path);
 	}
 
 	auto FLevelEditorToolkit::ResetLayout() -> void
@@ -377,20 +396,12 @@ namespace Durin::LevelEditor
 		DURIN_PROFILE_CPU_ZONE_NAMED("LevelEditor.DrawToolkit");
 		if (!Context || !DocumentController) return false;
 		DocumentController->DrawDialogs();
+		if (!IsEditorOpen() || !Context || !DocumentController) return false;
 		bWasActive = bActive;
-		const bool bDocumentOpen = std::ranges::any_of(DocumentManager.GetDocuments(), [](const FEditorDocument& Document) {
-			return Document.ToolkitId == Workspace::Type;
-		});
-		if (!bDocumentOpen)
-		{
-			RootWindow.ResetActivationState();
-			return false;
-		}
-
 		const ImGuiID DockSpaceId = TabLayout::MakeDockSpaceId(Workspace::Type, Workspace::LayoutVersion);
-		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
+		const bool bLevelDirty = DocumentController->IsCurrentLevelDirty();
 		const FEditorTabWindowState RootWindowState = RootWindow.Begin({
-			.DisplayName = "Level Editor",
+			.DisplayName = GetEditorDisplayName(),
 			.RootKey = Workspace::RootKey,
 			.bDirty = bLevelDirty,
 			.bZeroPadding = true,
@@ -404,11 +415,7 @@ namespace Durin::LevelEditor
 		{
 			RootWindow.End();
 			if (RootWindowState.bCloseRequested)
-			{
-				const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument();
-				if (ActiveDocument && ActiveDocument->ToolkitId == Workspace::Type)
-					DocumentManager.RequestCloseDocument(ActiveDocument->Id);
-			}
+				CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed);
 			return RootWindowState.bActivated;
 		}
 
@@ -454,9 +461,8 @@ namespace Durin::LevelEditor
 		RootWindow.End();
 		if (RootWindowState.bCloseRequested)
 		{
-			const FEditorDocument* ActiveDocument = DocumentManager.GetActiveDocument();
-			if (ActiveDocument && ActiveDocument->ToolkitId == Workspace::Type)
-				DocumentManager.RequestCloseDocument(ActiveDocument->Id);
+			CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed);
+			if (!IsEditorOpen()) return false;
 		}
 
 
@@ -522,6 +528,13 @@ namespace Durin::LevelEditor
 		if (bPlaying) ImGui::BeginDisabled();
 		if (ImGui::MenuItem("Open Project...") && OpenProjectBrowser)
 			OpenProjectBrowser();
+		if (DocumentController)
+		{
+			if (ImGui::MenuItem("Save Level As...", nullptr, false, DocumentController->CanEditCurrentLevel()))
+				DocumentController->RequestSaveAs();
+			if (ImGui::MenuItem("Close Level", nullptr, false, DocumentController->GetCurrentLevel() != nullptr))
+				RequestCloseLevel();
+		}
 		if (bPlaying) ImGui::EndDisabled();
 	}
 

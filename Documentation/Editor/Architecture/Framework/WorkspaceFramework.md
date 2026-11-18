@@ -241,8 +241,8 @@ across activation/opening; the target may be collected during same-map reload.
 Default-level startup uses the same synchronous asset-open path.
 Scripting `DLevelEditorSubsystem::LoadLevel` calls
 `DEditorLoadingAndSavingUtils::LoadMap`; true means the requested map is active.
-Neither route queues a document open. The Level toolkit presents the authoritative
-World; its document-open callback does not initiate another load.
+The Level Toolkit reads the current level from the editor world. It opens
+with or without a current level, and the host focuses its window directly.
 
 The file utility calls `GLevelEditorModeTools(Editor).DeactivateAllModes()`
 before invoking `Map_Load`. Mode exit ends gestures while their original targets
@@ -256,23 +256,25 @@ report actual loading success. There is no editor map queue or cancellation API.
 
 The editor engine owns map teardown and loading for both reopening and switching
 levels. At an admitted owner boundary it validates the target, resets transaction
-history, notifies views to release selection and document roots, and destroys the
-old World, including its timers, subsystems, components, scene and context.
-Map packages are collected before reading the target from disk. Remaining external
-references reject loading with a diagnostic; the destroyed world is not revived.
-After a destructive failure the engine creates a new transient World and editable
-untitled Level, and clears the document's saved resource identity. This recovery
-Level is transient; assigning a persistent path through Save As is not provided
-by the current Level save workflow. Successful
-loading publishes the newly initialized World and document association. Map
-notifications release old UI roots and associate the published World directly,
-including script loads and standalone new-map creation. No pending document
-metadata or completion callback participates in map loading. Closing a dirty Level view does not prompt to discard or clear package dirtiness. Exit preparation checks live dirty packages independently of open documents and saves them through `DEditorLoadingAndSavingUtils` before exit. Closing a Level
-document or toolkit saves viewport preferences and releases view/document roots;
-it does not detach the current Level, reset transactions, or destroy the editor
-World. Only editor engine map operations own those transitions.
-`AssociateDocumentAsset(Id, nullptr)` releases the root; the subsequent map
-notification replaces its resource identity or clears it for a blank map.
+history, notifies views to release selection and viewport bindings, and
+destroys the old world, including its timers, subsystems, components and scene.
+Map packages are collected before reading the target from disk. Remaining
+external references reject loading with a diagnostic. After a destructive load
+failure the engine creates a fresh editor world with an editable transient
+level. The Toolkit displays a transient level as `Untitled` and lists a
+persistent level as its edited asset. An empty editor world has no level to
+save.
+
+Save Level As writes a copy to a new package and activates the saved level in
+the editor world after the write succeeds. The Level controller captures the
+outgoing viewport state and restores the incoming level's state. It updates
+the transaction checkpoint and asset association on the map notification.
+
+Close Level runs the unsaved-level workflow and detaches the map through the
+editor engine. Cancellation preserves the current level and window. Closing
+the Level Editor window saves viewport preferences and releases its view state
+while the current map remains active. The Editor continues to include dirty
+map packages in its application save workflow after the window closes.
 
 MainFrame startup presents inline bootstrap/presentation progress and observes
 the default thread-local feedback context for generic slow tasks. Editor map

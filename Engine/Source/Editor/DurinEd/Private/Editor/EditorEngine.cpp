@@ -1,6 +1,9 @@
 #include "TickableEditorObject.h"
 #include "Asset/Load.h"
 #include "Asset/PackageCollection.h"
+#include "Asset/PackageSerialization.h"
+#include "Import/AssetDestinationValidation.h"
+#include "EditorModeManager.h"
 #include "DObject/DObjectArray.h"
 #include "IRendererModule.h"
 #include "Rendering/SceneInterface.h"
@@ -340,6 +343,81 @@ namespace Durin
 		catch (const std::exception& Exception) { DURIN_ERROR("Map change notification failed: {}", Exception.what()); }
 		catch (...) { DURIN_ERROR("Map change notification failed."); }
 		return World.Get();
+	}
+
+	auto DEditorEngine::CloseMap(std::string& Error) -> bool
+	{
+		CheckGameThread();
+		Error.clear();
+		if (bShutdownRequested || IsPlaying() || bLoadingEditorMap)
+		{ Error = "Closing the level requires an idle editor outside Play in Editor."; return false; }
+		if (!EditorWorld || !EditorWorld->GetCurrentLevel()) return true;
+		const FScopedEditorMapOperation Operation(bLoadingEditorMap);
+		if (Trans)
+		{
+			const auto Reset = Trans->TryReset("Closing map");
+			if (!Reset && Reset.Code != ETransactorResultCode::NoOp) { Error = FormatTransactorResult(Reset); return false; }
+		}
+		try
+		{
+			GLevelEditorModeTools(*this).DeactivateAllModes();
+			EditorDestroyWorld();
+		}
+		catch (const std::exception& Exception)
+		{
+			Error = Exception.what();
+			return false;
+		}
+		try { MapChanged.Broadcast(nullptr, EMapChangeType::CloseMap); }
+		catch (...) { DURIN_ERROR("Close map notification failed."); }
+		return true;
+	}
+
+	auto DEditorEngine::SaveMapAs(const FPackagePath& Path, std::string& Error) -> bool
+	{
+		CheckGameThread();
+		Error.clear();
+		auto* World = EditorWorld.Get();
+		auto* Current = World ? World->GetCurrentLevel() : nullptr;
+		if (!Current || bShutdownRequested || IsPlaying() || bLoadingEditorMap || World->IsShutdownRequested()
+			|| (Trans && (!Trans->CanTransact() || Trans->IsActive())))
+		{ Error = "Save As requires an idle current level."; return false; }
+		const auto Destination = InspectAssetDestination(Path.GetView());
+		std::error_code FilesystemError;
+		if (!Destination || Destination.AssetExists() || std::filesystem::exists(Destination.PhysicalPath, FilesystemError)
+			|| FilesystemError)
+		{ Error = "The destination level package is invalid or occupied."; return false; }
+
+		const FScopedEditorMapOperation Operation(bLoadingEditorMap);
+		TStrongObjectPtr<DPackage> Package(CreatePackage(Path));
+		if (!Package) { Error = "The destination level package could not be created."; return false; }
+		const auto Copy = DuplicateObject(Current, Package.Get(), FName(Path.GetPackageName()));
+		if (!Copy)
+		{
+			Error = ToString(Copy.error());
+			MarkObjectHierarchyAsGarbage(Package.Get());
+			return false;
+		}
+		TStrongObjectPtr<DLevel> Saved(Cast<DLevel>(*Copy));
+		check(Saved);
+		Saved->ClearFlags(EObjectFlags::Transient);
+		Saved->SetFlags(EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional);
+		FAssetWriteResult Write;
+		if (!SavePackage(Package.Get(), {}, &Write))
+		{
+			Error = Write.Error ? Write.Error->ToString() : "The new level package could not be saved.";
+			if (Write.Effect == EAssetWriteEffect::None) MarkObjectHierarchyAsGarbage(Package.Get());
+			return false;
+		}
+
+		try { MapChanged.Broadcast(World, EMapChangeType::TearDownWorld); }
+		catch (const std::exception& Exception) { Error = Exception.what(); return false; }
+		if (bShutdownRequested || World->IsShutdownRequested() || World->GetCurrentLevel() != Current
+			|| !World->SetCurrentLevel(Saved.Get()))
+		{ Error = "The level was saved but could not be activated."; return false; }
+		try { MapChanged.Broadcast(World, EMapChangeType::SaveMapAs); }
+		catch (...) { DURIN_ERROR("Save As map notification failed."); }
+		return true;
 	}
 
 	auto DEditorEngine::AdoptSceneWorld(DWorld* World, FScenePtr Scene, uint64 Generation) -> void

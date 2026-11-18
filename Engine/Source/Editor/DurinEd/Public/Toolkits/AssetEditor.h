@@ -19,7 +19,6 @@ namespace Durin
 	{
 		FAssetOpenArgs OpenArgs;
 		std::vector<DObject*> Assets;
-		std::vector<FDocumentRequest> InitialDocuments;
 	};
 
 	// Optional reflected editor identity and factory. The manager-owned toolkit

@@ -8,6 +8,7 @@
 #include "Documents/EditorDocumentManager.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Toolkits/ToolkitManager.h"
 
 namespace Durin
 {
@@ -161,7 +162,14 @@ namespace Durin
 	{
 		if (!CanCall()) return false;
 		bool bAllClosed = true;
-		for (auto* Instance : GetAllOpenEditors())
+		auto ExternalEditors = GetAllOpenEditors();
+		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
+		{
+			if (!CanCall()) return false;
+			std::erase(ExternalEditors, Toolkit->GetEditorInstance());
+			bAllClosed = Toolkit->CloseWindow(EAssetEditorCloseReason::CloseAllAssetEditors) && bAllClosed;
+		}
+		for (auto* Instance : ExternalEditors)
 		{
 			if (!CanCall()) return false;
 			if (HasEditor(Instance)) DispatchEditorCallback([&] {

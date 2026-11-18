@@ -39,7 +39,7 @@ namespace Durin
 			}
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(this))
 			if (OwnsToolkit(*Toolkit) && !Toolkit->IsClosed())
-				Toolkit->GetDocumentManager()->OnAssetRenamed(Asset, Previous);
+				if (const auto Documents = Toolkit->GetDocumentManager()) Documents->OnAssetRenamed(Asset, Previous);
 	}
 
 	auto DAssetEditorSubsystem::Subscribe(std::function<void(const FAssetEditorEvent&)> Callback) -> FAssetEditorSubscription

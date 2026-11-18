@@ -160,21 +160,6 @@ namespace Durin
 			});
 		return true;
 	}
-	auto FEditorDocumentManager::AssociateDocumentAsset(FDocumentId Id, DObject* Asset) -> bool
-	{
-		auto* Document = FindDocument(Id);
-		if (!Document || (Asset && !IsValid(Asset))) return false;
-		if (!Asset)
-		{
-			State->AssetRoots.erase(Id.Value);
-			if (State->AssetsChanged) State->AssetsChanged();
-			return true;
-		}
-		Document->ResourceId = Asset->GetObjectPath();
-		SynchronizeAssets();
-		return true;
-	}
-
 	auto FEditorDocumentManager::GetEditedAssets() const -> std::vector<DObject*>
 	{
 		std::vector<DObject*> Assets;

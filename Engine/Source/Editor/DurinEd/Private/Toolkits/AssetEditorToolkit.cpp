@@ -89,6 +89,11 @@ namespace Durin
 		HostIdentity = nullptr;
 		if (ClosingHost) ClosingHost->DetachToolkit(*this);
 	}
+	auto FAssetEditorToolkit::NotifyEditingObjectsChanged() -> void
+	{
+		if (auto* Editors = GetAssetEditorSubsystem()) Editors->SynchronizeToolkitAssets(*this);
+	}
+
 	auto FAssetEditorToolkit::FocusWindow(DObject* Object) -> void
 	{
 		auto* AssetEditorSubsystem = GetAssetEditorSubsystem();
@@ -96,20 +101,35 @@ namespace Durin
 		const auto Lease = shared_from_this();
 		const FStrongObjectPtr KeepAlive(OwningAssetEditor.Get());
 		AssetEditorSubsystem->DispatchEditorCallback([&] {
+			const auto Objects = GetEditingObjects();
+			if (Object && !std::ranges::contains(Objects, Object)) return;
 			if (!AssetEditorSubsystem->ActivateAssetToolkit(*this)) return;
-			const auto Snapshot = DocumentOwner->GetDocuments();
-			for (const auto& Document : Snapshot)
-				if (!Object || Document.ResourceId == Object->GetObjectPath())
-				{
-					if (!DocumentOwner->ActivateDocument(Document.Id) || !IsEditorOpen()) return;
-					LastActivationTime = FTime::Seconds();
-					if (const auto CurrentHost = Host.lock()) CurrentHost->FocusToolkit(*this);
-					FAssetOpenTarget Target;
-					for (auto* Asset : GetEditingObjects()) if (Asset->GetObjectPath() == Document.ResourceId)
-					{ FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Target.AssetPath); Target.AssetClassName = Asset->GetClass()->GetQualifiedName().ToString(); break; }
-					AssetEditorSubsystem->PublishEvent({.Type = EAssetEditorEvent::Focused, .Target = std::move(Target), .Editor = FObjectKey(OwningAssetEditor.Get()), .Method = OpenMethod, .InstanceId = std::string(GetInstanceId())});
-					return;
-				}
+			DObject* Focused = Object;
+			if (UsesDocumentRecords())
+			{
+				const auto Snapshot = DocumentOwner->GetDocuments();
+				const auto Document = std::ranges::find_if(Snapshot,
+					[&](const auto& Entry) { return !Object || Entry.ResourceId == Object->GetObjectPath(); });
+				if (Document == Snapshot.end() || !DocumentOwner->ActivateDocument(Document->Id) || !IsEditorOpen()) return;
+				if (!Focused)
+					for (auto* Asset : Objects)
+						if (Asset->GetObjectPath() == Document->ResourceId) { Focused = Asset; break; }
+			}
+			else
+			{
+				FocusEditorView();
+				if (!Focused && !Objects.empty()) Focused = Objects.front();
+			}
+			LastActivationTime = FTime::Seconds();
+			if (const auto CurrentHost = Host.lock()) CurrentHost->FocusToolkit(*this);
+			FAssetOpenTarget Target;
+			if (Focused && IsValid(Focused))
+			{
+				FSoftObjectPath::TryCreate(Focused->GetObjectPath(), Target.AssetPath);
+				Target.AssetClassName = Focused->GetClass()->GetQualifiedName().ToString();
+			}
+			AssetEditorSubsystem->PublishEvent({.Type = EAssetEditorEvent::Focused, .Target = std::move(Target),
+				.Editor = FObjectKey(OwningAssetEditor.Get()), .Method = OpenMethod, .InstanceId = std::string(GetInstanceId())});
 		});
 	}
 	auto FAssetEditorToolkit::CloseWindow(EAssetEditorCloseReason Reason) -> bool
@@ -184,6 +204,12 @@ namespace Durin
 		return Changes;
 	}
 
+	auto FAssetEditorToolkit::GetEditorDisplayName() const -> std::string
+	{
+		const auto* Active = DocumentOwner ? DocumentOwner->GetActiveDocument() : nullptr;
+		return Active ? Active->Label : GetEditorName().ToString();
+	}
+
 	auto FAssetEditorToolkit::InitAssetEditor(const FAssetEditorInitArgs& Args,
 		std::shared_ptr<FEditorDocumentManager> Documents, FStrongObjectPtr Provider, DAssetEditor* Editor) -> bool
 	{
@@ -204,17 +230,15 @@ namespace Durin
 		require(NextId != std::numeric_limits<uint64>::max());
 		WindowId = "Toolkit." + std::to_string(NextId++);
 		OpenMethod = Args.OpenArgs.OpenMethod;
-		DocumentOwner = std::move(Documents);
+		if (UsesDocumentRecords()) DocumentOwner = std::move(Documents);
 		DefinitionProvider = std::move(Provider);
 		if (!InitialHost || !InitialHost->IsAvailable() || InitialHost->GetToolkitMode() != Args.OpenArgs.ToolkitMode) return false;
 		const auto Weak = weak_from_this();
-		if (!DocumentOwner->AttachToolkit(shared_from_this(), [Weak] {
+		if (DocumentOwner && !DocumentOwner->AttachToolkit(shared_from_this(), [Weak] {
 			if (const auto Toolkit = Weak.lock()) if (auto* AssetEditorSubsystem = Toolkit->GetAssetEditorSubsystem()) AssetEditorSubsystem->SynchronizeToolkitAssets(*Toolkit);
 		}, AssetEditors.Get())) return false;
 		PostInitAssetEditor();
-		for (const auto& Request : Args.InitialDocuments)
-			if (!DocumentOwner->OpenDocument(Request).IsValid()) return false;
-		for (auto* Asset : Args.Assets)
+		if (UsesDocumentRecords()) for (auto* Asset : Args.Assets)
 		{
 			const auto Path = Asset->GetObjectPath();
 			const auto Id = DocumentOwner->OpenDocument({.ToolkitId = GetToolkitId(), .DocumentKey = Path, .ResourceId = Path, .Label = Asset->GetName()});

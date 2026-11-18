@@ -16,7 +16,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "AssetTools/IAssetTools.h"
-#include "Documents/EditorDocumentManager.h"
 #include "Editor/EditorEngine.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Transactions/Transaction.h"
@@ -257,9 +256,6 @@ namespace Durin
 		for (const auto& Toolkit : FToolkitManager::Get().GetToolkits(&AssetEditors))
 			if (auto* Level = Cast<DLevelAssetEditor>(Toolkit->GetOwningAssetEditor()))
 			{
-				if (Level->GetDocumentManager()->GetDocuments().empty())
-					Level->GetDocumentManager()->OpenDocument({.ToolkitId = Workspace::Type,
-						.DocumentKey = "LevelEditor", .Label = "Level Editor"});
 				Level->FocusWindow();
 				return Level;
 			}
@@ -268,9 +264,7 @@ namespace Durin
 		auto* Editor = NewObject<DLevelAssetEditor>(AssetEditors.GetEditor(), {});
 		Editor->ConfigureHost(Levels->GetHostContext());
 		return AssetEditors.InitializeAssetEditor(*Editor, {
-			.OpenArgs = {.AssetEditors = &AssetEditors, .ToolkitMode = EToolkitMode::WorldCentric},
-			.InitialDocuments = {{.ToolkitId = Workspace::Type,
-				.DocumentKey = "LevelEditor", .Label = "Level Editor"}}});
+			.OpenArgs = {.AssetEditors = &AssetEditors, .ToolkitMode = EToolkitMode::WorldCentric}});
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ReleaseLevelEditor(DAssetEditorSubsystem& AssetEditors) -> void

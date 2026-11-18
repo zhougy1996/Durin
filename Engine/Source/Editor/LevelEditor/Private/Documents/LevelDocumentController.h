@@ -9,7 +9,6 @@
 
 namespace Durin
 {
-	class FEditorDocumentManager;
 	class DLevel;
 	class DWorld;
 }
@@ -27,10 +26,10 @@ namespace Durin::LevelEditor
 	public:
 		FLevelDocumentController(
 			FLevelEditorContext& InContext,
-			FEditorDocumentManager& InDocuments,
 			FLevelEditorWorkspaceSettings& InWorkspaceSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
+			std::function<void()> InLevelChanged,
 			std::function<void()> InClearError,
 			std::function<void(std::string)> InReportError
 		);
@@ -38,10 +37,18 @@ namespace Durin::LevelEditor
 		~FLevelDocumentController();
 		auto RequestOpenProject(std::string ProjectFile) -> void;
 		auto DrawDialogs() -> void;
+		auto GetCurrentLevel() const -> DLevel*;
+		auto GetCurrentLevelAsset() const -> DLevel*;
+		auto IsCurrentLevelDirty() const -> bool;
+		auto CanEditCurrentLevel() const -> bool;
 		auto CanSaveCurrentLevel() const -> bool;
+		auto SaveCurrentLevelAs(const FPackagePath& Path) -> bool;
+		auto RequestSaveAs() -> void;
+		auto RequestCloseLevel() -> bool;
+		auto HasPendingTransition() const -> bool;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
-		auto CloseDocument() -> bool;
+		auto ReleaseLevelView() -> bool;
 
 	private:
 		friend class FLevelEditorToolkit;
@@ -53,19 +60,26 @@ namespace Durin::LevelEditor
 		};
 
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
-		auto AssociateCurrentLevel() -> bool;
+		auto ActivateCurrentLevel() -> void;
+		auto CompletePendingTransition() -> bool;
+		auto CloseCurrentLevel() -> bool;
 		auto SetError(std::string Message) const -> void;
 
 		FDelegateHandle MapChangedHandle;
 		FLevelEditorContext& Context;
-		FEditorDocumentManager& Documents;
 		FLevelEditorWorkspaceSettings& WorkspaceSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
+		std::function<void()> LevelChanged;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingPath;
+		FObjectKey PendingLevel;
+		bool bPendingCloseLevel = false;
+		bool bOpenSaveAs = false;
+		std::array<char, 512> SaveAsPath{};
+		std::string SaveAsError;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		TWeakObjectPtr<DPackage> DocumentPackage;
 	};

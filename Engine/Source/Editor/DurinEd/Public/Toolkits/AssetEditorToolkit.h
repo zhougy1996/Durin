@@ -26,8 +26,8 @@ namespace Durin
 
 		DURINED_API virtual auto GetToolkitId() const -> const FAssetEditorToolkitId& = 0;
 		// Deferred opens keep the current tab metadata until the toolkit reports completion.
-		DURINED_API virtual auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult = 0;
-		DURINED_API virtual auto ActivateDocument(const FEditorDocument& Document) -> void = 0;
+		virtual auto OpenDocument(const FEditorDocument&) -> EDocumentOpenResult { return EDocumentOpenResult::Rejected; }
+		virtual auto ActivateDocument(const FEditorDocument&) -> void {}
 		// Called before the manager changes the active document or toolkit.
 		// Returning false keeps the current host state active.
 		virtual auto RequestDeactivate() -> bool { return true; }
@@ -115,6 +115,8 @@ namespace Durin
 		DURINED_API virtual auto PrepareForExit() -> bool;
 		DURINED_API virtual auto SaveForExit() -> bool;
 		DURINED_API virtual auto GetUnsavedChanges() const -> std::vector<FAssetEditorUnsavedChange>;
+		DURINED_API virtual auto GetEditorDisplayName() const -> std::string;
+		virtual auto UsesDocumentRecords() const -> bool { return true; }
 
 		virtual auto GetLastOperationError() const -> std::string { return {}; }
 		auto IsReadOnly() const -> bool { return OpenMethod == EAssetOpenMethod::View || !CanEditAssets(); }
@@ -143,6 +145,8 @@ namespace Durin
 		auto Redo() -> bool final { return ExecuteEditorCommand([&] { return OnRedo(); }); }
 	protected:
 		virtual auto CanEditAssets() const -> bool { return true; }
+		DURINED_API auto NotifyEditingObjectsChanged() -> void;
+		virtual auto FocusEditorView() -> void {}
 		virtual auto PostInitAssetEditor() -> void {}
 		virtual auto OnDrawToolkit(bool) -> bool { return false; }
 		virtual auto OnSaveDocument(const FEditorDocument&) -> bool { return false; }

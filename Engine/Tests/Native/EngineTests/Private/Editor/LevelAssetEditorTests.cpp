@@ -14,7 +14,7 @@
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitHost.h"
 #include "Toolkits/ToolkitManager.h"
-#include "Documents/EditorDocumentManager.h"
+#include "FLevelEditorToolkit.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
 #include "AssetDefinition/AssetDefinition.h"
 #include "NativeDObjectTestSupport.h"
@@ -131,7 +131,12 @@ namespace
 		DSceneComponent* Component = nullptr;
 		DWorld* World = nullptr;
 		DAssetEditorSubsystem* Editors = nullptr;
-		std::shared_ptr<FEditorDocumentManager> Documents;
+		std::shared_ptr<FAssetEditorToolkit> Toolkit;
+		auto CurrentResource() const -> std::string
+		{
+			const auto Assets = Toolkit->GetEditingObjects();
+			return Assets.empty() ? std::string{} : Assets.front()->GetObjectPath();
+		}
 		TWeakObjectPtr<DWorld> OriginalWorld;
 		TWeakObjectPtr<DLevel> PreviousLevel;
 		TWeakObjectPtr<AActor> PreviousActor;
@@ -179,9 +184,9 @@ namespace
 			OriginalWorld = World;
 			Editors = Host->GetEditorSubsystem<DAssetEditorSubsystem>();
 			ASSERT_TRUE(Module->InitializeLevelEditor(*Editors, {}, [] {}));
-			Documents = Module->GetOrCreateLevelEditor(*Editors)->GetDocumentManager();
-			ASSERT_FALSE(Documents->GetDocuments().empty());
-			ASSERT_TRUE(Documents->AssociateDocumentAsset(Documents->GetDocuments().front().Id, Level));
+			Toolkit = Module->GetOrCreateLevelEditor(*Editors)->GetToolkit();
+			ASSERT_TRUE(Toolkit);
+			EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Level});
 			ASSERT_TRUE(Actor->SetActorLabel("Unsaved edit"));
 			Level->GetPackage()->MarkDirty();
 			PreviousLevel = Level;
@@ -200,7 +205,7 @@ namespace
 		auto TearDown() -> void override
 		{
 			FEditorFileUtils::SetSavePrompt({});
-			Documents.reset();
+			Toolkit.reset();
 			if (Host)
 			{
 				if (Module && Editors) Module->ReleaseLevelEditor(*Editors);
@@ -261,8 +266,7 @@ namespace
 			EXPECT_FALSE(OriginalWorld.IsValid());
 			ASSERT_NE(Host->GetEditorWorld()->GetCurrentLevel(), nullptr);
 			EXPECT_EQ(Host->GetEditorWorld()->GetCurrentLevel()->FindActorByName("SavedActor"), nullptr);
-			ASSERT_NE(Documents->GetActiveDocument(), nullptr);
-			EXPECT_TRUE(Documents->GetActiveDocument()->ResourceId.empty());
+			EXPECT_TRUE(CurrentResource().empty());
 		}
 	}
 
@@ -283,7 +287,7 @@ namespace
 		EXPECT_TRUE(Reloaded->FindActorByName("SavedActor")->GetRootComponent()->IsRegistered());
 		EXPECT_EQ(Reloaded->FindActorByName("SavedActor")->GetRootComponent()->GetOwner(), Reloaded->FindActorByName("SavedActor"));
 		EXPECT_EQ(Reloaded->GetWorld(), Host->GetEditorWorld());
-		EXPECT_EQ(Documents->GetEditedAssets(), (std::vector<DObject*>{Reloaded}));
+		EXPECT_EQ(Toolkit->GetEditingObjects(), (std::vector<DObject*>{Reloaded}));
 		EXPECT_FALSE(Reloaded->GetPackage()->IsDirty());
 		const TWeakObjectPtr<DLevel> FirstReload(Reloaded);
 		ASSERT_TRUE(Reloaded->FindActorByName("SavedActor")->SetActorLabel("Second unsaved edit"));
@@ -340,9 +344,8 @@ namespace
 		ASSERT_NE(Blank, nullptr);
 		EXPECT_TRUE(Blank->HasAnyObjectFlags(EObjectFlags::Transient));
 		EXPECT_NE(Blank->SpawnActor<AActor>("EditableBlankMap"), nullptr);
-		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
-		EXPECT_TRUE(Documents->GetActiveDocument()->ResourceId.empty());
-		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		EXPECT_TRUE(CurrentResource().empty());
+		EXPECT_TRUE(Toolkit->GetEditingObjects().empty());
 	}
 
 	TEST_F(FLevelMapLifecycleTests, MissingFileAfterTeardownRecoversAndCanOpenAgain)
@@ -362,7 +365,7 @@ namespace
 		ASSERT_NE(Host->GetEditorWorld(), nullptr);
 		ASSERT_NE(Host->GetEditorWorld()->GetCurrentLevel(), nullptr);
 		EXPECT_TRUE(Host->GetEditorWorld()->GetCurrentLevel()->HasAnyObjectFlags(EObjectFlags::Transient));
-		EXPECT_TRUE(Documents->GetActiveDocument()->ResourceId.empty());
+		EXPECT_TRUE(CurrentResource().empty());
 		// Recovery is a usable state: another open can succeed after the file returns.
 		Diagnostic.clear();
 		ASSERT_TRUE(Editors->OpenAssets({.AssetEditors = Editors, .Assets = Targets}));
@@ -380,9 +383,9 @@ namespace
 		EXPECT_TRUE(Diagnostic.empty()) << Diagnostic;
 		EXPECT_TRUE(Diagnostic.empty());
 		ASSERT_NE(Host->GetEditorWorld(), nullptr);
-		EXPECT_EQ(Documents->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
+		EXPECT_EQ(CurrentResource(), Target.AssetPath.ToString());
 		EXPECT_NO_THROW(EXPECT_NE(Host->NewMap(), nullptr));
-		EXPECT_TRUE(Documents->GetActiveDocument()->ResourceId.empty());
+		EXPECT_TRUE(CurrentResource().empty());
 		Host->MapChanged.Remove(Handle);
 
 	}
@@ -423,28 +426,99 @@ namespace
 		EXPECT_FALSE(PreviousLevel.IsValid());
 	}
 
-	TEST_F(FLevelMapLifecycleTests, ClosingDirtyDocumentPreservesMapAndCanReopen)
+	TEST_F(FLevelMapLifecycleTests, ClosingDirtyWindowPreservesMapAndCanReopen)
 	{
-		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
-		EXPECT_EQ(Documents->RequestCloseDocument(Documents->GetActiveDocument()->Id), EDocumentCloseResult::Closed);
-		EXPECT_TRUE(Documents->GetDocuments().empty());
-		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		EXPECT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+		EXPECT_TRUE(Toolkit->IsClosed());
+		EXPECT_TRUE(Toolkit->GetEditingObjects().empty());
 		EXPECT_EQ(Host->GetEditorWorld(), World);
 		EXPECT_EQ(World->GetCurrentLevel(), Level);
 		EXPECT_EQ(Actor->GetActorLabel(), "Unsaved edit");
 		EXPECT_TRUE(Level->GetPackage()->IsDirty());
-		ASSERT_NE(Module->GetOrCreateLevelEditor(*Editors), nullptr);
-		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
-		EXPECT_EQ(Documents->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
-		EXPECT_EQ(Documents->GetEditedAssets(), (std::vector<DObject*>{Level}));
+		auto* Reopened = Module->GetOrCreateLevelEditor(*Editors);
+		ASSERT_NE(nullptr, Reopened);
+		Toolkit = Reopened->GetToolkit();
+		EXPECT_EQ(CurrentResource(), Target.AssetPath.ToString());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), (std::vector<DObject*>{Level}));
 		EXPECT_TRUE(Level->GetPackage()->IsDirty());
 	}
 
-	TEST_F(FLevelMapLifecycleTests, SaveDirtyPackagesIncludesMapAfterDocumentCloses)
+	TEST_F(FLevelMapLifecycleTests, CloseLevelCancellationKeepsTheWorldAndDiscardKeepsTheWindow)
 	{
-		ASSERT_NE(Documents->GetActiveDocument(), nullptr);
-		ASSERT_EQ(Documents->RequestCloseDocument(Documents->GetActiveDocument()->Id), EDocumentCloseResult::Closed);
-		ASSERT_TRUE(Documents->GetDocuments().empty());
+		auto& LevelToolkit = static_cast<LevelEditor::FLevelEditorToolkit&>(*Toolkit);
+		FEditorFileUtils::SetSavePrompt([](auto, const auto&) { return FEditorFileUtils::PR_Cancelled; });
+		EXPECT_FALSE(LevelToolkit.RequestCloseLevel());
+		EXPECT_EQ(Level, Host->GetEditorWorld()->GetCurrentLevel());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Level});
+		FEditorFileUtils::SetSavePrompt([](auto, const auto&) { return FEditorFileUtils::PR_Declined; });
+		ASSERT_TRUE(LevelToolkit.RequestCloseLevel());
+		EXPECT_EQ(nullptr, Host->GetEditorWorld());
+		EXPECT_TRUE(Toolkit->IsEditorOpen());
+		EXPECT_TRUE(Toolkit->GetEditingObjects().empty());
+		EXPECT_FALSE(Toolkit->CanSaveActiveDocument());
+		EXPECT_EQ("Level Editor", Toolkit->GetEditorDisplayName());
+		ASSERT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+		auto* Reopened = Module->GetOrCreateLevelEditor(*Editors);
+		ASSERT_NE(nullptr, Reopened);
+		Toolkit = Reopened->GetToolkit();
+		EXPECT_TRUE(Toolkit->IsEditorOpen());
+		EXPECT_EQ(Toolkit, Editors->GetActiveAssetToolkit());
+		EXPECT_EQ("Level Editor", Toolkit->GetEditorDisplayName());
+		ASSERT_NE(nullptr, Host->NewMap());
+		EXPECT_EQ("Untitled", Toolkit->GetEditorDisplayName());
+		EXPECT_TRUE(Toolkit->GetEditingObjects().empty());
+	}
+
+	TEST_F(FLevelMapLifecycleTests, SaveAsPublishesOnlyTheSavedLevelAndKeepsItsWindow)
+	{
+		auto& LevelToolkit = static_cast<LevelEditor::FLevelEditorToolkit&>(*Toolkit);
+		const std::string Window(Toolkit->GetWindowId());
+		EXPECT_FALSE(LevelToolkit.SaveLevelAs(Target.AssetPath.GetPackagePath()));
+		EXPECT_EQ(Level, Host->GetEditorWorld()->GetCurrentLevel());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Level});
+		FPackagePath SavedPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/LevelDiskReload/SavedAs", SavedPath));
+		ASSERT_TRUE(LevelToolkit.SaveLevelAs(SavedPath)) << LevelToolkit.GetLastOperationError();
+		auto* Saved = Host->GetEditorWorld()->GetCurrentLevel();
+		ASSERT_NE(Level, Saved);
+		ASSERT_NE(nullptr, Saved);
+		EXPECT_EQ(SavedPath, Saved->GetPackage()->GetPackagePathIdentity());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Saved});
+		EXPECT_EQ(Toolkit->GetEditorInstance(), Editors->FindEditorForAsset(Saved, false));
+		EXPECT_EQ(nullptr, Editors->FindEditorForAsset(Level, false));
+		EXPECT_EQ(Window, Toolkit->GetWindowId());
+		EXPECT_FALSE(Saved->GetPackage()->IsDirty());
+		const auto* SavedActor = Saved->FindActorByName("SavedActor");
+		ASSERT_NE(nullptr, SavedActor);
+		EXPECT_EQ("Unsaved edit", SavedActor->GetActorLabel());
+	}
+
+	TEST_F(FLevelMapLifecycleTests, SaveAsPromotesAnUntitledLevelToAnAsset)
+	{
+		auto* NewWorld = Host->NewMap();
+		ASSERT_NE(nullptr, NewWorld);
+		auto* Draft = NewWorld->GetCurrentLevel();
+		ASSERT_NE(nullptr, Draft);
+		ASSERT_NE(nullptr, Draft->SpawnActor<AActor>("TransientActor"));
+		EXPECT_EQ("Untitled", Toolkit->GetEditorDisplayName());
+		EXPECT_FALSE(Toolkit->GetUnsavedChanges().empty());
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/LevelDiskReload/FirstSave", Path));
+		auto& LevelToolkit = static_cast<LevelEditor::FLevelEditorToolkit&>(*Toolkit);
+		ASSERT_TRUE(LevelToolkit.SaveLevelAs(Path)) << LevelToolkit.GetLastOperationError();
+		auto* Saved = Host->GetEditorWorld()->GetCurrentLevel();
+		ASSERT_NE(nullptr, Saved);
+		EXPECT_FALSE(Saved->HasAnyObjectFlags(EObjectFlags::Transient));
+		EXPECT_EQ("FirstSave", Toolkit->GetEditorDisplayName());
+		EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Saved});
+		EXPECT_NE(nullptr, Saved->FindActorByName("TransientActor"));
+		EXPECT_TRUE(Toolkit->GetUnsavedChanges().empty());
+	}
+
+	TEST_F(FLevelMapLifecycleTests, SaveDirtyPackagesIncludesMapAfterWindowCloses)
+	{
+		ASSERT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+		ASSERT_TRUE(Toolkit->IsClosed());
 		EXPECT_TRUE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(true, false), Level->GetPackage()));
 		EXPECT_FALSE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(false, true), Level->GetPackage()));
 		ASSERT_TRUE(DEditorLoadingAndSavingUtils::SaveDirtyPackages(true, true));
@@ -471,20 +545,18 @@ namespace
 		EXPECT_EQ(Actor->GetActorLabel(), "Unsaved edit");
 		EXPECT_TRUE(Level->GetPackage()->IsDirty());
 		EXPECT_EQ(Host->GetSceneGeneration(), WorldGeneration);
-		EXPECT_TRUE(Documents->GetEditedAssets().empty());
+		EXPECT_TRUE(Toolkit->GetEditingObjects().empty());
 		ASSERT_TRUE(Module->InitializeLevelEditor(*Editors, {}, [] {}));
-		auto Reopened = Module->GetOrCreateLevelEditor(*Editors)->GetDocumentManager();
+		const auto Reopened = Module->GetOrCreateLevelEditor(*Editors)->GetToolkit();
 		EXPECT_EQ(&GLevelEditorModeTools(*Host), Modes);
-		ASSERT_NE(Reopened->GetActiveDocument(), nullptr);
-		EXPECT_EQ(Reopened->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
-		EXPECT_EQ(Reopened->GetEditedAssets(), (std::vector<DObject*>{Level}));
+		EXPECT_EQ(Reopened->GetEditingObjects(), (std::vector<DObject*>{Level}));
 		EXPECT_EQ(Host->GetEditorWorld(), World);
 		EXPECT_EQ(Actor->GetActorLabel(), "Unsaved edit");
 	}
 
 	TEST_F(FLevelMapLifecycleTests, ScriptLoadReturnsActualResultWithoutCreatingToolkit)
 	{
-		Documents.reset();
+		Toolkit.reset();
 		Module->ReleaseLevelEditor(*Editors);
 		ASSERT_TRUE(FToolkitManager::Get().GetToolkits(Editors).empty());
 		auto* Levels = Host->GetEditorSubsystem<DLevelEditorSubsystem>();
@@ -507,10 +579,10 @@ namespace
 		ASSERT_NE(Host->GetEditorWorld(), nullptr);
 		ASSERT_NE(Host->GetEditorWorld()->GetCurrentLevel(), nullptr);
 		EXPECT_TRUE(Host->GetEditorWorld()->GetCurrentLevel()->HasAnyObjectFlags(EObjectFlags::Transient));
-		EXPECT_TRUE(Documents->GetActiveDocument()->ResourceId.empty());
+		EXPECT_TRUE(CurrentResource().empty());
 		EXPECT_EQ(Prompts, 1);
 		ASSERT_TRUE(FEditorFileUtils::LoadMap(Target.AssetPath.GetPackagePath().ToString()));
-		EXPECT_EQ(Documents->GetActiveDocument()->ResourceId, Target.AssetPath.ToString());
+		EXPECT_EQ(CurrentResource(), Target.AssetPath.ToString());
 		auto* LoadedWorld = DEditorLoadingAndSavingUtils::LoadMap(Target.AssetPath.ToString());
 		EXPECT_EQ(LoadedWorld, Host->GetEditorWorld());
 	}
@@ -551,7 +623,7 @@ namespace
 		auto* Reloaded = Host->GetEditorWorld()->GetCurrentLevel();
 		ASSERT_NE(Reloaded->FindActorByName("SavedActor"), nullptr);
 		EXPECT_EQ(Reloaded->FindActorByName("SavedActor")->GetActorLabel(), "On disk");
-		EXPECT_EQ(Documents->GetEditedAssets(), (std::vector<DObject*>{Reloaded}));
+		EXPECT_EQ(Toolkit->GetEditingObjects(), (std::vector<DObject*>{Reloaded}));
 	}
 
 	TEST_F(FLevelMapLifecycleTests, FailedLoadReplacesEvenASurvivingWorld)
@@ -568,7 +640,7 @@ namespace
 		ASSERT_NE(Host->GetEditorWorld(), nullptr);
 		ASSERT_NE(Host->GetEditorWorld()->GetCurrentLevel(), nullptr);
 		EXPECT_TRUE(Host->GetEditorWorld()->GetCurrentLevel()->HasAnyObjectFlags(EObjectFlags::Transient));
-		EXPECT_TRUE(Documents->GetActiveDocument()->ResourceId.empty());
+		EXPECT_TRUE(CurrentResource().empty());
 	}
 
 	TEST_F(FLevelMapLifecycleTests, InvalidMapAdmissionPreservesWorldAndReportsError)
@@ -627,7 +699,7 @@ namespace
 				.OpenArgs = {.AssetEditors = AssetEditorSubsystem, .bIsRestore = true}}));
 			EXPECT_FALSE(EditorInstances.front()->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
 			EXPECT_TRUE(AssetEditorSubsystem->CaptureEditorState().empty());
-			EXPECT_EQ(1u, EditorInstances.front()->GetDocumentManager()->GetDocuments().size());
+			EXPECT_TRUE(EditorInstances.front()->GetEditingObjects().empty());
 			EXPECT_FALSE(EditorInstances.front()->GetToolkit()->TransferToHost(std::make_shared<FNonWindowToolkitHost>()));
 			EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstances.front()->GetToolkitMode());
 			if (Index == 0)

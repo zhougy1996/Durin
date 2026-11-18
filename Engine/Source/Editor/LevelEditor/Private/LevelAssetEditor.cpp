@@ -20,7 +20,7 @@ namespace Durin
 	auto DLevelAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
 	{
 		if (!HostContext || GetToolkitMode() != EToolkitMode::WorldCentric) return {};
-		auto Toolkit = std::make_shared<LevelEditor::FLevelEditorToolkit>(HostContext->Settings, *GetDocumentManager(),
+		auto Toolkit = std::make_shared<LevelEditor::FLevelEditorToolkit>(HostContext->Settings,
 			HostContext->Browser, HostContext->OpenProjectBrowser, *GetAssetEditorSubsystem()->GetEditor());
 		Toolkit->Construct();
 		return Toolkit;

@@ -47,6 +47,14 @@ cancellation, stale responses, grouped window continuation, and forced close
 releasing the source root. MainFrame exit and export use Toolkit operations.
 The application startup and shutdown smoke remains at the final integration gate.
 
+Stage 4 passed on macOS arm64 with `MacOS-arm64-Debug-DurinEditor` on
+base revision `956d58a66` plus the Stage 4 changes. `EditorHostToolTests`
+(60 cases) and `EditorOperationTests` (402 with
+`GTEST_DEATH_TEST_STYLE=threadsafe`) passed. The Level tests cover a persistent
+map, an empty editor, an untitled map, Save As and first save, cancellation,
+map and view closure, and map recovery. Level Tools no longer use an initial
+document or an associated document root.
+
 ## Goal
 
 The Toolkit owns its editing objects and feature state. The asset editor
@@ -173,16 +181,16 @@ implementation uses different mechanics.
 
 ### Stage 4: Give the current level a dedicated lifecycle
 
-- [ ] Read the current level from the existing editor world context. Keep
+- [x] Read the current level from the existing editor world context. Keep
   transient level, active persistent level, and no-level presentation derived
   from that context. Keep prompts, transaction activation and viewport
   restoration in the Level Editor path. Update asset association only after a
   successful level transition or Save As.
-- [ ] Replace the `InitialDocuments` placeholder used to start or restore the
+- [x] Replace the `InitialDocuments` placeholder used to start or restore the
   Level Editor. Implement close-level, close-window, and focus using the
   existing controller and host. Retire `AssociateDocumentAsset` once no
   consumers remain.
-- [ ] Verify startup with and without a current level, new transient level,
+- [x] Verify startup with and without a current level, new transient level,
   open and switch, Save As, unsaved cancellation, close-level, and host teardown.
 
 ### Stage 5: Migrate remaining consumers and delete the manager

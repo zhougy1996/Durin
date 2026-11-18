@@ -18,12 +18,12 @@
 #include "Tools/NamePoolToolset.h"
 #include "Modules/ModularFeature.h"
 
-#include "Documents/EditorDocumentManager.h"
 #include "Framework/TabLayout.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/HostStartup.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
+#include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/ToolkitHost.h"
 #include "Viewport/ViewportClosePolicy.h"
 #include "Window/GenericWindow.h"
@@ -649,7 +649,7 @@ namespace Durin::MainFrame
 			{
 				const auto Name = Toolkit->GetEditorName().ToString();
 				bLevelOpen |= Name == "LevelEditor";
-				const auto Label = Name + " - " + (Toolkit->GetDocumentManager()->GetDocuments().empty() ? Name : Toolkit->GetDocumentManager()->GetDocuments().front().Label)
+				const auto Label = Name + " - " + Toolkit->GetEditorDisplayName()
 					+ (Toolkit->GetOpenMethod() == EAssetOpenMethod::View ? " (View)" : "")
 					+ (Toolkit->GetInstanceKey().empty() ? "" : " [" + std::string(Toolkit->GetInstanceKey()) + "]");
 				if (ImGui::MenuItem(Label.c_str(), nullptr, AssetEditors.GetActiveAssetToolkit() == Toolkit)) Toolkit->FocusWindow();

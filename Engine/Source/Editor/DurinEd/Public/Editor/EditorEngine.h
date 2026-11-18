@@ -78,7 +78,7 @@ namespace Durin
 
 namespace Durin
 {
-	enum class EMapChangeType : uint8 { TearDownWorld, LoadMap, NewMap };
+	enum class EMapChangeType : uint8 { TearDownWorld, LoadMap, NewMap, CloseMap, SaveMapAs };
 	class DWorld;
 	class AActor;
 	class DObject;
@@ -154,6 +154,8 @@ namespace Durin
 		// Synchronous engine operation; file utilities own failure recovery and feedback.
 		DURINED_API auto Map_Load(const FSoftObjectPath& Path, std::string& Error) -> bool;
 		DURINED_API auto NewMap() -> DWorld*;
+		DURINED_API auto CloseMap(std::string& Error) -> bool;
+		DURINED_API auto SaveMapAs(const FPackagePath& Path, std::string& Error) -> bool;
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		DURINED_API auto GetEditorWorldContext() const -> const FWorldContext&;

@@ -7,7 +7,7 @@
 #include "LevelEditorContentBrowserCallbacks.h"
 #include "DObject/SoftObjectPtr.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Documents/AssetEditorDocumentModels.h"
+#include "Framework/TabManager.h"
 #include "Settings/EditorSettings.h"
 
 namespace Durin
@@ -17,7 +17,6 @@ namespace Durin
 	class FLevelEditorModule;
 }
 
-namespace Durin { class FEditorDocumentManager; }
 namespace Durin
 {
 	enum class EPlayStartLocation : uint8;
@@ -42,19 +41,23 @@ namespace Durin::LevelEditor
 	{
 	public:
 		FLevelEditorToolkit(std::shared_ptr<FLevelEditorWorkspaceSettings> InWorkspaceSettings,
-			FEditorDocumentManager& InDocumentManager,
 			FContentBrowserCallbacks InContentBrowserCallbacks,
 			std::function<void()> InOpenProjectBrowser, DEditorEngine& EditorHost);
 		LEVELEDITOR_API auto OnClose() -> void override;
 		LEVELEDITOR_API ~FLevelEditorToolkit() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetToolkitId() const -> const FAssetEditorToolkitId& override;
-		LEVELEDITOR_API auto OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult override;
-		LEVELEDITOR_API auto ActivateDocument(const FEditorDocument& Document) -> void override;
+		auto UsesDocumentRecords() const -> bool override { return false; }
+		LEVELEDITOR_API auto GetEditorDisplayName() const -> std::string override;
+		auto GetLastOperationError() const -> std::string override { return EditorError; }
+		auto GetOwnedEditingObjects() const -> std::optional<std::vector<DObject*>> override;
 		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
-		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult override;
-		LEVELEDITOR_API auto OnSaveDocument(const FEditorDocument& Document) -> bool override;
-		LEVELEDITOR_API auto OnIsDocumentDirty(const FEditorDocument& Document) const -> bool override;
+		auto OnRequestClose(EAssetEditorCloseReason Reason) -> bool override;
+		auto PrepareForExit() -> bool override;
+		auto SaveForExit() -> bool override;
+		auto GetUnsavedChanges() const -> std::vector<FAssetEditorUnsavedChange> override;
+		LEVELEDITOR_API auto RequestCloseLevel() -> bool;
+		LEVELEDITOR_API auto SaveLevelAs(const FPackagePath& Path) -> bool;
 		LEVELEDITOR_API auto OnCanSaveActiveDocument() const -> bool override;
 		LEVELEDITOR_API auto OnSaveActiveDocument() -> bool override;
 		LEVELEDITOR_API auto OnCanUndo() const -> bool override;
@@ -68,6 +71,10 @@ namespace Durin::LevelEditor
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
+
+	protected:
+		auto FocusEditorView() -> void override;
+		auto PostInitAssetEditor() -> void override;
 
 	private:
 		friend class ::Durin::FLevelEditorModule;
@@ -98,7 +105,6 @@ namespace Durin::LevelEditor
 		// Module-owned services outlive this registered workspace.
 		std::shared_ptr<FLevelEditorWorkspaceSettings> WorkspaceSettingsOwner;
 		FLevelEditorWorkspaceSettings& WorkspaceSettings;
-		FEditorDocumentManager& DocumentManager;
 		FContentBrowserCallbacks ContentBrowserCallbacks;
 		std::function<void()> OpenProjectBrowser;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
