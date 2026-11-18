@@ -48,6 +48,7 @@ durin_add_native_test(MetalSceneQualificationTests
     LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer MetalRHI VulkanRHI
     INCLUDE_DIRECTORIES
         "${CMAKE_SOURCE_DIR}/Engine/Tests/Native/EngineTests/Private"
+        "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private"
         "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private"
     REQUIRES editor
     REQUIREMENT_RATIONALE "Compiles authored scene shaders for production RDG route qualification."
@@ -87,6 +88,7 @@ durin_add_native_test(MetalCookedScenePreparationTests
     LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer MetalRHI
     INCLUDE_DIRECTORIES
         "${CMAKE_SOURCE_DIR}/Engine/Tests/Native/EngineTests/Private"
+        "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private"
         "${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private"
     REQUIRES editor
     REQUIREMENT_RATIONALE "Builds binary material/fixed products before retiring ShaderBuild for cooked runtime qualification."

@@ -275,14 +275,16 @@ namespace Durin::RendererPrivate
             || SceneArgs.InstanceDataByteOffset >= SceneArgs.PrimitiveIdsBuffer->GetSize())) return false;
 		FMeshDrawCommandStateCache Local;
 		auto& Cache = StateCache ? *StateCache : Local;
-		if (!Pipeline->GetInitializer().PipelineInitializer || !VertexBindings || !VertexPass
+		const auto& Initializer = Pipeline->GetInitializer().PipelineInitializer;
+		if (!Initializer || !VertexBindings || !VertexPass
 			|| (Pipeline->GetInitializer().FragmentLayout && (!FragmentBindings || !FragmentPass))) return false;
 		if (Cache.Pipeline != Pipeline)
 		{
-			SetGraphicsPipelineState(Commands, *Pipeline->GetInitializer().PipelineInitializer);
+			SetGraphicsPipelineState(Commands, *Initializer);
 			Cache.Pipeline = Pipeline;
 			Cache.Vertex.Shader = Cache.Fragment.Shader = nullptr;
 			Cache.Vertex.Parameters.clear(); Cache.Fragment.Parameters.clear();
+			Cache.DepthBias.reset();
 		}
 		VertexBindings.SetOnCommandList(Commands, Cache.Vertex);
 		if (VertexPass) VertexPass.SetOnCommandList(Commands, Cache.Vertex, SceneArgs.PrimitiveIdsBuffer, SceneArgs.InstanceDataByteOffset);
@@ -300,7 +302,7 @@ namespace Durin::RendererPrivate
 			Commands.BindIndexBuffer(IndexBuffer, IndexBufferOffset);
 			Cache.IndexBuffer = IndexBuffer; Cache.IndexBufferOffset = IndexBufferOffset;
 		}
-		if (Cache.DepthBias != Bias)
+		if (Initializer->RasterizerState.bEnableDepthBias && Cache.DepthBias != Bias)
 		{ Commands.SetDepthBias(Bias[0], Bias[2], Bias[1]); Cache.DepthBias = Bias; }
 		const auto& Geometry = *this;
 		const auto ArgsBuffer = SceneArgs.IndirectArgsBuffer ? SceneArgs.IndirectArgsBuffer : IndirectArgs;

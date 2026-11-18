@@ -218,8 +218,10 @@ namespace Durin::PythonReflection::Private
         const auto PythonName = "durin." + Alias;
         const auto Slots = ObjectType ? ObjectTypeSlots() : ValueTypeSlots();
         std::vector<PyType_Slot> ActiveSlots(Slots.begin(), Slots.end());
+        const auto Flags = static_cast<decltype(PyType_Spec::flags)>(
+            Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_IMMUTABLETYPE | (ObjectType ? 0UL : Py_TPFLAGS_HAVE_GC));
         PyType_Spec Spec{PythonName.c_str(), static_cast<int>(ObjectType ? sizeof(FObject) : sizeof(FValue)), 0,
-            Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_IMMUTABLETYPE | (ObjectType ? 0UL : Py_TPFLAGS_HAVE_GC), ActiveSlots.data()};
+            Flags, ActiveSlots.data()};
         auto* Python = PyType_FromSpecWithBases(&Spec, Bases); Py_XDECREF(Bases); if (!Python) return nullptr;
         Registry->Types.emplace(Type, FType{Python, QualifiedName, Alias});
         Registry->NativeTypes.emplace(Python, Type);

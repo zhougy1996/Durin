@@ -372,8 +372,9 @@ This nullable PSO compilation contract follows
 Backends may still treat unsupported runtime compilation as fatal; this is not
 a promise that every native driver error is recoverable. Vulkan recognizes
 `VK_ERROR_INVALID_SHADER_NV`; other unsuccessful native pipeline results remain
-fatal. Metal recognizes pipeline InvalidInput and library CompileFailure errors
-from their documented domains. Neither backend classifies errors by text.
+fatal. Metal recognizes `CompileFailure` from `MTLLibraryErrorDomain`. Other
+native pipeline failures are fatal. Both backends classify errors by native
+domain and code where available.
 
 Shader source compilation, asset I/O/decoding, validation, stale candidates,
 Pending PSO work, closure and cancellation retain their owning result contracts.

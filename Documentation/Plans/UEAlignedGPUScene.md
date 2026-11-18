@@ -10,11 +10,11 @@ Completed:
 ## Current Status
 
 Stages 0-4 and 6-30 are implemented. Stage 5 is in correctness acceptance.
-The current revision is blocked on native Metal compilation, workspace all-build
-validation, and access to a Vulkan device with an independent compute queue.
-The macOS acceptance scope is native Metal. Performance qualification is outside
-this closeout. See [correctness acceptance](#correctness-acceptance-2026-11-19)
-for the current evidence and blockers.
+The macOS workspace all build and 14 CPU contract targets pass. Native Metal
+scenario and Cook targets compile and run, with correctness failures still open.
+Independent-queue qualification is assigned to Windows. Performance
+qualification is outside this closeout. See
+[correctness acceptance](#correctness-acceptance-2026-11-19) for the receipts.
 
 ## Goal and References
 
@@ -55,7 +55,7 @@ local UE 5.8.2 reference; Durin keeps its explicit RDG resolver and counted owne
 - [x] Publish lasting ownership, update and submission contracts.
 - [ ] Qualify native Metal output parity, growth, teardown/recovery and
   legacy-factory/cooked-product cases.
-- [ ] Qualify GPU Scene on a Vulkan device with an independent compute queue.
+- [ ] Qualify GPU Scene on Windows with an independent Vulkan compute queue.
 
 The exclusive Release workload comparison is deferred outside this correctness
 closeout. Earlier samples remain historical evidence.
@@ -361,6 +361,25 @@ The test reports, Metal attempt logs and Vulkan SDK 1.4.357 topology probe are u
 and `MTL_DEBUG_LAYER=1 ./DevTool test MetalCookedScenePreparationTests --mode qualification --report`.
 The earlier Windows build and GPU tests remain historical evidence. Later shared
 Renderer/RHI changes and Metal/Cook changes require validation of current inputs.
+
+#### macOS corrective rerun
+
+Revalidated on base `69f569075` plus the compile and depth-bias fixes, with the
+same Debug Editor preset and CPython 3.13 SDK. Xcode Metal Toolchain `17F109`
+provides Apple metal `32023.883` via `xcrun --toolchain Metal`. Both Metal
+targets ran with `MTL_DEBUG_LAYER=1` and only native Metal cases. Reports and
+per-case logs are under `Build/Qualification/UEAlignedGPUSceneCloseout/`.
+
+| Selection | Result |
+| --- | --- |
+| `./DevTool build all` | Passed on the final sources. `Build/.agent-state/logs/20261119-005740-697267-72789-cmake.log`. |
+| Renderer, RenderCore and RHI CPU contracts | 14/14 targets passed with `GTEST_DEATH_TEST_STYLE=threadsafe`. `contracts-after-fixes.xml`. |
+| `PythonReflectionIntegrationTests` | 45/46 cases passed. `DiscoveryAndStubsDescribePublishedRuntimeMembers` failed because the packaged CPython runtime could not import `_opcode`. `python-reflection.xml`. |
+| `MetalSceneQualificationTests` | Graph-stage cases fail readback and render-result assertions. Both culling cases hit the Metal graphics shader-parameter assertion. The isolated aliasing and prepared-first-draw cases fail the expected indirect-draw count in both RHI modes. `metal-scene.xml` and per-case reports. |
+| `MetalCookedScenePreparationTests` | Cook and device initialization completed in both RHI modes. Scene resource preparation returned `Failed` before first draw in both modes. `metal-cooked-retry.xml`. |
+
+The Stage 5 Metal gate remains open. The independent physical queue run belongs
+on Windows. No performance acceptance was attempted.
 
 ## Completion Gates
 

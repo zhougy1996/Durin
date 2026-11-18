@@ -22,7 +22,7 @@ namespace Durin
 		AddToRoot(Source);
 		auto CookProgram = [](DMaterialInterface& Material, FMaterialStaticProperties& Properties) -> std::shared_ptr<const FMaterialProgram> {
 			auto Cooked = Material.PrepareCookedProgram(ECookTargetPlatform::MacOS, {});
-			EXPECT_TRUE(Cooked) << Cooked.Diagnostic;
+			EXPECT_TRUE(Cooked) << Cooked.Error;
 			if (!Cooked) return nullptr;
 			auto Read = Cooked->AcquireRead();
 			EXPECT_TRUE(Read);
@@ -49,7 +49,7 @@ namespace Durin
 		RemoveFromRoot(Source); MarkObjectHierarchyAsGarbage(Source); CollectGarbage(Durin::EObjectFlags::Standalone);
 		FByteBuffer Fixed;
 		const auto Built = BuildCookedShaderLibrary(EShaderTargetPlatform::MacOS, EShaderTargetProfile::Game, Fixed);
-		ASSERT_TRUE(Built) << Built.Diagnostic;
+		ASSERT_TRUE(Built) << Built.Error;
 		const auto Root = std::filesystem::absolute(Testing::CreateTestFixtureDirectory("CompilerFreePreparedMetalScene"));
 		std::filesystem::create_directories(Root / "Shaders");
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Fixed, Root / ShaderCookedLibraryRelativePath));

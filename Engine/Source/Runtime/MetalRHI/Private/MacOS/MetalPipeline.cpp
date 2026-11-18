@@ -39,11 +39,11 @@ namespace Durin
 
 	static auto IsMetalPipelineCompilationFailure(const NS::Error* Error) -> bool
 	{
-		if (!Error || !Error->domain()) return false;
-		return (Error->domain()->isEqualToString(MTL::RenderPipelineErrorDomain)
-				&& Error->code() == MTL::RenderPipelineErrorInvalidInput)
-			   || (Error->domain()->isEqualToString(MTL::LibraryErrorDomain)
-				   && Error->code() == MTL::LibraryErrorCompileFailure);
+		const auto* Domain = Error ? Error->domain() : nullptr;
+		// The SDK exports this NSError domain through Objective-C. The pinned metal-cpp
+		// headers provide the library error codes but omit the domain constant.
+		return Domain && Error->code() == MTL::LibraryErrorCompileFailure
+			&& Domain->isEqualToString(NS::String::string("MTLLibraryErrorDomain", NS::UTF8StringEncoding));
 	}
 
 	static auto ToMetalDepthCompare(ERHIDepthCompareOp Op)
