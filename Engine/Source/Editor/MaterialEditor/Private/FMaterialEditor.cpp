@@ -5,12 +5,13 @@
 #include "Misc/UnifiedError.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 #include "FMaterialEditor.h"
+#include "MaterialEditorUI.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialEditingSession.h"
-#include "MaterialEditorFunctionDocument.h"
+#include "MaterialFunctionEditingSession.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraphDocument.h"
 #include "DObject/ObjectLifecycle.h"
@@ -41,92 +42,78 @@
 
 namespace Durin::MaterialEditor
 {
-	auto FMaterialEditor::OpenReferencedMaterialAsset(std::string_view Path, std::string_view ClassName) -> bool
-	{
-		auto* Editors = GetAssetEditorSubsystem();
-		FSoftObjectPath Target;
-		return Editors && IsEditorOpen() && FSoftObjectPath::TryCreate(Path, Target)
-			&& Editors->OpenAssets({.AssetEditors = Editors, .Assets = {{Target, std::string(ClassName)}},
-				.OpenMethod = GetOpenMethod(), .ToolkitMode = GetToolkitMode(), .OpenLocation = GetOpenLocation()});
-	}
-
-	// Reuse document reload admission for function drafts and rebind the base
-	// material helper's retained source in the same atomic replacement.
+	// The legacy host reload participant accounts for its asset root separately.
 	class FMaterialEditorReloadParticipant final : public IObjectReplacementParticipant
 	{
-		struct FBinding
-		{
-			std::string Resource;
-			FMaterialEditingSession* Session;
-			FObjectKey Previous;
-			TStrongObjectPtr<DMaterial> Replacement;
-		};
-		struct FFunctionBinding
-		{
-			std::string Resource;
-			std::weak_ptr<FMaterialEditor::FFunctionDocument> Document;
-			uint64 WorkingRevision;
-		};
 		std::shared_ptr<FMaterialEditor> Owner;
-		std::vector<FBinding> Bindings;
-		std::vector<FFunctionBinding> FunctionBindings;
+		std::shared_ptr<FMaterialEditingSession> MaterialSession;
+		std::shared_ptr<FMaterialFunctionEditingSession> FunctionSession;
+		FObjectKey Previous;
+		TStrongObjectPtr<DMaterial> Replacement;
+		uint64 WorkingRevision = 0;
 		bool bCommitted = false;
 	public:
 		explicit FMaterialEditorReloadParticipant(std::shared_ptr<FMaterialEditor> InOwner) : Owner(std::move(InOwner)) {}
 		auto Prepare(const FObjectReplacementMap& Map) -> std::expected<void, FObjectReplacementError> override
 		{
-			Bindings.clear(); FunctionBindings.clear(); bCommitted = false;
-			const bool bAffected = std::ranges::any_of(Owner->OpenMaterials,
-				[&](const auto& Entry) { return Map.Find(Entry.second.Get()) != nullptr; })
-				|| std::ranges::any_of(Owner->FunctionDocuments,
-					[&](const auto& Entry) { return Map.Find(Entry.second->GetSource()) != nullptr; });
-			if (bAffected && !Owner->RequestDeactivate())
+			Abort();
+			bCommitted = false;
+			const auto Function = Owner->FunctionSession;
+			const auto Material = Owner->EditingSession;
+			auto* Source = Function ? static_cast<DObject*>(Function->GetSource())
+				: Material ? Material->GetSourceMaterial() : nullptr;
+			const auto* Entry = Map.Find(Source);
+			if (!Entry) return {};
+			if (!Owner->RequestDeactivate() || !Owner->IsEditorOpen()
+				|| Material != Owner->EditingSession || Function != Owner->FunctionSession)
 				return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
-			for (const auto& [Resource, Document] : Owner->FunctionDocuments)
-				if (Map.Find(Document->GetSource()))
-				{
-					if (Document->bPublishing || Document->IsDirty())
-						return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
-					FunctionBindings.push_back({Resource, Document, Document->WorkingPackage->GetEditRevision()});
-				}
-			for (const auto& [Resource, Session] : Owner->EditingSessions)
-				if (const auto* Entry = Map.Find(Session->Source.Get()))
-				{
-					auto* Material = Cast<DMaterial>(Entry->Replacement);
-					if (!Material) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
-					Bindings.push_back({Resource, Session.get(), FObjectKey(Entry->Previous), TStrongObjectPtr<DMaterial>(Material)});
-				}
+			Previous = FObjectKey(Entry->Previous);
+			if (Function)
+			{
+				if (Function->bPublishing || Function->IsDirty())
+					return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::Busy});
+				FunctionSession = Function;
+				WorkingRevision = Function->WorkingPackage->GetEditRevision();
+			}
+			if (Material)
+			{
+				Replacement = Cast<DMaterial>(Entry->Replacement);
+				if (!Replacement) return std::unexpected(FObjectReplacementError{.Code = EObjectReplacementError::UnmappedReference});
+				MaterialSession = Material;
+				WorkingRevision = Material->WorkingPackage->GetEditRevision();
+			}
 			return {};
 		}
 		auto Validate() const -> bool override
 		{
 			return Owner->IsEditorOpen()
-				&& std::ranges::all_of(FunctionBindings, [&](const auto& Binding) {
-					const auto Document = Binding.Document.lock();
-					const auto Current = Owner->FunctionDocuments.find(Binding.Resource);
-					return Document && Current != Owner->FunctionDocuments.end() && Current->second == Document
-						&& !Document->bPublishing && !Document->IsDirty()
-						&& Document->WorkingPackage->GetEditRevision() == Binding.WorkingRevision;
-				})
-				&& std::ranges::all_of(Bindings, [&](const auto& Binding) {
-				const auto Session = Owner->EditingSessions.find(Binding.Resource);
-				return Session != Owner->EditingSessions.end() && Session->second.get() == Binding.Session
-					&& FObjectKey(Binding.Session->Source.Get()) == Binding.Previous;
-			});
+				&& (!FunctionSession || (Owner->FunctionSession == FunctionSession
+					&& FObjectKey(FunctionSession->GetSource()) == Previous
+					&& !FunctionSession->bPublishing && !FunctionSession->IsDirty()
+					&& FunctionSession->WorkingPackage->GetEditRevision() == WorkingRevision))
+				&& (!MaterialSession || (Owner->EditingSession == MaterialSession
+					&& FObjectKey(MaterialSession->GetSourceMaterial()) == Previous
+					&& MaterialSession->WorkingPackage->GetEditRevision() == WorkingRevision));
 		}
 		auto CoversNativeReferences(const DObject&) const -> bool override { return false; }
 		auto GetStrongReferenceCount(const DObject& Object) const -> uint32 override
-		{ return static_cast<uint32>(std::ranges::count(Bindings, FObjectKey(&Object), &FBinding::Previous)); }
+		{ return MaterialSession && FObjectKey(&Object) == Previous ? 1 : 0; }
 		auto Commit() noexcept -> void override
 		{
-			for (auto& Binding : Bindings)
+			if (MaterialSession)
 			{
-				Binding.Session->Source = std::move(Binding.Replacement);
-				Binding.Session->SourceRevision = Binding.Session->Source->GetPackage()->GetEditRevision();
+				MaterialSession->Source = std::move(Replacement);
+				MaterialSession->SourceRevision = MaterialSession->Source->GetPackage()->GetEditRevision();
 			}
 			bCommitted = true;
 		}
-		auto Abort() noexcept -> void override { Bindings.clear(); FunctionBindings.clear(); }
+		auto Abort() noexcept -> void override
+		{
+			MaterialSession.reset();
+			FunctionSession.reset();
+			Replacement.Reset();
+			Previous = {};
+		}
 		auto CanRetire() const -> bool override { return bCommitted; }
 	};
 	auto FMaterialEditor::CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant>
@@ -135,229 +122,9 @@ namespace Durin::MaterialEditor
 		return Owner ? std::make_shared<FMaterialEditorReloadParticipant>(Owner) : nullptr;
 	}
 
-	namespace
-	{
-		constexpr float MaximumMaterialVectorWidthInEm = 30.0f;
-
-		struct FMaterialParameterGroup
-		{
-			std::string Label;
-			std::string Path;
-			std::vector<size_t> EntryIndices;
-			std::vector<FMaterialParameterGroup> Children;
-		};
-
-		auto FindOrAddGroup(
-			FMaterialParameterGroup& Parent,
-			std::string_view Label,
-			std::string Path
-		) -> FMaterialParameterGroup&
-		{
-			const auto Existing = std::ranges::find(Parent.Children, Path, &FMaterialParameterGroup::Path);
-			if (Existing != Parent.Children.end()) return *Existing;
-			return Parent.Children.emplace_back(std::string(Label), std::move(Path));
-		}
-
-		auto AddParameterToGroupTree(
-			FMaterialParameterGroup& Root,
-			const FMaterialParameterPanelEntry& Entry,
-			size_t EntryIndex
-		) -> void
-		{
-			if (!Entry.Definition || Entry.Definition->GroupName.IsNone())
-			{
-				Root.EntryIndices.push_back(EntryIndex);
-				return;
-			}
-
-			const std::string GroupName = Entry.Definition->GroupName.ToString();
-			FMaterialParameterGroup* Group = &Root;
-			std::string Path;
-			for (size_t Begin = 0; Begin < GroupName.size();)
-			{
-				const size_t End = GroupName.find('/', Begin);
-				const std::string_view Label(GroupName.data() + Begin,
-					(End == std::string::npos ? GroupName.size() : End) - Begin);
-				if (!Label.empty())
-				{
-					if (!Path.empty()) Path += '/';
-					Path += Label;
-					Group = &FindOrAddGroup(*Group, Label, Path);
-				}
-				if (End == std::string::npos) break;
-				Begin = End + 1;
-			}
-			Group->EntryIndices.push_back(EntryIndex);
-		}
-
-		auto FormatParameterSource(const FMaterialParameterPanelEntry& Entry) -> std::string
-		{
-			if (Entry.bHasLocalOverride) return "Local override";
-			if (!Entry.Source) return "Unresolved";
-			return std::format("Inherited from {}", Entry.Source->GetName());
-		}
-
-		auto MakeMaterialPropertyTableConfig() -> MonaImGui::PropertyEdit::FTableConfig
-		{
-			return DetailsStyle::MakeTableConfig();
-		}
-
-		auto FindCompiledBase(DMaterialInterface* Material) -> DMaterial*
-		{
-			std::unordered_set<DMaterialInterface*> Visited;
-			for (DMaterialInterface* Current = Material;
-				Current && Visited.insert(Current).second;
-				Current = Current->GetParent())
-				if (auto* Base = Cast<DMaterial>(Current)) return Base;
-			return nullptr;
-		}
-
-		auto FormatCompileState(const FMaterialCompileStatus& Status) -> const char*
-		{
-			if (Status.HasScheduledEdits()) return "Waiting for edits to finish";
-			if (Status.HasUnsubmittedEdits()) return "Needs compile";
-			switch (Status.State)
-			{
-			case EMaterialCompileState::NeverRequested: return "Not compiled";
-			case EMaterialCompileState::Running: return "Compiling";
-			case EMaterialCompileState::Ready: return "Ready";
-			case EMaterialCompileState::Failed: return "Failed";
-			case EMaterialCompileState::Canceled: return "Canceled";
-			}
-			return "Unknown";
-		}
-
-
-	}
-
-	class FMaterialParameterPanelCache
-	{
-	public:
-		auto Synchronize(DMaterialInterface* Material) -> const FMaterialParameterPanelModel&
-		{
-			if (Model && Model->GetMaterial() == Material && !Model->NeedsRefresh()) return *Model;
-
-			if (!Model || Model->GetMaterial() != Material)
-				Model = std::make_unique<FMaterialParameterPanelModel>(Material);
-			else
-				Model->Refresh();
-			std::vector<FSchemaNode> CurrentSchema;
-			const std::span Entries = Model->GetEntries();
-			CurrentSchema.reserve(Entries.size());
-			for (const FMaterialParameterPanelEntry& Entry : Entries)
-			{
-				CurrentSchema.push_back({
-					.ParameterId = Entry.ParameterId,
-					.GroupPath = Entry.Definition
-						? Entry.Definition->GroupName.ToString() : std::string{},
-					.bOrphan = Entry.bOrphan,
-				});
-			}
-			if (CurrentSchema != Schema)
-			{
-				Schema = std::move(CurrentSchema);
-				Root = {};
-				for (size_t Index = 0; Index < Entries.size(); ++Index)
-				{
-					AddParameterToGroupTree(Root, Entries[Index], Index);
-				}
-			}
-			return *Model;
-		}
-
-		auto GetRoot() const -> const FMaterialParameterGroup& { return Root; }
-
-	private:
-		struct FSchemaNode
-		{
-			FGuid ParameterId;
-			std::string GroupPath;
-			bool bOrphan = false;
-
-			auto operator==(const FSchemaNode&) const -> bool = default;
-		};
-
-		std::vector<FSchemaNode> Schema;
-		std::unique_ptr<FMaterialParameterPanelModel> Model;
-		FMaterialParameterGroup Root;
-	};
-
-	class FMaterialEditor::FMaterialParameterRowScope
-	{
-	public:
-		FMaterialParameterRowScope(
-			FMaterialEditor& InEditor,
-			const FMaterialParameterPanelModel& InModel,
-			const FMaterialParameterPanelEntry& InEntry
-		)
-			: Editor(InEditor)
-			, Model(InModel)
-			, Entry(InEntry)
-			, Instance(InModel.GetInstance())
-			, bOverrideEnabled(!Instance || Entry.bHasLocalOverride)
-		{
-			const FMaterialParameterDefinition& Definition = *Entry.Definition;
-			const std::string ParameterName = Definition.Name.ToString();
-			ImGui::PushID(ParameterName.c_str());
-			MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
-			if (Instance)
-			{
-				if (ImGui::Checkbox("##Override", &bOverrideEnabled)
-					&& !Model.SetOverrideEnabled(Editor.PropertyView,
-						Editor.MakePropertyViewContext(), Entry, bOverrideEnabled))
-					bOverrideEnabled = !bOverrideEnabled;
-				ImGui::SameLine();
-				if (bOverrideEnabled && ImGui::SmallButton("Reset")
-					&& Model.SetOverrideEnabled(Editor.PropertyView,
-						Editor.MakePropertyViewContext(), Entry, false))
-					bOverrideEnabled = false;
-			}
-			if (!bOverrideEnabled)
-			{
-				ImGui::BeginDisabled();
-				bDisabled = true;
-			}
-		}
-
-		~FMaterialParameterRowScope()
-		{
-			if (bDisabled) ImGui::EndDisabled();
-			if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
-			MonaImGui::PropertyEdit::EndRow();
-			ImGui::PopID();
-		}
-
-		auto SubmitContinuousEdit(bool bChanged, const FMaterialParameterValue& Value,
-			bool bDeactivatedAfterEdit, bool bActive) -> void
-		{
-			const auto Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(
-				ImGui::GetID("##ParameterInteraction"), {bActive, bDeactivatedAfterEdit});
-			if (bOverrideEnabled)
-				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Interaction, bChanged ? &Value : nullptr);
-		}
-
-		auto SubmitColorEdit(bool bChanged, const FMaterialParameterValue& Value,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState& Picker) -> void
-		{
-			if (bOverrideEnabled)
-				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Picker, bChanged ? &Value : nullptr);
-		}
-
-		auto IsReadOnly() const -> bool { return bDisabled; }
-
-	private:
-		FMaterialEditor& Editor;
-		const FMaterialParameterPanelModel& Model;
-		const FMaterialParameterPanelEntry& Entry;
-		DMaterialInstance* Instance = nullptr;
-		bool bOverrideEnabled = false;
-		bool bDisabled = false;
-	};
-
 	FMaterialEditor::FMaterialEditor(
 		FEditorDocumentManager& InDocumentManager, EMaterialEditorMode InMode)
 		: Mode(InMode), DocumentManager(InDocumentManager)
-		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
 		, ProfileSettings(InMode == EMaterialEditorMode::Function
 			? std::make_unique<FMaterialEditorProfileSettings>("MaterialFunctionPreferences.yaml")
 			: std::make_unique<FMaterialEditorProfileSettings>())
@@ -368,15 +135,13 @@ namespace Durin::MaterialEditor
 
 	FMaterialEditor::~FMaterialEditor()
 	{
-		SaveFunctionViewports();
+		SaveFunctionViewport();
 		UnregisterFunctionUndo();
-		ReleaseFunctionDocuments();
+		ReleaseFunctionSession();
 		SettingsPage = {};
 		FinishActivePropertyEdit(true);
 		ProfileSettings->Save();
-		MaterialPreviews.clear();
-		MaterialGraphCanvases.clear();
-		EditingSessions.clear();
+		ReleaseMaterialSession();
 	}
 
 	auto FMaterialEditor::GetToolkitId() const -> const FAssetEditorToolkitId&
@@ -387,207 +152,152 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::OpenDocument(const FEditorDocument& Document) -> EDocumentOpenResult
 	{
 		if (Mode == EMaterialEditorMode::Function) return OpenFunctionDocument(Document);
-		std::optional<Durin::UnifiedError::FError> ResultError;
-		if (Document.ResourceId.empty()) return EDocumentOpenResult::Rejected;
-		if (FindOpenMaterial(Document.ResourceId)) return EDocumentOpenResult::Opened;
-		FSoftObjectPath AssetPath;
-		std::string PathError;
-		if (const auto PathValidation = FSoftObjectPath::TryCreateWithDiagnostic(Document.ResourceId, AssetPath); !PathValidation)
+		if (EditingSession)
 		{
-			PathError = ToString(PathValidation.error());
-			SetError(std::move(PathError));
+			const auto* Current = EditingSession->GetSourceMaterial();
+			return Current && Current->GetObjectPath() == Document.ResourceId
+				? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
+		}
+		std::optional<UnifiedError::FError> Error;
+		FSoftObjectPath Path;
+		if (!FSoftObjectPath::TryCreate(Document.ResourceId, Path)) return EDocumentOpenResult::Rejected;
+		auto* Source = LoadObject<DMaterial>(Path, nullptr, &Error);
+		if (!Source)
+		{
+			SetError(Error ? Error->ToString() : "The selected asset is not a material.");
 			return EDocumentOpenResult::Rejected;
 		}
-		DMaterialInterface* Material = nullptr;
-		const auto Result = LoadObject<DMaterialInterface>(AssetPath, nullptr, &ResultError);
-		Material = Result;
-		if (!Result || !Material)
-		{
-			SetError(ResultError ? ResultError->ToString() : "The selected asset is not a material.");
-			return EDocumentOpenResult::Rejected;
-		}
-		OpenMaterials.emplace(Document.ResourceId, Material);
-		if (!ResetEditingSession(Document.ResourceId))
-		{
-			OpenMaterials.erase(Document.ResourceId);
-			return EDocumentOpenResult::Rejected;
-		}
-		return EDocumentOpenResult::Opened;
+		return ResetEditingSession(*Source) ? EDocumentOpenResult::Opened : EDocumentOpenResult::Rejected;
 	}
 
 	auto FMaterialEditor::ActivateDocument(const FEditorDocument& Document) -> void
 	{
-		if (Mode == EMaterialEditorMode::Function && !RequestDeactivate()) return;
-		DObject* Material = Mode == EMaterialEditorMode::Function
-			? static_cast<DObject*>(FindOpenFunction(Document.ResourceId)) : FindOpenMaterial(Document.ResourceId);
-		if (const FEditorDocument* Active = DocumentManager.GetActiveDocument();
-			Active && Active->Id != Document.Id && !CancelCanvasInteraction(Active->Id.Value)) return;
-		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
-		Documents.Activate(Document, Material);
+		DObject* EditingObject = Mode == EMaterialEditorMode::Function
+			? static_cast<DObject*>(FunctionSession ? FunctionSession->Function() : nullptr) : GetActiveMaterial();
+		Documents.Activate(Document, EditingObject);
 	}
 
 	auto FMaterialEditor::RequestDeactivate() -> bool
 	{
 		if (Mode == EMaterialEditorMode::Function) return CancelFunctionInteractions();
-		for (auto& [Id, Canvas] : MaterialGraphCanvases)
-			if (!Canvas->CancelInteraction()) return false;
-		return FinishActivePropertyEdit(true);
+		return CancelCanvasInteraction() && FinishActivePropertyEdit(true);
 	}
 
 	auto FMaterialEditor::RequestCloseDocument(const FEditorDocument& Document) -> EDocumentCloseResult
 	{
-		if (Mode == EMaterialEditorMode::Function)
-		{
-			if (IsFunctionPublishing(Document.ResourceId)) return EDocumentCloseResult::Rejected;
-			if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
-			if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
-			CloseFunctionDocument(Document);
-			Documents.Close(Document.ResourceId);
-			return EDocumentCloseResult::Closed;
-		}
-		if (!CancelCanvasInteraction(Document.Id.Value)) return EDocumentCloseResult::Rejected;
-		const auto SessionIt = EditingSessions.find(Document.ResourceId);
-		auto* EditingMaterial = SessionIt == EditingSessions.end()
-			? FindOpenMaterial(Document.ResourceId) : SessionIt->second->GetWorkingMaterial();
-		if (PropertyView.IsEditingObject(EditingMaterial) && !FinishActivePropertyEdit(true))
-			return EDocumentCloseResult::Rejected;
+		if (!RequestDeactivate()) return EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return EDocumentCloseResult::PendingConfirmation;
-		CaptureCanvasViewport(Document);
+		CaptureCanvasViewport();
+		if (FunctionSession) SaveFunctionViewport();
+		ReleaseFunctionSession();
+		ReleaseMaterialSession();
 		ProfileSettings->Save();
-		OpenMaterials.erase(Document.ResourceId);
-		MaterialPreviews.erase(Document.Id.Value);
-		MaterialGraphCanvases.erase(Document.Id.Value);
-		ParameterSearchTexts.erase(Document.Id.Value);
-		EditingSessions.erase(Document.ResourceId);
-		PendingLayoutResets.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
 		return EDocumentCloseResult::Closed;
 	}
 
-	auto FMaterialEditor::OnSaveDocument(const FEditorDocument& Document) -> bool
+	auto FMaterialEditor::OnSaveDocument(const FEditorDocument&) -> bool
 	{
-		if (Mode == EMaterialEditorMode::Function) return SaveFunction(FindOpenFunction(Document.ResourceId));
-		return SaveMaterial(FindOpenMaterial(Document.ResourceId));
+		return OnSaveActiveDocument();
 	}
 
-	auto FMaterialEditor::OnDiscardDocument(const FEditorDocument& Document) -> bool
+	auto FMaterialEditor::OnDiscardDocument(const FEditorDocument&) -> bool
 	{
-		if (Mode == EMaterialEditorMode::Function) return DiscardFunctionDocument(Document);
-		if (!CancelCanvasInteraction(Document.Id.Value)) return false;
-		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		if (!Material) return false;
-		if (!FinishActivePropertyEdit(true)) return false;
-		if (auto* Session = FindEditingSession(Material))
+		if (!RequestDeactivate()) return false;
+		if (Mode == EMaterialEditorMode::Function)
 		{
-			Session->CancelApply();
-			Material = Session->GetSourceMaterial();
-			if (!Material) return false;
-			if (!Material->GetPackage()->IsDirty())
-			{
-				CaptureCanvasViewport(Document);
-				MaterialPreviews.erase(Document.Id.Value);
-				MaterialGraphCanvases.erase(Document.Id.Value);
-				return ResetEditingSession(Document.ResourceId);
-			}
+			auto* Source = FunctionSession ? FunctionSession->GetSource() : nullptr;
+			if (!Source || !ResetFunctionSession(*Source)) return false;
+			if (const auto* Active = DocumentManager.GetActiveDocument()) ActivateDocument(*Active);
+			return true;
 		}
-		return Documents.Discard(Material, {},
+		const auto Session = EditingSession;
+		auto* Source = Session ? Session->GetSourceMaterial() : nullptr;
+		if (!Source) return false;
+		Session->CancelApply();
+		if (!Source->GetPackage()->IsDirty())
+		{
+			if (!ResetEditingSession(*Source)) return false;
+			if (const auto* Active = DocumentManager.GetActiveDocument()) ActivateDocument(*Active);
+			return true;
+		}
+		return Documents.Discard(Source, {},
 			[this](DPackage* Previous, DPackage* Replacement) {
 				DocumentManager.NotifyPackageReloaded(Previous, Replacement);
 			}, [this](std::string Message) { SetError(std::move(Message)); }, &DocumentManager);
 	}
 
-	auto FMaterialEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
+	auto FMaterialEditor::OnPackageReloaded(DPackage*, DPackage* Replacement) -> void
 	{
-		if (Mode == EMaterialEditorMode::Function) { RebindFunctionDocuments(Previous, Replacement); return; }
-		if (!RequestDeactivate()) return;
-		std::unordered_set<std::string> ReboundResources;
-		for (auto& [ResourceId, Open] : OpenMaterials)
-			if (Open.Get() && Open->GetPackage() == Previous)
-			{
-				Open = Cast<DMaterialInterface>(Replacement->FindTopLevelAsset(Open->GetFName()));
-				ReboundResources.insert(ResourceId);
-			}
-		if (ReboundResources.contains(std::string(Documents.GetActiveResourceId())))
-			MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
-		for (const auto& Document : DocumentManager.GetDocuments())
-			if (Document.ToolkitId == Workspace::Type
-				&& ReboundResources.contains(Document.ResourceId))
-			{
-				CancelCanvasInteraction(Document.Id.Value);
-				CaptureCanvasViewport(Document);
-				MaterialPreviews.erase(Document.Id.Value);
-				MaterialGraphCanvases.erase(Document.Id.Value);
-				ResetEditingSession(Document.ResourceId);
-			}
+		const auto* Active = DocumentManager.GetActiveDocument();
+		FSoftObjectPath Path;
+		if (!Active || !FSoftObjectPath::TryCreate(Active->ResourceId, Path)
+			|| Path.GetPackagePath() != Replacement->GetPackagePathIdentity() || !RequestDeactivate()) return;
+		const auto Document = *Active;
+		auto* Object = Replacement->FindTopLevelAsset(Path.GetAssetPath().GetAssetName());
+		if (Mode == EMaterialEditorMode::Function)
+		{
+			auto* Function = Cast<DMaterialFunction>(Object);
+			if (!Function || !ResetFunctionSession(*Function)) return;
+		}
+		else
+		{
+			auto* Material = Cast<DMaterial>(Object);
+			if (!Material || !ResetEditingSession(*Material)) return;
+		}
+		ActivateDocument(Document);
 	}
 
-	auto FMaterialEditor::OnIsDocumentDirty(const FEditorDocument& Document) const -> bool
+	auto FMaterialEditor::OnIsDocumentDirty(const FEditorDocument&) const -> bool
 	{
-		if (Mode == EMaterialEditorMode::Function) return IsFunctionDocumentDirty(Document.ResourceId);
-		const auto* Material = FindOpenMaterial(Document.ResourceId);
-		if (const auto* Session = FindEditingSession(Material))
-			return Session->HasUnappliedChanges() || Documents.IsDirty(Session->GetSourceMaterial());
-		return Documents.IsDirty(Material);
+		if (Mode == EMaterialEditorMode::Function) return FunctionSession && FunctionSession->IsDirty();
+		return EditingSession && EditingSession->GetSourceMaterial()
+			&& (EditingSession->HasUnappliedChanges() || Documents.IsDirty(EditingSession->GetSourceMaterial()));
 	}
 
 	auto FMaterialEditor::OnCanSaveActiveDocument() const -> bool
 	{
-		if (Mode == EMaterialEditorMode::Function) return Documents.CanSave(FindOpenFunction(Documents.GetActiveResourceId()));
-		return Documents.CanSave(GetActiveMaterial());
+		return Documents.CanSave(Mode == EMaterialEditorMode::Function
+			? static_cast<DObject*>(FunctionSession ? FunctionSession->GetSource() : nullptr)
+			: EditingSession ? EditingSession->GetSourceMaterial() : nullptr);
 	}
 
 	auto FMaterialEditor::OnSaveActiveDocument() -> bool
 	{
-		if (Mode == EMaterialEditorMode::Function) return SaveFunction(FindOpenFunction(Documents.GetActiveResourceId()));
-		return SaveMaterial(GetActiveMaterial());
+		return Mode == EMaterialEditorMode::Function ? SaveFunction() : SaveMaterial();
 	}
 
 	auto FMaterialEditor::OnDrawToolkit(bool bActive) -> bool
 	{
-		if (Mode == EMaterialEditorMode::Function) return DrawFunctionDocuments(bActive);
-		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		if (!bActive)
-			for (auto& [Id, Canvas] : MaterialGraphCanvases) Canvas->CancelInteraction();
-		for (auto& [ResourceId, Session] : EditingSessions)
+		if (Mode == EMaterialEditorMode::Function) return DrawFunction(bActive);
+		if (!bActive) RequestDeactivate();
+		const auto Session = EditingSession;
+		if (Session && !IsValid(Session->GetSourceMaterial()))
+		{
+			CloseWindow(EAssetEditorCloseReason::AssetUnloadingOrInvalid);
+			return false;
+		}
+		if (Session)
 		{
 			std::string Error;
 			Session->Tick(Error);
 			if (!Error.empty()) SetError(std::move(Error));
 		}
-		std::vector<FDocumentId> DeletedDocuments;
-		for (const FEditorDocument& Document : DocumentManager.GetDocuments())
-		{
-			if (Document.ToolkitId != Workspace::Type) continue;
-			const auto It = OpenMaterials.find(Document.ResourceId);
-			if (It != OpenMaterials.end() && !It->second.IsValid())
-				DeletedDocuments.push_back(Document.Id);
-		}
-		for (const FDocumentId Id : DeletedDocuments)
-			DocumentManager.RequestCloseDocument(Id);
+		if (!IsEditorOpen() || !Session || Session != EditingSession || !GetActiveMaterial()) return false;
 		return Documents.GetTabManager().DrawDocuments(
-			DocumentManager,
-			Workspace::Type,
-			GetPresentationRootKey(Workspace::RootKey),
-			[this](const FEditorDocument& Document) {
-				return FindOpenMaterial(Document.ResourceId) != nullptr;
-			},
-			[this](const FEditorDocument& Document) {
-				DrawDocument(Document, FindOpenMaterial(Document.ResourceId));
-			},
-			[this](const FEditorDocument& Document, bool bVisible) {
-				if (!bVisible)
-				{
-					CancelCanvasInteraction(Document.Id.Value);
-					if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
-						PreviewIt->second->SetVisible(false);
-					const auto DockType = Workspace::MakeDocumentDockType(Document);
-					if (ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(
-						DockType, Workspace::LayoutVersion)))
-						TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion,
-							{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
-				}
-			}
-		);
+			DocumentManager, Workspace::Type, GetPresentationRootKey(Workspace::RootKey),
+			[&](const FEditorDocument&) { return Session == EditingSession && Session->GetWorkingMaterial(); },
+			[&](const FEditorDocument& Document) { DrawDocument(Document, GetActiveMaterial()); },
+			[&](const FEditorDocument& Document, bool bVisible) {
+				if (bVisible) return;
+				CancelCanvasInteraction();
+				const auto Preview = Session->Preview;
+				if (Preview) Preview->SetVisible(false);
+				const auto DockType = Workspace::MakeDocumentDockType(Document);
+				if (ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Workspace::LayoutVersion)))
+					TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion,
+						{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
+			});
 	}
 
 	auto FMaterialEditor::ResetLayout() -> void
@@ -597,66 +307,49 @@ namespace Durin::MaterialEditor
 		ProfileSettings->bDetailsVisible = true;
 		ProfileSettings->bParametersVisible = true;
 		ProfileSettings->bDiagnosticsVisible = false;
-		for (const auto& Document : DocumentManager.GetDocuments())
-			if (Document.ToolkitId == Workspace::Type)
-				PendingLayoutResets.insert(Document.Id.Value);
+		bPendingLayoutReset = true;
 	}
 
-	auto FMaterialEditor::FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*
+	auto FMaterialEditor::ResetEditingSession(DMaterial& Source) -> bool
 	{
-		const auto It = OpenMaterials.find(std::string(ResourceId));
-		if (It == OpenMaterials.end() || !It->second.IsValid()) return nullptr;
-		const auto Session = EditingSessions.find(std::string(ResourceId));
-		return Session == EditingSessions.end() ? It->second.Get()
-			: Session->second->GetWorkingMaterial();
-	}
-
-	auto FMaterialEditor::FindEditingSession(const DMaterialInterface* Working) const
-		-> FMaterialEditingSession*
-	{
-		if (!Working) return nullptr;
-		for (const auto& [ResourceId, Session] : EditingSessions)
-			if (Session->GetWorkingMaterial() == Working) return Session.get();
-		return nullptr;
-	}
-
-	auto FMaterialEditor::ResetEditingSession(std::string_view ResourceId) -> bool
-	{
-		for (const auto& Document : DocumentManager.GetDocuments())
-			if (Document.ResourceId == ResourceId && !CancelCanvasInteraction(Document.Id.Value)) return false;
-		if (PropertyView.IsEditingObject(FindOpenMaterial(ResourceId)) && !FinishActivePropertyEdit(true)) return false;
-		const std::string Key(ResourceId);
-		EditingSessions.erase(Key);
-		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
-		const auto It = OpenMaterials.find(Key);
-		if (It == OpenMaterials.end()) return false;
-		auto* Source = Cast<DMaterial>(It->second.Get());
-		if (!Source) return true;
-		auto Session = std::make_unique<FMaterialEditingSession>();
+		const auto Previous = EditingSession;
+		if (!RequestDeactivate() || Previous != EditingSession) return false;
+		CaptureCanvasViewport();
+		auto Session = std::make_shared<FMaterialEditingSession>();
 		std::string Error;
-		if (!Session->Initialize(*Source, ProfileSettings->bAutoCompile
+		if (!Session->Initialize(Source, ProfileSettings->bAutoCompile
 			? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual, Error,
 			Documents.GetEditor() ? Documents.GetEditor()->GetTransactor() : nullptr))
 		{
 			SetError(std::move(Error));
-			It->second = nullptr;
 			return false;
 		}
-		EditingSessions.emplace(Key, std::move(Session));
+		if (Previous != EditingSession || IsClosed()) return false;
+		ReleaseMaterialSession();
+		EditingSession = std::move(Session);
 		return true;
+	}
+
+	auto FMaterialEditor::ReleaseMaterialSession() -> void
+	{
+		if (auto Session = std::exchange(EditingSession, {}))
+		{
+			Session->CancelApply();
+			if (Session->Preview) Session->Preview->SetVisible(false);
+		}
 	}
 
 	auto FMaterialEditor::GetActiveMaterial() const -> DMaterialInterface*
 	{
-		return FindOpenMaterial(Documents.GetActiveResourceId());
+		return EditingSession ? EditingSession->GetWorkingMaterial() : nullptr;
 	}
 
-	auto FMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
+	auto FMaterialEditor::SaveMaterial() -> bool
 	{
-		for (const auto& Document : DocumentManager.GetDocuments())
-			if (FindOpenMaterial(Document.ResourceId) == Material && !CancelCanvasInteraction(Document.Id.Value)) return false;
-		if (!FinishActivePropertyEdit(false)) return false;
-		auto* Session = FindEditingSession(Material);
+		const auto Session = EditingSession;
+		if (!CancelCanvasInteraction() || !FinishActivePropertyEdit(false)
+			|| !IsEditorOpen() || EditingSession != Session) return false;
+		auto* Source = Session ? Session->GetSourceMaterial() : nullptr;
 		if (Session)
 		{
 			std::string Error;
@@ -665,12 +358,10 @@ namespace Durin::MaterialEditor
 				SetError(std::move(Error));
 				return false;
 			}
-			Material = Session->GetSourceMaterial();
+			if (!IsEditorOpen() || EditingSession != Session || Session->GetSourceMaterial() != Source) return false;
 		}
-		if (!Documents.Save(Material, {}, [this](std::string Message) {
-			SetError(std::move(Message));
-		})) return false;
-		if (Session) Session->MarkSaved();
+		if (!Documents.Save(Source, {}, [this](std::string Message) { SetError(std::move(Message)); })) return false;
+		if (Session && EditingSession == Session) Session->MarkSaved();
 		return true;
 	}
 
@@ -712,13 +403,15 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::DrawDocument(const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
+		const auto Session = EditingSession;
 		DrawToolbar(Material);
+		if (!IsEditorOpen() || EditingSession != Session) return;
 		ImGui::Spacing();
 
 		DrawDockLayout(Document, Material);
+		if (!IsEditorOpen() || EditingSession != Session) return;
 		PropertyView.EndInteractionFrame(MakePropertyViewContext());
-		if (const auto Canvas = MaterialGraphCanvases.find(Document.Id.Value); Canvas != MaterialGraphCanvases.end())
-			Canvas->second->EndParameterFrame();
+		if (Session && Session->Canvas && EditingSession == Session) Session->Canvas->EndParameterFrame();
 
 		if (Documents.GetActiveResourceId() != Document.ResourceId) return;
 		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);
@@ -726,21 +419,21 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialEditor::DrawToolbar(DMaterialInterface* Material) -> void
 	{
-		if (ImGui::Button("Save")) SaveMaterial(Material);
+		if (ImGui::Button("Save")) SaveMaterial();
+		if (!IsEditorOpen()) return;
 		ImGui::SameLine();
 		if (Material)
 		{
 			if (auto* Base = Cast<DMaterial>(Material))
 			{
-				auto* Session = FindEditingSession(Material);
+				const auto Session = EditingSession;
 				if (Session)
 				{
 					ImGui::BeginDisabled(!Session->HasUnappliedChanges() || Session->IsApplyPending());
 					if (ImGui::Button(Session->IsApplyPending() ? "Applying..." : "Apply")
 						&& FinishActivePropertyEdit(false))
 					{
-						const auto* Active = DocumentManager.GetActiveDocument();
-						if (!Active || CancelCanvasInteraction(Active->Id.Value))
+						if (CancelCanvasInteraction() && IsEditorOpen() && EditingSession == Session)
 						{
 							std::string Error;
 							if (!Session->RequestApply(Error)) SetError(std::move(Error));
@@ -757,7 +450,6 @@ namespace Durin::MaterialEditor
 					ImGui::TextDisabled("Unapplied changes");
 				}
 			}
-			else if (ImGui::Button("Compile")) RequestMaterialRecompile(*Material);
 			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
 			const bool bPending = Material->IsCompiling() || Status.HasScheduledEdits();
 			if (bPending)
@@ -765,7 +457,7 @@ namespace Durin::MaterialEditor
 				ImGui::SameLine();
 				if (ImGui::Button("Cancel Compile"))
 				{
-					if (auto* Session = FindEditingSession(Material)) Session->CancelApply();
+					if (const auto Session = EditingSession) Session->CancelApply();
 					FObjectCacheContext Context;
 				for (auto* Owner : Context.GetMaterialsAffectedByMaterial(Material))
 						if (IsValid(Owner))
@@ -773,12 +465,12 @@ namespace Durin::MaterialEditor
 				}
 			}
 			ImGui::SameLine();
-			auto* EditingSession = FindEditingSession(Material);
-			ImGui::TextDisabled("%s: %s%s", EditingSession ? "Preview" : "Compile", FormatCompileState(Status),
+			const auto Session = EditingSession;
+			ImGui::TextDisabled("%s: %s%s", Session ? "Preview" : "Compile", FormatCompileState(Status),
 				(Material->GetAcceptedCompiledProgram() && !Status.IsCurrent()) ? " (showing last known good)" : "");
-			if (EditingSession && EditingSession->GetSourceMaterial())
+			if (Session && Session->GetSourceMaterial())
 			{
-				const auto& SourceStatus = EditingSession->GetSourceMaterial()->GetMaterialCompileStatus();
+				const auto& SourceStatus = Session->GetSourceMaterial()->GetMaterialCompileStatus();
 				if (!SourceStatus.IsCurrent())
 				{
 					ImGui::SameLine();
@@ -806,90 +498,78 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::DrawDockLayout(
 		const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
+		const auto Session = EditingSession;
+		const auto IsCurrent = [&] { return IsEditorOpen() && EditingSession == Session; };
 		const auto DockType = Workspace::MakeDocumentDockType(Document);
 		static constexpr std::string_view PanelIds[]{"Graph", "Preview", "Details", "Parameters", "Diagnostics"};
 		RestoreDockLayout("Document", DockType, Workspace::LayoutVersion, PanelIds);
 		const ImGuiID DockSpaceId = TabLayout::MakeDockSpaceId(DockType, Workspace::LayoutVersion);
 		const ImVec2 Size = ImGui::GetContentRegionAvail();
 		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
-		const bool bReset = PendingLayoutResets.erase(Document.Id.Value) != 0;
+		const bool bReset = std::exchange(bPendingLayoutReset, false);
 		if (!ImGui::DockBuilderGetNode(DockSpaceId) || bReset)
 			Workspace::BuildDefaultLayout(Document, Size);
 		TabLayout::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size);
 
 		const auto BeginPanel = [&](const char* Label, const char* Key, bool* Open = nullptr) {
-			const bool bVisible = TabLayout::BeginDockablePanel(
+			return TabLayout::BeginDockablePanel(
 				DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
-			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-			{
-				const auto* Active = DocumentManager.GetActiveDocument();
-				if (!Active || Active->Id != Document.Id)
-					DocumentManager.ActivateDocument(Document.Id);
-			}
-			return bVisible;
 		};
-		if (BeginPanel("Material Graph", "Graph")) DrawGraphPanel(Document, Material, 0.0f);
+		if (BeginPanel("Material Graph", "Graph")) DrawGraphPanel(Document, 0.0f);
 		ImGui::End();
+		if (!IsCurrent()) return;
 		if (ProfileSettings->bPreviewVisible)
 		{
 			const bool bPreviewShown = BeginPanel("Preview", "Preview", &ProfileSettings->bPreviewVisible);
-			if (bPreviewShown) DrawPreviewPanel(Document, Material, 0.0f);
-			else if (const auto It = MaterialPreviews.find(Document.Id.Value); It != MaterialPreviews.end())
-				It->second->SetVisible(false);
+			if (bPreviewShown) DrawPreviewPanel(Material, 0.0f);
+			else if (const auto Preview = Session->Preview)
+				Preview->SetVisible(false);
 			ImGui::End();
 		}
-		else if (const auto It = MaterialPreviews.find(Document.Id.Value); It != MaterialPreviews.end())
-			It->second->SetVisible(false);
+		else if (const auto Preview = Session->Preview)
+			Preview->SetVisible(false);
+		if (!IsCurrent()) return;
 		if (ProfileSettings->bDetailsVisible)
 		{
 			if (BeginPanel("Details", "Details", &ProfileSettings->bDetailsVisible))
 				DrawDetailsPanel(Document, Material);
 			ImGui::End();
 		}
+		if (!IsCurrent()) return;
 		if (ProfileSettings->bParametersVisible)
 		{
 			if (BeginPanel("Parameters", "Parameters", &ProfileSettings->bParametersVisible))
 				DrawParametersPanel(Document, Material);
 			ImGui::End();
 		}
+		if (!IsCurrent()) return;
 		if (ProfileSettings->bDiagnosticsVisible)
 		{
 			if (BeginPanel("Diagnostics", "Diagnostics", &ProfileSettings->bDiagnosticsVisible))
-				DrawCompileStatus(Document, Material);
+				DrawMaterialCompileStatus(Material, Session->GetSourceMaterial(),
+					[this](const auto& Diagnostic) { NavigateToFunctionNode(*this, Diagnostic.FunctionAssetPath, Diagnostic.NodeId); },
+					[&](const auto& Diagnostic) {
+						if (!IsCurrent()) return;
+						GetOrCreateCanvas(Document).SelectAndFrameDiagnostic(Diagnostic);
+						const auto GraphName = TabLayout::MakePanelWindowName("Material Graph", DockType, "Graph");
+						ImGui::SetWindowFocus(GraphName.c_str());
+					});
 			ImGui::End();
 		}
-		SaveDockLayout("Document", DockType, Workspace::LayoutVersion, PanelIds);
+		if (IsCurrent()) SaveDockLayout("Document", DockType, Workspace::LayoutVersion, PanelIds);
 	}
 
-	auto FMaterialEditor::DrawPreviewPanel(
-		const FEditorDocument& Document,
-		DMaterialInterface* Material,
-		float Height
-	) -> void
+	auto FMaterialEditor::DrawPreviewPanel(DMaterialInterface* Material, float Height) -> void
 	{
-		auto& Preview = MaterialPreviews[Document.Id.Value];
-		if (Preview == nullptr) Preview = std::make_shared<FMaterialPreview>(Document.Id.Value);
+		auto& Preview = EditingSession->Preview;
+		if (Preview == nullptr) Preview = std::make_shared<FMaterialPreview>(GetWindowId());
 		// A close callback may release the toolkit's preview while this draw unwinds.
 		const auto DrawingPreview = Preview;
 		DrawingPreview->Draw(Material, Height);
 	}
 
-	auto FMaterialEditor::DrawGraphPanel(
-		const FEditorDocument& Document,
-		DMaterialInterface* Material,
-		float Height) -> void
+	auto FMaterialEditor::DrawGraphPanel(const FEditorDocument& Document, float Height) -> void
 	{
-		DMaterial* Base = Cast<DMaterial>(Material);
-		if (!Base)
-		{
-			if (ImGui::BeginChild("MaterialGraphInstance", ImVec2(0.0f, Height),
-				ImGuiChildFlags_None))
-			{
-				ImGui::TextWrapped("Material instances inherit their graph from the root base material. Open the base material to author it.");
-			}
-			ImGui::EndChild();
-			return;
-		}
 		if (!Documents.GetEditor())
 		{
 			ImGui::TextDisabled("Material graph transactions are unavailable.");
@@ -911,159 +591,18 @@ namespace Durin::MaterialEditor
 						Call && Call->Id == *Id && Call->Function.IsValid())
 					{
 						ImGui::PushID(Id->ToString().c_str());
-						if (ImGui::Button("Open Function")) OpenReferencedMaterialAsset(Call->Function->GetObjectPath(),
+						if (ImGui::Button("Open Function")) OpenReferencedMaterialAsset(*this, Call->Function->GetObjectPath(),
 							Call->Function->GetClass()->GetQualifiedName().ToString());
 						ImGui::PopID();
 					}
 	}
 
-	auto FMaterialEditor::DrawCompileStatus(
-		const FEditorDocument& Document,
-		DMaterialInterface* Material) -> void
-	{
-		DMaterial* Base = FindCompiledBase(Material);
-		if (!Material)
-		{
-			ImGui::TextDisabled("Compiled program: unavailable");
-			return;
-		}
-		const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
-		const bool bCanNavigateGraph = Cast<DMaterial>(Material) != nullptr;
-		ImGui::Text("Compile: %s", FormatCompileState(Status));
-		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
-
-		if (Material->GetAcceptedCompiledProgram() && !Status.IsCurrent())
-			ImGui::TextDisabled("Preview uses the last known good program.");
-		if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
-		{
-			const auto Debug = Material->GetMaterialCompileDebugInfo();
-			ImGui::Text("Request: %llu; target: %s", static_cast<unsigned long long>(Debug.RequestId),
-				Debug.Target.empty() ? "n/a" : Debug.Target.c_str());
-			ImGui::Text("Retained hit: %s; shared: %s; forced: %s",
-				Debug.CacheInfo.bRetainedHit ? "yes" : "no",
-				Debug.CacheInfo.bSharedCompilation ? "yes" : "no",
-				Debug.CacheInfo.bForced ? "yes" : "no");
-			const FMaterialProgramStatistics Statistics =
-				GetMaterialProgramStatistics(*Material);
-			const FLoadedMaterialFamilyStatistics Family =
-				GetLoadedMaterialFamilyStatistics(*Material);
-			if (Statistics.State == EMaterialProgramStatisticsState::Absent)
-			{
-				ImGui::TextDisabled("Accepted program: unavailable");
-			}
-			else
-			{
-				ImGui::Text("Accepted program: %s",
-					Statistics.State == EMaterialProgramStatisticsState::Current
-						? "current snapshot" : "last-known-good snapshot");
-				ImGui::Text("IR nodes / active parameters: %llu / %llu",
-					static_cast<unsigned long long>(Statistics.NormalizedIRNodeCount),
-					static_cast<unsigned long long>(Statistics.ActiveParameterCount));
-				ImGui::Text("Uniform / textures / samplers: %llu B / %llu / %llu",
-					static_cast<unsigned long long>(Statistics.UniformPayloadBytes),
-					static_cast<unsigned long long>(Statistics.TextureCount),
-					static_cast<unsigned long long>(Statistics.SamplerCount));
-				ImGui::Text("Source / shaders / code: %llu B / %llu / %llu B%s",
-					static_cast<unsigned long long>(Statistics.GeneratedSourceBytes),
-					static_cast<unsigned long long>(Statistics.CompiledShaderCount),
-					static_cast<unsigned long long>(Statistics.CompiledCodeBytes),
-					Statistics.bSizeOverflow ? " (overflow)" : "");
-				ImGui::Text("Dependencies: %llu; compile: %.3f ms",
-					static_cast<unsigned long long>(Statistics.DependencyCount),
-					static_cast<double>(Statistics.CompileTime) * 1000.0);
-			}
-			ImGui::Text("Loaded authored family: %llu owners, %llu programs, %llu static configurations",
-				static_cast<unsigned long long>(Family.LoadedOwnerCount),
-				static_cast<unsigned long long>(Family.DistinctProgramCount),
-				static_cast<unsigned long long>(Family.DistinctStaticConfigurationCount));
-			ImGui::TextDisabled("Current loaded snapshot; pending %llu, failed %llu",
-				static_cast<unsigned long long>(Family.PendingOwnerCount),
-				static_cast<unsigned long long>(Family.FailedOwnerCount));
-			const FMaterialCompilationStatistics Compilation =
-				GetMaterialCompilationStatistics();
-			const FMaterialRenderProxyCounters Proxies =
-				GetMaterialRenderProxyCounters();
-			ImGui::Text("Process compile requests: %llu accepted, %llu completed, %llu failed",
-				static_cast<unsigned long long>(Compilation.AcceptedRequests),
-				static_cast<unsigned long long>(Compilation.CompletedRequests),
-				static_cast<unsigned long long>(Compilation.FailedRequests));
-			ImGui::Text("Process proxy work: %llu publications, %llu resolves",
-				static_cast<unsigned long long>(Proxies.PublicationCount),
-				static_cast<unsigned long long>(Proxies.ResolutionCacheMissCount));
-		}
-		if (const auto* Session = FindEditingSession(Material); Session && Session->GetSourceMaterial())
-		{
-			const auto* Source = Session->GetSourceMaterial();
-			ImGui::Text("Scene material: %s", FormatCompileState(Source->GetMaterialCompileStatus()));
-			for (const auto& Diagnostic : Source->GetMaterialCompileDiagnostics())
-				ImGui::TextWrapped("Scene: %s", Diagnostic.Message.c_str());
-		}
-		uint32 DiagnosticIndex = 0;
-		for (const FMaterialProgramDiagnostic& Diagnostic
-			: Material->GetMaterialCompileDiagnostics())
-		{
-			ImGui::PushID(static_cast<int>(DiagnosticIndex++));
-			bool bLocated = false;
-			switch (Diagnostic.LocationKind)
-			{
-			case EMaterialProgramDiagnosticLocationKind::Node:
-			case EMaterialProgramDiagnosticLocationKind::Input:
-				bLocated = Base && std::ranges::any_of(Base->GetExpressionCollection().Expressions,
-					[&](const auto& Expression) { return Expression->Id == Diagnostic.NodeId; });
-				break;
-			case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
-				bLocated = Diagnostic.LocationIndex < 8
-					|| Diagnostic.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
-				break;
-			case EMaterialProgramDiagnosticLocationKind::Program:
-				break;
-			}
-			if (!Diagnostic.FunctionAssetPath.empty())
-			{
-				if (ImGui::SmallButton("Open Function"))
-					if (const auto Editor = std::dynamic_pointer_cast<FMaterialEditor>(DocumentManager.FindToolkit(MaterialFunctionWorkspaceType)))
-						Editor->NavigateToNode(Diagnostic.FunctionAssetPath, Diagnostic.NodeId);
-				ImGui::SameLine();
-			}
-			if (bCanNavigateGraph && bLocated)
-			{
-				if (ImGui::SmallButton("Go"))
-				{
-					GetOrCreateCanvas(Document).SelectAndFrameDiagnostic(
-						Diagnostic);
-					const auto GraphName = TabLayout::MakePanelWindowName(
-						"Material Graph", Workspace::MakeDocumentDockType(Document), "Graph");
-					ImGui::SetWindowFocus(GraphName.c_str());
-				}
-				ImGui::SameLine();
-			}
-			ImGui::TextWrapped("%s%s", Diagnostic.Message.c_str(),
-				(Diagnostic.LocationKind
-					!= EMaterialProgramDiagnosticLocationKind::Program && !bLocated)
-					? " (stale location)" : "");
-			ImGui::PopID();
-		}
-		const auto& CookDiagnostic = Material->GetMaterialCookDiagnostic();
-		if (!CookDiagnostic.empty())
-			ImGui::TextWrapped("Cook: %.*s",
-				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
-	}
-
 	auto FMaterialEditor::DrawParametersPanel(
 		const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
-		if (auto* Instance = Cast<DMaterialInstance>(Material))
-		{
-			if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig()))
-			{
-				DrawMaterialParameters(Instance);
-				MonaImGui::PropertyEdit::EndTable();
-			}
-			return;
-		}
 		auto* Base = Cast<DMaterial>(Material);
 		if (!Base || !Documents.GetEditor() || !Documents.GetEditor()->GetTransactor()) return;
-		auto& Search = ParameterSearchTexts[Document.Id.Value];
+		auto& Search = ParameterSearchText;
 		ImGui::SetNextItemWidth(-1);
 		ImGui::InputTextWithHint("##ParameterSearch", "Search parameters...", Search.data(), Search.size());
 		const ImGuiTextFilter Filter(Search.data());
@@ -1138,11 +677,11 @@ namespace Durin::MaterialEditor
 					}
 					Submit(FMaterialGraphDocument(*Base).ReplaceExpression(*Candidate));
 				};
-				if (MonaImGui::PropertyEdit::BeginTable("ParameterMetadata", MakeMaterialPropertyTableConfig()))
+				if (MonaImGui::PropertyEdit::BeginTable("ParameterMetadata", DetailsStyle::MakeTableConfig()))
 				{
 					std::string Name = Parameter.Name.ToString();
 					if (EditText("Name", Name))
-						Submit(FMaterialGraphOperations::RenameParameter(*Base, Parameter.Id, FName(Name)));
+						Submit(FMaterialGraphDocument(*Base).RenameParameter(Parameter.Id, FName(Name)));
 					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
 					if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
 					std::string Group = Parameter.GroupName.ToString();
@@ -1217,414 +756,67 @@ namespace Durin::MaterialEditor
 		const FEditorDocument& Document, DMaterialInterface* Material) -> void
 	{
 		auto* BaseMaterial = Cast<DMaterial>(Material);
-		const bool bShowMaterialDetails = !BaseMaterial
-			|| GetOrCreateCanvas(Document).GetSelection().empty()
-			|| (BaseMaterial->GetOutputNode() && GetOrCreateCanvas(Document).GetSelection().contains(BaseMaterial->GetOutputNode()->Id));
+		if (!BaseMaterial) return;
+		auto& Canvas = GetOrCreateCanvas(Document);
+		const auto& Selection = Canvas.GetSelection();
+		const auto* Output = BaseMaterial->GetOutputNode();
+		const bool bShowMaterialDetails = Selection.empty() || (Output && Selection.contains(Output->Id));
 		if (bShowMaterialDetails)
 		{
 			ImGui::PushTextWrapPos(0.0f);
 			MonaImGui::TextName(Material->GetFName());
 			ImGui::PopTextWrapPos();
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Document.ResourceId.c_str());
-			ImGui::TextDisabled("%s", Cast<DMaterialInstance>(Material) ? "Material Instance" : BaseMaterial->GetDomain() == EMaterialDomain::PostProcess ? "PostProcess Material" : "Surface Material");
+			ImGui::TextDisabled("%s", BaseMaterial->GetDomain() == EMaterialDomain::PostProcess ? "PostProcess Material" : "Surface Material");
 			ImGui::Spacing();
 		}
-		if (auto* Instance = Cast<DMaterialInstance>(Material))
+		if (bShowMaterialDetails
+			&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", DetailsStyle::MakeTableConfig()))
 		{
-			DrawMaterialInstance(Instance);
-		}
-		else if (BaseMaterial)
-		{
-			if (bShowMaterialDetails
-				&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", MakeMaterialPropertyTableConfig()))
+			bool bAttributes = BaseMaterial->GetExpressionOutputs().bUseMaterialAttributes;
+			if (DetailsStyle::EditRow("Use material attributes", [&] { return ImGui::Checkbox("##Value", &bAttributes); }))
 			{
-				bool bAttributes = BaseMaterial->GetExpressionOutputs().bUseMaterialAttributes;
-				if (DetailsStyle::EditRow("Use material attributes", [&] { return ImGui::Checkbox("##Value", &bAttributes); }))
-				{
-					const auto Result = FMaterialGraphDocument(*BaseMaterial).SetUseMaterialAttributes(bAttributes);
-					if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
-				}
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
-				FMaterialConfiguration Configuration{BaseMaterial->GetDomain(), BaseMaterial->GetStaticProperties()};
-				int Domain = static_cast<int>(Configuration.Domain);
-				bool bChanged = DetailsStyle::EditRow("Domain", [&] { return ImGui::Combo("##Value", &Domain, "Surface\0PostProcess\0"); });
-				Configuration.Domain = static_cast<EMaterialDomain>(Domain);
-				if (bChanged && Configuration.Domain == EMaterialDomain::PostProcess)
-				{
-					Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
-					Configuration.Properties.BlendMode = EMaterialBlendMode::Opaque;
-					Configuration.Properties.DepthWritePolicy = EMaterialDepthWritePolicy::Disabled;
-				}
-				auto& Properties = Configuration.Properties;
-				int Shading = static_cast<int>(Properties.ShadingModel);
-				int Blend = static_cast<int>(Properties.BlendMode);
-				int Depth = static_cast<int>(Properties.DepthWritePolicy);
-				bChanged |= DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "DefaultLit\0Unlit\0ClearCoat\0"); });
-				bChanged |= DetailsStyle::EditRow("Blend", [&] { return ImGui::Combo("##Value", &Blend, "Opaque\0Masked\0Translucent\0"); });
-				Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
-				Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
-				if (Properties.BlendMode == EMaterialBlendMode::Masked)
-					bChanged |= DetailsStyle::EditRow("Mask cutoff", [&] { return ImGui::InputFloat("##Value", &Properties.OpacityMaskThreshold,
-						0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue); });
-				bChanged |= DetailsStyle::EditRow("Two sided", [&] { return ImGui::Checkbox("##Value", &Properties.bTwoSided); });
-				bChanged |= DetailsStyle::EditRow("Depth write", [&] { return ImGui::Combo("##Value", &Depth, "Automatic\0Enabled\0Disabled\0"); });
-				Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);
-				MonaImGui::PropertyEdit::EndTable();
-				if (bChanged)
-				{
-					const auto Result = FMaterialGraphDocument(*BaseMaterial).SetConfiguration(Configuration);
-					if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
-				}
+				const auto Result = FMaterialGraphDocument(*BaseMaterial).SetUseMaterialAttributes(bAttributes);
+				if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 			}
-			if (Documents.GetEditor() && Documents.GetEditor()->GetTransactor())
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
+			FMaterialConfiguration Configuration{BaseMaterial->GetDomain(), BaseMaterial->GetStaticProperties()};
+			int Domain = static_cast<int>(Configuration.Domain);
+			bool bChanged = DetailsStyle::EditRow("Domain", [&] { return ImGui::Combo("##Value", &Domain, "Surface\0PostProcess\0"); });
+			Configuration.Domain = static_cast<EMaterialDomain>(Domain);
+			if (bChanged && Configuration.Domain == EMaterialDomain::PostProcess)
 			{
-				DrawSelectedFunction(Document, BaseMaterial);
-				GetOrCreateCanvas(Document).DrawSelectionDetails(*Documents.GetEditor()->GetTransactor());
+				Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+				Configuration.Properties.BlendMode = EMaterialBlendMode::Opaque;
+				Configuration.Properties.DepthWritePolicy = EMaterialDepthWritePolicy::Disabled;
 			}
-		}
-	}
-
-	auto FMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
-	{
-		if (auto* Parent = Instance->GetParent(); Parent && ImGui::Button("Open Parent Material"))
-			OpenReferencedMaterialAsset(Parent->GetObjectPath(), Parent->GetClass()->GetQualifiedName().ToString());
-		ImGui::SeparatorText("Inheritance");
-		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent", MakeMaterialPropertyTableConfig()))
-		{
-			DrawParentPicker(Instance);
+			auto& Properties = Configuration.Properties;
+			int Shading = static_cast<int>(Properties.ShadingModel);
+			int Blend = static_cast<int>(Properties.BlendMode);
+			int Depth = static_cast<int>(Properties.DepthWritePolicy);
+			bChanged |= DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "DefaultLit\0Unlit\0ClearCoat\0"); });
+			bChanged |= DetailsStyle::EditRow("Blend", [&] { return ImGui::Combo("##Value", &Blend, "Opaque\0Masked\0Translucent\0"); });
+			Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
+			Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
+			if (Properties.BlendMode == EMaterialBlendMode::Masked)
+				bChanged |= DetailsStyle::EditRow("Mask cutoff", [&] { return ImGui::InputFloat("##Value", &Properties.OpacityMaskThreshold,
+					0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue); });
+			bChanged |= DetailsStyle::EditRow("Two sided", [&] { return ImGui::Checkbox("##Value", &Properties.bTwoSided); });
+			bChanged |= DetailsStyle::EditRow("Depth write", [&] { return ImGui::Combo("##Value", &Depth, "Automatic\0Enabled\0Disabled\0"); });
+			Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);
 			MonaImGui::PropertyEdit::EndTable();
-		}
-		ImGui::SeparatorText("Rendering Overrides");
-		auto Overrides = Instance->GetPropertyOverrides();
-		const std::array<const char*, 5> Labels{"Blend mode", "Shading model", "Mask threshold", "Two sided", "Depth write"};
-		const std::array<bool*, 5> Flags{&Overrides.bOverrideBlendMode, &Overrides.bOverrideShadingModel,
-			&Overrides.bOverrideOpacityMaskThreshold, &Overrides.bOverrideTwoSided, &Overrides.bOverrideDepthWritePolicy};
-		FResolvedMaterialProperties Resolved;
-		std::expected<void, std::string> ResolveError;
-		const bool bResolved = static_cast<bool>(ResolveError = ResolveMaterialProperties(*Instance, Resolved));
-		bool bChanged = false;
-		if (MonaImGui::PropertyEdit::BeginTable("RenderingOverrides", MakeMaterialPropertyTableConfig()))
-		{
-			for (size_t Index = 0; Index < Labels.size(); ++Index)
+			if (bChanged)
 			{
-				ImGui::PushID(static_cast<int>(Index));
-				MonaImGui::PropertyEdit::BeginRow(Labels[Index]);
-				bChanged |= ImGui::Checkbox("##Override", Flags[Index]);
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Override this property; clear to inherit.");
-				ImGui::SameLine();
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				auto InheritedValues = bResolved ? Resolved.Properties : Overrides.Values;
-				auto& DisplayValues = *Flags[Index] ? Overrides.Values : InheritedValues;
-				ImGui::BeginDisabled(!*Flags[Index]);
-				if (Index == 0 || Index == 1 || Index == 4)
-				{
-					int Value = Index == 0 ? static_cast<int>(DisplayValues.BlendMode)
-						: Index == 1 ? static_cast<int>(DisplayValues.ShadingModel)
-						: static_cast<int>(DisplayValues.DepthWritePolicy);
-					const char* Items = Index == 0 ? "Opaque\0Masked\0Translucent\0"
-						: Index == 1 ? "DefaultLit\0Unlit\0ClearCoat\0" : "Automatic\0Enabled\0Disabled\0";
-					if (ImGui::Combo("##Value", &Value, Items))
-					{
-						bChanged = true;
-						if (Index == 0) DisplayValues.BlendMode = static_cast<EMaterialBlendMode>(Value);
-						else if (Index == 1) DisplayValues.ShadingModel = static_cast<EMaterialShadingModel>(Value);
-						else DisplayValues.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Value);
-					}
-				}
-				else if (Index == 2)
-					bChanged |= ImGui::InputFloat("##Value", &DisplayValues.OpacityMaskThreshold, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
-				else bChanged |= ImGui::Checkbox("Enabled", &DisplayValues.bTwoSided);
-				ImGui::EndDisabled();
-				if (bResolved)
-				{
-					const auto* Source = ResolveObjectKey(Resolved.Sources[Index]);
-					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-					ImGui::TextWrapped("Source: %s", Source ? Source->GetObjectPath().c_str() : "unavailable");
-					ImGui::PopStyleColor();
-				}
-				MonaImGui::PropertyEdit::EndRow();
-				ImGui::PopID();
+				const auto Result = FMaterialGraphDocument(*BaseMaterial).SetConfiguration(Configuration);
+				if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 			}
-			MonaImGui::PropertyEdit::EndTable();
 		}
-		ImGui::TextWrapped("Enable an override to edit; clear it to inherit.");
-		if (!bResolved) ImGui::TextWrapped("%s", ResolveError.error().c_str());
-		if (bChanged)
+		if (Documents.GetEditor() && Documents.GetEditor()->GetTransactor())
 		{
-			if (auto* Property = Instance->GetClass()->FindPropertyByName(FName("PropertyOverrides")))
-				PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-					FPropertyEditTarget::ForMember(Instance, Property),
-					[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-						*ScratchProperty->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(ScratchContainer, ScratchArrayIndex) = Overrides;
-					}, false);
+			DrawSelectedFunction(Document, BaseMaterial);
+			if (GetActiveMaterial() == Material && IsEditorOpen())
+				Canvas.DrawSelectionDetails(*Documents.GetEditor()->GetTransactor());
 		}
-	}
-
-	auto FMaterialEditor::DrawParentPicker(DMaterialInstance* Instance) -> void
-	{
-		ImGui::PushID("MaterialParent");
-		MonaImGui::PropertyEdit::BeginRow("Parent");
-		DMaterialInterface* Current = Instance->GetParent();
-		const FAssetPickerResult PickerResult = AssetPicker::Draw({
-			.ComboId = "##Parent",
-			.SearchId = "##ParentSearch",
-			.SearchHint = "Search materials...",
-			.RequiredClass = DMaterialInterface::StaticClass(),
-			.ClassPolicy = EAssetClassPolicy::Derived,
-			.CurrentSelection = Current,
-			.SearchText = ParentSearchText,
-			.bAllowNone = true,
-			.AssignSelection = [this, Instance](DObject* Selection, std::string& OutError) {
-				DMaterialInterface* Parent = Cast<DMaterialInterface>(Selection);
-				if (Selection && !Parent)
-				{
-					OutError = "The selected asset is not a material.";
-					return false;
-				}
-				FProperty* Property = Instance->GetClass()->FindPropertyByName(FName("Parent"));
-				if (!Property)
-				{
-					OutError = "The reflected material parent property is unavailable.";
-					return false;
-				}
-				const bool bAssigned = PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-					FPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-					static_cast<FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(ScratchContainer, Parent, ScratchArrayIndex);
-				}, false);
-				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected material parent.";
-				return bAssigned;
-			},
-		});
-		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
-	}
-
-	auto FMaterialEditor::DrawMaterialParameters(DMaterialInterface* Material) -> void
-	{
-		const FMaterialParameterPanelModel& Model = MaterialParameterPanelCache->Synchronize(Material);
-		const auto DrawGroup = [this, &Model](const auto& Self,
-			const FMaterialParameterGroup& Group, uint32 Depth) -> void {
-			for (const FMaterialParameterGroup& Child : Group.Children)
-			{
-				const std::string Id = "MaterialParameterGroup/" + Child.Path;
-				const ImGuiTreeNodeFlags Flags = Depth == 0
-					? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
-				if (MonaImGui::PropertyEdit::BeginGroup(Id.c_str(), Child.Label.c_str(), Flags))
-				{
-					Self(Self, Child, Depth + 1);
-					MonaImGui::PropertyEdit::EndGroup();
-				}
-			}
-			const std::span Entries = Model.GetEntries();
-			for (size_t EntryIndex : Group.EntryIndices)
-			{
-				DrawMaterialParameter(Model, Entries[EntryIndex]);
-			}
-		};
-		const auto* Root = &MaterialParameterPanelCache->GetRoot();
-		// A sole container adds no grouping information; keep the actual parameter categories.
-		while (Root->EntryIndices.empty() && Root->Children.size() == 1
-			&& Root->Children.front().EntryIndices.empty())
-			Root = &Root->Children.front();
-		DrawGroup(DrawGroup, *Root, 0);
-	}
-
-	auto FMaterialEditor::DrawMaterialParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		if (Entry.bOrphan)
-		{
-			DrawOrphanParameter(Model, Entry);
-			return;
-		}
-		switch (Entry.Control)
-		{
-		case EMaterialParameterControlKind::Scalar:
-		case EMaterialParameterControlKind::RangedScalar:
-			DrawScalarParameter(Model, Entry);
-			break;
-		case EMaterialParameterControlKind::IntegerScalar:
-			DrawIntegerParameter(Model, Entry);
-			break;
-		case EMaterialParameterControlKind::Vector:
-			DrawVectorParameter(Model, Entry);
-			break;
-		case EMaterialParameterControlKind::Color:
-			DrawColorParameter(Model, Entry);
-			break;
-		case EMaterialParameterControlKind::AssetPicker:
-			DrawTextureParameter(Model, Entry);
-			break;
-		case EMaterialParameterControlKind::Unsupported:
-			MonaImGui::PropertyEdit::BeginRow(Entry.Definition->DisplayName.c_str(), true);
-			ImGui::TextDisabled("<unsupported parameter presentation>");
-			MonaImGui::PropertyEdit::EndRow(true);
-			break;
-		}
-	}
-
-	auto FMaterialEditor::DrawVectorParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		FMaterialParameterRowScope Row(*this, Model, Entry);
-		MonaImGui::PropertyEdit::FWidgetState WidgetState;
-		const MonaImGui::PropertyEdit::FValueWidgetConfig WidgetConfig{
-			.MaximumWidthInEm = MaximumMaterialVectorWidthInEm,
-			.bHasRange = Definition.bHasRange,
-			.MinimumValue = Definition.MinimumValue,
-			.MaximumValue = Definition.MaximumValue,
-			.Format = "%.3f",
-		};
-		FMaterialParameterValue Edited = Entry.Value;
-		FVector4& Value = Edited.GetVector4();
-		const bool bChanged = MonaImGui::PropertyEdit::EditVectorValue("##Value", Value, 0.01, &WidgetState, WidgetConfig);
-		Row.SubmitContinuousEdit(bChanged, Edited,
-			WidgetState.bDeactivatedAfterEdit, WidgetState.bActive);
-	}
-
-	auto FMaterialEditor::DrawColorParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		FMaterialParameterValue Edited = Entry.Value;
-		FVector4& Value = Edited.GetVector4();
-		FMaterialParameterRowScope Row(*this, Model, Entry);
-		using namespace MonaImGui::PropertyEdit;
-		FPropertyInteractionState Picker;
-		FLinearColor Color(static_cast<float>(Value.x), static_cast<float>(Value.y),
-			static_cast<float>(Value.z), static_cast<float>(Value.w));
-		const bool bChanged = DrawColorPicker(Color, EColorPickerMode::Linear, true, Row.IsReadOnly(), &Picker);
-		if (bChanged) Value = FVector4(Color.R, Color.G, Color.B, Color.A);
-		Row.SubmitColorEdit(bChanged, Edited, Picker);
-	}
-
-	auto FMaterialEditor::DrawScalarParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		FMaterialParameterValue Edited = Entry.Value;
-		float& Value = Edited.GetScalar();
-		FMaterialParameterRowScope Row(*this, Model, Entry);
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
-		const float Maximum = Definition.bHasRange ? Definition.MaximumValue : 0.0f;
-		const ImGuiSliderFlags Flags = Definition.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-		const bool bChanged = ImGui::DragFloat("##Value", &Value, 0.01f,
-			Minimum, Maximum, "%.3f", Flags);
-		Row.SubmitContinuousEdit(bChanged, Edited,
-			ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
-	}
-
-	auto FMaterialEditor::DrawIntegerParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		FMaterialParameterRowScope Row(*this, Model, Entry);
-
-		float Scalar = std::isfinite(Entry.Value.GetScalar())
-			? Entry.Value.GetScalar() : Definition.Value.GetScalar();
-		if (Definition.bHasRange)
-			Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
-		int Value = static_cast<int>(std::floor(Scalar + 0.5f));
-		const int Minimum = Definition.bHasRange
-			? static_cast<int>(std::ceil(Definition.MinimumValue)) : 0;
-		const int Maximum = Definition.bHasRange
-			? static_cast<int>(std::floor(Definition.MaximumValue)) : 0;
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		const ImGuiSliderFlags Flags = Definition.bHasRange
-			? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-		const bool bChanged = ImGui::DragInt("##Value", &Value, 1.0f,
-			Minimum, Maximum, "%d", Flags);
-		FMaterialParameterValue Edited = Entry.Value;
-		if (bChanged) Edited.GetScalar() = static_cast<float>(Value);
-		Row.SubmitContinuousEdit(bChanged, Edited,
-			ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
-	}
-
-	auto FMaterialEditor::DrawTextureParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		DTexture* Texture = Entry.Value.GetTexture().Texture.Get();
-		FMaterialParameterRowScope Row(*this, Model, Entry);
-		const FAssetPickerResult PickerResult = AssetPicker::Draw({
-			.ComboId = "##Texture",
-			.SearchId = "##TextureSearch",
-			.SearchHint = "Search textures...",
-			.RequiredClass = Entry.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
-			.ClassPolicy = EAssetClassPolicy::Derived,
-			.CurrentSelection = Texture,
-			.SearchText = TextureSearchText,
-			.bAllowNone = true,
-			.AssignSelection = [this, &Model, Entry, Label = Definition.DisplayName](DObject* Selection, std::string& OutError) {
-				DTexture* Selected = Cast<DTexture>(Selection);
-				if (Selection && !Selected)
-				{
-					OutError = "The selected asset is not a texture.";
-					return false;
-				}
-				FMaterialParameterValue Edited = Entry.Value;
-				Edited.GetTexture().Texture = Selected;
-				const bool bAssigned = Model.SubmitValueEdit(
-					PropertyView, MakePropertyViewContext(), Entry, Edited, false);
-				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected texture parameter.";
-				return bAssigned;
-			},
-		});
-		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
-		if (ImGui::TreeNode("Sampling"))
-		{
-			FMaterialParameterValue Edited = Entry.Value;
-			auto Combo = [](const char* Label, auto& Value, const char* Options) {
-				int Selected = static_cast<int>(Value);
-				ImGui::PushID(Label);
-				ImGui::TextUnformatted(Label);
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				const bool bChanged = ImGui::Combo("##Value", &Selected, Options);
-				ImGui::PopID();
-				if (!bChanged) return false;
-				Value = static_cast<std::remove_reference_t<decltype(Value)>>(Selected);
-				return true;
-			};
-			bool Changed = Combo("Minification", Edited.GetTexture().SamplerState.MinFilter,
-				"Nearest\0Linear\0Nearest mip, nearest\0Nearest mip, linear\0Linear mip, nearest\0Linear mip, linear\0");
-			Changed |= Combo("Magnification", Edited.GetTexture().SamplerState.MagFilter, "Nearest\0Linear\0");
-			Changed |= Combo("Address U", Edited.GetTexture().SamplerState.AddressU, "Repeat\0Mirror\0Clamp\0");
-			Changed |= Combo("Address V", Edited.GetTexture().SamplerState.AddressV, "Repeat\0Mirror\0Clamp\0");
-			Changed |= Combo("Address W", Edited.GetTexture().SamplerState.AddressW, "Repeat\0Mirror\0Clamp\0");
-			Changed |= Combo("Missing texture", Edited.GetTexture().TextureFallback, Edited.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? "White\0Black\0" : "White\0Black\0Flat normal (RG)\0");
-			if (Changed) Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, false);
-			ImGui::TreePop();
-		}
-	}
-
-	auto FMaterialEditor::DrawOrphanParameter(
-		const FMaterialParameterPanelModel& Model,
-		const FMaterialParameterPanelEntry& Entry
-	) -> void
-	{
-		const std::string Id = Entry.ParameterId.ToString();
-		ImGui::PushID(Id.c_str());
-		MonaImGui::PropertyEdit::BeginRow("Orphan Override");
-		ImGui::TextDisabled("%s", Id.c_str());
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Remove"))
-			Model.RemoveOrphan(PropertyView, MakePropertyViewContext(), Entry);
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
 	}
 
 	auto FMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> bool
@@ -1648,45 +840,38 @@ namespace Durin::MaterialEditor
 
 
 
-	auto FMaterialEditor::CancelCanvasInteraction(uint64 DocumentId) -> bool
+	auto FMaterialEditor::CancelCanvasInteraction() -> bool
 	{
-		if (const auto It = MaterialGraphCanvases.find(DocumentId);
-			It != MaterialGraphCanvases.end())
-			return It->second->CancelInteraction();
-		return true;
+		const auto Session = EditingSession;
+		return !Session || !Session->Canvas || Session->Canvas->CancelInteraction();
 	}
 
-	auto FMaterialEditor::GetOrCreateCanvas(
-		const FEditorDocument& Document) -> FMaterialGraphCanvas&
+	auto FMaterialEditor::GetOrCreateCanvas(const FEditorDocument& Document) -> FMaterialGraphCanvas&
 	{
-		std::unique_ptr<FMaterialGraphCanvas>& Canvas =
-			MaterialGraphCanvases[Document.Id.Value];
+		auto& Canvas = EditingSession->Canvas;
 		if (!Canvas)
 		{
-			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*FindOpenMaterial(Document.ResourceId)),
+			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*EditingSession->GetWorkingMaterial()),
 				FMaterialGraphEditorServices{
 					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
-					.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
-			if (const FMaterialGraphViewportState* State =
-				ProfileSettings->FindViewport(Document.ResourceId))
+					.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(*this, Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+			if (const auto* State = ProfileSettings->FindViewport(Document.ResourceId))
 				Canvas->SetViewport(State->Zoom, State->Pan);
 		}
 		return *Canvas;
 	}
 
-	auto FMaterialEditor::CaptureCanvasViewport(
-		const FEditorDocument& Document) -> void
+	auto FMaterialEditor::CaptureCanvasViewport() -> void
 	{
-		const auto It = MaterialGraphCanvases.find(Document.Id.Value);
-		if (It == MaterialGraphCanvases.end()) return;
-		const auto [Zoom, Pan] = It->second->GetViewport();
-		ProfileSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
+		const auto* Source = EditingSession ? EditingSession->GetSourceMaterial() : nullptr;
+		if (!Source || !EditingSession || !EditingSession->Canvas) return;
+		const auto [Zoom, Pan] = EditingSession->Canvas->GetViewport();
+		ProfileSettings->SetViewport(Source->GetObjectPath(), {.Zoom = Zoom, .Pan = Pan});
 	}
 	auto FMaterialEditor::OnResourceIdRemapped(std::string_view Source, std::string_view Destination) -> void
 	{
-		if (Mode == EMaterialEditorMode::Function) RemapFunctionDocuments(Source, Destination);
-		if (auto Node = OpenMaterials.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; OpenMaterials.insert(std::move(Node)); }
-		if (auto Node = EditingSessions.extract(std::string(Source)); !Node.empty()) { Node.key() = Destination; EditingSessions.insert(std::move(Node)); }
+		if (FunctionSession && FunctionSession->GetSource()
+			&& FunctionSession->GetSource()->GetObjectPath() == Destination) FunctionSession->RefreshSourceRevision();
 		ProfileSettings->MoveViewport(Source, Destination);
 		ProfileSettings->Save();
 		Documents.RemapResourceId(Source, Destination);
@@ -1722,11 +907,12 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::OnClose() -> void
 	{
 		RequestDeactivate();
-		SaveFunctionViewports();
+		SaveFunctionViewport();
 		UnregisterFunctionUndo();
-		ReleaseFunctionDocuments();
+		ReleaseFunctionSession();
 		SettingsPage = {};
-		MaterialPreviews.clear();
+		CaptureCanvasViewport();
+		ReleaseMaterialSession();
 		FBaseAssetToolkit::OnClose();
 	}
 	auto FMaterialEditor::GetPreferencesPageId() const -> std::string

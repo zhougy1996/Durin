@@ -1,4 +1,6 @@
 #include "Graph/MaterialGraphNodeDisplay.h"
+#include "Graph/MaterialGraphInteraction.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"
@@ -320,7 +322,7 @@ namespace Durin::MaterialEditor
 		const bool bFunction = Cast<DMaterialFunction>(&Owner) != nullptr;
 		if (Catalog.empty() || bFunctionGraph != bFunction)
 		{
-			Catalog = FMaterialGraphOperations::EnumerateCatalog();
+			Catalog = EnumerateCatalog();
 			bCreationMenuResultsDirty = true;
 			bViewStale = true;
 		}
@@ -653,7 +655,7 @@ namespace Durin::MaterialEditor
 			{
 				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
 				if (ImGui::MenuItem("Create / Reuse"))
-					CheckCommand(FMaterialGraphOperations::PromoteConstantToParameter(*SurfaceMaterial, Edited.Id, FName(PromotionNameDraft.data())));
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).PromoteConstantToParameter(Edited.Id, FName(PromotionNameDraft.data())));
 				ImGui::EndMenu();
 			}
 			if (ImGui::MenuItem("Copy"))
@@ -691,13 +693,13 @@ namespace Durin::MaterialEditor
 					&& ImGui::MenuItem("Disconnect to Default"))
 					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).Disconnect(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput)));
 				if (ImGui::MenuItem("Reset Default"))
-					CheckCommand(FMaterialGraphOperations::ResetSurfaceDefault(*SurfaceMaterial, *ContextSurfaceOutput));
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).ResetSurfaceDefault(*ContextSurfaceOutput));
 				if (!Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Promote to Parameter"))
 					CheckCommand(
-						FMaterialGraphOperations::PromoteSurfaceOutputToParameter(*SurfaceMaterial, NodeRequest));
+						FMaterialGraphDocument(*SurfaceMaterial).PromoteSurfaceOutputToParameter(NodeRequest));
 				if (ImGui::MenuItem("Add Texture"))
-					CheckCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(*SurfaceMaterial, NodeRequest));
+					CheckCommand(FMaterialGraphDocument(*SurfaceMaterial).AddTextureToSurfaceOutput(NodeRequest));
 			}
 		}
 		ImGui::EndPopup();

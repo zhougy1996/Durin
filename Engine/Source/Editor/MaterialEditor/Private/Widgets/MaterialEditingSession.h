@@ -12,12 +12,16 @@ namespace Durin { class DTransactor; }
 
 namespace Durin::MaterialEditor
 {
+	class FMaterialGraphCanvas;
+	class FMaterialPreview;
+
 	// Owns a transient base-material working copy. Publication keeps source identity
 	// and refuses to overwrite an externally changed source package.
 	class FMaterialEditingSession
 	{
 		friend class FMaterialEditorReloadParticipant;
 	public:
+		FMaterialEditingSession();
 		~FMaterialEditingSession();
 		auto Initialize(DMaterial& Source, EMaterialEditCompileMode Mode,
 			std::string& Error, DTransactor* InTransactor = nullptr) -> bool;
@@ -32,6 +36,9 @@ namespace Durin::MaterialEditor
 		// Save's selected-owner barrier; never drains unrelated compilation.
 		auto FinishAndApply(std::string& Error) -> bool;
 		auto MarkSaved() -> void;
+
+		std::unique_ptr<FMaterialGraphCanvas> Canvas;
+		std::shared_ptr<FMaterialPreview> Preview;
 
 	private:
 		struct FAuthoredState

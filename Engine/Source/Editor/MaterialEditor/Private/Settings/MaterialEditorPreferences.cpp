@@ -1,4 +1,5 @@
 #include "FMaterialEditor.h"
+#include "MaterialEditorUI.h"
 
 #include "Settings/MaterialEditorProfileSettings.h"
 #include "Widgets/MaterialEditingSession.h"
@@ -36,14 +37,14 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::SetAutoCompile(bool bEnabled) -> void
 	{
 		ProfileSettings->bAutoCompile = bEnabled;
-		for (const auto& [Resource, Session] : EditingSessions)
+		if (const auto Session = EditingSession)
 			if (auto* Material = Session->GetWorkingMaterial())
 				Material->SetEditCompileMode(bEnabled ? EMaterialEditCompileMode::Automatic : EMaterialEditCompileMode::Manual);
 	}
 
-	auto FMaterialEditor::DrawPreferences(std::string& OutError) -> void
+	auto DrawMaterialEditorPreferences(FMaterialEditorProfileSettings& Settings, std::string& OutError) -> bool
 	{
-		const auto Previous = Capture(*ProfileSettings);
+		const auto Previous = Capture(Settings);
 		auto Next = Previous;
 		ImGui::SeparatorText("Compilation");
 		bool bChanged = ImGui::Checkbox("Auto compile after editing pauses", &Next.bAutoCompile);
@@ -52,23 +53,34 @@ namespace Durin::MaterialEditor
 		bChanged |= ImGui::Checkbox("Show details", &Next.bDetails);
 		bChanged |= ImGui::Checkbox("Show parameters", &Next.bParameters);
 		bChanged |= ImGui::Checkbox("Show diagnostics", &Next.bDiagnostics);
-		if (!bChanged) return;
-		Apply(*ProfileSettings, Next);
-		if (!ProfileSettings->Save())
+		if (!bChanged) return false;
+		Apply(Settings, Next);
+		if (!Settings.Save())
 		{
-			Apply(*ProfileSettings, Previous);
+			Apply(Settings, Previous);
 			OutError = "Could not save Material Editor preferences.";
-			return;
+			return false;
 		}
-		SetAutoCompile(Next.bAutoCompile);
 		OutError.clear();
+		return true;
+	}
+
+	auto ResetMaterialEditorPreferences(FMaterialEditorProfileSettings& Settings) -> bool
+	{
+		const auto Previous = Capture(Settings);
+		Apply(Settings, FMaterialPreferences{});
+		if (!Settings.Save(true)) { Apply(Settings, Previous); return false; }
+		return true;
+	}
+
+	auto FMaterialEditor::DrawPreferences(std::string& OutError) -> void
+	{
+		if (DrawMaterialEditorPreferences(*ProfileSettings, OutError)) SetAutoCompile(ProfileSettings->bAutoCompile);
 	}
 
 	auto FMaterialEditor::ResetPreferences() -> bool
 	{
-		const auto Previous = Capture(*ProfileSettings);
-		Apply(*ProfileSettings, FMaterialPreferences{});
-		if (!ProfileSettings->Save(true)) { Apply(*ProfileSettings, Previous); return false; }
+		if (!ResetMaterialEditorPreferences(*ProfileSettings)) return false;
 		SetAutoCompile(true);
 		return true;
 	}

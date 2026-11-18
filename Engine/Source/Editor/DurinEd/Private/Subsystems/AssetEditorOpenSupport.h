@@ -21,8 +21,10 @@ namespace Durin
 				if (!AssetSupport.IsSupported || AssetSupport.OpenMethod != Method
 					|| (Support.RequiredToolkitMode && AssetSupport.RequiredToolkitMode && Support.RequiredToolkitMode != AssetSupport.RequiredToolkitMode)) return {Method, false};
 				if (AssetSupport.RequiredToolkitMode) Support.RequiredToolkitMode = AssetSupport.RequiredToolkitMode;
+				Support.bSupportsMultipleAssets &= AssetSupport.bSupportsMultipleAssets;
 			}
 		}
+		if (Assets.size() > 1 && !Support.bSupportsMultipleAssets) return {Method, false};
 		return Support;
 	}
 }

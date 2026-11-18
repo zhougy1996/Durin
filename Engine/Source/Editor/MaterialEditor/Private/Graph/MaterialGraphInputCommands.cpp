@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -94,7 +95,7 @@ namespace Durin::MaterialEditor
 			Result.Default = Result.Numeric ? &Result.Numeric->Constant : nullptr;
 			if (Result.Numeric)
 			{
-				const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+				const auto Catalog = EnumerateCatalog();
 				const auto Shape = std::ranges::find(Catalog, Expression->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
 				if (Shape != Catalog.end())
 				{

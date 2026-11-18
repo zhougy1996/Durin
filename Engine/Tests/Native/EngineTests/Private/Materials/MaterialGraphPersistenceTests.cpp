@@ -1,4 +1,5 @@
 #include "Materials/MaterialShaderMap.h"
+#include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionConstant.h"

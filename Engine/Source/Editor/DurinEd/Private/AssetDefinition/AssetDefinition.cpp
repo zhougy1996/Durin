@@ -33,7 +33,8 @@ namespace Durin
 				if (!Definition || !Compatible)
 				{ Error = "The selected assets require incompatible editors."; break; }
 				const auto Support = Definition->GetAssetOpenSupport({Args.OpenMethod});
-				if (Support.OpenMethod != Args.OpenMethod || !Support.ResolveToolkitMode(Args.ToolkitMode, Args.ToolkitMode))
+				if (Support.OpenMethod != Args.OpenMethod || !Support.ResolveToolkitMode(Args.ToolkitMode, Args.ToolkitMode)
+					|| (Targets.size() > 1 && !Support.bSupportsMultipleAssets))
 				{ Error = "The selected assets do not support the requested method or host."; break; }
 				Roots.emplace_back(Args.LoadAsset(Target));
 				if (!Roots.back()) { Error = "The selected asset could not be loaded."; break; }

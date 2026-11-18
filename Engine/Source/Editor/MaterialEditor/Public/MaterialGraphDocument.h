@@ -86,6 +86,43 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto Layout(std::span<const FGuid> NodeIds = {},
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 
+		// Creates a node; an existing name reuses its compatible parameter definition.
+		MATERIALEDITOR_API auto CreateParameter(
+			FMaterialParameterDefinition Definition,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		// Renames all references while preserving the parameter ID and instance overrides.
+		MATERIALEDITOR_API auto RenameParameter(
+			const FGuid& ParameterId, FName Name,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		// Removes every node referencing this parameter; RemoveNodes deletes individual references.
+		MATERIALEDITOR_API auto DeleteParameter(
+			const FGuid& ParameterId,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto PromoteConstantToParameter(
+			const FGuid& NodeId, FName Name,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetSurfaceDefault(
+			const FMaterialGraphSurfaceDefaultRequest& Request,
+			ETransactionMode Mode = ETransactionMode::Record) const
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto ResetSurfaceDefault(
+			EMaterialProperty Output,
+			ETransactionMode Mode = ETransactionMode::Record) const
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetParameterValue(
+			const FGuid& ParameterId,
+			FMaterialParameterValue Value,
+			ETransactionMode Mode = ETransactionMode::Record) const
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto PromoteSurfaceOutputToParameter(
+			const FMaterialGraphSurfaceNodeRequest& Request,
+			ETransactionMode Mode = ETransactionMode::Record) const
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto AddTextureToSurfaceOutput(
+			const FMaterialGraphSurfaceNodeRequest& Request,
+			ETransactionMode Mode = ETransactionMode::Record) const
+			-> FMaterialGraphCommandResult;
+
 	private:
 		friend class FMaterialGraphMoveSession;
 		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,

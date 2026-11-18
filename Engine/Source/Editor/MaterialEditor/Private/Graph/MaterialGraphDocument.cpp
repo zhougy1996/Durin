@@ -1,4 +1,5 @@
 #include "MaterialExpressionParameters.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionVector.h"
@@ -186,7 +187,7 @@ namespace Durin::MaterialEditor
 		auto AdaptNumericTypes(FGraphEditSession& State, std::span<const FGuid> ChangedNodes, std::span<const FGuid> ChangedOutputNodes) -> bool
 		{
 			using Type = EMaterialProgramValueType;
-			const auto Catalog = FMaterialGraphOperations::EnumerateCatalog();
+			const auto Catalog = EnumerateCatalog();
 			std::map<FGuid, DMaterialExpression*> Expressions;
 			std::map<FGuid, Type> Resolved;
 			std::set<FGuid> Active;

@@ -1,4 +1,5 @@
 #include "MaterialGraphEditInternals.h"
+#include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/Material.h"
 #include "MaterialGraphDocument.h"

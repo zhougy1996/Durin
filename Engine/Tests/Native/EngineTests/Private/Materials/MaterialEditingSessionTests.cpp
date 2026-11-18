@@ -1,4 +1,5 @@
 #include "Graph/MaterialGraphEditSession.h"
+#include "MaterialGraphDocument.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -283,7 +284,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 		FMaterialGraphSurfaceDefaultRequest Request;
 		Request.Output = EMaterialProperty::MP_Roughness;
 		Request.Value.X = 0.21f;
-		ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Draft, Request));
+		ASSERT_TRUE(FMaterialGraphDocument(*Draft).SetSurfaceDefault(Request));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_FALSE(Session.HasUnappliedChanges());

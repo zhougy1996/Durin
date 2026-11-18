@@ -9,13 +9,24 @@
 namespace Durin::MaterialEditor
 {
 	inline auto GetMaterialGraphOpenSupport(const FAssetOpenSupportArgs& Args) -> FAssetOpenSupport
-	{ return {Args.OpenMethod, Args.OpenMethod == EAssetOpenMethod::Edit}; }
+	{ return {.OpenMethod = Args.OpenMethod, .IsSupported = Args.OpenMethod == EAssetOpenMethod::Edit,
+		.bSupportsMultipleAssets = false}; }
 	DCLASS(NoClassDefaultObject)
 	class DMaterialAssetEditor : public DAssetEditor
 	{
 		GENERATED_BODY()
 	public:
 		explicit DMaterialAssetEditor(const FObjectInitializer& Initializer);
+		auto GetAssetOpenSupport(const FAssetOpenSupportArgs& Args) const -> FAssetOpenSupport override { return GetMaterialGraphOpenSupport(Args); }
+	protected:
+		auto CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit> override;
+	};
+	DCLASS(NoClassDefaultObject)
+	class DMaterialInstanceAssetEditor : public DAssetEditor
+	{
+		GENERATED_BODY()
+	public:
+		explicit DMaterialInstanceAssetEditor(const FObjectInitializer& Initializer);
 		auto GetAssetOpenSupport(const FAssetOpenSupportArgs& Args) const -> FAssetOpenSupport override { return GetMaterialGraphOpenSupport(Args); }
 	protected:
 		auto CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit> override;

@@ -1,6 +1,7 @@
 #include "MaterialAssetDefinitions.h"
 #include "DObject/Class.h"
 #include "FMaterialEditor.h"
+#include "FMaterialInstanceEditor.h"
 #include "Widgets/MMaterialParameterCollectionEditor.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -12,6 +13,9 @@ namespace Durin::MaterialEditor
 	DMaterialAssetEditor::DMaterialAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
 	{ return std::make_shared<FMaterialEditor>(*GetDocumentManager()); }
+	DMaterialInstanceAssetEditor::DMaterialInstanceAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
+	auto DMaterialInstanceAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
+	{ return std::make_shared<FMaterialInstanceEditor>(*GetDocumentManager()); }
 	DMaterialFunctionAssetEditor::DMaterialFunctionAssetEditor(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialFunctionAssetEditor::CreateToolkit() -> std::shared_ptr<FAssetEditorToolkit>
 	{ return std::make_shared<FMaterialEditor>(*GetDocumentManager(), EMaterialEditorMode::Function); }
@@ -23,7 +27,7 @@ namespace Durin::MaterialEditor
 	auto DMaterialAssetDefinition::GetAssetEditorClass() const -> DClass* { return DMaterialAssetEditor::StaticClass(); }
 	DMaterialInstanceAssetDefinition::DMaterialInstanceAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialInstanceAssetDefinition::GetAssetClassPath() const -> std::string { return DMaterialInstance::StaticClass()->GetQualifiedName().ToString(); }
-	auto DMaterialInstanceAssetDefinition::GetAssetEditorClass() const -> DClass* { return DMaterialAssetEditor::StaticClass(); }
+	auto DMaterialInstanceAssetDefinition::GetAssetEditorClass() const -> DClass* { return DMaterialInstanceAssetEditor::StaticClass(); }
 	DMaterialFunctionAssetDefinition::DMaterialFunctionAssetDefinition(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DMaterialFunctionAssetDefinition::GetAssetClassPath() const -> std::string { return DMaterialFunction::StaticClass()->GetQualifiedName().ToString(); }
 	auto DMaterialFunctionAssetDefinition::GetAssetEditorClass() const -> DClass* { return DMaterialFunctionAssetEditor::StaticClass(); }

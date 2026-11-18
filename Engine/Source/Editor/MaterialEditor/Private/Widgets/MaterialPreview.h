@@ -12,7 +12,7 @@ namespace Durin::MaterialEditor
 	class FMaterialPreview final
 	{
 	public:
-		explicit FMaterialPreview(uint64 PreviewId);
+		explicit FMaterialPreview(std::string_view PreviewId);
 		~FMaterialPreview();
 
 		auto SetVisible(bool bInVisible) -> void;

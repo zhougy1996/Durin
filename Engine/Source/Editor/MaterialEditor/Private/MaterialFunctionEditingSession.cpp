@@ -1,4 +1,4 @@
-#include "MaterialEditorFunctionDocument.h"
+#include "MaterialFunctionEditingSession.h"
 #include "Materials/MaterialExpression.h"
 
 #include "DObject/Archive.h"
@@ -13,13 +13,13 @@
 namespace Durin::MaterialEditor
 {
 
-	auto FMaterialEditor::FFunctionDocument::RefreshSourceRevision() -> void
+	auto FMaterialFunctionEditingSession::RefreshSourceRevision() -> void
 	{
 		if (const auto* Original = Source.Get(); Original && Original->GetPackage())
 			SourceRevision = {Original->GetFunctionRevision(), Original->GetPackage()->GetEditRevision()};
 	}
 
-	auto FMaterialEditor::FFunctionDocument::Initialize(DMaterialFunction& Original,
+	auto FMaterialFunctionEditingSession::Initialize(DMaterialFunction& Original,
 		DTransactor* Transactions, std::string& Error) -> bool
 	{
 		if (!Original.GetPackage()) { Error = "A function document requires a source package."; return false; }
@@ -44,10 +44,10 @@ namespace Durin::MaterialEditor
 		return true;
 	}
 
-	auto FMaterialEditor::FFunctionDocument::IsDirty() const -> bool
+	auto FMaterialFunctionEditingSession::IsDirty() const -> bool
 	{ return WorkingPackage && WorkingPackage->IsDirty(); }
 
-	auto FMaterialEditor::FFunctionDocument::Publish(std::string& Error, bool bForce) -> bool
+	auto FMaterialFunctionEditingSession::Publish(std::string& Error, bool bForce) -> bool
 	{
 		if (bPublishing) { Error = "Function publication is in progress."; return false; }
 		if (!IsDirty() && !bForce) return true;

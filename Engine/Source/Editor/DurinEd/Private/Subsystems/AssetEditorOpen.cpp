@@ -59,7 +59,8 @@ namespace Durin
 		}
 		if (Args.bCreateSingleEditor)
 		{
-			if (!Opened) return false;
+			if (!Opened || (Selection.size() > 1 && std::ranges::any_of(Selection,
+				[](const auto& Entry) { return !Entry.Support.bSupportsMultipleAssets; }))) return false;
 			std::optional<EToolkitMode> Required;
 			for (const auto& Entry : Selection) if (Entry.Support.RequiredToolkitMode)
 			{

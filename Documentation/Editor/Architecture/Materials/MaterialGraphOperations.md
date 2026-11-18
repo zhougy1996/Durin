@@ -672,10 +672,10 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 
 ## Clipboard and layout
 
-Document owns inspection, remove, move, layout, copy, paste, cut and duplicate
-commands for both material and function owners. `FMaterialGraphOperations` retains
-parameter operations and catalog queries. `MoveMaterialOutput` on Document resolves
-the output terminal before using `MoveNodes`; it rejects function graphs. Command
+`FMaterialGraphDocument` owns graph commands for material and function drafts,
+including parameter and surface-default edits. Catalog lookup and search belong
+to private Material Editor code. `MoveMaterialOutput` resolves the material
+output terminal before using `MoveNodes`. Command
 status and affected/generated IDs are produced by the owning command, with no
 facade rewriting. Paste and duplicate report their newly selected generated IDs;
 no-change position commands produce no changed IDs or undo entry.

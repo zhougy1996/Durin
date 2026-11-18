@@ -269,8 +269,7 @@ node as one command; missing numeric inputs receive inline literal defaults
 in the same transaction, while resource inputs without a default reject.
 Escape and every document lifecycle cancellation close the palette and discard
 reconnection and movement drafts without dirtying or compiling
-the material. Every mutation still routes to the stateless
-`FMaterialGraphOperations` operation boundary.
+the material. Graph mutations route through `FMaterialGraphDocument`.
 
 `Promote to Parameter` is available on an unconnected Surface input. It
 creates the compatible material-owned Parameter node one column upstream, copies the

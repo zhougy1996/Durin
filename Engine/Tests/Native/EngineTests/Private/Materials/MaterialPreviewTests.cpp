@@ -1,6 +1,7 @@
 #include "NativeAssetBuildTestSupport.h"
 #include "MaterialRenderingTestFixture.h"
 #include "FMaterialEditor.h"
+#include "Widgets/MaterialEditingSession.h"
 #include "Documents/EditorDocumentManager.h"
 #include "MaterialAssetDefinitions.h"
 #include "Materials/MaterialFunction.h"
@@ -15,9 +16,9 @@ namespace Durin::MaterialEditor
 {
 	struct FMaterialEditorTestAccess
 	{
-		static auto CreatePreview(FMaterialEditor& Editor, uint64 Id) -> void
+		static auto CreatePreview(FMaterialEditor& Editor) -> void
 		{
-			Editor.MaterialPreviews.emplace(Id, std::make_shared<FMaterialPreview>(Id));
+			Editor.EditingSession->Preview = std::make_shared<FMaterialPreview>(Editor.GetWindowId());
 		}
 	};
 }
@@ -42,10 +43,9 @@ TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesMaterialAndFunctionPre
 		.OpenArgs = {.AssetEditors = AssetEditorSubsystem}, .Assets = {Fixtures.Material}});
 	ASSERT_NE(Instance, nullptr);
 	const auto Toolkit = Instance->GetToolkit();
-	constexpr uint64 PreviewId = 987654323;
-	const auto LightName = std::format("MaterialPreviewLight_{}", PreviewId);
+	const auto LightName = std::format("MaterialPreviewLight_{}", Toolkit->GetWindowId());
 	Durin::MaterialEditor::FMaterialEditorTestAccess::CreatePreview(
-		static_cast<Durin::MaterialEditor::FMaterialEditor&>(*Toolkit), PreviewId);
+		static_cast<Durin::MaterialEditor::FMaterialEditor&>(*Toolkit));
 	ASSERT_NE(FindObjectByName(LightName), nullptr);
 	auto* Function = Durin::NewObject<Durin::DMaterialFunction>(Fixtures.Material->GetPackage(), "RetainedFunction");
 	auto* FunctionInstance = AssetEditorSubsystem->OpenAssetEditor(
@@ -54,7 +54,7 @@ TEST(FMaterialPreviewTests, ClosingRetainedToolkitReleasesMaterialAndFunctionPre
 	ASSERT_NE(FunctionInstance, nullptr);
 	const auto FunctionToolkit = FunctionInstance->GetToolkit();
 	const auto FunctionLightName = std::format("MaterialPreviewLight_{}",
-		FunctionInstance->GetDocumentManager()->GetDocuments().front().Id.Value);
+		FunctionToolkit->GetWindowId());
 	ASSERT_NE(FindObjectByName(FunctionLightName), nullptr);
 	Editor->PreExit();
 	EXPECT_TRUE(FunctionToolkit->IsClosed());
@@ -134,8 +134,8 @@ TEST(FMaterialPreviewTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageColl
 	const std::string FirstLightName = std::format("MaterialPreviewLight_{}", FirstPreviewId);
 	const std::string SecondLightName = std::format("MaterialPreviewLight_{}", SecondPreviewId);
 	{
-		Durin::MaterialEditor::FMaterialPreview FirstPreview(FirstPreviewId);
-		Durin::MaterialEditor::FMaterialPreview SecondPreview(SecondPreviewId);
+		Durin::MaterialEditor::FMaterialPreview FirstPreview(std::to_string(FirstPreviewId));
+		Durin::MaterialEditor::FMaterialPreview SecondPreview(std::to_string(SecondPreviewId));
 		ASSERT_EQ(Durin::FAssetRetentionService::NumRetained(), 2u);
 		ASSERT_NE(FindObjectByName(FirstLightName), nullptr);
 		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
@@ -186,7 +186,7 @@ TEST(FMaterialPreviewTests, PostProcessUsesStudioInputAndDomainSwitchRebindsTheS
 	ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
 
 	{
-		MaterialEditor::FMaterialPreview Preview(987654324);
+		MaterialEditor::FMaterialPreview Preview("987654324");
 		for (const auto Text : {"/Engine/Models/Sphere.Sphere","/Engine/Models/Box.Box"})
 		{
 			FSoftObjectPath Path; ASSERT_TRUE(FSoftObjectPath::TryCreate(Text,Path));

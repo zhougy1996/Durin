@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "FMaterialEditor.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Materials/MaterialFunction.h"
@@ -11,8 +10,11 @@ namespace Durin { class DTransactor; }
 
 namespace Durin::MaterialEditor
 {
-	// One toolkit-owned document contains both its editable draft and derived presentation.
-	struct FMaterialEditor::FFunctionDocument
+	class FMaterialGraphCanvas;
+	class FMaterialPreview;
+
+	// Owns the editable function draft and its derived presentation.
+	struct FMaterialFunctionEditingSession
 	{
 		TWeakObjectPtr<DMaterialFunction> Source;
 		TStrongObjectPtr<DPackage> WorkingPackage;
@@ -27,14 +29,14 @@ namespace Durin::MaterialEditor
 		FGuid Output;
 		FMaterialFunctionPreviewInvalidation PreviewInvalidation;
 		bool bPreviewValid = false;
-		bool bResetLayout = false;
 		bool bOutputPort = false;
 		FGuid EditingPort;
 		FGuid SelectedPortNode;
 		FMaterialFunctionPort PortDraft;
 		std::array<char, 129> PortName{};
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
-		~FFunctionDocument();
+		FMaterialFunctionEditingSession();
+		~FMaterialFunctionEditingSession();
 		auto GetSource() const -> DMaterialFunction* { return Source.Get(); }
 		auto Function() const -> DMaterialFunction* { return Working.Get(); }
 		auto Material() const -> DMaterial*;

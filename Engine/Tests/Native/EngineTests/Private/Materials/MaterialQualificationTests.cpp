@@ -1,4 +1,5 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
+#include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionIO.h"

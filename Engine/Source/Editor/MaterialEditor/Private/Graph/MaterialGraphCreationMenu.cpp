@@ -1,4 +1,5 @@
 #include "Graph/MaterialGraphCanvas.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "MaterialGraphDocument.h"
@@ -124,7 +125,7 @@ namespace Durin::MaterialEditor
 		{
 			CachedCreationActions.clear();
 			const auto& Document = GraphDocument;
-			for (const auto Index : FMaterialGraphOperations::SearchCatalogIndices(Catalog, "", SourceType))
+			for (const auto Index : SearchCatalogIndices(Catalog, "", SourceType))
 				CachedCreationActions.push_back(MakeCreationAction(Catalog[Index]));
 			for (bool bOutput : {false, true})
 				CachedCreationActions.push_back(MakePortCreationAction(bOutput, SourceType.value_or(EMaterialProgramValueType::Float)));

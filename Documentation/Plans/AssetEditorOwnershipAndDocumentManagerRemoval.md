@@ -13,8 +13,21 @@ The owner selected one asset per Material Editor Toolkit, separate material and
 function editing sessions under a shared Toolkit implementation, a dedicated
 instance Toolkit, and workspace-wide removal of `FEditorDocumentManager`.
 The source review uses Durin revision `e57cb3afd` and the local UE 5.8.2
-installation at `D:/Programs/UE_5.8`, changelist 56702186. Implementation and
-native validation are pending.
+installation at `D:/Programs/UE_5.8`, changelist 56702186. Stage 1 uses the local UE 5.8.4 source tree to confirm the separate material
+and instance Toolkit factories and feature-owned graph navigation. Durin
+consolidates graph writes in its existing `FMaterialGraphDocument` command
+interface. That interface serves the graph draft, while the asset editor
+subsystem handles opening and locating the Toolkit.
+
+Stage 1 passed on macOS arm64 with `MacOS-arm64-Debug-DurinEditor` on
+base revision `595521bd7` plus the Stage 1 changes. `AssetEditorFamilyTests`
+passed all 14 cases. `@material-editing` passed its graph editing,
+interaction, and persistence targets. The
+`FMaterialAsyncCompileTests.EditingSessionAppliesOnlyAcceptedResults` case
+passed with pending Apply cancellation coverage, and the persistence target
+covered forced close during function publication. The test runtime needed
+its TextureCompressor deployment refreshed to match the current Engine build.
+Stage 2 starts the migration of source ownership and reload participation.
 
 ## Goal
 
@@ -76,26 +89,26 @@ implementation uses different mechanics.
 
 ### Stage 1: Give each material asset a single Toolkit session
 
-- [ ] Route base materials and functions to separate instances of the shared
+- [x] Route base materials and functions to separate instances of the shared
   `FMaterialEditor` implementation. Split out the private
   `FMaterialInstanceEditor` and its reflected factory. Enforce single-asset
   admission both in the family routes and when a Toolkit is opened directly.
-- [ ] Move base material and function draft ownership into their concrete
+- [x] Move base material and function draft ownership into their concrete
   sessions. Reuse `FMaterialEditingSession` and extract the existing
   `FFunctionDocument` as the function session. Each owns its canvas and preview.
   Hold a local session reference across callbacks that can close the editor.
-- [ ] Delete `OpenMaterials`, `EditingSessions`, `FunctionDocuments`,
+- [x] Delete `OpenMaterials`, `EditingSessions`, `FunctionDocuments`,
   `MaterialPreviews`, `MaterialGraphCanvases`, `ParameterSearchTexts`, and
   `PendingLayoutResets`. Keep search and layout-reset state as single values.
   Remove resource-key lookups, reverse session lookups, and per-document drawing
   loops. Use the Toolkit window identity for preview names. Keep the host's
   temporary compatibility record as the only document ID use.
-- [ ] Use the asset editor subsystem to open and find the target function,
+- [x] Use the asset editor subsystem to open and find the target function,
   then navigate by node GUID through its sole session. Consolidate graph
   write commands in `FMaterialGraphDocument`. Remove the static
   `FMaterialGraphOperations` command facade after migrating consumers and keep
   catalog search, canvas geometry, and gesture sessions private.
-- [ ] Validate family admission, graph edits and interactions, Apply and Save,
+- [x] Validate family admission, graph edits and interactions, Apply and Save,
   history, rename, reopen, and session retirement. Include close during a
   function publication callback and cancellation of a pending material Apply.
 

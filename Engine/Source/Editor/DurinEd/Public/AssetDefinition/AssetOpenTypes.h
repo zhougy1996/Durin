@@ -27,6 +27,7 @@ namespace Durin
 		EAssetOpenMethod OpenMethod = EAssetOpenMethod::Edit;
 		bool IsSupported = false;
 		std::optional<EToolkitMode> RequiredToolkitMode;
+		bool bSupportsMultipleAssets = true;
 
 		auto ResolveToolkitMode(EToolkitMode Requested, std::optional<EToolkitMode> HostMode = {}) const -> std::optional<EToolkitMode>
 		{

@@ -225,7 +225,7 @@ namespace Durin::MaterialEditor
 					.AssignSelection = [&](DObject* Object, std::string& Error) {
 						auto Value = Parameter.Value;
 						Value.GetTexture().Texture = Cast<DTexture>(Object);
-						const auto Result = FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Value);
+						const auto Result = FMaterialGraphDocument(*Material).SetParameterValue(Parameter.Id, Value);
 						Error = FormatMaterialGraphCommandResult(Result); Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 						return static_cast<bool>(Result);
 					}});
@@ -237,7 +237,7 @@ namespace Durin::MaterialEditor
 						int Index = static_cast<int>(Value);
 						if (Changed || !DetailsStyle::EditRow(Label, [&] { return ImGui::Combo("##Value", &Index, Names); })) return;
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
-						Submit(FMaterialGraphOperations::SetParameterValue(*Material, Parameter.Id, Parameter.Value));
+						Submit(FMaterialGraphDocument(*Material).SetParameterValue(Parameter.Id, Parameter.Value));
 					};
 					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? "White\0Black\0" : "White\0Black\0Flat normal\0");
 					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");

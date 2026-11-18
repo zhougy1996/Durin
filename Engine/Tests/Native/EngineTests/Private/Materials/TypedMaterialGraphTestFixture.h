@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "MaterialGraphDocument.h"
@@ -41,7 +42,7 @@ namespace Durin::Testing
 		FMaterialExpressionInput Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
 		-> MaterialEditor::FMaterialGraphCommandResult
 	{
-		const auto Catalog = MaterialEditor::FMaterialGraphOperations::EnumerateCatalog();
+		const auto Catalog = MaterialEditor::EnumerateCatalog();
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Value) { return Value.Opcode == Opcode && Value.ResultType == Type; });
 		if (Entry == Catalog.end()) return {.Status = MaterialEditor::EMaterialGraphCommandStatus::Rejected,
 			.Message = "The catalog expression shape is stale."};

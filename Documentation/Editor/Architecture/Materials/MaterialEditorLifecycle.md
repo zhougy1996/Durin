@@ -153,8 +153,12 @@ The command validates the selected asset/declaration and retains stable GUID
 identity; compile diagnostics navigate back to the expression when a dependency is
 missing or incompatible.
 
-Base-material documents own canvases; instance documents retain the parameter
-override workflow and direct users to the root base material for graph editing.
+Each base material or material function opens one `FMaterialEditor` Toolkit
+with its own editing session, graph canvas, and preview. A material instance
+opens a dedicated `FMaterialInstanceEditor` Toolkit for its live parameter and
+rendering overrides. The instance editor links to its parent for graph editing.
+Ordinary multi-selection opens one Toolkit per asset. Requests to group more
+than one asset from these families are rejected before opening any editor.
 `FMaterialEditingSession` strongly owns the working material and its unique
 transient package under the source mount. The transient material is not a
 top-level asset export. That package supplies isolated transaction revisions;
@@ -164,10 +168,9 @@ source. Apply invalidates the source's saved checkpoint; successful Save marks
 both source and working checkpoints. Closing or resetting the working copy
 forgets its transaction records and cancels its compile jobs before retirement.
 
-Each function document in `FMaterialEditor` owns one transient duplicate of the
-source function and its working package, canvas and derived preview. There is no
-separate function Session registry or applied-graph snapshot. The source is a weak
-reference to the asset retained by the reflected editor/document roots. Graph,
+Each `FMaterialFunctionEditingSession` owns a transient duplicate of the source
+function and its working package, canvas, and derived preview. The compatibility
+host record retains the source while it is open. Graph,
 port and layout edits affect only the draft; ordinary source-package saves and
 dependent materials cannot observe them. Working-package transaction checkpoints
 are the sole draft dirty authority. Source-package disk dirtiness does not set
@@ -187,7 +190,7 @@ and consuming materials. Compiler worker snapshots remain independent of this
 editor document state.
 
 Following UE's material-function editor, successful Undo/Redo republishes each
-function document touched by that transaction, including after Apply. The toolkit
+function session touched by that transaction, including after Apply. The toolkit
 uses existing transaction notifications, so history replay from another toolkit
 also updates affected functions without applying unrelated dirty drafts.
 
@@ -198,12 +201,12 @@ a publishing or dirty draft, validates the prepared draft revision, and the norm
 reload completion notification rebuilds the clean draft against the replacement.
 Relocation preserves the draft and remaps its resource identity and source token.
 
-Publication and drawing hold local document leases across synchronous callbacks;
+Publication and drawing keep the session alive across synchronous callbacks, and
 publication also retains its source. A single scoped publication guard rejects
-reentrant Apply, Discard, normal close, function-toolkit history commands and reload. Forced toolkit
-close removes document ownership, unregisters history notifications and retires
+reentrant Apply, Discard, normal close, function-toolkit history commands and reload. Forced Toolkit
+close releases the session, unregisters history notifications and retires
 preview presentation immediately. An executing callback can finish safely but
-cannot perform a late Save or resume rendering a retired document. Final document
+cannot perform a late Save or resume rendering a retired document. Final session
 destruction forgets working-package history and retires its transient packages.
 
 Discard cancels pending Apply. If the source is clean, it simply recreates the
@@ -217,8 +220,8 @@ Material callbacks remain synchronous. Runtime discovery is sealed before
 notifications, and edits performed by listeners use fresh batches; see
 [scoped material queries](../../../Runtime/Rendering/Materials/MaterialQueries.md#external-notifications-and-reentrancy).
 
-Canvas maps use document IDs, so selection cannot leak across materials or
-instances. User-scoped editor profiles retain panel preferences and graph pan/zoom
+A graph session owns its selection and canvas state. Preview names derive from
+the Toolkit window ID. User-scoped profiles retain panel preferences and graph pan/zoom
 by resource path. Same-profile windows merge resource edits rather than overwriting
 each other's cached settings. Relocation updates live and stored viewport keys;
 layout-profile identity remains independent of resource names. Window IDs are
@@ -227,7 +230,7 @@ follow [asset editor layout profiles](../Framework/AssetEditors.md#panels-and-to
 
 Session document controllers observe authoritative Engine relocation and remap
 resource IDs, per-resource document keys and labels without changing document
-identity. Material toolkit callbacks rekey their loaded objects and editing state.
+identity. Material Toolkit callbacks update stored viewport and source revision state.
 A module-scoped observer separately updates stored profile viewport records and
 unregisters when the module retires. There is no local
 asset catalog mirror. Deletion is observed through the existing object handle;

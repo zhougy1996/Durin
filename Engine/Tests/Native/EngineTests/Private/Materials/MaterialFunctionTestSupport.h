@@ -27,7 +27,7 @@
 #include "MaterialFunctionPreview.h"
 #include "MaterialEditorModule.h"
 #include "FMaterialEditor.h"
-#include "MaterialEditorFunctionDocument.h"
+#include "MaterialFunctionEditingSession.h"
 #include "Documents/EditorDocumentManager.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Modules/ModuleTestSupport.h"
@@ -37,8 +37,8 @@ namespace Durin::MaterialEditor
 {
 	struct FMaterialFunctionEditorTestAccess
 	{
-		static auto& Document(FAssetEditorToolkit& Toolkit, std::string_view Resource)
-		{ return *static_cast<FMaterialEditor&>(Toolkit).FunctionDocuments.at(std::string(Resource)); }
+		static auto& Document(FAssetEditorToolkit& Toolkit, std::string_view)
+		{ return *static_cast<FMaterialEditor&>(Toolkit).FunctionSession; }
 	};
 }
 

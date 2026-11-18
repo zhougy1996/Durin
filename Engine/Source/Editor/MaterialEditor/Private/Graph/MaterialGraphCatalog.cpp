@@ -1,4 +1,5 @@
 #include "MaterialGraphDocument.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionCollectionParameter.h"
@@ -126,7 +127,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphDocument::Inspect() const -> FMaterialGraphView
 	{
-		return Inspect(FMaterialGraphOperations::EnumerateCatalog());
+		return Inspect(EnumerateCatalog());
 	}
 
 	auto FMaterialGraphDocument::Inspect(std::span<const FMaterialGraphCatalogEntry> Catalog) const -> FMaterialGraphView
@@ -469,7 +470,7 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphOperations::EnumerateCatalog()
+	auto EnumerateCatalog()
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
@@ -484,7 +485,7 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphOperations::SearchCatalog(
+	auto SearchCatalog(
 		std::string_view Query,
 		std::optional<EMaterialProgramValueType> SourceType)
 		-> std::vector<FMaterialGraphCatalogEntry>
@@ -492,7 +493,7 @@ namespace Durin::MaterialEditor
 		return SearchCatalog(EnumerateCatalog(), Query, SourceType);
 	}
 
-	auto FMaterialGraphOperations::SearchCatalog(
+	auto SearchCatalog(
 		std::span<const FMaterialGraphCatalogEntry> Catalog,
 		std::string_view Query,
 		std::optional<EMaterialProgramValueType> SourceType)
@@ -506,7 +507,7 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphOperations::SearchCatalogIndices(
+	auto SearchCatalogIndices(
 		std::span<const FMaterialGraphCatalogEntry> Catalog,
 		std::string_view Query,
 		std::optional<EMaterialProgramValueType> SourceType)

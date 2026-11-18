@@ -550,7 +550,7 @@ durin_add_native_test(MaterialEditingPersistenceTests
 		Private/Materials/MaterialFunctionPersistenceTests.cpp
 	PRIVATE_SOURCES
 		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
-		${_durin_material_editor_private}/MaterialEditorFunctionDocument.cpp
+		${_durin_material_editor_private}/MaterialFunctionEditingSession.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}

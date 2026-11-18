@@ -116,7 +116,7 @@ namespace Durin::MaterialEditor
 	class FMaterialPreview::FImpl
 	{
 	public:
-		explicit FImpl(uint64 PreviewId)
+		explicit FImpl(std::string_view PreviewId)
 		{
 			auto Client = std::make_unique<FMaterialPreviewViewportClient>();
 			ViewportClient = Client.get();
@@ -347,7 +347,7 @@ namespace Durin::MaterialEditor
 		std::string Error;
 	};
 
-	FMaterialPreview::FMaterialPreview(uint64 PreviewId)
+	FMaterialPreview::FMaterialPreview(std::string_view PreviewId)
 		: Impl(std::make_unique<FImpl>(PreviewId))
 	{
 	}

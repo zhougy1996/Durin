@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Graph/MaterialGraphInteraction.h"
 
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphReadModel.h"

@@ -81,6 +81,18 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	EXPECT_EQ(Source->GetExpressionOutputs(), Outputs);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 
+	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.632719f});
+	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
+	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
+	ASSERT_TRUE(Session.IsApplyPending());
+	Session.CancelApply();
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
+	Session.Tick(Error);
+	EXPECT_TRUE(Error.empty()) << Error;
+	EXPECT_FALSE(Session.IsApplyPending());
+	EXPECT_TRUE(Session.HasUnappliedChanges());
+	EXPECT_NE(Source->GetExpressionOutputs(), Outputs);
+
 	// Automatic deadlines must be serviced for transient drafts even when their
 	// document is hidden; the source must remain unchanged after completion.
 	Draft->SetEditCompileMode(EMaterialEditCompileMode::Automatic);

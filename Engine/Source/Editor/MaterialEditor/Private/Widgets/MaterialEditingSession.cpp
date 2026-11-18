@@ -1,4 +1,5 @@
 #include "Widgets/MaterialEditingSession.h"
+#include "Graph/MaterialGraphCanvas.h"
 #include "Materials/MaterialExpression.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -59,6 +60,8 @@ namespace Durin::MaterialEditor
 			return Destination.SetMaterialExpressions(Expressions, Source.GetExpressionOutputs());
 		}
 	}
+
+	FMaterialEditingSession::FMaterialEditingSession() = default;
 
 	FMaterialEditingSession::~FMaterialEditingSession()
 	{

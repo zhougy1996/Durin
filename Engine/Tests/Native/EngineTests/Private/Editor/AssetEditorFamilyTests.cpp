@@ -154,6 +154,42 @@ namespace
 		EXPECT_NE(EditorInstances.front()->GetToolkit(), EditorInstances.back()->GetToolkit());
 	}
 
+	TEST_F(FAssetEditorFamilyTests, MaterialFamiliesRejectGroupingAndOpenOneToolkitPerAsset)
+	{
+		const std::array Families{
+			std::array<DObject*, 2>{Duplicate(*Fixtures.Material), Duplicate(*Fixtures.Material)},
+			std::array<DObject*, 2>{Duplicate(*Fixtures.MaterialInstance), Duplicate(*Fixtures.MaterialInstance)},
+			std::array<DObject*, 2>{Create<DMaterialFunction>("FirstFunction"), Create<DMaterialFunction>("SecondFunction")}};
+		std::unordered_set<DClass*> EditorClasses;
+		for (const auto& Assets : Families)
+		{
+			FAssetOpenArgs Args{.AssetEditors = AssetEditorSubsystem, .bCreateSingleEditor = true};
+			for (auto* Asset : Assets)
+			{
+				ASSERT_NE(nullptr, Asset);
+				FSoftObjectPath Path;
+				ASSERT_TRUE(FSoftObjectPath::TryCreate(Asset->GetObjectPath(), Path));
+				Args.Assets.push_back({Path, Asset->GetClass()->GetQualifiedName().ToString()});
+			}
+			EXPECT_FALSE(AssetEditorSubsystem->OpenAssets(Args));
+			EXPECT_TRUE(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
+
+			Args.bCreateSingleEditor = false;
+			ASSERT_TRUE(AssetEditorSubsystem->OpenAssets(Args));
+			const auto Toolkits = FToolkitManager::Get().GetToolkits(AssetEditorSubsystem);
+			ASSERT_EQ(2u, Toolkits.size());
+			for (const auto& Toolkit : Toolkits) EXPECT_EQ(1u, Toolkit->GetObjectsToEdit().size());
+			const auto* Editor = Toolkits.front()->GetOwningAssetEditor();
+			ASSERT_NE(nullptr, Editor);
+			EditorClasses.insert(Editor->GetClass());
+			Args.InstanceRole = "DirectGroup";
+			EXPECT_EQ(nullptr, AssetEditorSubsystem->OpenAssetEditor(Editor->GetClass(),
+				{.OpenArgs = Args, .Assets = {Assets.begin(), Assets.end()}}));
+			ASSERT_TRUE(AssetEditorSubsystem->CloseAllAssetEditors());
+		}
+		EXPECT_EQ(3u, EditorClasses.size());
+	}
+
 	TEST_F(FAssetEditorFamilyTests, MixedDirectMeshAndGenericInspectorGroupsRejectBothInputOrders)
 	{
 		FSoftObjectPath CubePath, MeshPath;
