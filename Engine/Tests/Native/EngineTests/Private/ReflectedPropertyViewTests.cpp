@@ -115,6 +115,7 @@ namespace
 
 		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal) -> std::expected<void, Durin::FObjectValidationError> override
 		{
+			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled) ++RestoreAttempts;
 			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
 			{
 				return Durin::RejectPropertyEdit(*this, Proposal, Durin::EPropertyEditRejection::Rejected);
@@ -128,6 +129,7 @@ namespace
 		FSoftObjectViewArray SoftArray;
 		FSoftObjectViewMap SoftMap;
 		bool bAllowRestore = true;
+		uint32 RestoreAttempts = 0;
 	};
 
 	struct FPropertyViewHostTestReflection
@@ -573,6 +575,7 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 	int Errors = 0;
 	const FPropertyViewContext Context{.ReportError = [&](std::string) { ++Errors; }};
 	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property);
+	FPropertyEditOperationResult LastResult;
 	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
 	auto& IO = ImGui::GetIO();
 	IO.ConfigInputTrickleEventQueue = false;
@@ -583,18 +586,21 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 		ImGui::Begin("Continuous interaction");
 		if (bVisible)
 		{
-			const FPropertyInteractionState Interaction{.WidgetId = ImGui::GetID("Value"),
-				.bActive = bActive, .bDeactivatedAfterEdit = !bActive};
+			const auto Interaction = FPropertyInteractionState::FromWidget(ImGui::GetID("Value"), {bActive, false, !bActive});
 			std::function<void(FProperty*, void*, uint32)> Assign;
 			if (Value >= 0) Assign = [Value](FProperty* Property, void* Container, uint32 Index) {
 				*Property->ContainerPtrToValuePtr<int32>(Container, Index) = Value;
 			};
-			View.SubmitPropertyValueEdit(Context, Target, Assign, true, &Interaction);
+			LastResult = View.UpdatePropertyValueEdit(Context, Target, Interaction, Assign);
 		}
 		View.EndInteractionFrame(Context);
 		ImGui::End(); ImGui::Render();
 	};
+	Frame(-1);
+	EXPECT_EQ(LastResult.GetStatus(), EPropertyEditResult::NoChange);
+	EXPECT_FALSE(View.IsEditing());
 	Frame(7); Frame(8);
+	EXPECT_EQ(LastResult.GetStatus(), EPropertyEditResult::Changed);
 	EXPECT_TRUE(View.IsEditing());
 	Frame(-1, false);
 	EXPECT_FALSE(View.IsEditing());
@@ -615,12 +621,16 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 	EXPECT_FALSE(View.IsEditing());
 	Frame(8);
 	Object->bAllowRestore = false;
+	Object->RestoreAttempts = 0;
 	IO.AddKeyEvent(ImGuiKey_Escape, true);
 	Frame(-1, false);
+	EXPECT_EQ(LastResult.GetStatus(), EPropertyEditResult::Failed);
+	EXPECT_EQ(Object->RestoreAttempts, 1u);
 	EXPECT_TRUE(View.IsEditing());
 	EXPECT_EQ(Object->Value, 8);
 	IO.AddKeyEvent(ImGuiKey_Escape, false);
 	Frame(9, false);
+	EXPECT_EQ(Object->RestoreAttempts, 2u);
 	EXPECT_TRUE(View.IsEditing());
 	EXPECT_EQ(Object->Value, 8);
 	Object->bAllowRestore = true;
@@ -628,7 +638,7 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 	EXPECT_FALSE(View.IsEditing());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
-	EXPECT_GT(Errors, 0);
+	EXPECT_EQ(Errors, 1);
 }
 
 TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilRequested)

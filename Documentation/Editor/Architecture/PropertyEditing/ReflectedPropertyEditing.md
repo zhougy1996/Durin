@@ -224,6 +224,24 @@ cancel request, preventing subsequent input or normal dismissal from committing
 the rejected preview. Material graph sessions keep their domain setter and
 likewise remain active until restoration succeeds.
 
+The UI entry point `UpdatePropertyValueEdit` accepts one interaction description
+and an optional detached-value assignment. Missing assignments only observe the
+control lifetime; results distinguish NoChange, Changed, Pending, and Failed.
+`SubmitPropertyValueEdit` remains the explicit non-widget assignment entry point
+and no longer accepts a second, overriding interaction policy. Both use the same
+snapshot preparation and property-session writer. Widget adapters reduce raw
+activation or popup state to one identity, boundary kind, and terminal request;
+the graph canvas does not maintain a second widget identity or visibility clock.
+
+This division follows UE 5.8's `IPropertyHandle::SetValue`,
+`SPropertyEditorNumeric::OnBeginSliderMovement`/`OnEndSliderMovement`, and
+`FColorStructCustomization` callbacks: interactive updates are distinct from
+the transaction owner's terminal action. Durin retains its existing transaction
+mode and property-change phase types rather than aliasing UE's `NotTransactable`
+flag to a mode that rejects an enclosing recording. A failed terminal action is
+retried at most once per ImGui frame, and an unchanged error is reported once per
+interaction. Cancellation remains pending across failed retries.
+
 `CancelUnchanged()` closes an active unchanged session with no deferred work,
 emits Cancelled for a live target, and ends its transaction scope. It preserves
 an enclosing recording and earlier edits, allowing a synchronous rejected

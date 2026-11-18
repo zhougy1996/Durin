@@ -189,6 +189,15 @@ namespace Durin::MaterialEditor
 {
 	struct FMaterialGraphCanvasTestAccess
 	{
+		static auto BeginParameter(FMaterialGraphCanvas& Canvas, DMaterial& Material, const FGuid& Id, DTransactor& Transactions) -> void
+		{
+			ASSERT_TRUE(Canvas.ParameterSession.Begin(Material, Id, &Transactions));
+			ASSERT_TRUE(Canvas.ParameterSession.Apply(FMaterialParameterValue::MakeScalar(.75f)));
+			Canvas.EditingParameterId = Id;
+			Canvas.ParameterInteraction.Observe(MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(1, {true}));
+		}
+		static auto FinishParameter(FMaterialGraphCanvas& Canvas, bool bCancel) -> bool { return Canvas.FinishParameterEdit(bCancel); }
+		static auto ParameterActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.ParameterSession.IsActive(); }
 		static auto Duplicate(FMaterialGraphCanvas& Canvas, DMaterial& Material,
 			DTransactor& Transactions, std::span<const FGuid> Nodes) -> void
 		{
@@ -274,6 +283,45 @@ namespace Durin::MaterialEditor
 		static auto OpenCreationAt(FMaterialGraphCanvas& Canvas, ImVec2 Position) -> void
 		{ Canvas.Interaction = FMaterialGraphCanvas::FNodeCreationMenuInteraction{.GraphPosition = Position}; }
 	};
+}
+
+TEST(FMaterialGraphInteractionTests, FailedParameterRestoreReportsOnceAndRetriesOnNextFrame)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid(); Definition.Name = "RetryParameter";
+	Definition.Type = EMaterialParameterType::Scalar;
+	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, ETransactionMode::NotTransactable));
+	Tests::FTestEditorTransactorOwner Transactions;
+	int Errors = 0;
+	FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material), {.ReportError = [&](std::string) { ++Errors; }}};
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Context(ImGui::CreateContext(), ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {600, 400}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	ImGui::NewFrame();
+	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, *Material, Definition.Id, *Transactions.Get());
+	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Definition.Id, ETransactionMode::NotTransactable));
+	Canvas.CancelInteraction();
+	Canvas.CancelInteraction();
+	Canvas.EndParameterFrame();
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
+	EXPECT_EQ(Errors, 1);
+	ImGui::EndFrame(); ImGui::NewFrame();
+	Canvas.EndParameterFrame();
+	EXPECT_EQ(Errors, 1);
+	Definition.Value = FMaterialParameterValue::MakeScalar(.75f);
+	ASSERT_TRUE(FMaterialGraphOperations::CreateParameter(*Material, Definition, ETransactionMode::NotTransactable));
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::FinishParameter(Canvas, false));
+	ImGui::EndFrame(); ImGui::NewFrame();
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::FinishParameter(Canvas, false));
+	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
+	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.GetScalar(), .25f);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ImGui::EndFrame();
 }
 
 TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopiedNodePositions)

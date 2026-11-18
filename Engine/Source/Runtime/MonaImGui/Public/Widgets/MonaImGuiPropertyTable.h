@@ -29,17 +29,17 @@ namespace Durin::MonaImGui::PropertyEdit
 		bool bDeactivatedAfterEdit = false;
 	};
 
+	enum class EPropertyInteractionEnd { None, Commit, Cancel };
+	enum class EPropertyInteractionBoundary { Widget, Popup };
 	struct FPropertyInteractionState
 	{
-		ImGuiID PopupId = 0;
-		bool bCancelled = false;
-		bool bOpen = false;
-		ImGuiID WidgetId = 0;
-		bool bActive = false;
-		bool bDeactivatedAfterEdit = false;
+		ImGuiID Id = 0;
+		EPropertyInteractionBoundary Boundary = EPropertyInteractionBoundary::Widget;
+		EPropertyInteractionEnd End = EPropertyInteractionEnd::None;
+		static MONAIMGUI_API auto FromWidget(ImGuiID Id, const FWidgetState& State, bool bReadOnly = false) -> FPropertyInteractionState;
+		static MONAIMGUI_API auto FromPopup(ImGuiID Id, bool bOpen, bool bReadOnly = false) -> FPropertyInteractionState;
+		MONAIMGUI_API auto IsCancelled() const -> bool;
 	};
-
-	enum class EPropertyInteractionEnd { None, Commit, Cancel };
 	enum class EColorPickerMode { SRGB, Linear, LinearHDR };
 
 	class FPropertyEditInteraction
@@ -47,18 +47,18 @@ namespace Durin::MonaImGui::PropertyEdit
 	public:
 		MONAIMGUI_API auto Observe(const FPropertyInteractionState& State) -> void;
 		MONAIMGUI_API auto Poll(bool bEndOfFrame = false) -> EPropertyInteractionEnd;
-		auto GetPopupId() const -> ImGuiID { return PopupId; }
-		auto GetWidgetId() const -> ImGuiID { return WidgetId; }
-		auto IsActive() const -> bool { return PopupId != 0 || WidgetId != 0; }
-		auto RequestCancel() -> void { bCancelPending = true; }
-		auto IsCancelPending() const -> bool { return bCancelPending; }
+		auto Matches(const FPropertyInteractionState& State) const -> bool { return IsActive() && State.Id == Current.Id && State.Boundary == Current.Boundary; }
+		auto IsActive() const -> bool { return Current.Id != 0; }
+		auto RequestCancel() -> void { Current.End = EPropertyInteractionEnd::Cancel; }
+		auto IsCancelPending() const -> bool { return Current.End == EPropertyInteractionEnd::Cancel; }
+		MONAIMGUI_API auto CanRetryFinish() const -> bool;
+		MONAIMGUI_API auto RecordFailure(std::string_view Message) -> bool;
 
 	private:
-		ImGuiID PopupId = 0;
-		ImGuiID WidgetId = 0;
+		FPropertyInteractionState Current;
 		int LastDrawFrame = 0;
-		bool bCancelPending = false;
-		bool bCommitPending = false;
+		int FailedFinishFrame = -1;
+		std::string LastError;
 	};
 
 	MONAIMGUI_API auto DrawColorPicker(FLinearColor& Color, EColorPickerMode Mode,

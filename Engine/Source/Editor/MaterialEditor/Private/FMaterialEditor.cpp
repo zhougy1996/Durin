@@ -324,20 +324,17 @@ namespace Durin::MaterialEditor
 		auto SubmitContinuousEdit(bool bChanged, const FMaterialParameterValue& Value,
 			bool bDeactivatedAfterEdit, bool bActive) -> void
 		{
-			const MonaImGui::PropertyEdit::FPropertyInteractionState Interaction{
-				.WidgetId = ImGui::GetID("##ParameterInteraction"), .bActive = bActive,
-				.bDeactivatedAfterEdit = bDeactivatedAfterEdit};
+			const auto Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(
+				ImGui::GetID("##ParameterInteraction"), {bActive, false, bDeactivatedAfterEdit});
 			if (bOverrideEnabled)
-				Model.SubmitValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Value,
-					true, &Interaction, bChanged);
+				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Interaction, bChanged ? &Value : nullptr);
 		}
 
 		auto SubmitColorEdit(bool bChanged, const FMaterialParameterValue& Value,
 			const MonaImGui::PropertyEdit::FPropertyInteractionState& Picker) -> void
 		{
 			if (bOverrideEnabled)
-				Model.SubmitValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Value,
-					true, &Picker, bChanged);
+				Model.UpdateValueEdit(Editor.PropertyView, Editor.MakePropertyViewContext(), Entry, Picker, bChanged ? &Value : nullptr);
 		}
 
 		auto IsReadOnly() const -> bool { return bDisabled; }

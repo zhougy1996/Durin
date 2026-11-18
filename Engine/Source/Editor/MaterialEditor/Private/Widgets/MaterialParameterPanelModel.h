@@ -67,10 +67,11 @@ namespace Durin::MaterialEditor
 			const FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			const FMaterialParameterValue& Value,
-			bool bContinuous,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr,
-			bool bChanged = true
+			bool bContinuous
 		) const -> bool;
+		auto UpdateValueEdit(FPropertyView& PropertyView, const FPropertyViewContext& Context,
+			const FMaterialParameterPanelEntry& Entry, const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
+			const FMaterialParameterValue* ProposedValue = nullptr) const -> FPropertyEditOperationResult;
 		auto SetOverrideEnabled(
 			FPropertyView& PropertyView,
 			const FPropertyViewContext& Context,
@@ -84,6 +85,8 @@ namespace Durin::MaterialEditor
 		) const -> bool;
 
 	private:
+		auto PrepareValueEdit(const FMaterialParameterPanelEntry& Entry, const FMaterialParameterValue* Value,
+			FPropertyEditTarget& Target, std::function<void(FProperty*, void*, uint32)>& Assign) const -> bool;
 		std::shared_ptr<bool> Invalidated = std::make_shared<bool>(true);
 		TWeakObjectPtr<DMaterialInterface> ObservedMaterial;
 		FDelegateHandle ChangeHandle;

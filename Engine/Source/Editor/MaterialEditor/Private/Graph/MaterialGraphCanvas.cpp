@@ -291,12 +291,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::CancelInteraction() -> void
 	{
-		if (ParameterSession.IsActive())
-		{
-			ParameterInteraction.RequestCancel();
-			CheckCommand(ParameterSession.Cancel());
-		}
-		if (!ParameterSession.IsActive()) ParameterInteraction = {};
+		FinishParameterEdit(true);
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();

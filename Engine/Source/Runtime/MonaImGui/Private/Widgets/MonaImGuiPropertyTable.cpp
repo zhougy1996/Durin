@@ -358,29 +358,57 @@ namespace Durin::MonaImGui::PropertyEdit
 		return bChanged;
 	}
 
+	auto FPropertyInteractionState::FromWidget(ImGuiID Id, const FWidgetState& State, bool bReadOnly) -> FPropertyInteractionState
+	{
+		return {Id, EPropertyInteractionBoundary::Widget, bReadOnly ? EPropertyInteractionEnd::Cancel
+			: State.bDeactivatedAfterEdit || !State.bActive ? EPropertyInteractionEnd::Commit : EPropertyInteractionEnd::None};
+	}
+
+	auto FPropertyInteractionState::FromPopup(ImGuiID Id, bool bOpen, bool bReadOnly) -> FPropertyInteractionState
+	{
+		return {Id, EPropertyInteractionBoundary::Popup, bReadOnly ? EPropertyInteractionEnd::Cancel
+			: bOpen ? EPropertyInteractionEnd::None : EPropertyInteractionEnd::Commit};
+	}
+
+	auto FPropertyInteractionState::IsCancelled() const -> bool
+	{
+		return End == EPropertyInteractionEnd::Cancel || (ImGui::GetCurrentContext() && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+	}
+
 	auto FPropertyEditInteraction::Observe(const FPropertyInteractionState& State) -> void
 	{
-		if (State.PopupId == 0 && State.WidgetId == 0) return;
-		if (IsActive() && (PopupId != State.PopupId || WidgetId != State.WidgetId)) return;
-		if (!IsActive() && State.PopupId != 0 && !State.bOpen) return;
-		PopupId = State.PopupId;
-		WidgetId = State.WidgetId;
+		if (State.Id == 0 || (IsActive() && !Matches(State))) return;
+		const auto Pending = Current.End;
+		Current = State;
 		LastDrawFrame = ImGui::GetFrameCount();
-		bCancelPending |= State.bCancelled;
-		if (PopupId == 0) bCommitPending |= State.bDeactivatedAfterEdit || !State.bActive;
+		if (Pending == EPropertyInteractionEnd::Cancel || State.IsCancelled()) RequestCancel();
+		else if (Pending == EPropertyInteractionEnd::Commit) Current.End = Pending;
+	}
+
+	auto FPropertyEditInteraction::CanRetryFinish() const -> bool
+	{
+		return !ImGui::GetCurrentContext() || FailedFinishFrame != ImGui::GetFrameCount();
+	}
+
+	auto FPropertyEditInteraction::RecordFailure(std::string_view Message) -> bool
+	{
+		if (ImGui::GetCurrentContext()) FailedFinishFrame = ImGui::GetFrameCount();
+		if (LastError == Message) return false;
+		LastError = Message;
+		return true;
 	}
 
 	auto FPropertyEditInteraction::Poll(bool bEndOfFrame) -> EPropertyInteractionEnd
 	{
 		if (!IsActive()) return EPropertyInteractionEnd::None;
 		const int FramesSinceDraw = ImGui::GetFrameCount() - LastDrawFrame;
-		if (bCancelPending || FramesSinceDraw > (bEndOfFrame ? 0 : 1) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		if (Current.IsCancelled() || FramesSinceDraw > (bEndOfFrame ? 0 : 1))
 		{
 			RequestCancel();
 			return EPropertyInteractionEnd::Cancel;
 		}
-		if (PopupId == 0) return bCommitPending ? EPropertyInteractionEnd::Commit : EPropertyInteractionEnd::None;
-		return ImGui::IsPopupOpen(PopupId, ImGuiPopupFlags_AnyPopupLevel)
+		if (Current.Boundary == EPropertyInteractionBoundary::Widget) return Current.End;
+		return ImGui::IsPopupOpen(Current.Id, ImGuiPopupFlags_AnyPopupLevel)
 			? EPropertyInteractionEnd::None : EPropertyInteractionEnd::Commit;
 	}
 
@@ -403,11 +431,11 @@ namespace Durin::MonaImGui::PropertyEdit
 			PreviewFlags, PreviewSize))
 			ImGui::OpenPopup("##Picker");
 		const ImGuiID PickerId = ImGui::GetID("##Picker");
-		if (OutPickerState) *OutPickerState = {PickerId};
+		if (OutPickerState) *OutPickerState = FPropertyInteractionState::FromPopup(PickerId, false);
 		if (ImGui::BeginPopup("##Picker"))
 		{
 			const bool bCancel = bReadOnly || (OutPickerState && ImGui::IsKeyPressed(ImGuiKey_Escape, false));
-			if (OutPickerState) *OutPickerState = {PickerId, bCancel, true};
+			if (OutPickerState) *OutPickerState = FPropertyInteractionState::FromPopup(PickerId, true, bCancel);
 			if (bCancel) ImGui::CloseCurrentPopup();
 			else
 			{

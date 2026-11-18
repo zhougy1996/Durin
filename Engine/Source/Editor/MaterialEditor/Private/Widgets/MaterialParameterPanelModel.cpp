@@ -57,9 +57,7 @@ namespace Durin::MaterialEditor
 			const FGuid& ParameterId,
 			EPropertyChangeKind Kind,
 			bool bContinuous,
-			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr,
-			bool bChanged = true
+			const std::function<void(const FArrayProperty&, void*, uint32)>& Mutate
 		) -> bool
 		{
 			if (!Object || !Property || !Mutate) return false;
@@ -67,12 +65,10 @@ namespace Durin::MaterialEditor
 			Target.LogicalIdentity.resize(sizeof(ParameterId));
 			std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
 			Target.Kind = Kind;
-			std::function<void(FProperty*, void*, uint32)> Assign;
-			if (bChanged)
-				Assign = [Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+			const auto Assign = [Mutate](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					Mutate(*static_cast<FArrayProperty*>(ScratchProperty), ScratchContainer, ScratchArrayIndex);
 				};
-			return PropertyView.SubmitPropertyValueEdit(Context, Target, Assign, bContinuous, Interaction);
+			return PropertyView.SubmitPropertyValueEdit(Context, Target, Assign, bContinuous);
 		}
 
 		template<typename TRecord>
@@ -220,30 +216,47 @@ namespace Durin::MaterialEditor
 		const FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry,
 		const FMaterialParameterValue& Value,
-		bool bContinuous,
-		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction,
-		bool bChanged
+		bool bContinuous
 	) const -> bool
 	{
-		if (!Entry.Definition || Entry.bOrphan || !Material || Entry.Definition->Type != Value.GetType()) return false;
-		if (Entry.Definition->Type == EMaterialParameterType::Texture
-			&& !Value.GetTexture().IsValid()) return false;
-		const FMaterialParameterValue CanonicalValue = CanonicalizeValue(*Entry.Definition, Value);
-		if (Instance)
-		{
-			if (!Entry.bHasLocalOverride) return false;
-			return VisitMaterialParameterValueType(Entry.Definition->Type, [&]<typename TRecord>() {
-				FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
-				return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
-					EPropertyChangeKind::ValueSet, bContinuous,
-					[Id = Entry.ParameterId, CanonicalValue](const FArrayProperty& ScratchProperty,
-						void* ScratchContainer, uint32 ScratchArrayIndex) {
-						if (auto* Override = FindScratchEntry<TRecord>(ScratchProperty, ScratchContainer,
-							ScratchArrayIndex, Id, &TRecord::ParameterId)) Override->SetValue(CanonicalValue);
-					}, Interaction, bChanged);
-			});
-		}
-		return false;
+		FPropertyEditTarget Target;
+		std::function<void(FProperty*, void*, uint32)> Assign;
+		return PrepareValueEdit(Entry, &Value, Target, Assign)
+			&& PropertyView.SubmitPropertyValueEdit(Context, Target, Assign, bContinuous);
+	}
+
+	auto FMaterialParameterPanelModel::UpdateValueEdit(FPropertyView& PropertyView, const FPropertyViewContext& Context,
+		const FMaterialParameterPanelEntry& Entry, const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
+		const FMaterialParameterValue* ProposedValue) const -> FPropertyEditOperationResult
+	{
+		FPropertyEditTarget Target;
+		std::function<void(FProperty*, void*, uint32)> Assign;
+		if (!PrepareValueEdit(Entry, ProposedValue, Target, Assign))
+			return {.Status = EPropertyEditResult::Failed, .Message = "The reflected material parameter is unavailable."};
+		return PropertyView.UpdatePropertyValueEdit(Context, Target, Interaction, Assign);
+	}
+
+	auto FMaterialParameterPanelModel::PrepareValueEdit(const FMaterialParameterPanelEntry& Entry,
+		const FMaterialParameterValue* Value, FPropertyEditTarget& Target,
+		std::function<void(FProperty*, void*, uint32)>& Assign) const -> bool
+	{
+		if (!Entry.Definition || Entry.bOrphan || !Material || !Instance || !Entry.bHasLocalOverride) return false;
+		if (Value && (Entry.Definition->Type != Value->GetType()
+			|| (Value->GetType() == EMaterialParameterType::Texture && !Value->GetTexture().IsValid()))) return false;
+		return VisitMaterialParameterValueType(Entry.Definition->Type, [&]<typename TRecord>() {
+			FArrayProperty* Property = FindArrayProperty(Instance, TRecord::PropertyName());
+			if (!Property) return false;
+			Target = FPropertyEditTarget::ForMember(Instance, Property);
+			Target.LogicalIdentity.resize(sizeof(Entry.ParameterId));
+			std::memcpy(Target.LogicalIdentity.data(), &Entry.ParameterId, sizeof(Entry.ParameterId));
+			if (Value)
+				Assign = [Id = Entry.ParameterId, CanonicalValue = CanonicalizeValue(*Entry.Definition, *Value)](
+					FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+					if (auto* Override = FindScratchEntry<TRecord>(*static_cast<FArrayProperty*>(ScratchProperty),
+						ScratchContainer, ScratchArrayIndex, Id, &TRecord::ParameterId)) Override->SetValue(CanonicalValue);
+				};
+			return true;
+		});
 	}
 
 	auto FMaterialParameterPanelModel::SetOverrideEnabled(

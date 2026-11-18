@@ -395,11 +395,11 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 			if (bClose) ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 		}
-		const FPropertyInteractionState Picker{PopupId, false, bIsOpen};
+		const auto Picker = FPropertyInteractionState::FromPopup(PopupId, bIsOpen);
 		const FMaterialParameterPanelModel Model(Instance.Get());
 		const auto* Entry = FindEntry(Model, Id);
 		ASSERT_NE(Entry, nullptr);
-		Model.SubmitValueEdit(View, Context, *Entry, Edited ? *Edited : Entry->Value, true, &Picker, Edited != nullptr);
+		EXPECT_TRUE(Model.UpdateValueEdit(View, Context, *Entry, Picker, Edited));
 		EXPECT_TRUE(View.EndInteractionFrame(Context));
 		ImGui::End(); ImGui::Render();
 	};
@@ -467,9 +467,8 @@ TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBound
 			{
 				const FMaterialParameterPanelModel Current(Instance.Get());
 				const auto* Entry = FindEntry(Current, Id);
-				const FPropertyInteractionState State{.WidgetId = ImGui::GetID("Value"),
-					.bActive = bActive, .bDeactivatedAfterEdit = !bActive};
-				Current.SubmitValueEdit(View, Context, *Entry, Edited, true, &State, bChange);
+				const auto State = FPropertyInteractionState::FromWidget(ImGui::GetID("Value"), {bActive, false, !bActive});
+				EXPECT_TRUE(Current.UpdateValueEdit(View, Context, *Entry, State, bChange ? &Edited : nullptr));
 			}
 			EXPECT_TRUE(View.EndInteractionFrame(Context));
 			ImGui::End(); ImGui::Render();

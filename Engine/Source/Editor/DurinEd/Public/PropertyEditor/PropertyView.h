@@ -117,9 +117,13 @@ namespace Durin
 			const FPropertyViewContext& Context,
 			const FPropertyEditTarget& Target,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue,
-			bool bContinuous,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr
+			bool bContinuous
 		) -> bool;
+		DURINED_API auto UpdatePropertyValueEdit(
+			const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
+			const std::function<void(FProperty*, void*, uint32)>& AssignValue = {}
+		) -> FPropertyEditOperationResult;
 		DURINED_API auto EndInteractionFrame(const FPropertyViewContext& Context) -> bool;
 
 		// Returns false only when the requested terminal action failed and the
@@ -139,8 +143,6 @@ namespace Durin
 			std::function<void(FProperty*, void*, uint32)> AssignValue;
 			bool bChanged = false;
 			bool bContinuous = false;
-			bool bActive = false;
-			bool bDeactivatedAfterEdit = false;
 			MonaImGui::PropertyEdit::FPropertyInteractionState Interaction;
 		};
 
@@ -189,11 +191,18 @@ namespace Durin
 			const FPropertyEditTarget& EditTarget) -> bool;
 		auto ReportError(const FPropertyViewContext& Context, std::string Error) const -> void;
 		auto ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame = false) -> bool;
+		auto ApplyPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+			const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> FPropertyEditOperationResult;
+		auto ApplyPropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+			const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous) -> FPropertyEditOperationResult;
 
 		std::array<char, 256> AssetSearchText{};
 		FMapInsertDraft MapInsertDraft;
-		FPropertyValueSnapshot ActiveMapKey;
-		ImGuiID ActiveMapKeyId = 0;
+		struct FMapKeyInteraction
+		{
+			FPropertyValueSnapshot Value;
+			ImGuiID Id = 0;
+		} MapKeyInteraction;
 		FPropertyEditSession EditSession;
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;

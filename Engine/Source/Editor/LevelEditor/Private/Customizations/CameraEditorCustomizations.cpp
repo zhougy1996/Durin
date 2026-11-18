@@ -268,9 +268,8 @@ namespace Durin::LevelEditor
 				ImGui::PushID(Field);
 				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly, 0.0f, "Type: Float");
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);
-				const MonaImGui::PropertyEdit::FPropertyInteractionState State{
-					.bCancelled = ViewContext.bReadOnly, .WidgetId = ImGui::GetID("##Value"),
-					.bActive = ImGui::IsItemActive(), .bDeactivatedAfterEdit = ImGui::IsItemDeactivatedAfterEdit()};
+				const auto State = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID("##Value"),
+					{ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()}, ViewContext.bReadOnly);
 				std::function<void(FProperty*, void*, uint32)> Assign;
 				if (bChanged && !ViewContext.bReadOnly)
 				{
@@ -278,7 +277,7 @@ namespace Durin::LevelEditor
 							*ScratchProperty->ContainerPtrToValuePtr<float>(ScratchContainer, ScratchArrayIndex) = Value;
 					};
 				}
-				PropertyView.SubmitPropertyValueEdit(ViewContext, Target, Assign, true, &State);
+				PropertyView.UpdatePropertyValueEdit(ViewContext, Target, State, Assign);
 				MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
 				ImGui::PopID();
 			}

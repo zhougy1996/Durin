@@ -645,16 +645,7 @@ namespace Durin
 			Edit = EditPropertyWidget(Context, Property, Container, ArrayIndex, Label,
 				bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly), bShowTransformHeader);
 		}
-		if (Edit.Interaction.PopupId == 0)
-		{
-			Edit.Interaction.WidgetId = ImGui::GetID(Label.c_str());
-			Edit.Interaction.bActive = Edit.bActive;
-			Edit.Interaction.bDeactivatedAfterEdit = Edit.bDeactivatedAfterEdit;
-		}
-		const bool bNeedsTarget = (Edit.bChanged && Edit.AssignValue) || Edit.bDeactivatedAfterEdit
-			|| (Edit.Interaction.WidgetId != 0 && Edit.Interaction.WidgetId == EditInteraction.GetWidgetId())
-			|| (Edit.Interaction.PopupId != 0 && Edit.Interaction.PopupId == EditInteraction.GetPopupId())
-			|| (Edit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape));
+		const bool bNeedsTarget = (Edit.bChanged && Edit.AssignValue) || EditInteraction.Matches(Edit.Interaction);
 		if (!bNeedsTarget) return false;
 		if (ExistingTarget && !bStructMember) return SubmitWidgetEdit(Context, *ExistingTarget, Edit);
 		FPropertyEditTarget Target;
@@ -682,8 +673,7 @@ namespace Durin
 		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::PropertyEdit::FWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
-			Result.bActive = State.bActive;
-			Result.bDeactivatedAfterEdit = State.bDeactivatedAfterEdit;
+			Result.Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID(Label.c_str()), State, bReadOnly);
 		};
 
 		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TEditor&& Editor) -> FPropertyWidgetEditResult {
@@ -851,8 +841,7 @@ namespace Durin
 		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::PropertyEdit::FWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
-			Result.bActive = State.bActive;
-			Result.bDeactivatedAfterEdit = State.bDeactivatedAfterEdit;
+			Result.Interaction = MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(ImGui::GetID(Label.c_str()), State, bReadOnly);
 		};
 
 		MonaImGui::PropertyEdit::BeginRow(Label.c_str(), bReadOnly, 0.0f, TypeTooltip);
@@ -1177,37 +1166,12 @@ namespace Durin
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.SubmitEdit");
-		if (Edit.Interaction.bCancelled || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
-			|| (IsEditingTarget(EditTarget) && EditInteraction.IsCancelPending()))
+		if (Edit.bContinuous)
 		{
-			if (IsEditingTarget(EditTarget))
-				FinishActiveEdit(&Context, true);
-			return false;
+			const auto Result = UpdatePropertyValueEdit(Context, EditTarget, Edit.Interaction, Edit.AssignValue);
+			return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
 		}
-		bool bChanged = false;
-		if (Edit.bChanged && Edit.AssignValue)
-		{
-			FPropertyValueSnapshot Proposed;
-			if (const auto Captured = CaptureProposedPropertyValue(EditTarget,
-				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
-					Edit.AssignValue(const_cast<FProperty*>(DraftValue.Property),
-						DraftValue.Container, DraftValue.ArrayIndex);
-					return std::expected<void, std::string>{};
-				}, Proposed); !Captured)
-			{
-				ReportError(Context, Captured.error());
-			}
-			else
-			{
-				bChanged = SubmitPropertyEdit(Context, EditTarget, Proposed, Edit.bContinuous);
-			}
-		}
-		if (IsEditingTarget(EditTarget))
-		{
-			EditInteraction.Observe(Edit.Interaction);
-			ReconcileInteraction(Context);
-		}
-		return bChanged;
+		return Edit.bChanged && SubmitPropertyValueEdit(Context, EditTarget, Edit.AssignValue, false);
 	}
 
 	auto FPropertyView::EditArrayProperty(
@@ -1436,7 +1400,7 @@ namespace Durin
 					const bool bConfirmInsert = ImGui::SmallButton("Add");
 					ImGui::SameLine();
 					const bool bCancelInsert = ImGui::SmallButton("Cancel")
-						|| ((KeyEdit.bActive || ValueEdit.bActive) && ImGui::IsKeyPressed(ImGuiKey_Escape));
+						|| KeyEdit.Interaction.IsCancelled() || ValueEdit.Interaction.IsCancelled();
 					MonaImGui::PropertyEdit::EndRow(bReadOnly);
 					if (bCancelInsert)
 					{
@@ -1499,14 +1463,14 @@ namespace Durin
 				FPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
 					Property->GetKeyProp(), KeySnapshot, SerializedKey);
 				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
-				const bool bCurrentKey = IsEditingTarget(KeyTarget) && ActiveMapKey == KeySnapshot;
-				const ImGuiID KeyId = bCurrentKey ? ActiveMapKeyId : ImGui::GetID(Key);
+				const bool bCurrentKey = IsEditingTarget(KeyTarget) && MapKeyInteraction.Value == KeySnapshot;
+				const ImGuiID KeyId = bCurrentKey ? MapKeyInteraction.Id : ImGui::GetID(Key);
 				ImGui::PushOverrideID(KeyId);
 				ImGui::PushID("Key");
 				const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
 					Context, Property->GetKeyProp(), const_cast<void*>(Key), 0, "Key", bReadOnly);
 				ImGui::PopID();
-				const bool bCancelKey = KeyEdit.Interaction.bCancelled || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+				const bool bCancelKey = KeyEdit.Interaction.IsCancelled()
 					|| (bCurrentKey && EditInteraction.IsCancelPending());
 				if (bCurrentKey && bCancelKey)
 				{
@@ -1593,22 +1557,14 @@ namespace Durin
 							bChanged |= bRenamed;
 							if (bRenamed)
 							{
-								ActiveMapKey = ProposedKeySnapshot;
-								ActiveMapKeyId = KeyId;
+								MapKeyInteraction = {ProposedKeySnapshot, KeyId};
 							}
 						}
 					}
 				}
-				if (IsEditingTarget(KeyTarget) && ActiveMapKeyId == KeyId)
+				if (IsEditingTarget(KeyTarget) && MapKeyInteraction.Id == KeyId)
 				{
-					auto State = KeyEdit.Interaction;
-					if (State.PopupId == 0)
-					{
-						State.WidgetId = KeyId;
-						State.bActive = KeyEdit.bActive;
-						State.bDeactivatedAfterEdit = KeyEdit.bDeactivatedAfterEdit;
-					}
-					EditInteraction.Observe(State);
+					EditInteraction.Observe(KeyEdit.Interaction);
 					ReconcileInteraction(Context);
 				}
 				ImGui::PopID();
@@ -1627,14 +1583,22 @@ namespace Durin
 		bool bContinuous
 	) -> bool
 	{
-		if (EditSession.IsActive() && !IsEditingTarget(Target) && !FinishActiveEdit(&Context, false)) return false;
+		const auto Result = ApplyPropertyEdit(Context, Target, ProposedValue, bContinuous);
+		return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+	}
+
+	auto FPropertyView::ApplyPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> FPropertyEditOperationResult
+	{
+		if (EditSession.IsActive() && !IsEditingTarget(Target) && !FinishActiveEdit(&Context, false))
+			return {.Status = EPropertyEditResult::Failed, .Message = "Unable to finish the preceding property edit."};
 
 		if (!EditSession.IsActive())
 		{
 			if (const auto Begin = EditSession.Begin(Target, {}, Context.TransactionMode); !Begin)
 			{
 				ReportError(Context, Begin.Message);
-				return false;
+				return Begin;
 			}
 			ActiveEditObject = Target.Object;
 			ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
@@ -1645,28 +1609,31 @@ namespace Durin
 		{
 			ReportError(Context, Result.Message);
 			FinishActiveEdit(&Context, true);
-			return false;
+			return Result;
 		}
-		if (Result.GetStatus() == EPropertyEditResult::Pending) return true;
-		if (!bContinuous) FinishActiveEdit(&Context, false);
-		return Result.GetStatus() == EPropertyEditResult::Changed;
+		if (Result.GetStatus() != EPropertyEditResult::Pending && !bContinuous && !FinishActiveEdit(&Context, false))
+			return {.Status = EPropertyEditResult::Failed, .Message = "Unable to finish the property edit."};
+		return Result;
 	}
 
 	auto FPropertyView::SubmitPropertyValueEdit(
 		const FPropertyViewContext& Context,
 		const FPropertyEditTarget& Target,
 		const std::function<void(FProperty*, void*, uint32)>& AssignValue,
-		bool bContinuous,
-		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction
+		bool bContinuous
 	) -> bool
 	{
-		if (Interaction)
-			return SubmitWidgetEdit(Context, Target, {.AssignValue = AssignValue,
-				.bChanged = static_cast<bool>(AssignValue), .bContinuous = true, .Interaction = *Interaction});
+		const auto Result = ApplyPropertyValueEdit(Context, Target, AssignValue, bContinuous);
+		return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
+	}
+
+	auto FPropertyView::ApplyPropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous) -> FPropertyEditOperationResult
+	{
 		if (!AssignValue)
 		{
 			ReportError(Context, "The reflected property assignment is unavailable.");
-			return false;
+			return {.Status = EPropertyEditResult::Failed, .Message = "The reflected property assignment is unavailable."};
 		}
 		FPropertyValueSnapshot Proposed;
 		if (const auto Captured = CaptureProposedPropertyValue(Target,
@@ -1676,10 +1643,29 @@ namespace Durin
 			}, Proposed); !Captured)
 		{
 			ReportError(Context, Captured.error());
-			return false;
+			return {.Status = EPropertyEditResult::Failed, .Message = Captured.error()};
 		}
-		const bool bSubmitted = SubmitPropertyEdit(Context, Target, Proposed, bContinuous);
-		return bSubmitted;
+		return ApplyPropertyEdit(Context, Target, Proposed, bContinuous);
+	}
+
+	auto FPropertyView::UpdatePropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
+		const std::function<void(FProperty*, void*, uint32)>& AssignValue) -> FPropertyEditOperationResult
+	{
+		if (Interaction.IsCancelled() || Context.bReadOnly || (IsEditingTarget(Target) && EditInteraction.IsCancelPending()))
+		{
+			if (IsEditingTarget(Target) && !FinishActiveEdit(&Context, true))
+				return {.Status = EPropertyEditResult::Failed, .Message = "Unable to restore the property preview."};
+			return {};
+		}
+		auto Result = AssignValue ? ApplyPropertyValueEdit(Context, Target, AssignValue, true) : FPropertyEditOperationResult{};
+		if (IsEditingTarget(Target))
+		{
+			EditInteraction.Observe(Interaction);
+			if (!ReconcileInteraction(Context) && Result)
+				return {.Status = EPropertyEditResult::Failed, .Message = "Unable to finish the property interaction."};
+		}
+		return Result;
 	}
 
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
@@ -1687,15 +1673,15 @@ namespace Durin
 		if (!EditSession.IsActive()) return true;
 		if (bCancel) EditInteraction.RequestCancel();
 		bCancel = EditInteraction.IsCancelPending();
+		if (!EditInteraction.CanRetryFinish()) return false;
 		const auto Result = bCancel ? EditSession.Cancel() : EditSession.Commit();
-		if (!Result && Context) ReportError(*Context, Result.Message);
+		if (!Result && EditInteraction.RecordFailure(Result.Message) && Context) ReportError(*Context, Result.Message);
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
 			EditInteraction = {};
-			ActiveMapKey = {};
-			ActiveMapKeyId = 0;
+			MapKeyInteraction = {};
 		}
 		return static_cast<bool>(Result);
 	}

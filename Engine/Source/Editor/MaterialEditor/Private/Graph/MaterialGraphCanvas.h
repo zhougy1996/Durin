@@ -65,6 +65,7 @@ namespace Durin::MaterialEditor
 		}
 
 	private:
+		auto FinishParameterEdit(bool bCancel) -> bool;
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
 		// Returns true for both Succeeded and NoChange.
@@ -210,7 +211,5 @@ namespace Durin::MaterialEditor
 		FMaterialGraphParameterEditSession ParameterSession;
 		MonaImGui::PropertyEdit::FPropertyEditInteraction ParameterInteraction;
 		FGuid EditingParameterId;
-		ImGuiID ParameterWidget = 0;
-		int ParameterFrame = -1;
 	};
 }

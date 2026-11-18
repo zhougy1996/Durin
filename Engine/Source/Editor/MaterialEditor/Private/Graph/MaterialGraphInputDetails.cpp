@@ -68,32 +68,24 @@ namespace Durin::MaterialEditor
 		}
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
-		if (Interaction.PopupId == 0)
+		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, false, Deactivated});
+		if (Edited && !Interaction.IsCancelled())
 		{
-			Interaction.WidgetId = Widget;
-			Interaction.bActive = Active;
-			Interaction.bDeactivatedAfterEdit = Deactivated;
-		}
-		if (Edited && !ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-		{
-			if (ParameterSession.IsActive() && (ParameterWidget != Widget || EditingParameterId != Parameter.Id))
+			if (ParameterSession.IsActive() && (!ParameterInteraction.Matches(Interaction) || EditingParameterId != Parameter.Id))
 			{
 				const bool bCancel = ParameterInteraction.Poll(true) == EPropertyInteractionEnd::Cancel;
-				CheckCommand(bCancel ? ParameterSession.Cancel() : ParameterSession.Commit());
-				if (!ParameterSession.IsActive()) ParameterInteraction = {};
+				FinishParameterEdit(bCancel);
 			}
 			if (!ParameterSession.IsActive() && CheckCommand(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
 			{
-				ParameterWidget = Widget;
 				EditingParameterId = Parameter.Id;
+				ParameterInteraction.Observe(Interaction);
 			}
-			if (ParameterSession.IsActive() && ParameterWidget == Widget && EditingParameterId == Parameter.Id
+			if (ParameterSession.IsActive() && ParameterInteraction.Matches(Interaction) && EditingParameterId == Parameter.Id
 				&& !ParameterInteraction.IsCancelPending()) CheckCommand(ParameterSession.Apply(Value));
 		}
-		if (ParameterSession.IsActive() && ParameterWidget == Widget && EditingParameterId == Parameter.Id)
+		if (ParameterSession.IsActive() && ParameterInteraction.Matches(Interaction) && EditingParameterId == Parameter.Id)
 		{
-			ParameterFrame = ImGui::GetFrameCount();
-			// Escape may deactivate an ImGui input before this check; cancellation wins.
 			ParameterInteraction.Observe(Interaction);
 		}
 		MonaImGui::PropertyEdit::EndRow();
@@ -106,11 +98,24 @@ namespace Durin::MaterialEditor
 		if (ParameterSession.IsActive())
 		{
 			const auto End = ParameterInteraction.Poll(true);
-			if (End == EPropertyInteractionEnd::Cancel || ParameterFrame != ImGui::GetFrameCount())
-				CheckCommand(ParameterSession.Cancel());
-			else if (End == EPropertyInteractionEnd::Commit) CheckCommand(ParameterSession.Commit());
+			if (End != EPropertyInteractionEnd::None) FinishParameterEdit(End == EPropertyInteractionEnd::Cancel);
 		}
-		if (!ParameterSession.IsActive()) ParameterInteraction = {};
+	}
+
+	auto FMaterialGraphCanvas::FinishParameterEdit(bool bCancel) -> bool
+	{
+		if (!ParameterSession.IsActive()) return true;
+		if (bCancel) ParameterInteraction.RequestCancel();
+		if (!ParameterInteraction.CanRetryFinish()) return false;
+		const auto Result = ParameterInteraction.IsCancelPending() ? ParameterSession.Cancel() : ParameterSession.Commit();
+		if (!Result)
+		{
+			if (ParameterInteraction.RecordFailure(FormatMaterialGraphCommandResult(Result))) CheckCommand(Result);
+			return false;
+		}
+		ParameterInteraction = {};
+		EditingParameterId = {};
+		return true;
 	}
 
 	auto FMaterialGraphCanvas::PrepareDetailsView(DObject& Owner) -> const FMaterialGraphView&
