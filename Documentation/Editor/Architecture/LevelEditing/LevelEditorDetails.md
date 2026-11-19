@@ -137,7 +137,7 @@ Storage validation, dormant entries, and canonical material binding are owned by
 
 ## Related Documentation
 
-- [Spline authoring and stable point identity](../../../Runtime/World/SplineSystem.md#level-editor-authoring)
+- [Spline authoring and index selection](../../../Runtime/World/SplineSystem.md#level-editor-authoring)
 - [Viewport editing](ViewportEditing.md)
 
 ## Related Code

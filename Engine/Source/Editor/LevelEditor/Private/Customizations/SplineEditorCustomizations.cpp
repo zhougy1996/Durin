@@ -57,14 +57,32 @@ namespace Durin::LevelEditor
 			return true;
 		}
 
+		auto SplineElement(const DSplineComponent& Spline, EEditorSubElementKind Kind, uint32 Index) -> FEditorSubElementSelection
+		{
+			return {Kind, static_cast<int32>(Index), Spline.GetSplineTopologyRevision()};
+		}
+
 		auto GetSelectedPointIndices(const FLevelEditorContext& Context, const DSplineComponent& Spline) -> std::vector<uint32>
 		{
 			std::vector<uint32> Result;
 			if (Context.GetSelectedComponent() != &Spline) return Result;
 			for (const FEditorSubElementSelection& Element : Context.GetSelectedSubElements())
 				if (Element.Kind == EEditorSubElementKind::Point)
-					if (const auto Index = Spline.GetSplineCurve().FindPointIndex(Element.StableId)) Result.push_back(*Index);
+					Result.push_back(static_cast<uint32>(Element.Index));
 			return Result;
+		}
+
+		auto DeleteSelectedSplinePoints(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
+		{
+			auto Indices = GetSelectedPointIndices(Context, Spline);
+			if (Indices.empty()) return false;
+			std::ranges::sort(Indices, std::greater{});
+			return CommitSplineEdit(Spline, Mode, "Delete Spline Points", [&] {
+				auto Points = Spline.GetSplinePoints();
+				for (uint32 Index : Indices) Points.erase(Points.begin() + Index);
+				Spline.SetSplinePoints(std::move(Points));
+				return true;
+			});
 		}
 
 		template<typename F>
@@ -127,8 +145,12 @@ namespace Durin::LevelEditor
 		class FSplineElementTransformTarget final : public ITransformGizmoTarget
 		{
 		public:
-			FSplineElementTransformTarget(DSplineComponent* InSpline, FEditorSubElementSelection InElement)
-				: Spline(InSpline), Element(InElement) {}
+			FSplineElementTransformTarget(DSplineComponent* InSpline, FEditorSubElementSelection InElement, bool bInHistory = false)
+				: Spline(InSpline), Element(InElement), bHistory(bInHistory) {}
+			auto CreateHistoryTarget() const -> std::shared_ptr<ITransformGizmoTarget> override
+			{
+				return std::make_shared<FSplineElementTransformTarget>(Spline.Get(), Element, true);
+			}
 			auto IsValid() const -> bool override { return ResolvePoint() != nullptr; }
 			auto GetIdentity() const -> const void* override { return ResolvePoint(); }
 			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {Spline.Get()}; }
@@ -138,7 +160,7 @@ namespace Durin::LevelEditor
 				const FSplinePoint* Point = ResolvePoint();
 				DSplineComponent* Resolved = Spline.Get();
 				if (!Point || !Resolved) return Result;
-				const uint32 Index = *Resolved->GetSplineCurve().FindPointIndex(Element.StableId);
+				const uint32 Index = static_cast<uint32>(Element.Index);
 				FVector3 LocalPosition = Point->Position;
 				if (Element.Kind == EEditorSubElementKind::ArriveTangent) LocalPosition -= Point->ArriveTangent * GetHandleScale(*Resolved, Index, true);
 				if (Element.Kind == EEditorSubElementKind::LeaveTangent) LocalPosition += Point->LeaveTangent * GetHandleScale(*Resolved, Index, false);
@@ -153,10 +175,9 @@ namespace Durin::LevelEditor
 			auto SetTransform(const FTransform& Transform) -> bool override
 			{
 				DSplineComponent* Resolved = Spline.Get();
-				if (!Resolved) return false;
-				const std::optional<uint32> Index = Resolved->GetSplineCurve().FindPointIndex(Element.StableId);
-				const FSplinePoint* Existing = Index ? Resolved->GetSplinePoint(*Index) : nullptr;
-				if (!Existing) return false;
+				const FSplinePoint* Existing = ResolvePoint();
+				if (!Resolved || !Existing) return false;
+				const uint32 Index = static_cast<uint32>(Element.Index);
 				FSplinePoint Point = *Existing;
 				const FVector3 LocalPosition = WorldToLocal(*Resolved, Transform.Translation);
 				if (Element.Kind == EEditorSubElementKind::Point)
@@ -169,13 +190,13 @@ namespace Durin::LevelEditor
 				{
 					const bool bArrive = Element.Kind == EEditorSubElementKind::ArriveTangent;
 					const FVector3 Tangent = (bArrive ? Point.Position - LocalPosition : LocalPosition - Point.Position)
-						/ GetHandleScale(*Resolved, *Index, bArrive);
+						/ GetHandleScale(*Resolved, Index, bArrive);
 					if (Element.Kind == EEditorSubElementKind::ArriveTangent) Point.ArriveTangent = Tangent;
 					else Point.LeaveTangent = Tangent;
 					if (Point.TangentMode == ESplineTangentMode::ManualAligned)
 						Point.ArriveTangent = Point.LeaveTangent = Tangent;
 				}
-				return Resolved->UpdateSplinePoint(*Index, Point);
+				return Resolved->UpdateSplinePoint(Index, Point);
 			}
 			auto GetPackage() const -> DPackage* override { return Spline.Get() ? Spline.Get()->GetPackage() : nullptr; }
 			auto GetLabel() const -> std::string override { return Element.Kind == EEditorSubElementKind::Point ? "Spline Point" : "Spline Tangent"; }
@@ -186,12 +207,12 @@ namespace Durin::LevelEditor
 			auto ResolvePoint() const -> const FSplinePoint*
 			{
 				DSplineComponent* Resolved = Spline.Get();
-				if (!Resolved) return nullptr;
-				const std::optional<uint32> Index = Resolved->GetSplineCurve().FindPointIndex(Element.StableId);
-				return Index ? Resolved->GetSplinePoint(*Index) : nullptr;
+				if (!Resolved || (!bHistory && Element.TopologyRevision != Resolved->GetSplineTopologyRevision())) return nullptr;
+				return Resolved->GetSplinePoint(static_cast<uint32>(Element.Index));
 			}
 			TWeakObjectPtr<DSplineComponent> Spline;
 			FEditorSubElementSelection Element;
+			bool bHistory = false;
 		};
 
 		auto DrawSplineAttributeSamples(DSplineComponent& Spline, const FSplineEvaluationSegment& Segment,
@@ -229,7 +250,7 @@ namespace Durin::LevelEditor
 				{
 					const FSplinePoint* StartPoint = Spline->GetSplinePoint(SegmentIndex);
 					if (!StartPoint) continue;
-					const FEditorSubElementSelection Element{EEditorSubElementKind::Segment, StartPoint->Id, static_cast<int32>(SegmentIndex)};
+					const auto Element = SplineElement(*Spline, EEditorSubElementKind::Segment, SegmentIndex);
 					FVector3 Previous = Spline->GetSampleAtParameter({SegmentIndex, 0.0}, ESplineCoordinateSpace::World).Position;
 					const auto& Segment = Evaluation->GetSegments()[SegmentIndex];
 					const auto& Samples = Segment.DistanceSamples;
@@ -249,10 +270,10 @@ namespace Durin::LevelEditor
 						Collector.AddLine(Line);
 						Previous = Current;
 					}
-					const auto* EndPoint = Spline->GetSplinePoint((SegmentIndex + 1) % Spline->GetNumSplinePoints());
-					if (Context.bComponentSelected && EndPoint
-						&& (IsSelected(Context.SelectedSubElements, {EEditorSubElementKind::Point, StartPoint->Id})
-							|| IsSelected(Context.SelectedSubElements, {EEditorSubElementKind::Point, EndPoint->Id})))
+					const uint32 EndIndex = (SegmentIndex + 1) % Spline->GetNumSplinePoints();
+					if (Context.bComponentSelected
+						&& (IsSelected(Context.SelectedSubElements, SplineElement(*Spline, EEditorSubElementKind::Point, SegmentIndex))
+							|| IsSelected(Context.SelectedSubElements, SplineElement(*Spline, EEditorSubElementKind::Point, EndIndex))))
 						DrawSplineAttributeSamples(*Spline, Segment, Actor, Collector);
 				}
 				if (!Context.bSelected) return;
@@ -260,7 +281,7 @@ namespace Durin::LevelEditor
 				{
 					const FSplinePoint* Point = Spline->GetSplinePoint(PointIndex);
 					if (!Point) continue;
-					const FEditorSubElementSelection PointElement{EEditorSubElementKind::Point, Point->Id};
+					const auto PointElement = SplineElement(*Spline, EEditorSubElementKind::Point, PointIndex);
 					const FVector4f PointColor = ToColor(IsSelected(Context.SelectedSubElements, PointElement)
 						? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::Success);
 					const FVector3 WorldPoint = LocalToWorld(*Spline, Point->Position);
@@ -273,7 +294,7 @@ namespace Durin::LevelEditor
 					for (const auto& [Handle, Kind] : {std::pair{Arrive, EEditorSubElementKind::ArriveTangent}, std::pair{Leave, EEditorSubElementKind::LeaveTangent}})
 					{
 						FEditorVisualizationLine Stem{WorldPoint, Handle, ToColor(MonaImGui::EUIThemeColor::Info), 1.5f, 6.0f, 40, Actor, Spline};
-						Stem.Element = {Kind, Point->Id};
+						Stem.Element = SplineElement(*Spline, Kind, PointIndex);
 						Collector.AddLine(Stem);
 						FEditorVisualizationBox HandleBox{Handle, Stem.Color, 9.0f, 4.0f, 90, Actor, Spline, true,
 							ToColor(MonaImGui::EUIThemeColor::SelectionPrimary)};
@@ -308,7 +329,7 @@ namespace Durin::LevelEditor
 				auto* Spline = Cast<DSplineComponent>(Context.GetSelectedComponent());
 				LastSpline = Spline;
 				if (Spline && Context.GetSelectedSubElements().empty() && Spline->GetNumSplinePoints() > 0)
-					Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, Spline->GetSplinePoint(0)->Id});
+					Context.SelectSubElement(Spline, SplineElement(*Spline, EEditorSubElementKind::Point, 0));
 			}
 			auto Exit(FLevelEditorContext& Context, bool) -> void override
 			{
@@ -327,7 +348,6 @@ namespace Durin::LevelEditor
 				auto* Spline = Cast<DSplineComponent>(Context.GetSelectedComponent());
 				if (!Spline) return false;
 				LastSpline = Spline;
-				RepairSelection(Context, *Spline);
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
 				const bool bWasDragging = Client.GetTransformGizmo().IsDragging();
 				if (!Client.GetTransformGizmo().Update(Targets, View, Input, Transactions))
@@ -347,7 +367,7 @@ namespace Durin::LevelEditor
 					if (Count > 0) Client.FocusLocation(Center / static_cast<double>(Count)); else Client.FocusActor(Spline->GetOwner());
 					return true;
 				}
-				if (Input.bDelete) return DeleteSelected(Context, *Spline, Mode);
+				if (Input.bDelete) return DeleteSelectedSplinePoints(Context, *Spline, Mode);
 				if (Input.bDuplicate) return DuplicateSelected(Context, *Spline, Mode);
 				if (Input.bAppend) return AppendPoint(Context, *Spline, Mode);
 				if (!Input.bRequestSelection) return false;
@@ -355,13 +375,13 @@ namespace Durin::LevelEditor
 					Context.Level, View, Input.MousePosition, EViewportPickLayer::EditorVisualization);
 				const std::optional<FViewportPickHit> Hit = Result.Status == EViewportPickStatus::Completed
 					? Result.Hit : std::nullopt;
-				if (!Hit || Hit->Component.Get() != Spline || !Hit->Element.IsValid()) { Context.ClearSubElementSelection(); return true; }
+				if (!Hit || Hit->Component.Get() != Spline || !Hit->Element.IsValid()
+					|| Hit->Element.TopologyRevision != Spline->GetSplineTopologyRevision()) { Context.ClearSubElementSelection(); return true; }
 				if (Input.bLeftMouseDoubleClicked && Hit->Element.Kind == EEditorSubElementKind::Segment)
 				{
-					FGuid NewId;
-					const uint32 Segment = static_cast<uint32>(Hit->Element.SecondaryIndex);
-					if (CommitSplineEdit(*Spline, Mode, "Insert Spline Point", [&] { return SplitSplineSegment(*Spline, Segment, FindSegmentT(*Spline, Segment, View, Input.MousePosition), &NewId); }))
-						Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, NewId});
+					const uint32 Segment = static_cast<uint32>(Hit->Element.Index);
+					if (CommitSplineEdit(*Spline, Mode, "Insert Spline Point", [&] { return SplitSplineSegment(*Spline, Segment, FindSegmentT(*Spline, Segment, View, Input.MousePosition)); }))
+						Context.SelectSubElement(Spline, SplineElement(*Spline, EEditorSubElementKind::Point, Segment + 1));
 					return true;
 				}
 				if (Input.bCtrl && Hit->Element.Kind == EEditorSubElementKind::Point) Context.ToggleSubElement(Spline, Hit->Element);
@@ -391,47 +411,26 @@ namespace Durin::LevelEditor
 			TWeakObjectPtr<DSplineComponent> LastSpline;
 			bool bExitRequested = false;
 
-			static auto RepairSelection(FLevelEditorContext& Context, DSplineComponent& Spline) -> void
-			{
-				std::vector<FEditorSubElementSelection> Valid;
-				for (const auto& Element : Context.GetSelectedSubElements())
-					if (Spline.GetSplineCurve().FindPointIndex(Element.StableId)) Valid.push_back(Element);
-				if (Valid.size() == Context.GetSelectedSubElements().size()) return;
-				Context.ClearSubElementSelection();
-				for (const auto& Element : Valid) Context.ToggleSubElement(&Spline, Element);
-			}
-			static auto DeleteSelected(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
-			{
-				std::unordered_set<FGuid> Ids;
-				for (const auto& Element : Context.GetSelectedSubElements()) if (Element.Kind == EEditorSubElementKind::Point) Ids.insert(Element.StableId);
-				if (Ids.empty()) return false;
-				const bool Changed = CommitSplineEdit(Spline, Mode, "Delete Spline Points", [&] {
-					std::vector<FSplinePoint> Points = Spline.GetSplinePoints();
-					std::erase_if(Points, [&Ids](const FSplinePoint& Point) { return Ids.contains(Point.Id); });
-					Spline.SetSplinePoints(std::move(Points)); return true;
-				});
-				if (Changed) Context.ClearSubElementSelection();
-				return Changed;
-			}
 			static auto DuplicateSelected(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
 			{
-				const auto Index = Spline.GetSplineCurve().FindPointIndex(Context.GetSelectedSubElement().StableId);
-				FGuid NewId;
-				const bool Changed = Index && CommitSplineEdit(Spline, Mode, "Duplicate Spline Point", [&] {
-					const auto NewIndex = Spline.DuplicateSplinePoint(*Index); if (!NewIndex) return false;
-					NewId = Spline.GetSplinePoint(*NewIndex)->Id; return true;
+				const auto Element = Context.GetSelectedSubElement();
+				if (Element.Kind != EEditorSubElementKind::Point) return false;
+				std::optional<uint32> NewIndex;
+				const bool Changed = CommitSplineEdit(Spline, Mode, "Duplicate Spline Point", [&] {
+					NewIndex = Spline.DuplicateSplinePoint(static_cast<uint32>(Element.Index));
+					return NewIndex.has_value();
 				});
-				if (Changed) Context.SelectSubElement(&Spline, {EEditorSubElementKind::Point, NewId});
+				if (Changed) Context.SelectSubElement(&Spline, SplineElement(Spline, EEditorSubElementKind::Point, *NewIndex));
 				return Changed;
 			}
 			static auto AppendPoint(FLevelEditorContext& Context, DSplineComponent& Spline, ETransactionMode Mode) -> bool
 			{
-				FGuid NewId;
+				uint32 NewIndex = 0;
 				const bool Changed = CommitSplineEdit(Spline, Mode, "Append Spline Point", [&] {
-					const FVector3 Position = CalculateSplineAppendPosition(Spline);
-					const uint32 Index = Spline.AddSplinePoint(FSplinePoint(Position)); NewId = Spline.GetSplinePoint(Index)->Id; return true;
+					NewIndex = Spline.AddSplinePoint(FSplinePoint(CalculateSplineAppendPosition(Spline)));
+					return true;
 				});
-				if (Changed) Context.SelectSubElement(&Spline, {EEditorSubElementKind::Point, NewId});
+				if (Changed) Context.SelectSubElement(&Spline, SplineElement(Spline, EEditorSubElementKind::Point, NewIndex));
 				return Changed;
 			}
 		};
@@ -504,10 +503,15 @@ namespace Durin::LevelEditor
 						MonaImGui::PropertyEdit::BeginRow("Curve Actions", ViewContext.bReadOnly);
 						if (ImGui::Button("Add Point", ImVec2(-FLT_MIN, 0.0f)) && !ViewContext.bReadOnly)
 						{
-							FGuid Id; Changed |= CommitSplineEdit(*Spline, ViewContext.TransactionMode, "Append Spline Point", [&] {
-								const FVector3 Position = CalculateSplineAppendPosition(*Spline);
-								const uint32 Index = Spline->AddSplinePoint(FSplinePoint(Position)); Id = Spline->GetSplinePoint(Index)->Id; return true; });
-							if (Id.IsValid()) Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, Id});
+							uint32 Index = 0;
+							if (CommitSplineEdit(*Spline, ViewContext.TransactionMode, "Append Spline Point", [&] {
+								Index = Spline->AddSplinePoint(FSplinePoint(CalculateSplineAppendPosition(*Spline)));
+								return true;
+							}))
+							{
+								Context.SelectSubElement(Spline, SplineElement(*Spline, EEditorSubElementKind::Point, Index));
+								Changed = true;
+							}
 						}
 						if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Append a control point after the current endpoint.");
 						MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
@@ -529,7 +533,9 @@ namespace Durin::LevelEditor
 							return Changed;
 						}
 
-						const auto PrimaryIndex = Spline->GetSplineCurve().FindPointIndex(Context.GetSelectedSubElement().StableId);
+						const auto Primary = Context.GetSelectedSubElement();
+						const auto PrimaryIndex = Primary.Kind == EEditorSubElementKind::Point
+							? std::optional(static_cast<uint32>(Primary.Index)) : std::nullopt;
 
 						const FVector3 Position = Spline->GetSplinePoint(Selected.front())->Position;
 						const bool bMixedPosition = std::ranges::any_of(Selected, [Spline, Position](uint32 Index) {
@@ -676,21 +682,20 @@ namespace Durin::LevelEditor
 						MonaImGui::PropertyEdit::BeginRow("Point Actions", ViewContext.bReadOnly);
 						if (ImGui::Button("Duplicate") && !ViewContext.bReadOnly && PrimaryIndex)
 						{
-							FGuid Id; Changed |= CommitSplineEdit(*Spline, ViewContext.TransactionMode, "Duplicate Spline Point", [&] {
-								const auto NewIndex = Spline->DuplicateSplinePoint(*PrimaryIndex); if (!NewIndex) return false; Id = Spline->GetSplinePoint(*NewIndex)->Id; return true; });
-							if (Id.IsValid()) Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, Id});
+							std::optional<uint32> Index;
+							if (CommitSplineEdit(*Spline, ViewContext.TransactionMode, "Duplicate Spline Point", [&] {
+								Index = Spline->DuplicateSplinePoint(*PrimaryIndex);
+								return Index.has_value();
+							}))
+							{
+								Context.SelectSubElement(Spline, SplineElement(*Spline, EEditorSubElementKind::Point, *Index));
+								Changed = true;
+							}
 						}
 						ImGui::SameLine();
 						ImGui::PushStyleColor(ImGuiCol_Text, MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error));
 						if (ImGui::Button("Delete") && !ViewContext.bReadOnly)
-						{
-							std::unordered_set<FGuid> Ids;
-							for (const auto& Element : Context.GetSelectedSubElements()) if (Element.Kind == EEditorSubElementKind::Point) Ids.insert(Element.StableId);
-							Changed |= CommitSplineEdit(*Spline, ViewContext.TransactionMode, "Delete Spline Points", [&] {
-								std::vector<FSplinePoint> Points = Spline->GetSplinePoints(); std::erase_if(Points, [&Ids](const FSplinePoint& Point) { return Ids.contains(Point.Id); });
-								Spline->SetSplinePoints(std::move(Points)); return true; });
-							Context.ClearSubElementSelection();
-						}
+							Changed |= DeleteSelectedSplinePoints(Context, *Spline, ViewContext.TransactionMode);
 						ImGui::PopStyleColor();
 						MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
 						MonaImGui::PropertyEdit::EndGroup();
@@ -747,7 +752,7 @@ namespace Durin::LevelEditor
 		return LastPosition + LastChord / LastChordLength * std::min(LastChordLength, DefaultAppendDistance);
 	}
 
-	auto SplitSplineSegment(DSplineComponent& Spline, uint32 SegmentIndex, double T, FGuid* OutPointId) -> bool
+	auto SplitSplineSegment(DSplineComponent& Spline, uint32 SegmentIndex, double T) -> bool
 	{
 		if (SegmentIndex >= Spline.GetNumSplineSegments() || !(T > 0.0 && T < 1.0)) return false;
 		const uint32 StartIndex = SegmentIndex;
@@ -777,10 +782,8 @@ namespace Durin::LevelEditor
 			Inserted.ArriveTangent = Inserted.LeaveTangent = Sample.FirstDerivative / (Segment.EndKey - Segment.StartKey);
 			Inserted.TangentMode = ESplineTangentMode::ManualBroken;
 		}
-		const FGuid InsertedId = Inserted.Id;
 		Points.insert(Points.begin() + SegmentIndex + 1, Inserted);
 		Spline.SetSplinePoints(std::move(Points), EndIndex == 0 ? std::optional(Segment.EndKey) : std::nullopt);
-		if (OutPointId) *OutPointId = InsertedId;
 		return true;
 	}
 

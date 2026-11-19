@@ -43,10 +43,8 @@ namespace Durin::RoadNet
 			};
 			if (Curve.IsClosedLoop() || Curve.GetNumPoints() < 2)
 				return Fail(ERoadDefinitionError::InvalidCurveShape);
-			std::unordered_set<FGuid> PointIds;
 			for (const auto& Point : Curve.GetPoints())
 			{
-				if (!AddUniqueId(Point.Id, ERoadValidationEntity::CurvePoint, PointIds, OutError)) return false;
 				if (!IsFinite(Point.Position) || !IsFinite(Point.ArriveTangent) || !IsFinite(Point.LeaveTangent))
 					return Fail(ERoadDefinitionError::InvalidCurveCoordinates, &Point);
 				if (Point.OutgoingInterpolation > ESplineSegmentInterpolation::Cubic

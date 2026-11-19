@@ -114,7 +114,7 @@ TEST(FLevelEditorContextSelectionTests, SharesComponentAndRepairsTypedSubElement
 	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
-	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, 3};
 	Context.SelectSubElement(Component, Element);
 	EXPECT_EQ(Context.GetSelectedComponent(), Component);
 	EXPECT_EQ(Context.GetSelectedSubElement(), Element);

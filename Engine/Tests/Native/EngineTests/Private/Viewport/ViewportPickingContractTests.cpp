@@ -220,7 +220,7 @@ TEST(FViewportPickingContractTests, ResolvesOverlayElementAndRejectsRetiredHandl
 	Box.Actor = Fixture.Actor;
 	Box.Component = Fixture.Actor->GetStaticMeshComponent();
 	Box.WorldPosition = Fixture.Actor->GetStaticMeshComponent()->GetWorldLocation();
-	Box.Element = {EEditorSubElementKind::Point, FGuid::NewGuid()};
+	Box.Element = {EEditorSubElementKind::Point, 3};
 	FEditorVisualizationCollector Collector;
 	Collector.AddBox(Box);
 	const FViewportPickRequest Request{.Level=Fixture.Level, .View=Fixture.View,

@@ -54,15 +54,13 @@ modes read and update the same state.
 
 A selected component must belong to the primary selected Actor. A sub-element
 must belong to that component and is identified by a typed handle containing an
-element kind, stable GUID, and optional secondary index. Current kinds are
-point, segment, arrive tangent, and leave tangent. Stable identity, not an array
-index, is the transaction and selection address.
+element kind, index, and topology revision. Current kinds are point, segment,
+arrive tangent, and leave tangent.
 
 Changing world or level clears the entire selection. Actor changes and
 component invalidation clear descendants. Component changes clear sub-elements.
-Modes additionally repair domain identity—for example, Spline mode discards
-handles whose point GUID no longer exists. No panel keeps a competing private
-component or point selection.
+Spline topology changes invalidate the selected indices and cached hit
+targets. Panels share the context's selection.
 
 Native-construction `Generated` components remain visible in the Details
 component tree for diagnostics, but the tree labels them read-only and disables
@@ -71,7 +69,7 @@ editing. Their owning Actor remains the authoring authority. `ASplineMeshActor`
 Details reports the generated-segment count and construction diagnostic and its
 **Edit Spline** action selects the native spline root and explicitly activates
 Spline mode. Viewport curve edits therefore mutate persistent spline points;
-the generated segment set is reconciled synchronously from stable point GUIDs.
+the generated segment set is reconciled synchronously by segment index.
 
 ## Semantic Picking Contract
 
@@ -253,7 +251,8 @@ Restoration verifies the actual values and defers while another recorder owns
 The Actor adapter preserves translation, rotation, scale, shared-pivot,
 hierarchy filtering, local/world axes, snapping, Undo/Redo, and dirty-state
 behavior. Spline adapters convert between component-local and world coordinates
-and resolve every update by point GUID. A tangent selection exposes one
+and resolve live edits by index in the current topology. A committed transform
+replays by index in transaction order. A tangent selection exposes one
 translation target. A point multi-selection exposes one translation, rotation,
 and scale target per selected point. The selected-point overlay samples the
 runtime transform on incident segments and draws Up and Right lines outside the

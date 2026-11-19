@@ -70,7 +70,7 @@ TEST(RoadGraphContract, RejectsMalformedGeometryBeforeSplineSanitization)
 		if (Case < 4)
 		{
 			ASSERT_TRUE(Result.Error.Point);
-			EXPECT_EQ(Result.Error.Point->Id, Points[Case == 1 ? 1 : 0].Id);
+			EXPECT_EQ(Result.Error.Point->Position, Points[Case == 1 ? 1 : 0].Position);
 		}
 	}
 }
@@ -307,8 +307,6 @@ TEST(RoadSurfaceContract, ExplicitFitPreservesIdentityAndStationsAndRejectsAtomi
 	std::string Error;
 	ASSERT_TRUE(FitRoadDefinition(Value, Sphere, Error)) << Error;
 	EXPECT_EQ(Value.Roads[0].Id, Before.Roads[0].Id);
-	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints().front().Id, Before.Roads[0].ReferenceLine.GetPoints().front().Id);
-	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints().back().Id, Before.Roads[0].ReferenceLine.GetPoints().back().Id);
 	EXPECT_EQ(Value.Roads[0].LaneSections[0].Lanes[0].Id, Before.Roads[0].LaneSections[0].Lanes[0].Id);
 	EXPECT_EQ(Value.Roads[0].LaneSections.back().EndDistanceMeters, Value.Roads[0].ReferenceLine.BuildEvaluationData()->GetLocalLength());
 	const auto FittedPoints = Value.Roads[0].ReferenceLine.GetPoints();

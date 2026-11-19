@@ -85,7 +85,6 @@ namespace Durin
 
 		auto GetPoints() const -> const std::vector<FSplinePoint>& { return Points; }
 		ENGINE_API auto GetPoint(uint32 PointIndex) const -> const FSplinePoint*;
-		ENGINE_API auto FindPointIndex(const FGuid& PointId) const -> std::optional<uint32>;
 		auto GetNumPoints() const -> uint32 { return static_cast<uint32>(Points.size()); }
 		ENGINE_API auto GetNumSegments() const -> uint32;
 
@@ -97,7 +96,6 @@ namespace Durin
 		ENGINE_API auto RemovePoint(uint32 PointIndex) -> bool;
 		ENGINE_API auto MovePoint(uint32 FromIndex, uint32 ToIndex) -> bool;
 		ENGINE_API auto ClearPoints() -> void;
-		ENGINE_API auto RepairPointIds() -> bool;
 		ENGINE_API auto HasValidInputKeys() const -> bool;
 		ENGINE_API auto RepairInputKeys() -> bool;
 		ENGINE_API auto ResolveInsertionKey(uint32 Index, double RequestedKey) const -> std::optional<double>;

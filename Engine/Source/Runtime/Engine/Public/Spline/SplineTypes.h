@@ -6,7 +6,6 @@
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "Math/Vector.h"
-#include "Misc/Guid.h"
 
 #include "SplineTypes.gen.h"
 
@@ -106,14 +105,11 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		ENGINE_API FSplinePoint();
+		FSplinePoint() = default;
 		ENGINE_API explicit FSplinePoint(const FVector3& InPosition);
 
 		// A position-only point receives a key when inserted into a curve.
 		static constexpr double AutoInputKey = std::numeric_limits<double>::lowest();
-
-		DPROPERTY()
-		FGuid Id;
 
 		DPROPERTY()
 		double InputKey = AutoInputKey;

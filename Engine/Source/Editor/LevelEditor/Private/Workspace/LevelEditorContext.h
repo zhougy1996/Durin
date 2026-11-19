@@ -58,8 +58,8 @@ namespace Durin::LevelEditor
 		auto SelectSubElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> void;
 		auto ToggleSubElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> void;
 		auto ClearSubElementSelection() -> void { SelectedSubElement = {}; SelectedSubElements.clear(); }
-		auto GetSelectedSubElement() const -> const FEditorSubElementSelection& { return SelectedSubElement; }
-		auto GetSelectedSubElements() const -> const std::vector<FEditorSubElementSelection>& { return SelectedSubElements; }
+		auto GetSelectedSubElement() const -> const FEditorSubElementSelection&;
+		auto GetSelectedSubElements() const -> const std::vector<FEditorSubElementSelection>&;
 		auto IsSubElementSelected(const FEditorSubElementSelection& Element) const -> bool;
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
 

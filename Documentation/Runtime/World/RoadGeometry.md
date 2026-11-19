@@ -97,7 +97,8 @@ The Engine spline table additionally resolves nonuniform collinear and inflected
 cubics; see [Spline System](SplineSystem.md).
 
 Preview meshes currently require constant left/right widths across sections.
-Generated `DSplineMeshComponent` objects remain transient, keyed derived output.
+Generated `DSplineMeshComponent` objects are transient. Construction keys
+use the road ID, segment index, and subdivision key.
 Road inputs are validated before output reuse; temporary SplineMesh preflight
 components are not created. SplineMesh owns update diagnostics and invalidation.
 The road actor checks published render readiness, not error strings, and reports

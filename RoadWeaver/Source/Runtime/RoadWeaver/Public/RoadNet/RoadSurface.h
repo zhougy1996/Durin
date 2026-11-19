@@ -57,7 +57,6 @@ namespace Durin::RoadNet
 	// One bounded Hermite interval shared by distance queries and preview deformation.
 	struct FRoadInterval
 	{
-		FGuid SourcePointId;
 		uint32 SubdivisionKey = 1;
 		FSplineMeshParams Params;
 		uint32 SegmentIndex = 0;

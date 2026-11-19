@@ -650,7 +650,11 @@ namespace Durin::LevelEditor
 		if (Transactions)
 		{
 			std::vector<FTransformTargetTransaction::FEntry> Entries;
-			for (const auto& Snapshot : Snapshots) Entries.push_back({Snapshot.Target, Snapshot.Initial, Snapshot.Preview});
+			for (const auto& Snapshot : Snapshots)
+			{
+				auto Target = Snapshot.Target->CreateHistoryTarget();
+				Entries.push_back({Target ? std::move(Target) : Snapshot.Target, Snapshot.Initial, Snapshot.Preview});
+			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
 			const auto Result = Transactions->StoreUndo(std::make_unique<FTransformTargetTransaction>(Action, DragCollectionLabel, std::move(Entries)));
 			if (!Result)

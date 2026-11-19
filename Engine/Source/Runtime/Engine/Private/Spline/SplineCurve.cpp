@@ -250,13 +250,8 @@ namespace Durin
 		}
 	} // namespace
 
-	FSplinePoint::FSplinePoint()
-		: Id{}
-	{
-	}
-
 	FSplinePoint::FSplinePoint(const FVector3& InPosition)
-		: Id(FGuid::NewGuid()), Position(InPosition)
+		: Position(InPosition)
 	{
 	}
 
@@ -264,24 +259,13 @@ namespace Durin
 	{
 		Points.emplace_back(FVector3(0.0, 0.0, 0.0));
 		Points.emplace_back(FVector3(5.0, 0.0, 0.0));
-		// Default-point identities are local to a curve, so stable values preserve
-		// authored parity without weakening uniqueness for subsequently added points.
 		Points[0].InputKey = 0.0;
 		Points[1].InputKey = 1.0;
-		Points[0].Id = FGuid(0x44555249, 0x4E53504C, 0x494E4500, 0x00000001);
-		Points[1].Id = FGuid(0x44555249, 0x4E53504C, 0x494E4500, 0x00000002);
 	}
 
 	auto FSplineCurve::GetPoint(uint32 PointIndex) const -> const FSplinePoint*
 	{
 		return PointIndex < Points.size() ? &Points[PointIndex] : nullptr;
-	}
-
-	auto FSplineCurve::FindPointIndex(const FGuid& PointId) const -> std::optional<uint32>
-	{
-		for (uint32 Index = 0; Index < Points.size(); ++Index)
-			if (Points[Index].Id == PointId) return Index;
-		return std::nullopt;
 	}
 
 	auto FSplineCurve::GetNumSegments() const -> uint32
@@ -294,7 +278,6 @@ namespace Durin
 	{
 		if (Points == InPoints) return;
 		Points = std::move(InPoints);
-		RepairPointIds();
 		RepairInputKeys();
 	}
 
@@ -310,7 +293,6 @@ namespace Durin
 		const auto InputKey = ResolveInsertionKey(PointIndex, Point.InputKey);
 		if (!InputKey) return false;
 		Point.InputKey = *InputKey;
-		Point.Id = FGuid::NewGuid();
 		Points.insert(Points.begin() + PointIndex, std::move(Point));
 		return true;
 	}
@@ -330,7 +312,6 @@ namespace Durin
 		if (PointIndex >= Points.size()) return false;
 		if (Point.InputKey == FSplinePoint::AutoInputKey) Point.InputKey = Points[PointIndex].InputKey;
 		if (!IsValidPointKey(PointIndex, Point.InputKey)) return false;
-		Point.Id = Points[PointIndex].Id;
 		if (Points[PointIndex] == Point) return false;
 		Points[PointIndex] = std::move(Point);
 		return true;
@@ -360,22 +341,6 @@ namespace Durin
 	auto FSplineCurve::ClearPoints() -> void
 	{
 		Points.clear();
-	}
-
-	auto FSplineCurve::RepairPointIds() -> bool
-	{
-		bool bRepaired = false;
-		std::unordered_set<FGuid> Seen;
-		for (FSplinePoint& Point : Points)
-		{
-			if (!Point.Id.IsValid() || Seen.contains(Point.Id))
-			{
-				do Point.Id = FGuid::NewGuid(); while (Seen.contains(Point.Id));
-				bRepaired = true;
-			}
-			Seen.insert(Point.Id);
-		}
-		return bRepaired;
 	}
 
 	auto FSplineCurve::HasValidInputKeys() const -> bool

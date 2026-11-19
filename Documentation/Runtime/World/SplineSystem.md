@@ -7,12 +7,10 @@ Modules: Engine, LevelEditor
 ## Authoring Model
 
 - `FSplineCurve` owns reflected points and loop settings. The array index
-  orders points, `InputKey` addresses evaluation, and component-local GUID
-  identifies a logical point across reorder, replay, and serialization.
+  addresses an authored point, and `InputKey` addresses evaluation.
 - Keys are finite and strictly increasing. Position-only insertion assigns a
-  key, and reordering moves points through existing key slots. Insert and
-  duplicate allocate new GUIDs. Load and reflected mutation repair invalid IDs
-  and keys before publication.
+  key, and reordering moves points through existing key slots. Load and
+  reflected mutations normalize invalid keys before publication.
 - Each point owns the interpolation of its outgoing segment. An open curve
   has one fewer segment than points. A closed curve adds a last-to-first
   segment with a default end key of last key plus one and an optional override.
@@ -54,7 +52,9 @@ Modules: Engine, LevelEditor
 ## Level Editor Authoring
 
 The viewport and Details edit persistent points through the component mutation
-API and transactions. Selection and transform targets resolve point GUIDs.
+API and transactions. Selection and live transform targets address points by
+index and are invalidated by topology revisions. Insert and duplicate may
+select the newly created point, and undo and redo restore authored point order.
 Editable keys use the runtime validation rules. The Up/Right overlay samples
 the runtime transform on segments adjoining selected points and stays outside
 the hit-test pass. Linear and cubic insertion preserves centerline geometry,
@@ -95,13 +95,13 @@ for controls.
 ## Generated Paths And Validation
 
 `ASplineMeshActor` owns the persistent path and transient segments. It
-reconciles non-constant outgoing segments by their start point GUID, including
-the closed seam. It uses parallel-transport frames with seam correction,
+rebuilds non-constant outgoing segments by segment index, including the closed
+seam. It uses parallel-transport frames with seam correction,
 independent of authored rotation and scale. Reconstruction follows
 [Native Actor Construction](NativeConstruction.md) and driven road geometry
 follows [Road Geometry](RoadGeometry.md).
 
 Use `SplineTests` for production curve, package round-trip, mesh deformation,
-and collision contracts. Use `ViewportTests` for GUID selection, key-aware
+and collision contracts. Use `ViewportTests` for index selection, key-aware
 insertion, previews, picking, and transaction replay. Mesh lifetime and road
 station changes also warrant the relevant World and RoadWeaver tests.

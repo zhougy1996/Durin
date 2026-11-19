@@ -141,8 +141,8 @@ namespace Durin::RoadNet
 				FSplineMeshParams Normalized;
 				const auto Validation = FSplineMeshDeformer::Normalize(Params, Normalized);
 				if (!Validation) return Fail(FormatSplineMeshValidationError(Validation.Error));
-				Specs.push_back({{FName(std::format("Road-{}-{}", Road.Id.ToString(), Interval.SubdivisionKey)),
-					Interval.SourcePointId}, Normalized});
+				Specs.push_back({{FName(std::format("Road-{}-{}", Interval.SegmentIndex, Interval.SubdivisionKey)),
+					Road.Id}, Normalized});
 			}
 			Candidates.push_back(std::move(Alignment));
 		}

@@ -97,7 +97,6 @@ namespace
 			Added.Id = FGuid::NewGuid();
 			Added.Name = "Added road";
 			auto Points = Added.ReferenceLine.GetPoints();
-			for (auto& Point : Points) Point.Id = FGuid::NewGuid();
 			Added.ReferenceLine.SetPoints(std::move(Points));
 			for (auto& Lane : Added.LaneSections.front().Lanes) Lane.Id = FGuid::NewGuid();
 			Changed.Roads.push_back(std::move(Added));

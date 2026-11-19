@@ -92,8 +92,7 @@ namespace Durin
 			return;
 		}
 		const auto Evaluation = SplineComponent->GetEvaluationData();
-		const auto& Points = SplineComponent->GetSplinePoints();
-		if (!Evaluation || Evaluation->GetNumSegments() == 0 || Points.empty())
+		if (!Evaluation || Evaluation->GetNumSegments() == 0)
 		{
 			return;
 		}
@@ -153,8 +152,7 @@ namespace Durin
 					EndpointFrames[SegmentIndex + 1].Forward, PathRollRadians);
 				Params.EndRollRadians = SignedRoll(BaseEnd.Frame.Up, TargetUp, BaseEnd.Frame.Forward);
 			}
-			const uint32 StartPointIndex = SegmentIndex % static_cast<uint32>(Points.size());
-			Specs.push_back({{FName("SplineSegment"), Points[StartPointIndex].Id}, Params});
+			Specs.push_back({{FName("SplineSegment"), FGuid(0, 0, 0, SegmentIndex + 1)}, Params});
 		}
 
 		for (uint32 SegmentIndex = 0; SegmentIndex < Specs.size(); ++SegmentIndex)

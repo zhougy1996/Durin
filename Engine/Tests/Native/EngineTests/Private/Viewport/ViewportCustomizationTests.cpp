@@ -75,16 +75,16 @@ TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
 	Durin::FSceneView View;
 	Durin::LevelEditor::FEditorVisualizationCollector Collector;
 	Durin::LevelEditor::CreateSplineComponentVisualizer()->DrawVisualization(Spline, {View, nullptr, true, true, true, {}}, Collector);
-	for (const auto& Point : Spline->GetSplinePoints())
+	for (uint32 Index = 0; Index < Spline->GetNumSplinePoints(); ++Index)
 		EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [&](const auto& Box) {
 			return Box.Actor.Get() == Actor && Box.Component.Get() == Spline
-				&& Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Point && Box.Element.StableId == Point.Id;
+				&& Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Point && Box.Element.Index == static_cast<int32>(Index);
 		}));
-	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::LevelEditor::FEditorVisualizationBox& Box) {
-		return Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::LeaveTangent && Box.Element.StableId == First.Id;
+	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [](const Durin::LevelEditor::FEditorVisualizationBox& Box) {
+		return Box.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::LeaveTangent && Box.Element.Index == 0;
 	}));
 	EXPECT_TRUE(std::ranges::any_of(Collector.GetLines(), [Actor, Spline](const auto& Line) {
-		return Line.Actor.Get() == Actor && Line.Component.Get() == Spline && Line.bHitTest && Line.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Segment && Line.Element.SecondaryIndex == 0;
+		return Line.Actor.Get() == Actor && Line.Component.Get() == Spline && Line.bHitTest && Line.Element.Kind == Durin::LevelEditor::EEditorSubElementKind::Segment && Line.Element.Index == 0;
 	}));
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -111,7 +111,7 @@ TEST(FSplineComponentVisualizerTests, PreviewsRuntimeAttributeCurvesAcrossTheClo
 	Spline->SetSplinePoints({First, Middle, Last});
 	ASSERT_TRUE(Spline->SetClosedLoopAtPosition(11.0));
 
-	const std::array Selection{FEditorSubElementSelection{EEditorSubElementKind::Point, First.Id}};
+	const std::array Selection{FEditorSubElementSelection{EEditorSubElementKind::Point, 0, Spline->GetSplineTopologyRevision()}};
 	FSceneView View;
 	FEditorVisualizationCollector Collector;
 	CreateSplineComponentVisualizer()->DrawVisualization(Spline, {
@@ -173,9 +173,9 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, Spline->GetSplinePoint(0)->Id});
-	ASSERT_EQ(Context.GetSelectedSubElements().size(), 1u);
 	ASSERT_TRUE(Spline->SetClosedLoopAtPosition(3.0));
+	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, 0, Spline->GetSplineTopologyRevision()});
+	ASSERT_EQ(Context.GetSelectedSubElements().size(), 1u);
 	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
 	Builder.ApplyCustomization(Spline, *Durin::LevelEditor::CreateSplineDetailsCustomization());
 
@@ -208,7 +208,7 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
+TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAtInsertedIndex)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplitSplineActor");
@@ -225,13 +225,10 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 	ASSERT_TRUE(Spline->UpdateSplinePoint(1, End));
 	std::vector<Durin::FVector3> Before;
 	for (uint32 Step = 0; Step <= 100; ++Step) Before.push_back(Spline->GetSampleAtParameter({0, Step / 100.0}).Position);
-	Durin::FGuid NewId;
 	constexpr double SplitT = 0.37;
 	const auto AttributesAtSplit = Spline->GetSampleAtSplineInputKey(4.0 * SplitT);
-	ASSERT_TRUE(Durin::LevelEditor::SplitSplineSegment(*Spline, 0, SplitT, &NewId));
-	ASSERT_TRUE(NewId.IsValid());
+	ASSERT_TRUE(Durin::LevelEditor::SplitSplineSegment(*Spline, 0, SplitT));
 	ASSERT_EQ(Spline->GetNumSplinePoints(), 3u);
-	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, NewId);
 	EXPECT_DOUBLE_EQ(Spline->GetSplinePoint(1)->InputKey, 4.0 * SplitT);
 	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(Spline->GetSplinePoint(1)->Rotation, AttributesAtSplit.Rotation));
 	EXPECT_EQ(Spline->GetSplinePoint(1)->Scale, AttributesAtSplit.Scale);
@@ -268,7 +265,7 @@ TEST(FSplineViewportAuthoringTests, AppendContinuesTheTailWithoutAFullLengthJump
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDelete)
+TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemainsTransactional)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineModeWorld");
@@ -280,17 +277,29 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
 	ASSERT_NE(Spline, nullptr);
 	Spline->AddSplinePoint(Durin::FSplinePoint({200.0, 0.0, 0.0}));
-	const Durin::FGuid FirstId = Spline->GetSplinePoint(0)->Id;
-	const Durin::FGuid SecondId = Spline->GetSplinePoint(1)->Id;
+	auto PointElement = [Spline](int32 Index) {
+		return Durin::LevelEditor::FEditorSubElementSelection{
+			Durin::LevelEditor::EEditorSubElementKind::Point, Index, Spline->GetSplineTopologyRevision()};
+	};
 	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
-	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, FirstId});
-	Context.ToggleSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, SecondId});
+	Context.SelectSubElement(Spline, PointElement(0));
+	Context.ToggleSubElement(Spline, PointElement(1));
 	ASSERT_EQ(Context.GetSelectedSubElements().size(), 2u);
+	auto Point = *Spline->GetSplinePoint(0);
+	Point.Position.y = 6.0;
+	ASSERT_TRUE(Spline->UpdateSplinePoint(0, Point));
+	EXPECT_EQ(Context.GetSelectedSubElements().size(), 2u);
+	const auto Stale = PointElement(0);
 	ASSERT_TRUE(Spline->MoveSplinePoint(0, 2));
-	EXPECT_TRUE(Context.IsSubElementSelected({Durin::LevelEditor::EEditorSubElementKind::Point, FirstId}));
+	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
+	Context.SelectSubElement(Spline, Stale);
+	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
+	Context.SelectSubElement(Spline, PointElement(0));
+	Context.ToggleSubElement(Spline, PointElement(1));
+	const auto OrderedPoints = Spline->GetSplinePoints();
 
 	const Durin::LevelEditor::FLevelViewportEditModeHandle Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
@@ -311,10 +320,12 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 3u);
-	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(FirstId).has_value());
-	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(SecondId).has_value());
+	EXPECT_EQ(Spline->GetSplinePoints(), OrderedPoints);
+	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
+	EXPECT_FALSE(Targets.Targets[0]->IsValid());
+	EXPECT_TRUE(Targets.Targets[0]->CreateHistoryTarget()->IsValid());
 
-	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, FirstId});
+	Context.SelectSubElement(Spline, PointElement(0));
 	Input = {};
 	Input.bCancel = true;
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
@@ -351,14 +362,13 @@ TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCanc
 	const Durin::FActorComponentInstanceSourceInfo FirstSource(First);
 	const Durin::FActorComponentInstanceSourceInfo SecondSource(Second);
 	Durin::DSplineComponent* Spline = Actor->GetSplineComponent();
-	const Durin::FGuid MiddleId = Spline->GetSplinePoint(1)->Id;
 
 	Durin::LevelEditor::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
 	Context.SelectSubElement(Spline,
-		{Durin::LevelEditor::EEditorSubElementKind::Point, MiddleId});
+		{Durin::LevelEditor::EEditorSubElementKind::Point, 1, Spline->GetSplineTopologyRevision()});
 	const auto Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
 	FScopedSelectModeRegistration SelectRegistration;
@@ -861,7 +871,7 @@ TEST(FEditorVisualizationCollectorTests, UsesScreenSizedBoxesForRenderingAndPick
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, 3};
 	Durin::LevelEditor::FEditorVisualizationBox Box{Center, Durin::FVector4f(1.0f), 12.0f, 5.0f, 80,
 		Actor, Actor->GetCameraComponent(), true};
 	Box.Element = Element;
@@ -935,7 +945,7 @@ TEST(FEditorVisualizationCollectorTests, PreservesExactComponentAndSubElementHit
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
-	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	const Durin::LevelEditor::FEditorSubElementSelection Element{Durin::LevelEditor::EEditorSubElementKind::Point, 3};
 	Durin::LevelEditor::FEditorVisualizationIcon Icon{Durin::LevelEditor::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100,
 		Actor, Actor->GetCameraComponent(), true};
 	Icon.Element = Element;

@@ -25,7 +25,6 @@ namespace Durin
 	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey) -> void
 	{
 		if (SplineCurve.GetPoints() == InPoints && !LoopKey) return;
-		// Bulk replacement may also repair IDs across the complete curve.
 		(void)Modify(false);
 		SplineCurve.SetPoints(std::move(InPoints));
 		if (LoopKey) SplineCurve.SetClosedLoopAtPosition(*LoopKey);
@@ -45,7 +44,6 @@ namespace Durin
 		const auto InputKey = SplineCurve.ResolveInsertionKey(PointIndex, Point.InputKey);
 		if (!InputKey) return false;
 		Point.InputKey = *InputKey;
-		Point.Id = FGuid::NewGuid();
 		if (!EditPointRange(PointIndex, 0, {&Point, 1})) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
@@ -68,7 +66,6 @@ namespace Durin
 		if (!Previous) return false;
 		if (Point.InputKey == FSplinePoint::AutoInputKey) Point.InputKey = Previous->InputKey;
 		if (!SplineCurve.IsValidPointKey(PointIndex, Point.InputKey)) return false;
-		Point.Id = Previous->Id;
 		if (*Previous == Point || !EditPointRange(PointIndex, 1, {&Point, 1})) return false;
 		if (bUpdateSpline) UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
@@ -298,12 +295,11 @@ namespace Durin
 	auto DSplineComponent::UpdateSpline(ESplineChangeFlags ChangeFlags) -> void
 	{
 		checkf(!bPublishingMutation, "Spline mutation listeners must not mutate the publishing Spline component reentrantly.");
-		const bool bRepairedIds = SplineCurve.RepairPointIds();
-		if (bRepairedIds) ChangeFlags |= ESplineChangeFlags::Topology;
 		if (SplineCurve.RepairInputKeys()) ChangeFlags |= ESplineChangeFlags::Geometry;
 		const auto PublishedEvaluation = SplineCurve.BuildEvaluationData();
 		std::atomic_store_explicit(&EvaluationData, PublishedEvaluation, std::memory_order_release);
 		++SplineRevision;
+		if (EnumHasAnyFlags(ChangeFlags, ESplineChangeFlags::Topology)) ++SplineTopologyRevision;
 		LastSplineChangeFlags = ChangeFlags;
 		bPublishingMutation = true;
 		std::vector<uint64> ListenerIds;
@@ -349,9 +345,12 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("SplineCurve"))
 		{
-			const ESplineChangeFlags Flags = Event.Kind == EPropertyChangeKind::ValueSet
-				? ESplineChangeFlags::Geometry | ESplineChangeFlags::Build
-				: ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build;
+			ESplineChangeFlags Flags = ESplineChangeFlags::Geometry | ESplineChangeFlags::Build;
+			const FProperty* Points = FSplineCurve::StaticStruct()->FindPropertyByName("Points");
+			const FProperty* ClosedLoop = FSplineCurve::StaticStruct()->FindPropertyByName("bClosedLoop");
+			if (Event.Kind != EPropertyChangeKind::ValueSet || !Event.LeafProperty
+				|| Event.LeafProperty == Event.MemberProperty || Event.LeafProperty == Points || Event.LeafProperty == ClosedLoop)
+				Flags |= ESplineChangeFlags::Topology;
 			UpdateSpline(Flags);
 		}
 	}

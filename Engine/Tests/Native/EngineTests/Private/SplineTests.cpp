@@ -128,44 +128,21 @@ namespace
 	};
 } // namespace
 
-TEST(FSplineCurveTests, AuthoringOperationsMaintainStableUniquePointIds)
+TEST(FSplineCurveTests, AuthoringOperationsAddressPointsByIndex)
 {
-	Durin::FSplineCurve Curve;
-	ASSERT_EQ(Curve.GetNumPoints(), 2u);
-	const Durin::FGuid FirstId = Curve.GetPoint(0)->Id;
-	const Durin::FGuid SecondId = Curve.GetPoint(1)->Id;
-	EXPECT_TRUE(FirstId.IsValid());
-	EXPECT_TRUE(SecondId.IsValid());
-	EXPECT_NE(FirstId, SecondId);
-
-	Durin::FSplinePoint Duplicate = *Curve.GetPoint(0);
-	Durin::FSplinePoint Invalid = Duplicate;
-	Invalid.Id.Invalidate();
-	Curve.SetPoints({Invalid});
-	ASSERT_TRUE(Curve.GetPoint(0)->Id.IsValid());
-
-	Curve.SetPoints({Duplicate, Duplicate});
-	ASSERT_EQ(Curve.GetNumPoints(), 2u);
-	EXPECT_EQ(Curve.GetPoint(0)->Id, FirstId);
-	EXPECT_NE(Curve.GetPoint(1)->Id, FirstId);
-	const Durin::FGuid RepairedId = Curve.GetPoint(1)->Id;
-	EXPECT_EQ(Curve.FindPointIndex(RepairedId), 1u);
-
+	using namespace Durin;
+	FSplineCurve Curve;
+	ASSERT_TRUE(Curve.InsertPoint(1, FSplinePoint({2.0, 0.0, 0.0})));
+	EXPECT_DOUBLE_EQ(Curve.GetPoint(1)->InputKey, 0.5);
 	ASSERT_TRUE(Curve.MovePoint(1, 0));
-	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
-	auto Copy = *Curve.GetPoint(0);
-	Copy.InputKey = Durin::FSplinePoint::AutoInputKey;
-	const uint32 AddedIndex = Curve.AddPoint(Copy);
-	EXPECT_NE(Curve.GetPoint(AddedIndex)->Id, RepairedId);
-	ASSERT_TRUE(Curve.UpdatePoint(0, MakePoint({7.0, 8.0, 9.0})));
-	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
-	const Durin::FGuid UpdatedId = Curve.GetPoint(0)->Id;
-	ASSERT_TRUE(Curve.InsertPoint(1, Copy));
-	EXPECT_NE(Curve.GetPoint(1)->Id, UpdatedId);
-	const std::optional<uint32> DuplicatedIndex = Curve.DuplicatePoint(0);
-	ASSERT_TRUE(DuplicatedIndex.has_value());
-	EXPECT_NE(Curve.GetPoint(*DuplicatedIndex)->Id, UpdatedId);
-	EXPECT_EQ(Curve.GetPoint(*DuplicatedIndex)->Position, Curve.GetPoint(0)->Position);
+	EXPECT_DOUBLE_EQ(Curve.GetPoint(0)->Position.x, 2.0);
+	EXPECT_DOUBLE_EQ(Curve.GetPoint(0)->InputKey, 0.0);
+	ASSERT_EQ(Curve.DuplicatePoint(0), 1u);
+	EXPECT_EQ(Curve.GetPoint(0)->Position, Curve.GetPoint(1)->Position);
+	EXPECT_GT(Curve.GetPoint(1)->InputKey, Curve.GetPoint(0)->InputKey);
+	ASSERT_TRUE(Curve.RemovePoint(1));
+	EXPECT_EQ(Curve.AddPoint(FSplinePoint({8.0, 0.0, 0.0})), 3u);
+	EXPECT_DOUBLE_EQ(Curve.GetPoint(3)->InputKey, 2.0);
 }
 
 TEST(FSplineCurveTests, EvaluationHandlesEmptySinglePointAndDefaultCurve)
@@ -413,7 +390,7 @@ TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
+TEST(FSplineComponentTests, DuplicateObjectPreservesPointsAndPublishesSnapshot)
 {
 	InitializeDObjectSystem();
 	auto* Source = Durin::NewObject<Durin::DSplineComponent>(nullptr, "SourceSpline");
@@ -468,7 +445,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 			}, bContinuous);
 	};
 
-	const Durin::FGuid EditedPointId = Spline->GetSplinePoint(1)->Id;
+	const uint64 TopologyRevision = Spline->GetSplineTopologyRevision();
 	ASSERT_TRUE(SubmitPosition({20.0, 0.0, 0.0}, true));
 	ASSERT_TRUE(SubmitPosition({30.0, 0.0, 0.0}, true));
 	View.FinishActiveEdit(&Context, false);
@@ -477,7 +454,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 		MountedContentRevision);
 	EXPECT_TRUE(Error.empty());
 	EXPECT_NEAR(Spline->GetLocalSplineLength(), 30.0, 1.e-8);
-	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, EditedPointId);
+	EXPECT_EQ(Spline->GetSplineTopologyRevision(), TopologyRevision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
 		Transactions->GetMountedContentMutationRevision(),
@@ -493,6 +470,29 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Spline);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FSplineEditingTests, StructuralUndoAndRedoRestoreOrderAndInvalidateOldIndices)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Tests::FTestEditorTransactorOwner Buffer;
+	TStrongObjectPtr<DSplineComponent> Spline(NewObject<DSplineComponent>(nullptr, "RangeSpline", EObjectFlags::Transactional));
+	const auto Before = Spline->GetSplinePoints();
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Spline point edits"});
+		ASSERT_TRUE(Spline->InsertSplinePoint(1, FSplinePoint({100, 200, 0})));
+		ASSERT_TRUE(Spline->RemoveSplinePoint(0));
+		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
+	}
+	const auto After = Spline->GetSplinePoints();
+	const uint64 Topology = Spline->GetSplineTopologyRevision();
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 3u);
+	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Spline->GetSplinePoints(), Before);
+	EXPECT_GT(Spline->GetSplineTopologyRevision(), Topology);
+	EXPECT_EQ(Spline->GetEvaluationData()->GetNumSegments(), Spline->GetNumSplineSegments());
+	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Spline->GetSplinePoints(), After);
+	EXPECT_EQ(Spline->GetEvaluationData()->GetNumSegments(), Spline->GetNumSplineSegments());
 }
 
 TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithStableSourceKeys)

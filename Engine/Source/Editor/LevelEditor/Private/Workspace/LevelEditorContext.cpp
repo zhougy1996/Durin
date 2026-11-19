@@ -4,12 +4,26 @@
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Components/ActorComponent.h"
+#include "Components/SplineComponent.h"
 #include "Engine/Actor.h"
 #include "Editor/EditorEngine.h"
 #include "Actors/EditorActorSubsystem.h"
 
 namespace Durin::LevelEditor
 {
+	namespace
+	{
+		auto IsCurrentElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> bool
+		{
+			if (!Component || !Element.IsValid()) return false;
+			const auto* Spline = Cast<DSplineComponent>(Component);
+			if (!Spline) return true;
+			const uint32 Count = Element.Kind == EEditorSubElementKind::Segment
+				? Spline->GetNumSplineSegments() : Spline->GetNumSplinePoints();
+			return Element.TopologyRevision == Spline->GetSplineTopologyRevision() && static_cast<uint32>(Element.Index) < Count;
+		}
+	}
+
 	auto FLevelEditorContext::GetActorEditor() const -> DEditorActorSubsystem*
 	{
 		return EditorHost ? EditorHost->GetEditorSubsystem<DEditorActorSubsystem>() : nullptr;
@@ -43,9 +57,8 @@ namespace Durin::LevelEditor
 		if (!Primary || !SelectedComponent || !Primary->OwnsComponent(SelectedComponent.Get()))
 		{
 			SelectedComponent = nullptr;
-			SelectedSubElement = {};
-			SelectedSubElements.clear();
 		}
+		if (!IsCurrentElement(SelectedComponent.Get(), SelectedSubElement)) ClearSubElementSelection();
 	}
 
 	auto FLevelEditorContext::SelectActor(AActor* Actor) -> void
@@ -119,14 +132,14 @@ namespace Durin::LevelEditor
 	{
 		AActor* Primary = PrimarySelectedActor.Get();
 		DActorComponent* Resolved = Primary && Component && Primary->OwnsComponent(Component) ? Component : nullptr;
-		if (SelectedComponent.Get() != Resolved) { SelectedSubElement = {}; SelectedSubElements.clear(); }
+		if (SelectedComponent.Get() != Resolved || !IsCurrentElement(Resolved, SelectedSubElement)) ClearSubElementSelection();
 		SelectedComponent = Resolved;
 	}
 
 	auto FLevelEditorContext::SelectSubElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> void
 	{
 		SelectComponent(Component);
-		if (SelectedComponent && Element.IsValid())
+		if (IsCurrentElement(SelectedComponent.Get(), Element))
 		{
 			SelectedSubElement = Element;
 			SelectedSubElements = {Element};
@@ -136,7 +149,7 @@ namespace Durin::LevelEditor
 	auto FLevelEditorContext::ToggleSubElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> void
 	{
 		SelectComponent(Component);
-		if (!SelectedComponent || !Element.IsValid()) return;
+		if (!IsCurrentElement(SelectedComponent.Get(), Element)) return;
 		const auto It = std::ranges::find(SelectedSubElements, Element);
 		if (It == SelectedSubElements.end())
 		{
@@ -150,9 +163,21 @@ namespace Durin::LevelEditor
 		}
 	}
 
+	auto FLevelEditorContext::GetSelectedSubElement() const -> const FEditorSubElementSelection&
+	{
+		static const FEditorSubElementSelection Empty;
+		return IsCurrentElement(SelectedComponent.Get(), SelectedSubElement) ? SelectedSubElement : Empty;
+	}
+
+	auto FLevelEditorContext::GetSelectedSubElements() const -> const std::vector<FEditorSubElementSelection>&
+	{
+		static const std::vector<FEditorSubElementSelection> Empty;
+		return GetSelectedSubElement().IsValid() ? SelectedSubElements : Empty;
+	}
+
 	auto FLevelEditorContext::IsSubElementSelected(const FEditorSubElementSelection& Element) const -> bool
 	{
-		return std::ranges::contains(SelectedSubElements, Element);
+		return std::ranges::contains(GetSelectedSubElements(), Element);
 	}
 
 	auto FLevelEditorContext::IsActorSelected(const AActor* Actor) const -> bool

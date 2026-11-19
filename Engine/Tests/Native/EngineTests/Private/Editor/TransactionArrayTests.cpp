@@ -141,25 +141,6 @@ TEST(FTransactionArrayTests, RetainsNestedHardEdgesButNotWeakEdgesAndPreservesOm
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Object->NestedArray[0].Count, 42); EXPECT_EQ(Object->NestedArray[0].Ignored, 99);
 }
 
-TEST(FTransactionArrayTests, NestedSplineAdapterRestoresStableIdsAndEvaluation)
-{
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
-	TStrongObjectPtr<DSplineComponent> Spline(NewObject<DSplineComponent>(nullptr, "RangeSpline", EObjectFlags::Transactional));
-	const auto Before = Spline->GetSplinePoints();
-	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Spline point edits"});
-		ASSERT_TRUE(Spline->InsertSplinePoint(1, FSplinePoint({100, 200, 0})));
-		ASSERT_TRUE(Spline->RemoveSplinePoint(0));
-		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
-	}
-	const auto After = Spline->GetSplinePoints();
-	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 3u);
-	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Spline->GetSplinePoints(), Before);
-	EXPECT_EQ(Spline->GetEvaluationData()->GetNumSegments(), Spline->GetNumSplineSegments());
-	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Spline->GetSplinePoints(), After);
-	EXPECT_EQ(Spline->GetEvaluationData()->GetNumSegments(), Spline->GetNumSplineSegments());
-}
-
 TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer("RangeBudget", 8192);

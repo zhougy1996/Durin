@@ -94,9 +94,8 @@ For multiple selected Actors, translation affects the group uniformly while rota
 
 Spline mode displays the selected component's curve, control points as solid
 box markers, and smaller box markers for manual tangent handles. Marker size and
-click targets remain stable on screen as the camera moves. Selection is tied to
-stable point identity, so reordering, Undo, and Redo do not switch the selection
-to a different logical point.
+click targets remain stable on screen as the camera moves. Topology changes, including replay of structural edits, clear the old point
+selection. Insertion and duplication select the newly created point.
 
 | Input | Action |
 | --- | --- |
@@ -157,10 +156,8 @@ straight five-world-unit segment.
 
 Choose **Edit Spline** to select the Actor's native spline root and enter Spline
 mode. Each non-constant outgoing segment creates one read-only SplineMesh
-component, including the last-to-first segment of a closed loop. Point drags update existing
-segment identities, while insert/delete/reorder and loop changes reconcile by
-stable point GUID. Generated rows are diagnostic output—edit the Actor or
-Spline, not those rows. Save/reload, duplicate, Undo/Redo, Cancel, and PIE
+component, including the last-to-first segment of a closed loop. Construction rebuilds generated segments by index.
+Edit the Actor or spline to change the generated output. Save/reload, duplicate, Undo/Redo, Cancel, and PIE
 regenerate the same derived path without saving generated child objects.
 
 Collision is opt-in. Enabling the path collision policy publishes QueryOnly

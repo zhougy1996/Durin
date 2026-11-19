@@ -1040,7 +1040,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	EXPECT_TRUE(UnloadPackage(Path));
 }
 
-TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
+TEST(FSplineMeshActorTests, RebuildsIndexedSegmentsFromSplineMutations)
 {
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
@@ -1156,7 +1156,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 }
 
-TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership)
+TEST(FSplineMeshActorTests, ClosedLoopReorderRebuildsIndexedSegments)
 {
 	InitializeDObjectSystem();
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
@@ -1175,28 +1175,21 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 	Actor->GetSplineComponent()->SetClosedLoop(true);
 	auto Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Segments.size(), 3u);
-	std::unordered_map<FGuid, DActorComponent*> IdentityByStartGuid;
-	for (DActorComponent* SegmentObject : Segments)
-	{
-		auto* Segment = Cast<DSplineMeshComponent>(SegmentObject);
-		ASSERT_NE(Segment, nullptr);
-		const FVector3 Start = Segment->GetSplineMeshParams().StartPosition;
-		const FSplinePoint* Point = Start == A.Position ? &A : Start == B.Position ? &B : &C;
-		IdentityByStartGuid.emplace(Point->Id, Segment);
-	}
+	const auto OldSegments = Segments;
 	ASSERT_TRUE(Actor->GetSplineComponent()->MoveSplinePoint(0, 2));
 	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Segments.size(), 3u);
-	for (DActorComponent* SegmentObject : Segments)
+	const std::array ExpectedStarts{B.Position, C.Position, A.Position};
+	for (uint32 Index = 0; Index < Segments.size(); ++Index)
 	{
-		auto* Segment = Cast<DSplineMeshComponent>(SegmentObject);
-		const FVector3 Start = Segment->GetSplineMeshParams().StartPosition;
-		const FSplinePoint* Point = Start == A.Position ? &A : Start == B.Position ? &B : &C;
-		EXPECT_NE(IdentityByStartGuid.at(Point->Id), Segment);
+		auto* Segment = Cast<DSplineMeshComponent>(Segments[Index]);
+		ASSERT_NE(Segment, nullptr);
+		EXPECT_EQ(Segment->GetSplineMeshParams().StartPosition, ExpectedStarts[Index]);
 		FActorGeneratedComponentKey SourceKey;
 		ASSERT_TRUE(Actor->GetGeneratedComponentKey(Segment, SourceKey));
-		EXPECT_EQ(SourceKey.Id, Point->Id);
-		EXPECT_TRUE(IdentityByStartGuid.at(Point->Id)->IsPendingKill());
+		EXPECT_EQ(SourceKey.Id, FGuid(0, 0, 0, Index + 1));
+		EXPECT_EQ(std::ranges::find(OldSegments, Segment), OldSegments.end());
+		EXPECT_TRUE(OldSegments[Index]->IsPendingKill());
 	}
 	Actor->GetSplineComponent()->SetClosedLoop(false);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);

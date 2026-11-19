@@ -2,8 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Misc/Guid.h"
-
 namespace Durin::LevelEditor
 {
 	enum class EEditorSubElementKind : uint8
@@ -15,14 +13,14 @@ namespace Durin::LevelEditor
 		LeaveTangent,
 	};
 
-	// Identifies a component-owned editor element without relying on an unstable array index.
+	// Identifies a component-owned editor element by its index in the current topology.
 	struct FEditorSubElementSelection
 	{
 		EEditorSubElementKind Kind = EEditorSubElementKind::None;
-		FGuid StableId;
-		int32 SecondaryIndex = INDEX_NONE;
+		int32 Index = INDEX_NONE;
+		uint64 TopologyRevision = 0;
 
-		auto IsValid() const -> bool { return Kind != EEditorSubElementKind::None && StableId.IsValid(); }
+		auto IsValid() const -> bool { return Kind != EEditorSubElementKind::None && Index >= 0; }
 		auto operator==(const FEditorSubElementSelection&) const -> bool = default;
 	};
 } // namespace Durin::LevelEditor

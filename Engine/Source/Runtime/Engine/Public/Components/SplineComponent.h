@@ -88,6 +88,7 @@ namespace Durin
 		auto GetLocalSplineLength() const -> double { return GetEvaluationData()->GetLocalLength(); }
 		auto GetLocalSplineBounds() const -> FBox { return GetEvaluationData()->GetLocalBounds(); }
 
+		auto GetSplineTopologyRevision() const -> uint64 { return SplineTopologyRevision; }
 		auto GetSplineRevision() const -> uint64 { return SplineRevision; }
 		auto GetLastSplineChangeFlags() const -> ESplineChangeFlags { return LastSplineChangeFlags; }
 		ENGINE_API auto AddSplineMutationListener(FSplineMutationListener Listener) -> uint64;
@@ -119,6 +120,7 @@ namespace Durin
 		mutable std::shared_ptr<const FSplineEvaluationData> ScaledEvaluation;
 		mutable FVector3 EvaluationScale{1.0};
 		uint64 SplineRevision = 0;
+		uint64 SplineTopologyRevision = 0;
 		ESplineChangeFlags LastSplineChangeFlags = ESplineChangeFlags::None;
 		std::vector<std::pair<uint64, FSplineMutationListener>> MutationListeners;
 		uint64 NextMutationListenerId = 1;

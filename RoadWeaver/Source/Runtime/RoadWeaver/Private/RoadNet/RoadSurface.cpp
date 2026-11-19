@@ -171,7 +171,7 @@ namespace Durin::RoadNet
 						return Fit(A, Mid, Depth + 1, Key * 2) && Fit(Mid, B, Depth + 1, Key * 2 + 1);
 					}
 					if (Intervals.size() == 65536) return Fail("maximum interval count exceeded.");
-					Intervals.push_back({Road.ReferenceLine.GetPoints()[Segment].Id, Key, Params, Segment, A, B});
+					Intervals.push_back({Key, Params, Segment, A, B});
 					return true;
 				};
 				if (!Fit(0.0, 1.0, 0, 1)) return false;
@@ -190,15 +190,12 @@ namespace Durin::RoadNet
 			for (const auto& Interval : Intervals)
 			{
 				FSplinePoint Point(Interval.Params.StartPosition);
-				if (Points.empty() || Interval.SourcePointId != Intervals[Points.size() - 1].SourcePointId)
-					Point.Id = Interval.SourcePointId;
 				Point.TangentMode = ESplineTangentMode::ManualBroken;
 				Point.LeaveTangent = Interval.Params.StartTangent;
 				Point.ArriveTangent = Points.empty() ? Point.LeaveTangent : Intervals[Points.size() - 1].Params.EndTangent;
 				Points.push_back(Point);
 			}
 			FSplinePoint Last(Intervals.back().Params.EndPosition);
-			Last.Id = Road.ReferenceLine.GetPoints().back().Id;
 			Last.TangentMode = ESplineTangentMode::ManualBroken;
 			Last.ArriveTangent = Intervals.back().Params.EndTangent;
 			Last.LeaveTangent = Last.ArriveTangent;
