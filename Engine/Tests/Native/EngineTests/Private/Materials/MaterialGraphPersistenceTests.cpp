@@ -1,3 +1,5 @@
+#include "MaterialGraph.h"
+#include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpression.h"
@@ -18,6 +20,126 @@
 #include "MaterialResourceTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Widgets/MaterialEditingSession.h"
+
+TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHistory)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
+	auto* Root = Graph->FindNode(Pin.NodeId);
+	ASSERT_TRUE(Root);
+	ASSERT_TRUE(Graph->GetCommands().SetUseMaterialAttributes(true, ETransactionMode::NotTransactable));
+	ASSERT_FALSE(Graph->FindInputPin(Pin));
+	Tests::FTestEditorTransactorOwner History;
+	const FMaterialInputDefault Value{.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .625f}};
+	ASSERT_TRUE(Root->PinDefaultValueChanged(Pin, Value));
+	ASSERT_TRUE(Root->SetPinUseConstant(Pin, false));
+	const auto& Input = Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness);
+	EXPECT_FALSE(Input.UseConstant);
+	EXPECT_EQ(Input.Constant, std::vector<float>{.625f});
+	ASSERT_TRUE(History->Undo());
+	EXPECT_TRUE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).UseConstant);
+	ASSERT_TRUE(History->Redo());
+	ASSERT_TRUE(Graph->GetCommands().SetUseMaterialAttributes(false, ETransactionMode::NotTransactable));
+	const auto* Restored = Graph->FindInputPin(Pin);
+	ASSERT_TRUE(Restored);
+	EXPECT_FALSE(Restored->bUseConstant);
+	EXPECT_EQ(Restored->RetainedConstant, Value);
+}
+
+TEST(FMaterialGraphPersistenceTests, ObjectTransactionsRefreshCompilationAndLeaveRejectedEditsClean)
+{
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture Registry;
+	Testing::RegisterMountPointForTests("/ExpressionUndo/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ExpressionUndo/Material", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Material);
+	const auto Scalar = Testing::CreateGraphConstant(Document, 0.25f);
+	ASSERT_TRUE(Scalar);
+	const FGuid Id = Scalar.GeneratedNodeIds.front();
+	const auto Input = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
+	const auto Source = FMaterialGraphPinAddress::Output({Id});
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	{
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		Tests::FTestEditorTransactorOwner History;
+		const auto Revision = [&] { return Material->GetMaterialCompileDebugInfo().AuthoredRevision; };
+		const auto Literal = [&] { return Graph->FindNode(Id)->GetView().Node.GetConstantLiteral().X; };
+		const auto Connected = [&] { return Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId == Id; };
+		const auto CleanRevision = Material->GetPackage()->GetEditRevision();
+		const auto InitialCompile = Revision();
+		EXPECT_FALSE(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(std::numeric_limits<float>::infinity())));
+		EXPECT_EQ(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(.25f)).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+		EXPECT_FALSE(Graph->GetSchema().TryCreateConnection(*Graph, Input, FMaterialGraphPinAddress::Output({FGuid::NewGuid()})));
+		auto* Root = Graph->FindNode(Input.NodeId);
+		ASSERT_TRUE(Root);
+		EXPECT_FALSE(Root->PinDefaultValueChanged(Input, {.Kind = EMaterialInputDefaultKind::Literal,
+			.Type = EMaterialProgramValueType::Float3, .Literal = {1.f, 2.f, 3.f}}));
+		EXPECT_EQ(Material->GetPackage()->GetEditRevision(), CleanRevision);
+		EXPECT_FALSE(Material->GetPackage()->IsDirty());
+		EXPECT_EQ(Revision(), InitialCompile);
+		EXPECT_EQ(History->GetQueueLength(), 0u);
+
+		const FMaterialInputDefault Default{.Kind = EMaterialInputDefaultKind::Literal,
+			.Type = EMaterialProgramValueType::Float, .Literal = {.X = .375f}};
+		const auto Original = Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness);
+		ASSERT_TRUE(Root->PinDefaultValueChanged(Input, Default));
+		EXPECT_EQ(Root->PinDefaultValueChanged(Input, Default).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+		EXPECT_EQ(History->GetQueueLength(), 1u);
+		EXPECT_GT(Revision(), InitialCompile);
+		ASSERT_TRUE(History->Undo());
+		EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness), Original);
+		EXPECT_FALSE(Material->GetPackage()->IsDirty());
+		ASSERT_TRUE(History->Redo());
+		EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant, std::vector<float>{.375f});
+		EXPECT_TRUE(Graph->FindInputPin(Input)->bUseConstant);
+		ASSERT_TRUE(Root->SetPinUseConstant(Input, false));
+		EXPECT_FALSE(Graph->FindInputPin(Input)->bUseConstant);
+		EXPECT_FLOAT_EQ(Graph->FindInputPin(Input)->RetainedConstant.Literal.X, .375f);
+		EXPECT_EQ(Root->SetPinUseConstant(Input, false).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+		ASSERT_TRUE(History->Undo());
+		EXPECT_TRUE(Graph->FindInputPin(Input)->bUseConstant);
+		ASSERT_TRUE(History->Redo());
+		EXPECT_FALSE(Graph->FindInputPin(Input)->bUseConstant);
+		ASSERT_TRUE(History->Undo());
+		ASSERT_TRUE(History->Undo());
+		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(*Graph, Input, Source));
+		EXPECT_TRUE(Connected());
+		EXPECT_EQ(History->GetQueueLength(), 1u);
+		auto Before = Revision();
+		ASSERT_TRUE(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(.75f)));
+		EXPECT_EQ(History->GetQueueLength(), 2u);
+		EXPECT_GT(Revision(), Before);
+		EXPECT_FLOAT_EQ(Literal(), .75f);
+		Before = Revision();
+		ASSERT_TRUE(History->Undo());
+		EXPECT_GT(Revision(), Before);
+		EXPECT_FLOAT_EQ(Literal(), .25f);
+		Before = Revision();
+		ASSERT_TRUE(History->Undo());
+		EXPECT_GT(Revision(), Before);
+		EXPECT_FALSE(Connected());
+		EXPECT_FALSE(Material->GetPackage()->IsDirty());
+		Before = Revision();
+		ASSERT_TRUE(History->Redo());
+		EXPECT_TRUE(Connected());
+		EXPECT_GT(Revision(), Before);
+		Before = Revision();
+		ASSERT_TRUE(History->Redo());
+		EXPECT_FLOAT_EQ(Literal(), .75f);
+		EXPECT_GT(Revision(), Before);
+		ASSERT_TRUE(Material->CompileEdits());
+	}
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+}
 
 TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterialAndFunction)
 {
@@ -54,10 +176,8 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
 			ASSERT_TRUE(History->Undo());
-			Graph->LinkGraphNodesFromMaterial();
 			EXPECT_FALSE(Graph->FindInputPin(Input)->Link.SourceNodeId.IsValid());
 			ASSERT_TRUE(History->Redo());
-			Graph->LinkGraphNodesFromMaterial();
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
 		}
 		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
@@ -237,13 +357,61 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		EXPECT_EQ(Presentation.Nodes.size(),
 			Material->GetExpressionCollection().Expressions.size());
 		EXPECT_NE(Material->GetOutputNode(), nullptr);
-		const FMaterialGraphView View = FMaterialGraphDocument(*Material).Inspect();
+		const FMaterialGraphView View = ProjectMaterialGraph(&*Material);
 		EXPECT_EQ(View.Nodes.size(), Material->GetExpressionCollection().Expressions.size());
 		ASSERT_TRUE(UnloadPackage(Path));
 	}
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+
+TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGraphAfterEditingAndReopen)
+{
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture Registry;
+	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir(), true, false);
+	const auto Scratch = Testing::GetTestWorkDirectory() / "GraphCompatibility";
+	Testing::RegisterMountPointForTests("/GraphCompatibility/", Scratch.generic_string(), false);
+	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Asset scan failed" : Durin::FormatAssetRegistryError(Scan.Errors.front()));
+	const auto CheckCopy = []<class T>(const char* Original, const char* Name) {
+		FPackagePath SourcePath, Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(Original, SourcePath));
+		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/GraphCompatibility/") + Name, Path));
+		std::optional<Durin::UnifiedError::FError> Error;
+		auto* Source = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(SourcePath), nullptr, &Error);
+		ASSERT_TRUE(Source) << (Error ? Error->ToString() : Original);
+		const auto Before = CaptureExpressions(*Source);
+		auto* Package = CreatePackage(Path);
+		ASSERT_TRUE(Package);
+		const auto Copy = DuplicateObject(Source, Package, FName(Name));
+		ASSERT_TRUE(Copy);
+		auto* Asset = *Copy;
+		EXPECT_EQ(CaptureExpressions(*Asset), Before);
+		FGuid Id;
+		{
+			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Asset));
+			ASSERT_FALSE(Graph->GetNodes().empty());
+			auto Position = Graph->GetNodes().front()->GetView().Presentation;
+			Id = Position.NodeId;
+			Position.X += 24;
+			ASSERT_TRUE(Graph->GetCommands().MoveNodes(std::span(&Position, 1), ETransactionMode::NotTransactable));
+			if constexpr (std::is_same_v<T, DMaterial>) ASSERT_TRUE(Asset->CompileEdits());
+			ASSERT_TRUE(SavePackage(Package));
+			ASSERT_TRUE(UnloadPackage(Path));
+			auto* Reopened = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+			ASSERT_TRUE(Reopened);
+			EXPECT_EQ(CaptureExpressions(*Reopened), Before);
+			Graph = DMaterialGraph::Create(*Reopened);
+			ASSERT_TRUE(Graph->FindNode(Id));
+			EXPECT_EQ(Graph->FindNode(Id)->GetView().Presentation.X, Position.X);
+		}
+		ASSERT_TRUE(UnloadPackage(Path));
+	};
+	CheckCopy.operator()<DMaterial>("/Engine/Materials/DefaultMaterial", "MaterialCopy");
+	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/UVTransform", "FunctionCopy");
+}
 
 TEST(FMaterialGraphPersistenceTests, TextureSamplingModeAndInactiveOperandsRoundTrip)
 {

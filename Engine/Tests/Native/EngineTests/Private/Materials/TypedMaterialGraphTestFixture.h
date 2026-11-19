@@ -4,13 +4,23 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionConstant.h"
-#include "MaterialGraphDocument.h"
+#include "MaterialGraph.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/Material.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
 
 namespace Durin::Testing
 {
+	template<class TTerminal>
+	auto FindFunctionTerminal(MaterialEditor::DMaterialGraph& Graph, const FGuid& PortId) -> MaterialEditor::DMaterialGraphNode*
+	{
+		for (const auto& Node : Graph.GetNodes())
+			if (auto* Terminal = Cast<TTerminal>(Node->GetMaterialExpression()); Terminal && Terminal->Port.Id == PortId)
+				return Node.Get();
+		return nullptr;
+	}
+
 	inline auto OutputPosition(const DMaterial& Material, FMaterialGraphPresentation& Presentation) -> FMaterialGraphNodePresentation&
 	{
 		const auto Id = Material.GetOutputNode()->Id;

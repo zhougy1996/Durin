@@ -264,38 +264,6 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::SetSurfaceDefault(const FMaterialGraphSurfaceDefaultRequest& Request, ETransactionMode Mode) const
-		-> FMaterialGraphCommandResult
-	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
-		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
-		auto* Transactions = *Admission;
-		FGraphEditSession State(Material);
-		const auto Previous = State.GetOutputs();
-		const auto& Value = Request.Value;
-		const auto Pin = static_cast<EMaterialOutputPin>(Request.Output);
-		const std::array Components{Value.X, Value.Y, Value.Z};
-		const auto Width = ReadMaterialOutputDefault(Previous, Pin).size();
-		if (!WriteMaterialOutputDefault(State.GetOutputs(), Pin, std::span(Components).first(Width)))
-			return RejectCommand("The material surface output is invalid.");
-		if (State.GetOutputs() == Previous) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		return State.Commit("Edit Material Surface Default", Transactions);
-	}
-
-	auto FMaterialGraphDocument::ResetSurfaceDefault(EMaterialProperty Output, ETransactionMode Mode) const
-		-> FMaterialGraphCommandResult
-	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
-		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
-		return SetInputConstantEnabled(Material.GetOutputNode()->Id, static_cast<uint32>(Output), false, Mode);
-	}
-
 	auto FMaterialGraphDocument::SetParameterValue(const FGuid& ParameterId,
 		FMaterialParameterValue Value,
 		ETransactionMode Mode) const

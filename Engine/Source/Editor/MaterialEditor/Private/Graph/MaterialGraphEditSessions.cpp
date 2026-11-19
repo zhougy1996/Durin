@@ -23,7 +23,7 @@ namespace Durin::MaterialEditor
 
 	struct FMaterialGraphMoveSession::FImpl
 	{
-		TWeakObjectPtr<DObject> Owner;
+		std::optional<FMaterialGraphDocument> Commands;
 		std::unordered_set<FGuid> NodeIds;
 		std::vector<FMaterialGraphNodePresentation> Draft;
 		DTransactor* Transactions = nullptr;
@@ -37,24 +37,32 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphMoveSession::Begin(DObject& Owner, std::span<const FGuid> NodeIds,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Impl->bActive) return RejectCommand("A graph move is already active.");
 		if (!IsValid(&Owner)) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		if (!Cast<DMaterial>(&Owner) && !Cast<DMaterialFunction>(&Owner)) return RejectCommand("Unsupported graph owner.");
+		return Begin(FMaterialGraphDocument(Owner), NodeIds, Transactions);
+	}
+
+	auto FMaterialGraphMoveSession::Begin(const FMaterialGraphDocument& Commands, std::span<const FGuid> NodeIds,
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (Impl->bActive) return RejectCommand("A graph move is already active.");
+		auto* Owner = Commands.GetOwner();
+		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return RejectCommand("The graph move selection is empty or exceeds the node bound.");
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
 		Impl->NodeIds.clear();
-		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(Owner);
+		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner);
 		for (const auto& Id : NodeIds)
 		{
 			if (std::ranges::none_of(Expressions, [&](const auto& E) { return E->Id == Id; }))
 				return RejectCommand("A selected graph node does not exist.");
 			if (!Impl->NodeIds.insert(Id).second) return RejectCommand("The graph move selection contains a duplicate node GUID.");
 		}
-		Impl->Owner = &Owner;
+		Impl->Commands.emplace(Commands);
 		Impl->Draft.clear();
 		Impl->Transactions = Transactions;
-		Impl->AuthoredRevision = GraphSemanticRevision(Owner);
+		Impl->AuthoredRevision = GraphSemanticRevision(*Owner);
 		Impl->bActive = true;
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::vector<FGuid>(NodeIds.begin(), NodeIds.end())};
@@ -62,15 +70,15 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphMoveSession::IsCurrent(const DObject& Owner) const -> bool
 	{
-		return Impl->bActive && Impl->Owner.Get() == &Owner && GraphSemanticRevision(Owner) == Impl->AuthoredRevision;
+		return Impl->bActive && Impl->Commands->GetOwner() == &Owner && GraphSemanticRevision(Owner) == Impl->AuthoredRevision;
 	}
 
 	auto FMaterialGraphMoveSession::Apply(std::span<const FMaterialGraphNodePresentation> Positions)
 		-> FMaterialGraphCommandResult
 	{
 		if (!Impl->bActive) return RejectCommand("No graph move is active.");
-		if (!Impl->Owner.IsValid()) { Cancel(); return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner); }
-		if (!IsCurrent(*Impl->Owner.Get())) { Cancel(); return RejectCommand("The graph changed semantically during the move."); }
+		if (!Impl->Commands->GetOwner()) { Cancel(); return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner); }
+		if (!IsCurrent(*Impl->Commands->GetOwner())) { Cancel(); return RejectCommand("The graph changed semantically during the move."); }
 		if (Positions.size() > MaterialProgramMaxNodeCount) return RejectCommand("The graph move preview exceeds the node bound.");
 		std::unordered_set<FGuid> Requested;
 		for (const auto& Position : Positions)
@@ -96,7 +104,7 @@ namespace Durin::MaterialEditor
 	{
 		const auto Validated = Apply({});
 		if (!Validated) return Validated;
-		auto Result = FMaterialGraphDocument(*Impl->Owner.Get()).MoveNodesInternal(Impl->Draft, Impl->Transactions);
+		auto Result = Impl->Commands->MoveNodesInternal(Impl->Draft, Impl->Transactions);
 		if (Result) { Impl->bActive = false; Impl->Draft.clear(); }
 		return Result;
 	}

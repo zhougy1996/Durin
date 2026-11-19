@@ -47,9 +47,11 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	ASSERT_TRUE(Workspace);
 	auto* Working = FMaterialFunctionEditorTestAccess::Document(*Workspace, Resource).Function();
 	ASSERT_NE(First, Working);
-	auto Signature = Working->GetFunctionSignature();
-	Signature.Outputs[0].Name = "Saved Surface";
-	ASSERT_TRUE(FMaterialGraphDocument(*Working).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
+	auto& Session = FMaterialFunctionEditorTestAccess::Document(*Workspace, Resource);
+	const auto OutputId = Working->GetFunctionSignature().Outputs.front().Id;
+	auto* OutputNode = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*Session.Graph, OutputId);
+	ASSERT_TRUE(OutputNode);
+	ASSERT_TRUE(OutputNode->OnRenameNode("Saved Surface", Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Workspace->IsAssetDirty(*First));
 	EXPECT_EQ(Workspace->RequestCloseAsset(*First), EAssetEditorCloseResult::PendingConfirmation);
 	EXPECT_EQ(TestHost.GetAssetEditorSubsystem()->ResolvePendingClose(
@@ -66,8 +68,9 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	FMaterialFunctionPreviewInvalidation PreviewInvalidation;
 	PreviewInvalidation.SetFunction(Second);
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
-	Signature.Outputs[0].Name = "Discarded Surface";
-	ASSERT_TRUE(FMaterialGraphDocument(*Working).SetPort(true, Signature.Outputs[0], Durin::ETransactionMode::NotTransactable));
+	OutputNode = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*Session.Graph, OutputId);
+	ASSERT_TRUE(OutputNode);
+	ASSERT_TRUE(OutputNode->OnRenameNode("Discarded Surface", Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(PreviewInvalidation.ConsumeRefreshRequest());
 	const bool Discarded = Workspace->DiscardAsset(*First);
 	if (!Discarded)
@@ -134,11 +137,12 @@ namespace
 		{ return FMaterialFunctionEditorTestAccess::Document(*Toolkit, Resource); }
 		auto Rename(DMaterialFunction& Function, const char* Name, bool bTransactional = false) -> bool
 		{
-			auto Port = Function.GetFunctionSignature().Outputs.front();
-			Port.Name = Name;
-			if (!bTransactional) return static_cast<bool>(FMaterialGraphDocument(Function).SetPort(true, Port, ETransactionMode::NotTransactable));
+			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(Function));
+			auto* Terminal = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*Graph, Function.GetFunctionSignature().Outputs.front().Id);
+			if (!Terminal) return false;
+			if (!bTransactional) return static_cast<bool>(Terminal->OnRenameNode(Name, ETransactionMode::NotTransactable));
 			FScopedEditorTransactionContext Context(Host->GetAssetEditorSubsystem()->GetEditor());
-			return static_cast<bool>(FMaterialGraphDocument(Function).SetPort(true, Port));
+			return static_cast<bool>(Terminal->OnRenameNode(Name));
 		}
 		Testing::FScopedMountRegistryFixture Registry;
 		TStrongObjectPtr<DMaterialFunction> Source;

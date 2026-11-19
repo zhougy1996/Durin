@@ -661,13 +661,13 @@ namespace Durin::MaterialEditor
 						bSubmitted = true;
 						return;
 					}
-					Submit(FMaterialGraphDocument(*Base).ReplaceExpression(*Candidate));
+					Submit(EditingSession->Graph->GetCommands().ReplaceExpression(*Candidate));
 				};
 				if (MonaImGui::PropertyEdit::BeginTable("ParameterMetadata", DetailsStyle::MakeTableConfig()))
 				{
 					std::string Name = Parameter.Name.ToString();
 					if (EditText("Name", Name))
-						Submit(FMaterialGraphDocument(*Base).RenameParameter(Parameter.Id, FName(Name)));
+						Submit(EditingSession->Graph->GetCommands().RenameParameter(Parameter.Id, FName(Name)));
 					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
 					if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
 					std::string Group = Parameter.GroupName.ToString();
@@ -763,7 +763,7 @@ namespace Durin::MaterialEditor
 			bool bAttributes = BaseMaterial->GetExpressionOutputs().bUseMaterialAttributes;
 			if (DetailsStyle::EditRow("Use material attributes", [&] { return ImGui::Checkbox("##Value", &bAttributes); }))
 			{
-				const auto Result = FMaterialGraphDocument(*BaseMaterial).SetUseMaterialAttributes(bAttributes);
+				const auto Result = EditingSession->Graph->GetCommands().SetUseMaterialAttributes(bAttributes);
 				if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
@@ -794,7 +794,7 @@ namespace Durin::MaterialEditor
 			MonaImGui::PropertyEdit::EndTable();
 			if (bChanged)
 			{
-				const auto Result = FMaterialGraphDocument(*BaseMaterial).SetConfiguration(Configuration);
+				const auto Result = EditingSession->Graph->GetCommands().SetConfiguration(Configuration);
 				if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 			}
 		}

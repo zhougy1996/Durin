@@ -24,6 +24,13 @@ namespace Durin
 	public:
 		explicit DMaterialExpression(const FObjectInitializer& Initializer) : Super(Initializer) {}
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+#if DURIN_WITH_EDITORONLY_DATA
+		virtual auto CanRenameNode() const -> bool { return false; }
+		virtual auto GetEditableName() const -> std::string { return {}; }
+		// Changes authored name only. The editor owns validation, transactions and publication.
+		virtual auto SetEditableName(std::string NewName) -> void {}
+		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
+#endif
 		virtual auto GetAuthoredInputCount() const -> uint32 { return 0; }
 
 		DPROPERTY()

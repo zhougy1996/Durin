@@ -219,7 +219,7 @@ namespace Durin::MaterialEditor
 				[&](const auto& Input) { return Input.Name == Port.Name; }); ++Suffix)
 				Port.Name = std::format("Input{}", Suffix);
 			Port.Default.Kind = EMaterialFunctionDefaultKind::Numeric;
-			FMaterialGraphDocument Graph(Function);
+			const auto& Graph = Document.Graph->GetCommands();
 			const auto Result = Graph.AddPort(false, Port, {}, 0, static_cast<int32>(Signature.Inputs.size()) * 120);
 			if (!Result) ErrorMessage = FormatMaterialGraphCommandResult(Result);
 			else if (!Result.GeneratedNodeIds.empty()) Document.Canvas->SelectAndFrame(Result.GeneratedNodeIds.front());
@@ -243,7 +243,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::DrawInterface(FMaterialFunctionEditingSession& Document) -> void
 	{
 		auto& Function = *Document.Function();
-		FMaterialGraphDocument Graph(Function);
+		const auto& Graph = Document.Graph->GetCommands();
 		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) ErrorMessage = FormatMaterialGraphCommandResult(Result); };
 		if (Document.Canvas->GetSelection().size() != 1)
 		{
@@ -252,25 +252,25 @@ namespace Durin::MaterialEditor
 		}
 		const auto* Id = std::get_if<FGuid>(&*Document.Canvas->GetSelection().begin());
 		if (!Id) return;
-		const auto& Expressions = Function.GetExpressionCollection().Expressions;
-		const auto Selected = std::ranges::find(Expressions, *Id, [](const auto& Node) { return Node->Id; });
-		if (Selected == Expressions.end()) return;
-		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected->Get()); Call && Call->Function.IsValid())
+		auto* Node = Document.Graph->FindNode(*Id);
+		if (!Node) return;
+		auto* Selected = Node->GetMaterialExpression();
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Selected); Call && Call->Function.IsValid())
 		{
 			if (ImGui::Button("Open Function")) OpenReferencedMaterialAsset(*this, Call->Function->GetObjectPath(),
 				Call->Function->GetClass()->GetQualifiedName().ToString());
-			DrawMaterialFunctionCallInputs(Function, *Id, *EditorSession.GetEditor()->GetTransactor(), ErrorMessage);
+			DrawMaterialFunctionCallInputs(*Document.Graph, *Id, ErrorMessage);
 		}
-		const auto* Input = Cast<DMaterialExpressionFunctionInput>(Selected->Get());
-		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Selected->Get());
+		const auto* Input = Cast<DMaterialExpressionFunctionInput>(Selected);
+		const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Selected);
 		const auto* Port = Input ? &Input->Port : Output ? &Output->Port : nullptr;
 		if (!Port) { Document.SelectedPortNode = {}; return; }
-		if (Document.SelectedPortNode != *Id)
+		if (Document.SelectedPortNode != *Id || Document.PortBaseline != *Port)
 		{
 			Document.SelectedPortNode = *Id;
 			Document.EditingPort = Port->Id;
 			Document.bOutputPort = Output != nullptr;
-			Document.PortDraft = *Port;
+			Document.PortBaseline = Document.PortDraft = *Port;
 			std::snprintf(Document.PortName.data(), Document.PortName.size(), "%s", Port->Name.c_str());
 		}
 		ImGui::InputText("Name", Document.PortName.data(), Document.PortName.size());
@@ -337,7 +337,12 @@ namespace Durin::MaterialEditor
 		{
 			Document.PortDraft.Name = Document.PortName.data();
 			if (Document.bOutputPort) { Document.PortDraft.bRequired = false; Document.PortDraft.Default = {}; }
-			Apply(Graph.SetPort(Document.bOutputPort, Document.PortDraft));
+			auto Renamed = *Port;
+			Renamed.Name = Document.PortDraft.Name;
+			const auto Result = Renamed == Document.PortDraft
+				? Node->OnRenameNode(Renamed.Name) : Node->SetFunctionPort(Document.PortDraft);
+			if (Result) Document.PortBaseline = Document.PortDraft;
+			else ErrorMessage = FormatMaterialGraphCommandResult(Result);
 		}
 		if (Document.EditingPort.IsValid())
 		{

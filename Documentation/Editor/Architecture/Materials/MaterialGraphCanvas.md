@@ -106,10 +106,8 @@ Numeric controls and parameter/literal type conversions are shared by graph
 editing paths so each supported vector dimension has one conversion contract.
 
 Material and function graphs use one canvas renderer, toolbar, interaction handler
-and hit test. Each canvas is constructed with a fixed `FMaterialGraphDocument`
-binding and exposes one `Draw` entry point; drawing and selection details do not
-accept an asset to switch the canvas to. Graph commands reuse that document
-boundary. Replacing a document's underlying asset recreates its canvas while
+and hit test. Each canvas draws the session's `DMaterialGraph`. Canvas gestures, clipboard actions and Details edits use the same graph. Creation actions execute against it, the schema handles links, and nodes receive edited pin defaults. A move keeps its
+position draft until release and commits through the working asset command. Replacing a document's underlying asset recreates its canvas while
 preserving the viewport; changing tabs does not rebind a canvas.
 Error reporting and function-asset navigation are editor services supplied once
 when constructing the canvas, not arguments to each draw or Details call. Both
@@ -123,9 +121,8 @@ Ctrl-click toggles node selection; dragging a selected node moves its selection;
 blank-space dragging replaces selection and Shift adds a marquee region. Both
 paths share pan/zoom, keyboard selection/clipboard/framing, node context menus,
 creation shortcuts, blank double-click creation, and link-drop creation. Hit tests
-follow reverse paint order and disable pins in Overview. Graph mutations use
-`FMaterialGraphDocument`; material output geometry and its commands remain a
-material-only extension. Reconnection records the semantic input index or stable
+follow reverse paint order and disable pins in Overview. The schema creates and breaks pin links for both graph kinds. The material root
+provides its own geometry and output commands. Reconnection records the semantic input index or stable
 function port ID, independently of filtered pin rows, and keeps the original
 link until a valid replacement commits. Function node movement remains a detached
 presentation draft until release, with Escape discarding the draft.
@@ -269,7 +266,7 @@ node as one command; missing numeric inputs receive inline literal defaults
 in the same transaction, while resource inputs without a default reject.
 Escape and every document lifecycle cancellation close the palette and discard
 reconnection and movement drafts without dirtying or compiling
-the material. Graph mutations route through `FMaterialGraphDocument`.
+the material. The schema supplies eligible context actions. The canvas ranks them by search text and recent use.
 
 `Promote to Parameter` is available on an unconnected Surface input. It
 creates the compatible material-owned Parameter node one column upstream, copies the

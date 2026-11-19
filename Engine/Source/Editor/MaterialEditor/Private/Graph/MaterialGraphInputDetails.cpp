@@ -27,7 +27,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::DrawParameterValue(
 		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void
 	{
-		if (!Cast<DMaterial>(GraphDocument.GetOwner())) { CancelInteraction(); return; }
+		if (!Cast<DMaterial>(EditorGraph->GetMaterialOrFunction())) { CancelInteraction(); return; }
 		if (Parameter.Type == EMaterialParameterType::Texture) return;
 		ImGui::PushID(Parameter.Id.ToString().c_str());
 		MonaImGui::PropertyEdit::BeginRow("Default value");
@@ -87,7 +87,7 @@ namespace Durin::MaterialEditor
 	{
 		ParameterFrame.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false),
 			[this](const FParameterControlId& Id, const TWeakObjectPtr<DTransactor>& Transactions) {
-				auto* Material = Cast<DMaterial>(GraphDocument.GetOwner());
+				auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
 				auto* Transactor = Transactions.Get();
 				if (!Material || !Transactor)
 				{
@@ -145,11 +145,11 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions) -> void
 	{
-		if (!GraphDocument.GetOwner()) { CancelInteraction(); return; }
-		auto& Owner = *GraphDocument.GetOwner();
+		if (!EditorGraph->GetMaterialOrFunction()) { CancelInteraction(); return; }
+		auto& Owner = *EditorGraph->GetMaterialOrFunction();
 		const auto Selection = GetSelectedProgramNodes();
 		if (Selection.size() != 1) return;
-		const auto& Document = GraphDocument;
+		const auto& Document = EditorGraph->GetCommands();
 		const FMaterialExpressionCollection* Collection = nullptr;
 		if (const auto* Material = Cast<DMaterial>(&Owner)) Collection = &Material->GetExpressionCollection();
 		if (const auto* Function = Cast<DMaterialFunction>(&Owner)) Collection = &Function->GetExpressionCollection();
@@ -167,7 +167,8 @@ namespace Durin::MaterialEditor
 		const auto& View = PrepareDetailsView(Owner);
 		const auto Selected = std::ranges::find(View.Nodes, Selection.front(),
 			[](const auto& Entry) { return Entry.Node.Id; });
-		if (Selected == View.Nodes.end()) return;
+		auto* SelectedNode = EditorGraph->FindNode(Selection.front());
+		if (Selected == View.Nodes.end() || !SelectedNode) return;
 		ImGui::PushID(Selection.front().ToString().c_str());
 		ImGui::TextWrapped("%s", Selected->PrimaryLabel.c_str());
 		if (SelectedDiagnostic && SelectedDiagnostic->NodeId == Selected->Node.Id)
@@ -242,7 +243,7 @@ namespace Durin::MaterialEditor
 					.AssignSelection = [&](DObject* Object, std::string& Error) {
 						auto Value = Parameter.Value;
 						Value.GetTexture().Texture = Cast<DTexture>(Object);
-						const auto Result = FMaterialGraphDocument(*Material).SetParameterValue(Parameter.Id, Value);
+						const auto Result = EditorGraph->GetCommands().SetParameterValue(Parameter.Id, Value);
 						Error = FormatMaterialGraphCommandResult(Result); Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 						return static_cast<bool>(Result);
 					}});
@@ -254,7 +255,7 @@ namespace Durin::MaterialEditor
 						int Index = static_cast<int>(Value);
 						if (Changed || !DetailsStyle::EditRow(Label, [&] { return ImGui::Combo("##Value", &Index, Names); })) return;
 						Value = static_cast<std::remove_reference_t<decltype(Value)>>(Index);
-						Submit(FMaterialGraphDocument(*Material).SetParameterValue(Parameter.Id, Parameter.Value));
+						Submit(EditorGraph->GetCommands().SetParameterValue(Parameter.Id, Parameter.Value));
 					};
 					Combo("Missing texture", Parameter.Value.GetTexture().TextureFallback, Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? "White\0Black\0" : "White\0Black\0Flat normal\0");
 					Combo("Min filter", Parameter.Value.GetTexture().SamplerState.MinFilter, "Nearest\0Linear\0Nearest mip nearest\0Linear mip nearest\0Nearest mip linear\0Linear mip linear\0");
@@ -278,7 +279,7 @@ namespace Durin::MaterialEditor
 			else if (const auto* E = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) { Type = EMaterialProgramValueType::Float4; Value = {static_cast<float>(E->Value.x), static_cast<float>(E->Value.y), static_cast<float>(E->Value.z), static_cast<float>(E->Value.w)}; }
 			else bConstant = false;
 			if (bConstant && EditLiteral("Value", Type, Value))
-				Submit(Document.SetConstantValue(Expression->Id, MakeParameterValue(Type, Value)));
+				Submit(SelectedNode->SetConstantValue(MakeParameterValue(Type, Value)));
 		}
 		const auto EditSamplingMode = [&](const auto* Sample) {
 			if (!Sample || Changed) return;
@@ -324,7 +325,7 @@ namespace Durin::MaterialEditor
 					for (uint8 Candidate = 0; Candidate < 4; ++Candidate)
 						if (Candidate == Channel ? Enabled : std::ranges::contains(Swizzle->Components, Candidate))
 							Mask.push_back(Candidate);
-					Submit(Document.SetSwizzleComponents(Expression->Id, Mask));
+					Submit(SelectedNode->SetSwizzleComponents(Mask));
 					return true;
 				}
 				return false;
@@ -353,26 +354,10 @@ namespace Durin::MaterialEditor
 				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 				const bool bKeepBase = Binding == Surface->Attributes.end()
 					|| (!Binding->Source.Connection.ExpressionId.IsValid() && !Binding->Source.UseConstant);
-				const auto SetSource = [&](FMaterialProgramLink Link) {
-					const auto Edited = BeginSelectedEdit();
-					if (Edited == Session->Expressions.end()) return;
-					auto& Bindings = Cast<DMaterialExpressionSetMaterialAttributes>(Edited->Get())->Attributes;
-					auto Existing = std::ranges::find(Bindings, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
-					if (Existing == Bindings.end() && Link.SourceNodeId.IsValid())
-					{
-						Bindings.emplace_back(Attribute, FMaterialExpressionInput{});
-						Existing = std::prev(Bindings.end());
-					}
-					if (Existing != Bindings.end())
-					{
-						Existing->Source.Connection = {Link.SourceNodeId, Link.SourceOutputIndex, Link.SourceOutputId};
-						if (!Link.SourceNodeId.IsValid()) Existing->Source.UseConstant = false;
-					}
-					Submit(Session->Commit("Edit Surface Input", &Transactions));
-				};
+				const auto Address = FMaterialGraphPinAddress::AttributeOverride(Expression->Id, Attribute);
 				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
 					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.ExpressionId.IsValid() ? "Connected" : "Constant")) return false;
-					if (ImGui::Selectable("Keep base value", bKeepBase)) SetSource({});
+					if (ImGui::Selectable("Keep base value", bKeepBase)) Submit(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, Address));
 					for (const auto& Source : View.Nodes)
 					{
 						if (Source.Node.Id == Expression->Id || Changed) continue;
@@ -380,7 +365,8 @@ namespace Durin::MaterialEditor
 							if (!Changed && Pin.Type == GetMaterialSurfaceOutputType(Attribute)
 								&& ImGui::Selectable(std::format("{}: {}##{}{}", Source.PrimaryLabel, Pin.Name,
 									Source.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
-								SetSource({Source.Node.Id, Pin.OutputIndex, Pin.PortId});
+								Submit(EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Address,
+									FMaterialGraphPinAddress::Output({Source.Node.Id, Pin.OutputIndex, Pin.PortId}), true));
 					}
 					ImGui::EndCombo();
 					return Changed;
@@ -422,7 +408,7 @@ namespace Durin::MaterialEditor
 				if (EditLiteralValue(Value.Type, Value.Literal))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
-					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId));
+					Submit(SelectedNode->PinDefaultValueChanged(Selected->InputAddress(Pin), Value));
 				}
 			};
 			const auto Label = Pin.bSupportsConstant ? Pin.Name + (Pin.bUseConstant ? " (constant)" : " (inherited)") : Pin.Name;
@@ -457,7 +443,7 @@ namespace Durin::MaterialEditor
 				if (!Changed && bConnected)
 				{
 					if (ImGui::MenuItem("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId));
-					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(Document.Disconnect(Selected->InputAddress(Pin)));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, Selected->InputAddress(Pin)));
 				}
 				else if (!Changed)
 				{
@@ -503,15 +489,15 @@ namespace Durin::MaterialEditor
 					}
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))
-					Submit(Document.SetInputConstantEnabled(Selected->Node.Id, Pin.InputIndex, !Pin.bUseConstant));
+					Submit(SelectedNode->SetPinUseConstant(Selected->InputAddress(Pin), !Pin.bUseConstant));
 				if (!Changed && bInheritedDynamic && ImGui::MenuItem("Override with constant"))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
-					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, Value, Pin.PortId));
+					Submit(SelectedNode->PinDefaultValueChanged(Selected->InputAddress(Pin), Value));
 				}
 				if (!Changed && Pin.PortId.IsValid() && !Pin.bRequired
 					&& Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None && ImGui::MenuItem("Use function default"))
-					Submit(Document.SetInputDefault(Selected->Node.Id, Pin.InputIndex, {}, Pin.PortId));
+					Submit(SelectedNode->PinDefaultValueChanged(Selected->InputAddress(Pin), {}));
 				if (!Changed && bConnected && ImGui::BeginMenu("When disconnected"))
 				{
 					ImGui::TextUnformatted("Value used after disconnecting");

@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphEditSession.h"
 #include "AssetDeleteModel.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
@@ -1231,7 +1232,7 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(FunctionDocument, EMaterialProgramOpcode::Multiply));
 	const auto Call = Document.InsertFunctionCall(*Function, 300, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
-	ASSERT_TRUE(Document.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Document.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true, Durin::ETransactionMode::NotTransactable));
 	const auto CaptureFields = [](const auto& Owner) {
 		std::vector<FPropertyValueSnapshotPayload> Fields;
 		for (const auto& Expression : Owner.GetExpressionCollection().Expressions)

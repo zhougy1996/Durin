@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -106,7 +107,7 @@ namespace Durin::MaterialEditor
 		OutPresentation = ReadGraphPresentation(*Owner.Get());
 		struct FLayoutNode { FGuid Id; std::vector<FGuid> Inputs; float Width = 224.0f; float Height = 94.0f; };
 		std::vector<FLayoutNode> Nodes;
-		const auto View = Inspect();
+		const auto View = ProjectMaterialGraph(GetOwner());
 		for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Owner.Get()))
 		{
 			const auto Visual = std::ranges::find(View.Nodes, Expression->Id,

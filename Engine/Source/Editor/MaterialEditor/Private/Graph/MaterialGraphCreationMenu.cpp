@@ -40,6 +40,49 @@ namespace Durin::MaterialEditor
 			return Result.empty() ? "No inputs" : Result;
 		}
 	}
+	auto FMaterialGraphSchema::GetGraphContextActions(const DMaterialGraph& Graph,
+		std::optional<FMaterialGraphPinAddress> Source) const -> std::vector<FMaterialGraphCreationAction>
+	{
+		if (!Graph.GetMaterialOrFunction()) return {};
+		std::optional<EMaterialProgramValueType> Type;
+		if (Source)
+		{
+			if (!IsSourceAddressValid(*Source) || !IsSourceKeyValid(*Source)) return {};
+			const auto* Pin = Graph.FindOutputPin({Source->NodeId, static_cast<uint8>(Source->Index), Source->PortId});
+			if (!Pin || Pin->bMissing) return {};
+			Type = Pin->Type;
+		}
+		const auto Catalog = EnumerateCatalog();
+		std::vector<FMaterialGraphCreationAction> Actions;
+		for (const auto Index : SearchCatalogIndices(Catalog, "", Type))
+			Actions.push_back(MakeCreationAction(Catalog[Index]));
+		for (bool Output : {false, true})
+			Actions.push_back(MakePortCreationAction(Output, Type.value_or(EMaterialProgramValueType::Float)));
+		std::vector<std::string> Paths;
+		for (const auto& [AssetPath, Asset] : CaptureAssetQuerySnapshot().Assets)
+			{
+				if (!Asset.IsRedirector() && AssetPicker::MatchesClass(FindClassByQualifiedName(Asset.AssetClassName),
+					DMaterialFunctionInterface::StaticClass(), EAssetClassPolicy::Derived))
+					Paths.push_back(Asset.AssetPath.ToString());
+				if (!Asset.IsRedirector() && AssetPicker::MatchesClass(
+					FindClassByQualifiedName(Asset.AssetClassName),
+					DMaterialParameterCollection::StaticClass(),
+					EAssetClassPolicy::Exact))
+					if (auto Loaded = LoadObject<DMaterialParameterCollection>(Asset.AssetPath); Loaded)
+						for (const auto& Declaration : Loaded->GetDeclarations())
+							Actions.push_back(
+								MakeCollectionParameterCreationAction(
+									Asset.AssetPath.ToString(), Declaration.Id,
+									Declaration.DisplayName.empty()
+										? Declaration.Name.ToString()
+										: Declaration.DisplayName));
+			}
+		std::ranges::sort(Paths);
+		for (const auto& Path : Paths) Actions.push_back(MakeFunctionCreationAction(Path));
+		std::erase_if(Actions, [&](const auto& Action) { return !CanCreate(Action, Type); });
+		return Actions;
+	}
+
 	auto FMaterialGraphCanvas::RememberCreation(const FMaterialGraphCreationAction& Node) -> void
 	{
 		const std::string Key = Node.Id;
@@ -59,27 +102,6 @@ namespace Durin::MaterialEditor
 		{
 			CreationMenu->Search.fill('\0');
 			CreationMenu->Selection = 0;
-			CreationMenu->FunctionPaths.clear();
-			CreationMenu->CollectionParameters.clear();
-			for (const auto& [AssetPath, Asset] : CaptureAssetQuerySnapshot().Assets)
-				{
-					if (!Asset.IsRedirector() && AssetPicker::MatchesClass(FindClassByQualifiedName(Asset.AssetClassName),
-						DMaterialFunctionInterface::StaticClass(), EAssetClassPolicy::Derived))
-						CreationMenu->FunctionPaths.push_back(Asset.AssetPath.ToString());
-					if (!Asset.IsRedirector() && AssetPicker::MatchesClass(
-						FindClassByQualifiedName(Asset.AssetClassName),
-						DMaterialParameterCollection::StaticClass(),
-						EAssetClassPolicy::Exact))
-						if (auto Loaded = LoadObject<DMaterialParameterCollection>(Asset.AssetPath); Loaded)
-							for (const auto& Declaration : Loaded->GetDeclarations())
-								CreationMenu->CollectionParameters.push_back(
-									MakeCollectionParameterCreationAction(
-										Asset.AssetPath.ToString(), Declaration.Id,
-										Declaration.DisplayName.empty()
-											? Declaration.Name.ToString()
-											: Declaration.DisplayName));
-				}
-			std::ranges::sort(CreationMenu->FunctionPaths);
 			bCreationMenuResultsDirty = true;
 			ImGui::OpenPopup("MaterialNodeCreationMenu");
 			CreationMenu->bOpenRequested = false;
@@ -123,17 +145,13 @@ namespace Durin::MaterialEditor
 			|| CachedCreationMenuSourceType != SourceType;
 		if (bCreationMenuResultsStale)
 		{
-			CachedCreationActions.clear();
-			const auto& Document = GraphDocument;
-			for (const auto Index : SearchCatalogIndices(Catalog, "", SourceType))
-				CachedCreationActions.push_back(MakeCreationAction(Catalog[Index]));
-			for (bool bOutput : {false, true})
-				CachedCreationActions.push_back(MakePortCreationAction(bOutput, SourceType.value_or(EMaterialProgramValueType::Float)));
-			for (const auto& Path : CreationMenu->FunctionPaths)
-				CachedCreationActions.push_back(MakeFunctionCreationAction(Path));
-			CachedCreationActions.insert(CachedCreationActions.end(),
-				CreationMenu->CollectionParameters.begin(),
-				CreationMenu->CollectionParameters.end());
+			if (bCreationMenuResultsDirty || CachedCreationMenuSourceType != SourceType)
+			{
+				std::optional<FMaterialGraphPinAddress> Pin;
+				if (CreationMenu->SourceNode.IsValid())
+					Pin = FMaterialGraphPinAddress::Output({CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
+				CachedCreationActions = EditorGraph->GetSchema().GetGraphContextActions(*EditorGraph, Pin);
+			}
 			CachedCreationMenuResults.clear();
 			const std::string Query = CreationMenu->Search.data();
 			const auto Needle = StringUtils::FoldAscii(Query);
@@ -155,8 +173,7 @@ namespace Durin::MaterialEditor
 					if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
 						for (const auto& Field : Entry->NormalizedSearchFields) Test(Field);
 				}
-				// Resolve live function signatures only for matching rows.
-				if (Match < 4 && Document.CanCreate(Action, SourceType)) CachedCreationMenuResults.push_back(Index);
+				if (Match < 4) CachedCreationMenuResults.push_back(Index);
 			}
 			std::stable_sort(CachedCreationMenuResults.begin(), CachedCreationMenuResults.end(),
 				[&](size_t A, size_t B) { return Ranks[A] < Ranks[B]; });
@@ -255,7 +272,7 @@ namespace Durin::MaterialEditor
 			if (HasClipboard()) ImGui::SameLine();
 			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
-				const auto Layout = FMaterialGraphDocument(*Base).Layout({});
+				const auto Layout = EditorGraph->GetCommands().Layout({});
 				CheckCommand(Layout);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
@@ -266,11 +283,11 @@ namespace Durin::MaterialEditor
 		if (bActivateSelection && !Results.empty())
 		{
 			const auto& Action = CachedCreationActions[Results[static_cast<size_t>(CreationMenu->Selection)]];
-			FMaterialGraphCreationRequest Request{Action,
-				static_cast<int32>(std::round(CreationMenu->GraphPosition.x)), static_cast<int32>(std::round(CreationMenu->GraphPosition.y))};
-			if (CreationMenu->SourceNode.IsValid()) Request.Source = FMaterialGraphPinAddress::Output(
+			std::optional<FMaterialGraphPinAddress> Source;
+			if (CreationMenu->SourceNode.IsValid()) Source = FMaterialGraphPinAddress::Output(
 				{CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId});
-			const auto Created = GraphDocument.Create(Request);
+			const auto Created = Action.PerformAction(*EditorGraph, static_cast<int32>(std::round(CreationMenu->GraphPosition.x)),
+				static_cast<int32>(std::round(CreationMenu->GraphPosition.y)), Source);
 			if (CheckCommand(Created))
 			{
 				SelectedSurfaceOutput.reset();

@@ -4,12 +4,12 @@ Summary: Introduce editor-owned material graph and node objects and map the exis
 
 Last reviewed: 2026-11-19
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-19
 
 ## Current Status
 
-Stages 0 through 2 are complete. Material and function canvases read their session graphs and submit drag connections through the schema. Stage 3 covers the remaining callers. `FMaterialGraphDocument` holds a weak asset owner and a schema reference, exposes graph inspection, and dispatches editing commands. The material and material-function schemas already govern expression creation and connection compatibility. The existing behavior is documented in [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md), [canvas interaction](../Editor/Architecture/Materials/MaterialGraphCanvas.md), and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
+Stages 0 through 3 are complete. Each material or function canvas uses its session graph for pin views, schema operations and access to asset commands. The graph owns its command object, which holds a weak asset reference. Same-class constants and ordinary connections use expression object transactions. Compound edits retain grouped graph commands. The existing behavior is documented in [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md), [canvas interaction](../Editor/Architecture/Materials/MaterialGraphCanvas.md), and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
 
 ## Goal
 
@@ -144,7 +144,18 @@ Validation used the Stage 2 implementation based on `bb7167ed2` in the commit ca
 
 ### Stage 3: Migrate remaining callers and retire obsolete reads
 
-- [ ] After the canvas path passes, migrate creation, deletion, movement, clipboard, details edits, and function-signature refresh. Preserve existing transaction grouping and preview invalidation. Exercise a function port rename and removal with a material call site open.
-- [ ] Search every workspace project's source and tests for the previous inspection API. Remove duplicate graph construction after migrating consumers. Keep any document transaction helpers internal. Verify the canvas and graph context actions use the public graph, node, and schema entry points for topology edits. Exercise the material root and a function call with reconstructed pins through the same canvas code, and confirm specialization requires no node-type branch in connection handling. Record the final ownership split in the editor architecture documents linked above.
-- [ ] Gate: build MaterialEditor and affected consumers using the [build workflow](../Agents/BuildAndRun.md). Select graph interaction, persistence, editing-session, and function tests using the [test workflow](../Agents/Testing.md). Verify older assets open, edit, compile, and round-trip with stable IDs and equivalent links.
-- [ ] Record tested revision, selections, results, and the manual canvas checks here. Complete the plan when evidence covers the final implementation for both asset types.
+- [x] Migrate same-class literal changes and ordinary pin connections to one scoped transaction using `DObject::Modify(false)` on each authored expression that changes. Include downstream inferred types and retained defaults. Keep class replacement and function-call binding edits on the existing compound command path.
+- [x] Verify rejection and no-op admission on a clean package, one history entry, undo/redo of authored fields and compilation refresh on replay. Preserve stale-participant rejection across external replacement.
+
+Verification on 2026-11-19 used the Stage 3 changes based on `85566ee9a` and the `Win64-Debug-DurinEditor` preset. All four targets passed: `MaterialGraphEditingTests` (106), `MaterialEditingPersistenceTests` (34), `MaterialEditorInteractionTests` (76), and `MaterialCompileLifecycleTests` (39). Coverage includes stale expression membership, downstream type replay, clean-package rejection, and compilation after redo. The remaining canvas acceptance was subsequently changed to code review at the user’s request.
+
+- [x] After the canvas path passes, migrate creation, deletion, movement, clipboard, details edits, and function-signature refresh. Preserve existing transaction grouping and preview invalidation. Exercise a function port rename and removal with a material call site open.
+- [x] Search every workspace project's source and tests for the previous inspection API. Remove duplicate graph construction after migrating consumers. Keep any document transaction helpers internal. Verify the canvas and graph context actions use the public graph, node, and schema entry points for topology edits. Exercise the material root and a function call with reconstructed pins through the same canvas code, and confirm specialization requires no node-type branch in connection handling. Record the final ownership split in the editor architecture documents linked above.
+- [x] Gate: build MaterialEditor and affected consumers using the [build workflow](../Agents/BuildAndRun.md). Select graph interaction, persistence, editing-session, and function tests using the [test workflow](../Agents/Testing.md). Verify older assets open, edit, compile, and round-trip with stable IDs and equivalent links.
+- [x] Record tested revision, selections, results, and the canvas code review here. Complete the plan when evidence covers the final implementation for both asset types.
+
+Stage 3 review on 2026-11-19 covered the implementation based on `32050fb8d`. Material and function editors use the same schema calls for drag, reconnect and disconnect. A move carries the session command object through release. Clipboard and Details resolve the same working asset. Function interface changes invalidate the caller's pin projection, and the function inspector defers disconnection until it finishes iterating those pins. Engine, Sandbox and RoadWeaver source and tests were searched for the retired document inspection methods.
+
+The interaction fixture connects a second function output to two consumers, breaks both links in one history entry, replays it in either direction and retains the missing output ID after port removal. The persistence fixture loads shipped `DefaultMaterial` and `UVTransform` assets, moves a node in each writable copy and reopens it with equivalent expression fields, stable IDs and the edited position. The material also passes `CompileEdits`. Canvas acceptance used source review and native ImGui tests per the user's direction.
+
+Final validation on Windows MSVC x64 used the `Win64-Debug-DurinEditor` preset. All 292 cases passed across MaterialGraphEditingTests (106), MaterialEditorInteractionTests (76), MaterialEditingPersistenceTests (35), MaterialFunctionTests (30), MaterialPackageTests (6) and MaterialCompileLifecycleTests (39). MaterialQualificationTests also built against the revised private projection API.

@@ -19,6 +19,8 @@ namespace Durin
 
 namespace Durin::MaterialEditor
 {
+	class DMaterialGraph;
+
 	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 13;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
@@ -30,7 +32,7 @@ namespace Durin::MaterialEditor
 		StaleOwner,
 	};
 
-	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput };
+	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput, AttributeOverride };
 	struct FMaterialGraphPinAddress
 	{
 		FGuid NodeId;
@@ -43,6 +45,8 @@ namespace Durin::MaterialEditor
 		static auto MaterialOutput(FGuid Node, std::optional<EMaterialProperty> Attribute = {}) -> FMaterialGraphPinAddress
 		{ return {Node, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
 			Attribute ? static_cast<uint32>(*Attribute) : static_cast<uint32>(EMaterialOutputPin::Surface)}; }
+		static auto AttributeOverride(FGuid Node, EMaterialProperty Property) -> FMaterialGraphPinAddress
+		{ return {Node, EMaterialGraphPinKind::AttributeOverride, static_cast<uint32>(Property)}; }
 		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
 		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
 	};
@@ -136,6 +140,8 @@ namespace Durin::MaterialEditor
 		std::variant<FMaterialGraphCatalogEntry, std::string,
 			FMaterialGraphPortCreation,
 			FMaterialGraphCollectionParameterCreation> Payload;
+		MATERIALEDITOR_API auto PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
+			std::optional<FMaterialGraphPinAddress> Source = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 	};
 	struct FMaterialGraphCreationRequest
 	{
@@ -203,12 +209,6 @@ namespace Durin::MaterialEditor
 		std::vector<FMaterialGraphNodeView> Nodes;
 		FMaterialAttributeValues Outputs;
 		bool bFunction = false;
-	};
-
-	struct FMaterialGraphSurfaceDefaultRequest
-	{
-		EMaterialProperty Output = EMaterialProperty::MP_BaseColor;
-		FMaterialProgramLiteral Value;
 	};
 
 	struct FMaterialGraphSurfaceNodeRequest

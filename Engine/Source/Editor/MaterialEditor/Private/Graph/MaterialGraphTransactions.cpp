@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphChange.h"
 #include "MaterialGraphDocument.h"
@@ -66,7 +67,7 @@ namespace Durin::MaterialEditor
 							return Before.NodeId == After.NodeId;
 						}))
 					{
-						if (!BeforeView) BeforeView = FMaterialGraphDocument(InMaterial).Inspect();
+						if (!BeforeView) BeforeView = ProjectMaterialGraph(&InMaterial);
 						const auto Node = std::ranges::find(BeforeView->Nodes, After.NodeId,
 							[](const auto& View) { return View.Node.Id; });
 						const auto Fallback = Node == BeforeView->Nodes.end() ? FMaterialGraphPosition{}

@@ -77,15 +77,17 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	Presentation.Nodes.push_back({Leaf->GetExpressionCollection().Expressions.front()->Id, 55, 44});
 	ASSERT_TRUE(Leaf->SetFunctionPresentation(Presentation));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
-	auto Port = Other->GetFunctionSignature().Outputs.front();
-	Port.Name = "Unrelated edit";
-	ASSERT_TRUE(FMaterialGraphDocument(*Other).SetPort(true, Port, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> OtherGraph(DMaterialGraph::Create(*Other));
+	auto* OtherOutput = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*OtherGraph, Other->GetFunctionSignature().Outputs.front().Id);
+	ASSERT_TRUE(OtherOutput);
+	ASSERT_TRUE(OtherOutput->OnRenameNode("Unrelated edit", Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 
 	Tests::FTestEditorTransactorOwner Transactions;
-	Port = Leaf->GetFunctionSignature().Outputs.front();
-	Port.Name = "Transitive edit";
-	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port));
+	TStrongObjectPtr<DMaterialGraph> LeafGraph(DMaterialGraph::Create(*Leaf));
+	auto* LeafOutput = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*LeafGraph, Leaf->GetFunctionSignature().Outputs.front().Id);
+	ASSERT_TRUE(LeafOutput);
+	ASSERT_TRUE(LeafOutput->OnRenameNode("Transitive edit"));
 	EXPECT_TRUE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
@@ -101,8 +103,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	EXPECT_TRUE(First.ConsumeRefreshRequest());
 	First.SetFunction(Other.Get());
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
-	Port.Name = "Former dependency";
-	ASSERT_TRUE(FMaterialGraphDocument(*Leaf).SetPort(true, Port, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(LeafOutput->OnRenameNode("Former dependency", Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
 	EXPECT_TRUE(Transactions->TryReset());

@@ -18,6 +18,12 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionFunctionInput(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
+#if DURIN_WITH_EDITORONLY_DATA
+		auto CanRenameNode() const -> bool override { return true; }
+		auto GetEditableName() const -> std::string override { return Port.Name; }
+		auto SetEditableName(std::string NewName) -> void override { Port.Name = std::move(NewName); }
+#endif
+
 		DPROPERTY()
 		FMaterialFunctionPort Port;
 
@@ -32,6 +38,12 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpressionFunctionOutput(const FObjectInitializer& Initializer) : Super(Initializer) {}
+
+#if DURIN_WITH_EDITORONLY_DATA
+		auto CanRenameNode() const -> bool override { return true; }
+		auto GetEditableName() const -> std::string override { return Port.Name; }
+		auto SetEditableName(std::string NewName) -> void override { Port.Name = std::move(NewName); }
+#endif
 
 		DPROPERTY()
 		FMaterialFunctionPort Port;

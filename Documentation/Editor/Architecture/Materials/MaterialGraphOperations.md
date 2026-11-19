@@ -25,12 +25,10 @@ an ordered reading sequence.
 
 ## Ownership
 
-Each `FMaterialGraphDocument` has a fixed, stateless `FMaterialGraphSchema` for
-its graph kind. `FMaterialGraphSchema` is an abstract interface;
+`DMaterialGraph` holds a weak asset owner and the stateless schema selected for its graph kind. `FMaterialGraphSchema` is an abstract interface;
 `FMaterialSchema` and `FMaterialFunctionSchema` override graph-specific capabilities
-and creation eligibility. Documents select a shared immutable implementation at
-construction and retain a base-class reference. Common connection and compatibility
-rules remain nonvirtual. Schema owns creation eligibility, function-port and parameter
+and creation eligibility. The graph exposes this policy through `GetSchema()`. Creation actions call the editor command to instantiate expressions. The graph synchronizes when the asset publishes the edit.
+`CanCreateConnection`, `BreakPinLinks` and `GetGraphContextActions` are virtual extension points. Schema owns creation eligibility, function-port and parameter
 capabilities, material-output deletion protection, source-address validity,
 connection replacement rules, and type compatibility hints. Menus and commands
 consume these policies; direct expression creation and paste also check the
@@ -94,7 +92,11 @@ retain their strict graph-validation boundary.
 owners. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
-The document has no whole-graph snapshot export/import API. Function previews
+The graph supplies a lightweight command object with the same weak owner and schema for clipboard, layout and asset commands. The public command object has no raw connect or disconnect entry points.
+New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Detached inspection uses the same node pin builders and allocates no editor objects. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
+Canvas and Details read the projected nodes. Function calls reconstruct their pins after signature changes.
+`BreakPinLinks` disconnects one input or all authored consumers of an output in one undo step.
+Disconnected function inputs keep their inline defaults. Function previews
 create their own expressions; clipboard copy duplicates only selected expressions.
 
 Function state cannot contain root parameters or material outputs. Call inputs
@@ -136,7 +138,14 @@ old asset generation against package replacement.
 
 Function Details edits named typed ports, order, advanced/required flags, typed
 defaults, constants, swizzles and Surface attributes. Port drafts commit on Apply
-as one validated transaction; ordinary node properties use the shared Details editor. The canvas supports typed link dragging,
+as one validated transaction. Details calls the selected terminal's `OnRenameNode` for a
+name change and `SetFunctionPort` for a combined edit. Both preserve the port GUID.
+`OnRenameNode` checks the expression's `CanRenameNode` and uses its
+`GetEditableName` and `SetEditableName` within the graph edit. Function input and
+output expressions opt in and map the editable name to their own `Port.Name`.
+The function asset validates the signature and publishes changes, including Undo/Redo.
+Caller graphs refresh their GUID-addressed pins from that publication. Ordinary node
+properties use the shared Details editor. The canvas supports typed link dragging,
 Shift replacement, node movement, copy/cut/paste and function navigation. Numeric
 node creation supplies typed inline literal defaults; texture and Surface operations
 can be created by dragging a compatible output into the node menu. Movement commits
@@ -319,7 +328,7 @@ function input/output ports also broadcast connected scalars to their declared
 vector width. Vector-to-scalar and different-vector-width links remain invalid;
 Normalize still requires a vector source. Retained defaults keep their declared types.
 
-Shared document inspection resolves function call pins from the live signature,
+The graph node resolves function call pins from the live signature,
 ordered by display order and GUID. Detached pin records retain stable port GUIDs,
 types, names, defaults, required flags, missing-port markers, and their detached
 value constraints. Property pins expose registry stage semantics: Vertex for WPO
@@ -331,9 +340,9 @@ have typed named pins; attribute selectors and overrides retain stable GUIDs.
 The material canvas draws each output separately and preserves the full source
 link through drag, reconnection, Surface assignment and node creation.
 Callee interface notifications refresh the cached inspection, including interface-only
-renames. Surface attribute reconnection uses the same document command boundary.
+renames. Surface attribute reconnection uses the canvas schema rules.
 
-Creation entry points submit `FMaterialGraphCreationRequest` to the document.
+Interactive creation invokes `FMaterialGraphCreationAction::PerformAction` on the session graph. The action submits a creation request to the editor commands.
 Its action has a stable ID, display/search metadata, graph applicability, and a
 catalog shape, function asset path, or typed terminal payload. `CanCreate` and
 `Create` share input compatibility; function insertion selects the first compatible
@@ -342,16 +351,15 @@ publish once and occupy one undo entry. The document revalidates source identity
 and live function inputs before mutation.
 
 `FMaterialGraphPinAddress` identifies fixed inputs/outputs, function GUID ports,
-and material attributes or aggregate Surface inputs. `Connect` resolves these
+material attribute overrides and aggregate Surface inputs. The graph resolves these
 addresses and shares source validation, replacement policy, default preservation,
-and transaction publication. `Disconnect` also permits clearing retained bindings
+and transaction publication. `BreakPinLinks` also permits clearing retained bindings
 after a function port disappears. Callers use `Input`, `Output` and `MaterialOutput`
-address constructors; no index/GUID or surface-assignment command facade remains.
+address constructors. Details uses `AttributeOverride` when choosing a source for an optional binding.
 Successful connection edits report the target and valid previous/new source IDs
 alongside any downstream changed nodes, sorted and deduplicated. No-change and
 rejected edits publish no changed IDs. Type compatibility guides palette filtering, automatic connections,
-and manual-drag feedback; manual wiring still permits type errors for compiler
-diagnostics. Commands also use parameter GUIDs and `EMaterialProperty`. They cover creation, complete node replacement,
+and connection admission. The internal asset writer also supports incomplete graphs for compiler diagnostics. Commands also use parameter GUIDs and `EMaterialProperty`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
 surface-default edit/reset, parameter promotion, explicit texture-branch
 creation, copy, cut, paste, and duplication. Each result reports a stable status,
@@ -439,16 +447,20 @@ the replacement's complete view. Reset supersedes local hints. Reentrant
 publications are queued until the current notification finishes, and unsubscribe
 also disables callbacks already present in a dispatch snapshot.
 
-`FMaterialGraphReadModel` takes an initial complete inspection, subscribes to its
-owner and directly called function interfaces, and accumulates notifications until
-refresh. Content changes reread selected nodes; position changes update positions
-without rebuilding pins; structural changes rebuild inspection. A callee interface
-change refreshes call pins: terminal node events trigger comparison of the derived
-interface, without polling revisions or maintaining a graph-level Signature flag. Callee body edits, transitive implementation edits, and
-callee layout edits do not invalidate the caller's visible graph; compilation
-maintains its separate dependency policy. Committed package replacement refreshes
-observed owners after external references have been rewritten, allowing dependency
-subscriptions to follow replacement functions.
+`DMaterialGraph` observes its asset and directly called functions. On publication
+it updates positions in place, reconstructs changed nodes and consumers of changed
+output interfaces, and reconciles membership. A reset synchronizes the whole graph.
+The graph is queryable as soon as a published edit or history replay returns.
+Function signature changes refresh the corresponding call sites. The graph rebinds
+dependency observers after membership and interface changes, including package replacement.
+Each `FMaterialGraphReadModel` coalesces graph notifications and copies synchronized
+views on demand. Reading a snapshot never reconstructs a graph node.
+Canvas and Details edit constant values and Swizzle channels on the live graph node.
+A same-width constant edit records its value. A width change replaces the concrete
+constant expression under the same GUID and records inferred downstream types in
+the same transaction. Swizzle edits record the channel sequence and dependent widths together.
+Root defaults use the node's `PinDefaultValueChanged`; resetting a root input uses
+`SetPinUseConstant(false)` to disable its retained literal.
 
 The canvas and Details share this read model and do not poll compile, render,
 expression, schema, or function revisions. Canvas visibility filters and detached
@@ -490,9 +502,7 @@ changes stable input indices or function port GUIDs. Material instances retain t
 parameter-only editor and expose Open Parent Material for explicit graph navigation.
 
 
-The shared document commands SetInputDefault, SetInputConstantEnabled, ExtractInputDefault,
-and InlineInputNode operate on independent concrete-expression
-snapshots for roots and function documents. Numeric defaults use their actual
+Nodes accept pin edits through `PinDefaultValueChanged` and `SetPinUseConstant`. The editor commands `ExtractInputDefault` and `InlineInputNode` group changes to expression membership, values, links and presentation. Numeric defaults use their actual
 component widths; the coordinate channel default is scalar, and
 function calls select inputs by port GUID. Extraction retains literal fallbacks and adds editable expressions. Inlining accepts
 constants and removes a source only after its last consumer is gone. Parameters stay
@@ -553,16 +563,24 @@ Ordinary document and static graph commands select ETransactionMode::Record by
 default and resolve the active editor before editing. UI callers do not pass
 transactors. Missing or busy editor services reject the command without mutation.
 Explicit ETransactionMode::NotTransactable permits standalone edits without
-creating history, but rejects an existing GUndo. It retains domain snapshots,
-validation, compensation and normal successful dirty/revision publication.
+creating history, but rejects an existing GUndo. Both modes validate the proposed
+edit before publishing dirty state and compilation revisions.
 Read-only inspection, copying and layout calculation need no transaction service.
 Move gestures retain their original service and use a private position submission
 path; their Commit never redirects to a replacement editor. Working-copy checkpoint
 ownership and explicit low-level gesture bindings are separate from command modes.
 
-The domain-local `FGraphEditSession::Modify()` captures reflected members before mutation, including participants
-introduced by type adaptation. Only changed member payloads enter the global
-transactor. Structural history detaches deleted children and retains them through
+Same-class constant edits, ordinary pin defaults and constant toggles, swizzle masks, function port rename/reorder, and ordinary single or bulk link edits record the authored expressions
+with `DObject::Modify(false)` in one `FScopedTransaction`. Link and numeric default edits determine affected inputs, downstream widths and retained defaults from the proposed values before recording. Creating or removing a function binding keeps the compound edit path.
+No-op and invalid requests return before marking the package dirty. During replay,
+the expression's edit callback propagates the restored collection state to its owner
+for graph and compilation refresh. The transaction annotation checks membership
+before replaying an expression that may have been removed by an external asset edit.
+
+Class replacement, function-call binding changes and other compound edits use the
+domain-local `FGraphEditSession::Modify()` to capture reflected members before
+mutation. Only changed member payloads enter their custom record.
+Structural history detaches deleted children and retains them through
 its reference collector, restoring their original identity on replay. Unchanged
 children retain identity; history never aliases mutable live values. History
 enumerates texture, function, and participant references and reports native payload

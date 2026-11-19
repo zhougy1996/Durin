@@ -1,0 +1,390 @@
+#include "Graph/MaterialGraphCatalog.h"
+#include "MaterialGraph.h"
+#include "MaterialGraphPinSource.h"
+#include "MaterialGraphEditSession.h"
+#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionVector.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionInputs.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionTextureParameter.h"
+#include "Graph/MaterialGraphValueTypes.h"
+
+namespace Durin::MaterialEditor
+{
+	namespace
+	{
+		auto GetTerminalPort(DMaterialExpression* Expression) -> FMaterialFunctionPort*
+		{
+			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression)) return &Input->Port;
+			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression)) return &Output->Port;
+			return nullptr;
+		}
+		auto LinkView(const FMaterialExpressionInput& Input) -> FMaterialProgramLink {
+			return {Input.ExpressionId, Input.OutputIndex, Input.OutputId};
+		}
+		auto DefaultView(std::span<const float> Values) -> FMaterialInputDefault {
+			if (Values.empty() || Values.size() > 4) return {};
+			FMaterialInputDefault Result{.Kind = EMaterialInputDefaultKind::Literal,
+				.Type = static_cast<EMaterialProgramValueType>(Values.size() - 1)};
+			const std::array Lanes{&Result.Literal.X, &Result.Literal.Y, &Result.Literal.Z, &Result.Literal.W};
+			for (size_t Index = 0; Index < Values.size(); ++Index) *Lanes[Index] = Values[Index];
+			return Result;
+		}
+		auto OrderedPorts(auto Ports)
+		{
+			std::ranges::stable_sort(Ports, [](const auto& A, const auto& B) {
+				return A.DisplayOrder != B.DisplayOrder ? A.DisplayOrder < B.DisplayOrder : A.Id < B.Id;
+			});
+			return Ports;
+		}
+	}
+
+	auto DMaterialGraphNode::OnRenameNode(std::string NewName, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		using namespace GraphEditInternals;
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Graph = Cast<DMaterialGraph>(GetOuter());
+		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+		auto* Expression = GetMaterialExpression();
+		if (!Owner || !Expression || !Expression->CanRenameNode()) return RejectCommand("The selected node cannot be renamed.");
+		if (Expression->GetEditableName() == NewName) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (!ValidateGraphEdit(*Owner))
+		{
+			// A repair must be able to restore the originally invalid asset on Undo.
+			FGraphEditSession State(*Owner);
+			State.Modify(*Expression);
+			Expression->SetEditableName(std::move(NewName));
+			return State.Commit("Rename Material Expression", *Admission);
+		}
+		FExpressionEdit Edit;
+		return Edit.CommitRename(*Owner, *Expression, std::move(NewName), *Admission);
+	}
+
+	auto DMaterialGraphNode::SetFunctionPort(FMaterialFunctionPort Port, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		using namespace GraphEditInternals;
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Graph = Cast<DMaterialGraph>(GetOuter());
+		auto* Function = Graph ? Cast<DMaterialFunction>(Graph->GetMaterialOrFunction()) : nullptr;
+		auto* Expression = GetMaterialExpression();
+		auto* Target = GetTerminalPort(Expression);
+		if (!Function || !Target || Target->Id != Port.Id) return RejectCommand("The function port is unavailable.");
+		if (*Target == Port) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		auto Metadata = *Target;
+		Metadata.Name = Port.Name;
+		Metadata.DisplayOrder = Port.DisplayOrder;
+		// Use the compound path when repairing an already-invalid function signature.
+		if (Metadata == Port && ValidateGraphEdit(*Function))
+		{
+			auto Signature = Function->GetFunctionSignature();
+			auto& Ports = Cast<DMaterialExpressionFunctionOutput>(Expression) ? Signature.Outputs : Signature.Inputs;
+			const auto It = std::ranges::find(Ports, Port.Id, &FMaterialFunctionPort::Id);
+			if (It == Ports.end()) return RejectCommand("The function port is unavailable.");
+			*It = Port;
+			if (const auto Valid = ValidateMaterialFunctionSignature(Signature); !Valid)
+				return RejectCommand("The function signature is invalid.", Valid.Diagnostics);
+			FExpressionEdit Edit;
+			Edit.Set(*Expression, *Target, std::move(Port));
+			return Edit.Commit(*Function, *Admission, "Edit Function Port");
+		}
+		FGraphEditSession State(*Function);
+		State.Modify(*Expression);
+		*Target = std::move(Port);
+		return State.Commit("Edit Function Port", *Admission);
+	}
+
+	auto DMaterialGraphNode::SetConstantValue(const FMaterialParameterValue& Value, ETransactionMode Mode)
+		-> FMaterialGraphCommandResult
+	{
+		using namespace GraphEditInternals;
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Graph = Cast<DMaterialGraph>(GetOuter());
+		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		auto* Expression = GetMaterialExpression();
+		if (!Expression) return RejectCommand("The expression no longer exists.");
+		if (!Cast<DMaterialExpressionScalarConstant>(Expression) && !Cast<DMaterialExpressionVector2Constant>(Expression)
+			&& !Cast<DMaterialExpressionVector3Constant>(Expression) && !Cast<DMaterialExpressionVector4Constant>(Expression))
+			return RejectCommand("The selected expression is not a constant.");
+		const auto Literal = ReadParameterLiteral(GetProgramType(Value.GetType()), Value);
+		if (!std::isfinite(Literal.X) || !std::isfinite(Literal.Y) || !std::isfinite(Literal.Z) || !std::isfinite(Literal.W))
+			return RejectCommand("Constant values must be finite.", {{.NodeId = Expression->Id, .Message = "Expression constant must be finite."}});
+
+		const auto SetValue = [&]<class T>(const auto& NewValue) -> FMaterialGraphCommandResult {
+			if (auto* Constant = Cast<T>(Expression))
+			{
+				if (Constant->Value == NewValue) return {.Status = EMaterialGraphCommandStatus::NoChange};
+				if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return Valid;
+				FExpressionEdit Edit;
+				Edit.Set(*Constant, Constant->Value, NewValue);
+				return Edit.Commit(*Owner, *Admission, "Edit Constant Expression");
+			}
+			TStrongObjectPtr<T> Replacement(NewObject<T>(nullptr, NAME_None));
+			Replacement->Id = Expression->Id;
+			Replacement->Value = NewValue;
+			return CommitExpressionReplacement(*Owner, *Replacement, *Admission);
+		};
+		switch (Value.GetType())
+		{
+		case EMaterialParameterType::Scalar: return SetValue.operator()<DMaterialExpressionScalarConstant>(Value.GetScalar());
+		case EMaterialParameterType::Vector2: return SetValue.operator()<DMaterialExpressionVector2Constant>(Value.GetVector2());
+		case EMaterialParameterType::Vector: return SetValue.operator()<DMaterialExpressionVector3Constant>(Value.GetVector());
+		case EMaterialParameterType::Vector4: return SetValue.operator()<DMaterialExpressionVector4Constant>(Value.GetVector4());
+		default: return RejectCommand("Constants require a numeric value.");
+		}
+	}
+
+	auto DMaterialGraphNode::SetSwizzleComponents(std::span<const uint8> Components, ETransactionMode Mode)
+		-> FMaterialGraphCommandResult
+	{
+		using namespace GraphEditInternals;
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		if (Components.empty() || Components.size() > 4 || std::ranges::any_of(Components, [](uint8 Channel) { return Channel > 3; }))
+			return RejectCommand("Swizzles require one to four valid components.");
+		auto* Graph = Cast<DMaterialGraph>(GetOuter());
+		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		auto* Expression = GetMaterialExpression();
+		if (!Expression) return RejectCommand("The expression no longer exists.");
+		auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression);
+		if (!Swizzle) return RejectCommand("The selected expression is not a swizzle.");
+		if (std::ranges::equal(Swizzle->Components, Components)) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		FExpressionEdit Edit;
+		Edit.Set(*Swizzle, Swizzle->Components, std::vector<uint8>(Components.begin(), Components.end()));
+		return Edit.CommitInferred(*Owner, *Admission, "Edit Swizzle",
+			{{Swizzle->Id, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
+	}
+
+	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source, FPinOperation Operation) -> void
+	{
+		View = std::move(Metadata);
+		struct FRestoreSource
+		{
+			const FMaterialGraphPinSource*& Slot;
+			const FMaterialGraphPinSource* Previous;
+			~FRestoreSource() { Slot = Previous; }
+		} Restore{ActiveSource, std::exchange(ActiveSource, &Source)};
+		(this->*Operation)();
+	}
+
+	auto DMaterialGraphNode::CreatePins() -> void
+	{
+		View.Inputs.clear();
+		View.Outputs.clear();
+		CreateInputPins();
+		CreateOutputPins();
+	}
+
+	auto DMaterialGraphNode::AllocateDefaultPins() -> void
+	{
+		if (ActiveSource)
+		{
+			CreatePins();
+			return;
+		}
+		if (!GetMaterialExpression()) return;
+		auto* Graph = Cast<DMaterialGraph>(GetOuter());
+		ReadMaterialGraph(Graph->GetMaterialOrFunction(), EnumerateCatalog(), std::span(&View.Node.Id, 1),
+			[&](FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source) {
+				Refresh(std::move(Metadata), Source, &DMaterialGraphNode::CreatePins);
+			});
+	}
+
+	auto DMaterialGraphNode::ReconstructNode() -> void { AllocateDefaultPins(); }
+
+	auto DMaterialGraphNode_Root::CreateInputPins() -> void { BuildInputPins(View, *ActiveSource); }
+	auto DMaterialGraphNode::CreateInputPins() -> void { BuildInputPins(View, *ActiveSource); }
+	auto DMaterialGraphNode::CreateOutputPins() -> void { BuildOutputPins(View, *ActiveSource); }
+
+	auto DMaterialGraphNode_Root::BuildInputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void
+	{
+		const auto* Material = Source.Material;
+		auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(Source.Expression);
+		if (!Material || !Terminal) return;
+		for (const auto& Definition : GetMaterialDomainOutputPins(Material->GetDomain()))
+		{
+			const bool bAttributes = Definition.Id == EMaterialOutputPin::Surface;
+			if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
+			const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
+			FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
+				.Link = LinkView(Input), .SourceType = Source.SourceType(LinkView(Input)), .AcceptedTypes = {Definition.Type}};
+			if (Definition.Id == EMaterialOutputPin::WorldPositionOffset)
+				Pin.Constraint.Stages = EMaterialEvaluationStage::Vertex;
+			else if (!bAttributes)
+			{
+				const auto Semantics = GetMaterialSurfaceOutputSemantics(
+					static_cast<EMaterialProperty>(Definition.Id));
+				Pin.Constraint = {.Mode = EMaterialFunctionValueConstraintMode::Exact,
+					.Stages = Semantics.Stages, .Kind = Semantics.Kind,
+					.Space = Semantics.Space};
+			}
+			if (Definition.Id != EMaterialOutputPin::WorldPositionOffset && Definition.Id != EMaterialOutputPin::Normal
+				&& Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
+				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
+			Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
+			if (const auto* Numeric = GetMaterialOutputNumericInput(Terminal->Outputs, Definition.Id))
+			{
+				Pin.bSupportsConstant = true; Pin.bUseConstant = Numeric->UseConstant;
+				Pin.RetainedConstant = DefaultView(Numeric->Constant);
+			}
+			Pin.bActive = bAttributes || Definition.Id == EMaterialOutputPin::WorldPositionOffset || IsMaterialSurfaceOutputActive(
+				static_cast<EMaterialProperty>(Definition.Id), Material->GetStaticProperties());
+			View.Inputs.push_back(std::move(Pin));
+		}
+	}
+
+	auto DMaterialGraphNode::BuildInputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void
+	{
+		auto* Expression = Source.Expression;
+		const auto& Node = View.Node;
+		const auto* Shape = Source.Shape;
+		const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
+		if (!Cast<DMaterialExpressionFunctionCall>(Expression))
+			VisitMaterialExpressionInputs(*Expression, [&](uint32 InputIndex, FMaterialExpressionInput& Input) {
+				// Surface override indices are stable attributes, not binding-array ordinals.
+				if (Cast<DMaterialExpressionSetMaterialAttributes>(Expression) && InputIndex != 0) return;
+				FMaterialGraphPinView Pin{.InputIndex = InputIndex,
+					.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
+					.Link = LinkView(Input), .SourceType = Source.SourceType(LinkView(Input))};
+				if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
+				if (IsMaterialAdaptiveNumeric(Node.Opcode) && !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
+				{
+					// Keep the resolved width first for pin styling, while allowing reconnection.
+					Pin.AcceptedTypes = {Node.ResultType};
+					for (const auto Type : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
+						EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
+						if (Type != Node.ResultType && !(Node.Opcode == EMaterialProgramOpcode::Normalize && Type == EMaterialProgramValueType::Float))
+							Pin.AcceptedTypes.push_back(Type);
+				}
+				if (const auto* Numeric = FindMaterialNumericInput(*Expression, Input))
+				{
+					Pin.bUseConstant = Numeric->UseConstant;
+					Pin.bSupportsConstant = true;
+					Pin.RetainedConstant = DefaultView(Numeric->Constant);
+					Pin.InlineDefault = DefaultView(Numeric->UseConstant ? Numeric->Constant
+						: GetMaterialNumericInputFallback(Node.Opcode, Node.ResultType, InputIndex));
+				}
+				if (!Input.ExpressionId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
+				else if (!Input.ExpressionId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
+				const auto SetSamplingActivity = [&](const auto* Sample, uint32 FirstOptional) {
+					if (!Sample || InputIndex < FirstOptional) return;
+					Pin.bActive = InputIndex == FirstOptional
+						? Sample->ReadMode == EMaterialTextureReadMode::Level || Sample->ReadMode == EMaterialTextureReadMode::Bias
+						: Sample->ReadMode == EMaterialTextureReadMode::Grad;
+				};
+				SetSamplingActivity(Cast<DMaterialExpressionTextureSampleCube>(Expression), 2);
+				SetSamplingActivity(Cast<DMaterialExpressionTextureSampleParameterCube>(Expression), 1);
+				SetSamplingActivity(Cast<DMaterialExpressionTextureSample2D>(Expression), 2);
+				SetSamplingActivity(Cast<DMaterialExpressionTextureSampleParameter2D>(Expression), 1);
+				View.Inputs.push_back(std::move(Pin));
+			});
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+		{
+			if (IsValid(Call->Function.Get()))
+				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Inputs))
+				{
+					const auto Binding = std::ranges::find(Call->Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+					const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : LinkView(Binding->Input);
+					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
+						.Link = Link, .SourceType = Link.SourceNodeId.IsValid() ? Source.SourceType(Link) : Port.Type,
+						.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
+						.Constraint = Port.Constraint,
+						.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
+						.bAdvanced = Port.bAdvanced});
+				}
+			for (const auto& Binding : Call->Inputs)
+				if (std::ranges::none_of(View.Inputs, [&](const auto& Pin) { return Pin.PortId == Binding.InputId; }))
+					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = "Missing input",
+						.Link = LinkView(Binding.Input), .SourceType = Source.SourceType(LinkView(Binding.Input)), .AcceptedTypes = {Binding.ExpectedType},
+						.PortId = Binding.InputId, .bMissing = true});
+		}
+		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression); Output && !View.Inputs.empty())
+		{
+			View.Inputs.front().Name = Output->Port.Name;
+			View.Inputs.front().AcceptedTypes = {Output->Port.Type};
+		}
+		if ((Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes
+			|| Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes) && !View.Inputs.empty())
+		{
+			View.Inputs[0].Name = "Surface";
+			View.Inputs[0].AcceptedTypes = {EMaterialProgramValueType::MaterialAttributes};
+		}
+		if (Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes)
+			for (const auto& Attribute : Cast<DMaterialExpressionSetMaterialAttributes>(Expression)->Attributes)
+			{
+				const auto Property = Attribute.GetProperty();
+				const auto Index = static_cast<uint32>(Property);
+				if (Index < Definitions.size()) View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
+					.Link = LinkView(Attribute.Source), .SourceType = Attribute.Source.Connection.ExpressionId.IsValid()
+						? Source.SourceType(LinkView(Attribute.Source)) : GetMaterialSurfaceOutputType(Property),
+					.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)},
+					.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
+					.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,
+					.bUseConstant = Attribute.Source.UseConstant});
+			}
+		for (auto& Pin : View.Inputs)
+			if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
+				&& Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
+				&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4)
+				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
+	}
+
+	auto DMaterialGraphNode::BuildOutputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void
+	{
+		auto* Expression = Source.Expression;
+		const auto& Node = View.Node;
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+		{
+			if (IsValid(Call->Function.Get()))
+				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Outputs)) View.Outputs.push_back({.PortId = Port.Id, .Name = Port.Name,
+					.Type = Port.Type, .Constraint = Port.Constraint});
+			for (const auto& Binding : Call->Outputs)
+				if (std::ranges::none_of(View.Outputs, [&](const auto& Pin) { return Pin.PortId == Binding.OutputId; }))
+					View.Outputs.push_back({.PortId = Binding.OutputId, .Name = "Missing output", .Type = Binding.ExpectedType, .bMissing = true});
+		}
+		else if (IsMaterialSamplingNode(Node.Opcode))
+		{
+			for (const auto& Output : GetMaterialSampleOutputs(Node.Opcode))
+				View.Outputs.push_back({.OutputIndex = static_cast<uint8>(Output.Id), .Name = Output.Name, .Type = Output.Type});
+		}
+		else if (Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes)
+		{
+			const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
+			for (uint8 Index = 0; Index < Definitions.size(); ++Index)
+				if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression)->IsSelected(Definitions[Index].Property)) View.Outputs.push_back({.PortId = Definitions[Index].AttributeID,
+					.Name = std::string(Definitions[Index].Name), .Type = Definitions[Index].Semantics.Type});
+		}
+		else if (Node.Opcode != EMaterialProgramOpcode::FunctionOutput)
+			View.Outputs.push_back({.Name = GetProgramTypeName(Node.ResultType), .Type = Node.ResultType});
+		if (const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression); Input && !View.Outputs.empty())
+			View.Outputs.front().Name = Input->Port.Name;
+	}
+
+	auto ProjectMaterialGraph(const DObject* Owner, std::span<const FMaterialGraphCatalogEntry> Catalog,
+		std::optional<std::span<const FGuid>> Nodes) -> FMaterialGraphView
+	{
+		std::vector<FMaterialGraphNodeView> Views;
+		auto Result = ReadMaterialGraph(Owner, Catalog, Nodes, [&](FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source) {
+			if (Metadata.Node.bMaterialOutput) DMaterialGraphNode_Root::BuildInputPins(Metadata, Source);
+			else
+			{
+				DMaterialGraphNode::BuildInputPins(Metadata, Source);
+				DMaterialGraphNode::BuildOutputPins(Metadata, Source);
+			}
+			Views.push_back(std::move(Metadata));
+		});
+		std::ranges::sort(Views, {}, [](const auto& View) { return View.Node.Id; });
+		Result.Nodes = std::move(Views);
+		return Result;
+	}
+}

@@ -31,7 +31,6 @@ namespace Durin::MaterialEditor
 	public:
 		// One immutable document binding for the canvas lifetime; never rebound on tab activation.
 		explicit FMaterialGraphCanvas(DMaterialGraph& Graph, FMaterialGraphEditorServices Services = {});
-		explicit FMaterialGraphCanvas(FMaterialGraphDocument Document, FMaterialGraphEditorServices Services = {});
 		MATERIALEDITOR_API ~FMaterialGraphCanvas();
 		// Release shared clipboard object references before the object system shuts down.
 		static auto ClearSharedClipboard() -> void;
@@ -76,7 +75,6 @@ namespace Durin::MaterialEditor
 		// Returns true for both Succeeded and NoChange.
 		auto CheckCommand(const FMaterialGraphCommandResult& Result) const -> bool;
 		TStrongObjectPtr<DMaterialGraph> EditorGraph;
-		const FMaterialGraphDocument GraphDocument;
 		const FMaterialGraphEditorServices Services;
 		struct FVisualNode;
 		struct FVisualGraph;
@@ -126,8 +124,6 @@ namespace Durin::MaterialEditor
 			int32 Selection = 0;
 			std::array<char, 96> Search{};
 			std::array<char, 96> ParameterFilter{};
-			std::vector<std::string> FunctionPaths;
-			std::vector<FMaterialGraphCreationAction> CollectionParameters;
 		};
 		struct FContextMenuInteraction
 		{

@@ -46,17 +46,16 @@ namespace Durin::MaterialEditor
 			}
 		};
 
-		auto FindExpression(FGraphEditSession& State, FGuid Id) -> DMaterialExpression*
+		auto FindExpression(std::span<const TObjectPtr<DMaterialExpression>> Expressions, FGuid Id) -> DMaterialExpression*
 		{
-			const auto It = std::ranges::find(State.Expressions, Id, [](const auto& Expression) { return Expression->Id; });
-			return It == State.Expressions.end() ? nullptr : It->Get();
+			const auto It = std::ranges::find(Expressions, Id, [](const auto& Expression) { return Expression->Id; });
+			return It == Expressions.end() ? nullptr : It->Get();
 		}
 
-		auto FindInput(FGraphEditSession& State, FGuid NodeId, uint32 Index, FGuid PortId) -> FEditableInput
+		auto FindInput(DMaterialExpression* Expression, uint32 Index, FGuid PortId, FGraphEditSession* Compound = nullptr) -> FEditableInput
 		{
-			auto* Expression = FindExpression(State, NodeId);
 			if (!Expression) return {.Message = "The input owner is unavailable."};
-			State.Modify(*Expression);
+			if (Compound) Compound->Modify(*Expression);
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
 			{
 				if (PortId.IsValid() || (Index != static_cast<uint32>(EMaterialOutputPin::Surface)
@@ -80,6 +79,7 @@ namespace Durin::MaterialEditor
 				auto Input = std::ranges::find(Call->Inputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
 				if (Input == Call->Inputs.end())
 				{
+					check(Compound);
 					Call->Inputs.push_back({PortId, Port->Type});
 					Input = std::prev(Call->Inputs.end());
 				}
@@ -137,31 +137,36 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto FMaterialGraphDocument::SetInputConstantEnabled(const FGuid& NodeId, uint32 InputIndex,
-		bool Enabled, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto GraphEditInternals::SetInputConstantEnabled(DObject* Owner, const FGuid& NodeId, uint32 InputIndex,
+		bool Enabled, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		FGraphEditSession State(*Owner.Get());
-		const auto Input = FindInput(State, NodeId, InputIndex, {});
+		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		auto* Expression = FindExpression(FMaterialExpressionEditing::GetExpressions(*Owner), NodeId);
+		const auto Input = FindInput(Expression, InputIndex, {});
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.Numeric) return RejectCommand("This input has no retained numeric constant.");
 		if (Input.Numeric->UseConstant == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		Input.Numeric->UseConstant = Enabled;
-		return State.Commit(Enabled ? "Enable Input Constant" : "Use Definition Default", Transactions);
+		auto Next = *Input.Numeric;
+		Next.UseConstant = Enabled;
+		FExpressionEdit Edit;
+		Edit.SetNumeric(*Expression, *Input.Numeric, std::move(Next));
+		return Edit.CommitInferred(*Owner, Transactions, Enabled ? "Enable Input Constant" : "Use Definition Default");
 	}
 
-	auto FMaterialGraphDocument::SetInputDefault(const FGuid& NodeId, uint32 InputIndex,
-		FMaterialInputDefault Value, FGuid PortId, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto GraphEditInternals::WriteInputDefault(DObject* Owner, const FGuid& NodeId, uint32 InputIndex,
+		FMaterialInputDefault Value, FGuid PortId, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		FGraphEditSession State(*Owner.Get());
-		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
+		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
+		std::optional<FGraphEditSession> BindingEdit;
+		if (PortId.IsValid()) BindingEdit.emplace(*Owner);
+		auto* Expression = FindExpression(FMaterialExpressionEditing::GetExpressions(*Owner), NodeId);
+		const auto Input = FindInput(Expression, InputIndex, PortId, BindingEdit ? &*BindingEdit : nullptr);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault()) return RejectCommand("This input does not support an inline numeric value.");
 		std::vector<float> Components;
@@ -173,8 +178,23 @@ namespace Durin::MaterialEditor
 		else if (Value.Kind != EMaterialInputDefaultKind::None) return RejectCommand("The input default is not numeric.");
 		if (Input.Numeric && Components.empty() && !Input.Numeric->UseConstant) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (Input.Read() == Components && (!Input.Numeric || Input.Numeric->UseConstant == !Components.empty())) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
-		return State.Commit("Edit Input Default", Transactions);
+		if (BindingEdit)
+		{
+			if (!Input.Write(Components)) return RejectCommand("The input default has an incompatible width.");
+			return BindingEdit->Commit("Edit Input Default", Transactions);
+		}
+		auto Next = *Input.Numeric;
+		if (Input.MaterialOutputs)
+		{
+			auto Outputs = *Input.MaterialOutputs;
+			if (!WriteMaterialOutputDefault(Outputs, Input.OutputPin, Components)) return RejectCommand("The input default has an incompatible width.");
+			Next = *GetMaterialOutputNumericInput(Outputs, Input.OutputPin);
+		}
+		else if (Components.empty()) Next.UseConstant = false;
+		else Next.SetConstant(Components);
+		FExpressionEdit Edit;
+		Edit.SetNumeric(*Expression, *Input.Numeric, std::move(Next));
+		return Edit.CommitInferred(*Owner, Transactions, "Edit Input Default");
 	}
 
 	auto FMaterialGraphDocument::ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
@@ -185,7 +205,7 @@ namespace Durin::MaterialEditor
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
-		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
+		const auto Input = FindInput(FindExpression(State.Expressions, NodeId), InputIndex, PortId, &State);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->ExpressionId.IsValid() || Input.Read().empty())
 			return RejectCommand("Only an unconnected numeric literal can be extracted.");
@@ -210,11 +230,11 @@ namespace Durin::MaterialEditor
 		auto* Transactions = *Admission;
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		FGraphEditSession State(*Owner.Get());
-		const auto Input = FindInput(State, NodeId, InputIndex, PortId);
+		const auto Input = FindInput(FindExpression(State.Expressions, NodeId), InputIndex, PortId, &State);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0 || Input.Source->OutputId.IsValid())
 			return RejectCommand("This source cannot be represented by an inline binding.");
-		const auto Value = ReadConstant(FindExpression(State, Input.Source->ExpressionId));
+		const auto Value = ReadConstant(FindExpression(State.Expressions, Input.Source->ExpressionId));
 		if (Value.empty()) return RejectCommand("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
 		const auto SourceId = Input.Source->ExpressionId;
 		if (!Input.Write(Value)) return RejectCommand("The constant has an incompatible width.");

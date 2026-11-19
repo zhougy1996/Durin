@@ -10,6 +10,8 @@
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "DObject/Property.h"
+#include "DObject/TransactionObjectAnnotation.h"
+#include "DObject/TransactionObjectReference.h"
 
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
@@ -20,6 +22,63 @@
 #if DURIN_WITH_EDITORONLY_DATA
 namespace Durin
 {
+	namespace
+	{
+		// Whole-object replay can restore an Outer. An externally retired expression
+		// must never be reattached to a collection that no longer contains it.
+		class FExpressionMembership final : public ITransactionObjectAnnotation
+		{
+		public:
+			FExpressionMembership(FPersistentObjectRef InOwner, FPersistentObjectRef InExpression)
+				: Owner(std::move(InOwner)), Expression(std::move(InExpression)) {}
+			auto Validate() const -> FTransactionCaptureResult override
+			{
+				auto* Asset = Owner.Resolve();
+				const auto* Node = Cast<DMaterialExpression>(Expression.Resolve());
+				if (!Asset || !Node || Node->GetOuter() != Asset ||
+					!std::ranges::any_of(FMaterialExpressionEditing::GetExpressions(*Asset),
+						[&](const auto& Entry) { return Entry.Get() == Node; }))
+					return std::unexpected("The graph participants changed outside history.");
+				return {};
+			}
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				Owner.AddReferencedObjects(Collector);
+				Expression.AddReferencedObjects(Collector);
+			}
+			auto Serialize(FArchive& Archive) -> void override
+			{
+				for (auto* Ref : {&Owner, &Expression})
+				{
+					auto Key = Ref->GetKey();
+					Key.SerializeForSnapshot(Archive);
+					if (Archive.IsLoading() && !Archive.IsError()) *Ref = FPersistentObjectRef::FromKey(Key);
+				}
+			}
+			auto GetAllocatedSize() const -> size_t override { return sizeof(*this) + Owner.GetAllocatedSize() + Expression.GetAllocatedSize(); }
+			auto CreateReplacement(const FObjectReplacementMap& Map) const
+				-> std::expected<std::shared_ptr<ITransactionObjectAnnotation>, std::string> override
+			{
+				auto Asset = Owner.CreateReplacement(Map);
+				if (!Asset) return std::unexpected(Asset.error());
+				auto Node = Expression.CreateReplacement(Map);
+				if (!Node) return std::unexpected(Node.error());
+				return std::make_shared<FExpressionMembership>(std::move(*Asset), std::move(*Node));
+			}
+		private:
+			FPersistentObjectRef Owner;
+			FPersistentObjectRef Expression;
+		};
+	}
+
+	auto DMaterialExpression::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
+	{
+		auto* Asset = GetOuter();
+		if (!Cast<DMaterial>(Asset) && !Cast<DMaterialFunction>(Asset)) return {};
+		return std::make_shared<FExpressionMembership>(FPersistentObjectRef(Asset),
+			FPersistentObjectRef::FromKey(FObjectKey(this)));
+	}
+
 	auto FMaterialExpressionEditing::GetExpressions(DObject& Owner) -> std::vector<TObjectPtr<DMaterialExpression>>&
 	{
 		check(IsInGameThread());

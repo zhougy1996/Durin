@@ -235,6 +235,34 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(E.Get())) { Modify(*Output); return Output->Outputs; }
 		check(false); std::terminate();
 	}
+	auto ValidateGraphEdit(DObject& Owner, const std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput>& Links) -> FMaterialGraphCommandResult
+	{
+		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(Owner);
+		const auto Validation = FMaterialExpressionEditing::ValidateStorage(Owner);
+		if (!Validation) return RejectCommand("The expression storage is invalid.", Validation.Diagnostics);
+		std::unordered_set<FGuid> Ids;
+		for (auto& E : Expressions) Ids.insert(E->Id);
+		bool bMissingSource = false;
+		for (auto& E : Expressions) VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
+			const auto It = Links.find(&Input);
+			const auto& Link = It == Links.end() ? Input : It->second;
+			bMissingSource |= Link.ExpressionId.IsValid() && !Ids.contains(Link.ExpressionId);
+		});
+		if (bMissingSource) return RejectCommand("A connection refers to a missing expression.", {{.Message = "Expression input is disconnected or refers to a missing expression."}});
+		if (Cast<DMaterialFunction>(&Owner))
+		{
+			std::vector<DMaterialFunctionInterface*> Roots;
+			for (auto& E : Expressions) if (auto* Call = Cast<DMaterialExpressionFunctionCall>(E.Get())) Roots.push_back(Call->Function.Get());
+			std::vector<FMaterialFunctionOwnerStamp> Closure;
+			if (std::ranges::any_of(Roots, [&](auto* Root) { return Root == &Owner; }))
+				return RejectCommand("This edit would introduce recursive function dependencies.");
+			const auto Dependencies = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
+			if (!Dependencies) return RejectCommand("The function dependencies are invalid.", Dependencies.Diagnostics);
+			if (std::ranges::any_of(Closure, [&](const auto& D) { return D.AssetPath == Owner.GetObjectPath(); }))
+				return RejectCommand("This edit would introduce recursive function dependencies.");
+		}
+		return {};
+	}
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
@@ -242,27 +270,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)
 		{
-			const auto Validation = FMaterialExpressionEditing::ValidateStorage(Impl->Owner);
-			if (!Validation) return RejectCommand("The expression storage is invalid.", Validation.Diagnostics);
-			std::unordered_set<FGuid> Ids;
-			for (auto& E : Expressions) Ids.insert(E->Id);
-			bool bMissingSource = false;
-			for (auto& E : Expressions) VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
-				bMissingSource |= Input.ExpressionId.IsValid() && !Ids.contains(Input.ExpressionId);
-			});
-			if (bMissingSource) return RejectCommand("A connection refers to a missing expression.", {{.Message = "Expression input is disconnected or refers to a missing expression."}});
-			if (bFunction)
-			{
-				std::vector<DMaterialFunctionInterface*> Roots;
-				for (auto& E : Expressions) if (auto* Call = Cast<DMaterialExpressionFunctionCall>(E.Get())) Roots.push_back(Call->Function.Get());
-				std::vector<FMaterialFunctionOwnerStamp> Closure;
-				if (std::ranges::any_of(Roots, [&](auto* Root) { return Root == &Impl->Owner; }))
-					return RejectCommand("This edit would introduce recursive function dependencies.");
-				const auto Dependencies = ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing);
-				if (!Dependencies) return RejectCommand("The function dependencies are invalid.", Dependencies.Diagnostics);
-				if (std::ranges::any_of(Closure, [&](const auto& D) { return D.AssetPath == Impl->Owner.GetObjectPath(); }))
-					return RejectCommand("This edit would introduce recursive function dependencies.");
-			}
+			if (auto Valid = ValidateGraphEdit(Impl->Owner); !Valid) return Valid;
 			// Type inference is best effort. Incompatible widths remain compiler diagnostics.
 			std::unordered_set<FGuid> TypeChanges, ChangedOutputs;
 			for (auto& M : Impl->Members)

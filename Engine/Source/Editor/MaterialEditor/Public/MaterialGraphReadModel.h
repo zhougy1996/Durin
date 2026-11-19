@@ -8,7 +8,7 @@
 namespace Durin::MaterialEditor
 {
 	// One document's event-driven inspection cache, shared by canvas and Details.
-	// Subscriptions hold weak owners; callbacks only accumulate invalidations.
+	// The graph publishes synchronized changes; each reader coalesces its own invalidations.
 	class FMaterialGraphReadModel
 	{
 	public:
@@ -16,20 +16,12 @@ namespace Durin::MaterialEditor
 		explicit FMaterialGraphReadModel(DMaterialGraph* Graph = nullptr) : BoundGraph(Graph) {}
 		FMaterialGraphReadModel(const FMaterialGraphReadModel&) = delete;
 		auto operator=(const FMaterialGraphReadModel&) -> FMaterialGraphReadModel& = delete;
-		MATERIALEDITOR_API auto Refresh(DObject& Owner, std::span<const FMaterialGraphCatalogEntry> Catalog)
+		MATERIALEDITOR_API auto Refresh(DObject& Owner)
 			-> FMaterialGraphChangeSet;
 		auto GetView() const -> const FMaterialGraphView& { return View; }
 	private:
-		struct FSubscription
-		{
-			TWeakObjectPtr<DObject> Owner;
-			FDelegateHandle Handle;
-		};
-		auto UnsubscribeDependencies() -> void;
-		auto ObserveDependencies(DObject& Owner) -> void;
 		TStrongObjectPtr<DMaterialGraph> BoundGraph;
-		FSubscription Document;
-		std::vector<FSubscription> Dependencies;
+		FDelegateHandle Handle;
 		FMaterialGraphChangeSet Pending;
 		FMaterialGraphView View;
 	};

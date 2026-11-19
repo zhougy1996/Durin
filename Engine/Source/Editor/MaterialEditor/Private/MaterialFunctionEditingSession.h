@@ -34,6 +34,7 @@ namespace Durin::MaterialEditor
 		bool bOutputPort = false;
 		FGuid EditingPort;
 		FGuid SelectedPortNode;
+		FMaterialFunctionPort PortBaseline;
 		FMaterialFunctionPort PortDraft;
 		std::array<char, 129> PortName{};
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;

@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphCatalog.h"
 #include "Graph/MaterialGraphEditSession.h"
 #include "MaterialGraphDocument.h"
 #include "MaterialGraph.h"
@@ -76,7 +77,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	const auto Call = MaterialDocument.InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
 	const auto ResultLink = FMaterialProgramLink{Call.GeneratedNodeIds.front(), 0, Port.Id};
-	ASSERT_TRUE(MaterialDocument.Connect(FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(MaterialDocument.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
 		EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output(ResultLink), true, ETransactionMode::NotTransactable));
 	DMaterialExpressionFunctionCall* Expression = nullptr;
 	for (const auto& Entry : Source->GetExpressionCollection().Expressions)
@@ -96,7 +97,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 		{
 			ASSERT_TRUE(Graph);
 			auto* Owner = Graph->GetMaterialOrFunction();
-			const auto Expected = FMaterialGraphDocument(*Owner).Inspect();
+			const auto Expected = ProjectMaterialGraph(&*Owner);
 			const auto History = Transactions.Get()->GetUndoCount();
 			for (int Pass = 0; Pass < 2; ++Pass)
 			{
@@ -144,6 +145,115 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	CollectGarbage(EObjectFlags::Standalone);
 	EXPECT_FALSE(RetiredGraph.IsValid());
 	EXPECT_FALSE(RetiredNode.IsValid());
+}
+
+TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndRetainsMaterialRootBinding)
+{
+	Tests::FTestEditorTransactorOwner Transactions;
+	const auto Mode = ETransactionMode::NotTransactable;
+	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, "PinReconstruction"));
+	FMaterialGraphDocument Function(*Callee);
+	FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Value"};
+	FMaterialFunctionPort InputPort{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Amount"};
+	InputPort.bRequired = true;
+	const auto SourceTerminal = Function.AddPort(false, InputPort, {}, 0, 0, Mode);
+	ASSERT_TRUE(SourceTerminal);
+	const FMaterialProgramLink InternalLink{SourceTerminal.GeneratedNodeIds.at(0)};
+	const auto Terminal = Function.AddPort(true, Port, InternalLink, 0, 0, Mode);
+	ASSERT_TRUE(Terminal);
+	ASSERT_EQ(Terminal.GeneratedNodeIds.size(), 1u);
+
+	Edit(*Source, 0.375f);
+	FMaterialGraphDocument Caller(*Source);
+	const auto Constant = Testing::CreateGraphConstant(Caller, 0.5f);
+	ASSERT_TRUE(Constant);
+	const FMaterialProgramLink CallerSource{Constant.GeneratedNodeIds.at(0)};
+	const std::array Bindings{FMaterialFunctionInputBinding{InputPort.Id, InputPort.Type, CallerSource}};
+	const auto Call = Caller.InsertFunctionCall(*Callee, 0, 0, Bindings, Mode);
+	ASSERT_TRUE(Call);
+	ASSERT_EQ(Call.GeneratedNodeIds.size(), 1u);
+	TStrongObjectPtr<DMaterialGraph> MaterialGraph(DMaterialGraph::Create(*Source));
+	TStrongObjectPtr<DMaterialGraph> FunctionGraph(DMaterialGraph::Create(*Callee));
+	const FMaterialProgramLink Link{Call.GeneratedNodeIds.front(), 0, Port.Id};
+	const auto RootAddress = FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
+	ASSERT_TRUE(MaterialGraph->GetSchema().TryCreateConnection(*MaterialGraph, FMaterialGraphPinAddress::Output(Link), RootAddress, true, Mode));
+
+	auto* CallNode = MaterialGraph->FindNode(Link.SourceNodeId);
+	auto* OutputNode = FunctionGraph->FindNode(Terminal.GeneratedNodeIds.front());
+	auto* Root = MaterialGraph->FindNode(RootAddress.NodeId);
+	ASSERT_TRUE(CallNode && OutputNode && Root);
+	Port.Name = "Renamed";
+	const auto InputAddress = FMaterialGraphPinAddress::Input(Link.SourceNodeId, 0, InputPort.Id);
+	auto* InputNode = FunctionGraph->FindNode(InternalLink.SourceNodeId);
+	ASSERT_TRUE(InputNode);
+	const auto CheckBindings = [&](std::string_view InputName, std::string_view OutputName) {
+		const auto Signature = Callee->GetFunctionSignature();
+		const auto In = std::ranges::find(Signature.Inputs, InputPort.Id, &FMaterialFunctionPort::Id);
+		const auto Out = std::ranges::find(Signature.Outputs, Port.Id, &FMaterialFunctionPort::Id);
+		ASSERT_NE(In, Signature.Inputs.end());
+		ASSERT_NE(Out, Signature.Outputs.end());
+		EXPECT_EQ(InputNode->GetMaterialExpression()->GetEditableName(), InputName);
+		EXPECT_EQ(OutputNode->GetMaterialExpression()->GetEditableName(), OutputName);
+		EXPECT_EQ(In->Name, InputName);
+		EXPECT_EQ(Out->Name, OutputName);
+		const auto* CallInput = MaterialGraph->FindInputPin(InputAddress);
+		const auto* CallOutput = MaterialGraph->FindOutputPin(Link);
+		const auto* RootInput = MaterialGraph->FindInputPin(RootAddress);
+		ASSERT_TRUE(CallInput && CallOutput && RootInput);
+		EXPECT_EQ(CallInput->Name, InputName);
+		EXPECT_EQ(CallInput->Link, CallerSource);
+		EXPECT_EQ(CallOutput->Name, OutputName);
+		EXPECT_EQ(RootInput->Link, Link);
+		ASSERT_EQ(OutputNode->GetView().Inputs.size(), 1u);
+		EXPECT_EQ(OutputNode->GetView().Inputs.front().Link, InternalLink);
+	};
+	ASSERT_TRUE(InputNode->GetMaterialExpression()->CanRenameNode());
+	ASSERT_TRUE(OutputNode->GetMaterialExpression()->CanRenameNode());
+	EXPECT_FALSE(CallNode->GetMaterialExpression()->CanRenameNode());
+	const auto BeforeRename = Transactions->GetQueueLength();
+	EXPECT_FALSE(CallNode->OnRenameNode("Unsupported"));
+	EXPECT_FALSE(OutputNode->OnRenameNode(""));
+	EXPECT_EQ(InputNode->OnRenameNode("Amount").Status, EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(Transactions->GetQueueLength(), BeforeRename);
+	ASSERT_TRUE(InputNode->OnRenameNode("Factor"));
+	ASSERT_TRUE(OutputNode->OnRenameNode(Port.Name));
+	EXPECT_EQ(Transactions->GetQueueLength(), BeforeRename + 2);
+	CheckBindings("Factor", "Renamed");
+	ASSERT_TRUE(Transactions->Undo());
+	CheckBindings("Factor", "Value");
+	ASSERT_TRUE(Transactions->Undo());
+	CheckBindings("Amount", "Value");
+	ASSERT_TRUE(Transactions->Redo());
+	CheckBindings("Factor", "Value");
+	ASSERT_TRUE(Transactions->Redo());
+	CheckBindings("Factor", "Renamed");
+	Package->ClearDirty();
+	const auto History = Transactions.Get()->GetQueueLength();
+	for (int Pass = 0; Pass < 2; ++Pass)
+	{
+		OutputNode->ReconstructNode();
+		CallNode->ReconstructNode();
+		Root->AllocateDefaultPins();
+		ASSERT_EQ(OutputNode->GetView().Inputs.size(), 1u);
+		EXPECT_EQ(OutputNode->GetView().Inputs.front().Name, Port.Name);
+		ASSERT_EQ(CallNode->GetView().Outputs.size(), Callee->GetFunctionSignature().Outputs.size());
+		const auto* Output = MaterialGraph->FindOutputPin(Link);
+		ASSERT_TRUE(Output);
+		EXPECT_EQ(Output->Name, Port.Name);
+		const auto* Input = MaterialGraph->FindInputPin(RootAddress);
+		ASSERT_TRUE(Input);
+		EXPECT_EQ(Input->Link, Link);
+		EXPECT_FLOAT_EQ(Input->RetainedConstant.Literal.X, 0.375f);
+		EXPECT_TRUE(Root->GetView().Outputs.empty());
+	}
+	Port.Type = EMaterialProgramValueType::Float3;
+	ASSERT_TRUE(OutputNode->SetFunctionPort(Port, Mode));
+	ASSERT_TRUE(MaterialGraph->FindOutputPin(Link));
+	EXPECT_EQ(MaterialGraph->FindOutputPin(Link)->Type, Port.Type);
+	ASSERT_TRUE(MaterialGraph->FindInputPin(RootAddress));
+	EXPECT_EQ(MaterialGraph->FindInputPin(RootAddress)->SourceType, Port.Type);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Transactions.Get()->GetQueueLength(), History);
 }
 
 TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossApplyDiscardAndCollection)
@@ -363,10 +473,9 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 			Transactions.Get())) << Error;
 		auto* Draft = Session.GetWorkingMaterial();
 		RetiredDraft = Draft;
-		FMaterialGraphSurfaceDefaultRequest Request;
-		Request.Output = EMaterialProperty::MP_Roughness;
-		Request.Value.X = 0.21f;
-		ASSERT_TRUE(FMaterialGraphDocument(*Draft).SetSurfaceDefault(Request));
+		const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Draft->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
+		ASSERT_TRUE(Session.Graph->FindNode(Pin.NodeId)->PinDefaultValueChanged(Pin,
+			{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = 0.21f}}));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_FALSE(Session.HasUnappliedChanges());
