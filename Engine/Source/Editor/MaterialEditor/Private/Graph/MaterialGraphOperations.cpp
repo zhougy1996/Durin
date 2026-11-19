@@ -245,13 +245,14 @@ namespace Durin::MaterialEditor
 		if (bMask)
 		{
 			auto Mask = MakeParameterMask(*Parameter.Get(), Width, NodeId);
-			*It = Mask.Get(); State.Expressions.emplace_back(Parameter.Get());
+			State.ReplaceExpression(*It, *Mask);
+			State.Expressions.emplace_back(Parameter.Get());
 			const auto OldPosition = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 			const int32 X = OldPosition == State.Presentation.Nodes.end() ? -260 : OldPosition->X - 260;
 			const int32 Y = OldPosition == State.Presentation.Nodes.end() ? 0 : OldPosition->Y;
 			State.Presentation.Nodes.push_back({Parameter->Id, X, Y});
 		}
-		else *It = Parameter.Get();
+		else State.ReplaceExpression(*It, *Parameter);
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position != State.Presentation.Nodes.end()) Position->DisplayName = Definition.DisplayName;
 		else State.Presentation.Nodes.push_back({.NodeId = NodeId, .DisplayName = Definition.DisplayName});

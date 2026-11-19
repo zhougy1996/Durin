@@ -59,11 +59,19 @@ namespace Durin::MaterialEditor
 		{
 			if (!AllowsAction(Action)) return false;
 			if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Action.Payload))
-				return !Source || (!Entry->AcceptedInputTypes.empty() && Accepts(Entry->AcceptedInputTypes.front(), *Source));
+			{
+				if (!Source) return true;
+				if (Entry->AcceptedInputTypes.empty()) return false;
+				if (Accepts(Entry->AcceptedInputTypes.front(), *Source)) return true;
+				if (!IsMaterialAdaptiveNumeric(Entry->Opcode)) return false;
+				const auto Inferred = GetMaterialProgramNodeSignature(Entry->Opcode, *Source);
+				return Inferred && Inferred->InputCount && Accepts(Inferred->Inputs[0], *Source);
+			}
 			if (const auto* Port = std::get_if<FMaterialGraphPortCreation>(&Action.Payload))
 				return HasFunctionPorts() && Port->Type <= EMaterialProgramValueType::MaterialAttributes
 					&& (!Source || (Port->bOutput && AcceptsPort(Port->Type, *Source)));
-			return true; // Function signatures are resolved by the document.
+			if (std::holds_alternative<FMaterialGraphCollectionParameterCreation>(Action.Payload)) return !Source;
+			return true; // Function calls use the signature of the loaded asset.
 		}
 		static auto Accepts(std::span<const EMaterialProgramValueType> Types, EMaterialProgramValueType Source) -> bool
 		{

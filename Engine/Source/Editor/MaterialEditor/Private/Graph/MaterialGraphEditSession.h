@@ -25,6 +25,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FGraphEditSession(const FGraphEditSession&) = delete;
 		FGraphEditSession(FGraphEditSession&&) = delete;
 		auto Modify(DMaterialExpression& Expression) -> void;
+		auto ReplaceExpression(TObjectPtr<DMaterialExpression>& Slot, DMaterialExpression& Replacement) -> void;
 		auto Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> FMaterialGraphCommandResult;
 		auto GetOutputs() -> FMaterialAttributeRoot&;
 		auto Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult;

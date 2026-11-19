@@ -145,12 +145,6 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
 			std::optional<FMaterialGraphPinAddress> Source = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 	};
-	struct FMaterialGraphCreationRequest
-	{
-		FMaterialGraphCreationAction Action;
-		int32 X = 0, Y = 0;
-		std::optional<FMaterialGraphPinAddress> Source;
-	};
 	MATERIALEDITOR_API auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto MakeCollectionParameterCreationAction(

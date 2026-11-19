@@ -1,3 +1,4 @@
+#include "MaterialGraph.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -65,8 +66,8 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "PreviewParent"));
 	TStrongObjectPtr<DMaterialFunction> Root(NewObject<DMaterialFunction>(nullptr, "PreviewRoot"));
 	TStrongObjectPtr<DMaterialFunction> Other(NewObject<DMaterialFunction>(nullptr, "PreviewOther"));
-	ASSERT_TRUE(FMaterialGraphDocument(*Wrapper).InsertFunctionCall(*Leaf, 0, 100, Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphDocument(*Root).InsertFunctionCall(*Wrapper, 0, 100, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(DMaterialGraph::Create(*Wrapper)->InsertFunctionCall(*Leaf, 0, 100, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(DMaterialGraph::Create(*Root)->InsertFunctionCall(*Wrapper, 0, 100, Durin::ETransactionMode::NotTransactable));
 	FMaterialFunctionPreviewInvalidation First, Second;
 	First.SetFunction(Root.Get());
 	Second.SetFunction(Root.Get());

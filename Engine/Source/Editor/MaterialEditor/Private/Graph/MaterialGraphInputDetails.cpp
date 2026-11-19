@@ -149,7 +149,6 @@ namespace Durin::MaterialEditor
 		auto& Owner = *EditorGraph->GetMaterialOrFunction();
 		const auto Selection = GetSelectedProgramNodes();
 		if (Selection.size() != 1) return;
-		const auto& Document = EditorGraph->GetCommands();
 		const FMaterialExpressionCollection* Collection = nullptr;
 		if (const auto* Material = Cast<DMaterial>(&Owner)) Collection = &Material->GetExpressionCollection();
 		if (const auto* Function = Cast<DMaterialFunction>(&Owner)) Collection = &Function->GetExpressionCollection();
@@ -221,9 +220,9 @@ namespace Durin::MaterialEditor
 					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
 					if (!Copy) { ReportError("Unable to copy the parameter expression."); return; }
 					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(Applied.error()); return; }
-					Submit(Document.ReplaceExpression(*Copy.Get()));
+					Submit(EditorGraph->ReplaceExpression(*Copy.Get()));
 				}
-				else Submit(Document.ReplaceExpression(*Replacement.Get()));
+				else Submit(EditorGraph->ReplaceExpression(*Replacement.Get()));
 			};
 			std::string Name = Parameter.Name.ToString();
 			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
@@ -288,7 +287,7 @@ namespace Durin::MaterialEditor
 			using ExpressionType = std::remove_cv_t<std::remove_pointer_t<decltype(Sample)>>;
 			TStrongObjectPtr<ExpressionType> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
 			Copy->ReadMode = static_cast<EMaterialTextureReadMode>(Mode);
-			Submit(Document.ReplaceExpression(*Copy));
+			Submit(EditorGraph->ReplaceExpression(*Copy));
 		};
 		EditSamplingMode(Cast<DMaterialExpressionTextureSampleCube>(Expression.Get()));
 		EditSamplingMode(Cast<DMaterialExpressionTextureSampleParameterCube>(Expression.Get()));
@@ -306,7 +305,7 @@ namespace Durin::MaterialEditor
 			{
 				TStrongObjectPtr<DMaterialExpressionSceneTexture> Copy(DuplicateObject(Scene, nullptr, NAME_None).value());
 				Copy->SceneTextureId = static_cast<EMaterialSceneTextureId>(Id); Copy->bFiltered = Filtered;
-				Submit(Document.ReplaceExpression(*Copy));
+				Submit(EditorGraph->ReplaceExpression(*Copy));
 			}
 		}
 		if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression.Get()); Swizzle && !Changed)

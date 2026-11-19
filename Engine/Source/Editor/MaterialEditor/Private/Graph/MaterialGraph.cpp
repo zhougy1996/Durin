@@ -253,14 +253,6 @@ namespace Durin::MaterialEditor
 		return GraphEditInternals::RemoveGraphNodes(GetMaterialOrFunction(), NodeIds, Mode);
 	}
 
-	auto FMaterialGraphCreationAction::PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
-		std::optional<FMaterialGraphPinAddress> Source, ETransactionMode Mode) const -> FMaterialGraphCommandResult
-	{
-		if (!Graph.GetMaterialOrFunction())
-			return GraphEditInternals::RejectCommand("The graph owner is unavailable.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		return Graph.GetCommands().Create({*this, X, Y, Source}, Mode);
-	}
-
 	namespace
 	{
 		auto PinGraph(const FMaterialGraphPin* Pin) -> DMaterialGraph*

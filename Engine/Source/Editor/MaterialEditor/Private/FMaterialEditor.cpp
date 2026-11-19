@@ -661,7 +661,7 @@ namespace Durin::MaterialEditor
 						bSubmitted = true;
 						return;
 					}
-					Submit(EditingSession->Graph->GetCommands().ReplaceExpression(*Candidate));
+					Submit(EditingSession->Graph->ReplaceExpression(*Candidate));
 				};
 				if (MonaImGui::PropertyEdit::BeginTable("ParameterMetadata", DetailsStyle::MakeTableConfig()))
 				{

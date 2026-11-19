@@ -88,11 +88,10 @@ Missing expression references, invalid source pins selected by a connection comm
 and recursive function dependencies are rejected. Apply and package validation
 retain their strict graph-validation boundary.
 
-`FMaterialGraphDocument` is the shared owning-thread command boundary for both
-owners. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
+`DMaterialGraph` owns structural edits for both material and material-function graphs. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
-The graph owns clipboard commands and supplies a lightweight command object with the same weak owner and schema for asset commands. The public command object has no raw connect or disconnect entry points.
+The graph owns clipboard commands and supplies a lightweight command object with the same weak owner for asset commands. The public command object has no raw connect or disconnect entry points.
 New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Detached inspection uses the same node pin builders and allocates no editor objects. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
@@ -267,8 +266,7 @@ is explicit; normal Save/Apply continues to use the document lifecycle above.
 
 ## Inspection and commands
 
-`FMaterialGraphDocument` is the UI-independent command owner shared by the canvas,
-tests, and structured callers. Inspection returns detached deterministic node,
+The canvas, tests, and structured callers share the graph creation and replacement commands. Inspection returns detached deterministic node,
 pin, surface-output, presentation, and closed-domain catalog values by reading
 the typed expression collection directly. A node descriptor retains identity and
 type metadata plus one display payload: constant value, parameter identity, local
@@ -367,13 +365,12 @@ link through drag, reconnection, Surface assignment and node creation.
 Callee interface notifications refresh the cached inspection, including interface-only
 renames. Surface attribute reconnection uses the canvas schema rules.
 
-Interactive creation invokes `FMaterialGraphCreationAction::PerformAction` on the session graph. The action submits a creation request to the editor commands.
+Interactive creation invokes `FMaterialGraphCreationAction::PerformAction` on the session graph. The action resolves the live output pin and applies the schema creation rules before the graph adds expressions and their connections.
 Its action has a stable ID, display/search metadata, graph applicability, and a
 catalog shape, function asset path, or typed terminal payload. `CanCreate` and
-`Create` share input compatibility; function insertion selects the first compatible
+`PerformAction` share input compatibility; function insertion selects the first compatible
 signature input, including scalar broadcast. Creation and its optional source link
-publish once and occupy one undo entry. The document revalidates source identity
-and live function inputs before mutation.
+publish once and occupy one undo entry. Function calls use the current asset signature and asset-level dependency validation before publication.
 
 `FMaterialGraphPinAddress` identifies fixed inputs/outputs, function GUID ports,
 material attribute overrides and aggregate Surface inputs. The graph resolves these
@@ -725,8 +722,7 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 `DMaterialGraph` owns copy, cut, paste and duplicate for material and function
 drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
 it at the requested offset in one history step. `FMaterialGraphDocument` still
-owns creation and replacement, function ports and calls, material configuration,
-parameter and Surface commands. Catalog lookup and search belong
+owns material configuration, parameter and Surface commands. Catalog lookup and search belong
 to private Material Editor code. `MoveMaterialOutput` resolves the material
 output terminal and uses the same position transaction as `MoveNodes`.
 `DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows

@@ -40,14 +40,22 @@ namespace Durin::Testing
 		Expression->Id = Id;
 		return Expression;
 	}
-	inline auto CreateGraphConstant(const MaterialEditor::FMaterialGraphDocument& Document, float Value = 0.f,
+	inline auto CreateGraphConstant(MaterialEditor::DMaterialGraph& Graph, float Value = 0.f,
 		int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable) -> MaterialEditor::FMaterialGraphCommandResult
 	{
 		auto Constant = MakeGraphExpression<DMaterialExpressionScalarConstant>();
 		Constant->Value = Value;
-		return Document.CreateExpression(*Constant.Get(), X, Y, Mode);
+		return Graph.CreateExpression(*Constant.Get(), X, Y, Mode);
 	}
-	inline auto CreateGraphCatalogNode(const MaterialEditor::FMaterialGraphDocument& Document,
+	inline auto CreateGraphCatalogNode(MaterialEditor::DMaterialGraph& Graph, const MaterialEditor::FMaterialGraphCatalogEntry& Entry,
+		int32 X, int32 Y, FMaterialProgramLink Input, ETransactionMode Mode = ETransactionMode::Record)
+		-> MaterialEditor::FMaterialGraphCommandResult
+	{
+		std::optional<MaterialEditor::FMaterialGraphPinAddress> Source;
+		if (Input.SourceNodeId.IsValid()) Source = MaterialEditor::FMaterialGraphPinAddress::Output(Input);
+		return MakeCreationAction(Entry).PerformAction(Graph, X, Y, Source, Mode);
+	}
+	inline auto CreateGraphCatalogNode(MaterialEditor::DMaterialGraph& Graph,
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type = EMaterialProgramValueType::Float,
 		FMaterialProgramLink Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
 		-> MaterialEditor::FMaterialGraphCommandResult
@@ -56,6 +64,6 @@ namespace Durin::Testing
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Value) { return Value.Opcode == Opcode && Value.ResultType == Type; });
 		if (Entry == Catalog.end()) return {.Status = MaterialEditor::EMaterialGraphCommandStatus::Rejected,
 			.Message = "The catalog expression shape is stale."};
-		return Document.CreateCatalogNode(*Entry, X, Y, Input, Mode);
+		return CreateGraphCatalogNode(Graph, *Entry, X, Y, Input, Mode);
 	}
 }

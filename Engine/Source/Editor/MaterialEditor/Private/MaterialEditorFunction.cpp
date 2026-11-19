@@ -219,8 +219,7 @@ namespace Durin::MaterialEditor
 				[&](const auto& Input) { return Input.Name == Port.Name; }); ++Suffix)
 				Port.Name = std::format("Input{}", Suffix);
 			Port.Default.Kind = EMaterialFunctionDefaultKind::Numeric;
-			const auto& Graph = Document.Graph->GetCommands();
-			const auto Result = Graph.AddPort(false, Port, {}, 0, static_cast<int32>(Signature.Inputs.size()) * 120);
+			const auto Result = Document.Graph->AddPort(false, Port, {}, 0, static_cast<int32>(Signature.Inputs.size()) * 120);
 			if (!Result) ErrorMessage = FormatMaterialGraphCommandResult(Result);
 			else if (!Result.GeneratedNodeIds.empty()) Document.Canvas->SelectAndFrame(Result.GeneratedNodeIds.front());
 		}
@@ -243,7 +242,6 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::DrawInterface(FMaterialFunctionEditingSession& Document) -> void
 	{
 		auto& Function = *Document.Function();
-		const auto& Graph = Document.Graph->GetCommands();
 		const auto Apply = [&](FMaterialGraphCommandResult Result) { if (!Result) ErrorMessage = FormatMaterialGraphCommandResult(Result); };
 		if (Document.Canvas->GetSelection().size() != 1)
 		{
@@ -347,7 +345,7 @@ namespace Durin::MaterialEditor
 		if (Document.EditingPort.IsValid())
 		{
 			ImGui::SameLine();
-			if (ImGui::Button("Remove Port")) Apply(Graph.RemovePort(Document.bOutputPort, Document.EditingPort));
+			if (ImGui::Button("Remove Port")) Apply(Document.Graph->RemovePort(Document.bOutputPort, Document.EditingPort));
 		}
 	}
 

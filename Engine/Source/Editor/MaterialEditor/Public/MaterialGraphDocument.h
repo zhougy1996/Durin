@@ -19,28 +19,9 @@ namespace Durin::MaterialEditor
 		// Owner must be a DMaterial or DMaterialFunction; instances do not own graphs.
 		MATERIALEDITOR_API explicit FMaterialGraphDocument(DObject& Owner);
 		auto GetOwner() const -> DObject* { return Owner.Get(); }
-		auto GetSchema() const -> const FMaterialGraphSchema& { return Schema; }
-		MATERIALEDITOR_API auto Create(const FMaterialGraphCreationRequest& Request,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto AddPort(bool bOutput, FMaterialFunctionPort Port,
-			FMaterialProgramLink Source = {}, int32 X = 0, int32 Y = 0,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto RemovePort(bool bOutput, const FGuid& PortId,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X = 0, int32 Y = 0,
-			FMaterialProgramLink Source = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CreateExpression(const DMaterialExpression& Expression, int32 X = 0, int32 Y = 0,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto ReplaceExpression(const DMaterialExpression& Expression,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetConfiguration(const FMaterialConfiguration& Configuration,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetUseMaterialAttributes(bool bEnabled, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
-			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
-			int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 
 		// Creates a node; an existing name reuses its compatible parameter definition.
 		MATERIALEDITOR_API auto CreateParameter(
@@ -73,9 +54,7 @@ namespace Durin::MaterialEditor
 
 	private:
 		friend class DMaterialGraph;
-		FMaterialGraphDocument(TWeakObjectPtr<DObject> InOwner, const FMaterialGraphSchema& InSchema)
-			: Owner(InOwner), Schema(InSchema) {}
+		explicit FMaterialGraphDocument(TWeakObjectPtr<DObject> InOwner) : Owner(InOwner) {}
 		TWeakObjectPtr<DObject> Owner;
-		const FMaterialGraphSchema& Schema;
 	};
 }

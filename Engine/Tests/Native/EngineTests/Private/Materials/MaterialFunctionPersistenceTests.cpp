@@ -27,7 +27,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	DMaterialFunction* Second = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
-	ASSERT_TRUE(FMaterialGraphDocument(*Second).InsertFunctionCall(*First, 0, 300, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(DMaterialGraph::Create(*Second)->InsertFunctionCall(*First, 0, 300, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(SavePackage(First->GetPackage()));
 	ASSERT_TRUE(SavePackage(Second->GetPackage()));
 	FMaterialEditorModule Module;
@@ -279,7 +279,7 @@ TEST_F(FMaterialFunctionDocumentTests, ApplyRejectsProspectiveSourceRecursionWit
 {
 	const auto Initial = Source->GetFunctionSignature().Outputs.front().Name;
 	ASSERT_TRUE(Rename(*Document().Function(), "Recursive draft"));
-	ASSERT_TRUE(FMaterialGraphDocument(*Document().Function()).InsertFunctionCall(*Source, 0, 100, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Document().Graph->InsertFunctionCall(*Source, 0, 100, ETransactionMode::NotTransactable));
 	std::string Error;
 	EXPECT_FALSE(Document().Publish(Error));
 	EXPECT_NE(Error.find("non-recursive"), std::string::npos);

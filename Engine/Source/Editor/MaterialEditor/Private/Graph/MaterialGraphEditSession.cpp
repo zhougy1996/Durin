@@ -263,28 +263,23 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		}
 		return {};
 	}
+	auto FGraphEditSession::ReplaceExpression(TObjectPtr<DMaterialExpression>& Slot, DMaterialExpression& Replacement) -> void
+	{
+		auto* Previous = Slot.Get();
+		Slot = &Replacement;
+		for (const auto& Node : Expressions)
+			VisitStoredMaterialInputs(*Node, [&](FMaterialExpressionInput& Input) {
+				if (Input.Expression.Get() != Previous) return;
+				Modify(*Node);
+				if (const auto NamedOutput = Input.GetOutputId(); NamedOutput.IsValid())
+					Input = FMaterialExpressionInput(&Replacement, 0, NamedOutput);
+				else Input.Expression = &Replacement;
+			});
+	}
+
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
-		// Replacements retain the node identity. Record each consumer before rebinding it.
-		std::unordered_map<FGuid, DMaterialExpression*> Replacements;
-		for (const auto& Node : Expressions)
-			if (!Impl->OriginalObjects.contains(Node.Get())) Replacements.emplace(Node->Id, Node.Get());
-		if (!Replacements.empty())
-			for (const auto& Node : Expressions)
-				VisitStoredMaterialInputs(*Node, [&](FMaterialExpressionInput& Input) {
-					if (!Impl->OriginalObjects.contains(Input.Expression.Get())) return;
-					const auto It = Replacements.find(Input.GetExpressionId());
-					if (It != Replacements.end())
-					{
-						const FGuid NamedOutput = Input.GetOutputId();
-						Modify(*Node);
-						if (NamedOutput.IsValid())
-							Input = FMaterialExpressionInput{It->second, 0, NamedOutput};
-						else
-							Input.Connect(Input.OutputIndex, It->second);
-					}
-				});
 		const bool bGraphWritten = !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)

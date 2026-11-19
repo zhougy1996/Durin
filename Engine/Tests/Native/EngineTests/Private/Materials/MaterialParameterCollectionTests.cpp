@@ -1,3 +1,4 @@
+#include "MaterialGraph.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "NativeRHIBackendTestSupport.h"
 #include "Materials/MaterialExpression.h"
@@ -417,11 +418,9 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	ASSERT_TRUE(SavePackage(Collection->GetPackage()));
 	auto* AuthoringMaterial = NewObject<DMaterial>(nullptr,
 		"CollectionGraphAuthoring");
-	FMaterialGraphCreationRequest Request{
-		.Action = MakeCollectionParameterCreationAction(
-			Collection->GetObjectPath(), Tint.Id, "Tint"),
-		.X = 120, .Y = 80};
-	const auto Created = FMaterialGraphDocument(*AuthoringMaterial).Create(Request, Durin::ETransactionMode::NotTransactable);
+	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*AuthoringMaterial));
+	const auto Action = MakeCollectionParameterCreationAction(Collection->GetObjectPath(), Tint.Id, "Tint");
+	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 80, {}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const auto Authored = std::ranges::find_if(
