@@ -78,7 +78,7 @@ namespace Durin
     auto FSceneRenderingService::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
-        if (GDynamicRHI) Retirement.Collect(GDynamicRHI->RHIGetQueueCapabilities());
+        Retirement.Collect();
 		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection, EPSOPrecacheCollectionPhase Phase) {
 			// Admission can observe a newer GameThread snapshot before its ordered
 			// render command executes. Wait for that version rather than collecting it early.
@@ -146,10 +146,7 @@ namespace Durin
 		MaterialPSORequests.Close();
 		PSOPrecacheValidation::Clear();
 		ReleaseDeviceResources_RenderThread();
-		Retirement.Drain([] {
-			require(GDynamicRHI != nullptr);
-			FRHICommandListImmediate::Get().BlockUntilGPUIdle();
-		});
+		Retirement.Shutdown(FRHICommandListImmediate::Get());
 		Coordinator.ReleaseResources_RenderThread();
 		VisibilityScratch = {};
 	}

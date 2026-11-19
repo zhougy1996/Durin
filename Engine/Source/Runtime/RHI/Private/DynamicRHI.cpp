@@ -2,6 +2,7 @@
 #include "DynamicRHI.h"
 #include "Backend/RHIValidation.h"
 #include "PipelineStateCache.h"
+#include "Threading/TaskRuntime.h"
 #include "Backend/RHICompletionBackend.h"
 
 #include "RHICommandList.h"
@@ -57,12 +58,23 @@ namespace Durin
 		return ERHIGPUWaitResult::Invalid;
 	}
 
-	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache* { return nullptr; }
-	// Backends forward lifecycle operations to their logical-device cache owner.
-	auto FDynamicRHI::RHIStopPipelineCreation() -> void {}
-	auto FDynamicRHI::RHIRetirePipelineCreationResults() -> void {}
-	auto FDynamicRHI::RHIIsPipelineCreationClosed() const -> bool { return false; }
-	auto FDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics { return {}; }
+	auto FDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
+	{
+		return PipelineStateCache.get();
+	}
+
+	auto FDynamicRHI::InitializePipelineStateCache(const FRHICapabilities& DeviceCapabilities, FRHIPipelineCompileBackend Backend) -> void
+	{
+		check(!PipelineStateCache);
+		// Hosts without Core workers use synchronous native pipeline creation.
+		if (IsTaskSchedulerRunning())
+			PipelineStateCache = std::make_unique<FRHIPipelineStateCache>(DeviceCapabilities, std::move(Backend));
+	}
+
+	auto FDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
+	{
+		return PipelineStateCache ? PipelineStateCache->GetStatistics() : FRHIPipelineCreationStatistics{};
+	}
 
 	auto FDynamicRHI::RHICollectCompletedResources() -> void
 	{

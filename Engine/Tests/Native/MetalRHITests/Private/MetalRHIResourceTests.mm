@@ -2801,7 +2801,7 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 				auto Late = Cache->GetCompute(Initializer, "close outstanding");
 				ASSERT_TRUE(Late);
 				LateShader = nullptr;
-				Cache->StopAndWait();
+				Cache->Shutdown();
 				EXPECT_NE(Late->GetState(), Durin::ERHIPipelineState::Pending);
 				EXPECT_TRUE(Late->GetState() == Durin::ERHIPipelineState::Ready
 					|| Late->GetState() == Durin::ERHIPipelineState::Canceled);
@@ -2818,11 +2818,11 @@ TEST(FMetalRHIPipelineTests, CppPipelineOwnersSurvivePoolsAndAsyncCacheTeardown)
 		});
 		@autoreleasepool
 		{
-			Durin::RHIExit();
-			EXPECT_FALSE(First->GetRHIPipeline());
-			EXPECT_FALSE(Replacement->GetRHIPipeline());
+			const auto Outcome = First->GetStateObservation();
 			First.reset();
 			Replacement.reset();
+			Durin::RHIExit();
+			EXPECT_EQ(Outcome.GetState(), Durin::ERHIPipelineState::Ready);
 		}
 		EXPECT_EQ(WeakFunction, nil);
 		EXPECT_EQ(WeakPipeline, nil);

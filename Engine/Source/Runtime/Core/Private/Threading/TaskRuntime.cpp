@@ -1,7 +1,6 @@
 #include "Threading/TaskRuntime.h"
 #include "Threading/TaskPipe.h"
 #include "Threading/TaskConcurrencyLimiter.h"
-#include "Threading/Private/TaskSchedulerLifetime.h"
 
 #include "Profiling/Profiling.h"
 #include "Threading/QueuedThreadPool.h"
@@ -2588,13 +2587,6 @@ namespace Durin
 		std::lock_guard Lock(GTaskSchedulerMutex);
 		return GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running && GTaskScheduler
 			? GTaskScheduler->GetWorkerCount() : 0;
-	}
-
-	auto Private::GetTaskSchedulerLifetime() -> std::weak_ptr<const void>
-	{
-		std::lock_guard Lock(GTaskSchedulerMutex);
-		return GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running
-			? std::weak_ptr<const void>(GTaskScheduler) : std::weak_ptr<const void>{};
 	}
 
 	auto GetTaskSchedulerDiagnostics() -> FTaskSchedulerDiagnostics

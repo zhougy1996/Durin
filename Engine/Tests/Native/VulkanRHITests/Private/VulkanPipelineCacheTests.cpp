@@ -82,9 +82,10 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(Mode);
 			_putenv_s("DURIN_RHI_EXECUTION", Mode);
 			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
-			FPipelinePrecacheTestObservation SurvivingRequest;
-			decltype(SurvivingRequest.GetPipelineLayout()) SurvivingLayout;
+			FRHIPipelineStateObservation Outcome;
+			std::shared_ptr<const FPipelineLayoutDesc> SurvivingLayout;
 			::Durin::Testing::RunOnRHIRenderingThreadForTests([&] {
+				FPipelinePrecacheTestObservation LastPipeline;
 				std::array<FShaderRHIRef, 3> Shaders;
 				for (size_t Index = 0; Index < Shaders.size(); ++Index)
 				{
@@ -141,7 +142,7 @@ namespace Durin::VulkanRHI
 					const auto After = GDynamicRHI->RHIGetPipelineCacheStatistics();
 					EXPECT_EQ((IsCompute ? After.ComputePipelines.NativeCreations : After.GraphicsPipelines.NativeCreations)
 						- (IsCompute ? Before.ComputePipelines.NativeCreations : Before.GraphicsPipelines.NativeCreations), 1u);
-					SurvivingRequest = Requests.back();
+					LastPipeline = Requests.back();
 				}
 				auto* Device = GetVulkanDeviceForTest(*static_cast<FVulkanDynamicRHI*>(GDynamicRHI));
 				const auto Used = Device->GetCacheMetadataBytes();
@@ -152,16 +153,13 @@ namespace Durin::VulkanRHI
 				EXPECT_EQ(Device->GetCacheMetadataBytes(), Used);
 				Shaders = {};
 				Declaration = nullptr;
-				SurvivingLayout = SurvivingRequest.GetPipelineLayout();
-				GDynamicRHI->RHIStopPipelineCreation();
-				EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineState::Ready);
+				SurvivingLayout = LastPipeline.GetPipelineLayout();
+				EXPECT_EQ(LastPipeline.GetState(), ERHIPipelineState::Ready);
+				Outcome = LastPipeline.Pipeline->GetStateObservation();
 			});
 			RHIExit();
 			EXPECT_EQ(SurvivingLayout->PushConstantRanges.size(), 1u);
-			EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineState::Canceled);
-			EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineState::Canceled);
-			EXPECT_FALSE(SurvivingRequest.GetGraphicsPipeline());
-			EXPECT_FALSE(SurvivingRequest.GetComputePipeline());
+			EXPECT_EQ(Outcome.GetState(), ERHIPipelineState::Ready);
 		}
 	}
 
@@ -296,6 +294,7 @@ namespace Durin::VulkanRHI
 			auto Optional = PrecachePipelineForTest(Initializer, "optional");
 			ASSERT_TRUE(Optional.IsAccepted());
 			EXPECT_EQ(Optional.Wait(), ERHIPipelineState::Ready);
+			GDynamicRHI->RHIGetPipelineStateCache()->Shutdown();
 			auto Required = GDynamicRHI->RHICreateComputePipelineState("required", Initializer);
 			ASSERT_TRUE(Required);
 			EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().ComputePipelines.NativeCreations, 1u);

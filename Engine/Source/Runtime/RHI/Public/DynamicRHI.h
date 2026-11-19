@@ -328,16 +328,16 @@ namespace Durin
 
 		RHI_API auto RHIBlockUntilGPUIdle() -> void;
 
-		RHI_API virtual auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache*;
-		RHI_API virtual auto RHIStopPipelineCreation() -> void;
-		RHI_API virtual auto RHIRetirePipelineCreationResults() -> void;
-		RHI_API virtual auto RHIIsPipelineCreationClosed() const -> bool;
-		RHI_API virtual auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics;
+		RHI_API auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache*;
+		RHI_API auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics;
 	protected:
+		RHI_API auto InitializePipelineStateCache(const FRHICapabilities& DeviceCapabilities, FRHIPipelineCompileBackend Backend) -> void;
 		RHI_API auto PublishCapabilities(FRHICapabilities InCapabilities) -> void;
 		RHI_API auto ClearCapabilities() -> void;
 
 	private:
+		friend RHI_API auto RHIExit() -> void;
+		std::unique_ptr<FRHIPipelineStateCache> PipelineStateCache;
 		std::optional<FRHICapabilities> Capabilities;
 	};
 

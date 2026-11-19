@@ -98,11 +98,6 @@ namespace Durin
 		// Returns the queue serial, or zero if closed without moving Work.
 		// Invalid work, self-enqueue, and serial overflow are programming errors.
 		RHI_API auto Enqueue(FRHIThreadWork& Work) -> uint64;
-		// Installs the final internal work item and closes public admission in the
-		// same queue critical section. The marker is ordered after every accepted
-		// item and is not subject to public producer backpressure.
-		RHI_API auto EnqueueTerminal(FRHIThreadWork& Work)
-			-> uint64;
 		RHI_API auto EnqueueSynchronous(FRHIThreadWork& Work)
 			-> bool;
 		RHI_API auto WaitForSerial(uint64 Serial) const -> ERHIThreadWaitResult;

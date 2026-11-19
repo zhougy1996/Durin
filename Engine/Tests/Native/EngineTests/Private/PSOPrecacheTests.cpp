@@ -43,7 +43,16 @@ namespace
 			if (OwnsScheduler) Durin::ShutdownTaskScheduler();
 			Durin::RHIFlushDeferredResources();
 		}
-		auto Retire() -> void { Release(); Cache->ReleaseResources(); }
+		auto CancelQueuedRequest() -> Durin::FRHIPipelineStateObservation
+		{
+			auto Gated = Request(true);
+			auto Queued = Request(false);
+			auto Closing = std::async(std::launch::async, [this] { Cache->Shutdown(); });
+			EXPECT_EQ(Queued->Wait(), Durin::ERHIPipelineState::Canceled);
+			Release();
+			Closing.get();
+			return Queued->GetStateObservation();
+		}
 		auto Release() -> void { if (!GateReleased) { GateReleased = true; Gate.set_value(); } }
 		auto TryRequestSlot(uint32 Slot) -> std::shared_ptr<Durin::FComputePipelineState>
 		{
@@ -1090,9 +1099,7 @@ TEST(FPSOPrecacheTests, FullPSOValidationDistinguishesMissLateHitAndFailureWithP
     EXPECT_EQ(Hit.VertexFactoryType, Data.VertexFactoryType);
     auto Canceled = Track(Data);
     FMaterialPSOTestPipelines Retired;
-    auto RetiredNative = Retired.Request(false); ASSERT_EQ(RetiredNative->Wait(), ERHIPipelineState::Ready);
-    Retired.Retire();
-    Observe(Canceled, RetiredNative->GetStateObservation());
+    Observe(Canceled, Retired.CancelQueuedRequest());
     EXPECT_EQ(Check(Data.GetComputeInitializer(), 3).Result, EResult::Hit);
     EXPECT_EQ(Check(Pipelines.DescribeSlot(7).GetComputeInitializer(), 3).Result, EResult::Missed);
     EXPECT_EQ(GetStatistics().Hit, 0u); // Lookup and preparation are not draw/dispatch usage.
@@ -1411,9 +1418,7 @@ TEST(FPSOPrecacheTests, ValidationCompactsRepeatedSuccessfulCanceledAndConcurren
     auto Native = Pipelines.Request(false); ASSERT_EQ(Native->Wait(), ERHIPipelineState::Ready);
     const auto Data = Pipelines.Describe(Native);
     FMaterialPSOTestPipelines Retired;
-    auto RetiredNative = Retired.Request(false); ASSERT_EQ(RetiredNative->Wait(), ERHIPipelineState::Ready);
-    Retired.Retire();
-    const auto Canceled = RetiredNative->GetStateObservation();
+    const auto Canceled = Retired.CancelQueuedRequest();
     for (uint32 Index = 0; Index < 2048; ++Index) {
         auto Attempt = Track(Data); Withdraw(Attempt);
         Attempt = Track(Data); Observe(Attempt, Canceled);

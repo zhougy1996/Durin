@@ -130,11 +130,6 @@ namespace Durin::VulkanRHI
 			std::shared_ptr<RHIPrivate::FReadbackState> AsyncRequest = {}
 		) -> bool;
 
-		auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override;
-		auto RHIStopPipelineCreation() -> void override;
-		auto RHIRetirePipelineCreationResults() -> void override;
-		auto RHIIsPipelineCreationClosed() const -> bool override;
-		auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override;
 
 	protected:
 		auto CreateInstance(

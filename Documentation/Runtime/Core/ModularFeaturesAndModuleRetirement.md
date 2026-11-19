@@ -208,8 +208,8 @@ Process shutdown preserves this ordering mechanically. The general reverse-load
 pass shuts down render-command producers while the task executors, rendering
 thread, and RHI thread are alive. Launch stops the task system after this pass. `VulkanRHI` is explicitly deferred from that pass. After all
 producer shutdown callbacks have flushed, Launch stops the rendering thread and
-calls `RHIExit`; RHI exit flushes the RHI queue, completes the terminal backend
-shutdown marker, stops the RHI thread, deletes `GDynamicRHI`, and only then asks
+calls `RHIExit`; RHI exit flushes recorded commands, joins the RHI thread, drains
+deferred resources and shuts down the backend on the game thread, deletes `GDynamicRHI`, and only then asks
 the module manager to unload `VulkanRHI`. Failure leaves the backend module
 mapped.
 

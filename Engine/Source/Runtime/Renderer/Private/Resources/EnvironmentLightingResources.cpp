@@ -159,8 +159,7 @@ namespace Durin
         // Cover every prior consumer, including views recorded after the filter job.
         auto Completion = Commands.BeginGPUSubmission({.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
         Commands.EndGPUSubmission();
-        const auto Device = Generation->RHIDeviceGeneration;
-        Retirement.Retire(std::move(Generation), std::move(Completion), Device);
+        Retirement.Retire(std::move(Generation), std::move(Completion));
         Commands.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::SubmitToGPU);
     }
 
@@ -206,7 +205,7 @@ namespace Durin
                 if (S.Published != Previous) RetirePublished_RenderThread(Commands, std::move(Previous));
                 if (Finished->Completion.IsComplete() && Finished->Output->Resources == Generation)
                     State->Lut = Finished->Output->BrdfLut;
-                Retirement.Retire(Finished->Output, Finished->Completion, Finished->Output->RHIDeviceGeneration);
+                Retirement.Retire(Finished->Output, Finished->Completion);
             }
             if (S.Job) { S.bUpdatePending = true; return; }
         }
@@ -282,7 +281,6 @@ namespace Durin
         Light->UpdateStatus->State.store(ESkyLightUpdateState::Pending);
         auto Candidate=std::make_shared<FSkyLightingGeneration>();
         Candidate->Resources=Generation; Candidate->Owner=Light->InstanceId;
-        Candidate->RHIDeviceGeneration=GDynamicRHI->RHIGetQueueCapabilities().DeviceGeneration;
         Candidate->Sampler=State->Sampler;
         Candidate->SourceEpoch=Light->SourceEpoch; Candidate->Provider=Provider;
         Candidate->Revision=Captured ? Sky->Revision : 0; Candidate->Request=Light->RequestSerial;
@@ -397,7 +395,7 @@ namespace Durin
         RetirePublished_RenderThread(Commands, std::move(S.Published));
         if (S.Job)
         {
-            Retirement.Retire(S.Job->Output, S.Job->Completion, S.Job->Output->RHIDeviceGeneration);
+            Retirement.Retire(S.Job->Output, S.Job->Completion);
             S.Job.reset();
         }
         S.Schedule = {};
@@ -413,7 +411,7 @@ namespace Durin
                 RetirePublished_RenderThread(Commands, std::move(State->Published));
                 if (State->Job)
                 {
-                    Retirement.Retire(State->Job->Output, State->Job->Completion, State->Job->Output->RHIDeviceGeneration);
+                    Retirement.Retire(State->Job->Output, State->Job->Completion);
                     State->Job.reset();
                 }
                 State->Schedule = {};

@@ -19,8 +19,7 @@
 #include "RHICommandList.h"
 #include "RHIThread.h"
 #include "CoreGlobals.h"
-#include "PipelineStateCache.h"
-#include "Threading/TaskRuntime.h"
+#include "RHIPipelineCreation.h"
 
 namespace Durin
 {
@@ -66,7 +65,6 @@ namespace Durin
 			{
 				// Also cover partially initialized instances after factory exceptions.
 				const FMetalAutoreleasePool Pool;
-				PipelineCache.reset();
 				CommandContext.reset();
 				State.reset();
 				StartupLayer.reset();
@@ -153,7 +151,7 @@ namespace Durin
 						}
 					}
 					PublishCapabilities(std::move(Supported));
-					PipelineCreationClosed = false;
+					InitializePipelineStateCache(*RHIGetCapabilities(), CreatePipelineCompileBackend());
 				}
 				catch (...)
 				{
@@ -205,66 +203,27 @@ namespace Durin
 					Pool = std::move(Next);
 				}
 			}
-			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
+			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
 			{
-				std::lock_guard Lock(PipelineCreationMutex);
-				if (PipelineCreationClosed || !Device || !IsTaskSchedulerRunning()) return nullptr;
-				if (!PipelineCache)
-				{
-					FRHIPipelineCompileBackend Backend;
-					Backend.FindGraphics = [](const FGraphicsPipelineStateKey&) -> FGraphicsPipelineStateRHIRef { return nullptr; };
-					Backend.FindCompute = [](const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef { return nullptr; };
-					Backend.CreateGraphics = [this](const FRHIGraphicsPipelineCreationInputs& Inputs,
-						const FGraphicsPipelineStateKey&) -> FGraphicsPipelineStateRHIRef {
-						const FMetalAutoreleasePool Pool;
-						return RHICreateGraphicsPipelineState(FName(Inputs.DebugName), Inputs.Initializer);
-					};
-					Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs, const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef {
-						const FMetalAutoreleasePool Pool;
-						return RHICreateComputePipelineState(FName(Inputs.DebugName), Inputs.Initializer);
-					};
-					PipelineCache = std::make_unique<FRHIPipelineStateCache>(
-						*RHIGetCapabilities(), std::move(Backend));
-				}
-				return PipelineCache.get();
-			}
-			auto RHIStopPipelineCreation() -> void override
-			{
-				FRHIPipelineStateCache* Cache;
-				{
-					std::lock_guard Lock(PipelineCreationMutex);
-					PipelineCreationClosed = true;
-					Cache = PipelineCache.get();
-				}
-				if (Cache) Cache->StopAndWait();
-			}
-			auto RHIRetirePipelineCreationResults() -> void override
-			{
-				FRHIPipelineStateCache* Cache;
-				{
-					std::lock_guard Lock(PipelineCreationMutex);
-					Cache = PipelineCache.get();
-				}
-				if (Cache) Cache->ReleaseResources();
-			}
-			auto RHIIsPipelineCreationClosed() const -> bool override
-			{
-				std::lock_guard Lock(PipelineCreationMutex);
-				return PipelineCreationClosed || (PipelineCache && PipelineCache->IsClosed());
-			}
-			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override
-			{
-				std::lock_guard Lock(PipelineCreationMutex);
-				return PipelineCache ? PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{};
+				FRHIPipelineCompileBackend Backend;
+				Backend.FindGraphics = [](const FGraphicsPipelineStateKey&) -> FGraphicsPipelineStateRHIRef { return nullptr; };
+				Backend.FindCompute = [](const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef { return nullptr; };
+				Backend.CreateGraphics = [this](const FRHIGraphicsPipelineCreationInputs& Inputs,
+					const FGraphicsPipelineStateKey&) -> FGraphicsPipelineStateRHIRef {
+					const FMetalAutoreleasePool Pool;
+					return RHICreateGraphicsPipelineState(FName(Inputs.DebugName), Inputs.Initializer);
+				};
+				Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs, const FComputePipelineStateKey&) -> FComputePipelineStateRHIRef {
+					const FMetalAutoreleasePool Pool;
+					return RHICreateComputePipelineState(FName(Inputs.DebugName), Inputs.Initializer);
+				};
+				return Backend;
 			}
 
 			auto Shutdown() -> void override
 			{
 				CheckRHIExecutionThread();
 				const FMetalAutoreleasePool Pool;
-				RHIStopPipelineCreation();
-				RHIRetirePipelineCreationResults();
-				PipelineCache.reset();
 				CommandContext->CancelPending();
 				if (State)
 				{
@@ -273,7 +232,7 @@ namespace Durin
 						[this] { return State->PendingCallbacks == 0; });
 					State->Timeline->Fail();
 				}
-				// Callback/context releases may enqueue RHI deletes after the outer shutdown marker.
+				// Callback/context releases may enqueue RHI deletes during backend shutdown.
 				RHIFlushDeferredResources();
 				ResetDeviceState();
 			}
@@ -584,7 +543,6 @@ namespace Durin
 				Device.reset();
 				StartupLayer.reset();
 				StartupWindow = nullptr;
-				PipelineCreationClosed = true;
 			}
 
 			NS::SharedPtr<MTL::Device> Device;
@@ -594,9 +552,6 @@ namespace Durin
 			std::shared_ptr<FMetalSubmissionState> State;
 			FRHIQueueCapabilities QueueCapabilities;
 			std::unique_ptr<FMetalCommandContext> CommandContext = CreateMetalCommandContext();
-			mutable std::mutex PipelineCreationMutex;
-			std::unique_ptr<FRHIPipelineStateCache> PipelineCache;
-			bool PipelineCreationClosed = false;
 		};
 
 		class FMetalDynamicRHIModule final : public IDynamicRHIModule

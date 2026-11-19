@@ -40,8 +40,8 @@ namespace Durin
 				Caps.DepthSampleCounts = ERHISampleCountFlags::Samples1;
 				Caps.MaxComputeWorkGroupCount = {65535, 65535, 65535};
 				PublishCapabilities(Caps);
+				InitializePipelineStateCache(Caps, CreatePipelineCompileBackend());
 			}
-			~FPipelineSlotTestRHI() override { RHIStopPipelineCreation(); RHIRetirePipelineCreationResults(); }
 			std::function<void(uint32)> BeforeCreate;
 			std::function<bool(uint32)> FailCreate;
 			std::atomic<uint32> Creations = 0;
@@ -75,25 +75,6 @@ namespace Durin
 			{
 				return {};
 			}
-			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override
-			{
-				std::lock_guard Lock(DeviceState.Mutex);
-				if (DeviceState.Closed || !IsTaskSchedulerRunning() || !RHIGetCapabilities()) return nullptr;
-				if (!DeviceState.PipelineCache) DeviceState.PipelineCache = std::make_unique<FRHIPipelineStateCache>(*RHIGetCapabilities(), CreatePipelineCompileBackend());
-				return DeviceState.PipelineCache.get();
-			}
-			void RHIStopPipelineCreation() override
-			{
-				FRHIPipelineStateCache* Cache;
-				{ std::lock_guard Lock(DeviceState.Mutex); DeviceState.Closed = true; Cache = DeviceState.PipelineCache.get(); }
-				if (Cache) Cache->StopAndWait();
-			}
-			void RHIRetirePipelineCreationResults() override
-			{ if (DeviceState.PipelineCache) DeviceState.PipelineCache->ReleaseResources(); }
-			bool RHIIsPipelineCreationClosed() const override
-			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.Closed || (DeviceState.PipelineCache && DeviceState.PipelineCache->IsClosed()); }
-			auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics override
-			{ std::lock_guard Lock(DeviceState.Mutex); return DeviceState.PipelineCache ? DeviceState.PipelineCache->GetStatistics() : FRHIPipelineCreationStatistics{}; }
 		protected:
 			auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend
 			{
@@ -120,12 +101,6 @@ namespace Durin
 		private:
 			std::mutex Mutex;
 			std::unordered_map<FComputePipelineStateKey, FComputePipelineStateRHIRef, FComputePipelineStateKeyHasher> Cache;
-			struct FTestDeviceState
-			{
-				mutable std::mutex Mutex;
-				std::unique_ptr<FRHIPipelineStateCache> PipelineCache;
-				bool Closed = false;
-			} DeviceState;
 		};
 
 		auto MakeError(

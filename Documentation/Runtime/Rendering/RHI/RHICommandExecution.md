@@ -524,13 +524,14 @@ following before `RHIExit()`:
 - the render-resource registry, deferred C++ cleanup, and pending RHI deletion
   are empty.
 
-`RHIExit()` performs the final resource/deletion flush, then installs a
-zero-payload backend-shutdown marker and changes RHI admission to `Draining` in
-one queue critical section. No public work can land after that marker. Blocked
-producers wake and reject; the game thread waits the marker's exact serial,
-switches the executor to inline diagnostics only after it completes, stops and
-joins the RHI thread, audits zero outstanding entries/batches/bytes, and finally
-releases the backend owner.
+`RHIExit()` closes pipeline compilation, releases upper-layer owners and flushes
+recorded commands on the current executor. In threaded mode, stopping the FIFO
+closes admission, wakes blocked producers and joins the consumer after accepted
+work releases its captures. The executor then switches to inline mode.
+With both rendering threads stopped, the game thread destroys the pipeline cache,
+drains deferred RHI resources (including deletes produced by destructors), and
+shuts down the backend. Backends drain resources released by their own teardown
+before destroying the corresponding native device objects.
 
 The final rendering-thread audit logs cumulative command count, payload bytes,
 submitted batches, submission groups, replay time, wait count and duration,

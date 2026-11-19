@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RHICommandList.h"
 #include "RHICompletion.h"
 
 namespace Durin
@@ -9,25 +10,21 @@ namespace Durin
     class FRendererResourceRetirementQueue
     {
     public:
-        auto Retire(std::shared_ptr<const void> Owner, FRHIGPUSyncPointRef Completion,
-            uint64 RHIDeviceGeneration) -> void
+        auto Retire(std::shared_ptr<const void> Owner, FRHIGPUSyncPointRef Completion) -> void
         {
-            if (Owner) Entries.push_back({std::move(Owner), std::move(Completion), RHIDeviceGeneration});
+            if (Owner) Entries.push_back({std::move(Owner), std::move(Completion)});
         }
-        auto Collect(const FRHIQueueCapabilities& PhysicalDevice) -> void
+        auto Collect() -> void
         {
-            std::erase_if(Entries, [&](const auto& Entry) {
-                return Entry.Completion.IsRetirementEligible()
-                    || (PhysicalDevice.DeviceGeneration != 0
-                        && Entry.RHIDeviceGeneration != PhysicalDevice.DeviceGeneration);
+            std::erase_if(Entries, [](const auto& Entry) {
+                return Entry.Completion.IsRetirementEligible();
             });
         }
-        // Only shutdown may release failed/canceled leases after the host drains the GPU.
-        template<class DrainDevice>
-        auto Drain(DrainDevice&& Drain) -> void
+        // Shutdown drains the GPU before releasing entries still held by the queue.
+        auto Shutdown(FRHICommandListImmediate& Commands) -> void
         {
             if (Entries.empty()) return;
-            std::forward<DrainDevice>(Drain)();
+            Commands.BlockUntilGPUIdle();
             Entries.clear();
         }
         ~FRendererResourceRetirementQueue() { require(Entries.empty()); }
@@ -36,7 +33,6 @@ namespace Durin
         {
             std::shared_ptr<const void> Owner;
             FRHIGPUSyncPointRef Completion;
-            uint64 RHIDeviceGeneration;
         };
         std::vector<FEntry> Entries;
     };

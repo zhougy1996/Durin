@@ -65,11 +65,8 @@ namespace Durin
 			-> FGraphicsPipelineStateRef;
 		auto GetCompute(const FComputePipelineStateInitializer& Initializer, std::string_view Name)
 			-> FComputePipelineStateRef;
-		// Reject new requests and join compilation, preserving already Ready native PSOs.
-		auto StopAndWait() -> void;
-		// Stop compilation first, then invalidate native results in surviving handles.
-		auto ReleaseResources() -> void;
-		auto IsClosed() const -> bool;
+		// Close admission and join compilation. Owners release native PSO references before device teardown.
+		auto Shutdown() -> void;
 		auto GetStatistics() const -> FRHIPipelineCreationStatistics;
 	private:
 		friend class FRHIPipelineStateCacheBackend;

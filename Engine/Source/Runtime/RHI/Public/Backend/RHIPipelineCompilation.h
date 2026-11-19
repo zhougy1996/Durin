@@ -27,8 +27,8 @@ namespace Durin
 		// Returns Pending when the current execution context cannot safely wait.
 		RHI_API auto Wait() const -> ERHIPipelineState;
 	private:
-		// One completion signal per compilation. Canceled means device closure or
-		// retirement; dropping a caller never signals completion or cancels work.
+		// One completion signal per compilation. Closure can cancel pending work.
+		// Completed outcomes remain stable after their native resource is released.
 		RHI_API auto GetTaskHandle() const -> Tasks::FTask;
 		RHI_API auto GetGraphicsPipeline() const -> FGraphicsPipelineStateRHIRef;
 		RHI_API auto GetComputePipeline() const -> FComputePipelineStateRHIRef;

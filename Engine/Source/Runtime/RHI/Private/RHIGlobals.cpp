@@ -1,6 +1,7 @@
 #include "RHIGlobals.h"
 
 #include "DynamicRHI.h"
+#include "PipelineStateCache.h"
 #include "RHICommandList.h"
 #include "RHIThread.h"
 #include "CoreGlobals.h"
@@ -277,54 +278,22 @@ namespace Durin
 		requiref(!GRenderingThread,
 			"Stop and join the rendering thread before entering RHI lifecycle operations.");
 		check(GDynamicRHI);
-		GDynamicRHI->RHIStopPipelineCreation();
+		auto& Cache = GDynamicRHI->PipelineStateCache;
+		if (Cache) Cache->Shutdown();
 		RHIReleaseResourcesDelegate.Broadcast();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		FRHICommandListImmediate::Get().ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
-		GDynamicRHI->RHIRetirePipelineCreationResults();
-		FRHICommandListImmediate::Get().ImmediateFlush(
-			EImmediateFlushType::FlushRHIThreadFlushResources);
+			EImmediateFlushType::FlushRHIThread);
 		if (RHIThreadOwner)
 		{
-			FRHIThreadWork ShutdownWork;
-			ShutdownWork.Execute = []() {
-				RHIFlushDeferredResources();
-				checkf(FRHIResource::GetNumPendingDeletes() == 0,
-					"RHI shutdown marker found pending RHI resource deletions.");
-				GDynamicRHI->Shutdown();
-			};
-			const uint64 ShutdownSerial =
-				RHIThreadOwner->EnqueueTerminal(ShutdownWork);
-			if (!ShutdownSerial)
-			{
-				DURIN_FATAL(
-					"Failed to atomically install the dynamic RHI shutdown marker.");
-				std::terminate();
-			}
-			const ERHIThreadWaitResult ShutdownWaitResult =
-				RHIThreadOwner->WaitForSerial(ShutdownSerial);
-			if (ShutdownWaitResult != ERHIThreadWaitResult::Completed)
-			{
-				DURIN_FATAL(
-					"Dynamic RHI shutdown marker failed on RHI thread ({}).",
-					static_cast<uint32>(ShutdownWaitResult));
-				std::terminate();
-			}
-			GCommandListExecutor.SetInlineMode();
 			RHIThreadOwner->Stop();
-			const FRHIThreadStats ShutdownStats = RHIThreadOwner->GetStats();
-			check(ShutdownStats.AdmissionState
-				== ERHIThreadAdmissionState::Stopped);
-			check(ShutdownStats.OutstandingEntryCount == 0);
-			check(ShutdownStats.OutstandingBatchCount == 0);
-			check(ShutdownStats.OutstandingPayloadBytes == 0);
+			GCommandListExecutor.SetInlineMode();
 			RHIThreadOwner.reset();
 		}
-		else
-		{
-			GDynamicRHI->Shutdown();
-		}
+		// Final replay and cache destruction can both release the last resource reference.
+		Cache.reset();
+		RHIFlushDeferredResources();
+		GDynamicRHI->Shutdown();
 		delete GDynamicRHI;
 		GDynamicRHI = nullptr;
 		if (const char* ModuleName =

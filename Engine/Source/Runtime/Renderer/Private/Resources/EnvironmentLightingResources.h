@@ -20,7 +20,6 @@ namespace Durin
     {
         FTextureRHIRef Radiance, Irradiance, Prefiltered, BrdfLut;
         FRenderResourceGeneration Resources;
-        uint64 RHIDeviceGeneration = 0;
         FSamplerRHIRef Sampler;
         uint64 Owner = 0, SourceEpoch = 0, Provider = 0, Revision = 0, Request = 0;
         FTextureRHIRef Source;

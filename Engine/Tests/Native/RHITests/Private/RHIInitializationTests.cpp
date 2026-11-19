@@ -269,7 +269,33 @@ namespace Durin
 			}), std::runtime_error);
 			EXPECT_EQ(GRenderingThread, nullptr);
 			EXPECT_EQ(IsInRHIExecutionThread(), !bThreaded);
+			struct FFinalResource final : FRHIResource
+			{
+				explicit FFinalResource(FInitializationObservation& InObservation, uint32& InDeleted)
+					: FRHIResource(ERHIResourceType::Buffer), Observation(InObservation), Deleted(InDeleted) {}
+				~FFinalResource() override
+				{
+					EXPECT_TRUE(IsInGameThread());
+					EXPECT_TRUE(IsInRHIExecutionThread());
+					EXPECT_EQ(GRHIThread, nullptr);
+					EXPECT_EQ(Observation.ShutdownCount, 0u);
+					++Deleted;
+				}
+				FInitializationObservation& Observation;
+				uint32& Deleted;
+				TRefCountPtr<FFinalResource> Child;
+			};
+			uint32 Deleted = 0;
+			auto Resource = MakeRefCount<FFinalResource>(Observation, Deleted);
+			Resource->Child = MakeRefCount<FFinalResource>(Observation, Deleted);
+			FRHICommandListImmediate::Get().EnqueueLambda([Held = std::move(Resource), bThreaded] {
+				EXPECT_EQ(IsInRHIThread(), bThreaded);
+				EXPECT_TRUE(Held);
+			}, 0);
 			RHIExit();
+			EXPECT_EQ(Deleted, 2u);
+			EXPECT_EQ(Observation.ShutdownCount, 1u);
+			EXPECT_FALSE(Observation.bShutdownOnRHIThread);
 			EXPECT_TRUE(Observation.bShutdownExecutionAllowed);
 			EXPECT_TRUE(Observation.bDestructionExecutionAllowed);
 			EXPECT_TRUE(IsInRHIExecutionThread());

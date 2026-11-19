@@ -158,6 +158,7 @@ namespace Durin::VulkanRHI
 			CapabilityCandidate.GPUTimestampNanosecondsPerTick =
 				CapabilityCandidate.bSupportsGPUTimestamps ? TimestampPeriod : 0.0;
 			PublishCapabilities(std::move(CapabilityCandidate));
+			InitializePipelineStateCache(*RHIGetCapabilities(), Device->CreatePipelineCompileBackend());
 		}
 		catch (...)
 		{
@@ -173,22 +174,9 @@ namespace Durin::VulkanRHI
 		});
 	}
 
-	auto FVulkanDynamicRHI::RHIGetPipelineStateCache() -> FRHIPipelineStateCache*
-	{ return Device ? Device->GetPipelineStateCache() : nullptr; }
-	auto FVulkanDynamicRHI::RHIStopPipelineCreation() -> void
-	{ if (Device) Device->StopPipelineCreation(); }
-	auto FVulkanDynamicRHI::RHIRetirePipelineCreationResults() -> void
-	{ if (Device) Device->RetirePipelineCreationResults(); }
-	auto FVulkanDynamicRHI::RHIIsPipelineCreationClosed() const -> bool
-	{ return !Device || Device->IsPipelineCreationClosed(); }
-	auto FVulkanDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
-	{ return Device ? Device->GetPipelineCreationStatistics() : FRHIPipelineCreationStatistics{}; }
-
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
 		CheckRHIExecutionThread();
-		RHIStopPipelineCreation();
-		RHIRetirePipelineCreationResults();
 		ViewCache->Clear();
 		if (const char* CaptureBaseline =
 			std::getenv("DURIN_VULKAN_MEMORY_BASELINE");

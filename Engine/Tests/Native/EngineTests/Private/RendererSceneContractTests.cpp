@@ -3524,28 +3524,20 @@ TEST(FRendererSceneContractTests, SkyLightingChangedAuthorityNeverPublishesCompl
     EXPECT_EQ(Status->State.load(), ESkyLightUpdateState::Pending);
 }
 
-TEST(FRendererSceneContractTests, RetirementPreservesPhysicalLeasesAcrossLogicalInvalidation)
+TEST(FRendererSceneContractTests, RetirementReleasesCompletedWorkDuringCollection)
 {
     using namespace Durin;
-    const auto Device = AllocateRHIDeviceGeneration();
-    FRHIGPUQueueTimeline Timeline(Device, {0});
+    FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
     FRendererResourceRetirementQueue Retirement;
-    FRHIQueueCapabilities Physical;
-    Physical.DeviceGeneration = Device;
     auto Resource = std::make_shared<int>(7);
     const std::weak_ptr<int> Lease = Resource;
-    auto Pending = Timeline.Reserve();
-    Retirement.Retire(std::move(Resource), Pending, Device);
-    FRenderResourceGeneration Logical;
-    Logical.Advance(ERenderResourceGenerationDependency::Device);
-    Retirement.Collect(Physical);
+    const auto Completion = Timeline.Reserve();
+    Retirement.Retire(std::move(Resource), Completion);
+    ASSERT_TRUE(Timeline.MarkSubmitted(Completion));
+    Retirement.Collect();
     EXPECT_FALSE(Lease.expired());
-    Timeline.Fail(true);
-    Retirement.Collect(Physical);
-    EXPECT_FALSE(Lease.expired());
-    // Only replacement of the actual RHI device permits abandoning failed native work.
-    Physical.DeviceGeneration = AllocateRHIDeviceGeneration();
-    Retirement.Collect(Physical);
+    ASSERT_TRUE(Timeline.ObserveCompleted(Completion));
+    Retirement.Collect();
     EXPECT_TRUE(Lease.expired());
 }
 
@@ -3609,28 +3601,30 @@ TEST(FRendererSceneContractTests, ViewportPreparationNeverBlocksInteractiveRende
 TEST(FRendererSceneContractTests, RetirementShutdownDrainsDeviceBeforeReleasingFailedLeases)
 {
     using namespace Durin;
-    const auto Device = AllocateRHIDeviceGeneration();
-    FRHIGPUQueueTimeline Timeline(Device, {0});
+    Testing::FVisibilityReadbackContext Context;
+    FRHICommandListExecutor Executor(Context);
+    FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
     FRendererResourceRetirementQueue Retirement;
     const auto Completion = Timeline.Reserve();
-    auto Resource = std::make_shared<int>(7);
+    std::shared_ptr<int> Resource(new int(7), [&](int* Value) {
+        EXPECT_EQ(Context.GPUIdleWaits, 1u);
+        delete Value;
+    });
     const std::weak_ptr<int> Lease = Resource;
-    Retirement.Retire(std::move(Resource), Completion, Device);
+    Retirement.Retire(std::move(Resource), Completion);
     Timeline.Fail(true);
-    bool bDrained = false;
-    Retirement.Drain([&] { EXPECT_FALSE(Lease.expired()); bDrained = true; });
-    EXPECT_TRUE(bDrained);
+    Retirement.Collect();
+    EXPECT_FALSE(Lease.expired());
+    Retirement.Shutdown(Executor.GetImmediateCommandList());
     EXPECT_TRUE(Lease.expired());
-    Retirement.Drain([] { ADD_FAILURE() << "Empty retirement queue must not wait for the GPU."; });
+    Retirement.Shutdown(Executor.GetImmediateCommandList());
+    EXPECT_EQ(Context.GPUIdleWaits, 1u);
 }
 
 TEST(FRendererSceneContractTests, RetirementNeedsNeitherSceneNorNewWorkAndHonorsCanceledPrefix)
 {
     using namespace Durin;
-    const auto Device = AllocateRHIDeviceGeneration();
-    FRHIGPUQueueTimeline Timeline(Device, {0});
-    FRHIQueueCapabilities Physical;
-    Physical.DeviceGeneration = Device;
+    FRHIGPUQueueTimeline Timeline(AllocateRHIDeviceGeneration(), {0});
     FRendererResourceRetirementQueue Retirement;
     const auto Prior = Timeline.Reserve();
     const auto Canceled = Timeline.Reserve();
@@ -3640,12 +3634,12 @@ TEST(FRendererSceneContractTests, RetirementNeedsNeitherSceneNorNewWorkAndHonors
     {
         auto SceneOwned = std::make_shared<int>(42);
         Lease = SceneOwned;
-        Retirement.Retire(SceneOwned, Canceled, Device);
+        Retirement.Retire(SceneOwned, Canceled);
     }
-    Retirement.Collect(Physical);
+    Retirement.Collect();
     EXPECT_FALSE(Lease.expired());
     ASSERT_TRUE(Timeline.ObserveCompleted(Prior));
-    Retirement.Collect(Physical);
+    Retirement.Collect();
     EXPECT_TRUE(Lease.expired());
 }
 

@@ -1043,7 +1043,7 @@ namespace Durin::VulkanRHI
 			constexpr bool Graphics = std::same_as<TInitializer, FGraphicsPipelineStateInitializer>;
 			using TResult = std::conditional_t<Graphics, FGraphicsPipelineStateRHIRef, FComputePipelineStateRHIRef>;
 			constexpr std::string_view Kind = Graphics ? "graphics pipeline" : "compute pipeline";
-			if (RHI.RHIIsPipelineCreationClosed()) return nullptr;
+			if (!Device) return nullptr;
 			char NameBuffer[FName::StringBufferSize];
 			std::string_view Name = DebugName.GetPlainNameView();
 			if (DebugName.HasNumber())

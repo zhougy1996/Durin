@@ -193,11 +193,7 @@ namespace Durin::VulkanRHI
 
 		VULKANRHI_API auto GetHandle() const -> vk::Device;
 		auto GetRHI() const -> FVulkanDynamicRHI& { return *RHI; }
-		auto GetPipelineStateCache() -> FRHIPipelineStateCache*;
-		auto StopPipelineCreation() -> void;
-		auto RetirePipelineCreationResults() -> void;
-		auto IsPipelineCreationClosed() const -> bool;
-		auto GetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics;
+		auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend;
 
 		VULKANRHI_API auto GetGpu() const -> vk::PhysicalDevice;
 
@@ -289,13 +285,6 @@ namespace Durin::VulkanRHI
 
 	private:
 		auto Destroy() -> void;
-
-	private:
-		auto CreatePipelineCompileBackend() -> FRHIPipelineCompileBackend;
-		auto ShutdownPipelineStateCache() -> void;
-		mutable std::mutex PipelineCreationMutex;
-		std::unique_ptr<FRHIPipelineStateCache> PipelineStateCache;
-		bool PipelineCreationClosed = false;
 
 	public:
 		FVulkanDynamicRHI* RHI;

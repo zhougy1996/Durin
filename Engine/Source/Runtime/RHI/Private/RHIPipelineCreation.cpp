@@ -1,6 +1,5 @@
 #include "RHIPipelineCreation.h"
 #include "Threading/Task.h"
-#include "Threading/Private/TaskSchedulerLifetime.h"
 #include "Backend/RHICreation.h"
 #include "PipelineCompileQueue.h"
 #include "Backend/RHIPipelineStateCacheBackend.h"
@@ -25,12 +24,6 @@ namespace Durin
 	namespace
 	{
 		thread_local bool GInPipelineCreator = false;
-
-		struct FRequestLifetime
-		{
-			std::atomic<bool> Closed = false;
-			FRHIPipelineMetadataTracker Metadata;
-		};
 
 		using FKey = std::variant<FGraphicsPipelineStateKey, FComputePipelineStateKey>;
 		struct FKeyHash
@@ -67,15 +60,15 @@ namespace Durin
 	// every caller drops its handle; completion events never retain native PSOs.
 	struct FPipelineCompilation::FState
 	{
-		FState(std::shared_ptr<FRequestLifetime> InLifetime, std::shared_ptr<const FKey> InIdentity)
-			: Lifetime(std::move(InLifetime)), Identity(std::move(InIdentity)) {}
+		explicit FState(std::shared_ptr<const FKey> InIdentity)
+			: Identity(std::move(InIdentity)) {}
 		~FState() { Completion.Trigger(); } // Also settles event construction rollback.
-		template<typename T> auto Publish(T Native) -> void
+		template<typename T> auto Publish(T Native, const std::atomic<bool>& QueueClosed) -> void
 		{
 			{
 				std::lock_guard Lock(Mutex);
 				if (Outcome->load() != ERHIPipelineState::Pending) return;
-				const auto Next = Lifetime->Closed.load() ? ERHIPipelineState::Canceled
+				const auto Next = QueueClosed.load() ? ERHIPipelineState::Canceled
 					: Native ? ERHIPipelineState::Ready : ERHIPipelineState::Failed;
 				if (Next == ERHIPipelineState::Ready) Pipeline = std::move(Native);
 				Outcome->store(Next, std::memory_order_release);
@@ -93,13 +86,6 @@ namespace Durin
 			Changed.notify_all();
 			Completion.Trigger();
 		}
-		auto Retire() -> void
-		{
-			std::lock_guard Lock(Mutex);
-			Pipeline = FGraphicsPipelineStateRHIRef{};
-			Outcome->store(ERHIPipelineState::Canceled, std::memory_order_release);
-		}
-		std::shared_ptr<FRequestLifetime> Lifetime;
 		const std::shared_ptr<const FKey> Identity;
 		Tasks::FTaskEvent Completion{"RHI.PipelineCompilation"};
 		std::shared_ptr<std::atomic<ERHIPipelineState>> Outcome = std::make_shared<std::atomic<ERHIPipelineState>>(ERHIPipelineState::Pending);
@@ -192,12 +178,12 @@ namespace Durin
 			: Capabilities(InCapabilities), Backend(std::move(InBackend)) {}
 
 		auto ReserveInputMetadata(uint64 Bytes) -> std::shared_ptr<void>
-		{ return Backend.ReserveMetadata ? Backend.ReserveMetadata(Bytes) : Lifetime->Metadata.Reserve(Bytes); }
+		{ return Backend.ReserveMetadata ? Backend.ReserveMetadata(Bytes) : Metadata.Reserve(Bytes); }
 		auto RetainIdentity(std::shared_ptr<const FKey> Key, uint64 Bytes) -> std::shared_ptr<const FKey>
 		{
 			std::shared_ptr<void> Lease;
 			if (Backend.ReserveMetadata) Lease = Backend.ReserveMetadata(Bytes);
-			else Lease = Lifetime->Metadata.Reserve(Bytes);
+			else Lease = Metadata.Reserve(Bytes);
 			struct FIdentityOwner { std::shared_ptr<const FKey> Key; std::shared_ptr<void> Lease; };
 			auto Owner = std::make_shared<FIdentityOwner>(Key, std::move(Lease));
 			return {std::move(Owner), Key.get()};
@@ -206,11 +192,7 @@ namespace Durin
 		auto Request(const T& Initializer, std::string_view Name, TKeyFactory&& MakeKey) -> FPipelineCompilation
 		{
 			std::lock_guard Lock(Mutex);
-			if (Lifetime->Closed.load()) return {};
-			if (!IsTaskSchedulerRunning()) return {};
-			const auto CurrentScheduler = Private::GetTaskSchedulerLifetime();
-			if (SchedulerLifetime.owner_before(CurrentScheduler) || CurrentScheduler.owner_before(SchedulerLifetime))
-				return {};
+			if (Closed.load()) return {};
 			// Independent CPU tasks cannot introduce device work into their graph.
 			if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU())
 				return {};
@@ -246,10 +228,10 @@ namespace Durin
 				const auto IdentityBytes = std::visit([](const auto& Value) { return GetPipelineKeyOwnedBytes(Value); }, *Key);
 				Key = RetainIdentity(std::move(Key), IdentityBytes + 256);
 				FPipelineCompilation Result;
-				Result.State = std::make_shared<FCompilation>(Lifetime, Key);
+				Result.State = std::make_shared<FCompilation>(Key);
 				if (bReady)
 				{
-					Result.State->Publish(std::move(Ready));
+					Result.State->Publish(std::move(Ready), Closed);
 					Compilations.emplace(KeyHash, Result.State);
 					return Result;
 				}
@@ -290,14 +272,14 @@ namespace Durin
 				Statistics.UnfinishedDescriptionBytes -= Entry->Bytes;
 				--Statistics.UnfinishedRequests;
 			}
-			Entry->Compilation->Publish(std::move(Native));
+			Entry->Compilation->Publish(std::move(Native), Closed);
 		}
 		auto AbandonDrain() -> void
 		{
 			std::deque<std::shared_ptr<FEntry>> Abandoned;
 			{
 				std::lock_guard Lock(Mutex);
-				Lifetime->Closed.store(true);
+				Closed.store(true);
 				Abandoned.swap(Queue);
 				Statistics.UnfinishedRequests = 0;
 				Statistics.UnfinishedDescriptionBytes = 0;
@@ -331,13 +313,12 @@ namespace Durin
 
 		FRHICapabilities Capabilities;
 		FBackend Backend;
-		std::shared_ptr<FRequestLifetime> Lifetime = std::make_shared<FRequestLifetime>();
-		std::weak_ptr<const void> SchedulerLifetime = Private::GetTaskSchedulerLifetime();
+		std::atomic<bool> Closed = false;
+		FRHIPipelineMetadataTracker Metadata;
 		Tasks::TTask<void> LastDrain;
 		mutable std::mutex Mutex;
 		// Shared compilation cache, not a per-caller registry. Weak entries retain
 		// no descriptors or native results; hash matches also compare the full key.
-		// Device exit retires results held by surviving shared states.
 		std::unordered_multimap<size_t, std::weak_ptr<FCompilation>> Compilations;
 		std::deque<std::shared_ptr<FEntry>> Queue;
 		FRHIPipelineCreationStatistics Statistics;
@@ -350,11 +331,11 @@ namespace Durin
 		: State(std::make_unique<FState>(Capabilities, std::move(Backend)))
 	{}
 	auto FPipelineCompileQueue::ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>
-	{ return State->Backend.ReserveMetadata ? State->Backend.ReserveMetadata(Bytes) : State->Lifetime->Metadata.Reserve(Bytes); }
-	FPipelineCompileQueue::~FPipelineCompileQueue() { ReleaseResources(); }
+	{ return State->Backend.ReserveMetadata ? State->Backend.ReserveMetadata(Bytes) : State->Metadata.Reserve(Bytes); }
+	FPipelineCompileQueue::~FPipelineCompileQueue() { Shutdown(); }
 	auto FPipelineCompileQueue::IsClosed() const -> bool
 	{
-		return State->Lifetime->Closed.load();
+		return State->Closed.load();
 	}
 	auto FPipelineCompileQueue::RequestGraphicsBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items)
 		-> FRHIPipelineCreationBatch
@@ -401,14 +382,14 @@ namespace Durin
 		std::lock_guard Lock(State->Mutex);
 		return State->Statistics;
 	}
-	auto FPipelineCompileQueue::StopAndWait() -> void
+	auto FPipelineCompileQueue::Shutdown() -> void
 	{
 		std::lock_guard CloseLock(State->CloseMutex);
 		if (State->WorkJoined) return;
 		std::deque<std::shared_ptr<FState::FEntry>> Abandoned;
 		{
 			std::lock_guard Lock(State->Mutex);
-			State->Lifetime->Closed.store(true);
+			State->Closed.store(true);
 			Abandoned.swap(State->Queue);
 			for (const auto& Entry : Abandoned)
 			{
@@ -424,13 +405,5 @@ namespace Durin
 			requiref(bJoined, "Pipeline creation work could not join.");
 		}
 		State->WorkJoined = true;
-	}
-	auto FPipelineCompileQueue::ReleaseResources() -> void
-	{
-		StopAndWait();
-		std::lock_guard CloseLock(State->CloseMutex);
-		for (auto& [Key, Weak] : State->Compilations)
-			if (auto Compilation = Weak.lock()) Compilation->Retire();
-		State->Compilations.clear();
 	}
 }

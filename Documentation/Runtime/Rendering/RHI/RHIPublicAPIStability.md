@@ -4,7 +4,7 @@ Summary: Define the source and semantic stability boundary of public RHI headers
 
 Modules: RHI, RenderCore, ShaderFormat, VulkanRHI, MetalRHI
 
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-19
 
 ## Directory Contract
 
@@ -112,9 +112,10 @@ Backend seam. Equal live keys share one state and completion event. Successful
 CPU event completion means compilation settled, not that it succeeded or the GPU
 finished. Read-only state observations retain no native resources.
 
-Dropping a reference never cancels compilation. StopAndWait closes acquisition,
+Dropping a reference never cancels compilation. Cache shutdown closes acquisition,
 settles queued work, and joins active compilation and drain capture retirement.
-Resource retirement then clears native results in surviving identities. The shared
+PSO owners release their references before backend teardown. Only CPU metadata
+may outlive the device. The shared
 outcome and native result publish before terminal subscribers are notified;
 active compilation signals only after its native call returns. Task/event
 composition follows the [Core task API](../../Core/TaskSystem.md#composition).

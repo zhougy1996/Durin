@@ -4,7 +4,7 @@ Summary: Scene-owned Sky Lights consume ordinary HDR cubes or capture a bounded 
 
 Modules: Engine, Renderer, RenderCore, VulkanRHI, MetalRHI, TextureCompressor, DurinEd, Launch
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-19
 
 ## Authoring and source selection
 
@@ -100,10 +100,10 @@ Optional GPU timing queries do not control admission or publication.
 Published generations replaced or removed by an authority change enter the
 renderer's retirement collection with a new ordered marker covering all prior
 views. Terminal failed jobs enter that same collection with their original
-completion point. Job failure is not permission to reclaim native resources:
-leases remain until RHI retirement eligibility or replacement of the actual
-physical RHI device. Renderer shutdown explicitly drains the physical GPU
-before releasing the remaining retirement leases, including failed submissions.
+completion point. At runtime the collection releases each lease when its GPU completion point
+becomes eligible for retirement. Renderer shutdown drains the active GPU before
+releasing remaining leases, including failed submissions. The host completes
+Renderer shutdown before RHI exit destroys the device.
 An empty collection does not require a GPU wait. Renderer shader/device/manual generations express logical
 validity only and never authorize physical retirement. Logical invalidation
 moves old jobs and results into the same retirement queue and keeps their weak

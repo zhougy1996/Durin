@@ -106,7 +106,7 @@ namespace Durin
 
 	FRHIPipelineStateCache::FRHIPipelineStateCache(const FRHICapabilities& Capabilities, FRHIPipelineCompileBackend Backend)
 		: State(std::make_unique<FState>(Capabilities, std::move(Backend))) {}
-	FRHIPipelineStateCache::~FRHIPipelineStateCache() { ReleaseResources(); }
+	FRHIPipelineStateCache::~FRHIPipelineStateCache() { Shutdown(); }
 	auto FRHIPipelineStateCache::GetGraphics(const FGraphicsPipelineStateInitializer& Initializer, std::string_view Name)
 		-> FGraphicsPipelineStateRef
 	{
@@ -134,24 +134,14 @@ namespace Durin
 		return Cache.State->Get(Initializer, Name, [&] { return std::optional{std::move(Key)}; });
 	}
 
-	auto FRHIPipelineStateCache::StopAndWait() -> void
+	auto FRHIPipelineStateCache::Shutdown() -> void
 	{
 		{
 			std::lock_guard Lock(State->Mutex);
 			State->Closed = true;
 			State->Entries.clear();
 		}
-		State->Queue.StopAndWait();
-	}
-	auto FRHIPipelineStateCache::ReleaseResources() -> void
-	{
-		StopAndWait();
-		State->Queue.ReleaseResources();
-	}
-	auto FRHIPipelineStateCache::IsClosed() const -> bool
-	{
-		std::lock_guard Lock(State->Mutex);
-		return State->Closed || State->Queue.IsClosed();
+		State->Queue.Shutdown();
 	}
 	auto FRHIPipelineStateCache::GetStatistics() const -> FRHIPipelineCreationStatistics
 	{ return State->Queue.GetStatistics(); }

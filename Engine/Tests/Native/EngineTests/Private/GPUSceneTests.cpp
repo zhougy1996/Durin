@@ -154,8 +154,7 @@ namespace
                 Queues.bIndependentCompute = true; Queues.Compute = {1};
                 Queues.Queues.push_back({.Id = {1}, .OwnershipDomain = 1, .bCompute = true});
             }
-			FRHIPipelineStateCache* PipelineCache = nullptr;
-			auto RHIGetPipelineStateCache() -> FRHIPipelineStateCache* override { return PipelineCache; }
+			using FDynamicRHI::InitializePipelineStateCache;
 			~FGPUSceneTestRHI() override { ClearCapabilities(); }
 			auto Init(const FRHIInitializationContext&) -> void override {}
 			auto Shutdown() -> void override {}
@@ -222,6 +221,7 @@ namespace
 			FlushRenderingCommands();
 			GDynamicRHI = Previous;
 			ShutdownRenderingThread();
+			if (auto* Cache = RHI.RHIGetPipelineStateCache()) Cache->Shutdown();
 			if (bStartedScheduler) ShutdownTaskScheduler();
 		}
 		auto Add(uint64 Id, std::shared_ptr<const FInstanceSceneDataBuffers> Source = {}) -> FSnapshotProxy*
@@ -726,9 +726,7 @@ namespace
         };
         auto Capabilities = *RHI.RHIGetCapabilities();
         Capabilities.MaxColorAttachments = 1;
-        FRHIPipelineStateCache Cache(Capabilities, std::move(CompileBackend));
-        RHI.PipelineCache = &Cache;
-        struct FCacheGuard { FGPUSceneTestRHI& RHI; ~FCacheGuard() { RHI.PipelineCache = nullptr; } } CacheGuard{RHI};
+        RHI.InitializePipelineStateCache(Capabilities, std::move(CompileBackend));
         FGraphicsPipelineStateInitializer Description;
         const auto VertexShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
         const auto FragmentShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Fragment, FXxHash128{}));

@@ -359,56 +359,6 @@ namespace Durin
 		return Serial;
 	}
 
-	auto FRHIThread::EnqueueTerminal(FRHIThreadWork& Work)
-		-> uint64
-	{
-		if (IsInRHIThread())
-		{
-			std::lock_guard Lock(State->Mutex);
-			++State->RejectedWorkCount;
-			RHITerminateOnFailure("RHI queue", "SelfEnqueue");
-		}
-		if (!Work.Execute || Work.BatchCount != 0 || Work.PayloadBytes != 0 || Work.FrameCount != 0)
-		{
-			std::lock_guard Lock(State->Mutex);
-			++State->RejectedWorkCount;
-			RHITerminateOnFailure("RHI queue", "InvalidWork");
-		}
-
-		std::lock_guard Lock(State->Mutex);
-		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
-		{
-			++State->RejectedWorkCount;
-			return 0;
-		}
-		if (State->LastSubmittedSerial == std::numeric_limits<uint64>::max())
-		{
-			++State->RejectedWorkCount;
-			RHITerminateOnFailure("RHI queue", "SerialExhausted");
-		}
-
-		State->AdmissionState = ERHIThreadAdmissionState::Draining;
-		DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Enqueue.Admit");
-		const uint64 Serial = ++State->LastSubmittedSerial;
-		DURIN_PROFILE_CPU_ZONE_TEXT(std::format("serial={} queuedEntries={} batches={} payloadBytes={}", Serial, State->Queue.size(), Work.BatchCount, Work.PayloadBytes));
-		++State->OutstandingEntryCount;
-		State->OutstandingBatchCount += Work.BatchCount;
-		State->OutstandingFrameCount += Work.FrameCount;
-		State->PeakOutstandingFrameCount = std::max(State->PeakOutstandingFrameCount, State->OutstandingFrameCount);
-		State->OutstandingPayloadBytes += Work.PayloadBytes;
-		State->PeakOutstandingEntryCount = std::max(
-			State->PeakOutstandingEntryCount, State->OutstandingEntryCount);
-		State->PeakOutstandingBatchCount = std::max(
-			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
-		State->PeakOutstandingPayloadBytes = std::max(
-			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
-		State->Queue.push_back({Serial, std::move(Work)});
-		Work = {};
-		State->WorkCV.notify_all();
-		State->CompletionCV.notify_all();
-		return Serial;
-	}
-
 	auto FRHIThread::EnqueueSynchronous(FRHIThreadWork& Work) -> bool
 	{
 		const uint64 Serial = Enqueue(Work);

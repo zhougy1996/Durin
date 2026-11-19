@@ -4,7 +4,7 @@ Summary: Define asynchronous Renderer readiness, asset/shader preparation errors
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-19
 
 ## Required-Success Native Construction
 
@@ -103,28 +103,27 @@ universal create-and-wait wrapper remains removed.
 
 ## Internal Pipeline Compilation
 
-Each logical device owns one `FRHIPipelineStateCache`; `FDynamicRHI` exposes only
-backend forwarding hooks. Vulkan stores the cache in `FVulkanDevice` alongside
-its native pipeline manager and driver cache. Cache acquisition and precaching
+During device initialization, a backend publishes its capabilities and supplies
+native creation callbacks. Hosts running the Core task scheduler at this point
+create one compilation cache and queue for the device. Core owns the worker
+threads and stays running until RHI exit completes. Vulkan owns the native pipeline manager
+and driver cache. Cache acquisition and precaching
 copy immutable descriptions, names, and strong shader/declaration references
 before returning. Public drawing and preparation do not submit raw creation
 requests. Backend hooks supply native lookup and creation callbacks through
 `FRHIPipelineCompileBackend`; creation callbacks call the native manager directly,
 never the public cache or a synchronous compatibility factory.
 
-The device stops cache admission even when no cache has been demanded. It joins
-compilation before native managers are destroyed and retires published results
-through the two-phase RHI shutdown boundary. `StopAndWait()` closes admission and
-joins compilation while preserving Ready results; `ReleaseResources()` ensures
-compilation has stopped and invalidates native results in surviving identities.
-Both operations are idempotent; a completed stop does not wait on Core again.
-Device destruction moves the cache out under its ownership mutex and releases
-and destroys it outside that mutex, before native managers are destroyed;
-a replacement device starts with fresh admission state and a new capability
-snapshot. Surviving old identities expose terminal metadata without native PSOs.
+After pipeline producers stop, RHI exit closes the cache. Cache shutdown
+cancels queued compilation and joins active creators. Owners release their PSO
+references and accepted command lists drain before the backend destroys the
+device. CPU outcome observations and immutable layout metadata can outlive RHI
+exit. Completed compilation outcomes remain stable. A replacement device starts
+with a fresh cache and capability snapshot.
 
-The cache owns a private `FPipelineCompileQueue`, with one Worker drain task,
-a queue, and one active native creator. Valid requests are not rejected by
+The cache constructs its private `FPipelineCompileQueue` during initialization.
+When compilation is needed, the queue submits a drain task to the existing Core
+worker pool. Only one native creator runs at a time. Valid requests are not rejected by
 artificial request-count, description-size, or metadata-budget limits.
 Each live key shares one compilation state, priority, result, and completion
 event. The queue retains unfinished work independently of caller handles; dropping
@@ -165,15 +164,12 @@ release delegates, replay shutdown, or native cache persistence/destruction.
 Queued compilations settle Canceled; active compilation completes its event only
 after its native call returns, and cannot publish a usable result into a closed
 device generation. In-flight creator captures are joined separately before
-teardown. Old request/completion handles may
-survive shutdown. `StopAndWait()` first preserves Ready publications for already
-accepted command consumers; after replay drains, `ReleaseResources()` releases
-those RHI references and a second retirement flush precedes native teardown.
+teardown. Commands retain ready PSOs through replay.
 Immutable request layout aliases remain valid after backend module unload;
 their metadata accounting and deleter are owned by RHI, not the Vulkan module.
 Callers must still release explicit RHI references copied out of a Ready result
-before device destruction. The owning shutdown thread performs stop and release;
-creation callbacks must never attempt to close their own compile queue.
+before device destruction. The RHI lifecycle owner joins compilation outside the
+cache ownership mutex so creator callbacks can finish.
 
 ## Pipeline Cache And Binding
 
@@ -199,8 +195,7 @@ terminal. Completion tasks, typed native accessors, executor wait preflight, and
 objects hide compilation storage behind an incomplete type.
 `GetStateObservation()` returns read-only outcome metadata without atomic storage,
 native ownership, or a completion task. It is not proof of GPU completion.
-Dropping a state reference never cancels shared compilation. Device closure and
-retirement preserve Canceled semantics and native lifetime protection.
+Dropping a state reference never cancels shared compilation. Shutdown cancels work that has yet to publish a result.
 
 The device-owned PipelineStateCache has a weak table without a live-identity cap. Keys and
 identity metadata participate in device metadata accounting; shared
@@ -209,9 +204,7 @@ reservations are released when compilation finishes; retained shared states pay
 for one key and compilation identity regardless of handle count. The private
 compilation cache stores hashes and weak state references, compares full keys on
 hash matches, and prunes expired entries on cold acquisition. It retains no
-descriptors or native results after the last shared state is released. Device
-retirement visits live shared cache entries to clear their native results while
-preserving immutable layout metadata. Acquisition prunes expired public cache
+descriptors or native results after the last shared state is released. Acquisition prunes expired public cache
 identities every 60 seconds; no metadata-pressure retry path is required.
 
 At frame begin, Vulkan retains at most 64 cache-only graphics and 64 cache-only
@@ -226,8 +219,7 @@ mutexes; it creates no admission thread, future, or cross-thread handoff. Native
 creation remains on the existing Worker drain. Cache closure closes acquisition
 under the cache mutex, then delegates the idempotent compilation join to its
 private queue. The queue owns shutdown serialization and joins its last drain,
-including earlier compiler capture retirement. Native results retire through the
-existing two-phase shutdown boundary.
+including earlier compiler capture retirement.
 
 Drawing binds an explicit typed pipeline state through the command-list overload,
 which records its internal compilation dependency. Command-list overloads accept

@@ -206,8 +206,8 @@ pass. Debug builds reject live resources and pending cleanup at their owning
 boundary, while non-Debug builds execute the same drains and shutdown calls.
 Control-flow side effects never belong inside `check` or `checkf`.
 
-Render-command admission, accepted-command drain, RHI deferred deletion, the
-terminal backend marker, and thread-stop diagnostics are defined by
+Render-command admission, accepted-command drain, RHI deferred deletion, and
+thread-stop diagnostics are defined by
 [RHI Command Execution](../RHI/RHICommandExecution.md).
 
 ## Related Documentation

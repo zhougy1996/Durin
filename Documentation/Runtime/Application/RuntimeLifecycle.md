@@ -501,7 +501,7 @@ shutdown order directly:
 | Shut down modules | Call module Shutdown in reverse Startup-completion order after object cleanup; keep task executors and render/RHI threads available for module-owned waits. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
 | Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
-| Stop RHI | Atomically install backend shutdown with RHI admission `Draining`, wait its exact serial, then stop and join the RHI thread. |
+| Stop RHI | Flush recorded commands, stop and join the RHI thread, then drain deferred resources and shut down the backend inline on the game thread. |
 | Stop CPU work | After render/RHI teardown, shut down both CPU and blocking-I/O pools through the process [task system](../Core/TaskSystem.md) in `Drain` mode. Keep task-event admission open until all render fences have retired. |
 | Close the application | Shut down the platform application and publish successful process termination. |
 
@@ -558,8 +558,8 @@ opting in. `FModuleManager` does not supply that protocol.
 Generic RenderCore resource state, deferred C++ cleanup, producer teardown, and
 registry auditing are defined by
 [Render Resource Lifecycle](../Rendering/Pipeline/RenderResourceLifecycle.md).
-Render-command admission, accepted-work drain, RHI deferred deletion, the
-terminal backend marker, and render/RHI thread shutdown are defined by
+Render-command admission, accepted-work drain, RHI deferred deletion, and
+render/RHI thread shutdown are defined by
 [RHI Command Execution](../Rendering/RHI/RHICommandExecution.md). This document
 owns their placement relative to object and module teardown through the exit
 protocol above.
