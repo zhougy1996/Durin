@@ -652,7 +652,6 @@ namespace Durin
 		FRDGPassResources(const FRDGPassResources&) = delete;
 		auto operator=(const FRDGPassResources&) -> FRDGPassResources& = delete;
 		RENDERCORE_API auto GetTextureViewCache(FRDGTextureHandle Handle) const -> FRHITextureViewCache&;
-		RENDERCORE_API auto GetBufferViewCache(FRDGBufferHandle Handle) const -> FRHIBufferViewCache&;
 		RENDERCORE_API auto GetTexture(FRDGTextureHandle Handle) const -> FRHITexture*;
 		RENDERCORE_API auto GetBuffer(FRDGBufferHandle Handle) const -> FRHIBuffer*;
 		template<typename T>
@@ -764,7 +763,6 @@ namespace Durin
 			FRDGDepthStencilAttachmentParameter>& Parameter) const
 			-> FRDGAttachmentView;
 		auto GetTextureViewCache(FRDGTextureHandle Handle) const -> FRHITextureViewCache& { return Resources.GetTextureViewCache(Handle); }
-		auto GetBufferViewCache(FRDGBufferHandle Handle) const -> FRHIBufferViewCache& { return Resources.GetBufferViewCache(Handle); }
 		auto GetPassName() const -> std::string_view { return PassName; }
 		auto GetPassType() const -> ERDGPassType { return PassType; }
 		template<CRDGParameters ParameterStruct>

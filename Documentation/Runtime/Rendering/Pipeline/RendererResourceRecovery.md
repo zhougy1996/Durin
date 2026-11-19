@@ -159,25 +159,17 @@ Descriptor-set layouts and render passes are interned until device teardown,
 without artificial live-object count limits. Accounting is logical CPU metadata,
 not an allocator/driver memory measurement.
 
-`RHIExit` closes request admission and joins the device-owned drain task before
-release delegates, replay shutdown, or native cache persistence/destruction.
-Queued compilations settle Canceled; active compilation completes its event only
-after its native call returns, and cannot publish a usable result into a closed
-device generation. In-flight creator captures are joined separately before
-teardown. Commands retain ready PSOs through replay.
-Immutable request layout aliases remain valid after backend module unload;
-their metadata accounting and deleter are owned by RHI, not the Vulkan module.
-Callers must still release explicit RHI references copied out of a Ready result
-before device destruction. The RHI lifecycle owner joins compilation outside the
-cache ownership mutex so creator callbacks can finish.
+`RHIExit` closes the PSO cache and joins compilation before broadcasting
+resource release. After replay is flushed and the RHI thread is joined, it
+destroys the cache and drains deferred resource deletion in inline mode before
+backend shutdown. Release explicit native PSO references before device teardown.
 
 ## Pipeline Cache And Binding
 
 `PipelineStateCache.h` separates typed `FGraphicsPipelineState` and
 `FComputePipelineState` cache identities from complete native RHI PSOs.
 `PipelineStateCache::GetAndOrCreate*PipelineState` and `Precache*PipelineState`
-return the same shared identity for an equal normalized key while an owner or
-recorded command retains it. Names are diagnostic only. Ordinary acquisition
+share a live state for equal graphics initializers or equal compute keys. Names are diagnostic only. Ordinary acquisition
 returns a typed reference and must succeed; unavailable acquisition is fatal.
 Like UE, ordinary acquisition receives the recording command list and attaches
 the internal compilation dependency there. Native compilation may still be Pending;
@@ -197,15 +189,9 @@ objects hide compilation storage behind an incomplete type.
 native ownership, or a completion task. It is not proof of GPU completion.
 Dropping a state reference never cancels shared compilation. Shutdown cancels work that has yet to publish a result.
 
-The device-owned PipelineStateCache has a weak table without a live-identity cap. Keys and
-identity metadata participate in device metadata accounting; shared
-descriptions are charged only by their RHI owner. Unfinished initializer/name
-reservations are released when compilation finishes; retained shared states pay
-for one key and compilation identity regardless of handle count. The private
-compilation cache stores hashes and weak state references, compares full keys on
-hash matches, and prunes expired entries on cold acquisition. It retains no
-descriptors or native results after the last shared state is released. Acquisition prunes expired public cache
-identities every 60 seconds; no metadata-pressure retry path is required.
+The device-owned cache keeps weak pipeline states and periodically prunes
+expired entries during acquisition. Recorded commands keep their pipeline
+state alive through replay.
 
 At frame begin, Vulkan retains at most 64 cache-only graphics and 64 cache-only
 compute PSOs, evicting older entries first. This periodic trim preserves externally

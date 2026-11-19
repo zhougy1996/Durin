@@ -852,26 +852,6 @@ namespace Durin
 			EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
 				Before);
 
-			FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
-				RHICmdList,
-				FRHIBufferCreateDesc::Create(
-					"AutomaticBufferViewReuse", 256, 0,
-					EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic));
-			ASSERT_TRUE(Buffer);
-			const FRHIBufferViewDesc BufferDesc = MakeDefaultBufferViewDesc(
-				*Buffer, ERHIBufferViewType::Uniform);
-			const uint64 BeforeBuffer =
-				GCommandListExecutor.GetStats().SynchronousOperationCount;
-			FRHIBufferViewCache BufferViews;
-			FBufferViewRHIRef FirstBufferView =
-				BufferViews.GetOrCreate(Buffer, BufferDesc);
-			FBufferViewRHIRef SecondBufferView =
-				BufferViews.GetOrCreate(Buffer, BufferDesc);
-			ASSERT_TRUE(FirstBufferView);
-			EXPECT_EQ(SecondBufferView.GetReference(), FirstBufferView.GetReference());
-			EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
-				BeforeBuffer);
-
 			FTextureViewRHIRef ExplicitFirst = GDynamicRHI->RHICreateTextureView(
 				Texture, SampledDesc);
 			FTextureViewRHIRef ExplicitSecond = GDynamicRHI->RHICreateTextureView(

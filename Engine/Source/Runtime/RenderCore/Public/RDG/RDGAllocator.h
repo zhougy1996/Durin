@@ -95,8 +95,7 @@ namespace Durin
 			std::shared_ptr<FRHITextureViewCache> Views = {}) -> bool;
 		auto SetBuffer(uint32 ResourceId, FBufferRHIRef Buffer,
 			uint64 AllocationId = 0,
-			std::string_view Disposition = "allocated", uint32 AliasSourceId = UINT32_MAX,
-			std::shared_ptr<FRHIBufferViewCache> Views = {}) -> bool;
+			std::string_view Disposition = "allocated", uint32 AliasSourceId = UINT32_MAX) -> bool;
 		auto SetStatistics(const FRDGAllocationStatistics& InStatistics) -> void
 		{
 			Statistics = InStatistics;
@@ -108,7 +107,6 @@ namespace Durin
 		std::vector<FTextureRHIRef> Textures;
 		std::vector<std::shared_ptr<FRHITextureViewCache>> TextureViews;
 		std::vector<FBufferRHIRef> Buffers;
-		std::vector<std::shared_ptr<FRHIBufferViewCache>> BufferViews;
 		std::vector<uint64> AllocationIds;
 		std::vector<uint32> AliasSources;
 		std::vector<std::string> AllocationDispositions;

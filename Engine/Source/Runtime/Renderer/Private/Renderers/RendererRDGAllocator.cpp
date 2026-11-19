@@ -130,24 +130,27 @@ namespace Durin
 	struct FRendererRDGAllocator::FState
 	{
 		template<typename Descriptor, typename Resource>
-		struct TEntry final
+		struct TEntry
 		{
 			Descriptor Key;
 			Resource Physical;
-			using FViewCache = std::conditional_t<std::is_same_v<Resource, FTextureRHIRef>, FRHITextureViewCache, FRHIBufferViewCache>;
-			std::shared_ptr<FViewCache> Views = std::make_shared<FViewCache>();
 			std::shared_ptr<const FRDGAllocationRetirement> Retirement;
 			uint64 Sequence = 0;
 			uint64 LogicalBytes = 0;
 			uint32 ObservationTag = 0;
 		};
 
+		struct FTextureEntry final : TEntry<FTextureDescriptorKey, FTextureRHIRef>
+		{
+			std::shared_ptr<FRHITextureViewCache> Views = std::make_shared<FRHITextureViewCache>();
+		};
+
 		// Stable compaction preserves sequence order. All indices are rebuilt once
 		// after compaction; ordered bucket members preserve allocation order.
-		template<typename Descriptor, typename Resource>
+		template<typename Descriptor, typename EntryType>
 		struct TPool final
 		{
-			using FEntry = TEntry<Descriptor, Resource>;
+			using FEntry = EntryType;
 			struct FBucket final
 			{
 				std::set<size_t> Physical;
@@ -203,8 +206,8 @@ namespace Durin
 				return &Entries.back();
 			}
 		};
-		TPool<FTextureDescriptorKey, FTextureRHIRef> Textures;
-		TPool<FBufferDescriptorKey, FBufferRHIRef> Buffers;
+		TPool<FTextureDescriptorKey, FTextureEntry> Textures;
+		TPool<FBufferDescriptorKey, TEntry<FBufferDescriptorKey, FBufferRHIRef>> Buffers;
 		std::optional<uint64> DeviceGeneration;
 		uint64 NextSequence = 0;
 		uint64 PeakActiveBytes = 0;
@@ -321,7 +324,6 @@ namespace Durin
 			FTextureRHIRef Texture;
 			FBufferRHIRef Buffer;
 			std::shared_ptr<FRHITextureViewCache> TextureViews;
-			std::shared_ptr<FRHIBufferViewCache> BufferViews;
 			uint64 AllocationId = 0;
 			bool bReuseHit = false;
 			bool bExtracted = false;
@@ -479,10 +481,13 @@ namespace Durin
 			else ++State->ReuseMisses;
 			if (!It)
 			{
-				auto Physical = CreatePhysical();
-				It = Entries.Add(typename std::remove_reference_t<decltype(Entries)>::FEntry{
-					.Key = Key, .Physical = std::move(Physical), .Sequence = State->NextSequence++,
-					.LogicalBytes = LogicalBytes, .ObservationTag = Request.ObservationTag});
+				typename std::remove_reference_t<decltype(Entries)>::FEntry Entry;
+				Entry.Key = Key;
+				Entry.Physical = CreatePhysical();
+				Entry.Sequence = State->NextSequence++;
+				Entry.LogicalBytes = LogicalBytes;
+				Entry.ObservationTag = Request.ObservationTag;
+				It = Entries.Add(std::move(Entry));
 				State->RetainedBytes = AddSaturated(
 					State->RetainedBytes, It->LogicalBytes);
 				++State->RetainedResources;
@@ -560,7 +565,6 @@ namespace Durin
 					},
 					[](FCandidate& OutCandidate, const auto& Entry) {
 						OutCandidate.Buffer = Entry.Physical;
-						OutCandidate.BufferViews = Entry.Views;
 					}, Candidate);
 			}
 			else return Fail(ERDGAllocationError::AllocationKindInvalid,
@@ -579,7 +583,7 @@ namespace Durin
 					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId, std::move(Candidate.TextureViews))
 				: Published.SetBuffer(Candidate.ResourceId,
 					std::move(Candidate.Buffer), Candidate.AllocationId,
-					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId, std::move(Candidate.BufferViews));
+					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId);
 			if (!bPublished)
 				return Fail(ERDGAllocationError::AllocationPublicationFailed,
 					Candidate.ResourceId);

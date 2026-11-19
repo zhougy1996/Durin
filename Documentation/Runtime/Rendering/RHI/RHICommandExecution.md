@@ -307,18 +307,9 @@ on the RHI thread. The normal `ExecuteSynchronousOperation` surface is terminal:
 a waiter always targets the exact accepted serial, and operation failure or
 admission rejection never falls back to producer-thread backend work.
 
-Command recording canonicalizes raw buffer and texture shader parameters and
-implicit render-pass attachments into immutable views. RDG pool entries own
-`FRHITextureViewCache` or `FRHIBufferViewCache` and reuse views with matching
-descriptions across executions. A graph execution owns the cache for an import
-or transient alias without a pool owner. Explicit `RHICreate*View` calls create
-counted views. Recorded commands retain the views they use until replay.
-Graph raster callbacks lower their frozen attachment declarations with
-`MakeRDGNativeAttachmentBinding`, retaining the view owners until `BeginRenderPass`
-records its own references. Native color/depth binding validates the full declared
-layout. Forward, bootstrap, deferred, retained and sorted-translucency pipeline
-layouts use the same graph-boundary policy; they leave attachments in attachment
-access and rely on RDG for subsequent sampled transitions.
+Recorded commands retain their bound resources and explicit views until replay.
+RDG records graph-boundary attachments in attachment access and inserts the
+transitions required by later consumers. See [binding and attachment ownership](RHIResourceViewsAndTransfers.md#binding-and-attachment-ownership).
 
 The Vulkan swapchain selects the acquired image's native view during RHI
 replay. Its lifetime and surface-loss behavior are described in

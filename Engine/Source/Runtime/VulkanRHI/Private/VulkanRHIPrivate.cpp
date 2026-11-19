@@ -326,9 +326,4 @@ namespace Durin::VulkanRHI
 			return vk::BorderColor::eFloatTransparentBlack;
 		}
 	}
-
-	std::atomic<uint64> GVulkanBufferHandleIdCounter = 0;
-	std::atomic<uint64> GVulkanBufferViewHandleIdCounter = 0;
-	std::atomic<uint64> GVulkanImageViewHandleIdCounter = 0;
-	std::atomic<uint64> GVulkanSamplerHandleIdCounter = 0;
 } // namespace Durin::VulkanRHI

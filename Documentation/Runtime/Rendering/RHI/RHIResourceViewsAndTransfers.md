@@ -1,6 +1,6 @@
 # RHI Resource Views and Transfers
 
-Summary: Define counted resource-range views, canonical binding and attachment
+Summary: Define explicit resource views, shader ranges and attachment
 lowering, validated recorded copies and asynchronous GPU readback shared by RHI backends.
 
 Modules: RHI, RenderCore, VulkanRHI, MetalRHI
@@ -14,9 +14,7 @@ class or rendering readback is required. The scene-level policy is specified in
 ## Counted View Contract
 
 `FRHIBufferView` and `FRHITextureView` are immutable counted RHI resources.
-Each view retains its parent resource and publishes its exact description, so
-command payloads, descriptor state, and framebuffer-cache entries never rely
-on a parent outliving a raw native view handle.
+Each explicit view retains its parent and identifies a fixed subresource range.
 
 A buffer view selects a byte offset and size. Uniform and storage ranges are
 unformatted; formatted-buffer views additionally name a pixel format and
@@ -31,11 +29,8 @@ sample count, cube face grouping, usage, and format reinterpretation. The
 current backend supports 2D and cube identities selected by the published
 texture capability contract.
 
-Default view descriptors are deterministic lowering helpers for a whole
-resource; they do not add implicit range semantics. View factories are
-fallible and publish a complete counted view or null. Vulkan creates a native
-buffer view only for formatted buffers and an exact native image view for each
-texture description. Native view destruction uses the deferred deletion path.
+Vulkan allocates a native buffer view for formatted buffers. Native views are
+retired through deferred deletion.
 
 ## Experimental Transient Aliasing
 
@@ -92,7 +87,7 @@ Initial data in a native creation descriptor uses the native initialization
 path; callers cannot rely on discarding an initialization command list while
 retaining its initialized contents.
 
-Ordinary buffer bindings name the retained resource and view. Updating that
+Ordinary buffer bindings retain the buffer and select a byte range. Updating that
 resource does not preserve earlier bound contents: visibility follows ordered
 GPU writes, transitions, and submission dependencies. Callers requiring both
 old and new contents create distinct buffers and retain them through GPU
@@ -137,8 +132,7 @@ before recording the ordinary RHI parameter command. Direct resources use
 `INDEX_NONE_U32`. The index describes layout membership, not binding identity.
 
 Material texture members can name a concrete fallback member. Recording resolves
-TextureReference targets, including null-to-fallback, before acquiring counted
-native views. Changing a target never rewrites previously recorded commands.
+TextureReference targets, including null-to-fallback, before retaining the selected texture. Changing a target never rewrites previously recorded commands.
 Typed Uniform members can reference other Uniforms, such as Scene Collections;
 updates reject ownership cycles by checking the actual resource references, without
 maintaining a dependency registry. Untyped legacy sidecar references cannot contain
@@ -146,9 +140,9 @@ Uniforms. These are actual Uniform resource owners, not prepared binding packets
 
 `FRHIUniformBufferRange` represents a typed uniform resource or a native buffer
 range. `CreateUniformBufferRange` supplies counted ownership across preparation
-and recording lists. Native buffer ranges are canonicalized into counted native
-views through backend factories and caches. Range and offset validation uses
-active-device limits. There is no logical Storage view creation path.
+and recording lists. Native buffer bindings carry the backing buffer, byte offset
+and size. A logical uniform selects its physical allocation during bind replay.
+
 Vulkan uniform allocation ownership follows
 [the memory contract](VulkanMemoryAndGPUCompletion.md#logical-uniform-allocations).
 
@@ -170,24 +164,18 @@ runs alone.
 
 ## Binding and Attachment Ownership
 
-Shader-parameter recording accepts the compatibility scalar resource form but
-canonicalizes every buffer or texture binding into a counted view before the
-command is retained. Explicit caller ranges become exact buffer views; scalar
-textures and whole-buffer bindings use canonical default descriptions.
-Vulkan descriptor writes consume the retained Vulkan view object rather than
-reconstructing a native range from a raw resource.
-Sampled and storage descriptors validate that exact retained range against the
-authoritative texture state tracker before either cache reuse or a native
-descriptor write. A dual-use sampled/storage texture remains legal, but it
-must explicitly transition between graphics shader read and graphics shader
-read/write access; creation flags do not stand in for current state.
+Recording retains each bound buffer, texture, sampler or explicit view through
+replay. Ordinary buffer descriptors use the backing buffer and byte range.
+Dynamic uniform offsets are applied at bind time and excluded from descriptor
+identity. An ordinary texture uses its default shader view. An explicit texture
+view selects its own mip, layer and aspect range. The selected range must be in
+the access state required by the shader binding.
 
-Render-pass descriptions carry attachment resources and their selected counted
-views together. Recording canonicalizes missing attachment views, retains the
-exact views through replay, and the framebuffer cache retains the same view
-identity for its lifetime. A texture object does not own a backend-wide default
-image view. Framebuffer-held views are released before the final RHI resource
-and Vulkan allocation drains during shutdown.
+A bare render-pass attachment selects mip zero and layer zero. RDG resolves
+explicit attachment ranges through the texture backing's view cache. A pooled
+texture keeps that cache across executions. Vulkan selects the acquired
+swapchain image's attachment view on replay and matches framebuffers by their
+native attachments.
 
 ## Portable Copy Contract
 

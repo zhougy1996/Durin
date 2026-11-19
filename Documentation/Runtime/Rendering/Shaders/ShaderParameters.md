@@ -4,7 +4,7 @@ Summary: Define compiler-owned resource allocation, typed binding and graph/RHI 
 
 Modules: RHI, RenderCore
 
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-19
 
 ## High-Level Flow
 
@@ -126,7 +126,6 @@ packing, draw parameters and retirement belong to [GPUScene](../Scene/GPUScene.m
 Graphics/compute updates must target shaders owned by the active pipeline.
 Every reflected descriptor element is required before draw/dispatch.
 
-RHI canonicalizes and retains exact buffer/texture views and parent resources.
 Vulkan merges snapshots by `(SetIndex, BindingIndex, ArrayElement)`; Metal consumes
 the compiler-agreed compact map. Native indices do not become portable resource
 roles. See [binding snapshots](../RHI/GraphicsStateAndBindings.md) and

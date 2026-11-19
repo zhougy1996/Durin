@@ -1239,7 +1239,7 @@ namespace Durin
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, SceneUniform));
 	}
 
-	TEST_F(FShaderFoundationTests, PreparedTypedDeferredRangesKeepLogicalViews)
+	TEST_F(FShaderFoundationTests, PreparedBufferRangesRetainTheirResourcesAndOffsets)
 	{
 		struct FParameters
 		{

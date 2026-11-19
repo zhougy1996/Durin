@@ -13,11 +13,11 @@ namespace Durin::VulkanRHI
 	FVulkanBufferView::FVulkanBufferView(
 		FVulkanDevice& InDevice,
 		FRHIBuffer* InBuffer,
-		const FRHIBufferViewDesc& InDesc, vk::Result* OutResult)
+		const FRHIBufferViewDesc& InDesc, vk::Result& OutResult)
 		: FRHIBufferView(InBuffer, InDesc), Device(InDevice)
 	{
 		require(InBuffer);
-		if (OutResult) *OutResult = vk::Result::eSuccess;
+		OutResult = vk::Result::eSuccess;
 		if (InDesc.Type != ERHIBufferViewType::Formatted) return;
 		const auto* Buffer = FVulkanBuffer::Cast(InBuffer);
 		vk::BufferViewCreateInfo CreateInfo;
@@ -25,12 +25,11 @@ namespace Durin::VulkanRHI
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))
 			.setOffset(InDesc.Offset)
 			.setRange(InDesc.Size);
-		const auto Result = Device.GetHandle().createBufferView(&CreateInfo, nullptr, &BufferView);
-		if (OutResult) *OutResult = Result;
-		if (Result != vk::Result::eSuccess)
+		OutResult = Device.GetHandle().createBufferView(&CreateInfo, nullptr, &BufferView);
+		if (OutResult != vk::Result::eSuccess)
 		{
 			BufferView = nullptr;
-			if (!OutResult) TerminateVulkanFailure(Result, "Vulkan buffer view creation");
+			return;
 		}
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(BufferView,
 			[&] { return std::format("{}.BufferView", Buffer->GetDebugName()); });
@@ -53,8 +52,6 @@ namespace Durin::VulkanRHI
 		: FRHITextureView(InTexture, InDesc), Device(InDevice)
 	{
 		OutResult = static_cast<const FVulkanTexture*>(InTexture)->CreateImageView(InDesc, ImageView);
-		if (OutResult == vk::Result::eSuccess)
-			DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(1, std::memory_order_relaxed) + 1;
 	}
 
 	auto FVulkanTexture::CreateImageView(const FRHITextureViewDesc& InDesc, vk::ImageView& ImageView) const -> vk::Result

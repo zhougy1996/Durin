@@ -57,7 +57,6 @@ namespace Durin::RDGPrivate
 		FTextureRHIRef Texture;
 		FBufferRHIRef Buffer;
 		std::shared_ptr<FRHITextureViewCache> TextureViews;
-		std::shared_ptr<FRHIBufferViewCache> BufferViews;
 		uint64 PhysicalAllocationId = 0;
 		uint32 AliasSourceId = UINT32_MAX;
 		std::string AllocationDisposition;

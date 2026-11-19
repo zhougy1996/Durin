@@ -2170,15 +2170,6 @@ namespace Durin
 	using FSamplerRHIRef = TRefCountPtr<FRHISampler>;
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
 	using FBufferViewRHIRef = TRefCountPtr<FRHIBufferView>;
-	class FRHIBufferViewCache
-	{
-	public:
-		RHI_API auto GetOrCreate(FRHIBuffer* Resource, const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef;
-
-	private:
-		std::mutex Mutex;
-		std::vector<FBufferViewRHIRef> Views;
-	};
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
 	using FComputePipelineStateRHIRef = TRefCountPtr<FRHIComputePipelineState>;

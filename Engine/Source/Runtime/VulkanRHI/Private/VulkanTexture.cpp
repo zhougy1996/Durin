@@ -434,7 +434,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 		vk::Result CreationResult;
-		FBufferViewRHIRef View = new FVulkanBufferView(*Device, Buffer, Desc, &CreationResult);
+		FBufferViewRHIRef View = new FVulkanBufferView(*Device, Buffer, Desc, CreationResult);
 		if (CreationResult != vk::Result::eSuccess)
 		{
 			TerminateVulkanFailure(CreationResult, "Vulkan buffer view creation");

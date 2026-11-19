@@ -263,7 +263,6 @@ namespace Durin
 				auto& Resource = Compiled->Backings[Request.ResourceId];
 				Resource.AliasSourceId = Candidate.AliasSources[Request.ResourceId];
 				Resource.TextureViews = std::move(Candidate.TextureViews[Request.ResourceId]);
-				Resource.BufferViews = std::move(Candidate.BufferViews[Request.ResourceId]);
 				Resource.AllocationDisposition =
 					Candidate.AllocationDispositions[Request.ResourceId];
 				Resource.PhysicalAllocationId =
@@ -293,7 +292,6 @@ namespace Durin
 		for (auto& Backing : Compiled->Backings)
 		{
 			if (Backing.Texture && !Backing.TextureViews) Backing.TextureViews = std::make_shared<FRHITextureViewCache>();
-			if (Backing.Buffer && !Backing.BufferViews) Backing.BufferViews = std::make_shared<FRHIBufferViewCache>();
 		}
 		return {};
 	}
@@ -720,12 +718,6 @@ namespace Durin
 		return Backing.Texture.GetReference();
 	}
 
-	auto FRDGPassResources::GetBufferViewCache(FRDGBufferHandle Handle) const -> FRHIBufferViewCache&
-	{
-		GetBuffer(Handle);
-		return *Graph.Compiled->Backings[Handle.Index].BufferViews;
-	}
-
 	auto FRDGPassResources::GetBuffer(
 		FRDGBufferHandle Handle) const -> FRHIBuffer*
 	{
@@ -809,11 +801,10 @@ namespace Durin
 
 	auto FRDGAllocatedResources::SetBuffer(uint32 ResourceId,
 		FBufferRHIRef Buffer, uint64 AllocationId,
-		std::string_view Disposition, uint32 AliasSourceId, std::shared_ptr<FRHIBufferViewCache> Views) -> bool
+		std::string_view Disposition, uint32 AliasSourceId) -> bool
 	{
 		if (ResourceId >= Buffers.size() || !Buffer) return false;
 		Buffers[ResourceId] = std::move(Buffer);
-		BufferViews[ResourceId] = std::move(Views);
 		AliasSources[ResourceId] = AliasSourceId;
 		AllocationIds[ResourceId] = AllocationId;
 		AllocationDispositions[ResourceId] = Disposition;

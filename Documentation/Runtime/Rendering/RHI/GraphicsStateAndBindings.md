@@ -4,41 +4,18 @@ Summary: Define portable graphics-pipeline identity, draw submission, reflected 
 
 Modules: RHI, RenderCore, ShaderFormat, MetalRHI, VulkanRHI, Renderer
 
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-19
 
 ## Graphics Pipeline Contract
 
 `FGraphicsPipelineStateInitializer` is the complete portable graphics state.
-It combines shader content identity, render-target compatibility, structural
-vertex input, reflected pipeline layout, primitive topology, rasterizer,
-multisample, depth/stencil, and one blend descriptor per active color
-attachment. `BuildGraphicsPipelineStateKey` validates and canonicalizes this
-state before backend creation. Disabled features and inactive attachments are
-reduced to canonical defaults, so equivalent behavior has equal identity and
-different behavior cannot alias.
-
-Canonical keys retain shared immutable pipeline-layout, vertex-input, and blend
-descriptions interned by content in RHI. Equal descriptions share one CPU owner;
-key copies do not duplicate their dynamic arrays. Structural hashes remain
-content-based. Keys must be obtained through the validating builders; consumers
-read descriptions through their shared const references. The
-[resource recovery contract](../Pipeline/RendererResourceRecovery.md#pipeline-cache-and-binding)
-owns description budgets, cache retention, and retirement.
-
-Description interning has no artificial capacity admission limit. Allocation
-failure follows the RHI out-of-memory policy.
-
-The backend-only `FRHIPipelineStateCacheBackend` entry points reuse a key already
-validated against the same device capabilities. They preserve cache lifecycle
-and independent-CPU execution protection. Ordinary rendering uses required-success
-`GetAndOrCreate*PipelineState`; optional preparation uses nullable `Precache*`.
-Precaching and drawing share the same identity and completion event.
-
-Accepted floating-point key fields use ordinary finite numeric equality.
-Key construction therefore canonicalizes either signed-zero representation to
-positive zero after inactive-state reduction; equal keys always have equal
-hashes. This normalization remains private to graphics-key construction and
-does not define serialization or general-purpose floating-point identity.
+The graphics PSO cache looks up the initializer directly, using shader, vertex
+declaration and immutable fixed-state identities together with the pipeline
+layout, topology, multisampling and render-target compatibility. A hit reuses
+the existing pipeline. On a miss, RHI validates and builds the backend
+compilation key. Drawing and precaching share the cache and completion event.
+See [pipeline cache and binding](../Pipeline/RendererResourceRecovery.md#pipeline-cache-and-binding)
+for ownership and retirement.
 
 Rasterizer state includes polygon mode, front/back/none culling, winding,
 depth clamp, depth-bias enablement, and line width. Depth-bias constant, clamp,
@@ -116,8 +93,8 @@ Merged shader reflection is authoritative for every graphics PSO layout.
 Typed C++ parameter metadata supports scalars and fixed `std::array` resource
 members. RenderCore flattens arrays into deterministic
 `FRHIShaderParameterResource` records containing set, binding, and exact array
-element. Recorded commands retain canonical buffer/texture views, samplers,
-and their parent resources through replay.
+element. Resource retention and byte-range semantics follow the
+[binding contract](RHIResourceViewsAndTransfers.md#binding-and-attachment-ownership).
 
 Updates must belong to a shader in the active PSO: stage, target, format, code
 hash, complete shader identity, and binary entry point must agree before

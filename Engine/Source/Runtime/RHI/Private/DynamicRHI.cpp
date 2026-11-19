@@ -219,19 +219,6 @@ namespace Durin
 		return new FRHITextureView(Texture, Desc);
 	}
 
-	auto FRHIBufferViewCache::GetOrCreate(FRHIBuffer* Resource, const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
-	{
-		std::lock_guard Lock(Mutex);
-		for (const auto& View : Views)
-		{
-			if (View->GetBuffer() == Resource && View->GetDesc() == Desc) return View;
-		}
-		FBufferViewRHIRef View = GDynamicRHI ? GDynamicRHI->RHICreateBufferView(Resource, Desc)
-			: FBufferViewRHIRef(new FRHIBufferView(Resource, Desc));
-		Views.push_back(View);
-		return View;
-	}
-
 	auto FRHITextureViewCache::GetOrCreate(FRHITexture* Resource, const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 	{
 		std::lock_guard Lock(Mutex);

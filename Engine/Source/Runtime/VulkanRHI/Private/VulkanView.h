@@ -16,20 +16,8 @@ namespace Durin::VulkanRHI
 	class FVulkanBufferView final : public FRHIBufferView
 	{
 	public:
-		static auto Cast(FRHIResource* Resource) -> FVulkanBufferView*
-		{
-			require(Resource && Resource->GetResourceType() == ERHIResourceType::BufferView);
-			return static_cast<FVulkanBufferView*>(Resource);
-		}
-		static auto Cast(const FRHIResource* Resource) -> const FVulkanBufferView*
-		{
-			require(Resource && Resource->GetResourceType() == ERHIResourceType::BufferView);
-			return static_cast<const FVulkanBufferView*>(Resource);
-		}
-		// An explicit result permits nullable creation; replay-owned required views
-		// omit it and retain their throwing contract.
 		FVulkanBufferView(FVulkanDevice& InDevice, FRHIBuffer* InBuffer,
-			const FRHIBufferViewDesc& InDesc, vk::Result* OutResult = nullptr);
+			const FRHIBufferViewDesc& InDesc, vk::Result& OutResult);
 		~FVulkanBufferView() override;
 
 		auto GetHandle() const -> vk::BufferView { return BufferView; }
@@ -53,14 +41,12 @@ namespace Durin::VulkanRHI
 
 		auto MarkUsedByFramebuffer() -> void { bUsedByFramebuffer = true; }
 		auto GetHandle() const -> vk::ImageView { return ImageView; }
-		auto GetDebugIdentity() const -> uint64 { return DebugIdentity; }
 
 	private:
 		FVulkanDevice& Device;
 		vk::ImageView ImageView{};
 		bool bOwnsImageView = true;
 		bool bUsedByFramebuffer = false;
-		uint64 DebugIdentity = 0;
 	};
 
 	// Borrows one Vulkan image/view pair owned by a non-RHI aggregate such as a swapchain.
