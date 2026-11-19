@@ -508,6 +508,84 @@ TEST(FMaterialGraphOperationsTests, AppendInfersWidthsAndKeepsUndoableOverflowDi
 	EXPECT_EQ(AuthoringGraph->FindNode(Id)->GetView().Node.ResultType, Type::Float4);
 }
 
+TEST(FMaterialGraphOperationsTests, PromoteOrdinaryAndFunctionInputsReplaysConnectionsAndCompileRefresh)
+{
+	InitializeDObjectSystem();
+	using Type = EMaterialProgramValueType;
+	constexpr auto Setup = Durin::ETransactionMode::NotTransactable;
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "PromoteInputMaterial"));
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, "PromoteInputFunction"));
+	TStrongObjectPtr<DMaterialGraph> CalleeGraph(DMaterialGraph::Create(*Callee));
+	const FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = Type::Float3, .Name = "Tint",
+		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.X = .25f, .Y = .5f, .Z = .75f}}};
+	ASSERT_TRUE(CalleeGraph->AddPort(false, Port, {}, 0, 0, Setup));
+	const auto CallResult = Graph->InsertFunctionCall(*Callee, 0, 0, Setup);
+	ASSERT_TRUE(CallResult) << FormatMaterialGraphCommandResult(CallResult);
+	auto* Call = Cast<DMaterialExpressionFunctionCall>(Graph->FindNode(CallResult.GeneratedNodeIds.front())->GetMaterialExpression());
+	ASSERT_TRUE(Call);
+	auto Draft = Testing::MakeGraphExpression<DMaterialExpressionAdd>();
+	Draft->A.SetConstant({.625f});
+	const auto Added = Graph->CreateExpression(*Draft, 0, 0, Setup);
+	ASSERT_TRUE(Added);
+	auto* Add = Cast<DMaterialExpressionAdd>(Graph->FindNode(Added.GeneratedNodeIds.front())->GetMaterialExpression());
+	ASSERT_TRUE(Add);
+
+	for (bool IsCall : {false, true})
+	{
+		SCOPED_TRACE(IsCall ? "function call" : "ordinary expression");
+		const auto Address = IsCall ? FMaterialGraphPinAddress::Input(Call->Id, 0, Port.Id)
+			: FMaterialGraphPinAddress::Input(Add->Id, 0);
+		const auto Before = CaptureExpressions(*Material);
+		const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
+		const auto Requests = Material->GetMaterialCompileDebugInfo().RequestId;
+		Durin::Tests::FTestEditorTransactorOwner History;
+		const auto Promotion = Graph->PromoteInputToParameter(Address);
+		ASSERT_TRUE(Promotion) << FormatMaterialGraphCommandResult(Promotion);
+		ASSERT_EQ(Promotion.GeneratedNodeIds.size(), IsCall ? 2u : 1u);
+		ASSERT_EQ(Promotion.AffectedParameterIds.size(), 1u);
+		const auto* Definition = Material->FindParameterDefinition(Promotion.AffectedParameterIds.front());
+		ASSERT_TRUE(Definition);
+		if (IsCall) EXPECT_EQ(Definition->Value.GetVector4(), FVector4(.25, .5, .75, 0));
+		else EXPECT_FLOAT_EQ(Definition->Value.GetScalar(), .625f);
+		const auto CheckConnection = [&]() {
+			const auto* Pin = Graph->FindPin(Address);
+			ASSERT_TRUE(Pin);
+			ASSERT_EQ(Pin->LinkedTo.size(), 1u);
+			const auto* Output = Pin->LinkedTo.front();
+			EXPECT_EQ(Output->SourceIndex, 0);
+			auto* Source = Output->GetOwningNode()->GetMaterialExpression();
+			EXPECT_EQ(Source->Id, Promotion.GeneratedNodeIds.back());
+			if (IsCall)
+			{
+				ASSERT_EQ(Call->Inputs.size(), 1u);
+				EXPECT_EQ(Call->Inputs.front().InputId, Port.Id);
+				EXPECT_EQ(Call->Inputs.front().Input, (FMaterialExpressionInput{Source, 0}));
+				auto* Mask = Cast<DMaterialExpressionSwizzle>(Source);
+				ASSERT_TRUE(Mask);
+				EXPECT_EQ(Mask->Components, (std::vector<uint8>{0, 1, 2}));
+				ASSERT_TRUE(Mask->Input.Connection.IsConnected());
+				EXPECT_EQ(Mask->Input.Connection.Expression->Id, Promotion.GeneratedNodeIds.front());
+			}
+			else EXPECT_EQ(Add->A.Connection, (FMaterialExpressionInput{Source, 0}));
+		};
+		CheckConnection();
+		EXPECT_FALSE(Graph->PromoteInputToParameter(Address));
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 1);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, Requests + 1);
+		ASSERT_TRUE(History->Undo());
+		EXPECT_EQ(CaptureExpressions(*Material), Before);
+		EXPECT_FALSE(History->CanUndo());
+		if (IsCall) EXPECT_TRUE(Call->Inputs.empty());
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 2);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, Requests + 2);
+		ASSERT_TRUE(History->Redo());
+		CheckConnection();
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 3);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, Requests + 3);
+	}
+}
+
 TEST(FMaterialGraphOperationsTests, CreationAndReplacementReplayConnectedExpressionsOnBothOwners)
 {
 	InitializeDObjectSystem();

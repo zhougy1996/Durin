@@ -447,45 +447,8 @@ namespace Durin::MaterialEditor
 				else if (!Changed)
 				{
 					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(SelectedNode->ExtractInputDefault(Selected->InputAddress(Pin)));
-					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic))
-					{
-						FMaterialParameterDefinition Definition;
-						Definition.Id = FGuid::NewGuid(); Definition.Type = *GetParameterType(Value.Type);
-						Definition.Value = MakeParameterValue(Value.Type, Value.Literal); Definition.Name = "Parameter";
-						for (uint32 Suffix = 1; Material->FindParameterDefinition(Definition.Name); ++Suffix)
-							Definition.Name = FName(std::format("Parameter{}", Suffix));
-						Definition.DisplayName = Definition.Name.ToString();
-						auto Created = GraphEditInternals::MakeParameterExpression(Definition);
-						if (!Created) ReportError(Created.Message);
-						auto Parameter = std::move(Created.Expression);
-						if (Created)
-						if (const auto SelectedExpression = BeginSelectedEdit(); SelectedExpression != Session->Expressions.end())
-						{
-							auto* Destination = SelectedExpression->Get();
-							FMaterialExpressionInput Link{Parameter.Get()};
-							if (Value.Type == EMaterialProgramValueType::Float2 || Value.Type == EMaterialProgramValueType::Float3)
-							{
-								auto Mask = GraphEditInternals::MakeParameterMask(*Parameter.Get(), Value.Type);
-								Link = {Mask.Get()}; Session->Expressions.emplace_back(Mask.Get());
-							}
-							if (Pin.PortId.IsValid())
-							{
-								auto* Call = Cast<DMaterialExpressionFunctionCall>(Destination);
-								auto Input = std::ranges::find(Call->Inputs, Pin.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-								if (Input == Call->Inputs.end()) Call->Inputs.push_back({Pin.PortId, Value.Type, Link});
-								else Input->Input = Link;
-							}
-							else VisitMaterialExpressionInputs(*Destination, [&](uint32 Index, FMaterialExpressionInput& Input) {
-								if (Index == Pin.InputIndex) Input = Link;
-							});
-							const auto Position = std::ranges::find(Session->Presentation.Nodes, Expression->Id, &FMaterialGraphNodePresentation::NodeId);
-							const int32 X = Position == Session->Presentation.Nodes.end() ? -320 : Position->X - 320;
-							const int32 Y = Position == Session->Presentation.Nodes.end() ? 0 : Position->Y;
-							Session->Presentation.Nodes.push_back({Parameter->Id, X, Y});
-							Session->Expressions.emplace_back(Parameter.Get());
-							Submit(Session->Commit("Promote Input Parameter", &Transactions));
-						}
-					}
+					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !Pin.bMissing && !bInheritedDynamic && !bInheritedContext))
+						Submit(EditorGraph->PromoteInputToParameter(Selected->InputAddress(Pin)));
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))
 					Submit(SelectedNode->SetPinUseConstant(Selected->InputAddress(Pin), !Pin.bUseConstant));

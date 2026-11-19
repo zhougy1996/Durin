@@ -141,6 +141,8 @@ namespace Durin::MaterialEditor
 			int32 OffsetX = 40, int32 OffsetY = 40, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto PromoteInputToParameter(const FMaterialGraphPinAddress& Target,
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto AddPort(bool bOutput, FMaterialFunctionPort Port,
 			FMaterialProgramLink Source = {}, int32 X = 0, int32 Y = 0,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;

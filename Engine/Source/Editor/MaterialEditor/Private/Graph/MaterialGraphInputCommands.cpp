@@ -1,4 +1,6 @@
 #include "MaterialGraph.h"
+#include "MaterialExpressionParameters.h"
+#include "MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
@@ -187,6 +189,74 @@ namespace Durin::MaterialEditor
 		FExpressionEdit Edit;
 		Edit.SetNumeric(*Expression, *Input.Numeric, std::move(Next));
 		return Edit.CommitInferred(*Owner, Transactions, "Edit Input Default");
+	}
+
+	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPinAddress& Target, ETransactionMode Mode)
+		-> FMaterialGraphCommandResult
+	{
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Material = Cast<DMaterial>(GetMaterialOrFunction());
+		if (!Material) return RejectCommand("Input parameters require a base material.");
+		const auto* Pin = FindPin(Target);
+		if (!Pin || Pin->Direction != EMaterialGraphPinDirection::Input || !Pin->LinkedTo.empty())
+			return RejectCommand("Select an unconnected input.");
+		auto* Node = Pin->GetOwningNode();
+		const auto& View = Node->GetView();
+		const auto& Input = View.Inputs[Pin->DisplayIndex];
+		if (Input.bMissing || Input.SourceType > EMaterialProgramValueType::Float4)
+			return RejectCommand("Only numeric inputs can be promoted.");
+		auto Literal = Input.InlineDefault.Literal;
+		const auto Type = Input.InlineDefault.Kind == EMaterialInputDefaultKind::Literal ? Input.InlineDefault.Type : Input.SourceType;
+		if (Input.InlineDefault.Kind == EMaterialInputDefaultKind::None && Input.PortId.IsValid() && !Input.bRequired)
+		{
+			if (Input.Default.Kind == EMaterialFunctionDefaultKind::Numeric) Literal = Input.Default.Numeric;
+			else if (Input.Default.Kind != EMaterialFunctionDefaultKind::None)
+				return RejectCommand("Override the inherited function default with a constant first.");
+		}
+		if (Input.bSupportsConstant && !Input.bUseConstant && (View.Node.IsSampleUVInput(Input.InputIndex)
+			|| (View.Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && Input.InputIndex != 0)))
+			return RejectCommand("Enable a constant before promoting an inherited input.");
+
+		FMaterialParameterDefinition Definition;
+		Definition.Id = FGuid::NewGuid();
+		Definition.Name = "Parameter";
+		for (uint32 Suffix = 1; Material->FindParameterDefinition(Definition.Name); ++Suffix)
+			Definition.Name = FName(std::format("Parameter{}", Suffix));
+		Definition.DisplayName = Definition.Name.ToString();
+		Definition.Value = MakeParameterValue(Type, Literal);
+		Definition.Type = Definition.Value.GetType();
+		auto Created = MakeParameterExpression(Definition);
+		if (!Created) return RejectCommand(std::move(Created.Message));
+		auto& Parameter = *Created.Expression;
+		FGraphEditSession State(*Material);
+		auto Destination = FindInput(Node->GetMaterialExpression(), Input.InputIndex, Input.PortId, &State);
+		if (!Destination.Source) return RejectCommand(std::move(Destination.Message));
+		if (Destination.Source->IsConnected()) return RejectCommand("The input is already connected.");
+		const bool NeedsMask = Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3;
+		const auto X = View.Presentation.X - 320;
+		const auto Y = View.Presentation.Y;
+		std::vector<FGuid> Generated{Parameter.Id};
+		State.Expressions.emplace_back(&Parameter);
+		State.Presentation.Nodes.push_back({Parameter.Id, NeedsMask ? X - 320 : X, Y});
+		*Destination.Source = {&Parameter};
+		if (NeedsMask)
+		{
+			auto Mask = MakeParameterMask(Parameter, Type);
+			*Destination.Source = {Mask.Get()};
+			State.Expressions.emplace_back(Mask.Get());
+			State.Presentation.Nodes.push_back({Mask->Id, X, Y});
+			Generated.push_back(Mask->Id);
+		}
+		auto Result = State.Commit("Promote Input Parameter", *Admission);
+		if (Result)
+		{
+			Result.GeneratedNodeIds = std::move(Generated);
+			Result.AffectedNodeIds = Result.GeneratedNodeIds;
+			Result.AffectedNodeIds.push_back(Target.NodeId);
+			Result.AffectedParameterIds = {Definition.Id};
+		}
+		return Result;
 	}
 
 	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
