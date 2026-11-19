@@ -128,10 +128,9 @@ namespace Durin
             if (!GDynamicRHI) return ERenderResourceAvailability::Failed;
             FRenderPipelinePreparationScope Requests(State->Requests, Generation);
             const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
-            const auto Completion=GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute",Types,true,ReportRendererResourceCreateDiagnostic);
-            State->ShaderSet=Completion.Value.value_or(FGlobalShaderSetRef{});
-            if (!State->ShaderSet)
-                return Completion.Status == EShaderBuildStatus::Pending ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
+            const auto Completion = GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute", Types,
+                State->ShaderSet, true, ReportRendererResourceCreateDiagnostic);
+            if (!Completion) return Completion.Status;
             State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
             auto* Shader=State->Shader.GetRHIShader(false);
             if (!Shader)

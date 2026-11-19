@@ -133,9 +133,9 @@ namespace Durin
 					FShaderMapBase Map;
 					const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
 					EXPECT_FALSE(Completion);
-					EXPECT_EQ(Completion.Status, EShaderBuildStatus::Pending);
+					EXPECT_EQ(Completion.Status, ERenderResourceAvailability::Pending);
 					EXPECT_TRUE(Completion.Error.empty());
-					if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
+					if (Completion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
 					return FResult::Failure(MakeError());
 				}, Report), nullptr);
 				EXPECT_EQ(Slot.GetAvailability(), ERenderResourceAvailability::Pending);

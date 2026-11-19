@@ -3090,7 +3090,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 				*Fragment, Factory->GetType(), MaterialMeshPassForward,
 				Identity, {}, Selected.get(), {}, Rejected);
 			EXPECT_FALSE(MissingGeometry); EXPECT_FALSE(Rejected);
-			EXPECT_EQ(MissingGeometry.Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(MissingGeometry.Status, ERenderResourceAvailability::Failed);
 			EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
 		}
 		Properties.PassUsage = 1;
@@ -3111,7 +3111,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 				*Fragment, Factory->GetType(), MaterialMeshPassShadow,
 				Identity, {}, Selected.get(), {}, Rejected);
 			EXPECT_FALSE(MissingPass); EXPECT_FALSE(Rejected);
-			EXPECT_EQ(MissingPass.Status, EShaderBuildStatus::Error);
+			EXPECT_EQ(MissingPass.Status, ERenderResourceAvailability::Failed);
 			EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
 		}
 		Properties.GeometryUsage = 5; Properties.PassUsage = 7;
@@ -4810,7 +4810,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 						BindingDraw.Command->PipelineKey.Topology, {}, BindingDraw.Command->bSupportsGBuffer};
 					FMeshPassShaders ShadowShaders;
 					const auto ShaderContext = PassProcessor.PrepareShaders(ShadowBatch, Generation, LowResource.CompiledProgram.get(), {}, ShadowShaders);
-					if (ShaderContext.Status == EShaderBuildStatus::Pending) { CommandReady = false; return; }
+					if (ShaderContext.Status == ERenderResourceAvailability::Pending) { CommandReady = false; return; }
 					ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 					std::shared_ptr<const FMeshPassPipeline> Pipeline;
 					const auto PipelineContext = PassProcessor.PreparePipeline(ShadowBatch, ShadowShaders, Primitive->CollectedBinding->Declaration, Pipeline);

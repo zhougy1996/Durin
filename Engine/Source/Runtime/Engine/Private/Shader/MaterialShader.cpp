@@ -244,7 +244,7 @@ namespace Durin
 
 	auto FMeshMaterialShaderMap::TryCreate(
 		FMeshMaterialShaderMapBuildInput Input,
-		FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
+		FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -407,10 +407,11 @@ namespace Durin
 		return {};
 	}
 
+	template<class TResult>
 	static auto CompileMeshMaterialShaderMap(
 		FMeshMaterialShaderMapCompileInput Input,
 		FMeshMaterialShaderMap& OutMap,
-		FShaderCompletion (*Initialize)(FShaderMapBase&, std::span<const FShaderType* const>, const FShaderCompileOptions&)) -> FShaderCompletion
+		TResult (*Initialize)(FShaderMapBase&, std::span<const FShaderType* const>, const FShaderCompileOptions&)) -> TResult
 	{
 		FShaderOperationResult Result;
 		OutMap = {};
@@ -524,7 +525,7 @@ namespace Durin
 			.bCreateRHIShaders = Input.bCreateRHIShaders}, OutMap);
 	}
 
-	auto FMeshMaterialShaderMap::TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion
+	auto FMeshMaterialShaderMap::TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderMapQueryResult
 	{
 		return CompileMeshMaterialShaderMap(std::move(Input), OutMap, InitializeShaderMapFromTypes);
 	}

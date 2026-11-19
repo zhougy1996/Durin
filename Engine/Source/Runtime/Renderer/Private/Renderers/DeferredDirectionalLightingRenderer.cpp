@@ -136,10 +136,10 @@ namespace Durin
 					&FDeferredDirectionalFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"DeferredDirectionalLighting.LocalBuffer", Types, true,
+					"DeferredDirectionalLighting.LocalBuffer", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -154,16 +154,14 @@ namespace Durin
 					&FDeferredProductionVertexShader::StaticType(),
 					&FDeferredProductionFragmentShader::StaticType()};
 				const auto ProductionCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"DeferredProductionLighting.LocalBuffer", ProductionTypes, true,
+					"DeferredProductionLighting.LocalBuffer", ProductionTypes, Candidate.ProductionShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ProductionCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ProductionCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ProductionCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ProductionCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ProductionCompletion) return FResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::ShaderCompile, "DeferredProductionLighting", "shader",
 					ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
-				Candidate.ProductionShaderSet = *ProductionCompletion;
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader = TShaderMapRef<FDeferredDirectionalVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FDeferredDirectionalFragmentShader>(Candidate.ShaderSet);
 				Candidate.ProductionVertexShader = TShaderMapRef<FDeferredProductionVertexShader>(Candidate.ProductionShaderSet);

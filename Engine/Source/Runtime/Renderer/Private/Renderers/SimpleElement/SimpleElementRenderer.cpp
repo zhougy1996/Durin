@@ -203,13 +203,12 @@ namespace Durin
 				if (bNeedsLine)
 				{
 					const auto LineShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-						"EditorAssistance.SimpleElement.Line", LineTypes, true,
+						"EditorAssistance.SimpleElement.Line", LineTypes, Candidate.LineShaderSet, true,
 						ReportRendererResourceCreateDiagnostic);
-					if (LineShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FBaseResult::Pending();
-					if (LineShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
+					if (LineShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FBaseResult::Pending();
+					if (LineShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FBaseResult::Canceled();
 					if (LineShaderSetCompletion)
 					{
-						Candidate.LineShaderSet = *LineShaderSetCompletion;
 						Candidate.LineVertexShader =
 							TShaderMapRef<FSimpleLineVertexShader>(Candidate.LineShaderSet);
 						Candidate.LineFragmentShader =
@@ -219,13 +218,12 @@ namespace Durin
 				if (bNeedsSprite)
 				{
 					const auto SpriteShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-						"EditorAssistance.SimpleElement.Sprite", SpriteTypes, true,
+						"EditorAssistance.SimpleElement.Sprite", SpriteTypes, Candidate.SpriteShaderSet, true,
 						ReportRendererResourceCreateDiagnostic);
-					if (SpriteShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FBaseResult::Pending();
-					if (SpriteShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
+					if (SpriteShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FBaseResult::Pending();
+					if (SpriteShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FBaseResult::Canceled();
 					if (SpriteShaderSetCompletion)
 					{
-						Candidate.SpriteShaderSet = *SpriteShaderSetCompletion;
 						Candidate.SpriteVertexShader =
 							TShaderMapRef<FSimpleSpriteVertexShader>(Candidate.SpriteShaderSet);
 						Candidate.SpriteFragmentShader =

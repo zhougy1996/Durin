@@ -142,8 +142,8 @@ namespace Durin
 				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
 				ERenderResourceCreateErrorCategory FailureCategory;
 				const auto Result = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(), Options, Candidate, &FailureCategory);
-				if (Result.Status == EShaderBuildStatus::Pending) return FShaderResult::Pending();
-				if (Result.Status == EShaderBuildStatus::Canceled) return FShaderResult::Canceled();
+				if (Result.Status == ERenderResourceAvailability::Pending) return FShaderResult::Pending();
+				if (Result.Status == ERenderResourceAvailability::Canceled) return FShaderResult::Canceled();
 				if (!Result) return FShaderResult::Failure(MakeRendererResourceCreateError(
 					FailureCategory, "GBufferShaderMap", std::to_string(ShaderKey.FactoryKey.HashValue), Result.Error,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual

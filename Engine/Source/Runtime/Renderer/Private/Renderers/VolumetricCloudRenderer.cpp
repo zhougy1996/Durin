@@ -261,10 +261,10 @@ namespace Durin
 					&FCloudTemporalFragmentShader::StaticType()};
 				FPayload CandidatePayload;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloud.Temporal", Types, true,
+					"VolumetricCloud.Temporal", Types, CandidatePayload.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FCreateResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FCreateResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FCreateResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FCreateResult::Canceled();
 				if (!ShaderSetCompletion)
 				{
 					return FCreateResult::Failure(MakeFailure(
@@ -272,7 +272,6 @@ namespace Durin
 						ERenderResourceCreateErrorCategory::ShaderCompile
 					));
 				}
-				CandidatePayload.ShaderSet = *ShaderSetCompletion;
 				CandidatePayload.VertexShader = TShaderMapRef<FCloudTemporalVertexShader>(CandidatePayload.ShaderSet);
 				CandidatePayload.FragmentShader = TShaderMapRef<FCloudTemporalFragmentShader>(CandidatePayload.ShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
@@ -328,15 +327,14 @@ namespace Durin
 					&FCloudCompositeFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloud.Composite", Types, true,
+					"VolumetricCloud.Composite", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudComposite",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader = TShaderMapRef<FCloudCompositeVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FCloudCompositeFragmentShader>(Candidate.ShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
@@ -435,15 +433,14 @@ namespace Durin
 					&FCloudComputeShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloud.Compute", Types, true,
+					"VolumetricCloud.Compute", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.ComputeShader =
 					TShaderMapRef<FCloudComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
@@ -477,15 +474,14 @@ namespace Durin
 					&FCloudFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloud.Fragment", Types, true,
+					"VolumetricCloud.Fragment", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader =
 					TShaderMapRef<FCloudVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =

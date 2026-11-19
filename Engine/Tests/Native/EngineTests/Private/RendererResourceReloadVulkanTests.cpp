@@ -402,12 +402,11 @@ float4 FragmentMain() : SV_Target
 							};
 							auto ShaderMap =
 								std::make_shared<FShaderMapBase>();
-							FShaderCompletion ErrorMessage;
-							ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
-							if (ErrorMessage.Status == EShaderBuildStatus::Pending) return FResult::Pending();
+							const auto ErrorMessage = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
+							if (ErrorMessage.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
 							++Attempts;
 							ForceFlags.push_back(Snapshot.bForceShaderRecompile);
-							if (ErrorMessage.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+							if (ErrorMessage.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 							if (!ErrorMessage)
 							{
 								return FResult::Failure(MakeReloadError(

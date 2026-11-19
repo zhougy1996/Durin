@@ -198,7 +198,7 @@ namespace Durin
 
 	auto InitializeShaderMapFromTypes(FShaderMapBase& Map,
 		std::span<const FShaderType* const> ShaderTypes,
-		const FShaderCompileOptions& CompileOptions) -> FShaderCompletion
+		const FShaderCompileOptions& CompileOptions) -> FShaderMapQueryResult
 	{
 		FShaderOperationResult Result;
 		FShaderCompileOptions EffectiveCompileOptions;
@@ -232,14 +232,18 @@ namespace Durin
 						return Code.SourceEntryPoint == Type->GetEntryPoint() && Code.Frequency == Type->GetFrequency();
 					});
 					if (Found == Prepared->Output->CompiledShaders.end())
-						return std::unexpected(std::format("Material shader map is missing type '{}'.", (std::string{})));
+						return std::unexpected(std::format("Material shader map is missing type '{}'.", Type->GetName()));
 					Output.CompiledShaders.push_back(*Found);
 				}
 				return Map.Initialize(ShaderTypes, Output, EffectiveCompileOptions);
 			}
-			if (Prepared->Output) return {Prepared->Output->Status, FormatShaderCompilerErrors(Prepared->Output->Errors)};
+			if (Prepared->Output)
+			{
+				if (Prepared->Output->Status == EShaderBuildStatus::Canceled) return {ERenderResourceAvailability::Canceled};
+				return {ERenderResourceAvailability::Failed, FormatShaderCompilerErrors(Prepared->Output->Errors)};
+			}
 		}
-		return FShaderCompletion::Pending();
+		return {ERenderResourceAvailability::Pending};
 	}
 
 	auto InitializeShaderMapFromTypesSync(FShaderMapBase& Map,

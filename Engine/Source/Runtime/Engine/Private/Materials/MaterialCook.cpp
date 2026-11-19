@@ -134,10 +134,7 @@ namespace Durin
 			if (IsDynamicInstance()) return;
 			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) {
 				const FAssetBuildTaskContext Control{.IsCancellationRequested = [&Context] { return Context.CheckCancellation(); }};
-				auto Built = PrepareCookedProgram(Context.GetTargetPlatform(), Context.Options.MaterialConfigurations, Control);
-				if (Built.Status == EShaderBuildStatus::Canceled) Context.Result = {EObjectCookError::Cancelled, {}};
-				else if (!Built) Context.Result = {EObjectCookError::Preparation, std::string(Built.Error)};
-				else Context.Primary = std::move(*Built);
+				Context.Result = PrepareCookedProgram(Context.GetTargetPlatform(), Context.Options.MaterialConfigurations, Context.Primary, Control);
 				return;
 			}
 #if DURIN_WITH_EDITOR
@@ -247,28 +244,29 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::PrepareCookedProgram(ECookTargetPlatform TargetPlatform,
-		std::span<const FMaterialCookConfiguration> Requested, const FAssetBuildTaskContext& Control)
-		-> TShaderValueResult<FBulkData>
+		std::span<const FMaterialCookConfiguration> Requested, FBulkData& OutData, const FAssetBuildTaskContext& Control)
+		-> FObjectCookResult
 	{
-		if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-		if (IsDynamicInstance()) return FBulkData{};
+		OutData = {};
+		if (Control.IsCancelled()) return {EObjectCookError::Cancelled, {}};
+		if (IsDynamicInstance()) return {};
 		const auto Configurations = ResolveMaterialCookConfigurations(Requested);
-		if (!Configurations) return FShaderCompletion::Failure("Material Cook configuration is unsupported.");
+		if (!Configurations) return {EObjectCookError::Preparation, "Material Cook configuration is unsupported."};
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetAssetRuntimeConfiguration().GetCookTargetPlatform() != TargetPlatform || !CookedProgramData.HasData())
-				return FShaderCompletion::Failure("Material cooked program data is unavailable or targets another platform.");
+				return {EObjectCookError::Preparation, "Material cooked program data is unavailable or targets another platform."};
 			auto Read = CookedProgramData.AcquireRead();
-			if (!Read) return FShaderCompletion::Failure("Material cooked program data could not be read.");
+			if (!Read) return {EObjectCookError::Preparation, "Material cooked program data could not be read."};
 			std::vector<std::shared_ptr<const FMaterialProgram>> Variants;
 			FMaterialStaticProperties Properties;
 			for (const auto& Configuration : *Configurations)
 			{
-				if (Control.IsCancelled()) return FShaderCompletion::Canceled();
+				if (Control.IsCancelled()) return {EObjectCookError::Cancelled, {}};
 				std::shared_ptr<const FMaterialProgram> Program;
 				const auto Decoded = DecodeMaterialCookedProgramFamily(Read->GetBytes(), TargetPlatform,
 					ECookTargetProfile::Game, Configuration.Quality, Configuration.FeatureLevel, {}, Properties, Program);
-				if (!Decoded) return FShaderCompletion::Failure(Decoded.error());
+				if (!Decoded) return {EObjectCookError::Preparation, Decoded.error()};
 				Variants.push_back(std::move(Program));
 			}
 			std::vector<const FMaterialProgram*> Programs;
@@ -276,11 +274,12 @@ namespace Durin
 			FByteBuffer Bytes;
 			const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties,
 				TargetPlatform, ECookTargetProfile::Game, Bytes);
-			if (!Encoded) return FShaderCompletion::Failure(Encoded.error());
+			if (!Encoded) return {EObjectCookError::Preparation, Encoded.error()};
 			auto Bulk = FBulkData::TryCreateDetached(Bytes);
-			if (!Bulk) return FShaderCompletion::Failure(FormatBulkDataError(Bulk.error()));
-			if (Control.IsCancelled()) return FShaderCompletion::Canceled();
-			return std::move(*Bulk);
+			if (!Bulk) return {EObjectCookError::Preparation, FormatBulkDataError(Bulk.error())};
+			if (Control.IsCancelled()) return {EObjectCookError::Cancelled, {}};
+			OutData = std::move(*Bulk);
+			return {};
 		}
 #if DURIN_WITH_EDITOR
 		FCookPackagePreparationOptions Options{.TargetPlatform = TargetPlatform, .TargetProfile = ECookTargetProfile::Game};
@@ -297,13 +296,14 @@ namespace Durin
 		};
 		BeginMaterialCookPreparation(*this, Preparation);
 		Preparation.Wait();
-		if (Preparation.CheckCancellation()) return FShaderCompletion::Canceled();
-		if (!Preparation.Result) return FShaderCompletion::Failure(Preparation.Result.Diagnostic);
+		if (Preparation.CheckCancellation()) return {EObjectCookError::Cancelled, {}};
+		if (!Preparation.Result) return Preparation.Result;
 		if (Preparation.ValidatePreparedInputs && !Preparation.ValidatePreparedInputs())
-			return FShaderCompletion::Failure("Material Cook prepared inputs changed.");
-		return std::move(Preparation.Primary);
+			return {EObjectCookError::Preparation, "Material Cook prepared inputs changed."};
+		OutData = std::move(Preparation.Primary);
+		return {};
 #else
-		return FShaderCompletion::Failure("Authored material Cook preparation is unavailable in this runtime.");
+		return {EObjectCookError::Preparation, "Authored material Cook preparation is unavailable in this runtime."};
 #endif
 	}
 

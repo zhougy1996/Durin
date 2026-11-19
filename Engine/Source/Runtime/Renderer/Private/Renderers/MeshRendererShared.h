@@ -92,7 +92,7 @@ namespace Durin::RendererPrivate
 		const FRenderResourceGeneration& Generation,
 		const FMaterialProgram* MaterialProgram,
 		const FShaderCompileOptions& VertexCompileOptions,
-		FMeshMaterialShaderMap& OutShaderMap) -> FShaderCompletion
+		FMeshMaterialShaderMap& OutShaderMap) -> FShaderMapQueryResult
 	{
 		RendererPrivate::FRenderStageTimings Timings(false, "InitializeMaterialShaderMap",
 			GRenderFrameCounterRenderThread <= 5 ? 0.25 : 20.0);

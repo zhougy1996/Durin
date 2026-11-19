@@ -74,11 +74,11 @@ namespace Durin
 					   };
 					   FPayload Candidate;
 					   const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-						   "InstanceCulling", Types, true,
+						   "InstanceCulling", Types, Candidate.ShaderSet, true,
 						   ReportRendererResourceCreateDiagnostic
 					   );
-					   if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-					   if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+					   if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+					   if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 					   if (!ShaderSetCompletion)
 						   return FResult::Failure(MakeRendererResourceCreateError(
 							   ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -87,7 +87,6 @@ namespace Durin
 							   ERenderResourceGenerationDependency::Shader
 								   | ERenderResourceGenerationDependency::Manual
 						   ));
-					   Candidate.ShaderSet = *ShaderSetCompletion;
 					   Candidate.Shader = TShaderMapRef<FInstanceCullingComputeShader>(
 						   Candidate.ShaderSet
 					   );

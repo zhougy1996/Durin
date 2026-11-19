@@ -488,12 +488,13 @@ namespace Durin::RendererPrivate
 	}
 	auto FMeshPassProcessor::PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
 		const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
-		ERenderResourceCreateErrorCategory* FailureCategory) const -> FShaderCompletion
+		ERenderResourceCreateErrorCategory* FailureCategory) const -> FShaderMapQueryResult
 	{
 		if (FailureCategory) *FailureCategory = ERenderResourceCreateErrorCategory::InvalidConfiguration;
 		FSelection Selection;
 		const auto Selected = SelectMeshPass(Batch, Selection);
-		if (!Selected) return Selected;
+		if (!Selected) return {Selected.Status == EShaderBuildStatus::Canceled
+			? ERenderResourceAvailability::Canceled : ERenderResourceAvailability::Failed, Selected.Error};
 		const auto& Factory = Batch.Factory;
 		const auto MeshPass = Selection.MeshPass;
 		const auto& Fragment = Selection.Fragment;
@@ -509,7 +510,7 @@ namespace Durin::RendererPrivate
 		if (!Candidate.VertexShader || !Candidate.VertexShader->GetRHIShader(false) || !Candidate.FragmentShader)
 		{
 			if (FailureCategory) *FailureCategory = ERenderResourceCreateErrorCategory::RHIResource;
-			return FShaderCompletion::Failure("Mesh pass shader creation failed.");
+			return {ERenderResourceAvailability::Failed, "Mesh pass shader creation failed."};
 		}
 		Candidate.FragmentLayout = Fragment.ResolveLayout ? Fragment.ResolveLayout(Candidate.ShaderMap) : nullptr;
 		Candidate.VertexFactoryPass = MeshPass;
@@ -517,7 +518,7 @@ namespace Durin::RendererPrivate
 		Candidate.FactoryKey = Factory.GetType().GetStableKey();
 		Candidate.LayoutKey = Factory.GetLayoutKey();
 		Out = std::move(Candidate);
-		return FShaderCompletion{};
+		return {};
 	}
 	auto FMeshPassProcessor::BuildPSOInitializer(const FMeshPassProcessorBatch& Batch, const FMeshPassShaders& Shaders,
 		FRHIVertexDeclaration* Declaration, FGraphicsPipelineStateInitializer& Out) const -> FShaderCompletion

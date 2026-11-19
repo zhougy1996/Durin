@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
-#include "RenderResourcePreparation.h"
+#include "RenderResourceCreation.h"
 #include "Shader/ShaderBuildRequest.h"
 
 namespace Durin
@@ -10,9 +10,26 @@ namespace Durin
 	class FShaderMapBase;
 	class FShaderType;
 	struct FPreparedShaderMapState;
+	// Availability describes this lookup; the compiler only produces terminal outputs.
+	struct FShaderMapQueryResult
+	{
+		ERenderResourceAvailability Status;
+		std::string Error;
+
+		FShaderMapQueryResult(ERenderResourceAvailability InStatus = ERenderResourceAvailability::Ready, std::string InError = {})
+			: Status(InStatus), Error(std::move(InError))
+		{ Error.resize(std::min(Error.size(), ShaderBuildDiagnosticMaxBytes)); }
+		FShaderMapQueryResult(std::unexpected<std::string> Failure)
+			: FShaderMapQueryResult(ERenderResourceAvailability::Failed, std::move(Failure.error())) {}
+		FShaderMapQueryResult(FShaderOperationResult Result)
+			: FShaderMapQueryResult(Result ? ERenderResourceAvailability::Ready : ERenderResourceAvailability::Failed,
+				Result ? std::string{} : std::move(Result.error())) {}
+		explicit operator bool() const { return Status == ERenderResourceAvailability::Ready; }
+	};
+
 	// Nonblocking: request shared preparation, or consume only inside capture.
 	ENGINE_API auto InitializeShaderMapFromTypes(FShaderMapBase& Map, std::span<const FShaderType* const> Types,
-		const FShaderCompileOptions& Options) -> FShaderCompletion;
+		const FShaderCompileOptions& Options) -> FShaderMapQueryResult;
 
 	// Startup/tools only. Rejects rendering-thread and consumption-only capture calls.
 	ENGINE_API auto InitializeShaderMapFromTypesSync(FShaderMapBase& Map, std::span<const FShaderType* const> Types,

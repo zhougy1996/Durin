@@ -199,10 +199,10 @@ namespace Durin
 					&FGTAOResolveFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto RawShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"GroundTruthAmbientOcclusion.Raw", RawTypes, true,
+					"GroundTruthAmbientOcclusion.Raw", RawTypes, Candidate.RawShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (RawShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (RawShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (RawShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (RawShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!RawShaderSetCompletion)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -212,12 +212,11 @@ namespace Durin
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				Candidate.RawShaderSet = *RawShaderSetCompletion;
 				const auto FilterShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"GroundTruthAmbientOcclusion.Filter", FilterTypes, true,
+					"GroundTruthAmbientOcclusion.Filter", FilterTypes, Candidate.FilterShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (FilterShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (FilterShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (FilterShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (FilterShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!FilterShaderSetCompletion)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -227,7 +226,6 @@ namespace Durin
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				Candidate.FilterShaderSet = *FilterShaderSetCompletion;
 				Candidate.RawVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.RawShaderSet);
 				Candidate.FilterVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.FilterShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGTAORawFragmentShader>(Candidate.RawShaderSet);

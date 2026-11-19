@@ -378,8 +378,8 @@ namespace Durin
 						DURIN_DEBUG("Shadow shader preparation: frame={} | program={} | status={}",
 							GRenderFrameCounterRenderThread, Material.PlanningPassIdentity.ShaderMap.ProgramIdentity.ToString(),
 							static_cast<uint32>(Result.Status));
-					if (Result.Status == EShaderBuildStatus::Pending) return FShaderMapResult::Pending();
-					if (Result.Status == EShaderBuildStatus::Canceled) return FShaderMapResult::Canceled();
+					if (Result.Status == ERenderResourceAvailability::Pending) return FShaderMapResult::Pending();
+					if (Result.Status == ERenderResourceAvailability::Canceled) return FShaderMapResult::Canceled();
 					if (!Result) return FShaderMapResult::Failure(MakeRendererResourceCreateError(
 						FailureCategory, "StaticMeshShaderMap",
 						GetIdentityText(Material.PlanningPassIdentity.ShaderMap), Result.Error,

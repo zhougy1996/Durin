@@ -242,7 +242,7 @@ TEST_F(FThumbnailVulkanTests, PreparedShadersAreSharedAndCaptureNeverCompiles)
 			using FResult = TRenderResourceCreateResult<std::shared_ptr<FShaderMapBase>>;
 			auto Map = std::make_shared<FShaderMapBase>();
 			const auto Completion = InitializeShaderMapFromTypes(*Map, Types, {});
-			if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
+			if (Completion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
 			if (Completion) return FResult::Success(std::move(Map));
 			return FResult::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
 				.Cause = Completion.Error});

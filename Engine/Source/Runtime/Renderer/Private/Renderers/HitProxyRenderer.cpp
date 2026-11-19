@@ -221,8 +221,8 @@ namespace Durin
 					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
 					View.DepthConvention == ESceneDepthConvention::ReversedZ};
 				const auto ShaderCompletion = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), Program.get(), {}, Item);
-				if (ShaderCompletion.Status == EShaderBuildStatus::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
-				if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { bReady = false; break; }
+				if (ShaderCompletion.Status == ERenderResourceAvailability::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
+				if (ShaderCompletion.Status == ERenderResourceAvailability::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
@@ -277,10 +277,9 @@ namespace Durin
 		if (!Request.Overlays.empty())
 		{
 			const std::array<const FGlobalShaderType*, 2> Types{&FHitProxyOverlayVertexShader::StaticType(), &FHitProxyOverlayFragmentShader::StaticType()};
-			const auto ShaderCompletion = GetGlobalShaderMap().ResolveShaderSet("HitProxy.Overlay", Types, true, ReportRendererResourceCreateDiagnostic);
-			if (ShaderCompletion.Status == EShaderBuildStatus::Canceled) { return {}; }
+			const auto ShaderCompletion = GetGlobalShaderMap().ResolveShaderSet("HitProxy.Overlay", Types, OverlayShaders, true, ReportRendererResourceCreateDiagnostic);
+			if (ShaderCompletion.Status == ERenderResourceAvailability::Canceled) { return {}; }
 			if (!ShaderCompletion) { return {}; }
-			OverlayShaders = *ShaderCompletion;
 			TShaderMapRef<FHitProxyOverlayVertexShader> Vertex(OverlayShaders);
 			OverlayFragment = TShaderMapRef<FHitProxyOverlayFragmentShader>(OverlayShaders);
 			FVertexDeclarationElementList Elements{};

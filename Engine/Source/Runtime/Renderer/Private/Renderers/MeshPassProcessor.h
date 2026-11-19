@@ -404,7 +404,7 @@ namespace Durin::RendererPrivate
 			std::shared_ptr<const FMeshDrawCommand> Existing = {}) const -> FShaderCompletion = 0;
 		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
 			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
-			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderCompletion;
+			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderMapQueryResult;
 		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch,
 			const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion;
 		RENDERER_API auto BuildPSOInitializer(const FMeshPassProcessorBatch& Batch, const FMeshPassShaders& Shaders,

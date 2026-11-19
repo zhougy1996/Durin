@@ -6,6 +6,7 @@
 #include "RenderResourceCreation.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "VertexFactory.h"
 #include "Materials/MaterialProgramCompiler.h"
 
@@ -255,8 +256,8 @@ namespace Durin
 		explicit operator bool() const { return Payload != nullptr; }
 
 		// Native admission can yield Pending; OutMap is published only on success.
-		ENGINE_API static auto TryCreate(FMeshMaterialShaderMapBuildInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
-		ENGINE_API static auto TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
+		ENGINE_API static auto TryCreate(FMeshMaterialShaderMapBuildInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderOperationResult;
+		ENGINE_API static auto TryCompile(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderMapQueryResult;
 		// Startup/tool assembly with explicit synchronous fixed-stage compilation.
 		ENGINE_API static auto TryCompileSync(FMeshMaterialShaderMapCompileInput Input, FMeshMaterialShaderMap& OutMap) -> FShaderCompletion;
 

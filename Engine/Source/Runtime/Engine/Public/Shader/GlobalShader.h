@@ -5,6 +5,7 @@
 
 #include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderMapPreparation.h"
 #include "Shader/ShaderDiagnostics.h"
 #include "Shader/ShaderCookedLibrary.h"
 
@@ -207,9 +208,10 @@ namespace Durin
 		ENGINE_API auto ResolveShaderSet(
 			std::string_view SectionIdentity,
 			std::span<const FGlobalShaderType* const> ShaderTypes,
+			FGlobalShaderSetRef& OutSet,
 			bool bCreateRHIShaders = true,
 			FGlobalShaderDiagnosticReporter ReportDiagnostic = {})
-			-> TShaderValueResult<FGlobalShaderSetRef>;
+			-> FShaderMapQueryResult;
 		ENGINE_API auto SetGeneration_RenderThread(
 			const FRenderResourceGeneration& InGeneration,
 			bool bForceShaderRecompile) -> void;

@@ -186,17 +186,16 @@ namespace Durin
 				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
 					&FPostProcessVertexShader::StaticType(),
 					bEnableFXAA ? &FFXAAFragmentShader::StaticType() : &FCopySceneColorFragmentShader::StaticType()};
+				FPayload Candidate;
 				const auto Completion = GetGlobalShaderMap().ResolveShaderSet(
-					bEnableFXAA ? "PostProcess.FXAA" : "PostProcess.Copy", ShaderTypes, true,
+					bEnableFXAA ? "PostProcess.FXAA" : "PostProcess.Copy", ShaderTypes, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (Completion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (Completion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (Completion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!Completion) return FResult::Failure(MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::ShaderCompile, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
 					ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
-				FPayload Candidate;
-				Candidate.ShaderSet = *Completion;
 				Candidate.VertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.ShaderSet);
 				FRHIShader* FragmentRHI = nullptr;
 				if (bEnableFXAA)

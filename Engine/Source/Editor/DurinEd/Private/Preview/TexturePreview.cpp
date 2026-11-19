@@ -133,8 +133,8 @@ namespace Durin
 						};
 					};
 					auto Result = InitializeShaderMapFromTypes(*ShaderMap, ShaderTypes, CompileOptions);
-					if (Result.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-					if (Result.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+					if (Result.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+					if (Result.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 					if (!Result)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,

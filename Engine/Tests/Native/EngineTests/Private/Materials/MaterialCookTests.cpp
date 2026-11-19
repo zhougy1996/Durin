@@ -309,13 +309,14 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	}
 	const auto ProgramBeforeCanceledResave = Cooked->GetAcceptedCompiledProgram();
 	const Durin::FAssetBuildTaskContext CanceledControl{.IsCancellationRequested = [] { return true; }};
-	const auto CanceledResave = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {}, CanceledControl);
-	EXPECT_EQ(CanceledResave.Status, Durin::EShaderBuildStatus::Canceled);
+	Durin::FBulkData ResavedData;
+	const auto CanceledResave = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {}, ResavedData, CanceledControl);
+	EXPECT_EQ(CanceledResave.Error, Durin::EObjectCookError::Cancelled);
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), ProgramBeforeCanceledResave);
 	const auto BuildsBeforeResave = Durin::IShaderBuildModule::Get()->GetStats().Compilations;
-	auto Resaved = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {});
-	ASSERT_TRUE(Resaved) << Resaved.Error;
-	auto ResavedRead = Resaved->AcquireRead();
+	auto Resaved = Cooked->PrepareCookedProgram(Metal ? Durin::ECookTargetPlatform::MacOS : Durin::ECookTargetPlatform::Win64, {}, ResavedData);
+	ASSERT_TRUE(Resaved) << Resaved.Diagnostic;
+	auto ResavedRead = ResavedData.AcquireRead();
 	ASSERT_TRUE(ResavedRead);
 	Durin::FMaterialStaticProperties ResavedProperties;
 	std::shared_ptr<const Durin::FMaterialProgram> ResavedProgram;

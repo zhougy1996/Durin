@@ -1725,7 +1725,7 @@ namespace Durin
 		}
 		Backend.Stub->DeferMounted = true;
 		// A host-side ordinary demand must remain nonblocking too.
-		EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Pending);
+		EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, ERenderResourceAvailability::Pending);
 		EXPECT_FALSE(Backend.Stub->LastInlineExecution);
 		EXPECT_EQ(Backend.Stub->Waits, 1u);
 		auto& Manager = FShaderCompilingManager::Get();
@@ -1787,8 +1787,8 @@ namespace Durin
 			++Attempts;
 			FShaderMapBase Map;
 			const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
-			if (Completion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-			EXPECT_EQ(Completion.Status, EShaderBuildStatus::Canceled);
+			if (Completion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+			EXPECT_EQ(Completion.Status, ERenderResourceAvailability::Canceled);
 			return FResult::Canceled();
 		};
 		auto Report = [](const auto&) { ADD_FAILURE() << "Cancellation must remain observable without failure diagnostics"; };
@@ -1833,7 +1833,7 @@ namespace Durin
 		const FShaderType* Types[] = {&FGlobalFixtureVertexShader::StaticType()};
 		FPreparedShaderMapScope Capture;
 		FShaderMapBase Map;
-		EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Pending);
+		EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, ERenderResourceAvailability::Pending);
 		EXPECT_EQ(Backend.Stub->Compiles, 1u);
 	}
 
@@ -1883,7 +1883,7 @@ namespace Durin
 			FPreparedShaderMapScope Capture;
 			FShaderMapBase Map;
 			const auto Result = InitializeShaderMapFromTypes(Map, Types, {});
-			EXPECT_EQ(Result.Status, EShaderBuildStatus::Pending);
+			EXPECT_EQ(Result.Status, ERenderResourceAvailability::Pending);
 			EXPECT_TRUE(Result.Error.empty());
 		}
 		EXPECT_EQ(Backend.Stub->Compiles, 1u);
@@ -1897,7 +1897,7 @@ namespace Durin
 		{
 			FPreparedShaderMapScope Capture;
 			FShaderMapBase Map;
-			EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Pending);
+			EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, ERenderResourceAvailability::Pending);
 		}
 		EXPECT_EQ(Backend.Stub->Compiles, 1u);
 	}
@@ -1974,7 +1974,7 @@ namespace Durin
 				FShaderMapBase Map;
 				const auto Completion = InitializeShaderMapFromTypes(Map, Types, {});
 				EXPECT_FALSE(Completion);
-				if (Completion.Status == EShaderBuildStatus::Pending) return TRenderResourceCreateResult<int>::Pending();
+				if (Completion.Status == ERenderResourceAvailability::Pending) return TRenderResourceCreateResult<int>::Pending();
 				return TRenderResourceCreateResult<int>::Failure({.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
 					.Cause = Completion.Error});
 			}, [&](const FRenderResourceCreateDiagnostic&) { ++Diagnostics; });
@@ -2011,7 +2011,7 @@ namespace Durin
 		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Canceled};
 		OnRenderThread([&] {
 			FShaderMapBase Map;
-			EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, EShaderBuildStatus::Canceled);
+			EXPECT_EQ(InitializeShaderMapFromTypes(Map, Types, {}).Status, ERenderResourceAvailability::Canceled);
 		});
 		EXPECT_EQ(Backend.Stub->Compiles, 2u);
 		EXPECT_EQ(Backend.Stub->Waits, 0u);
@@ -2041,6 +2041,7 @@ namespace Durin
 		FScopedShaderCompletionStub Scope; Scope.Stub->Defer = true;
 		FShaderCompilerOutput Output; uint32 Calls = 0;
 		auto& Manager = FShaderCompilingManager::Get();
+		Scope.Stub->Completion.AddDiagnostics("warning from stage");
 		auto Group = Manager.PrepareJobs({{.VirtualPath = "A"}, {.VirtualPath = "B"}, {.VirtualPath = "C"}},
 			1024 * 1024, {.bInlineExecution = true}, [&](auto Result) { Output = std::move(Result); ++Calls; });
 		EXPECT_TRUE(Scope.Stub->Pending.empty());
@@ -2049,7 +2050,10 @@ namespace Durin
 		auto Deliver = [&](size_t Index) { auto Callback = std::move(Scope.Stub->Pending[Index]); Callback(); };
 		Deliver(1); ASSERT_EQ(Scope.Stub->Pending.size(), 3u); Deliver(2); Deliver(0);
 		EXPECT_EQ(Manager.FinishCompilation(Group), EShaderBuildWaitResult::Completed);
-		ASSERT_TRUE(Output); ASSERT_EQ(Output.CompiledShaders.size(), 3u); EXPECT_EQ(Calls, 1u);
+		ASSERT_TRUE(Output);
+		ASSERT_EQ(Output.Errors.size(), 3u);
+		for (const auto& Warning : Output.Errors) EXPECT_EQ(Warning.StrippedErrorMessage, "warning from stage");
+		ASSERT_EQ(Output.CompiledShaders.size(), 3u); EXPECT_EQ(Calls, 1u);
 		for (size_t Index = 0; Index < 3; ++Index) EXPECT_EQ(Output.CompiledShaders[Index].DebugName, std::string(1, char('A' + Index)));
 		auto Mounted = Manager.PrepareJobs("/Mounted", {}, {.bInlineExecution = true}, [&](auto Result) { EXPECT_TRUE(Result); ++Calls; });
 		FShaderCompilingManager::Get().SubmitJobs(Mounted);
@@ -2166,10 +2170,10 @@ namespace Durin
 		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Ok};
 		for (const auto* Type : BaseTypes)
 			Backend.Stub->Completion.CompiledShaders.push_back(Prepared.GetCode()->GetCompiledShader(*Prepared.FindShaderIndex(Type)));
+		FGlobalShaderSetRef Set;
 		const auto Completion = Map.ResolveShaderSet(
-			"Tests.GlobalFixture", Types, false);
+			"Tests.GlobalFixture", Types, Set, false);
 		ASSERT_TRUE(Completion) << Completion.Error;
-		const auto& Set = *Completion;
 		EXPECT_EQ(Set.GetGeneration(), Generation);
 		EXPECT_EQ(Set.GetIdentity(),
 			"Tests.GlobalFixture|FGlobalFixtureFragmentShader|FGlobalFixtureVertexShader");
@@ -2180,6 +2184,18 @@ namespace Durin
 		EXPECT_TRUE(Fragment);
 		EXPECT_EQ(Vertex.GetGeneration(), Generation);
 		EXPECT_FALSE(Set.GetPipelineLayout().BindingLayouts.empty());
+		++Generation.Shader;
+		Map.SetGeneration_RenderThread(Generation, false);
+		Backend.Stub->DeferMounted = true;
+		const auto Pending = Map.ResolveShaderSet("Tests.GlobalFixture", Types, Set, false);
+		EXPECT_EQ(Pending.Status, ERenderResourceAvailability::Pending);
+		EXPECT_TRUE(Pending.Error.empty());
+		EXPECT_FALSE(Set);
+		ASSERT_EQ(Backend.Stub->Pending.size(), 1u);
+		auto Deliver = std::move(Backend.Stub->Pending.front());
+		Deliver();
+		ASSERT_TRUE(Map.ResolveShaderSet("Tests.GlobalFixture", Types, Set, false));
+		EXPECT_EQ(Set.GetGeneration(), Generation);
 		Map.Shutdown_RenderThread();
 		EXPECT_EQ(Map.GetSectionCount(), 0u);
 		EXPECT_TRUE(Vertex);
@@ -2201,15 +2217,16 @@ namespace Durin
 		struct FClear { FGlobalShaderMap& Map; ~FClear() { Map.Shutdown_RenderThread(); } } Clear{Map};
 		const std::array<const FGlobalShaderType*, 2> Types{
 			&FGlobalFixtureVertexShader::StaticType(), &FGlobalFixtureFragmentShader::StaticType()};
-		const auto Canceled = Map.ResolveShaderSet("Tests.Completion", Types, false);
-		EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
-		EXPECT_FALSE(Canceled.Value); EXPECT_TRUE(Canceled.Error.empty());
+		FGlobalShaderSetRef Set;
+		const auto Canceled = Map.ResolveShaderSet("Tests.Completion", Types, Set, false);
+		EXPECT_EQ(Canceled.Status, ERenderResourceAvailability::Canceled);
+		EXPECT_FALSE(Set); EXPECT_TRUE(Canceled.Error.empty());
 		Stub->Completion = FShaderCompilerOutput::Failure("global shader diagnostic");
-		const auto Failed = Map.ResolveShaderSet("Tests.Completion", Types, false);
-		EXPECT_EQ(Failed.Status, EShaderBuildStatus::Error);
-		EXPECT_EQ(Failed.Error, "global shader diagnostic"); EXPECT_FALSE(Failed.Value);
+		const auto Failed = Map.ResolveShaderSet("Tests.Completion", Types, Set, false);
+		EXPECT_EQ(Failed.Status, ERenderResourceAvailability::Failed);
+		EXPECT_EQ(Failed.Error, "global shader diagnostic"); EXPECT_FALSE(Set);
 		EXPECT_EQ(Stub->Compiles, 2u);
-		const auto Cached = Map.ResolveShaderSet("Tests.Completion", Types, false);
+		const auto Cached = Map.ResolveShaderSet("Tests.Completion", Types, Set, false);
 		EXPECT_EQ(Cached.Error, Failed.Error); EXPECT_EQ(Stub->Compiles, 2u);
 	}
 

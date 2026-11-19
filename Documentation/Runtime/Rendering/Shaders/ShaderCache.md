@@ -30,7 +30,7 @@ no derived writes. See [plugin resources](../../../Workspace/Plugins.md#plugin-c
 
 `FShaderCompilerOutput` is shared by direct compilation, synchronous ShaderBuild,
 asynchronous completion, shared-output assembly, and manager job groups. It owns
-compiled stages, an independent `EShaderBuildStatus`, and an ordered
+compiled stages, a terminal `EShaderBuildStatus`, and an ordered
 `std::vector<FShaderCompilerError> Errors`. Success can include warnings; failure
 and cancellation do not publish partial stages. Cancellation carries no diagnostics.
 Each compiler diagnostic owns its message and optional source path, line and
@@ -40,8 +40,8 @@ not control-flow classification. Diagnostic count and external text are bounded.
 
 `FShaderOperationResult` is `std::expected<void, std::string>` for non-compilation
 validation. Filesystem adapters format the `FFileSystemError` at that boundary.
-`FShaderCompletion` and `TShaderValueResult` remain for non-compilation operations
-with cancellation and optional Cook/build products; they do not wrap shader output.
+Shader map lookups use render resource availability to report pending preparation.
+Cook returns its own result and writes the prepared bulk data on success.
 Runtime resource creation uses its existing category, reason, identity and retry
 dependencies for control flow and failure fingerprints. Diagnostic wording does
 not determine retries or resource failure identity.

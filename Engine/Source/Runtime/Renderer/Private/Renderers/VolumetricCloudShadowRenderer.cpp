@@ -186,15 +186,14 @@ namespace Durin
 					&FCloudShadowComputeShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloudShadow.Compute", Types, true,
+					"VolumetricCloudShadow.Compute", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.ComputeShader =
 					TShaderMapRef<FCloudShadowComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
@@ -228,15 +227,14 @@ namespace Durin
 					&FCloudShadowFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloudShadow.Fragment", Types, true,
+					"VolumetricCloudShadow.Fragment", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeFailure("VolumetricCloudShadow",
 						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderCompile));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "shader",
 						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,

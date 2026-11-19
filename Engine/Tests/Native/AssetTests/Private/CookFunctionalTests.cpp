@@ -988,8 +988,9 @@ TEST_F(FCookFunctionalTests, MaterialVariantsOverlapAndShuffledDeliveryKeepsMixe
 	});
 	FCookPackagePreparationOptions Options{.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
 	Options.MaterialConfigurations = {{EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5}, {EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
-	const auto Prepared = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations);
-	ASSERT_TRUE(Prepared) << Prepared.Error;
+	Durin::FBulkData CookedData;
+	const auto Prepared = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations, CookedData);
+	ASSERT_TRUE(Prepared) << Prepared.Diagnostic;
 	ASSERT_FALSE(Order.empty()); EXPECT_EQ(Order.front(), EMaterialQualityLevel::High);
 	{
 		std::lock_guard Lock(Mutex);
@@ -1042,10 +1043,11 @@ TEST_F(FCookFunctionalTests, MaterialCancellationAfterResultReadinessJoinsBefore
 	EXPECT_TRUE(Observed.load()); EXPECT_TRUE(Bytes.empty());
 	Ready = false; Observed = false;
 	const FAssetBuildTaskContext Control{.IsCancellationRequested = Options.IsCancelled};
-	const auto Prepared = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations, Control);
+	Durin::FBulkData CookedData;
+	const auto Prepared = Material->PrepareCookedProgram(Options.TargetPlatform, Options.MaterialConfigurations, CookedData, Control);
 	EXPECT_TRUE(Observed.load());
-	EXPECT_EQ(Prepared.Status, EShaderBuildStatus::Canceled);
-	EXPECT_FALSE(Prepared.Value); EXPECT_TRUE(Prepared.Error.empty());
+	EXPECT_EQ(Prepared.Error, EObjectCookError::Cancelled);
+	EXPECT_FALSE(CookedData.HasData()); EXPECT_TRUE(Prepared.Diagnostic.empty());
 }
 
 TEST_F(FCookFunctionalTests, DetachedMaterialPreparationRejectsInputsChangedWhileWaiting)
@@ -1075,10 +1077,11 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationRejectsInputsChangedWhil
 		return false;
 	}};
 	const std::array Configurations{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
-	const auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Control);
+	Durin::FBulkData CookedData;
+	const auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, CookedData, Control);
 	EXPECT_TRUE(Changed.load()); EXPECT_FALSE(Prepared);
-	EXPECT_EQ(Prepared.Status, EShaderBuildStatus::Error);
-	EXPECT_NE(Prepared.Error.find("changed"), std::string::npos);
+	EXPECT_EQ(Prepared.Error, EObjectCookError::Preparation);
+	EXPECT_NE(Prepared.Diagnostic.find("changed"), std::string::npos);
 	EXPECT_FALSE(Material->GetCookedProgramData().HasData());
 }
 
@@ -1221,8 +1224,9 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	const auto Accepted = Material->GetAcceptedCompiledProgram();
 	const auto Revision = Material->GetPackage()->GetEditRevision();
 	const std::array Configurations{FMaterialCookConfiguration{EMaterialQualityLevel::High, ERHIFeatureLevel::SM5}};
-	auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations);
-	ASSERT_TRUE(Prepared) << Prepared.Error;
+	Durin::FBulkData CookedData;
+	auto Prepared = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, CookedData);
+	ASSERT_TRUE(Prepared) << Prepared.Diagnostic;
 	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
 	EXPECT_EQ(Material->GetPackage()->GetEditRevision(), Revision);
 	const auto BeforeSerialization = GetShaderBuildStats().Compilations;
@@ -1233,7 +1237,7 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 	ASSERT_TRUE(UnpreparedWriter.IsError());
 	EXPECT_TRUE(UnpreparedBytes.empty());
 	EXPECT_EQ(GetShaderBuildStats().Compilations, BeforeSerialization);
-	auto Read = Prepared->AcquireRead();
+	auto Read = CookedData.AcquireRead();
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
 	std::shared_ptr<const FMaterialProgram> Program;
@@ -1243,14 +1247,15 @@ TEST_F(FCookFunctionalTests, DetachedMaterialPreparationHonorsSelectedVariants)
 		ECookTargetProfile::Game, EMaterialQualityLevel::Low, ERHIFeatureLevel::SM5, {}, Properties, Program));
 	FAssetBuildTaskContext Cancelled;
 	Cancelled.IsCancellationRequested = [] { return true; };
-	const auto Canceled = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Cancelled);
-	EXPECT_EQ(Canceled.Status, EShaderBuildStatus::Canceled);
-	EXPECT_FALSE(Canceled.Value);
-	EXPECT_TRUE(Canceled.Error.empty());
+	const auto Canceled = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, CookedData, Cancelled);
+	EXPECT_EQ(Canceled.Error, EObjectCookError::Cancelled);
+	EXPECT_FALSE(CookedData.HasData());
+	EXPECT_TRUE(Canceled.Diagnostic.empty());
 	FAssetBuildTaskContext Limited;
 	Limited.MaximumWorkingSetBytes = 1;
-	const auto Rejected = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, Limited);
-	EXPECT_FALSE(Rejected); EXPECT_FALSE(Rejected.Value);
+	const auto Rejected = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Configurations, CookedData, Limited);
+	EXPECT_EQ(Rejected.Error, EObjectCookError::Limit);
+	EXPECT_FALSE(CookedData.HasData());
 	EXPECT_EQ(GetShaderBuildStats().Compilations, BeforeSerialization);
 }
 
@@ -1917,13 +1922,14 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 	ASSERT_NE(Material, nullptr);
 	const auto Before = GetShaderBuildStats().Compilations;
 	const auto Revision = Material->GetPackage()->GetEditRevision();
-	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, {}));
+	Durin::FBulkData CookedData;
+	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, {}, CookedData));
 	const std::array Invalid{High, High};
-	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Invalid));
-	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::MacOS, std::span(&Low, 1)));
-	auto Subset = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, std::span(&Low, 1));
-	ASSERT_TRUE(Subset) << Subset.Error;
-	auto Read = Subset->AcquireRead();
+	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Invalid, CookedData));
+	EXPECT_FALSE(Material->PrepareCookedProgram(ECookTargetPlatform::MacOS, std::span(&Low, 1), CookedData));
+	auto Subset = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, std::span(&Low, 1), CookedData);
+	ASSERT_TRUE(Subset) << Subset.Diagnostic;
+	auto Read = CookedData.AcquireRead();
 	ASSERT_TRUE(Read);
 	FMaterialStaticProperties Properties;
 	std::shared_ptr<const FMaterialProgram> Program;
@@ -1931,9 +1937,9 @@ TEST_F(FCookFunctionalTests, CookedOnlyPreparationSelectsAvailableVariantsWithou
 		ECookTargetProfile::Game, Low.Quality, Low.FeatureLevel, {}, Properties, Program));
 	EXPECT_FALSE(DecodeMaterialCookedProgramFamily(Read->GetBytes(), ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, High.Quality, High.FeatureLevel, {}, Properties, Program));
-	auto Same = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Request.MaterialConfigurations);
-	ASSERT_TRUE(Same) << Same.Error;
-	auto SameRead = Same->AcquireRead();
+	auto Same = Material->PrepareCookedProgram(ECookTargetPlatform::Win64, Request.MaterialConfigurations, CookedData);
+	ASSERT_TRUE(Same) << Same.Diagnostic;
+	auto SameRead = CookedData.AcquireRead();
 	auto Original = Material->GetCookedProgramData();
 	auto OriginalRead = Original.AcquireRead();
 	ASSERT_TRUE(SameRead);

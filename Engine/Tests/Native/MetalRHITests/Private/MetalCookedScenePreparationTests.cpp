@@ -21,10 +21,11 @@ namespace Durin
 		auto* Source = NewObject<DMaterial>(nullptr, "CookedSceneMaterial");
 		AddToRoot(Source);
 		auto CookProgram = [](DMaterialInterface& Material, FMaterialStaticProperties& Properties) -> std::shared_ptr<const FMaterialProgram> {
-			auto Cooked = Material.PrepareCookedProgram(ECookTargetPlatform::MacOS, {});
-			EXPECT_TRUE(Cooked) << Cooked.Error;
+			Durin::FBulkData CookedData;
+			auto Cooked = Material.PrepareCookedProgram(ECookTargetPlatform::MacOS, {}, CookedData);
+			EXPECT_TRUE(Cooked) << Cooked.Diagnostic;
 			if (!Cooked) return nullptr;
-			auto Read = Cooked->AcquireRead();
+			auto Read = CookedData.AcquireRead();
 			EXPECT_TRUE(Read);
 			if (!Read) return nullptr;
 			std::shared_ptr<const FMaterialProgram> Program;

@@ -189,10 +189,10 @@ namespace Durin
 					&FContactVisibilityComputeShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"ContactVisibility.Compute", Types, true,
+					"ContactVisibility.Compute", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -200,7 +200,6 @@ namespace Durin
 						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.ComputeShader =
 					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
@@ -234,10 +233,10 @@ namespace Durin
 					&FContactVisibilityFragmentShader::StaticType()};
 				FPayload Candidate;
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"ContactVisibility.Fragment", Types, true,
+					"ContactVisibility.Fragment", Types, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
 				if (!ShaderSetCompletion)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -245,7 +244,6 @@ namespace Durin
 						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader =
 					TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =

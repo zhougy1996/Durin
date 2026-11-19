@@ -314,10 +314,10 @@ namespace Durin
 					&FGizmoVertexShader::StaticType(),
 					&FGizmoFragmentShader::StaticType()};
 				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"EditorAssistance.Gizmo", ShaderTypes, true,
+					"EditorAssistance.Gizmo", ShaderTypes, Candidate.ShaderSet, true,
 					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Pending) return FBaseResult::Pending();
-				if (ShaderSetCompletion.Status == EShaderBuildStatus::Canceled) return FBaseResult::Canceled();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FBaseResult::Pending();
+				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FBaseResult::Canceled();
 				if (!ShaderSetCompletion)
 				{
 					return FBaseResult::Failure(
@@ -329,7 +329,6 @@ namespace Durin
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				Candidate.ShaderSet = *ShaderSetCompletion;
 				Candidate.VertexShader = TShaderMapRef<FGizmoVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGizmoFragmentShader>(Candidate.ShaderSet);
 				FVertexDeclarationElementList Elements;
