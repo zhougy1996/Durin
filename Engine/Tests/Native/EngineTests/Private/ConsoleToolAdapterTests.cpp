@@ -398,7 +398,7 @@ namespace Durin::MainFrame
 			const auto* Function = Levels->GetClass()->FindFunctionByName(Name);
 			ASSERT_NE(nullptr, Function);
 			FFunctionParameterBuffer Parameters(*Function);
-			EXPECT_EQ(EFunctionInvokeError::None, Levels->ProcessEvent(Function, Parameters.GetView()));
+			Levels->ProcessEvent(Function, Parameters.GetView().data());
 		};
 		auto InvokeBool = [&](const char* Name, std::optional<bool> Paused = {}) -> bool {
 			const auto* Function = Levels->GetClass()->FindFunctionByName(Name);
@@ -406,7 +406,7 @@ namespace Durin::MainFrame
 			if (!Function) return false;
 			FFunctionParameterBuffer Parameters(*Function);
 			if (Paused) Parameters.GetParameter<bool>(0) = *Paused;
-			EXPECT_EQ(EFunctionInvokeError::None, Levels->ProcessEvent(Function, Parameters.GetView()));
+			Levels->ProcessEvent(Function, Parameters.GetView().data());
 			return Parameters.GetReturnValue<bool>();
 		};
 		EXPECT_FALSE(InvokeBool("IsInPlayInEditor"));

@@ -204,30 +204,32 @@ TEST(DFunctionReflectionTests, InvocationRequiresLinkedMetadataAndALiveCompatibl
 	auto* Function = DurinCodeGen::ConstructDFunction(Class, {"Run", nullptr, EFunctionFlags::Native, "Actions", "Run", "", +[](DObject&, FFunctionFrame&, void*) { ++GFunctionInvocations; }});
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "FunctionInvocationTarget"));
 	ASSERT_TRUE(Target);
-	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Function, {}), EFunctionInvokeError::UnlinkedFunction);
 	EXPECT_EQ(GFunctionInvocations, 0);
 	Class->RegisterFunctions({Function});
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
 	const auto* Linked = Class->FindFunctionByName("Run");
 	ASSERT_NE(Linked, nullptr);
 	std::byte UnexpectedParameters[1]{};
-	EXPECT_EQ(Target->ProcessEvent(nullptr, {}), EFunctionInvokeError::InvalidFunction);
-	EXPECT_EQ(Target->ProcessEvent(Linked, UnexpectedParameters), EFunctionInvokeError::InvalidParameters);
+	EXPECT_EQ(ValidateFunctionInvocation(nullptr, Linked), EFunctionInvokeError::InvalidTarget);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Linked, {}), EFunctionInvokeError::None);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), nullptr, {}), EFunctionInvokeError::InvalidFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Linked, UnexpectedParameters), EFunctionInvokeError::InvalidParameters);
 	EXPECT_EQ(GFunctionInvocations, 0);
 	EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
-	EXPECT_EQ(Target->ProcessEvent(Linked, {}), EFunctionInvokeError::None);
+	Target->ProcessEvent(Linked, nullptr);
 	EXPECT_EQ(GFunctionInvocations, 1);
 	TStrongObjectPtr<DObject> Wrong(NewObject<DObject>(nullptr, "WrongFunctionTarget"));
-	EXPECT_EQ(Wrong->ProcessEvent(Linked, {}), EFunctionInvokeError::WrongClass);
-	// The handle stops resolving after marking. The allocated object remains valid
-	// member-call storage until collection, allowing admission to reject its garbage state.
+	EXPECT_EQ(ValidateFunctionInvocation(Wrong.Get(), Linked, {}), EFunctionInvokeError::WrongClass);
+	// The handle stops resolving after marking. Preflight can still reject the
+	// garbage state of the allocated object before collection.
 	auto* GarbageTarget = Target.Get();
 	MarkAsGarbage(GarbageTarget);
-	EXPECT_EQ(GarbageTarget->ProcessEvent(Linked, {}), EFunctionInvokeError::InvalidTarget);
+	EXPECT_EQ(ValidateFunctionInvocation(GarbageTarget, Linked, {}), EFunctionInvokeError::InvalidTarget);
 	EXPECT_EQ(GFunctionInvocations, 1);
 }
 
-TEST(DFunctionReflectionTests, DispatchRejectsUntrackedAndUnregisteredFunctionMetadata)
+TEST(DFunctionReflectionTests, PreflightRejectsUntrackedAndUnregisteredFunctionMetadata)
 {
 	auto* Class = MakeFunctionClass("Tests::DFunctionMetadataAdmission");
 	auto* Function = MakeFunction(Class, "Run");
@@ -235,9 +237,9 @@ TEST(DFunctionReflectionTests, DispatchRejectsUntrackedAndUnregisteredFunctionMe
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "MetadataAdmission"));
 	auto* Unregistered = MakeFunction(Class, "Unregistered");
-	EXPECT_EQ(Target->ProcessEvent(Unregistered, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Unregistered), EFunctionInvokeError::UnlinkedFunction);
 	DFunction Untracked(FObjectInitializer{});
-	EXPECT_EQ(Target->ProcessEvent(&Untracked, {}), EFunctionInvokeError::InvalidFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), &Untracked, {}), EFunctionInvokeError::InvalidFunction);
 }
 
 TEST(DFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
@@ -254,9 +256,9 @@ TEST(DFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
 				EXPECT_TRUE(Frame.GetParameters().empty());
 				const auto* Inner = Target.GetClass()->FindFunctionByName("Inner");
 				std::byte UnexpectedParameters[1]{};
-				EXPECT_EQ(Target.ProcessEvent(Inner, UnexpectedParameters), EFunctionInvokeError::InvalidParameters);
+				EXPECT_EQ(ValidateFunctionInvocation(&Target, Inner, UnexpectedParameters), EFunctionInvokeError::InvalidParameters);
 				EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
-				EXPECT_EQ(Target.ProcessEvent(Inner, {}), EFunctionInvokeError::None);
+				Target.ProcessEvent(Inner, nullptr);
 				EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), &Frame);
 			}}),
 		DurinCodeGen::ConstructDFunction(Class, {"Inner", nullptr, EFunctionFlags::Native, "Actions", "Inner", "", +[](DObject& Target, FFunctionFrame& Frame, void* Result) {
@@ -272,7 +274,7 @@ TEST(DFunctionReflectionTests, NestedProcessEventBuildsAndRestoresNativeFrames)
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "NestedFunctionTarget"));
 	ASSERT_TRUE(Target);
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
-	EXPECT_EQ(Target->ProcessEvent(Class->FindFunctionByName("Outer"), {}), EFunctionInvokeError::None);
+	Target->ProcessEvent(Class->FindFunctionByName("Outer"), nullptr);
 	EXPECT_EQ(GFunctionInvocations, 1);
 	EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
 }
@@ -287,7 +289,7 @@ TEST(DFunctionReflectionTests, NativeExceptionUnwindsTheCallFrameWithoutConverti
 	TStrongObjectPtr<DObject> Target(NewObject(Class, nullptr, "ThrowingFunctionTarget"));
 	ASSERT_TRUE(Target);
 	ASSERT_EQ(Class->LinkFunctions(), EFunctionLinkError::None);
-	EXPECT_THROW(Target->ProcessEvent(Class->FindFunctionByName("Throw"), {}), std::runtime_error);
+	EXPECT_THROW(Target->ProcessEvent(Class->FindFunctionByName("Throw"), nullptr), std::runtime_error);
 	EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
 }
 
@@ -300,10 +302,10 @@ TEST(DFunctionReflectionTests, NativeDefaultsDoNotChangeBufferInitializationOrDi
 	ASSERT_NE(Function, nullptr);
 	FFunctionParameterBuffer Buffer(*Function);
 	EXPECT_EQ(Buffer.GetParameter<int32>(0), 0);
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 0);
 	Buffer.GetParameter<int32>(0) = 23;
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 23);
 }
 
@@ -315,7 +317,7 @@ TEST(DFunctionReflectionTests, GeneratedMethodSelectionIgnoresOrdinaryOverloads)
 	ASSERT_NE(Function, nullptr);
 	FFunctionParameterBuffer Buffer(*Function);
 	Buffer.GetParameter<std::string>(0) = "chosen";
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 6);
 }
 
@@ -346,7 +348,7 @@ TEST(DFunctionReflectionTests, ReflectedLiteralDefaultsAreTypedOwnedAndExplicit)
 	ASSERT_TRUE(Buffer.ApplyDefaults({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}));
 	EXPECT_EQ(Buffer.GetParameter<uint64>(8), std::numeric_limits<uint64>::max());
 	EXPECT_EQ(Buffer.GetParameter<EFunctionState>(12), EFunctionState::Ready);
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 12);
 	Buffer.GetParameter<std::string>(11) = "changed";
 	Buffer.GetParameter<bool>(0) = false;
@@ -409,7 +411,7 @@ TEST(DFunctionReflectionTests, DefaultRequestsPreflightAllIndexesWithoutPartialW
 	ASSERT_NE(NullReference, nullptr);
 	FFunctionParameterBuffer NullBuffer(*NullReference);
 	ASSERT_TRUE(NullBuffer.ApplyDefaults({0}));
-	EXPECT_EQ(Target->ProcessEvent(NullReference, NullBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(NullReference, NullBuffer.GetView().data());
 	EXPECT_EQ(NullBuffer.GetReturnValue<DObject*>(), nullptr);
 }
 
@@ -423,7 +425,7 @@ TEST(DFunctionReflectionTests, DefaultsFollowEffectiveDescriptorsRatherThanNativ
 	EXPECT_EQ(Function->GetParameterDefaultValue<int32>(0), 29);
 	FFunctionParameterBuffer Buffer(*Function);
 	ASSERT_TRUE(Buffer.ApplyDefaults({0}));
-	EXPECT_EQ(Annotated->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Annotated->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 58);
 	TStrongObjectPtr<DDefaultInherited> Unannotated(NewObject<DDefaultInherited>(nullptr, "InheritedDefaults"));
 	Function = Unannotated->GetClass()->FindFunctionByName("NativeDefault");
@@ -433,7 +435,7 @@ TEST(DFunctionReflectionTests, DefaultsFollowEffectiveDescriptorsRatherThanNativ
 	EXPECT_EQ(Unannotated->NativeDefault(), 129);
 	FFunctionParameterBuffer Inherited(*Function);
 	ASSERT_TRUE(Inherited.ApplyDefaults({0}));
-	EXPECT_EQ(Unannotated->ProcessEvent(Function, Inherited.GetView()), EFunctionInvokeError::None);
+	Unannotated->ProcessEvent(Function, Inherited.GetView().data());
 	EXPECT_EQ(Inherited.GetReturnValue<int32>(), 51);
 	const auto* Omitted = DDefaultOmitted::StaticClass()->FindFunctionByName("NativeDefault");
 	ASSERT_NE(Omitted, nullptr);
@@ -510,19 +512,19 @@ TEST(DFunctionReflectionTests, GeneratedStringArgumentsReferenceOutputAndReturnU
 	EXPECT_TRUE(Buffer.GetReturnValue<std::string>().empty());
 	Buffer.GetParameter<int32>(0) = 42;
 	Buffer.GetParameter<std::string>(1) = "value=";
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetParameter<std::string>(1), "value=");
 	EXPECT_EQ(Buffer.GetParameter<std::string>(2), "value=42");
 	EXPECT_EQ(Buffer.GetReturnValue<std::string>(), "value=42!");
 	Buffer.GetParameter<int32>(0) = 7;
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<std::string>(), "value=7!");
-	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::InvalidParameters);
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView().first(Function->GetParmsSize() - 1)), EFunctionInvokeError::InvalidParameters);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Function, {}), EFunctionInvokeError::InvalidParameters);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Function, Buffer.GetView().first(Function->GetParmsSize() - 1)), EFunctionInvokeError::InvalidParameters);
 	std::vector<std::byte> Misaligned(Function->GetParmsSize() + Function->GetMinAlignment());
 	size_t Offset = 0;
 	while (reinterpret_cast<uintptr_t>(Misaligned.data() + Offset) % Function->GetMinAlignment() == 0) ++Offset;
-	EXPECT_EQ(Target->ProcessEvent(Function, {Misaligned.data() + Offset, Function->GetParmsSize()}), EFunctionInvokeError::InvalidParameters);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Function, {Misaligned.data() + Offset, Function->GetParmsSize()}), EFunctionInvokeError::InvalidParameters);
 }
 
 TEST(DFunctionReflectionTests, GeneratedThunkAcceptsBorrowedCompilerLaidOutParameterAggregate)
@@ -534,7 +536,7 @@ TEST(DFunctionReflectionTests, GeneratedThunkAcceptsBorrowedCompilerLaidOutParam
 	struct FArguments { int32 Value; std::string Prefix, Output, ReturnValue; } Arguments{6, "raw=", {}, {}};
 	ASSERT_EQ(sizeof(Arguments), Function->GetParmsSize());
 	ASSERT_EQ(offsetof(FArguments, ReturnValue), Function->GetReturnProperty()->GetOffset());
-	EXPECT_EQ(Target->ProcessEvent(Function, std::as_writable_bytes(std::span(&Arguments, 1))), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, &Arguments);
 	EXPECT_EQ(Arguments.Output, "raw=6");
 	EXPECT_EQ(Arguments.ReturnValue, "raw=6!");
 }
@@ -547,14 +549,14 @@ TEST(DFunctionReflectionTests, GeneratedReturnOnlyReferenceOnlyAndMixedAlignment
 	ASSERT_NE(Read, nullptr);
 	EXPECT_FALSE((Read->GetNumParms() == 0));
 	FFunctionParameterBuffer ReadBuffer(*Read);
-	EXPECT_EQ(Target->ProcessEvent(Read, ReadBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Read, ReadBuffer.GetView().data());
 	EXPECT_EQ(ReadBuffer.GetReturnValue<int32>(), 17);
 	const auto* Update = Target->GetClass()->FindFunctionByName("Update");
 	ASSERT_NE(Update, nullptr);
 	EXPECT_EQ(Update->GetReturnProperty(), nullptr);
 	FFunctionParameterBuffer UpdateBuffer(*Update);
 	UpdateBuffer.GetParameter<int32>(0) = 3;
-	EXPECT_EQ(Target->ProcessEvent(Update, UpdateBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Update, UpdateBuffer.GetView().data());
 	EXPECT_EQ(UpdateBuffer.GetParameter<int32>(0), 8);
 	const auto* Mixed = Target->GetClass()->FindFunctionByName("Mixed");
 	ASSERT_NE(Mixed, nullptr);
@@ -562,7 +564,7 @@ TEST(DFunctionReflectionTests, GeneratedReturnOnlyReferenceOnlyAndMixedAlignment
 	MixedBuffer.GetParameter<float>(0) = 1.5f;
 	MixedBuffer.GetParameter<double>(1) = 2.25;
 	MixedBuffer.GetParameter<bool>(2) = true;
-	EXPECT_EQ(Target->ProcessEvent(Mixed, MixedBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Mixed, MixedBuffer.GetView().data());
 	EXPECT_DOUBLE_EQ(MixedBuffer.GetReturnValue<double>(), -3.75);
 }
 
@@ -575,13 +577,13 @@ TEST(DFunctionReflectionTests, GeneratedNameAndGuidValuesRoundTrip)
 	FFunctionParameterBuffer GuidBuffer(*GuidFunction);
 	const FGuid Guid{1, 2, 3, 4};
 	GuidBuffer.GetParameter<FGuid>(0) = Guid;
-	EXPECT_EQ(Target->ProcessEvent(GuidFunction, GuidBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(GuidFunction, GuidBuffer.GetView().data());
 	EXPECT_EQ(GuidBuffer.GetReturnValue<FGuid>(), Guid);
 	const auto* NameFunction = Target->GetClass()->FindFunctionByName("EchoName");
 	ASSERT_NE(NameFunction, nullptr);
 	FFunctionParameterBuffer NameBuffer(*NameFunction);
 	NameBuffer.GetParameter<FName>(0) = "FunctionValue";
-	EXPECT_EQ(Target->ProcessEvent(NameFunction, NameBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(NameFunction, NameBuffer.GetView().data());
 	EXPECT_EQ(NameBuffer.GetReturnValue<FName>(), FName("FunctionValue"));
 }
 
@@ -605,9 +607,9 @@ TEST(DFunctionReflectionTests, ParameterizedVirtualOverridePreservesSlotAndIgnor
 	for (FPropertyValueIterator It(Derived, Buffer.GetView().data()); It; ++It) ++Values;
 	EXPECT_EQ(Values, Derived->GetNumParms());
 	Buffer.GetParameter<int32>(0) = 7;
-	EXPECT_EQ(Target->ProcessEvent(Derived, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Derived, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 21);
-	EXPECT_EQ(Target->ProcessEvent(Base, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Base, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<int32>(), 21);
 }
 
@@ -652,10 +654,10 @@ TEST(DFunctionReflectionTests, VirtualLayoutLinkDoesNotGrantClassDispatchAdmissi
 	EXPECT_FALSE(Owner->AreFunctionsLinked());
 	EXPECT_EQ(Function->GetNumParms(), 0u);
 	TStrongObjectPtr<DObject> Target(NewObject(Owner, nullptr, "ExplicitFunctionLink"));
-	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Function, {}), EFunctionInvokeError::UnlinkedFunction);
 	Owner->RegisterFunctions({Function});
 	ASSERT_EQ(Owner->LinkFunctions(), EFunctionLinkError::None);
-	EXPECT_EQ(Target->ProcessEvent(Function, {}), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, nullptr);
 }
 
 TEST(DFunctionReflectionTests, ClassLinkRejectsAParentChangedAfterFunctionLayoutLink)
@@ -684,8 +686,8 @@ TEST(DFunctionReflectionTests, FailedOverrideBatchDoesNotAdmitEarlierLocalFuncti
 	Derived->RegisterFunctions({First, Invalid});
 	ASSERT_EQ(Derived->LinkFunctions(), EFunctionLinkError::NonVirtualOverride);
 	TStrongObjectPtr<DObject> Target(NewObject(Derived, nullptr, "AtomicFunctionTarget"));
-	EXPECT_EQ(Target->ProcessEvent(First, {}), EFunctionInvokeError::UnlinkedFunction);
-	EXPECT_EQ(Target->ProcessEvent(Invalid, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), First, {}), EFunctionInvokeError::UnlinkedFunction);
+	EXPECT_EQ(ValidateFunctionInvocation(Target.Get(), Invalid, {}), EFunctionInvokeError::UnlinkedFunction);
 	EXPECT_EQ(Derived->LinkFunctions(), EFunctionLinkError::NonVirtualOverride);
 }
 
@@ -886,7 +888,7 @@ TEST(DFunctionReflectionTests, ParameterAggregateDestructionRunsAfterNativeExcep
 		FFunctionParameterBuffer Buffer(*Function);
 		Buffer.GetParameter<std::string>(0) = "owned value";
 		EXPECT_EQ(GParameterConstructed, 1);
-		EXPECT_THROW(Target->ProcessEvent(Function, Buffer.GetView()), std::runtime_error);
+		EXPECT_THROW(Target->ProcessEvent(Function, Buffer.GetView().data()), std::runtime_error);
 		EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
 		EXPECT_EQ(GParameterDestroyed, 0);
 	}
@@ -940,14 +942,14 @@ TEST(DFunctionReflectionTests, GeneratedObjectParametersAndReturnsPreserveIdenti
 	FFunctionParameterBuffer RawBuffer(*Raw), WrappedBuffer(*Wrapped);
 	RawBuffer.GetParameter<DObject*>(0) = Value.Get();
 	WrappedBuffer.GetParameter<TObjectPtr<DObject>>(0) = Value.Get();
-	EXPECT_EQ(Target->ProcessEvent(Raw, RawBuffer.GetView()), EFunctionInvokeError::None);
-	EXPECT_EQ(Target->ProcessEvent(Wrapped, WrappedBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Raw, RawBuffer.GetView().data());
+	Target->ProcessEvent(Wrapped, WrappedBuffer.GetView().data());
 	EXPECT_EQ(RawBuffer.GetReturnValue<DObject*>(), Value.Get());
 	EXPECT_EQ(WrappedBuffer.GetReturnValue<TObjectPtr<DObject>>().Get(), Value.Get());
 	RawBuffer.GetParameter<DObject*>(0) = nullptr;
 	WrappedBuffer.GetParameter<TObjectPtr<DObject>>(0) = nullptr;
-	EXPECT_EQ(Target->ProcessEvent(Raw, RawBuffer.GetView()), EFunctionInvokeError::None);
-	EXPECT_EQ(Target->ProcessEvent(Wrapped, WrappedBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Raw, RawBuffer.GetView().data());
+	Target->ProcessEvent(Wrapped, WrappedBuffer.GetView().data());
 	EXPECT_EQ(RawBuffer.GetReturnValue<DObject*>(), nullptr);
 	EXPECT_EQ(WrappedBuffer.GetReturnValue<TObjectPtr<DObject>>().Get(), nullptr);
 }
@@ -969,7 +971,7 @@ TEST(DFunctionReflectionTests, GeneratedStructReferencesReturnAndVirtualDispatch
 		FFunctionParameterBuffer Buffer(*Base);
 		EXPECT_EQ(FFunctionPayload::Live, Baseline + 3);
 		Buffer.GetParameter<FFunctionPayload>(0).Text = "input";
-		EXPECT_EQ(Target->ProcessEvent(Base, Buffer.GetView()), EFunctionInvokeError::None);
+		Target->ProcessEvent(Base, Buffer.GetView().data());
 		EXPECT_EQ(Buffer.GetParameter<FFunctionPayload>(0).Text, "input");
 		EXPECT_EQ(Buffer.GetParameter<FFunctionPayload>(1).Text, "input derived");
 		EXPECT_EQ(Buffer.GetReturnValue<FFunctionPayload>().Text, "input derived");
@@ -989,14 +991,14 @@ TEST(DFunctionReflectionTests, ObjectInputOutputReferencesAndIntrinsicStructRetu
 	FFunctionParameterBuffer Buffer(*Function);
 	Buffer.GetParameter<DObject*>(0) = Previous.Get();
 	Buffer.GetParameter<DObject*>(1) = Target.Get();
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetParameter<DObject*>(0), Target.Get());
 	EXPECT_EQ(Buffer.GetReturnValue<DObject*>(), Previous.Get());
 	const auto* Intrinsic = Target->GetClass()->FindFunctionByName("EchoTransform");
 	ASSERT_NE(Intrinsic, nullptr);
 	FFunctionParameterBuffer IntrinsicBuffer(*Intrinsic);
 	IntrinsicBuffer.GetParameter<FTransform>(0).Translation = FVector3(1.0, 2.0, 3.0);
-	EXPECT_EQ(Target->ProcessEvent(Intrinsic, IntrinsicBuffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Intrinsic, IntrinsicBuffer.GetView().data());
 	EXPECT_EQ(IntrinsicBuffer.GetReturnValue<FTransform>().Translation, FVector3(1.0, 2.0, 3.0));
 }
 
@@ -1017,7 +1019,7 @@ TEST(DFunctionReflectionTests, NestedMapArrayStructParametersRoundTripAndDestroy
 		Input["input"][1].Text = "second";
 		for (int32 Index = 0; Index < 3; ++Index)
 		{
-			EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+			Target->ProcessEvent(Function, Buffer.GetView().data());
 			EXPECT_EQ(Buffer.GetParameter<FPayloadMap>(1).at("result")[0].Text, "first");
 			EXPECT_EQ(Buffer.GetReturnValue<FPayloadMap>().at("result")[1].Text, "second");
 			EXPECT_EQ(Input.size(), 1u);
@@ -1037,7 +1039,7 @@ TEST(DFunctionReflectionTests, StructParameterExceptionRestoresFrameAndDestroysO
 	const int32 Baseline = FFunctionPayload::Live;
 	{
 		FFunctionParameterBuffer Buffer(*Function);
-		EXPECT_THROW(Target->ProcessEvent(Function, Buffer.GetView()), std::runtime_error);
+		EXPECT_THROW(Target->ProcessEvent(Function, Buffer.GetView().data()), std::runtime_error);
 		EXPECT_EQ(Buffer.GetParameter<FFunctionPayload>(0).Text, "changed");
 		EXPECT_TRUE(Buffer.GetReturnValue<FFunctionPayload>().Text.empty());
 		EXPECT_EQ(FFunctionFrame::GetCurrentFrame(), nullptr);
@@ -1062,7 +1064,7 @@ TEST(DFunctionReflectionTests, LiveBuffersKeepNestedObjectInputsOutputsAndReturn
 		Input["input"][0].Objects.emplace_back(ResolveObjectKey(Key));
 		CollectGarbage(Durin::EObjectFlags::Standalone);
 		ASSERT_TRUE(IsValid(ResolveObjectKey(Key)));
-		ASSERT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+		Target->ProcessEvent(Function, Buffer.GetView().data());
 		Input.clear();
 		Buffer.GetParameter<FPayloadMap>(1).clear();
 		CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -1155,7 +1157,7 @@ TEST(DFunctionReflectionTests, BorrowedObjectCallRequestsCollectionAndOwnedRetur
 	{
 		struct FArguments { std::vector<DObject*> Values, ReturnValue; } Arguments;
 		Arguments.Values.push_back(ResolveObjectKey(Key));
-		EXPECT_EQ(Target->ProcessEvent(Function, std::as_writable_bytes(std::span{&Arguments, 1})), EFunctionInvokeError::None);
+		Target->ProcessEvent(Function, &Arguments);
 		EXPECT_TRUE(IsGarbageCollectionRequested());
 		ASSERT_TRUE(IsValid(ResolveObjectKey(Key)));
 		EXPECT_EQ(Arguments.ReturnValue, Arguments.Values);
@@ -1224,7 +1226,7 @@ TEST(DFunctionReflectionTests, GeneratedEnumCallsPreserveEveryUnderlyingWidthAnd
 		EXPECT_EQ(Enum->GetUnderlyingSize(), sizeof(T));
 		FFunctionParameterBuffer Buffer(*Function);
 		Buffer.GetParameter<T>(0) = Value;
-		EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+		Target->ProcessEvent(Function, Buffer.GetView().data());
 		EXPECT_EQ(Buffer.GetReturnValue<T>(), Value);
 	};
 	Check("EchoState", EFunctionState::High);
@@ -1265,13 +1267,13 @@ TEST(DFunctionReflectionTests, SoftReferenceCallsPreservePendingAndNullPathsWith
 	EXPECT_TRUE(Buffer.GetReturnValue<FSoft>().IsNull());
 	const auto Path = FunctionSoftPath("Pending");
 	Buffer.GetParameter<FSoft>(0) = Path;
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetParameter<FSoft>(1).ToSoftObjectPath(), Path);
 	EXPECT_EQ(Buffer.GetReturnValue<FSoft>().ToSoftObjectPath(), Path);
 	EXPECT_TRUE(Buffer.GetReturnValue<FSoft>().IsPending());
 	EXPECT_EQ(Buffer.GetReturnValue<FSoft>().Get(), nullptr);
 	Buffer.GetParameter<FSoft>(0).Reset();
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_TRUE(Buffer.GetParameter<FSoft>(1).IsNull());
 	EXPECT_TRUE(Buffer.GetReturnValue<FSoft>().IsNull());
 	const auto* Property = static_cast<const FSoftObjectProperty*>(Function->GetReturnProperty());
@@ -1296,7 +1298,7 @@ TEST(DFunctionReflectionTests, LoadedSoftReferencesInEnumMapsDoNotKeepAssetsAliv
 	FFunctionParameterBuffer Buffer(*Function);
 	auto& Soft = Buffer.GetParameter<FSoftMap>(0)[EFunctionState::High].emplace_back();
 	ASSERT_TRUE(Soft.TrySetObject(Asset.Get()));
-	ASSERT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<FSoftMap>().at(EFunctionState::High)[0].Get(), Asset.Get());
 	Buffer.GetParameter<FSoftMap>(0).clear();
 	Asset.Reset();
@@ -1321,7 +1323,7 @@ TEST(DFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowni
 	TStrongObjectPtr<DObject> Value(NewObject<DObject>(nullptr, "WeakParameterOnlyObject"));
 	const FObjectKey Key(Value.Get());
 	Buffer.GetParameter<FWeak>(0) = Value.Get();
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetParameter<FWeak>(1).Get(), Value.Get());
 	EXPECT_EQ(Buffer.GetReturnValue<FWeak>().Get(), Value.Get());
 	const auto* Property = static_cast<const FWeakObjectProperty*>(Function->GetReturnProperty());
@@ -1333,10 +1335,10 @@ TEST(DFunctionReflectionTests, WeakReferenceInputsOutputsAndReturnsRemainNonowni
 	EXPECT_FALSE(Buffer.GetParameter<FWeak>(1).IsValid());
 	EXPECT_EQ(Buffer.GetReturnValue<FWeak>().Get(), nullptr);
 	EXPECT_EQ(Buffer.GetReturnValue<FWeak>().GetKey(), Key);
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_EQ(Buffer.GetReturnValue<FWeak>().GetKey(), Key);
 	Buffer.GetParameter<FWeak>(0).Reset();
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	EXPECT_TRUE(IsObjectKeyNull(Buffer.GetReturnValue<FWeak>().GetKey()));
 }
 
@@ -1351,7 +1353,7 @@ TEST(DFunctionReflectionTests, WeakArrayReturnDoesNotBecomeAStrongReference)
 	FFunctionParameterBuffer Buffer(*Function);
 	const FObjectKey Key(NewObject<DObject>(nullptr, "WeakArrayOnlyObject"));
 	Buffer.GetParameter<FWeakArray>(0).emplace_back(ResolveObjectKey(Key));
-	EXPECT_EQ(Target->ProcessEvent(Function, Buffer.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Buffer.GetView().data());
 	Buffer.GetParameter<FWeakArray>(0).clear();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
@@ -1379,7 +1381,7 @@ TEST(DFunctionReflectionTests, EnumAndNonowningReferenceOverridesPreserveSlotsAn
 		if (std::string_view(Name) == "EchoState") Buffer.GetParameter<EFunctionState>(0) = EFunctionState::High;
 		if (std::string_view(Name) == "EchoSoft") Buffer.GetParameter<TSoftObjectPtr<DObject>>(0) = FunctionSoftPath("Override");
 		if (std::string_view(Name) == "EchoWeak") Buffer.GetParameter<TWeakObjectPtr<DObject>>(0) = Target.Get();
-		EXPECT_EQ(Target->ProcessEvent(Base, Buffer.GetView()), EFunctionInvokeError::None);
+		Target->ProcessEvent(Base, Buffer.GetView().data());
 		if (std::string_view(Name) == "EchoState")
 		{
 			EXPECT_EQ(Buffer.GetParameter<EFunctionState>(1), EFunctionState::High);

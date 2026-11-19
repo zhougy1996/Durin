@@ -32,7 +32,7 @@ namespace Durin
 	enum class EFunctionInvokeError : uint8
 	{
 		None, InvalidTarget, WrongClass, UnlinkedFunction,
-		InvalidFunction, InvalidParameters
+		InvalidFunction, InvalidParameters, WrongThread
 	};
 	// Linking runs after all local descriptors in a registration batch are installed.
 	enum class EFunctionLinkError : uint8 { None, InheritanceCycle, InvalidDescriptor, NonVirtualOverride, FinalOverride, SignatureMismatch };

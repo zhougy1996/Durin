@@ -11,6 +11,13 @@ namespace Durin
 	class FFunctionFrame;
 	class FProperty;
 	class FReferenceCollector;
+
+	// Check a dynamic call before accessing signature metadata or allocating storage.
+	COREDOBJECT_API auto ValidateFunctionInvocation(const DObject* Target, const DFunction* Function) -> EFunctionInvokeError;
+	// Also check the caller-supplied view before entering virtual ProcessEvent.
+	COREDOBJECT_API auto ValidateFunctionInvocation(const DObject* Target, const DFunction* Function,
+		FMutableByteView Parameters) -> EFunctionInvokeError;
+
 	namespace Private
 	{
 		// Called by the GC root pass for live initialized native parameter buffers.
@@ -53,7 +60,6 @@ namespace Durin
 		auto FailLink(EFunctionLinkError Code, std::string Path, std::string Reason) -> bool;
 		auto GetSignatureMismatch(const DFunction& Other) const -> FFunctionLinkDiagnostic;
 		auto RegisterMetadata() -> void;
-		auto ValidateInvocation(DObject& Target, FMutableByteView Parameters) const -> EFunctionInvokeError;
 		FFunctionLinkDiagnostic LinkDiagnostic;
 		std::shared_ptr<const Private::FGCReferenceSchema> ParameterReferenceSchema;
 		std::vector<const FProperty*> ParameterProperties;
@@ -68,9 +74,9 @@ namespace Durin
 		FNativeFunctionPtr NativeFunction = nullptr;
 		friend auto DurinCodeGen::ConstructDFunction(DClass*, const DurinCodeGen::FFunctionParams&) -> DFunction*;
 		friend auto Private::AddFunctionParameterReferences(FReferenceCollector&) -> void;
+		friend auto ValidateFunctionInvocation(const DObject*, const DFunction*) -> EFunctionInvokeError;
 		friend class FFunctionParameterBuffer;
 		friend class DClass;
-		friend class DObject;
 	};
 
 	// Borrowed synchronous native-call context. Frames form a thread-local stack;

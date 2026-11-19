@@ -57,15 +57,17 @@ Nested actions join that recording; replay, recovery, and destruction remain una
 
 ## Transactions And Author Obligations
 
-The adapter requires recorded mode and opens a normal scope on the active
-editor's transactor with the action label,
+The adapter requires recorded mode. It validates the resolved target, effective
+descriptor, and empty argument view before opening the action transaction. It
+then opens a normal scope on the active editor's transactor with the action label,
 slot identity, and primary target, then calls `Target->Modify()`. The return value
 reports recording and does not veto invocation; nontransactional native actions
 can still execute. Capture failures remain available through diagnostics.
 
-Invocation enters the target's virtual `DObject::ProcessEvent` with an explicit
-empty parameter view; the adapter does not bypass object dispatch or use a
-separate no-argument native entry. After native return, the adapter sends one full-object `PostEditChange()` before
+After capture and `Modify()`, the adapter rechecks invocation preconditions and
+cancels the scope if that preflight fails. It dispatches through the target's
+virtual `DObject::ProcessEvent(Function, nullptr)`. After native return, the
+adapter sends one full-object `PostEditChange()` before
 capturing final state and explicitly ending the scope. No changed leaf path is
 invented. The body must preserve its invariants; arbitrary C++ calls cannot use
 detached pre-write validation. Adapted methods should not duplicate this terminal

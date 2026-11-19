@@ -55,6 +55,8 @@ namespace Durin::PythonReflection::Private
         auto* Object = Resolve(reinterpret_cast<FObject*>(Self->Owner), *C); if (!Object) return nullptr;
         const auto* F = Effective(Self, Object); if (!F) return nullptr;
         const auto Path = Qualified(Object->GetClass()) + "::" + F->GetName();
+        if (ValidateFunctionInvocation(Object, F) != EFunctionInvokeError::None)
+            return Error(Registry->AccessError, Path + ": native dispatch rejected");
         const auto Count = F->GetNumInputParms();
         if (static_cast<size_t>(PyTuple_Size(Args)) > Count) return Error(PyExc_TypeError, Path + ": too many positional arguments");
         std::vector<PyObject*> Inputs(Count); std::vector<size_t> Omitted;
@@ -82,8 +84,11 @@ namespace Durin::PythonReflection::Private
         for (size_t I = 0; I < Count; ++I) if (Inputs[I] && !Input(*F->GetParameterProperty(I), Buffer.GetView().data(), Inputs[I], *C, B, Path + "." + PropertyName(*F->GetParameterProperty(I)))) return nullptr;
         // Input conversion cannot run arbitrary iterators or user conversion hooks. Recheck before effects.
         if (!Call.IsAdmitted()) return Error(Registry->AccessError, Path + ": admission closed before native dispatch");
-        if (!Resolve(reinterpret_cast<FObject*>(Self->Owner), *C)) return nullptr;
-        if (Object->ProcessEvent(F, Buffer.GetView()) != EFunctionInvokeError::None) return Error(Registry->AccessError, Path + ": native dispatch rejected");
+        Object = Resolve(reinterpret_cast<FObject*>(Self->Owner), *C); if (!Object) return nullptr;
+        const auto Parameters = Buffer.GetView();
+        if (ValidateFunctionInvocation(Object, F, Parameters) != EFunctionInvokeError::None)
+            return Error(Registry->AccessError, Path + ": native dispatch rejected");
+        Object->ProcessEvent(F, Parameters.data());
         if (Call.GetError()) return Error(Registry->AccessError, Path + ": " + Call.GetError()->Message);
         if (!Call.IsAdmitted()) return Error(Registry->AccessError, Path + ": admission closed during native dispatch");
         std::vector<const FProperty*> Outputs;

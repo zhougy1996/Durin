@@ -135,34 +135,44 @@ ancestor, instead of reducing the failure to an integer code. A successful retry
 clears it. Signature comparison and override linking share the same comparison
 implementation; names remain excluded from compatibility.
 
-`DObject::ProcessEvent(const DFunction*, FMutableByteView)` is the single public
-reflection dispatch entry. It checks target and descriptor liveness,
-class compatibility, linked metadata, the validated signature, parameter size/alignment,
-and native-entry availability before constructing a frame. There is no separate
-no-argument overload or `InvokeVoidNoArgs` wrapper; callers pass an explicit empty
-view for void/no-argument functions. A null descriptor returns `InvalidFunction`,
-incorrect storage size/alignment returns `InvalidParameters`, and a function not installed by successful class linking returns
-`UnlinkedFunction`, even if its owner already linked other functions.
+`DObject::ProcessEvent(const DFunction*, void*)` is the single public reflection
+dispatch entry and returns `void`. The caller supplies initialized storage of
+the selected descriptor's layout and size. A void/no-argument function can use
+`nullptr`. The base entry enforces the invocation contract for thread, target,
+descriptor, and parameter address before constructing a frame. The raw pointer
+leaves actual storage capacity and value lifetimes to the caller.
+
+Dynamic callers use `ValidateFunctionInvocation(Target, Function)` to check the
+thread, target liveness, descriptor liveness, class compatibility, and class link
+admission before inspecting signature fields or constructing storage. The
+overload taking `FMutableByteView` also checks the supplied length and address
+alignment before virtual dispatch. It returns `InvalidParameters` for an invalid
+view and `UnlinkedFunction` for a function that has yet to be admitted by class
+linking. `EFunctionInvokeError::None` reports successful preflight. Preflight
+does not create a frame or execute native code.
 
 ```cpp
 const auto* Function = Object->GetClass()->FindFunctionByName("NormalizeSettings");
-const auto Error = Object->ProcessEvent(Function, {});
+if (ValidateFunctionInvocation(Object, Function, {}) == EFunctionInvokeError::None)
+{
+    Object->ProcessEvent(Function, nullptr);
+}
 ```
 
-The virtual object entry permits interception/delegation. Its base implementation
-dispatches the supplied descriptor; callers select an effective override through
-class lookup. The single `Invoke(Target, Frame, Result)` native entry requires an
-admitted frame matching the target and function. Editor actions use ProcessEvent
-and the same virtual dispatch boundary. `FFunctionFrame` borrows
+The virtual object entry permits interception and delegation. Normal return
+means the synchronous invocation completed, including any return and out writes.
+Overrides must complete the invocation or propagate an exception. The base
+implementation dispatches the supplied descriptor; callers select an effective
+override through class lookup. The `Invoke(Target, Frame, Result)` native entry
+requires an admitted frame matching the target and function. `FFunctionFrame` borrows
 the target, function, and parameter view and links to the previous admitted frame
 on the current thread. `GetCurrentFrame()` is restored on return or exception
 unwinding. Frames and borrowed storage must not escape synchronous dispatch.
 
-`EFunctionInvokeError::None` means dispatch returned successfully (the base
-implementation returns it after the native call);
-it does not convey domain success from a `void` body. Runtime invocation opens
-no transactions and applies no editor exposure policy. Native exceptions are
-not a recoverable action result or rollback mechanism.
+Reflected return values convey domain results. Runtime invocation leaves
+transactions, editor exposure policy, and Python exception translation to the
+calling layers. Native exceptions propagate through the entry and carry no
+rollback semantics.
 
 ## Parameter Storage
 
@@ -185,9 +195,10 @@ const auto* Function = Object->GetClass()->FindFunctionByName("Combine");
 FFunctionParameterBuffer Parameters(*Function);
 Parameters.GetParameter<int32>(0) = 42;
 Parameters.GetParameter<std::string>(1) = "value=";
-const auto Error = Object->ProcessEvent(Function, Parameters.GetView());
+const auto Error = ValidateFunctionInvocation(Object, Function, Parameters.GetView());
 if (Error == EFunctionInvokeError::None)
 {
+    Object->ProcessEvent(Function, Parameters.GetView().data());
     const auto& Output = Parameters.GetParameter<std::string>(2);
     const auto& ReturnValue = Parameters.GetReturnValue<std::string>();
 }
@@ -199,11 +210,11 @@ with the native result pointer taken from the return property's offset. A return
 function therefore still requires parameter storage. A void/no-argument buffer
 is an empty view and requires no allocation.
 
-`ProcessEvent` also accepts borrowed, already-initialized compiler aggregate
-storage with exactly the selected descriptor's size, alignment, offsets, and
-value types. It does not construct, destroy, or reinterpret the caller's value
-lifetimes. Signature compatibility is semantic; it does not convert arbitrary
-physical layouts. Buffer storage and descriptor/module lifetime must cover the
+`ProcessEvent` also accepts the address of a borrowed, already-initialized
+compiler aggregate with the selected descriptor's size, alignment, offsets, and
+value types. The caller manages construction and destruction. Signature
+compatibility describes the types and parameter roles. Callers must also match
+the physical layout of the selected descriptor. Buffer storage and descriptor/module lifetime must cover the
 entire synchronous call. Function linking validates supported field kinds,
 lifecycle, bounds, alignment, and non-overlap and caches that result; dispatch
 does not rebuild or revalidate immutable layout metadata on each call. Owned
@@ -339,7 +350,7 @@ Parameters.GetParameter<bool>(1) = true; // Explicit caller value.
 const auto Defaults = Parameters.ApplyDefaults({0});
 if (Defaults)
 {
-    Object->ProcessEvent(Function, Parameters.GetView());
+    Object->ProcessEvent(Function, Parameters.GetView().data());
 }
 ```
 

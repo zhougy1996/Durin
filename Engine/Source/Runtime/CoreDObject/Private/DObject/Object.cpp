@@ -528,21 +528,6 @@ namespace Durin
 	{
 	}
 
-	auto DObject::ProcessEvent(const DFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError
-	{
-		if (!IsValid(this)) return EFunctionInvokeError::InvalidTarget;
-		if (!IsValid(Function)) return EFunctionInvokeError::InvalidFunction;
-		const auto Error = Function->ValidateInvocation(*this, Parameters);
-		if (Error != EFunctionInvokeError::None) return Error;
-		// Native by-value copies and borrowed aggregates are invisible to the GC.
-		// Callbacks may request GC; the host collects after native temporaries leave the stack.
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FFunctionFrame Frame(*this, *Function, Parameters);
-		const auto* ReturnProperty = Function->GetReturnProperty();
-		Function->Invoke(*this, Frame, ReturnProperty ? ReturnProperty->GetValuePtr(Parameters.data()) : nullptr);
-		return EFunctionInvokeError::None;
-	}
-
 	auto DObject::IsA(const DClass* InClass) const -> bool
 	{
 		if (!InClass)

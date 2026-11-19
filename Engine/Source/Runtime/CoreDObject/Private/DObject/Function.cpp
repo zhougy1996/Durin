@@ -1,5 +1,6 @@
 #include "DObject/FunctionParameters.h"
 
+#include "CoreGlobals.h"
 #include "DObject/Object.h"
 #include "Misc/StringHelper.h"
 #include "DObject/ObjectLifecycle.h"
@@ -10,6 +11,13 @@
 namespace
 {
 	thread_local const Durin::FFunctionFrame* GCurrentFunctionFrame = nullptr;
+
+	auto IsParameterAddressValid(const Durin::DFunction& Function, const void* Parameters) -> bool
+	{
+		return !Function.GetParmsSize()
+			|| (Parameters && reinterpret_cast<uintptr_t>(Parameters) % Function.GetMinAlignment() == 0);
+	}
+
 	auto GetFunctionBuffers() -> std::unordered_set<Durin::FFunctionParameterBuffer*>&
 	{
 		static std::unordered_set<Durin::FFunctionParameterBuffer*> Buffers;
@@ -323,14 +331,36 @@ namespace Durin
 		return GCurrentFunctionFrame;
 	}
 
-	auto DFunction::ValidateInvocation(DObject& Target, FMutableByteView Parameters) const -> EFunctionInvokeError
+	auto ValidateFunctionInvocation(const DObject* Target, const DFunction* Function) -> EFunctionInvokeError
 	{
-		if (!GetOuterDClass() || !Target.IsA(GetOuterDClass())) return EFunctionInvokeError::WrongClass;
-		if (!bLinked) return EFunctionInvokeError::UnlinkedFunction;
-		if (Parameters.size() != GetParmsSize() || (GetParmsSize()
-			&& (!Parameters.data() || reinterpret_cast<uintptr_t>(Parameters.data()) % GetMinAlignment())))
+		if (GIsGameThreadIdInitialized && !IsInGameThread()) return EFunctionInvokeError::WrongThread;
+		if (!IsValid(Target)) return EFunctionInvokeError::InvalidTarget;
+		if (!IsValid(Function)) return EFunctionInvokeError::InvalidFunction;
+		const auto* Owner = Function->GetOuterDClass();
+		if (!Owner || !Target->IsA(Owner)) return EFunctionInvokeError::WrongClass;
+		if (!Function->bLinked) return EFunctionInvokeError::UnlinkedFunction;
+		return EFunctionInvokeError::None;
+	}
+
+	auto ValidateFunctionInvocation(const DObject* Target, const DFunction* Function, FMutableByteView Parameters)
+		-> EFunctionInvokeError
+	{
+		const auto Error = ValidateFunctionInvocation(Target, Function);
+		if (Error != EFunctionInvokeError::None) return Error;
+		if (Parameters.size() != Function->GetParmsSize() || !IsParameterAddressValid(*Function, Parameters.data()))
 			return EFunctionInvokeError::InvalidParameters;
 		return EFunctionInvokeError::None;
+	}
+
+	auto DObject::ProcessEvent(const DFunction* Function, void* Parameters) -> void
+	{
+		// Native by-value copies and borrowed aggregates are invisible to the GC.
+		// Callbacks may request GC; the host collects after native temporaries leave the stack.
+		require(ValidateFunctionInvocation(this, Function) == EFunctionInvokeError::None);
+		require(IsParameterAddressValid(*Function, Parameters));
+		FFunctionFrame Frame(*this, *Function, {static_cast<std::byte*>(Parameters), Function->GetParmsSize()});
+		const auto* ReturnProperty = Function->GetReturnProperty();
+		Function->Invoke(*this, Frame, ReturnProperty ? ReturnProperty->GetValuePtr(Parameters) : nullptr);
 	}
 
 }

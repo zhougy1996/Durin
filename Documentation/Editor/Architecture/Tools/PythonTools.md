@@ -106,9 +106,13 @@ exact `ScriptName` spelling when supplied. For example, `GetActorLabel` keeps
 its native name and `ScriptGetComponents` is published as `GetComponents` using
 `ScriptName`. Methods use ordinary bound or unbound Python calls, including
 positional and keyword arguments and reflected defaults. Keyword arguments,
-property keys and Python binding helpers use snake_case. Dispatch uses
-`FFunctionParameterBuffer` and `DObject::ProcessEvent`; an unmarked/excluded
-effective override blocks inherited descriptors and previously bound methods.
+property keys and Python binding helpers use snake_case. The bridge preflights
+the resolved descriptor before reading its signature, then preflights the
+populated `FFunctionParameterBuffer` before passing its address to the target's
+virtual `DObject::ProcessEvent`. The bridge reports preflight rejection as a
+script access error and translates native C++ exceptions into `RuntimeError`
+before reading return or out values. An unmarked or excluded effective override
+blocks inherited descriptors and previously bound methods.
 Unsupported signatures are omitted with a qualified member/parameter diagnostic.
 
 The generic bridge converts checked bool/integer/finite-float values, strings,

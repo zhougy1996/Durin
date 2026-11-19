@@ -30,10 +30,10 @@ namespace
 		static void __DefaultConstructor(const FObjectInitializer& Initializer)
 		{ new (Initializer.GetObj()) DFunctionTarget(Initializer); }
 		virtual void Run() { ++Invocations; Value += 5; if (DuringCall) DuringCall(); }
-		auto ProcessEvent(const DFunction* Function, FMutableByteView Parameters) -> EFunctionInvokeError override
+		auto ProcessEvent(const DFunction* Function, void* Parameters) -> void override
 		{
 			++EventDispatches;
-			return DObject::ProcessEvent(Function, Parameters);
+			DObject::ProcessEvent(Function, Parameters);
 		}
 		void PostEditChangeProperty(const FPropertyChangedEvent&) override { DerivedValue = Value * 2; }
 		static auto StaticClass() -> DClass*
@@ -192,7 +192,7 @@ TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvoke
 	EXPECT_EQ(Count, 1u);
 	EXPECT_EQ(Target->GetClass()->FindFunctionByName("Run", false), nullptr);
 	TStrongObjectPtr<DObject> Wrong(NewObject<DObject>(nullptr, "WrongActionType"));
-	EXPECT_EQ(Wrong->ProcessEvent(Target->GetClass()->FindFunctionByName("Run"), {}), EFunctionInvokeError::WrongClass);
+	EXPECT_EQ(ValidateFunctionInvocation(Wrong.Get(), Target->GetClass()->FindFunctionByName("Run"), {}), EFunctionInvokeError::WrongClass);
 }
 
 TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
@@ -205,6 +205,8 @@ TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 	Context.bReadOnly = false;
 	Context.TransactionMode = ETransactionMode::NotTransactable;
 	EXPECT_EQ(ExecuteEditorFunction(View, Context, Request(Target)).Error, EEditorFunctionError::MissingTransactor);
+	EXPECT_EQ(Target->EventDispatches, 0);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	Context.TransactionMode = ETransactionMode::Record;
 	FScopedTransaction Busy(Buffer.Get(), {"test", "Busy"});
 	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
@@ -401,7 +403,7 @@ TEST_F(FEditorFunctionTests, ParameterizedFunctionsAreReflectedButExcludedFromEd
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	FFunctionParameterBuffer Parameters(*Function);
 	Parameters.GetParameter<int32>(0) = 4;
-	EXPECT_EQ(Target->ProcessEvent(Function, Parameters.GetView()), EFunctionInvokeError::None);
+	Target->ProcessEvent(Function, Parameters.GetView().data());
 	EXPECT_EQ(Parameters.GetReturnValue<int32>(), 5);
 }
 
@@ -419,7 +421,7 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 	Layout.ApplyRegisteredCustomizations(Target);
 	Layout.AddDefaultFunctions();
 	EXPECT_EQ(Layout.GetVisibleRowCount(), 0u);
-	EXPECT_EQ(Target->ProcessEvent(Effective, {}), EFunctionInvokeError::None);
+	Target->ProcessEvent(Effective, nullptr);
 	EXPECT_EQ(Target->Value, 10);
 }
 

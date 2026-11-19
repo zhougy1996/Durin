@@ -2,6 +2,7 @@
 #include "Editor/EditorEngine.h"
 
 #include "DObject/Class.h"
+#include "DObject/Function.h"
 #include "DObject/StrongObjectPtr.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"
@@ -73,6 +74,11 @@ namespace Durin
 		TStrongObjectPtr<DObject> Target(Request.Target);
 		TStrongObjectPtr<DTransactor> Transactor(GetTransactionEditor()->GetTransactor());
 		const auto* Function = Target->GetClass()->FindFunctionByName(Request.FunctionName);
+		if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
+		{
+			Result.Error = EEditorFunctionError::Invocation;
+			return Report();
+		}
 		struct FExecutionGuard
 		{
 			FExecutionGuard() { bExecutingFunction = true; }
@@ -97,8 +103,7 @@ namespace Durin
 			return Report();
 		}
 		(void)Target->Modify();
-		const auto Invoked = Target->ProcessEvent(Function, {});
-		if (Invoked != EFunctionInvokeError::None)
+		if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
 		{
 			Transaction.Cancel();
 			Result.History = Transactor->GetLastResult();
@@ -106,6 +111,7 @@ namespace Durin
 				? EEditorFunctionError::History : EEditorFunctionError::Invocation;
 			return Report();
 		}
+		Target->ProcessEvent(Function, nullptr);
 		Result.bInvoked = true;
 		Target->PostEditChange();
 		(void)Transaction.End();

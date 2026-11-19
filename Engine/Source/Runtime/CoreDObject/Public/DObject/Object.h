@@ -132,10 +132,9 @@ namespace Durin
 		COREDOBJECT_API auto IsA(const DClass* InClass) const -> bool;
 
 		// Synchronously dispatches a reflected function through its native call frame.
-		// Parameters are borrowed, initialized storage matching the function signature;
-		// Void/no-argument functions require an empty view. Overrides may intercept or delegate to this base.
-		COREDOBJECT_API virtual auto ProcessEvent(const DFunction* Function,
-			FMutableByteView Parameters) -> EFunctionInvokeError;
+		// Pass initialized storage for Function's parameter layout, or nullptr for void/no-argument calls.
+		// Overrides must complete the invocation or propagate an exception.
+		COREDOBJECT_API virtual auto ProcessEvent(const DFunction* Function, void* Parameters) -> void;
 
 		template<typename T>
 		auto IsA() const -> bool
