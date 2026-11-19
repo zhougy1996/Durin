@@ -759,31 +759,31 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 		const auto Add=[&]<class T>() { auto* E=NewObject<T>(nullptr,NAME_None); E->Id=FGuid::NewGuid(); Nodes.emplace_back(E); return E; };
 		auto* Color=Add.template operator()<DMaterialExpressionVector4Parameter>();
 		Color->Metadata={.Id=FGuid::NewGuid(),.Name="Color"}; Color->DefaultValue={.5,1,2,1}; ColorIds[Variant]=Color->Metadata.Id;
-		auto* RGB=Add.template operator()<DMaterialExpressionSwizzle>(); RGB->Input={Color->Id}; RGB->Components={0,1,2};
-		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB->Id};
+		auto* RGB=Add.template operator()<DMaterialExpressionSwizzle>(); RGB->Input={Color}; RGB->Components={0,1,2};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB};
 		if (Variant<2)
 		{
 			auto* Weight=Add.template operator()<DMaterialExpressionScalarParameter>();
 			Weight->Metadata={.Id=FGuid::NewGuid(),.Name="Weight"}; Weight->DefaultValue=.4f;
-			Outputs.Get(EMaterialProperty::MP_Specular)={Weight->Id};
-			Outputs.Get(EMaterialProperty::MP_ClearCoat)={Weight->Id};
+			Outputs.Get(EMaterialProperty::MP_Specular)={Weight};
+			Outputs.Get(EMaterialProperty::MP_ClearCoat)={Weight};
 			Outputs.Get(EMaterialProperty::MP_ClearCoatRoughness).SetConstant({.2f});
 		}
 		if (Variant==3 || Variant==4)
 		{
 			auto* Scene=Add.template operator()<DMaterialExpressionSceneTexture>();
-			auto* SceneRGB=Add.template operator()<DMaterialExpressionSwizzle>(); SceneRGB->Input={Scene->Id}; SceneRGB->Components={0,1,2};
-			Outputs.Get(EMaterialProperty::MP_EmissiveColor)={SceneRGB->Id};
+			auto* SceneRGB=Add.template operator()<DMaterialExpressionSwizzle>(); SceneRGB->Input={Scene}; SceneRGB->Components={0,1,2};
+			Outputs.Get(EMaterialProperty::MP_EmissiveColor)={SceneRGB};
 			if (Variant==4)
 			{
 				auto* Multiply=Add.template operator()<DMaterialExpressionMultiply>(); Multiply->ResultType=EMaterialProgramValueType::Float3;
-				Multiply->A.Connection={SceneRGB->Id}; Multiply->B.Connection={RGB->Id};
-				Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply->Id};
+				Multiply->A.Connection={SceneRGB}; Multiply->B.Connection={RGB};
+				Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply};
 			}
 		}
 		if (Variant==5)
 		{
-			auto* Depth=Add.template operator()<DMaterialExpressionSceneDepth>(); Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Depth->Id};
+			auto* Depth=Add.template operator()<DMaterialExpressionSceneDepth>(); Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Depth};
 		}
 		if (Variant>=6)
 		{
@@ -792,12 +792,12 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			Cube->ReadMode=EMaterialTextureReadMode::Level;
 			Cube->MipValue.SetConstant({1.f});
 			auto* SampleRGB=Add.template operator()<DMaterialExpressionSwizzle>();
-			SampleRGB->Input={Cube->Id}; SampleRGB->Components={0,1,2};
+			SampleRGB->Input={Cube}; SampleRGB->Components={0,1,2};
 			auto* Multiply=Add.template operator()<DMaterialExpressionMultiply>();
 			Multiply->ResultType=EMaterialProgramValueType::Float3;
-			Multiply->A.Connection={SampleRGB->Id}; Multiply->B.Connection={RGB->Id};
-			Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply->Id};
-			if (Variant==7) Outputs.Get(EMaterialProperty::MP_WorldPositionOffset)={SampleRGB->Id};
+			Multiply->A.Connection={SampleRGB}; Multiply->B.Connection={RGB};
+			Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply};
+			if (Variant==7) Outputs.Get(EMaterialProperty::MP_WorldPositionOffset)={SampleRGB};
 		}
 		std::vector<DMaterialExpression*> Expressions; for (const auto& E:Nodes) Expressions.push_back(E.Get());
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions,Outputs));

@@ -28,7 +28,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto RemovePort(bool bOutput, const FGuid& PortId,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X = 0, int32 Y = 0,
-			FMaterialExpressionInput FirstInput = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+			FMaterialProgramLink Source = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CreateExpression(const DMaterialExpression& Expression, int32 X = 0, int32 Y = 0,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ReplaceExpression(const DMaterialExpression& Expression,

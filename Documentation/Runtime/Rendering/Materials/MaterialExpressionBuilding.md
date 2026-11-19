@@ -34,9 +34,9 @@ aggregate root or residual Make Attributes node is rejected with an actionable
 diagnostic and no partial generated source. There is no separate fixed-eight
 aggregate evaluator in the source generator.
 
-`DMaterialExpression::Build(MIR::FEmitter&) const` builds a node,
-not a requested output. It registers indexed outputs with `Output(uint8, Value)`
-or stable function-port outputs with `Output(FGuid, Value)`. The virtual interface
+`DMaterialExpression::Build(MIR::FEmitter&) const` builds a node and registers
+each output with `Output(int32, Value)`. Function calls look up each callee
+terminal by port GUID and register its value at the caller¡¯s binding index. The virtual interface
 has no default arguments or output-selection state. An emitter belongs to one
 Build invocation and must not escape it.
 
@@ -162,7 +162,16 @@ this contract without putting expression references into detached compilation.
 
 ## Numeric input ownership
 
-`FMaterialExpressionInput` contains only upstream identity. Reflected
+`FMaterialExpressionInput::Expression` references an upstream expression in the same
+asset. Its signed 32-bit `OutputIndex` selects the source output. A disconnected
+input has an empty expression reference. Function calls keep port GUIDs in their
+own output binding table. A consumer indexes that table, so renaming a port or
+changing its display order preserves the connection. The editor resolves named
+pin addresses against the source at the editing boundary. This follows the
+ordinary connection contract of [UE FExpressionInput](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FExpressionInput?application_version=5.8).
+Durin models channel selection through expression outputs and Swizzle nodes.
+UE also provides input names and per-input component masks.
+Node and function port GUIDs survive graph reconstruction and duplication. Reflected
 `FMaterialNumericInput` groups that `Connection` with `UseConstant` and a retained
 float-array `Constant`. Numeric expressions, terminal properties, sampling UVs
 and individual Surface attribute overrides use this storage. Resources and

@@ -1,7 +1,7 @@
 #include "Widgets/MaterialEditingSession.h"
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraph.h"
-#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionInputs.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Package.h"
@@ -16,8 +16,22 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditingSession::FAuthoredState::Matches(const DMaterial& Material) const -> bool
 	{
 		const auto& Current = Material.GetExpressionCollection().Expressions;
-		if (Domain != Material.GetDomain() || Outputs != Material.GetExpressionOutputs() || Properties != Material.GetStaticProperties()
+		if (Domain != Material.GetDomain() || Properties != Material.GetStaticProperties()
 			|| Presentation != Material.GetMaterialGraphPresentation() || Expressions.size() != Current.size()) return false;
+		// Compare detached snapshot fields against references in this particular copy of the asset.
+		std::unordered_map<FGuid, DMaterialExpression*> Nodes;
+		for (const auto& Node : Current) Nodes.emplace(Node->Id, Node.Get());
+		struct FResetConnections
+		{
+			const decltype(Connections)& Fields;
+			~FResetConnections() { for (const auto& [Input, Id] : Fields) Input->Expression.Reset(); }
+		} Reset{Connections};
+		for (const auto& [Input, Id] : Connections)
+		{
+			const auto Found = Nodes.find(Id);
+			if (Found == Nodes.end()) return false;
+			Input->Expression = Found->second;
+		}
 		for (size_t Index = 0; Index < Expressions.size(); ++Index)
 		{
 			const auto* Before = Expressions[Index].Get();
@@ -36,7 +50,6 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditingSession::Capture(const DMaterial& Material, FAuthoredState& OutState) -> std::expected<void, FObjectGraphError>
 	{
 		FAuthoredState Candidate;
-		Candidate.Outputs = Material.GetExpressionOutputs();
 		Candidate.Properties = Material.GetStaticProperties();
 		Candidate.Domain = Material.GetDomain();
 		Candidate.Presentation = Material.GetMaterialGraphPresentation();
@@ -45,6 +58,11 @@ namespace Durin::MaterialEditor
 			const auto Duplicated = DuplicateObject(Expression.Get(), nullptr, NAME_None);
 			if (!Duplicated) return std::unexpected(Duplicated.error());
 			auto* Copy = Duplicated.value();
+			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
+				if (!Input.Expression) return;
+				Candidate.Connections.emplace_back(&Input, Input.GetExpressionId());
+				Input.Expression.Reset();
+			});
 			Candidate.Expressions.emplace_back(Copy);
 		}
 		OutState = std::move(Candidate);

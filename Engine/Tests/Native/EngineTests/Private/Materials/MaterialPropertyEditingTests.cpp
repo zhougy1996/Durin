@@ -54,7 +54,7 @@ TEST(FMaterialPropertyEditingTests, CustomDeclarationOverridesRetainOrphansAndRe
 	Parameter->Metadata.Name = Definition.Name; Parameter->DefaultValue = .25f;
 	const std::array<Durin::DMaterialExpression*, 1> Original{Parameter.Get()};
 	Durin::FMaterialAttributeRoot Outputs;
-	Outputs.Get(Durin::EMaterialProperty::MP_Roughness) = {Parameter->Id};
+	Outputs.Get(Durin::EMaterialProperty::MP_Roughness) = {Parameter.Get()};
 	ASSERT_TRUE(Root->SetMaterialExpressions(Original, Outputs));
 	ASSERT_TRUE(Parent->SetParent(Root));
 	ASSERT_TRUE(Child->SetParent(Parent));
@@ -69,7 +69,7 @@ TEST(FMaterialPropertyEditingTests, CustomDeclarationOverridesRetainOrphansAndRe
 	// A vector owner cannot feed the scalar roughness output.
 	EXPECT_FALSE(Root->SetMaterialExpressions(Replacement, Outputs));
 	EXPECT_EQ(Root->GetExpressionCollection().Expressions, BeforeChildren);
-	EXPECT_EQ(Root->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Root->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
 	ASSERT_TRUE(Root->SetMaterialExpressions(Replacement, {}));
 	EXPECT_TRUE(Parent->IsParameterValueOrphan(Definition.Id));
 	Durin::FVector3 Vector;

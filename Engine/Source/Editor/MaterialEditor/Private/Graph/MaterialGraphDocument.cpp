@@ -123,7 +123,7 @@ namespace Durin::MaterialEditor
 		if (!Schema.AllowsCreation(Request.Action, SourceType))
 			return RejectCommand("This action is not compatible with the graph or source output.");
 		if (const auto* Entry = std::get_if<FMaterialGraphCatalogEntry>(&Request.Action.Payload))
-			return CreateCatalogNode(*Entry, Request.X, Request.Y, {Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId}, Mode);
+			return CreateCatalogNode(*Entry, Request.X, Request.Y, Source, Mode);
 		if (const auto* Spec = std::get_if<FMaterialGraphPortCreation>(&Request.Action.Payload))
 		{
 			const auto* Function = Cast<DMaterialFunction>(Owner.Get());
@@ -208,7 +208,7 @@ namespace Durin::MaterialEditor
 			std::map<FGuid, std::vector<FGuid>> Consumers;
 			for (const auto& E : Nodes)
 				VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
-					if (Effective(Input).ExpressionId.IsValid()) Consumers[Effective(Input).ExpressionId].push_back(E->Id);
+					if (Effective(Input).IsConnected()) Consumers[Effective(Input).GetExpressionId()].push_back(E->Id);
 				});
 			std::set<FGuid> Seeds(ChangedNodes.begin(), ChangedNodes.end()), Affected = Seeds, ChangedTypes;
 			for (const auto& [Id, Width] : Resolved) ChangedTypes.insert(Id);
@@ -220,14 +220,14 @@ namespace Durin::MaterialEditor
 			bool bValid = true;
 			std::function<Type(const FMaterialExpressionInput&)> Resolve;
 			Resolve = [&](const FMaterialExpressionInput& Input) -> Type {
-				const auto Found = Expressions.find(Input.ExpressionId);
-				if (Found == Expressions.end()) { bValid = false; return Type::Float; }
+				const auto Found = Expressions.find(Input.GetExpressionId());
+				if (Found == Expressions.end() || Found->second != Input.Expression.Get()) { bValid = false; return Type::Float; }
 				auto* E = Found->second;
 				if (Seeds.contains(E->Id) && !Resolved.contains(E->Id)) ChangedTypes.insert(E->Id);
 				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(E))
 				{
-					const auto Port = std::ranges::find(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId);
-					if (Port != Call->Outputs.end()) return Port->ExpectedType;
+					if (Input.OutputIndex >= 0 && static_cast<size_t>(Input.OutputIndex) < Call->Outputs.size())
+						return Call->Outputs[Input.OutputIndex].ExpectedType;
 					bValid = false; return Type::Float;
 				}
 				if (const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(E))
@@ -242,8 +242,7 @@ namespace Durin::MaterialEditor
 				}
 				if (Opcode == EMaterialProgramOpcode::GetMaterialAttributes)
 				{
-					const auto* Definition = Input.OutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Input.OutputId)
-						: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex));
+					const auto* Definition = FMaterialAttributeDefinitionMap::Find(Input.GetOutputId());
 					if (Definition) return Definition->Semantics.Type;
 					bValid = false; return Type::Float;
 				}
@@ -257,9 +256,9 @@ namespace Durin::MaterialEditor
 				if (!Affected.contains(E->Id)) { Active.erase(E->Id); return Result; }
 				bool bInputChanged = false;
 				VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Operand) {
-					if (!Effective(Operand).ExpressionId.IsValid()) return;
+					if (!Effective(Operand).IsConnected()) return;
 					Resolve(Effective(Operand));
-					bInputChanged |= ChangedTypes.contains(Effective(Operand).ExpressionId);
+					bInputChanged |= ChangedTypes.contains(Effective(Operand).GetExpressionId());
 				});
 				if (!Seeds.contains(E->Id) && !bInputChanged)
 				{
@@ -271,7 +270,7 @@ namespace Durin::MaterialEditor
 					const auto Width = [&](const FMaterialNumericInput& Numeric) -> size_t {
 						const auto& Operand = Effective(Numeric.Connection);
 						const auto& Default = EffectiveNumeric(Numeric);
-						if (!Operand.ExpressionId.IsValid()) return Default.UseConstant ? Default.Constant.size() : 1;
+						if (!Operand.IsConnected()) return Default.UseConstant ? Default.Constant.size() : 1;
 						const auto Value = Resolve(Operand);
 						return Value <= Type::Float4 ? static_cast<size_t>(Value) + 1 : 5;
 					};
@@ -296,7 +295,7 @@ namespace Durin::MaterialEditor
 					};
 					VisitMaterialExpressionInputs(*E, [&](uint32 Slot, FMaterialExpressionInput& Operand) {
 						if (Opcode == EMaterialProgramOpcode::Lerp && Slot == 2) return;
-						if (Effective(Operand).ExpressionId.IsValid()) Merge(Resolve(Effective(Operand)));
+						if (Effective(Operand).IsConnected()) Merge(Resolve(Effective(Operand)));
 						else if (const auto* Numeric = FindMaterialNumericInput(*E, Operand); Numeric && EffectiveNumeric(*Numeric).UseConstant)
 						{
 							const auto& Values = EffectiveNumeric(*Numeric).Constant;
@@ -329,7 +328,7 @@ namespace Durin::MaterialEditor
 			for (const auto& E : Nodes)
 			{
 				const auto Shape = std::ranges::find(Catalog, E->GetClass(), &FMaterialGraphCatalogEntry::ExpressionClass);
-				if (Affected.contains(E->Id) && Shape != Catalog.end() && (IsMaterialAdaptiveNumeric(Shape->Opcode) || Shape->Opcode == EMaterialProgramOpcode::AppendVector)) Resolve({E->Id});
+				if (Affected.contains(E->Id) && Shape != Catalog.end() && (IsMaterialAdaptiveNumeric(Shape->Opcode) || Shape->Opcode == EMaterialProgramOpcode::AppendVector)) Resolve({E.Get()});
 			}
 			return bValid;
 		}
@@ -404,20 +403,20 @@ namespace Durin::MaterialEditor
 
 		auto IsSourceAvailable(std::span<const TObjectPtr<DMaterialExpression>> Expressions, const FMaterialExpressionInput& Input) -> bool
 		{
-			if (!Input.ExpressionId.IsValid()) return true;
-			const auto It = std::ranges::find(Expressions, Input.ExpressionId, [](auto& E) { return E->Id; });
+			if (!Input.IsConnected()) return Input.OutputIndex == 0;
+			if (!std::in_range<uint8>(Input.OutputIndex)) return false;
+			const auto It = std::ranges::find(Expressions, Input.Expression);
 			if (It == Expressions.end()) return false;
 			const auto* E = It->Get();
 			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(E))
-				return Call->Function.IsValid() && Input.OutputIndex == 0
-					&& std::ranges::any_of(Call->Function->GetFunctionSignature().Outputs, [&](const auto& Port) { return Port.Id == Input.OutputId; });
+				return Call->Function.IsValid() && Input.GetOutputId().IsValid()
+					&& std::ranges::any_of(Call->Function->GetFunctionSignature().Outputs, [&](const auto& Port) { return Port.Id == Input.GetOutputId(); });
 			if (const auto* Attributes = Cast<DMaterialExpressionGetMaterialAttributes>(E))
 			{
-				const auto* Definition = Input.OutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Input.OutputId)
-					: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex));
-				return Definition && Attributes->IsSelected(Definition->Property) && (!Input.OutputId.IsValid() || Input.OutputIndex == 0);
+				const auto* Definition = FMaterialAttributeDefinitionMap::Find(Input.GetOutputId());
+				return Definition && Attributes->IsSelected(Definition->Property);
 			}
-			if (Input.OutputId.IsValid() || Cast<DMaterialExpressionMaterialOutput>(E) || Cast<DMaterialExpressionFunctionOutput>(E)) return false;
+			if (Input.GetOutputId().IsValid() || Cast<DMaterialExpressionMaterialOutput>(E) || Cast<DMaterialExpressionFunctionOutput>(E)) return false;
 			if (Cast<DMaterialExpressionTextureSampleParameter2D>(E))
 				return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameter2D, Input.OutputIndex) != nullptr;
 			if (Cast<DMaterialExpressionTextureSampleParameterCube>(E)) return FindMaterialSampleOutput(EMaterialProgramOpcode::TextureSampleParameterCube, Input.OutputIndex) != nullptr;
@@ -427,21 +426,17 @@ namespace Durin::MaterialEditor
 			return Input.OutputIndex == 0;
 		}
 
-		auto FindCall(std::span<const TObjectPtr<DMaterialExpression>> Expressions, const FGuid& Id) -> DMaterialExpressionFunctionCall*
+		auto IncludeCallOutput(FGraphEditSession& State, DMaterialExpression* Source, FGuid OutputId) -> void
 		{
-			for (auto& Expression : Expressions)
-				if (Expression->Id == Id) return Cast<DMaterialExpressionFunctionCall>(Expression.Get());
-			return nullptr;
-		}
-		auto IncludeCallOutput(FGraphEditSession& State, const FMaterialExpressionInput& Source) -> void
-		{
-			if (!Source.OutputId.IsValid()) return;
-			auto* Call = FindCall(State.Expressions, Source.ExpressionId);
-			if (!Call || !Call->Function.IsValid()
-				|| std::ranges::contains(Call->Outputs, Source.OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
+			auto* Call = Cast<DMaterialExpressionFunctionCall>(Source);
+			if (!OutputId.IsValid() || !Call || !Call->Function.IsValid()
+				|| std::ranges::contains(Call->Outputs, OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
 			const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
-			if (const auto Port = std::ranges::find(Ports, Source.OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
-				{ State.Modify(*Call); Call->Outputs.push_back({Port->Id, Port->Type}); }
+			if (const auto Port = std::ranges::find(Ports, OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
+			{
+				State.Modify(*Call);
+				Call->Outputs.push_back({Port->Id, Port->Type});
+			}
 		}
 
 	}
@@ -465,7 +460,10 @@ namespace Durin::MaterialEditor
 		{
 			auto* Terminal = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
 			Terminal->Id = NodeId; Terminal->Port = std::move(Port);
-			Terminal->Source = {Source.SourceNodeId, Source.SourceOutputIndex, Source.SourceOutputId};
+			auto* Upstream = FindMaterialExpression(State.Expressions, Source.SourceNodeId);
+			if (Source.SourceNodeId.IsValid() && !Upstream) return RejectCommand("The source expression no longer exists.");
+			IncludeCallOutput(State, Upstream, Source.SourceOutputId);
+			Terminal->Source = {Upstream, Source.SourceOutputIndex, Source.SourceOutputId};
 			State.Expressions.emplace_back(Terminal);
 		}
 		else
@@ -505,7 +503,7 @@ namespace Durin::MaterialEditor
 	}
 
 	auto FMaterialGraphDocument::CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X, int32 Y,
-		FMaterialExpressionInput FirstInput, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+		FMaterialProgramLink Source, ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
@@ -519,9 +517,13 @@ namespace Durin::MaterialEditor
 		if (Shape == Description.Shapes.end() || Entry.AcceptedInputTypes != Shape->AcceptedInputTypes
 			|| Description.SemanticOpcode != Entry.Opcode)
 			return RejectCommand("The catalog expression shape is stale.");
-		if (FirstInput.ExpressionId.IsValid() && Entry.AcceptedInputTypes.empty())
-			return RejectCommand("This catalog expression has no input pin.");
+		auto* Upstream = FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner.Get()), Source.SourceNodeId);
+		if (Source.SourceNodeId.IsValid() && !Upstream) return RejectCommand("The source expression no longer exists.");
 		FGraphEditSession State(*Owner.Get());
+		IncludeCallOutput(State, Upstream, Source.SourceOutputId);
+		FMaterialExpressionInput FirstInput{Upstream, Source.SourceOutputIndex, Source.SourceOutputId};
+		if (FirstInput.IsConnected() && Entry.AcceptedInputTypes.empty())
+			return RejectCommand("This catalog expression has no input pin.");
 		auto MakeUniqueStaticBoolName = [&]() {
 			const std::string BaseName = "StaticBool";
 			FName Candidate(BaseName);
@@ -534,14 +536,14 @@ namespace Durin::MaterialEditor
 		};
 		FGuid GeneratedStaticBoolId;
 		if (Entry.Opcode == EMaterialProgramOpcode::StaticSwitch
-			&& !FirstInput.ExpressionId.IsValid())
+			&& !FirstInput.IsConnected())
 		{
 			TStrongObjectPtr<DMaterialExpressionStaticBool> Condition(
 				NewObject<DMaterialExpressionStaticBool>(nullptr, NAME_None));
 			Condition->Id = GeneratedStaticBoolId = FGuid::NewGuid();
 			Condition->DeclarationId = FGuid::NewGuid();
 			Condition->Name = MakeUniqueStaticBoolName();
-			FirstInput = {Condition->Id};
+			FirstInput = {Condition.Get()};
 			State.Presentation.Nodes.push_back({Condition->Id, X - 220, Y, "StaticBool"});
 			State.Expressions.emplace_back(Condition.Get());
 		}
@@ -582,7 +584,7 @@ namespace Durin::MaterialEditor
 		std::optional<uint32> InvalidInput;
 		if (auto* Blend = Cast<DMaterialExpressionBlendMaterialAttributes>(Expression.Get())) Blend->B = FirstInput;
 		VisitMaterialExpressionInputs(*Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
-			if (Index == 0 && FirstInput.ExpressionId.IsValid())
+			if (Index == 0 && FirstInput.IsConnected())
 			{
 				Input = FirstInput;
 				if (!IsMaterialAdaptiveNumeric(Entry.Opcode)) return;
@@ -592,11 +594,10 @@ namespace Durin::MaterialEditor
 			if ((Entry.Opcode == EMaterialProgramOpcode::QualitySwitch
 				|| Entry.Opcode == EMaterialProgramOpcode::FeatureLevelSwitch)
 				&& Index > 0) return;
-			if (!FindMaterialNumericInput(*Expression, Input) && !Input.ExpressionId.IsValid())
+			if (!FindMaterialNumericInput(*Expression, Input) && !Input.IsConnected())
 				if (!InvalidInput) InvalidInput = Index;
 		});
 		if (InvalidInput) return RejectCommand("Create this node from a compatible texture or Surface output.");
-		IncludeCallOutput(State, FirstInput);
 		const auto Id = Expression->Id;
 		State.Presentation.Nodes.push_back({Id, X, Y, DisplayName});
 		State.Expressions.emplace_back(Expression.Get());
@@ -637,7 +638,6 @@ namespace Durin::MaterialEditor
 			if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error) return Error;
 			ParameterId = Parameter->Metadata.Id;
 		}
-		VisitMaterialExpressionInputs(*Copy, [&](uint32, FMaterialExpressionInput& Input) { IncludeCallOutput(State, Input); });
 		State.Presentation.Nodes.push_back({Id, X, Y});
 		auto Result = State.Commit("Create Graph Expression", Transactions);
 		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded)
@@ -676,7 +676,6 @@ namespace Durin::MaterialEditor
 			if (const auto Assigned = State.Assign(**Existing, Replacement); !Assigned) return Assigned;
 		}
 		else *Existing = &Replacement;
-		VisitMaterialExpressionInputs(Replacement, [&](uint32, FMaterialExpressionInput& Input) { IncludeCallOutput(State, Input); });
 		auto Result = State.Commit("Replace Graph Expression", Transactions);
 		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) Result.AffectedNodeIds.push_back(Id);
 		return Result;
@@ -703,7 +702,7 @@ namespace Durin::MaterialEditor
 		{
 
 			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) {
-				if (Removed.contains(Input.ExpressionId)) { State.Modify(*Expression); Input = {}; }
+				if (Removed.contains(Input.GetExpressionId())) { State.Modify(*Expression); Input = {}; }
 			});
 		}
 		auto Result = State.Commit("Remove Graph Nodes", Transactions);
@@ -785,15 +784,24 @@ namespace Durin::MaterialEditor
 			VisitMaterialExpressionInputs(**Node, [&](uint32 Slot, FMaterialExpressionInput& Input) { if (Slot == Index) Target = &Input; });
 			if (!Target) return RejectCommand("The graph input no longer exists.");
 		}
-		const FMaterialExpressionInput Connection{SourceAddress.NodeId, static_cast<uint8>(SourceAddress.Index), SourceAddress.PortId};
+		auto* Upstream = FindMaterialExpression(Expressions, SourceAddress.NodeId);
+		if (SourceAddress.NodeId.IsValid() && !Upstream) return RejectCommand("The source output no longer exists.");
+		std::unique_ptr<FGraphEditSession> BindingEdit;
+		if (auto* SourceCall = Cast<DMaterialExpressionFunctionCall>(Upstream); SourceCall && SourceAddress.PortId.IsValid()
+			&& !std::ranges::contains(SourceCall->Outputs, SourceAddress.PortId, &FMaterialFunctionOutputBinding::OutputId))
+		{
+			BindingEdit = std::make_unique<FGraphEditSession>(*Owner);
+			IncludeCallOutput(*BindingEdit, SourceCall, SourceAddress.PortId);
+		}
+		const FMaterialExpressionInput Connection{Upstream, static_cast<int32>(SourceAddress.Index), SourceAddress.PortId};
 		if (!IsSourceAvailable(Expressions, Connection)) return RejectCommand("The source output no longer exists.");
 		const auto Previous = Target ? *Target : FMaterialExpressionInput{};
 		if (!FMaterialGraphSchema::CanReplaceConnection(Previous, Connection, bReplaceExisting))
 			return RejectCommand("The graph input is already connected.");
-		const bool ResetDefault = AttributeValue && !Connection.ExpressionId.IsValid() && AttributeValue->UseConstant;
+		const bool ResetDefault = AttributeValue && !Connection.IsConnected() && AttributeValue->UseConstant;
 		if (Previous == Connection && !bRemoveBinding && !ResetDefault) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		FMaterialGraphCommandResult Result;
-		if (Target && !Call && (!Connection.OutputId.IsValid() || !FindCall(Expressions, Connection.ExpressionId)))
+		if (Target && !Call && !BindingEdit)
 		{
 			FExpressionEdit Edit;
 			Edit.SetLink(**Node, *Target, Connection);
@@ -802,23 +810,23 @@ namespace Durin::MaterialEditor
 		}
 		else
 		{
-			FGraphEditSession State(*Owner);
+			if (!BindingEdit) BindingEdit = std::make_unique<FGraphEditSession>(*Owner);
+			auto& State = *BindingEdit;
 			State.Modify(**Node);
 			if (Target) *Target = Connection;
 			else if (AttributeOwner) AttributeOwner->Attributes.emplace_back(static_cast<EMaterialProperty>(TargetAddress.Index), Connection);
 			else Call->Inputs.push_back({Port->Id, Port->Type, Connection});
-			if (Call && !Connection.ExpressionId.IsValid())
+			if (Call && !Connection.IsConnected())
 				std::erase_if(Call->Inputs, [&](const auto& Binding) {
 					return Binding.InputId == TargetAddress.PortId && Binding.InputDefault.empty();
 				});
-			IncludeCallOutput(State, Connection);
 			Result = State.Commit("Connect Graph Input", Transactions);
 		}
 		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded)
 		{
 			Result.AffectedNodeIds.push_back(TargetAddress.NodeId);
-			if (Previous.ExpressionId.IsValid()) Result.AffectedNodeIds.push_back(Previous.ExpressionId);
-			if (Connection.ExpressionId.IsValid()) Result.AffectedNodeIds.push_back(Connection.ExpressionId);
+			if (Previous.IsConnected()) Result.AffectedNodeIds.push_back(Previous.GetExpressionId());
+			if (Connection.IsConnected()) Result.AffectedNodeIds.push_back(Connection.GetExpressionId());
 			std::ranges::sort(Result.AffectedNodeIds);
 			const auto Duplicates = std::ranges::unique(Result.AffectedNodeIds);
 			Result.AffectedNodeIds.erase(Duplicates.begin(), Duplicates.end());
@@ -896,8 +904,11 @@ namespace Durin::MaterialEditor
 		for (const auto& Output : Function.GetFunctionSignature().Outputs) Call->Outputs.push_back({Output.Id, Output.Type});
 		for (const auto& Input : Inputs)
 		{
+			auto* Source = FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner.Get()), Input.Source.SourceNodeId);
+			if (Input.Source.SourceNodeId.IsValid() && !Source) return RejectCommand("The source expression no longer exists.");
+			IncludeCallOutput(State, Source, Input.Source.SourceOutputId);
 			FMaterialExpressionFunctionInputBinding Binding{Input.InputId, Input.ExpectedType,
-				{Input.Source.SourceNodeId, Input.Source.SourceOutputIndex, Input.Source.SourceOutputId}};
+				{Source, Input.Source.SourceOutputIndex, Input.Source.SourceOutputId}};
 			if (Input.Default.Kind != EMaterialInputDefaultKind::None)
 			{
 				const auto Count = static_cast<size_t>(Input.Default.Type) + 1;
@@ -910,7 +921,6 @@ namespace Durin::MaterialEditor
 		Validation = ValidateMaterialFunctionCallSignature(*Call.Get(), Function.GetFunctionSignature(), EMaterialFunctionValidationMode::Editing);
 		if (!Validation) return RejectCommand("The function call bindings are invalid.", std::move(Validation.Diagnostics));
 		State.Expressions.emplace_back(Call.Get());
-		for (const auto& Input : Call->Inputs) IncludeCallOutput(State, Input.Input);
 		State.Presentation.Nodes.push_back({Id, X, Y});
 		auto Result = State.Commit("Insert Function Call", Transactions);
 		if (Result) Result.AffectedNodeIds = Result.GeneratedNodeIds = {Id};

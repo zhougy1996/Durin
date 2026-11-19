@@ -39,7 +39,7 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 	auto Own = [&](DMaterialExpression* E) {
 		E->Id = {0x57415452u, 0x4d41544cu, 0x00000001u, NextId++};
 		Owners.emplace_back(E); Nodes.push_back(E);
-		return FMaterialExpressionInput{E->Id};
+		return FMaterialExpressionInput{E};
 	};
 	for (const auto& N : Recipe.IR.Nodes)
 	{

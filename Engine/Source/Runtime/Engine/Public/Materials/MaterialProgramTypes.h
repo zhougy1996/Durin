@@ -373,7 +373,7 @@ namespace Durin
 	// Definitions are in display order, independent of serialized identities.
 	ENGINE_API auto GetMaterialSampleOutputs(EMaterialProgramOpcode Opcode)
 		-> std::span<const FMaterialSampleOutputDefinition>;
-	ENGINE_API auto FindMaterialSampleOutput(EMaterialProgramOpcode Opcode, uint8 OutputIndex)
+	ENGINE_API auto FindMaterialSampleOutput(EMaterialProgramOpcode Opcode, int32 OutputIndex)
 		-> const FMaterialSampleOutputDefinition*;
 
 	DSTRUCT()

@@ -305,7 +305,7 @@ namespace Durin::MaterialEditor
 		FGraphEditSession State(Material);
 		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
 		if (!Link) return RejectCommand("The material surface output is invalid.");
-		if (Link->ExpressionId.IsValid()) return RejectCommand("Only an unconnected material surface output can be promoted.");
+		if (Link->IsConnected()) return RejectCommand("Only an unconnected material surface output can be promoted.");
 		FMaterialParameterDefinition Definition;
 		Definition.Id = FGuid::NewGuid(); Definition.Name = "SurfaceParameter";
 		for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
@@ -318,13 +318,13 @@ namespace Durin::MaterialEditor
 		if (!Created) return RejectCommand(std::move(Created.Message));
 		auto Parameter = std::move(Created.Expression);
 		const auto Id = Parameter->Id;
-		*Link = {Id};
+		*Link = {Parameter.Get()};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y});
 		State.Expressions.emplace_back(Parameter.Get());
 		if (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3)
 		{
 			auto Mask = MakeParameterMask(*Parameter.Get(), Type);
-			*Link = {Mask->Id}; State.Presentation.Nodes.push_back({Mask->Id, Request.X + 260, Request.Y});
+			*Link = {Mask.Get()}; State.Presentation.Nodes.push_back({Mask->Id, Request.X + 260, Request.Y});
 			State.Expressions.emplace_back(Mask.Get());
 		}
 		auto Result = State.Commit("Promote Surface Parameter", Transactions);
@@ -361,7 +361,7 @@ namespace Durin::MaterialEditor
 		}
 		const auto Id = Texture->Id, ParameterId = Texture->Metadata.Id;
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
-		*Link = {Id, Channels[static_cast<size_t>(Request.Output)]};
+		*Link = {Texture.Get(), Channels[static_cast<size_t>(Request.Output)]};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());
 		auto Result = State.Commit("Add Material Surface Texture", Transactions);

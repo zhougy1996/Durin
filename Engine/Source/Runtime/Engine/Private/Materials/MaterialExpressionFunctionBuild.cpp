@@ -101,9 +101,9 @@ namespace Durin
 				return Emitter.Fail("Retained function binding default has an invalid type or component.", Binding.InputId);
 			AuthoringCodeHash.UpdateValue(static_cast<uint32>(Default.size()));
 			for (const auto Value : Default) AuthoringCodeHash.UpdateValue(Value);
-			if (!Binding.Input.ExpressionId.IsValid() && (Binding.Input.OutputIndex != 0 || Binding.Input.OutputId.IsValid()))
+			if (!Binding.Input.IsConnected() && Binding.Input.OutputIndex != 0)
 				return Emitter.Fail("Disconnected function binding has an output selector.", Binding.InputId);
-			if (Binding.Input.ExpressionId.IsValid())
+			if (Binding.Input.IsConnected())
 			{
 				PortStack.push_back(Binding.InputId);
 				const auto Value = BroadcastScalar(Resolve(Binding.Input), Binding.ExpectedType);
@@ -114,8 +114,9 @@ namespace Durin
 		}
 		std::map<std::tuple<EMaterialProgramValueType, EMaterialEvaluationStage,
 			EMaterialSpatialKind, EMaterialCoordinateSpace>, uint32> TypeValues;
-		for (const auto& Output : Call.Outputs)
+		for (size_t Index = 0; Index < Call.Outputs.size(); ++Index)
 		{
+			const auto& Output = Call.Outputs[Index];
 			if (!Output.OutputId.IsValid() || InputIds.contains(Output.OutputId) || !OutputIds.insert(Output.OutputId).second
 				|| Output.ExpectedType > EMaterialProgramValueType::MaterialAttributes)
 				return Emitter.Fail("Function call output requires a unique valid typed port.", Output.OutputId);
@@ -147,7 +148,7 @@ namespace Durin
 					Node.CoordinateSpace = Space;
 				}
 			}
-			Emitter.Output(Output.OutputId, Value->second);
+			Emitter.Output(static_cast<int32>(Index), Value->second);
 		}
 		if (!Result.Diagnostics.empty()) return;
 #endif
@@ -344,12 +345,12 @@ namespace Durin
 			if (!Default.empty() && (Default.size() > 4 || static_cast<EMaterialProgramValueType>(Default.size() - 1) != Port->Type
 				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); })))
 				return Emitter.Fail("Retained function binding default has an invalid type or component.", Binding.InputId);
-			if (!Binding.Input.ExpressionId.IsValid() && (Binding.Input.OutputIndex != 0 || Binding.Input.OutputId.IsValid()))
+			if (!Binding.Input.IsConnected() && Binding.Input.OutputIndex != 0)
 				return Emitter.Fail("Disconnected function binding has an output selector.", Binding.InputId);
-			if (Binding.Input.ExpressionId.IsValid() || !Default.empty())
+			if (Binding.Input.IsConnected() || !Default.empty())
 			{
 				PortStack.push_back(Binding.InputId);
-				const auto Value = Binding.Input.ExpressionId.IsValid()
+				const auto Value = Binding.Input.IsConnected()
 					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : MIR::FValue(Literal(Default));
 				PortStack.pop_back();
 				if (!MatchesType(Value, Port->Type)) return Emitter.Fail("Function binding value does not match its declared type.", Binding.InputId);
@@ -361,7 +362,7 @@ namespace Durin
 			}
 		}
 		std::set<FGuid> TerminalIds;
-		std::map<FGuid, FGuid> OutputTerminals;
+		std::map<FGuid, DMaterialExpression*> OutputTerminals;
 		for (const auto& [Id, Expression] : Child.Expressions)
 		{
 			const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression);
@@ -371,7 +372,7 @@ namespace Durin
 			const auto& Ports = Input ? Body.Signature.Inputs : Body.Signature.Outputs;
 			if (!std::ranges::contains(Ports, PortId, &FMaterialFunctionPort::Id) || !TerminalIds.insert(PortId).second)
 				{ Child.Fail("Function terminal does not match a unique declared port."); return; }
-			if (Output) OutputTerminals.emplace(PortId, Id);
+			if (Output) OutputTerminals.emplace(PortId, Expression);
 		}
 		for (const auto& Output : Body.Signature.Outputs)
 			if (!OutputTerminals.contains(Output.Id)) { Child.Fail("Function output has no terminal expression."); return; }
@@ -380,8 +381,8 @@ namespace Durin
 			if (Input.bRequired && !Child.BoundInputs.contains(Input.Id)) Child.Fail("Required function input has no binding.", Input.Id);
 		// Each invocation owns an independent node/output cache.
 		Child.BuildAllExpressions();
-		for (const auto& Output : Call.Outputs)
-			Emitter.Output(Output.OutputId, Child.Resolve({OutputTerminals.at(Output.OutputId)}));
+		for (size_t Index = 0; Index < Call.Outputs.size(); ++Index)
+			Emitter.Output(static_cast<int32>(Index), Child.Resolve({OutputTerminals.at(Call.Outputs[Index].OutputId)}));
 		Shared->ActiveFunctions.pop_back();
 		if (!Result.Diagnostics.empty()) return;
 #endif

@@ -78,7 +78,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	Session.Tick(Error);
 	EXPECT_TRUE(Error.empty()) << Error;
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(Source->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.632719f});
@@ -113,5 +113,5 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_TRUE(Draft->IsCompilationFinished());
 	EXPECT_EQ(Draft->GetMaterialCompileDebugInfo().RequestId, ForcedRequest);
-	EXPECT_EQ(Source->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
 }

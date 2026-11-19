@@ -124,7 +124,7 @@ namespace Durin
 			auto* Output = NewObject<DMaterialExpressionFunctionOutput>(this, "FunctionOutput");
 			Input->Id = InputNodeId; Input->Port = {.Id = InputId, .Type = EMaterialProgramValueType::MaterialAttributes,
 				.Name = "Surface", .Default = {.Kind = EMaterialFunctionDefaultKind::MaterialAttributes}};
-			Output->Id = OutputNodeId; Output->Port = {.Id = OutputId, .Type = EMaterialProgramValueType::MaterialAttributes, .Name = "Surface"}; Output->Source = {InputNodeId};
+			Output->Id = OutputNodeId; Output->Port = {.Id = OutputId, .Type = EMaterialProgramValueType::MaterialAttributes, .Name = "Surface"}; Output->Source = {Input};
 			ExpressionCollection.Expressions = {Input, Output};
 		}
 

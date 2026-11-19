@@ -297,9 +297,9 @@ namespace Durin
 			|| L.Inputs.size() != Definitions.size() || R.Inputs.size() != Definitions.size())
 			return Emitter.Fail("Attribute blending requires two constructed material attribute values.");
 		if (Alpha.Constant.size() != 1 || !std::isfinite(Alpha.Constant[0])
-			|| (!Alpha.Connection.ExpressionId.IsValid() && (Alpha.Connection.OutputId.IsValid() || Alpha.Connection.OutputIndex != 0)))
+			|| (!Alpha.Connection.IsConnected() && Alpha.Connection.OutputIndex != 0))
 			return Emitter.Fail("Attribute blend alpha has an invalid retained default or selector.");
-		const auto Weight = Alpha.Connection.ExpressionId.IsValid() ? Emitter.ResolveIndex(Alpha.Connection)
+		const auto Weight = Alpha.Connection.IsConnected() ? Emitter.ResolveIndex(Alpha.Connection)
 			: Emitter.Literal(Alpha.UseConstant ? std::span<const float>(Alpha.Constant) : std::span<const float>(std::array{.5f}));
 		if (Weight == MIR::InvalidIndex || Emitter.GetNode(Weight).ResultType != EMaterialProgramValueType::Float)
 			return Emitter.Fail("Attribute blend alpha must be a scalar.");
@@ -325,12 +325,12 @@ namespace Durin
 		{
 			const auto& Input = Inputs[Slot]->Connection;
 			const auto& Default = Inputs[Slot]->Constant;
-			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+			if (!Input.IsConnected() && Input.OutputIndex != 0)
 				return Emitter.Fail("Disconnected append input has an output selector.");
 			if (Default.empty() || Default.size() > 3
 				|| !std::ranges::all_of(Default, [](float Value) { return std::isfinite(Value); }))
 				return Emitter.Fail("Append Vector default must contain one to three finite components.");
-			const auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input) : Emitter.Literal(Inputs[Slot]->UseConstant ? Default : std::vector<float>{0.f});
+			const auto Index = Input.IsConnected() ? Emitter.ResolveIndex(Input) : Emitter.Literal(Inputs[Slot]->UseConstant ? Default : std::vector<float>{0.f});
 			if (Index == MIR::InvalidIndex) return;
 			const auto Type = Emitter.GetNode(Index).ResultType;
 			if (Type > EMaterialProgramValueType::Float3) return Emitter.Fail("Append Vector requires numeric inputs totaling at most four components.");
@@ -388,11 +388,11 @@ namespace Durin
 	{
 		auto SceneCoordinates(MIR::FEmitter& Emitter, const FMaterialNumericInput& Coordinates) -> uint32
 		{
-			if (!Coordinates.Connection.ExpressionId.IsValid() && (Coordinates.Connection.OutputIndex != 0 || Coordinates.Connection.OutputId.IsValid()))
+			if (!Coordinates.Connection.IsConnected() && Coordinates.Connection.OutputIndex != 0)
 			{ Emitter.Fail("Disconnected scene coordinates have an output selector."); return MIR::InvalidIndex; }
 			if (Coordinates.Constant.size() != 2 || !std::ranges::all_of(Coordinates.Constant, [](float V) { return std::isfinite(V); }))
 			{ Emitter.Fail("Scene texture coordinates must be finite Float2."); return MIR::InvalidIndex; }
-			if (Coordinates.Connection.ExpressionId.IsValid()) return Emitter.ResolveIndex(Coordinates.Connection);
+			if (Coordinates.Connection.IsConnected()) return Emitter.ResolveIndex(Coordinates.Connection);
 			return Coordinates.UseConstant ? Emitter.Literal(Coordinates.Constant)
 				: Emitter.Emit({.Opcode = EMaterialProgramOpcode::ScreenPosition, .ResultType = EMaterialProgramValueType::Float2});
 		}
@@ -473,7 +473,7 @@ namespace Durin
 		auto ResolveUV(MIR::FEmitter& Emitter, const FMaterialNumericInput& UV) -> uint32
 		{
 			const auto& Input = UV.Connection;
-			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+			if (!Input.IsConnected() && Input.OutputIndex != 0)
 			{
 				Emitter.Fail("Disconnected UV input has an output selector.");
 				return MIR::InvalidIndex;
@@ -484,7 +484,7 @@ namespace Durin
 				Emitter.Fail("Retained numeric default has an invalid width or non-finite component.");
 				return MIR::InvalidIndex;
 			}
-			auto Index = Input.ExpressionId.IsValid() ? Emitter.ResolveIndex(Input)
+			auto Index = Input.IsConnected() ? Emitter.ResolveIndex(Input)
 				: UV.UseConstant ? Emitter.Literal(UV.Constant) : Emitter.Coordinates();
 			if (Index != MIR::InvalidIndex && Emitter.GetNode(Index).ResultType != EMaterialProgramValueType::Float2)
 			{
@@ -500,12 +500,12 @@ namespace Durin
 				Emitter.Fail("TextureCube direction requires a finite Float3 default.");
 				return MIR::InvalidIndex;
 			}
-			if (!Direction.Connection.ExpressionId.IsValid() && (Direction.Connection.OutputIndex || Direction.Connection.OutputId.IsValid()))
+			if (!Direction.Connection.IsConnected() && Direction.Connection.OutputIndex)
 			{
 				Emitter.Fail("Disconnected Cube direction has an output selector.");
 				return MIR::InvalidIndex;
 			}
-			return Direction.Connection.ExpressionId.IsValid() ? Emitter.ResolveIndex(Direction.Connection)
+			return Direction.Connection.IsConnected() ? Emitter.ResolveIndex(Direction.Connection)
 				: Emitter.Literal(Direction.UseConstant ? Direction.Constant : std::vector<float>{1,0,0});
 		}
 		template<class SampleExpression>
@@ -523,8 +523,8 @@ namespace Durin
 				.ResultType = EMaterialProgramValueType::Float4, .Inputs = {Resource, Coordinates},
 				.Payload = MIR::FTextureRead{Mode}};
 			const auto ResolveOperand = [&](const FMaterialNumericInput& Operand, uint32 Width) {
-				if (!Operand.Connection.ExpressionId.IsValid()
-					&& (Operand.Connection.OutputIndex != 0 || Operand.Connection.OutputId.IsValid()))
+				if (!Operand.Connection.IsConnected()
+					&& Operand.Connection.OutputIndex != 0)
 				{
 					Emitter.Fail("Disconnected texture read operand has an output selector.");
 					return MIR::InvalidIndex;
@@ -534,7 +534,7 @@ namespace Durin
 					Emitter.Fail("Texture read operand has an invalid width or non-finite default.");
 					return MIR::InvalidIndex;
 				}
-				return Operand.Connection.ExpressionId.IsValid() ? Emitter.ResolveIndex(Operand.Connection)
+				return Operand.Connection.IsConnected() ? Emitter.ResolveIndex(Operand.Connection)
 					: Emitter.Literal(Operand.UseConstant ? Operand.Constant : std::vector<float>(Width, 0.f));
 			};
 			if (Mode == EMaterialTextureReadMode::Level || Mode == EMaterialTextureReadMode::Bias)
@@ -666,7 +666,6 @@ namespace Durin
 			if (IsSelected(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property))
 			{
 				Emitter.Output(static_cast<uint32>(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property), Base.Inputs[Index]);
-				Emitter.Output(FMaterialAttributeDefinitionMap::GetID(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property), Base.Inputs[Index]);
 			}
 	}
 
@@ -691,8 +690,8 @@ namespace Durin
 			if (Input.Constant.empty() || (Input.Constant.size() != 1 && Input.Constant.size() != Width)
 				|| !std::ranges::all_of(Input.Constant, [](float V) { return std::isfinite(V); }))
 				return Emitter.Fail("Retained numeric default has an invalid width or non-finite component.");
-			if (Input.Connection.ExpressionId.IsValid()) Node.Inputs[Slot] = Emitter.ResolveIndex(Input.Connection);
-			else if (Input.Connection.OutputIndex != 0 || Input.Connection.OutputId.IsValid())
+			if (Input.Connection.IsConnected()) Node.Inputs[Slot] = Emitter.ResolveIndex(Input.Connection);
+			else if (Input.Connection.OutputIndex != 0)
 				return Emitter.Fail("Disconnected numeric input has an output selector.");
 			else if (Input.UseConstant) Node.Inputs[Slot] = Emitter.Literal(Input.Constant,
 				Property == EMaterialProperty::MP_Normal && Input.Constant.size() == 3

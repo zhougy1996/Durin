@@ -329,8 +329,9 @@ individual bindings. Both connection sets and retained fallbacks survive mode
 changes. Inactive known properties retain their authoring state and create no
 execution bindings. Unknown/duplicate IDs, malformed retained defaults and
 incompatible selected values reject before publication.
-Graph version 9, output version 4 and function version 6 reject older schemas
-explicitly. `asset material-foundation` recreates DefaultMaterial and the three
+Authored and cooked graphs require version 10. Each connected input stores a hard
+reference to an expression in its owning graph and a signed 32-bit output index. Output
+version 4 and function version 6 retain their existing compatibility boundaries. `asset material-foundation` recreates DefaultMaterial and the three
 standard functions at their existing Engine paths; use `--dry-run` to inspect
 the bounded write set. `asset material-rust --project Sandbox/Sandbox.dproject`
 recreates the four-map Sandbox sample at `/Game/Materials/Metal/M_MetalRust`.
@@ -1421,11 +1422,10 @@ normalization/generator revisions are private producer inputs. Time uses `Materi
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11
 default-relative owned-object serialization, with no material-specific serializer
-or universal old-asset conversion path. Material graphs require version 9,
-material outputs require version 4, function ports require version 6, and material instances require version 3. The
-canonically resaved repository corpus is the compatibility baseline; older,
-missing, and future domain versions reject before object publication. Unrelated
-property/package migrations remain intact.
+or universal old-asset conversion path. Materials and functions require graph version 10.
+Material outputs require version 4, function ports require version 6, and
+material instances require version 3. Missing version markers reject before
+object publication.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
 collection. StaticMesh and SplineMesh components serialize only the base

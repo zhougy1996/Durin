@@ -4,24 +4,14 @@
 
 namespace Durin::MIR
 {
-	auto FEmitter::RegisterOutput(uint8 Index, FGuid Id, FValue Value) -> void
+	auto FEmitter::Output(int32 Index, FValue Value) -> void
 	{
 		if (!Builder.Result.Diagnostics.empty()) return;
+		if (Index < 0) return Fail("Expression Build registered a negative output index.");
 		if (const auto* Node = Value.GetIndex(); Node && *Node >= Builder.Result.IR.Nodes.size())
-			return Fail("Expression Build registered an invalid IR index.", Id);
-		if (!Builder.Values.emplace(FGraphBuilderImpl::FOutputKey{ExpressionId, Index, Id}, Value).second)
-			Fail("Expression Build registered an output more than once.", Id);
-	}
-
-	auto FEmitter::Output(uint8 Index, FValue Value) -> void
-	{
-		RegisterOutput(Index, {}, Value);
-	}
-
-	auto FEmitter::Output(FGuid Id, FValue Value) -> void
-	{
-		if (!Id.IsValid()) return Fail("Function call output requires a unique valid typed port.");
-		RegisterOutput(0, Id, Value);
+			return Fail("Expression Build registered an invalid IR index.");
+		if (!Builder.Values.emplace(FGraphBuilderImpl::FOutputKey{ExpressionId, Index}, Value).second)
+			Fail("Expression Build registered an output more than once.");
 	}
 
 	auto FEmitter::Resolve(const FMaterialExpressionInput& Input) -> FValue

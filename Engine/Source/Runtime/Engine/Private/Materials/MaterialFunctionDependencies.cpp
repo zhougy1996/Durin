@@ -36,7 +36,7 @@ namespace Durin
 				if (Port.bRequired && Mode == EMaterialFunctionValidationMode::Compilation)
 				{
 					const auto Binding = std::ranges::find(Call.Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
-					if (Binding == Call.Inputs.end() || (!Binding->Input.ExpressionId.IsValid() && Binding->InputDefault.empty()))
+					if (Binding == Call.Inputs.end() || (!Binding->Input.IsConnected() && Binding->InputDefault.empty()))
 						Fail(Port.Id, "Required function input is not connected or bound.");
 				}
 		}

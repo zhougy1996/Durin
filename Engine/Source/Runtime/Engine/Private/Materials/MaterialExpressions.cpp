@@ -1,6 +1,8 @@
 #include "Materials/MaterialExpressionBuild.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionMaterialOutput.h"
@@ -19,6 +21,103 @@
 
 namespace Durin
 {
+	auto CaptureMaterialOutputBindings(FMaterialAttributeRoot Root) -> std::pair<FMaterialAttributeRoot, std::vector<FGuid>>
+	{
+		std::vector<FGuid> Sources;
+		const auto Capture = [&](FMaterialExpressionInput& Input) {
+			Sources.push_back(Input.GetExpressionId());
+			Input.Expression.Reset();
+		};
+		Capture(Root.Attributes);
+		for (auto& Binding : Root.Properties.Bindings) Capture(Binding.Input.Connection);
+		return {std::move(Root), std::move(Sources)};
+	}
+
+	namespace
+	{
+		auto SameAuthoredFields(const DStructBase& Type, const void* Left, const void* Right) -> bool;
+
+		auto SameField(const FProperty& Field, const void* Left, const void* Right, uint32 Index) -> bool
+		{
+			if (Field.GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
+			{
+				const auto* Type = static_cast<const FStructProperty&>(Field).GetStruct();
+				const void* A = Field.GetValuePtr(Left, Index);
+				const void* B = Field.GetValuePtr(Right, Index);
+				if (Type == FMaterialExpressionInput::StaticStruct())
+				{
+					const auto& L = *static_cast<const FMaterialExpressionInput*>(A);
+					const auto& R = *static_cast<const FMaterialExpressionInput*>(B);
+					return L.IsConnected() == R.IsConnected() && L.GetExpressionId() == R.GetExpressionId()
+						&& L.OutputIndex == R.OutputIndex;
+				}
+				if (ArePropertyValuesIdentical(&Field, Left, Index, Right, Index)) return true;
+				// Only reflected structs with fields can contain a nested connection.
+				return Type && SameAuthoredFields(*Type, A, B);
+			}
+			if (Field.GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
+			{
+				const auto& Array = static_cast<const FArrayProperty&>(Field);
+				uint64 LeftCount = 0, RightCount = 0;
+				if (Array.GetNum(Left, LeftCount, Index) != EContainerOpResult::Success
+					|| Array.GetNum(Right, RightCount, Index) != EContainerOpResult::Success || LeftCount != RightCount) return false;
+				for (uint64 I = 0; I < LeftCount; ++I)
+					if (!SameField(*Array.GetInner(), Array.GetElementPtr(Left, I, Index), Array.GetElementPtr(Right, I, Index), 0)) return false;
+				return true;
+			}
+			return ArePropertyValuesIdentical(&Field, Left, Index, Right, Index);
+		}
+
+		auto SameAuthoredFields(const DStructBase& Type, const void* Left, const void* Right) -> bool
+		{
+			bool Equal = true, HasFields = false;
+			Type.ForEachProperty([&](FProperty* Field) {
+				HasFields = true;
+				for (uint32 I = 0; Equal && I < Field->GetArrayDim(); ++I) Equal = SameField(*Field, Left, Right, I);
+			});
+			return HasFields && Equal;
+		}
+	}
+
+	auto HaveSameMaterialExpressionFields(DMaterialExpression& Left, DMaterialExpression& Right) -> bool
+	{
+		return Left.GetClass() == Right.GetClass() && SameAuthoredFields(*Left.GetClass(), &Left, &Right);
+	}
+
+	FMaterialExpressionInput::FMaterialExpressionInput(DMaterialExpression* Upstream, int32 Index, FGuid NamedOutput)
+		: FMaterialExpressionInput(Upstream, Index)
+	{
+		if (!NamedOutput.IsValid()) return;
+		OutputIndex = -1;
+		if (Index != 0) return;
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Upstream))
+		{
+			const auto It = std::ranges::find(Call->Outputs, NamedOutput, &FMaterialFunctionOutputBinding::OutputId);
+			if (It != Call->Outputs.end()) OutputIndex = static_cast<int32>(It - Call->Outputs.begin());
+		}
+		else if (Cast<DMaterialExpressionGetMaterialAttributes>(Upstream))
+		{
+			if (const auto* Definition = FMaterialAttributeDefinitionMap::Find(NamedOutput))
+				OutputIndex = static_cast<int32>(Definition->Property);
+		}
+	}
+
+	auto FMaterialExpressionInput::GetOutputId() const -> FGuid
+	{
+		if (OutputIndex < 0) return {};
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
+			return static_cast<size_t>(OutputIndex) < Call->Outputs.size() ? Call->Outputs[OutputIndex].OutputId : FGuid{};
+		if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression.Get()) && std::in_range<uint8>(OutputIndex))
+			if (const auto* Definition = FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(OutputIndex)))
+				return Definition->AttributeID;
+		return {};
+	}
+
+	auto FMaterialExpressionInput::GetExpressionId() const -> FGuid
+	{
+		return Expression ? Expression->Id : FGuid{};
+	}
+
 	DMaterialExpressionGetMaterialAttributes::DMaterialExpressionGetMaterialAttributes(const FObjectInitializer& Initializer) : Super(Initializer)
 	{
 		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions()) AttributeIDs.push_back(Definition.AttributeID);

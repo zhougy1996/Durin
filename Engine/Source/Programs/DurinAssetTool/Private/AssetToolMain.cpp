@@ -1251,7 +1251,7 @@ int main(int ArgC, char** ArgV)
 			Sample->DefaultValue = FMaterialParameterValue::MakeTexture(Texture, {}, I == 1 ? EMaterialTextureFallback::FlatRGNormal : EMaterialTextureFallback::White).GetTexture();
 			Sample->TextureUsage = I == 0 ? ETextureUsage::Color : I == 1 ? ETextureUsage::Normal : ETextureUsage::DataMask;
 			Nodes.emplace_back(Sample);
-			Outputs.Get(Properties[I]) = {Sample->Id, uint8(I < 2 ? 1 : 2)};
+			Outputs.Get(Properties[I]) = {Sample, uint8(I < 2 ? 1 : 2)};
 		}
 		auto* Terminal = NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None);
 		Terminal->Id = {0x53544735, 0x52555354, 0, 5}; Terminal->Outputs = Outputs; Nodes.emplace_back(Terminal);

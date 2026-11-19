@@ -27,14 +27,14 @@ namespace Durin::Testing
 		const auto Node = [&](Op Opcode, Type ValueType, std::vector<FMaterialExpressionInput> Inputs = {}, FGuid ParameterId = {}) {
 			auto& Expression = Graph.Add(Opcode, ValueType, std::move(Inputs), ParameterId, {}, Recipe);
 			Expression.Id = {0xf67a24b1, 0x4378491a, 6, static_cast<uint32>(Graph.Expressions.size())};
-			return FMaterialExpressionInput{Expression.Id};
+			return FMaterialExpressionInput{&Expression};
 		};
 		const auto Call = [&](DMaterialFunction* Function, std::vector<FMaterialExpressionFunctionInputBinding> Inputs) {
 			TStrongObjectPtr<DMaterialExpressionFunctionCall> Expression(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 			Expression->Id = {0xf67a24b1, 0x4378491a, 6, static_cast<uint32>(Graph.Expressions.size() + 1)};
 			Expression->Function = Function; Expression->Inputs = std::move(Inputs);
 			for (const auto& Port : Function->GetFunctionSignature().Outputs) Expression->Outputs.push_back({Port.Id, Port.Type});
-			const FMaterialExpressionInput Link{Expression->Id, 0, Expression->Outputs.front().OutputId};
+			const FMaterialExpressionInput Link{Expression.Get(), 0, Expression->Outputs.front().OutputId};
 			Graph.Expressions.emplace_back(Expression.Get());
 			return Link;
 		};
@@ -50,7 +50,7 @@ namespace Durin::Testing
 				const auto Definition = std::ranges::find(Recipe, Id, &FMaterialParameterDefinition::Id);
 				require(Definition != Recipe.end());
 				const auto Link = Node(ValueType == Type::Texture2D ? Op::TextureParameter : Op::Parameter, ValueType, {}, Id);
-				Presentation.Nodes.push_back({Link.ExpressionId, Column * 320, static_cast<int32>(I) * 600 + Row * 130});
+				Presentation.Nodes.push_back({Link.GetExpressionId(), Column * 320, static_cast<int32>(I) * 600 + Row * 130});
 				return Link;
 			};
 			const auto Factor = Parameter(ParameterKind::Value, GetMaterialSurfaceOutputType(Role), 2, 0);
@@ -73,17 +73,17 @@ namespace Durin::Testing
 			const auto Y = Node(Op::Add, Type::Float, {
 				Node(Op::Multiply, Type::Float, {Sine, U}), Node(Op::Multiply, Type::Float, {Cosine, V})});
 			const auto UV = Node(Op::Add, Type::Float2, {Node(Op::MakeFloat2, Type::Float2, {X, Y}), Offset});
-			Presentation.Nodes.push_back({UV.ExpressionId, -320, static_cast<int32>(I) * 600});
+			Presentation.Nodes.push_back({UV.GetExpressionId(), -320, static_cast<int32>(I) * 600});
 			const auto TextureId = Durin::AssetForge::Builtins::GetMaterialSurfaceParameterId(Role, ParameterKind::Texture);
 			auto Sample = Node(Op::TextureSampleParameter2D, Type::Float4, {UV}, TextureId);
-			Presentation.Nodes.push_back({Sample.ExpressionId, 0, static_cast<int32>(I) * 600});
+			Presentation.Nodes.push_back({Sample.GetExpressionId(), 0, static_cast<int32>(I) * 600});
 			Sample.OutputIndex = Channels[I];
 			if (I == 1)
 			{
 				Sample = Call(Functions.SampleNormal.Get(), {
-					{AssetForge::Builtins::StandardMaterialPortId(Entry::SampleNormal, 1), Type::Texture2D, {Sample.ExpressionId, 7}},
+					{AssetForge::Builtins::StandardMaterialPortId(Entry::SampleNormal, 1), Type::Texture2D, {Sample.Expression, 7}},
 					{AssetForge::Builtins::StandardMaterialPortId(Entry::SampleNormal, 2), Type::Float2, UV}});
-				Presentation.Nodes.push_back({Sample.ExpressionId, 320, static_cast<int32>(I) * 600 + 150});
+				Presentation.Nodes.push_back({Sample.GetExpressionId(), 320, static_cast<int32>(I) * 600 + 150});
 			}
 			const auto FirstCompositionNode = Graph.Expressions.size();
 			*OutputLinks[I] = Node(I == 1 ? Op::BlendNormalsRNM : I == 5 ? Op::Add : Op::Multiply,

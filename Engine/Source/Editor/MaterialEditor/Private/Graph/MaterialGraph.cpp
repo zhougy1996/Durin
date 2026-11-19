@@ -121,8 +121,6 @@ namespace Durin::MaterialEditor
 		auto* Owner = GetMaterialOrFunction();
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
-		const auto* Attributes = Cast<DMaterialExpressionGetMaterialAttributes>(FindNode(Link.SourceNodeId)->GetMaterialExpression());
-		const auto* Attribute = Attributes ? FMaterialAttributeDefinitionMap::Find(Link.SourceOutputId) : nullptr;
 		struct FConsumer
 		{
 			DMaterialExpression* Expression;
@@ -136,10 +134,8 @@ namespace Durin::MaterialEditor
 			auto& Expression = *Entry;
 			const auto Before = Consumers.size();
 			VisitMaterialExpressionInputs(Expression, [&](uint32 Index, FMaterialExpressionInput& Input) {
-				if (Input.ExpressionId != Link.SourceNodeId) return;
-				const bool SameOutput = Input.OutputId == Link.SourceOutputId && Input.OutputIndex == Link.SourceOutputIndex;
-				const bool LegacyAttribute = Attribute && !Input.OutputId.IsValid() && Input.OutputIndex == static_cast<uint8>(Attribute->Property);
-				if (!SameOutput && !LegacyAttribute) return;
+				if (Input.GetExpressionId() != Link.SourceNodeId) return;
+				if (ToGraphLink(Input) != Link) return;
 				FGuid EmptyBinding;
 				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression); Call && Call->Inputs[Index].InputDefault.empty())
 					EmptyBinding = Call->Inputs[Index].InputId;

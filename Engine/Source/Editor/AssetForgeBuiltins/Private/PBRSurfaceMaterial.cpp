@@ -31,30 +31,30 @@ namespace Durin::AssetForge::Builtins
 					bTangentNormal ? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
 					bTangentNormal ? EMaterialCoordinateSpace::Tangent : EMaterialCoordinateSpace::None);
 			};
-			const FMaterialExpressionInput Factor{Parameter(Kind::Value, 640, 0)->Id};
-			const FMaterialExpressionInput Channel{Parameter(Kind::UVChannel, -2920, 0)->Id};
-			const FMaterialExpressionInput Scale{Parameter(Kind::UVScale, -2920, 130)->Id};
-			const FMaterialExpressionInput Offset{Parameter(Kind::UVOffset, -2920, 260)->Id};
-			const FMaterialExpressionInput Rotation{Parameter(Kind::UVRotation, -2920, 390)->Id};
+			const FMaterialExpressionInput Factor{Parameter(Kind::Value, 640, 0)};
+			const FMaterialExpressionInput Channel{Parameter(Kind::UVChannel, -2920, 0)};
+			const FMaterialExpressionInput Scale{Parameter(Kind::UVScale, -2920, 130)};
+			const FMaterialExpressionInput Offset{Parameter(Kind::UVOffset, -2920, 260)};
+			const FMaterialExpressionInput Rotation{Parameter(Kind::UVRotation, -2920, 390)};
 			const auto UV = B.TransformUV(I, -2600, Row, Channel, Scale, Offset, Rotation);
 			auto* Texture = Cast<DMaterialExpressionTextureSampleParameter2D>(Parameter(Kind::Texture, 0, 0));
 			Texture->UV = UV;
-			const FMaterialExpressionInput Sample{Texture->Id, Channels[I]};
+			const FMaterialExpressionInput Sample{Texture, Channels[I]};
 			auto& Output = B.Output(Recipe.Outputs, I);
 			if (I == 1)
 			{
 				auto* N = B.Add<DMaterialExpressionBlendNormalsRNM>(I, 960, Row);
-				N->Base = Factor; N->Detail = Sample; Output = {N->Id};
+				N->Base = Factor; N->Detail = Sample; Output = {N};
 			}
 			else if (I == 5)
 			{
 				auto* N = B.Add<DMaterialExpressionAdd>(I, 960, Row);
-				N->ResultType = GetMaterialSurfaceOutputType(Role); N->A = Factor; N->B = Sample; Output = {N->Id};
+				N->ResultType = GetMaterialSurfaceOutputType(Role); N->A = Factor; N->B = Sample; Output = {N};
 			}
 			else
 			{
 				auto* N = B.Add<DMaterialExpressionMultiply>(I, 960, Row);
-				N->ResultType = GetMaterialSurfaceOutputType(Role); N->A = Factor; N->B = Sample; Output = {N->Id};
+				N->ResultType = GetMaterialSurfaceOutputType(Role); N->A = Factor; N->B = Sample; Output = {N};
 			}
 		}
 		return Recipe;

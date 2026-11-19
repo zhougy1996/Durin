@@ -3,10 +3,10 @@
 #include "CoreMinimal.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "FunctionPortTestFixture.h"
 #include "Graph/MaterialGraphNodeDisplay.h"
 #include "TypedMaterialGraphTestFixture.h"
-#include "Materials/MaterialExpressionInputs.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "StandardMaterialFunctionTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
@@ -62,11 +62,20 @@ namespace
 	struct FExpressionGraphSnapshot
 	{
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		FMaterialAttributeRoot Outputs;
+		std::vector<FGuid> Sources;
+		auto CaptureNode(DMaterialExpression& Expression) -> void
+		{
+			auto* Copy = DuplicateObject(&Expression, nullptr, NAME_None).value();
+			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
+				Sources.push_back(Input.GetExpressionId());
+				Input.Expression.Reset();
+			});
+			Expressions.emplace_back(Copy);
+		}
 		FMaterialFunctionSignature Signature;
 		auto operator==(const FExpressionGraphSnapshot& Other) const -> bool
 		{
-			if (Signature != Other.Signature || Outputs != Other.Outputs || Expressions.size() != Other.Expressions.size()) return false;
+			if (Signature != Other.Signature || Sources != Other.Sources || Expressions.size() != Other.Expressions.size()) return false;
 			for (size_t Index = 0; Index < Expressions.size(); ++Index)
 			{
 				if (Expressions[Index]->GetClass() != Other.Expressions[Index]->GetClass()) return false;
@@ -82,9 +91,8 @@ namespace
 	auto CaptureExpressions(const DMaterial& Material) -> FExpressionGraphSnapshot
 	{
 		FExpressionGraphSnapshot Result;
-		Result.Outputs = Material.GetExpressionOutputs();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
-			Result.Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
+			Result.CaptureNode(*Expression);
 		return Result;
 	}
 
@@ -93,7 +101,7 @@ namespace
 		FExpressionGraphSnapshot Result;
 		Result.Signature = Function.GetFunctionSignature();
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
-			Result.Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
+			Result.CaptureNode(*Expression);
 		return Result;
 	}
 

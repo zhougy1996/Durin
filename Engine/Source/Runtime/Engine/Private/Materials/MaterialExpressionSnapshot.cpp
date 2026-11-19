@@ -31,16 +31,16 @@ namespace Durin
 		if (bValidateAuthoring)
 		{
 			// Retained wiring must stay structurally valid even when its mode is inactive.
-			if (!Outputs.bUseMaterialAttributes && Outputs.Attributes.ExpressionId.IsValid()) ResolveIndex(Outputs.Attributes);
+			if (!Outputs.bUseMaterialAttributes && Outputs.Attributes.IsConnected()) ResolveIndex(Outputs.Attributes);
 			if (Outputs.bUseMaterialAttributes)
 				for (const auto& Binding : Outputs.Properties.Bindings)
-					if (Binding.Input.Connection.ExpressionId.IsValid()) ResolveIndex(Binding.Input.Connection);
+					if (Binding.Input.Connection.IsConnected()) ResolveIndex(Binding.Input.Connection);
 		}
-		if (!Outputs.Attributes.ExpressionId.IsValid() && (Outputs.Attributes.OutputIndex != 0 || Outputs.Attributes.OutputId.IsValid()))
+		if (!Outputs.Attributes.IsConnected() && Outputs.Attributes.OutputIndex != 0)
 		{ Fail("Disconnected material attributes input has an output selector."); return Finish({}); }
 		AuthoringCodeHash.UpdateValue(Outputs.bUseMaterialAttributes);
 		uint32 Aggregate = MIR::InvalidIndex;
-		if (Outputs.bUseMaterialAttributes && Outputs.Attributes.ExpressionId.IsValid())
+		if (Outputs.bUseMaterialAttributes && Outputs.Attributes.IsConnected())
 		{
 			Aggregate = ResolveIndex(Outputs.Attributes);
 			if (Aggregate != MIR::InvalidIndex && GetNode(Aggregate).ResultType != EMaterialProgramValueType::MaterialAttributes)
@@ -52,7 +52,7 @@ namespace Durin
 			const auto& Link = Stored.Connection;
 			const auto Width = uint32(Definition.Semantics.Type) + 1;
 			if (Stored.Constant.size() != Width || !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); })
-				|| (!Link.ExpressionId.IsValid() && (Link.OutputIndex != 0 || Link.OutputId.IsValid())))
+				|| (!Link.IsConnected() && Link.OutputIndex != 0))
 			{ Fail("Material attribute has an invalid selector or retained default."); break; }
 			AuthoringCodeHash.UpdateValue(Definition.AttributeID);
 			AuthoringCodeHash.UpdateValue(Stored.UseConstant);
@@ -63,7 +63,7 @@ namespace Durin
 			uint32 Index = MIR::InvalidIndex;
 			if (Aggregate != MIR::InvalidIndex && size_t(Definition.Property) < GetNode(Aggregate).Inputs.size())
 				Index = GetNode(Aggregate).Inputs[size_t(Definition.Property)];
-			else if (!Outputs.bUseMaterialAttributes && Link.ExpressionId.IsValid()) Index = ResolveIndex(Link);
+			else if (!Outputs.bUseMaterialAttributes && Link.IsConnected()) Index = ResolveIndex(Link);
 			if (Index != MIR::InvalidIndex && Definition.Property != EMaterialProperty::MP_Normal
 				&& Definition.Property != EMaterialProperty::MP_WorldPositionOffset)
 			{

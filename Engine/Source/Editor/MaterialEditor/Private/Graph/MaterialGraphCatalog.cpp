@@ -190,9 +190,6 @@ namespace Durin::MaterialEditor
 			Descriptors.push_back(std::move(Node));
 			ExpressionsById.emplace(Expression->Id, Expression.Get());
 		}
-		const auto LinkView = [](const FMaterialExpressionInput& Input) -> FMaterialProgramLink {
-			return {Input.ExpressionId, Input.OutputIndex, Input.OutputId};
-		};
 		FMaterialGraphView Result;
 		std::unordered_map<FGuid, const FMaterialGraphNodeDescriptor*> NodesById;
 		for (const auto& Node : Descriptors) NodesById.emplace(Node.Id, &Node);
@@ -301,10 +298,10 @@ namespace Durin::MaterialEditor
 		if (Material)
 		{
 			const auto& Outputs = Material->GetExpressionOutputs();
-			Result.Outputs.Attributes = LinkView(Outputs.Attributes);
+			Result.Outputs.Attributes = ToGraphLink(Outputs.Attributes);
 			for (const auto& Definition : Definitions)
 			{
-				GetMaterialSurfaceOutputLink(Result.Outputs, Definition.Property) = LinkView(Outputs.Get(Definition.Property));
+				GetMaterialSurfaceOutputLink(Result.Outputs, Definition.Property) = ToGraphLink(Outputs.Get(Definition.Property));
 				GetMaterialSurfaceOutputDefault(Result.Outputs, Definition.Property) = [&] {
 					const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Definition.Property));
 					return FMaterialProgramLiteral{V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};

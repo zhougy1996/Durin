@@ -13,7 +13,7 @@ namespace Durin
 	struct FMaterialGraphVersion
 	{
 		static constexpr FGuid Guid{0x60f2b514, 0xb4f546a1, 0x890d2268, 0xceb304f7};
-		static constexpr int32 CurrentVersion = 9;
+		static constexpr int32 CurrentVersion = 10;
 		// Declares package writes and checks package reads; in-memory copies do not need a file version.
 		ENGINE_API static auto Serialize(FArchive& Ar) -> bool;
 	};

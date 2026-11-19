@@ -91,7 +91,7 @@ namespace Durin::Testing
 			NormalIds.Value,
 			EMaterialProgramValueType::Float3);
 		auto& NormalSample = Sample(NormalIds.Texture);
-		const auto NormalLink = FMaterialExpressionInput{NormalSample.Id, 1};
+		const auto NormalLink = FMaterialExpressionInput{&NormalSample, 1};
 		auto& Normal = AddNode(EMaterialProgramOpcode::BlendNormalsRNM,
 			EMaterialProgramValueType::Float3, {MakeLink(NormalParameter), NormalLink});
 

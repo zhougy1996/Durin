@@ -41,6 +41,15 @@ namespace Durin
 
 	};
 
+	// Compare authored fields across independently owned graphs using node identities.
+	ENGINE_API auto HaveSameMaterialExpressionFields(DMaterialExpression& Left, DMaterialExpression& Right) -> bool;
+
+	inline auto FindMaterialExpression(std::span<const TObjectPtr<DMaterialExpression>> Nodes, const FGuid& Id) -> DMaterialExpression*
+	{
+		const auto It = std::ranges::find_if(Nodes, [&](const auto& Node) { return Node && Node->Id == Id; });
+		return It != Nodes.end() ? It->Get() : nullptr;
+	}
+
 	// The asset owns every expression referenced by this collection.
 	DSTRUCT()
 	struct FMaterialExpressionCollection

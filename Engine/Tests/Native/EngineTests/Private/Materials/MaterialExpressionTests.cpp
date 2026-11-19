@@ -51,8 +51,8 @@ TEST(FMaterialAttributeAuthoringTests, InvalidBindingsAndConfigurationRollBackAt
 		if (Case == 1) Invalid.Properties.Bindings.push_back(Invalid.Properties.Bindings.front());
 		if (Case == 2) Invalid.Get(EMaterialProperty::MP_BaseColor).Constant = {1.f};
 		if (Case == 3) Invalid.Attributes.OutputIndex = 1;
-		if (Case == 4) { Invalid.bUseMaterialAttributes = true; Invalid.Get(EMaterialProperty::MP_Metallic) = {FGuid::NewGuid()}; }
-		if (Case == 5) Invalid.Attributes = {FGuid::NewGuid()};
+		if (Case == 4) { Invalid.bUseMaterialAttributes = true; Invalid.Get(EMaterialProperty::MP_Metallic) = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)}; }
+		if (Case == 5) Invalid.Attributes = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)};
 		const auto Rejected = Material->SetMaterialExpressions({}, Invalid);
 		EXPECT_FALSE(Rejected);
 		if (Case < 2)
@@ -82,10 +82,10 @@ TEST(FMaterialAttributeAuthoringTests, AggregateBlendLowersByPropertyAndNormaliz
 	A->Id = FGuid::NewGuid(); B->Id = FGuid::NewGuid(); Blend->Id = FGuid::NewGuid();
 	A->Values.Get(EMaterialProperty::MP_Metallic).SetConstant({0.f});
 	B->Values.Get(EMaterialProperty::MP_Metallic).SetConstant({1.f});
-	Blend->A = {A->Id}; Blend->B = {B->Id}; Blend->Alpha.SetConstant({.25f});
+	Blend->A = {A.Get()}; Blend->B = {B.Get()}; Blend->Alpha.SetConstant({.25f});
 	const std::array<DMaterialExpression*, 3> Expressions{A.Get(), B.Get(), Blend.Get()};
 	FMaterialAttributeRoot Root;
-	Root.bUseMaterialAttributes = true; Root.Attributes = {Blend->Id};
+	Root.bUseMaterialAttributes = true; Root.Attributes = {Blend.Get()};
 	MIR::FGraphBuilder Builder(Expressions);
 	const auto Built = Builder.FinishSurface(Root);
 	ASSERT_TRUE(Built) << FormatMaterialProgramDiagnostics(Built.Diagnostics);
@@ -107,12 +107,12 @@ TEST(FMaterialAttributeAuthoringTests, AggregateWorldOffsetRetainsTheExactFloat3
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> Base(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
 	TStrongObjectPtr<DMaterialExpressionSetMaterialAttributes> Set(NewObject<DMaterialExpressionSetMaterialAttributes>(nullptr, NAME_None));
-	Base->Id = FGuid::NewGuid(); Set->Id = FGuid::NewGuid(); Set->Surface = {Base->Id};
+	Base->Id = FGuid::NewGuid(); Set->Id = FGuid::NewGuid(); Set->Surface = {Base.Get()};
 	Set->Attributes.emplace_back(EMaterialProperty::MP_WorldPositionOffset, FMaterialExpressionInput{});
 	Set->Attributes[0].Source.SetConstant({1.f});
 	const std::array<DMaterialExpression*, 2> Expressions{Base.Get(), Set.Get()};
 	FMaterialAttributeRoot Root;
-	Root.Attributes = {Set->Id}; Root.bUseMaterialAttributes = true;
+	Root.Attributes = {Set.Get()}; Root.bUseMaterialAttributes = true;
 	MIR::FGraphBuilder Invalid(Expressions);
 	EXPECT_FALSE(Invalid.FinishSurface(Root));
 	Set->Attributes[0].Source.SetConstant({1.f, 2.f, 3.f});
@@ -130,10 +130,10 @@ TEST(FMaterialExpressionSemanticTests, SourcesAndConstantsCarryExplicitDetachedS
 	TStrongObjectPtr<DMaterialExpressionMultiply> Product(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 	Position->Id = FGuid::NewGuid(); Constant->Id = FGuid::NewGuid(); Scale->Id = FGuid::NewGuid(); Product->Id = FGuid::NewGuid();
 	Scale->Value = 2; Product->ResultType = EMaterialProgramValueType::Float3;
-	Product->A = {Position->Id}; Product->B = {Scale->Id};
+	Product->A = {Position.Get()}; Product->B = {Scale.Get()};
 	const std::array<DMaterialExpression*, 4> Expressions{Position.Get(), Constant.Get(), Scale.Get(), Product.Get()};
-	const std::array Roots{FMaterialExpressionInput{Position->Id}, FMaterialExpressionInput{Constant->Id},
-		FMaterialExpressionInput{Product->Id}};
+	const std::array Roots{FMaterialExpressionInput{Position.Get()}, FMaterialExpressionInput{Constant.Get()},
+		FMaterialExpressionInput{Product.Get()}};
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].GetSemantics(),
@@ -155,7 +155,7 @@ TEST(FMaterialExpressionSemanticTests, InvalidNormalCompositionReportsTheConsumi
 	Blend->Id = FGuid::NewGuid();
 	Blend->Base.SetConstant({0, 0, 1}); Blend->Detail.SetConstant({0, 0, 1});
 	const std::array<DMaterialExpression*, 1> Expressions{Blend.Get()};
-	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Blend->Id}});
+	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Blend.Get()}});
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
 	EXPECT_EQ(Built.Diagnostics.front().Message, "Expression input has an incompatible evaluation stage, spatial kind, or coordinate space.");
@@ -183,7 +183,7 @@ TEST(FMaterialExpressionSemanticTests, FunctionConstraintsRejectIncompatibleBind
 		.Name = "Normal", .bRequired = true, .Constraint = PixelNormal};
 	Output->Port = {.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float3,
 		.Name = "Normal", .Constraint = PixelNormal};
-	Output->Source = {Input->Id};
+	Output->Source = {Input};
 	const std::array<DMaterialExpression*, 2> FunctionNodes{Input, Output};
 	ASSERT_TRUE(Function->SetFunctionExpressions(FunctionNodes));
 
@@ -191,14 +191,14 @@ TEST(FMaterialExpressionSemanticTests, FunctionConstraintsRejectIncompatibleBind
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Generic->Id = FGuid::NewGuid(); Generic->Value = {0, 0, 1}; Call->Id = FGuid::NewGuid();
 	Call->Function = Function.Get();
-	Call->Inputs = {{Input->Port.Id, Input->Port.Type, {Generic->Id}}};
+	Call->Inputs = {{Input->Port.Id, Input->Port.Type, {Generic.Get()}}};
 	Call->Outputs = {{Output->Port.Id, Output->Port.Type}};
 	const std::array<DMaterialExpression*, 2> Graph{Generic.Get(), Call.Get()};
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Candidate) {
 		return &Candidate == Function.Get() ? std::optional(Function->GetExpressionBody()) : std::nullopt;
 	}};
 	const auto Built = MIR::BuildGraph(Graph,
-		std::array{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}}, Environment);
+		std::array{FMaterialExpressionInput{Call.Get(), 0, Output->Port.Id}}, Environment);
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
 	EXPECT_EQ(Built.Diagnostics.front().Message, "Function binding does not satisfy its stage or spatial constraint.");
@@ -241,10 +241,10 @@ TEST(FMaterialExpressionTests, TypedSnapshotIsDetachedFromCopiedInputsAndLaterEd
 	Roughness->Id = {1, 2, 3, 2}; Roughness->Value = .75f;
 	TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
 	Mask->Id = FGuid::NewGuid();
-	Mask->Input = {Color->Id}; Mask->Components = {0, 1, 2};
+	Mask->Input = {Color.Get()}; Mask->Components = {0, 1, 2};
 	const std::array<DMaterialExpression*, 3> Expressions{Color.Get(), Roughness.Get(), Mask.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Mask->Id}; Outputs.Get(EMaterialProperty::MP_Roughness) = {Roughness->Id};
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Mask.Get()}; Outputs.Get(EMaterialProperty::MP_Roughness) = {Roughness.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FMaterialCompilerEnvironment Environment;
 
@@ -300,7 +300,7 @@ TEST(FMaterialExpressionTests, AuthoringRejectsDisconnectedInvalidNodesAndSnapsh
 	EXPECT_TRUE(Rejected); EXPECT_TRUE(Rejected.IR.Nodes.empty()); EXPECT_TRUE(Rejected.Parameters.empty());
 	Constant->Value = .5f;
 	FMaterialAttributeRoot Wrong;
-	Wrong.Get(EMaterialProperty::MP_BaseColor) = {Constant->Id};
+	Wrong.Get(EMaterialProperty::MP_BaseColor) = {Constant.Get()};
 	MIR::FGraphBuilder Broadcast(Expressions);
 	const auto BroadcastResult = Broadcast.FinishSurface(Wrong);
 	ASSERT_TRUE(BroadcastResult);
@@ -340,10 +340,10 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	Parameter->DefaultValue = {.2, .3, .4, 0};
 	const auto ParameterId = Parameter->Metadata.Id;
 	TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
-	Mask->Id = FGuid::NewGuid(); Mask->Input = {Parameter->Id}; Mask->Components = {0, 1, 2};
+	Mask->Id = FGuid::NewGuid(); Mask->Input = {Parameter.Get()}; Mask->Components = {0, 1, 2};
 	const std::array<DMaterialExpression*, 2> Expressions{Parameter.Get(), Mask.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Mask->Id}; Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.375f});
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Mask.Get()}; Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.375f});
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("Program"), nullptr);
 	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("FunctionCalls"), nullptr);
@@ -352,7 +352,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	Parameter->DefaultValue = {.9, .9, .9, 0};
 	const auto Applied = Material->GetExpressionCollection().Expressions;
 	const auto AuthoredRevision = Material->GetMaterialProgramRevision();
-	auto BrokenOutputs = Outputs; BrokenOutputs.Get(EMaterialProperty::MP_Normal) = {{99, 1, 1, 1}};
+	auto BrokenOutputs = Outputs; BrokenOutputs.Get(EMaterialProperty::MP_Normal) = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)};
 	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, BrokenOutputs));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Applied);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), AuthoredRevision);
@@ -366,7 +366,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	const auto Loaded = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &LoadedError);
 	Material = Loaded;
 	ASSERT_TRUE(Loaded) << (LoadedError ? LoadedError->ToString() : "");
-	EXPECT_EQ(Material->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Material->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Material, EObjectQueryScope::LiveOnly).size(), 3u);
 	Owned = Cast<DMaterialExpressionVector4Parameter>(Material->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Owned, nullptr); EXPECT_EQ(Owned->DefaultValue, FVector4(.6, .7, .8, 0));
@@ -374,7 +374,7 @@ TEST(FMaterialExpressionTests, MaterialPersistsTypedOutputsAndOwnedParameterDefa
 	EXPECT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetVector4(), Owned->DefaultValue);
 	TStrongObjectPtr<DMaterial> Duplicate(Cast<DMaterial>(DuplicateObject(Material, nullptr, "IndependentMaterial").value()));
 	ASSERT_TRUE(Duplicate);
-	EXPECT_EQ(Duplicate->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Duplicate->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
 	ASSERT_EQ(Duplicate->GetExpressionCollection().Expressions.size(), 3u);
 	EXPECT_NE(Duplicate->GetExpressionCollection().Expressions[0].Get(), Owned);
 	EXPECT_EQ(Duplicate->GetExpressionCollection().Expressions[0]->GetOuter(), Duplicate.Get());
@@ -402,12 +402,12 @@ TEST(FMaterialExpressionTests, MaterialCanReplaceItsOwnExpressionsAndClearOwnedC
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Source(NewObject<DMaterialExpressionScalarConstant>(nullptr, "Roughness"));
 	Source->Id = {1, 2, 3, 4}; Source->Value = .75f;
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_Roughness) = {Source->Id};
+	Outputs.Get(EMaterialProperty::MP_Roughness) = {Source.Get()};
 	const std::array<DMaterialExpression*, 1> Initial{Source.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Initial, Outputs));
 	TStrongObjectPtr<DMaterialExpression> Previous(Material->GetExpressionCollection().Expressions[0].Get());
 	const std::array<DMaterialExpression*, 1> Existing{Previous.Get()};
-	ASSERT_TRUE(Material->SetMaterialExpressions(Existing, Outputs));
+	ASSERT_TRUE(Material->SetMaterialExpressions(Existing, Material->GetExpressionOutputs()));
 	TStrongObjectPtr<DMaterialExpression> Current(Material->GetExpressionCollection().Expressions[0].Get());
 	EXPECT_NE(Current.Get(), Previous.Get());
 	EXPECT_EQ(Current->Id, Previous->Id);
@@ -441,7 +441,7 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	auto* Constant = NewObject<DMaterialExpressionVector2Constant>(Working.Get(), "Constant");
 	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Working.Get(), "Output");
 	Constant->Id = {1, 2, 3, 1}; Constant->Value = {.2, .4};
-	Output->Id = {1, 2, 3, 2}; Output->Port.Id = {4, 5, 6, 7}; Output->Source = {Constant->Id};
+	Output->Id = {1, 2, 3, 2}; Output->Port.Id = {4, 5, 6, 7}; Output->Source = {Constant};
 	const auto OutputPortId = Output->Port.Id;
 	FMaterialFunctionSignature Signature;
 	Signature.Outputs = {{.Id = Output->Port.Id, .Type = EMaterialProgramValueType::Float2, .Name = "Value"}};
@@ -485,14 +485,12 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	for (size_t Index = 0; Index < OriginalExpressions.size(); ++Index)
 	{
 		ASSERT_EQ(OriginalExpressions[Index]->GetClass(), DuplicateExpressions[Index]->GetClass());
-		OriginalExpressions[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
-			EXPECT_TRUE(ArePropertyValuesIdentical(Property, OriginalExpressions[Index].Get(), 0, DuplicateExpressions[Index].Get(), 0));
-		});
+		EXPECT_TRUE(HaveSameMaterialExpressionFields(*OriginalExpressions[Index], *DuplicateExpressions[Index]));
 	}
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "OwnedCall"));
 	Call->Id = {8, 9, 10, 11}; Call->Function = Function; Call->Outputs = {{OutputPortId, EMaterialProgramValueType::Float2}};
 	const std::array<DMaterialExpression*, 1> Calls{Call.Get()};
-	const std::array Roots{FMaterialExpressionInput{Call->Id, 0, OutputPortId}};
+	const std::array Roots{FMaterialExpressionInput{Call.Get(), 0, OutputPortId}};
 	const auto Built = MIR::BuildGraph(Calls, Roots, {.FindFunction = [](const DMaterialFunctionInterface& Owner)
 		-> std::optional<MIR::FFunctionBody> {
 		if (const auto* Concrete = Cast<DMaterialFunction>(&Owner)) return Concrete->GetExpressionBody();
@@ -515,7 +513,7 @@ TEST(FMaterialExpressionTests, FunctionRejectsInvalidCandidatesAndUncollectedChi
 	const auto Revision = Function->GetFunctionRevision();
 	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(nullptr, "InvalidOutput"));
 	Output->Id = {1, 2, 3, 4}; Output->Port.Id = Function->GetFunctionSignature().Outputs[0].Id;
-	Output->Source = {Output->Id};
+	Output->Source = {Output.Get()};
 	const std::array<DMaterialExpression*, 1> Invalid{Output.Get()};
 	EXPECT_FALSE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Function->GetFunctionSignature(), Invalid)));
 	EXPECT_EQ(Function->GetFunctionSignature(), Before);
@@ -548,9 +546,9 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	auto* OutputA = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), "OutputA");
 	auto* OutputB = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), "OutputB");
 	Input->Id = {1, 0, 0, 1}; Input->Port.Id = {2, 0, 0, 1};
-	Add->Id = {1, 0, 0, 2}; Add->A = {Input->Id}; Add->B.SetConstant({.125f});
-	OutputA->Id = {1, 0, 0, 3}; OutputA->Port.Id = {2, 0, 0, 2}; OutputA->Source = {Input->Id};
-	OutputB->Id = {1, 0, 0, 4}; OutputB->Port.Id = {2, 0, 0, 3}; OutputB->Source = {Add->Id};
+	Add->Id = {1, 0, 0, 2}; Add->A = {Input}; Add->B.SetConstant({.125f});
+	OutputA->Id = {1, 0, 0, 3}; OutputA->Port.Id = {2, 0, 0, 2}; OutputA->Source = {Input};
+	OutputB->Id = {1, 0, 0, 4}; OutputB->Port.Id = {2, 0, 0, 3}; OutputB->Source = {Add};
 	MIR::FFunctionBody Body;
 	Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = EMaterialProgramValueType::Float, .Name = "Value",
 		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.75f}}}};
@@ -562,12 +560,12 @@ TEST(FMaterialExpressionTests, BuildFunctionInvocationsBindGuidPortsAndRetainInd
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> CallB(NewObject<DMaterialExpressionFunctionCall>(nullptr, "CallB"));
 	Constant->Id = {3, 0, 0, 1}; Constant->Value = .5f;
 	CallA->Id = {3, 0, 0, 2}; CallA->Function = Function.Get();
-	CallA->Inputs = {{.InputId = Input->Port.Id, .Input = {Constant->Id}, .InputDefault = {.25f}}};
+	CallA->Inputs = {{.InputId = Input->Port.Id, .Input = {Constant.Get()}, .InputDefault = {.25f}}};
 	CallA->Outputs = {{OutputA->Port.Id, EMaterialProgramValueType::Float}, {OutputB->Port.Id, EMaterialProgramValueType::Float}};
 	CallB->Id = {3, 0, 0, 3}; CallB->Function = Function.Get(); CallB->Outputs = CallA->Outputs;
 	const std::array<DMaterialExpression*, 3> Graph{Constant.Get(), CallA.Get(), CallB.Get()};
-	const std::array Roots{FMaterialExpressionInput{CallA->Id, 0, OutputA->Port.Id},
-		FMaterialExpressionInput{CallA->Id, 0, OutputB->Port.Id}, FMaterialExpressionInput{CallB->Id, 0, OutputA->Port.Id}};
+	const std::array Roots{FMaterialExpressionInput{CallA.Get(), 0, OutputA->Port.Id},
+		FMaterialExpressionInput{CallA.Get(), 0, OutputB->Port.Id}, FMaterialExpressionInput{CallB.Get(), 0, OutputA->Port.Id}};
 	uint32 Captures = 0;
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Owner)
 		-> std::optional<MIR::FFunctionBody> { ++Captures; return &Owner == Function.Get() ? std::optional(Body) : std::nullopt; }};
@@ -625,7 +623,7 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	auto* Input = NewObject<DMaterialExpressionFunctionInput>(Inner.Get(), "TextureInput");
 	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Inner.Get(), "TextureOutput");
 	Input->Id = {1, 0, 0, 1}; Input->Port.Id = {2, 0, 0, 1};
-	Output->Id = {1, 0, 0, 2}; Output->Port.Id = {2, 0, 0, 2}; Output->Source = {Input->Id};
+	Output->Id = {1, 0, 0, 2}; Output->Port.Id = {2, 0, 0, 2}; Output->Source = {Input};
 	MIR::FFunctionBody InnerBody;
 	InnerBody.Expressions = {Input, Output}; InnerBody.AssetPath = "/Direct/Inner";
 	InnerBody.Signature.Inputs = {{.Id = Input->Port.Id, .Type = EMaterialProgramValueType::Texture2D, .Name = "Texture",
@@ -634,16 +632,16 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	auto* Nested = NewObject<DMaterialExpressionFunctionCall>(Outer.Get(), "Nested");
 	auto* OuterOutput = NewObject<DMaterialExpressionFunctionOutput>(Outer.Get(), "OuterOutput");
 	Nested->Id = {3, 0, 0, 1}; Nested->Function = Inner.Get(); Nested->Outputs = {{Output->Port.Id, EMaterialProgramValueType::Texture2D}};
-	OuterOutput->Id = {3, 0, 0, 2}; OuterOutput->Port.Id = {4, 0, 0, 1}; OuterOutput->Source = {Nested->Id, 0, Output->Port.Id};
+	OuterOutput->Id = {3, 0, 0, 2}; OuterOutput->Port.Id = {4, 0, 0, 1}; OuterOutput->Source = {Nested, 0, Output->Port.Id};
 	MIR::FFunctionBody OuterBody;
 	OuterBody.Expressions = {Nested, OuterOutput}; OuterBody.AssetPath = "/Direct/Outer";
 	OuterBody.Signature.Outputs = {{.Id = OuterOutput->Port.Id, .Type = EMaterialProgramValueType::Texture2D, .Name = "Texture"}};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "Call"));
 	TStrongObjectPtr<DMaterialExpressionTextureSample2D> Sample(NewObject<DMaterialExpressionTextureSample2D>(nullptr, "Sample"));
 	Call->Id = {5, 0, 0, 1}; Call->Function = Outer.Get(); Call->Outputs = {{OuterOutput->Port.Id, EMaterialProgramValueType::Texture2D}};
-	Sample->Id = {5, 0, 0, 2}; Sample->Texture = {Call->Id, 0, OuterOutput->Port.Id};
+	Sample->Id = {5, 0, 0, 2}; Sample->Texture = {Call.Get(), 0, OuterOutput->Port.Id};
 	const std::array<DMaterialExpression*, 2> Graph{Call.Get(), Sample.Get()};
-	const std::array Roots{FMaterialExpressionInput{Sample->Id}};
+	const std::array Roots{FMaterialExpressionInput{Sample.Get()}};
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface& Owner)
 		-> std::optional<MIR::FFunctionBody> {
 		if (&Owner == Inner.Get()) return InnerBody;
@@ -663,7 +661,7 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	InnerBody.Expressions.push_back(Dead);
 	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 	InnerBody.Expressions.pop_back();
-	Sample->UV = {{9, 9, 9, 9}};
+	Sample->UV = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)};
 	EXPECT_FALSE(MIR::BuildGraph(Graph, Roots, Environment));
 	Sample->UV.Connection = {};
 	Sample->ReadMode = EMaterialTextureReadMode::Level;
@@ -672,7 +670,7 @@ TEST(FMaterialExpressionTests, BuildNestedTextureDefaultsAreValuesAndRecursionIs
 	Sample->MipValue.Constant = {1.f};
 	EXPECT_TRUE(MIR::BuildGraph(Graph, Roots, Environment));
 	Sample->ReadMode = EMaterialTextureReadMode::Implicit;
-	Nested->Function = Outer.Get(); Nested->Outputs = Call->Outputs; OuterOutput->Source.OutputId = OuterOutput->Port.Id;
+	Nested->Function = Outer.Get(); Nested->Outputs = Call->Outputs; OuterOutput->Source.OutputIndex = 0;
 	const auto Recursive = MIR::BuildGraph(Graph, Roots, Environment);
 	EXPECT_FALSE(Recursive); EXPECT_TRUE(Recursive.IR.Nodes.empty());
 	ASSERT_FALSE(Recursive.Diagnostics.empty());
@@ -690,8 +688,8 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	auto* Sample = NewObject<DMaterialExpressionTextureSample2D>(Function.Get(), NAME_None);
 	auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None);
 	Input->Id = FGuid::NewGuid(); Input->Port.Id = FGuid::NewGuid();
-	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Input->Id};
-	Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Sample->Id, 1};
+	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Input};
+	Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Sample, 1};
 	MIR::FFunctionBody Body;
 	Body.Expressions = {Input, Sample, Output}; Body.AssetPath = "/Direct/SampleNormalRGB";
 	Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = Type::Texture2D, .Name = "Texture",
@@ -707,10 +705,10 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	Texture->Id = FGuid::NewGuid(); Texture->Metadata = {.Id = FGuid::NewGuid(), .Name = "NormalTexture"};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Call->Id = FGuid::NewGuid(); Call->Function = Function.Get();
-	Call->Inputs = {{Input->Port.Id, Type::Texture2D, {Texture->Id}}};
+	Call->Inputs = {{Input->Port.Id, Type::Texture2D, {Texture.Get()}}};
 	Call->Outputs = {{Output->Port.Id, Type::Float3}};
 	const std::array<DMaterialExpression*, 2> Graph{Texture.Get(), Call.Get()};
-	const std::array Roots{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}};
+	const std::array Roots{FMaterialExpressionInput{Call.Get(), 0, Output->Port.Id}};
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
 	FXxHash128 ColorFingerprint, NormalFingerprint;
 	FMaterialAttributeRoot Surface; Surface.Get(EMaterialProperty::MP_Normal) = Roots[0];
@@ -747,7 +745,7 @@ TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 		auto* Input = NewObject<DMaterialExpressionFunctionInput>(Function.Get(), NAME_None);
 		auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None);
 		Input->Id = FGuid::NewGuid(); Input->Port.Id = FGuid::NewGuid();
-		Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Input->Id};
+		Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Input};
 		MIR::FFunctionBody Body;
 		Body.Expressions = {Input, Output}; Body.AssetPath = "/Direct/Broadcast";
 		const auto InputType = AtInput ? Width : Type::Float;
@@ -758,11 +756,11 @@ TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 		Scalar->Id = FGuid::NewGuid(); Scalar->Value = .25f;
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 		Call->Id = FGuid::NewGuid(); Call->Function = Function.Get();
-		Call->Inputs = {{Input->Port.Id, InputType, {Scalar->Id}}};
+		Call->Inputs = {{Input->Port.Id, InputType, {Scalar.Get()}}};
 		Call->Outputs = {{Output->Port.Id, Width}};
 		const std::array<DMaterialExpression*, 2> Graph{Scalar.Get(), Call.Get()};
 		ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, {}));
-		const std::array Roots{FMaterialExpressionInput{Call->Id, 0, Output->Port.Id}};
+		const std::array Roots{FMaterialExpressionInput{Call.Get(), 0, Output->Port.Id}};
 		MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
 		const auto Built = MIR::BuildGraph(Graph, Roots, Environment);
 		ASSERT_TRUE(Built);
@@ -797,11 +795,11 @@ TEST(FMaterialExpressionTests, BuildFunctionDefaultsPreserveAliasUVAndSurfaceSem
 		auto* Input = NewObject<DMaterialExpressionFunctionInput>(Function.Get(), FName(std::format("Input{}", Index)));
 		auto* Output = NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), FName(std::format("Output{}", Index)));
 		Input->Id = {2, 0, 0, Index}; Input->Port.Id = Body.Signature.Inputs[Index].Id;
-		Output->Id = {2, 0, 1, Index}; Output->Port.Id = {1, 0, 1, Index}; Output->Source = {Input->Id};
+		Output->Id = {2, 0, 1, Index}; Output->Port.Id = {1, 0, 1, Index}; Output->Source = {Input};
 		Body.Expressions.push_back(Input); Body.Expressions.push_back(Output);
 		Body.Signature.Outputs.push_back({.Id = Output->Port.Id, .Type = Body.Signature.Inputs[Index].Type, .Name = std::format("Output{}", Index)});
 		Call->Outputs.push_back({Output->Port.Id, Body.Signature.Inputs[Index].Type});
-		Roots.push_back({Call->Id, 0, Output->Port.Id});
+		Roots.push_back({Call.Get(), 0, Output->Port.Id});
 	}
 	const std::array<DMaterialExpression*, 1> Graph{Call.Get()};
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
@@ -830,9 +828,9 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	TStrongObjectPtr<DMaterialExpressionScalarConstant> Constant(NewObject<DMaterialExpressionScalarConstant>(nullptr, "BuildConstant"));
 	TStrongObjectPtr<DMaterialExpressionAdd> Add(NewObject<DMaterialExpressionAdd>(nullptr, "BuildAdd"));
 	Constant->Id = {1, 2, 3, 1}; Constant->Value = .25f;
-	Add->Id = {1, 2, 3, 2}; Add->A = {Constant->Id}; Add->A.SetConstant({.75f}); Add->B.SetConstant({.5f});
+	Add->Id = {1, 2, 3, 2}; Add->A = {Constant.Get()}; Add->A.SetConstant({.75f}); Add->B.SetConstant({.5f});
 	const std::array<DMaterialExpression*, 2> Expressions{Constant.Get(), Add.Get()};
-	const std::array Roots{FMaterialExpressionInput{Add->Id}, FMaterialExpressionInput{Add->Id}};
+	const std::array Roots{FMaterialExpressionInput{Add.Get()}, FMaterialExpressionInput{Add.Get()}};
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	ASSERT_EQ(Built.IR.Nodes.size(), 3u);
@@ -855,10 +853,10 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 		EXPECT_TRUE(Failed.Parameters.empty());
 		EXPECT_TRUE(Failed.Sources.empty());
 	};
-	Add->A = {Add->Id}; Reject();
-	Add->A = {{9, 9, 9, 9}}; Reject();
-	Add->A = {Constant->Id, 1}; Reject();
-	Add->A = {Constant->Id}; Add->A.SetConstant({1, 2}); Reject();
+	Add->A = {Add.Get()}; Reject();
+	Add->A = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)}; Reject();
+	Add->A = {Constant.Get(), 1}; Reject();
+	Add->A = {Constant.Get()}; Add->A.SetConstant({1, 2}); Reject();
 	Add->A.SetConstant({std::numeric_limits<float>::infinity()}); Reject();
 }
 
@@ -872,14 +870,14 @@ TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectR
 	Parameter->Id = FGuid::NewGuid();
 	Parameter->Metadata.Id = FGuid::NewGuid();
 	Parameter->Metadata.Name = "Sample";
-	Sample->Texture = {Parameter->Id, 7};
+	Sample->Texture = {Parameter.Get(), 7};
 	const std::array<DMaterialExpression*, 2> Expressions{Sample.Get(), Parameter.Get()};
 	for (auto* Expression : std::array<DMaterialExpression*, 2>{Sample.Get(), Parameter.Get()})
 	{
 		for (const uint8 Index : {0, 1, 2, 3, 4, 5, 6, 7, 8, 255})
 		{
 			SCOPED_TRACE(static_cast<int>(Index));
-			const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Expression->Id, Index}});
+			const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Expression, Index}});
 			const bool Valid = Index <= 5 || (Expression == Parameter.Get() && Index == 7);
 			ASSERT_EQ(static_cast<bool>(Built), Valid) << (Built.Diagnostics.empty() ? "" : Built.Diagnostics.front().Message);
 			if (!Valid) continue;
@@ -905,9 +903,9 @@ TEST(FMaterialExpressionTests, MultiOutputEmissionSharesSampleAndResourceAcrossC
 	Sample->Metadata = {.Id = FGuid::NewGuid(), .Name = "SharedSample"};
 	Sample->TextureUsage = ETextureUsage::Normal;
 	const std::array<DMaterialExpression*, 1> Expressions{Sample.Get()};
-	const std::array Roots{FMaterialExpressionInput{Sample->Id, 5}, FMaterialExpressionInput{Sample->Id, 7},
-		FMaterialExpressionInput{Sample->Id, 1}, FMaterialExpressionInput{Sample->Id, 0},
-		FMaterialExpressionInput{Sample->Id, 2}, FMaterialExpressionInput{Sample->Id, 1}};
+	const std::array Roots{FMaterialExpressionInput{Sample.Get(), 5}, FMaterialExpressionInput{Sample.Get(), 7},
+		FMaterialExpressionInput{Sample.Get(), 1}, FMaterialExpressionInput{Sample.Get(), 0},
+		FMaterialExpressionInput{Sample.Get(), 2}, FMaterialExpressionInput{Sample.Get(), 1}};
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	ASSERT_EQ(Built.Roots.size(), Roots.size());
@@ -924,7 +922,7 @@ TEST(FMaterialExpressionTests, MultiOutputEmissionSharesSampleAndResourceAcrossC
 	EXPECT_TRUE(std::ranges::all_of(Built.Sources, [&](const auto& Source) { return Source.NodeId == Sample->Id; }));
 
 	// A previously registered resource output must not hide a cycle through another output.
-	Sample->UV = {Sample->Id, 1};
+	Sample->UV = {Sample.Get(), 1};
 	const auto Cyclic = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_FALSE(Cyclic);
 	ASSERT_FALSE(Cyclic.Diagnostics.empty());
@@ -944,9 +942,9 @@ TEST(FMaterialExpressionTests, MultiOutputSampleRejectsNonTextureInput)
 	TStrongObjectPtr<DMaterialExpressionTextureSample2D> Sample(NewObject<DMaterialExpressionTextureSample2D>(nullptr, NAME_None));
 	Scalar->Id = FGuid::NewGuid();
 	Sample->Id = FGuid::NewGuid();
-	Sample->Texture = {Scalar->Id};
+	Sample->Texture = {Scalar.Get()};
 	const std::array<DMaterialExpression*, 2> Expressions{Sample.Get(), Scalar.Get()};
-	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample->Id, 1}});
+	const auto Built = MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample.Get(), 1}});
 	ASSERT_FALSE(Built);
 	ASSERT_FALSE(Built.Diagnostics.empty());
 	EXPECT_EQ(Built.Diagnostics.front().Message, "Expression input has an incompatible type.");
@@ -963,13 +961,13 @@ TEST(FMaterialExpressionTests, BuildSamplesAndSurfaceAttributesWithoutProgramNod
 	Sample->Id = {1, 2, 3, 1}; Sample->Metadata.Id = {4, 5, 6, 7}; Sample->Metadata.Name = "Sample";
 	Sample->TextureUsage = ETextureUsage::Normal;
 	Surface->Id = {1, 2, 3, 2};
-	Surface->Values.Get(EMaterialProperty::MP_BaseColor).SetConstant({1, 1, 1}); Surface->Values.Get(EMaterialProperty::MP_Normal) = {Sample->Id, 1};
+	Surface->Values.Get(EMaterialProperty::MP_BaseColor).SetConstant({1, 1, 1}); Surface->Values.Get(EMaterialProperty::MP_Normal) = {Sample.Get(), 1};
 	Surface->Values.Get(EMaterialProperty::MP_Metallic).SetConstant({0}); Surface->Values.Get(EMaterialProperty::MP_Roughness).SetConstant({.5f});
 	Surface->Values.Get(EMaterialProperty::MP_AmbientOcclusion).SetConstant({1}); Surface->Values.Get(EMaterialProperty::MP_EmissiveColor).SetConstant({0, 0, 0});
 	Surface->Values.Get(EMaterialProperty::MP_Opacity).SetConstant({1}); Surface->Values.Get(EMaterialProperty::MP_OpacityMask).SetConstant({1});
-	Get->Id = {1, 2, 3, 3}; Get->Surface = {Surface->Id};
+	Get->Id = {1, 2, 3, 3}; Get->Surface = {Surface.Get()};
 	const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Surface.Get(), Get.Get()};
-	const std::array Roots{FMaterialExpressionInput{Surface->Id}, FMaterialExpressionInput{Get->Id, 0}, FMaterialExpressionInput{Sample->Id, 7}};
+	const std::array Roots{FMaterialExpressionInput{Surface.Get()}, FMaterialExpressionInput{Get.Get(), 0}, FMaterialExpressionInput{Sample.Get(), 7}};
 	auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(std::ranges::count(Built.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 1);
@@ -1042,12 +1040,13 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	EXPECT_EQ(Vector->DefaultValue.x, .2);
 	auto* Add = NewObject<DMaterialExpressionAdd>(Working.Get(), "Add");
 	Add->Id = {1, 2, 3, 4};
-	Add->A = {Scalar->Id};
+	Add->A = {Scalar};
 	Add->A.SetConstant({.125f});
 	Add->B.SetConstant({.75f});
 	const auto SavedInput = Add->A;
+	const auto ScalarId = Scalar->Id;
 	auto* Append = NewObject<DMaterialExpressionAppendVector>(Working.Get(), "Append");
-	Append->Id = {1, 2, 3, 6}; Append->A = {Scalar->Id}; Append->B.SetConstant({.5f, .75f});
+	Append->Id = {1, 2, 3, 6}; Append->A = {Scalar}; Append->B.SetConstant({.5f, .75f});
 	const std::array<DMaterialExpression*, 6> Expressions{Scalar, Vector, Texture, Copy, Add, Append};
 	ASSERT_TRUE(Owner->SetMaterialExpressions(Expressions, {}));
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
@@ -1068,14 +1067,16 @@ TEST(FMaterialExpressionTests, TypedOwnersRoundTripAndDuplicateOnlyApplicableFie
 	{
 		if (auto* Value = Cast<DMaterialExpressionAppendVector>(Child))
 		{
-			EXPECT_EQ(Value->A.Connection, SavedInput.Connection);
+			EXPECT_EQ(Value->A.Connection.Expression.Get(), FindMaterialExpression(Owner->GetExpressionCollection().Expressions, ScalarId));
 			EXPECT_FALSE(Value->A.UseConstant);
 			EXPECT_EQ(Value->B.Constant, (std::vector<float>{.5f, .75f}));
 			bFoundAppend = true;
 		}
 		if (auto* Value = Cast<DMaterialExpressionAdd>(Child))
 		{
-			EXPECT_EQ(Value->A, SavedInput);
+			auto ExpectedInput = SavedInput;
+			ExpectedInput.Connection.Expression = FindMaterialExpression(Owner->GetExpressionCollection().Expressions, ScalarId);
+			EXPECT_EQ(Value->A, ExpectedInput);
 			EXPECT_EQ(Value->A.Constant, (std::vector<float>{.125f}));
 			EXPECT_EQ(Value->B.Constant, (std::vector<float>{.75f}));
 			bFoundAdd = true;
@@ -1113,19 +1114,19 @@ TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidt
 	Source->Id = {5, 6, 7, 8}; Source->Value = {1, 2, 3};
 	Lerp->Id = {1, 2, 3, 4};
 	Lerp->ResultType = EMaterialProgramValueType::Float3;
-	Lerp->A = {Source->Id};
+	Lerp->A = {Source.Get()};
 	Lerp->A.SetConstant({.1f, .2f, .3f});
 	Lerp->B.SetConstant({.4f, .5f, .6f});
 	Lerp->Alpha.SetConstant({.25f});
 	const std::array<DMaterialExpression*, 2> Expressions{Source.Get(), Lerp.Get()};
-	const std::array Roots{FMaterialExpressionInput{Lerp->Id}};
+	const std::array Roots{FMaterialExpressionInput{Lerp.Get()}};
 	ASSERT_TRUE(MIR::BuildGraph(Expressions, Roots));
 	Lerp->A.Connection = {};
 	const auto Disconnected = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(Disconnected);
 	const auto& LerpNode = Disconnected.IR.Nodes[Disconnected.Roots[0]];
 	EXPECT_EQ(Disconnected.IR.Nodes[LerpNode.Inputs[0]].GetLiteral(), (FMaterialProgramLiteral{.1f, .2f, .3f}));
-	Lerp->A = {Source->Id};
+	Lerp->A = {Source.Get()};
 	Lerp->Alpha.SetConstant({.2f, .3f});
 	EXPECT_FALSE(MIR::BuildGraph(Expressions, Roots));
 	Lerp->Alpha.SetConstant({std::numeric_limits<float>::infinity()});
@@ -1135,7 +1136,7 @@ TEST(FMaterialExpressionTests, NumericDefaultsRemainConnectedAndBuildRejectsWidt
 	Swizzle->Input.SetConstant({1, 2, 3, 4});
 	Swizzle->Components = {2, 0};
 	const std::array<DMaterialExpression*, 1> Swizzles{Swizzle.Get()};
-	const std::array SwizzleRoots{FMaterialExpressionInput{Swizzle->Id}};
+	const std::array SwizzleRoots{FMaterialExpressionInput{Swizzle.Get()}};
 	const auto Built = MIR::BuildGraph(Swizzles, SwizzleRoots);
 	ASSERT_TRUE(Built);
 	EXPECT_EQ(Built.IR.Nodes[Built.Roots[0]].ResultType, EMaterialProgramValueType::Float2);
@@ -1158,9 +1159,9 @@ TEST(FMaterialExpressionTests, NewMathConstantFoldingIsFiniteDeterministicAndSou
 	Base->Id = FGuid::NewGuid(); Base->Value = {2, 3, 4};
 	Exponent->Id = FGuid::NewGuid(); Exponent->Value = 2;
 	Power->Id = FGuid::NewGuid(); Power->ResultType = EMaterialProgramValueType::Float3;
-	Power->Base = {Base->Id}; Power->Exponent = {Exponent->Id};
+	Power->Base = {Base.Get()}; Power->Exponent = {Exponent.Get()};
 	const std::array<DMaterialExpression*, 3> Expressions{Base.Get(), Exponent.Get(), Power.Get()};
-	const std::array Roots{FMaterialExpressionInput{Power->Id}};
+	const std::array Roots{FMaterialExpressionInput{Power.Get()}};
 	const auto First = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_TRUE(First); ASSERT_EQ(First.Roots.size(), 1u);
 	const auto& Folded = First.IR.Nodes[First.Roots[0]];
@@ -1175,9 +1176,9 @@ TEST(FMaterialExpressionTests, NewMathConstantFoldingIsFiniteDeterministicAndSou
 	TStrongObjectPtr<DMaterialExpressionLog> Log(
 		NewObject<DMaterialExpressionLog>(nullptr, "InvalidLog"));
 	Negative->Id = FGuid::NewGuid(); Negative->Value = -1;
-	Log->Id = FGuid::NewGuid(); Log->Input = {Negative->Id};
+	Log->Id = FGuid::NewGuid(); Log->Input = {Negative.Get()};
 	const std::array<DMaterialExpression*, 2> InvalidExpressions{Negative.Get(), Log.Get()};
-	const std::array InvalidRoots{FMaterialExpressionInput{Log->Id}};
+	const std::array InvalidRoots{FMaterialExpressionInput{Log.Get()}};
 	const auto Invalid = MIR::BuildGraph(InvalidExpressions, InvalidRoots);
 	ASSERT_FALSE(Invalid); ASSERT_FALSE(Invalid.Diagnostics.empty());
 	EXPECT_EQ(Invalid.Diagnostics.front().Message, "Expression constant folding encountered an invalid domain or non-finite result.");
@@ -1294,11 +1295,11 @@ TEST(FMaterialExpressionTests, EveryMappedConcreteClassExposesApplicableInputs)
 			Call->Inputs.push_back({Function->GetFunctionSignature().Inputs[0].Id, EMaterialProgramValueType::MaterialAttributes, {}});
 		uint32 Visited = 0;
 		Durin::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
-			Input = {{11, 12, Index, Pin + 1}}; ++Visited;
+			auto* Source = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None); Source->Id = {11, 12, Index, Pin + 1}; Input = {Source}; ++Visited;
 		});
 		EXPECT_EQ(Visited, Expression->GetAuthoredInputCount());
 		Durin::VisitMaterialExpressionInputs(*Expression, [&](uint32 Pin, FMaterialExpressionInput& Input) {
-			EXPECT_EQ(Input.ExpressionId, (FGuid{11, 12, Index, Pin + 1}));
+			EXPECT_EQ(Input.GetExpressionId(), (FGuid{11, 12, Index, Pin + 1}));
 		});
 		Covered.insert(Entry.Opcode);
 	}
@@ -1323,11 +1324,11 @@ TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenc
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, "MissingDependency"));
 	Call->Id = FGuid::NewGuid();
 	const auto InputId = FGuid::NewGuid(), OutputId = FGuid::NewGuid();
-	Call->Inputs = {{InputId, EMaterialProgramValueType::Float3, {Value->Id}}};
+	Call->Inputs = {{InputId, EMaterialProgramValueType::Float3, {Value.Get()}}};
 	Call->Outputs = {{OutputId, EMaterialProgramValueType::Float3}};
 	const std::array<DMaterialExpression*, 2> Expressions{Value.Get(), Call.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Call->Id, 0, OutputId};
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Call.Get(), 0, OutputId};
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	const auto Snapshot = SnapshotMaterialCompilerInput(*Material, {});
@@ -1335,12 +1336,12 @@ TEST(FMaterialExpressionTests, LocalAuthoringValidationPreservesMissingDependenc
 	EXPECT_FALSE(Snapshot.Snapshot.has_value());
 	const auto Children = Material->GetExpressionCollection().Expressions;
 	const auto Revision = Material->GetMaterialProgramRevision();
-	Call->Inputs[0].Input = {Call->Id, 0, OutputId};
+	Call->Inputs[0].Input = {Call.Get(), 0, OutputId};
 	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 	EXPECT_FALSE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions, Children);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
-	Call->Inputs[0].Input = {Value->Id};
+	Call->Inputs[0].Input = {Value.Get()};
 	Call->Inputs[0].InputId = OutputId;
 	EXPECT_FALSE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs));
 }
@@ -1357,7 +1358,7 @@ TEST(FMaterialExpressionTests, LocalFunctionValidationUsesDeclaredPortsWithoutAn
 	TStrongObjectPtr<DMaterialExpressionFunctionInput> Input(NewObject<DMaterialExpressionFunctionInput>(nullptr, "Input"));
 	Input->Id = FGuid::NewGuid(); Input->Port.Id = InputId;
 	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(nullptr, "Output"));
-	Output->Id = FGuid::NewGuid(); Output->Port.Id = OutputId; Output->Source = {Input->Id};
+	Output->Id = FGuid::NewGuid(); Output->Port.Id = OutputId; Output->Source = {Input.Get()};
 	const std::array<DMaterialExpression*, 2> Expressions{Input.Get(), Output.Get()};
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, "LocalFunction"));
@@ -1420,20 +1421,20 @@ TEST(FMaterialExpressionTests, AuthoringFingerprintTracksCallPortsAndExcludesPar
 	Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "Color"};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Call->Id = FGuid::NewGuid();
-	Call->Inputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float4, {Parameter->Id}}};
+	Call->Inputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float4, {Parameter.Get()}}};
 	Call->Outputs = {{FGuid::NewGuid(), EMaterialProgramValueType::Float3}, {FGuid::NewGuid(), EMaterialProgramValueType::Float3}};
 	const std::array<DMaterialExpression*, 2> Expressions{Parameter.Get(), Call.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Call->Id, 0, Call->Outputs[0].OutputId};
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Call.Get(), 0, Call->Outputs[0].OutputId};
 	FXxHash128 Before, After;
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &Before));
 	Parameter->DefaultValue = {.2, .4, .6, 0}; Parameter->Metadata.DisplayName = "Display color";
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_EQ(After, Before);
-	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.OutputId = Call->Outputs[1].OutputId;
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.OutputIndex = 1;
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
 	EXPECT_NE(After, Before);
-	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.OutputId = Call->Outputs[0].OutputId;
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.OutputIndex = 0;
 	const auto InputId = Call->Inputs[0].InputId;
 	Call->Inputs[0].InputId = FGuid::NewGuid();
 	ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, &After));
@@ -1457,7 +1458,7 @@ TEST(FMaterialExpressionTests, AppendLowersInOrderAndInfersWidthWithoutCachedTyp
 	Append->Id = FGuid::NewGuid();
 	Append->A.SetConstant({1.f, 2.f}); Append->B.SetConstant({3.f, 4.f});
 	const std::array<DMaterialExpression*, 1> Expressions{Append.Get()};
-	const std::array Roots{FMaterialExpressionInput{Append->Id}};
+	const std::array Roots{FMaterialExpressionInput{Append.Get()}};
 	MIR::FGraphBuilder Context(Expressions);
 	const auto Built = Context.Finish(Roots);
 	ASSERT_TRUE(Built);
@@ -1494,7 +1495,7 @@ TEST(FMaterialExpressionTests, GraphLoadValidationOwnsCompleteFunctionDiagnostic
 		if (auto* Candidate = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) { Output = Candidate; break; }
 	ASSERT_NE(Output, nullptr);
 	const auto Before = Output->Source;
-	Output->Source = {Output->Id};
+	Output->Source = {Output};
 	const auto Result = Function->ValidateLoadedObjectGraph({});
 	ASSERT_FALSE(Result);
 	EXPECT_EQ(Result.error().ObjectPath, Function->GetObjectPath());
@@ -1516,9 +1517,9 @@ TEST(FMaterialExpressionTests, GroupedConstantsPreserveConnectionPrecedenceAndRe
 	TStrongObjectPtr<DMaterialExpressionMultiply> Product(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 	Source->Id = FGuid::NewGuid(); Source->Value = 7.f;
 	Product->Id = FGuid::NewGuid(); Product->A.SetConstant({2.f}); Product->B.SetConstant({0.f});
-	Product->B.Connection = {Source->Id};
+	Product->B.Connection = {Source.Get()};
 	const std::array<DMaterialExpression*, 2> Nodes{Source.Get(), Product.Get()};
-	const auto Build = [&] { return MIR::BuildGraph(Nodes, std::array{FMaterialExpressionInput{Product->Id}}); };
+	const auto Build = [&] { return MIR::BuildGraph(Nodes, std::array{FMaterialExpressionInput{Product.Get()}}); };
 	for (bool Enabled : {false, true})
 	{
 		Product->B.UseConstant = Enabled;
@@ -1537,9 +1538,9 @@ TEST(FMaterialExpressionTests, GroupedConstantsPreserveConnectionPrecedenceAndRe
 		EXPECT_FLOAT_EQ(Result.IR.Nodes[Multiply.Inputs[1]].GetLiteral().X, Enabled ? 0.f : 1.f);
 		EXPECT_EQ(Product->B.Constant, (std::vector<float>{0.f}));
 	}
-	Product->B.Connection = {FGuid::NewGuid()};
+	Product->B.Connection = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)};
 	EXPECT_FALSE(Build());
-	Product->B.Connection = {Source->Id}; Product->B.UseConstant = false;
+	Product->B.Connection = {Source.Get()}; Product->B.UseConstant = false;
 	Product->B.Constant = {std::numeric_limits<float>::infinity()};
 	EXPECT_FALSE(Build());
 	Product->B.Constant.clear();
@@ -1608,7 +1609,7 @@ TEST(FMaterialExpressionTests, TextureReadModesLowerOnlyActiveOperandsAndPreserv
 	Sample->DDX.SetConstant({.25f, 0.f});
 	Sample->DDY.SetConstant({0.f, .25f});
 	const std::array<DMaterialExpression*, 1> Expressions{Sample.Get()};
-	const auto Build = [&] { return MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample->Id}}); };
+	const auto Build = [&] { return MIR::BuildGraph(Expressions, std::array{FMaterialExpressionInput{Sample.Get()}}); };
 	for (const auto ReadMode : {Mode::Implicit, Mode::Level, Mode::Bias, Mode::Grad})
 	{
 		Sample->ReadMode = ReadMode;
@@ -1623,7 +1624,7 @@ TEST(FMaterialExpressionTests, TextureReadModesLowerOnlyActiveOperandsAndPreserv
 			EXPECT_FLOAT_EQ(Built.IR.Nodes[Read.Inputs[2]].GetLiteral().X, 2.f);
 	}
 	Sample->ReadMode = Mode::Level;
-	Sample->DDX.Connection = {{9,9,9,9}};
+	Sample->DDX.Connection = {NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None)};
 	EXPECT_TRUE(Build()); // Inactive gradient wiring is retained without becoming a dependency.
 	Sample->ReadMode = Mode::Grad;
 	EXPECT_FALSE(Build());
@@ -1653,18 +1654,18 @@ TEST(FMaterialExpressionTests, CubeFunctionPortsPreserveResourceDimensionAndVali
 	Input->Id = FGuid::NewGuid(); Input->Port.Id = FGuid::NewGuid(); Input->Port.Type = Type::TextureCube; Input->Port.Name = "Cube";
 	Input->Port.Default.Kind = EMaterialFunctionDefaultKind::Texture;
 	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None));
-	Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Port.Type = Type::TextureCube; Output->Port.Name = "Result"; Output->Source = {Input->Id};
+	Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Port.Type = Type::TextureCube; Output->Port.Name = "Result"; Output->Source = {Input.Get()};
 	MIR::FFunctionBody Body; Body.Expressions = {Input.Get(),Output.Get()}; Body.AssetPath = "/Test/CubeFunction";
 	const auto UpdateSignature = [&] { Body.Signature.Inputs = {Input->Port}; Body.Signature.Outputs = {Output->Port}; };
 	UpdateSignature();
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Call->Id = FGuid::NewGuid(); Call->Function = Function.Get(); Call->Outputs = {{Output->Port.Id,Type::TextureCube}};
 	TStrongObjectPtr<DMaterialExpressionTextureSampleCube> Sample(NewObject<DMaterialExpressionTextureSampleCube>(nullptr, NAME_None));
-	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Call->Id,0,Output->Port.Id}; Sample->ReadMode = EMaterialTextureReadMode::Level;
+	Sample->Id = FGuid::NewGuid(); Sample->Texture = {Call.Get(),0,Output->Port.Id}; Sample->ReadMode = EMaterialTextureReadMode::Level;
 	TStrongObjectPtr<DMaterialExpressionTextureParameter> Resource(NewObject<DMaterialExpressionTextureParameter>(nullptr, NAME_None));
 	Resource->Id = FGuid::NewGuid(); Resource->Metadata = {.Id = FGuid::NewGuid(), .Name = "Cube"}; Resource->DefaultValue.Dimension = EMaterialTextureDimension::TextureCube;
 	const std::array<DMaterialExpression*,3> Expressions{Call.Get(), Sample.Get(), Resource.Get()};
-	const std::array Roots{FMaterialExpressionInput{Sample->Id}};
+	const std::array Roots{FMaterialExpressionInput{Sample.Get()}};
 	MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) -> std::optional<MIR::FFunctionBody> { return Body; }};
 	const auto Fallback = MIR::BuildGraph(Expressions,Roots,Environment);
 	ASSERT_TRUE(Fallback) << FormatMaterialProgramDiagnostics(Fallback.Diagnostics);
@@ -1673,7 +1674,7 @@ TEST(FMaterialExpressionTests, CubeFunctionPortsPreserveResourceDimensionAndVali
 	Input->Port.Default.TextureFallback = EMaterialTextureFallback::FlatRGNormal; UpdateSignature();
 	EXPECT_FALSE(MIR::BuildGraph(Expressions,Roots,Environment));
 	Input->Port.Default.TextureFallback = EMaterialTextureFallback::White; UpdateSignature();
-	Call->Inputs = {{Input->Port.Id,Type::TextureCube,{Resource->Id}}};
+	Call->Inputs = {{Input->Port.Id,Type::TextureCube,{Resource.Get()}}};
 	const auto Bound = MIR::BuildGraph(Expressions,Roots,Environment);
 	ASSERT_TRUE(Bound) << FormatMaterialProgramDiagnostics(Bound.Diagnostics);
 	ASSERT_EQ(Bound.Parameters.size(),1u);
@@ -1697,13 +1698,13 @@ TEST(FMaterialExpressionTests, SceneReadsInFunctionsInheritTheExecutingDomain)
     TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(Function.Get(), NAME_None));
     Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Port.Name = "Depth";
     Output->Port.Type = EMaterialProgramValueType::Float3; Output->Port.Constraint.Stages = EMaterialEvaluationStage::Pixel;
-    Output->Source = {Depth->Id};
+    Output->Source = {Depth.Get()};
     MIR::FFunctionBody Body; Body.Expressions = {Depth.Get(),Output.Get()}; Body.Signature.Outputs = {Output->Port}; Body.AssetPath = "/Test/SceneDepthFunction";
     TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
     Call->Id = FGuid::NewGuid(); Call->Function = Function.Get(); Call->Outputs = {{Output->Port.Id, EMaterialProgramValueType::Float3}};
     MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) -> std::optional<MIR::FFunctionBody> { return Body; }};
     const std::array<DMaterialExpression*,1> Nodes{Call.Get()}; MIR::FGraphBuilder Builder(Nodes,Environment);
-    FMaterialAttributeRoot Roots; Roots.Get(EMaterialProperty::MP_EmissiveColor) = {Call->Id,0,Output->Port.Id};
+    FMaterialAttributeRoot Roots; Roots.Get(EMaterialProperty::MP_EmissiveColor) = {Call.Get(),0,Output->Port.Id};
     auto Built = Builder.FinishSurface(Roots); ASSERT_TRUE(Built) << FormatMaterialProgramDiagnostics(Built.Diagnostics);
     MIR::FCompilerInput Input{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters)};
     Input.StaticProperties.ShadingModel = EMaterialShadingModel::Unlit;

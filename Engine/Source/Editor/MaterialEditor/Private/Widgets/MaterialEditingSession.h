@@ -46,7 +46,7 @@ namespace Durin::MaterialEditor
 		struct FAuthoredState
 		{
 			std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-			FMaterialAttributeRoot Outputs;
+			std::vector<std::pair<FMaterialExpressionInput*, FGuid>> Connections;
 			FMaterialStaticProperties Properties;
 			EMaterialDomain Domain = EMaterialDomain::Surface;
 			FMaterialGraphPresentation Presentation;

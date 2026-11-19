@@ -6,6 +6,7 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionInputs.h"
 
 #include "TypedMaterialGraphTestFixture.h"
 #include "MaterialTestSupport.h"
@@ -72,6 +73,12 @@ namespace
 		Graph.Signature = Function.GetFunctionSignature();
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
 			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).value());
+		for (auto& Node : Graph.Expressions)
+			Durin::VisitStoredMaterialInputs(*Node, [&](Durin::FMaterialExpressionInput& Input) {
+				if (!Input.Expression) return;
+				const auto It = std::ranges::find_if(Graph.Expressions, [&](const auto& E) { return E->Id == Input.GetExpressionId(); });
+				if (It != Graph.Expressions.end()) Input.Expression = It->Get();
+			});
 		return Graph;
 	}
 
@@ -84,7 +91,7 @@ namespace
 		Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<Durin::DMaterialExpression*, 1> Expressions{Call.Get()};
 		Durin::FMaterialAttributeRoot Outputs;
-		Outputs.Attributes = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+		Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;
 		return Material.SetMaterialExpressions(Expressions, Outputs);
 	}
 
@@ -127,16 +134,14 @@ namespace
 	auto AddFunctionCall(Durin::DMaterialFunction& Caller, Durin::DMaterialFunctionInterface& Callee) -> void
 	{
 		using namespace Durin;
-		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		for (const auto& Expression : Caller.GetExpressionCollection().Expressions)
-			Expressions.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
+		auto Expressions = CaptureFunctionExpressions(Caller).Expressions;
 		const FGuid CallId{0x538d091e, 1, 2, static_cast<uint32>(Expressions.size() + 1)};
 		const auto& Output = Callee.GetFunctionSignature().Outputs[0];
 		auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>(CallId);
 		Call->Function = &Callee; Call->Outputs = {{Output.Id, Output.Type}};
 		auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expressions[1].Get());
 		ASSERT_NE(Terminal, nullptr);
-		Terminal->Source = {CallId, 0, Output.Id};
+		Terminal->Source = {Call.Get(), 0, Output.Id};
 		Expressions.emplace_back(Call.Get());
 		std::vector<DMaterialExpression*> Values;
 		for (const auto& Expression : Expressions) Values.push_back(Expression.Get());

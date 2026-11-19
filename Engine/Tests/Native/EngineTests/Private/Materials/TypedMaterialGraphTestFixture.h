@@ -49,7 +49,7 @@ namespace Durin::Testing
 	}
 	inline auto CreateGraphCatalogNode(const MaterialEditor::FMaterialGraphDocument& Document,
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type = EMaterialProgramValueType::Float,
-		FMaterialExpressionInput Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
+		FMaterialProgramLink Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
 		-> MaterialEditor::FMaterialGraphCommandResult
 	{
 		const auto Catalog = MaterialEditor::EnumerateCatalog();

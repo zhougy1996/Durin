@@ -122,8 +122,8 @@ namespace
 			Constant->Id = FGuid::NewGuid();
 			Constant->Value = Color;
 			FMaterialAttributeRoot Outputs;
-			Outputs.Get(EMaterialProperty::MP_BaseColor) = {Constant->Id};
-			Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Constant->Id};
+			Outputs.Get(EMaterialProperty::MP_BaseColor) = {Constant};
+			Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Constant};
 			const std::array<DMaterialExpression*, 1> Expressions{Constant};
 			EXPECT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 			FMaterialStaticProperties Properties;

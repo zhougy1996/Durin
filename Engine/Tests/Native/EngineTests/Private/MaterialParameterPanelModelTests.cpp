@@ -717,19 +717,19 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	Sample->Metadata.Id = FGuid::NewGuid(); Sample->Metadata.Name = "SharedTexture";
 	Sample->TextureUsage = ETextureUsage::Normal;
 	auto Mask = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>();
-	Mask->Input = {UV->Id}; Mask->Components = {0, 1};
-	Sample->UV = {Mask->Id};
+	Mask->Input = {UV.Get()}; Mask->Components = {0, 1};
+	Sample->UV = {Mask.Get()};
 	auto ResourceConsumer = Testing::MakeGraphExpression<DMaterialExpressionTextureSample2D>();
-	ResourceConsumer->Texture = {Sample->Id, 7};
+	ResourceConsumer->Texture = {Sample.Get(), 7};
 	const std::array<DMaterialExpression*, 4> Expressions{UV.Get(), Mask.Get(), Sample.Get(), ResourceConsumer.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {ResourceConsumer->Id, 5};
+	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {ResourceConsumer.Get(), 5};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
 	MaterialEditor::FMaterialParameterPanelModel Model(Instance.Get());
 	EXPECT_NE(FindEntry(Model, Sample->Metadata.Id), nullptr);
 	EXPECT_EQ(FindEntry(Model, UV->Metadata.Id), nullptr);
-	Outputs.Get(EMaterialProperty::MP_Normal) = {Sample->Id, 1};
+	Outputs.Get(EMaterialProperty::MP_Normal) = {Sample.Get(), 1};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Model.Refresh());
 	EXPECT_NE(FindEntry(Model, UV->Metadata.Id), nullptr);
@@ -761,15 +761,15 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	auto InputB = Testing::MakeGraphExpression<DMaterialExpressionFunctionInput>(); InputB->Port.Id = B;
 	auto OutputX = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>(); OutputX->Port.Id = X;
 	auto OutputY = Testing::MakeGraphExpression<DMaterialExpressionFunctionOutput>(); OutputY->Port.Id = Y;
-	OutputX->Source = {InputA->Id}; OutputY->Source = {InputB->Id};
+	OutputX->Source = {InputA.Get()}; OutputY->Source = {InputB.Get()};
 	const std::array<DMaterialExpression*, 4> Body{InputA.Get(), InputB.Get(), OutputX.Get(), OutputY.Get()};
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	auto Nested = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
 	Nested->Function = Function.Get();
-	Nested->Inputs = {{A, EMaterialProgramValueType::Float, {InputA->Id}},
-		{B, EMaterialProgramValueType::Float, {InputB->Id}}};
+	Nested->Inputs = {{A, EMaterialProgramValueType::Float, {InputA.Get()}},
+		{B, EMaterialProgramValueType::Float, {InputB.Get()}}};
 	Nested->Outputs = {{X, EMaterialProgramValueType::Float}, {Y, EMaterialProgramValueType::Float}};
-	OutputX->Source = {Nested->Id, 0, X}; OutputY->Source = {Nested->Id, 0, Y};
+	OutputX->Source = {Nested.Get(), 0, X}; OutputY->Source = {Nested.Get(), 0, Y};
 	const std::array<DMaterialExpression*, 5> WrapperBody{InputA.Get(), InputB.Get(), OutputX.Get(), OutputY.Get(), Nested.Get()};
 	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, WrapperBody)));
 	auto ParameterA = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
@@ -778,12 +778,12 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	ParameterB->Metadata.Id = FGuid::NewGuid(); ParameterB->Metadata.Name = "ParameterB";
 	auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
 	Call->Function = Wrapper.Get();
-	Call->Inputs = {{A, EMaterialProgramValueType::Float, {ParameterA->Id}},
-		{B, EMaterialProgramValueType::Float, {ParameterB->Id}}};
+	Call->Inputs = {{A, EMaterialProgramValueType::Float, {ParameterA.Get()}},
+		{B, EMaterialProgramValueType::Float, {ParameterB.Get()}}};
 	Call->Outputs = Nested->Outputs;
 	const std::array<DMaterialExpression*, 3> Expressions{ParameterA.Get(), ParameterB.Get(), Call.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_Roughness) = {Call->Id, 0, X};
+	Outputs.Get(EMaterialProperty::MP_Roughness) = {Call.Get(), 0, X};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
 	ASSERT_TRUE(Sibling->SetParent(Base.Get()));
@@ -806,7 +806,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	// Only the nested function changes; neither the root nor wrapper revision advances.
 	const auto RootRevision = Base->GetMaterialProgramRevision();
 	const auto WrapperRevision = Wrapper->GetFunctionRevision();
-	OutputX->Source = {InputB->Id}; OutputY->Source = {InputA->Id};
+	OutputX->Source = {InputB.Get()}; OutputY->Source = {InputA.Get()};
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	EXPECT_EQ(RootRevision, Base->GetMaterialProgramRevision());
 	EXPECT_EQ(WrapperRevision, Wrapper->GetFunctionRevision());
@@ -917,7 +917,7 @@ TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetai
 	Opacity->Metadata.Id = Id; Opacity->Metadata.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName();
 	Opacity->DefaultValue = 1.f;
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_Opacity) = {Opacity->Id};
+	Outputs.Get(EMaterialProperty::MP_Opacity) = {Opacity.Get()};
 	ASSERT_TRUE(Base->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Opacity.Get()}, Outputs));
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadedParentInstance"));

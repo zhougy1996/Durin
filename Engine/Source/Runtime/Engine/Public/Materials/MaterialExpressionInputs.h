@@ -77,4 +77,21 @@ namespace Durin
 		if (auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(&Expression))
 			for (auto& Attribute : Surface->Attributes) Visit(static_cast<uint32>(Attribute.GetProperty()) + 1, Attribute.Source.Connection);
 	}
+
+	// Visit stored connections without materializing absent attribute defaults.
+	template<typename Visitor>
+	auto VisitStoredMaterialInputs(DMaterialExpression& Expression, Visitor&& Visit) -> void
+	{
+		if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(&Expression))
+		{
+			Visit(Output->Outputs.Attributes);
+			for (auto& Binding : Output->Outputs.Properties.Bindings) Visit(Binding.Input.Connection);
+		}
+		else if (auto* Make = Cast<DMaterialExpressionMakeMaterialAttributes>(&Expression))
+		{
+			Visit(Make->Values.Attributes);
+			for (auto& Binding : Make->Values.Properties.Bindings) Visit(Binding.Input.Connection);
+		}
+		else VisitMaterialExpressionInputs(Expression, [&](uint32, FMaterialExpressionInput& Input) { Visit(Input); });
+	}
 }

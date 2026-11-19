@@ -1,4 +1,5 @@
 #include "MaterialExpressionOwnership.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
@@ -160,6 +161,15 @@ namespace Durin::Private
 			{
 				return std::unexpected("Expression collection contains a missing, shared, or wrongly owned child.");
 			}
+		for (const auto& Node : Collection.Expressions)
+		{
+			bool Valid = true;
+			VisitStoredMaterialInputs(*Node, [&](const FMaterialExpressionInput& Input) {
+				if (Input.OutputIndex < 0 || (Input.Expression && !Owned.contains(Input.Expression.Get())))
+					Valid = false;
+			});
+			if (!Valid) return std::unexpected("Expression input has a negative output index or refers outside its graph.");
+		}
 		for (const DObject* Child : GDObjectArray.GetObjectsWithOuter(&Owner, EObjectQueryScope::LiveOnly))
 			if (Child->IsA(DMaterialExpression::StaticClass()) && !Owned.contains(Child))
 			{
@@ -178,13 +188,13 @@ namespace Durin::Private
 		for (auto* Expression : Expressions)
 		{
 			const auto Duplicated = DuplicateObject(Expression, Staging.Get(), FName(std::string("Expression_") + Expression->Id.ToString()));
-			auto* Copy = Duplicated.value();
-			if (!Copy)
+			if (!Duplicated)
 			{
 				FMaterialProgramValidationResult Result;
 				Result.Diagnostics.push_back({.Message = ToString(Duplicated.error())});
 				return Result;
 			}
+			auto* Copy = *Duplicated;
 			Copies.Expressions.emplace_back(Copy);
 			const auto SortRoot = [](FMaterialAttributeRoot& Root) {
 				std::ranges::sort(Root.Properties.Bindings, {}, &FMaterialAttributeBinding::AttributeID);
@@ -196,6 +206,19 @@ namespace Durin::Private
 				std::ranges::sort(Set->Attributes, {}, &FMaterialExpressionAttributeBinding::AttributeID);
 			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Copy))
 				std::ranges::sort(Input->Port.Default.Surface.Bindings, {}, &FMaterialAttributeValue::AttributeID);
+		}
+		std::unordered_map<const DMaterialExpression*, DMaterialExpression*> Remap;
+		for (size_t Index = 0; Index < Expressions.size(); ++Index) Remap.emplace(Expressions[Index], Copies.Expressions[Index].Get());
+		for (const auto& Copy : Copies.Expressions)
+		{
+			bool Valid = true;
+			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
+				if (!Input.Expression) return;
+				const auto Source = Remap.find(Input.Expression.Get());
+				if (Source == Remap.end()) Valid = false;
+				else Input.Expression = Source->second;
+			});
+			if (!Valid) return {.Diagnostics = {{.Message = "Connection refers to an expression outside the candidate graph."}}};
 		}
 		TStrongObjectPtr<DObject> Retired(NewObject<DObject>(nullptr, "RetiredMaterialExpressions"));
 		for (auto& Expression : Collection.Expressions) if (Expression) Expression->SetOuterPrivate(Retired.Get());

@@ -24,7 +24,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		auto* InputExpression = NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None);
 		InputExpression->Id = {1, 1, 1, 1}; InputExpression->Port.Id = Input.Id;
 		auto* OutputExpression = NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None);
-		OutputExpression->Id = {1, 1, 1, 2}; OutputExpression->Port.Id = Output.Id; OutputExpression->Source = {InputExpression->Id};
+		OutputExpression->Id = {1, 1, 1, 2}; OutputExpression->Port.Id = Output.Id; OutputExpression->Source = {InputExpression};
 		ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, std::array<DMaterialExpression*, 2>{InputExpression, OutputExpression})));
 		const auto SourceExpressions = Function->GetExpressionCollection().Expressions;
 		const auto Revision = Function->GetFunctionRevision();

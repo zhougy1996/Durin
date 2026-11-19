@@ -267,7 +267,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 	Parameter->DefaultValue = 0.23f;
 	DMaterialExpression* Inputs[] = {Parameter.Get()};
 	auto Outputs = Source->GetExpressionOutputs();
-	Outputs.Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId = Parameter->Id;
+	Outputs.Get(EMaterialProperty::MP_Roughness).Connection.Expression = Parameter.Get();
 	ASSERT_TRUE(Source->SetMaterialExpressions(Inputs, Outputs));
 	Package->ClearDirty();
 	TObjectPtr<DMaterialExpression> RetiredDraftExpression;
@@ -343,7 +343,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	ASSERT_TRUE(Session.HasUnappliedChanges());
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_EQ(Child->GetParent(), Source);
-	EXPECT_EQ(Source->GetExpressionOutputs(), Draft->GetExpressionOutputs());
+	EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), CaptureMaterialOutputBindings(Draft->GetExpressionOutputs()));
 	EXPECT_GT(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
@@ -372,7 +372,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	Call->Id = CallId; Call->Function = First; Call->Outputs = {{Output.Id, Output.Type}};
 	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Attributes = {.ExpressionId = CallId, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+	Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Source->SetMaterialExpressions(Expressions, Outputs));
 	const auto GetCall = [](DMaterial& Material) {
 		return Cast<DMaterialExpressionFunctionCall>(Material.GetExpressionCollection().Expressions.at(0).Get());
@@ -393,7 +393,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 		ASSERT_TRUE(Renamed.Commit("Rename Call", Transactions.Get()));
 	}
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(Draft->GetExpressionOutputs(), Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Draft->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	const auto Label = std::ranges::find(Draft->GetMaterialGraphPresentation().Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
 	ASSERT_NE(Label, Draft->GetMaterialGraphPresentation().Nodes.end());
@@ -407,7 +407,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	EXPECT_EQ(GetCall(*Source)->Function.Get(), Second);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	const auto Revision = Source->GetMaterialCompileDebugInfo().AuthoredRevision;
-	Call->Id = FGuid::NewGuid();
+	Outputs.Attributes.Expression = GetCall(*Draft);
 	EXPECT_FALSE(Source->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_EQ(GetCall(*Source)->Id, CallId);

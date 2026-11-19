@@ -490,12 +490,12 @@ TEST_F(FThumbnailVulkanTests, ColdGenerationReadsBackOnceAndWarmCacheSkipsRender
 	Durin::TStrongObjectPtr<Durin::DMaterialExpressionSwizzle> PositionRgb(Durin::NewObject<Durin::DMaterialExpressionSwizzle>(nullptr, Durin::NAME_None));
 	Durin::TStrongObjectPtr<Durin::DMaterialExpressionTime> Time(Durin::NewObject<Durin::DMaterialExpressionTime>(nullptr, Durin::NAME_None));
 	Position->Id = Durin::FGuid::NewGuid(); PositionRgb->Id = Durin::FGuid::NewGuid(); Time->Id = Durin::FGuid::NewGuid();
-	PositionRgb->Input.Connection = {Position->Id};
+	PositionRgb->Input.Connection = {Position.Get()};
 	// A non-identity swizzle intentionally converts the spatial Position into
 	// ordinary color data before it reaches the Emissive terminal.
 	PositionRgb->Components = {0, 1, 0};
 	Recipe.Expressions.emplace_back(Position.Get()); Recipe.Expressions.emplace_back(PositionRgb.Get()); Recipe.Expressions.emplace_back(Time.Get());
-	Recipe.Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {PositionRgb->Id}; Recipe.Outputs.Get(EMaterialProperty::MP_Roughness) = {Time->Id};
+	Recipe.Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {PositionRgb.Get()}; Recipe.Outputs.Get(EMaterialProperty::MP_Roughness) = {Time.Get()};
 	ASSERT_TRUE(Recipe.Apply(*StaticMeshAssetMaterial));
 	ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 		Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(),

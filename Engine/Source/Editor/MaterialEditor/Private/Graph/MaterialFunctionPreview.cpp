@@ -95,14 +95,14 @@ namespace Durin::MaterialEditor
 				if (static_cast<size_t>(Port.Type) >= RequiredValues.size())
 					return RejectCommand("The preview input type is unsupported.");
 				auto& Source = RequiredValues[static_cast<size_t>(Port.Type)];
-				if (!Source.ExpressionId.IsValid())
+				if (!Source.IsConnected())
 				{
 					switch (Port.Type)
 					{
-					case Type::Float: Source = {Add.operator()<DMaterialExpressionScalarConstant>()->Id}; break;
-					case Type::Float2: Source = {Add.operator()<DMaterialExpressionVector2Constant>()->Id}; break;
-					case Type::Float3: Source = {Add.operator()<DMaterialExpressionVector3Constant>()->Id}; break;
-					case Type::Float4: Source = {Add.operator()<DMaterialExpressionVector4Constant>()->Id}; break;
+					case Type::Float: Source = {Add.operator()<DMaterialExpressionScalarConstant>()}; break;
+					case Type::Float2: Source = {Add.operator()<DMaterialExpressionVector2Constant>()}; break;
+					case Type::Float3: Source = {Add.operator()<DMaterialExpressionVector3Constant>()}; break;
+					case Type::Float4: Source = {Add.operator()<DMaterialExpressionVector4Constant>()}; break;
 					case Type::TextureCube:
 					case Type::Texture2D:
 					{
@@ -110,19 +110,19 @@ namespace Durin::MaterialEditor
 						Texture->Metadata.Id = FGuid::NewGuid();
 						Texture->Metadata.Name = "PreviewTexture";
 						Texture->DefaultValue.Dimension = Port.Type == Type::TextureCube ? EMaterialTextureDimension::TextureCube : EMaterialTextureDimension::Texture2D;
-						Source = {Texture->Id}; break;
+						Source = {Texture}; break;
 					}
 					case Type::MaterialAttributes:
 					{
 						auto* Surface = Add.operator()<DMaterialExpressionMakeMaterialAttributes>();
-						Source = {Surface->Id}; break;
+						Source = {Surface}; break;
 					}
 					default: return RejectCommand("The preview input type is unsupported.");
 					}
 				}
 				Call->Inputs.push_back({Port.Id, Port.Type, Source});
 			}
-		FMaterialExpressionInput Value{Call->Id, 0, OutputId};
+		FMaterialExpressionInput Value{Call, 0, OutputId};
 		FMaterialStaticProperties Properties;
 		if (Output->Type == Type::MaterialAttributes) { State.GetOutputs().Attributes = Value; State.GetOutputs().bUseMaterialAttributes = true; }
 		else
@@ -131,29 +131,29 @@ namespace Durin::MaterialEditor
 			if (Output->Type == Type::Texture2D)
 			{
 				auto* Sample = Add.operator()<DMaterialExpressionTextureSample2D>();
-				Sample->Texture = Value; Value = {Sample->Id};
+				Sample->Texture = Value; Value = {Sample};
 			}
 			if (Output->Type == Type::TextureCube)
 			{
 				auto* Sample = Add.operator()<DMaterialExpressionTextureSampleCube>();
-				Sample->Texture = Value; Value = {Sample->Id};
+				Sample->Texture = Value; Value = {Sample};
 			}
 			if (Output->Type == Type::Float)
 			{
 				auto* Splat = Add.operator()<DMaterialExpressionSplat3>();
-				Splat->Input = Value; Value = {Splat->Id};
+				Splat->Input = Value; Value = {Splat};
 			}
 			else if (Output->Type == Type::Float2)
 			{
 				auto* X = Add.operator()<DMaterialExpressionSwizzle>(); X->Input = Value; X->Components = {0};
 				auto* Y = Add.operator()<DMaterialExpressionSwizzle>(); Y->Input = Value; Y->Components = {1};
 				auto* Vector = Add.operator()<DMaterialExpressionMakeVector3>();
-				Vector->X = {X->Id}; Vector->Y = {Y->Id}; Vector->Z.SetConstant({0}); Value = {Vector->Id};
+				Vector->X = {X}; Vector->Y = {Y}; Vector->Z.SetConstant({0}); Value = {Vector};
 			}
 			else if (Output->Type != Type::Float3)
 			{
 				auto* Mask = Add.operator()<DMaterialExpressionSwizzle>();
-				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask->Id};
+				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask};
 			}
 			State.GetOutputs().Get(EMaterialProperty::MP_EmissiveColor) = Value;
 		}

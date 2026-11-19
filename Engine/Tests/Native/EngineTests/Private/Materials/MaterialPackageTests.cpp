@@ -187,7 +187,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 		ASSERT_NE(Candidate, nullptr);
 		const auto& Children = Candidate->GetExpressionCollection().Expressions;
 		ASSERT_EQ(Children.size(), Authored.Expressions.size() + 1);
-		EXPECT_EQ(Candidate->GetExpressionOutputs(), Authored.Outputs);
+		EXPECT_EQ(CaptureMaterialOutputBindings(Candidate->GetExpressionOutputs()), CaptureMaterialOutputBindings(Authored.Outputs));
 		EXPECT_EQ(Candidate->GetMaterialGraphPresentation(), Presentation);
 		for (size_t Index = 0; Index < Authored.Expressions.size(); ++Index)
 		{
@@ -197,9 +197,7 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 			EXPECT_NE(Actual, Expected);
 			EXPECT_EQ(Actual->GetOuter(), Candidate);
 			ASSERT_EQ(Actual->GetClass(), Expected->GetClass());
-			Actual->GetClass()->ForEachProperty([&](const FProperty* Property) {
-				EXPECT_TRUE(ArePropertyValuesIdentical(Property, Actual, 0, Expected, 0));
-			});
+			EXPECT_TRUE(HaveSameMaterialExpressionFields(*Children[Index], *Authored.Expressions[Index]));
 		}
 		EXPECT_TRUE(Candidate->ValidateLoadedObjectGraph({}));
 	};
@@ -509,11 +507,11 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 	Packed->Id = FGuid::NewGuid();
 	Packed->Values = Graph.Outputs;
 	Graph.Expressions.emplace_back(Packed.Get());
-	Graph.Outputs.Attributes = {Packed->Id};
+	Graph.Outputs.Attributes = {Packed.Get()};
 	Graph.Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Graph.Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	const auto Expected = Material->GetExpressionOutputs();
+	const auto Expected = CaptureMaterialOutputBindings(Material->GetExpressionOutputs());
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
@@ -522,7 +520,7 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(Material->GetExpressionOutputs(), Expected);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Material->GetExpressionOutputs()), Expected);
 	// Write a current package with the packed connection retained but inactive.
 	Graph.Outputs.bUseMaterialAttributes = false;
 	ASSERT_TRUE(Graph.Apply(*Material));
@@ -534,7 +532,7 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(Material->GetExpressionOutputs(), Graph.Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Material->GetExpressionOutputs()), CaptureMaterialOutputBindings(Graph.Outputs));
 	ASSERT_TRUE(UnloadPackage(Path));
 	Testing::RemoveTestWorkDirectory(Root);
 }

@@ -2147,10 +2147,10 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 		TStrongObjectPtr<DMaterialExpressionMultiply> Product(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 		Product->Id = FGuid::NewGuid();
 		Product->ResultType = EMaterialProgramValueType::Float3;
-		Product->A = {Sample->Id, 1};
-		Product->B = {Brightness->Id};
+		Product->A = {Sample.Get(), 1};
+		Product->B = {Brightness.Get()};
 		FMaterialAttributeRoot Outputs;
-		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Product->Id};
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Product.Get()};
 		const std::array<DMaterialExpression*, 3> Expressions{Sample.Get(), Brightness.Get(), Product.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -2328,7 +2328,7 @@ TEST(FMaterialAnimationVulkanTests, MaterialTimeChangesPixelsWithoutReplacingCac
 		TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
 		Time->Id = FGuid::NewGuid();
 		FMaterialAttributeRoot Outputs;
-		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Time->Id};
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Time.Get()};
 		const std::array<DMaterialExpression*, 1> Expressions{Time.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -2428,9 +2428,9 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		Offset->Id = FGuid::NewGuid(); Offset->ResultType = EMaterialProgramValueType::Float3; Offset->DataIndex = 6;
 		PrimitiveOffset->Id = FGuid::NewGuid(); PrimitiveOffset->ResultType = EMaterialProgramValueType::Float3; PrimitiveOffset->DataIndex = 29;
 		Sum->Id = FGuid::NewGuid(); Sum->ResultType = EMaterialProgramValueType::Float3;
-		Sum->A = {Offset->Id}; Sum->B = {PrimitiveOffset->Id};
+		Sum->A = {Offset.Get()}; Sum->B = {PrimitiveOffset.Get()};
 		FMaterialAttributeRoot Outputs;
-		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color->Id}; Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id}; Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {Sum->Id};
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color.Get()}; Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask.Get()}; Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {Sum.Get()};
 		// Evaluate object-space data in the fragment stage too. A grouped draw must
 		// fetch the selected instance instead of its representative primitive.
 		TStrongObjectPtr<DMaterialExpressionObjectPosition> ObjectPosition(NewObject<DMaterialExpressionObjectPosition>(nullptr, NAME_None));
@@ -2438,10 +2438,10 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		TStrongObjectPtr<DMaterialExpressionDistance> ObjectDistance(NewObject<DMaterialExpressionDistance>(nullptr, NAME_None));
 		TStrongObjectPtr<DMaterialExpressionMultiply> PixelColor(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 		ObjectPosition->Id = FGuid::NewGuid(); CameraPosition->Id = FGuid::NewGuid();
-		ObjectDistance->Id = FGuid::NewGuid(); ObjectDistance->A = {ObjectPosition->Id}; ObjectDistance->B = {CameraPosition->Id};
+		ObjectDistance->Id = FGuid::NewGuid(); ObjectDistance->A = {ObjectPosition.Get()}; ObjectDistance->B = {CameraPosition.Get()};
 		PixelColor->Id = FGuid::NewGuid(); PixelColor->ResultType = EMaterialProgramValueType::Float3;
-		PixelColor->A = {Color->Id}; PixelColor->B = {ObjectDistance->Id};
-		Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {PixelColor->Id};
+		PixelColor->A = {Color.Get()}; PixelColor->B = {ObjectDistance.Get()};
+		Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {PixelColor.Get()};
 		const std::array<DMaterialExpression*, 9> Expressions{Color.Get(), Mask.Get(), Offset.Get(), PrimitiveOffset.Get(), Sum.Get(), ObjectPosition.Get(), CameraPosition.Get(), ObjectDistance.Get(), PixelColor.Get()};
 		FMaterialStaticProperties Properties; Properties.BlendMode = EMaterialBlendMode::Masked;
 		Properties.GeometryUsage = 5; Properties.PassUsage = 7;
@@ -2453,16 +2453,16 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 		TStrongObjectPtr<DMaterialExpressionVector4Parameter> DynamicOffset(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
 		TStrongObjectPtr<DMaterialExpressionSwizzle> OffsetChannels(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
 		Tint->Id = FGuid::NewGuid(); Tint->Metadata = {.Id = FGuid::NewGuid(), .Name = "InstanceTint"};
-		ColorChannels->Id = FGuid::NewGuid(); ColorChannels->Input = {Tint->Id}; ColorChannels->Components = {0, 1, 2};
+		ColorChannels->Id = FGuid::NewGuid(); ColorChannels->Input = {Tint.Get()}; ColorChannels->Components = {0, 1, 2};
 		DynamicOffset->Id = FGuid::NewGuid(); DynamicOffset->Metadata = {.Id = FGuid::NewGuid(), .Name = "InstanceOffset"};
-		OffsetChannels->Id = FGuid::NewGuid(); OffsetChannels->Input = {DynamicOffset->Id}; OffsetChannels->Components = {0, 1, 2};
+		OffsetChannels->Id = FGuid::NewGuid(); OffsetChannels->Input = {DynamicOffset.Get()}; OffsetChannels->Components = {0, 1, 2};
 		FMaterialAttributeRoot ReferenceOutputs;
-		ReferenceOutputs.Get(EMaterialProperty::MP_BaseColor) = {ColorChannels->Id}; ReferenceOutputs.Get(EMaterialProperty::MP_OpacityMask).SetConstant({1.f});
-		ReferenceOutputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {OffsetChannels->Id};
+		ReferenceOutputs.Get(EMaterialProperty::MP_BaseColor) = {ColorChannels.Get()}; ReferenceOutputs.Get(EMaterialProperty::MP_OpacityMask).SetConstant({1.f});
+		ReferenceOutputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {OffsetChannels.Get()};
 		TStrongObjectPtr<DMaterialExpressionMultiply> ReferencePixelColor(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 		ReferencePixelColor->Id = FGuid::NewGuid(); ReferencePixelColor->ResultType = EMaterialProgramValueType::Float3;
-		ReferencePixelColor->A = {ColorChannels->Id}; ReferencePixelColor->B = {ObjectDistance->Id};
-		ReferenceOutputs.Get(EMaterialProperty::MP_EmissiveColor) = {ReferencePixelColor->Id};
+		ReferencePixelColor->A = {ColorChannels.Get()}; ReferencePixelColor->B = {ObjectDistance.Get()};
+		ReferenceOutputs.Get(EMaterialProperty::MP_EmissiveColor) = {ReferencePixelColor.Get()};
 		const std::array<DMaterialExpression*, 8> ReferenceExpressions{Tint.Get(), ColorChannels.Get(), DynamicOffset.Get(), OffsetChannels.Get(), ObjectPosition.Get(), CameraPosition.Get(), ObjectDistance.Get(), ReferencePixelColor.Get()};
 		ASSERT_TRUE(Reference->SetStaticProperties(Properties));
 		ASSERT_TRUE(Reference->SetMaterialExpressions(ReferenceExpressions, ReferenceOutputs));
@@ -3199,8 +3199,8 @@ TEST(FMaterialParameterCollectionVulkanTests,
 		Mask->Id = FGuid::NewGuid(); Mask->Collection = Collection.Get();
 		Mask->ParameterId = MaskId;
 		FMaterialAttributeRoot Outputs;
-		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color->Id};
-		Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id};
+		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color.Get()};
+		Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask.Get()};
 		const std::array<DMaterialExpression*, 2> Expressions{Color.Get(), Mask.Get()};
 		FMaterialStaticProperties Properties;
 		Properties.BlendMode = EMaterialBlendMode::Masked;
@@ -3894,7 +3894,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, MaterialPSOPrecacheSharesNativeWor
 		Parameter->DefaultValue = 0.5f;
 		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::DefaultLit;
 		ASSERT_TRUE(Material->SetStaticProperties(Properties));
-		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter->Id};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter.Get()};
 		const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -3980,7 +3980,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		ASSERT_TRUE(Material->SetStaticProperties(Properties));
 		TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
 		Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "ComponentPSORoughness"}; Parameter->DefaultValue = 0.5f;
-		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter->Id};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter.Get()};
 		const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 		FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -4373,7 +4373,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, HitProxyIdsRespectDepthBackgroundA
 	Mask->Id = FGuid::NewGuid();
 	Mask->Value = 0.f;
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id};
+	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask};
 	const std::array<DMaterialExpression*, 1> Expressions{Mask};
 	EXPECT_TRUE(Masked->SetMaterialExpressions(Expressions, Outputs));
 	FMaterialStaticProperties Properties;
@@ -4593,8 +4593,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 	TStrongObjectPtr<DMaterialExpressionFeatureLevelSwitch> Select(NewObject<DMaterialExpressionFeatureLevelSwitch>(nullptr, NAME_None));
 	Low->Id = FGuid::NewGuid(); Low->Metadata = {.Id = FGuid::NewGuid(), .Name = "LowSceneValue"}; Low->DefaultValue = 0.25f;
 	High->Id = FGuid::NewGuid(); High->Metadata = {.Id = FGuid::NewGuid(), .Name = "HighSceneValue"}; High->DefaultValue = 0.75f;
-	Select->Id = FGuid::NewGuid(); Select->DefaultValue.Connection = {Low->Id}; Select->SM5 = {High->Id}; Select->SM6 = {High->Id};
-	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select->Id};
+	Select->Id = FGuid::NewGuid(); Select->DefaultValue.Connection = {Low.Get()}; Select->SM5 = {High.Get()}; Select->SM6 = {High.Get()};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select.Get()};
 	const std::array<DMaterialExpression*, 3> Expressions{Low.Get(), High.Get(), Select.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -5146,10 +5146,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, CubeMaterialFacesMipsInstanceRepla
 		TStrongObjectPtr<DMaterialExpressionVector4Parameter> Direction(NewObject<DMaterialExpressionVector4Parameter>(nullptr, NAME_None));
 		Direction->Id = FGuid::NewGuid(); Direction->Metadata = {.Id = FGuid::NewGuid(), .Name = "Direction"}; Direction->DefaultValue = Directions[0];
 		TStrongObjectPtr<DMaterialExpressionSwizzle> XYZ(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
-		XYZ->Id = FGuid::NewGuid(); XYZ->Input = {Direction->Id}; XYZ->Components = {0,1,2}; Sample->Direction = {XYZ->Id};
+		XYZ->Id = FGuid::NewGuid(); XYZ->Input = {Direction.Get()}; XYZ->Components = {0,1,2}; Sample->Direction = {XYZ.Get()};
 		TStrongObjectPtr<DMaterialExpressionScalarParameter> Mip(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
-		Mip->Id = FGuid::NewGuid(); Mip->Metadata = {.Id = FGuid::NewGuid(), .Name = "Mip"}; Sample->MipValue = {Mip->Id};
-		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Sample->Id,1};
+		Mip->Id = FGuid::NewGuid(); Mip->Metadata = {.Id = FGuid::NewGuid(), .Name = "Mip"}; Sample->MipValue = {Mip.Get()};
+		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Sample.Get(),1};
 		FMaterialStaticProperties Properties; Properties.ShadingModel = EMaterialShadingModel::Unlit; Properties.bTwoSided = true;
 		ASSERT_TRUE(Material->SetStaticProperties(Properties));
 		ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,4>{Sample.Get(),Direction.Get(),XYZ.Get(),Mip.Get()}, Outputs));
@@ -5300,18 +5300,18 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ExplicitTextureLODVertexDisplaceme
 			TStrongObjectPtr<DMaterialExpressionScalarParameter> Mip(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
 			Mip->Id = FGuid::NewGuid(); Mip->Metadata = {.Id = FGuid::NewGuid(), .Name = "Mip"};
 			Sample2D->ReadMode = SampleCube->ReadMode = EMaterialTextureReadMode::Level;
-			if (bCube) SampleCube->MipValue = {Mip->Id};
-			else Sample2D->MipValue = {Mip->Id};
+			if (bCube) SampleCube->MipValue = {Mip.Get()};
+			else Sample2D->MipValue = {Mip.Get()};
 			TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
 			Time->Id = FGuid::NewGuid();
 			TStrongObjectPtr<DMaterialExpressionMultiply> Animated(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 			Animated->Id = FGuid::NewGuid(); Animated->ResultType = EMaterialProgramValueType::Float3;
-			Animated->A = {Sample->Id,1}; Animated->B = {Time->Id};
+			Animated->A = {Sample,1}; Animated->B = {Time.Get()};
 			TStrongObjectPtr<DMaterialExpressionMultiply> Offset(NewObject<DMaterialExpressionMultiply>(nullptr, NAME_None));
 			Offset->Id = FGuid::NewGuid(); Offset->ResultType = EMaterialProgramValueType::Float3;
-			Offset->A = {Animated->Id}; Offset->B.SetConstant({.25f});
+			Offset->A = {Animated.Get()}; Offset->B.SetConstant({.25f});
 			FMaterialAttributeRoot Outputs;
-			Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {Offset->Id};
+			Outputs.Get(EMaterialProperty::MP_WorldPositionOffset) = {Offset.Get()};
 			FMaterialStaticProperties Properties; Properties.bTwoSided = true;
 			ASSERT_TRUE(Material->SetStaticProperties(Properties));
 			ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,5>{Sample,Mip.Get(),Time.Get(),Animated.Get(),Offset.Get()}, Outputs));
@@ -5409,7 +5409,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, DefaultLitSpecularMatchesForwardDe
             {
                 Specular->Id=FGuid::NewGuid(); Specular->Metadata={.Id=FGuid::NewGuid(),.Name="Specular"}; Specular->DefaultValue=.5f;
                 Metallic->Id=FGuid::NewGuid(); Metallic->Metadata={.Id=FGuid::NewGuid(),.Name="Metallic"};
-                Root.Get(EMaterialProperty::MP_Specular)={Specular->Id}; Root.Get(EMaterialProperty::MP_Metallic)={Metallic->Id};
+                Root.Get(EMaterialProperty::MP_Specular)={Specular.Get()}; Root.Get(EMaterialProperty::MP_Metallic)={Metallic.Get()};
                 Expressions={Specular.Get(),Metallic.Get()};
             }
             ASSERT_TRUE(Material->SetMaterialExpressions(Expressions,Root)); ASSERT_TRUE(RequestMaterialRecompile(*Material));
@@ -5591,7 +5591,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, EmissiveSeedsSceneColorOnceAcrossL
 			EmissionIds[V] = Emission->Metadata.Id;
 			TStrongObjectPtr<DMaterialExpressionSwizzle> ColorChannels(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
 			ColorChannels->Id = FGuid::NewGuid();
-			ColorChannels->Input = {Emission->Id};
+			ColorChannels->Input = {Emission.Get()};
 			ColorChannels->Components = {0, 1, 2};
 			TStrongObjectPtr<DMaterialExpressionScalarParameter> Mask(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
 			Mask->Id = FGuid::NewGuid();
@@ -5599,9 +5599,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, EmissiveSeedsSceneColorOnceAcrossL
 			Mask->DefaultValue = 1;
 			FMaterialAttributeRoot Root;
 			Root.Get(EMaterialProperty::MP_BaseColor).SetConstant({.2f, .4f, .6f});
-			Root.Get(EMaterialProperty::MP_EmissiveColor) = {ColorChannels->Id};
+			Root.Get(EMaterialProperty::MP_EmissiveColor) = {ColorChannels.Get()};
 			Root.Get(EMaterialProperty::MP_Roughness).SetConstant({.6f});
-			if (V == 1) Root.Get(EMaterialProperty::MP_OpacityMask) = {Mask->Id};
+			if (V == 1) Root.Get(EMaterialProperty::MP_OpacityMask) = {Mask.Get()};
 			if (V == 3) Root.Get(EMaterialProperty::MP_Opacity).SetConstant({.25f});
 			ASSERT_TRUE(M.SetMaterialExpressions(std::array<DMaterialExpression*, 3>{Emission.Get(), ColorChannels.Get(), Mask.Get()}, Root));
 			ASSERT_TRUE(RequestMaterialRecompile(M));
@@ -5816,12 +5816,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClearCoatMatchesForwardDeferredDir
 				Specular->DefaultValue = .5f;
 				Metallic->Id = FGuid::NewGuid();
 				Metallic->Metadata = {.Id = FGuid::NewGuid(), .Name = "Metallic"};
-				Root.Get(EMaterialProperty::MP_ClearCoat) = {Specular->Id};
-				Root.Get(EMaterialProperty::MP_Metallic) = {Metallic->Id};
+				Root.Get(EMaterialProperty::MP_ClearCoat) = {Specular.Get()};
+				Root.Get(EMaterialProperty::MP_Metallic) = {Metallic.Get()};
 				CoatRoughness->Id = FGuid::NewGuid();
 				CoatRoughness->Metadata = {.Id = FGuid::NewGuid(), .Name = "CoatRoughness"};
 				CoatRoughness->DefaultValue = .1f;
-				Root.Get(EMaterialProperty::MP_ClearCoatRoughness) = {CoatRoughness->Id};
+				Root.Get(EMaterialProperty::MP_ClearCoatRoughness) = {CoatRoughness.Get()};
 				Expressions = {Specular.Get(), Metallic.Get(), CoatRoughness.Get()};
 			}
 			ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Root));

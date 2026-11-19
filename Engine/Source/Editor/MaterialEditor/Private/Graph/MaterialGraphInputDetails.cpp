@@ -353,10 +353,10 @@ namespace Durin::MaterialEditor
 				const auto Attribute = FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property;
 				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 				const bool bKeepBase = Binding == Surface->Attributes.end()
-					|| (!Binding->Source.Connection.ExpressionId.IsValid() && !Binding->Source.UseConstant);
+					|| (!Binding->Source.Connection.IsConnected() && !Binding->Source.UseConstant);
 				const auto Address = FMaterialGraphPinAddress::AttributeOverride(Expression->Id, Attribute);
 				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
-					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.ExpressionId.IsValid() ? "Connected" : "Constant")) return false;
+					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.IsConnected() ? "Connected" : "Constant")) return false;
 					if (ImGui::Selectable("Keep base value", bKeepBase)) Submit(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, Address));
 					for (const auto& Source : View.Nodes)
 					{
@@ -463,11 +463,11 @@ namespace Durin::MaterialEditor
 						if (const auto SelectedExpression = BeginSelectedEdit(); SelectedExpression != Session->Expressions.end())
 						{
 							auto* Destination = SelectedExpression->Get();
-							FMaterialExpressionInput Link{Parameter->Id};
+							FMaterialExpressionInput Link{Parameter.Get()};
 							if (Value.Type == EMaterialProgramValueType::Float2 || Value.Type == EMaterialProgramValueType::Float3)
 							{
 								auto Mask = GraphEditInternals::MakeParameterMask(*Parameter.Get(), Value.Type);
-								Link = {Mask->Id}; Session->Expressions.emplace_back(Mask.Get());
+								Link = {Mask.Get()}; Session->Expressions.emplace_back(Mask.Get());
 							}
 							if (Pin.PortId.IsValid())
 							{

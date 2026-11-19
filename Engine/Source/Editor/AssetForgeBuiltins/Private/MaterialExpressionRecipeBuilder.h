@@ -65,7 +65,7 @@ namespace Durin::AssetForge::Builtins::Private
 			if (Definition.Type == EMaterialParameterType::Vector4 && OutputType != EMaterialProgramValueType::Float4)
 			{
 				auto* Mask = Add<DMaterialExpressionSwizzle>(Role, X + 240, Y);
-				Mask->Input = {Parameter->Id}; Mask->Components.clear();
+				Mask->Input = {Parameter}; Mask->Components.clear();
 				for (uint8 C = 0; C <= static_cast<uint8>(OutputType); ++C) Mask->Components.push_back(C);
 				Mask->OutputSpatialKind = OutputKind;
 				Mask->OutputCoordinateSpace = OutputSpace;
@@ -81,13 +81,13 @@ namespace Durin::AssetForge::Builtins::Private
 			using Type = EMaterialProgramValueType;
 			auto* Coordinates = Add<DMaterialExpressionTextureCoordinates>(Role, X, Y);
 			Coordinates->Channel = Channel;
-			FMaterialExpressionInput UV{Coordinates->Id};
-			if (Scale.ExpressionId.IsValid())
+			FMaterialExpressionInput UV{Coordinates};
+			if (Scale.IsConnected())
 			{
 				auto* N = Add<DMaterialExpressionMultiply>(Role, X += 280, Y);
-				N->ResultType = Type::Float2; N->A = UV; N->B = Scale; UV = {N->Id};
+				N->ResultType = Type::Float2; N->A = UV; N->B = Scale; UV = {N};
 			}
-			if (Rotation.ExpressionId.IsValid())
+			if (Rotation.IsConnected())
 			{
 				auto* Sine = Add<DMaterialExpressionSine>(Role, X, Y + 180);
 				auto* Cosine = Add<DMaterialExpressionCosine>(Role, X, Y + 360);
@@ -96,23 +96,23 @@ namespace Durin::AssetForge::Builtins::Private
 				auto* U = Add<DMaterialExpressionSwizzle>(Role, X += 280, Y);
 				auto* V = Add<DMaterialExpressionSwizzle>(Role, X, Y + 180);
 				U->Input = V->Input = UV; U->Components = {0}; V->Components = {1};
-				const auto Product = [&](FGuid A, FGuid B, int32 Row) {
+				const auto Product = [&](DMaterialExpression* A, DMaterialExpression* B, int32 Row) {
 					auto* N = Add<DMaterialExpressionMultiply>(Role, X + 280, Y + Row);
-					N->ResultType = Type::Float; N->A = {A}; N->B = {B}; return FMaterialExpressionInput{N->Id};
+					N->ResultType = Type::Float; N->A = {A}; N->B = {B}; return FMaterialExpressionInput{N};
 				};
-				const auto CU = Product(Cosine->Id, U->Id, 0), SV = Product(Sine->Id, V->Id, 180);
-				const auto SU = Product(Sine->Id, U->Id, 360), CV = Product(Cosine->Id, V->Id, 540);
+				const auto CU = Product(Cosine, U, 0), SV = Product(Sine, V, 180);
+				const auto SU = Product(Sine, U, 360), CV = Product(Cosine, V, 540);
 				auto* RX = Add<DMaterialExpressionSubtract>(Role, X += 560, Y);
 				auto* RY = Add<DMaterialExpressionAdd>(Role, X, Y + 180);
 				RX->ResultType = RY->ResultType = Type::Float;
 				RX->A = CU; RX->B = SV; RY->A = SU; RY->B = CV;
 				auto* Rotated = Add<DMaterialExpressionAppendVector>(Role, X += 280, Y);
-				Rotated->A = {RX->Id}; Rotated->B = {RY->Id}; UV = {Rotated->Id};
+				Rotated->A = {RX}; Rotated->B = {RY}; UV = {Rotated};
 			}
-			if (Offset.ExpressionId.IsValid())
+			if (Offset.IsConnected())
 			{
 				auto* N = Add<DMaterialExpressionAdd>(Role, X + 280, Y);
-				N->ResultType = Type::Float2; N->A = UV; N->B = Offset; UV = {N->Id};
+				N->ResultType = Type::Float2; N->A = UV; N->B = Offset; UV = {N};
 			}
 			return UV;
 		}

@@ -85,7 +85,7 @@ namespace Durin::MaterialEditor
 		static auto CanReplaceConnection(const FMaterialExpressionInput& Previous,
 			const FMaterialExpressionInput& Next, bool bReplace) -> bool
 		{
-			return !Previous.ExpressionId.IsValid() || Previous == Next || bReplace;
+			return !Previous.IsConnected() || Previous == Next || bReplace;
 		}
 		static auto CanRemove(bool bMaterialOutput) -> bool
 		{

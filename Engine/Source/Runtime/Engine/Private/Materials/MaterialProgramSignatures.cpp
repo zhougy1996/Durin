@@ -31,7 +31,7 @@ namespace Durin
 		}
 	}
 
-	auto FindMaterialSampleOutput(EMaterialProgramOpcode Opcode, uint8 OutputIndex) -> const FMaterialSampleOutputDefinition*
+	auto FindMaterialSampleOutput(EMaterialProgramOpcode Opcode, int32 OutputIndex) -> const FMaterialSampleOutputDefinition*
 	{
 		for (const auto& Output : GetMaterialSampleOutputs(Opcode))
 			if (static_cast<uint8>(Output.Id) == OutputIndex) return &Output;

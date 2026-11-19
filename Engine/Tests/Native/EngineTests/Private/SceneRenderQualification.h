@@ -775,15 +775,15 @@ namespace Durin
 			std::vector<DMaterialExpression*> Expressions{Color};
 			FMaterialAttributeRoot Outputs;
 			// Retain the pre-migration Unlit image with an explicit emissive recipe.
-			Outputs.Get(Shading == EMaterialShadingModel::Unlit ? EMaterialProperty::MP_EmissiveColor : EMaterialProperty::MP_BaseColor) = {Color->Id};
+			Outputs.Get(Shading == EMaterialShadingModel::Unlit ? EMaterialProperty::MP_EmissiveColor : EMaterialProperty::MP_BaseColor) = {Color};
 			if (Blend != EMaterialBlendMode::Opaque)
 			{
 				auto* Opacity = NewObject<DMaterialExpressionScalarConstant>(Material, "Opacity");
 				Opacity->Id = {1, 2, 3, 5};
 				Opacity->Value = Blend == EMaterialBlendMode::Translucent ? 0.5f : 1.0f;
 				Expressions.push_back(Opacity);
-				if (Blend == EMaterialBlendMode::Translucent) Outputs.Get(EMaterialProperty::MP_Opacity) = {Opacity->Id};
-				else Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Opacity->Id};
+				if (Blend == EMaterialBlendMode::Translucent) Outputs.Get(EMaterialProperty::MP_Opacity) = {Opacity};
+				else Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Opacity};
 			}
 			EXPECT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 			EXPECT_TRUE(Material->CompileEdits());

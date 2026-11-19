@@ -199,26 +199,23 @@ namespace Durin::MIR
 			Fail("A material output is a sink and cannot be used as an expression source.");
 		else if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
 		{
-			if (Input.OutputIndex != 0 || !Input.OutputId.IsValid())
-				Fail("Function call connections require an output GUID and zero output index.");
-			else if (!std::ranges::contains(Call->Outputs, Input.OutputId, &FMaterialFunctionOutputBinding::OutputId))
-				Fail("Function call output GUID is not bound.", Input.OutputId);
+			if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= Call->Outputs.size())
+				Fail("Function call output index is not bound.");
 		}
 		else if (Cast<DMaterialExpressionTextureSample2D>(&Expression) || Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression))
 		{
 			const auto Opcode = Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression)
 				? EMaterialProgramOpcode::TextureSampleParameter2D : EMaterialProgramOpcode::TextureSample2D;
-			if (Input.OutputId.IsValid()) Fail("Sample output requires an index, not an output GUID.");
-			else if (!FindMaterialSampleOutput(Opcode, Input.OutputIndex)) Fail("Sample expression output selector is invalid.");
+			if (!FindMaterialSampleOutput(Opcode, Input.OutputIndex)) Fail("Sample expression output selector is invalid.");
 		}
 		else if (const auto* Attributes = Cast<DMaterialExpressionGetMaterialAttributes>(&Expression))
 		{
-			const auto* Definition = Input.OutputId.IsValid() ? FMaterialAttributeDefinitionMap::Find(Input.OutputId)
-				: FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex));
-			if (!Definition || !Attributes->IsSelected(Definition->Property) || (Input.OutputId.IsValid() && Input.OutputIndex != 0))
+			const auto* Definition = std::in_range<uint8>(Input.OutputIndex)
+				? FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Input.OutputIndex)) : nullptr;
+			if (!Definition || !Attributes->IsSelected(Definition->Property))
 				Fail("Surface attribute output is not selected.");
 		}
-		else if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
+		else if (Input.OutputIndex != 0)
 		{
 			if (Cast<DMaterialExpressionFunctionInput>(&Expression)) Fail("Function input terminal has only its primary output.");
 			else if (Cast<DMaterialExpressionFunctionOutput>(&Expression)) Fail("Function output terminal has only its primary output.");
@@ -226,7 +223,7 @@ namespace Durin::MIR
 		}
 		// Keep existing selector diagnostics for known nodes. Registered outputs, including
 		// those of new expression classes, are accepted without a central node-type schema.
-		if (Result.Diagnostics.empty()) Fail("Expression Build did not register the requested output.", Input.OutputId);
+		if (Result.Diagnostics.empty()) Fail("Expression Build did not register the requested output.", Input.GetOutputId());
 	}
 
 	auto FGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
@@ -250,20 +247,20 @@ namespace Durin::MIR
 	{
 		check(IsInGameThread());
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
+		const FGuid SourceId = Input.GetExpressionId();
 		if (bValidateAuthoring)
 		{
-			AuthoringCodeHash.UpdateValue(Input.ExpressionId);
+			AuthoringCodeHash.UpdateValue(SourceId);
 			AuthoringCodeHash.UpdateValue(Input.OutputIndex);
-			AuthoringCodeHash.UpdateValue(Input.OutputId);
 		}
-		const auto Found = Expressions.find(Input.ExpressionId);
-		if (Found == Expressions.end()) return Fail("Expression input is disconnected or refers to a missing expression.");
+		const auto Found = Expressions.find(SourceId);
+		if (Found == Expressions.end() || Found->second != Input.Expression.Get()) return Fail("Expression input is disconnected or refers to a missing expression.");
 		// Do not expose a partially registered output while its expression is still building.
 		BuildExpression(*Found->second);
 		if (!Result.Diagnostics.empty()) return InvalidIndex;
-		const FOutputKey Key{Input.ExpressionId, Input.OutputIndex, Input.OutputId};
+		const FOutputKey Key{SourceId, Input.OutputIndex};
 		if (const auto Value = Values.find(Key); Value != Values.end()) return Value->second;
-		SourceStack.push_back(Input.ExpressionId);
+		SourceStack.push_back(SourceId);
 		ReportMissingOutput(*Found->second, Input);
 		SourceStack.pop_back();
 		return InvalidIndex;
@@ -612,7 +609,7 @@ namespace Durin::MIR
 				&& Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
 				&& !(Opcode == EMaterialProgramOpcode::Lerp && Slot == 2);
 			const bool bBroadcast = bScalarDefault
-				&& (!Inputs[Slot]->Connection.ExpressionId.IsValid()
+				&& (!Inputs[Slot]->Connection.IsConnected()
 					|| (Inputs.size() > 1 && MaterialNumericInputAllowsScalarBroadcast(
 						Opcode, static_cast<uint32>(Slot))));
 			const auto& Stored = *Inputs[Slot];
@@ -626,12 +623,12 @@ namespace Durin::MIR
 					return Fail("Retained numeric default has an invalid width or non-finite component.");
 			}
 			const auto& Input = Stored.Connection;
-			if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+			if (!Input.IsConnected() && Input.OutputIndex != 0)
 				return Fail("Disconnected numeric input has an output selector.");
 			const bool bSurfaceNormalDefault = Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
 				&& Slot == static_cast<size_t>(EMaterialProperty::MP_Normal)
-				&& !Input.ExpressionId.IsValid();
-			auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input)
+				&& !Input.IsConnected();
+			auto Index = Input.IsConnected() ? ResolveIndex(Input)
 				: Literal(Stored.UseConstant ? Default
 					: GetMaterialNumericInputFallback(Opcode, Type, Slot),
 					bSurfaceNormalDefault ? EMaterialSpatialKind::Normal
@@ -664,9 +661,9 @@ namespace Durin::MIR
 				[](float Value) { return std::isfinite(Value); }))
 			return Fail("Retained numeric default has an invalid width or non-finite component.");
 		const auto& Input = Stored.Connection;
-		if (!Input.ExpressionId.IsValid() && (Input.OutputIndex != 0 || Input.OutputId.IsValid()))
+		if (!Input.IsConnected() && Input.OutputIndex != 0)
 			return Fail("Disconnected numeric input has an output selector.");
-		const auto Index = Input.ExpressionId.IsValid() ? ResolveIndex(Input)
+		const auto Index = Input.IsConnected() ? ResolveIndex(Input)
 			: Literal(Stored.UseConstant ? Stored.Constant
 				: GetMaterialNumericInputFallback(Opcode, EMaterialProgramValueType::Float3, 0));
 		if (Index == InvalidIndex) return InvalidIndex;
@@ -685,10 +682,10 @@ namespace Durin::MIR
 		const auto StoredType = static_cast<EMaterialProgramValueType>(Stored.Constant.size() - 1);
 		if (StoredType != Type && StoredType != EMaterialProgramValueType::Float)
 			return Fail("Expression input has an incompatible type.");
-		if (!Stored.Connection.ExpressionId.IsValid()
-			&& (Stored.Connection.OutputIndex != 0 || Stored.Connection.OutputId.IsValid()))
+		if (!Stored.Connection.IsConnected()
+			&& Stored.Connection.OutputIndex != 0)
 			return Fail("Disconnected numeric input has an output selector.");
-		FValue Value = Stored.Connection.ExpressionId.IsValid()
+		FValue Value = Stored.Connection.IsConnected()
 			? Resolve(Stored.Connection)
 			: FValue(Literal(Stored.UseConstant ? Stored.Constant
 				: std::vector<float>(static_cast<uint32>(Type) + 1, 0.f)));
@@ -700,9 +697,9 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::ResolveOptionalChoice(const FMaterialExpressionInput& Input,
 		const FMaterialNumericInput& DefaultValue, EMaterialProgramValueType Type) -> FValue
 	{
-		if (!Input.ExpressionId.IsValid())
+		if (!Input.IsConnected())
 		{
-			if (Input.OutputIndex != 0 || Input.OutputId.IsValid())
+			if (Input.OutputIndex != 0)
 				return Fail("Disconnected numeric input has an output selector.");
 			return ResolveNumericChoice(DefaultValue, Type);
 		}

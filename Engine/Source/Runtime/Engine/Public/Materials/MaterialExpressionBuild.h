@@ -96,8 +96,7 @@ namespace Durin
 		public:
 			FEmitter(const FEmitter&) = delete;
 			auto operator=(const FEmitter&) -> FEmitter& = delete;
-			ENGINE_API auto Output(uint8 Index, FValue Value) -> void;
-			ENGINE_API auto Output(FGuid Id, FValue Value) -> void;
+			ENGINE_API auto Output(int32 Index, FValue Value) -> void;
 			ENGINE_API auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 			ENGINE_API auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
 			ENGINE_API auto FunctionInput(FGuid PortId) -> FValue;
@@ -136,7 +135,6 @@ namespace Durin
 			friend class FGraphBuilderImpl;
 			FEmitter(FGraphBuilderImpl& InBuilder, FGuid InExpressionId)
 				: Builder(InBuilder), ExpressionId(InExpressionId) {}
-			auto RegisterOutput(uint8 Index, FGuid Id, FValue Value) -> void;
 			FGraphBuilderImpl& Builder;
 			const FGuid ExpressionId;
 		};

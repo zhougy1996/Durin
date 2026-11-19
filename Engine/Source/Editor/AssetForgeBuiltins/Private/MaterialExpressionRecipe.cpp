@@ -14,14 +14,9 @@ namespace Durin::AssetForge::Builtins
 			if (Left.size() != Right.size()) return false;
 			for (size_t I = 0; I < Left.size(); ++I)
 			{
-				const auto* L = Left[I].Get(); const auto* R = Right[I].Get();
-				if (!L || !R || L->GetClass() != R->GetClass()) return false;
-				bool bSame = true;
-				L->GetClass()->ForEachProperty([&](FProperty* Property) {
-					for (uint32 Element = 0; bSame && Element < Property->GetArrayDim(); ++Element)
-						bSame = ArePropertyValuesIdentical(Property, L, Element, R, Element);
-				});
-				if (!bSame) return false;
+				auto* L = Left[I].Get();
+				auto* R = Right[I].Get();
+				if (!L || !R || !HaveSameMaterialExpressionFields(*L, *R)) return false;
 			}
 			return true;
 		}
@@ -45,10 +40,10 @@ namespace Durin::AssetForge::Builtins
 		std::vector<TObjectPtr<DMaterialExpression>> Body;
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 			if (!Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) Body.push_back(Expression);
-		return Outputs == Material.GetExpressionOutputs() && SameExpressions(Expressions, Body);
+		return CaptureMaterialOutputBindings(Outputs) == CaptureMaterialOutputBindings(Material.GetExpressionOutputs()) && SameExpressions(Expressions, Body);
 	}
 	auto FMaterialExpressionRecipe::MatchesGraph(const FMaterialExpressionRecipe& Other) const -> bool
 	{
-		return Outputs == Other.Outputs && SameExpressions(Expressions, Other.Expressions);
+		return CaptureMaterialOutputBindings(Outputs) == CaptureMaterialOutputBindings(Other.Outputs) && SameExpressions(Expressions, Other.Expressions);
 	}
 }

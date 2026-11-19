@@ -25,9 +25,6 @@ namespace Durin::MaterialEditor
 			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression)) return &Output->Port;
 			return nullptr;
 		}
-		auto LinkView(const FMaterialExpressionInput& Input) -> FMaterialProgramLink {
-			return {Input.ExpressionId, Input.OutputIndex, Input.OutputId};
-		}
 		auto DefaultView(std::span<const float> Values) -> FMaterialInputDefault {
 			if (Values.empty() || Values.size() > 4) return {};
 			FMaterialInputDefault Result{.Kind = EMaterialInputDefaultKind::Literal,
@@ -217,7 +214,7 @@ namespace Durin::MaterialEditor
 			if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
 			const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 			FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
-				.Link = LinkView(Input), .SourceType = Source.SourceType(LinkView(Input)), .AcceptedTypes = {Definition.Type}};
+				.Link = ToGraphLink(Input), .SourceType = Source.SourceType(ToGraphLink(Input)), .AcceptedTypes = {Definition.Type}};
 			if (Definition.Id == EMaterialOutputPin::WorldPositionOffset)
 				Pin.Constraint.Stages = EMaterialEvaluationStage::Vertex;
 			else if (!bAttributes)
@@ -255,7 +252,7 @@ namespace Durin::MaterialEditor
 				if (Cast<DMaterialExpressionSetMaterialAttributes>(Expression) && InputIndex != 0) return;
 				FMaterialGraphPinView Pin{.InputIndex = InputIndex,
 					.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
-					.Link = LinkView(Input), .SourceType = Source.SourceType(LinkView(Input))};
+					.Link = ToGraphLink(Input), .SourceType = Source.SourceType(ToGraphLink(Input))};
 				if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
 				if (IsMaterialAdaptiveNumeric(Node.Opcode) && !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
 				{
@@ -274,8 +271,8 @@ namespace Durin::MaterialEditor
 					Pin.InlineDefault = DefaultView(Numeric->UseConstant ? Numeric->Constant
 						: GetMaterialNumericInputFallback(Node.Opcode, Node.ResultType, InputIndex));
 				}
-				if (!Input.ExpressionId.IsValid() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
-				else if (!Input.ExpressionId.IsValid() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
+				if (!Input.IsConnected() && Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None) Pin.SourceType = Pin.InlineDefault.Type;
+				else if (!Input.IsConnected() && !Pin.AcceptedTypes.empty()) Pin.SourceType = Pin.AcceptedTypes.front();
 				const auto SetSamplingActivity = [&](const auto* Sample, uint32 FirstOptional) {
 					if (!Sample || InputIndex < FirstOptional) return;
 					Pin.bActive = InputIndex == FirstOptional
@@ -294,7 +291,7 @@ namespace Durin::MaterialEditor
 				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Inputs))
 				{
 					const auto Binding = std::ranges::find(Call->Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
-					const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : LinkView(Binding->Input);
+					const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : ToGraphLink(Binding->Input);
 					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
 						.Link = Link, .SourceType = Link.SourceNodeId.IsValid() ? Source.SourceType(Link) : Port.Type,
 						.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
@@ -305,7 +302,7 @@ namespace Durin::MaterialEditor
 			for (const auto& Binding : Call->Inputs)
 				if (std::ranges::none_of(View.Inputs, [&](const auto& Pin) { return Pin.PortId == Binding.InputId; }))
 					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = "Missing input",
-						.Link = LinkView(Binding.Input), .SourceType = Source.SourceType(LinkView(Binding.Input)), .AcceptedTypes = {Binding.ExpectedType},
+						.Link = ToGraphLink(Binding.Input), .SourceType = Source.SourceType(ToGraphLink(Binding.Input)), .AcceptedTypes = {Binding.ExpectedType},
 						.PortId = Binding.InputId, .bMissing = true});
 		}
 		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression); Output && !View.Inputs.empty())
@@ -325,8 +322,8 @@ namespace Durin::MaterialEditor
 				const auto Property = Attribute.GetProperty();
 				const auto Index = static_cast<uint32>(Property);
 				if (Index < Definitions.size()) View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
-					.Link = LinkView(Attribute.Source), .SourceType = Attribute.Source.Connection.ExpressionId.IsValid()
-						? Source.SourceType(LinkView(Attribute.Source)) : GetMaterialSurfaceOutputType(Property),
+					.Link = ToGraphLink(Attribute.Source), .SourceType = Attribute.Source.Connection.IsConnected()
+						? Source.SourceType(ToGraphLink(Attribute.Source)) : GetMaterialSurfaceOutputType(Property),
 					.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)},
 					.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
 					.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,

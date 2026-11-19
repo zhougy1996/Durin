@@ -53,7 +53,7 @@ namespace Durin::AssetForge::Builtins
 					{ N->X = Inputs[0]; N->Y = Inputs[1]; }
 				if constexpr (std::is_same_v<T, DMaterialExpressionTextureSample2D>)
 					{ N->Texture = Inputs[0]; N->UV = Inputs[1]; N->MipValue = Inputs[2]; N->DDX = Inputs[3]; N->DDY = Inputs[4]; }
-				return {N->Id};
+				return {N};
 			}
 			auto Input(uint32 Slot) -> Link
 			{
@@ -62,7 +62,7 @@ namespace Durin::AssetForge::Builtins
 				const auto It = std::ranges::find(Interface.Inputs, Port, &FMaterialFunctionPort::Id);
 				check(It != Interface.Inputs.end());
 				N->Port = *It;
-				return {N->Id};
+				return {N};
 			}
 			auto Output(uint32 Slot, Link Source) -> void
 			{
@@ -79,18 +79,18 @@ namespace Durin::AssetForge::Builtins
 				N->Components = {X};
 				if (ValueType != Type::Float) N->Components.push_back(Y);
 				if (ValueType == Type::Float3) N->Components.push_back(Z);
-				return {N->Id};
+				return {N};
 			}
 			auto TangentNormal(float X, float Y, float Z) -> Link
 			{
 				auto* Value = Add<DMaterialExpressionVector3Constant>();
 				Value->Value = {X, Y, Z};
 				auto* Annotation = Add<DMaterialExpressionSwizzle>();
-				Annotation->Input = {Value->Id};
+				Annotation->Input = {Value};
 				Annotation->Components = {0, 1, 2};
 				Annotation->OutputSpatialKind = EMaterialSpatialKind::Normal;
 				Annotation->OutputCoordinateSpace = EMaterialCoordinateSpace::Tangent;
-				return {Annotation->Id};
+				return {Annotation};
 			}
 		};
 	}
@@ -128,20 +128,20 @@ namespace Durin::AssetForge::Builtins
 			{
 				const auto Strength = B.Input(3);
 				const auto Normal = B.Input(4);
-				const Link Decoded{Sample.ExpressionId, 1};
+				const Link Decoded{Sample.Expression, 1};
 				// Strength acts on decoded normals; RNM safely normalizes the result.
 				auto* Detail = B.Add<DMaterialExpressionLerp>();
 				Detail->ResultType = Type::Float3;
 				Detail->A = B.TangentNormal(0, 0, 1);
 				Detail->B = Decoded;
 				Detail->Alpha = Strength;
-				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, {Detail->Id}}));
+				B.Output(100, B.Node<DMaterialExpressionBlendNormalsRNM>(Type::Float3, {Normal, {Detail}}));
 			}
 			else
 			{
-				B.Output(100, {Sample.ExpressionId, 2});
-				B.Output(101, {Sample.ExpressionId, 3});
-				B.Output(102, {Sample.ExpressionId, 4});
+				B.Output(100, {Sample.Expression, 2});
+				B.Output(101, {Sample.Expression, 3});
+				B.Output(102, {Sample.Expression, 4});
 			}
 		}
 		return std::move(B.Recipe);
@@ -167,14 +167,9 @@ namespace Durin::AssetForge::Builtins
 		if (Expressions.size() != Current.size()) return false;
 		for (size_t Index = 0; Index < Expressions.size(); ++Index)
 		{
-			const auto* A = Expressions[Index].Get(); const auto* B = Current[Index].Get();
-			if (!A || !B || A->GetClass() != B->GetClass()) return false;
-			bool bEqual = true;
-			A->GetClass()->ForEachProperty([&](FProperty* Property) {
-				for (uint32 I = 0; bEqual && I < Property->GetArrayDim(); ++I)
-					bEqual = ArePropertyValuesIdentical(Property, A, I, B, I);
-			});
-			if (!bEqual) return false;
+			auto* A = Expressions[Index].Get();
+			auto* B = Current[Index].Get();
+			if (!A || !B || !HaveSameMaterialExpressionFields(*A, *B)) return false;
 		}
 		return true;
 	}

@@ -112,7 +112,7 @@ namespace Durin::MaterialEditor
 		{
 			bool bFound = false;
 			for (auto& Expression : State.Expressions)
-				VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { bFound |= Input.ExpressionId == Id; });
+				VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { bFound |= Input.GetExpressionId() == Id; });
 			return bFound;
 		}
 
@@ -207,11 +207,11 @@ namespace Durin::MaterialEditor
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(FindExpression(State.Expressions, NodeId), InputIndex, PortId, &State);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
-		if (!Input.SupportsDefault() || Input.Source->ExpressionId.IsValid() || Input.Read().empty())
+		if (!Input.SupportsDefault() || Input.Source->IsConnected() || Input.Read().empty())
 			return RejectCommand("Only an unconnected numeric literal can be extracted.");
 		auto Constant = MakeConstant(Input.Read());
 		if (!Constant) return RejectCommand("The input default has an unsupported width.");
-		*Input.Source = {Constant->Id};
+		*Input.Source = {Constant.Get()};
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position == State.Presentation.Nodes.end()) return RejectCommand("The input owner has no authored position.");
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
@@ -232,11 +232,11 @@ namespace Durin::MaterialEditor
 		FGraphEditSession State(*Owner.Get());
 		const auto Input = FindInput(FindExpression(State.Expressions, NodeId), InputIndex, PortId, &State);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
-		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0 || Input.Source->OutputId.IsValid())
+		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0 || Input.Source->GetOutputId().IsValid())
 			return RejectCommand("This source cannot be represented by an inline binding.");
-		const auto Value = ReadConstant(FindExpression(State.Expressions, Input.Source->ExpressionId));
+		const auto Value = ReadConstant(Input.Source->Expression.Get());
 		if (Value.empty()) return RejectCommand("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
-		const auto SourceId = Input.Source->ExpressionId;
+		const auto SourceId = Input.Source->GetExpressionId();
 		if (!Input.Write(Value)) return RejectCommand("The constant has an incompatible width.");
 		*Input.Source = {};
 		if (!HasConsumer(State, SourceId))

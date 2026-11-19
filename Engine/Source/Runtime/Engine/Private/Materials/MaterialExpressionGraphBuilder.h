@@ -94,7 +94,7 @@ namespace Durin::MIR
 		std::vector<FGuid> CallPath;
 		std::vector<FGuid> PortStack;
 		std::map<FGuid, FValue> BoundInputs;
-		using FOutputKey = std::tuple<FGuid, uint8, FGuid>;
+		using FOutputKey = std::pair<FGuid, int32>;
 		std::map<FGuid, DMaterialExpression*> Expressions;
 		std::map<FOutputKey, FValue> Values;
 		std::set<FGuid> Active;

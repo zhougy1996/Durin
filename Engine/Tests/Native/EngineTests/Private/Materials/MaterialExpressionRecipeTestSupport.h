@@ -35,8 +35,8 @@ namespace Durin::Testing
 	}
 	constexpr auto MakeCanonicalNodeId(uint32 Index) -> FGuid
 	{ return {0x4d350001u, 0x7a6b4c21u, 0x91d2e3f4u, Index + 1u}; }
-	inline auto MakeLink(const DMaterialExpression& Expression) -> FMaterialExpressionInput
-	{ return {Expression.Id}; }
+	inline auto MakeLink(DMaterialExpression& Expression) -> FMaterialExpressionInput
+	{ return {&Expression}; }
 	template<class Visitor> auto VisitTestExpressionInputs(DMaterialExpression& Expression, Visitor&& Visit) -> void
 	{
 		Expression.GetClass()->ForEachProperty([&](FProperty* Property) {
@@ -195,7 +195,7 @@ namespace Durin::Testing
 			if (Opcode == EMaterialProgramOpcode::Parameter && (Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3))
 			{
 				auto* Mask = NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None);
-				Mask->Id = MakeCanonicalNodeId(NextId++); Mask->Input = {Expression->Id}; Mask->Components.clear();
+				Mask->Id = MakeCanonicalNodeId(NextId++); Mask->Input = {Expression}; Mask->Components.clear();
 				for (uint8 C = 0; C <= static_cast<uint8>(Type); ++C) Mask->Components.push_back(C);
 				using namespace Durin::AssetForge::Builtins;
 				using ParameterKind = MaterialParameters::EMaterialBuiltinParameterKind;

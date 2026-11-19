@@ -26,7 +26,7 @@ TEST(FMaterialCompileShutdownTests, ShutdownDrainsFunctionOwnersAndDetachedFanou
 		Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 		FMaterialAttributeRoot Outputs;
-		Outputs.Attributes = {.ExpressionId = Call->Id, .OutputId = Output.Id};
+		Outputs.Attributes = {Call.Get(), 0, Output.Id};
 		Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}

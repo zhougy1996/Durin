@@ -4,6 +4,7 @@
 
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
+#include "DObject/ObjectPtr.h"
 #include "EngineAPI.h"
 #include "Misc/Guid.h"
 
@@ -11,6 +12,7 @@
 
 namespace Durin
 {
+	class DMaterialExpression;
 	enum class EMaterialDomain : uint8;
 	enum class EMaterialProgramOpcode : uint8;
 	enum class EMaterialProgramValueType : uint8;
@@ -23,14 +25,24 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		FGuid ExpressionId;
+		TObjectPtr<DMaterialExpression> Expression;
 
 		DPROPERTY()
-		uint8 OutputIndex = 0;
+		int32 OutputIndex = 0;
 
-		DPROPERTY()
-		FGuid OutputId;
-
+		FMaterialExpressionInput() = default;
+		FMaterialExpressionInput(DMaterialExpression* Upstream, int32 Index = 0)
+			: Expression(Upstream), OutputIndex(Index) {}
+		// Resolve an editor or recipe endpoint against the source's output table.
+		ENGINE_API FMaterialExpressionInput(DMaterialExpression* Upstream, int32 Index, FGuid NamedOutput);
+		auto IsConnected() const -> bool { return Expression.IsValid(); }
+		ENGINE_API auto GetExpressionId() const -> FGuid;
+		ENGINE_API auto GetOutputId() const -> FGuid;
+		auto Connect(int32 Index, DMaterialExpression* Upstream) -> void
+		{
+			Expression = Upstream;
+			OutputIndex = Index;
+		}
 		auto operator==(const FMaterialExpressionInput&) const -> bool = default;
 	};
 
@@ -41,8 +53,6 @@ namespace Durin
 		GENERATED_BODY()
 		FMaterialNumericInput() = default;
 		explicit FMaterialNumericInput(uint32 Width) : Constant(Width, 0.f) {}
-		FMaterialNumericInput(FMaterialExpressionInput InConnection, uint32 Width)
-			: Connection(InConnection), Constant(Width, 0.f) {}
 		DPROPERTY()
 		FMaterialExpressionInput Connection;
 		DPROPERTY()
@@ -99,6 +109,9 @@ namespace Durin
 		auto operator==(const FMaterialAttributeRoot&) const -> bool = default;
 
 	};
+
+	// Captures root values and upstream node identities independently of the owning graph.
+	ENGINE_API auto CaptureMaterialOutputBindings(FMaterialAttributeRoot Root) -> std::pair<FMaterialAttributeRoot, std::vector<FGuid>>;
 
 	// Persistent semantic identities; their values do not encode visual pin order.
 	enum class EMaterialOutputPin : uint8

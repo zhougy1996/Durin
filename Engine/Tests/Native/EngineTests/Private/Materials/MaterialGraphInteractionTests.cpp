@@ -623,7 +623,7 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 	for (const auto& E : Function->GetExpressionCollection().Expressions)
 		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(E.Get()); Output && Output->Port.Name == "Output 1")
 		{
-			EXPECT_FALSE(Output->Source.ExpressionId.IsValid());
+			EXPECT_FALSE(Output->Source.IsConnected());
 			const auto& Positions = Function->GetFunctionPresentation().Nodes;
 			const auto Position = std::ranges::find(Positions, E->Id, &FMaterialGraphNodePresentation::NodeId);
 			ASSERT_NE(Position, Positions.end());
@@ -1034,7 +1034,7 @@ TEST(FMaterialGraphInteractionTests, CanvasPositionRefreshPreservesTopologyStora
 	Parameter->Metadata.Id = Definition.Id; Parameter->Metadata.Name = Definition.Name;
 	Parameter->DefaultValue = .5f;
 	auto Saturate = Testing::MakeGraphExpression<DMaterialExpressionSaturate>();
-	Saturate->Input = {ParameterId};
+	Saturate->Input = {Parameter.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Parameter.Get(), Saturate.Get()}, {}));
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphCanvas Canvas{*DMaterialGraph::Create(*Material)};
@@ -1124,7 +1124,7 @@ TEST(FMaterialGraphInteractionTests, FunctionCanvasConnectsAndMovesNodesWithUndo
 	EXPECT_EQ(Errors, 0);
 	const auto* Output = FindExpression<DMaterialExpressionFunctionOutput>(*Function, Port.GeneratedNodeIds[0]);
 	ASSERT_NE(Output, nullptr);
-	EXPECT_EQ(Output->Source.ExpressionId, Other.GeneratedNodeIds[0]);
+	EXPECT_EQ(Output->Source.GetExpressionId(), Other.GeneratedNodeIds[0]);
 	ASSERT_TRUE(Transactions->Undo());
 	const auto Before = Function->GetFunctionPresentation();
 	const auto Revision = Function->GetFunctionRevision();
@@ -1193,8 +1193,8 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	const auto Constant = Testing::CreateGraphConstant(Document, 0.f, 0, 300);
 	ASSERT_TRUE(Constant);
 	auto SurfaceExpression = Testing::MakeGraphExpression<DMaterialExpressionSetMaterialAttributes>();
-	SurfaceExpression->Surface = {Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id};
-	SurfaceExpression->Attributes = {{EMaterialProperty::MP_Metallic, {Constant.GeneratedNodeIds[0]}}};
+	SurfaceExpression->Surface = {FindMaterialExpression(Material->GetExpressionCollection().Expressions, Call.GeneratedNodeIds[0]), 0, Function->GetFunctionSignature().Outputs[0].Id};
+	SurfaceExpression->Attributes = {{EMaterialProperty::MP_Metallic, {FindMaterialExpression(Material->GetExpressionCollection().Expressions, Constant.GeneratedNodeIds[0])}}};
 	const auto Surface = Document.CreateExpression(*SurfaceExpression.Get(), 0, 450, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Surface);
 	const uint32 MetallicInput = static_cast<uint32>(EMaterialProperty::MP_Metallic) + 1;
@@ -1365,7 +1365,7 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	auto Previous = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(PreviousSource);
 	auto Current = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(Source);
 	auto Consumer = Testing::MakeGraphExpression<DMaterialExpressionSaturate>(Destination);
-	Consumer->Input = {PreviousSource};
+	Consumer->Input = {Previous.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 3>{Previous.Get(), Current.Get(), Consumer.Get()}, {}));
 	auto Presentation = Material->GetMaterialGraphPresentation();
 	Presentation.Nodes = {{Source, 0, 0}, {Destination, 350, 0}, {PreviousSource, 0, 300}};
@@ -1425,10 +1425,10 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	EXPECT_EQ(FindViewNode(ProjectMaterialGraph(&*Material), Destination)
 		->Inputs.front().Link.SourceNodeId, Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)) + Metrics.PinRowHeight * 3)}, false);
-	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId, Source);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.GetExpressionId(), Source);
 	Drop({Origin.x + 700, Origin.y + (GraphNodePinOffset(*FindViewNode(View, Material->GetOutputNode()->Id)))}, false);
 	EXPECT_EQ(Errors, 1);
-	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.ExpressionId, Source);
+	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.GetExpressionId(), Source);
 	Drop({Origin.x + 380, Origin.y + 10}, false);
 	Frame(Output, false);
 	Frame(Output, true);
@@ -1716,8 +1716,11 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 	for (uint32 Index = 0; Index < DenseSources.size(); ++Index)
 	{
 		Graph.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(DenseSources[Index]).Get());
+	}
+	for (uint32 Index = 0; Index < DenseSources.size(); ++Index)
+	{
 		auto Consumer = Testing::MakeGraphExpression<DMaterialExpressionSaturate>(FGuid(400 + Index, 0, 0, 1));
-		Consumer->Input = {DenseSources[DenseSources.size() - Index - 1]};
+		Consumer->Input = {Graph.Expressions[DenseSources.size() - Index - 1].Get()};
 		Graph.Expressions.emplace_back(Consumer.Get());
 	}
 	Graph.Presentation.Nodes = {{DenseSources[0], 0, 0, "Ambient Occlusion Texture With A Deliberately Long Authored Name"}};
@@ -1763,14 +1766,14 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 		const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Material->GetExpressionCollection().Expressions.front().Get());
 		ASSERT_NE(Sample, nullptr);
-		EXPECT_FALSE(Sample->UV.Connection.ExpressionId.IsValid());
+		EXPECT_FALSE(Sample->UV.Connection.IsConnected());
 		const FGuid SampleId = Sample->Id;
 		const FGuid ParameterId = Sample->Metadata.Id;
 		const auto ReadOutput = [&]() {
 			const auto& O = Material->GetExpressionOutputs();
 			return O.Get(Role);
 		};
-		EXPECT_EQ(ReadOutput().Connection.ExpressionId, SampleId);
+		EXPECT_EQ(ReadOutput().Connection.GetExpressionId(), SampleId);
 		EXPECT_EQ(ReadOutput().Connection.OutputIndex, Channels[Index]);
 		if (bNormal)
 		{
@@ -1781,7 +1784,7 @@ TEST(FMaterialGraphInteractionTests, SurfaceTexturesUseCompactSamplesAndPreserve
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 		EXPECT_TRUE(Material->GetParameterDefinitions().empty());
-		EXPECT_FALSE(ReadOutput().Connection.ExpressionId.IsValid());
+		EXPECT_FALSE(ReadOutput().Connection.IsConnected());
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions.front()->Id, SampleId);
 		EXPECT_EQ(Material->GetParameterDefinitions().front().Id, ParameterId);
@@ -1919,14 +1922,14 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	auto UV = Testing::MakeGraphExpression<DMaterialExpressionVector2Constant>();
 	UV->Value = {.2f, .7f};
 	A->Metadata = {FGuid::NewGuid(), "SharedTexture"}; B->Metadata = A->Metadata;
-	B->UV = {UV->Id};
+	B->UV = {UV.Get()};
 	const auto Id = A->Metadata.Id, BId = B->Id;
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 3>{A.Get(), B.Get(), UV.Get()}, {}));
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	auto Definition = A->GetParameterDefinition();
 	Definition.Value.GetTexture().TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).SetParameterValue(Id, Definition.Value));
-	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.ExpressionId, UV->Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.GetExpressionId(), UV->Id);
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Redo());
@@ -1942,7 +1945,7 @@ TEST(FMaterialGraphInteractionTests, SharedTextureParametersPreserveLocalSamplin
 	}
 	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().front().Id, Id);
-	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.ExpressionId, UV->Id);
+	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->UV.Connection.GetExpressionId(), UV->Id);
 	EXPECT_EQ(FindExpression<DMaterialExpressionTextureSampleParameter2D>(*Material, BId)->DefaultValue.TextureFallback, EMaterialTextureFallback::FlatRGNormal);
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -1968,9 +1971,9 @@ TEST_P(FMaterialGraphCanvasInteractionTests, SelectionReconnectionCreationAndKey
 	auto Source = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	auto Previous = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
 	auto Consumer = Testing::MakeGraphExpression<DMaterialExpressionSaturate>();
-	Consumer->Input = {Previous->Id};
 	ASSERT_TRUE(Document.CreateExpression(*Source.Get(), 0, 0, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(Document.CreateExpression(*Previous.Get(), 0, 280, Durin::ETransactionMode::NotTransactable));
+	Consumer->Input = {FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner), Previous->Id)};
 	ASSERT_TRUE(Document.CreateExpression(*Consumer.Get(), 350, 0, Durin::ETransactionMode::NotTransactable));
 	ImGuiContext* Context = ImGui::CreateContext();
 	auto& IO = ImGui::GetIO();

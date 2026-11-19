@@ -25,11 +25,11 @@ namespace Durin::MaterialEditor::GraphEditInternals
 
 namespace Durin::MaterialEditor::GraphEditInternals
 {
-	inline auto MakeParameterMask(const DMaterialExpressionParameter& Parameter, EMaterialProgramValueType Type,
+	inline auto MakeParameterMask(DMaterialExpressionParameter& Parameter, EMaterialProgramValueType Type,
 		FGuid Id = FGuid::NewGuid()) -> TStrongObjectPtr<DMaterialExpressionSwizzle>
 	{
 		TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
-		Mask->Id = Id; Mask->Input = {Parameter.Id}; Mask->Components.clear();
+		Mask->Id = Id; Mask->Input = {&Parameter}; Mask->Components.clear();
 		for (uint8 Channel = 0; Channel <= static_cast<uint8>(Type); ++Channel) Mask->Components.push_back(Channel);
 		return Mask;
 	}

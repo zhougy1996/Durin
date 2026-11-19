@@ -222,7 +222,7 @@ auto QualifyEditScheduling() -> void
 		.MemberProperty = Root->GetClass()->FindPropertyByName("ExpressionCollection")});
 	EXPECT_EQ(Root->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	auto Invalid = Root->GetExpressionOutputs();
-	Invalid.Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId = FGuid::NewGuid();
+	Invalid.Get(EMaterialProperty::MP_Roughness).Connection.Expression = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
 	Expressions.clear();
 	for (const auto& Expression : Root->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 	EXPECT_FALSE(Root->SetMaterialExpressions(Expressions, Invalid));
@@ -870,7 +870,7 @@ TEST_F(FMaterialAsyncCompileTests, PendingSchemaReplacementUsesFallbackUntilComp
 	const std::array Definitions{Definition};
 	auto& Node = Graph.Add(Durin::EMaterialProgramOpcode::Parameter, Durin::EMaterialProgramValueType::Float,
 		{}, Definition.Id, {}, Definitions);
-	Graph.Outputs.Get(EMaterialProperty::MP_Roughness) = {Node.Id};
+	Graph.Outputs.Get(EMaterialProperty::MP_Roughness) = {&Node};
 	Durin::FThreadEvent Started, Release;
 	std::atomic<uint32> StartedCount = 0;
 	std::vector<Durin::Tasks::FTask> Blockers;
@@ -1058,7 +1058,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 	Nested->Id = NestedCall; Nested->Function = Leaf; Nested->Outputs = {{LeafOutput.Id, LeafOutput.Type}};
 	for (const auto& Expression : Body)
 		if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
-			Terminal->Source = {.ExpressionId = NestedCall, .OutputId = LeafOutput.Id};
+			Terminal->Source = {Nested.Get(), 0, LeafOutput.Id};
 	std::vector<DMaterialExpression*> BodyValues;
 	for (const auto& Expression : Body) BodyValues.push_back(Expression.Get());
 	BodyValues.push_back(Nested.Get());
@@ -1072,7 +1072,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		Expression->Id = Call; Expression->Function = Wrapper; Expression->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Expression.Get()};
 		FMaterialAttributeRoot Outputs;
-		Outputs.Attributes = {.ExpressionId = Call, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+		Outputs.Attributes = {Expression.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	{
@@ -1484,10 +1484,10 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	Low->Id = FGuid::NewGuid(); Low->Metadata = {.Id = FGuid::NewGuid(), .Name = "LowTierValue"}; Low->DefaultValue = 0.25f;
 	High->Id = FGuid::NewGuid(); High->Metadata = {.Id = FGuid::NewGuid(), .Name = "HighTierValue"}; High->DefaultValue = 0.5f;
 	Select->Id = FGuid::NewGuid();
-	Select->DefaultValue.Connection = {Low->Id};
-	Select->SM5 = {High->Id};
-	Select->SM6 = {High->Id};
-	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select->Id};
+	Select->DefaultValue.Connection = {Low};
+	Select->SM5 = {High};
+	Select->SM6 = {High};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select};
 	const std::array<DMaterialExpression*, 3> Expressions{Low, High, Select};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
@@ -1526,7 +1526,7 @@ TEST_F(FMaterialAsyncCompileTests, FeatureLevelResourcesSelectBranchesWithoutRep
 	ASSERT_TRUE(LowResource->CompiledProgram);
 	ASSERT_EQ(LowResource->CompiledProgram->DefaultParameters.GetParameterCount(), 1u);
 	EXPECT_FLOAT_EQ(LowResource->CompiledProgram->DefaultParameters.ScalarParameters.front().Value, 0.625f);
-	Outputs.Get(EMaterialProperty::MP_Roughness) = {High->Id};
+	Outputs.Get(EMaterialProperty::MP_Roughness) = {High};
 	const std::array<DMaterialExpression*, 1> RemainingExpressions{High};
 	ASSERT_TRUE(Material->SetMaterialExpressions(RemainingExpressions, Outputs));
 	EXPECT_FALSE(Material->GetAcceptedCompiledProgram(ERHIFeatureLevel::ES3_1));
@@ -1668,8 +1668,8 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousResourceCacheDoesNotWaitForAnother
 	auto* Select = MakeObject<DMaterialExpressionQualitySwitch>("ConfigurationQualitySwitch");
 	Low->Id = FGuid::NewGuid(); Low->Value = .21319f;
 	High->Id = FGuid::NewGuid(); High->Value = .71319f;
-	Select->Id = FGuid::NewGuid(); Select->Low = {Low->Id}; Select->High = {High->Id};
-	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select->Id};
+	Select->Id = FGuid::NewGuid(); Select->Low = {Low}; Select->High = {High};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Select};
 	const std::array<DMaterialExpression*, 3> Expressions{Low, High, Select};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	Material->CacheResourceShadersForRendering(EMaterialShaderPrecompileMode::Synchronous);

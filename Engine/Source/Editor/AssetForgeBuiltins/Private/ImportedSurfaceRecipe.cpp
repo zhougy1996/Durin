@@ -39,7 +39,7 @@ namespace Durin::AssetForge::Builtins
 			auto* Expression = Builder.Parameter(*Definition, Role, PositionX(), static_cast<int32>(Role) * 300, ParameterKind == Kind::UVScale || ParameterKind == Kind::UVOffset
 					? EMaterialProgramValueType::Float2 : ParameterKind == Kind::Value ? GetMaterialSurfaceOutputType(SurfaceRole) : EMaterialProgramValueType::Float4);
 			Result.Owners.push_back({SurfaceRole, ParameterKind, Id});
-			return Link{Expression->Id};
+			return Link{Expression};
 		};
 		for (uint32 I = 0; I < Roles.size(); ++I)
 		{
@@ -97,7 +97,7 @@ namespace Durin::AssetForge::Builtins
 				const auto Factor = Parameter(I, Kind::Value);
 				auto* Product = Builder.Add<DMaterialExpressionMultiply>(I, PositionX(), static_cast<int32>(I) * 300);
 				Product->ResultType = ValueType; Product->A = Output; Product->B = Factor;
-				Output = {Product->Id};
+				Output = {Product};
 			}
 			Result.CanonicalKey += "s" + std::to_string(Group) + "," + std::to_string(Sample.OutputIndex) +
 				"," + std::to_string(static_cast<uint32>(Sample.Usage)) + "," + std::to_string(UVMask) +

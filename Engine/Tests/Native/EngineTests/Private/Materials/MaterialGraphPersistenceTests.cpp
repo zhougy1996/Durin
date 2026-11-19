@@ -1,8 +1,11 @@
 #include "MaterialGraph.h"
+#include "DObject/PackageFormat.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialShaderMap.h"
+#include "Materials/MaterialCustomVersion.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionArithmetic.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
@@ -72,7 +75,7 @@ TEST(FMaterialGraphPersistenceTests, ObjectTransactionsRefreshCompilationAndLeav
 		Tests::FTestEditorTransactorOwner History;
 		const auto Revision = [&] { return Material->GetMaterialCompileDebugInfo().AuthoredRevision; };
 		const auto Literal = [&] { return Graph->FindNode(Id)->GetView().Node.GetConstantLiteral().X; };
-		const auto Connected = [&] { return Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId == Id; };
+		const auto Connected = [&] { return Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.GetExpressionId() == Id; };
 		const auto CleanRevision = Material->GetPackage()->GetEditRevision();
 		const auto InitialCompile = Revision();
 		EXPECT_FALSE(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(std::numeric_limits<float>::infinity())));
@@ -159,6 +162,17 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 		const FMaterialProgramLink Link{Scalar.GeneratedNodeIds.front()};
 		const auto Input = FMaterialGraphPinAddress::Input(Saturate.GeneratedNodeIds.front(), 0);
 		const auto Output = FMaterialGraphPinAddress::Output(Link);
+		const auto CheckSource = [&](T& Owner, bool Connected) {
+			const auto& Nodes = Owner.GetExpressionCollection().Expressions;
+			auto* Sink = Cast<DMaterialExpressionSaturate>(FindMaterialExpression(Nodes, Input.NodeId));
+			auto* Source = FindMaterialExpression(Nodes, Link.SourceNodeId);
+			ASSERT_TRUE(Sink);
+			ASSERT_TRUE(Source);
+			EXPECT_EQ(Source->GetOuter(), &Owner);
+			EXPECT_EQ(Sink->Input.Connection.Expression.Get(), Connected ? Source : nullptr);
+			EXPECT_EQ(Sink->Input.Connection.OutputIndex, Link.SourceOutputIndex);
+			EXPECT_EQ(Sink->Input.Connection.GetOutputId(), Link.SourceOutputId);
+		};
 		{
 			Tests::FTestEditorTransactorOwner History;
 			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Asset));
@@ -167,6 +181,7 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			ASSERT_TRUE(Schema.CanCreateConnection(*Graph, Output, Input).Allows(false));
 			ASSERT_TRUE(Schema.TryCreateConnection(*Graph, Output, Input));
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			CheckSource(*Asset, true);
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			const auto Revision = Asset->GetPackage()->GetEditRevision();
 			const auto Loop = FMaterialGraphPinAddress::Output({Saturate.GeneratedNodeIds.front()});
@@ -175,10 +190,13 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			EXPECT_EQ(Asset->GetPackage()->GetEditRevision(), Revision);
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			CheckSource(*Asset, true);
 			ASSERT_TRUE(History->Undo());
 			EXPECT_FALSE(Graph->FindInputPin(Input)->Link.SourceNodeId.IsValid());
+			CheckSource(*Asset, false);
 			ASSERT_TRUE(History->Redo());
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			CheckSource(*Asset, true);
 		}
 		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 		ASSERT_TRUE(UnloadPackage(Path));
@@ -188,6 +206,7 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Reopened));
 			ASSERT_TRUE(Graph->FindInputPin(Input));
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			CheckSource(*Reopened, true);
 			EXPECT_FALSE(Reopened->GetPackage()->IsDirty());
 		}
 		ASSERT_TRUE(UnloadPackage(Path));
@@ -211,7 +230,7 @@ TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefau
 	Channel->Value = 1.f;
 	auto Coordinates = Testing::MakeGraphExpression<DMaterialExpressionTextureCoordinates>();
 	Coordinates->Channel.Constant = {2.f};
-	Coordinates->Channel.Connection = {Channel->Id};
+	Coordinates->Channel.Connection = {Channel.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(
 		std::array<DMaterialExpression*, 2>{Channel.Get(), Coordinates.Get()}, {}));
 	const auto Expected = CaptureExpressions(*Material);
@@ -365,24 +384,107 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 }
 
 
+TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHistoryAndReload)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture Registry;
+	Testing::RegisterMountPointForTests("/IndexedCall/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath MaterialPath, FunctionPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/IndexedCall/Caller", MaterialPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/IndexedCall/Callee", FunctionPath));
+	DMaterial* Material = nullptr;
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Root(*Material), Body(*Function);
+	const auto Call = Root.InsertFunctionCall(*Function, 0, 0, ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Call);
+	FMaterialFunctionPort Port;
+	Port.Id = FGuid::NewGuid();
+	Port.Name = "Weight";
+	Port.Type = EMaterialProgramValueType::Float;
+	const auto Constant = Testing::CreateGraphConstant(Body, .25f);
+	ASSERT_TRUE(Constant);
+	ASSERT_TRUE(Body.AddPort(true, Port, {Constant.GeneratedNodeIds.front()}, 0, 0, ETransactionMode::NotTransactable));
+	const auto Check = [&](DMaterial& Owner) {
+		const auto& Input = Owner.GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection;
+		auto* Upstream = Cast<DMaterialExpressionFunctionCall>(Input.Expression.Get());
+		ASSERT_TRUE(Upstream);
+		EXPECT_EQ(Upstream->GetOuter(), &Owner);
+		EXPECT_EQ(Upstream->Id, Call.GeneratedNodeIds.front());
+		ASSERT_EQ(Upstream->Outputs.size(), 2u);
+		EXPECT_EQ(Input.OutputIndex, 1);
+		EXPECT_EQ(Upstream->Outputs[1].OutputId, Port.Id);
+	};
+	{
+		Tests::FTestEditorTransactorOwner History;
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
+		const auto Source = FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds.front(), 0, Port.Id});
+		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(*Graph, Source, Pin));
+		Check(*Material);
+		ASSERT_TRUE(History->Undo());
+		EXPECT_FALSE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.IsConnected());
+		ASSERT_TRUE(History->Redo());
+		Check(*Material);
+	}
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(FunctionPath));
+	Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath));
+	ASSERT_TRUE(Material);
+	Check(*Material);
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(FunctionPath));
+}
+
 TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGraphAfterEditingAndReopen)
 {
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	Testing::FScopedMountRegistryFixture Registry;
 	Testing::RegisterMountPointForTests("/Engine/", FPaths::EngineContentDir(), true, false);
-	const auto Scratch = Testing::GetTestWorkDirectory() / "GraphCompatibility";
-	Testing::RegisterMountPointForTests("/GraphCompatibility/", Scratch.generic_string(), false);
+	Testing::RegisterMountPointForTests("/Plugins/Water/", (std::filesystem::path(FPaths::EngineDir()) / "Plugins/Water/Content").generic_string() + "/", true, false);
+	Testing::RegisterMountPointForTests("/Game/", (std::filesystem::path(FPaths::EngineDir()) / "../Sandbox/Content").generic_string() + "/", true, false);
+	const auto Scratch = Testing::GetTestWorkDirectory() / "ShippedGraphs";
+	Testing::RegisterMountPointForTests("/ShippedGraphs/", Scratch.generic_string(), false);
 	const auto Scan = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Scan) << (Scan.Errors.empty() ? "Asset scan failed" : Durin::FormatAssetRegistryError(Scan.Errors.front()));
 	const auto CheckCopy = []<class T>(const char* Original, const char* Name) {
 		FPackagePath SourcePath, Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(Original, SourcePath));
-		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/GraphCompatibility/") + Name, Path));
+		ASSERT_TRUE(FPackagePath::TryCreate(std::string("/ShippedGraphs/") + Name, Path));
 		std::optional<Durin::UnifiedError::FError> Error;
 		auto* Source = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(SourcePath), nullptr, &Error);
 		ASSERT_TRUE(Source) << (Error ? Error->ToString() : Original);
 		const auto Before = CaptureExpressions(*Source);
+		const auto CheckVersion = [](const FPackagePath& PackagePath) {
+			const auto Data = FindPackageExact(PackagePath);
+			ASSERT_TRUE(Data);
+			const auto Bytes = FFileHelper::LoadFileToArray(Data->PhysicalPath);
+			ASSERT_TRUE(Bytes);
+			ObjectPackage::FLinkerTables Tables;
+			ASSERT_TRUE(ObjectPackage::ReadPackage(*Bytes, {}, PackagePath, Tables));
+			const auto Version = std::ranges::find(Tables.CustomVersions, FMaterialGraphVersion::Guid, &FCustomVersion::Guid);
+			ASSERT_NE(Version, Tables.CustomVersions.end());
+			EXPECT_EQ(Version->Version, FMaterialGraphVersion::CurrentVersion);
+			const auto InputSchema = std::ranges::find_if(Tables.Schemas, [](const auto& Schema) {
+				return Schema.QualifiedName.ends_with("FMaterialExpressionInput");
+			});
+			ASSERT_NE(InputSchema, Tables.Schemas.end());
+			ASSERT_EQ(InputSchema->Fields.size(), 2u);
+			const auto Index = std::ranges::find(InputSchema->Fields, "OutputIndex", &ObjectPackage::FSerializedField::Name);
+			ASSERT_NE(Index, InputSchema->Fields.end());
+			EXPECT_EQ(Index->Type.Kind, ObjectPackage::EValueKind::I32);
+			const auto Expression = std::ranges::find(InputSchema->Fields, "Expression", &ObjectPackage::FSerializedField::Name);
+			ASSERT_NE(Expression, InputSchema->Fields.end());
+			EXPECT_EQ(Expression->Type.Kind, ObjectPackage::EValueKind::HardReference);
+		};
+		CheckVersion(SourcePath);
+		if (std::string_view(Name) != "MaterialCopy")
+			EXPECT_TRUE(std::ranges::any_of(Before.Sources, [](const FGuid& Id) { return Id.IsValid(); }));
 		auto* Package = CreatePackage(Path);
 		ASSERT_TRUE(Package);
 		const auto Copy = DuplicateObject(Source, Package, FName(Name));
@@ -402,6 +504,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			ASSERT_TRUE(UnloadPackage(Path));
 			auto* Reopened = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
 			ASSERT_TRUE(Reopened);
+			CheckVersion(Path);
 			EXPECT_EQ(CaptureExpressions(*Reopened), Before);
 			Graph = DMaterialGraph::Create(*Reopened);
 			ASSERT_TRUE(Graph->FindNode(Id));
@@ -410,6 +513,10 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 		ASSERT_TRUE(UnloadPackage(Path));
 	};
 	CheckCopy.operator()<DMaterial>("/Engine/Materials/DefaultMaterial", "MaterialCopy");
+	CheckCopy.operator()<DMaterial>("/Plugins/Water/Materials/DefaultWater", "WaterCopy");
+	CheckCopy.operator()<DMaterial>("/Game/Materials/Metal/M_MetalRust", "MetalCopy");
+	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/SampleNormal", "NormalCopy");
+	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/SampleORM", "OrmCopy");
 	CheckCopy.operator()<DMaterialFunction>("/Engine/Materials/Functions/UVTransform", "FunctionCopy");
 }
 
@@ -485,8 +592,8 @@ TEST(FMaterialGraphPersistenceTests, SceneInputDomainCoordinatesAndFilteringSurv
 	ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
 	auto Scene = Testing::MakeGraphExpression<DMaterialExpressionSceneTexture>();
 	Scene->bFiltered = false; Scene->Coordinates.SetConstant({.25f,.75f});
-	auto RGB = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Components = {0,1,2}; RGB->Input = {Scene->Id};
-	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {RGB->Id};
+	auto RGB = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Components = {0,1,2}; RGB->Input = {Scene.Get()};
+	FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {RGB.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,2>{Scene.Get(),RGB.Get()}, Outputs));
 	const auto Expected = CaptureExpressions(*Material);
 	ASSERT_TRUE(SavePackage(Material->GetPackage())); Scene.Reset(); RGB.Reset();
@@ -519,13 +626,13 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 	Weight->Metadata = {.Id=FGuid::NewGuid(), .Name="LayerWeight"}; Weight->DefaultValue=.25f;
 	auto Color = Testing::MakeGraphExpression<DMaterialExpressionVector4Parameter>();
 	Color->Metadata = {.Id=FGuid::NewGuid(), .Name="Emission"}; Color->DefaultValue={.2,.4,.6,1};
-	auto RGB = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Input={Color->Id}; RGB->Components={0,1,2};
+	auto RGB = Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Input={Color.Get()}; RGB->Components={0,1,2};
 	const auto WeightId=Weight->Metadata.Id, ColorId=Color->Metadata.Id;
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_Specular)={Weight->Id};
-	Outputs.Get(EMaterialProperty::MP_ClearCoat)={Weight->Id};
-	Outputs.Get(EMaterialProperty::MP_ClearCoatRoughness)={Weight->Id};
-	Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB->Id};
+	Outputs.Get(EMaterialProperty::MP_Specular)={Weight.Get()};
+	Outputs.Get(EMaterialProperty::MP_ClearCoat)={Weight.Get()};
+	Outputs.Get(EMaterialProperty::MP_ClearCoatRoughness)={Weight.Get()};
+	Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*,3>{Weight.Get(),Color.Get(),RGB.Get()},Outputs));
 	Weight.Reset(); Color.Reset(); RGB.Reset();
 	std::array<FMaterialConfiguration,4> Configurations;
@@ -664,6 +771,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4WorkingCopyAppliesDomainAndModelAcros
 		SCOPED_TRACE(uint32(Configuration.Domain));
 		const auto OriginalDomain=Source->GetDomain(); const auto OriginalProperties=Source->GetStaticProperties();
 		FMaterialAttributeRoot ExpectedOutputs=Outputs;
+		auto ExpectedBindings = CaptureMaterialOutputBindings(ExpectedOutputs);
 		{
 			Tests::FTestEditorTransactorOwner Transactions;
 			FMaterialEditingSession Session; std::string Error;
@@ -677,8 +785,9 @@ TEST(FMaterialGraphPersistenceTests, Stage4WorkingCopyAppliesDomainAndModelAcros
 			if (Configuration.Domain==EMaterialDomain::PostProcess)
 			{
 				auto Scene=Testing::MakeGraphExpression<DMaterialExpressionSceneTexture>();
-				auto RGB=Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Input={Scene->Id}; RGB->Components={0,1,2};
-				ExpectedOutputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB->Id};
+				auto RGB=Testing::MakeGraphExpression<DMaterialExpressionSwizzle>(); RGB->Input={Scene.Get()}; RGB->Components={0,1,2};
+				ExpectedOutputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB.Get()};
+				ExpectedBindings = CaptureMaterialOutputBindings(ExpectedOutputs);
 				ASSERT_TRUE(Draft->SetMaterialExpressions(std::array<DMaterialExpression*,2>{Scene.Get(),RGB.Get()},ExpectedOutputs));
 			}
 			else ASSERT_TRUE(Draft->SetMaterialExpressions({},ExpectedOutputs));
@@ -688,7 +797,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4WorkingCopyAppliesDomainAndModelAcros
 			ASSERT_TRUE(SavePackage(Source->GetPackage())); Session.MarkSaved();
 		}
 		ASSERT_TRUE(UnloadPackage(Path)); Source=LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path)); ASSERT_TRUE(Source);
-		EXPECT_EQ(Source->GetDomain(),Configuration.Domain); EXPECT_EQ(Source->GetStaticProperties(),Configuration.Properties); EXPECT_EQ(Source->GetExpressionOutputs(),ExpectedOutputs);
+		EXPECT_EQ(Source->GetDomain(),Configuration.Domain); EXPECT_EQ(Source->GetStaticProperties(),Configuration.Properties); EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), ExpectedBindings);
 	}
 	ASSERT_TRUE(UnloadPackage(Path)); CollectGarbage(EObjectFlags::Standalone);
 }

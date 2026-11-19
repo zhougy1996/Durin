@@ -240,13 +240,13 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(Owner);
 		const auto Validation = FMaterialExpressionEditing::ValidateStorage(Owner);
 		if (!Validation) return RejectCommand("The expression storage is invalid.", Validation.Diagnostics);
-		std::unordered_set<FGuid> Ids;
-		for (auto& E : Expressions) Ids.insert(E->Id);
+		std::unordered_set<DMaterialExpression*> Members;
+		for (auto& E : Expressions) Members.insert(E.Get());
 		bool bMissingSource = false;
-		for (auto& E : Expressions) VisitMaterialExpressionInputs(*E, [&](uint32, const FMaterialExpressionInput& Input) {
+		for (auto& E : Expressions) VisitStoredMaterialInputs(*E, [&](const FMaterialExpressionInput& Input) {
 			const auto It = Links.find(&Input);
 			const auto& Link = It == Links.end() ? Input : It->second;
-			bMissingSource |= Link.ExpressionId.IsValid() && !Ids.contains(Link.ExpressionId);
+			bMissingSource |= Link.OutputIndex < 0 || (Link.Expression && !Members.contains(Link.Expression.Get()));
 		});
 		if (bMissingSource) return RejectCommand("A connection refers to a missing expression.", {{.Message = "Expression input is disconnected or refers to a missing expression."}});
 		if (Cast<DMaterialFunction>(&Owner))
@@ -266,6 +266,25 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
+		// Replacements retain the node identity. Record each consumer before rebinding it.
+		std::unordered_map<FGuid, DMaterialExpression*> Replacements;
+		for (const auto& Node : Expressions)
+			if (!Impl->OriginalObjects.contains(Node.Get())) Replacements.emplace(Node->Id, Node.Get());
+		if (!Replacements.empty())
+			for (const auto& Node : Expressions)
+				VisitStoredMaterialInputs(*Node, [&](FMaterialExpressionInput& Input) {
+					if (!Impl->OriginalObjects.contains(Input.Expression.Get())) return;
+					const auto It = Replacements.find(Input.GetExpressionId());
+					if (It != Replacements.end())
+					{
+						const FGuid NamedOutput = Input.GetOutputId();
+						Modify(*Node);
+						if (NamedOutput.IsValid())
+							Input = FMaterialExpressionInput{It->second, 0, NamedOutput};
+						else
+							Input.Connect(Input.OutputIndex, It->second);
+					}
+				});
 		const bool bGraphWritten = !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)

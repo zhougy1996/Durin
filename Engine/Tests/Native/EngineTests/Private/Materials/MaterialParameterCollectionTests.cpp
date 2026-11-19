@@ -216,7 +216,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	Expression->Id = FGuid::NewGuid();
 	Expression->Collection = Collection;
 	Expression->ParameterId = Value.Id;
-	const FMaterialExpressionInput Root{Expression->Id};
+	const FMaterialExpressionInput Root{Expression};
 	const std::array<DMaterialExpression*, 1> Expressions{Expression};
 	auto Built = MIR::BuildGraph(Expressions, std::span(&Root, 1));
 	ASSERT_TRUE(Built);
@@ -271,8 +271,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	Expression->ParameterId = Value.Id;
 	auto* Material = Make<DMaterial>("CollectionCookMaterial");
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor) = FMaterialNumericInput(
-		FMaterialExpressionInput{Expression->Id}, 3);
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.Connect(0, Expression);
 	const std::array<DMaterialExpression*, 1> Expressions{Expression};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	(void)FAssetCompilingManager::Get().FinishAllCompilation();
@@ -334,7 +333,7 @@ TEST_F(FMaterialParameterCollectionTests,
 		Expression->Collection = Collection;
 		Expression->ParameterId = Value.Id;
 		Expressions.push_back(Expression);
-		Roots.push_back({Expression->Id});
+		Roots.push_back({Expression});
 	}
 	const auto Built = MIR::BuildGraph(Expressions, Roots);
 	ASSERT_FALSE(Built);
@@ -360,7 +359,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	auto* Terminal = Make<DMaterialExpressionFunctionOutput>("FunctionTerminal");
 	Terminal->Id = FGuid::NewGuid();
 	Terminal->Port = Signature.Outputs.front();
-	Terminal->Source = {Parameter->Id};
+	Terminal->Source = {Parameter};
 	auto* Function = Make<DMaterialFunction>("CollectionFunction");
 	const std::array<DMaterialExpression*, 2> Body{Parameter, Terminal};
 	ASSERT_TRUE(Function->SetFunctionExpressions(
@@ -380,8 +379,7 @@ TEST_F(FMaterialParameterCollectionTests,
 				return std::nullopt;
 			}});
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection = {.ExpressionId = Call->Id,
-		.OutputId = Signature.Outputs.front().Id};
+	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection = {Call, 0, Signature.Outputs.front().Id};
 	const auto Built = Builder.FinishSurface(Outputs);
 	ASSERT_TRUE(Built) << (Built.Diagnostics.empty() ? "no diagnostic"
 		: Built.Diagnostics.front().Message);

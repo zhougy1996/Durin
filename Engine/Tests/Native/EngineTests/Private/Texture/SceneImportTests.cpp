@@ -1,3 +1,4 @@
+#include "Materials/MaterialExpressionInputs.h"
 #include "AssetForge/Builtins/SceneImportOptions.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -985,8 +986,8 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
 		[](const auto& Expression) { return Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
 	const auto& Outputs = Parent->GetExpressionOutputs();
-	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.ExpressionId, Outputs.Get(EMaterialProperty::MP_Roughness).Connection.ExpressionId);
-	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.ExpressionId, Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.ExpressionId);
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.GetExpressionId(), Outputs.Get(EMaterialProperty::MP_Roughness).Connection.GetExpressionId());
+	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.GetExpressionId(), Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.GetExpressionId());
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.OutputIndex, 4);
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Roughness).Connection.OutputIndex, 3);
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.OutputIndex, 2);
@@ -1047,15 +1048,20 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 	};
 	auto Changed = Original;
 	Changed.Get(EMaterialProperty::MP_AmbientOcclusion).SetConstant({.3f});
+	const auto ExpectedBindings = CaptureMaterialOutputBindings(Changed);
 	ASSERT_TRUE(ApplyOutputs(Changed));
 	auto Rejected = ImportSceneForTest(Fixture.Source, MakeAssetPath("/SceneImportTests/Rejected"),
 		FStaticMeshImportSettings::MakeDurin(),
 		{.MeshMode = EAssetImportMeshMode::Combined}, Options, {}, {});
 	EXPECT_FALSE(Rejected);
 	EXPECT_NE(Rejected.Message.find("graph"), std::string::npos);
-	EXPECT_EQ(Parent->GetExpressionOutputs(), Changed);
+	EXPECT_EQ(CaptureMaterialOutputBindings(Parent->GetExpressionOutputs()), ExpectedBindings);
 	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindPackageExact(Output.AssetPath));
-	ASSERT_TRUE(ApplyOutputs(Original));
+	auto Restored = Parent->GetExpressionOutputs();
+	auto& AO = Restored.Get(EMaterialProperty::MP_AmbientOcclusion);
+	AO.Constant = Original.Get(EMaterialProperty::MP_AmbientOcclusion).Constant;
+	AO.UseConstant = Original.Get(EMaterialProperty::MP_AmbientOcclusion).UseConstant;
+	ASSERT_TRUE(ApplyOutputs(Restored));
 }
 
 TEST(FSceneImportTests, RepeatedGltfImportRejectsOccupiedOutputsAndPreservesEdits)
@@ -1372,10 +1378,10 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Compact.Apply(*Material));
 	EXPECT_EQ(std::ranges::count_if(Material->GetExpressionCollection().Expressions, [](const auto& E) { return Cast<DMaterialExpressionFunctionCall>(E.Get()) != nullptr; }), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
-	EXPECT_FALSE(Material->GetExpressionOutputs().Attributes.ExpressionId.IsValid());
+	EXPECT_FALSE(Material->GetExpressionOutputs().Attributes.IsConnected());
 	const auto& Outputs = Material->GetExpressionOutputs();
 	for (const auto& Link : {Outputs.Get(EMaterialProperty::MP_BaseColor), Outputs.Get(EMaterialProperty::MP_Normal), Outputs.Get(EMaterialProperty::MP_Metallic), Outputs.Get(EMaterialProperty::MP_Roughness),
-		Outputs.Get(EMaterialProperty::MP_AmbientOcclusion), Outputs.Get(EMaterialProperty::MP_EmissiveColor), Outputs.Get(EMaterialProperty::MP_Opacity), Outputs.Get(EMaterialProperty::MP_OpacityMask)}) EXPECT_TRUE(Link.Connection.ExpressionId.IsValid());
+		Outputs.Get(EMaterialProperty::MP_AmbientOcclusion), Outputs.Get(EMaterialProperty::MP_EmissiveColor), Outputs.Get(EMaterialProperty::MP_Opacity), Outputs.Get(EMaterialProperty::MP_OpacityMask)}) EXPECT_TRUE(Link.Connection.IsConnected());
 	FMaterialCompilerEnvironment Environment;
 	const auto EnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
 	ASSERT_TRUE(EnvironmentResult) << EnvironmentResult.error();
@@ -1396,7 +1402,16 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Compact.Apply(*Material));
 	const auto Clone = [](const auto& Expressions) {
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Result;
-		for (const auto& Expression : Expressions) Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
+		std::unordered_map<DMaterialExpression*, DMaterialExpression*> Copies;
+		for (const auto& Expression : Expressions)
+		{
+			Result.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
+			Copies.emplace(Expression.Get(), Result.back().Get());
+		}
+		for (const auto& Node : Result)
+			VisitStoredMaterialInputs(*Node, [&](FMaterialExpressionInput& Input) {
+				if (Input.Expression) Input.Expression = Copies.at(Input.Expression.Get());
+			});
 		return Result;
 	};
 	const auto Original = Clone(Functions.SampleNormal->GetExpressionCollection().Expressions);
@@ -1411,15 +1426,9 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	const auto Matches = [&](const auto& Expressions, const FMaterialFunctionSignature& ExpectedSignature) {
 		const auto& Actual = Functions.SampleNormal->GetExpressionCollection().Expressions;
 		if (Functions.SampleNormal->GetFunctionSignature() != ExpectedSignature || Actual.size() != Expressions.size()) return false;
-		bool Equal = true;
 		for (size_t Index = 0; Index < Actual.size(); ++Index)
-		{
-			if (Actual[Index]->GetClass() != Expressions[Index]->GetClass()) return false;
-			Actual[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
-				Equal &= ArePropertyValuesIdentical(Property, Actual[Index].Get(), 0, Expressions[Index].Get(), 0);
-			});
-		}
-		return Equal;
+			if (!HaveSameMaterialExpressionFields(*Actual[Index], *Expressions[Index])) return false;
+		return true;
 	};
 	DMaterialExpressionLerp* NormalBlend = nullptr;
 	for (const auto& Expression : Edited)

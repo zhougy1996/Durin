@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionInputs.h"
 
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialTestSupport.h"
@@ -23,6 +23,14 @@ namespace
 		Graph.Outputs = Material.GetExpressionOutputs();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).value());
+		const auto Rebind = [&](Durin::FMaterialExpressionInput& Input) {
+			if (!Input.Expression) return;
+			const auto Source = std::ranges::find_if(Graph.Expressions, [&](const auto& E) { return E->Id == Input.GetExpressionId(); });
+			if (Source != Graph.Expressions.end()) Input.Expression = Source->Get();
+		};
+		for (const auto& Node : Graph.Expressions) Durin::VisitStoredMaterialInputs(*Node, Rebind);
+		Rebind(Graph.Outputs.Attributes);
+		for (auto& Binding : Graph.Outputs.Properties.Bindings) Rebind(Binding.Input.Connection);
 		return Graph;
 	}
 

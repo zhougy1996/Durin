@@ -1,3 +1,4 @@
+#include "MaterialGraphPinSource.h"
 #include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
@@ -45,21 +46,28 @@ namespace Durin::MaterialEditor
 		std::vector<FGuid> Ordered(Selected.begin(), Selected.end());
 		std::ranges::sort(Ordered);
 		OutPayload.SourceRoot = Owner.Get();
+		std::unordered_map<DMaterialExpression*, DMaterialExpression*> CopiedExpressions;
 		for (const auto& Id : Ordered)
 		{
 			const auto It = std::ranges::find(Expressions, Id, [](const auto& Expression) { return Expression->Id; });
 			const auto& Position = Positions.at(Id);
 			const auto Duplicated = DuplicateObject(It->Get(), nullptr, NAME_None);
-			auto* Copy = Duplicated.value();
-			if (!Copy) return RejectCommand(ToString(Duplicated.error()));
+			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+			auto* Copy = *Duplicated;
+			CopiedExpressions.emplace(It->Get(), Copy);
 			OutPayload.Nodes.push_back({TStrongObjectPtr<DMaterialExpression>(Copy), Position.DisplayName, Position.X - MinimumX, Position.Y - MinimumY});
 		}
-		if (Material && Selected.contains(Material->GetExpressionOutputs().Attributes.ExpressionId))
+		for (const auto& Node : OutPayload.Nodes)
+			VisitStoredMaterialInputs(*Node.Expression, [&](FMaterialExpressionInput& Input) {
+				const auto It = CopiedExpressions.find(Input.Expression.Get());
+				if (It != CopiedExpressions.end()) Input.Expression = It->second;
+			});
+		if (Material && Selected.contains(Material->GetExpressionOutputs().Attributes.GetExpressionId()))
 		{
 			OutPayload.bConnectAggregateSurface = true;
-			OutPayload.AggregateSourceNodeId = Material->GetExpressionOutputs().Attributes.ExpressionId;
-			OutPayload.AggregateSourceOutputIndex = Material->GetExpressionOutputs().Attributes.OutputIndex;
-			OutPayload.AggregateSourceOutputId = Material->GetExpressionOutputs().Attributes.OutputId;
+			OutPayload.AggregateSourceNodeId = Material->GetExpressionOutputs().Attributes.GetExpressionId();
+			OutPayload.AggregateSourceOutputIndex = ToGraphLink(Material->GetExpressionOutputs().Attributes).SourceOutputIndex;
+			OutPayload.AggregateSourceOutputId = Material->GetExpressionOutputs().Attributes.GetOutputId();
 		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
@@ -151,20 +159,13 @@ namespace Durin::MaterialEditor
 				if (const auto It = PortRemap.find(Port.Default.InputId); It != PortRemap.end()) Port.Default.InputId = It->second.Id;
 				else if (!bSameRoot) return RejectCommand("A copied port default references an input outside the selection.");
 			}
-		const auto RemapLink = [&](FMaterialExpressionInput& Input) -> bool {
-			if (!Input.ExpressionId.IsValid()) return true;
-			const auto It = Remap.find(Input.ExpressionId);
-			if (It != Remap.end()) Input.ExpressionId = It->second;
-			else if (!bSameRoot || std::ranges::none_of(State.Expressions, [&](const auto& E) { return E->Id == Input.ExpressionId; }))
-				return false;
-			return true;
-		};
+		std::unordered_map<FGuid, DMaterialExpression*> Copies;
 		std::vector<FGuid> Generated;
 		for (const auto& Entry : Payload.Nodes)
 		{
 			const auto Duplicated = DuplicateObject(Entry.Expression.Get(), nullptr, NAME_None);
-			TStrongObjectPtr<DMaterialExpression> Expression(Duplicated.value());
-			if (!Expression) return RejectCommand(ToString(Duplicated.error()));
+			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
+			TStrongObjectPtr<DMaterialExpression> Expression(*Duplicated);
 			Expression->Id = Remap.at(Entry.Expression->Id);
 			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) Input->Port = PortRemap.at(Input->Port.Id);
 			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) Output->Port = PortRemap.at(Output->Port.Id);
@@ -173,11 +174,7 @@ namespace Durin::MaterialEditor
 				Parameter->Metadata.Id = FGuid::NewGuid();
 				if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error) return Error;
 			}
-			bool bLinksValid = true;
-			VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) {
-				if (!RemapLink(Input)) bLinksValid = false;
-			});
-			if (!bLinksValid) return RejectCommand("The material graph clipboard references an unavailable external input.");
+			Copies.emplace(Entry.Expression->Id, Expression.Get());
 			const int64 PositionX = static_cast<int64>(X) + Entry.RelativeX, PositionY = static_cast<int64>(Y) + Entry.RelativeY;
 			if (PositionX < -MaterialGraphPresentationCoordinateLimit || PositionX > MaterialGraphPresentationCoordinateLimit
 				|| PositionY < -MaterialGraphPresentationCoordinateLimit || PositionY > MaterialGraphPresentationCoordinateLimit)
@@ -186,9 +183,23 @@ namespace Durin::MaterialEditor
 			State.Presentation.Nodes.push_back({Expression->Id, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName});
 			State.Expressions.emplace_back(Expression.Get());
 		}
+		for (const auto& [Id, Copy] : Copies)
+		{
+			bool Valid = true;
+			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
+				if (!Input.IsConnected()) return;
+				const auto Source = Input.GetExpressionId();
+				const auto Internal = Copies.find(Source);
+				auto* Target = Internal != Copies.end() ? Internal->second
+					: bSameRoot ? FindMaterialExpression(State.Expressions, Source) : nullptr;
+				if (Target) Input.Expression = Target;
+				else Valid = false;
+			});
+			if (!Valid) return RejectCommand("The material graph clipboard references an unavailable external input.");
+		}
 		if (Payload.bConnectAggregateSurface && !State.bFunction)
 		{
-			State.GetOutputs().Attributes = {Remap.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
+			State.GetOutputs().Attributes = {Copies.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
 		}
 		auto Result = State.Commit("Paste Graph Nodes", Transactions);
 		if (Result)

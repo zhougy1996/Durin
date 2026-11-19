@@ -115,7 +115,7 @@ namespace Durin::MaterialEditor
 			if (Visual == View.Nodes.end()) continue;
 			FLayoutNode Node{Expression->Id, {}, GraphNodeWidth(*Visual), GraphNodeHeight(*Visual)};
 			VisitMaterialExpressionInputs(*Expression, [&](uint32, const FMaterialExpressionInput& Input) {
-				if (Input.ExpressionId.IsValid()) Node.Inputs.push_back(Input.ExpressionId);
+				if (Input.IsConnected()) Node.Inputs.push_back(Input.GetExpressionId());
 			});
 			Nodes.push_back(std::move(Node));
 		}

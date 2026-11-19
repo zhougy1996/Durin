@@ -2221,7 +2221,7 @@ TEST(FMaterialProgramSchemaTests,
 	const auto First = Testing::MakePBRMaterialExpressionsForTest();
 	const auto Second = Testing::MakePBRMaterialExpressionsForTest();
 	ASSERT_EQ(First.Expressions.size(), Second.Expressions.size());
-	EXPECT_EQ(First.Outputs, Second.Outputs);
+	EXPECT_EQ(CaptureMaterialOutputBindings(First.Outputs), CaptureMaterialOutputBindings(Second.Outputs));
 	EXPECT_FALSE(First.Expressions.empty());
 	EXPECT_LE(First.Expressions.size(), MaterialProgramMaxNodeCount);
 	std::unordered_set<FGuid> NodeIds;
@@ -2234,9 +2234,7 @@ TEST(FMaterialProgramSchemaTests,
 		EXPECT_LE(Node->GetAuthoredInputCount(), MaterialProgramMaxNodeInputCount);
 		LinkCount += Node->GetAuthoredInputCount();
 		ASSERT_EQ(Node->GetClass(), Second.Expressions[Index]->GetClass());
-		Node->GetClass()->ForEachProperty([&](FProperty* Property) {
-			EXPECT_TRUE(ArePropertyValuesIdentical(Property, Node.Get(), 0, Second.Expressions[Index].Get(), 0));
-		});
+		EXPECT_TRUE(HaveSameMaterialExpressionFields(*Node, *Second.Expressions[Index]));
 		Expressions.push_back(Node.Get());
 	}
 	EXPECT_LE(LinkCount, MaterialProgramMaxLinkCount);
@@ -2285,7 +2283,7 @@ TEST(FMaterialProgramSchemaTests,
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
-		Graph.Outputs.Get(EMaterialProperty::MP_Metallic).Connection.ExpressionId = {1, 2, 3, 4};
+		Graph.Outputs.Get(EMaterialProperty::MP_Metallic).Connection.Expression = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None);
 		ExpectFailure(Graph, "Expression input is disconnected or refers to a missing expression.");
 	}
 	{
@@ -2316,18 +2314,18 @@ TEST(FMaterialProgramSchemaTests,
 		Testing::FTestMaterialExpressionGraph Graph;
 		TStrongObjectPtr<DMaterialExpressionNegate> A(NewObject<DMaterialExpressionNegate>(nullptr, NAME_None));
 		TStrongObjectPtr<DMaterialExpressionNegate> B(NewObject<DMaterialExpressionNegate>(nullptr, NAME_None));
-		A->Id = FGuid::NewGuid(); B->Id = FGuid::NewGuid(); A->Input = {B->Id}; B->Input = {A->Id};
+		A->Id = FGuid::NewGuid(); B->Id = FGuid::NewGuid(); A->Input = {B.Get()}; B->Input = {A.Get()};
 		Graph.Expressions.emplace_back(A.Get()); Graph.Expressions.emplace_back(B.Get());
 		ExpectFailure(Graph, "Expression inputs contain a cycle or exceed the traversal depth bound.");
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;
-		FGuid Previous;
+		DMaterialExpression* Previous = nullptr;
 		for (uint32 Index = 0; Index <= MaterialProgramMaxDepth; ++Index)
 		{
 			TStrongObjectPtr<DMaterialExpressionNegate> Node(NewObject<DMaterialExpressionNegate>(nullptr, NAME_None));
 			Node->Id = {0xde770001, 0, 0, Index + 1}; Node->Input = {Previous};
-			Node->Input.SetConstant({0}); Previous = Node->Id;
+			Node->Input.SetConstant({0}); Previous = Node.Get();
 			Graph.Expressions.emplace_back(Node.Get());
 		}
 		ExpectFailure(Graph, "Expression Build exceeds the IR depth bound.");
@@ -3216,11 +3214,11 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	TStrongObjectPtr<DMaterialExpressionTime> Time(NewObject<DMaterialExpressionTime>(nullptr, NAME_None));
 	TStrongObjectPtr<DMaterialExpressionSwizzle> PositionColor(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
 	Position->Id = FGuid::NewGuid(); Time->Id = FGuid::NewGuid(); PositionColor->Id = FGuid::NewGuid();
-	PositionColor->Input = {Position->Id}; PositionColor->Components = {0, 1, 0};
+	PositionColor->Input = {Position.Get()}; PositionColor->Components = {0, 1, 0};
 	const std::array<DMaterialExpression*, 3> Expressions{Position.Get(), Time.Get(), PositionColor.Get()};
 	FMaterialAttributeRoot Outputs;
-	Outputs.Get(EMaterialProperty::MP_BaseColor) = {PositionColor->Id}; Outputs.Get(EMaterialProperty::MP_Roughness) = {Time->Id};
-	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Time->Id};
+	Outputs.Get(EMaterialProperty::MP_BaseColor) = {PositionColor.Get()}; Outputs.Get(EMaterialProperty::MP_Roughness) = {Time.Get()};
+	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Time.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	FMaterialCompilerEnvironment Environment;

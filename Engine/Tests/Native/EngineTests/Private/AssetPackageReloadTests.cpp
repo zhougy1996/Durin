@@ -1,5 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
-#include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -53,6 +53,12 @@ namespace
 		std::vector<Durin::TStrongObjectPtr<Durin::DMaterialExpression>> Result;
 		for (const auto& Expression : Function.GetExpressionCollection().Expressions)
 			Result.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).value());
+		for (const auto& Node : Result)
+			Durin::VisitStoredMaterialInputs(*Node, [&](Durin::FMaterialExpressionInput& Input) {
+				if (!Input.Expression) return;
+				const auto Source = std::ranges::find_if(Result, [&](const auto& E) { return E->Id == Input.GetExpressionId(); });
+				if (Source != Result.end()) Input.Expression = Source->Get();
+			});
 		return Result;
 	}
 	auto PublishFunctionExpressions(Durin::DMaterialFunction& Function,
@@ -73,7 +79,7 @@ namespace
 		Call->Id = Id; Call->Function = &Callee; Call->Outputs = {{Output.Id, Output.Type}};
 		for (const auto& Expression : Body)
 			if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
-				Terminal->Source = {.ExpressionId = Id, .OutputId = Output.Id};
+				Terminal->Source = {Call.Get(), 0, Output.Id};
 		Body.emplace_back(Call.Get());
 		return PublishFunctionExpressions(Caller, Body, Caller.GetFunctionSignature());
 	}
@@ -355,7 +361,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadInvalidatesNestedCallersUntilExpl
 		Call->Id = RootCall; Call->Function = Wrapper.Get(); Call->Outputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 		FMaterialAttributeRoot Outputs;
-		Outputs.Attributes = {.ExpressionId = RootCall, .OutputId = Output.Id}; Outputs.bUseMaterialAttributes = true;
+		Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
 	}
 	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Message);
@@ -460,9 +466,7 @@ TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLi
 	for (size_t Index = 0; Index < Actual.size(); ++Index)
 	{
 		ASSERT_EQ(Actual[Index]->GetClass(), Valid[Index]->GetClass());
-		Actual[Index]->GetClass()->ForEachProperty([&](FProperty* Property) {
-			EXPECT_TRUE(ArePropertyValuesIdentical(Property, Actual[Index].Get(), 0, Valid[Index].Get(), 0));
-		});
+		EXPECT_TRUE(HaveSameMaterialExpressionFields(*Actual[Index], *Valid[Index]));
 	}
 	EXPECT_TRUE(Function->GetPackage()->IsDirty());
 	ASSERT_TRUE(SavePackage(Function->GetPackage()));
