@@ -100,6 +100,7 @@ namespace Durin::RendererPrivate
 	{ RemovePrimitive(Owner); Sources.erase(&Owner); Owner.DrawLists = nullptr; }
 	auto FCachedMeshDrawCommandStorage::Reset() -> void
 	{
+		MeshPreparation.Reset();
 		for (auto* Source : Sources) RemovePrimitive(*Source);
 		Entries.clear(); FreeIndices.clear(); StateBuckets.clear(); NextStateBucketId = 0;
 	}
@@ -180,6 +181,12 @@ namespace Durin::RendererPrivate
 			if (auto* Storage = dynamic_cast<FCachedMeshDrawCommandStorage*>(&Resource)) Storages.push_back(Storage);
 		});
 		for (auto* Storage : Storages) Storage->ReleaseResource();
+	}
+	auto FCachedMeshDrawCommandStorage::InvalidateMeshPreparationForAllResources() -> void
+	{
+		VisitInitializedRenderResources([](FRenderResource& Resource) {
+			if (auto* Storage = dynamic_cast<FCachedMeshDrawCommandStorage*>(&Resource)) Storage->MeshPreparation.Reset();
+		});
 	}
 	FDynamicMeshDrawCommandStorage::FDynamicMeshDrawCommandStorage() : Data(std::make_shared<FData>())
 	{ Data->Frame = GRenderFrameCounterRenderThread; }

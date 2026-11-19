@@ -239,7 +239,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 	std::string Csv = "scenario,run,sample,view,render_view_ns,visited_primitives,visible_primitives,prepared_sections,native_draws,"
 		"description_reuses,description_builds,descriptions_at_start,descriptions_before_trim,descriptions_after_trim,"
 		"facts_at_start,facts_before_trim,facts_after_trim,sections_at_start,sections_before_trim,sections_after_trim,"
-		"gt_frame_ns,rt_frame_ns,cache_bytes_before_trim,cache_bytes_after_trim\n";
+		"gt_frame_ns,rt_frame_ns,cache_bytes_before_trim,cache_bytes_after_trim,cache_evictions\n";
 	const char* MeasureMemory = std::getenv("DURIN_TEST_DISJOINT_VIEW_MEMORY");
 	const bool bMeasureMemory = MeasureMemory && std::string_view(MeasureMemory) == "1";
 	auto RunFixture = [&] {
@@ -347,20 +347,23 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 				const auto& Frame = Frames[Sample];
 				const auto& Visibility = Frame.Telemetry.Visibility;
 				const auto& Mesh = Frame.Telemetry.StaticMesh;
+				EXPECT_EQ(Mesh.DrawDescriptionBuilds, 0u) << Scenario << " frame " << Sample;
+				EXPECT_EQ(Mesh.DrawDescriptionReuses, KeysPerView);
 				if (bMeasureMemory)
 				{
 					ASSERT_GT(Mesh.PreparationCache.AccountedBytesAfterTrim, 0u);
 					ASSERT_GE(Mesh.PreparationCache.AccountedBytesBeforeTrim, Mesh.PreparationCache.AccountedBytesAfterTrim);
+					ASSERT_LE(Mesh.PreparationCache.AccountedBytesBeforeTrim, FMeshDrawDescriptionCache::MaxBytes);
 				}
-				const auto& [StartEntries, BeforeTrim, AfterTrim, BytesBefore, BytesAfter] = Mesh.PreparationCache;
-				Csv += std::format("{},{},{},{},{},{},{},{},{},{},{}" ",{},{},{}" ",{},{},{}" ",{},{},{}" ",{},{},{},{}\n",
+				const auto& [StartEntries, BeforeTrim, AfterTrim, BytesBefore, BytesAfter, Evictions] = Mesh.PreparationCache;
+				Csv += std::format("{},{},{},{},{},{},{},{},{},{},{}" ",{},{},{}" ",{},{},{}" ",{},{},{}" ",{},{},{},{},{}\n",
 					Scenario, Run, Sample, SelectView(Sample) == 0 ? 'A' : 'B', Frame.RenderView,
 					Visibility.SubmittedPrimitives, Visibility.VisiblePrimitives, Mesh.PreparedStaticMeshSections,
 					Mesh.NativeDrawSubmissions, Mesh.DrawDescriptionReuses, Mesh.DrawDescriptionBuilds,
 					StartEntries.DrawDescriptions, BeforeTrim.DrawDescriptions, AfterTrim.DrawDescriptions,
 					StartEntries.StaticFacts, BeforeTrim.StaticFacts, AfterTrim.StaticFacts,
 					StartEntries.StaticSections, BeforeTrim.StaticSections, AfterTrim.StaticSections,
-					Frame.GTFrame, Frame.RTFrame, BytesBefore, BytesAfter);
+					Frame.GTFrame, Frame.RTFrame, BytesBefore, BytesAfter, Evictions);
 			}
 		};
 		RecordProperty("keys_per_view", std::to_string(KeysPerView));

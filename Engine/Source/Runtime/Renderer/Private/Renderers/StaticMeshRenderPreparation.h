@@ -186,12 +186,15 @@ namespace Durin
 		std::shared_ptr<const FMeshGeometryRecord> GeometryOwner;
 	};
 
-	// Retain idle descriptions across visibility changes; evict unused entries above 512.
+	// Scene-local retention. A prepared view owns any values it receives from the cache.
 	class FMeshDrawDescriptionCache
 	{
 	public:
 		using FKey = std::array<uint64, 5>;
-		RENDERER_API auto BeginSubmission() -> void;
+		static constexpr size_t MaxEntries = 8192;
+		static constexpr size_t MaxBytes = 8 * 1024 * 1024;
+		static constexpr uint64 MaxIdleFrames = 120;
+		RENDERER_API auto BeginSubmission(uint64 InFrame = GRenderFrameCounterRenderThread) -> void;
 		RENDERER_API auto EndSubmission() -> void;
 		RENDERER_API auto Find(const FKey& Key, const FMaterialRenderData& Material)
 			-> std::shared_ptr<const FMeshDrawDescription>;
@@ -205,30 +208,23 @@ namespace Durin
 		auto Num() const -> size_t { return Entries.size(); }
 		auto NumStaticFacts() const -> size_t { return StaticFacts.size(); }
 		auto NumStaticSections() const -> size_t { return StaticSections.size(); }
+		auto GetBudgetedBytes() const -> size_t { return BudgetedBytes; }
+		auto GetEvictions() const -> size_t { return Evictions; }
 		// Accounts cache-created objects, capacity of their owned vectors, and table values.
 		// Publication, allocator metadata and RHI storage have independent owners.
 		auto GetAccountedBytes() const -> size_t;
-		auto Reset() -> void
-		{
-			Entries.clear();
-			StaticFacts.clear();
-			StaticSections.clear();
-		}
+		RENDERER_API auto Reset() -> void;
 
 	private:
-		struct FEntry { std::shared_ptr<const FMeshDrawDescription> Command; bool bUsed = false; };
-		std::map<FKey, FEntry> Entries;
+		template<typename T>
+		struct TEntry
+		{
+			std::shared_ptr<const T> Value;
+			uint64 LastAccessFrame;
+			size_t Charge;
+		};
+		std::map<FKey, TEntry<FMeshDrawDescription>> Entries;
 		using FStaticKey = std::array<uint64, 2>;
-		struct FFactsEntry
-		{
-			std::shared_ptr<const FStaticMeshSectionFacts> Value;
-			bool bUsed = false;
-		};
-		struct FSectionsEntry
-		{
-			std::shared_ptr<const FStaticMeshPassSections> Value;
-			bool bUsed = false;
-		};
 		struct FStaticKeyHash
 		{
 			auto operator()(const FStaticKey& Key) const -> size_t
@@ -236,8 +232,16 @@ namespace Durin
 				return static_cast<size_t>((Key[0] >> 4) ^ (Key[1] * 0x9e3779b97f4a7c15ull));
 			}
 		};
-		std::unordered_map<FStaticKey, FFactsEntry, FStaticKeyHash> StaticFacts;
-		std::unordered_map<FStaticKey, FSectionsEntry, FStaticKeyHash> StaticSections;
+		std::unordered_map<FStaticKey, TEntry<FStaticMeshSectionFacts>, FStaticKeyHash> StaticFacts;
+		std::unordered_map<FStaticKey, TEntry<FStaticMeshPassSections>, FStaticKeyHash> StaticSections;
+		template<typename TTable, typename T>
+		auto StoreEntry(TTable& Table, const typename TTable::key_type& Key, std::shared_ptr<const T> Value, size_t Weight) -> void;
+		auto EvictIdle(uint64 IdleFrames) -> void;
+		uint64 Frame = 0;
+		uint64 LastAgeSweep = 0;
+		std::optional<uint64> LastPressureSweep;
+		size_t BudgetedBytes = 0;
+		size_t Evictions = 0;
 	};
 
 	// Compact per-view references; stable planning state belongs to the description.

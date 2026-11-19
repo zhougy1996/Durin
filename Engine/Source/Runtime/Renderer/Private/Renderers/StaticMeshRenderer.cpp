@@ -463,10 +463,7 @@ namespace Durin
 			Scene->GPUScene->UpdateCPUData();
 			ResolvedView.GPUScene = Scene->GPUScene.get();
 			Scene->UpdateStaticMeshes();
-			if (!Scene->CachedDrawLists) Scene->CachedDrawLists = std::make_shared<FCachedMeshDrawCommandStorage>();
-			auto& DrawLists = *Scene->CachedDrawLists;
-			if (DrawLists.Generation != Generation) { DrawLists.Reset(); DrawLists.Generation = Generation; }
-			ResolvedView.CachedDrawLists = &DrawLists;
+			ResolvedView.CachedDrawLists = &Scene->GetCachedMeshDrawCommands(CommandList, Generation);
 		}
 		ResolvedView.FallbackPrimitiveUniforms.clear();
 		ResolvedView.PersistentCommandsReused.assign(PreparedView.GetNumSections(), false);

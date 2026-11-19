@@ -28,7 +28,9 @@ namespace Durin
 	class FVolumetricCloudSceneRegistry;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
+	class FRHICommandListBase;
 	struct FSplineMeshRenderDynamicData;
+	struct FRenderResourceGeneration;
 
 	struct FVolumetricCloudSceneSnapshot
 	{
@@ -60,7 +62,8 @@ namespace Durin
 		) -> void override;
 		RENDERER_API auto UpdateSkyLighting() -> void override;
 		std::shared_ptr<FSkyLightingSceneState> SkyLighting = std::make_shared<FSkyLightingSceneState>();
-		std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandStorage> CachedDrawLists;
+		RENDERER_API auto GetCachedMeshDrawCommands(FRHICommandListBase& Commands, const FRenderResourceGeneration& Generation)
+			-> RendererPrivate::FCachedMeshDrawCommandStorage&;
 		std::shared_ptr<FGPUScene> GPUScene;
 		RENDERER_API auto UpdateStaticMeshes() -> void;
 		RENDERER_API auto UpdateStaticDrawListsForMaterials(std::span<FMaterialRenderProxy* const> Materials) -> void override;
@@ -135,6 +138,8 @@ namespace Durin
 		static auto GetAllocatedSceneCount() -> size_t;
 		auto Clear_RenderThread() -> void;
 		auto DetachPrimitive(FPrimitiveSceneInfo& Info) -> void;
+		auto InvalidateMeshPreparation() -> void;
+		std::shared_ptr<RendererPrivate::FCachedMeshDrawCommandStorage> CachedDrawLists;
 		std::unordered_map<FPrimitiveComponentId, std::unique_ptr<FPrimitiveSceneInfo>, FPrimitiveComponentIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;

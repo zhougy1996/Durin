@@ -20,9 +20,10 @@ timing budgets are open.
 The one-off frame-attribution probes are archived in `2956bdd8f` and have been
 removed from the working renderer and backends. The disjoint-view fixture still
 provides frame timing, churn counts and an optional cache-memory census for
-Stage 1. The maintained fixture exercises the existing production cache. The
-qualified GPU lane is currently unavailable. Stage 1 implementation depends on
-the applicable baseline and acceptance budgets.
+Stage 1. On 2026-11-19, Stage 1 was authorized for functional delivery before
+timing budgets are frozen. Scene-owned retention now uses the normal rendering
+path. Its functional checks are complete. Exclusive timing and workload-wide
+budgets remain open under Stages 0 and 5.
 
 The prerequisite main-pass recording change is committed as `345a2fc30`.
 GBuffer and opaque/masked forward and retained-forward draws now use
@@ -406,7 +407,7 @@ per alternating frame. The memory lane reproduced 2,324,480 accounted bytes
 before trim and 1,162,240 bytes afterward. The two timing launches measured
 the same implementation with the census disabled. The host lacked an exclusive
 GPU window and the observed A/A variation leaves latency and p95 acceptance
-budgets open. The cache retention policy has yet to be implemented. Samples,
+budgets open. This is the control for Stage 1. Samples,
 summaries, GPU snapshots and reports are retained under
 `Build/Qualification/UERenderThreadMechanismAlignment/20261119/cache-retention/`.
 
@@ -441,9 +442,10 @@ the four remaining mechanisms.
   and retained/peak memory alongside frame median/p95.
   The disjoint-view fixture now has churn, visits, join and queue timings,
   upload bytes, draws and accounted retained/peak bytes.
-- [ ] Fix workload-specific latency, p95 and memory acceptance budgets before
-  changing runtime policy, using A/A noise and the qualified device. Name the
-  primary Vulkan device and required backend correctness lanes.
+- [ ] Fix workload-specific latency, p95 and memory acceptance budgets using
+  A/A noise and the qualified device. Name the primary Vulkan device and
+  required backend correctness lanes. The Stage 1 implementation can proceed
+  before this qualification.
 - [x] Resolve the exact UE-referenced occlusion route and conservative history
   validity oracle, and the Vulkan/Metal translation-context capabilities, before
   implementation. Record the chosen interfaces and unsupported-route fallbacks.
@@ -458,18 +460,56 @@ Depends on: Stage 0 cache baseline and invalidation inventory.
 Outcome: alternating views and camera revisits reuse unchanged facts without
 unbounded retention or stale resource selection.
 
-- [ ] Replace service-wide per-submission used-bit reset/trim with scene-aware
+- [x] Replace service-wide per-submission used-bit reset/trim with scene-aware
   frame access stamps and a bounded retention/eviction policy. Account for all
   retained fact, section and draw-description tables and their strong owners.
-- [ ] Preserve dependency-based invalidation for material/layout/geometry,
+- [x] Preserve dependency-based invalidation for material/layout/geometry,
   shader/device/manual generation, primitive removal and scene teardown.
-- [ ] Test alternating disjoint large views, revisits, scene changes, structural
+- [x] Test alternating disjoint large views, revisits, scene changes, structural
   mutation, resource replacement and teardown; retain dynamic-provider checks.
-- [ ] Compare warm-up/steady-state misses, evictions, RT time and retained bytes
-  against Stage 0, including explicit capacity pressure.
+- [x] Compare steady-state and revisit misses, evictions, diagnostic RT time
+  and retained bytes against the Stage 0 control. Exercise age, entry and byte
+  bounds under explicit pressure. Keep qualified warm-up and timing comparisons
+  with the outstanding Stages 0 and 5 performance gates.
 
 Completion: below-budget alternating views stop mutually evicting their working
 sets; true invalidations still rebuild; pressure remains bounded and measured.
+
+#### Stage 1 evidence
+
+The local UE 5.8.2 CL 56702186 comparison uses
+`FPrimitiveSceneInfo::CacheMeshDrawCommands`, `RemoveCachedMeshDrawCommands`,
+`RemoveFromScene` and `UpdateStaticMeshes` in `PrimitiveSceneInfo.cpp`.
+`FScene::GetCachedMeshDrawCommands` now centralizes creation and generation
+synchronization for Durin's existing scene draw storage. The same storage owns
+preparation facts, sections and descriptions. Native command locations retain
+their primitive-scoped invalidation. Preparation invalidation is conservative
+at scene granularity for primitive removal, structural material changes,
+rebinding and instance-list replacement. Immutable publication keys and
+per-view checks cover geometry, layout, LOD and transform changes. The
+[frame preparation contract](../Runtime/Rendering/Pipeline/RendererFramePreparation.md)
+defines the frame-age policy, budgets and RHI lifetime boundary.
+
+On 2026-11-19, `aa9c239ad` plus the Stage 1 changes passed the
+`Win64-Release-DurinEditor` qualification target on RTX 3090 Vulkan with
+Tracy off, validation off, threaded RHI and
+`DURIN_TEST_DISJOINT_VIEW_MEMORY=1`. The 360 measured alternating frames and
+six revisit frames all reused the complete 1,024-description working set.
+The old policy built 122,880 descriptions and evicted 368,640 rows per
+120-frame alternating run. The new policy built zero descriptions and recorded
+one sweep of 1,024 redundant description-table rows across all three runs.
+The section and fact tables retained both views through that sweep. Measured
+accounted retention peaked at 2,299,904 bytes across the alternating runs,
+compared with 1,162,240 bytes for the old policy. Diagnostic RT frame medians
+were 16.12–16.26 ms in the candidate and 17.43–17.77 ms in the legacy memory
+lane. The measurements use the cache census and a shared host.
+
+Four focused Renderer contracts passed for capacity pressure and age,
+scene/generation isolation, source lifetime, material invalidation and key
+validation. Three focused Vulkan integration cases passed for per-view facts,
+resource replacement and dynamic/material validation. Raw measurements,
+comparisons and receipts are under
+`Build/Qualification/UERenderThreadMechanismAlignment/20261119/stage-1/`.
 
 ### Stage 2: Build a dependency-driven preparation pipeline
 
@@ -564,8 +604,8 @@ Depends on: Stages 1-4 and their applicable receipts.
   active CPU and waits separately, RHI/GPU costs, median/p95, A/A noise and memory.
 - [ ] Verify combined cases: multiple views with distinct occlusion histories,
   dynamic content and cascades, cache pressure plus asynchronous submission,
-  resource replacement, failure and shutdown. Promote defaults only after their
-  acceptance budgets pass; correctness or Debug receipts do not prove speedup.
+  resource replacement, failure and shutdown. Qualify the Stage 1 cache default
+  and require passing budgets before promoting later automatic policies.
 - [ ] Validate owning modules and affected consumers in every project declared
   by `Durin.dworkspace`. Require one final workspace `all` build for the public
   command-list/context layout and build-graph integration risk; reuse applicable

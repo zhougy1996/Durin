@@ -830,38 +830,84 @@ TEST(FRendererSceneContractTests, StructuralMaterialPublicationInvalidatesOnlyPr
     FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(9102),
         std::make_unique<FStaticMeshSceneProxy>(nullptr, std::vector{B}), FMatrix(1));
     FlushRenderingCommands();
-    EnqueueRenderCommand("MaterialSceneInvalidation", [&](FRHICommandListImmediate&) {
-        Scene->CachedDrawLists = std::make_shared<FCachedMeshDrawCommandStorage>();
+    EnqueueRenderCommand("MaterialSceneInvalidation", [&](FRHICommandListImmediate& Commands) {
+        auto& DrawLists = Scene->GetCachedMeshDrawCommands(Commands, {});
         const auto& Primitives = Scene->GetPrimitiveSceneInfos(); ASSERT_EQ(Primitives.size(), 2u);
         FStoredCommandSource DrawSource({EMeshPipelinePass::Forward});
         const auto Key = DrawSource.Key(1);
-        const auto First = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0], DrawSource.Pipeline);
-        const auto Other = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[1], DrawSource.Pipeline);
-        const auto FirstInfo = Scene->CachedDrawLists->FindCachedCommand(Key, *Primitives[0]).Info;
-        const auto OtherInfo = Scene->CachedDrawLists->FindCachedCommand(Key, *Primitives[1]).Info;
+        const auto First = DrawLists.Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0], DrawSource.Pipeline);
+        const auto Other = DrawLists.Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[1], DrawSource.Pipeline);
+        const auto FirstInfo = DrawLists.FindCachedCommand(Key, *Primitives[0]).Info;
+        const auto OtherInfo = DrawLists.FindCachedCommand(Key, *Primitives[1]).Info;
+        const FMeshDrawDescriptionCache::FKey PreparationKey{1};
+        auto Description = std::make_shared<FMeshDrawDescription>();
+        DrawLists.MeshPreparation.Store(PreparationKey, Description);
+        ASSERT_EQ(DrawLists.MeshPreparation.Find(PreparationKey, Description->Material), Description);
         Durin::Testing::FMaterialTestState Publication;
         Publication.StaticProperties = FMaterialStaticProperties{};
         const auto Revision = Scene->GetHitProxyRevision_RenderThread();
         Durin::Testing::ApplyMaterialTestState(*A, Publication);
         EXPECT_GT(Scene->GetHitProxyRevision_RenderThread(), Revision);
         EXPECT_EQ(FirstInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);
-        EXPECT_EQ(Scene->CachedDrawLists->Num(), 1u);
+        EXPECT_EQ(DrawLists.Num(), 1u);
+        EXPECT_FALSE(DrawLists.MeshPreparation.Find(PreparationKey, Description->Material));
         Scene->UpdateStaticMeshes();
-        const auto Rebuilt = Scene->CachedDrawLists->Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0], DrawSource.Pipeline);
-        const auto RebuiltInfo = Scene->CachedDrawLists->FindCachedCommand(Key, *Primitives[0]).Info;
+        const auto Rebuilt = DrawLists.Publish(Key, DrawSource.MakeCommand(1, true), *Primitives[0], DrawSource.Pipeline);
+        const auto RebuiltInfo = DrawLists.FindCachedCommand(Key, *Primitives[0]).Info;
         Durin::Testing::FMaterialTestParameter Scalar; Scalar.Id = FGuid::NewGuid(); Scalar.Value = 0.5f;
         Publication.Parameters.push_back(Scalar);
         Durin::Testing::ApplyMaterialTestState(*A, std::move(Publication));
         EXPECT_NE(RebuiltInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);
         A->ReleaseRHI();
         EXPECT_EQ(RebuiltInfo->CommandIndex, INDEX_NONE); EXPECT_NE(OtherInfo->CommandIndex, INDEX_NONE);
-        Scene->CachedDrawLists->Reset();
+        DrawLists.Reset();
     });
     FlushRenderingCommands();
     Scene.Reset();
     FlushRenderingCommands();
     A = nullptr; B = nullptr;
     FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, PreparationCacheFollowsSceneAndGenerationLifetime)
+{
+    using namespace Durin;
+    FMeshPassRenderingThreadScope RenderingThread;
+    FSceneTestOwner SceneA, SceneB;
+    const FPrimitiveComponentId Id(19);
+    FSceneInterfaceTestAccess::AddPrimitiveProxy(*SceneA, Id,
+        std::make_unique<FStaticMeshSceneProxy>(nullptr, std::vector<FMaterialRenderProxyRef>{}), FMatrix(1));
+    const FMeshDrawDescriptionCache::FKey Key{1};
+    std::weak_ptr<const FMeshDrawDescription> Lifetime;
+    EnqueueRenderCommand("PopulateScenePreparation", [&](FRHICommandListImmediate& Commands) {
+        auto& A = SceneA->GetCachedMeshDrawCommands(Commands, {}).MeshPreparation;
+        auto& B = SceneB->GetCachedMeshDrawCommands(Commands, {}).MeshPreparation;
+        auto Description = std::make_shared<FMeshDrawDescription>();
+        Lifetime = Description;
+        A.Store(Key, Description);
+        EXPECT_FALSE(B.Find(Key, Description->Material));
+        B.Store(Key, Description);
+        FRenderResourceGeneration Changed;
+        ++Changed.Manual;
+        EXPECT_EQ(SceneB->GetCachedMeshDrawCommands(Commands, Changed).MeshPreparation.Num(), 0u);
+        EXPECT_EQ(A.Find(Key, Description->Material), Description);
+    });
+    FlushRenderingCommands();
+    ASSERT_FALSE(Lifetime.expired());
+    FSceneInterfaceTestAccess::RemovePrimitiveProxy(*SceneA, Id);
+    FlushRenderingCommands();
+    EXPECT_TRUE(Lifetime.expired());
+
+    EnqueueRenderCommand("PopulateSceneForRelease", [&](FRHICommandListImmediate& Commands) {
+        auto Description = std::make_shared<FMeshDrawDescription>();
+        Lifetime = Description;
+        SceneA->GetCachedMeshDrawCommands(Commands, {}).MeshPreparation.Store(Key, std::move(Description));
+    });
+    FlushRenderingCommands();
+    ASSERT_FALSE(Lifetime.expired());
+    SceneA.Reset();
+    FlushRenderingCommands();
+    EXPECT_TRUE(Lifetime.expired());
 }
 
 TEST(FRendererSceneContractTests, CachedStateBucketOwnsPipelineUntilSourceInvalidation)

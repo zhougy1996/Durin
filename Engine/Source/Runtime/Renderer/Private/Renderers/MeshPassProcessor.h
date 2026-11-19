@@ -287,6 +287,7 @@ namespace Durin::RendererPrivate
 		FCachedMeshDrawCommandStorage() = default;
 		RENDERER_API auto ReleaseRHI() -> void override;
 		RENDERER_API static auto ReleaseRHIForAllResources() -> void;
+		static auto InvalidateMeshPreparationForAllResources() -> void;
 		auto GetFriendlyName() const -> std::string override { return "CachedMeshDrawCommands"; }
 		RENDERER_API ~FCachedMeshDrawCommandStorage();
 		FCachedMeshDrawCommandStorage(const FCachedMeshDrawCommandStorage&) = delete;
@@ -303,6 +304,7 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto Reset() -> void;
 		auto Num() const -> size_t { return Entries.size() - FreeIndices.size(); }
 		FRenderResourceGeneration Generation;
+		FMeshDrawDescriptionCache MeshPreparation;
 	private:
 		struct FStateBucket
 		{

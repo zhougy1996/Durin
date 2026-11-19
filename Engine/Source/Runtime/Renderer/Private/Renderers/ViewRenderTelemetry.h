@@ -61,6 +61,7 @@ namespace Durin
 			FPreparationCacheEntries AfterTrim;
 			size_t AccountedBytesBeforeTrim = 0;
 			size_t AccountedBytesAfterTrim = 0;
+			size_t Evictions = 0;
 		} PreparationCache;
 		size_t DrawDescriptionReuses = 0;
 		size_t DrawDescriptionBuilds = 0;

@@ -2,11 +2,13 @@
 
 Summary: Define submission ownership, CPU preparation, resource resolution, graph execution and transactional output.
 Modules: Engine, Renderer, RenderCore, RHI
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-19
 
 ## Ownership Boundary
 
-`FSceneRenderingService` owns persistent renderers, caches, view state and allocator.
+`FSceneRenderingService` owns persistent renderers, feature resources, view state
+and the allocator. `FScene` owns its mesh draw command storage and retained mesh
+preparation data through `GetCachedMeshDrawCommands`.
 Each render command creates one `FSceneRenderPipeline` and `FSceneRenderer` with a
 submission-local `FSceneFrameContext`. The context separates logical plan, resolved
 resources, feature policy, temporal transaction and observations. Only the private
@@ -41,6 +43,26 @@ IDs while existing consumers retain their resources. Dynamic providers retain
 collection-time validation. Spline deformation changes invalidate their binding
 publication; material-only changes preserve geometry.
 
+The scene's preparation cache retains static facts, prepared sections and draw
+descriptions on the render thread. Successful lookups refresh a render-frame
+stamp. Receiver and shadow submissions in the same frame share that clock.
+Entries outside a view stay eligible for revisits. Cache admission enforces
+8,192 entries and 8 MiB of charged CPU storage per scene across all three
+tables. Section charges include the facts and descriptions they hold, so shared
+values can be charged multiple times. Scene assets, backend allocations and
+allocator overhead have separate accounting. An oversize entry or a full active
+working set uses the prepared result directly. Pressure can evict rows idle for
+two frames, once per scene per frame. An age sweep every 120 frames removes
+rows idle for at least 120 frames.
+
+Material rebinding, structural material publication, instance-list changes
+and primitive removal clear the affected scene's preparation cache. Geometry
+replacement publishes a fresh record and changed publication IDs select fresh
+entries. Shader, device and manual resource invalidation clear the registered
+preparation caches. Scene teardown releases the cache with its draw storage.
+Borrowed values keep their existing reference-counted frame lifetime through
+all these transitions.
+
 Preparation uses independent CPU tasks at 256 primitives, with 128-primitive chunks
 and at most eight active tasks per view. Missing scheduler/small views run inline;
 `DURIN_MESH_PREPARATION=inline|tasks` is a diagnostic override. Start receiver and
@@ -49,7 +71,7 @@ are not performance acceptance evidence.
 
 ### Required recording and invalidation contracts
 
-- Collected/prepared facts and command handles are frame-local. Scene mutation or
+- Collected view facts and resolved command handles are frame-local. Scene mutation or
   source release follows joined preparation/recording tasks; snapshots do not
   authorize later historical submissions.
 - Resolved views retain fallible material, geometry and pipeline resources. Draws
@@ -66,8 +88,7 @@ are not performance acceptance evidence.
   recording span. Pipeline changes, pass boundaries and foreign state changes reset
   the relevant cache. Source arguments and binding arrays stay immutable.
 - Recorded RHI payloads retain resources through replay; backend retirement retains
-  native allocations through GPU completion. Cached draw descriptions are not owners
-  of these resources.
+  native allocations through GPU completion independently of scene cache lifetime.
 
 GPUScene owns supported Primitive/Instance attributes; dirty uploads precede mesh
 binding resolution. Every drawing graph declares its exact reads and registers

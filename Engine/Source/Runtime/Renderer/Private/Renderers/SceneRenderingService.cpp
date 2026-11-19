@@ -168,7 +168,6 @@ namespace Durin
 		RendererPrivate::FCachedMeshDrawCommandStorage::ReleaseRHIForAllResources();
 		FMaterialRenderProxy::ReleaseRHIForAllResources();
 		FUniformBuffer::ReleaseRHIForAllResources();
-		MeshCommandCache.Reset();
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		GBufferRenderer.ReleaseResources_RenderThread();
 		InstanceCullingManager.ReleaseResources_RenderThread();
@@ -246,6 +245,7 @@ namespace Durin
 			ViewStates.InvalidateAll(
 				ESceneViewDiscontinuity::DeviceInvalidation
 			);
+		else RendererPrivate::FCachedMeshDrawCommandStorage::InvalidateMeshPreparationForAllResources();
 		Coordinator.Apply_RenderThread(
 			Cause,
 			{

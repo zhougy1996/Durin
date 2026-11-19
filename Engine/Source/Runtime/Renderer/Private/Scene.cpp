@@ -455,6 +455,7 @@ namespace Durin
 	}
 	auto FPrimitiveSceneInfo::BeginDeferredUpdateStaticMeshes() -> void
 	{
+		if (Scene) Scene->InvalidateMeshPreparation();
 		if (bNeedsStaticMeshUpdate) return;
 		bNeedsStaticMeshUpdate = true;
 		RemoveCachedMeshDrawCommands();
@@ -504,11 +505,32 @@ namespace Durin
 
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
+		InvalidateMeshPreparation();
 		GPUScene->RemovePrimitive(Info);
 		Info.DetachFromScene();
 		std::erase(PrimitivesNeedingStaticMeshUpdate, &Info);
 		std::erase(PrimitiveSceneInfos, &Info);
 
+	}
+
+	auto FScene::GetCachedMeshDrawCommands(FRHICommandListBase& Commands, const FRenderResourceGeneration& Generation)
+		-> RendererPrivate::FCachedMeshDrawCommandStorage&
+	{
+		CheckRenderingThread();
+		if (!CachedDrawLists) CachedDrawLists = std::make_shared<RendererPrivate::FCachedMeshDrawCommandStorage>();
+		auto& Storage = *CachedDrawLists;
+		if (Storage.Generation != Generation)
+		{
+			Storage.Reset();
+			Storage.Generation = Generation;
+		}
+		if (!Storage.IsInitialized()) Storage.InitResource(Commands);
+		return Storage;
+	}
+
+	auto FScene::InvalidateMeshPreparation() -> void
+	{
+		if (CachedDrawLists) CachedDrawLists->MeshPreparation.Reset();
 	}
 
 	auto FScene::AddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> void
@@ -605,6 +627,7 @@ namespace Durin
 				if (Instances) for (const auto& Instance : *Instances) LiveBatches.push_back(Instance.Id);
 				Found->second->RetainPrimitiveUniformBuffers(LiveBatches);
 				static_cast<FStaticMeshSceneProxy&>(Found->second->GetProxy()).SetRenderInstances(Instances);
+				InvalidateMeshPreparation();
 				Found->second->RefreshBounds();
 				Found->second->RequestGPUSceneUpdate(EGPUSceneDirtyState::InstanceData);
 			}

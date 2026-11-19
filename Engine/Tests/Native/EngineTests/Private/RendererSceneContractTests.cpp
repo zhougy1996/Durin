@@ -3180,6 +3180,40 @@ TEST(FRendererSceneContractTests, CommandDescriptionsInvalidatePolicyAndRetainUn
 	EXPECT_TRUE(Weak.expired());
 }
 
+TEST(FRendererSceneContractTests, PreparationCacheBoundsRetentionAndAgesIdleEntries)
+{
+	using namespace Durin;
+	FMeshDrawDescriptionCache Cache;
+	Cache.BeginSubmission(1);
+	auto Command = std::make_shared<FMeshDrawDescription>();
+	const FMeshDrawDescriptionCache::FKey First{1};
+	for (size_t Index = 1; Index <= FMeshDrawDescriptionCache::MaxEntries + 1; ++Index)
+		Cache.Store({Index}, Command);
+	ASSERT_GT(Cache.Num(), 0u);
+	EXPECT_LE(Cache.Num(), FMeshDrawDescriptionCache::MaxEntries);
+	EXPECT_LE(Cache.GetBudgetedBytes(), FMeshDrawDescriptionCache::MaxBytes);
+	const FMeshDrawDescriptionCache::FKey Rejected{FMeshDrawDescriptionCache::MaxEntries + 1};
+	EXPECT_FALSE(Cache.Find(Rejected, Command->Material));
+
+	Cache.BeginSubmission(2);
+	ASSERT_EQ(Cache.Find(First, Command->Material), Command);
+	Cache.BeginSubmission(3);
+	Cache.Store(Rejected, Command);
+	EXPECT_GT(Cache.GetEvictions(), 0u);
+	EXPECT_EQ(Cache.Find(First, Command->Material), Command);
+	EXPECT_EQ(Cache.Find(Rejected, Command->Material), Command);
+
+	Cache.BeginSubmission(3 + FMeshDrawDescriptionCache::MaxIdleFrames);
+	Cache.EndSubmission();
+	EXPECT_EQ(Cache.Num(), 0u);
+	EXPECT_EQ(Cache.GetBudgetedBytes(), 0u);
+
+	auto Oversize = std::make_shared<FMeshDrawDescription>();
+	Oversize->SortKey.VertexFactory.reserve(FMeshDrawDescriptionCache::MaxBytes / sizeof(uint32));
+	Cache.Store(First, Oversize);
+	EXPECT_EQ(Cache.Num(), 0u);
+}
+
 TEST(FRendererSceneContractTests, CompactOrderingMatchesFullKeysAndRetainsTemplateStorage)
 {
 	using namespace Durin;

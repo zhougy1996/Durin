@@ -84,13 +84,15 @@ namespace Durin
 		const FSceneView& RenderView = PreparedView.View;
 		Context.Logical.Requirements = BuildSceneViewRequirements(RenderView, Options, Context.Logical.Qualification);
 		FStaticMeshPreparationCache MeshPreparationCache;
-		Service.MeshCommandCache.BeginSubmission();
+		auto& Cache = Scene->GetCachedMeshDrawCommands(CommandList, Service.Coordinator.GetGeneration_RenderThread()).MeshPreparation;
+		Cache.BeginSubmission();
 		const bool bObserveCache = IsViewRenderTelemetryObserved();
 		struct FEndCommandSubmission
 		{
 			FMeshDrawDescriptionCache& Cache;
 			FStaticMeshRenderTelemetry::FPreparationCacheObservation* Observation;
 			bool bMeasureBytes;
+			size_t EvictionsAtStart;
 
 			auto GetEntries() const -> FStaticMeshRenderTelemetry::FPreparationCacheEntries
 			{
@@ -102,15 +104,19 @@ namespace Durin
 				if (Observation) Observation->BeforeTrim = GetEntries();
 				if (bMeasureBytes) Observation->AccountedBytesBeforeTrim = Cache.GetAccountedBytes();
 				Cache.EndSubmission();
-				if (Observation) Observation->AfterTrim = GetEntries();
+				if (Observation)
+				{
+					Observation->AfterTrim = GetEntries();
+					Observation->Evictions = Cache.GetEvictions() - EvictionsAtStart;
+				}
 				if (bMeasureBytes) Observation->AccountedBytesAfterTrim = Cache.GetAccountedBytes();
 			}
-		} EndCommandSubmission{Service.MeshCommandCache,
+		} EndCommandSubmission{Cache,
 			bObserveCache ? &Telemetry.View.StaticMesh.PreparationCache : nullptr,
-			bObserveCache && Context.Logical.Qualification.bMeasurePreparationCacheMemory};
+			bObserveCache && Context.Logical.Qualification.bMeasurePreparationCacheMemory, Cache.GetEvictions()};
 		if (EndCommandSubmission.Observation)
 			EndCommandSubmission.Observation->AtStart = EndCommandSubmission.GetEntries();
-		MeshPreparationCache.Commands = &Service.MeshCommandCache;
+		MeshPreparationCache.Commands = &Cache;
 		std::optional<FStaticMeshPreparationWork> ReceiverWork;
 		if (Options.Environment)
 		{

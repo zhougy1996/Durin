@@ -93,30 +93,80 @@ namespace Durin
 		}
 	}
 
-	auto FMeshDrawDescriptionCache::BeginSubmission() -> void
+	namespace
 	{
-		for (auto& [Key, Entry] : Entries) Entry.bUsed = false;
-		for (auto& [Key, Entry] : StaticFacts)
-			Entry.bUsed = false;
-		for (auto& [Key, Entry] : StaticSections)
-			Entry.bUsed = false;
+		auto DescriptionBytes(const FMeshDrawDescription& Value) -> size_t
+		{ return sizeof(Value) + Value.SortKey.VertexFactory.capacity() * sizeof(uint32); }
+
+		auto FactsBytes(const FStaticMeshSectionFacts& Value) -> size_t
+		{ return sizeof(Value) + Value.Elements.capacity() * sizeof(FStaticMeshSectionFact); }
+
+		auto SectionsBytes(const FStaticMeshPassSections& Value) -> size_t
+		{ return sizeof(Value) + Value.Commands.capacity() * sizeof(decltype(Value.Commands)::value_type); }
+	}
+
+	auto FMeshDrawDescriptionCache::BeginSubmission(uint64 InFrame) -> void
+	{
+		if (InFrame < Frame) Reset();
+		Frame = InFrame;
 	}
 
 	auto FMeshDrawDescriptionCache::EndSubmission() -> void
 	{
-		auto Trim = [](auto& Table) {
-			// Keep the active working set; scan idle entries once even after large scene changes.
-			for (auto It = Table.begin(); Table.size() > 512 && It != Table.end();)
-			{
-				if (!It->second.bUsed)
-					It = Table.erase(It);
-				else
-					++It;
-			}
+		if (Frame - LastAgeSweep < MaxIdleFrames) return;
+		EvictIdle(MaxIdleFrames);
+		LastAgeSweep = Frame;
+	}
+
+	auto FMeshDrawDescriptionCache::EvictIdle(uint64 IdleFrames) -> void
+	{
+		const auto Trim = [&](auto& Table) {
+			Evictions += std::erase_if(Table, [&](const auto& Pair) {
+				if (Frame - Pair.second.LastAccessFrame < IdleFrames) return false;
+				BudgetedBytes -= Pair.second.Charge;
+				return true;
+			});
 		};
 		Trim(Entries);
 		Trim(StaticSections);
 		Trim(StaticFacts);
+	}
+
+	template<typename TTable, typename T>
+	auto FMeshDrawDescriptionCache::StoreEntry(TTable& Table, const typename TTable::key_type& Key,
+		std::shared_ptr<const T> Value, size_t Weight) -> void
+	{
+		if (const auto Existing = Table.find(Key); Existing != Table.end())
+		{
+			BudgetedBytes -= Existing->second.Charge;
+			Table.erase(Existing);
+		}
+		if (Weight > MaxBytes - sizeof(typename TTable::value_type)) return;
+		const size_t Charge = Weight + sizeof(typename TTable::value_type);
+		const auto HasRoom = [&] {
+			return Entries.size() + StaticFacts.size() + StaticSections.size() < MaxEntries
+				&& Charge <= MaxBytes - BudgetedBytes;
+		};
+		if (!HasRoom() && LastPressureSweep != Frame)
+		{
+			// Preserve the two most recent frame working sets. Oversize views can
+			// still prepare draws without admitting every result to the cache.
+			EvictIdle(2);
+			LastPressureSweep = Frame;
+		}
+		if (!HasRoom()) return;
+		Table.emplace(Key, typename TTable::mapped_type{std::move(Value), Frame, Charge});
+		BudgetedBytes += Charge;
+	}
+
+	auto FMeshDrawDescriptionCache::Reset() -> void
+	{
+		Entries.clear();
+		StaticFacts.clear();
+		StaticSections.clear();
+		BudgetedBytes = 0;
+		LastAgeSweep = Frame = 0;
+		LastPressureSweep.reset();
 	}
 
 	auto FMeshDrawDescriptionCache::GetAccountedBytes() const -> size_t
@@ -129,19 +179,19 @@ namespace Durin
 		std::unordered_set<const FStaticMeshPassSections*> Sections;
 		const auto CountDescription = [&](const FMeshDrawDescription* Description) {
 			if (Description && Descriptions.insert(Description).second)
-				Bytes += sizeof(*Description) + Description->SortKey.VertexFactory.capacity() * sizeof(uint32);
+				Bytes += DescriptionBytes(*Description);
 		};
 		const auto CountFacts = [&](const FStaticMeshSectionFacts* Value) {
 			if (Value && Facts.insert(Value).second)
-				Bytes += sizeof(*Value) + Value->Elements.capacity() * sizeof(FStaticMeshSectionFact);
+				Bytes += FactsBytes(*Value);
 		};
-		for (const auto& [Key, Entry] : Entries) CountDescription(Entry.Command.get());
+		for (const auto& [Key, Entry] : Entries) CountDescription(Entry.Value.get());
 		for (const auto& [Key, Entry] : StaticFacts) CountFacts(Entry.Value.get());
 		for (const auto& [Key, Entry] : StaticSections)
 		{
 			const auto& Value = *Entry.Value;
 			if (!Sections.insert(&Value).second) continue;
-			Bytes += sizeof(Value) + Value.Commands.capacity() * sizeof(decltype(Value.Commands)::value_type);
+			Bytes += SectionsBytes(Value);
 			CountFacts(Value.Facts.get());
 			for (const auto& Command : Value.Commands) CountDescription(Command.get());
 		}
@@ -152,16 +202,17 @@ namespace Durin
 		-> std::shared_ptr<const FMeshDrawDescription>
 	{
 		const auto It = Entries.find(Key);
-		if (It == Entries.end() || It->second.Command->Material.PlanningPassIdentity != Material.PlanningPassIdentity
-			|| It->second.Command->Material.CompiledProgram != Material.CompiledProgram
-			|| It->second.Command->Material.UniformExpressionCache != Material.UniformExpressionCache) return {};
-		It->second.bUsed = true;
-		return It->second.Command;
+		if (It == Entries.end() || It->second.Value->Material.PlanningPassIdentity != Material.PlanningPassIdentity
+			|| It->second.Value->Material.CompiledProgram != Material.CompiledProgram
+			|| It->second.Value->Material.UniformExpressionCache != Material.UniformExpressionCache) return {};
+		It->second.LastAccessFrame = Frame;
+		return It->second.Value;
 	}
 
 	auto FMeshDrawDescriptionCache::Store(const FKey& Key, std::shared_ptr<const FMeshDrawDescription> Command) -> void
 	{
-		Entries.insert_or_assign(Key, FEntry{std::move(Command), true});
+		const size_t Weight = DescriptionBytes(*Command);
+		StoreEntry(Entries, Key, std::move(Command), Weight);
 	}
 
 	auto FMeshDrawDescriptionCache::CaptureStaticFacts(const std::shared_ptr<const FStaticMeshBatchInputs>& Inputs,
@@ -172,7 +223,7 @@ namespace Durin
 		const FStaticKey Key{reinterpret_cast<uintptr_t>(Inputs.get()), bShadow ? 1u : 0u};
 		if (const auto Found = StaticFacts.find(Key); Found != StaticFacts.end())
 		{
-			Found->second.bUsed = true;
+			Found->second.LastAccessFrame = Frame;
 			return Found->second.Value;
 		}
 		auto Binding = std::dynamic_pointer_cast<const FVertexFactoryInputBinding>(Inputs->Geometry->GetBinding());
@@ -200,7 +251,7 @@ namespace Durin
 				if (Element.bSupportsPreparation)
 					Element.bSupportsGBuffer = Facts->Factory->Supports(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), Draw);
 			}
-		StaticFacts.emplace(Key, FFactsEntry{Facts, true});
+		StoreEntry(StaticFacts, Key, std::shared_ptr<const FStaticMeshSectionFacts>(Facts), FactsBytes(*Facts));
 		return Facts;
 	}
 	auto FMeshDrawDescriptionCache::FindStaticSections(const std::shared_ptr<const FStaticMeshBatchInputs>& Inputs,
@@ -209,7 +260,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		const auto Found = StaticSections.find(FStaticKey{reinterpret_cast<uintptr_t>(Inputs.get()), Policy});
 		if (Found == StaticSections.end()) return {};
-		Found->second.bUsed = true;
+		Found->second.LastAccessFrame = Frame;
 		return Found->second.Value;
 	}
 	auto FMeshDrawDescriptionCache::StoreStaticSections(
@@ -217,7 +268,15 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		const FStaticKey Key{reinterpret_cast<uintptr_t>(Sections->Facts->Inputs.get()), Policy};
-		StaticSections.insert_or_assign(Key, FSectionsEntry{std::move(Sections), true});
+		// A section owns its facts and descriptions even when other table rows
+		// are evicted. Charge the full graph conservatively on admission.
+		size_t Weight = SectionsBytes(*Sections) + FactsBytes(*Sections->Facts);
+		for (const auto& Command : Sections->Commands)
+		{
+			if (Command) Weight += DescriptionBytes(*Command);
+			if (Weight > MaxBytes) return;
+		}
+		StoreEntry(StaticSections, Key, std::move(Sections), Weight);
 	}
 
 	auto FStaticMeshPreparationCache::ResolveTransform(FPrimitiveComponentId PrimitiveId,
