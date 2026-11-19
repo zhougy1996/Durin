@@ -1163,8 +1163,8 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	EXPECT_EQ(Mesh->GetRenderData(), OriginalRender);
 	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, RenderRevision);
 	const auto CollisionRevision = Mesh->GetBodySetup()->GetCollisionBuildRevision();
-	const auto FirstRegistration = First->GetPhysicsRegistrationGeneration();
-	const auto SecondRegistration = Second->GetPhysicsRegistrationGeneration();
+	const auto FirstBody = First->GetPhysicsActorHandle();
+	const auto SecondBody = Second->GetPhysicsActorHandle();
 	ASSERT_TRUE(Mesh->Build(Durin::EStaticMeshBuildMode::Synchronous));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetCollisionBuildRevision(), CollisionRevision);
 	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 1u);
@@ -1173,8 +1173,8 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	Mesh->GetBodySetup()->FinishPhysicsMeshes();
 	EXPECT_EQ(Mesh->GetBodySetup()->GetCollisionBuildRevision(), CollisionRevision);
-	EXPECT_EQ(First->GetPhysicsRegistrationGeneration(), FirstRegistration);
-	EXPECT_EQ(Second->GetPhysicsRegistrationGeneration(), SecondRegistration);
+	EXPECT_TRUE(FirstWorld->GetPhysicsScene().ContainsBody(FirstBody));
+	EXPECT_TRUE(SecondWorld->GetPhysicsScene().ContainsBody(SecondBody));
 	const std::optional<Durin::FBox> Bounds = Mesh->GetLOD0LocalBounds();
 	ASSERT_TRUE(Bounds.has_value());
 	const Durin::FVector3 Center = Bounds->GetCenter();
@@ -1188,6 +1188,10 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 		Hit, {Bounds->Min.x - 1.0, Center.y, Center.z},
 		{Bounds->Max.x + 1.0, Center.y, Center.z}, Durin::ECollisionChannel::Visibility, ComplexQuery));
 	EXPECT_EQ(Hit.Component, First);
+	ASSERT_TRUE(SecondWorld->LineTraceSingleByChannel(
+		Hit, {Bounds->Min.x - 1.0, Center.y, Center.z},
+		{Bounds->Max.x + 1.0, Center.y, Center.z}, Durin::ECollisionChannel::Visibility, ComplexQuery));
+	EXPECT_EQ(Hit.Component, Second);
 
 	Mesh->SetCollisionQueryPolicy(Durin::EBodySetupCollisionQueryPolicy::SimpleOnly);
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
@@ -2186,15 +2190,17 @@ TEST(FPhysicsWorldTests, QualifiedBoxUsesGeometryNotificationsAndRenderPublicati
 	ASSERT_TRUE(FStaticMeshTestAccess::Build(Mesh, std::move(Source)));
 	ASSERT_NE(Mesh->GetBodySetup(), nullptr);
 	ASSERT_TRUE(Component->GetPhysicsActorHandle().IsValid());
-	const auto Generation = Component->GetPhysicsRegistrationGeneration();
+	const auto Body = Component->GetPhysicsActorHandle();
 	const auto BodyRevision = Mesh->GetBodySetup()->GetRevision();
 	auto Render = BuildStaticMeshRenderData({.Settings = MakeStaticMeshBuildSettings(Mesh->GetMaterialSlots(), Mesh->GetNormalizedSize()), .Source = Mesh->GetSource()});
 	ASSERT_TRUE(Render);
 	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, std::move(*Render)));
-	EXPECT_EQ(Component->GetPhysicsRegistrationGeneration(), Generation);
+	EXPECT_EQ(Component->GetPhysicsActorHandle(), Body);
+	EXPECT_TRUE(World->GetPhysicsScene().ContainsBody(Body));
 	EXPECT_EQ(Mesh->GetBodySetup()->GetRevision(), BodyRevision);
 	EXPECT_FALSE(FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {}));
 	EXPECT_EQ(Mesh->GetBodySetup(), nullptr);
+	EXPECT_FALSE(World->GetPhysicsScene().ContainsBody(Body));
 	EXPECT_FALSE(Component->GetPhysicsActorHandle().IsValid());
 	MarkObjectHierarchyAsGarbage(World);
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage());

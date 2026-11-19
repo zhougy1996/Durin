@@ -117,13 +117,43 @@ TEST(FViewportPickingContractTests, RejectsTargetsRetiredDuringSynchronousQuery)
 	State->DuringPick = [&] { Fixture.Actor->SetActorHiddenInGame(true); };
 	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f}).Status, EViewportPickStatus::Invalid);
 	Fixture.Actor->SetActorHiddenInGame(false);
-	State->DuringPick = [&] {
-		Fixture.Actor->GetStaticMeshComponent()->UnregisterComponent();
-		Fixture.Actor->GetStaticMeshComponent()->RegisterComponent();
-	};
-	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f}).Status, EViewportPickStatus::Invalid);
 	State->DuringPick = [&] { EXPECT_TRUE(Fixture.Level->DestroyActor(Fixture.Actor)); Durin::CollectGarbage(Durin::EObjectFlags::Standalone); };
 	EXPECT_EQ(Fixture.Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f}).Status, EViewportPickStatus::Invalid);
+}
+
+TEST(FViewportPickingContractTests, ReregisteringSameComponentRejectsOldMapAndRefreshesEachViewport)
+{
+	using namespace Durin::LevelEditor;
+	FPickingFixture Fixture;
+	FLevelEditorViewportClient Second;
+	Second.InitializeForLevel(Fixture.Level);
+	auto FirstState = std::make_shared<FFakePickingState>();
+	auto SecondState = std::make_shared<FFakePickingState>();
+	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(FirstState));
+	Second.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(SecondState));
+	auto Pick = [&](FLevelEditorViewportClient& Client) {
+		return Client.PickViewport(Fixture.Level, Fixture.View, {400.f, 300.f});
+	};
+	ASSERT_TRUE(Pick(Second).Hit);
+	auto* Component = Fixture.Actor->GetStaticMeshComponent();
+	FirstState->DuringPick = [&] {
+		Component->UnregisterComponent();
+		Component->RegisterComponent();
+	};
+	const auto Stale = Pick(Fixture.Client);
+	ASSERT_TRUE(Component->IsRegistered());
+	EXPECT_EQ(Stale.Status, EViewportPickStatus::Invalid);
+	EXPECT_FALSE(Stale.Hit);
+	FirstState->DuringPick = {};
+	for (auto* Client : {&Fixture.Client, &Second})
+	{
+		const auto Fresh = Pick(*Client);
+		ASSERT_EQ(Fresh.Status, EViewportPickStatus::Completed);
+		ASSERT_TRUE(Fresh.Hit);
+		EXPECT_EQ(Fresh.Hit->Component.Get(), Component);
+	}
+	EXPECT_EQ(FirstState->Invalidations, 1u);
+	EXPECT_EQ(SecondState->Invalidations, 1u);
 }
 
 TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHistory)

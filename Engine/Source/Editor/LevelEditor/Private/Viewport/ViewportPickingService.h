@@ -22,7 +22,6 @@ namespace Durin::LevelEditor
 		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<DActorComponent> Component;
-		uint64 RegistrationGeneration = 0;
 		EViewportPickHitKind Kind = EViewportPickHitKind::SceneGeometry;
 		FEditorSubElementSelection Element;
 	};
@@ -53,5 +52,6 @@ namespace Durin::LevelEditor
 		auto ValidateHit(DLevel* Level, const FViewportPickHit& Hit) const -> bool;
 		std::unique_ptr<IViewportPickingBackend> Backend;
 		TWeakObjectPtr<DLevel> CurrentLevel;
+		uint64 CachedHitProxyRevision = 0;
 	};
 } // namespace Durin::LevelEditor

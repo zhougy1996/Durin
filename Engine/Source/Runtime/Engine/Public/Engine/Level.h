@@ -77,6 +77,7 @@ namespace Durin
 		ENGINE_API auto PostLoad() -> void override;
 
 #if DURIN_WITH_EDITOR
+		auto GetEditorHitProxyRevision() const -> uint64 { return EditorHitProxyRevision; }
 		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }
 #endif
 
@@ -87,6 +88,7 @@ namespace Durin
 		auto SetOwningWorld(DWorld* World) -> void { OwningWorld = World; }
 
 #if DURIN_WITH_EDITOR
+		auto InvalidateEditorHitProxies() -> void { ++EditorHitProxyRevision; }
 		auto NotifyEditorActorHierarchyChanged() -> void { ++EditorActorHierarchyRevision; }
 #endif
 
@@ -106,10 +108,12 @@ namespace Durin
 		FTickRegistry TickRegistry;
 
 #if DURIN_WITH_EDITOR
+		uint64 EditorHitProxyRevision = 1;
 		uint64 EditorActorHierarchyRevision = 1;
 #endif
 
 		friend class AActor;
+		friend class DActorComponent;
 		friend class DSceneComponent;
 		friend class DPrimitiveComponent;
 		friend class DWorld;

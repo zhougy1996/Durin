@@ -85,8 +85,6 @@ namespace Durin
 		auto IsRegistered() const -> bool { return bRegistered; }
 		auto GetCreationMethod() const -> EComponentCreationMethod { return CreationMethod; }
 		auto IsOwnedByActor() const -> bool { return bOwnedByActor; }
-		// Advances after every successful registration or unregistration transition.
-		auto GetRegistrationGeneration() const -> uint64 { return RegistrationGeneration; }
 		auto HasBegunPlay() const -> bool { return PlayState != EComponentPlayState::NotBegun; }
 		auto IsBeginningPlay() const -> bool { return PlayState == EComponentPlayState::BeginningPlay; }
 		auto IsEndingPlay() const -> bool { return PlayState == EComponentPlayState::EndingPlay; }
@@ -145,7 +143,6 @@ namespace Durin
 
 		EComponentPlayState PlayState = EComponentPlayState::NotBegun;
 		EComponentDestructionState DestructionState = EComponentDestructionState::Alive;
-		uint64 RegistrationGeneration = 0;
 		bool bEndPlayRequested = false;
 		FActorComponentTickFunction PrimaryComponentTick;
 

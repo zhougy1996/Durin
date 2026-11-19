@@ -471,7 +471,6 @@ TEST(FComponentMutationTests, AdditionUndoRedoBalancesLifecycleAndSceneMembershi
 	EXPECT_EQ(Light->Initialized, 1u);
 	EXPECT_TRUE(Light->GetPrimaryComponentTick().IsTickFunctionRegistered());
 	ASSERT_TRUE(F.Scene.Lights.contains(Light));
-	const auto Generation = Light->GetRegistrationGeneration();
 	for (uint32 Repeat = 0; Repeat < 2; ++Repeat)
 	{
 		ASSERT_TRUE(F.Transactions->Undo());
@@ -495,7 +494,6 @@ TEST(FComponentMutationTests, AdditionUndoRedoBalancesLifecycleAndSceneMembershi
 		EXPECT_TRUE(F.Scene.Lights.contains(Light));
 		EXPECT_FALSE(IsPackageCaptureObjectOmitted(Light));
 	}
-	EXPECT_GT(Light->GetRegistrationGeneration(), Generation);
 }
 
 TEST(FComponentMutationTests, AdditionPreservesDefaultsAndExplicitChildSnapsBeforeCreation)

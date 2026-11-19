@@ -199,6 +199,10 @@ namespace Durin
 	{
 		check(bRegistered);
 		bRegistered = false;
+#if DURIN_WITH_EDITOR
+		if (auto* Level = GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr)
+			Level->InvalidateEditorHitProxies();
+#endif
 	}
 
 	auto DActorComponent::OnComponentCreated() -> void
@@ -294,7 +298,6 @@ namespace Durin
 			OnRegister();
 			if (!IsValid(this) || IsBeingDestroyed()) return;
 			check(bRegistered && "Failed to route OnRegister()");
-			++RegistrationGeneration;
 		}
 	}
 
@@ -304,7 +307,6 @@ namespace Durin
 		{
 			OnUnregister();
 			check(!bRegistered && "Failed to route OnUnregister()");
-			++RegistrationGeneration;
 		}
 	}
 }

@@ -25,7 +25,7 @@ namespace Durin::LevelEditor
 				if (Overlays.size() >= 65536) { bOverflow = true; return; }
 				const uint32 Token = uint32(Targets.size() + 1);
 				Targets.push_back({Token, FPrimitiveComponentId{}, Actor, Component,
-					Component->GetRegistrationGeneration(), EViewportPickHitKind::EditorVisualization,
+					EViewportPickHitKind::EditorVisualization,
 					Source.Element});
 				FHitProxyOverlay Overlay;
 				Overlay.Id = FHitProxyId{Token};
@@ -120,6 +120,7 @@ namespace Durin::LevelEditor
 	{
 		Backend->Invalidate();
 		CurrentLevel = Level;
+		CachedHitProxyRevision = Level ? Level->GetEditorHitProxyRevision() : 0;
 	}
 
 	auto FViewportPickingService::Pick(const FViewportPickRequest& Request, const FEditorVisualizationCollector* Visualizations) -> FViewportPickResult
@@ -130,6 +131,12 @@ namespace Durin::LevelEditor
 		if (!SceneViewProjection::BuildViewportRay(Request.View, Request.ViewportPosition, RayOrigin, RayDirection)
 			|| !Math::IsFinite(RayOrigin) || !Math::IsFinite(RayDirection)) return {EViewportPickStatus::Invalid};
 
+		const uint64 HitProxyRevision = Level->GetEditorHitProxyRevision();
+		if (CachedHitProxyRevision != HitProxyRevision)
+		{
+			Backend->Invalidate();
+			CachedHitProxyRevision = HitProxyRevision;
+		}
 		FHitProxyRenderRequest Render;
 		Render.View = Request.View;
 		Render.bSceneGeometry = EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry);
@@ -147,7 +154,7 @@ namespace Durin::LevelEditor
 					const FPrimitiveComponentId PrimitiveId = Component->GetPrimitiveComponentId();
 					if (PrimitiveId == InvalidPrimitiveComponentId) continue;
 					Targets.push_back({static_cast<uint32>(Targets.size() + 1), PrimitiveId,
-						Actor, Component, Component->GetRegistrationGeneration()});
+						Actor, Component});
 				}
 			}
 		}
@@ -159,6 +166,8 @@ namespace Durin::LevelEditor
 			if (Target.Kind == EViewportPickHitKind::SceneGeometry) Render.Primitives.push_back({Target.PrimitiveId.Value, FHitProxyId{Target.Token}});
 		Render.Overlays = std::move(Overlays);
 		const auto Map = Backend->GetHitProxyMap(Level->GetWorld() ? Level->GetWorld()->GetRenderScene() : nullptr, std::move(Render));
+		if (CurrentLevel.Get() != Level || Level->GetEditorHitProxyRevision() != HitProxyRevision)
+			return {EViewportPickStatus::Invalid};
 		FHitProxyPixel Pixel;
 		if (!Map || !Map->ReadPixel(uint32(Request.ViewportPosition.x), uint32(Request.ViewportPosition.y), Pixel)) return {EViewportPickStatus::Failed};
 		if (!Pixel.Id) return {EViewportPickStatus::Completed};
@@ -182,8 +191,7 @@ namespace Durin::LevelEditor
 			.Distance = Distance,
 		};
 		if (!std::isfinite(Hit.Distance) || Hit.Distance < 0.0) return {EViewportPickStatus::Failed};
-		if (!It->Component.Get() || It->Component.Get()->GetRegistrationGeneration() != It->RegistrationGeneration
-			|| !ValidateHit(Level, Hit)) return {EViewportPickStatus::Invalid};
+		if (!ValidateHit(Level, Hit)) return {EViewportPickStatus::Invalid};
 		return {EViewportPickStatus::Completed, Hit};
 	}
 

@@ -56,7 +56,6 @@ namespace Durin
 	auto DPrimitiveComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
-		++PhysicsRegistrationGeneration;
 		EnsurePrimitiveComponentId();
 		CreateRenderState();
 		ApplyPhysicsStateCreationPolicy();
@@ -65,7 +64,6 @@ namespace Durin
 	auto DPrimitiveComponent::OnUnregister() -> void
 	{
 		PSOPrecacheComponentData.Reset();
-		++PhysicsRegistrationGeneration;
 		DestroyPhysicsState();
 		DestroyRenderState();
 		Super::OnUnregister();

@@ -101,7 +101,6 @@ namespace Durin
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
 		auto GetPhysicsBodyMotionType() const -> EPhysicsBodyMotionType { return BodyInstance.MotionType; }
 		auto GetPublishedBodySetupRevision() const -> uint64 { return BodyInstance.PublishedBodySetupRevision; }
-		auto GetPhysicsRegistrationGeneration() const -> uint64 { return PhysicsRegistrationGeneration; }
 		// Migrates an existing scene body between spatial partitions without exposing index state.
 		ENGINE_API auto SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void;
 		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
@@ -150,7 +149,6 @@ namespace Durin
 		std::string PSOPrecacheDiagnostic;
 		// Non-owning publication token; the scene keeps the proxy alive until its removal command runs.
 		FPrimitiveSceneProxy* SceneProxy = nullptr;
-		uint64 PhysicsRegistrationGeneration = 0;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
 		DPROPERTY(Category = "Rendering", Edit)
 		bool bVisible = true;
