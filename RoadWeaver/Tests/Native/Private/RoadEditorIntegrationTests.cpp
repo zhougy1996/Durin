@@ -144,9 +144,9 @@ namespace
 		ASSERT_TRUE(ValidateDefinition(Changed));
 		FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Add road", *Transactor));
-		ASSERT_EQ(Session.Apply(Capture(Changed)).GetStatus(), EPropertyEditResult::Changed);
+		ASSERT_TRUE(Session.Apply(Capture(Changed)));
 		ExpectPreview(Changed);
-		ASSERT_EQ(Session.Commit().GetStatus(), EPropertyEditResult::Changed);
+		ASSERT_TRUE(Session.Commit());
 		EXPECT_EQ((Transactor->GetQueueLength() - Transactor->GetUndoCount()), 1u);
 		EXPECT_TRUE(Package->IsDirty());
 		ASSERT_TRUE(Transactor->Undo());
@@ -161,9 +161,9 @@ namespace
 	{
 		FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Cancel road addition", *Transactor));
-		ASSERT_EQ(Session.Apply(Capture(AddRoad())).GetStatus(), EPropertyEditResult::Changed);
+		ASSERT_TRUE(Session.Apply(Capture(AddRoad())));
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
-		ASSERT_EQ(Session.Cancel().GetStatus(), EPropertyEditResult::Changed);
+		ASSERT_TRUE(Session.Cancel());
 		ExpectPreview(Original);
 		// Native Modify marks dirty even when preview restoration or rejection leaves no history.
 		EXPECT_TRUE(Package->IsDirty());
@@ -177,8 +177,8 @@ namespace
 		const auto Before = Actor->GetAlignments().front();
 		FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Reject duplicate lane", *Transactor));
-		EXPECT_EQ(Session.Apply(Capture(Invalid)).GetStatus(), EPropertyEditResult::Failed);
-		EXPECT_EQ(Session.Commit().GetStatus(), EPropertyEditResult::NoChange);
+		EXPECT_FALSE(Session.Apply(Capture(Invalid)));
+		EXPECT_TRUE(Session.Commit());
 		ExpectPreview(Original);
 		EXPECT_EQ(Actor->GetAlignments().front(), Before);
 		// Native Modify marks dirty even when preview restoration or rejection leaves no history.

@@ -576,11 +576,18 @@ Sparse GUID-keyed presentation gestures preserve unrelated positions/labels;
 parameter gestures replay through the owner's expression-backed parameter setter.
 
 Material-instance color overrides and graph color defaults share the color picker
-and its popup lifetime, not the property write path. Both preview while the popup
-is open and commit one undo step on normal dismissal. Escape or losing the edited
-row restores the original value without history. Instance colors use the reflected
-override array and linear LDR controls; graph defaults use the parameter setter
-and linear HDR controls, including numeric RGB values above one.
+and its popup lifetime. Both preview while the popup is open and commit one undo
+step on normal dismissal. Escape or losing the edited row restores the original
+value without history. Instance colors use the reflected override array and
+linear LDR controls. Graph defaults use the parameter setter and linear HDR
+controls, including numeric RGB values above one.
+
+Graph scalar, vector and color controls collect input during drawing and use
+the [shared frame settlement](../PropertyEditing/ReflectedPropertyEditing.md#edit-session-lifecycle)
+after all rows are drawn. The current parameter's final value and terminal action
+are processed before applying a new parameter's proposal, regardless of draw
+order. The graph's parameter session still owns preview, rollback and history
+through the domain command path.
 These retained custom responsibilities and participants are listed in the
 [transactor consumer audit](../Transactions/Transactors.md#structural-history-and-barriers).
 

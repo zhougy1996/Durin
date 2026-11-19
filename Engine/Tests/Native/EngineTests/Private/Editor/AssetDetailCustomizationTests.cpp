@@ -60,7 +60,7 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 	auto* Collection = Durin::NewObject<Durin::DMaterialParameterCollection>(nullptr, "UndoDetailsCollection");
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
-	Durin::FPropertyViewContext Context{.ReportError = [&](std::string Message) { Error = Message; }};
+	Durin::FPropertyViewContext Context{.ReportPropertyError = [&](std::string Message) { Error = Message; }};
 	Durin::FPropertyView View;
 	ASSERT_TRUE(View.HandleOwnerContext(Context, Texture));
 	Durin::FDetailLayoutBuilder TextureLayout;

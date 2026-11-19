@@ -203,7 +203,7 @@ namespace Durin::LevelEditor
 		const FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
 		if (!PropertyView.HandleOwnerContext(ViewContext, Object))
 		{
-			ImGui::TextDisabled("The active property preview must be restored before changing targets.");
+			PropertyView.DrawInteractionError();
 			return;
 		}
 		if (!Object)
@@ -230,7 +230,6 @@ namespace Durin::LevelEditor
 			.ExtendLayout = [&](FDetailLayoutBuilder& Layout) {
 				BuildActorComponentDetails(Context, Cast<AActor>(Object), Layout, PropertySearchText.data());
 			}});
-		PropertyView.EndInteractionFrame(ViewContext);
 		ImGui::EndChild();
 	}
 

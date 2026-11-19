@@ -15,11 +15,13 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/MathStructs.h"
 #include "DObject/Package.h"
+#include "Editor/EditorEngine.h"
 #include "Asset/AssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
+#include "Notifications/EditorNotificationSubsystem.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
 
@@ -28,11 +30,6 @@ namespace Durin
 	namespace
 	{
 		using StringUtils::ContainsInsensitive;
-
-		auto HasSubmittedChange(const FPropertyEditOperationResult& Result) -> bool
-		{
-			return Result.GetStatus() == EPropertyEditResult::Changed || Result.GetStatus() == EPropertyEditResult::Pending;
-		}
 
 		auto AcceptPropertyResult(const std::expected<void, FPropertyValueError>& Result, std::string& OutError) -> bool
 		{
@@ -313,6 +310,63 @@ namespace Durin
 			return {};
 		}
 
+		auto DrawNumericProperty(const FProperty& Property, ImGuiDataType DataType, void* Value,
+			MonaImGui::PropertyEdit::FWidgetState& OutState) -> bool
+		{
+			const auto Kind = Property.GetKind();
+			alignas(uint64) std::array<std::byte, sizeof(uint64)> MinimumStorage{};
+			alignas(uint64) std::array<std::byte, sizeof(uint64)> MaximumStorage{};
+			const FPropertyMetadata& Metadata = Property.GetTypedMetadata();
+			const float Speed = static_cast<float>(PropertyDragSpeed(Metadata,
+				Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05 : 1.0));
+			auto StoreLimit = [&](const FPropertyMetadataNumber& Number, auto& Storage) -> const void* {
+				if (Number.Kind == EPropertyMetadataNumericKind::None) return nullptr;
+				auto Store = [&](auto TypedValue) -> const void* {
+					std::memcpy(Storage.data(), &TypedValue, sizeof(TypedValue));
+					return Storage.data();
+				};
+				switch (Kind)
+				{
+				case DurinCodeGen::EPropertyGenFlags::Int8: return Store(static_cast<int8>(Number.Signed));
+				case DurinCodeGen::EPropertyGenFlags::Int16: return Store(static_cast<int16>(Number.Signed));
+				case DurinCodeGen::EPropertyGenFlags::Int32: return Store(static_cast<int32>(Number.Signed));
+				case DurinCodeGen::EPropertyGenFlags::Int64: return Store(Number.Signed);
+				case DurinCodeGen::EPropertyGenFlags::UInt8: return Store(static_cast<uint8>(Number.Unsigned));
+				case DurinCodeGen::EPropertyGenFlags::UInt16: return Store(static_cast<uint16>(Number.Unsigned));
+				case DurinCodeGen::EPropertyGenFlags::UInt32: return Store(static_cast<uint32>(Number.Unsigned));
+				case DurinCodeGen::EPropertyGenFlags::UInt64: return Store(Number.Unsigned);
+				case DurinCodeGen::EPropertyGenFlags::Float: return Store(Number.Float);
+				case DurinCodeGen::EPropertyGenFlags::Double: return Store(Number.Double);
+				default: return nullptr;
+				}
+			};
+			const void* Minimum = StoreLimit(Metadata.UIMin.Kind != EPropertyMetadataNumericKind::None
+				? Metadata.UIMin : Metadata.ClampMin, MinimumStorage);
+			const void* Maximum = StoreLimit(Metadata.UIMax.Kind != EPropertyMetadataNumericKind::None
+				? Metadata.UIMax : Metadata.ClampMax, MaximumStorage);
+			const char* Format = Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double
+				? PropertyDecimalFormat(Metadata, 3) : nullptr;
+			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value, Speed, Minimum, Maximum,
+				Format, ImGuiSliderFlags_ClampZeroRange);
+			OutState = {
+				ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()
+			};
+			if (bChanged)
+			{
+				// UI bounds guide dragging; hard bounds also apply to manual input and one-sided ranges.
+				Minimum = StoreLimit(Metadata.ClampMin, MinimumStorage);
+				Maximum = StoreLimit(Metadata.ClampMax, MaximumStorage);
+				ImGui::DataTypeClamp(DataType, Value, Minimum, Maximum);
+			}
+			const std::string_view Unit = PropertyUnitLabel(Metadata.Units);
+			if (!Unit.empty())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("%.*s", static_cast<int>(Unit.size()), Unit.data());
+			}
+			return bChanged;
+		}
+
 		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> FByteBuffer
 		{
 			FPropertyValueSnapshot Snapshot;
@@ -491,7 +545,11 @@ namespace Durin
 		const FObjectPropertyViewOptions& Options
 	) -> FObjectPropertyViewResult
 	{
-		if (!HandleOwnerContext(Context, Object)) return {};
+		if (!HandleOwnerContext(Context, Object))
+		{
+			DrawInteractionError();
+			return {};
+		}
 		if (!Object)
 		{
 			if (Options.bShowEmptyMessage) ImGui::TextDisabled("Nothing to inspect.");
@@ -561,12 +619,14 @@ namespace Durin
 				}
 			}
 			if (bCurrentCategoryOpen)
-				Result.bChanged |= EditProperty(Context, Object,
+				EditProperty(Context, Object,
 					VisibleProperty.Property, VisibleProperty.ArrayIndex);
 		}
 		if (!CurrentCategory.empty() && bCurrentCategoryOpen)
 			MonaImGui::PropertyEdit::EndGroup();
 		if (bOwnsPropertyTable) MonaImGui::PropertyEdit::EndTable();
+		EndInteractionFrame(Context);
+		DrawInteractionError();
 		return Result;
 	}
 
@@ -644,6 +704,48 @@ namespace Durin
 		FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
 		const FPropertyEditTarget* ExistingTarget, bool bStructMember, bool bShowTransformHeader) -> bool
 	{
+		using DurinCodeGen::EPropertyGenFlags;
+		const auto Kind = Property->GetKind();
+		const bool bColor = Kind == EPropertyGenFlags::Struct
+			&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_FLinearColor();
+		if (!Property->HasValueAccessors() && (bColor || (!ExistingTarget && Kind == EPropertyGenFlags::Int32)))
+		{
+			using namespace MonaImGui::PropertyEdit;
+			using FValue = PropertyEditor::FPropertyControlFrame::FValue;
+			const auto Handle = ExistingTarget
+				? PropertyEditor::FReflectedPropertyHandle(bStructMember ? ExistingTarget->ForStructMember(Property, ArrayIndex) : *ExistingTarget)
+				: PropertyEditor::FReflectedPropertyHandle(*Object, Property->NamePrivate, ArrayIndex);
+			const FLabelTooltip Tooltip(Property, [](const void* Source) {
+				return ReflectedPropertyTypeTooltip(*static_cast<const FProperty*>(Source));
+			});
+			bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
+			if (bColor)
+			{
+				FLinearColor Value;
+				if (Handle.GetValue(Value))
+				{
+					const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
+					FPropertyInteractionState Interaction;
+					const bool bChanged = EditColor(Label.c_str(), Value, bShowAlpha, bReadOnly, nullptr, Tooltip, &Interaction);
+					if (Interaction.End != EPropertyInteractionEnd::Cancel)
+						Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
+							ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel), bReadOnly);
+					HandleControls.Observe(Interaction.Id, Handle, Interaction.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
+					return false;
+				}
+			}
+			else if (int32 Value; Handle.GetValue(Value))
+			{
+				const ImGuiID Id = ImGui::GetID(Label.c_str());
+				BeginRow(Label.c_str(), bReadOnly, 0.0f, Tooltip);
+				FWidgetState Widget;
+				const bool bChanged = DrawNumericProperty(*Property, ImGuiDataType_S32, &Value, Widget);
+				EndRow(bReadOnly);
+				const auto State = FPropertyInteractionState::FromWidget(Id, Widget, bReadOnly);
+				HandleControls.Observe(Id, Handle, State.End, bChanged ? std::optional(FValue{Value}) : std::nullopt);
+				return false;
+			}
+		}
 		FPropertyWidgetEditResult Edit;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.Widget");
@@ -863,58 +965,10 @@ namespace Durin
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
 			alignas(uint64) std::array<std::byte, sizeof(uint64)> Value{};
-			alignas(uint64) std::array<std::byte, sizeof(uint64)> MinimumStorage{};
-			alignas(uint64) std::array<std::byte, sizeof(uint64)> MaximumStorage{};
 			check(Property->GetElementSize() <= Value.size());
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
-			const FPropertyMetadata& Metadata = Property->GetTypedMetadata();
-			const float Speed = static_cast<float>(PropertyDragSpeed(Metadata,
-				Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05 : 1.0));
-			auto StoreLimit = [&](const FPropertyMetadataNumber& Number, auto& Storage) -> const void* {
-				if (Number.Kind == EPropertyMetadataNumericKind::None) return nullptr;
-				auto Store = [&](auto TypedValue) -> const void* {
-					std::memcpy(Storage.data(), &TypedValue, sizeof(TypedValue));
-					return Storage.data();
-				};
-				switch (Kind)
-				{
-				case DurinCodeGen::EPropertyGenFlags::Int8: return Store(static_cast<int8>(Number.Signed));
-				case DurinCodeGen::EPropertyGenFlags::Int16: return Store(static_cast<int16>(Number.Signed));
-				case DurinCodeGen::EPropertyGenFlags::Int32: return Store(static_cast<int32>(Number.Signed));
-				case DurinCodeGen::EPropertyGenFlags::Int64: return Store(Number.Signed);
-				case DurinCodeGen::EPropertyGenFlags::UInt8: return Store(static_cast<uint8>(Number.Unsigned));
-				case DurinCodeGen::EPropertyGenFlags::UInt16: return Store(static_cast<uint16>(Number.Unsigned));
-				case DurinCodeGen::EPropertyGenFlags::UInt32: return Store(static_cast<uint32>(Number.Unsigned));
-				case DurinCodeGen::EPropertyGenFlags::UInt64: return Store(Number.Unsigned);
-				case DurinCodeGen::EPropertyGenFlags::Float: return Store(Number.Float);
-				case DurinCodeGen::EPropertyGenFlags::Double: return Store(Number.Double);
-				default: return nullptr;
-				}
-			};
-			const void* Minimum = StoreLimit(Metadata.UIMin.Kind != EPropertyMetadataNumericKind::None
-				? Metadata.UIMin : Metadata.ClampMin, MinimumStorage);
-			const void* Maximum = StoreLimit(Metadata.UIMax.Kind != EPropertyMetadataNumericKind::None
-				? Metadata.UIMax : Metadata.ClampMax, MaximumStorage);
-			const char* Format = Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double
-				? PropertyDecimalFormat(Metadata, 3) : nullptr;
-			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Speed, Minimum, Maximum,
-				Format, ImGuiSliderFlags_ClampZeroRange);
-			const MonaImGui::PropertyEdit::FWidgetState State{
-				ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()
-			};
-			if (bChanged)
-			{
-				// UI bounds guide dragging; hard bounds also apply to manual input and one-sided ranges.
-				Minimum = StoreLimit(Metadata.ClampMin, MinimumStorage);
-				Maximum = StoreLimit(Metadata.ClampMax, MaximumStorage);
-				ImGui::DataTypeClamp(DataType, Value.data(), Minimum, Maximum);
-			}
-			const std::string_view Unit = PropertyUnitLabel(Metadata.Units);
-			if (!Unit.empty())
-			{
-				ImGui::SameLine();
-				ImGui::TextDisabled("%.*s", static_cast<int>(Unit.size()), Unit.data());
-			}
+			MonaImGui::PropertyEdit::FWidgetState State;
+			const bool bChanged = DrawNumericProperty(*Property, DataType, Value.data(), State);
 			CaptureResult(bChanged, true, State);
 			if (bChanged)
 			{
@@ -1051,7 +1105,7 @@ namespace Durin
 				},
 				.TrailingAction = RevealAction,
 			});
-			if (!PickerResult.Error.empty()) ReportError(Context, PickerResult.Error);
+			if (!PickerResult.Error.empty()) ReportEditError(Context, PickerResult.Error);
 			const bool bChanged = PickerResult.bSelectionChanged;
 			CaptureResult(bChanged, false);
 			if (bChanged) Result.AssignValue = [SelectedObject](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
@@ -1124,7 +1178,7 @@ namespace Durin
 				.TrailingAction = LoadAction,
 				.AdditionalTrailingActions = AdditionalActions,
 			});
-			if (!PickerResult.Error.empty()) ReportError(Context, PickerResult.Error);
+			if (!PickerResult.Error.empty()) ReportEditError(Context, PickerResult.Error);
 			CaptureResult(PickerResult.bSelectionChanged, false);
 			if (PickerResult.bSelectionChanged)
 			{
@@ -1173,10 +1227,11 @@ namespace Durin
 		DURIN_PROFILE_CPU_ZONE_NAMED("Details.Property.SubmitEdit");
 		if (Edit.bContinuous)
 		{
-			const auto Result = UpdatePropertyValueEdit(Context, EditTarget, Edit.Interaction, Edit.AssignValue);
-			return HasSubmittedChange(Result);
+			bool bChanged = false;
+			return UpdatePropertyValueEdit(Context, EditTarget, Edit.Interaction, Edit.AssignValue, &bChanged) && bChanged;
 		}
-		return Edit.bChanged && SubmitPropertyValueEdit(Context, EditTarget, Edit.AssignValue, false);
+		bool bChanged = false;
+		return Edit.bChanged && ApplyPropertyValueEdit(Context, EditTarget, Edit.AssignValue, false, nullptr, &bChanged) && bChanged;
 	}
 
 	auto FPropertyView::EditArrayProperty(
@@ -1230,11 +1285,11 @@ namespace Durin
 					return {};
 				}, Proposed); !Captured)
 			{
-				ReportError(Context, Captured.error());
+				ReportEditError(Context, Captured.error());
 				return false;
 			}
-			const auto Result = ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, false);
-			return HasSubmittedChange(Result);
+			bool bAppliedChange = false;
+			return ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, false, &bAppliedChange) && bAppliedChange;
 		};
 		if (ImGui::SmallButton("+"))
 		{
@@ -1331,12 +1386,12 @@ namespace Durin
 					return Mutation(DraftValue, *Draft);
 				}, Proposed); !Captured)
 			{
-				ReportError(Context, Captured.error());
+				ReportEditError(Context, Captured.error());
 				return false;
 			}
 
-			const auto Result = ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, bContinuous);
-			return HasSubmittedChange(Result);
+			bool bAppliedChange = false;
+			return ApplyPreparedPropertyEdit(Context, StructuralTarget, Proposed, bContinuous, &bAppliedChange) && bAppliedChange;
 		};
 		if (ImGui::SmallButton("+ Add"))
 		{
@@ -1350,7 +1405,7 @@ namespace Durin
 				|| !AcceptPropertyResult(CapturePropertyValue(Property->GetKeyProp(), KeyStorage.GetContainer(), 0, KeySnapshot), Error)
 				|| !AcceptPropertyResult(CapturePropertyValue(Property->GetValueProp(), ValueStorage.GetContainer(), 0, ValueSnapshot), Error))
 			{
-				ReportError(Context, Error.empty() ? "Unable to create a map-entry draft." : std::move(Error));
+				ReportEditError(Context, Error.empty() ? "Unable to create a map-entry draft." : std::move(Error));
 			}
 			else
 			{
@@ -1382,7 +1437,7 @@ namespace Durin
 					|| !AcceptPropertyResult(RestorePropertyValue(Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, MapInsertDraft.Key), Error)
 					|| !AcceptPropertyResult(RestorePropertyValue(Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, MapInsertDraft.Value), Error))
 				{
-					ReportError(Context, Error.empty() ? "Unable to restore the map-entry draft." : std::move(Error));
+					ReportEditError(Context, Error.empty() ? "Unable to restore the map-entry draft." : std::move(Error));
 					MapInsertDraft = {};
 				}
 				else
@@ -1395,7 +1450,7 @@ namespace Durin
 					{
 						KeyEdit.AssignValue(Property->GetKeyProp(), DraftKey, 0);
 						if (!AcceptPropertyResult(CapturePropertyValue(Property->GetKeyProp(), DraftKey, 0, MapInsertDraft.Key), Error))
-							ReportError(Context, std::move(Error));
+							ReportEditError(Context, std::move(Error));
 					}
 					const FPropertyWidgetEditResult ValueEdit = EditPropertyWidget(
 						Context, Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, "New Value", bReadOnly);
@@ -1403,7 +1458,7 @@ namespace Durin
 					{
 						ValueEdit.AssignValue(Property->GetValueProp(), DraftValue, 0);
 						if (!AcceptPropertyResult(CapturePropertyValue(Property->GetValueProp(), DraftValue, 0, MapInsertDraft.Value), Error))
-							ReportError(Context, std::move(Error));
+							ReportEditError(Context, std::move(Error));
 					}
 
 					MonaImGui::PropertyEdit::BeginRow("New Entry", bReadOnly);
@@ -1422,7 +1477,7 @@ namespace Durin
 						if (Property->FindValue(Container, DraftKey, &ExistingValue, ArrayIndex)
 							== EContainerOpResult::Success)
 						{
-							ReportError(Context, "Map keys must be unique.");
+							ReportEditError(Context, "Map keys must be unique.");
 						}
 						else
 						{
@@ -1454,7 +1509,7 @@ namespace Durin
 			if (Property->VisitMutableEntries(Container, &CollectEditableMapEntry, &Entries, ArrayIndex)
 				!= EContainerOpResult::Success)
 			{
-				ReportError(Context, "Unable to traverse reflected map entries.");
+				ReportEditError(Context, "Unable to traverse reflected map entries.");
 				ImGui::TreePop();
 				return false;
 			}
@@ -1535,7 +1590,7 @@ namespace Durin
 					if (!AcceptPropertyResult(ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0), ProposedKeyError)
 						|| !KeyEdit.AssignValue)
 					{
-						ReportError(Context, ProposedKeyError.empty()
+						ReportEditError(Context, ProposedKeyError.empty()
 							? "Unable to materialize the proposed map key."
 							: std::move(ProposedKeyError));
 					}
@@ -1547,7 +1602,7 @@ namespace Durin
 						std::string CaptureError;
 						if (!AcceptPropertyResult(CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot), CaptureError))
 						{
-							ReportError(Context, std::move(CaptureError));
+							ReportEditError(Context, std::move(CaptureError));
 						}
 						else
 						{
@@ -1593,11 +1648,14 @@ namespace Durin
 	}
 
 	auto FPropertyView::PreparePropertyWrite(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction) -> FPropertyEditOperationResult
+		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction) -> bool
 	{
 		if (Context.bReadOnly)
-			return {.Status = EPropertyEditResult::Failed, .Message = "The property view is read-only."};
-		if (!EditSession.IsActive()) return {};
+			return false;
+		if (HandleControls.IsActive() && !FinishActiveEdit(&Context, ImGui::GetCurrentContext()
+			&& ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+			return false;
+		if (!EditSession.IsActive()) return true;
 		const bool bSameTarget = IsEditingTarget(Target);
 		const bool bCancel = EditInteraction.IsCancelPending()
 			|| EditInteraction.Poll() == MonaImGui::PropertyEdit::EPropertyInteractionEnd::Cancel;
@@ -1605,38 +1663,36 @@ namespace Durin
 		if (bCancel || !bSameTarget || bDifferentWidget)
 		{
 			if (!FinishActiveEdit(&Context, bCancel))
-				return {.Status = EPropertyEditResult::Failed, .Message = "Unable to finish the preceding property edit."};
+				return false;
 			// A proposal from the cancelled gesture must never restart that gesture.
 			if (bCancel && bSameTarget && !bDifferentWidget)
-				return {.Status = EPropertyEditResult::Failed, .Message = "The property interaction was cancelled."};
+				return false;
 		}
-		return {};
+		return true;
 	}
 
 	auto FPropertyView::ApplyPreparedPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-		const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> FPropertyEditOperationResult
+		const FPropertyValueSnapshot& ProposedValue, bool bContinuous, bool* OutChanged) -> bool
 	{
+		std::string Error;
 		if (!EditSession.IsActive())
 		{
-			if (const auto Begin = EditSession.Begin(Target, {}, Context.TransactionMode); !Begin)
+			if (!EditSession.Begin(Target, {}, Context.TransactionMode, &Error))
 			{
-				ReportError(Context, Begin.Message);
-				return Begin;
+				ReportEditError(Context, std::move(Error));
+				return false;
 			}
 			ActiveEditObject = Target.Object;
 			ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
 		}
 
-		const auto Result = EditSession.Apply(ProposedValue);
-		if (!Result)
+		if (!EditSession.ApplyInternal(ProposedValue.GetPayload(), &Error, OutChanged))
 		{
-			ReportError(Context, Result.Message);
+			ReportEditError(Context, std::move(Error));
 			FinishActiveEdit(&Context, true);
-			return Result;
+			return false;
 		}
-		if (Result.GetStatus() != EPropertyEditResult::Pending && !bContinuous && !FinishActiveEdit(&Context, false))
-			return {.Status = EPropertyEditResult::Failed, .Message = "Unable to finish the property edit."};
-		return Result;
+		return bContinuous || FinishActiveEdit(&Context, false);
 	}
 
 	auto FPropertyView::SubmitPropertyValueEdit(
@@ -1646,20 +1702,19 @@ namespace Durin
 		bool bContinuous
 	) -> bool
 	{
-		const auto Result = ApplyPropertyValueEdit(Context, Target, AssignValue, bContinuous);
-		return HasSubmittedChange(Result);
+		return ApplyPropertyValueEdit(Context, Target, AssignValue, bContinuous);
 	}
 
 	auto FPropertyView::ApplyPropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 		const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous,
-		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction) -> FPropertyEditOperationResult
+		const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction, bool* OutChanged) -> bool
 	{
 		if (!AssignValue)
 		{
-			ReportError(Context, "The reflected property assignment is unavailable.");
-			return {.Status = EPropertyEditResult::Failed, .Message = "The reflected property assignment is unavailable."};
+			ReportEditError(Context, "The reflected property assignment is unavailable.");
+			return false;
 		}
-		if (const auto Prepared = PreparePropertyWrite(Context, Target, Interaction); !Prepared) return Prepared;
+		if (!PreparePropertyWrite(Context, Target, Interaction)) return false;
 		FPropertyValueSnapshot Proposed;
 		if (const auto Captured = CaptureProposedPropertyValue(Target,
 			[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
@@ -1667,54 +1722,65 @@ namespace Durin
 				return std::expected<void, std::string>{};
 			}, Proposed); !Captured)
 		{
-			ReportError(Context, Captured.error());
-			return {.Status = EPropertyEditResult::Failed, .Message = Captured.error()};
+			ReportEditError(Context, Captured.error());
+			return false;
 		}
-		return ApplyPreparedPropertyEdit(Context, Target, Proposed, bContinuous);
+		return ApplyPreparedPropertyEdit(Context, Target, Proposed, bContinuous, OutChanged);
 	}
 
 	auto FPropertyView::UpdatePropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 		const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
-		const std::function<void(FProperty*, void*, uint32)>& AssignValue) -> FPropertyEditOperationResult
+		const std::function<void(FProperty*, void*, uint32)>& AssignValue) -> bool
+	{
+		return UpdatePropertyValueEdit(Context, Target, Interaction, AssignValue, nullptr);
+	}
+
+	auto FPropertyView::UpdatePropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+		const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
+		const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool* OutChanged) -> bool
 	{
 		if (Interaction.IsCancelled() || Context.bReadOnly
-			|| (IsEditingTarget(Target) && EditInteraction.Matches(Interaction) && EditInteraction.IsCancelPending()))
-		{
-			if (IsEditingTarget(Target) && !FinishActiveEdit(&Context, true))
-				return {.Status = EPropertyEditResult::Failed, .Message = "Unable to restore the property preview."};
-			return {};
-		}
-		auto Result = AssignValue ? ApplyPropertyValueEdit(Context, Target, AssignValue, true, &Interaction) : FPropertyEditOperationResult{};
-		if (IsEditingTarget(Target))
-		{
-			EditInteraction.Observe(Interaction);
-			if (!ReconcileInteraction(Context) && Result)
-				return {.Status = EPropertyEditResult::Failed, .Message = "Unable to finish the property interaction."};
-		}
-		return Result;
+			|| (EditSession.MatchesTarget(Target) && EditInteraction.Matches(Interaction) && EditInteraction.IsCancelPending()))
+			return !EditSession.MatchesTarget(Target) || FinishActiveEdit(&Context, true);
+
+		const bool bApplied = !AssignValue || ApplyPropertyValueEdit(Context, Target, AssignValue, true, &Interaction, OutChanged);
+		if (!EditSession.MatchesTarget(Target)) return bApplied;
+		EditInteraction.Observe(Interaction);
+		return ReconcileInteraction(Context) && bApplied;
 	}
 
 	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
+		const std::string PreviousHandleError = HandleControls.GetFinishError();
+		if (!HandleControls.Finish(bCancel))
+		{
+			const auto& Error = HandleControls.GetFinishError();
+			if (Context && Context->ReportPropertyError && Error != PreviousHandleError)
+				Context->ReportPropertyError(Error);
+			return false;
+		}
 		if (!EditSession.IsActive()) return true;
 		if (bCancel) EditInteraction.RequestCancel();
 		bCancel = EditInteraction.IsCancelPending();
 		if (!EditInteraction.CanRetryFinish()) return false;
-		const auto Result = bCancel ? EditSession.Cancel() : EditSession.Commit();
-		if (!Result && EditInteraction.RecordFailure(Result.Message) && Context) ReportError(*Context, Result.Message);
+		const bool bFinished = bCancel ? EditSession.Cancel(&FinishError) : EditSession.Commit(&FinishError);
+		if (!bFinished && EditInteraction.RecordFailure(FinishError) && Context && Context->ReportPropertyError)
+			Context->ReportPropertyError(FinishError);
 		if (!EditSession.IsActive())
 		{
+			FinishError.clear();
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
 			EditInteraction = {};
 			MapKeyInteraction = {};
 		}
-		return static_cast<bool>(Result);
+		return bFinished;
 	}
-
 
 	auto FPropertyView::HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool
 	{
+		if (HandleControls.IsActive() && (OwnerContextObject != Object || Context.bReadOnly))
+			if (!FinishActiveEdit(&Context, true)) return false;
 		if (EditSession.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
 		{
 			if (!FinishActiveEdit(&Context, true)) return false;
@@ -1724,9 +1790,24 @@ namespace Durin
 		return ReconcileInteraction(Context);
 	}
 
-	auto FPropertyView::EndInteractionFrame(const FPropertyViewContext& Context) -> bool
+	auto FPropertyView::EndInteractionFrame(const FPropertyViewContext& Context, bool* OutChanged) -> bool
 	{
-		return ReconcileInteraction(Context, true);
+		const std::string PreviousHandleError = HandleControls.GetFinishError();
+		std::string Error;
+		const bool bFinished = HandleControls.EndFrame(Context.bReadOnly || ImGui::IsKeyPressed(ImGuiKey_Escape, false),
+			Context.TransactionMode, [&] { return ReconcileInteraction(Context, true) && FinishActiveEdit(&Context, false); },
+			&Error, OutChanged);
+		if (!Error.empty()) ReportEditError(Context, std::move(Error));
+		const auto& HandleError = HandleControls.GetFinishError();
+		if (Context.ReportPropertyError && !HandleError.empty() && HandleError != PreviousHandleError)
+			Context.ReportPropertyError(HandleError);
+		return ReconcileInteraction(Context, true) && bFinished;
+	}
+
+	auto FPropertyView::DrawInteractionError() const -> void
+	{
+		const auto& Error = FinishError.empty() ? HandleControls.GetFinishError() : FinishError;
+		if (!Error.empty()) ImGui::TextWrapped("Could not finish the property edit. %s", Error.c_str());
 	}
 
 	auto FPropertyView::ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame) -> bool
@@ -1737,9 +1818,28 @@ namespace Durin
 		return End == EPropertyInteractionEnd::None || FinishActiveEdit(&Context, End == EPropertyInteractionEnd::Cancel);
 	}
 
-	auto FPropertyView::ReportError(const FPropertyViewContext& Context, std::string Error) const -> void
+	auto FPropertyView::ReportEditError(const FPropertyViewContext& Context, std::string Error) -> void
 	{
-		if (Context.ReportError) Context.ReportError(std::move(Error));
+		if (Error.empty()) return;
+		if (Context.ReportPropertyError)
+		{
+			Context.ReportPropertyError(std::move(Error));
+			return;
+		}
+		if (!GEditor || !ImGui::GetCurrentContext()) return;
+		auto* Notifications = GEditor->GetEditorSubsystem<DEditorNotificationSubsystem>();
+		if (!Notifications) return;
+
+		constexpr float DurationSeconds = 3.0f;
+		const double Now = ImGui::GetTime();
+		if (LastTransientError == Error && Now - LastTransientErrorTime < DurationSeconds) return;
+		LastTransientError = Error;
+		LastTransientErrorTime = Now;
+		Notifications->GetManager().Post({
+			.Type = ENotificationType::Warning,
+			.Message = std::move(Error),
+			.DurationSeconds = DurationSeconds,
+		});
 	}
 
 	auto MakePropertyDisplayName(std::string_view PropertyName, DurinCodeGen::EPropertyGenFlags Kind,

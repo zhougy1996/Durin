@@ -741,6 +741,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::DrawDetailsPanel(
 		std::string_view Resource, DMaterialInterface* Material) -> void
 	{
+		PropertyView.DrawInteractionError();
 		auto* BaseMaterial = Cast<DMaterial>(Material);
 		if (!BaseMaterial) return;
 		auto& Canvas = GetOrCreateCanvas();

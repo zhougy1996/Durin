@@ -19,15 +19,15 @@
 #include "Asset/AssetPicker.h"
 #include "Math/Color.h"
 #include "Texture/Texture2D.h"
+#include "ThirdParty/ImGui/imgui_internal.h"
+#include "Transactions/Transactor.h"
 
 namespace Durin::MaterialEditor
 {
 	auto FMaterialGraphCanvas::DrawParameterValue(
 		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void
 	{
-		auto* MaterialOwner = Cast<DMaterial>(GraphDocument.GetOwner());
-		if (!MaterialOwner) { CancelInteraction(); return; }
-		auto& Material = *MaterialOwner;
+		if (!Cast<DMaterial>(GraphDocument.GetOwner())) { CancelInteraction(); return; }
 		if (Parameter.Type == EMaterialParameterType::Texture) return;
 		ImGui::PushID(Parameter.Id.ToString().c_str());
 		MonaImGui::PropertyEdit::BeginRow("Default value");
@@ -58,6 +58,9 @@ namespace Durin::MaterialEditor
 			{
 				FLinearColor Color(Components[0], Components[1], Components[2], Components[3]);
 				Edited = DrawColorPicker(Color, EColorPickerMode::LinearHDR, true, false, &Interaction);
+				if (Interaction.End != EPropertyInteractionEnd::Cancel)
+					Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
+						ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel));
 				if (Edited) Value.GetVector4() = FVector4(Color.R, Color.G, Color.B, Color.A);
 			}
 			else
@@ -69,52 +72,66 @@ namespace Durin::MaterialEditor
 		const bool Active = ImGui::IsItemActive();
 		const bool Deactivated = ImGui::IsItemDeactivatedAfterEdit();
 		if (Interaction.Id == 0) Interaction = FPropertyInteractionState::FromWidget(Widget, {Active, Deactivated});
-		if (Edited && !Interaction.IsCancelled())
-		{
-			if (ParameterSession.IsActive() && (!ParameterInteraction.Matches(Interaction) || EditingParameterId != Parameter.Id))
-			{
-				const bool bCancel = ParameterInteraction.Poll(true) == EPropertyInteractionEnd::Cancel;
-				FinishParameterEdit(bCancel);
-			}
-			if (!ParameterSession.IsActive() && CheckCommand(ParameterSession.Begin(Material, Parameter.Id, &Transactions)))
-			{
-				EditingParameterId = Parameter.Id;
-				ParameterInteraction.Observe(Interaction);
-			}
-			if (ParameterSession.IsActive() && ParameterInteraction.Matches(Interaction) && EditingParameterId == Parameter.Id
-				&& !ParameterInteraction.IsCancelPending()) CheckCommand(ParameterSession.Apply(Value));
-		}
-		if (ParameterSession.IsActive() && ParameterInteraction.Matches(Interaction) && EditingParameterId == Parameter.Id)
-		{
-			ParameterInteraction.Observe(Interaction);
-		}
+		ObserveParameterValue(Parameter.Id, Transactions, Interaction, Edited ? std::optional(std::move(Value)) : std::nullopt);
 		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
 	}
 
+	auto FMaterialGraphCanvas::ObserveParameterValue(const FGuid& Id, DTransactor& Transactions,
+		const MonaImGui::PropertyEdit::FPropertyInteractionState& State, std::optional<FMaterialParameterValue> Value) -> void
+	{
+		ParameterFrame.Observe({Id, State.Id}, TWeakObjectPtr<DTransactor>(&Transactions), State.End, std::move(Value));
+	}
+
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
 	{
-		using MonaImGui::PropertyEdit::EPropertyInteractionEnd;
-		if (ParameterSession.IsActive())
-		{
-			const auto End = ParameterInteraction.Poll(true);
-			if (End != EPropertyInteractionEnd::None) FinishParameterEdit(End == EPropertyInteractionEnd::Cancel);
-		}
+		ParameterFrame.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false),
+			[this](const FParameterControlId& Id, const TWeakObjectPtr<DTransactor>& Transactions) {
+				auto* Material = Cast<DMaterial>(GraphDocument.GetOwner());
+				auto* Transactor = Transactions.Get();
+				if (!Material || !Transactor)
+				{
+					ReportError(!Material ? "The material graph owner is no longer available."
+						: "The editor transactor is no longer available.");
+					return false;
+				}
+				const auto Result = ParameterSession.Begin(*Material, Id.first, Transactor);
+				if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
+				return static_cast<bool>(Result);
+			},
+			[this](const FMaterialParameterValue& Value) {
+				const auto Result = ParameterSession.Apply(Value);
+				if (!ParameterSession.IsActive()) FinishParameterEdit(false);
+				if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
+				return static_cast<bool>(Result);
+			},
+			[this](bool bCancel) { return FinishParameterSession(bCancel); });
 	}
 
 	auto FMaterialGraphCanvas::FinishParameterEdit(bool bCancel) -> bool
 	{
+		return ParameterFrame.Finish(bCancel, [this](bool bRestore) { return FinishParameterSession(bRestore); });
+	}
+
+	auto FMaterialGraphCanvas::FinishParameterSession(bool bCancel) -> bool
+	{
 		if (!ParameterSession.IsActive()) return true;
-		if (bCancel) ParameterInteraction.RequestCancel();
-		if (!ParameterInteraction.CanRetryFinish()) return false;
-		const auto Result = ParameterInteraction.IsCancelPending() ? ParameterSession.Cancel() : ParameterSession.Commit();
+		const int Frame = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
+		if (Frame >= 0 && FailedParameterFinishFrame == Frame) return false;
+		const auto Result = bCancel ? ParameterSession.Cancel() : ParameterSession.Commit();
 		if (!Result)
 		{
-			if (ParameterInteraction.RecordFailure(FormatMaterialGraphCommandResult(Result))) CheckCommand(Result);
+			FailedParameterFinishFrame = Frame;
+			auto Error = FormatMaterialGraphCommandResult(Result);
+			if (LastParameterFinishError != Error)
+			{
+				LastParameterFinishError = Error;
+				ReportError(std::move(Error));
+			}
 			return false;
 		}
-		ParameterInteraction = {};
-		EditingParameterId = {};
+		FailedParameterFinishFrame = -1;
+		LastParameterFinishError.clear();
 		return true;
 	}
 

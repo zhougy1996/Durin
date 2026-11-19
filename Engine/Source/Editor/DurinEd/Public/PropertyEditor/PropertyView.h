@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "DObject/AssetPath.h"
+#include "PropertyEditor/PropertyControlFrame.h"
 #include "PropertyEditor/PropertyEditing.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
@@ -57,7 +58,10 @@ namespace Durin
 	struct FPropertyViewContext
 	{
 		ETransactionMode TransactionMode = ETransactionMode::Record;
+		// Reports editor actions and host operations.
 		std::function<void(std::string)> ReportError;
+		// Overrides the default non-modal property edit feedback.
+		std::function<void(std::string)> ReportPropertyError;
 		std::function<bool(const FPackagePath&, std::string&)> RevealAsset;
 		std::function<bool(const FPackagePath&, std::string&)> OpenAsset;
 		bool bReadOnly = false;
@@ -81,11 +85,10 @@ namespace Durin
 		bool bShowEmptyMessage = true;
 	};
 
-	// Summarizes visible rows and committed changes from one object draw.
+	// Summarizes visible rows from one object draw.
 	struct FObjectPropertyViewResult
 	{
 		uint32 VisiblePropertyCount = 0;
-		bool bChanged = false;
 	};
 
 	// An embeddable immediate-mode property view. It owns only transient widget/edit
@@ -117,16 +120,21 @@ namespace Durin
 			const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 			const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue = {}
-		) -> FPropertyEditOperationResult;
-		DURINED_API auto EndInteractionFrame(const FPropertyViewContext& Context) -> bool;
+		) -> bool;
+		DURINED_API auto EndInteractionFrame(const FPropertyViewContext& Context, bool* OutChanged = nullptr) -> bool;
+
+		DURINED_API auto DrawInteractionError() const -> void;
+		DURINED_API auto ReportEditError(const FPropertyViewContext& Context, std::string Error) -> void;
 
 		// Returns false only when the requested terminal action failed and the
 		// recoverable edit must remain active.
 		DURINED_API auto FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool;
 		DURINED_API auto HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool;
-		auto IsEditing() const -> bool { return EditSession.IsActive(); }
-		auto IsEditingObject(const DObject* Object) const -> bool { return EditSession.IsActive() && ActiveEditObject == Object; }
-		auto IsEditingTarget(const FPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
+		auto IsEditing() const -> bool { return EditSession.IsActive() || HandleControls.IsActive(); }
+		auto IsEditingObject(const DObject* Object) const -> bool
+		{ return (EditSession.IsActive() && ActiveEditObject == Object) || HandleControls.IsEditingObject(Object); }
+		auto IsEditingTarget(const FPropertyEditTarget& Target) const -> bool
+		{ return EditSession.MatchesTarget(Target) || HandleControls.MatchesTarget(Target); }
 
 	private:
 		// Captures widget output without exposing a live reflected target to UI code.
@@ -183,15 +191,17 @@ namespace Durin
 		auto EditMapProperty(const FPropertyViewContext& Context, DObject* Object, FMapProperty* Property,
 			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
 			const FPropertyEditTarget& EditTarget) -> bool;
-		auto ReportError(const FPropertyViewContext& Context, std::string Error) const -> void;
 		auto ReconcileInteraction(const FPropertyViewContext& Context, bool bEndOfFrame = false) -> bool;
 		auto PreparePropertyWrite(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> FPropertyEditOperationResult;
+			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> bool;
 		auto ApplyPreparedPropertyEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
-			const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> FPropertyEditOperationResult;
+			const FPropertyValueSnapshot& ProposedValue, bool bContinuous, bool* OutChanged = nullptr) -> bool;
 		auto ApplyPropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool bContinuous,
-			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr) -> FPropertyEditOperationResult;
+			const MonaImGui::PropertyEdit::FPropertyInteractionState* Interaction = nullptr, bool* OutChanged = nullptr) -> bool;
+		auto UpdatePropertyValueEdit(const FPropertyViewContext& Context, const FPropertyEditTarget& Target,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
+			const std::function<void(FProperty*, void*, uint32)>& AssignValue, bool* OutChanged) -> bool;
 
 		std::array<char, 256> AssetSearchText{};
 		FMapInsertDraft MapInsertDraft;
@@ -200,7 +210,11 @@ namespace Durin
 			FPropertyValueSnapshot Value;
 			ImGuiID Id = 0;
 		} MapKeyInteraction;
+		std::string FinishError;
+		std::string LastTransientError;
+		double LastTransientErrorTime = 0.0;
 		FPropertyEditSession EditSession;
+		PropertyEditor::FPropertyControlFrame HandleControls;
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;
 		DObject* ActiveEditObject = nullptr;

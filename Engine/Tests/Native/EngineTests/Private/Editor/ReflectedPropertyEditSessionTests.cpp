@@ -19,8 +19,8 @@ TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 	FTestTransactorOwner Transactions;
 	Durin::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Guid", *Transactions.Get()));
-	EXPECT_EQ(Session.Apply(ProposedSnapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Apply(ProposedSnapshot));
+	EXPECT_TRUE(Session.Commit());
 	EXPECT_EQ(Object->GuidValue, Proposed);
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->GuidValue, Original);
@@ -37,12 +37,12 @@ TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", Durin::ETransactionMode::NotTransactable));
 	const Durin::FPropertyValueSnapshot Proposed = CaptureValue(Property.get(), Container, 19);
 
-	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Apply(Proposed));
 	EXPECT_EQ(Container.Value, 19);
-	EXPECT_EQ(Session.Apply(Proposed).GetStatus(), Durin::EPropertyEditResult::NoChange);
+	EXPECT_TRUE(Session.Apply(Proposed));
 	ASSERT_EQ(Object.Changes.size(), 1u);
 	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Commit());
 	ASSERT_EQ(Object.Changes.size(), 2u);
 	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Committed);
 	EXPECT_FALSE(Session.IsActive());
@@ -67,9 +67,8 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	Durin::FPropertyValueSnapshot ProposedSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Object, 0, ProposedSnapshot));
 	Object->Value = 7;
-	const auto EditResult1 = Session.Apply(ProposedSnapshot);
-	Error = EditResult1.Message;
-	EXPECT_EQ(EditResult1.GetStatus(), Durin::EPropertyEditResult::Failed);
+	const bool EditResult1 = Session.Apply(ProposedSnapshot, &Error);
+	EXPECT_FALSE(EditResult1);
 	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
 	EXPECT_EQ(Object->Value, 7);
 	EXPECT_TRUE(Object->Changes.empty());
@@ -80,12 +79,12 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 		*Value = std::clamp(*Value, 0, 10);
 		return {};
 	};
-	EXPECT_EQ(Session.Apply(ProposedSnapshot).GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Apply(ProposedSnapshot));
 	EXPECT_EQ(Object->Value, 10);
 	Durin::FPropertyValueSnapshot NormalizedSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Object, 0, NormalizedSnapshot));
 	EXPECT_EQ(Session.GetCurrentValue(), NormalizedSnapshot.GetPayload());
-	EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Commit());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 7);
 	EXPECT_EQ(Object->LastProposalPhase, Durin::EPropertyChangePhase::Interactive);
@@ -102,20 +101,19 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsNestedEditOfSameTarge
 	Durin::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Reentrant Edit", Durin::ETransactionMode::NotTransactable));
 	const Durin::FPropertyValueSnapshot NestedProposal = CaptureValue(Property.get(), Container, 6);
-	Durin::EPropertyEditResult NestedResult = Durin::EPropertyEditResult::Changed;
+	bool bNestedSucceeded = true;
 	std::string NestedError;
 	Object.PreChange = [&](Durin::FPropertyEditProposal&) -> std::expected<void, Durin::FObjectValidationError> {
-		const auto EditResult2 = Session.Apply(NestedProposal);
-		NestedError = EditResult2.Message;
-		NestedResult = EditResult2.GetStatus();
+		const bool EditResult2 = Session.Apply(NestedProposal, &NestedError);
+		bNestedSucceeded = EditResult2;
 		return {};
 	};
 
-	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 9)).GetStatus(), Durin::EPropertyEditResult::Changed);
-	EXPECT_EQ(NestedResult, Durin::EPropertyEditResult::Failed);
+	EXPECT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 9)));
+	EXPECT_FALSE(bNestedSucceeded);
 	EXPECT_EQ(NestedError, "A reflected property hook cannot start a nested edit of the same target.");
 	EXPECT_EQ(Container.Value, 9);
-	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Cancel());
 }
 
 TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValidTargets)
@@ -123,9 +121,8 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	Durin::Testing::InitializeAssetSystemForTests();
 	Durin::FPropertyEditSession Session;
 	std::string Error;
-	const auto EditResult3 = Session.Begin({}, {}, Durin::ETransactionMode::NotTransactable);
-	Error = EditResult3.Message;
-	EXPECT_FALSE(static_cast<bool>(EditResult3));
+	const bool EditResult3 = Session.Begin({}, {}, Durin::ETransactionMode::NotTransactable, &Error);
+	EXPECT_FALSE(EditResult3);
 	EXPECT_EQ(Error, "The edit target has no owning object.");
 	EXPECT_FALSE(Session.IsActive());
 
@@ -135,17 +132,15 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	Durin::FPropertyEditTarget Incomplete = MakeTarget(Object, Property.get(), Container);
 	Incomplete.SnapshotProperty = nullptr;
 	Incomplete.SnapshotContainer = nullptr;
-	const auto EditResult4 = Session.Begin(Incomplete, {}, Durin::ETransactionMode::NotTransactable);
-	Error = EditResult4.Message;
-	EXPECT_FALSE(static_cast<bool>(EditResult4));
+	const bool EditResult4 = Session.Begin(Incomplete, {}, Durin::ETransactionMode::NotTransactable, &Error);
+	EXPECT_FALSE(EditResult4);
 	EXPECT_EQ(Error, "The edit target is incomplete.");
 	EXPECT_FALSE(Session.IsActive());
 
-	const auto EditResult5 = Session.Begin(MakeTarget(Object, Property.get(), Container), {}, Durin::ETransactionMode::NotTransactable);
-	Error = EditResult5.Message;
-	ASSERT_TRUE(static_cast<bool>(EditResult5)) << Error;
+	const bool EditResult5 = Session.Begin(MakeTarget(Object, Property.get(), Container), {}, Durin::ETransactionMode::NotTransactable, &Error);
+	ASSERT_TRUE(EditResult5) << Error;
 	EXPECT_EQ(Session.GetDescription(), "Edit Value");
-	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::EPropertyEditResult::NoChange);
+	EXPECT_TRUE(Session.Cancel());
 	ASSERT_EQ(Object.Changes.size(), 1u);
 	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Cancelled);
 }
@@ -161,8 +156,8 @@ TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalValueAndOwnedPath
 	ASSERT_TRUE(Session.Begin(Target, "Edit Nested Value", Durin::ETransactionMode::NotTransactable));
 	Target.Path[0].Index = 9;
 
-	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 11)).GetStatus(), Durin::EPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Cancel().GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 11)));
+	EXPECT_TRUE(Session.Cancel());
 	EXPECT_EQ(Container.Value, 3);
 	ASSERT_EQ(Object.Changes.size(), 2u);
 	ASSERT_EQ(Object.Changes[0].Indices.size(), 1u);
@@ -180,16 +175,14 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	};
 	Durin::FPropertyEditSession Session;
 	std::string Error;
-	const auto EditResult6 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", Durin::ETransactionMode::NotTransactable);
-	Error = EditResult6.Message;
-	ASSERT_TRUE(static_cast<bool>(EditResult6)) << Error;
+	const bool EditResult6 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", Durin::ETransactionMode::NotTransactable, &Error);
+	ASSERT_TRUE(EditResult6) << Error;
 
-	const auto EditResult7 = Session.Apply(CaptureValue(Property.get(), Container, 8));
-	Error = EditResult7.Message;
-	EXPECT_EQ(EditResult7.GetStatus(), Durin::EPropertyEditResult::Failed);
+	const bool EditResult7 = Session.Apply(CaptureValue(Property.get(), Container, 8), &Error);
+	EXPECT_FALSE(EditResult7);
 	EXPECT_EQ(Container.Value, 5);
 	EXPECT_TRUE(Object.Changes.empty());
-	EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::NoChange);
+	EXPECT_TRUE(Session.Commit());
 	ASSERT_EQ(Object.Changes.size(), 1u);
 	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
 }
@@ -209,21 +202,17 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 	};
 	Durin::FPropertyEditSession Session;
 	std::string Error;
-	const auto EditResult8 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", Durin::ETransactionMode::NotTransactable);
-	Error = EditResult8.Message;
-	ASSERT_TRUE(static_cast<bool>(EditResult8)) << Error;
-	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)).GetStatus(), Durin::EPropertyEditResult::Changed);
+	const bool EditResult8 = Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", Durin::ETransactionMode::NotTransactable, &Error);
+	ASSERT_TRUE(EditResult8) << Error;
+	ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 8)));
 
-	const auto EditResult9 = Session.Cancel();
-	Error = EditResult9.Message;
-	EXPECT_EQ(EditResult9.GetStatus(), Durin::EPropertyEditResult::Failed);
+	const bool EditResult9 = Session.Cancel(&Error);
+	EXPECT_FALSE(EditResult9);
 	EXPECT_EQ(Error, "The object rejected the reflected property proposal.");
 	EXPECT_TRUE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 8);
 	bAllowRestore = true;
-	const auto EditResult10 = Session.Cancel();
-	Error = EditResult10.Message;
-	EXPECT_EQ(EditResult10.GetStatus(), Durin::EPropertyEditResult::Changed);
+	EXPECT_TRUE(Session.Cancel());
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 5);
 	ASSERT_EQ(Object.Changes.size(), 2u);
@@ -238,10 +227,10 @@ TEST(FReflectedPropertyEditSessionTests, EmitsTerminalEventAfterReturningToOrigi
 	FManagedEditObserver Object;
 	Durin::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", Durin::ETransactionMode::NotTransactable));
-	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)).GetStatus(), Durin::EPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 5)).GetStatus(), Durin::EPropertyEditResult::Changed);
+	ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 8)));
+	ASSERT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 5)));
 
-	EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::NoChange);
+	EXPECT_TRUE(Session.Commit());
 	ASSERT_EQ(Object.Changes.size(), 3u);
 	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
 	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Interactive);
@@ -256,7 +245,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 	{
 		Durin::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "No-op Edit", Durin::ETransactionMode::NotTransactable));
-		EXPECT_EQ(Session.Commit().GetStatus(), Durin::EPropertyEditResult::NoChange);
+		EXPECT_TRUE(Session.Commit());
 		ASSERT_EQ(Object.Changes.size(), 1u);
 		EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
 	}
@@ -264,7 +253,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 	{
 		Durin::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Abandoned Preview", Durin::ETransactionMode::NotTransactable));
-		EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 27)).GetStatus(), Durin::EPropertyEditResult::Changed);
+		EXPECT_TRUE(Session.Apply(CaptureValue(Property.get(), Container, 27)));
 		EXPECT_EQ(Container.Value, 27);
 	}
 	EXPECT_EQ(Container.Value, 13);

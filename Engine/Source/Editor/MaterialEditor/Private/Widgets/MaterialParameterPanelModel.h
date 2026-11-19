@@ -71,7 +71,7 @@ namespace Durin::MaterialEditor
 		) const -> bool;
 		auto UpdateValueEdit(FPropertyView& PropertyView, const FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry, const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
-			const FMaterialParameterValue* ProposedValue = nullptr) const -> FPropertyEditOperationResult;
+			const FMaterialParameterValue* ProposedValue = nullptr) const -> bool;
 		auto SetOverrideEnabled(
 			FPropertyView& PropertyView,
 			const FPropertyViewContext& Context,

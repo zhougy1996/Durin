@@ -171,6 +171,8 @@ namespace Durin
 					std::move(Result.PlatformData), ApplicationContext);
 				if (!Applied)
 				{
+					if (Applied.error().Code == ETextureBuildOperationFailure::Canceled)
+						return {.Status = ETextureCompilationStatus::Canceled};
 					return {.Diagnostic = FormatTextureBuildOperationError(Applied.error())};
 				}
 			}
@@ -416,6 +418,15 @@ namespace Durin
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
+	auto FTextureCompilingManager::HasPendingSettingsBuild(const DTexture& Texture) const -> bool
+	{
+		if (!CompilationState) return false;
+		std::lock_guard Lock(CompilationState->Mutex);
+		const auto* State = CompilationState->FindLocked(FObjectKey(&Texture));
+		return State && State->ActiveRequestId != 0
+			&& State->ResultApplicationContext.AuthoredBuildRevision;
+	}
+
 	auto FTextureCompilingManager::Cancel(DTexture& Texture) -> bool
 	{
 		if (!CompilationState) return false;
@@ -451,6 +462,12 @@ namespace Durin
 
 	namespace AssetPrivate
 	{
+		auto HasPendingTextureSettingsBuild(const DTexture& Texture) -> bool
+		{
+			const auto Manager = GetTextureCompilingManager();
+			return Manager && Manager->HasPendingSettingsBuild(Texture);
+		}
+
 		auto CreateTextureCompilingManager() -> std::shared_ptr<IAssetCompilingManager>
 		{
 			CheckGameThread();
@@ -514,6 +531,10 @@ namespace Durin
 	{
 		CheckGameThread();
 		require(!HasPendingTextureCompilation(*this));
+		if (Context.AuthoredBuildRevision
+			&& (Context.SourceReplacement || *Context.AuthoredBuildRevision != GetAuthoredBuildRevision()
+				|| Settings != GetBuildSettings()))
+			return std::unexpected(FTextureBuildOperationError{ETextureBuildOperationFailure::Canceled});
 		if (!GetPackage())
 		{
 			return std::unexpected(ReportTextureCompilationFailure(FTexture2DCompilationError{.Code = ETexture2DCompilationError::MissingPackage,
@@ -537,15 +558,19 @@ namespace Durin
 				.InputCause = Validation.error(), .ObjectPath = GetObjectPath()}));
 		// Allocate the shared reader lifetime before changing any installed state.
 		std::shared_ptr<FTexturePlatformData> Installed(std::move(Product));
-		if (Context.SourceReplacement) AdoptBuildSource(*Context.SourceReplacement);
-		Usage = Settings.Usage;
-		bSRGB = ResolveTexture2DSRGB(Settings);
-		MaxResolution = Settings.MaxResolution;
-		CompressionQuality = Settings.CompressionQuality;
-		AlphaMipMode = Settings.AlphaMipMode;
-		AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
-		InvalidateAuthoredBuild();
+		if (!Context.AuthoredBuildRevision)
+		{
+			if (Context.SourceReplacement) AdoptBuildSource(*Context.SourceReplacement);
+			Usage = Settings.Usage;
+			bSRGB = ResolveTexture2DSRGB(Settings);
+			MaxResolution = Settings.MaxResolution;
+			CompressionQuality = Settings.CompressionQuality;
+			AlphaMipMode = Settings.AlphaMipMode;
+			AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
+			InvalidateAuthoredBuild();
+		}
 		PlatformData = std::move(Installed);
+		PlatformDataRevision = GetAuthoredBuildRevision();
 		UpdateResource();
 		if (Context.bMarkPackageDirty) MarkPackageDirty();
 		return {};

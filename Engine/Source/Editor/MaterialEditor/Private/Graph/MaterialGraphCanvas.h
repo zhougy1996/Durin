@@ -7,7 +7,7 @@
 #include "MaterialGraphReadModel.h"
 #include "MaterialGraphDocument.h"
 #include "MonaImGui.h"
-#include "Widgets/MonaImGuiPropertyTable.h"
+#include "PropertyEditor/PropertyControlFrame.h"
 
 namespace Durin
 {
@@ -66,7 +66,10 @@ namespace Durin::MaterialEditor
 		}
 
 	private:
+		auto ObserveParameterValue(const FGuid& Id, DTransactor& Transactions,
+			const MonaImGui::PropertyEdit::FPropertyInteractionState& State, std::optional<FMaterialParameterValue> Value) -> void;
 		auto FinishParameterEdit(bool bCancel) -> bool;
+		auto FinishParameterSession(bool bCancel) -> bool;
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
 		// Returns true for both Succeeded and NoChange.
@@ -210,7 +213,9 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterSession;
-		MonaImGui::PropertyEdit::FPropertyEditInteraction ParameterInteraction;
-		FGuid EditingParameterId;
+		using FParameterControlId = std::pair<FGuid, ImGuiID>;
+		PropertyEditor::TPropertyControlFrame<FParameterControlId, TWeakObjectPtr<DTransactor>, FMaterialParameterValue> ParameterFrame;
+		int FailedParameterFinishFrame = -1;
+		std::string LastParameterFinishError;
 	};
 }

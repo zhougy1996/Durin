@@ -315,7 +315,7 @@ namespace Durin::TextureEditor
 			if (Texture->IsAsyncCacheComplete()) return true;
 			SetError(
 				"This texture is still building. Save when the build finishes, "
-				"or cancel it to keep the last successful state.");
+				"or cancel the build before saving.");
 			return false;
 		}, [this](std::string Message) { SetError(std::move(Message)); });
 	}

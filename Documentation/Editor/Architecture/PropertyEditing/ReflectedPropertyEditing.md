@@ -146,30 +146,42 @@ Canonical values reside in reflected object storage. Object hooks and registered
 property-edit extensions supply validation and reactions; custom widgets submit
 detached proposals through the same execution path.
 
-Interactive validation may defer publication while domain work completes.
-Completion carries `std::expected<void, FObjectValidationError>` with owned
-failure context that does not borrow proposal storage. Cancellation retires the
-session owner before a late completion can publish. Committed property records
-remain callback-free and synchronous; a domain extension with asynchronous
-preview work must also provide a synchronous Undo/Redo path.
+Proposal validation, publication, and transaction recording are synchronous.
+Domain systems own asynchronous work triggered by a committed edit. Texture2D
+build settings, for example, schedule derived-data work after synchronous
+validation and publication of the authored values.
 
-Synchronous script property writes reject deferred proposals before launching
-their work. With an active `FScopedEditorScriptCall`, interactive publication
+With an active `FScopedEditorScriptCall`, interactive publication
 rechecks target admission and authoritative editability after proposal hooks,
 before restoring the normalized draft into live storage. The native seam has no
 Python dependency; the Python adapter owns conversion and exception mapping.
 
 ## Edit Session Lifecycle
 
-`FPropertyEditSession` implements one logical edit. Begin, Apply,
-Commit and Cancel return `FPropertyEditOperationResult` without string outputs.
-`Status` is the sole outcome: failed, no-change, changed or pending.
-`GetStatus()` and boolean conversion use that status, never message contents.
-`Message` owns presentation text produced inside the session from lower-level
-path, snapshot, record, mutation and transactor failures. Additional cleanup,
-rollback and deferred-rollback failures are appended without replacing the
-primary error. Messages survive session reset and retry. Views and logs consume
-the message directly; callers do not inspect nested diagnostic causes.
+`Durin::PropertyEditor::IPropertyHandle` provides typed reads and writes for
+reflected `int32` and `FLinearColor` values. The reflected handle resolves a
+member or nested path on the current object generation. `SetValue` completes
+one edit, while `BeginEdit` binds an `FPropertyEdit` that accepts repeated values until `Commit` or
+`Cancel`. Both paths use detached drafts and `FPropertyEditSession`.
+The scope requires ownership of its recording.
+
+The default top-level `int32` control and reflected `FLinearColor` popup record
+input during drawing. At frame end the host applies the active control's final
+value and settles its edit before starting a different control's edit. A color
+popup keeps one edit through successive picker gestures and commits it on
+dismissal. Escape or disappearance restores the active preview. A failed
+terminal action blocks the handoff. Drawing order does not change the values
+recorded for Undo. Other controls continue to use the legacy widget submission
+path.
+
+`FPropertyEditSession` implements one logical edit. `Begin`, `Apply`, `Commit`,
+and `Cancel` return success as a boolean. Applying the current value succeeds
+and a no-op commit adds no undo record. The caller can supply a string output
+for diagnostics on failure. The view can surface a rejection as a short,
+non-modal notification and suppress repeated copies while it is visible.
+A failed commit or rollback leaves the edit active and keeps the reason visible
+in the Details panel until retry succeeds. Python uses the failure text in its
+exceptions.
 
 The lifecycle is:
 
@@ -213,20 +225,20 @@ the activation state of its nested controls; it does not write reflected
 storage or own history. Map keys remain structural edits and retain their widget
 identity across renames, with uniqueness validation on the structural write path.
 
-`FPropertyEditInteraction` observes `FPropertyInteractionState` independently of
-the writer. Numeric/vector gestures and text confirmation use control activation;
-colors use popup lifetime. This follows UE's separation of interactive property
-updates from the enclosing transaction boundary. Escape takes precedence over
-deactivation and new proposals. Hosts call `EndInteractionFrame` after all their
-rows to cancel abandoned previews; per-row reconciliation also detects missing
-controls on the next frame. Failed restoration retains the session and a sticky
-cancel request, preventing subsequent input or normal dismissal from committing
-the rejected preview. Material graph sessions keep their domain setter and
-likewise remain active until restoration succeeds.
+Legacy controls use `FPropertyEditInteraction` to
+observe `FPropertyInteractionState` independently of the writer. Numeric and
+vector gestures and text confirmation use control activation. Color gestures
+use popup lifetime. This follows UE's separation of interactive updates from
+the enclosing transaction boundary. Escape takes precedence over deactivation
+and new proposals. Hosts call `EndInteractionFrame` after drawing all rows to
+cancel abandoned previews. Legacy per-row reconciliation also detects missing
+controls on the next frame. Failed restoration retains the session and cancel
+request. Material graph sessions keep their domain setter and likewise remain
+active until restoration succeeds.
 
-The UI entry point `UpdatePropertyValueEdit` accepts one interaction description
+The legacy UI entry point `UpdatePropertyValueEdit` accepts one interaction description
 and an optional detached-value assignment. Missing assignments only observe the
-control lifetime; results distinguish NoChange, Changed, Pending, and Failed.
+control lifetime. Its boolean result reports successful processing of the update.
 `SubmitPropertyValueEdit` remains the explicit non-widget assignment entry point
 and no longer accepts a second, overriding interaction policy. Both use the same
 snapshot preparation and property-session writer. Widget adapters reduce raw
@@ -260,11 +272,10 @@ flag to a mode that rejects an enclosing recording. A failed terminal action is
 retried at most once per ImGui frame, and an unchanged error is reported once per
 interaction. Cancellation remains pending across failed retries.
 
-`CancelUnchanged()` closes an active unchanged session with no deferred work,
-emits Cancelled for a live target, and ends its transaction scope. It preserves
-an enclosing recording and earlier edits, allowing a synchronous rejected
-proposal to report failure without discarding shared history. Changed or pending
-sessions must use the ordinary restoration/cancellation path.
+`CancelUnchanged()` closes an active unchanged session, emits Cancelled for a
+live target, and ends its transaction scope. It preserves an enclosing
+recording and earlier edits when a proposal is rejected. Sessions with applied
+changes use the ordinary restoration and cancellation path.
 
 Destroying a session cancels an applied preview as a safety fallback. Hosts
 should still explicitly commit or cancel when selection, document, read-only

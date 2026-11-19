@@ -2939,7 +2939,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+		.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
@@ -3086,7 +3086,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
-TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransactions)
+TEST(FTexture2DTests, BuildSettingEditsCommitAndCancelThePreviousBuildBeforeEditing)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Source =
@@ -3103,7 +3103,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
+		.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); }};
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
 		return PropertyView.SubmitPropertyValueEdit(
 			Context,
@@ -3115,10 +3115,25 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 			false);
 	};
 	ASSERT_TRUE(EnsureTextureCompilingManager());
+	const auto Preview = Texture->GetPlatformDataShared();
+	ASSERT_TRUE(Preview);
 	std::mutex Mutex;
 	std::condition_variable Condition;
 	bool bEntered = false;
 	bool bRelease = false;
+	struct FWorkerRelease
+	{
+		std::mutex& Mutex;
+		std::condition_variable& Condition;
+		bool& Released;
+		~FWorkerRelease()
+		{
+			{ std::lock_guard Lock(Mutex); Released = true; }
+			Condition.notify_all();
+			Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+		}
+	} WorkerRelease{Mutex, Condition, bRelease};
 	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests(
 		[&](uint64, Durin::ETexture2DCompilationPhase Phase) {
 			if (Phase != Durin::ETexture2DCompilationPhase::Building) return;
@@ -3126,77 +3141,48 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 			if (bEntered) return;
 			bEntered = true;
 			Condition.notify_all();
-			Condition.wait(Lock, [&] { return bRelease; });
+			Condition.wait_for(Lock, std::chrono::seconds(10), [&] { return bRelease; });
 		});
 
 	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::Normal)) << Error;
 	{
 		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
-			return bEntered;
-		}));
+		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] { return bEntered; }));
 	}
-	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	EXPECT_FALSE(Transactions->CanUndo());
-	// Cancellation is explicit; the setter then waits for the predecessor to retire.
-	{
-		std::lock_guard Lock(Mutex);
-		bRelease = true;
-		Condition.notify_all();
-	}
-	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
-	Texture->SetBuildSettings(Texture->GetUsage(), Texture->IsSRGB(),
-		Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
-		Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
-	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
-	EXPECT_FALSE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
+	EXPECT_FALSE(Texture->IsSRGB());
+	EXPECT_TRUE(Transactions->CanUndo());
+	EXPECT_FALSE(Transactions->IsActive());
+	EXPECT_EQ(Texture->GetPlatformDataShared(), Preview);
 	EXPECT_FALSE(Texture->HasPlatformData());
-	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	EXPECT_FALSE(Transactions->CanUndo());
 
-	bEntered = false;
-	bRelease = false;
-	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests(
-		[&](uint64, Durin::ETexture2DCompilationPhase Phase) {
-			if (Phase != Durin::ETexture2DCompilationPhase::Building) return;
-			std::unique_lock Lock(Mutex);
-			if (bEntered) return;
-			bEntered = true;
-			Condition.notify_all();
-			Condition.wait(Lock, [&] { return bRelease; });
-		});
-	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::Normal)) << Error;
-	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
-			return bEntered;
-		}));
-	}
 	{
 		std::lock_guard Lock(Mutex);
 		bRelease = true;
 		Condition.notify_all();
 	}
 	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::DataMask)) << Error;
-	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
+	EXPECT_FALSE(Texture->IsAsyncCacheComplete());
+	EXPECT_EQ(Texture->GetPlatformDataShared(), Preview);
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(Texture->HasPlatformData());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
+	EXPECT_NE(Texture->GetPlatformDataShared(), Preview);
+
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
+	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Texture->FinishCachePlatformData(10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	ASSERT_TRUE(Transactions->CanUndo());
-	const ::Durin::FTransactionId UndoId = Transactions->GetUndoId();
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_TRUE(Transactions->CanTransact());
-	EXPECT_NE(Transactions->GetUndoId(), UndoId);
-	EXPECT_FALSE(Transactions->CanUndo());
-	EXPECT_TRUE(Transactions->CanRedo());
-	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
-	// Earlier uncaptured/canceled Modify calls invalidated the old saved checkpoint.
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
 	Transactions->Reset();
 	Durin::FPackagePath AssetPath;
@@ -3206,6 +3192,104 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 		AssetPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
+}
+
+TEST(FTexture2DTests, FailedSettingsBuildRetainsEditAndDoesNotSupplySaveOrCookPayload)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::GetTestWorkDirectory() / "FailedTextureSettingsBuild";
+	FScopedDerivedDataCacheRoot CacheRoot(Root / "DDC");
+	std::filesystem::create_directories(Root);
+	const auto SourcePath = Root / "Source.png";
+	WriteTextureFixture(SourcePath);
+	const auto Imported = AssetForge::Builtins::ImportTexture2DForTest(
+		SourcePath.generic_string(), "/TextureImportTests/FailedSettingsBuild");
+	ASSERT_TRUE(Imported) << Imported.Message;
+	auto& Texture = *Imported.Asset;
+	const auto Preview = Texture.GetPlatformDataShared();
+	ASSERT_TRUE(Preview);
+	ASSERT_EQ(Preview->Mips.front().Width, 2u);
+	Texture.GetSource().ReleaseSourceMemory();
+	auto& Bulk = const_cast<FEditorBulkData&>(Texture.GetSource().GetBulkData());
+	const auto SourceBytes = Bulk.GetPayload().Wait();
+	ASSERT_TRUE(SourceBytes);
+	FByteBuffer Damaged(SourceBytes->GetBytes().begin(), SourceBytes->GetBytes().end());
+	ASSERT_FALSE(Damaged.empty());
+	Damaged[0] ^= std::byte{1};
+	ASSERT_TRUE(Bulk.UpdatePayload(Damaged));
+	ASSERT_TRUE(Texture.GetSource().IsValid());
+	ASSERT_FALSE(Texture.GetSource().GetMipData().IsValid());
+
+	Tests::FTestEditorTransactorOwner Transactions;
+	FPropertyView View;
+	const FPropertyViewContext Context{.ReportPropertyError = [](std::string Error) { ADD_FAILURE() << Error; }};
+	auto* Resolution = Texture.GetClass()->FindPropertyByName("MaxResolution");
+	ASSERT_NE(Resolution, nullptr);
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, FPropertyEditTarget::ForMember(&Texture, Resolution),
+		[](FProperty* Property, void* Container, uint32 Index) {
+			*Property->ContainerPtrToValuePtr<uint32>(Container, Index) = 1;
+		}, false));
+	EXPECT_EQ(Texture.GetMaxResolution(), 1u);
+	EXPECT_TRUE(Transactions->CanUndo());
+	EXPECT_FALSE(Transactions->IsActive());
+	EXPECT_FALSE(Texture.FinishCachePlatformData(10.0));
+	EXPECT_EQ(AssetPrivate::GetTexture2DCompilationDiagnosticForTests(Texture).Phase, ETexture2DCompilationPhase::Failed);
+	EXPECT_EQ(Texture.GetMaxResolution(), 1u);
+	EXPECT_EQ(Texture.GetPlatformDataShared(), Preview);
+	EXPECT_FALSE(Texture.HasPlatformData());
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+
+	// Even with valid preview pixels installed, Cook fails if it cannot build current inputs.
+	FCookContext RejectedCook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	EXPECT_FALSE(RejectedCook.AddPackage("/Game/CookedTexture", Texture.GetPackage()));
+	EXPECT_TRUE(RejectedCook.GetSavePlans().empty());
+
+	// Repair the source without regenerating the live preview.
+	ASSERT_TRUE(Bulk.UpdatePayload(SourceBytes->GetBytes()));
+	Texture.GetSource().ReleaseSourceMemory();
+	ASSERT_TRUE(SavePackage(Texture.GetPackage()));
+	const FPackageCatalogEntry Entry = FindPackageExact(Texture.GetPackage()->GetPackagePathIdentity());
+	ASSERT_TRUE(Entry);
+	FAssetPackageInspection Authored;
+	ASSERT_TRUE(InspectAssetPackage(Entry->PhysicalPath, Authored));
+	const auto* SavedResolution = Authored.FindField("MaxResolution");
+	ASSERT_NE(SavedResolution, nullptr);
+	uint32 ActualResolution = 0;
+	ASSERT_TRUE(SavedResolution->TryReadScalar(ActualResolution));
+	EXPECT_EQ(ActualResolution, 1u);
+	EXPECT_EQ(Authored.FindField("PlatformData"), nullptr);
+
+	FCookContext Cook(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Cook.AddPackage("/Game/CookedTexture", Texture.GetPackage()));
+	ASSERT_TRUE(PublishCookContext(Cook, Root / "Cook"));
+	FAssetPackageInspection Cooked;
+	FPackagePath CookedPath;
+	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/CookedTexture", CookedPath));
+	const auto Inspected = InspectAssetPackage((Root / "Cook/Game/CookedTexture.dasset").generic_string(), CookedPath, Cooked);
+	ASSERT_TRUE(Inspected) << Inspected.error().ToString();
+	const auto* CookedPlatform = Cooked.FindField("PlatformData");
+	ASSERT_NE(CookedPlatform, nullptr);
+	FPackageBulkStorageDescriptor Descriptor;
+	ASSERT_TRUE(CookedPlatform->TryReadBulkDataStorageDescriptor(Descriptor));
+	auto Request = Texture.CreateBuildRequest({.MaxResolution = 1, .bSRGB = true});
+	ASSERT_TRUE(Request);
+	Request->TargetPlatform = ECookTargetPlatform::Win64;
+	auto Expected = BuildTexture2DDetached(*Request);
+	ASSERT_TRUE(Expected);
+	ASSERT_EQ(Expected->Mips.front().Width, 1u);
+	FByteBuffer ExpectedBytes;
+	FCanonicalMemoryWriter Writer(ExpectedBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+	Expected->Serialize(Writer);
+	ASSERT_FALSE(Writer.IsError());
+	EXPECT_EQ(Descriptor.ContentHash, FXxHash128::HashBuffer(ExpectedBytes));
+	EXPECT_EQ(Texture.GetPlatformDataShared(), Preview);
+	EXPECT_FALSE(Texture.HasPlatformData());
+
+	Transactions->Reset();
+	const auto PackagePath = Texture.GetPackage()->GetPackagePathIdentity();
+	ASSERT_TRUE(UnloadPackage(PackagePath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(PackagePath));
 }
 
 TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)

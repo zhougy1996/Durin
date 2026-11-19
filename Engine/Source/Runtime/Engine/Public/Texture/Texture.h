@@ -108,7 +108,8 @@ namespace Durin
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 #if DURIN_WITH_EDITORONLY_DATA
-		ENGINE_API auto InvalidateAuthoredBuild() -> void;
+		ENGINE_API auto InvalidateAuthoredBuild(bool bKeepPreview = false) -> void;
+		auto GetAuthoredBuildRevision() const -> uint64 { return AuthoredBuildRevision; }
 		// Family source commit only, after prior compilation has retired.
 		ENGINE_API auto AdoptBuildSource(FTextureSource Value) -> void;
 #endif

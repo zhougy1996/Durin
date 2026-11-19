@@ -307,7 +307,9 @@ completions, and then destroys the manager-owned queue. Request state and
 completion history are manager-owned and bounded to 256 records; source image
 buffers are released as soon as worker use ends.
 
-CPU readiness is the presence of valid installed platform data. Compilation
+CPU readiness requires valid installed platform data for the current authored
+revision. Texture2D may retain the last installed preview while new authored
+settings are building or after a build fails. Compilation
 phase and terminal build diagnostics belong to the manager's active or
 bounded recent operation record; GPU readiness and failure belong to
 `DTexture` resource availability, pending operation, and latest consumed result. These owners are
@@ -333,20 +335,23 @@ Historical synchronous stalls and scheduling calibration remain in
 The Texture Editor changes `Usage`, `bSRGB`, `MaxResolution`,
 `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` through
 reflected-property transactions.
-`DTexture2D::PreEditChangeProperty` captures complete candidate settings from
-detached proposal storage and defers application through the reflected-edit
-protocol. The worker result remains private until it succeeds. Invalid values,
-decode/build/DDC failures, cancellation, supersession, and document close leave
-the reflected values, package Dirty state, undo history, platform data, and
-stable texture target unchanged.
+The editor validates detached candidate settings synchronously. A changed
+commit writes the setting, marks the package dirty, and records one Undo entry.
+Changing usage resets sRGB to the preset default as part of the same entry.
+Editing sRGB afterward is an explicit override.
 
-After a successful worker result, the GameThread applies the reflected value
-once, `PostEditChangeProperty` installs that exact persisted candidate without
-rebuilding it, and the edit session registers one transaction and one Dirty
-transition. Cancel, Undo, and Redo use the same asynchronous proposal path.
-Changing usage resets sRGB to that preset's default; editing sRGB afterward is
-an explicit override. Committed edits dirty the package through the shared
-reflected transaction path. Direct source and build-setting setters complete authored work and invalidate
+Committed settings and Undo/Redo each request a build from a detached source
+snapshot and the current settings. Build failure, cancellation, and supersession
+leave the committed settings and history intact. A completed settings build can
+replace the preview only if its request, source, settings, and authored revision
+are current. Before editing or replaying history, the editor requests
+cancellation of an existing settings build and waits for it to retire. Requests
+that can write authored state retire under their existing completion policy.
+The edit commits without waiting for its own build.
+
+Authored package save serializes source and settings. Cook builds and serializes
+its own target product from the current authored inputs. An older editor preview
+is ineligible for either operation. Direct source and build-setting setters complete authored work and invalidate
 installed platform data, obsolete cooked bytes, and GPU publication. They do not
 build or mark the package dirty themselves; the operation applying those values
 owns rebuilding and dirty marking. `SetPlatformData()` completes authored

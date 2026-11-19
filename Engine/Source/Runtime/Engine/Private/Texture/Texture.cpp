@@ -15,11 +15,26 @@
 #include "RHICommandList.h"
 #include "RenderResource.h"
 #include "Texture/TexturePlatformCache.h"
+#if DURIN_WITH_EDITORONLY_DATA
+#include "TextureCompilingManager.h"
+#endif
 #include "Threading/RunnableThread.h"
 #include "Threading/TaskRuntime.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto FinishTextureBuildBeforeEdit(DTexture& Texture) -> void
+		{
+#if DURIN_WITH_EDITORONLY_DATA
+			if (AssetPrivate::HasPendingTextureSettingsBuild(Texture))
+				FAssetCompilingManager::Get().MarkCompilationAsCanceled(Texture);
+#endif
+			Texture.BlockOnAnyAsyncBuild();
+		}
+	}
+
 	auto DTexture::BeginCacheForCookedPlatformData(const ITargetPlatform* TargetPlatform) -> void
 	{
 		Super::BeginCacheForCookedPlatformData(TargetPlatform);
@@ -117,13 +132,13 @@ namespace Durin
 
 	auto DTexture::Modify(bool bAlwaysMarkDirty) -> bool
 	{
-		BlockOnAnyAsyncBuild();
+		FinishTextureBuildBeforeEdit(*this);
 		return !IsPendingKill() && Super::Modify(bAlwaysMarkDirty);
 	}
 
 	auto DTexture::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
 	{
-		BlockOnAnyAsyncBuild();
+		FinishTextureBuildBeforeEdit(*this);
 		if (IsPendingKill()) return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::ModuleRejected,
 			.ObjectPath = GetObjectPath(), .Message = "Texture owner is being destroyed."});
 		return Super::PreEditChangeProperty(Proposal);
@@ -131,7 +146,7 @@ namespace Durin
 
 	auto DTexture::PreEditUndo() -> void
 	{
-		BlockOnAnyAsyncBuild();
+		FinishTextureBuildBeforeEdit(*this);
 		Super::PreEditUndo();
 	}
 
@@ -294,13 +309,16 @@ namespace Durin
 		Source.BindOwner(this);
 	}
 
-	auto DTexture::InvalidateAuthoredBuild() -> void
+	auto DTexture::InvalidateAuthoredBuild(bool bKeepPreview) -> void
 	{
 		CheckGameThread();
 		++AuthoredBuildRevision;
-		ResetPlatformData();
 		CookedPlatformData = {};
-		InvalidateRenderResource();
+		if (!bKeepPreview)
+		{
+			ResetPlatformData();
+			InvalidateRenderResource();
+		}
 	}
 #endif
 

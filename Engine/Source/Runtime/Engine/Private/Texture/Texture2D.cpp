@@ -4,6 +4,8 @@
 #include "Texture2DBuildDiagnostics.h"
 
 #include "DObject/Package.h"
+#include "DObject/PropertyChange.h"
+#include "Asset/Asset.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
@@ -100,6 +102,9 @@ namespace Durin
 		if (IsPendingKill()) return;
 		InvalidateRenderResource();
 		PlatformData = std::move(Data);
+#if DURIN_WITH_EDITORONLY_DATA
+		PlatformDataRevision = GetAuthoredBuildRevision();
+#endif
 	}
 
 	auto DTexture2D::CreateResource(
@@ -113,12 +118,45 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
+	auto DTexture2D::GetBuildSettings() const -> FTexture2DBuildSettings
+	{
+		return {.Usage = Usage, .CompressionQuality = CompressionQuality, .AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold, .MaxResolution = MaxResolution, .bSRGB = bSRGB};
+	}
+
+	auto DTexture2D::OnBuildSettingsEdited(bool bResetSRGB) -> void
+	{
+		CheckGameThread();
+		if (IsPendingKill() || IsTemplateObject() || GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		if (bResetSRGB) bSRGB = GetDefaultTextureSRGB(Usage);
+		InvalidateAuthoredBuild(true);
+		auto Request = CreateBuildRequest(GetBuildSettings());
+		if (!Request)
+		{
+			DURIN_ERROR("Texture2D '{}': {}", GetObjectPath(), FormatTexture2DInputError(Request.error()));
+			return;
+		}
+		if (const auto Submitted = BeginCachePlatformData({.Build = std::move(*Request),
+			.ResultApplication = {.bMarkPackageDirty = false, .AuthoredBuildRevision = GetAuthoredBuildRevision()},
+			.Priority = ETexture2DCompilationPriority::Interactive}); !Submitted)
+			DURIN_ERROR("Texture2D '{}': {}", GetObjectPath(), FormatTextureBuildOperationError(Submitted.error()));
+	}
+
+	auto DTexture2D::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		if (!Event.MemberProperty && Event.Phase == EPropertyChangePhase::Committed)
+		{
+			DObject::PostEditChangeProperty(Event);
+			OnBuildSettingsEdited(false);
+			return;
+		}
+		Super::PostEditChangeProperty(Event);
+	}
+
 	auto DTexture2D::PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void
 	{
 		if (!Preparation.ReserveWorkingSet(std::max<uint64>(1, GetSource().GetDecodedPayloadSize() * 4))) return;
-		FTexture2DBuildRequest Request{.Source = GetSource().CopyTornOff(), .Settings = {
-			.Usage = Usage, .CompressionQuality = CompressionQuality, .AlphaMipMode = AlphaMipMode,
-			.AlphaCoverageThreshold = AlphaCoverageThreshold, .MaxResolution = MaxResolution, .bSRGB = bSRGB},
+		FTexture2DBuildRequest Request{.Source = GetSource().CopyTornOff(), .Settings = GetBuildSettings(),
 			.TargetPlatform = Preparation.GetTargetPlatform(), .TargetProfile = Preparation.GetTargetProfile()};
 		TexturePrivate::StartTextureCook(Preparation, [Request = std::move(Request)](const FAssetBuildTaskContext& Control)
 			-> std::expected<FTexturePlatformData, std::string> {
@@ -137,13 +175,7 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': Texture2D source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		FTexture2DCompilationRequest Request{.Build = {.Source = GetSource().CopyTornOff(), .Settings = {
-				.Usage = Usage,
-				.CompressionQuality = CompressionQuality,
-				.AlphaMipMode = AlphaMipMode,
-				.AlphaCoverageThreshold = AlphaCoverageThreshold,
-				.MaxResolution = MaxResolution,
-				.bSRGB = bSRGB}}, .ResultApplication = {
+		FTexture2DCompilationRequest Request{.Build = {.Source = GetSource().CopyTornOff(), .Settings = GetBuildSettings()}, .ResultApplication = {
 			.bMarkPackageDirty = false}};
 		const auto Built = bAsyncCache ? this->BeginCachePlatformData(std::move(Request))
 			: this->CachePlatformData(std::move(Request.Build), Request.ResultApplication);

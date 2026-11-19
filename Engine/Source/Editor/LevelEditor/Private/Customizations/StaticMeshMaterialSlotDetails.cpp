@@ -153,8 +153,9 @@ namespace Durin::LevelEditor
 						.Tooltip = GetResetTooltip(Entry.Source),
 						.bEnabled = Entry.bHasOverride,
 						.Execute = [&](std::string& Error) {
-							bChanged = Model.ResetOverride(PropertyView, Context, Entry);
-							if (!bChanged) Error = "The material override could not be reset.";
+							auto EditContext = Context;
+							EditContext.ReportPropertyError = [&](std::string Message) { Error = std::move(Message); };
+							bChanged = Model.ResetOverride(PropertyView, EditContext, Entry);
 							return bChanged;
 						},
 					},
@@ -169,14 +170,15 @@ namespace Durin::LevelEditor
 						if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
 						auto* Material = Cast<DMaterialInterface>(Selection);
 						if (!Material) { Error = "Static-mesh slots accept material assets only."; return false; }
-						bChanged = Model.AssignMaterial(PropertyView, Context, Entry, Material);
-						if (!bChanged) Error = "The material override could not be applied.";
+						auto EditContext = Context;
+						EditContext.ReportPropertyError = [&](std::string Message) { Error = std::move(Message); };
+						bChanged = Model.AssignMaterial(PropertyView, EditContext, Entry, Material);
 						return bChanged;
 					},
 					.AdditionalTrailingActions = AssetActions,
 				});
 				MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
-				if (!Result.Error.empty() && Context.ReportError) Context.ReportError(Result.Error);
+				if (!Result.Error.empty()) PropertyView.ReportEditError(Context, Result.Error);
 				ImGui::PopID();
 				return bChanged;
 			}

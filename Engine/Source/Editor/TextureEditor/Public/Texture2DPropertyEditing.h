@@ -8,17 +8,14 @@
 
 namespace Durin::TextureEditor
 {
-	enum class ETexture2DPropertyEditError : uint8 { Metadata, Settings, Source, Compilation, DeferredValidation };
+	enum class ETexture2DPropertyEditError : uint8 { Metadata, Settings };
 	class FTexture2DPropertyEditCause final : public IObjectValidationCause
 	{
 	public:
 		ETexture2DPropertyEditError Code = ETexture2DPropertyEditError::Metadata;
 		uint64 ActualKind = 0;
 		uint64 ExpectedKind = 0;
-		bool HasPackage = false;
-		bool HasSource = false;
 		std::optional<FTexture2DInputError> InputCause;
-		std::string Diagnostic;
 		TEXTUREEDITOR_API auto Format() const -> std::string override;
 	};
 

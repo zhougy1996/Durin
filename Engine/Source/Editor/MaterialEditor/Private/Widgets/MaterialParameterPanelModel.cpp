@@ -227,13 +227,12 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialParameterPanelModel::UpdateValueEdit(FPropertyView& PropertyView, const FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry, const MonaImGui::PropertyEdit::FPropertyInteractionState& Interaction,
-		const FMaterialParameterValue* ProposedValue) const -> FPropertyEditOperationResult
+		const FMaterialParameterValue* ProposedValue) const -> bool
 	{
 		FPropertyEditTarget Target;
 		std::function<void(FProperty*, void*, uint32)> Assign;
-		if (!PrepareValueEdit(Entry, ProposedValue, Target, Assign))
-			return {.Status = EPropertyEditResult::Failed, .Message = "The reflected material parameter is unavailable."};
-		return PropertyView.UpdatePropertyValueEdit(Context, Target, Interaction, Assign);
+		return PrepareValueEdit(Entry, ProposedValue, Target, Assign)
+			&& PropertyView.UpdatePropertyValueEdit(Context, Target, Interaction, Assign);
 	}
 
 	auto FMaterialParameterPanelModel::PrepareValueEdit(const FMaterialParameterPanelEntry& Entry,

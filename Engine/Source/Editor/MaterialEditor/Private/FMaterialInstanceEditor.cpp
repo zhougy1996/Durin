@@ -437,6 +437,7 @@ namespace Durin::MaterialEditor
 			DrawingPreview->Draw(&Instance);
 		}) && Preview) Preview->SetVisible(false);
 		Panel("Details", "Details", &ProfileSettings->bDetailsVisible, [&] {
+			PropertyView.DrawInteractionError();
 			MonaImGui::TextName(Instance.GetFName());
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Instance.GetObjectPath().c_str());
 			ImGui::TextDisabled("Material Instance");
@@ -444,6 +445,7 @@ namespace Durin::MaterialEditor
 			DrawMaterialInstance(&Instance);
 		});
 		Panel("Parameters", "Parameters", &ProfileSettings->bParametersVisible, [&] {
+			PropertyView.DrawInteractionError();
 			if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", DetailsStyle::MakeTableConfig()))
 			{
 				DrawMaterialParameters(&Instance);
@@ -562,15 +564,15 @@ namespace Durin::MaterialEditor
 					OutError = "The reflected material parent property is unavailable.";
 					return false;
 				}
-				const bool bAssigned = PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
+				auto Context = MakePropertyViewContext();
+				Context.ReportPropertyError = [&](std::string Error) { OutError = std::move(Error); };
+				return PropertyView.SubmitPropertyValueEdit(Context,
 					FPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					static_cast<FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(ScratchContainer, Parent, ScratchArrayIndex);
 				}, false);
-				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected material parent.";
-				return bAssigned;
 			},
 		});
-		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
+		if (!PickerResult.Error.empty()) PropertyView.ReportEditError(MakePropertyViewContext(), PickerResult.Error);
 		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
 	}
@@ -753,13 +755,12 @@ namespace Durin::MaterialEditor
 				}
 				FMaterialParameterValue Edited = Entry.Value;
 				Edited.GetTexture().Texture = Selected;
-				const bool bAssigned = Model.SubmitValueEdit(
-					PropertyView, MakePropertyViewContext(), Entry, Edited, false);
-				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected texture parameter.";
-				return bAssigned;
+				auto Context = MakePropertyViewContext();
+				Context.ReportPropertyError = [&](std::string Error) { OutError = std::move(Error); };
+				return Model.SubmitValueEdit(PropertyView, Context, Entry, Edited, false);
 			},
 		});
-		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
+		if (!PickerResult.Error.empty()) PropertyView.ReportEditError(MakePropertyViewContext(), PickerResult.Error);
 		if (ImGui::TreeNode("Sampling"))
 		{
 			FMaterialParameterValue Edited = Entry.Value;

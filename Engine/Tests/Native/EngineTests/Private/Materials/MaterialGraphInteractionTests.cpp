@@ -53,6 +53,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 		ImVec2 Start;
 
 		const auto Frame = [&](ImVec2 Mouse, bool Down, bool Visible = true) {
+			const auto BeforeDraw = Material->FindParameterDefinition(Definition.Id)->Value;
 			IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
 			ImGui::NewFrame();
 			ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({800, 400});
@@ -63,6 +64,7 @@ TEST(FMaterialGraphInteractionTests, ParameterValueControlsPreviewCoalesceAndCan
 				Start = {ImGui::GetItemRectMin().x + 30, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) / 2};
 				MonaImGui::PropertyEdit::EndTable();
 			}
+			EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value, BeforeDraw);
 			Canvas.EndParameterFrame();
 			ImGui::End(); ImGui::Render();
 		};
@@ -208,12 +210,16 @@ namespace Durin::MaterialEditor
 		}
 		static auto HasCanvas(const FMaterialEditor& Editor) -> bool
 		{ return Editor.EditingSession && Editor.EditingSession->Canvas; }
-		static auto BeginParameter(FMaterialGraphCanvas& Canvas, DMaterial& Material, const FGuid& Id, DTransactor& Transactions) -> void
+		static auto ObserveParameter(FMaterialGraphCanvas& Canvas, const FGuid& Id, DTransactor& Transactions,
+			ImGuiID Widget, MonaImGui::PropertyEdit::EPropertyInteractionEnd End, float Value) -> void
 		{
-			ASSERT_TRUE(Canvas.ParameterSession.Begin(Material, Id, &Transactions));
-			ASSERT_TRUE(Canvas.ParameterSession.Apply(FMaterialParameterValue::MakeScalar(.75f)));
-			Canvas.EditingParameterId = Id;
-			Canvas.ParameterInteraction.Observe(MonaImGui::PropertyEdit::FPropertyInteractionState::FromWidget(1, {true}));
+			Canvas.ObserveParameterValue(Id, Transactions, {.Id = Widget, .End = End}, FMaterialParameterValue::MakeScalar(Value));
+		}
+		static auto BeginParameter(FMaterialGraphCanvas& Canvas, const FGuid& Id, DTransactor& Transactions) -> void
+		{
+			ObserveParameter(Canvas, Id, Transactions, 1, MonaImGui::PropertyEdit::EPropertyInteractionEnd::None, .75f);
+			Canvas.EndParameterFrame();
+			ASSERT_TRUE(Canvas.ParameterSession.IsActive());
 		}
 		static auto FinishParameter(FMaterialGraphCanvas& Canvas, bool bCancel) -> bool { return Canvas.FinishParameterEdit(bCancel); }
 		static auto ParameterActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.ParameterSession.IsActive(); }
@@ -304,6 +310,74 @@ namespace Durin::MaterialEditor
 	};
 }
 
+TEST(FMaterialGraphInteractionTests, ParameterHandoffHasTheSameHistoryInBothDrawOrders)
+{
+	using EEnd = MonaImGui::PropertyEdit::EPropertyInteractionEnd;
+	InitializeDObjectSystem();
+	for (bool bDrawIncomingFirst : {false, true})
+	{
+		SCOPED_TRACE(bDrawIncomingFirst);
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		FMaterialParameterDefinition Outgoing;
+		Outgoing.Id = FGuid::NewGuid();
+		Outgoing.Name = "Outgoing";
+		Outgoing.Type = EMaterialParameterType::Scalar;
+		Outgoing.Value = FMaterialParameterValue::MakeScalar(.25f);
+		auto Incoming = Outgoing;
+		Incoming.Id = FGuid::NewGuid();
+		Incoming.Name = "Incoming";
+		Incoming.Value = FMaterialParameterValue::MakeScalar(.5f);
+		ASSERT_TRUE(FMaterialGraphDocument(*Material).CreateParameter(Outgoing, ETransactionMode::NotTransactable));
+		ASSERT_TRUE(FMaterialGraphDocument(*Material).CreateParameter(Incoming, ETransactionMode::NotTransactable));
+		const auto Read = [&](const FGuid& Id) { return Material->FindParameterDefinition(Id)->Value.GetScalar(); };
+		Tests::FTestEditorTransactorOwner Transactions;
+		FMaterialGraphCanvas Canvas{FMaterialGraphDocument(*Material),
+			{.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
+		const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Context(ImGui::CreateContext(), ImGui::DestroyContext);
+		auto& IO = ImGui::GetIO();
+		IO.DisplaySize = {600, 400}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+		IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+
+		ImGui::NewFrame();
+		FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Outgoing.Id, *Transactions.Get());
+		ImGui::EndFrame();
+		EXPECT_FLOAT_EQ(Read(Outgoing.Id), .75f);
+		EXPECT_FALSE(Transactions->CanUndo());
+
+		const auto DrawOutgoing = [&] {
+			FMaterialGraphCanvasTestAccess::ObserveParameter(Canvas, Outgoing.Id, *Transactions.Get(), 1, EEnd::Commit, 1.f);
+		};
+		const auto DrawIncoming = [&] {
+			FMaterialGraphCanvasTestAccess::ObserveParameter(Canvas, Incoming.Id, *Transactions.Get(), 2, EEnd::Commit, 2.f);
+		};
+		ImGui::NewFrame();
+		if (bDrawIncomingFirst) { DrawIncoming(); DrawOutgoing(); }
+		else { DrawOutgoing(); DrawIncoming(); }
+		EXPECT_FLOAT_EQ(Read(Outgoing.Id), .75f);
+		EXPECT_FLOAT_EQ(Read(Incoming.Id), .5f);
+		Canvas.EndParameterFrame();
+		ImGui::EndFrame();
+
+		EXPECT_FLOAT_EQ(Read(Outgoing.Id), 1.f);
+		EXPECT_FLOAT_EQ(Read(Incoming.Id), 2.f);
+		EXPECT_FALSE(FMaterialGraphCanvasTestAccess::ParameterActive(Canvas));
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_FLOAT_EQ(Read(Outgoing.Id), 1.f);
+		EXPECT_FLOAT_EQ(Read(Incoming.Id), .5f);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_FLOAT_EQ(Read(Outgoing.Id), .25f);
+		EXPECT_FLOAT_EQ(Read(Incoming.Id), .5f);
+		EXPECT_FALSE(Transactions->CanUndo());
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_FLOAT_EQ(Read(Outgoing.Id), 1.f);
+		EXPECT_FLOAT_EQ(Read(Incoming.Id), .5f);
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_FLOAT_EQ(Read(Incoming.Id), 2.f);
+		EXPECT_FALSE(Transactions->CanRedo());
+	}
+}
+
 TEST(FMaterialGraphInteractionTests, FailedParameterRestoreReportsOnceAndRetriesOnNextFrame)
 {
 	InitializeDObjectSystem();
@@ -322,7 +396,7 @@ TEST(FMaterialGraphInteractionTests, FailedParameterRestoreReportsOnceAndRetries
 	IO.DisplaySize = {600, 400}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
 	ImGui::NewFrame();
-	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, *Material, Definition.Id, *Transactions.Get());
+	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Definition.Id, *Transactions.Get());
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).DeleteParameter(Definition.Id, ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Canvas.CancelInteraction());
 	EXPECT_FALSE(Canvas.CancelInteraction());
@@ -391,7 +465,7 @@ TEST(FMaterialGraphInteractionTests, FailedCancelVetoesDocumentDeactivateDiscard
 	ImGui::NewFrame();
 	auto* Transactions = Host.GetAssetEditorSubsystem()->GetEditor()->GetTransactor();
 	ASSERT_NE(Transactions, nullptr);
-	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, *Preview, Definition.Id, *Transactions);
+	FMaterialGraphCanvasTestAccess::BeginParameter(Canvas, Definition.Id, *Transactions);
 	ASSERT_TRUE(FMaterialGraphDocument(*Preview).DeleteParameter(Definition.Id, ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Toolkit->RequestDeactivate());
 	FObjectReplacementMap ReplacementMap;

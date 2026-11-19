@@ -8,10 +8,6 @@
 namespace Durin
 {
 	class FProperty;
-	using FPropertyEditDeferredCompletion = std::function<void(std::expected<void, FObjectValidationError>)>;
-	using FPropertyEditDeferredCancel = std::function<void()>;
-	using FPropertyEditDeferredAction = std::function<
-		FPropertyEditDeferredCancel(FPropertyEditDeferredCompletion)>;
 
 	// Distinguishes preview, accepted, and abandoned reflected edits.
 	enum class EPropertyChangePhase : uint8
@@ -92,14 +88,5 @@ namespace Durin
 		uint32 DraftRootArrayIndex = 0;
 		void* DraftLeafContainer = nullptr;
 		uint32 DraftLeafArrayIndex = 0;
-
-		// Defers publication until detached asynchronous validation completes.
-		FPropertyEditDeferredAction DeferredAction;
-		auto Defer(FPropertyEditDeferredAction Action) -> bool
-		{
-			if (!Action || DeferredAction) return false;
-			DeferredAction = std::move(Action);
-			return true;
-		}
 	};
 } // namespace Durin

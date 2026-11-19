@@ -28,6 +28,8 @@ namespace Durin
 		// Empty for rebuilds. Authored replacements stay on the GameThread.
 		std::optional<FTextureSource> SourceReplacement;
 		bool bMarkPackageDirty = true;
+		// Derived-only work can publish only for the committed inputs it captured.
+		std::optional<uint64> AuthoredBuildRevision;
 	};
 
 	// Overrides usage-derived texture import defaults.
@@ -72,6 +74,8 @@ namespace Durin
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;
+		ENGINE_API auto OnBuildSettingsEdited(bool bResetSRGB) -> void;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		// GameThread only. Validates the candidate, completes prior compilation, then commits
 		// source/settings/import metadata and marks dirty. Does not build or save.
@@ -101,6 +105,9 @@ namespace Durin
 		auto GetPlatformDataShared() const -> std::shared_ptr<const FTexturePlatformData> { return PlatformData; }
 		auto HasPlatformData() const -> bool override
 		{
+#if DURIN_WITH_EDITORONLY_DATA
+			if (PlatformDataRevision != GetAuthoredBuildRevision()) return false;
+#endif
 			return PlatformData && PlatformData->IsValid();
 		}
 		// Adopts data already validated by the producer on GameThread; does not update resources.
@@ -124,6 +131,8 @@ namespace Durin
 		auto ResetPlatformData() -> void override { PlatformData.reset(); }
 #if DURIN_WITH_EDITORONLY_DATA
 		auto PrepareCookedPlatformData(FCookedPlatformData& Preparation) const -> void override;
+		auto GetBuildSettings() const -> FTexture2DBuildSettings;
+		uint64 PlatformDataRevision = 0;
 #endif
 		auto BuildPlatformDataForLoad(bool bAsyncCache) -> void override;
 		auto LoadCookedPlatformData(bool bAsync) -> void override;

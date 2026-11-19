@@ -191,8 +191,8 @@ The session emits native notifications, updates dirty state and commits through
 the Host transactor. `ScopedEditorTransaction` groups multiple writes. Rejection
 of an unchanged candidate ends only its own scope, preserving earlier edits and
 their enclosing history. Conversion failures never publish a partial value.
-Deferred validation is rejected before starting work because this API completes
-synchronously. Root fixed-array replacement is unavailable; fixed arrays inside
+Property validation and publication complete synchronously. Root fixed-array
+replacement is unavailable. Fixed arrays inside
 a supported struct, dynamic arrays and maps are replaced as complete snapshots.
 Native validation failures raise `ValueError`, admission failures raise
 `ScriptAccessError`, and retired targets raise `ReferenceError`.

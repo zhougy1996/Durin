@@ -776,18 +776,6 @@ else:
         Runtime.CloseSession(*Created); Other->PreExit();
         MarkObjectHierarchyAsGarbage(Other.Get()); Other.Reset();
     }
-    TEST_F(PythonReflectionTests, ScriptPropertiesRejectDeferredValidationBeforeStartingWork)
-    {
-        PrepareScene(); ASSERT_FALSE(Host->GetTransactor()->CanUndo()) << "Fixture already has history"; bool Started = false;
-        const auto Extension = RegisterPropertyEditExtension({.PreEdit = [&](DObject& Object, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
-            if (&Object == EditActor) Proposal.Defer([&](FPropertyEditDeferredCompletion) { Started = true; return [] {}; });
-            return {};
-        }});
-        const auto Result = Run("durin.get_editor_subsystem(durin.types.Durin.PythonFixtures.ReflectionService).GetEditTarget().value = 9");
-        UnregisterPropertyEditExtension(Extension);
-        EXPECT_EQ(Result.State, EPythonJobState::Failed); EXPECT_FALSE(Started); EXPECT_EQ(EditActor->Value, 1);
-        EXPECT_FALSE(Host->GetTransactor()->CanUndo());
-    }
     TEST_F(PythonReflectionTests, DiscoveryAndStubsDescribePublishedRuntimeMembers)
     {
         Pass(R"PY(

@@ -94,6 +94,7 @@ namespace Durin
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
 		auto HasPending(const DTexture& Texture) const -> bool;
+		auto HasPendingSettingsBuild(const DTexture& Texture) const -> bool;
 		auto Wait(DTexture& Texture, double TimeoutSeconds) -> bool;
 		auto SubmitPlatformCache(DTexture& Texture,
 			std::shared_ptr<const FTexturePlatformCacheInput> Input) -> bool;
@@ -129,6 +130,7 @@ namespace Durin
 namespace Durin::AssetPrivate
 {
 	auto CreateTextureCompilingManager() -> std::shared_ptr<IAssetCompilingManager>;
+	auto HasPendingTextureSettingsBuild(const DTexture& Texture) -> bool;
 }
 
 #endif

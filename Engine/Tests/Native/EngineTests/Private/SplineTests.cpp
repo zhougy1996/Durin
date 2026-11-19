@@ -369,7 +369,7 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	Durin::FPropertyView View;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+		.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
 		const Durin::FPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
@@ -438,7 +438,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithS
 	Durin::FPropertyView View;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+		.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
 		return View.SubmitPropertyValueEdit(Context,

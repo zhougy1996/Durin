@@ -1,4 +1,6 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "PropertyEditor/PropertyControlFrame.h"
+#include "PropertyEditor/PropertyHandle.h"
 #include "PropertyEditor/PropertyView.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -347,7 +349,6 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 
 	EXPECT_EQ(FilteredIndices, (std::vector<uint32>{0, 1, 2}));
 	EXPECT_EQ(Result.VisiblePropertyCount, 0u);
-	EXPECT_FALSE(Result.bChanged);
 	EXPECT_EQ(Durin::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
 }
 
@@ -512,7 +513,7 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	uint32 ErrorReports = 0;
 	const Durin::FPropertyViewContext Context{
 		.TransactionMode = Durin::ETransactionMode::NotTransactable,
-		.ReportError = [&](std::string) { ++ErrorReports; },
+		.ReportPropertyError = [&](std::string) { ++ErrorReports; },
 	};
 	First.bAllowRestore = true;
 	EXPECT_TRUE(BeginPropertyViewHostPreview(View, Context, First));
@@ -543,7 +544,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	uint32 ErrorReports = 0;
 	const Durin::FPropertyViewContext EditableContext{
 		.TransactionMode = Durin::ETransactionMode::NotTransactable,
-		.ReportError = [&](std::string) { ++ErrorReports; },
+		.ReportPropertyError = [&](std::string) { ++ErrorReports; },
 	};
 	Object.bAllowRestore = true;
 	EXPECT_TRUE(BeginPropertyViewHostPreview(View, EditableContext, Object));
@@ -573,9 +574,9 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 	FPropertyViewTestTransactorOwner Transactions;
 	FPropertyView View;
 	int Errors = 0;
-	const FPropertyViewContext Context{.ReportError = [&](std::string) { ++Errors; }};
+	const FPropertyViewContext Context{.ReportPropertyError = [&](std::string) { ++Errors; }};
 	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property);
-	FPropertyEditOperationResult LastResult;
+	bool bLastSucceeded = false;
 	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
 	auto& IO = ImGui::GetIO();
 	IO.ConfigInputTrickleEventQueue = false;
@@ -591,16 +592,16 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 			if (Value >= 0) Assign = [Value](FProperty* Property, void* Container, uint32 Index) {
 				*Property->ContainerPtrToValuePtr<int32>(Container, Index) = Value;
 			};
-			LastResult = View.UpdatePropertyValueEdit(Context, Target, Interaction, Assign);
+			bLastSucceeded = View.UpdatePropertyValueEdit(Context, Target, Interaction, Assign);
 		}
 		View.EndInteractionFrame(Context);
 		ImGui::End(); ImGui::Render();
 	};
 	Frame(-1);
-	EXPECT_EQ(LastResult.GetStatus(), EPropertyEditResult::NoChange);
+	EXPECT_TRUE(bLastSucceeded);
 	EXPECT_FALSE(View.IsEditing());
 	Frame(7); Frame(8);
-	EXPECT_EQ(LastResult.GetStatus(), EPropertyEditResult::Changed);
+	EXPECT_TRUE(bLastSucceeded);
 	EXPECT_TRUE(View.IsEditing());
 	Frame(-1, false);
 	EXPECT_FALSE(View.IsEditing());
@@ -624,7 +625,7 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 	Object->RestoreAttempts = 0;
 	IO.AddKeyEvent(ImGuiKey_Escape, true);
 	Frame(-1, false);
-	EXPECT_EQ(LastResult.GetStatus(), EPropertyEditResult::Failed);
+	EXPECT_FALSE(bLastSucceeded);
 	EXPECT_EQ(Object->RestoreAttempts, 1u);
 	EXPECT_TRUE(View.IsEditing());
 	EXPECT_EQ(Object->Value, 8);
@@ -935,7 +936,7 @@ TEST(FReflectedPropertyViewTests, MapKeyInteractionRetainsIdentityAndCancelsHidd
 		if (EndMode == 4) Object->SoftMap["Reserved"] = nullptr;
 		FPropertyViewTestTransactorOwner Transactions;
 		FPropertyView View;
-		const FPropertyViewContext Context{.ReportError = [EndMode](std::string Error) {
+		const FPropertyViewContext Context{.ReportPropertyError = [EndMode](std::string Error) {
 			if (EndMode == 4) EXPECT_EQ(Error, "Map keys must be unique.");
 			else if (EndMode != 3) ADD_FAILURE() << Error;
 		}};
@@ -1034,6 +1035,132 @@ TEST(FReflectedPropertyViewTests, MapKeyInteractionRetainsIdentityAndCancelsHidd
 	}
 }
 
+TEST(FReflectedPropertyViewTests, IntegerControlHandoffHasTheSameHistoryInBothDrawOrders)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	using EEnd = FPropertyControlFrame::EEnd;
+	Testing::InitializeAssetSystemForTests();
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	for (bool bDrawIncomingFirst : {false, true})
+	{
+		SCOPED_TRACE(bDrawIncomingFirst);
+		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(
+			nullptr, bDrawIncomingFirst ? "IncomingIntegerFirst" : "OutgoingIntegerFirst"));
+		FPropertyViewTestTransactorOwner Transactions;
+		const FReflectedPropertyHandle Handle(*Object, Reflection.Property->NamePrivate);
+		FPropertyControlFrame Frame;
+		const auto EndFrame = [&] { return Frame.EndFrame(false, ETransactionMode::Record, [] { return true; }); };
+
+		Frame.Observe(1, Handle, EEnd::None, 7);
+		ASSERT_TRUE(EndFrame());
+		ASSERT_TRUE(Frame.IsActive());
+		EXPECT_EQ(Object->Value, 7);
+
+		const auto DrawOutgoing = [&] { Frame.Observe(1, Handle, EEnd::Commit, 8); };
+		const auto DrawIncoming = [&] { Frame.Observe(2, Handle, EEnd::Commit, 9); };
+		if (bDrawIncomingFirst) { DrawIncoming(); DrawOutgoing(); }
+		else { DrawOutgoing(); DrawIncoming(); }
+		EXPECT_EQ(Object->Value, 7);
+		ASSERT_TRUE(EndFrame());
+		EXPECT_EQ(Object->Value, 9);
+		EXPECT_FALSE(Frame.IsActive());
+
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Object->Value, 8);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Object->Value, 5);
+		EXPECT_FALSE(Transactions->CanUndo());
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Object->Value, 8);
+		ASSERT_TRUE(Transactions->Redo());
+		EXPECT_EQ(Object->Value, 9);
+		EXPECT_FALSE(Transactions->CanRedo());
+	}
+}
+
+TEST(FReflectedPropertyViewTests, ColorPickerHandoffToIntegerHasTheSameHistoryInBothDrawOrders)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	using EEnd = FPropertyControlFrame::EEnd;
+	Testing::InitializeAssetSystemForTests();
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	const FLinearColor Preview{0.25f, 0.5f, 0.75f};
+	const FLinearColor Committed{0.75f, 0.25f, 0.5f};
+	for (bool bDrawIncomingFirst : {false, true})
+	{
+		SCOPED_TRACE(bDrawIncomingFirst);
+		TStrongObjectPtr<DDirectionalLightComponent> Light(NewObject<DDirectionalLightComponent>(
+			nullptr, bDrawIncomingFirst ? "LightIncomingFirst" : "LightOutgoingFirst"));
+		TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(
+			nullptr, bDrawIncomingFirst ? "NumberIncomingFirst" : "NumberOutgoingFirst"));
+		FPropertyViewTestTransactorOwner Transactions;
+		const auto* ColorProperty = Light->GetClass()->FindPropertyByName("Color");
+		ASSERT_NE(ColorProperty, nullptr);
+		const FReflectedPropertyHandle ColorHandle(FPropertyEditTarget::ForMember(Light.Get(), ColorProperty));
+		const FReflectedPropertyHandle NumberHandle(*Object, Reflection.Property->NamePrivate);
+		FLinearColor Original;
+		ASSERT_TRUE(ColorHandle.GetValue(Original));
+		FPropertyControlFrame Frame;
+		const auto EndFrame = [&] { return Frame.EndFrame(false, ETransactionMode::Record, [] { return true; }); };
+
+		Frame.Observe(1, ColorHandle, EEnd::None, Preview);
+		ASSERT_TRUE(EndFrame());
+		ASSERT_TRUE(Frame.IsActive());
+
+		const auto DrawPicker = [&] { Frame.Observe(1, ColorHandle, EEnd::Commit, Committed); };
+		const auto DrawNumber = [&] { Frame.Observe(2, NumberHandle, EEnd::Commit, 9); };
+		if (bDrawIncomingFirst) { DrawNumber(); DrawPicker(); }
+		else { DrawPicker(); DrawNumber(); }
+		ASSERT_TRUE(EndFrame());
+		EXPECT_FALSE(Frame.IsActive());
+
+		FLinearColor Color;
+		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		EXPECT_EQ(Color, Committed);
+		EXPECT_EQ(Object->Value, 9);
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_EQ(Object->Value, 5);
+		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		EXPECT_EQ(Color, Committed);
+		ASSERT_TRUE(Transactions->Undo());
+		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		EXPECT_EQ(Color, Original);
+		EXPECT_FALSE(Transactions->CanUndo());
+		ASSERT_TRUE(Transactions->Redo());
+		ASSERT_TRUE(Transactions->Redo());
+		ASSERT_TRUE(ColorHandle.GetValue(Color));
+		EXPECT_EQ(Color, Committed);
+		EXPECT_EQ(Object->Value, 9);
+		EXPECT_FALSE(Transactions->CanRedo());
+	}
+}
+
+TEST(FReflectedPropertyViewTests, ReflectedIntegerHandleReadsAndWritesInOneTransaction)
+{
+	using namespace Durin;
+	using namespace Durin::PropertyEditor;
+	Testing::InitializeAssetSystemForTests();
+	TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "IntegerHandle"));
+	FPropertyViewTestTransactorOwner Transactions;
+	const FReflectedPropertyHandle Reflected(*Object, GetPropertyViewHostTestReflection().Property->NamePrivate);
+	const IPropertyHandle& Handle = Reflected;
+	int32 Value = 0;
+	ASSERT_TRUE(Handle.GetValue(Value));
+	EXPECT_EQ(Value, 5);
+	EXPECT_TRUE(Handle.IsEditable());
+	EXPECT_TRUE(Handle.SetValue(8));
+	ASSERT_TRUE(Handle.GetValue(Value));
+	EXPECT_EQ(Value, 8);
+	EXPECT_TRUE(Handle.SetValue(8));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Object->Value, 8);
+}
+
 TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWithoutErrors)
 {
 	Durin::Testing::InitializeAssetSystemForTests();
@@ -1074,7 +1201,7 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 		uint32 ErrorReports = 0;
 		const FPropertyViewContext Context{
 		.TransactionMode = Durin::ETransactionMode::NotTransactable,
-			.ReportError = [&](std::string) { ++ErrorReports; },
+			.ReportPropertyError = [&](std::string) { ++ErrorReports; },
 		};
 		ImGuiContext* ImContext = ImGui::CreateContext();
 		ImGuiIO& IO = ImGui::GetIO();
@@ -1099,6 +1226,7 @@ TEST(FReflectedPropertyViewTests, NumericWidgetClampsDraggingAndManualInputWitho
 				WidgetPosition = {(Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f};
 				MonaImGui::PropertyEdit::EndTable();
 			}
+			EXPECT_TRUE(View.EndInteractionFrame(Context));
 			ImGui::End();
 			ImGui::Render();
 		};
@@ -1151,7 +1279,7 @@ TEST(FReflectedPropertyViewTests, ColorPickerGroupsMultipleDragsAndCancelsAbando
 	const FLinearColor Original = *Color;
 	FPropertyViewTestTransactorOwner Transactions;
 	FPropertyView View;
-	const FPropertyViewContext Context{.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }};
+	const FPropertyViewContext Context{.ReportPropertyError = [](std::string Error) { ADD_FAILURE() << Error; }};
 	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> ImContext(ImGui::CreateContext(), ImGui::DestroyContext);
 	ImGuiIO& IO = ImGui::GetIO();
 	IO.ConfigInputTrickleEventQueue = false;
@@ -1163,6 +1291,7 @@ TEST(FReflectedPropertyViewTests, ColorPickerGroupsMultipleDragsAndCancelsAbando
 	ImGui::SetColorEditOptions(ImGuiColorEditFlags_PickerHueBar);
 	ImGuiID PickerId = 0;
 	const auto DrawFrame = [&](bool bOpenPicker = false, bool bDrawColor = true) {
+		const FLinearColor BeforeDraw = *Color;
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({0.0f, 0.0f});
 		ImGui::SetNextWindowSize({600.0f, 300.0f});
@@ -1183,6 +1312,8 @@ TEST(FReflectedPropertyViewTests, ColorPickerGroupsMultipleDragsAndCancelsAbando
 			if (bDrawColor) View.EditProperty(Context, Light, ColorProperty);
 			MonaImGui::PropertyEdit::EndTable();
 		}
+		EXPECT_EQ(*Color, BeforeDraw);
+		EXPECT_TRUE(View.EndInteractionFrame(Context));
 		ImGui::End();
 		ImGui::Render();
 	};
@@ -1245,6 +1376,32 @@ TEST(FReflectedPropertyViewTests, ColorPickerGroupsMultipleDragsAndCancelsAbando
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
 }
 
+TEST(FReflectedPropertyViewTests, SingleValueSubmissionCreatesOneUndoRedoEntry)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	auto& Reflection = GetPropertyViewHostTestReflection();
+	TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "SingleValueSubmission"));
+	FPropertyViewTestTransactorOwner Transactions;
+	FPropertyView View;
+	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property);
+
+	ASSERT_TRUE(View.SubmitPropertyValueEdit({}, Target,
+		[](FProperty* Property, void* Container, uint32 Index) {
+			*Property->ContainerPtrToValuePtr<int32>(Container, Index) = 8;
+		}, false));
+	EXPECT_EQ(Object->Value, 8);
+	EXPECT_FALSE(View.IsEditing());
+	EXPECT_FALSE(Transactions.Get()->IsActive());
+
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Object->Value, 5);
+	EXPECT_FALSE(Transactions.Get()->CanUndo());
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(Object->Value, 8);
+	EXPECT_FALSE(Transactions.Get()->CanRedo());
+}
+
 TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
 {
 	Durin::Testing::InitializeAssetSystemForTests();
@@ -1256,7 +1413,7 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 	Durin::FPropertyView View;
 	uint32 ErrorReports = 0;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&](std::string) { ++ErrorReports; },
+		.ReportPropertyError = [&](std::string) { ++ErrorReports; },
 	};
 
 	EXPECT_FALSE(View.SubmitPropertyValueEdit(
@@ -1282,7 +1439,7 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 	FPropertyView View;
 	std::string Message;
 	const FPropertyViewContext Context{
-		.ReportError = [&](std::string Text) { Message = std::move(Text); }};
+		.ReportPropertyError = [&](std::string Text) { Message = std::move(Text); }};
 	bool Reject = true;
 	uint32 PostCount = 0;
 	uint32 CancelCount = 0;
@@ -1299,7 +1456,7 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 			Retained = Result.error();
 			return Result;
 		},
-		.PostEdit = [&](DObject& Target, const FPropertyChangedEvent& Event) {
+		.PostEdit = [&](DObject& Target, const FPropertyChangedEvent& Event, bool) {
 			if (&Target != Object) return;
 			if (Event.Phase == EPropertyChangePhase::Cancelled) ++CancelCount;
 			else ++PostCount;
@@ -1327,68 +1484,6 @@ TEST(FReflectedPropertyViewTests, TypedExtensionRejectionPreservesLiveStateAndAl
 	EXPECT_EQ(Object->Value, 6);
 	EXPECT_GT(PostCount, 0u);
 	EXPECT_EQ(Retained.PropertyReason, EPropertyEditRejection::IncompleteDraft);
-	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(Object->Value, 5);
-}
-
-TEST(FReflectedPropertyViewTests, TypedDeferredCompletionRejectsAndIgnoresLatePublication)
-{
-	Durin::Testing::InitializeAssetSystemForTests();
-	using namespace Durin;
-	using namespace Durin;
-	auto& Reflection = GetPropertyViewHostTestReflection();
-	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedDeferredEdit");
-	TStrongObjectPtr<DObject> Root(Object);
-	Object->Value = 6;
-	FPropertyValueSnapshot Proposed;
-	ASSERT_TRUE(CapturePropertyValue(Reflection.Property, Object, 0, Proposed));
-	Object->Value = 5;
-	FPropertyViewTestTransactorOwner Transactions;
-	FPropertyEditDeferredCompletion Completion;
-	uint32 CancelCount = 0;
-	struct FExtensionScope
-	{
-		FPropertyEditExtensionHandle Handle = 0;
-		~FExtensionScope() { UnregisterPropertyEditExtension(Handle); }
-	} Extension;
-	Extension.Handle = RegisterPropertyEditExtension({
-		.PreEdit = [&](DObject& Target, FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> {
-			if (&Target != Object || Proposal.Origin != EPropertyChangeOrigin::Edit
-				|| Proposal.Phase != EPropertyChangePhase::Interactive) return {};
-			EXPECT_TRUE(Proposal.Defer([&](FPropertyEditDeferredCompletion Done) {
-				Completion = std::move(Done);
-				return FPropertyEditDeferredCancel([&] { ++CancelCount; });
-			}));
-			return {};
-		}});
-	ASSERT_NE(Extension.Handle, 0u);
-	FPropertyEditSession Session;
-	auto Start = [&] {
-		EXPECT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Object, Reflection.Property), "Deferred Test", *Transactions.Get()));
-		EXPECT_EQ(Session.Apply(Proposed).GetStatus(), EPropertyEditResult::Pending);
-		EXPECT_TRUE(Session.HasPendingDeferredEdit());
-		EXPECT_EQ(Object->Value, 5);
-	};
-	Start();
-	ASSERT_TRUE(Completion);
-	Completion(std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
-		.ObjectPath = Object->GetObjectPath(), .PropertyReason = EPropertyEditRejection::Rejected,
-		.PropertyName = Reflection.Property->NamePrivate.ToString()}));
-	EXPECT_FALSE(Session.IsActive());
-	EXPECT_EQ(Object->Value, 5);
-	EXPECT_FALSE(Transactions.Get()->Undo());
-	Start();
-	auto LateCompletion = Completion;
-	EXPECT_EQ(Session.Cancel().GetStatus(), EPropertyEditResult::NoChange);
-	EXPECT_EQ(CancelCount, 1u);
-	LateCompletion({});
-	EXPECT_EQ(Object->Value, 5);
-	EXPECT_FALSE(Transactions.Get()->Undo());
-	Start();
-	Completion({});
-	EXPECT_FALSE(Session.IsActive());
-	EXPECT_EQ(Object->Value, 6);
-	EXPECT_EQ(CancelCount, 1u);
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 5);
 }
@@ -1522,49 +1617,40 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 	EXPECT_EQ(Object->Value, 5);
 }
 
-TEST(FReflectedPropertyViewTests, SessionMessagesSurviveResetAndRetry)
+TEST(FReflectedPropertyViewTests, SessionDiagnosticsAreOptionalAndSurviveRetry)
 {
-	Durin::Testing::InitializeAssetSystemForTests();
 	using namespace Durin;
-	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
 	FPropertyEditSession Session;
-	EXPECT_EQ(Session.Commit().GetStatus(), EPropertyEditResult::Failed);
-	const auto Missing = Session.Begin({}, "Missing target", Durin::ETransactionMode::NotTransactable);
-	EXPECT_FALSE(Missing);
-	EXPECT_EQ(Missing.GetStatus(), EPropertyEditResult::Failed);
-	const auto MissingMessage = Missing.Message;
+	EXPECT_FALSE(Session.Commit());
+
+	std::string MissingError;
+	EXPECT_FALSE(Session.Begin({}, "Missing target", ETransactionMode::NotTransactable, &MissingError));
+	EXPECT_EQ(MissingError, "The edit target has no owning object.");
+
 	auto& Reflection = GetPropertyViewHostTestReflection();
-	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors");
-	TStrongObjectPtr<DObject> Root(Object);
-	const auto Target = FPropertyEditTarget::ForMember(Object, Reflection.Property);
-	ASSERT_TRUE(Session.Begin(Target, "Owned session description", Durin::ETransactionMode::NotTransactable));
-	const auto Active = Session.Begin(Target, "Replacement description", Durin::ETransactionMode::NotTransactable);
-	EXPECT_FALSE(Active);
-	const auto ActiveMessage = Active.Message;
-	const auto Invalid = Session.Apply(FPropertyValueSnapshotPayload{});
-	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Invalid.GetStatus(), EPropertyEditResult::Failed);
-	EXPECT_FALSE(Invalid.Message.empty());
-	const auto InvalidMessage = Invalid.Message;
+	TStrongObjectPtr<DPropertyViewHostTestObject> Object(NewObject<DPropertyViewHostTestObject>(nullptr, "TypedSessionErrors"));
+	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Reflection.Property);
+	ASSERT_TRUE(Session.Begin(Target, "Owned session description", ETransactionMode::NotTransactable));
+
+	std::string ActiveError;
+	EXPECT_FALSE(Session.Begin(Target, "Replacement description", ETransactionMode::NotTransactable, &ActiveError));
+	EXPECT_EQ(ActiveError, "A reflected-property edit session is already active.");
+
+	std::string InvalidError;
+	EXPECT_FALSE(Session.Apply(FPropertyValueSnapshotPayload{}, &InvalidError));
+	EXPECT_FALSE(InvalidError.empty());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_TRUE(Session.IsActive());
+
 	Object->Value = 6;
 	FPropertyValueSnapshotPayload Proposed;
-	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object, 0, Proposed));
+	ASSERT_TRUE(CapturePropertyValuePayload(Reflection.Property, Object.Get(), 0, Proposed));
 	Object->Value = 5;
-	const auto Applied = Session.Apply(Proposed);
-	ASSERT_TRUE(Applied);
-	EXPECT_EQ(Applied.GetStatus(), EPropertyEditResult::Changed);
-	EXPECT_TRUE(Applied.Message.empty());
+	const auto Rejection = InvalidError;
+	ASSERT_TRUE(Session.Apply(Proposed, &InvalidError));
+	EXPECT_EQ(InvalidError, Rejection);
 	ASSERT_TRUE(Session.Commit());
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Object->Value, 6);
-	EXPECT_EQ(Active.Message, ActiveMessage);
-	EXPECT_EQ(Invalid.Message, InvalidMessage);
-	EXPECT_EQ(Missing.Message, MissingMessage);
-	// Presentation text does not determine the command outcome.
-	auto WithoutMessage = Invalid;
-	WithoutMessage.Message.clear();
-	EXPECT_FALSE(WithoutMessage);
-	EXPECT_EQ(WithoutMessage.GetStatus(), EPropertyEditResult::Failed);
 }

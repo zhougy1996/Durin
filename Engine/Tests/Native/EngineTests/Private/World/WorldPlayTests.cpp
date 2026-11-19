@@ -399,7 +399,7 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	Durin::FPropertyView View;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+		.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitFloat = [&](Durin::FProperty* Field, float Value, bool bContinuous) {
 		return View.SubmitPropertyValueEdit(Context, MakeTarget(Field),

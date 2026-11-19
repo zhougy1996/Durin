@@ -51,7 +51,7 @@ namespace
 	) -> Durin::FPropertyViewContext
 	{
 		return {
-			.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+			.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); },
 		};
 	}
 

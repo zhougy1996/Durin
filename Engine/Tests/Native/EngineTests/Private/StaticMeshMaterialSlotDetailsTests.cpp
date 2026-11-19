@@ -51,7 +51,7 @@ namespace
 	auto MakeContext(FPropertyTransactionHarness& Transactions, std::string& Error)
 		-> Durin::FPropertyViewContext
 	{
-		return {.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
+		return {.ReportPropertyError = [&Error](std::string Message) { Error = std::move(Message); }};
 	}
 }
 

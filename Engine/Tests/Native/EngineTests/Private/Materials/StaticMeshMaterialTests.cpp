@@ -339,7 +339,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Durin::FPropertyView PropertyView;
 	std::string EditError;
 	const Durin::FPropertyViewContext Context{
-		.ReportError = [&EditError](std::string Error) { EditError = std::move(Error); }};
+		.ReportPropertyError = [&EditError](std::string Error) { EditError = std::move(Error); }};
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, *RedEntry, Material));
 	ASSERT_TRUE(EditError.empty());
 	ASSERT_TRUE(Durin::SavePackage(Component->GetPackage()));

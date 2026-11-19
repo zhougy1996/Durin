@@ -68,25 +68,27 @@ namespace Durin::PythonReflection::Private
         auto* Transactor = C->Host->GetTransactor();
         if (!Transactor) return Error(Registry->AccessError, Path + ": Host history is unavailable");
         FPropertyEditSession Session;
-        if (const auto Begun = Session.Begin(FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor); !Begun)
-            return Error(Registry->AccessError, Path + ": " + Begun.Message);
-        auto CloseRejected = [&]() {
-            return !Session.HasChanges() && !Session.HasPendingDeferredEdit() ? Session.CancelUnchanged() : Session.Cancel();
+        std::string EditError;
+        if (!Session.Begin(FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor, &EditError))
+            return Error(Registry->AccessError, Path + ": " + EditError);
+        auto CloseRejected = [&](std::string* CleanupError = nullptr) {
+            return Session.HasChanges() ? Session.Cancel(CleanupError) : Session.CancelUnchanged(CleanupError);
         };
         try
         {
-            const auto Applied = Session.Apply(Proposal);
-            if (!Applied || Applied.Status == EPropertyEditResult::Pending)
+            if (!Session.Apply(Proposal, &EditError))
             {
-                const auto Cleanup = CloseRejected();
-                auto Message = Path + ": " + (Call.GetError() ? Call.GetError()->Message : Applied.Message);
-                if (!Cleanup) Message += " Cleanup failed: " + Cleanup.Message;
+                std::string CleanupError;
+                const bool bCleanedUp = CloseRejected(&CleanupError);
+                auto Message = Path + ": " + (Call.GetError() ? Call.GetError()->Message : EditError);
+                if (!bCleanedUp) Message += " Cleanup failed: " + CleanupError;
                 return Error(Call.GetError() ? Registry->AccessError : PyExc_ValueError, Message);
             }
-            if (const auto Committed = Session.Commit(); !Committed)
+            if (!Session.Commit(&EditError))
             {
-                const auto Cleanup = CloseRejected();
-                return Error(Registry->AccessError, Path + ": " + Committed.Message + (Cleanup ? "" : " Cleanup failed: " + Cleanup.Message));
+                std::string CleanupError;
+                if (!CloseRejected(&CleanupError)) EditError += " Cleanup failed: " + CleanupError;
+                return Error(Registry->AccessError, Path + ": " + EditError);
             }
         }
         catch (...)

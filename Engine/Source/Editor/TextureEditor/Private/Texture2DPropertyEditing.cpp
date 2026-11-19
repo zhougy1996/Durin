@@ -1,12 +1,9 @@
 #include "Texture2DPropertyEditing.h"
 
-#include "Asset/AssetCompilingManager.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
-#include "DObject/WeakObjectPtr.h"
 #include "PropertyEditor/PropertyEditing.h"
 #include "Texture/Texture2DCompilation.h"
-#include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace Durin::TextureEditor
 {
@@ -118,51 +115,20 @@ namespace Durin::TextureEditor
 				return Reject(std::move(Cause));
 			}
 
-			const TWeakObjectPtr<DTexture2D> WeakTexture(Texture);
-			auto MakeDeferredResult = [ObjectPath = Object.GetObjectPath(),
-				PropertyName = Proposal.MemberProperty->NamePrivate.ToString()](
-				std::string Diagnostic) -> std::expected<void, FObjectValidationError> {
-				if (Diagnostic.empty()) return {};
-				auto Cause = std::make_shared<FTexture2DPropertyEditCause>();
-				Cause->Code = ETexture2DPropertyEditError::Compilation;
-				Cause->Diagnostic = std::move(Diagnostic);
-				return std::unexpected(FObjectValidationError{.Code = EObjectValidationError::PropertyRejected,
-					.ObjectPath = ObjectPath, .PropertyReason = EPropertyEditRejection::ModuleRejected,
-					.PropertyName = PropertyName, .Cause = std::move(Cause)});
-			};
-			if (!Proposal.Defer(
-				[WeakTexture, Settings, MakeDeferredResult](FPropertyEditDeferredCompletion Completion) {
-					DTexture2D* LiveTexture = WeakTexture.Get();
-					if (!LiveTexture)
-					{
-						Completion(MakeDeferredResult("Texture compilation owner is no longer valid."));
-						return FPropertyEditDeferredCancel{};
-					}
-					const auto DeferredCompletion =
-						std::make_shared<FPropertyEditDeferredCompletion>(std::move(Completion));
-					if (const auto Submitted = AssetForge::Builtins::RebuildTexture2DFromSource(
-						*LiveTexture, Settings, ETexture2DCompilationPriority::Interactive,
-						[DeferredCompletion, MakeDeferredResult](FTextureOperationResult Result) {
-							(*DeferredCompletion)(MakeDeferredResult(Result.Status == ETextureCompilationStatus::Canceled
-								? "Texture build was canceled." : std::move(Result.Diagnostic)));
-						}); !Submitted)
-					{
-						(*DeferredCompletion)(MakeDeferredResult(FormatTextureBuildOperationError(Submitted.error())));
-						return FPropertyEditDeferredCancel{};
-					}
-					return FPropertyEditDeferredCancel([WeakTexture] {
-						if (DTexture2D* PendingTexture = WeakTexture.Get())
-							FAssetCompilingManager::Get().MarkCompilationAsCanceled(
-								*PendingTexture);
-					});
-				}))
-			{
-				FTexture2DPropertyEditCause Cause;
-				Cause.Code = ETexture2DPropertyEditError::DeferredValidation;
-				return Reject(std::move(Cause));
-			}
 			return {};
 		}
+		auto OnTexture2DPropertyEdited(DObject& Object, const FPropertyChangedEvent& Event, bool bValueChanged) -> void
+		{
+			if (!bValueChanged || !Event.MemberProperty || Event.Phase != EPropertyChangePhase::Committed) return;
+			auto* Texture = Cast<DTexture2D>(&Object);
+			if (!Texture) return;
+			const FName Name = Event.MemberProperty->NamePrivate;
+			const bool bUsageChanged = Name == FName("Usage");
+			if (bUsageChanged || Name == FName("bSRGB") || Name == FName("MaxResolution")
+				|| Name == FName("CompressionQuality") || Name == FName("AlphaMipMode") || Name == FName("AlphaCoverageThreshold"))
+				Texture->OnBuildSettingsEdited(bUsageChanged);
+		}
+
 	}
 
 	auto FTexture2DPropertyEditCause::Format() const -> std::string
@@ -173,12 +139,7 @@ namespace Durin::TextureEditor
 			return std::format("Texture2D property metadata kind {} does not match {}.", ActualKind, ExpectedKind);
 		case ETexture2DPropertyEditError::Settings:
 			return InputCause ? FormatTexture2DInputError(*InputCause) : "Texture2D build settings are invalid.";
-		case ETexture2DPropertyEditError::Source:
-			return "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
-		case ETexture2DPropertyEditError::Compilation:
-			return Diagnostic.empty() ? "Texture2D compilation failed." : Diagnostic;
-		case ETexture2DPropertyEditError::DeferredValidation:
-			return "Texture2D property proposal could not retain asynchronous validation.";
+
 		}
 		return "Unknown Texture2D property edit failure.";
 	}
@@ -187,7 +148,7 @@ namespace Durin::TextureEditor
 	{
 		if (GTexture2DPropertyEditExtension != 0) return true;
 		GTexture2DPropertyEditExtension = RegisterPropertyEditExtension({
-			.PreEdit = PrepareTexture2DPropertyEdit});
+			.PreEdit = PrepareTexture2DPropertyEdit, .PostEdit = OnTexture2DPropertyEdited});
 		return GTexture2DPropertyEditExtension != 0;
 	}
 

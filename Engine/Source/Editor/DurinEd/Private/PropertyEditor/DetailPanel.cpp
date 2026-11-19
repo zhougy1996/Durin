@@ -10,6 +10,7 @@ namespace Durin
 	{
 		FDetailPanelResult Result;
 		Result.bOwnerReady = View.HandleOwnerContext(Context, Object);
+		View.DrawInteractionError();
 		if (!Result.bOwnerReady) return Result;
 		FDetailLayoutBuilder Layout(Options.SearchText, Options.HostContext);
 		{
@@ -19,12 +20,17 @@ namespace Durin
 			Layout.AddDefaultProperties(Object);
 			Layout.AddDefaultFunctions();
 		}
-		if (!MonaImGui::PropertyEdit::BeginTable(Options.PropertyTableId)) return Result;
+		if (!MonaImGui::PropertyEdit::BeginTable(Options.PropertyTableId))
+		{
+			View.EndInteractionFrame(Context);
+			return Result;
+		}
 		Result.bTableDrawn = true;
 		const auto Declared = Layout.DrawRows(View, Context);
 		Result.VisibleRowCount = Declared.VisibleRowCount;
 		Result.bChanged = Declared.bChanged;
 		MonaImGui::PropertyEdit::EndTable();
+		View.EndInteractionFrame(Context, &Result.bChanged);
 		if (Declared.FunctionRequest)
 		{
 			const auto Action = ExecuteEditorFunction(View, Context, *Declared.FunctionRequest);

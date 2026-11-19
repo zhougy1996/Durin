@@ -14,16 +14,20 @@
 
 namespace Durin
 {
+	namespace PropertyEditor { class FPropertyEdit; }
+	class FPropertyView;
 	class DObject;
 	class FProperty;
 }
 
 namespace Durin
 {
+	namespace PropertyEditor { class FPropertyEdit; }
+	class FPropertyView;
 	struct FPropertyEditExtension
 	{
 		std::function<std::expected<void, FObjectValidationError>(DObject&, FPropertyEditProposal&)> PreEdit;
-		std::function<void(DObject&, const FPropertyChangedEvent&)> PostEdit;
+		std::function<void(DObject&, const FPropertyChangedEvent&, bool bValueChanged)> PostEdit;
 	};
 
 	using FPropertyEditExtensionHandle = uint64;
@@ -102,7 +106,7 @@ namespace Durin
 	enum class EPropertyMutationError : uint8
 	{
 		None, RecursiveEdit, MissingValue, CaptureBefore, Draft, ExtensionValidation,
-		ObjectValidation, DeferredUnavailable, Publication, CaptureAfter
+		ObjectValidation, Publication, CaptureAfter
 	};
 	struct FPropertyMutationError
 	{
@@ -157,29 +161,13 @@ namespace Durin
 		DURINED_API auto MatchesContinuousEdit(const FPropertyEditTarget& Other) const -> bool;
 	};
 
-	// Reports whether a reflected edit failed, changed nothing, or changed value.
-	enum class EPropertyEditResult : uint8
-	{
-		Failed,
-		NoChange,
-		Changed,
-		Pending,
-	};
-
-	// Status controls flow; command-owned text includes primary and cleanup failures.
-	struct FPropertyEditOperationResult
-	{
-		EPropertyEditResult Status = EPropertyEditResult::NoChange;
-		std::string Message;
-		explicit operator bool() const { return Status != EPropertyEditResult::Failed; }
-		auto GetStatus() const -> EPropertyEditResult { return Status; }
-	};
-
 	// Coalesces continuous widget changes into one reflected-property transaction.
 	class FPropertyEditSession
 	{
 	public:
 		DURINED_API ~FPropertyEditSession();
+
+		// Operations return success. Optional diagnostics are written on failure.
 		FPropertyEditSession() = default;
 		FPropertyEditSession(const FPropertyEditSession&) = delete;
 		auto operator=(const FPropertyEditSession&) -> FPropertyEditSession& = delete;
@@ -188,34 +176,33 @@ namespace Durin
 			const FPropertyEditTarget& InTarget,
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
-			ETransactionMode Mode = ETransactionMode::Record
-		) -> FPropertyEditOperationResult;
+			ETransactionMode Mode = ETransactionMode::Record,
+			std::string* OutError = nullptr
+		) -> bool;
 		DURINED_API auto Begin(const FPropertyEditTarget& Target, std::string_view Description,
-			DTransactor& Transactor) -> FPropertyEditOperationResult;
-		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue) -> FPropertyEditOperationResult;
-		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue) -> FPropertyEditOperationResult;
-		DURINED_API auto Commit() -> FPropertyEditOperationResult;
-		DURINED_API auto Cancel() -> FPropertyEditOperationResult;
+			DTransactor& Transactor, std::string* OutError = nullptr) -> bool;
+		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError = nullptr) -> bool;
+		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError = nullptr) -> bool;
+		DURINED_API auto Commit(std::string* OutError = nullptr) -> bool;
+		DURINED_API auto Cancel(std::string* OutError = nullptr) -> bool;
 		// Close a rejected/no-change edit without discarding an enclosing recording.
-		// Applied previews and pending asynchronous validation must use Cancel instead.
-		DURINED_API auto CancelUnchanged() -> FPropertyEditOperationResult;
+		// Applied previews must use Cancel instead.
+		DURINED_API auto CancelUnchanged(std::string* OutError = nullptr) -> bool;
 
 		auto IsActive() const -> bool { return bActive; }
 		DURINED_API auto MatchesTarget(const FPropertyEditTarget& Other) const -> bool;
 		auto HasChanges() const -> bool { return bActive && !(OriginalValue == CurrentValue); }
-		auto HasPendingDeferredEdit() const -> bool { return bDeferredPending; }
 		auto GetDescription() const -> std::string_view { return Description; }
 		auto GetOriginalValue() const -> const FPropertyValueSnapshotPayload& { return OriginalValue; }
 		auto GetCurrentValue() const -> const FPropertyValueSnapshotPayload& { return CurrentValue; }
 
 	private:
 		auto BeginInternal(const FPropertyEditTarget& Target, std::string_view Description,
-			DTransactor* Transactor) -> FPropertyEditOperationResult;
-		struct FDeferredOwnerState;
-		auto CompleteDeferredEdit(
-			std::expected<void, FObjectValidationError> Validation,
-			FPropertyValueSnapshotPayload ProposedValue) -> void;
-		static auto Reject(std::string Message) -> FPropertyEditOperationResult;
+			DTransactor* Transactor, std::string* OutError) -> bool;
+		friend class FPropertyView;
+		friend class PropertyEditor::FPropertyEdit;
+		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
+			std::string* OutError, bool* OutChanged) -> bool;
 		auto Reset() -> void;
 
 		FPropertyEditTarget Target;
@@ -226,8 +213,5 @@ namespace Durin
 		DTransactor* Transactor = nullptr;
 		std::optional<FScopedTransaction> TransactionScope;
 		bool bActive = false;
-		bool bDeferredPending = false;
-		std::shared_ptr<FDeferredOwnerState> DeferredOwnerState;
-		FPropertyEditDeferredCancel CancelDeferredEdit;
 	};
 }
