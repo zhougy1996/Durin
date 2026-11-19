@@ -27,13 +27,20 @@ remain retryable; terminal errors and capacity exhaustion fail explicitly.
 
 Geometry preparation has three boundaries:
 
-1. Render-thread collection finishes scene/proxy reads and captures LOD, bounds,
-   input compatibility, material/deformation snapshots and source identity.
-2. Shared-cache resolution publishes immutable `FStaticMeshPreparationInputs`.
-   Workers consume these owned facts without scene, proxy, command-list or cache access.
-3. Pure chunks merge in original primitive order, then perform one final sort,
-   dense indexing and material grouping. Mixed inputs, missing/overlapping ranges
-   and cancellation publish no partial view. All launched work is drained.
+1. The render thread captures scene/proxy state and immutable static mesh
+   publications. Indexed CPU ranges select LOD and materialize retained batches
+   from the publication and a copied per-view collection context.
+2. The render thread admits batches and calls dynamic providers. Indexed CPU
+   ranges validate retained stream descriptors for batches without a geometry
+   record and compute spline winding from captured scale parameters. Published
+   geometry records carry their checked stream facts. Factory support callbacks,
+   transform-cache decisions, material fallback, resource resolution and cache
+   updates run on the render thread.
+3. Shared-cache resolution publishes immutable `FStaticMeshPreparationInputs`.
+   Workers consume these owned facts without scene, proxy, command-list or cache
+   access. Pure chunks merge in original primitive order, then perform one final
+   sort, dense indexing and material grouping. Mixed inputs, missing/overlapping
+   ranges and cancellation publish no partial view. All launched work is drained.
 
 LOD threshold equality selects higher detail; invalid inputs request LOD zero.
 Availability searches lower detail before higher detail. Collection/resource
@@ -63,11 +70,27 @@ preparation caches. Scene teardown releases the cache with its draw storage.
 Borrowed values keep their existing reference-counted frame lifetime through
 all these transitions.
 
-Preparation uses independent CPU tasks at 256 primitives, with 128-primitive chunks
-and at most eight active tasks per view. Missing scheduler/small views run inline;
-`DURIN_MESH_PREPARATION=inline|tasks` is a diagnostic override. Start receiver and
-cascade work before joining it; cancel/drain abandoned work. These policy constants
-are not performance acceptance evidence.
+Visibility classification, retained mesh collection and mesh input facts submit
+up to eight independent CPU ranges per step over captured inputs and write
+indexed outputs in scene order. The
+render thread submits all ranges before waiting. If a task fails or is canceled,
+the owner drains the ranges and retries inline.
+
+`StartStaticMeshPreparation` launches up to eight independent CPU workers over
+128-primitive chunks and a finalization task with those workers as prerequisites.
+Finalization assembles chunks in input order, then sorts and groups draws. The
+render thread starts receiver and cascade work and consumes the terminal result
+at `FinishStaticMeshPreparation`. Workers read resolved snapshots. Scene/proxy
+access, mutable cache access, RHI resource resolution and result publication
+stay on the render thread. The task path starts at 256 primitives by default.
+Small inputs and an unavailable scheduler use the inline path.
+`DURIN_MESH_PREPARATION=inline|tasks` selects the diagnostic policy.
+
+The finish call waits for completion and reports failures without publishing a
+partial view. Cancellation is sampled by the owner at start and finish. It can
+discard the result while submitted work drains. Destruction also drains the
+workers and finalizer before releasing frame inputs. Mesh preparation task count
+continues to report logical chunks. Join time measures the completion wait.
 
 ### Required recording and invalidation contracts
 

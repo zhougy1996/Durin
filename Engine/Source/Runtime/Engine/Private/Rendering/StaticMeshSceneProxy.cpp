@@ -152,25 +152,18 @@ namespace Durin
 		return Context.Publications.emplace(this, StaticBatches).first->second;
 	}
 
-	auto CollectPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
-		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) -> void
+	auto BuildPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
+		const FMeshCollectionContext& Context) -> std::expected<FMeshBatch, EGeometrySubmissionOutcome>
 	{
-		CheckRenderingThread();
 		if (!Publication.Geometry || !Publication.Geometry->bValidLayout)
-		{
-			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
-			return;
-		}
+			return std::unexpected(EGeometrySubmissionOutcome::ResourceFailure);
 		const auto& LODs = Publication.Geometry->LODs;
 		const uint32 Requested = Context.PreparedLOD ? Context.PreparedLOD->Requested
 			: Context.bForceLOD0 ? 0u : SelectStaticMeshLOD(Context.NormalizedScreenSize, LODs);
 		const uint32 Selected = Context.PreparedLOD ? Context.PreparedLOD->Selected : ResolveAvailableStaticMeshLOD(Requested, LODs);
 		if (Requested >= LODs.size() || Selected >= LODs.size() || !LODs[Selected].bReadyForRendering
 			|| Selected >= Publication.LODs.size() || !Publication.LODs[Selected] || !Publication.LODs[Selected]->Geometry)
-		{
-			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
-			return;
-		}
+			return std::unexpected(EGeometrySubmissionOutcome::ResourceFailure);
 		FMeshBatch Batch;
 		Batch.StaticInputs = Publication.LODs[Selected];
 		Batch.GeometryRecord = Batch.StaticInputs->Geometry;
@@ -188,7 +181,16 @@ namespace Durin
 		Batch.RequestedLOD = Requested;
 		Batch.SelectedLOD = Selected;
 		Batch.LODCount = static_cast<uint32>(LODs.size());
-		Collector.Add(std::move(Batch));
+		return Batch;
+	}
+
+	auto CollectPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
+		const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) -> void
+	{
+		CheckRenderingThread();
+		auto Batch = BuildPublishedStaticMeshBatch(Publication, Context);
+		if (Batch) Collector.Add(std::move(*Batch));
+		else Collector.RecordOutcome(Batch.error());
 	}
 
 	auto FStaticMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,

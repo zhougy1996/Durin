@@ -25,6 +25,13 @@ timing budgets are frozen. Scene-owned retention now uses the normal rendering
 path. Its functional checks are complete. Exclusive timing and workload-wide
 budgets remain open under Stages 0 and 5.
 
+Stage 2 has removed render-thread task replenishment. Static mesh merges and
+sorting follow chunk workers through a completion dependency. Retained batch
+materialization shares the view LOD worker ranges. CPU stream validation and
+spline winding use captured inputs after admission. Scene/proxy access, mutable
+cache decisions, factory callbacks and RHI resource resolution stay on the render
+thread. Measured critical-path improvement remains open.
+
 The prerequisite main-pass recording change is committed as `345a2fc30`.
 GBuffer and opaque/masked forward and retained-forward draws now use
 `FParallelMeshDrawCommandPass::DispatchDraw`, `FParallelCommandListSet` and
@@ -518,10 +525,10 @@ Depends on: Stages 0 and 1; immutable-input and cache-ownership contracts fixed.
 Outcome: useful preparation work overlaps without serial collection/resolve
 chains or rendering-thread-driven task replenishment dominating the critical path.
 
-- [ ] Split visibility input capture, classification, LOD/relevance, section
+- [x] Split visibility input capture, classification, LOD/relevance, section
   preparation, material/pass facts and sorting/grouping into explicit ownership
   and dependency boundaries. Keep mutable caches and publication on their owner.
-- [ ] Remove fixed-wave replenishment that waits for RT result consumption;
+- [x] Remove fixed-wave replenishment that waits for RT result consumption;
   schedule all bounded ranges or use worker-driven range acquisition. Preserve
   deterministic assembly, cancellation/failure handling and bounded task storage.
 - [ ] Reuse captured scene/material/geometry facts across receiver, views and
@@ -532,6 +539,37 @@ chains or rendering-thread-driven task replenishment dominating the critical pat
   traversal, allocation and sorting remain the dominant work.
 - [ ] Validate serial/task output parity, changing inputs, scheduler shutdown,
   task failure, source teardown and large workloads spanning many former waves.
+
+The scheduling boundary follows local UE 5.8.2 CL 56702186
+`FVisibilityTaskData::LaunchVisibilityTasks` and
+`FComputeAndMarkRelevance::Finish/Finalize`: publish prerequisites at launch and
+consume the completed result at the owner boundary. Durin reuses its independent
+CPU tasks for both the asynchronous dependency chain and synchronous indexed
+facts. The ordinary `ParallelFor` worker waits are rejected on the render thread. See the
+[frame preparation contract](../Runtime/Rendering/Pipeline/RendererFramePreparation.md).
+
+The snapshot gathering split follows `FRelevancePacket::LaunchComputeRelevanceTask`
+and `FVisibilityTaskData::GatherDynamicMeshElements` in local UE 5.8.2. Durin
+hands workers retained publications and descriptor facts. Provider callbacks and
+factory support queries stay with the render-thread owner.
+
+Functional receipt on 2026-11-19 (`b0170ab87` plus this Stage 2 change):
+`Win64-Release-DurinEditor` built `StaticMeshRenderPreparationVulkanTests` and
+passed `QualifiesIndependentMultiBatchGeometryAndFactory` and
+`HitProxyIdsRespectDepthBackgroundAndCacheInvalidation` on RTX 3090 Vulkan.
+The multi-batch case compares serial and tasked visibility, LOD and mesh output,
+observes all 12 mesh chunks finalized before calling finish, and exercises
+cancellation, a failed completion and abandoned-work drain. The broader
+scheduler shutdown, source teardown and timing checks remain open.
+Raw results are under `Build/NativeTestResults/Win64-Release-DurinEditor/`.
+
+The 2026-11-19 snapshot migration receipt (`57fab7805` plus this change)
+uses the same Release preset and RTX 3090 Vulkan. The selected
+`ClassifiesResolvedSectionsAndRecomputesPerViewFacts` and
+`QualifiesIndependentMultiBatchGeometryAndFactory` cases cover retained LOD and
+geometry identity over 256 inputs, serial/task stream-validation parity, spline
+winding, and the existing draw/cache assertions. The measured-work checkbox
+stays open pending RT attribution and timing acceptance.
 
 Completion: receipts show reduced RT active work/critical-path cost within Stage 0
 budgets, continuous task progress and unchanged scene/resource lifetime behavior.

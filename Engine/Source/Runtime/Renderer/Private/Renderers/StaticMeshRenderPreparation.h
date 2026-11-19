@@ -446,6 +446,8 @@ namespace Durin
 			std::shared_ptr<const FGPUSceneDynamicPrimitiveData> DynamicPrimitiveData;
 			std::shared_ptr<const FVertexFactoryInputBinding> InputBinding;
 			bool bFactoryCompatible = false;
+			bool bReverseSplineWinding = false;
+			bool bSplineChangesOrientation = false;
 			std::vector<FElementFacts> Elements;
 			std::shared_ptr<const FStaticMeshSectionFacts> StaticFacts;
 			auto GetElementFacts(size_t Index) const -> const FElementFacts&
@@ -532,31 +534,24 @@ namespace Durin
 		-> std::expected<FPreparedStaticMeshView, EStaticMeshPreparationMergeError>;
 
 	enum class EStaticMeshPreparationPolicy : uint8 { Auto, Inline, Tasks };
-	struct FStaticMeshPreparationWork
-	{
-		struct FSlot
-		{
-			size_t Index;
-			Tasks::TTask<FStaticMeshPreparationChunk> Task;
-		};
-		std::shared_ptr<const FStaticMeshPreparationInputs> Inputs;
-		std::optional<FPreparedStaticMeshView> InlineOutput;
-		std::deque<FSlot> Active;
-		std::function<bool()> IsCancellationRequested;
-		bool bCanceled = false;
-		size_t NextPrimitive = 0;
-		size_t LaunchedChunks = 0;
-		FStaticMeshPreparationWork() = default;
-		FStaticMeshPreparationWork(FStaticMeshPreparationWork&&) noexcept = default;
-		FStaticMeshPreparationWork(const FStaticMeshPreparationWork&) = delete;
-		auto operator=(FStaticMeshPreparationWork&&) -> FStaticMeshPreparationWork& = delete;
-		RENDERER_API ~FStaticMeshPreparationWork();
-	};
 	struct FStaticMeshPreparationError
 	{
 		size_t ChunkIndex = 0;
 		ETaskState State = ETaskState::Failed;
 		std::optional<EStaticMeshPreparationMergeError> MergeError;
+	};
+	struct FStaticMeshPreparationWork
+	{
+		std::optional<FPreparedStaticMeshView> InlineOutput;
+		std::vector<Tasks::FTask> Workers;
+		Tasks::TTask<std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError>> Completion;
+		std::function<bool()> IsCancellationRequested;
+		bool bCanceled = false;
+		FStaticMeshPreparationWork() = default;
+		FStaticMeshPreparationWork(FStaticMeshPreparationWork&&) noexcept = default;
+		FStaticMeshPreparationWork(const FStaticMeshPreparationWork&) = delete;
+		auto operator=(FStaticMeshPreparationWork&&) -> FStaticMeshPreparationWork& = delete;
+		RENDERER_API ~FStaticMeshPreparationWork();
 	};
 	RENDERER_API auto StartStaticMeshPreparation(std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
 		EStaticMeshPreparationPolicy Policy = EStaticMeshPreparationPolicy::Auto,

@@ -1,4 +1,5 @@
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/RenderPreparationTasks.h"
 
 #include "Renderers/ViewPreparationMath.h"
 
@@ -6,7 +7,6 @@
 #include "Scene.h"
 #include "SceneInfo.h"
 #include "Profiling/Profiling.h"
-#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -24,67 +24,29 @@ namespace Durin
 		bool bAllowTasks) -> FSceneVisibilityClassification
 	{
 		using EClass = EPrimitiveVisibilityClassification;
-		auto Owner = std::make_shared<const std::vector<FPrimitiveVisibilityInput>>(std::move(Inputs));
-		auto ClassifyRange = [Owner, Policy](size_t First, size_t Count) {
-			std::vector<EClass> Classes;
-			Classes.reserve(Count);
-			for (size_t Index = First; Index < First + Count; ++Index)
-			{
-				const auto& Input = (*Owner)[Index];
-				EClass Classification;
-				if (!Input.bVisible) Classification = EClass::Hidden;
-				else if (!Policy.bEnabled) Classification = EClass::VisibleCullingDisabled;
-				else if (!Policy.Frustum) Classification = EClass::VisibleInvalidViewFallback;
-				else
-				{
-					switch (ClassifyWorldBounds(*Policy.Frustum, Input.WorldBounds))
-					{
-					case EViewBoundsClassification::Inside: Classification = EClass::VisibleInside; break;
-					case EViewBoundsClassification::Intersecting: Classification = EClass::VisibleIntersecting; break;
-					case EViewBoundsClassification::Outside: Classification = EClass::FrustumCulled; break;
-					case EViewBoundsClassification::InvalidBounds: Classification = EClass::VisibleInvalidBoundsFallback; break;
-					default: Classification = EClass::VisibleInvalidBoundsFallback; break;
-					}
-				}
-				Classes.push_back(Classification);
-			}
-			return Classes;
-		};
-		if (!bAllowTasks || Owner->size() < 1024 || !IsTaskSchedulerRunning())
-			return {ClassifyRange(0, Owner->size()), 0};
-		struct FPending
-		{
-			std::deque<Tasks::TTask<std::vector<EClass>>> Tasks;
-			~FPending()
-			{
-				for (auto& Task : Tasks) require(Task.Wait());
-			}
-		} Pending;
 		FSceneVisibilityClassification Result;
-		Result.Primitives.reserve(Owner->size());
-		size_t Next = 0;
-		auto Launch = [&] {
-			const size_t First = Next, Count = std::min(size_t(512), Owner->size() - Next);
-			Pending.Tasks.push_back(Tasks::LaunchIndependentTask("Renderer.ClassifyVisibility",
-				[ClassifyRange, First, Count] { return ClassifyRange(First, Count); }));
-			Next += Count;
-			++Result.TaskCount;
+		Result.Primitives.resize(Inputs.size());
+		const auto Classify = [&](size_t Index) {
+			const auto& Input = Inputs[Index];
+			EClass Classification;
+			if (!Input.bVisible) Classification = EClass::Hidden;
+			else if (!Policy.bEnabled) Classification = EClass::VisibleCullingDisabled;
+			else if (!Policy.Frustum) Classification = EClass::VisibleInvalidViewFallback;
+			else
+			{
+				switch (ClassifyWorldBounds(*Policy.Frustum, Input.WorldBounds))
+				{
+				case EViewBoundsClassification::Inside: Classification = EClass::VisibleInside; break;
+				case EViewBoundsClassification::Intersecting: Classification = EClass::VisibleIntersecting; break;
+				case EViewBoundsClassification::Outside: Classification = EClass::FrustumCulled; break;
+				case EViewBoundsClassification::InvalidBounds: Classification = EClass::VisibleInvalidBoundsFallback; break;
+				default: Classification = EClass::VisibleInvalidBoundsFallback; break;
+				}
+			}
+			Result.Primitives[Index] = Classification;
 		};
-		while (Next < Owner->size() && Pending.Tasks.size() < 8) Launch();
-		while (!Pending.Tasks.empty())
-		{
-			auto Task = std::move(Pending.Tasks.front());
-			Pending.Tasks.pop_front();
-			const auto Wait = Task.WaitDetailed();
-			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
-			// No externally visible effect has occurred: retry the pure classification
-			// inline. Scope exit drains outstanding work before publishing the result.
-			if (Wait.TaskState != ETaskState::Succeeded)
-				return {ClassifyRange(0, Owner->size()), Result.TaskCount};
-			auto Classes = std::move(Task.GetResult());
-			Result.Primitives.insert(Result.Primitives.end(), Classes.begin(), Classes.end());
-			if (Next < Owner->size()) Launch();
-		}
+		Result.TaskCount = RendererPrivate::RunPreparationRanges("Renderer.ClassifyVisibility", Inputs.size(), 512,
+			bAllowTasks && Inputs.size() >= 1024, Classify);
 		return Result;
 	}
 

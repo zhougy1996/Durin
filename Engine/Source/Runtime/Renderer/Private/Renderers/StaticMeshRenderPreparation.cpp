@@ -1,4 +1,5 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/RenderPreparationTasks.h"
 #include "Renderers/MeshPipelineDescription.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "Renderers/MaterialBindingResolution.h"
@@ -18,10 +19,10 @@
 namespace Durin
 {
 	using namespace RendererPrivate;
-	auto PrepareMeshViewFacts(std::vector<FMeshViewPreparationInput> Inputs,
-		const FSceneView& View, bool bAllowTasks) -> FMeshViewPreparationFacts
+	template<typename F>
+	static auto PrepareMeshViewFacts(std::span<const FMeshViewPreparationInput> Inputs,
+		const FSceneView& View, bool bAllowTasks, const F& FinishFact) -> FMeshViewPreparationFacts
 	{
-		auto Owner = std::make_shared<const std::vector<FMeshViewPreparationInput>>(std::move(Inputs));
 		// Capture only the fields used by projected-size calculation and LOD policy.
 		FSceneView FrozenView;
 		FrozenView.ViewProjectionMatrix = View.ViewProjectionMatrix;
@@ -31,60 +32,33 @@ namespace Durin
 		FrozenView.ViewportHeight = View.ViewportHeight;
 		FrozenView.Settings.Mode = View.Settings.Mode;
 		FrozenView.DepthConvention = View.DepthConvention;
-		auto BuildRange = [Owner, FrozenView](size_t First, size_t Count) {
-			std::vector<FMeshViewPreparationFact> Facts;
-			Facts.reserve(Count);
-			for (size_t Index = First; Index < First + Count; ++Index)
-			{
-				const auto& Input = (*Owner)[Index];
-				auto& Fact = Facts.emplace_back();
-				Fact.StaticBatches = Input.StaticBatches;
-				Fact.Projected = ComputeProjectedScreenSize(FrozenView, Input.WorldBounds);
-				if (Input.StaticBatches || Input.LODs)
-				{
-					const auto LODs = Input.StaticBatches ? std::span<const FMeshLODSelectionEntry>(Input.StaticBatches->Geometry->LODs)
-						: std::span<const FMeshLODSelectionEntry>(*Input.LODs);
-					const uint32 Requested = FrozenView.Settings.Mode.LODMode == EViewLODMode::ForceLOD0 ? 0u
-						: SelectStaticMeshLOD(Fact.Projected.NormalizedScreenSize, LODs);
-					Fact.LOD = FPreparedMeshLODSelection{Requested, ResolveAvailableStaticMeshLOD(Requested, LODs)};
-				}
-			}
-			return Facts;
-		};
-		if (!bAllowTasks || Owner->size() < 256 || !IsTaskSchedulerRunning())
-			return {BuildRange(0, Owner->size()), 0};
-		struct FPending
-		{
-			std::vector<Tasks::TTask<std::vector<FMeshViewPreparationFact>>> Work;
-			~FPending()
-			{
-				for (auto& Task : Work) if (Task.IsValid()) require(Task.Wait());
-			}
-		} Pending;
 		FMeshViewPreparationFacts Result;
-		Result.Primitives.reserve(Owner->size());
-		for (size_t First = 0; First < Owner->size();)
-		{
-			Pending.Work.clear();
-			while (First < Owner->size() && Pending.Work.size() < 8)
+		Result.Primitives.resize(Inputs.size());
+		const auto BuildFact = [&](size_t Index) {
+			const auto& Input = Inputs[Index];
+			auto& Fact = Result.Primitives[Index];
+			Fact.StaticBatches = Input.StaticBatches;
+			Fact.Projected = ComputeProjectedScreenSize(FrozenView, Input.WorldBounds);
+			if (Input.StaticBatches || Input.LODs)
 			{
-				const size_t Count = std::min(size_t(128), Owner->size() - First);
-				Pending.Work.push_back(Tasks::LaunchIndependentTask("Renderer.PrepareViewLOD",
-					[BuildRange, First, Count] { return BuildRange(First, Count); }));
-				First += Count;
-				++Result.TaskCount;
+				const auto LODs = Input.StaticBatches ? std::span<const FMeshLODSelectionEntry>(Input.StaticBatches->Geometry->LODs)
+					: std::span<const FMeshLODSelectionEntry>(*Input.LODs);
+				const uint32 Requested = FrozenView.Settings.Mode.LODMode == EViewLODMode::ForceLOD0 ? 0u
+					: SelectStaticMeshLOD(Fact.Projected.NormalizedScreenSize, LODs);
+				Fact.LOD = FPreparedMeshLODSelection{Requested, ResolveAvailableStaticMeshLOD(Requested, LODs)};
 			}
-			for (auto& Task : Pending.Work)
-			{
-				const auto Wait = Task.WaitDetailed();
-				require(Wait.WaitStatus == ETaskWaitStatus::Completed);
-				if (Wait.TaskState != ETaskState::Succeeded) return {BuildRange(0, Owner->size()), Result.TaskCount};
-				auto Facts = std::move(Task.GetResult());
-				Result.Primitives.insert(Result.Primitives.end(), std::make_move_iterator(Facts.begin()), std::make_move_iterator(Facts.end()));
-			}
-		}
+			FinishFact(Index, Fact);
+		};
+		Result.TaskCount = RunPreparationRanges("Renderer.PrepareViewLOD", Inputs.size(), 128,
+			bAllowTasks && Inputs.size() >= 256, BuildFact);
 		return Result;
 	}
+	auto PrepareMeshViewFacts(std::vector<FMeshViewPreparationInput> Inputs,
+		const FSceneView& View, bool bAllowTasks) -> FMeshViewPreparationFacts
+	{
+		return PrepareMeshViewFacts(Inputs, View, bAllowTasks, [](size_t, const FMeshViewPreparationFact&) {});
+	}
+
 	namespace
 	{
 		auto MaterialFactHash(const FMaterialRenderRepresentation& Representation) -> uint64
@@ -350,6 +324,13 @@ namespace Durin
 		std::vector<FMeshViewPreparationInput> ViewInputs;
 		ViewInputs.reserve(SceneInfos.size());
 
+		struct FPublishedBatch
+		{
+			FMeshCollectionContext Context;
+			std::expected<FMeshBatch, EGeometrySubmissionOutcome> Batch;
+		};
+		std::vector<FPublishedBatch> PublishedBatches;
+		std::vector<size_t> PublishedIndices(SceneInfos.size());
 		FStaticMeshBatchCaptureContext LocalCapture;
 		auto& Capture = SharedCache ? SharedCache->StaticBatchCapture : LocalCapture;
 		for (const auto* SceneInfo : SceneInfos)
@@ -363,9 +344,47 @@ namespace Durin
 			// provide their own retained contract.
 			if (typeid(Proxy) == typeid(FStaticMeshSceneProxy))
 				Input.StaticBatches = static_cast<const FStaticMeshSceneProxy&>(Proxy).CaptureStaticMeshBatches_RenderThread(Capture);
-			if (!Input.StaticBatches) Input.LODs = Proxy.CaptureLODSelection_RenderThread();
+			if (Input.StaticBatches)
+			{
+				PublishedIndices[ViewInputs.size() - 1] = PublishedBatches.size();
+				auto& Context = PublishedBatches.emplace_back().Context;
+				Context.PrimitiveId = SceneInfo->GetId();
+				Context.CustomPrimitiveData = Proxy.GetCustomPrimitiveData();
+				Context.LocalToWorld = SceneInfo->GetTransform();
+				Context.WorldBounds = Input.WorldBounds;
+				Context.bForceLOD0 = View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0;
+				Context.Purpose = Purpose;
+			}
+			else Input.LODs = Proxy.CaptureLODSelection_RenderThread();
 		}
-		const auto ViewFacts = PrepareMeshViewFacts(std::move(ViewInputs), View);
+		const auto ViewFacts = PrepareMeshViewFacts(ViewInputs, View, true, [&](size_t Index, const auto& Fact) {
+			if (!Fact.StaticBatches) return;
+			auto& Published = PublishedBatches[PublishedIndices[Index]];
+			auto Context = Published.Context;
+			Context.PreparedLOD = Fact.LOD;
+			Published.Batch = BuildPublishedStaticMeshBatch(*Fact.StaticBatches, Context);
+		});
+
+		using FCapturedBatch = FCollectedStaticMeshView::FBatch;
+		struct FBatchValidation
+		{
+			FCapturedBatch* Captured;
+			std::shared_ptr<const FMeshVertexFactoryImplementation> Factory;
+		};
+		std::vector<FBatchValidation> SnapshotValidation;
+		const auto PreparationPass = FPassProcessorManager::GetMeshPassProcessor(Mode == ERenderPreparationMode::ShadowDepth
+			? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).GetVertexFactoryPass();
+		const auto GBufferPass = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass();
+		const auto ResolveFactorySupport = [&](FCapturedBatch& Captured, const FMeshVertexFactoryImplementation& Factory) {
+			for (size_t Index = 0; Index < Captured.Elements.size(); ++Index)
+			{
+				auto& Facts = Captured.Elements[Index];
+				if (Facts.InputOutcome != EGeometrySubmissionOutcome::Submitted) continue;
+				const auto Draw = Captured.Batch.GetElement(Index).Draw;
+				Facts.bSupportsPreparation = Factory.Supports(PreparationPass, Draw);
+				if (Facts.bSupportsPreparation) Facts.bSupportsGBuffer = Factory.Supports(GBufferPass, Draw);
+			}
+		};
 
 		size_t PrimitiveIndex = 0;
 		for (const auto* SceneInfo : SceneInfos)
@@ -388,34 +407,40 @@ namespace Durin
 			}
 			const auto& ProjectedSize = ViewFact.Projected;
 			Primitive.bProjectedSizeFallback = ProjectedSize.Status != EProjectedScreenSizeStatus::Valid;
-			FMeshCollectionContext Context;
-			Context.PreparedLOD = ViewFact.LOD;
-			Context.PrimitiveId = SceneInfo->GetId();
-			Context.CustomPrimitiveData = SceneInfo->GetProxy().GetCustomPrimitiveData();
-			Context.LocalToWorld = SceneInfo->GetTransform();
-			Context.WorldBounds = SceneInfo->GetWorldBounds();
-			Context.NormalizedScreenSize = ProjectedSize.NormalizedScreenSize;
-			switch (ProjectedSize.Status)
+			FMeshBatchCollector Collector(Purpose, SharedCache ? &SharedCache->Admission : nullptr);
+			if (ViewFact.StaticBatches)
 			{
-			case EProjectedScreenSizeStatus::Valid: Context.ProjectionStatus = EMeshCollectionProjectionStatus::Valid; break;
-			case EProjectedScreenSizeStatus::NearPlaneOrCameraCrossing: Context.ProjectionStatus = EMeshCollectionProjectionStatus::NearPlaneOrCameraCrossing; break;
-			case EProjectedScreenSizeStatus::InvalidBounds: Context.ProjectionStatus = EMeshCollectionProjectionStatus::InvalidBounds; break;
-			case EProjectedScreenSizeStatus::InvalidView: Context.ProjectionStatus = EMeshCollectionProjectionStatus::InvalidView; break;
+				auto& Batch = PublishedBatches[PublishedIndices[PrimitiveIndex - 1]].Batch;
+				if (Batch) Collector.Add(std::move(*Batch));
+				else Collector.RecordOutcome(Batch.error());
 			}
-			Context.bForceLOD0 = View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0;
-			Context.Purpose = Purpose;
-			FMeshBatchCollector Collector(Context.Purpose, SharedCache ? &SharedCache->Admission : nullptr);
+			else
 			{
+				FMeshCollectionContext Context;
+				Context.PreparedLOD = ViewFact.LOD;
+				Context.PrimitiveId = SceneInfo->GetId();
+				Context.CustomPrimitiveData = SceneInfo->GetProxy().GetCustomPrimitiveData();
+				Context.LocalToWorld = SceneInfo->GetTransform();
+				Context.WorldBounds = SceneInfo->GetWorldBounds();
+				Context.NormalizedScreenSize = ProjectedSize.NormalizedScreenSize;
+				switch (ProjectedSize.Status)
+				{
+				case EProjectedScreenSizeStatus::Valid: Context.ProjectionStatus = EMeshCollectionProjectionStatus::Valid; break;
+				case EProjectedScreenSizeStatus::NearPlaneOrCameraCrossing: Context.ProjectionStatus = EMeshCollectionProjectionStatus::NearPlaneOrCameraCrossing; break;
+				case EProjectedScreenSizeStatus::InvalidBounds: Context.ProjectionStatus = EMeshCollectionProjectionStatus::InvalidBounds; break;
+				case EProjectedScreenSizeStatus::InvalidView: Context.ProjectionStatus = EMeshCollectionProjectionStatus::InvalidView; break;
+				}
+				Context.bForceLOD0 = View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0;
+				Context.Purpose = Purpose;
 				DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.CollectMeshBatches");
-
-				if (ViewFact.StaticBatches) CollectPublishedStaticMeshBatch(*ViewFact.StaticBatches, Context, Collector);
-				else SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
+				SceneInfo->GetProxy().CollectMeshBatches(Context, Collector);
 			}
 			for (size_t I = 0; I < Primitive.Outcomes.size(); ++I)
 				Primitive.Outcomes[I] = Collector.GetOutcomeCount(static_cast<EGeometrySubmissionOutcome>(I));
-			for (auto& Batch : std::move(Collector).TakeBatches())
+			auto Batches = std::move(Collector).TakeBatches();
+			Primitive.Batches.reserve(Batches.size());
+			for (auto& Batch : Batches)
 			{
-
 				auto& Captured = Primitive.Batches.emplace_back();
 				Captured.Batch = std::move(Batch);
 				if (Captured.Batch.PrimitiveIdMode == EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData)
@@ -435,25 +460,44 @@ namespace Durin
 				const auto Factory = FindMeshVertexFactory(Captured.Batch.FactoryKey);
 				Captured.bFactoryCompatible = Factory && Factory->GetLayoutKey() == Captured.Batch.LayoutKey;
 				if (!Captured.bFactoryCompatible) continue;
-				Captured.Elements.reserve(Captured.Batch.GetNumElements());
-				for (size_t Index = 0; Index < Captured.Batch.GetNumElements(); ++Index)
-				{
-					const auto Element = Captured.Batch.GetElement(Index);
-					auto& Facts = Captured.Elements.emplace_back();
-					if (!Captured.Batch.GeometryRecord)
-					{
-						DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ValidateMeshInputs");
-						Facts.InputOutcome = ValidateMeshGeometryInputs(*Captured.InputBinding,
-							Element.Draw, Element.Vertices, Element.InstanceStreams);
-					}
-					if (Facts.InputOutcome != EGeometrySubmissionOutcome::Submitted) continue;
-					Facts.bSupportsPreparation = Factory->Supports(FPassProcessorManager::GetMeshPassProcessor(Mode == ERenderPreparationMode::ShadowDepth
-						? EMeshPipelinePass::ShadowDepth : EMeshPipelinePass::Forward).GetVertexFactoryPass(), Element.Draw);
-					if (Facts.bSupportsPreparation)
-						Facts.bSupportsGBuffer = Factory->Supports(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), Element.Draw);
-				}
+				Captured.Elements.resize(Captured.Batch.GetNumElements());
+				if (!Captured.Batch.GeometryRecord || dynamic_cast<const FSplineMeshBatchBinding*>(Captured.InputBinding.get()))
+					SnapshotValidation.push_back({&Captured, Factory});
+				else ResolveFactorySupport(Captured, *Factory);
 			}
 		}
+
+		RunPreparationRanges("Renderer.ResolveMeshInputFacts", SnapshotValidation.size(), 32,
+			SnapshotValidation.size() >= 64, [&](size_t Index) {
+				auto& Captured = *SnapshotValidation[Index].Captured;
+				if (!Captured.Batch.GeometryRecord)
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.ValidateMeshInputs");
+					for (size_t ElementIndex = 0; ElementIndex < Captured.Elements.size(); ++ElementIndex)
+					{
+						const auto Element = Captured.Batch.GetElement(ElementIndex);
+						Captured.Elements[ElementIndex].InputOutcome = ValidateMeshGeometryInputs(*Captured.InputBinding,
+							Element.Draw, Element.Vertices, Element.InstanceStreams);
+					}
+				}
+				if (const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(Captured.InputBinding.get()))
+				{
+					const auto& Params = Spline->DynamicData.Params;
+					bool bReverseWinding = false;
+					bool bChangesOrientation = false;
+					// A zero or sign change cannot be represented by one front face.
+					for (size_t Axis = 0; Axis < 2; ++Axis)
+					{
+						const double Start = Params.StartScale[Axis];
+						const double End = Params.EndScale[Axis];
+						bChangesOrientation |= Start == 0.0 || End == 0.0 || (Start < 0.0) != (End < 0.0);
+						bReverseWinding ^= Start < 0.0;
+					}
+					Captured.bReverseSplineWinding = bReverseWinding;
+					Captured.bSplineChangesOrientation = bChangesOrientation;
+				}
+			});
+		for (const auto& Work : SnapshotValidation) ResolveFactorySupport(*Work.Captured, *Work.Factory);
 		return Collected;
 	}
 
@@ -506,22 +550,8 @@ namespace Durin
 				if (!Binding || !Binding->Declaration || Binding->Streams.empty() || !Captured.bFactoryCompatible) continue;
 				FrozenBatch.Transform = Cache.ResolveTransform(Primitive.Id, Batch.BatchId, Batch.LocalToWorld);
 				if (!FrozenBatch.Transform.bValid) continue;
-				const double Determinant = FrozenBatch.Transform.Determinant;
-				bool bReverseCulling = Determinant < 0.0;
-				bool bSplineChangesOrientation = false;
-				if (const auto* Spline = dynamic_cast<const FSplineMeshBatchBinding*>(Binding.get()))
-				{
-					const auto& Params = Spline->DynamicData.Params;
-					// Scale interpolation is monotone. A zero or sign change cannot
-					// be represented by one front-face orientation for the whole draw.
-					for (size_t Axis = 0; Axis < 2; ++Axis)
-					{
-						const double Start = Params.StartScale[Axis];
-						const double End = Params.EndScale[Axis];
-						bSplineChangesOrientation |= Start == 0.0 || End == 0.0 || (Start < 0.0) != (End < 0.0);
-						bReverseCulling ^= Start < 0.0;
-					}
-				}
+				const bool bReverseCulling = (FrozenBatch.Transform.Determinant < 0.0) != Captured.bReverseSplineWinding;
+				const bool bSplineChangesOrientation = Captured.bSplineChangesOrientation;
 				const uint64 Policy =
 					static_cast<uint64>(RasterMode) | (static_cast<uint64>(View.DepthConvention) << 8) |
 					(static_cast<uint64>(Mode) << 16) | (static_cast<uint64>(bReverseCulling) << 24) |
@@ -1267,27 +1297,11 @@ namespace Durin
 		FinalizeStaticMeshPreparation(Result, Inputs->MaterialCount);
 		return Result;
 	}
-	namespace
-	{
-		constexpr size_t MeshPreparationChunkSize = 128;
-		constexpr size_t MaxActiveMeshPreparationTasks = 8;
-		auto LaunchNextMeshPreparationChunk(FStaticMeshPreparationWork& Work) -> void
-		{
-			const size_t First = Work.NextPrimitive;
-			const size_t Count = std::min(MeshPreparationChunkSize, Work.Inputs->Collected->Primitives.size() - First);
-			Tasks::FTaskExecutionOptions Options;
-
-			auto Task = Tasks::LaunchIndependentTask("Renderer.PrepareMeshChunk",
-				[Inputs = Work.Inputs, First, Count] { return PrepareStaticMeshInputChunk(Inputs, First, Count); }, Options);
-			Work.Active.push_back({Work.LaunchedChunks++, std::move(Task)});
-			Work.NextPrimitive += Count;
-		}
-	}
-
 	FStaticMeshPreparationWork::~FStaticMeshPreparationWork()
 	{
-		for (auto& Slot : Active)
-			require(Slot.Task.Wait());
+		if (Completion.IsValid()) require(Completion.Wait());
+		// Shutdown can cancel the continuation while workers still own the inputs.
+		for (const auto& Worker : Workers) require(Worker.Wait());
 	}
 
 	auto StartStaticMeshPreparation(std::shared_ptr<const FStaticMeshPreparationInputs> Inputs,
@@ -1295,60 +1309,69 @@ namespace Durin
 	{
 		check(Inputs && Inputs->Collected);
 		FStaticMeshPreparationWork Work;
-		Work.Inputs = std::move(Inputs);
 		Work.IsCancellationRequested = std::move(IsCancellationRequested);
-		Work.bCanceled = (Work.IsCancellationRequested && Work.IsCancellationRequested());
+		Work.bCanceled = Work.IsCancellationRequested && Work.IsCancellationRequested();
 		if (Work.bCanceled) return Work;
-		const size_t Count = Work.Inputs->Collected->Primitives.size();
+		const size_t Count = Inputs->Collected->Primitives.size();
 		if (Policy == EStaticMeshPreparationPolicy::Inline || !IsTaskSchedulerRunning()
 			|| Count == 0 || (Policy == EStaticMeshPreparationPolicy::Auto && Count < 256))
 		{
-			Work.InlineOutput = PrepareStaticMeshInputs(*Work.Inputs);
-			Work.bCanceled = (Work.IsCancellationRequested && Work.IsCancellationRequested());
+			Work.InlineOutput = PrepareStaticMeshInputs(*Inputs);
 			return Work;
 		}
-		while (Work.NextPrimitive < Count && Work.Active.size() < MaxActiveMeshPreparationTasks)
-			LaunchNextMeshPreparationChunk(Work);
+
+		constexpr size_t ChunkSize = 128;
+		constexpr size_t MaxWorkers = 8;
+		const size_t ChunkCount = 1 + (Count - 1) / ChunkSize;
+		const size_t WorkerCount = std::min(MaxWorkers, ChunkCount);
+		auto Chunks = std::make_shared<std::vector<FStaticMeshPreparationChunk>>(ChunkCount);
+		Work.Workers.reserve(WorkerCount);
+		for (size_t WorkerIndex = 0; WorkerIndex < WorkerCount; ++WorkerIndex)
+		{
+			Work.Workers.push_back(Tasks::LaunchIndependentTask("Renderer.PrepareMeshChunks",
+				[Inputs, Chunks, Count, ChunkSize, WorkerIndex, WorkerCount] {
+					for (size_t Index = WorkerIndex; Index < Chunks->size(); Index += WorkerCount)
+					{
+						const size_t First = Index * ChunkSize;
+						(*Chunks)[Index] = PrepareStaticMeshInputChunk(Inputs, First, std::min(ChunkSize, Count - First));
+					}
+				}));
+		}
+		Work.Completion = Tasks::LaunchIndependentTask("Renderer.FinalizeMeshPreparation",
+			[Chunks, Workers = Work.Workers]() -> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError> {
+				for (size_t Index = 0; Index < Chunks->size(); ++Index)
+				{
+					if (!(*Chunks)[Index].Inputs)
+						return std::unexpected(FStaticMeshPreparationError{Index, Workers[Index % Workers.size()].GetState()});
+				}
+				const size_t PreparedChunks = Chunks->size();
+				auto Merged = MergeStaticMeshPreparationChunks(std::move(*Chunks));
+				if (!Merged) return std::unexpected(FStaticMeshPreparationError{0, ETaskState::Failed, Merged.error()});
+				Merged->PreparationTaskCount = PreparedChunks;
+				return std::move(*Merged);
+			}, {.Prerequisites = Work.Workers});
 		return Work;
 	}
 
 	auto FinishStaticMeshPreparation(FStaticMeshPreparationWork Work)
 		-> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError>
 	{
-		if (Work.bCanceled) return std::unexpected(FStaticMeshPreparationError{0, ETaskState::Canceled});
+		const auto IsCanceled = [&] {
+			return Work.bCanceled || (Work.IsCancellationRequested && Work.IsCancellationRequested());
+		};
+		if (IsCanceled()) return std::unexpected(FStaticMeshPreparationError{0, ETaskState::Canceled});
 		if (Work.InlineOutput) return std::move(*Work.InlineOutput);
 		const auto JoinStart = std::chrono::steady_clock::now();
-		std::vector<FStaticMeshPreparationChunk> Chunks;
-		std::optional<FStaticMeshPreparationError> Failure;
-		while (!Work.Active.empty())
-		{
-			if (!Failure && Work.IsCancellationRequested && Work.IsCancellationRequested())
-			{
-				Work.bCanceled = true;
-				Failure = FStaticMeshPreparationError{Work.Active.front().Index, ETaskState::Canceled};
-			}
-			auto Slot = std::move(Work.Active.front());
-			Work.Active.pop_front();
-			const auto Wait = Slot.Task.WaitDetailed();
-			require(Wait.WaitStatus == ETaskWaitStatus::Completed);
-			if (!Failure && Wait.TaskState != ETaskState::Succeeded)
-			{
-				Failure = FStaticMeshPreparationError{Slot.Index, Wait.TaskState};
-				Work.bCanceled = true;
-			}
-			if (!Failure)
-			{
-				Chunks.push_back(std::move(Slot.Task.GetResult()));
-				if (Work.NextPrimitive < Work.Inputs->Collected->Primitives.size()) LaunchNextMeshPreparationChunk(Work);
-			}
-		}
-		if (Failure) return std::unexpected(*Failure);
-		auto Merged = MergeStaticMeshPreparationChunks(std::move(Chunks));
-		if (!Merged) return std::unexpected(FStaticMeshPreparationError{0, ETaskState::Failed, Merged.error()});
-		Merged->PreparationTaskCount = Work.LaunchedChunks;
-		Merged->PreparationJoinNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-			std::chrono::steady_clock::now() - JoinStart).count());
-		return std::move(*Merged);
+		const auto Wait = Work.Completion.WaitDetailed();
+		const auto JoinDuration = std::chrono::steady_clock::now() - JoinStart;
+		require(Wait.WaitStatus == ETaskWaitStatus::Completed);
+		if (Wait.TaskState != ETaskState::Succeeded)
+			return std::unexpected(FStaticMeshPreparationError{0, Wait.TaskState});
+		if (IsCanceled()) return std::unexpected(FStaticMeshPreparationError{0, ETaskState::Canceled});
+		auto Prepared = std::move(Work.Completion.GetResult());
+		if (Prepared)
+			Prepared->PreparationJoinNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(JoinDuration).count());
+		return Prepared;
 	}
 } // namespace Durin
 

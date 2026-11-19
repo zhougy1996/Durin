@@ -527,6 +527,16 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 		Durin::GIsGameThreadIdInitialized = true;
 	}
+	struct FScopedScheduler
+	{
+		bool bOwned = false;
+		~FScopedScheduler() { if (bOwned) Durin::ShutdownTaskScheduler(); }
+	} Scheduler;
+	if (!Durin::IsTaskSchedulerRunning())
+	{
+		ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+		Scheduler.bOwned = true;
+	}
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::InitializeAssetRuntime());
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
@@ -690,6 +700,23 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 					CommandList, Scene.GetPrimitiveSceneInfos(), FirstView,
 					Durin::ERasterMode::Wireframe, Durin::ERenderPreparationMode::Full, &SharedFacts
 				);
+			ASSERT_FALSE(First.Opaque.empty());
+			const auto& SceneInfos = Scene.GetPrimitiveSceneInfos();
+			ASSERT_EQ(SceneInfos.size(), 1u);
+			const std::vector<const Durin::FPrimitiveSceneInfo*> RepeatedStatic(256, SceneInfos.front());
+			const auto Collected = Durin::CollectStaticMeshView_RenderThread(CommandList, RepeatedStatic, FirstView,
+				Durin::ERasterMode::Wireframe, Durin::ERenderPreparationMode::Full, &SharedFacts);
+			ASSERT_EQ(Collected->Primitives.size(), RepeatedStatic.size());
+			for (const auto& Primitive : Collected->Primitives)
+			{
+				ASSERT_TRUE(Primitive.bRetainedStaticMesh);
+				ASSERT_EQ(Primitive.Batches.size(), 1u);
+				const auto& Batch = Primitive.Batches.front().Batch;
+				EXPECT_EQ(Batch.GeometryRecord, First.Opaque.front().Command->GeometryOwner);
+				EXPECT_EQ(Batch.RequestedLOD, 0u);
+				EXPECT_EQ(Batch.SelectedLOD, 0u);
+			}
+
 			Summary->Opaque = First.Opaque.size();
 			Summary->Masked = First.Masked.size();
 			Summary->Translucent = First.Translucent.size();
@@ -1632,6 +1659,27 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			CollectStaticMeshView_RenderThread(CommandList, Visible.SceneInfos, View, ERasterMode::Solid), &FrozenCache);
 		FrozenExpected = PrepareStaticMeshInputs(*FrozenInput);
 		ASSERT_TRUE(IsTaskSchedulerRunning());
+		const std::vector<const FPrimitiveSceneInfo*> RepeatedDynamic(64, Visible.SceneInfos.front());
+		const auto DynamicCollected = CollectStaticMeshView_RenderThread(CommandList, RepeatedDynamic, View, ERasterMode::Solid);
+		ASSERT_EQ(DynamicCollected->Primitives.size(), RepeatedDynamic.size());
+		const auto& ReferenceBatches = FrozenInput->Collected->Primitives.front().Batches;
+		for (const auto& Primitive : DynamicCollected->Primitives)
+		{
+			ASSERT_EQ(Primitive.Batches.size(), ReferenceBatches.size());
+			for (size_t Index = 0; Index < Primitive.Batches.size(); ++Index)
+			{
+				const auto& Actual = Primitive.Batches[Index].Elements;
+				const auto& Expected = ReferenceBatches[Index].Elements;
+				ASSERT_EQ(Actual.size(), Expected.size());
+				for (size_t Element = 0; Element < Actual.size(); ++Element)
+				{
+					EXPECT_EQ(Actual[Element].InputOutcome, Expected[Element].InputOutcome);
+					EXPECT_EQ(Actual[Element].bSupportsPreparation, Expected[Element].bSupportsPreparation);
+					EXPECT_EQ(Actual[Element].bSupportsGBuffer, Expected[Element].bSupportsGBuffer);
+				}
+			}
+		}
+
 		std::vector<FMeshViewPreparationInput> LODInputs;
 		for (size_t Index = 0; Index < 1536; ++Index)
 			LODInputs.push_back({Index % 5 == 0 ? FBox{} : Visible.SceneInfos.front()->GetWorldBounds(),
@@ -1643,7 +1691,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			LODView.Settings.Mode.LODMode = Mode;
 			const auto SerialFacts = PrepareMeshViewFacts(LODInputs, LODView, false);
 			const auto WorkerFacts = PrepareMeshViewFacts(LODInputs, LODView);
-			EXPECT_EQ(WorkerFacts.TaskCount, 12u);
+			EXPECT_GT(WorkerFacts.TaskCount, 0u);
+			EXPECT_LE(WorkerFacts.TaskCount, 8u);
 			ASSERT_EQ(WorkerFacts.Primitives.size(), SerialFacts.Primitives.size());
 			for (size_t Index = 0; Index < WorkerFacts.Primitives.size(); ++Index)
 			{
@@ -1672,7 +1721,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		VisibilityView.Settings.Mode.VisibilityMode = EViewVisibilityMode::Normal;
 		const auto SerialVisibility = ClassifySceneVisibility(VisibilityInputs, VisibilityView, false);
 		const auto TaskVisibility = ClassifySceneVisibility(VisibilityInputs, VisibilityView);
-		EXPECT_EQ(TaskVisibility.TaskCount, 12u);
+		EXPECT_GT(TaskVisibility.TaskCount, 0u);
+		EXPECT_LE(TaskVisibility.TaskCount, 8u);
 		EXPECT_EQ(TaskVisibility.Primitives, SerialVisibility.Primitives);
 		EXPECT_EQ(TaskVisibility.Primitives.front(), EPrimitiveVisibilityClassification::Hidden);
 		EXPECT_EQ(TaskVisibility.Primitives[3], EPrimitiveVisibilityClassification::VisibleInvalidBoundsFallback);
@@ -1699,8 +1749,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		LargeInputs->Collected = LargeCollected;
 		const auto LargeExpected = PrepareStaticMeshInputs(*LargeInputs);
 		auto Work = StartStaticMeshPreparation(LargeInputs);
-		EXPECT_EQ(Work.Active.size(), 8u);
-		EXPECT_EQ(Work.LaunchedChunks, 8u);
+		EXPECT_EQ(Work.Workers.size(), 8u);
+		ASSERT_TRUE(Work.Completion.Wait());
+		ASSERT_EQ(Work.Completion.GetState(), ETaskState::Succeeded);
+		ASSERT_TRUE(Work.Completion.GetResult());
+		EXPECT_EQ(Work.Completion.GetResult()->PreparationTaskCount, 12u);
 		auto Parallel = FinishStaticMeshPreparation(std::move(Work));
 		ASSERT_TRUE(Parallel);
 		EXPECT_EQ(Parallel->PreparationTaskCount, 12u);
@@ -1725,27 +1778,33 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			ASSERT_FALSE(Canceled);
 			EXPECT_EQ(Canceled.error().State, ETaskState::Canceled);
 		}
+		Tasks::FCancellationToken LateCancellation;
+		auto CanceledWork = StartStaticMeshPreparation(LargeInputs, EStaticMeshPreparationPolicy::Tasks,
+			[&LateCancellation] { return LateCancellation.IsCanceled(); });
+		LateCancellation.Cancel();
+		auto Canceled = FinishStaticMeshPreparation(std::move(CanceledWork));
+		ASSERT_FALSE(Canceled);
+		EXPECT_EQ(Canceled.error().State, ETaskState::Canceled);
+
 		FStaticMeshPreparationWork FailedWork;
-		FailedWork.Inputs = FrozenInput;
-		FailedWork.NextPrimitive = FrozenInput->Primitives.size();
-		FailedWork.Active.push_back({0, Tasks::LaunchIndependentTask("MeshPreparationFailure", []() -> FStaticMeshPreparationChunk {
-			throw std::runtime_error("Injected preparation failure");
-		})});
+		FailedWork.Completion = Tasks::LaunchIndependentTask("MeshPreparationFailure",
+			[]() -> std::expected<FPreparedStaticMeshView, FStaticMeshPreparationError> {
+				throw std::runtime_error("Injected preparation failure");
+			});
 		auto Failed = FinishStaticMeshPreparation(std::move(FailedWork));
 		ASSERT_FALSE(Failed);
 		EXPECT_EQ(Failed.error().State, ETaskState::Failed);
 		EXPECT_EQ(Failed.error().ChunkIndex, 0u);
-		std::vector<Durin::Tasks::FTask> AbandonedCompletions;
+		std::vector<Durin::Tasks::FTask> AbandonedWorkers;
+		Durin::Tasks::FTask AbandonedCompletion;
 		{
 			auto Abandoned = StartStaticMeshPreparation(LargeInputs, EStaticMeshPreparationPolicy::Tasks);
-			for (const auto& Slot : Abandoned.Active) AbandonedCompletions.push_back(Durin::Tasks::FTask(Slot.Task));
+			AbandonedWorkers = Abandoned.Workers;
+			AbandonedCompletion = Abandoned.Completion;
 		}
-		ASSERT_EQ(AbandonedCompletions.size(), 8u);
-		for (const auto& Completion : AbandonedCompletions)
-		{
-			EXPECT_TRUE(Completion.IsCompleted());
-			EXPECT_TRUE(Completion.GetState() == ETaskState::Succeeded || Completion.GetState() == ETaskState::Canceled);
-		}
+		ASSERT_EQ(AbandonedWorkers.size(), 8u);
+		for (const auto& Worker : AbandonedWorkers) EXPECT_TRUE(Worker.IsCompleted());
+		EXPECT_TRUE(AbandonedCompletion.IsCompleted());
 		ASSERT_EQ(PublishedView.GetNumSections(), 2u);
 		EXPECT_EQ(PublishedView.DynamicGeometryInputValidations, 0u);
 		EXPECT_EQ(PublishedView.PublishedGeometryElements, 2u);

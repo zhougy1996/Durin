@@ -133,6 +133,10 @@ namespace Durin
 		}
 	};
 
+	// Materializes a batch from immutable publication data. Admission is separate.
+	ENGINE_API auto BuildPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
+		const FMeshCollectionContext& Context) -> std::expected<FMeshBatch, EGeometrySubmissionOutcome>;
+
 	// Owns admitted snapshots. A rejected batch cannot partially enter the frame.
 	class FMeshBatchCollector
 	{
