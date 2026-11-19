@@ -50,8 +50,6 @@ namespace Durin::VulkanRHI
 		Format = Viewport->GetSwapchainImageFormat();
 		PixelFormat = ToRHISwapchainPixelFormat(Format);
 		NumSamples = 1;
-		RenderingBackBufferView = Device.GetRHI().RHICreateTextureView(RenderingBackBuffer,
-			MakeDefaultTextureViewDesc(*RenderingBackBuffer, ERHITextureViewUsage::ColorAttachment));
 	}
 
 	auto FVulkanBackBuffer::InvalidateSwapchain() -> void
@@ -90,19 +88,26 @@ namespace Durin::VulkanRHI
 		return true;
 	}
 
+	auto FVulkanBackBuffer::GetCurrentAttachmentView() const -> vk::ImageView
+	{
+		CheckRHIExecutionThread();
+		if (GetBoundRenderingBackBuffer(*this)) return RenderingBackBuffer->GetDefaultAttachmentView();
+		check(AcquiredView && AcquiredView->Image == Image);
+		return AcquiredView->ImageView;
+	}
+
 	auto FVulkanBackBuffer::ResolveView(const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 	{
 		CheckRHIExecutionThread();
 		if (GetBoundRenderingBackBuffer(*this))
 		{
-			auto* DummyView = static_cast<FVulkanTextureView*>(RenderingBackBufferView.GetReference());
-			return new FVulkanTextureView(Device, this, Desc, DummyView->GetHandle());
+			return new FVulkanTextureView(Device, this, Desc, RenderingBackBuffer->GetDefaultView());
 		}
 		check(AcquiredView);
 		auto& Acquired = *AcquiredView;
 		check(Acquired.Image == Image);
-		check(Desc.Usage == ERHITextureViewUsage::ColorAttachment || Desc.Usage == ERHITextureViewUsage::Sampled);
-		auto& View = Desc.Usage == ERHITextureViewUsage::ColorAttachment ? Acquired.AttachmentView : Acquired.SampledView;
+		check(Desc.Usage == ERHITextureViewUsage::Sampled);
+		auto& View = Acquired.SampledView;
 		if (!View) View = new FVulkanTextureView(Device, this, Desc, Acquired.ImageView);
 		return View;
 	}

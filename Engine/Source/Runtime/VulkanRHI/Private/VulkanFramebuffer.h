@@ -40,7 +40,6 @@ namespace Durin::VulkanRHI
 		vk::Extent2D Extent;
 
 		std::vector<vk::ImageView> AttachmentViews;
-		std::vector<FRHITextureViewDesc> AttachmentDescs;
 
 		// How many logical color outputs the pass has
 		uint32 NumColorRenderTargets = 0;

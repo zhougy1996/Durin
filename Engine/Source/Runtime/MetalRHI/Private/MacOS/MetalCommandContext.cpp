@@ -1,3 +1,4 @@
+#include "Backend/RHIShaderBufferBinding.h"
 #include "Backend/RHICreation.h"
 #include "Backend/RHITextureUpload.h"
 #include "MetalCommandContext.h"
@@ -193,26 +194,32 @@ namespace Durin
 						== Info.RenderTargetLayout.bHasDepthStencil,
 					"Metal baseline supports up to four color attachments with optional depth.");
 				std::vector<FRHITextureTransition> AttachmentStates;
-				const auto QueueAttachment = [&](FRHITextureView* View, const FRHIAttachmentLayout& Layout) {
-					require(View);
-					auto* Texture = dynamic_cast<FMetalTexture*>(View->GetTexture());
-					require(Texture);
+				const auto QueueAttachment = [&](FRHITexture* Target, FRHITextureView* View,
+					const FRHIAttachmentLayout& Layout, ERHITextureViewUsage Usage) {
+					auto* Texture = dynamic_cast<FMetalTexture*>(Target);
+					require(Texture && (!View || View->GetTexture() == Target));
+					const auto Desc = View ? View->GetDesc() : MakeDefaultTextureViewDesc(*Target, Usage);
+					require(Desc.Usage == Usage && IsTextureViewDescValid(Target, Desc));
 					const auto Expected = Layout.InitialLayout == ERHITextureLayout::Undefined
 						? ERHIAccess::Discard : Layout.InitialAccess;
 					ERHIAccess Tracked = ERHIAccess::None;
-					requiref(Texture->ValidateAccess(View->GetDesc().Range, Expected, Tracked),
+					requiref(Texture->ValidateAccess(Desc.Range, Expected, Tracked),
 						"Metal render-pass attachment state mismatch: resource={}, expected={}, tracked={}, requested={}.",
 						static_cast<const void*>(Texture), static_cast<uint32>(Expected), static_cast<uint32>(Tracked), static_cast<uint32>(Layout.FinalAccess));
-					AttachmentStates.push_back({Texture, View->GetDesc().Range, ERHIAccess::Discard, Layout.FinalAccess});
+					AttachmentStates.push_back({Texture, Desc.Range, ERHIAccess::Discard, Layout.FinalAccess});
 				};
 				for (uint32 Index = 0; Index < Info.RenderTargetLayout.NumColorRenderTargets; ++Index)
-					QueueAttachment(Info.ColorRenderTargetViews[Index], Info.RenderTargetLayout.ColorAttachments[Index].RenderTarget);
+					QueueAttachment(Info.ColorRenderTargets[Index], Info.ColorRenderTargetViews[Index],
+						Info.RenderTargetLayout.ColorAttachments[Index].RenderTarget, ERHITextureViewUsage::ColorAttachment);
 				if (Info.RenderTargetLayout.bHasDepthStencil)
-					QueueAttachment(Info.DepthStencilRenderTargetView, Info.RenderTargetLayout.DepthStencilAttachment);
-				FRHITextureView* ExtentSource = Info.RenderTargetLayout.NumColorRenderTargets > 0
-					? Info.ColorRenderTargetViews[0] : Info.DepthStencilRenderTargetView;
-				requiref(ExtentSource, "Metal render pass requires an attachment view.");
-				const FIntPoint RenderExtent = ExtentSource->GetExtent();
+					QueueAttachment(Info.DepthStencilRenderTarget, Info.DepthStencilRenderTargetView,
+						Info.RenderTargetLayout.DepthStencilAttachment, ERHITextureViewUsage::DepthStencilAttachment);
+				const auto Extent = [](FRHITexture* Texture, FRHITextureView* View) {
+					return View ? View->GetExtent() : FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+				};
+				const auto RenderExtent = Info.RenderTargetLayout.NumColorRenderTargets > 0
+					? Extent(Info.ColorRenderTargets[0], Info.ColorRenderTargetViews[0])
+					: Extent(Info.DepthStencilRenderTarget, Info.DepthStencilRenderTargetView);
 				auto Desc = NS::RetainPtr(MTL::RenderPassDescriptor::renderPassDescriptor());
 				for (uint32 Index = 0;
 					Index < Info.RenderTargetLayout.NumColorRenderTargets; ++Index)
@@ -221,8 +228,7 @@ namespace Durin
 					const auto& AttachmentLayout =
 						Info.RenderTargetLayout.ColorAttachments[Index];
 					const auto& Layout = AttachmentLayout.RenderTarget;
-					requiref(Target && Info.ColorRenderTargetViews[Index]
-						&& Info.ColorRenderTargetViews[Index]->GetTexture() == Target
+					requiref(Target
 						&& !AttachmentLayout.bHasResolveTarget
 						&& !Info.ColorResolveTargets[Index]
 						&& (Target->GetDimension() == ETextureDimension::Texture2D
@@ -230,7 +236,7 @@ namespace Durin
 						&& Target->GetNumSamples() == 1 && Layout.NumSamples == 1
 						&& Target->GetFormat() == Layout.Format
 						&& IsMetalColorRenderFormat(Layout.Format)
-						&& Info.ColorRenderTargetViews[Index]->GetExtent() == RenderExtent
+						&& Extent(Target, Info.ColorRenderTargetViews[Index]) == RenderExtent
 						&& EnumHasAnyFlags(Target->GetFlags(),
 							ETextureCreateFlags::RenderTargetable)
 						&& Info.ColorClearValues[Index].Binding == EClearBinding::Color,
@@ -238,8 +244,8 @@ namespace Durin
 					auto* Texture = static_cast<FMetalTexture*>(Target)->GetHandle();
 					auto* Attachment = Desc->colorAttachments()->object(Index);
 					Attachment->setTexture(Texture);
-					Attachment->setLevel(Info.ColorRenderTargetViews[Index]->GetDesc().Range.FirstMip);
-					Attachment->setSlice(Info.ColorRenderTargetViews[Index]->GetDesc().Range.FirstArrayLayer);
+					Attachment->setLevel(AttachmentStates[Index].Range.FirstMip);
+					Attachment->setSlice(AttachmentStates[Index].Range.FirstArrayLayer);
 					switch (Layout.LoadAction)
 					{
 					case ERHIRenderTargetLoadAction::Clear:
@@ -265,15 +271,14 @@ namespace Durin
 				{
 					FRHITexture* Depth = Info.DepthStencilRenderTarget;
 					const auto& DepthLayout = Info.RenderTargetLayout.DepthStencilAttachment;
-					requiref(Info.DepthStencilRenderTargetView
-						&& Info.DepthStencilRenderTargetView->GetTexture() == Depth
+					requiref(Depth
 						&& (Depth->GetDimension() == ETextureDimension::Texture2D
 							|| Depth->GetDimension() == ETextureDimension::Texture2DArray)
 						&& Depth->GetFormat() == EPixelFormat::D32
 						&& DepthLayout.Format == EPixelFormat::D32
 						&& Depth->GetNumSamples() == 1
 						&& DepthLayout.NumSamples == 1
-						&& Info.DepthStencilRenderTargetView->GetExtent() == RenderExtent
+						&& Extent(Depth, Info.DepthStencilRenderTargetView) == RenderExtent
 						&& EnumHasAnyFlags(Depth->GetFlags(),
 							ETextureCreateFlags::DepthStencilTargetable)
 						&& Info.DepthStencilClearValue.Binding
@@ -281,8 +286,8 @@ namespace Durin
 						"Metal depth attachment does not match its render pass layout.");
 					DepthTexture = static_cast<FMetalTexture*>(Depth)->GetHandle();
 					Desc->depthAttachment()->setTexture(DepthTexture);
-					Desc->depthAttachment()->setLevel(Info.DepthStencilRenderTargetView->GetDesc().Range.FirstMip);
-					Desc->depthAttachment()->setSlice(Info.DepthStencilRenderTargetView->GetDesc().Range.FirstArrayLayer);
+					Desc->depthAttachment()->setLevel(AttachmentStates.back().Range.FirstMip);
+					Desc->depthAttachment()->setSlice(AttachmentStates.back().Range.FirstArrayLayer);
 					switch (DepthLayout.LoadAction)
 					{
 					case ERHIRenderTargetLoadAction::Clear:
@@ -1135,28 +1140,8 @@ namespace Durin
 							Active->ResourceOwners.emplace_back(Parameter.Resource);
 							continue;
 						}
-						requiref(Parameter.Resource->GetResourceType()
-							== ERHIResourceType::BufferView,
-							"Metal compute buffer binding requires a buffer view.");
-						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-						const auto Buffer = ResolveBufferBinding(View);
-						const bool bStorage = Parameter.Type
-							== ERHIBindingType::StorageBuffer;
-						requiref(bStorage
-								? View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
-									|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage
-								: View->GetDesc().Type == ERHIBufferViewType::Uniform,
-							"Metal compute buffer view does not match its binding type.");
-						requiref(Parameter.Type == ERHIBindingType::UniformBufferDynamic
-							|| Parameter.Offset == 0,
-							"Metal static compute binding cannot use a dynamic offset.");
-						const uint64 Offset = View->GetDesc().Offset
-							+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
-								? Parameter.Offset : 0);
-						requiref(Offset <= Buffer.Size
-							&& View->GetDesc().Size <= Buffer.Size - Offset,
-							"Metal compute buffer range exceeds its allocation.");
-						Encoder->setBuffer(Buffer.Handle, Offset, Slot);
+						const auto [Handle, Offset] = ResolveBufferBinding(Parameter);
+						Encoder->setBuffer(Handle, Offset, Slot);
 					}
 					else if (Parameter.Type == ERHIBindingType::Texture
 						|| Parameter.Type == ERHIBindingType::StorageImage)
@@ -1315,7 +1300,7 @@ namespace Durin
 			struct FBufferBinding
 			{
 				MTL::Buffer* Handle;
-				uint64 Size;
+				uint64 Offset;
 			};
 
 			static auto CaptureBufferAllocation(const FRHIShaderParameterResource& Parameter,
@@ -1329,13 +1314,24 @@ namespace Durin
 				Snapshot.reset();
 			}
 
-			auto ResolveBufferBinding(FRHIBufferView* View) -> FBufferBinding
+			auto ResolveBufferBinding(const FRHIShaderParameterResource& Parameter) -> FBufferBinding
 			{
-				auto* Buffer = dynamic_cast<FMetalBuffer*>(View->GetBuffer());
+				const auto [Backing, Range] = ResolveShaderBufferBinding(Parameter);
+				const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;
+				requiref(bDynamic || Parameter.Resource->GetResourceType() != ERHIResourceType::BufferView || Parameter.Offset == 0,
+					"A static Metal buffer view already supplies its offset.");
+				requiref(Parameter.Type == ERHIBindingType::StorageBuffer
+						? Range.Type == ERHIBufferViewType::StructuredStorage || Range.Type == ERHIBufferViewType::ByteAddressStorage
+						: Range.Type == ERHIBufferViewType::Uniform,
+					"Metal buffer range is incompatible with its binding type.");
+				const uint64 Offset = Range.Offset + (bDynamic ? Parameter.Offset : 0);
+				requiref(Offset <= Backing->GetSize() && Range.Size <= Backing->GetSize() - Offset,
+					"Metal buffer binding exceeds its allocation.");
+				auto* Buffer = dynamic_cast<FMetalBuffer*>(Backing);
 				requiref(Buffer && Buffer->GetHandle(),
 					"Metal buffer binding has no native buffer.");
 				Active->NativeResources.push_back(NS::RetainPtr(Buffer->GetHandle()));
-				return {Buffer->GetHandle(), Buffer->GetSize()};
+				return {Buffer->GetHandle(), Offset};
 			}
 
 			auto BindGraphicsParameters() -> void
@@ -1397,30 +1393,10 @@ namespace Durin
 							Active->ResourceOwners.emplace_back(Parameter.Resource);
 							continue;
 						}
-						requiref(Parameter.Resource->GetResourceType()
-							== ERHIResourceType::BufferView,
-							"Metal graphics buffer binding requires a view.");
-						auto* View = static_cast<FRHIBufferView*>(Parameter.Resource);
-						const auto Buffer = ResolveBufferBinding(View);
-						const bool bStorage = Parameter.Type
-							== ERHIBindingType::StorageBuffer;
-						requiref(bStorage
-								? View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
-									|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage
-								: View->GetDesc().Type == ERHIBufferViewType::Uniform,
-							"Metal graphics buffer view type is incompatible.");
-						requiref(Parameter.Type == ERHIBindingType::UniformBufferDynamic
-							|| Parameter.Offset == 0,
-							"Metal static graphics binding cannot use a dynamic offset.");
-						const uint64 Offset = View->GetDesc().Offset
-							+ (Parameter.Type == ERHIBindingType::UniformBufferDynamic
-								? Parameter.Offset : 0);
-						requiref(Offset <= Buffer.Size
-							&& View->GetDesc().Size <= Buffer.Size - Offset,
-							"Metal graphics buffer range exceeds its allocation.");
+						const auto [Handle, Offset] = ResolveBufferBinding(Parameter);
 						if (Stage == EShaderStageFlags::Vertex)
-							RenderEncoder->setVertexBuffer(Buffer.Handle, Offset, Slot);
-						else RenderEncoder->setFragmentBuffer(Buffer.Handle, Offset, Slot);
+							RenderEncoder->setVertexBuffer(Handle, Offset, Slot);
+						else RenderEncoder->setFragmentBuffer(Handle, Offset, Slot);
 					}
 					else Unsupported();
 					Active->ResourceOwners.emplace_back(Parameter.Resource);

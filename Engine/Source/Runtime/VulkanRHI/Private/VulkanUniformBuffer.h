@@ -11,7 +11,6 @@ namespace Durin::VulkanRHI
 	struct FVulkanUniformAllocation
 	{
 		TRefCountPtr<FVulkanBuffer> Buffer;
-		FRHIBufferViewCache ViewCache;
 		std::shared_ptr<FVulkanUniformBufferAdmission::FReservation> Reservation;
 		uint64 Offset = 0;
 		uint64 Size = 0;

@@ -88,12 +88,18 @@ namespace Durin::VulkanRHI
 	}
 	namespace
 	{
-		auto ValidateAttachment(const FRHIAttachmentLayout& Layout, const FRHITexture* Texture, uint32 Width, uint32 Height, const char* Label) -> void
+		auto GetAttachmentExtent(const FRHITexture* Texture, const FRHITextureView* View) -> FIntPoint
+		{
+			check(Texture);
+			return View ? View->GetExtent() : FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+		}
+
+		auto ValidateAttachment(const FRHIAttachmentLayout& Layout, const FRHITexture* Texture, const FRHITextureView* View, FIntPoint Extent, const char* Label) -> void
 		{
 			checkf(Texture != nullptr, "{} attachment texture is null.", Label);
 			checkf(Texture->GetFormat() == Layout.Format, "{} attachment format does not match the render target layout.", Label);
 			checkf(Texture->GetNumSamples() == Layout.NumSamples, "{} attachment sample count does not match the render target layout.", Label);
-			checkf(Texture->GetSizeX() == Width && Texture->GetSizeY() == Height, "{} attachment extent does not match the render pass extent.", Label);
+			checkf(GetAttachmentExtent(Texture, View) == Extent, "{} attachment extent does not match the render pass extent.", Label);
 			checkf(Layout.LoadAction != ERHIRenderTargetLoadAction::Load || Layout.InitialLayout != ERHITextureLayout::Undefined,
 				"{} attachment cannot load from an undefined initial layout.", Label);
 		}
@@ -104,20 +110,19 @@ namespace Durin::VulkanRHI
 			checkf(Layout.IsValid(), "Render target layout is invalid.");
 			checkf(Layout.NumColorRenderTargets <= MaxSimultaneousRenderTargets, "Render pass color attachment count exceeds the RHI limit.");
 			checkf(Layout.NumColorRenderTargets > 0 || Layout.bHasDepthStencil, "Render pass must contain at least one attachment.");
-			FRHITexture* ExtentSource = Layout.NumColorRenderTargets > 0 ? Info.ColorRenderTargets[0] : Info.DepthStencilRenderTarget;
-			check(ExtentSource != nullptr);
-			const uint32 Width = ExtentSource->GetSizeX();
-			const uint32 Height = ExtentSource->GetSizeY();
+			const auto Extent = Layout.NumColorRenderTargets > 0
+				? GetAttachmentExtent(Info.ColorRenderTargets[0], Info.ColorRenderTargetViews[0])
+				: GetAttachmentExtent(Info.DepthStencilRenderTarget, Info.DepthStencilRenderTargetView);
 			uint8 RasterSamples = 0;
 			for (uint32 Index = 0; Index < Layout.NumColorRenderTargets; ++Index)
 			{
 				const auto& Color = Layout.ColorAttachments[Index];
-				ValidateAttachment(Color.RenderTarget, Info.ColorRenderTargets[Index], Width, Height, "Color");
+				ValidateAttachment(Color.RenderTarget, Info.ColorRenderTargets[Index], Info.ColorRenderTargetViews[Index], Extent, "Color");
 				RasterSamples = RasterSamples == 0 ? Color.RenderTarget.NumSamples : RasterSamples;
 				checkf(RasterSamples == Color.RenderTarget.NumSamples, "All primary render attachments must use the same sample count.");
 				if (Color.bHasResolveTarget)
 				{
-					ValidateAttachment(Color.ResolveTarget, Info.ColorResolveTargets[Index], Width, Height, "Resolve");
+					ValidateAttachment(Color.ResolveTarget, Info.ColorResolveTargets[Index], Info.ColorResolveTargetViews[Index], Extent, "Resolve");
 					checkf(Color.RenderTarget.NumSamples > 1, "Resolve attachments require a multisampled color attachment.");
 					checkf(Color.ResolveTarget.NumSamples == 1, "Resolve attachments must be single-sampled.");
 					checkf(Color.ResolveTarget.Format == Color.RenderTarget.Format, "Resolve and color attachment formats must match.");
@@ -129,7 +134,7 @@ namespace Durin::VulkanRHI
 			}
 			if (Layout.bHasDepthStencil)
 			{
-				ValidateAttachment(Layout.DepthStencilAttachment, Info.DepthStencilRenderTarget, Width, Height, "Depth/stencil");
+				ValidateAttachment(Layout.DepthStencilAttachment, Info.DepthStencilRenderTarget, Info.DepthStencilRenderTargetView, Extent, "Depth/stencil");
 				RasterSamples = RasterSamples == 0 ? Layout.DepthStencilAttachment.NumSamples : RasterSamples;
 				checkf(RasterSamples == Layout.DepthStencilAttachment.NumSamples, "Depth and color attachments must use the same sample count.");
 			}
@@ -354,60 +359,23 @@ namespace Durin::VulkanRHI
 		PendingTimingQueries.emplace_back(VulkanQuery);
 	}
 
-	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& InRenderPassInfo, FName DebugName) -> void
+	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName DebugName) -> void
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.RenderPass.Begin");
 		CheckRHIExecutionThread();
-		FRHIRenderPassInfo CanonicalInfo = InRenderPassInfo;
-		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorViews;
-		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ResolveViews;
-		FTextureViewRHIRef DepthView;
 		uint32 FallbackAttachments = 0;
-		auto ResolveAttachment = [&](FRHITextureView*& View, FTextureViewRHIRef& Owner, uint32 AttachmentBit) {
-			if (!View || static_cast<FVulkanTextureView*>(View)->GetHandle()) return;
-			if (FVulkanBackBuffer::GetBoundRenderingBackBuffer(*static_cast<FVulkanTexture*>(View->GetTexture())))
-				FallbackAttachments |= AttachmentBit;
-			Owner = static_cast<FVulkanBackBuffer*>(View->GetTexture())->ResolveView(View->GetDesc());
-			View = Owner.GetReference();
-		};
-		for (uint32 Index = 0; Index < CanonicalInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
-		{
-			if (!CanonicalInfo.ColorRenderTargetViews[Index] && CanonicalInfo.ColorRenderTargets[Index])
-			{
-				ColorViews[Index] = RHI->RHICreateTextureView(
-					CanonicalInfo.ColorRenderTargets[Index], MakeDefaultTextureViewDesc(
-						*CanonicalInfo.ColorRenderTargets[Index], ERHITextureViewUsage::ColorAttachment));
-				CanonicalInfo.ColorRenderTargetViews[Index] = ColorViews[Index].GetReference();
-			}
-			if (CanonicalInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget
-				&& !CanonicalInfo.ColorResolveTargetViews[Index] && CanonicalInfo.ColorResolveTargets[Index])
-			{
-				ResolveViews[Index] = RHI->RHICreateTextureView(
-					CanonicalInfo.ColorResolveTargets[Index], MakeDefaultTextureViewDesc(
-						*CanonicalInfo.ColorResolveTargets[Index], ERHITextureViewUsage::ColorAttachment));
-				CanonicalInfo.ColorResolveTargetViews[Index] = ResolveViews[Index].GetReference();
-			}
-			ResolveAttachment(CanonicalInfo.ColorRenderTargetViews[Index], ColorViews[Index], 1u << (2 * Index));
-			ResolveAttachment(CanonicalInfo.ColorResolveTargetViews[Index], ResolveViews[Index], 2u << (2 * Index));
-		}
-		if (CanonicalInfo.RenderTargetLayout.bHasDepthStencil
-			&& !CanonicalInfo.DepthStencilRenderTargetView && CanonicalInfo.DepthStencilRenderTarget)
-		{
-			DepthView = RHI->RHICreateTextureView(
-				CanonicalInfo.DepthStencilRenderTarget, MakeDefaultTextureViewDesc(
-					*CanonicalInfo.DepthStencilRenderTarget, ERHITextureViewUsage::DepthStencilAttachment));
-			CanonicalInfo.DepthStencilRenderTargetView = DepthView.GetReference();
-		}
-		const FRHIRenderPassInfo& RenderPassInfo = CanonicalInfo;
 		ValidateRenderPassInfo(RenderPassInfo);
 		check(PendingAttachmentStates.empty());
 		std::vector<FPendingAttachmentState> CandidateStates;
-		auto ValidateAndQueue = [&CandidateStates](FRHITextureView* TextureViewRHI,
-			const FRHIAttachmentLayout& Attachment) {
-			check(TextureViewRHI);
-			auto* TextureView = static_cast<FVulkanTextureView*>(TextureViewRHI);
-			auto* Texture = static_cast<FVulkanTexture*>(TextureView->GetTexture());
-			const FRHITextureSubresourceRange Range = TextureView->GetDesc().Range;
+		auto ValidateAndQueue = [&](FRHITexture* Target, FRHITextureView* View,
+			const FRHIAttachmentLayout& Attachment, ERHITextureViewUsage Usage, uint32 AttachmentBit) {
+			auto* Texture = static_cast<FVulkanTexture*>(Target);
+			check(Texture && (!View || View->GetTexture() == Texture));
+			const auto Desc = View ? View->GetDesc() : MakeDefaultTextureViewDesc(*Texture, Usage);
+			check(Desc.Usage == Usage && IsTextureViewDescValid(Texture, Desc));
+			const auto& Range = Desc.Range;
+			if (FVulkanBackBuffer::GetBoundRenderingBackBuffer(*Texture))
+				FallbackAttachments |= AttachmentBit;
 			const ERHIAccess Expected = Attachment.InitialLayout == ERHITextureLayout::Undefined
 				? ERHIAccess::Discard : Attachment.InitialAccess;
 			ERHIAccess Tracked = ERHIAccess::None;
@@ -421,16 +389,18 @@ namespace Durin::VulkanRHI
 		{
 			const FRHIColorAttachmentLayout& Attachment =
 				RenderPassInfo.RenderTargetLayout.ColorAttachments[Index];
-			ValidateAndQueue(RenderPassInfo.ColorRenderTargetViews[Index], Attachment.RenderTarget);
+			ValidateAndQueue(RenderPassInfo.ColorRenderTargets[Index], RenderPassInfo.ColorRenderTargetViews[Index],
+				Attachment.RenderTarget, ERHITextureViewUsage::ColorAttachment, 1u << (2 * Index));
 			if (Attachment.bHasResolveTarget)
 			{
-				ValidateAndQueue(RenderPassInfo.ColorResolveTargetViews[Index], Attachment.ResolveTarget);
+				ValidateAndQueue(RenderPassInfo.ColorResolveTargets[Index], RenderPassInfo.ColorResolveTargetViews[Index],
+					Attachment.ResolveTarget, ERHITextureViewUsage::ColorAttachment, 2u << (2 * Index));
 			}
 		}
 		if (RenderPassInfo.RenderTargetLayout.bHasDepthStencil)
 		{
-			ValidateAndQueue(RenderPassInfo.DepthStencilRenderTargetView,
-				RenderPassInfo.RenderTargetLayout.DepthStencilAttachment);
+			ValidateAndQueue(RenderPassInfo.DepthStencilRenderTarget, RenderPassInfo.DepthStencilRenderTargetView,
+				RenderPassInfo.RenderTargetLayout.DepthStencilAttachment, ERHITextureViewUsage::DepthStencilAttachment, 0);
 		}
 		// Pass names are deliberately excluded from render-pass identity and only annotate GPU work.
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();

@@ -1,3 +1,4 @@
+#include "Backend/RHIShaderBufferBinding.h"
 #include "Backend/RHITextureUpload.h"
 #include "Backend/RHIDynamicBufferWrite.h"
 #include "RHICommandList.h"
@@ -54,35 +55,16 @@ namespace Durin
 			return Left + Right;
 		}
 
-		auto CreateBufferViewForRecording(
-			FRHIBuffer* Buffer,
-			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
-		{
-			if (GDynamicRHI) return GDynamicRHI->RHICreateBufferView(Buffer, Desc);
-			return ValidateBufferViewDesc(Buffer, Desc)
-				? FBufferViewRHIRef(new FRHIBufferView(Buffer, Desc)) : nullptr;
-		}
-
-		auto CreateTextureViewForRecording(
-			FRHITexture* Texture,
-			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
-		{
-			if (GDynamicRHI) return GDynamicRHI->RHICreateTextureView(Texture, Desc);
-			return ValidateTextureViewDesc(Texture, Desc)
-				? FTextureViewRHIRef(new FRHITextureView(Texture, Desc)) : nullptr;
-		}
-
 		auto CanonicalizeShaderParameters(
 			std::span<const FRHIShaderParameterResource> Input,
 			std::vector<FRHIShaderParameterResource>& Output,
-			std::vector<TRefCountPtr<FRHIResource>>& CreatedViews, bool bFallible = false) -> bool
+			bool bFallible = false) -> bool
 		{
 			auto Fail = [bFallible](const char* Message) -> bool {
 				if (!bFallible) checkf(false, "{}", Message);
 				return false;
 			};
 			Output.assign(Input.begin(), Input.end());
-			CreatedViews.reserve(Output.size());
 			for (FRHIShaderParameterResource& Parameter : Output)
 			{
 				if (Parameter.ResourceIndex != INDEX_NONE_U32)
@@ -147,33 +129,20 @@ namespace Durin
 							return Fail("Uniform parameter range exceeds native binding limits.");
 						continue;
 					}
-					if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView) continue;
-					if (!IsBufferResource(Parameter.Resource))
+					const bool bView = Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView;
+					if (!bView && !IsBufferResource(Parameter.Resource))
 						return Fail("Shader buffer binding requires a buffer or buffer view.");
-					auto* Buffer = static_cast<FRHIBuffer*>(Parameter.Resource);
+					const auto [Buffer, Range] = ResolveShaderBufferBinding(Parameter);
 					const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;
-					const uint64 ViewOffset = bDynamic ? 0 : Parameter.Offset;
-					const uint64 ViewSize = Parameter.Size != 0
-						? Parameter.Size : Buffer->GetSize() - Parameter.Offset;
-					if (bDynamic)
-					{
-						if (Parameter.Offset > Buffer->GetSize() || ViewSize > Buffer->GetSize() - Parameter.Offset)
-							return Fail("Dynamic uniform range exceeds its parent buffer.");
-					}
-					ERHIBufferViewType ViewType = ERHIBufferViewType::Uniform;
-					if (Parameter.Type == ERHIBindingType::StorageBuffer)
-					{
-						ViewType = EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::ByteAddressBuffer)
-							? ERHIBufferViewType::ByteAddressStorage
-							: ERHIBufferViewType::StructuredStorage;
-					}
-					const FRHIBufferViewDesc Desc{ViewOffset, ViewSize, ViewType, EPixelFormat::Unknown};
-					FBufferViewRHIRef View = CreateBufferViewForRecording(Buffer, Desc);
-					if (!View) return Fail("Shader buffer binding could not create its canonical view.");
-					Parameter.Resource = View.GetReference();
-					Parameter.Size = 0;
-					if (!bDynamic) Parameter.Offset = 0;
-					CreatedViews.emplace_back(View.GetReference());
+					const uint64 DynamicOffset = bDynamic ? Parameter.Offset : 0;
+					const bool bStorage = Range.Type == ERHIBufferViewType::StructuredStorage
+						|| Range.Type == ERHIBufferViewType::ByteAddressStorage;
+					if (!(Parameter.Type == ERHIBindingType::StorageBuffer ? bStorage : Range.Type == ERHIBufferViewType::Uniform)
+						|| !ValidateBufferViewDesc(Buffer, Range))
+						return Fail("Shader buffer range is incompatible with its binding.");
+					if (DynamicOffset > Buffer->GetSize() - Range.Offset
+						|| Range.Size > Buffer->GetSize() - Range.Offset - DynamicOffset)
+						return Fail("Dynamic uniform range exceeds its parent buffer.");
 					continue;
 				}
 				return Fail("Unsupported shader parameter binding type.");
@@ -187,8 +156,7 @@ namespace Durin
 	{
 		if (!InShader || std::ranges::any_of(InParameters, [](const auto& Parameter) { return !Parameter.Resource; })) return {};
 		auto Batch = std::shared_ptr<FRHIShaderParameterBatch>(new FRHIShaderParameterBatch);
-		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
-		if (!CanonicalizeShaderParameters(InParameters, Batch->Parameters, CreatedViews, true)) return {};
+		if (!CanonicalizeShaderParameters(InParameters, Batch->Parameters, true)) return {};
 		Batch->Shader = InShader;
 		Batch->Resources.reserve(Batch->Parameters.size());
 		for (const auto& Parameter : Batch->Parameters) Batch->Resources.emplace_back(Parameter.Resource);
@@ -651,47 +619,11 @@ namespace Durin
 				{
 					ColorRenderTargets[Index] = Info.ColorRenderTargets[Index];
 					ColorResolveTargets[Index] = Info.ColorResolveTargets[Index];
-					Info.ColorRenderTargets[Index] = ColorRenderTargets[Index].GetReference();
-					Info.ColorResolveTargets[Index] = ColorResolveTargets[Index].GetReference();
-					if (Info.ColorRenderTargets[Index])
-					{
-						ColorRenderTargetViews[Index] = Info.ColorRenderTargetViews[Index];
-						if (!ColorRenderTargetViews[Index])
-						{
-							ColorRenderTargetViews[Index] = CreateTextureViewForRecording(
-								Info.ColorRenderTargets[Index], MakeDefaultTextureViewDesc(
-									*Info.ColorRenderTargets[Index], ERHITextureViewUsage::ColorAttachment));
-						}
-						checkf(ColorRenderTargetViews[Index], "Render target could not create its attachment view.");
-						Info.ColorRenderTargetViews[Index] = ColorRenderTargetViews[Index].GetReference();
-					}
-					if (Info.ColorResolveTargets[Index])
-					{
-						ColorResolveTargetViews[Index] = Info.ColorResolveTargetViews[Index];
-						if (!ColorResolveTargetViews[Index])
-						{
-							ColorResolveTargetViews[Index] = CreateTextureViewForRecording(
-								Info.ColorResolveTargets[Index], MakeDefaultTextureViewDesc(
-									*Info.ColorResolveTargets[Index], ERHITextureViewUsage::ColorAttachment));
-						}
-						checkf(ColorResolveTargetViews[Index], "Resolve target could not create its attachment view.");
-						Info.ColorResolveTargetViews[Index] = ColorResolveTargetViews[Index].GetReference();
-					}
+					ColorRenderTargetViews[Index] = Info.ColorRenderTargetViews[Index];
+					ColorResolveTargetViews[Index] = Info.ColorResolveTargetViews[Index];
 				}
 				DepthStencilRenderTarget = Info.DepthStencilRenderTarget;
-				Info.DepthStencilRenderTarget = DepthStencilRenderTarget.GetReference();
-				if (Info.DepthStencilRenderTarget)
-				{
-					DepthStencilRenderTargetView = Info.DepthStencilRenderTargetView;
-					if (!DepthStencilRenderTargetView)
-					{
-						DepthStencilRenderTargetView = CreateTextureViewForRecording(
-							Info.DepthStencilRenderTarget, MakeDefaultTextureViewDesc(
-								*Info.DepthStencilRenderTarget, ERHITextureViewUsage::DepthStencilAttachment));
-					}
-					checkf(DepthStencilRenderTargetView, "Depth/stencil target could not create its attachment view.");
-					Info.DepthStencilRenderTargetView = DepthStencilRenderTargetView.GetReference();
-				}
+				DepthStencilRenderTargetView = Info.DepthStencilRenderTargetView;
 			}
 
 			auto Execute(void* ReplayContext) -> void
@@ -2426,8 +2358,7 @@ namespace Durin
 			&& InShader->GetFrequency() == EShaderFrequency::Compute),
 			"Compute shader parameters require a compute shader.");
 		std::vector<FRHIShaderParameterResource> CanonicalParameters;
-		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
-		if (!CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters, CreatedViews)) return;
+		if (!CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters)) return;
 		const auto& Request = ActivePipeline == ERHIPipeline::Compute ? ActiveComputePipeline : ActiveGraphicsPipeline;
 		if (Request) AddPipelineDependency(Request);
 		RecordCommand<FSetShaderParametersCommand>(InShader, CanonicalParameters);

@@ -1054,6 +1054,7 @@ namespace Durin
 		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets]{};
 		FRHITexture* ColorResolveTargets[MaxSimultaneousRenderTargets]{};
 		FRHITexture* DepthStencilRenderTarget = nullptr;
+		// An omitted view selects mip zero and layer zero of the attachment texture.
 		FRHITextureView* ColorRenderTargetViews[MaxSimultaneousRenderTargets]{};
 		FRHITextureView* ColorResolveTargetViews[MaxSimultaneousRenderTargets]{};
 		FRHITextureView* DepthStencilRenderTargetView = nullptr;

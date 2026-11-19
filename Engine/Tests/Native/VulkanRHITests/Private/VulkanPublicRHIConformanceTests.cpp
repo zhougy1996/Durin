@@ -125,10 +125,12 @@ namespace Durin::VulkanRHI
 					ASSERT_TRUE(First && Second);
 					if (!Deferred)
 					{
-						const auto* FirstView = static_cast<const FRHIBufferView*>(First->GetParameters()[1].Resource);
-						const auto* SecondView = static_cast<const FRHIBufferView*>(Second->GetParameters()[1].Resource);
-						ASSERT_EQ(FirstView->GetBuffer(), SecondView->GetBuffer());
-						ASSERT_EQ(FirstView->GetDesc(), SecondView->GetDesc());
+						const auto& A = First->GetParameters()[1];
+						const auto& B = Second->GetParameters()[1];
+						ASSERT_EQ(A.Resource, Uniforms[0].Buffer);
+						ASSERT_EQ(A.Resource, B.Resource);
+						ASSERT_EQ(A.Size, B.Size);
+						ASSERT_NE(A.Offset, B.Offset);
 					}
 					Commands.SwitchPipeline(ERHIPipeline::Graphics);
 					FRHIRenderPassInfo Pass;

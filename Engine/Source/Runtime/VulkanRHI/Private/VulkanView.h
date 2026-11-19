@@ -68,7 +68,6 @@ namespace Durin::VulkanRHI
 	{
 		vk::Image Image;
 		vk::ImageView ImageView;
-		FTextureViewRHIRef AttachmentView;
 		FTextureViewRHIRef SampledView;
 	};
 }

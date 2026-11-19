@@ -68,6 +68,7 @@ namespace Durin::VulkanRHI
 				? vk::ImageLayout::eGeneral : Layout;
 		}
 
+		auto GetCurrentAttachmentView() const -> vk::ImageView;
 		auto ResolveView(const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef;
 		auto OnGetBackBufferImage(FVulkanCommandListContext& Context) -> bool;
 		auto InvalidateSwapchain() -> void;
@@ -78,7 +79,6 @@ namespace Durin::VulkanRHI
 		FVulkanView* AcquiredView = nullptr;
 		// Retain this generation's compatible dummy for commands recorded before a resize.
 		TRefCountPtr<FVulkanTexture> RenderingBackBuffer;
-		FTextureViewRHIRef RenderingBackBufferView;
 		std::vector<std::pair<vk::Image, ERHIAccess>> ImageStates;
 	};
 

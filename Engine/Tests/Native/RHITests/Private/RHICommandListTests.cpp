@@ -323,6 +323,7 @@ namespace Durin
 			{
 				Operations.emplace_back("BeginRenderPass");
 				ObservedColorTarget = Info.ColorRenderTargets[0];
+				bHadExplicitColorView = Info.ColorRenderTargetViews[0] != nullptr;
 				std::copy_n(
 					Info.ColorClearValues[0].ClearValue.Color,
 					4,
@@ -521,6 +522,7 @@ namespace Durin
 			std::optional<uint64> ObservedBeginFrameNumber;
 			std::vector<bool> OperationThreadRoles;
 			FRHITexture* ObservedColorTarget = nullptr;
+			bool bHadExplicitColorView = false;
 			std::array<float, 4> ObservedClearValue{};
 			Durin::FByteBuffer ObservedPushConstants;
 			FRHIShader* ObservedShader = nullptr;
@@ -2362,23 +2364,22 @@ namespace Durin
 		auto Batch = FRHIShaderParameterBatch::Create(Shader.GetReference(), Parameters);
 		ASSERT_TRUE(Batch);
 		ASSERT_EQ(Batch->GetParameters().size(), 1u);
-		auto* CanonicalView = Batch->GetParameters()[0].Resource;
-		ASSERT_EQ(CanonicalView->GetResourceType(), ERHIResourceType::BufferView);
-		EXPECT_EQ(static_cast<FRHIBufferView*>(CanonicalView)->GetBuffer(), Buffer.GetReference());
+		ASSERT_EQ(Batch->GetParameters()[0].Resource, Buffer.GetReference());
+		EXPECT_EQ(Batch->GetParameters()[0].Size, 32u);
 		Parameters[0].Resource = nullptr;
 		Parameters[0].Offset = 48;
 		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
 		Immediate.SetPreparedShaderParameters(Batch);
 		Executor.Submit({}, ERHISubmitFlags::None);
 		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
-		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, CanonicalView);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, Buffer.GetReference());
 		EXPECT_EQ(Context.ObservedShaderParameters[0].Offset, 16u);
 		Immediate.SetPreparedShaderParameters(Batch);
 		std::weak_ptr<const FRHIShaderParameterBatch> WeakBatch = Batch;
 		Batch.reset();
 		EXPECT_FALSE(WeakBatch.expired());
 		Executor.Submit({}, ERHISubmitFlags::None);
-		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, CanonicalView);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, Buffer.GetReference());
 		EXPECT_TRUE(WeakBatch.expired());
 		RHIFlushDeferredResources();
 		EXPECT_EQ(Buffer->GetRefCount(), 1u);
@@ -2452,12 +2453,12 @@ namespace Durin
 		Executor.Submit({}, ERHISubmitFlags::None);
 
 		EXPECT_EQ(Context.ObservedColorTarget, Texture.GetReference());
+		EXPECT_FALSE(Context.bHadExplicitColorView);
 		EXPECT_EQ(Context.ObservedClearValue, (std::array<float, 4>{1, 2, 3, 4}));
 		EXPECT_EQ(Context.ObservedPushConstants, MakeByteVector({1, 2, 3, 4}));
 		ASSERT_EQ(Context.ObservedShaderParameters.size(), 2u);
 		EXPECT_EQ(Context.ObservedShader, Shader.GetReference());
-		ASSERT_EQ(Context.ObservedShaderParameters[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
-		EXPECT_EQ(static_cast<FRHIBufferView*>(Context.ObservedShaderParameters[0].Resource)->GetBuffer(), Buffer.GetReference());
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, Buffer.GetReference());
 		EXPECT_EQ(Context.ObservedShaderParameters[0].BindingIndex, 2u);
 		EXPECT_EQ(Context.ObservedShaderParameters[0].ArrayElement, 0u);
 		EXPECT_EQ(Context.ObservedShaderParameters[1].ArrayElement, 1u);
@@ -2506,8 +2507,7 @@ namespace Durin
 			(std::optional<std::array<uint32, 3>>{{3, 2, 1}}));
 		EXPECT_EQ(Context.ObservedPushConstants, MakeByteVector({23, 0, 0, 0}));
 		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
-		EXPECT_EQ(static_cast<FRHIBufferView*>(
-			Context.ObservedShaderParameters[0].Resource)->GetBuffer(),
+		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource,
 			Buffer.GetReference());
 	}
 

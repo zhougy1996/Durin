@@ -1,3 +1,4 @@
+#include "Backend/RHIShaderBufferBinding.h"
 #include "VulkanPendingState.h"
 
 #include "Backend/RHIValidation.h"
@@ -64,18 +65,17 @@ namespace Durin::VulkanRHI
 			|| Resource.Type == ERHIBindingType::UniformBufferDynamic
 			|| Resource.Type == ERHIBindingType::StorageBuffer)
 		{
-			const auto* View = static_cast<const FRHIBufferView*>(Resource.Resource);
-			return {View->GetBuffer(), View->GetDesc().Offset, View->GetDesc().Size};
+			const auto [Buffer, Range] = ResolveShaderBufferBinding(Resource);
+			return {Buffer, Range.Offset, Range.Size};
 		}
-		return {Resource.Resource, 0, 0};
+		return {Resource.Resource, Resource.Offset, Resource.Size};
 	}
 
 	static auto DescriptorResourcesEqual(const FRHIShaderParameterResource& A,
 		const FRHIShaderParameterResource& B) -> bool
 	{
 		return A.BindingIndex == B.BindingIndex
-			&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Size == B.Size
-			&& (A.Type == ERHIBindingType::UniformBufferDynamic || A.Offset == B.Offset)
+			&& A.ArrayElement == B.ArrayElement && A.Type == B.Type
 			&& GetDescriptorResourceIdentity(A) == GetDescriptorResourceIdentity(B);
 	}
 
@@ -117,9 +117,8 @@ namespace Durin::VulkanRHI
 			case ERHIBindingType::UniformBufferDynamic:
 			case ERHIBindingType::StorageBuffer:
 				{
-					const auto* View = FVulkanBufferView::Cast(Resource.Resource);
-					const auto* Buffer = FVulkanBuffer::Cast(View->GetBuffer());
-					const FRHIBufferViewDesc& ViewDesc = View->GetDesc();
+					const auto [Backing, Range] = ResolveShaderBufferBinding(Resource);
+					const auto* Buffer = FVulkanBuffer::Cast(Backing);
 					if (Resource.Type == ERHIBindingType::StorageBuffer)
 					{
 						checkf(
@@ -129,8 +128,8 @@ namespace Durin::VulkanRHI
 					vk::DescriptorBufferInfo& BufferInfo = BufferInfos.emplace_back();
 					BufferInfo
 						.setBuffer(Buffer->GetHandle())
-						.setOffset(ViewDesc.Offset)
-						.setRange(ViewDesc.Size);
+						.setOffset(Range.Offset)
+						.setRange(Range.Size);
 					DescriptorWrite.setBufferInfo(BufferInfo);
 					break;
 				}
@@ -281,7 +280,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingComputeState::ResolveUniformBuffers() -> void
 	{
-		const auto Resolved = UniformBindings.Resolve(Device);
+		const auto Resolved = UniformBindings.Resolve();
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
 
@@ -324,21 +323,19 @@ namespace Durin::VulkanRHI
 				|| Resource.Type == ERHIBindingType::UniformBufferDynamic
 				|| Resource.Type == ERHIBindingType::StorageBuffer)
 			{
-				checkf(Resource.Resource->GetResourceType() == ERHIResourceType::BufferView,
-					"Compute buffer descriptor requires a canonical buffer view.");
-				const auto* View = FVulkanBufferView::Cast(Resource.Resource);
-				const auto* Buffer = FVulkanBuffer::Cast(View->GetBuffer());
+				const auto [Backing, Range] = ResolveShaderBufferBinding(Resource);
+				const auto* Buffer = FVulkanBuffer::Cast(Backing);
 				const ERHIAccess Expected = Resource.Type == ERHIBindingType::StorageBuffer
 					? (EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess)
 						? ERHIAccess::ComputeShaderReadWrite : ERHIAccess::ComputeShaderRead)
 					: ERHIAccess::ComputeUniformRead;
 				ERHIAccess Tracked = ERHIAccess::None;
-				const uint64 Offset = View->GetDesc().Offset
+				const uint64 Offset = Range.Offset
 					+ (Resource.Type == ERHIBindingType::UniformBufferDynamic ? Resource.Offset : 0);
-				checkf(Offset <= Buffer->GetSize() && View->GetDesc().Size <= Buffer->GetSize() - Offset,
+				checkf(Offset <= Buffer->GetSize() && Range.Size <= Buffer->GetSize() - Offset,
 					"Compute buffer descriptor range exceeds its buffer.");
 				checkf(Buffer->GetStateTracker().Validate(Offset,
-					View->GetDesc().Size, Expected, Tracked),
+					Range.Size, Expected, Tracked),
 					"Compute buffer descriptor binding state mismatch.");
 				if (Resource.Type == ERHIBindingType::UniformBufferDynamic)
 					DynamicOffsets.push_back(Resource.Offset);
@@ -533,7 +530,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanGraphicsPipelineDescriptorState::ResolveUniformBuffers(
 		FVulkanDevice& Device) -> void
 	{
-		const auto Resolved = UniformBindings.Resolve(Device);
+		const auto Resolved = UniformBindings.Resolve();
 		if (!Resolved.empty()) SetShaderParameters(nullptr, Resolved, true);
 	}
 
@@ -690,18 +687,13 @@ namespace Durin::VulkanRHI
 							|| Binding.Type == ERHIBindingType::UniformBufferDynamic
 							|| Binding.Type == ERHIBindingType::StorageBuffer)
 						{
-							checkf(Resource->GetResourceType() == ERHIResourceType::BufferView,
-								"Buffer descriptor requires a canonical buffer view.");
-							const auto* View = static_cast<const FRHIBufferView*>(Resource);
-							const bool bUniform = Binding.Type != ERHIBindingType::StorageBuffer;
-							checkf(bUniform
-									? View->GetDesc().Type == ERHIBufferViewType::Uniform
-									: View->GetDesc().Type == ERHIBufferViewType::StructuredStorage
-										|| View->GetDesc().Type == ERHIBufferViewType::ByteAddressStorage,
-								"Buffer descriptor view usage is incompatible with its binding type.");
+							const auto Range = ResolveShaderBufferBinding(ResourceRecord).Range;
+							checkf(Binding.Type == ERHIBindingType::StorageBuffer
+									? Range.Type == ERHIBufferViewType::StructuredStorage || Range.Type == ERHIBufferViewType::ByteAddressStorage
+									: Range.Type == ERHIBufferViewType::Uniform,
+								"Buffer descriptor range is incompatible with its binding type.");
 						}
-						else if (Binding.Type == ERHIBindingType::Texture
-							|| Binding.Type == ERHIBindingType::StorageImage)
+						else if (Binding.Type == ERHIBindingType::Texture || Binding.Type == ERHIBindingType::StorageImage)
 						{
 							const auto Image = GetDescriptorImage(ResourceRecord);
 							checkf(Binding.Type == ERHIBindingType::Texture
@@ -722,13 +714,13 @@ namespace Durin::VulkanRHI
 			const auto& Record = PendingShaderResources[Index];
 			if (Record.Type == ERHIBindingType::UniformBufferDynamic)
 			{
-				const auto* View = static_cast<const FRHIBufferView*>(Record.Resource);
+				const auto [Backing, Range] = ResolveShaderBufferBinding(Record);
 				const uint64 Alignment = Device.GetGpuProperties().limits.minUniformBufferOffsetAlignment;
 				checkf(Alignment == 0 || (Record.Offset % Alignment) == 0,
 					"Dynamic uniform offset is not device-aligned.");
-				const uint64 BufferSize = View->GetBuffer()->GetSize();
-				const uint64 Offset = View->GetDesc().Offset + static_cast<uint64>(Record.Offset);
-				checkf(Offset <= BufferSize && View->GetDesc().Size <= BufferSize - Offset,
+				const uint64 BufferSize = Backing->GetSize();
+				const uint64 Offset = Range.Offset + static_cast<uint64>(Record.Offset);
+				checkf(Offset <= BufferSize && Range.Size <= BufferSize - Offset,
 					"Dynamic uniform descriptor range exceeds its buffer.");
 				DynamicOffsets.push_back(Record.Offset);
 			}
@@ -789,8 +781,6 @@ namespace Durin::VulkanRHI
 				HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Backing));
 				HashBuilder.UpdateValue(Offset);
 				HashBuilder.UpdateValue(Range);
-				HashBuilder.UpdateValue(Resource.Size);
-				if (Resource.Type != ERHIBindingType::UniformBufferDynamic) HashBuilder.UpdateValue(Resource.Offset);
 			}
 			Hash = HashBuilder.Finalize().HashValue;
 			const auto [First, Last] = DescriptorSetCacheIndex.equal_range(Hash);

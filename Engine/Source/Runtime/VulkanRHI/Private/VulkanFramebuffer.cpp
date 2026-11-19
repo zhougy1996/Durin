@@ -19,6 +19,14 @@ namespace Durin::VulkanRHI
 			return Texture != nullptr ? static_cast<const FVulkanTexture*>(Texture)->Image : vk::Image{};
 		}
 
+		auto GetAttachmentHandle(FRHITexture* Target, FRHITextureView* ExplicitView) -> vk::ImageView
+		{
+			auto* View = static_cast<FVulkanTextureView*>(ExplicitView);
+			if (View && View->GetHandle()) return View->GetHandle();
+			auto* Texture = static_cast<FVulkanTexture*>(Target);
+			return Texture->HasExternalBacking() ? static_cast<FVulkanBackBuffer*>(Texture)->GetCurrentAttachmentView()
+				: Texture->GetDefaultAttachmentView();
+		}
 	}
 
 	FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderPassInfo& RPInfo, const FVulkanRenderPass& InRenderPass)
@@ -30,36 +38,32 @@ namespace Durin::VulkanRHI
 		DepthStencilRenderTargetImage = vk::Image{};
 		NumColorRenderTargets = RPInfo.RenderTargetLayout.NumColorRenderTargets;
 
-		FRHITextureView* ExtentSource = NumColorRenderTargets > 0 ? RPInfo.ColorRenderTargetViews[0] : RPInfo.DepthStencilRenderTargetView;
-		check(ExtentSource != nullptr);
-		const FIntPoint ViewExtent = ExtentSource->GetExtent();
-		Extent = vk::Extent2D(ViewExtent.x, ViewExtent.y);
-
-		AttachmentDescs.reserve(InRenderPass.GetAttachmentCount());
 		AttachmentViews.reserve(InRenderPass.GetAttachmentCount());
-		auto AddView = [this](FRHITextureView* RHIView) {
-			check(RHIView);
-			auto* View = static_cast<FVulkanTextureView*>(RHIView);
-			// A logical swapchain attachment can resolve to the 1x1 surface-loss dummy.
-			if (const auto* Dummy = FVulkanBackBuffer::GetBoundRenderingBackBuffer(
-				*static_cast<FVulkanTexture*>(View->GetTexture())))
+		auto AddView = [this](FRHITexture* Target, FRHITextureView* ExplicitView) {
+			if (AttachmentViews.empty())
+			{
+				const auto Size = ExplicitView ? ExplicitView->GetExtent() : FIntPoint(Target->GetSizeX(), Target->GetSizeY());
+				Extent = vk::Extent2D(Size.x, Size.y);
+			}
+			if (const auto* Dummy = FVulkanBackBuffer::GetBoundRenderingBackBuffer(*static_cast<FVulkanTexture*>(Target)))
 			{
 				Extent.width = std::min(Extent.width, Dummy->GetSizeX());
 				Extent.height = std::min(Extent.height, Dummy->GetSizeY());
 			}
-			AttachmentDescs.push_back(View->GetDesc());
-			View->MarkUsedByFramebuffer();
-			AttachmentViews.push_back(View->GetHandle());
+			if (ExplicitView) static_cast<FVulkanTextureView*>(ExplicitView)->MarkUsedByFramebuffer();
+			const auto Handle = GetAttachmentHandle(Target, ExplicitView);
+			check(Handle);
+			AttachmentViews.push_back(Handle);
 		};
 
 		for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
 		{
 			ColorRenderTargetImages[Index] = GetImage(RPInfo.ColorRenderTargets[Index]);
-			AddView(RPInfo.ColorRenderTargetViews[Index]);
+			AddView(RPInfo.ColorRenderTargets[Index], RPInfo.ColorRenderTargetViews[Index]);
 			if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget)
 			{
 				ColorResolveTargetImages[Index] = GetImage(RPInfo.ColorResolveTargets[Index]);
-				AddView(RPInfo.ColorResolveTargetViews[Index]);
+				AddView(RPInfo.ColorResolveTargets[Index], RPInfo.ColorResolveTargetViews[Index]);
 				++NumColorAttachments;
 			}
 			++NumColorAttachments;
@@ -69,7 +73,7 @@ namespace Durin::VulkanRHI
 		{
 			auto* Texture = static_cast<FVulkanTexture*>(RPInfo.DepthStencilRenderTarget);
 			DepthStencilRenderTargetImage = Texture->Image;
-			AddView(RPInfo.DepthStencilRenderTargetView);
+			AddView(RPInfo.DepthStencilRenderTarget, RPInfo.DepthStencilRenderTargetView);
 		}
 
 		vk::FramebufferCreateInfo CreateInfo;
@@ -121,11 +125,11 @@ namespace Durin::VulkanRHI
 		size_t Attachment = 0;
 		for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
 		{
-			if (AttachmentDescs[Attachment++] != RPInfo.ColorRenderTargetViews[Index]->GetDesc()) return false;
+			if (AttachmentViews[Attachment++] != GetAttachmentHandle(RPInfo.ColorRenderTargets[Index], RPInfo.ColorRenderTargetViews[Index])) return false;
 			if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget
-				&& AttachmentDescs[Attachment++] != RPInfo.ColorResolveTargetViews[Index]->GetDesc()) return false;
+				&& AttachmentViews[Attachment++] != GetAttachmentHandle(RPInfo.ColorResolveTargets[Index], RPInfo.ColorResolveTargetViews[Index])) return false;
 		}
 		return !RPInfo.RenderTargetLayout.bHasDepthStencil
-			|| AttachmentDescs[Attachment] == RPInfo.DepthStencilRenderTargetView->GetDesc();
+			|| AttachmentViews[Attachment] == GetAttachmentHandle(RPInfo.DepthStencilRenderTarget, RPInfo.DepthStencilRenderTargetView);
 	}
 } // namespace Durin::VulkanRHI
