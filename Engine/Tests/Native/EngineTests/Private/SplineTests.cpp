@@ -390,6 +390,116 @@ TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FSplineComponentTests, RejectsInvalidBulkCandidatesWithoutChangingPublishedState)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Root = Testing::CreateTestFixtureDirectory("AtomicSplinePackages");
+	Testing::RegisterMountPointForTests("/AtomicSplineTests/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AtomicSplineTests/Level", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	auto* Actor = Level->SpawnActor<AActor>("SplineActor");
+	auto* Spline = Cast<DSplineComponent>(Actor->AddInstanceComponent(DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+	Spline->SetFlags(EObjectFlags::Transactional);
+	auto* Package = Level->GetPackage();
+	FSplinePoint Start({0.0, 0.0, 0.0});
+	FSplinePoint End({10.0, 0.0, 0.0});
+	Start.InputKey = 2.0;
+	End.InputKey = 5.0;
+	ASSERT_TRUE(Spline->SetSplinePoints({Start, End}, 9.0));
+	ASSERT_TRUE(SavePackage(Package));
+	ASSERT_FALSE(Package->IsDirty());
+	const auto Before = Spline->GetSplinePoints();
+	const auto Evaluation = Spline->GetEvaluationData();
+	const uint64 Revision = Spline->GetSplineRevision();
+	const uint64 Topology = Spline->GetSplineTopologyRevision();
+	int Notifications = 0;
+	const auto Listener = Spline->AddSplineMutationListener([&](auto, auto, auto) { ++Notifications; });
+
+	Tests::FTestEditorTransactorOwner Transactions;
+	{
+		FScopedTransaction Scope(Transactions.Get(), {.Description = "Invalid spline bulk edits"});
+		auto Invalid = End;
+		Invalid.InputKey = Start.InputKey;
+		EXPECT_FALSE(Spline->SetSplinePoints({Start, Invalid}, 10.0));
+		Invalid.InputKey = std::numeric_limits<double>::infinity();
+		EXPECT_FALSE(Spline->SetSplinePoints({Start, Invalid}, 10.0));
+		Invalid = End;
+		Invalid.Rotation.x = std::numeric_limits<double>::quiet_NaN();
+		EXPECT_FALSE(Spline->SetSplinePoints({Start, Invalid}));
+		Invalid = End;
+		Invalid.Position.x = 20.0;
+		EXPECT_FALSE(Spline->SetSplinePoints({Start, Invalid}, End.InputKey));
+		Invalid.InputKey = 10.0;
+		EXPECT_FALSE(Spline->SetSplinePoints({Start, Invalid}));
+		EXPECT_FALSE(Spline->SetSplinePoints({}, 11.0));
+	}
+	EXPECT_FALSE(Transactions->CanUndo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Before);
+	EXPECT_TRUE(Spline->IsClosedLoop());
+	EXPECT_DOUBLE_EQ(Spline->GetSplineCurve().GetLoopKey(), 9.0);
+	EXPECT_EQ(Spline->GetEvaluationData(), Evaluation);
+	EXPECT_EQ(Spline->GetSplineRevision(), Revision);
+	EXPECT_EQ(Spline->GetSplineTopologyRevision(), Topology);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_EQ(Notifications, 0);
+
+	{
+		FScopedTransaction Scope(Transactions.Get(), {.Description = "Valid spline bulk edit"});
+		ASSERT_TRUE(Spline->SetSplinePoints({Start, FSplinePoint({6.0, 0.0, 0.0}), End}, 11.0));
+	}
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(Spline->GetSplineRevision(), Revision + 1);
+	EXPECT_EQ(Notifications, 1);
+	EXPECT_DOUBLE_EQ(Spline->GetSplinePoint(1)->InputKey, 3.5);
+	EXPECT_DOUBLE_EQ(Spline->GetSplineCurve().GetLoopKey(), 11.0);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Before);
+	EXPECT_DOUBLE_EQ(Spline->GetSplineCurve().GetLoopKey(), 9.0);
+	Spline->RemoveSplineMutationListener(Listener);
+	Transactions->Reset();
+	ASSERT_TRUE(SavePackage(Package));
+	EXPECT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FSplineEditingTests, PointRangeHistoryRejectsForeignTopologyWithoutWritingTheSlot)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DSplineComponent> Spline(NewObject<DSplineComponent>(nullptr, "PointRangeHistorySpline", EObjectFlags::Transactional));
+	Tests::FTestEditorTransactorOwner History;
+	const auto Original = Spline->GetSplinePoints();
+	auto Changed = Original[0];
+	Changed.Position = Original[1].Position;
+	Changed.LeaveTangent.y = 2.0;
+	{
+		FScopedTransaction Scope(History.Get(), {.Description = "Edit spline point"});
+		ASSERT_TRUE(Spline->UpdateSplinePoint(0, Changed));
+	}
+	{
+		FScopedTransaction Scope(History.Get(), {.Description = "Reorder in the same history"});
+		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
+	}
+	ASSERT_TRUE(History->Undo());
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Original);
+	ASSERT_TRUE(History->Redo());
+
+	Tests::FTestTransactorOwner OtherHistory;
+	{
+		FScopedTransaction Scope(OtherHistory.Get(), {.Description = "Reorder in another history"});
+		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
+	}
+	const auto Reordered = Spline->GetSplinePoints();
+	const auto Snapshot = Spline->GetEvaluationData();
+	EXPECT_FALSE(History->Undo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
+	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
+}
+
 TEST(FSplineComponentTests, DuplicateObjectPreservesPointsAndPublishesSnapshot)
 {
 	InitializeDObjectSystem();

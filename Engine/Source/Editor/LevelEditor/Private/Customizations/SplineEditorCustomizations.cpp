@@ -80,8 +80,7 @@ namespace Durin::LevelEditor
 			return CommitSplineEdit(Spline, Mode, "Delete Spline Points", [&] {
 				auto Points = Spline.GetSplinePoints();
 				for (uint32 Index : Indices) Points.erase(Points.begin() + Index);
-				Spline.SetSplinePoints(std::move(Points));
-				return true;
+				return Spline.SetSplinePoints(std::move(Points));
 			});
 		}
 
@@ -145,11 +144,22 @@ namespace Durin::LevelEditor
 		class FSplineElementTransformTarget final : public ITransformGizmoTarget
 		{
 		public:
-			FSplineElementTransformTarget(DSplineComponent* InSpline, FEditorSubElementSelection InElement, bool bInHistory = false)
-				: Spline(InSpline), Element(InElement), bHistory(bInHistory) {}
-			auto CreateHistoryTarget() const -> std::shared_ptr<ITransformGizmoTarget> override
+			FSplineElementTransformTarget(DSplineComponent* InSpline, FEditorSubElementSelection InElement)
+				: Spline(InSpline), Element(InElement) {}
+			auto CreateHistoryTarget(uint64 InHistoryId) const -> std::shared_ptr<ITransformGizmoTarget> override
 			{
-				return std::make_shared<FSplineElementTransformTarget>(Spline.Get(), Element, true);
+				auto Target = std::make_shared<FSplineElementTransformTarget>(Spline.Get(), Element);
+				if (const auto* Resolved = Spline.Get())
+				{
+					Target->HistoryId = InHistoryId;
+					Target->ForeignTopologyRevision = Resolved->GetForeignTopologyRevision(InHistoryId);
+				}
+				return Target;
+			}
+			auto IsHistoryInvalidated() const -> bool override
+			{
+				const auto* Resolved = Spline.Get();
+				return Resolved && HistoryId != 0 && ForeignTopologyRevision != Resolved->GetForeignTopologyRevision(HistoryId);
 			}
 			auto IsValid() const -> bool override { return ResolvePoint() != nullptr; }
 			auto GetIdentity() const -> const void* override { return ResolvePoint(); }
@@ -207,12 +217,14 @@ namespace Durin::LevelEditor
 			auto ResolvePoint() const -> const FSplinePoint*
 			{
 				DSplineComponent* Resolved = Spline.Get();
-				if (!Resolved || (!bHistory && Element.TopologyRevision != Resolved->GetSplineTopologyRevision())) return nullptr;
+				if (!Resolved || IsHistoryInvalidated()
+					|| (HistoryId == 0 && Element.TopologyRevision != Resolved->GetSplineTopologyRevision())) return nullptr;
 				return Resolved->GetSplinePoint(static_cast<uint32>(Element.Index));
 			}
 			TWeakObjectPtr<DSplineComponent> Spline;
 			FEditorSubElementSelection Element;
-			bool bHistory = false;
+			uint64 HistoryId = 0;
+			uint64 ForeignTopologyRevision = 0;
 		};
 
 		auto DrawSplineAttributeSamples(DSplineComponent& Spline, const FSplineEvaluationSegment& Segment,
@@ -783,8 +795,7 @@ namespace Durin::LevelEditor
 			Inserted.TangentMode = ESplineTangentMode::ManualBroken;
 		}
 		Points.insert(Points.begin() + SegmentIndex + 1, Inserted);
-		Spline.SetSplinePoints(std::move(Points), EndIndex == 0 ? std::optional(Segment.EndKey) : std::nullopt);
-		return true;
+		return Spline.SetSplinePoints(std::move(Points), EndIndex == 0 ? std::optional(Segment.EndKey) : std::nullopt);
 	}
 
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer> { return std::make_shared<FSplineComponentVisualizer>(); }

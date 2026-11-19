@@ -217,6 +217,9 @@ namespace Durin::LevelEditor
 
 			auto Apply(bool bAfter) -> FActorChangeResult
 			{
+				// Retire the whole gesture when any index no longer belongs to this history.
+				if (std::ranges::any_of(Entries, [](const auto& Entry) { return Entry.Target && Entry.Target->IsHistoryInvalidated(); }))
+					return {};
 				std::vector<FTransform> Previous;
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
@@ -652,7 +655,7 @@ namespace Durin::LevelEditor
 			std::vector<FTransformTargetTransaction::FEntry> Entries;
 			for (const auto& Snapshot : Snapshots)
 			{
-				auto Target = Snapshot.Target->CreateHistoryTarget();
+				auto Target = Snapshot.Target->CreateHistoryTarget(Transactions->GetHistoryId());
 				Entries.push_back({Target ? std::move(Target) : Snapshot.Target, Snapshot.Initial, Snapshot.Preview});
 			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";

@@ -10,7 +10,11 @@ Modules: Engine, LevelEditor
   addresses an authored point, and `InputKey` addresses evaluation.
 - Keys are finite and strictly increasing. Position-only insertion assigns a
   key, and reordering moves points through existing key slots. Load and
-  reflected mutations normalize invalid keys before publication.
+  reflected mutations normalize invalid keys before publication. Bulk point
+  updates validate a detached curve and optional loop key before committing.
+  Auto-key runs interpolate between explicit neighbors or use unit steps at the
+  ends. Invalid candidates leave authoring, evaluation, history, and Dirty
+  state intact.
 - Each point owns the interpolation of its outgoing segment. An open curve
   has one fewer segment than points. A closed curve adds a last-to-first
   segment with a default end key of last key plus one and an optional override.
@@ -55,6 +59,10 @@ The viewport and Details edit persistent points through the component mutation
 API and transactions. Selection and live transform targets address points by
 index and are invalidated by topology revisions. Insert and duplicate may
 select the newly created point, and undo and redo restore authored point order.
+A committed point gesture can replay after a structural undo in the same
+history. An unrecorded or foreign-history topology change retires older point
+gestures for that curve. A retired gesture is skipped as a whole on replay.
+Native point-range and reflected records reject stale topology before replay.
 Editable keys use the runtime validation rules. The Up/Right overlay samples
 the runtime transform on segments adjoining selected points and stays outside
 the hit-test pass. Linear and cubic insertion preserves centerline geometry,

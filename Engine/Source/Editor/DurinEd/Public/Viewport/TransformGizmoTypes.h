@@ -38,7 +38,8 @@ namespace Durin::LevelEditor
 	public:
 		virtual ~ITransformGizmoTarget() = default;
 		// History can resolve an index after a later topology edit has been undone.
-		virtual auto CreateHistoryTarget() const -> std::shared_ptr<ITransformGizmoTarget> { return {}; }
+		virtual auto CreateHistoryTarget(uint64) const -> std::shared_ptr<ITransformGizmoTarget> { return {}; }
+		virtual auto IsHistoryInvalidated() const -> bool { return false; }
 		virtual auto IsValid() const -> bool = 0;
 		virtual auto GetIdentity() const -> const void* = 0;
 		// Explicit edited objects; native-only targets may declare an empty list.

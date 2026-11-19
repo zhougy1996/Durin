@@ -42,7 +42,7 @@ namespace Durin
 		auto GetNumSplinePoints() const -> uint32 { return SplineCurve.GetNumPoints(); }
 		auto GetNumSplineSegments() const -> uint32 { return SplineCurve.GetNumSegments(); }
 
-		ENGINE_API auto SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey = std::nullopt) -> void;
+		ENGINE_API auto SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey = std::nullopt) -> bool;
 		ENGINE_API auto AddSplinePoint(FSplinePoint Point) -> uint32;
 		ENGINE_API auto InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool;
 		ENGINE_API auto DuplicateSplinePoint(uint32 PointIndex) -> std::optional<uint32>;
@@ -89,17 +89,27 @@ namespace Durin
 		auto GetLocalSplineBounds() const -> FBox { return GetEvaluationData()->GetLocalBounds(); }
 
 		auto GetSplineTopologyRevision() const -> uint64 { return SplineTopologyRevision; }
+		auto GetForeignTopologyRevision(uint64 HistoryId) const -> uint64
+		{
+			return HistoryId != 0 && HistoryId == TopologyHistoryId ? PreviousHistoryTopologyRevision : SplineTopologyRevision;
+		}
 		auto GetSplineRevision() const -> uint64 { return SplineRevision; }
 		auto GetLastSplineChangeFlags() const -> ESplineChangeFlags { return LastSplineChangeFlags; }
 		ENGINE_API auto AddSplineMutationListener(FSplineMutationListener Listener) -> uint64;
 		ENGINE_API auto RemoveSplineMutationListener(uint64 ListenerId) -> bool;
 
 		ENGINE_API auto UpdateSpline(ESplineChangeFlags ChangeFlags = ESplineChangeFlags::Build) -> void;
+		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
+		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
+		auto PublishSplineEvaluation(ESplineChangeFlags Flags, std::shared_ptr<const FSplineEvaluationData> Evaluation,
+			uint64 HistoryId) -> void;
+		auto UpdateSplineForHistory(ESplineChangeFlags Flags, uint64 HistoryId) -> void;
+		auto GetRecordingHistoryId() const -> uint64;
 		auto EditPointRange(size_t Index, size_t RemoveCount, std::span<const FSplinePoint> Replacement) -> FTransactionCaptureResult;
 		auto TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample;
 
@@ -121,6 +131,8 @@ namespace Durin
 		mutable FVector3 EvaluationScale{1.0};
 		uint64 SplineRevision = 0;
 		uint64 SplineTopologyRevision = 0;
+		uint64 TopologyHistoryId = 0;
+		uint64 PreviousHistoryTopologyRevision = 0;
 		ESplineChangeFlags LastSplineChangeFlags = ESplineChangeFlags::None;
 		std::vector<std::pair<uint64, FSplineMutationListener>> MutationListeners;
 		uint64 NextMutationListenerId = 1;

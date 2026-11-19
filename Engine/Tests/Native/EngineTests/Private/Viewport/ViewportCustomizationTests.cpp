@@ -300,6 +300,7 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	Context.SelectSubElement(Spline, PointElement(0));
 	Context.ToggleSubElement(Spline, PointElement(1));
 	const auto OrderedPoints = Spline->GetSplinePoints();
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 
 	const Durin::LevelEditor::FLevelViewportEditModeHandle Handle = Durin::LevelEditor::RegisterSplineViewportEditMode();
 	ASSERT_TRUE(Handle);
@@ -315,7 +316,7 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	Durin::LevelEditor::FLevelEditorViewportInput Input;
 	Input.bDelete = true;
-	Durin::Tests::FTestEditorTransactorOwner Transactions;
+	const auto HistoryTarget = Targets.Targets[0]->CreateHistoryTarget(Transactions->GetHistoryId());
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 1u);
 	ASSERT_TRUE(Transactions->Undo());
@@ -323,7 +324,7 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	EXPECT_EQ(Spline->GetSplinePoints(), OrderedPoints);
 	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
 	EXPECT_FALSE(Targets.Targets[0]->IsValid());
-	EXPECT_TRUE(Targets.Targets[0]->CreateHistoryTarget()->IsValid());
+	EXPECT_TRUE(HistoryTarget->IsValid());
 
 	Context.SelectSubElement(Spline, PointElement(0));
 	Input = {};
@@ -338,6 +339,92 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	EXPECT_TRUE(Durin::LevelEditor::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExternalTopology)
+{
+	using namespace Durin;
+	using namespace Durin::LevelEditor;
+	InitializeDObjectSystem();
+	auto* World = NewObject<DWorld>(nullptr, "SplineUndoWorld");
+	World->SetWorldType(EWorldType::Editor);
+	ASSERT_NO_THROW(World->InitializeSubsystems());
+	auto* Level = NewObject<DLevel>(World, "SplineUndoLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<AActor>("SplineUndoActor");
+	auto* Spline = Cast<DSplineComponent>(Actor->AddInstanceComponent(DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+	Spline->SetFlags(EObjectFlags::Transactional);
+
+	FLevelEditorViewportClient Client;
+	FSceneView View;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
+	const auto& Camera = Client.GetCameraTransform();
+	const FVector3 Start = Camera.GetLocation() + Camera.GetForwardVector() * 5.0;
+	ASSERT_TRUE(Spline->SetSplinePoints({FSplinePoint(Start), FSplinePoint(Start + FVectorConstants::Right)}));
+	FLevelEditorContext Context;
+	Context.Synchronize(World);
+	Context.SelectActor(Actor);
+	Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, 0, Spline->GetSplineTopologyRevision()});
+	const auto Handle = RegisterSplineViewportEditMode();
+	ASSERT_TRUE(Handle);
+	FScopedSelectModeRegistration SelectRegistration;
+	FEditorModeTools Manager;
+	ASSERT_TRUE(Manager.Activate("Spline", Context));
+	const auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
+	ASSERT_EQ(Targets.Targets.size(), 1u);
+
+	FTransformGizmo Gizmo;
+	FLevelEditorViewportInput Input;
+	Input.ViewportSize = {800.0f, 600.0f};
+	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, nullptr));
+	FSceneView Overlay = View;
+	Gizmo.AppendOverlayPrimitives(Overlay);
+	ASSERT_FALSE(Overlay.OverlayPrimitives.empty());
+	const FVector3 HandlePoint(Overlay.OverlayPrimitives.front().LocalToWorld * FVector4(0.65, 0.0, 0.0, 1.0));
+	FVector2f CenterScreen, HandleScreen;
+	ASSERT_TRUE(SceneViewProjection::ProjectWorldToViewport(View, Start, CenterScreen));
+	ASSERT_TRUE(SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
+
+	Tests::FTestEditorTransactorOwner Transactions;
+	Input.bFocused = Input.bHovered = Input.bLeftMousePressed = Input.bLeftMouseDown = true;
+	Input.MousePosition = HandleScreen;
+	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
+	ASSERT_TRUE(Gizmo.IsDragging());
+	Input.bLeftMousePressed = false;
+	Input.MousePosition += Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
+	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
+	Input.bLeftMouseDown = false;
+	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
+	const FVector3 Dragged = Spline->GetSplinePoint(0)->Position;
+	ASSERT_GT(Math::Length(Dragged - Start), 1.e-3);
+
+	{
+		FScopedTransaction Scope(Transactions.Get(), {.Description = "Reorder spline points"});
+		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
+	}
+	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Spline->GetSplinePoint(0)->Position, Start);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Spline->GetSplinePoint(0)->Position, Dragged);
+
+	// Give the other point the same transform so transform equality cannot detect the stale slot.
+	auto Other = *Spline->GetSplinePoint(1);
+	Other.Position = Dragged;
+	Other.Scale = Spline->GetSplinePoint(0)->Scale;
+	Other.Rotation = Spline->GetSplinePoint(0)->Rotation;
+	Other.LeaveTangent.y = 2.0;
+	ASSERT_TRUE(Spline->UpdateSplinePoint(1, Other));
+	ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
+	const auto ExternallyReordered = Spline->GetSplinePoints();
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Spline->GetSplinePoints(), ExternallyReordered);
+
+	Manager.DeactivateAllModes(&Context);
+	EXPECT_TRUE(FLevelViewportEditModeRegistry::Get().Unregister(Handle));
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
 }
 
 TEST(FSplineMeshActorViewportTests, PointTargetRecreatesGeneratedSegmentsAndCancelRestoresOutput)

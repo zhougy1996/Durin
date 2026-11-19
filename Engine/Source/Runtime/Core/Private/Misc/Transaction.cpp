@@ -2,6 +2,18 @@
 
 namespace Durin
 {
+	namespace { thread_local uint64 ReplayingHistoryId = 0; }
+
+	FScopedTransactionHistoryReplay::FScopedTransactionHistoryReplay(uint64 HistoryId)
+		: PreviousHistoryId(std::exchange(ReplayingHistoryId, HistoryId)) {}
+
+	FScopedTransactionHistoryReplay::~FScopedTransactionHistoryReplay()
+	{
+		ReplayingHistoryId = PreviousHistoryId;
+	}
+
+	auto FScopedTransactionHistoryReplay::GetHistoryId() -> uint64 { return ReplayingHistoryId; }
+
 	auto AllocateTransactionOperationId() -> uint64
 	{
 		static std::atomic<uint64> NextId{1};

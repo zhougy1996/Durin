@@ -3,12 +3,57 @@
 #include "DObject/Property.h"
 #include "DObject/Class.h"
 #include "DObject/TransactionArray.h"
+#include "DObject/TransactionObjectAnnotation.h"
+#include "DObject/Archive.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Math/Operations.h"
+#include "Misc/ITransaction.h"
 
 namespace Durin
 {
 	namespace
 	{
+		class FSplineTopologyTransactionAnnotation final : public ITransactionObjectAnnotation
+		{
+		public:
+			FSplineTopologyTransactionAnnotation(DSplineComponent& InSpline, uint64 InHistoryId,
+				std::shared_ptr<ITransactionObjectAnnotation> InComponentState)
+				: ComponentState(std::move(InComponentState)), Spline(&InSpline), HistoryId(InHistoryId)
+				, ForeignRevision(InSpline.GetForeignTopologyRevision(InHistoryId)) {}
+
+			std::shared_ptr<ITransactionObjectAnnotation> ComponentState;
+
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				DObject* Object = Spline.Get();
+				Collector.AddReferencedObject(Object);
+				if (ComponentState) ComponentState->AddReferencedObjects(Collector);
+			}
+
+			auto Serialize(FArchive& Archive) -> void override
+			{
+				Archive << HistoryId << ForeignRevision;
+				if (ComponentState) ComponentState->Serialize(Archive);
+			}
+			auto GetAllocatedSize() const -> size_t override
+			{
+				return sizeof(*this) + (ComponentState ? ComponentState->GetAllocatedSize() : 0);
+			}
+			auto Validate() const -> FTransactionCaptureResult override
+			{
+				const auto* Resolved = Spline.Get();
+				if (!Resolved || Resolved->GetForeignTopologyRevision(HistoryId) != ForeignRevision)
+					return std::unexpected("Spline topology changed outside this transaction history.");
+				return ComponentState ? ComponentState->Validate() : FTransactionCaptureResult{};
+			}
+
+		private:
+			TWeakObjectPtr<DSplineComponent> Spline;
+			uint64 HistoryId;
+			uint64 ForeignRevision;
+		};
+
 		auto SafeNormalize(const FVector3& Value) -> FVector3
 		{
 			const double LengthSquared = Math::LengthSquared(Value);
@@ -22,14 +67,33 @@ namespace Durin
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 	}
 
-	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey) -> void
+	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey) -> bool
 	{
-		if (SplineCurve.GetPoints() == InPoints && !LoopKey) return;
-		(void)Modify(false);
-		SplineCurve.SetPoints(std::move(InPoints));
-		if (LoopKey) SplineCurve.SetClosedLoopAtPosition(*LoopKey);
-		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		if (bPublishingMutation) return false;
+		for (const auto& Point : InPoints)
+			if (!Math::IsFinite(Point.Position) || !Math::IsFinite(Point.ArriveTangent)
+				|| !Math::IsFinite(Point.LeaveTangent) || !Math::IsFinite(Point.Scale)
+				|| !std::isfinite(glm::dot(Point.Rotation, Point.Rotation))
+				|| (Point.OutgoingInterpolation != ESplineSegmentInterpolation::Linear
+					&& Point.OutgoingInterpolation != ESplineSegmentInterpolation::Cubic
+					&& Point.OutgoingInterpolation != ESplineSegmentInterpolation::Constant)
+				|| Point.TangentMode > ESplineTangentMode::ManualBroken)
+				return false;
+
+		FSplineCurve Candidate = SplineCurve;
+		if (!Candidate.SetPoints(std::move(InPoints), LoopKey)) return false;
+		if (Candidate.GetPoints() == SplineCurve.GetPoints() && Candidate.IsClosedLoop() == IsClosedLoop()
+			&& Candidate.LoopKeyOverride == SplineCurve.LoopKeyOverride) return true;
+
+		auto Evaluation = Candidate.BuildEvaluationData();
+		if (!std::isfinite(Evaluation->GetLocalLength())) return false;
+		const bool bRecorded = Modify(false);
+		if (GUndo && HasAnyObjectFlags(EObjectFlags::Transactional) && !bRecorded) return false;
+		SplineCurve = std::move(Candidate);
+		PublishSplineEvaluation(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build,
+			std::move(Evaluation), bRecorded ? GetRecordingHistoryId() : 0);
 		MarkPackageDirty();
+		return true;
 	}
 
 	auto DSplineComponent::AddSplinePoint(FSplinePoint Point) -> uint32
@@ -86,7 +150,8 @@ namespace Durin
 		if (FromIndex < ToIndex) std::rotate(Moved.begin(), Moved.begin() + 1, Moved.end());
 		else std::rotate(Moved.begin(), Moved.end() - 1, Moved.end());
 		for (size_t Index = 0; Index < Moved.size(); ++Index) Moved[Index].InputKey = SplineCurve.Points[First + Index].InputKey;
-		if (!EditPointRange(First, Moved.size(), Moved)) return false;
+		if (std::equal(Moved.begin(), Moved.end(), SplineCurve.Points.begin() + First)
+			|| !EditPointRange(First, Moved.size(), Moved)) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
 	}
@@ -292,14 +357,35 @@ namespace Durin
 		return GetEvaluationData()->FindNearestParameter(LocalPosition);
 	}
 
+	auto DSplineComponent::GetRecordingHistoryId() const -> uint64
+	{
+		return GUndo && HasAnyObjectFlags(EObjectFlags::Transactional) && GUndo->ContainsObject(this)
+			? GUndo->GetContext().HistoryId : 0;
+	}
+
 	auto DSplineComponent::UpdateSpline(ESplineChangeFlags ChangeFlags) -> void
 	{
+		UpdateSplineForHistory(ChangeFlags, GetRecordingHistoryId());
+	}
+
+	auto DSplineComponent::UpdateSplineForHistory(ESplineChangeFlags Flags, uint64 HistoryId) -> void
+	{
 		checkf(!bPublishingMutation, "Spline mutation listeners must not mutate the publishing Spline component reentrantly.");
-		if (SplineCurve.RepairInputKeys()) ChangeFlags |= ESplineChangeFlags::Geometry;
-		const auto PublishedEvaluation = SplineCurve.BuildEvaluationData();
+		if (SplineCurve.RepairInputKeys()) Flags |= ESplineChangeFlags::Geometry;
+		PublishSplineEvaluation(Flags, SplineCurve.BuildEvaluationData(), HistoryId);
+	}
+
+	auto DSplineComponent::PublishSplineEvaluation(ESplineChangeFlags ChangeFlags,
+		std::shared_ptr<const FSplineEvaluationData> PublishedEvaluation, uint64 HistoryId) -> void
+	{
 		std::atomic_store_explicit(&EvaluationData, PublishedEvaluation, std::memory_order_release);
 		++SplineRevision;
-		if (EnumHasAnyFlags(ChangeFlags, ESplineChangeFlags::Topology)) ++SplineTopologyRevision;
+		if (EnumHasAnyFlags(ChangeFlags, ESplineChangeFlags::Topology))
+		{
+			if (TopologyHistoryId != HistoryId) PreviousHistoryTopologyRevision = SplineTopologyRevision;
+			TopologyHistoryId = HistoryId;
+			++SplineTopologyRevision;
+		}
 		LastSplineChangeFlags = ChangeFlags;
 		bPublishingMutation = true;
 		std::vector<uint64> ListenerIds;
@@ -329,6 +415,22 @@ namespace Durin
 			[ListenerId](const auto& Entry) { return Entry.first == ListenerId; }) != 0;
 	}
 
+	auto DSplineComponent::FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation>
+	{
+		const uint64 HistoryId = GUndo ? GUndo->GetContext().HistoryId : FScopedTransactionHistoryReplay::GetHistoryId();
+		auto ComponentState = Super::FindOrCreateTransactionAnnotation();
+		if (HistoryId == 0) return ComponentState;
+		return std::make_shared<FSplineTopologyTransactionAnnotation>(*const_cast<DSplineComponent*>(this), HistoryId,
+			std::move(ComponentState));
+	}
+
+	auto DSplineComponent::PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void
+	{
+		if (const auto SplineState = std::dynamic_pointer_cast<FSplineTopologyTransactionAnnotation>(Annotation))
+			Annotation = SplineState->ComponentState;
+		Super::PostEditUndo(std::move(Annotation));
+	}
+
 	auto DSplineComponent::PostLoad() -> void
 	{
 		Super::PostLoad();
@@ -351,7 +453,8 @@ namespace Durin
 			if (Event.Kind != EPropertyChangeKind::ValueSet || !Event.LeafProperty
 				|| Event.LeafProperty == Event.MemberProperty || Event.LeafProperty == Points || Event.LeafProperty == ClosedLoop)
 				Flags |= ESplineChangeFlags::Topology;
-			UpdateSpline(Flags);
+			UpdateSplineForHistory(Flags, Event.Origin == EPropertyChangeOrigin::Edit
+				? GetRecordingHistoryId() : FScopedTransactionHistoryReplay::GetHistoryId());
 		}
 	}
 

@@ -147,8 +147,11 @@ namespace Durin::RoadNet::Editor
 		Road.StartNodeId = StartNodeId;
 		Road.EndNodeId = EndNodeId;
 		Road.SpeedLimitMetersPerSecond = SpeedLimitKilometersPerHour / 3.6;
-		Road.ReferenceLine.SetPoints({FSplinePoint(FVector3{0.0, 0.0, 0.0}),
-			FSplinePoint(End)});
+		if (!Road.ReferenceLine.SetPoints({FSplinePoint(FVector3{0.0, 0.0, 0.0}), FSplinePoint(End)}))
+		{
+			SetError("Could not assign the initial road spline points.");
+			return false;
+		}
 		FLaneSection Section;
 		Section.StartDistanceMeters = 0.0;
 		Section.EndDistanceMeters = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();

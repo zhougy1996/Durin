@@ -407,6 +407,7 @@ namespace Durin
 		: RecordingOwner(InRecordingOwner), Id(InId)
 		, Context(std::move(InContext))
 	{
+		if (RecordingOwner) Context.HistoryId = RecordingOwner->GetHistoryId();
 		PrimaryObject = FPersistentObjectRef(Context.PrimaryObject);
 		Context.PrimaryObject = nullptr;
 	}
@@ -701,6 +702,7 @@ namespace Durin
 			bool bOwn;
 			~FOperationScope() { if (bOwn) (void)Transaction.EndOperation(); }
 		} OperationScope{*this, bOwnOperation};
+		const FScopedTransactionHistoryReplay ReplayHistory(Context.HistoryId);
 		FTransactionBusyScope BusyScope(bBusy);
 		auto CheckPieReferences = [&](const auto& Source) -> FTransactionRecordResult {
 			const auto Pie = InspectPieReferences(Source);

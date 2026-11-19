@@ -274,11 +274,59 @@ namespace Durin
 		return bClosedLoop ? static_cast<uint32>(Points.size()) : static_cast<uint32>(Points.size() - 1);
 	}
 
-	auto FSplineCurve::SetPoints(std::vector<FSplinePoint> InPoints) -> void
+	auto FSplineCurve::SetPoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey) -> bool
 	{
-		if (Points == InPoints) return;
+		for (size_t Index = 0; Index < InPoints.size();)
+		{
+			if (InPoints[Index].InputKey != FSplinePoint::AutoInputKey)
+			{
+				++Index;
+				continue;
+			}
+			const size_t First = Index;
+			while (Index < InPoints.size() && InPoints[Index].InputKey == FSplinePoint::AutoInputKey) ++Index;
+			for (size_t Slot = First; Slot < Index; ++Slot)
+			{
+				if (First > 0 && Index < InPoints.size())
+					InPoints[Slot].InputKey = std::lerp(InPoints[First - 1].InputKey, InPoints[Index].InputKey,
+						static_cast<double>(Slot - First + 1) / static_cast<double>(Index - First + 1));
+				else if (First > 0)
+					InPoints[Slot].InputKey = InPoints[First - 1].InputKey + static_cast<double>(Slot - First + 1);
+				else if (Index < InPoints.size())
+					InPoints[Slot].InputKey = InPoints[Index].InputKey - static_cast<double>(Index - Slot);
+				else
+					InPoints[Slot].InputKey = static_cast<double>(Slot);
+			}
+		}
+
+		double Previous = FSplinePoint::AutoInputKey;
+		for (const auto& Point : InPoints)
+		{
+			if (!std::isfinite(Point.InputKey) || Point.InputKey <= Previous
+				|| (Previous != FSplinePoint::AutoInputKey && !std::isfinite(Point.InputKey - Previous))) return false;
+			Previous = Point.InputKey;
+		}
+
+		const bool bNewClosedLoop = bClosedLoop || LoopKey.has_value();
+		const double Override = LoopKey.value_or(LoopKeyOverride);
+		if (InPoints.empty())
+		{
+			if (LoopKey) return false;
+		}
+		else
+		{
+			const double Last = InPoints.back().InputKey;
+			const double End = !bNewClosedLoop ? Last : Override != FSplinePoint::AutoInputKey ? Override
+				: std::max(Last + 1.0, std::nextafter(Last, std::numeric_limits<double>::infinity()));
+			if ((LoopKey && *LoopKey == FSplinePoint::AutoInputKey)
+				|| (bNewClosedLoop && (!(End > Last) || !std::isfinite(End - Last)))
+				|| !std::isfinite(End - InPoints.front().InputKey)) return false;
+		}
+
 		Points = std::move(InPoints);
-		RepairInputKeys();
+		bClosedLoop = bNewClosedLoop;
+		LoopKeyOverride = Override;
+		return true;
 	}
 
 	auto FSplineCurve::AddPoint(FSplinePoint Point) -> uint32

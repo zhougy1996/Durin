@@ -273,6 +273,7 @@ namespace Durin
 		GENERATED_BODY()
 
 	public:
+		auto GetHistoryId() const -> uint64 { return HistoryId; }
 		DURINED_API virtual auto Begin(std::string_view Context, std::string_view Description) -> int32 = 0;
 		DURINED_API virtual auto End() -> int32 = 0;
 		DURINED_API virtual auto Cancel(int32 StartIndex = 0) -> void = 0;
@@ -343,6 +344,8 @@ namespace Durin
 		DURINED_API virtual auto Record(FTransactionObjectRecord Record) -> std::expected<uint64, FTransactorResult> = 0;
 	protected:
 		TMulticastDelegate<void(const FContentChangeBatch&)> MountedContentChanged;
+	private:
+		const uint64 HistoryId = AllocateTransactionOperationId();
 	};
 
 	// Owns bounded transaction data, structural history position, and GC-visible references.

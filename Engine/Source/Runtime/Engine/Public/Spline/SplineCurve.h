@@ -88,7 +88,7 @@ namespace Durin
 		auto GetNumPoints() const -> uint32 { return static_cast<uint32>(Points.size()); }
 		ENGINE_API auto GetNumSegments() const -> uint32;
 
-		ENGINE_API auto SetPoints(std::vector<FSplinePoint> InPoints) -> void;
+		ENGINE_API auto SetPoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey = std::nullopt) -> bool;
 		ENGINE_API auto AddPoint(FSplinePoint Point) -> uint32;
 		ENGINE_API auto InsertPoint(uint32 PointIndex, FSplinePoint Point) -> bool;
 		ENGINE_API auto DuplicatePoint(uint32 PointIndex) -> std::optional<uint32>;

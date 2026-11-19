@@ -21,6 +21,7 @@ namespace Durin
 		DObject* PrimaryObject = nullptr;
 		FTransactionId TransactionId = 0;
 		uint64 OperationId = 0;
+		uint64 HistoryId = 0;
 	};
 
 	struct FCommandChangeError
@@ -53,6 +54,20 @@ namespace Durin
 		virtual auto CreateReplacement(const FObjectReplacementMap&) const
 			-> std::expected<std::unique_ptr<FCommandChange>, std::string>
 		{ return std::unexpected("This command does not support object reinstancing."); }
+	};
+
+	// Identifies the undo buffer whose records are being applied on this thread.
+	class CORE_API FScopedTransactionHistoryReplay
+	{
+	public:
+		explicit FScopedTransactionHistoryReplay(uint64 HistoryId);
+		~FScopedTransactionHistoryReplay();
+		FScopedTransactionHistoryReplay(const FScopedTransactionHistoryReplay&) = delete;
+		auto operator=(const FScopedTransactionHistoryReplay&) -> FScopedTransactionHistoryReplay& = delete;
+		static auto GetHistoryId() -> uint64;
+
+	private:
+		uint64 PreviousHistoryId;
 	};
 
 	// Allocates a process-wide operation identity; zero reports exhausted identity space.

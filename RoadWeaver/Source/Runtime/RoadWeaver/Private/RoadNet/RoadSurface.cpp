@@ -200,7 +200,11 @@ namespace Durin::RoadNet
 			Last.ArriveTangent = Intervals.back().Params.EndTangent;
 			Last.LeaveTangent = Last.ArriveTangent;
 			Points.push_back(Last);
-			FinalCurve.SetPoints(std::move(Points));
+			if (!FinalCurve.SetPoints(std::move(Points)))
+			{
+				Error = "Fitted spline input keys are invalid.";
+				return false;
+			}
 			Road.ReferenceLine = std::move(FinalCurve);
 			return true;
 		}
