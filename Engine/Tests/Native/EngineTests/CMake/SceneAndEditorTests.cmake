@@ -10,7 +10,6 @@ durin_add_native_test(SplineTests
 		Private/SplineTests.cpp
 		Private/SplineMeshComponentTests.cpp
 		Private/SplineMeshDeformerTests.cpp
-		Private/SplineV2ContractTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp

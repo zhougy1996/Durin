@@ -279,7 +279,7 @@ TEST(FSplineCurveTests, RotationAndScaleWrapNeighborsAcrossCustomLoopKey)
 	ExpectAttributes(Evaluation->Evaluate({2, 1.0}), 0.0, 1.0);
 }
 
-TEST(FSplineCurveTests, ClampedAndAlignedTangentModesApplyTheirV2Rules)
+TEST(FSplineCurveTests, ClampedAndAlignedTangentModesApplyTheirContracts)
 {
 	Durin::FSplineCurve Curve;
 	Curve.SetPoints({
@@ -439,15 +439,6 @@ TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FSplineReflectionTests, RegistersKeyAndControlPointChannels)
-{
-	InitializeDObjectSystem();
-	Durin::DStruct* PointStruct = Durin::FSplinePoint::StaticStruct();
-	ASSERT_NE(PointStruct, nullptr);
-	for (const char* PropertyName : {"Id", "InputKey", "Position", "ArriveTangent", "LeaveTangent", "Rotation", "Scale", "OutgoingInterpolation", "TangentMode"})
-		EXPECT_NE(PointStruct->FindPropertyByName(Durin::FName(PropertyName)), nullptr) << PropertyName;
-	}
-
 TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePaths)
 {
 	InitializeDObjectSystem();
@@ -569,19 +560,19 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoRecreateSegmentsWithS
 	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
+TEST(FSplineComponentTests, LevelPackageRoundTripsControlPointsAndLoopKey)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineV2Levels";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineLevels";
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::Testing::RegisterMountPointForTests("/SplineV2Tests/", Root.generic_string() + "/");
+		Durin::Testing::RegisterMountPointForTests("/SplinePackageTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FPackagePath Path;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineV2Tests/RoundTrip", Path));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplinePackageTests/RoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::AActor* Actor = Level->SpawnActor<Durin::AActor>("SplineActor");
@@ -589,15 +580,22 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	ASSERT_NE(Spline, nullptr);
 	Level->GetPackage()->ClearDirty();
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	Spline->SetSplinePoints({
-		MakePoint({1.0, 2.0, 3.0}, Durin::ESplineSegmentInterpolation::Linear),
-		MakePoint({10.0, 12.0, 13.0}, Durin::ESplineSegmentInterpolation::Cubic, Durin::ESplineTangentMode::AutomaticClamped),
-		MakePoint({20.0, 5.0, 6.0}, Durin::ESplineSegmentInterpolation::Cubic, Durin::ESplineTangentMode::ManualBroken),
-	});
+	using namespace Durin;
+	auto First = MakePoint({1.0, 2.0, 3.0}, ESplineSegmentInterpolation::Linear);
+	First.InputKey = 2.0;
+	auto Middle = MakePoint({10.0, 12.0, 13.0}, ESplineSegmentInterpolation::Cubic, ESplineTangentMode::ManualBroken);
+	Middle.InputKey = 4.0;
+	Middle.ArriveTangent = {-3.0, 1.0, 2.0};
+	Middle.LeaveTangent = {6.0, 2.0, -1.0};
+	Middle.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(45.0, FVectorConstants::Forward);
+	Middle.Scale = {2.0, 3.0, 4.0};
+	auto Last = MakePoint({20.0, 5.0, 6.0}, ESplineSegmentInterpolation::Cubic, ESplineTangentMode::AutomaticClamped);
+	Last.InputKey = 7.0;
+	Spline->SetSplinePoints({First, Middle, Last});
 	EXPECT_TRUE(Level->GetPackage()->IsDirty());
-	Spline->SetClosedLoop(true);
+	ASSERT_TRUE(Spline->SetClosedLoopAtPosition(11.0));
 	const double SavedLength = Spline->GetLocalSplineLength();
-	const Durin::FGuid SavedId = Spline->GetSplinePoint(1)->Id;
+	const FSplineSample SavedSeamSample = Spline->GetSampleAtSplineInputKey(9.0);
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
 
@@ -612,11 +610,17 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedSpline = LoadedLevel->FindActorByName("SplineActor")->FindComponentByClass<Durin::DSplineComponent>();
 	ASSERT_NE(LoadedSpline, nullptr);
-	EXPECT_EQ(LoadedSpline->GetNumSplinePoints(), 3u);
+	ASSERT_EQ(LoadedSpline->GetNumSplinePoints(), 3u);
 	EXPECT_TRUE(LoadedSpline->IsClosedLoop());
 	EXPECT_NEAR(LoadedSpline->GetLocalSplineLength(), SavedLength, 1.e-8);
-	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->Id, SavedId);
-	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->TangentMode, Durin::ESplineTangentMode::AutomaticClamped);
+	EXPECT_DOUBLE_EQ(LoadedSpline->GetSplineCurve().GetLoopKey(), 11.0);
+	EXPECT_EQ(*LoadedSpline->GetSplinePoint(0), First);
+	EXPECT_EQ(*LoadedSpline->GetSplinePoint(1), Middle);
+	EXPECT_EQ(*LoadedSpline->GetSplinePoint(2), Last);
+	const FSplineSample LoadedSeamSample = LoadedSpline->GetSampleAtSplineInputKey(9.0);
+	ExpectVectorNear(LoadedSeamSample.Position, SavedSeamSample.Position);
+	ExpectVectorNear(LoadedSeamSample.Scale, SavedSeamSample.Scale);
+	EXPECT_TRUE(Math::AreRotationsEquivalent(LoadedSeamSample.Rotation, SavedSeamSample.Rotation));
 	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
 

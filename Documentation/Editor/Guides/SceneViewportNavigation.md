@@ -156,8 +156,8 @@ sections and therefore cannot display smooth bending. New splines start as a
 straight five-world-unit segment.
 
 Choose **Edit Spline** to select the Actor's native spline root and enter Spline
-mode. Every outgoing point creates one read-only generated SplineMesh segment;
-a closed loop also creates the last-to-first seam. Point drags update existing
+mode. Each non-constant outgoing segment creates one read-only SplineMesh
+component, including the last-to-first segment of a closed loop. Point drags update existing
 segment identities, while insert/delete/reorder and loop changes reconcile by
 stable point GUID. Generated rows are diagnostic output—edit the Actor or
 Spline, not those rows. Save/reload, duplicate, Undo/Redo, Cancel, and PIE

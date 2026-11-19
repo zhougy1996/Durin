@@ -1,333 +1,107 @@
 # Spline System
 
-Summary: Define spline component data, evaluation, scene representation, and viewport editing behavior.
+Summary: Define spline authoring, immutable evaluation, and generated SplineMesh ownership.
 
 Modules: Engine, LevelEditor
 
-Durin's spline foundation provides an editable, persistent spatial curve, an
-immutable query snapshot, and direct Level Editor point/tangent authoring. It
-also provides value-only SplineMesh deformation, parallel-transport frame
-math, a production SplineMesh primitive, and a native whole-path Actor. It does
-not provide a path follower, procedural extrusion, or placement system.
-
-## Support Summary
-
-| Area | Current support |
-| --- | --- |
-| Curve data | Stable point GUID, input key, position, arrive/leave tangents, rotation, scale, interpolation, tangent mode, and loop state |
-| Interpolation | Linear, cubic, or constant outgoing segments; automatic, automatic-clamped, manual-aligned, or manual-broken tangents |
-| Runtime queries | Samples by input key, segment parameter, or local distance, plus transforms by key, scaled distance, or time |
-| Coordinate spaces | Local and world samples, explicit local arc length, and scale-aware distance along spline |
-| Evaluation | Immutable snapshots with adaptive distance tables, conservative bounds, and concurrent read access |
-| Editing | Selected-point Details editing and transactional viewport point/tangent manipulation, insertion, structural actions, Undo/Redo, and Cancel |
-| Persistence | Reflection, object-graph duplication, level-package save/load, point-ID repair, and post-load snapshot publication |
-| Higher-level consumers | `ASplineMeshActor` reconciles one transient segment component per outgoing point GUID |
-
 ## Authoring Model
 
-`FSplineCurve` owns reflected authoring data only. Each `FSplinePoint` carries a stable component-local GUID, an input key,
-position, arrive/leave tangents, quaternion rotation, scale, outgoing interpolation,
-and tangent mode. Index addresses array order, key addresses evaluation, and GUID
-addresses logical point identity. Keys are finite and strictly increasing. A point
-created from position alone receives a key on insertion. Reordering points retains
-the ordered key slots and moves the GUID and authored values with each point.
+- `FSplineCurve` owns reflected points and loop settings. The array index
+  orders points, `InputKey` addresses evaluation, and component-local GUID
+  identifies a logical point across reorder, replay, and serialization.
+- Keys are finite and strictly increasing. Position-only insertion assigns a
+  key, and reordering moves points through existing key slots. Insert and
+  duplicate allocate new GUIDs. Load and reflected mutation repair invalid IDs
+  and keys before publication.
+- Each point owns the interpolation of its outgoing segment. An open curve
+  has one fewer segment than points. A closed curve adds a last-to-first
+  segment with a default end key of last key plus one and an optional override.
+  Empty and one-point curves have zero segments.
 
-Open curves have one fewer segment than point. Closed curves add a last-to-first
-segment identified by the last point's GUID. Its end key defaults to one beyond the
-last key and can be overridden. Empty and one-point curves have no segment.
+## Evaluation And Invalidation
 
-Point GUIDs are unique within one curve. Existing IDs survive reorder,
-component duplication, and package round trips. Append, insertion, and point
-duplication create fresh IDs. Mutations and reflected load/edit boundaries
-repair invalid or duplicate IDs before publishing evaluation data.
-
-`FSplineCurve` supplies explicit point mutation helpers for set, add, insert,
-duplicate, update, remove, move, clear, and ID repair. `DSplineComponent`
-wraps those mutations, publishes a new evaluation snapshot, updates its spline
-revision and change flags, and marks persistent component edits through the
-normal package/transaction path.
-
-## Segment Geometry And Tangents
-
-Linear segments interpolate positions. Constant segments hold the start point
-until the next key and count the endpoint chord as an instantaneous distance
-jump. The inverse returns the start of a jump for distances inside it.
-SplineMesh path generation skips constant segments.
-
-Authored tangents differentiate against input key. Cubic Hermite coefficients
-use the starting leave and ending arrive tangent multiplied by that segment's
-key span. UE-style automatic tangents use the surrounding key interval;
-automatic-clamped tangents limit each coordinate independently. Open curves can
-request stationary automatic endpoints. Manual-broken tangents retain independent
-handles, and manual-aligned tangents share direction with independent magnitudes.
-Bezier handles are offset by one third of the tangent times the incident key span.
-
-Rotation and scale use independent automatic cubic curves on the same input
-keys as position. Rotation uses quaternion Squad and scale uses vector Hermite.
-Both derive controls from neighboring keys and include the closed-loop seam
-span when wrapping neighbors. A linear or constant position segment still
-samples both cubic attribute curves. Transform queries build a frame from the
-position tangent and the sampled rotation applied to the component default up.
-
-## Parameters And Samples
-
-`FSplineParameter` contains `SegmentIndex` plus a segment-local `T` in
-`[0, 1]`. `FSplineSample` contains position, first derivative, second
-derivative, normalized direction, authored rotation, and scale. Segment samples differentiate against
-`T`; input-key samples differentiate against the input key.
-
-Input-key queries clamp to the key domain, including the closed seam end.
-Native segment queries retain the endpoint derivative of the requested segment. Empty curves
-return neutral finite samples. A one-point curve returns that point's position
-with zero derivatives, direction, and length.
-
-`FSplineEvaluationData` supports:
-
-- `Evaluate()` and `EvaluateAtLocalDistance()`;
-- parameter/local-distance conversion;
-- local length and conservative local bounds; and
-- nearest-parameter lookup for a local position.
-
-`DSplineComponent` exposes the same sampling operations and can transform a
-sample between local and world coordinate space. World conversion transforms
-positions as points, derivatives as vectors, and recomputes direction from the
-transformed first derivative. Nearest lookup accepts either local or world
-input.
-
-## Local Distance, Bounds, And Nearest Queries
-
-The `LocalDistance` and `LocalLength` APIs measure authored component-local
-arc length. The component distance-along-spline APIs account for component scale
-using the same adaptive builder, with a distance snapshot cached by source
-snapshot and scale. Time queries map duration to the key interval, or to scaled
-distance for constant-velocity traversal. Position output space and distance
-metric are independent. Closest-to-world-location queries convert the input to
-component-local space before measuring proximity.
-
-Each cubic segment receives an adaptive monotonic distance table. The default
-builder uses an absolute local-length tolerance of `1e-4`, a relative tolerance
-of `1e-5` times the segment Bezier control-polygon length, and maximum depth
-`16`. Recursive children split the parent error budget equally. Acceptance uses
-restricted Bezier control-polygon excess over the two-chord estimate, plus a
-`2.5e-5` local-unit bound on interior controls relative to linear parameterization.
-This resolves nonuniform collinear speed and inflections that a midpoint-only
-chord test misses. The depth limit still bounds work. Linear and degenerate
-segments remain deterministic.
-
-Open-curve local distances clamp to the endpoints. Closed-curve distances wrap,
-while the explicit end-distance query can still represent the full loop
-length. Parameter/distance inversion searches the immutable monotonic tables.
-
-Segment bounds conservatively include the complete curve, using the equivalent
-Bezier control hull for cubic geometry. Nearest lookup uses those immutable
-segment records for coarse rejection, then performs safeguarded local
-refinement. It returns a parameter; callers evaluate that parameter when they
-need the corresponding sample.
-
-## Immutable Evaluation And Invalidation
-
-`FSplineCurve::BuildEvaluationData()` builds a
-`shared_ptr<const FSplineEvaluationData>`. `DSplineComponent` atomically
-publishes that immutable snapshot after construction on the owning
-game/editor thread. Queries capture one shared pointer and may read it
-concurrently without lazy cache mutation or `const_cast`.
-
-Every component starts with a valid published snapshot. Successful component
-mutations, reflected edits, `PostLoad`, duplication, Undo, and Redo repair
-authoring data as needed and republish. `GetSplineRevision()` identifies the
-latest publication, and `GetLastSplineChangeFlags()` reports the reason:
-
-- `Topology` for point/segment identity or ordering changes;
-- `Geometry` for shape changes; and
-- `Build` for an explicit rebuild of unchanged authoring data.
-
-Consumers may subscribe to the post-publication mutation event. The callback
-receives the revision, change flags, and exact immutable snapshot already made
-authoritative. Publication forbids reentrant spline mutation, snapshots
-listener identities, and permits listener removal during callback delivery.
-`ASplineMeshActor` uses this event instead of Tick polling. Other consumers that
-retain derived data should compare revisions and must not mutate a snapshot.
-
-## SplineMesh Deformation and Path Frames
-
-`FSplineMeshParams` describes one independent local cubic Hermite interval.
-Positions and tangents are component-local; tangents are derivatives with
-respect to segment `T` and receive no implicit length multiplier. Roll is in
-radians. Scale and offset use the two cyclic cross axes perpendicular to the
-selected X, Y, or Z source forward axis. The default attribute interpolation
-is linear; smoothstep is available explicitly.
-
-`FSplineMeshDeformer` is the finite CPU authority for position, derivative,
-orthonormal frame, direction/normal transformation, and conservative bounds.
-It rejects non-finite parameters and a non-positive canonical LOD 0 forward
-extent atomically. `Normalize` returns `FSplineMeshValidationResult` without
-string error outputs; invalid axis, interpolation, finiteness, and extent have
-distinct codes. The error owns the rejected parameter values, and callers format
-explicitly with `FormatSplineMeshValidationError`. A singular up projection uses the least-aligned cardinal
-axis; a zero derivative falls back to the endpoint chord and then the selected
-source axis. Frames are right-handed with `Forward 脳 Side = Up`.
-
-`FSplinePathFrameData` builds immutable consumer-owned frames over the existing
-adaptive distance samples. It uses deterministic minimal-rotation transport,
-retains the preceding direction across zero derivatives, and distributes
-closed-loop seam correction by local distance. This state is derived and is independent of the authored rotation and scale channels.
+- Authored tangents differentiate against `InputKey`. Hermite coefficients
+  multiply a tangent by its segment key span. `Evaluate({SegmentIndex, T})`
+  differentiates against segment-local `T` and preserves that segment's
+  endpoint derivative. `EvaluateAtInputKey` differentiates against Key and
+  clamps to the key domain. SplineMesh and RoadWeaver consume segment-local
+  derivatives.
+- Position supports linear, cubic, and constant segments. Constant position
+  holds until the next key. Its distance jumps by the endpoint chord at the
+  end of the segment, and inverse queries inside the jump return its start.
+  Automatic tangent modes use neighboring keys, with per-axis clamping in
+  AutomaticClamped. ManualAligned shares direction with independent lengths.
+- Rotation and scale are independent automatic cubic channels on the same
+  keys. Rotation uses quaternion Squad and scale uses vector Hermite.
+  Controls wrap across the seam. Transform sampling combines the position
+  tangent with sampled rotation applied to the component default Up.
+- `LocalDistance` means component-local arc length. Distance-along-spline
+  queries account for component scale and cache by source snapshot and scale.
+  Time maps duration to the key range or to scaled distance at constant speed.
+  Local-distance queries wrap on closed curves. Closest-to-world-location
+  transforms the input to local space before measuring proximity.
+- Adaptive distance samples bound both geometric length error and
+  parameter-to-distance interpolation error. Segment bounds use the cubic
+  Bezier control hull. Keep collinear nonuniform speed and inflections covered
+  when changing the distance builder.
+- `DSplineComponent` publishes immutable `FSplineEvaluationData` on the
+  owning game/editor thread. Readers take one shared snapshot. Batch edits
+  publish once. Mutations, load, duplication, and history replay rebuild
+  derived state and advance the revision. Listeners receive the published
+  snapshot and change flags. Callbacks may unsubscribe during publication and
+  must avoid reentrant spline mutation.
 
 ## Level Editor Authoring
 
-Selecting a spline component exposes component settings and the current stable
-point selection in Details. The contextual Spline viewport mode visualizes the
-adaptive curve, point markers, and manual tangent handles. It supports stable
-GUID selection, point multi-selection, point translation/rotation/scale, translated tangent handles,
-shape-preserving linear or cubic segment insertion, append, duplicate, delete,
-reorder, loop, interpolation, and tangent-mode edits.
+The viewport and Details edit persistent points through the component mutation
+API and transactions. Selection and transform targets resolve point GUIDs.
+Editable keys use the runtime validation rules. The Up/Right overlay samples
+the runtime transform on segments adjoining selected points and stays outside
+the hit-test pass. Linear and cubic insertion preserves centerline geometry,
+seeds the new point with the sampled rotation and scale, and recomputes
+automatic attribute tangents. A continuous drag creates one history entry.
+Cancellation and net-zero edits restore the original values and Dirty state.
 
-Continuous point and tangent drags commit one transaction. Cancellation and
-net-zero drags restore the original values and package dirty state without a
-history entry. Structural operations snapshot the complete authoring point set
-and loop state so Undo/Redo restores geometry and republishes evaluation data.
-Selection remains GUID-addressed, so reorder and transaction replay do not
-silently select a different logical point.
-
-See [Scene Viewport Navigation](../../Editor/Guides/SceneViewportNavigation.md)
-for the user workflow and
-[Viewport Editing Architecture](../../Editor/Architecture/LevelEditing/ViewportEditing.md)
-for mode, selection, input, and gizmo ownership.
+See [Viewport Editing](../../Editor/Architecture/LevelEditing/ViewportEditing.md)
+for ownership and [Scene Viewport Navigation](../../Editor/Guides/SceneViewportNavigation.md#editing-splines)
+for controls.
 
 ## Standalone SplineMesh Component
 
-`DSplineMeshComponent` is a reflected `DMeshComponent` that owns authored
-`StaticMesh`, positional material overrides, and `FSplineMeshParams`. Its
-validated setter derives the canonical forward interval from StaticMesh LOD 0;
-the hidden interval is never trusted as independent authoring. Invalid finite,
-axis, interpolation, or extent proposals are rejected before the authored
-object, package state, or published CPU state changes.
+- `FSplineMeshParams` defines one local cubic Hermite interval. Its tangents
+  differentiate against segment `T`, roll uses radians, and the forward axis
+  selects the two cross axes. The source interval comes from visual LOD 0
+  regardless of collision LOD or proxy. The deformer handles degenerate
+  derivative and Up inputs with deterministic finite fallbacks.
+- `DSplineMeshComponent` owns authored mesh, positional material overrides,
+  and deformation parameters. Validation rejects invalid proposals before
+  mutation. `bUpdateMesh=false` retains the applied state until `UpdateMesh`.
+  A failed deformation application keeps the accepted authored values and
+  invalidates old rendering, picking, and collision. Collision failure clears
+  the body and can leave rendering valid. Inspect `GetMeshUpdateError()` and
+  `GetCollisionBuildError()` separately.
+- The render snapshot publishes normalized parameters and conservative
+  all-LOD bounds together. Deformation-only updates retain proxy and source
+  mesh identity while ready. Resource exchange and readiness transitions retire
+  old render state before replacement. GPU HitProxy picking uses the same
+  spline deformation as drawing.
+- Collision is opt-in and uses a transient component-owned BodySetup. Capture
+  uses the applied parameters and current source geometry, with owned data
+  for detached work and no retained CPU picking cache. Deferred source edits
+  block new captures until application. Follow
+  [Collision](../Physics/Collision.md#assets-and-components) for trace modes,
+  provider semantics, cooking, and physics publication.
 
-Every accepted mesh-resource or deformation change atomically publishes an
-immutable `FSplineMeshDerivedState`. The render snapshot contains normalized
-parameters, conservative all-LOD local bounds, CPU source bounds,
-and diagnostic status. It retains no deformed CPU geometry, picking acceleration,
-or physics resource. Missing assets and temporarily unavailable source data are
-explicit diagnostic states. Viewport picking uses the GPU HitProxy pass with
-the same Spline vertex deformation, independently of collision.
+## Generated Paths And Validation
 
-`UpdateMesh()` applies deferred edits without a return value. Setters retain
-accepted authored values; failed updates publish an invalid snapshot and remove
-old rendering, picking geometry, and physics bodies. Errors are logged internally
-and exposed through `GetMeshUpdateError()`. Collision construction is independent:
-its failure clears collision while retaining valid render data, with diagnostics
-available through `GetCollisionBuildError()`.
+`ASplineMeshActor` owns the persistent path and transient segments. It
+reconciles non-constant outgoing segments by their start point GUID, including
+the closed seam. It uses parallel-transport frames with seam correction,
+independent of authored rotation and scale. Reconstruction follows
+[Native Actor Construction](NativeConstruction.md) and driven road geometry
+follows [Road Geometry](RoadGeometry.md).
 
-Dynamic render updates submit complete owned parameter/bounds snapshots from the
-game thread, ordered with proxy creation and removal. The render thread applies
-valid snapshots in command order without deformation revisions. CPU geometry and
-collision readiness do not depend on GPU resource initialization generations.
-
-The component implements `IInterface_CollisionDataProvider`. Owner-thread capture
-obtains source collision triangles through the StaticMesh provider and deforms
-them with the published parameters. Pending source replacement cannot mix the
-new mesh with old parameters. The default detached input task owns copied arrays,
-without component, source-asset, or render-resource references. Provider calls
-do not populate a retained CPU query cache or build a picking BVH.
-
-The StaticMesh provider resolves optional independent complex collision meshes
-in the primary mesh's canonical coordinates. The spline forward interval still
-comes from visual LOD 0. Collision-source revisions trigger a collision-only
-rebuild when render data is unchanged; deferred edits retain the existing body
-and reject new provider captures until `UpdateMesh` applies the new source.
-Cooked primary meshes retain resolved proxy triangles, so runtime deformation
-does not require the editor-only proxy asset or GPU resource initialization.
-The same provider honors fixed complex collision LODs, including the selected
-proxy's own LOD setting, while spline deformation intervals remain based on visual
-LOD0. Lower collision levels use the primary mesh's normalization and retain
-their selected CPU input in Cooked packages.
-
-Explicit collision opt-in creates a transient component-owned `DBodySetup`.
-The existing `DeformedTriangleMesh` mode uses triangle geometry independently of
-the source asset's collision enablement or Simple/Complex policy. New
-`DeformedSimpleCollision` and `DeformedSimpleAndComplex` modes deform the primary
-BodySetup's simple aggregate and inherit its trace mode. Boxes and convexes are
-rebuilt per element; spheres and capsules use UE-style slice approximations.
-Single-shape authoring uses the same aggregate and includes its element transform,
-so deformation does not add a separate source-center offset.
-ComplexAsSimple selects deformed triangles instead of simple elements. Explicit
-Simple/Complex World queries match published per-shape masks. World queries
-default to Simple, so DeformedTriangleMesh requires an explicit Complex query.
-Modes inheriting ComplexAsSimple also allow Simple queries against their triangles.
-Collision remains disabled by default. `UpdateMesh()` synchronously waits for the
-standard BodySetup physics cook, with persistent cache writes disabled for these
-dynamic products. Simple inputs are prepared before generated cooking, within one
-`FScopedBodySetupUpdate`; the component replaces its physics body once after
-publication. Simple-source changes preserve complex products, complex-source
-changes preserve simple products, and trace changes reuse geometry where still
-applicable. Dirty domains are captured before rebuilding so notifications received
-during a synchronous cook remain pending for a subsequent update. BodySetup owns
-geometry, request generations and build status. Disabled collision,
-missing sources and invalid deformation clear the component's collision resource.
-Duplication and loading rebuild independent BodySetup instances. See
-[runtime collision](../Physics/Collision.md#assets-and-components).
-
-`bUpdateMesh=false` keeps the applied snapshot during a batch. Dirty flags describe
-unapplied edits only and are cleared even when application fails. `UpdateMesh()`
-retries failures; successful clean updates do nothing. Missing source CPU data is
-an unavailable state, not a build error; source publication automatically refreshes
-registered components unless an authored batch is pending. Registration refreshes
-unregistered components. Editor draft validation still
-rejects invalid proposals before mutation.
-
-StaticMesh and SplineMesh components share positional material-override
-validation and trailing-null canonicalization. StaticMesh resource exchange
-uses the same scoped retirement protocol for both consumer classes: registered
-components release old render state before exchange and rebuild their CPU state
-after the new resource publication. Deformation-only edits retain the source
-asset and component identity, update exact editor picking and collision input,
-and do not request proxy recreation while render readiness remains valid. Readiness
-transitions recreate the proxy to remove invalid geometry or restore rendering. The component publishes deformation and
-bounds together through one FIFO scene update while retaining primitive and
-source GPU identities. `ESplineMeshCollisionMode::DeformedTriangleMesh`
-explicitly opts into collision construction; Disabled retains no collision BVH.
-
-The renderer classifies SplineMesh as its own typed primitive family. Prepared
-mesh work carries an explicit Local/Spline vertex-deformation domain
-through shader-map, pipeline, and draw-sort identity. The Spline vertex shader
-borrows StaticMesh LOD streams and applies the CPU-authority Hermite/frame
-translation without copying source geometry per component. Material slots,
-opaque/masked/translucent ordering, visibility, LOD, lighting, auxiliary views,
-and resource recovery remain shared mesh-pass policy.
-
-## Native SplineMesh Actor
-
-`ASplineMeshActor` owns a native-default `DSplineComponent` root and persistent
-mesh, material, axis, scale, roll, offset, frame seed, interpolation,
-visibility, and collision policies. A construction pass captures one immutable
-spline snapshot, builds one parallel-transport frame result, prepares the
-complete desired segment set, and acquires generated components by
-`("SplineMeshSegment", outgoing-start-point GUID)`. Closed loops include the
-last-to-first seam; empty and one-point curves produce no generated component.
-
-Geometry edits reuse identities. Insert, delete, reorder, loop toggle, load,
-duplication, PIE cloning, Undo/Redo, Cancel, and runtime mutation all enter the
-same synchronous native-construction path. Generated segments are transient,
-attach to the spline root, never serialize or dirty the package during
-reconstruction, and route registration and play state with the owner. Details
-reports generated count and construction diagnostics and exposes **Edit
-Spline**. Generated hierarchy rows remain visible for diagnostics but are
-labeled read-only and cannot be renamed, duplicated, deleted, reordered,
-reparented, or edited as authoring.
-
-## Verification Coverage
-
-Native tests cover golden linear and cubic evaluation; every tangent mode;
-open, closed, empty, one-point, duplicate-position, and zero-tangent cases;
-adaptive local-length error and monotonic inversion; bounds and nearest lookup;
-concurrent snapshot reads; point-ID mutation and repair; reflection,
-duplication, package round trips, revision/change flags, local/world conversion,
-and Undo/Redo. Viewport tests cover typed hits, selection, shape-preserving
-insertion, point/tangent targets, transactions, cancellation, read-only and
-invalid-target exits, and multi-component isolation.
-
-## Current Boundaries
-
-SplineMesh is a single-segment deformation primitive and the Actor is a simple
-shared-mesh whole-path policy owner. It does not implement extrusion, junctions,
-caps, per-segment assets, navigation, animation events, or width metadata. Simultaneous editing across
-multiple spline components is also outside the implemented contract.
+Use `SplineTests` for production curve, package round-trip, mesh deformation,
+and collision contracts. Use `ViewportTests` for GUID selection, key-aware
+insertion, previews, picking, and transaction replay. Mesh lifetime and road
+station changes also warrant the relevant World and RoadWeaver tests.
