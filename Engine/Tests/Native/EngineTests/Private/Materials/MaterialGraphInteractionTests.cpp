@@ -303,11 +303,33 @@ namespace Durin::MaterialEditor
 		{ return Canvas.RecentCreationMenuEntries.empty() ? std::string{} : Canvas.RecentCreationMenuEntries.front(); }
 		static auto FirstMenuAction(const FMaterialGraphCanvas& Canvas) -> std::string
 		{ return Canvas.CachedCreationMenuResults.empty() ? std::string{} : Canvas.CachedCreationActions[Canvas.CachedCreationMenuResults.front()].Id; }
+		static auto BeginLink(FMaterialGraphCanvas& Canvas, FGuid Source) -> void
+		{ Canvas.Interaction = FMaterialGraphCanvas::FLinkingInteraction{Source}; }
 		static auto Menu(const FMaterialGraphCanvas& Canvas) -> bool
 		{ return std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction); }
 		static auto OpenCreationAt(FMaterialGraphCanvas& Canvas, ImVec2 Position) -> void
 		{ Canvas.Interaction = FMaterialGraphCanvas::FNodeCreationMenuInteraction{.GraphPosition = Position}; }
 	};
+}
+
+TEST(FMaterialGraphInteractionTests, RemovedDragEndpointClearsGestureAndKeepsSurvivingSelection)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	FMaterialGraphDocument Document(*Material);
+	const auto Source = Testing::CreateGraphConstant(Document, .25f);
+	ASSERT_TRUE(Source);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	FMaterialGraphCanvas Canvas(*Graph);
+	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	const auto Root = Material->GetOutputNode()->Id;
+	FMaterialGraphCanvasTestAccess::Select(Canvas, {Root, Source.GeneratedNodeIds.front()});
+	FMaterialGraphCanvasTestAccess::BeginLink(Canvas, Source.GeneratedNodeIds.front());
+	ASSERT_TRUE(Document.RemoveNodes(Source.GeneratedNodeIds, ETransactionMode::NotTransactable));
+	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+	EXPECT_EQ(FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas), std::vector<FGuid>{Root});
+	EXPECT_FALSE(Graph->FindNode(Source.GeneratedNodeIds.front()));
 }
 
 TEST(FMaterialGraphInteractionTests, ParameterHandoffHasTheSameHistoryInBothDrawOrders)

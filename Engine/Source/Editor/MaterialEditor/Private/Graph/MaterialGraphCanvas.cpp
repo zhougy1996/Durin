@@ -242,7 +242,11 @@ namespace Durin::MaterialEditor
 	};
 
 	FMaterialGraphCanvas::FMaterialGraphCanvas(FMaterialGraphDocument InDocument, FMaterialGraphEditorServices InServices)
-		: GraphDocument(std::move(InDocument)), Services(std::move(InServices)) {}
+		: EditorGraph(InDocument.GetOwner() ? DMaterialGraph::Create(*InDocument.GetOwner()) : nullptr),
+		  GraphDocument(std::move(InDocument)), Services(std::move(InServices)), ReadModel(EditorGraph.Get()) {}
+
+	FMaterialGraphCanvas::FMaterialGraphCanvas(DMaterialGraph& Graph, FMaterialGraphEditorServices InServices)
+		: EditorGraph(&Graph), GraphDocument(*Graph.GetMaterialOrFunction()), Services(std::move(InServices)), ReadModel(EditorGraph.Get()) {}
 	FMaterialGraphCanvas::~FMaterialGraphCanvas() = default;
 
 	auto FMaterialGraphCanvas::ReportError(std::string Message) const -> void
@@ -340,6 +344,16 @@ namespace Durin::MaterialEditor
 			CachedNodeIndices.clear();
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
 				CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
+			std::erase_if(SelectedNodes, [&](const auto& Id) { return !CachedNodeIndices.contains(std::get<FGuid>(Id)); });
+			if (PendingFrameNode.IsValid() && !CachedNodeIndices.contains(PendingFrameNode)) PendingFrameNode = {};
+			if (const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
+				Context && Context->ContextNode.IsValid() && !CachedNodeIndices.contains(Context->ContextNode)) ResetInteraction();
+			if (const auto* Link = std::get_if<FLinkingInteraction>(&Interaction);
+				Link && !EditorGraph->FindOutputPin({Link->SourceNode, Link->SourceOutputIndex, Link->SourceOutputId})) ResetInteraction();
+			if (const auto* Menu = std::get_if<FNodeCreationMenuInteraction>(&Interaction);
+				Menu && Menu->SourceNode.IsValid() && !EditorGraph->FindOutputPin({Menu->SourceNode, Menu->SourceOutputIndex, Menu->SourceOutputId})) ResetInteraction();
+			if (const auto* Reconnect = std::get_if<FReconnectingInputInteraction>(&Interaction);
+				Reconnect && !EditorGraph->FindInputPin(Reconnect->Destination)) ResetInteraction();
 			bVisualGraphTopologyStale = true;
 			bViewStale = false;
 		}
@@ -888,8 +902,7 @@ namespace Durin::MaterialEditor
 			if (Node == View.Nodes.end() || PinIndex >= Node->Inputs.size())
 				return GraphEditInternals::RejectCommand("The graph input is unavailable.");
 			const auto& Pin = Node->Inputs[PinIndex];
-			const auto& Document = GraphDocument;
-			return Document.Connect(Node->InputAddress(Pin), FMaterialGraphPinAddress::Output(Source), bReplace);
+			return EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Node->InputAddress(Pin), FMaterialGraphPinAddress::Output(Source), bReplace);
 		};
 		const bool bCanvasPointerInteractionAvailable = bPointerAvailable;
 		const bool bCanvasKeyboardInteractionAvailable =
@@ -1088,8 +1101,7 @@ namespace Durin::MaterialEditor
 				{
 					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
-					const auto& Document = GraphDocument;
-					CheckCommand(Document.Connect(Address, FMaterialGraphPinAddress::Output(Source), true));
+					CheckCommand(EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Address, FMaterialGraphPinAddress::Output(Source), true));
 				}
 				ResetInteraction();
 			}
@@ -1234,12 +1246,6 @@ namespace Durin::MaterialEditor
 				Linking ? Linking->SourceOutputId : FGuid{}};
 			const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
 			const auto* HoveredNode = Hit.Node;
-			std::optional<EMaterialProgramValueType> LinkSourceType;
-
-			if (const auto It = VisualIndices.find(LinkSourceNode);
-				It != VisualIndices.end())
-				if (!VisualNodes[It->second].View->Outputs.empty())
-					LinkSourceType = VisualNodes[It->second].View->Outputs[VisualNodes[It->second].OutputIndex(LinkSource)].Type;
 			for (const FVisualNode& Visual : VisualNodes)
 			{
 				if (!Intersects(Visual.Minimum, Visual.Maximum,
@@ -1309,18 +1315,19 @@ namespace Durin::MaterialEditor
 							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], Material),
 								(GraphNodeWidth(*Visual.View) - (Index < Visual.OutputPins.size() && !GraphOutputLabel(*Visual.View, Index).empty() ? 85.f : 20.f)) * Zoom
 									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
-					if (LinkSourceType)
-					{
-						const bool bAccepted = GraphDocument.GetSchema().IsConnectionTypeCompatible(Visual.View->Inputs[Index],
-							*LinkSourceType);
-						DrawList->AddCircle(Visual.InputPins[Index], 8.0f,
-							bAccepted ? IM_COL32(90, 220, 125, 230)
-								: IM_COL32(235, 90, 90, 230), 0, 1.5f);
-					}
 					if (Hit.InputNode == &Visual && Hit.InputIndex == Index)
 					{
 						const auto& Pin = Visual.View->Inputs[Index];
-						if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
+						if (Linking)
+						{
+							const auto Response = EditorGraph->GetSchema().CanCreateConnection(*EditorGraph,
+								FMaterialGraphPinAddress::Output(LinkSource), Visual.View->InputAddress(Pin));
+							const bool Accepted = Response.Allows(ImGui::GetIO().KeyShift);
+							DrawList->AddCircle(Visual.InputPins[Index], 8.0f, Accepted ? IM_COL32(90, 220, 125, 230) : IM_COL32(235, 90, 90, 230));
+							const std::string_view Hint = Accepted ? "Connect" : Response.Reason;
+							ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
+						}
+						else if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
 						else ImGui::SetTooltip("%s%s%s\n%s%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
 							Pin.bMissing ? " (missing port)" : "", (Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
 							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
@@ -1334,7 +1341,14 @@ namespace Durin::MaterialEditor
 			if (Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
-				ImGui::SetTooltip("%s (%s)%s", Pin.Name.c_str(), GetProgramTypeName(Pin.Type),
+				if (const auto* Reconnect = std::get_if<FReconnectingInputInteraction>(&Interaction))
+				{
+					const auto Address = FMaterialGraphPinAddress::Output({Hit.OutputNode->View->Node.Id, Pin.OutputIndex, Pin.PortId});
+					const auto Response = EditorGraph->GetSchema().CanCreateConnection(*EditorGraph, Reconnect->Destination, Address);
+					const std::string_view Hint = Response.Allows(true) ? "Connect" : Response.Reason;
+					ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
+				}
+				else ImGui::SetTooltip("%s (%s)%s", Pin.Name.c_str(), GetProgramTypeName(Pin.Type),
 					ConstraintHint(Pin.Type, Pin.Constraint).c_str());
 			}
 			if (HoveredNode && !Hit.bPinExpansion && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)

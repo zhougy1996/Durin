@@ -11,11 +11,27 @@
 
 namespace Durin::MaterialEditor
 {
+	class DMaterialGraph;
+	enum class EMaterialGraphConnectionResponse : uint8 { Disallow, Make, ReplaceInput };
+	struct FMaterialGraphConnectionResponse
+	{
+		EMaterialGraphConnectionResponse Response;
+		std::string_view Reason;
+		auto Allows(bool Replace) const -> bool
+		{
+			return Response == EMaterialGraphConnectionResponse::Make
+				|| (Response == EMaterialGraphConnectionResponse::ReplaceInput && Replace);
+		}
+	};
 	// Stateless graph policy. Asset loading, transactions and editor services belong to callers.
 	class FMaterialGraphSchema
 	{
 	public:
 		virtual ~FMaterialGraphSchema() = default;
+		MATERIALEDITOR_API virtual auto CanCreateConnection(const DMaterialGraph& Graph,
+			const FMaterialGraphPinAddress& A, const FMaterialGraphPinAddress& B) const -> FMaterialGraphConnectionResponse;
+		MATERIALEDITOR_API auto TryCreateConnection(DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,
+			const FMaterialGraphPinAddress& B, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		virtual auto HasFunctionPorts() const -> bool = 0;
 		virtual auto CanOwnParameters() const -> bool = 0;
 		virtual auto CanCreateExpression(const DMaterialExpression& Expression) const -> bool

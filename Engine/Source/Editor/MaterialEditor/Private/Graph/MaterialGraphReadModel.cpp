@@ -55,6 +55,7 @@ namespace Durin::MaterialEditor
 		{
 			UnsubscribeDependencies();
 			if (auto* Previous = Document.Owner.Get()) GetMaterialGraphChangeSource(*Previous).Unsubscribe(Document.Handle);
+			if (!BoundGraph || BoundGraph->GetMaterialOrFunction() != &Owner) BoundGraph = DMaterialGraph::Create(Owner);
 			Document.Owner = &Owner;
 			Document.Handle = GetMaterialGraphChangeSource(Owner).Subscribe(Owner,
 				[this](const FMaterialGraphChangeSet& Change) { Pending.Merge(Change); });
@@ -69,7 +70,12 @@ namespace Durin::MaterialEditor
 		FMaterialGraphDocument Graph(Owner);
 		if (bStructure)
 		{
-			View = Graph.Inspect(Catalog);
+			auto Snapshot = Graph.Inspect(Catalog);
+			View.Outputs = Snapshot.Outputs;
+			View.bFunction = Snapshot.bFunction;
+			BoundGraph->ApplyProjection(std::move(Snapshot));
+			View.Nodes.clear();
+			for (const auto& Node : BoundGraph->GetNodes()) View.Nodes.push_back(Node->GetView());
 			ObserveDependencies(Owner);
 		}
 		else
@@ -82,7 +88,13 @@ namespace Durin::MaterialEditor
 				auto Updated = Graph.InspectNodes(Contents, Catalog);
 				for (auto& Node : Updated.Nodes)
 					if (auto It = std::ranges::find(View.Nodes, Node.Node.Id,
-						[](const auto& Value) { return Value.Node.Id; }); It != View.Nodes.end()) *It = std::move(Node);
+						[](const auto& Value) { return Value.Node.Id; }); It != View.Nodes.end())
+					{
+						auto* GraphNode = BoundGraph->FindNode(Node.Node.Id);
+						if (!GraphNode) continue;
+						GraphNode->SetProjection(std::move(Node));
+						*It = GraphNode->GetView();
+					}
 				View.Outputs = std::move(Updated.Outputs);
 			}
 			const auto* Material = Cast<DMaterial>(&Owner);
@@ -104,6 +116,7 @@ namespace Durin::MaterialEditor
 					Node->Presentation = {.NodeId = Change.NodeId, .X = Node->Node.bMaterialOutput ? 1280 : Ordinal % 4 * 320,
 						.Y = Node->Node.bMaterialOutput ? 0 : Ordinal / 4 * 240};
 				}
+				if (auto* GraphNode = BoundGraph->FindNode(Change.NodeId)) GraphNode->View.Presentation = Node->Presentation;
 			}
 
 

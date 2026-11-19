@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "MaterialGraphDocument.h"
+#include "MaterialGraph.h"
 
 namespace Durin::MaterialEditor
 {
@@ -12,7 +13,7 @@ namespace Durin::MaterialEditor
 	{
 	public:
 		MATERIALEDITOR_API ~FMaterialGraphReadModel();
-		FMaterialGraphReadModel() = default;
+		explicit FMaterialGraphReadModel(DMaterialGraph* Graph = nullptr) : BoundGraph(Graph) {}
 		FMaterialGraphReadModel(const FMaterialGraphReadModel&) = delete;
 		auto operator=(const FMaterialGraphReadModel&) -> FMaterialGraphReadModel& = delete;
 		MATERIALEDITOR_API auto Refresh(DObject& Owner, std::span<const FMaterialGraphCatalogEntry> Catalog)
@@ -26,6 +27,7 @@ namespace Durin::MaterialEditor
 		};
 		auto UnsubscribeDependencies() -> void;
 		auto ObserveDependencies(DObject& Owner) -> void;
+		TStrongObjectPtr<DMaterialGraph> BoundGraph;
 		FSubscription Document;
 		std::vector<FSubscription> Dependencies;
 		FMaterialGraphChangeSet Pending;

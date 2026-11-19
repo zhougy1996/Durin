@@ -838,7 +838,7 @@ namespace Durin::MaterialEditor
 		auto& Canvas = EditingSession->Canvas;
 		if (!Canvas)
 		{
-			Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*EditingSession->GetWorkingMaterial()),
+			Canvas = std::make_unique<FMaterialGraphCanvas>(*EditingSession->Graph,
 				FMaterialGraphEditorServices{
 					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
 					.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(*this, Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});

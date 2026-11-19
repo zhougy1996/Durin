@@ -19,6 +19,63 @@
 #include "Misc/FileHelper.h"
 #include "Widgets/MaterialEditingSession.h"
 
+TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterialAndFunction)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture Registry;
+	Testing::RegisterMountPointForTests("/SchemaConnections/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	const auto RoundTrip = []<class T>(const char* Name) {
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(Name, Path));
+		T* Asset = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+		FMaterialGraphDocument Document(*Asset);
+		const auto Scalar = Testing::CreateGraphConstant(Document, 0.25f);
+		const auto Saturate = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Saturate);
+		ASSERT_TRUE(Scalar);
+		ASSERT_TRUE(Saturate);
+		const FMaterialProgramLink Link{Scalar.GeneratedNodeIds.front()};
+		const auto Input = FMaterialGraphPinAddress::Input(Saturate.GeneratedNodeIds.front(), 0);
+		const auto Output = FMaterialGraphPinAddress::Output(Link);
+		{
+			Tests::FTestEditorTransactorOwner History;
+			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Asset));
+			const auto& Schema = Graph->GetSchema();
+			const auto Before = History->GetQueueLength();
+			ASSERT_TRUE(Schema.CanCreateConnection(*Graph, Output, Input).Allows(false));
+			ASSERT_TRUE(Schema.TryCreateConnection(*Graph, Output, Input));
+			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			EXPECT_EQ(History->GetQueueLength(), Before + 1);
+			const auto Revision = Asset->GetPackage()->GetEditRevision();
+			const auto Loop = FMaterialGraphPinAddress::Output({Saturate.GeneratedNodeIds.front()});
+			EXPECT_FALSE(Schema.CanCreateConnection(*Graph, Input, Loop).Allows(true));
+			EXPECT_FALSE(Schema.TryCreateConnection(*Graph, Input, Loop, true));
+			EXPECT_EQ(Asset->GetPackage()->GetEditRevision(), Revision);
+			EXPECT_EQ(History->GetQueueLength(), Before + 1);
+			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			ASSERT_TRUE(History->Undo());
+			Graph->LinkGraphNodesFromMaterial();
+			EXPECT_FALSE(Graph->FindInputPin(Input)->Link.SourceNodeId.IsValid());
+			ASSERT_TRUE(History->Redo());
+			Graph->LinkGraphNodesFromMaterial();
+			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+		}
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+		ASSERT_TRUE(UnloadPackage(Path));
+		auto* Reopened = LoadObject<T>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+		ASSERT_TRUE(Reopened);
+		{
+			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Reopened));
+			ASSERT_TRUE(Graph->FindInputPin(Input));
+			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			EXPECT_FALSE(Reopened->GetPackage()->IsDirty());
+		}
+		ASSERT_TRUE(UnloadPackage(Path));
+	};
+	RoundTrip.operator()<DMaterial>("/SchemaConnections/Material");
+	RoundTrip.operator()<DMaterialFunction>("/SchemaConnections/Function");
+}
+
 TEST(FMaterialGraphPersistenceTests, TextureCoordinatesRetainChannelLinkAndDefaultAcrossPackageRoundTrip)
 {
 	InitializeDObjectSystem();

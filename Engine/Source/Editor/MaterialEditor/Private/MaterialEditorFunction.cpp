@@ -128,7 +128,7 @@ namespace Durin::MaterialEditor
 		if (!Document->Initialize(Source, EditorSession.GetEditor() ? EditorSession.GetEditor()->GetTransactor() : nullptr, Error))
 		{ SetError(std::move(Error)); return false; }
 		auto* Function = Document->Function();
-		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(FMaterialGraphDocument(*Function),
+		Document->Canvas = std::make_unique<FMaterialGraphCanvas>(*Document->Graph,
 			FMaterialGraphEditorServices{
 				.ReportError = [this](std::string Message) { ErrorMessage = std::move(Message); },
 				.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(*this, Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});

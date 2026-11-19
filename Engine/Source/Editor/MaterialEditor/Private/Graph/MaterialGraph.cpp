@@ -8,6 +8,10 @@ namespace Durin::MaterialEditor
 {
 	namespace
 	{
+		auto IsOutput(const FMaterialGraphPinAddress& Pin) -> bool
+		{
+			return Pin.Kind == EMaterialGraphPinKind::Output || Pin.Kind == EMaterialGraphPinKind::FunctionOutput;
+		}
 		auto ResolveExpression(DObject* Owner, const FGuid& Id) -> DMaterialExpression*
 		{
 			const auto* Material = Cast<DMaterial>(Owner);
@@ -18,6 +22,49 @@ namespace Durin::MaterialEditor
 				if (Expression.IsValid() && Expression->Id == Id) return Expression.Get();
 			return nullptr;
 		}
+	}
+
+	auto FMaterialGraphSchema::CanCreateConnection(const DMaterialGraph& Graph,
+		const FMaterialGraphPinAddress& A, const FMaterialGraphPinAddress& B) const -> FMaterialGraphConnectionResponse
+	{
+		using R = EMaterialGraphConnectionResponse;
+		if (!Graph.GetMaterialOrFunction()) return {R::Disallow, "The graph owner is no longer available."};
+		if (IsOutput(A) == IsOutput(B)) return {R::Disallow, "Connect an output to an input."};
+		const auto& Source = IsOutput(A) ? A : B;
+		const auto& Target = IsOutput(A) ? B : A;
+		if (!Source.NodeId.IsValid() || !IsSourceAddressValid(Source) || !IsSourceKeyValid(Source))
+			return {R::Disallow, "The source pin key is invalid."};
+		const FMaterialProgramLink Link{Source.NodeId, static_cast<uint8>(Source.Index), Source.PortId};
+		const auto* Output = Graph.FindOutputPin(Link);
+		const auto* Input = Graph.FindInputPin(Target);
+		if (!Input || !Output || Output->bMissing || Input->bMissing) return {R::Disallow, "The pin is unavailable."};
+		if (Input->Link == Link) return {R::Make, {}};
+		if (!IsConnectionTypeCompatible(*Input, Output->Type)) return {R::Disallow, "The pin types are incompatible."};
+		std::vector<FGuid> Pending{Source.NodeId};
+		std::unordered_set<FGuid> Visited;
+		while (!Pending.empty())
+		{
+			const auto Id = Pending.back();
+			Pending.pop_back();
+			if (Id == Target.NodeId) return {R::Disallow, "The connection would create a cycle."};
+			if (!Visited.insert(Id).second) continue;
+			if (const auto* Node = Graph.FindNode(Id))
+				for (const auto& Pin : Node->GetView().Inputs)
+					if (Pin.Link.SourceNodeId.IsValid()) Pending.push_back(Pin.Link.SourceNodeId);
+		}
+		if (Input->Link.SourceNodeId.IsValid()) return {R::ReplaceInput, "The input already has a connection."};
+		return {R::Make, {}};
+	}
+
+	auto FMaterialGraphSchema::TryCreateConnection(DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,
+		const FMaterialGraphPinAddress& B, bool Replace, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	{
+		if (!Graph.GetMaterialOrFunction()) return {.Status = EMaterialGraphCommandStatus::StaleOwner, .Message = "The graph owner is no longer available."};
+		// Resolve against the latest asset and function signatures before opening a transaction.
+		Graph.LinkGraphNodesFromMaterial();
+		const auto Response = CanCreateConnection(Graph, A, B);
+		if (!Response.Allows(Replace)) return {.Status = EMaterialGraphCommandStatus::Rejected, .Message = std::string(Response.Reason)};
+		return Graph.LinkMaterialExpressionsFromGraph(IsOutput(A) ? B : A, IsOutput(A) ? A : B, Replace, Mode);
 	}
 
 	auto DMaterialGraphNode::GetMaterialExpression() const -> DMaterialExpression*
@@ -75,6 +122,24 @@ namespace Durin::MaterialEditor
 		return Node;
 	}
 
+	auto DMaterialGraph::FindInputPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPinView*
+	{
+		const auto* Node = FindNode(Address.NodeId);
+		if (!Node) return nullptr;
+		const auto& View = Node->GetView();
+		for (const auto& Input : View.Inputs)
+			if (View.InputAddress(Input) == Address) return &Input;
+		return nullptr;
+	}
+
+	auto DMaterialGraph::LinkMaterialExpressionsFromGraph(const FMaterialGraphPinAddress& Input,
+		const FMaterialGraphPinAddress& Output, bool Replace, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		auto Result = FMaterialGraphDocument(*Owner.Get()).Connect(Input, Output, Replace, Mode);
+		if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded) LinkGraphNodesFromMaterial();
+		return Result;
+	}
+
 	auto DMaterialGraph::FindOutputPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphOutputPinView*
 	{
 		const auto* Node = FindNode(Link.SourceNodeId);
@@ -105,7 +170,11 @@ namespace Durin::MaterialEditor
 	{
 		auto* Asset = Owner.Get();
 		if (!Asset) { Nodes.clear(); return; }
-		auto Snapshot = FMaterialGraphDocument(*Asset).Inspect();
+		ApplyProjection(FMaterialGraphDocument(*Asset).Inspect());
+	}
+
+	auto DMaterialGraph::ApplyProjection(FMaterialGraphView Snapshot) -> void
+	{
 		const bool SameNodes = std::ranges::equal(Nodes, Snapshot.Nodes, [](const auto& Existing, const auto& Projection)
 		{
 			const auto& Previous = Existing->GetView().Node;

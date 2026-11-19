@@ -23,6 +23,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto ReconstructNode() -> void;
 	protected:
 		friend class DMaterialGraph;
+		friend class FMaterialGraphReadModel;
 		virtual auto CreateInputPins(std::vector<FMaterialGraphPinView> Pins) -> void { View.Inputs = std::move(Pins); }
 		virtual auto CreateOutputPins(std::vector<FMaterialGraphOutputPinView> Pins) -> void { View.Outputs = std::move(Pins); }
 	private:
@@ -49,11 +50,17 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto GetSchema() const -> const FMaterialGraphSchema&;
 		auto GetNodes() const -> std::span<const TObjectPtr<DMaterialGraphNode>> { return Nodes; }
 		MATERIALEDITOR_API auto FindNode(const FGuid& Id) const -> DMaterialGraphNode*;
+		MATERIALEDITOR_API auto FindInputPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPinView*;
 		MATERIALEDITOR_API auto FindOutputPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphOutputPinView*;
 		MATERIALEDITOR_API auto AddExpression(DMaterialExpression& Expression) -> DMaterialGraphNode*;
 		MATERIALEDITOR_API auto RebuildGraph() -> void;
 		MATERIALEDITOR_API auto LinkGraphNodesFromMaterial() -> void;
 	private:
+		friend class FMaterialGraphReadModel;
+		friend class FMaterialGraphSchema;
+		auto ApplyProjection(FMaterialGraphView Snapshot) -> void;
+		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPinAddress& Input, const FMaterialGraphPinAddress& Output,
+			bool Replace, ETransactionMode Mode) -> FMaterialGraphCommandResult;
 		auto AppendNode(FMaterialGraphNodeView Projection) -> DMaterialGraphNode*;
 		TWeakObjectPtr<DObject> Owner;
 		const FMaterialGraphSchema* Schema = nullptr;

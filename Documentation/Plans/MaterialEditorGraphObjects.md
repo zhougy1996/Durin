@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. Material and function sessions now own transient editor graphs built from their working assets. Stage 2 will migrate the canvas. The persistence target now links and passes. `FMaterialGraphDocument` holds a weak asset owner and a schema reference, exposes graph inspection, and dispatches editing commands. The material and material-function schemas already govern expression creation and connection compatibility. The existing behavior is documented in [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md), [canvas interaction](../Editor/Architecture/Materials/MaterialGraphCanvas.md), and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
+Stages 0 through 2 are complete. Material and function canvases read their session graphs and submit drag connections through the schema. Stage 3 covers the remaining callers. `FMaterialGraphDocument` holds a weak asset owner and a schema reference, exposes graph inspection, and dispatches editing commands. The material and material-function schemas already govern expression creation and connection compatibility. The existing behavior is documented in [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md), [canvas interaction](../Editor/Architecture/Materials/MaterialGraphCanvas.md), and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
 
 ## Goal
 
@@ -127,8 +127,20 @@ The object graph reuses the document projection for expression metadata and pin 
 
 ### Stage 2: Switch the canvas and verify one edit end to end
 
-- [ ] Once parity passes, read canvas nodes and pins from the graph. Route drag feedback through the schema query and drop through its execution method. Synchronize via the graph. Reuse the document transaction implementation behind that entry point during migration. Resolve selection and pending gestures by ID across rebuilds, clearing targets that disappeared.
-- [ ] Gate: for a material and a function, connect, undo, redo, save, and reopen. Check the same endpoints and a single undo step per edit. Verify schema rejection leaves the graph, asset, and undo history intact. Compare preview and compile results with the baseline for equivalent expressions.
+- [x] Once parity passes, read canvas nodes and pins from the graph. Route drag feedback through the schema query and drop through its execution method. Synchronize via the graph. Reuse the document transaction implementation behind that entry point during migration. Resolve selection and pending gestures by ID across rebuilds, clearing targets that disappeared.
+- [x] Gate: for a material and a function, connect, undo, redo, save, and reopen. Check the same endpoints and a single undo step per edit. Verify schema rejection leaves the graph, asset, and undo history intact. Compare preview and compile results with the baseline for equivalent expressions.
+
+Validation used the Stage 2 implementation based on `bb7167ed2` in the commit carrying this receipt, on Windows MSVC x64 with preset `Win64-Debug-DurinEditor`. MaterialEditorInteractionTests passed 76/76, MaterialGraphEditingTests passed 106/106, and MaterialEditingPersistenceTests passed 33/33. Coverage includes native ImGui gestures and preview behavior, endpoint loss during a drag, the unfinished-call compile baseline, and a schema connect, reject, undo, redo, save and reload sequence for both asset types.
+
+#### Stage 2 interface decisions
+
+| Boundary | Implemented contract |
+| --- | --- |
+| Canvas and read model | Both sessions pass their graph to the canvas. The change-driven read model updates the reflected nodes and copies their pin views into the canvas and Details snapshots. Layout changes patch presentation in place. Selection and link gestures use stable IDs across refreshes. A lost endpoint cancels the gesture. |
+| Schema query | `CanCreateConnection(Graph, A, B)` accepts either endpoint order. It returns Make, ReplaceInput or Disallow with a reason. Hover checks the candidate under the pointer. Missing pins, incompatible declared types, and dependency cycles are rejected before writing. Repeating a valid existing link is idempotent. |
+| Schema execution | `TryCreateConnection(Graph, A, B, Replace, Mode)` refreshes endpoints and repeats the query on drop. A forward drag requires Shift to replace an occupied input. Reconnecting from that input already expresses replacement intent. Command results retain Durin status and diagnostics. |
+| Graph synchronization | The private `LinkMaterialExpressionsFromGraph` takes the two endpoints of one accepted edit. The document commits the expression change in one transaction, then the graph reads back the committed links. Undo and redo feed the normal change-driven refresh. The editing session controls publication to the source asset. |
+| Remaining consumers | Context-menu disconnects, creation actions, clipboard and other document commands remain Stage 3 work. Bulk output disconnection needs an atomic multi-input transaction before exposing the full UE-style `BreakPinLinks` operation. |
 
 ### Stage 3: Migrate remaining callers and retire obsolete reads
 

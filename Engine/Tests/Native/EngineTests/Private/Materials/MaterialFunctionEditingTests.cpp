@@ -1,4 +1,5 @@
 #include "Editor/EditorTransactionTestSupport.h"
+#include "MaterialGraph.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialShaderMap.h"
@@ -130,11 +131,12 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
 	const auto RootCall = Root.InsertFunctionCall(*Function, 100, 200, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(RootCall);
-	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({RootCall.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({RootCall.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Material->CompileEdits());
 	const auto RootConstant = Testing::CreateGraphConstant(Root, 0.6f);
 	ASSERT_TRUE(RootConstant);
-	ASSERT_TRUE(Root.Connect(FMaterialGraphPinAddress::Input(RootCall.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({RootConstant.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, FMaterialGraphPinAddress::Input(RootCall.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({RootConstant.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Material->CompileEdits());
 }
 
