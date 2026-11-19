@@ -408,6 +408,97 @@ TEST(FPhysicsWorldTests, SynchronizesComponentLifecycleTransformAndWorldIsolatio
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FPhysicsWorldTests, IgnoredComponentHandlesAreScopedToTheQueriedWorld)
+{
+	Durin::DWorld* World = CreatePhysicsWorld();
+	Durin::DWorld* OtherWorld = CreatePhysicsWorld();
+	auto* LocalBox = AddWorldBox(*World, {0.0, 0.0, 0.0}, {1.0, 1.0, 1.0});
+	auto* ForeignBox = AddWorldBox(*OtherWorld, {0.0, 0.0, 0.0}, {1.0, 1.0, 1.0});
+	ASSERT_TRUE(LocalBox->GetPhysicsActorHandle().IsValid());
+	ASSERT_EQ(LocalBox->GetPhysicsActorHandle(), ForeignBox->GetPhysicsActorHandle());
+
+	Durin::FCollisionQueryParams Params;
+	Params.AddIgnoredComponent(ForeignBox);
+	Params.AddIgnoredActor(ForeignBox->GetOwner());
+	const auto Channel = Durin::ECollisionChannel::Visibility;
+	const auto Shape = Durin::FCollisionShape::MakeSphere(0.5);
+	Durin::FTransform Start;
+	Start.Translation = {-3.0, 0.0, 0.0};
+	Durin::FHitResult Hit;
+	std::vector<Durin::FOverlapResult> Overlaps;
+	EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, Start.Translation, {3.0, 0.0, 0.0}, Channel, Params));
+	EXPECT_EQ(Hit.Component, LocalBox);
+	EXPECT_TRUE(World->SweepSingleByChannel(Hit, Shape, Start, {6.0, 0.0, 0.0}, Channel, Params));
+	EXPECT_EQ(Hit.Component, LocalBox);
+	EXPECT_TRUE(World->OverlapMultiByChannel(Overlaps, Shape, {}, Channel, Params));
+	ASSERT_EQ(Overlaps.size(), 1u);
+	EXPECT_EQ(Overlaps.front().Component, LocalBox);
+
+	Params.AddIgnoredComponent(LocalBox);
+	EXPECT_FALSE(World->LineTraceSingleByChannel(Hit, Start.Translation, {3.0, 0.0, 0.0}, Channel, Params));
+	EXPECT_FALSE(World->SweepSingleByChannel(Hit, Shape, Start, {6.0, 0.0, 0.0}, Channel, Params));
+	EXPECT_FALSE(World->OverlapMultiByChannel(Overlaps, Shape, {}, Channel, Params));
+	EXPECT_TRUE(Overlaps.empty());
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::MarkObjectHierarchyAsGarbage(OtherWorld);
+	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, FiltersActorAndComponentBeforeNarrowPhaseInOneSubmission)
+{
+	using namespace Durin;
+	DWorld* World = CreatePhysicsWorld();
+	auto* IgnoredBox = AddWorldBox(*World, {}, FVector3(1.0));
+	auto* TargetActor = World->SpawnActor<ACameraActor>("TargetOwner");
+	auto AddBox = [](AActor* Owner, const char* Name) {
+		auto* Box = Cast<DBoxComponent>(Owner->AddInstanceComponent(DBoxComponent::StaticClass(), Name));
+		EXPECT_TRUE(Box->SetBoxHalfExtent(FVector3(1.0)));
+		EXPECT_TRUE(Box->SetCollisionProfileName(CollisionProfile::WorldStatic));
+		return Box;
+	};
+	auto* IgnoredComponent = AddBox(TargetActor, "IgnoredComponent");
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(IgnoredBox->GetOwner());
+	Params.AddIgnoredComponent(IgnoredComponent);
+	// A saved filter follows the actor's new components and an existing component's new body.
+	AddBox(IgnoredBox->GetOwner(), "AddedAfterIgnore");
+	const auto PreviousHandle = IgnoredComponent->GetPhysicsActorHandle();
+	IgnoredComponent->UnregisterComponent();
+	IgnoredComponent->RegisterComponent();
+	ASSERT_NE(IgnoredComponent->GetPhysicsActorHandle(), PreviousHandle);
+	auto* Target = AddBox(TargetActor, "Target");
+	Target->SetWorldLocation({4.0, 0.0, 0.0});
+
+	FTransform Start;
+	Start.Translation = {-4.0, 0.0, 0.0};
+	const FVector3 Delta{12.0, 0.0, 0.0};
+	const auto Sphere = FCollisionShape::MakeSphere(0.25);
+	auto& Scene = World->GetPhysicsScene();
+	for (const auto Policy : {EPhysicsSceneQueryExecutionPolicy::Reference, EPhysicsSceneQueryExecutionPolicy::Production})
+	{
+		ASSERT_TRUE(Scene.SetQueryExecutionPolicy(Policy));
+		ASSERT_TRUE(Scene.ResetQueryDiagnostics());
+		FHitResult Hit;
+		const auto Channel = ECollisionChannel::Visibility;
+		ASSERT_TRUE(World->LineTraceSingleByChannel(Hit, Start.Translation, Start.Translation + Delta, Channel, Params));
+		EXPECT_EQ(Hit.Component, Target);
+		ASSERT_TRUE(World->SweepSingleByChannel(Hit, Sphere, Start, Delta, Channel, Params));
+		EXPECT_EQ(Hit.Component, Target);
+		std::vector<FOverlapResult> Hits;
+		ASSERT_TRUE(World->OverlapMultiByChannel(Hits, FCollisionShape::MakeSphere(8.0), {}, Channel, Params));
+		ASSERT_EQ(Hits.size(), 1u);
+		EXPECT_EQ(Hits.front().Component, Target);
+		for (const auto& Counters : Scene.CaptureQueryDiagnostics().Queries)
+		{
+			EXPECT_EQ(Counters.SubmittedQueries, 1u);
+			EXPECT_EQ(Counters.IgnoredBodies, 3u);
+			EXPECT_EQ(Counters.NarrowPhasePairTests, 1u);
+		}
+	}
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
 TEST(FPhysicsWorldTests, QueriesRemainAvailableWhenSimulationIsDisabledOrPaused)
 {
 	Durin::DWorld* World = CreatePhysicsWorld();
@@ -447,7 +538,9 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	Durin::FPhysicsBodyDesc FeatureBody;
 	FeatureBody.ComplexGeometry = Durin::FCollisionGeometryRef::BuildTriangleMesh(DebugVertices, DebugIndices);
 	FeatureBody.SimpleTransform = Durin::FTransform();
-	FeatureBody.UserToken = reinterpret_cast<uint64>(Box);
+	Durin::FPhysicsBodyDesc PublishedBox;
+	ASSERT_TRUE(Box->BuildPhysicsBodyDesc(PublishedBox));
+	FeatureBody.UserToken = PublishedBox.UserToken;
 	ASSERT_TRUE(World->GetPhysicsScene().AddBody(FeatureBody).IsValid());
 	const Durin::FCollisionDebugSnapshot FeatureSnapshot = World->CaptureCollisionDebugSnapshot();
 	const auto Feature = std::ranges::find_if(FeatureSnapshot.Bodies, [](const Durin::FCollisionDebugBody& Body) {
@@ -458,7 +551,7 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	EXPECT_EQ(Feature->TotalTriangles, 300u);
 	EXPECT_EQ(Feature->TriangleSample.size(), 256u);
 	Durin::FPhysicsBodyDesc DebugBody = MakeBoxBody({10.0, 0.0, 0.0});
-	DebugBody.UserToken = static_cast<decltype(DebugBody.UserToken)>(reinterpret_cast<std::uintptr_t>(Box));
+	DebugBody.UserToken = PublishedBox.UserToken;
 	for (size_t Index = 0; Index < 4096; ++Index)
 	{
 		DebugBody.SimpleTransform.Translation.x = 10.0 + static_cast<double>(Index);

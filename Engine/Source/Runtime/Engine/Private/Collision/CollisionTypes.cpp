@@ -1,5 +1,9 @@
 #include "Collision/CollisionTypes.h"
 
+#include "Components/PrimitiveComponent.h"
+#include "Engine/Actor.h"
+#include "Physics/PhysicsObjectToken.h"
+
 namespace Durin
 {
 	FCollisionResponseContainer::FCollisionResponseContainer()
@@ -18,15 +22,23 @@ namespace Durin
 		Responses[static_cast<uint8>(Channel)] = Response;
 	}
 
+	namespace
+	{
+		auto AddIgnoredObject(std::vector<uint64>& Tokens, const DObject* Object) -> void
+		{
+			const uint64 Token = PhysicsPrivate::MakeObjectToken(Object);
+			if (Token && !std::ranges::contains(Tokens, Token)) Tokens.push_back(Token);
+		}
+	}
+
 	auto FCollisionQueryParams::AddIgnoredActor(const AActor* Actor) -> void
 	{
-		if (Actor && !std::ranges::contains(IgnoredActors, Actor)) IgnoredActors.push_back(Actor);
+		AddIgnoredObject(IgnoredObjectTokens, Actor);
 	}
 
 	auto FCollisionQueryParams::AddIgnoredComponent(const DPrimitiveComponent* Component) -> void
 	{
-		if (Component && !std::ranges::contains(IgnoredComponents, Component))
-			IgnoredComponents.push_back(Component);
+		AddIgnoredObject(IgnoredObjectTokens, Component);
 	}
 
 	auto FCollisionObjectQueryParams::AddObjectType(ECollisionChannel Channel) -> void

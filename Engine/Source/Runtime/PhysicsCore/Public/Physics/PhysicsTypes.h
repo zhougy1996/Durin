@@ -63,6 +63,7 @@ namespace Durin
 		FPhysicsFilterData Filter;
 		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;
 		uint64 UserToken = 0;
+		uint64 OwnerToken = 0;
 	};
 
 	// Value-type result returned by low-level scene queries.
@@ -89,6 +90,8 @@ namespace Durin
 		uint8 QueryChannel = 0;
 		std::array<EPhysicsQueryResponse, MaximumPhysicsChannels> Responses{};
 		std::vector<FPhysicsActorHandle> IgnoredActors;
+		// Matches either the body user token or its owner token before narrow phase.
+		std::vector<uint64> IgnoredObjectTokens;
 
 		FPhysicsQueryFilter()
 		{

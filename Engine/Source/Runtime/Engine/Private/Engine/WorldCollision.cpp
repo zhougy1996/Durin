@@ -3,6 +3,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Collision/CollisionDebugSubsystem.h"
 #include "Engine/Actor.h"
+#include "Physics/PhysicsObjectToken.h"
 
 namespace Durin
 {
@@ -18,25 +19,13 @@ namespace Durin
 			Result.QueryChannel = static_cast<uint8>(TraceChannel);
 			for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 				Result.Responses[Index] = ToPhysicsResponse(ResponseParams.CollisionResponse.Responses[Index]);
-			for (const DPrimitiveComponent* Component : QueryParams.IgnoredComponents)
-			{
-				if (Component && Component->GetPhysicsActorHandle().IsValid())
-					Result.IgnoredActors.push_back(Component->GetPhysicsActorHandle());
-			}
+			Result.IgnoredObjectTokens = QueryParams.IgnoredObjectTokens;
 			return Result;
-		}
-
-		auto IsIgnoredByOwner(
-			const DPrimitiveComponent* Component,
-			const FCollisionQueryParams& QueryParams) -> bool
-		{
-			return Component && std::ranges::contains(
-				QueryParams.IgnoredActors, Component->GetOwner());
 		}
 
 		auto MapPhysicsHit(const FPhysicsQueryHit& Source, FHitResult& OutHit) -> bool
 		{
-			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Source.UserToken);
+			auto* Component = Cast<DPrimitiveComponent>(PhysicsPrivate::ResolveObjectToken(Source.UserToken));
 			if (!Component) return false;
 			OutHit.bBlockingHit = Source.Response == EPhysicsQueryResponse::Block;
 			OutHit.bStartPenetrating = Source.bStartPenetrating;
@@ -61,21 +50,11 @@ namespace Durin
 		const FCollisionResponseParams& ResponseParams) const -> bool
 	{
 		OutHit.Reset();
-		FPhysicsQueryFilter Filter = MakePhysicsQueryFilter(TraceChannel, QueryParams, ResponseParams);
-		while (true)
-		{
-			FPhysicsQueryHit Hit;
-			if (!PhysicsScene.LineTraceSingle(Start, End, Filter, Hit)) return false;
-			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Hit.UserToken);
-			if (!IsIgnoredByOwner(Component, QueryParams))
-			{
-				const bool bMapped = MapPhysicsHit(Hit, OutHit);
-				if (bMapped)
-					if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->RecordHit(OutHit);
-				return bMapped;
-			}
-			Filter.IgnoredActors.push_back(Hit.ActorHandle);
-		}
+		const auto Filter = MakePhysicsQueryFilter(TraceChannel, QueryParams, ResponseParams);
+		FPhysicsQueryHit Hit;
+		if (!PhysicsScene.LineTraceSingle(Start, End, Filter, Hit) || !MapPhysicsHit(Hit, OutHit)) return false;
+		if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->RecordHit(OutHit);
+		return true;
 	}
 
 	auto DWorld::SweepSingleByChannel(
@@ -88,21 +67,11 @@ namespace Durin
 		const FCollisionResponseParams& ResponseParams) const -> bool
 	{
 		OutHit.Reset();
-		FPhysicsQueryFilter Filter = MakePhysicsQueryFilter(TraceChannel, QueryParams, ResponseParams);
-		while (true)
-		{
-			FPhysicsQueryHit Hit;
-			if (!PhysicsScene.SweepSingle(Shape, StartTransform, Delta, Filter, Hit)) return false;
-			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Hit.UserToken);
-			if (!IsIgnoredByOwner(Component, QueryParams))
-			{
-				const bool bMapped = MapPhysicsHit(Hit, OutHit);
-				if (bMapped)
-					if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->RecordHit(OutHit);
-				return bMapped;
-			}
-			Filter.IgnoredActors.push_back(Hit.ActorHandle);
-		}
+		const auto Filter = MakePhysicsQueryFilter(TraceChannel, QueryParams, ResponseParams);
+		FPhysicsQueryHit Hit;
+		if (!PhysicsScene.SweepSingle(Shape, StartTransform, Delta, Filter, Hit) || !MapPhysicsHit(Hit, OutHit)) return false;
+		if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->RecordHit(OutHit);
+		return true;
 	}
 
 	auto DWorld::OverlapMultiByChannel(
@@ -119,8 +88,8 @@ namespace Durin
 			Shape, Transform, MakePhysicsQueryFilter(TraceChannel, QueryParams, ResponseParams), Hits)) return false;
 		for (const FPhysicsQueryHit& Hit : Hits)
 		{
-			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Hit.UserToken);
-			if (!Component || IsIgnoredByOwner(Component, QueryParams)) continue;
+			auto* Component = Cast<DPrimitiveComponent>(PhysicsPrivate::ResolveObjectToken(Hit.UserToken));
+			if (!Component) continue;
 			OutOverlaps.push_back({Component->GetOwner(), Component, Hit.Response == EPhysicsQueryResponse::Block});
 		}
 		return !OutOverlaps.empty();
@@ -147,7 +116,7 @@ namespace Durin
 		for (const FPhysicsBodySnapshot& Body : PhysicsScene.CaptureBodies())
 		{
 			if (Result.Bodies.size() >= MaximumDebugBodies) break;
-			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Body.Desc.UserToken);
+			auto* Component = Cast<DPrimitiveComponent>(PhysicsPrivate::ResolveObjectToken(Body.Desc.UserToken));
 			if (!Component) continue;
 			for (uint32 Index = 0; Index < 2; ++Index)
 			{

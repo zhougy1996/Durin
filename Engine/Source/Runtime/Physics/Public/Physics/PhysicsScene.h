@@ -296,6 +296,8 @@ namespace Durin
 			const std::vector<FPhysicsQueryHit>& ProductionHits,
 			FPhysicsSceneQueryMismatch& OutMismatch) const -> bool;
 		auto BeginQuery(EPhysicsSceneQueryKind QueryKind) const -> FPhysicsSceneLastQueryDiagnostics;
+		auto RecordOffThreadQuery(EPhysicsSceneQueryKind Kind) const -> void;
+		auto FlushOffThreadQueries() const -> void;
 		auto BeginDetailedTiming() const -> uint64;
 		auto CommitQuery(FPhysicsSceneLastQueryDiagnostics& Query, uint64 StartNanoseconds) const -> void;
 		auto MergeQueryCounters(
@@ -435,6 +437,12 @@ namespace Durin
 		EPhysicsSceneQueryExecutionPolicy QueryExecutionPolicy = EPhysicsSceneQueryExecutionPolicy::Production;
 		EProductionTestFault ProductionTestFault = EProductionTestFault::None;
 		mutable FPhysicsSceneQueryDiagnostics Diagnostics;
+		// Rejected calls never access owner-thread diagnostics. Only the owner drains these counts.
+		mutable std::mutex OffThreadQueryMutex;
+		mutable std::array<uint64, static_cast<size_t>(EPhysicsSceneQueryKind::Count)> PendingOffThreadCounts{};
+		mutable EPhysicsSceneQueryKind LastOffThreadKind{};
+		mutable bool bOffThreadCountOverflowed = false;
+		mutable std::atomic<bool> bHasOffThreadQueries{false};
 
 		friend struct FPhysicsSceneQueryTestAccess;
 	};

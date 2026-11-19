@@ -412,8 +412,11 @@ overlap queries, and Block participates in closest-hit queries.
 
 Gameplay calls `DWorld::LineTraceSingleByChannel`,
 `SweepSingleByChannel`, or `OverlapMultiByChannel`. Inputs and outputs are
-copied values. Query parameters can ignore Actors or components; pawn movement
-always ignores the moving pawn to avoid self-collision. Invalid or off-thread
+copied values. Adding an ignored Actor or component captures its process-local
+object index and serial. Each published body carries its component and owner
+tokens. Trace, sweep, and overlap reject matching candidates before narrow
+phase in one scene submission. A saved filter follows component re-registration
+and the Actor's newly registered bodies. Pawn movement ignores the moving pawn. Invalid or off-thread
 queries return no result and do not alter scene state.
 
 ## Query execution and observability
@@ -501,8 +504,7 @@ dense record directly; removal swap-removes the dense tail and repairs its
 owning slot. Retired generations reject before dense access, and reusable slots
 advance their generation before returning to the LIFO free list. A record owns
 one outward-rounded six-float exact AABB and its slot index. The qualified
-record remains at or below the M1 192-byte gate and adds only the two-word
-shared reference, plus a 12-byte slot. Geometry diagnostics count unique
+record uses 280 bytes, including the owner token, plus a 12-byte slot. Geometry diagnostics count unique
 payloads and retained bytes, so instance count does not multiply child memory.
 
 Motion is explicit and independent of filters. Low-level descriptions and

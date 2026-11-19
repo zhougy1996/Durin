@@ -4,6 +4,7 @@
 #include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Physics/PhysicsObjectToken.h"
 #include "Rendering/SceneInterface.h"
 
 namespace Durin
@@ -209,7 +210,8 @@ namespace Durin
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 			Desc.Filter.Responses[Index] =
 				ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
-		Desc.UserToken = reinterpret_cast<uint64>(this);
+		Desc.UserToken = PhysicsPrivate::MakeObjectToken(this);
+		Desc.OwnerToken = PhysicsPrivate::MakeObjectToken(GetOwner());
 		Desc.MotionType = BodyInstance.MotionType;
 		return true;
 	}

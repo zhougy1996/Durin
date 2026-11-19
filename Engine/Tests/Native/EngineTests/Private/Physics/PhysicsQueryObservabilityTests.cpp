@@ -564,6 +564,53 @@ TEST(FPhysicsQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStruc
 	EXPECT_LE(Overlap.ScratchHighWater, 128u);
 }
 
+TEST(FPhysicsQueryDiagnosticsTests, ConcurrentRejectionsReconcileWithOwnerQueriesAndSnapshots)
+{
+	Durin::FPhysicsScene Scene;
+	constexpr uint32 Iterations = 256;
+	const auto Sphere = Durin::FCollisionShape::MakeSphere(0.5);
+	std::atomic<bool> Start{false};
+	std::array<std::thread, 4> Workers;
+	for (auto& Worker : Workers)
+	{
+		Worker = std::thread([&] {
+			Start.wait(false);
+			Durin::FPhysicsQueryHit Hit;
+			std::vector<Durin::FPhysicsQueryHit> Hits;
+			for (uint32 Index = 0; Index < Iterations; ++Index)
+			{
+				Scene.LineTraceSingle({}, {1.0, 0.0, 0.0}, {}, Hit);
+				Scene.SweepSingle(Sphere, {}, {1.0, 0.0, 0.0}, {}, Hit);
+				Scene.OverlapMulti(Sphere, {}, {}, Hits);
+			}
+		});
+	}
+
+	Start.store(true);
+	Start.notify_all();
+	Durin::FPhysicsQueryHit Hit;
+	for (uint32 Index = 0; Index < Iterations; ++Index)
+	{
+		Scene.SetDetailedQueryDiagnosticsEnabled(Index % 2 == 0);
+		Scene.LineTraceSingle({}, {1.0, 0.0, 0.0}, {}, Hit);
+		const auto Snapshot = Scene.CaptureQueryDiagnostics();
+		const auto& Trace = GetQueryCounters(Snapshot, Durin::EPhysicsSceneQueryKind::LineTraceSingle);
+		EXPECT_EQ(Trace.ProductionExecutions, Index + 1u);
+		EXPECT_EQ(Trace.SubmittedQueries, Trace.ProductionExecutions + Trace.OffThreadQueries);
+	}
+	for (auto& Worker : Workers) Worker.join();
+
+	const auto Snapshot = Scene.CaptureQueryDiagnostics();
+	for (const auto& Counters : Snapshot.Queries)
+	{
+		EXPECT_EQ(Counters.OffThreadQueries, Iterations * Workers.size());
+		EXPECT_EQ(Counters.SubmittedQueries, Counters.OffThreadQueries + Counters.ProductionExecutions);
+	}
+	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
+	for (const auto& Counters : Scene.CaptureQueryDiagnostics().Queries)
+		EXPECT_EQ(Counters.SubmittedQueries, 0u);
+}
+
 TEST(FPhysicsQueryDiagnosticsTests, ReconcilesRejectedQueriesDetailedMismatchAndSaturation)
 {
 	Durin::FPhysicsScene Scene;

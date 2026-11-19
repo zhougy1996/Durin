@@ -24,9 +24,12 @@ namespace Durin
 			HitDifferenceStartPenetrating = 1u << 12
 		};
 
-		auto IsIgnored(FPhysicsActorHandle Handle, const FPhysicsQueryFilter& Filter) -> bool
+		auto IsIgnored(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& Body, const FPhysicsQueryFilter& Filter) -> bool
 		{
-			return std::ranges::contains(Filter.IgnoredActors, Handle);
+			return std::ranges::contains(Filter.IgnoredActors, Handle)
+				|| std::ranges::any_of(Filter.IgnoredObjectTokens, [&](uint64 Token) {
+					return Token != 0 && (Token == Body.UserToken || Token == Body.OwnerToken);
+				});
 		}
 
 		auto ResolveResponse(const FPhysicsFilterData& Body, const FPhysicsQueryFilter& Query)
@@ -538,6 +541,7 @@ namespace Durin
 	auto FPhysicsScene::SetQueryExecutionPolicy(EPhysicsSceneQueryExecutionPolicy Policy) -> bool
 	{
 		if (!IsOwningThread() || !IsValidPolicy(Policy)) return false;
+		FlushOffThreadQueries();
 		QueryExecutionPolicy = Policy;
 		return true;
 	}
@@ -551,12 +555,15 @@ namespace Durin
 
 	auto FPhysicsScene::CaptureQueryDiagnostics() const -> FPhysicsSceneQueryDiagnostics
 	{
-		return IsOwningThread() ? Diagnostics : FPhysicsSceneQueryDiagnostics{};
+		if (!IsOwningThread()) return {};
+		FlushOffThreadQueries();
+		return Diagnostics;
 	}
 
 	auto FPhysicsScene::ResetQueryDiagnostics() -> bool
 	{
 		if (!IsOwningThread()) return false;
+		FlushOffThreadQueries();
 		const bool bDetailedDiagnosticsEnabled = Diagnostics.bDetailedDiagnosticsEnabled;
 		const uint64 StaticBodies = Diagnostics.Mutations.StaticBodies;
 		const uint64 KinematicBodies = Diagnostics.Mutations.KinematicBodies;
@@ -586,16 +593,14 @@ namespace Durin
 		FPhysicsQueryHit& OutHit) const -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.LineTraceSingle");
-		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::LineTraceSingle);
-		const uint64 TimingStart = BeginDetailedTiming();
 		OutHit = {};
 		if (!IsOwningThread())
 		{
-			Query.bOffThreadRejected = true;
-			Query.Counters.OffThreadQueries = 1;
-			CommitQuery(Query, TimingStart);
+			RecordOffThreadQuery(EPhysicsSceneQueryKind::LineTraceSingle);
 			return false;
 		}
+		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::LineTraceSingle);
+		const uint64 TimingStart = BeginDetailedTiming();
 		if (!IsLineTraceValid(Start, End, Filter))
 		{
 			Query.Counters.InvalidQueries = 1;
@@ -622,7 +627,7 @@ namespace Durin
 			const FVector3 QueryStart = Start;
 			const FVector3 QueryEnd = End;
 			const FPhysicsQueryFilter QueryFilter = Filter;
-			Query.Counters.CaptureHighWater = static_cast<uint64>(QueryFilter.IgnoredActors.size());
+			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredObjectTokens.size();
 			Query.Counters.ScratchHighWater = 2;
 			FPhysicsQueryHit ReferenceHit;
 			FPhysicsQueryHit ProductionHit;
@@ -669,16 +674,14 @@ namespace Durin
 		FPhysicsQueryHit& OutHit) const -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.SweepSingle");
-		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::SweepSingle);
-		const uint64 TimingStart = BeginDetailedTiming();
 		OutHit = {};
 		if (!IsOwningThread())
 		{
-			Query.bOffThreadRejected = true;
-			Query.Counters.OffThreadQueries = 1;
-			CommitQuery(Query, TimingStart);
+			RecordOffThreadQuery(EPhysicsSceneQueryKind::SweepSingle);
 			return false;
 		}
+		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::SweepSingle);
+		const uint64 TimingStart = BeginDetailedTiming();
 		if (!IsSweepValid(Shape, StartTransform, Delta, Filter))
 		{
 			Query.Counters.InvalidQueries = 1;
@@ -706,7 +709,7 @@ namespace Durin
 			const FTransform QueryTransform = StartTransform;
 			const FVector3 QueryDelta = Delta;
 			const FPhysicsQueryFilter QueryFilter = Filter;
-			Query.Counters.CaptureHighWater = static_cast<uint64>(QueryFilter.IgnoredActors.size());
+			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredObjectTokens.size();
 			Query.Counters.ScratchHighWater = 2;
 			FPhysicsQueryHit ReferenceHit;
 			FPhysicsQueryHit ProductionHit;
@@ -752,16 +755,14 @@ namespace Durin
 		std::vector<FPhysicsQueryHit>& OutHits) const -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.OverlapMulti");
-		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::OverlapMulti);
-		const uint64 TimingStart = BeginDetailedTiming();
 		OutHits.clear();
 		if (!IsOwningThread())
 		{
-			Query.bOffThreadRejected = true;
-			Query.Counters.OffThreadQueries = 1;
-			CommitQuery(Query, TimingStart);
+			RecordOffThreadQuery(EPhysicsSceneQueryKind::OverlapMulti);
 			return false;
 		}
+		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::OverlapMulti);
+		const uint64 TimingStart = BeginDetailedTiming();
 		if (!IsOverlapValid(Shape, Transform, Filter))
 		{
 			Query.Counters.InvalidQueries = 1;
@@ -788,7 +789,7 @@ namespace Durin
 			const FCollisionShape QueryShape = Shape;
 			const FTransform QueryTransform = Transform;
 			const FPhysicsQueryFilter QueryFilter = Filter;
-			Query.Counters.CaptureHighWater = static_cast<uint64>(QueryFilter.IgnoredActors.size());
+			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredObjectTokens.size();
 			std::vector<FPhysicsQueryHit> ReferenceHits;
 			std::vector<FPhysicsQueryHit> ProductionHits;
 			const bool bReferenceStatus = ExecuteReferenceOverlap(
@@ -878,7 +879,7 @@ namespace Durin
 		{
 			SaturatingAdd(Work.BodyVisits, 1);
 			SaturatingAdd(Work.Candidates, 1);
-			if (IsIgnored(GetHandle(Body), Filter))
+			if (IsIgnored(GetHandle(Body), Body.Desc, Filter))
 			{
 				SaturatingAdd(Work.IgnoredBodies, 1);
 				continue;
@@ -925,7 +926,7 @@ namespace Durin
 			QueryBounds, Start, FVector3(0.0), End - Start, &OutHit, [&](const FBodyRecord& Body) {
 			SaturatingAdd(Work.BodyVisits, 1);
 			SaturatingAdd(Work.Candidates, 1);
-			if (IsIgnored(GetHandle(Body), Filter))
+			if (IsIgnored(GetHandle(Body), Body.Desc, Filter))
 			{
 				SaturatingAdd(Work.IgnoredBodies, 1);
 				return;
@@ -980,7 +981,7 @@ namespace Durin
 		{
 			SaturatingAdd(Work.BodyVisits, 1);
 			SaturatingAdd(Work.Candidates, 1);
-			if (IsIgnored(GetHandle(Body), Filter))
+			if (IsIgnored(GetHandle(Body), Body.Desc, Filter))
 			{
 				SaturatingAdd(Work.IgnoredBodies, 1);
 				continue;
@@ -1039,7 +1040,7 @@ namespace Durin
 			[&](const FBodyRecord& Body) {
 			SaturatingAdd(Work.BodyVisits, 1);
 			SaturatingAdd(Work.Candidates, 1);
-			if (IsIgnored(GetHandle(Body), Filter))
+			if (IsIgnored(GetHandle(Body), Body.Desc, Filter))
 			{
 				SaturatingAdd(Work.IgnoredBodies, 1);
 				return;
@@ -1100,7 +1101,7 @@ namespace Durin
 		{
 			SaturatingAdd(Work.BodyVisits, 1);
 			SaturatingAdd(Work.Candidates, 1);
-			if (IsIgnored(GetHandle(Body), Filter))
+			if (IsIgnored(GetHandle(Body), Body.Desc, Filter))
 			{
 				SaturatingAdd(Work.IgnoredBodies, 1);
 				continue;
@@ -1148,7 +1149,7 @@ namespace Durin
 			[&](const FBodyRecord& Body) {
 			SaturatingAdd(Work.BodyVisits, 1);
 			SaturatingAdd(Work.Candidates, 1);
-			if (IsIgnored(GetHandle(Body), Filter))
+			if (IsIgnored(GetHandle(Body), Body.Desc, Filter))
 			{
 				SaturatingAdd(Work.IgnoredBodies, 1);
 				return;
@@ -1264,6 +1265,33 @@ namespace Durin
 		return Query;
 	}
 
+	auto FPhysicsScene::RecordOffThreadQuery(EPhysicsSceneQueryKind Kind) const -> void
+	{
+		std::lock_guard Lock(OffThreadQueryMutex);
+		uint64& Count = PendingOffThreadCounts[static_cast<size_t>(Kind)];
+		if (Count == std::numeric_limits<uint64>::max()) bOffThreadCountOverflowed = true;
+		else ++Count;
+		LastOffThreadKind = Kind;
+		bHasOffThreadQueries.store(true, std::memory_order_release);
+	}
+
+	auto FPhysicsScene::FlushOffThreadQueries() const -> void
+	{
+		if (!bHasOffThreadQueries.load(std::memory_order_acquire)) return;
+		std::lock_guard Lock(OffThreadQueryMutex);
+		for (size_t Index = 0; Index < PendingOffThreadCounts.size(); ++Index)
+		{
+			const uint64 Count = std::exchange(PendingOffThreadCounts[Index], 0);
+			SaturatingAdd(Diagnostics.Queries[Index].SubmittedQueries, Count);
+			SaturatingAdd(Diagnostics.Queries[Index].OffThreadQueries, Count);
+		}
+		Diagnostics.LastQuery = BeginQuery(LastOffThreadKind);
+		Diagnostics.LastQuery.bOffThreadRejected = true;
+		Diagnostics.LastQuery.Counters.OffThreadQueries = 1;
+		Diagnostics.bOverflowed |= std::exchange(bOffThreadCountOverflowed, false);
+		bHasOffThreadQueries.store(false, std::memory_order_release);
+	}
+
 	auto FPhysicsScene::BeginDetailedTiming() const -> uint64
 	{
 		if (!Diagnostics.bDetailedDiagnosticsEnabled) return 0;
@@ -1288,6 +1316,7 @@ namespace Durin
 				? EndNanoseconds - StartNanoseconds
 				: 0;
 		}
+		FlushOffThreadQueries();
 		const size_t QueryIndex = static_cast<size_t>(Query.QueryKind);
 		if (QueryIndex < Diagnostics.Queries.size())
 			MergeQueryCounters(Diagnostics.Queries[QueryIndex], Query.Counters);

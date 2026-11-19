@@ -84,6 +84,7 @@ namespace Durin
 		auto GetCollisionProfileName() const -> FName { return BodyInstance.CollisionProfileName; }
 		auto GetCollisionEnabled() const -> ECollisionEnabled { return BodyInstance.CollisionEnabled; }
 		auto GetCollisionObjectType() const -> ECollisionChannel { return BodyInstance.ObjectChannel; }
+		ENGINE_API auto GetPhysicsWorld() const -> DWorld*;
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
 		auto GetPhysicsBodyMotionType() const -> EPhysicsBodyMotionType { return BodyInstance.MotionType; }
 		auto GetPublishedBodySetupRevision() const -> uint64 { return BodyInstance.PublishedBodySetupRevision; }
@@ -107,7 +108,6 @@ namespace Durin
 		ENGINE_API virtual auto GetPhysicsStateCreationPolicy() const -> EPhysicsStateCreationPolicy;
 		ENGINE_API virtual auto OnCollisionSettingsChanged() -> void;
 		auto DestroyPhysicsState() -> void;
-		auto GetPhysicsWorld() const -> DWorld*;
 
 	private:
 		auto ResetPSOPrecacheIfDisabled() -> bool;

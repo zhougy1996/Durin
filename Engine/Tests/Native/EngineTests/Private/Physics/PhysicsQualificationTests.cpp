@@ -217,7 +217,7 @@ TEST(FPhysicsCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceA
 TEST(FPhysicsSceneAccelerationQualificationTests, MeetsSparseDenseScratchAndRetainedMemoryGatesAtScale)
 {
 	constexpr size_t BodyCount = 10'000;
-	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 272);
+	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 280);
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSlotSize() == 12);
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSpatialNodeSize() == 36);
 	Durin::FPhysicsScene SparseScene;
