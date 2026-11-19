@@ -48,6 +48,23 @@ namespace Durin
 
 	struct FStaticMeshRenderTelemetry
 	{
+		struct FPreparationCacheEntries
+		{
+			size_t DrawDescriptions = 0;
+			size_t StaticFacts = 0;
+			size_t StaticSections = 0;
+		};
+		struct FPreparationCacheObservation
+		{
+			FPreparationCacheEntries AtStart;
+			FPreparationCacheEntries BeforeTrim;
+			FPreparationCacheEntries AfterTrim;
+			size_t AccountedBytesBeforeTrim = 0;
+			size_t AccountedBytesAfterTrim = 0;
+		} PreparationCache;
+		size_t DrawDescriptionReuses = 0;
+		size_t DrawDescriptionBuilds = 0;
+
 		size_t WithheldPrimitives = 0;
 		size_t VisibleStaticMeshCandidates = 0;
 		size_t PreparedStaticMeshPrimitives = 0;

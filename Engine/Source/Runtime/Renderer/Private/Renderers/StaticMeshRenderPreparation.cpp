@@ -119,6 +119,35 @@ namespace Durin
 		Trim(StaticFacts);
 	}
 
+	auto FMeshDrawDescriptionCache::GetAccountedBytes() const -> size_t
+	{
+		size_t Bytes = Entries.size() * sizeof(decltype(Entries)::value_type)
+			+ StaticFacts.size() * sizeof(decltype(StaticFacts)::value_type)
+			+ StaticSections.size() * sizeof(decltype(StaticSections)::value_type);
+		std::unordered_set<const FMeshDrawDescription*> Descriptions;
+		std::unordered_set<const FStaticMeshSectionFacts*> Facts;
+		std::unordered_set<const FStaticMeshPassSections*> Sections;
+		const auto CountDescription = [&](const FMeshDrawDescription* Description) {
+			if (Description && Descriptions.insert(Description).second)
+				Bytes += sizeof(*Description) + Description->SortKey.VertexFactory.capacity() * sizeof(uint32);
+		};
+		const auto CountFacts = [&](const FStaticMeshSectionFacts* Value) {
+			if (Value && Facts.insert(Value).second)
+				Bytes += sizeof(*Value) + Value->Elements.capacity() * sizeof(FStaticMeshSectionFact);
+		};
+		for (const auto& [Key, Entry] : Entries) CountDescription(Entry.Command.get());
+		for (const auto& [Key, Entry] : StaticFacts) CountFacts(Entry.Value.get());
+		for (const auto& [Key, Entry] : StaticSections)
+		{
+			const auto& Value = *Entry.Value;
+			if (!Sections.insert(&Value).second) continue;
+			Bytes += sizeof(Value) + Value.Commands.capacity() * sizeof(decltype(Value.Commands)::value_type);
+			CountFacts(Value.Facts.get());
+			for (const auto& Command : Value.Commands) CountDescription(Command.get());
+		}
+		return Bytes;
+	}
+
 	auto FMeshDrawDescriptionCache::Find(const FKey& Key, const FMaterialRenderData& Material)
 		-> std::shared_ptr<const FMeshDrawDescription>
 	{

@@ -203,6 +203,11 @@ namespace Durin
 		RENDERER_API auto StoreStaticSections(uint64 Policy, std::shared_ptr<const FStaticMeshPassSections> Sections)
 			-> void;
 		auto Num() const -> size_t { return Entries.size(); }
+		auto NumStaticFacts() const -> size_t { return StaticFacts.size(); }
+		auto NumStaticSections() const -> size_t { return StaticSections.size(); }
+		// Accounts cache-created objects, capacity of their owned vectors, and table values.
+		// Publication, allocator metadata and RHI storage have independent owners.
+		auto GetAccountedBytes() const -> size_t;
 		auto Reset() -> void
 		{
 			Entries.clear();

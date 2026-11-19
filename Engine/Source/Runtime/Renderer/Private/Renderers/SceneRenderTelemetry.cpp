@@ -122,6 +122,8 @@ namespace Durin
 	) -> void
 	{
 		Telemetry.StaticMesh.VisibleStaticMeshCandidates = StaticMeshes.VisibleLocalCandidates;
+		Telemetry.StaticMesh.DrawDescriptionReuses = StaticMeshes.DrawDescriptionReuses;
+		Telemetry.StaticMesh.DrawDescriptionBuilds = StaticMeshes.DrawDescriptionBuilds;
 		Telemetry.StaticMesh.PreparedStaticMeshPrimitives = StaticMeshes.PreparedLocalPrimitives;
 		Telemetry.StaticMesh.RejectedStaticMeshPrimitives = StaticMeshes.RejectedPrimitives
 												- std::min(StaticMeshes.RejectedPrimitives, StaticMeshes.RejectedSplinePrimitives);

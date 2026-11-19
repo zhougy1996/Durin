@@ -85,11 +85,31 @@ namespace Durin
 		Context.Logical.Requirements = BuildSceneViewRequirements(RenderView, Options, Context.Logical.Qualification);
 		FStaticMeshPreparationCache MeshPreparationCache;
 		Service.MeshCommandCache.BeginSubmission();
+		const bool bObserveCache = IsViewRenderTelemetryObserved();
 		struct FEndCommandSubmission
 		{
 			FMeshDrawDescriptionCache& Cache;
-			~FEndCommandSubmission() { Cache.EndSubmission(); }
-		} EndCommandSubmission{Service.MeshCommandCache};
+			FStaticMeshRenderTelemetry::FPreparationCacheObservation* Observation;
+			bool bMeasureBytes;
+
+			auto GetEntries() const -> FStaticMeshRenderTelemetry::FPreparationCacheEntries
+			{
+				return {Cache.Num(), Cache.NumStaticFacts(), Cache.NumStaticSections()};
+			}
+
+			~FEndCommandSubmission()
+			{
+				if (Observation) Observation->BeforeTrim = GetEntries();
+				if (bMeasureBytes) Observation->AccountedBytesBeforeTrim = Cache.GetAccountedBytes();
+				Cache.EndSubmission();
+				if (Observation) Observation->AfterTrim = GetEntries();
+				if (bMeasureBytes) Observation->AccountedBytesAfterTrim = Cache.GetAccountedBytes();
+			}
+		} EndCommandSubmission{Service.MeshCommandCache,
+			bObserveCache ? &Telemetry.View.StaticMesh.PreparationCache : nullptr,
+			bObserveCache && Context.Logical.Qualification.bMeasurePreparationCacheMemory};
+		if (EndCommandSubmission.Observation)
+			EndCommandSubmission.Observation->AtStart = EndCommandSubmission.GetEntries();
 		MeshPreparationCache.Commands = &Service.MeshCommandCache;
 		std::optional<FStaticMeshPreparationWork> ReceiverWork;
 		if (Options.Environment)
