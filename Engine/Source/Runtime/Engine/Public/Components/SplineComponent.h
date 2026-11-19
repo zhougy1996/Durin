@@ -42,14 +42,36 @@ namespace Durin
 		auto GetNumSplinePoints() const -> uint32 { return SplineCurve.GetNumPoints(); }
 		auto GetNumSplineSegments() const -> uint32 { return SplineCurve.GetNumSegments(); }
 
-		ENGINE_API auto SetSplinePoints(std::vector<FSplinePoint> InPoints) -> void;
+		ENGINE_API auto SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey = std::nullopt) -> void;
 		ENGINE_API auto AddSplinePoint(FSplinePoint Point) -> uint32;
 		ENGINE_API auto InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool;
 		ENGINE_API auto DuplicateSplinePoint(uint32 PointIndex) -> std::optional<uint32>;
-		ENGINE_API auto UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool;
+		ENGINE_API auto UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline = true) -> bool;
 		ENGINE_API auto RemoveSplinePoint(uint32 PointIndex) -> bool;
 		ENGINE_API auto MoveSplinePoint(uint32 FromIndex, uint32 ToIndex) -> bool;
 		ENGINE_API auto ClearSplinePoints() -> void;
+
+		ENGINE_API auto SetClosedLoopAtPosition(double InputKey) -> bool;
+
+		// Key samples differentiate with respect to InputKey. Segment samples differentiate with respect to T.
+		ENGINE_API auto GetInputKeyValueAtSplinePoint(uint32 PointIndex) const -> double;
+		ENGINE_API auto GetQuaternionAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local) const -> FQuat;
+		ENGINE_API auto GetScaleAtSplineInputKey(double InputKey) const -> FVector3;
+		ENGINE_API auto GetLocationAtDistanceAlongSpline(double Distance, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local) const -> FVector3;
+		ENGINE_API auto GetLocationAtTime(double Time, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local, bool bUseConstantVelocity = false) const -> FVector3;
+		ENGINE_API auto GetTimeAtDistanceAlongSpline(double Distance) const -> double;
+		ENGINE_API auto GetSampleAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local) const -> FSplineSample;
+		ENGINE_API auto GetLocationAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local) const -> FVector3;
+		ENGINE_API auto GetTangentAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local) const -> FVector3;
+		ENGINE_API auto GetTransformAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local, bool bUseScale = false) const -> FTransform;
+		ENGINE_API auto GetTransformAtDistanceAlongSpline(double Distance, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local, bool bUseScale = false) const -> FTransform;
+		ENGINE_API auto GetTransformAtTime(double Time, ESplineCoordinateSpace Space = ESplineCoordinateSpace::Local,
+			bool bUseConstantVelocity = false, bool bUseScale = false) const -> FTransform;
+		ENGINE_API auto FindInputKeyClosestToWorldLocation(const FVector3& Position) const -> double;
+		ENGINE_API auto GetInputKeyValueAtDistanceAlongSpline(double Distance) const -> double;
+		ENGINE_API auto GetDistanceAlongSplineAtSplineInputKey(double InputKey) const -> double;
+		ENGINE_API auto GetInputKeyValueAtTime(double Time) const -> double;
+		ENGINE_API auto GetSplineLength() const -> double;
 
 		auto IsClosedLoop() const -> bool { return SplineCurve.IsClosedLoop(); }
 		ENGINE_API auto SetClosedLoop(bool bClosedLoop) -> void;
@@ -83,7 +105,19 @@ namespace Durin
 		DPROPERTY(Category = "Spline", Edit)
 		FSplineCurve SplineCurve;
 
+		auto GetScaledEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>;
+
+		DPROPERTY(Category = "Spline", Edit)
+		double Duration = 1.0;
+
+		DPROPERTY(Category = "Spline", Edit)
+		FVector3 DefaultUpVector{0.0, 0.0, 1.0};
+
 		std::shared_ptr<const FSplineEvaluationData> EvaluationData;
+		mutable std::mutex ScaledEvaluationMutex;
+		mutable std::shared_ptr<const FSplineEvaluationData> ScaledSource;
+		mutable std::shared_ptr<const FSplineEvaluationData> ScaledEvaluation;
+		mutable FVector3 EvaluationScale{1.0};
 		uint64 SplineRevision = 0;
 		ESplineChangeFlags LastSplineChangeFlags = ESplineChangeFlags::None;
 		std::vector<std::pair<uint64, FSplineMutationListener>> MutationListeners;

@@ -14,10 +14,10 @@ not provide a path follower, procedural extrusion, or placement system.
 
 | Area | Current support |
 | --- | --- |
-| Curve data | Stable point GUID, position, arrive/leave tangents, outgoing interpolation, tangent mode, and loop state |
-| Interpolation | Linear or cubic outgoing segments; automatic, automatic-clamped, manual-aligned, or manual-broken tangents |
-| Runtime queries | Structured samples by parameter or local distance, parameter/distance conversion, local length and bounds, and nearest parameter |
-| Coordinate spaces | Component-local and transformed world-space samples; distance remains component-local |
+| Curve data | Stable point GUID, input key, position, arrive/leave tangents, rotation, scale, interpolation, tangent mode, and loop state |
+| Interpolation | Linear, cubic, or constant outgoing segments; automatic, automatic-clamped, manual-aligned, or manual-broken tangents |
+| Runtime queries | Samples by input key, segment parameter, or local distance, plus transforms by key, scaled distance, or time |
+| Coordinate spaces | Local and world samples, explicit local arc length, and scale-aware distance along spline |
 | Evaluation | Immutable snapshots with adaptive distance tables, conservative bounds, and concurrent read access |
 | Editing | Selected-point Details editing and transactional viewport point/tangent manipulation, insertion, structural actions, Undo/Redo, and Cancel |
 | Persistence | Reflection, object-graph duplication, level-package save/load, point-ID repair, and post-load snapshot publication |
@@ -25,18 +25,16 @@ not provide a path follower, procedural extrusion, or placement system.
 
 ## Authoring Model
 
-`FSplineCurve` owns reflected authoring data only. Each `FSplinePoint` contains:
+`FSplineCurve` owns reflected authoring data only. Each `FSplinePoint` carries a stable component-local GUID, an input key,
+position, arrive/leave tangents, quaternion rotation, scale, outgoing interpolation,
+and tangent mode. Index addresses array order, key addresses evaluation, and GUID
+addresses logical point identity. Keys are finite and strictly increasing. A point
+created from position alone receives a key on insertion. Reordering points retains
+the ordered key slots and moves the GUID and authored values with each point.
 
-- a component-local stable `FGuid` identity;
-- local `Position`, `ArriveTangent`, and `LeaveTangent` vectors;
-- `OutgoingInterpolation`, which is `Linear` or `Cubic`; and
-- `TangentMode`, which is `Automatic`, `AutomaticClamped`, `ManualAligned`, or
-  `ManualBroken`.
-
-The interpolation value belongs to the segment leaving the point. Open curves
-have one fewer segment than point; closed curves add a last-to-first segment
-identified by the last point's GUID. No synthetic seam point is serialized.
-Empty and one-point curves have no segment.
+Open curves have one fewer segment than point. Closed curves add a last-to-first
+segment identified by the last point's GUID. Its end key defaults to one beyond the
+last key and can be overridden. Empty and one-point curves have no segment.
 
 Point GUIDs are unique within one curve. Existing IDs survive reorder,
 component duplication, and package round trips. Append, insertion, and point
@@ -51,47 +49,35 @@ normal package/transaction path.
 
 ## Segment Geometry And Tangents
 
-Linear segments interpolate positions and have constant first derivative and a
-zero second derivative. Cubic segments use Hermite geometry from the starting
-point's leave tangent and ending point's arrive tangent. Tangents are
-derivatives with respect to the segment-local parameter, not normalized
-directions. `FSplineSample::Direction` is the normalized first derivative, or
-zero when that derivative is degenerate.
+Linear segments interpolate positions. Constant segments hold the start point
+until the next key and count the endpoint chord as an instantaneous distance
+jump. The inverse returns the start of a jump for distances inside it.
+SplineMesh path generation skips constant segments.
 
-Automatic tangents are chord-length aware. For non-degenerate incident chords
-with lengths `h0` and `h1`, the knot derivative is:
+Authored tangents differentiate against input key. Cubic Hermite coefficients
+use the starting leave and ending arrive tangent multiplied by that segment's
+key span. UE-style automatic tangents use the surrounding key interval;
+automatic-clamped tangents limit each coordinate independently. Open curves can
+request stationary automatic endpoints. Manual-broken tangents retain independent
+handles, and manual-aligned tangents share direction with independent magnitudes.
+Bezier handles are offset by one third of the tangent times the incident key span.
 
-```text
-(h1 * normalize(P - Pprev) + h0 * normalize(Pnext - P)) / (h0 + h1)
-```
-
-The arrive and leave handles scale that derivative by `h0` and `h1`.
-Open endpoints use their sole incident chord; closed curves wrap neighbors
-across the seam. A degenerate chord produces a zero handle on that side, and
-two degenerate chords produce two zero handles.
-
-`AutomaticClamped` additionally zeros both handles when the derivative would
-reverse against either incident chord and caps each handle at its incident
-chord length. `ManualBroken` preserves independently authored handles.
-`ManualAligned` keeps the two stored derivative vectors collinear in the same
-path direction while preserving independent magnitudes; editing either handle
-updates the direction of both. The arrive visualization handle is located at
-`Position - ArriveTangent / 3`, and the leave handle at
-`Position + LeaveTangent / 3`.
-
-Spline geometry deliberately contains no constant spatial segment, point
-rotation, point scale, transform sampling, roll, width, or orientation-frame
-policy. A consumer that needs orientation must define it from differential
-geometry and its own up/frame rules.
+Rotation and scale use independent automatic cubic curves on the same input
+keys as position. Rotation uses quaternion Squad and scale uses vector Hermite.
+Both derive controls from neighboring keys and include the closed-loop seam
+span when wrapping neighbors. A linear or constant position segment still
+samples both cubic attribute curves. Transform queries build a frame from the
+position tangent and the sampled rotation applied to the component default up.
 
 ## Parameters And Samples
 
 `FSplineParameter` contains `SegmentIndex` plus a segment-local `T` in
 `[0, 1]`. `FSplineSample` contains position, first derivative, second
-derivative, and normalized direction.
+derivative, normalized direction, authored rotation, and scale. Segment samples differentiate against
+`T`; input-key samples differentiate against the input key.
 
-Open-curve parameters clamp to the curve endpoints. Closed-curve parameters
-wrap; the explicit end parameter evaluates at the first point. Empty curves
+Input-key queries clamp to the key domain, including the closed seam end.
+Native segment queries retain the endpoint derivative of the requested segment. Empty curves
 return neutral finite samples. A one-point curve returns that point's position
 with zero derivatives, direction, and length.
 
@@ -110,12 +96,13 @@ input.
 
 ## Local Distance, Bounds, And Nearest Queries
 
-Distance is always measured in authored component-local space. API names use
-`LocalDistance` and `LocalLength` to make this domain explicit. Translation and
-rotation do not change local length. Uniform and non-uniform component scale
-change returned world positions and derivatives but do not redefine the
-distance domain; sampling equal local-distance steps therefore does not
-guarantee equal world-space travel under non-uniform scale.
+The `LocalDistance` and `LocalLength` APIs measure authored component-local
+arc length. The component distance-along-spline APIs account for component scale
+using the same adaptive builder, with a distance snapshot cached by source
+snapshot and scale. Time queries map duration to the key interval, or to scaled
+distance for constant-velocity traversal. Position output space and distance
+metric are independent. Closest-to-world-location queries convert the input to
+component-local space before measuring proximity.
 
 Each cubic segment receives an adaptive monotonic distance table. The default
 builder uses an absolute local-length tolerance of `1e-4`, a relative tolerance
@@ -183,15 +170,14 @@ source axis. Frames are right-handed with `Forward 脳 Side = Up`.
 `FSplinePathFrameData` builds immutable consumer-owned frames over the existing
 adaptive distance samples. It uses deterministic minimal-rotation transport,
 retains the preceding direction across zero derivatives, and distributes
-closed-loop seam correction by local distance. This state is derived and does
-not add roll, scale, or orientation fields to `FSplinePoint`.
+closed-loop seam correction by local distance. This state is derived and is independent of the authored rotation and scale channels.
 
 ## Level Editor Authoring
 
 Selecting a spline component exposes component settings and the current stable
 point selection in Details. The contextual Spline viewport mode visualizes the
 adaptive curve, point markers, and manual tangent handles. It supports stable
-GUID selection, point multi-selection, translation-only gizmo targets,
+GUID selection, point multi-selection, point translation/rotation/scale, translated tangent handles,
 shape-preserving linear or cubic segment insertion, append, duplicate, delete,
 reorder, loop, interpolation, and tangent-mode edits.
 
@@ -343,6 +329,5 @@ invalid-target exits, and multi-component isolation.
 
 SplineMesh is a single-segment deformation primitive and the Actor is a simple
 shared-mesh whole-path policy owner. It does not implement extrusion, junctions,
-caps, per-segment assets, navigation, animation, events, width metadata, or
-world-distance traversal under non-uniform scale. Simultaneous editing across
+caps, per-segment assets, navigation, animation events, or width metadata. Simultaneous editing across
 multiple spline components is also outside the implemented contract.

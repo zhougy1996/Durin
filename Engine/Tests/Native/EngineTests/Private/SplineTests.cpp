@@ -50,6 +50,34 @@ namespace
 		return Point;
 	}
 
+	auto MakeAttributeCurve(const std::array<double, 3>& Keys, Durin::ESplineSegmentInterpolation Interpolation)
+		-> Durin::FSplineCurve
+	{
+		using namespace Durin;
+		const std::array<double, 3> RollDegrees{0.0, 40.0, 100.0};
+		const std::array<double, 3> Scales{1.0, 2.0, 5.0};
+		std::vector<FSplinePoint> Points;
+		for (size_t Index = 0; Index < Keys.size(); ++Index)
+		{
+			auto Point = MakePoint({static_cast<double>(Index), 0.0, 0.0}, Interpolation);
+			Point.InputKey = Keys[Index];
+			Point.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(RollDegrees[Index], FVector3(1.0, 0.0, 0.0));
+			Point.Scale = {Scales[Index], 1.0, 1.0};
+			Points.push_back(Point);
+		}
+		FSplineCurve Curve;
+		Curve.SetPoints(std::move(Points));
+		return Curve;
+	}
+
+	auto ExpectAttributes(const Durin::FSplineSample& Sample, double RollDegrees, double Scale) -> void
+	{
+		using namespace Durin;
+		const auto ExpectedRotation = Math::MakeQuaternionFromAxisAngleDegrees(RollDegrees, FVector3(1.0, 0.0, 0.0));
+		ExpectVectorNear(Sample.Rotation * FVectorConstants::Up, ExpectedRotation * FVectorConstants::Up, 1.e-7);
+		ExpectVectorNear(Sample.Scale, {Scale, 1.0, 1.0});
+	}
+
 	struct FSplineReflection
 	{
 		Durin::FStructProperty* Curve = nullptr;
@@ -125,12 +153,14 @@ TEST(FSplineCurveTests, AuthoringOperationsMaintainStableUniquePointIds)
 
 	ASSERT_TRUE(Curve.MovePoint(1, 0));
 	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
-	const uint32 AddedIndex = Curve.AddPoint(*Curve.GetPoint(0));
+	auto Copy = *Curve.GetPoint(0);
+	Copy.InputKey = Durin::FSplinePoint::AutoInputKey;
+	const uint32 AddedIndex = Curve.AddPoint(Copy);
 	EXPECT_NE(Curve.GetPoint(AddedIndex)->Id, RepairedId);
 	ASSERT_TRUE(Curve.UpdatePoint(0, MakePoint({7.0, 8.0, 9.0})));
 	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
 	const Durin::FGuid UpdatedId = Curve.GetPoint(0)->Id;
-	ASSERT_TRUE(Curve.InsertPoint(1, *Curve.GetPoint(0)));
+	ASSERT_TRUE(Curve.InsertPoint(1, Copy));
 	EXPECT_NE(Curve.GetPoint(1)->Id, UpdatedId);
 	const std::optional<uint32> DuplicatedIndex = Curve.DuplicatePoint(0);
 	ASSERT_TRUE(DuplicatedIndex.has_value());
@@ -158,7 +188,7 @@ TEST(FSplineCurveTests, EvaluationHandlesEmptySinglePointAndDefaultCurve)
 	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).Position, {4.0, 5.0, 6.0});
 }
 
-TEST(FSplineCurveTests, ManualHermiteAndChordLengthAutomaticTangentsMatchContracts)
+TEST(FSplineCurveTests, ManualHermiteAndKeyBasedAutomaticTangentsMatchContracts)
 {
 	Durin::FSplinePoint Start = MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
 		Durin::ESplineTangentMode::ManualBroken);
@@ -175,8 +205,78 @@ TEST(FSplineCurveTests, ManualHermiteAndChordLengthAutomaticTangentsMatchContrac
 
 	Curve.SetPoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({3.0, 4.0, 0.0}), MakePoint({9.0, 4.0, 0.0})});
 	Evaluation = Curve.BuildEvaluationData();
-	ExpectVectorNear(Evaluation->Evaluate({0, 1.0}).FirstDerivative, {3.909090909090909, 2.181818181818182, 0.0});
-	ExpectVectorNear(Evaluation->Evaluate({1, 0.0}).FirstDerivative, {4.690909090909091, 2.618181818181818, 0.0});
+	ExpectVectorNear(Evaluation->Evaluate({0, 1.0}).FirstDerivative, {4.5, 2.0, 0.0});
+	ExpectVectorNear(Evaluation->Evaluate({1, 0.0}).FirstDerivative, {4.5, 2.0, 0.0});
+}
+
+TEST(FSplineCurveTests, NonuniformInputKeysMatchHermiteAndScaledDistanceContracts)
+{
+	using namespace Durin;
+	FSplinePoint Start = MakePoint({0.0, 0.0, 0.0}, ESplineSegmentInterpolation::Cubic, ESplineTangentMode::ManualBroken);
+	FSplinePoint End = MakePoint({12.0, 0.0, 0.0}, ESplineSegmentInterpolation::Cubic, ESplineTangentMode::ManualBroken);
+	Start.InputKey = 2.0;
+	End.InputKey = 5.0;
+	Start.LeaveTangent = End.ArriveTangent = {4.0, 0.0, 0.0};
+	End.Scale = FVector3(3.0);
+	FSplineCurve Curve;
+	Curve.SetPoints({Start, End});
+	const auto Evaluation = Curve.BuildEvaluationData();
+	const auto Sample = Evaluation->EvaluateAtInputKey(3.5);
+	ExpectVectorNear(Sample.Position, {6.0, 0.0, 0.0});
+	ExpectVectorNear(Sample.FirstDerivative, {4.0, 0.0, 0.0});
+	ExpectVectorNear(Sample.Scale, {2.0, 2.0, 2.0});
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).FirstDerivative, {12.0, 0.0, 0.0});
+	const auto Scaled = Evaluation->BuildScaledDistanceData({2.0, 3.0, 1.0});
+	EXPECT_NEAR(Scaled->GetLocalLength(), 24.0, 1.e-8);
+	EXPECT_NEAR(Scaled->GetInputKeyAtParameter(Scaled->GetParameterAtLocalDistance(12.0)), 3.5, 1.e-8);
+	ASSERT_TRUE(Curve.SetClosedLoopAtPosition(9.0));
+	EXPECT_DOUBLE_EQ(Curve.BuildEvaluationData()->GetInputKeyAtParameter({1, 1.0}), 9.0);
+
+	Start.OutgoingInterpolation = ESplineSegmentInterpolation::Constant;
+	Curve.SetClosedLoop(false);
+	Curve.SetPoints({Start, End});
+	const auto Stepped = Curve.BuildEvaluationData();
+	ExpectVectorNear(Stepped->EvaluateAtInputKey(4.9).Position, Start.Position);
+	ExpectVectorNear(Stepped->EvaluateAtInputKey(5.0).Position, End.Position);
+	EXPECT_DOUBLE_EQ(Stepped->GetLocalDistanceAtParameter({0, 0.9}), 0.0);
+	EXPECT_DOUBLE_EQ(Stepped->GetLocalLength(), 12.0);
+}
+
+TEST(FSplineCurveTests, RotationAndScaleUseIndependentAutomaticCurves)
+{
+	using namespace Durin;
+	// Golden values use the UE 5.8 default backend's automatic controls and cubic interpolation.
+	const auto Stepped = MakeAttributeCurve({0.0, 1.0, 2.0}, ESplineSegmentInterpolation::Constant).BuildEvaluationData();
+	const auto Linear = MakeAttributeCurve({0.0, 1.0, 2.0}, ESplineSegmentInterpolation::Linear).BuildEvaluationData();
+	const auto SteppedSample = Stepped->EvaluateAtInputKey(0.5);
+	const auto LinearSample = Linear->EvaluateAtInputKey(0.5);
+	ExpectVectorNear(SteppedSample.Position, {0.0, 0.0, 0.0});
+	ExpectVectorNear(LinearSample.Position, {0.5, 0.0, 0.0});
+	ExpectAttributes(SteppedSample, 9.1500897482162, 1.375);
+	ExpectAttributes(LinearSample, 9.1500897482162, 1.375);
+	ExpectAttributes(Stepped->EvaluateAtInputKey(1.0), 40.0, 2.0);
+}
+
+TEST(FSplineCurveTests, RotationAndScaleTangentsUseNonuniformInputKeys)
+{
+	using namespace Durin;
+	const auto Evaluation = MakeAttributeCurve({2.0, 4.0, 7.0}, ESplineSegmentInterpolation::Cubic).BuildEvaluationData();
+	ExpectAttributes(Evaluation->EvaluateAtInputKey(3.0), 8.265220949583949, 1.425);
+	ExpectAttributes(Evaluation->Evaluate({1, 0.5}), 80.88309782141665, 3.425);
+	ExpectAttributes(Evaluation->EvaluateAtInputKey(5.5), 80.88309782141665, 3.425);
+	ExpectAttributes(Evaluation->EvaluateAtInputKey(4.0), 40.0, 2.0);
+}
+
+TEST(FSplineCurveTests, RotationAndScaleWrapNeighborsAcrossCustomLoopKey)
+{
+	using namespace Durin;
+	auto Curve = MakeAttributeCurve({2.0, 4.0, 7.0}, ESplineSegmentInterpolation::Linear);
+	ASSERT_TRUE(Curve.SetClosedLoopAtPosition(11.0));
+	const auto Evaluation = Curve.BuildEvaluationData();
+	ExpectAttributes(Evaluation->EvaluateAtInputKey(3.0), 9.113850810181166, 1.175);
+	ExpectAttributes(Evaluation->EvaluateAtInputKey(9.0), 46.2678779684352, 3.1785714285714284);
+	ExpectAttributes(Evaluation->EvaluateAtInputKey(11.0), 0.0, 1.0);
+	ExpectAttributes(Evaluation->Evaluate({2, 1.0}), 0.0, 1.0);
 }
 
 TEST(FSplineCurveTests, ClampedAndAlignedTangentModesApplyTheirV2Rules)
@@ -339,16 +439,14 @@ TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FSplineReflectionTests, RegistersV2ControlPointFieldsOnly)
+TEST(FSplineReflectionTests, RegistersKeyAndControlPointChannels)
 {
 	InitializeDObjectSystem();
 	Durin::DStruct* PointStruct = Durin::FSplinePoint::StaticStruct();
 	ASSERT_NE(PointStruct, nullptr);
-	for (const char* PropertyName : {"Id", "Position", "ArriveTangent", "LeaveTangent", "OutgoingInterpolation", "TangentMode"})
+	for (const char* PropertyName : {"Id", "InputKey", "Position", "ArriveTangent", "LeaveTangent", "Rotation", "Scale", "OutgoingInterpolation", "TangentMode"})
 		EXPECT_NE(PointStruct->FindPropertyByName(Durin::FName(PropertyName)), nullptr) << PropertyName;
-	for (const char* RemovedName : {"Rotation", "Scale", "Type"})
-		EXPECT_EQ(PointStruct->FindPropertyByName(Durin::FName(RemovedName)), nullptr) << RemovedName;
-}
+	}
 
 TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePaths)
 {

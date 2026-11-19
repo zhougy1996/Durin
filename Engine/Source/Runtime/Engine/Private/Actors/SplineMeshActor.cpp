@@ -128,6 +128,7 @@ namespace Durin
 		Specs.reserve(Evaluation->GetNumSegments());
 		for (uint32 SegmentIndex = 0; SegmentIndex < Evaluation->GetNumSegments(); ++SegmentIndex)
 		{
+			if (Evaluation->GetSegments()[SegmentIndex].Interpolation == ESplineSegmentInterpolation::Constant) continue;
 			const FSplineSample Start = Evaluation->Evaluate({SegmentIndex, 0.0});
 			const FSplineSample End = Evaluation->Evaluate({SegmentIndex, 1.0});
 			FSplineMeshParams Params;

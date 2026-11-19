@@ -201,7 +201,7 @@ namespace Durin::LevelEditor
 		{
 			AActor* Actor = Line.Actor.Get();
 			DActorComponent* Component = Line.Component.Get();
-			if (!Actor || !Component) continue;
+			if (!Line.bHitTest || !Actor || !Component) continue;
 			if (Best.bDepthIndependent && Best.Priority >= Line.HitPriority) continue;
 			FVector2f StartScreen, EndScreen;
 			if (!SceneViewProjection::ProjectWorldToViewport(View, Line.Start, StartScreen) || !SceneViewProjection::ProjectWorldToViewport(View, Line.End, EndScreen)) continue;

@@ -106,6 +106,7 @@ to a different logical point.
 | Click blank viewport space | Clear point/tangent selection |
 | Double-click a curve segment | Insert and select a point without changing the segment shape |
 | Left-drag the translation handle | Move selected points or the selected manual tangent |
+| `E` / `R` | Rotate or scale the selected points with the gizmo |
 | `F` | Focus the selected points/tangent; fall back to the spline Actor |
 | `Delete` | Delete the selected points |
 | `Ctrl+D` | Duplicate the primary selected point |
@@ -113,9 +114,11 @@ to a different logical point.
 | `Esc` during a drag | Cancel and restore the starting values |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo the completed edit |
 
-Point multi-selection exposes one translation target per selected point.
-Tangent editing targets one handle at a time. Spline targets support translation
-only: `E` and `R` do not rotate or scale points. World/Local axes and temporary
+Point multi-selection exposes one transform target per selected point.
+Tangent editing exposes a translation target for the selected handle. The
+viewport shows sampled Up and Right axes on segments adjoining selected points.
+Their orientation and cross-section size come from the runtime rotation and
+scale curves. World/Local axes and temporary
 Ctrl snapping use the same toolbar settings and gizmo behavior as Actor
 transforms.
 
@@ -126,8 +129,11 @@ mode in Details before authoring a handle.
 
 Details shows component settings plus the selected point or points. Multi-point
 position edits apply a shared delta and show a mixed-value state when values
-differ. Details also provides append, duplicate, delete, reorder, open/close
-loop, outgoing interpolation, and tangent-mode actions.
+differ. Rotation and scale fields apply the entered value to each selected
+point. Select one point to edit its Input Key. A closed curve exposes a Loop Key
+after the last point. Both fields enforce the spline's key ordering. Details
+also provides append, duplicate, delete, reorder, open/close loop, outgoing
+interpolation, and tangent-mode actions.
 
 Escape is progressive in Spline mode. The first press cancels an active drag.
 With no drag, it clears the point/tangent selection. A later press exits Spline
@@ -215,7 +221,7 @@ another component type, and read-only/PIE state.
 Only manual-aligned and manual-broken points expose tangent handles. Select the
 point and change its tangent mode in Details.
 
-### Rotation or scale does not affect spline points
+### Rotation or scale gizmo is unavailable
 
-Spline point and tangent targets intentionally support translation only. Use
-`W` and drag the translation gizmo.
+Select a control point and use `E` or `R`. A manual tangent handle uses the
+translation gizmo (`W`).

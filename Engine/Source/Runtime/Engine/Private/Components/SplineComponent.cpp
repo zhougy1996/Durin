@@ -22,12 +22,13 @@ namespace Durin
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 	}
 
-	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints) -> void
+	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints, std::optional<double> LoopKey) -> void
 	{
-		if (SplineCurve.GetPoints() == InPoints) return;
+		if (SplineCurve.GetPoints() == InPoints && !LoopKey) return;
 		// Bulk replacement may also repair IDs across the complete curve.
 		(void)Modify(false);
 		SplineCurve.SetPoints(std::move(InPoints));
+		if (LoopKey) SplineCurve.SetClosedLoopAtPosition(*LoopKey);
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 	}
@@ -35,15 +36,15 @@ namespace Durin
 	auto DSplineComponent::AddSplinePoint(FSplinePoint Point) -> uint32
 	{
 		const uint32 PointIndex = GetNumSplinePoints();
-		Point.Id = FGuid::NewGuid();
-		if (auto Edited = EditPointRange(PointIndex, 0, {&Point, 1}); !Edited) throw std::runtime_error(Edited.error());
-		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		if (!InsertSplinePoint(PointIndex, Point)) throw std::invalid_argument("Invalid spline point insertion");
 		return PointIndex;
 	}
 
 	auto DSplineComponent::InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool
 	{
-		if (PointIndex > GetNumSplinePoints()) return false;
+		const auto InputKey = SplineCurve.ResolveInsertionKey(PointIndex, Point.InputKey);
+		if (!InputKey) return false;
+		Point.InputKey = *InputKey;
 		Point.Id = FGuid::NewGuid();
 		if (!EditPointRange(PointIndex, 0, {&Point, 1})) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
@@ -55,17 +56,21 @@ namespace Durin
 		const auto* Source = GetSplinePoint(PointIndex);
 		if (!Source) return std::nullopt;
 		const uint32 DuplicateIndex = PointIndex + 1;
-		if (!InsertSplinePoint(DuplicateIndex, *Source)) return std::nullopt;
+		FSplinePoint Duplicate = *Source;
+		Duplicate.InputKey = FSplinePoint::AutoInputKey;
+		if (!InsertSplinePoint(DuplicateIndex, Duplicate)) return std::nullopt;
 		return DuplicateIndex;
 	}
 
-	auto DSplineComponent::UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool
+	auto DSplineComponent::UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point, bool bUpdateSpline) -> bool
 	{
 		const auto* Previous = GetSplinePoint(PointIndex);
 		if (!Previous) return false;
+		if (Point.InputKey == FSplinePoint::AutoInputKey) Point.InputKey = Previous->InputKey;
+		if (!SplineCurve.IsValidPointKey(PointIndex, Point.InputKey)) return false;
 		Point.Id = Previous->Id;
 		if (*Previous == Point || !EditPointRange(PointIndex, 1, {&Point, 1})) return false;
-		UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		if (bUpdateSpline) UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
 	}
 
@@ -83,6 +88,7 @@ namespace Durin
 		std::vector<FSplinePoint> Moved(SplineCurve.Points.begin() + First, SplineCurve.Points.begin() + Last + 1);
 		if (FromIndex < ToIndex) std::rotate(Moved.begin(), Moved.begin() + 1, Moved.end());
 		else std::rotate(Moved.begin(), Moved.end() - 1, Moved.end());
+		for (size_t Index = 0; Index < Moved.size(); ++Index) Moved[Index].InputKey = SplineCurve.Points[First + Index].InputKey;
 		if (!EditPointRange(First, Moved.size(), Moved)) return false;
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
@@ -97,11 +103,23 @@ namespace Durin
 
 	auto DSplineComponent::SetClosedLoop(bool bClosedLoop) -> void
 	{
-		if (SplineCurve.IsClosedLoop() == bClosedLoop) return;
+		if (SplineCurve.IsClosedLoop() == bClosedLoop && SplineCurve.LoopKeyOverride == FSplinePoint::AutoInputKey) return;
 		(void)Modify(false);
 		SplineCurve.SetClosedLoop(bClosedLoop);
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
+	}
+
+	auto DSplineComponent::SetClosedLoopAtPosition(double InputKey) -> bool
+	{
+		if (GetNumSplinePoints() == 0 || !std::isfinite(InputKey - SplineCurve.GetPoints().back().InputKey)
+			|| InputKey <= SplineCurve.GetPoints().back().InputKey) return false;
+		if (IsClosedLoop() && SplineCurve.LoopKeyOverride == InputKey) return true;
+		(void)Modify(false);
+		SplineCurve.SetClosedLoopAtPosition(InputKey);
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		MarkPackageDirty();
+		return true;
 	}
 
 	auto DSplineComponent::EditPointRange(size_t Index, size_t RemoveCount, std::span<const FSplinePoint> Replacement) -> FTransactionCaptureResult
@@ -115,6 +133,134 @@ namespace Durin
 	auto DSplineComponent::GetEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>
 	{
 		return std::atomic_load_explicit(&EvaluationData, std::memory_order_acquire);
+	}
+
+	auto DSplineComponent::GetScaledEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>
+	{
+		const auto Source = GetEvaluationData();
+		const FVector3 Scale = GetWorldScale3D();
+		if (Scale == FVector3(1.0)) return Source;
+		const std::scoped_lock Lock(ScaledEvaluationMutex);
+		if (ScaledSource != Source || EvaluationScale != Scale)
+		{
+			ScaledEvaluation = Source->BuildScaledDistanceData(Scale);
+			ScaledSource = Source;
+			EvaluationScale = Scale;
+		}
+		return ScaledEvaluation;
+	}
+
+	auto DSplineComponent::GetInputKeyValueAtSplinePoint(uint32 PointIndex) const -> double
+	{
+		const auto* Point = GetSplinePoint(PointIndex);
+		return Point ? Point->InputKey : 0.0;
+	}
+
+	auto DSplineComponent::GetQuaternionAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space) const -> FQuat
+	{
+		return GetTransformAtSplineInputKey(InputKey, Space).Rotation;
+	}
+
+	auto DSplineComponent::GetScaleAtSplineInputKey(double InputKey) const -> FVector3
+	{
+		return GetSampleAtSplineInputKey(InputKey).Scale;
+	}
+
+	auto DSplineComponent::GetLocationAtDistanceAlongSpline(double Distance, ESplineCoordinateSpace Space) const -> FVector3
+	{
+		return GetLocationAtSplineInputKey(GetInputKeyValueAtDistanceAlongSpline(Distance), Space);
+	}
+
+	auto DSplineComponent::GetLocationAtTime(double Time, ESplineCoordinateSpace Space, bool bUseConstantVelocity) const -> FVector3
+	{
+		if (bUseConstantVelocity)
+			return GetLocationAtDistanceAlongSpline(Duration > 0.0 ? std::clamp(Time / Duration, 0.0, 1.0) * GetSplineLength() : 0.0, Space);
+		return GetLocationAtSplineInputKey(GetInputKeyValueAtTime(Time), Space);
+	}
+
+	auto DSplineComponent::GetTimeAtDistanceAlongSpline(double Distance) const -> double
+	{
+		const auto Data = GetEvaluationData();
+		if (Data->GetNumSegments() == 0 || !(Duration > 0.0)) return 0.0;
+		const double FirstKey = Data->GetSegments().front().StartKey;
+		const double LastKey = Data->GetSegments().back().EndKey;
+		return Duration * (GetInputKeyValueAtDistanceAlongSpline(Distance) - FirstKey) / (LastKey - FirstKey);
+	}
+
+	auto DSplineComponent::GetSampleAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space) const -> FSplineSample
+	{
+		const FSplineSample Sample = GetEvaluationData()->EvaluateAtInputKey(InputKey);
+		return Space == ESplineCoordinateSpace::Local ? Sample : TransformSampleToWorld(Sample);
+	}
+
+	auto DSplineComponent::GetLocationAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space) const -> FVector3
+	{
+		return GetSampleAtSplineInputKey(InputKey, Space).Position;
+	}
+
+	auto DSplineComponent::GetTangentAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space) const -> FVector3
+	{
+		return GetSampleAtSplineInputKey(InputKey, Space).FirstDerivative;
+	}
+
+	auto DSplineComponent::GetTransformAtSplineInputKey(double InputKey, ESplineCoordinateSpace Space, bool bUseScale) const -> FTransform
+	{
+		const FSplineSample Sample = GetSampleAtSplineInputKey(InputKey);
+		const FVector3 Forward = Math::NormalizeOr(Sample.Direction, FVector3(1.0, 0.0, 0.0));
+		const FVector3 Up = Sample.Rotation * DefaultUpVector;
+		const FVector3 Fallback = std::abs(Forward.z) < 0.9 ? FVector3(0.0, 0.0, 1.0) : FVector3(0.0, 1.0, 0.0);
+		const FVector3 Right = Math::NormalizeOr(Math::Cross(Up, Forward), SafeNormalize(Math::Cross(Fallback, Forward)));
+		FTransform Transform;
+		Transform.Translation = Sample.Position;
+		Transform.Rotation = Math::QuaternionFromMatrix(FMatrix(
+			FVector4(Forward, 0.0), FVector4(Right, 0.0), FVector4(Math::Cross(Forward, Right), 0.0), FVector4(0.0, 0.0, 0.0, 1.0)));
+		if (bUseScale) Transform.Scale3D = Sample.Scale;
+		return Space == ESplineCoordinateSpace::Local ? Transform : FTransform::Combine(GetWorldTransform(), Transform);
+	}
+
+	auto DSplineComponent::GetTransformAtDistanceAlongSpline(double Distance, ESplineCoordinateSpace Space, bool bUseScale) const -> FTransform
+	{
+		return GetTransformAtSplineInputKey(GetInputKeyValueAtDistanceAlongSpline(Distance), Space, bUseScale);
+	}
+
+	auto DSplineComponent::GetTransformAtTime(double Time, ESplineCoordinateSpace Space, bool bUseConstantVelocity, bool bUseScale) const -> FTransform
+	{
+		if (bUseConstantVelocity)
+			return GetTransformAtDistanceAlongSpline(Duration > 0.0 ? std::clamp(Time / Duration, 0.0, 1.0) * GetSplineLength() : 0.0,
+				Space, bUseScale);
+		return GetTransformAtSplineInputKey(GetInputKeyValueAtTime(Time), Space, bUseScale);
+	}
+
+	auto DSplineComponent::FindInputKeyClosestToWorldLocation(const FVector3& Position) const -> double
+	{
+		return GetEvaluationData()->GetInputKeyAtParameter(FindNearestParameter(Position, ESplineCoordinateSpace::World));
+	}
+
+	auto DSplineComponent::GetInputKeyValueAtDistanceAlongSpline(double Distance) const -> double
+	{
+		const auto Data = GetScaledEvaluationData();
+		if (Distance >= Data->GetLocalLength() && Data->GetNumSegments() > 0)
+			return Data->GetSegments().back().EndKey;
+		return Data->GetInputKeyAtParameter(Data->GetParameterAtLocalDistance(std::max(0.0, Distance)));
+	}
+
+	auto DSplineComponent::GetDistanceAlongSplineAtSplineInputKey(double InputKey) const -> double
+	{
+		const auto Data = GetScaledEvaluationData();
+		return Data->GetLocalDistanceAtParameter(Data->GetParameterAtInputKey(InputKey));
+	}
+
+	auto DSplineComponent::GetInputKeyValueAtTime(double Time) const -> double
+	{
+		const auto Data = GetEvaluationData();
+		const double Start = Data->GetInputKeyAtParameter({});
+		if (Data->GetNumSegments() == 0 || !(Duration > 0.0)) return Start;
+		return std::lerp(Start, Data->GetSegments().back().EndKey, std::clamp(Time / Duration, 0.0, 1.0));
+	}
+
+	auto DSplineComponent::GetSplineLength() const -> double
+	{
+		return GetScaledEvaluationData()->GetLocalLength();
 	}
 
 	auto DSplineComponent::GetSampleAtParameter(FSplineParameter Parameter, ESplineCoordinateSpace Space) const -> FSplineSample
@@ -154,6 +300,7 @@ namespace Durin
 		checkf(!bPublishingMutation, "Spline mutation listeners must not mutate the publishing Spline component reentrantly.");
 		const bool bRepairedIds = SplineCurve.RepairPointIds();
 		if (bRepairedIds) ChangeFlags |= ESplineChangeFlags::Topology;
+		if (SplineCurve.RepairInputKeys()) ChangeFlags |= ESplineChangeFlags::Geometry;
 		const auto PublishedEvaluation = SplineCurve.BuildEvaluationData();
 		std::atomic_store_explicit(&EvaluationData, PublishedEvaluation, std::memory_order_release);
 		++SplineRevision;
@@ -211,11 +358,12 @@ namespace Durin
 
 	auto DSplineComponent::TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample
 	{
-		FSplineSample Result;
+		FSplineSample Result = LocalSample;
 		Result.Position = FVector3(GetComponentToWorldMatrix() * FVector4(LocalSample.Position, 1.0));
 		Result.FirstDerivative = GetWorldRotation() * (GetWorldScale3D() * LocalSample.FirstDerivative);
 		Result.SecondDerivative = GetWorldRotation() * (GetWorldScale3D() * LocalSample.SecondDerivative);
 		Result.Direction = SafeNormalize(Result.FirstDerivative);
+		Result.Rotation = GetWorldRotation() * LocalSample.Rotation;
 		return Result;
 	}
 } // namespace Durin

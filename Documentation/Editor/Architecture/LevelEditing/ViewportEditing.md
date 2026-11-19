@@ -252,10 +252,12 @@ Restoration verifies the actual values and defers while another recorder owns
 
 The Actor adapter preserves translation, rotation, scale, shared-pivot,
 hierarchy filtering, local/world axes, snapping, Undo/Redo, and dirty-state
-behavior. Spline point and tangent adapters expose translation only, convert
-between component-local and world coordinates, and resolve every update by
-point GUID. A tangent selection produces one tangent target; a point
-multi-selection produces one target per selected point.
+behavior. Spline adapters convert between component-local and world coordinates
+and resolve every update by point GUID. A tangent selection exposes one
+translation target. A point multi-selection exposes one translation, rotation,
+and scale target per selected point. The selected-point overlay samples the
+runtime transform on incident segments and draws Up and Right lines outside the
+hit-test pass.
 
 ## Actor Structure Commands
 

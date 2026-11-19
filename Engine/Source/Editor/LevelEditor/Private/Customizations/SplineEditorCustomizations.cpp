@@ -80,10 +80,27 @@ namespace Durin::LevelEditor
 					const FSplinePoint* Existing = Spline.GetSplinePoint(Index);
 					if (!Existing) continue;
 					FSplinePoint Point = *Existing;
-					if (Edit(Index, Point)) { Spline.UpdateSplinePoint(Index, Point); bChanged = true; }
+					if (Edit(Index, Point)) bChanged |= Spline.UpdateSplinePoint(Index, Point, false);
 				}
+				if (bChanged) Spline.UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 				return bChanged;
 			});
+		}
+
+		auto GetKeySpan(const DSplineComponent& Spline, uint32 SegmentIndex) -> double
+		{
+			const auto Evaluation = Spline.GetEvaluationData();
+			if (SegmentIndex >= Evaluation->GetNumSegments()) return 1.0;
+			const auto& Segment = Evaluation->GetSegments()[SegmentIndex];
+			return Segment.EndKey - Segment.StartKey;
+		}
+
+		auto GetHandleScale(const DSplineComponent& Spline, uint32 PointIndex, bool bArrive) -> double
+		{
+			if (bArrive && PointIndex == 0 && !Spline.IsClosedLoop()) return HandleScale;
+			const uint32 Segment = bArrive
+				? (PointIndex == 0 ? Spline.GetNumSplineSegments() - 1 : PointIndex - 1) : PointIndex;
+			return HandleScale * GetKeySpan(Spline, Segment);
 		}
 
 		auto SetTangentMode(DSplineComponent& Spline, uint32 Index, FSplinePoint& Point, ESplineTangentMode Mode) -> bool
@@ -91,11 +108,11 @@ namespace Durin::LevelEditor
 			if (Point.TangentMode == Mode) return false;
 			if (Mode == ESplineTangentMode::ManualAligned || Mode == ESplineTangentMode::ManualBroken)
 			{
-				if (Index < Spline.GetNumSplineSegments()) Point.LeaveTangent = Spline.GetSampleAtParameter({Index, 0.0}).FirstDerivative;
+				if (Index < Spline.GetNumSplineSegments()) Point.LeaveTangent = Spline.GetSampleAtParameter({Index, 0.0}).FirstDerivative / GetKeySpan(Spline, Index);
 				if (Index > 0 || Spline.IsClosedLoop())
 				{
 					const uint32 Previous = Index == 0 ? Spline.GetNumSplineSegments() - 1 : Index - 1;
-					Point.ArriveTangent = Spline.GetSampleAtParameter({Previous, 1.0}).FirstDerivative;
+					Point.ArriveTangent = Spline.GetSampleAtParameter({Previous, 1.0}).FirstDerivative / GetKeySpan(Spline, Previous);
 				}
 				if (Mode == ESplineTangentMode::ManualAligned)
 				{
@@ -121,10 +138,16 @@ namespace Durin::LevelEditor
 				const FSplinePoint* Point = ResolvePoint();
 				DSplineComponent* Resolved = Spline.Get();
 				if (!Point || !Resolved) return Result;
+				const uint32 Index = *Resolved->GetSplineCurve().FindPointIndex(Element.StableId);
 				FVector3 LocalPosition = Point->Position;
-				if (Element.Kind == EEditorSubElementKind::ArriveTangent) LocalPosition -= Point->ArriveTangent * HandleScale;
-				if (Element.Kind == EEditorSubElementKind::LeaveTangent) LocalPosition += Point->LeaveTangent * HandleScale;
+				if (Element.Kind == EEditorSubElementKind::ArriveTangent) LocalPosition -= Point->ArriveTangent * GetHandleScale(*Resolved, Index, true);
+				if (Element.Kind == EEditorSubElementKind::LeaveTangent) LocalPosition += Point->LeaveTangent * GetHandleScale(*Resolved, Index, false);
 				Result.Translation = LocalToWorld(*Resolved, LocalPosition);
+				if (Element.Kind == EEditorSubElementKind::Point)
+				{
+					Result.Rotation = Resolved->GetWorldRotation() * Point->Rotation;
+					Result.Scale3D = Point->Scale;
+				}
 				return Result;
 			}
 			auto SetTransform(const FTransform& Transform) -> bool override
@@ -136,11 +159,17 @@ namespace Durin::LevelEditor
 				if (!Existing) return false;
 				FSplinePoint Point = *Existing;
 				const FVector3 LocalPosition = WorldToLocal(*Resolved, Transform.Translation);
-				if (Element.Kind == EEditorSubElementKind::Point) Point.Position = LocalPosition;
+				if (Element.Kind == EEditorSubElementKind::Point)
+				{
+					Point.Position = LocalPosition;
+					Point.Rotation = glm::inverse(Resolved->GetWorldRotation()) * Transform.Rotation;
+					Point.Scale = Transform.Scale3D;
+				}
 				else
 				{
-					const FVector3 Tangent = (Element.Kind == EEditorSubElementKind::ArriveTangent)
-						? (Point.Position - LocalPosition) / HandleScale : (LocalPosition - Point.Position) / HandleScale;
+					const bool bArrive = Element.Kind == EEditorSubElementKind::ArriveTangent;
+					const FVector3 Tangent = (bArrive ? Point.Position - LocalPosition : LocalPosition - Point.Position)
+						/ GetHandleScale(*Resolved, *Index, bArrive);
 					if (Element.Kind == EEditorSubElementKind::ArriveTangent) Point.ArriveTangent = Tangent;
 					else Point.LeaveTangent = Tangent;
 					if (Point.TangentMode == ESplineTangentMode::ManualAligned)
@@ -150,7 +179,9 @@ namespace Durin::LevelEditor
 			}
 			auto GetPackage() const -> DPackage* override { return Spline.Get() ? Spline.Get()->GetPackage() : nullptr; }
 			auto GetLabel() const -> std::string override { return Element.Kind == EEditorSubElementKind::Point ? "Spline Point" : "Spline Tangent"; }
-			auto GetCapabilities() const -> ETransformGizmoCapability override { return ETransformGizmoCapability::Translate; }
+			auto GetCapabilities() const -> ETransformGizmoCapability override { return Element.Kind == EEditorSubElementKind::Point
+				? ETransformGizmoCapability::All
+				: ETransformGizmoCapability::Translate; }
 		private:
 			auto ResolvePoint() const -> const FSplinePoint*
 			{
@@ -162,6 +193,25 @@ namespace Durin::LevelEditor
 			TWeakObjectPtr<DSplineComponent> Spline;
 			FEditorSubElementSelection Element;
 		};
+
+		auto DrawSplineAttributeSamples(DSplineComponent& Spline, const FSplineEvaluationSegment& Segment,
+			AActor* Actor, FEditorVisualizationCollector& Collector) -> void
+		{
+			const FVector4f RightColor = ToColor(MonaImGui::EUIThemeColor::AxisY);
+			const FVector4f UpColor = ToColor(MonaImGui::EUIThemeColor::AxisZ);
+			constexpr double AxisLength = 0.4;
+			for (double T : {0.25, 0.5, 0.75})
+			{
+				const double Key = std::lerp(Segment.StartKey, Segment.EndKey, T);
+				const FTransform Frame = Spline.GetTransformAtSplineInputKey(Key, ESplineCoordinateSpace::World, true);
+				const FVector3 Right = Frame.Rotation * FVector3(0.0, Frame.Scale3D.y * AxisLength, 0.0);
+				const FVector3 Up = Frame.Rotation * FVector3(0.0, 0.0, Frame.Scale3D.z * AxisLength);
+				Collector.AddLine({.Start = Frame.Translation - Right, .End = Frame.Translation + Right,
+					.Color = RightColor, .Actor = Actor, .Component = &Spline, .bHitTest = false});
+				Collector.AddLine({.Start = Frame.Translation, .End = Frame.Translation + Up,
+					.Color = UpColor, .Actor = Actor, .Component = &Spline, .bHitTest = false});
+			}
+		}
 
 		class FSplineComponentVisualizer final : public IComponentEditorVisualizer
 		{
@@ -181,7 +231,8 @@ namespace Durin::LevelEditor
 					if (!StartPoint) continue;
 					const FEditorSubElementSelection Element{EEditorSubElementKind::Segment, StartPoint->Id, static_cast<int32>(SegmentIndex)};
 					FVector3 Previous = Spline->GetSampleAtParameter({SegmentIndex, 0.0}, ESplineCoordinateSpace::World).Position;
-					const auto& Samples = Evaluation->GetSegments()[SegmentIndex].DistanceSamples;
+					const auto& Segment = Evaluation->GetSegments()[SegmentIndex];
+					const auto& Samples = Segment.DistanceSamples;
 					std::vector<double> SampleParameters;
 					for (const FSplineDistanceSample& Sample : Samples) SampleParameters.push_back(Sample.T);
 					for (uint32 Step = 0; Step <= 16; ++Step) SampleParameters.push_back(static_cast<double>(Step) / 16.0);
@@ -192,11 +243,17 @@ namespace Durin::LevelEditor
 					{
 						const FVector3 Current = Spline->GetSampleAtParameter({SegmentIndex, SampleParameters[SampleIndex]}, ESplineCoordinateSpace::World).Position;
 						FEditorVisualizationLine Line{Previous, Current, CurveColor, Context.bSelected ? 3.0f : 2.0f, 7.0f, 20, Actor, Spline,
-							ESimpleElementLinePattern::Solid, 12.0f, HoverColor};
+							StartPoint->OutgoingInterpolation == ESplineSegmentInterpolation::Constant
+								? ESimpleElementLinePattern::Dashed : ESimpleElementLinePattern::Solid, 12.0f, HoverColor};
 						Line.Element = Element;
 						Collector.AddLine(Line);
 						Previous = Current;
 					}
+					const auto* EndPoint = Spline->GetSplinePoint((SegmentIndex + 1) % Spline->GetNumSplinePoints());
+					if (Context.bComponentSelected && EndPoint
+						&& (IsSelected(Context.SelectedSubElements, {EEditorSubElementKind::Point, StartPoint->Id})
+							|| IsSelected(Context.SelectedSubElements, {EEditorSubElementKind::Point, EndPoint->Id})))
+						DrawSplineAttributeSamples(*Spline, Segment, Actor, Collector);
 				}
 				if (!Context.bSelected) return;
 				for (uint32 PointIndex = 0; PointIndex < Spline->GetNumSplinePoints(); ++PointIndex)
@@ -211,8 +268,8 @@ namespace Durin::LevelEditor
 					PointBox.Element = PointElement;
 					Collector.AddBox(PointBox);
 					if (Point->TangentMode != ESplineTangentMode::ManualAligned && Point->TangentMode != ESplineTangentMode::ManualBroken) continue;
-					const FVector3 Arrive = LocalToWorld(*Spline, Point->Position - Point->ArriveTangent * HandleScale);
-					const FVector3 Leave = LocalToWorld(*Spline, Point->Position + Point->LeaveTangent * HandleScale);
+					const FVector3 Arrive = LocalToWorld(*Spline, Point->Position - Point->ArriveTangent * GetHandleScale(*Spline, PointIndex, true));
+					const FVector3 Leave = LocalToWorld(*Spline, Point->Position + Point->LeaveTangent * GetHandleScale(*Spline, PointIndex, false));
 					for (const auto& [Handle, Kind] : {std::pair{Arrive, EEditorSubElementKind::ArriveTangent}, std::pair{Leave, EEditorSubElementKind::LeaveTangent}})
 					{
 						FEditorVisualizationLine Stem{WorldPoint, Handle, ToColor(MonaImGui::EUIThemeColor::Info), 1.5f, 6.0f, 40, Actor, Spline};
@@ -379,6 +436,20 @@ namespace Durin::LevelEditor
 			}
 		};
 
+		auto DrawSplineVectorInput(const char* Label, const char* Id, FVector3& Value, bool bMixed, bool bReadOnly) -> bool
+		{
+			MonaImGui::PropertyEdit::BeginRow(Label, bReadOnly);
+			double Components[] = {Value.x, Value.y, Value.z};
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (bMixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+			const bool bCommitted = ImGui::InputScalarN(Id, ImGuiDataType_Double, Components, 3, nullptr, nullptr,
+				"%.4f", ImGuiInputTextFlags_EnterReturnsTrue);
+			if (bMixed) ImGui::PopItemFlag();
+			MonaImGui::PropertyEdit::EndRow(bReadOnly);
+			Value = FVector3(Components[0], Components[1], Components[2]);
+			return bCommitted && !bReadOnly && Math::IsFinite(Value);
+		}
+
 		class FSplineDetailsCustomization final : public IDetailCustomization
 		{
 		public:
@@ -389,7 +460,7 @@ namespace Durin::LevelEditor
 				auto* Spline = Cast<DSplineComponent>(Object);
 				if (!Spline) return;
 				if (FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve")) Builder.HideProperty(SplineCurve);
-				Builder.EditCategory("Spline").AddCustomRow("Spline Edit Points Segments Length Position Tangents Interpolation Automatic Clamped Aligned Broken Add Duplicate Delete Loop Reorder",
+				Builder.EditCategory("Spline").AddCustomRow("Spline Edit Points Segments Length Position Rotation Scale Input Key Loop Key Tangents Interpolation Automatic Clamped Aligned Broken Add Duplicate Delete Loop Reorder",
 					[&Context, Spline](FPropertyView&, const FPropertyViewContext& ViewContext) {
 					ImGui::PushID(Spline);
 					bool Changed = false;
@@ -413,6 +484,22 @@ namespace Durin::LevelEditor
 						ImGui::SameLine();
 						ImGui::TextDisabled(bClosedLoop ? "Last point connects to first" : "Endpoints remain separate");
 						MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
+
+						if (Spline->IsClosedLoop() && Spline->GetNumSplineSegments() > 0)
+						{
+							MonaImGui::PropertyEdit::BeginRow("Loop Key", ViewContext.bReadOnly);
+							double LoopKey = Spline->GetSplineCurve().GetLoopKey();
+							ImGui::SetNextItemWidth(-FLT_MIN);
+							if (ImGui::InputDouble("##LoopKey", &LoopKey, 0.0, 0.0, "%.9g", ImGuiInputTextFlags_EnterReturnsTrue)
+								&& !ViewContext.bReadOnly && LoopKey != Spline->GetSplineCurve().GetLoopKey())
+							{
+								Changed |= CommitSplineEdit(*Spline, ViewContext.TransactionMode, "Edit Spline Loop Key",
+									[&] { return Spline->SetClosedLoopAtPosition(LoopKey); });
+							}
+							if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+								ImGui::SetTooltip("The loop key must be greater than the last point's input key.");
+							MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
+						}
 
 						MonaImGui::PropertyEdit::BeginRow("Curve Actions", ViewContext.bReadOnly);
 						if (ImGui::Button("Add Point", ImVec2(-FLT_MIN, 0.0f)) && !ViewContext.bReadOnly)
@@ -462,9 +549,52 @@ namespace Durin::LevelEditor
 							Changed |= EditSelectedPoints(Context, *Spline, ViewContext.TransactionMode, "Edit Spline Point Position",
 								[Delta](uint32, FSplinePoint& Point) { Point.Position += Delta; return Math::Length(Delta) > 1e-12; });
 						}
+						const auto* FirstPoint = Spline->GetSplinePoint(Selected.front());
+						const FQuat FirstRotation = FirstPoint->Rotation;
+						const FVector3 FirstScale = FirstPoint->Scale;
+						FVector3 RotationDegrees = Math::QuaternionToEulerDegrees(FirstRotation);
+						const bool bMixedRotation = std::ranges::any_of(Selected, [Spline, FirstRotation](uint32 Index) {
+							return !Math::AreRotationsEquivalent(FirstRotation, Spline->GetSplinePoint(Index)->Rotation);
+						});
+						if (DrawSplineVectorInput("Rotation (Degrees)", "##SplinePointRotation", RotationDegrees, bMixedRotation, ViewContext.bReadOnly))
+						{
+							const FQuat Rotation = Math::MakeQuaternionFromEulerDegrees(RotationDegrees);
+							Changed |= EditSelectedPoints(Context, *Spline, ViewContext.TransactionMode, "Edit Spline Point Rotation",
+								[Rotation](uint32, FSplinePoint& Point) {
+									if (Math::AreRotationsEquivalent(Point.Rotation, Rotation)) return false;
+									Point.Rotation = glm::dot(Point.Rotation, Rotation) < 0.0 ? -Rotation : Rotation;
+									return true;
+								});
+						}
+
+						FVector3 Scale = FirstScale;
+						const bool bMixedScale = std::ranges::any_of(Selected, [Spline, FirstScale](uint32 Index) {
+							return Spline->GetSplinePoint(Index)->Scale != FirstScale;
+						});
+						if (DrawSplineVectorInput("Scale", "##SplinePointScale", Scale, bMixedScale, ViewContext.bReadOnly))
+						{
+							Changed |= EditSelectedPoints(Context, *Spline, ViewContext.TransactionMode, "Edit Spline Point Scale",
+								[Scale](uint32, FSplinePoint& Point) { Point.Scale = Scale; return true; });
+						}
+
 						if (Selected.size() == 1)
 						{
 							const FSplinePoint* SelectedPoint = Spline->GetSplinePoint(Selected.front());
+							double Key = SelectedPoint->InputKey;
+							MonaImGui::PropertyEdit::BeginRow("Input Key", ViewContext.bReadOnly);
+							ImGui::SetNextItemWidth(-FLT_MIN);
+							const bool bKeyCommitted = ImGui::InputDouble("##SplinePointKey", &Key, 0.0, 0.0, "%.9g", ImGuiInputTextFlags_EnterReturnsTrue);
+							if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+								ImGui::SetTooltip("Point keys must be strictly increasing and stay before the loop key override.");
+							MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
+							if (bKeyCommitted && !ViewContext.bReadOnly && Key != SelectedPoint->InputKey
+								&& Spline->GetSplineCurve().IsValidPointKey(Selected.front(), Key))
+							{
+								Changed |= EditSelectedPoints(Context, *Spline, ViewContext.TransactionMode, "Edit Spline Point Key",
+									[Key](uint32, FSplinePoint& Point) { Point.InputKey = Key; return true; });
+								SelectedPoint = Spline->GetSplinePoint(Selected.front());
+							}
+
 							if (SelectedPoint->TangentMode == ESplineTangentMode::ManualAligned || SelectedPoint->TangentMode == ESplineTangentMode::ManualBroken)
 							{
 								for (const auto& [Label, bArrive] : {std::pair{"Arrive Tangent", true}, {"Leave Tangent", false}})
@@ -496,10 +626,11 @@ namespace Durin::LevelEditor
 						});
 						MonaImGui::PropertyEdit::BeginRow("Interpolation", ViewContext.bReadOnly);
 						const char* InterpolationPreview = bMixedInterpolation ? "Multiple Values"
-							: Interpolation == ESplineSegmentInterpolation::Linear ? "Linear" : "Cubic";
+							: Interpolation == ESplineSegmentInterpolation::Linear ? "Linear"
+							: Interpolation == ESplineSegmentInterpolation::Constant ? "Constant" : "Cubic";
 						if (ImGui::BeginCombo("##Interpolation", InterpolationPreview))
 						{
-							for (const auto& [Label, Value] : {std::pair{"Linear", ESplineSegmentInterpolation::Linear}, std::pair{"Cubic", ESplineSegmentInterpolation::Cubic}})
+							for (const auto& [Label, Value] : {std::pair{"Linear", ESplineSegmentInterpolation::Linear}, std::pair{"Cubic", ESplineSegmentInterpolation::Cubic}, std::pair{"Constant", ESplineSegmentInterpolation::Constant}})
 								if (ImGui::Selectable(Label, !bMixedInterpolation && Value == Interpolation) && !ViewContext.bReadOnly)
 									Changed |= EditSelectedPoints(Context, *Spline, ViewContext.TransactionMode, "Set Spline Interpolation",
 										[Value](uint32, FSplinePoint& Point) { if (Point.OutgoingInterpolation == Value) return false; Point.OutgoingInterpolation = Value; return true; });
@@ -624,29 +755,32 @@ namespace Durin::LevelEditor
 		const FSplinePoint* StartPtr = Spline.GetSplinePoint(StartIndex);
 		const FSplinePoint* EndPtr = Spline.GetSplinePoint(EndIndex);
 		if (!StartPtr || !EndPtr) return false;
-		FSplinePoint Start = *StartPtr;
-		FSplinePoint End = *EndPtr;
-		FSplinePoint Inserted(Spline.GetSampleAtParameter({SegmentIndex, T}).Position);
+		auto Points = Spline.GetSplinePoints();
+		FSplinePoint& Start = Points[StartIndex];
+		FSplinePoint& End = Points[EndIndex];
+		const auto Evaluation = Spline.GetEvaluationData();
+		const auto& Segment = Evaluation->GetSegments()[SegmentIndex];
+		const FSplineSample Sample = Evaluation->Evaluate({SegmentIndex, T});
+		FSplinePoint Inserted(Sample.Position);
+		Inserted.InputKey = std::lerp(Segment.StartKey, Segment.EndKey, T);
+		if (Inserted.InputKey <= Segment.StartKey || Inserted.InputKey >= Segment.EndKey) return false;
+		Inserted.Rotation = Sample.Rotation;
+		Inserted.Scale = Sample.Scale;
 		Inserted.OutgoingInterpolation = Start.OutgoingInterpolation;
 		if (Start.OutgoingInterpolation == ESplineSegmentInterpolation::Cubic)
 		{
-			const FSplineSample StartSample = Spline.GetSampleAtParameter({SegmentIndex, 0.0});
-			const FSplineSample EndSample = Spline.GetSampleAtParameter({SegmentIndex, 1.0});
-			const FVector3 P0 = StartSample.Position, P1 = P0 + StartSample.FirstDerivative / 3.0;
-			const FVector3 P3 = EndSample.Position, P2 = P3 - EndSample.FirstDerivative / 3.0;
-			const FVector3 A = Math::Lerp(P0, P1, T), B = Math::Lerp(P1, P2, T), C = Math::Lerp(P2, P3, T);
-			const FVector3 D = Math::Lerp(A, B, T), E = Math::Lerp(B, C, T), Q = Math::Lerp(D, E, T);
-			Start.LeaveTangent = (A - P0) * 3.0;
-			Inserted.Position = Q;
-			Inserted.ArriveTangent = (Q - D) * 3.0;
-			Inserted.LeaveTangent = (E - Q) * 3.0;
-			End.ArriveTangent = (P3 - C) * 3.0;
-			Start.TangentMode = Inserted.TangentMode = End.TangentMode = ESplineTangentMode::ManualBroken;
+			// Restrict the original Hermite polynomial in key space.
+			if (Start.TangentMode != ESplineTangentMode::ManualBroken)
+				SetTangentMode(Spline, StartIndex, Start, ESplineTangentMode::ManualBroken);
+			if (End.TangentMode != ESplineTangentMode::ManualBroken)
+				SetTangentMode(Spline, EndIndex, End, ESplineTangentMode::ManualBroken);
+			Inserted.ArriveTangent = Inserted.LeaveTangent = Sample.FirstDerivative / (Segment.EndKey - Segment.StartKey);
+			Inserted.TangentMode = ESplineTangentMode::ManualBroken;
 		}
-		if (!Spline.UpdateSplinePoint(StartIndex, Start) || !Spline.UpdateSplinePoint(EndIndex, End)) return false;
-		const uint32 InsertIndex = SegmentIndex + 1;
-		if (!Spline.InsertSplinePoint(InsertIndex, Inserted)) return false;
-		if (OutPointId) *OutPointId = Spline.GetSplinePoint(InsertIndex)->Id;
+		const FGuid InsertedId = Inserted.Id;
+		Points.insert(Points.begin() + SegmentIndex + 1, Inserted);
+		Spline.SetSplinePoints(std::move(Points), EndIndex == 0 ? std::optional(Segment.EndKey) : std::nullopt);
+		if (OutPointId) *OutPointId = InsertedId;
 		return true;
 	}
 

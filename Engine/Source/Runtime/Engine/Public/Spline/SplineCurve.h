@@ -18,6 +18,9 @@ namespace Durin
 	struct FSplineEvaluationSegment
 	{
 		ESplineSegmentInterpolation Interpolation = ESplineSegmentInterpolation::Linear;
+		double StartKey = 0.0;
+		double EndKey = 1.0;
+		FVector3 EndPosition{0.0};
 		FVector3 Coefficient0{0.0};
 		FVector3 Coefficient1{0.0};
 		FVector3 Coefficient2{0.0};
@@ -32,6 +35,10 @@ namespace Durin
 	{
 	public:
 		ENGINE_API auto Evaluate(FSplineParameter Parameter) const -> FSplineSample;
+		ENGINE_API auto BuildScaledDistanceData(const FVector3& Scale) const -> std::shared_ptr<const FSplineEvaluationData>;
+		ENGINE_API auto EvaluateAtInputKey(double InputKey) const -> FSplineSample;
+		ENGINE_API auto GetParameterAtInputKey(double InputKey) const -> FSplineParameter;
+		ENGINE_API auto GetInputKeyAtParameter(FSplineParameter Parameter) const -> double;
 		ENGINE_API auto EvaluateAtLocalDistance(double LocalDistance) const -> FSplineSample;
 		ENGINE_API auto GetLocalDistanceAtParameter(FSplineParameter Parameter) const -> double;
 		ENGINE_API auto GetParameterAtLocalDistance(double LocalDistance) const -> FSplineParameter;
@@ -47,11 +54,24 @@ namespace Durin
 		friend struct FSplineCurve;
 		auto ResolveParameter(FSplineParameter Parameter) const -> FSplineParameter;
 
+		struct FSplineAttributeSegment
+		{
+			FQuat StartRotation;
+			FQuat EndRotation;
+			FQuat StartRotationControl;
+			FQuat EndRotationControl;
+			FVector3 StartScale;
+			FVector3 EndScale;
+			FVector3 StartScaleTangent;
+			FVector3 EndScaleTangent;
+		};
+
 		std::vector<FSplineEvaluationSegment> Segments;
-		FVector3 SinglePoint{0.0};
+		std::vector<FSplineAttributeSegment> AttributeSegments;
+		FSplineSample SinglePoint;
+		double FirstKey = 0.0;
 		FBox LocalBounds;
 		double LocalLength = 0.0;
-		bool bHasPoint = false;
 		bool bClosedLoop = false;
 	};
 
@@ -78,9 +98,15 @@ namespace Durin
 		ENGINE_API auto MovePoint(uint32 FromIndex, uint32 ToIndex) -> bool;
 		ENGINE_API auto ClearPoints() -> void;
 		ENGINE_API auto RepairPointIds() -> bool;
+		ENGINE_API auto HasValidInputKeys() const -> bool;
+		ENGINE_API auto RepairInputKeys() -> bool;
+		ENGINE_API auto ResolveInsertionKey(uint32 Index, double RequestedKey) const -> std::optional<double>;
+		ENGINE_API auto IsValidPointKey(uint32 Index, double InputKey) const -> bool;
 
 		auto IsClosedLoop() const -> bool { return bClosedLoop; }
 		ENGINE_API auto SetClosedLoop(bool bInClosedLoop) -> void;
+		ENGINE_API auto SetClosedLoopAtPosition(double InputKey) -> bool;
+		ENGINE_API auto GetLoopKey() const -> double;
 
 		ENGINE_API auto BuildEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>;
 
@@ -91,5 +117,11 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		bool bClosedLoop = false;
+
+		DPROPERTY()
+		double LoopKeyOverride = FSplinePoint::AutoInputKey;
+
+		DPROPERTY(Edit)
+		bool bStationaryEndpoints = false;
 	};
 } // namespace Durin

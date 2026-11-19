@@ -5,6 +5,7 @@
 #include "EngineAPI.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
+#include "Math/Vector.h"
 #include "Misc/Guid.h"
 
 #include "SplineTypes.gen.h"
@@ -15,7 +16,8 @@ namespace Durin
 	enum class ESplineSegmentInterpolation : uint8
 	{
 		Linear,
-		Cubic
+		Cubic,
+		Constant
 	};
 
 	DENUM()
@@ -107,13 +109,26 @@ namespace Durin
 		ENGINE_API FSplinePoint();
 		ENGINE_API explicit FSplinePoint(const FVector3& InPosition);
 
+		// A position-only point receives a key when inserted into a curve.
+		static constexpr double AutoInputKey = std::numeric_limits<double>::lowest();
+
 		DPROPERTY()
 		FGuid Id;
+
+		DPROPERTY()
+		double InputKey = AutoInputKey;
+
+		DPROPERTY(Edit)
+		FQuat Rotation = FQuatConstants::Identity;
+
+		DPROPERTY(Edit)
+		FVector3 Scale{1.0};
 
 		DPROPERTY(Edit)
 		FVector3 Position{0.0};
 
 		DPROPERTY(Edit)
+		// Tangents are derivatives with respect to InputKey.
 		FVector3 ArriveTangent{5.0, 0.0, 0.0};
 
 		DPROPERTY(Edit)
@@ -142,5 +157,7 @@ namespace Durin
 		FVector3 FirstDerivative{0.0};
 		FVector3 SecondDerivative{0.0};
 		FVector3 Direction{0.0};
+		FQuat Rotation = FQuatConstants::Identity;
+		FVector3 Scale{1.0};
 	};
 } // namespace Durin

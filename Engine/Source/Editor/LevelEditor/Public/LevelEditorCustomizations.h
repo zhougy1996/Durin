@@ -55,6 +55,7 @@ namespace Durin::LevelEditor
 		// Applied only when this primitive's actor is hovered; absence preserves its base color.
 		std::optional<FVector4f> HoverColor;
 		FEditorSubElementSelection Element;
+		bool bHitTest = true;
 	};
 
 	// Describes a world-space icon and its screen-space hit-test policy.

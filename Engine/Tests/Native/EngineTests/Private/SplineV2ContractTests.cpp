@@ -45,11 +45,6 @@ namespace
 		FVectorFixture SecondDerivative;
 	};
 
-	struct FAutomaticTangents
-	{
-		FVectorFixture Arrive;
-		FVectorFixture Leave;
-	};
 
 	constexpr double AbsoluteLengthError = 1.e-4;
 	constexpr double RelativeLengthError = 1.e-5;
@@ -100,44 +95,6 @@ namespace
 		};
 	}
 
-	auto ComputeAutomaticTangents(
-		const FVectorFixture& Previous,
-		const FVectorFixture& Point,
-		const FVectorFixture& Next,
-		bool bClamped) -> FAutomaticTangents
-	{
-		const FVectorFixture IncomingChord = Point - Previous;
-		const FVectorFixture OutgoingChord = Next - Point;
-		const double IncomingLength = Length(IncomingChord);
-		const double OutgoingLength = Length(OutgoingChord);
-
-		if (IncomingLength <= DegenerateChordEpsilon && OutgoingLength <= DegenerateChordEpsilon)
-			return {};
-		if (IncomingLength <= DegenerateChordEpsilon)
-			return {.Arrive = {}, .Leave = OutgoingChord};
-		if (OutgoingLength <= DegenerateChordEpsilon)
-			return {.Arrive = IncomingChord, .Leave = {}};
-
-		const FVectorFixture IncomingDirection = IncomingChord * (1.0 / IncomingLength);
-		const FVectorFixture OutgoingDirection = OutgoingChord * (1.0 / OutgoingLength);
-		FVectorFixture KnotDerivative =
-			(IncomingDirection * OutgoingLength + OutgoingDirection * IncomingLength)
-			* (1.0 / (IncomingLength + OutgoingLength));
-
-		if (bClamped
-			&& (Dot(KnotDerivative, IncomingDirection) <= 0.0
-				|| Dot(KnotDerivative, OutgoingDirection) <= 0.0))
-		{
-			KnotDerivative = {};
-		}
-
-		const FVectorFixture Direction = Normalize(KnotDerivative);
-		const double DerivativeMagnitude = Length(KnotDerivative);
-		return {
-			.Arrive = Direction * std::min(DerivativeMagnitude * IncomingLength, IncomingLength),
-			.Leave = Direction * std::min(DerivativeMagnitude * OutgoingLength, OutgoingLength),
-		};
-	}
 
 	auto ControlPolygonLength(const FHermiteFixture& Curve) -> double
 	{
@@ -247,46 +204,6 @@ TEST(FSplineV2ContractTests, LinearAndManualCubicGoldenSamplesAreExact)
 	ExpectVectorNear(ZeroTangentMiddle.Position, {4.0, 0.0, 0.0});
 	ExpectVectorNear(EvaluateHermite(ZeroTangentCurve, 0.0).FirstDerivative, {});
 	ExpectVectorNear(EvaluateHermite(ZeroTangentCurve, 1.0).FirstDerivative, {});
-}
-
-TEST(FSplineV2ContractTests, AutomaticTangentsUseChordLengthKnotsAndDeterministicDegenerates)
-{
-	const FAutomaticTangents Interior = ComputeAutomaticTangents(
-		{0.0, 0.0, 0.0}, {3.0, 4.0, 0.0}, {9.0, 4.0, 0.0}, false);
-	ExpectVectorNear(Interior.Arrive, {3.909090909090909, 2.181818181818182, 0.0});
-	ExpectVectorNear(Interior.Leave, {4.690909090909091, 2.618181818181818, 0.0});
-
-	const FAutomaticTangents DuplicatePrevious = ComputeAutomaticTangents(
-		{3.0, 4.0, 0.0}, {3.0, 4.0, 0.0}, {9.0, 4.0, 0.0}, false);
-	ExpectVectorNear(DuplicatePrevious.Arrive, {});
-	ExpectVectorNear(DuplicatePrevious.Leave, {6.0, 0.0, 0.0});
-
-	const FAutomaticTangents AllDuplicate = ComputeAutomaticTangents(
-		{3.0, 4.0, 0.0}, {3.0, 4.0, 0.0}, {3.0, 4.0, 0.0}, false);
-	ExpectVectorNear(AllDuplicate.Arrive, {});
-	ExpectVectorNear(AllDuplicate.Leave, {});
-
-	const FVectorFixture OpenStartTangent = FVectorFixture{3.0, 4.0, 0.0} - FVectorFixture{0.0, 0.0, 0.0};
-	const FVectorFixture OpenEndTangent = FVectorFixture{9.0, 4.0, 0.0} - FVectorFixture{3.0, 4.0, 0.0};
-	ExpectVectorNear(OpenStartTangent, {3.0, 4.0, 0.0});
-	ExpectVectorNear(OpenEndTangent, {6.0, 0.0, 0.0});
-}
-
-TEST(FSplineV2ContractTests, AutomaticClampingStopsReversalAndBoundsEachHandle)
-{
-	const FVectorFixture Previous{0.0, 0.0, 0.0};
-	const FVectorFixture Point{10.0, 0.0, 0.0};
-	const FVectorFixture Next{9.0, 0.1, 0.0};
-	const FAutomaticTangents Clamped = ComputeAutomaticTangents(Previous, Point, Next, true);
-	ExpectVectorNear(Clamped.Arrive, {});
-	ExpectVectorNear(Clamped.Leave, {});
-
-	const FAutomaticTangents Smooth = ComputeAutomaticTangents(
-		{0.0, 0.0, 0.0}, {3.0, 4.0, 0.0}, {9.0, 4.0, 0.0}, true);
-	EXPECT_GT(Dot(Smooth.Arrive, {3.0, 4.0, 0.0}), 0.0);
-	EXPECT_GT(Dot(Smooth.Leave, {6.0, 0.0, 0.0}), 0.0);
-	EXPECT_LE(Length(Smooth.Arrive), 5.0);
-	EXPECT_LE(Length(Smooth.Leave), 6.0);
 }
 
 TEST(FSplineV2ContractTests, ManualAlignedAndBrokenModesHaveExplicitCoupling)

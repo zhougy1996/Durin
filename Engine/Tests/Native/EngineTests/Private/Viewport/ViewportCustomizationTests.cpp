@@ -116,6 +116,50 @@ TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FSplineComponentVisualizerTests, PreviewsRuntimeAttributeCurvesAcrossTheClosedSeam)
+{
+	using namespace Durin;
+	using namespace Durin::LevelEditor;
+	InitializeDObjectSystem();
+	auto* Actor = NewObject<AActor>(nullptr, "SplineAttributePreviewActor");
+	auto* Spline = Cast<DSplineComponent>(Actor->AddInstanceComponent(DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+
+	FSplinePoint First({0.0, 0.0, 0.0});
+	FSplinePoint Middle({5.0, 0.0, 0.0});
+	FSplinePoint Last({10.0, 5.0, 0.0});
+	First.InputKey = 2.0;
+	Middle.InputKey = 4.0;
+	Last.InputKey = 7.0;
+	Middle.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(40.0, FVectorConstants::Forward);
+	Last.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(100.0, FVectorConstants::Forward);
+	Last.Scale = {1.0, 3.0, 2.0};
+	Spline->SetSplinePoints({First, Middle, Last});
+	ASSERT_TRUE(Spline->SetClosedLoopAtPosition(11.0));
+
+	const std::array Selection{FEditorSubElementSelection{EEditorSubElementKind::Point, First.Id}};
+	FSceneView View;
+	FEditorVisualizationCollector Collector;
+	CreateSplineComponentVisualizer()->DrawVisualization(Spline, {
+		.View = View, .bSelected = true, .bComponentSelected = true, .SelectedSubElements = Selection}, Collector);
+	const auto& Lines = Collector.GetLines();
+	EXPECT_EQ(std::ranges::count_if(Lines, [](const auto& Line) { return !Line.bHitTest; }), 12);
+
+	const FTransform Frame = Spline->GetTransformAtSplineInputKey(9.0, ESplineCoordinateSpace::World, true);
+	const FVector3 Right = Frame.Rotation * (FVectorConstants::Right * Frame.Scale3D.y * 0.4);
+	const FVector3 Up = Frame.Rotation * (FVectorConstants::Up * Frame.Scale3D.z * 0.4);
+	auto HasPreviewLine = [&Lines](const FVector3& Start, const FVector3& End) {
+		return std::ranges::any_of(Lines, [&](const auto& Line) {
+			return !Line.bHitTest && Math::Length(Line.Start - Start) < 1.e-8 && Math::Length(Line.End - End) < 1.e-8;
+		});
+	};
+	EXPECT_TRUE(HasPreviewLine(Frame.Translation - Right, Frame.Translation + Right));
+	EXPECT_TRUE(HasPreviewLine(Frame.Translation, Frame.Translation + Up));
+
+	MarkObjectHierarchyAsGarbage(Actor);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
 TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCurve)
 {
 	InitializeDObjectSystem();
@@ -142,12 +186,22 @@ TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCu
 TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 {
 	InitializeDObjectSystem();
-	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplineDetailsRowsActor");
+	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineDetailsRowsWorld");
+	World->SetWorldType(Durin::EWorldType::Editor);
+	ASSERT_NO_THROW(World->InitializeSubsystems());
+	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SplineDetailsRowsLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<Durin::AActor>("SplineDetailsRowsActor");
+	ASSERT_NE(Actor, nullptr);
 	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
 	ASSERT_NE(Spline, nullptr);
 	Durin::LevelEditor::FLevelEditorContext Context;
+	Context.Synchronize(World);
 	Context.SelectActor(Actor);
 	Context.SelectComponent(Spline);
+	Context.SelectSubElement(Spline, {Durin::LevelEditor::EEditorSubElementKind::Point, Spline->GetSplinePoint(0)->Id});
+	ASSERT_EQ(Context.GetSelectedSubElements().size(), 1u);
+	ASSERT_TRUE(Spline->SetClosedLoopAtPosition(3.0));
 	Durin::LevelEditor::FLevelDetailLayoutBuilder Builder(Context);
 	Builder.ApplyCustomization(Spline, *Durin::LevelEditor::CreateSplineDetailsCustomization());
 
@@ -168,7 +222,7 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 		Durin::FPropertyView PropertyView;
 		const Durin::FDetailLayoutBuilderResult Result = Builder.DrawRows(PropertyView, {});
 		EXPECT_EQ(Result.VisibleRowCount, 1u);
-		EXPECT_GE(ImGui::TableGetRowIndex(), 2);
+		EXPECT_GE(ImGui::TableGetRowIndex(), 11);
 		Durin::MonaImGui::PropertyEdit::EndTable();
 	}
 	ImGui::End();
@@ -176,7 +230,7 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	ImGui::DestroyContext(ImContext);
 	EXPECT_TRUE(bTableOpen);
 
-	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -189,6 +243,9 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 	Durin::FSplinePoint Start = *Spline->GetSplinePoint(0);
 	Durin::FSplinePoint End = *Spline->GetSplinePoint(1);
 	Start.Position = {0.0, 0.0, 0.0}; Start.LeaveTangent = {80.0, 120.0, 0.0}; Start.TangentMode = Durin::ESplineTangentMode::ManualBroken;
+	End.InputKey = 4.0;
+	End.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(80.0, Durin::FVectorConstants::Forward);
+	End.Scale = {1.0, 3.0, 1.5};
 	End.Position = {200.0, 40.0, 0.0}; End.ArriveTangent = {120.0, -80.0, 0.0}; End.TangentMode = Durin::ESplineTangentMode::ManualBroken;
 	ASSERT_TRUE(Spline->UpdateSplinePoint(0, Start));
 	ASSERT_TRUE(Spline->UpdateSplinePoint(1, End));
@@ -196,16 +253,21 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 	for (uint32 Step = 0; Step <= 100; ++Step) Before.push_back(Spline->GetSampleAtParameter({0, Step / 100.0}).Position);
 	Durin::FGuid NewId;
 	constexpr double SplitT = 0.37;
+	const auto AttributesAtSplit = Spline->GetSampleAtSplineInputKey(4.0 * SplitT);
 	ASSERT_TRUE(Durin::LevelEditor::SplitSplineSegment(*Spline, 0, SplitT, &NewId));
 	ASSERT_TRUE(NewId.IsValid());
 	ASSERT_EQ(Spline->GetNumSplinePoints(), 3u);
 	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, NewId);
+	EXPECT_DOUBLE_EQ(Spline->GetSplinePoint(1)->InputKey, 4.0 * SplitT);
+	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(Spline->GetSplinePoint(1)->Rotation, AttributesAtSplit.Rotation));
+	EXPECT_EQ(Spline->GetSplinePoint(1)->Scale, AttributesAtSplit.Scale);
 	for (uint32 Step = 0; Step <= 100; ++Step)
 	{
 		const double U = Step / 100.0;
 		const Durin::FSplineParameter Parameter = U <= SplitT
 			? Durin::FSplineParameter{0, U / SplitT} : Durin::FSplineParameter{1, (U - SplitT) / (1.0 - SplitT)};
 		EXPECT_LT(Durin::Math::Length(Spline->GetSampleAtParameter(Parameter).Position - Before[Step]), 1e-4);
+		EXPECT_LT(Durin::Math::Length(Spline->GetLocationAtSplineInputKey(4.0 * U) - Before[Step]), 1e-4);
 	}
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -263,7 +325,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
 	const Durin::LevelEditor::FTransformGizmoTargetSet Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
 	ASSERT_EQ(Targets.Targets.size(), 2u);
-	EXPECT_EQ(Targets.Targets[0]->GetCapabilities(), Durin::LevelEditor::ETransformGizmoCapability::Translate);
+	EXPECT_EQ(Targets.Targets[0]->GetCapabilities(), Durin::LevelEditor::ETransformGizmoCapability::All);
 
 	Durin::LevelEditor::FLevelEditorViewportClient Client;
 	Durin::FSceneView View;
