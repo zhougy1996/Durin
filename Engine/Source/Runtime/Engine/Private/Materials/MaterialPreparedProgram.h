@@ -6,7 +6,11 @@
 
 namespace Durin
 {
-	auto AcceptMaterialShaderBindings(FMaterialCompilationOutput& Output, std::span<const FShaderCode> Stages) -> FMaterialLayoutValidationResult;
+	auto ValidateMaterialStageSequence(std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
+		const FMaterialCompilerResourceLimits& Limits, const FMaterialShaderEntrySet& OrderedEntries)
+		-> FMaterialLayoutValidationResult;
+	auto FinalizeMaterialCompilationOutput(FMaterialCompilationOutput& Output, FMaterialProgramIdentity Identity,
+		std::string_view Target, std::span<const FShaderCode> Stages, std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> bool;
 	auto GetMaterialVertexFactorySourceRoots() -> std::vector<std::string>;
 	auto ValidateMaterialEvaluationDomain(const MIR::FModule& IR) -> std::expected<void, std::string>;
 	auto MakeMaterialShaderCompileOptions(FShaderTargetIdentity Target, const FMaterialStaticProperties& Properties) -> FShaderCompileOptions;

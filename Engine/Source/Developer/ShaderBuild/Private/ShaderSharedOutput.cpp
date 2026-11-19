@@ -107,7 +107,7 @@ namespace Durin::ShaderSharedOutput
 			std::set<std::pair<std::string_view, uint32>> Unique;
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{
-				const std::string_view Name = Options.EntryPoints[Index] ? Options.EntryPoints[Index] : "";
+				const std::string_view Name = Options.EntryPoints[Index];
 				if (Name.empty() || Name.size() > MaximumStringBytes || uint32(Options.Frequencies[Index]) > uint32(EShaderFrequency::RayMiss)
 					|| !Unique.emplace(Name, uint32(Options.Frequencies[Index])).second) return false;
 			}

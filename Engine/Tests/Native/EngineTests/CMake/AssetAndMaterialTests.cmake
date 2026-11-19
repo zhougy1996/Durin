@@ -647,7 +647,12 @@ durin_add_native_test(MaterialCompileLifecycleTests
 	SOURCES
 		Private/Materials/MaterialCompileLifecycleTests.cpp
 		Private/Materials/MaterialAsyncEditingSessionTestSupport.cpp
-	PRIVATE_SOURCES ${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
+	PRIVATE_SOURCES
+		${_durin_material_editor_private}/Widgets/MaterialEditingSession.cpp
+		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
+		${_durin_material_editor_private}/Graph/MaterialGraphTexturePreviews.cpp
+		${_durin_material_editor_private}/Graph/MaterialGraphInputDetails.cpp
+		${_durin_material_editor_private}/Graph/MaterialGraphCreationMenu.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 		${CMAKE_CURRENT_SOURCE_DIR}/Private

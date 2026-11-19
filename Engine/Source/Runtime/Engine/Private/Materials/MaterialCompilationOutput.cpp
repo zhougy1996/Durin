@@ -110,46 +110,27 @@ namespace Durin
 		std::ranges::sort(Result.Entries, [](const auto& A, const auto& B) { return MaterialShaderIdentityLess(A.Shader, B.Shader); });
 		return Result;
 	}
-    auto AcceptMaterialShaderBindings(FMaterialCompilationOutput& Output, std::span<const FShaderCode> Stages) -> FMaterialLayoutValidationResult
-    {
-        if (Stages.size() != Output.Entries.size()) return {.Error = EMaterialLayoutError::InvalidReflection};
-        std::vector<std::vector<FMaterialShaderBinding>> Accepted;
-        for (size_t I = 0; I < Stages.size(); ++I)
-        {
-            const auto* D = FindMaterialShaderEntry(Output.Entries[I].Shader.ShaderType);
-            if (!D) return {.Error = EMaterialLayoutError::InvalidReflection};
-            auto Bindings = ValidateMaterialShaderBindings(Stages[I].Reflection, D->ShaderType, D->Frequency,
-                Output.Layout, Output.CollectionLayouts);
-            if (!Bindings) return {.Error = EMaterialLayoutError::InvalidReflection};
-            Accepted.push_back(std::move(*Bindings));
-        }
-        for (size_t I = 0; I < Accepted.size(); ++I) {
-            Output.Entries[I].Bindings = std::move(Accepted[I]);
-            Output.Entries[I].ParameterMapIdentity = GetMaterialParameterMapIdentity(Output.Entries[I], Stages[I]);
-        }
-        return {};
-    }
-
-	auto ValidateMaterialCompilationOutput(const FMaterialCompilationOutput& Output,
-		FMaterialProgramIdentity Identity, std::string_view Target, std::span<const FShaderCode> Stages)
+	static auto CheckMaterialCompilationOutput(auto& Output,
+		FMaterialProgramIdentity Identity, std::string_view Target, std::span<const FShaderCode> Stages, auto&& ProcessBindings)
 		-> FMaterialLayoutValidationResult
 	{
-		const FMaterialLayoutValidationResult Rejected{.Error = EMaterialLayoutError::InvalidReflection};
+		const FMaterialLayoutValidationResult InvalidOutput{.Error = EMaterialLayoutError::InvalidReflection};
 		if (Output.BindingSchemaVersion != MaterialBindingSchemaVersion || !IsSupportedMaterialQualityLevel(Output.Quality) || !IsSupportedMaterialFeatureLevel(Output.FeatureLevel)
 			|| !ValidateMaterialConfiguration(Output.Domain, Output.StaticProperties)
-			|| Output.StaticProperties != CanonicalizeMaterialShaderProperties(Output.StaticProperties)) return Rejected;
+			|| Output.StaticProperties != CanonicalizeMaterialShaderProperties(Output.StaticProperties)) return InvalidOutput;
 		FMaterialCompilerEnvironment Environment; Environment.Target = Target; Environment.Quality = Output.Quality; Environment.FeatureLevel = Output.FeatureLevel;
 		Environment.bIncludeEditorPasses = Output.bIncludeEditorPasses;
 		MIR::FModule ExpectedIR; ExpectedIR.Domain = Output.Domain;
 		const auto Expected = BuildMaterialCompilationOutput(ExpectedIR, Output.Layout,
 			Output.ActiveParameters, Output.CollectionLayouts, Output.StaticProperties, Environment, Identity);
-		if (Output.Entries.size() > MaterialProgramMaxShaderEntries || Output.Entries.size() != Expected.Entries.size() || Stages.size() != Output.Entries.size()) return Rejected;
+		if (Output.Entries.size() > MaterialProgramMaxShaderEntries || Output.Entries.size() != Expected.Entries.size() || Stages.size() != Output.Entries.size()) return InvalidOutput;
 		const auto Canonical = [](const auto& Values) {
 			return std::ranges::is_sorted(Values) && std::adjacent_find(Values.begin(), Values.end()) == Values.end();
 		};
 		for (size_t Index = 0; Index < Output.Entries.size(); ++Index)
 		{
-			const auto& Entry = Output.Entries[Index]; const auto& Required = Entry.Requirements;
+			const FMaterialLayoutValidationResult Rejected{.Error = EMaterialLayoutError::InvalidReflection, .FieldIndex = static_cast<uint32>(Index)};
+			auto& Entry = Output.Entries[Index]; const auto& Required = Entry.Requirements;
 			if (Entry.Shader != Expected.Entries[Index].Shader || Entry.Mesh != Expected.Entries[Index].Mesh
 				|| Required.AttributeIDs != Expected.Entries[Index].Requirements.AttributeIDs
 				|| !Canonical(Required.ParameterIDs) || !Canonical(Required.ResourceIndices) || !Canonical(Required.CollectionIDs)
@@ -178,13 +159,9 @@ namespace Durin
 			// Stage products occupy the same canonical full-key slots as their contracts.
 			const auto* Shader = &Stages[Index];
 			if (Shader->SourceEntryPoint != Entry.Shader.EntryPoint || Shader->Frequency != Entry.Shader.Frequency) return Rejected;
-            const auto* D = FindMaterialShaderEntry(Entry.Shader.ShaderType);
-            const auto Bindings = ValidateMaterialShaderBindings(Shader->Reflection, D->ShaderType, D->Frequency,
-                Output.Layout, Output.CollectionLayouts);
-            if (!Bindings || *Bindings != Entry.Bindings
-                || Entry.ParameterSchemaIdentity != Expected.Entries[Index].ParameterSchemaIdentity
-                || Entry.ParameterSchemaIdentity == FXxHash128{}
-                || Entry.ParameterMapIdentity != GetMaterialParameterMapIdentity(Entry, *Shader)) return Rejected;
+			if (Entry.ParameterSchemaIdentity != Expected.Entries[Index].ParameterSchemaIdentity
+				|| Entry.ParameterSchemaIdentity == FXxHash128{} || !ProcessBindings(Entry, *Shader))
+				return Rejected;
             for (const auto& Binding : Entry.Bindings)
             {
                 if (Binding.OwnerName == "Material" && (Binding.Type == ERHIBindingType::Texture || Binding.Type == ERHIBindingType::Sampler))
@@ -201,6 +178,42 @@ namespace Durin
             }
 		}
 		return {};
+	}
+
+	auto FinalizeMaterialCompilationOutput(FMaterialCompilationOutput& Output, FMaterialProgramIdentity Identity,
+		std::string_view Target, std::span<const FShaderCode> Stages, std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> bool
+	{
+		std::string Diagnostic;
+		const auto Validation = CheckMaterialCompilationOutput(Output, Identity, Target, Stages,
+			[&](FMaterialShaderEntryRequest& Entry, const FShaderCode& Shader) {
+				auto Bindings = ValidateMaterialShaderBindings(Shader.Reflection, Entry.Shader.ShaderType,
+					Entry.Shader.Frequency, Output.Layout, Output.CollectionLayouts);
+				if (!Bindings) {
+					Diagnostic = std::format("{}: {}", Entry.Shader.ShaderType, Bindings.error());
+					return false;
+				}
+				Entry.Bindings = std::move(*Bindings);
+				Entry.ParameterMapIdentity = GetMaterialParameterMapIdentity(Entry, Shader);
+				return true;
+			});
+		if (!Validation) {
+			if (Diagnostic.empty()) Diagnostic = std::format("{} [index {}]", GetMaterialLayoutErrorText(Validation.Error), Validation.FieldIndex);
+			Diagnostics.push_back({.Message = std::move(Diagnostic)});
+			return false;
+		}
+		return true;
+	}
+
+	auto ValidateMaterialCompilationOutput(const FMaterialCompilationOutput& Output, FMaterialProgramIdentity Identity,
+		std::string_view Target, std::span<const FShaderCode> Stages) -> FMaterialLayoutValidationResult
+	{
+		return CheckMaterialCompilationOutput(Output, Identity, Target, Stages,
+			[&](const FMaterialShaderEntryRequest& Entry, const FShaderCode& Shader) {
+				const auto Bindings = ValidateMaterialShaderBindings(Shader.Reflection, Entry.Shader.ShaderType,
+					Entry.Shader.Frequency, Output.Layout, Output.CollectionLayouts);
+				return Bindings && *Bindings == Entry.Bindings
+					&& Entry.ParameterMapIdentity == GetMaterialParameterMapIdentity(Entry, Shader);
+			});
 	}
 
 }

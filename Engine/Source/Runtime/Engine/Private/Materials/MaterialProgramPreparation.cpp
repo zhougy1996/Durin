@@ -286,7 +286,7 @@ namespace Durin
 		else
 		{
 			Result.StaticProperties = (*Prepared)->Properties;
-			Result.CompiledProgram = (*Prepared)->Program;
+			Result.CookedProgram = (*Prepared)->Program;
 			Result.Outcome = EMaterialProgramStatus::Ok;
 		}
 		Resource->CookedPreparation.reset();

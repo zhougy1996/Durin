@@ -680,7 +680,7 @@ namespace Durin
 		Output.CompiledShaders.resize(EntryPointCount);
 		for (uint32 Index = 0; Index < EntryPointCount; ++Index)
 		{
-			const std::array<const char8*, 1> SingleEntryPoint = {EntryPoints[Index]};
+			const std::array<const char8*, 1> SingleEntryPoint = {EntryPoints[Index].c_str()};
 
 			Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
 			Slang::ComPtr<slang::IComponentType> ComposedProgram;
@@ -695,14 +695,13 @@ namespace Durin
 				}
 				else
 				{
-					const std::string EntryPointName = EntryPoints[Index] ? std::string(EntryPoints[Index]) : std::string("<null>");
-					Output.AddError(FormatSlangDiagnostic(std::format("EntryPoint '{}'", EntryPointName), {}, CompileResult));
+					Output.AddError(FormatSlangDiagnostic(std::format("EntryPoint '{}'", EntryPoints[Index]), {}, CompileResult));
 				}
 				return Output;
 			}
 			if (DiagnosticsBlob) Output.AddDiagnostics(static_cast<const char*>(DiagnosticsBlob->getBufferPointer()));
 
-			if (auto Result = FillCompiledShaderOutput(ComposedProgram, Options.VirtualShaderPath, EntryPoints[Index], Options.Frequencies[Index], Output.CompiledShaders[Index]); !Result)
+			if (auto Result = FillCompiledShaderOutput(ComposedProgram, Options.VirtualShaderPath, EntryPoints[Index].c_str(), Options.Frequencies[Index], Output.CompiledShaders[Index]); !Result)
 			{
 				Output.AddError(std::move(Result.error()));
 				return Output;

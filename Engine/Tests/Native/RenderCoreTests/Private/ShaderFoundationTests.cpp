@@ -1596,17 +1596,19 @@ namespace Durin
 		bool LastInlineExecution = false;
 		bool Defer = false;
 		bool DeferMounted = false;
+		std::vector<std::string> MountedEntryPoints;
 		std::vector<std::function<void()>> Pending;
 		FShaderCompilerOutput Completion{.Status = EShaderBuildStatus::Canceled};
 		auto GetBuildVersion() const -> uint64 override { return 1; }
 		auto GetCompileAdapterVersion() const -> FShaderCompileAdapterVersion override { return {}; }
-		auto CompileMounted(std::string_view, const FShaderCompileOptions&, FShaderBuildRequestOptions Options, FShaderBuildCompletion Callback)
+		auto CompileMounted(std::string_view, const FShaderCompileOptions& Input, FShaderBuildRequestOptions Options, FShaderBuildCompletion Callback)
 			-> FShaderBuildHandle override
 		{
 			auto Job = std::make_shared<FCompletedRequest>();
 			Job->WaitCalls = &Waits;
 			Job->CancelCalls = &Cancels;
 			Job->Priorities = &Priorities; Job->OnPriority = &OnPriority;
+			MountedEntryPoints.assign(Input.EntryPoints.begin(), Input.EntryPoints.end());
 			LastInlineExecution = Options.bInlineExecution;
 			++Compiles;
 			auto Deliver = [Callback = std::move(Callback), Output = Completion]() mutable { Callback(std::move(Output)); };
@@ -2013,6 +2015,24 @@ namespace Durin
 		});
 		EXPECT_EQ(Backend.Stub->Compiles, 2u);
 		EXPECT_EQ(Backend.Stub->Waits, 0u);
+	}
+
+	TEST_F(FShaderFoundationTests, PreparedMountedJobOwnsEntryPointNames)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		FScopedShaderCompletionStub Scope;
+		auto& Manager = FShaderCompilingManager::Get();
+		std::string Name = "VertexMain";
+		auto Job = [&] {
+			FShaderCompileOptions Options;
+			Options.EntryPoints = {Name.c_str(), "PixelMain"};
+			Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+			return Manager.PrepareJobs("/Mounted", Options, {.bInlineExecution = true}, [](auto) {});
+		}();
+		Name.front() = 'X';
+		Manager.SubmitJobs(Job);
+		ASSERT_EQ(Manager.FinishCompilation(Job), EShaderBuildWaitResult::Completed);
+		EXPECT_EQ(Scope.Stub->MountedEntryPoints, (std::vector<std::string>{"VertexMain", "PixelMain"}));
 	}
 
 	TEST_F(FShaderFoundationTests, ShaderJobGroupsPreserveSubmissionOrderAcrossOutOfOrderCompletion)

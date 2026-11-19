@@ -298,7 +298,7 @@ namespace Durin
 					std::chrono::steady_clock::now() - ShaderMap->CompilationBegin).count();
 				LaunchTask(ShaderMap, [ShaderMap, Output = std::move(Output)]() mutable {
 					MaterialBuildPrivate::FMaterialCompilation::CompleteCompilation(ShaderMap,
-						MaterialBuildPrivate::FinalizeMaterialShaderMap(std::move(*ShaderMap->Translation), std::move(Output)));
+						{.Output = MaterialBuildPrivate::FinalizeMaterialShaderMap(std::move(*ShaderMap->Translation), std::move(Output))});
 				});
 			};
 		auto Jobs = std::make_shared<FShaderBuildHandle>(Group);

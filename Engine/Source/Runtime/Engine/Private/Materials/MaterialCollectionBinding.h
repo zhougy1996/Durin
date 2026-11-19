@@ -3,8 +3,10 @@
 #include "Materials/MaterialProgramCompiler.h"
 namespace Durin::MaterialBuildPrivate
 {
-	enum class ECollectionPublicationError { MissingObject, IncompatibleSchema };
-	// Game-thread publication resolves current defaults without changing schema.
-	ENGINE_API auto ResolvePublicationCollections(std::span<const FMaterialParameterCollectionLayout> Expected)
-		-> std::expected<std::vector<FMaterialParameterCollectionLayout>, ECollectionPublicationError>;
+	enum class EMaterialCollectionSource { RequestSnapshot, LiveObjects };
+
+	// Fill one consumer's program from its request and the shared shader map.
+	ENGINE_API auto BindMaterialShaderMap(FMaterialProgram& Program, std::shared_ptr<const FMaterialShaderMap> ShaderMap,
+		const MIR::FCompilerInput& Input, EMaterialCollectionSource Source,
+		std::vector<FMaterialProgramDiagnostic>& Diagnostics) -> bool;
 }

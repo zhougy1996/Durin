@@ -72,7 +72,7 @@ namespace Durin
 		// Stable cache identity resolved by the caller. Leave empty to disable disk-backed shader cache reads and writes.
 		std::string VirtualShaderPath;
 		// Requested source-level entry points, such as `vertexMain` or `fragmentMain`.
-		std::vector<const char8*> EntryPoints;
+		std::vector<std::string> EntryPoints;
 		std::vector<EShaderFrequency> Frequencies;
 		std::vector<FShaderMacroDefinition> Macros;
 		// Backend/compiler build identity. The compile service fills this before cache lookup.

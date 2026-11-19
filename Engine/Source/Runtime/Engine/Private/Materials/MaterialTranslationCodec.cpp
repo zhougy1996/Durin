@@ -218,11 +218,10 @@ namespace Durin::MaterialBuildPrivate
 			const auto Expected = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Product.StaticProperties, Environment, Result.Identity);
 			if (Result.Domain != Expected.Domain || Result.Entries != Expected.Entries) return {};
 			Result.Identity = BuildMaterialProgramIdentity(Consumer.StaticProperties, Consumer.Environment, Result.ActiveCollections, Canonical, Result.Layout, Consumer.IR.Domain);
-			for (auto& Collection : Result.ActiveCollections)
+			for (const auto& Collection : Result.ActiveCollections)
 			{
 				const auto Current = std::ranges::find(Consumer.Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
 				if (Current == Consumer.Collections.end() || !Collection.HasCompatibleSchema(*Current)) return {};
-				Collection.AssetPath = Current->AssetPath; Collection.DefaultPayload = Current->DefaultPayload;
 			}
 			static_cast<FMaterialCompilationOutput&>(Result) = BuildMaterialCompilationOutput(Result.IR, Result.Layout, Result.ActiveParameters, Result.ActiveCollections, Consumer.StaticProperties, Consumer.Environment, Result.Identity);
 		}

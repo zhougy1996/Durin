@@ -63,9 +63,7 @@ namespace Durin
 		CleanupFinishedShaderMaps();
 		// Invalid input and shutdown produce terminal results, never capacity retries.
 		const auto Fail = [&](std::string Message) {
-			auto Program = std::make_shared<FMaterialCompilerResult>();
-			Program->Diagnostics.push_back({.Message = std::move(Message)});
-			auto Result = MakeMaterialResult(Request, {.Program = std::move(Program)});
+			auto Result = MakeMaterialResult(Request, {.Output = {.Diagnostics = {{.Message = std::move(Message)}}}});
 			std::lock_guard Lock(MaterialMutex);
 			MaterialRequests.insert_or_assign(Request->Resource, FMaterialRequestAssociation{{}, Request});
 			MaterialResults.push_back(std::move(Result));
@@ -102,7 +100,7 @@ namespace Durin
 		}
 		const auto Input = NewShaderMap->CompilingMaterialDependencies.front()->CompilerInput;
 		NewShaderMap->DiagnosticInput = Input;
-		const auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Input,
+		const auto Submitted = Submit(Input,
 			{.bForceRecompile = Key.bForceRecompile, .EncodedInput = std::move(TranslationInput), .Request = NewShaderMap},
 			[this, Weak = std::weak_ptr(NewShaderMap)](MaterialBuildPrivate::FMaterialBuildResult Build) {
 				if (const auto ShaderMap = Weak.lock()) CompleteMaterialRequests(ShaderMap, std::move(Build));
@@ -208,7 +206,7 @@ namespace Durin
 	auto FShaderCompilingManager::MakeMaterialResult(const std::shared_ptr<FMaterialCompileRequest>& Request,
 		const MaterialBuildPrivate::FMaterialBuildResult& Build, const MIR::FCompilerInput* DiagnosticInput, bool Canceled) -> FMaterialCompileResult
 	{
-		const auto State = Canceled || (Build.Program && Build.Program->Status == EMaterialProgramStatus::Canceled)
+		const auto State = Canceled || Build.Output.Status == EMaterialProgramStatus::Canceled
 			? EMaterialProgramStatus::Canceled : Build ? EMaterialProgramStatus::Ok : EMaterialProgramStatus::Error;
 		FMaterialCompileResult Result{
 			.Request = Request,
@@ -220,13 +218,13 @@ namespace Durin
 			Result.ExpressionSources.push_back(std::move(Source));
 		}
 		if (State == EMaterialProgramStatus::Ok) {
-			Result.CompiledProgram = MaterialBuildPrivate::BindMaterialProgramCollections(std::make_shared<const FMaterialProgram>(Build.Program->Resource), Request->CompilerInput->Collections, &Request->CompilerInput->Environment);
+			Result.CompiledShaderMap = Build.Output.Resource.ShaderMap;
 			Result.CacheInfo = {.bRetainedHit = Build.RetainedHit,
 				.bSharedCompilation = Build.SingleFlight || Request->bSingleFlightConsumer,
 				.bForced = Request->bForceRecompile};
 		}
-		if (State != EMaterialProgramStatus::Canceled && Build.Program) {
-			for (auto Diagnostic : Build.Program->Diagnostics) {
+		if (State != EMaterialProgramStatus::Canceled) {
+			for (auto Diagnostic : Build.Output.Diagnostics) {
 				if (Result.Diagnostics.size() >= MaterialProgramMaxDiagnosticCount) break;
 				if (Diagnostic.NodeId.IsValid() && DiagnosticInput) {
 					const auto Origin = std::ranges::find(DiagnosticInput->Sources, Diagnostic.NodeId, &MIR::FSource::NodeId);
@@ -241,6 +239,8 @@ namespace Durin
 				Result.Diagnostics.push_back(std::move(Diagnostic));
 			}
 		}
+		if (Result.Outcome == EMaterialProgramStatus::Error && Result.Diagnostics.empty())
+			Result.Diagnostics.push_back({.Message = "Material compile request completed without a result."});
 		return Result;
 	}
 

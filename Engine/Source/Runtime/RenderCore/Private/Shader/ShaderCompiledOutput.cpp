@@ -32,11 +32,6 @@ namespace Durin::ShaderCompiledOutput
 			return true;
 		}
 
-		auto EntryPoint(const char8* Value) -> std::string_view
-		{
-			return Value ? std::string_view(Value) : std::string_view{};
-		}
-
 		auto IsValidFrequency(uint32 Value) -> bool
 		{
 			return Value <= static_cast<uint32>(EShaderFrequency::RayMiss);
@@ -65,7 +60,7 @@ namespace Durin::ShaderCompiledOutput
 			std::set<std::pair<std::string_view, uint32>> Entries;
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{
-				const std::string_view Name = EntryPoint(Options.EntryPoints[Index]);
+				const std::string_view Name = Options.EntryPoints[Index];
 				const uint32 Frequency =
 					static_cast<uint32>(Options.Frequencies[Index]);
 				if (Name.empty() || Name.size() > GMaximumStringBytes
@@ -98,7 +93,7 @@ namespace Durin::ShaderCompiledOutput
 		{
 			const FShaderCode& Shader = Output.CompiledShaders[Index];
 			if (Shader.Code.IsEmpty() || Shader.Target != Options.Target || Shader.CodeFormat != Options.Target.OutputFormat
-				|| Shader.SourceEntryPoint != EntryPoint(Options.EntryPoints[Index])
+				|| Shader.SourceEntryPoint != Options.EntryPoints[Index]
 				|| Shader.Frequency != Options.Frequencies[Index]
 				|| Shader.SourceEntryPoint.empty()
 				|| Shader.BinaryEntryPoint.empty()
@@ -231,7 +226,7 @@ namespace Durin::ShaderCompiledOutput
 				|| !IsValidFrequency(Frequency)
 				|| Frequency != static_cast<uint32>(Options.Frequencies[Index])
 				|| !ShaderFormat::ValidateExecutionMetadata(Target, EShaderFrequency(Frequency), Shader.ComputeThreadGroupSize)
-				|| Shader.SourceEntryPoint != EntryPoint(Options.EntryPoints[Index])
+				|| Shader.SourceEntryPoint != Options.EntryPoints[Index]
 				|| Shader.BinaryEntryPoint.empty())
 				return std::unexpected(std::string("Shader payload entry identity is invalid."));
 			FByteBuffer Code;

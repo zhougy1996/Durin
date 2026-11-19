@@ -39,9 +39,8 @@ namespace Durin
 		struct FOptions
 		{
 			FShaderCompileOptions Value;
-			std::vector<std::string> Names, Roots;
+			std::vector<std::string> Roots;
 			bool Generated = false;
-			auto Bind() -> void { Value.EntryPoints.clear(); for (auto& Name : Names) Value.EntryPoints.push_back(Name.c_str()); }
 		};
 		// Options is a canonical, bounded byte constant, not a native struct image.
 		// Its versioned fields preserve entry, macro and search-root order explicitly.
@@ -66,14 +65,14 @@ namespace Durin
 			if ((Result.Value.Target != VulkanShaderTarget && Result.Value.Target != MetalShaderTarget)
 				|| !Reader.ReadU32(Generated) || Generated > 1
 				|| !Reader.ReadU32(Count) || !Count || Count > 32) return {};
-			Result.Generated = Generated != 0; Result.Names.reserve(Count); Result.Value.Frequencies.reserve(Count);
+			Result.Generated = Generated != 0; Result.Value.EntryPoints.reserve(Count); Result.Value.Frequencies.reserve(Count);
 			std::set<std::pair<std::string, uint32>> UniqueEntries;
 			for (uint32 Index = 0; Index < Count; ++Index)
 			{
 				std::string Name; uint32 Frequency = 0;
 				if (!Reader.ReadString(Name, 32768) || Name.empty() || !Reader.ReadU32(Frequency)
 					|| Frequency > uint32(EShaderFrequency::RayMiss) || !UniqueEntries.emplace(Name, Frequency).second) return {};
-				Result.Names.push_back(std::move(Name)); Result.Value.Frequencies.push_back(EShaderFrequency(Frequency));
+				Result.Value.EntryPoints.push_back(std::move(Name)); Result.Value.Frequencies.push_back(EShaderFrequency(Frequency));
 			}
 			if (!Reader.ReadU32(Count) || Count > 512) return {};
 			for (uint32 Index = 0; Index < Count; ++Index)
@@ -182,7 +181,7 @@ namespace Durin
 					return Context.FailExecution("Shader builder identity does not match the build request.");
 				auto Options = ReadOptions(Context); const auto* InputPtr = Context.FindInput("Closure");
 				if (!Options || !InputPtr) return Fail(Invalid());
-				Options->Bind(); const auto& Input = *InputPtr;
+				const auto& Input = *InputPtr;
 				if (Input.Identity != Reference({.Value = Input.Identity.Identity})) return Fail(Invalid());
 				const auto* Table = FindInputValue(Input, "FileTable");
 				if (!Input.Metadata.IsEmpty() || !Table) return Fail(Invalid());
@@ -288,7 +287,7 @@ namespace Durin
 		std::set<std::pair<std::string_view, EShaderFrequency>> UniqueEntries;
 		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 		{
-			const std::string_view Name = Options.EntryPoints[Index] ? Options.EntryPoints[Index] : "";
+			const std::string_view Name = Options.EntryPoints[Index];
 			if (Name.empty() || Name.size() > 32768 || uint32(Options.Frequencies[Index]) > uint32(EShaderFrequency::RayMiss)
 				|| !UniqueEntries.emplace(Name, Options.Frequencies[Index]).second)
 				return std::unexpected(std::string("Shader entry-point request is invalid."));

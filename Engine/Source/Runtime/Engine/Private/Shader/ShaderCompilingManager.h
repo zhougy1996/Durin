@@ -109,12 +109,12 @@ namespace Durin
 			const MaterialBuildPrivate::FMaterialBuildResult& Build,
 			const MIR::FCompilerInput* DiagnosticInput = nullptr, bool Canceled = false) -> FMaterialCompileResult;
 		auto FindCompilingShaderMap(FShaderMapPtr Request) const -> FShaderMapPtr;
-		auto FindOrAddCompilingShaderMap(FShaderMapPtr ShaderMap) -> std::shared_ptr<const FMaterialCompilerResult>;
-		auto FinalizeCompilation(FShaderMapPtr ShaderMap, std::shared_ptr<const FMaterialCompilerResult> Program,
-			bool RetainedHit, std::vector<FShaderMapPtr>& Subscribers,
-			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)>& Completion) -> MaterialBuildPrivate::FMaterialBuildResult;
+		auto FindOrAddCompilingShaderMap(FShaderMapPtr ShaderMap) -> std::shared_ptr<const FMaterialShaderMap>;
+		auto FinalizeCompilation(FShaderMapPtr ShaderMap, MaterialBuildPrivate::FMaterialBuildResult& Build,
+			std::vector<FShaderMapPtr>& Subscribers,
+			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)>& Completion) -> void;
 		auto Submit(std::shared_ptr<const MIR::FCompilerInput> Input, MaterialBuildPrivate::FMaterialProgramCompileOptions Options,
-			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion, bool CopyInput)
+			std::function<void(MaterialBuildPrivate::FMaterialBuildResult)> Completion)
 			-> MaterialBuildPrivate::FMaterialProgramCompileHandle;
 		auto CleanupFinishedShaderMaps() -> void;
 		auto FinishMaterialCompilation() -> void;

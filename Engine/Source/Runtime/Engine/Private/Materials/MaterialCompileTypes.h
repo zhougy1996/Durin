@@ -30,7 +30,8 @@ namespace Durin
 		FMaterialStaticProperties StaticProperties;
 		EMaterialProgramStatus Outcome = EMaterialProgramStatus::Error;
 		FMaterialCompileCacheInfo CacheInfo;
-		std::shared_ptr<const FMaterialProgram> CompiledProgram;
+		std::shared_ptr<const FMaterialShaderMap> CompiledShaderMap;
+		std::shared_ptr<const FMaterialProgram> CookedProgram;
 		std::vector<MIR::FSource> ExpressionSources;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 	};
@@ -45,11 +46,11 @@ namespace Durin::MaterialBuildPrivate
 
 	struct FMaterialBuildResult
 	{
-		std::shared_ptr<const FMaterialCompilerResult> Program;
+		FMaterialCompilerResult Output;
 		std::vector<FMaterialTranslationSource> Sources;
 		bool RetainedHit = false;
 		bool SingleFlight = false;
-		explicit operator bool() const { return Program && bool(*Program); }
+		explicit operator bool() const { return bool(Output); }
 	};
 
 	struct FMaterialProgramCompileOptions
@@ -97,8 +98,7 @@ namespace Durin::MaterialBuildPrivate
 #if DURIN_WITH_EDITOR
 		static auto Start(std::shared_ptr<FMaterialCompilation> ShaderMap) -> void;
 		static auto ProcessTranslation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialTranslatedProgram Translation) -> void;
-		static auto CompleteCompilation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialCompilerResult Result,
-			std::shared_ptr<const FMaterialCompilerResult> Retained = {}) -> void;
+		static auto CompleteCompilation(std::shared_ptr<FMaterialCompilation> ShaderMap, FMaterialBuildResult Build) -> void;
 		mutable std::mutex Mutex;
 		std::shared_ptr<DerivedData::FRequestOwner> Owner;
 		std::shared_ptr<DerivedData::FRequestOwner> BuildOwner;
@@ -115,12 +115,6 @@ namespace Durin::MaterialBuildPrivate
 		bool ResultReady = false, Inline = false;
 #endif
 	};
-
-	// Request configuration/default rebinding belongs to the
-	// compilation lifecycle, rather than the immutable ShaderMap content API.
-	auto BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgram> Program,
-		std::span<const FMaterialParameterCollectionLayout> Collections,
-		const FMaterialCompilerEnvironment* Environment = nullptr) -> std::shared_ptr<const FMaterialProgram>;
 
 	ENGINE_API auto FinalizeMaterialShaderMap(FMaterialTranslatedProgram Translation,
 		FShaderCompilerOutput Output) -> FMaterialCompilerResult;

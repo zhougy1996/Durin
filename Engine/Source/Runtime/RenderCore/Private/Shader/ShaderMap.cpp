@@ -134,9 +134,9 @@ namespace Durin
 
 			const uint64 EntryPointCount = static_cast<uint64>(CompileOptions.EntryPoints.size());
 			UpdateCanonicalHash(Builder, EntryPointCount);
-			for (const char8* EntryPoint : CompileOptions.EntryPoints)
+			for (const auto& EntryPoint : CompileOptions.EntryPoints)
 			{
-				UpdateCanonicalHashString(Builder, EntryPoint ? std::string_view(EntryPoint) : std::string_view{});
+				UpdateCanonicalHashString(Builder, EntryPoint);
 			}
 
 			const uint64 FrequencyCount = static_cast<uint64>(CompileOptions.Frequencies.size());
@@ -482,7 +482,7 @@ namespace Durin
 				(std::string(ShaderType->GetName())), (std::string(ShaderType->GetVirtualShaderPath())), (std::string(ShaderPath))));
 			}
 
-			OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
+			OutCompileOptions.EntryPoints.emplace_back(ShaderType->GetEntryPoint());
 			OutCompileOptions.Frequencies.push_back(ShaderType->GetFrequency());
 			ShaderType->ApplyParameterCompilationEnvironment(OutCompileOptions);
 

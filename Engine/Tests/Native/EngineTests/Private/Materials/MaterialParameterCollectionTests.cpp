@@ -93,15 +93,40 @@ TEST_F(FMaterialParameterCollectionTests, PublicationResolvesDefaultsAndRejectsM
 	ASSERT_TRUE(Collection->SetDeclarations(std::array{Declaration}));
 	auto Expected = Collection->BuildLayout(); ASSERT_TRUE(Expected);
 	Declaration.DefaultValue = FVector4(2.0); ASSERT_TRUE(Collection->SetDeclarations(std::array{Declaration}));
-	auto Current = ResolvePublicationCollections(std::span(&*Expected, 1)); ASSERT_TRUE(Current);
-	EXPECT_NE(Current->front().DefaultPayload, Expected->DefaultPayload);
-	EXPECT_TRUE(Current->front().HasCompatibleSchema(*Expected));
-	auto WrongPath = *Expected; WrongPath.AssetPath += "Missing";
-	auto Missing = ResolvePublicationCollections(std::span(&WrongPath, 1)); ASSERT_FALSE(Missing); EXPECT_EQ(Missing.error(), ECollectionPublicationError::MissingObject);
+	auto Map = std::make_shared<FMaterialShaderMap>();
+	Map->SetCollectionLayouts(std::span(&*Expected, 1));
+	MIR::FCompilerInput Input;
+	Input.Collections = {*Expected};
+	FMaterialProgram Program;
+	std::vector<FMaterialProgramDiagnostic> Diagnostics;
+	const auto Bind = [&](EMaterialCollectionSource Source) {
+		Diagnostics.clear();
+		return BindMaterialShaderMap(Program, Map, Input, Source, Diagnostics);
+	};
+	ASSERT_TRUE(Bind(EMaterialCollectionSource::RequestSnapshot));
+	EXPECT_EQ(Program.ActiveCollections.front().DefaultPayload, Expected->DefaultPayload);
+	ASSERT_TRUE(Bind(EMaterialCollectionSource::LiveObjects));
+	EXPECT_NE(Program.ActiveCollections.front().DefaultPayload, Expected->DefaultPayload);
+	EXPECT_EQ(Program.ShaderMap, Map);
+	EXPECT_TRUE(Map->CollectionLayouts.front().DefaultPayload.empty());
+	auto ExpectFailure = [&](std::string_view Reason) {
+		ASSERT_FALSE(Bind(EMaterialCollectionSource::LiveObjects));
+		ASSERT_EQ(Diagnostics.size(), 1u);
+		EXPECT_NE(Diagnostics.front().Message.find(Reason), std::string::npos);
+		EXPECT_NE(Diagnostics.front().Message.find(Expected->CollectionId.ToString()), std::string::npos);
+	};
+	Input.Collections.front().AssetPath += "Missing";
+	ExpectFailure("live collection is missing");
+	Input.Collections.clear();
+	ExpectFailure("missing from compile request");
+	Input.Collections = {*Expected};
+	++Input.Collections.front().SchemaVersion;
+	ExpectFailure("request schema differs");
+	Input.Collections = {*Expected};
 	Declaration.Type = EMaterialParameterType::Vector4; ASSERT_TRUE(Collection->SetDeclarations(std::array{Declaration}));
-	auto Incompatible = ResolvePublicationCollections(std::span(&*Expected, 1)); ASSERT_FALSE(Incompatible); EXPECT_EQ(Incompatible.error(), ECollectionPublicationError::IncompatibleSchema);
+	ExpectFailure("live schema differs");
 	MarkAsGarbage(Collection);
-	auto Deleted = ResolvePublicationCollections(std::span(&*Expected, 1)); ASSERT_FALSE(Deleted); EXPECT_EQ(Deleted.error(), ECollectionPublicationError::MissingObject);
+	ExpectFailure("live collection is missing");
 }
 
 TEST_F(FMaterialParameterCollectionTests,

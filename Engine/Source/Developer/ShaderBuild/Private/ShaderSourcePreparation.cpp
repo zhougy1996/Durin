@@ -44,7 +44,7 @@ namespace Durin
 			UpdateCanonicalHash(Builder, static_cast<uint64>(Options.EntryPoints.size()));
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{
-				UpdateCanonicalHashString(Builder, Options.EntryPoints[Index] ? std::string_view(Options.EntryPoints[Index]) : std::string_view{});
+				UpdateCanonicalHashString(Builder, Options.EntryPoints[Index]);
 				if (Index < Options.Frequencies.size()) UpdateCanonicalHash(Builder, Options.Frequencies[Index]);
 			}
 			UpdateCanonicalHash(Builder, static_cast<uint64>(Macros.size()));
@@ -94,8 +94,7 @@ namespace Durin
 			std::set<std::pair<std::string_view, uint32>> Entries;
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{
-				const std::string_view Entry = Options.EntryPoints[Index]
-					? std::string_view(Options.EntryPoints[Index]) : std::string_view{};
+				const std::string_view Entry = Options.EntryPoints[Index];
 				const uint32 Frequency =
 					static_cast<uint32>(Options.Frequencies[Index]);
 				if (Entry.empty()
@@ -309,7 +308,7 @@ namespace Durin
 		FGeneratedShaderCompileRequest Request;
 		Request.VirtualPath = VirtualShaderPath; Request.Target = Options.Target; Request.Frequencies = Options.Frequencies;
 		Request.Macros = Options.Macros; Request.SourceArtifacts = Options.SourceArtifacts; Request.bForceRecompile = Options.bForceRecompile;
-		for (const auto* Entry : Options.EntryPoints) Request.EntryPoints.emplace_back(Entry ? Entry : "");
+		Request.EntryPoints = Options.EntryPoints;
 		return CompileRequest(std::move(Request), std::move(RequestOptions), std::move(Completion), ESourceKind::Mounted);
 	}
 
@@ -321,7 +320,7 @@ namespace Durin
 		const auto& Input = *Prepared->Request; auto& Options = Prepared->Options;
 		Options.Target = Input.Target; Options.VirtualShaderPath = Input.VirtualPath; Options.CompilerEnvironment = CompilerEnvironmentIdentity;
 		Options.Frequencies = Input.Frequencies; Options.Macros = Input.Macros; Options.SourceArtifacts = Input.SourceArtifacts; Options.bForceRecompile = Input.bForceRecompile;
-		for (const auto& Entry : Input.EntryPoints) Options.EntryPoints.push_back(Entry.c_str());
+		Options.EntryPoints = Input.EntryPoints;
 		if (!HasValidUniqueEntryPoints(Options)) return std::unexpected("Shader entry-point request is invalid.");
 		std::vector<FShaderMacroDefinition> Macros;
 		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result) return std::unexpected(Result.error());
@@ -377,7 +376,7 @@ namespace Durin
 		Options.bForceRecompile = Request.bForceRecompile;
 		Options.VirtualShaderPath = Request.VirtualPath;
 		Options.CompilerEnvironment = CompilerEnvironmentIdentity;
-		for (const auto& Entry : Request.EntryPoints) Options.EntryPoints.push_back(Entry.c_str());
+		Options.EntryPoints = Request.EntryPoints;
 		if (!HasValidUniqueEntryPoints(Options)) return std::unexpected(std::string("Shader entry-point request is invalid."));
 		std::vector<FShaderMacroDefinition> Macros;
 		if (auto Result = ShaderCompileUtilities::NormalizeMacros(Options, Macros); !Result) return std::unexpected(Result.error());
@@ -401,7 +400,7 @@ namespace Durin
 				EnvironmentOptions.Target = Request.Target;
 				EnvironmentOptions.VirtualShaderPath = Tree.VirtualPath;
 				EnvironmentOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
-				for (const auto& Entry : Tree.EntryPoints) EnvironmentOptions.EntryPoints.push_back(Entry.c_str());
+				EnvironmentOptions.EntryPoints = Tree.EntryPoints;
 				EnvironmentOptions.Frequencies = Tree.Frequencies;
 				EnvironmentOptions.Macros = Tree.Macros;
 				if (EnvironmentOptions.EntryPoints.empty() || EnvironmentOptions.EntryPoints.size() > 8

@@ -140,8 +140,14 @@ namespace Durin
 				FShaderCompilingManager::Get().CacheMaterialShaders(std::move(Request));
 				return true;
 			}
-#endif
+			MaterialBuildPrivate::FMaterialBuildResult Build;
+			auto& Manager = FShaderCompilingManager::Get();
+			const auto Handle = Manager.Submit(Request->CompilerInput, {.bForceRecompile = bForceRecompile},
+				[&](auto Result) { Build = std::move(Result); });
+			if (Handle) Manager.FinishCompilation(Handle);
+#else
 			auto Build = MaterialBuildPrivate::CompileMaterialInput(*Request->CompilerInput, bForceRecompile);
+#endif
 			Admit(Material, FShaderCompilingManager::MakeMaterialResult(Request, Build), Context);
 			return Resource->Outcome == EMaterialCompileState::Ready;
 		}
@@ -171,12 +177,11 @@ namespace Durin
 			if (Status.Outcome == EMaterialCompileState::Canceled) Resource->bRequested = false;
 			Status.CacheInfo = Result.CacheInfo;
 			Resource->Diagnostics = std::move(Result.Diagnostics);
-			if (Result.Outcome == EMaterialProgramStatus::Ok
-				&& Result.CompiledProgram)
+			if (Result.Outcome == EMaterialProgramStatus::Ok)
 			{
 				if (!Result.Request->CompilerInput)
 				{
-					const auto Installed = Material.AdmitCookedProgram(Result.StaticProperties, Result.CompiledProgram, Resource);
+					const auto Installed = Material.AdmitCookedProgram(Result.StaticProperties, Result.CookedProgram, Resource);
 					if (Installed) return true;
 					Resource->Diagnostics.push_back({.Message = Installed.error()});
 					Resource->CookDiagnostic = Installed.error();
@@ -184,20 +189,23 @@ namespace Durin
 					Retire();
 					return false;
 				}
-				std::shared_ptr<const FMaterialProgram> Program;
-				std::optional<FMaterialStaticProperties> Properties;
-				Program = Result.CompiledProgram;
-				if (!Program->ActiveCollections.empty())
-				{
-					auto Current = MaterialBuildPrivate::ResolvePublicationCollections(Program->ActiveCollections);
-					if (!Current) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
-					if (auto Refreshed = MaterialBuildPrivate::BindMaterialProgramCollections(Program, *Current)) Program = std::move(Refreshed);
+				auto Bound = std::make_shared<FMaterialProgram>();
+				if (!MaterialBuildPrivate::BindMaterialShaderMap(*Bound, std::move(Result.CompiledShaderMap),
+					*Result.Request->CompilerInput, MaterialBuildPrivate::EMaterialCollectionSource::LiveObjects, Resource->Diagnostics)) {
+					Status.Outcome = EMaterialCompileState::Failed;
+					Retire();
+					return false;
 				}
 				const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
-				Properties = Material.GetStaticProperties();
-				Properties->OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
-				Program = Material.BindMaterialDefaultParameters(std::move(Program));
-				if (!Program || !ValidateMaterialProgram(*Program)) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
+				auto Properties = Material.GetStaticProperties();
+				Properties.OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
+				auto Program = Material.BindMaterialDefaultParameters(std::move(Bound));
+				if (!Program) Resource->Diagnostics.push_back({.Message = "Material default parameters no longer match the compiled shader map."});
+				else if (const auto Validation = ValidateMaterialProgram(*Program); !Validation) {
+					Resource->Diagnostics.push_back({.Message = std::format("{} [index {}]", GetMaterialLayoutErrorText(Validation.Error), Validation.FieldIndex)});
+					Program.reset();
+				}
+				if (!Program) { Status.Outcome = EMaterialCompileState::Failed; Retire(); return false; }
 				Resource->CompiledProgram = std::move(Program);
 				Resource->AcceptedProperties = std::move(Properties);
 				Resource->AcceptedExpressionSources = Resource->RequestedExpressionSources;
@@ -209,10 +217,6 @@ namespace Durin
 				return true;
 			}
 
-			if (Result.Outcome == EMaterialProgramStatus::Ok)
-			{
-				Status.Outcome = EMaterialCompileState::Failed;
-			}
 			if (Status.Outcome == EMaterialCompileState::Failed)
 				Retire();
 			return false;

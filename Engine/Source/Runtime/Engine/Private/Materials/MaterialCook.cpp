@@ -43,7 +43,7 @@ namespace Durin
 			struct FMaterialCookWork
 			{
 				std::vector<MaterialBuildPrivate::FMaterialProgramCompileHandle> Compiles;
-				std::vector<std::optional<FMaterialCompilerResult>> Results;
+				std::vector<FMaterialCompilerResult> Results;
 				std::mutex Mutex;
 				std::atomic<bool> Failed = false;
 				std::string Failure;
@@ -94,8 +94,8 @@ namespace Durin
 				if (Work->Failed.load()) { Preparation.Result = {EObjectCookError::Preparation, Work->Failure}; return true; }
 				std::vector<const FMaterialProgram*> Programs;
 				for (const auto& Result : Work->Results) {
-					if (!Result || !*Result) { Preparation.Result = {EObjectCookError::Cancelled, {}}; return true; }
-					Programs.push_back(&Result->Resource);
+					if (!Result) { Preparation.Result = {EObjectCookError::Cancelled, {}}; return true; }
+					Programs.push_back(&Result.Resource);
 				}
 				FByteBuffer Bytes;
 				const auto Encoded = EncodeMaterialCookedProgramFamily(Programs, Properties, Platform, ECookTargetProfile::Game, Bytes);
@@ -109,13 +109,13 @@ namespace Durin
 				auto Submitted = MaterialBuildPrivate::FMaterialCompilation::Compile(Inputs[Index],
 					{.IsCancellationRequested = [Weak = std::weak_ptr(Work)] { auto Owner = Weak.lock(); return !Owner || Owner->Cancellation.IsCanceled(); }},
 					[Work, Index](MaterialBuildPrivate::FMaterialBuildResult Build) {
-						const auto& Result = *Build.Program;
+						const auto& Result = Build.Output;
 						std::lock_guard Lock(Work->Mutex);
 						if (!Result && Result.Status != EMaterialProgramStatus::Canceled && !Work->Failed.load()) {
 							Work->Failure = FormatMaterialProgramDiagnostics(Result.Diagnostics, "Material Cook compilation failed.");
 							Work->Failed.store(true);
 						}
-						Work->Results[Index] = Result;
+						Work->Results[Index] = std::move(Build.Output);
 					});
 				if (!Submitted) {
 					{ std::lock_guard Lock(Work->Mutex); Work->Failure = "Material Cook compile admission failed."; Work->Failed.store(true); }

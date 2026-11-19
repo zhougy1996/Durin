@@ -127,23 +127,17 @@ namespace Durin
 
 		auto MakeCompileOptions(
 			const FShaderRuntimeRequest& Request,
-			FShaderCompileOptions& OutOptions,
-			std::vector<std::string>& OutEntryStorage) -> bool
+			FShaderCompileOptions& OutOptions) -> void
 		{
 			OutOptions = {};
 			OutOptions.Target = TargetForPlatform(Request.TargetPlatform, Request.TargetProfile);
-			OutEntryStorage.clear();
-			OutEntryStorage.reserve(Request.Members.size());
-			for (const FShaderRuntimeRequestMember& Member : Request.Members)
-				OutEntryStorage.push_back(Member.EntryPoint);
-			OutOptions.EntryPoints.reserve(OutEntryStorage.size());
-			OutOptions.Frequencies.reserve(OutEntryStorage.size());
-			for (size_t Index = 0; Index < Request.Members.size(); ++Index)
+			OutOptions.EntryPoints.reserve(Request.Members.size());
+			OutOptions.Frequencies.reserve(Request.Members.size());
+			for (const auto& Member : Request.Members)
 			{
-				OutOptions.EntryPoints.push_back(OutEntryStorage[Index].c_str());
-				OutOptions.Frequencies.push_back(Request.Members[Index].Frequency);
+				OutOptions.EntryPoints.push_back(Member.EntryPoint);
+				OutOptions.Frequencies.push_back(Member.Frequency);
 			}
-			return !OutOptions.EntryPoints.empty();
 		}
 
 		auto WriteHash(FBinaryWriter& Writer, const FXxHash128& Hash) -> void
@@ -464,9 +458,8 @@ namespace Durin
 				return std::unexpected(std::string("Shader library record target or production identity is invalid."));
 			FEncoded Item;
 			if (auto Result = BuildShaderRuntimeRequestIdentity(Record.Request, Item.Directory.RuntimeIdentity); !Result) return Result;
-			std::vector<std::string> Entries;
 			FShaderCompileOptions Options;
-			MakeCompileOptions(Record.Request, Options, Entries);
+			MakeCompileOptions(Record.Request, Options);
 			if (auto Result = ShaderCompiledOutput::Encode(Options, Record.Output, Item.Payload); !Result)
 			{
 				return Result;
@@ -696,9 +689,8 @@ namespace Durin
 				static_cast<size_t>(Found->Size));
 			if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)
 				return std::unexpected(std::string("Shader library payload digest is invalid."));
-			std::vector<std::string> Entries;
 			FShaderCompileOptions Options;
-			MakeCompileOptions(Request, Options, Entries);
+			MakeCompileOptions(Request, Options);
 			FShaderCompilerOutput Validated;
 			if (auto Result = ShaderCompiledOutput::Decode(Payload, Options, Validated); !Result)
 				return Result;
@@ -730,9 +722,8 @@ namespace Durin
 			static_cast<size_t>(Found->Size));
 		if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)
 			return std::unexpected(std::string("Shader library payload digest is invalid."));
-		std::vector<std::string> Entries;
 		FShaderCompileOptions Options;
-		MakeCompileOptions(Request, Options, Entries);
+		MakeCompileOptions(Request, Options);
 		return ShaderCompiledOutput::Decode(Payload, Options, OutOutput);
 	}
 

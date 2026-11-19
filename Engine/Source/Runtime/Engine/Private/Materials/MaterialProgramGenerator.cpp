@@ -994,30 +994,43 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			Artifact.CompiledShaders, Artifact.Layout, {}, Result.ActiveCollections, Result.GetShaderMap().RequiredEntries);
 	}
 
-	auto ValidateMaterialCompiledStages(std::span<const FShaderCode> Stages,
+	auto ValidateMaterialStageSequence(std::span<const FShaderCode> Stages,
 		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits,
-		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialShaderEntrySet& RequiredEntries)
+		const FMaterialShaderEntrySet& OrderedEntries)
 		-> FMaterialLayoutValidationResult
 	{
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
-		if (RequiredEntries.empty() || Stages.size() != RequiredEntries.size()) return Rejected;
-		std::set<std::string> UniqueEntries;
-		for (const auto Entry : RequiredEntries) if (!FindMaterialShaderEntry(Entry) || !UniqueEntries.insert(Entry).second) return Rejected;
-		if (!std::ranges::any_of(RequiredEntries, [](const auto& E) { return FindMaterialShaderEntry(E)->Domain == EMaterialDomain::PostProcess; }) && (!std::ranges::any_of(RequiredEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Vertex; })
-			|| !std::ranges::any_of(RequiredEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Fragment; }))) return Rejected;
-		auto OrderedEntries = RequiredEntries;
-		std::ranges::sort(OrderedEntries);
+		if (OrderedEntries.empty() || Stages.size() != OrderedEntries.size()) return Rejected;
+		if (std::ranges::adjacent_find(OrderedEntries) != OrderedEntries.end()) return Rejected;
+		for (const auto& Entry : OrderedEntries) if (!FindMaterialShaderEntry(Entry)) return Rejected;
+		if (!std::ranges::any_of(OrderedEntries, [](const auto& E) { return FindMaterialShaderEntry(E)->Domain == EMaterialDomain::PostProcess; }) && (!std::ranges::any_of(OrderedEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Vertex; })
+			|| !std::ranges::any_of(OrderedEntries, [](auto E) { return FindMaterialShaderEntry(E)->Frequency == EShaderFrequency::Fragment; }))) return Rejected;
 		for (size_t Index = 0; Index < OrderedEntries.size(); ++Index)
 		{
 			const auto& Entry = *FindMaterialShaderEntry(OrderedEntries[Index]);
 			const auto& Stage = Stages[Index];
 			if (Stage.Code.IsEmpty() || Stage.SourceEntryPoint != Entry.Name
 				|| Stage.Frequency != Entry.Frequency || !Stage.Reflection.PushConstantRanges.empty())
-				return Rejected;
-            if (!ValidateMaterialShaderBindings(Stage.Reflection, Entry.ShaderType, Entry.Frequency,
-                Layout, Collections)) return Rejected;
+				return {.Error = EMaterialLayoutError::InvalidReflection, .FieldIndex = static_cast<uint32>(Index)};
+		}
+		return {};
+	}
+
+	auto ValidateMaterialCompiledStages(std::span<const FShaderCode> Stages,
+		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits,
+		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialShaderEntrySet& RequiredEntries)
+		-> FMaterialLayoutValidationResult
+	{
+		auto Entries = RequiredEntries;
+		std::ranges::sort(Entries);
+		if (auto Sequence = ValidateMaterialStageSequence(Stages, Layout, Limits, Entries); !Sequence) return Sequence;
+		for (size_t Index = 0; Index < Entries.size(); ++Index)
+		{
+			const auto& Entry = *FindMaterialShaderEntry(Entries[Index]);
+			if (!ValidateMaterialShaderBindings(Stages[Index].Reflection, Entry.ShaderType, Entry.Frequency, Layout, Collections))
+				return {.Error = EMaterialLayoutError::InvalidReflection, .FieldIndex = static_cast<uint32>(Index)};
 		}
 		return {};
 	}
@@ -1111,7 +1124,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			if (Dependency.VirtualPath != "/Engine/MaterialCompilerEnvironment" && !std::ranges::contains(FactoryRoots, Dependency.VirtualPath)) continue;
 			FShaderSourceTreeDescription Tree;
 			Tree.VirtualPath = Dependency.VirtualPath; Tree.ContentHash = Dependency.ContentHash;
-			for (const auto* Name : ManifestOptions.EntryPoints) Tree.EntryPoints.emplace_back(Name);
+			Tree.EntryPoints = ManifestOptions.EntryPoints;
 			Tree.Frequencies = ManifestOptions.Frequencies; Tree.Macros = ManifestOptions.Macros; Tree.bCompleteClosure = true;
 			if (Dependency.VirtualPath == "/Engine/MaterialCompilerEnvironment") Request.ExpectedSourceTree = std::move(Tree);
 			else Request.AdditionalSourceTrees.push_back(std::move(Tree));
@@ -1160,6 +1173,6 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 
 	auto MIR::Compile(const MIR::FCompilerInput& Input, bool bForceRecompile) -> FMaterialCompilerResult
 	{
-		return *MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile).Program;
+		return MaterialBuildPrivate::CompileMaterialInput(Input, bForceRecompile).Output;
 	}
 }

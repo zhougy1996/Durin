@@ -1,5 +1,4 @@
 #include "Materials/MaterialShaderMap.h"
-#include "Materials/MaterialCompileTypes.h"
 namespace Durin
 {
 	FMaterialShaderMap::FMaterialShaderMap() = default;
@@ -85,23 +84,6 @@ namespace Durin
 	auto FMaterialShaderMap::FindId(FMaterialProgramIdentity Identity) -> std::shared_ptr<const FMaterialShaderMap>
 	{ std::lock_guard Lock(CacheMutex); const auto Found = Programs.find(Identity); return Found == Programs.end() ? nullptr : Found->second; }
 
-	auto MaterialBuildPrivate::BindMaterialProgramCollections(std::shared_ptr<const FMaterialProgram> Program,
-		std::span<const FMaterialParameterCollectionLayout> Collections, const FMaterialCompilerEnvironment* Environment) -> std::shared_ptr<const FMaterialProgram>
-	{
-		if (!Program) return {};
-		bool Changed = Environment && (Program->Quality != Environment->Quality || Program->FeatureLevel != Environment->FeatureLevel || Program->StaticBools != Environment->StaticBools);
-		for (const auto& Collection : Program->ActiveCollections)
-		{
-			const auto Found = std::ranges::find(Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
-			if (Found == Collections.end() || !Collection.HasCompatibleSchema(*Found)) return {};
-			Changed |= Collection.DefaultPayload != Found->DefaultPayload || (Environment && Collection.AssetPath != Found->AssetPath);
-		}
-		if (!Changed) return Program;
-		auto Result = std::make_shared<FMaterialProgram>(*Program);
-		if (Environment) { Result->Quality = Environment->Quality; Result->FeatureLevel = Environment->FeatureLevel; Result->StaticBools = Environment->StaticBools; }
-		for (auto& Collection : Result->ActiveCollections) Collection = *std::ranges::find(Collections, Collection.CollectionId, &FMaterialParameterCollectionLayout::CollectionId);
-		return Result;
-	}
 	auto FMaterialShaderMap::Register(std::shared_ptr<const FMaterialShaderMap> ShaderMap, bool Replace)
 		-> std::shared_ptr<const FMaterialShaderMap>
 	{

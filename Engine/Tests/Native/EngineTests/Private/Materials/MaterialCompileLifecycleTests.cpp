@@ -511,6 +511,38 @@ TEST_F(FMaterialAsyncCompileTests, SynchronousAndAsynchronousResultsAgreeOnShare
 	EXPECT_EQ(A->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId, B->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId);
 }
 
+TEST_F(FMaterialAsyncCompileTests, CollectionBindingFailureRetiresOnlyTheRequestingResource)
+{
+	using namespace Durin;
+	auto* First = MakeObject<DMaterial>("CollectionBindingFirst");
+	auto* Second = MakeObject<DMaterial>("CollectionBindingSecond");
+	ASSERT_TRUE(RequestMaterialRecompile(*First, true));
+	ASSERT_TRUE(WaitForMaterialCompile(*First));
+	ASSERT_TRUE(RequestMaterialRecompile(*Second));
+	ASSERT_TRUE(WaitForMaterialCompile(*Second));
+	const auto Peer = Second->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(Peer);
+	ASSERT_EQ(First->GetAcceptedCompiledProgram()->ShaderMap, Peer->ShaderMap);
+	auto InvalidMap = std::make_shared<FMaterialShaderMap>(Peer->GetShaderMap());
+	const auto Missing = FGuid::NewGuid();
+	InvalidMap->CollectionLayouts.push_back({.CollectionId = Missing});
+	struct FRestore {
+		std::shared_ptr<const FMaterialShaderMap> Map;
+		~FRestore() { FMaterialShaderMap::Register(Map, true); }
+	} Restore{Peer->ShaderMap};
+	ASSERT_EQ(FMaterialShaderMap::Register(InvalidMap, true), InvalidMap);
+	ASSERT_TRUE(RequestMaterialRecompile(*First));
+	EXPECT_FALSE(WaitForMaterialCompile(*First));
+	EXPECT_EQ(First->GetMaterialCompileStatus().State, EMaterialCompileState::Failed);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
+	const auto& Diagnostics = First->GetMaterialCompileDiagnostics();
+	ASSERT_FALSE(Diagnostics.empty());
+	EXPECT_NE(Diagnostics.back().Message.find(Missing.ToString()), std::string::npos);
+	EXPECT_NE(Diagnostics.back().Message.find("missing from compile request"), std::string::npos);
+	EXPECT_EQ(Second->GetAcceptedCompiledProgram(), Peer);
+	EXPECT_TRUE(Second->GetMaterialCompileStatus().IsCurrent());
+}
+
 TEST_F(FMaterialAsyncCompileTests, PublicationDeadlineLeavesQueuedResultsForTheNextPump)
 {
 	using namespace Durin;
