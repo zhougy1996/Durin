@@ -74,7 +74,7 @@ namespace Durin
 		FNativeFunctionPtr NativeFunction = nullptr;
 		friend auto DurinCodeGen::ConstructDFunction(DClass*, const DurinCodeGen::FFunctionParams&) -> DFunction*;
 		friend auto Private::AddFunctionParameterReferences(FReferenceCollector&) -> void;
-		friend auto ValidateFunctionInvocation(const DObject*, const DFunction*) -> EFunctionInvokeError;
+		friend COREDOBJECT_API auto ValidateFunctionInvocation(const DObject*, const DFunction*) -> EFunctionInvokeError;
 		friend class FFunctionParameterBuffer;
 		friend class DClass;
 	};
