@@ -68,7 +68,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		auto CommitRename(DObject& Owner, DMaterialExpression& Expression, std::string NewName,
 			DTransactor* Transactions) -> FMaterialGraphCommandResult;
 		auto CommitInferred(DObject& Owner, DTransactor* Transactions, std::string Description,
-			std::map<FGuid, EMaterialProgramValueType> KnownOutputs = {}) -> FMaterialGraphCommandResult;
+			std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs = {}) -> FMaterialGraphCommandResult;
 	private:
 		std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput> Links;
 		std::unordered_map<const FMaterialNumericInput*, FMaterialNumericInput> Numerics;
@@ -76,5 +76,5 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		std::vector<std::function<void()>> Writes;
 	};
 	auto ValidateGraphEdit(DObject& Owner, const std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput>& Links = {}) -> FMaterialGraphCommandResult;
-	auto AdaptNumericTypes(FGraphEditSession& State, std::span<const FGuid> ChangedNodes, std::span<const FGuid> ChangedOutputNodes) -> bool;
+	auto AdaptNumericTypes(FGraphEditSession& State, std::span<DMaterialExpression* const> ChangedNodes, std::span<DMaterialExpression* const> ChangedOutputNodes) -> bool;
 }

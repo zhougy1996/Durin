@@ -291,7 +291,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		{
 			if (auto Valid = ValidateGraphEdit(Impl->Owner); !Valid) return Valid;
 			// Type inference is best effort. Incompatible widths remain compiler diagnostics.
-			std::unordered_set<FGuid> TypeChanges, ChangedOutputs;
+			std::unordered_set<DMaterialExpression*> TypeChanges, ChangedOutputs;
 			for (auto& M : Impl->Members)
 			{
 				if (const auto Captured = M.CaptureAfter(); !Captured)
@@ -303,15 +303,15 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				if (M.Property()->NamePrivate == FName("Value")
 					&& (Cast<DMaterialExpressionScalarConstant>(E) || Cast<DMaterialExpressionVector2Constant>(E)
 						|| Cast<DMaterialExpressionVector3Constant>(E) || Cast<DMaterialExpressionVector4Constant>(E))) continue;
-				TypeChanges.insert(E->Id);
-				if (M.Property()->NamePrivate == FName("ResultType")) ChangedOutputs.insert(E->Id);
+				TypeChanges.insert(E);
+				if (M.Property()->NamePrivate == FName("ResultType")) ChangedOutputs.insert(E);
 			}
 			for (auto& E : Expressions)
-				if (!Impl->OriginalObjects.contains(E.Get())) { TypeChanges.insert(E->Id); ChangedOutputs.insert(E->Id); }
+				if (!Impl->OriginalObjects.contains(E.Get())) { TypeChanges.insert(E.Get()); ChangedOutputs.insert(E.Get()); }
 			if (!TypeChanges.empty())
 			{
-				const std::vector<FGuid> Seeds(TypeChanges.begin(), TypeChanges.end());
-				const std::vector<FGuid> Outputs(ChangedOutputs.begin(), ChangedOutputs.end());
+				const std::vector<DMaterialExpression*> Seeds(TypeChanges.begin(), TypeChanges.end());
+				const std::vector<DMaterialExpression*> Outputs(ChangedOutputs.begin(), ChangedOutputs.end());
 				AdaptNumericTypes(*this, Seeds, Outputs);
 			}
 			if (Impl->CaptureError) return RejectCommand("Unable to record the edited expression. " + ToString(*Impl->CaptureError));

@@ -479,25 +479,34 @@ namespace Durin::MaterialEditor
 		const ImVec2& CanvasMaximum,
 		ImDrawList& DrawList) const -> void
 	{
-		for (const FVisualNode& Destination : VisualGraph.Nodes)
-			for (size_t InputIndex = 0;
-				InputIndex < Destination.View->Inputs.size(); ++InputIndex)
+		for (const auto& Node : EditorGraph->GetNodes())
+		{
+			const auto Visible = VisualGraph.Indices.find(Node->GetView().Node.Id);
+			if (Visible == VisualGraph.Indices.end()) continue;
+			const auto& Destination = VisualGraph.Nodes[Visible->second];
+			// Compact nodes keep the authored display order while hiding unused pins.
+			size_t Ordinal = 0;
+			for (size_t I = 0; I < Destination.View->Inputs.size(); ++I)
 			{
-				const auto SourceIt = VisualGraph.Indices.find(
-					Destination.View->Inputs[InputIndex].Link.SourceNodeId);
-				if (SourceIt == VisualGraph.Indices.end()) continue;
-				const ImVec2 A = VisualGraph.Nodes[SourceIt->second].OutputPosition(Destination.View->Inputs[InputIndex].Link);
-				const ImVec2 B = Destination.InputPins[InputIndex];
-				const bool bFocused = SelectedNodes.empty()
-					|| SelectedNodes.contains(Destination.View->Node.Id)
-					|| SelectedNodes.contains(
-						VisualGraph.Nodes[SourceIt->second].View->Node.Id);
-				const ImU32 Color = TypeColor(
-					Destination.View->Inputs[InputIndex].SourceType);
-				DrawCulledLink(DrawList, A, B, CanvasMinimum, CanvasMaximum,
-					bFocused ? Color : WithAlpha(Color, 72),
-					bFocused ? 3.0f : 1.5f);
+				const auto& InputView = Destination.View->Inputs[I];
+				while (Ordinal < Node->GetView().Inputs.size() && Node->GetView().Inputs[Ordinal].InputIndex != InputView.InputIndex) ++Ordinal;
+				const auto* Input = Node->GetInputPin(static_cast<int32>(Ordinal++));
+				if (!Input || Input->LinkedTo.empty()) continue;
+				const auto* Output = Input->LinkedTo.front();
+				const auto SourceId = Output->GetOwningNode()->GetView().Node.Id;
+				const auto Found = VisualGraph.Indices.find(SourceId);
+				if (Found == VisualGraph.Indices.end()) continue;
+				const auto& Source = VisualGraph.Nodes[Found->second];
+				const auto& Outputs = Source.View->Outputs;
+				const auto Pin = std::ranges::find(Outputs, Output->SourceIndex, &FMaterialGraphOutputPinView::SourceIndex);
+				if (Pin == Outputs.end()) continue;
+				const auto A = Source.OutputPins[Pin - Outputs.begin()];
+				const bool Focused = SelectedNodes.empty() || SelectedNodes.contains(Node->GetView().Node.Id) || SelectedNodes.contains(SourceId);
+				const auto Color = TypeColor(Pin->Type);
+				DrawCulledLink(DrawList, A, Destination.InputPins[I], CanvasMinimum, CanvasMaximum,
+					Focused ? Color : WithAlpha(Color, 72), Focused ? 3.0f : 1.5f);
 			}
+		}
 	}
 
 	auto FMaterialGraphCanvas::HandleKeyboardInput(
@@ -555,7 +564,7 @@ namespace Durin::MaterialEditor
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
 		const FMaterialGraphCommandResult Copied =
-			EditorGraph->GetCommands().CopySelection(NodeIds, Payload);
+			EditorGraph->CopySelection(NodeIds, Payload);
 		if (CheckCommand(Copied)) GraphClipboard = std::move(Payload);
 	}
 
@@ -566,7 +575,7 @@ namespace Durin::MaterialEditor
 	{
 		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
-		const FMaterialGraphCommandResult Cut = EditorGraph->GetCommands().CutSelection(NodeIds, Payload);
+		const FMaterialGraphCommandResult Cut = EditorGraph->CutSelection(NodeIds, Payload);
 		if (!CheckCommand(Cut)) return;
 		GraphClipboard = std::move(Payload);
 		SelectedNodes.clear();
@@ -578,8 +587,7 @@ namespace Durin::MaterialEditor
 		std::span<const FGuid> NodeIds) -> void
 	{
 		if (NodeIds.empty()) return;
-		const auto& Document = EditorGraph->GetCommands();
-		const auto Duplicated = Document.DuplicateNodes(NodeIds, 40, 40);
+		const auto Duplicated = EditorGraph->DuplicateNodes(NodeIds, 40, 40);
 		if (!CheckCommand(Duplicated)) return;
 		SelectedNodes.clear();
 		SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
@@ -594,7 +602,7 @@ namespace Durin::MaterialEditor
 		if (!GraphClipboard) return;
 		const bool bRepeated = LastPasteAnchor && LastPasteAnchor->x == GraphPosition.x && LastPasteAnchor->y == GraphPosition.y;
 		const uint32 Offset = bRepeated ? RepeatedPasteCount + 1 : 0;
-		const FMaterialGraphCommandResult Pasted = EditorGraph->GetCommands().Paste(*GraphClipboard, static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset, static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset);
+		const FMaterialGraphCommandResult Pasted = EditorGraph->Paste(*GraphClipboard, static_cast<int32>(std::round(GraphPosition.x)) + 24 * Offset, static_cast<int32>(std::round(GraphPosition.y)) + 24 * Offset);
 		if (!CheckCommand(Pasted)) return;
 		LastPasteAnchor = GraphPosition;
 		RepeatedPasteCount = Offset;
@@ -611,7 +619,7 @@ namespace Durin::MaterialEditor
 	{
 		if (NodeIds.empty()) return;
 		const FMaterialGraphCommandResult Removed =
-			EditorGraph->GetCommands().RemoveNodes(NodeIds);
+			EditorGraph->RemoveNodes(NodeIds);
 		if (CheckCommand(Removed)) SelectedNodes.clear();
 	}
 
@@ -687,7 +695,7 @@ namespace Durin::MaterialEditor
 			if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
 			{
 				if (ImGui::MenuItem("Disconnect Surface"))
-					CheckCommand(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id)));
+					CheckCommand(EditorGraph->GetSchema().BreakPinLinks(EditorGraph->FindPin(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id))));
 			}
 			else
 			{
@@ -702,7 +710,7 @@ namespace Durin::MaterialEditor
 				};
 				if (Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Disconnect to Default"))
-					CheckCommand(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput)));
+					CheckCommand(EditorGraph->GetSchema().BreakPinLinks(EditorGraph->FindPin(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput))));
 				if (ImGui::MenuItem("Reset Default"))
 					if (auto* Root = EditorGraph->FindNode(ContextNodeView->Node.Id))
 						CheckCommand(Root->SetPinUseConstant(FMaterialGraphPinAddress::MaterialOutput(ContextNodeView->Node.Id, *ContextSurfaceOutput), false));
@@ -900,7 +908,8 @@ namespace Durin::MaterialEditor
 			if (Node == View.Nodes.end() || PinIndex >= Node->Inputs.size())
 				return GraphEditInternals::RejectCommand("The graph input is unavailable.");
 			const auto& Pin = Node->Inputs[PinIndex];
-			return EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Node->InputAddress(Pin), FMaterialGraphPinAddress::Output(Source), bReplace);
+			return EditorGraph->GetSchema().TryCreateConnection(EditorGraph->FindPin(Node->InputAddress(Pin)),
+				EditorGraph->FindPin(FMaterialGraphPinAddress::Output(Source)), bReplace);
 		};
 		const bool bCanvasPointerInteractionAvailable = bPointerAvailable;
 		const bool bCanvasKeyboardInteractionAvailable =
@@ -1099,7 +1108,7 @@ namespace Durin::MaterialEditor
 				{
 					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
 					const FMaterialProgramLink Source{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
-					CheckCommand(EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Address, FMaterialGraphPinAddress::Output(Source), true));
+					CheckCommand(EditorGraph->GetSchema().TryCreateConnection(EditorGraph->FindPin(Address), EditorGraph->FindPin(FMaterialGraphPinAddress::Output(Source)), true));
 				}
 				ResetInteraction();
 			}
@@ -1318,8 +1327,8 @@ namespace Durin::MaterialEditor
 						const auto& Pin = Visual.View->Inputs[Index];
 						if (Linking)
 						{
-							const auto Response = EditorGraph->GetSchema().CanCreateConnection(*EditorGraph,
-								FMaterialGraphPinAddress::Output(LinkSource), Visual.View->InputAddress(Pin));
+							const auto Response = EditorGraph->GetSchema().CanCreateConnection(
+								EditorGraph->FindPin(FMaterialGraphPinAddress::Output(LinkSource)), EditorGraph->FindPin(Visual.View->InputAddress(Pin)));
 							const bool Accepted = Response.Allows(ImGui::GetIO().KeyShift);
 							DrawList->AddCircle(Visual.InputPins[Index], 8.0f, Accepted ? IM_COL32(90, 220, 125, 230) : IM_COL32(235, 90, 90, 230));
 							const std::string_view Hint = Accepted ? "Connect" : Response.Reason;
@@ -1342,7 +1351,7 @@ namespace Durin::MaterialEditor
 				if (const auto* Reconnect = std::get_if<FReconnectingInputInteraction>(&Interaction))
 				{
 					const auto Address = FMaterialGraphPinAddress::Output({Hit.OutputNode->View->Node.Id, Pin.OutputIndex, Pin.PortId});
-					const auto Response = EditorGraph->GetSchema().CanCreateConnection(*EditorGraph, Reconnect->Destination, Address);
+					const auto Response = EditorGraph->GetSchema().CanCreateConnection(EditorGraph->FindPin(Reconnect->Destination), EditorGraph->FindPin(Address));
 					const std::string_view Hint = Response.Allows(true) ? "Connect" : Response.Reason;
 					ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
 				}

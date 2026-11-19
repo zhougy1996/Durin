@@ -10,6 +10,8 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialGraph::BeginDestroy() -> void
 	{
+		for (const auto& Node : Nodes)
+			if (Node.IsValid()) Node->ClearPinLinks();
 		UnsubscribeDependencies();
 		if (auto* Asset = Owner.Get()) GetMaterialGraphChangeSource(*Asset).Unsubscribe(OwnerHandle);
 		Super::BeginDestroy();
@@ -62,7 +64,9 @@ namespace Durin::MaterialEditor
 		if (!Asset) return;
 		if (Changes.Has(G::Reset))
 		{
-			LinkGraphNodesFromMaterial();
+			RefreshNodes(EnumerateCatalog());
+			ObserveDependencies(*Asset);
+			Synchronized.Broadcast(Changes);
 			return;
 		}
 
@@ -86,15 +90,26 @@ namespace Durin::MaterialEditor
 		}
 		// Consumers also cache the resolved type of their source pin.
 		if (!ChangedOutputs.empty())
-			for (const auto& Node : Nodes)
-				if (std::ranges::any_of(Node->GetView().Inputs, [&](const auto& Pin) { return ChangedOutputs.contains(Pin.Link.SourceNodeId); }))
-					Changes.MarkNode(Node->GetView().Node.Id, N::Content);
+		{
+			for (const auto& Source : Nodes)
+			{
+				if (!ChangedOutputs.contains(Source->GetView().Node.Id)) continue;
+				for (const auto& Pin : Source->GetPins())
+					if (Pin.Direction == EMaterialGraphPinDirection::Output)
+						for (const auto* Consumer : Pin.LinkedTo)
+							Changes.MarkNode(Consumer->GetOwningNode()->GetView().Node.Id, N::Content);
+			}
+		}
 
 		std::vector<FGuid> Reconstruct;
 		for (const auto& Change : Changes.Nodes)
 		{
 			if ((Change.Flags & N::Removed) != N::None)
-				std::erase_if(Nodes, [&](const auto& Node) { return Node->GetView().Node.Id == Change.NodeId; });
+				std::erase_if(Nodes, [&](const auto& Node) {
+					if (Node->GetView().Node.Id != Change.NodeId) return false;
+					Node->ClearPinLinks();
+					return true;
+				});
 			else if (Change.Flags != N::Position)
 				Reconstruct.push_back(Change.NodeId);
 			else if (auto* Node = FindNode(Change.NodeId))
@@ -114,6 +129,7 @@ namespace Durin::MaterialEditor
 			}
 		}
 		if (!Reconstruct.empty()) RefreshNodes(EnumerateCatalog(), Reconstruct);
+		else if (!ChangedOutputs.empty()) RestorePinLinks();
 		Synchronized.Broadcast(Changes);
 	}
 }

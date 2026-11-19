@@ -113,7 +113,7 @@ TEST(FMaterialGraphPersistenceTests, ObjectTransactionsRefreshCompilationAndLeav
 		EXPECT_FALSE(Graph->FindInputPin(Input)->bUseConstant);
 		ASSERT_TRUE(History->Undo());
 		ASSERT_TRUE(History->Undo());
-		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(*Graph, Input, Source));
+		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(Graph->FindPin(Input), Graph->FindPin(Source)));
 		EXPECT_TRUE(Connected());
 		EXPECT_EQ(History->GetQueueLength(), 1u);
 		auto Before = Revision();
@@ -160,8 +160,12 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 		ASSERT_TRUE(Scalar);
 		ASSERT_TRUE(Saturate);
 		const FMaterialProgramLink Link{Scalar.GeneratedNodeIds.front()};
+		const auto Other = Testing::CreateGraphConstant(Document, 0.75f);
+		ASSERT_TRUE(Other);
+		const auto Replacement = FMaterialGraphPinAddress::Output({Other.GeneratedNodeIds.front()});
 		const auto Input = FMaterialGraphPinAddress::Input(Saturate.GeneratedNodeIds.front(), 0);
 		const auto Output = FMaterialGraphPinAddress::Output(Link);
+		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 		const auto CheckSource = [&](T& Owner, bool Connected) {
 			const auto& Nodes = Owner.GetExpressionCollection().Expressions;
 			auto* Sink = Cast<DMaterialExpressionSaturate>(FindMaterialExpression(Nodes, Input.NodeId));
@@ -178,15 +182,21 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Asset));
 			const auto& Schema = Graph->GetSchema();
 			const auto Before = History->GetQueueLength();
-			ASSERT_TRUE(Schema.CanCreateConnection(*Graph, Output, Input).Allows(false));
-			ASSERT_TRUE(Schema.TryCreateConnection(*Graph, Output, Input));
+			TStrongObjectPtr<DMaterialGraph> OtherGraph(DMaterialGraph::Create(*Asset));
+			const auto CleanRevision = Asset->GetPackage()->GetEditRevision();
+			EXPECT_FALSE(Schema.TryCreateConnection(OtherGraph->FindPin(Output), Graph->FindPin(Input)));
+			EXPECT_FALSE(Asset->GetPackage()->IsDirty());
+			EXPECT_EQ(Asset->GetPackage()->GetEditRevision(), CleanRevision);
+			EXPECT_EQ(History->GetQueueLength(), Before);
+			ASSERT_TRUE(Schema.CanCreateConnection(Graph->FindPin(Output), Graph->FindPin(Input)).Allows(false));
+			ASSERT_TRUE(Schema.TryCreateConnection(Graph->FindPin(Output), Graph->FindPin(Input)));
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
 			CheckSource(*Asset, true);
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			const auto Revision = Asset->GetPackage()->GetEditRevision();
 			const auto Loop = FMaterialGraphPinAddress::Output({Saturate.GeneratedNodeIds.front()});
-			EXPECT_FALSE(Schema.CanCreateConnection(*Graph, Input, Loop).Allows(true));
-			EXPECT_FALSE(Schema.TryCreateConnection(*Graph, Input, Loop, true));
+			EXPECT_FALSE(Schema.CanCreateConnection(Graph->FindPin(Input), Graph->FindPin(Loop)).Allows(true));
+			EXPECT_FALSE(Schema.TryCreateConnection(Graph->FindPin(Input), Graph->FindPin(Loop), true));
 			EXPECT_EQ(Asset->GetPackage()->GetEditRevision(), Revision);
 			EXPECT_EQ(History->GetQueueLength(), Before + 1);
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
@@ -196,6 +206,31 @@ TEST(FMaterialGraphPersistenceTests, SchemaConnectionsReplayAndReopenForMaterial
 			CheckSource(*Asset, false);
 			ASSERT_TRUE(History->Redo());
 			EXPECT_EQ(Graph->FindInputPin(Input)->Link, Link);
+			CheckSource(*Asset, true);
+			ASSERT_TRUE(Schema.TryCreateConnection(Graph->FindPin(Replacement), Graph->FindPin(Input), true));
+			EXPECT_EQ(History->GetQueueLength(), Before + 2);
+			const auto CheckReplacement = [&] {
+				const auto* Source = Graph->FindPin(Replacement);
+				const auto* Sink = Graph->FindPin(Input);
+				ASSERT_EQ(Sink->LinkedTo.size(), 1u);
+				EXPECT_EQ(Sink->LinkedTo.front(), Source);
+				EXPECT_EQ(Cast<DMaterialExpressionSaturate>(Sink->GetOwningNode()->GetMaterialExpression())->Input.Connection.Expression.Get(),
+					Source->GetOwningNode()->GetMaterialExpression());
+			};
+			CheckReplacement();
+			ASSERT_TRUE(History->Undo());
+			CheckSource(*Asset, true);
+			ASSERT_TRUE(History->Redo());
+			CheckReplacement();
+			ASSERT_TRUE(Schema.BreakPinLinks(Graph->FindPin(Replacement)));
+			EXPECT_EQ(History->GetQueueLength(), Before + 3);
+			CheckSource(*Asset, false);
+			ASSERT_TRUE(History->Undo());
+			CheckReplacement();
+			ASSERT_TRUE(History->Redo());
+			CheckSource(*Asset, false);
+			ASSERT_TRUE(History->Undo());
+			ASSERT_TRUE(History->Undo());
 			CheckSource(*Asset, true);
 		}
 		ASSERT_TRUE(SavePackage(Asset->GetPackage()));
@@ -416,13 +451,25 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 		ASSERT_EQ(Upstream->Outputs.size(), 2u);
 		EXPECT_EQ(Input.OutputIndex, 1);
 		EXPECT_EQ(Upstream->Outputs[1].OutputId, Port.Id);
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(Owner));
+		const auto* RootNode = Graph->FindNode(Owner.GetOutputNode()->Id);
+		ASSERT_TRUE(RootNode);
+		const auto Pins = RootNode->GetPins();
+		const auto RootInput = std::ranges::find(Pins, static_cast<int32>(EMaterialProperty::MP_Roughness), &FMaterialGraphPin::SourceIndex);
+		ASSERT_NE(RootInput, Pins.end());
+		ASSERT_EQ(RootInput->LinkedTo.size(), 1u);
+		const auto* Output = RootInput->LinkedTo.front();
+		EXPECT_EQ(Output->SourceIndex, 1);
+		EXPECT_EQ(Output->GetOwningNode(), Graph->FindNode(Upstream->Id));
+		ASSERT_EQ(Output->LinkedTo.size(), 1u);
+		EXPECT_EQ(Output->LinkedTo.front(), &*RootInput);
 	};
 	{
 		Tests::FTestEditorTransactorOwner History;
 		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
 		const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
 		const auto Source = FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds.front(), 0, Port.Id});
-		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(*Graph, Source, Pin));
+		ASSERT_TRUE(Graph->GetSchema().TryCreateConnection(Graph->FindPin(Source), Graph->FindPin(Pin)));
 		Check(*Material);
 		ASSERT_TRUE(History->Undo());
 		EXPECT_FALSE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.IsConnected());

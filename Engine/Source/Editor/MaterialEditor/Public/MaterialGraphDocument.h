@@ -33,8 +33,6 @@ namespace Durin::MaterialEditor
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ReplaceExpression(const DMaterialExpression& Expression,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetConfiguration(const FMaterialConfiguration& Configuration,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetUseMaterialAttributes(bool bEnabled, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
@@ -45,16 +43,6 @@ namespace Durin::MaterialEditor
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
 			FGuid PortId = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto InlineInputNode(const FGuid& NodeId, uint32 InputIndex,
-			FGuid PortId = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CopySelection(std::span<const FGuid> NodeIds,
-			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
-			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto DuplicateNodes(std::span<const FGuid> NodeIds,
-			int32 OffsetX = 40, int32 OffsetY = 40, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
-			FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		// Resolves the material terminal and moves it using the common position command.
 		MATERIALEDITOR_API auto MoveMaterialOutput(int32 X, int32 Y,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;

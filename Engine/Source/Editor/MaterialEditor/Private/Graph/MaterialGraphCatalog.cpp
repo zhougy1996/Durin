@@ -130,6 +130,20 @@ namespace Durin::MaterialEditor
 			.Y = Node.bMaterialOutput ? 0 : static_cast<int32>(Ordinal / 4) * 240};
 	}
 
+	auto ReadGraphOutputs(const DMaterial& Material) -> FMaterialAttributeValues
+	{
+		FMaterialAttributeValues Result;
+		const auto& Outputs = Material.GetExpressionOutputs();
+		Result.Attributes = ToGraphLink(Outputs.Attributes);
+		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+		{
+			GetMaterialSurfaceOutputLink(Result, Definition.Property) = ToGraphLink(Outputs.Get(Definition.Property));
+			const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Definition.Property));
+			GetMaterialSurfaceOutputDefault(Result, Definition.Property) = {V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};
+		}
+		return Result;
+	}
+
 	auto ReadMaterialGraph(const DObject* Owner, std::span<const FMaterialGraphCatalogEntry> Catalog,
 		std::optional<std::span<const FGuid>> Nodes, const FMaterialGraphNodeVisitor& Visit) -> FMaterialGraphView
 	{
@@ -221,7 +235,6 @@ namespace Durin::MaterialEditor
 			}
 			return Source->second->ResultType;
 		};
-		const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
 		std::unordered_map<const DClass*, std::vector<const FMaterialGraphCatalogEntry*>> BaseShapes;
 		for (const auto& Entry : Catalog) BaseShapes[Entry.ExpressionClass].push_back(&Entry);
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
@@ -238,7 +251,7 @@ namespace Durin::MaterialEditor
 			if (Node.bMaterialOutput)
 			{
 				View.PrimaryLabel = "Material Output";
-				Visit(std::move(View), {ExpressionsById.at(Node.Id), Material, nullptr, SourceType});
+				Visit(std::move(View), {ExpressionsById.at(Node.Id), Material, nullptr, &SourceType});
 				continue;
 			}
 			auto* Expression = ExpressionsById.at(Node.Id);
@@ -293,21 +306,9 @@ namespace Durin::MaterialEditor
 			if (!Node.GetParameterId().IsValid() && Node.Opcode != EMaterialProgramOpcode::FunctionCall
 				&& Node.Opcode != EMaterialProgramOpcode::FunctionInput && Node.Opcode != EMaterialProgramOpcode::FunctionOutput)
 				View.SecondaryLabel = View.Presentation.DisplayName;
-			Visit(std::move(View), {Expression, Material, Shape, SourceType});
+			Visit(std::move(View), {Expression, Material, Shape, &SourceType});
 		}
-		if (Material)
-		{
-			const auto& Outputs = Material->GetExpressionOutputs();
-			Result.Outputs.Attributes = ToGraphLink(Outputs.Attributes);
-			for (const auto& Definition : Definitions)
-			{
-				GetMaterialSurfaceOutputLink(Result.Outputs, Definition.Property) = ToGraphLink(Outputs.Get(Definition.Property));
-				GetMaterialSurfaceOutputDefault(Result.Outputs, Definition.Property) = [&] {
-					const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Definition.Property));
-					return FMaterialProgramLiteral{V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};
-				}();
-			}
-		}
+		if (Material) Result.Outputs = ReadGraphOutputs(*Material);
 		Result.bFunction = Function != nullptr;
 		return Result;
 	}

@@ -25,7 +25,7 @@ namespace Durin::MaterialEditor
 		ImGui::PopID();
 		if (Disconnect)
 		{
-			const auto Result = Graph.GetSchema().BreakPinLinks(Graph, *Disconnect);
+			const auto Result = Graph.GetSchema().BreakPinLinks(Graph.FindPin(*Disconnect));
 			if (!Result) Error = FormatMaterialGraphCommandResult(Result);
 		}
 	}

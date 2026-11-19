@@ -21,7 +21,7 @@ namespace Durin::MaterialEditor
 {
 	class DMaterialGraph;
 
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 13;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 14;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -96,6 +96,8 @@ namespace Durin::MaterialEditor
 
 	struct FMaterialGraphOutputPinView
 	{
+		// Slot on the expression, independent of display order. Unbound signature pins have no slot.
+		int32 SourceIndex = 0;
 		uint8 OutputIndex = 0;
 		FGuid PortId;
 		std::string Name;
@@ -232,10 +234,7 @@ namespace Durin::MaterialEditor
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
 		TWeakObjectPtr<DObject> SourceRoot;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
-		bool bConnectAggregateSurface = false;
-		FGuid AggregateSourceNodeId;
-		uint8 AggregateSourceOutputIndex = 0;
-		FGuid AggregateSourceOutputId;
+		FMaterialExpressionInput AggregateSurface;
 	};
 
 	// Defines stable logical canvas dimensions shared by layout, rendering, and tests.

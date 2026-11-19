@@ -64,7 +64,8 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_FALSE(Workspace->IsAssetDirty(*First));
 	const auto CopiedCallId = GetFunctionCalls(*Second)[0]->Id;
 	FMaterialGraphClipboardPayload Clipboard;
-	ASSERT_TRUE(FMaterialGraphDocument(*Second).CopySelection(std::span(&CopiedCallId, 1), Clipboard));
+	TStrongObjectPtr<DMaterialGraph> SecondEditorGraph(DMaterialGraph::Create(*Second));
+	ASSERT_TRUE(SecondEditorGraph->CopySelection(std::span(&CopiedCallId, 1), Clipboard));
 	FMaterialFunctionPreviewInvalidation PreviewInvalidation;
 	PreviewInvalidation.SetFunction(Second);
 	EXPECT_TRUE(PreviewInvalidation.ConsumeRefreshRequest());
@@ -90,7 +91,7 @@ TEST(FMaterialFunctionPersistenceTests, WorkspaceSavesAndReloadsFunctionsAcrossO
 	EXPECT_EQ(Reloaded->GetFunctionSignature().Outputs[0].Name, "Saved Surface");
 	EXPECT_EQ(GetFunctionCalls(*Second)[0]->Function.Get(), Reloaded);
 	EXPECT_FALSE(PreviewInvalidation.ConsumeRefreshRequest());
-	const auto Pasted = FMaterialGraphDocument(*Second).Paste(Clipboard, 300, 300, Durin::ETransactionMode::NotTransactable);
+	const auto Pasted = SecondEditorGraph->Paste(Clipboard, 300, 300, Durin::ETransactionMode::NotTransactable);
 	EXPECT_TRUE(Pasted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Pasted);
 	EXPECT_EQ(GetFunctionCalls(*Second).back()->Function.Get(), Reloaded);
 	EXPECT_FALSE(Workspace->IsAssetDirty(*First));

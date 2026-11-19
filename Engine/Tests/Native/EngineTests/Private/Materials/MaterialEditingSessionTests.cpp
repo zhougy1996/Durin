@@ -4,6 +4,11 @@
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
+#include "Materials/MaterialExpressionEditing.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
+#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "FunctionPortTestFixture.h"
@@ -147,6 +152,119 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	EXPECT_FALSE(RetiredNode.IsValid());
 }
 
+TEST_F(FMaterialEditingSessionTests, RebuildRestoresTextureChannelsAndSparseMaterialAttributeSlots)
+{
+	auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Source);
+	auto* Root = Cast<DMaterialExpressionMaterialOutput>(Expressions.front().Get());
+	ASSERT_TRUE(Root);
+	auto* Sample = NewObject<DMaterialExpressionTextureSample2D>(Source, NAME_None);
+	auto* Make = NewObject<DMaterialExpressionMakeMaterialAttributes>(Source, NAME_None);
+	auto* Get = NewObject<DMaterialExpressionGetMaterialAttributes>(Source, NAME_None);
+	for (DMaterialExpression* Expression : std::array<DMaterialExpression*, 3>{Sample, Make, Get})
+	{
+		Expression->Id = FGuid::NewGuid();
+		Expressions.emplace_back(Expression);
+	}
+	const auto Roughness = EMaterialProperty::MP_Roughness;
+	const auto Metallic = EMaterialProperty::MP_Metallic;
+	Get->AttributeIDs = {FMaterialAttributeDefinitionMap::GetID(Roughness)};
+	Get->Surface.Connect(0, Make);
+	const int32 Green = static_cast<int32>(EMaterialSampleOutput::G);
+	Make->Values.Get(Metallic).Connection.Connect(Green, Sample);
+	Root->Outputs.Get(Roughness).Connection.Connect(static_cast<int32>(Roughness), Get);
+	Root->Outputs.Get(Metallic).Connection.Connect(Green, Sample);
+	Root->Outputs.Attributes.Connect(0, Make);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Source));
+	const auto CheckRoot = [&](int32 Slot, const DMaterialExpression& Upstream, int32 SourceIndex, size_t Fanout) {
+		const auto* Node = Graph->FindNode(Root->Id);
+		ASSERT_TRUE(Node);
+		const auto Inputs = Node->GetPins();
+		const auto Input = std::ranges::find(Inputs, Slot, &FMaterialGraphPin::SourceIndex);
+		ASSERT_NE(Input, Inputs.end());
+		ASSERT_EQ(Input->LinkedTo.size(), 1u);
+		const auto* Output = Input->LinkedTo.front();
+		EXPECT_EQ(Output->Direction, EMaterialGraphPinDirection::Output);
+		EXPECT_EQ(Output->GetOwningNode(), Graph->FindNode(Upstream.Id));
+		EXPECT_EQ(Output->SourceIndex, SourceIndex);
+		EXPECT_EQ(Output->LinkedTo.size(), Fanout);
+		EXPECT_TRUE(std::ranges::contains(Output->LinkedTo, &*Input));
+	};
+	for (int Pass = 0; Pass < 2; ++Pass)
+	{
+		Graph->RebuildGraph();
+		Graph->FindNode(Sample->Id)->ReconstructNode();
+		CheckRoot(static_cast<int32>(Metallic), *Sample, Green, 2);
+		CheckRoot(static_cast<int32>(Roughness), *Get, static_cast<int32>(Roughness), 1);
+	}
+	const auto* OldOutput = Graph->FindNode(Sample->Id)->GetOutputPin(2);
+	Root->Outputs.Get(Metallic).Connection.Connect(static_cast<int32>(EMaterialSampleOutput::A), Sample);
+	Graph->LinkGraphNodesFromMaterial();
+	EXPECT_EQ(OldOutput, Graph->FindNode(Sample->Id)->GetOutputPin(2));
+	ASSERT_EQ(OldOutput->LinkedTo.size(), 1u);
+	CheckRoot(static_cast<int32>(Metallic), *Sample, static_cast<int32>(EMaterialSampleOutput::A), 1);
+	Root->Outputs.bUseMaterialAttributes = true;
+	Graph->RebuildGraph();
+	CheckRoot(static_cast<int32>(EMaterialOutputPin::Surface), *Make, 0, 2);
+	const auto* Channel = Graph->FindNode(Sample->Id)->GetOutputPin(2); // RGB, R, G in display order.
+	ASSERT_TRUE(Channel);
+	EXPECT_EQ(Channel->SourceIndex, Green);
+	ASSERT_EQ(Channel->LinkedTo.size(), 1u);
+	EXPECT_EQ(Channel->LinkedTo.front()->GetOwningNode(), Graph->FindNode(Make->Id));
+}
+
+TEST_F(FMaterialEditingSessionTests, FunctionGraphRelinksWideOutputSlotsByObjectIdentity)
+{
+	TStrongObjectPtr<DMaterialFunction> Caller(NewObject<DMaterialFunction>(Package, "WideCaller"));
+	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(Package, "WideCallee"));
+	auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Caller);
+	const auto Terminal = std::ranges::find_if(Expressions, [](const auto& E) { return Cast<DMaterialExpressionFunctionOutput>(E.Get()); });
+	ASSERT_NE(Terminal, Expressions.end());
+	auto* Result = Cast<DMaterialExpressionFunctionOutput>(Terminal->Get());
+	auto* Call = NewObject<DMaterialExpressionFunctionCall>(Caller.Get(), NAME_None);
+	Call->Id = FGuid::NewGuid();
+	Call->Function = Callee.Get();
+	constexpr int32 Slot = 256;
+	for (int32 I = 0; I < Slot; ++I)
+		Call->Outputs.push_back({FGuid::NewGuid(), EMaterialProgramValueType::Float});
+	const auto Port = Callee->GetFunctionSignature().Outputs.front();
+	Call->Outputs.push_back({Port.Id, Port.Type});
+	Expressions.emplace_back(Call);
+	Result->Source.Connect(Slot, Call);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Caller));
+	const auto* Input = Graph->FindNode(Result->Id)->GetInputPin(0);
+	const auto* Output = Graph->FindNode(Call->Id)->GetOutputPin(0);
+	ASSERT_TRUE(Input && Output);
+	EXPECT_EQ(Output->SourceIndex, Slot);
+	ASSERT_EQ(Input->LinkedTo.size(), 1u);
+	EXPECT_EQ(Input->LinkedTo.front(), Output);
+	ASSERT_EQ(Output->LinkedTo.size(), 1u);
+	EXPECT_EQ(Output->LinkedTo.front(), Input);
+
+	Tests::FTestEditorTransactorOwner History;
+	const auto TerminalPin = [&] { return Graph->FindNode(Result->Id)->GetInputPin(0); };
+	const auto WidePin = [&] { return Graph->FindNode(Call->Id)->GetOutputPin(0); };
+	const auto Break = Graph->GetSchema().BreakPinLinks(TerminalPin());
+	ASSERT_TRUE(Break) << FormatMaterialGraphCommandResult(Break);
+	EXPECT_FALSE(Result->Source.IsConnected());
+	const auto Connect = Graph->GetSchema().TryCreateConnection(WidePin(), TerminalPin());
+	ASSERT_TRUE(Connect) << FormatMaterialGraphCommandResult(Connect);
+	EXPECT_EQ(Result->Source.Expression.Get(), Call);
+	EXPECT_EQ(Result->Source.OutputIndex, Slot);
+	ASSERT_TRUE(History->Undo());
+	EXPECT_FALSE(Result->Source.IsConnected());
+	ASSERT_TRUE(History->Redo());
+	EXPECT_EQ(Result->Source.OutputIndex, Slot);
+
+	auto* Foreign = NewObject<DMaterialExpressionFunctionCall>(Callee.Get(), NAME_None);
+	Foreign->Id = Call->Id;
+	Foreign->Outputs = Call->Outputs;
+	Result->Source.Connect(Slot, Foreign);
+	Graph->LinkGraphNodesFromMaterial();
+	EXPECT_TRUE(TerminalPin()->LinkedTo.empty());
+	EXPECT_TRUE(WidePin()->LinkedTo.empty());
+	EXPECT_FALSE(Graph->FindNode(Result->Id)->GetView().Inputs.front().Link.SourceNodeId.IsValid());
+}
+
 TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndRetainsMaterialRootBinding)
 {
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -206,6 +324,13 @@ TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndR
 		EXPECT_EQ(RootInput->Link, Link);
 		ASSERT_EQ(OutputNode->GetView().Inputs.size(), 1u);
 		EXPECT_EQ(OutputNode->GetView().Inputs.front().Link, InternalLink);
+		const auto* TerminalPin = OutputNode->GetInputPin(0);
+		const auto* InputPortPin = InputNode->GetOutputPin(0);
+		ASSERT_TRUE(TerminalPin && InputPortPin);
+		ASSERT_EQ(TerminalPin->LinkedTo.size(), 1u);
+		ASSERT_EQ(InputPortPin->LinkedTo.size(), 1u);
+		EXPECT_EQ(TerminalPin->LinkedTo.front(), InputPortPin);
+		EXPECT_EQ(InputPortPin->LinkedTo.front(), TerminalPin);
 	};
 	ASSERT_TRUE(InputNode->GetMaterialExpression()->CanRenameNode());
 	ASSERT_TRUE(OutputNode->GetMaterialExpression()->CanRenameNode());

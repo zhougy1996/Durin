@@ -1,4 +1,4 @@
-#include "MaterialGraphDocument.h"
+#include "MaterialGraph.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
@@ -79,7 +79,7 @@ namespace Durin::MaterialEditor
 				auto Input = std::ranges::find(Call->Inputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
 				if (Input == Call->Inputs.end())
 				{
-					check(Compound);
+					if (!Compound) return {.Message = "The function input has no binding."};
 					Call->Inputs.push_back({PortId, Port->Type});
 					Input = std::prev(Call->Inputs.end());
 				}
@@ -106,14 +106,6 @@ namespace Durin::MaterialEditor
 				}
 			}
 			return Result;
-		}
-
-		auto HasConsumer(FGraphEditSession& State, FGuid Id) -> bool
-		{
-			bool bFound = false;
-			for (auto& Expression : State.Expressions)
-				VisitMaterialExpressionInputs(*Expression, [&](uint32, FMaterialExpressionInput& Input) { bFound |= Input.GetExpressionId() == Id; });
-			return bFound;
 		}
 
 		auto MakeConstant(std::span<const float> Value) -> TStrongObjectPtr<DMaterialExpression>
@@ -222,27 +214,31 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::InlineInputNode(const FGuid& NodeId, uint32 InputIndex,
-		FGuid PortId, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::InlineInputNode(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		FGraphEditSession State(*Owner.Get());
-		const auto Input = FindInput(FindExpression(State.Expressions, NodeId), InputIndex, PortId, &State);
+		auto* Graph = ResolveInputGraph(Pin);
+		auto* Expression = GetMaterialExpression();
+		if (!Graph || !Expression) return RejectCommand("The input pin is unavailable.");
+		FGraphEditSession State(*Graph->GetMaterialOrFunction());
+		State.Modify(*Expression);
+		const auto Input = FindInput(Expression, Pin.Index, Pin.PortId);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
-		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0 || Input.Source->GetOutputId().IsValid())
+		if (!Input.SupportsDefault() || Input.Source->OutputIndex != 0)
 			return RejectCommand("This source cannot be represented by an inline binding.");
-		const auto Value = ReadConstant(Input.Source->Expression.Get());
+		const auto* Source = Input.Source->Expression.Get();
+		if (!Source || !std::ranges::contains(State.Expressions, Source, [](const auto& Member) { return Member.Get(); }))
+			return RejectCommand("The source expression is unavailable.");
+		const auto Value = ReadConstant(Source);
 		if (Value.empty()) return RejectCommand("Only numeric constants can be inlined; parameter exposure remains an explicit node.");
-		const auto SourceId = Input.Source->GetExpressionId();
 		if (!Input.Write(Value)) return RejectCommand("The constant has an incompatible width.");
 		*Input.Source = {};
-		if (!HasConsumer(State, SourceId))
+		if (!Graph->HasExpressionConsumer(*Source))
 		{
-			std::erase_if(State.Expressions, [&](const auto& Expression) { return Expression->Id == SourceId; });
-			std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Position.NodeId == SourceId; });
+			std::erase_if(State.Expressions, [&](const auto& Expression) { return Expression.Get() == Source; });
+			std::erase_if(State.Presentation.Nodes, [&](const auto& Position) { return Position.NodeId == Source->Id; });
 		}
 		return State.Commit("Inline Input Node", Transactions);
 	}

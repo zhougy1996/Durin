@@ -159,11 +159,13 @@ namespace Durin::MaterialEditor
 		FExpressionEdit Edit;
 		Edit.Set(*Swizzle, Swizzle->Components, std::vector<uint8>(Components.begin(), Components.end()));
 		return Edit.CommitInferred(*Owner, *Admission, "Edit Swizzle",
-			{{Swizzle->Id, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
+			{{Swizzle, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
 	}
 
-	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source, FPinOperation Operation) -> void
+	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void
 	{
+		Source.DetachedSourceType = nullptr;
+		MaterialExpression = Source.Expression;
 		View = std::move(Metadata);
 		struct FRestoreSource
 		{
@@ -180,6 +182,32 @@ namespace Durin::MaterialEditor
 		View.Outputs.clear();
 		CreateInputPins();
 		CreateOutputPins();
+
+		Pins.clear();
+		Pins.reserve(View.Inputs.size() + View.Outputs.size());
+		const auto* Call = Cast<DMaterialExpressionFunctionCall>(ActiveSource->Expression);
+		for (const auto& Input : View.Inputs)
+		{
+			auto Index = static_cast<int32>(Input.InputIndex);
+			if (Call)
+			{
+				const auto It = std::ranges::find(Call->Inputs, Input.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+				Index = It == Call->Inputs.end() ? -1 : static_cast<int32>(It - Call->Inputs.begin());
+			}
+			Pins.push_back(FMaterialGraphPin(this, EMaterialGraphPinDirection::Input, Index, static_cast<int32>(&Input - View.Inputs.data())));
+		}
+		for (const auto& Output : View.Outputs)
+			Pins.push_back(FMaterialGraphPin(this, EMaterialGraphPinDirection::Output, Output.SourceIndex, static_cast<int32>(&Output - View.Outputs.data())));
+	}
+
+	auto DMaterialGraphNode::GetInputPin(int32 Index) const -> const FMaterialGraphPin*
+	{
+		return Index >= 0 && static_cast<size_t>(Index) < View.Inputs.size() ? &Pins[Index] : nullptr;
+	}
+
+	auto DMaterialGraphNode::GetOutputPin(int32 Index) const -> const FMaterialGraphPin*
+	{
+		return Index >= 0 && static_cast<size_t>(Index) < View.Outputs.size() ? &Pins[View.Inputs.size() + Index] : nullptr;
 	}
 
 	auto DMaterialGraphNode::AllocateDefaultPins() -> void
@@ -191,10 +219,7 @@ namespace Durin::MaterialEditor
 		}
 		if (!GetMaterialExpression()) return;
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
-		ReadMaterialGraph(Graph->GetMaterialOrFunction(), EnumerateCatalog(), std::span(&View.Node.Id, 1),
-			[&](FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source) {
-				Refresh(std::move(Metadata), Source, &DMaterialGraphNode::CreatePins);
-			});
+		Graph->RefreshNodes(EnumerateCatalog(), std::span(&View.Node.Id, 1));
 	}
 
 	auto DMaterialGraphNode::ReconstructNode() -> void { AllocateDefaultPins(); }
@@ -214,7 +239,8 @@ namespace Durin::MaterialEditor
 			if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
 			const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 			FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
-				.Link = ToGraphLink(Input), .SourceType = Source.SourceType(ToGraphLink(Input)), .AcceptedTypes = {Definition.Type}};
+				.AcceptedTypes = {Definition.Type}};
+			Source.ProjectInput(Pin, Input);
 			if (Definition.Id == EMaterialOutputPin::WorldPositionOffset)
 				Pin.Constraint.Stages = EMaterialEvaluationStage::Vertex;
 			else if (!bAttributes)
@@ -251,8 +277,8 @@ namespace Durin::MaterialEditor
 				// Surface override indices are stable attributes, not binding-array ordinals.
 				if (Cast<DMaterialExpressionSetMaterialAttributes>(Expression) && InputIndex != 0) return;
 				FMaterialGraphPinView Pin{.InputIndex = InputIndex,
-					.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value",
-					.Link = ToGraphLink(Input), .SourceType = Source.SourceType(ToGraphLink(Input))};
+					.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value"};
+				Source.ProjectInput(Pin, Input);
 				if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
 				if (IsMaterialAdaptiveNumeric(Node.Opcode) && !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
 				{
@@ -291,19 +317,22 @@ namespace Durin::MaterialEditor
 				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Inputs))
 				{
 					const auto Binding = std::ranges::find(Call->Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
-					const auto Link = Binding == Call->Inputs.end() ? FMaterialProgramLink{} : ToGraphLink(Binding->Input);
 					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
-						.Link = Link, .SourceType = Link.SourceNodeId.IsValid() ? Source.SourceType(Link) : Port.Type,
+						.SourceType = Port.Type,
 						.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
 						.Constraint = Port.Constraint,
 						.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
 						.bAdvanced = Port.bAdvanced});
+					if (Binding != Call->Inputs.end()) Source.ProjectInput(View.Inputs.back(), Binding->Input);
 				}
 			for (const auto& Binding : Call->Inputs)
 				if (std::ranges::none_of(View.Inputs, [&](const auto& Pin) { return Pin.PortId == Binding.InputId; }))
+				{
 					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = "Missing input",
-						.Link = ToGraphLink(Binding.Input), .SourceType = Source.SourceType(ToGraphLink(Binding.Input)), .AcceptedTypes = {Binding.ExpectedType},
+						.AcceptedTypes = {Binding.ExpectedType},
 						.PortId = Binding.InputId, .bMissing = true});
+					Source.ProjectInput(View.Inputs.back(), Binding.Input);
+				}
 		}
 		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression); Output && !View.Inputs.empty())
 		{
@@ -321,13 +350,14 @@ namespace Durin::MaterialEditor
 			{
 				const auto Property = Attribute.GetProperty();
 				const auto Index = static_cast<uint32>(Property);
-				if (Index < Definitions.size()) View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
-					.Link = ToGraphLink(Attribute.Source), .SourceType = Attribute.Source.Connection.IsConnected()
-						? Source.SourceType(ToGraphLink(Attribute.Source)) : GetMaterialSurfaceOutputType(Property),
+				if (Index >= Definitions.size()) continue;
+				View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
+					.SourceType = GetMaterialSurfaceOutputType(Property),
 					.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)},
 					.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
 					.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,
 					.bUseConstant = Attribute.Source.UseConstant});
+				Source.ProjectInput(View.Inputs.back(), Attribute.Source);
 			}
 		for (auto& Pin : View.Inputs)
 			if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
@@ -342,23 +372,30 @@ namespace Durin::MaterialEditor
 		const auto& Node = View.Node;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
 		{
+			std::unordered_map<FGuid, int32> Slots;
+			for (int32 Index = 0; Index < static_cast<int32>(Call->Outputs.size()); ++Index)
+				Slots.emplace(Call->Outputs[Index].OutputId, Index);
 			if (IsValid(Call->Function.Get()))
-				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Outputs)) View.Outputs.push_back({.PortId = Port.Id, .Name = Port.Name,
-					.Type = Port.Type, .Constraint = Port.Constraint});
+				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Outputs))
+				{
+					const auto Slot = Slots.find(Port.Id);
+					View.Outputs.push_back({.SourceIndex = Slot == Slots.end() ? -1 : Slot->second, .PortId = Port.Id,
+						.Name = Port.Name, .Type = Port.Type, .Constraint = Port.Constraint});
+				}
 			for (const auto& Binding : Call->Outputs)
 				if (std::ranges::none_of(View.Outputs, [&](const auto& Pin) { return Pin.PortId == Binding.OutputId; }))
-					View.Outputs.push_back({.PortId = Binding.OutputId, .Name = "Missing output", .Type = Binding.ExpectedType, .bMissing = true});
+					View.Outputs.push_back({.SourceIndex = Slots.at(Binding.OutputId), .PortId = Binding.OutputId, .Name = "Missing output", .Type = Binding.ExpectedType, .bMissing = true});
 		}
 		else if (IsMaterialSamplingNode(Node.Opcode))
 		{
 			for (const auto& Output : GetMaterialSampleOutputs(Node.Opcode))
-				View.Outputs.push_back({.OutputIndex = static_cast<uint8>(Output.Id), .Name = Output.Name, .Type = Output.Type});
+				View.Outputs.push_back({.SourceIndex = static_cast<int32>(Output.Id), .OutputIndex = static_cast<uint8>(Output.Id), .Name = Output.Name, .Type = Output.Type});
 		}
 		else if (Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes)
 		{
 			const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
 			for (uint8 Index = 0; Index < Definitions.size(); ++Index)
-				if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression)->IsSelected(Definitions[Index].Property)) View.Outputs.push_back({.PortId = Definitions[Index].AttributeID,
+				if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression)->IsSelected(Definitions[Index].Property)) View.Outputs.push_back({.SourceIndex = static_cast<int32>(Definitions[Index].Property), .PortId = Definitions[Index].AttributeID,
 					.Name = std::string(Definitions[Index].Name), .Type = Definitions[Index].Semantics.Type});
 		}
 		else if (Node.Opcode != EMaterialProgramOpcode::FunctionOutput)

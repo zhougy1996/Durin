@@ -442,8 +442,8 @@ namespace Durin::MaterialEditor
 			{
 				if (!Changed && bConnected)
 				{
-					if (ImGui::MenuItem("Inline constant")) Submit(Document.InlineInputNode(Selected->Node.Id, Pin.InputIndex, Pin.PortId));
-					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, Selected->InputAddress(Pin)));
+					if (ImGui::MenuItem("Inline constant")) Submit(SelectedNode->InlineInputNode(Selected->InputAddress(Pin)));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(EditorGraph->GetSchema().BreakPinLinks(EditorGraph->FindPin(Selected->InputAddress(Pin))));
 				}
 				else if (!Changed)
 				{

@@ -12,6 +12,7 @@
 namespace Durin::MaterialEditor
 {
 	class DMaterialGraph;
+	struct FMaterialGraphPin;
 	enum class EMaterialGraphConnectionResponse : uint8 { Disallow, Make, ReplaceInput };
 	struct FMaterialGraphConnectionResponse
 	{
@@ -29,11 +30,17 @@ namespace Durin::MaterialEditor
 	public:
 		MATERIALEDITOR_API static auto ForOwner(const DObject& Owner) -> const FMaterialGraphSchema&;
 		virtual ~FMaterialGraphSchema() = default;
-		MATERIALEDITOR_API virtual auto CanCreateConnection(const DMaterialGraph& Graph,
+		MATERIALEDITOR_API virtual auto CanCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B) const -> FMaterialGraphConnectionResponse;
+		MATERIALEDITOR_API virtual auto TryCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B,
+			bool Replace = false, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API virtual auto BreakPinLinks(const FMaterialGraphPin* Pin,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		// Resolve retained UI addresses and dynamic attribute requests at the command boundary.
+		MATERIALEDITOR_API auto CanCreateConnection(const DMaterialGraph& Graph,
 			const FMaterialGraphPinAddress& A, const FMaterialGraphPinAddress& B) const -> FMaterialGraphConnectionResponse;
 		MATERIALEDITOR_API auto TryCreateConnection(DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,
 			const FMaterialGraphPinAddress& B, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API virtual auto BreakPinLinks(DMaterialGraph& Graph, FMaterialGraphPinAddress Pin,
+		MATERIALEDITOR_API auto BreakPinLinks(DMaterialGraph& Graph, FMaterialGraphPinAddress Pin,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API virtual auto GetGraphContextActions(const DMaterialGraph& Graph,
 			std::optional<FMaterialGraphPinAddress> Source = {}) const -> std::vector<FMaterialGraphCreationAction>;

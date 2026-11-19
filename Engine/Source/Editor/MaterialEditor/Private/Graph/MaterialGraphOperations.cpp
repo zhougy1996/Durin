@@ -211,7 +211,7 @@ namespace Durin::MaterialEditor
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
 				Nodes.push_back(Parameter->Id);
 		if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
-		return RemoveNodes(Nodes, Mode);
+		return GraphEditInternals::RemoveGraphNodes(Owner.Get(), Nodes, Mode);
 	}
 
 	auto FMaterialGraphDocument::PromoteConstantToParameter(const FGuid& NodeId, FName Name, ETransactionMode Mode) const

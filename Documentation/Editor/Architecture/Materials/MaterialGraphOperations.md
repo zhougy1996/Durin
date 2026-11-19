@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-19
 
 ## Task routing
 
@@ -32,7 +32,7 @@ and creation eligibility. The graph exposes this policy through `GetSchema()`. C
 capabilities, material-output deletion protection, source-address validity,
 connection replacement rules, and type compatibility hints. Menus and commands
 consume these policies; direct expression creation and paste also check the
-graph-kind restrictions. Document retains asset resolution and transactions.
+graph-kind restrictions. Graph owns connection writeback. Document groups the remaining compound asset commands.
 Type compatibility is advisory during editing: structurally valid links may be
 retained for compiler diagnostics. Hidden output pins remain command-addressable;
 the visible read model is not the authority for connection admission. Schema
@@ -92,8 +92,27 @@ retain their strict graph-validation boundary.
 owners. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
-The graph supplies a lightweight command object with the same weak owner and schema for clipboard, layout and asset commands. The public command object has no raw connect or disconnect entry points.
+The graph owns clipboard commands and supplies a lightweight command object with the same weak owner and schema for layout and asset commands. The public command object has no raw connect or disconnect entry points.
 New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Detached inspection uses the same node pin builders and allocates no editor objects. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
+Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
+display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
+slot, with -1 for a signature port that has no call binding. Function outputs
+use the call's binding order, texture outputs use channel indices, and selected
+material attributes use their property slots. After allocating the nodes and
+pins, the graph resolves each visible input's expression reference and output
+index and fills both pins' `LinkedTo` lists. Pin pointers are borrowed until
+reconstruction or removal. The canvas receives detached copies of the resulting
+endpoints.
+
+The canvas resolves gesture endpoints to live pins when previewing or committing a wire.
+Schema checks graph membership, direction, types, occupancy and upstream cycles
+through the pins' linked neighbors. Graph writes the selected output's expression
+and signed source slot to the input. A newly exposed function port acquires a
+binding in the same transaction as the connection. Breaking an output clears all
+its consumers together, including material root inputs retained in a hidden
+output mode. Detached inspection and low-level asset repair retain address-based
+entry points.
+
 Canvas and Details read the projected nodes. Function calls reconstruct their pins after signature changes.
 `BreakPinLinks` disconnects one input or all authored consumers of an output in one undo step.
 Disconnected function inputs keep their inline defaults. Function previews
@@ -107,7 +126,11 @@ Editing-mode dependency validation retains storage, recursion and closure bounds
 compilation-mode validation additionally checks function bodies and required bindings.
 Insertion, nested edits and clipboard paste use editing mode, so unfinished
 dependencies remain editable. Compilation, preview and package validation stay strict.
-Generic input connection and node removal use the same live edit boundary.
+`DMaterialGraph::RemoveNodes` resolves the selection to expression objects and
+clears each stored input that references a removed object, including hidden root
+properties. `DMaterialGraphNode::InlineInputNode` copies a connected constant
+into its input default and deletes the constant only after its last consumer is
+gone. Both operations record the complete edit in one transaction.
 Fixed pins follow reflected connection-member declaration order; Surface override
 pins are keyed by attribute and call connections by their input bindings. Deletion
 clears references to removed nodes without changing retained numeric defaults.
@@ -299,8 +322,10 @@ commands infer math result widths only in the downstream closure of changed node
 resolving affected dependencies in upstream order. Same-class constant value edits
 skip inference. Propagation stops when an adaptive node's output width is unchanged. Newly added
 or class-replaced nodes and explicitly authored result widths force propagation
-to their consumers. Each inference pass builds temporary
-node and reverse-edge indexes; storage checks and publication can still scan the
+to their consumers. Each inference pass indexes upstream expression objects and their consumers,
+including pending rewires, and resolves output types by output index. Graph
+synchronization follows the output pins’ `LinkedTo` lists to refresh consumer
+pin types. Storage checks and publication can still scan the
 graph. Undo/Redo replays recorded types without rerunning inference. Linked operands and nonuniform disconnected literals constrain
 the width; uniform defaults can collapse to an equivalent scalar when the width
 changes. A graph without constraining operands retains its current width. Different
@@ -516,7 +541,7 @@ value. Reset clears that flag without changing the connection or retained
 constant; re-enabling restores the retained value. Details distinguishes inherited
 and explicit values. Connecting, disconnecting and deleting an upstream node
 preserve the flag and constant. Transactions and clipboard copies carry the
-complete reflected input state; clipboard schema 10 rejects older payloads.
+complete reflected input state. Paste checks the clipboard schema version.
 
 Texture Object Parameter owns a Texture2D resource. Texture Sample Parameter 2D
 owns a resource and exposes raw RGBA/R/G/B/A, RGB and Texture2D slot 7.
@@ -697,8 +722,11 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 
 ## Clipboard and layout
 
-`FMaterialGraphDocument` owns graph commands for material and function drafts,
-including parameter and surface-default edits. Catalog lookup and search belong
+`DMaterialGraph` owns copy, cut, paste and duplicate for material and function
+drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
+it at the requested offset in one history step. `FMaterialGraphDocument` still
+owns creation and replacement, function ports and calls, input extraction,
+layout and movement, material configuration, parameter and Surface commands. Catalog lookup and search belong
 to private Material Editor code. `MoveMaterialOutput` resolves the material
 output terminal before using `MoveNodes`. Command
 status and affected/generated IDs are produced by the owning command, with no
@@ -715,7 +743,7 @@ from live authored positions.
 The shared graph clipboard releases its retained expression objects before editor
 module shutdown.
 
-`FMaterialGraphClipboardPayload` schema 10 contains at most 256 independently
+`FMaterialGraphClipboardPayload` schema 14 contains at most 256 independently
 cloned concrete expressions (including terminal port definitions), presentation
 labels, relative positions and a weak source-owner identity. Strong expression roots keep
 reflected texture and callee references alive independently of the source asset;
@@ -729,12 +757,15 @@ reuse a matching destination name and type, adopting its current default/metadat
 an unused name creates a fresh parameter GUID with the copied definition. Repeated
 references in one payload remain shared. Same-root duplication therefore shares
 existing parameters; a renamed or removed source name follows the same name lookup.
-Internal links are remapped together. Same-root external links can remain; foreign external links reject even
-when destination GUIDs happen to match. Conflicting shared definitions/types, duplicate node identities, missing
+Copy maps selected expressions to clipboard objects. Paste maps clipboard objects
+to destination expressions. Both passes preserve the stored int32 output index,
+including the material root's aggregate Surface connection. An external input
+survives a same-root paste only while its exact source object is still a member.
+A foreign external input rejects the paste even if a node GUID matches. Conflicting shared definitions/types, duplicate node identities, missing
 retained resources and unsupported versions reject atomically. Placement, owners,
 links and derived schemas commit and Undo/Redo together.
 
-Material and function documents share copy, paste and cut commands. Paste remaps
+Paste remaps
 ordinary inputs, Surface attribute bindings and function-call inputs while keeping
 callee port GUIDs and selected output identities. Copied interface terminals gain
 new port GUIDs and unique names in the destination function; root parameters cannot

@@ -14,12 +14,40 @@ namespace Durin::MaterialEditor
 	class FMaterialGraphSchema;
 	struct FMaterialGraphPinSource;
 
+	class DMaterialGraphNode;
+	enum class EMaterialGraphPinDirection : uint8 { Input, Output };
+
+	// Node-owned editor pins. Borrow until the node is reconstructed or removed.
+	struct FMaterialGraphPin
+	{
+		EMaterialGraphPinDirection Direction;
+		int32 SourceIndex;
+		int32 DisplayIndex;
+		DMaterialGraphNode* GetOwningNode() const { return OwningNode; }
+		std::vector<const FMaterialGraphPin*> LinkedTo;
+	private:
+		friend class DMaterialGraphNode;
+		friend class DMaterialGraph;
+		FMaterialGraphPin(DMaterialGraphNode* Owner, EMaterialGraphPinDirection InDirection, int32 Index, int32 Ordinal)
+			: Direction(InDirection), SourceIndex(Index), DisplayIndex(Ordinal), OwningNode(Owner) {}
+		auto MakeLinkTo(FMaterialGraphPin& Other) -> void
+		{
+			LinkedTo.push_back(&Other);
+			Other.LinkedTo.push_back(this);
+		}
+		DMaterialGraphNode* OwningNode;
+	};
+
 	DCLASS(NoClassDefaultObject)
 	class DMaterialGraphNode : public DObject
 	{
 		GENERATED_BODY()
 	public:
 		explicit DMaterialGraphNode(const FObjectInitializer& Initializer) : DObject(Initializer) {}
+		auto GetPins() const -> std::span<const FMaterialGraphPin> { return Pins; }
+		// Display ordinals select pins; SourceIndex selects a slot in the underlying expression.
+		MATERIALEDITOR_API auto GetInputPin(int32 InputIndex) const -> const FMaterialGraphPin*;
+		MATERIALEDITOR_API auto GetOutputPin(int32 OutputIndex) const -> const FMaterialGraphPin*;
 		auto GetView() const -> const FMaterialGraphNodeView& { return View; }
 		MATERIALEDITOR_API virtual auto AllocateDefaultPins() -> void;
 		MATERIALEDITOR_API auto GetMaterialExpression() const -> DMaterialExpression*;
@@ -30,6 +58,8 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto SetConstantValue(const FMaterialParameterValue& Value,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetSwizzleComponents(std::span<const uint8> Components,
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto InlineInputNode(const FMaterialGraphPinAddress& Pin,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetPinUseConstant(const FMaterialGraphPinAddress& Pin, bool Enabled,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
@@ -42,6 +72,12 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API virtual auto CreateOutputPins() -> void;
 		FMaterialGraphNodeView View;
 	private:
+		std::vector<FMaterialGraphPin> Pins;
+		TWeakObjectPtr<DMaterialExpression> MaterialExpression;
+		auto ClearPinLinks() -> void
+		{
+			for (auto& Pin : Pins) Pin.LinkedTo.clear();
+		}
 		auto ResolveInputGraph(const FMaterialGraphPinAddress& Pin) const -> DMaterialGraph*;
 		friend MATERIALEDITOR_API auto ProjectMaterialGraph(const DObject*, std::span<const FMaterialGraphCatalogEntry>,
 			std::optional<std::span<const FGuid>>) -> FMaterialGraphView;
@@ -49,7 +85,7 @@ namespace Durin::MaterialEditor
 		static auto BuildOutputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void;
 		friend class DMaterialGraphNode_Root;
 		using FPinOperation = void (DMaterialGraphNode::*)();
-		auto Refresh(FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source, FPinOperation Operation) -> void;
+		auto Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void;
 		auto CreatePins() -> void;
 		// Available only while dispatching the synchronous allocation/reconstruction hooks.
 		const FMaterialGraphPinSource* ActiveSource = nullptr;
@@ -82,13 +118,28 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto GetSchema() const -> const FMaterialGraphSchema&;
 		auto GetNodes() const -> std::span<const TObjectPtr<DMaterialGraphNode>> { return Nodes; }
 		MATERIALEDITOR_API auto FindNode(const FGuid& Id) const -> DMaterialGraphNode*;
+		MATERIALEDITOR_API auto FindPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPin*;
 		MATERIALEDITOR_API auto FindInputPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPinView*;
 		MATERIALEDITOR_API auto FindOutputPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphOutputPinView*;
+		MATERIALEDITOR_API auto CopySelection(std::span<const FGuid> NodeIds,
+			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
+			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto DuplicateNodes(std::span<const FGuid> NodeIds,
+			int32 OffsetX = 40, int32 OffsetY = 40, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
+			FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto AddExpression(DMaterialExpression& Expression) -> DMaterialGraphNode*;
 		MATERIALEDITOR_API auto RebuildGraph() -> void;
+		// Relinks the already allocated pins without changing their addresses.
 		MATERIALEDITOR_API auto LinkGraphNodesFromMaterial() -> void;
 	private:
+		friend class DMaterialGraphNode;
 		friend class FMaterialGraphReadModel;
+		auto HasExpressionConsumer(const DMaterialExpression& Source) const -> bool;
+		auto RestorePinLinks() -> void;
 		friend class FMaterialGraphSchema;
 		MATERIALEDITOR_API auto BeginDestroy() -> void override;
 		auto ApplyChanges(FMaterialGraphChangeSet Changes, bool CheckDependencies = true) -> void;
@@ -106,9 +157,11 @@ namespace Durin::MaterialEditor
 		FMaterialAttributeValues Outputs;
 		auto RefreshNodes(std::span<const FMaterialGraphCatalogEntry> Catalog,
 			std::optional<std::span<const FGuid>> Selected = {}) -> void;
-		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPinAddress& Input, const FMaterialGraphPinAddress& Output,
+		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPin& Input, const FMaterialGraphPin* Output,
 			bool Replace, ETransactionMode Mode) -> FMaterialGraphCommandResult;
-		auto BreakOutputLinks(const FMaterialProgramLink& Link, ETransactionMode Mode) -> FMaterialGraphCommandResult;
+		auto WriteGraphInput(DMaterialGraphNode& Target, FMaterialGraphPinAddress Input,
+			const FMaterialGraphPin* Output, bool Replace, ETransactionMode Mode) -> FMaterialGraphCommandResult;
+		auto BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode) -> FMaterialGraphCommandResult;
 		TWeakObjectPtr<DObject> Owner;
 		const FMaterialGraphSchema* Schema = nullptr;
 		DPROPERTY(Transient, NonTransactional)

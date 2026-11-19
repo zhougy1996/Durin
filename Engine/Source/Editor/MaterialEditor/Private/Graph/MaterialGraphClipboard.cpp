@@ -1,4 +1,4 @@
-#include "MaterialGraphPinSource.h"
+#include "MaterialGraph.h"
 #include "MaterialExpressionParameters.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
@@ -6,9 +6,7 @@
 #include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/Material.h"
-#include "Materials/MaterialExpressionBuild.h"
 #include "MaterialGraphEditInternals.h"
-#include "MaterialGraphDocument.h"
 #include "MaterialGraphEditSession.h"
 #include "Materials/MaterialExpressionInputs.h"
 
@@ -16,7 +14,7 @@ namespace Durin::MaterialEditor
 {
 	using namespace GraphEditInternals;
 
-	auto FMaterialGraphDocument::CopySelection(std::span<const FGuid> NodeIds,
+	auto DMaterialGraph::CopySelection(std::span<const FGuid> NodeIds,
 		FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult
 	{
 		OutPayload = {};
@@ -62,12 +60,11 @@ namespace Durin::MaterialEditor
 				const auto It = CopiedExpressions.find(Input.Expression.Get());
 				if (It != CopiedExpressions.end()) Input.Expression = It->second;
 			});
-		if (Material && Selected.contains(Material->GetExpressionOutputs().Attributes.GetExpressionId()))
+		if (Material)
 		{
-			OutPayload.bConnectAggregateSurface = true;
-			OutPayload.AggregateSourceNodeId = Material->GetExpressionOutputs().Attributes.GetExpressionId();
-			OutPayload.AggregateSourceOutputIndex = ToGraphLink(Material->GetExpressionOutputs().Attributes).SourceOutputIndex;
-			OutPayload.AggregateSourceOutputId = Material->GetExpressionOutputs().Attributes.GetOutputId();
+			const auto& Surface = Material->GetExpressionOutputs().Attributes;
+			if (const auto It = CopiedExpressions.find(Surface.Expression.Get()); It != CopiedExpressions.end())
+				OutPayload.AggregateSurface.Connect(Surface.OutputIndex, It->second);
 		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
@@ -75,8 +72,8 @@ namespace Durin::MaterialEditor
 		};
 	}
 
-	auto FMaterialGraphDocument::Paste(const FMaterialGraphClipboardPayload& Payload,
-		int32 X, int32 Y, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto DMaterialGraph::Paste(const FMaterialGraphClipboardPayload& Payload,
+		int32 X, int32 Y, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
@@ -90,29 +87,28 @@ namespace Durin::MaterialEditor
 			return RejectCommand("Pasting would exceed the material graph node bounds.");
 		const bool bSameRoot = Payload.SourceRoot.Get() == Owner.Get();
 		if (std::ranges::any_of(Payload.Nodes, [&](const auto& Node) {
-			return Node.Expression.IsValid() && !Schema.CanCreateExpression(*Node.Expression.Get());
+			return Node.Expression.IsValid() && !GetSchema().CanCreateExpression(*Node.Expression.Get());
 		}))
 			return RejectCommand("The clipboard contains expressions unsupported by this graph.");
-		std::unordered_map<FGuid, FGuid> Remap;
+		std::unordered_set<FGuid> ClipboardIds;
+		std::unordered_set<DMaterialExpression*> ExternalSources;
 		std::unordered_set<FGuid> UsedIds;
 		for (const auto& Expression : State.Expressions)
 		{
+			if (bSameRoot) ExternalSources.insert(Expression.Get());
 			UsedIds.insert(Expression->Id);
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get())) UsedIds.insert(Parameter->Metadata.Id);
 		}
 		std::vector<FMaterialParameterDefinition> Definitions;
 		for (const auto& Node : Payload.Nodes)
 		{
-			if (!Node.Expression || !Node.Expression->Id.IsValid() || Remap.contains(Node.Expression->Id))
+			if (!Node.Expression || !Node.Expression->Id.IsValid() || !ClipboardIds.insert(Node.Expression->Id).second)
 				return RejectCommand("The material graph clipboard contains an invalid or duplicate node GUID.");
 			if (Node.RelativeX < 0 || Node.RelativeY < 0 || Node.RelativeX > MaterialGraphPresentationCoordinateLimit * 2
 				|| Node.RelativeY > MaterialGraphPresentationCoordinateLimit * 2)
 				return RejectCommand("The material graph clipboard contains an invalid relative position.");
-			FGuid Id;
-			do Id = FGuid::NewGuid(); while (UsedIds.contains(Id));
-			UsedIds.insert(Id); Remap.emplace(Node.Expression->Id, Id);
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Node.Expression.Get()))
-				{
+			{
 				const auto Definition = Parameter->GetParameterDefinition();
 				const auto Existing = std::ranges::find(Definitions, Definition.Id, &FMaterialParameterDefinition::Id);
 				if (Existing == Definitions.end()) Definitions.push_back(Definition);
@@ -121,9 +117,7 @@ namespace Durin::MaterialEditor
 		}
 		const auto Validation = ValidateMaterialParameterDefinitions(Definitions);
 		if (!Validation) return RejectCommand(std::string(GetMaterialParameterErrorText((Validation).Error)));
-		if (!Schema.CanOwnParameters() && !Definitions.empty()) return RejectCommand("Functions cannot own root parameters.");
-		if (Payload.bConnectAggregateSurface && !Remap.contains(Payload.AggregateSourceNodeId))
-			return RejectCommand("The aggregate Surface clipboard source is missing from the selection.");
+		if (!GetSchema().CanOwnParameters() && !Definitions.empty()) return RejectCommand("Functions cannot own root parameters.");
 		std::unordered_map<FGuid, FMaterialFunctionPort> PortRemap;
 		for (bool bOutput : {false, true})
 		{
@@ -159,14 +153,15 @@ namespace Durin::MaterialEditor
 				if (const auto It = PortRemap.find(Port.Default.InputId); It != PortRemap.end()) Port.Default.InputId = It->second.Id;
 				else if (!bSameRoot) return RejectCommand("A copied port default references an input outside the selection.");
 			}
-		std::unordered_map<FGuid, DMaterialExpression*> Copies;
+		std::unordered_map<DMaterialExpression*, DMaterialExpression*> Copies;
+		UsedIds.insert(ClipboardIds.begin(), ClipboardIds.end());
 		std::vector<FGuid> Generated;
 		for (const auto& Entry : Payload.Nodes)
 		{
 			const auto Duplicated = DuplicateObject(Entry.Expression.Get(), nullptr, NAME_None);
 			if (!Duplicated) return RejectCommand(ToString(Duplicated.error()));
 			TStrongObjectPtr<DMaterialExpression> Expression(*Duplicated);
-			Expression->Id = Remap.at(Entry.Expression->Id);
+			do Expression->Id = FGuid::NewGuid(); while (!UsedIds.insert(Expression->Id).second);
 			if (auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression.Get())) Input->Port = PortRemap.at(Input->Port.Id);
 			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression.Get())) Output->Port = PortRemap.at(Output->Port.Id);
 			if (auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()))
@@ -174,7 +169,7 @@ namespace Durin::MaterialEditor
 				Parameter->Metadata.Id = FGuid::NewGuid();
 				if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error) return Error;
 			}
-			Copies.emplace(Entry.Expression->Id, Expression.Get());
+			Copies.emplace(Entry.Expression.Get(), Expression.Get());
 			const int64 PositionX = static_cast<int64>(X) + Entry.RelativeX, PositionY = static_cast<int64>(Y) + Entry.RelativeY;
 			if (PositionX < -MaterialGraphPresentationCoordinateLimit || PositionX > MaterialGraphPresentationCoordinateLimit
 				|| PositionY < -MaterialGraphPresentationCoordinateLimit || PositionY > MaterialGraphPresentationCoordinateLimit)
@@ -183,23 +178,22 @@ namespace Durin::MaterialEditor
 			State.Presentation.Nodes.push_back({Expression->Id, static_cast<int32>(PositionX), static_cast<int32>(PositionY), Entry.DisplayName});
 			State.Expressions.emplace_back(Expression.Get());
 		}
-		for (const auto& [Id, Copy] : Copies)
+		for (const auto& [SourceExpression, Copy] : Copies)
 		{
 			bool Valid = true;
 			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
 				if (!Input.IsConnected()) return;
-				const auto Source = Input.GetExpressionId();
-				const auto Internal = Copies.find(Source);
-				auto* Target = Internal != Copies.end() ? Internal->second
-					: bSameRoot ? FindMaterialExpression(State.Expressions, Source) : nullptr;
-				if (Target) Input.Expression = Target;
-				else Valid = false;
+				auto* Source = Input.Expression.Get();
+				if (const auto It = Copies.find(Source); It != Copies.end()) Input.Expression = It->second;
+				else if (!ExternalSources.contains(Source)) Valid = false;
 			});
 			if (!Valid) return RejectCommand("The material graph clipboard references an unavailable external input.");
 		}
-		if (Payload.bConnectAggregateSurface && !State.bFunction)
+		if (Payload.AggregateSurface.IsConnected())
 		{
-			State.GetOutputs().Attributes = {Copies.at(Payload.AggregateSourceNodeId), Payload.AggregateSourceOutputIndex, Payload.AggregateSourceOutputId};
+			const auto Source = Copies.find(Payload.AggregateSurface.Expression.Get());
+			if (Source == Copies.end()) return RejectCommand("The aggregate Surface clipboard source is missing from the selection.");
+			if (!State.bFunction) State.GetOutputs().Attributes.Connect(Payload.AggregateSurface.OutputIndex, Source->second);
 		}
 		auto Result = State.Commit("Paste Graph Nodes", Transactions);
 		if (Result)
@@ -210,8 +204,8 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::DuplicateNodes(std::span<const FGuid> NodeIds,
-		int32 OffsetX, int32 OffsetY, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto DMaterialGraph::DuplicateNodes(std::span<const FGuid> NodeIds,
+		int32 OffsetX, int32 OffsetY, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
@@ -240,8 +234,8 @@ namespace Durin::MaterialEditor
 		return Paste(Payload, static_cast<int32>(AnchorX), static_cast<int32>(AnchorY), Mode);
 	}
 
-	auto FMaterialGraphDocument::CutSelection(std::span<const FGuid> NodeIds,
-		FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto DMaterialGraph::CutSelection(std::span<const FGuid> NodeIds,
+		FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());

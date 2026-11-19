@@ -1,3 +1,4 @@
+#include "MaterialGraph.h"
 #include "Graph/MaterialGraphEditSession.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Graph/MaterialGraphInteraction.h"
@@ -326,7 +327,7 @@ TEST(FMaterialGraphInteractionTests, RemovedDragEndpointClearsGestureAndKeepsSur
 	const auto Root = Material->GetOutputNode()->Id;
 	FMaterialGraphCanvasTestAccess::Select(Canvas, {Root, Source.GeneratedNodeIds.front()});
 	FMaterialGraphCanvasTestAccess::BeginLink(Canvas, Source.GeneratedNodeIds.front());
-	ASSERT_TRUE(Document.RemoveNodes(Source.GeneratedNodeIds, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Graph->RemoveNodes(Source.GeneratedNodeIds, ETransactionMode::NotTransactable));
 	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
 	EXPECT_EQ(FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas), std::vector<FGuid>{Root});
@@ -550,7 +551,8 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		}
 		else
 		{
-			const auto Result = FMaterialGraphDocument(*Material).DuplicateNodes(Selection, 40, 40);
+			TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
+			const auto Result = MaterialEditorGraph->DuplicateNodes(Selection, 40, 40);
 			ASSERT_TRUE(Result) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Result);
 			Generated = Result.GeneratedNodeIds;
 		}
@@ -895,6 +897,7 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 	EXPECT_FALSE(std::ranges::any_of(Sample->Outputs, [](const auto& Pin) { return Pin.Name == "Normal"; }));
 	FMaterialGraphCanvasTestAccess::TogglePins(Canvas, SampleId);
 	FMaterialGraphDocument Document(*Material);
+	TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
 	const auto SecondSample = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {SampleId, 7});
 	ASSERT_TRUE(SecondSample);
 	const auto RG = Testing::CreateGraphCatalogNode(Document, EMaterialProgramOpcode::Swizzle, EMaterialProgramValueType::Float2, {SampleId, 0});
@@ -911,7 +914,7 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 	ASSERT_TRUE(NormalConsumer);
 	const auto NormalView = ProjectMaterialGraph(Document.GetOwner());
 	ASSERT_EQ(FindViewNode(NormalView, NormalConsumer.GeneratedNodeIds.front())->Inputs.front().SourceType, EMaterialProgramValueType::Float3);
-	ASSERT_TRUE(Document.RemoveNodes(NormalConsumer.GeneratedNodeIds, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditorGraph->RemoveNodes(NormalConsumer.GeneratedNodeIds, Durin::ETransactionMode::NotTransactable));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	ASSERT_EQ(Sample->Outputs.size(), 7u);
 	EXPECT_EQ(Sample->Outputs[6].OutputIndex, 7u);
@@ -920,7 +923,7 @@ TEST(FMaterialGraphInteractionTests, TextureOutputsHideUnusedAdvancedPinsWithout
 	EXPECT_EQ(Material->GetExpressionOutputs(), BeforeInvalid);
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Document.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Normal), FMaterialGraphPinAddress::Output({}), true, Durin::ETransactionMode::NotTransactable));
 	const std::array Consumers{SecondSample.GeneratedNodeIds.front(), RG.GeneratedNodeIds.front()};
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).RemoveNodes(Consumers, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(DMaterialGraph::Create(*Material)->RemoveNodes(Consumers, Durin::ETransactionMode::NotTransactable));
 	Sample = FindViewNode(FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material), SampleId);
 	EXPECT_EQ(Sample->Outputs.size(), 6u);
 	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_BaseColor).Connection.OutputIndex, 1u);
