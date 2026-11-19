@@ -164,7 +164,6 @@ namespace Durin
 		DURINED_API auto HasExpired() const noexcept -> bool;
 		DURINED_API auto Validate() const -> FTransactionRecordResult;
 		DURINED_API auto CaptureAfter() -> FTransactionRecordResult;
-		DURINED_API auto GetReplayAnnotation(DObject* Object) const -> std::optional<std::shared_ptr<ITransactionObjectAnnotation>>;
 		auto IsNoOp() const -> bool;
 		DURINED_API auto Apply(
 			bool bBefore,
@@ -187,6 +186,7 @@ namespace Durin
 		friend class DTransBuffer;
 		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		friend class ::Durin::FTransactorReloadParticipant;
+		auto GetReplayAnnotation() const -> std::pair<DObject*, std::shared_ptr<ITransactionObjectAnnotation>>;
 		std::variant<FTransactionObjectRecord, FTransactionArrayRecord,
 			std::unique_ptr<FCommandChange>> Data;
 		FPersistentObjectRef CustomObject;
@@ -249,11 +249,22 @@ namespace Durin
 
 	private:
 		friend class DTransBuffer;
+		struct FReplayResult
+		{
+			std::vector<size_t> AppliedRecords;
+			std::unordered_map<DObject*, std::shared_ptr<ITransactionObjectAnnotation>> Annotations;
+			// Only packages with skipped records need special checkpoint handling.
+			std::unordered_map<DPackage*, bool> PackagesWithSkippedRecords;
+			std::string Details;
+			bool bMutatesMountedContent = false;
+		};
+		auto Apply(bool bUndo, EPropertyChangeOrigin Origin, FReplayResult& Replay) -> FTransactionApplyResult;
 		auto ValidateReplayRecords(std::span<const size_t> Indices) const -> FTransactionApplyResult;
 		auto RetireExpiredRecords() -> void;
 		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		auto DispatchObjectEvents(ETransactionObjectEventType Type, ETransactionOperation Operation,
-			FTransactionObjectRecord* SnapshotRecord = nullptr, std::span<const FProperty* const> Selected = {}) -> FTransactionCaptureResult;
+			FTransactionObjectRecord* SnapshotRecord = nullptr, std::span<const FProperty* const> Selected = {},
+			const FReplayResult* Replay = nullptr) -> FTransactionCaptureResult;
 		mutable bool bBusy = false;
 		bool bFinalized = false;
 		bool bObserverRecoveryRequired = false;
@@ -453,13 +464,13 @@ namespace Durin
 		auto RemapUndoBarriers(size_t First, size_t Count) -> void;
 		auto QueueEvent(ETransactionEventType Type,
 			const FTransaction& Transaction,
-			std::string Details = {}) -> void;
+			std::optional<std::string> Details = std::nullopt) -> void;
 		auto AllocateRevision() -> FRevisionId;
 		auto PreparePackageTransitions(FTransaction& Transaction) -> void;
 		auto FindReplayIndex(bool bUndo, bool bRespectUndoBarrier = true) const -> std::optional<size_t>;
 		auto ReplayExpected(bool bUndo, FTransactionId ExpectedId) -> FTransactorResult;
 		auto ApplyPackageTransitions(const FTransaction& Transaction,
-			bool bForward, bool bReplay = false) -> void;
+			bool bForward, const FTransaction::FReplayResult* Replay = nullptr) -> void;
 		auto FindPackageState(const DPackage& Package) -> FTrackedPackageState*;
 		auto FindPackageState(const DPackage& Package) const -> const FTrackedPackageState*;
 		auto EnsurePackageState(DPackage& Package) -> FTrackedPackageState&;

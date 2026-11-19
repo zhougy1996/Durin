@@ -272,13 +272,13 @@ namespace Durin
 			return Record->IsNoOp();
 		return false;
 	}
-	auto FTransactionRecord::GetReplayAnnotation(DObject* Object) const -> std::optional<std::shared_ptr<ITransactionObjectAnnotation>>
+	auto FTransactionRecord::GetReplayAnnotation() const -> std::pair<DObject*, std::shared_ptr<ITransactionObjectAnnotation>>
 	{
-		if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Data); Array && Array->GetTarget().Resolve() == Object && Array->HasReplayCompletion())
-			return Array->GetReplayAnnotation();
-		if (const auto* Record = std::get_if<FTransactionObjectRecord>(&Data); Record && Record->GetTarget().Resolve() == Object)
-			return Record->GetReplayAnnotation();
-		return std::nullopt;
+		if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Data); Array && Array->HasReplayCompletion())
+			return {Array->GetTarget().Resolve(), Array->GetReplayAnnotation()};
+		if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Data))
+			return {Object->GetTarget().Resolve(), Object->GetReplayAnnotation()};
+		return {};
 	}
 
 	auto FTransactionRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired, bool bUseHistoricalState) -> FTransactionRecordResult
@@ -618,14 +618,19 @@ namespace Durin
 	}
 
 	auto FTransaction::DispatchObjectEvents(ETransactionObjectEventType Type, ETransactionOperation Operation,
-		FTransactionObjectRecord* SnapshotRecord, std::span<const FProperty* const> Selected) -> FTransactionCaptureResult
+		FTransactionObjectRecord* SnapshotRecord, std::span<const FProperty* const> Selected,
+		const FReplayResult* Replay) -> FTransactionCaptureResult
 	{
 		bool bDispatched = false;
 		try
 		{
+			const auto EventRecords = std::views::iota(size_t{0}, Replay ? Replay->AppliedRecords.size() : Records.size())
+				| std::views::transform([&](size_t Index) -> const FTransactionRecord& {
+					return Records[Replay ? Replay->AppliedRecords[Index] : Index];
+				});
 			std::vector<const FTransactionObjectRecord*> ObjectRecords;
-			for (const auto& Record : Records)
-				if (const auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data); ObjectRecord && !Record.bReplayExpired && (!SnapshotRecord || SnapshotRecord == ObjectRecord))
+			for (const auto& Record : EventRecords)
+				if (const auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data); ObjectRecord && (!SnapshotRecord || SnapshotRecord == ObjectRecord))
 					ObjectRecords.push_back(ObjectRecord);
 			auto Depth = [](const auto* Record) { size_t Result = 0; for (auto* Object = Record->GetTarget().Resolve(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
 			std::stable_sort(ObjectRecords.begin(), ObjectRecords.end(), [&](const auto* Left, const auto* Right) { return Depth(Left) > Depth(Right); });
@@ -637,8 +642,8 @@ namespace Durin
 				for (auto& Event : *Built) Events.push_back(std::move(Event));
 			}
 			if (!SnapshotRecord)
-				for (const auto& Record : Records)
-					if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data); Array && !Record.bReplayExpired && !Array->IsNoOp())
+				for (const auto& Record : EventRecords)
+					if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data); Array && !Array->IsNoOp())
 					{
 						auto Built = Array->BuildObjectEvents(GetContext(), Type, Operation);
 						if (!Built) return std::unexpected(Built.error());
@@ -662,19 +667,12 @@ namespace Durin
 				auto Depth = [](const auto& Target) { size_t Result = 0; for (auto* Object = Target.Resolve(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
 				return Depth(Left.first) > Depth(Right.first);
 			});
-			if (Type == ETransactionObjectEventType::UndoRedo)
-				for (auto& [Target, Event] : Events)
-					if (Event.CreatedBy == ETransactionObjectChangeCreatedBy::TransactionRecord)
-						for (const auto& Record : Records)
-							if (auto Value = Record.GetReplayAnnotation(Target.Resolve()))
-							{
-								Event.Annotation = std::move(*Value);
-								if (Operation == ETransactionOperation::Undo) break;
-							}
-			for (const auto& [Target, Event] : Events)
+			for (auto& [Target, Event] : Events)
 			{
 				auto* Object = Target.Resolve();
 				if (!Object) { bObserverRecoveryRequired |= bDispatched; return std::unexpected("Transaction event target became unavailable."); }
+				if (Replay && Event.CreatedBy == ETransactionObjectChangeCreatedBy::TransactionRecord)
+					if (const auto It = Replay->Annotations.find(Object); It != Replay->Annotations.end()) Event.Annotation = It->second;
 				bDispatched = true;
 				Object->PostTransacted(Event);
 			}
@@ -721,6 +719,12 @@ namespace Durin
 
 	auto FTransaction::Apply(bool bUndo, EPropertyChangeOrigin Origin) -> FTransactionApplyResult
 	{
+		FReplayResult Replay;
+		return Apply(bUndo, Origin, Replay);
+	}
+
+	auto FTransaction::Apply(bool bUndo, EPropertyChangeOrigin Origin, FReplayResult& Replay) -> FTransactionApplyResult
+	{
 		if (bBusy) return std::unexpected(FTransactionApplyError{.Message = "A transaction operation is already in progress."});
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		const bool bOwnOperation = OperationId == 0;
@@ -743,7 +747,7 @@ namespace Durin
 		};
 		// Freeze eligibility before replay. A command can change the model that
 		// other expiry predicates inspect, and rollback must use the same plan.
-		std::vector<size_t> ReplayIndices;
+		auto& ReplayIndices = Replay.AppliedRecords;
 		std::vector<size_t> ExpiredIndices;
 		ReplayIndices.reserve(Records.size());
 		for (size_t Index = 0; Index < Records.size(); ++Index)
@@ -777,6 +781,13 @@ namespace Durin
 		size_t StartedTargets = 0;
 		auto NotifyReplayTargets = [&]() -> std::string {
 			std::string Failure;
+			for (size_t Index : ReplayIndices)
+			{
+				auto [Object, Annotation] = Records[Index].GetReplayAnnotation();
+				if (!Object) continue;
+				if (bUndo) Replay.Annotations.try_emplace(Object, std::move(Annotation));
+				else Replay.Annotations.insert_or_assign(Object, std::move(Annotation));
+			}
 			auto CompletionTargets = std::vector<FPersistentObjectRef>(ReplayTargets.begin(), ReplayTargets.begin() + StartedTargets);
 			auto Depth = [](const FPersistentObjectRef& Target) {
 				size_t Result = 0;
@@ -790,14 +801,8 @@ namespace Durin
 				if (DObject* Object = Target.Resolve())
 					try
 					{
-						std::optional<std::shared_ptr<ITransactionObjectAnnotation>> Annotation;
-						for (size_t Index : ReplayIndices)
-							if (auto Value = Records[Index].GetReplayAnnotation(Object))
-							{
-								Annotation = std::move(Value);
-								if (bUndo) break;
-							}
-						if (Annotation) Object->PostEditUndo(std::move(*Annotation));
+						const auto It = Replay.Annotations.find(Object);
+						if (It != Replay.Annotations.end()) Object->PostEditUndo(It->second);
 						else Object->PostEditUndo();
 					}
 					catch (const std::exception& Error) { Failure += std::format(" PostEditUndo threw: {}", Error.what()); }
@@ -918,7 +923,8 @@ namespace Durin
 		for (size_t Index : ReplayIndices) Records[Index].CommitReplay(bUndo);
 		for (size_t Index : ExpiredIndices) Records[Index].bReplayExpired = true;
 		if (Origin != EPropertyChangeOrigin::Edit)
-			if (auto Result = DispatchObjectEvents(ETransactionObjectEventType::UndoRedo, bUndo ? ETransactionOperation::Undo : ETransactionOperation::Redo); !Result)
+			if (auto Result = DispatchObjectEvents(ETransactionObjectEventType::UndoRedo,
+				bUndo ? ETransactionOperation::Undo : ETransactionOperation::Redo, nullptr, {}, &Replay); !Result)
 			{
 				bRetainRecoveryState = true;
 				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired, .Message = Result.error()});
@@ -928,6 +934,28 @@ namespace Durin
 			bRetainRecoveryState = true;
 			return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired,
 				.Message = Pie.error()});
+		}
+		auto VisitPackages = [](const FTransactionRecord& Record, const auto& Visit) {
+			for (auto* Package : Record.GetAffectedPackages()) if (Package) Visit(Package);
+			for (auto* Object : Record.GetModifiedObjects())
+				if (auto* Package = Object ? Object->GetPackage() : nullptr) Visit(Package);
+		};
+		for (size_t Index : ExpiredIndices)
+			VisitPackages(Records[Index], [&](DPackage* Package) { Replay.PackagesWithSkippedRecords.try_emplace(Package, false); });
+		const auto Operation = bUndo ? ETransactionOperation::Undo : ETransactionOperation::Redo;
+		for (size_t Index : ReplayIndices)
+		{
+			const auto& Record = Records[Index];
+			if (!Replay.PackagesWithSkippedRecords.empty())
+				VisitPackages(Record, [&](DPackage* Package) {
+					if (const auto It = Replay.PackagesWithSkippedRecords.find(Package); It != Replay.PackagesWithSkippedRecords.end()) It->second = true;
+				});
+			Replay.bMutatesMountedContent = Replay.bMutatesMountedContent || Record.MutatesMountedContent();
+			if (auto Details = Record.GetDetails(Operation); !Details.empty())
+			{
+				if (!Replay.Details.empty()) Replay.Details += " ";
+				Replay.Details += std::move(Details);
+			}
 		}
 		return {};
 	}
@@ -1499,17 +1527,18 @@ namespace Durin
 		check(HistoryRevision != std::numeric_limits<uint64>::max());
 		++HistoryRevision;
 		State = bUndo ? ETransactorState::Undoing : ETransactorState::Redoing;
-		if (auto ApplyResult = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo); !ApplyResult)
+		FTransaction::FReplayResult Replay;
+		if (auto ApplyResult = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo, Replay); !ApplyResult)
 			return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
 		if (!RecalculateOwnedBytes())
 			return HandleApplyFailure(Transaction, {.Status = ETransactionApplyFailure::RecoveryRequired,
 				.Message = "Transaction replay made retained byte accounting invalid."});
-		ApplyPackageTransitions(Transaction, !bUndo, true);
-		if (Transaction.MutatesMountedContent()) NotifyMountedContentMutation();
+		ApplyPackageTransitions(Transaction, !bUndo, &Replay);
+		if (Replay.bMutatesMountedContent) NotifyMountedContentMutation();
 		if (bUndo) CrossExpired(*Index + 1, Cursor);
 		else CrossExpired(Cursor, *Index);
 		Cursor = bUndo ? *Index : *Index + 1;
-		QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction);
+		QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction, std::move(Replay.Details));
 		State = ETransactorState::Idle;
 		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = Transaction.GetId()};
 	}
@@ -1808,37 +1837,23 @@ namespace Durin
 
 	auto DTransBuffer::ApplyPackageTransitions(
 		const FTransaction& Transaction,
-		bool bForward, bool bReplay) -> void
+		bool bForward, const FTransaction::FReplayResult* Replay) -> void
 	{
-		const bool bPartialReplay = bReplay && std::ranges::any_of(Transaction.Records,
-			[](const auto& Record) { return Record.bReplayExpired; });
+		if (Replay && Replay->AppliedRecords.empty()) return;
 		for (const FTransactionPackageRevisionTransition& Transition
 			: Transaction.GetPackageTransitions())
 		{
 			auto* Package = Cast<DPackage>(Transition.Package.Resolve());
 			if (!Package) continue;
-			if (bPartialReplay)
-			{
-				bool bApplied = false;
-				bool bExpired = false;
-				for (const auto& Record : Transaction.Records)
+			if (Replay)
 				{
-					const auto Objects = Record.GetModifiedObjects();
-					const auto Packages = Record.GetAffectedPackages();
-					const bool bTouchesPackage = std::ranges::contains(Packages, Package)
-						|| std::ranges::any_of(Objects, [Package](DObject* Object) { return Object && Object->GetPackage() == Package; });
-					if (!bTouchesPackage) continue;
-					if (Record.bReplayExpired) bExpired = true;
-					else bApplied = true;
-					if (bExpired && bApplied) break;
-				}
-				if (bExpired)
+				if (const auto It = Replay->PackagesWithSkippedRecords.find(Package); It != Replay->PackagesWithSkippedRecords.end())
 				{
 					// A partial replay cannot establish the original package checkpoint.
-					if (bApplied) InvalidateSavedState(*Package);
+					if (It->second) InvalidateSavedState(*Package);
 					continue;
 				}
-			}
+				}
 			FTrackedPackageState* State = FindPackageState(*Package);
 			if (!State)
 			{
@@ -2355,7 +2370,7 @@ namespace Durin
 	auto DTransBuffer::QueueEvent(
 		ETransactionEventType Type,
 		const FTransaction& Transaction,
-		std::string Details) -> void
+		std::optional<std::string> Details) -> void
 	{
 		ETransactionOperation Operation = ETransactionOperation::Execute;
 		if (Type == ETransactionEventType::Undone
@@ -2366,13 +2381,12 @@ namespace Durin
 			|| (Type == ETransactionEventType::Failed
 				&& State == ETransactorState::Redoing))
 			Operation = ETransactionOperation::Redo;
-		if (Details.empty()) Details = Transaction.GetDetails(Operation);
 		Events.push_back({
 			.Type = Type,
 			.Operation = Operation,
 			.Id = Transaction.GetId(),
 			.Description = Transaction.GetContext().Description,
-			.Details = std::move(Details),
+			.Details = Details ? std::move(*Details) : Transaction.GetDetails(Operation),
 		});
 	}
 }

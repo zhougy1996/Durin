@@ -162,9 +162,12 @@ replacement/reset. The transactor has no separate description-query interface.
 declare a record ineligible for replay. The buffer advances past wholly expired history
 entries without publishing Undo or Redo events and applies the next eligible
 entry within the undo barrier. Guarded replay checks the eligible entry's ID.
-Mixed entries replay the eligible records and retire expired records in both
-directions. A package touched only by expired records keeps its checkpoint. A
-package touched by both kinds is marked dirty and loses its saved checkpoint.
+The transaction selects the records once per replay. Object events use that
+selection and its completion annotations. The buffer consumes the transaction's
+package outcomes and event details after success. Skipped records retire in
+both directions. A package touched only by skipped records keeps its
+checkpoint. A package touched by both kinds is marked dirty and loses its
+saved checkpoint.
 
 Idle and Recording accept ordinary composition through `CanTransact()` outside
 object capture and synchronous transaction callbacks.
@@ -358,8 +361,8 @@ domains retain their derived-state synchronization. See
 
 When a replay record fails, completed records are compensated in reverse order.
 Historical flips are published only after all records and native completion
-succeed; clean compensation uses the prepared live inverses and leaves history
-unchanged for retry. Only successful replay advances the cursor. Incomplete compensation or a custom
+succeed. Clean compensation uses the prepared live inverses and allows replay
+to be retried at the same cursor with the same package checkpoints. Incomplete compensation or a custom
 exception retains the participant graph and requires recovery. Reset does not
 repair data or unlock catastrophic recovery. Diagnostic results retain actionable
 failure and rollback messages without requiring ordinary clients to inspect causes.

@@ -622,6 +622,75 @@ TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresCheckpointsForFullyR
 	ExpectExpiredPackageUnchanged();
 }
 
+TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRetry)
+{
+	using namespace Durin;
+	auto* LivePackage = MakeRevisionTestPackage("RetryLive");
+	auto* ExpiredPackage = MakeRevisionTestPackage("RetryExpired");
+	auto* SharedPackage = MakeRevisionTestPackage("RetryShared");
+	int Value = 0;
+	bool Expired = false;
+	FTransactionControl Control;
+	Tests::FTestTransactorOwner Manager;
+	const std::array Packages{LivePackage, ExpiredPackage, SharedPackage};
+	for (auto* Package : Packages) Manager->EstablishSavedState(*Package);
+	{
+		FScopedTransaction Scope(Manager.Get(), {.Description = "Mixed replay with failure"});
+		ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(
+			Value, std::initializer_list{LivePackage, SharedPackage}, 1, &Control)));
+		ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(
+			Value, std::initializer_list{ExpiredPackage, SharedPackage}, 10, nullptr, &Expired)));
+		ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value, 100)));
+	}
+	std::array<FPackageRevisionState, Packages.size()> Before;
+	for (size_t Index = 0; Index < Packages.size(); ++Index)
+	{
+		const auto State = Manager->GetPackageRevisionState(*Packages[Index]);
+		ASSERT_TRUE(State);
+		Before[Index] = *State;
+		ASSERT_TRUE(Packages[Index]->IsDirty());
+	}
+	const auto Id = Manager->GetUndoId();
+	(void)Tests::CollectTransactionEvents(*Manager);
+	Expired = true;
+	Control.bFailUndo = true;
+	const auto Failed = Manager->UndoExpected(Id);
+	EXPECT_EQ(Failed.Code, ETransactorResultCode::Failed);
+	ASSERT_TRUE(Failed.ApplyCause);
+	EXPECT_EQ(Failed.ApplyCause->Status, ETransactionApplyFailure::Restored);
+	EXPECT_EQ(Failed.ApplyCause->RecordIndex, 0u);
+	EXPECT_EQ(Value, 111);
+	EXPECT_EQ(Manager->GetUndoId(), Id);
+	EXPECT_FALSE(Manager->CanRedo());
+	for (size_t Index = 0; Index < Packages.size(); ++Index)
+	{
+		const auto State = Manager->GetPackageRevisionState(*Packages[Index]);
+		ASSERT_TRUE(State);
+		EXPECT_EQ(State->CurrentRevision, Before[Index].CurrentRevision);
+		EXPECT_EQ(State->SavedRevision, Before[Index].SavedRevision);
+		EXPECT_EQ(State->bCheckpointValid, Before[Index].bCheckpointValid);
+		EXPECT_TRUE(Packages[Index]->IsDirty());
+	}
+	const auto FailureEvents = Tests::CollectTransactionEvents(*Manager);
+	ASSERT_EQ(FailureEvents.size(), 1u);
+	EXPECT_EQ(FailureEvents[0].Type, ETransactionEventType::Failed);
+
+	Control.bFailUndo = false;
+	ASSERT_TRUE(Manager->UndoExpected(Id));
+	EXPECT_EQ(Value, 10);
+	EXPECT_FALSE(LivePackage->IsDirty());
+	EXPECT_TRUE(ExpiredPackage->IsDirty());
+	EXPECT_TRUE(SharedPackage->IsDirty());
+	ASSERT_TRUE(Manager->GetPackageRevisionState(*SharedPackage));
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->bCheckpointValid);
+	const auto UndoEvents = Tests::CollectTransactionEvents(*Manager);
+	ASSERT_EQ(UndoEvents.size(), 1u);
+	EXPECT_EQ(UndoEvents[0].Type, ETransactionEventType::Undone);
+	EXPECT_EQ(UndoEvents[0].Details, "Counter changed backward");
+	ASSERT_TRUE(Manager->RedoExpected(Id));
+	EXPECT_EQ(Value, 111);
+}
+
 TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenApplyFails)
 {
 	int Value = 0;
