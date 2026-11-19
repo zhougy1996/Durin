@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. Stage 1 is pending. The baseline records 137 passing cases and a pre-migration link failure in the persistence target. `FMaterialGraphDocument` holds a weak asset owner and a schema reference, exposes graph inspection, and dispatches editing commands. The material and material-function schemas already govern expression creation and connection compatibility. The existing behavior is documented in [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md), [canvas interaction](../Editor/Architecture/Materials/MaterialGraphCanvas.md), and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
+Stages 0 and 1 are complete. Material and function sessions now own transient editor graphs built from their working assets. Stage 2 will migrate the canvas. The persistence target now links and passes. `FMaterialGraphDocument` holds a weak asset owner and a schema reference, exposes graph inspection, and dispatches editing commands. The material and material-function schemas already govern expression creation and connection compatibility. The existing behavior is documented in [graph operations](../Editor/Architecture/Materials/MaterialGraphOperations.md), [canvas interaction](../Editor/Architecture/Materials/MaterialGraphCanvas.md), and [editor lifecycle](../Editor/Architecture/Materials/MaterialEditorLifecycle.md).
 
 ## Goal
 
@@ -117,9 +117,13 @@ Revision `79ed1a2e0`, Windows MSVC x64 Debug, `Win64-Debug-DurinEditor`. The nat
 
 ### Stage 1: Build the graph from existing assets
 
-- [ ] Using the Stage 0 owner, implement transient graph and node ownership, stable-ID lookup, and rebuild. Represent the existing material output and function input/output expressions using their current identities. Resolve weak or replaced owners before dereferencing expressions.
-- [ ] Leave the existing inspection path available for parity checks. Compare nodes, pin directions and types, link endpoints, layout, and missing-port diagnostics on both fixtures.
-- [ ] Gate: opening and rebuilding twice yields equivalent graphs, leaves the asset clean, and creates no undo entry. Closing the editor releases the graph and its nodes.
+- [x] Using the Stage 0 owner, implement transient graph and node ownership, stable-ID lookup, and rebuild. Represent the existing material output and function input/output expressions using their current identities. Resolve weak or replaced owners before dereferencing expressions.
+- [x] Leave the existing inspection path available for parity checks. Compare nodes, pin directions and types, link endpoints, layout, and missing-port diagnostics on both fixtures.
+- [x] Gate: opening and rebuilding twice yields equivalent graphs, leaves the asset clean, and creates no undo entry. Closing the editor releases the graph and its nodes.
+
+Stage 1 validation used the implementation based on `ad5170dbe` in the commit carrying this receipt, with preset `Win64-Debug-DurinEditor`. DevTool built and ran the full MaterialEditingPersistenceTests (32/32) and MaterialCompileLifecycleTests (39/39). Exporting the existing canvas destructor resolved the Stage 0 persistence target link failure. Selection covers the two consumers that also compile the private session sources.
+
+The object graph reuses the document projection for expression metadata and pin definitions. The reflected graph tracks its node array for garbage collection and references the asset weakly. The material-output specialization binds the authored output ID. A function uses its authored port expressions. Rebuild replaces transient nodes. Relinking preserves node objects when their ordering, identities and root roles still match. Connections resolve by stable endpoint keys. Stage 2 owns the switch to graph-backed canvas reads and edit-time synchronization.
 
 ### Stage 2: Switch the canvas and verify one edit end to end
 

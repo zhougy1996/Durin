@@ -1,5 +1,6 @@
 #include "Graph/MaterialGraphEditSession.h"
 #include "MaterialGraphDocument.h"
+#include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -62,6 +63,87 @@ namespace
 		DMaterial* Source = nullptr;
 		Testing::FScopedMountRegistryFixture MountRegistry;
 	};
+}
+
+TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithoutEditingThem)
+{
+	Tests::FTestEditorTransactorOwner Transactions;
+	TStrongObjectPtr<DMaterialFunction> Callee(NewObject<DMaterialFunction>(nullptr, "GraphCallee"));
+	FMaterialGraphDocument FunctionDocument(*Callee);
+	const FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Result"};
+	ASSERT_TRUE(FunctionDocument.AddPort(true, Port, {}, 10, 20, ETransactionMode::NotTransactable));
+	FMaterialGraphDocument MaterialDocument(*Source);
+	const auto Call = MaterialDocument.InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Call);
+	const auto ResultLink = FMaterialProgramLink{Call.GeneratedNodeIds.front(), 0, Port.Id};
+	ASSERT_TRUE(MaterialDocument.Connect(FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
+		EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output(ResultLink), true, ETransactionMode::NotTransactable));
+	DMaterialExpressionFunctionCall* Expression = nullptr;
+	for (const auto& Entry : Source->GetExpressionCollection().Expressions)
+		if (Entry->Id == Call.GeneratedNodeIds.front()) Expression = Cast<DMaterialExpressionFunctionCall>(Entry.Get());
+	ASSERT_TRUE(Expression);
+	const auto Missing = FGuid::NewGuid();
+	Expression->Outputs.push_back({Missing, EMaterialProgramValueType::Float});
+	Package->ClearDirty();
+	TWeakObjectPtr<DMaterialGraph> RetiredGraph;
+	TWeakObjectPtr<DMaterialGraphNode> RetiredNode;
+	{
+		FMaterialEditingSession Session;
+		std::string Error;
+		ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
+		TStrongObjectPtr<DMaterialGraph> FunctionGraph(DMaterialGraph::Create(*Callee));
+		for (auto* Graph : {Session.Graph.Get(), FunctionGraph.Get()})
+		{
+			ASSERT_TRUE(Graph);
+			auto* Owner = Graph->GetMaterialOrFunction();
+			const auto Expected = FMaterialGraphDocument(*Owner).Inspect();
+			const auto History = Transactions.Get()->GetUndoCount();
+			for (int Pass = 0; Pass < 2; ++Pass)
+			{
+				Graph->RebuildGraph();
+				Graph->LinkGraphNodesFromMaterial();
+				ASSERT_EQ(Graph->GetNodes().size(), Expected.Nodes.size());
+				for (const auto& View : Expected.Nodes)
+				{
+					auto* Node = Graph->FindNode(View.Node.Id);
+					ASSERT_TRUE(Node);
+					ASSERT_TRUE(Node->GetMaterialExpression());
+					EXPECT_EQ(Graph->AddExpression(*Node->GetMaterialExpression()), Node);
+					Node->ReconstructNode();
+					EXPECT_EQ(Node->GetView().Presentation, View.Presentation);
+					EXPECT_EQ(Cast<DMaterialGraphNode_Root>(Node) != nullptr, View.Node.bMaterialOutput);
+					ASSERT_EQ(Node->GetView().Inputs.size(), View.Inputs.size());
+					for (size_t I = 0; I < View.Inputs.size(); ++I)
+					{
+						const auto& Pin = Node->GetView().Inputs[I];
+						EXPECT_EQ(Node->GetView().InputAddress(Pin), View.InputAddress(View.Inputs[I]));
+						EXPECT_EQ(Pin.Link, View.Inputs[I].Link);
+						EXPECT_EQ(Pin.AcceptedTypes, View.Inputs[I].AcceptedTypes);
+					}
+					ASSERT_EQ(Node->GetView().Outputs.size(), View.Outputs.size());
+					for (size_t I = 0; I < View.Outputs.size(); ++I)
+					{
+						const auto& Pin = Node->GetView().Outputs[I];
+						EXPECT_EQ(Pin.PortId, View.Outputs[I].PortId);
+						EXPECT_EQ(Pin.Type, View.Outputs[I].Type);
+						EXPECT_EQ(Pin.bMissing, View.Outputs[I].bMissing);
+					}
+				}
+			}
+			EXPECT_EQ(Transactions.Get()->GetUndoCount(), History);
+		}
+		auto* Node = Session.Graph->FindNode(Expression->Id);
+		ASSERT_TRUE(Node);
+		ASSERT_TRUE(Session.Graph->FindOutputPin(ResultLink));
+		EXPECT_EQ(Session.Graph->FindOutputPin(ResultLink)->PortId, Port.Id);
+		EXPECT_TRUE(std::ranges::any_of(Node->GetView().Outputs, [&](const auto& Pin) { return Pin.PortId == Missing && Pin.bMissing; }));
+		EXPECT_FALSE(Session.GetWorkingMaterial()->GetPackage()->IsDirty());
+		RetiredGraph = Session.Graph.Get();
+		RetiredNode = Node;
+	}
+	CollectGarbage(EObjectFlags::Standalone);
+	EXPECT_FALSE(RetiredGraph.IsValid());
+	EXPECT_FALSE(RetiredNode.IsValid());
 }
 
 TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossApplyDiscardAndCollection)

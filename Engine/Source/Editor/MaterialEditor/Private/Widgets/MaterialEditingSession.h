@@ -12,6 +12,7 @@ namespace Durin { class DTransactor; }
 
 namespace Durin::MaterialEditor
 {
+	class DMaterialGraph;
 	class FMaterialGraphCanvas;
 	class FMaterialPreview;
 
@@ -37,6 +38,7 @@ namespace Durin::MaterialEditor
 		auto FinishAndApply(std::string& Error) -> bool;
 		auto MarkSaved() -> void;
 
+		TStrongObjectPtr<DMaterialGraph> Graph;
 		std::unique_ptr<FMaterialGraphCanvas> Canvas;
 		std::shared_ptr<FMaterialPreview> Preview;
 

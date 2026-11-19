@@ -1,4 +1,5 @@
 #include "MaterialFunctionEditingSession.h"
+#include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 
 #include "DObject/Archive.h"
@@ -39,6 +40,7 @@ namespace Durin::MaterialEditor
 		Working = Cast<DMaterialFunction>(Copy.value());
 		Working->ClearFlags(EObjectFlags::Standalone | EObjectFlags::Public);
 		Working->SetFlags(EObjectFlags::Transient | EObjectFlags::Transactional);
+		Graph = DMaterialGraph::Create(*Working);
 		WorkingPackage->ClearDirty();
 		if (Transactor.IsValid()) Transactor.Get()->EstablishSavedState(*WorkingPackage);
 		return true;

@@ -10,6 +10,7 @@ namespace Durin { class DTransactor; }
 
 namespace Durin::MaterialEditor
 {
+	class DMaterialGraph;
 	class FMaterialGraphCanvas;
 	class FMaterialPreview;
 
@@ -24,6 +25,7 @@ namespace Durin::MaterialEditor
 		bool bPublishing = false;
 		FStrongObjectPtr PreviewPackage;
 		FStrongObjectPtr PreviewMaterial;
+		TStrongObjectPtr<DMaterialGraph> Graph;
 		std::unique_ptr<FMaterialGraphCanvas> Canvas;
 		std::shared_ptr<FMaterialPreview> Preview;
 		FGuid Output;

@@ -3,6 +3,7 @@
 #include "Misc/UnifiedError.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "FunctionPortTestFixture.h"
+#include "MaterialGraph.h"
 #include "MaterialFunctionTestSupport.h"
 #include "Toolkits/ToolkitManager.h"
 #include "Asset/PackageReload.h"
@@ -147,6 +148,35 @@ namespace
 		std::shared_ptr<FAssetEditorToolkit> Toolkit;
 		std::string Resource;
 	};
+}
+
+TEST_F(FMaterialFunctionDocumentTests, EditorGraphFollowsTheFunctionSessionLifetime)
+{
+	auto* Graph = Document().Graph.Get();
+	ASSERT_TRUE(Graph);
+	ASSERT_EQ(Graph->GetMaterialOrFunction(), Document().Function());
+	ASSERT_NE(Graph->GetMaterialOrFunction(), Source.Get());
+	auto* History = Host->GetAssetEditorSubsystem()->GetEditor()->GetTransactor();
+	const auto Before = History->GetUndoCount();
+	for (int Pass = 0; Pass < 2; ++Pass)
+	{
+		Graph->RebuildGraph();
+		ASSERT_FALSE(Graph->GetNodes().empty());
+		for (const auto& Node : Graph->GetNodes())
+		{
+			EXPECT_FALSE(Node->GetView().Node.bMaterialOutput);
+			ASSERT_TRUE(Node->GetMaterialExpression());
+			EXPECT_EQ(Node->GetMaterialExpression()->GetOuter(), Document().Function());
+		}
+		EXPECT_FALSE(Document().IsDirty());
+		EXPECT_EQ(History->GetUndoCount(), Before);
+	}
+	TWeakObjectPtr<DMaterialGraph> RetiredGraph(Graph);
+	TWeakObjectPtr<DMaterialGraphNode> RetiredNode(Graph->GetNodes().front().Get());
+	FToolkitManager::Get().CloseToolkit(*Toolkit);
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_FALSE(RetiredGraph.IsValid());
+	EXPECT_FALSE(RetiredNode.IsValid());
 }
 
 TEST_F(FMaterialFunctionDocumentTests, WorkingEditsStayIsolatedAndUndoRedoPublishLikeUE)

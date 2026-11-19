@@ -31,7 +31,7 @@ namespace Durin::MaterialEditor
 	public:
 		// One immutable document binding for the canvas lifetime; never rebound on tab activation.
 		explicit FMaterialGraphCanvas(FMaterialGraphDocument Document, FMaterialGraphEditorServices Services = {});
-		~FMaterialGraphCanvas();
+		MATERIALEDITOR_API ~FMaterialGraphCanvas();
 		// Release shared clipboard object references before the object system shuts down.
 		static auto ClearSharedClipboard() -> void;
 

@@ -1,5 +1,6 @@
 #include "Widgets/MaterialEditingSession.h"
 #include "Graph/MaterialGraphCanvas.h"
+#include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -115,6 +116,7 @@ namespace Durin::MaterialEditor
 		Working->SetMaterialGraphPresentation(Applied.Presentation);
 		Working->CompileEdits();
 		Working->SetEditCompileMode(Mode);
+		Graph = DMaterialGraph::Create(*Working);
 		WorkingPackage->ClearDirty();
 		if (Transactor.IsValid()) Transactor->EstablishSavedState(*WorkingPackage);
 		return true;
