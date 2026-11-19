@@ -23,6 +23,7 @@ namespace Durin
 		DURINED_API static auto CaptureWhole(DObject& Object)
 			-> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>;
 		DURINED_API auto IsNoOp() const -> bool;
+		DURINED_API auto HasExpired() const noexcept -> bool;
 		DURINED_API auto Validate() const -> std::expected<void, FTransactionObjectRecordError>;
 		DURINED_API auto CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>;
 		DURINED_API auto Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState = true) -> std::expected<void, FTransactionObjectRecordError>;

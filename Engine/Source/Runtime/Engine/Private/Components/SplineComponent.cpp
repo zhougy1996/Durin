@@ -40,11 +40,14 @@ namespace Durin
 			{
 				return sizeof(*this) + (ComponentState ? ComponentState->GetAllocatedSize() : 0);
 			}
-			auto Validate() const -> FTransactionCaptureResult override
+			auto HasExpired() const noexcept -> bool override
 			{
 				const auto* Resolved = Spline.Get();
-				if (!Resolved || Resolved->GetForeignTopologyRevision(HistoryId) != ForeignRevision)
-					return std::unexpected("Spline topology changed outside this transaction history.");
+				return Resolved && Resolved->GetForeignTopologyRevision(HistoryId) != ForeignRevision;
+			}
+			auto Validate() const -> FTransactionCaptureResult override
+			{
+				if (!Spline.Get()) return std::unexpected("Spline transaction target is unavailable.");
 				return ComponentState ? ComponentState->Validate() : FTransactionCaptureResult{};
 			}
 

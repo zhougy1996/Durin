@@ -545,6 +545,83 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	EXPECT_EQ(Events[3].Details, "Counter changed forward");
 }
 
+TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAndUseTheLiveHead)
+{
+	using namespace Durin;
+	int Value = 0;
+	bool Expired = false;
+	Tests::FTestTransactorOwner Manager;
+	ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
+	const FTransactionId First = Manager->GetUndoId();
+	Manager->SetUndoBarrier();
+	ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(
+		Value, std::initializer_list<DPackage*>{}, 10, nullptr, &Expired)));
+	const FTransactionId Middle = Manager->GetUndoId();
+	ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
+	const FTransactionId Last = Manager->GetUndoId();
+	(void)Tests::CollectTransactionEvents(*Manager);
+	ASSERT_EQ(Value, 12);
+	Expired = true;
+
+	ASSERT_TRUE(Manager->UndoExpected(Last));
+	EXPECT_FALSE(Manager->CanUndo());
+	Manager->RemoveUndoBarrier();
+	EXPECT_EQ(Manager->GetUndoId(), First);
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, First);
+	EXPECT_FALSE(Manager->UndoExpected(Middle));
+	ASSERT_TRUE(Manager->UndoExpected(First));
+	EXPECT_EQ(Value, 10);
+
+	// A skipped record remains inert even if its predicate later changes.
+	Expired = false;
+	ASSERT_TRUE(Manager->RedoExpected(First));
+	EXPECT_EQ(Manager->GetRedoId(), Last);
+	EXPECT_EQ(Manager->GetRedoContext().TransactionId, Last);
+	ASSERT_TRUE(Manager->RedoExpected(Last));
+	EXPECT_EQ(Value, 12);
+	const auto Events = Tests::CollectTransactionEvents(*Manager);
+	EXPECT_TRUE(std::ranges::none_of(Events, [Middle](const auto& Event) { return Event.Id == Middle; }));
+}
+
+TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresCheckpointsForFullyReplayedPackages)
+{
+	using namespace Durin;
+	auto* LivePackage = MakeRevisionTestPackage("Live");
+	auto* ExpiredPackage = MakeRevisionTestPackage("Expired");
+	auto* SharedPackage = MakeRevisionTestPackage("Shared");
+	Tests::FTestTransactorOwner Manager;
+	for (auto* Package : {LivePackage, ExpiredPackage, SharedPackage}) Manager->EstablishSavedState(*Package);
+	int Value = 0;
+	bool Expired = false;
+	{
+		FScopedTransaction Scope(Manager.Get(), {.Description = "Mixed expiry"});
+		ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(
+			Value, std::initializer_list{LivePackage, SharedPackage})));
+		ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(
+			Value, std::initializer_list{ExpiredPackage, SharedPackage}, 10, nullptr, &Expired)));
+	}
+	const auto ExpiredBefore = Manager->GetPackageRevisionState(*ExpiredPackage);
+	ASSERT_TRUE(ExpiredBefore);
+	auto ExpectExpiredPackageUnchanged = [&] {
+		const auto State = Manager->GetPackageRevisionState(*ExpiredPackage);
+		ASSERT_TRUE(State);
+		EXPECT_EQ(State->CurrentRevision, ExpiredBefore->CurrentRevision);
+		EXPECT_EQ(State->SavedRevision, ExpiredBefore->SavedRevision);
+		EXPECT_EQ(State->bCheckpointValid, ExpiredBefore->bCheckpointValid);
+		EXPECT_TRUE(ExpiredPackage->IsDirty());
+	};
+	Expired = true;
+	ASSERT_TRUE(Manager->Undo());
+	EXPECT_EQ(Value, 10);
+	EXPECT_FALSE(LivePackage->IsDirty());
+	EXPECT_TRUE(SharedPackage->IsDirty());
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->bCheckpointValid);
+	ExpectExpiredPackageUnchanged();
+	ASSERT_TRUE(Manager->Redo());
+	EXPECT_EQ(Value, 11);
+	ExpectExpiredPackageUnchanged();
+}
+
 TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenApplyFails)
 {
 	int Value = 0;

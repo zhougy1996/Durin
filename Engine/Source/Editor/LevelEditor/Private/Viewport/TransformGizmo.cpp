@@ -215,12 +215,16 @@ namespace Durin::LevelEditor
 				return Result;
 			}
 
+			auto HasExpired(DObject*) const noexcept -> bool override
+			{
+				return std::ranges::any_of(Entries, [](const auto& Entry) {
+					return Entry.Target && Entry.Target->IsHistoryInvalidated();
+				});
+			}
+
 			auto Apply(bool bAfter) -> FActorChangeResult
 			{
-				// Retire the whole gesture when any index no longer belongs to this history.
-				if (std::ranges::any_of(Entries, [](const auto& Entry) { return Entry.Target && Entry.Target->IsHistoryInvalidated(); }))
-					return {};
-				std::vector<FTransform> Previous;
+					std::vector<FTransform> Previous;
 				for (size_t Index = 0; Index < Entries.size(); ++Index)
 				{
 					const auto& Entry = Entries[Index];

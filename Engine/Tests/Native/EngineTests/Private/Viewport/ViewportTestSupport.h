@@ -141,16 +141,19 @@ namespace
 			int& InValue,
 			std::initializer_list<Durin::DPackage*> InPackages,
 			int InDelta = 1,
-			FTransactionControl* InControl = nullptr
+			FTransactionControl* InControl = nullptr,
+			const bool* InExpired = nullptr
 		)
 			: Value(InValue)
 			, Packages(InPackages)
 			, Delta(InDelta)
 			, Control(InControl)
+			, Expired(InExpired)
 		{
 		}
 
 		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
+		auto HasExpired(Durin::DObject*) const noexcept -> bool override { return Expired && *Expired; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
 		auto Replay(::Durin::ETransactionOperation Operation) -> Durin::FActorChangeResult override
 		{
@@ -173,6 +176,7 @@ namespace
 		std::vector<Durin::DPackage*> Packages;
 		int Delta;
 		FTransactionControl* Control = nullptr;
+		const bool* Expired = nullptr;
 	};
 
 	auto MakeRevisionTestPackage(std::string_view Label = "Package") -> Durin::DPackage*

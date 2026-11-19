@@ -161,6 +161,7 @@ namespace Durin
 		explicit FTransactionRecord(FTransactionArrayRecord Record) : Data(std::move(Record)) {}
 		DURINED_API explicit FTransactionRecord(std::unique_ptr<FCommandChange> Change, DObject* Object = nullptr);
 
+		DURINED_API auto HasExpired() const noexcept -> bool;
 		DURINED_API auto Validate() const -> FTransactionRecordResult;
 		DURINED_API auto CaptureAfter() -> FTransactionRecordResult;
 		DURINED_API auto GetReplayAnnotation(DObject* Object) const -> std::optional<std::shared_ptr<ITransactionObjectAnnotation>>;
@@ -183,12 +184,14 @@ namespace Durin
 
 	private:
 		friend class FTransaction;
+		friend class DTransBuffer;
 		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		friend class ::Durin::FTransactorReloadParticipant;
 		std::variant<FTransactionObjectRecord, FTransactionArrayRecord,
 			std::unique_ptr<FCommandChange>> Data;
 		FPersistentObjectRef CustomObject;
 		FTransactionObjectReferenceSet ModifiedObjects;
+		bool bReplayExpired = false;
 	};
 
 	// Owns one immutable candidate or retained transaction and all of its record data.
@@ -220,6 +223,7 @@ namespace Durin
 		DURINED_API auto ContainsObject(const DObject* Object) const -> bool override;
 		DURINED_API auto Finalize() -> FTransactionCaptureResult override;
 		auto IsBusy() const -> bool { return bBusy; }
+		DURINED_API auto HasExpired() const noexcept -> bool;
 		DURINED_API auto Validate() const -> FTransactionApplyResult;
 		DURINED_API auto Apply(
 			bool bUndo,
@@ -244,6 +248,9 @@ namespace Durin
 		DURINED_API auto ReferencesPackage(const DPackage& Package) const -> bool;
 
 	private:
+		friend class DTransBuffer;
+		auto ValidateReplayRecords(std::span<const size_t> Indices) const -> FTransactionApplyResult;
+		auto RetireExpiredRecords() -> void;
 		friend DURINED_API auto RecordObjectForEdit(DTransactor&, DObject&) -> FTransactionCaptureResult;
 		auto DispatchObjectEvents(ETransactionObjectEventType Type, ETransactionOperation Operation,
 			FTransactionObjectRecord* SnapshotRecord = nullptr, std::span<const FProperty* const> Selected = {}) -> FTransactionCaptureResult;
@@ -449,8 +456,10 @@ namespace Durin
 			std::string Details = {}) -> void;
 		auto AllocateRevision() -> FRevisionId;
 		auto PreparePackageTransitions(FTransaction& Transaction) -> void;
+		auto FindReplayIndex(bool bUndo, bool bRespectUndoBarrier = true) const -> std::optional<size_t>;
+		auto ReplayExpected(bool bUndo, FTransactionId ExpectedId) -> FTransactorResult;
 		auto ApplyPackageTransitions(const FTransaction& Transaction,
-			bool bForward) -> void;
+			bool bForward, bool bReplay = false) -> void;
 		auto FindPackageState(const DPackage& Package) -> FTrackedPackageState*;
 		auto FindPackageState(const DPackage& Package) const -> const FTrackedPackageState*;
 		auto EnsurePackageState(DPackage& Package) -> FTrackedPackageState&;

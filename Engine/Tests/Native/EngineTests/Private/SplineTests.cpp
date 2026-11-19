@@ -465,7 +465,7 @@ TEST(FSplineComponentTests, RejectsInvalidBulkCandidatesWithoutChangingPublished
 	EXPECT_TRUE(UnloadPackage(Path));
 }
 
-TEST(FSplineEditingTests, PointRangeHistoryRejectsForeignTopologyWithoutWritingTheSlot)
+TEST(FSplineEditingTests, PointRangeHistoryExpiresAfterForeignTopology)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
@@ -495,7 +495,31 @@ TEST(FSplineEditingTests, PointRangeHistoryRejectsForeignTopologyWithoutWritingT
 	}
 	const auto Reordered = Spline->GetSplinePoints();
 	const auto Snapshot = Spline->GetEvaluationData();
-	EXPECT_FALSE(History->Undo());
+	EXPECT_FALSE(History->CanUndo());
+	EXPECT_EQ(History->UndoExpected(0).Code, ETransactorResultCode::NoOp);
+	EXPECT_FALSE(History->CanRedo());
+	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
+	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
+}
+
+TEST(FSplineEditingTests, ReflectedPointHistoryExpiresAfterForeignTopology)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DSplineComponent> Spline(NewObject<DSplineComponent>(nullptr, "ReflectedPointHistorySpline", EObjectFlags::Transactional));
+	Tests::FTestEditorTransactorOwner History;
+	auto Changed = Spline->GetSplinePoints();
+	Changed[0].Position.y += 2.0;
+	{
+		FScopedTransaction Scope(History.Get(), {.Description = "Replace spline points"});
+		ASSERT_TRUE(Spline->SetSplinePoints(Changed));
+	}
+	ASSERT_TRUE(History->CanUndo());
+	ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
+	const auto Reordered = Spline->GetSplinePoints();
+	const auto Snapshot = Spline->GetEvaluationData();
+	EXPECT_FALSE(History->CanUndo());
+	EXPECT_EQ(History->UndoExpected(0).Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
 	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
 }

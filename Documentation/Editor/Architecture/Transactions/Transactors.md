@@ -142,25 +142,29 @@ No-op pruning and cancellation do not promise to clear dirtiness.
 
 `DTransactor::GetQueueLength()` reports the retained history size, including
 both Undo and Redo entries. `GetTransaction(Index)` reads an entry in that history.
-`DTransBuffer::GetUndoCount()` follows UE's meaning: the number of transactions
-already undone and available for Redo. The number of entries available for Undo
-is `GetQueueLength() - GetUndoCount()`, with no separate cursor-count API. For example,
-after three commits and two Undo operations, the counts are two undone and one
-undoable. Redo decreases the undone count; committing a new branch discards the
-remaining Redo entries and resets that count to zero.
+`DTransBuffer::GetUndoCount()` counts retained transactions after the cursor,
+including expired entries crossed by Undo. `GetQueueLength() - GetUndoCount()`
+counts entries before the cursor. Redo moves entries across the cursor.
+Committing a new branch discards the redo suffix and resets `GetUndoCount()`.
 
-History entries before the cursor are undoable; entries after it are redoable.
 A successful new commit replaces the redo suffix. IDs remain monotonic across
 Reset. Ordinary `Undo(bool bCanRedo = true)` and `Redo()` need no expected ID;
 `Undo(false)` discards the redo suffix. `UndoExpected` and `RedoExpected` are
 optional guarded extensions. `CanUndo`/`CanRedo` can explain unavailability;
-Reset retains a caller-supplied reason. GetUndoContext/GetRedoContext are the
-canonical virtual history presentation queries. The buffer reads the cursor
-directly and returns an owned context value. GetUndoContext() is empty when
-Undo is unavailable; GetUndoContext(false) reads the previous entry even while
+Reset retains a caller-supplied reason. GetUndoContext/GetRedoContext return
+owned context values for the next replayable entry. GetUndoContext() is empty
+when Undo is unavailable. GetUndoContext(false) can read history while
 recording. GetRedoContext() is empty when Redo is unavailable. Workspace label
 adapters derive owned strings from these contexts, so labels survive history
 replacement/reset. The transactor has no separate description-query interface.
+
+`FCommandChange::HasExpired(DObject*)` and captured object annotations can
+declare a record ineligible for replay. The buffer advances past wholly expired history
+entries without publishing Undo or Redo events and applies the next eligible
+entry within the undo barrier. Guarded replay checks the eligible entry's ID.
+Mixed entries replay the eligible records and retire expired records in both
+directions. A package touched only by expired records keeps its checkpoint. A
+package touched by both kinds is marked dirty and loses its saved checkpoint.
 
 Idle and Recording accept ordinary composition through `CanTransact()` outside
 object capture and synchronous transaction callbacks.

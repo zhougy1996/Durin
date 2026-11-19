@@ -106,6 +106,11 @@ namespace Durin
 		return Result;
 	}
 
+	auto FTransactionArrayRecord::HasExpired() const noexcept -> bool
+	{
+		return Annotation && Annotation->HasExpired();
+	}
+
 	auto FTransactionArrayRecord::Validate() const -> FTransactionCaptureResult
 	{
 		auto* Object = Target.Resolve();

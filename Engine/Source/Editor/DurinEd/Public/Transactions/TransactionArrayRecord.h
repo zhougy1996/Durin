@@ -19,6 +19,7 @@ namespace Durin
 	public:
 		DURINED_API static auto Capture(const FTransactionArrayCapture& Request)
 			-> std::expected<FTransactionArrayRecord, std::string>;
+		DURINED_API auto HasExpired() const noexcept -> bool;
 		DURINED_API auto Validate() const -> FTransactionCaptureResult;
 		DURINED_API auto Apply(bool bCompensate, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired) -> FTransactionCaptureResult;
 		DURINED_API auto CommitReplay() -> void;

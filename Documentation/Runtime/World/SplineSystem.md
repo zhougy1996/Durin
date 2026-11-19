@@ -60,9 +60,10 @@ API and transactions. Selection and live transform targets address points by
 index and are invalidated by topology revisions. Insert and duplicate may
 select the newly created point, and undo and redo restore authored point order.
 A committed point gesture can replay after a structural undo in the same
-history. An unrecorded or foreign-history topology change retires older point
-gestures for that curve. A retired gesture is skipped as a whole on replay.
-Native point-range and reflected records reject stale topology before replay.
+history. An unrecorded or foreign-history topology change expires older native
+point-edit records and any gizmo gesture targeting the curve. The
+[transaction buffer](../../Editor/Architecture/Transactions/Transactors.md#structural-history-and-barriers)
+skips an expired gesture as a whole, including its other targets.
 Editable keys use the runtime validation rules. The Up/Right overlay samples
 the runtime transform on segments adjoining selected points and stays outside
 the hit-test pass. Linear and cubic insertion preserves centerline geometry,

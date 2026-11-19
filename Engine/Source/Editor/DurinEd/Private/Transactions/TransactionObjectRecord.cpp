@@ -158,6 +158,14 @@ namespace Durin
 			&& *BeforeState->Observation.SerializedObject == *AfterState->Observation.SerializedObject && BeforeState->HasSameSchema(*AfterState);
 	}
 
+	auto FTransactionObjectRecord::HasExpired() const noexcept -> bool
+	{
+		const auto Expired = [](const auto& State) {
+			return State && State->GetAnnotation() && State->GetAnnotation()->HasExpired();
+		};
+		return Expired(BeforeState) || Expired(AfterState);
+	}
+
 	auto FTransactionObjectRecord::Validate() const -> std::expected<void, FTransactionObjectRecordError>
 	{
 		auto* Object = Target.Resolve();

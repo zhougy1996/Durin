@@ -341,7 +341,7 @@ TEST(FSplineViewportAuthoringTests, TopologyClearsIndexSelectionAndDeleteRemains
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
-TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExternalTopology)
+TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWholeGesture)
 {
 	using namespace Durin;
 	using namespace Durin::LevelEditor;
@@ -355,6 +355,8 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	auto* Spline = Cast<DSplineComponent>(Actor->AddInstanceComponent(DSplineComponent::StaticClass(), "Spline"));
 	ASSERT_NE(Spline, nullptr);
 	Spline->SetFlags(EObjectFlags::Transactional);
+	auto* Second = Cast<DSplineComponent>(Actor->AddInstanceComponent(DSplineComponent::StaticClass(), "SecondSpline"));
+	ASSERT_NE(Second, nullptr);
 
 	FLevelEditorViewportClient Client;
 	FSceneView View;
@@ -362,6 +364,8 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	const auto& Camera = Client.GetCameraTransform();
 	const FVector3 Start = Camera.GetLocation() + Camera.GetForwardVector() * 5.0;
 	ASSERT_TRUE(Spline->SetSplinePoints({FSplinePoint(Start), FSplinePoint(Start + FVectorConstants::Right)}));
+	const FVector3 SecondStart = Start + FVectorConstants::Right * 0.5;
+	ASSERT_TRUE(Second->SetSplinePoints({FSplinePoint(SecondStart), FSplinePoint(SecondStart + FVectorConstants::Right)}));
 	FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
@@ -371,8 +375,12 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	FScopedSelectModeRegistration SelectRegistration;
 	FEditorModeTools Manager;
 	ASSERT_TRUE(Manager.Activate("Spline", Context));
-	const auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
-	ASSERT_EQ(Targets.Targets.size(), 1u);
+	auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
+	Context.SelectSubElement(Second, {EEditorSubElementKind::Point, 0, Second->GetSplineTopologyRevision()});
+	const auto SecondTargets = Manager.GetActiveMode()->GetGizmoTargets(Context);
+	ASSERT_EQ(SecondTargets.Targets.size(), 1u);
+	Targets.Targets.push_back(SecondTargets.Targets.front());
+	ASSERT_EQ(Targets.Targets.size(), 2u);
 
 	FTransformGizmo Gizmo;
 	FLevelEditorViewportInput Input;
@@ -383,7 +391,7 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	ASSERT_FALSE(Overlay.OverlayPrimitives.empty());
 	const FVector3 HandlePoint(Overlay.OverlayPrimitives.front().LocalToWorld * FVector4(0.65, 0.0, 0.0, 1.0));
 	FVector2f CenterScreen, HandleScreen;
-	ASSERT_TRUE(SceneViewProjection::ProjectWorldToViewport(View, Start, CenterScreen));
+	ASSERT_TRUE(SceneViewProjection::ProjectWorldToViewport(View, Math::Lerp(Start, SecondStart, 0.5), CenterScreen));
 	ASSERT_TRUE(SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
 
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -398,6 +406,8 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	ASSERT_TRUE(Gizmo.Update(Targets, View, Input, Transactions.Get()));
 	const FVector3 Dragged = Spline->GetSplinePoint(0)->Position;
 	ASSERT_GT(Math::Length(Dragged - Start), 1.e-3);
+	const FVector3 SecondDragged = Second->GetSplinePoint(0)->Position;
+	ASSERT_GT(Math::Length(SecondDragged - SecondStart), 1.e-3);
 
 	{
 		FScopedTransaction Scope(Transactions.Get(), {.Description = "Reorder spline points"});
@@ -406,8 +416,10 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Spline->GetSplinePoint(0)->Position, Start);
+	EXPECT_EQ(Second->GetSplinePoint(0)->Position, SecondStart);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Spline->GetSplinePoint(0)->Position, Dragged);
+	EXPECT_EQ(Second->GetSplinePoint(0)->Position, SecondDragged);
 
 	// Give the other point the same transform so transform equality cannot detect the stale slot.
 	auto Other = *Spline->GetSplinePoint(1);
@@ -418,8 +430,10 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndSkipsExterna
 	ASSERT_TRUE(Spline->UpdateSplinePoint(1, Other));
 	ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	const auto ExternallyReordered = Spline->GetSplinePoints();
-	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_FALSE(Transactions->CanUndo());
+	EXPECT_EQ(Transactions->UndoExpected(0).Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(Spline->GetSplinePoints(), ExternallyReordered);
+	EXPECT_EQ(Second->GetSplinePoint(0)->Position, SecondDragged);
 
 	Manager.DeactivateAllModes(&Context);
 	EXPECT_TRUE(FLevelViewportEditModeRegistry::Get().Unregister(Handle));

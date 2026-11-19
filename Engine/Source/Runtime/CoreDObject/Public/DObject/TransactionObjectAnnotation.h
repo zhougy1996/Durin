@@ -24,6 +24,8 @@ namespace Durin
 		virtual auto AddReferencedObjects(FReferenceCollector& Collector) const -> void = 0;
 		virtual auto Serialize(FArchive& Archive) -> void = 0;
 		virtual auto GetAllocatedSize() const -> size_t = 0;
+		// Allows native records to opt into the same expiry policy as custom changes.
+		virtual auto HasExpired() const noexcept -> bool { return false; }
 		// Preflight retained participants before any record loads historical fields.
 		virtual auto Validate() const -> FTransactionCaptureResult { return {}; }
 		// Refresh from live state while preserving any recovery participant scope
