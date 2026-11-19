@@ -123,7 +123,7 @@ namespace Durin::VulkanRHI
 	}
 
 	static auto ToVulkan_StencilFace(const FRHIStencilFaceState& Face,
-		const FRHIDepthStencilState& State) -> vk::StencilOpState
+		const FDepthStencilStateInitializerRHI& State) -> vk::StencilOpState
 	{
 		return vk::StencilOpState{}
 			.setFailOp(ToVulkan_StencilOp(Face.FailOp))
@@ -340,15 +340,15 @@ namespace Durin::VulkanRHI
 
 		vk::PipelineRasterizationStateCreateInfo RasterizerInfo;
 		RasterizerInfo
-			.setDepthClampEnable(Initializer.RasterizerState.bEnableDepthClamp)
-			.setLineWidth(Initializer.RasterizerState.LineWidth)
+			.setDepthClampEnable(Initializer.RasterizerState->GetInitializer().bEnableDepthClamp)
+			.setLineWidth(Initializer.RasterizerState->GetInitializer().LineWidth)
 			.setRasterizerDiscardEnable(vk::False)
 			.setPolygonMode(ToVulkan_PolygonMode(
-				Initializer.RasterizerState.PolygonMode))
-			.setCullMode(ToVulkan_CullMode(Initializer.RasterizerState.CullMode))
+				Initializer.RasterizerState->GetInitializer().PolygonMode))
+			.setCullMode(ToVulkan_CullMode(Initializer.RasterizerState->GetInitializer().CullMode))
 			.setFrontFace(ToVulkan_FrontFace(
-				Initializer.RasterizerState.FrontFace))
-			.setDepthBiasEnable(Initializer.RasterizerState.bEnableDepthBias)
+				Initializer.RasterizerState->GetInitializer().FrontFace))
+			.setDepthBiasEnable(Initializer.RasterizerState->GetInitializer().bEnableDepthBias)
 			.setDepthBiasConstantFactor(0.0f)
 			.setDepthBiasClamp(0.0f)
 			.setDepthBiasSlopeFactor(0.0f);
@@ -363,7 +363,7 @@ namespace Durin::VulkanRHI
 			.setAlphaToOneEnable(vk::False);
 
 		vk::PipelineDepthStencilStateCreateInfo DepthStencilInfo;
-		const FRHIDepthStencilState& DepthStencilState = Initializer.DepthStencilState;
+		const FDepthStencilStateInitializerRHI& DepthStencilState = Initializer.DepthStencilState->GetInitializer();
 		DepthStencilInfo.setDepthTestEnable(DepthStencilState.bEnableTest)
 			.setDepthWriteEnable(DepthStencilState.bEnableWrite)
 			.setDepthCompareOp(ToVulkan_DepthCompareOp(
@@ -377,7 +377,7 @@ namespace Durin::VulkanRHI
 		ColorBlendAttachments.reserve(Initializer.RenderTargetLayout.NumColorRenderTargets);
 		for (uint32 Index = 0; Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
 		{
-			const FRHIColorBlendState& BlendState = Initializer.ColorBlendStates[Index];
+			const FRHIColorBlendState& BlendState = Initializer.BlendState->GetInitializer()[Index];
 			ColorBlendAttachments.emplace_back()
 				.setColorWriteMask(ToVulkan_ColorWriteMask(BlendState.ColorWriteMask))
 				.setBlendEnable(BlendState.bEnable ? vk::True : vk::False)

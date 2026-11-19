@@ -469,8 +469,8 @@ namespace Durin
 				Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
 				Initializer.VertexDeclaration = Declaration.GetReference();
 				Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
-				Initializer.ColorBlendStates[0] = FRHIColorBlendState::StraightAlpha();
+				Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+				Initializer.BlendState = Durin::RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
 				ASSERT_TRUE(BuildPipelineLayoutFromShaders(
 					Compiled.CompiledShaders, Initializer.PipelineLayout));
 				auto Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState(
@@ -898,7 +898,7 @@ namespace Durin
 				ASSERT_TRUE(Alternate);
 				*AlternateTargets = *Alternate;
 
-				FRHIDepthStencilState Depth;
+				FDepthStencilStateInitializerRHI Depth;
 				Depth.bEnableTest = true;
 				Depth.bEnableWrite = true;
 				Depth.CompareOp = ERHIDepthCompareOp::Greater;
@@ -917,7 +917,7 @@ namespace Durin
 					return FGBufferRenderer::FPipelineRequest{
 						.Material = MaterialData.PlanningPassIdentity,
 						.CompiledProgram = MaterialData.CompiledProgram,
-						.Rasterizer = FRHIRasterizerState{},
+						.Rasterizer = FRasterizerStateInitializerRHI{},
 						.Depth = Depth,
 						.VertexDeclaration = Declarations[Index],
 						.FactoryKey = Domains[Index],

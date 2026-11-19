@@ -288,9 +288,8 @@ namespace Durin::MonaImGui
 		Initializer.BoundShaders.FragmentShader =
 			GBackendState.FragmentShader.GetRHIShader();
 		Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
-		Initializer.ColorBlendStates[0] =
-			FRHIColorBlendState::StraightAlpha();
-		Initializer.RasterizerState.CullMode = ERHICullMode::None;
+		Initializer.BlendState = RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
+		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 		Initializer.PipelineLayout =
 			GBackendState.ShaderMap->GetMergedPipelineLayout();
 		const std::string PipelineName = std::format(

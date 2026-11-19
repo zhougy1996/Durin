@@ -41,10 +41,10 @@ namespace Durin::RendererPrivate
 		return Result;
 	}
 
-	inline auto MakeShadowRasterizerState(const FRHIRasterizerState& Source)
-		-> FRHIRasterizerState
+	inline auto MakeShadowRasterizerState(const FRasterizerStateInitializerRHI& Source)
+		-> FRasterizerStateInitializerRHI
 	{
-		FRHIRasterizerState Result = Source;
+		FRasterizerStateInitializerRHI Result = Source;
 		Result.PolygonMode = ERHIPolygonMode::Fill;
 		const bool bPreparedBias = Result.bEnableDepthBias;
 		Result.bEnableDepthBias = true;

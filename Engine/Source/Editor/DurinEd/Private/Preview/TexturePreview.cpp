@@ -222,8 +222,7 @@ namespace Durin
 						FragmentRHI;
 					PipelineInitializer.VertexDeclaration =
 						Candidate.VertexDeclaration;
-					PipelineInitializer.RasterizerState.CullMode =
-						ERHICullMode::None;
+					PipelineInitializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 					PipelineInitializer.PipelineLayout =
 						Candidate.ShaderMap->GetMergedPipelineLayout();
 					Candidate.PipelineInitializer = PipelineInitializer;

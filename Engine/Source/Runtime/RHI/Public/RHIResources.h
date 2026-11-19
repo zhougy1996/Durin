@@ -1139,6 +1139,7 @@ namespace Durin
 	{
 		FRHIShader* VertexShader = nullptr;
 		FRHIShader* FragmentShader = nullptr;
+		auto operator==(const FBoundShaders&) const -> bool = default;
 	};
 
 	// Describes one resource slot within a descriptor-set layout.
@@ -1359,7 +1360,7 @@ namespace Durin
 		Count,
 	};
 
-	struct FRHIRasterizerState
+	struct FRasterizerStateInitializerRHI
 	{
 		ERHIPolygonMode PolygonMode = ERHIPolygonMode::Fill;
 		ERHICullMode CullMode = ERHICullMode::Back;
@@ -1371,7 +1372,7 @@ namespace Durin
 		float DepthBiasSlopeFactor = 0.0f;
 		float LineWidth = 1.0f;
 
-		auto operator==(const FRHIRasterizerState&) const -> bool = default;
+		auto operator==(const FRasterizerStateInitializerRHI&) const -> bool = default;
 	};
 
 	enum class ERHIDepthCompareOp : uint8
@@ -1412,7 +1413,7 @@ namespace Durin
 	};
 
 	// Defines immutable depth and independent front/back stencil behavior.
-	struct FRHIDepthStencilState
+	struct FDepthStencilStateInitializerRHI
 	{
 		bool bEnableTest = false;
 		bool bEnableWrite = false;
@@ -1424,7 +1425,7 @@ namespace Durin
 		uint32 StencilWriteMask = 0xff;
 		uint32 StencilReference = 0;
 
-		auto operator==(const FRHIDepthStencilState&) const -> bool = default;
+		auto operator==(const FDepthStencilStateInitializerRHI&) const -> bool = default;
 	};
 
 	// Defines immutable multisample behavior and must match the pass layout.
@@ -1505,6 +1506,42 @@ namespace Durin
 		auto operator==(const FRHIColorBlendState&) const -> bool = default;
 	};
 
+	using FBlendStateInitializerRHI = std::array<FRHIColorBlendState, MaxSimultaneousRenderTargets>;
+
+	// Vulkan and Metal bake these immutable CPU descriptions into a native PSO.
+	class FRHIRasterizerState
+	{
+	public:
+		explicit FRHIRasterizerState(const FRasterizerStateInitializerRHI& InInitializer) : Initializer(InInitializer) {}
+		auto GetInitializer() const -> const FRasterizerStateInitializerRHI& { return Initializer; }
+	private:
+		FRasterizerStateInitializerRHI Initializer;
+	};
+	using FRasterizerStateRHIRef = std::shared_ptr<const FRHIRasterizerState>;
+	RHI_API auto RHICreateRasterizerState(const FRasterizerStateInitializerRHI& Initializer = {}) -> FRasterizerStateRHIRef;
+
+	class FRHIDepthStencilState
+	{
+	public:
+		explicit FRHIDepthStencilState(const FDepthStencilStateInitializerRHI& InInitializer) : Initializer(InInitializer) {}
+		auto GetInitializer() const -> const FDepthStencilStateInitializerRHI& { return Initializer; }
+	private:
+		FDepthStencilStateInitializerRHI Initializer;
+	};
+	using FDepthStencilStateRHIRef = std::shared_ptr<const FRHIDepthStencilState>;
+	RHI_API auto RHICreateDepthStencilState(const FDepthStencilStateInitializerRHI& Initializer = {}) -> FDepthStencilStateRHIRef;
+
+	class FRHIBlendState
+	{
+	public:
+		explicit FRHIBlendState(const FBlendStateInitializerRHI& InInitializer) : Initializer(InInitializer) {}
+		auto GetInitializer() const -> const FBlendStateInitializerRHI& { return Initializer; }
+	private:
+		FBlendStateInitializerRHI Initializer;
+	};
+	using FBlendStateRHIRef = std::shared_ptr<const FRHIBlendState>;
+	RHI_API auto RHICreateBlendState(const FBlendStateInitializerRHI& Initializer = {}) -> FBlendStateRHIRef;
+
 	// Collects all immutable state required to create a graphics pipeline.
 	class FGraphicsPipelineStateInitializer
 	{
@@ -1517,14 +1554,13 @@ namespace Durin
 
 		FPipelineLayoutDesc PipelineLayout;
 
-		FRHIRasterizerState RasterizerState;
+		FRasterizerStateRHIRef RasterizerState = RHICreateRasterizerState();
 
 		FRHIMultisampleState MultisampleState;
 
-		FRHIDepthStencilState DepthStencilState;
+		FDepthStencilStateRHIRef DepthStencilState = RHICreateDepthStencilState();
 
-		std::array<FRHIColorBlendState, MaxSimultaneousRenderTargets>
-			ColorBlendStates{};
+		FBlendStateRHIRef BlendState = RHICreateBlendState();
 
 		// Defines how submitted vertices are assembled into primitives.
 		enum class EPrimitiveTopology : uint8
@@ -1535,6 +1571,8 @@ namespace Durin
 		};
 
 		EPrimitiveTopology PrimitiveTopology = EPrimitiveTopology::TriangleList;
+
+		auto operator==(const FGraphicsPipelineStateInitializer&) const -> bool = default;
 
 		RHI_API auto IsValid() const -> bool;
 	};
@@ -1630,9 +1668,9 @@ namespace Durin
 		FRHIRenderTargetLayout RenderTargetLayout;
 		std::shared_ptr<const std::vector<FRHIVertexElementIdentity>> VertexElements;
 		std::shared_ptr<const FPipelineLayoutDesc> PipelineLayout;
-		FRHIRasterizerState RasterizerState;
+		FRasterizerStateInitializerRHI RasterizerState;
 		FRHIMultisampleState MultisampleState;
-		FRHIDepthStencilState DepthStencilState;
+		FDepthStencilStateInitializerRHI DepthStencilState;
 		std::shared_ptr<const std::vector<FRHIColorBlendState>> ColorBlendStates;
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology PrimitiveTopology =
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;

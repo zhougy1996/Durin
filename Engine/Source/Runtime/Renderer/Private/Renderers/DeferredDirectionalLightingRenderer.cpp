@@ -198,7 +198,7 @@ namespace Durin
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
@@ -207,10 +207,12 @@ namespace Durin
 				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
 				Initializer.BoundShaders.VertexShader = ProductionVertexRHI;
 				Initializer.PipelineLayout = Candidate.ProductionShaderSet.GetPipelineLayout();
-				Initializer.ColorBlendStates[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
+				FBlendStateInitializerRHI AdditiveBlend{};
+				AdditiveBlend[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
 					.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
+				Initializer.BlendState = RHICreateBlendState(AdditiveBlend);
 				Candidate.ProductionPipelineInitializer = Initializer;
-				Initializer.ColorBlendStates[0].bEnable = false;
+				Initializer.BlendState = Candidate.PipelineInitializer.BlendState;
 				Candidate.DiagnosticPipelineInitializer = Initializer;
 				Candidate.FallbackEnvironmentSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());

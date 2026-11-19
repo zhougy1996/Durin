@@ -212,8 +212,8 @@ static auto QualifyImGuiShaderBuild(const Durin::FShaderTargetIdentity& MetalTar
 				Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
 				Initializer.VertexDeclaration = Declaration.GetReference();
 				Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-				Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
-				Initializer.ColorBlendStates[0] = Durin::FRHIColorBlendState::StraightAlpha();
+				Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = Durin::ERHICullMode::None});
+				Initializer.BlendState = Durin::RHICreateBlendState({Durin::FRHIColorBlendState::StraightAlpha()});
 				ASSERT_TRUE(Durin::BuildPipelineLayoutFromShaders(
 					Compiled.CompiledShaders, Initializer.PipelineLayout));
 				auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
@@ -445,7 +445,7 @@ TEST(FMetalRHIHeadlessTests, AuthoredHitProxyIdsMatchVulkanThroughProductionRHI)
 				Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
 				Initializer.VertexDeclaration = Declaration.GetReference();
 				Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-				Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+				Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = Durin::ERHICullMode::None});
 				ASSERT_TRUE(Durin::BuildPipelineLayoutFromShaders(
 					Compiled.CompiledShaders, Initializer.PipelineLayout));
 				auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
@@ -796,7 +796,7 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
 			Initializer.VertexDeclaration = Declaration.GetReference();
 			Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-			Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+			Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = Durin::ERHICullMode::None});
 			auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 				"MetalTriangle", Initializer);
 			ASSERT_TRUE(Pipeline);
@@ -1058,7 +1058,7 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			ASSERT_TRUE(BlendFragment);
 			auto BlendInitializer = Initializer;
 			BlendInitializer.BoundShaders.FragmentShader = BlendFragment.GetReference();
-			BlendInitializer.ColorBlendStates[0] = Durin::FRHIColorBlendState::StraightAlpha();
+			BlendInitializer.BlendState = Durin::RHICreateBlendState({Durin::FRHIColorBlendState::StraightAlpha()});
 			auto BlendPipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 				"MetalAlphaBlend", BlendInitializer);
 			ASSERT_TRUE(BlendPipeline);
@@ -1091,7 +1091,11 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 				const Durin::FRHIColorBlendState& BlendState,
 				std::byte Red, std::byte Blue, std::byte Alpha) {
 				auto BlendFactorInitializer = BlendInitializer;
-				BlendFactorInitializer.ColorBlendStates[0] = BlendState;
+				{
+					auto StateDesc = BlendFactorInitializer.BlendState->GetInitializer();
+					StateDesc[0] = BlendState;
+					BlendFactorInitializer.BlendState = Durin::RHICreateBlendState(StateDesc);
+				}
 				auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 					Name, BlendFactorInitializer);
 				EXPECT_TRUE(Pipeline);
@@ -1120,22 +1124,25 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 					EXPECT_EQ(Pixels[Index + 3], Alpha);
 				}
 			};
-			auto ConstantBlend = BlendInitializer.ColorBlendStates[0];
+			auto ConstantBlend = BlendInitializer.BlendState->GetInitializer()[0];
 			ConstantBlend.SrcColorFactor = Durin::ERHIBlendFactor::OneMinusConstantColor;
 			ConstantBlend.DstColorFactor = Durin::ERHIBlendFactor::ConstantColor;
 			ConstantBlend.SrcAlphaFactor = Durin::ERHIBlendFactor::OneMinusConstantAlpha;
 			ConstantBlend.DstAlphaFactor = Durin::ERHIBlendFactor::ConstantAlpha;
 			CheckBlendFactors("MetalConstantBlend", ConstantBlend,
 				std::byte{255}, std::byte{0}, std::byte{128});
-			auto SaturatedBlend = BlendInitializer.ColorBlendStates[0];
+			auto SaturatedBlend = BlendInitializer.BlendState->GetInitializer()[0];
 			SaturatedBlend.SrcColorFactor = Durin::ERHIBlendFactor::SrcAlphaSaturate;
 			SaturatedBlend.DstColorFactor = Durin::ERHIBlendFactor::One;
 			CheckBlendFactors("MetalSaturatedBlend", SaturatedBlend,
 				std::byte{0}, std::byte{255}, std::byte{255});
 			auto MaskInitializer = BlendInitializer;
-			MaskInitializer.ColorBlendStates[0] = {};
-			MaskInitializer.ColorBlendStates[0].ColorWriteMask =
-				Durin::ERHIColorWriteMask::Red;
+			{
+				auto StateDesc = MaskInitializer.BlendState->GetInitializer();
+				StateDesc[0] = {};
+				StateDesc[0].ColorWriteMask = Durin::ERHIColorWriteMask::Red;
+				MaskInitializer.BlendState = Durin::RHICreateBlendState(StateDesc);
+			}
 			auto MaskPipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 				"MetalRedOnly", MaskInitializer);
 			ASSERT_TRUE(MaskPipeline);
@@ -1208,9 +1215,13 @@ TEST(FMetalRHIHeadlessTests, RecordedTriangleDrawFillsColorTargetInBothExecution
 			auto MrtInitializer = Initializer;
 			MrtInitializer.BoundShaders.FragmentShader = MrtFragment.GetReference();
 			MrtInitializer.RenderTargetLayout = MrtPass.RenderTargetLayout;
-			MrtInitializer.DepthStencilState.bEnableTest = true;
-			MrtInitializer.DepthStencilState.bEnableWrite = true;
-			MrtInitializer.DepthStencilState.CompareOp = Durin::ERHIDepthCompareOp::Less;
+			{
+				auto StateDesc = MrtInitializer.DepthStencilState->GetInitializer();
+				StateDesc.bEnableTest = true;
+				StateDesc.bEnableWrite = true;
+				StateDesc.CompareOp = Durin::ERHIDepthCompareOp::Less;
+				MrtInitializer.DepthStencilState = Durin::RHICreateDepthStencilState(StateDesc);
+			}
 			auto MrtPipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 				"MetalFourColorTargets", MrtInitializer);
 			ASSERT_TRUE(MrtPipeline);
@@ -1425,7 +1436,7 @@ TEST(FMetalRHIHeadlessTests, SparseDynamicArraysFanOutAcrossGraphicsStages)
 			Initializer.VertexDeclaration = Declaration.GetReference();
 			Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
 			Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-			Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+			Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = Durin::ERHICullMode::None});
 			Initializer.PipelineLayout.BindingLayouts.resize(8);
 			Initializer.PipelineLayout.BindingLayouts[7].BindingLayouts = {{
 				Durin::EShaderStageFlags::Vertex | Durin::EShaderStageFlags::Fragment,
@@ -1540,10 +1551,14 @@ TEST(FMetalRHIHeadlessTests, D32DepthRejectsFarDrawInBothExecutionModes)
 			Durin::FGraphicsPipelineStateInitializer Initializer;
 			Initializer.VertexDeclaration = Declaration.GetReference();
 			Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-			Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
-			Initializer.DepthStencilState.bEnableTest = true;
-			Initializer.DepthStencilState.bEnableWrite = true;
-			Initializer.DepthStencilState.CompareOp = Durin::ERHIDepthCompareOp::Less;
+			Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = Durin::ERHICullMode::None});
+			{
+				auto StateDesc = Initializer.DepthStencilState->GetInitializer();
+				StateDesc.bEnableTest = true;
+				StateDesc.bEnableWrite = true;
+				StateDesc.CompareOp = Durin::ERHIDepthCompareOp::Less;
+				Initializer.DepthStencilState = Durin::RHICreateDepthStencilState(StateDesc);
+			}
 			Initializer.BoundShaders = {Near.GetReference(), Green.GetReference()};
 			auto NearPipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 				"MetalNearDepth", Initializer);

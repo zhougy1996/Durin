@@ -143,15 +143,16 @@ namespace Durin
 					FragmentRHI;
 				Initializer.VertexDeclaration =
 					Candidate.VertexDeclaration;
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
-				Initializer.DepthStencilState.bEnableTest = true;
-				Initializer.DepthStencilState.bEnableWrite = false;
-				Initializer.DepthStencilState.CompareOp = ERHIDepthCompareOp::Equal;
+				Initializer.DepthStencilState = RHICreateDepthStencilState({
+					.bEnableTest = true,
+					.bEnableWrite = false,
+					.CompareOp = ERHIDepthCompareOp::Equal});
 				Candidate.HybridBootstrapPipelineInitializer = Initializer;
 
 				const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};

@@ -11,8 +11,8 @@ namespace Durin::RendererPrivate
 {
 	struct FMeshPipelineState
 	{
-		FRHIRasterizerState Rasterizer;
-		FRHIDepthStencilState Depth;
+		FRasterizerStateInitializerRHI Rasterizer;
+		FDepthStencilStateInitializerRHI Depth;
 		FRHIColorBlendState ColorBlend;
 		bool bGBufferModelData = false;
 	};
@@ -56,8 +56,8 @@ namespace Durin::RendererPrivate
 	{
 		FRHIRenderTargetLayout RenderTargets;
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
-		FRHIRasterizerState Rasterizer;
-		FRHIDepthStencilState Depth;
+		FRasterizerStateInitializerRHI Rasterizer;
+		FDepthStencilStateInitializerRHI Depth;
 		std::array<FRHIColorBlendState, MaxSimultaneousRenderTargets> ColorBlends{};
 		auto operator==(const FMeshPipelineDescription&) const -> bool = default;
 

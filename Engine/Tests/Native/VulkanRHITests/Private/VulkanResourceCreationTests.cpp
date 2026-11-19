@@ -482,7 +482,7 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Pipeline.GetReference(), SameNamePipeline.GetReference());
 
 		FGraphicsPipelineStateInitializer ChangedInitializer = Initializer;
-		ChangedInitializer.RasterizerState.CullMode = ERHICullMode::None;
+		ChangedInitializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 		FGraphicsPipelineStateRHIRef ChangedSameNamePipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				PipelineName, ChangedInitializer);
@@ -490,15 +490,23 @@ namespace Durin::VulkanRHI
 		EXPECT_NE(Pipeline.GetReference(), ChangedSameNamePipeline.GetReference());
 
 		FGraphicsPipelineStateInitializer PositiveZeroInitializer = Initializer;
-		PositiveZeroInitializer.RasterizerState.bEnableDepthBias = true;
-		PositiveZeroInitializer.RasterizerState.DepthBiasConstantFactor = 0.0f;
-		PositiveZeroInitializer.RasterizerState.DepthBiasClamp = 0.0f;
-		PositiveZeroInitializer.RasterizerState.DepthBiasSlopeFactor = 0.0f;
+		{
+			auto StateDesc = PositiveZeroInitializer.RasterizerState->GetInitializer();
+			StateDesc.bEnableDepthBias = true;
+			StateDesc.DepthBiasConstantFactor = 0.0f;
+			StateDesc.DepthBiasClamp = 0.0f;
+			StateDesc.DepthBiasSlopeFactor = 0.0f;
+			PositiveZeroInitializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		FGraphicsPipelineStateInitializer NegativeZeroInitializer =
 			PositiveZeroInitializer;
-		NegativeZeroInitializer.RasterizerState.DepthBiasConstantFactor = -0.0f;
-		NegativeZeroInitializer.RasterizerState.DepthBiasClamp = -0.0f;
-		NegativeZeroInitializer.RasterizerState.DepthBiasSlopeFactor = -0.0f;
+		{
+			auto StateDesc = NegativeZeroInitializer.RasterizerState->GetInitializer();
+			StateDesc.DepthBiasConstantFactor = -0.0f;
+			StateDesc.DepthBiasClamp = -0.0f;
+			StateDesc.DepthBiasSlopeFactor = -0.0f;
+			NegativeZeroInitializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		FGraphicsPipelineStateRHIRef PositiveZeroPipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				"RecoverableGraphicsPipeline_PositiveZero", PositiveZeroInitializer);
@@ -510,9 +518,13 @@ namespace Durin::VulkanRHI
 			NegativeZeroPipeline.GetReference());
 		FGraphicsPipelineStateInitializer NonzeroBiasInitializer =
 			PositiveZeroInitializer;
-		NonzeroBiasInitializer.RasterizerState.DepthBiasConstantFactor = 1.25f;
-		NonzeroBiasInitializer.RasterizerState.DepthBiasClamp = 4.0f;
-		NonzeroBiasInitializer.RasterizerState.DepthBiasSlopeFactor = 1.75f;
+		{
+			auto StateDesc = NonzeroBiasInitializer.RasterizerState->GetInitializer();
+			StateDesc.DepthBiasConstantFactor = 1.25f;
+			StateDesc.DepthBiasClamp = 4.0f;
+			StateDesc.DepthBiasSlopeFactor = 1.75f;
+			NonzeroBiasInitializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		FGraphicsPipelineStateRHIRef NonzeroBiasPipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				"RecoverableGraphicsPipeline_NonzeroBias", NonzeroBiasInitializer);
@@ -532,11 +544,18 @@ namespace Durin::VulkanRHI
 				StatePipelines.push_back(std::move(StatePipeline));
 		};
 		FGraphicsPipelineStateInitializer WireframeInitializer = Initializer;
-		WireframeInitializer.RasterizerState.PolygonMode = ERHIPolygonMode::Line;
+		{
+			auto StateDesc = WireframeInitializer.RasterizerState->GetInitializer();
+			StateDesc.PolygonMode = ERHIPolygonMode::Line;
+			WireframeInitializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		CreateStatePipeline(WireframeInitializer, "Wireframe");
 		FGraphicsPipelineStateInitializer CounterClockwiseInitializer = Initializer;
-		CounterClockwiseInitializer.RasterizerState.FrontFace =
-			ERHIFrontFace::CounterClockwise;
+		{
+			auto StateDesc = CounterClockwiseInitializer.RasterizerState->GetInitializer();
+			StateDesc.FrontFace = ERHIFrontFace::CounterClockwise;
+			CounterClockwiseInitializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		CreateStatePipeline(CounterClockwiseInitializer, "CounterClockwise");
 		FGraphicsPipelineStateInitializer DepthInitializer = Initializer;
 		DepthInitializer.RenderTargetLayout.bHasDepthStencil = true;
@@ -547,11 +566,15 @@ namespace Durin::VulkanRHI
 		DepthAttachment.InitialAccess = ERHIAccess::None;
 		DepthAttachment.FinalLayout = ERHITextureLayout::DepthStencilAttachment;
 		DepthAttachment.FinalAccess = ERHIAccess::DepthStencilReadWrite;
-		DepthInitializer.DepthStencilState.bEnableTest = true;
-		DepthInitializer.DepthStencilState.bEnableWrite = true;
+		{
+			auto StateDesc = DepthInitializer.DepthStencilState->GetInitializer();
+			StateDesc.bEnableTest = true;
+			StateDesc.bEnableWrite = true;
+			DepthInitializer.DepthStencilState = Durin::RHICreateDepthStencilState(StateDesc);
+		}
 		CreateStatePipeline(DepthInitializer, "Depth");
 		FGraphicsPipelineStateInitializer BlendInitializer = Initializer;
-		BlendInitializer.ColorBlendStates[0] = FRHIColorBlendState::StraightAlpha();
+		BlendInitializer.BlendState = Durin::RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
 		CreateStatePipeline(BlendInitializer, "StraightAlpha");
 		FRHITextureCreateDesc MrtDepthDesc = FRHITextureCreateDesc::Create2D(
 			"MrtStencilValidationDepth", 8, 8, EPixelFormat::D24S8)
@@ -577,11 +600,18 @@ namespace Durin::VulkanRHI
 		MrtDepthAttachment.InitialAccess = ERHIAccess::None;
 		MrtDepthAttachment.FinalLayout = ERHITextureLayout::DepthStencilAttachment;
 		MrtDepthAttachment.FinalAccess = ERHIAccess::DepthStencilReadWrite;
-		MrtStencilInitializer.DepthStencilState.bEnableTest = true;
-		MrtStencilInitializer.DepthStencilState.bEnableWrite = true;
-		MrtStencilInitializer.DepthStencilState.bEnableStencil = true;
-		MrtStencilInitializer.ColorBlendStates[1] =
-			FRHIColorBlendState::StraightAlpha();
+		{
+			auto StateDesc = MrtStencilInitializer.DepthStencilState->GetInitializer();
+			StateDesc.bEnableTest = true;
+			StateDesc.bEnableWrite = true;
+			StateDesc.bEnableStencil = true;
+			MrtStencilInitializer.DepthStencilState = Durin::RHICreateDepthStencilState(StateDesc);
+		}
+		{
+			auto StateDesc = MrtStencilInitializer.BlendState->GetInitializer();
+			StateDesc[1] = FRHIColorBlendState::StraightAlpha();
+			MrtStencilInitializer.BlendState = Durin::RHICreateBlendState(StateDesc);
+		}
 		MrtStencilInitializer.BoundShaders.FragmentShader = MrtFragmentShader;
 		FGraphicsPipelineStateRHIRef MrtStencilPipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
@@ -599,7 +629,11 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(TwoSetPipeline);
 
 		FGraphicsPipelineStateInitializer InvalidInitializer = Initializer;
-		InvalidInitializer.RasterizerState.FrontFace = ERHIFrontFace::Count;
+		{
+			auto StateDesc = InvalidInitializer.RasterizerState->GetInitializer();
+			StateDesc.FrontFace = ERHIFrontFace::Count;
+			InvalidInitializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		EXPECT_DEATH((void)(GDynamicRHI->RHICreateGraphicsPipelineState("InvalidGraphicsPipeline", InvalidInitializer)), "RHI terminal failure");
 		const FRHIPipelineCacheStatistics CacheStatsAfterCreation =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();

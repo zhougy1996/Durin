@@ -302,9 +302,9 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                                 FPSOPrecacheDataArray Current;
                                 Case.Processor->CollectPSOInitializers(Case.Config, *Changed.CompiledProgram, Changed.GetStaticProperties(), Params.VertexFactoryData, ChangedParams, Current);
                                 ASSERT_EQ(Current.size() + 1, Case.Initializers.size());
-                                for (const auto& Data : Current) EXPECT_EQ(Data.GetGraphicsInitializer().RasterizerState.CullMode, ERHICullMode::None);
+                                for (const auto& Data : Current) EXPECT_EQ(Data.GetGraphicsInitializer().RasterizerState->GetInitializer().CullMode, ERHICullMode::None);
                                 EXPECT_EQ(std::ranges::count_if(Current, [&](const auto& Data) {
-                                    return Data.bRequired && Data.GetGraphicsInitializer().DepthStencilState.CompareOp
+                                    return Data.bRequired && Data.GetGraphicsInitializer().DepthStencilState->GetInitializer().CompareOp
                                         == (ChangedParams.bReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less);
                                 }), 2);
                                 Case.Collected = true; Complete = false; continue;
@@ -385,7 +385,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
                 auto Matches = [&](const FPSOPrecacheData& Data) {
                     const auto& PSO = Data.GetGraphicsInitializer();
                     return Data.IsValid() && PSO.PrimitiveTopology == Draw.Topology && PSO.RenderTargetLayout == Draw.RenderTargets
-                        && PSO.RasterizerState == Draw.Rasterizer && PSO.DepthStencilState == Draw.Depth && PSO.ColorBlendStates == Draw.ColorBlends;
+                        && PSO.RasterizerState->GetInitializer() == Draw.Rasterizer && PSO.DepthStencilState->GetInitializer() == Draw.Depth && PSO.BlendState->GetInitializer() == Draw.ColorBlends;
                 };
                 EXPECT_TRUE(std::ranges::any_of(Case.Initializers, Matches));
                 const bool Required = Case.Pass == EMeshPipelinePass::ShadowDepth || (Case.Pass != EMeshPipelinePass::HitProxy
@@ -416,7 +416,11 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
             EXPECT_EQ(PSOPrecacheValidation::Check(Data.GetGraphicsInitializer(), Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
                 PSOPrecacheValidation::EResult::Hit);
             auto DifferentState = Data.GetGraphicsInitializer();
-            DifferentState.DepthStencilState.bEnableWrite = !DifferentState.DepthStencilState.bEnableWrite;
+            {
+                auto StateDesc = DifferentState.DepthStencilState->GetInitializer();
+                StateDesc.bEnableWrite = !StateDesc.bEnableWrite;
+                DifferentState.DepthStencilState = Durin::RHICreateDepthStencilState(StateDesc);
+            }
             EXPECT_NE(PSOPrecacheValidation::Check(DifferentState, Data.PSOCollectorIndex, Data.VertexFactoryType).Result,
                 PSOPrecacheValidation::EResult::Hit);
             PSOPrecacheValidation::SetEnabled(false);

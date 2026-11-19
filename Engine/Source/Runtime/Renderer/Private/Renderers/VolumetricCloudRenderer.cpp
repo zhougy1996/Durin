@@ -299,7 +299,7 @@ namespace Durin
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
 					CandidatePayload.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
 					CandidatePayload.ShaderSet.GetPipelineLayout();
 				CandidatePayload.PipelineInitializer = Initializer;
@@ -351,7 +351,7 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration = Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
@@ -506,7 +506,7 @@ namespace Durin
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));

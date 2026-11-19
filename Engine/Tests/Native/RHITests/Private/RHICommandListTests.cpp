@@ -1623,9 +1623,23 @@ namespace Durin
 		auto Shader = MakeRefCount<FTestShader>(EShaderFrequency::Compute, 3);
 		FComputePipelineStateInitializer Compute;
 		Compute.ComputeShader = Shader;
+		EXPECT_DEATH(PipelineStateCache::PrecacheGraphicsPipelineState({}, "invalid"), "Graphics PSO needs");
 		auto Precached = PipelineStateCache::PrecacheGraphicsPipelineState(Graphics, "prewarm");
 		EXPECT_TRUE(Precached);
 		EXPECT_TRUE(Entered.WaitFor(5.0));
+		auto EquivalentDeclaration = MakeRefCount<FTestVertexDeclaration>();
+		auto Variant = Graphics;
+		Variant.VertexDeclaration = EquivalentDeclaration;
+		auto Equivalent = PipelineStateCache::PrecacheGraphicsPipelineState(Variant, "same native declaration");
+		EXPECT_TRUE(Equivalent);
+		EXPECT_NE(Equivalent, Precached);
+		Variant = Graphics;
+		{
+			auto StateDesc = Variant.RasterizerState->GetInitializer();
+			StateDesc.LineWidth = 0.0f;
+			Variant.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
+		EXPECT_FALSE(PipelineStateCache::PrecacheGraphicsPipelineState(Variant, "invalid fixed state"));
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
@@ -1687,6 +1701,7 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		auto& Commands = Executor.GetImmediateCommandList();
 		Commands.SwitchPipeline(ERHIPipeline::Graphics);
+		EXPECT_FALSE(PipelineStateCache::PrecacheGraphicsPipelineState({}, "unsupported"));
 		EXPECT_DEATH(PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Commands, {}, "unsupported"), "Required pipeline could not be acquired");
 		EXPECT_EQ(RHI.GraphicsCreations, 0u);
 		auto Graphics = GDynamicRHI->RHICreateGraphicsPipelineState("startup graphics", {});
@@ -3651,7 +3666,7 @@ namespace Durin
 			"RecordedBeforeSync"}));
 	}
 
-	TEST(FRHICommandListTests, GraphicsPipelineValueStateIsCohesiveAndComparable)
+	TEST(FRHICommandListTests, GraphicsInitializersCompareImmutableFixedStateIdentities)
 	{
 		FGraphicsPipelineStateInitializer First;
 		FGraphicsPipelineStateInitializer Second;
@@ -3659,27 +3674,31 @@ namespace Durin
 		EXPECT_EQ(First.RasterizerState, Second.RasterizerState);
 		EXPECT_EQ(First.MultisampleState, Second.MultisampleState);
 		EXPECT_EQ(First.DepthStencilState, Second.DepthStencilState);
-		EXPECT_EQ(First.ColorBlendStates, Second.ColorBlendStates);
-		EXPECT_EQ(First.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
-		EXPECT_EQ(First.RasterizerState.CullMode, ERHICullMode::Back);
-		EXPECT_EQ(First.RasterizerState.FrontFace, ERHIFrontFace::Clockwise);
-		EXPECT_FALSE(First.DepthStencilState.bEnableTest);
-		EXPECT_FALSE(First.DepthStencilState.bEnableWrite);
-		EXPECT_EQ(First.DepthStencilState.CompareOp, ERHIDepthCompareOp::Less);
-		EXPECT_FALSE(First.ColorBlendStates[0].bEnable);
-		EXPECT_EQ(First.ColorBlendStates[0].ColorWriteMask,
+		EXPECT_EQ(First.BlendState, Second.BlendState);
+		EXPECT_EQ(First, Second);
+		EXPECT_EQ(First.RasterizerState->GetInitializer().PolygonMode, ERHIPolygonMode::Fill);
+		EXPECT_EQ(First.RasterizerState->GetInitializer().CullMode, ERHICullMode::Back);
+		EXPECT_EQ(First.RasterizerState->GetInitializer().FrontFace, ERHIFrontFace::Clockwise);
+		EXPECT_FALSE(First.DepthStencilState->GetInitializer().bEnableTest);
+		EXPECT_FALSE(First.DepthStencilState->GetInitializer().bEnableWrite);
+		EXPECT_EQ(First.DepthStencilState->GetInitializer().CompareOp, ERHIDepthCompareOp::Less);
+		EXPECT_FALSE(First.BlendState->GetInitializer()[0].bEnable);
+		EXPECT_EQ(First.BlendState->GetInitializer()[0].ColorWriteMask,
 			ERHIColorWriteMask::All);
 
-		Second.ColorBlendStates[0] = FRHIColorBlendState::StraightAlpha();
-		EXPECT_NE(First.ColorBlendStates, Second.ColorBlendStates);
-		EXPECT_TRUE(Second.ColorBlendStates[0].bEnable);
-		EXPECT_EQ(Second.ColorBlendStates[0].SrcColorFactor,
+		const FBlendStateInitializerRHI AlphaBlend{FRHIColorBlendState::StraightAlpha()};
+		Second.BlendState = RHICreateBlendState(AlphaBlend);
+		EXPECT_EQ(Second.BlendState, RHICreateBlendState(AlphaBlend));
+		EXPECT_NE(First, Second);
+		EXPECT_NE(First.BlendState->GetInitializer(), Second.BlendState->GetInitializer());
+		EXPECT_TRUE(Second.BlendState->GetInitializer()[0].bEnable);
+		EXPECT_EQ(Second.BlendState->GetInitializer()[0].SrcColorFactor,
 			ERHIBlendFactor::SrcAlpha);
-		EXPECT_EQ(Second.ColorBlendStates[0].DstColorFactor,
+		EXPECT_EQ(Second.BlendState->GetInitializer()[0].DstColorFactor,
 			ERHIBlendFactor::OneMinusSrcAlpha);
-		EXPECT_EQ(Second.ColorBlendStates[0].SrcAlphaFactor,
+		EXPECT_EQ(Second.BlendState->GetInitializer()[0].SrcAlphaFactor,
 			ERHIBlendFactor::One);
-		EXPECT_EQ(Second.ColorBlendStates[0].DstAlphaFactor,
+		EXPECT_EQ(Second.BlendState->GetInitializer()[0].DstAlphaFactor,
 			ERHIBlendFactor::OneMinusSrcAlpha);
 	}
 
@@ -3704,12 +3723,24 @@ namespace Durin
 		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 		ASSERT_TRUE(Initializer.IsValid());
 
-		Initializer.RasterizerState.CullMode = ERHICullMode::Count;
+		{
+			auto StateDesc = Initializer.RasterizerState->GetInitializer();
+			StateDesc.CullMode = ERHICullMode::Count;
+			Initializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		EXPECT_FALSE(Initializer.IsValid());
-		Initializer.RasterizerState.CullMode = ERHICullMode::None;
-		Initializer.ColorBlendStates[0].SrcColorFactor = ERHIBlendFactor::Count;
+		Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		{
+			auto StateDesc = Initializer.BlendState->GetInitializer();
+			StateDesc[0].SrcColorFactor = ERHIBlendFactor::Count;
+			Initializer.BlendState = Durin::RHICreateBlendState(StateDesc);
+		}
 		EXPECT_FALSE(Initializer.IsValid());
-		Initializer.ColorBlendStates[0].SrcColorFactor = ERHIBlendFactor::One;
+		{
+			auto StateDesc = Initializer.BlendState->GetInitializer();
+			StateDesc[0].SrcColorFactor = ERHIBlendFactor::One;
+			Initializer.BlendState = Durin::RHICreateBlendState(StateDesc);
+		}
 		Initializer.PrimitiveTopology =
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count;
 		EXPECT_FALSE(Initializer.IsValid());
@@ -3743,14 +3774,18 @@ namespace Durin
 			EXPECT_EQ(Key->VertexElements, First->VertexElements);
 			EXPECT_EQ(Key->ColorBlendStates, First->ColorBlendStates);
 		}
-		Initializer.RasterizerState.CullMode = ERHICullMode::None;
+		Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 		auto DifferentState = BuildGraphicsPipelineStateKey(Initializer, nullptr);
 		ASSERT_TRUE(DifferentState);
 		EXPECT_NE(*DifferentState, *First);
 		EXPECT_EQ(DifferentState->PipelineLayout, First->PipelineLayout);
 		EXPECT_EQ(DifferentState->VertexElements, First->VertexElements);
 		EXPECT_EQ(DifferentState->ColorBlendStates, First->ColorBlendStates);
-		Initializer.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
+		{
+			auto StateDesc = Initializer.BlendState->GetInitializer();
+			StateDesc[0].ColorWriteMask = ERHIColorWriteMask::Red;
+			Initializer.BlendState = Durin::RHICreateBlendState(StateDesc);
+		}
 		auto DifferentBlend = BuildGraphicsPipelineStateKey(Initializer, nullptr);
 		ASSERT_TRUE(DifferentBlend);
 		EXPECT_NE(DifferentBlend->ColorBlendStates, First->ColorBlendStates);
@@ -3791,9 +3826,17 @@ namespace Durin
 		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
 		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 		FGraphicsPipelineStateInitializer Second = First;
-		Second.RasterizerState.DepthBiasConstantFactor = 9.0f;
-		Second.ColorBlendStates[0].SrcColorFactor = ERHIBlendFactor::DstColor;
-		Second.ColorBlendStates[1] = FRHIColorBlendState::StraightAlpha();
+		{
+			auto StateDesc = Second.RasterizerState->GetInitializer();
+			StateDesc.DepthBiasConstantFactor = 9.0f;
+			Second.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
+		{
+			auto StateDesc = Second.BlendState->GetInitializer();
+			StateDesc[0].SrcColorFactor = ERHIBlendFactor::DstColor;
+			StateDesc[1] = FRHIColorBlendState::StraightAlpha();
+			Second.BlendState = Durin::RHICreateBlendState(StateDesc);
+		}
 		Second.RenderTargetLayout.ColorAttachments[1].RenderTarget.Format =
 			EPixelFormat::BGRA8_UNORM;
 
@@ -3805,7 +3848,11 @@ namespace Durin
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(*FirstKey),
 			FGraphicsPipelineStateKeyHasher{}(*SecondKey));
 
-		Second.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
+		{
+			auto StateDesc = Second.BlendState->GetInitializer();
+			StateDesc[0].ColorWriteMask = ERHIColorWriteMask::Red;
+			Second.BlendState = Durin::RHICreateBlendState(StateDesc);
+		}
 		ASSERT_TRUE((SecondKey = BuildGraphicsPipelineStateKey(Second, nullptr))) << ToString(SecondKey.error());
 		EXPECT_NE(*FirstKey, *SecondKey);
 	}
@@ -3903,14 +3950,22 @@ namespace Durin
 		Attachment.Format = EPixelFormat::RGBA8_UNORM;
 		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
 		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
-		Positive.RasterizerState.bEnableDepthBias = true;
-		Positive.RasterizerState.DepthBiasConstantFactor = 0.0f;
-		Positive.RasterizerState.DepthBiasClamp = 0.0f;
-		Positive.RasterizerState.DepthBiasSlopeFactor = 0.0f;
+		{
+			auto StateDesc = Positive.RasterizerState->GetInitializer();
+			StateDesc.bEnableDepthBias = true;
+			StateDesc.DepthBiasConstantFactor = 0.0f;
+			StateDesc.DepthBiasClamp = 0.0f;
+			StateDesc.DepthBiasSlopeFactor = 0.0f;
+			Positive.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		FGraphicsPipelineStateInitializer Negative = Positive;
-		Negative.RasterizerState.DepthBiasConstantFactor = -0.0f;
-		Negative.RasterizerState.DepthBiasClamp = -0.0f;
-		Negative.RasterizerState.DepthBiasSlopeFactor = -0.0f;
+		{
+			auto StateDesc = Negative.RasterizerState->GetInitializer();
+			StateDesc.DepthBiasConstantFactor = -0.0f;
+			StateDesc.DepthBiasClamp = -0.0f;
+			StateDesc.DepthBiasSlopeFactor = -0.0f;
+			Negative.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 
 		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> PositiveKey;
 		std::expected<FGraphicsPipelineStateKey, ERHIGraphicsPipelineError> NegativeKey;
@@ -3922,7 +3977,11 @@ namespace Durin
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(*PositiveKey),
 			FGraphicsPipelineStateKeyHasher{}(*NegativeKey));
 
-		Negative.RasterizerState.DepthBiasSlopeFactor = -1.0f;
+		{
+			auto StateDesc = Negative.RasterizerState->GetInitializer();
+			StateDesc.DepthBiasSlopeFactor = -1.0f;
+			Negative.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+		}
 		ASSERT_TRUE((NegativeKey = BuildGraphicsPipelineStateKey(Negative, nullptr))) << ToString(NegativeKey.error());
 		EXPECT_EQ(*PositiveKey, *NegativeKey);
 		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(*PositiveKey),

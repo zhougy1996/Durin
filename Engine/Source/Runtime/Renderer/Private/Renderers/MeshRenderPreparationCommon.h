@@ -69,8 +69,8 @@ namespace Durin
 	struct FEffectiveMeshPipelineKey
 	{
 		FMaterialPlanningPassIdentity Material;
-		FRHIRasterizerState Rasterizer;
-		FRHIDepthStencilState Depth;
+		FRasterizerStateInitializerRHI Rasterizer;
+		FDepthStencilStateInitializerRHI Depth;
 		FRHIColorBlendState ColorBlend;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		FXxHash64 FactoryKey;

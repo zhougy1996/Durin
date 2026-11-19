@@ -122,6 +122,7 @@ namespace Durin
 		if (!Device || !Initializer.BoundShaders.VertexShader
 			|| !Initializer.BoundShaders.FragmentShader
 			|| !Initializer.VertexDeclaration
+			|| !Initializer.RasterizerState || !Initializer.DepthStencilState || !Initializer.BlendState
 			|| (Initializer.PrimitiveTopology != FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList
 				&& Initializer.PrimitiveTopology != FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList)
 			|| Initializer.RenderTargetLayout.NumColorRenderTargets > 4
@@ -131,12 +132,12 @@ namespace Durin
 				&& Initializer.RenderTargetLayout.DepthStencilAttachment.Format
 					   != EPixelFormat::D32)
 			|| Initializer.MultisampleState != FRHIMultisampleState{}
-			|| Initializer.DepthStencilState.bEnableStencil
+			|| Initializer.DepthStencilState->GetInitializer().bEnableStencil
 			|| (!Initializer.RenderTargetLayout.bHasDepthStencil
-				&& Initializer.DepthStencilState != FRHIDepthStencilState{})
-			|| Initializer.RasterizerState.PolygonMode != ERHIPolygonMode::Fill
-			|| Initializer.RasterizerState.bEnableDepthClamp
-			|| Initializer.RasterizerState.LineWidth != 1.0f)
+				&& Initializer.DepthStencilState->GetInitializer() != FDepthStencilStateInitializerRHI{})
+			|| Initializer.RasterizerState->GetInitializer().PolygonMode != ERHIPolygonMode::Fill
+			|| Initializer.RasterizerState->GetInitializer().bEnableDepthClamp
+			|| Initializer.RasterizerState->GetInitializer().LineWidth != 1.0f)
 			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto Key = BuildGraphicsPipelineStateKey(Initializer, nullptr);
 		if (!Key || !IsMetalShaderTarget(Key->Target)) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
@@ -169,7 +170,7 @@ namespace Durin
 			if (!IsMetalColorRenderFormat(Format))
 				RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 			Desc->colorAttachments()->object(Index)->setPixelFormat(ToMetalPixelFormat(Format));
-			const auto& Blend = Initializer.ColorBlendStates[Index];
+			const auto& Blend = Initializer.BlendState->GetInitializer()[Index];
 			auto* NativeBlend = Desc->colorAttachments()->object(Index);
 			NativeBlend->setBlendingEnabled(Blend.bEnable);
 			MTL::ColorWriteMask WriteMask = MTL::ColorWriteMaskNone;
@@ -227,16 +228,16 @@ namespace Durin
 			if (IsMetalPipelineCompilationFailure(Error)) return nullptr;
 			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
-		const auto Compare = ToMetalDepthCompare(Initializer.DepthStencilState.CompareOp);
+		const auto Compare = ToMetalDepthCompare(Initializer.DepthStencilState->GetInitializer().CompareOp);
 		if (!Compare) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		auto DepthDesc = NS::TransferPtr(MTL::DepthStencilDescriptor::alloc()->init());
 		// Metal validation requires an explicit disabled state for color-only passes.
-		DepthDesc->setDepthCompareFunction(Initializer.RenderTargetLayout.bHasDepthStencil && Initializer.DepthStencilState.bEnableTest ? *Compare : MTL::CompareFunctionAlways);
-		DepthDesc->setDepthWriteEnabled(Initializer.RenderTargetLayout.bHasDepthStencil && Initializer.DepthStencilState.bEnableWrite);
+		DepthDesc->setDepthCompareFunction(Initializer.RenderTargetLayout.bHasDepthStencil && Initializer.DepthStencilState->GetInitializer().bEnableTest ? *Compare : MTL::CompareFunctionAlways);
+		DepthDesc->setDepthWriteEnabled(Initializer.RenderTargetLayout.bHasDepthStencil && Initializer.DepthStencilState->GetInitializer().bEnableWrite);
 		auto DepthStencil = NS::TransferPtr(Device->newDepthStencilState(DepthDesc.get()));
 		if (!DepthStencil) RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		GraphicsPipelinesCreated.fetch_add(1, std::memory_order_relaxed);
-		return new FMetalGraphicsPipelineState(Vertex, Fragment, Initializer.VertexDeclaration, std::move(Pipeline), Initializer.RenderTargetLayout, Initializer.RasterizerState, bLineList ? MTL::PrimitiveTypeLine : MTL::PrimitiveTypeTriangle, std::move(Key->PipelineLayout), std::move(DepthStencil), std::move(Bindings));
+		return new FMetalGraphicsPipelineState(Vertex, Fragment, Initializer.VertexDeclaration, std::move(Pipeline), Initializer.RenderTargetLayout, Initializer.RasterizerState->GetInitializer(), bLineList ? MTL::PrimitiveTypeLine : MTL::PrimitiveTypeTriangle, std::move(Key->PipelineLayout), std::move(DepthStencil), std::move(Bindings));
 	}
 
 	auto CreateMetalComputePipeline(MTL::Device* Device, const FComputePipelineStateInitializer& Initializer) noexcept -> TRefCountPtr<FRHIComputePipelineState>

@@ -152,7 +152,7 @@ TEST(FMaterialSceneTextureVulkanTests, SourceFreeInputsOwnRDGLifetimesAcrossFilt
 			const auto Vertex=MakeShader(VertexCode), Fragment=MakeShader(PixelCode); ASSERT_TRUE(Vertex); ASSERT_TRUE(Fragment);
 			FGraphicsPipelineStateInitializer Init; Init.BoundShaders={Vertex,Fragment};
 			Init.VertexDeclaration=Geometry.GetVertexDeclaration_RenderThread();
-			Init.RasterizerState.CullMode=ERHICullMode::None;
+			Init.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 			Init.RenderTargetLayout.NumColorRenderTargets=1;
 			Init.RenderTargetLayout.ColorAttachments[0].RenderTarget=MakeRDGAttachmentLayout(EPixelFormat::RGBA16_FLOAT,ERHIAccess::ColorAttachmentReadWrite,ERHIRenderTargetLoadAction::DontCare);
 			const std::array Codes{VertexCode,PixelCode}; ASSERT_TRUE(BuildPipelineLayoutFromShaders(Codes,Init.PipelineLayout));

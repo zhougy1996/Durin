@@ -456,8 +456,7 @@ float4 FragmentMain() : SV_Target
 								Candidate.FragmentShader.GetRHIShader();
 							Initializer.VertexDeclaration =
 								Candidate.VertexDeclaration;
-							Initializer.RasterizerState.CullMode =
-								ERHICullMode::None;
+							Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 							Initializer.PipelineLayout =
 								Candidate.ShaderMap
 									->GetMergedPipelineLayout();
@@ -709,7 +708,7 @@ float4 FragmentMain() : SV_Target
 			PreparedPipeline.RenderTargetLayout = MakeReloadRenderTargetLayout();
 			PreparedPipeline.BoundShaders = {Forced->Payload->VertexShader.GetRHIShader(), Forced->Payload->FragmentShader.GetRHIShader()};
 			PreparedPipeline.VertexDeclaration = Forced->Payload->VertexDeclaration;
-			PreparedPipeline.RasterizerState.CullMode = ERHICullMode::None;
+			PreparedPipeline.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 			PreparedPipeline.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
 			PrewarmRequest = PipelineStateCache::PrecacheGraphicsPipelineState(PreparedPipeline, "AsyncReloadPrewarm");
 		});

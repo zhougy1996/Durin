@@ -309,7 +309,7 @@ namespace Durin::RendererPrivate
 			Commands.BindIndexBuffer(IndexBuffer, IndexBufferOffset);
 			Cache.IndexBuffer = IndexBuffer; Cache.IndexBufferOffset = IndexBufferOffset;
 		}
-		if (Initializer->RasterizerState.bEnableDepthBias && Cache.DepthBias != Bias)
+		if (Initializer->RasterizerState->GetInitializer().bEnableDepthBias && Cache.DepthBias != Bias)
 		{ Commands.SetDepthBias(Bias[0], Bias[2], Bias[1]); Cache.DepthBias = Bias; }
 		const auto& Geometry = *this;
 		const auto ArgsBuffer = SceneArgs.IndirectArgsBuffer ? SceneArgs.IndirectArgsBuffer : IndirectArgs;

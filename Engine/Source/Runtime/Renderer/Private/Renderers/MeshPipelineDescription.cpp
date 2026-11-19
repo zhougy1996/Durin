@@ -52,9 +52,9 @@ namespace Durin::RendererPrivate
 		Result.PipelineLayout = Layout;
 		Result.RenderTargetLayout = RenderTargets;
 		Result.PrimitiveTopology = Topology;
-		Result.RasterizerState = Rasterizer;
-		Result.DepthStencilState = Depth;
-		Result.ColorBlendStates = ColorBlends;
+		Result.RasterizerState = RHICreateRasterizerState(Rasterizer);
+		Result.DepthStencilState = RHICreateDepthStencilState(Depth);
+		Result.BlendState = RHICreateBlendState(ColorBlends);
 		return Result;
 	}
 }

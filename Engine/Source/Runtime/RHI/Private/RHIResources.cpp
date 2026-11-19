@@ -379,10 +379,26 @@ namespace Durin
 		return RHIShaderParameterValidationInternal::ValidateOrderedBindings(Layout, Resources);
 	}
 
+	static auto HasUniqueBindingSlots(const FBindingLayout& Set) -> bool
+	{
+		const auto& Items = Set.BindingLayouts;
+		for (size_t Index = 1; Index < Items.size(); ++Index)
+		{
+			if (Items[Index - 1].Slot < Items[Index].Slot) continue;
+			std::unordered_set<uint32> Slots;
+			for (const auto& Item : Items)
+				if (!Slots.insert(Item.Slot).second) return false;
+			break;
+		}
+		return true;
+	}
+
 	static auto ValidateGraphicsPipelineInitializer(
 		const FGraphicsPipelineStateInitializer& Initializer,
 		const FRHICapabilities* Capabilities) -> std::expected<void, ERHIGraphicsPipelineError>
 	{
+		if (!Initializer.RasterizerState || !Initializer.DepthStencilState || !Initializer.BlendState)
+			return std::unexpected(ERHIGraphicsPipelineError::InvalidFixedState);
 		const auto IsCompareValid = [](ERHIDepthCompareOp Op) {
 			return Op < ERHIDepthCompareOp::Count;
 		};
@@ -403,21 +419,21 @@ namespace Durin
 				&& (Mask & ~static_cast<uint8>(ERHIColorWriteMask::All)) == 0;
 		};
 
-		if (Initializer.RasterizerState.PolygonMode >= ERHIPolygonMode::Count
-			|| Initializer.RasterizerState.CullMode >= ERHICullMode::Count
-			|| Initializer.RasterizerState.FrontFace >= ERHIFrontFace::Count
-			|| !std::isfinite(Initializer.RasterizerState.DepthBiasConstantFactor)
-			|| !std::isfinite(Initializer.RasterizerState.DepthBiasClamp)
-			|| !std::isfinite(Initializer.RasterizerState.DepthBiasSlopeFactor)
-			|| !std::isfinite(Initializer.RasterizerState.LineWidth)
-			|| Initializer.RasterizerState.LineWidth <= 0.0f
+		if (Initializer.RasterizerState->GetInitializer().PolygonMode >= ERHIPolygonMode::Count
+			|| Initializer.RasterizerState->GetInitializer().CullMode >= ERHICullMode::Count
+			|| Initializer.RasterizerState->GetInitializer().FrontFace >= ERHIFrontFace::Count
+			|| !std::isfinite(Initializer.RasterizerState->GetInitializer().DepthBiasConstantFactor)
+			|| !std::isfinite(Initializer.RasterizerState->GetInitializer().DepthBiasClamp)
+			|| !std::isfinite(Initializer.RasterizerState->GetInitializer().DepthBiasSlopeFactor)
+			|| !std::isfinite(Initializer.RasterizerState->GetInitializer().LineWidth)
+			|| Initializer.RasterizerState->GetInitializer().LineWidth <= 0.0f
 			|| Initializer.PrimitiveTopology >= FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count
 			|| !IsValidSampleCount(Initializer.MultisampleState.RasterSamples)
-			|| !IsCompareValid(Initializer.DepthStencilState.CompareOp)
-			|| !IsStencilFaceValid(Initializer.DepthStencilState.FrontFace)
-			|| !IsStencilFaceValid(Initializer.DepthStencilState.BackFace))
+			|| !IsCompareValid(Initializer.DepthStencilState->GetInitializer().CompareOp)
+			|| !IsStencilFaceValid(Initializer.DepthStencilState->GetInitializer().FrontFace)
+			|| !IsStencilFaceValid(Initializer.DepthStencilState->GetInitializer().BackFace))
 			return std::unexpected(ERHIGraphicsPipelineError::InvalidFixedState);
-		for (const FRHIColorBlendState& Blend : Initializer.ColorBlendStates)
+		for (const FRHIColorBlendState& Blend : Initializer.BlendState->GetInitializer())
 			if (!IsBlendValid(Blend))
 				return std::unexpected(ERHIGraphicsPipelineError::InvalidBlendState);
 
@@ -436,7 +452,8 @@ namespace Durin
 			return std::unexpected(ERHIGraphicsPipelineError::ShaderTargetMismatch);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
-			std::unordered_set<uint32> Slots;
+			if (!HasUniqueBindingSlots(Set))
+				return std::unexpected(ERHIGraphicsPipelineError::InvalidReflectedLayout);
 			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
 			{
 				const auto KnownStages = EShaderStageFlags::Vertex | EShaderStageFlags::Fragment;
@@ -444,7 +461,7 @@ namespace Durin
 					|| (static_cast<uint32>(Binding.StageFlags)
 						& ~static_cast<uint32>(KnownStages)) != 0
 					|| Binding.Type > ERHIBindingType::StorageImage
-					|| Binding.ArraySize == 0 || !Slots.insert(Binding.Slot).second)
+					|| Binding.ArraySize == 0)
 					return std::unexpected(ERHIGraphicsPipelineError::InvalidReflectedLayout);
 			}
 		}
@@ -465,12 +482,12 @@ namespace Durin
 			: Initializer.RenderTargetLayout.DepthStencilAttachment.NumSamples;
 		if (Initializer.MultisampleState.RasterSamples != RasterSamples)
 			return std::unexpected(ERHIGraphicsPipelineError::SampleCountMismatch);
-		if ((Initializer.DepthStencilState.bEnableTest
-			|| Initializer.DepthStencilState.bEnableWrite
-			|| Initializer.DepthStencilState.bEnableStencil)
+		if ((Initializer.DepthStencilState->GetInitializer().bEnableTest
+			|| Initializer.DepthStencilState->GetInitializer().bEnableWrite
+			|| Initializer.DepthStencilState->GetInitializer().bEnableStencil)
 			&& !Initializer.RenderTargetLayout.bHasDepthStencil)
 			return std::unexpected(ERHIGraphicsPipelineError::MissingDepthAttachment);
-		if (Initializer.DepthStencilState.bEnableStencil
+		if (Initializer.DepthStencilState->GetInitializer().bEnableStencil
 			&& !GetPixelFormatInfo(Initializer.RenderTargetLayout.DepthStencilAttachment.Format).bHasStencil)
 			return std::unexpected(ERHIGraphicsPipelineError::MissingStencilAttachment);
 
@@ -488,13 +505,13 @@ namespace Durin
 				|| (Initializer.RenderTargetLayout.bHasDepthStencil
 					&& !EnumHasAllFlags(Capabilities->DepthSampleCounts, SampleFlag)))
 				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedSampleCount);
-			if (Initializer.RasterizerState.PolygonMode != ERHIPolygonMode::Fill
+			if (Initializer.RasterizerState->GetInitializer().PolygonMode != ERHIPolygonMode::Fill
 				&& !Capabilities->bSupportsNonSolidFill)
 				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedFillMode);
-			if (Initializer.RasterizerState.bEnableDepthClamp
+			if (Initializer.RasterizerState->GetInitializer().bEnableDepthClamp
 				&& !Capabilities->bSupportsDepthClamp)
 				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedDepthClamp);
-			if (Initializer.RasterizerState.LineWidth != 1.0f
+			if (Initializer.RasterizerState->GetInitializer().LineWidth != 1.0f
 				&& !Capabilities->bSupportsWideLines)
 				return std::unexpected(ERHIGraphicsPipelineError::UnsupportedWideLines);
 		}
@@ -519,7 +536,7 @@ namespace Durin
 		// Weak indexes retain no description data. Equality checks resolve hash
 		// collisions; live keys retain the canonical object and its accounting lease.
 		template<typename T>
-		auto SharePipelineDescription(T Value, uint64 Bytes, uint64 Hash)
+		auto SharePipelineDescription(const T& Value, uint64 Bytes, uint64 Hash)
 			-> std::shared_ptr<const T>
 		{
 			struct FPool
@@ -536,7 +553,7 @@ namespace Durin
 			std::erase_if(Pool.Entries, [](const auto& Entry) { return Entry.second.expired(); });
 			struct FOwner { T Value; std::shared_ptr<void> Metadata; };
 			auto Lease = SharedDescriptionMetadata().Reserve(Bytes + sizeof(FOwner) + 128);
-			auto Owner = std::make_shared<FOwner>(std::move(Value), std::move(Lease));
+			auto Owner = std::make_shared<FOwner>(Value, std::move(Lease));
 			std::shared_ptr<const T> Result(Owner, &Owner->Value);
 			Pool.Entries.emplace(Hash, Result);
 			return Result;
@@ -594,29 +611,37 @@ namespace Durin
 			}
 		}
 
-		auto SharePipelineLayout(FPipelineLayoutDesc Value) -> std::shared_ptr<const FPipelineLayoutDesc>
+		auto SharePipelineLayout(const FPipelineLayoutDesc& Input) -> std::shared_ptr<const FPipelineLayoutDesc>
 		{
-			for (auto& Set : Value.BindingLayouts)
-				std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
-			std::ranges::sort(Value.PushConstantRanges, [](const auto& A, const auto& B) {
+			const auto RangeLess = [](const auto& A, const auto& B) {
 				return std::tie(A.Offset, A.Size, A.StageFlags) < std::tie(B.Offset, B.Size, B.StageFlags);
-			});
-			uint64 Bytes = Value.BindingLayouts.capacity() * sizeof(FBindingLayout)
-				+ Value.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
+			};
+			std::optional<FPipelineLayoutDesc> Sorted;
+			if (!std::ranges::is_sorted(Input.PushConstantRanges, RangeLess)
+				|| std::ranges::any_of(Input.BindingLayouts, [](const FBindingLayout& Set) {
+					return !std::ranges::is_sorted(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
+				}))
+			{
+				Sorted.emplace(Input);
+				for (auto& Set : Sorted->BindingLayouts)
+					std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
+				std::ranges::sort(Sorted->PushConstantRanges, RangeLess);
+			}
+			const auto& Value = Sorted ? *Sorted : Input;
+			uint64 Bytes = Value.BindingLayouts.size() * sizeof(FBindingLayout)
+				+ Value.PushConstantRanges.size() * sizeof(FPushConstantRange);
 			for (const auto& Set : Value.BindingLayouts)
-				Bytes += Set.BindingLayouts.capacity() * sizeof(FBindingLayoutItem);
+				Bytes += Set.BindingLayouts.size() * sizeof(FBindingLayoutItem);
 			FXxHash64Builder Builder;
 			HashPipelineLayout(Builder, Value);
-			return SharePipelineDescription(std::move(Value), Bytes, Builder.Finalize().HashValue);
+			return SharePipelineDescription(Value, Bytes, Builder.Finalize().HashValue);
 		}
 	}
 
 	auto ValidateVertexDeclarationElements(const FVertexDeclarationElementList& Elements)
 		-> std::expected<void, ERHIGraphicsPipelineError>
 	{
-		std::unordered_set<uint32> Attributes;
-		std::unordered_map<uint8, std::pair<uint16,
-			FRHIVertexElementIdentity::EInputRate>> Streams;
+		std::array<bool, 256> Attributes{};
 		for (const FVertexElement& Element : Elements)
 		{
 			if (Element.Type == EVertexElementType::None) break;
@@ -625,18 +650,17 @@ namespace Durin
 				|| Element.InputRate >= FRHIVertexElementIdentity::EInputRate::Count
 				|| ElementSize == 0
 				|| static_cast<uint32>(Element.Offset) + ElementSize > Element.Stride
-				|| !Attributes.insert(Element.AttributeIndex).second)
+				|| Attributes[Element.AttributeIndex])
 				return std::unexpected(ERHIGraphicsPipelineError::InvalidVertexDeclaration);
-			const auto [StreamIt, bInserted] = Streams.emplace(Element.StreamIndex,
-				std::pair{Element.Stride, Element.InputRate});
-			if (!bInserted && StreamIt->second != std::pair{Element.Stride, Element.InputRate})
-				return std::unexpected(ERHIGraphicsPipelineError::InconsistentVertexStream);
+			Attributes[Element.AttributeIndex] = true;
 			for (const FVertexElement& Existing : Elements)
 			{
 				if (&Existing == &Element) break;
+				if (Existing.StreamIndex != Element.StreamIndex) continue;
+				if (Existing.Stride != Element.Stride || Existing.InputRate != Element.InputRate)
+					return std::unexpected(ERHIGraphicsPipelineError::InconsistentVertexStream);
 				const uint32 ExistingSize = GetVertexElementSize(Existing.Type);
-				if (Existing.StreamIndex == Element.StreamIndex
-					&& Element.Offset < Existing.Offset + ExistingSize
+				if (Element.Offset < Existing.Offset + ExistingSize
 					&& Existing.Offset < Element.Offset + ElementSize)
 					return std::unexpected(ERHIGraphicsPipelineError::OverlappingVertexElements);
 			}
@@ -687,10 +711,10 @@ namespace Durin
 			}
 			FXxHash64Builder VertexHash;
 			HashVertexElements(VertexHash, VertexElements);
-			const auto VertexBytes = VertexElements.capacity() * sizeof(FRHIVertexElementIdentity);
-			Key.VertexElements = SharePipelineDescription(std::move(VertexElements), VertexBytes, VertexHash.Finalize().HashValue);
+			const auto VertexBytes = VertexElements.size() * sizeof(FRHIVertexElementIdentity);
+			Key.VertexElements = SharePipelineDescription(VertexElements, VertexBytes, VertexHash.Finalize().HashValue);
 			Key.PipelineLayout = SharePipelineLayout(Initializer.PipelineLayout);
-			Key.RasterizerState = Initializer.RasterizerState;
+			Key.RasterizerState = Initializer.RasterizerState->GetInitializer();
 			// Depth-bias values are dynamic draw state. Only whether the pipeline
 			// enables depth bias remains structural pipeline identity.
 			Key.RasterizerState.DepthBiasConstantFactor = 0.0f;
@@ -701,7 +725,7 @@ namespace Durin
 			Key.RasterizerState.LineWidth = CanonicalizeNumericFloat(
 				Key.RasterizerState.LineWidth);
 			Key.MultisampleState = Initializer.MultisampleState;
-			Key.DepthStencilState = Initializer.DepthStencilState;
+			Key.DepthStencilState = Initializer.DepthStencilState->GetInitializer();
 			if (!Key.DepthStencilState.bEnableTest)
 				Key.DepthStencilState.CompareOp = ERHIDepthCompareOp::Less;
 			if (!Key.DepthStencilState.bEnableStencil)
@@ -713,8 +737,8 @@ namespace Durin
 				Key.DepthStencilState.StencilReference = 0;
 			}
 			std::vector<FRHIColorBlendState> ColorBlendStates;
-			ColorBlendStates.assign(Initializer.ColorBlendStates.begin(),
-				Initializer.ColorBlendStates.begin()
+			ColorBlendStates.assign(Initializer.BlendState->GetInitializer().begin(),
+				Initializer.BlendState->GetInitializer().begin()
 					+ Initializer.RenderTargetLayout.NumColorRenderTargets);
 			for (FRHIColorBlendState& Blend : ColorBlendStates)
 				if (!Blend.bEnable)
@@ -725,8 +749,8 @@ namespace Durin
 				}
 			FXxHash64Builder BlendHash;
 			HashColorBlendStates(BlendHash, ColorBlendStates);
-			const auto BlendBytes = ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
-			Key.ColorBlendStates = SharePipelineDescription(std::move(ColorBlendStates), BlendBytes, BlendHash.Finalize().HashValue);
+			const auto BlendBytes = ColorBlendStates.size() * sizeof(FRHIColorBlendState);
+			Key.ColorBlendStates = SharePipelineDescription(ColorBlendStates, BlendBytes, BlendHash.Finalize().HashValue);
 			Key.PrimitiveTopology = Initializer.PrimitiveTopology;
 			return Key;
 		}
@@ -805,13 +829,13 @@ namespace Durin
 			return std::unexpected(ERHIComputePipelineError::ShaderTargetMismatch);
 		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
 		{
-			std::unordered_set<uint32> Slots;
+			if (!HasUniqueBindingSlots(Set))
+				return std::unexpected(ERHIComputePipelineError::InvalidReflectedLayout);
 			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
 			{
 				if (Binding.StageFlags != EShaderStageFlags::Compute
 					|| Binding.Type > ERHIBindingType::StorageImage
-					|| Binding.ArraySize == 0
-					|| !Slots.insert(Binding.Slot).second)
+					|| Binding.ArraySize == 0)
 					return std::unexpected(ERHIComputePipelineError::InvalidReflectedLayout);
 			}
 		}

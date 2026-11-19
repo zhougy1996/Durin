@@ -885,7 +885,7 @@ TEST(FMetalRHIComputeTests, StorageWriteThenSampleUsesNativeTextureAndSamplerVie
 					DrawFragment.GetReference()};
 				DrawInitializer.VertexDeclaration = Declaration.GetReference();
 				DrawInitializer.RenderTargetLayout = Pass.RenderTargetLayout;
-				DrawInitializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
+				DrawInitializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = Durin::ERHICullMode::None});
 				DrawInitializer.PipelineLayout.BindingLayouts.resize(1);
 				DrawInitializer.PipelineLayout.BindingLayouts[0].BindingLayouts.emplace_back(
 					Durin::EShaderStageFlags::Fragment, 0,
@@ -2004,11 +2004,19 @@ TEST(FMetalRHITextureTests, DepthArrayLayersDrawIndependentlyInBothExecutionMode
 					Durin::FGraphicsPipelineStateInitializer Initializer;
 					Initializer.VertexDeclaration = Declaration.GetReference();
 					Initializer.RenderTargetLayout = Pass.RenderTargetLayout;
-					Initializer.RasterizerState.CullMode = Durin::ERHICullMode::None;
-					Initializer.RasterizerState.bEnableDepthBias = true;
-					Initializer.DepthStencilState.bEnableTest = true;
-					Initializer.DepthStencilState.bEnableWrite = true;
-					Initializer.DepthStencilState.CompareOp = Durin::ERHIDepthCompareOp::Less;
+					{
+						auto StateDesc = Initializer.RasterizerState->GetInitializer();
+						StateDesc.CullMode = Durin::ERHICullMode::None;
+						StateDesc.bEnableDepthBias = true;
+						Initializer.RasterizerState = Durin::RHICreateRasterizerState(StateDesc);
+					}
+					{
+						auto StateDesc = Initializer.DepthStencilState->GetInitializer();
+						StateDesc.bEnableTest = true;
+						StateDesc.bEnableWrite = true;
+						StateDesc.CompareOp = Durin::ERHIDepthCompareOp::Less;
+						Initializer.DepthStencilState = Durin::RHICreateDepthStencilState(StateDesc);
+					}
 					Initializer.BoundShaders = {Vertex.GetReference(), Fragment.GetReference()};
 					auto Pipeline = Durin::GDynamicRHI->RHICreateGraphicsPipelineState(
 						"MetalLayeredDepthOnly", Initializer);

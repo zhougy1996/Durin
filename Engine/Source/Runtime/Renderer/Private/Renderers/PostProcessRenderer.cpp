@@ -131,7 +131,7 @@ namespace Durin
 			Initializer.BoundShaders.VertexShader = VertexShader;
 			Initializer.BoundShaders.FragmentShader = FragmentShader;
 			Initializer.VertexDeclaration = VertexDeclaration;
-			Initializer.RasterizerState.CullMode = ERHICullMode::None;
+			Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 			Initializer.PipelineLayout = PipelineLayout;
 			return Initializer;
 		}

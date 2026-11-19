@@ -739,8 +739,6 @@ namespace
         };
         const auto Declaration = MakeRefCount<FDeclaration>();
         Description.VertexDeclaration = Declaration;
-        Description.DepthStencilState.bEnableTest = false;
-        Description.DepthStencilState.bEnableWrite = false;
         Description.RenderTargetLayout.NumColorRenderTargets = 1;
         Description.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
         auto Key = BuildGraphicsPipelineStateKey(Description, &Capabilities);

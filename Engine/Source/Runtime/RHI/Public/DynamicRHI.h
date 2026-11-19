@@ -292,6 +292,9 @@ namespace Durin
 		RHI_API virtual auto RHIUpdateTextureReference(
 			FRHITextureReference* TextureReference,
 			FRHITexture* NewTexture) -> void;
+		RHI_API virtual auto RHICreateBlendState(const FBlendStateInitializerRHI& Initializer) -> FBlendStateRHIRef;
+		RHI_API virtual auto RHICreateRasterizerState(const FRasterizerStateInitializerRHI& Initializer) -> FRasterizerStateRHIRef;
+		RHI_API virtual auto RHICreateDepthStencilState(const FDepthStencilStateInitializerRHI& Initializer) -> FDepthStencilStateRHIRef;
 		virtual auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) noexcept -> TRefCountPtr<FRHISampler> = 0;
 		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) noexcept -> TRefCountPtr<FRHIShader> = 0;
 		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) noexcept -> FBufferRHIRef = 0;

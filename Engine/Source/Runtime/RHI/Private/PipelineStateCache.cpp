@@ -24,16 +24,24 @@ namespace Durin
 
 	struct FRHIPipelineStateCache::FState
 	{
-		using FKey = std::variant<FGraphicsPipelineStateKey, FComputePipelineStateKey>;
-		struct FKeyHash
+		struct FGraphicsHash
 		{
-			auto operator()(const FKey& Key) const -> size_t
+			auto operator()(const FGraphicsPipelineStateInitializer& Init) const -> size_t
 			{
-				return std::visit([](const auto& Value) -> size_t {
-					if constexpr (std::same_as<std::decay_t<decltype(Value)>, FGraphicsPipelineStateKey>)
-						return FGraphicsPipelineStateKeyHasher{}(Value);
-					else return FComputePipelineStateKeyHasher{}(Value);
-				}, Key) ^ Key.index();
+				// Shader and declaration identities select the bucket. Equality resolves
+				// fixed state and attachment variants of the same shader combination.
+				size_t Hash = std::hash<FRHIShader*>{}(Init.BoundShaders.VertexShader);
+				const auto Combine = [&](size_t Value) {
+					Hash ^= Value + 0x9e3779b97f4a7c15ull + (Hash << 6) + (Hash >> 2);
+				};
+				Combine(std::hash<FRHIShader*>{}(Init.BoundShaders.FragmentShader));
+				Combine(std::hash<FRHIVertexDeclaration*>{}(Init.VertexDeclaration));
+				Combine(std::hash<const void*>{}(Init.RasterizerState.get()));
+				Combine(std::hash<const void*>{}(Init.DepthStencilState.get()));
+				Combine(std::hash<const void*>{}(Init.BlendState.get()));
+				Combine(static_cast<size_t>(Init.PrimitiveTopology));
+				Combine(static_cast<size_t>(Init.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format));
+				return Hash;
 			}
 		};
 		struct FEntry
@@ -41,8 +49,25 @@ namespace Durin
 			std::weak_ptr<FPipelineState> Pipeline;
 			std::shared_ptr<void> Metadata;
 		};
+		struct FGraphicsEntry : FEntry
+		{
+			// Keep pointer identities valid for the lifetime of the map key.
+			FShaderRHIRef VertexShader, FragmentShader;
+			FVertexDeclarationRHIRef Declaration;
+		};
 		FState(const FRHICapabilities& InCapabilities, FRHIPipelineCompileBackend Backend)
 			: Capabilities(InCapabilities), Queue(InCapabilities, std::move(Backend)) {}
+
+		template<typename TPipeline, typename TMap, typename TKey>
+		static auto Find(TMap& Entries, const TKey& Key) -> std::shared_ptr<TPipeline>
+		{
+			auto It = Entries.find(Key);
+			if (It == Entries.end()) return {};
+			if (auto Pipeline = It->second.Pipeline.lock(); Pipeline && Pipeline->GetState() != ERHIPipelineState::Canceled)
+				return std::static_pointer_cast<TPipeline>(std::move(Pipeline));
+			Entries.erase(It);
+			return {};
+		}
 
 		template<typename T, typename TKeyFactory>
 		auto Get(const T& Initializer, std::string_view Name, TKeyFactory&& MakeKey)
@@ -54,41 +79,41 @@ namespace Durin
 			const auto Now = std::chrono::steady_clock::now();
 			if (Now - LastPrune >= std::chrono::seconds(60))
 			{
-				std::erase_if(Entries, [](const auto& Entry) { return Entry.second.Pipeline.expired(); });
+				const auto Expired = [](const auto& Entry) { return Entry.second.Pipeline.expired(); };
+				std::erase_if(GraphicsEntries, Expired);
+				std::erase_if(ComputeEntries, Expired);
 				LastPrune = Now;
 			}
 			if (Closed || Queue.IsClosed()) return TResult{};
 			try
 			{
-				auto Valid = MakeKey();
-				if (!Valid)
-				{
-					return TResult{};
-				}
-				FKey Key(std::move(*Valid));
-				if (auto Existing = Entries.find(Key); Existing != Entries.end())
-				{
-					if (auto Pipeline = Existing->second.Pipeline.lock())
-					{
-						const auto Status = Pipeline->GetState();
-						if (Status == ERHIPipelineState::Pending || Status == ERHIPipelineState::Ready
-							|| Status == ERHIPipelineState::Failed)
-							return TResult(std::static_pointer_cast<TPipeline>(std::move(Pipeline)));
-					}
-					Entries.erase(Existing);
-				}
+				if constexpr (Graphics)
+					if (auto Hit = Find<TPipeline>(GraphicsEntries, Initializer)) return Hit;
+				auto Key = MakeKey();
+				if (!Key) return TResult{};
+				if constexpr (!Graphics)
+					if (auto Hit = Find<TPipeline>(ComputeEntries, *Key)) return Hit;
 				if (Private::FTaskRuntimeAccess::IsExecutingIndependentCPU()) return TResult{};
-				const uint64 Bytes = sizeof(FEntry) + sizeof(TPipeline) + 256
-					+ std::visit([](const auto& Value) { return GetPipelineKeyOwnedBytes(Value); }, Key);
-				auto Metadata = Queue.ReserveCacheMetadata(Bytes);
-				auto Observation = [&] {
-					if constexpr (Graphics) return Queue.RequestValidated(Initializer, Name, std::get<FGraphicsPipelineStateKey>(Key));
-					else return Queue.RequestValidated(Initializer, Name, std::get<FComputePipelineStateKey>(Key));
-				}();
+				auto Observation = Queue.RequestValidated(Initializer, Name, *Key);
 				if (!Observation.IsValid()) return TResult{};
+				uint64 Bytes = sizeof(TPipeline) + 256;
+				if constexpr (Graphics)
+				{
+					Bytes += sizeof(FGraphicsEntry) + sizeof(T)
+						+ Initializer.PipelineLayout.BindingLayouts.size() * sizeof(FBindingLayout)
+						+ Initializer.PipelineLayout.PushConstantRanges.size() * sizeof(FPushConstantRange);
+					for (const auto& Set : Initializer.PipelineLayout.BindingLayouts)
+						Bytes += Set.BindingLayouts.size() * sizeof(FBindingLayoutItem);
+				}
+				else Bytes += sizeof(FEntry) + GetPipelineKeyOwnedBytes(*Key);
+				auto Metadata = Queue.ReserveCacheMetadata(Bytes);
 				auto Pipeline = std::shared_ptr<TPipeline>(new TPipeline(std::move(Observation), Metadata));
-				Entries.emplace(std::move(Key), FEntry{Pipeline, std::move(Metadata)});
-				return TResult(std::move(Pipeline));
+				FEntry Entry{Pipeline, std::move(Metadata)};
+				if constexpr (Graphics)
+					GraphicsEntries.emplace(Initializer, FGraphicsEntry{std::move(Entry), Initializer.BoundShaders.VertexShader,
+						Initializer.BoundShaders.FragmentShader, Initializer.VertexDeclaration});
+				else ComputeEntries.emplace(std::move(*Key), std::move(Entry));
+				return Pipeline;
 			}
 			catch (const std::bad_alloc&)
 			{
@@ -99,7 +124,8 @@ namespace Durin
 		FRHICapabilities Capabilities;
 		FPipelineCompileQueue Queue;
 		std::mutex Mutex;
-		std::unordered_map<FKey, FEntry, FKeyHash> Entries;
+		std::unordered_map<FGraphicsPipelineStateInitializer, FGraphicsEntry, FGraphicsHash> GraphicsEntries;
+		std::unordered_map<FComputePipelineStateKey, FEntry, FComputePipelineStateKeyHasher> ComputeEntries;
 		std::chrono::steady_clock::time_point LastPrune = std::chrono::steady_clock::now();
 		bool Closed = false;
 	};
@@ -139,7 +165,8 @@ namespace Durin
 		{
 			std::lock_guard Lock(State->Mutex);
 			State->Closed = true;
-			State->Entries.clear();
+			State->GraphicsEntries.clear();
+			State->ComputeEntries.clear();
 		}
 		State->Queue.Shutdown();
 	}
@@ -155,6 +182,10 @@ namespace Durin
 			if (!GDynamicRHI) return TResult{};
 			auto* Cache = GDynamicRHI->RHIGetPipelineStateCache();
 			if (!Cache) return TResult{};
+			if constexpr (Graphics)
+				requiref(Initializer.BoundShaders.VertexShader && Initializer.BoundShaders.FragmentShader && Initializer.VertexDeclaration
+					&& Initializer.BlendState && Initializer.DepthStencilState && Initializer.RasterizerState,
+					"Graphics PSO needs vertex and fragment shaders and a vertex declaration with fixed states.");
 			char NameBuffer[FName::StringBufferSize];
 			std::string_view NameView = Name.GetPlainNameView();
 			if (Name.HasNumber())

@@ -50,8 +50,8 @@ namespace Durin
 		{
 			FMaterialPlanningPassIdentity Material;
 			std::shared_ptr<const FMaterialProgram> CompiledProgram;
-			FRHIRasterizerState Rasterizer;
-			FRHIDepthStencilState Depth;
+			FRasterizerStateInitializerRHI Rasterizer;
+			FDepthStencilStateInitializerRHI Depth;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;

@@ -275,7 +275,7 @@ namespace Durin
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
 					Candidate.RawShaderSet.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;

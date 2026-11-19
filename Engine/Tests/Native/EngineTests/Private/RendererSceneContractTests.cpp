@@ -125,24 +125,24 @@ TEST(FRendererSceneContractTests, MeshPipelineDescriptionsCollectAllMaterialPass
 				{
 					EXPECT_EQ(Initializer.RenderTargetLayout.NumColorRenderTargets, 0u);
 					EXPECT_EQ(Initializer.RenderTargetLayout.DepthStencilAttachment.Format, EPixelFormat::D32);
-					EXPECT_EQ(Initializer.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
-					EXPECT_TRUE(Initializer.RasterizerState.bEnableDepthBias);
-					EXPECT_TRUE(Initializer.DepthStencilState.bEnableWrite);
-					EXPECT_EQ(Initializer.DepthStencilState.CompareOp, ERHIDepthCompareOp::Less);
+					EXPECT_EQ(Initializer.RasterizerState->GetInitializer().PolygonMode, ERHIPolygonMode::Fill);
+					EXPECT_TRUE(Initializer.RasterizerState->GetInitializer().bEnableDepthBias);
+					EXPECT_TRUE(Initializer.DepthStencilState->GetInitializer().bEnableWrite);
+					EXPECT_EQ(Initializer.DepthStencilState->GetInitializer().CompareOp, ERHIDepthCompareOp::Less);
 				}
 				else if (Pass == EMeshPipelinePass::HitProxy)
 				{
 					EXPECT_EQ(Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format, FHitProxyPixel::Format);
-					EXPECT_EQ(Initializer.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
-					EXPECT_TRUE(Initializer.DepthStencilState.bEnableWrite);
-					EXPECT_FALSE(Initializer.ColorBlendStates[0].bEnable);
+					EXPECT_EQ(Initializer.RasterizerState->GetInitializer().PolygonMode, ERHIPolygonMode::Fill);
+					EXPECT_TRUE(Initializer.DepthStencilState->GetInitializer().bEnableWrite);
+					EXPECT_FALSE(Initializer.BlendState->GetInitializer()[0].bEnable);
 				}
 				else
 				{
-					EXPECT_EQ(Initializer.DepthStencilState, State.Depth);
-					EXPECT_EQ(Initializer.RasterizerState, State.Rasterizer);
+					EXPECT_EQ(Initializer.DepthStencilState->GetInitializer(), State.Depth);
+					EXPECT_EQ(Initializer.RasterizerState->GetInitializer(), State.Rasterizer);
 					EXPECT_EQ(Initializer.RenderTargetLayout.NumColorRenderTargets, Pass == EMeshPipelinePass::GBuffer ? 4u : 1u);
-					EXPECT_EQ(Initializer.ColorBlendStates[0].bEnable, Pass != EMeshPipelinePass::GBuffer && Blend == EMaterialBlendMode::Translucent);
+					EXPECT_EQ(Initializer.BlendState->GetInitializer()[0].bEnable, Pass != EMeshPipelinePass::GBuffer && Blend == EMaterialBlendMode::Translucent);
 					if (Pass == EMeshPipelinePass::HybridRetainedForward || Pass == EMeshPipelinePass::SortedTranslucency)
 						EXPECT_EQ(Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
 				}

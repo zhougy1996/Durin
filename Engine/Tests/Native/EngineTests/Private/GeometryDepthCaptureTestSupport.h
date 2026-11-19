@@ -86,7 +86,7 @@ float ShadowMain(float4 p : SV_Position) : SV_Target0 {
 			Initializer.BoundShaders.FragmentShader = Map.GetOrCreateShaderRHI(Types[1]);
 			const auto Declaration = GDynamicRHI->RHICreateVertexDeclaration({});
 			Initializer.VertexDeclaration = Declaration;
-			Initializer.RasterizerState.CullMode = ERHICullMode::None;
+			Initializer.RasterizerState = Durin::RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 			Initializer.PipelineLayout = Map.GetMergedPipelineLayout();
 			const auto Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState("GeometryDepthCapture", Initializer);
 			FTextureViewRHIRef ShadowView;

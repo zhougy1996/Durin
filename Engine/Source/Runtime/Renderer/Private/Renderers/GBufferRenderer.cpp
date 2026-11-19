@@ -54,8 +54,8 @@ namespace Durin
 		struct FGBufferPipelineKey
 		{
 			FMaterialPlanningPassIdentity Material;
-			FRHIRasterizerState Rasterizer;
-			FRHIDepthStencilState Depth;
+			FRasterizerStateInitializerRHI Rasterizer;
+			FDepthStencilStateInitializerRHI Depth;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FXxHash64 FactoryKey;
 			FXxHash64 LayoutKey;

@@ -456,14 +456,11 @@ namespace Durin
 							Base->FragmentShader.GetRHIShader();
 						Initializer.VertexDeclaration =
 							Base->VertexDeclaration;
-						Initializer.ColorBlendStates[0] =
-							FRHIColorBlendState::StraightAlpha();
-						Initializer.RasterizerState.CullMode =
-							ERHICullMode::None;
-						Initializer.DepthStencilState.bEnableTest =
-							Key.DepthMode == EDepthMode::Visible;
-						Initializer.DepthStencilState.CompareOp =
-							GetVisibleDepthCompareOp(Key.DepthConvention);
+						Initializer.BlendState = RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
+						Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+						Initializer.DepthStencilState = RHICreateDepthStencilState({
+							.bEnableTest = Key.DepthMode == EDepthMode::Visible,
+							.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
 						Initializer.PipelineLayout =
 							Base->ShaderSet.GetPipelineLayout();
 

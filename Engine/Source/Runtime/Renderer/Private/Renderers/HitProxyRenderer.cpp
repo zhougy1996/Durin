@@ -295,10 +295,11 @@ namespace Durin
 				Pipeline.BoundShaders.VertexShader = Vertex.GetRHIShader();
 				Pipeline.BoundShaders.FragmentShader = OverlayFragment.GetRHIShader();
 				Pipeline.VertexDeclaration = Declaration;
-				Pipeline.RasterizerState.CullMode = ERHICullMode::None;
-				Pipeline.DepthStencilState.bEnableTest = !Foreground;
-				Pipeline.DepthStencilState.bEnableWrite = !Foreground;
-				Pipeline.DepthStencilState.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual;
+				Pipeline.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+				Pipeline.DepthStencilState = RHICreateDepthStencilState({
+					.bEnableTest = !Foreground,
+					.bEnableWrite = !Foreground,
+					.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual});
 				Pipeline.PipelineLayout = OverlayShaders.GetPipelineLayout();
 				OverlayPipelines[Foreground] = Pipeline;
 

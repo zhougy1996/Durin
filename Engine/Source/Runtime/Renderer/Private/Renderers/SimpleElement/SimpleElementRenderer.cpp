@@ -408,15 +408,13 @@ namespace Durin
 							Base->LineFragmentShader.GetRHIShader();
 						Initializer.VertexDeclaration = Base->LineVertexDeclaration;
 					}
-					Initializer.ColorBlendStates[0] =
-						Key.BlendMode == ESimpleElementBlendMode::Translucent
+					Initializer.BlendState = RHICreateBlendState({Key.BlendMode == ESimpleElementBlendMode::Translucent
 							? FRHIColorBlendState::StraightAlpha()
-							: FRHIColorBlendState{};
-					Initializer.RasterizerState.CullMode = ERHICullMode::None;
-					Initializer.DepthStencilState.bEnableTest =
-						Key.DepthPriorityGroup == ESceneDepthPriorityGroup::World;
-					Initializer.DepthStencilState.CompareOp =
-						GetVisibleDepthCompareOp(Key.DepthConvention);
+							: FRHIColorBlendState{}});
+					Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+					Initializer.DepthStencilState = RHICreateDepthStencilState({
+						.bEnableTest = Key.DepthPriorityGroup == ESceneDepthPriorityGroup::World,
+						.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
 					Initializer.PipelineLayout = ShaderSet.GetPipelineLayout();
 
 					return FPipelineResult::Success({

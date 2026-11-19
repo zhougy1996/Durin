@@ -10,6 +10,66 @@
 
 namespace Durin
 {
+	namespace
+	{
+		// A state can be requested by several passes. Keep only live identities,
+		// so an editor session can discard material permutations after a reload.
+		template<typename TState, typename TInitializer>
+		auto CreateFixedState(const TInitializer& Initializer) -> std::shared_ptr<const TState>
+		{
+			static const auto Default = std::make_shared<const TState>(TInitializer{});
+			if (Initializer == Default->GetInitializer()) return Default;
+			static std::mutex Mutex;
+			static std::vector<std::weak_ptr<const TState>> States;
+			std::lock_guard Lock(Mutex);
+			for (auto It = States.begin(); It != States.end();)
+			{
+				if (auto State = It->lock())
+				{
+					if (State->GetInitializer() == Initializer) return State;
+					++It;
+				}
+				else It = States.erase(It);
+			}
+			auto State = std::make_shared<const TState>(Initializer);
+			States.emplace_back(State);
+			return State;
+		}
+	}
+
+	auto FDynamicRHI::RHICreateBlendState(const FBlendStateInitializerRHI& Initializer) -> FBlendStateRHIRef
+	{
+		return CreateFixedState<FRHIBlendState>(Initializer);
+	}
+
+	auto RHICreateBlendState(const FBlendStateInitializerRHI& Initializer) -> FBlendStateRHIRef
+	{
+		if (GDynamicRHI) return GDynamicRHI->RHICreateBlendState(Initializer);
+		return CreateFixedState<FRHIBlendState>(Initializer);
+	}
+
+	auto FDynamicRHI::RHICreateRasterizerState(const FRasterizerStateInitializerRHI& Initializer) -> FRasterizerStateRHIRef
+	{
+		return CreateFixedState<FRHIRasterizerState>(Initializer);
+	}
+
+	auto RHICreateRasterizerState(const FRasterizerStateInitializerRHI& Initializer) -> FRasterizerStateRHIRef
+	{
+		if (GDynamicRHI) return GDynamicRHI->RHICreateRasterizerState(Initializer);
+		return CreateFixedState<FRHIRasterizerState>(Initializer);
+	}
+
+	auto FDynamicRHI::RHICreateDepthStencilState(const FDepthStencilStateInitializerRHI& Initializer) -> FDepthStencilStateRHIRef
+	{
+		return CreateFixedState<FRHIDepthStencilState>(Initializer);
+	}
+
+	auto RHICreateDepthStencilState(const FDepthStencilStateInitializerRHI& Initializer) -> FDepthStencilStateRHIRef
+	{
+		if (GDynamicRHI) return GDynamicRHI->RHICreateDepthStencilState(Initializer);
+		return CreateFixedState<FRHIDepthStencilState>(Initializer);
+	}
+
 	FDynamicRHI::FDynamicRHI() = default;
 	FDynamicRHI::~FDynamicRHI() = default;
 
