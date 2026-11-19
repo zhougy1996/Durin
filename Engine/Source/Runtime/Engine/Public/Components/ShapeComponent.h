@@ -55,6 +55,7 @@ namespace Durin
 		auto GetCapsuleRadius() const -> double { return CapsuleRadius; }
 		auto GetCapsuleHalfHeight() const -> double { return CapsuleHalfHeight; }
 		ENGINE_API auto SetCapsuleSize(double Radius, double HalfHeight) -> bool;
+		ENGINE_API auto SetCapsuleLocalPose(const FTransform& Pose) -> bool;
 		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
 
 	private:
@@ -63,5 +64,7 @@ namespace Durin
 
 		DPROPERTY(Category = "Shape", Edit)
 		double CapsuleHalfHeight = 1.0;
+		DPROPERTY()
+		FTransform CapsuleLocalPose;
 	};
 }

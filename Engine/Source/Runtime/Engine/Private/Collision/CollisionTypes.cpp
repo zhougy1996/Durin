@@ -2,10 +2,27 @@
 
 #include "Components/PrimitiveComponent.h"
 #include "Engine/Actor.h"
-#include "Physics/PhysicsObjectToken.h"
+#include "Physics/PhysicsObjectID.h"
 
 namespace Durin
 {
+	auto FHitResult::SetFromPhysicsHit(const FPhysicsQueryHit& Source) -> bool
+	{
+		auto* HitComponent = Cast<DPrimitiveComponent>(PhysicsPrivate::ResolveObjectID(Source.ComponentID));
+		if (!HitComponent) { Reset(); return false; }
+		bBlockingHit = Source.Response == EPhysicsQueryResponse::Block;
+		bStartPenetrating = Source.bStartPenetrating;
+		Time = Source.Time;
+		Distance = Source.Distance;
+		Location = Source.Location;
+		ImpactPoint = Source.ImpactPoint;
+		ImpactNormal = Source.ImpactNormal;
+		PenetrationDepth = Source.PenetrationDepth;
+		Component = HitComponent;
+		Actor = Component->GetOwner();
+		return true;
+	}
+
 	FCollisionResponseContainer::FCollisionResponseContainer()
 		: FCollisionResponseContainer(ECollisionResponse::Block)
 	{
@@ -24,21 +41,26 @@ namespace Durin
 
 	namespace
 	{
-		auto AddIgnoredObject(std::vector<uint64>& Tokens, const DObject* Object) -> void
+		auto AddIgnoredObject(std::vector<uint64>& IDs, const DObject* Object) -> void
 		{
-			const uint64 Token = PhysicsPrivate::MakeObjectToken(Object);
-			if (Token && !std::ranges::contains(Tokens, Token)) Tokens.push_back(Token);
+			const uint64 ID = PhysicsPrivate::MakeObjectID(Object);
+			if (ID && !std::ranges::contains(IDs, ID)) IDs.push_back(ID);
 		}
+	}
+
+	auto FCollisionQueryParams::AddIgnoredSourceObject(const DObject* SourceObject) -> void
+	{
+		AddIgnoredObject(IgnoredSourceObjectIDs, SourceObject);
 	}
 
 	auto FCollisionQueryParams::AddIgnoredActor(const AActor* Actor) -> void
 	{
-		AddIgnoredObject(IgnoredObjectTokens, Actor);
+		AddIgnoredSourceObject(Actor);
 	}
 
 	auto FCollisionQueryParams::AddIgnoredComponent(const DPrimitiveComponent* Component) -> void
 	{
-		AddIgnoredObject(IgnoredObjectTokens, Component);
+		AddIgnoredObject(IgnoredComponentIDs, Component);
 	}
 
 	auto FCollisionObjectQueryParams::AddObjectType(ECollisionChannel Channel) -> void

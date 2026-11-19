@@ -444,6 +444,67 @@ TEST(FPhysicsWorldTests, IgnoredComponentHandlesAreScopedToTheQueriedWorld)
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FPhysicsWorldTests, SourceObjectAndComponentIgnoresMatchIndependentPublishedIDs)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Target = AddWorldBox(*World, {}, FVector3(1));
+	auto* Source = AddWorldBox(*World, {10, 0, 0}, FVector3(1));
+	FCollisionQueryParams IgnoreOwner, IgnoreSource, IgnoreSourceComponent, IgnoreTargetAsSource, IgnoreTarget;
+	IgnoreOwner.AddIgnoredActor(Target->GetOwner());
+	IgnoreSource.AddIgnoredSourceObject(Source);
+	IgnoreSourceComponent.AddIgnoredComponent(Source);
+	IgnoreTargetAsSource.AddIgnoredSourceObject(Target);
+	IgnoreTarget.AddIgnoredComponent(Target);
+
+	auto Check = [&](const FCollisionQueryParams& Params, bool bExpectedHit) {
+		FHitResult Hit;
+		std::vector<FOverlapResult> Overlaps;
+		const auto Sphere = FCollisionShape::MakeSphere(0.25);
+		const auto Channel = ECollisionChannel::Visibility;
+		FTransform Start;
+		Start.Translation = {-3, 0, 0};
+		EXPECT_EQ(World->LineTraceSingleByChannel(Hit, Start.Translation, {3, 0, 0}, Channel, Params), bExpectedHit);
+		EXPECT_EQ(Hit.Component, bExpectedHit ? Target : nullptr);
+		EXPECT_EQ(Hit.Actor, bExpectedHit ? Target->GetOwner() : nullptr);
+		EXPECT_EQ(World->SweepSingleByChannel(Hit, Sphere, Start, {6, 0, 0}, Channel, Params), bExpectedHit);
+		EXPECT_EQ(World->OverlapMultiByChannel(Overlaps, Sphere, {}, Channel, Params), bExpectedHit);
+		EXPECT_EQ(Overlaps.size(), bExpectedHit ? 1u : 0u);
+	};
+
+	Check(IgnoreOwner, false);
+	Check(IgnoreSource, true);
+	const auto Handle = Target->GetPhysicsActorHandle();
+	Target->SetPhysicsSourceObject(Source);
+	EXPECT_EQ(Target->GetPhysicsActorHandle(), Handle);
+	Check(IgnoreSource, false);
+	Check(IgnoreOwner, true);
+	Check(IgnoreSourceComponent, true);
+	Check(IgnoreTargetAsSource, true);
+	Check(IgnoreTarget, false);
+
+	Target->UnregisterComponent();
+	Target->RegisterComponent();
+	Check(IgnoreSource, false);
+	Target->SetPhysicsSourceObject(Source->GetOwner());
+	FCollisionQueryParams IgnoreSourceActor;
+	IgnoreSourceActor.AddIgnoredActor(Source->GetOwner());
+	Check(IgnoreSourceActor, false);
+	Check(IgnoreSource, true);
+	Target->SetPhysicsSourceObject(nullptr);
+	Check(IgnoreOwner, false);
+	Check(IgnoreSourceActor, true);
+
+	// A saved ignore list remains safe when the source dies. Republishing uses the live owner.
+	Target->SetPhysicsSourceObject(Source);
+	Source->DestroyComponent();
+	Target->RecreatePhysicsState();
+	Check(IgnoreSource, true);
+	Check(IgnoreOwner, false);
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
 TEST(FPhysicsWorldTests, FiltersActorAndComponentBeforeNarrowPhaseInOneSubmission)
 {
 	using namespace Durin;
@@ -499,6 +560,475 @@ TEST(FPhysicsWorldTests, FiltersActorAndComponentBeforeNarrowPhaseInOneSubmissio
 	CollectGarbage(EObjectFlags::Standalone);
 }
 
+TEST(FPhysicsWorldTests, MaintainsSymmetricOverlapPairsAcrossMovementFiltersAndBodyRecreation)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* A = AddWorldBox(*World, {}, FVector3(1));
+	auto* B = AddWorldBox(*World, {}, FVector3(1));
+	const TObjectKey<DPrimitiveComponent> AKey(A), BKey(B);
+	A->SetCollisionResponseToChannel(B->GetCollisionObjectType(), ECollisionResponse::Overlap);
+	std::vector<bool> AEvents, BEvents;
+	auto Bind = [](DPrimitiveComponent& Component, TObjectKey<DPrimitiveComponent> Peer, std::vector<bool>& Events) {
+		Component.OnComponentBeginOverlap.AddLambda([Peer, &Events](DPrimitiveComponent&, auto Other) {
+			EXPECT_EQ(Other, Peer);
+			Events.push_back(true);
+		});
+		Component.OnComponentEndOverlap.AddLambda([Peer, &Events](DPrimitiveComponent&, auto Other) {
+			EXPECT_EQ(Other, Peer);
+			Events.push_back(false);
+		});
+	};
+	Bind(*A, BKey, AEvents);
+	Bind(*B, AKey, BEvents);
+	auto CheckPair = [&](bool bExpected) {
+		EXPECT_EQ(A->GetOverlappingComponents().contains(BKey), bExpected);
+		EXPECT_EQ(B->GetOverlappingComponents().contains(AKey), bExpected);
+	};
+	CheckPair(false);
+	World->BeginPlay({});
+	CheckPair(true);
+	EXPECT_EQ(AEvents, (std::vector<bool>{true}));
+	EXPECT_EQ(BEvents, AEvents);
+
+	A->RecreatePhysicsState();
+	B->SetBoxHalfExtent(FVector3(1.25));
+	A->SetWorldLocation({0.1, 0.0, 0.0});
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(AEvents.size(), 1u);
+	B->SetWorldLocation({5.0, 0.0, 0.0});
+	CheckPair(false);
+	B->SetWorldLocation({});
+	CheckPair(true);
+	B->SetGenerateOverlapEvents(false);
+	CheckPair(false);
+	B->SetGenerateOverlapEvents(true);
+	CheckPair(true);
+	B->SetCollisionResponseToChannel(A->GetCollisionObjectType(), ECollisionResponse::Ignore);
+	CheckPair(false);
+	B->SetCollisionProfileName(CollisionProfile::WorldStatic);
+	CheckPair(true);
+	A->UnregisterComponent();
+	CheckPair(false);
+	A->RegisterComponent();
+	CheckPair(true);
+	A->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	CheckPair(false);
+	A->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	CheckPair(true);
+	A->SetCollisionProfileName(CollisionProfile::WorldStatic);
+	CheckPair(false);
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(AEvents, (std::vector<bool>{true, false, true, false, true, false, true, false, true, false, true, false}));
+	EXPECT_EQ(BEvents, AEvents);
+
+	A->SetCollisionProfileName(CollisionProfile::Trigger);
+	CheckPair(true);
+	World->EndPlay();
+	CheckPair(false);
+	World->BeginPlay({});
+	CheckPair(true);
+	EXPECT_EQ(AEvents.size(), 13u);
+	EXPECT_EQ(BEvents, AEvents);
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, ActorOverlapTracksFirstAndLastComponentPairUsingActualOwners)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	const FVector3 Away(-10.0, 0.0, 0.0);
+	auto* Trigger = AddWorldBox(*World, Away, FVector3(1));
+	auto* First = AddWorldBox(*World, {}, FVector3(1));
+	auto* A = Trigger->GetOwner();
+	auto* B = First->GetOwner();
+	auto* Second = Cast<DBoxComponent>(B->AddInstanceComponent(DBoxComponent::StaticClass(), "Second"));
+	auto* SameOwner = Cast<DBoxComponent>(A->AddInstanceComponent(DBoxComponent::StaticClass(), "SameOwner"));
+	ASSERT_TRUE(Second && SameOwner);
+	auto* Source = World->SpawnActor<ACameraActor>("SharedSource");
+	Trigger->SetCollisionProfileName(CollisionProfile::Trigger);
+	for (auto* Box : {Second, SameOwner})
+	{
+		Box->SetBoxHalfExtent(FVector3(1));
+		Box->SetCollisionProfileName(CollisionProfile::WorldStatic);
+	}
+	SameOwner->SetWorldLocation({20.0, 0.0, 0.0});
+	for (auto* Box : {Trigger, First, Second}) Box->SetPhysicsSourceObject(Source);
+
+	std::string Events;
+	for (auto* Box : {Trigger, First, Second, SameOwner})
+	{
+		Box->OnComponentBeginOverlap.AddLambda([&](auto&, auto) { Events += '+'; });
+		Box->OnComponentEndOverlap.AddLambda([&](auto&, auto) { Events += '-'; });
+	}
+	auto BindActor = [&](AActor* Owner, AActor* Other, char Begin, char End) {
+		auto Record = [&, Owner, Other](AActor& Self, TObjectKey<AActor> Peer, char Event) {
+			EXPECT_EQ(&Self, Owner);
+			EXPECT_EQ(Peer.ResolveObjectPtr(), Other);
+			Events += Event;
+		};
+		Owner->OnActorBeginOverlap.AddLambda([=](auto& Self, auto Peer) { Record(Self, Peer, Begin); });
+		Owner->OnActorEndOverlap.AddLambda([=](auto& Self, auto Peer) { Record(Self, Peer, End); });
+	};
+	BindActor(A, B, 'A', 'a');
+	BindActor(B, A, 'B', 'b');
+	BindActor(Source, nullptr, 'S', 's');
+	auto Check = [&](bool bOverlapping, const char* Expected) {
+		EXPECT_EQ(A->IsOverlappingActor(B), bOverlapping);
+		EXPECT_EQ(B->IsOverlappingActor(A), bOverlapping);
+		EXPECT_FALSE(Source->IsOverlappingActor(A));
+		World->Tick({.DeltaSeconds = 0.01f});
+		EXPECT_EQ(Events, Expected);
+		Events.clear();
+	};
+	World->BeginPlay({});
+	Trigger->SetWorldLocation({});
+	Check(true, "++AB++");
+	First->SetWorldLocation(Away);
+	Check(true, "--");
+	First->SetWorldLocation({});
+	Check(true, "++");
+	Trigger->SetWorldLocation(Away);
+	Check(false, "----ab");
+	Trigger->SetWorldLocation({});
+	Trigger->SetWorldLocation(Away);
+	Check(false, "++AB++----ab");
+	Trigger->SetWorldLocation(SameOwner->GetWorldLocation());
+	Check(false, "++");
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, SweptMoveDeliversTransientComponentPairsAndOneActorTransition)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Mover = AddWorldBox(*World, {-10, 0, 0}, FVector3(0.5));
+	auto* Far = AddWorldBox(*World, {3, 0, 0}, FVector3(0.5));
+	auto* Near = Cast<DBoxComponent>(Far->GetOwner()->AddInstanceComponent(DBoxComponent::StaticClass(), "Near"));
+	ASSERT_NE(Near, nullptr);
+	Near->SetBoxHalfExtent(FVector3(0.5));
+	Near->SetWorldLocation({-3, 0, 0});
+	Far->SetCollisionProfileName(CollisionProfile::Trigger);
+	Near->SetCollisionProfileName(CollisionProfile::Trigger);
+	std::string Events;
+	Mover->OnComponentBeginOverlap.AddLambda([&](auto&, auto Peer) {
+		Events += Peer.ResolveObjectPtr() == Near ? 'N' : 'F';
+	});
+	Mover->OnComponentEndOverlap.AddLambda([&](auto&, auto) { Events += '-'; });
+	for (auto* Trigger : {Near, Far})
+	{
+		Trigger->OnComponentBeginOverlap.AddLambda([&](auto&, auto Peer) {
+			EXPECT_EQ(Peer.ResolveObjectPtr(), Mover);
+			Events += '+';
+		});
+		Trigger->OnComponentEndOverlap.AddLambda([&](auto&, auto Peer) {
+			EXPECT_EQ(Peer.ResolveObjectPtr(), Mover);
+			Events += '-';
+		});
+	}
+	for (auto* Actor : {Mover->GetOwner(), Near->GetOwner()})
+	{
+		Actor->OnActorBeginOverlap.AddLambda([&](auto&, auto) { Events += 'A'; });
+		Actor->OnActorEndOverlap.AddLambda([&](auto&, auto) { Events += 'a'; });
+	}
+	auto Check = [&](const char* Expected) {
+		World->Tick({.DeltaSeconds = 0.01f});
+		EXPECT_EQ(Events, Expected);
+		Events.clear();
+	};
+	World->BeginPlay({});
+	DSceneComponent& Component = *Mover;
+	auto MoveTo = [&](double X, bool bSweep) {
+		EXPECT_TRUE(Component.MoveComponent(FVector3(X, 0, 0) - Component.GetWorldLocation(),
+			Component.GetWorldRotation(), bSweep));
+	};
+	MoveTo(10, true);
+	EXPECT_FALSE(Mover->GetOwner()->IsOverlappingActor(Near->GetOwner()));
+	Check("N+AAF+----aa");
+	MoveTo(-10, false);
+	Check("");
+	MoveTo(3, true);
+	EXPECT_TRUE(Mover->GetOwner()->IsOverlappingActor(Far->GetOwner()));
+	Check("N+AAF+--");
+	MoveTo(4.5, true);
+	Check("--aa");
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, ComponentSweepIgnoresPublishedSourceForTouchesAndBlocksButKeepsEndpointOwnership)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Mover = AddWorldBox(*World, {}, FVector3(0.5));
+	auto* Trigger = AddWorldBox(*World, {3, 0, 0}, FVector3(0.5));
+	auto* Blocker = AddWorldBox(*World, {5, 0, 0}, FVector3(0.5));
+	auto* Wall = AddWorldBox(*World, {9, 0, 0}, FVector3(0.5));
+	Trigger->SetCollisionProfileName(CollisionProfile::Trigger);
+	auto* Shared = World->SpawnActor<AActor>("Source");
+	for (auto* Box : {Mover, Trigger, Blocker}) Box->SetPhysicsSourceObject(Shared);
+	std::string Events;
+	Mover->OnComponentBeginOverlap.AddLambda([&](auto&, auto Peer) {
+		EXPECT_EQ(Peer.ResolveObjectPtr(), Trigger);
+		Events += '+';
+	});
+	Mover->GetOwner()->OnActorBeginOverlap.AddLambda([&](auto&, auto Peer) {
+		EXPECT_EQ(Peer.ResolveObjectPtr(), Trigger->GetOwner());
+		Events += 'A';
+	});
+	World->BeginPlay({});
+	FHitResult Hit;
+	Mover->SetWorldLocation({12, 0, 0}, true, &Hit);
+	EXPECT_EQ(Hit.Component, Wall);
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_TRUE(Events.empty());
+	Mover->SetWorldLocation({3, 0, 0}, true, &Hit);
+	EXPECT_FALSE(Hit.bBlockingHit);
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, "+A");
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, SweptMoveStopsAtBlockAndOnlyReportsEnabledTouchesOnAcceptedPath)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Mover = AddWorldBox(*World, {}, FVector3(0.5));
+	auto* Wall = AddWorldBox(*World, {5, 0, 0}, FVector3(0.5));
+	auto* Before = AddWorldBox(*World, {2, 0, 0}, FVector3(0.2));
+	auto* After = AddWorldBox(*World, {7, 0, 0}, FVector3(0.2));
+	auto* Muted = AddWorldBox(*World, {1, 0, 0}, FVector3(0.2));
+	for (auto* Box : {Before, After, Muted}) Box->SetCollisionProfileName(CollisionProfile::Trigger);
+	Muted->SetGenerateOverlapEvents(false);
+	std::string Events;
+	Mover->OnComponentBeginOverlap.AddLambda([&](auto&, auto Peer) {
+		EXPECT_EQ(Peer.ResolveObjectPtr(), Before);
+		Events += '+';
+	});
+	Mover->OnComponentEndOverlap.AddLambda([&](auto&, auto Peer) {
+		EXPECT_EQ(Peer.ResolveObjectPtr(), Before);
+		Events += '-';
+	});
+	World->BeginPlay({});
+	FHitResult Hit;
+	ASSERT_TRUE(Mover->MoveComponent({10, 0, 0}, Mover->GetWorldRotation(), true, &Hit));
+	EXPECT_TRUE(Hit.bBlockingHit);
+	EXPECT_EQ(Hit.Component, Wall);
+	EXPECT_NEAR(Hit.Time, 0.4, 1.e-6);
+	EXPECT_NEAR(Mover->GetWorldLocation().x, 4.0, 1.e-5);
+	EXPECT_TRUE(Mover->GetOverlappingComponents().empty());
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, "+-");
+	Events.clear();
+	Mover->SetGenerateOverlapEvents(false);
+	ASSERT_TRUE(Mover->MoveComponent({-4, 0, 0}, Mover->GetWorldRotation(), true, &Hit));
+	EXPECT_FALSE(Hit.bBlockingHit);
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_TRUE(Events.empty());
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, ActorLocationAndWorldOffsetSweepOnlyTheRootAndReconcileChildEndpoints)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Actor = World->SpawnActor<AActor>("Mover");
+	auto AddBox = [&](const char* Name) {
+		auto* Box = Cast<DBoxComponent>(Actor->AddInstanceComponent(DBoxComponent::StaticClass(), Name));
+		Box->SetBoxHalfExtent(FVector3(0.5));
+		Box->SetCollisionProfileName(CollisionProfile::WorldStatic);
+		return Box;
+	};
+	auto* Root = AddBox("Root");
+	auto* Child = AddBox("Child");
+	ASSERT_EQ(Actor->GetRootComponent(), Root);
+	ASSERT_EQ(Child->GetAttachParent(), Root);
+	Child->SetRelativeLocation({0, 5, 0});
+	ASSERT_TRUE(Actor->SetActorLocation({-4, 0, 0}));
+	auto* RootWall = AddWorldBox(*World, {4, 0, 0}, FVector3(0.5));
+	AddWorldBox(*World, {-2, 5, 0}, FVector3(0.5));
+	auto* RootTrigger = AddWorldBox(*World, {-1, 0, 0}, FVector3(0.25));
+	auto* ChildPass = AddWorldBox(*World, {0, 5, 0}, FVector3(0.25));
+	auto* ChildEnd = AddWorldBox(*World, {3, 5, 0}, FVector3(0.25));
+	for (auto* Box : {RootTrigger, ChildPass, ChildEnd}) Box->SetCollisionProfileName(CollisionProfile::Trigger);
+
+	std::string RootEvents, ChildEvents;
+	auto Observe = [](DBoxComponent& Box, DBoxComponent* ExpectedPeer, std::string& Events) {
+		Box.OnComponentBeginOverlap.AddLambda([ExpectedPeer, &Events](auto&, auto Peer) {
+			EXPECT_EQ(Peer.ResolveObjectPtr(), ExpectedPeer);
+			Events += '+';
+		});
+		Box.OnComponentEndOverlap.AddLambda([ExpectedPeer, &Events](auto&, auto Peer) {
+			EXPECT_EQ(Peer.ResolveObjectPtr(), ExpectedPeer);
+			Events += '-';
+		});
+	};
+	Observe(*Root, RootTrigger, RootEvents);
+	Observe(*Child, ChildEnd, ChildEvents);
+	World->BeginPlay({});
+	for (const bool bUseOffset : {false, true})
+	{
+		FHitResult Hit;
+		if (bUseOffset) Actor->AddActorWorldOffset({12, 0, 0}, true, &Hit);
+		else EXPECT_TRUE(Actor->SetActorLocation({8, 0, 0}, true, &Hit));
+		EXPECT_TRUE(Hit.bBlockingHit);
+		EXPECT_EQ(Hit.Component, RootWall);
+		EXPECT_NEAR(Hit.Time, 7.0 / 12.0, 1.e-6);
+		EXPECT_NEAR(Root->GetWorldLocation().x, 3.0, 1.e-6);
+		EXPECT_EQ(Child->GetWorldLocation(), Root->GetWorldLocation() + FVector3(0, 5, 0));
+		EXPECT_TRUE(Actor->IsOverlappingActor(ChildEnd->GetOwner()));
+		World->Tick({.DeltaSeconds = 0.01f});
+		EXPECT_EQ(RootEvents, "+-");
+		EXPECT_EQ(ChildEvents, "+");
+		Actor->AddActorWorldOffset({-7, 0, 0});
+		World->Tick({.DeltaSeconds = 0.01f});
+		EXPECT_EQ(RootEvents, "+-");
+		EXPECT_EQ(ChildEvents, "+-");
+		RootEvents.clear();
+		ChildEvents.clear();
+	}
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, AttachedPrimitiveSweepsWhenSetWorldLocationTargetsItDirectly)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Child = AddWorldBox(*World, {}, FVector3(0.5));
+	auto* Actor = Child->GetOwner();
+	auto* Root = Actor->GetRootComponent();
+	ASSERT_EQ(Child->GetAttachParent(), Root);
+	Root->SetWorldRotation(Math::MakeQuaternionFromAxisAngleDegrees(90.0, FVectorConstants::Up));
+	auto* Wall = AddWorldBox(*World, {5, 0, 0}, FVector3(0.5));
+	World->BeginPlay({});
+	FHitResult Hit;
+	Child->SetWorldLocation({10, 0, 0}, true, &Hit);
+	EXPECT_EQ(Hit.Component, Wall);
+	EXPECT_NEAR(Child->GetWorldLocation().x, 4.0, 1.e-6);
+	EXPECT_NEAR(Child->GetRelativeLocation().y, -4.0, 1.e-6);
+	EXPECT_EQ(Root->GetWorldLocation(), FVector3(0));
+	// A plain scene root carries its colliding child through the same wall.
+	Actor->AddActorWorldOffset({10, 0, 0}, true, &Hit);
+	EXPECT_FALSE(Hit.bBlockingHit);
+	EXPECT_EQ(Hit.Component, nullptr);
+	EXPECT_NEAR(Child->GetWorldLocation().x, 14.0, 1.e-6);
+	EXPECT_NEAR(Root->GetWorldLocation().x, 10.0, 1.e-6);
+	auto* Empty = World->SpawnActor<AActor>("NoRoot");
+	Hit.bBlockingHit = true;
+	EXPECT_FALSE(Empty->SetActorLocation({}, true, &Hit));
+	EXPECT_FALSE(Hit.bBlockingHit);
+	Hit.Component = Wall;
+	Empty->AddActorWorldOffset({1, 0, 0}, true, &Hit);
+	EXPECT_EQ(Hit.Component, nullptr);
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, MovingAttachmentsDoesNotCompareParentEndpointWithChildStart)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Actor = World->SpawnActor<AActor>("Mover");
+	auto* Root = Cast<DBoxComponent>(Actor->AddInstanceComponent(DBoxComponent::StaticClass(), "Root"));
+	auto* Child = Cast<DBoxComponent>(Actor->AddInstanceComponent(DBoxComponent::StaticClass(), "Child"));
+	ASSERT_TRUE(Root && Child);
+	for (auto* Box : {Root, Child}) Box->SetBoxHalfExtent(FVector3(0.5));
+	Root->SetCollisionProfileName(CollisionProfile::Trigger);
+	Child->SetCollisionProfileName(CollisionProfile::WorldStatic);
+	Child->SetRelativeLocation({4, 0, 0});
+	int Events = 0;
+	Root->OnComponentBeginOverlap.AddLambda([&](auto&, auto) { ++Events; });
+	Root->OnComponentEndOverlap.AddLambda([&](auto&, auto) { ++Events; });
+	World->BeginPlay({});
+	Actor->AddActorWorldOffset({4, 0, 0}, true);
+	EXPECT_EQ(Child->GetWorldLocation(), FVector3(8, 0, 0));
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, 0);
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, ActorBeginListenerCanDestroyPeerBeforeItsDelegateRuns)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Trigger = AddWorldBox(*World, {}, FVector3(1));
+	auto* Target = AddWorldBox(*World, {10.0, 0.0, 0.0}, FVector3(1));
+	Trigger->SetCollisionProfileName(CollisionProfile::Trigger);
+	const TObjectKey<AActor> PeerKey(Target->GetOwner());
+	std::string Events;
+	Target->GetOwner()->OnActorBeginOverlap.AddLambda([&](auto&, auto) { Events += 'B'; });
+	Target->GetOwner()->OnActorEndOverlap.AddLambda([&](auto&, auto) { Events += 'b'; });
+	Trigger->GetOwner()->OnActorBeginOverlap.AddLambda([&](AActor&, auto Peer) {
+		EXPECT_EQ(Peer, PeerKey);
+		Events += 'A';
+		EXPECT_TRUE(World->DestroyActor(Peer.ResolveObjectPtr()));
+	});
+	Trigger->GetOwner()->OnActorEndOverlap.AddLambda([&](AActor&, auto Peer) {
+		EXPECT_EQ(Peer, PeerKey);
+		EXPECT_EQ(Peer.ResolveObjectPtr(), nullptr);
+		Events += 'a';
+	});
+	World->BeginPlay({});
+	Trigger->SetWorldLocation(Target->GetWorldLocation());
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, "A");
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, "Aa");
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
+TEST(FPhysicsWorldTests, OverlapListenerCanDestroyPeerWithoutRecursiveOrStaleNotification)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* A = AddWorldBox(*World, {}, FVector3(1));
+	auto* B = AddWorldBox(*World, {10.0, 0.0, 0.0}, FVector3(1));
+	A->SetCollisionProfileName(CollisionProfile::Trigger);
+	const TObjectKey<DPrimitiveComponent> BKey(B);
+	std::vector<bool> Events;
+	int BNotifications = 0;
+	B->OnComponentBeginOverlap.AddLambda([&](DPrimitiveComponent&, auto) { ++BNotifications; });
+	B->OnComponentEndOverlap.AddLambda([&](DPrimitiveComponent&, auto) { ++BNotifications; });
+	A->OnComponentBeginOverlap.AddLambda([&](DPrimitiveComponent& Self, auto Peer) {
+		EXPECT_TRUE(Self.GetOverlappingComponents().contains(Peer));
+		ASSERT_EQ(Peer.ResolveObjectPtr(), B);
+		Events.push_back(true);
+		B->DestroyComponent();
+		EXPECT_TRUE(Self.GetOverlappingComponents().empty());
+	});
+	A->OnComponentEndOverlap.AddLambda([&](DPrimitiveComponent&, auto Peer) {
+		EXPECT_EQ(Peer, BKey);
+		EXPECT_EQ(Peer.ResolveObjectPtr(), nullptr);
+		Events.push_back(false);
+	});
+	World->BeginPlay({});
+	A->SetWorldLocation({10.0, 0.0, 0.0});
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, (std::vector<bool>{true}));
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, (std::vector<bool>{true, false}));
+	EXPECT_EQ(BNotifications, 0);
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
+}
+
 TEST(FPhysicsWorldTests, QueriesRemainAvailableWhenSimulationIsDisabledOrPaused)
 {
 	Durin::DWorld* World = CreatePhysicsWorld();
@@ -540,7 +1070,7 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	FeatureBody.SimpleTransform = Durin::FTransform();
 	Durin::FPhysicsBodyDesc PublishedBox;
 	ASSERT_TRUE(Box->BuildPhysicsBodyDesc(PublishedBox));
-	FeatureBody.UserToken = PublishedBox.UserToken;
+	FeatureBody.ComponentID = PublishedBox.ComponentID;
 	ASSERT_TRUE(World->GetPhysicsScene().AddBody(FeatureBody).IsValid());
 	const Durin::FCollisionDebugSnapshot FeatureSnapshot = World->CaptureCollisionDebugSnapshot();
 	const auto Feature = std::ranges::find_if(FeatureSnapshot.Bodies, [](const Durin::FCollisionDebugBody& Body) {
@@ -551,7 +1081,7 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	EXPECT_EQ(Feature->TotalTriangles, 300u);
 	EXPECT_EQ(Feature->TriangleSample.size(), 256u);
 	Durin::FPhysicsBodyDesc DebugBody = MakeBoxBody({10.0, 0.0, 0.0});
-	DebugBody.UserToken = PublishedBox.UserToken;
+	DebugBody.ComponentID = PublishedBox.ComponentID;
 	for (size_t Index = 0; Index < 4096; ++Index)
 	{
 		DebugBody.SimpleTransform.Translation.x = 10.0 + static_cast<double>(Index);
@@ -862,6 +1392,250 @@ namespace
 		const std::array<uint32, 2> Ordinals{17, 42};
 		return Durin::FCollisionGeometryRef::MakeTriangleMesh(Vertices, Indices, Ordinals);
 	}
+}
+
+TEST(FPhysicsSceneTests, CompoundSweepRejectsExitingLeafBeforeChoosingTheBlockInEitherOrder)
+{
+	using namespace Durin;
+	for (const bool bCompoundMoves : {true, false})
+	for (const double OpposingOffset : {-0.75, -3.0})
+	for (const bool bReverse : {false, true})
+	{
+		SCOPED_TRACE(::testing::Message() << bCompoundMoves << ", " << OpposingOffset << ", " << bReverse);
+		FPhysicsScene Scene;
+		auto Compound = MakeBoxBody({});
+		std::array<FCollisionGeometryChild, 2> Leaves;
+		Leaves[0].Shape = FCollisionShape::MakeBox(FVector3(0.5));
+		Leaves[1].Geometry = MakeStage1CubeHull();
+		Leaves[1].LocalTransform.Scale3D = FVector3(0.5);
+		Leaves[0].LocalTransform.Translation.x = 0.75;
+		Leaves[1].LocalTransform.Translation.x = OpposingOffset;
+		if (bReverse) std::swap(Leaves[0], Leaves[1]);
+		Compound.SimpleGeometry = FCollisionGeometryRef::MakeCompound(Leaves);
+		const auto CompoundHandle = Scene.AddBody(Compound);
+		const auto BoxHandle = Scene.AddBody(MakeBoxBody({}));
+		const FVector3 Delta(bCompoundMoves ? 4.0 : -4.0, 0, 0);
+		FPhysicsQueryHit Block;
+		ASSERT_TRUE(Scene.SweepBody(bCompoundMoves ? CompoundHandle : BoxHandle, Delta, 0, nullptr, Block));
+		EXPECT_EQ(Block.ActorHandle, bCompoundMoves ? BoxHandle : CompoundHandle);
+		EXPECT_EQ(Block.bStartPenetrating, OpposingOffset == -0.75);
+		EXPECT_NEAR(Block.Time, OpposingOffset == -0.75 ? 0.0 : 0.5, 1.e-7);
+		EXPECT_LT(Math::Dot(Block.ImpactNormal, Delta), 0.0);
+	}
+}
+
+TEST(FPhysicsSceneTests, CompoundHullMoveSweepsCookedAndAnalyticTargetsInPathOrder)
+{
+	using namespace Durin;
+	FPhysicsScene Scene;
+	FCollisionGeometryChild Child;
+	Child.Geometry = MakeStage1CubeHull();
+	Child.LocalTransform.Translation = {2, 0, 0};
+	FPhysicsBodyDesc Source;
+	Source.SimpleGeometry = FCollisionGeometryRef::MakeCompound(std::span(&Child, 1));
+	Source.SimpleTransform.Translation = {-12, 0, 0};
+	Source.bGenerateOverlapEvents = true;
+	Source.Filter.Responses.fill(EPhysicsQueryResponse::Overlap);
+	const auto Moving = Scene.AddBody(Source);
+	auto Target = MakeBoxBody({5, 0, 0}, FVector3(1));
+	Target.bGenerateOverlapEvents = true;
+	const auto Box = Scene.AddBody(Target);
+	Target.SimpleGeometry = MakeStage1CubeHull();
+	Target.SimpleTransform.Translation = {-5, 0, 0};
+	const auto Hull = Scene.AddBody(Target);
+	Target.SimpleGeometry = MakeStage1TrianglePlane();
+	Target.SimpleTransform.Translation = {};
+	const auto Plane = Scene.AddBody(Target);
+	std::vector<FPhysicsQueryHit> Hits;
+	FPhysicsQueryHit Block;
+	ASSERT_TRUE(Scene.SweepBody(Moving, {20, 0, 0}, 0, &Hits, Block));
+	ASSERT_EQ(Hits.size(), 3u);
+	EXPECT_EQ(Hits[0].ActorHandle, Hull);
+	EXPECT_NEAR(Hits[0].Time, 0.15, 1.e-6);
+	EXPECT_EQ(Hits[1].ActorHandle, Plane);
+	EXPECT_NEAR(Hits[1].Time, 0.45, 1.e-6);
+	EXPECT_NEAR(Hits[1].ImpactPoint.x, 0.0, 1.e-6);
+	EXPECT_LE(std::abs(Hits[1].ImpactPoint.y), 1.0 + 1.e-6);
+	EXPECT_LE(std::abs(Hits[1].ImpactPoint.z), 1.0 + 1.e-6);
+	EXPECT_EQ(Hits[2].ActorHandle, Box);
+	EXPECT_NEAR(Hits[2].Time, 0.65, 1.e-6);
+	EXPECT_FALSE(Block.IsHit());
+}
+
+TEST(FPhysicsSceneTests, BodyOverlapsUsePublishedCompoundTransformsAndSimpleQueryPolicyInBothDirections)
+{
+	using namespace Durin;
+	FPhysicsScene Scene;
+	FPhysicsBodyDesc Compound;
+	FCollisionGeometryChild Child;
+	Child.Shape = FCollisionShape::MakeSphere(0.5);
+	Child.LocalTransform.Translation = {3.0, 0.0, 0.0};
+	Compound.SimpleGeometry = FCollisionGeometryRef::MakeCompound(std::span(&Child, 1));
+	Compound.ComponentID = 1;
+	Compound.bGenerateOverlapEvents = true;
+	Compound.Filter.Responses.fill(EPhysicsQueryResponse::Overlap);
+	const auto Trigger = Scene.AddBody(Compound);
+	ASSERT_TRUE(Trigger.IsValid());
+
+	FPhysicsBodyDesc Cooked;
+	Cooked.ComplexGeometry = MakeStage1TrianglePlane();
+	Cooked.ComplexTransform.Translation = {3.0, 0.0, 0.0};
+	Cooked.ComponentID = 2;
+	Cooked.bGenerateOverlapEvents = true;
+	const auto Mesh = Scene.AddBody(Cooked);
+	ASSERT_TRUE(Mesh.IsValid());
+	EXPECT_TRUE(Scene.FindBodyOverlaps(Trigger).empty());
+	EXPECT_TRUE(Scene.FindBodyOverlaps(Mesh).empty());
+	Cooked.TracePolicy = EPhysicsCollisionTracePolicy::ComplexAsSimple;
+	ASSERT_TRUE(Scene.UpdateBody(Mesh, Cooked));
+	EXPECT_EQ(Scene.FindBodyOverlaps(Trigger), (std::vector<uint64>{2}));
+	EXPECT_EQ(Scene.FindBodyOverlaps(Mesh), (std::vector<uint64>{1}));
+	Cooked.ComplexTransform.Translation = {};
+	ASSERT_TRUE(Scene.UpdateBody(Mesh, Cooked));
+	EXPECT_TRUE(Scene.FindBodyOverlaps(Trigger).empty());
+	EXPECT_TRUE(Scene.FindBodyOverlaps(Mesh).empty());
+}
+
+TEST(FPhysicsSceneTests, CookedOverlapTestsFaceAndEdgeAxesAndPreservesStrictTangency)
+{
+	using namespace Durin;
+	using namespace CollisionGeometry;
+	const auto Hull = MakeStage1CubeHull();
+	auto Check = [&](const FTransform& A, const FTransform& B, ECollisionQueryStatus Expected) {
+		EXPECT_EQ(OverlapGeometry(Hull, A, Hull, B), Expected);
+		EXPECT_EQ(OverlapGeometry(Hull, B, Hull, A), Expected);
+	};
+	FTransform A, B;
+	B.Scale3D = FVector3(0.2);
+	Check(A, B, ECollisionQueryStatus::Hit);
+	B.Scale3D = FVector3(1);
+	B.Translation.x = 2;
+	Check(A, B, ECollisionQueryStatus::Miss);
+	B.Translation.x -= 0.001;
+	Check(A, B, ECollisionQueryStatus::Hit);
+
+	// Skew rods overlap on every face normal; only their long-edge cross axis separates them.
+	A.Scale3D = B.Scale3D = {3, 0.1, 0.1};
+	const FVector3 Axis = Math::NormalizeOr(FVector3(0, -1, 1), FVectorConstants::Up);
+	B.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(55, Axis);
+	B.Translation = Axis * 0.35;
+	Check(A, B, ECollisionQueryStatus::Miss);
+	B.Translation = Axis * 0.24;
+	Check(A, B, ECollisionQueryStatus::Hit);
+}
+
+TEST(FPhysicsSceneTests, CookedMeshUsesTriangleSurfacesAndAssetHierarchy)
+{
+	using namespace Durin;
+	using namespace CollisionGeometry;
+	const auto Hull = MakeStage1CubeHull();
+	const auto Plane = MakeStage1TrianglePlane();
+	EXPECT_EQ(OverlapGeometry(Plane, {}, Plane, {}), ECollisionQueryStatus::Unsupported);
+	FTransform MeshTransform;
+	MeshTransform.Translation.x = 1;
+	EXPECT_EQ(OverlapGeometry(Hull, {}, Plane, MeshTransform), ECollisionQueryStatus::Miss);
+	MeshTransform.Translation.x = 0.75;
+	EXPECT_EQ(OverlapGeometry(Plane, MeshTransform, Hull, {}), ECollisionQueryStatus::Hit);
+
+	std::vector<FVector3> Vertices;
+	std::vector<uint32> Indices;
+	for (uint32 Index = 0; Index < 128; ++Index)
+	{
+		const double X = 10.0 * Index;
+		Vertices.insert(Vertices.end(), {{X + 0.9, 1.2, 0}, {X + 1.2, 0.9, 0}, {X + 2, 2, 0}});
+		Indices.insert(Indices.end(), {3 * Index, 3 * Index + 1, 3 * Index + 2});
+	}
+	const auto Mesh = FCollisionGeometryRef::BuildTriangleMesh(Vertices, Indices);
+	ASSERT_GT(Mesh.GetNodeCount(), 1u);
+	FCollisionGeometryCounters Work;
+	// Bounds intersect the first triangle, but its diagonal edge excludes the cube.
+	EXPECT_EQ(OverlapGeometry(Hull, {}, Mesh, {}, &Work), ECollisionQueryStatus::Miss);
+	EXPECT_GT(Work.AssetNodeTests, 0u);
+	EXPECT_GT(Work.FeatureTests, 0u);
+	EXPECT_LT(Work.FeatureTests, 128u);
+	FTransform Shift;
+	Shift.Translation = {0.5, 0.5, 0};
+	EXPECT_EQ(OverlapGeometry(Hull, Shift, Mesh, {}), ECollisionQueryStatus::Hit);
+}
+
+TEST(FPhysicsSceneTests, CookedCompoundChildUsesLocalTransformAndComplexAsSimpleInBothDirections)
+{
+	using namespace Durin;
+	FPhysicsScene Scene;
+	FCollisionGeometryChild Child;
+	Child.Geometry = MakeStage1CubeHull();
+	Child.LocalTransform.Translation = {0, 2, 0};
+	Child.LocalTransform.Scale3D = {0.5, 1.5, 1};
+	FPhysicsBodyDesc Trigger;
+	Trigger.SimpleGeometry = FCollisionGeometryRef::MakeCompound(std::span(&Child, 1));
+	Trigger.SimpleTransform.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(90, FVectorConstants::Up);
+	Trigger.SimpleTransform.Translation = {12, 0, 0};
+	Trigger.ComponentID = 1;
+	Trigger.bGenerateOverlapEvents = true;
+	Trigger.Filter.Responses.fill(EPhysicsQueryResponse::Overlap);
+	const auto A = Scene.AddBody(Trigger);
+	ASSERT_TRUE(A.IsValid());
+	FPhysicsBodyDesc Target;
+	Target.ComplexGeometry = MakeStage1TrianglePlane();
+	Target.ComplexTransform.Translation = {10, 0, 0};
+	Target.ComponentID = 2;
+	Target.bGenerateOverlapEvents = true;
+	const auto B = Scene.AddBody(Target);
+	ASSERT_TRUE(B.IsValid());
+	EXPECT_TRUE(Scene.FindBodyOverlaps(A).empty());
+	Target.TracePolicy = EPhysicsCollisionTracePolicy::ComplexAsSimple;
+	ASSERT_TRUE(Scene.UpdateBody(B, Target));
+	EXPECT_EQ(Scene.FindBodyOverlaps(A), (std::vector<uint64>{2}));
+	EXPECT_EQ(Scene.FindBodyOverlaps(B), (std::vector<uint64>{1}));
+	Target.ComplexTransform.Translation.x = 12;
+	ASSERT_TRUE(Scene.UpdateBody(B, Target));
+	EXPECT_TRUE(Scene.FindBodyOverlaps(A).empty());
+	EXPECT_TRUE(Scene.FindBodyOverlaps(B).empty());
+}
+
+TEST(FPhysicsWorldTests, CookedStaticMeshComponentsDispatchOverlapWhenEitherPartnerMoves)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* HullAsset = NewObject<DStaticMesh>(World, "OverlapHullAsset");
+	auto* MeshAsset = NewObject<DStaticMesh>(World, "OverlapSurfaceAsset");
+	auto* HullSetup = NewObject<DBodySetup>(HullAsset, "BodySetup");
+	auto* MeshSetup = NewObject<DBodySetup>(MeshAsset, "BodySetup");
+	ASSERT_TRUE(HullAsset->SetBodySetup(HullSetup));
+	ASSERT_TRUE(MeshAsset->SetBodySetup(MeshSetup));
+	HullSetup->SetCollisionSourceMode(EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
+	MeshSetup->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	MeshSetup->SetCollisionTraceMode(EBodySetupCollisionTraceMode::ComplexAsSimple);
+	ASSERT_TRUE(HullSetup->InstallPhysicsMeshes(MakeStage1CubeHull(), {}));
+	ASSERT_TRUE(MeshSetup->InstallPhysicsMeshes({}, MakeStage1TrianglePlane()));
+	auto* Hull = World->SpawnActor<AStaticMeshActor>("HullOwner")->GetStaticMeshComponent();
+	auto* Mesh = World->SpawnActor<AStaticMeshActor>("SurfaceOwner")->GetStaticMeshComponent();
+	Hull->SetStaticMesh(HullAsset);
+	Hull->SetCollisionProfileName(CollisionProfile::Trigger);
+	Mesh->SetStaticMesh(MeshAsset);
+	Mesh->SetWorldLocation({4, 0, 0});
+	std::vector<bool> Events;
+	Hull->OnComponentBeginOverlap.AddLambda([&](DPrimitiveComponent&, auto Other) {
+		EXPECT_EQ(Other.ResolveObjectPtr(), Mesh);
+		Events.push_back(true);
+	});
+	Hull->OnComponentEndOverlap.AddLambda([&](DPrimitiveComponent&, auto Other) {
+		EXPECT_EQ(Other.ResolveObjectPtr(), Mesh);
+		Events.push_back(false);
+	});
+	World->BeginPlay({});
+	EXPECT_TRUE(Events.empty());
+	Mesh->SetWorldLocation({});
+	EXPECT_TRUE(Mesh->GetOverlappingComponents().contains(TObjectKey<DPrimitiveComponent>(Hull)));
+	Hull->SetWorldLocation({5, 0, 0});
+	EXPECT_TRUE(Mesh->GetOverlappingComponents().empty());
+	Hull->SetWorldLocation({});
+	Mesh->SetWorldLocation({4, 0, 0});
+	World->Tick({.DeltaSeconds = 0.01f});
+	EXPECT_EQ(Events, (std::vector<bool>{true, false, true, false}));
+	World->EndPlay();
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage(EObjectFlags::Standalone);
 }
 
 TEST(FPhysicsCollisionGeometryStage1Tests, ValidatesImmutableFeatureResourcesAndStableAccess)

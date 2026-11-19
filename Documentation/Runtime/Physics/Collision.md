@@ -10,7 +10,7 @@ Runtime collision follows the one-way dependency chain `Core -> PhysicsCore ->
 Physics -> Engine`. `PhysicsCore` owns Engine-independent shapes, handles,
 filters, hits, validation, and reference Box/Capsule geometry math. `Physics`
 owns the deterministic query-only `FPhysicsScene`; it stores numeric handles
-and opaque user tokens and never includes Engine objects. Engine owns body
+and opaque object IDs and never includes Engine objects. Engine owns body
 setups, body instances, profiles, gameplay results, component synchronization,
 and the `DWorld` query facade.
 
@@ -412,12 +412,79 @@ overlap queries, and Block participates in closest-hit queries.
 
 Gameplay calls `DWorld::LineTraceSingleByChannel`,
 `SweepSingleByChannel`, or `OverlapMultiByChannel`. Inputs and outputs are
-copied values. Adding an ignored Actor or component captures its process-local
-object index and serial. Each published body carries its component and owner
-tokens. Trace, sweep, and overlap reject matching candidates before narrow
-phase in one scene submission. A saved filter follows component re-registration
-and the Actor's newly registered bodies. Pawn movement ignores the moving pawn. Invalid or off-thread
+copied values. Each body publishes the component's process-local object index and
+serial as `ComponentID`. Its `OwnerID` identifies the explicit source object, or
+the owning Actor by default. `SetPhysicsSourceObject` updates a live body and
+accepts null to restore the default. The override is weak and runtime-only;
+publication falls back to the Actor if the source has expired. `AddIgnoredActor`
+forwards to `AddIgnoredSourceObject`; both match only `OwnerID`.
+`AddIgnoredComponent` matches only `ComponentID`. Hits identify the actual
+component and its Actor. Trace, sweep, and overlap filter before narrow phase
+in one scene submission, including after component re-registration. Pawn movement ignores the moving pawn. Invalid or off-thread
 queries return no result and do not alter scene state.
+
+## Component overlap events
+
+Playing, registered primitive components maintain reciprocal component keys for
+overlaps of their published simple-query geometry. Both components must enable
+`bGenerateOverlapEvents` (enabled by default) and their combined response must
+be Overlap. The scene uses the body's spatial bounds to find candidates. Analytic primitives and cooked convex hulls can
+overlap another convex shape or a triangle-mesh surface. Compound children
+use their composed transforms. Hull pairs and hull/triangle pairs use face
+normals and edge-cross-edge separating axes with the usual penetration
+tolerance. Mesh BVHs prune candidate triangles. Two triangle meshes have no
+supported overlap test. Simple-query selection still controls which cooked
+representation participates, including `ComplexAsSimple`.
+
+Publishing, updating, or removing a body reconciles membership immediately.
+Recreating a body at the same pose preserves unchanged component pairs. World
+delivers ordered component Begin/End delegates after play startup and between
+Physics and PostPhysics on gameplay ticks. Each delegate receives the recipient
+and the other component's object key. The key can still identify a destroyed
+peer after it stops resolving. Callback-produced transitions wait for the next
+dispatch boundary. Unregister and destruction remove reciprocal membership.
+Stopping play clears pending events and relationships before a subsequent play
+session. Movement records overlaps at published poses, including multiple
+poses in one frame. A sweep query alone does not generate events.
+
+`DSceneComponent::MoveComponent` takes a world-space delta and final rotation.
+Its primitive override sweeps the published convex shapes at their initial
+orientation when sweeping is enabled. Triangle meshes participate as targets.
+The sweep excludes the moving body, its owning Actor's ID and the source
+object ID published on its shapes. Each convex leaf contributes a candidate.
+An initial penetration moving outward is discarded before selecting the
+earliest block. Among initial penetrations the most opposing normal wins.
+Touches through the first accepted blocking hit enter the reciprocal overlap
+lists in travel order. Publishing the final pose then ends transient pairs
+and retains endpoint pairs. Crossing two trigger components of one Actor in a
+single move can therefore deliver two component Begins followed by two Ends
+and a single Actor Begin/End pair.
+
+`SetWorldLocation` and `AddWorldOffset` move the addressed scene component.
+`SetActorLocation` and `AddActorWorldOffset` move the Actor's root. Each
+defaults to unswept movement. With sweeping enabled, a primitive root can
+stop the Actor and return the blocking hit. Attached children inherit the
+accepted transform. The engine publishes the attachment tree's new poses
+before reconciling endpoint overlaps. A plain scene
+root can therefore carry colliding children through a wall. Calling
+`SetWorldLocation` directly on an attached primitive sweeps that primitive
+when requested and preserves its attachment.
+
+The Sandbox player uses a capsule root with its shape centered above the
+Actor's foot position. Walk, slide, step up/forward/down, penetration
+recovery and floor snapping use component moves. Floor and ledge probes
+query hypothetical positions without publishing a pose or overlap events.
+
+For two distinct owning Actors, the first component pair queues one Begin per
+Actor and the last pair to separate queues one End per Actor. Components on the
+same Actor can still receive component events. `IsOverlappingActor` reads the
+current component relationships. Event recipients come from `GetOwner()`;
+an explicit physics source object only changes the query filter identity.
+At dispatch, the component callbacks for the triggering pair run first. For
+Begin, both Actors receive `NotifyActorBeginOverlap` before either
+`OnActorBeginOverlap` delegate runs. For End, each Actor receives its
+`NotifyActorEndOverlap` and `OnActorEndOverlap` in turn. Both events carry
+the other Actor's object key.
 
 ## Query execution and observability
 
@@ -447,7 +514,7 @@ returns only initial penetration.
 
 Closest hits remain ordered by exact normalized time followed by stable body
 handle. Overlap results remain ordered by body handle. Compare treats status,
-count, ordering, handle, response, user token, and initial-penetration state as
+count, ordering, handle, response, component ID, and initial-penetration state as
 exact. It uses absolute tolerance `1.0e-12` for normalized time and `1.0e-8`
 for distance, location, impact point, impact normal, and penetration depth.
 Non-finite compared values never compare equal.
@@ -504,7 +571,7 @@ dense record directly; removal swap-removes the dense tail and repairs its
 owning slot. Retired generations reject before dense access, and reusable slots
 advance their generation before returning to the LIFO free list. A record owns
 one outward-rounded six-float exact AABB and its slot index. The qualified
-record uses 280 bytes, including the owner token, plus a 12-byte slot. Geometry diagnostics count unique
+record uses 280 bytes, including the owner ID, plus a 12-byte slot. Geometry diagnostics count unique
 payloads and retained bytes, so instance count does not multiply child memory.
 
 Motion is explicit and independent of filters. Low-level descriptions and
@@ -572,7 +639,7 @@ The implementation is synchronous and query-only. Programmatic low-level
 compounds are qualified; reflected compound authoring is deferred. Writable
 collision editing, multiple hulls, convex decomposition, per-feature materials,
 public feature IDs, dynamic rigid bodies, forces, constraints, asynchronous
-stepping, moving platforms, overlap events, and project-defined
+stepping, moving platforms, and project-defined
 profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,
 and evidence-gated simulation or backend work is maintained in the

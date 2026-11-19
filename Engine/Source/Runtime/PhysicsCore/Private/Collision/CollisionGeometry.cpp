@@ -3045,6 +3045,25 @@ namespace Durin::CollisionGeometry
 		return bFound ? ECollisionQueryStatus::Hit : ECollisionQueryStatus::Miss;
 	}
 
+	namespace
+	{
+		auto SweepShapePair(const FCollisionShape& Query, const FTransform& Start, const FVector3& Delta,
+			const FCollisionShape& Target, const FTransform& TargetPose, ECollisionQueryAlgorithm Algorithm,
+			FPhysicsQueryHit& Hit, FCollisionGeometryCounters* Counters) -> ECollisionQueryStatus
+		{
+			const auto Status = SweepLeaf(Query, Start, Delta, Target, TargetPose, Hit, Counters);
+			if ((Status == ECollisionQueryStatus::NonConverged || Status == ECollisionQueryStatus::Unsupported)
+				&& Algorithm == ECollisionQueryAlgorithm::Production && Query.GetType() == ECollisionShapeType::Capsule
+				&& Target.GetType() == ECollisionShapeType::Box)
+			{
+				if (Counters) AddSimpleCounter(Counters->ReferenceFallbacks, Counters);
+				return SweepCapsuleBox(Query, Start, Delta, Target, TargetPose, Hit, Counters)
+					? ECollisionQueryStatus::Hit : ECollisionQueryStatus::Miss;
+			}
+			return Status;
+		}
+	}
+
 	auto Sweep(
 		const FCollisionShape& Query, const FTransform& QueryTransform, const FVector3& Delta,
 		const FCollisionGeometryRef& Target, const FTransform& TargetTransform,
@@ -3103,17 +3122,7 @@ namespace Durin::CollisionGeometry
 			const FTransform ChildTransform = FTransform::Combine(TargetTransform, Child->LocalTransform);
 			ECollisionQueryStatus Status = Child->Geometry
 				? Sweep(Query, QueryTransform, Delta, Child->Geometry, ChildTransform, Algorithm, Candidate, Counters)
-				: SweepLeaf(Query, QueryTransform, Delta, Child->Shape, ChildTransform, Candidate, Counters);
-			if ((Status == ECollisionQueryStatus::NonConverged
-				|| Status == ECollisionQueryStatus::Unsupported)
-				&& Algorithm == ECollisionQueryAlgorithm::Production
-				&& Query.GetType() == ECollisionShapeType::Capsule
-				&& Child->Shape.GetType() == ECollisionShapeType::Box)
-			{
-				if (Counters) AddSimpleCounter(Counters->ReferenceFallbacks, Counters);
-				Status = SweepCapsuleBox(Query, QueryTransform, Delta, Child->Shape, ChildTransform,
-					Candidate, Counters) ? ECollisionQueryStatus::Hit : ECollisionQueryStatus::Miss;
-			}
+				: SweepShapePair(Query, QueryTransform, Delta, Child->Shape, ChildTransform, Algorithm, Candidate, Counters);
 			if (Status == ECollisionQueryStatus::NonConverged)
 			{
 				FinalStatus = Status;
@@ -3179,4 +3188,295 @@ namespace Durin::CollisionGeometry
 		}
 		return ECollisionQueryStatus::Miss;
 	}
+	namespace
+	{
+		struct FConvexProjectionData
+		{
+			std::vector<FVector3> Vertices;
+			std::vector<FVector3> FaceNormals;
+			std::vector<FVector3> EdgeDirections;
+		};
+
+		auto AddAxis(std::vector<FVector3>& Axes, FVector3 Axis) -> void
+		{
+			const double Length = Math::Length(Axis);
+			if (Length == 0.0) return;
+			Axis /= Length;
+			// Parallel axes have identical projection tests in either direction.
+			if (Axis.x < 0 || (Axis.x == 0 && (Axis.y < 0 || (Axis.y == 0 && Axis.z < 0)))) Axis = -Axis;
+			if (!std::ranges::contains(Axes, Axis)) Axes.push_back(Axis);
+		}
+
+		auto BuildConvexProjectionData(const FCollisionGeometryRef& Hull, const FTransform& Transform)
+			-> FConvexProjectionData
+		{
+			FConvexProjectionData Data;
+			Data.Vertices.reserve(Hull.GetVertexCount());
+			const FQuat Rotation = NormalizedRotation(Transform.Rotation);
+			for (uint32 Index = 0; Index < Hull.GetVertexCount(); ++Index)
+				Data.Vertices.push_back(Transform.Translation + Math::RotateVector(Rotation, Transform.Scale3D * *Hull.GetVertex(Index)));
+			for (uint32 Index = 0; Index < Hull.GetTriangleCount(); ++Index)
+			{
+				const auto& Face = *Hull.GetTriangle(Index);
+				const FVector3 AB = Data.Vertices[Face.Second] - Data.Vertices[Face.First];
+				const FVector3 BC = Data.Vertices[Face.Third] - Data.Vertices[Face.Second];
+				AddAxis(Data.FaceNormals, Math::Cross(AB, BC));
+				AddAxis(Data.EdgeDirections, AB);
+				AddAxis(Data.EdgeDirections, BC);
+				AddAxis(Data.EdgeDirections, Data.Vertices[Face.First] - Data.Vertices[Face.Third]);
+			}
+			return Data;
+		}
+
+		auto Project(std::span<const FVector3> Vertices, const FVector3& Axis) -> std::pair<double, double>
+		{
+			double Low = Math::Dot(Vertices.front(), Axis);
+			double High = Low;
+			for (const auto& Vertex : Vertices.subspan(1))
+			{
+				const double Value = Math::Dot(Vertex, Axis);
+				Low = std::min(Low, Value);
+				High = std::max(High, Value);
+			}
+			return std::pair{Low, High};
+		}
+
+		// SAT needs both face sets and the cross products of edges. The two directed
+		// gaps also work for a zero-thickness triangle or a fully contained hull.
+		auto ConvexInteriorsOverlap(const FConvexProjectionData& A, std::span<const FVector3> VerticesB,
+			std::span<const FVector3> NormalsB, std::span<const FVector3> EdgesB) -> bool
+		{
+			auto Separates = [&](const FVector3& Axis) {
+				const double Length = Math::Length(Axis);
+				if (Length == 0.0) return false;
+				const auto [LowA, HighA] = Project(A.Vertices, Axis);
+				const auto [LowB, HighB] = Project(VerticesB, Axis);
+				const double Tolerance = ContactTolerance * Length;
+				return HighA - LowB <= Tolerance || HighB - LowA <= Tolerance;
+			};
+			if (std::ranges::any_of(A.FaceNormals, Separates) || std::ranges::any_of(NormalsB, Separates)) return false;
+			for (const FVector3& EdgeA : A.EdgeDirections)
+				for (const FVector3& EdgeB : EdgesB)
+					if (Separates(Math::Cross(EdgeA, EdgeB))) return false;
+			return true;
+		}
+
+		// The visitor returns true to stop traversal (overlap), or false to collect all cast candidates.
+		template<typename Visitor>
+		auto VisitCookedPairs(const FCollisionGeometryRef& Hull, FTransform HullTransform,
+			const FCollisionGeometryRef& Other, FTransform OtherTransform, const FVector3& Delta,
+			FCollisionGeometryCounters* Counters, Visitor&& Visit) -> bool
+		{
+			// Project in a common translated frame to retain precision far from the world origin.
+			OtherTransform.Translation -= HullTransform.Translation;
+			HullTransform.Translation = {};
+			const auto Query = BuildConvexProjectionData(Hull, HullTransform);
+			if (Other.GetKind() == ECollisionGeometryKind::ConvexHull)
+			{
+				const auto Target = BuildConvexProjectionData(Other, OtherTransform);
+				return Visit(Query, Target.Vertices, Target.FaceNormals, Target.EdgeDirections);
+			}
+
+			auto IntersectsTriangle = [&](uint32 Index) {
+				std::array<FVector3, 3> Triangle;
+				uint32 Ordinal = 0;
+				if (!GetWorldTriangle(Other, Index, OtherTransform, Triangle[0], Triangle[1], Triangle[2], Ordinal)) return false;
+				if (Counters) AddSimpleCounter(Counters->FeatureTests, Counters);
+				const std::array Edges{Triangle[1] - Triangle[0], Triangle[2] - Triangle[1], Triangle[0] - Triangle[2]};
+				const std::array Normals{Math::Cross(Edges[0], Edges[1])};
+				return Visit(Query, Triangle, Normals, Edges);
+			};
+			if (Other.GetNodeCount())
+			{
+				FVector3 Minimum = Query.Vertices.front(), Maximum = Minimum;
+				for (const FVector3& Vertex : Query.Vertices)
+				{
+					Minimum = Math::Min(Minimum, Vertex);
+					Maximum = Math::Max(Maximum, Vertex);
+				}
+				FVector3 LocalMin, LocalMax;
+				if (WorldBoundsToTargetLocal(Math::Min(Minimum, Minimum + Delta), Math::Max(Maximum, Maximum + Delta), OtherTransform, LocalMin, LocalMax))
+				{
+					bool bHit = false;
+					const bool bComplete = VisitBvh(Other, LocalMin, LocalMax, Counters, [&](uint32 Index) {
+						bHit = IntersectsTriangle(Index);
+						return !bHit;
+					});
+					if (bHit || bComplete) return bHit;
+				}
+			}
+			for (uint32 Index = 0; Index < Other.GetTriangleCount(); ++Index)
+				if (IntersectsTriangle(Index)) return true;
+			return false;
+		}
+
+		// At time of impact a target triangle intersects the translated hull. Clip the
+		// triangle to its face slabs to obtain a point shared by both surfaces.
+		auto FindHullContactPoint(const FConvexProjectionData& Hull, std::span<const FVector3> Vertices,
+			const FCollisionGeometryRef& Target, const FVector3& Offset, FVector3& Point) -> void
+		{
+			std::vector<FVector3> Polygon, Next;
+			auto Clip = [&](const FVector3& Normal, double Limit) {
+				Next.clear();
+				FVector3 Previous = Polygon.back();
+				double PrevDist = Math::Dot(Previous, Normal) - Limit;
+				for (const FVector3& Current : Polygon)
+				{
+					const double Dist = Math::Dot(Current, Normal) - Limit;
+					if ((PrevDist > 0.0) != (Dist > 0.0))
+						Next.push_back(Previous + (Current - Previous) * (PrevDist / (PrevDist - Dist)));
+					if (Dist <= 0.0) Next.push_back(Current);
+					Previous = Current;
+					PrevDist = Dist;
+				}
+				Polygon.swap(Next);
+				return !Polygon.empty();
+			};
+			const bool bTriangle = Target.GetKind() == ECollisionGeometryKind::TriangleMesh;
+			const uint32 Count = bTriangle ? 1 : Target.GetTriangleCount();
+			for (uint32 Index = 0; Index < Count; ++Index)
+			{
+				if (bTriangle) Polygon.assign(Vertices.begin(), Vertices.end());
+				else
+				{
+					const auto& Face = *Target.GetTriangle(Index);
+					Polygon = {Vertices[Face.First], Vertices[Face.Second], Vertices[Face.Third]};
+				}
+				for (const auto& Axis : Hull.FaceNormals)
+				{
+					const auto [Low, High] = Project(Hull.Vertices, Axis);
+					const double Shift = Math::Dot(Offset, Axis);
+					if (!Clip(Axis, High + Shift + ContactTolerance) || !Clip(-Axis, -Low - Shift + ContactTolerance)) break;
+				}
+				if (!Polygon.empty()) { Point = Polygon.front(); return; }
+			}
+		}
+
+		// Intersect the time intervals in which the two projections touch on every SAT axis.
+		auto SweepConvexPair(const FConvexProjectionData& A, std::span<const FVector3> B,
+			std::span<const FVector3> Normals, std::span<const FVector3> Edges, const FVector3& Delta,
+			FPhysicsQueryHit& Hit) -> bool
+		{
+			double Enter = -std::numeric_limits<double>::infinity();
+			double Exit = 1.0;
+			double Depth = std::numeric_limits<double>::infinity();
+			FVector3 EnterNormal{}, InitialNormal{};
+			auto Test = [&](const FVector3& Raw) {
+				FVector3 Axis;
+				if (!Math::TryNormalize(Raw, Axis)) return true;
+				const auto [ALo, AHi] = Project(A.Vertices, Axis);
+				const auto [BLo, BHi] = Project(B, Axis);
+				const double Left = AHi - BLo, Right = BHi - ALo;
+				const double Overlap = std::min(Left, Right);
+				if (Overlap < Depth)
+				{
+					Depth = Overlap;
+					InitialNormal = Left < Right ? -Axis : Axis;
+				}
+				const double Speed = Math::Dot(Delta, Axis);
+				if (Speed == 0.0) return Overlap >= 0.0;
+				const double T0 = -Left / Speed, T1 = Right / Speed;
+				const double Start = std::min(T0, T1);
+				if (Start > Enter)
+				{
+					Enter = Start;
+					EnterNormal = Speed > 0.0 ? -Axis : Axis;
+				}
+				Exit = std::min(Exit, std::max(T0, T1));
+				return Exit >= std::max(0.0, Enter);
+			};
+			for (const auto& Axis : A.FaceNormals) if (!Test(Axis)) return false;
+			for (const auto& Axis : Normals) if (!Test(Axis)) return false;
+			for (const auto& EA : A.EdgeDirections)
+				for (const auto& EB : Edges)
+					if (!Test(Math::Cross(EA, EB))) return false;
+			Hit.bStartPenetrating = Depth > ContactTolerance;
+			if (!Hit.bStartPenetrating && Enter < 0.0) return false;
+			Hit.Time = std::max(0.0, Enter);
+			Hit.PenetrationDepth = std::max(0.0, Depth);
+			Hit.ImpactNormal = Hit.bStartPenetrating ? InitialNormal : EnterNormal;
+			Hit.ImpactPoint = *std::ranges::max_element(B, {}, [&](const auto& P) { return Math::Dot(P, Hit.ImpactNormal); });
+			return true;
+		}
+
+		template<typename Visitor>
+		auto AnyOverlapLeaf(const FCollisionGeometryRef& Geometry, const FTransform& Transform, Visitor&& Visit) -> bool
+		{
+			if (!Geometry.GetChildCount()) return Visit(nullptr, Geometry, Transform);
+			for (uint32 Index = 0; Index < Geometry.GetChildCount(); ++Index)
+			{
+				const auto& Child = *Geometry.GetChild(Index);
+				if (Visit(Child.Geometry ? nullptr : &Child.Shape, Child.Geometry,
+					FTransform::Combine(Transform, Child.LocalTransform))) return true;
+			}
+			return false;
+		}
+	}
+
+	auto VisitGeometrySweepHits(const FCollisionGeometryRef& Source, const FTransform& Start, const FVector3& Delta,
+		const FCollisionGeometryRef& Target, const FTransform& TargetTransform,
+		const std::function<void(const FPhysicsQueryHit&)>& VisitHit) -> void
+	{
+		if (!Source || !Target || !IsValidPhysicsTransform(Start) || !IsValidPhysicsTransform(TargetTransform)
+			|| !Math::IsFinite(Delta) || Source.GetKind() == ECollisionGeometryKind::TriangleMesh) return;
+		AnyOverlapLeaf(Source, Start, [&](const FCollisionShape* Shape, const FCollisionGeometryRef& Hull, const FTransform& Pose) {
+			FPhysicsQueryHit Hit;
+			AnyOverlapLeaf(Target, TargetTransform, [&](const FCollisionShape* Other, const FCollisionGeometryRef& Cooked, const FTransform& TP) {
+				if (Shape)
+				{
+					const auto Status = Other
+						? SweepShapePair(*Shape, Pose, Delta, *Other, TP, ECollisionQueryAlgorithm::Production, Hit, nullptr)
+						: Sweep(*Shape, Pose, Delta, Cooked, TP, ECollisionQueryAlgorithm::Production, Hit);
+					if (Status == ECollisionQueryStatus::Hit) VisitHit(Hit);
+				}
+				else if (Other)
+				{
+					if (Sweep(*Other, TP, -Delta, Hull, Pose, ECollisionQueryAlgorithm::Production, Hit) == ECollisionQueryStatus::Hit)
+					{
+						Hit.ImpactPoint += Delta * Hit.Time;
+						Hit.ImpactNormal = -Hit.ImpactNormal;
+						Hit.Location = Pose.Translation + Delta * Hit.Time;
+						VisitHit(Hit);
+					}
+				}
+				else VisitCookedPairs(Hull, Pose, Cooked, TP, Delta, nullptr, [&](const auto& A, const auto& B, const auto& N, const auto& E) {
+					FPhysicsQueryHit Candidate;
+					if (SweepConvexPair(A, B, N, E, Delta, Candidate))
+					{
+						if (!Candidate.bStartPenetrating)
+							FindHullContactPoint(A, B, Cooked, Delta * Candidate.Time, Candidate.ImpactPoint);
+						Candidate.ImpactPoint += Pose.Translation;
+						Candidate.Location = Pose.Translation + Delta * Candidate.Time;
+						VisitHit(Candidate);
+					}
+					return false;
+				});
+				return false;
+			});
+			return false;
+		});
+	}
+
+	auto OverlapGeometry(const FCollisionGeometryRef& A, const FTransform& TransformA,
+		const FCollisionGeometryRef& B, const FTransform& TransformB, FCollisionGeometryCounters* Counters)
+		-> ECollisionQueryStatus
+	{
+		if (!A || !B || !IsValidPhysicsTransform(TransformA) || !IsValidPhysicsTransform(TransformB))
+			return ECollisionQueryStatus::Invalid;
+		if (A.GetKind() == ECollisionGeometryKind::TriangleMesh && B.GetKind() == ECollisionGeometryKind::TriangleMesh)
+			return ECollisionQueryStatus::Unsupported;
+		const bool bHit = AnyOverlapLeaf(A, TransformA, [&](const FCollisionShape* ShapeA, const FCollisionGeometryRef& CookedA, const FTransform& TA) {
+			return AnyOverlapLeaf(B, TransformB, [&](const FCollisionShape* ShapeB, const FCollisionGeometryRef& CookedB, const FTransform& TB) {
+				FPhysicsQueryHit Hit;
+				if (ShapeA && ShapeB)
+					return OverlapLeaf(*ShapeA, TA, *ShapeB, TB, Hit, Counters) || OverlapLeaf(*ShapeB, TB, *ShapeA, TA, Hit, Counters);
+				if (ShapeA) return Overlap(*ShapeA, TA, CookedB, TB, ECollisionQueryAlgorithm::Production, Hit, Counters) == ECollisionQueryStatus::Hit;
+				if (ShapeB) return Overlap(*ShapeB, TB, CookedA, TA, ECollisionQueryAlgorithm::Production, Hit, Counters) == ECollisionQueryStatus::Hit;
+				if (CookedA.GetKind() == ECollisionGeometryKind::ConvexHull) return VisitCookedPairs(CookedA, TA, CookedB, TB, {}, Counters, ConvexInteriorsOverlap);
+				return VisitCookedPairs(CookedB, TB, CookedA, TA, {}, Counters, ConvexInteriorsOverlap);
+			});
+		});
+		return bHit ? ECollisionQueryStatus::Hit : ECollisionQueryStatus::Miss;
+	}
+
 }

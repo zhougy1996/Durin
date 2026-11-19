@@ -20,16 +20,15 @@ namespace Durin
 			HitDifferenceImpactPoint = 1u << 8,
 			HitDifferenceImpactNormal = 1u << 9,
 			HitDifferencePenetrationDepth = 1u << 10,
-			HitDifferenceUserToken = 1u << 11,
+			HitDifferenceComponentID = 1u << 11,
 			HitDifferenceStartPenetrating = 1u << 12
 		};
 
 		auto IsIgnored(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& Body, const FPhysicsQueryFilter& Filter) -> bool
 		{
 			return std::ranges::contains(Filter.IgnoredActors, Handle)
-				|| std::ranges::any_of(Filter.IgnoredObjectTokens, [&](uint64 Token) {
-					return Token != 0 && (Token == Body.UserToken || Token == Body.OwnerToken);
-				});
+				|| (Body.OwnerID && std::ranges::contains(Filter.IgnoredSourceObjectIDs, Body.OwnerID))
+				|| (Body.ComponentID && std::ranges::contains(Filter.IgnoredComponentIDs, Body.ComponentID));
 		}
 
 		auto ResolveResponse(const FPhysicsFilterData& Body, const FPhysicsQueryFilter& Query)
@@ -50,6 +49,20 @@ namespace Durin
 		{
 			return !Current.IsHit() || Candidate.Time < Current.Time
 				|| (Candidate.Time == Current.Time && Candidate.ActorHandle < Current.ActorHandle);
+		}
+
+		auto IsPreferredMovementBlock(const FPhysicsQueryHit& Hit, const FPhysicsQueryHit& Current, const FVector3& Delta) -> bool
+		{
+			const double NormalDot = Math::Dot(Hit.ImpactNormal, Delta);
+			if (Hit.bStartPenetrating && NormalDot > 0.0) return false;
+			if (!Current.IsHit() || Hit.Time != Current.Time) return IsCloser(Hit, Current);
+			if (Hit.bStartPenetrating != Current.bStartPenetrating) return Hit.bStartPenetrating;
+			if (Hit.bStartPenetrating)
+			{
+				const double PreviousDot = Math::Dot(Current.ImpactNormal, Delta);
+				if (NormalDot != PreviousDot) return NormalDot < PreviousDot;
+			}
+			return Hit.ActorHandle < Current.ActorHandle;
 		}
 
 		auto SortMultiResults(std::vector<FPhysicsQueryHit>& Hits) -> void
@@ -83,7 +96,7 @@ namespace Durin
 				Difference |= HitDifferenceImpactNormal;
 			if (!IsNear(Reference.PenetrationDepth, Production.PenetrationDepth, 1.0e-8))
 				Difference |= HitDifferencePenetrationDepth;
-			if (Reference.UserToken != Production.UserToken) Difference |= HitDifferenceUserToken;
+			if (Reference.ComponentID != Production.ComponentID) Difference |= HitDifferenceComponentID;
 			if (Reference.bStartPenetrating != Production.bStartPenetrating)
 				Difference |= HitDifferenceStartPenetrating;
 			return Difference;
@@ -495,6 +508,102 @@ namespace Durin
 		return true;
 	}
 
+	auto FPhysicsScene::SweepBody(FPhysicsActorHandle Handle, const FVector3& Delta, uint64 IgnoredOwnerID,
+		std::vector<FPhysicsQueryHit>* Touches, FPhysicsQueryHit& Block, const FVector3& StartOffset) const -> bool
+	{
+		if (Touches) Touches->clear();
+		Block = {};
+		if (!IsOwningThread() || !Math::IsFinite(Delta) || !Math::IsFinite(StartOffset)) return false;
+		const auto* Source = FindBody(Handle);
+		if (!Source) return false;
+		FTransform Start;
+		const auto& Moving = SelectQueryGeometry(Source->Desc, Source->SimpleQueryMask, Source->ComplexQueryMask,
+			EPhysicsQueryComplexity::Simple, Start);
+		if (!Moving || Moving.GetKind() == ECollisionGeometryKind::TriangleMesh) return true;
+		Start.Translation += StartOffset;
+		FPhysicsQueryFilter Filter;
+		Filter.QueryChannel = Source->Desc.Filter.ObjectChannel;
+		Filter.Responses = Source->Desc.Filter.Responses;
+		const double Length = Math::Length(Delta);
+		auto Visit = [&](const FBodyRecord& Body) {
+			if (&Body == Source || (Body.Desc.OwnerID && (Body.Desc.OwnerID == IgnoredOwnerID
+				|| Body.Desc.OwnerID == Source->Desc.OwnerID))) return;
+			const auto Response = ResolveResponse(Body.Desc.Filter, Filter);
+			if (Response == EPhysicsQueryResponse::Ignore || (Response == EPhysicsQueryResponse::Overlap
+				&& (!Touches || !Source->Desc.bGenerateOverlapEvents || !Body.Desc.bGenerateOverlapEvents))) return;
+			FTransform Pose;
+			const auto& Geometry = SelectQueryGeometry(Body.Desc, Body.SimpleQueryMask, Body.ComplexQueryMask,
+				EPhysicsQueryComplexity::Simple, Pose);
+			if (!Geometry) return;
+			FPhysicsQueryHit FirstTouch;
+			CollisionGeometry::VisitGeometrySweepHits(Moving, Start, Delta, Geometry, Pose, [&](FPhysicsQueryHit Hit) {
+				Hit.ActorHandle = GetHandle(Body);
+				Hit.ComponentID = Body.Desc.ComponentID;
+				Hit.Response = Response;
+				Hit.Distance = Length * Hit.Time;
+				if (Response == EPhysicsQueryResponse::Overlap)
+				{
+					if (IsCloser(Hit, FirstTouch)) FirstTouch = Hit;
+					return;
+				}
+				if (IsPreferredMovementBlock(Hit, Block, Delta)) Block = Hit;
+			});
+			if (FirstTouch.IsHit()) Touches->push_back(FirstTouch);
+		};
+		const auto& Bounds = Source->Bounds;
+		const auto Min = FVector3(Bounds[0], Bounds[1], Bounds[2]) + StartOffset;
+		const auto Max = FVector3(Bounds[3], Bounds[4], Bounds[5]) + StartOffset;
+		std::array<float, 6> SweptBounds;
+		if (!CompactBounds(Math::Min(Min, Min + Delta), Math::Max(Max, Max + Delta), SweptBounds)) return false;
+		FPhysicsSceneQueryCounters Work;
+		if (!TraverseProductionCandidates(SweptBounds, {}, {}, {}, nullptr, Visit, Work))
+		{
+			if (Touches) Touches->clear();
+			Block = {};
+			for (const auto& Body : Bodies) Visit(Body);
+		}
+		if (!Touches) return true;
+		if (Block.IsHit()) std::erase_if(*Touches, [&](const auto& Hit) { return Hit.Time > Block.Time; });
+		std::ranges::sort(*Touches, [](const auto& A, const auto& B) {
+			return A.Time != B.Time ? A.Time < B.Time : A.ActorHandle < B.ActorHandle;
+		});
+		return true;
+	}
+
+	auto FPhysicsScene::FindBodyOverlaps(FPhysicsActorHandle Handle) const -> std::vector<uint64>
+	{
+		std::vector<uint64> ComponentIDs;
+		if (!IsOwningThread()) return ComponentIDs;
+		const FBodyRecord* Source = FindBody(Handle);
+		if (!Source || !Source->Desc.bGenerateOverlapEvents) return ComponentIDs;
+		FTransform SourceTransform;
+		const auto& SourceGeometry = SelectQueryGeometry(Source->Desc, Source->SimpleQueryMask,
+			Source->ComplexQueryMask, EPhysicsQueryComplexity::Simple, SourceTransform);
+		if (!SourceGeometry) return ComponentIDs;
+		FPhysicsQueryFilter Filter;
+		Filter.QueryChannel = Source->Desc.Filter.ObjectChannel;
+		Filter.Responses = Source->Desc.Filter.Responses;
+		auto Visit = [&](const FBodyRecord& Other) {
+			if (&Other == Source || !Other.Desc.bGenerateOverlapEvents || !Other.Desc.ComponentID
+				|| ResolveResponse(Other.Desc.Filter, Filter) != EPhysicsQueryResponse::Overlap) return;
+			FTransform Transform;
+			const auto& Geometry = SelectQueryGeometry(Other.Desc, Other.SimpleQueryMask,
+				Other.ComplexQueryMask, EPhysicsQueryComplexity::Simple, Transform);
+			if (Geometry && CollisionGeometry::OverlapGeometry(SourceGeometry, SourceTransform, Geometry, Transform)
+				== CollisionGeometry::ECollisionQueryStatus::Hit)
+				ComponentIDs.push_back(Other.Desc.ComponentID);
+		};
+		FPhysicsSceneQueryCounters Work;
+		if (!TraverseProductionCandidates(Source->Bounds, {}, {}, {}, nullptr, Visit, Work))
+		{
+			ComponentIDs.clear();
+			for (const auto& Body : Bodies) Visit(Body);
+		}
+		std::ranges::sort(ComponentIDs);
+		ComponentIDs.erase(std::unique(ComponentIDs.begin(), ComponentIDs.end()), ComponentIDs.end());
+		return ComponentIDs;
+	}
+
 	auto FPhysicsScene::ContainsBody(FPhysicsActorHandle Handle) const -> bool
 	{
 		return IsOwningThread() && FindBody(Handle) != nullptr;
@@ -627,7 +736,8 @@ namespace Durin
 			const FVector3 QueryStart = Start;
 			const FVector3 QueryEnd = End;
 			const FPhysicsQueryFilter QueryFilter = Filter;
-			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredObjectTokens.size();
+			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredSourceObjectIDs.size()
+				+ QueryFilter.IgnoredComponentIDs.size();
 			Query.Counters.ScratchHighWater = 2;
 			FPhysicsQueryHit ReferenceHit;
 			FPhysicsQueryHit ProductionHit;
@@ -709,7 +819,8 @@ namespace Durin
 			const FTransform QueryTransform = StartTransform;
 			const FVector3 QueryDelta = Delta;
 			const FPhysicsQueryFilter QueryFilter = Filter;
-			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredObjectTokens.size();
+			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredSourceObjectIDs.size()
+				+ QueryFilter.IgnoredComponentIDs.size();
 			Query.Counters.ScratchHighWater = 2;
 			FPhysicsQueryHit ReferenceHit;
 			FPhysicsQueryHit ProductionHit;
@@ -789,7 +900,8 @@ namespace Durin
 			const FCollisionShape QueryShape = Shape;
 			const FTransform QueryTransform = Transform;
 			const FPhysicsQueryFilter QueryFilter = Filter;
-			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredObjectTokens.size();
+			Query.Counters.CaptureHighWater = QueryFilter.IgnoredActors.size() + QueryFilter.IgnoredSourceObjectIDs.size()
+				+ QueryFilter.IgnoredComponentIDs.size();
 			std::vector<FPhysicsQueryHit> ReferenceHits;
 			std::vector<FPhysicsQueryHit> ProductionHits;
 			const bool bReferenceStatus = ExecuteReferenceOverlap(
@@ -907,7 +1019,7 @@ namespace Durin
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
 			Candidate.Distance = Math::Length(End - Start) * Candidate.Time;
-			Candidate.UserToken = Body.Desc.UserToken;
+			Candidate.ComponentID = Body.Desc.ComponentID;
 			if (IsCloser(Candidate, OutHit)) OutHit = Candidate;
 		}
 		return OutHit.IsHit();
@@ -954,7 +1066,7 @@ namespace Durin
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
 			Candidate.Distance = Math::Length(End - Start) * Candidate.Time;
-			Candidate.UserToken = Body.Desc.UserToken;
+			Candidate.ComponentID = Body.Desc.ComponentID;
 			if (IsCloser(Candidate, OutHit)) OutHit = Candidate;
 		}, Work);
 		if (!bTraversalComplete)
@@ -965,7 +1077,7 @@ namespace Durin
 			OutHit = {};
 			return ExecuteReferenceLineTrace(Start, End, Filter, OutHit, Work);
 		}
-		if (ProductionTestFault == EProductionTestFault::CorruptFirstResult && OutHit.IsHit()) ++OutHit.UserToken;
+		if (ProductionTestFault == EProductionTestFault::CorruptFirstResult && OutHit.IsHit()) ++OutHit.ComponentID;
 		return OutHit.IsHit();
 	}
 
@@ -1016,7 +1128,7 @@ namespace Durin
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
 			Candidate.Distance = Math::Length(Delta) * Candidate.Time;
-			Candidate.UserToken = Body.Desc.UserToken;
+			Candidate.ComponentID = Body.Desc.ComponentID;
 			if (IsCloser(Candidate, OutHit)) OutHit = Candidate;
 		}
 		return OutHit.IsHit();
@@ -1075,7 +1187,7 @@ namespace Durin
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
 			Candidate.Distance = Math::Length(Delta) * Candidate.Time;
-			Candidate.UserToken = Body.Desc.UserToken;
+			Candidate.ComponentID = Body.Desc.ComponentID;
 			if (IsCloser(Candidate, OutHit)) OutHit = Candidate;
 		}, Work);
 		if (!bTraversalComplete)
@@ -1086,7 +1198,7 @@ namespace Durin
 			OutHit = {};
 			return ExecuteReferenceSweep(Shape, StartTransform, Delta, Filter, OutHit, Work);
 		}
-		if (ProductionTestFault == EProductionTestFault::CorruptFirstResult && OutHit.IsHit()) ++OutHit.UserToken;
+		if (ProductionTestFault == EProductionTestFault::CorruptFirstResult && OutHit.IsHit()) ++OutHit.ComponentID;
 		return OutHit.IsHit();
 	}
 
@@ -1128,7 +1240,7 @@ namespace Durin
 			SaturatingAdd(Work.RawHits, 1);
 			Hit.ActorHandle = GetHandle(Body);
 			Hit.Response = Response;
-			Hit.UserToken = Body.Desc.UserToken;
+			Hit.ComponentID = Body.Desc.ComponentID;
 			OutHits.push_back(Hit);
 		}
 		SortMultiResults(OutHits);
@@ -1176,7 +1288,7 @@ namespace Durin
 			SaturatingAdd(Work.RawHits, 1);
 			Hit.ActorHandle = GetHandle(Body);
 			Hit.Response = Response;
-			Hit.UserToken = Body.Desc.UserToken;
+			Hit.ComponentID = Body.Desc.ComponentID;
 			OutHits.push_back(Hit);
 		}, Work);
 		if (!bTraversalComplete)
@@ -1190,7 +1302,7 @@ namespace Durin
 		SortMultiResults(OutHits);
 		if (ProductionTestFault == EProductionTestFault::ReverseResults) std::ranges::reverse(OutHits);
 		if (ProductionTestFault == EProductionTestFault::CorruptFirstResult && !OutHits.empty())
-			++OutHits.front().UserToken;
+			++OutHits.front().ComponentID;
 		return !OutHits.empty();
 	}
 

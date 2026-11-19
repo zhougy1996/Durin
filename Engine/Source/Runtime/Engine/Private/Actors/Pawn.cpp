@@ -7,9 +7,14 @@
 namespace Durin
 {
 	APawn::APawn(const FObjectInitializer& ObjectInitializer)
+		: APawn(ObjectInitializer, true)
+	{
+	}
+
+	APawn::APawn(const FObjectInitializer& ObjectInitializer, bool bCreateDefaultRoot)
 		: Super(ObjectInitializer)
 	{
-		SetRootComponent(CreateDefaultComponent<DSceneComponent>("Root"));
+		if (bCreateDefaultRoot) SetRootComponent(CreateDefaultComponent<DSceneComponent>("Root"));
 		SetActorTickEnabled(true);
 	}
 

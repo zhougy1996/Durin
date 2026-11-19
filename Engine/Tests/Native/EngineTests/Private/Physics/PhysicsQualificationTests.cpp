@@ -34,14 +34,14 @@ namespace
 
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
-		uint64 UserToken,
+		uint64 ComponentID,
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
 		Desc.SimpleGeometry = Durin::FCollisionGeometryRef::MakePrimitive(
 			Durin::FCollisionShape::MakeBox(HalfExtent));
 		Desc.SimpleTransform.Translation = Center;
-		Desc.UserToken = UserToken;
+		Desc.ComponentID = ComponentID;
 		return Desc;
 	}
 

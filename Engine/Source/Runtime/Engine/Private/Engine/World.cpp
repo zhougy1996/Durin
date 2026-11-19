@@ -179,6 +179,7 @@ namespace Durin
 			return PlayFailure("Native gameplay bootstrap was invalidated by a BeginPlay callback.");
 		}
 		PlayState = EWorldPlayState::Playing;
+		DispatchOverlapNotifications();
 		return;
 	}
 
@@ -233,6 +234,7 @@ namespace Durin
 		{
 			if (!CanContinueFrame()) break;
 			if (bGameplay && !CapturedLevel->TickRegistry.RunTickGroup(Group)) break;
+			if (bGameplay && Group == ETickingGroup::Physics && CanContinueFrame()) DispatchOverlapNotifications();
 		}
 		if (bGameplay && CanContinueTicking(CapturedLevel)) Timers.Dispatch();
 		if (CanContinueFrame())
@@ -266,6 +268,7 @@ namespace Durin
 		std::vector<TObjectPtr<AActor>> Actors;
 		if (CapturedLevel) Actors = CapturedLevel->GetActors();
 		PlayState = EWorldPlayState::EndingPlay;
+		PendingOverlapNotifications.clear();
 		Timers.Reset();
 		bSingleStepRequested = false;
 		ClearPendingGameplayIntent();

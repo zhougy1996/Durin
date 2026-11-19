@@ -16,28 +16,30 @@
 namespace Durin::Sandbox
 {
 	APlayerPawn::APlayerPawn(const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
+		: Super(ObjectInitializer, /*bCreateDefaultRoot=*/false)
 	{
 		GroundMovementComponent = CreateDefaultComponent<DSimpleGroundMovementComponent>("GroundMovement");
 		verify(SetMovementComponent(GroundMovementComponent.Get()));
 
 		CapsuleComponent = CreateDefaultComponent<DCapsuleComponent>("CollisionCapsule");
-		verify(CapsuleComponent->SetupAttachment(GetRootComponent()));
+		verify(SetRootComponent(CapsuleComponent.Get()));
 		verify(CapsuleComponent->SetCapsuleSize(
 			GameplayTuning::CapsuleRadius, GameplayTuning::CapsuleHalfHeight));
-		CapsuleComponent->SetRelativeLocation(FVector3(0.0, 0.0, GameplayTuning::CapsuleHalfHeight));
+		FTransform CapsulePose;
+		CapsulePose.Translation.z = GameplayTuning::CapsuleHalfHeight;
+		verify(CapsuleComponent->SetCapsuleLocalPose(CapsulePose));
 		verify(CapsuleComponent->SetCollisionProfileName(CollisionProfile::Pawn));
 
 		VisualComponent = CreateDefaultComponent<DStaticMeshComponent>("GrayboxVisual");
 		verify(VisualComponent->SetCollisionProfileName(CollisionProfile::NoCollision));
-		verify(VisualComponent->SetupAttachment(GetRootComponent()));
+		verify(VisualComponent->SetupAttachment(CapsuleComponent.Get()));
 		FTransform VisualTransform;
 		VisualTransform.Translation = GameplayTuning::VisualOffset;
 		VisualTransform.Scale3D = GameplayTuning::VisualScale;
 		VisualComponent->SetRelativeTransform(VisualTransform);
 
 		CameraComponent = CreateDefaultComponent<DCameraComponent>("GameplayCamera");
-		verify(CameraComponent->SetupAttachment(GetRootComponent()));
+		verify(CameraComponent->SetupAttachment(CapsuleComponent.Get()));
 		CameraComponent->SetRelativeLocation(GameplayTuning::CameraOffset);
 	}
 

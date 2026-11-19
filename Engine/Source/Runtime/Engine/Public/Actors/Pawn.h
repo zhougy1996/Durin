@@ -27,6 +27,7 @@ namespace Durin
 		auto HasPendingControlIntent() const -> bool { return bHasPendingControlIntent; }
 
 	protected:
+		ENGINE_API APawn(const FObjectInitializer& ObjectInitializer, bool bCreateDefaultRoot);
 		// Selects the single pawn-owned component allowed to perform semantic movement updates.
 		ENGINE_API auto SetMovementComponent(DPawnMovementComponent* Component) -> bool;
 		ENGINE_API auto OnActorDestroyed() -> void override;

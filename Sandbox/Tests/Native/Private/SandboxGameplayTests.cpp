@@ -288,7 +288,11 @@ TEST(FSandboxGameplayBootstrapTests, SelectsOwnsRestartsAndTearsDownConcreteRole
 	EXPECT_NE(Pawn->GetVisualComponent(), nullptr);
 	EXPECT_NE(Pawn->GetCapsuleComponent(), nullptr);
 	EXPECT_EQ(Pawn->GetVisualComponent()->GetCollisionEnabled(), Durin::ECollisionEnabled::NoCollision);
-	EXPECT_NE(Pawn->GetCameraComponent(), nullptr);
+	ASSERT_NE(Pawn->GetCameraComponent(), nullptr);
+	EXPECT_EQ(Pawn->GetRootComponent(), Pawn->GetCapsuleComponent());
+	EXPECT_EQ(Pawn->GetVisualComponent()->GetAttachParent(), Pawn->GetRootComponent());
+	EXPECT_EQ(Pawn->GetCameraComponent()->GetAttachParent(), Pawn->GetRootComponent());
+	EXPECT_EQ(Pawn->GetRootComponent()->GetAttachChildren().size(), 2u);
 	EXPECT_EQ(Pawn->FindComponentsByClass<Durin::DPawnMovementComponent>().size(), 1u);
 	const Durin::FPlayerRestartResult Restart = World->RestartPlayer();
 	ASSERT_TRUE(Restart) << Restart.Message;
@@ -339,6 +343,71 @@ TEST(FSandboxGameplayMovementTests, AcceleratesJumpsLandsAndAppliesBoundedLook)
 		Pawn->GetGroundMovementComponent()->GetVelocity().y)),
 		Durin::Sandbox::GameplayTuning::MaximumHorizontalSpeed + 1.0e-9);
 	DestroyWorld(World);
+}
+
+TEST(FSandboxGameplayMovementTests, FallingPawnCrossesThinTriggerInOneGameplayTick)
+{
+	using namespace Durin;
+	auto* World = CreateGameplayWorld(false);
+	auto* Trigger = AddCollisionBox(*World, "ThinTrigger", {0, 0, 3.3}, {2, 2, 0.01});
+	Trigger->SetCollisionProfileName(CollisionProfile::Trigger);
+	auto* Pawn = BeginGameplay(*World);
+	ASSERT_TRUE(Pawn->SetActorLocation({0, 0, 4}));
+	auto* Capsule = Pawn->GetCapsuleComponent();
+	ASSERT_EQ(Pawn->GetRootComponent(), Capsule);
+	std::string Events;
+	Capsule->OnComponentBeginOverlap.AddLambda([&](auto&, auto Peer) { EXPECT_EQ(Peer.ResolveObjectPtr(), Trigger); Events += '+'; });
+	Pawn->OnActorBeginOverlap.AddLambda([&](auto&, auto Peer) { EXPECT_EQ(Peer.ResolveObjectPtr(), Trigger->GetOwner()); Events += 'A'; });
+	Capsule->OnComponentEndOverlap.AddLambda([&](auto&, auto Peer) { EXPECT_EQ(Peer.ResolveObjectPtr(), Trigger); Events += '-'; });
+	Pawn->OnActorEndOverlap.AddLambda([&](auto&, auto Peer) { EXPECT_EQ(Peer.ResolveObjectPtr(), Trigger->GetOwner()); Events += 'a'; });
+	Pawn->GetGroundMovementComponent()->SetVelocity({0, 0, -64});
+	FGameInputState Input;
+	FGameInputStateTestAccess::EnableAndFocus(Input);
+	World->Tick({.DeltaSeconds = 0.05f, .GameInput = &Input});
+	EXPECT_LT(Pawn->GetActorTransform().Translation.z + 2.0 * Capsule->GetCapsuleHalfHeight(), 3.29);
+	EXPECT_FALSE(Pawn->IsOverlappingActor(Trigger->GetOwner()));
+	EXPECT_EQ(Events, "+A-a");
+	DestroyWorld(World);
+}
+
+TEST(FSandboxGameplayCollisionTests, OnlyAcceptedStepUpSegmentsCrossOverheadTrigger)
+{
+	using namespace Durin;
+	for (const double Height : {0.4, 2.0})
+	{
+		SCOPED_TRACE(Height);
+		auto* World = CreateGameplayWorld();
+		AddCollisionBox(*World, "Ledge", {2, 0, Height * 0.5}, {0.5, 2, Height * 0.5});
+		auto* Trigger = AddCollisionBox(*World, "OverheadTrigger", {2, 0, 2.435}, {2, 1, 0.002});
+		Trigger->SetCollisionProfileName(CollisionProfile::Trigger);
+		auto* Pawn = BeginGameplay(*World);
+		std::string Events;
+		Pawn->OnActorBeginOverlap.AddLambda([&](auto&, auto Peer) {
+			if (Peer.ResolveObjectPtr() == Trigger->GetOwner()) Events += '+';
+		});
+		Pawn->OnActorEndOverlap.AddLambda([&](auto&, auto Peer) {
+			if (Peer.ResolveObjectPtr() == Trigger->GetOwner()) Events += '-';
+		});
+		FGameInputState Input;
+		FGameInputStateTestAccess::EnableAndFocus(Input);
+		FGameInputStateTestAccess::SetKey(Input, EKey::W, true);
+		for (int Frame = 0; Frame < 90; ++Frame)
+		{
+			World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+			FGameInputStateTestAccess::FinishTick(Input);
+		}
+		if (Height < Sandbox::GameplayTuning::MaximumStepHeight)
+		{
+			EXPECT_GT(Pawn->GetActorTransform().Translation.x, 3.0);
+			EXPECT_EQ(Events, "+-");
+		}
+		else
+		{
+			EXPECT_LT(Pawn->GetActorTransform().Translation.x, 1.5);
+			EXPECT_TRUE(Events.empty());
+		}
+		DestroyWorld(World);
+	}
 }
 
 TEST(FSandboxGameplayMovementTests, MatchesTheFocusedFrameRateMatrix)

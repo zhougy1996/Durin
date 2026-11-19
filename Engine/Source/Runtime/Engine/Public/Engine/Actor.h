@@ -4,6 +4,8 @@
 
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/ObjectKey.h"
+#include "Delegates/Delegate.h"
 #include "Components/SceneComponent.h"
 #include "Engine/TickFunction.h"
 #include "Engine/ActorConstruction.h"
@@ -74,6 +76,9 @@ namespace Durin
 
 		ENGINE_API auto GetActorTransform() const -> FTransform;
 		ENGINE_API auto SetActorTransform(const FTransform& InTransform) -> bool;
+		// Only the root sweeps. Attached components follow its accepted world transform.
+		ENGINE_API auto SetActorLocation(const FVector3& InLocation, bool bSweep = false, FHitResult* OutHit = nullptr) -> bool;
+		ENGINE_API auto AddActorWorldOffset(const FVector3& Delta, bool bSweep = false, FHitResult* OutHit = nullptr) -> void;
 		auto IsHidden() const -> bool { return bHidden; }
 		// Assigns bHidden only; use SetActorHiddenInGame to synchronize components.
 		ENGINE_API auto SetHidden(bool bInHidden) -> void;
@@ -84,6 +89,12 @@ namespace Durin
 		ENGINE_API auto GetAttachParentActor() const -> AActor*;
 		ENGINE_API auto DispatchBeginPlay() -> void;
 		ENGINE_API auto RouteEndPlay() -> void;
+		using FActorOverlapEvent = TMulticastDelegate<void(AActor&, TObjectKey<AActor>)>;
+		FActorOverlapEvent OnActorBeginOverlap;
+		FActorOverlapEvent OnActorEndOverlap;
+		virtual auto NotifyActorBeginOverlap(TObjectKey<AActor> OtherActor) -> void {}
+		virtual auto NotifyActorEndOverlap(TObjectKey<AActor> OtherActor) -> void {}
+		ENGINE_API auto IsOverlappingActor(const AActor* OtherActor) const -> bool;
 		ENGINE_API virtual auto BeginPlay() -> void;
 		ENGINE_API virtual auto Tick(float DeltaSeconds) -> void;
 		ENGINE_API virtual auto EndPlay() -> void;

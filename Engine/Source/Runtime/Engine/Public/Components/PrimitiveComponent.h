@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
+#include "DObject/ObjectKey.h"
+#include "Delegates/Delegate.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Physics/BodyInstance.h"
 #include "Rendering/PrimitiveComponentId.h"
@@ -40,6 +42,14 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DPrimitiveComponent(const FObjectInitializer& ObjectInitializer);
+		using FOverlapEvent = TMulticastDelegate<void(DPrimitiveComponent&, TObjectKey<DPrimitiveComponent>)>;
+		FOverlapEvent OnComponentBeginOverlap;
+		FOverlapEvent OnComponentEndOverlap;
+		auto GetGenerateOverlapEvents() const -> bool { return bGenerateOverlapEvents; }
+		ENGINE_API auto SetGenerateOverlapEvents(bool bEnabled) -> void;
+		auto GetOverlappingComponents() const -> const std::set<TObjectKey<DPrimitiveComponent>>& { return OverlappingComponents; }
+		ENGINE_API auto BeginPlay() -> void override;
+		ENGINE_API auto EndPlay() -> void override;
 		ENGINE_API auto OnRegister() -> void override;
 		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API virtual auto PrecachePSOs() -> void;
@@ -84,6 +94,9 @@ namespace Durin
 		auto GetCollisionProfileName() const -> FName { return BodyInstance.CollisionProfileName; }
 		auto GetCollisionEnabled() const -> ECollisionEnabled { return BodyInstance.CollisionEnabled; }
 		auto GetCollisionObjectType() const -> ECollisionChannel { return BodyInstance.ObjectChannel; }
+		ENGINE_API auto SetPhysicsSourceObject(DObject* SourceObject) -> void;
+		// Tests a translation from a world-space offset without moving or delivering overlap events.
+		ENGINE_API auto SweepForBlockingHit(const FVector3& StartOffset, const FVector3& Delta, FHitResult& OutHit) const -> bool;
 		ENGINE_API auto GetPhysicsWorld() const -> DWorld*;
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
 		auto GetPhysicsBodyMotionType() const -> EPhysicsBodyMotionType { return BodyInstance.MotionType; }
@@ -99,6 +112,8 @@ namespace Durin
 
 
 	protected:
+		ENGINE_API auto MoveComponentImpl(const FVector3& Delta, const FQuat& NewRotation,
+			bool bSweep, FHitResult* OutHit) -> bool override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;
 		ENGINE_API virtual auto PopulateCollisionGeometry(FPhysicsBodyDesc& Desc) const -> bool;
 		ENGINE_API auto OnUpdateTransform() -> void override;
@@ -115,6 +130,14 @@ namespace Durin
 		auto GetPSOPrecacheRenderer() const -> IRendererModule*;
 		auto CreateRenderState() -> void;
 		ENGINE_API auto EnsurePrimitiveComponentId() -> FPrimitiveComponentId;
+		auto CanGenerateOverlaps() const -> bool;
+		auto BeginOverlap(DWorld& World, DPrimitiveComponent& Other) -> void;
+		auto QueueOverlapTransition(DWorld& World, TObjectKey<DPrimitiveComponent> Peer, DPrimitiveComponent* Other, bool bBegin) -> void;
+		auto RefreshOverlaps() -> void;
+		auto RemovePublishedBody() -> void;
+		std::set<TObjectKey<DPrimitiveComponent>> OverlappingComponents;
+		DPROPERTY(Category = "Collision", Edit)
+		bool bGenerateOverlapEvents = true;
 		auto UpdatePhysicsState() -> void;
 		auto ApplyPhysicsStateCreationPolicy() -> void;
 
@@ -139,5 +162,6 @@ namespace Durin
 		FBodyInstance BodyInstance;
 
 		friend class FScene;
+		friend class FScopedTransformOverlapUpdate;
 	};
 }

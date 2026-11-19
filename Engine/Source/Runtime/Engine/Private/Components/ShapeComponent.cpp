@@ -52,11 +52,20 @@ namespace Durin
 		return true;
 	}
 
+	auto DCapsuleComponent::SetCapsuleLocalPose(const FTransform& Pose) -> bool
+	{
+		if (!IsValidPhysicsTransform(Pose)) return false;
+		CapsuleLocalPose = Pose;
+		if (IsRegistered()) RecreatePhysicsState();
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto DCapsuleComponent::BuildCollisionShape(
 		FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool
 	{
 		OutShape = FCollisionShape::MakeCapsule(CapsuleRadius, CapsuleHalfHeight);
-		OutWorldTransform = GetWorldTransform();
+		OutWorldTransform = FTransform::Combine(GetWorldTransform(), CapsuleLocalPose);
 		return OutShape.IsValid() && IsValidPhysicsTransform(OutWorldTransform);
 	}
 }

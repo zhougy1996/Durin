@@ -62,8 +62,9 @@ namespace Durin
 		EPhysicsCollisionTracePolicy TracePolicy = EPhysicsCollisionTracePolicy::SimpleAndComplex;
 		FPhysicsFilterData Filter;
 		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;
-		uint64 UserToken = 0;
-		uint64 OwnerToken = 0;
+		bool bGenerateOverlapEvents = false;
+		uint64 ComponentID = 0;
+		uint64 OwnerID = 0;
 	};
 
 	// Value-type result returned by low-level scene queries.
@@ -77,7 +78,7 @@ namespace Durin
 		FVector3 ImpactPoint{0.0};
 		FVector3 ImpactNormal{0.0};
 		double PenetrationDepth = 0.0;
-		uint64 UserToken = 0;
+		uint64 ComponentID = 0;
 		bool bStartPenetrating = false;
 
 		auto IsHit() const -> bool { return ActorHandle.IsValid(); }
@@ -90,8 +91,9 @@ namespace Durin
 		uint8 QueryChannel = 0;
 		std::array<EPhysicsQueryResponse, MaximumPhysicsChannels> Responses{};
 		std::vector<FPhysicsActorHandle> IgnoredActors;
-		// Matches either the body user token or its owner token before narrow phase.
-		std::vector<uint64> IgnoredObjectTokens;
+		// Source objects match OwnerID; components match ComponentID.
+		std::vector<uint64> IgnoredSourceObjectIDs;
+		std::vector<uint64> IgnoredComponentIDs;
 
 		FPhysicsQueryFilter()
 		{

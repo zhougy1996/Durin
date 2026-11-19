@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	struct FHitResult;
 	class DLevel;
 	class FSceneInterface;
 
@@ -66,8 +67,12 @@ namespace Durin
 		ENGINE_API auto GetRelativeScale3D() const -> const FVector3&;
 		ENGINE_API auto SetRelativeScale3D(const FVector3& InScale) -> void;
 
+		// Delta and NewRotation are in world space. Only the moved primitive sweeps its translation.
+		ENGINE_API auto MoveComponent(const FVector3& Delta, const FQuat& NewRotation,
+			bool bSweep, FHitResult* OutHit = nullptr) -> bool;
 		ENGINE_API auto GetWorldLocation() const -> const FVector3&;
-		ENGINE_API auto SetWorldLocation(const FVector3& InLocation) -> void;
+		ENGINE_API auto SetWorldLocation(const FVector3& InLocation, bool bSweep = false, FHitResult* OutHit = nullptr) -> void;
+		ENGINE_API auto AddWorldOffset(const FVector3& Delta, bool bSweep = false, FHitResult* OutHit = nullptr) -> void;
 
 		ENGINE_API auto GetWorldRotation() const -> const FQuat&;
 		ENGINE_API auto SetWorldRotation(const FQuat& InRotation) -> void;
@@ -91,6 +96,8 @@ namespace Durin
 		ENGINE_API auto GetComponentToWorldMatrix() const -> FMatrix;
 
 protected:
+		ENGINE_API virtual auto MoveComponentImpl(const FVector3& Delta, const FQuat& NewRotation,
+			bool bSweep, FHitResult* OutHit) -> bool;
 		ENGINE_API virtual auto OnUpdateTransform() -> void;
 		auto GetRenderScene() const -> FSceneInterface* { return RenderScene; }
 
@@ -104,6 +111,7 @@ private:
 		FTransform ComponentToWorld;
 
 		auto ReconcileAttachmentAfterUndo() -> void;
+		auto UpdateSubtreeToWorld() -> void;
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
 		auto RemoveAttachChild(DSceneComponent* Child) -> void;
 

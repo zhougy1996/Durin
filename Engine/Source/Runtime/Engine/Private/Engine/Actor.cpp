@@ -4,7 +4,9 @@
 #include "Logging/LogMacros.h"
 
 #include "Components/ActorComponent.h"
+#include "Collision/CollisionTypes.h"
 #include "Components/SceneComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
@@ -21,6 +23,22 @@ namespace Durin
 	{
 		PrimaryActorTick.SetTarget(this);
 		InitializeDefaults();
+	}
+
+	auto AActor::IsOverlappingActor(const AActor* OtherActor) const -> bool
+	{
+		if (!OtherActor) return false;
+		for (const auto& Owned : OwnedComponents)
+		{
+			const auto* Primitive = Cast<DPrimitiveComponent>(Owned.Get());
+			if (!Primitive) continue;
+			for (const auto& Peer : Primitive->GetOverlappingComponents())
+			{
+				const auto* Other = Peer.ResolveObjectPtr();
+				if (Other && Other->GetOwner() == OtherActor) return true;
+			}
+		}
+		return false;
 	}
 
 	auto AActor::Modify(bool bAlwaysMarkDirty) -> bool
@@ -338,6 +356,21 @@ namespace Durin
 		}
 		RootComponent->SetWorldTransform(InTransform);
 		return true;
+	}
+
+	auto AActor::SetActorLocation(const FVector3& InLocation, bool bSweep, FHitResult* OutHit) -> bool
+	{
+		if (RootComponent)
+			return RootComponent->MoveComponent(InLocation - RootComponent->GetWorldLocation(),
+				RootComponent->GetWorldRotation(), bSweep, OutHit);
+		if (OutHit) OutHit->Reset();
+		return false;
+	}
+
+	auto AActor::AddActorWorldOffset(const FVector3& Delta, bool bSweep, FHitResult* OutHit) -> void
+	{
+		if (RootComponent) RootComponent->AddWorldOffset(Delta, bSweep, OutHit);
+		else if (OutHit) OutHit->Reset();
 	}
 
 	auto AActor::SetHidden(bool bInHidden) -> void

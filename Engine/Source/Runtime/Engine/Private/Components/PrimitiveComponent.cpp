@@ -1,10 +1,11 @@
 #include "Components/PrimitiveComponent.h"
+#include "Components/ScopedTransformOverlapUpdate.h"
 
 #include "Engine/Actor.h"
 #include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Physics/PhysicsObjectToken.h"
+#include "Physics/PhysicsObjectID.h"
 #include "Rendering/SceneInterface.h"
 
 namespace Durin
@@ -12,6 +13,28 @@ namespace Durin
 	namespace
 	{
 		std::atomic<uint64> GNextPrimitiveComponentId = 1;
+	}
+
+	thread_local FScopedTransformOverlapUpdate* FScopedTransformOverlapUpdate::Active = nullptr;
+
+	FScopedTransformOverlapUpdate::FScopedTransformOverlapUpdate()
+	{
+		if (!Active) Active = this;
+	}
+
+	FScopedTransformOverlapUpdate::~FScopedTransformOverlapUpdate()
+	{
+		if (Active != this) return;
+		Active = nullptr;
+		for (const auto& Key : Pending)
+			if (auto* Component = Key.ResolveObjectPtr()) Component->RefreshOverlaps();
+	}
+
+	auto FScopedTransformOverlapUpdate::Defer(DPrimitiveComponent& Component) -> bool
+	{
+		if (!Active) return false;
+		Active->Pending.emplace_back(&Component);
+		return true;
 	}
 
 	auto DPrimitiveComponent::SetCustomPrimitiveData(uint32 First, std::span<const float> Values) -> bool
@@ -89,6 +112,14 @@ namespace Durin
 		OnCollisionSettingsChanged();
 	}
 
+	auto DPrimitiveComponent::SetPhysicsSourceObject(DObject* SourceObject) -> void
+	{
+		const TWeakObjectPtr<DObject> NewSource(SourceObject);
+		if (BodyInstance.SourceObject.GetKey() == NewSource.GetKey()) return;
+		BodyInstance.SourceObject = NewSource;
+		if (BodyInstance.ActorHandle.IsValid()) UpdatePhysicsState();
+	}
+
 	auto DPrimitiveComponent::SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void
 	{
 		if (BodyInstance.MotionType == MotionType) return;
@@ -128,15 +159,142 @@ namespace Durin
 		return Desc.SimpleGeometry.IsValid();
 	}
 
+	auto DPrimitiveComponent::BeginPlay() -> void
+	{
+		Super::BeginPlay();
+		RefreshOverlaps();
+	}
+
+	auto DPrimitiveComponent::EndPlay() -> void
+	{
+		RefreshOverlaps();
+		Super::EndPlay();
+	}
+
+	auto DPrimitiveComponent::SetGenerateOverlapEvents(bool bEnabled) -> void
+	{
+		if (bGenerateOverlapEvents == bEnabled) return;
+		bGenerateOverlapEvents = bEnabled;
+		MarkPackageDirty();
+		if (BodyInstance.ActorHandle.IsValid()) UpdatePhysicsState();
+	}
+
+	auto DPrimitiveComponent::SweepForBlockingHit(const FVector3& StartOffset, const FVector3& Delta, FHitResult& OutHit) const -> bool
+	{
+		OutHit.Reset();
+		const auto* World = GetPhysicsWorld();
+		FPhysicsQueryHit Block;
+		return World && World->GetPhysicsScene().SweepBody(GetPhysicsActorHandle(), Delta, PhysicsPrivate::MakeObjectID(GetOwner()),
+			nullptr, Block, StartOffset) && Block.IsHit() && OutHit.SetFromPhysicsHit(Block);
+	}
+
+	auto DPrimitiveComponent::MoveComponentImpl(const FVector3& Delta, const FQuat& NewRotation,
+		bool bSweep, FHitResult* OutHit) -> bool
+	{
+		auto* World = GetPhysicsWorld();
+		if (!bSweep || !World || !GetPhysicsActorHandle().IsValid() || Delta == FVector3(0.0))
+			return Super::MoveComponentImpl(Delta, NewRotation, false, nullptr);
+		std::vector<FPhysicsQueryHit> Touches;
+		FPhysicsQueryHit Block;
+		if (!World->GetPhysicsScene().SweepBody(GetPhysicsActorHandle(), Delta, PhysicsPrivate::MakeObjectID(GetOwner()), &Touches, Block))
+			return false;
+		if (Block.IsHit() && OutHit) OutHit->SetFromPhysicsHit(Block);
+		if (World->HasBegunPlay() && CanGenerateOverlaps())
+		{
+			for (const auto& Touch : Touches)
+			{
+				auto* Other = Cast<DPrimitiveComponent>(PhysicsPrivate::ResolveObjectID(Touch.ComponentID));
+				if (Other && Other->CanGenerateOverlaps() && Other->GetPhysicsWorld() == World)
+					BeginOverlap(*World, *Other);
+			}
+		}
+		// Publishing the final pose reconciles all pending touches against actual end overlaps.
+		const bool bMoved = Super::MoveComponentImpl(Delta * Block.Time, NewRotation, false, nullptr);
+		if (!bMoved && !Touches.empty()) RefreshOverlaps();
+		return bMoved;
+	}
+
+	auto DPrimitiveComponent::QueueOverlapTransition(DWorld& World, TObjectKey<DPrimitiveComponent> Peer,
+		DPrimitiveComponent* Other, bool bBegin) -> void
+	{
+		DWorld::FComponentOverlapNotification Event{TObjectKey<DPrimitiveComponent>(this), Peer, bBegin, {}, {}};
+		AActor* Owner = GetOwner();
+		AActor* PeerOwner = Other ? Other->GetOwner() : nullptr;
+		if (Owner && PeerOwner && Owner != PeerOwner)
+		{
+			// Called before linking a new pair and after unlinking a retired pair.
+			const bool bHasOtherPair = Owner->GetComponents().size() <= PeerOwner->GetComponents().size()
+				? Owner->IsOverlappingActor(PeerOwner) : PeerOwner->IsOverlappingActor(Owner);
+			if (!bHasOtherPair)
+			{
+				Event.FirstActor = TObjectKey<AActor>(Owner);
+				Event.SecondActor = TObjectKey<AActor>(PeerOwner);
+			}
+		}
+		World.PendingOverlapNotifications.push_back(Event);
+	}
+
+	auto DPrimitiveComponent::BeginOverlap(DWorld& World, DPrimitiveComponent& Other) -> void
+	{
+		const TObjectKey<DPrimitiveComponent> Peer(&Other);
+		if (OverlappingComponents.contains(Peer)) return;
+		QueueOverlapTransition(World, Peer, &Other, true);
+		OverlappingComponents.insert(Peer);
+		Other.OverlappingComponents.emplace(this);
+	}
+
+	auto DPrimitiveComponent::CanGenerateOverlaps() const -> bool
+	{
+		return bGenerateOverlapEvents && IsRegistered() && HasBegunPlay() && !IsEndingPlay()
+			&& !IsBeingDestroyed() && !IsPendingKill() && BodyInstance.ActorHandle.IsValid();
+	}
+
+	auto DPrimitiveComponent::RefreshOverlaps() -> void
+	{
+		const bool bParticipating = CanGenerateOverlaps();
+		if (!bParticipating && OverlappingComponents.empty()) return;
+		DWorld* World = GetPhysicsWorld();
+		const bool bWorldPlaying = World && World->HasBegunPlay();
+		if (bWorldPlaying && bParticipating && FScopedTransformOverlapUpdate::Defer(*this)) return;
+		std::set<TObjectKey<DPrimitiveComponent>> Current;
+		if (bWorldPlaying && bParticipating)
+		{
+			for (const uint64 ComponentID : World->GetPhysicsScene().FindBodyOverlaps(BodyInstance.ActorHandle))
+			{
+				auto* Other = Cast<DPrimitiveComponent>(PhysicsPrivate::ResolveObjectID(ComponentID));
+				if (Other && Other != this && Other->CanGenerateOverlaps() && Other->GetPhysicsWorld() == World)
+					Current.emplace(Other);
+			}
+		}
+		if (Current == OverlappingComponents) return;
+		const TObjectKey<DPrimitiveComponent> Self(this);
+
+		for (auto It = OverlappingComponents.begin(); It != OverlappingComponents.end();)
+		{
+			if (Current.contains(*It)) { ++It; continue; }
+			const auto Old = *It;
+			It = OverlappingComponents.erase(It);
+			auto* Other = Old.ResolveObjectPtr();
+			if (Other) Other->OverlappingComponents.erase(Self);
+			if (bWorldPlaying) QueueOverlapTransition(*World, Old, Other, false);
+		}
+		for (const auto& New : Current)
+		{
+			if (!OverlappingComponents.contains(New)) BeginOverlap(*World, *New.ResolveObjectPtr());
+		}
+	}
+
 	auto DPrimitiveComponent::RecreatePhysicsState() -> void
 	{
-		DestroyPhysicsState();
-		if (!IsRegistered() || BodyInstance.CollisionEnabled == ECollisionEnabled::NoCollision) return;
+		RemovePublishedBody();
 		DWorld* World = GetPhysicsWorld();
 		FPhysicsBodyDesc Desc;
-		if (!World || !BuildPhysicsBodyDesc(Desc)) return;
-		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
-		BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid() ? GetCollisionStateRevision() : 0;
+		if (World && IsRegistered() && BodyInstance.CollisionEnabled != ECollisionEnabled::NoCollision && BuildPhysicsBodyDesc(Desc))
+		{
+			BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
+			BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid() ? GetCollisionStateRevision() : 0;
+		}
+		RefreshOverlaps();
 	}
 
 	auto DPrimitiveComponent::RequestPhysicsStateCreation(bool) -> bool
@@ -174,6 +332,12 @@ namespace Durin
 
 	auto DPrimitiveComponent::DestroyPhysicsState() -> void
 	{
+		RemovePublishedBody();
+		RefreshOverlaps();
+	}
+
+	auto DPrimitiveComponent::RemovePublishedBody() -> void
+	{
 		if (!BodyInstance.ActorHandle.IsValid()) return;
 		if (DWorld* World = GetPhysicsWorld()) World->GetPhysicsScene().RemoveBody(BodyInstance.ActorHandle);
 		BodyInstance.ActorHandle = {};
@@ -197,7 +361,10 @@ namespace Durin
 		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc))
 			RecreatePhysicsState();
 		else
+		{
 			BodyInstance.PublishedBodySetupRevision = GetCollisionStateRevision();
+			RefreshOverlaps();
+		}
 	}
 
 	auto DPrimitiveComponent::BuildPhysicsBodyDesc(FPhysicsBodyDesc& Desc) const -> bool
@@ -210,8 +377,10 @@ namespace Durin
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 			Desc.Filter.Responses[Index] =
 				ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
-		Desc.UserToken = PhysicsPrivate::MakeObjectToken(this);
-		Desc.OwnerToken = PhysicsPrivate::MakeObjectToken(GetOwner());
+		Desc.ComponentID = PhysicsPrivate::MakeObjectID(this);
+		Desc.bGenerateOverlapEvents = bGenerateOverlapEvents;
+		const DObject* SourceObject = BodyInstance.SourceObject.Get();
+		Desc.OwnerID = PhysicsPrivate::MakeObjectID(SourceObject ? SourceObject : GetOwner());
 		Desc.MotionType = BodyInstance.MotionType;
 		return true;
 	}
@@ -270,6 +439,11 @@ namespace Durin
 		if (Event.MemberProperty->NamePrivate == FName("bVisible"))
 		{
 			MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
+			return;
+		}
+		if (Event.MemberProperty->NamePrivate == FName("bGenerateOverlapEvents"))
+		{
+			if (BodyInstance.ActorHandle.IsValid()) UpdatePhysicsState();
 			return;
 		}
 		if (Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;

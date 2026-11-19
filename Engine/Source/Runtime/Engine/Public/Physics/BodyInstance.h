@@ -4,6 +4,7 @@
 
 #include "Collision/CollisionTypes.h"
 #include "DObject/StructOps.h"
+#include "DObject/WeakObjectPtr.h"
 
 #include "BodyInstance.gen.h"
 
@@ -39,6 +40,8 @@ namespace Durin
 			return true;
 		}
 
+		// Optional runtime override for the source identity published in collision filters.
+		TWeakObjectPtr<DObject> SourceObject;
 		FPhysicsActorHandle ActorHandle;
 		uint64 PublishedBodySetupRevision = 0;
 		// Non-reflected spatial mutation policy published independently from collision filters.

@@ -302,6 +302,19 @@ namespace Durin::CollisionGeometry
 		FPhysicsQueryHit& OutHit,
 		FCollisionGeometryCounters* Counters = nullptr) -> ECollisionQueryStatus;
 
+	// Translates the convex leaves of a published body at its initial orientation.
+	// Visit leaf-pair hits before any body-level reduction or movement-specific rejection.
+	PHYSICSCORE_API auto VisitGeometrySweepHits(const FCollisionGeometryRef& Source, const FTransform& Start,
+		const FVector3& Delta, const FCollisionGeometryRef& Target, const FTransform& TargetTransform,
+		const std::function<void(const FPhysicsQueryHit&)>& VisitHit) -> void;
+
+	// Symmetric boolean overlap of published geometry, including aggregate children.
+	// Triangle meshes are surfaces and require a convex partner.
+	PHYSICSCORE_API auto OverlapGeometry(
+		const FCollisionGeometryRef& A, const FTransform& TransformA,
+		const FCollisionGeometryRef& B, const FTransform& TransformB,
+		FCollisionGeometryCounters* Counters = nullptr) -> ECollisionQueryStatus;
+
 	// Traces a finite segment against a positive-scale oriented box.
 	PHYSICSCORE_API auto RaycastBox(
 		const FVector3& Start,

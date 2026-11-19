@@ -223,6 +223,18 @@ namespace Durin
 		std::optional<FNativeGameplaySession> GameplaySession;
 		std::optional<FPendingLevelTransition> PendingLevelTransition;
 		std::optional<FPendingLevelTransition> ActiveLevelTransition;
+		struct FComponentOverlapNotification
+		{
+			TObjectKey<DPrimitiveComponent> First;
+			TObjectKey<DPrimitiveComponent> Second;
+			bool bBegin;
+			// Set only for the first or last component pair between distinct owning Actors.
+			TObjectKey<AActor> FirstActor;
+			TObjectKey<AActor> SecondActor;
+		};
+		std::vector<FComponentOverlapNotification> PendingOverlapNotifications;
+		auto DispatchOverlapNotifications() -> void;
+		friend class DPrimitiveComponent;
 		FPhysicsScene PhysicsScene;
 		FWorldSubsystemCollection Subsystems;
 		FTimerManager Timers;

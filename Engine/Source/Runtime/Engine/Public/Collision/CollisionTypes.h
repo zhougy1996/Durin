@@ -66,8 +66,10 @@ namespace Durin
 	struct FCollisionQueryParams
 	{
 		EPhysicsQueryComplexity Complexity = EPhysicsQueryComplexity::Simple;
-		std::vector<uint64> IgnoredObjectTokens;
+		std::vector<uint64> IgnoredSourceObjectIDs;
+		std::vector<uint64> IgnoredComponentIDs;
 
+		ENGINE_API auto AddIgnoredSourceObject(const DObject* SourceObject) -> void;
 		ENGINE_API auto AddIgnoredActor(const AActor* Actor) -> void;
 		ENGINE_API auto AddIgnoredComponent(const DPrimitiveComponent* Component) -> void;
 	};
@@ -100,6 +102,7 @@ namespace Durin
 		AActor* Actor = nullptr;
 		DPrimitiveComponent* Component = nullptr;
 
+		ENGINE_API auto SetFromPhysicsHit(const FPhysicsQueryHit& Source) -> bool;
 		auto Reset() -> void { *this = {}; }
 	};
 

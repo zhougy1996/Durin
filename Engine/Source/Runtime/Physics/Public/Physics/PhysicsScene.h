@@ -160,6 +160,12 @@ namespace Durin
 		PHYSICS_API auto AddBody(const FPhysicsBodyDesc& Desc) -> FPhysicsActorHandle;
 		PHYSICS_API auto RemoveBody(FPhysicsActorHandle Handle) -> bool;
 		PHYSICS_API auto UpdateBody(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& Desc) -> bool;
+		// Ordered touches through the nearest accepted block for one component translation.
+		// A null touch list requests only blocking hits; StartOffset translates the query pose.
+		PHYSICS_API auto SweepBody(FPhysicsActorHandle Handle, const FVector3& Delta, uint64 IgnoredOwnerID,
+			std::vector<FPhysicsQueryHit>* Touches, FPhysicsQueryHit& Block, const FVector3& StartOffset = FVector3(0.0)) const -> bool;
+		// Returns component IDs in stable order for pairs with a two-sided Overlap response.
+		PHYSICS_API auto FindBodyOverlaps(FPhysicsActorHandle Handle) const -> std::vector<uint64>;
 		PHYSICS_API auto ContainsBody(FPhysicsActorHandle Handle) const -> bool;
 		PHYSICS_API auto GetBodyCount() const -> size_t;
 		PHYSICS_API auto CaptureBodies() const -> std::vector<FPhysicsBodySnapshot>;

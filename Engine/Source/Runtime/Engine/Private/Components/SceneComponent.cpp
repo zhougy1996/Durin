@@ -1,5 +1,7 @@
 #include "Components/SceneComponent.h"
+#include "Components/ScopedTransformOverlapUpdate.h"
 
+#include "Collision/CollisionTypes.h"
 #include "DObject/Class.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/Property.h"
@@ -226,16 +228,41 @@ namespace Durin
 		SetRelativeTransform(Transform);
 	}
 
+	auto DSceneComponent::MoveComponent(const FVector3& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit) -> bool
+	{
+		if (OutHit) OutHit->Reset();
+		FQuat Rotation;
+		if (IsPendingKill() || IsBeingDestroyed() || !Math::IsFinite(GetWorldLocation() + Delta)
+			|| !Math::TryNormalize(NewRotation, Rotation)) return false;
+		if (Delta == FVector3(0.0) && Rotation == GetWorldRotation()) return true;
+		return MoveComponentImpl(Delta, Rotation, bSweep, OutHit);
+	}
+
+	auto DSceneComponent::MoveComponentImpl(const FVector3& Delta, const FQuat& NewRotation, bool, FHitResult*) -> bool
+	{
+		FTransform End = GetWorldTransform();
+		End.Rotation = NewRotation;
+		End.Translation += Delta;
+		const FTransform Start = GetWorldTransform();
+		SetWorldTransform(End);
+		return !AreTransformsEqual(Start, GetWorldTransform());
+	}
+
 	auto DSceneComponent::GetWorldLocation() const -> const FVector3&
 	{
 		return ComponentToWorld.Translation;
 	}
 
-	auto DSceneComponent::SetWorldLocation(const FVector3& InLocation) -> void
+	auto DSceneComponent::SetWorldLocation(const FVector3& InLocation, bool bSweep, FHitResult* OutHit) -> void
 	{
-		FTransform Transform = ComponentToWorld;
-		Transform.Translation = InLocation;
-		SetWorldTransform(Transform);
+		// A construction script can explicitly author the already-current location.
+		if (IsOwnedByActor() && GetOwner() && GetOwner()->IsRunningConstructionScript()) bConstructionTransformModified = true;
+		MoveComponent(InLocation - GetWorldLocation(), GetWorldRotation(), bSweep, OutHit);
+	}
+
+	auto DSceneComponent::AddWorldOffset(const FVector3& Delta, bool bSweep, FHitResult* OutHit) -> void
+	{
+		SetWorldLocation(GetWorldLocation() + Delta, bSweep, OutHit);
 	}
 
 	auto DSceneComponent::GetWorldRotation() const -> const FQuat&
@@ -359,6 +386,13 @@ namespace Durin
 
 	auto DSceneComponent::UpdateComponentToWorld() -> void
 	{
+		if (AttachChildren.empty()) return UpdateSubtreeToWorld();
+		FScopedTransformOverlapUpdate OverlapUpdate;
+		UpdateSubtreeToWorld();
+	}
+
+	auto DSceneComponent::UpdateSubtreeToWorld() -> void
+	{
 		if (DSceneComponent* Parent = AttachParent.Get())
 		{
 			ComponentToWorld = FTransform::Combine(Parent->GetWorldTransform(), RelativeTransform);
@@ -373,7 +407,7 @@ namespace Durin
 		{
 			if (DSceneComponent* Child = ChildPtr.Get(); Child && Child->GetAttachParent() == this)
 			{
-				Child->UpdateComponentToWorld();
+				Child->UpdateSubtreeToWorld();
 			}
 		}
 	}

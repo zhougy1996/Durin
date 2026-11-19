@@ -22,7 +22,7 @@ namespace
 
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
-		uint64 UserToken,
+		uint64 ComponentID,
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
@@ -30,7 +30,7 @@ namespace
 			Durin::FCollisionShape::MakeBox(HalfExtent));
 		Desc.SimpleTransform = Durin::FTransform();
 		Desc.SimpleTransform.Translation = Center;
-		Desc.UserToken = UserToken;
+		Desc.ComponentID = ComponentID;
 		return Desc;
 	}
 
@@ -79,7 +79,7 @@ namespace
 		ExpectVectorNear(Hit.ImpactPoint, Durin::FVector3(0.0), 0.0);
 		ExpectVectorNear(Hit.ImpactNormal, Durin::FVector3(0.0), 0.0);
 		EXPECT_DOUBLE_EQ(Hit.PenetrationDepth, 0.0);
-		EXPECT_EQ(Hit.UserToken, 0u);
+		EXPECT_EQ(Hit.ComponentID, 0u);
 		EXPECT_FALSE(Hit.bStartPenetrating);
 	}
 
@@ -94,7 +94,7 @@ namespace
 		Hit.ImpactPoint = {4.0, 5.0, 6.0};
 		Hit.ImpactNormal = {0.0, 0.0, 1.0};
 		Hit.PenetrationDepth = 8.0;
-		Hit.UserToken = 123;
+		Hit.ComponentID = 123;
 		Hit.bStartPenetrating = true;
 		return Hit;
 	}
@@ -111,7 +111,7 @@ namespace
 		ExpectVectorNear(Actual.ImpactPoint, Expected.ImpactPoint, 1.0e-8);
 		ExpectVectorNear(Actual.ImpactNormal, Expected.ImpactNormal, 1.0e-8);
 		EXPECT_NEAR(Actual.PenetrationDepth, Expected.PenetrationDepth, 1.0e-8);
-		EXPECT_EQ(Actual.UserToken, Expected.UserToken);
+		EXPECT_EQ(Actual.ComponentID, Expected.ComponentID);
 		EXPECT_EQ(Actual.bStartPenetrating, Expected.bStartPenetrating);
 	}
 
@@ -157,7 +157,7 @@ TEST(FPhysicsQueryCharacterizationTests, LineTraceFreezesValidationClearingAndEv
 	ExpectVectorNear(Hit.ImpactPoint, {-1.0, 0.0, 0.0}, 1.0e-12);
 	ExpectVectorNear(Hit.ImpactNormal, {-1.0, 0.0, 0.0}, 1.0e-12);
 	EXPECT_DOUBLE_EQ(Hit.PenetrationDepth, 0.0);
-	EXPECT_EQ(Hit.UserToken, 41u);
+	EXPECT_EQ(Hit.ComponentID, 41u);
 	EXPECT_FALSE(Hit.bStartPenetrating);
 
 	ASSERT_TRUE(Scene.LineTraceSingle({0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {}, Hit));
@@ -202,7 +202,7 @@ TEST(FPhysicsQueryCharacterizationTests, SweepFreezesValidationClearingAndPenetr
 	EXPECT_LT(Hit.ImpactNormal.x, -0.99);
 	EXPECT_NEAR(Durin::Math::Length(Hit.ImpactNormal), 1.0, 1.0e-8);
 	EXPECT_DOUBLE_EQ(Hit.PenetrationDepth, 0.0);
-	EXPECT_EQ(Hit.UserToken, 42u);
+	EXPECT_EQ(Hit.ComponentID, 42u);
 	EXPECT_FALSE(Hit.bStartPenetrating);
 
 	StartTransform.Translation = {0.0, 0.0, 0.0};
@@ -229,7 +229,7 @@ TEST(FPhysicsQueryCharacterizationTests, FilteringAndOverlapOrderingRemainTwoSid
 	Durin::FPhysicsBodyDesc Block = MakeBoxBody({0.0, 0.0, 0.0}, 51, {1.0, 1.0, 1.0});
 	Block.Filter.ObjectChannel = 1;
 	Durin::FPhysicsBodyDesc BodyOverlap = Block;
-	BodyOverlap.UserToken = 52;
+	BodyOverlap.ComponentID = 52;
 	BodyOverlap.Filter.Responses[0] = Durin::EPhysicsQueryResponse::Overlap;
 	const Durin::FPhysicsActorHandle BlockHandle = Scene.AddBody(Block);
 	const Durin::FPhysicsActorHandle BodyOverlapHandle = Scene.AddBody(BodyOverlap);
@@ -249,10 +249,10 @@ TEST(FPhysicsQueryCharacterizationTests, FilteringAndOverlapOrderingRemainTwoSid
 	ASSERT_EQ(Hits.size(), 2u);
 	EXPECT_EQ(Hits[0].ActorHandle, BlockHandle);
 	EXPECT_EQ(Hits[0].Response, Durin::EPhysicsQueryResponse::Overlap);
-	EXPECT_EQ(Hits[0].UserToken, 51u);
+	EXPECT_EQ(Hits[0].ComponentID, 51u);
 	EXPECT_EQ(Hits[1].ActorHandle, BodyOverlapHandle);
 	EXPECT_EQ(Hits[1].Response, Durin::EPhysicsQueryResponse::Overlap);
-	EXPECT_EQ(Hits[1].UserToken, 52u);
+	EXPECT_EQ(Hits[1].ComponentID, 52u);
 	for (const Durin::FPhysicsQueryHit& Hit : Hits)
 	{
 		EXPECT_DOUBLE_EQ(Hit.Time, 0.0);
@@ -398,7 +398,7 @@ TEST(FPhysicsQueryPipelineTests, CompareFallsBackToReferenceAndDetectsInjectedDi
 	Durin::FPhysicsSceneQueryTestAccess::OmitFirstCandidate(Scene);
 	ASSERT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {2.0, 0.0, 0.0}, {}, Hit));
 	EXPECT_EQ(Hit.ActorHandle, First);
-	EXPECT_EQ(Hit.UserToken, 91u);
+	EXPECT_EQ(Hit.ComponentID, 91u);
 	EXPECT_EQ(Durin::FPhysicsSceneQueryTestAccess::GetMismatchCount(Scene), 1u);
 	EXPECT_NE(Durin::FPhysicsSceneQueryTestAccess::GetLastDifferenceMask(Scene), 0u);
 
@@ -415,7 +415,7 @@ TEST(FPhysicsQueryPipelineTests, CompareFallsBackToReferenceAndDetectsInjectedDi
 	Durin::FPhysicsSceneQueryTestAccess::CorruptFirstResult(Scene);
 	ASSERT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {2.0, 0.0, 0.0}, {}, Hit));
 	EXPECT_EQ(Hit.ActorHandle, First);
-	EXPECT_EQ(Hit.UserToken, 91u);
+	EXPECT_EQ(Hit.ComponentID, 91u);
 	EXPECT_EQ(Durin::FPhysicsSceneQueryTestAccess::GetMismatchCount(Scene), 3u);
 	Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
 }
@@ -818,7 +818,7 @@ TEST(FPhysicsSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingU
 	EXPECT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {}, Hit));
 	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
 
-	Moving.UserToken = 22;
+	Moving.ComponentID = 22;
 	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
 	Moving.SimpleTransform.Translation.x += 0.05;
 	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
