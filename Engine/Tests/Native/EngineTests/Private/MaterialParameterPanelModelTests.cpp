@@ -1,6 +1,6 @@
 #include "AssetForge/Builtins/PBRMaterialParameters.h"
 #include "Graph/MaterialGraphInteraction.h"
-#include "MaterialGraphDocument.h"
+#include "Graph/MaterialEditingOperations.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
@@ -294,7 +294,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_NE(BaseOpacity, nullptr);
 	auto ScalarValue = BaseOpacity->Value;
 	ScalarValue.GetScalar() = 0.7f;
-	ASSERT_TRUE(Durin::MaterialEditor::FMaterialGraphDocument(*Base).SetParameterValue(BaseOpacity->ParameterId, ScalarValue));
+	ASSERT_TRUE(Durin::MaterialEditor::MaterialEditing::SetParameterValue(*Base, BaseOpacity->ParameterId, ScalarValue));
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::AssetForge::Builtins::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
@@ -876,7 +876,7 @@ TEST(FMaterialParameterPanelModelTests, MetadataNotificationsReachEachObserverAc
 	const auto Id = Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
 	FMaterialParameterPanelModel First(Base.Get()), Second(Instance.Get());
 	Tests::FTestEditorTransactorOwner Transactions;
-	ASSERT_TRUE(FMaterialGraphDocument(*Base).RenameParameter(Id, "Coverage"));
+	ASSERT_TRUE(MaterialEditing::RenameParameter(*Base, Id, "Coverage"));
 	EXPECT_TRUE(First.NeedsRefresh());
 	EXPECT_TRUE(Second.NeedsRefresh());
 	First.Refresh();

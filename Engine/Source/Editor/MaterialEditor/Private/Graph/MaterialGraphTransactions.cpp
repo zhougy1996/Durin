@@ -1,7 +1,6 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphChange.h"
-#include "MaterialGraphDocument.h"
 #include "Materials/MaterialExpressionEditing.h"
 
 #include "DObject/Package.h"

@@ -19,7 +19,6 @@
 #include <Psapi.h>
 #endif
 #include "Materials/MaterialTranslation.h"
-#include "MaterialGraphDocument.h"
 #include "MaterialCookedProgramTestSupport.h"
 #include "ExplicitMaterialProgramTestFixture.h"
 #include "MaterialVariantTestFixture.h"

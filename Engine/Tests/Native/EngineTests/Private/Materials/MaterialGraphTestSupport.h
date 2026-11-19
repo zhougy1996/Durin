@@ -13,7 +13,6 @@
 #include "StandardMaterialFunctionTestFixture.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
-#include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphEditSession.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialAssetCreation.h"

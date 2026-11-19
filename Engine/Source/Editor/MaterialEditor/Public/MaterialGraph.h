@@ -4,7 +4,8 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
-#include "MaterialGraphDocument.h"
+#include "MaterialGraphSchema.h"
+#include "Materials/MaterialFunction.h"
 #include "Materials/MaterialGraphChanges.h"
 #include "Delegates/Delegate.h"
 #include "MaterialGraph.gen.h"
@@ -116,7 +117,6 @@ namespace Durin::MaterialEditor
 		explicit DMaterialGraph(const FObjectInitializer& Initializer) : DObject(Initializer) {}
 		MATERIALEDITOR_API static auto Create(DObject& MaterialOrFunction) -> DMaterialGraph*;
 		auto GetMaterialOrFunction() const -> DObject* { return Owner.Get(); }
-		auto GetCommands() const -> FMaterialGraphDocument { return FMaterialGraphDocument(Owner); }
 		MATERIALEDITOR_API auto GetSchema() const -> const FMaterialGraphSchema&;
 		auto GetNodes() const -> std::span<const TObjectPtr<DMaterialGraphNode>> { return Nodes; }
 		MATERIALEDITOR_API auto FindNode(const FGuid& Id) const -> DMaterialGraphNode*;

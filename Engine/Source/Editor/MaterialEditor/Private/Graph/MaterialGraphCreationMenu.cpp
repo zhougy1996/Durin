@@ -2,7 +2,6 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
-#include "MaterialGraphDocument.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Transactions/Transaction.h"
 #include "Graph/MaterialGraphCreationShortcuts.h"

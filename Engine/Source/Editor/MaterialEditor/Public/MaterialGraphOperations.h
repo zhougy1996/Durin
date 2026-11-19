@@ -207,13 +207,6 @@ namespace Durin::MaterialEditor
 		bool bFunction = false;
 	};
 
-	struct FMaterialGraphSurfaceNodeRequest
-	{
-		EMaterialProperty Output = EMaterialProperty::MP_BaseColor;
-		int32 X = 0;
-		int32 Y = 0;
-	};
-
 	struct FMaterialGraphClipboardNode
 	{
 		TStrongObjectPtr<DMaterialExpression> Expression;

@@ -5,7 +5,6 @@
 
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphReadModel.h"
-#include "MaterialGraphDocument.h"
 #include "MonaImGui.h"
 #include "PropertyEditor/PropertyControlFrame.h"
 

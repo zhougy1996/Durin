@@ -1,6 +1,5 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "Graph/MaterialGraphEditSession.h"
-#include "MaterialGraphDocument.h"
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -78,12 +77,12 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	TStrongObjectPtr<DMaterialGraph> FunctionAuthoringGraph(DMaterialGraph::Create(*Callee));
 	const FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Result"};
 	ASSERT_TRUE(FunctionAuthoringGraph->AddPort(true, Port, {}, 10, 20, ETransactionMode::NotTransactable));
-	FMaterialGraphDocument MaterialDocument(*Source);
+
 	TStrongObjectPtr<DMaterialGraph> MaterialAuthoringGraph(DMaterialGraph::Create(*Source));
 	const auto Call = MaterialAuthoringGraph->InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
 	const auto ResultLink = FMaterialProgramLink{Call.GeneratedNodeIds.front(), 0, Port.Id};
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(MaterialDocument.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Source, FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
 		EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output(ResultLink), true, ETransactionMode::NotTransactable));
 	DMaterialExpressionFunctionCall* Expression = nullptr;
 	for (const auto& Entry : Source->GetExpressionCollection().Expressions)

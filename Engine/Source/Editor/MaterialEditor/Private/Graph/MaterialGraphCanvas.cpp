@@ -6,7 +6,7 @@
 #include "Graph/MaterialGraphCreationShortcuts.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
-#include "MaterialGraphDocument.h"
+#include "Graph/MaterialEditingOperations.h"
 #include "MaterialGraphEditSession.h"
 #include "MaterialGraphEditInternals.h"
 
@@ -674,7 +674,7 @@ namespace Durin::MaterialEditor
 			{
 				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
 				if (ImGui::MenuItem("Create / Reuse"))
-					CheckCommand(EditorGraph->GetCommands().PromoteConstantToParameter(Edited.Id, FName(PromotionNameDraft.data())));
+					CheckCommand(MaterialEditing::PromoteConstantToParameter(*SurfaceMaterial, Edited.Id, FName(PromotionNameDraft.data())));
 				ImGui::EndMenu();
 			}
 			if (ImGui::MenuItem("Copy"))
@@ -702,7 +702,7 @@ namespace Durin::MaterialEditor
 				const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
 					View.Outputs, *ContextSurfaceOutput);
 				const ImVec2 SurfacePosition = ImVec2(static_cast<float>(ContextNodeView->Presentation.X), static_cast<float>(ContextNodeView->Presentation.Y));
-				const FMaterialGraphSurfaceNodeRequest NodeRequest{
+				const MaterialEditing::FMaterialGraphSurfaceNodeRequest NodeRequest{
 					.Output = *ContextSurfaceOutput,
 					.X = static_cast<int32>(std::round(SurfacePosition.x
 						- Metrics.NodeWidth - Metrics.ColumnGap)),
@@ -717,9 +717,9 @@ namespace Durin::MaterialEditor
 				if (!Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Promote to Parameter"))
 					CheckCommand(
-						EditorGraph->GetCommands().PromoteSurfaceOutputToParameter(NodeRequest));
+						MaterialEditing::PromoteSurfaceOutputToParameter(*SurfaceMaterial, NodeRequest));
 				if (ImGui::MenuItem("Add Texture"))
-					CheckCommand(EditorGraph->GetCommands().AddTextureToSurfaceOutput(NodeRequest));
+					CheckCommand(MaterialEditing::AddTextureToSurfaceOutput(*SurfaceMaterial, NodeRequest));
 			}
 		}
 		ImGui::EndPopup();

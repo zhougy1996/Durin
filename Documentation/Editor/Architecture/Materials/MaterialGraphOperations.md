@@ -32,7 +32,8 @@ and creation eligibility. The graph exposes this policy through `GetSchema()`. C
 capabilities, material-output deletion protection, source-address validity,
 connection replacement rules, and type compatibility hints. Menus and commands
 consume these policies; direct expression creation and paste also check the
-graph-kind restrictions. Graph owns connection writeback. Document groups the remaining compound asset commands.
+graph-kind restrictions. Graph owns connection writeback. The editor passes the working material directly
+to its configuration and shared parameter operations.
 Type compatibility is advisory during editing: structurally valid links may be
 retained for compiler diagnostics. Hidden output pins remain command-addressable;
 the visible read model is not the authority for connection admission. Schema
@@ -58,7 +59,7 @@ attribute registry and selected execution contract determine which values compil
 WPO follows the property-address contract and
 [vertex evaluation](../../../Runtime/Rendering/Materials/MaterialVertexEvaluation.md).
 
-`FMaterialGraphDocument::SetConfiguration` validates the domain and complete
+`MaterialEditing::SetConfiguration` validates the domain and complete
 static properties before recording one command change. Undo/Redo restores both
 through `DMaterial::SetMaterialConfiguration`, retaining expression and parameter
 identities. Invalid PostProcess/model/blend combinations leave owner and history
@@ -581,7 +582,7 @@ published RHI allocations and retire registrations after their last canvas consu
 
 ## Transactions and gestures
 
-Ordinary document and static graph commands select ETransactionMode::Record by
+Material and graph editing commands select ETransactionMode::Record by
 default and resolve the active editor before editing. UI callers do not pass
 transactors. Missing or busy editor services reject the command without mutation.
 Explicit ETransactionMode::NotTransactable permits standalone edits without
@@ -685,10 +686,14 @@ inconsistent snapshots are rejected rather than resolved by traversal order.
 Disconnected owners remain editable through selection. Instances retain reachable
 controls and inspectable orphan overrides with explicit removal. Constant promotion
 preserves the node GUID and links; a new name creates a fresh parameter GUID with
-its typed literal as the default, while an existing name adopts that parameter. Surface-output promotion creates a new
-owner and link. Texture-branch creation emits one combined texture-sample parameter
-with default mesh UV0 and selects its attribute channel, including normal
-decode. Resource policy remains on that expression.
+its typed literal as the default, while an existing name adopts that parameter.
+
+The root property context menu offers two editor-only shortcuts. **Promote to Parameter**
+creates a parameter from an unconnected property's default and inserts a channel mask
+when the widths differ. **Add Texture** creates a texture sample parameter using mesh
+UV0 and connects the property-specific channel, replacing any existing link. For
+Normal it selects normal-map sampling and a flat-normal fallback. Each shortcut
+commits node placement, expressions and the root connection in one transaction.
 
 One user-visible command produces one global editor transaction. Semantic
 commands retain changed reflected member values and necessary structural state; presentation-only
@@ -721,8 +726,7 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 
 `DMaterialGraph` owns copy, cut, paste and duplicate for material and function
 drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
-it at the requested offset in one history step. `FMaterialGraphDocument` still
-owns material configuration, parameter and Surface commands. Catalog lookup and search belong
+it at the requested offset in one history step. Catalog lookup and search belong
 to private Material Editor code. `MoveMaterialOutput` resolves the material
 output terminal and uses the same position transaction as `MoveNodes`.
 `DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows

@@ -24,7 +24,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "NativeTestSupport.h"
-#include "MaterialGraphDocument.h"
 #include "MaterialFunctionPreview.h"
 #include "MaterialEditorModule.h"
 #include "FMaterialEditor.h"

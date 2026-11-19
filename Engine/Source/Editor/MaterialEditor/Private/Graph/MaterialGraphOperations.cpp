@@ -8,7 +8,7 @@
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionVector4Parameter.h"
 #include "Materials/Material.h"
-#include "MaterialGraphDocument.h"
+#include "Graph/MaterialEditingOperations.h"
 #include "MaterialGraphEditSession.h"
 #include "MaterialExpressionParameters.h"
 #include "Asset/Asset.h"
@@ -142,12 +142,9 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto FMaterialGraphDocument::CreateParameter(FMaterialParameterDefinition Definition, ETransactionMode Mode) const
+	auto MaterialEditing::CreateParameter(DMaterial& Material, FMaterialParameterDefinition Definition, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
@@ -170,12 +167,9 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::RenameParameter(const FGuid& ParameterId, FName Name, ETransactionMode Mode) const
+	auto MaterialEditing::RenameParameter(DMaterial& Material, const FGuid& ParameterId, FName Name, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
@@ -198,12 +192,9 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::DeleteParameter(const FGuid& ParameterId, ETransactionMode Mode) const
+	auto MaterialEditing::DeleteParameter(DMaterial& Material, const FGuid& ParameterId, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		std::vector<FGuid> Nodes;
@@ -211,15 +202,12 @@ namespace Durin::MaterialEditor
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression.Get()); Parameter && Parameter->Metadata.Id == ParameterId)
 				Nodes.push_back(Parameter->Id);
 		if (Nodes.empty()) return RejectCommand("Parameter owner is unavailable.");
-		return GraphEditInternals::RemoveGraphNodes(Owner.Get(), Nodes, Mode);
+		return GraphEditInternals::RemoveGraphNodes(&Material, Nodes, Mode);
 	}
 
-	auto FMaterialGraphDocument::PromoteConstantToParameter(const FGuid& NodeId, FName Name, ETransactionMode Mode) const
+	auto MaterialEditing::PromoteConstantToParameter(DMaterial& Material, const FGuid& NodeId, FName Name, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
@@ -265,14 +253,11 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::SetParameterValue(const FGuid& ParameterId,
+	auto MaterialEditing::SetParameterValue(DMaterial& Material, const FGuid& ParameterId,
 		FMaterialParameterValue Value,
-		ETransactionMode Mode) const
+		ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
@@ -294,12 +279,9 @@ namespace Durin::MaterialEditor
 		return Committed;
 	}
 
-	auto FMaterialGraphDocument::PromoteSurfaceOutputToParameter(const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode) const
+	auto MaterialEditing::PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
@@ -337,12 +319,9 @@ namespace Durin::MaterialEditor
 		return Result;
 	}
 
-	auto FMaterialGraphDocument::AddTextureToSurfaceOutput(const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode) const
+	auto MaterialEditing::AddTextureToSurfaceOutput(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
 		-> FMaterialGraphCommandResult
 	{
-		auto* Base = Cast<DMaterial>(GetOwner());
-		if (!Base) return RejectCommand("This command requires a base material.");
-		auto& Material = *Base;
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;

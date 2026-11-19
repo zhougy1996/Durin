@@ -385,3 +385,56 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 }
+
+namespace Durin::MaterialEditor::GraphEditInternals
+{
+	auto FExpressionEdit::Commit(DObject& Owner, DTransactor* Transactions, std::string Description) -> FMaterialGraphCommandResult
+	{
+		const bool Nested = Transactions && Transactions->IsActive();
+		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::move(Description), &Owner});
+		if (Transactions)
+		{
+			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
+			FScopedPackageDirtySuppression Suppress;
+			for (auto* Object : Objects)
+			{
+				Object->SetFlags(EObjectFlags::Transactional);
+				if (!Object->Modify(false))
+				{
+					if (Nested) (void)Recording.End();
+					else Recording.Cancel();
+					return RejectCommand("Unable to record the expression.");
+				}
+			}
+		}
+		for (auto& Write : Writes) Write();
+		// The transactor advances the package checkpoint when it finalizes.
+		(void)Recording.End();
+		if (Transactions && !Transactions->GetLastResult().IsSuccess())
+		{
+			for (auto& Write : Writes | std::views::reverse) Write();
+			return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
+		}
+		if (!Transactions) Owner.MarkPackageDirty();
+		Objects.front()->PostEditChange();
+		return {};
+	}
+
+	auto FExpressionEdit::CommitRename(DObject& Owner, DMaterialExpression& Expression, std::string NewName,
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
+	{
+		auto SwapName = [&Expression, Next = std::move(NewName)]() mutable {
+			auto Previous = Expression.GetEditableName();
+			Expression.SetEditableName(std::move(Next));
+			Next = std::move(Previous);
+		};
+		// Validate the candidate through the asset before Modify captures the original expression.
+		SwapName();
+		auto Valid = ValidateGraphEdit(Owner);
+		SwapName();
+		if (!Valid) return Valid;
+		Objects.push_back(&Expression);
+		Writes.emplace_back(std::move(SwapName));
+		return Commit(Owner, Transactions, "Rename Material Expression");
+	}
+}

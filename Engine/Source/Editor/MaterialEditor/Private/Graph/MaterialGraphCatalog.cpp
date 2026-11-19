@@ -1,4 +1,4 @@
-#include "MaterialGraphDocument.h"
+#include "MaterialGraphSchema.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraphPinSource.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"

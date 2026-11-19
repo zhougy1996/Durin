@@ -1231,14 +1231,14 @@ TEST(FMaterialFunctionTests, TypedFieldsRoundtripAndRejectInvalidCoordinateDefau
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FunctionPath, Function));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialGraphDocument Document(*Material);
+
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Material));
 	TStrongObjectPtr<DMaterialGraph> FunctionAuthoringGraph(DMaterialGraph::Create(*Function));
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(*AuthoringGraph, EMaterialProgramOpcode::TextureSampleParameter2D, EMaterialProgramValueType::Float4));
 	ASSERT_TRUE(Testing::CreateGraphCatalogNode(*FunctionAuthoringGraph, EMaterialProgramOpcode::Multiply));
 	const auto Call = AuthoringGraph->InsertFunctionCall(*Function, 300, 0, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(Call);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Document.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, std::nullopt), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}), true, Durin::ETransactionMode::NotTransactable));
 	const auto CaptureFields = [](const auto& Owner) {
 		std::vector<FPropertyValueSnapshotPayload> Fields;
 		std::vector<FGuid> Sources;

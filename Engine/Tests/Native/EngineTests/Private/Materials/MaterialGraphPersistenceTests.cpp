@@ -15,7 +15,7 @@
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionVector4Parameter.h"
 #include "Asset/OfflinePreparation.h"
-#include "MaterialGraphDocument.h"
+#include "Graph/MaterialEditingOperations.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "DObject/OverridableManager.h"
@@ -33,7 +33,7 @@ TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHist
 	const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
 	auto* Root = Graph->FindNode(Pin.NodeId);
 	ASSERT_TRUE(Root);
-	ASSERT_TRUE(Graph->GetCommands().SetUseMaterialAttributes(true, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
 	ASSERT_FALSE(Graph->FindInputPin(Pin));
 	Tests::FTestEditorTransactorOwner History;
 	const FMaterialInputDefault Value{.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .625f}};
@@ -45,7 +45,7 @@ TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHist
 	ASSERT_TRUE(History->Undo());
 	EXPECT_TRUE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).UseConstant);
 	ASSERT_TRUE(History->Redo());
-	ASSERT_TRUE(Graph->GetCommands().SetUseMaterialAttributes(false, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
 	const auto* Restored = Graph->FindInputPin(Pin);
 	ASSERT_TRUE(Restored);
 	EXPECT_FALSE(Restored->bUseConstant);
@@ -697,10 +697,10 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 		const auto Before=CaptureExpressions(*Material);
 		const FMaterialConfiguration Previous{Material->GetDomain(),Material->GetStaticProperties()};
 		Tests::FTestEditorTransactorOwner Transactions;
-		FMaterialGraphDocument Document(*Material);
+
 		std::vector<FMaterialGraphChangeSet> Changes;
 		const auto Subscription=Material->GetGraphChanges().Subscribe(*Material,[&](const auto& Change) { Changes.push_back(Change); });
-		ASSERT_TRUE(Document.SetConfiguration(Configurations[Index]));
+		ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configurations[Index]));
 		if (Index)
 		{
 			ASSERT_EQ(Changes.size(),1u);
@@ -717,9 +717,9 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 		ASSERT_TRUE(Transactions->TryReset());
 		const auto Revision=Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 		auto Invalid=Configurations[Index]; Invalid.Domain=EMaterialDomain::PostProcess; Invalid.Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
-		EXPECT_FALSE(Document.SetConfiguration(Invalid)); EXPECT_FALSE(Transactions->CanUndo());
+		EXPECT_FALSE(MaterialEditing::SetConfiguration(*Material, Invalid)); EXPECT_FALSE(Transactions->CanUndo());
 		Invalid.Domain=EMaterialDomain::Surface; Invalid.Properties.BlendMode=EMaterialBlendMode::Translucent;
-		EXPECT_FALSE(Document.SetConfiguration(Invalid)); EXPECT_FALSE(Transactions->CanUndo());
+		EXPECT_FALSE(MaterialEditing::SetConfiguration(*Material, Invalid)); EXPECT_FALSE(Transactions->CanUndo());
 		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,Revision); EXPECT_EQ(CaptureExpressions(*Material),Before);
 		ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
 		const auto Program=Material->GetAcceptedCompiledProgram(); ASSERT_TRUE(Program);
@@ -787,7 +787,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 	const auto ImmediateRevision=Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	uint32 Notifications=0;
 	const auto Subscription=Material->GetGraphChanges().Subscribe(*Material,[&](const auto&) { ++Notifications; });
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).SetConfiguration(Configurations.front(),ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configurations.front(),ETransactionMode::NotTransactable));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,ImmediateRequests+1);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,ImmediateRevision+1);
@@ -826,7 +826,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4WorkingCopyAppliesDomainAndModelAcros
 			ASSERT_TRUE(Session.Initialize(*Source,EMaterialEditCompileMode::Manual,Error,Transactions.Get())) << Error;
 			auto* Draft=Session.GetWorkingMaterial(); ASSERT_TRUE(Draft);
 			EXPECT_EQ(Draft->GetDomain(),OriginalDomain); EXPECT_EQ(Draft->GetStaticProperties(),OriginalProperties); EXPECT_FALSE(Session.HasUnappliedChanges());
-			ASSERT_TRUE(FMaterialGraphDocument(*Draft).SetConfiguration(Configuration)); EXPECT_TRUE(Session.HasUnappliedChanges());
+			ASSERT_TRUE(MaterialEditing::SetConfiguration(*Draft, Configuration)); EXPECT_TRUE(Session.HasUnappliedChanges());
 			EXPECT_EQ(Source->GetDomain(),OriginalDomain); EXPECT_EQ(Source->GetStaticProperties(),OriginalProperties); EXPECT_FALSE(Source->GetPackage()->IsDirty());
 			ASSERT_TRUE(Transactions->Undo()); EXPECT_FALSE(Session.HasUnappliedChanges());
 			ASSERT_TRUE(Transactions->Redo()); EXPECT_TRUE(Session.HasUnappliedChanges());

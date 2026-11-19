@@ -22,7 +22,6 @@
 #include "MaterialTestSupport.h"
 #include "StaticMeshMaterialTestFixture.h"
 #include "FunctionPortTestFixture.h"
-#include "MaterialGraphDocument.h"
 #include "Asset/AssetCompilingManager.h"
 
 namespace

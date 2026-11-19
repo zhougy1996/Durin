@@ -2,7 +2,8 @@
 
 #include "CoreMinimal.h"
 
-#include "MaterialGraphDocument.h"
+#include "MaterialGraphOperations.h"
+#include "Materials/MaterialFunction.h"
 
 namespace Durin::MaterialEditor
 {

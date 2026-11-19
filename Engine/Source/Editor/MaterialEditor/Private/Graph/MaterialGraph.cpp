@@ -3,7 +3,6 @@
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "MaterialGraphPinSource.h"
 #include "Graph/MaterialGraphCatalog.h"
-#include "MaterialGraphDocument.h"
 #include "Materials/Material.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Graph/MaterialGraphEditSession.h"

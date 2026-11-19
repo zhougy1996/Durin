@@ -4,7 +4,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
 
-#include "MaterialGraphDocument.h"
+#include "MaterialGraphSchema.h"
 #include "MaterialGraphEditInternals.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "DObject/Archive.h"

@@ -94,7 +94,7 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "UnfinishedWrapper"));
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "UnfinishedCaller"));
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialGraphDocument Graph(*Function), Nested(*Wrapper);
+
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Function));
 	TStrongObjectPtr<DMaterialGraph> NestedAuthoringGraph(DMaterialGraph::Create(*Wrapper));
 	TStrongObjectPtr<DMaterialGraph> RootAuthoringGraph(DMaterialGraph::Create(*Material));
@@ -126,12 +126,12 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	std::vector<FMaterialFunctionOwnerStamp> Closure;
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing));
 	EXPECT_FALSE(ValidateMaterialFunctionDependencies(Roots, Closure));
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Graph.GetOwner(), FMaterialGraphPinAddress::Input(OutputNode.GeneratedNodeIds[0], 0), FMaterialGraphPinAddress::Output({InputNode.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Function.Get(), FMaterialGraphPinAddress::Input(OutputNode.GeneratedNodeIds[0], 0), FMaterialGraphPinAddress::Output({InputNode.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::NotTransactable));
 	const auto Constant = Testing::CreateGraphConstant(*NestedAuthoringGraph, 0.6f);
 	ASSERT_TRUE(Constant);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Nested.GetOwner(), FMaterialGraphPinAddress::Input(Call.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({Constant.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Wrapper.Get(), FMaterialGraphPinAddress::Input(Call.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({Constant.GeneratedNodeIds[0]}), false, Durin::ETransactionMode::Record));
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Nested.GetOwner(), FMaterialGraphPinAddress::Input(Call.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({}), true, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Wrapper.Get(), FMaterialGraphPinAddress::Input(Call.GeneratedNodeIds[0], 0, Input.Id), FMaterialGraphPinAddress::Output({}), true, Durin::ETransactionMode::Record));
 	EXPECT_FALSE(ValidateMaterialFunctionDependencies(Roots, Closure));
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
@@ -153,7 +153,7 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "RequiredCallFunction");
 	auto* Material = NewObject<DMaterial>(nullptr, "RequiredCallMaterial");
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialGraphDocument Root(*Material);
+
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Function));
 	TStrongObjectPtr<DMaterialGraph> RootAuthoringGraph(DMaterialGraph::Create(*Material));
 	auto Port = FunctionPort(50, EMaterialProgramValueType::Float, "Required Amount");
@@ -171,7 +171,7 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	const auto Output = FunctionPort(51, EMaterialProgramValueType::Float, "New Amount");
 	ASSERT_TRUE(AuthoringGraph->AddPort(true, Output, {Input.GeneratedNodeIds[0]}, 0, 0, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 1u);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Root.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Call.GeneratedNodeIds[0], 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 2u);
 	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.GetOutputId(), Output.Id);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -187,7 +187,7 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	auto* Material = NewObject<DMaterial>(nullptr, "CommandMaterial");
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	Tests::FTestEditorTransactorOwner Transactions;
-	FMaterialGraphDocument WrapperDocument(*Wrapper), MaterialDocument(*Material);
+
 	TStrongObjectPtr<DMaterialGraph> FunctionAuthoringGraph(DMaterialGraph::Create(*Function));
 	TStrongObjectPtr<DMaterialGraph> WrapperDocumentAuthoringGraph(DMaterialGraph::Create(*Wrapper));
 	TStrongObjectPtr<DMaterialGraph> MaterialAuthoringGraph(DMaterialGraph::Create(*Material));
@@ -212,15 +212,15 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Id, Inserted.GeneratedNodeIds[0]);
 	const auto InputNode = Wrapper->GetExpressionCollection().Expressions[0]->Id;
 	const auto InputPort = Function->GetFunctionSignature().Inputs[0].Id;
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(WrapperDocument.GetOwner(), FMaterialGraphPinAddress::Input(Nested.GeneratedNodeIds[0], 0, InputPort), FMaterialGraphPinAddress::Output({InputNode}), false, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Wrapper, FMaterialGraphPinAddress::Input(Nested.GeneratedNodeIds[0], 0, InputPort), FMaterialGraphPinAddress::Output({InputNode}), false, Durin::ETransactionMode::Record));
 	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].InputId, InputPort);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(WrapperDocument.GetOwner(), FMaterialGraphPinAddress::Input(Nested.GeneratedNodeIds[0], 0, InputPort), FMaterialGraphPinAddress::Output({}), true, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Wrapper, FMaterialGraphPinAddress::Input(Nested.GeneratedNodeIds[0], 0, InputPort), FMaterialGraphPinAddress::Output({}), true, Durin::ETransactionMode::Record));
 	EXPECT_TRUE(GetFunctionCalls(*Wrapper)[0]->Inputs.empty());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].Input.GetExpressionId(), InputNode);
 	auto Constant = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({73, 1, 2, 3});
 	ASSERT_TRUE(MaterialAuthoringGraph->CreateExpression(*Constant, 0, 0, Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(MaterialDocument.GetOwner(), FMaterialGraphPinAddress::Input(Inserted.GeneratedNodeIds[0], 0, Wrapper->GetFunctionSignature().Inputs[0].Id), FMaterialGraphPinAddress::Output({{73, 1, 2, 3}}), false, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::Input(Inserted.GeneratedNodeIds[0], 0, Wrapper->GetFunctionSignature().Inputs[0].Id), FMaterialGraphPinAddress::Output({{73, 1, 2, 3}}), false, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Inputs[0].Input.GetExpressionId(), (FGuid{73, 1, 2, 3}));
 	ASSERT_TRUE(MaterialAuthoringGraph->RemoveNodes(std::span(&Constant->Id, 1), Durin::ETransactionMode::NotTransactable));
 	MarkAsGarbage(Material);
@@ -238,7 +238,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	auto* Function = NewObject<DMaterialFunction>(nullptr, "AuthoredFunction");
 	auto* Material = NewObject<DMaterial>(nullptr, "AuthoredFunctionCaller");
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-	FMaterialGraphDocument Caller(*Material);
+
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*Function));
 	TStrongObjectPtr<DMaterialGraph> CallerAuthoringGraph(DMaterialGraph::Create(*Material));
 	Tests::FTestEditorTransactorOwner Transactions;
@@ -262,7 +262,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	EXPECT_FALSE(AuthoringGraph->RemovePort(false, Input.Id, Durin::ETransactionMode::NotTransactable));
 	const auto Inserted = CallerAuthoringGraph->InsertFunctionCall(*Function, 0, 0, Durin::ETransactionMode::Record);
 	ASSERT_TRUE(Inserted);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Caller.GetOwner(), FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}), true, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}), true, Durin::ETransactionMode::Record));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	const auto Identity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
