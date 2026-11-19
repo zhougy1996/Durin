@@ -221,42 +221,48 @@ namespace Durin::ShaderSharedOutput
 		}
 	}
 
-	auto Make(const FShaderCompileOptions& Options, const FShaderCompilerOutput& Product, const std::function<bool()>& Cancel)
-		-> TShaderValueResult<FBuildOutput>
+	auto Write(FBuildContext& Context, const FShaderCompileOptions& Options, const FShaderCompilerOutput& Product) -> void
 	{
-		if (Cancel && Cancel()) return FShaderCompletion::Canceled();
-		if (!Product || !ValidRequest(Options) || Product.CompiledShaders.size() != Options.EntryPoints.size())
-			return std::unexpected(std::string("Shader payload request or output count is invalid."));
-		FBuildOutputBuilder Output("Shader.Output", ShaderCompileOutputSchemaVersion, {.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes});
+		if (!Product) return SaveErrors(Context, Product.Errors);
+		const auto Fail = [&](std::string Message) {
+			const FShaderCompilerError Error(std::move(Message));
+			SaveErrors(Context, std::span(&Error, 1));
+		};
+		if (Context.IsCanceled()) return;
+		if (!ValidRequest(Options) || Product.CompiledShaders.size() != Options.EntryPoints.size())
+			return Fail("Shader payload request or output count is invalid.");
+		// A canceled context may expose its current output. Finish encoding before publishing any entry.
+		std::vector<FSharedByteBuffer> Descriptors;
+		Descriptors.reserve(Product.CompiledShaders.size());
 		uint64 DataBytes = 0;
 		FBinaryWriter Metadata({.MaximumTotalBytes = MaximumMetadataBytes});
 		Metadata.WriteU32(uint32(Product.CompiledShaders.size())); Metadata.WriteString(Options.VirtualShaderPath);
 		WriteTarget(Metadata, Options.Target);
 		for (size_t Index = 0; Index < Product.CompiledShaders.size(); ++Index)
 		{
-			if (Cancel && Cancel()) return FShaderCompletion::Canceled();
+			if (Context.IsCanceled()) return;
 			const auto& Shader = Product.CompiledShaders[Index];
 			if (Shader.Target != Options.Target || Shader.CodeFormat != Options.Target.OutputFormat
 				|| Shader.SourceEntryPoint != Options.EntryPoints[Index] || Shader.Frequency != Options.Frequencies[Index]
 				|| Shader.SourceEntryPoint.size() > MaximumStringBytes || Shader.BinaryEntryPoint.empty() || Shader.BinaryEntryPoint.size() > MaximumStringBytes
 				|| !ShaderFormat::ValidateShaderCode(Shader))
-				return std::unexpected(std::string("Shader payload contains invalid compiled output."));
+				return Fail("Shader payload contains invalid compiled output.");
 			Metadata.WriteString(Shader.SourceEntryPoint); Metadata.WriteString(Shader.BinaryEntryPoint);
 			Metadata.WriteU32(uint32(Shader.Frequency)); Metadata.WriteU32(uint32(Shader.CodeFormat));
 			for (uint32 Axis : Shader.ComputeThreadGroupSize) Metadata.WriteU32(Axis);
 			Metadata.WriteU64(Shader.CodeHash.HashLow); Metadata.WriteU64(Shader.CodeHash.HashHigh);
 			const auto& Reflection = Shader.Reflection;
 			if (Reflection.ResourceBindings.size() > MaximumReflectionEntries || Reflection.PushConstantRanges.size() > MaximumReflectionEntries)
-				return std::unexpected(std::string("Shader payload contains invalid compiled output."));
+				return Fail("Shader payload contains invalid compiled output.");
 			if (Shader.Code.size() > ShaderCompiledOutput::MaximumValueBytes - DataBytes
 				|| Metadata.Tell() > ShaderCompiledOutput::MaximumValueBytes - DataBytes - Shader.Code.size())
-				return std::unexpected(std::string("Shader payload exceeds its DDC value limit."));
+				return Fail("Shader payload exceeds its DDC value limit.");
 			FBinaryWriter Descriptor({.MaximumTotalBytes = ShaderCompiledOutput::MaximumValueBytes - DataBytes - Shader.Code.size() - Metadata.Tell()});
 			Descriptor.WriteU32(uint32(Reflection.ResourceBindings.size()));
 			for (const auto& Binding : Reflection.ResourceBindings)
 			{
-				if (Cancel && Cancel()) return FShaderCompletion::Canceled();
-				if (!ValidBinding(Binding)) return std::unexpected(std::string("Shader payload resource reflection is invalid."));
+				if (Context.IsCanceled()) return;
+				if (!ValidBinding(Binding)) return Fail("Shader payload resource reflection is invalid.");
 				Descriptor.WriteString(Binding.Name); Descriptor.WriteU32(uint32(Binding.StageFlags));
 				Descriptor.WriteU32(Binding.SetIndex); Descriptor.WriteU32(Binding.BindingIndex);
 				Descriptor.WriteU32(uint32(Binding.Type)); Descriptor.WriteU32(Binding.ArraySize);
@@ -269,29 +275,46 @@ namespace Durin::ShaderSharedOutput
 			Descriptor.WriteU32(uint32(Reflection.PushConstantRanges.size()));
 			for (const auto& Range : Reflection.PushConstantRanges)
 			{
-				if (Cancel && Cancel()) return FShaderCompletion::Canceled();
-				if (!ValidRange(Range)) return std::unexpected(std::string("Shader payload push constants are invalid."));
+				if (Context.IsCanceled()) return;
+				if (!ValidRange(Range)) return Fail("Shader payload push constants are invalid.");
 				Descriptor.WriteU32(uint32(Range.StageFlags)); Descriptor.WriteU32(Range.Offset); Descriptor.WriteU32(Range.Size); Descriptor.WriteU32(0);
 			}
 			Descriptor.WriteU32(Shader.PlatformDataVersion); Descriptor.WriteU64(Shader.PlatformData.GetSize());
 			Descriptor.WriteBytes(Shader.PlatformData.GetBytes());
 			const auto IdentityValue = ShaderFormat::ComputeShaderIdentity(Shader);
 			Descriptor.WriteU64(IdentityValue.HashLow); Descriptor.WriteU64(IdentityValue.HashHigh);
-			if (Descriptor.HasError()) return std::unexpected(std::string("Shader payload exceeds its DDC value limit."));
+			if (Descriptor.HasError()) return Fail("Shader payload exceeds its DDC value limit.");
 			DataBytes += Shader.Code.size() + Descriptor.Tell();
-			Output.AddValue(ValueId(uint32(Index), false), Shader.Code);
-			Output.AddValue(ValueId(uint32(Index), true), FSharedByteBuffer::Take(Descriptor.TakeBytes()));
+			Descriptors.push_back(FSharedByteBuffer::Take(Descriptor.TakeBytes()));
 		}
-		if (Cancel && Cancel()) return FShaderCompletion::Canceled();
-		if (Metadata.HasError()) return std::unexpected(std::string("Shader payload exceeds its DDC value limit."));
+		if (Context.IsCanceled()) return;
+		if (Metadata.HasError()) return Fail("Shader payload exceeds its DDC value limit.");
 		auto Meta = MakeBuildMetadata(FSharedByteBuffer::Take(Metadata.TakeBytes()));
-		if (!Meta || !Output.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta))) return std::unexpected(std::string("Shader payload exceeds its DDC value limit."));
-		for (size_t Index = 0; Index < std::min(Product.Errors.size(), ShaderCompilerMaxDiagnostics); ++Index) {
+		if (!Meta) return Fail("Shader payload exceeds its DDC value limit.");
+		uint64 MetadataBytes = Meta->GetBytes().GetSize();
+		std::vector<FCbObject> Diagnostics;
+		const auto Count = std::min(Product.Errors.size(), ShaderCompilerMaxDiagnostics);
+		Diagnostics.reserve(Count);
+		for (size_t Index = 0; Index < Count; ++Index) {
 			auto Diagnostic = WriteDiagnostic(Product.Errors[Index]);
-			if (!Diagnostic || !Output.AddMeta(FValueId::FromName(std::format("ShaderError.{}", Index)), std::move(*Diagnostic))) return std::unexpected(std::string("Shader diagnostic metadata exceeds its byte limit."));
+			if (!Diagnostic) return Fail("Shader diagnostic metadata exceeds its byte limit.");
+			MetadataBytes += Diagnostic->GetBytes().GetSize();
+			Diagnostics.push_back(std::move(*Diagnostic));
 		}
-		auto Built = std::move(Output).Build(); if (!Built) return std::unexpected(std::string("Shader payload exceeds its DDC value limit."));
-		return std::move(*Built);
+		if (MetadataBytes > FBuildOutputLimits{}.MaximumMetadataBytes || MetadataBytes > ShaderCompiledOutput::MaximumValueBytes - DataBytes)
+			return Fail("Shader payload exceeds its DDC value limit.");
+		if (Context.IsCanceled()) return;
+		for (size_t Index = 0; Index < Descriptors.size(); ++Index) {
+			if (!Context.AddValue(ValueId(uint32(Index), false), Product.CompiledShaders[Index].Code)
+				|| !Context.AddValue(ValueId(uint32(Index), true), std::move(Descriptors[Index])))
+				return Fail("Shader payload exceeds its DDC value limit.");
+		}
+		if (!Context.AddMeta(FValueId::FromName("Metadata"), std::move(*Meta)))
+			return Fail("Shader payload exceeds its DDC value limit.");
+		for (size_t Index = 0; Index < Diagnostics.size(); ++Index) {
+			if (!Context.AddMeta(FValueId::FromName(std::format("ShaderError.{}", Index)), std::move(Diagnostics[Index])))
+				return Fail("Shader diagnostic metadata exceeds its byte limit.");
+		}
 	}
 
 	auto AssembleImpl(const FShaderCompileOptions& Options, const FBuildOutput& Output, const std::function<bool()>& Cancel)

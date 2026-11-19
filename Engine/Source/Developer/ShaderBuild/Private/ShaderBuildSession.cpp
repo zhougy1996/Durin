@@ -230,12 +230,7 @@ namespace Durin
 					: Service->Compiler.Compile(Options->Value.VirtualShaderPath, Options->Value);
 				Service->ProducerMicroseconds.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now() - ProducerBegin).count(), std::memory_order_relaxed);
-				if (!Product) return ShaderSharedOutput::SaveErrors(Context, Product.Errors);
-				auto Output = ShaderSharedOutput::Make(Options->Value, Product, [&] { return Context.IsCanceled(); });
-				if (Output.Status == EShaderBuildStatus::Canceled) return;
-				if (!Output) return ShaderSharedOutput::SaveErrors(Context, FShaderCompilerOutput::Failure(Output.Error).Errors);
-				for (const auto& Value : Output->GetValues()) Context.AddValue(Value.Id, Value.Value.GetData());
-				for (const auto& MetaValue : Output->GetMetadata()) Context.AddMeta(MetaValue.Id, MetaValue.Object);
+				ShaderSharedOutput::Write(Context, Options->Value, Product);
 			}
 		private: std::shared_ptr<FCompilerService> Service;
 		};

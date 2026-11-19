@@ -2,7 +2,7 @@
 #include "MetalShaderFormat.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheRecordFixtureCodec.h"
-#include "ShaderSharedOutput.h"
+#include "ShaderOutputTestSupport.h"
 #include <gtest/gtest.h>
 #include "NativeRHIBackendTestSupport.h"
 
@@ -989,11 +989,11 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
             EXPECT_NE(*Binding, *FindBinding(Original.CompiledShaders[Index], "Params"));
         }
         // Persist the actual compiler allocation, then replay without another compile.
-        auto Shared = ShaderSharedOutput::Make(Options, Relocated);
-        ASSERT_TRUE(Shared) << Shared.Error;
+        auto Shared = Testing::WriteShaderOutput(Options, Relocated);
+        ASSERT_FALSE(Shared.GetValues().empty());
         const auto CacheKey = DerivedData::FCacheKey::FromHash(
             DerivedData::FCacheBucket::FromString("ContactAllocation"), FXxHash128::HashBuffer("relocated"));
-        auto CacheRecord = DerivedData::Private::MakeBuildCacheRecord(CacheKey, *Shared);
+        auto CacheRecord = DerivedData::Private::MakeBuildCacheRecord(CacheKey, Shared);
         ASSERT_TRUE(CacheRecord);
         auto RecordBytes = DerivedData::FCacheRecordFixtureCodec::Encode(*CacheRecord);
         ASSERT_TRUE(RecordBytes);

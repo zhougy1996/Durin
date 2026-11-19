@@ -6,9 +6,6 @@ namespace Durin::DerivedData
 	{
 		FBuildConfigContext Context; Context.Descriptor.Name = std::string(Function.GetName()); Context.Descriptor.Version = Function.GetVersion(); Function.Configure(Context); return std::move(Context.Descriptor);
 	}
-	auto Private::FBuildExecutionAccess::MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-		FBuildOutputBuilder& Output, IRequestOwner& Owner) -> FBuildContext
-	{ return FBuildContext(Action, Inputs, Output, Owner); }
 	auto Private::FBuildExecutionAccess::MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 		FBuildOutputLimits Limits) -> FBuildOutputBuilder
 	{ return FBuildOutputBuilder(std::move(Schema), SchemaVersion, Limits); }

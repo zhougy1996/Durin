@@ -9,7 +9,8 @@ namespace Durin::DerivedData::Private
 	{
 		static auto Configure(const IBuildFunction& Function) -> FBuildFunctionDescriptor;
 		static auto MakeContext(const FBuildAction& Action, std::span<const FBuildInput> Inputs,
-			FBuildOutputBuilder& Output, IRequestOwner& Owner) -> FBuildContext;
+			FBuildOutputBuilder& Output, IRequestOwner& Owner) -> FBuildContext
+		{ return FBuildContext(Action, Inputs, Output, Owner); }
 		static auto GetExecutionFailure(const FBuildContext& Context) -> const std::optional<std::string>& { return Context.ExecutionFailure; }
 		static auto MakeOutputBuilder(std::string Schema, uint32 SchemaVersion,
 			FBuildOutputLimits Limits) -> FBuildOutputBuilder;
