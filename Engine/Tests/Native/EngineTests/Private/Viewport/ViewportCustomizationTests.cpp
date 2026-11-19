@@ -431,7 +431,8 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	const auto ExternallyReordered = Spline->GetSplinePoints();
 	EXPECT_FALSE(Transactions->CanUndo());
-	EXPECT_EQ(Transactions->UndoExpected(0).Code, ETransactorResultCode::NoOp);
+	EXPECT_FALSE(Transactions->Undo());
+	EXPECT_EQ(Transactions->GetLastResult().Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(Spline->GetSplinePoints(), ExternallyReordered);
 	EXPECT_EQ(Second->GetSplinePoint(0)->Position, SecondDragged);
 

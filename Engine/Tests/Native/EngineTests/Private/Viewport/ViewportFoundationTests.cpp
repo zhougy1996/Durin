@@ -518,21 +518,23 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
 	EXPECT_TRUE(Manager->CanUndo());
 	EXPECT_EQ(Manager->GetUndoContext(false).Description, "Counting");
-	const ::Durin::FTransactionId FirstId = Manager->GetUndoId();
+	const ::Durin::FTransactionId FirstId = Manager->GetUndoContext().TransactionId;
 	ASSERT_NE(FirstId, 0);
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
-	const ::Durin::FTransactionId SecondId = Manager->GetUndoId();
+	const ::Durin::FTransactionId SecondId = Manager->GetUndoContext().TransactionId;
 	ASSERT_NE(SecondId, FirstId);
 
+	EXPECT_FALSE(Manager->UndoExpected(0));
 	EXPECT_FALSE(Manager->UndoExpected(FirstId));
 	EXPECT_EQ(Value, 2);
 	ASSERT_TRUE(Manager->UndoExpected(SecondId));
 	EXPECT_EQ(Value, 1);
 	EXPECT_TRUE(Manager->CanRedo());
-	EXPECT_TRUE(Manager->GetRedoId() == SecondId);
+	EXPECT_TRUE(Manager->GetRedoContext().TransactionId == SecondId);
+	EXPECT_FALSE(Manager->RedoExpected(0));
 	ASSERT_TRUE(Manager->RedoExpected(SecondId));
 	EXPECT_EQ(Value, 2);
-	EXPECT_TRUE(Manager->GetUndoId() == SecondId);
+	EXPECT_TRUE(Manager->GetUndoContext().TransactionId == SecondId);
 
 	const std::vector<Durin::FTransactionEvent> Events = Durin::Tests::CollectTransactionEvents(*Manager);
 	ASSERT_EQ(Events.size(), 4);
@@ -552,32 +554,31 @@ TEST(FEditorTransactionManagerTests, UndoAndRedoSkipExpiredEntriesAndUseTheLiveH
 	bool Expired = false;
 	Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
-	const FTransactionId First = Manager->GetUndoId();
+	const FTransactionId First = Manager->GetUndoContext().TransactionId;
 	Manager->SetUndoBarrier();
 	ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(
 		Value, std::initializer_list<DPackage*>{}, 10, nullptr, &Expired)));
-	const FTransactionId Middle = Manager->GetUndoId();
+	const FTransactionId Middle = Manager->GetUndoContext().TransactionId;
 	ASSERT_TRUE(ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
-	const FTransactionId Last = Manager->GetUndoId();
+	const FTransactionId Last = Manager->GetUndoContext().TransactionId;
 	(void)Tests::CollectTransactionEvents(*Manager);
 	ASSERT_EQ(Value, 12);
 	Expired = true;
 
-	ASSERT_TRUE(Manager->UndoExpected(Last));
+	ASSERT_TRUE(Manager->Undo());
 	EXPECT_FALSE(Manager->CanUndo());
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, 0u);
 	Manager->RemoveUndoBarrier();
-	EXPECT_EQ(Manager->GetUndoId(), First);
 	EXPECT_EQ(Manager->GetUndoContext().TransactionId, First);
 	EXPECT_FALSE(Manager->UndoExpected(Middle));
-	ASSERT_TRUE(Manager->UndoExpected(First));
+	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 10);
 
 	// A skipped record remains inert even if its predicate later changes.
 	Expired = false;
-	ASSERT_TRUE(Manager->RedoExpected(First));
-	EXPECT_EQ(Manager->GetRedoId(), Last);
+	ASSERT_TRUE(Manager->Redo());
 	EXPECT_EQ(Manager->GetRedoContext().TransactionId, Last);
-	ASSERT_TRUE(Manager->RedoExpected(Last));
+	ASSERT_TRUE(Manager->Redo());
 	EXPECT_EQ(Value, 12);
 	const auto Events = Tests::CollectTransactionEvents(*Manager);
 	EXPECT_TRUE(std::ranges::none_of(Events, [Middle](const auto& Event) { return Event.Id == Middle; }));
@@ -650,17 +651,18 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 		Before[Index] = *State;
 		ASSERT_TRUE(Packages[Index]->IsDirty());
 	}
-	const auto Id = Manager->GetUndoId();
+	const auto Id = Manager->GetUndoContext().TransactionId;
 	(void)Tests::CollectTransactionEvents(*Manager);
 	Expired = true;
 	Control.bFailUndo = true;
-	const auto Failed = Manager->UndoExpected(Id);
+	EXPECT_FALSE(Manager->Undo());
+	const auto Failed = Manager->GetLastResult();
 	EXPECT_EQ(Failed.Code, ETransactorResultCode::Failed);
 	ASSERT_TRUE(Failed.ApplyCause);
 	EXPECT_EQ(Failed.ApplyCause->Status, ETransactionApplyFailure::Restored);
 	EXPECT_EQ(Failed.ApplyCause->RecordIndex, 0u);
 	EXPECT_EQ(Value, 111);
-	EXPECT_EQ(Manager->GetUndoId(), Id);
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, Id);
 	EXPECT_FALSE(Manager->CanRedo());
 	for (size_t Index = 0; Index < Packages.size(); ++Index)
 	{
@@ -676,7 +678,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 	EXPECT_EQ(FailureEvents[0].Type, ETransactionEventType::Failed);
 
 	Control.bFailUndo = false;
-	ASSERT_TRUE(Manager->UndoExpected(Id));
+	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 10);
 	EXPECT_FALSE(LivePackage->IsDirty());
 	EXPECT_TRUE(ExpiredPackage->IsDirty());
@@ -687,7 +689,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 	ASSERT_EQ(UndoEvents.size(), 1u);
 	EXPECT_EQ(UndoEvents[0].Type, ETransactionEventType::Undone);
 	EXPECT_EQ(UndoEvents[0].Details, "Counter changed backward");
-	ASSERT_TRUE(Manager->RedoExpected(Id));
+	ASSERT_TRUE(Manager->Redo());
 	EXPECT_EQ(Value, 111);
 }
 
@@ -697,25 +699,25 @@ TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenAp
 	FTransactionControl Control;
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Manager, std::make_unique<FControlledTransaction>(Value, Control)));
-	const ::Durin::FTransactionId Id = Manager->GetUndoId();
+	const ::Durin::FTransactionId Id = Manager->GetUndoContext().TransactionId;
 	Durin::Tests::CollectTransactionEvents(*Manager);
 
 	Control.bFailUndo = true;
-	EXPECT_FALSE(Manager->UndoExpected(Id));
+	EXPECT_FALSE(Manager->Undo());
 	EXPECT_EQ(Value, 1);
-	EXPECT_TRUE(Manager->GetUndoId() == Id);
+	EXPECT_TRUE(Manager->GetUndoContext().TransactionId == Id);
 	ASSERT_EQ(Durin::Tests::CollectTransactionEvents(*Manager).back().Type, Durin::ETransactionEventType::Failed);
 
 	Control.bFailUndo = false;
-	ASSERT_TRUE(Manager->UndoExpected(Id));
+	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 0);
-	EXPECT_TRUE(Manager->GetRedoId() == Id);
+	EXPECT_TRUE(Manager->GetRedoContext().TransactionId == Id);
 	Durin::Tests::CollectTransactionEvents(*Manager);
 
 	Control.bFailRedo = true;
-	EXPECT_FALSE(Manager->RedoExpected(Id));
+	EXPECT_FALSE(Manager->Redo());
 	EXPECT_EQ(Value, 0);
-	EXPECT_TRUE(Manager->GetRedoId() == Id);
+	EXPECT_TRUE(Manager->GetRedoContext().TransactionId == Id);
 	ASSERT_EQ(Durin::Tests::CollectTransactionEvents(*Manager).back().Type, Durin::ETransactionEventType::Failed);
 }
 
@@ -725,8 +727,8 @@ TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommit
 	Durin::Tests::FTestTransactorOwner Manager;
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value)));
 	EXPECT_EQ(Value, 1);
-	const ::Durin::FTransactionId OldId = Manager->GetUndoId();
-	ASSERT_TRUE(Manager->UndoExpected(OldId));
+	const ::Durin::FTransactionId OldId = Manager->GetUndoContext().TransactionId;
+	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 0);
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Manager, std::make_unique<FCountingTransaction>(Value, 2)));
 	EXPECT_EQ(Value, 2);
@@ -1028,8 +1030,8 @@ TEST(FLevelDocumentRevisionStateTests, PreservesUnrelatedUndoRedoAndSavedCheckpo
 
 	FLevelDocumentRevisionState::Activate(Manager.Get(), Previous, Replacement);
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*Previous).has_value());
-	EXPECT_EQ(Manager->GetUndoId(), MaterialEdit.TransactionId);
-	EXPECT_EQ(Manager->GetRedoId(), TextureEdit.TransactionId);
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, MaterialEdit.TransactionId);
+	EXPECT_EQ(Manager->GetRedoContext().TransactionId, TextureEdit.TransactionId);
 	EXPECT_EQ(Manager->GetPackageRevisionState(*Material)->CurrentRevision, MaterialState.CurrentRevision);
 	EXPECT_EQ(Manager->GetPackageRevisionState(*Material)->SavedRevision, MaterialState.SavedRevision);
 	EXPECT_EQ(Manager->GetPackageRevisionState(*Texture)->CurrentRevision, TextureState.CurrentRevision);
@@ -1061,7 +1063,7 @@ TEST(FLevelDocumentRevisionStateTests, ReactivatingSamePackagePreservesHistory)
 	Manager->MarkSaved(*Package);
 	const auto SavedRevision = Manager->GetPackageRevisionState(*Package)->SavedRevision;
 	Durin::LevelEditor::FLevelDocumentRevisionState::Activate(Manager.Get(), Package, Package);
-	EXPECT_EQ(Manager->GetUndoId(), Edit.TransactionId);
+	EXPECT_EQ(Manager->GetUndoContext().TransactionId, Edit.TransactionId);
 	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->SavedRevision, SavedRevision);
 	ASSERT_TRUE(Manager->Undo());
 	EXPECT_EQ(Value, 0);

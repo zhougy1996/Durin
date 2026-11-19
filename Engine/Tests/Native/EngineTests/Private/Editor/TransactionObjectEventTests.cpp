@@ -203,10 +203,10 @@ TEST(FTransactionObjectEventTests, ReplayObserverExceptionKeepsCursorAndComplete
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "ThrowingReplayEvent"));
 	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Replay observer"}); ASSERT_TRUE(Target->Modify()); Target->Value = 4; }
-	const auto Id = Buffer->GetUndoId();
+	const auto Id = Buffer->GetUndoContext().TransactionId;
 	Target->TransactionObserver = [](const auto&) { throw std::runtime_error("Injected replay object event failure."); };
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
-	EXPECT_EQ(Buffer->GetUndoId(), Id); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->UndoCompletions, 1);
+	EXPECT_EQ(Buffer->GetUndoContext(false).TransactionId, Id); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->UndoCompletions, 1);
 }
 
 TEST(FTransactionObjectEventTests, SnapshotsAccumulateSelectionWithoutReplacingUndoBaseline)

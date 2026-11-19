@@ -5,6 +5,8 @@
 #include "Widgets/EditorNotificationOverlay.h"
 #include "Notifications/Notification.h"
 #include "Editor/AssetCompatibilityAuditTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanelLayout.h"
 #include "Settings/EditorSettings.h"
@@ -292,6 +294,86 @@ namespace Durin::MainFrame
 
 namespace Durin::MainFrame
 {
+	TEST(FNotificationPresentationTests, HistoryActionsRespectBarriersAndNeverReplayAReplacementHead)
+	{
+		class FChange final : public FCommandChange
+		{
+		public:
+			FChange(int& InValue, int InDelta, std::string_view InDescription, const bool* InExpired = nullptr)
+				: Value(InValue), Delta(InDelta), Description(InDescription), Expired(InExpired) {}
+			auto Apply() -> FCommandChangeResult override { Value += Delta; return {}; }
+			auto Revert() -> FCommandChangeResult override { Value -= Delta; return {}; }
+			auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
+			auto GetDescription() const -> std::string_view override { return Description; }
+			auto HasExpired(DObject*) const noexcept -> bool override { return Expired && *Expired; }
+		private:
+			int& Value;
+			int Delta;
+			std::string_view Description;
+			const bool* Expired;
+		};
+
+		int Value = 0;
+		bool bExpired = false;
+		Durin::Testing::InitializeDObjectSystemForTests();
+		Durin::Tests::FTestTransactorOwner History;
+		FNotificationManager Notifications;
+		FEditorNotificationOverlay Overlay;
+		auto Publish = [&] {
+			Overlay.Tick(Notifications, *History);
+			Notifications.Tick(0);
+		};
+		auto Find = [&](std::string_view Message) -> const FNotification* {
+			const auto& Entries = Notifications.GetHistory();
+			const auto It = std::ranges::find(Entries, Message, &FNotification::Message);
+			return It == Entries.end() ? nullptr : &*It;
+		};
+
+		const auto First = ApplyEditorChange(*History, std::make_unique<FChange>(Value, 1, "First"));
+		ASSERT_TRUE(First);
+		Publish();
+		const auto* FirstNotice = Find("First");
+		ASSERT_TRUE(FirstNotice && FirstNotice->Action);
+		const auto FirstUndo = *FirstNotice->Action;
+		const auto FirstNoticeId = FirstNotice->Id;
+		ASSERT_TRUE(FirstUndo.IsEnabled());
+		History->SetUndoBarrier();
+		EXPECT_EQ(History->GetUndoContext().TransactionId, 0u);
+		EXPECT_FALSE(Notifications.InvokeAction(FirstNoticeId));
+		FirstUndo.Invoke();
+		EXPECT_EQ(Value, 1);
+
+		ASSERT_TRUE(ApplyEditorChange(*History, std::make_unique<FChange>(Value, 10, "Middle", &bExpired)));
+		Publish();
+		const auto* MiddleNotice = Find("Middle");
+		ASSERT_TRUE(MiddleNotice && MiddleNotice->Action);
+		const auto OldUndo = *MiddleNotice->Action;
+		const auto Last = ApplyEditorChange(*History, std::make_unique<FChange>(Value, 100, "Last"));
+		ASSERT_TRUE(Last);
+		ASSERT_TRUE(History->Undo());
+		ASSERT_TRUE(History->Undo());
+		Publish();
+		const auto* MiddleRedoNotice = Find("Undid Middle");
+		ASSERT_TRUE(MiddleRedoNotice && MiddleRedoNotice->Action);
+		const auto OldRedo = *MiddleRedoNotice->Action;
+		ASSERT_TRUE(OldRedo.IsEnabled());
+
+		bExpired = true;
+		EXPECT_EQ(History->GetRedoContext().TransactionId, Last.TransactionId);
+		EXPECT_FALSE(OldRedo.IsEnabled());
+		OldRedo.Invoke();
+		EXPECT_EQ(Value, 1);
+		EXPECT_EQ(History->GetRedoContext().TransactionId, Last.TransactionId);
+		History->RemoveUndoBarrier();
+		EXPECT_EQ(History->GetUndoContext().TransactionId, First.TransactionId);
+		EXPECT_FALSE(OldUndo.IsEnabled());
+		OldUndo.Invoke();
+		EXPECT_EQ(Value, 1);
+		EXPECT_EQ(History->GetUndoContext().TransactionId, First.TransactionId);
+		ASSERT_TRUE(History->Redo());
+		EXPECT_EQ(Value, 101);
+	}
+
 	TEST(FNotificationPresentationTests, UnknownProgressHasNoFabricatedPercentage)
 	{
 		ImGuiContext* Context = ImGui::CreateContext();

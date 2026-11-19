@@ -1170,7 +1170,7 @@ namespace Durin
 	{
 		FTransactorRejection Rejection{.Reason = Reason, .State = State,
 			.RequestedId = RequestedId, .PendingId = Pending ? Pending->GetId() : 0,
-			.UndoHead = GetUndoId(), .RedoHead = GetRedoId(),
+			.UndoHead = GetUndoContext().TransactionId, .RedoHead = GetRedoContext().TransactionId,
 			.HistoryCount = History.size(), .OwnedBytes = OwnedBytes,
 			.ModuleName = std::string(ModuleName)};
 		return {.Code = ETransactorResultCode::Rejected,
@@ -1452,7 +1452,7 @@ namespace Durin
 	auto DTransBuffer::Undo(bool bCanRedo) -> bool
 	{
 		const size_t PreviousCursor = Cursor;
-		LastResult = UndoExpected(0);
+		LastResult = Replay(true);
 		if (!bCanRedo && Cursor != PreviousCursor)
 		{
 			for (size_t Index = Cursor; Index < History.size(); ++Index) QueueEvent(ETransactionEventType::Discarded, History[Index], "Undo without Redo.");
@@ -1465,14 +1465,14 @@ namespace Durin
 
 	auto DTransBuffer::UndoExpected(FTransactionId ExpectedId) -> FTransactorResult
 	{
-		return ReplayExpected(true, ExpectedId);
+		return Replay(true, ExpectedId);
 	}
 
-	auto DTransBuffer::Redo() -> bool { LastResult = RedoExpected(0); return LastResult.IsSuccess(); }
+	auto DTransBuffer::Redo() -> bool { LastResult = Replay(false); return LastResult.IsSuccess(); }
 
 	auto DTransBuffer::RedoExpected(FTransactionId ExpectedId) -> FTransactorResult
 	{
-		return ReplayExpected(false, ExpectedId);
+		return Replay(false, ExpectedId);
 	}
 
 	auto DTransBuffer::FindReplayIndex(bool bUndo, bool bRespectUndoBarrier) const -> std::optional<size_t>
@@ -1491,20 +1491,19 @@ namespace Durin
 		return std::nullopt;
 	}
 
-	auto DTransBuffer::ReplayExpected(bool bUndo, FTransactionId ExpectedId) -> FTransactorResult
+	auto DTransBuffer::Replay(bool bUndo, std::optional<FTransactionId> ExpectedId) -> FTransactorResult
 	{
 		CheckThread();
 		if (State != ETransactorState::Idle || GUndo)
-			return Reject(bUndo ? ETransactorRejectionReason::UndoState : ETransactorRejectionReason::RedoState, ExpectedId);
+			return Reject(bUndo ? ETransactorRejectionReason::UndoState : ETransactorRejectionReason::RedoState, ExpectedId.value_or(0));
 		const size_t UndoLimit = UndoBarriers.empty() ? 0 : UndoBarriers.back();
 		if (bUndo && Cursor != 0 && Cursor <= UndoLimit)
-			return Reject(ETransactorRejectionReason::UndoBarrier, ExpectedId);
+			return Reject(ETransactorRejectionReason::UndoBarrier, ExpectedId.value_or(0));
 		const auto NothingToReplay = FTransactorResult{.Code = ETransactorResultCode::NoOp,
 			.Notice = bUndo ? ETransactorNotice::NothingUndo : ETransactorNotice::NothingRedo};
-		if (bUndo ? Cursor == 0 : Cursor == History.size()) return NothingToReplay;
 		const auto Index = FindReplayIndex(bUndo);
-		if (ExpectedId != 0 && (!Index || History[*Index].GetId() != ExpectedId))
-			return Reject(bUndo ? ETransactorRejectionReason::UndoHead : ETransactorRejectionReason::RedoHead, ExpectedId);
+		if (ExpectedId && (*ExpectedId == 0 || !Index || History[*Index].GetId() != *ExpectedId))
+			return Reject(bUndo ? ETransactorRejectionReason::UndoHead : ETransactorRejectionReason::RedoHead, *ExpectedId);
 
 		auto CrossExpired = [&](size_t First, size_t Last) {
 			for (size_t Slot = First; Slot < Last; ++Slot) History[Slot].RetireExpiredRecords();
@@ -1527,18 +1526,18 @@ namespace Durin
 		check(HistoryRevision != std::numeric_limits<uint64>::max());
 		++HistoryRevision;
 		State = bUndo ? ETransactorState::Undoing : ETransactorState::Redoing;
-		FTransaction::FReplayResult Replay;
-		if (auto ApplyResult = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo, Replay); !ApplyResult)
+		FTransaction::FReplayResult Outcome;
+		if (auto ApplyResult = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo, Outcome); !ApplyResult)
 			return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
 		if (!RecalculateOwnedBytes())
 			return HandleApplyFailure(Transaction, {.Status = ETransactionApplyFailure::RecoveryRequired,
 				.Message = "Transaction replay made retained byte accounting invalid."});
-		ApplyPackageTransitions(Transaction, !bUndo, &Replay);
-		if (Replay.bMutatesMountedContent) NotifyMountedContentMutation();
+		ApplyPackageTransitions(Transaction, !bUndo, &Outcome);
+		if (Outcome.bMutatesMountedContent) NotifyMountedContentMutation();
 		if (bUndo) CrossExpired(*Index + 1, Cursor);
 		else CrossExpired(Cursor, *Index);
 		Cursor = bUndo ? *Index : *Index + 1;
-		QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction, std::move(Replay.Details));
+		QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction, std::move(Outcome.Details));
 		State = ETransactorState::Idle;
 		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = Transaction.GetId()};
 	}
@@ -1745,24 +1744,10 @@ namespace Durin
 		DTransactor::BeginDestroy();
 	}
 
-	auto DTransBuffer::GetUndoId() const -> FTransactionId
-	{
-		if (State == ETransactorState::Finalizing) return 0;
-		const auto Index = FindReplayIndex(true, false);
-		return Index ? History[*Index].GetId() : 0;
-	}
-
-	auto DTransBuffer::GetRedoId() const -> FTransactionId
-	{
-		if (State == ETransactorState::Finalizing) return 0;
-		const auto Index = FindReplayIndex(false);
-		return Index ? History[*Index].GetId() : 0;
-	}
-
 	auto DTransBuffer::GetUndoContext(bool bCheckWhetherUndoPossible) const -> FTransactionContext
 	{
 		if (State == ETransactorState::Finalizing) return {};
-		if (bCheckWhetherUndoPossible && !CanUndo()) return {};
+		if (bCheckWhetherUndoPossible && (State != ETransactorState::Idle || GUndo)) return {};
 		const auto Index = FindReplayIndex(true, bCheckWhetherUndoPossible);
 		return Index ? History[*Index].GetContext() : FTransactionContext{};
 	}

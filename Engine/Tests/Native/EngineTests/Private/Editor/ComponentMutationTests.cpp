@@ -284,9 +284,9 @@ TEST(FActorMutationTests, BatchConflictRejectsEveryWriteAndRetainsHistoryForRetr
 	EXPECT_NE(Conflict->GetFName(), Other->GetFName());
 	// Bypass the naming service to exercise defensive replay against external corruption.
 	Conflict->Rename(Other->GetFName());
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	EXPECT_FALSE(Level->ContainsActor(F.Actor));
 	EXPECT_FALSE(F.Actor->GetRootComponent()->IsRegistered());
 	EXPECT_TRUE(IsPackageCaptureObjectOmitted(F.Actor));
@@ -308,9 +308,9 @@ TEST(FActorMutationTests, CombinedAttachmentCyclesRejectRestorationBeforeAnyMemb
 	AActor* Target = F.Actor;
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false}));
 	ASSERT_TRUE(Other->GetRootComponent()->AttachToComponent(ExternalChild, EAttachmentTransformRule::KeepWorld));
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	EXPECT_FALSE(Level->ContainsActor(F.Actor));
 	EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachParent(), nullptr);
 	EXPECT_EQ(ExternalChild->GetAttachParent(), nullptr);
@@ -326,12 +326,12 @@ TEST(FActorMutationTests, RenamePreservesIdentityAndRejectsConflictingReplayWith
 	auto* Level = F.World->GetCurrentLevel();
 	const auto Before = F.Actor->GetFName();
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, F.Actor, "Renamed", {false}));
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameActor(*Level, F.Actor, "Renamed", {false}));
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	auto* Conflict = Level->SpawnActor<AActor>(Before);
 	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	EXPECT_EQ(F.Actor->GetFName(), FName("Renamed"));
 	ASSERT_TRUE(Level->DestroyActor(Conflict));
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -649,9 +649,9 @@ TEST(FComponentMutationTests, ConflictingRootRejectsUndoWithoutPartialRestoratio
 	ASSERT_TRUE(Added);
 	ASSERT_TRUE(F.Editor.GetActorEditor()->DeleteComponent(*Owner, Added, {false}));
 	auto* Replacement = static_cast<DSceneComponent*>(Owner->AddInstanceComponent(DSceneComponent::StaticClass(), "Replacement"));
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	EXPECT_EQ(Owner->GetRootComponent(), Replacement);
 	EXPECT_FALSE(Owner->OwnsComponent(Added));
 	EXPECT_FALSE(Added->IsRegistered());
@@ -676,9 +676,9 @@ TEST(FComponentMutationTests, RenamePreservesIdentityAndEarlierPropertyHistory)
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Light, "Renamed", {false}));
 	EXPECT_EQ(Light->GetFName(), FName("Renamed"));
 	EXPECT_NE(Light->GetObjectPath(), Path);
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	ASSERT_TRUE(F.Editor.GetActorEditor()->RenameComponent(*F.Actor, Light, "Renamed", {false}));
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Light->GetFName(), Before);
@@ -722,9 +722,9 @@ TEST(FComponentMutationTests, RenameReservesInactiveNamesAndConflictsRejectBefor
 	EXPECT_NE(Component->GetFName(), Reserved);
 	const auto After = Component->GetFName();
 	auto* Conflict = F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Original");
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	EXPECT_EQ(Component->GetFName(), After);
 	ASSERT_TRUE(F.Actor->DestroyInstanceComponent(Conflict));
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -796,9 +796,9 @@ TEST(FComponentMutationTests, ReparentSupportsDetachedStateAndRejectsInvalidEdit
 	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, nullptr, {false}));
 	EXPECT_EQ(Component->GetAttachParent(), nullptr);
 	EXPECT_EQ(Component->GetWorldLocation(), Before);
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Component, nullptr, {false}));
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(Component->GetAttachParent(), F.Actor->GetRootComponent());
 	ASSERT_TRUE(F.Transactions->Redo());
@@ -812,16 +812,16 @@ TEST(FComponentMutationTests, ReparentRejectsChangedParentAndCyclesWithoutMoving
 	auto* Parent = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
 	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Moving, Parent, {false}));
 	ASSERT_TRUE(Moving->DetachFromComponent());
-	const auto Head = F.Transactions->GetUndoId();
+	const auto Head = F.Transactions->GetUndoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 	EXPECT_EQ(Moving->GetAttachParent(), nullptr);
 	ASSERT_TRUE(Moving->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld));
 	ASSERT_TRUE(F.Transactions->Undo());
 	ASSERT_TRUE(Parent->AttachToComponent(Moving, EAttachmentTransformRule::KeepWorld));
-	const auto Redo = F.Transactions->GetRedoId();
+	const auto Redo = F.Transactions->GetRedoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Redo());
-	EXPECT_EQ(F.Transactions->GetRedoId(), Redo);
+	EXPECT_EQ(F.Transactions->GetRedoContext().TransactionId, Redo);
 	EXPECT_EQ(Moving->GetAttachParent(), F.Actor->GetRootComponent());
 	ASSERT_TRUE(Parent->AttachToComponent(F.Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
 	ASSERT_TRUE(F.Transactions->Redo());
@@ -1037,9 +1037,9 @@ TEST(FActorMutationTests, OrdinaryRenameSurvivesDurinEdCustomCommandRetirement)
 	auto* Editor = F.Editor.GetActorEditor();
 	ASSERT_TRUE(Editor->RenameActor(*Level, F.Actor, "ModuleOwnedActor", {false}));
 	ASSERT_TRUE(Editor->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false}));
-	const auto UndoId = F.Transactions->GetUndoId();
+	const auto UndoId = F.Transactions->GetUndoContext().TransactionId;
 	EXPECT_EQ(F.Transactions->DiscardCustomChangesByModule("LevelEditor").Code, ETransactorResultCode::NoOp);
-	EXPECT_EQ(F.Transactions->GetUndoId(), UndoId);
+	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, UndoId);
 	ASSERT_TRUE(F.Transactions->DiscardCustomChangesByModule("DurinEd"));
 	EXPECT_TRUE(F.Transactions->CanUndo());
 	ASSERT_TRUE(F.Transactions->Undo());
@@ -1065,7 +1065,7 @@ TEST(FComponentMutationTests, StructuralReplayRejectsDetachedOwnersWhileMetadata
 		case 3: Result = Editor->ReparentComponent(*F.Actor, Child, Parent, {false}); break;
 		}
 		ASSERT_TRUE(Result);
-		const auto Head = F.Transactions->GetUndoId();
+		const auto Head = F.Transactions->GetUndoContext().TransactionId;
 		const auto Name = Child->GetFName();
 		const auto ComponentCount = F.Actor->GetComponents().size();
 		ASSERT_TRUE(Level->SetActorPresence(F.Actor, false));
@@ -1079,7 +1079,7 @@ TEST(FComponentMutationTests, StructuralReplayRejectsDetachedOwnersWhileMetadata
 			continue;
 		}
 		EXPECT_FALSE(F.Transactions->Undo());
-		EXPECT_EQ(F.Transactions->GetUndoId(), Head);
+		EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
 		EXPECT_EQ(Child->GetFName(), Name);
 		EXPECT_EQ(F.Actor->GetComponents().size(), ComponentCount);
 		ASSERT_TRUE(Level->SetActorPresence(F.Actor, true));
@@ -1243,9 +1243,9 @@ TEST(FActorMutationTests, LabelEditsAndDuplicationPreserveNamesAndReplayExactLab
     ASSERT_TRUE(Service->SetActorLabel(*Level, First, "Visible", {false}));
     EXPECT_EQ(First->GetObjectPath(), Path);
     EXPECT_EQ(First->GetActorLabel(), "Visible");
-    const auto Head = F.GetTransactions()->GetUndoId();
+    const auto Head = F.GetTransactions()->GetUndoContext().TransactionId;
     ASSERT_TRUE(Service->SetActorLabel(*Level, First, "Visible", {false}));
-    EXPECT_EQ(F.GetTransactions()->GetUndoId(), Head);
+    EXPECT_EQ(F.GetTransactions()->GetUndoContext().TransactionId, Head);
     EXPECT_FALSE(Service->SetActorLabel(*Level, First, "Denied", {true}));
     EXPECT_FALSE(Service->SetActorLabel(*Level, First, std::string("bad\0label", 9), {false}));
     ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_EQ(First->GetActorLabel(), "Internal");

@@ -162,7 +162,8 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	EXPECT_EQ(Transactions->GetUndoContext(false).Description, "Translate 'Probe'");
 	const auto BeforeRejectedUndo = Target->Transform;
 	Target->bValid = false;
-	const auto Rejected = Transactions->UndoExpected(0);
+	EXPECT_FALSE(Transactions->Undo());
+	const auto Rejected = Transactions->GetLastResult();
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;
@@ -791,12 +792,12 @@ TEST(FTransformGizmoTests, ReplayWriteFailureCompensatesEveryTarget)
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
 	Durin::Tests::FTestTransactorOwner Buffer;
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo());
-	const auto Before = Probe.Objects[0]->Transform; const auto Head = Buffer->GetUndoId();
+	const auto Before = Probe.Objects[0]->Transform; const auto Head = Buffer->GetUndoContext().TransactionId;
 	bool bFail = true; auto Target = Probe.Objects[1];
 	Target->Setter = [Target, &bFail](const Durin::FTransform& Value) { Target->Transform = Value; return !std::exchange(bFail, false); };
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Idle);
 	for (const auto& Object : Probe.Objects) ExpectVectorNear(Object->Transform.Translation, Before.Translation);
-	EXPECT_EQ(Buffer->GetUndoId(), Head); Target->Setter = {}; ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Head); Target->Setter = {}; ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
 }
 
 TEST(FTransformGizmoTests, ReplayRollbackFailureRequiresRecovery)

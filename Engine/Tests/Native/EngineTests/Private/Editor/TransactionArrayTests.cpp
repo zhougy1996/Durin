@@ -339,12 +339,12 @@ TEST(FTransactionArrayTests, ReviewPieArrayInverseCompensatesWithoutRetainingPla
 		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1))); }
 	for (const bool bUndo : {true, false})
 	{
-		const auto Head = bUndo ? Buffer->GetUndoId() : Buffer->GetRedoId(); const auto Count = Object->NestedArray[0].Count;
+		const auto Head = bUndo ? Buffer->GetUndoContext().TransactionId : Buffer->GetRedoContext().TransactionId; const auto Count = Object->NestedArray[0].Count;
 		Object->NestedArray[0].HardReference = Pie.Get();
 		EXPECT_FALSE(bUndo ? Buffer->Undo() : Buffer->Redo());
 		ASSERT_EQ(Object->NestedArray.size(), 1u); EXPECT_EQ(Object->NestedArray[0].Count, Count);
 		EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), Pie.Get());
-		EXPECT_EQ(bUndo ? Buffer->GetUndoId() : Buffer->GetRedoId(), Head);
+		EXPECT_EQ(bUndo ? Buffer->GetUndoContext().TransactionId : Buffer->GetRedoContext().TransactionId, Head);
 		EXPECT_FALSE(Buffer->ContainsPieObjects());
 		Object->NestedArray[0].HardReference = nullptr;
 		ASSERT_TRUE(bUndo ? Buffer->Undo() : Buffer->Redo());
@@ -369,10 +369,10 @@ TEST(FTransactionArrayTests, PieInverseRejectionRestoresMixedRecordsAndAnnotatio
 		ASSERT_TRUE(EditNumbers(*Second, 0, 1, {9})); Second->SupplementalValue = 40;
 		ASSERT_TRUE(Buffer->StoreUndo(std::make_unique<FTestCustomChange>(Counter, 0, 5)));
 	}
-	First->NestedArray[0].HardReference = Pie.Get(); const auto Head = Buffer->GetUndoId();
+	First->NestedArray[0].HardReference = Pie.Get(); const auto Head = Buffer->GetUndoContext().TransactionId;
 	int Events = 0; First->TransactionObserver = Second->TransactionObserver = [&](const auto&) { ++Events; };
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
-	EXPECT_EQ(Buffer->GetUndoId(), Head); EXPECT_EQ(Counter, 5); EXPECT_EQ(Second->Numbers, (std::vector<int32>{9}));
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Head); EXPECT_EQ(Counter, 5); EXPECT_EQ(Second->Numbers, (std::vector<int32>{9}));
 	EXPECT_EQ(First->NestedArray[0].Count, 42); EXPECT_EQ(First->NestedArray[0].HardReference.Get(), Pie.Get());
 	EXPECT_EQ(First->SupplementalValue, 20); EXPECT_EQ(Second->SupplementalValue, 40); EXPECT_EQ(Events, 0);
 	EXPECT_EQ(First->UndoBegins, 1); EXPECT_EQ(First->UndoCompletions, 1);

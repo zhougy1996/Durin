@@ -149,8 +149,11 @@ Committing a new branch discards the redo suffix and resets `GetUndoCount()`.
 
 A successful new commit replaces the redo suffix. IDs remain monotonic across
 Reset. Ordinary `Undo(bool bCanRedo = true)` and `Redo()` need no expected ID;
-`Undo(false)` discards the redo suffix. `UndoExpected` and `RedoExpected` are
-optional guarded extensions. `CanUndo`/`CanRedo` can explain unavailability;
+`Undo(false)` discards the redo suffix. Delayed notification actions use
+`UndoExpected` and `RedoExpected` with the nonzero ID captured from their event.
+The action is available only when its ID matches the checked context at the
+head. Invocation checks the ID again before advancing history.
+`CanUndo`/`CanRedo` can explain unavailability;
 Reset retains a caller-supplied reason. GetUndoContext/GetRedoContext return
 owned context values for the next replayable entry. GetUndoContext() is empty
 when Undo is unavailable. GetUndoContext(false) can read history while

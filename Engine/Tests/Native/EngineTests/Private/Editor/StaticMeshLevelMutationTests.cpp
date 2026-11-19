@@ -219,7 +219,8 @@ TEST(FStaticMeshLevelMutationTests, RedoRefusesNameCollisionWithoutChangingHisto
 	// Normal spawning now reserves names held by history; force an external conflict.
 	Collision->Rename("Managed");
 
-	const auto Rejected = Transactions->RedoExpected(0);
+	EXPECT_FALSE(Transactions->Redo());
+	const auto Rejected = Transactions->GetLastResult();
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;

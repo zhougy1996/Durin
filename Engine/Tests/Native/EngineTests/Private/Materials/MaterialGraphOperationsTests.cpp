@@ -3021,7 +3021,8 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialProgramRevision();
-	const auto Failed = Transactions->UndoExpected(0);
+	EXPECT_FALSE(Transactions->Undo());
+	const auto Failed = Transactions->GetLastResult();
 	ASSERT_FALSE(Failed);
 	ASSERT_TRUE(Failed.ApplyCause);
 	EXPECT_EQ(Failed.ApplyCause->Message, "The graph participants changed outside history.");

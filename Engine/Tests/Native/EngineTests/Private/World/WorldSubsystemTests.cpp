@@ -1759,7 +1759,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	ASSERT_GE(Pending, 0);
 	const auto Grouped = Service->SpawnActor(*Level, AActor::StaticClass(), "Grouped", {}, Context);
 	ASSERT_TRUE(Grouped);
-	EXPECT_EQ(First->GetTransactor()->GetUndoId(), 0u);
+	EXPECT_EQ(First->GetTransactor()->GetUndoContext().TransactionId, 0u);
 	ASSERT_TRUE(First->GetTransactor()->End());
 	EXPECT_EQ(First->GetTransactor()->GetUndoContext(false).Description, "Grouped host history");
 	ASSERT_TRUE(First->GetTransactor()->Undo()) << FormatTransactorResult(First->GetTransactor()->GetLastResult());
@@ -1768,10 +1768,10 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	EXPECT_TRUE(Level->ContainsActor(Grouped));
 	const auto Added = Service->SpawnActor(*Level, AActor::StaticClass(), "Edited", {}, Context);
 	ASSERT_TRUE(Added);
-	const auto BeforeNoOp = First->GetTransactor()->GetUndoId();
+	const auto BeforeNoOp = First->GetTransactor()->GetUndoContext().TransactionId;
 	const auto SameName = Service->RenameActor(*Level, Added, "Edited", Context);
 	EXPECT_TRUE(SameName);
-	EXPECT_EQ(First->GetTransactor()->GetUndoId(), BeforeNoOp);
+	EXPECT_EQ(First->GetTransactor()->GetUndoContext().TransactionId, BeforeNoOp);
 	ASSERT_TRUE(First->StartPlay(Level));
 	EXPECT_FALSE(Service->RenameActor(*Level, Added, "Playing", Context));
 	First->StopPlaySession();
@@ -1821,7 +1821,7 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsSubsystemBeginPlayBefo
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
 	ASSERT_NE(Service->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false}), nullptr);
-	const auto UndoId = Host->GetTransactor()->GetUndoId();
+	const auto UndoId = Host->GetTransactor()->GetUndoContext().TransactionId;
 	int Calls = 0;
 	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
 		if (Event != "Begin") return;
@@ -1830,7 +1830,7 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsSubsystemBeginPlayBefo
 		EXPECT_EQ(World->GetPlayState(), EWorldPlayState::BeginningPlay);
 		EXPECT_FALSE(Service->SpawnActor(*Level, AActor::StaticClass(), "Beginning", {}, {false}));
 		EXPECT_FALSE(Host->GetTransactor()->Undo());
-		EXPECT_EQ(Host->GetTransactor()->GetUndoId(), UndoId);
+		EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, UndoId);
 	};
 	World->BeginPlay({});
 	ASSERT_EQ(World->GetPlayState(), Durin::EWorldPlayState::Playing);
@@ -1856,13 +1856,13 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsWorldShutdownRequestBe
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
 	ASSERT_NE(Service->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false}), nullptr);
-	const auto UndoId = Host->GetTransactor()->GetUndoId();
+	const auto UndoId = Host->GetTransactor()->GetUndoContext().TransactionId;
 	World->BeginTearingDown();
 	EXPECT_EQ(World->GetCurrentLevel(), Level);
 	EXPECT_TRUE(World->IsShutdownRequested());
 	EXPECT_FALSE(Service->SpawnActor(*Level, AActor::StaticClass(), "Closing", {}, {false}));
 	EXPECT_FALSE(Host->GetTransactor()->Undo());
-	EXPECT_EQ(Host->GetTransactor()->GetUndoId(), UndoId);
+	EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, UndoId);
 	Host->PreExit();
 }
 

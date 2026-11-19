@@ -300,6 +300,7 @@ namespace Durin
 		auto StoreUndo(std::unique_ptr<FCommandChange> Change) -> FTransactorResult
 		{ return StoreUndo(nullptr, std::move(Change)); }
 		DURINED_API virtual auto Undo(bool bCanRedo = true) -> bool = 0;
+		// Delayed history actions must supply the ID they were created for.
 		DURINED_API virtual auto UndoExpected(FTransactionId ExpectedId) -> FTransactorResult = 0;
 		DURINED_API virtual auto Redo() -> bool = 0;
 		DURINED_API virtual auto RedoExpected(FTransactionId ExpectedId) -> FTransactorResult = 0;
@@ -322,8 +323,6 @@ namespace Durin
 		// Inspection failure conservatively reports possible PIE references.
 		virtual auto ContainsPieObjects() const -> bool { return TryContainsPieObjects().value_or(true); }
 		DURINED_API virtual auto TryContainsPieObjects() const -> std::expected<bool, std::string> = 0;
-		DURINED_API virtual auto GetUndoId() const -> FTransactionId = 0;
-		DURINED_API virtual auto GetRedoId() const -> FTransactionId = 0;
 		using FTransactionListener = std::function<void(const FTransactionEvent&)>;
 		DURINED_API auto AddTransactionListener(FTransactionListener Listener) -> uint64;
 		DURINED_API auto RemoveTransactionListener(uint64 Handle) -> void;
@@ -426,8 +425,6 @@ namespace Durin
 		// Matches UE: counts transactions already undone and available for Redo.
 		auto GetUndoCount() const -> size_t override { return History.size() - Cursor; }
 		auto GetUndoSize() const -> size_t override { return OwnedBytes; }
-		DURINED_API auto GetUndoId() const -> FTransactionId override;
-		DURINED_API auto GetRedoId() const -> FTransactionId override;
 		DURINED_API auto GetUndoContext(bool bCheckWhetherUndoPossible = true) const -> FTransactionContext override;
 		DURINED_API auto GetRedoContext() const -> FTransactionContext override;
 
@@ -468,7 +465,7 @@ namespace Durin
 		auto AllocateRevision() -> FRevisionId;
 		auto PreparePackageTransitions(FTransaction& Transaction) -> void;
 		auto FindReplayIndex(bool bUndo, bool bRespectUndoBarrier = true) const -> std::optional<size_t>;
-		auto ReplayExpected(bool bUndo, FTransactionId ExpectedId) -> FTransactorResult;
+		auto Replay(bool bUndo, std::optional<FTransactionId> ExpectedId = std::nullopt) -> FTransactorResult;
 		auto ApplyPackageTransitions(const FTransaction& Transaction,
 			bool bForward, const FTransaction::FReplayResult* Replay = nullptr) -> void;
 		auto FindPackageState(const DPackage& Package) -> FTrackedPackageState*;

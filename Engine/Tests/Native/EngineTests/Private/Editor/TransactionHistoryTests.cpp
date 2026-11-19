@@ -53,7 +53,7 @@ TEST(FTransBufferTests, ResetPurgesActiveScopesWithoutReentryOrChangingReason)
 			ASSERT_FALSE(Transactor.CanTransact()); EXPECT_FALSE(Transactor.CanUndo());
 			EXPECT_FALSE(Transactor.GetPackageRevisionState(*Package));
 			EXPECT_EQ(Transactor.GetQueueLength(), 0u); EXPECT_EQ(Transactor.GetUndoSize(), 0u);
-			EXPECT_EQ(Transactor.GetUndoId(), 0u); EXPECT_EQ(Transactor.GetRedoId(), 0u);
+			EXPECT_EQ(Transactor.GetUndoContext().TransactionId, 0u); EXPECT_EQ(Transactor.GetRedoContext().TransactionId, 0u);
 			EXPECT_EQ(Transactor.GetTransaction(0), nullptr);
 			EXPECT_TRUE(Transactor.GetTransactionDetails(1, ETransactionOperation::Undo).empty());
 			EXPECT_FALSE(Transactor.TryReset()); EXPECT_LT(Transactor.Begin("Probe", "Reentry"), 0);
@@ -155,7 +155,7 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 		Tests::FTestTransactorOwner Buffer;
 		int Value = 0;
 		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
-		ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoId();
+		ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoContext().TransactionId;
 		TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, Mode == 0 ? "RejectedQueryPie" : Mode == 1 ? "RejectedQueryError" : "RejectedCapture"));
 		Package->SetPlayInEditor(Mode == 0);
 		TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CaptureTarget"));
@@ -173,7 +173,7 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 			EXPECT_FALSE(Buffer->TryReset()); EXPECT_LT(Buffer->Begin("Reentry", "Destructor"), 0);
 			EXPECT_TRUE(Buffer->GetTransactionDetails(PendingId, ETransactionOperation::Undo).empty());
 			EXPECT_FALSE(Recording->BeginOperation()); EXPECT_FALSE(Recording->ContainsPieObjects());
-			EXPECT_EQ(Buffer->GetTransaction(0), nullptr); EXPECT_EQ(Buffer->GetRedoId(), 0u);
+			EXPECT_EQ(Buffer->GetTransaction(0), nullptr); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, 0u);
 			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_NE(ResolveObjectKey(Key), nullptr);
 		};
 		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
@@ -183,7 +183,7 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 		EXPECT_EQ(Buffer->GetLastResult().TransactionId, PendingId);
 		if (bThrow) { ASSERT_NE(Buffer->GetLastResult().ApplyCause, nullptr); EXPECT_NE(Buffer->GetLastResult().ApplyCause->Message.find("Final inspection failure"), std::string::npos); }
 		EXPECT_EQ(Inspected, Mode == 2 ? 0 : 1); EXPECT_EQ(Destroyed, 1); EXPECT_TRUE(Buffer->CanTransact());
-		EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetRedoId(), RedoId);
+		EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
 		CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
 	}
 }
@@ -220,10 +220,10 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 	{
 		Tests::FTestTransactorOwner Buffer;
 		auto Prefix = std::make_unique<FManagementProbeChange>(); auto* PrefixProbe = Prefix.get();
-		ASSERT_TRUE(Buffer->StoreUndo(std::move(Prefix))); const auto UndoId = Buffer->GetUndoId();
+		ASSERT_TRUE(Buffer->StoreUndo(std::move(Prefix))); const auto UndoId = Buffer->GetUndoContext().TransactionId;
 		int Value = 0;
 		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
-		ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoId();
+		ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoContext().TransactionId;
 		const auto Bytes = Buffer->GetUndoSize(); Buffer->SetUndoBarrier();
 		auto Enabled = std::make_shared<bool>(true); auto Destroyed = std::make_shared<int>(0);
 		const std::string Original = Stage == 5 ? "unknown exception" : std::format("Original finalization exception {}", Stage);
@@ -251,7 +251,7 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 		ASSERT_NE(Failure.ApplyCause, nullptr); EXPECT_NE(Failure.ApplyCause->Message.find(Original), std::string::npos);
 		EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle); EXPECT_EQ(GUndo, nullptr); EXPECT_FALSE(Buffer->IsActive());
 		EXPECT_EQ(*Destroyed, 1); EXPECT_EQ(Buffer->GetQueueLength(), 2u); EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
-		EXPECT_EQ(Buffer->GetUndoId(), UndoId); EXPECT_EQ(Buffer->GetRedoId(), RedoId); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1);
+		EXPECT_EQ(Buffer->GetUndoContext(false).TransactionId, UndoId); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1);
 		CollectGarbage(Durin::EObjectFlags::Standalone); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
 	}
 }
@@ -261,7 +261,7 @@ TEST(FTransBufferTests, FinalizationAccountingFailureDoesNotRetryThrowingMetadat
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	int Value = 0;
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
-	ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoId();
+	ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoContext().TransactionId;
 	FScopedTransaction Scope(Buffer.Get(), {.Description = "Accounting failure"});
 	auto Change = std::make_unique<FManagementProbeChange>(); auto* Probe = Change.get();
 	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change))); const auto Id = Buffer->GetLastResult().TransactionId;
@@ -274,7 +274,7 @@ TEST(FTransBufferTests, FinalizationAccountingFailureDoesNotRetryThrowingMetadat
 	EXPECT_EQ(Failure.Code, ETransactorResultCode::Failed); EXPECT_EQ(Failure.TransactionId, Id);
 	ASSERT_TRUE(Failure.FailureCause); EXPECT_EQ(Failure.FailureCause->Code, ETransactorFailure::EntryAccounting);
 	EXPECT_GT(PackageQueries, 0); EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle); EXPECT_EQ(GUndo, nullptr);
-	EXPECT_EQ(Buffer->GetRedoId(), RedoId); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
 }
 TEST(FTransBufferTests, ScopedDestructionContainsFinalizationException)
 {
@@ -720,10 +720,10 @@ TEST(FTransBufferTests, MaintainsCursorBranchIdsAndEvents)
 	ASSERT_TRUE(Second);
 	EXPECT_LT(First.TransactionId, Second.TransactionId);
 	EXPECT_TRUE(Buffer->Undo());
-	EXPECT_EQ(Buffer->GetUndoId(), First.TransactionId);
-	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, First.TransactionId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Second.TransactionId);
 	EXPECT_TRUE(Buffer->Redo());
-	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Second.TransactionId);
 	EXPECT_TRUE(Buffer->Undo());
 	const auto Branch = Commit("Branch");
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
@@ -764,12 +764,13 @@ TEST(FTransBufferTests, OversizedRecordingRemainsUndoableAndPreservesFailedUndoC
 	(void)Target->Modify();
 	++Target->Value;
 	ASSERT_TRUE(EndRecording(Valid, *Buffer));
-	const auto Id = Buffer->GetUndoId();
+	const auto Id = Buffer->GetUndoContext().TransactionId;
 	TargetRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_EQ(Buffer->UndoExpected(::Durin::FTransactionId{0}).Code, Durin::ETransactorResultCode::Failed);
-	EXPECT_EQ(Buffer->GetUndoId(), Id);
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(Buffer->GetLastResult().Code, Durin::ETransactorResultCode::Failed);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Id);
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 }
@@ -794,18 +795,18 @@ TEST(FTransBufferTests, ExpectedIdsPreserveHistoryPosition)
 
 	EXPECT_EQ(Buffer->UndoExpected(First.TransactionId).Code,
 		Durin::ETransactorResultCode::Rejected);
-	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Second.TransactionId);
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 2u);
 	ASSERT_TRUE(Buffer->UndoExpected(Second.TransactionId));
-	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Second.TransactionId);
 	EXPECT_EQ(Buffer->RedoExpected(First.TransactionId).Code,
 		Durin::ETransactorResultCode::Rejected);
-	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, Second.TransactionId);
 
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	ASSERT_TRUE(Buffer->RedoExpected(Second.TransactionId));
-	EXPECT_EQ(Buffer->GetUndoId(), Second.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Second.TransactionId);
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 2u);
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 }
@@ -826,7 +827,7 @@ TEST(FTransBufferTests, ForgetPackageRetiresHardSnapshotDependenciesOnBothSidesO
 		++Target->Value;
 		ASSERT_TRUE(EndRecording(Scope, *Buffer));
 	}
-	const auto UnrelatedId = Buffer->GetUndoId();
+	const auto UnrelatedId = Buffer->GetUndoContext().TransactionId;
 	{
 		Durin::FScopedTransaction Scope(Buffer, {"test", "Hard after dependency"});
 		(void)Target->Modify();
@@ -842,7 +843,7 @@ TEST(FTransBufferTests, ForgetPackageRetiresHardSnapshotDependenciesOnBothSidesO
 	ASSERT_TRUE(Buffer->Undo());
 	Buffer->ForgetPackage(*Package);
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
-	EXPECT_EQ(Buffer->GetUndoId(), UnrelatedId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, UnrelatedId);
 	EXPECT_FALSE(Buffer->CanRedo());
 	Target->Hard = nullptr;
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -1003,12 +1004,13 @@ TEST(FTransBufferTests, ExecutesCustomChangesAndPreservesCursorOnFailure)
 	const auto Execute = Durin::ApplyEditorChange(*Buffer, std::move(Change));
 	ASSERT_TRUE(Execute);
 	EXPECT_EQ(Value, 2);
-	EXPECT_EQ(Buffer->GetUndoId(), Execute.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Execute.TransactionId);
 
 	ChangePtr->bFailUndo = true;
-	EXPECT_EQ(Buffer->UndoExpected(::Durin::FTransactionId{0}).Code, Durin::ETransactorResultCode::Failed);
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(Buffer->GetLastResult().Code, Durin::ETransactorResultCode::Failed);
 	EXPECT_EQ(Value, 2);
-	EXPECT_EQ(Buffer->GetUndoId(), Execute.TransactionId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Execute.TransactionId);
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 	ChangePtr->bFailUndo = false;
 	ASSERT_TRUE(Buffer->Undo());
@@ -1039,7 +1041,8 @@ TEST(FTransBufferTests, SynchronousChangesJoinNestedRecordingAndPreserveOuterCon
 	ASSERT_TRUE(EndRecording(*Buffer));
 	auto Second = std::make_unique<FTestCustomChange>(Value, 2, 3);
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Buffer, std::move(Second)));
-	EXPECT_EQ(Buffer->UndoExpected(::Durin::FTransactionId{0}).Code, ETransactorResultCode::Rejected);
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::Rejected);
 	ASSERT_TRUE(EndRecording(*Buffer));
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	EXPECT_EQ(Buffer->GetUndoContext(false).Description, "Grouped edit");
@@ -1083,7 +1086,9 @@ TEST(FTransBufferTests, JoinedAppliedChangeAndPropertyCaptureCommitTogetherAndRe
 	Value = 3;
 	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 3);
 	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
-	EXPECT_EQ(Buffer->GetRedoId(), Prior.TransactionId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, 0u);
+	ASSERT_NE(Buffer->GetTransaction(0), nullptr);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetId(), Prior.TransactionId);
 	ASSERT_TRUE(EndRecording(Outer, *Buffer));
 	EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
@@ -1167,7 +1172,8 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryMessageAndDisablesHistor
 	Transaction.AddRecord(std::move(OtherFailingRedo));
 	Transaction.SetPackageTransitions({{.Package = FPersistentObjectRef(Package)}});
 	FTransBufferTestAccess::InstallHistory(*Buffer, std::move(Transaction));
-	const auto Result = Buffer->UndoExpected(::Durin::FTransactionId{0});
+	EXPECT_FALSE(Buffer->Undo());
+	const auto Result = Buffer->GetLastResult();
 	EXPECT_EQ(Result.Code, ETransactorResultCode::RecoveryRequired);
 	ASSERT_TRUE(Result.ApplyCause);
 	EXPECT_EQ(Result.ApplyCause->Status, ETransactionApplyFailure::RecoveryRequired);
@@ -1185,8 +1191,10 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryMessageAndDisablesHistor
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	EXPECT_FALSE(Buffer->CanUndo());
 	EXPECT_FALSE(Buffer->CanRedo());
-	EXPECT_EQ(Buffer->UndoExpected(::Durin::FTransactionId{0}).Code, ETransactorResultCode::Rejected);
-	EXPECT_EQ(Buffer->RedoExpected(::Durin::FTransactionId{0}).Code, ETransactorResultCode::Rejected);
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::Rejected);
+	EXPECT_FALSE(Buffer->Redo());
+	EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::Rejected);
 	EXPECT_EQ(Buffer->TryReset().Code, ETransactorResultCode::Rejected);
 	EXPECT_EQ((BeginRecording(*Buffer, {.Description = "Blocked"}), Buffer->GetLastResult()).Code, ETransactorResultCode::Rejected);
 	EXPECT_EQ(First, 1);
@@ -1313,11 +1321,11 @@ TEST(FTransBufferTests, OversizedHistoryIsTrimmedOnlyBeforeTheNextSuccessfulComm
 	EXPECT_EQ(Value, 2);
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	EXPECT_GT(Buffer->GetUndoSize(), Buffer->GetMemoryBudget());
-	const auto Head = Buffer->GetUndoId();
+	const auto Head = Buffer->GetUndoContext().TransactionId;
 	const auto Bytes = Buffer->GetUndoSize();
 	const auto Canceled = BeginRecording(*Buffer, {.Description = "Canceled over-budget edit"});
 	ASSERT_TRUE(Canceled);
-	EXPECT_EQ(Buffer->GetUndoId(), Head);
+	EXPECT_EQ(Buffer->GetUndoContext(false).TransactionId, Head);
 	EXPECT_EQ(CancelRecording(*Buffer, Canceled.Index).Code, ETransactorResultCode::Discarded);
 	const auto NoOp = BeginRecording(*Buffer, {.Description = "No-op over-budget edit"});
 	ASSERT_TRUE(NoOp);
@@ -1326,7 +1334,7 @@ TEST(FTransBufferTests, OversizedHistoryIsTrimmedOnlyBeforeTheNextSuccessfulComm
 	Failing->bFailRedo = true;
 	EXPECT_FALSE(Durin::ApplyEditorChange(*Buffer, std::move(Failing)));
 	EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
-	EXPECT_EQ(Buffer->GetUndoId(), Head);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Head);
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Value, 1);
@@ -1387,13 +1395,13 @@ TEST(FTransBufferTests, RedoBranchReplacementDoesNotAlsoTrimTheUndoPrefix)
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Buffer, std::move(Growing)));
 	ASSERT_GT(Buffer->GetUndoSize(), Buffer->GetMemoryBudget());
 	ASSERT_TRUE(Buffer->Undo());
-	const auto UndoId = Buffer->GetUndoId();
-	const auto RedoId = Buffer->GetRedoId();
+	const auto UndoId = Buffer->GetUndoContext().TransactionId;
+	const auto RedoId = Buffer->GetRedoContext().TransactionId;
 	const auto Canceled = BeginRecording(*Buffer, {.Description = "Canceled branch"});
 	ASSERT_TRUE(Canceled);
 	EXPECT_EQ(CancelRecording(*Buffer, Canceled.Index).Code, ETransactorResultCode::Discarded);
-	EXPECT_EQ(Buffer->GetUndoId(), UndoId);
-	EXPECT_EQ(Buffer->GetRedoId(), RedoId);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, UndoId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
 	(void)ReadTransactionEvents(*Buffer);
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 1, 3)));
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
@@ -1568,12 +1576,12 @@ TEST(FTransBufferTests, NoOpAndCanceledRecordingPreserveRedoBranch)
 		Target->Value = 5;
 	}
 	ASSERT_TRUE(Buffer->Undo());
-	const auto RedoId = Buffer->GetRedoId();
+	const auto RedoId = Buffer->GetRedoContext().TransactionId;
 	{
 		FScopedTransaction NoOp(Buffer.Get(), {"test", "No-op"});
 		ASSERT_TRUE(Target->Modify());
 	}
-	EXPECT_EQ(Buffer->GetRedoId(), RedoId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
 	{
 		FScopedTransaction Canceled(Buffer.Get(), {"test", "Canceled"});
 		ASSERT_TRUE(Target->Modify());
@@ -1581,7 +1589,7 @@ TEST(FTransBufferTests, NoOpAndCanceledRecordingPreserveRedoBranch)
 		Canceled.Cancel();
 	}
 	EXPECT_EQ(Target->Value, 3);
-	EXPECT_EQ(Buffer->GetRedoId(), RedoId);
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Target->Value, 5);
@@ -1686,9 +1694,12 @@ TEST(FTransBufferTests, InvalidReplayAccountingPreservesCursorAndRequiresRecover
 	int Value = 0; auto Change = std::make_unique<FTestCustomChange>(Value, 0, 1); auto* Retained = Change.get();
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::move(Change))); ASSERT_TRUE(Buffer->Undo());
 	Retained->bOverflowOnRedo = true;
-	const auto Id = Buffer->GetRedoId(); EXPECT_FALSE(Buffer->Redo());
+	const auto Id = Buffer->GetRedoContext().TransactionId; EXPECT_FALSE(Buffer->Redo());
 	EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::RecoveryRequired);
-	EXPECT_EQ(Buffer->GetRedoId(), Id); EXPECT_EQ(Buffer->GetUndoId(), 0u); EXPECT_FALSE(Buffer->CanTransact());
+	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, 0u); EXPECT_EQ(Buffer->GetUndoContext().TransactionId, 0u); EXPECT_FALSE(Buffer->CanTransact());
+	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+	ASSERT_NE(Buffer->GetTransaction(0), nullptr);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetId(), Id);
 	EXPECT_EQ(Value, 1); EXPECT_EQ(GUndo, nullptr);
 }
 
@@ -1895,7 +1906,7 @@ TEST(FTransBufferTests, UndoBarrierStackUsesOnlyTheTopCursorAndNeverBlocksRedo)
 	EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 1u);
 	std::string Reason;
 	EXPECT_FALSE(Buffer->CanUndo(&Reason)); EXPECT_FALSE(Reason.empty());
-	EXPECT_FALSE(Buffer->UndoExpected(Buffer->GetUndoId()));
+	EXPECT_FALSE(Buffer->Undo());
 	EXPECT_EQ(Value, 1); EXPECT_TRUE(Buffer->GetUndoContext().Description.empty());
 	EXPECT_FALSE(Buffer->GetUndoContext(false).Description.empty());
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 1, 2)));
@@ -1969,7 +1980,7 @@ TEST(FTransBufferTests, PieOwnerAndBothSerializedSidesAreInspectedAndPreserveRed
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "Editor"));
 	int Value = 0;
 	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
-	ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoId();
+	ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoContext().TransactionId;
 	for (int Side = 0; Side != 3; ++Side)
 	{
 		Target->Hard = Side == 1 ? Pie.Get() : nullptr;
@@ -1980,7 +1991,7 @@ TEST(FTransBufferTests, PieOwnerAndBothSerializedSidesAreInspectedAndPreserveRed
 		const auto PieReferences = GUndo->ContainsPieObjects(); ASSERT_TRUE(PieReferences); EXPECT_EQ(*PieReferences, Side != 2);
 		EXPECT_EQ(Buffer->ContainsPieObjects(), Side != 2);
 		Scope.End(); EXPECT_EQ(Buffer->GetLastResult().Code, ETransactorResultCode::Discarded);
-		EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetRedoId(), RedoId);
+		EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
 		EXPECT_EQ(Owner->Value, Side == 0 ? 1 : Side); // discarded recording leaves live writes intact
 	}
 	EXPECT_FALSE(Buffer->ContainsPieObjects());
@@ -2163,7 +2174,8 @@ TEST(FTransBufferTests, ReviewHistoryQueriesMatchGlobalAdmissionAndBarrierDiagno
 	EXPECT_FALSE(Buffer->CanUndo(&Reason)); EXPECT_FALSE(Reason.empty());
 	EXPECT_FALSE(Buffer->CanRedo(&Reason)); EXPECT_FALSE(Reason.empty());
 	Foreign->Cancel(); Buffer->SetUndoBarrier();
-	const auto Result = Buffer->UndoExpected(Buffer->GetUndoId()); EXPECT_FALSE(Result);
+	EXPECT_FALSE(Buffer->Undo());
+	const auto Result = Buffer->GetLastResult();
 	EXPECT_NE(FormatTransactorResult(Result).find("barrier"), std::string::npos);
 	ASSERT_TRUE(Buffer->Redo()); Buffer->RemoveUndoBarrier(); ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Undo());
 }
@@ -2178,10 +2190,10 @@ TEST(FTransBufferTests, ReviewPieLiveInverseIsRejectedWithoutPublishingOrChangin
 	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "Ordinary history"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; }
 	for (const bool bUndo : {true, false})
 	{
-		const auto Head = bUndo ? Buffer->GetUndoId() : Buffer->GetRedoId();
+		const auto Head = bUndo ? Buffer->GetUndoContext().TransactionId : Buffer->GetRedoContext().TransactionId;
 		const auto Value = Target->Value; Target->Hard = Pie.Get();
 		EXPECT_FALSE(bUndo ? Buffer->Undo() : Buffer->Redo());
-		EXPECT_EQ(bUndo ? Buffer->GetUndoId() : Buffer->GetRedoId(), Head);
+		EXPECT_EQ(bUndo ? Buffer->GetUndoContext().TransactionId : Buffer->GetRedoContext().TransactionId, Head);
 		EXPECT_EQ(Target->Value, Value); EXPECT_EQ(Target->Hard.Get(), Pie.Get());
 		EXPECT_FALSE(Buffer->ContainsPieObjects());
 		Target->Hard = nullptr; ASSERT_TRUE(bUndo ? Buffer->Undo() : Buffer->Redo());
@@ -2214,10 +2226,10 @@ TEST(FTransBufferTests, ReviewPieClassificationChangedByNativeCompletionRequires
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "Owner"));
 	Target->Hard = Dependency.Get();
 	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "Recorded"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; }
-	const auto Head = Buffer->GetUndoId();
+	const auto Head = Buffer->GetUndoContext().TransactionId;
 	Target->Trace = [&](std::string_view Event) { if (Event == "post") Package->SetPlayInEditor(true); };
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
-	EXPECT_EQ(Buffer->GetUndoId(), Head); EXPECT_FALSE(Buffer->CanTransact());
+	EXPECT_EQ(Buffer->GetUndoContext(false).TransactionId, Head); EXPECT_FALSE(Buffer->CanTransact());
 }
 TEST(FTransBufferTests, UndoRedoObserverCannotPublishTaintedHistoryAsSuccess)
 {
@@ -2228,8 +2240,8 @@ TEST(FTransBufferTests, UndoRedoObserverCannotPublishTaintedHistoryAsSuccess)
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "Owner"));
 	Target->Hard = Dependency.Get();
 	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "Observer taint"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; }
-	const auto Head = Buffer->GetUndoId();
+	const auto Head = Buffer->GetUndoContext().TransactionId;
 	Target->TransactionObserver = [&](const auto&) { Package->SetPlayInEditor(true); };
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
-	EXPECT_EQ(Buffer->GetUndoId(), Head); EXPECT_FALSE(Buffer->CanTransact());
+	EXPECT_EQ(Buffer->GetUndoContext(false).TransactionId, Head); EXPECT_FALSE(Buffer->CanTransact());
 }

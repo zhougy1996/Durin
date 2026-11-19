@@ -84,7 +84,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(Conflict->GetActorLabel(), "Sky");
 	// Inject a name collision explicitly; normal spawning reserves undo-held names.
 	Conflict->Rename("Sky");
-	const auto Rejected = Transactions->RedoExpected(0);
+	EXPECT_FALSE(Transactions->Redo());
+	const auto Rejected = Transactions->GetLastResult();
 	ASSERT_FALSE(Rejected);
 	ASSERT_TRUE(Rejected.ApplyCause);
 	const auto& Message = Rejected.ApplyCause->Message;

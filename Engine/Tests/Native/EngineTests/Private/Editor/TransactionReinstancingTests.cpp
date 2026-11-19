@@ -209,7 +209,7 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 {
 	using namespace Durin;
 	Record(42);
-	const auto Id = Buffer->GetUndoId();
+	const auto Id = Buffer->GetUndoContext().TransactionId;
 	New->Value = 77;
 	const FObjectKey OldKey(Old);
 	auto Ready = Prepare(); ASSERT_TRUE(Ready) << ToString(Ready.error());
@@ -217,7 +217,7 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Old);
 	ASSERT_TRUE(Operation.TryCommit());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
-	EXPECT_EQ(Buffer->GetUndoId(), Id);
+	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Id);
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, New);
 	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Current).has_value());
 	ASSERT_TRUE(Operation.Retire());

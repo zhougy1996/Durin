@@ -496,7 +496,8 @@ TEST(FSplineEditingTests, PointRangeHistoryExpiresAfterForeignTopology)
 	const auto Reordered = Spline->GetSplinePoints();
 	const auto Snapshot = Spline->GetEvaluationData();
 	EXPECT_FALSE(History->CanUndo());
-	EXPECT_EQ(History->UndoExpected(0).Code, ETransactorResultCode::NoOp);
+	EXPECT_FALSE(History->Undo());
+	EXPECT_EQ(History->GetLastResult().Code, ETransactorResultCode::NoOp);
 	EXPECT_FALSE(History->CanRedo());
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
 	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
@@ -519,7 +520,8 @@ TEST(FSplineEditingTests, ReflectedPointHistoryExpiresAfterForeignTopology)
 	const auto Reordered = Spline->GetSplinePoints();
 	const auto Snapshot = Spline->GetEvaluationData();
 	EXPECT_FALSE(History->CanUndo());
-	EXPECT_EQ(History->UndoExpected(0).Code, ETransactorResultCode::NoOp);
+	EXPECT_FALSE(History->Undo());
+	EXPECT_EQ(History->GetLastResult().Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
 	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
 }

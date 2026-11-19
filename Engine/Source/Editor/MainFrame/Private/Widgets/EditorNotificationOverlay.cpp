@@ -496,14 +496,18 @@ namespace Durin::MainFrame
 			}
 
 			const FTransactionId Id = Event.Id;
+			const FObjectKey Source(&Transactions);
 			FNotificationAction Action;
 			Action.Label = bOffersRedo ? "Redo" : "Undo";
-			Action.IsEnabled = [&Transactions, Id, bOffersRedo] {
-				return bOffersRedo ? Transactions.GetRedoId() == Id : Transactions.GetUndoId() == Id;
+			Action.IsEnabled = [Source, Id, bOffersRedo] {
+				const auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
+				return Transactor && Id != 0 && (bOffersRedo ? Transactor->GetRedoContext() : Transactor->GetUndoContext()).TransactionId == Id;
 			};
-			Action.Invoke = [&Transactions, Id, bOffersRedo] {
+			Action.Invoke = [Source, Id, bOffersRedo] {
+				auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
+				if (!Transactor) return;
 				const auto Result = bOffersRedo
-					? Transactions.RedoExpected(Id) : Transactions.UndoExpected(Id);
+					? Transactor->RedoExpected(Id) : Transactor->UndoExpected(Id);
 				if (!Result)
 					DURIN_ERROR("Unable to apply notification history action: {}",
 						FormatTransactorResult(Result));
