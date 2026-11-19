@@ -18,6 +18,49 @@ REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 class TestWorktreeTool:
 
+    @pytest.mark.skipif(not worktree_git.is_windows(), reason='Windows Git long-path removal')
+    @pytest.mark.parametrize('force', [False, True])
+    def test_remove_long_paths_preserves_shared_junction_target(self, tmp_path: Path, force: bool) -> None:
+        main = tmp_path / 'main'
+        linked = tmp_path / 'feature'
+        main.mkdir()
+        repository = REPOSITORY.at_root(main)
+        command_io = CommandIO.system()
+
+        def run_git(*arguments: str) -> None:
+            result = worktree_git.git_command(arguments, repository=repository, command_io=command_io)
+            worktree_git.require_git_success(result, 'Preparing long-path removal fixture')
+
+        run_git('init')
+        (main / '.gitignore').write_text('.venv/\ncache/\n', encoding='utf-8')
+        run_git('add', '.gitignore')
+        run_git('-c', 'user.name=Worktree Test', '-c', 'user.email=worktree@example.invalid',
+                '-c', 'commit.gpgsign=false', 'commit', '-m', 'Initialize removal fixture')
+        run_git('worktree', 'add', '--detach', str(linked))
+        # Override even a machine/repository configuration that disables long paths.
+        run_git('config', 'core.longpaths', 'false')
+        shared = main / '.venv'
+        shared.mkdir()
+        marker = shared / 'preserved.txt'
+        marker.write_text('preserved', encoding='utf-8')
+        worktree_links.create_directory_link(shared, linked / '.venv', link_type='junction',
+                                            dry_run=False, command_io=command_io)
+        deep = linked / 'cache'
+        while len(str(deep)) < 300:
+            deep /= 'nested-build-output'
+        deep.mkdir(parents=True)
+        (deep / 'artifact.txt').write_text('generated', encoding='utf-8')
+
+        worktree_transactions.remove_worktree(linked, force=force, dry_run=False,
+                                             repository=repository, command_io=command_io)
+
+        assert not linked.exists()
+        assert [worktree.path for worktree in worktree_git.get_worktrees(repository)] == [main]
+        assert marker.read_text(encoding='utf-8') == 'preserved'
+        result = worktree_git.git_command(['config', '--local', '--get', 'core.longpaths'], repository=repository)
+        assert result.returncode == 0
+        assert result.stdout.strip() == 'false'
+
     def test_prepare_current_worktree_restarts_an_interactive_shell(self) -> None:
         namespace = argparse.Namespace(
             worktree_action='prepare',

@@ -49,6 +49,10 @@ def git_command(
     if not same_path(cwd, repository.root):
         safe_paths.append(cwd)
     command = ["git.exe" if is_windows() else "git"]
+    if is_windows():
+        # Generated/ignored build files can exceed MAX_PATH even in a clean
+        # worktree. Enable this for status and removal without changing config.
+        command.extend(["-c", "core.longpaths=true"])
     for safe_path in safe_paths:
         safe_path_text = str(safe_path).replace(os.sep, "/")
         command.extend(["-c", f"safe.directory={safe_path_text}"])
