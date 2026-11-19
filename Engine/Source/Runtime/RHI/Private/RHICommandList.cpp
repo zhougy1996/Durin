@@ -58,7 +58,7 @@ namespace Durin
 			FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 		{
-			if (GDynamicRHI) return GDynamicRHI->RHIGetOrCreateBufferView(Buffer, Desc);
+			if (GDynamicRHI) return GDynamicRHI->RHICreateBufferView(Buffer, Desc);
 			return ValidateBufferViewDesc(Buffer, Desc)
 				? FBufferViewRHIRef(new FRHIBufferView(Buffer, Desc)) : nullptr;
 		}
@@ -67,7 +67,7 @@ namespace Durin
 			FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 		{
-			if (GDynamicRHI) return GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
+			if (GDynamicRHI) return GDynamicRHI->RHICreateTextureView(Texture, Desc);
 			return ValidateTextureViewDesc(Texture, Desc)
 				? FTextureViewRHIRef(new FRHITextureView(Texture, Desc)) : nullptr;
 		}
@@ -120,13 +120,11 @@ namespace Durin
 					if (!TextureResource || TextureResource->GetResourceType() != ERHIResourceType::Texture)
 						return Fail("Shader texture binding requires a texture or texture view.");
 					auto* Texture = static_cast<FRHITexture*>(TextureResource);
-					FRHITextureViewDesc Desc = MakeDefaultTextureViewDesc(*Texture,
-						Parameter.Type == ERHIBindingType::StorageImage
-							? ERHITextureViewUsage::Storage : ERHITextureViewUsage::Sampled);
-					FTextureViewRHIRef View = CreateTextureViewForRecording(Texture, Desc);
-					if (!View) return Fail("Shader texture binding could not create its canonical view.");
-					Parameter.Resource = View.GetReference();
-					CreatedViews.emplace_back(View.GetReference());
+					const auto Usage = Parameter.Type == ERHIBindingType::StorageImage
+						? ERHITextureViewUsage::Storage : ERHITextureViewUsage::Sampled;
+					if (!IsTextureViewDescValid(Texture, MakeDefaultTextureViewDesc(*Texture, Usage)))
+						return Fail("Shader texture does not support the requested binding.");
+					Parameter.Resource = Texture;
 					continue;
 				}
 
@@ -1358,23 +1356,6 @@ namespace Durin
 			TRefCountPtr<FRHITexture> Texture;
 		};
 
-		struct FAcquireBackBufferCommand
-		{
-			explicit FAcquireBackBufferCommand(FRHITexture* InBackBuffer)
-				: BackBuffer(InBackBuffer)
-			{
-				check(BackBuffer);
-			}
-
-			auto Execute(void* ReplayContext) -> void
-			{
-				GetReplayContext(ReplayContext)
-					.GetOperationContext("AcquireBackBuffer")
-					.RHIAcquireBackBuffer(BackBuffer.GetReference());
-			}
-
-			TRefCountPtr<FRHITexture> BackBuffer;
-		};
 
 		struct FUpdateTextureCommand
 		{
@@ -1769,11 +1750,6 @@ namespace Durin
 		Storage->Commit(Node, OwnedPayloadBytes);
 	}
 
-	auto FRHICommandListBase::RecordAcquireBackBuffer(
-		FRHITexture* BackBuffer) -> void
-	{
-		RecordCommand<FAcquireBackBufferCommand>(BackBuffer);
-	}
 
 	auto FRHICommandListBase::DetachStorage()
 		-> std::unique_ptr<FRHICommandStorage>
@@ -2610,21 +2586,6 @@ namespace Durin
 	auto FRHIGPUBufferReadback::EnqueueCopy(FRHICommandListBase& Commands, FRHIBuffer* Source, uint32 NumBytes, uint32 Offset) -> void
 	{ Commands.EnqueueBufferReadback(Source, Offset, NumBytes, BeginCopy()); }
 
-	auto FRHICommandListImmediate::AcquireBackBuffer(
-		FRHITexture* BackBuffer) -> void
-	{
-		RecordAcquireBackBuffer(BackBuffer);
-	}
-
-	auto FRHICommandListImmediate::AcquireBackBufferSynchronously(
-		FRHITexture* BackBuffer) -> void
-	{
-		check(BackBuffer);
-		Executor->ExecuteSynchronousContextOperation(true,
-			[BackBuffer](IRHICommandContext& Context) {
-				Context.RHIAcquireBackBuffer(BackBuffer);
-			});
-	}
 
 	auto FRHICommandListImmediate::BlockUntilGPUIdle() -> void
 	{

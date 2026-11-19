@@ -71,8 +71,13 @@ namespace Durin::VulkanRHI
 			return MapVulkanResourceState(Access).LegacyAccessMask;
 		}
 
-		auto MakeAttachment(const FRHIAttachmentLayout& Layout) -> vk::AttachmentDescription
+		auto MakeAttachment(const FRHIAttachmentLayout& Layout, bool bFallback = false) -> vk::AttachmentDescription
 		{
+			// Only the native image layout changes. Pipeline-compatible subpass dependencies
+			// still come from the original attachment access contract.
+			auto ImageLayout = [bFallback](ERHITextureLayout Value) {
+				return bFallback && Value == ERHITextureLayout::Present ? vk::ImageLayout::eGeneral : ToVulkanLayout(Value);
+			};
 			return vk::AttachmentDescription()
 				.setFormat(ToVulkan_PixelFormat(Layout.Format))
 				.setSamples(ToVulkanSampleCount(Layout.NumSamples))
@@ -80,8 +85,8 @@ namespace Durin::VulkanRHI
 				.setStoreOp(ToVulkanStoreAction(Layout.StoreAction))
 				.setStencilLoadOp(ToVulkanLoadAction(Layout.StencilLoadAction))
 				.setStencilStoreOp(ToVulkanStoreAction(Layout.StencilStoreAction))
-				.setInitialLayout(ToVulkanLayout(Layout.InitialLayout))
-				.setFinalLayout(ToVulkanLayout(Layout.FinalLayout));
+				.setInitialLayout(ImageLayout(Layout.InitialLayout))
+				.setFinalLayout(ImageLayout(Layout.FinalLayout));
 		}
 
 		auto AccumulateAccess(const FRHIAttachmentLayout& Attachment, vk::PipelineStageFlags& InitialStages, vk::AccessFlags& InitialAccess,
@@ -94,7 +99,8 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanRenderPassKey::FVulkanRenderPassKey(const FRHIRenderTargetLayout& InLayout)
+	FVulkanRenderPassKey::FVulkanRenderPassKey(const FRHIRenderTargetLayout& InLayout, uint32 InFallbackAttachments)
+		: FallbackAttachments(InFallbackAttachments)
 	{
 		Layout.NumColorRenderTargets = InLayout.NumColorRenderTargets;
 		Layout.bHasDepthStencil = InLayout.bHasDepthStencil;
@@ -110,7 +116,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanRenderPassKeyHasher::operator()(const FVulkanRenderPassKey& Key) const -> size_t
 	{
-		return FRHIRenderTargetLayoutHasher{}(Key.Layout);
+		return FRHIRenderTargetLayoutHasher{}(Key.Layout) ^ std::hash<uint32>{}(Key.FallbackAttachments);
 	}
 
 	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, const FVulkanRenderPassKey& InKey)
@@ -135,7 +141,7 @@ namespace Durin::VulkanRHI
 		{
 			const auto& Color = Key.Layout.ColorAttachments[Index];
 			ColorReferences.emplace_back(static_cast<uint32>(Attachments.size()), vk::ImageLayout::eColorAttachmentOptimal);
-			Attachments.push_back(MakeAttachment(Color.RenderTarget));
+			Attachments.push_back(MakeAttachment(Color.RenderTarget, (Key.FallbackAttachments & (1u << (2 * Index))) != 0));
 			AccumulateAccess(Color.RenderTarget, InitialStages, InitialAccess, FinalStages, FinalAccess);
 			SubpassStages |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
 			SubpassAccess |= vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite;
@@ -143,7 +149,7 @@ namespace Durin::VulkanRHI
 			if (Color.bHasResolveTarget)
 			{
 				ResolveReferences.emplace_back(static_cast<uint32>(Attachments.size()), vk::ImageLayout::eColorAttachmentOptimal);
-				Attachments.push_back(MakeAttachment(Color.ResolveTarget));
+				Attachments.push_back(MakeAttachment(Color.ResolveTarget, (Key.FallbackAttachments & (2u << (2 * Index))) != 0));
 				AccumulateAccess(Color.ResolveTarget, InitialStages, InitialAccess, FinalStages, FinalAccess);
 			}
 			else
@@ -221,11 +227,11 @@ namespace Durin::VulkanRHI
 		FrameBuffers.clear();
 	}
 
-	auto FVulkanRenderPassManager::GetOrCreateRenderPass(const FRHIRenderTargetLayout& InLayout) -> FVulkanRenderPass*
+	auto FVulkanRenderPassManager::GetOrCreateRenderPass(const FRHIRenderTargetLayout& InLayout, uint32 FallbackAttachments) -> FVulkanRenderPass*
 	{
 		std::lock_guard Lock(RenderPassMutex);
 		checkf(InLayout.IsValid(), "Cannot create a Vulkan render pass from an invalid render target layout.");
-		const FVulkanRenderPassKey Key(InLayout);
+		const FVulkanRenderPassKey Key(InLayout, FallbackAttachments);
 		if (const auto It = RenderPasses.find(Key); It != RenderPasses.end())
 		{
 			return It->second.get();
@@ -281,6 +287,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanRenderPassManager::EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void
 	{
 		InCmdBuffer->EndRenderPass();
+	}
+
+	auto FVulkanRenderPassManager::NotifyDeletedImageView(vk::ImageView View) -> void
+	{
+		std::erase_if(FrameBuffers, [View](const auto& Framebuffer) { return Framebuffer->ContainsView(View); });
 	}
 
 	auto FVulkanRenderPassManager::NotifyDeleted_Image(vk::Image Image) -> void

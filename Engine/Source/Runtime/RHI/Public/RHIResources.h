@@ -798,6 +798,7 @@ namespace Durin
 		{
 		}
 		RHI_API virtual auto Tick(float DeltaTime) -> void {};
+		// Returns the logical target for recording. Native acquisition is ordered before its uses on replay.
 		RHI_API virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
 		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
 		// Thread-safe request, applied at the next window drawing boundary.
@@ -2155,10 +2156,28 @@ namespace Durin
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
 	using FTextureViewRHIRef = TRefCountPtr<FRHITextureView>;
+	class FRHITextureViewCache
+	{
+	public:
+		RHI_API auto GetOrCreate(FRHITexture* Resource, const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef;
+
+	private:
+		std::mutex Mutex;
+		std::vector<FTextureViewRHIRef> Views;
+	};
 	using FRHITextureReferenceRef = TRefCountPtr<FRHITextureReference>;
 	using FSamplerRHIRef = TRefCountPtr<FRHISampler>;
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
 	using FBufferViewRHIRef = TRefCountPtr<FRHIBufferView>;
+	class FRHIBufferViewCache
+	{
+	public:
+		RHI_API auto GetOrCreate(FRHIBuffer* Resource, const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef;
+
+	private:
+		std::mutex Mutex;
+		std::vector<FBufferViewRHIRef> Views;
+	};
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
 	using FComputePipelineStateRHIRef = TRefCountPtr<FRHIComputePipelineState>;

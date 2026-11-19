@@ -254,9 +254,11 @@ namespace Durin
 						|| Member.Kind == ERDGParameterMemberKind::TextureAccess)
 					{
 						FRHITextureSubresourceRange Range;
+						FRDGTextureHandle Handle;
 						auto ResolveTexture = [&]<typename Wrapper>() {
 							const auto& GraphTexture = ReadWrapper.template operator()<Wrapper>();
 							Range = GraphTexture.Range;
+							Handle = GraphTexture.Texture;
 							return Resolver.GetTexture(GraphTexture);
 						};
 						FRHITexture* Texture = Member.Kind == ERDGParameterMemberKind::Texture
@@ -283,7 +285,7 @@ namespace Durin
                                 ? ERHITextureViewDimension::Texture2D : ERHITextureViewDimension::Texture2DArray;
 						FTextureViewRHIRef View;
 						if (GDynamicRHI)
-							View = GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
+							View = Resolver.GetTextureViewCache(Handle).GetOrCreate(Texture, Desc);
 						else
 						{
 							if (IsTextureViewDescValid(Texture, Desc))
@@ -306,6 +308,22 @@ namespace Durin
 							checkf(Parameter.Offset == GraphBuffer.Offset && Parameter.Size == GraphBuffer.Size,
 								"Render graph pass '{}' parameter '{}' buffer range exceeds "
 								"shader submission limits", Resolver.GetPassName(), Leaf.Path);
+							if (GDynamicRHI)
+							{
+								auto* Buffer = static_cast<FRHIBuffer*>(Parameter.Resource);
+								const bool Dynamic = Binding.Type == ERHIBindingType::UniformBufferDynamic;
+								auto Type = ERHIBufferViewType::Uniform;
+								if (Binding.Type == ERHIBindingType::StorageBuffer)
+									Type = EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::ByteAddressBuffer)
+										? ERHIBufferViewType::ByteAddressStorage : ERHIBufferViewType::StructuredStorage;
+								const uint64 Size = Parameter.Size ? Parameter.Size : Buffer->GetSize() - Parameter.Offset;
+								auto View = Resolver.GetBufferViewCache(GraphBuffer.Buffer).GetOrCreate(Buffer,
+									{Dynamic ? 0u : Parameter.Offset, Size, Type, EPixelFormat::Unknown});
+								Parameter.Resource = View.GetReference();
+								if (!Dynamic) Parameter.Offset = 0;
+								Parameter.Size = 0;
+								ExactViews.emplace_back(View.GetReference());
+							}
 						};
 						if (Member.Kind == ERDGParameterMemberKind::Buffer)
 							ResolveBuffer.template operator()<FRDGBufferParameter>();

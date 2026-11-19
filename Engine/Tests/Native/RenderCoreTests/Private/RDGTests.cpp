@@ -191,8 +191,7 @@ namespace Durin
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIUpdateTexture3D"; }
 			auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIReadTexture2D"; return {}; }
-			auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override
-			{ ADD_FAILURE() << "Unexpected backend operation: RHIAcquireBackBuffer"; }
+
 			auto RHIBlockUntilGPUIdle() -> void override
 			{ ADD_FAILURE() << "Unexpected backend operation: RHIBlockUntilGPUIdle"; }
 			auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void override

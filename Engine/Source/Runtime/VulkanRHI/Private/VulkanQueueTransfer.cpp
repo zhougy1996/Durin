@@ -1,6 +1,7 @@
 #include "VulkanQueueTransfer.h"
 #include "Backend/RHIValidation.h"
 #include "VulkanBuffer.h"
+#include "VulkanViewport.h"
 #include "VulkanTexture.h"
 #include "VulkanDevice.h"
 #include "VulkanQueue.h"
@@ -179,7 +180,7 @@ namespace Durin::VulkanRHI
 			State->TextureBarriers.push_back(vk::ImageMemoryBarrier2()
 				.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
 				.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
-				.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+				.setOldLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Source.Layout)).setNewLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Destination.Layout))
 				.setSrcQueueFamilyIndex(bSameFamily ? VK_QUEUE_FAMILY_IGNORED : SourceFamily)
 				.setDstQueueFamilyIndex(bSameFamily ? VK_QUEUE_FAMILY_IGNORED : DestinationFamily)
 				.setImage(Texture->Image).setSubresourceRange({ToVulkanAspectFlags(Transition.Range.Aspects),

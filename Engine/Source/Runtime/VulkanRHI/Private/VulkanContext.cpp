@@ -76,7 +76,7 @@ namespace Durin::VulkanRHI
 				Result.Images.push_back(vk::ImageMemoryBarrier2()
 					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
 					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
-					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+					.setOldLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Source.Layout)).setNewLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Destination.Layout))
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setImage(Texture->Image).setSubresourceRange({ToVulkanAspectFlags(Entry.Range.Aspects),
@@ -362,6 +362,14 @@ namespace Durin::VulkanRHI
 		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorViews;
 		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ResolveViews;
 		FTextureViewRHIRef DepthView;
+		uint32 FallbackAttachments = 0;
+		auto ResolveAttachment = [&](FRHITextureView*& View, FTextureViewRHIRef& Owner, uint32 AttachmentBit) {
+			if (!View || static_cast<FVulkanTextureView*>(View)->GetHandle()) return;
+			if (FVulkanBackBuffer::GetBoundRenderingBackBuffer(*static_cast<FVulkanTexture*>(View->GetTexture())))
+				FallbackAttachments |= AttachmentBit;
+			Owner = static_cast<FVulkanBackBuffer*>(View->GetTexture())->ResolveView(View->GetDesc());
+			View = Owner.GetReference();
+		};
 		for (uint32 Index = 0; Index < CanonicalInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
 		{
 			if (!CanonicalInfo.ColorRenderTargetViews[Index] && CanonicalInfo.ColorRenderTargets[Index])
@@ -379,6 +387,8 @@ namespace Durin::VulkanRHI
 						*CanonicalInfo.ColorResolveTargets[Index], ERHITextureViewUsage::ColorAttachment));
 				CanonicalInfo.ColorResolveTargetViews[Index] = ResolveViews[Index].GetReference();
 			}
+			ResolveAttachment(CanonicalInfo.ColorRenderTargetViews[Index], ColorViews[Index], 1u << (2 * Index));
+			ResolveAttachment(CanonicalInfo.ColorResolveTargetViews[Index], ResolveViews[Index], 2u << (2 * Index));
 		}
 		if (CanonicalInfo.RenderTargetLayout.bHasDepthStencil
 			&& !CanonicalInfo.DepthStencilRenderTargetView && CanonicalInfo.DepthStencilRenderTarget)
@@ -424,7 +434,7 @@ namespace Durin::VulkanRHI
 		}
 		// Pass names are deliberately excluded from render-pass identity and only annotate GPU work.
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
-		FVulkanRenderPass* RenderPass = RenderPassManager.GetOrCreateRenderPass(RenderPassInfo.RenderTargetLayout);
+		FVulkanRenderPass* RenderPass = RenderPassManager.GetOrCreateRenderPass(RenderPassInfo.RenderTargetLayout, FallbackAttachments);
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RenderPassInfo, *RenderPass);
 		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer, DebugName);
 		PendingAttachmentStates = std::move(CandidateStates);
@@ -438,6 +448,7 @@ namespace Durin::VulkanRHI
 		for (const FPendingAttachmentState& State : PendingAttachmentStates)
 		{
 			State.Texture->GetStateTracker().Apply(State.Range, State.FinalAccess);
+			if (FVulkanBackBuffer::GetBoundRenderingBackBuffer(*State.Texture)) Device.NotifyDeleted_Image(State.Texture->Image);
 		}
 		PendingAttachmentStates.clear();
 	}
@@ -829,7 +840,7 @@ namespace Durin::VulkanRHI
 				Barriers.push_back(vk::ImageMemoryBarrier2()
 					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
 					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
-					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+					.setOldLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Source.Layout)).setNewLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Destination.Layout))
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setImage(Texture->Image).setSubresourceRange(Range));
 			}
@@ -861,7 +872,7 @@ namespace Durin::VulkanRHI
 					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers);
 				Barriers.push_back(vk::ImageMemoryBarrier()
 					.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
-					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+					.setOldLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Source.Layout)).setNewLayout(FVulkanBackBuffer::ResolveLayout(*Texture, Destination.Layout))
 					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 					.setImage(Texture->Image).setSubresourceRange(Range));
 				SourceStages |= Source.LegacyStageMask;
@@ -1076,13 +1087,6 @@ namespace Durin::VulkanRHI
 		Device.GetReadbackArena().ReclaimCompleted();
 	}
 
-	auto FVulkanCommandListContext::RHIAcquireBackBuffer(
-		FRHITexture* BackBuffer) -> void
-	{
-		CheckRHIExecutionThread();
-		check(BackBuffer);
-		static_cast<FVulkanBackBuffer*>(BackBuffer)->AcquireBackBufferImage(*this);
-	}
 
 	auto FVulkanCommandListContext::RHIBlockUntilGPUIdle() -> void
 	{

@@ -4,6 +4,7 @@
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanResourceState.h"
+#include "VulkanRenderPass.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 
@@ -51,11 +52,15 @@ namespace Durin::VulkanRHI
 		const FRHITextureViewDesc& InDesc, vk::Result& OutResult)
 		: FRHITextureView(InTexture, InDesc), Device(InDevice)
 	{
-		const auto* Texture = static_cast<const FVulkanTexture*>(InTexture);
-		SourceImage = Texture->Image;
-		TextureViewBackingGeneration = Texture->GetViewBackingGeneration();
+		OutResult = static_cast<const FVulkanTexture*>(InTexture)->CreateImageView(InDesc, ImageView);
+		if (OutResult == vk::Result::eSuccess)
+			DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+	}
+
+	auto FVulkanTexture::CreateImageView(const FRHITextureViewDesc& InDesc, vk::ImageView& ImageView) const -> vk::Result
+	{
 		vk::ImageViewCreateInfo CreateInfo;
-		CreateInfo.setImage(SourceImage)
+		CreateInfo.setImage(Image)
 			.setViewType(InDesc.Dimension == ERHITextureViewDimension::Texture3D
 				? vk::ImageViewType::e3D
 				: (InDesc.Dimension == ERHITextureViewDimension::TextureCubeArray
@@ -69,19 +74,19 @@ namespace Durin::VulkanRHI
 				ToVulkanAspectFlags(InDesc.Range.Aspects),
 				InDesc.Range.FirstMip, InDesc.Range.NumMips,
 				InDesc.Range.FirstArrayLayer, InDesc.Range.NumArrayLayers));
-		OutResult = Device.GetHandle().createImageView(&CreateInfo, nullptr, &ImageView);
-		if (OutResult != vk::Result::eSuccess) { ImageView = nullptr; return; }
+		const auto Result = Device.GetHandle().createImageView(&CreateInfo, nullptr, &ImageView);
+		if (Result != vk::Result::eSuccess) { ImageView = nullptr; return Result; }
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(ImageView,
-			[&] { return std::format("{}.ImageView", Texture->GetDebugName()); });
-		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(
-			1, std::memory_order_relaxed) + 1;
+			[&] { return std::format("{}.ImageView", GetDebugName()); });
+		return Result;
 	}
 
 	FVulkanTextureView::~FVulkanTextureView()
 	{
 		CheckRHIExecutionThread();
-		if (ImageView)
+		if (ImageView && bOwnsImageView)
 		{
+			if (bUsedByFramebuffer) Device.GetRenderPassManager().NotifyDeletedImageView(ImageView);
 			Device.GetDeferredDeletionQueue().EnqueueResource(
 				FDeferredDeletionQueue::EType::ImageView, ImageView);
 		}

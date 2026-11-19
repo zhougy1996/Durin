@@ -57,7 +57,7 @@ namespace Durin::VulkanRHI
 				Resolved->PhysicalOffset = PhysicalOffset;
 				Resolved->bDynamic = bDynamic;
 				Resolved->View = bDynamic
-					? Device.GetRHI().RHIGetOrCreateBufferView(Buffer, ViewDesc)
+					? Allocation->ViewCache.GetOrCreate(Buffer, ViewDesc)
 					: TRefCountPtr<FRHIBufferView>(new FVulkanBufferView(Device, Buffer, ViewDesc));
 				requiref(Resolved->View, "Could not create a shader buffer descriptor view.");
 				Binding.Resolved = Resolved;

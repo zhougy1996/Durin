@@ -45,22 +45,22 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanTextureView(FVulkanDevice& InDevice, FRHITexture* InTexture,
 			const FRHITextureViewDesc& InDesc, vk::Result& OutResult);
+		FVulkanTextureView(FVulkanDevice& InDevice, FRHITexture* InTexture, const FRHITextureViewDesc& InDesc)
+			: FRHITextureView(InTexture, InDesc), Device(InDevice) {}
+		FVulkanTextureView(FVulkanDevice& InDevice, FRHITexture* InTexture, const FRHITextureViewDesc& InDesc, vk::ImageView BorrowedView)
+			: FRHITextureView(InTexture, InDesc), Device(InDevice), ImageView(BorrowedView), bOwnsImageView(false) {}
 		~FVulkanTextureView() override;
 
+		auto MarkUsedByFramebuffer() -> void { bUsedByFramebuffer = true; }
 		auto GetHandle() const -> vk::ImageView { return ImageView; }
 		auto GetDebugIdentity() const -> uint64 { return DebugIdentity; }
-		auto GetSourceImage() const -> vk::Image { return SourceImage; }
-		auto GetTextureViewBackingGeneration() const -> uint64
-		{
-			return TextureViewBackingGeneration;
-		}
 
 	private:
 		FVulkanDevice& Device;
 		vk::ImageView ImageView{};
-		vk::Image SourceImage{};
+		bool bOwnsImageView = true;
+		bool bUsedByFramebuffer = false;
 		uint64 DebugIdentity = 0;
-		uint64 TextureViewBackingGeneration = 0;
 	};
 
 	// Borrows one Vulkan image/view pair owned by a non-RHI aggregate such as a swapchain.
@@ -68,5 +68,7 @@ namespace Durin::VulkanRHI
 	{
 		vk::Image Image;
 		vk::ImageView ImageView;
+		FTextureViewRHIRef AttachmentView;
+		FTextureViewRHIRef SampledView;
 	};
 }

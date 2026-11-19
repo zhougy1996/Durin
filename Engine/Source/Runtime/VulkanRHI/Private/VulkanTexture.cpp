@@ -15,7 +15,7 @@
 #include "VulkanContext.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanView.h"
-#include "VulkanViewCache.h"
+#include "VulkanRenderPass.h"
 
 namespace Durin::VulkanRHI
 {
@@ -145,6 +145,25 @@ namespace Durin::VulkanRHI
 			Allocation = {};
 			if (!OutResult) TerminateVulkanFailure(ImageResult, "Vulkan texture allocation");
 		}
+		if (!Image) return;
+
+		const auto ShaderDesc = MakeDefaultTextureViewDesc(*this, bStorage
+			? ERHITextureViewUsage::Storage : ERHITextureViewUsage::Sampled);
+		if (bStorage || EnumHasAnyFlags(CreateFlags, ETextureCreateFlags::ShaderResource))
+			ImageResult = CreateImageView(ShaderDesc, DefaultView);
+
+		if (ImageResult == vk::Result::eSuccess && (bDepthStencil || EnumHasAnyFlags(CreateFlags,
+			ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable)))
+		{
+			const auto AttachmentDesc = MakeDefaultTextureViewDesc(*this, bDepthStencil
+				? ERHITextureViewUsage::DepthStencilAttachment : ERHITextureViewUsage::ColorAttachment);
+			if (DefaultView && ShaderDesc.Dimension == AttachmentDesc.Dimension && ShaderDesc.Range == AttachmentDesc.Range)
+				DefaultAttachmentView = DefaultView;
+			else if (IsTextureViewDescValid(this, AttachmentDesc))
+				ImageResult = CreateImageView(AttachmentDesc, DefaultAttachmentView);
+		}
+		if (OutResult) *OutResult = ImageResult;
+		else if (ImageResult != vk::Result::eSuccess) TerminateVulkanFailure(ImageResult, "Vulkan default image view creation");
 		Device.GetRHI().GetDebugUtils().NameObjectLazy(Image, [&] { return std::string_view(DebugName); });
 	}
 
@@ -164,6 +183,14 @@ namespace Durin::VulkanRHI
 	FVulkanTexture::~FVulkanTexture()
 	{
 		CheckRHIExecutionThread();
+		if (DefaultAttachmentView)
+		{
+			Device.GetRenderPassManager().NotifyDeletedImageView(DefaultAttachmentView);
+			if (DefaultAttachmentView != DefaultView)
+				Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, DefaultAttachmentView);
+		}
+		if (DefaultView)
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, DefaultView);
 		if (OwnerType == EImageOwnerType::LocalOwner)
 		{
 			constexpr ETextureCreateFlags FramebufferAttachmentFlags =
@@ -426,52 +453,15 @@ namespace Durin::VulkanRHI
 			DURIN_ERROR("Failed to create Vulkan texture view: {}", ToString(ValidationResult.error()));
 			RHITerminateOnFailure("native resource creation", "invalid or unsupported creation request");
 		}
-		FTextureViewRHIRef Result;
-		auto CreationOperation = [this, Texture, Desc, &Result]() {
-			vk::Result CreationResult;
-			FTextureViewRHIRef Candidate = new FVulkanTextureView(*Device, Texture, Desc, CreationResult);
-			if (CreationResult != vk::Result::eSuccess)
-			{
-				TerminateVulkanFailure(CreationResult, "Vulkan texture view creation");
-			}
-			Result = std::move(Candidate);
-		};
-		// Swapchain backing changes on replay; only stable local images are caller-domain factories.
-		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking() && GRHIThread && !IsInRHIThread())
-			GCommandListExecutor.ExecuteSynchronousOperation(false, std::move(CreationOperation));
-		else
-			CreationOperation();
-		return Result;
-	}
-
-	auto FVulkanDynamicRHI::RHIGetOrCreateBufferView(
-		FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc
-	) noexcept -> FBufferViewRHIRef
-	{
-		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
-		if (FBufferViewRHIRef Cached = ViewCache->FindBufferView(
-			Buffer, Desc, FrameNumber))
-		{
-			return Cached;
-		}
-		FBufferViewRHIRef Candidate = RHICreateBufferView(Buffer, Desc);
-		return ViewCache->PublishBufferView(std::move(Candidate), FrameNumber);
-	}
-
-	auto FVulkanDynamicRHI::RHIGetOrCreateTextureView(
-		FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc
-	) noexcept -> FTextureViewRHIRef
-	{
-		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
-		if (FTextureViewRHIRef Cached = ViewCache->FindTextureView(
-			Texture, Desc, FrameNumber))
-		{
-			return Cached;
-		}
-		FTextureViewRHIRef Candidate = RHICreateTextureView(Texture, Desc);
-		return ViewCache->PublishTextureView(std::move(Candidate), FrameNumber);
+		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking())
+			return new FVulkanTextureView(*Device, Texture, Desc);
+		if ((Desc.Usage == ERHITextureViewUsage::ColorAttachment || Desc.Usage == ERHITextureViewUsage::DepthStencilAttachment)
+			&& Desc == MakeDefaultTextureViewDesc(*Texture, Desc.Usage))
+			return new FVulkanTextureView(*Device, Texture, Desc, static_cast<FVulkanTexture*>(Texture)->GetDefaultAttachmentView());
+		vk::Result Status;
+		FTextureViewRHIRef View = new FVulkanTextureView(*Device, Texture, Desc, Status);
+		if (Status != vk::Result::eSuccess) TerminateVulkanFailure(Status, "Vulkan texture view creation");
+		return View;
 	}
 
 	auto FVulkanDynamicRHI::UpdateTexture2D(

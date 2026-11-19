@@ -315,7 +315,7 @@ namespace Durin
                     auto* SourceTexture=Resolver.GetTexture(P.Source);
                     auto SourceDesc=MakeDefaultTextureViewDesc(*SourceTexture,ERHITextureViewUsage::Sampled);
                     SourceDesc.Range=P.Source.Range;
-                    auto SourceView=GDynamicRHI->RHIGetOrCreateTextureView(SourceTexture,SourceDesc);
+                    auto SourceView=GDynamicRHI->RHICreateTextureView(SourceTexture,SourceDesc);
                     requiref(SourceView,"Sky lighting source view is unavailable.");
                     for(uint32 Face=0;Face<Faces;++Face)
                     {

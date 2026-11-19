@@ -134,6 +134,8 @@ namespace Durin
 		{
 			Descriptor Key;
 			Resource Physical;
+			using FViewCache = std::conditional_t<std::is_same_v<Resource, FTextureRHIRef>, FRHITextureViewCache, FRHIBufferViewCache>;
+			std::shared_ptr<FViewCache> Views = std::make_shared<FViewCache>();
 			std::shared_ptr<const FRDGAllocationRetirement> Retirement;
 			uint64 Sequence = 0;
 			uint64 LogicalBytes = 0;
@@ -318,6 +320,8 @@ namespace Durin
 			uint32 ResourceId = 0;
 			FTextureRHIRef Texture;
 			FBufferRHIRef Buffer;
+			std::shared_ptr<FRHITextureViewCache> TextureViews;
+			std::shared_ptr<FRHIBufferViewCache> BufferViews;
 			uint64 AllocationId = 0;
 			bool bReuseHit = false;
 			bool bExtracted = false;
@@ -487,7 +491,7 @@ namespace Durin
 			It->Retirement = Request.Retirement;
 			Candidate.AllocationId = It->Sequence + 1;
 			ActiveAllocationIds.insert(Candidate.AllocationId);
-			AssignPhysical(Candidate, It->Physical);
+			AssignPhysical(Candidate, *It);
 			return {};
 		};
 
@@ -538,8 +542,9 @@ namespace Durin
 						return GDynamicRHI->RHICreateTexture(
 							FRHICommandListImmediate::Get(), Desc);
 					},
-					[](FCandidate& OutCandidate, const FTextureRHIRef& Texture) {
-						OutCandidate.Texture = Texture;
+					[](FCandidate& OutCandidate, const auto& Entry) {
+						OutCandidate.Texture = Entry.Physical;
+						OutCandidate.TextureViews = Entry.Views;
 					}, Candidate);
 			}
 			else if (Request.Kind == ERDGResourceKind::Buffer)
@@ -553,8 +558,9 @@ namespace Durin
 						Desc.Aliasing = AliasingResources.contains(Request.ResourceId) ? ERHITransientAliasing::Enabled : ERHITransientAliasing::Disabled;
 						return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(), Desc);
 					},
-					[](FCandidate& OutCandidate, const FBufferRHIRef& Buffer) {
-						OutCandidate.Buffer = Buffer;
+					[](FCandidate& OutCandidate, const auto& Entry) {
+						OutCandidate.Buffer = Entry.Physical;
+						OutCandidate.BufferViews = Entry.Views;
 					}, Candidate);
 			}
 			else return Fail(ERDGAllocationError::AllocationKindInvalid,
@@ -570,10 +576,10 @@ namespace Durin
 			const bool bPublished = Candidate.Texture
 				? Published.SetTexture(Candidate.ResourceId,
 					std::move(Candidate.Texture), Candidate.AllocationId,
-					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId)
+					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId, std::move(Candidate.TextureViews))
 				: Published.SetBuffer(Candidate.ResourceId,
 					std::move(Candidate.Buffer), Candidate.AllocationId,
-					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId);
+					Candidate.bAliased ? "transient-alias" : Candidate.bReuseHit ? "reuse-hit" : "reuse-miss", Candidate.AliasSourceId, std::move(Candidate.BufferViews));
 			if (!bPublished)
 				return Fail(ERDGAllocationError::AllocationPublicationFailed,
 					Candidate.ResourceId);

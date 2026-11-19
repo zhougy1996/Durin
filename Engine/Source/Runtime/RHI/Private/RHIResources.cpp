@@ -1073,12 +1073,14 @@ namespace Durin
 			default: break;
 			}
 		}
+		const auto Aspects = GetTextureAspects(Texture.GetFormat());
 		return {
 			.Usage = Usage,
 			.Dimension = Dimension,
 			.Format = Texture.GetFormat(),
 			.Range = {
-				.Aspects = GetTextureAspects(Texture.GetFormat()),
+				.Aspects = Usage == ERHITextureViewUsage::Sampled && EnumHasAnyFlags(Aspects, ERHITextureAspect::Depth)
+					? ERHITextureAspect::Depth : Aspects,
 				.FirstMip = 0,
 				.NumMips = bAttachment ? 1u : static_cast<uint32>(Texture.GetNumMips()),
 				.FirstArrayLayer = 0,

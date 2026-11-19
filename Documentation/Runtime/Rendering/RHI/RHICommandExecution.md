@@ -300,7 +300,7 @@ into `WriteBuffer` at unlock without copying the bytes; they do not provide
 native mappings. Uniform resources use `UpdateUniformBuffer`; ordinary buffers
 use ordered `WriteBuffer` commands. Operations
 that must return a completed result—texture readback,
-back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
+GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.
 They first complete required earlier recorded work and execute backend mutation
 on the RHI thread. The normal `ExecuteSynchronousOperation` surface is terminal:
@@ -308,13 +308,11 @@ a waiter always targets the exact accepted serial, and operation failure or
 admission rejection never falls back to producer-thread backend work.
 
 Command recording canonicalizes raw buffer and texture shader parameters and
-implicit render-pass attachments into immutable views. That path uses
-`RHIGetOrCreateBufferView` and `RHIGetOrCreateTextureView`: a backend may reuse
-an exact resource-plus-description identity, while explicit `RHICreate*View`
-calls remain creation-only factories. Vulkan retains a thread-safe bounded
-working set of these automatic views, refreshes entries on use, and removes
-entries after 120 unused frames or capacity pressure. A cache miss remains one
-fallible synchronous native creation; a hit performs no RHI-thread round trip.
+implicit render-pass attachments into immutable views. RDG pool entries own
+`FRHITextureViewCache` or `FRHIBufferViewCache` and reuse views with matching
+descriptions across executions. A graph execution owns the cache for an import
+or transient alias without a pool owner. Explicit `RHICreate*View` calls create
+counted views. Recorded commands retain the views they use until replay.
 Graph raster callbacks lower their frozen attachment declarations with
 `MakeRDGNativeAttachmentBinding`, retaining the view owners until `BeginRenderPass`
 records its own references. Native color/depth binding validates the full declared
@@ -322,12 +320,9 @@ layout. Forward, bootstrap, deferred, retained and sorted-translucency pipeline
 layouts use the same graph-boundary policy; they leave attachments in attachment
 access and rely on RDG for subsequent sampled transitions.
 
-Texture identity includes the native backing image and its backing-set
-generation. Stable swapchain back-buffer wrappers therefore reuse one view per
-image while swapchain recreation cannot expose a stale view.
-Recorded commands retain their returned view references independently of cache
-eviction, and backend shutdown clears the cache before device teardown so view
-destruction continues through ordinary ordered and GPU-safe retirement.
+The Vulkan swapchain selects the acquired image's native view during RHI
+replay. Its lifetime and surface-loss behavior are described in
+[Viewport Rendering](../Pipeline/ViewportRendering.md).
 
 ### Required-Success Resource Creation
 

@@ -462,11 +462,7 @@ namespace Durin
 				OutData = MakeByteVector({7, 8, 9});
 				return true;
 			}
-			auto RHIAcquireBackBuffer(FRHITexture*) -> void override
-			{
-				Operations.emplace_back("AcquireBackBuffer");
-				OperationThreadRoles.emplace_back(IsInRHIThread());
-			}
+
 			auto RHIBlockUntilGPUIdle() -> void override
 			{
 				Operations.emplace_back("BlockUntilGPUIdle");
@@ -1380,7 +1376,6 @@ namespace Durin
 		const std::array<uint8, 16> UniformData{1, 2, 3, 4};
 		Durin::FByteBuffer Readback;
 
-		Immediate.AcquireBackBuffer(Texture.GetReference());
 		Immediate.CreateUniformBufferRange(
 			UniformData.data(), static_cast<uint32>(UniformData.size()));
 		EXPECT_TRUE(Immediate.ReadTexture2D(
@@ -1389,10 +1384,9 @@ namespace Durin
 
 		EXPECT_EQ(Readback, MakeByteVector({7, 8, 9}));
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AcquireBackBuffer",
 			"ReadTexture2D", "BlockUntilGPUIdle"}));
 		EXPECT_EQ(Context.OperationThreadRoles,
-			(std::vector<bool>{true, true, true}));
+			(std::vector<bool>{true, true}));
 	}
 
 	TEST(FRHICommandListTests, EmptySubmitFlushFlagWaitsForOutstandingSerial)
@@ -2336,6 +2330,22 @@ namespace Durin
 		FRHICommandList Destination(std::move(Source));
 		EXPECT_EQ(Destination.GetNumRecordedDrawCommands(), 2u);
 		EXPECT_EQ(Source.GetNumRecordedDrawCommands(), 0u);
+	}
+
+	TEST(FRHICommandListTests, PreparedTextureBindingsKeepDefaultTextureAndExplicitView)
+	{
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+		auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+			"ShaderTexture", 4, 4, EPixelFormat::RGBA8_UNORM).SetFlags(ETextureCreateFlags::ShaderResource));
+		auto View = MakeRefCount<FRHITextureView>(Texture.GetReference(),
+			MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled));
+		const FRHIShaderParameterResource Parameters[]{
+			{.Resource = Texture.GetReference(), .Type = ERHIBindingType::Texture},
+			{.Resource = View.GetReference(), .BindingIndex = 1, .Type = ERHIBindingType::Texture}};
+		const auto Batch = FRHIShaderParameterBatch::Create(Shader.GetReference(), Parameters);
+		ASSERT_TRUE(Batch);
+		EXPECT_EQ(Batch->GetParameters()[0].Resource, Texture.GetReference());
+		EXPECT_EQ(Batch->GetParameters()[1].Resource, View.GetReference());
 	}
 
 	TEST(FRHICommandListTests, PreparedParametersRetainCanonicalResourcesAcrossRepeatedReplay)

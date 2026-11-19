@@ -219,20 +219,30 @@ namespace Durin
 		return new FRHITextureView(Texture, Desc);
 	}
 
-	auto FDynamicRHI::RHIGetOrCreateBufferView(
-		FRHIBuffer* Buffer,
-		const FRHIBufferViewDesc& Desc
-	) noexcept -> TRefCountPtr<FRHIBufferView>
+	auto FRHIBufferViewCache::GetOrCreate(FRHIBuffer* Resource, const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 	{
-		return RHICreateBufferView(Buffer, Desc);
+		std::lock_guard Lock(Mutex);
+		for (const auto& View : Views)
+		{
+			if (View->GetBuffer() == Resource && View->GetDesc() == Desc) return View;
+		}
+		FBufferViewRHIRef View = GDynamicRHI ? GDynamicRHI->RHICreateBufferView(Resource, Desc)
+			: FBufferViewRHIRef(new FRHIBufferView(Resource, Desc));
+		Views.push_back(View);
+		return View;
 	}
 
-	auto FDynamicRHI::RHIGetOrCreateTextureView(
-		FRHITexture* Texture,
-		const FRHITextureViewDesc& Desc
-	) noexcept -> TRefCountPtr<FRHITextureView>
+	auto FRHITextureViewCache::GetOrCreate(FRHITexture* Resource, const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 	{
-		return RHICreateTextureView(Texture, Desc);
+		std::lock_guard Lock(Mutex);
+		for (const auto& View : Views)
+		{
+			if (View->GetTexture() == Resource && View->GetDesc() == Desc) return View;
+		}
+		FTextureViewRHIRef View = GDynamicRHI ? GDynamicRHI->RHICreateTextureView(Resource, Desc)
+			: FTextureViewRHIRef(new FRHITextureView(Resource, Desc));
+		Views.push_back(View);
+		return View;
 	}
 
 	FDynamicRHI* GDynamicRHI = nullptr;

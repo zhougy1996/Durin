@@ -113,7 +113,6 @@ namespace Durin::VulkanRHI
 			std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void;
 
 
-		auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override;
 
 		auto RHIBlockUntilGPUIdle() -> void override;
 

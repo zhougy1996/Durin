@@ -547,9 +547,13 @@ layout from the same format; the Vulkan selector prefers either RGBA or BGRA
 sRGB output before a linear fallback. Main and detached viewport qualification records public clear/present work in addition to
 candidate failure, unavailable output, resize, recovery, and teardown.
 
-Backbuffer acquisition resolves synchronously before drawing is recorded. An
-unavailable result skips only that viewport for the frame; other window-backed,
-render-target-backed, and auxiliary viewports continue. Identical creation
+The render thread receives a stable logical backbuffer for the published
+swapchain and records image acquisition before its first use. RHI replay
+selects the acquired image's existing native view and waits on the acquire
+semaphore before rendering. Each direct-rendered swapchain prepares a 1×1
+attachment for recorded work whose image becomes unavailable. The RHI thread
+uses that attachment and skips presentation for the affected viewport.
+Identical creation
 failures are suppressed until resize, an out-of-date/suboptimal surface event,
 an extent/fullscreen/present-mode change, or an explicit recreate/retry makes a
 new attempt eligible. Successful recovery commits one complete output and emits

@@ -14,6 +14,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanBuffer.h"
+#include "VulkanViewport.h"
 #include "VulkanContext.h"
 #include "VulkanRHIPrivate.h"
 #include <gtest/gtest.h>
@@ -47,8 +48,40 @@ namespace Durin::VulkanRHI
 		ENQUEUE_RENDER_COMMAND(ObserveInlineViewportResize)(
 			[&](FRHICommandListImmediate& Commands) {
 				CheckRHIExecutionThread();
+				// Force the recorded acquire to outlive the swapchain it was recorded for.
+				Commands.EnqueueLambda([Viewport] {
+					static_cast<FVulkanViewport*>(Viewport.GetReference())->RecreateSwapchain();
+				}, 0);
+				const auto Recorded = Commands.GetNumRecordedCommands();
 				auto BackBuffer = Viewport->GetBackBuffer(Commands);
 				ASSERT_TRUE(BackBuffer);
+				EXPECT_EQ(Commands.GetNumRecordedCommands(), Recorded + 1);
+				EXPECT_EQ(Viewport->GetBackBuffer(Commands), BackBuffer);
+				const auto Desc = MakeDefaultTextureViewDesc(*BackBuffer, ERHITextureViewUsage::ColorAttachment);
+				auto View = GDynamicRHI->RHICreateTextureView(BackBuffer, Desc);
+				EXPECT_TRUE(View);
+				EXPECT_EQ(Commands.GetNumRecordedCommands(), Recorded + 2);
+				FRHIRenderPassInfo Pass;
+				Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+				auto& Attachment = Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+				Attachment.Format = BackBuffer->GetFormat();
+				Attachment.FinalLayout = ERHITextureLayout::Present;
+				Attachment.FinalAccess = ERHIAccess::Present;
+				Pass.ColorRenderTargets[0] = BackBuffer;
+				Pass.ColorRenderTargetViews[0] = View;
+				Pass.ColorClearValues[0] = FClearValueBinding(0.f, 0.f, 0.f, 1.f);
+				Commands.BeginRenderPass(Pass, "UnavailableBackBuffer");
+				Commands.EndRenderPass();
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+				auto* Dummy = FVulkanBackBuffer::GetBoundRenderingBackBuffer(*static_cast<FVulkanTexture*>(BackBuffer.GetReference()));
+				ASSERT_NE(Dummy, nullptr);
+				EXPECT_EQ(Dummy->GetSizeX(), 1u);
+				EXPECT_EQ(Dummy->GetSizeY(), 1u);
+				auto Current = Viewport->GetBackBuffer(Commands);
+				ASSERT_TRUE(Current);
+				Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+				EXPECT_FALSE(FVulkanBackBuffer::GetBoundRenderingBackBuffer(*static_cast<FVulkanTexture*>(Current.GetReference())));
+				EXPECT_TRUE(static_cast<FVulkanTexture*>(Current.GetReference())->Image);
 				Extent = {static_cast<int32>(BackBuffer->GetSizeX()),
 					static_cast<int32>(BackBuffer->GetSizeY())};
 			});

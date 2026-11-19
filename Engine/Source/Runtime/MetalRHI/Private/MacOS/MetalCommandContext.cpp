@@ -19,6 +19,17 @@
 
 namespace Durin
 {
+	static auto GetShaderTexture(const FRHIShaderParameterResource& Parameter) -> MTL::Texture*
+	{
+		if (auto* Texture = dynamic_cast<FMetalTexture*>(Parameter.Resource))
+			return Texture->GetHandle();
+		auto* View = dynamic_cast<FMetalTextureView*>(Parameter.Resource);
+		const auto Usage = Parameter.Type == ERHIBindingType::Texture
+			? ERHITextureViewUsage::Sampled : ERHITextureViewUsage::Storage;
+		requiref(View && View->GetDesc().Usage == Usage, "Invalid Metal shader texture view.");
+		return View->GetHandle();
+	}
+
 	namespace
 	{
 		auto MetalBytesPerTexel(EPixelFormat Format) -> NS::UInteger
@@ -994,7 +1005,7 @@ namespace Durin
 				}
 				Command->commit();
 			}
-			auto RHIAcquireBackBuffer(FRHITexture*) -> void override { CheckRHIExecutionThread(); Unsupported(); }
+
 			auto RHIBlockUntilGPUIdle() -> void override
 			{
 				CheckRHIExecutionThread();
@@ -1150,18 +1161,9 @@ namespace Durin
 					else if (Parameter.Type == ERHIBindingType::Texture
 						|| Parameter.Type == ERHIBindingType::StorageImage)
 					{
-						requiref(Parameter.Resource->GetResourceType()
-							== ERHIResourceType::TextureView,
-							"Metal compute texture binding requires a texture view.");
-						auto* View = dynamic_cast<FMetalTextureView*>(
-							static_cast<FRHITextureView*>(Parameter.Resource));
-						requiref(View && View->GetDesc().Usage ==
-							(Parameter.Type == ERHIBindingType::Texture
-								? ERHITextureViewUsage::Sampled
-								: ERHITextureViewUsage::Storage),
-							"Metal compute texture view usage is incompatible.");
-						Encoder->setTexture(View->GetHandle(), Slot);
-						Active->NativeResources.push_back(NS::RetainPtr(View->GetHandle()));
+						auto* Texture = GetShaderTexture(Parameter);
+						Encoder->setTexture(Texture, Slot);
+						Active->NativeResources.push_back(NS::RetainPtr(Texture));
 					}
 					else if (Parameter.Type == ERHIBindingType::Sampler)
 					{
@@ -1360,20 +1362,11 @@ namespace Durin
 					if (Parameter.Type == ERHIBindingType::Texture
 						|| Parameter.Type == ERHIBindingType::StorageImage)
 					{
-						requiref(Parameter.Resource->GetResourceType()
-							== ERHIResourceType::TextureView,
-							"Metal graphics texture binding requires a view.");
-						auto* View = dynamic_cast<FMetalTextureView*>(
-							static_cast<FRHITextureView*>(Parameter.Resource));
-						requiref(View && View->GetDesc().Usage ==
-							(Parameter.Type == ERHIBindingType::Texture
-								? ERHITextureViewUsage::Sampled
-								: ERHITextureViewUsage::Storage),
-							"Metal graphics texture view usage is incompatible.");
+						auto* Texture = GetShaderTexture(Parameter);
 						if (Stage == EShaderStageFlags::Vertex)
-							RenderEncoder->setVertexTexture(View->GetHandle(), Slot);
-						else RenderEncoder->setFragmentTexture(View->GetHandle(), Slot);
-						Active->NativeResources.push_back(NS::RetainPtr(View->GetHandle()));
+							RenderEncoder->setVertexTexture(Texture, Slot);
+						else RenderEncoder->setFragmentTexture(Texture, Slot);
+						Active->NativeResources.push_back(NS::RetainPtr(Texture));
 					}
 					else if (Parameter.Type == ERHIBindingType::Sampler)
 					{

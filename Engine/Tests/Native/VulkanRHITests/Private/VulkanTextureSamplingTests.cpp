@@ -837,12 +837,18 @@ namespace Durin
 				*Texture, ERHITextureViewUsage::Sampled);
 
 			const uint64 Before = GCommandListExecutor.GetStats().SynchronousOperationCount;
-			FTextureViewRHIRef First = GDynamicRHI->RHIGetOrCreateTextureView(
+			FRHITextureViewCache TextureViews;
+			FTextureViewRHIRef First = TextureViews.GetOrCreate(
 				Texture, SampledDesc);
-			FTextureViewRHIRef Second = GDynamicRHI->RHIGetOrCreateTextureView(
+			FTextureViewRHIRef Second = TextureViews.GetOrCreate(
 				Texture, SampledDesc);
 			ASSERT_TRUE(First);
 			EXPECT_EQ(Second.GetReference(), First.GetReference());
+			{
+				FRHITextureViewCache OtherOwner;
+				auto OtherView = OtherOwner.GetOrCreate(Texture, SampledDesc);
+				EXPECT_NE(OtherView.GetReference(), First.GetReference());
+			}
 			EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
 				Before);
 
@@ -856,10 +862,11 @@ namespace Durin
 				*Buffer, ERHIBufferViewType::Uniform);
 			const uint64 BeforeBuffer =
 				GCommandListExecutor.GetStats().SynchronousOperationCount;
+			FRHIBufferViewCache BufferViews;
 			FBufferViewRHIRef FirstBufferView =
-				GDynamicRHI->RHIGetOrCreateBufferView(Buffer, BufferDesc);
+				BufferViews.GetOrCreate(Buffer, BufferDesc);
 			FBufferViewRHIRef SecondBufferView =
-				GDynamicRHI->RHIGetOrCreateBufferView(Buffer, BufferDesc);
+				BufferViews.GetOrCreate(Buffer, BufferDesc);
 			ASSERT_TRUE(FirstBufferView);
 			EXPECT_EQ(SecondBufferView.GetReference(), FirstBufferView.GetReference());
 			EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
@@ -1029,7 +1036,7 @@ namespace Durin
 				ASSERT_TRUE(Uniform && Storage);
 				const FRHIBufferViewDesc StorageView{0, 16, ERHIBufferViewType::StructuredStorage};
 				EXPECT_TRUE(GDynamicRHI->RHICreateBufferView(Storage, StorageView));
-				EXPECT_TRUE(GDynamicRHI->RHIGetOrCreateBufferView(Storage, StorageView));
+				EXPECT_TRUE(GDynamicRHI->RHICreateBufferView(Storage, StorageView));
 				const std::array Parameters{
 					FRHIShaderParameterResource{.Resource = Uniform.GetReference(), .BindingIndex = 0,
 						.Type = bDynamic ? ERHIBindingType::UniformBufferDynamic : ERHIBindingType::UniformBuffer, .Size = 16},

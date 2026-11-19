@@ -18,11 +18,12 @@ namespace Durin::VulkanRHI
 	// Identifies a cached Vulkan render pass by backend-neutral attachment layout.
 	struct FVulkanRenderPassKey
 	{
-		explicit FVulkanRenderPassKey(const FRHIRenderTargetLayout& InLayout = {});
+		explicit FVulkanRenderPassKey(const FRHIRenderTargetLayout& InLayout = {}, uint32 InFallbackAttachments = 0);
 
 		auto operator==(const FVulkanRenderPassKey&) const -> bool = default;
 
 		FRHIRenderTargetLayout Layout{};
+		uint32 FallbackAttachments = 0;
 	};
 
 	// Hashes render-pass compatibility fields for cache lookup.
@@ -62,7 +63,7 @@ namespace Durin::VulkanRHI
 
 		~FVulkanRenderPassManager();
 
-		auto GetOrCreateRenderPass(const FRHIRenderTargetLayout& InLayout) -> FVulkanRenderPass*;
+		auto GetOrCreateRenderPass(const FRHIRenderTargetLayout& InLayout, uint32 FallbackAttachments = 0) -> FVulkanRenderPass*;
 
 		auto GetOrCreateFrameBuffer(const FRHIRenderPassInfo& RPInfo, const FVulkanRenderPass& RenderPass) -> FVulkanFramebuffer*;
 
@@ -70,8 +71,9 @@ namespace Durin::VulkanRHI
 
 		auto EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void;
 
+		auto NotifyDeletedImageView(vk::ImageView View) -> void;
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
-		// Releases framebuffer-held RHI views before shutdown drains resource deletion.
+		// Releases cached native framebuffers before device teardown.
 		auto ReleaseFramebuffers() -> void;
 
 	private:

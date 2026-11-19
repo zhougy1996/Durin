@@ -73,7 +73,7 @@ permission to concurrently record into one command list or mutate image backing.
 | Sampler / declaration | Complete immutable state | Independent calls; no command-context work or replay waits |
 | Buffer | Complete VMA allocation and handle | Initial bytes are copied into the caller-owned command list; upload, host flush, barriers and visibility occur in recorded order |
 | Local texture | Complete VMA allocation and image | Storage initialization is a recorded transition; texture uploads remain separate owned commands, and allocation success does not imply defined contents |
-| Buffer / local texture view | Complete view retaining its source resource | Backing must remain stable during creation; automatic view-cache lookup/publication remains mutex protected |
+| Buffer / local texture view | Complete view retaining its source resource | The caller retains stable backing during creation. RDG owners retain reusable views for their resource lifetime |
 
 These categories use ordered ordinary calls rather than a second asynchronous
 service. Normal-return native results are complete. Renderer slots and RDG retain

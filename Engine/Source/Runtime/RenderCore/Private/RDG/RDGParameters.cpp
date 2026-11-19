@@ -445,8 +445,9 @@ namespace Durin
 		Desc.Range = Attachment.Range;
 		requiref(IsTextureViewDescValid(Attachment.Texture, Desc),
 			"Graph attachment has an unrepresentable exact native view.");
-		FTextureViewRHIRef View = GDynamicRHI
-			? GDynamicRHI->RHIGetOrCreateTextureView(Attachment.Texture, Desc)
+		FTextureViewRHIRef View = Attachment.ViewCache
+			? Attachment.ViewCache->GetOrCreate(Attachment.Texture, Desc)
+			: GDynamicRHI ? GDynamicRHI->RHICreateTextureView(Attachment.Texture, Desc)
 			: FTextureViewRHIRef(new FRHITextureView(Attachment.Texture, Desc));
 		requiref(View, "Graph attachment could not create its exact native view.");
 		return {std::move(View), MakeRDGAttachmentLayout(Attachment.Texture->GetFormat(),
@@ -774,7 +775,7 @@ namespace Durin
 		{
 			return {Resources.GetTexture(Texture), Range, Member.LoadAction,
 				Member.StoreAction, Member.bPassManagedTransition,
-				Member.ResultAccess};
+				Member.ResultAccess, ERHIAccess::None, false, &Resources.GetTextureViewCache(Texture)};
 		}
 	}
 
@@ -823,7 +824,7 @@ namespace Durin
 	}
 
 	FRDGAllocatedResources::FRDGAllocatedResources(uint32 Count)
-		: Textures(Count), Buffers(Count), AllocationIds(Count),
+		: Textures(Count), Buffers(Count), TextureViews(Count), BufferViews(Count), AllocationIds(Count),
 		  AliasSources(Count, UINT32_MAX), AllocationDispositions(Count)
 	{
 	}

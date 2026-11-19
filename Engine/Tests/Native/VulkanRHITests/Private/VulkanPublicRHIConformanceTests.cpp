@@ -123,7 +123,13 @@ namespace Durin::VulkanRHI
 					Parameters[1].Offset = Uniforms[2].Offset;
 					auto Second = FRHIShaderParameterBatch::Create(Fragment, Parameters);
 					ASSERT_TRUE(First && Second);
-					if (!Deferred) ASSERT_EQ(First->GetParameters()[1].Resource, Second->GetParameters()[1].Resource);
+					if (!Deferred)
+					{
+						const auto* FirstView = static_cast<const FRHIBufferView*>(First->GetParameters()[1].Resource);
+						const auto* SecondView = static_cast<const FRHIBufferView*>(Second->GetParameters()[1].Resource);
+						ASSERT_EQ(FirstView->GetBuffer(), SecondView->GetBuffer());
+						ASSERT_EQ(FirstView->GetDesc(), SecondView->GetDesc());
+					}
 					Commands.SwitchPipeline(ERHIPipeline::Graphics);
 					FRHIRenderPassInfo Pass;
 					Pass.RenderTargetLayout = Layout;

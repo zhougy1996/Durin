@@ -26,6 +26,7 @@ namespace Durin::VulkanRHI
 
 		auto GetExtent() const -> vk::Extent2D { return Extent; }
 
+		auto ContainsView(vk::ImageView View) const -> bool { return std::ranges::find(AttachmentViews, View) != AttachmentViews.end(); }
 		auto ContainsRenderTarget(vk::Image Image) const -> bool;
 		auto IsCompatibleWith(const FVulkanRenderPass& InRenderPass, const FRHIRenderPassInfo& InRPInfo) const -> bool;
 
@@ -38,7 +39,8 @@ namespace Durin::VulkanRHI
 
 		vk::Extent2D Extent;
 
-		std::vector<TRefCountPtr<FVulkanTextureView>> AttachmentTextureViews;
+		std::vector<vk::ImageView> AttachmentViews;
+		std::vector<FRHITextureViewDesc> AttachmentDescs;
 
 		// How many logical color outputs the pass has
 		uint32 NumColorRenderTargets = 0;
@@ -49,7 +51,6 @@ namespace Durin::VulkanRHI
 		vk::Image ColorRenderTargetImages[MaxSimultaneousRenderTargets];
 		vk::Image ColorResolveTargetImages[MaxSimultaneousRenderTargets];
 		vk::Image DepthStencilRenderTargetImage;
-		std::vector<const FRHITextureView*> AttachmentIdentities;
 
 		friend class FVulkanRenderPassManager;
 	};

@@ -174,7 +174,6 @@ namespace Durin
 		RHI_API FRHICommandListBase();
 		RHI_API FRHICommandListBase(FRHICommandListBase&& Other) noexcept;
 		RHI_API auto operator=(FRHICommandListBase&& Other) noexcept -> FRHICommandListBase&;
-		RHI_API auto RecordAcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 
 	private:
 		friend class FRHIGPUBufferReadback;
@@ -352,8 +351,6 @@ namespace Durin
 		RHI_API auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool;
-		RHI_API auto AcquireBackBuffer(FRHITexture* BackBuffer) -> void;
-		RHI_API auto AcquireBackBufferSynchronously(FRHITexture* BackBuffer) -> void;
 		RHI_API auto BlockUntilGPUIdle() -> void;
 
 		auto FinishRecording() -> void = delete;

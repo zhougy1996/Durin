@@ -41,45 +41,45 @@ namespace Durin::VulkanRHI
 	FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
 		: FVulkanTexture(InDevice, nullptr)
 		, Viewport(InViewport)
+		, RenderingBackBuffer(InViewport->RenderingBackBuffer)
 	{
 		CheckRHIExecutionThread();
-		if (Viewport->GetSwapchain() != nullptr)
-		{
-			UpdateSwapchain();
-		}
-	}
-
-	auto FVulkanBackBuffer::UpdateSwapchain() -> void
-	{
-		CheckRHIExecutionThread();
-		AdvanceExternalImageBacking();
 		const vk::Extent2D Extent = Viewport->GetSwapchain()->GetExtent();
 		SizeX = Extent.width;
 		SizeY = Extent.height;
 		Format = Viewport->GetSwapchainImageFormat();
 		PixelFormat = ToRHISwapchainPixelFormat(Format);
 		NumSamples = 1;
-		ImageStates.clear();
+		RenderingBackBufferView = Device.GetRHI().RHICreateTextureView(RenderingBackBuffer,
+			MakeDefaultTextureViewDesc(*RenderingBackBuffer, ERHITextureViewUsage::ColorAttachment));
 	}
 
 	auto FVulkanBackBuffer::InvalidateSwapchain() -> void
 	{
 		CheckRHIExecutionThread();
-		AdvanceExternalImageBacking();
-		SetExternalImage(VK_NULL_HANDLE);
+		AcquiredView = nullptr;
+		if (!GetBoundRenderingBackBuffer(*this))
+		{
+			std::swap(StateTracker, RenderingBackBuffer->GetStateTracker());
+			SetExternalImage(RenderingBackBuffer->Image);
+		}
 	}
 
-	auto FVulkanBackBuffer::AcquireBackBufferImage(
+	auto FVulkanBackBuffer::OnGetBackBufferImage(
 		FVulkanCommandListContext& Context) -> bool
 	{
 		CheckRHIExecutionThread();
-		const FVulkanView* View = Viewport->AcquireBackBufferImage();
-		if (View == nullptr)
+		if (Viewport->AcquiredBackBufferIndex >= 0 && Viewport->RHIBackBuffer.GetReference() == this)
+			return true;
+		AcquiredView = Viewport->AcquireBackBufferImage(*this);
+		if (!AcquiredView)
 		{
-			SetExternalImage(VK_NULL_HANDLE);
+			InvalidateSwapchain();
 			return false;
 		}
-		SetExternalImage(View->Image);
+		if (GetBoundRenderingBackBuffer(*this))
+			std::swap(StateTracker, RenderingBackBuffer->GetStateTracker());
+		SetExternalImage(AcquiredView->Image);
 		const auto Found = std::ranges::find(ImageStates, Image, &std::pair<vk::Image, ERHIAccess>::first);
 		const ERHIAccess Access = Found == ImageStates.end() ? ERHIAccess::None : Found->second;
 		StateTracker.Apply({ERHITextureAspect::Color, 0, 1, 0, 1}, Access);
@@ -88,6 +88,23 @@ namespace Durin::VulkanRHI
 			Context.AddWaitSemaphore(vk::PipelineStageFlagBits::eColorAttachmentOutput, Viewport->AcquiredSemaphore);
 		}
 		return true;
+	}
+
+	auto FVulkanBackBuffer::ResolveView(const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
+	{
+		CheckRHIExecutionThread();
+		if (GetBoundRenderingBackBuffer(*this))
+		{
+			auto* DummyView = static_cast<FVulkanTextureView*>(RenderingBackBufferView.GetReference());
+			return new FVulkanTextureView(Device, this, Desc, DummyView->GetHandle());
+		}
+		check(AcquiredView);
+		auto& Acquired = *AcquiredView;
+		check(Acquired.Image == Image);
+		check(Desc.Usage == ERHITextureViewUsage::ColorAttachment || Desc.Usage == ERHITextureViewUsage::Sampled);
+		auto& View = Desc.Usage == ERHITextureViewUsage::ColorAttachment ? Acquired.AttachmentView : Acquired.SampledView;
+		if (!View) View = new FVulkanTextureView(Device, this, Desc, Acquired.ImageView);
+		return View;
 	}
 
 	auto FVulkanBackBuffer::CommitPresentedImageState() -> void
@@ -127,10 +144,6 @@ namespace Durin::VulkanRHI
 			bSwapchainNeedsRecreate = true;
 			bSwapchainRetryEligible = true;
 			PrepareSwapchain();
-			if (!RHIBackBuffer)
-			{
-				RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
-			}
 		}
 		catch (...)
 		{
@@ -259,10 +272,10 @@ namespace Durin::VulkanRHI
 		PrepareSwapchain();
 	}
 
-	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanView*
+	auto FVulkanViewport::AcquireBackBufferImage(FVulkanBackBuffer& Target) -> FVulkanView*
 	{
 		CheckRHIExecutionThread();
-		if (Swapchain == nullptr)
+		if (Swapchain == nullptr || RHIBackBuffer.GetReference() != &Target)
 		{
 			return nullptr;
 		}
@@ -272,7 +285,7 @@ namespace Durin::VulkanRHI
 		{
 			MarkSwapchainNeedsRecreate();
 			PrepareSwapchain();
-			if (Swapchain == nullptr)
+			if (Swapchain == nullptr || RHIBackBuffer.GetReference() != &Target)
 			{
 				return nullptr;
 			}
@@ -292,13 +305,18 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
 	{
 		check(IsInRenderingThread());
-		if (!RHIBackBuffer)
+		TRefCountPtr<FVulkanBackBuffer> BackBuffer;
 		{
-			return nullptr;
+			std::lock_guard Lock(BackBufferMutex);
+			BackBuffer = RHIBackBuffer;
 		}
-		TRefCountPtr<FVulkanBackBuffer> BackBuffer = RHIBackBuffer;
-		InRHICmdList.AcquireBackBufferSynchronously(BackBuffer.GetReference());
-		return AcquiredBackBufferIndex >= 0 ? BackBuffer : nullptr;
+		if (BackBuffer)
+		{
+			InRHICmdList.EnqueueLambda([Viewport = TRefCountPtr<FVulkanViewport>(this), BackBuffer] {
+				BackBuffer->OnGetBackBufferImage(*Viewport->Device.GetImmediateContext());
+			}, 0);
+		}
+		return BackBuffer;
 	}
 
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
@@ -514,13 +532,14 @@ namespace Durin::VulkanRHI
 		const vk::Extent2D SwapchainExtent = Swapchain->GetExtent();
 		SizeX = SwapchainExtent.width;
 		SizeY = SwapchainExtent.height;
-		if (RHIBackBuffer)
 		{
-			RHIBackBuffer->UpdateSwapchain();
-		}
-		else
-		{
-			RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
+			// Direct rendering needs only a drawable attachment while the surface is unavailable.
+			RenderingBackBuffer = MakeRefCount<FVulkanTexture>(Device, FRHITextureCreateDesc::Create2D(
+				"RenderingBackBuffer", 1, 1, ToRHISwapchainPixelFormat(GetSwapchainImageFormat()))
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+			auto BackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
+			std::lock_guard Lock(BackBufferMutex);
+			RHIBackBuffer = std::move(BackBuffer);
 		}
 		if (bSwapchainFailureReported)
 		{
@@ -533,6 +552,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
+		if (RHIBackBuffer) RHIBackBuffer->InvalidateSwapchain();
 		PublishedPresentMode.store(EViewportPresentMode::Unavailable, std::memory_order_relaxed);
 		CheckRHIExecutionThread();
 		for (const FVulkanView& View : TextureViews)
@@ -572,6 +592,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::RetireCurrentSwapchain() -> void
 	{
+		if (RHIBackBuffer) RHIBackBuffer->InvalidateSwapchain();
 		check(Swapchain != nullptr);
 		FVulkanRetiredSwapchainGeneration& Generation =
 			RetiredSwapchainGenerations.emplace_back();
@@ -649,10 +670,6 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::SetOutputUnavailable() -> void
 	{
 		CheckRHIExecutionThread();
-		if (RHIBackBuffer)
-		{
-			RHIBackBuffer->InvalidateSwapchain();
-		}
 		DestroySwapchain();
 	}
 

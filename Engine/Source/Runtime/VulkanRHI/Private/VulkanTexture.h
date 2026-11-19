@@ -25,7 +25,7 @@ namespace Durin::VulkanRHI
 	};
 
 
-	// Owns or references a Vulkan image; counted view objects own all image views.
+	// Owns its native default and attachment views for the lifetime of the image.
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
@@ -34,17 +34,11 @@ namespace Durin::VulkanRHI
 		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc,
 			vk::Result* OutResult = nullptr, FVulkanTexture* AliasSource = nullptr);
 
-		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
-
 		VULKANRHI_API ~FVulkanTexture() override;
 
 		auto GetStateTracker() -> FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetDebugName() const -> std::string_view { return DebugName; }
-		auto GetViewBackingGeneration() const -> uint64
-		{
-			return ViewBackingGeneration;
-		}
 		auto HasExternalBacking() const -> bool { return OwnerType == EImageOwnerType::ExternalOwner; }
 		auto IsAliasable() const -> bool { return bAllowAliasing; }
 		auto SharesBackingAllocationWith(const FVulkanTexture& Other) const -> bool
@@ -59,6 +53,10 @@ namespace Durin::VulkanRHI
 		}
 		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
+		auto GetDefaultView() const -> vk::ImageView { return DefaultView; }
+		auto GetDefaultAttachmentView() const -> vk::ImageView { return DefaultAttachmentView; }
+		auto CreateImageView(const FRHITextureViewDesc& Desc, vk::ImageView& ImageView) const -> vk::Result;
+
 		vk::Image Image{};
 
 		vk::Format Format{};
@@ -66,6 +64,8 @@ namespace Durin::VulkanRHI
 		ETextureCreateFlags CreateFlags = ETextureCreateFlags::None;
 
 	protected:
+		VULKANRHI_API FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
+
 		// Selects one image from the current external backing set. The image is
 		// part of the automatic-view identity, so cycling swapchain images can
 		// reuse one view per image.
@@ -73,7 +73,6 @@ namespace Durin::VulkanRHI
 		{
 			Image = InImage;
 		}
-		auto AdvanceExternalImageBacking() -> void { ++ViewBackingGeneration; }
 
 		FVulkanDevice& Device;
 
@@ -85,7 +84,10 @@ namespace Durin::VulkanRHI
 
 		FVulkanTextureStateTracker StateTracker;
 		std::string DebugName;
-		uint64 ViewBackingGeneration = 1;
+
+	private:
+		vk::ImageView DefaultView{};
+		vk::ImageView DefaultAttachmentView{};
 	};
 
 	// Owns immutable Vulkan sampler state derived from an RHI sampler descriptor.

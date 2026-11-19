@@ -54,13 +54,31 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport);
 
-		auto AcquireBackBufferImage(FVulkanCommandListContext& Context) -> bool;
-		auto UpdateSwapchain() -> void;
+		// Ordinary textures and acquired swapchain images keep their native attachment extent.
+		static auto GetBoundRenderingBackBuffer(const FVulkanTexture& Texture) -> const FVulkanTexture*
+		{
+			if (!Texture.HasExternalBacking()) return nullptr;
+			const auto& BackBuffer = static_cast<const FVulkanBackBuffer&>(Texture);
+			return BackBuffer.Image == BackBuffer.RenderingBackBuffer->Image ? BackBuffer.RenderingBackBuffer.GetReference() : nullptr;
+		}
+
+		static auto ResolveLayout(const FVulkanTexture& Texture, vk::ImageLayout Layout) -> vk::ImageLayout
+		{
+			return Layout == vk::ImageLayout::ePresentSrcKHR && GetBoundRenderingBackBuffer(Texture)
+				? vk::ImageLayout::eGeneral : Layout;
+		}
+
+		auto ResolveView(const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef;
+		auto OnGetBackBufferImage(FVulkanCommandListContext& Context) -> bool;
 		auto InvalidateSwapchain() -> void;
 		auto CommitPresentedImageState() -> void;
 
 	private:
 		FVulkanViewport* Viewport;
+		FVulkanView* AcquiredView = nullptr;
+		// Retain this generation's compatible dummy for commands recorded before a resize.
+		TRefCountPtr<FVulkanTexture> RenderingBackBuffer;
+		FTextureViewRHIRef RenderingBackBufferView;
 		std::vector<std::pair<vk::Image, ERHIAccess>> ImageStates;
 	};
 
@@ -104,7 +122,7 @@ namespace Durin::VulkanRHI
 
 		auto GetBackBufferImages() -> const std::vector<vk::Image>& { return BackBufferImages; }
 
-		auto AcquireBackBufferImage() -> FVulkanView*;
+		auto AcquireBackBufferImage(FVulkanBackBuffer& Target) -> FVulkanView*;
 
 		auto GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture> override;
 
@@ -170,6 +188,8 @@ namespace Durin::VulkanRHI
 
 		std::vector<FVulkanRetiredSwapchainGeneration> RetiredSwapchainGenerations;
 
+		TRefCountPtr<FVulkanTexture> RenderingBackBuffer;
+		std::mutex BackBufferMutex;
 		TRefCountPtr<FVulkanBackBuffer> RHIBackBuffer;
 
 		int32 AcquiredBackBufferIndex = -1;

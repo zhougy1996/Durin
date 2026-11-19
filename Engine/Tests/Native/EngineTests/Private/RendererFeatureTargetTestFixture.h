@@ -185,9 +185,9 @@ namespace Durin::Tests
 				else return Result.Visibility;
 			}();
 			if (Texture == nullptr) return std::nullopt;
-			Result.SampledView = GDynamicRHI->RHIGetOrCreateTextureView(Texture,
+			Result.SampledView = GDynamicRHI->RHICreateTextureView(Texture,
 				MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled));
-			Result.StorageView = GDynamicRHI->RHIGetOrCreateTextureView(Texture,
+			Result.StorageView = GDynamicRHI->RHICreateTextureView(Texture,
 				MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Storage));
 			return Result.SampledView && Result.StorageView
 				? std::optional<Targets>{std::move(Result)} : std::nullopt;

@@ -7,6 +7,7 @@
 #include "VulkanContext.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanDevice.h"
+#include "VulkanViewport.h"
 #include "VulkanPipeline.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
@@ -16,6 +17,45 @@
 
 namespace Durin::VulkanRHI
 {
+	struct FDescriptorImage
+	{
+		FVulkanTexture* Texture;
+		vk::ImageView Handle;
+		FRHITextureViewDesc Desc;
+	};
+
+	static auto GetDescriptorImage(const FRHIShaderParameterResource& Parameter) -> FDescriptorImage
+	{
+		if (Parameter.Resource->GetResourceType() == ERHIResourceType::Texture)
+		{
+			auto* Texture = static_cast<FVulkanTexture*>(Parameter.Resource);
+			const auto Usage = Parameter.Type == ERHIBindingType::Texture
+				? ERHITextureViewUsage::Sampled : ERHITextureViewUsage::Storage;
+			return {Texture, Texture->GetDefaultView(), MakeDefaultTextureViewDesc(*Texture, Usage)};
+		}
+		check(Parameter.Resource->GetResourceType() == ERHIResourceType::TextureView);
+		const auto* View = static_cast<const FVulkanTextureView*>(Parameter.Resource);
+		return {static_cast<FVulkanTexture*>(View->GetTexture()), View->GetHandle(), View->GetDesc()};
+	}
+
+	static auto ResolveBackBufferBinding(FRHIShaderParameterResource& Parameter,
+		std::vector<FTextureViewRHIRef>& ResolvedViews) -> void
+	{
+		if (!Parameter.Resource) return;
+		const auto Type = Parameter.Resource->GetResourceType();
+		if (Type == ERHIResourceType::Texture)
+		{
+			if (!static_cast<FVulkanTexture*>(Parameter.Resource)->HasExternalBacking()) return;
+		}
+		else if (Type != ERHIResourceType::TextureView || static_cast<FVulkanTextureView*>(Parameter.Resource)->GetHandle())
+			return;
+		const auto Image = GetDescriptorImage(Parameter);
+		check(Image.Texture->HasExternalBacking());
+		auto* BackBuffer = static_cast<FVulkanBackBuffer*>(Image.Texture);
+		auto& View = ResolvedViews.emplace_back(BackBuffer->ResolveView(Image.Desc));
+		Parameter.Resource = View.GetReference();
+	}
+
 	// Descriptor buffer identity is its retained backing and fixed range, not a view wrapper.
 	static auto GetDescriptorResourceIdentity(const FRHIShaderParameterResource& Resource)
 		-> std::tuple<const FRHIResource*, uint64, uint64>
@@ -97,16 +137,16 @@ namespace Durin::VulkanRHI
 			case ERHIBindingType::Texture:
 			case ERHIBindingType::StorageImage:
 				{
-					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
+					const auto Image = GetDescriptorImage(Resource);
 					if (Resource.Type == ERHIBindingType::StorageImage)
 					{
-						const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
+						const auto* Texture = Image.Texture;
 						checkf(EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage),
 							"A storage image descriptor requires a texture created with ETextureCreateFlags::Storage");
 					}
 					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
 					ImageInfo
-						.setImageView(View->GetHandle())
+						.setImageView(Image.Handle)
 						.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
 					DescriptorWrite.setImageInfo(ImageInfo);
 					break;
@@ -165,8 +205,10 @@ namespace Durin::VulkanRHI
 #endif
 			UniformBindings.Update(InResourceParameters);
 		}
-		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
+		std::vector<FTextureViewRHIRef> ResolvedViews;
+		for (auto Parameter : InResourceParameters)
 		{
+			ResolveBackBufferBinding(Parameter, ResolvedViews);
 			if (!bResolvingUniforms && IsUniformBufferResource(Parameter.Resource)) continue;
 			const auto It = std::ranges::find_if(PendingResources,
 				[&](const FRHIShaderParameterResource& Existing) {
@@ -304,15 +346,13 @@ namespace Durin::VulkanRHI
 			else if (Resource.Type == ERHIBindingType::Texture
 				|| Resource.Type == ERHIBindingType::StorageImage)
 			{
-				checkf(Resource.Resource->GetResourceType() == ERHIResourceType::TextureView,
-					"Compute image descriptor requires a canonical texture view.");
-				const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
-				const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
+				const auto Image = GetDescriptorImage(Resource);
+				const auto* Texture = Image.Texture;
 				const ERHIAccess Expected = Resource.Type == ERHIBindingType::Texture
 					? ERHIAccess::ComputeShaderRead : ERHIAccess::ComputeShaderReadWrite;
 				ERHIAccess Tracked = ERHIAccess::None;
 				checkf(Texture->GetStateTracker().Validate(
-					View->GetDesc().Range, Expected, Tracked),
+					Image.Desc.Range, Expected, Tracked),
 					"Compute image descriptor binding state mismatch.");
 			}
 		}
@@ -443,8 +483,10 @@ namespace Durin::VulkanRHI
 	auto FVulkanGraphicsPipelineDescriptorState::SetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters, bool bResolvingUniforms) -> void
 	{
 		if (!bResolvingUniforms) UniformBindings.Update(InResourceParameters);
-		for (const auto& ResourceParameter : InResourceParameters)
+		std::vector<FTextureViewRHIRef> ResolvedViews;
+		for (auto ResourceParameter : InResourceParameters)
 		{
+			ResolveBackBufferBinding(ResourceParameter, ResolvedViews);
 			// Resolve logical updates before deciding whether native descriptor contents changed.
 			if (!bResolvingUniforms && IsUniformBufferResource(ResourceParameter.Resource)) continue;
 			if (PendingSets.size() <= ResourceParameter.SetIndex)
@@ -661,12 +703,10 @@ namespace Durin::VulkanRHI
 						else if (Binding.Type == ERHIBindingType::Texture
 							|| Binding.Type == ERHIBindingType::StorageImage)
 						{
-							checkf(Resource->GetResourceType() == ERHIResourceType::TextureView,
-								"Image descriptor requires a canonical texture view.");
-							const auto* View = static_cast<const FRHITextureView*>(Resource);
+							const auto Image = GetDescriptorImage(ResourceRecord);
 							checkf(Binding.Type == ERHIBindingType::Texture
-									? View->GetDesc().Usage == ERHITextureViewUsage::Sampled
-									: View->GetDesc().Usage == ERHITextureViewUsage::Storage,
+									? Image.Desc.Usage == ERHITextureViewUsage::Sampled
+									: Image.Desc.Usage == ERHITextureViewUsage::Storage,
 								"Image descriptor view usage is incompatible with its binding type.");
 						}
 						else
@@ -694,12 +734,12 @@ namespace Durin::VulkanRHI
 			}
 			else
 			{
-				const auto* View = static_cast<const FRHITextureView*>(Record.Resource);
-				const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
+				const auto Image = GetDescriptorImage(Record);
+				const auto* Texture = Image.Texture;
 				const ERHIAccess ExpectedAccess = Record.Type == ERHIBindingType::Texture
 					? ERHIAccess::GraphicsShaderRead : ERHIAccess::GraphicsShaderReadWrite;
 				ERHIAccess TrackedAccess = ERHIAccess::None;
-				checkf(ValidateVulkanTextureDescriptorState(Texture->GetStateTracker(), View->GetDesc().Range,
+				checkf(ValidateVulkanTextureDescriptorState(Texture->GetStateTracker(), Image.Desc.Range,
 					Record.Type, TrackedAccess),
 					"Image descriptor binding state mismatch: texture='{}', set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
 					Texture->GetDebugName(), Record.SetIndex, Record.BindingIndex, Record.ArrayElement,

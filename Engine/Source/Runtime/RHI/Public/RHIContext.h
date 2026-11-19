@@ -96,7 +96,6 @@ namespace Durin
 			uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void { Request->Fail(); }
 		virtual auto RHIPollReadbacks() -> void {}
 		virtual auto RHIEnqueueBufferReadback(FRHIBuffer*, uint32, uint32, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void { Request->Fail(); }
-		virtual auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void = 0;
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;
 		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<const FRHIShaderParameterResource>& InResourceParameters) -> void = 0;

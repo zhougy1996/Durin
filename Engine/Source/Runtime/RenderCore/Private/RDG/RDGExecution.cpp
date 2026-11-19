@@ -262,6 +262,8 @@ namespace Durin
 			{
 				auto& Resource = Compiled->Backings[Request.ResourceId];
 				Resource.AliasSourceId = Candidate.AliasSources[Request.ResourceId];
+				Resource.TextureViews = std::move(Candidate.TextureViews[Request.ResourceId]);
+				Resource.BufferViews = std::move(Candidate.BufferViews[Request.ResourceId]);
 				Resource.AllocationDisposition =
 					Candidate.AllocationDispositions[Request.ResourceId];
 				Resource.PhysicalAllocationId =
@@ -286,6 +288,12 @@ namespace Durin
 		else if (!Compiled->AllocationRequests.empty())
 		{
 			return std::unexpected(ERDGPreparationError::AllocatorMissing);
+		}
+		// Imports and transient aliases without a pool owner retain views for this execution.
+		for (auto& Backing : Compiled->Backings)
+		{
+			if (Backing.Texture && !Backing.TextureViews) Backing.TextureViews = std::make_shared<FRHITextureViewCache>();
+			if (Backing.Buffer && !Backing.BufferViews) Backing.BufferViews = std::make_shared<FRHIBufferViewCache>();
 		}
 		return {};
 	}
@@ -330,7 +338,8 @@ namespace Durin
 					.Texture = Compiled->Backings[Use.ResourceIndex].Texture.GetReference(),
 					.Range = Use.TextureRange, .LoadAction = Use.LoadAction,
 					.StoreAction = Use.bStore ? ERHIRenderTargetStoreAction::Store : ERHIRenderTargetStoreAction::DontCare,
-					.Access = Use.Access, .bGraphBoundary = true}));
+					.Access = Use.Access, .bGraphBoundary = true,
+					.ViewCache = Compiled->Backings[Use.ResourceIndex].TextureViews.get()}));
 				const auto& Binding = Native.Bindings.back();
 				auto& Layout = Native.Info.RenderTargetLayout;
 				if (Use.Access == ERHIAccess::ColorAttachmentReadWrite)
@@ -682,7 +691,13 @@ namespace Durin
 		require(Backing.Texture);
 		return {Backing.Texture.GetReference(), Use->TextureRange, Use->LoadAction,
 			Use->bStore ? ERHIRenderTargetStoreAction::Store : ERHIRenderTargetStoreAction::DontCare,
-			false, ERHIAccess::None, Use->Access, true};
+			false, ERHIAccess::None, Use->Access, true, Backing.TextureViews.get()};
+	}
+
+	auto FRDGPassResources::GetTextureViewCache(FRDGTextureHandle Handle) const -> FRHITextureViewCache&
+	{
+		GetTexture(Handle);
+		return *Graph.Compiled->Backings[Handle.Index].TextureViews;
 	}
 
 	auto FRDGPassResources::GetTexture(
@@ -703,6 +718,12 @@ namespace Durin
 		const auto& Backing = Graph.Compiled->Backings[Handle.Index];
 		requiref(Resource.Kind == ERDGResourceKind::Texture && Backing.Texture, "Render graph callback resolved an unavailable texture.");
 		return Backing.Texture.GetReference();
+	}
+
+	auto FRDGPassResources::GetBufferViewCache(FRDGBufferHandle Handle) const -> FRHIBufferViewCache&
+	{
+		GetBuffer(Handle);
+		return *Graph.Compiled->Backings[Handle.Index].BufferViews;
 	}
 
 	auto FRDGPassResources::GetBuffer(
@@ -775,10 +796,11 @@ namespace Durin
 
 	auto FRDGAllocatedResources::SetTexture(uint32 ResourceId,
 		FTextureRHIRef Texture, uint64 AllocationId,
-		std::string_view Disposition, uint32 AliasSourceId) -> bool
+		std::string_view Disposition, uint32 AliasSourceId, std::shared_ptr<FRHITextureViewCache> Views) -> bool
 	{
 		if (ResourceId >= Textures.size() || !Texture) return false;
 		Textures[ResourceId] = std::move(Texture);
+		TextureViews[ResourceId] = std::move(Views);
 		AliasSources[ResourceId] = AliasSourceId;
 		AllocationIds[ResourceId] = AllocationId;
 		AllocationDispositions[ResourceId] = Disposition;
@@ -787,10 +809,11 @@ namespace Durin
 
 	auto FRDGAllocatedResources::SetBuffer(uint32 ResourceId,
 		FBufferRHIRef Buffer, uint64 AllocationId,
-		std::string_view Disposition, uint32 AliasSourceId) -> bool
+		std::string_view Disposition, uint32 AliasSourceId, std::shared_ptr<FRHIBufferViewCache> Views) -> bool
 	{
 		if (ResourceId >= Buffers.size() || !Buffer) return false;
 		Buffers[ResourceId] = std::move(Buffer);
+		BufferViews[ResourceId] = std::move(Views);
 		AliasSources[ResourceId] = AliasSourceId;
 		AllocationIds[ResourceId] = AllocationId;
 		AllocationDispositions[ResourceId] = Disposition;

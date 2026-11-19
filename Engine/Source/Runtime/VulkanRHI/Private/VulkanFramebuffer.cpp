@@ -8,6 +8,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanView.h"
+#include "VulkanViewport.h"
 
 namespace Durin::VulkanRHI
 {
@@ -34,15 +35,20 @@ namespace Durin::VulkanRHI
 		const FIntPoint ViewExtent = ExtentSource->GetExtent();
 		Extent = vk::Extent2D(ViewExtent.x, ViewExtent.y);
 
-		std::vector<vk::ImageView> AttachmentViews;
-		AttachmentTextureViews.reserve(InRenderPass.GetAttachmentCount());
-		AttachmentIdentities.reserve(InRenderPass.GetAttachmentCount());
+		AttachmentDescs.reserve(InRenderPass.GetAttachmentCount());
 		AttachmentViews.reserve(InRenderPass.GetAttachmentCount());
-		auto AddView = [this, &AttachmentViews](FRHITextureView* RHIView) {
+		auto AddView = [this](FRHITextureView* RHIView) {
 			check(RHIView);
 			auto* View = static_cast<FVulkanTextureView*>(RHIView);
-			AttachmentTextureViews.emplace_back(View);
-			AttachmentIdentities.push_back(View);
+			// A logical swapchain attachment can resolve to the 1x1 surface-loss dummy.
+			if (const auto* Dummy = FVulkanBackBuffer::GetBoundRenderingBackBuffer(
+				*static_cast<FVulkanTexture*>(View->GetTexture())))
+			{
+				Extent.width = std::min(Extent.width, Dummy->GetSizeX());
+				Extent.height = std::min(Extent.height, Dummy->GetSizeY());
+			}
+			AttachmentDescs.push_back(View->GetDesc());
+			View->MarkUsedByFramebuffer();
 			AttachmentViews.push_back(View->GetHandle());
 		};
 
@@ -112,15 +118,14 @@ namespace Durin::VulkanRHI
 			}
 		}
 		if (DepthStencilRenderTargetImage != GetImage(RPInfo.DepthStencilRenderTarget)) return false;
-		std::vector<const FRHITextureView*> Current;
+		size_t Attachment = 0;
 		for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
 		{
-			Current.push_back(RPInfo.ColorRenderTargetViews[Index]);
-			if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget)
-				Current.push_back(RPInfo.ColorResolveTargetViews[Index]);
+			if (AttachmentDescs[Attachment++] != RPInfo.ColorRenderTargetViews[Index]->GetDesc()) return false;
+			if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget
+				&& AttachmentDescs[Attachment++] != RPInfo.ColorResolveTargetViews[Index]->GetDesc()) return false;
 		}
-		if (RPInfo.RenderTargetLayout.bHasDepthStencil)
-			Current.push_back(RPInfo.DepthStencilRenderTargetView);
-		return Current == AttachmentIdentities;
+		return !RPInfo.RenderTargetLayout.bHasDepthStencil
+			|| AttachmentDescs[Attachment] == RPInfo.DepthStencilRenderTargetView->GetDesc();
 	}
 } // namespace Durin::VulkanRHI
