@@ -59,6 +59,8 @@ namespace Durin::MaterialEditor
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetSwizzleComponents(std::span<const uint8> Components,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto ExtractInputDefault(const FMaterialGraphPinAddress& Pin,
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InlineInputNode(const FMaterialGraphPinAddress& Pin,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetPinUseConstant(const FMaterialGraphPinAddress& Pin, bool Enabled,
@@ -121,6 +123,16 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto FindPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPin*;
 		MATERIALEDITOR_API auto FindInputPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPinView*;
 		MATERIALEDITOR_API auto FindOutputPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphOutputPinView*;
+		// Resolves the material terminal and moves it using the common position command.
+		MATERIALEDITOR_API auto MoveMaterialOutput(int32 X, int32 Y,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		// Position commands ignore labels and preserve unrelated presentation fields.
+		MATERIALEDITOR_API auto MoveNodes(std::span<const FMaterialGraphNodePresentation> Positions,
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CalculateLayout(std::span<const FGuid> NodeIds,
+			FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Layout(std::span<const FGuid> NodeIds = {},
+			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CopySelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
@@ -137,6 +149,9 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto LinkGraphNodesFromMaterial() -> void;
 	private:
 		friend class DMaterialGraphNode;
+		friend class FMaterialGraphMoveSession;
+		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,
+			DTransactor* Transactions) const -> FMaterialGraphCommandResult;
 		friend class FMaterialGraphReadModel;
 		auto HasExpressionConsumer(const DMaterialExpression& Source) const -> bool;
 		auto RestorePinLinks() -> void;

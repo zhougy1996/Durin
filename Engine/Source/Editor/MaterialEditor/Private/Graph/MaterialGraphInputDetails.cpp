@@ -447,7 +447,7 @@ namespace Durin::MaterialEditor
 				}
 				else if (!Changed)
 				{
-					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(Document.ExtractInputDefault(Selected->Node.Id, Pin.InputIndex, Pin.PortId));
+					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(SelectedNode->ExtractInputDefault(Selected->InputAddress(Pin)));
 					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic))
 					{
 						FMaterialParameterDefinition Definition;

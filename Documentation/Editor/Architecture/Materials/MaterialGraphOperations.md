@@ -92,7 +92,7 @@ retain their strict graph-validation boundary.
 owners. Commands use `FGraphEditSession` and `FMaterialExpressionEditing` for
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
-The graph owns clipboard commands and supplies a lightweight command object with the same weak owner and schema for layout and asset commands. The public command object has no raw connect or disconnect entry points.
+The graph owns clipboard commands and supplies a lightweight command object with the same weak owner and schema for asset commands. The public command object has no raw connect or disconnect entry points.
 New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Detached inspection uses the same node pin builders and allocates no editor objects. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
@@ -527,7 +527,7 @@ changes stable input indices or function port GUIDs. Material instances retain t
 parameter-only editor and expose Open Parent Material for explicit graph navigation.
 
 
-Nodes accept pin edits through `PinDefaultValueChanged` and `SetPinUseConstant`. The editor commands `ExtractInputDefault` and `InlineInputNode` group changes to expression membership, values, links and presentation. Numeric defaults use their actual
+Nodes accept pin edits through `PinDefaultValueChanged` and `SetPinUseConstant`. The node commands `ExtractInputDefault` and `InlineInputNode` group changes to expression membership, values, links and presentation. Numeric defaults use their actual
 component widths; the coordinate channel default is scalar, and
 function calls select inputs by port GUID. Extraction retains literal fallbacks and adds editable expressions. Inlining accepts
 constants and removes a source only after its last consumer is gone. Parameters stay
@@ -709,7 +709,7 @@ again when it moves away from that checkpoint.
 Material and function node movement use `FMaterialGraphMoveSession`. Pointer-down
 captures the selection and semantic revision; drag samples validate detached position
 drafts displayed by the canvas. Pointer-up merges only drafted coordinates into the
-current presentation through the document's private position submission and records one
+current presentation through `DMaterialGraph::MoveNodesInternal` and records one
 position-delta transaction. Labels are never written by movement. Escape, document
 switch, deactivation, discard, close, destruction, or stale owner discards the draft
 without changing the asset or unrelated presentation edits. Each document owns a
@@ -725,10 +725,13 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 `DMaterialGraph` owns copy, cut, paste and duplicate for material and function
 drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
 it at the requested offset in one history step. `FMaterialGraphDocument` still
-owns creation and replacement, function ports and calls, input extraction,
-layout and movement, material configuration, parameter and Surface commands. Catalog lookup and search belong
+owns creation and replacement, function ports and calls, material configuration,
+parameter and Surface commands. Catalog lookup and search belong
 to private Material Editor code. `MoveMaterialOutput` resolves the material
-output terminal before using `MoveNodes`. Command
+output terminal and uses the same position transaction as `MoveNodes`.
+`DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows
+stored expression inputs, including hidden root properties. It returns a detached presentation. `Layout` applies the
+calculated positions in one transaction. Command
 status and affected/generated IDs are produced by the owning command, with no
 facade rewriting. Paste and duplicate report their newly selected generated IDs;
 no-change position commands produce no changed IDs or undo entry.

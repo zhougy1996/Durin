@@ -981,7 +981,7 @@ namespace Durin::MaterialEditor
 				if (!bRemovedFromSelection)
 				{
 					const std::vector<FGuid> Selection = GetSelectedProgramNodes();
-					const FMaterialGraphCommandResult Begun = MoveSession.Begin(EditorGraph->GetCommands(), Selection, &Transactions);
+					const FMaterialGraphCommandResult Begun = MoveSession.Begin(*EditorGraph, Selection, &Transactions);
 					if (CheckCommand(Begun))
 					{
 						FMovingInteraction Moving{.StartMouse = Mouse};
@@ -1164,7 +1164,7 @@ namespace Durin::MaterialEditor
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
 			{
-				const FMaterialGraphCommandResult Layout = EditorGraph->GetCommands().Layout({});
+				const FMaterialGraphCommandResult Layout = EditorGraph->Layout({});
 				CheckCommand(Layout);
 			}
 			ImGui::SameLine();

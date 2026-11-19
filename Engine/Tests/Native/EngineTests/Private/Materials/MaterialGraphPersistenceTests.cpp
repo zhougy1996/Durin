@@ -545,7 +545,7 @@ TEST(FMaterialGraphPersistenceTests, ShippedMaterialAndFunctionRetainAuthoredGra
 			auto Position = Graph->GetNodes().front()->GetView().Presentation;
 			Id = Position.NodeId;
 			Position.X += 24;
-			ASSERT_TRUE(Graph->GetCommands().MoveNodes(std::span(&Position, 1), ETransactionMode::NotTransactable));
+			ASSERT_TRUE(Graph->MoveNodes(std::span(&Position, 1), ETransactionMode::NotTransactable));
 			if constexpr (std::is_same_v<T, DMaterial>) ASSERT_TRUE(Asset->CompileEdits());
 			ASSERT_TRUE(SavePackage(Package));
 			ASSERT_TRUE(UnloadPackage(Path));

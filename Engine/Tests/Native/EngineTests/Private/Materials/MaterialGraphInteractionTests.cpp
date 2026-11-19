@@ -538,7 +538,8 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		ASSERT_TRUE(Second);
 		const FGuid OutputId = Material->GetOutputNode()->Id;
 		const FMaterialGraphNodePresentation OutputPosition{OutputId, 0, 0};
-		ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&OutputPosition, 1), Durin::ETransactionMode::NotTransactable));
+		TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
+		ASSERT_TRUE(MaterialEditorGraph->MoveNodes(std::span(&OutputPosition, 1), Durin::ETransactionMode::NotTransactable));
 		const auto Before = Material->GetMaterialGraphPresentation();
 		const std::array Selection{OutputId, First.GeneratedNodeIds.front(), Second.GeneratedNodeIds.front()};
 		std::vector<FGuid> Generated;
@@ -551,7 +552,6 @@ TEST(FMaterialGraphInteractionTests, DuplicateMixedOutputSelectionPreservesCopie
 		}
 		else
 		{
-			TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
 			const auto Result = MaterialEditorGraph->DuplicateNodes(Selection, 40, 40);
 			ASSERT_TRUE(Result) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Result);
 			Generated = Result.GeneratedNodeIds;
@@ -1039,7 +1039,8 @@ TEST(FMaterialGraphInteractionTests, CanvasPositionRefreshPreservesTopologyStora
 	auto Saturate = Testing::MakeGraphExpression<DMaterialExpressionSaturate>();
 	Saturate->Input = {Parameter.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Parameter.Get(), Saturate.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphCanvas Canvas{*DMaterialGraph::Create(*Material)};
 	const auto& View = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
 	ASSERT_FALSE(View.Nodes.empty());
@@ -1728,14 +1729,15 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 	}
 	Graph.Presentation.Nodes = {{DenseSources[0], 0, 0, "Ambient Occlusion Texture With A Deliberately Long Authored Name"}};
 	ASSERT_TRUE(Graph.Apply(*Material));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	DrawAtZoom(0.55f);
 
 	uint32 MaximumIndex = 1000;
 	while (Graph.Expressions.size() < MaterialProgramMaxNodeCount - 1)
 		Graph.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>(FGuid(MaximumIndex++, 0, 0, 1)).Get());
 	ASSERT_TRUE(Graph.Apply(*Material));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	DrawAtZoom(0.30f);
 
 	EXPECT_TRUE(Transactions->TryReset());

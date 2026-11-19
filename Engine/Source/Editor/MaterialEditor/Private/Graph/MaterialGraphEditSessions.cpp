@@ -2,8 +2,7 @@
 #include "Graph/MaterialGraphInteraction.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/Material.h"
-#include "MaterialGraphDocument.h"
-#include "Materials/MaterialExpressionEditing.h"
+#include "MaterialGraph.h"
 
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
@@ -23,7 +22,7 @@ namespace Durin::MaterialEditor
 
 	struct FMaterialGraphMoveSession::FImpl
 	{
-		std::optional<FMaterialGraphDocument> Commands;
+		TWeakObjectPtr<DMaterialGraph> Graph;
 		std::unordered_set<FGuid> NodeIds;
 		std::vector<FMaterialGraphNodePresentation> Draft;
 		DTransactor* Transactions = nullptr;
@@ -34,32 +33,23 @@ namespace Durin::MaterialEditor
 	FMaterialGraphMoveSession::FMaterialGraphMoveSession() : Impl(std::make_unique<FImpl>()) {}
 	FMaterialGraphMoveSession::~FMaterialGraphMoveSession() = default;
 
-	auto FMaterialGraphMoveSession::Begin(DObject& Owner, std::span<const FGuid> NodeIds,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		if (!IsValid(&Owner)) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		if (!Cast<DMaterial>(&Owner) && !Cast<DMaterialFunction>(&Owner)) return RejectCommand("Unsupported graph owner.");
-		return Begin(FMaterialGraphDocument(Owner), NodeIds, Transactions);
-	}
-
-	auto FMaterialGraphMoveSession::Begin(const FMaterialGraphDocument& Commands, std::span<const FGuid> NodeIds,
+	auto FMaterialGraphMoveSession::Begin(DMaterialGraph& Graph, std::span<const FGuid> NodeIds,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Impl->bActive) return RejectCommand("A graph move is already active.");
-		auto* Owner = Commands.GetOwner();
+		auto* Owner = Graph.GetMaterialOrFunction();
 		if (!Owner) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return RejectCommand("The graph move selection is empty or exceeds the node bound.");
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
 		Impl->NodeIds.clear();
-		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner);
 		for (const auto& Id : NodeIds)
 		{
-			if (std::ranges::none_of(Expressions, [&](const auto& E) { return E->Id == Id; }))
+			if (!Graph.FindNode(Id))
 				return RejectCommand("A selected graph node does not exist.");
 			if (!Impl->NodeIds.insert(Id).second) return RejectCommand("The graph move selection contains a duplicate node GUID.");
 		}
-		Impl->Commands.emplace(Commands);
+		Impl->Graph = &Graph;
 		Impl->Draft.clear();
 		Impl->Transactions = Transactions;
 		Impl->AuthoredRevision = GraphSemanticRevision(*Owner);
@@ -70,15 +60,19 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphMoveSession::IsCurrent(const DObject& Owner) const -> bool
 	{
-		return Impl->bActive && Impl->Commands->GetOwner() == &Owner && GraphSemanticRevision(Owner) == Impl->AuthoredRevision;
+		const auto* Graph = Impl->Graph.Get();
+		return Impl->bActive && Graph && Graph->GetMaterialOrFunction() == &Owner
+			&& GraphSemanticRevision(Owner) == Impl->AuthoredRevision;
 	}
 
 	auto FMaterialGraphMoveSession::Apply(std::span<const FMaterialGraphNodePresentation> Positions)
 		-> FMaterialGraphCommandResult
 	{
 		if (!Impl->bActive) return RejectCommand("No graph move is active.");
-		if (!Impl->Commands->GetOwner()) { Cancel(); return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner); }
-		if (!IsCurrent(*Impl->Commands->GetOwner())) { Cancel(); return RejectCommand("The graph changed semantically during the move."); }
+		const auto* Graph = Impl->Graph.Get();
+		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
+		if (!Owner) { Cancel(); return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner); }
+		if (!IsCurrent(*Owner)) { Cancel(); return RejectCommand("The graph changed semantically during the move."); }
 		if (Positions.size() > MaterialProgramMaxNodeCount) return RejectCommand("The graph move preview exceeds the node bound.");
 		std::unordered_set<FGuid> Requested;
 		for (const auto& Position : Positions)
@@ -104,7 +98,7 @@ namespace Durin::MaterialEditor
 	{
 		const auto Validated = Apply({});
 		if (!Validated) return Validated;
-		auto Result = Impl->Commands->MoveNodesInternal(Impl->Draft, Impl->Transactions);
+		auto Result = Impl->Graph.Get()->MoveNodesInternal(Impl->Draft, Impl->Transactions);
 		if (Result) { Impl->bActive = false; Impl->Draft.clear(); }
 		return Result;
 	}

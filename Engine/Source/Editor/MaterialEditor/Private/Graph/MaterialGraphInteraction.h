@@ -40,7 +40,7 @@ namespace Durin::MaterialEditor
 			EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel;
 	};
 
-	class FMaterialGraphDocument;
+	class DMaterialGraph;
 
 	// Keeps detached position drafts and commits one position delta on pointer release.
 	class FMaterialGraphMoveSession
@@ -52,12 +52,7 @@ namespace Durin::MaterialEditor
 		auto operator=(const FMaterialGraphMoveSession&)
 			-> FMaterialGraphMoveSession& = delete;
 
-		MATERIALEDITOR_API auto Begin(
-			DObject& Owner,
-			std::span<const FGuid> NodeIds,
-			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Begin(const FMaterialGraphDocument& Commands, std::span<const FGuid> NodeIds,
+		MATERIALEDITOR_API auto Begin(DMaterialGraph& Graph, std::span<const FGuid> NodeIds,
 			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Apply(
 			std::span<const FMaterialGraphNodePresentation> Positions)

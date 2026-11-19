@@ -1,11 +1,9 @@
 #include "Graph/MaterialGraphCatalog.h"
 #include "MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphInteraction.h"
-#include "Materials/MaterialExpressionIO.h"
-#include "Materials/Material.h"
-#include "MaterialGraphDocument.h"
-#include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialExpressionInputs.h"
+#include "Materials/Material.h"
+#include "MaterialGraph.h"
 #include "MaterialGraphNodeDisplay.h"
 
 namespace Durin::MaterialEditor
@@ -40,7 +38,7 @@ namespace Durin::MaterialEditor
 		return EMaterialGraphDetailLevel::Readable;
 	}
 
-	auto FMaterialGraphDocument::MoveNodes(
+	auto DMaterialGraph::MoveNodes(
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
@@ -50,12 +48,11 @@ namespace Durin::MaterialEditor
 		return MoveNodesInternal(Positions, Transactions);
 	}
 
-	auto FMaterialGraphDocument::MoveNodesInternal(
+	auto DMaterialGraph::MoveNodesInternal(
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		DTransactor* Transactions) const -> FMaterialGraphCommandResult
 	{
 		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
 		if (Positions.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (Positions.size() > MaterialProgramMaxNodeCount)
 			return RejectCommand("The material graph move request exceeds the node bound.");
@@ -64,8 +61,7 @@ namespace Durin::MaterialEditor
 		std::unordered_set<FGuid> RequestedNodes;
 		for (const FMaterialGraphNodePresentation& Position : Positions)
 		{
-			if (std::ranges::none_of(Expressions,
-				[&](const auto& Expression) { return Expression->Id == Position.NodeId; }))
+			if (!FindNode(Position.NodeId))
 				return RejectCommand("A moved material graph node does not exist.");
 			if (!RequestedNodes.insert(Position.NodeId).second)
 				return RejectCommand("A material graph move request contains a duplicate node GUID.");
@@ -84,7 +80,7 @@ namespace Durin::MaterialEditor
 			"Move Material Nodes", std::move(Affected), Transactions);
 	}
 
-	auto FMaterialGraphDocument::MoveMaterialOutput(
+	auto DMaterialGraph::MoveMaterialOutput(
 		int32 X,
 		int32 Y,
 		ETransactionMode Mode) const -> FMaterialGraphCommandResult
@@ -96,10 +92,10 @@ namespace Durin::MaterialEditor
 		const auto* Output = Material ? Material->GetOutputNode() : nullptr;
 		if (!Output) return RejectCommand("The material output node is unavailable.");
 		const FMaterialGraphNodePresentation Position{Output->Id, X, Y};
-		return MoveNodes(std::span(&Position, 1), Mode);
+		return MoveNodesInternal(std::span(&Position, 1), *Admission);
 	}
 
-	auto FMaterialGraphDocument::CalculateLayout(
+	auto DMaterialGraph::CalculateLayout(
 		std::span<const FGuid> NodeIds,
 		FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult
 	{
@@ -107,15 +103,15 @@ namespace Durin::MaterialEditor
 		OutPresentation = ReadGraphPresentation(*Owner.Get());
 		struct FLayoutNode { FGuid Id; std::vector<FGuid> Inputs; float Width = 224.0f; float Height = 94.0f; };
 		std::vector<FLayoutNode> Nodes;
-		const auto View = ProjectMaterialGraph(GetOwner());
-		for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Owner.Get()))
+		for (const auto& GraphNode : GetNodes())
 		{
-			const auto Visual = std::ranges::find(View.Nodes, Expression->Id,
-				[](const auto& Item) { return Item.Node.Id; });
-			if (Visual == View.Nodes.end()) continue;
-			FLayoutNode Node{Expression->Id, {}, GraphNodeWidth(*Visual), GraphNodeHeight(*Visual)};
-			VisitMaterialExpressionInputs(*Expression, [&](uint32, const FMaterialExpressionInput& Input) {
-				if (Input.IsConnected()) Node.Inputs.push_back(Input.GetExpressionId());
+			auto* Expression = GraphNode->MaterialExpression.Get();
+			if (!Expression) continue;
+			const auto& Visual = GraphNode->GetView();
+			FLayoutNode Node{Visual.Node.Id, {}, GraphNodeWidth(Visual), GraphNodeHeight(Visual)};
+			// Retained inputs still constrain layout when the current root mode hides their pins.
+			VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
+				if (const auto* Source = Input.Expression.Get()) Node.Inputs.push_back(Source->Id);
 			});
 			Nodes.push_back(std::move(Node));
 		}
@@ -282,7 +278,7 @@ namespace Durin::MaterialEditor
 		};
 	}
 
-	auto FMaterialGraphDocument::Layout(std::span<const FGuid> NodeIds,
+	auto DMaterialGraph::Layout(std::span<const FGuid> NodeIds,
 		ETransactionMode Mode) const -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);

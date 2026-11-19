@@ -41,18 +41,6 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
 			int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
 			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
-			FGuid PortId = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		// Resolves the material terminal and moves it using the common position command.
-		MATERIALEDITOR_API auto MoveMaterialOutput(int32 X, int32 Y,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		// Position commands ignore labels and preserve unrelated presentation fields.
-		MATERIALEDITOR_API auto MoveNodes(std::span<const FMaterialGraphNodePresentation> Positions,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto CalculateLayout(std::span<const FGuid> NodeIds,
-			FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Layout(std::span<const FGuid> NodeIds = {},
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 
 		// Creates a node; an existing name reuses its compatible parameter definition.
 		MATERIALEDITOR_API auto CreateParameter(
@@ -87,9 +75,6 @@ namespace Durin::MaterialEditor
 		friend class DMaterialGraph;
 		FMaterialGraphDocument(TWeakObjectPtr<DObject> InOwner, const FMaterialGraphSchema& InSchema)
 			: Owner(InOwner), Schema(InSchema) {}
-		friend class FMaterialGraphMoveSession;
-		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,
-			DTransactor* Transactions) const -> FMaterialGraphCommandResult;
 		TWeakObjectPtr<DObject> Owner;
 		const FMaterialGraphSchema& Schema;
 	};

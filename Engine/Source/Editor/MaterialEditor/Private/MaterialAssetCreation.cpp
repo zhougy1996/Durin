@@ -1,4 +1,4 @@
-#include "MaterialGraphDocument.h"
+#include "MaterialGraph.h"
 #include "MaterialAssetCreation.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -20,8 +20,8 @@ namespace Durin
 			return false;
 		}
 		FMaterialGraphPresentation Presentation;
-		const auto Layout =
-			MaterialEditor::FMaterialGraphDocument(Material).CalculateLayout({}, Presentation);
+		TStrongObjectPtr<MaterialEditor::DMaterialGraph> Graph(MaterialEditor::DMaterialGraph::Create(Material));
+		const auto Layout = Graph->CalculateLayout({}, Presentation);
 		if (!Layout || Material.SetMaterialGraphPresentation(
 				std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
 		{

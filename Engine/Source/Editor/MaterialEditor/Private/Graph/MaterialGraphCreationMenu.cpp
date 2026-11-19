@@ -272,7 +272,7 @@ namespace Durin::MaterialEditor
 			if (HasClipboard()) ImGui::SameLine();
 			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
-				const auto Layout = EditorGraph->GetCommands().Layout({});
+				const auto Layout = EditorGraph->Layout({});
 				CheckCommand(Layout);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();

@@ -317,7 +317,8 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	const FMaterialGraphPresentation OriginalPresentation =
 		Material->GetMaterialGraphPresentation();
 
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(520, -80));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->MoveMaterialOutput(520, -80));
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetOutputNode() != nullptr);
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);
@@ -342,12 +343,12 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);
 	EXPECT_TRUE(Transactions->TryReset());
 	FMaterialGraphMoveSession Move;
-	ASSERT_TRUE(Move.Begin(*Material, std::array{Material->GetOutputNode()->Id}, Transactions.Get()));
+	ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Material->GetOutputNode()->Id}, Transactions.Get()));
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Material->GetOutputNode()->Id, 600, 40}}));
 	ASSERT_TRUE(Move.Cancel());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);
 	EXPECT_FALSE(Transactions->CanUndo());
-	ASSERT_TRUE(Move.Begin(*Material, std::array{Material->GetOutputNode()->Id}, Transactions.Get()));
+	ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Material->GetOutputNode()->Id}, Transactions.Get()));
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Material->GetOutputNode()->Id, 600, 40}}));
 	ASSERT_TRUE(Move.Commit());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 600);
@@ -1106,7 +1107,7 @@ TEST(FMaterialGraphOperationsTests, CompactInputCommandsPreserveSharingFallbacks
 	ASSERT_TRUE(Created) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Created);
 	const auto Id = Created.GeneratedNodeIds[0];
 	const auto Before = CaptureExpressions(*Material);
-	const auto Extracted = Document.ExtractInputDefault(Id, 1, {});
+	const auto Extracted = MaterialEditorGraph->FindNode(Id)->ExtractInputDefault(FMaterialGraphPinAddress::Input(Id, 1));
 	ASSERT_TRUE(Extracted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Extracted);
 	const auto ExtractedId = Extracted.GeneratedNodeIds[0];
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Document.GetOwner(), FMaterialGraphPinAddress::Input(Id, 0), FMaterialGraphPinAddress::Output({ExtractedId}), false));
@@ -1186,6 +1187,22 @@ TEST(FMaterialGraphOperationsTests, RemovalAndInliningReplayDownstreamWidthsOnBo
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_FALSE(Target->B.Connection.IsConnected());
 		Check(Type::Float);
+		const auto Extracted = Graph->FindNode(AddId)->ExtractInputDefault(B);
+		ASSERT_TRUE(Extracted);
+		ASSERT_EQ(Extracted.GeneratedNodeIds.size(), 1u);
+		const auto ConstantId = Extracted.GeneratedNodeIds.front();
+		auto* Constant = Target->B.Connection.Expression.Get();
+		ASSERT_TRUE(Graph->FindNode(ConstantId));
+		EXPECT_EQ(Graph->FindNode(ConstantId)->GetMaterialExpression(), Constant);
+		const auto Position = Graph->FindNode(ConstantId)->GetView().Presentation;
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_FALSE(Graph->FindNode(ConstantId));
+		EXPECT_FALSE(Target->B.Connection.IsConnected());
+		EXPECT_EQ(Target->B.Constant, (std::vector<float>{4}));
+		ASSERT_TRUE(Transactions->Redo());
+		ASSERT_TRUE(Graph->FindNode(ConstantId));
+		EXPECT_EQ(Graph->FindNode(ConstantId)->GetView().Presentation, Position);
+		EXPECT_EQ(Target->B.Connection.Expression.Get(), Constant);
 	}
 }
 
@@ -1211,7 +1228,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 			.Type = Add->ResultType, .Literal = {2, 3, 4, 5}};
 		ASSERT_TRUE(GraphEditInternals::WriteInputDefault(Document.GetOwner(), Id, 1, Value, {}, Durin::ETransactionMode::NotTransactable));
 		EXPECT_EQ(GraphEditInternals::WriteInputDefault(Document.GetOwner(), Id, 1, Value, {}, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
-		const auto Extracted = Document.ExtractInputDefault(Id, 1, {}, Durin::ETransactionMode::NotTransactable);
+		const auto Extracted = MaterialEditorGraph->FindNode(Id)->ExtractInputDefault(FMaterialGraphPinAddress::Input(Id, 1), Durin::ETransactionMode::NotTransactable);
 		ASSERT_TRUE(Extracted) << ::Durin::MaterialEditor::FormatMaterialGraphCommandResult(Extracted);
 		ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 3u);
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2]->GetClass(),
@@ -1234,7 +1251,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	EXPECT_TRUE(HasGraphDiagnostics(*Material));
 	ASSERT_TRUE(GraphEditInternals::WriteInputDefault(Document.GetOwner(), CoordinatesId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float, .Literal = {2}}, {}));
-	ASSERT_TRUE(Document.ExtractInputDefault(CoordinatesId, 0, {}));
+	ASSERT_TRUE(MaterialEditorGraph->FindNode(CoordinatesId)->ExtractInputDefault(FMaterialGraphPinAddress::Input(CoordinatesId, 0)));
 	ASSERT_TRUE(MaterialEditorGraph->FindNode(CoordinatesId)->InlineInputNode(FMaterialGraphPinAddress::Input(CoordinatesId, 0)));
 	EXPECT_EQ(Cast<DMaterialExpressionTextureCoordinates>(Material->GetExpressionCollection().Expressions.front().Get())->Channel.Constant, (std::vector<float>{2}));
 	ASSERT_TRUE(Transactions->Undo());
@@ -1259,7 +1276,7 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	const auto CallId = Created.GeneratedNodeIds.front();
 	ASSERT_TRUE(GraphEditInternals::WriteInputDefault(Document.GetOwner(), CallId, 0, {.Kind = EMaterialInputDefaultKind::Literal,
 		.Type = EMaterialProgramValueType::Float3, .Literal = {4, 5, 6}}, InputId, Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(Document.ExtractInputDefault(CallId, 0, InputId, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(MaterialEditorGraph->FindNode(CallId)->ExtractInputDefault(FMaterialGraphPinAddress::Input(CallId, 0, InputId), Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(MaterialEditorGraph->FindNode(CallId)->InlineInputNode(FMaterialGraphPinAddress::Input(CallId, 0, InputId), Durin::ETransactionMode::NotTransactable));
 	const auto* Call = Cast<DMaterialExpressionFunctionCall>(Material->GetExpressionCollection().Expressions.front().Get());
 	ASSERT_NE(Call, nullptr);
@@ -1611,7 +1628,8 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation({.Nodes = {{ConstantId, 100, 100, "Retained label"}}}) != Durin::EMaterialGraphPresentationResult::Rejected);
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->Layout({}));
 	const auto Layout = Material->GetMaterialGraphPresentation();
 	const auto Position = [&](FGuid Id) -> const FMaterialGraphNodePresentation& {
 		return *std::ranges::find(Layout.Nodes, Id, &FMaterialGraphNodePresentation::NodeId);
@@ -1621,7 +1639,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	EXPECT_LT(Position(OverrideId).X, Position(CallId).X);
 	EXPECT_LT(Position(CallId).X, Testing::OutputPosition(*Material, Layout).X);
 	EXPECT_EQ(Position(ConstantId).DisplayName, "Retained label");
-	EXPECT_EQ(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable).GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Transactions->Redo());
@@ -1644,8 +1662,9 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	const uint64 SemanticRevision =
 		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
 	const FMaterialGraphCommandResult First =
-		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
+		EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable);
 	ASSERT_TRUE(First) << FormatMaterialGraphCommandResult(First);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().Nodes.size(),
 		MaterialProgramMaxNodeCount);
@@ -1668,7 +1687,7 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 				&& PositionA.Y + HeightA > PositionB.Y);
 		}
 	const FMaterialGraphCommandResult Second =
-		FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable);
+		EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable);
 	EXPECT_EQ(Second.GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
 
@@ -1738,7 +1757,8 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	}
 	auto Validation = Graph.Apply(*Material);
 	ASSERT_TRUE(Validation);
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	const FMaterialGraphView View = ProjectMaterialGraph(&*Material);
 	auto Y = [&](const FGuid& Id) {
 		const FMaterialGraphNodeView* Node = FindViewNode(View, Id);
@@ -1760,8 +1780,8 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	ASSERT_NE(SelectedView, nullptr);
 	const FMaterialGraphNodePresentation Occupied{
 		Fixed, SelectedView->Presentation.X, 0};
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Occupied, 1), Durin::ETransactionMode::NotTransactable));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout(std::span(&Selected, 1), Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(EditorGraph->MoveNodes(std::span(&Occupied, 1), Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(EditorGraph->Layout(std::span(&Selected, 1), Durin::ETransactionMode::NotTransactable));
 	const FMaterialGraphView Relayout = ProjectMaterialGraph(&*Material);
 	const auto* RelayoutSelected = FindViewNode(Relayout, Selected);
 	const auto* RelayoutFixed = FindViewNode(Relayout, Fixed);
@@ -1792,11 +1812,11 @@ TEST(FMaterialGraphOperationsTests,
 	FMaterialAttributeRoot Outputs;
 	Outputs.Get(EMaterialProperty::MP_BaseColor) = {Saturate.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 2>{Constant.Get(), Saturate.Get()}, Outputs));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(MaterialEditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	std::vector<FGuid> AllNodes;
 	for (const auto& Node : Material->GetExpressionCollection().Expressions) AllNodes.push_back(Node->Id);
 	FMaterialGraphClipboardPayload Payload;
-	TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
 	const FMaterialGraphCommandResult Copied =
 		MaterialEditorGraph->CopySelection(AllNodes, Payload);
 	ASSERT_TRUE(Copied) << FormatMaterialGraphCommandResult(Copied);
@@ -2083,8 +2103,9 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 		Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 
 	const FMaterialGraphNodePresentation Moved{CreatedId, 320, 160};
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
 	const FMaterialGraphCommandResult Move =
-		FMaterialGraphDocument(*Material).MoveNodes(std::span(&Moved, 1));
+		EditorGraph->MoveNodes(std::span(&Moved, 1));
 	ASSERT_TRUE(Move) << FormatMaterialGraphCommandResult(Move);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision,
 		SemanticRevision);
@@ -2095,7 +2116,6 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 
 	const auto BeforeRejected = CaptureExpressions(*Material);
 	ASSERT_NE(FindExpression<DMaterialExpressionScalarConstant>(*Material, CreatedId), nullptr);
-	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
 	const FMaterialGraphCommandResult Rejected = EditorGraph->FindNode(CreatedId)->SetConstantValue(FMaterialParameterValue::MakeScalar(std::numeric_limits<float>::quiet_NaN()));
 	EXPECT_EQ(Rejected.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_FALSE(Rejected.Diagnostics.empty());
@@ -2120,7 +2140,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	EXPECT_EQ(RedoneView->Presentation.X, 320);
 
 	FMaterialGraphMoveSession MoveSession;
-	ASSERT_TRUE(MoveSession.Begin(*Material, std::span(&CreatedId, 1), Transactions.Get()));
+	ASSERT_TRUE(MoveSession.Begin(*EditorGraph, std::span(&CreatedId, 1), Transactions.Get()));
 	const FMaterialGraphNodePresentation FirstPreview{CreatedId, 400, 200};
 	const FMaterialGraphNodePresentation SecondPreview{CreatedId, 480, 240};
 	ASSERT_TRUE(MoveSession.Apply(std::span(&FirstPreview, 1)));
@@ -2150,7 +2170,8 @@ TEST(FMaterialGraphOperationsTests,
 	const FGuid NodeId = Created.GeneratedNodeIds.front();
 
 	FMaterialGraphMoveSession MoveSession;
-	ASSERT_TRUE(MoveSession.Begin(*Material, std::span(&NodeId, 1)));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(MoveSession.Begin(*EditorGraph, std::span(&NodeId, 1)));
 	const FMaterialGraphNodePresentation Preview{NodeId, 400, 240};
 	ASSERT_TRUE(MoveSession.Apply(std::span(&Preview, 1)));
 
@@ -2326,7 +2347,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveMaterialOutput(713, -91, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Graph->MoveMaterialOutput(713, -91, Durin::ETransactionMode::NotTransactable));
 
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(ReadVector4Parameter(*Material,
@@ -2374,13 +2395,13 @@ TEST(FMaterialGraphOperationsTests, MoveAndDefaultHistoryDoNotGrowWithUnrelatedN
 		ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
 		Durin::Tests::FTestEditorTransactorOwner Transactions;
 		const FMaterialGraphNodePresentation Moved{NodeId, 40, 80};
-		ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Moved, 1)));
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		ASSERT_TRUE(Graph->MoveNodes(std::span(&Moved, 1)));
 		const auto MoveBytes = Transactions->GetUndoSize();
 		EXPECT_GT(MoveBytes, 0u);
 		if (SmallMoveBytes) EXPECT_EQ(MoveBytes, *SmallMoveBytes);
 		else SmallMoveBytes = MoveBytes;
 		ASSERT_TRUE(Transactions->TryReset());
-		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
 		const auto Root = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
 		ASSERT_TRUE(Graph->FindNode(Root.NodeId)->PinDefaultValueChanged(Root,
 			{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.41f, 0.f, 0.f, 0.f}}));
@@ -2410,10 +2431,10 @@ TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndReje
 	Node->Metadata.DisplayName = Definition.DisplayName;
 	Node->DefaultValue = Definition.Value.GetVector4();
 	ASSERT_TRUE(Source->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Node.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> SourceEditorGraph(DMaterialGraph::Create(*Source));
+	ASSERT_TRUE(SourceEditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(Target->SetMaterialExpressions({}, {}));
 	FMaterialGraphClipboardPayload Payload;
-	TStrongObjectPtr<DMaterialGraph> SourceEditorGraph(DMaterialGraph::Create(*Source));
 	ASSERT_TRUE(SourceEditorGraph->CopySelection(std::span(&Node->Id, 1), Payload));
 	ASSERT_EQ(Payload.Nodes.size(), 1u);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
@@ -2466,9 +2487,9 @@ TEST(FMaterialGraphOperationsTests, SameRootClipboardCreatesIndependentSnapshotO
 	Node->Metadata.DisplayName = Definition.DisplayName;
 	Node->DefaultValue = Definition.Value.GetScalar();
 	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Node.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).Layout({}, Durin::ETransactionMode::NotTransactable));
-	FMaterialGraphClipboardPayload Payload;
 	TStrongObjectPtr<DMaterialGraph> MaterialEditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(MaterialEditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
+	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(MaterialEditorGraph->CopySelection(std::span(&Node->Id, 1), Payload));
 	ASSERT_TRUE(FMaterialGraphDocument(*Material).RenameParameter(Definition.Id, "RenamedAmount", Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(MaterialEditorGraph->Paste(Payload, 400, 0, Durin::ETransactionMode::NotTransactable));
@@ -2561,9 +2582,9 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	Node->Metadata.DisplayName = Definition.DisplayName;
 	Node->DefaultValue = Definition.Value.GetTexture();
 	ASSERT_TRUE(Source->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Node.Get()}, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::ETransactionMode::NotTransactable));
-	FMaterialGraphClipboardPayload Payload;
 	TStrongObjectPtr<DMaterialGraph> SourceEditorGraph(DMaterialGraph::Create(*Source));
+	ASSERT_TRUE(SourceEditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
+	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(SourceEditorGraph->CopySelection(std::span(&Node->Id, 1), Payload));
 	Node.Reset();
 	MarkAsGarbage(Source);
@@ -2749,7 +2770,8 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	B->Metadata = A->Metadata; B->DefaultValue = .4f;
 	const std::array<DMaterialExpression*, 2> Nodes{A.Get(), B.Get()};
 	ASSERT_TRUE(Source->SetMaterialExpressions(Nodes, {}));
-	ASSERT_TRUE(FMaterialGraphDocument(*Source).Layout({}, Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> SourceEditorGraph(DMaterialGraph::Create(*Source));
+	ASSERT_TRUE(SourceEditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	const auto Before = CaptureExpressions(*Source);
 	B->DefaultValue = .7f;
 	EXPECT_FALSE(Source->SetMaterialExpressions(Nodes, {}));
@@ -2760,7 +2782,6 @@ TEST(FMaterialGraphOperationsTests, SharedParameterValidationAndForeignPasteAreA
 	EXPECT_FALSE(Source->SetMaterialExpressions(Nodes, {}));
 	FMaterialGraphClipboardPayload Payload;
 	const std::array Ids{A->Id, B->Id};
-	TStrongObjectPtr<DMaterialGraph> SourceEditorGraph(DMaterialGraph::Create(*Source));
 	ASSERT_TRUE(SourceEditorGraph->CopySelection(Ids, Payload));
 	TStrongObjectPtr<DMaterialGraph> TargetEditorGraph(DMaterialGraph::Create(*Target));
 	ASSERT_TRUE(TargetEditorGraph->Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
@@ -3118,7 +3139,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	ASSERT_TRUE(Transactions->Redo());
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	const FMaterialGraphNodePresentation Position{OutputId, 600, 120};
-	ASSERT_TRUE(FMaterialGraphDocument(*Material.Get()).MoveNodes(std::span(&Position, 1)));
+	ASSERT_TRUE(MaterialEditorGraph->MoveNodes(std::span(&Position, 1)));
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_EQ(Events.back().Nodes.size(), 1u);
 	EXPECT_EQ(Events.back().Nodes.front().Flags, EMaterialGraphNodeChange::Position);
@@ -3129,7 +3150,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(ReadMaterialOutputDefault(Material->GetOutputNode()->Outputs, EMaterialOutputPin::Metallic)[0], 0.f);
 	ASSERT_TRUE(Transactions->Redo());
-	const auto Extracted = Document.ExtractInputDefault(OutputId, static_cast<uint32>(EMaterialOutputPin::Metallic), {});
+	const auto Extracted = MaterialEditorGraph->FindNode(OutputId)->ExtractInputDefault(FMaterialGraphPinAddress::MaterialOutput(OutputId, EMaterialProperty::MP_Metallic));
 	ASSERT_TRUE(Extracted) << FormatMaterialGraphCommandResult(Extracted);
 	ASSERT_TRUE(MaterialEditorGraph->FindNode(OutputId)->InlineInputNode(FMaterialGraphPinAddress::MaterialOutput(OutputId, EMaterialProperty::MP_Metallic)));
 	EXPECT_FLOAT_EQ(ReadMaterialOutputDefault(Material->GetOutputNode()->Outputs, EMaterialOutputPin::Metallic)[0], .7f);
@@ -3441,11 +3462,12 @@ TEST(FMaterialGraphOperationsTests, ExtractOutputDefaultPreservesMaterialAttribu
 	Graph.Outputs.Get(EMaterialProperty::MP_Metallic).SetConstant({.7f});
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const FMaterialGraphNodePresentation Position{Material->GetOutputNode()->Id, 600, 120};
-	ASSERT_TRUE(FMaterialGraphDocument(*Material).MoveNodes(std::span(&Position, 1), Durin::ETransactionMode::NotTransactable));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(EditorGraph->MoveNodes(std::span(&Position, 1), Durin::ETransactionMode::NotTransactable));
 	FMaterialGraphDocument Document(*Material);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	const auto Before = Material->GetExpressionOutputs();
-	const auto Extracted = Document.ExtractInputDefault(Material->GetOutputNode()->Id, static_cast<uint32>(EMaterialOutputPin::Metallic), {});
+	const auto Extracted = EditorGraph->FindNode(Material->GetOutputNode()->Id)->ExtractInputDefault(FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Metallic));
 	ASSERT_TRUE(Extracted) << FormatMaterialGraphCommandResult(Extracted);
 	ASSERT_EQ(Extracted.GeneratedNodeIds.size(), 1u);
 	const auto After = Material->GetExpressionOutputs();
@@ -3627,7 +3649,8 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		Write(Initial);
 		Durin::Tests::FTestEditorTransactorOwner Transactions;
 		FMaterialGraphMoveSession Move;
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Owner));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240, "Ignored"}}));
 		EXPECT_EQ(Read(), Initial); // Preview cannot dirty or publish the owner.
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
@@ -3637,7 +3660,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		Write(External);
 		ASSERT_TRUE(Move.Cancel());
 		EXPECT_EQ(Read(), External);
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		ASSERT_TRUE(Move.Commit());
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 1u);
@@ -3653,12 +3676,12 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Read(), Later);
 		ASSERT_TRUE(Transactions->TryReset());
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		EXPECT_EQ(Move.Commit().GetStatus(), EMaterialGraphCommandStatus::NoChange);
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
 		// Direct position commands must also ignore the presentation label argument.
-		ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 450, 240, "Ignored"}}));
+		ASSERT_TRUE(EditorGraph->MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 450, 240, "Ignored"}}));
 		EXPECT_EQ(FindViewNode(ProjectMaterialGraph(Document.GetOwner()), Id)->Presentation.DisplayName, "After move");
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Read(), Later);
@@ -3679,7 +3702,8 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		const auto Id = Created.GeneratedNodeIds.front();
 		Durin::Tests::FTestEditorTransactorOwner Transactions;
 		FMaterialGraphMoveSession Move;
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Owner));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		const FMaterialGraphNodePresentation Position{Id, 400, 240};
 		ASSERT_TRUE(Move.Apply(std::array{Position}));
 		const auto Duplicate = Move.Apply(std::array{Position, Position});
@@ -3694,7 +3718,6 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		EXPECT_EQ(Coordinate.Message.find("The graph move preview is outside the supported coordinate range."), 0u);
 		ASSERT_EQ(Move.GetPositions().size(), 1u);
 		EXPECT_EQ(Move.GetPositions().front().X, 400);
-		TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Owner));
 		ASSERT_TRUE(EditorGraph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(.8f), Durin::ETransactionMode::NotTransactable));
 		const auto Stale = Move.Commit();
 		EXPECT_FALSE(Stale);
@@ -3706,7 +3729,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveRejectsInvalidDraftsAndStaleOwners
 		auto P = GraphEditInternals::ReadGraphPresentation(*Owner.Get());
 		std::erase_if(P.Nodes, [&](const auto& N) { return N.NodeId == Id; });
 		ASSERT_NE(GraphEditInternals::WriteGraphPresentation(*Owner.Get(), P), EMaterialGraphPresentationResult::Rejected);
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{Position})); ASSERT_TRUE(Move.Commit());
 		EXPECT_EQ(FindViewNode(ProjectMaterialGraph(Document.GetOwner()), Id)->Presentation.X, 400);
 		ASSERT_TRUE(Transactions->Undo());
@@ -3736,11 +3759,12 @@ TEST(FMaterialGraphOperationsTests, FunctionLayoutUsesPositionHistoryAndPreserve
 	ASSERT_TRUE(Function->SetFunctionPresentation(Original));
 	const auto Revision = Function->GetFunctionRevision();
 	FMaterialGraphPresentation A, B;
-	ASSERT_TRUE(Document.CalculateLayout({}, A)); ASSERT_TRUE(Document.CalculateLayout({}, B));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Function));
+	ASSERT_TRUE(EditorGraph->CalculateLayout({}, A)); ASSERT_TRUE(EditorGraph->CalculateLayout({}, B));
 	EXPECT_EQ(A, B);
 	EXPECT_EQ(Function->GetFunctionPresentation(), Original);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	ASSERT_TRUE(Document.Layout({}));
+	ASSERT_TRUE(EditorGraph->Layout({}));
 	EXPECT_EQ(Function->GetFunctionPresentation().Nodes, A.Nodes);
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Function->GetFunctionPresentation(), Original);
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Function->GetFunctionPresentation().Nodes, A.Nodes);
@@ -3761,14 +3785,15 @@ TEST(FMaterialGraphOperationsTests, MoveHistorySizeDoesNotGrowWithUnchangedNodes
 		const auto Id = Created.GeneratedNodeIds.front();
 		Durin::Tests::FTestEditorTransactorOwner Transactions;
 		FMaterialGraphMoveSession Move;
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Owner));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		ASSERT_TRUE(Move.Commit());
 		const auto SmallBytes = Transactions->GetUndoSize();
 		ASSERT_TRUE(Transactions->TryReset());
 		for (int Index = 0; Index < 32; ++Index)
 			ASSERT_TRUE(Testing::CreateGraphConstant(Document, .7f, Index * 100, 500));
-		ASSERT_TRUE(Move.Begin(*Owner.Get(), std::array{Id}, Transactions.Get()));
+		ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 600, 240}}));
 		ASSERT_TRUE(Move.Commit());
 		EXPECT_EQ(Transactions->GetUndoSize(), SmallBytes);
@@ -3877,7 +3902,8 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	const auto NodeId = Created.GeneratedNodeIds.front();
 	const auto Before = Material->GetMaterialGraphPresentation();
 	FMaterialGraphMoveSession Move;
-	ASSERT_TRUE(Move.Begin(*Material, std::array{NodeId}, Transactions.Get()));
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{NodeId}, Transactions.Get()));
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{NodeId, 777, 222}}));
 	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
 	const auto MoveFailure = Move.Commit();
@@ -4044,25 +4070,26 @@ TEST(FMaterialGraphOperationsTests, LayoutRejectionsLeaveAuthoredPositionsUnchan
 	const auto Id = Created.GeneratedNodeIds.front();
 	const auto Before = Material->GetMaterialGraphPresentation();
 	FMaterialGraphPresentation Candidate;
-	const auto Duplicate = Document.CalculateLayout(std::array{Id, Id}, Candidate);
+	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
+	const auto Duplicate = EditorGraph->CalculateLayout(std::array{Id, Id}, Candidate);
 	EXPECT_FALSE(Duplicate);
 	EXPECT_EQ(Duplicate.Message.find("The material graph layout request contains duplicate node GUIDs."), 0u);
 	EXPECT_EQ(Candidate, Before);
 	const auto MissingId = FGuid::NewGuid();
-	const auto Missing = Document.CalculateLayout(std::array{MissingId}, Candidate);
+	const auto Missing = EditorGraph->CalculateLayout(std::array{MissingId}, Candidate);
 	ASSERT_FALSE(Missing);
 	EXPECT_EQ(Missing.Message.find("A material graph layout node does not exist."), 0u);
 	const std::vector<FGuid> Oversized(MaterialProgramMaxNodeCount + 1u, Id);
-	const auto Bounds = Document.CalculateLayout(Oversized, Candidate);
+	const auto Bounds = EditorGraph->CalculateLayout(Oversized, Candidate);
 	EXPECT_FALSE(Bounds);
 	EXPECT_EQ(Bounds.Message.find("The material graph layout request exceeds the node bound."), 0u);
-	const auto Coordinate = Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}}, Durin::ETransactionMode::NotTransactable);
+	const auto Coordinate = EditorGraph->MoveNodes(std::array{FMaterialGraphNodePresentation{Id, MaterialGraphPresentationCoordinateLimit + 1, 0}}, Durin::ETransactionMode::NotTransactable);
 	EXPECT_FALSE(Coordinate);
 	EXPECT_EQ(Coordinate.Message.find("A material graph position is outside the supported coordinate range."), 0u);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	ASSERT_TRUE(Document.CalculateLayout(std::array{Id}, Candidate));
+	ASSERT_TRUE(EditorGraph->CalculateLayout(std::array{Id}, Candidate));
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Before);
-	ASSERT_TRUE(Document.MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 100, 200}}, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(EditorGraph->MoveNodes(std::array{FMaterialGraphNodePresentation{Id, 100, 200}}, Durin::ETransactionMode::NotTransactable));
 }
 
 TEST(FMaterialGraphOperationsTests, ClipboardRejectionsReportFailureAndAllowRetry)

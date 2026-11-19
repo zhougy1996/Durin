@@ -189,22 +189,24 @@ namespace Durin::MaterialEditor
 		return Edit.CommitInferred(*Owner, Transactions, "Edit Input Default");
 	}
 
-	auto FMaterialGraphDocument::ExtractInputDefault(const FGuid& NodeId, uint32 InputIndex,
-		FGuid PortId, ETransactionMode Mode) const -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
-		if (!Owner.IsValid()) return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		FGraphEditSession State(*Owner.Get());
-		const auto Input = FindInput(FindExpression(State.Expressions, NodeId), InputIndex, PortId, &State);
+		auto* Graph = ResolveInputGraph(Pin);
+		auto* Expression = GetMaterialExpression();
+		if (!Graph || !Expression) return RejectCommand("The input pin is unavailable.");
+		FGraphEditSession State(*Graph->GetMaterialOrFunction());
+		State.Modify(*Expression);
+		const auto Input = FindInput(Expression, Pin.Index, Pin.PortId);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
 		if (!Input.SupportsDefault() || Input.Source->IsConnected() || Input.Read().empty())
 			return RejectCommand("Only an unconnected numeric literal can be extracted.");
 		auto Constant = MakeConstant(Input.Read());
 		if (!Constant) return RejectCommand("The input default has an unsupported width.");
 		*Input.Source = {Constant.Get()};
-		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
+		const auto Position = std::ranges::find(State.Presentation.Nodes, Pin.NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position == State.Presentation.Nodes.end()) return RejectCommand("The input owner has no authored position.");
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
 		const auto Id = Constant->Id;
