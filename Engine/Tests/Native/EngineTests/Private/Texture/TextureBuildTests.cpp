@@ -1,3 +1,4 @@
+#include "Asset/PackageInspection.h"
 #include "Texture/Texture2DBuildDiagnostics.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -1961,7 +1962,6 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 		Voxels[Index] = static_cast<std::byte>((Index * 37) & 0xff);
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 
-	std::string Error;
 	const auto MipBuild = Durin::VolumeTextureMipGenerator::GenerateMipChain(
 		Source, {});
 	ASSERT_TRUE(MipBuild) << MipBuild.error();
@@ -2000,23 +2000,12 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	ASSERT_TRUE(SavedData);
 	Durin::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::InspectAssetPackage(SavedData->PhysicalPath, Inspection));
-	Durin::FTexturePayloadInspection PayloadInspection;
-	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
-		Inspection, PayloadInspection, &Error)) << Error;
-	ASSERT_TRUE(PayloadInspection.bConstructFree);
-	ASSERT_EQ(PayloadInspection.Entries.size(), 3u);
-	const auto SourceEntry = std::ranges::find(
-		PayloadInspection.Entries, Durin::ETexturePayloadStage::Source,
-		&Durin::FTexturePayloadInspectionEntry::Stage);
-	ASSERT_NE(SourceEntry, PayloadInspection.Entries.end());
-	EXPECT_EQ(SourceEntry->Domain, "VolumeTexture");
-	EXPECT_EQ(SourceEntry->State, Durin::ETexturePayloadState::Available);
-	EXPECT_EQ(SourceEntry->Repair, Durin::ETexturePayloadRepairAction::None);
-	EXPECT_EQ(SourceEntry->DomainSchemaVersion,
-		Durin::TextureSourceSchemaVersion);
-	EXPECT_EQ(SourceEntry->LogicalElementCount, Voxels.size());
-	EXPECT_EQ(SourceEntry->LogicalByteCount, Voxels.size());
-	EXPECT_EQ(SourceEntry->Placement, "EditorPackageCompanion");
+	const auto Descriptors = Durin::InspectEditorBulkDataStorageDescriptors(Inspection);
+	ASSERT_TRUE(Descriptors);
+	ASSERT_EQ(Descriptors->size(), 1u);
+	EXPECT_EQ(Descriptors->front().StorageKind, Durin::EPackageBulkStorageKind::External);
+	EXPECT_EQ(Descriptors->front().LogicalByteCount, Voxels.size());
+	EXPECT_EQ(Descriptors->front().ContentHash, Durin::FXxHash128::HashBuffer(Voxels));
 	std::vector<std::filesystem::path> EditorBulkDataFiles;
 	{
 		auto ValueResult = Durin::InspectEditorBulkDataCompanionPaths(SavedData->PhysicalPath, Inspection);
@@ -2034,14 +2023,9 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 			+ ".orphan.dbulk");
 	std::filesystem::copy_file(EditorBulkDataFiles.front(), OrphanCompanion,
 		std::filesystem::copy_options::overwrite_existing);
-	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
-		Inspection, PayloadInspection, &Error)) << Error;
-	const auto OrphanEntry = std::ranges::find(
-		PayloadInspection.Entries, Durin::ETexturePayloadRepairAction::RemoveOrphan,
-		&Durin::FTexturePayloadInspectionEntry::Repair);
-	// Stable companion publication deliberately ignores non-stable names;
-	// they are not safe package-owned cleanup candidates.
-	EXPECT_EQ(OrphanEntry, PayloadInspection.Entries.end());
+	const auto Orphans = Durin::InspectOrphanedEditorBulkDataCompanionPaths(SavedData->PhysicalPath, Inspection);
+	ASSERT_TRUE(Orphans);
+	EXPECT_TRUE(Orphans->empty());
 	EXPECT_TRUE(std::filesystem::is_regular_file(OrphanCompanion));
 	std::filesystem::remove(OrphanCompanion);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -2049,12 +2033,6 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	const std::filesystem::path HeldCompanion =
 		EditorBulkDataFiles.front().generic_string() + ".held";
 	std::filesystem::rename(EditorBulkDataFiles.front(), HeldCompanion);
-	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
-		Inspection, PayloadInspection, &Error)) << Error;
-	EXPECT_EQ(PayloadInspection.Entries.front().State,
-		Durin::ETexturePayloadState::Missing);
-	EXPECT_EQ(PayloadInspection.Entries.front().Repair,
-		Durin::ETexturePayloadRepairAction::RestoreEditorCompanion);
 	const auto MissingLoad =
 		Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &MissingLoadError);
 		Texture = MissingLoad;
@@ -2070,12 +2048,6 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(CorruptCompanion)),
 		EditorBulkDataFiles.front().generic_string()));
-	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
-		Inspection, PayloadInspection, &Error)) << Error;
-	EXPECT_EQ(PayloadInspection.Entries.front().State,
-		Durin::ETexturePayloadState::Corrupt);
-	EXPECT_EQ(PayloadInspection.Entries.front().Repair,
-		Durin::ETexturePayloadRepairAction::RestoreEditorCompanion);
 	const auto CorruptLoad =
 		Durin::LoadObject<Durin::DVolumeTexture>(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), nullptr, &CorruptLoadError);
 		Texture = CorruptLoad;

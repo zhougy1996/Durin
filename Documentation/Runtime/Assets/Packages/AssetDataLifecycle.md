@@ -554,16 +554,11 @@ Cooked output remains required for its staged build even when ignored by Git.
 ## Domain-qualified inspection and repair ownership
 
 Texture payload inspection reports source, derived, cooked, decoded CPU, and
-GPU stages without creating a shared authority descriptor. Construct-free
-inspection reads package field trees and storage descriptors; live inspection
-joins source metadata and placement, installed/cooked platform data, an
+GPU stages for the loaded texture. Live inspection joins source metadata and placement, installed/cooked platform data, an
 available manager-owned Texture2D operation diagnostic, and current render-
-resource state. Placement labels are capability descriptions such as `SourceFile`,
-`EditorPackageCompanion`, `DerivedDataCache`, and `CookedPackageCompanion`, not
-backend paths supplied to domain callers.
+resource state. Placement labels identify storage such as `EditorPackage` and `DerivedDataCache`.
 
-StaticMeshEditor owns StaticMesh payload inspection and package-field
-interpretation. Engine retains only const source, residency, resource and
+StaticMeshEditor inspects the loaded mesh and its collision geometry. Engine retains only const source, residency, resource and
 BodySetup facts plus bounded manager observations. StaticMesh inspection never
 opens bulk storage, acquires source handles, probes cache/build modules or creates
 primitive geometry. Metadata presence is not physical validation. Operation

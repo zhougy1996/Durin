@@ -1,3 +1,4 @@
+#include "Asset/PackageInspection.h"
 #include "BuildServiceBackendPrivate.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -2324,35 +2325,7 @@ TEST(FStaticMeshPayloadInspectionTests, UnreadableSourcePollingDoesNotAcquireOrM
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
 }
 
-TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalformedAndUnsupportedStates)
-{
-	using namespace Durin;
-	FAssetPackageInspection Package;
-	Package.Objects.push_back({.ClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString()});
-	Package.PhysicalPath = "/nonexistent/metadata-only/Mesh.dasset";
-	FStaticMeshPayloadInspection Snapshot;
-	const auto ObjectCount = GDObjectArray.GetNum();
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-	ASSERT_EQ(Snapshot.Fields.size(), 3u);
-	EXPECT_TRUE(Snapshot.bConstructFree);
-	for (const auto& Field : Snapshot.Fields) EXPECT_EQ(Field.State, "Absent");
-	Package.Objects[0].Fields.push_back({.Name = "RenderData", .SourceFormatVersion = 11});
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(Snapshot.Fields[1].State, "Malformed");
-	Package.Objects[0].Fields[0].SourceFormatVersion = 8;
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(Snapshot.Fields[1].State, "Unsupported");
-	Package.Objects[0].Fields.push_back({.Name = "Source", .SourceFormatVersion = 11});
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(Snapshot.Fields[0].State, "Malformed");
-	Package.Objects.front().ClassName = "Unsupported";
-	std::string Error;
-	EXPECT_FALSE(InspectStaticMeshPayloadPackage(Package, Snapshot, &Error));
-	EXPECT_FALSE(Error.empty());
-}
-
-TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOnCompanionAvailability)
+TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedPackagesExposeTheirOwnBulkDescriptors)
 {
 	using namespace Durin;
 	const FScopedDerivedDataCacheRestore CacheRestore;
@@ -2360,50 +2333,39 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	FAssetPackageInspection Package;
 	ASSERT_TRUE(InspectAssetPackage((Fixture.Root / "Content/Mesh.dasset").generic_string(), Fixture.AssetPath, Package));
-	FStaticMeshPayloadInspection Snapshot;
 	const auto ObjectCount = GDObjectArray.GetNum();
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-	EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
-	EXPECT_EQ(Snapshot.Fields[1].State, "Absent");
-	const auto SourceVersions = Package.CustomVersions;
-	ASSERT_EQ(SourceVersions, (std::vector<FCustomVersion>{{FStaticMeshSourceVersion::Guid, FStaticMeshSourceVersion::CurrentVersion}}));
+	EXPECT_EQ(Package.CustomVersions, (std::vector<FCustomVersion>{{FStaticMeshSourceVersion::Guid, FStaticMeshSourceVersion::CurrentVersion}}));
+	const auto* Source = Package.FindField("Source");
+	ASSERT_NE(Source, nullptr);
 	std::vector<FAssetPackageField> SourceFields;
-	ASSERT_TRUE(Package.FindField("Source")->TryInspectStructFields(SourceFields));
+	ASSERT_TRUE(Source->TryInspectStructFields(SourceFields));
 	EXPECT_EQ(std::ranges::find(SourceFields, "SchemaVersion", &FAssetPackageField::Name), SourceFields.end());
-	for (const int32 Version : {-1, 0, 2})
-	{
-		Package.CustomVersions = SourceVersions;
-		if (Version < 0) Package.CustomVersions.clear();
-		else Package.CustomVersions.front().Version = Version;
-		ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-		EXPECT_EQ(Snapshot.Fields[0].State, "Unsupported");
-		EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
-	}
-	Package.CustomVersions = SourceVersions;
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	const auto Identity = Snapshot.Fields[0].Identity;
-	Package.PhysicalPath = "/nonexistent/absent-companion/Mesh.dasset";
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(Snapshot.Fields[0].Identity, Identity);
-	EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
-	std::string Error;
+	const auto Geometry = std::ranges::find(SourceFields, "Geometry", &FAssetPackageField::Name);
+	ASSERT_NE(Geometry, SourceFields.end());
+	FPackageBulkStorageDescriptor Descriptor;
+	ASSERT_TRUE(Geometry->TryReadBulkDataStorageDescriptor(Descriptor, false));
+	EXPECT_EQ(Descriptor.ContentHash, Fixture.Mesh->GetSource().GetGeometryBulk().GetPayloadId());
+	EXPECT_EQ(Package.FindField("RenderData"), nullptr);
+	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
 	Fixture.Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_NE(Fixture.Mesh->GetCollisionBuildStatus(), Durin::EPhysicsMeshBuildStatus::Failed)
 		<< (Fixture.Mesh->GetCollisionBuildError() ? *Fixture.Mesh->GetCollisionBuildError() : std::string{});
 	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Context.AddPackage("/Game/InspectionMesh", (*Fixture.Mesh).GetPackage())) << Error;
-	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot)) << Error;
+	ASSERT_TRUE(Context.AddPackage("/Game/InspectionMesh", Fixture.Mesh->GetPackage()));
+	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot));
 	FPackagePath CookedPath;
 	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/InspectionMesh", CookedPath));
 	ASSERT_TRUE(InspectAssetPackage((CookRoot / "Game/InspectionMesh.dasset").generic_string(), CookedPath, Package));
 	EXPECT_EQ(std::ranges::find(Package.CustomVersions, FStaticMeshSourceVersion::Guid, &FCustomVersion::Guid), Package.CustomVersions.end());
-	Package.PhysicalPath = "/nonexistent/cooked/Mesh.dasset";
-	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
-	EXPECT_EQ(Snapshot.Fields[0].State, "Absent");
-	EXPECT_EQ(Snapshot.Fields[1].State, "Metadata present");
-	EXPECT_EQ(Snapshot.Fields[2].State, "Metadata present");
+	EXPECT_EQ(Package.FindField("Source"), nullptr);
+	for (const auto* Name : {"RenderData", "CollisionData"})
+	{
+		const auto* Field = Package.FindField(Name);
+		ASSERT_NE(Field, nullptr) << Name;
+		ASSERT_TRUE(Field->TryReadBulkDataStorageDescriptor(Descriptor, false)) << Name;
+		EXPECT_GT(Descriptor.LogicalByteCount, 0u) << Name;
+	}
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 

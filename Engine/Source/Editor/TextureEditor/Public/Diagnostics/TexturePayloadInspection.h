@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Asset/PackageInspection.h"
 #include "Misc/Guid.h"
 #include "TextureEditorAPI.h"
 
@@ -39,9 +38,7 @@ namespace Durin
 		ReimportSource,
 		RebuildDerivedData,
 		RestoreEditorCompanion,
-		Recook,
-		RemoveOrphan,
-		UpgradeOrResave
+		Recook
 	};
 
 	// One domain-qualified lifecycle fact. Placement is descriptive and never a
@@ -64,16 +61,8 @@ namespace Durin
 
 	struct FTexturePayloadInspection
 	{
-		bool bConstructFree = false;
 		std::vector<FTexturePayloadInspectionEntry> Entries;
 	};
-
-	// Reads reflected package fields only. It never constructs an asset object,
-	// opens a source file/DDC record, or mutates package/companion state.
-	TEXTUREEDITOR_API auto InspectTexturePayloadPackage(
-		const FAssetPackageInspection& Package,
-		FTexturePayloadInspection& OutInspection,
-		std::string* OutError = nullptr) -> bool;
 
 	// Joins live source, derived, cooked, decoded, and render-resource state.
 	// These overloads are read-only and do not perform repair or fallback.

@@ -185,12 +185,7 @@ canonical DAST v12 plus its exact optional headerless raw `.dbulk` segment.
 
 ## GPU resource and diagnostics
 
-VolumeTexture participates in the shared texture-domain inspection contract,
-not a generic bulk element registry. Construct-free inspection reads the nested
-source schema/dimensions and `FEditorBulkData` field metadata, and validates the
-referenced raw segment without modifying recovery state. Generation-named
-companions are not a supported production route. Live
-inspection independently reports source, DDC/platform,
+The texture editor inspects the loaded VolumeTexture and reports source, DDC/platform,
 cooked field/segment, decoded CPU, and GPU stages. Missing/corrupt authored bulk
 maps to restore, canonical resave, or reimport; DDC failure maps to rebuild,
 cooked failure maps to recook. Native GPU allocation failures terminate through

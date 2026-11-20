@@ -2,9 +2,8 @@
 #include "RenderResource.h"
 
 #include "Asset/CookedAsset.h"
-#include "Asset/EditorBulkDataStorage.h"
+#include "Asset/AssetImportData.h"
 #include "Asset/Load.h"
-#include "Misc/FileHelper.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/TextureCube.h"
@@ -61,42 +60,6 @@ namespace Durin
 			return Bytes;
 		}
 
-		template<typename T>
-		auto ReadScalar(const FAssetPackageInspection& Package,
-			std::string_view Name, T& OutValue) -> bool
-		{
-			const FAssetPackageField* Field = Package.FindField(Name);
-			return Field && Field->TryReadScalar(OutValue);
-		}
-
-		auto FindField(const std::vector<FAssetPackageField>& Fields,
-			std::string_view Name) -> const FAssetPackageField*
-		{
-			const auto It = std::ranges::find(Fields, Name,
-				&FAssetPackageField::Name);
-			return It == Fields.end() ? nullptr : &*It;
-		}
-
-		template<typename T>
-		auto ReadScalar(const std::vector<FAssetPackageField>& Fields,
-			std::string_view Name, T& OutValue) -> bool
-		{
-			const FAssetPackageField* Field = FindField(Fields, Name);
-			return Field && Field->TryReadScalar(OutValue);
-		}
-
-		auto ReadSourceDimensions(const std::vector<FAssetPackageField>& SourceFields,
-			uint32& Width, uint32& Height, uint32& Depth, uint32& NumSlices) -> void
-		{
-			std::vector<std::vector<FAssetPackageField>> Blocks;
-			const auto* Field = FindField(SourceFields, "Blocks");
-			if (!Field || !Field->TryInspectStructArray(Blocks) || Blocks.empty()) return;
-			ReadScalar(Blocks.front(), "Width", Width);
-			ReadScalar(Blocks.front(), "Height", Height);
-			ReadScalar(Blocks.front(), "Depth", Depth);
-			ReadScalar(Blocks.front(), "NumSlices", NumSlices);
-		}
-
 		auto MakeCookedFieldEntry(std::string Domain, const FBulkData& Field)
 			-> FTexturePayloadInspectionEntry
 		{
@@ -119,33 +82,6 @@ namespace Durin
 					: "No cooked TXPL field is present."};
 		}
 
-		auto MakeInspectedCookedFieldEntry(
-			std::string Domain, const FAssetPackageField* Field)
-			-> FTexturePayloadInspectionEntry
-		{
-			FPackageBulkStorageDescriptor Descriptor;
-			const bool bPresent = Field
-				&& Field->TryReadBulkDataStorageDescriptor(Descriptor);
-			return {
-				.Domain = std::move(Domain),
-				.Stage = ETexturePayloadStage::Cooked,
-				.State = bPresent ? ETexturePayloadState::Available
-					: ETexturePayloadState::NotPresent,
-				.Repair = bPresent ? ETexturePayloadRepairAction::None
-					: ETexturePayloadRepairAction::Recook,
-				.DomainSchemaVersion = TexturePayloadSchemaVersion,
-				.LogicalByteCount = bPresent ? Descriptor.LogicalByteCount : 0,
-				.StoredByteCount = bPresent ? Descriptor.StoredByteCount : 0,
-				.PayloadId = bPresent ? Descriptor.PayloadId : FGuid{},
-				.Placement = bPresent
-					? (Descriptor.StorageKind == EPackageBulkStorageKind::External
-						? "PackageBulkRange" : "PackageInlineBulk")
-					: "PackageBulkField",
-				.Diagnostic = bPresent
-					? "Cooked TXPL field metadata is present in DAST."
-					: "No valid cooked TXPL field is present."};
-		}
-
 		auto MapResourceState(const DTexture& Texture) -> ETexturePayloadState
 		{
 			if (Texture.IsPendingKill()) return ETexturePayloadState::NotPresent;
@@ -156,165 +92,6 @@ namespace Durin
 				return ETexturePayloadState::Unknown;
 			return ETexturePayloadState::NotPresent;
 		}
-	}
-
-	auto InspectTexturePayloadPackage(const FAssetPackageInspection& Package,
-		FTexturePayloadInspection& OutInspection, std::string* OutError) -> bool
-	{
-		OutInspection = {.bConstructFree = true};
-		if (Package.Objects.empty()) return false;
-		const std::string Texture2DClass = DTexture2D::StaticClass()->GetQualifiedName().ToString();
-		const std::string TextureCubeClass = DTextureCube::StaticClass()->GetQualifiedName().ToString();
-		const std::string VolumeClass = DVolumeTexture::StaticClass()->GetQualifiedName().ToString();
-		if (Package.Objects.front().ClassName == Texture2DClass)
-		{
-			uint32 Width = 0, Height = 0, Depth = 1, NumSlices = 1;
-			uint64 SourceBytes = 0;
-			std::vector<FAssetPackageField> SourceFields;
-			if (const FAssetPackageField* SourceField = Package.FindField("Source");
-				SourceField && SourceField->TryInspectStructFields(SourceFields))
-			{
-				ReadSourceDimensions(SourceFields, Width, Height, Depth, NumSlices);
-			}
-			std::string SourcePath;
-			bool bHasSource = false;
-			if (auto CommonInfo = InspectAssetImportInfo(Package); CommonInfo)
-			{
-				if (const FSourceFile* Source = CommonInfo->FindByRole("source"))
-				{
-					bHasSource = true;
-					SourceBytes = Source->ByteCount;
-					SourcePath = Source->Hint;
-				}
-			}
-			OutInspection.Entries.push_back({
-				.Domain = "Texture2D", .Stage = ETexturePayloadStage::Source,
-				.State = bHasSource ? ETexturePayloadState::Unknown : ETexturePayloadState::NotPresent,
-				.Repair = bHasSource ? ETexturePayloadRepairAction::ReimportSource
-					: ETexturePayloadRepairAction::None,
-				.LogicalElementCount = Multiply(Width, Height),
-				.LogicalByteCount = SourceBytes,
-				.StoredByteCount = SourceBytes,
-				.Placement = "SourceFile",
-				.Provenance = std::move(SourcePath),
-				.Diagnostic = bHasSource
-					? "Source identity is present; availability requires resolving its filename."
-					: "No source-file identity is present."});
-			OutInspection.Entries.push_back({
-				.Domain = "Texture2D", .Stage = ETexturePayloadStage::DerivedData,
-				.State = ETexturePayloadState::Unknown,
-				.Repair = bHasSource ? ETexturePayloadRepairAction::RebuildDerivedData
-					: ETexturePayloadRepairAction::ReimportSource,
-				.DomainSchemaVersion = TexturePayloadSchemaVersion,
-				.Placement = "DerivedDataCache",
-				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
-			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
-				"Texture2D", Package.FindField("PlatformData")));
-		}
-		else if (Package.Objects.front().ClassName == VolumeClass
-			|| Package.Objects.front().ClassName == TextureCubeClass)
-		{
-			const FAssetPackageField* SourceField = Package.FindField("Source");
-			std::vector<FAssetPackageField> SourceFields;
-			const bool bReadable = SourceField
-				&& SourceField->TryInspectStructFields(SourceFields);
-			uint32 Width = 0, Height = 0, Depth = 1, SchemaVersion = TextureSourceSchemaVersion;
-			uint32 NumSlices = 1;
-			uint64 DecodedPayloadSize = 0;
-			if (bReadable)
-			{
-				ReadSourceDimensions(SourceFields, Width, Height, Depth, NumSlices);
-				ReadScalar(SourceFields, "SchemaVersion", SchemaVersion);
-				ReadScalar(SourceFields, "DecodedPayloadSize", DecodedPayloadSize);
-			}
-			FPackageBulkStorageDescriptor Descriptor;
-			const FAssetPackageField* VoxelsField = FindField(SourceFields, "Payload");
-			const bool bHasDescriptor = VoxelsField
-				&& VoxelsField->TryReadEditorBulkDataStorageDescriptor(Descriptor);
-			ETexturePayloadState SourceState = bHasDescriptor
-				? ETexturePayloadState::Available : ETexturePayloadState::Corrupt;
-			ETexturePayloadRepairAction SourceRepair = bHasDescriptor
-				? ETexturePayloadRepairAction::None
-				: ETexturePayloadRepairAction::UpgradeOrResave;
-			std::string SourceDiagnostic = bHasDescriptor
-				? "Editor source descriptor is structurally valid."
-				: "Editor source metadata or storage descriptor is malformed.";
-			std::string Placement = "EditorPackageInline";
-			if (bHasDescriptor
-				&& Descriptor.StorageKind == EPackageBulkStorageKind::External)
-			{
-				Placement = "EditorPackageCompanion";
-				std::filesystem::path CompanionPath;
-				std::expected<FByteBuffer, FFileSystemError> CompanionBytes;
-				std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Storage;
-				if (Package.PhysicalPath.empty()
-					|| !(Storage = InspectEditorBulkDataCompanionPaths(
-						Package.PhysicalPath, Package))
-					|| Storage->empty()
-					|| (CompanionPath = Storage->front()).empty()
-					|| !(CompanionBytes = FFileHelper::LoadFileToArray(CompanionPath)))
-				{
-					SourceState = ETexturePayloadState::Missing;
-					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
-					SourceDiagnostic = Storage
-						? "Editor source companion is missing or unreadable." : FormatEditorBulkDataStorageError(Storage.error());
-				}
-				else if (CompanionBytes->size() != Package.Header.BulkSegmentExtent
-					|| FXxHash128::HashBuffer(*CompanionBytes) != Package.Header.BulkSegmentDigest)
-				{
-					SourceState = ETexturePayloadState::Corrupt;
-					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
-					SourceDiagnostic = "Editor source companion extent or digest does not match the package.";
-				}
-				else
-					SourceDiagnostic = "Editor source companion and integrity are valid.";
-			}
-			const std::string Domain = Package.Objects.front().ClassName == TextureCubeClass
-				? "TextureCube" : "VolumeTexture";
-			OutInspection.Entries.push_back({
-				.Domain = Domain, .Stage = ETexturePayloadStage::Source,
-				.State = SourceState, .Repair = SourceRepair,
-				.DomainSchemaVersion = SchemaVersion,
-				.LogicalElementCount = Package.Objects.front().ClassName == TextureCubeClass
-					? Multiply(Multiply(Multiply(Width, Height), Depth), NumSlices)
-					: Multiply(Multiply(Width, Height), Depth),
-				.LogicalByteCount = SchemaVersion == TextureSourceSchemaVersion
-					? DecodedPayloadSize
-					: bHasDescriptor ? Descriptor.LogicalByteCount : 0,
-				.StoredByteCount = bHasDescriptor ? Descriptor.StoredByteCount : 0,
-				.PayloadId = bHasDescriptor ? Descriptor.PayloadId : FGuid{},
-				.Placement = std::move(Placement),
-				.Diagnostic = std::move(SourceDiagnostic)});
-			std::expected<std::vector<FFilePath>, FEditorBulkDataStorageError> Orphans;
-			if (!Package.PhysicalPath.empty()
-				&& (Orphans = InspectOrphanedEditorBulkDataCompanionPaths(
-					Package.PhysicalPath, Package))
-				&& !Orphans->empty())
-				OutInspection.Entries.push_back({
-					.Domain = Domain, .Stage = ETexturePayloadStage::Source,
-					.State = ETexturePayloadState::Stale,
-					.Repair = ETexturePayloadRepairAction::RemoveOrphan,
-					.Placement = "EditorPackageCompanion",
-					.Diagnostic = std::format(
-						"{} unreferenced editor companion(s) require explicit cleanup.",
-						Orphans->size())});
-			OutInspection.Entries.push_back({
-				.Domain = Domain, .Stage = ETexturePayloadStage::DerivedData,
-				.State = ETexturePayloadState::Unknown,
-				.Repair = ETexturePayloadRepairAction::RebuildDerivedData,
-				.DomainSchemaVersion = TexturePayloadSchemaVersion,
-				.Placement = "DerivedDataCache",
-				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
-			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
-				Domain, Package.FindField("PlatformData")));
-		}
-		else
-		{
-			if (OutError) *OutError = "Package is not a supported texture asset.";
-			return false;
-		}
-		if (OutError) OutError->clear();
-		return true;
 	}
 
 	auto InspectTexturePayloads(const DTexture2D& Texture) -> FTexturePayloadInspection

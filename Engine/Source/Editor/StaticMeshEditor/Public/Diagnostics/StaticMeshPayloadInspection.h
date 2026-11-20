@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 
-#include "Asset/PackageInspection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMeshEditorAPI.h"
@@ -46,7 +45,6 @@ namespace Durin
 	// Owner-thread value snapshot. Operation history is explicitly separate from live readiness.
 	struct FStaticMeshPayloadInspection
 	{
-		bool bConstructFree = false;
 		std::string Package;
 		std::vector<FStaticMeshPayloadFieldInspection> Fields;
 		bool bSourceResident = false;
@@ -59,9 +57,6 @@ namespace Durin
 		FStaticMeshCollisionInspection Collision;
 	};
 
-	// Parses supplied package metadata only; never constructs objects, hashes payloads or opens companions.
-	STATICMESHEDITOR_API auto InspectStaticMeshPayloadPackage(const FAssetPackageInspection& Package,
-		FStaticMeshPayloadInspection& OutInspection, std::string* OutError = nullptr) -> bool;
 	// Owner-thread queries never load, acquire source, call a provider/cache, initialize, dirty or repair.
 	STATICMESHEDITOR_API auto InspectStaticMeshPayloads(const DStaticMesh& Mesh) -> FStaticMeshPayloadInspection;
 	STATICMESHEDITOR_API auto InspectStaticMeshCollision(const DStaticMesh& Mesh) -> FStaticMeshCollisionInspection;

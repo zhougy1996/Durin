@@ -1,3 +1,4 @@
+#include "Asset/PackageInspection.h"
 #include "FactoryImportTestSupport.h"
 #include "NativeAssetRenameTestSupport.h"
 #include "Misc/UnifiedError.h"
@@ -96,7 +97,6 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 
 	const Durin::FTexturePayloadInspection LiveInspection =
 		Durin::InspectTexturePayloads(*Result.Asset);
-	ASSERT_FALSE(LiveInspection.bConstructFree);
 	ASSERT_EQ(LiveInspection.Entries.size(), 5u);
 	const auto FindLiveStage = [&](Durin::ETexturePayloadStage Stage) {
 		return std::ranges::find(LiveInspection.Entries, Stage,
@@ -120,22 +120,10 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::FAssetPackageInspection PackageInspection;
 	ASSERT_TRUE(Durin::InspectAssetPackage(
 		AssetData->PhysicalPath, PackageInspection));
-	Durin::FTexturePayloadInspection ConstructFreeInspection;
-	std::string InspectionError;
-	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
-		PackageInspection, ConstructFreeInspection, &InspectionError))
-		<< InspectionError;
-	ASSERT_TRUE(ConstructFreeInspection.bConstructFree);
-	ASSERT_EQ(ConstructFreeInspection.Entries.size(), 3u);
-	EXPECT_EQ(ConstructFreeInspection.Entries.front().Domain, "Texture2D");
-	EXPECT_EQ(ConstructFreeInspection.Entries.front().LogicalElementCount, 2u);
-	EXPECT_EQ(ConstructFreeInspection.Entries.front().Placement, "SourceFile");
-	const auto AuthoredCooked = std::ranges::find(
-		ConstructFreeInspection.Entries, Durin::ETexturePayloadStage::Cooked,
-		&Durin::FTexturePayloadInspectionEntry::Stage);
-	ASSERT_NE(AuthoredCooked, ConstructFreeInspection.Entries.end());
-	EXPECT_EQ(AuthoredCooked->State, Durin::ETexturePayloadState::NotPresent);
-	EXPECT_EQ(AuthoredCooked->Placement, "PackageBulkField");
+	const auto ImportInfo = Durin::InspectAssetImportInfo(PackageInspection);
+	ASSERT_TRUE(ImportInfo);
+	EXPECT_NE(ImportInfo->FindByRole("source"), nullptr);
+	EXPECT_EQ(PackageInspection.FindField("PlatformData"), nullptr);
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 

@@ -82,8 +82,6 @@ namespace Durin::TextureEditor
 			case ETexturePayloadRepairAction::RebuildDerivedData: return "Rebuild derived data";
 			case ETexturePayloadRepairAction::RestoreEditorCompanion: return "Restore editor companion";
 			case ETexturePayloadRepairAction::Recook: return "Recook";
-			case ETexturePayloadRepairAction::RemoveOrphan: return "Remove orphan";
-			case ETexturePayloadRepairAction::UpgradeOrResave: return "Upgrade or resave";
 			}
 			return "None";
 		}

@@ -487,9 +487,7 @@ decoded CPU, and GPU stages with schema version, texel count, logical/stored
 bytes, placement capability, provenance, state, diagnostic, and an explicit
 repair classification. They derive those stages from common source metadata,
 installed platform data, any available manager operation diagnostic, cooked
-bulk, and current resource availability and update result. Package summaries are construct-free and
-join reflected domain fields with Engine storage inspection; neither form opens
-DDC, rebuilds, or creates runtime resources merely to inspect state.
+bulk, and current resource availability and update result. Reading the summary uses the loaded texture and its current resources.
 While CPU caching is pending, live summaries suppress derived/decoded rebuild
 actions and show preparation progress instead of suggesting another rebuild.
 

@@ -4,7 +4,6 @@
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
-#include "StaticMesh/StaticMeshCustomVersion.h"
 
 namespace Durin
 {
@@ -50,61 +49,6 @@ namespace Durin
 		if (Geometry.GetLocalBounds(Minimum, Maximum)) Result.Bounds = FBox(Minimum, Maximum);
 		// Build revision is not a source identity. Coherence remains unavailable.
 		return Result;
-	}
-
-	namespace
-	{
-		auto InspectField(std::string Name, const FAssetPackageField* Field) -> FStaticMeshPayloadFieldInspection
-		{
-			FStaticMeshPayloadFieldInspection Result{.Field = std::move(Name)};
-			if (!Field) { Result.Diagnostic = "Field absent; restore/reimport authored data or recook cooked data as appropriate."; return Result; }
-			if (!ObjectPackage::IsSupportedPackageReaderVersion(Field->SourceFormatVersion))
-			{ Result.State = "Unsupported"; Result.Diagnostic = "Descriptor format unsupported; readability unavailable."; return Result; }
-			FPackageBulkStorageDescriptor Descriptor;
-			if (!Field->TryReadBulkDataStorageDescriptor(Descriptor, false))
-			{ Result.State = "Malformed"; Result.Diagnostic = "Malformed field descriptor; restore/reimport source or recook this field."; return Result; }
-			Result.State = "Metadata present";
-			Result.Placement = Descriptor.StorageKind == EPackageBulkStorageKind::External ? "Package companion range" : "Package inline";
-			Result.LogicalBytes = Descriptor.LogicalByteCount;
-			Result.StoredBytes = Descriptor.StoredByteCount;
-			Result.Identity = Descriptor.ContentHash;
-			Result.Diagnostic = "Readability unavailable: payload and companion were not read or validated.";
-			return Result;
-		}
-	}
-
-	auto InspectStaticMeshPayloadPackage(const FAssetPackageInspection& Package,
-		FStaticMeshPayloadInspection& OutInspection, std::string* OutError) -> bool
-	{
-		OutInspection = {.bConstructFree = true, .Package = Package.PhysicalPath};
-		if (Package.Objects.empty()) return false;
-		if (Package.Objects.front().ClassName != DStaticMesh::StaticClass()->GetQualifiedName().ToString())
-		{
-			if (OutError) *OutError = "Unsupported asset class for StaticMesh payload inspection.";
-			return false;
-		}
-		const auto* Imported = Package.FindField("Source");
-		if (!Imported) Imported = Package.FindField("ImportedData");
-		std::vector<FAssetPackageField> Fields;
-		const FAssetPackageField* Geometry = nullptr;
-		const bool bStructValid = Imported && Imported->TryInspectStructFields(Fields);
-		if (bStructValid)
-			for (const auto& Field : Fields) if (Field.Name == "Geometry") Geometry = &Field;
-		auto Source = InspectField("Source.Geometry", Geometry);
-		if (Imported && (!bStructValid || !Geometry))
-		{ Source.State = "Malformed"; Source.Diagnostic = "Source geometry metadata is malformed; restore or reimport authored data."; }
-		if (bStructValid)
-		{
-			const auto Version = std::ranges::find(Package.CustomVersions,
-				FStaticMeshSourceVersion::Guid, &FCustomVersion::Guid);
-			if (Version == Package.CustomVersions.end() || Version->Version != FStaticMeshSourceVersion::CurrentVersion)
-			{ Source.State = "Unsupported"; Source.Diagnostic = "Authored source custom version missing or unsupported; restore or reimport."; }
-		}
-		OutInspection.Fields.push_back(std::move(Source));
-		OutInspection.Fields.push_back(InspectField("RenderData", Package.FindField("RenderData")));
-		OutInspection.Fields.push_back(InspectField("CollisionData", Package.FindField("CollisionData")));
-		if (OutError) OutError->clear();
-		return true;
 	}
 
 	auto InspectStaticMeshPayloads(const DStaticMesh& Mesh) -> FStaticMeshPayloadInspection
