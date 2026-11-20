@@ -51,7 +51,7 @@ namespace Durin::MaterialEditor
 			Zoom = std::clamp(InZoom, 0.25f, 2.0f);
 			Pan = InPan;
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(
-				Zoom, EMaterialGraphDetailLevel::Readable);
+				Zoom, EMaterialGraphDetailLevel::Editing);
 		}
 		auto GetViewport() const -> std::pair<float, ImVec2> { return {Zoom, Pan}; }
 		auto GetSelection() const -> const std::unordered_set<FMaterialGraphCanvasNodeId>&

@@ -44,6 +44,16 @@ namespace Durin::MaterialEditor
 		}
 		constexpr float PinExpansionHeight = 20.0f;
 
+		auto IsGraphTooltipHovered() -> bool
+		{
+			auto& Delay = ImGui::GetStyle().HoverDelayNormal;
+			const float PreviousDelay = std::exchange(Delay, 0.8f);
+			const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal
+				| ImGuiHoveredFlags_NoSharedDelay | ImGuiHoveredFlags_NoNavOverride);
+			Delay = PreviousDelay;
+			return bHovered;
+		}
+
 		auto HideUnusedAdvancedPins(FMaterialGraphView& View,
 			const std::unordered_set<FGuid>& ExpandedNodes,
 			std::unordered_set<FGuid>& CollapsibleNodes) -> void
@@ -94,8 +104,6 @@ namespace Durin::MaterialEditor
 		}
 
 		const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
-		const float NodeHeaderHeight = Metrics.HeaderHeight;
-		const float PinSpacing = Metrics.PinRowHeight;
 		const float NodePadding = Metrics.BodyPadding;
 		// Reveal occluded wires without reducing text, pin or heading contrast.
 		constexpr int GraphNodeBodyAlpha = 230;
@@ -433,12 +441,13 @@ namespace Durin::MaterialEditor
 			Visual.OutputPin = {
 				Visual.Maximum.x,
 				Visual.Minimum.y + GraphNodePinOffset(Node) * Zoom};
+			const float PinSpacing = GraphNodePinRowHeight(Node) * Zoom;
 			for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
-				Visual.OutputPins[Index] = {Visual.OutputPin.x, Visual.OutputPin.y + PinSpacing * Index * Zoom};
+				Visual.OutputPins[Index] = {Visual.OutputPin.x, Visual.OutputPin.y + PinSpacing * Index};
 			for (size_t Index = 0; Index < Node.Inputs.size(); ++Index)
 				Visual.InputPins[Index] = {
 					Visual.Minimum.x,
-					Visual.Minimum.y + (GraphNodePinOffset(Node) + PinSpacing * Index) * Zoom};
+					Visual.OutputPin.y + PinSpacing * Index};
 		}
 		return Result;
 	}
@@ -745,6 +754,7 @@ namespace Durin::MaterialEditor
 	{
 		const auto Display = MakeGraphNodeDisplay(*Visual.View, Material);
 		const float NodeWidth = GraphNodeWidth(*Visual.View);
+		const float NodeHeaderHeight = GraphNodeHeaderHeight(*Visual.View);
 		if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 		{
 			const float FontSize = GraphTitleFontHeight * Zoom;
@@ -758,9 +768,9 @@ namespace Durin::MaterialEditor
 				Add(Visual.Minimum,
 					{8.0f * Zoom, (NodeHeaderHeight * Zoom - FontSize) * 0.5f}),
 				IM_COL32(235, 238, 242, 255), Label.c_str(), nullptr, 0.0f, &Clip);
-			if ((DetailLevel == EMaterialGraphDetailLevel::Editing || Display.Value)
-				&& !Display.Subtitle.empty()
-				&& !IsHeaderOnlyGraphNode(*Visual.View) && !IsCompactGraphOperation(*Visual.View))
+			if (!Display.Subtitle.empty()
+				&& !IsHeaderOnlyGraphNode(*Visual.View) && !IsCompactGraphOperation(*Visual.View)
+				&& !HasCompactTextureHeader(*Visual.View))
 			{
 				const bool bColor = Display.Value && (Visual.View->Node.ResultType == EMaterialProgramValueType::Float3
 					|| Visual.View->Node.ResultType == EMaterialProgramValueType::Float4);
@@ -839,12 +849,24 @@ namespace Durin::MaterialEditor
 			if (Contains(Visual.Minimum, Visual.Maximum, Mouse)) Hit.Node = &Visual;
 			if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
-				for (size_t Index = 0; Index < Visual.InputPins.size(); ++Index)
-					if (std::hypot(Mouse.x - Visual.InputPins[Index].x, Mouse.y - Visual.InputPins[Index].y) <= 8.0f)
-					{ Hit.InputNode = &Visual; Hit.InputIndex = static_cast<uint32>(Index); break; }
-				for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
-					if (std::hypot(Mouse.x - Visual.OutputPins[Index].x, Mouse.y - Visual.OutputPins[Index].y) <= 8.0f)
-					{ Hit.OutputNode = &Visual; Hit.OutputIndex = Index; break; }
+				const auto FindNearestPin = [&](std::span<const ImVec2> Pins) -> std::optional<size_t> {
+					std::optional<size_t> Nearest;
+					float Distance = Metrics.MinimumHitDiameter * 0.5f;
+					for (size_t Index = 0; Index < Pins.size(); ++Index)
+					{
+						const float Candidate = std::hypot(Mouse.x - Pins[Index].x, Mouse.y - Pins[Index].y);
+						if (Candidate <= Distance)
+						{
+							Nearest = Index;
+							Distance = Candidate;
+						}
+					}
+					return Nearest;
+				};
+				if (const auto Input = FindNearestPin(Visual.InputPins))
+					{ Hit.InputNode = &Visual; Hit.InputIndex = static_cast<uint32>(*Input); }
+				if (const auto Output = FindNearestPin(Visual.OutputPins))
+					{ Hit.OutputNode = &Visual; Hit.OutputIndex = *Output; }
 			}
 			if (Hit.Node && !Hit.InputNode && !Hit.OutputNode
 				&& CollapsiblePinNodes.contains(Visual.View->Node.Id)
@@ -1177,13 +1199,11 @@ namespace Durin::MaterialEditor
 				if (!EditorGraph->Layout({}, ETransactionMode::Record, &Error)) ReportError(std::move(Error));
 			}
 			ImGui::SameLine();
-			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview
-				? "Overview" : DetailLevel == EMaterialGraphDetailLevel::Editing
-					? "Editing" : "Readable";
+			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview ? "Overview" : "Editing";
 			ImGui::TextDisabled("%s", DetailName);
 			ImGui::SameLine();
 			ImGui::TextDisabled("(?)");
-			if (ImGui::IsItemHovered())
+			if (IsGraphTooltipHovered())
 				ImGui::SetTooltip("Wheel: zoom\nMMB: pan\nLMB: select / drag\nCtrl-click: toggle selection\nShift: add marquee selection / replace link");
 
 			if (Material) PrepareView(*Material);
@@ -1262,6 +1282,28 @@ namespace Durin::MaterialEditor
 				Linking ? Linking->SourceOutputId : FGuid{}};
 			const auto Hit = HitTest(VisualGraph, CanvasMinimum, CanvasMaximum, Mouse);
 			const auto* HoveredNode = Hit.Node;
+			const bool bOverNodeTitle = HoveredNode
+				&& Mouse.y < HoveredNode->Minimum.y + GraphNodeHeaderHeight(*HoveredNode->View) * Zoom;
+			const auto* HoverTarget = Hit.InputNode ? Hit.InputNode : Hit.OutputNode;
+			if (!HoverTarget && (bOverNodeTitle || Hit.bPinExpansion)) HoverTarget = HoveredNode;
+			bool bShowHoverTooltip = false;
+			if (bHovered && HoverTarget && DetailLevel != EMaterialGraphDetailLevel::Overview
+				&& std::holds_alternative<FIdleInteraction>(Interaction)
+				&& !ImGui::IsAnyMouseDown() && ImGui::GetIO().MouseWheel == 0.0f)
+			{
+				// Give each canvas hit target its own ImGui hover delay without adding a widget.
+				ImGui::PushID(HoverTarget->View->Node.Id.ToString().c_str());
+				ImGui::PushID(static_cast<int>(Hit.InputNode ? Hit.InputIndex : Hit.OutputIndex));
+				const ImGuiID HoverId = ImGui::GetID(Hit.InputNode ? "##InputTooltip"
+					: Hit.OutputNode ? "##OutputTooltip" : Hit.bPinExpansion ? "##PinExpansionTooltip" : "##NodeTooltip");
+				ImGui::PopID();
+				ImGui::PopID();
+				auto& LastItem = ImGui::GetCurrentContext()->LastItemData;
+				const ImGuiLastItemData PreviousItem = LastItem;
+				ImGui::ItemAdd({CanvasMinimum, CanvasMaximum}, HoverId, nullptr, ImGuiItemFlags_NoNav);
+				bShowHoverTooltip = IsGraphTooltipHovered();
+				LastItem = PreviousItem;
+			}
 			for (const FVisualNode& Visual : VisualNodes)
 			{
 				if (!Intersects(Visual.Minimum, Visual.Maximum,
@@ -1272,7 +1314,7 @@ namespace Durin::MaterialEditor
 						: IM_COL32(42, 46, 54, GraphNodeBodyAlpha),
 					6.0f);
 				DrawList->AddRectFilled(Visual.Minimum,
-					{Visual.Maximum.x, Visual.Minimum.y + NodeHeaderHeight * Zoom},
+					{Visual.Maximum.x, Visual.Minimum.y + GraphNodeHeaderHeight(*Visual.View) * Zoom},
 					NodeTitleColor(Visual.View->Node.Opcode), 6.0f,
 					IsHeaderOnlyGraphNode(*Visual.View) ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersTop);
 				DrawList->AddRect(Visual.Minimum, Visual.Maximum,
@@ -1294,29 +1336,34 @@ namespace Durin::MaterialEditor
 					if (bArrowHovered)
 					{
 						ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-						ImGui::SetTooltip(bExpanded ? "Collapse extra pins" : "Expand extra pins");
+						if (bShowHoverTooltip) ImGui::SetTooltip(bExpanded ? "Collapse extra pins" : "Expand extra pins");
 					}
 				}
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
-				if (DetailLevel != EMaterialGraphDetailLevel::Overview
-					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D))
-					DrawTexturePreview(Visual.View->Node.Id, Add(Visual.Minimum,
-						{12 * Zoom, (NodeHeaderHeight + Metrics.SecondaryHeight + PinSpacing * 1.5f) * Zoom}), 80 * Zoom);
+				const bool bTexturePreview = HasGraphTexturePreview(*Visual.View);
+				const float PreviewLeft = Visual.Minimum.x + NodePadding * Zoom;
+				if (bTexturePreview && DetailLevel != EMaterialGraphDetailLevel::Overview)
+					DrawTexturePreview(Visual.View->Node.Id, {PreviewLeft,
+						Visual.Minimum.y + GraphTexturePreviewTop(*Visual.View) * Zoom}, GraphTexturePreviewSize * Zoom);
+				const ImVec4 OutputTextClip{PreviewLeft + (GraphTexturePreviewSize + 4.0f) * Zoom,
+					Visual.Minimum.y, Visual.Maximum.x, Visual.Maximum.y};
+				const float FontScale = ImGui::GetFontSize() / GraphBodyFontSize;
 				for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
 					DrawList->AddCircleFilled(Visual.OutputPins[Index], PinRadius, TypeColor(Visual.View->Outputs[Index].Type));
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing)
 				{
 					for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
 					{
-						const std::string ResultLabel = Ellipsize(GraphOutputLabel(*Visual.View, Index), GraphNodeWidth(*Visual.View) * Zoom * 0.45f);
+						const float LabelWidth = GraphNodeWidth(*Visual.View) * Zoom * 0.45f;
+						const std::string ResultLabel = Ellipsize(GraphOutputLabel(*Visual.View, Index), LabelWidth);
 						const float ResultLabelWidth = ImGui::GetFont()->CalcTextSizeA(
 							GraphBodyFontSize, FLT_MAX, 0.0f, ResultLabel.c_str()).x;
 						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
 							Add(Visual.OutputPins[Index],
 								{-8.0f * Zoom - ResultLabelWidth,
 									-GraphBodyFontSize * 0.5f}),
-							IM_COL32(185, 190, 202, 255), ResultLabel.c_str());
+							IM_COL32(185, 190, 202, 255), ResultLabel.c_str(), nullptr, 0.0f,
+							bTexturePreview ? &OutputTextClip : nullptr);
 					}
 				}
 				for (size_t Index = 0; Index < Visual.InputPins.size(); ++Index)
@@ -1324,14 +1371,17 @@ namespace Durin::MaterialEditor
 					DrawList->AddCircleFilled(Visual.InputPins[Index], PinRadius,
 						Visual.View->Inputs[Index].bActive ? TypeColor(Visual.View->Inputs[Index].SourceType) : IM_COL32(90, 95, 105, 255));
 					if (DetailLevel == EMaterialGraphDetailLevel::Editing)
+					{
+						const float LabelWidth = (GraphNodeWidth(*Visual.View)
+							- (Index < Visual.OutputPins.size() && !GraphOutputLabel(*Visual.View, Index).empty() ? 85.f : 20.f)) * Zoom;
+						const auto Label = Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], Material), LabelWidth * FontScale);
 						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
 							Add(Visual.InputPins[Index],
 								{9.0f * Zoom, -GraphBodyFontSize * 0.5f}),
 							Visual.View->Inputs[Index].bActive ? IM_COL32(205, 210, 220, 255) : IM_COL32(100, 105, 115, 255),
-							Ellipsize(InputLabel(*Visual.View, Visual.View->Inputs[Index], Material),
-								(GraphNodeWidth(*Visual.View) - (Index < Visual.OutputPins.size() && !GraphOutputLabel(*Visual.View, Index).empty() ? 85.f : 20.f)) * Zoom
-									* ImGui::GetFontSize() / GraphBodyFontSize).c_str());
-					if (Hit.InputNode == &Visual && Hit.InputIndex == Index)
+							Label.c_str());
+					}
+					if (bHovered && (Linking || bShowHoverTooltip) && Hit.InputNode == &Visual && Hit.InputIndex == Index)
 					{
 						const auto& Pin = Visual.View->Inputs[Index];
 						if (Linking)
@@ -1354,10 +1404,11 @@ namespace Durin::MaterialEditor
 				}
 
 			}
-			if (Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
+			const auto* Reconnect = std::get_if<FReconnectingInputInteraction>(&Interaction);
+			if (bHovered && (Reconnect || bShowHoverTooltip) && Hit.OutputNode)
 			{
 				const auto& Pin = Hit.OutputNode->View->Outputs[Hit.OutputIndex];
-				if (const auto* Reconnect = std::get_if<FReconnectingInputInteraction>(&Interaction))
+				if (Reconnect)
 				{
 					const auto Address = FMaterialGraphPinAddress::Output({Hit.OutputNode->View->Node.Id, Pin.OutputIndex, Pin.PortId});
 					const auto Response = EditorGraph->GetSchema().CanCreateConnection(EditorGraph->FindPin(Reconnect->Destination), EditorGraph->FindPin(Address));
@@ -1367,7 +1418,7 @@ namespace Durin::MaterialEditor
 				else ImGui::SetTooltip("%s (%s)%s", Pin.Name.c_str(), GetProgramTypeName(Pin.Type),
 					ConstraintHint(Pin.Type, Pin.Constraint).c_str());
 			}
-			if (HoveredNode && !Hit.bPinExpansion && !Hit.InputNode && !Hit.OutputNode && DetailLevel != EMaterialGraphDetailLevel::Overview)
+			if (bShowHoverTooltip && bOverNodeTitle && !Hit.InputNode && !Hit.OutputNode)
 			{
 				ImGui::BeginTooltip();
 				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, Material);

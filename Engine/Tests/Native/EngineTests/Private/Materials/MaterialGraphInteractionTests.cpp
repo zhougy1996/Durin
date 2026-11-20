@@ -710,23 +710,17 @@ TEST(FMaterialGraphInteractionTests, CanvasGeometryUsesStableMetricsAndZoomHyste
 
 
 	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
-		0.40f, EMaterialGraphDetailLevel::Readable),
+		0.40f, EMaterialGraphDetailLevel::Editing),
 		EMaterialGraphDetailLevel::Overview);
 	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
 		0.45f, EMaterialGraphDetailLevel::Overview),
 		EMaterialGraphDetailLevel::Overview);
 	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
 		0.50f, EMaterialGraphDetailLevel::Overview),
-		EMaterialGraphDetailLevel::Readable);
-	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
-		0.84f, EMaterialGraphDetailLevel::Readable),
-		EMaterialGraphDetailLevel::Editing);
-	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
-		0.78f, EMaterialGraphDetailLevel::Editing),
 		EMaterialGraphDetailLevel::Editing);
 	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
 		0.70f, EMaterialGraphDetailLevel::Editing),
-		EMaterialGraphDetailLevel::Readable);
+		EMaterialGraphDetailLevel::Editing);
 }
 
 TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedComponentsAndUndo)
@@ -1773,11 +1767,15 @@ TEST(FMaterialGraphInteractionTests, CanvasProducesValidDrawDataAcrossZoomAndGra
 		Consumer->Input = {Graph.Expressions[DenseSources.size() - Index - 1].Get()};
 		Graph.Expressions.emplace_back(Consumer.Get());
 	}
+	auto Texture = Testing::MakeGraphExpression<DMaterialExpressionTextureSampleParameter2D>();
+	Texture->Metadata = {FGuid::NewGuid(), "PreviewTexture"};
+	Graph.Expressions.emplace_back(Texture.Get());
 	Graph.Presentation.Nodes = {{DenseSources[0], 0, 0, "Ambient Occlusion Texture With A Deliberately Long Authored Name"}};
 	ASSERT_TRUE(Graph.Apply(*Material));
 	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
 	ASSERT_TRUE(EditorGraph->Layout({}, Durin::ETransactionMode::NotTransactable));
 	DrawAtZoom(0.55f);
+	DrawAtZoom(1.0f);
 
 	uint32 MaximumIndex = 1000;
 	while (Graph.Expressions.size() < MaterialProgramMaxNodeCount - 1)

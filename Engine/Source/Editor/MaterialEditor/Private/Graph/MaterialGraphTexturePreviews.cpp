@@ -74,8 +74,13 @@ namespace Durin::MaterialEditor
 					if (bDrawn) return;
 				}
 			}
-		ImGui::GetWindowDrawList()->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(62, 67, 76, 255), 3);
-		ImGui::GetWindowDrawList()->AddText({Position.x + 5, Position.y + Size * .4f}, IM_COL32(180, 187, 200, 255), "Texture");
+		auto* DrawList = ImGui::GetWindowDrawList();
+		DrawList->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(62, 67, 76, 255), 3);
+		auto* Font = ImGui::GetFont();
+		const float FontSize = Size * 0.18f;
+		const auto LabelSize = Font->CalcTextSizeA(FontSize, FLT_MAX, 0.0f, "Texture");
+		DrawList->AddText(Font, FontSize, {Position.x + (Size - LabelSize.x) * 0.5f,
+			Position.y + (Size - LabelSize.y) * 0.5f}, IM_COL32(180, 187, 200, 255), "Texture");
 	}
 	auto FMaterialGraphCanvas::AcceptTextureDrop(DMaterial& Material, DTransactor& Transactions,
 		const ImVec2& CanvasMinimum) -> void

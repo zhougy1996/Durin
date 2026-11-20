@@ -65,12 +65,8 @@ namespace Durin::MaterialEditor
 		EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel
 	{
 		if (Previous == EMaterialGraphDetailLevel::Overview)
-			return Zoom > 0.48f ? EMaterialGraphDetailLevel::Readable : Previous;
-		if (Previous == EMaterialGraphDetailLevel::Editing)
-			return Zoom < 0.74f ? EMaterialGraphDetailLevel::Readable : Previous;
-		if (Zoom < 0.42f) return EMaterialGraphDetailLevel::Overview;
-		if (Zoom > 0.82f) return EMaterialGraphDetailLevel::Editing;
-		return EMaterialGraphDetailLevel::Readable;
+			return Zoom > 0.48f ? EMaterialGraphDetailLevel::Editing : Previous;
+		return Zoom < 0.42f ? EMaterialGraphDetailLevel::Overview : EMaterialGraphDetailLevel::Editing;
 	}
 
 	auto DMaterialGraph::MoveNodes(

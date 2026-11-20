@@ -35,13 +35,42 @@ namespace Durin::MaterialEditor
 		return IsCompactGraphOperation(Node) ? 160.0f : FMaterialGraphGeometry::GetMetrics().NodeWidth;
 	}
 
+	inline constexpr float GraphTexturePreviewSize = 88.0f;
+
+	inline auto HasGraphTexturePreview(const FMaterialGraphNodeView& Node) -> bool
+	{
+		return Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter
+			|| Node.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameter2D;
+	}
+
+	inline auto HasCompactTextureHeader(const FMaterialGraphNodeView& Node) -> bool
+	{
+		return HasGraphTexturePreview(Node) || Node.Node.Opcode == EMaterialProgramOpcode::TextureSampleParameterCube;
+	}
+
+	inline auto GraphNodeHeaderHeight(const FMaterialGraphNodeView& Node) -> float
+	{
+		return HasCompactTextureHeader(Node) ? 24.0f : FMaterialGraphGeometry::GetMetrics().HeaderHeight;
+	}
+
+	inline auto GraphNodePinRowHeight(const FMaterialGraphNodeView& Node) -> float
+	{
+		return HasGraphTexturePreview(Node) ? 18.0f : FMaterialGraphGeometry::GetMetrics().PinRowHeight;
+	}
+
 	inline auto GraphNodePinOffset(const FMaterialGraphNodeView& Node) -> float
 	{
 		const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
 		if (IsHeaderOnlyGraphNode(Node) || Node.Node.Opcode == EMaterialProgramOpcode::Parameter)
 			return Metrics.HeaderHeight * 0.5f;
-		return Metrics.HeaderHeight + Metrics.BodyPadding
-			+ (IsCompactGraphOperation(Node) ? 0.0f : Metrics.SecondaryHeight);
+		return GraphNodeHeaderHeight(Node) + Metrics.BodyPadding
+			+ (IsCompactGraphOperation(Node) || HasCompactTextureHeader(Node) ? 0.0f : Metrics.SecondaryHeight);
+	}
+
+	inline auto GraphTexturePreviewTop(const FMaterialGraphNodeView& Node) -> float
+	{
+		return GraphNodePinOffset(Node) + GraphNodePinRowHeight(Node)
+			* std::max(0.0f, static_cast<float>(Node.Inputs.size()) - 0.5f);
 	}
 
 	inline auto GraphNodeHeight(const FMaterialGraphNodeView& Node) -> float
@@ -50,9 +79,11 @@ namespace Durin::MaterialEditor
 		if (IsHeaderOnlyGraphNode(Node)) return Metrics.HeaderHeight;
 		if (Node.Node.Opcode == EMaterialProgramOpcode::Parameter)
 			return Metrics.HeaderHeight + Metrics.SecondaryHeight;
-		const auto Rows = std::max({Node.Inputs.size(), Node.Outputs.size(),
-			Node.Node.Opcode == EMaterialProgramOpcode::TextureParameter ? size_t(5) : size_t(1)});
-		return GraphNodePinOffset(Node) + Metrics.BodyPadding + Metrics.PinRowHeight * Rows;
+		const auto Rows = std::max({Node.Inputs.size(), Node.Outputs.size(), size_t(1)});
+		const float PinHeight = GraphNodePinOffset(Node) + GraphNodePinRowHeight(Node) * Rows;
+		if (HasGraphTexturePreview(Node))
+			return std::max(PinHeight, GraphTexturePreviewTop(Node) + GraphTexturePreviewSize) + Metrics.BodyPadding;
+		return PinHeight + Metrics.BodyPadding;
 	}
 
 	inline auto GraphOutputLabel(const FMaterialGraphNodeView& Node, size_t Index) -> std::string

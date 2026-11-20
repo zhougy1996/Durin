@@ -267,9 +267,11 @@ namespace Durin::MaterialEditor
 			if (bConstant && EditLiteral("Value", Type, Value))
 				Submit(SelectedNode->SetConstantValue(MakeParameterValue(Type, Value)));
 		}
+		std::optional<EMaterialTextureReadMode> SamplingMode;
 		const auto EditSamplingMode = [&](const auto* Sample) {
 			if (!Sample || Changed) return;
-			int Mode = static_cast<int>(Sample->ReadMode);
+			SamplingMode = Sample->ReadMode;
+			int Mode = static_cast<int>(*SamplingMode);
 			if (!DetailsStyle::EditRow("Sampling", [&] { return ImGui::Combo("##Value", &Mode, "Implicit\0Level\0Bias\0Grad\0"); })) return;
 			using ExpressionType = std::remove_cv_t<std::remove_pointer_t<decltype(Sample)>>;
 			TStrongObjectPtr<ExpressionType> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
@@ -360,11 +362,10 @@ namespace Durin::MaterialEditor
 				});
 			}
 		}
-		for (size_t Index = 0; !Changed && Index < Selected.Inputs.size(); ++Index)
-		{
+		const auto DrawInput = [&](size_t Index) {
 			// A property edit can synchronously reconstruct the node during this row.
 			const auto Pin = Selected.Inputs[Index];
-			if (Pin.SourceType > EMaterialProgramValueType::Float4) continue;
+			if (Pin.SourceType > EMaterialProgramValueType::Float4) return;
 			ImGui::PushID(static_cast<int>(Pin.InputIndex));
 			auto Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::None)
@@ -401,7 +402,13 @@ namespace Durin::MaterialEditor
 					Submit(SelectedNode->PinDefaultValueChanged(Selected.InputAddress(Pin), Value));
 				}
 			};
-			const auto Label = Pin.bSupportsConstant ? Pin.Name + (Pin.bUseConstant ? " (constant)" : " (inherited)") : Pin.Name;
+			auto Label = Pin.Name;
+			if (SamplingMode)
+			{
+				if (Pin.bActive && Pin.Name == "Mip Value")
+					Label = *SamplingMode == EMaterialTextureReadMode::Level ? "Mip Level" : "Mip Bias";
+			}
+			else if (Pin.bSupportsConstant) Label += Pin.bUseConstant ? " (constant)" : " (inherited)";
 			MonaImGui::PropertyEdit::BeginRow(Label.c_str());
 			const float MenuWidth = ImGui::GetFrameHeight();
 			const float ValueWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - MenuWidth - ImGui::GetStyle().ItemSpacing.x);
@@ -453,6 +460,27 @@ namespace Durin::MaterialEditor
 				ImGui::EndPopup();
 			}
 			ImGui::PopID();
+		};
+		std::vector<size_t> UnusedConnectedInputs;
+		for (size_t Index = 0; !Changed && Index < Selected.Inputs.size(); ++Index)
+		{
+			if (SamplingMode && !Selected.Inputs[Index].bActive)
+			{
+				if (!SelectedNode->GetInputPin(static_cast<int32>(Index))->LinkedTo.empty())
+					UnusedConnectedInputs.push_back(Index);
+				continue;
+			}
+			DrawInput(Index);
+		}
+		if (!Changed && !UnusedConnectedInputs.empty()
+			&& MonaImGui::PropertyEdit::BeginGroup("UnusedSamplingInputs", "Unused inputs", ImGuiTreeNodeFlags_None))
+		{
+			for (const size_t Index : UnusedConnectedInputs)
+			{
+				if (Changed) break;
+				DrawInput(Index);
+			}
+			MonaImGui::PropertyEdit::EndGroup();
 		}
 		MonaImGui::PropertyEdit::EndTable();
 		ImGui::PopID();

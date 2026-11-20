@@ -24,7 +24,6 @@ namespace Durin::MaterialEditor
 	enum class EMaterialGraphDetailLevel : uint8
 	{
 		Overview,
-		Readable,
 		Editing,
 	};
 

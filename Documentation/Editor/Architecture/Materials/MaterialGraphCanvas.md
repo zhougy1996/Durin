@@ -54,9 +54,8 @@ Settings header: Use material attributes, Lit/Unlit shading, blend mode,
 masked cutoff, two-sided rendering and depth-write policy. Settings use reflected
 property transactions on the working material, so Apply/Discard and Undo/Redo
 retain their ordinary atomic behavior. Inactive cutoff values remain stored.
-Root property inputs show only names, pins, and connections at readable and
-editing zoom; no scalar fields, color swatches, vector Edit buttons, or inline
-default values are displayed. Change input values by connecting expression nodes.
+Root property inputs show names, pins, and connections in Editing. Change input
+values by connecting expression nodes.
 Authored defaults and connections remain stored; disconnected inputs resume
 their retained values.
 Hovering an active disconnected row shows its retained value. The pin context
@@ -80,7 +79,10 @@ exposes the retained value. Sampler settings remain collapsed.
 Base-material values and node bindings are edited through selected parameter
 owners and literal inputs in Details. Parameter node types are fixed at creation;
 Details has no type conversion control. Texture fallback and filtering/addressing
-controls live in collapsed Sampler settings. Parameters lists all base-material
+controls live in collapsed Sampler settings. Texture sample Details shows the
+coordinate input and only the mip inputs used by the selected sampling mode.
+Connected inactive inputs appear under the collapsed Unused inputs group.
+Changing the mode retains the input connections and values. Parameters lists all base-material
 parameters, including disconnected owners, with search by name, display name or
 group and grouping by slash-separated paths. Clicking a parameter name selects and
 frames its owner. Shared parameters expose navigation to each reference. Use the
@@ -134,11 +136,13 @@ node-specific dimensions shared by framing and automatic layout. Constants use a
 30-unit header with their value and a centered output pin, with width from 112 to
 208 units according to vector width. Time and World Position also use header-only
 nodes. Adaptive math nodes use 160-unit width and omit the secondary row; richer
-texture and function nodes retain 224-unit width. Operation
+texture and function nodes retain 224-unit width. Texture parameter nodes use a
+24-unit title bar and show their type in the title tooltip. Texture previews sit
+below the input rows, with channel outputs on the right. Operation
 identity is the primary title for operation nodes. Numeric constants instead
 show their compact value as the title; their type is available on hover. Parameters
 retain their authored name as the title and show their current numeric value
-below it, including in readable zoom. Values use four significant digits, omit
+below it in Editing. Values use four significant digits, omit
 trailing zeros, and retain vector dimensions. Float3/Float4 parameter nodes also show a
 small RGB swatch; its channels are clamped for display while numeric values
 remain unchanged. Hover tooltips expose labels without width truncation and numeric
@@ -157,15 +161,18 @@ All numeric values and channel masks are edited in Details. The canvas has no
 embedded value controls: dragging a node changes its position, never its value.
 Parameters show their name and current value in a 192-by-50-unit card. Swizzles
 show their channel summary in the title and use compact operation geometry.
-Text is clipped and ellipsized to its owning bounds. Editing zoom adds named
-inputs. Adaptive math inputs show only names such as A and B; defaults remain
+Text is clipped and ellipsized to its owning bounds. Adaptive math inputs show
+only names such as A and B in Editing. Defaults remain
 available in Details and pin tooltips. Redundant single-output type labels are
-omitted; hover tooltips retain textual output types.
+omitted. Canvas tooltips appear after 0.8 seconds on the same node title, pin,
+disclosure control, or canvas help marker. Connection feedback appears
+immediately during wiring.
 
-Semantic zoom has hysteretic overview, readable, and editing bands. Overview
-keeps silhouettes, selection, focus, pan, and framing while disabling pin
-mutation. Readable mode adds clipped operation titles. Editing mode adds
-secondary identity where applicable, named pins, and tooltips. Frame All includes
+Semantic zoom uses Editing and a distant Overview, with separate entry and exit
+thresholds. Editing keeps node titles, secondary identity where applicable,
+pin labels, previews, and tooltips as the graph scales. Overview keeps
+silhouettes, selection, focus, pan, and framing while disabling pin mutation.
+Frame All includes
 all authored nodes, including the unique material output. Frame Selection uses
 only the selection. The output terminal uses the same GUID-based selection,
 movement, connection, bounds and diagnostic framing as other nodes. Its integral
