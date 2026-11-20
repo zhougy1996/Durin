@@ -1,4 +1,5 @@
 #include "AssetTools/FileDeletionState.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "HAL/PlatformFile.h"
 #include "AssetTools/DeleteItemsHost.h"
 #include "Misc/ContentMountPaths.h"
@@ -722,7 +723,7 @@ namespace Durin::AssetToolsPrivate
 			if (!DeleteFiles && (Entry.Kind == EFileDeletionEntryKind::OrdinaryFile || Entry.Kind == EFileDeletionEntryKind::Directory)) continue;
 			if (Hooks.ShouldCancel && Hooks.ShouldCancel()) Effects.bCancelled = true;
 			if (Hooks.CanExecuteEffect && !Hooks.CanExecuteEffect()) Effects.bStopped = true;
-			if (ContributorRevision != GetAssetDeleteContributorRevision() || (DeleteAssets && AssetOperation.GetRegistryRevision() != GetAssetCatalogRevision())) Effects.bStopped = true;
+			if (DeleteAssets && AssetOperation.GetRegistryRevision() != GetAssetCatalogRevision()) Effects.bStopped = true;
 			if (Effects.bCancelled || Effects.bStopped)
 			{ Effects.Add(Entry.PhysicalPath, EFileDeletionEffectStatus::Unattempted, "Deletion stopped before this effect."); if (!Status.Error) Fail(UnifiedError::FError{Effects.bCancelled ? AssetWriteErrors::Cancelled : AssetWriteErrors::StaleData, "Deletion stopped before this effect."}); continue; }
 			if (Entry.Kind == EFileDeletionEntryKind::ManagedCompanion)

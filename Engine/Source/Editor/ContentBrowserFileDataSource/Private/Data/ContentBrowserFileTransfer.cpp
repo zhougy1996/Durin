@@ -1,7 +1,7 @@
 #include "Data/ContentBrowserNativeTransfer.h"
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
-#include "AssetTools/AssetDeleteExtensions.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "AssetRegistry/Catalog.h"
 #include "Misc/FileHelper.h"
 
@@ -67,7 +67,6 @@ namespace Durin::ContentBrowser::FileDataSource::Private
 					if (!OwnershipResult) { Error = (OwnershipResultError ? OwnershipResultError->ToString() : std::string{}); return false; }
 					if (Ownership.State != EAssetCompanionOwnershipState::Unclaimed)
 					{
-						if (!Move && Extension != ".dbulk") { Error = "Folder copy cannot duplicate a custom managed companion."; return false; }
 						if (Independent || Ownership.State == EAssetCompanionOwnershipState::Ambiguous) { Error = "Transfer the owning package instead of a managed companion: " + (Ownership.Owners.empty() ? std::string{} : Ownership.Owners.front().ToString()); return false; }
 						return true;
 					}

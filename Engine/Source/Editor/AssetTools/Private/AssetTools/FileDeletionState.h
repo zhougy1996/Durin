@@ -113,7 +113,6 @@ namespace Durin::AssetToolsPrivate
 		ContentStorage::FFileDeletionResult Effects;
 		bool Attempted = false, Started = false, PeerScopeValidated = false;
 		bool DeleteAssets = true, DeleteFiles = true;
-		uint64 ContributorRevision = 0;
 	private:
 		auto Execute() -> bool;
 		auto ValidatePhysicalState(FAssetDeletionFileIdentities&, bool OwnedOnly = false, std::optional<UnifiedError::FError>* = nullptr) -> bool;

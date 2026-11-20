@@ -221,8 +221,8 @@ Confirmation belongs to the model's host. MainFrame installs the interactive
 prompt; a missing required host rejects. Passing `bShowConfirmation=false` skips
 presentation while retaining admission and final-validation checks. File owns
 ordinary-file and mixed-folder scope, byte identities and partial I/O facts.
-Those records are private implementation details. Companion registration remains
-in `AssetTools/AssetDeleteExtensions.h`; Engine retains checked removal primitives.
+AssetTools exposes package companion ownership through
+`AssetTools/AssetCompanionOwnership.h`. Engine provides checked removal primitives.
 
 ## Saving And Feedback
 

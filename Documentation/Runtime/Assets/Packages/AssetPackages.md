@@ -66,8 +66,8 @@ reachability and publication. Developer `AssetMaintenance` owns project-wide
 compatibility and canonical-resave batches.
 `Asset/PackageRemoval.h` exposes batch residency release and checked catalog
 removal; selection and confirmation belong to `ObjectTools.h` and
-`AssetDeleteModel.h`, with companion capabilities in
-`AssetTools/AssetDeleteExtensions.h`, as defined by
+`AssetDeleteModel.h`, with companion ownership queries in
+`AssetTools/AssetCompanionOwnership.h`, as defined by
 [Asset Catalog And Mutation](AssetCatalogAndMutation.md#deletion-and-fix-up).
 
 Ownership is deliberately one-way:

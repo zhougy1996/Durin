@@ -5,7 +5,6 @@
 #include "AssetRegistry/ContentChangeScopes.h"
 
 #include "Asset/PackageSerialization.h"
-#include "AssetTools/AssetDeleteExtensions.h"
 #include "Asset/Redirector.h"
 
 #include "Asset/Mutation.h"

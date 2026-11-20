@@ -7,7 +7,6 @@
 #include "AssetToolsAPI.h"
 #include "Misc/FeedbackContext.h"
 #include "DObject/StrongObjectPtr.h"
-#include "AssetTools/AssetDeleteExtensions.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/PackageInspection.h"
 

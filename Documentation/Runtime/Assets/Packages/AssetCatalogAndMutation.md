@@ -231,7 +231,7 @@ on-demand package inspection, Cook, bounded package-byte transformations, and
 catalog reconciliation. AssetTools owns object rename and fix-up preparation, validation,
 multifile staging, publication ordering, and retained-backup policy. `Asset/PackageRemoval.h` supplies bounded
 batch residency release and catalog removal against expected package metadata
-and revision. It owns no selection, warning, companion-provider, or physical
+and revision. It owns no selection, warning, companion-ownership, or physical
 deletion policy. `IAssetTools` owns asset creation, duplication, import, rename and referencer
 fix-up. `ObjectTools` and `FAssetDeleteModel` own deletion policy, analysis and
 confirmation over a private native executor. Editor hosts own UI and presentation;
@@ -389,16 +389,12 @@ previous committed work for a subsequent repair or manual recovery.
 ObjectTools and FAssetDeleteModel own editor deletion analysis and confirmation.
 The private FAssetDeletionOperation retains whole-package execution facts,
 including entries, blockers, detailed warnings and the irreversible callback.
-Engine exposes no deletion job or deletion-specific extension registry. AssetTools
-owns deletion contributors and companion-ownership queries; package and `.dbulk`
-inspection remain Engine mechanisms. Standard deletion companion ownership uses
-AssetRegistry's current bounded package-header reader and physical bulk extent,
-without reading package values or bulk payloads. Only matching custom deletion
-contributors request complete Engine package inspection. Ownership queries filter
-standard packages by whether their fixed `.dbulk` sibling intersects the selected
-physical roots or confirmed companion paths before any package I/O. Custom
-contributors remain conservative candidates. Cached zero bulk extent never
-excludes a candidate, since external edits may add a segment. External reference-store registration stays
+AssetTools determines companion ownership using AssetRegistry's bounded reader
+for the current package header and the physical bulk extent. Ownership queries
+filter packages by whether their fixed `.dbulk` sibling intersects the selected
+physical roots or confirmed companion paths before opening the package. A
+candidate with a cached zero bulk extent still needs inspection because an
+external edit may add a segment. External reference-store registration stays
 in Engine for shared Cook/fix-up use. Fix Up reads a value copy of provider
 registrations through `CaptureAssetReferenceStoreRegistrations` and checks its
 revision after preparation callbacks and before commit; it never receives the
@@ -420,7 +416,7 @@ references, loading state, open levels and rooted/native owners retain their
 normal protection. See [Editor Asset Tools](../../../Editor/Architecture/Assets/AssetTools.md#deletion)
 for the editor-facing model and prompt contract.
 
-AssetTools' private native attempt retains catalog/contributor revisions, exact
+AssetTools' private native attempt retains the catalog revision, exact
 companion closure, external-store snapshots and confirmed file identities.
 File owns its private immutable ordinary-file/mixed-folder scope and physical
 effect records. Execution checks current files and policy without rebuilding an
@@ -463,11 +459,9 @@ participants before mutation. The editor facade first repairs/saves loaded Dirty
 referencers with their current authored values. Later participant failures retain verified rewrites and valid
 redirectors; a subsequent call prepares a new operation from current content.
 
-Owned-payload relocators, deletion companions, persistent external reference
-stores, and committed-only observers register through exact handles and reject
-duplicate class providers. Owners unregister and complete active mutation/fix-up
-operations, including destruction of retained plans and callback copies, before
-unloading provider code.
+External reference stores register through exact handles. Providers unregister
+and finish active capture, mutation and fix-up callbacks before unloading their
+code.
 
 ## Related Documentation
 

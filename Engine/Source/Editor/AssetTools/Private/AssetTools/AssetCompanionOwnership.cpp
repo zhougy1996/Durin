@@ -1,7 +1,7 @@
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "AssetDeletionInternal.h"
 #include "AssetRegistry/PackageHeader.h"
 
-#include "DObject/Class.h"
 #include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformFile.h"
@@ -12,26 +12,6 @@ namespace Durin
 	{
 		auto Reject(std::optional<UnifiedError::FError>* OutError, UnifiedError::FError Error) -> bool
 		{ if (OutError) *OutError = std::move(Error); return false; }
-		uint64 DeleteContributorRevision = 0;
-
-	struct FRegisteredDeleteContributor
-	{
-		FAssetDeleteContributorHandle Handle = 0;
-		FAssetDeleteContributor Contributor;
-	};
-
-	auto GetDeleteContributors()
-		-> std::unordered_map<DClass*, FRegisteredDeleteContributor>&
-	{
-		static std::unordered_map<DClass*, FRegisteredDeleteContributor> Contributors;
-		return Contributors;
-	}
-
-	auto NextDeleteContributorHandle() -> FAssetDeleteContributorHandle&
-	{
-		static FAssetDeleteContributorHandle Handle = 1;
-		return Handle;
-	}
 	}
 
 	namespace AssetToolsPrivate
@@ -39,11 +19,10 @@ namespace Durin
 		auto InspectAssetCompanionFiles(
 			const FPackageData& Data,
 			std::vector<std::filesystem::path>& OutFiles,
-			std::optional<UnifiedError::FError>* OutError, bool* OutHasContributor) -> bool
+			std::optional<UnifiedError::FError>* OutError) -> bool
 		{
 			if (OutError) OutError->reset();
 			OutFiles.clear();
-			if (OutHasContributor) *OutHasContributor = false;
 			// Ownership is a package metadata fact, not a payload-integrity check.
 			// Read current bounded front matter so external edits cannot hide behind
 			// a stale catalog entry; the reader also checks the physical bulk extent.
@@ -61,48 +40,12 @@ namespace Durin
 				BulkPath.replace_extension(".dbulk");
 				OutFiles.push_back(std::move(BulkPath));
 			}
-			if (OutHasContributor && !OutFiles.empty()) *OutHasContributor = true;
-			std::unordered_set<DClass*> AppliedContributors;
-			for (const FAssetData& Asset : Data.TopLevelAssets)
-			{
-				for (DClass* Class = FindClassByQualifiedName(FName(Asset.AssetClassName));
-					Class; Class = Class->GetSuperClass())
-				{
-					const auto It = GetDeleteContributors().find(Class);
-					if (It == GetDeleteContributors().end()) continue;
-					if (!AppliedContributors.insert(Class).second) break;
-					if (OutHasContributor) *OutHasContributor = true;
-					// Custom contributors retain the complete field-inspection contract.
-					FAssetPackageInspection Inspection;
-					if (auto Prepared = InspectAssetPackage(
-						Data.PhysicalPath, Data.PackagePath, Inspection); !Prepared)
-						return Reject(OutError, std::move(Prepared.error()));
-					FAssetDeleteContribution Contribution;
-					const bool Result = It->second.Contributor(Data, Inspection, Contribution, OutError);
-					if (!Result)
-					{ if (OutError && !*OutError) OutError->emplace(AssetWriteErrors::InvalidData, "Deletion contributor rejected inspection."); return false; }
-					for (const std::filesystem::path& File : Contribution.Files)
-					{
-						const std::filesystem::path Normalized =
-							std::filesystem::absolute(File).lexically_normal();
-						if (!std::ranges::contains(OutFiles, Normalized))
-							OutFiles.push_back(Normalized);
-					}
-					std::ranges::sort(OutFiles);
-					break;
-				}
-			}
 			return true;
 		}
-		auto GetDeleteContributorRevision() -> uint64 { return DeleteContributorRevision; }
 
 		auto MayOwnCompanionInRoots(const FPackageData& Data,
 			std::span<const std::filesystem::path> NormalizedRoots) -> bool
 		{
-			for (const FAssetData& Asset : Data.TopLevelAssets)
-			for (DClass* Class = FindClassByQualifiedName(FName(Asset.AssetClassName));
-				Class; Class = Class->GetSuperClass())
-				if (GetDeleteContributors().contains(Class)) return true;
 			std::filesystem::path BulkPath =
 				std::filesystem::absolute(Data.PhysicalPath).lexically_normal();
 			BulkPath.replace_extension(".dbulk");
@@ -115,35 +58,6 @@ namespace Durin
 			});
 		}
 
-	}
-
-	auto GetAssetDeleteContributorRevision() -> uint64 { return DeleteContributorRevision; }
-
-	auto RegisterAssetDeleteContributor(
-		DClass* Class,
-		FAssetDeleteContributor Contributor) -> FAssetDeleteContributorHandle
-	{
-		if (!Class || !Contributor) return 0;
-		auto& Contributors = GetDeleteContributors();
-		if (Contributors.contains(Class)) return 0;
-		auto& NextHandle = NextDeleteContributorHandle();
-		const FAssetDeleteContributorHandle Handle = NextHandle++;
-		Contributors.emplace(Class, FRegisteredDeleteContributor{
-			.Handle = Handle,
-			.Contributor = std::move(Contributor),
-			});
-		++DeleteContributorRevision;
-		return Handle;
-	}
-
-	auto UnregisterAssetDeleteContributor(
-		FAssetDeleteContributorHandle Handle) -> void
-	{
-		if (Handle == 0) return;
-		auto& Contributors = GetDeleteContributors();
-		if (std::erase_if(Contributors, [Handle](const auto& Pair) {
-			return Pair.second.Handle == Handle;
-		}) != 0) ++DeleteContributorRevision;
 	}
 
 	auto QueryAssetCompanionOwnership(
@@ -170,16 +84,14 @@ namespace Durin
 			if (ExistenceError)
 				return Reject(OutError, ToError(FFileSystemError{std::format("Failed to inspect: {}.", FFilePath(Data.PhysicalPath).generic_string()), ExistenceError}).PushContext("companion owner", Path.ToString()));
 			std::vector<std::filesystem::path> CompanionFiles;
-			bool bHasContributor = false;
 			const bool Result = AssetToolsPrivate::InspectAssetCompanionFiles(
-				Data, CompanionFiles, OutError, &bHasContributor);
+				Data, CompanionFiles, OutError);
 			if (!Result)
 			{
 				if (OutError && *OutError) (*OutError)->PushContext("companion owner", Path.ToString());
 				return false;
 			}
-			if (bHasContributor
-				&& std::ranges::contains(CompanionFiles, Candidate))
+			if (std::ranges::contains(CompanionFiles, Candidate))
 				OutOwnership.Owners.push_back(Path);
 		}
 		std::ranges::sort(

@@ -1,4 +1,5 @@
 #include "AssetDeleteModel.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "AssetTools/NativeAssetDeletion.h"
 #include "AssetTools/AssetDeletionInternal.h"
 #include "AssetTools/FileDeletionState.h"
@@ -114,7 +115,7 @@ namespace Durin
 		std::vector<FShape> Shapes;
 		std::unordered_map<std::string, FXxHash128> Bytes;
 		FAssetReferenceStoreCapture Stores;
-		uint64 RegistryRevision = 0, ContributorRevision = 0;
+		uint64 RegistryRevision = 0;
 		size_t Scanned = 0;
 		int32 Deleted = 0;
 		bool bAllowed = false, bAttempted = false, bDispatching = false, bNativeTransferred = false;
@@ -130,7 +131,6 @@ namespace Durin
 		auto Model = std::make_unique<FAssetDeleteModel>(std::span<DObject* const>{});
 		auto State = std::make_unique<FFileDeletionState>(Policy, Assets, Files);
 		State->Analyze(Selection, *Model, AllowCancel);
-		State->ContributorRevision = GetAssetDeleteContributorRevision();
 		Model->Impl->FileDeletion = std::move(State);
 		Model->SetState(FAssetDeleteModel::EState::Finished);
 		return Model;
@@ -187,7 +187,6 @@ namespace Durin
 				S.Shapes.push_back({FWeakObjectPtr(Package), Package->GetEditRevision(), {Package->GetTopLevelAssets().begin(), Package->GetTopLevelAssets().end()}});
 			}
 			S.RegistryRevision = GetAssetCatalogRevision();
-			S.ContributorRevision = GetAssetDeleteContributorRevision();
 			S.bAllowed = !S.Pending.empty() && bool(CheckAssetPackageMutationAllowed()) && bool(CaptureAssetReferenceStores(S.Stores));
 			SetState(EState::Scanning); return;
 		}
@@ -275,7 +274,7 @@ namespace Durin
 		S.Roots.clear();
 		for (const auto& Pending : S.Pending)
 			if (auto* Object = Pending->GetObject()) S.Roots.push_back(Object); else return false;
-		if (S.RegistryRevision != GetAssetCatalogRevision() || S.ContributorRevision != GetAssetDeleteContributorRevision()) return false;
+		if (S.RegistryRevision != GetAssetCatalogRevision()) return false;
 		for (const auto& Shape : S.Shapes)
 		{
 			auto* Package = Cast<DPackage>(Shape.Package.Get());

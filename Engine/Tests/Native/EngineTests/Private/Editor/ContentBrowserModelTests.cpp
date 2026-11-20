@@ -21,6 +21,7 @@
 #include "Asset/RegistryOperations.h"
 #include "Asset/Testing/PackageSaveTesting.h"
 #include "Asset/Load.h"
+#include "Asset/PackageInspection.h"
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
@@ -29,6 +30,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Publication.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -86,6 +88,26 @@ namespace
 	auto AssetItem(const FPackagePath& Path) -> FContentBrowserItem
 	{
 		return AssetItem(Testing::MakePackageLeafTopLevelAssetPathForTests(Path));
+	}
+
+	auto SaveTextureWithExternalBulk(const FPackagePath& Path) -> testing::AssertionResult
+	{
+		DTexture2D* Texture = nullptr;
+		if (!CreatePackageLeafAssetForTesting(Path, Texture))
+			return testing::AssertionFailure() << "Could not create texture " << Path.ToString();
+		auto Pixels = Image::FImage::TryCreate({.Width = 512, .Height = 512,
+			.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB},
+			FByteBuffer(512 * 512 * 4, std::byte{71}));
+		FTextureSource Source;
+		if (!Pixels || !Source.Init2D(Pixels->GetView(), 4, 0, ETextureSourceCompression::Raw))
+			return testing::AssertionFailure() << "Could not initialize the texture source";
+		Texture->SetSource(Source);
+		if (!SavePackage(Texture->GetPackage()))
+			return testing::AssertionFailure() << "Could not save " << Path.ToString();
+		const auto Data = FindPackageExact(Path);
+		if (!Data || Data->BulkSegmentExtent == 0)
+			return testing::AssertionFailure() << "Texture was saved without an external bulk segment";
+		return testing::AssertionSuccess();
 	}
 
 	// The compiling aggregate is a process authority and cannot restart between cases.
@@ -1623,31 +1645,8 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionCannotMoveOrRenameIndependently)
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/OwnedFolder/Owned", AssetPath));
-	DMaterial* Material = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	const std::filesystem::path Companion = Folder / "Owned.meta";
-	{
-		std::ofstream File(Companion);
-		File << "owned";
-	}
-	struct FContributorReset
-	{
-		FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	};
-	const FAssetDeleteContributorHandle Contributor =
-	RegisterAssetDeleteContributor(
-		DMaterial::StaticClass(),
-		[AssetPath, Companion](const FPackageData& Data,
-			const FAssetPackageInspection&,
-			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-			if (TestPackagePath(Data) == AssetPath)
-				Contribution.Files.push_back(Companion);
-			return true;
-		});
-	ASSERT_NE(Contributor, 0);
-	FContributorReset Reset{Contributor};
+	ASSERT_TRUE(SaveTextureWithExternalBulk(AssetPath));
+	const auto Companion = Folder / "Owned.dbulk";
 
 	FAssetCompanionOwnership Ownership;
 	ASSERT_TRUE(QueryAssetCompanionOwnership(Companion, Ownership));
@@ -1658,9 +1657,9 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionCannotMoveOrRenameIndependently)
 	Observe(Operations);
 	const FContentBrowserItem CompanionItem{
 		.Kind = EContentBrowserItemKind::File,
-		.Name = "Owned.meta",
+		.Name = "Owned.dbulk",
 		.PhysicalPath = Companion.generic_string(),
-		.Extension = ".meta"};
+		.Extension = ".dbulk"};
 	FProviderQueryFixture Query;
 	const auto Bound = Query.BindContributionsForTesting(CompanionItem, {});
 	ASSERT_EQ(1u, Bound.GetInternalItems().size());
@@ -1671,10 +1670,8 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionCannotMoveOrRenameIndependently)
 	EXPECT_FALSE(FileSource->CanMoveItem(Selected, "/ContentBrowserTests/B"));
 	FContentBrowserItem RenameResultItem;
 	const bool RenameResult =
-		Operations.RenameItem(CompanionItem, "Other.meta", RenameResultItem);
+		Operations.RenameItem(CompanionItem, "Other.dbulk", RenameResultItem);
 	EXPECT_FALSE(RenameResult);
-	EXPECT_TRUE(OperationError.find(AssetPath.ToString())
-		!= std::string::npos);
 	EXPECT_TRUE(std::filesystem::exists(Companion));
 	EXPECT_FALSE(Operations.BulkMoveItems(std::span{&CompanionItem, 1}, (Root / "Content/B").generic_string()));
 	EXPECT_FALSE(Operations.BulkCopyItems(std::span{&CompanionItem, 1}, (Root / "Content/B").generic_string()));
@@ -2261,74 +2258,6 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisExcludesInternalReferences)
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BasePath));
 }
 
-TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership)
-{
-	InitializeDObjectSystem();
-	const std::filesystem::path SharedCompanion =
-		Root / "Content/Shared.comp";
-	{
-		std::ofstream Shared(SharedCompanion);
-		Shared << "shared companion";
-	}
-	struct FContributorReset
-	{
-		FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	};
-	const FAssetDeleteContributorHandle Contributor =
-	RegisterAssetDeleteContributor(
-		DMaterial::StaticClass(),
-		[SharedCompanion](const FPackageData& Data,
-			const FAssetPackageInspection&,
-			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-			if (TestPackagePath(Data).GetView().starts_with(
-					"/ContentBrowserTests/Companion"))
-				Contribution.Files.push_back(SharedCompanion);
-			return true;
-		});
-	ASSERT_NE(Contributor, 0);
-	FContributorReset Reset{Contributor};
-
-	FPackagePath FirstPath;
-	FPackagePath SecondPath;
-	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/CompanionFirst", FirstPath));
-	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/CompanionSecond", SecondPath));
-	DMaterial* First = nullptr;
-	DMaterial* Second = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
-	ASSERT_TRUE(SavePackage(First->GetPackage()));
-	ASSERT_TRUE(SavePackage(Second->GetPackage()));
-	FAssetCompanionOwnership Ownership;
-	ASSERT_TRUE(QueryAssetCompanionOwnership(
-		SharedCompanion, Ownership));
-	EXPECT_EQ(
-		Ownership.State,
-		EAssetCompanionOwnershipState::Ambiguous);
-	EXPECT_EQ(Ownership.Owners.size(), 2);
-
-	FAssetDeletionOperation Job;
-	const std::array Paths{FirstPath, SecondPath};
-	EXPECT_FALSE(PrepareAssetDeletionWithEditorPolicy(
-		{.AssetPaths = {Paths.begin(), Paths.end()}}, Job));
-	EXPECT_TRUE(std::ranges::any_of(
-		Job.GetBlockers(),
-		[](const FAssetDeletionBlocker& Blocker) {
-			return TestKind(Blocker)
-				== EAssetDeletionBlocker::CompanionOwnershipConflict;
-		}));
-
-	// Unloading runs GC and can also collect the other unreferenced saved packages.
-	if (FindResidentPackage(SecondPath)) ASSERT_TRUE(UnloadPackage(SecondPath));
-	ASSERT_EQ(FindResidentPackage(SecondPath), nullptr);
-	if (FindResidentPackage(FirstPath)) ASSERT_TRUE(UnloadPackage(FirstPath));
-	ASSERT_EQ(FindResidentPackage(FirstPath), nullptr);
-	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(SecondPath));
-	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(FirstPath));
-}
-
 TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
 {
 	InitializeDObjectSystem();
@@ -2435,17 +2364,7 @@ TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutV
 	InitializeDObjectSystem();
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/MetadataCompanion", Path));
-	DTexture2D* Texture = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
-	Image::FImage Image;
-	auto ImageResult1 = Image::FImage::TryCreate({.Width = 512, .Height = 512,
-		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB}, FByteBuffer(512 * 512 * 4, std::byte{71}));
-	ASSERT_TRUE(ImageResult1);
-	Image = std::move(*ImageResult1);
-	FTextureSource Source;
-	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4, 0, ETextureSourceCompression::Raw));
-	Texture->SetSource(Source);
-	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(SaveTextureWithExternalBulk(Path));
 	ASSERT_TRUE(UnloadPackage(Path));
 	const auto Data = FindPackageExact(Path);
 	ASSERT_NE(Data, nullptr);
@@ -2504,7 +2423,7 @@ TEST_F(FContentBrowserModelTests, StandardCompanionOwnershipUsesMetadataWithoutV
 	ASSERT_TRUE(std::filesystem::remove(BulkPath));
 }
 
-TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageDependencies)
+TEST_F(FContentBrowserModelTests, DeletionPreparationDoesNotLoadPackageDependencies)
 {
 	InitializeDObjectSystem();
 	FPackagePath BasePath, OwnerPath;
@@ -2522,99 +2441,13 @@ TEST_F(FContentBrowserModelTests, DeletionCompanionInspectionDoesNotLoadPackageD
 	ASSERT_EQ(FindResidentPackage(OwnerPath), nullptr);
 	if (FindResidentPackage(BasePath)) ASSERT_TRUE(UnloadPackage(BasePath));
 	ASSERT_EQ(FindResidentPackage(BasePath), nullptr);
-	const auto Companion = Root / "Content/Owner.source";
-	{
-		std::ofstream Output(Companion);
-		Output << "companion";
-	}
-	struct FContributorReset
-	{
-		FAssetDeleteContributorHandle Handle;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	};
-	FContributorReset Reset{RegisterAssetDeleteContributor(DMaterialInstance::StaticClass(),
-		[&](const FPackageData& Data, const FAssetPackageInspection& Inspection,
-			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-			if (TestPackagePath(Data) == OwnerPath)
-			{
-				EXPECT_NE(Inspection.FindField("Parent"), nullptr);
-				Contribution.Files.push_back(Companion);
-			}
-			return true;
-		})};
-	ASSERT_NE(Reset.Handle, 0);
 	FAssetDeletionOperation Operation;
 	ASSERT_TRUE(PrepareAssetDeletionWithEditorPolicy({.AssetPaths = {OwnerPath}}, Operation));
 	ASSERT_EQ(Operation.GetEntries().size(), 1);
-	EXPECT_EQ(Operation.GetEntries().front().CompanionFiles, std::vector{Companion});
+	EXPECT_TRUE(Operation.GetEntries().front().CompanionFiles.empty());
 	EXPECT_EQ(FindResidentPackage(BasePath), nullptr);
 	EXPECT_EQ(FindResidentPackage(OwnerPath), nullptr);
-	const auto PackageFile = TestPhysicalPath(Operation.GetEntries().front().RegistryEntry);
-	ASSERT_TRUE(Operation.Delete({.Delete = [&](auto&) -> FAssetWriteResult {
-		std::error_code Ec;
-		std::filesystem::remove(PackageFile, Ec);
-		if (Ec) return {.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Ec.message()}};
-		std::filesystem::remove(Companion, Ec);
-		return Ec ? FAssetWriteResult{.Error = Durin::UnifiedError::FError{AssetWriteErrors::IoError, Ec.message()}} : FAssetWriteResult{};
-	}}));
-	EXPECT_FALSE(std::filesystem::exists(Companion));
-	EXPECT_NE(FindPackageExact(BasePath), nullptr);
-}
 
-TEST_F(FContentBrowserModelTests, DeletionModelInspectsParticipantsOncePerPhase)
-{
-	InitializeDObjectSystem();
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/SingleDeletionPlan", Path));
-	DMaterial* Material = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	const auto File = TestPhysicalPath(*(FindPackageExact(Path)));
-	uint32 Inspections = 0;
-	struct FContributorReset
-	{
-		FAssetDeleteContributorHandle Handle;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	} Reset{RegisterAssetDeleteContributor(DMaterial::StaticClass(),
-		[&](const FPackageData& Data, const FAssetPackageInspection&,
-			FAssetDeleteContribution&, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-			if (TestPackagePath(Data) == Path) ++Inspections;
-			return true;
-		})};
-	ASSERT_NE(Reset.Handle, 0u);
-	const FContentBrowserItem Item{.Kind = EContentBrowserItemKind::File,
-		.Name = "SingleDeletionPlan", .PhysicalPath = File};
-	FDeletionFixture Service({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
-	Observe(Service);
-	auto DeletionModel = Service.CreateModel(std::span{&Item, 1});
-	ASSERT_TRUE(DeletionModel->CanDelete());
-	EXPECT_EQ(Inspections, 1u);
-	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
-	EXPECT_EQ(Inspections, 2u);
-	EXPECT_FALSE(std::filesystem::exists(File));
-}
-
-TEST_F(FContentBrowserModelTests, DeletionRejectsChangedContributorRegistration)
-{
-	InitializeDObjectSystem();
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/ContributorRegistration", Path));
-	DMaterial* Material = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	FAssetDeletionOperation Operation;
-	ASSERT_TRUE(PrepareAssetDeletionWithEditorPolicy({.AssetPaths = {Path}}, Operation));
-	const auto Handle = RegisterAssetDeleteContributor(DMaterial::StaticClass(),
-		[](const FPackageData&, const FAssetPackageInspection&, FAssetDeleteContribution&, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-			return true;
-		});
-	ASSERT_NE(Handle, 0u);
-	UnregisterAssetDeleteContributor(Handle);
-	bool bCalled = false;
-	EXPECT_FALSE(Operation.Delete({.Delete = [&](auto&) -> FAssetWriteResult { bCalled = true; return {}; }}));
-	EXPECT_FALSE(bCalled);
-	ASSERT_TRUE(UnloadPackage(Path));
-	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
 }
 
 TEST_F(FContentBrowserModelTests, UnrelatedStandardPackageDamageDoesNotInvalidateDeletion)
@@ -2904,187 +2737,55 @@ TEST_F(FContentBrowserModelTests, EmptyFolderDeletionIsPermanent)
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 }
 
-TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
+TEST_F(FContentBrowserModelTests, RejectsBulkCompanionReparsePoint)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Folder = Root / "Content/UnsafeCompanion";
-	const std::filesystem::path OutsideFile = Root / "Outside/innocent.txt";
-	std::filesystem::create_directories(Folder);
-	std::filesystem::create_directories(OutsideFile.parent_path());
-	{
-		std::ofstream File(OutsideFile);
-		File << "must not be staged";
-	}
-
-	struct FContributorReset
-	{
-		FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	};
-	FPackagePath AssetPath;
-	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/UnsafeCompanion/Material", AssetPath));
-	const FAssetDeleteContributorHandle Contributor =
-		RegisterAssetDeleteContributor(
-			DMaterial::StaticClass(),
-			[AssetPath, OutsideFile](const FPackageData& Data,
-				const FAssetPackageInspection&,
-				FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-				if (TestPackagePath(Data) == AssetPath)
-					Contribution.Files.push_back(OutsideFile);
-				return true;
-			});
-	ASSERT_NE(Contributor, 0);
-	FContributorReset Reset{Contributor};
-	DMaterial* Material = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-
-	FProviderQueryFixture ModelSource;
-
-	FContentBrowserModel Model(ModelSource);
-	Model.RefreshMountSnapshot();
-	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
-	Observe(Operations);
-	const FContentBrowserItem Item{
-		.Kind = EContentBrowserItemKind::Folder,
-		.Name = "UnsafeCompanion",
-		.PhysicalPath = Folder.generic_string()};
-	FDeletionModelPtr DeletionModel = Operations.CreateModel(
-		std::span{&Item, 1});
-
-	EXPECT_FALSE(DeletionModel->CanDelete());
-	EXPECT_TRUE(std::ranges::any_of(
-		DeletionModel->Blockers,
-		[&](const FFileDeletionBlocker& Blocker) {
-			return TestKind(Blocker) == EFileDeletionBlocker::OutsideMount
-				&& TestPhysicalPath(Blocker)
-					== std::filesystem::absolute(OutsideFile)
-						.lexically_normal().generic_string();
-		}));
-	EXPECT_FALSE(std::ranges::any_of(
-		DeletionModel->MaximalRoots,
-		[&](const FFileDeletionRoot& RootEntry) {
-			return RootEntry.OriginalPath
-				== std::filesystem::absolute(OutsideFile)
-					.lexically_normal().generic_string();
-		}));
-	EXPECT_TRUE(std::filesystem::is_regular_file(OutsideFile));
-
-	DeletionModel.reset();
-	ASSERT_TRUE(UnloadPackage(AssetPath));
-	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
-}
-
-TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
-{
-	InitializeDObjectSystem();
-	const std::filesystem::path Folder = Root / "Content/ReparseCompanion";
-	const std::filesystem::path Target = Root / "Outside/reparse-target.txt";
-	const std::filesystem::path Companion = Root / "Content/ReparseCompanion.meta";
+	const auto Folder = Root / "Content/ReparseCompanion";
+	const auto Target = Root / "Outside/Texture.dbulk";
+	const auto Companion = Folder / "Texture.dbulk";
 	std::filesystem::create_directories(Folder);
 	std::filesystem::create_directories(Target.parent_path());
-	{
-		std::ofstream File(Target);
-		File << "must not be staged through a reparse point";
-	}
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/ReparseCompanion/Texture", AssetPath));
+	ASSERT_TRUE(SaveTextureWithExternalBulk(AssetPath));
+	std::filesystem::rename(Companion, Target);
 	std::error_code Ec;
 	std::filesystem::create_symlink(Target, Companion, Ec);
-	if (Ec) GTEST_SKIP() << "File symlinks are unavailable: " << Ec.message();
-
-	struct FContributorReset
+	if (Ec)
 	{
-		FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	};
-	FPackagePath AssetPath;
-	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/ReparseCompanion/Material", AssetPath));
-	const FAssetDeleteContributorHandle Contributor =
-		RegisterAssetDeleteContributor(
-			DMaterial::StaticClass(),
-			[AssetPath, Companion](const FPackageData& Data,
-				const FAssetPackageInspection&,
-				FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-				if (TestPackagePath(Data) == AssetPath)
-					Contribution.Files.push_back(Companion);
-				return true;
-			});
-	ASSERT_NE(Contributor, 0);
-	FContributorReset Reset{Contributor};
-	DMaterial* Material = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		std::filesystem::rename(Target, Companion);
+		GTEST_SKIP() << "File symlinks are unavailable: " << Ec.message();
+	}
 
-	FProviderQueryFixture ModelSource;
-
-	FContentBrowserModel Model(ModelSource);
-	Model.RefreshMountSnapshot();
 	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "ReparseCompanion",
 		.PhysicalPath = Folder.generic_string()};
-	FDeletionModelPtr DeletionModel = Operations.CreateModel(
-		std::span{&Item, 1});
-
+	const auto DeletionModel = Operations.CreateModel(std::span{&Item, 1});
 	EXPECT_FALSE(DeletionModel->CanDelete());
-	EXPECT_TRUE(std::ranges::any_of(
-		DeletionModel->Blockers,
-		[](const FFileDeletionBlocker& Blocker) {
-			return TestKind(Blocker) == EFileDeletionBlocker::ReparsePoint;
-		}));
+	EXPECT_TRUE(std::ranges::any_of(DeletionModel->Blockers, [&](const FFileDeletionBlocker& Blocker) {
+		return TestKind(Blocker) == EFileDeletionBlocker::ReparsePoint
+			&& TestPhysicalPath(Blocker) == Companion.generic_string();
+	}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Target));
-
-	DeletionModel.reset();
-	ASSERT_TRUE(UnloadPackage(AssetPath));
-	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
-TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionDeleteTogether)
+TEST_F(FContentBrowserModelTests, MixedFolderRevalidatesAndDeletesBulkCompanion)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Folder = Root / "Content/Mixed";
 	const std::filesystem::path Nested = Folder / "Nested";
 	const std::filesystem::path OrdinaryFile = Folder / "notes.txt";
-	const std::filesystem::path Companion = Root / "Content/Mixed.materialmeta";
+	const auto Companion = Nested / "Texture.dbulk";
 	std::filesystem::create_directories(Nested);
-	{
-		std::ofstream File(OrdinaryFile);
-		File << "ordinary file";
-		std::ofstream CompanionFile(Companion);
-		CompanionFile << "managed companion";
-	}
+	std::ofstream(OrdinaryFile) << "ordinary file";
 
-	struct FContributorReset
-	{
-		FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
-	};
 	FPackagePath AssetPath;
-	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/Mixed/Nested/Material", AssetPath));
-	const FAssetDeleteContributorHandle Contributor =
-	RegisterAssetDeleteContributor(
-		DMaterial::StaticClass(),
-		[AssetPath, Companion](const FPackageData& Data,
-			const FAssetPackageInspection&,
-			FAssetDeleteContribution& Contribution, std::optional<Durin::UnifiedError::FError>* OutError) -> bool { if (OutError) OutError->reset();
-			if (TestPackagePath(Data) == AssetPath)
-				Contribution.Files.push_back(Companion);
-			return true;
-		});
-	ASSERT_NE(Contributor, 0);
-	FContributorReset Reset{Contributor};
-	DMaterial* Material = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Mixed/Nested/Texture", AssetPath));
+	ASSERT_TRUE(SaveTextureWithExternalBulk(AssetPath));
 
-	FProviderQueryFixture ModelSource;
-
-	FContentBrowserModel Model(ModelSource);
-	Model.RefreshMountSnapshot();
 	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
 	const FContentBrowserItem Item{
@@ -3097,8 +2798,28 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionDeleteTogether)
 	EXPECT_EQ(DeletionModel->Summary.FileCount, 1);
 	EXPECT_EQ(DeletionModel->Summary.CompanionCount, 1);
 	EXPECT_EQ(DeletionModel->Summary.FolderCount, 2);
-	ASSERT_EQ(DeletionModel->MaximalRoots.size(), 2);
+	ASSERT_EQ(DeletionModel->MaximalRoots.size(), 1u);
 
+	const auto Data = FindPackageExact(AssetPath);
+	ASSERT_NE(Data, nullptr);
+	const auto PackageFile = TestPhysicalPath(*Data);
+	const auto ConfirmedTime = std::filesystem::last_write_time(Companion);
+	auto Bytes = FFileHelper::LoadFileToArray(Companion);
+	ASSERT_TRUE(Bytes);
+	ASSERT_FALSE(Bytes->empty());
+	Bytes->front() ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Bytes, Companion));
+	std::filesystem::last_write_time(Companion, ConfirmedTime);
+	EXPECT_FALSE(DeletionModel->Delete().IsComplete());
+	EXPECT_TRUE(std::filesystem::exists(PackageFile));
+	EXPECT_TRUE(std::filesystem::exists(OrdinaryFile));
+	EXPECT_TRUE(std::filesystem::exists(Companion));
+
+	DeletionModel.reset();
+	Bytes->front() ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Bytes, Companion));
+	DeletionModel = Operations.CreateModel(std::span{&Item, 1});
+	ASSERT_TRUE(DeletionModel->CanDelete());
 	ASSERT_TRUE(DeletionModel->Delete().IsComplete());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
@@ -3180,11 +2901,8 @@ TEST_F(FContentBrowserModelTests, UnusedRedirectorCanBeSelectedAloneAndTargetReq
 	Model.RefreshMountSnapshot();
 	FDeletionFixture Operations({.NotifyContentMutation = [&](FContentChangeBatch Batch) { ObservedChanges = std::move(Batch); }});
 	Observe(Operations);
-	FDeletionModelPtr AliasOnly = Operations.CreateModel(
-		std::span{&AliasItem, 1});
-	EXPECT_TRUE(AliasOnly->CanDelete());
-	const auto TargetOnly = Operations.CreateModel(std::span{&FinalItem, 1});
-	EXPECT_FALSE(TargetOnly->CanDelete());
+	EXPECT_TRUE(Operations.CreateModel(std::span{&AliasItem, 1})->CanDelete());
+	EXPECT_FALSE(Operations.CreateModel(std::span{&FinalItem, 1})->CanDelete());
 	const std::array Items{AliasItem, FinalItem};
 	auto Complete = Operations.CreateModel(Items);
 	ASSERT_TRUE(Complete->CanDelete()) << [&] { std::string Text; for (const auto& Blocker : Complete->Blockers) Text += Blocker.Details + "\n"; return Text; }();

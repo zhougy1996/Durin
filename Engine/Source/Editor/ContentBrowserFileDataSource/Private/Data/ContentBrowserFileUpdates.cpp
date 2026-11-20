@@ -7,7 +7,7 @@
 #include "Misc/ContentPathInspection.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/RegistryOperations.h"
-#include "AssetTools/AssetDeleteExtensions.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "Threading/Task.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"

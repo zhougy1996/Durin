@@ -49,7 +49,6 @@ namespace Durin
 	{
 		std::vector<const FStrongObjectPtr*> RetainedOwners;
 		uint64 RegistryRevision = 0;
-		uint64 ContributorRevision = 0;
 		FAssetReferenceStoreCapture ReferenceStores;
 		std::vector<FAssetDeletionEntry> Entries;
 		std::vector<FAssetDeletionWarning> Warnings;
@@ -167,8 +166,7 @@ namespace Durin
 				return WriteFailure(AssetWriteErrors::StaleData, "External reference owners changed during file validation.");
 		}
 		if (!ValidateResidents(&Result.Error)) return Result;
-		if (GetAssetCatalogRevision() != RegistryRevision
-			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
+		if (GetAssetCatalogRevision() != RegistryRevision)
 			return WriteFailure(AssetWriteErrors::StaleData, "Deletion metadata changed during file validation.");
 		std::vector<FPackageData> Packages;
 		for (const FAssetDeletionEntry& Entry : Entries)
@@ -296,7 +294,6 @@ namespace Durin
 			SortedPaths.begin(), SortedPaths.end());
 		PreparedSnapshot = CaptureAssetRegistrySnapshot();
 		OutToken.RegistryRevision = PreparedSnapshot.Revision;
-		ContributorRevision = AssetToolsPrivate::GetDeleteContributorRevision();
 
 		OutToken.PhysicalRoots.reserve(PhysicalRoots.size());
 		for (const std::filesystem::path& Root : PhysicalRoots)
@@ -542,9 +539,8 @@ namespace Durin
 		// Catalog publications include reference facts. An unchanged revision keeps
 		// the confirmed alias closure and warnings valid; files and providers have
 		// independent lifetimes and must still be checked below.
-		if (GetAssetCatalogRevision() != RegistryRevision
-			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
-			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion metadata or contributors changed after confirmation."});
+		if (GetAssetCatalogRevision() != RegistryRevision)
+			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "The asset Registry changed after deletion confirmation."});
 		for (const auto& Entry : Entries)
 		{
 			const auto& Path = Entry.RegistryEntry.PackagePath;
@@ -584,8 +580,7 @@ namespace Durin
 			if (Stores != ReferenceStores)
 				return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "External reference owners changed after confirmation."});
 		}
-		if (GetAssetCatalogRevision() != RegistryRevision
-			|| ContributorRevision != AssetToolsPrivate::GetDeleteContributorRevision())
+		if (GetAssetCatalogRevision() != RegistryRevision)
 			return Reject(OutError, UnifiedError::FError{AssetWriteErrors::StaleData, "Deletion metadata changed during validation."});
 		return ValidateResidents(OutError);
 	}

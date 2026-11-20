@@ -332,9 +332,8 @@ closure validation and never publish a live package.
 Editor deletion companion ownership reads current bounded Registry front matter
 and checks the physical external extent. A nonzero declared extent owns the
 normalized `.dbulk` sibling; zero extent does not claim a file by suffix alone.
-This query does not read or verify payload bytes. Custom deletion contributors
-still receive complete Engine package inspection. Loading and mutation closure
-validation retain their full integrity checks.
+The ownership query checks metadata and extent. Loading and mutation closure
+validation also verify payload integrity.
 
 ## Qualification Budget
 

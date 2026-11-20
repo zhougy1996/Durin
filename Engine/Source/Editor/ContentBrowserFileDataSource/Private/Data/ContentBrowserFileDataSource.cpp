@@ -8,7 +8,7 @@
 #include "ContentBrowserTransferHelpers.h"
 #include "Misc/StringHelper.h"
 #include "AssetTools/ContentDeletion.h"
-#include "AssetTools/AssetDeleteExtensions.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 
 #include "AssetRegistry/Catalog.h"
 

@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "AssetToolsAPI.h"
-#include "AssetTools/AssetDeleteExtensions.h"
+#include "AssetTools/AssetCompanionOwnership.h"
 #include "Misc/FeedbackContext.h"
 #include "AssetRenameData.h"
 #include "DObject/Object.h"

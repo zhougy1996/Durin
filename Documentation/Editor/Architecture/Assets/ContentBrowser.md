@@ -279,8 +279,7 @@ redirectors, unknown packages, and pasting a folder into itself or a descendant.
 Assets use AssetTools duplication with new identities; ordinary files retain
 identical bytes, including embedded path references. Bulk payloads are recreated
 by asset persistence, never copied independently; orphan `.dbulk` files block
-copy even inside folders. Other contributor-owned companion types currently
-block folder copy because no generic companion duplication contract exists.
+copy even inside folders.
 
 Copy retains earlier successful writes after independent failures. Native
 providers report retained/uncertain recovery locations and protect their own
@@ -293,9 +292,8 @@ Opening a
 redirector resolves and opens its final real asset; redirectors are excluded
 from ordinary pickers, rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.
-Files reported as owned by Engine's registered companion contributors cannot
-be renamed, moved, or deleted independently; the owning asset operation must be used.
-A shared filename stem alone does not establish companion ownership.
+Package-owned `.dbulk` files are handled through their owning asset. Ownership
+requires a declared external bulk segment in the current package header.
 
 Every authorable asset uses AssetTools editor save actions over Engine's sole
 package persistence authority. `Save
