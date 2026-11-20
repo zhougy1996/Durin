@@ -115,12 +115,11 @@ namespace Durin::Tests
 
 		auto GetFixtureInstanceSerial() -> std::optional<uint64>
 		{
-			const auto Result = FModularFeatureRegistry::Get()
-				.InvokeSingle<IDynamicUnloadFixtureFeature>(
+			const auto Result = VisitOnlyUnloadFeature<IDynamicUnloadFixtureFeature>(
 					[](IDynamicUnloadFixtureFeature& Fixture) {
 						return Fixture.GetInstanceSerial();
 					});
-			return Result.WasInvoked() ? Result.Value : std::nullopt;
+			return Result;
 		}
 
 		auto IsFixtureImageMapped(const FModuleManager::FModuleInfoPtr& ModuleInfo)
@@ -177,7 +176,7 @@ namespace Durin::Tests
 		FDynamicUnloadHost Host;
 
 		auto HostRegistration =
-			Durin::FModularFeatureRegistry::Get().RegisterFeature<IDynamicUnloadHostFeature>(Host);
+			Durin::RegisterModularFeature<IDynamicUnloadHostFeature>(Host);
 		ASSERT_TRUE(HostRegistration.IsValid());
 
 		auto& Manager = FModuleManager::Get();
@@ -193,12 +192,11 @@ namespace Durin::Tests
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::Startup, *FirstSerial));
 
-		const auto Call = FModularFeatureRegistry::Get().InvokeSingle<IDynamicUnloadFixtureFeature>(
+		const auto Call = VisitOnlyUnloadFeature<IDynamicUnloadFixtureFeature>(
 			[](auto& Fixture) { Fixture.RunSynchronousCall(); });
-		ASSERT_TRUE(Call.WasInvoked());
+		ASSERT_TRUE(Call);
 		ASSERT_TRUE(Manager.UnloadModule(FName(FixtureModuleName)));
-		EXPECT_EQ(EFeatureInvokeStatus::Unavailable,
-			FModularFeatureRegistry::Get().InvokeSingle<IDynamicUnloadFixtureFeature>([](auto&) {}).Status);
+		EXPECT_FALSE(VisitOnlyUnloadFeature<IDynamicUnloadFixtureFeature>([](auto&) {}));
 		EXPECT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::SynchronousExited, *FirstSerial));
 		EXPECT_TRUE(Host.WaitFor(
@@ -220,13 +218,11 @@ namespace Durin::Tests
 		EXPECT_GT(SecondInfo->OwnerGeneration, FirstGeneration);
 		const uint64 SecondGeneration = SecondInfo->OwnerGeneration;
 		EXPECT_GT(*SecondSerial, *FirstSerial);
-		const auto Started = FModularFeatureRegistry::Get()
-			.InvokeSingle<IDynamicUnloadFixtureFeature>(
+		const auto Started = VisitOnlyUnloadFeature<IDynamicUnloadFixtureFeature>(
 				[](IDynamicUnloadFixtureFeature& Fixture) {
 					return Fixture.StartDrainedAsyncChain();
 				});
-		ASSERT_TRUE(Started.WasInvoked());
-		ASSERT_TRUE(Started.Value && *Started.Value);
+		ASSERT_EQ(true, Started);
 
 		const bool SecondUnload =
 			Manager.UnloadModule(FName(FixtureModuleName));

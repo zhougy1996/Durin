@@ -195,7 +195,6 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Durin.Toolset";
-		static constexpr uint32 FeatureVersion = 3;
 		virtual auto DescribeToolset() const -> FToolsetDescriptor = 0;
 		virtual auto CheckAvailability(const FToolRequest&, const FToolContext&) -> FToolAvailability = 0;
 		// The caller validates/normalizes Arguments once before availability and execution.

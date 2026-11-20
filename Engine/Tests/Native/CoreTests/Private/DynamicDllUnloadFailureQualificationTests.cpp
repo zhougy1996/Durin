@@ -113,19 +113,17 @@ namespace Durin::Tests
 
 		auto InvokeSerial() -> std::optional<uint64>
 		{
-			const auto Result = FModularFeatureRegistry::Get()
-				.InvokeSingle<IDynamicUnloadFixtureFeature>(
+			const auto Result = VisitOnlyUnloadFeature<IDynamicUnloadFixtureFeature>(
 					[](IDynamicUnloadFixtureFeature& Fixture) {
 						return Fixture.GetInstanceSerial();
 					});
-			return Result.WasInvoked() ? Result.Value : std::nullopt;
+			return Result;
 		}
 
 		template<typename F>
 		auto InvokeFixture(F&& Callable)
 		{
-			return FModularFeatureRegistry::Get()
-				.InvokeSingle<IDynamicUnloadFixtureFeature>(
+			return VisitOnlyUnloadFeature<IDynamicUnloadFixtureFeature>(
 					std::forward<F>(Callable));
 		}
 
@@ -163,7 +161,7 @@ namespace Durin::Tests
 	{
 		FFailureHost Host;
 
-		auto HostRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature<IDynamicUnloadHostFeature>(Host);
+		auto HostRegistration = Durin::RegisterModularFeature<IDynamicUnloadHostFeature>(Host);
 		auto& Manager = FModuleManager::Get();
 		const FName Name("DynamicUnloadFixtureResidentStartupFailure");
 		Manager.AddModule(Name, std::string(FixtureFileName));
@@ -193,7 +191,7 @@ namespace Durin::Tests
 		FFailureHost Host;
 
 		auto HostRegistration =
-			Durin::FModularFeatureRegistry::Get().RegisterFeature<IDynamicUnloadHostFeature>(Host);
+			Durin::RegisterModularFeature<IDynamicUnloadHostFeature>(Host);
 		ASSERT_TRUE(HostRegistration.IsValid());
 		auto& Manager = FModuleManager::Get();
 
@@ -206,8 +204,7 @@ namespace Durin::Tests
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				return Fixture.StartBlockingWorkerForFailure();
 			});
-		ASSERT_TRUE(WorkerStarted.WasInvoked()
-			&& WorkerStarted.Value && *WorkerStarted.Value);
+		ASSERT_EQ(true, WorkerStarted);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::BlockingWorkerEntered, *WorkerSerial));
 		EXPECT_THROW(Manager.UnloadModule(WorkerName), std::runtime_error);
@@ -223,8 +220,7 @@ namespace Durin::Tests
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				return Fixture.StartRetainedResultForFailure();
 			});
-		ASSERT_TRUE(ResultStarted.WasInvoked()
-			&& ResultStarted.Value && *ResultStarted.Value);
+		ASSERT_EQ(true, ResultStarted);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::RetainedResultReady, *ResultSerial));
 		EXPECT_THROW(Manager.UnloadModule(ResultName), std::runtime_error);
@@ -238,7 +234,7 @@ namespace Durin::Tests
 		ASSERT_TRUE(InvokeFixture(
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				Fixture.SetThrowOnShutdownForFailure();
-			}).WasInvoked());
+			}));
 		EXPECT_THROW(Manager.UnloadModule(ShutdownName), std::runtime_error);
 		ExpectIncompleteAndMapped(ShutdownInfo);
 		EXPECT_FALSE(Host.HasEvent(
@@ -266,9 +262,7 @@ namespace Durin::Tests
 			[](IDynamicUnloadFixtureFeature& Fixture) {
 				return Fixture.RequestRecursiveUnloadForFailure();
 			});
-		EXPECT_EQ(Recursive.Status, EFeatureInvokeStatus::Invoked);
-		ASSERT_TRUE(Recursive.Value.has_value());
-		EXPECT_FALSE(*Recursive.Value);
+		EXPECT_EQ(false, Recursive);
 		EXPECT_EQ(RecursiveInfo->State.load(), EModuleState::Active);
 		EXPECT_TRUE(IsMapped(RecursiveInfo));
 		EXPECT_FALSE(Host.HasEvent(

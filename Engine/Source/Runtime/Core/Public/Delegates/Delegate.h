@@ -368,6 +368,7 @@ namespace Durin
 			}
 			{
 				std::lock_guard Lock(Mutex);
+				InvalidateListeners();
 				Listeners = std::move(NewListeners);
 			}
 			return *this;
@@ -445,6 +446,7 @@ namespace Durin
 			{
 				return false;
 			}
+			It->Active->store(false);
 			Listeners.erase(It);
 			return true;
 		}
@@ -456,7 +458,9 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			const size_t PreviousNum = Listeners.size();
 			std::erase_if(Listeners, [Object](const FListener& Listener) {
-				return Listener.Binding.Object == Object;
+				if (Listener.Binding.Object != Object) return false;
+				Listener.Active->store(false);
+				return true;
 			});
 			return PreviousNum - Listeners.size();
 		}
@@ -464,6 +468,7 @@ namespace Durin
 		auto Clear() -> void
 		{
 			std::lock_guard Lock(Mutex);
+			InvalidateListeners();
 			Listeners.clear();
 		}
 
@@ -489,7 +494,7 @@ namespace Durin
 				Snapshot = Listeners;
 			}
 
-			// Mutations made by callbacks affect future broadcasts, including nested broadcasts, but not this snapshot.
+			// Additions are visible to later broadcasts. Removals also invalidate pending calls in this snapshot.
 			bool bHasExpiredListener = false;
 			for (const FListener& Listener : Snapshot)
 			{
@@ -499,6 +504,7 @@ namespace Durin
 					bHasExpiredListener |= Listener.Binding.bIsWeak;
 					continue;
 				}
+				if (!Listener.Active->load()) continue;
 				// Named arguments remain lvalues so every listener receives its own copy for by-value parameters.
 				Listener.Binding.Callback(InArgs...);
 			}
@@ -517,15 +523,22 @@ namespace Durin
 		{
 			FDelegateHandle Handle;
 			FBinding Binding;
+			std::shared_ptr<std::atomic_bool> Active;
 		};
 
 		auto AddBinding(FBinding InBinding) -> FDelegateHandle
 		{
-			FListener Listener{ FDelegateHandle::GenerateNewHandle(), std::move(InBinding) };
+			FListener Listener{ FDelegateHandle::GenerateNewHandle(), std::move(InBinding), std::make_shared<std::atomic_bool>(true) };
 			const FDelegateHandle Handle = Listener.Handle;
 			std::lock_guard Lock(Mutex);
 			Listeners.push_back(std::move(Listener));
 			return Handle;
+		}
+
+		auto InvalidateListeners() -> void
+		{
+			for (const auto& Listener : Listeners)
+				Listener.Active->store(false);
 		}
 
 		auto RemoveExpired() -> void

@@ -35,8 +35,8 @@ TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
 	Rejected.Result = std::unexpected(Durin::UnifiedError::FError{
 		{"AssetSaveReadiness", "StaleData"}, "Asset family is not ready."});
 
-	auto IgnoredRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Ignored);
-	auto RejectedRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Rejected);
+	auto IgnoredRegistration = Durin::RegisterModularFeature(Ignored);
+	auto RejectedRegistration = Durin::RegisterModularFeature(Rejected);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
 	ASSERT_FALSE(Result);
@@ -50,8 +50,8 @@ TEST(AssetSaveReadinessTests, RejectsAmbiguousHandlingProviders)
 	FReadinessFeature First;
 	FReadinessFeature Second;
 
-	auto FirstRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(First);
-	auto SecondRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Second);
+	auto FirstRegistration = Durin::RegisterModularFeature(First);
+	auto SecondRegistration = Durin::RegisterModularFeature(Second);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
 	ASSERT_FALSE(Result);

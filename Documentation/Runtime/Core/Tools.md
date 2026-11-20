@@ -121,24 +121,20 @@ resolve editor objects and enter interpreters at their owning execution boundary
 
 ## Provider Lifetime
 
-Modules register through
-`FModularFeatureRegistry::Get().RegisterFeature<IToolset>` and retain the
-returned token. Reset it at a main-thread safe point before destroying the
-provider. Enumerate through `InvokeAll<IToolset>` and retain only owned
-descriptions and RegistrationIdentity, never the visitor reference or a callback.
+Modules can call `RegisterModularFeature<IToolset>` and retain the returned
+token. Reset it at a main-thread safe point before destroying the provider.
+Toolset discovery visits providers through `ForEachModularFeature<IToolset>`.
+The editor service assigns a route identity when it describes a live provider
+and removes that identity when the provider unregisters. Dispatch resolves the
+saved identity against current providers in a scoped borrow. Requests for a
+withdrawn registration fail, including when its provider re-registers at the
+same address. Registry mutation and module shutdown are excluded during the
+borrow.
 
-`InvokeRegistered<IToolset>(Identity, Visitor)` routes to that exact
-registered entry. Zero, stale, unregistered, and wrong-interface identities are
-unavailable; a replacement is never substituted. Registry mutation and module
-shutdown/unload are forbidden during dispatch. Nested read/invocation is allowed,
-and dispatch scopes unwind on exceptions. All registry operations require the
-module-control thread before GameThread initialization, then GameThread.
-
-`GetPublicationRevision()` changes on registration and actual unregistration.
-A catalog rebuilds when that global revision changes; unrelated features may
-conservatively invalidate it. The catalog and provider visitation remain on
-GameThread. External callers enqueue detached requests into the editor
-service and read host-owned result snapshots instead of using this registry.
+The editor service invalidates its catalog on toolset registration and
+unregistration notifications, then rebuilds on GameThread. External callers
+enqueue detached requests into the editor service and read host-owned result
+snapshots.
 
 There is no feature retirement or wait protocol. Modules own producer shutdown,
 worker synchronization, callbacks, retained storage, and code lifetime. Returning
@@ -184,7 +180,7 @@ auto Add(const FToolContext&, int32 Left, int32 Right) -> int64
 auto Binding = BindTool(FToolDescriptor{.Name = "add"}, &Add,
     std::array{FToolParameter{"left"}, FToolParameter{"right", "", FToolValue{0}}});
 FNativeToolset Math("math", "Arithmetic tools", {std::move(Binding)});
-auto Registration = FModularFeatureRegistry::Get().RegisterFeature(Math);
+auto Registration = IModularFeatures::Get().RegisterFeature(Math);
 // Submit FToolRequest{{"math", "add"}, 1, FToolValue::FObject{{"left", 42}}}
 // through the editor tool service. Reset Registration before destroying Math.
 ```

@@ -84,7 +84,7 @@ namespace
 				return Handler ? Handler(Request, Context) : FToolResult{EToolStatus::Succeeded, true};
 			};
 			Toolset = std::make_unique<FNativeToolset>("tests", "MCP test tools", std::vector<FToolBinding>{std::move(Binding)});
-			Registration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset);
+			Registration = RegisterModularFeature(*Toolset);
 			(void)Tools->ListToolsets();
 		}
 		auto BeginCall(std::function<void()> OnHeaders = {}) -> std::future<httplib::Result>
@@ -416,7 +416,7 @@ namespace
 		};
 		Toolset = std::make_unique<FNativeToolset>("tests", "SDK cancellation acceptance",
 			std::vector<FToolBinding>{std::move(WaitTool), std::move(PauseTool), std::move(QueuedTool), std::move(StatsTool)});
-		Registration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset); (void)Tools->ListToolsets();
+		Registration = RegisterModularFeature(*Toolset); (void)Tools->ListToolsets();
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 		while (!std::filesystem::exists(Done) && std::chrono::steady_clock::now() < Deadline)
 		{
@@ -446,7 +446,7 @@ namespace
 			++Calls; EXPECT_EQ(Host.Get(), GetToolEditor(Context)); return Future;
 		};
 		Toolset = std::make_unique<FNativeToolset>("tests", "Pending compatibility fixture", std::vector<FToolBinding>{std::move(Binding)});
-		Registration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset); (void)Tools->ListToolsets();
+		Registration = RegisterModularFeature(*Toolset); (void)Tools->ListToolsets();
 		auto Pending = BeginCall();
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
 		while (!Calls && std::chrono::steady_clock::now() < Deadline) { Tools->TickTools(); std::this_thread::yield(); }

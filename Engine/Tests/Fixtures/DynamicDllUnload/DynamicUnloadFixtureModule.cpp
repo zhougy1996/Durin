@@ -9,10 +9,8 @@ namespace Durin
 	{
 		auto InvokeHost(auto&& Callable) -> bool
 		{
-			return FModularFeatureRegistry::Get()
-				.InvokeSingle<Tests::IDynamicUnloadHostFeature>(
-					std::forward<decltype(Callable)>(Callable))
-				.Status == EFeatureInvokeStatus::Invoked;
+			return Tests::VisitOnlyUnloadFeature<Tests::IDynamicUnloadHostFeature>(
+				std::forward<decltype(Callable)>(Callable));
 		}
 
 		auto RecordHostEvent(
@@ -72,17 +70,16 @@ namespace Durin
 				bDynamicReloading = false;
 				throw std::runtime_error("Injected process-resident startup failure.");
 			}
-			const auto Serial = FModularFeatureRegistry::Get()
-				.InvokeSingle<Tests::IDynamicUnloadHostFeature>(
+			const auto Serial = Tests::VisitOnlyUnloadFeature<Tests::IDynamicUnloadHostFeature>(
 					[](Tests::IDynamicUnloadHostFeature& Host) {
 						return Host.AllocateInstanceSerial();
 					});
-			if (!Serial.WasInvoked() || !Serial.Value) throw std::runtime_error(
+			if (!Serial) throw std::runtime_error(
 				"Dynamic unload fixture requires its process-resident host feature.");
-			InstanceSerial = *Serial.Value;
+			InstanceSerial = *Serial;
 			require(InvokeHost([this](auto& Host) { WorkerCallbacks = Host.GetWorkerCallbacks(); }));
 			FeatureRegistration =
-				FModularFeatureRegistry::Get().RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
+				RegisterModularFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
 
 			if (!FeatureRegistration.IsValid())
 				throw std::runtime_error(

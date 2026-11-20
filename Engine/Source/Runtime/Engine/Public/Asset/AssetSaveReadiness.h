@@ -22,7 +22,6 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.AssetSaveReadiness";
-		static constexpr uint32 FeatureVersion = 2;
 		virtual auto Validate(const DObject& Asset) const
 			-> FAssetSaveReadinessFeatureResult = 0;
 	};

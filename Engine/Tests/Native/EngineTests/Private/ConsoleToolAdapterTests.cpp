@@ -82,7 +82,7 @@ namespace Durin::MainFrame
 					return FToolResult{EToolStatus::Succeeded, Request.Arguments};
 				};
 				Toolset = std::make_unique<FNativeToolset>("tests", "Console test tools", std::vector<FToolBinding>{std::move(Binding)});
-				Registration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset);
+				Registration = RegisterModularFeature(*Toolset);
 			}
 			auto File(std::string_view Text) -> std::string
 			{

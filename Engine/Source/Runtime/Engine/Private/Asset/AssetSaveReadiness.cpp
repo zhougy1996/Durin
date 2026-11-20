@@ -10,21 +10,23 @@ namespace Durin
 		if (!Asset)
 			return std::unexpected(UnifiedError::FError{{"AssetSaveReadiness", "InvalidData"}, "Asset save-readiness requires an exact loaded asset."});
 
-		const auto Invoked = FModularFeatureRegistry::Get().InvokeAll<
-			IAssetSaveReadinessFeature>(
-			[&](IAssetSaveReadinessFeature& Feature) {
-				return Feature.Validate(*Asset);
-			});
 		std::optional<std::expected<void, UnifiedError::FError>> Handled;
-		for (const auto& Invocation : Invoked.Invocations)
-		{
-			if (Invocation.Status != EFeatureInvokeStatus::Invoked || !Invocation.Value)
-				return std::unexpected(UnifiedError::FError{{"AssetSaveReadiness", "StaleData"}, "An asset save-readiness provider failed."});
-			if (!Invocation.Value->bHandled) continue;
-			if (Handled)
-				return std::unexpected(UnifiedError::FError{{"AssetSaveReadiness", "StaleData"}, "Asset save-readiness ownership is ambiguous."});
-			Handled = Invocation.Value->Result;
-		}
+		const char* Error = nullptr;
+		ForEachModularFeature<IAssetSaveReadinessFeature>([&](IAssetSaveReadinessFeature& Feature) {
+			try
+			{
+				auto Outcome = Feature.Validate(*Asset);
+				if (Error || !Outcome.bHandled) return;
+				if (Handled) Error = "Asset save-readiness ownership is ambiguous.";
+				else Handled = std::move(Outcome.Result);
+			}
+			catch (...)
+			{
+				if (!Error) Error = "An asset save-readiness provider failed.";
+			}
+		});
+		if (Error)
+			return std::unexpected(UnifiedError::FError{{"AssetSaveReadiness", "StaleData"}, Error});
 		return Handled.value_or(std::expected<void, UnifiedError::FError>{});
 	}
 }

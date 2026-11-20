@@ -17,7 +17,7 @@ namespace Durin
             if (!Started) return std::unexpected(Started.error());
             Running = true;
             Toolset = CreatePythonToolset(Runtime);
-            ToolsetRegistration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset);
+            ToolsetRegistration = RegisterModularFeature(*Toolset);
         }
         return Runtime;
     }

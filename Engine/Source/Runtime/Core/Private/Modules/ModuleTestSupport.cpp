@@ -28,7 +28,7 @@ namespace Durin
 	{
 		require(StartedModule != nullptr);
 		StartedModule->ShutdownModule();
-		require(!FModularFeatureRegistry::Get().IsDispatching());
+		require(!IsModularFeatureDispatching());
 		StartedModule = nullptr;
 	}
 

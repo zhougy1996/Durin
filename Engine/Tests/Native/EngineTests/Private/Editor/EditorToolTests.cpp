@@ -179,7 +179,7 @@ TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawi
 		Events.emplace_back("tool");
 		return FToolResult{EToolStatus::Succeeded, Input.Arguments};
 	};
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Editor = MakeHost();
 	FRecordingMainFrameModule MainFrame(Events);
 	struct FRecordingScriptPump final : IEditorScriptPump
@@ -188,7 +188,7 @@ TEST_F(FEditorToolTests, MainFrameUpdatesOnlyOnNormalTicksAfterToolsWithoutDrawi
 		explicit FRecordingScriptPump(std::vector<std::string>& InEvents) : Events(InEvents) {}
 		auto Pump(DEditorEngine&, const std::shared_ptr<FEditorToolService>&) -> void override { Events.emplace_back("script"); }
 	} ScriptPump(Events);
-	auto ScriptToken = FModularFeatureRegistry::Get().RegisterFeature(ScriptPump);
+	auto ScriptToken = RegisterModularFeature(ScriptPump);
 	struct FRestoreModule
 	{
 		DEditorEngine& Editor;
@@ -223,7 +223,7 @@ TEST_F(FEditorToolTests, ShutdownFromToolsOrScriptsStopsTheRemainingEditorFrame)
 			if (bStopInTool) Editor->RequestShutdown();
 			return FToolResult{EToolStatus::Succeeded, Input.Arguments};
 		};
-		auto ToolToken = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+		auto ToolToken = RegisterModularFeature(Toolset);
 		Editor = MakeHost();
 		struct FStoppingScriptPump final : IEditorScriptPump
 		{
@@ -232,7 +232,7 @@ TEST_F(FEditorToolTests, ShutdownFromToolsOrScriptsStopsTheRemainingEditorFrame)
 			auto Pump(DEditorEngine& Host, const std::shared_ptr<FEditorToolService>&) -> void override
 			{ Events.emplace_back("script"); Host.RequestShutdown(); }
 		} ScriptPump(Events);
-		auto ScriptToken = FModularFeatureRegistry::Get().RegisterFeature(ScriptPump);
+		auto ScriptToken = RegisterModularFeature(ScriptPump);
 		FRecordingMainFrameModule MainFrame(Events);
 		const auto Previous = FEditorEngineTestAccess::BindMainFrameModule(*Editor, &MainFrame);
 		auto* Tools = Editor->GetEditorSubsystem<DEditorToolSubsystem>();
@@ -408,7 +408,7 @@ TEST_F(FEditorToolTests, PublishesSortedOwnedCatalogsAndRefreshesOnlyAfterRegist
 {
 	FTestToolset Toolset;
 	Toolset.Descriptors = {Descriptor("zeta"), Descriptor("alpha")};
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Host = MakeHost();
 	auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	ASSERT_NE(nullptr, Tools);
@@ -418,6 +418,11 @@ TEST_F(FEditorToolTests, PublishesSortedOwnedCatalogsAndRefreshesOnlyAfterRegist
 	EXPECT_EQ("alpha", Catalog.Toolsets[0].Descriptor.Tools[0].Name);
 	EXPECT_EQ("zeta", Catalog.Toolsets[0].Descriptor.Tools[1].Name);
 	const auto Descriptions = Toolset.Descriptions;
+	IModularFeature Unrelated;
+	const FName UnrelatedType("EditorToolTests.Unrelated");
+	IModularFeatures::Get().RegisterModularFeature(UnrelatedType, &Unrelated);
+	EXPECT_EQ(Catalog.Revision, WithoutBuiltins(Tools->ListToolsets()).Revision);
+	IModularFeatures::Get().UnregisterModularFeature(UnrelatedType, &Unrelated);
 	EXPECT_EQ(Catalog.Revision, WithoutBuiltins(Tools->ListToolsets()).Revision);
 	EXPECT_EQ(Descriptions, Toolset.Descriptions);
 	Token.Reset();
@@ -432,9 +437,9 @@ TEST_F(FEditorToolTests, RefusesDuplicateNamesIncludingInvalidCandidatesAndConta
 	FTestToolset First, Second, Broken;
 	Second.Descriptors.front().Input.Type = EToolValueType::Boolean;
 	Broken.ThrowDescription = true;
-	auto A = FModularFeatureRegistry::Get().RegisterFeature(First);
-	auto B = FModularFeatureRegistry::Get().RegisterFeature(Second);
-	auto C = FModularFeatureRegistry::Get().RegisterFeature(Broken);
+	auto A = RegisterModularFeature(First);
+	auto B = RegisterModularFeature(Second);
+	auto C = RegisterModularFeature(Broken);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Catalog = WithoutBuiltins(Tools->ListToolsets());
 	EXPECT_TRUE(Catalog.Toolsets.empty());
@@ -443,8 +448,8 @@ TEST_F(FEditorToolTests, RefusesDuplicateNamesIncludingInvalidCandidatesAndConta
 	EXPECT_EQ(0, First.Executions);
 	EXPECT_EQ(0, Second.Executions);
 	A.Reset(); B.Reset(); C.Reset();
-	B = FModularFeatureRegistry::Get().RegisterFeature(Second);
-	A = FModularFeatureRegistry::Get().RegisterFeature(First);
+	B = RegisterModularFeature(Second);
+	A = RegisterModularFeature(First);
 	EXPECT_TRUE(WithoutBuiltins(Tools->ListToolsets()).Toolsets.empty());
 	B.Reset();
 	EXPECT_EQ(1u, WithoutBuiltins(Tools->ListToolsets()).Toolsets.size());
@@ -453,7 +458,7 @@ TEST_F(FEditorToolTests, RefusesDuplicateNamesIncludingInvalidCandidatesAndConta
 TEST_F(FEditorToolTests, NativeAndCrossThreadCallsShareNormalizationAndExplicitHostContext)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* First = MakeHost();
 	auto* Tools = First->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
@@ -489,7 +494,7 @@ TEST_F(FEditorToolTests, NativeAndCrossThreadCallsShareNormalizationAndExplicitH
 TEST_F(FEditorToolTests, AvailabilityAndArgumentFailuresNeverExecuteAndWrongThreadIsRejected)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	Toolset.Availability = [](const auto&, const auto&) { return FToolAvailability{false, {}}; };
 	EXPECT_FALSE(Tools->CheckAvailability(Request()).bAvailable);
@@ -512,12 +517,12 @@ TEST_F(FEditorToolTests, RejectsExternalExposureAndBindsQueuedCallsToTheOriginal
 {
 	FTestToolset Toolset;
 	Toolset.Descriptors.front().bExposeExternally = false;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	EXPECT_EQ(EToolError::ToolUnavailable, Endpoint->Submit(Request(), EToolSource::External).error().Code);
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id.has_value());
-	Token.Reset(); Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	Token.Reset(); Token = RegisterModularFeature(Toolset);
 	Tools->TickTools();
 	auto Result = Endpoint->GetInvocation(*Id);
 	ASSERT_TRUE(Result && Result->Result);
@@ -529,7 +534,7 @@ TEST_F(FEditorToolTests, RejectsExternalExposureAndBindsQueuedCallsToTheOriginal
 TEST_F(FEditorToolTests, EnforcesQueueCapacityCancellationAndPerTickDispatchBudget)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxQueued = 2; Limits.MaxDispatchPerTick = 1; Limits.TickBudget = std::chrono::seconds(1);
@@ -554,7 +559,7 @@ TEST_F(FEditorToolTests, EnforcesQueueCapacityCancellationAndPerTickDispatchBudg
 TEST_F(FEditorToolTests, ClientLifetimeIsIndependentFromInvocationCancellationAndBlocksQueuedExecution)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService(); (void)Tools->ListToolsets();
 	FToolCancellationSource ClientLifetime;
@@ -578,7 +583,7 @@ TEST_F(FEditorToolTests, ClientLifetimeIsIndependentFromInvocationCancellationAn
 TEST_F(FEditorToolTests, DistinguishesExpiredUnknownAndActiveInvocationsWithoutTombstones)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxCompleted = 1;
@@ -599,7 +604,7 @@ TEST_F(FEditorToolTests, DistinguishesExpiredUnknownAndActiveInvocationsWithoutT
 TEST_F(FEditorToolTests, BoundsOutputsAndContainsProviderExceptionsWithoutPoisoningDispatch)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	Toolset.Action = [](const auto&, const auto&) -> FToolResult { throw std::runtime_error("execute failure"); };
 	EXPECT_EQ(EToolError::InternalError, Tools->CallNow(Request()).Diagnostics.front().Code);
@@ -611,13 +616,13 @@ TEST_F(FEditorToolTests, BoundsOutputsAndContainsProviderExceptionsWithoutPoison
 	EXPECT_EQ(EToolError::LimitExceeded, Tools->CallNow(Request()).Diagnostics.front().Code);
 	Toolset.Action = {};
 	EXPECT_EQ(EToolStatus::Succeeded, Tools->CallNow(Request()).Status);
-	EXPECT_FALSE(FModularFeatureRegistry::Get().IsDispatching());
+	EXPECT_FALSE(IsModularFeatureDispatching());
 }
 
 TEST_F(FEditorToolTests, RunningCancellationIsCooperativeAndNeverWaitsForGameThread)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
@@ -637,7 +642,7 @@ TEST_F(FEditorToolTests, RunningCancellationIsCooperativeAndNeverWaitsForGameThr
 TEST_F(FEditorToolTests, ImmediateCallsDoNotConsumeOrRequireAQueueSlot)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxQueued = 1;
@@ -652,7 +657,7 @@ TEST_F(FEditorToolTests, BoundsCatalogAndResultStorageAndPreflightsDetachedSubmi
 {
 	FTestToolset Toolset;
 	Toolset.Descriptors.push_back(Descriptor("second"));
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxCatalogTools = 1;
@@ -678,7 +683,7 @@ TEST_F(FEditorToolTests, ChargesReservedContainerCapacityAndBoundsAdmissionDiagn
 	FTestToolset Toolset;
 	Toolset.Descriptors.front().Output = FToolSchema(EToolValueType::Array);
 	Toolset.Descriptors.front().Output.Items = std::make_unique<FToolSchema>(EToolValueType::Boolean);
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxCompletedBytes = 4096;
@@ -691,7 +696,7 @@ TEST_F(FEditorToolTests, ChargesReservedContainerCapacityAndBoundsAdmissionDiagn
 	Toolset.Action = [](const auto&, const auto&) { return FToolResult{EToolStatus::Succeeded, FToolValue::FArray{true}}; };
 	EXPECT_EQ(EToolStatus::Succeeded, Tools->CallNow(Request()).Status);
 	Token.Reset(); Toolset.Descriptors.front().Output = FToolSchema(EToolValueType::String);
-	Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	Token = RegisterModularFeature(Toolset);
 	Toolset.Action = [](const auto&, const auto&) {
 		std::string Data = "x"; Data.reserve(65536);
 		return FToolResult{EToolStatus::Succeeded, std::move(Data)};
@@ -707,7 +712,7 @@ TEST_F(FEditorToolTests, ChargesReservedContainerCapacityAndBoundsAdmissionDiagn
 TEST_F(FEditorToolTests, ClosingAdmissionDuringAvailabilityNeverInvokesTheTool)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Host = MakeHost();
 	auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	Toolset.Availability = [&](const auto&, const auto& Context) {
@@ -726,7 +731,7 @@ TEST_F(FEditorToolTests, ClosingAdmissionDuringAvailabilityNeverInvokesTheTool)
 TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdownAndGC)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Host = MakeHost();
 	auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
@@ -752,7 +757,7 @@ TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdown
 TEST_F(FEditorToolTests, ShutdownDuringProviderCallbackDefersHostDestructionAndCancelsLaterWork)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Host = MakeHost();
 	auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
@@ -776,7 +781,7 @@ TEST_F(FEditorToolTests, ShutdownDuringProviderCallbackDefersHostDestructionAndC
 TEST_F(FEditorToolTests, DirectAndSubmittedCallsPreserveCallerCancellationParents)
 {
 	FTestToolset Toolset;
-	auto Registration = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Registration = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	for (bool bSubmit : {false, true})
 	{
@@ -800,8 +805,8 @@ TEST_F(FEditorToolTests, GroupsToolsetsAndRoutesSameLocalNameByBothAddressParts)
 {
 	FTestToolset Alpha, Beta;
 	Alpha.Name = "alpha"; Beta.Name = "beta";
-	auto B = FModularFeatureRegistry::Get().RegisterFeature(Beta);
-	auto A = FModularFeatureRegistry::Get().RegisterFeature(Alpha);
+	auto B = RegisterModularFeature(Beta);
+	auto A = RegisterModularFeature(Alpha);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Catalog = WithoutBuiltins(Tools->ListToolsets());
 	ASSERT_EQ(2u, Catalog.Toolsets.size());
@@ -828,7 +833,7 @@ TEST_F(FEditorToolTests, RefusesDuplicateLocalToolsButKeepsUnambiguousToolsInThe
 	FTestToolset Toolset;
 	auto Invalid = Descriptor(); Invalid.Input.Type = EToolValueType::Boolean;
 	Toolset.Descriptors = {Invalid, Descriptor(), Descriptor("other")};
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Set = Tools->DescribeToolset("tests"); ASSERT_TRUE(Set);
 	ASSERT_EQ(1u, Set->Descriptor.Tools.size());
@@ -836,7 +841,7 @@ TEST_F(FEditorToolTests, RefusesDuplicateLocalToolsButKeepsUnambiguousToolsInThe
 	EXPECT_FALSE(Tools->DescribeTool({"tests", "echo"}));
 	Token.Reset();
 	std::reverse(Toolset.Descriptors.begin(), Toolset.Descriptors.end());
-	Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	Token = RegisterModularFeature(Toolset);
 	EXPECT_FALSE(Tools->DescribeTool({"tests", "echo"}));
 	EXPECT_TRUE(Tools->DescribeTool({"tests", "other"}));
 }
@@ -845,7 +850,7 @@ TEST_F(FEditorToolTests, RejectsDottedLocalToolsAtDiscoveryAndSubmission)
 {
 	FTestToolset Toolset; Toolset.Name = "editor.tests";
 	Toolset.Descriptors = {Descriptor("nested.echo"), Descriptor("set_enabled")};
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Set = Tools->DescribeToolset("editor.tests"); ASSERT_TRUE(Set);
 	ASSERT_EQ(1u, Set->Descriptor.Tools.size());
@@ -860,13 +865,13 @@ TEST_F(FEditorToolTests, InvalidGroupMetadataStillBlocksDuplicateNamespaceInEith
 {
 	FTestToolset Good, Bad;
 	Bad.Description = std::string(65537, 'x');
-	auto A = FModularFeatureRegistry::Get().RegisterFeature(Good);
-	auto B = FModularFeatureRegistry::Get().RegisterFeature(Bad);
+	auto A = RegisterModularFeature(Good);
+	auto B = RegisterModularFeature(Bad);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	EXPECT_TRUE(WithoutBuiltins(Tools->ListToolsets()).Toolsets.empty());
 	A.Reset(); B.Reset();
-	B = FModularFeatureRegistry::Get().RegisterFeature(Bad);
-	A = FModularFeatureRegistry::Get().RegisterFeature(Good);
+	B = RegisterModularFeature(Bad);
+	A = RegisterModularFeature(Good);
 	EXPECT_TRUE(WithoutBuiltins(Tools->ListToolsets()).Toolsets.empty());
 }
 
@@ -885,7 +890,7 @@ TEST_F(FEditorToolTests, ExplicitNativeBindingsShareTheEditorServiceAndQueue)
 	auto Binding = BindTool(FToolDescriptor{.Name = "increment", .bExposeExternally = true}, &NativeHostTool,
 		std::array{FToolParameter{"value", "Input", FToolValue{41}}});
 	FNativeToolset Set("native", "Explicit native functions", {std::move(Binding)});
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Set);
+	auto Token = RegisterModularFeature(Set);
 	TypedHost = MakeHost();
 	auto* Tools = TypedHost->GetEditorSubsystem<DEditorToolSubsystem>();
 	FToolRequest Input{{"native", "increment"}, 1};
@@ -907,8 +912,8 @@ TEST_F(FEditorToolTests, BoundsEmptyToolsetCountAndPublishesEmptyGroups)
 {
 	FTestToolset Alpha, Beta; Alpha.Name = "alpha"; Beta.Name = "beta";
 	Alpha.Descriptors.clear(); Beta.Descriptors.clear();
-	auto A = FModularFeatureRegistry::Get().RegisterFeature(Alpha);
-	auto B = FModularFeatureRegistry::Get().RegisterFeature(Beta);
+	auto A = RegisterModularFeature(Alpha);
+	auto B = RegisterModularFeature(Beta);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	ASSERT_EQ(2u, WithoutBuiltins(Tools->ListToolsets()).Toolsets.size());
 	FEditorToolLimits Limits; Limits.MaxCatalogToolsets = 1;
@@ -929,7 +934,7 @@ TEST_F(FEditorToolTests, PendingCompletionPublishesOnlyOnTickAndSynchronousAdmis
 	int AvailabilityCalls = 0;
 	Toolset.Availability = [&](const auto&, const auto&) { ++AvailabilityCalls; return FToolAvailability{}; };
 	Toolset.AsyncAction = [&](const auto&, const auto& Context) { Copied = Context; return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	EXPECT_EQ(EToolError::Busy, Tools->CallNow(Request()).Diagnostics.front().Code);
@@ -962,7 +967,7 @@ TEST_F(FEditorToolTests, SynchronousPendingViolationFailsOnceAfterEffectsWithout
 	auto Source = FToolPromise{};
 	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
@@ -982,7 +987,7 @@ TEST_F(FEditorToolTests, PendingCapacityDefersDispatchAndCompletionRecoversCapac
 	auto Source = FToolPromise{};
 	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxPending = 1;
@@ -1001,7 +1006,7 @@ TEST_F(FEditorToolTests, PendingCapacityDefersDispatchAndCompletionRecoversCapac
 TEST_F(FEditorToolTests, ConsumerPinsRemainChargedAfterReceiptExpiryAndReleaseRecoversAdmission)
 {
 	FTestToolset Toolset;
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxRetained = 1;
@@ -1035,7 +1040,7 @@ TEST_F(FEditorToolTests, ClosedHostDetachesPendingCompletionAndLateProducerCanno
 	auto Source = FToolPromise{};
 	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Host = MakeHost(); auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
@@ -1054,7 +1059,7 @@ TEST_F(FEditorToolTests, RetainedReceiptAndLateProducerSurviveServiceDestruction
 	FToolPromise Producer;
 	auto Raw = Producer.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Host = MakeHost(); auto* Tools = Host->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	std::weak_ptr<FEditorToolService> Weak = Endpoint;
@@ -1080,7 +1085,7 @@ TEST_F(FEditorToolTests, DelayedOutputValidationAndAbandonmentUseOneFinalBoundar
 	std::optional<FToolPromise> Source = FToolPromise{};
 	auto Raw = Source->GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id); Tools->TickTools();
@@ -1098,7 +1103,7 @@ TEST_F(FEditorToolTests, PendingRemovalCancellationAndByteLimitsRemainDetachedAn
 	auto Source = FToolPromise{};
 	auto Raw = Source.GetFuture().Share();
 	Toolset.AsyncAction = [&](const auto&, const auto&) { return Raw; };
-	auto Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	auto Token = RegisterModularFeature(Toolset);
 	auto* Tools = MakeHost()->GetEditorSubsystem<DEditorToolSubsystem>();
 	auto Endpoint = Tools->GetService();
 	FEditorToolLimits Limits; Limits.MaxPendingBytes = 1;
@@ -1112,7 +1117,7 @@ TEST_F(FEditorToolTests, PendingRemovalCancellationAndByteLimitsRemainDetachedAn
 	Source.TrySetCanceled(); Tools->TickTools();
 	EXPECT_EQ(EToolError::Cancelled, Endpoint->GetInvocation(*Id)->Result->Diagnostics.front().Code);
 	Toolset.Descriptors.front().Output = FToolSchema(EToolValueType::String);
-	Token = FModularFeatureRegistry::Get().RegisterFeature(Toolset);
+	Token = RegisterModularFeature(Toolset);
 	Source = FToolPromise{}; Raw = Source.GetFuture().Share();
 	Limits.MaxCompletedBytes = 2048;
 	ASSERT_TRUE(Endpoint->Configure(Limits)); (void)Tools->ListToolsets();

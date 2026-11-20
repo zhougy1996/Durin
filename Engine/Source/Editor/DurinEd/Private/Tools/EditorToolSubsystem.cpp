@@ -1,5 +1,6 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Editor/EditorEngine.h"
+#include "Logging/LogMacros.h"
 #include "Tools/EditorScriptPump.h"
 #include "Threading/RunnableThread.h"
 
@@ -31,7 +32,10 @@ namespace Durin
 		if (Service)
 		{
 			Service->Close();
-			(void)FModularFeatureRegistry::Get().InvokeAll<IEditorScriptPump>([&](auto& Pump) { Pump.CloseEndpoint(Service); });
+			ForEachModularFeature<IEditorScriptPump>([&](auto& Pump) {
+				try { Pump.CloseEndpoint(Service); }
+				catch (...) { DURIN_ERROR("Editor script pump failed to close its endpoint."); }
+			});
 		}
 		Service.reset();
 	}

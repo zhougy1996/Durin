@@ -36,17 +36,18 @@ between calls. Adapters may otherwise queue once; they must not retry a provider
 ## Catalog Publication
 
 Initialization, GameThread listing, and tick dispatch refresh the catalog when
-the global feature publication revision changes. Metadata is immutable during a
-registration; providers re-register to change descriptors. Worker-side catalog
+the service receives a toolset registration or unregistration notification.
+Metadata is immutable during a registration. Providers re-register to change
+descriptors. Worker-side catalog
 reads use the latest published snapshot, which may lag registration until a
 GameThread refresh. Reentrant listing during feature dispatch reads the previous
 snapshot rather than recursively describing providers.
 
-Discovery copies one owned `FToolsetDescriptor` from each `InvokeAll<IToolset>`
-registration. `FEditorToolCatalog.Toolsets` holds grouped descriptions and exact
+Discovery copies one owned `FToolsetDescriptor` from each live `IToolset`
+registration. The editor service assigns `ToolsetIdentity` and invalidates it
+on unregistration. `FEditorToolCatalog.Toolsets` holds grouped descriptions and
 `ToolsetIdentity` values, sorted by toolset name with tools sorted by local name.
-`FeatureRevision` is the global registry publication revision; the catalog has
-its own monotonic Revision. Internal routes retain owned descriptors and exact
+`FEditorToolCatalog.Revision` tracks catalog publication. Internal routes retain owned descriptors and exact
 registration identities, never toolset objects or callbacks.
 
 Calls use `FToolAddress{Toolset, Tool}`. Both names are case-sensitive and limited

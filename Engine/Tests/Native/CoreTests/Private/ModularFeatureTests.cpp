@@ -9,23 +9,14 @@ namespace Durin::Tests
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Tests.Arithmetic";
-		static constexpr uint32 FeatureVersion = 1;
 		virtual auto AddOne(int Value) -> int = 0;
 	};
 
 	class IArithmeticFeatureV2 : public IModularFeature
 	{
 	public:
-		static constexpr std::string_view FeatureName = "Tests.Arithmetic";
-		static constexpr uint32 FeatureVersion = 2;
+		static constexpr std::string_view FeatureName = "Tests.ArithmeticV2";
 		virtual auto AddTwo(int Value) -> int = 0;
-	};
-
-	class IInvalidFeature : public IModularFeature
-	{
-	public:
-		static constexpr std::string_view FeatureName = "Tests.Invalid";
-		static constexpr uint32 FeatureVersion = 0;
 	};
 
 	class FArithmeticFeature final : public IArithmeticFeature
@@ -40,15 +31,10 @@ namespace Durin::Tests
 		auto AddTwo(int Value) -> int override { return Value + 2; }
 	};
 
-	class FInvalidFeature final : public IInvalidFeature
-	{
-	};
-
 	class IManagedModuleFeature : public IModularFeature
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Tests.ManagedModule";
-		static constexpr uint32 FeatureVersion = 1;
 		virtual auto GetValue() -> int = 0;
 	};
 
@@ -70,13 +56,12 @@ namespace Durin::Tests
 		auto SetDynamicReloadingForTest(bool bEnabled) -> void { bDynamicReloading = bEnabled; }
 		auto StartupModule() -> void override
 		{
-			Registration = FModularFeatureRegistry::Get().RegisterFeature<IManagedModuleFeature>(*this);
+			Registration = RegisterModularFeature<IManagedModuleFeature>(*this);
 		}
 		auto ShutdownModule() -> void override
 		{
 			// The manager must leave the registration available until our callback.
-			EXPECT_EQ(EFeatureInvokeStatus::Invoked,
-				FModularFeatureRegistry::Get().InvokeSingle<IManagedModuleFeature>([](auto&) {}).Status);
+			EXPECT_TRUE(IModularFeatures::Get().IsModularFeatureAvailable(FName(IManagedModuleFeature::FeatureName)));
 			Registration.Reset();
 			Observations.bShutdown = true;
 			++Observations.ShutdownCount;
@@ -187,218 +172,139 @@ namespace Durin::Tests
 		RecoveryHarness.Shutdown();
 	}
 
-	TEST(FModularFeatureTests, UsesDeclaredNameAndVersionAndRejectsInvalidIdentity)
+	TEST(FModularFeatureTests, EnumeratesProvidersByInterfaceName)
 	{
-
-		FArithmeticFeature V1;
-		FArithmeticFeatureV2 V2;
-		FInvalidFeature Invalid;
-		auto V1Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(V1);
-		auto V2Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(V2);
-		auto InvalidRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Invalid);
-
-		EXPECT_TRUE(V1Registration.IsValid());
-		EXPECT_TRUE(V2Registration.IsValid());
-		EXPECT_FALSE(InvalidRegistration.IsValid());
-		const auto V1Result = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
-			[](IArithmeticFeature& Feature) { return Feature.AddOne(4); });
-		const auto V2Result = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeatureV2>(
-			[](IArithmeticFeatureV2& Feature) { return Feature.AddTwo(4); });
-		ASSERT_TRUE(V1Result.Value.has_value());
-		ASSERT_TRUE(V2Result.Value.has_value());
-		EXPECT_EQ(5, *V1Result.Value);
-		EXPECT_EQ(6, *V2Result.Value);
-	}
-
-	TEST(FModularFeatureTests, ExpectedRegistrationRejectsReplacementBeforeEnteringVisitor)
-	{
-
-		FArithmeticFeature Feature;
-		auto Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature);
-		const auto First = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
-			[](IArithmeticFeature& Value) { return Value.AddOne(1); });
-		ASSERT_TRUE(First.WasInvoked());
-		ASSERT_NE(0u, First.RegistrationIdentity);
-		Registration.Reset();
-		EXPECT_FALSE(Registration.IsValid());
-		Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature);
-		bool bEntered = false;
-		const auto Stale = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
-			[&](IArithmeticFeature&) { bEntered = true; }, First.RegistrationIdentity);
-		EXPECT_FALSE(Stale.WasInvoked());
-		EXPECT_FALSE(bEntered);
-		EXPECT_NE(First.RegistrationIdentity, Stale.RegistrationIdentity);
-		const auto Current = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
-			[&](IArithmeticFeature&) { bEntered = true; }, Stale.RegistrationIdentity);
-		EXPECT_TRUE(Current.WasInvoked());
-		EXPECT_TRUE(bEntered);
-		const auto All = FModularFeatureRegistry::Get().InvokeAll<IArithmeticFeature>(
-			[](IArithmeticFeature& Value) { return Value.AddOne(2); });
-		ASSERT_EQ(1u, All.Invocations.size());
-		EXPECT_EQ(Current.RegistrationIdentity, All.Invocations.front().RegistrationIdentity);
-		Registration.Reset();
-		EXPECT_FALSE(Registration.IsValid());
-	}
-
-	TEST(FModularFeatureTests, ExactInvocationSelectsOnlyTheRequestedIdentityAndType)
-	{
-
 		FArithmeticFeature First;
 		FArithmeticFeature Second;
-		auto FirstRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(First);
-		const auto Discovered = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>([](auto&) {});
-		ASSERT_TRUE(Discovered.WasInvoked());
-		auto SecondRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Second);
-		auto& Registry = FModularFeatureRegistry::Get();
-		const auto Result = Registry.InvokeRegistered<IArithmeticFeature>(Discovered.RegistrationIdentity, [&](auto& Feature) {
-			EXPECT_EQ(&First, &Feature);
-			EXPECT_TRUE(FModularFeatureRegistry::Get().IsDispatching());
-			return Feature.AddOne(5);
-		});
-		ASSERT_TRUE(Result.WasInvoked());
-		EXPECT_EQ(6, *Result.Value);
-		EXPECT_EQ(1u, Result.MatchingRegistrationCount);
-		EXPECT_EQ(Discovered.RegistrationIdentity, Result.RegistrationIdentity);
-		EXPECT_EQ(EFeatureInvokeStatus::Unavailable, Registry.InvokeRegistered<IArithmeticFeatureV2>(Discovered.RegistrationIdentity, [](auto&) {}).Status);
-		EXPECT_EQ(EFeatureInvokeStatus::Unavailable, Registry.InvokeRegistered<IArithmeticFeature>(0, [](auto&) {}).Status);
+		FArithmeticFeatureV2 Other;
+		auto FirstRegistration = RegisterModularFeature(First);
+		auto SecondRegistration = RegisterModularFeature(Second);
+		auto OtherRegistration = RegisterModularFeature(Other);
+		auto& Registry = IModularFeatures::Get();
+
+		EXPECT_EQ((std::vector<IArithmeticFeature*>{&First, &Second}),
+			Registry.GetModularFeatureImplementations<IArithmeticFeature>(FName(IArithmeticFeature::FeatureName)));
+		EXPECT_EQ((std::vector<IArithmeticFeatureV2*>{&Other}),
+			Registry.GetModularFeatureImplementations<IArithmeticFeatureV2>(FName(IArithmeticFeatureV2::FeatureName)));
+
 		FirstRegistration.Reset();
-		EXPECT_FALSE(FirstRegistration.IsValid());
-		FirstRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(First);
-		EXPECT_EQ(EFeatureInvokeStatus::Unavailable, Registry.InvokeRegistered<IArithmeticFeature>(Discovered.RegistrationIdentity, [](auto&) {}).Status);
-	}
-
-	TEST(FModularFeatureTests, PublicationRevisionTracksRegistrationAndImmediateUnregistration)
-	{
-		auto& Registry = FModularFeatureRegistry::Get();
-		const auto Before = Registry.GetPublicationRevision();
-
-		FArithmeticFeature Feature;
-		FInvalidFeature Invalid;
-		auto InvalidRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Invalid);
-		EXPECT_EQ(Before, Registry.GetPublicationRevision());
-		auto Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature);
-		EXPECT_EQ(Before + 1, Registry.GetPublicationRevision());
-		auto Moved = std::move(Registration);
-		EXPECT_TRUE(Registry.InvokeSingle<IArithmeticFeature>([](auto&) {}).WasInvoked());
-		EXPECT_EQ(Before + 1, Registry.GetPublicationRevision());
-		Moved.Reset();
-		EXPECT_EQ(Before + 2, Registry.GetPublicationRevision());
-		Moved.Reset();
-		EXPECT_EQ(Before + 2, Registry.GetPublicationRevision());
-		EXPECT_EQ(0u, Durin::FModularFeatureRegistry::Get().InvokeAll<IArithmeticFeature>([](auto&) {}).MatchingRegistrationCount);
-	}
-
-	TEST(FModularFeatureTests, ExactInvocationContainsExceptionsAndRestoresTheSafePoint)
-	{
-
-		FArithmeticFeature Feature;
-		auto Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature);
-		auto& Registry = FModularFeatureRegistry::Get();
-		const auto Discovery = Registry.InvokeSingle<IArithmeticFeature>([](auto&) {});
-		const auto Failure = Registry.InvokeRegistered<IArithmeticFeature>(Discovery.RegistrationIdentity, [](auto&) -> int {
-			throw std::runtime_error("expected exact invocation failure");
+		int Visits = 0;
+		ForEachModularFeature<IArithmeticFeature>([&](IArithmeticFeature& Feature) {
+			++Visits;
+			EXPECT_EQ(&Second, &Feature);
+			EXPECT_EQ(5, Feature.AddOne(4));
 		});
-		EXPECT_EQ(EFeatureInvokeStatus::VisitorFailed, Failure.Status);
-		EXPECT_FALSE(Failure.Value.has_value());
-		EXPECT_FALSE(Registry.IsDispatching());
-		Registration.Reset();
+		EXPECT_EQ(1, Visits);
+	}
+
+	TEST(FModularFeatureTests, RegistrationTokenHasOneOwner)
+	{
+		FArithmeticFeature Feature;
+		auto Registration = RegisterModularFeature(Feature);
+		auto Duplicate = RegisterModularFeature(Feature);
+		EXPECT_FALSE(Duplicate.IsValid());
+		auto Moved = std::move(Registration);
 		EXPECT_FALSE(Registration.IsValid());
+		Registration.Reset();
+		EXPECT_TRUE(IModularFeatures::Get().IsModularFeatureAvailable(FName(Feature.FeatureName)));
+		Moved.Reset();
+		Moved.Reset();
+		EXPECT_FALSE(IModularFeatures::Get().IsModularFeatureAvailable(FName(Feature.FeatureName)));
+	}
+
+	TEST(FModularFeatureTests, NotifiesAfterRegistrationAndImmediateUnregistration)
+	{
+		auto& Registry = IModularFeatures::Get();
+		const FName Type(IArithmeticFeature::FeatureName);
+		FArithmeticFeature Feature;
+		struct FListener
+		{
+			const FName& ExpectedType;
+			IModularFeature* ExpectedFeature;
+			std::vector<int32> Counts;
+
+			auto OnChanged(const FName& Name, IModularFeature* Implementation) -> void
+			{
+				EXPECT_EQ(ExpectedType, Name);
+				EXPECT_EQ(ExpectedFeature, Implementation);
+				Counts.push_back(IModularFeatures::Get().GetModularFeatureImplementationCount(Name));
+			}
+		} Listener{Type, &Feature};
+		Registry.OnModularFeatureRegistered().AddRaw(&Listener, &FListener::OnChanged);
+		Registry.OnModularFeatureUnregistered().AddRaw(&Listener, &FListener::OnChanged);
+
+		auto Registration = RegisterModularFeature(Feature);
+		auto Moved = std::move(Registration);
+		EXPECT_TRUE(Registry.IsModularFeatureAvailable(Type));
+		Moved.Reset();
+		Moved.Reset();
+		EXPECT_EQ((std::vector<int32>{1, 0}), Listener.Counts);
+
+		Registry.RegisterModularFeature(Type, &Feature);
+		Registry.RegisterModularFeature(Type, &Feature);
+		{
+			IModularFeatures::FScopedLockModularFeatureList Lock;
+			EXPECT_TRUE(Registry.IsModularFeatureAvailable(Type));
+			EXPECT_EQ(&Feature, &Registry.GetModularFeature<IArithmeticFeature>(Type));
+			EXPECT_EQ((std::vector<IArithmeticFeature*>{&Feature}), Registry.GetModularFeatureImplementations<IArithmeticFeature>(Type));
+			EXPECT_EQ(nullptr, Registry.GetModularFeatureImplementation(Type, 1));
+		}
+		Registry.UnregisterModularFeature(Type, &Feature);
+		Registry.UnregisterModularFeature(Type, &Feature);
+		EXPECT_FALSE(Registry.IsModularFeatureAvailable(Type));
+		EXPECT_EQ((std::vector<int32>{1, 0, 1, 1, 0, 0}), Listener.Counts);
+
+		EXPECT_EQ(1u, Registry.OnModularFeatureRegistered().RemoveAll(&Listener));
+		EXPECT_EQ(1u, Registry.OnModularFeatureUnregistered().RemoveAll(&Listener));
+		Registry.RegisterModularFeature(Type, &Feature);
+		Registry.UnregisterModularFeature(Type, &Feature);
+		EXPECT_EQ(6u, Listener.Counts.size());
+	}
+
+	TEST(FModularFeatureTests, RemovingRawSubscriberSkipsPendingNotification)
+	{
+		FArithmeticFeature Feature;
+		auto& Registry = IModularFeatures::Get();
+		auto& Event = Registry.OnModularFeatureRegistered();
+		struct FListener
+		{
+			int Calls = 0;
+			auto OnRegistered(const FName&, IModularFeature*) -> void { ++Calls; }
+		} Listener;
+		const auto Removal = Event.AddLambda([&](const FName&, IModularFeature*) {
+			EXPECT_EQ(1u, Event.RemoveAll(&Listener));
+		});
+		Event.AddRaw(&Listener, &FListener::OnRegistered);
+		auto Registration = RegisterModularFeature(Feature);
+		EXPECT_EQ(0, Listener.Calls);
+		EXPECT_TRUE(Event.Remove(Removal));
 	}
 
 	TEST(FModularFeatureDeathTests, RejectsWrongThreadAccessAndMutationDuringDispatch)
 	{
-
 		FArithmeticFeature Feature;
-		auto Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature);
-		auto& Registry = FModularFeatureRegistry::Get();
-		EXPECT_DEATH({ std::thread Worker([&] { (void)Registry.InvokeSingle<IArithmeticFeature>([](auto&) {}); }); Worker.join(); }, "");
-		EXPECT_DEATH({ std::thread Worker([&] { (void)Registry.GetPublicationRevision(); }); Worker.join(); }, "");
-		EXPECT_DEATH({ std::thread Worker([&] { auto Token = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature); }); Worker.join(); }, "");
+		auto Registration = RegisterModularFeature(Feature);
+		EXPECT_DEATH({ std::thread Worker([&] { ForEachModularFeature<IArithmeticFeature>([](auto&) {}); }); Worker.join(); }, "");
+		EXPECT_DEATH({ std::thread Worker([&] { auto Token = RegisterModularFeature(Feature); }); Worker.join(); }, "");
 		EXPECT_DEATH({ std::thread Worker([&] { Registration.Reset(); }); Worker.join(); }, "");
-		EXPECT_DEATH({ (void)Registry.InvokeSingle<IArithmeticFeature>([&](auto&) { Registration.Reset(); }); }, "");
-		EXPECT_DEATH({ (void)Registry.InvokeSingle<IArithmeticFeature>([&](auto&) { auto Token = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature); }); }, "");
+		EXPECT_DEATH({ ForEachModularFeature<IArithmeticFeature>([&](auto&) { Registration.Reset(); }); }, "");
+		EXPECT_DEATH({ ForEachModularFeature<IArithmeticFeature>([&](auto&) { auto Token = RegisterModularFeature(Feature); }); }, "");
 		EXPECT_TRUE(Registration.IsValid());
 	}
 
-	TEST(FModularFeatureTests, ReportsUnavailableAmbiguousAndInvokesSelectedSet)
+	TEST(FModularFeatureTests, NestedAccessAndExceptionsRestoreTheSafePoint)
 	{
-
-		FArithmeticFeature First;
-		FArithmeticFeature Second;
-
-		const auto Unavailable = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
-			[](IArithmeticFeature& Feature) { return Feature.AddOne(0); });
-		EXPECT_EQ(EFeatureInvokeStatus::Unavailable, Unavailable.Status);
-
-		auto FirstRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(First);
-		auto SecondRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Second);
-		const auto Ambiguous = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
-			[](IArithmeticFeature& Feature) { return Feature.AddOne(0); });
-		EXPECT_EQ(EFeatureInvokeStatus::Ambiguous, Ambiguous.Status);
-		EXPECT_EQ(2u, Ambiguous.MatchingRegistrationCount);
-
-		const auto All = FModularFeatureRegistry::Get().InvokeAll<IArithmeticFeature>(
-			[](IArithmeticFeature& Feature) { return Feature.AddOne(10); });
-		ASSERT_EQ(2u, All.Invocations.size());
-		EXPECT_EQ(11, *All.Invocations[0].Value);
-		EXPECT_EQ(11, *All.Invocations[1].Value);
-	}
-
-	TEST(FModularFeatureTests, MoveResetAndStaleGenerationAreIdentitySafe)
-	{
-
-		FArithmeticFeature OldFeature;
-		auto OldRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(OldFeature);
-		auto MovedRegistration = std::move(OldRegistration);
-		EXPECT_FALSE(OldRegistration.IsValid());
-		OldRegistration.Reset();
-		EXPECT_FALSE(OldRegistration.IsValid());
-		MovedRegistration.Reset();
-		EXPECT_FALSE(MovedRegistration.IsValid());
-		MovedRegistration.Reset();
-		EXPECT_FALSE(MovedRegistration.IsValid());
-
-		FArithmeticFeature NewFeature;
-		auto NewRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(NewFeature);
-		EXPECT_EQ(EFeatureInvokeStatus::Invoked,
-			FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>([](IArithmeticFeature& Feature) {
-				return Feature.AddOne(1);
-			}).Status);
-	}
-
-	TEST(FModularFeatureTests, ResetOnlyRemovesTheSelectedRegistration)
-	{
-
-		FArithmeticFeature First;
-		FArithmeticFeature Second;
-		auto FirstRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(First);
-		auto SecondRegistration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Second);
-		FirstRegistration.Reset();
-		EXPECT_FALSE(FirstRegistration.IsValid());
-		EXPECT_EQ(1u, Durin::FModularFeatureRegistry::Get().InvokeAll<IArithmeticFeature>([](auto&) {}).MatchingRegistrationCount);
-		EXPECT_EQ(EFeatureInvokeStatus::Invoked,
-			FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>([](IArithmeticFeature&) {}).Status);
-		SecondRegistration.Reset();
-		EXPECT_FALSE(SecondRegistration.IsValid());
-	}
-
-	TEST(FModularFeatureTests, NestedDispatchAndExceptionsRestoreTheSafePoint)
-	{
-
 		FArithmeticFeature Feature;
-		auto Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Feature);
-		auto& Registry = FModularFeatureRegistry::Get();
-		EXPECT_FALSE(Registry.IsDispatching());
-		EXPECT_TRUE(Registry.InvokeSingle<IArithmeticFeature>([&](auto&) {
-			EXPECT_TRUE(Registry.IsDispatching());
-			EXPECT_EQ(EFeatureInvokeStatus::VisitorFailed, Registry.InvokeSingle<IArithmeticFeature>([](auto&) -> int {
+		auto Registration = RegisterModularFeature(Feature);
+		EXPECT_FALSE(IsModularFeatureDispatching());
+		ForEachModularFeature<IArithmeticFeature>([&](auto&) {
+			EXPECT_TRUE(IsModularFeatureDispatching());
+			EXPECT_THROW(ForEachModularFeature<IArithmeticFeature>([](auto&) {
 				throw std::runtime_error("expected nested failure");
-			}).Status);
-			EXPECT_TRUE(Registry.IsDispatching());
-		}).WasInvoked());
-		EXPECT_FALSE(Registry.IsDispatching());
-		Registration.Reset();
-		EXPECT_EQ(0u, Durin::FModularFeatureRegistry::Get().InvokeAll<IArithmeticFeature>([](auto&) {}).MatchingRegistrationCount);
+			}), std::runtime_error);
+			EXPECT_TRUE(IsModularFeatureDispatching());
+		});
+		EXPECT_FALSE(IsModularFeatureDispatching());
 	}
 
 	TEST(FModuleManagerLifecycleTests, FeatureDispatchRejectsReentrantUnloadBeforeShutdown)
@@ -406,11 +312,11 @@ namespace Durin::Tests
 		FManagedModuleObservations Observations;
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"DispatchUnload", std::make_unique<FManagedTestModule>(Observations)));
-		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IManagedModuleFeature>([](auto&) {
-			return FModuleManager::Get().UnloadModule("DispatchUnload");
+		std::optional<bool> Unloaded;
+		ForEachModularFeature<IManagedModuleFeature>([&](auto&) {
+			Unloaded = FModuleManager::Get().UnloadModule("DispatchUnload");
 		});
-		ASSERT_TRUE(Invocation.WasInvoked());
-		EXPECT_FALSE(*Invocation.Value);
+		EXPECT_EQ(false, Unloaded);
 		EXPECT_FALSE(Observations.bShutdown);
 		EXPECT_TRUE(FModuleManager::Get().UnloadModule("DispatchUnload"));
 		EXPECT_TRUE(Observations.bShutdown);
@@ -422,10 +328,11 @@ namespace Durin::Tests
 		FManagedModuleObservations Observations;
 		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleSuccess", std::make_unique<FManagedTestModule>(Observations)));
-		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IManagedModuleFeature>(
-			[](IManagedModuleFeature& Feature) { return Feature.GetValue(); });
-		ASSERT_EQ(EFeatureInvokeStatus::Invoked, Invocation.Status);
-		EXPECT_EQ(42, *Invocation.Value);
+		std::optional<int> Value;
+		ForEachModularFeature<IManagedModuleFeature>([&](IManagedModuleFeature& Feature) {
+			Value = Feature.GetValue();
+		});
+		EXPECT_EQ(42, Value);
 
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleSuccess");
 		EXPECT_TRUE(Result);

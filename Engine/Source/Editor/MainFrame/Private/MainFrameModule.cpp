@@ -1206,9 +1206,9 @@ namespace Durin
 	{
 		Toolsets = std::make_shared<FMainFrameToolsetState>();
 		Toolsets->Tracy = CreateTracyToolset(std::make_shared<FProfilingToolService>(FPaths::RootDir()));
-		Toolsets->TracyRegistration = FModularFeatureRegistry::Get().RegisterFeature(*Toolsets->Tracy);
+		Toolsets->TracyRegistration = RegisterModularFeature(*Toolsets->Tracy);
 		Toolsets->NamePool = CreateNamePoolToolset();
-		Toolsets->NamePoolRegistration = FModularFeatureRegistry::Get().RegisterFeature(*Toolsets->NamePool);
+		Toolsets->NamePoolRegistration = RegisterModularFeature(*Toolsets->NamePool);
 	}
 
 	auto FMainFrameModule::ShutdownModule() -> void

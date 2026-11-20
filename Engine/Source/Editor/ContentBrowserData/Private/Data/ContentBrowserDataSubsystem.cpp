@@ -39,7 +39,7 @@ namespace Durin
 	{
 		if (bStopping) return;
 		std::vector<TStrongObjectPtr<DContentBrowserDataSource>> Next;
-		FModularFeatureRegistry::Get().InvokeAll<DContentBrowserDataSource>([&](DContentBrowserDataSource& Source) {
+		ForEachModularFeature<DContentBrowserDataSource>([&](DContentBrowserDataSource& Source) {
 			if (Source.GetOuter() == this || Source.GetOuter() == GetEditor()) Next.emplace_back(&Source);
 		});
 		if (Available.size() != Next.size() || !std::ranges::equal(Available, Next, [](const auto& A, const auto& B) { return A.Get() == B.Get(); })) NotifyItemDataRefreshed();

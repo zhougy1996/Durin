@@ -279,29 +279,24 @@ namespace Durin::Tests
 
 		std::vector<FToolDescriptor> Descriptions;
 		FToolResult Result;
-		auto& Registry = FModularFeatureRegistry::Get();
-		uint64 Identity = 0;
+		auto& Registry = IModularFeatures::Get();
 		{
 			FTestToolset Provider;
-			auto Registration = Durin::FModularFeatureRegistry::Get().RegisterFeature(Provider);
-			const auto Discovery = Registry.InvokeSingle<IToolset>([](auto& Value) { return Value.DescribeToolset(); });
-			ASSERT_TRUE(Discovery.WasInvoked());
-			Identity = Discovery.RegistrationIdentity;
-			Descriptions = Discovery.Value->Tools;
-			const auto Prepared = PrepareToolArguments(Descriptions.front(), Request());
-			ASSERT_TRUE(Prepared.has_value());
-			const auto Invocation = Registry.InvokeRegistered<IToolset>(Identity, [&](auto& Value) {
+			auto Registration = Durin::RegisterModularFeature(Provider);
+			ForEachModularFeature<IToolset>([&](IToolset& Value) {
+				Descriptions = Value.DescribeToolset().Tools;
+				const auto Prepared = PrepareToolArguments(Descriptions.front(), Request());
+				ASSERT_TRUE(Prepared.has_value());
 				FToolContext Context{"invocation", "session"};
 				EXPECT_TRUE(Value.CheckAvailability(*Prepared, Context).bAvailable);
-				return Value.Call(*Prepared, Context);
+				Result = *Value.Call(*Prepared, Context).GetResultShared();
 			});
-			ASSERT_TRUE(Invocation.WasInvoked());
-			Result = *Invocation.Value->GetResultShared();
 			Registration.Reset();
 		}
+		ASSERT_FALSE(Descriptions.empty());
 		EXPECT_EQ(EToolStatus::Succeeded, Result.Status);
 		EXPECT_TRUE(ValidateToolOutput(Descriptions.front(), Result.Data));
-		EXPECT_EQ(EFeatureInvokeStatus::Unavailable, Registry.InvokeRegistered<IToolset>(Identity, [](auto&) {}).Status);
+		EXPECT_FALSE(Registry.IsModularFeatureAvailable(FName(IToolset::FeatureName)));
 	}
 
 	TEST(FToolTests, CancellationTokensAreReadOnlySharedAndSafeAcrossThreads)

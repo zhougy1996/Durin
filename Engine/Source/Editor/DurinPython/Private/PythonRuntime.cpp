@@ -716,7 +716,7 @@ namespace Durin
     FPythonRuntime::~FPythonRuntime() { require(IsInGameThread()); Stop(); }
     auto FPythonRuntime::Start(const FPythonRuntimeOptions& Options) -> std::expected<void, std::string>
     {
-        if (!IsInGameThread() || FModularFeatureRegistry::Get().IsDispatching())
+        if (!IsInGameThread() || IsModularFeatureDispatching())
             return std::unexpected("Python Start requires a GameThread safe point outside provider dispatch.");
         if (Options.JobDeadline && Options.JobDeadline->count() <= 0) return std::unexpected("JobDeadline must be positive when set.");
         std::unique_lock LifecycleLock(LifecycleMutex);
@@ -746,7 +746,7 @@ namespace Durin
         Impl = std::make_unique<FImpl>(); Impl->Directory = std::move(Directory); Impl->JobDeadline = Options.JobDeadline;
         auto Error = Impl->Initialize();
         if (!Error.empty()) { StopLocked(); return std::unexpected(std::move(Error)); }
-        Impl->Registration = FModularFeatureRegistry::Get().RegisterFeature<IEditorScriptPump>(*Impl);
+        Impl->Registration = RegisterModularFeature<IEditorScriptPump>(*Impl);
         return {};
 #else
         (void)Options;
@@ -768,7 +768,7 @@ namespace Durin
         }
         // Stop called by a native handler only signals cancellation. The pump
         // finalizes after that handler and the script have actually returned.
-        if (Impl->Executing || FModularFeatureRegistry::Get().IsDispatching()) return;
+        if (Impl->Executing || IsModularFeatureDispatching()) return;
 #if DURIN_WITH_PYTHON
         Impl->Finalize(); Impl->ReleaseInterpreter();
 #endif

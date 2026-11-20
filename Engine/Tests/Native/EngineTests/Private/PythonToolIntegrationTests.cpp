@@ -84,7 +84,7 @@ namespace
                 return Handler ? Handler(Request, Context) : FToolResult{EToolStatus::Succeeded, Request.Arguments};
             };
             Toolset = std::make_unique<FNativeToolset>("python.tests", "Python adapter tests", std::vector<FToolBinding>{std::move(Binding)});
-            Registration = FModularFeatureRegistry::Get().RegisterFeature(*Toolset);
+            Registration = RegisterModularFeature(*Toolset);
             (void)Tools->ListToolsets();
         }
         auto RegisterPending(FToolFuture Future, FToolSchema Output = FToolSchema(EToolValueType::Object)) -> void
@@ -96,7 +96,7 @@ namespace
                 PendingCancellation = Context.Cancellation; ++PendingCalls; return Future;
             };
             PendingToolset = std::make_unique<FNativeToolset>("python.pending", "Test-only detached preparation", std::vector<FToolBinding>{std::move(Binding)});
-            PendingRegistration = FModularFeatureRegistry::Get().RegisterFeature(*PendingToolset); (void)Tools->ListToolsets();
+            PendingRegistration = RegisterModularFeature(*PendingToolset); (void)Tools->ListToolsets();
         }
         FToolCancellationToken PendingCancellation;
         int PendingCalls = 0;
@@ -189,7 +189,7 @@ print(' imported')
     TEST_F(FPythonToolIntegrationTests, ScriptJobsUseTheSameNativeToolsetWithoutMCP)
     {
         auto Definition = CreatePythonToolset(std::shared_ptr<FPythonRuntime>(&Runtime, [](auto*) {}));
-        auto Published = FModularFeatureRegistry::Get().RegisterFeature(*Definition);
+        auto Published = RegisterModularFeature(*Definition);
         auto Description = Tools->DescribeToolset("editor.python"); ASSERT_TRUE(Description);
         ASSERT_EQ(3u, Description->Descriptor.Tools.size());
         for (const auto& Tool : Description->Descriptor.Tools) EXPECT_TRUE(ValidateToolDescriptor(Tool));
@@ -553,7 +553,7 @@ assert inner.cancel() is None
     TEST_F(FPythonToolIntegrationTests, DetachedJobControlsRemainAvailableWhileScriptBlocksGameThread)
     {
         auto Definition = CreatePythonToolset(std::shared_ptr<FPythonRuntime>(&Runtime, [](auto*) {}));
-        auto Published = FModularFeatureRegistry::Get().RegisterFeature(*Definition);
+        auto Published = RegisterModularFeature(*Definition);
         const auto Endpoint = Tools->GetService();
         FEditorToolLimits Limits; Limits.MaxQueued = 1; ASSERT_TRUE(Endpoint->Configure(Limits));
         auto Admission = Tools->CallNow({{"editor.python", "submit"}, 1,

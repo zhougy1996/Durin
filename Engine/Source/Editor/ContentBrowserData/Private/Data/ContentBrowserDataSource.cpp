@@ -33,7 +33,7 @@ namespace Durin
 		if (bInitialized && !Registration.IsValid())
 		{
 			FStrongObjectPtr KeepAlive(this);
-			Registration = FModularFeatureRegistry::Get().RegisterFeature<DContentBrowserDataSource>(*this);
+			Registration = RegisterModularFeature<DContentBrowserDataSource>(*this);
 			RegistrationRoot = std::move(KeepAlive);
 			ClearCachedFilterData();
 			OnDataSourceMembershipChanged().Broadcast();
@@ -42,7 +42,7 @@ namespace Durin
 	auto DContentBrowserDataSource::UnregisterDataSource() -> void
 	{
 		CheckGameThread();
-		requiref(!FModularFeatureRegistry::Get().IsDispatching(), "Data source withdrawal requires a modular-feature safe point.");
+		requiref(!IsModularFeatureDispatching(), "Data source withdrawal requires a modular-feature safe point.");
 		FStrongObjectPtr KeepAlive(Registration.IsValid() ? this : nullptr);
 		const bool Registered = Registration.IsValid();
 		SetDataSink(nullptr);

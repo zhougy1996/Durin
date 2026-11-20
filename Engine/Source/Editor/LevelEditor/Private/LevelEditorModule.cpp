@@ -143,7 +143,7 @@ namespace Durin
 		Integration->Levels = std::make_unique<FEditorSubsystemRegistration>(FSubsystemDescriptor{
 			.Type = DLevelEditorSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});
 		Integration->PIE = CreatePIEToolset();
-		Integration->PIERegistration = FModularFeatureRegistry::Get().RegisterFeature(*Integration->PIE);
+		Integration->PIERegistration = RegisterModularFeature(*Integration->PIE);
 		require(RegisterContentBrowserExtensions());
 	}
 

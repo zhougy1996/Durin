@@ -3,6 +3,8 @@
 #include "Editor/EditorEngine.h"
 #include "DObject/Object.h"
 #include "DObject/WeakObjectPtr.h"
+#include "Logging/LogMacros.h"
+#include "Modules/ModularFeature.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -134,12 +136,51 @@ namespace Durin
 		uint64 Session;
 		uint64 NextSequence = 1;
 		uint64 CatalogRevision = 0;
-		uint64 FeatureRevision = 0;
+		struct FCatalogInvalidation
+		{
+			std::atomic<bool> Dirty{true};
+			// The modular feature list lock covers registration events and scoped borrows.
+			std::map<const IModularFeature*, uint64> Identities;
+			uint64 NextIdentity = 1;
+
+			static auto IsToolset(const FName& Type) -> bool
+			{
+				static const FName ToolsetType(IToolset::FeatureName);
+				return Type == ToolsetType;
+			}
+
+			auto OnRegistered(const FName& Type, IModularFeature*) -> void
+			{
+				if (IsToolset(Type)) Dirty.store(true);
+			}
+
+			auto OnUnregistered(const FName& Type, IModularFeature* Feature) -> void
+			{
+				if (!IsToolset(Type)) return;
+				Identities.erase(Feature);
+				Dirty.store(true);
+			}
+
+			auto GetOrAssignIdentity(const IToolset& Toolset) -> uint64
+			{
+				const auto [It, Inserted] = Identities.try_emplace(&Toolset, NextIdentity);
+				if (Inserted) ++NextIdentity;
+				return It->second;
+			}
+
+			auto MatchesIdentity(const IToolset& Toolset, uint64 Identity) const -> bool
+			{
+				const auto It = Identities.find(&Toolset);
+				return It != Identities.end() && It->second == Identity;
+			}
+		};
+		std::shared_ptr<FCatalogInvalidation> CatalogInvalidation = std::make_shared<FCatalogInvalidation>();
+		FDelegateHandle FeatureRegistered;
+		FDelegateHandle FeatureUnregistered;
 		std::shared_ptr<FAccounting> Accounting = std::make_shared<FAccounting>();
 		size_t PendingCount = 0, PendingBytes = 0;
 		size_t QueuedBytes = 0;
 		size_t CompletedBytes = 0;
-		bool HasCatalog = false;
 		bool Closed = false;
 		bool Executing = false; // GameThread only.
 		bool ScriptExecuting = false; // Protected by Mutex.
@@ -150,6 +191,23 @@ namespace Durin
 		{
 			static uint64 NextSession = 1; // Endpoint construction is GameThread-only.
 			Session = NextSession++;
+			auto& Features = IModularFeatures::Get();
+			FeatureRegistered = Features.OnModularFeatureRegistered().AddSP(CatalogInvalidation, &FCatalogInvalidation::OnRegistered);
+			try
+			{
+				FeatureUnregistered = Features.OnModularFeatureUnregistered().AddSP(CatalogInvalidation, &FCatalogInvalidation::OnUnregistered);
+			}
+			catch (...)
+			{
+				Features.OnModularFeatureRegistered().Remove(FeatureRegistered);
+				throw;
+			}
+		}
+		~FImpl()
+		{
+			auto& Features = IModularFeatures::Get();
+			Features.OnModularFeatureUnregistered().Remove(FeatureUnregistered);
+			Features.OnModularFeatureRegistered().Remove(FeatureRegistered);
 		}
 		auto Open() const -> bool { return !Closed; }
 		auto Prune() -> void
@@ -231,7 +289,15 @@ namespace Durin
 		auto Run(DEditorEngine& Host, FInvocation& Entry, bool AvailabilityOnly, FToolAvailability* Availability) -> FToolFuture
 		{
 			if (Entry.Context.Cancellation.IsCancellationRequested() || Entry.Context.Client.Cancellation.IsCancellationRequested()) return ReadyToolResult(Failure(EToolError::Cancelled, "Tool admission closed."));
-			auto Call = FModularFeatureRegistry::Get().InvokeRegistered<IToolset>(Entry.Route->ToolsetIdentity, [&](auto& Toolset) {
+			FScopedModularFeatureAccess Scope;
+			const auto Toolsets = IModularFeatures::Get().GetModularFeatureImplementations<IToolset>(FName(IToolset::FeatureName));
+			const auto Found = std::ranges::find_if(Toolsets, [&](auto* Toolset) {
+				return CatalogInvalidation->MatchesIdentity(*Toolset, Entry.Route->ToolsetIdentity);
+			});
+			if (Found == Toolsets.end()) return ReadyToolResult(Failure(EToolError::ToolUnavailable, "The admitted toolset is no longer registered."));
+			auto& Toolset = **Found;
+			try
+			{
 				FInvocationBinding Binding(Entry.Context);
 				auto Available = Toolset.CheckAvailability(Entry.Request, Entry.Context);
 				if (!ValidDiagnostics(Available.Diagnostics)) return ReadyToolResult(Failure(EToolError::LimitExceeded, "Toolset availability diagnostics exceed the contract."));
@@ -242,10 +308,11 @@ namespace Durin
 				if (!HostReady(Host)) return ReadyToolResult(Failure(EToolError::Busy, "Editor left the dispatch safe point during availability checking."));
 				if (AvailabilityOnly) return ReadyToolResult({EToolStatus::Succeeded});
 				return Toolset.Call(Entry.Request, Entry.Context);
-			});
-			if (Call.Status == EFeatureInvokeStatus::Unavailable) return ReadyToolResult(Failure(EToolError::ToolUnavailable, "The admitted toolset is no longer registered."));
-			if (!Call.WasInvoked() || !Call.Value) return ReadyToolResult(Failure(EToolError::InternalError, "Toolset threw an exception."));
-			return std::move(*Call.Value);
+			}
+			catch (...)
+			{
+				return ReadyToolResult(Failure(EToolError::InternalError, "Toolset threw an exception."));
+			}
 		}
 		auto Resolve(FInvocation& Entry, bool AvailabilityOnly = false) -> FToolResult
 		{
@@ -322,29 +389,43 @@ namespace Durin
 	auto FEditorToolService::RefreshCatalog() -> void
 	{
 		require(IsInGameThread());
-		auto& Registry = FModularFeatureRegistry::Get();
-		if (Registry.IsDispatching()) return;
-		const auto Revision = Registry.GetPublicationRevision();
+		if (IsModularFeatureDispatching()) return;
 		FEditorToolLimits Limits;
 		{
 			std::scoped_lock Lock(Impl->Mutex);
-			if (!Impl->Open() || (Impl->HasCatalog && Impl->FeatureRevision == Revision)) return;
+			if (!Impl->Open() || !Impl->CatalogInvalidation->Dirty.exchange(false)) return;
 			Limits = Impl->Limits;
 		}
-		auto Described = Registry.InvokeAll<IToolset>([](auto& Toolset) { return Toolset.DescribeToolset(); });
+		struct FRefresh
+		{
+			std::atomic<bool>& Dirty;
+			bool Published = false;
+			~FRefresh() { if (!Published) Dirty.store(true); }
+		} Refresh{Impl->CatalogInvalidation->Dirty};
+		struct FDescription
+		{
+			uint64 Identity;
+			std::optional<FToolsetDescriptor> Value;
+		};
+		std::vector<FDescription> Described;
+		ForEachModularFeature<IToolset>([&](IToolset& Toolset) {
+			auto& Description = Described.emplace_back(FDescription{Impl->CatalogInvalidation->GetOrAssignIdentity(Toolset), {}});
+			try { Description.Value = Toolset.DescribeToolset(); }
+			catch (...) { /* Report a failed description below. */ }
+		});
 		decltype(Impl->Routes) Routes;
 		decltype(Impl->Toolsets) Toolsets;
 		std::set<std::string> ClaimedSets;
 		std::vector<FToolDiagnostic> Diagnostics;
 		size_t Count = 0, Bytes = 0;
-		bool OverBudget = Described.Invocations.size() > Limits.MaxCatalogToolsets;
-		for (auto& Registration : Described.Invocations)
+		bool OverBudget = Described.size() > Limits.MaxCatalogToolsets;
+		for (auto& Registration : Described)
 		{
 			if (OverBudget) break;
-			if (!Registration.WasInvoked() || !Registration.Value)
+			if (!Registration.Value)
 			{
 				if (Diagnostics.size() < 64) Diagnostics.push_back(Diagnostic(EToolError::InternalError,
-					std::format("Toolset registration {} failed to describe tools.", Registration.RegistrationIdentity)));
+					std::format("Toolset registration {} failed to describe tools.", Registration.Identity)));
 				continue;
 			}
 			auto& Set = *Registration.Value;
@@ -376,7 +457,7 @@ namespace Durin
 			auto& Published = Toolsets[Set.Name];
 			Published.Descriptor.Name = Set.Name;
 			Published.Descriptor.Description = Set.Description;
-			Published.ToolsetIdentity = Registration.RegistrationIdentity;
+			Published.ToolsetIdentity = Registration.Identity;
 			std::set<std::string> ClaimedTools;
 			for (auto& Descriptor : Set.Tools)
 			{
@@ -399,7 +480,7 @@ namespace Durin
 					continue;
 				}
 				auto Route = std::make_shared<FImpl::FRoute>();
-				Route->ToolsetIdentity = Registration.RegistrationIdentity;
+				Route->ToolsetIdentity = Registration.Identity;
 				Route->Bytes = sizeof(FImpl::FRoute) + Set.Name.size() + Descriptor.Name.capacity()
 					+ Descriptor.Description.capacity() + SchemaBytes(Descriptor.Input) + SchemaBytes(Descriptor.Output);
 				if (Route->Bytes > Limits.MaxCatalogBytes - Bytes) { OverBudget = true; break; }
@@ -417,15 +498,14 @@ namespace Durin
 		Impl->Routes = std::move(Routes);
 		Impl->Toolsets = std::move(Toolsets);
 		Impl->CatalogDiagnostics = std::move(Diagnostics);
-		Impl->FeatureRevision = Revision;
-		Impl->HasCatalog = true;
 		++Impl->CatalogRevision;
+		Refresh.Published = true;
 	}
 
 	auto FEditorToolService::GetCatalog() const -> FEditorToolCatalog
 	{
 		std::scoped_lock Lock(Impl->Mutex);
-		FEditorToolCatalog Result{Impl->CatalogRevision, Impl->FeatureRevision};
+		FEditorToolCatalog Result{Impl->CatalogRevision};
 		if (!Impl->Open()) { Result.Diagnostics = {Diagnostic(EToolError::ToolUnavailable, "Editor tool service is closed.")}; return Result; }
 		Result.Diagnostics = Impl->CatalogDiagnostics;
 		for (const auto& [Name, Set] : Impl->Toolsets)
@@ -525,7 +605,7 @@ namespace Durin
 		if (Impl->Executing || !Impl->Queue.empty() || Impl->PendingCount) return std::unexpected(Diagnostic(EToolError::Busy, "Configure requires an idle tool service."));
 		if (Impl->Accounting->Count > Limits.MaxRetained || Impl->Accounting->Bytes > Limits.MaxCompletedBytes)
 			return std::unexpected(Diagnostic(EToolError::Busy, "Configure would undercount live consumer results."));
-		Impl->Limits = Limits; Impl->HasCatalog = false;
+		Impl->Limits = Limits; Impl->CatalogInvalidation->Dirty.store(true);
 		Impl->Routes.clear(); Impl->Toolsets.clear(); Impl->CatalogDiagnostics.clear(); ++Impl->CatalogRevision;
 		Impl->Prune(); return {};
 	}
@@ -640,8 +720,9 @@ namespace Durin
 			if (Impl->ScriptExecuting) return;
 			Impl->ScriptExecuting = true;
 		}
-		(void)FModularFeatureRegistry::Get().InvokeAll<IEditorScriptPump>([&](auto& Pump) {
-			if (CanDispatch()) Pump.Pump(*Impl->Editor.Get(), Endpoint);
+		ForEachModularFeature<IEditorScriptPump>([&](auto& Pump) {
+			try { if (CanDispatch()) Pump.Pump(*Impl->Editor.Get(), Endpoint); }
+			catch (...) { DURIN_ERROR("Editor script pump failed."); }
 		});
 		std::scoped_lock Lock(Impl->Mutex); Impl->ScriptExecuting = false;
 	}

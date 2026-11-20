@@ -56,7 +56,6 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		static constexpr std::string_view FeatureName = "ContentBrowserDataSource";
-		static constexpr uint32 FeatureVersion = 18;
 		CONTENTBROWSERDATA_API explicit DContentBrowserDataSource(const FObjectInitializer& Initializer);
 		CONTENTBROWSERDATA_API virtual auto Initialize(bool bAutoRegister = true) -> void;
 		CONTENTBROWSERDATA_API virtual auto Shutdown() -> void;

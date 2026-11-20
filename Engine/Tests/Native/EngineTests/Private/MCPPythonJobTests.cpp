@@ -50,7 +50,7 @@ namespace
             Runtime = std::make_shared<FPythonRuntime>();
             auto Started = Runtime->Start(); ASSERT_TRUE(Started) << Started.error();
             PythonTools = CreatePythonToolset(Runtime);
-            PythonRegistration = FModularFeatureRegistry::Get().RegisterFeature(*PythonTools);
+            PythonRegistration = RegisterModularFeature(*PythonTools);
             auto Listening = Server.Start(*Host, {.BearerToken = std::string(Token)});
             ASSERT_TRUE(Listening) << Listening.error(); Port = *Listening; Session = Connect();
         }
@@ -341,13 +341,13 @@ namespace
         PythonRegistration.Reset(); (void)Tools->ListToolsets();
         auto Without = Server.Start(*Host, {.BearerToken = std::string(Token)}); ASSERT_TRUE(Without); Port = *Without; Session = Connect();
         EXPECT_EQ(std::string::npos, Post(Session, "tools/list").find("editor.python."));
-        PythonRegistration = FModularFeatureRegistry::Get().RegisterFeature(*PythonTools);
+        PythonRegistration = RegisterModularFeature(*PythonTools);
         Server.Stop(); auto With = Server.Start(*Host, {.BearerToken = std::string(Token)});
         ASSERT_TRUE(With); Port = *With; Session = Connect();
         FToolDescriptor Descriptor{.Name = "submit", .bExposeExternally = true}; FToolBinding Binding{Descriptor};
         Binding.Handler = [](const auto&, const auto&) { return FToolResult{EToolStatus::Succeeded, FObject{}}; };
         FNativeToolset Collision("editor.python", "collision", {std::move(Binding)});
-        auto Registration = FModularFeatureRegistry::Get().RegisterFeature(Collision); (void)Tools->ListToolsets();
+        auto Registration = RegisterModularFeature(Collision); (void)Tools->ListToolsets();
         httplib::Client Client("127.0.0.1", Port); auto Listed = Client.Post("/mcp", Headers(Session), Body("tools/list"), "application/json");
         ASSERT_TRUE(Listed); EXPECT_EQ(200, Listed->status);
         EXPECT_EQ(std::string::npos, Listed->body.find("editor.python.submit"));

@@ -14,7 +14,6 @@ namespace Durin
     {
     public:
         static constexpr std::string_view FeatureName = "EditorScriptPump";
-        static constexpr uint32 FeatureVersion = 2;
         virtual auto Pump(DEditorEngine& Editor, const std::shared_ptr<FEditorToolService>& Endpoint) -> void = 0;
         virtual auto CloseEndpoint(const std::shared_ptr<FEditorToolService>& Endpoint) -> void {}
     };

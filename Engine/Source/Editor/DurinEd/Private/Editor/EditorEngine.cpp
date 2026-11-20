@@ -480,7 +480,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		requiref(GEditor == this && !bShutdownRequested
-			&& !IsGarbageCollecting() && !FModularFeatureRegistry::Get().IsDispatching(),
+			&& !IsGarbageCollecting() && !IsModularFeatureDispatching(),
 			"Editor subsystem update requires an active host outside GC and feature dispatch.");
 	}
 	auto DEditorEngine::AddRegisteredEditorSubsystems() -> void

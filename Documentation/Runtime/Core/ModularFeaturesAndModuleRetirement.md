@@ -1,55 +1,65 @@
 # Modular Features and Module Shutdown
 
-Summary: Define typed feature invocation, module-owned cleanup, and explicit native library release.
+Summary: Define named feature discovery, scoped provider access, and explicit native library release.
 
 Modules: Core
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-20
 
 ## Feature Contract
 
-A modular feature derives from `IModularFeature` and declares a stable
-`FeatureName` plus a non-zero `FeatureVersion`. These declared values form the
-cross-DLL interface identity; RTTI, interface addresses, and registration order
-are not identities.
+A modular feature derives from `IModularFeature`. The UE-style
+`IModularFeatures` API registers providers by name and pointer, supports one
+or more providers under each name, and exposes availability, indexed lookup,
+and enumeration. `GetModularFeature<T>` selects the first implementation and
+requires an available provider. A scoped list lock protects compound queries and
+bounded use of borrowed pointers. Providers own their implementations.
 
-Modules register through `FModularFeatureRegistry::RegisterFeature<T>` and retain
-an exact move-only registration token. `Reset()` immediately unregisters that
-entry and is idempotent. Token destruction also unregisters. The registry does
-not own the implementation, bind registration to module startup, or drain work.
+Each feature name denotes one C++ interface contract. Use distinct names for
+incompatible interfaces that can coexist. Modules can register directly through
+`IModularFeatures` or use the free `RegisterModularFeature(Provider)` helper
+with a declared `FeatureName`. The helper returns a move-only, single-owner
+registration. Reset or destroy it before releasing the provider. Use the same
+owner for registration and removal of a name and pointer pair.
 `FModuleStartup` only reports the current startup module name for other systems;
 it is not part of feature registration. Tests register features directly;
 `FModuleTestHarness` remains separate test support for concrete module lifecycle.
 
-Consumers use `InvokeSingle<T>`, `InvokeAll<T>`, or
-`InvokeRegistered<T>(RegistrationIdentity, Visitor)`. Feature references are valid
-only within synchronous visitation and must not escape. Single invocation reports
-unavailable, invoked, ambiguous, or visitor failure; it does not choose the first
-provider. All invocation selects a stable set for the duration of dispatch.
-Exact invocation rejects zero, missing, unregistered, replacement, and
-wrong-interface identities. Identity changes on every registration and survives
-token moves; it is a process-local route, not a persistent key.
+Consumers can use `ForEachModularFeature<T>` for synchronous visitation or
+`FScopedModularFeatureAccess` for a custom lookup and borrow. Keep provider
+references within the scope. The caller owns exception handling.
 
-`GetPublicationRevision()` is a global monotonic invalidation counter, incremented
-on successful registration and actual unregistration. Invocation, token moves,
-failed registration, and repeated Reset do not increment it. Unrelated feature
-changes may conservatively invalidate a metadata cache. Toolset
-providers use these APIs as described in [toolset contracts](Tools.md).
+`OnModularFeatureRegistered()` and `OnModularFeatureUnregistered()` expose
+multicast delegates with the feature name and provider pointer. Subscribe with
+`AddRaw`, `AddSP`, or `AddLambda` and disconnect with `Remove` or `RemoveAll`.
+Notifications run synchronously on the mutation thread after the list update.
+Like UE, raw registration deduplicates name and pointer, and raw operations
+still notify on repeated registration or removal of an absent provider. The
+single-owner helper acquires a token only for a new registration. Listeners should
+return without throwing. Nested notifications are synchronous. Toolset providers
+use these APIs as described in [toolset contracts](Tools.md).
+
+Multicast removal and clearing skip callbacks that are still pending in the
+current broadcast. A broadcast sees additions made before it began, including
+when it is nested inside another broadcast. Removing a binding does not join a
+call that already started. Use a shared-pointer binding or synchronize lifetime
+externally when raw listeners can be destroyed on a different thread.
 
 ## Main-Thread and Safe-Point Contract
 
-Registration, unregistration, discovery, invocation, and revision reads require
-the module-control thread during startup and GameThread once its identity is
-installed. Bootstrap establishes the registry on the control thread. Worker
-threads submit detached work to a host-owned queue; they never access the feature
-registry. These rules are enforced in all build configurations.
+The registration helper, token reset and scoped access require the module-control
+thread during startup and GameThread once its identity is installed. Bootstrap
+establishes the registry on the control thread. Raw queries and mutations use
+the recursive list lock. Callers using a provider over several operations hold
+that lock until they have finished borrowing it.
 
 Nested synchronous invocation is allowed. A stack scope tracks dispatch depth
-and unwinds on success, absence, ambiguity, and visitor exceptions. Any registry
-mutation during dispatch is a contract violation, even for another provider, so
+and unwinds when a visitor throws. Any registry
+mutation during scoped access is a contract violation, even for another provider, so
 an enumerated set cannot be invalidated by reentrant registration or destruction.
-The registry has no mutex, condition variable, in-flight counters, retirement
-states, waiting, timeout, or self-wait protocol.
+The list lock serializes mutation with scoped access and notification.
+Visitors and listeners must return without joining work that needs the list
+lock.
 
 `UnloadModule` called during feature dispatch returns false before entering
 Shutdown or changing module state. `ShutdownModule` during dispatch is a contract

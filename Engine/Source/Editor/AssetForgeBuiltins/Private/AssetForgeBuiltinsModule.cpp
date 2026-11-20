@@ -13,7 +13,7 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			ImportAdapter = AssetForge::Builtins::MakeSceneImportAdapter();
-			SaveReadinessRegistration = FModularFeatureRegistry::Get().RegisterFeature<
+			SaveReadinessRegistration = RegisterModularFeature<
 				IAssetSaveReadinessFeature>(AssetFeatures);
 			require(SaveReadinessRegistration.IsValid());
 			std::string Error;

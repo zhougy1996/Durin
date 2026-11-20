@@ -36,7 +36,6 @@ namespace Durin::Tests
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Tests.DynamicUnloadHost";
-		static constexpr uint32 FeatureVersion = 1;
 
 		virtual auto AllocateInstanceSerial() -> uint64 = 0;
 		virtual auto Record(FDynamicUnloadFixtureEvent Event) -> void = 0;
@@ -48,7 +47,6 @@ namespace Durin::Tests
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Tests.DynamicUnloadFixture";
-		static constexpr uint32 FeatureVersion = 1;
 
 		virtual auto GetInstanceSerial() const -> uint64 = 0;
 		virtual auto RunSynchronousCall() -> void = 0;
@@ -58,4 +56,23 @@ namespace Durin::Tests
 		virtual auto SetThrowOnShutdownForFailure() -> void = 0;
 		virtual auto RequestRecursiveUnloadForFailure() -> bool = 0;
 	};
+
+	template<typename T, typename F>
+	auto VisitOnlyUnloadFeature(F&& Visitor)
+	{
+		FScopedModularFeatureAccess Scope;
+		const auto Features = IModularFeatures::Get().GetModularFeatureImplementations<T>(FName(T::FeatureName));
+		using TResult = std::invoke_result_t<F, T&>;
+		if constexpr (std::is_void_v<TResult>)
+		{
+			if (Features.size() != 1) return false;
+			std::invoke(Visitor, *Features.front());
+			return true;
+		}
+		else
+		{
+			if (Features.size() != 1) return std::optional<TResult>{};
+			return std::optional<TResult>(std::invoke(Visitor, *Features.front()));
+		}
+	}
 }

@@ -253,7 +253,7 @@ namespace Durin
 		EXPECT_EQ(0u, Delegate.Num());
 	}
 
-	TEST(FMulticastDelegateTests, MutationsDuringBroadcastAffectTheNextBroadcast)
+	TEST(FMulticastDelegateTests, RemovalSkipsPendingCallAndAdditionWaitsForNextBroadcast)
 	{
 		TMulticastDelegate<void()> Delegate;
 		std::vector<int> Calls;
@@ -272,7 +272,7 @@ namespace Durin
 		SecondHandle = Delegate.AddLambda([&Calls]() { Calls.push_back(2); });
 
 		Delegate.Broadcast();
-		EXPECT_EQ((std::vector<int>{ 1, 2 }), Calls);
+		EXPECT_EQ((std::vector<int>{ 1 }), Calls);
 		Calls.clear();
 		Delegate.Broadcast();
 		EXPECT_EQ((std::vector<int>{ 1, 3 }), Calls);
@@ -296,7 +296,7 @@ namespace Durin
 		EXPECT_EQ((std::vector<int>{ 1, 11, 12, 13, 2 }), Calls);
 	}
 
-	TEST(FMulticastDelegateTests, ClearDuringBroadcastOnlyAffectsLaterBroadcasts)
+	TEST(FMulticastDelegateTests, ClearDuringBroadcastSkipsPendingCalls)
 	{
 		TMulticastDelegate<void()> Delegate;
 		std::vector<int> Calls;
@@ -307,9 +307,9 @@ namespace Durin
 		Delegate.AddLambda([&Calls]() { Calls.push_back(2); });
 
 		Delegate.Broadcast();
-		EXPECT_EQ((std::vector<int>{ 1, 2 }), Calls);
+		EXPECT_EQ((std::vector<int>{ 1 }), Calls);
 		Delegate.Broadcast();
-		EXPECT_EQ((std::vector<int>{ 1, 2 }), Calls);
+		EXPECT_EQ((std::vector<int>{ 1 }), Calls);
 	}
 
 	TEST(FMulticastDelegateTests, MoveTransfersListenersAndHandles)

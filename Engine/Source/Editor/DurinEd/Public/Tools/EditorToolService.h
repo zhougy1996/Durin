@@ -28,7 +28,6 @@ namespace Durin
 	struct FEditorToolCatalog
 	{
 		uint64 Revision = 0;
-		uint64 FeatureRevision = 0;
 		std::vector<FEditorToolsetCatalogEntry> Toolsets;
 		std::vector<FToolDiagnostic> Diagnostics;
 	};
