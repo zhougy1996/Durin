@@ -17,7 +17,11 @@ def load_plugin_build_context():
         if module_config.MODULE_CONFIGS[name].owning_plugin:
             del module_config.MODULE_CONFIGS[name]
     module_config.ENABLED_MODULES.clear()
-    if not any(p.plugin_dependencies or (p.project_dir / "Plugins").exists() for p in projects):
+    engine_root = environment.DURIN_ENGINE_PROJECT_DIR
+    if (not (engine_root / "BuiltinPlugins.json").exists()
+            and not any(p.plugin_dependencies or
+                        (p.project_dir != engine_root and (p.project_dir / "Plugins").exists())
+                        for p in projects)):
         return
     # Preserve ordinary descriptor schema diagnostics before graph enumeration.
     for project in projects:
@@ -25,7 +29,8 @@ def load_plugin_build_context():
             module_config.DurinModuleConfig.from_file(project.project_dir / relative)
     files = [p.config_file_path for p in projects]
     for project in projects:
-        DISCOVERY_DIRECTORIES.add(project.project_dir)
+        if project.project_dir != engine_root:
+            DISCOVERY_DIRECTORIES.add(project.project_dir)
         catalog, locations = enumerate_plugin_build(
             environment.DURIN_ENGINE_PROJECT_DIR, project.config_file_path,
             platform=configs.ARCH, runtime_variant=configs.RUNTIME_VARIANT,
@@ -54,10 +59,12 @@ def load_plugin_build_context():
 
 def append_plugin_cmake(content, project_name):
     from durin_header_tool import config as configs, io as utils
-    project = project_config.get_project_config(project_name)
     # Watch directory membership only until the descriptor boundary. This also
     # detects creation of a previously absent Plugins directory.
-    directories = DISCOVERY_DIRECTORIES or {project.project_dir}
+    directories = DISCOVERY_DIRECTORIES or {
+        project.project_dir for project in project_config.PROJECT_CONFIGS.values()
+        if project.project_dir != environment.DURIN_ENGINE_PROJECT_DIR
+    }
     for directory in sorted(directories):
         pattern = "Plugins" if any(directory == p.project_dir for p in project_config.PROJECT_CONFIGS.values()) else "*"
         content.append(f'file(GLOB _durin_plugin_entries CONFIGURE_DEPENDS "{directory.as_posix()}/{pattern}")\n')

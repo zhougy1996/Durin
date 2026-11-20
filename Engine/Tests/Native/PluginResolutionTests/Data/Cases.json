@@ -4,6 +4,7 @@
       "Name": "Empty",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
+        "Engine/Plugins/Unregistered/Broken.dplugin": "invalid JSON",
         "Game/Game.dproject": "{\"ProjectName\":\"Game\"}"
       },
       "Variant": "DurinEditor",
@@ -383,6 +384,7 @@
       "Name": "DuplicatePlugin",
       "Files": {
         "Engine/Engine.dproject": "{\"ProjectName\":\"Engine\"}",
+        "Engine/BuiltinPlugins.json": "{\"Descriptors\":[\"Duplicate/water.dplugin\"]}",
         "Game/Game.dproject": "{\"ProjectName\":\"Game\"}",
         "Game/Plugins/Foundation/Source/FoundationRuntime/FoundationRuntime.dmodule": "{\"ModuleName\":\"FoundationRuntime\",\"PublicDependencies\":[]}",
         "Game/Plugins/Foundation/Foundation.dplugin": "{\"Dependencies\":[],\"Id\":\"Foundation\",\"Modules\":[{\"Host\":\"Runtime\",\"Name\":\"FoundationRuntime\",\"Path\":\"Source/FoundationRuntime\",\"Phase\":\"Providers\"}],\"SchemaVersion\":1}",

@@ -193,8 +193,11 @@ namespace Durin
 				const auto Node = Document->GetRootView();
 				if (!Node.IsObject()) Fail(Path, "descriptor must be an object");
 				RejectDuplicateFields(Node, Path);
-				Inputs[Logical] = Hash(Raw);
-				Result.Locations[Logical] = Path;
+				if (!Logical.empty())
+				{
+					Inputs[Logical] = Hash(Raw);
+					Result.Locations[Logical] = Path;
+				}
 				Documents.push_back(std::move(Document));
 				return Node;
 			}
@@ -237,7 +240,11 @@ namespace Durin
 					for (const auto& Entry : Entries) if (std::filesystem::is_directory(Entry)) Discover(Entry, SearchRoot);
 					return;
 				}
-				const auto Path = Descriptors.front();
+				LoadPlugin(Descriptors.front());
+			}
+			auto LoadPlugin(const std::filesystem::path& Path) -> void
+			{
+				const auto Directory = Path.parent_path();
 				if (std::filesystem::weakly_canonical(Path).parent_path() != std::filesystem::weakly_canonical(Directory)) Fail(Path, "path escape");
 				const auto Data = Read(Path, "Pending");
 				Fields(Data, {"$schema", "SchemaVersion", "Id", "DisplayName", "Version", "Dependencies", "Platforms", "Content", "Shaders", "Configs", "Modules"}, Path);
@@ -408,8 +415,31 @@ namespace Durin
 					for (const auto& [ModName, Directory] : Directories)
 						AddModule(Contained(File.parent_path(), Directory) / (ModName + ".dmodule"), "Project/" + Name + "/" + ModName, ModName);
 				}
-				std::set<std::filesystem::path> Roots = {EngineRoot / "Plugins", ProjectFile.parent_path() / "Plugins"};
-				for (const auto& Root : Roots) Discover(Root, Root);
+				const auto BuiltinManifest = EngineRoot / "BuiltinPlugins.json";
+				if (std::filesystem::exists(BuiltinManifest))
+				{
+					const auto Manifest = Read(BuiltinManifest, {});
+					Fields(Manifest, {"Descriptors"}, BuiltinManifest);
+					const auto Descriptors = Manifest.GetView("Descriptors");
+					if (!Descriptors.IsArray()) Fail(BuiltinManifest, "expected a Descriptors array of plugin paths");
+					const auto Root = EngineRoot / "Plugins";
+					for (size_t I = 0; I < Descriptors.Num(); ++I)
+					{
+						const auto Entry = Descriptors.GetView(I);
+						if (!Entry.IsString()) Fail(BuiltinManifest, "expected a Descriptors array of plugin paths");
+						const auto Relative = Entry.GetString();
+						const auto Path = Root / Relative;
+						if (const auto Resolved = Contained(Root, Relative);
+							Path.extension() != ".dplugin" || Path.lexically_normal() != Resolved)
+							Fail(BuiltinManifest, "invalid or symbolic plugin descriptor: " + Relative);
+						LoadPlugin(Path);
+					}
+				}
+				if (ProjectFile.parent_path() != EngineRoot)
+				{
+					const auto Root = ProjectFile.parent_path() / "Plugins";
+					Discover(Root, Root);
+				}
                 if (bDiscoveryOnly)
                 {
                     for (const auto& [Key, Module] : Modules) if (Module.Owner.empty()) Result.OrdinaryModules.push_back(Module.Name);

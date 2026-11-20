@@ -215,6 +215,7 @@ def test_discovery_rejects_symbolic_root(tmp_path):
     engine.mkdir()
     project = engine / "Engine.dproject"
     project.write_text('{"ProjectName":"Engine"}')
+    (engine / "BuiltinPlugins.json").write_text('{"Descriptors":["Probe.dplugin"]}')
     target = tmp_path / "Outside"
     target.mkdir()
     try:

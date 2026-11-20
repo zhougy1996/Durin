@@ -73,9 +73,10 @@ consumes it once and reports actual process-launch failures outside Projects.
 
 ## Descriptor v1
 
-Discover `.dplugin` files beneath `Engine/Plugins` and the selected project's
-`Plugins`. A descriptor directory owns one plugin; discovery stops there and
-ignores descriptors below that boundary, following UE. Reject multiple descriptors
+Declare engine plugin descriptor paths in `Engine/BuiltinPlugins.json`, relative
+to `Engine/Plugins`. The build and runtime use the same list. The selected
+project discovers `.dplugin` files beneath its own `Plugins` directory.
+A descriptor directory owns one plugin and ends recursive discovery. Reject multiple descriptors
 in one root, case-insensitive duplicate plugin/module IDs, and module names
 colliding with supplied project modules. Source paths must stay beneath their
 owner, including the final consumed module file. Discovery rejects symbolic
@@ -266,7 +267,8 @@ fallback. Existing old exports retain their own binaries and behavior. See
 ## Source Build Integration
 
 DHT uses `config.plugin_config.enumerate_plugin_build` for each workspace project.
-It discovers plugins under Engine and that project and builds every plugin
+It reads the declared engine plugins and discovers plugins under that project,
+then builds every plugin
 compatible with the target platform and runtime variant, plus their dependencies.
 Disabled plugins are still compiled; Editor modules are excluded from Game.
 Neither DHT nor CMake reads `Configs/Plugins.json` to construct the build graph.
@@ -287,9 +289,9 @@ It is configuration-independent, like ordinary DHT metadata. Native binaries,
 import libraries, and symbols additionally separate configuration and variant
 under `<Project>/Binaries/<Platform>/<Configuration>/Plugins/<Id>/<RuntimeVariant>`.
 
-CMake watches discovered directory membership up to plugin boundaries and the
-consumed descriptors. A normal DevTool build reconfigures when descriptors are
-created/deleted or structural project descriptors change. Startup configuration
+CMake watches the engine plugin declaration, consumed descriptors, and project
+plugin directory membership up to descriptor boundaries. A normal DevTool build
+reconfigures when these inputs change. Startup configuration
 edits do not trigger reconfiguration. Neither
 existing metadata nor stale DLLs imply startup selection.
 
@@ -297,8 +299,9 @@ existing metadata nor stale DLLs imply startup selection.
 `PluginBuild.json` and the declared shared-library
 dependency files beneath
 `Build/<preset>/PluginBuild/<Project>/<Configuration>/`. It participates in all
-when compatible plugins are discovered; a direct individual module build need not
-publish the full inventory. Paths in the inventory are relative to this root.
+when compatible plugins are available. Publication runs when its build inputs or
+binaries change, or when the inventory or a staged binary is missing.
+Paths in the inventory are relative to this root.
 EngineBuild currently combines the engine semantic version and built Core
 binary SHA-256; ToolchainABI records compiler ID/version and pointer size.
 Platform, architecture, configuration, runtime variant, and descriptor build
@@ -307,8 +310,9 @@ loading, content cooking, or a binary compatibility guarantee.
 
 `<Project>GameReceipt` records the completed ordinary/native availability closure,
 including dynamic modules, runtime data, catalog input fingerprints and plugin
-binary/phase bindings. Source admission retains PluginBuild; export exclusively
-uses the completed target receipt and does not consume copied inventory DLLs. Startup-only selection changes preserve both build
+binary/phase bindings. The receipt is regenerated when a recorded input or
+product changes or when the receipt is missing. Source admission uses PluginBuild.
+Export uses the completed target receipt. Startup-only selection changes preserve both build
 inventories; GameExport projects the available receipt to the selected Runtime
 plugin closure. Native membership and runtime files come from declarations, while
 PE imports verify completeness. See

@@ -19,9 +19,11 @@ function(durin_generate_plugin_builds)
 		set(_binaries "")
 		set(_files "")
 		set(_build_targets)
+		set(_artifacts)
 		if(TARGET Core)
 			string(APPEND _files "Core\t$<TARGET_FILE:Core>\n")
 			list(APPEND _build_targets Core)
+			list(APPEND _artifacts "$<TARGET_FILE:Core>")
 		endif()
 		if(_count GREATER 0)
 			math(EXPR _last "${_count}-1")
@@ -36,7 +38,11 @@ function(durin_generate_plugin_builds)
 					get_target_property(_type "${_target}" TYPE)
 					if(_type STREQUAL "SHARED_LIBRARY" OR _type STREQUAL "MODULE_LIBRARY")
 						string(APPEND _files "${_target}\t$<TARGET_FILE:${_target}>\n")
-						list(APPEND _build_targets "${_target}")
+						list(APPEND _artifacts "$<TARGET_FILE:${_target}>")
+						get_target_property(_imported "${_target}" IMPORTED)
+						if(NOT _imported)
+							list(APPEND _build_targets "${_target}")
+						endif()
 						if(NOT _target STREQUAL _module)
 							string(APPEND _dependencies "${_target};")
 						endif()
@@ -48,12 +54,19 @@ function(durin_generate_plugin_builds)
 		set(_root "${CMAKE_BINARY_DIR}/PluginBuild/${_project}/$<CONFIG>")
 		set(_spec "${CMAKE_BINARY_DIR}/PluginBuild/${_project}/$<CONFIG>/Inventory.inputs")
 		file(GENERATE OUTPUT "${_spec}" CONTENT "${DURIN_ENGINE_VERSION_STRING}\n${DURIN_TARGET_PLATFORM}\n${CMAKE_SYSTEM_PROCESSOR}\n$<CONFIG>\n${DURIN_RUNTIME_VARIANT}\n${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}-${CMAKE_SIZEOF_VOID_P}\n${_binaries}---\n${_files}")
-		add_custom_target(${_project}PluginBuild ALL
-			COMMAND "${Python_EXECUTABLE}" "${DURIN_WORKSPACE_DIR}/Engine/Scripts/Build/plugin_inventory.py"
-				--catalog "${_catalog_file}" --inputs "${_spec}" --output "${_root}"
-			DEPENDS ${_build_targets} "${_catalog_file}"
-			BYPRODUCTS "${_root}/PluginBuild.json"
+		set(_scripts "${DURIN_WORKSPACE_DIR}/Engine/Scripts/Build")
+		set(_output "${_root}/PluginBuild.json")
+		set(_depfile "${_root}/Inventory.d")
+		list(REMOVE_DUPLICATES _artifacts)
+		list(REMOVE_DUPLICATES _build_targets)
+		add_custom_command(OUTPUT "${_output}"
+			COMMAND "${Python_EXECUTABLE}" "${_scripts}/plugin_inventory.py"
+				--catalog "${_catalog_file}" --inputs "${_spec}" --output "${_root}" --depfile "${_depfile}"
+			DEPENDS ${_build_targets} ${_artifacts} "${_catalog_file}" "${_spec}"
+				"${_scripts}/plugin_inventory.py"
+			DEPFILE "${_depfile}"
 			COMMENT "Publishing ${_project} plugin build inventory"
 			VERBATIM)
+		add_custom_target(${_project}PluginBuild ALL DEPENDS "${_output}")
 	endforeach()
 endfunction()

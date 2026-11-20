@@ -81,8 +81,9 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
                 fail(path, "descriptor must be an object")
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             fail(path, str(error))
-        inputs[logical] = fingerprint(raw)
-        locations[logical] = path
+        if logical is not None:
+            inputs[logical] = fingerprint(raw)
+            locations[logical] = path
         return data
 
     def contained(root, relative):
@@ -144,7 +145,44 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
             add_module(contained(path.parent, relative) / (module + ".dmodule"),
                        "Project/" + name + "/" + module, module, "")
 
-    roots = {engine_root / "Plugins", project_file.parent / "Plugins"}
+    def load_plugin(path):
+        directory = path.parent
+        if path.resolve().parent != directory.resolve():
+            fail(path, "path escape")
+        data = read(path, "Pending")
+        allowed = {"$schema", "SchemaVersion", "Id", "DisplayName", "Version", "Dependencies",
+                   "Platforms", "Content", "Shaders", "Configs", "Modules"}
+        if set(data) - allowed or type(data.get("SchemaVersion")) is not int or data["SchemaVersion"] != 1:
+            fail(path, "unknown schema version or field")
+        name = text(data, "Id", path)
+        if not IDENTIFIER.fullmatch(name) or name.lower() in plugins:
+            fail(path, "invalid or duplicate plugin " + name)
+        logical = "Plugin/" + name
+        inputs[logical] = inputs.pop("Pending")
+        locations[logical] = locations.pop("Pending")
+        for field in ("$schema", "DisplayName", "Version"):
+            if field in data:
+                text(data, field, path)
+        for field in ("Content", "Shaders", "Configs"):
+            if field in data:
+                contained(directory.resolve(), data[field])
+        plugin = dict(name=name, path=path, data=data, dependencies=ids(data, "Dependencies", path),
+                      platforms=ids(data, "Platforms", path))
+        plugins[name.lower()] = plugin
+        entries_modules = data.get("Modules", [])
+        if not isinstance(entries_modules, list):
+            fail(path, "Modules must be an array")
+        for module in entries_modules:
+            if not isinstance(module, dict) or set(module) - {"Name", "Path", "Host", "Phase", "Platforms"}:
+                fail(path, "invalid module fields")
+            mod_name = text(module, "Name", path)
+            host, phase = module.get("Host", "Runtime"), module.get("Phase", "Providers")
+            if host not in ("Runtime", "Editor") or phase not in PHASES or (host == "Runtime" and phase == "EditorReady"):
+                fail(path, "invalid host/phase")
+            mod_path = contained(directory.resolve(), text(module, "Path", path))
+            add_module(mod_path / (mod_name + ".dmodule"), logical + "/" + mod_name,
+                       mod_name, name, host, phase, ids(module, "Platforms", path))
+
     def discover(directory, search_root):
         if discovery_directories is not None:
             discovery_directories.add(directory)
@@ -159,48 +197,28 @@ def _resolve_plugins(engine_root: Path, project_file: Path, *, platform="Win64",
         if len(descriptors) > 1:
             fail(directory, "multiple plugin descriptors")
         if descriptors:
-            path = descriptors[0]
-            if path.resolve().parent != directory.resolve():
-                fail(path, "path escape")
-            data = read(path, "Pending")
-            allowed = {"$schema", "SchemaVersion", "Id", "DisplayName", "Version", "Dependencies",
-                       "Platforms", "Content", "Shaders", "Configs", "Modules"}
-            if set(data) - allowed or type(data.get("SchemaVersion")) is not int or data["SchemaVersion"] != 1:
-                fail(path, "unknown schema version or field")
-            name = text(data, "Id", path)
-            if not IDENTIFIER.fullmatch(name) or name.lower() in plugins:
-                fail(path, "invalid or duplicate plugin " + name)
-            logical = "Plugin/" + name
-            inputs[logical] = inputs.pop("Pending")
-            locations[logical] = locations.pop("Pending")
-            for field in ("$schema", "DisplayName", "Version"):
-                if field in data:
-                    text(data, field, path)
-            for field in ("Content", "Shaders", "Configs"):
-                if field in data:
-                    contained(directory.resolve(), data[field])
-            plugin = dict(name=name, path=path, data=data, dependencies=ids(data, "Dependencies", path),
-                          platforms=ids(data, "Platforms", path))
-            plugins[name.lower()] = plugin
-            entries_modules = data.get("Modules", [])
-            if not isinstance(entries_modules, list):
-                fail(path, "Modules must be an array")
-            for module in entries_modules:
-                if not isinstance(module, dict) or set(module) - {"Name", "Path", "Host", "Phase", "Platforms"}:
-                    fail(path, "invalid module fields")
-                mod_name = text(module, "Name", path)
-                host, phase = module.get("Host", "Runtime"), module.get("Phase", "Providers")
-                if host not in ("Runtime", "Editor") or phase not in PHASES or (host == "Runtime" and phase == "EditorReady"):
-                    fail(path, "invalid host/phase")
-                mod_path = contained(directory.resolve(), text(module, "Path", path))
-                add_module(mod_path / (mod_name + ".dmodule"), logical + "/" + mod_name,
-                           mod_name, name, host, phase, ids(module, "Platforms", path))
+            load_plugin(descriptors[0])
             return
         for entry in entries:
             if entry.is_dir():
                 discover(entry, search_root)
 
-    for root in sorted(roots):
+    builtin_manifest = engine_root / "BuiltinPlugins.json"
+    if builtin_manifest.exists():
+        manifest = read(builtin_manifest, None)
+        descriptors = manifest.get("Descriptors")
+        if (set(manifest) != {"Descriptors"} or not isinstance(descriptors, list)
+                or any(not isinstance(path, str) for path in descriptors)):
+            fail(builtin_manifest, "expected a Descriptors array of plugin paths")
+        root = engine_root / "Plugins"
+        for relative in descriptors:
+            path = root / relative
+            resolved = contained(root, relative)
+            if path.suffix != ".dplugin" or path.absolute() != resolved:
+                fail(builtin_manifest, "invalid or symbolic plugin descriptor: " + relative)
+            load_plugin(path)
+    if project_file.parent != engine_root:
+        root = project_file.parent / "Plugins"
         discover(root, root)
     overrides = next(o for p, _, o in projects if p == project_file)
     required = {name.lower() for name in overrides}

@@ -5,8 +5,16 @@ import json
 from pathlib import Path
 import shutil
 
+def write_depfile(depfile, output, dependencies):
+    def escape(path):
+        return (path.as_posix().replace("$", "$$")
+                .replace("#", "\\#").replace(" ", "\\ "))
 
-def publish(catalog_file: Path, inputs: Path, output: Path):
+    paths = " ".join(escape(path) for path in sorted(dependencies))
+    depfile.write_text(f"{escape(output)}: {paths}\n", encoding="utf-8")
+
+
+def publish(catalog_file: Path, inputs: Path, output: Path, depfile: Path | None = None):
     lines = inputs.read_text(encoding="utf-8").splitlines()
     identity = dict(zip(("EngineBuild", "Platform", "Architecture", "Configuration",
                          "RuntimeVariant", "ToolchainABI"), lines[:6]))
@@ -31,6 +39,10 @@ def publish(catalog_file: Path, inputs: Path, output: Path):
                     Identity=identity, Binaries=binaries)
     output.mkdir(parents=True, exist_ok=True)
     destination = output / "PluginBuild.json"
+    if depfile:
+        # Track staged copies by their resolved filenames so removing one
+        # invalidates the inventory even when the original DLL is current.
+        write_depfile(depfile, destination, (output / path for path in paths.values()))
     temporary = destination.with_suffix(".tmp")
     temporary.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     temporary.replace(destination)
@@ -42,5 +54,6 @@ if __name__ == "__main__":
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--inputs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--depfile", type=Path)
     args = parser.parse_args()
-    publish(args.catalog, args.inputs, args.output)
+    publish(args.catalog, args.inputs, args.output, args.depfile)
