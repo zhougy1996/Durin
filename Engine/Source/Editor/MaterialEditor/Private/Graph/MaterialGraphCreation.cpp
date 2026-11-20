@@ -50,20 +50,6 @@ namespace Durin::MaterialEditor
 			else { Function = Loaded; }
 			return {.Function = Function};
 		}
-
-		auto IncludeCallOutput(FGraphEditSession& State, DMaterialExpression* Source, FGuid OutputId) -> void
-		{
-			auto* Call = Cast<DMaterialExpressionFunctionCall>(Source);
-			if (!OutputId.IsValid() || !Call || !Call->Function.IsValid()
-				|| std::ranges::contains(Call->FunctionOutputs, OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
-			const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
-			if (const auto Port = std::ranges::find(Ports, OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
-			{
-				State.Modify(*Call);
-				Call->FunctionOutputs.push_back({Port->Id, Port->Type});
-			}
-		}
-
 	}
 	auto FMaterialGraphSchema::ForOwner(const DObject& Owner) -> const FMaterialGraphSchema&
 	{
@@ -205,7 +191,7 @@ namespace Durin::MaterialEditor
 			Terminal->Id = NodeId; Terminal->Port = std::move(Port);
 			auto* Upstream = FindMaterialExpression(State.Expressions, Source.SourceNodeId);
 			if (Source.SourceNodeId.IsValid() && !Upstream) return std::unexpected(RejectCommand("The source expression no longer exists."));
-			IncludeCallOutput(State, Upstream, Source.SourceOutputId);
+			State.IncludeCallOutput(Upstream, Source.SourceOutputId);
 			Terminal->Source = {Upstream, Source.SourceOutputIndex, Source.SourceOutputId};
 			State.Expressions.emplace_back(Terminal);
 		}
@@ -266,7 +252,7 @@ namespace Durin::MaterialEditor
 			if (Source->SourceIndex >= 0) FirstInput.Connect(Source->SourceIndex, Expression);
 			else
 			{
-				IncludeCallOutput(State, Expression, Output.PortId);
+				State.IncludeCallOutput(Expression, Output.PortId);
 				FirstInput = {Expression, 0, Output.PortId};
 				if (FirstInput.OutputIndex < 0) return std::unexpected(RejectCommand("The source output no longer exists."));
 			}
@@ -450,7 +436,7 @@ namespace Durin::MaterialEditor
 		{
 			auto* Source = FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner.Get()), Input.Source.SourceNodeId);
 			if (Input.Source.SourceNodeId.IsValid() && !Source) return std::unexpected(RejectCommand("The source expression no longer exists."));
-			IncludeCallOutput(State, Source, Input.Source.SourceOutputId);
+			State.IncludeCallOutput(Source, Input.Source.SourceOutputId);
 			FMaterialExpressionFunctionInputBinding Binding{Input.InputId, Input.ExpectedType,
 				{Source, Input.Source.SourceOutputIndex, Input.Source.SourceOutputId}};
 			if (Input.Default.Kind != EMaterialInputDefaultKind::None)

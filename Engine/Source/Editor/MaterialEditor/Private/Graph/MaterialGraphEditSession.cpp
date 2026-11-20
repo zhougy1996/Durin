@@ -277,6 +277,19 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			});
 	}
 
+	auto FGraphEditSession::IncludeCallOutput(DMaterialExpression* Source, FGuid OutputId) -> void
+	{
+		auto* Call = Cast<DMaterialExpressionFunctionCall>(Source);
+		if (!OutputId.IsValid() || !Call || !Call->Function.IsValid()
+			|| std::ranges::contains(Call->FunctionOutputs, OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
+		const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
+		if (const auto Port = std::ranges::find(Ports, OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
+		{
+			Modify(*Call);
+			Call->FunctionOutputs.push_back({Port->Id, Port->Type});
+		}
+	}
+
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");

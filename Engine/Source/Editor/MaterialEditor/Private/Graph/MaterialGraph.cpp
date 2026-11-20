@@ -257,14 +257,13 @@ namespace Durin::MaterialEditor
 			return Current == Pin && Node->GetMaterialExpression() ? Cast<DMaterialGraph>(Node->GetOuter()) : nullptr;
 		}
 
-		auto CheckConnection(const FMaterialGraphPin& Output, const DMaterialGraphNode& Target, const FMaterialGraphPinView& Input,
+		auto CheckConnection(const FMaterialGraphPin& Output, const DMaterialGraphNode& Target, bool bTypesCompatible,
 			const FMaterialGraphPin* Existing) -> FMaterialGraphConnectionResponse
 		{
 			using R = EMaterialGraphConnectionResponse;
 			const auto* Source = Output.GetOwningNode();
-			const auto& View = Source->GetView().Outputs[Output.DisplayIndex];
 			if (Existing && std::ranges::contains(Existing->LinkedTo, &Output)) return {R::Make, {}};
-			if (!FMaterialGraphSchema::IsConnectionTypeCompatible(Input, View.Type)) return {R::Disallow, "The pin types are incompatible."};
+			if (!bTypesCompatible) return {R::Disallow, "The pin types are incompatible."};
 			std::vector<const DMaterialGraphNode*> Pending{Source};
 			std::unordered_set<const DMaterialGraphNode*> Visited;
 			while (!Pending.empty())
@@ -296,7 +295,9 @@ namespace Durin::MaterialEditor
 		if (A->Direction == B->Direction) return {R::Disallow, "Connect an output to an input."};
 		const auto* Input = A->Direction == EMaterialGraphPinDirection::Input ? A : B;
 		const auto* Node = Input->GetOwningNode();
-		return CheckConnection(*(Input == A ? B : A), *Node, Node->GetView().Inputs[Input->DisplayIndex], Input);
+		const auto* Output = Input == A ? B : A;
+		const auto Type = Output->GetOwningNode()->GetView().Outputs[Output->DisplayIndex].Type;
+		return CheckConnection(*Output, *Node, IsConnectionTypeCompatible(Node->GetView().Inputs[Input->DisplayIndex], Type), Input);
 	}
 
 	auto FMaterialGraphSchema::TryCreateConnection(const FMaterialGraphPin* A, const FMaterialGraphPin* B,
@@ -323,46 +324,71 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphSchema::CanCreateConnection(const DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,
 		const FMaterialGraphPinAddress& B) const -> FMaterialGraphConnectionResponse
 	{
-		if (!Graph.GetMaterialOrFunction()) return {EMaterialGraphConnectionResponse::Disallow, "The graph owner is no longer available."};
-		const auto& Target = IsOutput(A) ? B : A;
-		if (Target.Kind != EMaterialGraphPinKind::AttributeOverride)
-			return CanCreateConnection(Graph.FindPin(A), Graph.FindPin(B));
-		const auto* Source = Graph.FindPin(IsOutput(A) ? A : B);
-		auto* Node = Graph.FindNode(Target.NodeId);
-		if (!Source || Source->Direction != EMaterialGraphPinDirection::Output || !Node || Target.PortId.IsValid()
-			|| !Cast<DMaterialExpressionSetMaterialAttributes>(Node->GetMaterialExpression())
-			|| Target.Index >= FMaterialAttributeDefinitionMap::GetDefinitions().size())
-			return {EMaterialGraphConnectionResponse::Disallow, "The attribute override is unavailable."};
-		if (const auto* Existing = Graph.FindPin(FMaterialGraphPinAddress::Input(Target.NodeId, Target.Index + 1)))
-			return CanCreateConnection(Source, Existing);
-		const auto Type = GetMaterialSurfaceOutputType(static_cast<EMaterialProperty>(Target.Index));
-		FMaterialGraphPinView Input{.AcceptedTypes = {Type}};
-		if (Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4)
-			Input.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
-		return CheckConnection(*Source, *Node, Input, nullptr);
+		return CanCreateConnection(Graph.FindPin(A), Graph.FindPin(B));
 	}
 
 	auto FMaterialGraphSchema::TryCreateConnection(DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,
 		const FMaterialGraphPinAddress& B, bool Replace, ETransactionMode Mode, std::string* OutError) const -> bool
 	{
-		const auto& Target = IsOutput(A) ? B : A;
-		if (Target.Kind != EMaterialGraphPinKind::AttributeOverride)
-			return TryCreateConnection(Graph.FindPin(A), Graph.FindPin(B), Replace, Mode, OutError);
-		const auto Response = CanCreateConnection(Graph, A, B);
-		if (!Response.Allows(Replace))
-		{
-			if (OutError) *OutError = Response.Reason;
-			return false;
-		}
-		return Graph.WriteGraphInput(*Graph.FindNode(Target.NodeId), Target, Graph.FindPin(IsOutput(A) ? A : B), Replace, Mode, OutError);
+		return TryCreateConnection(Graph.FindPin(A), Graph.FindPin(B), Replace, Mode, OutError);
 	}
 
 	auto FMaterialGraphSchema::BreakPinLinks(DMaterialGraph& Graph, FMaterialGraphPinAddress Pin, ETransactionMode Mode, std::string* OutError) const -> bool
 	{
-		if (!Graph.GetMaterialOrFunction()) return GraphEditInternals::FailWithError(OutError, "The graph owner is no longer available.");
-		if (Pin.Kind == EMaterialGraphPinKind::AttributeOverride)
-			if (auto* Node = Graph.FindNode(Pin.NodeId)) return Graph.WriteGraphInput(*Node, Pin, nullptr, true, Mode, OutError);
 		return BreakPinLinks(Graph.FindPin(Pin), Mode, OutError);
+	}
+
+	auto DMaterialGraphNode::CanSetAttributeInput(EMaterialProperty Property, const FMaterialGraphPin* Output) const -> FMaterialGraphConnectionResponse
+	{
+		auto* Graph = PinGraph(Output);
+		if (!Graph || Graph != GetOuter() || Output->Direction != EMaterialGraphPinDirection::Output
+			|| !Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression()) || !FMaterialAttributeDefinitionMap::Find(Property))
+			return {EMaterialGraphConnectionResponse::Disallow, "The attribute input or source output is unavailable."};
+		const auto Address = FMaterialGraphPinAddress::Input(View.Node.Id, static_cast<uint32>(Property) + 1);
+		if (const auto* Input = Graph->FindPin(Address)) return Graph->GetSchema().CanCreateConnection(Output, Input);
+		const auto SourceType = Output->GetOwningNode()->GetView().Outputs[Output->DisplayIndex].Type;
+		return CheckConnection(*Output, *this, FMaterialGraphSchema::AcceptsPort(GetMaterialSurfaceOutputType(Property), SourceType), nullptr);
+	}
+
+	auto DMaterialGraphNode::SetAttributeInput(EMaterialProperty Property, const FMaterialGraphPin& Output,
+		ETransactionMode Mode, std::string* OutError) -> bool
+	{
+		using namespace GraphEditInternals;
+		const auto Response = CanSetAttributeInput(Property, &Output);
+		if (!Response.Allows(true)) return FailWithError(OutError, Response.Reason);
+		auto* Graph = Cast<DMaterialGraph>(GetOuter());
+		const auto Address = FMaterialGraphPinAddress::Input(View.Node.Id, static_cast<uint32>(Property) + 1);
+		if (const auto* Input = Graph->FindPin(Address))
+			return Graph->GetSchema().TryCreateConnection(&Output, Input, true, Mode, OutError);
+
+		auto Transactions = ResolveEditorTransactor(Mode);
+		if (!Transactions) return FailWithError(OutError, Transactions.error());
+		auto* Target = Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression());
+		auto* Source = Output.GetOwningNode();
+		const auto& Pin = Source->GetView().Outputs[Output.DisplayIndex];
+		FGraphEditSession Edit(*Target->GetOuter());
+		auto* Upstream = Source->GetMaterialExpression();
+		Edit.IncludeCallOutput(Upstream, Pin.PortId);
+		const FMaterialExpressionInput Link{Upstream, Pin.OutputIndex, Pin.PortId};
+		if (Link.OutputIndex < 0) return FailWithError(OutError, "The source output is unavailable.");
+		Edit.Modify(*Target);
+		Target->Attributes.emplace_back(Property, Link);
+		return ConnectionCommitChanged(Edit.Commit("Set Material Attribute Input", *Transactions), OutError);
+	}
+
+	auto DMaterialGraphNode::ClearAttributeInput(EMaterialProperty Property, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	{
+		using namespace GraphEditInternals;
+		auto* Target = Cast<DMaterialExpressionSetMaterialAttributes>(GetMaterialExpression());
+		if (!Target || !FMaterialAttributeDefinitionMap::Find(Property)) return RejectCommand("The attribute input is unavailable.");
+		const auto It = std::ranges::find(Target->Attributes, Property, &FMaterialExpressionAttributeBinding::GetProperty);
+		if (It == Target->Attributes.end()) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		auto Transactions = ResolveEditorTransactor(Mode);
+		if (!Transactions) return RejectCommand(Transactions.error());
+		FGraphEditSession Edit(*Target->GetOuter());
+		Edit.Modify(*Target);
+		Target->Attributes.erase(It);
+		return Edit.Commit("Clear Material Attribute Input", *Transactions);
 	}
 
 	auto DMaterialGraph::BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode, std::string* OutError) -> bool
@@ -533,8 +559,6 @@ namespace Durin::MaterialEditor
 			auto* Transactions = *Admission;
 			if (!Owner) return GraphEditInternals::FailWithError(OutError, "The material graph owner is no longer available.");
 			FMaterialExpressionInput* Target = nullptr;
-			FMaterialNumericInput* AttributeValue = nullptr;
-			DMaterialExpressionSetMaterialAttributes* AttributeOwner = nullptr;
 			auto* Call = Cast<DMaterialExpressionFunctionCall>(&Node);
 			const FMaterialFunctionPort* Port = nullptr;
 			if (TargetAddress.Kind == EMaterialGraphPinKind::FunctionInput)
@@ -551,19 +575,6 @@ namespace Durin::MaterialEditor
 				if (Binding != Call->FunctionInputs.end())
 				{
 					Target = &Binding->Input;
-				}
-			}
-			else if (TargetAddress.Kind == EMaterialGraphPinKind::AttributeOverride)
-			{
-				AttributeOwner = Cast<DMaterialExpressionSetMaterialAttributes>(&Node);
-				if (!AttributeOwner || TargetAddress.PortId.IsValid() || TargetAddress.Index >= FMaterialAttributeDefinitionMap::GetDefinitions().size())
-					return GraphEditInternals::FailWithError(OutError, "The attribute override is unavailable.");
-				const auto Attribute = static_cast<EMaterialProperty>(TargetAddress.Index);
-				const auto It = std::ranges::find(AttributeOwner->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
-				if (It != AttributeOwner->Attributes.end())
-				{
-					AttributeValue = &It->Source;
-					Target = &AttributeValue->Connection;
 				}
 			}
 			else
@@ -605,14 +616,12 @@ namespace Durin::MaterialEditor
 			const auto Previous = Target ? *Target : FMaterialExpressionInput{};
 			if (!FMaterialGraphSchema::CanReplaceConnection(Previous, Connection, bReplaceExisting))
 				return GraphEditInternals::FailWithError(OutError, "The graph input is already connected.");
-			const bool ResetDefault = AttributeValue && !Connection.IsConnected() && AttributeValue->UseConstant;
-			if (Previous == Connection && !ResetDefault) return false;
+			if (Previous == Connection) return false;
 			FMaterialGraphCommandResult Result;
 			if (Target && !SourceCall)
 			{
 				FExpressionEdit Edit;
 				Edit.SetLink(Node, *Target, Connection);
-				if (ResetDefault) Edit.Set(Node, AttributeValue->UseConstant, false);
 				Result = Edit.CommitInferred(*Owner, Transactions, "Connect Graph Input");
 			}
 			else
@@ -625,7 +634,6 @@ namespace Durin::MaterialEditor
 				}
 				State.Modify(Node);
 				if (Target) *Target = Connection;
-				else if (AttributeOwner) AttributeOwner->Attributes.emplace_back(static_cast<EMaterialProperty>(TargetAddress.Index), Connection);
 				else Call->FunctionInputs.push_back({Port->Id, Port->Type, Connection});
 				Result = State.Commit("Connect Graph Input", Transactions);
 			}
@@ -638,13 +646,8 @@ namespace Durin::MaterialEditor
 		bool Replace, ETransactionMode Mode, std::string* OutError) -> bool
 	{
 		auto* Node = Input.GetOwningNode();
-		return WriteGraphInput(*Node, Node->GetView().InputAddress(Node->GetView().Inputs[Input.DisplayIndex]), Output, Replace, Mode, OutError);
-	}
-
-	auto DMaterialGraph::WriteGraphInput(DMaterialGraphNode& Node, FMaterialGraphPinAddress Target,
-		const FMaterialGraphPin* Output, bool Replace, ETransactionMode Mode, std::string* OutError) -> bool
-	{
-		auto* Expression = Node.GetMaterialExpression();
+		const auto Target = Node->GetView().InputAddress(Node->GetView().Inputs[Input.DisplayIndex]);
+		auto* Expression = Node->GetMaterialExpression();
 		if (!Expression) return GraphEditInternals::FailWithError(OutError, "The graph input is unavailable.");
 		if (!Output) return WriteInput(GetMaterialOrFunction(), *Expression, Target, nullptr, 0, {}, Replace, Mode, OutError);
 		auto* Source = Output->GetOwningNode();

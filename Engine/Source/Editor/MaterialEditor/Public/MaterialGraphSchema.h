@@ -36,7 +36,7 @@ namespace Durin::MaterialEditor
 			bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API virtual auto BreakPinLinks(const FMaterialGraphPin* Pin,
 			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
-		// Resolve retained UI addresses and dynamic attribute requests at the command boundary.
+		// Resolve retained UI addresses at the command boundary.
 		MATERIALEDITOR_API auto CanCreateConnection(const DMaterialGraph& Graph,
 			const FMaterialGraphPinAddress& A, const FMaterialGraphPinAddress& B) const -> FMaterialGraphConnectionResponse;
 		MATERIALEDITOR_API auto TryCreateConnection(DMaterialGraph& Graph, const FMaterialGraphPinAddress& A,

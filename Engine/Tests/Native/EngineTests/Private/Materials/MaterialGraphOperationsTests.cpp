@@ -3476,7 +3476,7 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	EXPECT_TRUE(Transactions->CanUndo());
 }
 
-TEST(FMaterialGraphOperationsTests, AttributeOverrideUsesSchemaAdmissionAndOneHistoryStep)
+TEST(FMaterialGraphOperationsTests, AttributeInputsSharePinAdmissionAndUndoStructuralChanges)
 {
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
@@ -3485,36 +3485,68 @@ TEST(FMaterialGraphOperationsTests, AttributeOverrideUsesSchemaAdmissionAndOneHi
 	auto Set = Testing::MakeGraphExpression<DMaterialExpressionSetMaterialAttributes>();
 	ASSERT_TRUE(AuthoringGraph->CreateExpression(*Set, 0, 0, ETransactionMode::NotTransactable));
 	auto Get = Testing::MakeGraphExpression<DMaterialExpressionGetMaterialAttributes>();
-	const auto Property = EMaterialProperty::MP_Metallic;
+	const auto Property = EMaterialProperty::MP_BaseColor;
 	const auto PortId = FMaterialAttributeDefinitionMap::GetID(Property);
 	Get->Surface = {FindMaterialExpression(Material->GetExpressionCollection().Expressions, Set->Id)};
 	Get->AttributeIDs = {PortId};
 	ASSERT_TRUE(AuthoringGraph->CreateExpression(*Get, 0, 0, ETransactionMode::NotTransactable));
 	const auto Scalar = Testing::CreateGraphConstant(*AuthoringGraph, .25f);
 	ASSERT_TRUE(Scalar);
+	const auto OtherScalar = Testing::CreateGraphConstant(*AuthoringGraph, .75f);
+	ASSERT_TRUE(OtherScalar);
+	const auto OtherSource = FMaterialGraphPinAddress::Output({OtherScalar.value()});
+	auto Vector2 = Testing::MakeGraphExpression<DMaterialExpressionVector2Constant>();
+	ASSERT_TRUE(AuthoringGraph->CreateExpression(*Vector2, 0, 0, ETransactionMode::NotTransactable));
+	const auto WrongWidth = FMaterialGraphPinAddress::Output({Vector2->Id});
 	const auto& Schema = AuthoringGraph->GetSchema();
-	const auto Override = FMaterialGraphPinAddress::AttributeOverride(Set->Id, Property);
+	auto* Node = AuthoringGraph->FindNode(Set->Id);
+	ASSERT_TRUE(Node);
 	const auto Pin = FMaterialGraphPinAddress::Input(Set->Id, static_cast<uint32>(Property) + 1);
 	const auto Source = FMaterialGraphPinAddress::Output({Scalar.value()});
 	const auto Cycle = FMaterialGraphPinAddress::Output({Get->Id, 0, PortId});
 	Tests::FTestEditorTransactorOwner History;
 	ASSERT_FALSE(AuthoringGraph->FindInputPin(Pin));
-	EXPECT_FALSE(Schema.TryCreateConnection(*AuthoringGraph, Cycle, Override));
+	ASSERT_TRUE(AuthoringGraph->FindPin(Cycle));
+	ASSERT_TRUE(AuthoringGraph->FindPin(WrongWidth));
+	EXPECT_FALSE(Node->SetAttributeInput(Property, *AuthoringGraph->FindPin(WrongWidth)));
+	EXPECT_FALSE(Node->CanSetAttributeInput(Property, AuthoringGraph->FindPin(Cycle)).Allows(true));
+	EXPECT_FALSE(Node->SetAttributeInput(Property, *AuthoringGraph->FindPin(Cycle)));
+	EXPECT_FALSE(AuthoringGraph->FindPin(Pin));
 	EXPECT_EQ(History->GetQueueLength(), 0u);
-	ASSERT_TRUE(Schema.TryCreateConnection(*AuthoringGraph, Source, Override));
+	ASSERT_TRUE(AuthoringGraph->FindPin(Source));
+	ASSERT_TRUE(Node->CanSetAttributeInput(Property, AuthoringGraph->FindPin(Source)).Allows(true));
+	ASSERT_TRUE(Node->SetAttributeInput(Property, *AuthoringGraph->FindPin(Source)));
+	EXPECT_EQ(History->GetQueueLength(), 1u);
+	EXPECT_EQ(Node->CanSetAttributeInput(Property, AuthoringGraph->FindPin(Source)).Response,
+		Schema.CanCreateConnection(AuthoringGraph->FindPin(Source), AuthoringGraph->FindPin(Pin)).Response);
+	EXPECT_FALSE(Node->CanSetAttributeInput(Property, AuthoringGraph->FindPin(WrongWidth)).Allows(true));
+	EXPECT_FALSE(Schema.CanCreateConnection(AuthoringGraph->FindPin(WrongWidth), AuthoringGraph->FindPin(Pin)).Allows(true));
+	EXPECT_FALSE(Node->SetAttributeInput(Property, *AuthoringGraph->FindPin(Source)));
+	EXPECT_EQ(History->GetQueueLength(), 1u);
 	ASSERT_TRUE(AuthoringGraph->FindInputPin(Pin));
 	EXPECT_EQ(AuthoringGraph->FindInputPin(Pin)->Link.SourceNodeId, Source.NodeId);
 	ASSERT_TRUE(History->Undo());
 	EXPECT_FALSE(AuthoringGraph->FindInputPin(Pin));
 	ASSERT_TRUE(History->Redo());
-	ASSERT_TRUE(AuthoringGraph->FindNode(Set->Id)->PinDefaultValueChanged(Pin, {.Kind = EMaterialInputDefaultKind::Literal,
-		.Type = EMaterialProgramValueType::Float, .Literal = {.X = .5f}}));
-	const auto Count = History->GetQueueLength();
-	ASSERT_TRUE(Schema.BreakPinLinks(*AuthoringGraph, Override));
-	EXPECT_EQ(History->GetQueueLength(), Count + 1);
-	EXPECT_FALSE(AuthoringGraph->FindInputPin(Pin)->bUseConstant);
-	EXPECT_FALSE(AuthoringGraph->FindInputPin(Pin)->Link.SourceNodeId.IsValid());
+	const auto* OtherOutput = AuthoringGraph->FindPin(OtherSource);
+	ASSERT_TRUE(OtherOutput);
+	EXPECT_EQ(Node->CanSetAttributeInput(Property, OtherOutput).Response, EMaterialGraphConnectionResponse::ReplaceInput);
+	EXPECT_EQ(Schema.CanCreateConnection(OtherOutput, AuthoringGraph->FindPin(Pin)).Response, EMaterialGraphConnectionResponse::ReplaceInput);
+	ASSERT_TRUE(Node->SetAttributeInput(Property, *OtherOutput));
+	EXPECT_EQ(AuthoringGraph->FindInputPin(Pin)->Link.SourceNodeId, OtherSource.NodeId);
 	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(AuthoringGraph->FindInputPin(Pin)->Link.SourceNodeId, Source.NodeId);
+	ASSERT_TRUE(AuthoringGraph->FindNode(Set->Id)->PinDefaultValueChanged(Pin, {.Kind = EMaterialInputDefaultKind::Literal,
+		.Type = EMaterialProgramValueType::Float3, .Literal = {.X = .5f}}));
+	const auto Count = History->GetQueueLength();
+	ASSERT_TRUE(Node->ClearAttributeInput(Property));
+	EXPECT_EQ(History->GetQueueLength(), Count + 1);
+	EXPECT_FALSE(AuthoringGraph->FindPin(Pin));
+	EXPECT_TRUE(Cast<DMaterialExpressionSetMaterialAttributes>(Node->GetMaterialExpression())->Attributes.empty());
+	EXPECT_EQ(Node->ClearAttributeInput(Property).Status, EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(History->GetQueueLength(), Count + 1);
+	ASSERT_TRUE(History->Undo());
+	ASSERT_TRUE(AuthoringGraph->FindInputPin(Pin));
 	EXPECT_TRUE(AuthoringGraph->FindInputPin(Pin)->bUseConstant);
 	EXPECT_EQ(AuthoringGraph->FindInputPin(Pin)->Link.SourceNodeId, Source.NodeId);
 }

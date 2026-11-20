@@ -33,7 +33,7 @@ namespace Durin::MaterialEditor
 		StaleOwner,
 	};
 
-	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput, AttributeOverride };
+	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput };
 	struct FMaterialGraphPinAddress
 	{
 		FGuid NodeId;
@@ -46,8 +46,6 @@ namespace Durin::MaterialEditor
 		static auto MaterialOutput(FGuid Node, std::optional<EMaterialProperty> Attribute = {}) -> FMaterialGraphPinAddress
 		{ return {Node, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
 			Attribute ? static_cast<uint32>(*Attribute) : static_cast<uint32>(EMaterialOutputPin::Surface)}; }
-		static auto AttributeOverride(FGuid Node, EMaterialProperty Property) -> FMaterialGraphPinAddress
-		{ return {Node, EMaterialGraphPinKind::AttributeOverride, static_cast<uint32>(Property)}; }
 		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
 		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
 	};

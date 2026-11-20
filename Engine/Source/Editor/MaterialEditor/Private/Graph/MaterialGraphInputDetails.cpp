@@ -335,18 +335,25 @@ namespace Durin::MaterialEditor
 				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 				const bool bKeepBase = Binding == Surface->Attributes.end()
 					|| (!Binding->Source.Connection.IsConnected() && !Binding->Source.UseConstant);
-				const auto Address = FMaterialGraphPinAddress::AttributeOverride(Expression->Id, Attribute);
 				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
 					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.IsConnected() ? "Connected" : "Constant")) return false;
-					if (ImGui::Selectable("Keep base value", bKeepBase)) Changed = BreakPinLinks(Address);
+					if (ImGui::Selectable("Keep base value", bKeepBase)) Submit(SelectedNode->ClearAttributeInput(Attribute));
 					for (const auto& Source : View.Nodes)
 					{
-						if (Source.Node.Id == Expression->Id || Changed) continue;
+						if (Changed) break;
 						for (const auto& Pin : Source.Outputs)
-							if (!Changed && Pin.Type == GetMaterialSurfaceOutputType(Attribute)
-								&& ImGui::Selectable(std::format("{}: {}##{}{}", Source.PrimaryLabel, Pin.Name,
-									Source.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
-								Changed = ConnectPins(Address, {Source.Node.Id, Pin.OutputIndex, Pin.PortId}, true);
+						{
+							const auto* Output = EditorGraph->FindPin(FMaterialGraphPinAddress::Output({Source.Node.Id, Pin.OutputIndex, Pin.PortId}));
+							if (!SelectedNode->CanSetAttributeInput(Attribute, Output).Allows(true)) continue;
+							if (ImGui::Selectable(std::format("{}: {}##{}:{}:{}", Source.PrimaryLabel, Pin.Name,
+								Source.Node.Id.ToString(), Pin.OutputIndex, Pin.PortId.ToString()).c_str()))
+							{
+								std::string Error;
+								Changed = SelectedNode->SetAttributeInput(Attribute, *Output, ETransactionMode::Record, &Error);
+								if (!Error.empty()) ReportError(std::move(Error));
+								break;
+							}
+						}
 					}
 					ImGui::EndCombo();
 					return Changed;

@@ -60,6 +60,11 @@ namespace Durin::MaterialEditor
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetSwizzleComponents(std::span<const uint8> Components,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto CanSetAttributeInput(EMaterialProperty Property, const FMaterialGraphPin* Output) const -> FMaterialGraphConnectionResponse;
+		MATERIALEDITOR_API auto SetAttributeInput(EMaterialProperty Property, const FMaterialGraphPin& Output,
+			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) -> bool;
+		MATERIALEDITOR_API auto ClearAttributeInput(EMaterialProperty Property,
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ExtractInputDefault(const FMaterialGraphPinAddress& Pin,
@@ -189,8 +194,6 @@ namespace Durin::MaterialEditor
 			std::optional<std::span<const FGuid>> Selected = {}) -> void;
 		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPin& Input, const FMaterialGraphPin* Output,
 			bool Replace, ETransactionMode Mode, std::string* OutError) -> bool;
-		auto WriteGraphInput(DMaterialGraphNode& Target, FMaterialGraphPinAddress Input,
-			const FMaterialGraphPin* Output, bool Replace, ETransactionMode Mode, std::string* OutError) -> bool;
 		auto BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode, std::string* OutError) -> bool;
 		TWeakObjectPtr<DObject> Owner;
 		const FMaterialGraphSchema* Schema = nullptr;

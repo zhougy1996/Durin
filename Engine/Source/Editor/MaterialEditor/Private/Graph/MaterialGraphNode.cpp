@@ -411,8 +411,8 @@ namespace Durin::MaterialEditor
 			}
 		for (auto& Pin : View.Inputs)
 			if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
-				&& Pin.AcceptedTypes.front() > EMaterialProgramValueType::Float
-				&& Pin.AcceptedTypes.front() <= EMaterialProgramValueType::Float4)
+				&& Pin.AcceptedTypes.front() != EMaterialProgramValueType::Float
+				&& FMaterialGraphSchema::AcceptsPort(Pin.AcceptedTypes.front(), EMaterialProgramValueType::Float))
 				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 	}
 

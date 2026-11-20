@@ -24,6 +24,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		~FGraphEditSession();
 		FGraphEditSession(const FGraphEditSession&) = delete;
 		FGraphEditSession(FGraphEditSession&&) = delete;
+		auto IncludeCallOutput(DMaterialExpression* Source, FGuid OutputId) -> void;
 		auto Modify(DMaterialExpression& Expression) -> void;
 		auto ReplaceExpression(TObjectPtr<DMaterialExpression>& Slot, DMaterialExpression& Replacement) -> void;
 		auto Assign(DMaterialExpression& Target, const DMaterialExpression& Source) -> FMaterialGraphCommandResult;

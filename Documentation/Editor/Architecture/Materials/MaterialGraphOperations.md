@@ -93,7 +93,7 @@ retain their strict graph-validation boundary.
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
 The graph owns clipboard commands and supplies a lightweight command object with the same weak owner for asset commands. The public command object has no raw connect or disconnect entry points.
-New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
+New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the previous connection and retained constant.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
 slot, with -1 for a signature port that has no call binding. Function outputs
@@ -378,15 +378,14 @@ signature input, including scalar broadcast. Creation and its optional source li
 publish once and occupy one undo entry. Function calls use the current asset signature and asset-level dependency validation before publication.
 
 `FMaterialGraphPinAddress` identifies fixed inputs/outputs, function GUID ports,
-material attribute overrides and aggregate Surface inputs. The graph resolves these
+material root properties and aggregate Surface inputs. The graph resolves these
 addresses and shares source validation, replacement policy, default preservation,
 and transaction publication. `CanCreateConnection` returns the admission decision and
 reason. `TryCreateConnection` returns true when it changes a link. The canvas
 and Details request error text for failed edits. Repeating an existing link
 leaves the error text empty and undo history untouched. `BreakPinLinks` follows the same
-change and error convention and permits clearing retained bindings
-after a function port disappears. Callers use `Input`, `Output` and `MaterialOutput`
-address constructors. Details uses `AttributeOverride` when choosing a source for an optional binding.
+change and error convention. Callers use `Input`, `Output` and `MaterialOutput`
+address constructors. Details uses the node commands `SetAttributeInput` and `ClearAttributeInput` for optional attribute bindings.
 Graph change notifications drive pin and downstream type refresh after a connection edit. Type compatibility guides palette filtering, automatic connections,
 and connection admission. The internal asset writer also supports incomplete graphs for compiler diagnostics. Commands also use parameter GUIDs and `EMaterialProperty`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
