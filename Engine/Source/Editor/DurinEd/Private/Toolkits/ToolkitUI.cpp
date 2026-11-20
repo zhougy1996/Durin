@@ -201,7 +201,7 @@ namespace Durin
 	namespace
 	{
 		auto CopyDockTemplate(const FAssetEditorToolkitId& Source, const FAssetEditorToolkitId& Destination,
-			uint32 Version, std::span<const std::string_view> Panels, bool RuntimeDestination) -> void
+			uint32 Version, std::span<const std::string_view> Panels) -> void
 		{
 			std::vector<std::string> Names;
 			Names.reserve(Panels.size() * 2);
@@ -219,9 +219,6 @@ namespace Durin
 				Self(Self, Node->ChildNodes[0]); Self(Self, Node->ChildNodes[1]);
 			};
 			SetClass(SetClass, ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(Destination, Version)));
-			if (RuntimeDestination)
-				for (size_t I = 1; I < Names.size(); I += 2)
-					if (auto* Settings = ImGui::FindWindowSettingsByID(ImHashStr(Names[I].c_str()))) Settings->WantDelete = true;
 		}
 	}
 	auto FBaseAssetToolkit::RestoreDockLayout(std::string_view Slot, const FAssetEditorToolkitId& DockType,
@@ -231,7 +228,8 @@ namespace Durin
 		UI->RuntimeDockSpaces.insert(TabLayout::MakeDockSpaceId(DockType, Version));
 		const FAssetEditorToolkitId Profile(GetLayoutProfileKey() + "." + std::string(Slot));
 		if (!ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(Profile, Version))) return;
-		if (!ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Version))) CopyDockTemplate(Profile, DockType, Version, Panels, true);
+		// BeginDockablePanel consumes the copied settings before marking them for deletion.
+		if (!ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(DockType, Version))) CopyDockTemplate(Profile, DockType, Version, Panels);
 		TabLayout::SubmitDockSpace(Profile, Version, ImVec2(0, 0), ImGuiDockNodeFlags_KeepAliveOnly);
 	}
 	auto FBaseAssetToolkit::SaveDockLayout(std::string_view Slot, const FAssetEditorToolkitId& DockType,
@@ -257,7 +255,7 @@ namespace Durin
 		auto& Last = UI->DockSignatures[std::string(Slot)];
 		if (Last != Signature)
 		{
-			CopyDockTemplate(DockType, Profile, Version, Panels, false);
+			CopyDockTemplate(DockType, Profile, Version, Panels);
 			Last = std::move(Signature);
 			ImGui::MarkIniSettingsDirty();
 		}

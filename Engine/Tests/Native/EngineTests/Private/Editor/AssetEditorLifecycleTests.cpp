@@ -1760,6 +1760,12 @@ namespace
 			for (auto Panel : Panels) { TabLayout::BeginDockablePanel(TypeA, Panel, Panel, nullptr, ImGuiWindowFlags_NoSavedSettings); ImGui::End(); }
 			First->SaveDockLayout("Document", TypeA, 1, Panels);
 			Second->RestoreDockLayout("Document", TypeB, 1, Panels);
+			TabLayout::SubmitDockSpace(TypeB, 1, ImVec2(800, 600));
+			for (auto Panel : Panels)
+			{
+				TabLayout::BeginDockablePanel(TypeB, Panel, Panel, nullptr, ImGuiWindowFlags_NoSavedSettings);
+				ImGui::End();
+			}
 			ImGui::End(); ImGui::Render();
 			EXPECT_EQ(0, ImGui::GetCurrentContext()->ErrorCountCurrentFrame);
 		}
@@ -1775,9 +1781,20 @@ namespace
 		ImGui::NewFrame(); ImGui::Begin("Template restore", nullptr, ImGuiWindowFlags_NoSavedSettings);
 		Second->RestoreDockLayout("Document", TypeB, 1, Panels);
 		const auto* Restored = ImGui::DockBuilderGetNode(TabLayout::MakeDockSpaceId(TypeB, 1));
-		ASSERT_NE(nullptr, Restored); ASSERT_NE(nullptr, Restored->ChildNodes[0]);
+		ASSERT_NE(nullptr, Restored);
+		ASSERT_NE(nullptr, Restored->ChildNodes[0]);
+		ASSERT_NE(nullptr, Restored->ChildNodes[1]);
 		EXPECT_EQ(ImGuiAxis_X, Restored->SplitAxis);
+		TabLayout::SubmitDockSpace(TypeB, 1, ImVec2(800, 600));
+		for (size_t Index = 0; Index < std::size(Panels); ++Index)
+		{
+			const auto Panel = Panels[Index];
+			TabLayout::BeginDockablePanel(TypeB, Panel, Panel, nullptr, ImGuiWindowFlags_NoSavedSettings);
+			EXPECT_EQ(Restored->ChildNodes[Index]->ID, ImGui::GetCurrentWindow()->DockId) << Panel;
+			ImGui::End();
+		}
 		ImGui::End(); ImGui::Render();
+		EXPECT_EQ(0, ImGui::GetCurrentContext()->ErrorCountCurrentFrame);
 	}
 
 
