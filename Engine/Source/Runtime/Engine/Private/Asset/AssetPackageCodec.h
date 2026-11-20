@@ -86,10 +86,6 @@ namespace Durin::AssetPrivate
 		auto (*Relocate)(
 			const FAssetPackageReadContext&, const FPackagePath&, FAssetPackageEncodedClosure&)
 			-> ObjectPackage::FPackageWriterResult = nullptr;
-		auto (*WriteRedirector)(
-			const FPackagePath&, std::span<const FAssetRedirectorWriteMapping>,
-			FAssetPackageEncodedClosure&)
-			-> ObjectPackage::FPackageWriterResult = nullptr;
 	};
 
 	auto EncodeAssetPackageClosure(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,

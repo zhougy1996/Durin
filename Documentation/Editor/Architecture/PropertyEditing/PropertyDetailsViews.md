@@ -28,13 +28,12 @@ Unavailable recorded admission rejects the edit rather than silently disabling
 history. CallInEditor actions require recorded mode. Custom spline commands use
 the same admission policy as ordinary property writes.
 
-`EditObject()` is the default object-level API. It enumerates inherited `Edit`
-properties, expands fixed arrays, applies caller-provided search and filtering,
-generates default labels, and can either own its property table or compose rows
-inside a table owned by the host. It returns the visible row count and whether
-any row changed so a composing host can provide its own empty state.
+`DrawDetailPanel()` composes the object-level Details view. Its
+`FDetailLayoutBuilder` applies customizations, enumerates inherited `Edit`
+properties, expands fixed arrays, and applies search to the planned rows.
+The panel reports its visible row count and change state to the host.
 
-`EditProperty()` remains the controlled composition API. It renders and edits
+`EditProperty()` renders and edits
 one top-level reflected property and recursively handles supported structs,
 arrays, and maps.
 `EditPropertyValue()` and the container-recursion helpers are private so callers

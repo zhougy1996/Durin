@@ -7,8 +7,6 @@
 #include "Asset/Asset.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/EditorBulkData.h"
-#include "Components/VolumetricCloudComponent.h"
-#include "Components/SkyLightComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -29,8 +27,6 @@ namespace Durin
 {
 	namespace
 	{
-		using StringUtils::ContainsInsensitive;
-
 		auto AcceptPropertyResult(const std::expected<void, FPropertyValueError>& Result, std::string& OutError) -> bool
 		{
 			if (Result) return true;
@@ -383,20 +379,6 @@ namespace Durin
 			}
 			return Result;
 		}
-
-		auto MakePropertySearchText(const FProperty& Property, uint32 ArrayIndex) -> std::string
-		{
-			const std::string SourceName = Property.GetArrayDim() > 1
-				? std::format("{}[{}]", Property.NamePrivate, ArrayIndex)
-				: Property.NamePrivate.ToString();
-			const std::string DisplayName = MakePropertyLabel(Property, ArrayIndex);
-			if (Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-				&& static_cast<const FStructProperty&>(Property).GetStruct() == Z_Construct_DStruct_FTransform())
-			{
-				return std::format("{} {} Location Rotation Scale", SourceName, DisplayName);
-			}
-			return std::format("{} {}", SourceName, DisplayName);
-		}
 	}
 
 	auto GetSoftObjectStateLabel(ESoftObjectViewState State) -> std::string_view
@@ -536,97 +518,6 @@ namespace Durin
 			return Result;
 		}
 		if (!OutObject) Result.Error = EPropertySoftLoadError::MissingObject;
-		return Result;
-	}
-
-	auto FPropertyView::EditObject(
-		const FPropertyViewContext& Context,
-		DObject* Object,
-		const FObjectPropertyViewOptions& Options
-	) -> FObjectPropertyViewResult
-	{
-		if (!HandleOwnerContext(Context, Object))
-		{
-			DrawInteractionError();
-			return {};
-		}
-		if (!Object)
-		{
-			if (Options.bShowEmptyMessage) ImGui::TextDisabled("Nothing to inspect.");
-			return {};
-		}
-		if (auto* SkyLight = Cast<DSkyLightComponent>(Object))
-		{
-			SkyLight->RefreshEligibilityDiagnostic();
-			if (ImGui::Button("Recapture Sky Light")) SkyLight->Recapture();
-		}
-		if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object))
-			Cloud->RefreshEligibilityDiagnostic();
-
-		// Couples a reflected property with the display label selected by filtering.
-		struct FVisibleProperty
-		{
-			FProperty* Property = nullptr;
-			uint32 ArrayIndex = 0;
-		};
-		std::vector<FVisibleProperty> VisibleProperties;
-		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
-			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
-			{
-				if (!IsVisibleArrayIndex(*Property, ArrayIndex)) continue;
-				if (Options.Filter && !Options.Filter(*Property, ArrayIndex)) continue;
-				if (!ContainsInsensitive(MakePropertySearchText(*Property, ArrayIndex), Options.SearchText)) continue;
-				VisibleProperties.push_back({Property, ArrayIndex});
-			}
-		});
-
-		FObjectPropertyViewResult Result{.VisiblePropertyCount = static_cast<uint32>(VisibleProperties.size())};
-		if (VisibleProperties.empty())
-		{
-			if (Options.bShowEmptyMessage)
-			{
-				ImGui::TextDisabled(Options.SearchText.empty()
-					? "This object has no reflected Edit properties."
-					: "No properties match the current search.");
-			}
-			return Result;
-		}
-
-		const bool bOwnsPropertyTable = Options.bCreatePropertyTable;
-		if (bOwnsPropertyTable && !MonaImGui::PropertyEdit::BeginTable(Options.PropertyTableId)) return Result;
-		std::stable_sort(VisibleProperties.begin(), VisibleProperties.end(), [](const auto& Left, const auto& Right) {
-			return Left.Property->GetTypedMetadata().Category < Right.Property->GetTypedMetadata().Category;
-		});
-		std::string CurrentCategory;
-		bool bCurrentCategoryOpen = true;
-		for (const FVisibleProperty& VisibleProperty : VisibleProperties)
-		{
-			const std::string& Category = VisibleProperty.Property->GetTypedMetadata().Category;
-			if (Category != CurrentCategory)
-			{
-				if (!CurrentCategory.empty() && bCurrentCategoryOpen)
-					MonaImGui::PropertyEdit::EndGroup();
-				CurrentCategory = Category;
-				bCurrentCategoryOpen = true;
-				if (!CurrentCategory.empty())
-				{
-					if (!Options.SearchText.empty())
-						ImGui::GetStateStorage()->SetInt(
-							ImGui::GetID(CurrentCategory.c_str()), 1);
-					bCurrentCategoryOpen = MonaImGui::PropertyEdit::BeginGroup(
-						CurrentCategory.c_str(), CurrentCategory.c_str());
-				}
-			}
-			if (bCurrentCategoryOpen)
-				EditProperty(Context, Object,
-					VisibleProperty.Property, VisibleProperty.ArrayIndex);
-		}
-		if (!CurrentCategory.empty() && bCurrentCategoryOpen)
-			MonaImGui::PropertyEdit::EndGroup();
-		if (bOwnsPropertyTable) MonaImGui::PropertyEdit::EndTable();
-		EndInteractionFrame(Context);
-		DrawInteractionError();
 		return Result;
 	}
 

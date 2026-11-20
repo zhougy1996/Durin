@@ -8,7 +8,7 @@
 #include "NativeTestSupport.h"
 #include "Serialization/BinaryEnvelope.h"
 
-TEST(FPackageAssetTests, PackageCodecRetainsOwnedReaderAndWriterCauses)
+TEST(FPackageAssetTests, PackageRelocationRejectsMalformedInputWithoutPublishing)
 {
 	using namespace Durin;
 	using namespace Durin::AssetPrivate;
@@ -20,43 +20,14 @@ TEST(FPackageAssetTests, PackageCodecRetainsOwnedReaderAndWriterCauses)
 		Testing::CreateTestFixtureDirectory("CodecCauses").generic_string() + "/");
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/CodecCauseTests/CodecCauses", Path));
-	FTopLevelAssetPath Source;
-	FSoftObjectPath Destination;
-	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Source", Source));
-	ASSERT_TRUE(FSoftObjectPath::TryCreate("/CodecCauseTests/Target.Target", Destination));
 	const auto& Codec = TaggedPackage::GetCodec();
 	const FAssetPackageEncodedClosure Sentinel{{std::byte{7}}, {std::byte{9}}};
 	auto Closure = Sentinel;
-	ObjectPackage::FPackageWriterResult WriterFailure;
-	{
-		const std::array Mappings{
-			FAssetRedirectorWriteMapping{Source, Destination},
-			FAssetRedirectorWriteMapping{Source, Destination}};
-		WriterFailure = Codec.WriteRedirector(Path, Mappings, Closure);
-	}
-	EXPECT_EQ(WriterFailure.Failure, EPackageWriterFailure::DuplicateIdentity);
-
+	const FByteBuffer Corrupt(BinaryEnvelopePreambleBytes, std::byte{0});
+	const auto Failure = Codec.Relocate({.PackageBytes = Corrupt, .PackagePath = Path}, Path, Closure);
+	EXPECT_EQ(Failure.Failure, EPackageWriterFailure::InvalidInput);
 	EXPECT_EQ(Closure.PackageBytes, Sentinel.PackageBytes);
 	EXPECT_EQ(Closure.BulkBytes, Sentinel.BulkBytes);
-
-	const FAssetRedirectorWriteMapping Mapping{Source, Destination};
-	const auto Written = Codec.WriteRedirector(Path, std::span(&Mapping, 1), Closure);
-	ASSERT_TRUE(Written) << Written.Message;
-
-	const auto SavedClosure = Closure;
-	ObjectPackage::FPackageWriterResult ReaderFailure;
-	{
-		FByteBuffer Corrupt(BinaryEnvelopePreambleBytes, std::byte{0});
-		ReaderFailure = Codec.Relocate({.PackageBytes = Corrupt, .PackagePath = Path}, Path, Closure);
-	}
-	EXPECT_EQ(ReaderFailure.Failure, EPackageWriterFailure::InvalidInput);
-
-	EXPECT_EQ(Closure.PackageBytes, SavedClosure.PackageBytes);
-	EXPECT_EQ(Closure.BulkBytes, SavedClosure.BulkBytes);
-	const auto Read = Codec.Validate({.PackageBytes = Closure.PackageBytes,
-		.BulkBytes = Closure.BulkBytes, .PackagePath = Path});
-	ASSERT_TRUE(Read) << Read.error();
-
 }
 
 TEST(FPackageAssetTests, PackageSerializationFailurePreservesOutputAcrossRetry)

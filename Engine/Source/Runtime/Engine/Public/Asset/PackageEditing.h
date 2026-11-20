@@ -21,22 +21,12 @@ namespace Durin
 		auto operator==(const FAssetPackageReferenceMapping&) const -> bool = default;
 	};
 
-	struct FAssetRedirectorWriteMapping
-	{
-		FTopLevelAssetPath Source;
-		FSoftObjectPath Destination;
-	};
-
 	// Checks the live-load boundary, runtime lifecycle, and authored-package mode.
 	// Call on the owner thread before preparing or publishing authored edits.
 	ENGINE_API auto CheckAssetPackageMutationAllowed() -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto BuildRelocatedAssetPackageBytes(
 		FByteView SourceBytes, const FPackagePath& SourcePath,
 		FByteView SourceBulkBytes, const FPackagePath& DestinationPath,
-		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>;
-	ENGINE_API auto BuildAssetRedirectorPackageBytes(
-		const FPackagePath& SourcePath,
-		std::span<const FAssetRedirectorWriteMapping> Mappings,
 		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>;
 	ENGINE_API auto RewriteAssetPackageReferences(
 		FByteView Bytes, FByteView BulkBytes, const FPackagePath& PackagePath,

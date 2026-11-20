@@ -1,4 +1,5 @@
 #include "NativeAssetRuntimeTestSupport.h"
+#include "PropertyEditor/DetailLayoutBuilder.h"
 #include "PropertyEditor/PropertyControlFrame.h"
 #include "PropertyEditor/PropertyHandle.h"
 #include "PropertyEditor/PropertyView.h"
@@ -307,51 +308,6 @@ TEST(FReflectedPropertyViewTests, HidesConventionalBoolPrefixFromDisplayName)
 	EXPECT_EQ(Durin::MakePropertyDisplayName("bSimulatePhysics", EPropertyGenFlags::Bool, "Simulate Physics"), "Simulate Physics");
 }
 
-TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElementsBeforeSearch)
-{
-	using namespace Durin;
-	using DurinCodeGen::EPropertyGenFlags;
-
-	DClass TestClass(
-		EC_StaticConstructor,
-		FName("FReflectedPropertyViewTestObject"),
-		sizeof(DObject),
-		alignof(DObject),
-		EObjectFlags::Transient,
-		EClassFlags::Native,
-		EClassCastFlags::DClass,
-		nullptr
-	);
-	FNumericProperty EditableProperty(
-		FFieldVariant(&TestClass), FName("TestValues"), EObjectFlags::Transient,
-		EPropertyFlags::Edit, 3, 0, sizeof(float), EPropertyGenFlags::Float, nullptr
-	);
-	FNumericProperty HiddenProperty(
-		FFieldVariant(&TestClass), FName("HiddenValues"), EObjectFlags::Transient,
-		EPropertyFlags::None, 2, 0, sizeof(float), EPropertyGenFlags::Float, nullptr
-	);
-	EditableProperty.SetNext(&HiddenProperty);
-	TestClass.SetChildProperties(&EditableProperty);
-	DObject Object(&TestClass, nullptr, FName("Object"));
-
-	std::vector<uint32> FilteredIndices;
-	Durin::FPropertyView View;
-	const Durin::FObjectPropertyViewResult Result = View.EditObject({}, &Object, {
-		.SearchText = "not present",
-		.Filter = [&](const FProperty& Property, uint32 ArrayIndex) {
-			EXPECT_EQ(&Property, &EditableProperty);
-			FilteredIndices.push_back(ArrayIndex);
-			return true;
-		},
-		.bCreatePropertyTable = false,
-		.bShowEmptyMessage = false,
-	});
-
-	EXPECT_EQ(FilteredIndices, (std::vector<uint32>{0, 1, 2}));
-	EXPECT_EQ(Result.VisiblePropertyCount, 0u);
-	EXPECT_EQ(Durin::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
-}
-
 TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBackForUnknownEnums)
 {
 	using namespace Durin;
@@ -363,74 +319,19 @@ TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBack
 		EPropertyFlags::Edit, 8, 0, sizeof(float), DurinCodeGen::EPropertyGenFlags::Float, nullptr);
 	TestClass.SetChildProperties(&Property);
 	DObject Object(&TestClass, nullptr, FName("Object"));
-	FPropertyView View;
-	auto CollectIndices = [&]() {
-		std::vector<uint32> Indices;
-		View.EditObject({}, &Object, {
-			.SearchText = "not present",
-			.Filter = [&](const FProperty&, uint32 Index) {
-				Indices.push_back(Index);
-				return true;
-			},
-			.bCreatePropertyTable = false,
-			.bShowEmptyMessage = false,
-		});
-		return Indices;
+	const auto CountRows = [&](std::string_view Search = {}) {
+		FDetailLayoutBuilder Layout(Search);
+		Layout.AddDefaultProperties(&Object);
+		return Layout.GetVisibleRowCount();
 	};
 	Property.SetMetaData(FName("ArrayIndexEnum"), "Durin::ECollisionResponse");
-	EXPECT_EQ(CollectIndices(), (std::vector<uint32>{0, 1, 2}));
+	EXPECT_EQ(CountRows(), 3u);
+	EXPECT_EQ(CountRows("Overlap"), 1u);
 	EXPECT_EQ(MakePropertyLabel(Property, 1), "Overlap");
 	Property.SetMetaData(FName("ArrayIndexEnum"), "Missing::Enum");
-	EXPECT_EQ(CollectIndices(), (std::vector<uint32>{0, 1, 2, 3, 4, 5, 6, 7}));
+	EXPECT_EQ(CountRows(), 8u);
+	EXPECT_EQ(CountRows("Values[1]"), 1u);
 	EXPECT_EQ(MakePropertyLabel(Property, 1), "Values[1]");
-}
-
-TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProperties)
-{
-	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
-	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("CategoryGroups"));
-	ImGuiContext* ImContext = ImGui::CreateContext();
-	ASSERT_NE(ImContext, nullptr);
-	ImGuiIO& IO = ImGui::GetIO();
-	IO.DisplaySize = {800.0f, 600.0f};
-	IO.DeltaTime = 1.0f / 60.0f;
-	IO.IniFilename = nullptr;
-	IO.Fonts->AddFontDefault();
-	IO.Fonts->Build();
-	Durin::FPropertyView PropertyView;
-
-	const auto DrawFrame = [&](std::string_view SearchText) -> int
-	{
-		int LastRow = -1;
-		ImGui::NewFrame();
-		ImGui::SetNextWindowPos({0.0f, 0.0f});
-		ImGui::SetNextWindowSize({600.0f, 300.0f});
-		ImGui::Begin("Category Property View Test", nullptr,
-			ImGuiWindowFlags_NoTitleBar);
-		if (Durin::MonaImGui::PropertyEdit::BeginTable("CategoryPropertyRows"))
-		{
-			ImGui::GetStateStorage()->SetInt(ImGui::GetID("Numbers"), 0);
-			const Durin::FObjectPropertyViewResult Result =
-				PropertyView.EditObject({}, &Object, {
-					.SearchText = SearchText,
-					.Filter = [&Reflection](const Durin::FProperty& Property, uint32) {
-						return &Property == Reflection.Property;
-					},
-					.bCreatePropertyTable = false,
-					.bShowEmptyMessage = false,
-				});
-			EXPECT_EQ(Result.VisiblePropertyCount, 1u);
-			LastRow = ImGui::TableGetRowIndex();
-			Durin::MonaImGui::PropertyEdit::EndTable();
-		}
-		ImGui::End();
-		ImGui::Render();
-		return LastRow;
-	};
-
-	EXPECT_EQ(DrawFrame({}), 0);
-	EXPECT_EQ(DrawFrame("Bounded Value"), 1);
-	ImGui::DestroyContext(ImContext);
 }
 
 TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChannels)

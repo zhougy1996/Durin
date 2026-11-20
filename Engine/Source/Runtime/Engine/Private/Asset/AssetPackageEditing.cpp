@@ -7,7 +7,6 @@
 #include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetPackageCodec.h"
-#include "Asset/PackageVersionPolicy.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetPackageFingerprintInternal.h"
 #include "Threading/RunnableThread.h"
@@ -82,24 +81,6 @@ namespace Durin
 				.PhysicalPackageBytes = SourceBytes.size()},
 			DestinationPath, Closure); !Result)
 			return std::unexpected(ObjectPackage::ToError(Result));
-		OutBytes = std::move(Closure.PackageBytes);
-		return {};
-	}
-
-	auto BuildAssetRedirectorPackageBytes(
-		const FPackagePath& SourcePath,
-		std::span<const FAssetRedirectorWriteMapping> Mappings,
-		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
-	{
-		const AssetPrivate::FAssetPackageCodec* Codec =
-			AssetPrivate::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
-		if (!Codec || !Codec->bCanMutate)
-			return Error(PackageReadErrors::UnsupportedVersion,
-				"Redirector creation requires package mutation capability.");
-		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		auto Result = Codec->WriteRedirector(
-			SourcePath, Mappings, Closure);
-		if (!Result) return std::unexpected(ObjectPackage::ToError(Result));
 		OutBytes = std::move(Closure.PackageBytes);
 		return {};
 	}

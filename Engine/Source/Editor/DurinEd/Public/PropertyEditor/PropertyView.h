@@ -75,33 +75,11 @@ namespace Durin
 		bool bShowTransformHeader = true;
 	};
 
-	// Configures filtering and table ownership for an object property view.
-	struct FObjectPropertyViewOptions
-	{
-		std::string_view SearchText;
-		std::function<bool(const FProperty&, uint32)> Filter;
-		const char* PropertyTableId = "ReflectedPropertyTable";
-		bool bCreatePropertyTable = true;
-		bool bShowEmptyMessage = true;
-	};
-
-	// Summarizes visible rows from one object draw.
-	struct FObjectPropertyViewResult
-	{
-		uint32 VisiblePropertyCount = 0;
-	};
-
 	// An embeddable immediate-mode property view. It owns only transient widget/edit
 	// state; committed history remains owned by the transactor supplied by its host.
 	class FPropertyView
 	{
 	public:
-		DURINED_API auto EditObject(
-			const FPropertyViewContext& Context,
-			DObject* Object,
-			const FObjectPropertyViewOptions& Options = {}
-		) -> FObjectPropertyViewResult;
-
 		DURINED_API auto EditProperty(
 			const FPropertyViewContext& Context,
 			DObject* Object,

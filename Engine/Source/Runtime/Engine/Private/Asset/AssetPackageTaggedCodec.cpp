@@ -944,57 +944,6 @@ namespace Durin::AssetPrivate::TaggedPackage
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 
-		auto WriteRedirector(const FPackagePath& Source,
-			std::span<const FAssetRedirectorWriteMapping> Mappings,
-			FAssetPackageEncodedClosure& OutClosure) -> ObjectPackage::FPackageWriterResult
-		{
-			constexpr std::string_view RedirectorClass =
-				"Durin::DAssetRedirector";
-			if (Mappings.empty())
-				return EncodingError("Redirector creation requires at least one exact asset mapping.");
-			ObjectPackage::FSerializedType ReferenceType{
-				.Kind = ObjectPackage::EValueKind::HardReference,
-				.QualifiedName = "Durin::DObject"};
-			ObjectPackage::FLinkerTables Linker;
-			Linker.Summary.PackagePath = Source;
-			Linker.Types.push_back(ReferenceType);
-			Linker.Schemas.push_back({std::string(RedirectorClass),
-				{{"DestinationObject", ReferenceType, 0}}});
-			for (size_t Index = 0; Index < Mappings.size(); ++Index)
-			{
-				const FAssetRedirectorWriteMapping& Mapping = Mappings[Index];
-				if (!Mapping.Source.IsValid() || Mapping.Source.GetPackagePath() != Source
-					|| !Mapping.Destination.IsValid())
-					return EncodingError("Redirector identity is invalid.");
-				ObjectPackage::FPackageIndex Export;
-				ObjectPackage::FPackageIndex Import;
-				ObjectPackage::FPackageIndex::TryExport(static_cast<uint32>(Index), Export);
-				ObjectPackage::FPackageIndex::TryImport(static_cast<uint32>(Index), Import);
-				Linker.Summary.TopLevelAssets.push_back({.Export = Export,
-					.AssetPath = Mapping.Source,
-					.ClassName = std::string(RedirectorClass),
-					.RedirectDestination = Mapping.Destination});
-				Linker.Summary.HardPackageDependencies.push_back(
-					Mapping.Destination.GetPackagePath());
-				Linker.Imports.push_back({.ObjectPath = Mapping.Destination});
-				Linker.Exports.push_back({
-					.ObjectName = std::string(Mapping.Source.GetAssetName()),
-					.ClassName = std::string(RedirectorClass),
-					.Properties = {{
-						.DeclaringType = std::string(RedirectorClass),
-						.FieldName = "DestinationObject",
-						.Type = ReferenceType,
-						.Provenance = ObjectPackage::EPropertyProvenance::Explicit,
-						.Value = {.Reference = Import}}},
-					.ObjectFlags = EObjectFlags::Public | EObjectFlags::Standalone});
-			}
-			std::ranges::sort(Linker.Summary.HardPackageDependencies);
-			Linker.Summary.HardPackageDependencies.erase(std::unique(
-				Linker.Summary.HardPackageDependencies.begin(),
-				Linker.Summary.HardPackageDependencies.end()),
-				Linker.Summary.HardPackageDependencies.end());
-			return WriteLinker(std::move(Linker), OutClosure);
-		}
 	}
 
 	auto GetCodec() -> const FAssetPackageCodec&
@@ -1013,8 +962,7 @@ namespace Durin::AssetPrivate::TaggedPackage
 			.Load = &Load,
 			.Write = &Write,
 			.RewriteReferences = &RewriteReferences,
-			.Relocate = &Relocate,
-			.WriteRedirector = &WriteRedirector};
+			.Relocate = &Relocate};
 		return Codec;
 	}
 

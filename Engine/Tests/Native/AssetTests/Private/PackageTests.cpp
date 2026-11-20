@@ -7409,19 +7409,6 @@ TEST(FPackageAssetTests, CodecMatchesLiveWriteInspectReferenceAndLoadSemantics)
 	EXPECT_EQ(std::ranges::count(References, MakeTopLevelObjectPath(
 		ReplacementPath, TargetPath.GetPackageName()),
 		&FAssetReferenceEdge::TargetPath), 1);
-	FAssetPackageEncodedClosure Redirector;
-	const FAssetRedirectorWriteMapping RedirectMapping{
-		.Source = MakeTopLevelObjectPath(
-			SourcePath, SourcePath.GetPackageName()).GetAssetPath(),
-		.Destination = MakeTopLevelObjectPath(
-			TargetPath, TargetPath.GetPackageName())};
-	ASSERT_TRUE(Codec.WriteRedirector(
-		SourcePath, std::span{&RedirectMapping, 1}, Redirector));
-	ASSERT_TRUE(Codec.ReadHeader({Redirector.PackageBytes, Redirector.BulkBytes,
-		SourcePath, Redirector.PackageBytes.size()}, Header));
-	EXPECT_TRUE(Header.TopLevelAssets.front().IsRedirector());
-	EXPECT_EQ(Header.TopLevelAssets.front().RedirectDestination.GetPackagePath(), TargetPath);
-
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(SourcePath));
 	DPackage* Loaded = nullptr;
 	FAssetLoadReport Report;

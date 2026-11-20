@@ -188,8 +188,7 @@ namespace Durin::AssetPrivate
 				|| (Codec.bCanRead && (!Codec.ReadHeader || !Codec.Validate || !Codec.Inspect
 					|| !Codec.ExtractReferences || !Codec.InspectSchema || !Codec.Load))
 				|| (Codec.bCanWrite && !Codec.Write)
-				|| (Codec.bCanMutate && (!Codec.RewriteReferences
-					|| !Codec.Relocate || !Codec.WriteRedirector)))
+				|| (Codec.bCanMutate && (!Codec.RewriteReferences || !Codec.Relocate)))
 			{
 				OutError = std::format(
 					"AssetPackageCodecIncomplete: codec {} has incomplete capabilities.",
