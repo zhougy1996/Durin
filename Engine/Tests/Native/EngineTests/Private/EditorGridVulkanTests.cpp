@@ -23,6 +23,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "RHICapabilities.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "RenderingThread.h"
@@ -952,6 +953,26 @@ namespace Durin
 			return Native;
 		};
 		PreparePipeline(0, 0, ERendererResourceInvalidationCause::ManualRetry);
+		// A retained draw keeps the shader-slot variant warm across frames.
+		std::shared_ptr<const FGBufferRenderer::FPipeline> Retained;
+		EXPECT_TRUE(PumpValidationFrames([&](FRHICommandListImmediate&) {
+			Retained = GBuffer.EnsurePipeline_RenderThread(Requests[0]);
+			return Retained != nullptr;
+		}));
+		EXPECT_TRUE(PumpValidationFrames([&](FRHICommandListImmediate&) {
+			auto Equivalent = Requests[0];
+			Equivalent.VertexDeclaration = MakeGBufferVertexDeclaration(Equivalent.FactoryKey);
+			EXPECT_EQ(GBuffer.EnsurePipeline_RenderThread(Equivalent), Retained);
+			Equivalent.bModelData = true;
+			if (GDynamicRHI->RHIGetCapabilities()->MaxColorAttachments >= 5)
+			{
+				const auto Extended = GBuffer.EnsurePipeline_RenderThread(Equivalent);
+				EXPECT_TRUE(Extended);
+				EXPECT_NE(Extended, Retained);
+			}
+			Retained.reset();
+			return true;
+		}));
 		auto WarmPipeline = CaptureNative();
 		EXPECT_TRUE(WarmPipeline);
 		const auto WarmCreations = GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations;

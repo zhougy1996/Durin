@@ -67,10 +67,12 @@ namespace Durin::RendererPrivate
 		FXxHash64 FactoryKey, LayoutKey;
 		FRHIShader* VertexShader = nullptr;
 		FRHIShader* FragmentShader = nullptr;
-		FVertexDeclarationElementList VertexElements;
+		FVertexDeclarationElementList VertexElements{};
+		FRHIMultisampleState Multisample;
 		FPipelineLayoutDesc PipelineLayout;
 		uint32 VertexFactoryPass = 0;
 		bool bHasShaderMap = false;
+		bool bHasFixedState = false;
 		auto operator==(const FMeshPipelineIdentity&) const -> bool = default;
 	};
 	// Mutable construction input; publishing copies/moves it into immutable storage.
@@ -406,6 +408,7 @@ namespace Durin::RendererPrivate
 		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch,
 			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderMapQueryResult;
+		static auto PrecachePipelineIfRequested(const FGraphicsPipelineStateInitializer& Initializer) -> FShaderCompletion;
 		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch,
 			const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion;
 		RENDERER_API auto BuildPSOInitializer(const FMeshPassProcessorBatch& Batch, const FMeshPassShaders& Shaders,

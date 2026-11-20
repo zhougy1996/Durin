@@ -105,12 +105,12 @@ namespace Durin::RendererPrivate
 		{
 			const uint32 Count = std::min(DrawsPerTask, NumMeshDrawCommands - First);
 			auto* Child = ParallelCommandListSet->NewParallelCommandList();
-			const FMeshPassPipeline* PreviousPipeline = nullptr;
+			const FMeshPipelineIdentity* PreviousPipelineId = nullptr;
 			for (const auto& Visible : std::span(VisibleMeshDrawCommands).subspan(StartIndex + First, Count))
 			{
 				const auto* Pipeline = Visible.Command ? Visible.Command->Pipeline : nullptr;
-				if (!Visible.bSourceReady || !Pipeline || Pipeline == PreviousPipeline) continue;
-				PreviousPipeline = Pipeline;
+				if (!Visible.bSourceReady || !Pipeline || Pipeline->GetIdentity().get() == PreviousPipelineId) continue;
+				PreviousPipelineId = Pipeline->GetIdentity().get();
 				if (const auto& Initializer = Pipeline->GetInitializer().PipelineInitializer)
 					Outputs[TaskIndex].RequiredPipelines.push_back(
 						PipelineStateCache::GetAndOrCreateGraphicsPipelineState(*Child, *Initializer));

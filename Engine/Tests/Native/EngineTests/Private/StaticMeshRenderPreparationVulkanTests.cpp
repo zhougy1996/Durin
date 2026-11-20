@@ -5026,9 +5026,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EXPECT_TRUE(NonIndexed.SubmitDraw(Commands, &SubmitCache));
 					EXPECT_TRUE(DynamicA->SubmitDraw(Commands, &SubmitCache));
 					const auto BeforeRepeat = Commands.GetNumRecordedCommands();
-					EXPECT_TRUE(DynamicA->SubmitDraw(Commands, &SubmitCache));
+					const FMeshPassPipeline Equivalent(DynamicA->Pipeline->GetInitializer());
+					ASSERT_EQ(Equivalent.GetIdentity(), DynamicA->Pipeline->GetIdentity());
+					auto EquivalentDraw = *DynamicA;
+					EquivalentDraw.Pipeline = &Equivalent;
+					EXPECT_TRUE(EquivalentDraw.SubmitDraw(Commands, &SubmitCache));
 					EXPECT_EQ(Commands.GetNumRecordedCommands(), BeforeRepeat + 1);
-					EXPECT_EQ(SubmitCache.Pipeline, DynamicA->Pipeline);
+					EXPECT_EQ(SubmitCache.PipelineId, DynamicA->Pipeline->GetIdentity());
 					Commands.EndRenderPass();
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), Draws + 4);
 					EXPECT_EQ(PSOPrecacheValidation::GetStatistics().Hit, 1u); // Four draws, one full PSO identity.

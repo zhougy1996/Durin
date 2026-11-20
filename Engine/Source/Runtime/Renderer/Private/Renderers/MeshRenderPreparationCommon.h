@@ -146,7 +146,7 @@ namespace Durin
 
 
 	class FRHIShaderParameterBatch;
-	namespace RendererPrivate { struct FMeshDrawCommandPassStats; struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FCachedMeshDrawCommandInfo; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
+	namespace RendererPrivate { struct FMeshPipelineIdentity; struct FMeshDrawCommandPassStats; struct FMeshDrawShaderBindings; struct FMeshDrawCommand; struct FCachedMeshDrawCommandInfo; struct FMeshPassPipeline; class FDynamicMeshDrawCommandStorage; }
 	namespace RendererPrivate
 	{
 		// A single lookup returns command memory and the matching source-invalidation receipt.
@@ -177,7 +177,7 @@ namespace Durin
 	struct FMeshDrawCommandStateCache
 	{
 		uint32 DrawCalls = 0;
-		const void* Pipeline = nullptr;
+		std::shared_ptr<const RendererPrivate::FMeshPipelineIdentity> PipelineId;
 		FShaderBindingState Vertex, Fragment;
 		std::vector<FMeshDrawVertexStream> VertexStreams;
 		FRHIBuffer* IndexBuffer = nullptr;

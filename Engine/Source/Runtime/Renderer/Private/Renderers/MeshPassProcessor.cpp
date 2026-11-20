@@ -49,13 +49,73 @@ namespace Durin::RendererPrivate
 				&& A.ArrayElement == B.ArrayElement && A.Type == B.Type && A.Offset == B.Offset && A.Size == B.Size && A.ResourceIndex == B.ResourceIndex;
 		});
 	}
+	namespace
+	{
+		auto GetMeshPipelineIdentity(const FMeshPassPipelineInitializer& Init) -> FMeshPipelineIdentity
+		{
+			FMeshPipelineIdentity Key;
+			Key.Pass = Init.Pass;
+			Key.FactoryKey = Init.FactoryKey;
+			Key.LayoutKey = Init.LayoutKey;
+			Key.VertexFactoryPass = Init.VertexFactoryPass;
+			Key.bHasShaderMap = bool(Init.ShaderMap);
+			if (const auto& PSO = Init.PipelineInitializer)
+			{
+				Key.Description.RenderTargets = PSO->RenderTargetLayout;
+				Key.Description.Topology = PSO->PrimitiveTopology;
+				if (PSO->RasterizerState) Key.Description.Rasterizer = PSO->RasterizerState->GetInitializer();
+				if (PSO->DepthStencilState) Key.Description.Depth = PSO->DepthStencilState->GetInitializer();
+				if (PSO->BlendState) Key.Description.ColorBlends = PSO->BlendState->GetInitializer();
+				Key.bHasFixedState = PSO->RasterizerState && PSO->DepthStencilState && PSO->BlendState;
+				Key.Multisample = PSO->MultisampleState;
+				Key.VertexShader = PSO->BoundShaders.VertexShader;
+				Key.FragmentShader = PSO->BoundShaders.FragmentShader;
+				if (PSO->VertexDeclaration) Key.VertexElements = PSO->VertexDeclaration->GetElements();
+				Key.PipelineLayout = PSO->PipelineLayout;
+			}
+			else
+			{
+				Key.Description = Init.Description;
+				Key.VertexShader = Init.VertexShader ? Init.VertexShader->GetRHIShader(false) : nullptr;
+				Key.FragmentShader = Init.FragmentShader;
+				if (Init.VertexDeclaration) Key.VertexElements = Init.VertexDeclaration->GetElements();
+				if (Init.ShaderMap) Key.PipelineLayout = Init.ShaderMap.GetPipelineLayout();
+			}
+			return Key;
+		}
+
+		// A live command owns its identity. Dynamic commands release theirs with the pass,
+		// cached commands retain theirs until removal. Hash collisions always compare by value.
+		auto ShareMeshPipelineIdentity(FMeshPipelineIdentity Value) -> std::shared_ptr<const FMeshPipelineIdentity>
+		{
+			static std::mutex Mutex;
+			static std::unordered_multimap<size_t, std::weak_ptr<const FMeshPipelineIdentity>> Entries;
+			static size_t NextCleanup = 128;
+			const size_t Hash = std::hash<FRHIShader*>{}(Value.VertexShader)
+				^ (std::hash<FRHIShader*>{}(Value.FragmentShader) << 1)
+				^ (Value.LayoutKey.HashValue >> 1) ^ static_cast<size_t>(Value.Pass);
+			std::lock_guard Lock(Mutex);
+			const auto [First, End] = Entries.equal_range(Hash);
+			for (auto It = First; It != End;)
+			{
+				auto Existing = It->second.lock();
+				if (!Existing) It = Entries.erase(It);
+				else if (*Existing == Value) return Existing;
+				else ++It;
+			}
+			if (Entries.size() >= NextCleanup)
+			{
+				std::erase_if(Entries, [](const auto& Entry) { return Entry.second.expired(); });
+				NextCleanup = Entries.size() * 2 + 128;
+			}
+			auto Identity = std::make_shared<const FMeshPipelineIdentity>(std::move(Value));
+			Entries.emplace(Hash, Identity);
+			return Identity;
+		}
+	}
 	FMeshPassPipeline::FMeshPassPipeline(FMeshPassPipelineInitializer InInitializer)
 		: Initializer(std::move(InInitializer))
-		, Identity(std::make_shared<const FMeshPipelineIdentity>(FMeshPipelineIdentity{
-			Initializer.Description, Initializer.Pass, Initializer.FactoryKey, Initializer.LayoutKey,
-			Initializer.VertexShader ? Initializer.VertexShader->GetRHIShader(false) : nullptr,
-			Initializer.FragmentShader, Initializer.VertexDeclaration ? Initializer.VertexDeclaration->GetElements() : FVertexDeclarationElementList{},
-			Initializer.ShaderMap ? Initializer.ShaderMap.GetPipelineLayout() : FPipelineLayoutDesc{}, Initializer.VertexFactoryPass, bool(Initializer.ShaderMap)}))
+		, Identity(ShareMeshPipelineIdentity(GetMeshPipelineIdentity(Initializer)))
 	{}
 	auto FCachedMeshDrawCommandStorage::MakeKey(const FMeshDrawDescription* Description, FPrimitiveComponentId PrimitiveId,
 		uint64 BatchId, const FMeshPassPipeline& Pipeline, const FRHIResource* MaterialUniform) -> FKey
@@ -286,10 +346,10 @@ namespace Durin::RendererPrivate
 		const auto& Initializer = Pipeline->GetInitializer().PipelineInitializer;
 		if (!Initializer || !VertexBindings || !VertexPass
 			|| (Pipeline->GetInitializer().FragmentLayout && (!FragmentBindings || !FragmentPass))) return false;
-		if (Cache.Pipeline != Pipeline)
+		if (Cache.PipelineId != Pipeline->GetIdentity())
 		{
 			SetGraphicsPipelineState(Commands, *Initializer);
-			Cache.Pipeline = Pipeline;
+			Cache.PipelineId = Pipeline->GetIdentity();
 			Cache.Vertex.Shader = Cache.Fragment.Shader = nullptr;
 			Cache.Vertex.Parameters.clear(); Cache.Fragment.Parameters.clear();
 			Cache.DepthBias.reset();
@@ -540,27 +600,30 @@ namespace Durin::RendererPrivate
 			Declaration, Shaders.ShaderMap.GetPipelineLayout());
 		return FShaderCompletion{};
 	}
+	auto FMeshPassProcessor::PrecachePipelineIfRequested(const FGraphicsPipelineStateInitializer& Initializer) -> FShaderCompletion
+	{
+		if (!FRenderPipelinePreparationBatch::ShouldPrecachePipelines()) return {};
+		auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer);
+		if (!Request) return FShaderCompletion::Failure("Mesh pipeline precache request was rejected.");
+		FRenderPipelinePreparationBatch::Add(Request);
+		const auto Status = Request->GetState();
+		if (Status == ERHIPipelineState::Failed || Status == ERHIPipelineState::Canceled)
+			return FShaderCompletion::Failure("Mesh pipeline precache did not complete successfully.");
+		return {};
+	}
 	auto FMeshPassProcessor::PreparePipeline(const FMeshPassProcessorBatch& Batch,
 		const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion
 	{
 		FGraphicsPipelineStateInitializer Initializer;
 		const auto Result = BuildPSOInitializer(Batch, Shaders, Declaration, Initializer);
 		if (!Result) return Result;
-		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-		{
-			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer);
-			if (!Request) return FShaderCompletion::Failure("Mesh pipeline precache request was rejected.");
-			FRenderPipelinePreparationBatch::Add(Request);
-			const auto Status = Request->GetState();
-			if (Status == ERHIPipelineState::Failed || Status == ERHIPipelineState::Canceled)
-				return FShaderCompletion::Failure("Mesh pipeline precache did not complete successfully.");
-		}
+		if (const auto Precache = PrecachePipelineIfRequested(Initializer); !Precache) return Precache;
 		FMeshPassPipelineInitializer Candidate;
 		static_cast<FMeshPassShaders&>(Candidate) = Shaders;
 		Candidate.VertexDeclaration = Declaration;
 		Candidate.Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
 		Candidate.Pass = GetPass();
-		Candidate.PipelineInitializer = Initializer;
+		Candidate.PipelineInitializer = std::move(Initializer);
 		Out = std::make_shared<const FMeshPassPipeline>(std::move(Candidate));
 		return FShaderCompletion{};
 	}

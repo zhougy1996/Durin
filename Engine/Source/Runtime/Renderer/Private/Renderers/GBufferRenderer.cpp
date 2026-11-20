@@ -56,7 +56,11 @@ namespace Durin
 
 	struct FGBufferRenderer::FState
 	{
-		using FShaderMapPayload = RendererPrivate::FMeshPassShaders;
+		struct FShaderMapPayload : RendererPrivate::FMeshPassShaders
+		{
+			uint64 DeviceGeneration = 0;
+			std::vector<std::weak_ptr<const FPipeline>> Pipelines;
+		};
 
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload, RendererPrivate::FMaterialResourceCacheKeyHash>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
@@ -123,8 +127,30 @@ namespace Durin
 			ReportRendererResourceCreateDiagnostic);
 		if (Shaders == nullptr) return nullptr;
 
+		// The shader slot scopes these variants to one published material shader map.
+		// View records and persistent draw commands own the pipelines across lookups.
+		const auto DeviceGeneration = Coordinator.GetGeneration_RenderThread().Device;
+		if (Shaders->DeviceGeneration != DeviceGeneration)
+		{
+			Shaders->Pipelines.clear();
+			Shaders->DeviceGeneration = DeviceGeneration;
+		}
+		const auto Description = Processor.DescribeMeshDraw(Batch.PipelineState, Request.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
+		for (auto& Weak : Shaders->Pipelines)
+		{
+			auto Existing = Weak.lock();
+			if (!Existing) continue;
+			const auto& Cached = Existing->GetInitializer();
+			if (Cached.Description != Description) continue;
+			if (Cached.VertexDeclaration != Request.VertexDeclaration
+				&& Cached.VertexDeclaration->GetElements() != Request.VertexDeclaration->GetElements()) continue;
+			if (!Processor.PrecachePipelineIfRequested(*Cached.PipelineInitializer)) return nullptr;
+			return Existing;
+		}
+		std::erase_if(Shaders->Pipelines, [](const auto& Pipeline) { return Pipeline.expired(); });
 		std::shared_ptr<const FPipeline> Pipeline;
 		if (!Processor.PreparePipeline(Batch, *Shaders, Request.VertexDeclaration, Pipeline)) return nullptr;
+		Shaders->Pipelines.emplace_back(Pipeline);
 		return Pipeline;
 	}
 
