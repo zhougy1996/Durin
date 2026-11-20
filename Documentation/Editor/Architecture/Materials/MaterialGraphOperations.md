@@ -13,7 +13,7 @@ Last reviewed: 2026-11-19
 | Expression ownership, snapshots, or function publication | [Ownership](#ownership) |
 | Built-in function recipes or imported parent authoring | [Standard function authoring](#standard-function-authoring) |
 | Graph change notifications and cached inspection | [Change observation](#change-observation) |
-| Detached inspection, node creation, or connection commands | [Inspection and commands](#inspection-and-commands) |
+| Graph inspection, node creation, or connection commands | [Inspection and commands](#inspection-and-commands) |
 | Inline defaults, texture parameters, or UV connections | [Compact input and texture authoring](#compact-input-and-texture-authoring) |
 | Undo/Redo or movement sessions | [Transactions and gestures](#transactions-and-gestures) |
 | Copy/paste, duplication, or deterministic layout | [Clipboard and layout](#clipboard-and-layout) |
@@ -93,7 +93,7 @@ retain their strict graph-validation boundary.
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
 The graph owns clipboard commands and supplies a lightweight command object with the same weak owner for asset commands. The public command object has no raw connect or disconnect entry points.
-New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Detached inspection uses the same node pin builders and allocates no editor objects. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
+New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. Schema validates attribute overrides, including a new dynamic input, before the graph writes connections. Choosing the base value clears the link and disables its retained constant together.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
 slot, with -1 for a signature port that has no call binding. Function outputs
@@ -110,10 +110,11 @@ through the pins' linked neighbors. Graph writes the selected output's expressio
 and signed source slot to the input. A newly exposed function port acquires a
 binding in the same transaction as the connection. Breaking an output clears all
 its consumers together, including material root inputs retained in a hidden
-output mode. Detached inspection and low-level asset repair retain address-based
-entry points.
+output mode. Low-level asset repair retains address-based entry points.
 
-Canvas and Details read the projected nodes. Function calls reconstruct their pins after signature changes.
+A partial refresh builds descriptors only for the requested expressions and uses their original asset ordinals for default positions.
+Details resolves the selected graph node and follows the input pin's link to label and locate the upstream output.
+Function calls reconstruct their pins after signature changes.
 `BreakPinLinks` disconnects one input or all authored consumers of an output in one undo step.
 Disconnected function inputs keep their inline defaults. Function previews
 create their own expressions; clipboard copy duplicates only selected expressions.
@@ -267,9 +268,7 @@ is explicit; normal Save/Apply continues to use the document lifecycle above.
 
 ## Inspection and commands
 
-The canvas, tests, and structured callers share the graph creation and replacement commands. Inspection returns detached deterministic node,
-pin, surface-output, presentation, and closed-domain catalog values by reading
-the typed expression collection directly. A node descriptor retains identity and
+The canvas, tests, and structured callers share the graph creation and replacement commands. The read model snapshots nodes, pins, material outputs and presentation from the synchronized editor graph. A node descriptor retains identity and
 type metadata plus one display payload: constant value, parameter identity, local
 sampling metadata, or swizzle components. Connections and defaults reside in pin
 views; no universal authored node is copied into the view. Catalog
@@ -712,7 +711,9 @@ Material and function node movement use `FMaterialGraphMoveSession`. Pointer-dow
 captures the selection and semantic revision; drag samples validate detached position
 drafts displayed by the canvas. Pointer-up merges only drafted coordinates into the
 current presentation through `DMaterialGraph::MoveNodesInternal` and records one
-position-delta transaction. Labels are never written by movement. Escape, document
+position-delta transaction. On the first move of a node without an authored position,
+the transaction captures its displayed coordinates before writing. Undo removes the
+new position entry, or restores those coordinates if a later label needs the entry. Escape, document
 switch, deactivation, discard, close, destruction, or stale owner discards the draft
 without changing the asset or unrelated presentation edits. Each document owns a
 distinct canvas and move session. Structural and label edits retain full presentation

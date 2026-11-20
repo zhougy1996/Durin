@@ -474,7 +474,7 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 		SemanticRevision);
 	const FMaterialGraphPresentation FirstLayout =
 		Material->GetMaterialGraphPresentation();
-	const FMaterialGraphView LayoutView = ProjectMaterialGraph(&*Material);
+	const FMaterialGraphView LayoutView = Testing::CaptureGraphView(*EditorGraph);
 	for (size_t A = 0; A < LayoutView.Nodes.size(); ++A)
 		for (size_t B = A + 1; B < LayoutView.Nodes.size(); ++B)
 		{

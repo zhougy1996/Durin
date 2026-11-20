@@ -1,3 +1,4 @@
+#include "TypedMaterialGraphTestFixture.h"
 #include "MaterialGraph.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "NativeRHIBackendTestSupport.h"
@@ -459,7 +460,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	ASSERT_NE(CollectionExpression, nullptr);
 	EXPECT_EQ(CollectionExpression->Collection.Get(), Collection);
 	EXPECT_EQ(CollectionExpression->ParameterId, Tint.Id);
-	const auto View = ProjectMaterialGraph(&*AuthoringMaterial);
+	const auto View = Testing::CaptureGraphView(*AuthoringGraph);
 	const auto Read = std::ranges::find(View.Nodes, Created.GeneratedNodeIds.front(), [](const auto& Node) { return Node.Node.Id; });
 	ASSERT_NE(Read, View.Nodes.end());
 	EXPECT_EQ(Read->Node.Opcode, EMaterialProgramOpcode::CollectionParameter);

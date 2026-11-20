@@ -14,20 +14,12 @@ namespace Durin::MaterialEditor
 		return {Input.GetExpressionId(), static_cast<uint8>(Port.IsValid() ? 0 : Input.OutputIndex), Port};
 	}
 
-	// Borrowed for a single expression read. The source type lookup is shared by the batch.
+	// Borrowed for a single expression read.
 	struct FMaterialGraphPinSource
 	{
 		DMaterialExpression* Expression;
 		const DMaterial* Material;
 		const FMaterialGraphCatalogEntry* Shape;
-		// Detached inspections resolve display metadata here. Live graphs resolve links after allocation.
-		const std::function<EMaterialProgramValueType(const FMaterialProgramLink&)>* DetachedSourceType;
-		auto ProjectInput(FMaterialGraphPinView& Pin, const FMaterialExpressionInput& Input) const -> void
-		{
-			if (!DetachedSourceType || !Input.IsConnected()) return;
-			Pin.Link = ToGraphLink(Input);
-			Pin.SourceType = (*DetachedSourceType)(Pin.Link);
-		}
 	};
 
 	using FMaterialGraphNodeVisitor = std::function<void(FMaterialGraphNodeView, const FMaterialGraphPinSource&)>;

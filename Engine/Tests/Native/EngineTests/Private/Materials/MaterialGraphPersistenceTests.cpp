@@ -411,7 +411,8 @@ TEST(FMaterialAssetCreationPersistenceTests, BuiltInMaterialsHaveCompletePersist
 		EXPECT_EQ(Presentation.Nodes.size(),
 			Material->GetExpressionCollection().Expressions.size());
 		EXPECT_NE(Material->GetOutputNode(), nullptr);
-		const FMaterialGraphView View = ProjectMaterialGraph(&*Material);
+		TStrongObjectPtr<DMaterialGraph> InspectionGraph(DMaterialGraph::Create(*Material));
+		const FMaterialGraphView View = Testing::CaptureGraphView(*InspectionGraph);
 		EXPECT_EQ(View.Nodes.size(), Material->GetExpressionCollection().Expressions.size());
 		ASSERT_TRUE(UnloadPackage(Path));
 	}

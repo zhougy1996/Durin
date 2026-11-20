@@ -101,8 +101,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 		for (auto* Graph : {Session.Graph.Get(), FunctionGraph.Get()})
 		{
 			ASSERT_TRUE(Graph);
-			auto* Owner = Graph->GetMaterialOrFunction();
-			const auto Expected = ProjectMaterialGraph(&*Owner);
+			const auto Expected = Testing::CaptureGraphView(*Graph);
 			const auto History = Transactions.Get()->GetUndoCount();
 			for (int Pass = 0; Pass < 2; ++Pass)
 			{
@@ -192,7 +191,12 @@ TEST_F(FMaterialEditingSessionTests, RebuildRestoresTextureChannelsAndSparseMate
 	for (int Pass = 0; Pass < 2; ++Pass)
 	{
 		Graph->RebuildGraph();
-		Graph->FindNode(Sample->Id)->ReconstructNode();
+		auto* SampleNode = Graph->FindNode(Sample->Id);
+		ASSERT_TRUE(SampleNode);
+		const auto Before = SampleNode->GetView().Presentation;
+		ASSERT_NE(Before.X, 0);
+		SampleNode->ReconstructNode();
+		EXPECT_EQ(SampleNode->GetView().Presentation, Before);
 		CheckRoot(static_cast<int32>(Metallic), *Sample, Green, 2);
 		CheckRoot(static_cast<int32>(Roughness), *Get, static_cast<int32>(Roughness), 1);
 	}

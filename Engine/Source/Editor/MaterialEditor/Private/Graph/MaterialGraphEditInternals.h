@@ -40,11 +40,16 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			? EMaterialGraphPresentationResult::Changed : EMaterialGraphPresentationResult::Rejected;
 	}
 
+	struct FNodePositionChange
+	{
+		FGuid NodeId;
+		int32 BeforeX, BeforeY;
+		int32 AfterX, AfterY;
+		bool HadAuthoredPosition;
+	};
+
 	MATERIALEDITOR_API auto MakeMaterialGraphPresentationTransaction(
-		DObject& Material,
-		const FMaterialGraphPresentation& BeforePresentation,
-		const FMaterialGraphPresentation& AfterPresentation,
-		std::string Description)
+		DObject& Owner, std::vector<FNodePositionChange> Changes, std::string Description)
 		-> std::unique_ptr<FMaterialCommandChange>;
 
 	MATERIALEDITOR_API auto MakeMaterialGraphParameterTransaction(
@@ -55,10 +60,10 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		-> std::unique_ptr<FMaterialCommandChange>;
 
 	auto CommitPresentationChange(
-		DObject& Material,
+		DObject& Owner,
 		FMaterialGraphPresentation CandidatePresentation,
 		std::string Description,
-		std::vector<FGuid> Affected,
+		std::vector<FNodePositionChange> Changes,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult;
 
 }

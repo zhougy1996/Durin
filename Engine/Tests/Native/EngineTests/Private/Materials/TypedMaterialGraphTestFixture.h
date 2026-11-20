@@ -5,6 +5,7 @@
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "MaterialGraph.h"
+#include "MaterialGraphReadModel.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/Material.h"
 #include "DObject/Archive.h"
@@ -12,6 +13,13 @@
 
 namespace Durin::Testing
 {
+	inline auto CaptureGraphView(MaterialEditor::DMaterialGraph& Graph) -> MaterialEditor::FMaterialGraphView
+	{
+		MaterialEditor::FMaterialGraphReadModel Reader(&Graph);
+		Reader.Refresh(*Graph.GetMaterialOrFunction());
+		return Reader.GetView();
+	}
+
 	template<class TTerminal>
 	auto FindFunctionTerminal(MaterialEditor::DMaterialGraph& Graph, const FGuid& PortId) -> MaterialEditor::DMaterialGraphNode*
 	{

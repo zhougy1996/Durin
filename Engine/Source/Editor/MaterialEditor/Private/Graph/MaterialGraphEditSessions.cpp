@@ -124,6 +124,14 @@ namespace Durin::MaterialEditor
 		TStrongObjectPtr<DTexture> CurrentTexture;
 		DTransactor* Transactions = nullptr;
 		bool bActive = false;
+
+		auto Finish(EMaterialGraphCommandStatus Status) -> FMaterialGraphCommandResult
+		{
+			BeforeTexture.Reset();
+			CurrentTexture.Reset();
+			bActive = false;
+			return {.Status = Status};
+		}
 	};
 
 	FMaterialGraphParameterEditSession::FMaterialGraphParameterEditSession()
@@ -198,16 +206,16 @@ namespace Durin::MaterialEditor
 			Impl->bActive = false;
 			return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 		}
-		if (Impl->Transactions && !Impl->Transactions->CanTransact())
-			return RejectCommand("The editor transactor is busy.");
 		if (Impl->BeforeValue.GetType() == EMaterialParameterType::Texture)
 		{
 			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
 			Impl->CurrentValue.GetTexture().Texture = Impl->CurrentTexture.Get();
 		}
-		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
+		if (Impl->BeforeValue == Impl->CurrentValue) return Impl->Finish(EMaterialGraphCommandStatus::NoChange);
+		if (Impl->Transactions && !Impl->Transactions->CanTransact())
+			return RejectCommand("The editor transactor is busy.");
 		FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
-		if (bChanged && Impl->Transactions)
+		if (Impl->Transactions)
 		{
 			const auto Recorded = Impl->Transactions->StoreUndo(Material,
 				MakeMaterialGraphParameterTransaction(
@@ -215,15 +223,11 @@ namespace Durin::MaterialEditor
 					Impl->BeforeValue, Impl->CurrentValue));
 			if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 		}
-		if (bChanged) Material->MarkPackageDirty();
+		Material->MarkPackageDirty();
 		(void)Recording.End();
 		if (Impl->Transactions && Impl->Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
 			return RejectCommand(FormatTransactorResult(Impl->Transactions->GetLastResult()));
-		Impl->BeforeTexture.Reset();
-		Impl->CurrentTexture.Reset();
-		Impl->bActive = false;
-		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
-			: EMaterialGraphCommandStatus::NoChange};
+		return Impl->Finish(EMaterialGraphCommandStatus::Succeeded);
 	}
 
 	auto FMaterialGraphParameterEditSession::Cancel()
@@ -235,20 +239,11 @@ namespace Durin::MaterialEditor
 			Impl->BeforeValue.GetTexture().Texture = Impl->BeforeTexture.Get();
 		if (!Material)
 			return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
-		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
-		FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
-		if (bChanged)
-		{
-			FScopedPackageDirtySuppression SuppressPackageRevision;
-			if (const auto Restored = Material->SetParameterValue(
-				Impl->ParameterId, Impl->BeforeValue); !Restored)
-				return RejectCommand("The material rejected the original parameter value. " + Restored.error());
-		}
-		Impl->BeforeTexture.Reset();
-		Impl->CurrentTexture.Reset();
-		Impl->bActive = false;
-		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
-			: EMaterialGraphCommandStatus::NoChange};
+		if (Impl->BeforeValue == Impl->CurrentValue) return Impl->Finish(EMaterialGraphCommandStatus::NoChange);
+		FScopedPackageDirtySuppression SuppressPackageRevision;
+		if (const auto Restored = Material->SetParameterValue(Impl->ParameterId, Impl->BeforeValue); !Restored)
+			return RejectCommand("The material rejected the original parameter value. " + Restored.error());
+		return Impl->Finish(EMaterialGraphCommandStatus::Succeeded);
 	}
 
 	auto FMaterialGraphParameterEditSession::IsActive() const -> bool

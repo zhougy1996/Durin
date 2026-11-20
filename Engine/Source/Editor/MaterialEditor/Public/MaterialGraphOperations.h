@@ -151,8 +151,6 @@ namespace Durin::MaterialEditor
 		std::string Path, FGuid ParameterId, std::string ParameterName)
 		-> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto MakePortCreationAction(bool bOutput, EMaterialProgramValueType Type) -> FMaterialGraphCreationAction;
-	MATERIALEDITOR_API auto IsGraphInputCompatible(std::span<const EMaterialProgramValueType> Accepted,
-		EMaterialProgramValueType Source) -> bool;
 
 	struct FMaterialGraphParameterInfo { FGuid Id; };
 	struct FMaterialGraphSampleInfo { FGuid ParameterId; };

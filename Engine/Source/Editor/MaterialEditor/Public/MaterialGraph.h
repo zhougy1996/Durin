@@ -60,6 +60,8 @@ namespace Durin::MaterialEditor
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetSwizzleComponents(std::span<const uint8> Components,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled,
+			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ExtractInputDefault(const FMaterialGraphPinAddress& Pin,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InlineInputNode(const FMaterialGraphPinAddress& Pin,
@@ -82,10 +84,6 @@ namespace Durin::MaterialEditor
 			for (auto& Pin : Pins) Pin.LinkedTo.clear();
 		}
 		auto ResolveInputGraph(const FMaterialGraphPinAddress& Pin) const -> DMaterialGraph*;
-		friend MATERIALEDITOR_API auto ProjectMaterialGraph(const DObject*, std::span<const FMaterialGraphCatalogEntry>,
-			std::optional<std::span<const FGuid>>) -> FMaterialGraphView;
-		static auto BuildInputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void;
-		static auto BuildOutputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void;
 		friend class DMaterialGraphNode_Root;
 		using FPinOperation = void (DMaterialGraphNode::*)();
 		auto Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void;
@@ -103,10 +101,6 @@ namespace Durin::MaterialEditor
 	protected:
 		MATERIALEDITOR_API auto CreateInputPins() -> void override;
 		auto CreateOutputPins() -> void override {}
-	private:
-		friend MATERIALEDITOR_API auto ProjectMaterialGraph(const DObject*, std::span<const FMaterialGraphCatalogEntry>,
-			std::optional<std::span<const FGuid>>) -> FMaterialGraphView;
-		static auto BuildInputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void;
 	};
 
 	DCLASS(NoClassDefaultObject)
@@ -168,6 +162,8 @@ namespace Durin::MaterialEditor
 		friend struct FMaterialGraphCreationAction;
 		auto CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X, int32 Y,
 			const FMaterialGraphPin* Source, DTransactor* Transactions) -> FMaterialGraphCommandResult;
+		auto CalculateLayoutPositions(std::span<const FGuid> NodeIds, const FMaterialGraphPresentation& Presentation,
+			std::vector<FMaterialGraphNodePresentation>& Positions) const -> FMaterialGraphCommandResult;
 		friend class FMaterialGraphMoveSession;
 		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,
 			DTransactor* Transactions) const -> FMaterialGraphCommandResult;

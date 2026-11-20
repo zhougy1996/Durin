@@ -3,6 +3,7 @@
 #include "MaterialGraphPinSource.h"
 #include "MaterialGraphEditSession.h"
 #include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
@@ -25,6 +26,37 @@ namespace Durin::MaterialEditor
 			if (auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression)) return &Output->Port;
 			return nullptr;
 		}
+		auto SetExpressionLabels(FMaterialGraphNodeView& View, DMaterialExpression* Expression) -> void
+		{
+			if (View.Node.bMaterialOutput) return;
+			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
+			{
+				if (!Call->Function.IsValid()) { View.SecondaryLabel = "Missing function"; return; }
+				View.FunctionPath = Call->Function->GetObjectPath();
+				View.SecondaryLabel = View.PrimaryLabel;
+				View.PrimaryLabel = Call->Function->GetName();
+				return;
+			}
+			if (const auto* Port = GetTerminalPort(Expression))
+			{
+				View.SecondaryLabel = std::format("{} ({})", View.PrimaryLabel, GetProgramTypeName(Port->Type));
+				if (!Port->Name.empty()) View.PrimaryLabel = Port->Name;
+				return;
+			}
+			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
+			{
+				View.SecondaryLabel = View.PrimaryLabel;
+				View.PrimaryLabel = Parameter->Metadata.DisplayName.empty() ? Parameter->Metadata.Name.ToString() : Parameter->Metadata.DisplayName;
+			}
+			if (const auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression))
+			{
+				View.PrimaryLabel += " ";
+				for (const uint8 Component : Swizzle->Components)
+					View.PrimaryLabel += Component < 4 ? std::string(1, "RGBA"[Component]) : "?";
+			}
+			if (!View.Node.GetParameterId().IsValid()) View.SecondaryLabel = View.Presentation.DisplayName;
+		}
+
 		auto DefaultView(std::span<const float> Values) -> FMaterialInputDefault {
 			if (Values.empty() || Values.size() > 4) return {};
 			FMaterialInputDefault Result{.Kind = EMaterialInputDefaultKind::Literal,
@@ -162,11 +194,54 @@ namespace Durin::MaterialEditor
 			{{Swizzle, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
 	}
 
+	auto DMaterialGraphNode::SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled, ETransactionMode Mode)
+		-> FMaterialGraphCommandResult
+	{
+		using namespace GraphEditInternals;
+		auto Admission = ResolveEditorTransactor(Mode);
+		if (!Admission) return RejectCommand(Admission.error());
+		auto* Surface = Cast<DMaterialExpressionGetMaterialAttributes>(GetMaterialExpression());
+		if (!Surface) return RejectCommand("The selected node has no material attribute outputs.");
+		const auto* Definition = FMaterialAttributeDefinitionMap::Find(AttributeId);
+		if (!Definition) return RejectCommand("Unknown material attribute.");
+		if (Surface->IsSelected(Definition->Property) == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+
+		auto& Owner = *Surface->GetOuter();
+		FExpressionEdit Edit;
+		auto Outputs = Surface->AttributeIDs;
+		if (Enabled) Outputs.push_back(AttributeId);
+		else std::erase(Outputs, AttributeId);
+		Edit.Set(*Surface, Surface->AttributeIDs, std::move(Outputs));
+		if (!Enabled)
+		{
+			const auto UsesOutput = [&](const FMaterialExpressionInput& Input) {
+				return Input.Expression.Get() == Surface && Input.OutputIndex == static_cast<int32>(Definition->Property);
+			};
+			// Hidden root inputs also retain authored connections.
+			for (const auto& Consumer : FMaterialExpressionEditing::GetExpressions(Owner))
+			{
+				if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Consumer.Get()); Call && std::ranges::any_of(Call->Inputs,
+					[&](const auto& Binding) { return UsesOutput(Binding.Input) && Binding.InputDefault.empty(); }))
+				{
+					auto Bindings = Call->Inputs;
+					std::erase_if(Bindings, [&](const auto& Binding) { return UsesOutput(Binding.Input) && Binding.InputDefault.empty(); });
+					for (auto& Binding : Bindings) if (UsesOutput(Binding.Input)) Binding.Input = {};
+					Edit.Set(*Call, Call->Inputs, std::move(Bindings));
+					continue;
+				}
+				VisitStoredMaterialInputs(*Consumer, [&](FMaterialExpressionInput& Input) {
+					if (UsesOutput(Input)) Edit.SetLink(*Consumer, Input, {});
+				});
+			}
+		}
+		return Edit.CommitInferred(Owner, *Admission, "Edit Material Attribute Outputs");
+	}
+
 	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void
 	{
-		Source.DetachedSourceType = nullptr;
 		MaterialExpression = Source.Expression;
 		View = std::move(Metadata);
+		SetExpressionLabels(View, Source.Expression);
 		struct FRestoreSource
 		{
 			const FMaterialGraphPinSource*& Slot;
@@ -224,12 +299,10 @@ namespace Durin::MaterialEditor
 
 	auto DMaterialGraphNode::ReconstructNode() -> void { AllocateDefaultPins(); }
 
-	auto DMaterialGraphNode_Root::CreateInputPins() -> void { BuildInputPins(View, *ActiveSource); }
-	auto DMaterialGraphNode::CreateInputPins() -> void { BuildInputPins(View, *ActiveSource); }
-	auto DMaterialGraphNode::CreateOutputPins() -> void { BuildOutputPins(View, *ActiveSource); }
 
-	auto DMaterialGraphNode_Root::BuildInputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void
+	auto DMaterialGraphNode_Root::CreateInputPins() -> void
 	{
+		const auto& Source = *ActiveSource;
 		const auto* Material = Source.Material;
 		auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(Source.Expression);
 		if (!Material || !Terminal) return;
@@ -237,10 +310,8 @@ namespace Durin::MaterialEditor
 		{
 			const bool bAttributes = Definition.Id == EMaterialOutputPin::Surface;
 			if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
-			const auto& Input = *GetMaterialOutputInput(Terminal->Outputs, Definition.Id);
 			FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
 				.AcceptedTypes = {Definition.Type}};
-			Source.ProjectInput(Pin, Input);
 			if (Definition.Id == EMaterialOutputPin::WorldPositionOffset)
 				Pin.Constraint.Stages = EMaterialEvaluationStage::Vertex;
 			else if (!bAttributes)
@@ -266,8 +337,9 @@ namespace Durin::MaterialEditor
 		}
 	}
 
-	auto DMaterialGraphNode::BuildInputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void
+	auto DMaterialGraphNode::CreateInputPins() -> void
 	{
+		const auto& Source = *ActiveSource;
 		auto* Expression = Source.Expression;
 		const auto& Node = View.Node;
 		const auto* Shape = Source.Shape;
@@ -278,7 +350,6 @@ namespace Durin::MaterialEditor
 				if (Cast<DMaterialExpressionSetMaterialAttributes>(Expression) && InputIndex != 0) return;
 				FMaterialGraphPinView Pin{.InputIndex = InputIndex,
 					.Name = Shape && InputIndex < Shape->InputNames.size() ? Shape->InputNames[InputIndex] : "Value"};
-				Source.ProjectInput(Pin, Input);
 				if (Shape && InputIndex < Shape->AcceptedInputTypes.size()) Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
 				if (IsMaterialAdaptiveNumeric(Node.Opcode) && !(Node.Opcode == EMaterialProgramOpcode::Lerp && InputIndex == 2))
 				{
@@ -323,7 +394,6 @@ namespace Durin::MaterialEditor
 						.Constraint = Port.Constraint,
 						.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
 						.bAdvanced = Port.bAdvanced});
-					if (Binding != Call->Inputs.end()) Source.ProjectInput(View.Inputs.back(), Binding->Input);
 				}
 			for (const auto& Binding : Call->Inputs)
 				if (std::ranges::none_of(View.Inputs, [&](const auto& Pin) { return Pin.PortId == Binding.InputId; }))
@@ -331,7 +401,6 @@ namespace Durin::MaterialEditor
 					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = "Missing input",
 						.AcceptedTypes = {Binding.ExpectedType},
 						.PortId = Binding.InputId, .bMissing = true});
-					Source.ProjectInput(View.Inputs.back(), Binding.Input);
 				}
 		}
 		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression); Output && !View.Inputs.empty())
@@ -357,7 +426,6 @@ namespace Durin::MaterialEditor
 					.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
 					.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,
 					.bUseConstant = Attribute.Source.UseConstant});
-				Source.ProjectInput(View.Inputs.back(), Attribute.Source);
 			}
 		for (auto& Pin : View.Inputs)
 			if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
@@ -366,8 +434,9 @@ namespace Durin::MaterialEditor
 				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
 	}
 
-	auto DMaterialGraphNode::BuildOutputPins(FMaterialGraphNodeView& View, const FMaterialGraphPinSource& Source) -> void
+	auto DMaterialGraphNode::CreateOutputPins() -> void
 	{
+		const auto& Source = *ActiveSource;
 		auto* Expression = Source.Expression;
 		const auto& Node = View.Node;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
@@ -404,21 +473,4 @@ namespace Durin::MaterialEditor
 			View.Outputs.front().Name = Input->Port.Name;
 	}
 
-	auto ProjectMaterialGraph(const DObject* Owner, std::span<const FMaterialGraphCatalogEntry> Catalog,
-		std::optional<std::span<const FGuid>> Nodes) -> FMaterialGraphView
-	{
-		std::vector<FMaterialGraphNodeView> Views;
-		auto Result = ReadMaterialGraph(Owner, Catalog, Nodes, [&](FMaterialGraphNodeView Metadata, const FMaterialGraphPinSource& Source) {
-			if (Metadata.Node.bMaterialOutput) DMaterialGraphNode_Root::BuildInputPins(Metadata, Source);
-			else
-			{
-				DMaterialGraphNode::BuildInputPins(Metadata, Source);
-				DMaterialGraphNode::BuildOutputPins(Metadata, Source);
-			}
-			Views.push_back(std::move(Metadata));
-		});
-		std::ranges::sort(Views, {}, [](const auto& View) { return View.Node.Id; });
-		Result.Nodes = std::move(Views);
-		return Result;
-	}
 }

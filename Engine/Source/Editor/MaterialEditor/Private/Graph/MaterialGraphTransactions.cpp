@@ -1,7 +1,6 @@
-#include "Graph/MaterialGraphCatalog.h"
+#include "MaterialGraph.h"
 #include "MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphChange.h"
-#include "Materials/MaterialExpressionEditing.h"
 
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
@@ -12,20 +11,6 @@ namespace Durin::MaterialEditor
 
 	namespace
 	{
-		struct FMaterialGraphPosition
-		{
-			int32 X = 0;
-			int32 Y = 0;
-		};
-
-		struct FMaterialGraphNodePresentationChange
-		{
-			FGuid NodeId;
-			std::optional<FMaterialGraphPosition> Before;
-			std::optional<FMaterialGraphPosition> After;
-			FMaterialGraphPosition UnauthoredPosition;
-		};
-
 		// Replays only changed positions so unrelated presentation edits survive undo.
 		class FMaterialGraphPresentationTransaction final
 			: public FMaterialCommandChange
@@ -35,48 +20,13 @@ namespace Durin::MaterialEditor
 			{ return {Material.Get()}; }
 
 			FMaterialGraphPresentationTransaction(
-				DObject& InMaterial,
-				const FMaterialGraphPresentation& BeforePresentation,
-				const FMaterialGraphPresentation& AfterPresentation,
-				std::string InDescription)
-				: Material(&InMaterial)
+				DObject& Owner, std::vector<FNodePositionChange> Changes, std::string InDescription)
+				: Material(&Owner)
+				, NodeChanges(std::move(Changes))
 				, Description(std::move(InDescription))
-				, TargetPath(InMaterial.GetObjectPath())
+				, TargetPath(Owner.GetObjectPath())
 			{
-				for (const FMaterialGraphNodePresentation& Before
-					: BeforePresentation.Nodes)
-				{
-					const auto After = std::ranges::find(
-						AfterPresentation.Nodes, Before.NodeId,
-						&FMaterialGraphNodePresentation::NodeId);
-					if (After == AfterPresentation.Nodes.end())
-						NodeChanges.push_back({Before.NodeId,
-							FMaterialGraphPosition{Before.X, Before.Y}, std::nullopt});
-					else if (After->X != Before.X || After->Y != Before.Y)
-						NodeChanges.push_back({Before.NodeId,
-							FMaterialGraphPosition{Before.X, Before.Y},
-							FMaterialGraphPosition{After->X, After->Y}});
-				}
-				std::optional<FMaterialGraphView> BeforeView;
-				for (const FMaterialGraphNodePresentation& After
-					: AfterPresentation.Nodes)
-				{
-					if (std::ranges::none_of(BeforePresentation.Nodes,
-						[&](const FMaterialGraphNodePresentation& Before) {
-							return Before.NodeId == After.NodeId;
-						}))
-					{
-						if (!BeforeView) BeforeView = ProjectMaterialGraph(&InMaterial);
-						const auto Node = std::ranges::find(BeforeView->Nodes, After.NodeId,
-							[](const auto& View) { return View.Node.Id; });
-						const auto Fallback = Node == BeforeView->Nodes.end() ? FMaterialGraphPosition{}
-							: FMaterialGraphPosition{Node->Presentation.X, Node->Presentation.Y};
-						NodeChanges.push_back({After.NodeId, std::nullopt,
-							FMaterialGraphPosition{After.X, After.Y}, Fallback});
-					}
-				}
-
-				AffectedPackages.front() = InMaterial.GetPackage();
+				AffectedPackages.front() = Material.Get()->GetPackage();
 			}
 
 			auto GetDescription() const -> std::string_view override
@@ -97,7 +47,7 @@ namespace Durin::MaterialEditor
 			{
 				return Description.capacity() + TargetPath.capacity()
 					+ NodeChanges.capacity()
-						* sizeof(FMaterialGraphNodePresentationChange);
+						* sizeof(FNodePositionChange);
 			}
 
 		private:
@@ -107,30 +57,27 @@ namespace Durin::MaterialEditor
 				if (!Target) return {{.Code = EMaterialChangeError::TargetUnavailable, .TargetPath = TargetPath, .NodeCount = NodeChanges.size()}};
 				FMaterialGraphPresentation Candidate =
 					ReadGraphPresentation(*Target);
-				for (const FMaterialGraphNodePresentationChange& Change : NodeChanges)
+				std::unordered_map<FGuid, size_t> Indices;
+				for (size_t I = 0; I < Candidate.Nodes.size(); ++I) Indices.emplace(Candidate.Nodes[I].NodeId, I);
+				std::unordered_set<FGuid> Remove;
+				for (const auto& Change : NodeChanges)
 				{
-					const auto Current = std::ranges::find(
-						Candidate.Nodes, Change.NodeId,
-						&FMaterialGraphNodePresentation::NodeId);
-					const auto& Desired = bBefore ? Change.Before : Change.After;
-					if (!Desired)
+					const auto It = Indices.find(Change.NodeId);
+					const auto X = bBefore ? Change.BeforeX : Change.AfterX;
+					const auto Y = bBefore ? Change.BeforeY : Change.AfterY;
+					if (It == Indices.end())
 					{
-						// A label authored after the move owns this entry independently.
-						if (Current != Candidate.Nodes.end())
-						{
-							if (Current->DisplayName.empty()) Candidate.Nodes.erase(Current);
-							else { Current->X = Change.UnauthoredPosition.X; Current->Y = Change.UnauthoredPosition.Y; }
-						}
+						if (!bBefore || Change.HadAuthoredPosition)
+							Candidate.Nodes.push_back({Change.NodeId, X, Y});
+						continue;
 					}
-					else if (Current == Candidate.Nodes.end())
-						Candidate.Nodes.push_back(
-							{Change.NodeId, Desired->X, Desired->Y});
-					else
-					{
-						Current->X = Desired->X;
-						Current->Y = Desired->Y;
-					}
+					auto& Current = Candidate.Nodes[It->second];
+					// Keep a later label at the original default coordinates.
+					if (bBefore && !Change.HadAuthoredPosition && Current.DisplayName.empty())
+						Remove.insert(Change.NodeId);
+					else { Current.X = X; Current.Y = Y; }
 				}
+				if (!Remove.empty()) std::erase_if(Candidate.Nodes, [&](const auto& Node) { return Remove.contains(Node.NodeId); });
 				const auto Count = Candidate.Nodes.size();
 				if (WriteGraphPresentation(*Target, std::move(Candidate)) == EMaterialGraphPresentationResult::Rejected)
 					return {{.Code = EMaterialChangeError::PresentationWrite, .TargetPath = TargetPath, .NodeCount = Count}};
@@ -138,7 +85,7 @@ namespace Durin::MaterialEditor
 			}
 
 			TWeakObjectPtr<DObject> Material;
-			std::vector<FMaterialGraphNodePresentationChange> NodeChanges;
+			std::vector<FNodePositionChange> NodeChanges;
 			std::string Description;
 			std::string TargetPath;
 			std::array<DPackage*, 1> AffectedPackages{};
@@ -207,14 +154,11 @@ namespace Durin::MaterialEditor
 	namespace GraphEditInternals
 	{
 		auto MakeMaterialGraphPresentationTransaction(
-			DObject& Material,
-			const FMaterialGraphPresentation& BeforePresentation,
-			const FMaterialGraphPresentation& AfterPresentation,
-			std::string Description)
+			DObject& Owner, std::vector<FNodePositionChange> Changes, std::string Description)
 			-> std::unique_ptr<FMaterialCommandChange>
 		{
 			return std::make_unique<FMaterialGraphPresentationTransaction>(
-				Material, BeforePresentation, AfterPresentation, std::move(Description));
+				Owner, std::move(Changes), std::move(Description));
 		}
 
 		auto MakeMaterialGraphParameterTransaction(
@@ -229,37 +173,32 @@ namespace Durin::MaterialEditor
 		}
 
 		auto CommitPresentationChange(
-			DObject& Material,
+			DObject& Owner,
 			FMaterialGraphPresentation CandidatePresentation,
 			std::string Description,
-			std::vector<FGuid> Affected,
+			std::vector<FNodePositionChange> Changes,
 			DTransactor* Transactions) -> FMaterialGraphCommandResult
 		{
-			if (!IsValid(&Material))
-				return RejectCommand("The material graph owner is no longer available.", {}, EMaterialGraphCommandStatus::StaleOwner);
 			if (Transactions && !Transactions->CanTransact())
 				return RejectCommand("The editor transactor is busy.");
 
-			std::vector<FGuid> Ids;
-			for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(Material)) Ids.push_back(Expression->Id);
-			CandidatePresentation = SanitizeMaterialGraphPresentation(CandidatePresentation, Ids);
-			const auto BeforePresentation = ReadGraphPresentation(Material);
-			if (BeforePresentation == CandidatePresentation) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			if (Changes.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
+			std::vector<FGuid> Affected;
+			for (const auto& Change : Changes) Affected.push_back(Change.NodeId);
 			FScopedTransaction Recording(Transactions, {"MaterialGraph", Description});
 			if (Transactions)
 			{
-				const auto Recorded = Transactions->StoreUndo(&Material,
-					MakeMaterialGraphPresentationTransaction(Material, BeforePresentation, CandidatePresentation, std::move(Description)));
+				const auto Recorded = Transactions->StoreUndo(&Owner,
+					MakeMaterialGraphPresentationTransaction(Owner, std::move(Changes), std::move(Description)));
 				if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 			}
 			// The validated candidate is published only after history accepts the edit.
-			const auto Result = WriteGraphPresentation(Material, std::move(CandidatePresentation));
+			const auto Result = WriteGraphPresentation(Owner, std::move(CandidatePresentation));
 			check(Result != EMaterialGraphPresentationResult::Rejected);
 			(void)Recording.End();
 			if (Transactions && Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
 				return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
 			std::ranges::sort(Affected);
-			Affected.erase(std::unique(Affected.begin(), Affected.end()), Affected.end());
 			return {
 				.Status = EMaterialGraphCommandStatus::Succeeded,
 				.AffectedNodeIds = std::move(Affected),
