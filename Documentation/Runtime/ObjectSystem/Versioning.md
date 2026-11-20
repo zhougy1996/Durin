@@ -17,7 +17,7 @@ than duplicating the value in module sources, UI, integrations, or scripts.
 The engine release version identifies a Durin release for users, logs, source
 tags, and distributable binaries. It does not define serialization
 compatibility. Independently versioned domains include `.dasset` packages,
-transient object graphs, DurinHeaderTool schemas, shader/cache records, editor
+DurinHeaderTool schemas, shader/cache records, editor
 settings, project descriptors, Cook manifests, and asset-family payloads.
 
 Changing the engine release alone must not rewrite assets or invalidate caches.
@@ -28,9 +28,8 @@ versions, never from the saved-by engine release.
 ## Archive Version Context
 
 `FArchiveVersionContext` carries a named format version separately from
-GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored and cooked package Archives report their DAST format version. Property snapshots are
-process-local and unversioned.
+GUID-keyed custom versions. Authored and cooked package Archives report their
+DAST format version. Property snapshots are process-local and unversioned.
 
 `FCustomVersion` contains only a valid GUID and a nonnegative `int32` version.
 `FArchiveCustomVersion` and the package linker use that same record. Absence is

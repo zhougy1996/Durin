@@ -1421,7 +1421,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto Serialize(Durin::FArchive& Ar) -> void override
 		{
 			SerializePurposes.push_back(Ar.GetPurpose());
-			if (!bSkipSuperSerialize) DObject::Serialize(Ar);
+			DObject::Serialize(Ar);
 			if (Ar.IsError()) return;
 
 			const Durin::FName DeclaringType("Tests::DLifecycleReferenceOwnerForTest");
@@ -1485,13 +1485,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				Durin::SerializeArchiveObjectReference(Ar, ReferenceValue);
 				if (Ar.IsLoading() && !Ar.IsError()) SerializedNativeReference = ReferenceValue;
 			}
-			if (bEmitLateReference)
-			{
-				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("EmissionOnlyReference"),
-					Durin::FArchiveLogicalTypeDescriptor::Object(Durin::DObject::StaticClass()->GetQualifiedName())});
-				Durin::DObject* ReferenceValue = Ar.IsDiscovering() ? nullptr : EmissionOnlyReference;
-				Durin::SerializeArchiveObjectReference(Ar, ReferenceValue);
-			}
 			if (bInjectSerializeFailure)
 				Ar.Fail(Durin::EArchiveFailureCode::MalformedSerializer,
 					"Injected test object serialization failure.");
@@ -1526,10 +1519,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		FNativeStruct NativeStruct;
 		std::vector<int32> NativeValues;
 		Durin::DObject* SerializedNativeReference = nullptr;
-		Durin::DObject* EmissionOnlyReference = nullptr;
 		std::vector<Durin::EArchivePurpose> SerializePurposes;
-		bool bSkipSuperSerialize = false;
-		bool bEmitLateReference = false;
 		bool bInjectSerializeFailure = false;
 		int32 PostLoadCallCount = 0;
 	};
@@ -2627,8 +2617,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DefaultObject->GetOuter(), Class);
 		EXPECT_FALSE(DefaultObject->IsGarbage());
 		EXPECT_FALSE(DefaultObject->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
-		Durin::FByteBuffer SerializedDefault;
-		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(MutableDefault, SerializedDefault));
 		EXPECT_FALSE(Durin::DuplicateObject(
 			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate")));
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -4579,203 +4567,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkAsGarbage(Owner);
 	}
 
-	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)
-	{
-		Durin::Testing::InitializeDObjectSystemForTests();
-
-		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("SerializedOwner"));
-		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("SerializedReference"));
-		Durin::DObject* RawVectorReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("SerializedRawVectorReference"));
-		Durin::DObject* ObjectPtrVectorReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("SerializedObjectPtrVectorReference"));
-		Durin::DObject* SerializedNativeReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("SerializedNativeReference"));
-		Durin::DObject* HiddenGCReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HiddenGCReference"));
-		Owner->Value = 37;
-		Owner->bEnabled = true;
-		Owner->Label = "Serialized";
-		Owner->Reference = ReferencedObject;
-		Owner->ObjectPtrReference = ReferencedObject;
-		Owner->WeakReference = ReferencedObject;
-		Owner->WeakExternal = HiddenGCReference;
-		Owner->WeakReferences = {ReferencedObject, HiddenGCReference};
-		Owner->WeakMap.emplace("Internal", ReferencedObject);
-		Owner->WeakMap.emplace("External", HiddenGCReference);
-		Owner->RawReferences.push_back(RawVectorReferencedObject);
-		Owner->ObjectPtrReferences.push_back(ObjectPtrVectorReferencedObject);
-		Owner->Scores = {7, 11, 42};
-		Owner->Tags = {"Alpha", "Beta"};
-		Owner->Modes = {EReflectedEnumForTest::A, EReflectedEnumForTest::B};
-		Owner->ScoreGroups = {{1, 2}, {3, 5, 8}};
-		Owner->TransientValue = 99;
-		Owner->NativeScalar = 73;
-		Owner->NativeStruct = {19, Durin::FName("NativeStructLabel")};
-		Owner->NativeValues = {2, 4, 8, 16};
-		Owner->SerializedNativeReference = SerializedNativeReference;
-		Owner->NativeReference = HiddenGCReference;
-		ASSERT_EQ(Owner->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
-		ASSERT_EQ(Owner->GetClass()->GetName(), "DLifecycleReferenceOwnerForTest");
-		ASSERT_EQ(ReferencedObject->GetClass(), Durin::DObject::StaticClass());
-
-		Durin::FByteBuffer Bytes;
-		ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Owner, Bytes));
-		ASSERT_EQ(Owner->SerializePurposes.size(), 2u);
-		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
-		EXPECT_EQ(Owner->SerializePurposes[1], Durin::EArchivePurpose::ObjectGraph);
-		{
-			Durin::FMemoryReader HeaderReader(Bytes);
-			uint32 Magic = 0;
-			uint32 Version = 0;
-			uint64 RootId = 0;
-			uint64 ObjectCount = 0;
-			HeaderReader << Magic << Version << RootId << ObjectCount;
-			EXPECT_EQ(Magic, 0x4E524F44u);
-			EXPECT_EQ(Version, 2u);
-			EXPECT_EQ(RootId, 1u);
-			EXPECT_EQ(ObjectCount, 4u);
-		}
-		{
-			auto V1Bytes = Bytes;
-			V1Bytes[4] = std::byte{1};
-			V1Bytes[5] = V1Bytes[6] = V1Bytes[7] = std::byte{0};
-			const auto OldVersion = Durin::LoadObjectGraphFromMemory(V1Bytes);
-			EXPECT_FALSE(OldVersion);
-			EXPECT_FALSE(OldVersion.has_value());
-			EXPECT_EQ(OldVersion.error().Code, Durin::EObjectGraphError::Header);
-			EXPECT_EQ(OldVersion.error().Version, 1u);
-			EXPECT_EQ(OldVersion.error().ExpectedVersion, 2u);
-
-			auto TrailingBytes = Bytes;
-			TrailingBytes.push_back(std::byte{0x7F});
-			const auto Trailing = Durin::LoadObjectGraphFromMemory(TrailingBytes);
-			EXPECT_FALSE(Trailing);
-			EXPECT_FALSE(Trailing.has_value());
-			EXPECT_EQ(Trailing.error().Code, Durin::EObjectGraphError::TrailingBytes);
-			EXPECT_EQ(Trailing.error().RemainingBytes, 1u);
-
-			auto InvalidReferenceBytes = Bytes;
-			auto ReadUint64 = [&InvalidReferenceBytes](size_t Offset) {
-				uint64 Value = 0;
-				std::memcpy(&Value, InvalidReferenceBytes.data() + Offset, sizeof(Value));
-				return Value;
-			};
-			size_t Offset = 24 + 16;
-			for (int StringIndex = 0; StringIndex < 2; ++StringIndex)
-			{
-				const uint64 Length = ReadUint64(Offset);
-				Offset += sizeof(uint64) + static_cast<size_t>(Length);
-			}
-			const uint64 PropertySize = ReadUint64(Offset);
-			const size_t PropertyEnd = Offset + sizeof(uint64)
-				+ static_cast<size_t>(PropertySize);
-			ASSERT_GE(PropertySize, 9u);
-			ASSERT_EQ(InvalidReferenceBytes[PropertyEnd - 9],
-				static_cast<std::byte>(Durin::EArchiveObjectReferenceKind::Internal));
-			std::fill(InvalidReferenceBytes.begin() + static_cast<ptrdiff_t>(PropertyEnd - 8),
-				InvalidReferenceBytes.begin() + static_cast<ptrdiff_t>(PropertyEnd), std::byte{0});
-			const auto InvalidReference = Durin::LoadObjectGraphFromMemory(InvalidReferenceBytes);
-			EXPECT_FALSE(InvalidReference);
-			EXPECT_FALSE(InvalidReference.has_value());
-			EXPECT_EQ(InvalidReference.error().Code, Durin::EObjectGraphError::PropertyRead);
-			EXPECT_TRUE(InvalidReference.error().ArchiveCode.has_value());
-		}
-		Durin::MarkAsGarbage(Owner);
-		Durin::MarkAsGarbage(ReferencedObject);
-		Durin::MarkAsGarbage(RawVectorReferencedObject);
-		Durin::MarkAsGarbage(ObjectPtrVectorReferencedObject);
-		Durin::MarkAsGarbage(SerializedNativeReference);
-		Durin::MarkAsGarbage(HiddenGCReference);
-
-		const auto Loaded = Durin::LoadObjectGraphFromMemory(Bytes);
-		ASSERT_TRUE(Loaded);
-		Durin::DObject* LoadedRoot = Loaded.value();
-		ASSERT_NE(LoadedRoot, nullptr);
-		EXPECT_EQ(LoadedRoot->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
-		auto* LoadedOwner = Durin::Cast<DLifecycleReferenceOwnerForTest>(LoadedRoot);
-		ASSERT_NE(LoadedOwner, nullptr);
-		ASSERT_NE(LoadedOwner->ObjectPtrReference.Get(), nullptr);
-		EXPECT_EQ(LoadedOwner->Value, 37);
-		EXPECT_TRUE(LoadedOwner->bEnabled);
-		EXPECT_EQ(LoadedOwner->Label, "Serialized");
-		EXPECT_EQ(LoadedOwner->Reference, nullptr);
-		EXPECT_EQ(LoadedOwner->ObjectPtrReference.Get()->GetName(), "SerializedReference");
-		EXPECT_EQ(LoadedOwner->WeakReference.Get(), LoadedOwner->ObjectPtrReference.Get());
-		EXPECT_EQ(LoadedOwner->WeakExternal.Get(), nullptr);
-		ASSERT_EQ(LoadedOwner->WeakReferences.size(), 2u);
-		EXPECT_EQ(LoadedOwner->WeakReferences[0].Get(), LoadedOwner->ObjectPtrReference.Get());
-		EXPECT_EQ(LoadedOwner->WeakReferences[1].Get(), nullptr);
-		EXPECT_EQ(LoadedOwner->WeakMap.at("Internal").Get(), LoadedOwner->ObjectPtrReference.Get());
-		EXPECT_EQ(LoadedOwner->WeakMap.at("External").Get(), nullptr);
-		ASSERT_EQ(LoadedOwner->RawReferences.size(), 1u);
-		EXPECT_EQ(LoadedOwner->RawReferences[0], nullptr);
-		ASSERT_EQ(LoadedOwner->ObjectPtrReferences.size(), 1u);
-		ASSERT_NE(LoadedOwner->ObjectPtrReferences[0].Get(), nullptr);
-		EXPECT_EQ(LoadedOwner->ObjectPtrReferences[0].Get()->GetName(), "SerializedObjectPtrVectorReference");
-		ASSERT_EQ(LoadedOwner->Scores.size(), 3u);
-		EXPECT_EQ(LoadedOwner->Scores[0], 7);
-		EXPECT_EQ(LoadedOwner->Scores[1], 11);
-		EXPECT_EQ(LoadedOwner->Scores[2], 42);
-		ASSERT_EQ(LoadedOwner->Tags.size(), 2u);
-		EXPECT_EQ(LoadedOwner->Tags[0], "Alpha");
-		EXPECT_EQ(LoadedOwner->Tags[1], "Beta");
-		ASSERT_EQ(LoadedOwner->Modes.size(), 2u);
-		EXPECT_EQ(LoadedOwner->Modes[0], EReflectedEnumForTest::A);
-		EXPECT_EQ(LoadedOwner->Modes[1], EReflectedEnumForTest::B);
-		ASSERT_EQ(LoadedOwner->ScoreGroups.size(), 2u);
-		ASSERT_EQ(LoadedOwner->ScoreGroups[0].size(), 2u);
-		EXPECT_EQ(LoadedOwner->ScoreGroups[0][0], 1);
-		EXPECT_EQ(LoadedOwner->ScoreGroups[0][1], 2);
-		ASSERT_EQ(LoadedOwner->ScoreGroups[1].size(), 3u);
-		EXPECT_EQ(LoadedOwner->ScoreGroups[1][0], 3);
-		EXPECT_EQ(LoadedOwner->ScoreGroups[1][1], 5);
-		EXPECT_EQ(LoadedOwner->ScoreGroups[1][2], 8);
-		EXPECT_EQ(LoadedOwner->TransientValue, 0);
-		EXPECT_EQ(LoadedOwner->NativeScalar, 73);
-		EXPECT_EQ(LoadedOwner->NativeStruct.Value, 19);
-		EXPECT_EQ(LoadedOwner->NativeStruct.Label, Durin::FName("NativeStructLabel"));
-		EXPECT_EQ(LoadedOwner->NativeValues, (std::vector<int32>{2, 4, 8, 16}));
-		ASSERT_NE(LoadedOwner->SerializedNativeReference, nullptr);
-		EXPECT_EQ(LoadedOwner->SerializedNativeReference->GetName(), "SerializedNativeReference");
-		EXPECT_EQ(LoadedOwner->NativeReference, nullptr);
-		ASSERT_EQ(LoadedOwner->SerializePurposes.size(), 1u);
-		EXPECT_EQ(LoadedOwner->SerializePurposes[0], Durin::EArchivePurpose::ObjectGraph);
-
-		Durin::MarkAsGarbage(LoadedOwner);
-	}
-
-	TEST(FCoreDObjectReflectionTests, ObjectGraphDiscoveryFreezesScopeAndPublishesAtomically)
-	{
-		Durin::Testing::InitializeDObjectSystemForTests();
-		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(
-			nullptr, Durin::FName("FrozenDiscoveryOwner"));
-		Durin::DObject* LateReference = Durin::NewObject<Durin::DObject>(
-			nullptr, Durin::FName("FrozenDiscoveryLateReference"));
-		Owner->EmissionOnlyReference = LateReference;
-		Owner->bEmitLateReference = true;
-
-		Durin::FByteBuffer Bytes = {std::byte{0xC0}, std::byte{0xDE}};
-		const auto WriteFailure = Durin::SaveObjectGraphToMemory(Owner, Bytes);
-		EXPECT_FALSE(WriteFailure);
-		EXPECT_EQ(WriteFailure.error().Code, Durin::EObjectGraphError::PropertyWrite);
-		EXPECT_TRUE(WriteFailure.error().ArchiveCode.has_value());
-		EXPECT_EQ(Bytes, (Durin::FByteBuffer{std::byte{0xC0}, std::byte{0xDE}}));
-		ASSERT_EQ(Owner->SerializePurposes.size(), 2u);
-		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
-		EXPECT_EQ(Owner->SerializePurposes[1], Durin::EArchivePurpose::ObjectGraph);
-
-		Owner->bEmitLateReference = false;
-		Owner->bSkipSuperSerialize = true;
-		Owner->SerializePurposes.clear();
-		const auto DiscoveryFailure = Durin::SaveObjectGraphToMemory(Owner, Bytes);
-		EXPECT_FALSE(DiscoveryFailure);
-		EXPECT_EQ(DiscoveryFailure.error().Code, Durin::EObjectGraphError::Discovery);
-		EXPECT_TRUE(DiscoveryFailure.error().ArchiveCode.has_value());
-		EXPECT_EQ(Bytes, (Durin::FByteBuffer{std::byte{0xC0}, std::byte{0xDE}}));
-		ASSERT_EQ(Owner->SerializePurposes.size(), 1u);
-		EXPECT_EQ(Owner->SerializePurposes[0], Durin::EArchivePurpose::Discovery);
-
-		Durin::MarkAsGarbage(Owner);
-		Durin::MarkAsGarbage(LateReference);
-	}
-
 	TEST(FCoreDObjectReflectionTests, DuplicateArchiveRemapsInternalReferencesSharesExternalAndCleansFailures)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
@@ -4787,7 +4578,20 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			nullptr, Durin::FName("DuplicateArchiveExternal"));
 		auto* NewOuter = Durin::NewObject<Durin::DObject>(
 			nullptr, Durin::FName("DuplicateArchiveNewOuter"));
+		Source->Value = 37;
+		Source->bEnabled = true;
+		Source->Label = "Duplicated";
+		Source->Scores = {7, 11, 42};
+		Source->Tags = {"Alpha", "Beta"};
+		Source->Modes = {EReflectedEnumForTest::A, EReflectedEnumForTest::B};
+		Source->ScoreGroups = {{1, 2}, {3, 5, 8}};
+		Source->TransientValue = 99;
 		Source->NativeScalar = 41;
+		Source->NativeStruct = {19, Durin::FName("NativeStructLabel")};
+		Source->NativeValues = {2, 4, 8, 16};
+		EnsurePackageTestMount();
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate("/CoreTests/SoftDuplicate.Asset", Source->NativeSoftReference));
+		Source->ObjectPtrReferences = {Inner, External};
 		Source->SerializedNativeReference = Inner;
 		Source->ObjectPtrReference = Inner;
 		Source->WeakReference = Inner;
@@ -4807,7 +4611,23 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_TRUE(Duplicates.contains(Inner));
 		auto* DuplicateInner = Durin::Cast<DLifecycleReferenceOwnerForTest>(Duplicates[Inner]);
 		ASSERT_NE(DuplicateInner, nullptr);
+		EXPECT_EQ(Duplicate->Value, 37);
+		EXPECT_TRUE(Duplicate->bEnabled);
+		EXPECT_EQ(Duplicate->Label, "Duplicated");
+		EXPECT_EQ(Duplicate->Scores, Source->Scores);
+		EXPECT_EQ(Duplicate->Tags, Source->Tags);
+		EXPECT_EQ(Duplicate->Modes, Source->Modes);
+		EXPECT_EQ(Duplicate->ScoreGroups, Source->ScoreGroups);
+		EXPECT_EQ(Duplicate->TransientValue, 0);
 		EXPECT_EQ(Duplicate->NativeScalar, 41);
+		EXPECT_EQ(Duplicate->NativeStruct.Value, 19);
+		EXPECT_EQ(Duplicate->NativeStruct.Label, Durin::FName("NativeStructLabel"));
+		EXPECT_EQ(Duplicate->NativeValues, Source->NativeValues);
+		EXPECT_EQ(Duplicate->NativeSoftReference, Source->NativeSoftReference);
+		EXPECT_EQ(Duplicate->ObjectPtrReference.Get(), DuplicateInner);
+		ASSERT_EQ(Duplicate->ObjectPtrReferences.size(), 2u);
+		EXPECT_EQ(Duplicate->ObjectPtrReferences[0].Get(), DuplicateInner);
+		EXPECT_EQ(Duplicate->ObjectPtrReferences[1].Get(), External);
 		EXPECT_EQ(Duplicate->SerializedNativeReference, DuplicateInner);
 		EXPECT_EQ(Duplicate->WeakReference.Get(), DuplicateInner);
 		EXPECT_EQ(Duplicate->WeakExternal.Get(), nullptr);
@@ -5286,40 +5106,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::InvalidPath);
 		EXPECT_EQ(Owner.Direct.ToSoftObjectPath(), Original);
 
-	}
-
-	TEST(FCoreDObjectReflectionTests, SoftObjectGraphRetainsPathCauseAndRetiresCandidates)
-	{
-		using namespace Durin;
-		Durin::Testing::InitializeDObjectSystemForTests();
-		EnsurePackageTestMount();
-		auto* Owner = NewObject<DLifecycleReferenceOwnerForTest>(nullptr, "SoftGraphFailure");
-		FSoftObjectPath Path;
-		const std::string PathText = "/CoreTests/SoftGraph.Asset";
-		ASSERT_TRUE(FSoftObjectPath::TryCreate(PathText, Path));
-		Owner->NativeSoftReference = Path;
-		FByteBuffer Bytes;
-		ASSERT_TRUE(SaveObjectGraphToMemory(Owner, Bytes));
-		MarkAsGarbage(Owner);
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		const uint64 Before = GDObjectArray.GetNum();
-		const auto PathBytes = std::as_bytes(std::span(PathText));
-		const auto Found = std::search(Bytes.begin(), Bytes.end(), PathBytes.begin(), PathBytes.end());
-		ASSERT_NE(Found, Bytes.end());
-		*Found = std::byte{'x'};
-		const auto Result = LoadObjectGraphFromMemory(Bytes);
-		Bytes.clear();
-		EXPECT_FALSE(Result);
-		EXPECT_FALSE(Result.has_value());
-		EXPECT_EQ(Result.error().Code, EObjectGraphError::PropertyRead);
-		EXPECT_EQ(Result.error().ArchiveCode, EArchiveFailureCode::InvalidPath);
-		EXPECT_NE(Result.error().ArchivePath.find("SoftReference"), std::string::npos);
-		const auto* PathCause = std::get_if<FObjectPathError>(&Result.error().Cause);
-		ASSERT_NE(PathCause, nullptr);
-		EXPECT_EQ(PathCause->Code, EObjectPathError::NotAbsolute);
-
-		CollectGarbage(Durin::EObjectFlags::Standalone);
-		EXPECT_LE(GDObjectArray.GetNum(), Before);
 	}
 
 	TEST(FCoreDObjectReflectionTests, SoftObjectPtrRejectsInvalidObjectsWithoutMutation)

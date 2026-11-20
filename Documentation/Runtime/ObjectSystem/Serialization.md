@@ -1,6 +1,6 @@
 # Serialization
 
-Summary: Define canonical byte archives, object-aware logical serialization, object graphs, default-relative planning, and authored override intent.
+Summary: Define canonical byte archives, object-aware logical serialization, duplication, default-relative planning, and authored override intent.
 
 Modules: Core, CoreDObject
 
@@ -293,7 +293,7 @@ contract violations, and scope errors therefore abort the owning operation at
 a stable path. A consumer owns construction, publication, rollback, and
 destruction; those lifecycle steps are never hidden inside `Serialize`.
 
-The semantic reflected-value layer is shared by object graphs, duplication,
+The semantic reflected-value layer is shared by duplication,
 property snapshots, editable copying, and authored-package Archives. Hard
 references are delegated to the selected Archive and are never persisted as
 process addresses. Soft references transfer only their bounded logical path.
@@ -428,38 +428,15 @@ claim automatic editor-only filtering; a filtering Archive rejects that bypass
 until the serializer honors `IsFilterEditorOnly()` itself or the Struct returns
 to complete reflected traversal.
 
-### Transient Object Graphs and Duplication
+### Duplication and Graph Validation
 
-`SaveObjectGraphToMemory` returns `std::expected<void, FObjectGraphError>`;
-`LoadObjectGraphFromMemory` returns `std::expected<DObject*, FObjectGraphError>`.
-A successful load owns a non-null root value. Failures retain owned object and
-class identities, record ids, byte counts, header versions, and underlying
-Archive/property/map/graph-validation causes. Failed saves preserve the caller
-byte buffer; failed loads retire all candidates. The local `ToString` overload
-is the presentation boundary.
-
-Object-graph v2 saving first runs a Discovery Archive over the same virtual
-`DObject::Serialize` entries used for emission. Scope includes the root,
-structural Outer descendants and required Outer chains, plus serialized hard
-references; raw references, soft references, weak references, and GC-only hidden
-references do not enlarge it. A transient reflected weak handle is emitted only
-when its target already has a frozen graph id; otherwise it is encoded as null.
-The discovered objects and ids are frozen before writing, and
-late objects, fields, types, references, or versions fail without publishing
-bytes. Emission retains deterministic root/Outer ordering.
-
-Loading validates the v2 header and all record bounds, creates every object
-skeleton before resolving reference ids, then invokes each object's virtual
-serializer exactly once. Once all values and Outer links are restored, each
-object's read-only `ValidateLoadedObjectGraph` hook may reject invariants requiring
-populated children. The hook returns `std::expected<void, FObjectValidationError>`, with owned object
-identity and an optional module-owned typed `IObjectValidationCause`. Material
-adapters preserve their typed error and complete program diagnostics; the Core
-framework has no Engine dependency. Formatting is explicit at presentation or
-pending Archive adapters. A failure retires the entire constructed graph. The
-format is process-local engine plumbing and has no v1 reader or migration path;
-long-lived content uses the independently versioned, field-tagged `.dasset`
-contract documented in [Asset Packages](../Assets/Packages/AssetPackages.md).
+Duplication and asset package loading both invoke the read-only
+`ValidateLoadedObjectGraph` hook after restoring values and Outer links and
+before PostLoad. The hook returns `std::expected<void, FObjectValidationError>`
+with owned object identity and an optional module-owned typed
+`IObjectValidationCause`. Material adapters preserve typed program diagnostics.
+Long-lived content uses the field-tagged `.dasset` contract described in
+[Asset Packages](../Assets/Packages/AssetPackages.md).
 
 `DuplicateObject(...)` returns `std::expected<T*, FObjectGraphError>` (with
 `DObject*` for the untyped overload). Success contains the non-null duplicate. Failures retain Archive/property causes, authored override

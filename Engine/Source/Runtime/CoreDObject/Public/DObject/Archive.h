@@ -395,24 +395,15 @@ namespace Durin
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void;
 	enum class EObjectGraphError : uint8
 	{
-		None, InvalidRoot, TemplateRoot, Discovery, PropertyWrite, HeaderWrite,
-		Header, RecordPayload, RecordIdentity, Construction, TrailingBytes,
-		OuterCycle, OuterIdentity, PropertyRead, Validation, RootIdentity, MissingClass, AuthoredOverrides
+		None, InvalidRoot, TemplateRoot, PropertyWrite, Construction,
+		OuterIdentity, PropertyRead, Validation, MissingClass, AuthoredOverrides
 	};
 	struct FObjectGraphError
 	{
 		EObjectGraphError Code = EObjectGraphError::None;
 		std::string ObjectName;
-		std::string ClassName;
-		uint64 ObjectId = 0;
-		uint64 OuterId = 0;
-		uint64 ObjectCount = 0;
 		uint64 ActualBytes = 0;
 		uint64 RemainingBytes = 0;
-		uint32 Magic = 0;
-		uint32 ExpectedMagic = 0;
-		uint32 Version = 0;
-		uint32 ExpectedVersion = 0;
 		std::optional<EArchiveFailureCode> ArchiveCode;
 		std::string ArchivePath;
 		std::string Message;
@@ -420,9 +411,6 @@ namespace Durin
 		std::optional<FAuthoredOverrideDiagnostic> OverrideCause;
 	};
 	COREDOBJECT_API auto ToString(const FObjectGraphError& Error) -> std::string;
-	// Failed save preserves OutBytes; failed load returns no object and discards its candidates.
-	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> std::expected<void, FObjectGraphError>;
-	COREDOBJECT_API auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> std::expected<DObject*, FObjectGraphError>;
 	// Duplicates the source Outer tree; failure retires candidates and clears OutDuplicates.
 	COREDOBJECT_API auto DuplicateObject(
 		const DObject* SourceObject,

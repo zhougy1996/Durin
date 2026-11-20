@@ -1,4 +1,5 @@
 #include "Actors/ProceduralSkyActor.h"
+#include "DObject/Archive.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "Components/ProceduralSkyComponent.h"
@@ -57,7 +58,7 @@ TEST(FSkyLightTests, PendingAuthoredCubeDoesNotReportMissingPlatformData)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FSkyLightTests, SerializesSourceIdentityAndRejectsNonfiniteIntensity)
+TEST(FSkyLightTests, DuplicatePreservesSourceIdentityAndIntensityRejectsNonfiniteInput)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::ASkyLightActor>(nullptr, "AuthoredSkyLight");
@@ -72,10 +73,9 @@ TEST(FSkyLightTests, SerializesSourceIdentityAndRejectsNonfiniteIntensity)
 	Component->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
 	const auto Id = Component->GetPersistentId();
 	EXPECT_TRUE(Id.IsValid());
-	Durin::FByteBuffer Bytes;
-	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
-	auto* Loaded = Durin::Cast<Durin::ASkyLightActor>(Durin::LoadObjectGraphFromMemory(Bytes).value());
-	ASSERT_NE(Loaded, nullptr);
+	const auto Copy = Durin::DuplicateObject(Actor, nullptr, "CopiedSkyLight");
+	ASSERT_TRUE(Copy) << Durin::ToString(Copy.error());
+	auto* Loaded = *Copy;
 	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetPersistentId(), Id);
 	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetSourceMode(), Durin::ESkyLightSourceMode::CapturedSky);
 	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetIntensity(), 16.0f);
@@ -194,7 +194,7 @@ TEST(FSkyBoxTests, SceneAcceptsOneSkyBoxAndAppliesFifoReplacement)
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
+TEST(FSkyBoxTests, ActorDefaultsDuplicateAndRetainCubeReference)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::ASkyBoxActor>(nullptr, "SkyBoxActor");
@@ -213,10 +213,9 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	EXPECT_EQ(Durin::ResolveObjectKey(CubeHandle), Cube);
 	Component->SetTextureCube(nullptr);
 
-	Durin::FByteBuffer Bytes;
-	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
-	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(Durin::LoadObjectGraphFromMemory(Bytes).value());
-	ASSERT_NE(LoadedActor, nullptr);
+	const auto Copy = Durin::DuplicateObject(Actor, nullptr, "CopiedSkyBox");
+	ASSERT_TRUE(Copy) << Durin::ToString(Copy.error());
+	auto* LoadedActor = *Copy;
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
 	EXPECT_EQ(LoadedComponent->GetTextureCube(), nullptr);

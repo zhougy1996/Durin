@@ -8965,14 +8965,6 @@ TEST(FPackageAssetTests, LoadedGraphValidationSeesChildValuesAndRejectsBeforePos
 	EXPECT_EQ(InvalidCopy.error().Code, EObjectGraphError::Validation);
 
 	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
-	FByteBuffer GraphBytes;
-	ASSERT_TRUE(SaveObjectGraphToMemory(Owner, GraphBytes));
-	const auto GraphLoad = LoadObjectGraphFromMemory(GraphBytes);
-	EXPECT_FALSE(GraphLoad);
-	EXPECT_FALSE(GraphLoad.has_value());
-	EXPECT_EQ(GraphLoad.error().Code, EObjectGraphError::Validation);
-
-	EXPECT_EQ(DImportMetadataOwnerForTest::GraphPostLoadCount, 0u);
 	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(Path));
 	DImportMetadataOwnerForTest::GraphPostLoadCount = 0;

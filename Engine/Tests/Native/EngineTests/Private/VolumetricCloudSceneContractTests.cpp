@@ -1,5 +1,6 @@
 #include "Actors/VolumetricCloudActor.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
@@ -379,7 +380,7 @@ TEST(FVolumetricCloudSceneContractTests,
 	Durin::ShutdownRenderingThread();
 }
 
-TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndPersistentIdentity)
+TEST(FVolumetricCloudSceneContractTests, ActorDuplicatePreservesAuthoredIntentAndPersistentIdentity)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::AVolumetricCloudActor>(nullptr, "CloudActor");
@@ -390,12 +391,9 @@ TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndPe
 	Component->SetLayer(900.0, 4100.0, 75000.0);
 	Component->SetOpticalProperties(0.7f, 0.2f, 0.004f, 0.006f, 0.3f);
 	const Durin::FGuid PersistentId = Component->GetVolumetricCloudSceneId();
-	Durin::FByteBuffer Bytes;
-	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
-	auto* Loaded = Durin::Cast<Durin::AVolumetricCloudActor>(
-		Durin::LoadObjectGraphFromMemory(Bytes).value()
-	);
-	ASSERT_NE(Loaded, nullptr);
+	const auto Copy = Durin::DuplicateObject(Actor, nullptr, "CopiedCloudActor");
+	ASSERT_TRUE(Copy) << Durin::ToString(Copy.error());
+	auto* Loaded = *Copy;
 	auto* LoadedComponent = Loaded->GetVolumetricCloudComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
 	EXPECT_FALSE(LoadedComponent->IsEnabled());
