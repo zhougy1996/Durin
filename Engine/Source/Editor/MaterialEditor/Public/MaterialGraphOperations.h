@@ -20,6 +20,7 @@ namespace Durin
 namespace Durin::MaterialEditor
 {
 	class DMaterialGraph;
+	class DMaterialGraphNode;
 
 	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 14;
 
@@ -56,12 +57,8 @@ namespace Durin::MaterialEditor
 	struct FMaterialGraphCommandResult
 	{
 		EMaterialGraphCommandStatus Status = EMaterialGraphCommandStatus::Succeeded;
-		std::vector<FGuid> AffectedNodeIds;
-		std::vector<FGuid> GeneratedNodeIds;
-		std::vector<FGuid> AffectedParameterIds;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		std::string Message;
-		std::string CleanupMessage;
 
 		auto HasError() const -> bool
 		{
@@ -73,6 +70,14 @@ namespace Durin::MaterialEditor
 	};
 
 	MATERIALEDITOR_API auto FormatMaterialGraphCommandResult(const FMaterialGraphCommandResult& Result) -> std::string;
+
+	template<class T> using TMaterialGraphResult = std::expected<T, FMaterialGraphCommandResult>;
+
+	template<class T>
+	auto FormatMaterialGraphCommandResult(const TMaterialGraphResult<T>& Result) -> std::string
+	{
+		return Result ? std::string{} : FormatMaterialGraphCommandResult(Result.error());
+	}
 
 	struct FMaterialGraphPinView
 	{
@@ -143,7 +148,8 @@ namespace Durin::MaterialEditor
 			FMaterialGraphPortCreation,
 			FMaterialGraphCollectionParameterCreation> Payload;
 		MATERIALEDITOR_API auto PerformAction(DMaterialGraph& Graph, int32 X, int32 Y,
-			std::optional<FMaterialGraphPinAddress> Source = {}, ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+			std::optional<FMaterialGraphPinAddress> Source = {}, ETransactionMode Mode = ETransactionMode::Record,
+			std::vector<DMaterialGraphNode*>* AuxiliaryNodes = nullptr) const -> TMaterialGraphResult<DMaterialGraphNode*>;
 	};
 	MATERIALEDITOR_API auto MakeCreationAction(const FMaterialGraphCatalogEntry& Entry) -> FMaterialGraphCreationAction;
 	MATERIALEDITOR_API auto MakeFunctionCreationAction(std::string Path) -> FMaterialGraphCreationAction;

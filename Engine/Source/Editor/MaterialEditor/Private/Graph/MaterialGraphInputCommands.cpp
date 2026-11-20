@@ -192,31 +192,31 @@ namespace Durin::MaterialEditor
 	}
 
 	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPinAddress& Target, ETransactionMode Mode)
-		-> FMaterialGraphCommandResult
+		-> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
+		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Material = Cast<DMaterial>(GetMaterialOrFunction());
-		if (!Material) return RejectCommand("Input parameters require a base material.");
+		if (!Material) return std::unexpected(RejectCommand("Input parameters require a base material."));
 		const auto* Pin = FindPin(Target);
 		if (!Pin || Pin->Direction != EMaterialGraphPinDirection::Input || !Pin->LinkedTo.empty())
-			return RejectCommand("Select an unconnected input.");
+			return std::unexpected(RejectCommand("Select an unconnected input."));
 		auto* Node = Pin->GetOwningNode();
 		const auto& View = Node->GetView();
 		const auto& Input = View.Inputs[Pin->DisplayIndex];
 		if (Input.bMissing || Input.SourceType > EMaterialProgramValueType::Float4)
-			return RejectCommand("Only numeric inputs can be promoted.");
+			return std::unexpected(RejectCommand("Only numeric inputs can be promoted."));
 		auto Literal = Input.InlineDefault.Literal;
 		const auto Type = Input.InlineDefault.Kind == EMaterialInputDefaultKind::Literal ? Input.InlineDefault.Type : Input.SourceType;
 		if (Input.InlineDefault.Kind == EMaterialInputDefaultKind::None && Input.PortId.IsValid() && !Input.bRequired)
 		{
 			if (Input.Default.Kind == EMaterialFunctionDefaultKind::Numeric) Literal = Input.Default.Numeric;
 			else if (Input.Default.Kind != EMaterialFunctionDefaultKind::None)
-				return RejectCommand("Override the inherited function default with a constant first.");
+				return std::unexpected(RejectCommand("Override the inherited function default with a constant first."));
 		}
 		if (Input.bSupportsConstant && !Input.bUseConstant && (View.Node.IsSampleUVInput(Input.InputIndex)
 			|| (View.Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && Input.InputIndex != 0)))
-			return RejectCommand("Enable a constant before promoting an inherited input.");
+			return std::unexpected(RejectCommand("Enable a constant before promoting an inherited input."));
 
 		FMaterialParameterDefinition Definition;
 		Definition.Id = FGuid::NewGuid();
@@ -227,12 +227,12 @@ namespace Durin::MaterialEditor
 		Definition.Value = MakeParameterValue(Type, Literal);
 		Definition.Type = Definition.Value.GetType();
 		auto Created = MakeParameterExpression(Definition);
-		if (!Created) return RejectCommand(std::move(Created.Message));
+		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
 		auto& Parameter = *Created.Expression;
 		FGraphEditSession State(*Material);
 		auto Destination = FindInput(Node->GetMaterialExpression(), Input.InputIndex, Input.PortId, &State);
-		if (!Destination.Source) return RejectCommand(std::move(Destination.Message));
-		if (Destination.Source->IsConnected()) return RejectCommand("The input is already connected.");
+		if (!Destination.Source) return std::unexpected(RejectCommand(std::move(Destination.Message)));
+		if (Destination.Source->IsConnected()) return std::unexpected(RejectCommand("The input is already connected."));
 		const bool NeedsMask = Type == EMaterialProgramValueType::Float2 || Type == EMaterialProgramValueType::Float3;
 		const auto X = View.Presentation.X - 320;
 		const auto Y = View.Presentation.Y;
@@ -249,41 +249,35 @@ namespace Durin::MaterialEditor
 			Generated.push_back(Mask->Id);
 		}
 		auto Result = State.Commit("Promote Input Parameter", *Admission);
-		if (Result)
-		{
-			Result.GeneratedNodeIds = std::move(Generated);
-			Result.AffectedNodeIds = Result.GeneratedNodeIds;
-			Result.AffectedNodeIds.push_back(Target.NodeId);
-			Result.AffectedParameterIds = {Definition.Id};
-		}
-		return Result;
+		if (!Result) return std::unexpected(std::move(Result));
+		return GetCreatedNodes(Generated);
 	}
 
-	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult
+	auto DMaterialGraphNode::ExtractInputDefault(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> TMaterialGraphResult<DMaterialGraphNode*>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
+		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		auto* Graph = ResolveInputGraph(Pin);
 		auto* Expression = GetMaterialExpression();
-		if (!Graph || !Expression) return RejectCommand("The input pin is unavailable.");
+		if (!Graph || !Expression) return std::unexpected(RejectCommand("The input pin is unavailable."));
 		FGraphEditSession State(*Graph->GetMaterialOrFunction());
 		State.Modify(*Expression);
 		const auto Input = FindInput(Expression, Pin.Index, Pin.PortId);
-		if (!Input.Message.empty()) return RejectCommand(Input.Message);
+		if (!Input.Message.empty()) return std::unexpected(RejectCommand(Input.Message));
 		if (!Input.SupportsDefault() || Input.Source->IsConnected() || Input.Read().empty())
-			return RejectCommand("Only an unconnected numeric literal can be extracted.");
+			return std::unexpected(RejectCommand("Only an unconnected numeric literal can be extracted."));
 		auto Constant = MakeConstant(Input.Read());
-		if (!Constant) return RejectCommand("The input default has an unsupported width.");
+		if (!Constant) return std::unexpected(RejectCommand("The input default has an unsupported width."));
 		*Input.Source = {Constant.Get()};
 		const auto Position = std::ranges::find(State.Presentation.Nodes, Pin.NodeId, &FMaterialGraphNodePresentation::NodeId);
-		if (Position == State.Presentation.Nodes.end()) return RejectCommand("The input owner has no authored position.");
+		if (Position == State.Presentation.Nodes.end()) return std::unexpected(RejectCommand("The input owner has no authored position."));
 		State.Presentation.Nodes.push_back({Constant->Id, Position->X - 320, Position->Y});
 		const auto Id = Constant->Id;
 		State.Expressions.emplace_back(Constant.Get());
 		auto Result = State.Commit("Extract Input Node", Transactions);
-		if (Result) Result.GeneratedNodeIds = {Id};
-		return Result;
+		if (!Result) return std::unexpected(std::move(Result));
+		return Graph->GetCreatedNode(Id);
 	}
 
 	auto DMaterialGraphNode::InlineInputNode(const FMaterialGraphPinAddress& Pin, ETransactionMode Mode) -> FMaterialGraphCommandResult

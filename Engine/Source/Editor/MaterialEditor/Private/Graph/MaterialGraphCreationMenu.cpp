@@ -271,8 +271,8 @@ namespace Durin::MaterialEditor
 			if (HasClipboard()) ImGui::SameLine();
 			if (auto* Base = Cast<DMaterial>(&Owner); Base && ImGui::Button("Auto Layout"))
 			{
-				const auto Layout = EditorGraph->Layout({});
-				CheckCommand(Layout);
+				std::string Error;
+				if (!EditorGraph->Layout({}, ETransactionMode::Record, &Error)) ReportError(std::move(Error));
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 				ImGui::EndPopup();
@@ -290,7 +290,7 @@ namespace Durin::MaterialEditor
 			if (CheckCommand(Created))
 			{
 				SelectedSurfaceOutput.reset();
-				if (!Created.GeneratedNodeIds.empty()) SelectedNodes = {Created.GeneratedNodeIds.front()};
+				SelectedNodes = {(*Created)->GetView().Node.Id};
 				RememberCreation(Action);
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();

@@ -95,13 +95,13 @@ namespace Durin::MaterialEditor
 					return false;
 				}
 				const auto Result = ParameterSession.Begin(*Material, Id.first, Transactor);
-				if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
+				if (!Result) ReportError(Result.error());
 				return static_cast<bool>(Result);
 			},
 			[this](const FMaterialParameterValue& Value) {
 				const auto Result = ParameterSession.Apply(Value);
 				if (!ParameterSession.IsActive()) FinishParameterEdit(false);
-				if (!Result) ReportError(FormatMaterialGraphCommandResult(Result));
+				if (!Result) ReportError(Result.error());
 				return static_cast<bool>(Result);
 			},
 			[this](bool bCancel) { return FinishParameterSession(bCancel); });
@@ -121,7 +121,7 @@ namespace Durin::MaterialEditor
 		if (!Result)
 		{
 			FailedParameterFinishFrame = Frame;
-			auto Error = FormatMaterialGraphCommandResult(Result);
+			auto Error = Result.error();
 			if (LastParameterFinishError != Error)
 			{
 				LastParameterFinishError = Error;
@@ -338,7 +338,7 @@ namespace Durin::MaterialEditor
 				const auto Address = FMaterialGraphPinAddress::AttributeOverride(Expression->Id, Attribute);
 				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
 					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.IsConnected() ? "Connected" : "Constant")) return false;
-					if (ImGui::Selectable("Keep base value", bKeepBase)) Submit(EditorGraph->GetSchema().BreakPinLinks(*EditorGraph, Address));
+					if (ImGui::Selectable("Keep base value", bKeepBase)) Changed = BreakPinLinks(Address);
 					for (const auto& Source : View.Nodes)
 					{
 						if (Source.Node.Id == Expression->Id || Changed) continue;
@@ -346,8 +346,7 @@ namespace Durin::MaterialEditor
 							if (!Changed && Pin.Type == GetMaterialSurfaceOutputType(Attribute)
 								&& ImGui::Selectable(std::format("{}: {}##{}{}", Source.PrimaryLabel, Pin.Name,
 									Source.Node.Id.ToString(), Pin.PortId.ToString()).c_str()))
-								Submit(EditorGraph->GetSchema().TryCreateConnection(*EditorGraph, Address,
-									FMaterialGraphPinAddress::Output({Source.Node.Id, Pin.OutputIndex, Pin.PortId}), true));
+								Changed = ConnectPins(Address, {Source.Node.Id, Pin.OutputIndex, Pin.PortId}, true);
 					}
 					ImGui::EndCombo();
 					return Changed;
@@ -419,13 +418,13 @@ namespace Durin::MaterialEditor
 				if (!Changed && bConnected)
 				{
 					if (ImGui::MenuItem("Inline constant")) Submit(SelectedNode->InlineInputNode(Selected.InputAddress(Pin)));
-					if (!Changed && ImGui::MenuItem("Disconnect")) Submit(EditorGraph->GetSchema().BreakPinLinks(EditorGraph->FindPin(Selected.InputAddress(Pin))));
+					if (!Changed && ImGui::MenuItem("Disconnect")) Changed = BreakPinLinks(Selected.InputAddress(Pin));
 				}
 				else if (!Changed)
 				{
-					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Submit(SelectedNode->ExtractInputDefault(Selected.InputAddress(Pin)));
+					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Changed = CheckCommand(SelectedNode->ExtractInputDefault(Selected.InputAddress(Pin)));
 					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !Pin.bMissing && !bInheritedDynamic && !bInheritedContext))
-						Submit(EditorGraph->PromoteInputToParameter(Selected.InputAddress(Pin)));
+						Changed = CheckCommand(EditorGraph->PromoteInputToParameter(Selected.InputAddress(Pin)));
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))
 					Submit(SelectedNode->SetPinUseConstant(Selected.InputAddress(Pin), !Pin.bUseConstant));

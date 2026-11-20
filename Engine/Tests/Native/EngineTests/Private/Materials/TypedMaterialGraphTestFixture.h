@@ -48,30 +48,44 @@ namespace Durin::Testing
 		Expression->Id = Id;
 		return Expression;
 	}
+	// Replay can rebuild graph nodes. Capture selection identities while the returned nodes are live.
+	inline auto GraphNodeId(MaterialEditor::DMaterialGraphNode* Node) -> FGuid { return Node->GetView().Node.Id; }
+	inline auto ExpressionNodeId(DMaterialExpression* Expression) -> FGuid { return Expression->Id; }
+	inline auto NodeIds(const std::vector<MaterialEditor::DMaterialGraphNode*>& Nodes) -> std::vector<FGuid>
+	{
+		std::vector<FGuid> Ids;
+		for (const auto* Node : Nodes) Ids.push_back(Node->GetView().Node.Id);
+		return Ids;
+	}
 	inline auto CreateGraphConstant(MaterialEditor::DMaterialGraph& Graph, float Value = 0.f,
-		int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable) -> MaterialEditor::FMaterialGraphCommandResult
+		int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable) -> MaterialEditor::TMaterialGraphResult<FGuid>
 	{
 		auto Constant = MakeGraphExpression<DMaterialExpressionScalarConstant>();
 		Constant->Value = Value;
-		return Graph.CreateExpression(*Constant.Get(), X, Y, Mode);
+		return Graph.CreateExpression(*Constant.Get(), X, Y, Mode).transform(GraphNodeId);
 	}
 	inline auto CreateGraphCatalogNode(MaterialEditor::DMaterialGraph& Graph, const MaterialEditor::FMaterialGraphCatalogEntry& Entry,
 		int32 X, int32 Y, FMaterialProgramLink Input, ETransactionMode Mode = ETransactionMode::Record)
-		-> MaterialEditor::FMaterialGraphCommandResult
+		-> MaterialEditor::TMaterialGraphResult<std::vector<FGuid>>
 	{
 		std::optional<MaterialEditor::FMaterialGraphPinAddress> Source;
 		if (Input.SourceNodeId.IsValid()) Source = MaterialEditor::FMaterialGraphPinAddress::Output(Input);
-		return MakeCreationAction(Entry).PerformAction(Graph, X, Y, Source, Mode);
+		std::vector<MaterialEditor::DMaterialGraphNode*> AuxiliaryNodes;
+		auto Created = MakeCreationAction(Entry).PerformAction(Graph, X, Y, Source, Mode, &AuxiliaryNodes);
+		if (!Created) return std::unexpected(std::move(Created.error()));
+		std::vector<FGuid> Ids{GraphNodeId(*Created)};
+		for (auto* Node : AuxiliaryNodes) Ids.push_back(GraphNodeId(Node));
+		return Ids;
 	}
 	inline auto CreateGraphCatalogNode(MaterialEditor::DMaterialGraph& Graph,
 		EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type = EMaterialProgramValueType::Float,
 		FMaterialProgramLink Input = {}, int32 X = 0, int32 Y = 0, ETransactionMode Mode = ETransactionMode::NotTransactable)
-		-> MaterialEditor::FMaterialGraphCommandResult
+		-> MaterialEditor::TMaterialGraphResult<std::vector<FGuid>>
 	{
 		const auto Catalog = MaterialEditor::EnumerateCatalog();
 		const auto Entry = std::ranges::find_if(Catalog, [&](const auto& Value) { return Value.Opcode == Opcode && Value.ResultType == Type; });
-		if (Entry == Catalog.end()) return {.Status = MaterialEditor::EMaterialGraphCommandStatus::Rejected,
-			.Message = "The catalog expression shape is stale."};
+		if (Entry == Catalog.end()) return std::unexpected(MaterialEditor::FMaterialGraphCommandResult{.Status = MaterialEditor::EMaterialGraphCommandStatus::Rejected,
+			.Message = "The catalog expression shape is stale."});
 		return CreateGraphCatalogNode(Graph, *Entry, X, Y, Input, Mode);
 	}
 }

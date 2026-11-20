@@ -21,13 +21,10 @@ namespace Durin
 		}
 		FMaterialGraphPresentation Presentation;
 		TStrongObjectPtr<MaterialEditor::DMaterialGraph> Graph(MaterialEditor::DMaterialGraph::Create(Material));
-		const auto Layout = Graph->CalculateLayout({}, Presentation);
-		if (!Layout || Material.SetMaterialGraphPresentation(
-				std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
+		if (!Graph->CalculateLayout({}, Presentation, &OutError)) return false;
+		if (Material.SetMaterialGraphPresentation(std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
 		{
-			OutError = static_cast<bool>(Layout)
-				? "The new material graph presentation could not be initialized."
-				: MaterialEditor::FormatMaterialGraphCommandResult(Layout);
+			OutError = "The new material graph presentation could not be initialized.";
 			return false;
 		}
 		if (RequestMaterialRecompile(Material))

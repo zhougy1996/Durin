@@ -221,7 +221,7 @@ namespace Durin::MaterialEditor
 			Port.Default.Kind = EMaterialFunctionDefaultKind::Numeric;
 			const auto Result = Document.Graph->AddPort(false, Port, {}, 0, static_cast<int32>(Signature.Inputs.size()) * 120);
 			if (!Result) ErrorMessage = FormatMaterialGraphCommandResult(Result);
-			else if (!Result.GeneratedNodeIds.empty()) Document.Canvas->SelectAndFrame(Result.GeneratedNodeIds.front());
+			else Document.Canvas->SelectAndFrame((*Result)->GetView().Node.Id);
 		}
 		if (Signature.Inputs.empty()) ImGui::TextDisabled("No function inputs.");
 		for (const auto& Port : Signature.Inputs)

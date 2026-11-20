@@ -63,7 +63,7 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto SetAttributeOutputEnabled(FGuid AttributeId, bool Enabled,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ExtractInputDefault(const FMaterialGraphPinAddress& Pin,
-			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<DMaterialGraphNode*>;
 		MATERIALEDITOR_API auto InlineInputNode(const FMaterialGraphPinAddress& Pin,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto SetPinUseConstant(const FMaterialGraphPinAddress& Pin, bool Enabled,
@@ -118,39 +118,37 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto FindInputPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPinView*;
 		MATERIALEDITOR_API auto FindOutputPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphOutputPinView*;
 		// Resolves the material terminal and moves it using the common position command.
-		MATERIALEDITOR_API auto MoveMaterialOutput(int32 X, int32 Y,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
 		// Position commands ignore labels and preserve unrelated presentation fields.
 		MATERIALEDITOR_API auto MoveNodes(std::span<const FMaterialGraphNodePresentation> Positions,
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API auto CalculateLayout(std::span<const FGuid> NodeIds,
-			FMaterialGraphPresentation& OutPresentation) const -> FMaterialGraphCommandResult;
+			FMaterialGraphPresentation& OutPresentation, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API auto Layout(std::span<const FGuid> NodeIds = {},
-			ETransactionMode Mode = ETransactionMode::Record) const -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API auto CopySelection(std::span<const FGuid> NodeIds,
-			FMaterialGraphClipboardPayload& OutPayload) const -> FMaterialGraphCommandResult;
+			FMaterialGraphClipboardPayload& OutPayload, std::string* OutError = nullptr) const -> bool;
 		MATERIALEDITOR_API auto Paste(const FMaterialGraphClipboardPayload& Payload,
-			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>;
 		MATERIALEDITOR_API auto DuplicateNodes(std::span<const FGuid> NodeIds,
-			int32 OffsetX = 40, int32 OffsetY = 40, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			int32 OffsetX = 40, int32 OffsetY = 40, ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>;
 		MATERIALEDITOR_API auto CutSelection(std::span<const FGuid> NodeIds,
 			FMaterialGraphClipboardPayload& OutPayload, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto PromoteInputToParameter(const FMaterialGraphPinAddress& Target,
-			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>;
 		MATERIALEDITOR_API auto AddPort(bool bOutput, FMaterialFunctionPort Port,
 			FMaterialProgramLink Source = {}, int32 X = 0, int32 Y = 0,
-			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<DMaterialGraphNode*>;
 		MATERIALEDITOR_API auto RemovePort(bool bOutput, const FGuid& PortId,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto CreateExpression(const DMaterialExpression& Expression, int32 X = 0, int32 Y = 0,
-			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<DMaterialGraphNode*>;
 		MATERIALEDITOR_API auto ReplaceExpression(const DMaterialExpression& Expression,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
-			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			int32 X, int32 Y, ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<DMaterialGraphNode*>;
 		MATERIALEDITOR_API auto InsertFunctionCall(DMaterialFunctionInterface& Function,
 			int32 X, int32 Y, std::span<const FMaterialFunctionInputBinding> Inputs,
-			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+			ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<DMaterialGraphNode*>;
 		MATERIALEDITOR_API auto RemoveNodes(std::span<const FGuid> NodeIds,
 			ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto AddExpression(DMaterialExpression& Expression) -> DMaterialGraphNode*;
@@ -160,13 +158,15 @@ namespace Durin::MaterialEditor
 	private:
 		friend class DMaterialGraphNode;
 		friend struct FMaterialGraphCreationAction;
+		auto GetCreatedNode(const FGuid& Id) -> TMaterialGraphResult<DMaterialGraphNode*>;
+		auto GetCreatedNodes(std::span<const FGuid> Ids) -> TMaterialGraphResult<std::vector<DMaterialGraphNode*>>;
 		auto CreateCatalogNode(const FMaterialGraphCatalogEntry& Entry, int32 X, int32 Y,
-			const FMaterialGraphPin* Source, DTransactor* Transactions) -> FMaterialGraphCommandResult;
+			const FMaterialGraphPin* Source, DTransactor* Transactions, std::vector<DMaterialGraphNode*>* AuxiliaryNodes) -> TMaterialGraphResult<DMaterialGraphNode*>;
 		auto CalculateLayoutPositions(std::span<const FGuid> NodeIds, const FMaterialGraphPresentation& Presentation,
-			std::vector<FMaterialGraphNodePresentation>& Positions) const -> FMaterialGraphCommandResult;
+			std::vector<FMaterialGraphNodePresentation>& Positions, std::string* OutError) const -> bool;
 		friend class FMaterialGraphMoveSession;
 		auto MoveNodesInternal(std::span<const FMaterialGraphNodePresentation> Positions,
-			DTransactor* Transactions) const -> FMaterialGraphCommandResult;
+			DTransactor* Transactions, std::string* OutError) const -> bool;
 		friend class FMaterialGraphReadModel;
 		auto HasExpressionConsumer(const DMaterialExpression& Source) const -> bool;
 		auto RestorePinLinks() -> void;
@@ -188,10 +188,10 @@ namespace Durin::MaterialEditor
 		auto RefreshNodes(std::span<const FMaterialGraphCatalogEntry> Catalog,
 			std::optional<std::span<const FGuid>> Selected = {}) -> void;
 		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPin& Input, const FMaterialGraphPin* Output,
-			bool Replace, ETransactionMode Mode) -> FMaterialGraphCommandResult;
+			bool Replace, ETransactionMode Mode, std::string* OutError) -> bool;
 		auto WriteGraphInput(DMaterialGraphNode& Target, FMaterialGraphPinAddress Input,
-			const FMaterialGraphPin* Output, bool Replace, ETransactionMode Mode) -> FMaterialGraphCommandResult;
-		auto BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode) -> FMaterialGraphCommandResult;
+			const FMaterialGraphPin* Output, bool Replace, ETransactionMode Mode, std::string* OutError) -> bool;
+		auto BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode, std::string* OutError) -> bool;
 		TWeakObjectPtr<DObject> Owner;
 		const FMaterialGraphSchema* Schema = nullptr;
 		DPROPERTY(Transient, NonTransactional)

@@ -445,13 +445,13 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 		"CollectionGraphAuthoring");
 	TStrongObjectPtr<DMaterialGraph> AuthoringGraph(DMaterialGraph::Create(*AuthoringMaterial));
 	const auto Action = MakeCollectionParameterCreationAction(Collection->GetObjectPath(), Tint.Id, "Tint");
-	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 80, {}, Durin::ETransactionMode::NotTransactable);
+	const auto Created = Action.PerformAction(*AuthoringGraph, 120, 80, {}, Durin::ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Created) << FormatMaterialGraphCommandResult(Created);
-	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
+
 	const auto Authored = std::ranges::find_if(
 		AuthoringMaterial->GetExpressionCollection().Expressions,
 		[&](const auto& Expression) {
-			return Expression->Id == Created.GeneratedNodeIds.front();
+			return Expression->Id == Created.value();
 		});
 	ASSERT_NE(Authored,
 		AuthoringMaterial->GetExpressionCollection().Expressions.end());
@@ -461,7 +461,7 @@ TEST(FMaterialParameterCollectionPersistenceTests,
 	EXPECT_EQ(CollectionExpression->Collection.Get(), Collection);
 	EXPECT_EQ(CollectionExpression->ParameterId, Tint.Id);
 	const auto View = Testing::CaptureGraphView(*AuthoringGraph);
-	const auto Read = std::ranges::find(View.Nodes, Created.GeneratedNodeIds.front(), [](const auto& Node) { return Node.Node.Id; });
+	const auto Read = std::ranges::find(View.Nodes, Created.value(), [](const auto& Node) { return Node.Node.Id; });
 	ASSERT_NE(Read, View.Nodes.end());
 	EXPECT_EQ(Read->Node.Opcode, EMaterialProgramOpcode::CollectionParameter);
 	EXPECT_EQ(Read->Node.ResultType, EMaterialProgramValueType::Float3);

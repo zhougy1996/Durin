@@ -28,11 +28,6 @@ namespace Durin::MaterialEditor
 			if (!Message.empty()) Message += " ";
 			Message += Result.Diagnostics.front().Message;
 		}
-		if (!Result.CleanupMessage.empty())
-		{
-			if (!Message.empty()) Message += " ";
-			Message += "Cleanup: " + Result.CleanupMessage;
-		}
 		return Message.empty() ? "The material graph command failed." : Message;
 	}
 
@@ -143,28 +138,23 @@ namespace Durin::MaterialEditor
 	}
 
 	auto MaterialEditing::CreateParameter(DMaterial& Material, FMaterialParameterDefinition Definition, ETransactionMode Mode)
-		-> FMaterialGraphCommandResult
+		-> TMaterialGraphResult<DMaterialExpression*>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
+		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
 		FGraphEditSession State(Material);
 		auto Created = MakeParameterExpression(Definition);
-		if (!Created) return RejectCommand(std::move(Created.Message));
+		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
 		auto Parameter = std::move(Created.Expression);
 		const auto NodeId = Parameter->Id;
-		if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error) return Error;
-		Definition = Parameter->GetParameterDefinition();
+		if (const auto Error = ResolveParameterExpression(State, *Parameter); !Error) return std::unexpected(Error);
 		State.Presentation.Nodes.push_back({NodeId});
 		State.Expressions.emplace_back(Parameter.Get());
 		auto Result = State.Commit("Create Parameter", Transactions);
-		if (Result)
-		{
-			Result.AffectedParameterIds = {Definition.Id};
-			Result.GeneratedNodeIds = Result.AffectedNodeIds = {NodeId};
-		}
-		return Result;
+		if (!Result) return std::unexpected(std::move(Result));
+		return Parameter.Get();
 	}
 
 	auto MaterialEditing::RenameParameter(DMaterial& Material, const FGuid& ParameterId, FName Name, ETransactionMode Mode)
@@ -179,7 +169,7 @@ namespace Durin::MaterialEditor
 			if (auto* E = Cast<DMaterialExpressionParameter>(Expression.Get()); E && E->Metadata.Id == ParameterId) { Parameter = E; break; }
 		if (!Parameter) return RejectCommand("Parameter owner is unavailable.");
 		if (Parameter->Metadata.Name == Name && Parameter->Metadata.DisplayName == Name.ToString())
-			return {.Status = EMaterialGraphCommandStatus::NoChange, .AffectedParameterIds = {ParameterId}};
+			return {.Status = EMaterialGraphCommandStatus::NoChange};
 		for (const auto& Expression : State.Expressions)
 			if (auto* Peer = Cast<DMaterialExpressionParameter>(Expression.Get()); Peer && Peer->Metadata.Id == ParameterId)
 			{
@@ -187,9 +177,7 @@ namespace Durin::MaterialEditor
 				Peer->Metadata.Name = Name;
 				Peer->Metadata.DisplayName = Name.ToString();
 			}
-		auto Result = State.Commit("Rename Parameter", Transactions);
-		if (Result) Result.AffectedParameterIds = {ParameterId};
-		return Result;
+		return State.Commit("Rename Parameter", Transactions);
 	}
 
 	auto MaterialEditing::DeleteParameter(DMaterial& Material, const FGuid& ParameterId, ETransactionMode Mode)
@@ -244,13 +232,7 @@ namespace Durin::MaterialEditor
 		const auto Position = std::ranges::find(State.Presentation.Nodes, NodeId, &FMaterialGraphNodePresentation::NodeId);
 		if (Position != State.Presentation.Nodes.end()) Position->DisplayName = Definition.DisplayName;
 		else State.Presentation.Nodes.push_back({.NodeId = NodeId, .DisplayName = Definition.DisplayName});
-		auto Result = State.Commit("Promote Constant Parameter", Transactions);
-		if (Result)
-		{
-			Result.AffectedNodeIds = {NodeId};
-			Result.AffectedParameterIds = {Definition.Id};
-		}
-		return Result;
+		return State.Commit("Promote Constant Parameter", Transactions);
 	}
 
 	auto MaterialEditing::SetParameterValue(DMaterial& Material, const FGuid& ParameterId,
@@ -263,32 +245,31 @@ namespace Durin::MaterialEditor
 		auto* Transactions = *Admission;
 		FMaterialGraphParameterEditSession Session;
 		const auto Begun = Session.Begin(Material, ParameterId, Transactions);
-		if (!Begun) return Begun;
+		if (!Begun) return RejectCommand(Begun.error());
 		auto Applied = Session.Apply(std::move(Value));
-		if (!Applied) return Applied;
+		if (!Applied) return RejectCommand(Applied.error());
 		auto Committed = Session.Commit();
 		if (!Committed)
 		{
 			// A direct command has no interactive owner to retain a rejected preview.
 			// Preserve its admission failure even if restoring the preview also fails.
 			const auto Cleanup = Session.Cancel();
-			if (!Cleanup) Committed.CleanupMessage = FormatMaterialGraphCommandResult(Cleanup);
-			return Committed;
+			if (!Cleanup) Committed.error() += " Failed to restore the parameter preview. " + Cleanup.error();
+			return RejectCommand(std::move(Committed.error()));
 		}
-		Committed.AffectedNodeIds = std::move(Applied.AffectedNodeIds);
-		return Committed;
+		return {.Status = *Applied ? EMaterialGraphCommandStatus::Succeeded : EMaterialGraphCommandStatus::NoChange};
 	}
 
 	auto MaterialEditing::PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
-		-> FMaterialGraphCommandResult
+		-> TMaterialGraphResult<DMaterialExpression*>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
+		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
-		if (!Link) return RejectCommand("The material surface output is invalid.");
-		if (Link->IsConnected()) return RejectCommand("Only an unconnected material surface output can be promoted.");
+		if (!Link) return std::unexpected(RejectCommand("The material surface output is invalid."));
+		if (Link->IsConnected()) return std::unexpected(RejectCommand("Only an unconnected material surface output can be promoted."));
 		FMaterialParameterDefinition Definition;
 		Definition.Id = FGuid::NewGuid(); Definition.Name = "SurfaceParameter";
 		for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
@@ -298,7 +279,7 @@ namespace Durin::MaterialEditor
 		Definition.Type = *GetParameterType(Type);
 		Definition.Value = MakeParameterValue(Type, GetSurfaceDefault(State.GetOutputs(), Request.Output));
 		auto Created = MakeParameterExpression(Definition);
-		if (!Created) return RejectCommand(std::move(Created.Message));
+		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
 		auto Parameter = std::move(Created.Expression);
 		const auto Id = Parameter->Id;
 		*Link = {Parameter.Get()};
@@ -311,23 +292,19 @@ namespace Durin::MaterialEditor
 			State.Expressions.emplace_back(Mask.Get());
 		}
 		auto Result = State.Commit("Promote Surface Parameter", Transactions);
-		if (Result)
-		{
-			Result.GeneratedNodeIds = Result.AffectedNodeIds = {Id};
-			Result.AffectedParameterIds = {Definition.Id};
-		}
-		return Result;
+		if (!Result) return std::unexpected(std::move(Result));
+		return Parameter.Get();
 	}
 
 	auto MaterialEditing::AddTextureToSurfaceOutput(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request, ETransactionMode Mode)
-		-> FMaterialGraphCommandResult
+		-> TMaterialGraphResult<DMaterialExpression*>
 	{
 		auto Admission = ResolveEditorTransactor(Mode);
-		if (!Admission) return RejectCommand(Admission.error());
+		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
 		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
-		if (!Link) return RejectCommand("The material surface output is invalid.");
+		if (!Link) return std::unexpected(RejectCommand("The material surface output is invalid."));
 		TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Texture(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
 		Texture->Id = FGuid::NewGuid();
 		Texture->Metadata.Id = FGuid::NewGuid(); Texture->Metadata.Name = "TextureParameter";
@@ -339,17 +316,13 @@ namespace Durin::MaterialEditor
 			Texture->TextureUsage = ETextureUsage::Normal;
 			Texture->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 		}
-		const auto Id = Texture->Id, ParameterId = Texture->Metadata.Id;
+		const auto Id = Texture->Id;
 		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
 		*Link = {Texture.Get(), Channels[static_cast<size_t>(Request.Output)]};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());
 		auto Result = State.Commit("Add Material Surface Texture", Transactions);
-		if (Result)
-		{
-			Result.AffectedNodeIds = Result.GeneratedNodeIds = {Id};
-			Result.AffectedParameterIds = {ParameterId};
-		}
-		return Result;
+		if (!Result) return std::unexpected(std::move(Result));
+		return Texture.Get();
 	}
 }

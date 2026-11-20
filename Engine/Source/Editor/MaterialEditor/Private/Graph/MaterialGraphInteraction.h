@@ -53,12 +53,13 @@ namespace Durin::MaterialEditor
 			-> FMaterialGraphMoveSession& = delete;
 
 		MATERIALEDITOR_API auto Begin(DMaterialGraph& Graph, std::span<const FGuid> NodeIds,
-			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+			DTransactor* Transactions = nullptr) -> std::expected<void, std::string>;
+		// The success value tells the caller whether the preview changed.
 		MATERIALEDITOR_API auto Apply(
 			std::span<const FMaterialGraphNodePresentation> Positions)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;
+			-> std::expected<bool, std::string>;
+		MATERIALEDITOR_API auto Commit() -> std::expected<void, std::string>;
+		MATERIALEDITOR_API auto Cancel() -> void;
 		MATERIALEDITOR_API auto IsActive() const -> bool;
 
 		MATERIALEDITOR_API auto IsCurrent(const DObject& Owner) const -> bool;
@@ -83,11 +84,12 @@ namespace Durin::MaterialEditor
 			DMaterial& Material,
 			const FGuid& ParameterId,
 			DTransactor* Transactions = nullptr)
-			-> FMaterialGraphCommandResult;
+			-> std::expected<void, std::string>;
+		// The success value tells the caller whether the preview changed.
 		MATERIALEDITOR_API auto Apply(FMaterialParameterValue Value)
-			-> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
-		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;
+			-> std::expected<bool, std::string>;
+		MATERIALEDITOR_API auto Commit() -> std::expected<void, std::string>;
+		MATERIALEDITOR_API auto Cancel() -> std::expected<void, std::string>;
 		MATERIALEDITOR_API auto IsActive() const -> bool;
 
 	private:

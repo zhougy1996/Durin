@@ -41,7 +41,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 
 	// Asset-level writeback also supports incomplete graphs used by repair tools.
 	MATERIALEDITOR_API auto WriteExpressionConnection(DObject* Owner, const FMaterialGraphPinAddress& Target,
-		const FMaterialGraphPinAddress& Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		const FMaterialGraphPinAddress& Source, bool Replace = false, ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) -> bool;
 	MATERIALEDITOR_API auto WriteInputDefault(DObject* Owner, const FGuid& NodeId, uint32 InputIndex,
 		FMaterialInputDefault Value, FGuid PortId = {}, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 	MATERIALEDITOR_API auto SetInputConstantEnabled(DObject* Owner, const FGuid& NodeId, uint32 InputIndex,

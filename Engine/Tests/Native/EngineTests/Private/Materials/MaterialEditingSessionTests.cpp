@@ -79,14 +79,14 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	ASSERT_TRUE(FunctionAuthoringGraph->AddPort(true, Port, {}, 10, 20, ETransactionMode::NotTransactable));
 
 	TStrongObjectPtr<DMaterialGraph> MaterialAuthoringGraph(DMaterialGraph::Create(*Source));
-	const auto Call = MaterialAuthoringGraph->InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable);
+	const auto Call = MaterialAuthoringGraph->InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
-	const auto ResultLink = FMaterialProgramLink{Call.GeneratedNodeIds.front(), 0, Port.Id};
+	const auto ResultLink = FMaterialProgramLink{Call.value(), 0, Port.Id};
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Source, FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
 		EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output(ResultLink), true, ETransactionMode::NotTransactable));
 	DMaterialExpressionFunctionCall* Expression = nullptr;
 	for (const auto& Entry : Source->GetExpressionCollection().Expressions)
-		if (Entry->Id == Call.GeneratedNodeIds.front()) Expression = Cast<DMaterialExpressionFunctionCall>(Entry.Get());
+		if (Entry->Id == Call.value()) Expression = Cast<DMaterialExpressionFunctionCall>(Entry.Get());
 	ASSERT_TRUE(Expression);
 	const auto Missing = FGuid::NewGuid();
 	Expression->Outputs.push_back({Missing, EMaterialProgramValueType::Float});
@@ -248,10 +248,10 @@ TEST_F(FMaterialEditingSessionTests, FunctionGraphRelinksWideOutputSlotsByObject
 	const auto TerminalPin = [&] { return Graph->FindNode(Result->Id)->GetInputPin(0); };
 	const auto WidePin = [&] { return Graph->FindNode(Call->Id)->GetOutputPin(0); };
 	const auto Break = Graph->GetSchema().BreakPinLinks(TerminalPin());
-	ASSERT_TRUE(Break) << FormatMaterialGraphCommandResult(Break);
+	ASSERT_TRUE(Break);
 	EXPECT_FALSE(Result->Source.IsConnected());
 	const auto Connect = Graph->GetSchema().TryCreateConnection(WidePin(), TerminalPin());
-	ASSERT_TRUE(Connect) << FormatMaterialGraphCommandResult(Connect);
+	ASSERT_TRUE(Connect);
 	EXPECT_EQ(Result->Source.Expression.Get(), Call);
 	EXPECT_EQ(Result->Source.OutputIndex, Slot);
 	ASSERT_TRUE(History->Undo());
@@ -278,28 +278,28 @@ TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndR
 	FMaterialFunctionPort Port{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Value"};
 	FMaterialFunctionPort InputPort{.Id = FGuid::NewGuid(), .Type = EMaterialProgramValueType::Float, .Name = "Amount"};
 	InputPort.bRequired = true;
-	const auto SourceTerminal = FunctionAuthoringGraph->AddPort(false, InputPort, {}, 0, 0, Mode);
+	const auto SourceTerminal = FunctionAuthoringGraph->AddPort(false, InputPort, {}, 0, 0, Mode).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(SourceTerminal);
-	const FMaterialProgramLink InternalLink{SourceTerminal.GeneratedNodeIds.at(0)};
-	const auto Terminal = FunctionAuthoringGraph->AddPort(true, Port, InternalLink, 0, 0, Mode);
+	const FMaterialProgramLink InternalLink{SourceTerminal.value()};
+	const auto Terminal = FunctionAuthoringGraph->AddPort(true, Port, InternalLink, 0, 0, Mode).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Terminal);
-	ASSERT_EQ(Terminal.GeneratedNodeIds.size(), 1u);
+
 
 	Edit(*Source, 0.375f);
 	TStrongObjectPtr<DMaterialGraph> CallerAuthoringGraph(DMaterialGraph::Create(*Source));
 	const auto Constant = Testing::CreateGraphConstant(*CallerAuthoringGraph, 0.5f);
 	ASSERT_TRUE(Constant);
-	const FMaterialProgramLink CallerSource{Constant.GeneratedNodeIds.at(0)};
+	const FMaterialProgramLink CallerSource{Constant.value()};
 	const std::array Bindings{FMaterialFunctionInputBinding{InputPort.Id, InputPort.Type, CallerSource}};
-	const auto Call = CallerAuthoringGraph->InsertFunctionCall(*Callee, 0, 0, Bindings, Mode);
+	const auto Call = CallerAuthoringGraph->InsertFunctionCall(*Callee, 0, 0, Bindings, Mode).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
-	ASSERT_EQ(Call.GeneratedNodeIds.size(), 1u);
-	const FMaterialProgramLink Link{Call.GeneratedNodeIds.front(), 0, Port.Id};
+
+	const FMaterialProgramLink Link{Call.value(), 0, Port.Id};
 	const auto RootAddress = FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
 	ASSERT_TRUE(CallerAuthoringGraph->GetSchema().TryCreateConnection(*CallerAuthoringGraph, FMaterialGraphPinAddress::Output(Link), RootAddress, true, Mode));
 
 	auto* CallNode = CallerAuthoringGraph->FindNode(Link.SourceNodeId);
-	auto* OutputNode = FunctionAuthoringGraph->FindNode(Terminal.GeneratedNodeIds.front());
+	auto* OutputNode = FunctionAuthoringGraph->FindNode(Terminal.value());
 	auto* Root = CallerAuthoringGraph->FindNode(RootAddress.NodeId);
 	ASSERT_TRUE(CallNode && OutputNode && Root);
 	Port.Name = "Renamed";

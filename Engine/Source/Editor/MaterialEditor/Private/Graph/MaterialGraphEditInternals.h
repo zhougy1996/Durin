@@ -24,6 +24,12 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		return {.Status = Status, .Diagnostics = std::move(Diagnostics), .Message = std::move(Message)};
 	}
 
+	inline auto FailWithError(std::string* OutError, std::string_view Message) -> bool
+	{
+		if (OutError) *OutError = Message;
+		return false;
+	}
+
 	inline auto ReadGraphPresentation(const DObject& Owner) -> FMaterialGraphPresentation
 	{
 		if (const auto* Material = Cast<DMaterial>(&Owner)) return Material->GetMaterialGraphPresentation();
@@ -64,6 +70,6 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FMaterialGraphPresentation CandidatePresentation,
 		std::string Description,
 		std::vector<FNodePositionChange> Changes,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult;
+		DTransactor* Transactions, std::string* OutError) -> bool;
 
 }

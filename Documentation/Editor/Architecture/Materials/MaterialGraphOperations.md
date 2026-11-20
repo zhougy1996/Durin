@@ -375,18 +375,22 @@ publish once and occupy one undo entry. Function calls use the current asset sig
 `FMaterialGraphPinAddress` identifies fixed inputs/outputs, function GUID ports,
 material attribute overrides and aggregate Surface inputs. The graph resolves these
 addresses and shares source validation, replacement policy, default preservation,
-and transaction publication. `BreakPinLinks` also permits clearing retained bindings
+and transaction publication. `CanCreateConnection` returns the admission decision and
+reason. `TryCreateConnection` returns true when it changes a link. The canvas
+and Details request error text for failed edits. Repeating an existing link
+leaves the error text empty and undo history untouched. `BreakPinLinks` follows the same
+change and error convention and permits clearing retained bindings
 after a function port disappears. Callers use `Input`, `Output` and `MaterialOutput`
 address constructors. Details uses `AttributeOverride` when choosing a source for an optional binding.
-Successful connection edits report the target and valid previous/new source IDs
-alongside any downstream changed nodes, sorted and deduplicated. No-change and
-rejected edits publish no changed IDs. Type compatibility guides palette filtering, automatic connections,
+Graph change notifications drive pin and downstream type refresh after a connection edit. Type compatibility guides palette filtering, automatic connections,
 and connection admission. The internal asset writer also supports incomplete graphs for compiler diagnostics. Commands also use parameter GUIDs and `EMaterialProperty`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
 surface-default edit/reset, parameter promotion, explicit texture-branch
-creation, copy, cut, paste, and duplication. Each result reports a stable status,
-affected/generated GUIDs, bounded validation diagnostics, and a message; an
-automation caller never needs to scrape canvas labels. `SetUseMaterialAttributes`
+creation, copy, cut, paste, and duplication. Graph creation returns the primary graph node.
+Callers that select auxiliary
+nodes can request them from the creation action. Paste, duplicate, and input
+promotion return the ordered list of created graph nodes. Failures carry the
+command status, validation diagnostics, and message. `SetUseMaterialAttributes`
 switches the terminal mode as one undoable edit.
 Connection, disconnection, promotion and paste never switch modes or erase the
 other connection set. A source incompatible with Surface produces compiler
@@ -493,7 +497,7 @@ and optimistic editing-session revisions retain their separate existing roles.
 
 Command results expose one authoritative `Status`: `Succeeded`, `NoChange`,
 `Rejected` or `StaleOwner`. `operator bool`, `HasError()` and `GetStatus()` use
-that status alone. Changed/generated IDs remain separate from failure reporting.
+that status alone. The graph change notification identifies nodes that require refresh.
 Editor commands create an owned `Message` at the rejection boundary, formatting
 underlying Engine, object, asset or transaction errors there. Callers branch on
 status, never on text. Command results do not retain implementation-specific error
@@ -503,8 +507,8 @@ enums, nested cause objects or copies of rejected requests.
 function-call locations used for navigation. Non-finite constants, dependency
 validation and binding failures retain those diagnostics. Diagnostic evidence does
 not independently change command status. `FormatMaterialGraphCommandResult`
-combines the command message, first material diagnostic and optional failed
-`CleanupMessage`; successful results format to empty text. `ReportCommand` uses
+combines the command message and the first material diagnostic. Successful
+results format to empty text. `ReportCommand` uses
 this display boundary.
 
 Constant, swizzle, connection, catalog, function-interface and inline-input
@@ -661,17 +665,17 @@ property-copy and history failures include their underlying formatted explanatio
 A failed parameter gesture commit keeps its preview and session active, allowing
 cancellation or retry, without marking the package dirty. A failed move commit
 keeps its draft without publishing positions. Rejected move previews preserve the
-previous draft; semantic revision changes cancel the gesture. Expired owners
-return `StaleOwner`.
+previous draft. A semantic revision change cancels the move. A released drag
+keeps its final positions while the transactor is busy and commits when it
+can record again. The move and parameter sessions return error text on
+failure. Their Apply methods also report whether the preview changed.
 
 Direct parameter commands cancel a rejected preview immediately. A failed cancel
-adds its explanation to `CleanupMessage`, separately from the original commit
-failure; a successful cancel adds nothing and retains no result object. Success
-reports affected node IDs and produces one undo entry. Preview and restoration
-use package-dirty suppression; observers can see both publications.
+appends the restoration failure to the original commit message. A committed change
+produces one undo entry. Preview and restoration use package-dirty suppression; observers can see both publications.
 
-A failed parameter Apply leaves the session available for retry. Cancel retains
-its terminal-state behavior even if restoration fails. These results own their
+A failed parameter Apply leaves the session available for retry. A failed restoration
+keeps the parameter session active for retry. These results own their
 messages independently of subsequent retries. Engine parameter mutation and
 transaction replay continue to expose their own typed error contracts.
 
@@ -728,17 +732,16 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 `DMaterialGraph` owns copy, cut, paste and duplicate for material and function
 drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
 it at the requested offset in one history step. Catalog lookup and search belong
-to private Material Editor code. `MoveMaterialOutput` resolves the material
-output terminal and uses the same position transaction as `MoveNodes`.
+to private Material Editor code. `MoveNodes` also moves the material output terminal.
 `DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows
 stored expression inputs, including hidden root properties. It returns a detached presentation. `Layout` applies the
-calculated positions in one transaction. Command
-status and affected/generated IDs are produced by the owning command, with no
-facade rewriting. Paste and duplicate report their newly selected generated IDs;
-no-change position commands produce no changed IDs or undo entry.
+calculated positions in one transaction. The canvas captures stable IDs from the returned nodes for its selection.
+A position command with no changes leaves undo history untouched.
 
-Clipboard and layout failures use the same status/message contract as other
-commands. Copy retains its output-clear and partial-duplication behavior; rejected
+Move, layout and selection copy return success as a boolean. Callers that display
+errors can supply an optional error string, which is empty on success. Layout
+calculation and copy return their data through the existing output parameters.
+Copy clears the payload on entry and retains any nodes duplicated before a failure. Rejected
 paste restores the unfinished edit scope and adds no history entry. Failed moves
 do not publish positions. Failed layout calculations retain the current authored
 presentation after valid-owner resolution; successful calculation remains detached

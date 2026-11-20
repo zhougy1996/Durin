@@ -177,32 +177,33 @@ namespace Durin::MaterialEditor
 			FMaterialGraphPresentation CandidatePresentation,
 			std::string Description,
 			std::vector<FNodePositionChange> Changes,
-			DTransactor* Transactions) -> FMaterialGraphCommandResult
+			DTransactor* Transactions, std::string* OutError) -> bool
 		{
 			if (Transactions && !Transactions->CanTransact())
-				return RejectCommand("The editor transactor is busy.");
+				return FailWithError(OutError, "The editor transactor is busy.");
 
-			if (Changes.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-			std::vector<FGuid> Affected;
-			for (const auto& Change : Changes) Affected.push_back(Change.NodeId);
+			if (Changes.empty()) return true;
 			FScopedTransaction Recording(Transactions, {"MaterialGraph", Description});
 			if (Transactions)
 			{
 				const auto Recorded = Transactions->StoreUndo(&Owner,
 					MakeMaterialGraphPresentationTransaction(Owner, std::move(Changes), std::move(Description)));
-				if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
+				if (!Recorded)
+				{
+					if (OutError) *OutError = "Unable to record the graph edit. " + FormatTransactorResult(Recorded);
+					return false;
+				}
 			}
 			// The validated candidate is published only after history accepts the edit.
 			const auto Result = WriteGraphPresentation(Owner, std::move(CandidatePresentation));
 			check(Result != EMaterialGraphPresentationResult::Rejected);
 			(void)Recording.End();
 			if (Transactions && Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
-				return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
-			std::ranges::sort(Affected);
-			return {
-				.Status = EMaterialGraphCommandStatus::Succeeded,
-				.AffectedNodeIds = std::move(Affected),
-			};
+			{
+				if (OutError) *OutError = FormatTransactorResult(Transactions->GetLastResult());
+				return false;
+			}
+			return true;
 		}
 	}
 }

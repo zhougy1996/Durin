@@ -72,7 +72,13 @@ namespace Durin::MaterialEditor
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
 		// Returns true for both Succeeded and NoChange.
+		auto BreakPinLinks(const FMaterialGraphPinAddress& Address) -> bool;
+		auto ConnectPins(const FMaterialGraphPinAddress& Input, FMaterialProgramLink Source, bool Replace) -> bool;
 		auto CheckCommand(const FMaterialGraphCommandResult& Result) const -> bool;
+		template<class T> auto CheckCommand(const TMaterialGraphResult<T>& Result) const -> bool
+		{
+			return Result.has_value() || CheckCommand(Result.error());
+		}
 		TStrongObjectPtr<DMaterialGraph> EditorGraph;
 		const FMaterialGraphEditorServices Services;
 		struct FVisualNode;
@@ -104,6 +110,7 @@ namespace Durin::MaterialEditor
 		struct FMovingInteraction
 		{
 			ImVec2 StartMouse{};
+			bool bReleased = false;
 			std::unordered_map<FGuid, FMaterialGraphNodePresentation> StartPositions;
 		};
 		struct FLinkingInteraction { FGuid SourceNode; uint8 SourceOutputIndex = 0; FGuid SourceOutputId; };

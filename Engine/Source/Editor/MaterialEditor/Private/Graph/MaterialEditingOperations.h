@@ -13,7 +13,7 @@ namespace Durin::MaterialEditor::MaterialEditing
 
 	// Creates a node; an existing name reuses its compatible parameter definition.
 	MATERIALEDITOR_API auto CreateParameter(DMaterial& Material, FMaterialParameterDefinition Definition,
-		ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
+		ETransactionMode Mode = ETransactionMode::Record) -> TMaterialGraphResult<DMaterialExpression*>;
 	// Renames all references while preserving the parameter ID and instance overrides.
 	MATERIALEDITOR_API auto RenameParameter(DMaterial& Material, const FGuid& ParameterId, FName Name,
 		ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
@@ -35,8 +35,8 @@ namespace Durin::MaterialEditor::MaterialEditing
 
 	MATERIALEDITOR_API auto PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request,
 		ETransactionMode Mode = ETransactionMode::Record)
-		-> FMaterialGraphCommandResult;
+		-> TMaterialGraphResult<DMaterialExpression*>;
 	MATERIALEDITOR_API auto AddTextureToSurfaceOutput(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request,
 		ETransactionMode Mode = ETransactionMode::Record)
-		-> FMaterialGraphCommandResult;
+		-> TMaterialGraphResult<DMaterialExpression*>;
 }
