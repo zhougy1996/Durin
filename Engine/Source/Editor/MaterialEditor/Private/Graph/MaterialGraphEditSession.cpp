@@ -398,7 +398,8 @@ namespace Durin::MaterialEditor::GraphEditInternals
 
 namespace Durin::MaterialEditor::GraphEditInternals
 {
-	auto FExpressionEdit::Commit(DObject& Owner, DTransactor* Transactions, std::string Description) -> FMaterialGraphCommandResult
+	auto EditExpressions(DObject& Owner, DTransactor* Transactions, std::string Description,
+		std::span<DMaterialExpression* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult
 	{
 		const bool Nested = Transactions && Transactions->IsActive();
 		{
@@ -417,28 +418,11 @@ namespace Durin::MaterialEditor::GraphEditInternals
 					}
 				}
 			}
-			for (auto& Write : Writes) Write();
+			Apply();
 			Owner.MarkPackageDirty();
 		}
 		Objects.front()->PostEditChange();
 		return {};
 	}
 
-	auto FExpressionEdit::CommitRename(DObject& Owner, DMaterialExpression& Expression, std::string NewName,
-		DTransactor* Transactions) -> FMaterialGraphCommandResult
-	{
-		auto SwapName = [&Expression, Next = std::move(NewName)]() mutable {
-			auto Previous = Expression.GetEditableName();
-			Expression.SetEditableName(std::move(Next));
-			Next = std::move(Previous);
-		};
-		// Validate the candidate through the asset before Modify captures the original expression.
-		SwapName();
-		auto Valid = ValidateGraphEdit(Owner);
-		SwapName();
-		if (!Valid) return Valid;
-		Objects.push_back(&Expression);
-		Writes.emplace_back(std::move(SwapName));
-		return Commit(Owner, Transactions, "Rename Material Expression");
-	}
 }

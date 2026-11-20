@@ -722,9 +722,14 @@ TEST(FMaterialGraphOperationsTests, FunctionNodeEditsRestoreDownstreamWidthsInOn
 	Widths(Type::Float3, Type::Float2);
 	EXPECT_EQ(ConstantNode->SetConstantValue(Vector).GetStatus(), EMaterialGraphCommandStatus::NoChange);
 	const std::array<uint8, 2> Channels{2, 0};
-	ASSERT_TRUE(MaskNode->SetSwizzleComponents(Channels));
-	EXPECT_EQ(MaskNode->SetSwizzleComponents(Channels).GetStatus(), EMaterialGraphCommandStatus::NoChange);
-	EXPECT_EQ(History->GetQueueLength(), 2u);
+	{
+		FScopedTransaction Outer("Grouped swizzle");
+		ASSERT_TRUE(MaskNode->SetSwizzleComponents(Channels));
+		EXPECT_FALSE(MaskNode->SetSwizzleComponents(std::array<uint8, 1>{4}));
+		EXPECT_EQ(MaskNode->SetSwizzleComponents(Channels).GetStatus(), EMaterialGraphCommandStatus::NoChange);
+	}
+	ASSERT_EQ(History->GetQueueLength(), 2u);
+	EXPECT_EQ(History->GetTransaction(1)->GetRecordCount(), 2u);
 	Widths(Type::Float3, Type::Float3);
 	ASSERT_TRUE(History->Undo());
 	Widths(Type::Float3, Type::Float2);

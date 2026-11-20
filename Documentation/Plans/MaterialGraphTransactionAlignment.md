@@ -9,9 +9,11 @@ Completed:
 
 ## Current Status
 
-Planned on base `71a4ecc65`. The completed [material graph object migration](MaterialEditorGraphObjects.md) supplies graph, node and schema entry points. Simple connections and same-class constants already reach object recording. Compound edits still use `FGraphEditSession`, and several ordinary operations use the deferred writes in `FExpressionEdit`. Stage 1 starts at those existing command entry points. All implementation gates below are open.
+Planned on base `71a4ecc65`. The completed [material graph object migration](MaterialEditorGraphObjects.md) supplies graph, node and schema entry points. Simple connections and same-class constants already reach object recording. Compound edits still use `FGraphEditSession`, and several ordinary operations use the deferred writes in `FExpressionEdit`. This was the starting point for implementation.
 
 The [editor transaction plan](EditorTransactionSimplification.md) owns the shared buffer, standalone command submission and mounted-content journal. This plan owns MaterialEditor callers, the data they transact and graph reconstruction. It can proceed on the current scoped transaction and object recording APIs.
+
+Stage 1 migrated constants, port metadata, renames, ordinary links and input defaults to synchronous object recording at the command boundary. The workspace inventory found implementation callers in MaterialEditor and direct compound-session fixtures in Engine tests. Material and function owners store expression membership, expressions own links and numeric fields, and preview/clipboard/structural callers still use provisional graph validation. Anonymous owners require separate replay coverage in stage 2. On base `2214932e3` the Win64-Debug-DurinEditor MaterialGraphEditingTests passed 114 cases. The strengthened nested swizzle case also passed with two recorded objects, a rejected inner edit and unchanged undo depth.
 
 ## Goal
 
@@ -32,9 +34,9 @@ UE paths below are relative to `Engine/Source/Editor` in the local UE 5.8 source
 
 ### Stage 1: Record ordinary edits at the command boundary
 
-- [ ] Inventory both builder types across Engine, Sandbox and RoadWeaver source and tests. Map each caller to its authored owner, affected objects, last fallible step and transaction mode. Include function and texture previews. Identify any owner that cannot replay a whole-object baseline, including unnamed working objects.
-- [ ] Migrate ordinary fields, input defaults, expression renames and nonstructural links. Compute candidate values, affected inputs and downstream numeric types first. Record objects before applying accepted values. Delete the deferred write list and `FExpressionEdit` once its consumers migrate.
-- [ ] Verify one history entry and one baseline per changed object for a compound field/link action. Verify nested edits, undo/redo of inferred widths and retained defaults, and the agreed same-object field granularity. A no-op or rejected request leaves graph, history and package dirtiness intact.
+- [x] Inventory both builder types across Engine, Sandbox and RoadWeaver source and tests. Map each caller to its authored owner, affected objects, last fallible step and transaction mode. Include function and texture previews. Identify any owner that cannot replay a whole-object baseline, including unnamed working objects.
+- [x] Migrate ordinary fields, input defaults, expression renames and nonstructural links. Compute candidate values, affected inputs and downstream numeric types first. Record objects before applying accepted values. Delete the deferred write list and `FExpressionEdit` once its consumers migrate.
+- [x] Verify one history entry and one baseline per changed object for a compound field/link action. Verify nested edits, undo/redo of inferred widths and retained defaults, and the agreed same-object field granularity. A no-op or rejected request leaves graph, history and package dirtiness intact.
 
 ### Stage 2: Restore graph membership and node identity through object history
 

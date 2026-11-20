@@ -90,8 +90,13 @@ namespace Durin::MaterialEditor
 			Expression->SetEditableName(std::move(NewName));
 			return State.Commit("Rename Material Expression", *Admission);
 		}
-		FExpressionEdit Edit;
-		return Edit.CommitRename(*Owner, *Expression, std::move(NewName), *Admission);
+		const auto Original = Expression->GetEditableName();
+		Expression->SetEditableName(NewName);
+		auto Valid = ValidateGraphEdit(*Owner);
+		Expression->SetEditableName(Original);
+		if (!Valid) return Valid;
+		return EditExpressions(*Owner, *Admission, "Rename Material Expression", std::array{Expression},
+			[&] { Expression->SetEditableName(std::move(NewName)); });
 	}
 
 	auto DMaterialGraphNode::SetFunctionPort(FMaterialFunctionPort Port, ETransactionMode Mode) -> FMaterialGraphCommandResult
@@ -118,9 +123,8 @@ namespace Durin::MaterialEditor
 			*It = Port;
 			if (const auto Valid = ValidateMaterialFunctionSignature(Signature); !Valid)
 				return RejectCommand("The function signature is invalid.", Valid.Diagnostics);
-			FExpressionEdit Edit;
-			Edit.Set(*Expression, *Target, std::move(Port));
-			return Edit.Commit(*Function, *Admission, "Edit Function Port");
+			return EditExpressions(*Function, *Admission, "Edit Function Port", std::array{Expression},
+				[&] { *Target = std::move(Port); });
 		}
 		FGraphEditSession State(*Function);
 		State.Modify(*Expression);
@@ -151,9 +155,8 @@ namespace Durin::MaterialEditor
 			{
 				if (Constant->Value == NewValue) return {.Status = EMaterialGraphCommandStatus::NoChange};
 				if (auto Valid = ValidateGraphEdit(*Owner); !Valid) return Valid;
-				FExpressionEdit Edit;
-				Edit.Set(*Constant, Constant->Value, NewValue);
-				return Edit.Commit(*Owner, *Admission, "Edit Constant Expression");
+				return EditExpressions(*Owner, *Admission, "Edit Constant Expression", std::array{Expression},
+					[&] { Constant->Value = NewValue; });
 			}
 			TStrongObjectPtr<T> Replacement(NewObject<T>(nullptr, NAME_None));
 			Replacement->Id = Expression->Id;
@@ -186,9 +189,8 @@ namespace Durin::MaterialEditor
 		auto* Swizzle = Cast<DMaterialExpressionSwizzle>(Expression);
 		if (!Swizzle) return RejectCommand("The selected expression is not a swizzle.");
 		if (std::ranges::equal(Swizzle->Components, Components)) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		FExpressionEdit Edit;
-		Edit.Set(*Swizzle, Swizzle->Components, std::vector<uint8>(Components.begin(), Components.end()));
-		return Edit.CommitInferred(*Owner, *Admission, "Edit Swizzle",
+		return EditExpressionInputs(*Owner, *Admission, "Edit Swizzle", {Swizzle},
+			[&] { Swizzle->Components.assign(Components.begin(), Components.end()); }, {}, {},
 			{{Swizzle, static_cast<EMaterialProgramValueType>(Components.size() - 1)}});
 	}
 
@@ -205,11 +207,12 @@ namespace Durin::MaterialEditor
 		if (Surface->IsSelected(Definition->Property) == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 
 		auto& Owner = *Surface->GetOuter();
-		FExpressionEdit Edit;
+		std::vector<DMaterialExpression*> Objects{Surface};
+		std::vector<FMaterialExpressionInput*> Removed;
+		FProposedLinks Links;
 		auto Outputs = Surface->AttributeIDs;
 		if (Enabled) Outputs.push_back(AttributeId);
 		else std::erase(Outputs, AttributeId);
-		Edit.Set(*Surface, Surface->AttributeIDs, std::move(Outputs));
 		if (!Enabled)
 		{
 			const auto UsesOutput = [&](const FMaterialExpressionInput& Input) {
@@ -219,11 +222,19 @@ namespace Durin::MaterialEditor
 			for (const auto& Consumer : FMaterialExpressionEditing::GetExpressions(Owner))
 			{
 				VisitStoredMaterialInputs(*Consumer, [&](FMaterialExpressionInput& Input) {
-					if (UsesOutput(Input)) Edit.SetLink(*Consumer, Input, {});
+					if (UsesOutput(Input))
+					{
+						if (!std::ranges::contains(Objects, Consumer.Get())) Objects.push_back(Consumer.Get());
+						Removed.push_back(&Input);
+						Links.emplace(&Input, FMaterialExpressionInput{});
+					}
 				});
 			}
 		}
-		return Edit.CommitInferred(Owner, *Admission, "Edit Material Attribute Outputs");
+		return EditExpressionInputs(Owner, *Admission, "Edit Material Attribute Outputs", std::move(Objects), [&] {
+			Surface->AttributeIDs = std::move(Outputs);
+			for (auto* Input : Removed) *Input = {};
+		}, Links);
 	}
 
 	auto DMaterialGraphNode::Refresh(FMaterialGraphNodeView Metadata, FMaterialGraphPinSource Source, FPinOperation Operation) -> void

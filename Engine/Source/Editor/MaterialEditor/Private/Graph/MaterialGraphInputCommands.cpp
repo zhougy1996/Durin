@@ -145,9 +145,8 @@ namespace Durin::MaterialEditor
 		if (Input.Numeric->UseConstant == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		auto Next = *Input.Numeric;
 		Next.UseConstant = Enabled;
-		FExpressionEdit Edit;
-		Edit.SetNumeric(*Expression, *Input.Numeric, std::move(Next));
-		return Edit.CommitInferred(*Owner, Transactions, Enabled ? "Enable Input Constant" : "Use Definition Default");
+		return EditExpressionInputs(*Owner, Transactions, Enabled ? "Enable Input Constant" : "Use Definition Default", {Expression},
+			[&] { *Input.Numeric = std::move(Next); }, {}, {{Input.Numeric, Next}});
 	}
 
 	auto GraphEditInternals::WriteInputDefault(DObject* Owner, const FGuid& NodeId, uint32 InputIndex,
@@ -186,9 +185,8 @@ namespace Durin::MaterialEditor
 		}
 		else if (Components.empty()) Next.UseConstant = false;
 		else Next.SetConstant(Components);
-		FExpressionEdit Edit;
-		Edit.SetNumeric(*Expression, *Input.Numeric, std::move(Next));
-		return Edit.CommitInferred(*Owner, Transactions, "Edit Input Default");
+		return EditExpressionInputs(*Owner, Transactions, "Edit Input Default", {Expression},
+			[&] { *Input.Numeric = std::move(Next); }, {}, {{Input.Numeric, Next}});
 	}
 
 	auto DMaterialGraph::PromoteInputToParameter(const FMaterialGraphPinAddress& Target, ETransactionMode Mode)

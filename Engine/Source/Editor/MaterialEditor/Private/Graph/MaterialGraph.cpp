@@ -189,14 +189,28 @@ namespace Durin::MaterialEditor
 				[&](DMaterialExpression& E, auto& Field, auto Value) { State.Modify(E); Field = std::move(Value); });
 		}
 
-		auto FExpressionEdit::CommitInferred(DObject& Owner, DTransactor* Transactions, std::string Description,
+		auto EditExpressionInputs(DObject& Owner, DTransactor* Transactions, std::string Description,
+			std::vector<DMaterialExpression*> Objects, const std::function<void()>& Apply,
+			const FProposedLinks& Links, const FProposedNumerics& Numerics,
 			std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs) -> FMaterialGraphCommandResult
 		{
 			if (auto Valid = ValidateGraphEdit(Owner, Links); !Valid) return Valid;
+			std::vector<std::pair<EMaterialProgramValueType*, EMaterialProgramValueType>> Widths;
+			std::vector<std::pair<std::vector<float>*, std::vector<float>>> Defaults;
+			const auto Seeds = Objects;
 			uint32 Count = 0;
-			InferNumericTypes(FMaterialExpressionEditing::GetExpressions(Owner), Count, Objects, {},
-				[&](DMaterialExpression& Object, auto& Field, auto Value) { Set(Object, Field, std::move(Value)); }, Links, Numerics, std::move(KnownOutputs));
-			return Commit(Owner, Transactions, std::move(Description));
+			InferNumericTypes(FMaterialExpressionEditing::GetExpressions(Owner), Count, Seeds, {},
+				[&](DMaterialExpression& Object, auto& Field, auto Value) {
+					if (!std::ranges::contains(Objects, &Object)) Objects.push_back(&Object);
+					if constexpr (std::is_same_v<decltype(Value), EMaterialProgramValueType>)
+						Widths.emplace_back(&Field, Value);
+					else Defaults.emplace_back(&Field, std::move(Value));
+				}, Links, Numerics, std::move(KnownOutputs));
+			return EditExpressions(Owner, Transactions, std::move(Description), Objects, [&] {
+				Apply();
+				for (auto& [Field, Width] : Widths) *Field = Width;
+				for (auto& [Field, Default] : Defaults) *Field = std::move(Default);
+			});
 		}
 	}
 
@@ -426,9 +440,15 @@ namespace Durin::MaterialEditor
 			if (Root) VisitStoredMaterialInputs(*Root, [&](FMaterialExpressionInput& Input) { Add(*Root, Input); });
 		}
 		if (Consumers.empty()) return false;
-		FExpressionEdit Edit;
-		for (const auto& Consumer : Consumers) Edit.SetLink(*Consumer.Expression, *Consumer.Input, {});
-		const auto Result = Edit.CommitInferred(*Owner, *Admission, "Break Output Pin Links");
+		std::vector<DMaterialExpression*> Objects;
+		FProposedLinks Links;
+		for (const auto& Consumer : Consumers)
+		{
+			if (!std::ranges::contains(Objects, Consumer.Expression)) Objects.push_back(Consumer.Expression);
+			Links.emplace(Consumer.Input, FMaterialExpressionInput{});
+		}
+		const auto Result = EditExpressionInputs(*Owner, *Admission, "Break Output Pin Links", std::move(Objects),
+			[&] { for (const auto& Consumer : Consumers) *Consumer.Input = {}; }, Links);
 		return ConnectionCommitChanged(Result, OutError);
 	}
 
@@ -620,9 +640,8 @@ namespace Durin::MaterialEditor
 			FMaterialGraphCommandResult Result;
 			if (Target && !SourceCall)
 			{
-				FExpressionEdit Edit;
-				Edit.SetLink(Node, *Target, Connection);
-				Result = Edit.CommitInferred(*Owner, Transactions, "Connect Graph Input");
+				Result = EditExpressionInputs(*Owner, Transactions, "Connect Graph Input", {&Node},
+					[&] { *Target = Connection; }, {{Target, Connection}});
 			}
 			else
 			{

@@ -47,36 +47,15 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FMaterialInputDefault Value, FGuid PortId = {}, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
 	MATERIALEDITOR_API auto SetInputConstantEnabled(DObject* Owner, const FGuid& NodeId, uint32 InputIndex,
 		bool Enabled, ETransactionMode Mode = ETransactionMode::Record) -> FMaterialGraphCommandResult;
-	// Prepare only the fields that will be written. The transactor owns the undo data.
-	class FExpressionEdit
-	{
-	public:
-		auto SetLink(DMaterialExpression& Object, FMaterialExpressionInput& Field, FMaterialExpressionInput Value) -> void
-		{
-			Links.emplace(&Field, Value);
-			Set(Object, Field, Value);
-		}
-		auto SetNumeric(DMaterialExpression& Object, FMaterialNumericInput& Field, FMaterialNumericInput Value) -> void
-		{
-			Numerics.emplace(&Field, Value);
-			Set(Object, Field, std::move(Value));
-		}
-		template<class T> auto Set(DMaterialExpression& Object, T& Field, T Value) -> void
-		{
-			if (!std::ranges::contains(Objects, &Object)) Objects.push_back(&Object);
-			Writes.emplace_back([&Field, Next = std::move(Value)]() mutable { std::swap(Field, Next); });
-		}
-		auto Commit(DObject& Owner, DTransactor* Transactions, std::string Description) -> FMaterialGraphCommandResult;
-		auto CommitRename(DObject& Owner, DMaterialExpression& Expression, std::string NewName,
-			DTransactor* Transactions) -> FMaterialGraphCommandResult;
-		auto CommitInferred(DObject& Owner, DTransactor* Transactions, std::string Description,
-			std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs = {}) -> FMaterialGraphCommandResult;
-	private:
-		std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput> Links;
-		std::unordered_map<const FMaterialNumericInput*, FMaterialNumericInput> Numerics;
-		std::vector<DMaterialExpression*> Objects;
-		std::vector<std::function<void()>> Writes;
-	};
+	// The command supplies one synchronous mutation after all affected objects have been recorded.
+	auto EditExpressions(DObject& Owner, DTransactor* Transactions, std::string Description,
+		std::span<DMaterialExpression* const> Objects, const std::function<void()>& Apply) -> FMaterialGraphCommandResult;
+	using FProposedLinks = std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput>;
+	using FProposedNumerics = std::unordered_map<const FMaterialNumericInput*, FMaterialNumericInput>;
+	auto EditExpressionInputs(DObject& Owner, DTransactor* Transactions, std::string Description,
+		std::vector<DMaterialExpression*> Objects, const std::function<void()>& Apply,
+		const FProposedLinks& Links = {}, const FProposedNumerics& Numerics = {},
+		std::map<DMaterialExpression*, EMaterialProgramValueType> KnownOutputs = {}) -> FMaterialGraphCommandResult;
 	auto ValidateGraphEdit(DObject& Owner, const std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput>& Links = {}) -> FMaterialGraphCommandResult;
 	auto AdaptNumericTypes(FGraphEditSession& State, std::span<DMaterialExpression* const> ChangedNodes, std::span<DMaterialExpression* const> ChangedOutputNodes) -> bool;
 }
