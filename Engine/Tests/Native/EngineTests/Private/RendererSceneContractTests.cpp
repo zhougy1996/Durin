@@ -3428,7 +3428,6 @@ TEST(FRendererSceneContractTests, SkyLightingPublishesOnlyCompletedJobs)
     Previous->Revision = 7;
     Scene.Published = Previous;
     auto Candidate = std::make_shared<FSkyLightingGeneration>();
-    Candidate->Resources.Device = Device;
     Candidate->Revision = 8;
     auto Completion = Timeline.Reserve();
     Scene.Job = FSkyLightingJob{Candidate, Completion, {}};
@@ -3484,7 +3483,6 @@ TEST(FRendererSceneContractTests, SkyLightingFailuresReleaseSchedulingButPreserv
         Previous->Revision = 7;
         Scene.Published = Previous;
         auto Candidate = std::make_shared<FSkyLightingGeneration>();
-        Candidate->Resources.Device = Device;
         const std::weak_ptr<const FSkyLightingGeneration> Lease = Candidate;
         auto Completion = Timeline.Reserve();
         Scene.Job = FSkyLightingJob{std::move(Candidate), Completion, {}};

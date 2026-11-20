@@ -1,6 +1,6 @@
 #include "Renderers/InstanceCulling.h"
 #include "RendererResourceSlotCache.h"
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Shader/GlobalShader.h"
 #include "RenderResourcePreparation.h"
@@ -40,10 +40,7 @@ namespace Durin
 			TShaderMapRef<FInstanceCullingComputeShader> Shader;
 			FComputePipelineStateInitializer PipelineInitializer;
 		};
-		TRenderResourceCreationSlot<FGPUCullingPayload> GPUCulling{
-			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
-		};
+		std::optional<FGPUCullingPayload> GPUCulling;
 	};
 	FInstanceCullingManager::FInstanceCullingManager()
 		: State(std::make_unique<FState>())
@@ -57,29 +54,24 @@ namespace Durin
 	auto FInstanceCullingManager::ReleaseResources_RenderThread() -> void
 	{
 		ResetViews();
-		State->GPUCulling.Reset();
+		State->GPUCulling.reset();
 	}
 	auto FInstanceCullingManager::EnsureResources_RenderThread(EGPUCullingFailure Failure, bool bPrecachePipeline) -> bool
 	{
 		if (Failure == EGPUCullingFailure::ShaderUnavailable || Failure == EGPUCullingFailure::PipelineUnavailable) return false;
 		using FPayload = FState::FGPUCullingPayload;
-		using FResult = TRenderResourceCreateResult<FPayload>;
-		auto* Payload = State->GPUCulling.Resolve(
-				   GetGlobalShaderMap().GetGeneration_RenderThread(), []() -> FResult {
-					   FPayload Candidate;
-					   Candidate.Shader = GetGlobalShaderMap().GetShader<FInstanceCullingComputeShader>();
-					   FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);
-					   if (ComputeRHI == nullptr)
-						   return FResult::Pending();
-					   auto& Initializer = Candidate.PipelineInitializer;
-					   Initializer.ComputeShader = ComputeRHI;
-					   Initializer.PipelineLayout = Candidate.Shader.GetPipelineLayout();
-					   return FResult::Success(std::move(Candidate));
-				   },
-				   ReportRendererResourceCreateDiagnostic
-			   );
-		if (!Payload || !bPrecachePipeline) return Payload != nullptr;
-		auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer, "InstanceCullingPipeline");
+		State->GPUCulling.reset();
+		FPayload Candidate;
+		Candidate.Shader = GetGlobalShaderMap().GetShader<FInstanceCullingComputeShader>();
+		FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);
+		if (ComputeRHI == nullptr)
+			return false;
+		auto& Initializer = Candidate.PipelineInitializer;
+		Initializer.ComputeShader = ComputeRHI;
+		Initializer.PipelineLayout = Candidate.Shader.GetPipelineLayout();
+		const auto& Payload = State->GPUCulling.emplace(std::move(Candidate));
+		if (!bPrecachePipeline) return true;
+		auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload.PipelineInitializer, "InstanceCullingPipeline");
 		if (!Pipeline) return false;
 		FRenderPipelinePreparationBatch::Add(Pipeline);
 		const auto Status = Pipeline->GetState();
@@ -94,8 +86,8 @@ namespace Durin
 		if (Failure == EGPUCullingFailure::ShaderUnavailable
 			|| Failure == EGPUCullingFailure::PipelineUnavailable
 			|| Failure == EGPUCullingFailure::CommandAdmission) return false;
-		auto* Payload = State->GPUCulling.GetPayload();
-		if (Payload == nullptr || CandidateCount == 0) return false;
+		const auto& Payload = State->GPUCulling;
+		if (!Payload || CandidateCount == 0) return false;
 		FInstanceCullingUniform Uniform;
 		const FVector3f OriginHigh(ViewLocation);
 		Uniform.WorldOriginAndRelativeTolerance = FVector4f(OriginHigh, PlaneTouchRelativeEpsilon);

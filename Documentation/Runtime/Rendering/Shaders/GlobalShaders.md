@@ -1,6 +1,6 @@
 # Global Shaders
 
-Summary: Define registration, atomic map publication, typed lookup, generation recovery, and lifecycle for fixed non-Material shaders.
+Summary: Define registration, atomic map publication, typed lookup, reload recovery, and lifecycle for fixed non-Material shaders.
 
 Modules: Engine, RenderCore, Renderer, ShaderFormat
 
@@ -56,8 +56,8 @@ Compute pipelines use the compute shader's section. EditorGrid, Gizmo and
 SimpleElement programs are eligible only in editor profiles. In Authored mode
 set construction asks ShaderBuild for a complete output. In Cooked mode the
 same typed construction consumes the exact `DSHD` output from the qualified
-`DSLB` library. Parameter binding, merged layouts, lazy RHI creation, generation
-coupling, and complete-or-null publication are shared after that data selection.
+`DSLB` library. Parameter binding, merged layouts, lazy RHI creation,
+and atomic publication are shared after that data selection.
 
 Registered direct, prepared and Cook requests apply the same
 [parameter allocation policy](ShaderParameters.md#detached-semantic-schemas-and-allocation-candidates).
@@ -83,14 +83,13 @@ Reflection is the only stored declaration list; merged pipeline layouts and
 native binding operations are prepared at pipeline creation. Identity-only
 cache and serialization paths do not construct code owners or layouts.
 
-## Generations and Failure Recovery
+## Publication and Failure Recovery
 
-`FRendererResourceCoordinator` explicitly supplies accepted shader, device,
-and manual generations to Engine's typed maps. Shader reload submits a replacement
-for the published map. Render-frame processing installs it once all sections succeed.
-Readers retain the previous generation during compilation and after a failed or
-canceled replacement. Shader and manual generations advance for pipeline consumers when the
-replacement is published. Repeated typed lookups read the installed map.
+Shader reload prepares a replacement for the published map. Render-frame processing
+installs it once all sections succeed. Pending, failed, and canceled replacements
+leave the published sections available to typed lookups. Passes supply their RHI
+shaders, pipeline layout, and render state to the graphics or compute PSO cache.
+An unchanged initializer reuses its pipeline across frames and map publications.
 Compilation errors are reported once by the producer with the program name
 and compiler diagnostic.
 
@@ -136,7 +135,7 @@ and callbacks explicitly; RenderCore has no dependency on Renderer and no
 pointer to `FRendererResourceCoordinator`.
 
 Shutdown closes Renderer admission, releases consumer pipelines and typed
-refs, clears the global map, resets generation state, and only then permits RHI
+refs, clears the global map, and only then permits RHI
 and module teardown. RHI also broadcasts a pre-shutdown resource-release event;
 Engine registers and removes its callback with module startup/shutdown so
 standalone RHI lifecycle users cannot carry shader modules across device exit.

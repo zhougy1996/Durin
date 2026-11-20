@@ -231,7 +231,6 @@ namespace Durin
 	auto FEditorAssistanceRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		EditorGridRenderer->ReleaseResources_RenderThread();
 		GizmoRenderer->ReleaseResources_RenderThread();
 		SimpleElementRenderer->ReleaseResources_RenderThread();
 	}

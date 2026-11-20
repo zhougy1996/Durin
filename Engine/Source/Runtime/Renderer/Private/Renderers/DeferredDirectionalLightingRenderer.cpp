@@ -1,6 +1,6 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "RHI.h"
@@ -97,14 +97,11 @@ namespace Durin
 			FGraphicsPipelineStateInitializer PipelineInitializer;
 			FGraphicsPipelineStateInitializer ProductionPipelineInitializer;
 			FGraphicsPipelineStateInitializer DiagnosticPipelineInitializer;
-			FSamplerRHIRef FallbackEnvironmentSampler;
-			FSamplerRHIRef FallbackShadowSampler;
 		};
 
-		TRenderResourceCreationSlot<FPayload> Resources{
-			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
-		};
+		FSamplerRHIRef FallbackEnvironmentSampler;
+		FSamplerRHIRef FallbackShadowSampler;
+		std::optional<FPayload> Resources;
 	};
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
@@ -122,103 +119,87 @@ namespace Durin
 	) -> bool
 	{
 		using FPayload = FState::FPayload;
-		using FResult = TRenderResourceCreateResult<FPayload>;
-		FPayload* Payload = State->Resources.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(),
-			[this, &CommandList]() -> FResult {
-				FPayload Candidate;
-				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalVertexShader>();
-				Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalFragmentShader>();
-				Candidate.ProductionVertexShader = GetGlobalShaderMap().GetShader<FDeferredProductionVertexShader>();
-				Candidate.ProductionFragmentShader = GetGlobalShaderMap().GetShader<FDeferredProductionFragmentShader>();
+		State->Resources.reset();
+		FPayload Candidate;
+		Candidate.VertexShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalVertexShader>();
+		Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalFragmentShader>();
+		Candidate.ProductionVertexShader = GetGlobalShaderMap().GetShader<FDeferredProductionVertexShader>();
+		Candidate.ProductionFragmentShader = GetGlobalShaderMap().GetShader<FDeferredProductionFragmentShader>();
 
-				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"DeferredDirectionalLighting", "fullscreen-geometry",
-						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
-				FRHIShader* VertexRHI =
-					Candidate.VertexShader.GetRHIShader(false);
-				FRHIShader* FragmentRHI =
-					Candidate.FragmentShader.GetRHIShader(false);
-				FRHIShader* ProductionVertexRHI = Candidate.ProductionVertexShader.GetRHIShader(false);
-				FRHIShader* ProductionFragmentRHI =
-					Candidate.ProductionFragmentShader.GetRHIShader(false);
-				if (VertexRHI == nullptr || FragmentRHI == nullptr
-					|| ProductionVertexRHI == nullptr || ProductionFragmentRHI == nullptr)
-				{
-					return FResult::Pending();
-				}
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeDeferredDirectionalOutput();
-				Initializer.BoundShaders.VertexShader = VertexRHI;
-				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration =
-					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-				Initializer.PipelineLayout =
-					Candidate.FragmentShader.GetPipelineLayout();
-				Candidate.PipelineInitializer = Initializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeGraphHybridDeferredOutput();
-				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
-				Initializer.BoundShaders.VertexShader = ProductionVertexRHI;
-				Initializer.PipelineLayout = Candidate.ProductionFragmentShader.GetPipelineLayout();
-				FBlendStateInitializerRHI AdditiveBlend{};
-				AdditiveBlend[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
-					.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
-				Initializer.BlendState = RHICreateBlendState(AdditiveBlend);
-				Candidate.ProductionPipelineInitializer = Initializer;
-				Initializer.BlendState = Candidate.PipelineInitializer.BlendState;
-				Candidate.DiagnosticPipelineInitializer = Initializer;
-				Candidate.FallbackEnvironmentSampler =
-					RHICreateSampler(FRHISamplerDesc::LinearClamp());
-				FRHISamplerDesc ShadowDesc = FRHISamplerDesc::LinearClamp();
-				ShadowDesc.AddressU = ESamplerAddressMode::ClampToBorder;
-				ShadowDesc.AddressV = ESamplerAddressMode::ClampToBorder;
-				ShadowDesc.AddressW = ESamplerAddressMode::ClampToBorder;
-				ShadowDesc.BorderColor = ESamplerBorderColor::FloatOpaqueWhite;
-				ShadowDesc.bEnableCompare = true;
-				ShadowDesc.CompareOp = ESamplerCompareOp::LessOrEqual;
-				Candidate.FallbackShadowSampler = RHICreateSampler(ShadowDesc);
-				if (Candidate.FallbackEnvironmentSampler == nullptr
-					|| Candidate.FallbackShadowSampler == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"DeferredDirectionalLighting", "fallback samplers",
-						ERenderResourceCreateErrorReason::Unspecified,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
-				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic
-		);
-		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 		{
-			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "DeferredDirectionalLightingPipeline");
+			return false;
+		}
+		FRHIShader* VertexRHI =
+			Candidate.VertexShader.GetRHIShader(false);
+		FRHIShader* FragmentRHI =
+			Candidate.FragmentShader.GetRHIShader(false);
+		FRHIShader* ProductionVertexRHI = Candidate.ProductionVertexShader.GetRHIShader(false);
+		FRHIShader* ProductionFragmentRHI =
+			Candidate.ProductionFragmentShader.GetRHIShader(false);
+		if (VertexRHI == nullptr || FragmentRHI == nullptr
+			|| ProductionVertexRHI == nullptr || ProductionFragmentRHI == nullptr)
+		{
+			return false;
+		}
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.RenderTargetLayout =
+			RenderTargetLayouts::MakeDeferredDirectionalOutput();
+		Initializer.BoundShaders.VertexShader = VertexRHI;
+		Initializer.BoundShaders.FragmentShader = FragmentRHI;
+		Initializer.VertexDeclaration =
+			Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		Initializer.PipelineLayout =
+			Candidate.FragmentShader.GetPipelineLayout();
+		Candidate.PipelineInitializer = Initializer;
+		Initializer.RenderTargetLayout =
+			RenderTargetLayouts::MakeGraphHybridDeferredOutput();
+		Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
+		Initializer.BoundShaders.VertexShader = ProductionVertexRHI;
+		Initializer.PipelineLayout = Candidate.ProductionFragmentShader.GetPipelineLayout();
+		FBlendStateInitializerRHI AdditiveBlend{};
+		AdditiveBlend[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
+			.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
+		Initializer.BlendState = RHICreateBlendState(AdditiveBlend);
+		Candidate.ProductionPipelineInitializer = Initializer;
+		Initializer.BlendState = Candidate.PipelineInitializer.BlendState;
+		Candidate.DiagnosticPipelineInitializer = Initializer;
+		if (!State->FallbackEnvironmentSampler)
+			State->FallbackEnvironmentSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
+		if (!State->FallbackShadowSampler)
+		{
+			FRHISamplerDesc ShadowDesc = FRHISamplerDesc::LinearClamp();
+			ShadowDesc.AddressU = ESamplerAddressMode::ClampToBorder;
+			ShadowDesc.AddressV = ESamplerAddressMode::ClampToBorder;
+			ShadowDesc.AddressW = ESamplerAddressMode::ClampToBorder;
+			ShadowDesc.BorderColor = ESamplerBorderColor::FloatOpaqueWhite;
+			ShadowDesc.bEnableCompare = true;
+			ShadowDesc.CompareOp = ESamplerCompareOp::LessOrEqual;
+			State->FallbackShadowSampler = RHICreateSampler(ShadowDesc);
+		}
+		if (State->FallbackEnvironmentSampler == nullptr
+			|| State->FallbackShadowSampler == nullptr)
+		{
+			return false;
+		}
+		const auto& Payload = State->Resources.emplace(std::move(Candidate));
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.PipelineInitializer, "DeferredDirectionalLightingPipeline");
 			if (!PipelineState) return false;
 			FRenderPipelinePreparationBatch::Add(PipelineState);
 			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto ProductionPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->ProductionPipelineInitializer, "DeferredProductionLightingPipeline");
+			auto ProductionPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.ProductionPipelineInitializer, "DeferredProductionLightingPipeline");
 			if (!ProductionPipelineState) return false;
 			FRenderPipelinePreparationBatch::Add(ProductionPipelineState);
 			if (ProductionPipelineState->GetState() == ERHIPipelineState::Failed || ProductionPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto DiagnosticPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->DiagnosticPipelineInitializer, "DeferredProductionDiagnosticPipeline");
+			auto DiagnosticPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.DiagnosticPipelineInitializer, "DeferredProductionDiagnosticPipeline");
 			if (!DiagnosticPipelineState) return false;
 			FRenderPipelinePreparationBatch::Add(DiagnosticPipelineState);
 			if (DiagnosticPipelineState->GetState() == ERHIPipelineState::Failed || DiagnosticPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
 		}
-		return Payload != nullptr;
+		return true;
 	}
 
 	auto FDeferredDirectionalLightingRenderer::DescribeTarget(
@@ -285,8 +266,8 @@ namespace Durin
 			return false;
 		}
 		if (!EnsureResources_RenderThread(CommandList)) return false;
-		FState::FPayload* Payload = State->Resources.GetPayload();
-		if (Payload == nullptr)
+		const auto& Payload = State->Resources;
+		if (!Payload)
 			return false;
 		const bool bReplaceDiagnostic = Parameters.bContactVisibilityDebug
 			|| View->Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit;
@@ -372,11 +353,11 @@ namespace Durin
 			ShaderParameters.EnvironmentPrefiltered =
 				Parameters.EnvironmentPrefiltered;
 			ShaderParameters.EnvironmentBrdfLut = Parameters.EnvironmentBrdfLut;
-			ShaderParameters.EnvironmentSampler = Parameters.EnvironmentSampler ? Parameters.EnvironmentSampler : Payload->FallbackEnvironmentSampler.GetReference();
+			ShaderParameters.EnvironmentSampler = Parameters.EnvironmentSampler ? Parameters.EnvironmentSampler : State->FallbackEnvironmentSampler.GetReference();
 			ShaderParameters.DirectionalShadowTexture =
 				Parameters.DirectionalShadowTexture;
 			ShaderParameters.DirectionalShadowSampler =
-				Parameters.DirectionalShadowSampler ? Parameters.DirectionalShadowSampler : Payload->FallbackShadowSampler.GetReference();
+				Parameters.DirectionalShadowSampler ? Parameters.DirectionalShadowSampler : State->FallbackShadowSampler.GetReference();
 			ShaderParameters.GroundTruthAmbientOcclusionRaw =
 				Parameters.GroundTruthAmbientOcclusionRaw;
 			ShaderParameters.GroundTruthAmbientOcclusionFiltered =
@@ -413,6 +394,6 @@ namespace Durin
 	auto FDeferredDirectionalLightingRenderer::ReleaseResources_RenderThread()
 		-> void
 	{
-		State->Resources.Reset();
+		*State = {};
 	}
 } // namespace Durin

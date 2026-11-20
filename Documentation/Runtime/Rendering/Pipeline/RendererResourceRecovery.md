@@ -270,8 +270,8 @@ there is no TryWait wrapper. Required-success owners such as render fences check
 the returned state before releasing their completion receipt. Queue payload
 accounting reserves dependency wake storage; retired groups release subscriptions.
 
-Fixed Renderer resources, static-mesh shader and pipeline identities, editor
-assistance, shared fullscreen geometry, and Texture Editor previews use
+Static-mesh shader and pipeline identities, shared fullscreen geometry, and
+Texture Editor previews use
 `TRenderResourceCreationSlot`. A slot constructs a complete candidate in local
 ownership and publishes only after every binding, RHI resource, and pipeline
 succeeds. Callers observe a complete payload only in Ready; Pending and Failed return null.
@@ -281,21 +281,22 @@ aggregates are never visible.
 
 Fixed non-Material shader compilation and typed lookup are centralized in
 Engine's [Global Shader](../Shaders/GlobalShaders.md) map. Renderer feature
-payloads retain typed shader references from the published generation for
-pipeline creation and parameter binding. Material and vertex-factory/mesh combinations use
+payloads retain typed shader references from the published map for
+pipeline creation and parameter binding. Graphics and compute initializers identify
+PSOs through the RHI cache. Material and vertex-factory/mesh combinations use
 `TMaterialShaderRef` over an exact `FMaterialShaderMap`; consumers likewise do
 not initialize an ordinary map, perform a raw lookup, or cast a shader.
 
 `FSimpleElementRenderer` follows the same contract. Its line and sprite Global
 Shader references come from the same publication. An unavailable class skips only
-dependent batches. Output/depth/blend/shader-class pipeline keys retain the
-exact typed shader refs used to create them. Persistent vertex and index upload
+dependent batches. Prepared batches retain their typed shader references and supply their output,
+depth, blend, and shader state to the PSO cache. Persistent vertex and index upload
 buffers grow to bounded power-of-two capacities through required-success
 native factories. Device invalidation releases pipelines,
 declarations, atlas resources, and upload buffers before lazy reconstruction;
 shutdown performs the same ordered release.
 
-Each owner tracks independent shader, device, and manual generations. Successful
+Creation slots track their declared shader, device, and manual dependencies. Successful
 payloads remain cached until a relevant generation changes. Shader preparation
 failures retain their owned cause and retry dependencies, suppressing repeated
 attempts until a relevant generation changes. This includes recognized PSO

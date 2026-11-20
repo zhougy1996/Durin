@@ -1,7 +1,6 @@
 #include "Renderers/GBufferDebugRenderer.h"
 
-#include "RenderResourceCreation.h"
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Math/Operations.h"
@@ -68,9 +67,7 @@ namespace Durin
 			FGraphicsPipelineStateInitializer PipelineInitializer;
 		};
 
-		TRenderResourceCreationSlot<FPayload> Slot{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
+		std::optional<FPayload> Slot;
 	};
 
 	FGBufferDebugRenderer::FGBufferDebugRenderer(
@@ -95,47 +92,37 @@ namespace Durin
 	auto FGBufferDebugRenderer::EnsureResources_RenderThread(FRHICommandListImmediate& CommandList, bool bPrecachePipeline) -> bool
 	{
 		using FPayload = FState::FPayload;
-		using FResult = TRenderResourceCreateResult<FPayload>;
-		FPayload* Payload = State->Slot.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(),
-			[this, &CommandList]() -> FResult {
-				FPayload Candidate;
-				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FGBufferDebugVertexShader>();
-				Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FGBufferDebugFragmentShader>();
+		State->Slot.reset();
+		FPayload Candidate;
+		Candidate.VertexShader = GetGlobalShaderMap().GetShader<FGBufferDebugVertexShader>();
+		Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FGBufferDebugFragmentShader>();
 
-				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"GBufferDebug", "fullscreen-geometry",
-						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				FRHIShader* VertexRHI =
-					Candidate.VertexShader.GetRHIShader(false);
-				FRHIShader* FragmentRHI =
-					Candidate.FragmentShader.GetRHIShader(false);
-				if (VertexRHI == nullptr || FragmentRHI == nullptr)
-				{
-					return FResult::Pending();
-				}
+		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+		{
+			return false;
+		}
+		FRHIShader* VertexRHI =
+			Candidate.VertexShader.GetRHIShader(false);
+		FRHIShader* FragmentRHI =
+			Candidate.FragmentShader.GetRHIShader(false);
+		if (VertexRHI == nullptr || FragmentRHI == nullptr)
+		{
+			return false;
+		}
 
-				auto& Initializer = Candidate.PipelineInitializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeGBufferDebugOutput();
-				Initializer.BoundShaders.VertexShader = VertexRHI;
-				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration =
-					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-				Initializer.PipelineLayout =
-					Candidate.FragmentShader.GetPipelineLayout();
-				return FResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		if (!Payload || !bPrecachePipeline) return Payload != nullptr;
-		auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "GBufferDebugPipeline");
+		auto& Initializer = Candidate.PipelineInitializer;
+		Initializer.RenderTargetLayout =
+			RenderTargetLayouts::MakeGBufferDebugOutput();
+		Initializer.BoundShaders.VertexShader = VertexRHI;
+		Initializer.BoundShaders.FragmentShader = FragmentRHI;
+		Initializer.VertexDeclaration =
+			Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		Initializer.PipelineLayout =
+			Candidate.FragmentShader.GetPipelineLayout();
+		const auto& Payload = State->Slot.emplace(std::move(Candidate));
+		if (!bPrecachePipeline) return true;
+		auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.PipelineInitializer, "GBufferDebugPipeline");
 		if (!Pipeline) return false;
 		FRenderPipelinePreparationBatch::Add(Pipeline);
 		const auto Status = Pipeline->GetState();
@@ -167,8 +154,8 @@ namespace Durin
 		}
 
 		EnsureResources_RenderThread(CommandList);
-		auto* Payload = State->Slot.GetPayload();
-		if (Payload == nullptr
+		const auto& Payload = State->Slot;
+		if (!Payload
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 		{
@@ -226,6 +213,6 @@ namespace Durin
 
 	auto FGBufferDebugRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->Slot.Reset();
+		State->Slot.reset();
 	}
 } // namespace Durin

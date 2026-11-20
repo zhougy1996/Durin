@@ -20,53 +20,6 @@ namespace Durin
 	using namespace RendererPrivate;
 	namespace
 	{
-		auto MakeHitProxyMapKey(FScene* Scene, const FHitProxyRenderRequest& Request, const FRenderResourceGeneration& RendererGeneration,
-			bool bFrameDependent, FXxHash128 Materials, const FSceneRenderPreparationConfig& Config) -> FXxHash128
-		{
-			FXxHash128Builder Hash;
-			const auto Add = [&]<typename T>(const T& Value) { Hash.UpdateValue(Value); };
-			const auto Matrix = [&](const FMatrix& Value) {
-				for (uint32 Column = 0; Column < 4; ++Column)
-					for (uint32 Row = 0; Row < 4; ++Row) Add(Value[Column][Row]);
-			};
-			Add(reinterpret_cast<uintptr_t>(Scene));
-			Add(Scene ? Scene->GetHitProxyRevision_RenderThread() : 0);
-			Add(Materials);
-			Add(Config.Version);
-			Add(RendererGeneration.Shader); Add(RendererGeneration.Device); Add(RendererGeneration.Manual);
-			Add(bFrameDependent);
-			if (bFrameDependent) Add(GRenderFrameCounterRenderThread);
-			auto View = Request.View;
-			View.FeatureLevel = Config.FeatureLevel;
-			Matrix(View.ViewMatrix); Matrix(View.ProjectionMatrix); Matrix(View.ViewProjectionMatrix);
-			Add(View.ViewLocation.x); Add(View.ViewLocation.y); Add(View.ViewLocation.z);
-			Add(View.ViewportX); Add(View.ViewportY); Add(View.ViewportWidth); Add(View.ViewportHeight);
-			Add(View.MaterialTimeSeconds); Add(View.DepthConvention); Add(View.FeatureLevel);
-			Add(View.AspectRatioConstraint); Add(View.bDiscardHistory);
-			Add(View.NearClipDistance); Add(View.FarClipDistance); Add(View.ViewFadeStart); Add(View.ViewRenderDistance);
-			Add(View.Settings.Mode.VisibilityMode); Add(View.Settings.Mode.LODMode);
-			Add(View.Settings.Mode.TranslucentSortPolicy);
-			Add(Request.bSceneGeometry); Add(Request.Primitives.size());
-			for (const auto& Primitive : Request.Primitives) { Add(Primitive.PrimitiveId); Add(Primitive.Id.Value); }
-			Add(Request.Overlays.size());
-			if (!Request.Overlays.empty())
-			{
-				const auto& Generation = GetGlobalShaderMap().GetGeneration_RenderThread();
-				Add(Generation.Shader);
-				Add(Generation.Manual);
-			}
-			for (const auto& Overlay : Request.Overlays)
-			{
-				Add(Overlay.Id.Value); Add(Overlay.Priority); Add(Overlay.bForeground);
-				for (const auto& Vertex : Overlay.Vertices)
-				{
-					for (uint32 Axis = 0; Axis < 4; ++Axis) Add(Vertex.ClipPosition[Axis]);
-					Add(Vertex.Distance);
-				}
-			}
-			return Hash.Finalize();
-		}
-
 		class FHitProxyFragmentShader final : public FCompiledSurfaceMaterialShader
 		{
 		public:
@@ -113,6 +66,53 @@ namespace Durin
 		const FGlobalShaderSetRegistration GHitProxyOverlaySet("Renderer", "HitProxy.Overlay",
 			EShaderRequestEligibility::EditorOnly,
 			{&FHitProxyOverlayVertexShader::StaticType(), &FHitProxyOverlayFragmentShader::StaticType()});
+
+		auto MakeHitProxyMapKey(FScene* Scene, const FHitProxyRenderRequest& Request, const FRenderResourceGeneration& RendererGeneration,
+			bool bFrameDependent, FXxHash128 Materials, const FSceneRenderPreparationConfig& Config) -> FXxHash128
+		{
+			FXxHash128Builder Hash;
+			const auto Add = [&]<typename T>(const T& Value) { Hash.UpdateValue(Value); };
+			const auto Matrix = [&](const FMatrix& Value) {
+				for (uint32 Column = 0; Column < 4; ++Column)
+					for (uint32 Row = 0; Row < 4; ++Row) Add(Value[Column][Row]);
+			};
+			Add(reinterpret_cast<uintptr_t>(Scene));
+			Add(Scene ? Scene->GetHitProxyRevision_RenderThread() : 0);
+			Add(Materials);
+			Add(Config.Version);
+			Add(RendererGeneration.Device);
+			if (Request.bSceneGeometry) { Add(RendererGeneration.Shader); Add(RendererGeneration.Manual); }
+			Add(bFrameDependent);
+			if (bFrameDependent) Add(GRenderFrameCounterRenderThread);
+			auto View = Request.View;
+			View.FeatureLevel = Config.FeatureLevel;
+			Matrix(View.ViewMatrix); Matrix(View.ProjectionMatrix); Matrix(View.ViewProjectionMatrix);
+			Add(View.ViewLocation.x); Add(View.ViewLocation.y); Add(View.ViewLocation.z);
+			Add(View.ViewportX); Add(View.ViewportY); Add(View.ViewportWidth); Add(View.ViewportHeight);
+			Add(View.MaterialTimeSeconds); Add(View.DepthConvention); Add(View.FeatureLevel);
+			Add(View.AspectRatioConstraint); Add(View.bDiscardHistory);
+			Add(View.NearClipDistance); Add(View.FarClipDistance); Add(View.ViewFadeStart); Add(View.ViewRenderDistance);
+			Add(View.Settings.Mode.VisibilityMode); Add(View.Settings.Mode.LODMode);
+			Add(View.Settings.Mode.TranslucentSortPolicy);
+			Add(Request.bSceneGeometry); Add(Request.Primitives.size());
+			for (const auto& Primitive : Request.Primitives) { Add(Primitive.PrimitiveId); Add(Primitive.Id.Value); }
+			Add(Request.Overlays.size());
+			if (!Request.Overlays.empty())
+			{
+				const auto Shader = GetGlobalShaderMap().GetShader<FHitProxyOverlayFragmentShader>();
+				if (Shader) Add(Shader.GetShaderMap()->GetCacheKey());
+			}
+			for (const auto& Overlay : Request.Overlays)
+			{
+				Add(Overlay.Id.Value); Add(Overlay.Priority); Add(Overlay.bForeground);
+				for (const auto& Vertex : Overlay.Vertices)
+				{
+					for (uint32 Axis = 0; Axis < 4; ++Axis) Add(Vertex.ClipPosition[Axis]);
+					Add(Vertex.Distance);
+				}
+			}
+			return Hash.Finalize();
+		}
 
 		auto MakeHitProxyLayout() -> FRHIRenderTargetLayout
 		{

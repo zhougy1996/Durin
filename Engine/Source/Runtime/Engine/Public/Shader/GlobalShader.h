@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
 
-#include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCookedLibrary.h"
 
@@ -147,10 +146,8 @@ namespace Durin
 		auto GetShader() const -> TShaderMapRef<ShaderType> { return TShaderMapRef<ShaderType>(*this); }
 		auto HasShader(const FGlobalShaderType& Type) const -> bool { return PublishedShaders.contains(&Type); }
 		ENGINE_API auto ProcessCompilationResults_RenderThread() -> bool;
-		ENGINE_API auto SetGeneration_RenderThread(const FRenderResourceGeneration& InGeneration, bool bForceShaderRecompile) -> void;
 		ENGINE_API auto ReleaseDeviceResources_RenderThread() -> void;
 		ENGINE_API auto Shutdown_RenderThread() -> void;
-		auto GetGeneration_RenderThread() const -> const FRenderResourceGeneration& { return PublishedGeneration; }
 
 	private:
 		friend ENGINE_API void CompileGlobalShaderMap(bool bForceRecompile);
@@ -159,8 +156,6 @@ namespace Durin
 		struct FCompilation;
 		std::shared_ptr<FCompilation> PendingCompilation;
 		std::unordered_map<const FShaderType*, std::shared_ptr<FShaderMapBase>> PublishedShaders;
-		FRenderResourceGeneration Generation;
-		FRenderResourceGeneration PublishedGeneration;
 	};
 
 	template<typename ShaderType>

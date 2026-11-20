@@ -1,6 +1,6 @@
 #include "Renderers/ContactShadowRenderer.h"
 
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Math/Operations.h"
@@ -105,12 +105,8 @@ namespace Durin
 			TShaderMapRef<FContactVisibilityComputeShader> ComputeShader;
 			FComputePipelineStateInitializer PipelineInitializer;
 		};
-		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
-		TRenderResourceCreationSlot<FComputePayload> ComputeResources{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
+		std::optional<FFragmentPayload> FragmentResources;
+		std::optional<FComputePayload> ComputeResources;
 	};
 
 	FContactShadowVisibilityRenderer::FContactShadowVisibilityRenderer(
@@ -178,74 +174,63 @@ namespace Durin
 		-> bool
 	{
 		using FPayload = FState::FComputePayload;
-		using FResult = TRenderResourceCreateResult<FPayload>;
-		auto* Payload = State->ComputeResources.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(), []() -> FResult {
-				FPayload Candidate;
-				Candidate.ComputeShader =
-					GetGlobalShaderMap().GetShader<FContactVisibilityComputeShader>();
-				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
-				if (ComputeRHI == nullptr)
-					return FResult::Pending();
-				FComputePipelineStateInitializer Initializer;
-				Initializer.ComputeShader = ComputeRHI;
-				Initializer.PipelineLayout = Candidate.ComputeShader.GetPipelineLayout();
-				Candidate.PipelineInitializer = Initializer;
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		State->ComputeResources.reset();
+		FPayload Candidate;
+		Candidate.ComputeShader =
+			GetGlobalShaderMap().GetShader<FContactVisibilityComputeShader>();
+		FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
+		if (ComputeRHI == nullptr)
+			return false;
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = ComputeRHI;
+		Initializer.PipelineLayout = Candidate.ComputeShader.GetPipelineLayout();
+		Candidate.PipelineInitializer = Initializer;
+		const auto& Payload = State->ComputeResources.emplace(std::move(Candidate));
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
-			auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer);
+			auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload.PipelineInitializer);
 			if (!Pipeline) return false;
 			FRenderPipelinePreparationBatch::Add(Pipeline);
 			if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) return false;
 		}
-		return Payload != nullptr;
+		return true;
 	}
 
 	auto FContactShadowVisibilityRenderer::EnsureFragmentResources_RenderThread(
 		FRHICommandListImmediate& CommandList) -> bool
 	{
 		using FPayload = FState::FFragmentPayload;
-		using FResult = TRenderResourceCreateResult<FPayload>;
-		auto* Payload = State->FragmentResources.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
-				FPayload Candidate;
-				Candidate.VertexShader =
-					GetGlobalShaderMap().GetShader<FContactVisibilityVertexShader>();
-				Candidate.FragmentShader =
-					GetGlobalShaderMap().GetShader<FContactVisibilityFragmentShader>();
-				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibility", "fullscreen-geometry",
-						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
-				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
-				if (VertexRHI == nullptr || FragmentRHI == nullptr)
-					return FResult::Pending();
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeContactVisibilityOutput();
-				Initializer.BoundShaders.VertexShader = VertexRHI;
-				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration =
-					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-				Initializer.PipelineLayout = Candidate.FragmentShader.GetPipelineLayout();
-				Candidate.PipelineInitializer = Initializer;
-				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		State->FragmentResources.reset();
+		FPayload Candidate;
+		Candidate.VertexShader =
+			GetGlobalShaderMap().GetShader<FContactVisibilityVertexShader>();
+		Candidate.FragmentShader =
+			GetGlobalShaderMap().GetShader<FContactVisibilityFragmentShader>();
+		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+			return false;
+		FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
+		FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
+		if (VertexRHI == nullptr || FragmentRHI == nullptr)
+			return false;
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.RenderTargetLayout =
+			RenderTargetLayouts::MakeContactVisibilityOutput();
+		Initializer.BoundShaders.VertexShader = VertexRHI;
+		Initializer.BoundShaders.FragmentShader = FragmentRHI;
+		Initializer.VertexDeclaration =
+			Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		Initializer.PipelineLayout = Candidate.FragmentShader.GetPipelineLayout();
+		Candidate.PipelineInitializer = Initializer;
+		const auto& Payload = State->FragmentResources.emplace(std::move(Candidate));
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
-			auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);
+			auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.PipelineInitializer);
 			if (!Pipeline) return false;
 			FRenderPipelinePreparationBatch::Add(Pipeline);
 			if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) return false;
 		}
-		return Payload != nullptr;
+		return true;
 	}
 
 	auto FContactShadowVisibilityRenderer::Render_RenderThread(
@@ -270,14 +255,14 @@ namespace Durin
 		const bool bInputsValid = bPhysicalInputsValid;
 		if (bRequested && bInputsValid && Width != 0 && Height != 0)
 			EnsureComputeResources_RenderThread();
-		auto* ComputePayload = State->ComputeResources.GetPayload();
+		const auto& ComputePayload = State->ComputeResources;
 
 		const FRHICapabilities* Capabilities =
 			GDynamicRHI != nullptr ? GDynamicRHI->RHIGetCapabilities() : nullptr;
 		FRouteInputs RouteInputs{
 			.bRequested = bRequested,
 			.bInputsValid = bInputsValid,
-			.bComputePayloadReady = ComputePayload != nullptr,
+			.bComputePayloadReady = ComputePayload.has_value(),
 			.bComputeTargetReady =
 				ComputeTargets != nullptr && ComputeTargets->Visibility != nullptr,
 			.bFragmentReady = false,
@@ -293,8 +278,8 @@ namespace Durin
 			&& Width != 0 && Height != 0
 			&& FragmentTargets != nullptr && FragmentTargets->Visibility != nullptr)
 			EnsureFragmentResources_RenderThread(CommandList);
-		auto* FragmentPayload = State->FragmentResources.GetPayload();
-		RouteInputs.bFragmentReady = FragmentPayload != nullptr
+		const auto& FragmentPayload = State->FragmentResources;
+		RouteInputs.bFragmentReady = FragmentPayload.has_value()
 			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
 			&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
 		Decision = SelectRoute(RouteInputs);
@@ -488,7 +473,7 @@ namespace Durin
 		FRouteInputs Inputs{
 			.bRequested = bRequested,
 			.bInputsValid = bInputsValid,
-			.bComputePayloadReady = State->ComputeResources.GetPayload() != nullptr,
+			.bComputePayloadReady = State->ComputeResources.has_value(),
 			.bComputeTargetReady = bComputeTargetExpected,
 			.bFragmentReady = false,
 			.Width = Width,
@@ -502,7 +487,7 @@ namespace Durin
 			&& Width != 0 && Height != 0 && bFragmentTargetExpected)
 			EnsureFragmentResources_RenderThread(CommandList);
 		Inputs.bFragmentReady = bFragmentTargetExpected
-			&& State->FragmentResources.GetPayload() != nullptr
+			&& State->FragmentResources.has_value()
 			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
 			&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
 		return SelectRoute(Inputs);
@@ -510,7 +495,7 @@ namespace Durin
 
 	auto FContactShadowVisibilityRenderer::ReleaseResources_RenderThread() -> void
 	{
-		State->FragmentResources.Reset();
-		State->ComputeResources.Reset();
+		State->FragmentResources.reset();
+		State->ComputeResources.reset();
 	}
 } // namespace Durin

@@ -1,6 +1,6 @@
 #include "Renderers/EditorAssistance/GizmoRenderer.h"
 
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "CoreGlobals.h"
 #include "Math/Operations.h"
 #include "Misc/AssertionMacros.h"
@@ -259,32 +259,13 @@ namespace Durin
 	{
 		struct FBasePayload
 		{
-			TShaderMapRef<FGizmoVertexShader> VertexShader;
-			TShaderMapRef<FGizmoFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			std::array<FGizmoMeshRange, 5> MeshRanges{};
 		};
 
-		struct FPipelinePayload
-		{
-			FVertexDeclarationRHIRef PipelineVertexDeclaration;
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-		};
-
-		struct FPipelineEntry
-		{
-			FPipelineKey Key;
-			TRenderResourceCreationSlot<FPipelinePayload> Slot{
-				ERenderResourceGenerationDependency::Shader
-					| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
-		};
-
-		TRenderResourceCreationSlot<FBasePayload> Base{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
-		std::vector<FPipelineEntry> Pipelines;
+		std::optional<FBasePayload> Base;
 	};
 
 	FGizmoRenderer::FGizmoRenderer()
@@ -301,90 +282,84 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		using FBasePayload = FState::FBasePayload;
-		using FBaseResult = TRenderResourceCreateResult<FBasePayload>;
-		FBasePayload* Base = State->Base.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(),
-			[this, &CommandList]() -> FBaseResult {
-				FBasePayload Candidate;
-				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FGizmoVertexShader>();
-				Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FGizmoFragmentShader>();
-				if (!Candidate.VertexShader.GetRHIShader(false) || !Candidate.FragmentShader.GetRHIShader(false)) return FBaseResult::Pending();
-				FVertexDeclarationElementList Elements;
-				Elements[0] = FVertexElement(
-					0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(Elements);
+		const auto VertexShader = GetGlobalShaderMap().GetShader<FGizmoVertexShader>();
+		const auto FragmentShader = GetGlobalShaderMap().GetShader<FGizmoFragmentShader>();
+		if (!VertexShader.GetRHIShader(false) || !FragmentShader.GetRHIShader(false)) return;
+		if (!State->Base)
+		{
+			FBasePayload Candidate;
+			FVertexDeclarationElementList Elements;
+			Elements[0] = FVertexElement(
+				0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
+			Candidate.VertexDeclaration =
+				GDynamicRHI->RHICreateVertexDeclaration(Elements);
 
-				std::vector<FVector3f> Vertices;
-				std::vector<uint32> Indices;
-				auto& Ranges = Candidate.MeshRanges;
-				Ranges[static_cast<size_t>(EViewOverlayShape::Arrow)] =
-					BeginMesh(Indices);
-				AppendCylinder(Vertices, Indices, 0.0f, 0.76f, 0.032f, 12);
-				AppendCone(Vertices, Indices, 0.72f, 1.0f, 0.085f, 12);
-				EndMesh(
-					Ranges[static_cast<size_t>(EViewOverlayShape::Arrow)],
-					Indices);
-				Ranges[static_cast<size_t>(EViewOverlayShape::Axis)] =
-					BeginMesh(Indices);
-				AppendCylinder(Vertices, Indices, 0.0f, 0.94f, 0.032f, 12);
-				EndMesh(
-					Ranges[static_cast<size_t>(EViewOverlayShape::Axis)],
-					Indices);
-				Ranges[static_cast<size_t>(EViewOverlayShape::Plane)] =
-					BeginMesh(Indices);
-				AppendPlane(Vertices, Indices);
-				EndMesh(
-					Ranges[static_cast<size_t>(EViewOverlayShape::Plane)],
-					Indices);
-				Ranges[static_cast<size_t>(EViewOverlayShape::Ring)] =
-					BeginMesh(Indices);
-				AppendRing(Vertices, Indices, 64);
-				EndMesh(
-					Ranges[static_cast<size_t>(EViewOverlayShape::Ring)],
-					Indices);
-				Ranges[static_cast<size_t>(EViewOverlayShape::Box)] =
-					BeginMesh(Indices);
-				AppendBox(Vertices, Indices);
-				EndMesh(
-					Ranges[static_cast<size_t>(EViewOverlayShape::Box)],
-					Indices);
-				FRHIBufferCreateDesc VertexDesc =
-					FRHIBufferCreateDesc::CreateVertex(
-						"GizmoVertexBuffer",
-						static_cast<uint32>(
-							Vertices.size() * sizeof(FVector3f)));
-				VertexDesc.Usage |= EBufferUsageFlags::Static;
-				VertexDesc.InitialData = {
-					Vertices.data(),
-					static_cast<uint32>(Vertices.size() * sizeof(FVector3f))};
-				Candidate.VertexBuffer =
-					GDynamicRHI->RHICreateBuffer(CommandList, VertexDesc);
-				FRHIBufferCreateDesc IndexDesc =
-					FRHIBufferCreateDesc::CreateIndex(
-						"GizmoIndexBuffer",
-						static_cast<uint32>(
-							Indices.size() * sizeof(uint32)),
-						sizeof(uint32));
-				IndexDesc.Usage |= EBufferUsageFlags::Static;
-				IndexDesc.InitialData = {
-					Indices.data(),
-					static_cast<uint32>(Indices.size() * sizeof(uint32))};
-				Candidate.IndexBuffer =
-					GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
-				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
-					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr
-					|| Candidate.VertexDeclaration == nullptr
-					|| Candidate.VertexBuffer == nullptr
-					|| Candidate.IndexBuffer == nullptr)
-				{
-					return FBaseResult::Pending();
-				}
-				return FBaseResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		if (Base == nullptr)
-			return;
+			std::vector<FVector3f> Vertices;
+			std::vector<uint32> Indices;
+			auto& Ranges = Candidate.MeshRanges;
+			Ranges[static_cast<size_t>(EViewOverlayShape::Arrow)] =
+				BeginMesh(Indices);
+			AppendCylinder(Vertices, Indices, 0.0f, 0.76f, 0.032f, 12);
+			AppendCone(Vertices, Indices, 0.72f, 1.0f, 0.085f, 12);
+			EndMesh(
+				Ranges[static_cast<size_t>(EViewOverlayShape::Arrow)],
+				Indices);
+			Ranges[static_cast<size_t>(EViewOverlayShape::Axis)] =
+				BeginMesh(Indices);
+			AppendCylinder(Vertices, Indices, 0.0f, 0.94f, 0.032f, 12);
+			EndMesh(
+				Ranges[static_cast<size_t>(EViewOverlayShape::Axis)],
+				Indices);
+			Ranges[static_cast<size_t>(EViewOverlayShape::Plane)] =
+				BeginMesh(Indices);
+			AppendPlane(Vertices, Indices);
+			EndMesh(
+				Ranges[static_cast<size_t>(EViewOverlayShape::Plane)],
+				Indices);
+			Ranges[static_cast<size_t>(EViewOverlayShape::Ring)] =
+				BeginMesh(Indices);
+			AppendRing(Vertices, Indices, 64);
+			EndMesh(
+				Ranges[static_cast<size_t>(EViewOverlayShape::Ring)],
+				Indices);
+			Ranges[static_cast<size_t>(EViewOverlayShape::Box)] =
+				BeginMesh(Indices);
+			AppendBox(Vertices, Indices);
+			EndMesh(
+				Ranges[static_cast<size_t>(EViewOverlayShape::Box)],
+				Indices);
+			FRHIBufferCreateDesc VertexDesc =
+				FRHIBufferCreateDesc::CreateVertex(
+					"GizmoVertexBuffer",
+					static_cast<uint32>(
+						Vertices.size() * sizeof(FVector3f)));
+			VertexDesc.Usage |= EBufferUsageFlags::Static;
+			VertexDesc.InitialData = {
+				Vertices.data(),
+				static_cast<uint32>(Vertices.size() * sizeof(FVector3f))};
+			Candidate.VertexBuffer =
+				GDynamicRHI->RHICreateBuffer(CommandList, VertexDesc);
+			FRHIBufferCreateDesc IndexDesc =
+				FRHIBufferCreateDesc::CreateIndex(
+					"GizmoIndexBuffer",
+					static_cast<uint32>(
+						Indices.size() * sizeof(uint32)),
+					sizeof(uint32));
+			IndexDesc.Usage |= EBufferUsageFlags::Static;
+			IndexDesc.InitialData = {
+				Indices.data(),
+				static_cast<uint32>(Indices.size() * sizeof(uint32))};
+			Candidate.IndexBuffer =
+				GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
+			if (Candidate.VertexDeclaration == nullptr
+				|| Candidate.VertexBuffer == nullptr
+				|| Candidate.IndexBuffer == nullptr)
+			{
+				return;
+			}
+			State->Base.emplace(std::move(Candidate));
+		}
+		const auto& Base = State->Base;
 
 		Prepared.bSolidGizmos = Request.bSolidGizmos;
 		for (const EGizmoTopology Topology : {
@@ -405,63 +380,42 @@ namespace Durin
 					.DepthConvention = Request.DepthConvention,
 					.GizmoTopology = Topology,
 				};
-				auto EntryIt = std::ranges::find(
-					State->Pipelines, Key, &FState::FPipelineEntry::Key);
-				if (EntryIt == State->Pipelines.end())
-				{
-					EntryIt = State->Pipelines.emplace(
-						State->Pipelines.end(),
-						FState::FPipelineEntry{.Key = Key});
-				}
 
 				const std::string PipelineName = std::format(
 					"Gizmo{}{}{}Pipeline",
 					GetTopologyName(Topology),
 					GetDepthName(DepthMode),
 					GetOutputName(Request.Output));
-				using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
-				auto* Pipeline = EntryIt->Slot.Resolve(
-					GetGlobalShaderMap().GetGeneration_RenderThread(),
-					[Base, Key]() -> FPipelineResult {
-						FGraphicsPipelineStateInitializer Initializer;
-						Initializer.RenderTargetLayout =
-							RenderTargetLayouts::MakeEditorAssistanceOutput(
-								Key.Output, Key.OutputFormat);
-						Initializer.BoundShaders.VertexShader =
-							Base->VertexShader.GetRHIShader();
-						Initializer.BoundShaders.FragmentShader =
-							Base->FragmentShader.GetRHIShader();
-						Initializer.VertexDeclaration =
-							Base->VertexDeclaration;
-						Initializer.BlendState = RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
-						Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-						Initializer.DepthStencilState = RHICreateDepthStencilState({
-							.bEnableTest = Key.DepthMode == EDepthMode::Visible,
-							.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
-						Initializer.PipelineLayout =
-							Base->FragmentShader.GetPipelineLayout();
-
-						return FPipelineResult::Success({
-							.PipelineVertexDeclaration = Initializer.VertexDeclaration,
-							.PipelineInitializer = Initializer});
-					},
-					ReportRendererResourceCreateDiagnostic);
-				if (Pipeline != nullptr)
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeEditorAssistanceOutput(
+						Key.Output, Key.OutputFormat);
+				Initializer.BoundShaders.VertexShader =
+					VertexShader.GetRHIShader();
+				Initializer.BoundShaders.FragmentShader =
+					FragmentShader.GetRHIShader();
+				Initializer.VertexDeclaration =
+					Base->VertexDeclaration;
+				Initializer.BlendState = RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+				Initializer.DepthStencilState = RHICreateDepthStencilState({
+					.bEnableTest = Key.DepthMode == EDepthMode::Visible,
+					.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
+				Initializer.PipelineLayout =
+					FragmentShader.GetPipelineLayout();
+				if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 				{
-					if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-					{
-						auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer, FName(PipelineName));
-						if (!Request) continue;
-						FRenderPipelinePreparationBatch::Add(Request);
-						if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
-					}
-					Prepared.Pipelines.push_back({
-						.Key = Key,
-						.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
-						.PipelineInitializer = Pipeline->PipelineInitializer,
-						.GizmoVertexShader = Base->VertexShader,
-					});
+					auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, FName(PipelineName));
+					if (!Request) continue;
+					FRenderPipelinePreparationBatch::Add(Request);
+					if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
 				}
+				Prepared.Pipelines.push_back({
+					.Key = Key,
+					.PipelineVertexDeclaration = Initializer.VertexDeclaration,
+					.PipelineInitializer = Initializer,
+					.GizmoVertexShader = VertexShader,
+				});
 			}
 		}
 	}
@@ -473,8 +427,8 @@ namespace Durin
 		EDepthMode DepthMode) -> void
 	{
 		check(IsInRenderingThread());
-		const FState::FBasePayload* Base = State->Base.GetPayload();
-		if (Base == nullptr
+		const auto& Base = State->Base;
+		if (!Base
 			|| Base->VertexBuffer == nullptr
 			|| Base->IndexBuffer == nullptr)
 		{
@@ -487,8 +441,6 @@ namespace Durin
 			const EGizmoTopology Topology = EGizmoTopology::Solid;
 			const auto* Pipeline =
 				FindPreparedPipeline(Prepared, DepthMode, Topology);
-			if (!Pipeline)
-				continue;
 			const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
 			if (ShapeIndex >= Base->MeshRanges.size())
 				continue;
@@ -522,9 +474,6 @@ namespace Durin
 	auto FGizmoRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->Base.Reset();
-		for (FState::FPipelineEntry& Entry : State->Pipelines)
-			Entry.Slot.Reset();
-		State->Pipelines.clear();
+		State->Base.reset();
 	}
 } // namespace Durin

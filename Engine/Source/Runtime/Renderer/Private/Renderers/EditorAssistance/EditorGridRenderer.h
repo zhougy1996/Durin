@@ -28,12 +28,8 @@ namespace Durin
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const RendererEditorAssistance::FPrepared& Prepared) -> void;
-		auto ReleaseResources_RenderThread() -> void;
 
 	private:
-		struct FState;
-
 		FFullscreenGeometryResources& FullscreenGeometry;
-		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

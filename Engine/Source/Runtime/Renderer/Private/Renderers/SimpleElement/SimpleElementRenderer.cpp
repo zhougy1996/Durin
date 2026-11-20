@@ -1,7 +1,7 @@
 #include "Renderers/SimpleElement/SimpleElementRenderer.h"
 
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "Renderers/SimpleElement/EditorIconAtlas.h"
 #include "Misc/AssertionMacros.h"
 #include "RHI.h"
@@ -121,35 +121,13 @@ namespace Durin
 	{
 		struct FBasePayload
 		{
-			TShaderMapRef<FSimpleLineVertexShader> LineVertexShader;
-			TShaderMapRef<FSimpleLineFragmentShader> LineFragmentShader;
-			TShaderMapRef<FSimpleSpriteVertexShader> SpriteVertexShader;
-			TShaderMapRef<FSimpleSpriteFragmentShader> SpriteFragmentShader;
 			FVertexDeclarationRHIRef LineVertexDeclaration;
 			FVertexDeclarationRHIRef SpriteVertexDeclaration;
 			FTextureRHIRef EditorIconAtlas;
 			FSamplerRHIRef Sampler;
 		};
 
-		struct FPipelinePayload
-		{
-			FVertexDeclarationRHIRef PipelineVertexDeclaration;
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-		};
-
-		struct FPipelineEntry
-		{
-			FSimplePipelineKey Key;
-			TRenderResourceCreationSlot<FPipelinePayload> Slot{
-				ERenderResourceGenerationDependency::Shader
-					| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
-		};
-
-		TRenderResourceCreationSlot<FBasePayload> Base{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device
-				| ERenderResourceGenerationDependency::Manual};
-		std::vector<FPipelineEntry> Pipelines;
+		FBasePayload Base;
 		FBufferRHIRef VertexBuffer;
 		FBufferRHIRef IndexBuffer;
 		uint32 VertexCapacity = 0;
@@ -177,90 +155,66 @@ namespace Durin
 		Prepared.Statistics = Collected.Statistics;
 		if (Collected.IsEmpty())
 			return Prepared;
-		using FBasePayload = FState::FBasePayload;
-		using FBaseResult = TRenderResourceCreateResult<FBasePayload>;
-		FBasePayload* Base = State->Base.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(),
-			[&CommandList]() -> FBaseResult {
-				FBasePayload Candidate;
-				Candidate.LineVertexShader = GetGlobalShaderMap().GetShader<FSimpleLineVertexShader>();
-				Candidate.LineFragmentShader = GetGlobalShaderMap().GetShader<FSimpleLineFragmentShader>();
-				Candidate.SpriteVertexShader = GetGlobalShaderMap().GetShader<FSimpleSpriteVertexShader>();
-				Candidate.SpriteFragmentShader = GetGlobalShaderMap().GetShader<FSimpleSpriteFragmentShader>();
-
-				FVertexDeclarationElementList LineElements;
-				LineElements[0] = FVertexElement(0,
-					static_cast<uint8>(offsetof(FSimpleElementVertex, Position)),
-					EVertexElementType::Float4, 0, sizeof(FSimpleElementVertex));
-				LineElements[1] = FVertexElement(0,
-					static_cast<uint8>(offsetof(FSimpleElementVertex, Color)),
-					EVertexElementType::Float4, 1, sizeof(FSimpleElementVertex));
-				LineElements[2] = FVertexElement(0,
-					static_cast<uint8>(offsetof(FSimpleElementVertex, Pattern)),
-					EVertexElementType::Float2, 2, sizeof(FSimpleElementVertex));
-				if (Candidate.LineFragmentShader)
-					Candidate.LineVertexDeclaration =
-						GDynamicRHI->RHICreateVertexDeclaration(LineElements);
-
-				FVertexDeclarationElementList SpriteElements;
-				SpriteElements[0] = FVertexElement(0,
-					static_cast<uint8>(offsetof(FSimpleElementVertex, Position)),
-					EVertexElementType::Float4, 0, sizeof(FSimpleElementVertex));
-				SpriteElements[1] = FVertexElement(0,
-					static_cast<uint8>(offsetof(FSimpleElementVertex, UV)),
-					EVertexElementType::Float2, 1, sizeof(FSimpleElementVertex));
-				SpriteElements[2] = FVertexElement(0,
-					static_cast<uint8>(offsetof(FSimpleElementVertex, Color)),
-					EVertexElementType::Float4, 2, sizeof(FSimpleElementVertex));
-				if (Candidate.SpriteFragmentShader)
-					Candidate.SpriteVertexDeclaration =
-						GDynamicRHI->RHICreateVertexDeclaration(SpriteElements);
-
-				const auto Pixels = BuildEditorIconAtlasPixels();
-				const FRHITextureCreateDesc TextureDesc =
-					FRHITextureCreateDesc::Create2D("EditorSimpleElementIconAtlas",
-						FEditorIconAtlasLayout::Width,
-						FEditorIconAtlasLayout::Height,
-						EPixelFormat::RGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::ShaderResource);
-				if (Candidate.SpriteFragmentShader)
-					Candidate.EditorIconAtlas =
-						GDynamicRHI->RHICreateTexture(CommandList, TextureDesc);
-				if (Candidate.EditorIconAtlas)
-				{
-					const FUpdateTextureRegion2D Region(0, 0, 0, 0,
-						FEditorIconAtlasLayout::Width,
-						FEditorIconAtlasLayout::Height);
-					CommandList.UpdateTexture2D(Candidate.EditorIconAtlas, 0, 0, Region,
-						FEditorIconAtlasLayout::RowPitchBytes,
-						std::as_bytes(std::span(Pixels)));
-					CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
-						Candidate.EditorIconAtlas, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
-						Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
-				}
-				if (Candidate.SpriteFragmentShader)
-					Candidate.Sampler =
-						RHICreateSampler(FRHISamplerDesc::LinearClamp());
-				const bool bLineReady = Candidate.LineVertexShader
-						&& Candidate.LineFragmentShader
-						&& Candidate.LineVertexDeclaration;
-				const bool bSpriteReady = Candidate.SpriteVertexShader
-						&& Candidate.SpriteFragmentShader
-						&& Candidate.SpriteVertexDeclaration
-						&& Candidate.EditorIconAtlas && Candidate.Sampler;
-
-				if (!bLineReady)
-					Candidate.LineFragmentShader = {};
-				if (!bSpriteReady)
-					Candidate.SpriteFragmentShader = {};
-				if (!bLineReady && !bSpriteReady)
-				{
-					return FBaseResult::Pending();
-				}
-				return FBaseResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
-		if (Base == nullptr)
-			return Prepared;
+		const auto LineVertexShader = GetGlobalShaderMap().GetShader<FSimpleLineVertexShader>();
+		const auto LineFragmentShader = GetGlobalShaderMap().GetShader<FSimpleLineFragmentShader>();
+		const auto SpriteVertexShader = GetGlobalShaderMap().GetShader<FSimpleSpriteVertexShader>();
+		const auto SpriteFragmentShader = GetGlobalShaderMap().GetShader<FSimpleSpriteFragmentShader>();
+		auto& Base = State->Base;
+		if (!Base.LineVertexDeclaration)
+		{
+			FVertexDeclarationElementList LineElements;
+			LineElements[0] = FVertexElement(0,
+				static_cast<uint8>(offsetof(FSimpleElementVertex, Position)),
+				EVertexElementType::Float4, 0, sizeof(FSimpleElementVertex));
+			LineElements[1] = FVertexElement(0,
+				static_cast<uint8>(offsetof(FSimpleElementVertex, Color)),
+				EVertexElementType::Float4, 1, sizeof(FSimpleElementVertex));
+			LineElements[2] = FVertexElement(0,
+				static_cast<uint8>(offsetof(FSimpleElementVertex, Pattern)),
+				EVertexElementType::Float2, 2, sizeof(FSimpleElementVertex));
+			Base.LineVertexDeclaration =
+				GDynamicRHI->RHICreateVertexDeclaration(LineElements);
+		}
+		if (!Base.SpriteVertexDeclaration)
+		{
+			FVertexDeclarationElementList SpriteElements;
+			SpriteElements[0] = FVertexElement(0,
+				static_cast<uint8>(offsetof(FSimpleElementVertex, Position)),
+				EVertexElementType::Float4, 0, sizeof(FSimpleElementVertex));
+			SpriteElements[1] = FVertexElement(0,
+				static_cast<uint8>(offsetof(FSimpleElementVertex, UV)),
+				EVertexElementType::Float2, 1, sizeof(FSimpleElementVertex));
+			SpriteElements[2] = FVertexElement(0,
+				static_cast<uint8>(offsetof(FSimpleElementVertex, Color)),
+				EVertexElementType::Float4, 2, sizeof(FSimpleElementVertex));
+			Base.SpriteVertexDeclaration =
+				GDynamicRHI->RHICreateVertexDeclaration(SpriteElements);
+		}
+		if (!Base.EditorIconAtlas)
+		{
+			const auto Pixels = BuildEditorIconAtlasPixels();
+			const FRHITextureCreateDesc TextureDesc =
+				FRHITextureCreateDesc::Create2D("EditorSimpleElementIconAtlas",
+					FEditorIconAtlasLayout::Width,
+					FEditorIconAtlasLayout::Height,
+					EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource);
+			Base.EditorIconAtlas =
+				GDynamicRHI->RHICreateTexture(CommandList, TextureDesc);
+			if (Base.EditorIconAtlas)
+			{
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0,
+					FEditorIconAtlasLayout::Width,
+					FEditorIconAtlasLayout::Height);
+				CommandList.UpdateTexture2D(Base.EditorIconAtlas, 0, 0, Region,
+					FEditorIconAtlasLayout::RowPitchBytes,
+					std::as_bytes(std::span(Pixels)));
+				CommandList.TransitionTextures(std::array{Durin::FRHITextureTransition{
+					Base.EditorIconAtlas, {Durin::ERHITextureAspect::Color, 0, 1, 0, 1},
+					Durin::ERHIAccess::TransferWrite, Durin::ERHIAccess::GraphicsShaderRead}});
+			}
+		}
+		if (!Base.Sampler) Base.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 
 		std::vector<FSimpleElementVertex> Vertices;
 		std::vector<uint32> Indices;
@@ -326,54 +280,40 @@ namespace Durin
 			const FPreparedSimpleElementBatch& Batch = *Pending.Batch;
 			const FSimplePipelineKey Key = MakePipelineKey(
 				Batch.Key, OutputFormat);
-			auto EntryIt = std::ranges::find(
-				State->Pipelines, Key, &FState::FPipelineEntry::Key);
-			if (EntryIt == State->Pipelines.end())
-				EntryIt = State->Pipelines.emplace(
-					State->Pipelines.end(), FState::FPipelineEntry{.Key = Key});
 			const bool bTextured = Key.ShaderClass == ESimpleElementShaderClass::Textured;
-			if (bTextured ? !Base->SpriteFragmentShader : !Base->LineFragmentShader)
+			if (bTextured ? !(SpriteVertexShader.GetRHIShader(false) && SpriteFragmentShader.GetRHIShader(false)
+				&& Base.SpriteVertexDeclaration && Base.EditorIconAtlas && Base.Sampler)
+				: !(LineVertexShader.GetRHIShader(false) && LineFragmentShader.GetRHIShader(false) && Base.LineVertexDeclaration))
 				continue;
-			using FPipelineResult =
-				TRenderResourceCreateResult<FState::FPipelinePayload>;
 			const std::string PipelineName = MakePipelineName(Key);
-			auto* Pipeline = EntryIt->Slot.Resolve(GetGlobalShaderMap().GetGeneration_RenderThread(),
-				[Base, Key, bTextured]() -> FPipelineResult {
-					FGraphicsPipelineStateInitializer Initializer;
-					Initializer.RenderTargetLayout =
-						RenderTargetLayouts::MakeEditorAssistanceOutput(
-							Key.Output, Key.OutputFormat);
-					if (bTextured)
-					{
-						Initializer.BoundShaders.VertexShader =
-							Base->SpriteVertexShader.GetRHIShader();
-						Initializer.BoundShaders.FragmentShader =
-							Base->SpriteFragmentShader.GetRHIShader();
-						Initializer.VertexDeclaration = Base->SpriteVertexDeclaration;
-					}
-					else
-					{
-						Initializer.BoundShaders.VertexShader =
-							Base->LineVertexShader.GetRHIShader();
-						Initializer.BoundShaders.FragmentShader =
-							Base->LineFragmentShader.GetRHIShader();
-						Initializer.VertexDeclaration = Base->LineVertexDeclaration;
-					}
-					Initializer.BlendState = RHICreateBlendState({Key.BlendMode == ESimpleElementBlendMode::Translucent
-							? FRHIColorBlendState::StraightAlpha()
-							: FRHIColorBlendState{}});
-					Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-					Initializer.DepthStencilState = RHICreateDepthStencilState({
-						.bEnableTest = Key.DepthPriorityGroup == ESceneDepthPriorityGroup::World,
-						.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
-					Initializer.PipelineLayout = bTextured ? Base->SpriteFragmentShader.GetPipelineLayout() : Base->LineFragmentShader.GetPipelineLayout();
-
-					return FPipelineResult::Success({
-						.PipelineVertexDeclaration = Initializer.VertexDeclaration,
-						.PipelineInitializer = Initializer});
-				}, ReportRendererResourceCreateDiagnostic);
-			if (!Pipeline)
-				continue;
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderTargetLayout =
+				RenderTargetLayouts::MakeEditorAssistanceOutput(
+					Key.Output, Key.OutputFormat);
+			if (bTextured)
+			{
+				Initializer.BoundShaders.VertexShader =
+					SpriteVertexShader.GetRHIShader();
+				Initializer.BoundShaders.FragmentShader =
+					SpriteFragmentShader.GetRHIShader();
+				Initializer.VertexDeclaration = Base.SpriteVertexDeclaration;
+			}
+			else
+			{
+				Initializer.BoundShaders.VertexShader =
+					LineVertexShader.GetRHIShader();
+				Initializer.BoundShaders.FragmentShader =
+					LineFragmentShader.GetRHIShader();
+				Initializer.VertexDeclaration = Base.LineVertexDeclaration;
+			}
+			Initializer.BlendState = RHICreateBlendState({Key.BlendMode == ESimpleElementBlendMode::Translucent
+					? FRHIColorBlendState::StraightAlpha()
+					: FRHIColorBlendState{}});
+			Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+			Initializer.DepthStencilState = RHICreateDepthStencilState({
+				.bEnableTest = Key.DepthPriorityGroup == ESceneDepthPriorityGroup::World,
+				.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
+			Initializer.PipelineLayout = bTextured ? SpriteFragmentShader.GetPipelineLayout() : LineFragmentShader.GetPipelineLayout();
 
 			FTextureRHIRef Texture;
 			if (Batch.Key.ShaderClass == ESimpleElementShaderClass::Textured)
@@ -381,7 +321,7 @@ namespace Durin
 				if (Batch.Key.Texture.Kind
 					== FSimpleElementTexture::EKind::EditorIconAtlas)
 				{
-					Texture = Base->EditorIconAtlas;
+					Texture = Base.EditorIconAtlas;
 				}
 				else if (Batch.Key.Texture.TextureReference)
 				{
@@ -393,19 +333,19 @@ namespace Durin
 			}
 			if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 			{
-				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer, FName(PipelineName));
+				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, FName(PipelineName));
 				if (!Request) continue;
 				FRenderPipelinePreparationBatch::Add(Request);
 				if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
 			}
 			Prepared.Draws.push_back({
 				.Key = Batch.Key,
-				.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
-				.PipelineInitializer = Pipeline->PipelineInitializer,
-				.LineShader = Base->LineFragmentShader,
-				.SpriteShader = Base->SpriteFragmentShader,
+				.PipelineVertexDeclaration = Initializer.VertexDeclaration,
+				.PipelineInitializer = Initializer,
+				.LineShader = LineFragmentShader,
+				.SpriteShader = SpriteFragmentShader,
 				.Texture = std::move(Texture),
-				.Sampler = Base->Sampler,
+				.Sampler = Base.Sampler,
 				.IndexCount = static_cast<uint32>(Batch.Indices.size()),
 				.StartIndex = Pending.StartIndex,
 				.VertexOffset = Pending.VertexOffset,
@@ -462,10 +402,7 @@ namespace Durin
 	auto FSimpleElementRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->Base.Reset();
-		for (FState::FPipelineEntry& Entry : State->Pipelines)
-			Entry.Slot.Reset();
-		State->Pipelines.clear();
+		State->Base = {};
 		State->VertexBuffer = nullptr;
 		State->IndexBuffer = nullptr;
 		State->VertexCapacity = 0;

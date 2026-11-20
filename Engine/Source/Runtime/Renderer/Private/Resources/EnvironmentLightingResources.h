@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 
+#include "Hash/XxHash.h"
 #include "RendererAPI.h"
 #include "RenderResourceCreation.h"
 #include "RHIResources.h"
@@ -18,7 +19,7 @@ namespace Durin
     struct FSkyLightingGeneration
     {
         FTextureRHIRef Radiance, Irradiance, Prefiltered, BrdfLut;
-        FRenderResourceGeneration Resources;
+        FXxHash128 ShaderMapKey{};
         FSamplerRHIRef Sampler;
         uint64 Owner = 0, SourceEpoch = 0, Provider = 0, Revision = 0, Request = 0;
         FTextureRHIRef Source;

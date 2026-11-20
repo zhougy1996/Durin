@@ -1,6 +1,6 @@
 #include "Renderers/EditorAssistance/EditorGridRenderer.h"
 
-#include "Renderers/RendererResourceDiagnostics.h"
+#include "RenderPipelineCreation.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "CoreGlobals.h"
 #include "Misc/AssertionMacros.h"
@@ -52,29 +52,9 @@ namespace Durin
 
 	} // namespace
 
-	struct FEditorGridRenderer::FState
-	{
-		struct FPipelinePayload
-		{
-			FVertexDeclarationRHIRef PipelineVertexDeclaration;
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-		};
-
-		struct FPipelineEntry
-		{
-			FPipelineKey Key;
-			TRenderResourceCreationSlot<FPipelinePayload> Slot{
-				ERenderResourceGenerationDependency::Shader
-					| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
-		};
-
-		std::vector<FPipelineEntry> Pipelines;
-	};
-
 	FEditorGridRenderer::FEditorGridRenderer(
 		FFullscreenGeometryResources& InFullscreenGeometry)
 		: FullscreenGeometry(InFullscreenGeometry)
-		, State(std::make_unique<FState>())
 	{
 	}
 
@@ -107,56 +87,37 @@ namespace Durin
 			.DepthMode = EDepthMode::Visible,
 			.DepthConvention = View.DepthConvention,
 		};
-		auto EntryIt = std::ranges::find(
-			State->Pipelines, Key, &FState::FPipelineEntry::Key);
-		if (EntryIt == State->Pipelines.end())
-		{
-			EntryIt = State->Pipelines.emplace(
-				State->Pipelines.end(), FState::FPipelineEntry{.Key = Key});
-		}
 
-		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
-		auto* Pipeline = EntryIt->Slot.Resolve(
-			GetGlobalShaderMap().GetGeneration_RenderThread(),
-			[this, VertexShader, FragmentShader, Key]() -> FPipelineResult {
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeEditorAssistanceOutput(
-						Key.Output, Key.OutputFormat);
-				Initializer.BoundShaders.VertexShader =
-					VertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.BlendState = RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
-				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-				Initializer.DepthStencilState = RHICreateDepthStencilState({
-					.bEnableTest = true,
-					.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
-				Initializer.PipelineLayout =
-					FragmentShader.GetPipelineLayout();
-
-				return FPipelineResult::Success({
-					.PipelineVertexDeclaration = Initializer.VertexDeclaration,
-					.PipelineInitializer = Initializer});
-			},
-			ReportRendererResourceCreateDiagnostic);
-		if (!Pipeline)
-			return;
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.RenderTargetLayout =
+			RenderTargetLayouts::MakeEditorAssistanceOutput(
+				Key.Output, Key.OutputFormat);
+		Initializer.BoundShaders.VertexShader =
+			VertexShader.GetRHIShader();
+		Initializer.BoundShaders.FragmentShader =
+			FragmentShader.GetRHIShader();
+		Initializer.VertexDeclaration =
+			FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Initializer.BlendState = RHICreateBlendState({FRHIColorBlendState::StraightAlpha()});
+		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		Initializer.DepthStencilState = RHICreateDepthStencilState({
+			.bEnableTest = true,
+			.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
+		Initializer.PipelineLayout =
+			FragmentShader.GetPipelineLayout();
 
 		Prepared.EditorGridUniform = Uniform;
 		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
-			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline->PipelineInitializer, "EditorGridPipeline");
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, "EditorGridPipeline");
 			if (!Request) return;
 			FRenderPipelinePreparationBatch::Add(Request);
 			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return;
 		}
 		Prepared.Pipelines.push_back({
 			.Key = Key,
-			.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
-			.PipelineInitializer = Pipeline->PipelineInitializer,
+			.PipelineVertexDeclaration = Initializer.VertexDeclaration,
+			.PipelineInitializer = Initializer,
 			.GridFragmentShader = FragmentShader,
 		});
 	}
@@ -195,11 +156,4 @@ namespace Durin
 		CommandList.DrawIndexed(3, 0, 0);
 	}
 
-	auto FEditorGridRenderer::ReleaseResources_RenderThread() -> void
-	{
-		check(IsInRenderingThread());
-		for (FState::FPipelineEntry& Entry : State->Pipelines)
-			Entry.Slot.Reset();
-		State->Pipelines.clear();
-	}
 } // namespace Durin

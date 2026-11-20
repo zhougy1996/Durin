@@ -163,7 +163,6 @@ namespace Durin
 				Shaders.try_emplace(Type, ShaderMap);
 		}
 		PublishedShaders.swap(Shaders);
-		PublishedGeneration = Generation;
 		return true;
 	}
 
@@ -171,16 +170,6 @@ namespace Durin
 	{
 		const auto Found = PublishedShaders.find(&Type);
 		return Found != PublishedShaders.end() ? Found->second : nullptr;
-	}
-
-	auto FGlobalShaderMap::SetGeneration_RenderThread(
-		const FRenderResourceGeneration& InGeneration,
-		bool bForceShaderRecompile) -> void
-	{
-		if (Generation.Shader != InGeneration.Shader || Generation.Manual != InGeneration.Manual)
-			InvalidateShaderMapPreparations(bForceShaderRecompile);
-		Generation = InGeneration;
-		PublishedGeneration.Device = InGeneration.Device;
 	}
 
 	auto FGlobalShaderMap::ReleaseDeviceResources_RenderThread() -> void
@@ -193,8 +182,6 @@ namespace Durin
 		PendingCompilation.reset();
 		PublishedShaders.clear();
 		ClearShaderMapResourceCache();
-		Generation = {};
-		PublishedGeneration = {};
 	}
 
 	auto GetGlobalShaderMap() -> FGlobalShaderMap&

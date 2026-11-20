@@ -502,14 +502,13 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 		STACKS renderer
 		TIMEOUT 900
 		SOURCES Private/VolumetricCloudVulkanTests.cpp
-		LIBRARIES Core CoreDObject Engine ApplicationCore RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
+		LIBRARIES Core CoreDObject Engine ApplicationCore DerivedDataCache ShaderBuild Slang_Imported RenderCore Renderer VulkanRHI VulkanRHITestSupport Vulkan::Vulkan
 		INCLUDE_DIRECTORIES
 			${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 			${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 
 		REQUIRES editor
 		REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
-		ENVIRONMENTS authored-shaders
 		RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
 		HEAVY_RUNTIME_RATIONALE
 			"Owns one isolated Vulkan lifecycle for compute and fragment volumetric-cloud parity."

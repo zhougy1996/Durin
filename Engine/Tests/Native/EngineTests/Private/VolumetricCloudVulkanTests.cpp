@@ -8,6 +8,10 @@
 #include "DynamicRHI.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
+#include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
+#include "NativeTestSupport.h"
+#include "RenderPipelineCreation.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -113,6 +117,16 @@ namespace Durin
 		if (OwnScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
 		struct FStopScheduler { bool Owned; ~FStopScheduler() { if (Owned) ShutdownTaskScheduler(); } } Stop{OwnScheduler};
 		ASSERT_EQ(GDynamicRHI, nullptr);
+		// ShaderBuild freezes its mounts on startup. Give this test process its own engine shader tree.
+		const auto Engine = Testing::GetTestWorkDirectory() / "Engine";
+		const auto Source = Engine / "Shaders" / "Slang";
+		std::filesystem::create_directories(Source);
+		std::filesystem::copy(std::filesystem::path(FPaths::EngineDir()) / "Shaders" / "Slang", Source,
+			std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+		FRuntimePathContext Paths;
+		Paths.Bindings = {{"Engine", Engine.generic_string() + "/"},
+			{"EngineContent", FPaths::EngineContentDir()}, {"ThirdParty", FPaths::EngineThirdPartyRuntimeBinariesDir()}};
+		ASSERT_TRUE(PublishRuntimePathContext(std::move(Paths)));
 		FModuleManager::Get().LoadModule("RenderCore");
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
@@ -653,8 +667,73 @@ namespace Durin
 			EXPECT_TRUE((*Results)[Index]) << Index;
 		}
 
+		// Retain live PSO handles so both routes can be compared across publications.
+		auto CheckReload = [&] {
+			auto PreparePipelines = [&] {
+				std::vector<std::shared_ptr<FPipelineState>> Pipelines;
+				EnqueueRenderCommand("PrepareCloudPSOs", [&](FRHICommandListImmediate& Commands) {
+					++GRenderFrameCounterRenderThread;
+					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+					FSceneView View;
+					View.ViewportWidth = 64;
+					View.ViewportHeight = 32;
+					FVolumetricCloudRenderer::FRenderInput Input;
+					Input.bRequested = true;
+					Input.View = &View;
+					Input.Width = 64;
+					Input.Height = 32;
+					Input.QualityTier = FVolumetricCloudRenderer::EQualityTier::Reference;
+					FRenderPipelinePreparationBatch Batch;
+					Clouds.PrepareRoute_RenderThread(Commands, Input, true, false);
+					Clouds.PrepareRoute_RenderThread(Commands, Input, false, true);
+					Clouds.EnsureCompositeResources_RenderThread(Commands);
+					Batch.CollectRequests(Pipelines);
+					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+				});
+				FlushRenderingCommands();
+				for (const auto& Pipeline : Pipelines) EXPECT_EQ(Pipeline->Wait(), ERHIPipelineState::Ready);
+				return Pipelines;
+			};
+			const auto Original = PreparePipelines();
+			ASSERT_EQ(Original.size(), 3u);
+			EXPECT_EQ(PreparePipelines(), Original);
+
+			const auto ShaderPath = Source / "VolumetricCloud.slang";
+			std::ifstream Input(ShaderPath, std::ios::binary);
+			ASSERT_TRUE(Input);
+			std::string Code{std::istreambuf_iterator<char>(Input), {}};
+			Input.close();
+			const std::string OriginalColor = "return float4(radiance, transmittance);";
+			const auto Color = Code.find(OriginalColor);
+			ASSERT_NE(Color, std::string::npos);
+			Code.replace(Color, OriginalColor.size(), "return float4(0.5 * radiance, transmittance);");
+			auto Reload = [&](const std::string& Text) {
+				std::ofstream Output(ShaderPath, std::ios::binary | std::ios::trunc);
+				Output << Text;
+				Output.close();
+				ASSERT_TRUE(Output);
+				CompileGlobalShaderMap(true);
+				FlushRenderingCommands();
+			};
+			Reload(Code);
+			const auto Updated = PreparePipelines();
+			ASSERT_EQ(Updated.size(), Original.size());
+			EXPECT_NE(Updated[0], Original[0]);
+			EXPECT_NE(Updated[1], Original[1]);
+			EXPECT_EQ(Updated[2], Original[2]);
+			Reload(Code + "\n#error intentional cloud reload failure\n");
+			EXPECT_EQ(PreparePipelines(), Updated);
+		};
+		CheckReload();
+		EnqueueRenderCommand("ReleaseCloudPSOs", [&](FRHICommandListImmediate&) {
+			Clouds.ReleaseResources_RenderThread();
+			FullscreenGeometry.ReleaseResources_RenderThread();
+			GetGlobalShaderMap().Shutdown_RenderThread();
+		});
+		FlushRenderingCommands();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		RHIExit();
+		FModuleManager::Get().ShutdownModule("ShaderBuild");
 	}
 } // namespace Durin

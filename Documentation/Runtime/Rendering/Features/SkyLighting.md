@@ -53,7 +53,7 @@ sample solid angle, roughness=mip/7; mip zero copies radiance. These are
 lighting mips, distinct from ordinary TextureCube mips.
 
 The shared 128-square RGBA16F split-sum BRDF LUT uses 1024 samples and is
-cached per renderer resource generation. It does not depend on the
+cached by the filtering shader section’s content key. It does not depend on the
 source cube. Forward and deferred consumers share the same environment
 equations, complete generation, intensity, rotation, and maximum-mip controls. Each
 generation retains its selected BRDF LUT. The shared LUT cache admits only a
@@ -104,8 +104,8 @@ completion point. At runtime the collection releases each lease when its GPU com
 becomes eligible for retirement. Renderer shutdown drains the active GPU before
 releasing remaining leases, including failed submissions. The host completes
 Renderer shutdown before RHI exit destroys the device.
-An empty collection does not require a GPU wait. Renderer shader/device/manual generations express logical
-validity only and never authorize physical retirement. Logical invalidation
+An empty collection does not require a GPU wait. The published compute shader section鈥檚 content key identifies the filtering code
+and layout used by each job, scene result, and shared LUT. Logical invalidation
 moves old jobs and results into the same retirement queue and keeps their weak
 image inventory, so resources still count against admission while retained.
 `BeginFrame_RenderThread` collects that renderer-owned queue independently of
