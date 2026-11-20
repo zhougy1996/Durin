@@ -12,6 +12,7 @@ namespace Durin
 {
 	class FGBufferDebugRenderer;
 	class FPostProcessRenderer;
+	struct FPreparedPostProcess;
 	struct FPreparedPostProcessMaterial;
 	struct FSceneRenderTelemetry;
 
@@ -70,6 +71,7 @@ namespace Durin
 		const FSceneFeatureDecision& GBufferDebugFeature;
 		const FSceneFeatureDecision& EditorAssistanceFeature;
 		bool bPresentOutput;
+		std::shared_ptr<const FPreparedPostProcess> Draw;
 		std::shared_ptr<const FPreparedPostProcessMaterial> Material;
 	};
 

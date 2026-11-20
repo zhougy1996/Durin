@@ -203,7 +203,7 @@ namespace Durin
 			.Width = Width, .Height = Height,
 			.GBufferDebugFeature = Features.GBufferDebug,
 			.EditorAssistanceFeature = Features.EditorAssistance,
-			.bPresentOutput = bPresentOutput, .Material = Resolved.Scene.PostProcessMaterial});
+			.bPresentOutput = bPresentOutput, .Draw = Resolved.Scene.PostProcess, .Material = Resolved.Scene.PostProcessMaterial});
 		Completion = PostProcessOutput.Completion;
 		AddEditorAssistancePasses(Graph, { .View = PreparedRenderView,
 			.Prepared = PreparedEditorAssistance, .PostProcess = PostProcessOutput,

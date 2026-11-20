@@ -16,6 +16,7 @@ namespace Durin
 	struct FSceneView;
 	struct FSceneViewRenderOptions;
 	struct FMaterialSceneTextureUniform;
+	struct FPreparedPostProcess;
 	struct FPreparedPostProcessMaterial
 	{
 		std::shared_ptr<const FMaterialProgram> Program;
@@ -64,21 +65,16 @@ namespace Durin
 		auto operator=(const FPostProcessRenderer&)
 			-> FPostProcessRenderer& = delete;
 
-		auto EnsureResources_RenderThread(
-			FRHICommandListImmediate& CommandList, bool bPresentOutput, bool bEnableFXAA,
-			bool bHasEditorAssistance, EPixelFormat OutputFormat) -> bool;
+		auto Prepare_RenderThread(
+			FRHICommandListImmediate& CommandList, bool bEnableFXAA, const FRHIRenderTargetLayout& Targets)
+			-> std::shared_ptr<const FPreparedPostProcess>;
 		static auto DescribeSceneTargets(uint32 Width, uint32 Height)
 			-> std::array<FRHITextureCreateDesc, 2>;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FRHITexture* SceneColor,
-			uint32 Width,
-			uint32 Height,
-			bool bPresentOutput,
-			bool bEnableFXAA,
-			bool bHasEditorAssistance,
-			EPixelFormat OutputFormat,
-			float ExposureEV) -> void;
+			FRHITexture* SceneColor, FRHITexture* Output,
+			const FPreparedPostProcess& Draw, const FClearValueBinding& ClearColor,
+			bool bPresentOutput, float ExposureEV) -> void;
 		auto PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands,
 			const FSceneView& View, const FSceneViewRenderOptions& Options, FScene* Scene, uint32 Width, uint32 Height,
 			bool bRejectPreparation = false, bool bRejectBindings = false)

@@ -359,9 +359,12 @@ namespace Durin
 					CommandList, RenderView, EditorAssistanceRequest);
 			const bool bHasEditorAssistance =
 				PreparedEditorAssistance.HasDrawableOperation();
-			if (!Service.PostProcessRenderer.EnsureResources_RenderThread(CommandList,
-				bPresentOutput, RenderView.Settings.PostProcess.bEnableFXAA,
-				bHasEditorAssistance, OutputTarget->GetFormat()))
+			const auto Targets = bHasEditorAssistance
+				? RenderTargetLayouts::MakeScenePostProcessOutput(OutputTarget->GetFormat())
+				: RenderTargetLayouts::MakeFinalScenePostProcessOutput(ViewportOutput, OutputTarget->GetFormat());
+			ResolvedSceneResources.PostProcess = Service.PostProcessRenderer.Prepare_RenderThread(
+				CommandList, RenderView.Settings.PostProcess.bEnableFXAA, Targets);
+			if (!ResolvedSceneResources.PostProcess)
 				return ERenderViewResult::RendererResourcesUnavailable;
 			ResolvedSceneResources.PostProcessMaterial = Service.PostProcessRenderer.PrepareMaterial_RenderThread(
 				CommandList, RenderView, Context.Logical.Options, Context.Logical.Scene, Width, Height,

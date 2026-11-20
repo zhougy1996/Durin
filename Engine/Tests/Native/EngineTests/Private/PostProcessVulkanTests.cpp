@@ -6,6 +6,10 @@
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
+#include "NativeTestSupport.h"
+#include "Shader/GlobalShader.h"
+#include "Misc/Paths.h"
+#include "Misc/RuntimePaths.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -16,7 +20,7 @@
 namespace Durin
 {
 
-	TEST(FPostProcessVulkanTests, PostProcessPreparesOnlyRequestedVariantsAndReusesCompletedPeers)
+	TEST(FPostProcessVulkanTests, CopyAndFXAAReusePipelinesAndFollowSuccessfulShaderPublication)
 	{
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		struct FTaskScope { ~FTaskScope() { ShutdownTaskScheduler(); } } TaskScope;
@@ -25,6 +29,16 @@ namespace Durin
 			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 			GIsGameThreadIdInitialized = true;
 		}
+		// ShaderBuild freezes its mounts on startup. Give this test process its own engine shader tree.
+		const auto Engine = Testing::GetTestWorkDirectory() / "Engine";
+		const auto Source = Engine / "Shaders" / "Slang";
+		std::filesystem::create_directories(Source);
+		std::filesystem::copy(std::filesystem::path(FPaths::EngineDir()) / "Shaders" / "Slang", Source,
+			std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+		FRuntimePathContext Paths;
+		Paths.Bindings = {{"Engine", Engine.generic_string() + "/"},
+			{"EngineContent", FPaths::EngineContentDir()}, {"ThirdParty", FPaths::EngineThirdPartyRuntimeBinariesDir()}};
+		ASSERT_TRUE(PublishRuntimePathContext(std::move(Paths)));
 		FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		RHIInit(Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
@@ -53,7 +67,7 @@ namespace Durin
 			}
 		} Cleanup{Lifecycle, Scene};
 		Scene = Renderer.CreateScene();
-		auto Prepare = [&](bool FXAA, EPixelFormat Format) {
+		auto Prepare = [&](bool FXAA, EPixelFormat Format, FByteBuffer* Pixels = nullptr) {
 			FTextureRHIRef Output;
 			const auto Preparation = FRenderResourcePreparation::Create();
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -66,7 +80,7 @@ namespace Durin
 					Renderer.BeginFrame_RenderThread(Commands);
 					if (!Output) Output = GDynamicRHI->RHICreateTexture(Commands,
 						FRHITextureCreateDesc::Create2D("PostProcessDemand", 32, 32, Format)
-							.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+							.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
 					ASSERT_TRUE(Output);
 					FSceneView View;
 					View.ViewportWidth = 32; View.ViewportHeight = 32;
@@ -82,6 +96,25 @@ namespace Durin
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			} while (std::chrono::steady_clock::now() < Deadline);
 			EXPECT_EQ(Preparation.GetProgress().State, ERenderResourcePreparationState::Ready);
+			if (Pixels)
+			{
+				EnqueueRenderCommand("DrawPostProcess", [&](FRHICommandListImmediate& Commands) {
+					++GRenderFrameCounterRenderThread;
+					Commands.SwitchPipeline(ERHIPipeline::Graphics);
+					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+					Renderer.BeginFrame_RenderThread(Commands);
+					FSceneView View;
+					View.ViewportWidth = 32;
+					View.ViewportHeight = 32;
+					View.ClearColor.a = 1.0f;
+					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
+					View.Settings.PostProcess.bEnableFXAA = FXAA;
+					EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}}), ERenderViewResult::Success);
+					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, *Pixels));
+					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+				});
+				FlushRenderingCommands();
+			}
 		};
 		const auto Initial = GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations;
 		uint64 Expected = Initial;
@@ -96,6 +129,48 @@ namespace Durin
 		Prepare(false, EPixelFormat::SRGBA8_UNORM);
 		Prepare(true, EPixelFormat::SBGRA8_UNORM);
 		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, Expected);
+
+		auto CheckDraws = [&](uint8 CopyAlpha, uint8 FXAAAlpha) {
+			for (bool FXAA : {false, true})
+			{
+				FByteBuffer Pixels;
+				Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &Pixels);
+				ASSERT_EQ(Pixels.size(), 32u * 32u * 4u);
+				EXPECT_NEAR(std::to_integer<int>(Pixels[3]), FXAA ? FXAAAlpha : CopyAlpha, 1);
+			}
+		};
+		CheckDraws(255, 255);
+		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, Expected);
+
+		const auto Path = Source / "PostProcess.slang";
+		std::ifstream Input(Path, std::ios::binary);
+		ASSERT_TRUE(Input);
+		std::string Code{std::istreambuf_iterator<char>(Input), {}};
+		Input.close();
+		const std::string Alpha = "DisplayAlpha(center.a)";
+		const auto Copy = Code.find(Alpha);
+		const auto FXAA = Code.rfind(Alpha);
+		ASSERT_NE(Copy, std::string::npos);
+		ASSERT_LT(Copy, FXAA);
+		Code.replace(FXAA, Alpha.size(), "0.75 * " + Alpha);
+		Code.replace(Copy, Alpha.size(), "0.25 * " + Alpha);
+		auto Reload = [&](const std::string& Text) {
+			std::ofstream Output(Path, std::ios::binary | std::ios::trunc);
+			Output << Text;
+			Output.close();
+			ASSERT_TRUE(Output);
+			CompileGlobalShaderMap(true);
+			FlushRenderingCommands();
+		};
+		// Publish without advancing the renderer generation. Only the shaders changed.
+		Reload(Code);
+		CheckDraws(64, 191);
+		Expected += 2;
+		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, Expected);
+		Reload(Code + "\n#error intentional PostProcess reload failure\n");
+		CheckDraws(64, 191);
+		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, Expected);
+
 	}
 
 }

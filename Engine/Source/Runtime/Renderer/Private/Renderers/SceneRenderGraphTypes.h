@@ -113,9 +113,11 @@ namespace Durin
 		}
 	};
 
+	struct FPreparedPostProcess;
 	struct FPreparedPostProcessMaterial;
 	struct FResolvedSceneResources
 	{
+		std::shared_ptr<const FPreparedPostProcess> PostProcess;
 		std::shared_ptr<const FPreparedPostProcessMaterial> PostProcessMaterial;
 		FResolvedLighting Lighting;
 		FResolvedReceiverGeometry Receiver;

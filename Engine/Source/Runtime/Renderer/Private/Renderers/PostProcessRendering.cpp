@@ -12,7 +12,6 @@
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
 
 namespace Durin
@@ -93,6 +92,7 @@ namespace Durin
 		{
 			FGBufferDebugRenderer& GBufferDebugRenderer;
 			FPostProcessRenderer& PostProcessRenderer;
+			std::shared_ptr<const FPreparedPostProcess> Draw;
 			FSceneRenderTelemetry& Telemetry;
 
 			auto RenderPostProcess_RenderThread(FRHICommandListImmediate&,
@@ -100,23 +100,16 @@ namespace Durin
 				const FSceneViewRenderOptions&,
 				const FPostProcessRenderer::FSceneTargets&,
 				const FGBufferRenderer::FTargets*,
-				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*, FRHITexture*,
-				bool) -> FPostProcessPassResult;
+				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*, FRHITexture*) -> FPostProcessPassResult;
 		};
 
-		auto GetViewportOutput(bool bPresent)
-			-> RenderTargetLayouts::EViewportOutput
-		{
-			return bPresent ? RenderTargetLayouts::EViewportOutput::Present
-				: RenderTargetLayouts::EViewportOutput::Offscreen;
-		}
 	} // namespace
 
 	auto AddPostProcessPasses(
 		FRDGBuilder& Graph, const FPostProcessFeatureInputs& Inputs) -> FPostProcessGraphOutput
 	{
 		FPostProcessRecorder Recorder{
-			Inputs.GBufferDebug, Inputs.Renderer, Inputs.Telemetry};
+			Inputs.GBufferDebug, Inputs.Renderer, Inputs.Draw, Inputs.Telemetry};
 		const auto& RecordView = Inputs.RecordView;
 		const auto& View = Inputs.View;
 		auto* OutputTarget = Inputs.OutputTarget;
@@ -218,7 +211,7 @@ namespace Durin
 			Graph.AddPass(PostProcessPassName, ERDGPassType::Graphics, std::move(Parameters),
 			[Recorder,
 				RecordView = &RecordView, &View, bGBufferDebug, &Options,
-				bPresentOutput, bHasEditorAssistance](
+				bPresentOutput](
 				FRHICommandListImmediate& Commands,
 				const FPostProcessPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) mutable {
@@ -284,8 +277,7 @@ namespace Durin
 					bPresentOutput, LocalOptions, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					DebugTargets ? &*DebugTargets : nullptr,
-					SceneColorInput, MaterialColorInput, IsolatedDeferredOutput,
-					bHasEditorAssistance
+					SceneColorInput, MaterialColorInput, IsolatedDeferredOutput
 				);
 			});
 		if (!bHasEditorAssistance)
@@ -308,14 +300,11 @@ namespace Durin
 		const FGBufferDebugRenderer::FTargets* GBufferDebugTargets,
 		FRHITexture* SceneColor,
 		FRHITexture* MaterialColor,
-		FRHITexture* GroundTruthAmbientOcclusionDebugOutput,
-		bool bEditorAssistanceFollows
+		FRHITexture* GroundTruthAmbientOcclusionDebugOutput
 	) -> FPostProcessPassResult
 	{
 		const uint32 Width = OutputTarget->GetSizeX();
 		const uint32 Height = OutputTarget->GetSizeY();
-		const RenderTargetLayouts::EViewportOutput ViewportOutput =
-			GetViewportOutput(bPresentOutput);
 		FRHITexture* PostProcessInput = MaterialColor ? MaterialColor : SceneColor;
 		if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled
 			&& GBufferTargets != nullptr)
@@ -354,40 +343,14 @@ namespace Durin
 			HDRCaptureSink(CommandList, SceneColor, PostProcessInput);
 		}
 
-		FRHIRenderPassInfo PostProcessPassInfo{};
-		PostProcessPassInfo.RenderTargetLayout = bEditorAssistanceFollows
-			? RenderTargetLayouts::MakeScenePostProcessOutput(
-				OutputTarget->GetFormat())
-			: RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-				ViewportOutput, OutputTarget->GetFormat());
-		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
-		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(
-			View.ClearColor.r,
-			View.ClearColor.g,
-			View.ClearColor.b,
-			View.ClearColor.a
-		);
 		const FPostProcessTimingQuerySink PostProcessTimingSink =
 			GetPostProcessTimingQuerySink();
 		TScopedRendererGPUTimingQuery PostProcessTiming(
 			CommandList, PostProcessTimingSink
 		);
-		CommandList.BeginRenderPass(
-			PostProcessPassInfo,
-			bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass"
-		);
-		PostProcessRenderer.Draw_RenderThread(
-			CommandList,
-			PostProcessInput,
-			Width,
-			Height,
-			bPresentOutput,
-			View.Settings.PostProcess.bEnableFXAA,
-			bEditorAssistanceFollows,
-			OutputTarget->GetFormat(),
-			RenderView.Settings.PostProcess.ExposureEV
-		);
-		CommandList.EndRenderPass();
+		PostProcessRenderer.Draw_RenderThread(CommandList, PostProcessInput, OutputTarget, *Draw,
+			FClearValueBinding(View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a),
+			bPresentOutput, RenderView.Settings.PostProcess.ExposureEV);
 		PostProcessTiming.Commit();
 		return {.Result = ERenderViewResult::Success};
 	}

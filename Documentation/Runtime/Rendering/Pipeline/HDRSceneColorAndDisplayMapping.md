@@ -4,7 +4,7 @@ Summary: Define the scene-linear HDR intermediate and the single deterministic t
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-20
 
 ## Color Domains and Formats
 
@@ -70,11 +70,12 @@ not color processing.
 
 ## Resources, Retention, and Failure
 
-`FPostProcessRenderer` publishes copy and FXAA shader/pipeline payloads
-transactionally. A missing payload reports renderer resources unavailable;
-there is no raw HDR-to-SDR fallback. Pending or failed shader/manual replacements
-expose no payload, following the renderer resource slot contract. Device
-invalidation clears dependent resources before retry.
+Copy and FXAA prepare typed vertex and fragment references from the published
+global shader map for each view. The draw retains those references and uses
+the same pipeline initializer for precaching and recording. The RHI cache
+reuses matching shaders, pipeline layout and render state across frames.
+A successful publication makes the replacement shaders available to subsequent
+views. A failed reload keeps the previous shaders and pipelines usable.
 
 Scene Color and depth cost 12 bytes per pixel (8 + 4), or `24,883,200` bytes
 at 1920x1080. They are frame-transient graph targets.
