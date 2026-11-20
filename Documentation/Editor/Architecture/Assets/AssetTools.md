@@ -119,14 +119,11 @@ and preserve authored descendant suffixes; changed live values reject before
 mutation. These records remain private and introduce no public multi-stage protocol.
 Retry includes clean but projection-fenced alias packages; clearing Dirty after a
 physical commit does not establish that Registry publication succeeded.
-Owned payloads prepare before identity mutation and retain source files until the
-new package and references are committed; failed preparation removes new copies.
 Uncertain/partial persistence still requires native diagnostics and inspection.
 
 The return value reports whether every requested identity change or soft-reference
-repair succeeded. Subsequent save, Registry publication and old-payload cleanup
-failures remain diagnostics and native persistence facts; they do not turn an
-applied rename into a failed rename. Repeating an already applied request may
+repair succeeded. Subsequent save and Registry publication failures remain
+visible in diagnostics and native persistence results. Repeating an already applied request may
 retry persistence without emitting another identity event. Callers must not use
 the rename bool as a saved-state checkpoint; Level Editor checks the package's
 Dirty/new state and Registry publication fence independently.

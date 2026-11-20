@@ -245,25 +245,7 @@ namespace Durin
 		friend class FStaticMeshTestAccess;
 		friend class FStaticMeshLoadUpdate;
 		bool bCompilationMutationBlocked = false;
-		// Owner-thread replacement invalidates old render/collision data first. Failure
-		// leaves CPU data unavailable and returns a diagnostic; no rollback is performed.
-		// Collision failure alone leaves the new CPU render data usable.
-		// Does not change source metadata or dirty the package. GPU readiness is separate.
-		ENGINE_API auto ReplaceRenderDataDestructively(
-			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, std::string>;
-		// Also installs valid source settings before rebuilding, retaining them on failure.
-		// Package dirtying remains the operation owner's responsibility.
-#if DURIN_WITH_EDITORONLY_DATA
-		ENGINE_API auto ReplaceSourceRenderDataDestructively(
-			FStaticMeshSource InSource,
-			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-			float InNormalizedSize) -> std::expected<void, std::string>;
-#endif
 		auto InvalidateRenderData() -> void;
-		auto ValidateAndReplaceRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots) -> std::expected<void, std::string>;
 		auto InvalidateCollisionData() -> void;
 		auto ScheduleCollisionData(bool bAllowUnavailable, bool bPersistDerivedData = true) -> void;
 		auto RebuildCollisionData(bool bAllowUnavailable, bool bPersistDerivedData = true) -> void;

@@ -264,11 +264,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	auto* StaticMesh = Durin::NewObject<Durin::DStaticMesh>(nullptr, "CpuOnlyStaticMesh");
 	EXPECT_FALSE(StaticMesh->HasPendingRenderResourceInitialization());
 	std::string Error;
-	ASSERT_TRUE(Durin::FStaticMeshTestAccess::ReplaceRenderData(StaticMesh, MakeRenderData(), {
+	Durin::FStaticMeshTestAccess::SetMaterialSlots(StaticMesh, {
 		{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 		{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 		{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
-		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}));
+		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}});
+	ASSERT_TRUE(Durin::PublishStaticMeshRenderData(*StaticMesh, MakeRenderData()));
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -354,11 +355,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
 	std::string Error;
-	ASSERT_TRUE(Durin::FStaticMeshTestAccess::ReplaceRenderData(AuthoredMesh, MakeRenderData(), {
+	Durin::FStaticMeshTestAccess::SetMaterialSlots(AuthoredMesh, {
 			{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 			{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 			{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
-			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}));
+			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}});
+	ASSERT_TRUE(Durin::PublishStaticMeshRenderData(*AuthoredMesh, MakeRenderData()));
 
 	Durin::FCookContext CookContext(
 		Durin::ECookTargetPlatform::Win64,
@@ -3648,14 +3650,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	}
 	InitializeDObjectSystem();
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, "ReplacementGpuFailure");
-	auto Replace = [&] {
-		ASSERT_TRUE(Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, MakeRenderData(), {
-			{.Name = FName("Section0"), .SourceMaterialIndex = 0},
-			{.Name = FName("Section1"), .SourceMaterialIndex = 1},
-			{.Name = FName("Section2"), .SourceMaterialIndex = 2},
-			{.Name = FName("Section3"), .SourceMaterialIndex = 3}}));
-	};
-	Replace();
+	FStaticMeshTestAccess::SetMaterialSlots(Mesh, {
+		{.Name = FName("Section0"), .SourceMaterialIndex = 0},
+		{.Name = FName("Section1"), .SourceMaterialIndex = 1},
+		{.Name = FName("Section2"), .SourceMaterialIndex = 2},
+		{.Name = FName("Section3"), .SourceMaterialIndex = 3}});
+	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, MakeRenderData()));
 	FModuleManager::Get().LoadModule("RenderCore");
 	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(GDynamicRHI, nullptr);
@@ -3695,7 +3695,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	FlushRenderingCommands();
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	const auto Revision = Mesh->GetRenderResourceStatus().Revision;
-	Replace();
+	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, MakeRenderData()));
 	FlushRenderingCommands();
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
@@ -3704,10 +3704,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ReplacementRetiresOldResourcesAndI
 	Mesh->InitResources();
 	FlushRenderingCommands();
 	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
-	EXPECT_FALSE(Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {}));
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	EXPECT_FALSE(Mesh->RequestRenderDataAndResources());
-	EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
+	const auto* PublishedData = Mesh->GetRenderData();
+	const auto PublishedRevision = Mesh->GetRenderResourceStatus().Revision;
+	EXPECT_FALSE(PublishStaticMeshRenderData(*Mesh, nullptr));
+	EXPECT_EQ(Mesh->GetRenderData(), PublishedData);
+	EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, PublishedRevision);
+	EXPECT_TRUE(Mesh->GetRenderResourceStatus().IsReady());
 	MarkAsGarbage(Mesh);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	FlushRenderingCommands();
@@ -4048,8 +4050,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 			}
 		} MeshCleanup{Mesh};
 		std::vector<FMeshMaterialSlotDefinition> Slots;
-		for (uint32 Index = 0; Index < 4; ++Index) Slots.push_back({.Name = FName(std::format("Section{}", Index)), .DefaultMaterial = Material.Get()});
-		ASSERT_TRUE(FStaticMeshTestAccess::ReplaceRenderData(Mesh, MakeRenderData(), std::move(Slots)));
+		for (uint32 Index = 0; Index < 4; ++Index) Slots.push_back({.Name = FName(std::format("Section{}", Index)), .SourceMaterialIndex = Index, .DefaultMaterial = Material.Get()});
+		auto RenderData = MakeRenderData();
+		FStaticMeshTestAccess::SetMaterialSlots(Mesh, std::move(Slots));
+		ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, std::move(RenderData)));
 		auto SceneOwner = Renderer.CreateScene(); auto& Scene = *static_cast<FScene*>(SceneOwner.get());
 		TStrongObjectPtr<DWorld> World(NewObject<DWorld>(nullptr, NAME_None));
 		struct FCleanup
@@ -4671,8 +4675,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 		}
 	} Cleanup{HighWorld.Get(), LowWorld.Get(), HighScene, LowScene, Mesh};
 	std::vector<FMeshMaterialSlotDefinition> Slots;
-	for (uint32 Slot = 0; Slot < 4; ++Slot) Slots.push_back({.Name = FName(std::format("FeatureSlot{}", Slot)), .DefaultMaterial = Material.Get()});
-	ASSERT_TRUE(FStaticMeshTestAccess::ReplaceRenderData(Mesh, MakeRenderData(), std::move(Slots)));
+	for (uint32 Slot = 0; Slot < 4; ++Slot) Slots.push_back({.Name = FName(std::format("FeatureSlot{}", Slot)), .SourceMaterialIndex = Slot, .DefaultMaterial = Material.Get()});
+	auto RenderData = MakeRenderData();
+	for (size_t Index = 0; Index < Slots.size(); ++Index)
+		RenderData->MaterialSlots[Index].Name = Slots[Index].Name.ToString();
+	FStaticMeshTestAccess::SetMaterialSlots(Mesh, std::move(Slots));
+	ASSERT_TRUE(PublishStaticMeshRenderData(*Mesh, std::move(RenderData)));
 	auto AddComponent = [&](DWorld& World, FSceneInterface& Scene) -> DStaticMeshComponent* {
 		World.InitializeSubsystems();
 		auto* Level = NewObject<DLevel>(&World, NAME_None);

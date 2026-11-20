@@ -136,8 +136,7 @@ keeps the new source, slots and metadata. Saving belongs to the editor caller.
 `BuildFromSource` retains candidate Source and `PreparedMaterialSlots` until
 successful render publication. Scene commits its prepared render/source/slots/provenance
 directly through `CommitStaticMeshBuild`; compiler requests have no provenance callback.
-Ordinary rebuilds retain existing slots and preserve previous render data on failure;
-the private destructive test replacement retains its explicit destructive behavior.
+Ordinary rebuilds retain existing slots and preserve previous render data on failure.
 
 Authored PostLoad, ordinary Build/BuildFromSource and Scene publication complete at
 render commit. The transaction schedules missing collision as an
@@ -386,8 +385,7 @@ releases unconsumed products on normal or exceptional scope exit. A single work
 phase (`Queued`, `Running`, `AwaitingDerivedData`, `Complete`) replaces separate
 started, dispatch, completion-ready and CPU-done flags. Queued cancellation
 releases inputs without acquiring or decrementing an admission slot. Detailed source/payload validation
-errors retain their rejected values. Test-only destructive replacement returns
-owned text and does not store another last-error channel on the object.
+errors retain their rejected values.
 `StaticMeshBuildTypes.h` owns lightweight build types; the private
 `StaticMeshBuildPrivate.h` groups DDC registration, session dispatch/consumption
 and render preparation. Compilation declarations do not include the detached build

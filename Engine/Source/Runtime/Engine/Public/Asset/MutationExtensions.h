@@ -11,12 +11,6 @@
 
 namespace Durin
 {
-	class DClass;
-	class DObject;
-}
-
-namespace Durin
-{
 	struct FAssetReferenceStoreOccurrence
 	{
 		std::string ProviderId;
@@ -118,32 +112,5 @@ namespace Durin
 	ENGINE_API auto UnregisterAssetReferenceStore(
 		FAssetReferenceStoreHandle Handle
 	) -> void;
-
-	struct FAssetOwnedPayloadRelocation
-	{
-		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;
-		std::function<void()> Apply;
-		std::function<void()> Restore;
-	};
-
-	using FAssetOwnedPayloadRelocator = std::function<std::expected<void, UnifiedError::FError>(
-		DObject*,
-		const FPackagePath&,
-		const FPackagePath&,
-		FAssetOwnedPayloadRelocation&
-	)>;
-	using FAssetOwnedPayloadRelocatorHandle = uint64;
-	ENGINE_API auto RegisterAssetOwnedPayloadRelocator(
-		DClass* Class,
-		FAssetOwnedPayloadRelocator Relocator) -> FAssetOwnedPayloadRelocatorHandle;
-
-	ENGINE_API auto UnregisterAssetOwnedPayloadRelocator(
-		FAssetOwnedPayloadRelocatorHandle Handle
-	) -> void;
-
-	// Copies the extension for this class or its nearest registered superclass.
-	// Release the callback before unloading its provider code.
-	ENGINE_API auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
-		-> FAssetOwnedPayloadRelocator;
 
 } // namespace Durin

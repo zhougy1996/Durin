@@ -53,15 +53,6 @@ namespace Durin
 		}
 
 #endif
-		static auto ReplaceRenderData(DStaticMesh* Mesh, std::unique_ptr<FStaticMeshRenderData> Data,
-			std::vector<FMeshMaterialSlotDefinition> Slots) -> std::expected<void, std::string>
-		{ return Mesh->ReplaceRenderDataDestructively(std::move(Data), std::move(Slots)); }
-#if DURIN_WITH_EDITORONLY_DATA
-		static auto ReplaceSourceRenderData(DStaticMesh* Mesh, FStaticMeshSource Source,
-			std::unique_ptr<FStaticMeshRenderData> Data, std::vector<FMeshMaterialSlotDefinition> Slots,
-			float NormalizedSize) -> std::expected<void, std::string>
-		{ return Mesh->ReplaceSourceRenderDataDestructively(std::move(Source), std::move(Data), std::move(Slots), NormalizedSize); }
-#endif
 		static auto GetMutableRenderData(DStaticMesh* Mesh)
 			-> FStaticMeshRenderData*
 		{

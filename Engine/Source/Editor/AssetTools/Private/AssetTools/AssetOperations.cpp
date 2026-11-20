@@ -156,31 +156,6 @@ namespace Durin
 			auto& Soft = Item.SoftReferences;
 			for (auto* Package : Referencers)
 				if (auto Collected = CollectSoftObjectPathFixups(Package, std::span{&Data, 1}, Soft); !Collected) return Reject(Collected.error().ToString());
-			FAssetOwnedPayloadRelocation Payload;
-			std::vector<std::filesystem::path> CopiedPayloads;
-			bool PayloadCommitted = false;
-			struct FPayloadPreparation
-			{
-				std::vector<std::filesystem::path>& Files; bool& Committed;
-				~FPayloadPreparation() { if (!Committed) for (const auto& File : Files) { std::error_code Ignored; std::filesystem::remove(File, Ignored); } }
-			} PayloadPreparation{CopiedPayloads, PayloadCommitted};
-			if (!Data.bOnlyFixSoftReferences && OldPackagePath != NewPackagePath)
-				if (const auto Relocator = FindAssetOwnedPayloadRelocator(Object->GetClass()))
-				{
-					if (auto Prepared = Relocator(Object, OldPackagePath, NewPackagePath, Payload); !Prepared) return Reject(Prepared.error().ToString());
-					for (const auto& [From, To] : Payload.Files)
-					{
-						if (From == To) continue;
-						std::filesystem::create_directories(To.parent_path(), FilesystemError);
-						if (!FilesystemError) std::filesystem::copy_file(From, To, std::filesystem::copy_options::none, FilesystemError);
-						if (FilesystemError)
-						{
-							for (const auto& Created : CopiedPayloads) { std::error_code Ignored; std::filesystem::remove(Created, Ignored); }
-							return Reject("Owned payload preparation failed: " + FilesystemError.message());
-						}
-						CopiedPayloads.push_back(To);
-					}
-				}
 			const auto Stores = Facts.GetStores();
 			if (!Stores) return Reject(Stores.error().ToString());
 			const bool ExternalStore = std::ranges::any_of((*Stores)->Stores, [&](const auto& Store) { return std::ranges::any_of(Store.Occurrences, [&](const auto& Occurrence) { return Occurrence.TargetPath == OldPackagePath; }); });
@@ -218,8 +193,6 @@ namespace Durin
 				const auto PreviousName = Object->GetFName();
 				if (!Object->Rename(FName(Data.NewObjectPath.GetAssetPath().GetAssetName()), DestinationPackage)) return Reject("The object identity could not be updated.");
 				Object->SetFlags(EObjectFlags::Public | EObjectFlags::Standalone);
-				if (Payload.Apply) Payload.Apply();
-				PayloadCommitted = true;
 				if (Item.bCreateRedirector)
 				{
 					Alias = NewObject<DAssetRedirector>(SourcePackage, PreviousName, EObjectFlags::Public | EObjectFlags::Standalone | EObjectFlags::Transactional);
@@ -258,13 +231,6 @@ namespace Durin
 					for (const auto& Backup : Fixed.BackupLocations) FFeedbackContext::Get().Warning("Recovery backup: " + Backup.generic_string());
 				}
 			}
-			if (Success)
-				for (const auto& [From, To] : Payload.Files)
-					if (From != To)
-					{
-						std::error_code Error; std::filesystem::remove(From, Error);
-						if (Error) { Success = false; FFeedbackContext::Get().Warning("The renamed asset is saved; remove the retained source payload after inspection: " + From.generic_string()); }
-					}
 			return Success;
 		}
 	}

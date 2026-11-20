@@ -1473,44 +1473,6 @@ TEST(DAssetRenameTests, FailedPersistenceRetainsUnsavedValuesAndIdentityForOrdin
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(DAssetRenameTests, PayloadCleanupFailureDoesNotFailTheCommittedRename)
-{
-	using namespace Durin;
-	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
-	const auto Root = Testing::GetTestWorkDirectory() / "RenamePayloadCleanup";
-	std::filesystem::create_directories(Root);
-	const auto Source = Root / "source.bin", Target = Root / "target.bin";
-	{ std::ofstream Stream(Source); Stream << "payload"; }
-	auto* Object = IAssetTools::Get().CreateAsset("RenameCleanupSource", "/AssetToolsTests", DMaterial::StaticClass(), nullptr);
-	ASSERT_NE(Object, nullptr);
-	const auto Handle = RegisterAssetOwnedPayloadRelocator(DMaterial::StaticClass(),
-		[&](DObject*, const FPackagePath&, const FPackagePath&, FAssetOwnedPayloadRelocation& Payload) -> std::expected<void, UnifiedError::FError> {
-			Payload.Files.emplace_back(Source, Target);
-			Payload.Apply = [&] {
-				std::filesystem::remove(Source);
-				std::filesystem::create_directory(Source);
-				std::ofstream Stream(Source / "blocker"); Stream << "prevent removal";
-			};
-			return {};
-		});
-	ASSERT_NE(Handle, 0u);
-	int Warnings = 0;
-	FFeedbackContext Feedback({}, [&](ELogLevel Level, std::string_view) { Warnings += Level == ELogLevel::Warn; });
-	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameCleanupTarget"};
-	{
-		FScopedFeedbackContext Scope(Feedback);
-		EXPECT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
-	}
-	UnregisterAssetOwnedPayloadRelocator(Handle);
-	EXPECT_GT(Warnings, 0);
-	EXPECT_EQ(Object->GetName(), "RenameCleanupTarget");
-	EXPECT_FALSE(Object->GetPackage()->IsDirty());
-	EXPECT_TRUE(std::filesystem::is_regular_file(Target));
-	EXPECT_TRUE(std::filesystem::is_directory(Source));
-	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
-	std::filesystem::remove(Source / "blocker"); std::filesystem::remove(Source); std::filesystem::remove(Target);
-}
-
 TEST(DAssetRenameTests, DirtyLoadedHardAndSoftReferencersRetainValuesAndSubobjectSuffixes)
 {
 	using namespace Durin;
@@ -1742,7 +1704,7 @@ TEST(DAssetRenameTests, FixupSavesDirtyHardReferencersBeforeDeletingPureAliases)
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Object->GetPackage()->GetPackagePathIdentity(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(DAssetRenameTests, SavedUnloadedExplicitRenameAndPreparationFailureKeepValidSources)
+TEST(DAssetRenameTests, SavedUnloadedExplicitRenamePreservesTheOldAlias)
 {
 	using namespace Durin;
 	InitializeFactoryTestGameThread(); EnsureAssetToolsTestMount();
@@ -1752,15 +1714,10 @@ TEST(DAssetRenameTests, SavedUnloadedExplicitRenameAndPreparationFailureKeepVali
 	ASSERT_TRUE(FSoftObjectPath::TryCreate("/AssetToolsTests/RenameUnloadedTarget.OtherName", New));
 	ASSERT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 	const FAssetRenameData Rename{Old, New};
-	const auto Handle = RegisterAssetOwnedPayloadRelocator(DMaterial::StaticClass(), [](DObject*, const FPackagePath&, const FPackagePath&, FAssetOwnedPayloadRelocation&) -> std::expected<void, UnifiedError::FError> {
-		return std::unexpected(UnifiedError::FError{AssetWriteErrors::IoError, "Injected owned payload preparation failure."});
-	});
-	ASSERT_NE(Handle, 0u);
-	EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
-	UnregisterAssetOwnedPayloadRelocator(Handle);
-	EXPECT_NE(LoadObject(Old, nullptr), nullptr);
 	ASSERT_TRUE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
-	EXPECT_EQ(LoadObject(Old, nullptr), LoadObject(New, nullptr));
+	auto* Renamed = LoadObject(New, nullptr);
+	ASSERT_NE(Renamed, nullptr);
+	EXPECT_EQ(LoadObject(Old, nullptr), Renamed);
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(Old.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 	EXPECT_TRUE(Testing::EnsurePackageNotResident(New.GetPackagePath(), EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
@@ -1774,12 +1731,35 @@ TEST(DAssetRenameTests, PreparationRevalidatesSavedBytesWithoutReplacingExternal
 	const auto File = FMountPaths::ResolveAssetPath(Object->GetPackage()->GetPackagePath())->PhysicalPath.generic_string() + ".dasset";
 	const auto Before = FFileHelper::LoadFileToArray(File); ASSERT_TRUE(Before);
 	const FAssetRenameData Rename{TWeakObjectPtr<DObject>(Object), "/AssetToolsTests", "RenameStaleTarget"};
-	const auto Handle = RegisterAssetOwnedPayloadRelocator(DMaterial::StaticClass(), [&](DObject*, const FPackagePath&, const FPackagePath&, FAssetOwnedPayloadRelocation&) -> std::expected<void, UnifiedError::FError> {
-		std::ofstream Stream(File, std::ios::binary | std::ios::app); Stream.put('x'); return {};
-	});
-	ASSERT_NE(Handle, 0u);
-	EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
-	UnregisterAssetOwnedPayloadRelocator(Handle);
+	class FEditingStore final : public IAssetReferenceStore
+	{
+	public:
+		std::string File;
+
+		auto CaptureSnapshot(FAssetReferenceStoreSnapshot& Out) -> std::expected<void, UnifiedError::FError> override
+		{
+			std::ofstream Stream(File, std::ios::binary | std::ios::app);
+			Stream.put('x');
+			Stream.close();
+			if (!Stream) return std::unexpected(UnifiedError::FError{AssetWriteErrors::IoError, "Cannot edit test package."});
+			Out = {.ProviderId = "RenameStaleFileTest", .ProviderVersion = 1, .Fingerprint = "test"};
+			return {};
+		}
+
+		auto PrepareRewrite(std::span<const FAssetReferenceRewrite>, std::string_view,
+			FAssetReferenceStoreRewriteContribution&) -> std::expected<void, UnifiedError::FError> override
+		{
+			ADD_FAILURE() << "Rename must reject the changed package before rewriting references.";
+			return std::unexpected(UnifiedError::FError{AssetWriteErrors::StaleData, "Unexpected reference rewrite."});
+		}
+	} Store;
+	Store.File = File;
+	{
+		const auto Handle = RegisterAssetReferenceStore(&Store);
+		ASSERT_NE(Handle, 0u);
+		struct FUnregister { FAssetReferenceStoreHandle Handle; ~FUnregister() { UnregisterAssetReferenceStore(Handle); } } Unregister{Handle};
+		EXPECT_FALSE(IAssetTools::Get().RenameAssets(std::span{&Rename, 1}));
+	}
 	EXPECT_EQ(Object->GetName(), "RenameStaleFile");
 	const auto After = FFileHelper::LoadFileToArray(File); ASSERT_TRUE(After); EXPECT_EQ(After->size(), Before->size() + 1);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Before, File));

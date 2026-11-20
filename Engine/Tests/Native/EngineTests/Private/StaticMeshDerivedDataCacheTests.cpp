@@ -540,33 +540,6 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FStaticMeshDerivedDataCacheTests, InvalidDetachedReplacementInvalidatesLiveData)
-{
-	using namespace Durin;
-	const FScopedDerivedDataCacheRestore CacheRestore;
-	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshReplacementFailure");
-	ASSERT_NE(Fixture.Mesh, nullptr);
-	const FXxHash128 ImportedIdentity = Fixture.Mesh->GetSource().GetIdentity();
-	const uint64 Revision = Fixture.Mesh->GetRenderResourceStatus().Revision;
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Result;
-	std::string Error;
-	ASSERT_TRUE((Result = BuildRenderForTest({
-		.Settings = MakeStaticMeshBuildSettings(Fixture.Mesh->GetMaterialSlots(), Fixture.Mesh->GetNormalizedSize()),
-		.Source = Fixture.Mesh->GetSource()}))) << Error;
-	ASSERT_FALSE((*Result)->LODResources.empty());
-	(*Result)->LODResources.front().IndexBuffer.GetMutableIndices().front() =
-		std::numeric_limits<uint32>::max();
-	const auto Applied = FStaticMeshTestAccess::ReplaceSourceRenderData(Fixture.Mesh, Fixture.Mesh->GetSource(),
-		std::move((*Result)), FStaticMeshTestAccess::MakeSlots(Fixture.Mesh->GetSource()), 1.5f);
-	ASSERT_FALSE(Applied);
-	EXPECT_FALSE(Applied.error().empty());
-	EXPECT_EQ(Fixture.Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Fixture.Mesh->GetSource().GetIdentity(), ImportedIdentity);
-	EXPECT_GT(Fixture.Mesh->GetRenderResourceStatus().Revision, Revision);
-	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
-	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
-}
-
 TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEditorPolicy)
 {
 	const FScopedDerivedDataCacheRestore CacheRestore;
@@ -2390,54 +2363,6 @@ TEST(FStaticMeshPayloadInspectionTests, MetadataModeDoesNotHashInlinePayloadOrRe
 	EXPECT_EQ(Descriptor.StorageKind, EPackageBulkStorageKind::External);
 }
 
-TEST(FStaticMeshReplacementTests, FailureDropsDerivedDataAndValidSourceCanBeRebuilt)
-{
-	using namespace Durin;
-	const FScopedDerivedDataCacheRestore CacheRestore;
-	auto Fixture = ImportCacheFixture("StaticMeshReplacementRetry");
-	auto* Mesh = Fixture.Mesh;
-	ASSERT_NE(Mesh, nullptr);
-	Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
-	ASSERT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
-	const auto Revision = Mesh->GetRenderResourceStatus().Revision;
-	EXPECT_FALSE(Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {}));
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	EXPECT_GT(Mesh->GetRenderResourceStatus().Revision, Revision);
-	EXPECT_NE(Mesh->GetRenderDataLoadError().Code, ECookedMeshLoadError::None);
-	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Unavailable);
-	EXPECT_FALSE(Mesh->GetBodySetup()->GetResidentComplexGeometry());
-	Mesh->RebuildCollision();
-	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Pending);
-	Mesh->GetBodySetup()->FinishPhysicsMeshes();
-	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	EXPECT_TRUE(Mesh->GetBodySetup()->GetResidentComplexGeometry());
-
-	FStaticMeshSource Source;
-	std::string Error;
-	auto Geometry = MakeResidencyGeometry();
-	Geometry.Sections.front().Positions.front().x = 7;
-	ASSERT_TRUE(Source.Initialize(std::move(Geometry)));
-	EXPECT_FALSE(Durin::FStaticMeshTestAccess::ReplaceSourceRenderData(Mesh, Source, nullptr, {}, 2.0f));
-	EXPECT_EQ(Mesh->GetSource().GetIdentity(), Source.GetIdentity());
-	EXPECT_EQ(Mesh->GetNormalizedSize(), 2.0f);
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-
-	std::expected<std::unique_ptr<FStaticMeshRenderData>, std::string> Product;
-	ASSERT_TRUE((Product = BuildRenderForTest({
-		.Settings = MakeStaticMeshBuildSettings(Mesh->GetMaterialSlots(), Mesh->GetNormalizedSize()),
-		.Source = Source}))) << Error;
-	ASSERT_TRUE(Durin::FStaticMeshTestAccess::ReplaceSourceRenderData(Mesh, Source, std::move((*Product)),
-		CaptureStaticMeshReconciliation(*Mesh).MaterialSlots, Mesh->GetNormalizedSize()));
-	EXPECT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_NE(Mesh->GetRenderData(), nullptr);
-	StaticMeshBuildTestSupport::FinishMeshBuildForTests(*Mesh);
-	EXPECT_EQ(Mesh->GetCollisionBuildStatus(), EPhysicsMeshBuildStatus::Ready);
-	EXPECT_FALSE(Mesh->GetCollisionBuildError());
-	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
-}
-
 TEST(FStaticMeshReplacementTests, CollisionConfigurationCanPrecedeCpuData)
 {
 	using namespace Durin;
@@ -2892,59 +2817,6 @@ TEST(FStaticMeshAuthoredCompilationTests, SynchronousFailureExposesOwnedMessage)
 	EXPECT_FALSE(InvalidSourceFailure.error().empty());
 	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 	EXPECT_FALSE(Mesh->IsCompiling());
-}
-
-TEST(FStaticMeshReplacementTests, ReplacementRepairsBoundsRestoresSlotsAndRejectsInvalidScreenSize)
-{
-	using namespace Durin;
-	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
-	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("ReplacementPreparation"));
-	FStaticMeshSource Source;
-	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
-	auto Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
-	ASSERT_TRUE(Render) << Render.error();
-	(*Render)->LocalBounds = FBox(FVector3(100), FVector3(101));
-	(*Render)->LODResources.front().LocalBounds = (*Render)->LocalBounds;
-	(*Render)->LODResources.front().Sections.front().LocalBounds = (*Render)->LocalBounds;
-	(*Render)->MaterialSlots.front() = {};
-	std::vector<FMeshMaterialSlotDefinition> Slots{{.Name = FName("Authored"), .SourceMaterialIndex = 7}};
-	const auto Replaced = FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(*Render), Slots);
-	ASSERT_TRUE(Replaced) << Replaced.error();
-	ASSERT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Mesh->GetRenderData()->LocalBounds.Min, FVector3(-0.75, -0.75, 0));
-	EXPECT_EQ(Mesh->GetRenderData()->LocalBounds.Max, FVector3(0.75, 0.75, 0));
-	EXPECT_EQ(Mesh->GetRenderData()->MaterialSlots.front().Name, "Authored");
-	EXPECT_EQ(Mesh->GetRenderData()->MaterialSlots.front().SourceMaterialIndex, 7u);
-	Render = BuildRenderForTest({.Source = Source, .bPersistDerivedData = false});
-	ASSERT_TRUE(Render) << Render.error();
-	(*Render)->LODResources.front().ScreenSize = 0.5f;
-	const auto Rejected = FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(*Render), Slots);
-	ASSERT_FALSE(Rejected);
-	EXPECT_FALSE(Rejected.error().empty());
-}
-
-TEST(FStaticMeshReplacementTests, ReplacementRejectsInvalidSourceSlotsAndUVChannels)
-{
-	using namespace Durin;
-	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("TypedReplacementValues"));
-	FStaticMeshSource Source;
-	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry()));
-	const auto InvalidSource = Durin::FStaticMeshTestAccess::ReplaceSourceRenderData(Mesh, Source, nullptr, {}, std::numeric_limits<float>::quiet_NaN());
-	EXPECT_FALSE(InvalidSource.error().empty());
-	auto DuplicateRender = std::make_unique<FStaticMeshRenderData>();
-	DuplicateRender->MaterialSlots = {{"Duplicate", 0}, {"Duplicate", 1}};
-	std::vector<FMeshMaterialSlotDefinition> Slots{
-		{.Name = FName("Duplicate")}, {.Name = FName("Duplicate")}};
-	const auto Duplicate = Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(DuplicateRender), std::move(Slots));
-	EXPECT_FALSE(Duplicate.error().empty());
-	auto UVRender = std::make_unique<FStaticMeshRenderData>();
-	UVRender->MaterialSlots = {{"Slot", 0}};
-	UVRender->LODResources.emplace_back().NumTexCoords = MaxStaticMeshUVChannels + 1;
-	const auto UV = Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, std::move(UVRender), {{.Name = FName("Slot")}});
-	EXPECT_FALSE(UV.error().empty());
-	const auto Missing = Durin::FStaticMeshTestAccess::ReplaceRenderData(Mesh, nullptr, {});
-	EXPECT_FALSE(Missing.error().empty());
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 }
 
 TEST(FStaticMeshCookedLoadTests, QueuedUpdatesProgressWithoutRepeatedRequests)

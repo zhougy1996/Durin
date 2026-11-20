@@ -366,8 +366,6 @@ after identity publication; manual callers retain their accepted generation.
 Owned authored payload closure is metadata-derived. DAST companions follow the
 validated Bulk Directory and writer closure; temporary and backup files are not
 authored payloads. See [bulk publication ownership](../../ObjectSystem/BulkData.md#publication-and-companion-ownership).
-Editor payload relocation prepares/copies before live publication and retires old
-payload files only after the destination and references are committed.
 
 Private file staging retains exact participant fingerprints, pre/post images and
 published-file evidence. Source changes, read-only participants and preparation

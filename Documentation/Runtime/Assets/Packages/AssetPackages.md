@@ -587,7 +587,7 @@ byte relocation/reference rewriting and Cook canonicalization return
 failures cross that boundary through `ObjectPackage::ToError`, preserving an
 existing cause. Actual persistence/mutation owners adapt failures into their
 completion reports once. Read-only removal validation, reference-store preparation,
-revalidation and verification, and owned-payload relocation preparation also use
+revalidation and verification also use
 `expected<void, FError>`; they do not manufacture write effects.
 AssetTools validation uses bool with optional diagnostics where callers only
 stop/report failure; relocation and Fix Up preparation return nullable prepared
