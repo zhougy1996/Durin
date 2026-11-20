@@ -568,7 +568,6 @@ namespace Durin
 			.ProgramIdentity = {.Digest = {.HashLow = 11, .HashHigh = 12}},
 			.BlendMode = FMaterialShaderBlendModeKey(0),
 			.ShadingModel = FMaterialShaderShadingModelKey(1)};
-		const FRenderResourceGeneration Generation{.Shader = 7, .Device = 9};
 		const std::array Entries{
 			FMaterialShaderEntryRequest{.Shader = {.Material = Identity, .ShaderType = std::string(FragmentType.GetName()),
 				.EntryPoint = "fragmentMain", .Target = "vulkan-spirv-1.5", .Frequency = EShaderFrequency::Fragment,
@@ -584,7 +583,6 @@ namespace Durin
 		FShaderCompletion Error;
 		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
-			.Generation = Generation,
 			.Target = "vulkan-spirv-1.5",
 			.VertexFactoryType = &VertexFactoryType,
 			.MeshPassKey = 1,
@@ -605,7 +603,6 @@ namespace Durin
 		FMeshMaterialShaderMap MapB;
 		ASSERT_TRUE((Error = FMeshMaterialShaderMap::TryCreate({
 			.Identity = Identity,
-			.Generation = Generation,
 			.Target = "vulkan-spirv-1.5",
 			.VertexFactoryType = &VertexFactoryType,
 			.MeshPassKey = 1,
@@ -622,7 +619,6 @@ namespace Durin
 		TMaterialShaderRef<FMaterialFixtureFragmentShader> Fragment(MapA);
 		ASSERT_TRUE(Fragment);
 		EXPECT_EQ(Fragment.GetIdentity(), Identity);
-		EXPECT_EQ(Fragment.GetGeneration(), Generation);
 		MapA = {};
 		EXPECT_TRUE(Fragment);
 		EXPECT_EQ(Fragment.GetShader()->GetType(), &FragmentType);

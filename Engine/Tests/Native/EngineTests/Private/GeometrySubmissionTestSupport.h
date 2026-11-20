@@ -304,6 +304,9 @@ ConstantBuffer<DeformationData> Deformation;
 [shader("vertex")]
 Output VertexMain(Input input) {
  float3 p = input.position * Deformation.displacementScale.w + Deformation.displacementScale.xyz + input.instanceOffset.xyz;
+#ifdef QUALIFICATION_SHIFT_VERTEX
+ p.x += 0.25;
+#endif
  MaterialPrimitiveUniform primitive = TranslateMaterialPrimitive(Transform, MaterialView);
  Output o; o.pos=mul(MaterialView.WorldToClip,mul(primitive.LocalToWorld,float4(p,1))); o.color=input.color;
  o.worldPosition=mul(primitive.LocalToWorld,float4(p,1)).xyz;

@@ -107,8 +107,6 @@ namespace Durin
 
 		using FShaderMapPayload = FMeshPassShaders;
 
-		using FPipelinePayload = std::shared_ptr<const FMeshPassPipeline>;
-
 		TRendererResourceSlotCache<
 			FMeshShaderMapKey,
 			FShaderMapPayload, FMaterialResourceCacheKeyHash>
@@ -117,20 +115,6 @@ namespace Durin
 			FMeshShaderMapKey,
 			FShaderMapPayload, FMaterialResourceCacheKeyHash>
 			ShadowShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<
-			FEffectiveMeshPipelineKey,
-			FPipelinePayload, FMaterialResourceCacheKeyHash>
-			Pipelines{
-				ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device
-			};
-		TRendererResourceSlotCache<
-			FEffectiveMeshPipelineKey,
-			FPipelinePayload, FMaterialResourceCacheKeyHash>
-			ShadowPipelines{
-				ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device
-			};
 	};
 	FStaticMeshRenderer::FStaticMeshRenderer(
 		FRendererResourceCoordinator& InCoordinator,
@@ -373,7 +357,7 @@ namespace Durin
 					FShaderCompileOptions Options;
 					Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
 					ERenderResourceCreateErrorCategory FailureCategory;
-					const auto Result = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), Material.CompiledProgram.get(), Options, Candidate, &FailureCategory);
+					const auto Result = Processor.PrepareShaders(Batch, Material.CompiledProgram.get(), Options, Candidate, &FailureCategory);
 					if (Profiling::AreStartupDiagnosticsEnabled() && bShadowDepth && GRenderFrameCounterRenderThread <= 5)
 						DURIN_DEBUG("Shadow shader preparation: frame={} | program={} | status={}",
 							GRenderFrameCounterRenderThread, Material.PlanningPassIdentity.ShaderMap.ProgramIdentity.ToString(),
@@ -395,48 +379,9 @@ namespace Durin
 			return false;
 		}
 
-		Timings.Next("PipelineCache");
-		using FPipelineResult =
-			TRenderResourceCreateResult<FState::FPipelinePayload>;
-		FEffectiveMeshPipelineKey EffectivePipelineKey =
-			bShadowDepth ? MakeShadowPipelineKey(Item.Command->PipelineKey) : Item.Command->PipelineKey;
-		EffectivePipelineKey.bHybridRetained =
-			!bShadowDepth && bHybridRetained;
-		auto& PipelineCache = bShadowDepth ? State->ShadowPipelines : State->Pipelines;
-		auto& PipelineEntry = PipelineCache.FindOrAddBounded(
-			EffectivePipelineKey, MaterialPipelineCacheEntryBudget, MaterialPipelineCacheByteBudget);
-		FRenderResourceGeneration PipelineGeneration =
-			Coordinator.GetGeneration_RenderThread();
-		PipelineGeneration.Shader =
-			ShaderMapPayload->ShaderMap.GetGeneration().Shader;
 		Timings.Next("PreparePipeline");
-		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
-			PipelineGeneration,
-			[&PipelineEntry, ShaderMapPayload, &EffectivePipelineKey, &VertexFactory, &Processor, &Batch]() -> FPipelineResult {
-				std::shared_ptr<const FMeshPassPipeline> Candidate;
-				const auto Preparation = Processor.PreparePipeline(Batch,
-					*ShaderMapPayload, VertexFactory.Declaration, Candidate);
-				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
-					ERenderResourceCreateErrorCategory::GraphicsPipeline, "StaticMeshPipeline", GetIdentityText(EffectivePipelineKey),
-					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
-				));
-				return FPipelineResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic
-		);
-		if (Pipeline == nullptr)
-		{
-			return false;
-		}
-
-		if (Pipeline && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-		{
-			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(*(*Pipeline)->GetInitializer().PipelineInitializer);
-			if (!Request) return false;
-			FRenderPipelinePreparationBatch::Add(Request);
-			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
-		}
+		std::shared_ptr<const FMeshPassPipeline> Pipeline;
+		if (!Processor.PreparePipeline(Batch, *ShaderMapPayload, VertexFactory.Declaration, Pipeline)) return false;
 		Timings.Next("SurfaceMaterial");
 		const ESurfaceMaterialPass SurfacePass = bShadowDepth
 			? (Item.Command->PipelineKey.Material.ShaderMap.BlendMode
@@ -445,7 +390,7 @@ namespace Durin
 				: ESurfaceMaterialPass::OpaqueShadow)
 			: ESurfaceMaterialPass::Forward;
 		if (!SurfaceMaterials.Ensure_RenderThread(MaterialBinding, SurfacePass)) return false;
-		OutPipeline = *Pipeline;
+		OutPipeline = std::move(Pipeline);
 		return true;
 	}
 
@@ -762,14 +707,17 @@ namespace Durin
 					}
 					if (Ready && Cached)
 					{
-						auto Group = BindingCache.PassGroups.find({Pipeline.get(), Input.GPUScene.GPUSceneInstanceIds.Buffer});
+						const auto& Shaders = Pipeline->GetInitializer();
+						const FMeshDrawCommandBindingCache::FPassGroupKey GroupKey{PassKey.Pass, Shaders.VertexShader.get(),
+							Shaders.FragmentLayout, Input.GPUScene.GPUSceneInstanceIds.Buffer};
+						auto Group = BindingCache.PassGroups.find(GroupKey);
 						if (Group == BindingCache.PassGroups.end())
 						{
 							auto PassBindings = std::make_shared<FMeshPassBindings>();
 							const auto Result = Processor.PreparePassBindings(Input, BindingCache, *PassBindings);
 							Ready = static_cast<bool>(Result);
 							if (!Ready) Error = Result.Error;
-							else Group = BindingCache.PassGroups.emplace(std::make_pair(Pipeline.get(), Input.GPUScene.GPUSceneInstanceIds.Buffer), std::move(PassBindings)).first;
+							else Group = BindingCache.PassGroups.emplace(GroupKey, std::move(PassBindings)).first;
 						}
 						if (Ready)
 						{
@@ -906,8 +854,6 @@ namespace Durin
 		check(IsInRenderingThread());
 		State->ShaderMaps.Reset();
 		State->ShadowShaderMaps.Reset();
-		State->Pipelines.Reset();
-		State->ShadowPipelines.Reset();
 	}
 
 } // namespace Durin

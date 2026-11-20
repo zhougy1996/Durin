@@ -226,20 +226,13 @@ namespace Durin
 				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory,
 					{Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
 					View.DepthConvention == ESceneDepthConvention::ReversedZ};
-				const auto ShaderCompletion = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), Program.get(), {}, Item);
+				const auto ShaderCompletion = Processor.PrepareShaders(Batch, Program.get(), {}, Item);
 				if (ShaderCompletion.Status == ERenderResourceAvailability::Pending) { PreparationScope.MarkPending(); FRenderPipelinePreparationBatch::MarkResourcePending(); bReady = false; break; }
 				if (ShaderCompletion.Status == ERenderResourceAvailability::Canceled) { bReady = false; break; }
 				if (!ShaderCompletion) { DURIN_ERROR("Hit proxy material shader failed: {}", std::string(ShaderCompletion.Error)); bReady = false; break; }
 				if (!SurfaceMaterials.Ensure_RenderThread(Binding, ESurfaceMaterialPass::MaskedShadow)
 					|| !SurfaceMaterials.Prepare_RenderThread(Commands, &Binding, ESurfaceMaterialPass::MaskedShadow, {}, nullptr, nullptr, Item.Material)) { bReady = false; break; }
 				if (!Processor.PreparePipeline(Batch, Item, Item.Primitive->CollectedBinding->Declaration, Item.Pipeline)) { bReady = false; break; }
-				if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-				{
-					auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(*Item.Pipeline->GetInitializer().PipelineInitializer, "HitProxy");
-					if (!Pipeline) { bReady = false; break; }
-					FRenderPipelinePreparationBatch::Add(Pipeline);
-					if (Pipeline->GetState() == ERHIPipelineState::Failed || Pipeline->GetState() == ERHIPipelineState::Canceled) { bReady = false; break; }
-				}
 				if (!Factory->SupportsGPUScene()) Item.Transform = PrepareFallbackPrimitiveUniform(Commands, *Item.Primitive);
 				const auto It = Ids.find(Item.Primitive->PrimitiveId.Value);
 				struct FIdUniform { std::array<uint32, 4> Id; FVector4f ViewOrigin; };

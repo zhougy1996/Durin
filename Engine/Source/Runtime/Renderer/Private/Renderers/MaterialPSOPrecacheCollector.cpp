@@ -82,7 +82,7 @@ namespace Durin::RendererPrivate
         FPreparedShaderMapScope Prepared;
         const auto& P = Params.PrecachePSOParams;
         const FMeshPassProcessorBatch Batch{Params.Material, *Factory, {}, P.Topology, P.Participation};
-        const auto Completion = Processor.PrepareShaders(Batch, Generation, Params.CompiledProgram.get(), {}, S.Shaders);
+        const auto Completion = Processor.PrepareShaders(Batch, Params.CompiledProgram.get(), {}, S.Shaders);
         if (Completion.Status == ERenderResourceAvailability::Pending) return false;
         if (!Completion) return std::unexpected(Completion.Error.empty() ? std::string("Mesh shader preparation was canceled.") : std::string(Completion.Error));
         const auto Elements = Params.VertexFactoryData.GetVertexElements();

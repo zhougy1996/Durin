@@ -31,6 +31,7 @@
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/MeshPassProcessor.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "RendererFeatureTargetTestFixture.h"
@@ -938,8 +939,26 @@ namespace Durin
 				return GBuffer.EnsurePipeline_RenderThread(Requests[RequestIndex]) != nullptr;
 			});
 		};
+		auto CaptureNative = [&] {
+			FGraphicsPipelineStateRHIRef Native;
+			EXPECT_TRUE(PumpValidationFrames([&](FRHICommandListImmediate& Commands) {
+				const auto Prepared = GBuffer.EnsurePipeline_RenderThread(Requests[0]);
+				if (!Prepared) return false;
+				auto PSO = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Commands, *Prepared->GetInitializer().PipelineInitializer);
+				if (!PSO || PSO->Wait() != ERHIPipelineState::Ready) return false;
+				Native = PSO->GetRHIPipeline();
+				return true;
+			}));
+			return Native;
+		};
 		PreparePipeline(0, 0, ERendererResourceInvalidationCause::ManualRetry);
+		auto WarmPipeline = CaptureNative();
+		EXPECT_TRUE(WarmPipeline);
+		const auto WarmCreations = GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations;
 		PreparePipeline(0, 1, ERendererResourceInvalidationCause::ManualRetry);
+		EXPECT_EQ(CaptureNative(), WarmPipeline);
+		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, WarmCreations);
+		WarmPipeline = nullptr;
 		PreparePipeline(1, 2);
 		PreparePipeline(0, 3, ERendererResourceInvalidationCause::ShaderChanged);
 		PumpValidationFrames([&](FRHICommandListImmediate&) {

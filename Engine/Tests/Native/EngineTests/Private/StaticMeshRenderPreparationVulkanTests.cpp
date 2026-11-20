@@ -1601,6 +1601,56 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		Geometries[1].Binding->DisplacementScale = {0.05f, 0.0f, 0.0f, 0.8f};
 	});
 	FlushRenderingCommands();
+	// Change only this independent factory's fixed VS. Both preparations use the same
+	// material program, fragment shader, geometry declaration and GBuffer state.
+	{
+		std::array<FRenderResourceAttemptState, 2> Attempts;
+		std::array<FGraphicsPipelineStateRef, 2> PSOs;
+		std::array<FGraphicsPipelineStateInitializer, 2> Initializers;
+		std::array<std::shared_ptr<const RendererPrivate::FMeshPassPipeline>, 2> PreparedPipelines;
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+		do
+		{
+			EnqueueRenderCommand("PrepareFixedVertexVariants", [&](FRHICommandListImmediate& Commands) {
+				using namespace RendererPrivate;
+				const auto& Binding = *Geometries[1].Binding;
+				const auto Factory = FindMeshVertexFactory(Binding.GetFactoryKey());
+				ASSERT_TRUE(Factory);
+				const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer);
+				const FMeshPassProcessorBatch Batch{Materials[0].PlanningPassIdentity, *Factory, {}, EGeometryTopology::TriangleList, {}, true};
+				for (size_t Index = 0; Index < PSOs.size(); ++Index)
+				{
+					if (PSOs[Index]) continue;
+					FRenderPipelinePreparationScope Preparation(Attempts[Index], {});
+					FShaderCompileOptions Options;
+					if (Index) Options.Macros.emplace_back("QUALIFICATION_SHIFT_VERTEX", "1");
+					FMeshPassShaders Shaders;
+					const auto Result = Processor.PrepareShaders(Batch, Materials[0].CompiledProgram.get(), Options, Shaders);
+					if (Result.Status == ERenderResourceAvailability::Pending) continue;
+					ASSERT_TRUE(Result) << Result.Error;
+					auto& Pipeline = PreparedPipelines[Index];
+					ASSERT_TRUE(Processor.PreparePipeline(Batch, Shaders, Binding.Declaration, Pipeline));
+					Initializers[Index] = *Pipeline->GetInitializer().PipelineInitializer;
+					PSOs[Index] = PipelineStateCache::GetAndOrCreateGraphicsPipelineState(Commands, Initializers[Index]);
+					ASSERT_TRUE(PSOs[Index]);
+				}
+			});
+			FlushRenderingCommands();
+			if (PSOs[0] && PSOs[1]) break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		} while (!testing::Test::HasFatalFailure() && std::chrono::steady_clock::now() < Deadline);
+		ASSERT_TRUE(PSOs[0] && PSOs[1]);
+		ASSERT_EQ(PSOs[0]->Wait(), ERHIPipelineState::Ready);
+		ASSERT_EQ(PSOs[1]->Wait(), ERHIPipelineState::Ready);
+		EXPECT_NE(PSOs[0]->GetRHIPipeline(), PSOs[1]->GetRHIPipeline());
+		const auto First = BuildGraphicsPipelineStateKey(Initializers[0], GDynamicRHI->RHIGetCapabilities());
+		ASSERT_TRUE(First);
+		const auto Changed = BuildGraphicsPipelineStateKey(Initializers[1], GDynamicRHI->RHIGetCapabilities());
+		ASSERT_TRUE(Changed);
+		EXPECT_NE(First->VertexShaderHash, Changed->VertexShaderHash);
+		Initializers[1].BoundShaders.VertexShader = Initializers[0].BoundShaders.VertexShader;
+		EXPECT_EQ(BuildGraphicsPipelineStateKey(Initializers[1], GDynamicRHI->RHIGetCapabilities()), First);
+	}
 	for (size_t I = 0; I < Geometries.size(); ++I)
 	{
 		auto Proxy = std::make_unique<FProceduralProxy>();
@@ -2215,6 +2265,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)),
 			ERenderViewResult::Success);
 		std::array<FByteBuffer, 12> Pixels;
+		const auto WarmPSOs = GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations;
 		static FViewRenderTelemetry Telemetry;
 		for (size_t Frame = 0; Frame < Pixels.size(); ++Frame)
 		{
@@ -2297,6 +2348,7 @@ TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndRe
 				if (Frame == 10) EXPECT_EQ(Pixels[Frame], Pixels[Frame - 1]);
 				else if (Frame != 0) EXPECT_NE(Pixels[Frame], Pixels[Frame - 1]) << Frame;
 			}
+			EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, WarmPSOs) << Frame;
 			if (Frame == 6) EXPECT_EQ(Telemetry.StaticMesh.PrimitiveUniformUploads, 0u);
 		}
 		Owner.Reset();
@@ -3088,7 +3140,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			ASSERT_TRUE(Factory); ASSERT_NE(Fragment, nullptr);
 			const auto MissingGeometry = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassForward),
 				*Fragment, Factory->GetType(), MaterialMeshPassForward,
-				Identity, {}, Selected.get(), {}, Rejected);
+				Identity, Selected.get(), {}, Rejected);
 			EXPECT_FALSE(MissingGeometry); EXPECT_FALSE(Rejected);
 			EXPECT_EQ(MissingGeometry.Status, ERenderResourceAvailability::Failed);
 			EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
@@ -3109,7 +3161,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			ASSERT_TRUE(Factory); ASSERT_NE(Fragment, nullptr);
 			const auto MissingPass = InitializeMaterialShaderMap(*Factory->GetShaderType(MaterialMeshPassShadow),
 				*Fragment, Factory->GetType(), MaterialMeshPassShadow,
-				Identity, {}, Selected.get(), {}, Rejected);
+				Identity, Selected.get(), {}, Rejected);
 			EXPECT_FALSE(MissingPass); EXPECT_FALSE(Rejected);
 			EXPECT_EQ(MissingPass.Status, ERenderResourceAvailability::Failed);
 			EXPECT_EQ(GetShaderBuildStats().Compilations, Before);
@@ -4764,7 +4816,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 					EGeometryTopology::TriangleList, {}, true, Raster.bReversedZ};
 				FMeshPassShaders Shaders;
 				const auto Generation = Renderer.GetResourceInvalidationSnapshot_RenderThread().Generation;
-				const auto ShaderContext = DirectCollector->PrepareShaders(Batch, Generation, LowResource.CompiledProgram.get(), {}, Shaders);
+				const auto ShaderContext = DirectCollector->PrepareShaders(Batch, LowResource.CompiledProgram.get(), {}, Shaders);
 				ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 				ASSERT_NE(Shaders.FragmentLayout, nullptr);
 				const auto& Initializer = DirectInitializers[1].GetGraphicsInitializer();
@@ -4809,7 +4861,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SceneFeatureLevelMatchesComponentM
 						{BindingDraw.Command->PipelineKey.Rasterizer, BindingDraw.Command->PipelineKey.Depth, BindingDraw.Command->PipelineKey.ColorBlend},
 						BindingDraw.Command->PipelineKey.Topology, {}, BindingDraw.Command->bSupportsGBuffer};
 					FMeshPassShaders ShadowShaders;
-					const auto ShaderContext = PassProcessor.PrepareShaders(ShadowBatch, Generation, LowResource.CompiledProgram.get(), {}, ShadowShaders);
+					const auto ShaderContext = PassProcessor.PrepareShaders(ShadowBatch, LowResource.CompiledProgram.get(), {}, ShadowShaders);
 					if (ShaderContext.Status == ERenderResourceAvailability::Pending) { CommandReady = false; return; }
 					ASSERT_TRUE(ShaderContext) << ShaderContext.Error;
 					std::shared_ptr<const FMeshPassPipeline> Pipeline;

@@ -75,7 +75,6 @@ namespace Durin
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		FXxHash64 FactoryKey;
 		FXxHash64 LayoutKey;
-		bool bHybridRetained = false;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 

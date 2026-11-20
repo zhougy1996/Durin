@@ -10,6 +10,7 @@
 #include "Renderers/MeshPassRelevance.h"
 #include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/MeshRendererShared.h"
+#include "RenderPipelineCreation.h"
 #include "RenderResourcePreparation.h"
 #include "RenderingThread.h"
 #include "Shader/ShaderMapPreparation.h"
@@ -486,7 +487,7 @@ namespace Durin::RendererPrivate
 			return FShaderCompletion::Failure("Mesh view fragment binding collection failed.");
 		return FShaderCompletion{};
 	}
-	auto FMeshPassProcessor::PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
+	auto FMeshPassProcessor::PrepareShaders(const FMeshPassProcessorBatch& Batch,
 		const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 		ERenderResourceCreateErrorCategory* FailureCategory) const -> FShaderMapQueryResult
 	{
@@ -501,7 +502,7 @@ namespace Durin::RendererPrivate
 		FMeshPassShaders Candidate;
 		if (FailureCategory) *FailureCategory = ERenderResourceCreateErrorCategory::ShaderCompile;
 		auto Result = InitializeMaterialShaderMap(*Factory.GetShaderType(MeshPass), *Fragment.Type,
-			Factory.GetType(), MeshPass, Batch.Material.ShaderMap, Generation,
+			Factory.GetType(), MeshPass, Batch.Material.ShaderMap,
 			Program, Options, Candidate.ShaderMap);
 		if (!Result) return Result;
 
@@ -545,6 +546,15 @@ namespace Durin::RendererPrivate
 		FGraphicsPipelineStateInitializer Initializer;
 		const auto Result = BuildPSOInitializer(Batch, Shaders, Declaration, Initializer);
 		if (!Result) return Result;
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer);
+			if (!Request) return FShaderCompletion::Failure("Mesh pipeline precache request was rejected.");
+			FRenderPipelinePreparationBatch::Add(Request);
+			const auto Status = Request->GetState();
+			if (Status == ERHIPipelineState::Failed || Status == ERHIPipelineState::Canceled)
+				return FShaderCompletion::Failure("Mesh pipeline precache did not complete successfully.");
+		}
 		FMeshPassPipelineInitializer Candidate;
 		static_cast<FMeshPassShaders&>(Candidate) = Shaders;
 		Candidate.VertexDeclaration = Declaration;

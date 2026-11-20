@@ -165,7 +165,7 @@ TEST(FRendererSceneContractTests, MeshPipelineDescriptionsNormalizeShadowIdentit
 	Source.Rasterizer.DepthBiasConstantFactor = 7.f;
 	Source.Rasterizer.DepthBiasSlopeFactor = 3.f;
 	Source.Rasterizer.DepthBiasClamp = 2.f;
-	const auto Key = MakeShadowPipelineKey(Source);
+	const auto Key = MakeShadowMeshPipelineState({Source.Rasterizer, Source.Depth, Source.ColorBlend});
 	const auto Description = DescribeMeshPipeline(EMeshPipelinePass::ShadowDepth,
 		{Source.Rasterizer, Source.Depth, Source.ColorBlend}, Source.Topology);
 	EXPECT_EQ(Description.Rasterizer, Key.Rasterizer);

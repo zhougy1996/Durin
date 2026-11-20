@@ -26,9 +26,9 @@ namespace Durin
 		EXPECT_TRUE(Changed.bSuccess);
 		EXPECT_TRUE(All.bSuccess);
 		EXPECT_TRUE(Retry.bSuccess);
-		EXPECT_NE(Changed.Message.find("lazily"), std::string::npos);
+		EXPECT_NE(Changed.Message.find("refresh"), std::string::npos);
 		EXPECT_NE(All.Message.find("forced"), std::string::npos);
-		EXPECT_NE(Retry.Message.find("demand-driven"), std::string::npos);
+		EXPECT_NE(Retry.Message.find("retry"), std::string::npos);
 		EXPECT_FALSE(
 			Registry.Execute("renderer.reload-shaders unexpected").bSuccess);
 

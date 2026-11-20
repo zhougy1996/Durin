@@ -56,16 +56,4 @@ namespace Durin::RendererPrivate
 		}
 		return Result;
 	}
-
-	inline auto MakeShadowPipelineKey(
-		const FEffectiveMeshPipelineKey& Source
-	) -> FEffectiveMeshPipelineKey
-	{
-		FEffectiveMeshPipelineKey Result = Source;
-		const auto State = MakeShadowMeshPipelineState({Source.Rasterizer, Source.Depth, Source.ColorBlend});
-		Result.Rasterizer = State.Rasterizer;
-		Result.Depth = State.Depth;
-		Result.ColorBlend = State.ColorBlend;
-		return Result;
-	}
 }

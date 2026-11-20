@@ -79,9 +79,7 @@ namespace Durin::RendererPrivate
 	inline constexpr uint32 MaterialMeshPassGBuffer = 1;
 	inline constexpr uint32 MaterialMeshPassShadow = 2;
 	inline constexpr size_t MaterialShaderMapCacheEntryBudget = 256;
-	inline constexpr size_t MaterialPipelineCacheEntryBudget = 512;
 	inline constexpr size_t MaterialShaderMapCacheByteBudget = 1024 * 1024;
-	inline constexpr size_t MaterialPipelineCacheByteBudget = 2 * 1024 * 1024;
 
 	inline auto InitializeMaterialShaderMap(
 		const FShaderType& VertexType,
@@ -89,7 +87,6 @@ namespace Durin::RendererPrivate
 		const FVertexFactoryType& VertexFactoryType,
 		uint32 MeshPassKey,
 		const FMeshMaterialShaderMapIdentity& Identity,
-		const FRenderResourceGeneration& Generation,
 		const FMaterialProgram* MaterialProgram,
 		const FShaderCompileOptions& VertexCompileOptions,
 		FMeshMaterialShaderMap& OutShaderMap) -> FShaderMapQueryResult
@@ -152,7 +149,6 @@ namespace Durin::RendererPrivate
 		Timings.Next("TryCompileShaderMap");
 		return FMeshMaterialShaderMap::TryCompile({
 			.Identity = Identity,
-			.Generation = Generation,
 			.Target = MaterialProgram ? MaterialProgram->GetShaderMap().Target
 				: std::string("vulkan-spirv-1.5"),
 			.VertexFactoryType = &VertexFactoryType,
@@ -296,43 +292,6 @@ namespace Durin::RendererPrivate
 			static_cast<uint8>(Identity.BlendMode),
 			static_cast<uint8>(Identity.ShadingModel),
 			std::bit_cast<uint32>(Identity.OpacityMaskThreshold)
-		);
-	}
-
-	inline auto GetIdentityText(
-		const FMaterialPlanningPassIdentity& Identity
-	) -> std::string
-	{
-		return std::format(
-			"{},two-sided={},depth-write={}",
-			GetIdentityText(Identity.ShaderMap),
-			Identity.bTwoSided,
-			static_cast<uint8>(Identity.DepthWritePolicy)
-		);
-	}
-
-	inline auto GetIdentityText(
-		const FEffectiveMeshPipelineKey& Identity
-	) -> std::string
-	{
-		return std::format(
-			"{},vertex-domain={},polygon={},cull={},front={},depth-test={},depth-write={},depth-compare={},blend={},color-src={},color-dst={},color-op={},alpha-src={},alpha-dst={},alpha-op={},write-mask={}",
-			GetIdentityText(Identity.Material),
-			static_cast<uint8>(Identity.VertexDomain),
-			static_cast<uint8>(Identity.Rasterizer.PolygonMode),
-			static_cast<uint8>(Identity.Rasterizer.CullMode),
-			static_cast<uint8>(Identity.Rasterizer.FrontFace),
-			Identity.Depth.bEnableTest,
-			Identity.Depth.bEnableWrite,
-			static_cast<uint8>(Identity.Depth.CompareOp),
-			Identity.ColorBlend.bEnable,
-			static_cast<uint8>(Identity.ColorBlend.SrcColorFactor),
-			static_cast<uint8>(Identity.ColorBlend.DstColorFactor),
-			static_cast<uint8>(Identity.ColorBlend.ColorOp),
-			static_cast<uint8>(Identity.ColorBlend.SrcAlphaFactor),
-			static_cast<uint8>(Identity.ColorBlend.DstAlphaFactor),
-			static_cast<uint8>(Identity.ColorBlend.AlphaOp),
-			static_cast<uint8>(Identity.ColorBlend.ColorWriteMask)
 		);
 	}
 

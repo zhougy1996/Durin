@@ -400,18 +400,18 @@ namespace Durin
 			EXPECT_EQ(Cache.GetEvictions(), 4080u);
 		}
 
-		TEST(FRendererResourceSlotCacheTests, MaterialHashUsesSemanticValuesAndExactPipelineEquality)
+		TEST(FRendererResourceSlotCacheTests, MaterialHashUsesSemanticValuesAndExactShaderMapEquality)
 		{
 			using FHash = RendererPrivate::FMaterialResourceCacheKeyHash;
-			TRendererResourceSlotCache<FEffectiveMeshPipelineKey, int, FHash> Cache;
-			FEffectiveMeshPipelineKey First;
-			First.Material.ShaderMap.OpacityMaskThreshold = 0.0f;
+			TRendererResourceSlotCache<FMeshShaderMapKey, int, FHash> Cache;
+			FMeshShaderMapKey First;
+			First.Material.OpacityMaskThreshold = 0.0f;
 			auto Equivalent = First;
-			Equivalent.Material.ShaderMap.OpacityMaskThreshold = -0.0f;
+			Equivalent.Material.OpacityMaskThreshold = -0.0f;
 			EXPECT_EQ(FHash{}(First), FHash{}(Equivalent));
 			EXPECT_EQ(&Cache.FindOrAdd(First), &Cache.FindOrAdd(Equivalent));
 			auto Different = First;
-			++Different.Depth.StencilReference; // Not hashed, but still part of equality.
+			Different.Material.RenderLayout.Id = FGuid::NewGuid(); // Not hashed, but still part of equality.
 			EXPECT_EQ(FHash{}(First), FHash{}(Different));
 			EXPECT_NE(&Cache.FindOrAdd(First), &Cache.FindOrAdd(Different));
 			EXPECT_EQ(Cache.Num(), 2u);

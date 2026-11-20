@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "EngineAPI.h"
 
-#include "RenderResourceCreation.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderMapPreparation.h"
@@ -209,7 +208,6 @@ namespace Durin
 	struct FMeshMaterialShaderMapBuildInput
 	{
 		FMeshMaterialShaderMapIdentity Identity;
-		FRenderResourceGeneration Generation;
 		std::string Target;
 		uint32 LocalPermutationId = 0;
 		const FVertexFactoryType* VertexFactoryType = nullptr;
@@ -229,7 +227,6 @@ namespace Durin
 	struct FMeshMaterialShaderMapCompileInput
 	{
 		FMeshMaterialShaderMapIdentity Identity;
-		FRenderResourceGeneration Generation;
 		std::string Target;
 		uint32 LocalPermutationId = 0;
 		const FVertexFactoryType* VertexFactoryType = nullptr;
@@ -263,8 +260,6 @@ namespace Durin
 
 		ENGINE_API auto GetIdentity() const
 			-> const FMeshMaterialShaderMapIdentity&;
-		ENGINE_API auto GetGeneration() const
-			-> const FRenderResourceGeneration&;
 		ENGINE_API auto GetCompatibilityHash() const -> FXxHash128;
 		ENGINE_API auto GetCompatibilityText() const -> std::string_view;
 		ENGINE_API auto GetPipelineLayout() const
@@ -285,9 +280,6 @@ namespace Durin
 	ENGINE_API auto GetMaterialPayloadIdentityImpl(
 		const std::shared_ptr<FMeshMaterialShaderMapPayload>& Payload)
 		-> const FMeshMaterialShaderMapIdentity&;
-	ENGINE_API auto GetMaterialPayloadGenerationImpl(
-		const std::shared_ptr<FMeshMaterialShaderMapPayload>& Payload)
-		-> const FRenderResourceGeneration&;
 
 	template<typename ShaderType>
 	class TMaterialShaderRef
@@ -315,10 +307,6 @@ namespace Durin
 		{
 			return GetMaterialPayloadIdentity(Payload);
 		}
-		auto GetGeneration() const -> const FRenderResourceGeneration&
-		{
-			return GetMaterialPayloadGeneration(Payload);
-		}
 		auto GetReflection() const -> const FShaderReflectionData&
 		{
 			check(Shader);
@@ -333,9 +321,6 @@ namespace Durin
 		static auto GetMaterialPayloadIdentity(
 			const std::shared_ptr<FMeshMaterialShaderMapPayload>& InPayload)
 			-> const FMeshMaterialShaderMapIdentity&;
-		static auto GetMaterialPayloadGeneration(
-			const std::shared_ptr<FMeshMaterialShaderMapPayload>& InPayload)
-			-> const FRenderResourceGeneration&;
 
 		std::shared_ptr<FMeshMaterialShaderMapPayload> Payload;
 		ShaderType* Shader = nullptr;
@@ -355,14 +340,6 @@ namespace Durin
 		-> const FMeshMaterialShaderMapIdentity&
 	{
 		return GetMaterialPayloadIdentityImpl(InPayload);
-	}
-
-	template<typename ShaderType>
-	auto TMaterialShaderRef<ShaderType>::GetMaterialPayloadGeneration(
-		const std::shared_ptr<FMeshMaterialShaderMapPayload>& InPayload)
-		-> const FRenderResourceGeneration&
-	{
-		return GetMaterialPayloadGenerationImpl(InPayload);
 	}
 
 	template<typename ShaderType>

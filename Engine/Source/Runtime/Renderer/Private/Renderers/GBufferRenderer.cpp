@@ -51,33 +51,6 @@ namespace Durin
 				auto operator==(const FGBufferShaderMapKey&) const -> bool = default;
 		};
 
-		struct FGBufferPipelineKey
-		{
-			FMaterialPlanningPassIdentity Material;
-			FRasterizerStateInitializerRHI Rasterizer;
-			FDepthStencilStateInitializerRHI Depth;
-			FVertexDeclarationRHIRef VertexDeclaration;
-			FXxHash64 FactoryKey;
-			FXxHash64 LayoutKey;
-				FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
-				bool bModelData = false;
-				auto operator==(const FGBufferPipelineKey&) const -> bool = default;
-		};
-
-		auto GetGBufferPlanningPassIdentity(const FGBufferPipelineKey& Key)
-			-> std::string
-		{
-			return std::format(
-				"layout-version={},layout-id={},program={},blend={},shading={},domain={},declaration={}",
-				Key.Material.ShaderMap.RenderLayout.Version,
-				Key.Material.ShaderMap.RenderLayout.Id.ToString(),
-				Key.Material.ShaderMap.ProgramIdentity.ToString(),
-				static_cast<uint8>(Key.Material.ShaderMap.BlendMode),
-				static_cast<uint8>(Key.Material.ShaderMap.ShadingModel),
-				Key.FactoryKey.HashValue,
-				reinterpret_cast<uintptr_t>(
-					Key.VertexDeclaration.GetReference()));
-		}
 	} // namespace
 
 
@@ -87,10 +60,6 @@ namespace Durin
 
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload, RendererPrivate::FMaterialResourceCacheKeyHash>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
-		TRendererResourceSlotCache<FGBufferPipelineKey, std::shared_ptr<const FPipeline>, RendererPrivate::FMaterialResourceCacheKeyHash>
-			Pipelines{ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
-
 	};
 
 	FGBufferRenderer::FGBufferRenderer(FRendererResourceCoordinator& InCoordinator)
@@ -141,7 +110,7 @@ namespace Durin
 				FShaderCompileOptions Options;
 				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
 				ERenderResourceCreateErrorCategory FailureCategory;
-				const auto Result = Processor.PrepareShaders(Batch, Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(), Options, Candidate, &FailureCategory);
+				const auto Result = Processor.PrepareShaders(Batch, CompiledProgram.get(), Options, Candidate, &FailureCategory);
 				if (Result.Status == ERenderResourceAvailability::Pending) return FShaderResult::Pending();
 				if (Result.Status == ERenderResourceAvailability::Canceled) return FShaderResult::Canceled();
 				if (!Result) return FShaderResult::Failure(MakeRendererResourceCreateError(
@@ -154,51 +123,14 @@ namespace Durin
 			ReportRendererResourceCreateDiagnostic);
 		if (Shaders == nullptr) return nullptr;
 
-		const FGBufferPipelineKey PipelineKey{
-			.Material = Request.Material,
-			.Rasterizer = Request.Rasterizer,
-			.Depth = Request.Depth,
-			.VertexDeclaration = Request.VertexDeclaration,
-			.FactoryKey = Request.FactoryKey,
-			.LayoutKey = Request.LayoutKey,
-			.Topology = Request.Topology,
-			.bModelData = Request.bModelData
-		};
-		auto& PipelineEntry = State->Pipelines.FindOrAddBounded(
-			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget, RendererPrivate::MaterialPipelineCacheByteBudget);
-		FRenderResourceGeneration PipelineGeneration =
-			Coordinator.GetGeneration_RenderThread();
-		PipelineGeneration.Shader = Shaders->ShaderMap.GetGeneration().Shader;
-		using FPipelineResult =
-			TRenderResourceCreateResult<std::shared_ptr<const FPipeline>>;
-		std::shared_ptr<const FPipeline>* Pipeline = PipelineEntry.Slot.Resolve(
-			PipelineGeneration,
-			[&PipelineEntry, Shaders, PipelineKey, &Processor, &Batch, VertexDeclaration = Request.VertexDeclaration]() -> FPipelineResult {
-				std::shared_ptr<const FPipeline> Candidate;
-				const auto Preparation = Processor.PreparePipeline(Batch,
-					*Shaders, VertexDeclaration, Candidate);
-				if (!Preparation) return FPipelineResult::Failure(MakeRendererResourceCreateError(
-					ERenderResourceCreateErrorCategory::GraphicsPipeline, "GBufferPipeline", GetGBufferPlanningPassIdentity(PipelineKey),
-					ERenderResourceCreateErrorReason::PipelinePreparationRejected,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
-				));
-				return FPipelineResult::Success(std::move(Candidate));
-			},
-			ReportRendererResourceCreateDiagnostic);
-		if (Pipeline && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-		{
-			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(*(*Pipeline)->GetInitializer().PipelineInitializer);
-			if (!Request) return nullptr;
-			FRenderPipelinePreparationBatch::Add(Request);
-			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return nullptr;
-		}
-		return Pipeline != nullptr ? *Pipeline : nullptr;
+		std::shared_ptr<const FPipeline> Pipeline;
+		if (!Processor.PreparePipeline(Batch, *Shaders, Request.VertexDeclaration, Pipeline)) return nullptr;
+		return Pipeline;
 	}
 
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->ShaderMaps.Reset();
-		State->Pipelines.Reset();
 	}
 } // namespace Durin
 

@@ -270,7 +270,7 @@ there is no TryWait wrapper. Required-success owners such as render fences check
 the returned state before releasing their completion receipt. Queue payload
 accounting reserves dependency wake storage; retired groups release subscriptions.
 
-Static-mesh shader and pipeline identities, shared fullscreen geometry, and
+Mesh material shader maps, shared fullscreen geometry, and
 Texture Editor previews use
 `TRenderResourceCreationSlot`. A slot constructs a complete candidate in local
 ownership and publishes only after every binding, RHI resource, and pipeline
@@ -283,7 +283,9 @@ Fixed non-Material shader compilation and typed lookup are centralized in
 Engine's [Global Shader](../Shaders/GlobalShaders.md) map. Renderer feature
 payloads retain typed shader references from the published map for
 pipeline creation and parameter binding. Graphics and compute initializers identify
-PSOs through the RHI cache. Material and vertex-factory/mesh combinations use
+PSOs through the RHI cache. StaticMesh, Shadow and GBuffer use the same mesh
+pass initializer for drawing and precaching. Prepared draws retain their material
+shader map and bindings while compatible draws share the native PSO. Material and vertex-factory/mesh combinations use
 `TMaterialShaderRef` over an exact `FMaterialShaderMap`; consumers likewise do
 not initialize an ordinary map, perform a raw lookup, or cast a shader.
 

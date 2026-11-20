@@ -96,7 +96,6 @@ namespace Durin
 	public:
 		std::shared_ptr<FShaderMapBase> ShaderMap;
 		FMeshMaterialShaderMapIdentity Identity;
-		FRenderResourceGeneration Generation;
 		FXxHash128 CompatibilityHash;
 		std::string CompatibilityText;
 	};
@@ -400,7 +399,6 @@ namespace Durin
 			}
 		}
 		Candidate->Identity = Input.Identity;
-		Candidate->Generation = Input.Generation;
 		Candidate->CompatibilityHash = SetHash.Finalize();
 		Candidate->CompatibilityText = std::move(CompatibilityText);
 		OutMap = FMeshMaterialShaderMap(std::move(Candidate));
@@ -508,7 +506,6 @@ namespace Durin
 
 		return FMeshMaterialShaderMap::TryCreate({
 			.Identity = Input.Identity,
-			.Generation = Input.Generation,
 			.Target = std::move(Input.Target),
 			.LocalPermutationId = Input.LocalPermutationId,
 			.VertexFactoryType = Input.VertexFactoryType,
@@ -544,13 +541,6 @@ namespace Durin
 		return Payload->Identity;
 	}
 
-	auto FMeshMaterialShaderMap::GetGeneration() const
-		-> const FRenderResourceGeneration&
-	{
-		check(Payload);
-		return Payload->Generation;
-	}
-
 	auto FMeshMaterialShaderMap::GetCompatibilityHash() const -> FXxHash128
 	{
 		return Payload ? Payload->CompatibilityHash : FXxHash128{};
@@ -583,13 +573,5 @@ namespace Durin
 	{
 		check(Payload);
 		return Payload->Identity;
-	}
-
-	auto GetMaterialPayloadGenerationImpl(
-		const std::shared_ptr<FMeshMaterialShaderMapPayload>& Payload)
-		-> const FRenderResourceGeneration&
-	{
-		check(Payload);
-		return Payload->Generation;
 	}
 }

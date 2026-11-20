@@ -269,7 +269,8 @@ namespace Durin::RendererPrivate
 		using FPassKey = std::tuple<EMeshPipelinePass, FRHIShader*, FRHIBuffer*>;
 		std::map<FPassKey, FBindings> Passes;
 		std::map<std::tuple<uint32, uint32, EMeshPipelinePass, FRHIShader*>, FMeshDrawShaderBindings> Vertices;
-		std::map<std::pair<const FMeshPassPipeline*, FRHIBuffer*>, std::shared_ptr<const FMeshPassBindings>> PassGroups;
+		using FPassGroupKey = std::tuple<EMeshPipelinePass, const FMeshVertexShaderBinding*, const FCompiledSurfaceBindingLayout*, FRHIBuffer*>;
+		std::map<FPassGroupKey, std::shared_ptr<const FMeshPassBindings>> PassGroups;
 		size_t PreparedSurfaceBindingBatches = 0, SurfaceBindingBatchReuses = 0;
 	};
 	// Cache metadata belongs to storage, never to the RHI draw description.
@@ -402,7 +403,7 @@ namespace Durin::RendererPrivate
 		virtual auto GetPass() const -> EMeshPipelinePass = 0;
 		virtual auto AddMeshBatch(const FMeshPassProcessorBatch& MeshBatch, const FMeshDrawCommandBuildInput& Input,
 			std::shared_ptr<const FMeshDrawCommand> Existing = {}) const -> FShaderCompletion = 0;
-		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch, const FRenderResourceGeneration& Generation,
+		RENDERER_API auto PrepareShaders(const FMeshPassProcessorBatch& Batch,
 			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderMapQueryResult;
 		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch,
