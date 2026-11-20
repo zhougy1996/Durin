@@ -29,7 +29,8 @@ namespace Durin
 		virtual auto GetEditableName() const -> std::string { return {}; }
 		// Changes authored name only. The editor owns validation, transactions and publication.
 		virtual auto SetEditableName(std::string NewName) -> void {}
-		ENGINE_API auto FindOrCreateTransactionAnnotation() const -> std::shared_ptr<ITransactionObjectAnnotation> override;
+		ENGINE_API auto PostTransacted(const FTransactionObjectEvent& Event) -> void override;
+		auto PostEditUndo() -> void override {}
 #endif
 		virtual auto GetAuthoredInputCount() const -> uint32 { return 0; }
 

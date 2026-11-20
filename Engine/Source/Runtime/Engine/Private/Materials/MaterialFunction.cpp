@@ -177,6 +177,9 @@ namespace Durin
 
 	auto DMaterialFunction::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
+		if ((Event.Origin == EPropertyChangeOrigin::Undo || Event.Origin == EPropertyChangeOrigin::Redo)
+			&& Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("ExpressionCollection")
+				|| Event.MemberProperty->NamePrivate == FName("Presentation"))) return;
 		Super::PostEditChangeProperty(Event);
 #if DURIN_WITH_EDITORONLY_DATA
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection"))

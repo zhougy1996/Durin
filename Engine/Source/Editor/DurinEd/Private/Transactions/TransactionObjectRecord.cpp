@@ -176,6 +176,30 @@ namespace Durin
 		return {};
 	}
 
+	// Only a field explicitly requiring an exact starting state opts into this check.
+	// The ordered tags already contain the identities of referenced objects.
+	auto FTransaction::FWholeObjectData::ValidateSource(bool bUndo) const -> FTransactionCaptureResult
+	{
+		const auto& Source = (bUndo ? AfterState : BeforeState)->Observation;
+		auto* Object = Target.Get();
+		auto RequiresMatch = [&](FName Name) {
+			const auto* Field = Object->GetClass()->FindPropertyByName(Name);
+			return Field && Field->GetMetaData("ValidateTransactionSource") == "true";
+		};
+		if (!std::ranges::any_of(Source.SerializedTaggedData, [&](const auto& Tag) {
+			return Tag.bReflected && RequiresMatch(Tag.Name);
+		})) return {};
+		const auto Policy = (bUndo ? AfterState : BeforeState)->GetSerializedCapture();
+		FDiffableObject Current;
+		if (auto Captured = CaptureSerializedObject(*Object, &Policy, &Current); !Captured) return std::unexpected(Captured.error());
+		auto Diff = DiffUtil::GenerateObjectDiff(Source, Current, {.bFullDiff = false,
+			.ShouldSkipProperty = [&](FName Name) { return !RequiresMatch(Name); }});
+		if (!Diff) return std::unexpected(Diff.error());
+		if (!Diff->ChangedProperties.empty())
+			return std::unexpected(std::format("Transaction source property '{}' changed outside history.", Diff->ChangedProperties.front().ToString()));
+		return {};
+	}
+
 	auto FTransaction::FWholeObjectData::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
 	{
 		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");

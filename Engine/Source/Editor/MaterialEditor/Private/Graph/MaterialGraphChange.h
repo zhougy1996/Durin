@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	enum class EMaterialChangeError : uint8 { None, TargetUnavailable, MaterialWrite, PresentationWrite, MemberUnavailable, MembershipChanged, PropertyRestore, RollbackIncomplete };
+	enum class EMaterialChangeError : uint8 { None, TargetUnavailable, MaterialWrite, PresentationWrite, MemberUnavailable, PropertyRestore, RollbackIncomplete };
 	struct FMaterialChangeError
 	{
 		EMaterialChangeError Code = EMaterialChangeError::None;
@@ -17,7 +17,6 @@ namespace Durin
 		std::string TargetLabel;
 		std::string ExpectedParentPath, ActualParentPath;
 		size_t NodeCount = 0;
-		size_t MemberIndex = 0;
 		std::shared_ptr<const FMaterialChangeError> CleanupCause;
 		std::shared_ptr<const FPropertySnapshotError> PropertyCause;
 		std::string Message;

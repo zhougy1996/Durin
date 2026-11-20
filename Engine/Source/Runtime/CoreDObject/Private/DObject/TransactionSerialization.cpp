@@ -325,7 +325,7 @@ namespace Durin
 		if (Object.IsTemplateObject() && (Capture.Info.Identity.OriginalName != Object.GetFName()
 			|| Capture.Info.Outer.Get() != Object.GetOuter() || Capture.Info.Flags != Object.GetObjectFlags()))
 			return std::unexpected("Template transactions cannot change construction identity or flags.");
-		if (Capture.Info.Identity.OriginalName.IsNone())
+		if (Capture.Info.Identity.OriginalName.IsNone() && (!Object.GetFName().IsNone() || Capture.Info.Outer.Get() != Object.GetOuter()))
 			return std::unexpected(std::format("Transaction object '{}' has no captured Name.", Object.GetObjectPath()));
 		if ((!Capture.Info.Outer.IsNull() && !Capture.Info.Outer.Get()) || (!Capture.Info.Package.IsNull() && !Capture.Info.Package.Get()))
 			return std::unexpected(std::format("Transaction object '{}' Outer or package no longer resolves.", Object.GetObjectPath()));

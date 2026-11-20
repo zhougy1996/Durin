@@ -830,6 +830,11 @@ namespace Durin
 		if (auto Pie = CheckPieReferences(*this); !Pie)
 			return std::unexpected(FTransactionApplyError{.Message = Pie.error()});
 		if (auto Result = ValidateReplayRecords(ReplayIndices); !Result) return Result;
+		for (size_t Index : ReplayIndices)
+			if (const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data))
+				if (auto Valid = Whole->ValidateSource(bUndo); !Valid)
+					return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
+						.RecordIndex = Index, .Message = Valid.error()});
 		std::vector<size_t> Applied;
 		Applied.reserve(ReplayIndices.size());
 		std::vector<FPersistentObjectRef> ReplayTargets;

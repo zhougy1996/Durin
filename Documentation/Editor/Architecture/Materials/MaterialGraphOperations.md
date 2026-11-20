@@ -138,7 +138,7 @@ clears references to removed nodes without changing retained numeric defaults.
 Deleting a Surface override source removes that binding and restores the base
 Surface attribute; Undo restores the original objects and recorded fields. Terminals own their complete `FMaterialFunctionPort`: stable port GUID, type,
 name, display order, flags and default. `GetFunctionSignature()` derives and caches
-a read-only projection of those nodes; no separate signature is serialized. These commands retain their typed snapshots
+a read-only projection of those nodes; no separate signature is serialized. These commands record the authored objects
 for Undo/Redo and provide positions for terminals without saved layout.
 Port editing, call insertion and call input connection commands
 use stable GUIDs; insertion rejects a dependency closure that would recurse into
@@ -602,19 +602,17 @@ ownership and explicit low-level gesture bindings are separate from command mode
 
 Same-class constant edits, ordinary pin defaults and constant toggles, swizzle masks, function port rename/reorder, and ordinary single or bulk link edits record the authored expressions
 with `DObject::Modify(false)` in one `FScopedTransaction`. Link and numeric default edits determine affected inputs, downstream widths and retained defaults from the proposed values before recording. Creating or removing a function binding keeps the compound edit path.
-No-op and invalid requests return before marking the package dirty. During replay,
-the expression's edit callback propagates the restored collection state to its owner
-for graph and compilation refresh. The transaction annotation checks membership
-before replaying an expression that may have been removed by an external asset edit.
+No-op and invalid requests return before marking the package dirty. Successful replay publishes the settled collection through the owner's graph change source.
 
-Class replacement, function-call binding changes and other compound edits use the
-domain-local `FGraphEditSession::Modify()` to capture reflected members before
-mutation. Only changed member payloads enter their custom record.
-Structural history detaches deleted children and retains them through
-its reference collector, restoring their original identity on replay. Unchanged
-children retain identity; history never aliases mutable live values. History
-enumerates texture, function, and participant references and reports native payload
-allocation sizes. Connection commands and Undo/Redo do not duplicate expressions.
+A structural edit records the material or function before changing its ordered
+`ExpressionCollection` and presentation. It calls `Modify(false)` on changed
+expressions and on each expression before marking it as garbage. Compound edits
+may validate provisional fields and restore them before recording the baseline.
+These temporary values end with the command. The shared transaction buffer owns
+the undo data, including the liveness transition and hard references across GC.
+Native completion repairs expression ownership before graph observers read it.
+An external bulk replacement retires the old children. History requiring a
+retired child fails preflight even when its replacement carries the same GUID.
 
 Ordinary material Details rows use `FPropertyEditSession` and its canonical
 whole-object recording gate. The semantic edit session remains a coordinated
@@ -644,10 +642,7 @@ notifications. This domain compensation does not change generic `Modify()` or
 `Cancel()` semantics. Presentation-only changes skip semantic publication;
 presentation replacement includes labels so replay can restore an empty name.
 
-Material graph commands edit live expression objects and retain focused member
-before/after payloads in one global transaction. Structural changes additionally
-retain membership and added/removed object state. Undo/Redo restores these values
-in place and publishes once through the Engine edit boundary. `CreateParameter`, `RenameParameter`
+Structural and expression changes share the global object transaction. `CreateParameter`, `RenameParameter`
 and `DeleteParameter` share the live editing boundary with numeric promotion,
 Surface commands, and clipboard paste. Rejected edits add no undo entry. New parameter nodes and constant
 promotion reuse an existing case-insensitive name when its type matches, adopting

@@ -133,6 +133,14 @@ same path; their property-only observations, construction filtering and referenc
 path matching are owned by
 [native construction](../../../Runtime/World/NativeConstruction.md#transaction-reconstruction).
 
+An always-serialized reflected property marked `ValidateTransactionSource=true` opts into Durin's
+checked replay preflight. Undo compares the live property's tagged bytes to the
+recorded after side and Redo compares them to the before side. The check runs
+before replay callbacks and writes. Material and function expression collections
+use this for ordered membership, including the case where a different live
+object has the same authored GUID. Both sides still undergo ordinary reference
+and schema validation.
+
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
 completion; native data does not invent reflected members. Whole-object capture, validation and application preserve a typed serialization error. Errors own

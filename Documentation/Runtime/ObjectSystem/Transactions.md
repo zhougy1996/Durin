@@ -91,6 +91,10 @@ not capture instance lifecycle annotations or activate runtime registration.
 without loading historical fields. `LoadSerializedObject` is a transfer operation:
 its caller must preflight first and own failure compensation. An error can follow
 partial native writes; a thrown native serializer explicitly requires recovery.
+An anonymous object can replay against its exact recorded generation while its
+name remains empty and its Outer matches. Transferring an anonymous identity
+to a different Outer or replacing a named identity with an anonymous one fails
+validation.
 Construction flags and physical destruction are irreversible. A whole-object record
 captures `bIsPendingKill`. When that bit changes during an edit, the transactor
 can resolve the retained generation during replay and apply `ClearGarbage()` or

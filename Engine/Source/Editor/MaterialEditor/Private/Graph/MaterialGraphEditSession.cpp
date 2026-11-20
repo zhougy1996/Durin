@@ -47,15 +47,8 @@ namespace Durin::MaterialEditor::GraphEditInternals
 					.PropertyCause = std::make_shared<FPropertySnapshotError>(Restored.error())}};
 				return {};
 			}
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void
-			{
-				Target.AddReferencedObjects(Collector);
-				for (const auto* Payload : {&Before, &After})
-					for (auto Key : Payload->GetReferencedObjectKeys()) FPersistentObjectRef::FromKey(Key).AddReferencedObjects(Collector);
-			}
 		};
 		using FNodes = std::vector<TStrongObjectPtr<DMaterialExpression>>;
-		using FNodeReferences = std::vector<TObjectPtr<DMaterialExpression>>;
 		auto ReadPresentation(DObject& Owner) -> FMaterialGraphPresentation
 		{
 			if (auto* M = Cast<DMaterial>(&Owner)) return M->GetMaterialGraphPresentation();
@@ -76,99 +69,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			for (auto& E : Nodes) Current.emplace_back(E.Get());
 			FMaterialExpressionEditing::ReconcileOwnership(Owner, Previous);
 		}
-		class FGraphObjectChange final : public FMaterialCommandChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{
-				std::vector<DObject*> Objects{Owner.Get()};
-				for (const auto& Member : Members) Objects.push_back(Member.Object());
-				if (bStructural)
-				{
-					for (const auto& Node : BeforeNodes)
-						if (!std::ranges::contains(AfterNodes, Node)) Objects.push_back(Node.Get());
-					for (const auto& Node : AfterNodes)
-						if (!std::ranges::contains(BeforeNodes, Node)) Objects.push_back(Node.Get());
-				}
-				return Objects;
-			}
 
-			TWeakObjectPtr<DObject> Owner;
-			std::vector<FMemberChange> Members;
-			FNodeReferences BeforeNodes, AfterNodes; // Collector-owned structural membership.
-			bool bStructural = false;
-			bool bPresentation = false;
-			FMaterialGraphPresentation BeforePresentation, AfterPresentation;
-			std::string Description;
-			std::array<DPackage*, 1> Packages;
-			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetOwningModule() const -> std::string_view override { return "MaterialEditor"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto Replay(ETransactionOperation Operation) -> FMaterialChangeResult override
-			{ return Apply(Operation == ETransactionOperation::Undo); }
-			auto Apply(bool bBefore) -> FMaterialChangeResult
-			{
-				if (!Owner.IsValid()) return {{.Code = EMaterialChangeError::TargetUnavailable}};
-				for (size_t Index = 0; Index < Members.size(); ++Index)
-					if (!Members[Index].Object()) return {{.Code = EMaterialChangeError::MemberUnavailable, .MemberIndex = Index}};
-				const auto& Current = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
-				if (bStructural)
-				{
-					if (Current != (bBefore ? AfterNodes : BeforeNodes)) return {{.Code = EMaterialChangeError::MembershipChanged, .NodeCount = Current.size()}};
-				}
-				else
-				{
-					// An external bulk replacement must not turn an old object record
-					// into a successful edit of detached, no-longer-visible expressions.
-					for (const auto& M : Members)
-						if (std::ranges::none_of(Current, [&](auto& E) { return E.Get() == M.Object(); })) return {{.Code = EMaterialChangeError::MembershipChanged, .NodeCount = Current.size()}};
-				}
-				// Restore all fields before deriving owner state or notifying observers.
-				size_t Applied = 0;
-				for (const auto& M : Members)
-				{
-					if (auto Restored = M.Restore(bBefore); !Restored)
-					{
-						while (Applied)
-						{
-							const auto& R = Members[--Applied];
-							const auto bRestored = R.Restore(!bBefore);
-							if (!bRestored) std::terminate();
-						}
-						Restored.Error.MemberIndex = static_cast<size_t>(&M - Members.data());
-						return Restored;
-					}
-					++Applied;
-				}
-				FScopedMaterialGraphChange Batch(*Owner.Get());
-				if (bStructural) SetNodes(*Owner.Get(), bBefore ? BeforeNodes : AfterNodes);
-				if (bPresentation) WritePresentation(*Owner.Get(), bBefore ? BeforePresentation : AfterPresentation);
-				if (bStructural || !Members.empty()) FMaterialExpressionEditing::Publish(*Owner.Get());
-				return {};
-			}
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (const auto& M : Members)
-				{
-					M.AddReferencedObjects(Collector);
-				}
-				for (const auto* Nodes : {&BeforeNodes, &AfterNodes})
-					for (auto& E : *Nodes) { DObject* Object = E.Get(); Collector.AddReferencedObject(Object); }
-			}
-			auto GetAllocatedSize() const -> size_t override
-			{
-				size_t Bytes = Description.capacity() + Members.capacity() * sizeof(FMemberChange)
-					+ (BeforeNodes.capacity() + AfterNodes.capacity()) * sizeof(FNodeReferences::value_type);
-				for (const auto& M : Members)
-					for (const auto* Payload : {&M.Before, &M.After}) { size_t Size = 0; if (!Payload->TryGetAllocatedSize(Size)) return std::numeric_limits<size_t>::max(); Bytes += Size; }
-				for (const auto* P : {&BeforePresentation, &AfterPresentation})
-				{
-					Bytes += P->Nodes.capacity() * sizeof(FMaterialGraphNodePresentation);
-					for (const auto& N : P->Nodes) Bytes += N.DisplayName.capacity();
-				}
-				return Bytes;
-			}
-		};
 	}
 
 	struct FGraphEditSession::FImpl
@@ -328,70 +229,77 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		std::vector<FGuid> PresentationIds;
 		for (auto& E : Expressions) PresentationIds.push_back(E->Id);
 		Presentation = SanitizeMaterialGraphPresentation(Presentation, PresentationIds);
-		auto Change = std::make_unique<FGraphObjectChange>();
-		Change->Owner = &Impl->Owner; Change->Description = std::move(Description); Change->Packages = {Impl->Owner.GetPackage()};
-		for (auto& M : Impl->Members)
+		const bool bStructural = !std::ranges::equal(Expressions, Impl->Original, {},
+			[](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
+		std::vector<FMemberChange*> Changed;
+		for (auto& Member : Impl->Members)
 		{
-			if (const auto Captured = M.CaptureAfter(); !Captured)
-				return RejectCommand("Unable to record the edited expression. " + ToString(Captured.error()));
-			if (!M.IsNoOp()) Change->Members.push_back(M);
+			if (auto Result = Member.CaptureAfter(); !Result)
+				return RejectCommand("Unable to inspect the expression. " + ToString(Result.error()));
+			if (!Member.IsNoOp()) Changed.push_back(&Member);
 		}
-		Change->bStructural = !std::ranges::equal(Expressions, Impl->Original, {}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
-		if (Change->bStructural)
-		{
-			for (auto& E : Impl->Original) Change->BeforeNodes.emplace_back(E.Get());
-			for (auto& E : Expressions) Change->AfterNodes.emplace_back(E.Get());
-			// Creation/deletion history restores the object's fields as well as its
-			// membership, even if a caller retained and modified the detached object.
-			for (const auto* Side : {&Change->BeforeNodes, &Change->AfterNodes})
-			{
-				const auto& Other = Side == &Change->BeforeNodes ? Change->AfterNodes : Change->BeforeNodes;
-				for (auto& E : *Side)
-				{
-					if (std::ranges::any_of(Other, [&](auto& O) { return O.Get() == E.Get(); })) continue;
-					E->GetClass()->ForEachProperty([&](FProperty* P) {
-						if (P->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-						for (uint32 Index = 0; Index < P->GetArrayDim(); ++Index)
-						{
-							if (std::ranges::any_of(Change->Members, [&](const auto& M) { return M.Object() == E.Get() && M.Property() == P && M.Index() == Index; })) continue;
-							FMemberChange M;
-							if (const auto Captured = M.Capture(*E, P, Index); !Captured)
-							{
-								if (!Impl->CaptureError) Impl->CaptureError = std::make_shared<FPropertySnapshotError>(Captured.error());
-								continue;
-							}
-							M.After = M.Before;
-							Change->Members.push_back(std::move(M));
-						}
-					});
-				}
-			}
-		}
-		if (Impl->CaptureError) return RejectCommand("Unable to record the structural edit. " + ToString(*Impl->CaptureError));
-		if (!Change->bStructural && Change->Members.empty() && Presentation == Impl->OriginalPresentation)
+		const bool bPresentation = Presentation != Impl->OriginalPresentation;
+		if (!bStructural && Changed.empty() && !bPresentation)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		Change->bPresentation = Presentation != Impl->OriginalPresentation;
-		if (Change->bPresentation)
+
+		std::vector<DMaterialExpression*> Removed;
+		if (bStructural)
 		{
-			Change->BeforePresentation = Impl->OriginalPresentation;
-			Change->AfterPresentation = Presentation;
+			std::unordered_set<DMaterialExpression*> Current;
+			for (const auto& Node : Expressions) Current.insert(Node.Get());
+			for (const auto& Old : Impl->Original)
+				if (!Current.contains(Old.Get())) Removed.push_back(Old.Get());
 		}
-		const bool bSemantic = Change->bStructural || !Change->Members.empty();
+
 		FScopedMaterialGraphChange Batch(Impl->Owner);
-		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::string(Change->GetDescription())});
-		// Record before publishing dirty/revision/compile effects. A rejected history
-		// commit leaves the scope responsible for restoring the original live fields.
+		std::vector<TObjectPtr<DMaterialExpression>> Accepted;
+		FNodes Added;
 		if (Transactions)
 		{
-			const auto Recorded = Transactions->StoreUndo(std::move(Change));
-			if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
+			// Rewind the provisional edit before opening the recording.
+			if (bStructural)
+			{
+				for (const auto& Node : Expressions)
+					if (!Impl->OriginalObjects.contains(Node.Get())) Added.emplace_back(Node.Get());
+				Accepted.swap(Expressions);
+				for (const auto& Node : Impl->Original) Expressions.emplace_back(Node.Get());
+			}
+			for (auto* Member : Changed)
+				if (auto Result = Member->Restore(true); !Result) return RejectCommand(FormatMaterialChangeError(Result.Error));
 		}
-		std::vector<DMaterialExpression*> Previous;
-		for (auto& E : Impl->Original) Previous.push_back(E.Get());
-		FMaterialExpressionEditing::ReconcileOwnership(Impl->Owner, Previous);
+		const bool Nested = Transactions && Transactions->IsActive();
+		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::move(Description), &Impl->Owner});
+		if (Transactions)
+		{
+			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
+			FScopedPackageDirtySuppression Suppress;
+			std::unordered_set<DObject*> Recorded;
+			auto Record = [&](DObject& Object) {
+				if (!Recorded.insert(&Object).second) return true;
+				Object.SetFlags(EObjectFlags::Transactional);
+				if (Object.Modify(false)) return true;
+				if (!Nested) Recording.Cancel();
+				return false;
+			};
+			if ((bStructural || bPresentation) && !Record(Impl->Owner)) return RejectCommand("Unable to record the graph owner.");
+			for (auto* Node : Removed)
+				if (!Record(*Node)) return RejectCommand("Unable to record the removed expression.");
+			for (auto* Member : Changed)
+				if (!Record(*Member->Object())) return RejectCommand("Unable to record the edited expression.");
+			for (auto* Member : Changed)
+				if (auto Result = Member->Restore(false); !Result)
+				{
+					for (auto* Original : Changed) if (!Original->Restore(true)) std::terminate();
+					if (!Nested) Recording.Cancel();
+					return RejectCommand(FormatMaterialChangeError(Result.Error));
+				}
+			if (bStructural) Expressions.swap(Accepted);
+		}
+		for (auto* Node : Removed) Node->MarkAsGarbage();
+		FMaterialExpressionEditing::ReconcileOwnership(Impl->Owner, {});
 		Impl->bFinished = true;
-		WritePresentation(Impl->Owner, Presentation);
-		if (bSemantic) FMaterialExpressionEditing::Publish(Impl->Owner);
+		if (bPresentation) WritePresentation(Impl->Owner, Presentation);
+		if (bStructural || !Changed.empty()) FMaterialExpressionEditing::Publish(Impl->Owner);
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 }

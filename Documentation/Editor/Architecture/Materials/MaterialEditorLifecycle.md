@@ -189,6 +189,11 @@ synchronous; shader compilation stays on the derived transient preview material
 and consuming materials. Compiler worker snapshots remain independent of this
 editor session state.
 
+The material toolkit routes successful history events for its working package to
+`PostUndo` and `PostRedo`. It relinks existing graph pins after the owner and
+expression callbacks have restored membership and published authored changes.
+Dependent graphs receive function changes through their existing subscriptions.
+
 Following UE's material-function editor, successful Undo/Redo republishes each
 function session touched by that transaction, including after Apply. The toolkit
 uses existing transaction notifications, so history replay from another toolkit

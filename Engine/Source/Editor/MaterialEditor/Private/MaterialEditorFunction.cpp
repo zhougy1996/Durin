@@ -4,6 +4,8 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "MaterialFunctionEditingSession.h"
+#include "Widgets/MaterialEditingSession.h"
+#include "MaterialGraph.h"
 #include "Misc/UnifiedError.h"
 #include "Materials/Material.h"
 #include "ThirdParty/ImGui/imgui_internal.h"
@@ -83,24 +85,24 @@ namespace Durin::MaterialEditor
 		if (auto Session = std::exchange(FunctionSession, {})) Session->RetirePreview();
 	}
 
-	auto FMaterialEditor::RegisterFunctionUndo() -> void
+	auto FMaterialEditor::RegisterUndo() -> void
 	{
-		if (FunctionUndoHandle || !EditorSession.GetEditor()) return;
-		FunctionUndoHandle = EditorSession.GetEditor()->GetTransactor()->AddTransactionListener(
+		if (UndoHandle || !EditorSession.GetEditor()) return;
+		UndoHandle = EditorSession.GetEditor()->GetTransactor()->AddTransactionListener(
 			[Weak = weak_from_this()](const FTransactionEvent& Event) {
 				if (auto Owner = std::dynamic_pointer_cast<FMaterialEditor>(Weak.lock()); Owner && Owner->IsEditorOpen())
-					Owner->HandleFunctionTransaction(Event);
+					Owner->HandleTransaction(Event);
 			});
 	}
 
-	auto FMaterialEditor::UnregisterFunctionUndo() -> void
+	auto FMaterialEditor::UnregisterUndo() -> void
 	{
-		if (FunctionUndoHandle && EditorSession.GetEditor())
-			EditorSession.GetEditor()->GetTransactor()->RemoveTransactionListener(FunctionUndoHandle);
-		FunctionUndoHandle = 0;
+		if (UndoHandle && EditorSession.GetEditor())
+			EditorSession.GetEditor()->GetTransactor()->RemoveTransactionListener(UndoHandle);
+		UndoHandle = 0;
 	}
 
-	auto FMaterialEditor::HandleFunctionTransaction(const FTransactionEvent& Event) -> void
+	auto FMaterialEditor::HandleTransaction(const FTransactionEvent& Event) -> void
 	{
 		if (Event.Type != ETransactionEventType::Undone && Event.Type != ETransactionEventType::Redone) return;
 		auto* Transactions = EditorSession.GetEditor()->GetTransactor();
@@ -108,9 +110,23 @@ namespace Durin::MaterialEditor
 		for (size_t Index = 0; Index < Transactions->GetQueueLength(); ++Index)
 			if (const auto* Entry = Transactions->GetTransaction(Index); Entry && Entry->GetId() == Event.Id)
 			{ Packages = Entry->GetAffectedPackages(); break; }
-		const auto Session = FunctionSession;
-		if (IsEditorOpen() && Session && std::ranges::contains(Packages, Session->WorkingPackage.Get()))
+		auto* Working = FunctionSession ? static_cast<DObject*>(FunctionSession->Function())
+			: EditingSession ? EditingSession->GetWorkingMaterial() : nullptr;
+		if (!Working || !std::ranges::contains(Packages, Working->GetPackage())) return;
+		if (Event.Type == ETransactionEventType::Undone) PostUndo(true);
+		else PostRedo(true);
+	}
+
+	auto FMaterialEditor::PostUndo(bool bSuccess) -> void
+	{
+		if (!bSuccess || !IsEditorOpen()) return;
+		if (const auto Session = FunctionSession)
+		{
+			if (Session->Graph) Session->Graph->LinkGraphNodesFromMaterial();
 			ApplyFunction(true);
+		}
+		else if (EditingSession && EditingSession->Graph)
+			EditingSession->Graph->LinkGraphNodesFromMaterial();
 	}
 
 	auto FMaterialEditor::ResetFunctionSession(DMaterialFunction& Source) -> bool

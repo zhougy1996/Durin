@@ -42,6 +42,8 @@ namespace Durin
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 #if DURIN_WITH_EDITORONLY_DATA
+		ENGINE_API auto PostEditUndo() -> void override;
+		ENGINE_API auto PostTransacted(const FTransactionObjectEvent& Event) -> void override;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionOutputs() const -> const FMaterialAttributeRoot&;
 		ENGINE_API auto GetOutputNode() const -> const DMaterialExpressionMaterialOutput*;
@@ -113,6 +115,7 @@ namespace Durin
 		friend class FMaterialReferenceReplacementParticipant;
 #if DURIN_WITH_EDITORONLY_DATA
 		FMaterialGraphChangeSource GraphChanges;
+		uint64 LastGraphReplayOperation = 0;
 #endif
 		auto AdvanceAuthoredRevision(FObjectCacheContext* Context = nullptr) -> void;
 #if DURIN_WITH_EDITORONLY_DATA
@@ -127,7 +130,7 @@ namespace Durin
 		std::vector<FMaterialParameterDefinition> ParameterSchema;
 
 #if DURIN_WITH_EDITORONLY_DATA
-		DPROPERTY(EditorOnly, AlwaysSerialize)
+		DPROPERTY(EditorOnly, AlwaysSerialize, MetaData="ValidateTransactionSource=true")
 		FMaterialExpressionCollection ExpressionCollection;
 #endif
 

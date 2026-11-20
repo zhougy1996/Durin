@@ -102,9 +102,11 @@ namespace Durin::MaterialEditor
 		auto SaveFunction() -> bool;
 		auto ResetFunctionSession(DMaterialFunction& Source) -> bool;
 		auto ReleaseFunctionSession() -> void;
-		auto RegisterFunctionUndo() -> void;
-		auto UnregisterFunctionUndo() -> void;
-		auto HandleFunctionTransaction(const FTransactionEvent& Event) -> void;
+		auto RegisterUndo() -> void;
+		auto UnregisterUndo() -> void;
+		auto HandleTransaction(const FTransactionEvent& Event) -> void;
+		auto PostUndo(bool bSuccess) -> void;
+		auto PostRedo(bool bSuccess) -> void { PostUndo(bSuccess); }
 		auto SaveFunctionViewport() -> void;
 		auto CancelFunctionInteractions() -> bool;
 		auto ResetFunctionLayout() -> void;
@@ -114,7 +116,7 @@ namespace Durin::MaterialEditor
 		auto DrawInputs(FMaterialFunctionEditingSession& Document) -> void;
 		const EMaterialEditorMode Mode;
 		std::shared_ptr<FMaterialFunctionEditingSession> FunctionSession;
-		uint64 FunctionUndoHandle = 0;
+		uint64 UndoHandle = 0;
 
 		std::shared_ptr<FMaterialEditingSession> EditingSession;
 		FAssetEditorSession EditorSession;

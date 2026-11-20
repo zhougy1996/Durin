@@ -149,7 +149,7 @@ namespace Durin::MaterialEditor
 	FMaterialEditor::~FMaterialEditor()
 	{
 		SaveFunctionViewport();
-		UnregisterFunctionUndo();
+		UnregisterUndo();
 		ReleaseFunctionSession();
 		SettingsPage = {};
 		FinishActivePropertyEdit(true);
@@ -872,7 +872,8 @@ namespace Durin::MaterialEditor
 		EditorSession.BindEditor(GetAssetEditorSubsystem()->GetEditor());
 		if (const auto* Owner = GetOwningAssetEditor())
 			ProfileSettings->SelectStorage("MaterialEditor/Profiles/" + FXxHash128::HashBuffer(GetLayoutProfileKey()).ToString() + ".yaml");
-		if (Mode == EMaterialEditorMode::Function) { RegisterFunctionUndo(); return; }
+		RegisterUndo();
+		if (Mode == EMaterialEditorMode::Function) return;
 		SettingsPage = FEditorSettingsPageRegistration({
 			.Id = GetPreferencesPageId(), .Label = "Material Editor" + (GetOwningAssetEditor()->GetInstanceKey().empty() ? std::string{} : " [" + std::string(GetOwningAssetEditor()->GetInstanceKey()) + "]"),
 			.Keywords = "auto compile preview details parameters diagnostics panels",
@@ -889,7 +890,7 @@ namespace Durin::MaterialEditor
 	{
 		RequestDeactivate();
 		SaveFunctionViewport();
-		UnregisterFunctionUndo();
+		UnregisterUndo();
 		ReleaseFunctionSession();
 		SettingsPage = {};
 		CaptureCanvasViewport();

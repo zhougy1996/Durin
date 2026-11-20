@@ -17,7 +17,7 @@ namespace Durin
 		ENGINE_API static auto ValidateStorage(DObject& Owner) -> FMaterialProgramValidationResult;
 		ENGINE_API static auto ReconcileOwnership(DObject& Owner,
 			std::span<DMaterialExpression* const> Previous) -> void;
-		ENGINE_API static auto Publish(DObject& Owner) -> void;
+		ENGINE_API static auto Publish(DObject& Owner, uint64 OperationId = 0) -> void;
 	};
 #endif
 }

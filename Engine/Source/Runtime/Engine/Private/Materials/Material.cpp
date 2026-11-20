@@ -531,6 +531,9 @@ namespace Durin
 	auto DMaterial::PostEditChangeProperty(
 		const FPropertyChangedEvent& Event) -> void
 	{
+		if ((Event.Origin == EPropertyChangeOrigin::Undo || Event.Origin == EPropertyChangeOrigin::Redo)
+			&& Event.MemberProperty && (Event.MemberProperty->NamePrivate == FName("ExpressionCollection")
+				|| Event.MemberProperty->NamePrivate == FName("GraphPresentation"))) return;
 #if DURIN_WITH_EDITORONLY_DATA
 		FObjectCacheContext Context;
 		Super::PostEditChangePropertyWithContext(Event, Context);

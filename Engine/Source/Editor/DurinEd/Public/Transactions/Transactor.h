@@ -202,6 +202,7 @@ namespace Durin
 
 		private:
 			friend class FTransaction;
+			auto ValidateSource(bool bUndo) const -> FTransactionCaptureResult;
 			// UE's editor FSerializedObject is distinct from the runtime byte payload.
 			struct FSerializedObject
 			{

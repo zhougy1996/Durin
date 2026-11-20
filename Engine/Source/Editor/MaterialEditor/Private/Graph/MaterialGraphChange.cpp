@@ -10,7 +10,6 @@ namespace Durin
 		else switch (Error.Code)
 		{
 		case EMaterialChangeError::None: break;
-		case EMaterialChangeError::MembershipChanged: Message = "The graph participants changed outside history."; break;
 		case EMaterialChangeError::RollbackIncomplete: Message = "Rollback also failed."; break;
 		case EMaterialChangeError::TargetUnavailable: Message = "The custom transaction target is unavailable."; break;
 		case EMaterialChangeError::MemberUnavailable: Message = "The graph member is unavailable."; break;

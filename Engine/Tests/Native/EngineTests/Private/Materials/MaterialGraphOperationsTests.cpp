@@ -1,6 +1,7 @@
 #include "Graph/MaterialGraphPinSource.h"
 #include "Graph/MaterialGraphEditSession.h"
 #include "Editor/EditorTransactionTestSupport.h"
+#include "DObject/DObjectArray.h"
 #include "Graph/MaterialGraphInteraction.h"
 #include "Graph/MaterialGraphCatalog.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
@@ -2072,7 +2073,14 @@ TEST(FMaterialGraphOperationsTests,
 	FMaterialGraphClipboardPayload UnknownVersion = Payload;
 	UnknownVersion.SchemaVersion = 99;
 	const auto BeforeRejected = CaptureExpressions(*Material);
+	const auto QueueLength = Transactions->GetQueueLength();
+	ASSERT_GE(Transactions->Begin("Graph", "Move and reject paste"), 0);
+	const auto Nested = Testing::CreateGraphConstant(*MaterialEditorGraph, .3f, 0, 0, ETransactionMode::Record);
+	ASSERT_TRUE(Nested);
 	const auto Rejected = MaterialEditorGraph->Paste(UnknownVersion, 0, 0);
+	ASSERT_EQ(Transactions->End(), 1);
+	EXPECT_EQ(Transactions->GetQueueLength(), QueueLength + 1);
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_FALSE(Rejected);
 	EXPECT_EQ(Rejected.error().GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	EXPECT_EQ(CaptureExpressions(*Material), BeforeRejected);
@@ -2857,8 +2865,7 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
 	Parameter.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	EXPECT_TRUE(Deleted.IsValid());
-	EXPECT_EQ(Deleted.Get()->GetOuter(), nullptr);
+	EXPECT_FALSE(Deleted.IsValid());
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
 	auto* Restored = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions[0].Get());
@@ -2868,7 +2875,7 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.37f);
 	EXPECT_FLOAT_EQ(Restored->MinimumValue, 0.1f);
 	EXPECT_FLOAT_EQ(Restored->MaximumValue, 0.9f);
-	// Direct live edits must not mutate the serialized history payload.
+	// Redo captures the live inverse, including independent edits on the restored object.
 	Restored->DefaultValue = 0.72f;
 	Restored->Metadata.DisplayName = "Live edit";
 	ASSERT_TRUE(Transactions->Redo());
@@ -2876,8 +2883,8 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	ASSERT_TRUE(Transactions->Undo());
 	Restored = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions[0].Get());
 	ASSERT_NE(Restored, nullptr);
-	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.37f);
-	EXPECT_TRUE(Restored->Metadata.DisplayName.empty());
+	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.72f);
+	EXPECT_EQ(Restored->Metadata.DisplayName, "Live edit");
 	EXPECT_TRUE(Transactions->TryReset());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions[0].Get(), Restored);
@@ -3209,10 +3216,16 @@ TEST(FMaterialGraphOperationsTests, ReadModelSubscriptionsTrackReplacementDepend
 	TStrongObjectPtr<DMaterialGraph> SecondGraph(DMaterialGraph::Create(*Second));
 	auto* SecondOutput = Testing::FindFunctionTerminal<DMaterialExpressionFunctionOutput>(*SecondGraph, Second->GetFunctionSignature().Outputs.front().Id);
 	ASSERT_TRUE(SecondOutput);
-	ASSERT_TRUE(SecondOutput->OnRenameNode("New dependency", Durin::ETransactionMode::NotTransactable));
+	const auto OriginalName = Graph->FindNode(Call.value())->GetView().Outputs[0].Name;
+	Durin::Tests::FTestEditorTransactorOwner History;
+	ASSERT_TRUE(SecondOutput->OnRenameNode("New dependency", Durin::ETransactionMode::Record));
 	ASSERT_EQ(Graph->FindNode(Call.value())->GetView().Outputs[0].Name, "New dependency");
 	EXPECT_FALSE(Model.Refresh(*Material.Get()).IsEmpty());
 	EXPECT_EQ(FindViewNode(Model.GetView(), Call.value())->Outputs[0].Name, "New dependency");
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Graph->FindNode(Call.value())->GetView().Outputs[0].Name, OriginalName);
+	ASSERT_TRUE(History->Redo());
+	EXPECT_EQ(Graph->FindNode(Call.value())->GetView().Outputs[0].Name, "New dependency");
 	EXPECT_TRUE(Model.Refresh(*First.Get()).Has(EMaterialGraphChange::Reset));
 	ASSERT_TRUE(SecondOutput->OnRenameNode("Detached dependency", Durin::ETransactionMode::NotTransactable));
 	EXPECT_TRUE(Model.Refresh(*First.Get()).IsEmpty());
@@ -3510,6 +3523,103 @@ TEST(FMaterialGraphOperationsTests, GraphChangesJoinAnOuterRecording)
 	Material->GetGraphChanges().Unsubscribe(Observer);
 }
 
+TEST(FMaterialGraphOperationsTests, CompoundCreationAndDeletionReplayAcrossGC)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	Durin::Tests::FTestEditorTransactorOwner History;
+	ASSERT_GE(History->Begin("MaterialGraph", "Create and edit"), 0);
+	const auto Created = Testing::CreateGraphConstant(*Graph, .25f, 12, 34, Durin::ETransactionMode::Record);
+	ASSERT_TRUE(Created);
+	const FGuid Id = Created.value();
+	ASSERT_TRUE(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(.75f)));
+	ASSERT_EQ(History->End(), 1);
+	ASSERT_EQ(History->GetQueueLength(), 1u);
+	auto Find = [&]() { return Cast<DMaterialExpressionScalarConstant>(
+		FindMaterialExpression(Material->GetExpressionCollection().Expressions, Id)); };
+	ASSERT_TRUE(History->Undo()) << FormatTransactorResult(History->GetLastResult());
+	EXPECT_EQ(Find(), nullptr);
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	ASSERT_TRUE(History->Redo()) << FormatTransactorResult(History->GetLastResult());
+	ASSERT_NE(Find(), nullptr);
+	EXPECT_EQ(Find()->GetOuter(), Material.Get());
+	EXPECT_FLOAT_EQ(Find()->Value, .75f);
+
+	ASSERT_GE(History->Begin("MaterialGraph", "Edit and delete"), 0);
+	ASSERT_TRUE(Graph->FindNode(Id)->SetConstantValue(FMaterialParameterValue::MakeScalar(.5f)));
+	ASSERT_TRUE(Graph->RemoveNodes(std::array{Id}));
+	ASSERT_EQ(History->End(), 1);
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	ASSERT_TRUE(History->Undo()) << FormatTransactorResult(History->GetLastResult());
+	ASSERT_NE(Find(), nullptr);
+	EXPECT_FLOAT_EQ(Find()->Value, .75f);
+	ASSERT_TRUE(History->Redo()) << FormatTransactorResult(History->GetLastResult());
+	EXPECT_EQ(Find(), nullptr);
+}
+
+TEST(FMaterialGraphOperationsTests, MissingAllocationRejectsTheWholeGraphReplay)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	const auto Created = Testing::CreateGraphConstant(*Graph, .25f);
+	ASSERT_TRUE(Created);
+	auto* Child = FindMaterialExpression(Material->GetExpressionCollection().Expressions, Created.value());
+	ASSERT_NE(Child, nullptr);
+	const FObjectKey Key(Child);
+	// Standalone records deliberately have no GC owner. A normal undo buffer
+	// keeps this allocation alive and is exercised by the compound edit case.
+	FTransaction History(1, {.Description = "Delete graph child"});
+	ASSERT_TRUE(History.BeginOperation());
+	History.SaveObject(Material.Get());
+	History.SaveObject(Child);
+	ASSERT_EQ(History.GetRecordCount(), 2u);
+	ASSERT_TRUE(Graph->RemoveNodes(std::array{Created.value()}, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(History.Finalize());
+	ASSERT_TRUE(History.EndOperation());
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	ASSERT_EQ(GDObjectArray.Resolve(Key), nullptr);
+	const auto Before = CaptureExpressions(*Material);
+	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
+	const auto Result = History.Apply(true, EPropertyChangeOrigin::Undo);
+	ASSERT_FALSE(Result);
+	EXPECT_EQ(Result.error().Status, ETransactionApplyFailure::ValidationFailed);
+	EXPECT_EQ(CaptureExpressions(*Material), Before);
+	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
+}
+
+TEST(FMaterialGraphOperationsTests, StructuralReplayRejectsDifferentMemberWithTheSameGuid)
+{
+	InitializeDObjectSystem();
+	for (bool bUndo : {true, false})
+	{
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		Durin::Tests::FTestEditorTransactorOwner History;
+		auto Draft = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>();
+		ASSERT_TRUE(Graph->CreateExpression(*Draft, 0, 0, bUndo ? ETransactionMode::NotTransactable : ETransactionMode::Record));
+		if (bUndo) ASSERT_TRUE(Graph->RemoveNodes(std::array{Draft->Id}));
+		else ASSERT_TRUE(History->Undo());
+		ASSERT_TRUE(Graph->CreateExpression(*Draft, 10, 15, ETransactionMode::NotTransactable));
+		const auto Current = Material->GetExpressionCollection().Expressions;
+		int Events = 0;
+		const auto Handle = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) { ++Events; });
+		const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
+		EXPECT_FALSE(bUndo ? History->Undo() : History->Redo());
+		ASSERT_TRUE(History->GetLastResult().ApplyCause);
+		EXPECT_EQ(History->GetLastResult().ApplyCause->Status, ETransactionApplyFailure::ValidationFailed);
+		EXPECT_TRUE(bUndo ? History->CanUndo() : History->CanRedo());
+		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Current);
+		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
+		EXPECT_EQ(Events, 0);
+		Material->GetGraphChanges().Unsubscribe(Handle);
+	}
+}
+
 TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHistory)
 {
 	InitializeDObjectSystem();
@@ -3531,7 +3641,7 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	const auto Failed = Transactions->GetLastResult();
 	ASSERT_FALSE(Failed);
 	ASSERT_TRUE(Failed.ApplyCause);
-	EXPECT_EQ(Failed.ApplyCause->Message, "The graph participants changed outside history.");
+	EXPECT_FALSE(Failed.ApplyCause->Message.empty());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_TRUE(Transactions->CanUndo());

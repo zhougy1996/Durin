@@ -27,6 +27,8 @@ namespace Durin
 			-> std::vector<TObjectPtr<DMaterialFunctionInterface>> override;
 		auto GetFunctionRevision() const -> uint64 override { return Revision; }
 #if DURIN_WITH_EDITORONLY_DATA
+		ENGINE_API auto PostEditUndo() -> void override;
+		ENGINE_API auto PostTransacted(const FTransactionObjectEvent& Event) -> void override;
 		auto GetExpressionCollection() const -> const FMaterialExpressionCollection& { return ExpressionCollection; }
 		ENGINE_API auto GetExpressionBody() const -> MIR::FFunctionBody;
 		[[nodiscard]] ENGINE_API auto SetFunctionExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
@@ -48,6 +50,7 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		auto InvalidateSignature() -> bool;
 		FMaterialGraphChangeSource GraphChanges;
+		uint64 LastGraphReplayOperation = 0;
 #endif
 
 		// Read-only projection; never serialized or independently edited.
@@ -55,7 +58,7 @@ namespace Durin
 		mutable bool bSignatureCached = false;
 
 #if DURIN_WITH_EDITORONLY_DATA
-		DPROPERTY(EditorOnly, AlwaysSerialize)
+		DPROPERTY(EditorOnly, AlwaysSerialize, MetaData="ValidateTransactionSource=true")
 		FMaterialExpressionCollection ExpressionCollection;
 
 		DPROPERTY(EditorOnly)
