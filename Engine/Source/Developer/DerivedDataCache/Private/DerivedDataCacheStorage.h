@@ -7,12 +7,13 @@
 namespace Durin::DerivedData
 {
 	namespace Private { class FCacheStorageLease; }
-	enum class ECacheStorageNamespace : uint8 { Legacy, Records, Values };
+	// Zero represents an unspecified namespace and is rejected by storage.
+	enum class ECacheStorageNamespace : uint8 { Records = 1, Values };
 	struct FCacheStorageGetRequest
 	{
 		FCacheKey Key;
 		uint64 MaximumValueBytes = 0;
-		ECacheStorageNamespace Namespace = ECacheStorageNamespace::Legacy;
+		ECacheStorageNamespace Namespace{};
 		uint64* ReadBytes = nullptr;
 		std::function<bool()> ShouldCancel;
 	};
@@ -41,7 +42,7 @@ namespace Durin::DerivedData
 		FCacheKey Key;
 		FByteView Value;
 		uint64 MaximumValueBytes = 0;
-		ECacheStorageNamespace Namespace = ECacheStorageNamespace::Legacy;
+		ECacheStorageNamespace Namespace{};
 	};
 
 	using FCacheStoragePutResult = std::expected<void, FCacheError>;

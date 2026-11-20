@@ -11,18 +11,18 @@ namespace Durin::DerivedData
 	auto FFileSystemCacheBackend::GetBucketDirectory(const FCacheBucket& Bucket, ECacheStorageNamespace Namespace) const
 		-> FFilePath
 	{
-		auto Root = FFilePath(Lease.Root);
-		if (Namespace == ECacheStorageNamespace::Records)
-			Root /= Private::CacheRecordNamespace;
-		else if (Namespace == ECacheStorageNamespace::Values)
-			Root /= Private::FCacheBlobIdentity::Namespace;
-		return (Root / std::string(Bucket.ToString())).lexically_normal();
+		const std::string_view NamespaceDirectory = Namespace == ECacheStorageNamespace::Records
+			? Private::CacheRecordNamespace : Private::FCacheBlobIdentity::Namespace;
+		return (Lease.Root / NamespaceDirectory / std::string(Bucket.ToString())).lexically_normal();
 	}
 
 	auto FFileSystemCacheBackend::GetEntryPath(const FCacheKey& Key, ECacheStorageNamespace Namespace) const
 		-> std::expected<FFilePath, FCacheError>
 	{
-		if (!Key.IsValid() || Namespace > ECacheStorageNamespace::Values)
+		if (Namespace != ECacheStorageNamespace::Records && Namespace != ECacheStorageNamespace::Values)
+			return std::unexpected(FCacheError{ECacheError::InvalidRequest,
+				"Cache storage namespace is invalid."});
+		if (!Key.IsValid())
 			return std::unexpected(FCacheError{ECacheError::InvalidRequest,
 				"Cache key is invalid."});
 		const FCacheBucket& Bucket = Key.GetBucket();
