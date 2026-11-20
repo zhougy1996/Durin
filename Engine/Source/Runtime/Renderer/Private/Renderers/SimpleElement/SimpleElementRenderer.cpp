@@ -73,22 +73,6 @@ namespace Durin
 			FVector3f Padding{0.0f};
 		};
 
-		struct FSimplePipelineKey
-		{
-			ESimpleElementShaderClass ShaderClass =
-				ESimpleElementShaderClass::Untextured;
-			ESimpleElementBlendMode BlendMode = ESimpleElementBlendMode::Opaque;
-			ESceneDepthPriorityGroup DepthPriorityGroup =
-				ESceneDepthPriorityGroup::World;
-			ESceneDepthConvention DepthConvention =
-				ESceneDepthConvention::ForwardZ;
-			RenderTargetLayouts::EViewportOutput Output =
-				RenderTargetLayouts::EViewportOutput::Offscreen;
-			EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM;
-
-			auto operator==(const FSimplePipelineKey&) const -> bool = default;
-		};
-
 		auto MakePipelineKey(const FSimpleElementBatchKey& Key,
 			EPixelFormat OutputFormat)
 			-> FSimplePipelineKey
@@ -281,42 +265,8 @@ namespace Durin
 			const FSimplePipelineKey Key = MakePipelineKey(
 				Batch.Key, OutputFormat);
 			const bool bTextured = Key.ShaderClass == ESimpleElementShaderClass::Textured;
-			if (bTextured ? !(SpriteVertexShader.GetRHIShader(false) && SpriteFragmentShader.GetRHIShader(false)
-				&& Base.SpriteVertexDeclaration && Base.EditorIconAtlas && Base.Sampler)
-				: !(LineVertexShader.GetRHIShader(false) && LineFragmentShader.GetRHIShader(false) && Base.LineVertexDeclaration))
-				continue;
-			const std::string PipelineName = MakePipelineName(Key);
-			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout =
-				RenderTargetLayouts::MakeEditorAssistanceOutput(
-					Key.Output, Key.OutputFormat);
-			if (bTextured)
-			{
-				Initializer.BoundShaders.VertexShader =
-					SpriteVertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					SpriteFragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration = Base.SpriteVertexDeclaration;
-			}
-			else
-			{
-				Initializer.BoundShaders.VertexShader =
-					LineVertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					LineFragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration = Base.LineVertexDeclaration;
-			}
-			Initializer.BlendState = RHICreateBlendState({Key.BlendMode == ESimpleElementBlendMode::Translucent
-					? FRHIColorBlendState::StraightAlpha()
-					: FRHIColorBlendState{}});
-			Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-			Initializer.DepthStencilState = RHICreateDepthStencilState({
-				.bEnableTest = Key.DepthPriorityGroup == ESceneDepthPriorityGroup::World,
-				.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
-			Initializer.PipelineLayout = bTextured ? SpriteFragmentShader.GetPipelineLayout() : LineFragmentShader.GetPipelineLayout();
-
 			FTextureRHIRef Texture;
-			if (Batch.Key.ShaderClass == ESimpleElementShaderClass::Textured)
+			if (bTextured)
 			{
 				if (Batch.Key.Texture.Kind
 					== FSimpleElementTexture::EKind::EditorIconAtlas)
@@ -331,17 +281,41 @@ namespace Durin
 				if (!Texture)
 					continue;
 			}
-			if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+			const auto Found = std::ranges::find(Prepared.Pipelines, Key, &FPreparedSimpleElementPipeline::Key);
+			const size_t PipelineIndex = Found - Prepared.Pipelines.begin();
+			if (Found == Prepared.Pipelines.end())
 			{
-				auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, FName(PipelineName));
-				if (!Request) continue;
-				FRenderPipelinePreparationBatch::Add(Request);
-				if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
+				auto* VertexShader = bTextured ? SpriteVertexShader.GetRHIShader(false) : LineVertexShader.GetRHIShader(false);
+				auto* FragmentShader = bTextured ? SpriteFragmentShader.GetRHIShader(false) : LineFragmentShader.GetRHIShader(false);
+				const auto& Declaration = bTextured ? Base.SpriteVertexDeclaration : Base.LineVertexDeclaration;
+				if (!VertexShader || !FragmentShader || !Declaration || (bTextured && (!Base.EditorIconAtlas || !Base.Sampler)))
+					continue;
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout = RenderTargetLayouts::MakeEditorAssistanceOutput(Key.Output, Key.OutputFormat);
+				Initializer.BoundShaders.VertexShader = VertexShader;
+				Initializer.BoundShaders.FragmentShader = FragmentShader;
+				Initializer.VertexDeclaration = Declaration;
+				Initializer.BlendState = RHICreateBlendState({Key.BlendMode == ESimpleElementBlendMode::Translucent
+						? FRHIColorBlendState::StraightAlpha()
+						: FRHIColorBlendState{}});
+				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+				Initializer.DepthStencilState = RHICreateDepthStencilState({
+					.bEnableTest = Key.DepthPriorityGroup == ESceneDepthPriorityGroup::World,
+					.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
+				Initializer.PipelineLayout = bTextured ? SpriteFragmentShader.GetPipelineLayout() : LineFragmentShader.GetPipelineLayout();
+
+				if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+				{
+					auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Initializer, FName(MakePipelineName(Key)));
+					if (!Request) continue;
+					FRenderPipelinePreparationBatch::Add(Request);
+					if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) continue;
+				}
+				Prepared.Pipelines.push_back({Key, Initializer.VertexDeclaration, std::move(Initializer)});
 			}
 			Prepared.Draws.push_back({
 				.Key = Batch.Key,
-				.PipelineVertexDeclaration = Initializer.VertexDeclaration,
-				.PipelineInitializer = Initializer,
+				.PipelineIndex = PipelineIndex,
 				.LineShader = LineFragmentShader,
 				.SpriteShader = SpriteFragmentShader,
 				.Texture = std::move(Texture),
@@ -368,7 +342,7 @@ namespace Durin
 		{
 			if (Draw.Key.DepthPriorityGroup != DepthPriorityGroup)
 				continue;
-			SetGraphicsPipelineState(CommandList, Draw.PipelineInitializer);
+			SetGraphicsPipelineState(CommandList, Prepared.Pipelines[Draw.PipelineIndex].Initializer);
 			CommandList.BindVertexBuffer(0, State->VertexBuffer, 0);
 			CommandList.BindIndexBuffer(State->IndexBuffer, 0);
 			const FSimpleStyleUniform Style;

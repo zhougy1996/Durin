@@ -13,11 +13,33 @@ namespace Durin
 
 	class FRHICommandListImmediate;
 
+	struct FSimplePipelineKey
+	{
+		ESimpleElementShaderClass ShaderClass =
+			ESimpleElementShaderClass::Untextured;
+		ESimpleElementBlendMode BlendMode = ESimpleElementBlendMode::Opaque;
+		ESceneDepthPriorityGroup DepthPriorityGroup =
+			ESceneDepthPriorityGroup::World;
+		ESceneDepthConvention DepthConvention =
+			ESceneDepthConvention::ForwardZ;
+		RenderTargetLayouts::EViewportOutput Output =
+			RenderTargetLayouts::EViewportOutput::Offscreen;
+		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM;
+
+		auto operator==(const FSimplePipelineKey&) const -> bool = default;
+	};
+
+	struct FPreparedSimpleElementPipeline
+	{
+		FSimplePipelineKey Key;
+		FVertexDeclarationRHIRef VertexDeclaration;
+		FGraphicsPipelineStateInitializer Initializer;
+	};
+
 	struct FPreparedSimpleElementDraw
 	{
 		FSimpleElementBatchKey Key;
-		FVertexDeclarationRHIRef PipelineVertexDeclaration;
-		FGraphicsPipelineStateInitializer PipelineInitializer;
+		size_t PipelineIndex = 0;
 		TShaderMapRef<FSimpleLineFragmentShader> LineShader;
 		TShaderMapRef<FSimpleSpriteFragmentShader> SpriteShader;
 		FTextureRHIRef Texture;
@@ -29,6 +51,7 @@ namespace Durin
 
 	struct FPreparedSimpleElementRendering
 	{
+		std::vector<FPreparedSimpleElementPipeline> Pipelines;
 		std::vector<FPreparedSimpleElementDraw> Draws;
 		FSimpleElementCollectionStatistics Statistics;
 		uint32 VertexCapacity = 0;

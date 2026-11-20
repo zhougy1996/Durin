@@ -611,6 +611,28 @@ namespace Durin::RendererPrivate
 			return FShaderCompletion::Failure("Mesh pipeline precache did not complete successfully.");
 		return {};
 	}
+	auto FMeshPassProcessor::ResolvePipeline(const FMeshPassProcessorBatch& Batch, FCachedMeshPassShaders& Shaders,
+		FRHIVertexDeclaration* Declaration) const -> std::shared_ptr<const FMeshPassPipeline>
+	{
+		if (!Declaration) return nullptr;
+		const auto Description = DescribeMeshDraw(Batch.PipelineState, Batch.Topology, Batch.Material.ShaderMap.BlendMode, Batch.bReversedZ);
+		for (const auto& Weak : Shaders.Pipelines)
+		{
+			auto Pipeline = Weak.lock();
+			if (!Pipeline) continue;
+			const auto& Cached = Pipeline->GetInitializer();
+			if (Cached.Pass != GetPass() || Cached.Description != Description) continue;
+			if (Cached.VertexDeclaration != Declaration
+				&& Cached.VertexDeclaration->GetElements() != Declaration->GetElements()) continue;
+			if (!PrecachePipelineIfRequested(*Cached.PipelineInitializer)) return nullptr;
+			return Pipeline;
+		}
+		std::erase_if(Shaders.Pipelines, [](const auto& Weak) { return Weak.expired(); });
+		std::shared_ptr<const FMeshPassPipeline> Pipeline;
+		if (!PreparePipeline(Batch, Shaders, Declaration, Pipeline)) return nullptr;
+		Shaders.Pipelines.emplace_back(Pipeline);
+		return Pipeline;
+	}
 	auto FMeshPassProcessor::PreparePipeline(const FMeshPassProcessorBatch& Batch,
 		const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion
 	{

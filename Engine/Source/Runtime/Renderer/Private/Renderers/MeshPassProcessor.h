@@ -98,6 +98,11 @@ namespace Durin::RendererPrivate
 		FMeshDrawShaderBindings Vertex;
 		FMeshDrawShaderBindings Fragment;
 	};
+	// Each shader-map slot tracks only variants still owned by draws.
+	struct FCachedMeshPassShaders : FMeshPassShaders
+	{
+		std::vector<std::weak_ptr<const FMeshPassPipeline>> Pipelines;
+	};
 	// Submission-scoped resources, never inserted into a retained command.
 	struct FMeshDrawCommandOverrideArgs
 	{
@@ -409,6 +414,8 @@ namespace Durin::RendererPrivate
 			const FMaterialProgram* Program, const FShaderCompileOptions& Options, FMeshPassShaders& Out,
 			ERenderResourceCreateErrorCategory* FailureCategory = nullptr) const -> FShaderMapQueryResult;
 		static auto PrecachePipelineIfRequested(const FGraphicsPipelineStateInitializer& Initializer) -> FShaderCompletion;
+		auto ResolvePipeline(const FMeshPassProcessorBatch& Batch, FCachedMeshPassShaders& Shaders,
+			FRHIVertexDeclaration* Declaration) const -> std::shared_ptr<const FMeshPassPipeline>;
 		RENDERER_API auto PreparePipeline(const FMeshPassProcessorBatch& Batch,
 			const FMeshPassShaders& Shaders, FRHIVertexDeclaration* Declaration, std::shared_ptr<const FMeshPassPipeline>& Out) const -> FShaderCompletion;
 		RENDERER_API auto BuildPSOInitializer(const FMeshPassProcessorBatch& Batch, const FMeshPassShaders& Shaders,

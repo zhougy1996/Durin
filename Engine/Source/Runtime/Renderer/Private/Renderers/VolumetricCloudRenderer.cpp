@@ -803,7 +803,6 @@ namespace Durin
 		if (!Candidate)
 			return Result;
 
-		EnsureTemporalResources_RenderThread(CommandList);
 		const auto& Payload = State->TemporalResources;
 		FRHISampler* Sampler = EnsureDensitySampler_RenderThread();
 		if (!Payload || Sampler == nullptr)
@@ -906,7 +905,6 @@ namespace Durin
 			|| View.ViewportWidth == 0
 			|| View.ViewportHeight == 0) return nullptr;
 		if (!CompositeTargets.Cloud) return nullptr;
-		EnsureCompositeResources_RenderThread(CommandList);
 		const auto& Payload = State->CompositeResources;
 		if (!Payload) return nullptr;
 		FCloudCompositeUniform Uniform;

@@ -105,7 +105,7 @@ namespace Durin
 			return bPersistentDraws && Primitive.SceneInfo.Resolve() && Primitive.GeometryRecord && Primitive.VertexDomain == EVertexDeformationDomain::Local;
 		}
 
-		using FShaderMapPayload = FMeshPassShaders;
+		using FShaderMapPayload = FCachedMeshPassShaders;
 
 		TRendererResourceSlotCache<
 			FMeshShaderMapKey,
@@ -380,8 +380,10 @@ namespace Durin
 		}
 
 		Timings.Next("PreparePipeline");
-		std::shared_ptr<const FMeshPassPipeline> Pipeline;
-		if (!Processor.PreparePipeline(Batch, *ShaderMapPayload, VertexFactory.Declaration, Pipeline)) return false;
+		if (!Processor.IsMeshRelevant(Batch.Material, Batch.Participation,
+			Batch.bSupportsGBuffer && Factory->GetShaderType(MaterialMeshPassGBuffer) != nullptr)) return false;
+		auto Pipeline = Processor.ResolvePipeline(Batch, *ShaderMapPayload, VertexFactory.Declaration);
+		if (!Pipeline) return false;
 		Timings.Next("SurfaceMaterial");
 		const ESurfaceMaterialPass SurfacePass = bShadowDepth
 			? (Item.Command->PipelineKey.Material.ShaderMap.BlendMode
