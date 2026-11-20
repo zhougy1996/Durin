@@ -63,7 +63,6 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API auto OnRedo() -> bool override;
 		MATERIALEDITOR_API auto OnDrawToolkit(bool bActive) -> bool override;
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
-		auto OnHostChanged() -> void override;
 		auto OnClose() -> void override;
 		MATERIALEDITOR_API auto NavigateToNode(const FGuid& NodeId) -> bool;
 	protected:

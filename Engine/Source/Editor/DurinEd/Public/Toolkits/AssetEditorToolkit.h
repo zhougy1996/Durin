@@ -34,7 +34,6 @@ namespace Durin
 		DURINED_API auto GetEditorInstance() const -> IAssetEditorInstance*;
 		DURINED_API auto GetAssetEditorSubsystem() const -> DAssetEditorSubsystem*;
 		DURINED_API auto GetToolkitHost() const -> std::shared_ptr<IToolkitHost>;
-		DURINED_API auto TransferToHost(std::shared_ptr<IToolkitHost> NewHost) -> bool;
 		DURINED_API auto GetToolkitMode() const -> EToolkitMode;
 		auto GetOpenLocation() const -> EAssetEditorOpenLocation { return OpenLocation; }
 		DURINED_API auto GetInstanceKey() const -> std::string_view;
@@ -86,7 +85,6 @@ namespace Durin
 		DURINED_API auto GetPresentationRootKey(std::string_view EditorRootKey) const -> std::string;
 		// Called once after closing is committed, while host/rendering services exist.
 		virtual auto OnClose() -> void {}
-		virtual auto OnHostChanged() -> void {}
 		auto GetOwningAssetEditor() const -> DAssetEditor* { return OwningAssetEditor.Get(); }
 		auto CanSaveActiveDocument() const -> bool { return IsEditorOpen() && !IsReadOnly() && OnCanSaveActiveDocument(); }
 		auto SaveActiveDocument() -> bool { return ExecuteEditorCommand([&] { return OnSaveActiveDocument(); }); }
@@ -164,7 +162,6 @@ namespace Durin
 		DURINED_API auto DrawRegisteredUI() -> void;
 		DURINED_API auto DrawWindowMenu() -> void override;
 		DURINED_API auto OnClose() -> void override;
-		DURINED_API auto OnHostChanged() -> void override;
 		// Inject a storage file for host/test isolation; otherwise uses project launch settings.
 		DURINED_API auto RestorePanelLayout(std::string FilePath = {}) -> bool;
 		// Existing ImGui configuration stores named templates, never per-window snapshot state.

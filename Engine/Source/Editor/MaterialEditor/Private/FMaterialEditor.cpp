@@ -884,13 +884,6 @@ namespace Durin::MaterialEditor
 				return Toolkit && Toolkit->IsEditorOpen() && Toolkit->ResetPreferences();
 			}});
 	}
-	auto FMaterialEditor::OnHostChanged() -> void
-	{
-		ProfileSettings->Save();
-		SettingsPage = {};
-		FBaseAssetToolkit::OnHostChanged();
-		PostInitAssetEditor();
-	}
 	auto FMaterialEditor::OnClose() -> void
 	{
 		RequestDeactivate();

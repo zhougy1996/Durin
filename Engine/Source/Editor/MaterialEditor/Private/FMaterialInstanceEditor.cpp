@@ -309,13 +309,6 @@ namespace Durin::MaterialEditor
 			}});
 	}
 
-	auto FMaterialInstanceEditor::OnHostChanged() -> void
-	{
-		ProfileSettings->Save();
-		SettingsPage = {};
-		FBaseAssetToolkit::OnHostChanged();
-		PostInitAssetEditor();
-	}
 
 	auto FMaterialInstanceEditor::OnClose() -> void
 	{

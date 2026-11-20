@@ -269,15 +269,4 @@ namespace Durin
 		if (ImGui::GetCurrentContext()) for (auto Id : UI->RuntimeDockSpaces) ImGui::DockBuilderRemoveNode(Id);
 		UI->RuntimeDockSpaces.clear();
 	}
-	auto FBaseAssetToolkit::OnHostChanged() -> void
-	{
-		UI->Save();
-		if (ImGui::GetCurrentContext()) for (auto Id : UI->RuntimeDockSpaces) ImGui::DockBuilderRemoveNode(Id);
-		UI->RuntimeDockSpaces.clear();
-		UI->FilePath.clear();
-		UI->DockSignatures.clear();
-		UI->bRestored = false;
-		for (const auto& Entry : UI->Entries)
-			for (const auto& Panel : Entry.Extension.Panels) UI->Visibility[Panel.Id] = Panel.bInitiallyOpen;
-	}
 }

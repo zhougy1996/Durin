@@ -35,7 +35,6 @@ namespace Durin
 		auto OnDrawToolkit(bool) -> bool override { return Drawing ? Drawing() : false; }
 		auto ResetLayout() -> void override {}
 		auto RequestDeactivate() -> bool override { return Deactivate ? Deactivate() : bCanDeactivate; }
-		auto OnHostChanged() -> void override { if (HostChanged) HostChanged(); }
 		auto OnRequestClose(EAssetEditorCloseReason Reason) -> bool override
 		{
 			++CloseRequests;
@@ -65,7 +64,6 @@ namespace Durin
 		bool bDiscardSucceeds = true;
 		bool bCanDeactivate = true;
 		std::function<bool()> Deactivate;
-		std::function<void()> HostChanged;
 		std::function<bool()> Drawing;
 		std::function<void()> DirtyQuery;
 		std::function<EAssetEditorCloseResult(DObject&)> CloseRequest;
@@ -257,22 +255,6 @@ namespace
 		EXPECT_TRUE(AssetEditorSubsystem->GetAllOpenEditors().empty());
 		CollectGarbage(EObjectFlags::Standalone);
 		EXPECT_FALSE(WeakEditor.IsValid());
-	}
-
-	TEST_F(FAssetEditorLifecycleTests, DestroyingPreviousHostAfterTransferDoesNotCloseTheToolkit)
-	{
-		auto Previous = std::make_shared<FNonWindowToolkitHost>();
-		auto Destination = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
-		auto* Editor = Open({Asset("TransferredOwnership")}, EAssetOpenMethod::Edit, true, Previous);
-		ASSERT_NE(Editor, nullptr);
-		const auto Toolkit = Editor->GetToolkit();
-		ASSERT_TRUE(Editor->GetToolkit()->TransferToHost(Destination));
-		Previous.reset();
-		EXPECT_TRUE(Toolkit->IsEditorOpen());
-		EXPECT_EQ(Toolkit->GetToolkitHost(), Destination);
-		Destination.reset();
-		EXPECT_TRUE(Toolkit->IsClosed());
-		EXPECT_TRUE(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, ClosePermissionPrecedesOneCloseNotificationWithRetainedToolkit)
@@ -723,8 +705,6 @@ namespace
 		EXPECT_EQ(0, Created);
 		auto* EditorInstance = Open({A}); ASSERT_NE(nullptr, EditorInstance);
 		EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstance->GetToolkitMode()); EXPECT_EQ(1, Created);
-		EXPECT_FALSE(EditorInstance->GetToolkit()->TransferToHost(std::make_shared<FNonWindowToolkitHost>()));
-		EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstance->GetToolkitMode());
 		EXPECT_EQ(nullptr, Open({Asset("InvalidMethod")}, static_cast<EAssetOpenMethod>(255)));
 		EXPECT_EQ(1, Created);
 	}
@@ -1058,7 +1038,7 @@ namespace
 		EXPECT_EQ(Events, (std::vector<std::string>{"visible", "draw"}));
 	}
 
-	TEST_F(FAssetEditorLifecycleTests, FallbackHostsAreReclaimedAfterCloseAndTransfer)
+	TEST_F(FAssetEditorLifecycleTests, FallbackHostsAreReclaimedAfterClose)
 	{
 		auto* First = Open({Asset("FallbackFirst")});
 		auto* Second = Open({Asset("FallbackSecond")});
@@ -1073,12 +1053,9 @@ namespace
 		TickHost();
 		EXPECT_TRUE(FirstHost.expired());
 		EXPECT_FALSE(SecondHost.expired());
-		const auto Replacement = std::make_shared<FNonWindowToolkitHost>();
-		ASSERT_TRUE(Second->GetToolkit()->TransferToHost(Replacement));
+		ASSERT_TRUE(Second->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
 		TickHost();
 		EXPECT_TRUE(SecondHost.expired());
-		EXPECT_EQ(Replacement, Second->GetToolkitHost());
-		EXPECT_FALSE(Second->IsClosed());
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, FailedInitializationDoesNotRetainAnUnusedFallbackHost)
@@ -1746,124 +1723,6 @@ namespace
 		EXPECT_TRUE(Created->IsClosed());
 		EXPECT_TRUE(Existing->IsEditorOpen());
 		EXPECT_EQ(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size(), 1u);
-	}
-
-	TEST_F(FAssetEditorLifecycleTests, DirectToolkitTransferPreservesIdentityAndRejectsDestinationCollision)
-	{
-		const std::vector<DObject*> Assets{Asset("DirectTransfer")};
-		const auto First = std::make_shared<FReadOnlyDirectTestToolkit>();
-
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(First, {.AssetEditors = AssetEditorSubsystem}, Assets));
-		const auto Source = First->GetToolkitHost();
-		const std::string Identity(First->GetInstanceId());
-		auto Destination = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
-		const auto Other = std::make_shared<FReadOnlyDirectTestToolkit>();
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Other,
-			{.AssetEditors = AssetEditorSubsystem, .ToolkitMode = EToolkitMode::WorldCentric, .Host = Destination}, Assets));
-		EXPECT_FALSE(First->TransferToHost(Destination));
-		EXPECT_EQ(First->GetToolkitHost(), Source);
-		FToolkitManager::Get().CloseToolkit(*Other);
-		ASSERT_TRUE(First->TransferToHost(Destination));
-		EXPECT_EQ(First->GetToolkitMode(), EToolkitMode::WorldCentric);
-		EXPECT_EQ(First->GetEditingObjects(), Assets);
-		EXPECT_EQ(First->GetInstanceId(), Identity);
-		EXPECT_EQ(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).size(), 1u);
-		EXPECT_EQ(AssetEditorSubsystem->GetAllOpenEditors().front(), First.get());
-		Destination.reset();
-		EXPECT_TRUE(First->IsClosed());
-		EXPECT_TRUE(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
-	}
-
-	TEST_F(FAssetEditorLifecycleTests, DirectToolkitTransferHonorsAssetDefinitionModePolicy)
-	{
-		auto* Definition = NewObject<FGenericEditorTestDefinition>(nullptr, {});
-		Definition->RequiredMode = EToolkitMode::WorldCentric;
-		auto Registration = FAssetDefinitionRegistry::Get().RegisterAssetDefinition(*Definition);
-		ASSERT_TRUE(Registration);
-		const auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
-		const std::vector<DObject*> Assets{Asset("DirectTransferPolicy")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
-			{.AssetEditors = AssetEditorSubsystem}, Assets));
-		const auto Source = Toolkit->GetToolkitHost();
-		const auto Standalone = std::make_shared<FNonWindowToolkitHost>();
-		EXPECT_FALSE(Toolkit->TransferToHost(Standalone));
-		EXPECT_EQ(Toolkit->GetToolkitMode(), EToolkitMode::WorldCentric);
-		EXPECT_EQ(Toolkit->GetToolkitHost(), Source);
-		EXPECT_TRUE(Toolkit->IsEditorOpen());
-	}
-
-	TEST_F(FAssetEditorLifecycleTests, CloseFromHostChangedCallbackMakesTransferFailWithoutReopening)
-	{
-		const auto Toolkit = std::make_shared<FReadOnlyDirectTestToolkit>();
-		const std::vector<DObject*> Assets{Asset("TransferCallbackClose")};
-		ASSERT_TRUE(AssetEditorSubsystem->InitializeDirectToolkit(Toolkit,
-			{.AssetEditors = AssetEditorSubsystem}, Assets));
-		const auto Destination = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
-		int Changes = 0;
-		Toolkit->HostChanged = [&] {
-			++Changes;
-			EXPECT_TRUE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-		};
-		EXPECT_FALSE(Toolkit->TransferToHost(Destination));
-		EXPECT_EQ(Changes, 1);
-		EXPECT_TRUE(Toolkit->IsClosed());
-		EXPECT_EQ(Toolkit->GetToolkitHost(), nullptr);
-		EXPECT_TRUE(FToolkitManager::Get().GetToolkits(AssetEditorSubsystem).empty());
-		Toolkit->HostChanged = {};
-	}
-
-	TEST_F(FAssetEditorLifecycleTests, CloseFromOldHostDetachCancelsTransferAndReleasesDestination)
-	{
-		class FClosingHost : public FNonWindowToolkitHost
-		{
-		public:
-			auto DetachToolkit(FAssetEditorToolkit& Toolkit) -> void override
-			{
-				if (!std::exchange(bClosing, true))
-					EXPECT_TRUE(Toolkit.CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
-				FNonWindowToolkitHost::DetachToolkit(Toolkit);
-			}
-			bool bClosing = false;
-		};
-		class FDestinationHost : public FNonWindowToolkitHost
-		{
-		public:
-			FDestinationHost() : FNonWindowToolkitHost(EToolkitMode::WorldCentric) {}
-			auto DetachToolkit(FAssetEditorToolkit& Toolkit) -> void override
-			{ ++Detaches; FNonWindowToolkitHost::DetachToolkit(Toolkit); }
-			int Detaches = 0;
-		};
-		const auto SourceHost = std::make_shared<FClosingHost>();
-		auto* Editor = Open({Asset("TransferClose")}, EAssetOpenMethod::Edit, true, SourceHost);
-		ASSERT_NE(Editor, nullptr);
-		const auto Toolkit = Editor->GetToolkit();
-		const auto Destination = std::make_shared<FDestinationHost>();
-		EXPECT_FALSE(Editor->GetToolkit()->TransferToHost(Destination));
-		EXPECT_TRUE(Toolkit->IsClosed());
-		EXPECT_EQ(Toolkit->GetToolkitHost(), nullptr);
-		EXPECT_EQ(Destination->Detaches, 1);
-		EXPECT_TRUE(Durin::Testing::GetReflectedEditors(AssetEditorSubsystem).empty());
-	}
-
-	TEST_F(FAssetEditorLifecycleTests, HostTransferPreservesEditorAndRejectsDestinationIdentityCollision)
-	{
-		auto* Object = Asset("A");
-		auto* EditorInstance = Open({Object});
-		ASSERT_NE(nullptr, EditorInstance);
-		const auto Toolkit = EditorInstance->GetToolkit();
-
-		const auto OriginalKey = Toolkit->GetPresentationRootKey("Editor");
-		const auto WorldHost = std::make_shared<FNonWindowToolkitHost>(EToolkitMode::WorldCentric);
-		ASSERT_TRUE(EditorInstance->GetToolkit()->TransferToHost(WorldHost));
-		EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstance->GetToolkitMode());
-		EXPECT_EQ(WorldHost, EditorInstance->GetToolkitHost());
-		EXPECT_EQ(Toolkit, EditorInstance->GetToolkit());
-		EXPECT_EQ(Toolkit->GetEditingObjects(), std::vector<DObject*>{Object});
-		EXPECT_EQ(OriginalKey, Toolkit->GetPresentationRootKey("Editor"));
-		auto* Other = Open({Object});
-		ASSERT_NE(nullptr, Other);
-		EXPECT_FALSE(EditorInstance->GetToolkit()->TransferToHost(Other->GetToolkitHost()));
-		EXPECT_EQ(WorldHost, EditorInstance->GetToolkitHost());
 	}
 
 	TEST_F(FAssetEditorLifecycleTests, NamedDockTemplateRestoresIntoIndependentRuntimeWindows)

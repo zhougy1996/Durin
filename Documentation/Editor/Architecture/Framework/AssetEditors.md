@@ -103,8 +103,8 @@ publishes no associations. A toolkit initializes once.
 Each toolkit owns its method, role, activation time, and process-unique
 `WindowId`. Asset-set identity ignores order and duplicates. Identical editors
 require distinct stable roles. Reflected editor classes and direct toolkit IDs
-identify separate editor families. Definition reuse, reflected/direct admission,
-and host-transfer collision checks share the same family/method/mode/role rules;
+identify separate editor families. Definition reuse and reflected/direct admission
+share the same family/method/mode/role rules;
 primary status and explicit host requirements additionally constrain reuse.
 The subsystem forwards asset relocation to the owning Toolkit through
 `OnResourceIdRemapped`. This preserves the window identity.
@@ -134,12 +134,6 @@ Host destruction commits closing for attached toolkits without a veto.
 `IToolkitHost` notifies the manager from its base destructor; the manager compares
 a non-owning identity without dereferencing the destroyed host. Cached toolkit
 mode survives host destruction.
-
-`FAssetEditorToolkit::TransferToHost` handles both editor shapes. It settles
-active edits, validates mode policy and destination identity, attaches the
-destination, then detaches the source. Liveness is rechecked after callbacks.
-Closing during attachment, detachment, or `OnHostChanged` fails transfer and
-removes provisional attachments.
 
 MainFrame supplies a shared world-centric host and independent standalone hosts.
 Headless fallback hosts are reclaimed at the end of an admitted editor Tick when
@@ -195,8 +189,7 @@ Runtime window and dock IDs belong to each `WindowId`. Stable layout profiles us
 `GetLayoutName`, `GetLayoutVersion`, and Edit/View method, excluding host mode,
 instance role, asset paths, and group hashes. Panel visibility is stored under
 `AssetEditorPanels/`; writes merge edited keys. Named dock templates use ImGui settings, with only the
-active toolkit updating the shared template. Transfer retains the type profile
-and resets only that toolkit's live dock spaces.
+active toolkit updating the shared template.
 
 Material preferences and graph viewports use version-3 files under
 `MaterialEditor/Profiles/`, keyed by the same profile. Resource relocation rekeys

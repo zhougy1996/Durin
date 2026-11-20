@@ -5,8 +5,6 @@
 #include "Toolkits/AssetEditor.h"
 #include "DObject/ObjectGraphReplacement.h"
 #include "Subsystems/AssetEditorSubsystem.h"
-#include "Subsystems/AssetEditorOpenSupport.h"
-#include "Toolkits/AssetEditorIdentity.h"
 #include "Toolkits/ToolkitHost.h"
 #include "Toolkits/ToolkitManager.h"
 #include "DObject/ObjectLifecycle.h"
@@ -25,45 +23,6 @@ namespace Durin
 	auto FAssetEditorToolkit::GetToolkitHost() const -> std::shared_ptr<IToolkitHost> { return Host.lock(); }
 	auto FAssetEditorToolkit::GetToolkitMode() const -> EToolkitMode
 	{ return ToolkitMode; }
-	auto FAssetEditorToolkit::TransferToHost(std::shared_ptr<IToolkitHost> NewHost) -> bool
-	{
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!IsEditorOpen() || !NewHost || !NewHost->IsAvailable()) return false;
-		auto* AssetEditorSubsystem = GetAssetEditorSubsystem();
-		const auto Lease = shared_from_this();
-		const auto Editor = OwningAssetEditor;
-		bool Transferred = false;
-		AssetEditorSubsystem->DispatchEditorCallback([&] {
-			const auto PreviousHost = GetToolkitHost();
-			const auto Objects = GetEditingObjects();
-			const auto Support = GetAssetSelectionOpenSupport(Objects, OpenMethod,
-				Editor ? Editor->GetAssetOpenSupport({OpenMethod}) : GetDefaultAssetOpenSupport({OpenMethod}));
-			if (!Support.ResolveToolkitMode(NewHost->GetToolkitMode(), NewHost->GetToolkitMode())
-				|| !PrepareForExit()) return;
-			if (!IsEditorOpen()) return;
-			if (NewHost == PreviousHost) { Transferred = true; return; }
-			const FAssetOpenArgs Identity{.OpenMethod = OpenMethod, .ToolkitMode = NewHost->GetToolkitMode(), .InstanceRole = InstanceKey};
-			for (const auto& Other : FToolkitManager::Get().GetToolkits(AssetEditorSubsystem))
-			{
-				if (Other.get() == this || Other->IsClosed()
-					|| !MatchesAssetEditorIdentity(*Other, Identity, Editor ? Editor->GetClass() : nullptr,
-						Editor ? nullptr : &GetToolkitId())) continue;
-				if (HaveSameEditedAssets(Other->GetEditingObjects(), GetEditingObjects())) return;
-			}
-			if (!NewHost->AttachToolkit(Lease)) return;
-			if (!IsEditorOpen() || !NewHost->IsAvailable())
-			{ NewHost->DetachToolkit(*this); return; }
-			if (PreviousHost) PreviousHost->DetachToolkit(*this);
-			if (!IsEditorOpen() || !NewHost->IsAvailable())
-			{ NewHost->DetachToolkit(*this); return; }
-			Host = NewHost;
-			HostIdentity = NewHost.get();
-			ToolkitMode = NewHost->GetToolkitMode();
-			OnHostChanged();
-			Transferred = true;
-		});
-		return Transferred && IsEditorOpen();
-	}
 	auto FAssetEditorToolkit::GetInstanceKey() const -> std::string_view { return InstanceKey; }
 	auto FAssetEditorToolkit::GetWindowId() const -> std::string_view { return WindowId; }
 	auto FAssetEditorToolkit::GetEditorName() const -> FName { return FName(GetToolkitId().GetValue()); }

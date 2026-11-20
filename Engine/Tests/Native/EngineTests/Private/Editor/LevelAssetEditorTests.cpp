@@ -12,7 +12,6 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
 #include "Toolkits/AssetEditorToolkit.h"
-#include "Toolkits/ToolkitHost.h"
 #include "Toolkits/ToolkitManager.h"
 #include "FLevelEditorToolkit.h"
 #include "AssetDefinition/AssetDefinitionRegistry.h"
@@ -700,8 +699,6 @@ namespace
 			EXPECT_FALSE(EditorInstances.front()->GetAssetOpenSupport({EAssetOpenMethod::View}).IsSupported);
 			EXPECT_TRUE(AssetEditorSubsystem->CaptureEditorState().empty());
 			EXPECT_TRUE(EditorInstances.front()->GetEditingObjects().empty());
-			EXPECT_FALSE(EditorInstances.front()->GetToolkit()->TransferToHost(std::make_shared<FNonWindowToolkitHost>()));
-			EXPECT_EQ(EToolkitMode::WorldCentric, EditorInstances.front()->GetToolkitMode());
 			if (Index == 0)
 			{
 				ClosedToolkit = EditorInstances.front()->GetToolkit();

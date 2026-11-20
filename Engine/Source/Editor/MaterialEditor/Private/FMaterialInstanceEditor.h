@@ -33,7 +33,6 @@ namespace Durin::MaterialEditor
 		auto CreateReloadParticipant() -> std::shared_ptr<IObjectReplacementParticipant> override;
 		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		auto OnClose() -> void override;
-		auto OnHostChanged() -> void override;
 		auto ResetLayout() -> void override;
 		auto GetUndoDescription() const -> std::string override { return EditorSession.GetUndoDescription(); }
 		auto GetRedoDescription() const -> std::string override { return EditorSession.GetRedoDescription(); }
