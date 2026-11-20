@@ -2,6 +2,7 @@
 #include "RenderResourcePreparation.h"
 #include "Shader/ShaderMapPreparation.h"
 #include "Shader/ShaderData.h"
+#include "Shader/ShaderCompilingManager.h"
 
 #include "RenderingThread.h"
 
@@ -128,6 +129,102 @@ namespace Durin
 		return Payload->ShaderMap->GetMergedPipelineLayout();
 	}
 
+	struct FGlobalShaderMap::FCompilation
+	{
+		struct FSection
+		{
+			FRegisteredGlobalShaderSet Set;
+			FShaderCompileOptions Options;
+			std::shared_ptr<FShaderCompilerOutput> Output = std::make_shared<FShaderCompilerOutput>();
+			FShaderBuildHandle Job;
+		};
+		std::vector<FSection> Sections;
+	};
+
+	void CompileGlobalShaderMap(bool bForceRecompile)
+	{
+		const bool bCooked = GetShaderDataDomain() == EShaderDataDomain::Cooked;
+		auto Batch = std::make_shared<FGlobalShaderMap::FCompilation>();
+		for (auto& Set : GetRegisteredGlobalShaderSets(bCooked ? EShaderTargetProfile::Game : EShaderTargetProfile::EditorValidation))
+		{
+			auto& Section = Batch->Sections.emplace_back();
+			Section.Set = std::move(Set);
+			const auto& Types = Section.Set.Types;
+			auto& Options = Section.Options;
+			FShaderOperationResult Result;
+			if (Types.empty()) Result = std::unexpected(std::string("No registered build types."));
+			else if (bCooked) Result = LoadCookedShaderRuntimeRequest(Section.Set.Name, Types, *Section.Output);
+			else if ((Result = BuildShaderMapCompileOptions(Types, nullptr, Options)))
+			{
+				Options.bForceRecompile = bForceRecompile;
+				for (const auto* Type : Types)
+					Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(),
+						Type->GetFrequency(), Options.Target}, Options);
+				auto& Manager = FShaderCompilingManager::Get();
+				Section.Job = Manager.PrepareJobs(Options.VirtualShaderPath, Options, {.Priority = EShaderBuildPriority::High},
+					[Dest = Section.Output](FShaderCompilerOutput Output) { *Dest = std::move(Output); });
+				Manager.SubmitJobs(Section.Job);
+			}
+			if (!Result) *Section.Output = FShaderCompilerOutput::Failure(std::move(Result.error()));
+		}
+		auto Publish = [Batch](FRHICommandListImmediate&) {
+			auto& Map = GetGlobalShaderMap();
+			Map.PendingCompilation = Batch;
+			Map.ProcessCompilationResults_RenderThread();
+		};
+		if (!IsInRenderingThread())
+			for (const auto& Section : Batch->Sections)
+				if (!Section.Job.IsComplete()) require(Section.Job.Wait() == EShaderBuildWaitResult::Completed);
+		EnqueueRenderCommand("PublishGlobalShaders", std::move(Publish));
+	}
+
+	auto FGlobalShaderMap::ProcessCompilationResults_RenderThread() -> void
+	{
+		if (!PendingCompilation) return;
+		for (const auto& Section : PendingCompilation->Sections)
+			if (!Section.Job.IsComplete()) return;
+		auto Batch = std::move(PendingCompilation);
+		decltype(PublishedSections) Candidate;
+		decltype(PublishedShaders) Shaders;
+		for (const auto& Section : Batch->Sections)
+		{
+			const auto& Output = *Section.Output;
+			if (!Output)
+			{
+				if (Output.Status == EShaderBuildStatus::Error)
+					DURIN_ERROR("Global shader set '{}' failed: {}", Section.Set.Name, FormatShaderCompilerErrors(Output.Errors));
+				return;
+			}
+			auto Payload = std::make_shared<FGlobalShaderMapPayload>();
+			Payload->ShaderMap = std::make_shared<FShaderMapBase>();
+			if (auto Result = Payload->ShaderMap->Initialize(Section.Set.Types, Output, Section.Options); !Result)
+			{
+				DURIN_ERROR("Global shader set '{}' failed: {}", Section.Set.Name, Result.error());
+				return;
+			}
+			Payload->Generation = Generation;
+			Payload->Identity = Section.Set.Name;
+			for (const auto* Type : Section.Set.Types)
+			{
+				Payload->Identity.append("|").append(Type->GetName());
+				Shaders.try_emplace(Type, FGlobalShaderSetRef(Payload));
+			}
+			if (!Candidate.emplace(Section.Set.Name, std::move(Payload)).second)
+			{
+				DURIN_ERROR("Global shader set '{}' is registered more than once.", Section.Set.Name);
+				return;
+			}
+		}
+		PublishedSections.swap(Candidate);
+		PublishedShaders.swap(Shaders);
+	}
+
+	auto FGlobalShaderMap::FindShaderSection(const FGlobalShaderType& Type) const -> FGlobalShaderSetRef
+	{
+		const auto Found = PublishedShaders.find(&Type);
+		return Found != PublishedShaders.end() ? Found->second : FGlobalShaderSetRef{};
+	}
+
 	auto FGlobalShaderMap::ResolveShaderSet(
 		std::string_view SectionIdentity,
 		std::span<const FGlobalShaderType* const> ShaderTypes,
@@ -174,25 +271,33 @@ namespace Durin
 							.RetryDependencies = ERenderResourceGenerationDependency::Manual});
 					}
 				}
-				auto Candidate = std::make_shared<FGlobalShaderMapPayload>();
-				Candidate->ShaderMap = std::make_shared<FShaderMapBase>();
-				Candidate->Generation = Generation;
-				Candidate->Identity = TypeIdentity;
-				std::vector<const FShaderType*> BaseTypes(
-					Entry.Types.begin(), Entry.Types.end());
+				std::shared_ptr<FGlobalShaderMapPayload> Candidate;
 				FShaderMapQueryResult ShaderResult;
-				if (GetShaderDataDomain() == EShaderDataDomain::Cooked)
-				{
-					FShaderCompilerOutput Output;
-					ShaderResult = LoadCookedShaderRuntimeRequest(SectionIdentity, BaseTypes, Output);
-					if (ShaderResult) ShaderResult = Candidate->ShaderMap->Initialize(BaseTypes, Output);
-				}
+				const auto Prepared = PublishedSections.find(std::string(SectionIdentity));
+				if (Prepared != PublishedSections.end() && Prepared->second->Identity == TypeIdentity
+					&& Prepared->second->Generation == Generation)
+					Candidate = Prepared->second;
 				else
 				{
-					FShaderCompileOptions Options;
-					Options.bForceRecompile =
-						ForceRecompileShaderGeneration == Generation.Shader;
-					ShaderResult = InitializeShaderMapFromTypes(*Candidate->ShaderMap, BaseTypes, Options);
+					Candidate = std::make_shared<FGlobalShaderMapPayload>();
+					Candidate->ShaderMap = std::make_shared<FShaderMapBase>();
+					Candidate->Generation = Generation;
+					Candidate->Identity = TypeIdentity;
+					std::vector<const FShaderType*> BaseTypes(
+						Entry.Types.begin(), Entry.Types.end());
+					if (GetShaderDataDomain() == EShaderDataDomain::Cooked)
+					{
+						FShaderCompilerOutput Output;
+						ShaderResult = LoadCookedShaderRuntimeRequest(SectionIdentity, BaseTypes, Output);
+						if (ShaderResult) ShaderResult = Candidate->ShaderMap->Initialize(BaseTypes, Output);
+					}
+					else
+					{
+						FShaderCompileOptions Options;
+						Options.bForceRecompile =
+							ForceRecompileShaderGeneration == Generation.Shader;
+						ShaderResult = InitializeShaderMapFromTypes(*Candidate->ShaderMap, BaseTypes, Options);
+					}
 				}
 				if (ShaderResult.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
 				if (ShaderResult.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
@@ -270,7 +375,11 @@ namespace Durin
 
 	auto FGlobalShaderMap::Shutdown_RenderThread() -> void
 	{
+		PendingCompilation.reset();
+		PublishedSections.clear();
+		PublishedShaders.clear();
 		Sections.clear();
+		ClearShaderMapResourceCache();
 		Generation = {};
 		ForceRecompileShaderGeneration.reset();
 	}

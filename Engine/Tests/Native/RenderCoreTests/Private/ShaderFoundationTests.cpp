@@ -2202,6 +2202,59 @@ namespace Durin
 		EXPECT_TRUE(Fragment);
 	}
 
+	TEST_F(FShaderFoundationTests, RegisteredGlobalShadersStayPublishedUntilACompleteReload)
+	{
+		ASSERT_TRUE(InitializeGlobalShaderFixture());
+		auto& Map = GetGlobalShaderMap();
+		Map.Shutdown_RenderThread();
+		const auto& Type = FGlobalFixtureVertexShader::StaticType();
+		const FShaderType* Types[] = {&Type};
+		FGlobalShaderSetRegistration Set("Tests", "Tests.Published", EShaderRequestEligibility::GameAndEditor, {&Type});
+		FShaderMapBase Prepared;
+		ASSERT_TRUE(InitializeShaderMapFromTypesSync(Prepared, Types, {}));
+		FScopedShaderCompletionStub Backend;
+		Backend.Stub->Completion.CompiledShaders = {Prepared.GetCode()->GetCompiledShader(*Prepared.FindShaderIndex(&Type))};
+		class FInvocation final : public FRunnable
+		{
+		public:
+			std::function<void()> Execute;
+			auto Run() -> uint32 override { Execute(); return 0; }
+		} Invocation;
+		Invocation.Execute = [&] {
+			CompileGlobalShaderMap();
+			const auto Original = Map.GetShader<FGlobalFixtureVertexShader>();
+			ASSERT_TRUE(Original);
+			const auto OldGeneration = Original.GetGeneration();
+			auto Generation = OldGeneration;
+			++Generation.Shader;
+			Map.SetGeneration_RenderThread(Generation, true);
+			Backend.Stub->DeferMounted = true;
+			CompileGlobalShaderMap(true);
+			Map.ProcessCompilationResults_RenderThread();
+			EXPECT_EQ(Map.GetShader<FGlobalFixtureVertexShader>().GetShader(), Original.GetShader());
+			ASSERT_EQ(Backend.Stub->Pending.size(), 1u);
+			auto Deliver = std::move(Backend.Stub->Pending.front());
+			Deliver();
+			Map.ProcessCompilationResults_RenderThread();
+			const auto Updated = Map.GetShader<FGlobalFixtureVertexShader>();
+			ASSERT_TRUE(Updated);
+			EXPECT_EQ(Updated.GetGeneration(), Generation);
+			EXPECT_EQ(Original.GetGeneration(), OldGeneration);
+			Backend.Stub->DeferMounted = false;
+			Backend.Stub->Completion = FShaderCompilerOutput::Failure("failed replacement");
+			++Generation.Shader;
+			Map.SetGeneration_RenderThread(Generation, false);
+			CompileGlobalShaderMap();
+			EXPECT_EQ(Map.GetShader<FGlobalFixtureVertexShader>().GetShader(), Updated.GetShader());
+			EXPECT_EQ(Backend.Stub->Compiles, 3u);
+		};
+		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Invocation, "GlobalShaderReload", 0,
+			EThreadPriority::Normal, EThreadRole::RenderingThread));
+		ASSERT_TRUE(Thread);
+		Thread->WaitForCompletion();
+		Map.Shutdown_RenderThread();
+	}
+
 	TEST_F(FShaderFoundationTests, GlobalShaderCompletionPreservesCancellationAndDiagnostics)
 	{
 		ASSERT_TRUE(InitializeGlobalShaderFixture());

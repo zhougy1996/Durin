@@ -12,6 +12,8 @@
 namespace Durin
 {
 	class FGlobalShaderMap;
+	// Startup joins the required jobs. Render-thread reloads leave the current map available.
+	ENGINE_API void CompileGlobalShaderMap(bool bForceRecompile = false);
 	class FGlobalShaderMapPayload;
 	class FGlobalShaderType;
 
@@ -158,6 +160,7 @@ namespace Durin
 	{
 	public:
 		TShaderMapRef() = default;
+		explicit TShaderMapRef(const FGlobalShaderMap& Map);
 		explicit TShaderMapRef(const FGlobalShaderSetRef& Set)
 			: Payload(Set.Payload)
 		{
@@ -205,6 +208,10 @@ namespace Durin
 	class FGlobalShaderMap
 	{
 	public:
+		template<typename ShaderType>
+		auto GetShader() const -> TShaderMapRef<ShaderType> { return TShaderMapRef<ShaderType>(*this); }
+		ENGINE_API auto FindShaderSection(const FGlobalShaderType& Type) const -> FGlobalShaderSetRef;
+		ENGINE_API auto ProcessCompilationResults_RenderThread() -> void;
 		ENGINE_API auto ResolveShaderSet(
 			std::string_view SectionIdentity,
 			std::span<const FGlobalShaderType* const> ShaderTypes,
@@ -222,11 +229,20 @@ namespace Durin
 		ENGINE_API auto GetSectionCount() const -> size_t;
 
 	private:
+		friend void CompileGlobalShaderMap(bool bForceRecompile);
+		struct FCompilation;
+		std::shared_ptr<FCompilation> PendingCompilation;
+		std::unordered_map<std::string, std::shared_ptr<FGlobalShaderMapPayload>> PublishedSections;
+		std::unordered_map<const FShaderType*, FGlobalShaderSetRef> PublishedShaders;
 		struct FSectionEntry;
 		std::unordered_map<std::string, std::unique_ptr<FSectionEntry>> Sections;
 		FRenderResourceGeneration Generation;
 		std::optional<uint64> ForceRecompileShaderGeneration;
 	};
+
+	template<typename ShaderType>
+	TShaderMapRef<ShaderType>::TShaderMapRef(const FGlobalShaderMap& Map)
+		: TShaderMapRef(Map.FindShaderSection(ShaderType::StaticType())) {}
 
 	ENGINE_API auto GetGlobalShaderMap() -> FGlobalShaderMap&;
 

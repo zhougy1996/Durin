@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderingService.h"
+#include "Shader/GlobalShader.h"
 #include "UniformBuffer.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Renderers/MeshPassProcessor.h"
@@ -78,6 +79,7 @@ namespace Durin
     auto FSceneRenderingService::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
+        GetGlobalShaderMap().ProcessCompilationResults_RenderThread();
         Retirement.Collect();
 		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection, EPSOPrecacheCollectionPhase Phase) {
 			// Admission can observe a newer GameThread snapshot before its ordered
@@ -247,7 +249,7 @@ namespace Durin
 			Cause,
 			{
 				.InvalidateShaderResources =
-					[](bool) {},
+					[](bool bForce) { CompileGlobalShaderMap(bForce); },
 				.ReleaseDeviceResources =
 					[this] {
 						ReleaseDeviceResources_RenderThread();
@@ -261,6 +263,7 @@ namespace Durin
 					[this, &CommandList] {
 						DefaultTextures.Initialize_RenderThread(CommandList);
 						FullscreenGeometry.RetryFailedResources_RenderThread();
+						CompileGlobalShaderMap();
 					},
 			}
 		);

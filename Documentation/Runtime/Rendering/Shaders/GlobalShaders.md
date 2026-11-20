@@ -4,7 +4,7 @@ Summary: Define registration, atomic set ownership, typed lookup, generation rec
 
 Modules: Engine, RenderCore, Renderer, ShaderFormat
 
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-20
 
 ## Category and Ownership
 
@@ -41,11 +41,15 @@ fixed Renderer family retains a private-map compatibility path.
 
 ## Atomic Shader Sets
 
-The publication unit is a caller-named exact shader set, not one monolithic
-map of every registered global shader. A set sorts its type list by stable type
+Renderer startup prepares the registered global sets eligible for the active profile.
+It joins authored compilation or loads cooked outputs, then queues publication before
+renderer startup resources. The render thread publishes the complete map only after
+every section passes shader-map initialization. SkyBox obtains both typed stage
+references from this map and creates its native shaders and pipeline on demand.
+
+Each named section sorts its type list by stable type
 name, incorporates the section name and every type into its identity, compiles
-the complete set from one source variant, and publishes only when compilation,
-parameter binding, optional RHI creation, and layout merging succeed.
+the complete set from one source variant, and retains its merged pipeline layout.
 
 This partition keeps optional features independent and makes vertex/fragment
 or compute membership reproducible. Reusing a section name with a different
@@ -90,7 +94,11 @@ cache and serialization paths do not construct code owners or layouts.
 ## Generations and Failure Recovery
 
 `FRendererResourceCoordinator` explicitly supplies accepted shader, device,
-and manual generations to Engine's typed maps. Demand remains lazy:
+and manual generations to Engine's typed maps. Shader reload submits a replacement
+for the published map. Render-frame processing installs it once all sections succeed.
+Readers retain the previous generation during compilation and after a failed or
+canceled replacement. Existing exact-set consumers can reuse matching published
+sections. Their fallback resolution follows these rules.
 
 - changed reload validates dependencies normally on the next demanded set;
 - all reload force-recompiles the first eligible candidate in that shader
@@ -98,7 +106,7 @@ and manual generations to Engine's typed maps. Demand remains lazy:
 - manual retry permits one new attempt for failed entries;
 - repeated demand in the same relevant generation is suppressed.
 
-A failed refresh returns no set for the requested generation and reports the
+A failed exact-set lookup returns no set for the requested generation and reports the
 attempted generation. A successful later candidate publishes atomically and
 reports one recovery transition. Pipeline slots use the published set generation;
 unavailable shaders prevent a new pipeline candidate from becoming Ready.

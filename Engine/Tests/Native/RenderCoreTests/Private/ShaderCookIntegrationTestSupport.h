@@ -16,6 +16,9 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Shader/ShaderData.h"
+#include "Shader/GlobalShader.h"
+#include "Threading/Runnable.h"
+#include "Threading/RunnableThread.h"
 #include "Shader/MaterialShader.h"
 #include "VertexFactory.h"
 #include "gtest/gtest.h"
@@ -178,6 +181,34 @@ namespace Durin
 				}
 			}
 		}
+		class FVerifyCookedGlobals final : public FRunnable
+		{
+		public:
+			auto Run() -> uint32 override
+			{
+				auto& Map = GetGlobalShaderMap();
+				CompileGlobalShaderMap();
+				const auto& Types = FGlobalShaderType::GetTypeList();
+				const auto Find = [&](std::string_view Name) {
+					return std::ranges::find_if(Types, [Name](const auto* Type) { return Type->GetName() == Name; });
+				};
+				for (const auto Name : {"FSkyBoxVertexShader", "FSkyBoxFragmentShader"})
+				{
+					const auto Type = Find(Name);
+					EXPECT_NE(Type, Types.end());
+					if (Type != Types.end()) EXPECT_TRUE(Map.FindShaderSection(**Type));
+				}
+				const auto EditorType = Find("FEditorGridVertexShader");
+				EXPECT_NE(EditorType, Types.end());
+				if (EditorType != Types.end()) EXPECT_FALSE(Map.FindShaderSection(**EditorType));
+				Map.Shutdown_RenderThread();
+				return 0;
+			}
+		} Verify;
+		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Verify, "VerifyCookedGlobals", 0,
+			EThreadPriority::Normal, EThreadRole::RenderingThread));
+		ASSERT_TRUE(Thread);
+		Thread->WaitForCompletion();
 		ShutdownShaderData();
 		EXPECT_TRUE(FPlatformLibrary::Unload(RendererHandle));
 	}

@@ -57,7 +57,6 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FSkyBoxVertexShader> VertexShader;
 			TShaderMapRef<FSkyBoxFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
@@ -69,7 +68,7 @@ namespace Durin
 
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device
+			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
 		};
 	};
 
@@ -90,34 +89,19 @@ namespace Durin
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 
+		const auto& Map = GetGlobalShaderMap();
+		const auto Vertex = Map.GetShader<FSkyBoxVertexShader>();
+		const auto Fragment = Map.GetShader<FSkyBoxFragmentShader>();
+		if (!Vertex || !Fragment) return false;
+		auto Generation = Coordinator.GetGeneration_RenderThread();
+		Generation.Shader = Vertex.GetGeneration().Shader;
+		Generation.Manual = Vertex.GetGeneration().Manual;
 		FPayload* Payload = State->Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[this]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
-					&FSkyBoxVertexShader::StaticType(),
-					&FSkyBoxFragmentShader::StaticType()};
+			Generation,
+			[&]() -> FResult {
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"SkyBox.Default", ShaderTypes, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"SkyBox",
-							"default",
-							ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual
-						)
-					);
-				}
-
-				Candidate.VertexShader = TShaderMapRef<FSkyBoxVertexShader>(Candidate.ShaderSet);
-				Candidate.FragmentShader = TShaderMapRef<FSkyBoxFragmentShader>(Candidate.ShaderSet);
+				Candidate.VertexShader = Vertex;
+				Candidate.FragmentShader = Fragment;
 				FRHIShader* VertexRHI =
 					Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI =
@@ -144,7 +128,7 @@ namespace Durin
 					Candidate.VertexDeclaration;
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
-					Candidate.ShaderSet.GetPipelineLayout();
+					Fragment.GetShaderRef().GetShaderMap()->GetMergedPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
@@ -172,7 +156,7 @@ namespace Durin
 
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
+			ReportRendererResourceCreateDiagnostic
 		);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{

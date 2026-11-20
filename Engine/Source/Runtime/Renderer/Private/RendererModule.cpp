@@ -8,6 +8,7 @@
 #include "Resources/RendererResourceCoordinator.h"
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Shader/GlobalShader.h"
 #include "Scene.h"
 
 namespace Durin
@@ -80,7 +81,7 @@ namespace Durin
 	auto FRendererModule::PrepareSceneThumbnailShaders() -> FShaderMapPreparation
 	{
 		auto Preparation = FShaderMapPreparation::Request("Renderer", {
-			"PostProcess.Copy", "PostProcess.FXAA", "SkyBox.Default", "SkyLighting.Compute",
+			"PostProcess.Copy", "PostProcess.FXAA", "SkyLighting.Compute",
 			"DeferredDirectionalLighting.LocalBuffer", "DeferredProductionLighting.LocalBuffer", "GroundTruthAmbientOcclusion.Raw",
 			"GroundTruthAmbientOcclusion.Filter"});
 		Preparation.Add("SurfaceMaterial", {"Surface.OpaqueShadow"});
@@ -114,6 +115,7 @@ namespace Durin
 		}
 		if (GDynamicRHI != nullptr)
 		{
+			CompileGlobalShaderMap();
 			FSceneRenderingService* Renderer = RenderingService.get();
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
 				[Renderer](FRHICommandListImmediate& CommandList) {

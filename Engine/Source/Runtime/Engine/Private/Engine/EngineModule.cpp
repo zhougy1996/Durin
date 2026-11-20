@@ -19,7 +19,7 @@ namespace Durin
 		auto SupportsDynamicReloading() const -> bool override { return false; }
 		auto StartupModule() -> void override
 		{
-			RHIReleaseResourcesHandle = GetRHIReleaseResourcesDelegate().AddLambda([] { GetGlobalShaderMap().ReleaseDeviceResources_RenderThread(); });
+			RHIReleaseResourcesHandle = GetRHIReleaseResourcesDelegate().AddLambda([] { GetGlobalShaderMap().Shutdown_RenderThread(); });
 #if DURIN_WITH_EDITOR
 			MaterialBuildPrivate::RegisterTranslation();
 #endif

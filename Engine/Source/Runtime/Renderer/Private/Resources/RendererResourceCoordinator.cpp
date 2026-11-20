@@ -49,7 +49,7 @@ namespace Durin
 		ReloadShadersHandle = Registry->RegisterCommand({
 			.Name = "renderer.reload-shaders",
 			.Description =
-				"Invalidates renderer shader resources for lazy reconstruction.",
+				"Refreshes the global shader map and invalidates dependent renderer resources.",
 			.Usage = "renderer.reload-shaders <changed|all>",
 			.Execute = [State](std::span<const std::string> Args) {
 				if (Args.size() != 1)
@@ -62,16 +62,14 @@ namespace Durin
 					return QueueRequest(
 						State,
 						ERendererResourceInvalidationCause::ShaderChanged,
-						"Queued changed-shader invalidation; renderer resources "
-						"will rebuild lazily on demand.");
+						"Queued global shader refresh.");
 				}
 				if (Args[0] == "all")
 				{
 					return QueueRequest(
 						State,
 						ERendererResourceInvalidationCause::ShaderAll,
-						"Queued forced shader invalidation; renderer resources "
-						"will rebuild lazily on demand.");
+						"Queued forced global shader recompile.");
 				}
 				return FConsoleCommandResult::Failure(
 					"Usage: renderer.reload-shaders <changed|all>");
@@ -91,8 +89,7 @@ namespace Durin
 				return QueueRequest(
 					State,
 					ERendererResourceInvalidationCause::ManualRetry,
-					"Queued shader/content preparation retry; reconstruction remains "
-					"demand-driven."
+					"Queued shader/content preparation retry."
 				);
 			},
 		});
@@ -196,7 +193,7 @@ namespace Durin
 		}
 
 		DURIN_INFO(
-			"Renderer resource invalidation applied: cause={}, generation={}/{}/{}; reconstruction is demand-driven",
+			"Renderer resource invalidation applied: cause={}, generation={}/{}/{}",
 			static_cast<uint8>(Cause),
 			Generation.Shader,
 			Generation.Device,
