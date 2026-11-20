@@ -173,12 +173,12 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 		auto EnsureResources_RenderThread(
-			FRHICommandListImmediate& CommandList) -> bool;
+			FRHICommandListImmediate& CommandList, std::optional<EGroundTruthAmbientOcclusionQuality> Quality = {}) -> bool;
 	private:
-		struct FState;
+		auto EnsureGeometry_RenderThread(FRHICommandListImmediate& CommandList) -> bool;
 
 		FFullscreenGeometryResources& FullscreenGeometry;
-		std::unique_ptr<FState> State;
+		FRasterizerStateRHIRef Rasterizer;
 	};
 
 	static_assert(sizeof(FGroundTruthAmbientOcclusionRenderer::FViewUniform) == 176);

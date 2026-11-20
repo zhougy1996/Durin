@@ -71,7 +71,7 @@ namespace Durin
 		const FSceneFeatureDecision& GBufferDebugFeature;
 		const FSceneFeatureDecision& EditorAssistanceFeature;
 		bool bPresentOutput;
-		std::shared_ptr<const FPreparedPostProcess> Draw;
+		FPreparedPostProcess&& Draw;
 		std::shared_ptr<const FPreparedPostProcessMaterial> Material;
 	};
 

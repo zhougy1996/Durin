@@ -87,21 +87,27 @@ namespace Durin
 
 	struct FDeferredDirectionalLightingRenderer::FState
 	{
-		struct FPayload
-		{
-			TShaderMapRef<FDeferredDirectionalVertexShader> VertexShader;
-			TShaderMapRef<FDeferredProductionVertexShader> ProductionVertexShader;
-			TShaderMapRef<FDeferredDirectionalFragmentShader> FragmentShader;
-			TShaderMapRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
-			FVertexDeclarationRHIRef PipelineVertexDeclaration;
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-			FGraphicsPipelineStateInitializer ProductionPipelineInitializer;
-			FGraphicsPipelineStateInitializer DiagnosticPipelineInitializer;
-		};
-
 		FSamplerRHIRef FallbackEnvironmentSampler;
 		FSamplerRHIRef FallbackShadowSampler;
-		std::optional<FPayload> Resources;
+		FRasterizerStateRHIRef Rasterizer;
+		FBlendStateRHIRef AdditiveBlend;
+
+		template<typename TVertexShader, typename TPixelShader>
+		auto MakePipeline(const TShaderMapRef<TVertexShader>& Vertex, const TShaderMapRef<TPixelShader>& Pixel,
+			const FVertexDeclarationRHIRef& Declaration, bool bProduction, bool bAdditive,
+			FGraphicsPipelineStateInitializer& Pipeline) const -> bool
+		{
+			Pipeline.BoundShaders.VertexShader = Vertex.GetRHIShader(false);
+			Pipeline.BoundShaders.FragmentShader = Pixel.GetRHIShader(false);
+			if (!Pipeline.BoundShaders.VertexShader || !Pipeline.BoundShaders.FragmentShader) return false;
+			Pipeline.VertexDeclaration = Declaration;
+			Pipeline.RasterizerState = Rasterizer;
+			Pipeline.RenderTargetLayout = bProduction ? RenderTargetLayouts::MakeGraphHybridDeferredOutput()
+				: RenderTargetLayouts::MakeDeferredDirectionalOutput();
+			if (bAdditive) Pipeline.BlendState = AdditiveBlend;
+			Pipeline.PipelineLayout = Pixel.GetPipelineLayout();
+			return true;
+		}
 	};
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
@@ -114,57 +120,17 @@ namespace Durin
 
 	FDeferredDirectionalLightingRenderer::~FDeferredDirectionalLightingRenderer() = default;
 
-	auto FDeferredDirectionalLightingRenderer::EnsureResources_RenderThread(
-		FRHICommandListImmediate& CommandList
-	) -> bool
+	auto FDeferredDirectionalLightingRenderer::EnsureCommonResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool
 	{
-		using FPayload = FState::FPayload;
-		State->Resources.reset();
-		FPayload Candidate;
-		Candidate.VertexShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalVertexShader>();
-		Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalFragmentShader>();
-		Candidate.ProductionVertexShader = GetGlobalShaderMap().GetShader<FDeferredProductionVertexShader>();
-		Candidate.ProductionFragmentShader = GetGlobalShaderMap().GetShader<FDeferredProductionFragmentShader>();
-
-		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList)) return false;
+		if (!State->Rasterizer) State->Rasterizer = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		if (!State->AdditiveBlend)
 		{
-			return false;
+			FBlendStateInitializerRHI Blend{};
+			Blend[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
+				.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
+			State->AdditiveBlend = RHICreateBlendState(Blend);
 		}
-		FRHIShader* VertexRHI =
-			Candidate.VertexShader.GetRHIShader(false);
-		FRHIShader* FragmentRHI =
-			Candidate.FragmentShader.GetRHIShader(false);
-		FRHIShader* ProductionVertexRHI = Candidate.ProductionVertexShader.GetRHIShader(false);
-		FRHIShader* ProductionFragmentRHI =
-			Candidate.ProductionFragmentShader.GetRHIShader(false);
-		if (VertexRHI == nullptr || FragmentRHI == nullptr
-			|| ProductionVertexRHI == nullptr || ProductionFragmentRHI == nullptr)
-		{
-			return false;
-		}
-		FGraphicsPipelineStateInitializer Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeDeferredDirectionalOutput();
-		Initializer.BoundShaders.VertexShader = VertexRHI;
-		Initializer.BoundShaders.FragmentShader = FragmentRHI;
-		Initializer.VertexDeclaration =
-			Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-		Initializer.PipelineLayout =
-			Candidate.FragmentShader.GetPipelineLayout();
-		Candidate.PipelineInitializer = Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeGraphHybridDeferredOutput();
-		Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
-		Initializer.BoundShaders.VertexShader = ProductionVertexRHI;
-		Initializer.PipelineLayout = Candidate.ProductionFragmentShader.GetPipelineLayout();
-		FBlendStateInitializerRHI AdditiveBlend{};
-		AdditiveBlend[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
-			.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
-		Initializer.BlendState = RHICreateBlendState(AdditiveBlend);
-		Candidate.ProductionPipelineInitializer = Initializer;
-		Initializer.BlendState = Candidate.PipelineInitializer.BlendState;
-		Candidate.DiagnosticPipelineInitializer = Initializer;
 		if (!State->FallbackEnvironmentSampler)
 			State->FallbackEnvironmentSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 		if (!State->FallbackShadowSampler)
@@ -178,28 +144,34 @@ namespace Durin
 			ShadowDesc.CompareOp = ESamplerCompareOp::LessOrEqual;
 			State->FallbackShadowSampler = RHICreateSampler(ShadowDesc);
 		}
-		if (State->FallbackEnvironmentSampler == nullptr
-			|| State->FallbackShadowSampler == nullptr)
-		{
-			return false;
-		}
-		const auto& Payload = State->Resources.emplace(std::move(Candidate));
-		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-		{
-			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.PipelineInitializer, "DeferredDirectionalLightingPipeline");
-			if (!PipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(PipelineState);
-			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto ProductionPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.ProductionPipelineInitializer, "DeferredProductionLightingPipeline");
-			if (!ProductionPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(ProductionPipelineState);
-			if (ProductionPipelineState->GetState() == ERHIPipelineState::Failed || ProductionPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto DiagnosticPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.DiagnosticPipelineInitializer, "DeferredProductionDiagnosticPipeline");
-			if (!DiagnosticPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(DiagnosticPipelineState);
-			if (DiagnosticPipelineState->GetState() == ERHIPipelineState::Failed || DiagnosticPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-		}
-		return true;
+		return State->Rasterizer && State->AdditiveBlend && State->FallbackEnvironmentSampler && State->FallbackShadowSampler;
+	}
+
+	auto FDeferredDirectionalLightingRenderer::EnsureResources_RenderThread(
+		FRHICommandListImmediate& CommandList, bool bProduction, bool bIsolated) -> bool
+	{
+		if (!EnsureCommonResources_RenderThread(CommandList)) return false;
+		const auto& Map = GetGlobalShaderMap();
+		const auto Check = [&](const auto& Vertex, const auto& Pixel, bool bProductionPass, bool bAdditive, const char* Name) {
+			if (!FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+				return Vertex.GetRHIShader(false) && Pixel.GetRHIShader(false);
+			FGraphicsPipelineStateInitializer Pipeline;
+			if (!State->MakePipeline(Vertex, Pixel, FullscreenGeometry.GetVertexDeclaration_RenderThread(),
+				bProductionPass, bAdditive, Pipeline)) return false;
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline, Name);
+			if (!Request) return false;
+			FRenderPipelinePreparationBatch::Add(Request);
+			const auto Status = Request->GetState();
+			return Status != ERHIPipelineState::Failed && Status != ERHIPipelineState::Canceled;
+		};
+		if (bIsolated && !Check(Map.GetShader<FDeferredDirectionalVertexShader>(), Map.GetShader<FDeferredDirectionalFragmentShader>(),
+			false, false, "DeferredDirectionalLightingPipeline")) return false;
+		if (!bProduction) return true;
+		const auto Vertex = Map.GetShader<FDeferredProductionVertexShader>();
+		const auto Pixel = Map.GetShader<FDeferredProductionFragmentShader>();
+		if (!Check(Vertex, Pixel, true, true, "DeferredProductionLightingPipeline")) return false;
+		return !FRenderPipelinePreparationBatch::ShouldPrecachePipelines()
+			|| Check(Vertex, Pixel, true, false, "DeferredProductionDiagnosticPipeline");
 	}
 
 	auto FDeferredDirectionalLightingRenderer::DescribeTarget(
@@ -265,15 +237,26 @@ namespace Durin
 		{
 			return false;
 		}
-		if (!EnsureResources_RenderThread(CommandList)) return false;
-		const auto& Payload = State->Resources;
-		if (!Payload)
-			return false;
-		const bool bReplaceDiagnostic = Parameters.bContactVisibilityDebug
-			|| View->Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit;
-		const FGraphicsPipelineStateInitializer& Pipeline = bProduction
-			? (bReplaceDiagnostic ? Payload->DiagnosticPipelineInitializer : Payload->ProductionPipelineInitializer)
-			: Payload->PipelineInitializer;
+		if (!EnsureCommonResources_RenderThread(CommandList)) return false;
+		const auto& Map = GetGlobalShaderMap();
+		const auto& Declaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		TShaderMapRef<FDeferredDirectionalFragmentShader> FragmentShader;
+		TShaderMapRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
+		FGraphicsPipelineStateInitializer Pipeline;
+		if (bProduction)
+		{
+			const bool bAdditive = !Parameters.bContactVisibilityDebug
+				&& View->Settings.DirectionalShadow.DiagnosticMode == EDirectionalShadowDiagnosticMode::Lit;
+			ProductionFragmentShader = Map.GetShader<FDeferredProductionFragmentShader>();
+			if (!State->MakePipeline(Map.GetShader<FDeferredProductionVertexShader>(), ProductionFragmentShader,
+				Declaration, true, bAdditive, Pipeline)) return false;
+		}
+		else
+		{
+			FragmentShader = Map.GetShader<FDeferredDirectionalFragmentShader>();
+			if (!State->MakePipeline(Map.GetShader<FDeferredDirectionalVertexShader>(), FragmentShader,
+				Declaration, false, false, Pipeline)) return false;
+		}
 		if (FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 		{
@@ -376,14 +359,14 @@ namespace Durin
 		{
 			FDeferredProductionFragmentShader::FParameters ShaderParameters;
 			FillShaderParameters(ShaderParameters);
-			SetShaderParameters(CommandList, Payload->ProductionFragmentShader, ShaderParameters);
+			SetShaderParameters(CommandList, ProductionFragmentShader, ShaderParameters);
 		}
 		else
 		{
 			FDeferredDirectionalFragmentShader::FParameters ShaderParameters;
 			FillShaderParameters(ShaderParameters);
 			SetShaderParameters(
-				CommandList, Payload->FragmentShader, ShaderParameters
+				CommandList, FragmentShader, ShaderParameters
 			);
 		}
 		CommandList.DrawIndexed(3, 0, 0);

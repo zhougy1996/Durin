@@ -139,132 +139,65 @@ namespace Durin
 			 &FGTAOResolveFragmentShader::StaticType()});
 	}
 
-	struct FGroundTruthAmbientOcclusionRenderer::FState
+	namespace
 	{
-		struct FPayload
+		template<typename TPixelShader>
+		auto MakeGTAOPipeline(const TShaderMapRef<FGTAOVertexShader>& Vertex, const TShaderMapRef<TPixelShader>& Pixel,
+			const FVertexDeclarationRHIRef& Declaration, const FRasterizerStateRHIRef& Rasterizer,
+			FGraphicsPipelineStateInitializer& Pipeline) -> bool
 		{
-			TShaderMapRef<FGTAOVertexShader> VertexShader;
-			TShaderMapRef<FGTAORawFragmentShader> FragmentShader;
-			TShaderMapRef<FGTAOSelectorFragmentShader> SelectorFragmentShader;
-			TShaderMapRef<FGTAOHalfRawFragmentShader> HalfFragmentShader;
-			TShaderMapRef<FGTAOFilterFragmentShader> FilterFragmentShader;
-			TShaderMapRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
-			TShaderMapRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
-			FVertexDeclarationRHIRef PipelineVertexDeclaration;
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-			FGraphicsPipelineStateInitializer SelectorPipelineInitializer;
-			FGraphicsPipelineStateInitializer HalfPipelineInitializer;
-			FGraphicsPipelineStateInitializer FilterPipelineInitializer;
-			FGraphicsPipelineStateInitializer HalfFilterPipelineInitializer;
-			FGraphicsPipelineStateInitializer ResolvePipelineInitializer;
-		};
-
-		std::optional<FPayload> Resources;
-	};
+			Pipeline.BoundShaders.VertexShader = Vertex.GetRHIShader(false);
+			Pipeline.BoundShaders.FragmentShader = Pixel.GetRHIShader(false);
+			if (!Pipeline.BoundShaders.VertexShader || !Pipeline.BoundShaders.FragmentShader) return false;
+			Pipeline.VertexDeclaration = Declaration;
+			Pipeline.RasterizerState = Rasterizer;
+			Pipeline.RenderTargetLayout = RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
+			Pipeline.PipelineLayout = Pixel.GetPipelineLayout();
+			return true;
+		}
+	}
 
 	FGroundTruthAmbientOcclusionRenderer::FGroundTruthAmbientOcclusionRenderer(
 		FFullscreenGeometryResources& InFullscreenGeometry)
 		: FullscreenGeometry(InFullscreenGeometry)
-		, State(std::make_unique<FState>())
 	{
 	}
 
 	FGroundTruthAmbientOcclusionRenderer::~FGroundTruthAmbientOcclusionRenderer() = default;
 
-	auto FGroundTruthAmbientOcclusionRenderer::EnsureResources_RenderThread(
-		FRHICommandListImmediate& CommandList) -> bool
+	auto FGroundTruthAmbientOcclusionRenderer::EnsureGeometry_RenderThread(FRHICommandListImmediate& CommandList) -> bool
 	{
-		using FPayload = FState::FPayload;
-		State->Resources.reset();
-		FPayload Candidate;
-		Candidate.VertexShader = GetGlobalShaderMap().GetShader<FGTAOVertexShader>();
-		Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FGTAORawFragmentShader>();
-		Candidate.SelectorFragmentShader = GetGlobalShaderMap().GetShader<FGTAOSelectorFragmentShader>();
-		Candidate.HalfFragmentShader = GetGlobalShaderMap().GetShader<FGTAOHalfRawFragmentShader>();
-		Candidate.FilterFragmentShader = GetGlobalShaderMap().GetShader<FGTAOFilterFragmentShader>();
-		Candidate.HalfFilterFragmentShader = GetGlobalShaderMap().GetShader<FGTAOHalfFilterFragmentShader>();
-		Candidate.ResolveFragmentShader = GetGlobalShaderMap().GetShader<FGTAOResolveFragmentShader>();
-		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
-		{
-			return false;
-		}
-		FRHIShader* VertexRHI =
-			Candidate.VertexShader.GetRHIShader(false);
-		FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
-		FRHIShader* SelectorRHI =
-			Candidate.SelectorFragmentShader.GetRHIShader(false);
-		FRHIShader* HalfFragmentRHI =
-			Candidate.HalfFragmentShader.GetRHIShader(false);
-		FRHIShader* FilterRHI =
-			Candidate.FilterFragmentShader.GetRHIShader(false);
-		FRHIShader* HalfFilterRHI =
-			Candidate.HalfFilterFragmentShader.GetRHIShader(false);
-		FRHIShader* ResolveRHI =
-			Candidate.ResolveFragmentShader.GetRHIShader(false);
-		if (VertexRHI == nullptr
-			|| FragmentRHI == nullptr || SelectorRHI == nullptr
-			|| HalfFragmentRHI == nullptr
-			|| FilterRHI == nullptr || HalfFilterRHI == nullptr
-			|| ResolveRHI == nullptr)
-		{
-			return false;
-		}
-		FGraphicsPipelineStateInitializer Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
-		Initializer.BoundShaders.VertexShader = VertexRHI;
-		Initializer.BoundShaders.FragmentShader = FragmentRHI;
-		Initializer.VertexDeclaration =
-			Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-		Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-		Initializer.PipelineLayout =
-			Candidate.FragmentShader.GetPipelineLayout();
-		Candidate.PipelineInitializer = Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
-		Initializer.BoundShaders.FragmentShader = SelectorRHI;
-		Candidate.SelectorPipelineInitializer = Initializer;
-		Initializer.BoundShaders.FragmentShader = HalfFragmentRHI;
-		Candidate.HalfPipelineInitializer = Initializer;
-		Initializer.RenderTargetLayout =
-			RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
-		Initializer.BoundShaders.FragmentShader = FilterRHI;
-		Initializer.PipelineLayout =
-			Candidate.FilterFragmentShader.GetPipelineLayout();
-		Candidate.FilterPipelineInitializer = Initializer;
-		Initializer.BoundShaders.FragmentShader = HalfFilterRHI;
-		Candidate.HalfFilterPipelineInitializer = Initializer;
-		Initializer.BoundShaders.FragmentShader = ResolveRHI;
-		Candidate.ResolvePipelineInitializer = Initializer;
-		const auto& Payload = State->Resources.emplace(std::move(Candidate));
-		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
-		{
-			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.PipelineInitializer, "GroundTruthAmbientOcclusionRawPipeline");
-			if (!PipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(PipelineState);
-			if (PipelineState->GetState() == ERHIPipelineState::Failed || PipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto SelectorPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.SelectorPipelineInitializer, "GroundTruthAmbientOcclusionSelectorPipeline");
-			if (!SelectorPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(SelectorPipelineState);
-			if (SelectorPipelineState->GetState() == ERHIPipelineState::Failed || SelectorPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto HalfPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.HalfPipelineInitializer, "GroundTruthAmbientOcclusionHalfRawPipeline");
-			if (!HalfPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(HalfPipelineState);
-			if (HalfPipelineState->GetState() == ERHIPipelineState::Failed || HalfPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto FilterPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.FilterPipelineInitializer, "GroundTruthAmbientOcclusionFilterPipeline");
-			if (!FilterPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(FilterPipelineState);
-			if (FilterPipelineState->GetState() == ERHIPipelineState::Failed || FilterPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto HalfFilterPipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.HalfFilterPipelineInitializer, "GroundTruthAmbientOcclusionHalfFilterPipeline");
-			if (!HalfFilterPipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(HalfFilterPipelineState);
-			if (HalfFilterPipelineState->GetState() == ERHIPipelineState::Failed || HalfFilterPipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-			auto ResolvePipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload.ResolvePipelineInitializer, "GroundTruthAmbientOcclusionResolvePipeline");
-			if (!ResolvePipelineState) return false;
-			FRenderPipelinePreparationBatch::Add(ResolvePipelineState);
-			if (ResolvePipelineState->GetState() == ERHIPipelineState::Failed || ResolvePipelineState->GetState() == ERHIPipelineState::Canceled) return false;
-		}
-		return true;
+		if (!Rasterizer) Rasterizer = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
+		return Rasterizer && FullscreenGeometry.EnsureResources_RenderThread(CommandList)
+			&& FullscreenGeometry.GetVertexBuffer_RenderThread() && FullscreenGeometry.GetIndexBuffer_RenderThread();
+	}
+
+	auto FGroundTruthAmbientOcclusionRenderer::EnsureResources_RenderThread(
+		FRHICommandListImmediate& CommandList, std::optional<EGroundTruthAmbientOcclusionQuality> Quality) -> bool
+	{
+		if (!EnsureGeometry_RenderThread(CommandList)) return false;
+		const auto& Map = GetGlobalShaderMap();
+		const auto Vertex = Map.GetShader<FGTAOVertexShader>();
+		if (!Vertex.GetRHIShader(false)) return false;
+		const auto Check = [&](const auto& Pixel, const char* Name) {
+			if (!FRenderPipelinePreparationBatch::ShouldPrecachePipelines()) return Pixel.GetRHIShader(false) != nullptr;
+			FGraphicsPipelineStateInitializer Pipeline;
+			if (!MakeGTAOPipeline(Vertex, Pixel, FullscreenGeometry.GetVertexDeclaration_RenderThread(), Rasterizer, Pipeline))
+				return false;
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline, Name);
+			if (!Request) return false;
+			FRenderPipelinePreparationBatch::Add(Request);
+			const auto Status = Request->GetState();
+			return Status != ERHIPipelineState::Failed && Status != ERHIPipelineState::Canceled;
+		};
+		if (Quality != EGroundTruthAmbientOcclusionQuality::HalfResolution
+			&& (!Check(Map.GetShader<FGTAORawFragmentShader>(), "GroundTruthAmbientOcclusionRawPipeline")
+				|| !Check(Map.GetShader<FGTAOFilterFragmentShader>(), "GroundTruthAmbientOcclusionFilterPipeline"))) return false;
+		return Quality == EGroundTruthAmbientOcclusionQuality::FullResolution
+			|| (Check(Map.GetShader<FGTAOSelectorFragmentShader>(), "GroundTruthAmbientOcclusionSelectorPipeline")
+				&& Check(Map.GetShader<FGTAOHalfRawFragmentShader>(), "GroundTruthAmbientOcclusionHalfRawPipeline")
+				&& Check(Map.GetShader<FGTAOHalfFilterFragmentShader>(), "GroundTruthAmbientOcclusionHalfFilterPipeline")
+				&& Check(Map.GetShader<FGTAOResolveFragmentShader>(), "GroundTruthAmbientOcclusionResolvePipeline"));
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::DescribeTargets(
@@ -327,15 +260,28 @@ namespace Durin
 					== EGroundTruthAmbientOcclusionQuality::HalfResolution
 				&& Targets.Selector == nullptr))
 			return false;
-		if (!EnsureResources_RenderThread(CommandList)) return false;
-		const auto& Payload = State->Resources;
-		const bool bHalf = Targets.Quality
-			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-		const auto* Pipeline = Payload ? &(bHalf ? Payload->HalfPipelineInitializer : Payload->PipelineInitializer) : nullptr;
-		if (!Payload || !Pipeline
-			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
-			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
-			return false;
+		if (!EnsureGeometry_RenderThread(CommandList)) return false;
+		const bool bHalf = Targets.Quality == EGroundTruthAmbientOcclusionQuality::HalfResolution;
+		const auto& Map = GetGlobalShaderMap();
+		const auto Vertex = Map.GetShader<FGTAOVertexShader>();
+		const auto& Declaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		TShaderMapRef<FGTAORawFragmentShader> FullShader;
+		TShaderMapRef<FGTAOHalfRawFragmentShader> HalfShader;
+		FGraphicsPipelineStateInitializer Pipeline;
+		TShaderMapRef<FGTAOSelectorFragmentShader> SelectorShader;
+		FGraphicsPipelineStateInitializer SelectorPipeline;
+		if (bHalf)
+		{
+			HalfShader = Map.GetShader<FGTAOHalfRawFragmentShader>();
+			if (!MakeGTAOPipeline(Vertex, HalfShader, Declaration, Rasterizer, Pipeline)) return false;
+			SelectorShader = Map.GetShader<FGTAOSelectorFragmentShader>();
+			if (!MakeGTAOPipeline(Vertex, SelectorShader, Declaration, Rasterizer, SelectorPipeline)) return false;
+		}
+		else
+		{
+			FullShader = Map.GetShader<FGTAORawFragmentShader>();
+			if (!MakeGTAOPipeline(Vertex, FullShader, Declaration, Rasterizer, Pipeline)) return false;
+		}
 
 		FViewUniform Uniform;
 		for (uint32 Row = 0; Row < 4; ++Row)
@@ -379,7 +325,7 @@ namespace Durin
 				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 			CommandList.BeginRenderPass(
 				SelectorPassInfo, "GroundTruthAmbientOcclusionSelectorPass");
-			SetGraphicsPipelineState(CommandList, Payload->SelectorPipelineInitializer);
+			SetGraphicsPipelineState(CommandList, SelectorPipeline);
 			CommandList.SetViewport(
 				static_cast<float>(RenderViewport.X),
 				static_cast<float>(RenderViewport.Y), 0.0f,
@@ -401,7 +347,7 @@ namespace Durin
 			SelectorParameters.View = ViewUniform;
 			SelectorParameters.RawSelector = Surface;
 			SetShaderParameters(CommandList,
-				Payload->SelectorFragmentShader, SelectorParameters);
+				SelectorShader, SelectorParameters);
 			CommandList.DrawIndexed(3, 0, 0);
 			CommandList.EndRenderPass();
 		}
@@ -412,7 +358,7 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = Targets.Raw;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(PassInfo, "GroundTruthAmbientOcclusionRawPass");
-		SetGraphicsPipelineState(CommandList, *Pipeline);
+		SetGraphicsPipelineState(CommandList, Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(RenderViewport.X),
 			static_cast<float>(RenderViewport.Y), 0.0f,
@@ -436,7 +382,7 @@ namespace Durin
 			Parameters.View = ViewUniform;
 			Parameters.RawSelector = Targets.Selector;
 			SetShaderParameters(
-				CommandList, Payload->HalfFragmentShader, Parameters);
+				CommandList, HalfShader, Parameters);
 		}
 		else
 		{
@@ -446,7 +392,7 @@ namespace Durin
 			Parameters.SceneDepth = Depth;
 			Parameters.View = ViewUniform;
 			Parameters.RawSelector = Surface;
-			SetShaderParameters(CommandList, Payload->FragmentShader, Parameters);
+			SetShaderParameters(CommandList, FullShader, Parameters);
 		}
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
@@ -470,15 +416,24 @@ namespace Durin
 					== EGroundTruthAmbientOcclusionQuality::HalfResolution
 				&& Targets.Selector == nullptr))
 			return false;
-		if (!EnsureResources_RenderThread(CommandList)) return false;
-		const auto& Payload = State->Resources;
-		const bool bHalf = Targets.Quality
-			== EGroundTruthAmbientOcclusionQuality::HalfResolution;
-		const auto* Pipeline = Payload ? &(bHalf ? Payload->HalfFilterPipelineInitializer : Payload->FilterPipelineInitializer) : nullptr;
-		if (!Payload || !Pipeline
-			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
-			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
-			return false;
+		if (!EnsureGeometry_RenderThread(CommandList)) return false;
+		const bool bHalf = Targets.Quality == EGroundTruthAmbientOcclusionQuality::HalfResolution;
+		const auto& Map = GetGlobalShaderMap();
+		const auto Vertex = Map.GetShader<FGTAOVertexShader>();
+		const auto& Declaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		TShaderMapRef<FGTAOFilterFragmentShader> FullShader;
+		TShaderMapRef<FGTAOHalfFilterFragmentShader> HalfShader;
+		FGraphicsPipelineStateInitializer Pipeline;
+		if (bHalf)
+		{
+			HalfShader = Map.GetShader<FGTAOHalfFilterFragmentShader>();
+			if (!MakeGTAOPipeline(Vertex, HalfShader, Declaration, Rasterizer, Pipeline)) return false;
+		}
+		else
+		{
+			FullShader = Map.GetShader<FGTAOFilterFragmentShader>();
+			if (!MakeGTAOPipeline(Vertex, FullShader, Declaration, Rasterizer, Pipeline)) return false;
+		}
 
 		FFilterUniform Uniform;
 		for (uint32 Row = 0; Row < 4; ++Row)
@@ -522,7 +477,7 @@ namespace Durin
 			PassInfo.ColorClearValues[0] =
 				FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 			CommandList.BeginRenderPass(PassInfo, PassName);
-			SetGraphicsPipelineState(CommandList, *Pipeline);
+			SetGraphicsPipelineState(CommandList, Pipeline);
 			CommandList.SetViewport(
 				static_cast<float>(RenderViewport.X),
 				static_cast<float>(RenderViewport.Y), 0.0f,
@@ -547,7 +502,7 @@ namespace Durin
 				Parameters.Filter = FilterUniform;
 				Parameters.FilterSelector = Targets.Selector;
 				SetShaderParameters(CommandList,
-					Payload->HalfFilterFragmentShader, Parameters);
+					HalfShader, Parameters);
 			}
 			else
 			{
@@ -559,7 +514,7 @@ namespace Durin
 				Parameters.Filter = FilterUniform;
 				Parameters.FilterSelector = Input;
 				SetShaderParameters(
-					CommandList, Payload->FilterFragmentShader, Parameters);
+					CommandList, FullShader, Parameters);
 			}
 			CommandList.DrawIndexed(3, 0, 0);
 			CommandList.EndRenderPass();
@@ -592,11 +547,12 @@ namespace Durin
 			|| Surface == nullptr || Depth == nullptr
 			|| View.ViewportWidth == 0 || View.ViewportHeight == 0)
 			return false;
-		if (!EnsureResources_RenderThread(CommandList)) return false;
-		const auto& Payload = State->Resources;
-		if (!Payload
-			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
-			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
+		if (!EnsureGeometry_RenderThread(CommandList)) return false;
+		const auto& Map = GetGlobalShaderMap();
+		const auto Vertex = Map.GetShader<FGTAOVertexShader>();
+		const auto ResolveShader = Map.GetShader<FGTAOResolveFragmentShader>();
+		FGraphicsPipelineStateInitializer Pipeline;
+		if (!MakeGTAOPipeline(Vertex, ResolveShader, FullscreenGeometry.GetVertexDeclaration_RenderThread(), Rasterizer, Pipeline))
 			return false;
 
 		FFilterUniform Uniform;
@@ -636,7 +592,7 @@ namespace Durin
 			FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f);
 		CommandList.BeginRenderPass(
 			PassInfo, "GroundTruthAmbientOcclusionResolvePass");
-		SetGraphicsPipelineState(CommandList, Payload->ResolvePipelineInitializer);
+		SetGraphicsPipelineState(CommandList, Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(View.ViewportX),
 			static_cast<float>(View.ViewportY), 0.0f,
@@ -659,7 +615,7 @@ namespace Durin
 		Parameters.Filter = ResolveUniform;
 		Parameters.FilterSelector = Targets.Selector;
 		SetShaderParameters(
-			CommandList, Payload->ResolveFragmentShader, Parameters);
+			CommandList, ResolveShader, Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 		return true;
@@ -668,6 +624,6 @@ namespace Durin
 	auto FGroundTruthAmbientOcclusionRenderer::ReleaseResources_RenderThread()
 		-> void
 	{
-		State->Resources.reset();
+		Rasterizer.reset();
 	}
 }

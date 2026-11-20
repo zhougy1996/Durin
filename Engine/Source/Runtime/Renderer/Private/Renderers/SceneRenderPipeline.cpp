@@ -362,9 +362,8 @@ namespace Durin
 			const auto Targets = bHasEditorAssistance
 				? RenderTargetLayouts::MakeScenePostProcessOutput(OutputTarget->GetFormat())
 				: RenderTargetLayouts::MakeFinalScenePostProcessOutput(ViewportOutput, OutputTarget->GetFormat());
-			ResolvedSceneResources.PostProcess = Service.PostProcessRenderer.Prepare_RenderThread(
-				CommandList, RenderView.Settings.PostProcess.bEnableFXAA, Targets);
-			if (!ResolvedSceneResources.PostProcess)
+			if (!Service.PostProcessRenderer.Prepare_RenderThread(CommandList,
+				RenderView.Settings.PostProcess.bEnableFXAA, Targets, ResolvedSceneResources.PostProcess))
 				return ERenderViewResult::RendererResourcesUnavailable;
 			ResolvedSceneResources.PostProcessMaterial = Service.PostProcessRenderer.PrepareMaterial_RenderThread(
 				CommandList, RenderView, Context.Logical.Options, Context.Logical.Scene, Width, Height,
@@ -481,10 +480,12 @@ namespace Durin
 					ResolvedSceneResources.Receiver.StaticMeshes, ResolvedSceneResources.Lighting.UniformBuffer, false,
 				ResolvedSceneResources.Lighting.GetLocalRange()) || !bPrepareOnly;
 			if (FeaturePlan.Deferred.IsEnabled())
-				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+				FixedPipelinesReady = Service.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList,
+					bPrepareOnly || bWantsProductionDeferred, bPrepareOnly || FeaturePlan.RequiresIsolatedDeferred()) && FixedPipelinesReady;
 			if (FeaturePlan.AmbientOcclusion.IsEnabled()
 				&& (IsPreparationPending(EScenePreparationPending::AmbientOcclusion)
-					|| !Service.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList)))
+					|| !Service.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList,
+					bPrepareOnly ? std::nullopt : std::optional{FeaturePlan.AmbientOcclusion.Quality})))
 			{
 				if (bPrepareOnly) FixedPipelinesReady = false;
 				else FeaturePlan.AmbientOcclusion.Purposes = ESceneFeaturePurpose::None;

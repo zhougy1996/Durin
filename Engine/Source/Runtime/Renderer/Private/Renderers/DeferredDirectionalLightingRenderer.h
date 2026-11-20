@@ -87,7 +87,7 @@ namespace Durin
 			-> FDeferredDirectionalLightingRenderer& = delete;
 
 		auto EnsureResources_RenderThread(
-			FRHICommandListImmediate& CommandList
+			FRHICommandListImmediate& CommandList, bool bProduction = true, bool bIsolated = true
 		) -> bool;
 		static auto DescribeTarget(uint32 Width, uint32 Height)
 			-> FRHITextureCreateDesc;
@@ -104,6 +104,7 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
+		auto EnsureCommonResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool;
 		auto RenderInternal_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor,

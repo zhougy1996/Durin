@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "PipelineStateCache.h"
 
+#include "Shader/GlobalShader.h"
 #include "RHIResources.h"
 #include "RHIShaderParameters.h"
 #include "Materials/MaterialRenderTypes.h"
@@ -16,7 +17,19 @@ namespace Durin
 	struct FSceneView;
 	struct FSceneViewRenderOptions;
 	struct FMaterialSceneTextureUniform;
-	struct FPreparedPostProcess;
+	class FPostProcessVertexShader;
+	class FCopySceneColorFragmentShader;
+	class FFXAAFragmentShader;
+	struct FPreparedPostProcess
+	{
+		TShaderMapRef<FPostProcessVertexShader> VertexShader;
+		TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
+		TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
+		FVertexDeclarationRHIRef VertexDeclaration;
+		FGraphicsPipelineStateInitializer PipelineInitializer;
+		FSamplerRHIRef SceneColorSampler;
+	};
+
 	struct FPreparedPostProcessMaterial
 	{
 		std::shared_ptr<const FMaterialProgram> Program;
@@ -66,8 +79,8 @@ namespace Durin
 			-> FPostProcessRenderer& = delete;
 
 		auto Prepare_RenderThread(
-			FRHICommandListImmediate& CommandList, bool bEnableFXAA, const FRHIRenderTargetLayout& Targets)
-			-> std::shared_ptr<const FPreparedPostProcess>;
+			FRHICommandListImmediate& CommandList, bool bEnableFXAA, const FRHIRenderTargetLayout& Targets, FPreparedPostProcess& Draw)
+			-> bool;
 		static auto DescribeSceneTargets(uint32 Width, uint32 Height)
 			-> std::array<FRHITextureCreateDesc, 2>;
 		auto Draw_RenderThread(

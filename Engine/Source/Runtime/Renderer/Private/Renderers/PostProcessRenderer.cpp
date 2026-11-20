@@ -24,56 +24,61 @@
 
 namespace Durin
 {
+	class FPostProcessVertexShader : public FGlobalShader
+	{
+	public:
+		DURIN_DECLARE_GLOBAL_SHADER(
+			FPostProcessVertexShader,
+			FGlobalShader,
+			"/Engine/PostProcess",
+			EShaderFrequency::Vertex,
+			"VertexMain");
+	};
+
+	class FPostProcessInputParameters
+	{
+	public:
+		DURIN_BEGIN_SHADER_PARAMETERS(FPostProcessInputParameters)
+			DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
+			DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
+		DURIN_END_SHADER_PARAMETERS();
+	};
+
+	class FCopySceneColorFragmentShader : public FGlobalShader
+	{
+	public:
+		using FParameters = FPostProcessInputParameters::FParameters;
+		DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FCopySceneColorFragmentShader, FPostProcessInputParameters);
+
+		DURIN_DECLARE_GLOBAL_SHADER(
+			FCopySceneColorFragmentShader,
+			FGlobalShader,
+			"/Engine/PostProcess",
+			EShaderFrequency::Fragment,
+			"CopyFragmentMain");
+	};
+
+	class FFXAAFragmentShader : public FGlobalShader
+	{
+	public:
+		using FParameters = FPostProcessInputParameters::FParameters;
+		DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FFXAAFragmentShader, FPostProcessInputParameters);
+
+		DURIN_DECLARE_GLOBAL_SHADER(
+			FFXAAFragmentShader,
+			FGlobalShader,
+			"/Engine/PostProcess",
+			EShaderFrequency::Fragment,
+			"FXAAFragmentMain");
+	};
+
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FPostProcessVertexShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FCopySceneColorFragmentShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
+
 	namespace
 	{
-		class FPostProcessVertexShader : public FGlobalShader
-		{
-		public:
-			DURIN_DECLARE_GLOBAL_SHADER(
-				FPostProcessVertexShader,
-				FGlobalShader,
-				"/Engine/PostProcess",
-				EShaderFrequency::Vertex,
-				"VertexMain");
-		};
-
-        class FPostProcessInputParameters
-        {
-        public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FPostProcessInputParameters)
-				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
-				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
-			DURIN_END_SHADER_PARAMETERS();
-        };
-
-		class FCopySceneColorFragmentShader : public FGlobalShader
-		{
-		public:
-            using FParameters = FPostProcessInputParameters::FParameters;
-            DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FCopySceneColorFragmentShader, FPostProcessInputParameters);
-
-			DURIN_DECLARE_GLOBAL_SHADER(
-				FCopySceneColorFragmentShader,
-				FGlobalShader,
-				"/Engine/PostProcess",
-				EShaderFrequency::Fragment,
-				"CopyFragmentMain");
-		};
-
-		class FFXAAFragmentShader : public FGlobalShader
-		{
-		public:
-            using FParameters = FPostProcessInputParameters::FParameters;
-            DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FFXAAFragmentShader, FPostProcessInputParameters);
-
-			DURIN_DECLARE_GLOBAL_SHADER(
-				FFXAAFragmentShader,
-				FGlobalShader,
-				"/Engine/PostProcess",
-				EShaderFrequency::Fragment,
-				"FXAAFragmentMain");
-		};
 		class FPostProcessMaterialShader final : public FMaterialShader
 		{
 		public:
@@ -88,9 +93,6 @@ namespace Durin
 				"/Engine/PostProcess", EShaderFrequency::Fragment, "PostProcessMaterialMain");
 		};
 		DURIN_IMPLEMENT_MATERIAL_SHADER(FPostProcessMaterialShader);
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FPostProcessVertexShader);
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FCopySceneColorFragmentShader);
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
 		const FGlobalShaderSetRegistration GPostProcessCopyShaderSet(
 			"Renderer", "PostProcess.Copy",
 			EShaderRequestEligibility::GameAndEditor,
@@ -130,16 +132,6 @@ namespace Durin
 		}
 	} // namespace
 
-	struct FPreparedPostProcess
-	{
-		TShaderMapRef<FPostProcessVertexShader> VertexShader;
-		TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
-		TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
-		FVertexDeclarationRHIRef VertexDeclaration;
-		FGraphicsPipelineStateInitializer PipelineInitializer;
-		FSamplerRHIRef SceneColorSampler;
-	};
-
 	struct FPostProcessRenderer::FState
 	{
 		FSamplerRHIRef SceneColorSampler;
@@ -169,35 +161,36 @@ namespace Durin
 	FPostProcessRenderer::~FPostProcessRenderer() = default;
 
 	auto FPostProcessRenderer::Prepare_RenderThread(
-		FRHICommandListImmediate& CommandList, bool bEnableFXAA, const FRHIRenderTargetLayout& Targets)
-		-> std::shared_ptr<const FPreparedPostProcess>
+		FRHICommandListImmediate& CommandList, bool bEnableFXAA, const FRHIRenderTargetLayout& Targets, FPreparedPostProcess& OutDraw)
+		-> bool
 	{
-		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList)) return {};
+		if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList)) return false;
 		if (!State->SceneColorSampler)
 			State->SceneColorSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
-		if (!State->SceneColorSampler) return {};
+		if (!State->SceneColorSampler) return false;
 
 		const auto& Map = GetGlobalShaderMap();
-		auto Draw = std::make_shared<FPreparedPostProcess>();
-		Draw->VertexShader = Map.GetShader<FPostProcessVertexShader>();
-		if (bEnableFXAA) Draw->FXAAFragmentShader = Map.GetShader<FFXAAFragmentShader>();
-		else Draw->CopyFragmentShader = Map.GetShader<FCopySceneColorFragmentShader>();
-		auto* Vertex = Draw->VertexShader.GetRHIShader(false);
-		auto* Fragment = bEnableFXAA ? Draw->FXAAFragmentShader.GetRHIShader(false) : Draw->CopyFragmentShader.GetRHIShader(false);
-		if (!Vertex || !Fragment) return {};
+		FPreparedPostProcess Draw;
+		Draw.VertexShader = Map.GetShader<FPostProcessVertexShader>();
+		if (bEnableFXAA) Draw.FXAAFragmentShader = Map.GetShader<FFXAAFragmentShader>();
+		else Draw.CopyFragmentShader = Map.GetShader<FCopySceneColorFragmentShader>();
+		auto* Vertex = Draw.VertexShader.GetRHIShader(false);
+		auto* Fragment = bEnableFXAA ? Draw.FXAAFragmentShader.GetRHIShader(false) : Draw.CopyFragmentShader.GetRHIShader(false);
+		if (!Vertex || !Fragment) return false;
 
-		Draw->SceneColorSampler = State->SceneColorSampler;
-		Draw->VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-		Draw->PipelineInitializer = CreatePostProcessPipeline(Vertex, Fragment, Draw->VertexDeclaration,
-			bEnableFXAA ? Draw->FXAAFragmentShader.GetPipelineLayout() : Draw->CopyFragmentShader.GetPipelineLayout(), Targets);
+		Draw.SceneColorSampler = State->SceneColorSampler;
+		Draw.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Draw.PipelineInitializer = CreatePostProcessPipeline(Vertex, Fragment, Draw.VertexDeclaration,
+			bEnableFXAA ? Draw.FXAAFragmentShader.GetPipelineLayout() : Draw.CopyFragmentShader.GetPipelineLayout(), Targets);
 		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
-			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Draw->PipelineInitializer);
-			if (!Request) return {};
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Draw.PipelineInitializer);
+			if (!Request) return false;
 			FRenderPipelinePreparationBatch::Add(Request);
-			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return {};
+			if (Request->GetState() == ERHIPipelineState::Failed || Request->GetState() == ERHIPipelineState::Canceled) return false;
 		}
-		return Draw;
+		OutDraw = std::move(Draw);
+		return true;
 	}
 
 	auto FPostProcessRenderer::DescribeSceneTargets(uint32 Width, uint32 Height)

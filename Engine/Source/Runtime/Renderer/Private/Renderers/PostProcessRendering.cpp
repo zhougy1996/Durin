@@ -92,7 +92,7 @@ namespace Durin
 		{
 			FGBufferDebugRenderer& GBufferDebugRenderer;
 			FPostProcessRenderer& PostProcessRenderer;
-			std::shared_ptr<const FPreparedPostProcess> Draw;
+			FPreparedPostProcess Draw;
 			FSceneRenderTelemetry& Telemetry;
 
 			auto RenderPostProcess_RenderThread(FRHICommandListImmediate&,
@@ -109,7 +109,7 @@ namespace Durin
 		FRDGBuilder& Graph, const FPostProcessFeatureInputs& Inputs) -> FPostProcessGraphOutput
 	{
 		FPostProcessRecorder Recorder{
-			Inputs.GBufferDebug, Inputs.Renderer, Inputs.Draw, Inputs.Telemetry};
+			Inputs.GBufferDebug, Inputs.Renderer, std::move(Inputs.Draw), Inputs.Telemetry};
 		const auto& RecordView = Inputs.RecordView;
 		const auto& View = Inputs.View;
 		auto* OutputTarget = Inputs.OutputTarget;
@@ -209,7 +209,7 @@ namespace Durin
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		const auto PostProcessPass =
 			Graph.AddPass(PostProcessPassName, ERDGPassType::Graphics, std::move(Parameters),
-			[Recorder,
+			[Recorder = std::move(Recorder),
 				RecordView = &RecordView, &View, bGBufferDebug, &Options,
 				bPresentOutput](
 				FRHICommandListImmediate& Commands,
@@ -348,7 +348,7 @@ namespace Durin
 		TScopedRendererGPUTimingQuery PostProcessTiming(
 			CommandList, PostProcessTimingSink
 		);
-		PostProcessRenderer.Draw_RenderThread(CommandList, PostProcessInput, OutputTarget, *Draw,
+		PostProcessRenderer.Draw_RenderThread(CommandList, PostProcessInput, OutputTarget, Draw,
 			FClearValueBinding(View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a),
 			bPresentOutput, RenderView.Settings.PostProcess.ExposureEV);
 		PostProcessTiming.Commit();

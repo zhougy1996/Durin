@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Renderers/ContactShadowRenderer.h"
+#include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
@@ -113,11 +114,9 @@ namespace Durin
 		}
 	};
 
-	struct FPreparedPostProcess;
-	struct FPreparedPostProcessMaterial;
 	struct FResolvedSceneResources
 	{
-		std::shared_ptr<const FPreparedPostProcess> PostProcess;
+		FPreparedPostProcess PostProcess;
 		std::shared_ptr<const FPreparedPostProcessMaterial> PostProcessMaterial;
 		FResolvedLighting Lighting;
 		FResolvedReceiverGeometry Receiver;
