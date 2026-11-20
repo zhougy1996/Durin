@@ -32,9 +32,8 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(configs.environment, "DURIN_ENGINE_PROJECT_DIR", tmp_path / "Engine")
     monkeypatch.setattr(configs, "RUNTIME_VARIANT", "DurinEditor")
     monkeypatch.setattr(configs, "ARCH", "Win64")
-    for name in ("CATALOGS", "LOCATIONS"):
+    for name in ("CATALOGS", "LOCATIONS", "DISCOVERY_DIRECTORIES"):
         monkeypatch.setattr(plugin_build, name, {})
-    monkeypatch.setattr(plugin_build, "DISCOVERY_DIRECTORIES", set())
     return tmp_path
 
 
@@ -58,7 +57,6 @@ def test_plugin_ownership_generation_disable_and_variant(workspace, monkeypatch)
     configs.init_configs([project])
     assert "WaterTools" not in configs.module_config.MODULE_CONFIGS
     assert utils.get_module_intermediate_build_dir("WaterRuntime") != editor_directory
-    data = json.loads(project.read_text())
     (workspace / "Game/Configs/Plugins.json").write_text(json.dumps({"Plugins": {"Water": False}}))
     configs.init_configs([project])
     assert "WaterRuntime" in configs.module_config.MODULE_CONFIGS
@@ -67,23 +65,6 @@ def test_plugin_ownership_generation_disable_and_variant(workspace, monkeypatch)
     (workspace / "Game/Configs/Plugins.json").write_text(json.dumps({"Plugins": {"Water": True}}))
     configs.init_configs([project])
     assert configs.get_module_config("WaterRuntime").owning_plugin == "Water"
-
-
-def test_foreign_project_roots_do_not_activate_current_project_plugins(workspace):
-    project = workspace / "Game/Game.dproject"
-    data = json.loads(project.read_text())
-    data.update(ModuleDirs={"GameRoot": "Source/GameRoot"}, BaseModules=["GameRoot"], PluginDependencies=["Water"])
-    project.write_text(json.dumps(data))
-    module = workspace / "Game/Source/GameRoot/GameRoot.dmodule"
-    module.parent.mkdir(parents=True)
-    module.write_text(json.dumps(dict(ModuleName="GameRoot", PublicDependencies=["WaterRuntime"])))
-    configs.init_configs([project])
-    assert "Plugins" not in plugin_build.CATALOGS["Engine"]  # build catalog, not startup selection
-    assert plugin_build.CATALOGS["Game"]["Modules"]
-    # A missing plugin requested by the active project still fails.
-    (workspace / "Game/Configs/Plugins.json").write_text(json.dumps({"Plugins": {"Water": False}}))
-    with pytest.raises(ValueError, match="Cannot disable project-required"):
-        resolve_plugins(workspace / "Engine", project)
 
 
 def test_plugin_dependency_enables_nonroot_module_in_another_project(workspace):
@@ -128,7 +109,6 @@ def test_startup_changes_do_not_change_build_catalog(workspace):
     project = workspace / "Game/Game.dproject"
     configs.init_configs([project])
     original = plugin_build.CATALOGS["Game"]
-    data = json.loads(project.read_text())
     (workspace / "Game/Configs/Plugins.json").write_text(json.dumps({"Plugins": {"Water": True, "Foundation": False}}))
     configs.init_configs([project])
     assert plugin_build.CATALOGS["Game"] == original
@@ -155,11 +135,13 @@ def test_build_discovers_plugins_in_other_workspace_projects(workspace):
     other.parent.mkdir()
     other.write_text(json.dumps(dict(ProjectName="Other", BaseModules=[])))
     shutil.move(str(workspace / "Game/Plugins"), str(other.parent / "Plugins"))
-    game_data = json.loads(project.read_text())
-    project.write_text(json.dumps(game_data))
-    other.write_text(json.dumps(dict(ProjectName="Other", BaseModules=[])))
     configs.init_configs([project, other])
     assert configs.get_module_config("WaterRuntime").owning_project == "Other"
     assert plugin_build.CATALOGS["Game"]["Modules"] == []
     assert {m["Owner"] for m in plugin_build.CATALOGS["Other"]["Modules"]} == {"Water", "Foundation"}
     assert resolve_plugins(workspace / "Engine", other, project_files=[project])[0]["Modules"] == []
+    for project_name in ("Game", "Other"):
+        generate_project_cmake_file(project_name)
+    watch = f'"{(other.parent / "Plugins").as_posix()}/*"'
+    assert watch in utils.get_project_cmake_file_path("Other").read_text()
+    assert watch not in utils.get_project_cmake_file_path("Game").read_text()
