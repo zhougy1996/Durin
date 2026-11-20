@@ -14,7 +14,7 @@ namespace Durin
 	DECLARE_MULTICAST_DELEGATE_OneParam(FMaterialFunctionChangedEvent, const DMaterialFunctionInterface&)
 	ENGINE_API auto GetMaterialFunctionChangedEvent() -> FMaterialFunctionChangedEvent&;
 	// Owning-thread semantic notification shared by all function implementations.
-	ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
+	ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function, bool bRefreshCalls = true) -> void;
 	// Calls consume this contract without requiring an editable graph owner.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DMaterialFunctionInterface : public DObject

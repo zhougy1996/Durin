@@ -35,7 +35,7 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		ASSERT_FALSE(Expressions.empty());
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expressions.front().Get());
 		ASSERT_NE(Call, nullptr);
-		EXPECT_EQ(Call->Outputs[0].OutputId, Output.Id);
+		EXPECT_EQ(Call->FunctionOutputs[0].OutputId, Output.Id);
 		for (const auto& Expression : Expressions) EXPECT_EQ(Expression->GetOuter(), Preview);
 		ASSERT_TRUE(Preview->CompileEdits()) << "type " << Index << ": " << FormatMaterialProgramDiagnostics(Preview->GetMaterialCompileDiagnostics());
 		ASSERT_TRUE(Preview->GetAcceptedCompiledProgram());

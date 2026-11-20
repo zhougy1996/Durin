@@ -52,7 +52,7 @@ namespace Durin
 
 		if (auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
 		{
-			for (uint32 Index = 0; Index < Call->Inputs.size(); ++Index) Visit(Index, Call->Inputs[Index].Input);
+			for (uint32 Index = 0; Index < Call->FunctionInputs.size(); ++Index) Visit(Index, Call->FunctionInputs[Index].Input);
 			return;
 		}
 		if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(&Expression))

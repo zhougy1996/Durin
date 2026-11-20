@@ -158,7 +158,7 @@ namespace Durin
 	class DMaterialInterface : public DObject
 	{
 		GENERATED_BODY()
-		friend ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
+		friend ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function, bool bRefreshCalls) -> void;
 		friend ENGINE_API auto NotifyMaterialParameterCollectionChanged(
 			DMaterialParameterCollection& Collection) -> void;
 	public:

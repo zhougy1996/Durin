@@ -67,9 +67,7 @@ namespace Durin::MaterialEditor
 		}
 		auto OrderedPorts(auto Ports)
 		{
-			std::ranges::stable_sort(Ports, [](const auto& A, const auto& B) {
-				return A.DisplayOrder != B.DisplayOrder ? A.DisplayOrder < B.DisplayOrder : A.Id < B.Id;
-			});
+			std::ranges::stable_sort(Ports, {}, &FMaterialFunctionPort::DisplayOrder);
 			return Ports;
 		}
 	}
@@ -220,15 +218,6 @@ namespace Durin::MaterialEditor
 			// Hidden root inputs also retain authored connections.
 			for (const auto& Consumer : FMaterialExpressionEditing::GetExpressions(Owner))
 			{
-				if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Consumer.Get()); Call && std::ranges::any_of(Call->Inputs,
-					[&](const auto& Binding) { return UsesOutput(Binding.Input) && Binding.InputDefault.empty(); }))
-				{
-					auto Bindings = Call->Inputs;
-					std::erase_if(Bindings, [&](const auto& Binding) { return UsesOutput(Binding.Input) && Binding.InputDefault.empty(); });
-					for (auto& Binding : Bindings) if (UsesOutput(Binding.Input)) Binding.Input = {};
-					Edit.Set(*Call, Call->Inputs, std::move(Bindings));
-					continue;
-				}
 				VisitStoredMaterialInputs(*Consumer, [&](FMaterialExpressionInput& Input) {
 					if (UsesOutput(Input)) Edit.SetLink(*Consumer, Input, {});
 				});
@@ -266,8 +255,8 @@ namespace Durin::MaterialEditor
 			auto Index = static_cast<int32>(Input.InputIndex);
 			if (Call)
 			{
-				const auto It = std::ranges::find(Call->Inputs, Input.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-				Index = It == Call->Inputs.end() ? -1 : static_cast<int32>(It - Call->Inputs.begin());
+				const auto It = std::ranges::find(Call->FunctionInputs, Input.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+				Index = It == Call->FunctionInputs.end() ? -1 : static_cast<int32>(It - Call->FunctionInputs.begin());
 			}
 			Pins.push_back(FMaterialGraphPin(this, EMaterialGraphPinDirection::Input, Index, static_cast<int32>(&Input - View.Inputs.data())));
 		}
@@ -387,20 +376,13 @@ namespace Durin::MaterialEditor
 			if (IsValid(Call->Function.Get()))
 				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Inputs))
 				{
-					const auto Binding = std::ranges::find(Call->Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+					const auto Binding = std::ranges::find(Call->FunctionInputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
 					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = Port.Name,
 						.SourceType = Port.Type,
 						.AcceptedTypes = {Port.Type}, .PortId = Port.Id, .bRequired = Port.bRequired, .Default = Port.Default,
 						.Constraint = Port.Constraint,
-						.InlineDefault = Binding == Call->Inputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
+						.InlineDefault = Binding == Call->FunctionInputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
 						.bAdvanced = Port.bAdvanced});
-				}
-			for (const auto& Binding : Call->Inputs)
-				if (std::ranges::none_of(View.Inputs, [&](const auto& Pin) { return Pin.PortId == Binding.InputId; }))
-				{
-					View.Inputs.push_back({.InputIndex = static_cast<uint32>(View.Inputs.size()), .Name = "Missing input",
-						.AcceptedTypes = {Binding.ExpectedType},
-						.PortId = Binding.InputId, .bMissing = true});
 				}
 		}
 		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression); Output && !View.Inputs.empty())
@@ -442,8 +424,8 @@ namespace Durin::MaterialEditor
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
 		{
 			std::unordered_map<FGuid, int32> Slots;
-			for (int32 Index = 0; Index < static_cast<int32>(Call->Outputs.size()); ++Index)
-				Slots.emplace(Call->Outputs[Index].OutputId, Index);
+			for (int32 Index = 0; Index < static_cast<int32>(Call->FunctionOutputs.size()); ++Index)
+				Slots.emplace(Call->FunctionOutputs[Index].OutputId, Index);
 			if (IsValid(Call->Function.Get()))
 				for (const auto& Port : OrderedPorts(Call->Function->GetFunctionSignature().Outputs))
 				{
@@ -451,9 +433,6 @@ namespace Durin::MaterialEditor
 					View.Outputs.push_back({.SourceIndex = Slot == Slots.end() ? -1 : Slot->second, .PortId = Port.Id,
 						.Name = Port.Name, .Type = Port.Type, .Constraint = Port.Constraint});
 				}
-			for (const auto& Binding : Call->Outputs)
-				if (std::ranges::none_of(View.Outputs, [&](const auto& Pin) { return Pin.PortId == Binding.OutputId; }))
-					View.Outputs.push_back({.SourceIndex = Slots.at(Binding.OutputId), .PortId = Binding.OutputId, .Name = "Missing output", .Type = Binding.ExpectedType, .bMissing = true});
 		}
 		else if (IsMaterialSamplingNode(Node.Opcode))
 		{

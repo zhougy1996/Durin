@@ -87,7 +87,7 @@ namespace
 		auto Call = Durin::Testing::MakeGraphExpression<Durin::DMaterialExpressionFunctionCall>(CallId);
 		const auto& Output = Function.GetFunctionSignature().Outputs[0];
 		Call->Function = &Function;
-		Call->Outputs = {{Output.Id, Output.Type}};
+		Call->FunctionOutputs = {{Output.Id, Output.Type}};
 		const std::array<Durin::DMaterialExpression*, 1> Expressions{Call.Get()};
 		Durin::FMaterialAttributeRoot Outputs;
 		Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;
@@ -137,7 +137,7 @@ namespace
 		const FGuid CallId{0x538d091e, 1, 2, static_cast<uint32>(Expressions.size() + 1)};
 		const auto& Output = Callee.GetFunctionSignature().Outputs[0];
 		auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>(CallId);
-		Call->Function = &Callee; Call->Outputs = {{Output.Id, Output.Type}};
+		Call->Function = &Callee; Call->FunctionOutputs = {{Output.Id, Output.Type}};
 		auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expressions[1].Get());
 		ASSERT_NE(Terminal, nullptr);
 		Terminal->Source = {Call.Get(), 0, Output.Id};

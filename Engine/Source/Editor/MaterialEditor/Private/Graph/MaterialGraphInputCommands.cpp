@@ -78,12 +78,12 @@ namespace Durin::MaterialEditor
 				{
 					return {.Message = "The function input port is not numeric."};
 				}
-				auto Input = std::ranges::find(Call->Inputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-				if (Input == Call->Inputs.end())
+				auto Input = std::ranges::find(Call->FunctionInputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+				if (Input == Call->FunctionInputs.end())
 				{
 					if (!Compound) return {.Message = "The function input has no binding."};
-					Call->Inputs.push_back({PortId, Port->Type});
-					Input = std::prev(Call->Inputs.end());
+					Call->FunctionInputs.push_back({PortId, Port->Type});
+					Input = std::prev(Call->FunctionInputs.end());
 				}
 				return {&Input->Input, &Input->InputDefault};
 			}
@@ -204,7 +204,7 @@ namespace Durin::MaterialEditor
 		auto* Node = Pin->GetOwningNode();
 		const auto& View = Node->GetView();
 		const auto& Input = View.Inputs[Pin->DisplayIndex];
-		if (Input.bMissing || Input.SourceType > EMaterialProgramValueType::Float4)
+		if (Input.SourceType > EMaterialProgramValueType::Float4)
 			return std::unexpected(RejectCommand("Only numeric inputs can be promoted."));
 		auto Literal = Input.InlineDefault.Literal;
 		const auto Type = Input.InlineDefault.Kind == EMaterialInputDefaultKind::Literal ? Input.InlineDefault.Type : Input.SourceType;

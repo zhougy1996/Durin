@@ -766,9 +766,9 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
 	auto Nested = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
 	Nested->Function = Function.Get();
-	Nested->Inputs = {{A, EMaterialProgramValueType::Float, {InputA.Get()}},
+	Nested->FunctionInputs = {{A, EMaterialProgramValueType::Float, {InputA.Get()}},
 		{B, EMaterialProgramValueType::Float, {InputB.Get()}}};
-	Nested->Outputs = {{X, EMaterialProgramValueType::Float}, {Y, EMaterialProgramValueType::Float}};
+	Nested->FunctionOutputs = {{X, EMaterialProgramValueType::Float}, {Y, EMaterialProgramValueType::Float}};
 	OutputX->Source = {Nested.Get(), 0, X}; OutputY->Source = {Nested.Get(), 0, Y};
 	const std::array<DMaterialExpression*, 5> WrapperBody{InputA.Get(), InputB.Get(), OutputX.Get(), OutputY.Get(), Nested.Get()};
 	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, WrapperBody)));
@@ -778,9 +778,9 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	ParameterB->Metadata.Id = FGuid::NewGuid(); ParameterB->Metadata.Name = "ParameterB";
 	auto Call = Testing::MakeGraphExpression<DMaterialExpressionFunctionCall>();
 	Call->Function = Wrapper.Get();
-	Call->Inputs = {{A, EMaterialProgramValueType::Float, {ParameterA.Get()}},
+	Call->FunctionInputs = {{A, EMaterialProgramValueType::Float, {ParameterA.Get()}},
 		{B, EMaterialProgramValueType::Float, {ParameterB.Get()}}};
-	Call->Outputs = Nested->Outputs;
+	Call->FunctionOutputs = Nested->FunctionOutputs;
 	const std::array<DMaterialExpression*, 3> Expressions{ParameterA.Get(), ParameterB.Get(), Call.Get()};
 	FMaterialAttributeRoot Outputs;
 	Outputs.Get(EMaterialProperty::MP_Roughness) = {Call.Get(), 0, X};
@@ -823,7 +823,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	EXPECT_TRUE(FindEntry(Model, ParameterA->Metadata.Id)->bOrphan);
 	EXPECT_NE(FindEntry(Model, ParameterB->Metadata.Id), nullptr);
 
-	// A stale call signature fails analysis, then recovers after the dependency is repaired.
+	// Removing a used output disconnects the wrapper. Recreating the port requires an explicit reconnection.
 	auto BrokenSignature = Signature;
 	BrokenSignature.Outputs[0].Id = FGuid::NewGuid();
 	OutputX->Port.Id = BrokenSignature.Outputs[0].Id;
@@ -834,6 +834,10 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 	EXPECT_FALSE(Failed->Validation.Diagnostics.empty());
 	OutputX->Port.Id = X;
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Body)));
+	EXPECT_FALSE(Instance->GetParameterReachability()->Validation);
+	OutputX->Source = {Nested.Get(), 0, X};
+	OutputY->Source = {Nested.Get(), 0, Y};
+	ASSERT_TRUE(Wrapper->SetFunctionExpressions(Testing::WithFunctionPorts(Signature, WrapperBody)));
 	const auto Recovered = Instance->GetParameterReachability();
 	ASSERT_TRUE(Recovered->Validation);
 	EXPECT_TRUE(Recovered->ParameterIds.contains(ParameterB->Metadata.Id));

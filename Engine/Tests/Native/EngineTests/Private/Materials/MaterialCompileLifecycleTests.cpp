@@ -1087,7 +1087,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		Body.emplace_back(DuplicateObject(Expression.Get(), nullptr, NAME_None).value());
 	const FGuid NestedCall{71, 2, 3, 1};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Nested(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-	Nested->Id = NestedCall; Nested->Function = Leaf; Nested->Outputs = {{LeafOutput.Id, LeafOutput.Type}};
+	Nested->Id = NestedCall; Nested->Function = Leaf; Nested->FunctionOutputs = {{LeafOutput.Id, LeafOutput.Type}};
 	for (const auto& Expression : Body)
 		if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
 			Terminal->Source = {Nested.Get(), 0, LeafOutput.Id};
@@ -1101,7 +1101,7 @@ auto QualifyMaterialFunctionCompilationAsync() -> void
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		const FGuid Call{71, 2, 3, Material == First ? 2u : 3u};
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Expression(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-		Expression->Id = Call; Expression->Function = Wrapper; Expression->Outputs = {{Output.Id, Output.Type}};
+		Expression->Id = Call; Expression->Function = Wrapper; Expression->FunctionOutputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Expression.Get()};
 		FMaterialAttributeRoot Outputs;
 		Outputs.Attributes = {Expression.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;

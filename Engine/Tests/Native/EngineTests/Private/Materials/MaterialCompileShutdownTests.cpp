@@ -23,7 +23,7 @@ TEST(FMaterialCompileShutdownTests, ShutdownDrainsFunctionOwnersAndDetachedFanou
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 		Call->Id = FGuid::NewGuid();
 		Call->Function = Function.Get();
-		Call->Outputs = {{Output.Id, Output.Type}};
+		Call->FunctionOutputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 		FMaterialAttributeRoot Outputs;
 		Outputs.Attributes = {Call.Get(), 0, Output.Id};

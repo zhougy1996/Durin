@@ -87,8 +87,7 @@ namespace Durin::MaterialEditor
 		auto* Terminal = Add.operator()<DMaterialExpressionMaterialOutput>();
 		std::array<FMaterialExpressionInput, static_cast<size_t>(Type::MaterialAttributes) + 1> RequiredValues;
 		auto* Call = Add.operator()<DMaterialExpressionFunctionCall>();
-		Call->Function = &Function;
-		for (const auto& Port : Signature.Outputs) Call->Outputs.push_back({Port.Id, Port.Type});
+		if (!Call->SetMaterialFunction(&Function)) return RejectCommand("The preview function is unavailable.");
 		for (const auto& Port : Signature.Inputs)
 			if (Port.bRequired)
 			{
@@ -120,7 +119,8 @@ namespace Durin::MaterialEditor
 					default: return RejectCommand("The preview input type is unsupported.");
 					}
 				}
-				Call->Inputs.push_back({Port.Id, Port.Type, Source});
+				const auto Binding = std::ranges::find(Call->FunctionInputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+				Binding->Input = Source;
 			}
 		FMaterialExpressionInput Value{Call, 0, OutputId};
 		FMaterialStaticProperties Properties;

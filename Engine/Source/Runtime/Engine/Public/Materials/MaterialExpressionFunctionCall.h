@@ -29,6 +29,7 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<float> InputDefault;
+		auto operator==(const FMaterialExpressionFunctionInputBinding&) const -> bool = default;
 	};
 
 	// Owns its callee and GUID-keyed port bindings inside the graph.
@@ -44,13 +45,18 @@ namespace Durin
 		TObjectPtr<DMaterialFunctionInterface> Function;
 #endif
 
-		DPROPERTY()
-		std::vector<FMaterialExpressionFunctionInputBinding> Inputs;
+		DPROPERTY(LegacyNames = "Inputs")
+		std::vector<FMaterialExpressionFunctionInputBinding> FunctionInputs;
 
-		DPROPERTY()
-		std::vector<FMaterialFunctionOutputBinding> Outputs;
+		DPROPERTY(LegacyNames = "Outputs")
+		std::vector<FMaterialFunctionOutputBinding> FunctionOutputs;
 
-		auto GetAuthoredInputCount() const -> uint32 override { return static_cast<uint32>(Inputs.size()); }
+#if DURIN_WITH_EDITORONLY_DATA
+		// Returns whether bindings changed. Load and batched updates publish their owner separately.
+		ENGINE_API auto UpdateFromFunctionResource(bool bRecreateAndLinkNode = true) -> bool;
+		ENGINE_API auto SetMaterialFunction(DMaterialFunctionInterface* NewFunction) -> bool;
+#endif
+		auto GetAuthoredInputCount() const -> uint32 override { return static_cast<uint32>(FunctionInputs.size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 

@@ -46,6 +46,7 @@ namespace Durin
 	private:
 		friend struct FMaterialExpressionEditing;
 #if DURIN_WITH_EDITORONLY_DATA
+		auto InvalidateSignature() -> bool;
 		FMaterialGraphChangeSource GraphChanges;
 #endif
 

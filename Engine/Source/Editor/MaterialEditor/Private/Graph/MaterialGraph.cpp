@@ -75,8 +75,8 @@ namespace Durin::MaterialEditor
 				if (Seeds.contains(E) && !Resolved.contains(E)) ChangedTypes.insert(E);
 				if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(E))
 				{
-					if (Input.OutputIndex >= 0 && static_cast<size_t>(Input.OutputIndex) < Call->Outputs.size())
-						return Call->Outputs[Input.OutputIndex].ExpectedType;
+					if (Input.OutputIndex >= 0 && static_cast<size_t>(Input.OutputIndex) < Call->FunctionOutputs.size())
+						return Call->FunctionOutputs[Input.OutputIndex].ExpectedType;
 					bValid = false; return Type::Float;
 				}
 				if (const auto* Terminal = Cast<DMaterialExpressionFunctionInput>(E))
@@ -263,7 +263,6 @@ namespace Durin::MaterialEditor
 			using R = EMaterialGraphConnectionResponse;
 			const auto* Source = Output.GetOwningNode();
 			const auto& View = Source->GetView().Outputs[Output.DisplayIndex];
-			if (View.bMissing || Input.bMissing) return {R::Disallow, "The pin is unavailable."};
 			if (Existing && std::ranges::contains(Existing->LinkedTo, &Output)) return {R::Make, {}};
 			if (!FMaterialGraphSchema::IsConnectionTypeCompatible(Input, View.Type)) return {R::Disallow, "The pin types are incompatible."};
 			std::vector<const DMaterialGraphNode*> Pending{Source};
@@ -378,13 +377,12 @@ namespace Durin::MaterialEditor
 		{
 			DMaterialExpression* Expression;
 			FMaterialExpressionInput* Input;
-			FGuid EmptyBinding;
 		};
 		std::vector<FConsumer> Consumers;
 		std::unordered_set<FMaterialExpressionInput*> Seen;
-		const auto Add = [&](DMaterialExpression& Target, FMaterialExpressionInput& Input, FGuid EmptyBinding = {}) {
+		const auto Add = [&](DMaterialExpression& Target, FMaterialExpressionInput& Input) {
 			if (Input.Expression.Get() != Upstream || Input.OutputIndex != Output.SourceIndex || !Seen.insert(&Input).second) return;
-			Consumers.push_back({&Target, &Input, EmptyBinding});
+			Consumers.push_back({&Target, &Input});
 		};
 		for (const auto* Pin : Output.LinkedTo)
 		{
@@ -392,8 +390,7 @@ namespace Durin::MaterialEditor
 			if (!Target || Pin->SourceIndex < 0) continue;
 			VisitMaterialExpressionInputs(*Target, [&](uint32 Index, FMaterialExpressionInput& Input) {
 				if (Index != static_cast<uint32>(Pin->SourceIndex)) return;
-				const auto* Call = Cast<DMaterialExpressionFunctionCall>(Target);
-				Add(*Target, Input, Call && Call->Inputs[Index].InputDefault.empty() ? Call->Inputs[Index].InputId : FGuid{});
+				Add(*Target, Input);
 			});
 		}
 		// Switching root modes hides retained inputs. Breaking an output also clears those consumers.
@@ -403,28 +400,9 @@ namespace Durin::MaterialEditor
 			if (Root) VisitStoredMaterialInputs(*Root, [&](FMaterialExpressionInput& Input) { Add(*Root, Input); });
 		}
 		if (Consumers.empty()) return false;
-		FMaterialGraphCommandResult Result;
-		if (std::ranges::any_of(Consumers, [](const auto& Consumer) { return Consumer.EmptyBinding.IsValid(); }))
-		{
-			FGraphEditSession Edit(*Owner);
-			for (const auto& Consumer : Consumers)
-			{
-				Edit.Modify(*Consumer.Expression);
-				*Consumer.Input = {};
-			}
-			// Erase after all input pointers have been consumed.
-			for (const auto& Consumer : Consumers)
-				if (Consumer.EmptyBinding.IsValid())
-					std::erase_if(Cast<DMaterialExpressionFunctionCall>(Consumer.Expression)->Inputs,
-						[&](const auto& Binding) { return Binding.InputId == Consumer.EmptyBinding; });
-			Result = Edit.Commit("Break Output Pin Links", *Admission);
-		}
-		else
-		{
-			FExpressionEdit Edit;
-			for (const auto& Consumer : Consumers) Edit.SetLink(*Consumer.Expression, *Consumer.Input, {});
-			Result = Edit.CommitInferred(*Owner, *Admission, "Break Output Pin Links");
-		}
+		FExpressionEdit Edit;
+		for (const auto& Consumer : Consumers) Edit.SetLink(*Consumer.Expression, *Consumer.Input, {});
+		const auto Result = Edit.CommitInferred(*Owner, *Admission, "Break Output Pin Links");
 		return ConnectionCommitChanged(Result, OutError);
 	}
 
@@ -559,7 +537,6 @@ namespace Durin::MaterialEditor
 			DMaterialExpressionSetMaterialAttributes* AttributeOwner = nullptr;
 			auto* Call = Cast<DMaterialExpressionFunctionCall>(&Node);
 			const FMaterialFunctionPort* Port = nullptr;
-			bool bRemoveBinding = false;
 			if (TargetAddress.Kind == EMaterialGraphPinKind::FunctionInput)
 			{
 				if (!Call || !TargetAddress.PortId.IsValid()) return GraphEditInternals::FailWithError(OutError, "The function call is unavailable.");
@@ -569,12 +546,11 @@ namespace Durin::MaterialEditor
 					const auto Found = std::ranges::find(Ports, TargetAddress.PortId, &FMaterialFunctionPort::Id);
 					if (Found != Ports.end()) Port = &*Found;
 				}
-				if (!Port && Upstream) return GraphEditInternals::FailWithError(OutError, "The function input port no longer exists.");
-				const auto Binding = std::ranges::find(Call->Inputs, TargetAddress.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-				if (Binding != Call->Inputs.end())
+				if (!Port) return GraphEditInternals::FailWithError(OutError, "The function input port no longer exists.");
+				const auto Binding = std::ranges::find(Call->FunctionInputs, TargetAddress.PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+				if (Binding != Call->FunctionInputs.end())
 				{
 					Target = &Binding->Input;
-					bRemoveBinding = !Upstream && Binding->InputDefault.empty();
 				}
 			}
 			else if (TargetAddress.Kind == EMaterialGraphPinKind::AttributeOverride)
@@ -619,10 +595,10 @@ namespace Durin::MaterialEditor
 				const auto& Ports = SourceCall->Function->GetFunctionSignature().Outputs;
 				const auto Found = std::ranges::find(Ports, UnboundPort, &FMaterialFunctionPort::Id);
 				if (Found == Ports.end()) return GraphEditInternals::FailWithError(OutError, "The function output no longer exists.");
-				if (std::ranges::contains(SourceCall->Outputs, UnboundPort, &FMaterialFunctionOutputBinding::OutputId))
+				if (std::ranges::contains(SourceCall->FunctionOutputs, UnboundPort, &FMaterialFunctionOutputBinding::OutputId))
 					return GraphEditInternals::FailWithError(OutError, "The source output binding has changed.");
 				NewOutput = {Found->Id, Found->Type};
-				SourceIndex = static_cast<int32>(SourceCall->Outputs.size());
+				SourceIndex = static_cast<int32>(SourceCall->FunctionOutputs.size());
 			}
 			FMaterialExpressionInput Connection;
 			Connection.Connect(SourceIndex, Upstream);
@@ -630,9 +606,9 @@ namespace Durin::MaterialEditor
 			if (!FMaterialGraphSchema::CanReplaceConnection(Previous, Connection, bReplaceExisting))
 				return GraphEditInternals::FailWithError(OutError, "The graph input is already connected.");
 			const bool ResetDefault = AttributeValue && !Connection.IsConnected() && AttributeValue->UseConstant;
-			if (Previous == Connection && !bRemoveBinding && !ResetDefault) return false;
+			if (Previous == Connection && !ResetDefault) return false;
 			FMaterialGraphCommandResult Result;
-			if (Target && !Call && !SourceCall)
+			if (Target && !SourceCall)
 			{
 				FExpressionEdit Edit;
 				Edit.SetLink(Node, *Target, Connection);
@@ -645,16 +621,12 @@ namespace Durin::MaterialEditor
 				if (SourceCall)
 				{
 					State.Modify(*SourceCall);
-					SourceCall->Outputs.push_back(NewOutput);
+					SourceCall->FunctionOutputs.push_back(NewOutput);
 				}
 				State.Modify(Node);
 				if (Target) *Target = Connection;
 				else if (AttributeOwner) AttributeOwner->Attributes.emplace_back(static_cast<EMaterialProperty>(TargetAddress.Index), Connection);
-				else Call->Inputs.push_back({Port->Id, Port->Type, Connection});
-				if (Call && !Connection.IsConnected())
-					std::erase_if(Call->Inputs, [&](const auto& Binding) {
-						return Binding.InputId == TargetAddress.PortId && Binding.InputDefault.empty();
-					});
+				else Call->FunctionInputs.push_back({Port->Id, Port->Type, Connection});
 				Result = State.Commit("Connect Graph Input", Transactions);
 			}
 			return ConnectionCommitChanged(Result, OutError);
@@ -681,7 +653,7 @@ namespace Durin::MaterialEditor
 		const auto PortId = Source->GetView().Outputs[Output->DisplayIndex].PortId;
 		const auto Index = Output->SourceIndex;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Upstream); Call && Index >= 0)
-			if (static_cast<size_t>(Index) >= Call->Outputs.size() || Call->Outputs[Index].OutputId != PortId)
+			if (static_cast<size_t>(Index) >= Call->FunctionOutputs.size() || Call->FunctionOutputs[Index].OutputId != PortId)
 				return GraphEditInternals::FailWithError(OutError, "The source output binding has changed.");
 		return WriteInput(GetMaterialOrFunction(), *Expression, Target, Upstream, Index, Index < 0 ? PortId : FGuid{}, Replace, Mode, OutError);
 	}

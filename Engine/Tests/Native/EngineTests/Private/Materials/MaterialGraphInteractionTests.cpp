@@ -670,7 +670,7 @@ TEST(FMaterialGraphInteractionTests, FunctionNodesCanBeCreatedFromSearchBeforeWi
 	EXPECT_FALSE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
 	const auto Calls = std::ranges::count_if(Function->GetExpressionCollection().Expressions, [&](const auto& E) {
 		const auto* Call = Cast<DMaterialExpressionFunctionCall>(E.Get());
-		return Call && Call->Function == Callee && Call->Inputs.empty();
+		return Call && Call->Function == Callee && std::ranges::none_of(Call->FunctionInputs, [](const auto& Binding) { return Binding.Input.IsConnected() || !Binding.InputDefault.empty(); });
 	});
 	EXPECT_EQ(Calls, 1);
 	EXPECT_EQ(FMaterialGraphCanvasTestAccess::RecentAction(Canvas), MakeFunctionCreationAction(Callee->GetObjectPath()).Id);
@@ -779,20 +779,20 @@ TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedCom
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
 		const auto* Call = FindExpression<DMaterialExpressionFunctionCall>(*Material, CallId);
 		ASSERT_NE(Call, nullptr);
-		EXPECT_TRUE(std::ranges::all_of(Call->Inputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
+		EXPECT_TRUE(std::ranges::all_of(Call->FunctionInputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
 		Frame(true); Frame();
 		IO.AddKeyEvent(ImGuiMod_Ctrl, true); IO.AddKeyEvent(ImGuiKey_A, true); Frame();
 		IO.AddKeyEvent(ImGuiKey_A, false); IO.AddKeyEvent(ImGuiMod_Ctrl, false); Frame();
 		IO.AddInputCharactersUTF8("2"); Frame();
 		IO.AddKeyEvent(ImGuiKey_Enter, true); Frame();
 		IO.AddKeyEvent(ImGuiKey_Enter, false); Frame();
-		const auto Binding = std::ranges::find(Call->Inputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
-		ASSERT_NE(Binding, Call->Inputs.end());
+		const auto Binding = std::ranges::find(Call->FunctionInputs, PortId, &FMaterialExpressionFunctionInputBinding::InputId);
+		ASSERT_NE(Binding, Call->FunctionInputs.end());
 		const std::array Expected{2.f, Case.Default.Y, Case.Default.Z, Case.Default.W};
 		EXPECT_EQ(Binding->InputDefault, (std::vector<float>(Expected.begin(), Expected.begin() + static_cast<int>(Case.Type) + 1)));
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 1u);
 		ASSERT_TRUE(Transactions->Undo());
-		EXPECT_TRUE(std::ranges::all_of(Call->Inputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
+		EXPECT_TRUE(std::ranges::all_of(Call->FunctionInputs, [](const auto& Input) { return Input.InputDefault.empty(); }));
 		Frame();
 		EXPECT_EQ((Transactions->GetQueueLength() - Transactions->GetUndoCount()), 0u);
 		Canvas.CancelInteraction();
@@ -1324,10 +1324,8 @@ TEST(FMaterialGraphInteractionTests, CanvasConnectsASecondFunctionOutputAndRefre
 	AssertLinks({});
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(FunctionAuthoringGraph->RemovePort(true, Output.Id, Durin::ETransactionMode::NotTransactable));
-	AssertLinks(AmountSource);
-	const auto* Missing = Graph->FindOutputPin(AmountSource);
-	ASSERT_NE(Missing, nullptr);
-	EXPECT_TRUE(Missing->bMissing);
+	AssertLinks({});
+	EXPECT_EQ(Graph->FindOutputPin(AmountSource), nullptr);
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

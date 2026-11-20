@@ -48,7 +48,7 @@ namespace Durin::MaterialEditor
 		{
 			if (!IsSourceAddressValid(*Source) || !IsSourceKeyValid(*Source)) return {};
 			const auto* Pin = Graph.FindOutputPin({Source->NodeId, static_cast<uint8>(Source->Index), Source->PortId});
-			if (!Pin || Pin->bMissing) return {};
+			if (!Pin) return {};
 			Type = Pin->Type;
 		}
 		const auto Catalog = EnumerateCatalog();

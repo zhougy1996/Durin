@@ -4,9 +4,92 @@
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "Threading/RunnableThread.h"
+#include "Materials/MaterialExpressionInputs.h"
+#include "Materials/Material.h"
 
 namespace Durin
 {
+#if DURIN_WITH_EDITORONLY_DATA
+	namespace
+	{
+		auto RefreshCall(DMaterialExpressionFunctionCall& Call, DMaterialFunctionInterface* Function,
+			const FMaterialFunctionSignature* PreviousSignature, bool bPublish) -> bool
+		{
+			FMaterialFunctionSignature Signature;
+			if (Function) Signature = Function->GetFunctionSignature();
+			for (auto* Ports : {&Signature.Inputs, &Signature.Outputs})
+				std::ranges::stable_sort(*Ports, {}, &FMaterialFunctionPort::DisplayOrder);
+
+			// A replacement function has independent IDs. Only that operation matches names.
+			const auto OldId = [](const FMaterialFunctionPort& Port, const std::vector<FMaterialFunctionPort>* Previous) {
+				if (!Previous) return Port.Id;
+				const auto It = std::ranges::find_if(*Previous, [&](const auto& Old) { return FName(Old.Name) == FName(Port.Name); });
+				return It == Previous->end() ? FGuid{} : It->Id;
+			};
+			std::vector<FMaterialExpressionFunctionInputBinding> Inputs;
+			for (const auto& Port : Signature.Inputs)
+			{
+				auto& Binding = Inputs.emplace_back();
+				const auto Id = OldId(Port, PreviousSignature ? &PreviousSignature->Inputs : nullptr);
+				const auto Old = std::ranges::find(Call.FunctionInputs, Id, &FMaterialExpressionFunctionInputBinding::InputId);
+				if (Old != Call.FunctionInputs.end())
+				{
+					Binding.Input = Old->Input;
+					if (Old->ExpectedType == Port.Type) Binding.InputDefault = Old->InputDefault;
+				}
+				Binding.InputId = Port.Id;
+				Binding.ExpectedType = Port.Type;
+			}
+			std::vector<FMaterialFunctionOutputBinding> Outputs;
+			std::vector<int32> NewIndices(Call.FunctionOutputs.size(), -1);
+			for (const auto& Port : Signature.Outputs)
+			{
+				const auto Id = OldId(Port, PreviousSignature ? &PreviousSignature->Outputs : nullptr);
+				const auto Old = std::ranges::find(Call.FunctionOutputs, Id, &FMaterialFunctionOutputBinding::OutputId);
+				if (Old != Call.FunctionOutputs.end()) NewIndices[Old - Call.FunctionOutputs.begin()] = static_cast<int32>(Outputs.size());
+				Outputs.push_back({Port.Id, Port.Type});
+			}
+			if (Call.Function.Get() == Function && Call.FunctionInputs == Inputs && Call.FunctionOutputs == Outputs) return false;
+			if (auto* Owner = Call.GetOuter(); Cast<DMaterial>(Owner) || Cast<DMaterialFunction>(Owner))
+				for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Owner))
+					VisitStoredMaterialInputs(*Expression, [&](FMaterialExpressionInput& Input) {
+						if (Input.Expression.Get() != &Call) return;
+						if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= NewIndices.size()
+							|| NewIndices[Input.OutputIndex] < 0) Input = {};
+						else Input.OutputIndex = NewIndices[Input.OutputIndex];
+					});
+			Call.Function = Function;
+			Call.FunctionInputs = std::move(Inputs);
+			Call.FunctionOutputs = std::move(Outputs);
+			auto* Owner = Call.GetOuter();
+			if (bPublish && (Cast<DMaterial>(Owner) || Cast<DMaterialFunction>(Owner))
+				&& std::ranges::any_of(FMaterialExpressionEditing::GetExpressions(*Owner),
+					[&](const auto& Expression) { return Expression.Get() == &Call; }))
+				FMaterialExpressionEditing::Publish(*Owner);
+			return true;
+		}
+	}
+
+	auto DMaterialExpressionFunctionCall::UpdateFromFunctionResource(bool bRecreateAndLinkNode) -> bool
+	{
+		return RefreshCall(*this, Function.Get(), nullptr, bRecreateAndLinkNode);
+	}
+
+	auto DMaterialExpressionFunctionCall::SetMaterialFunction(DMaterialFunctionInterface* NewFunction) -> bool
+	{
+		if (NewFunction && GetOuter())
+		{
+			std::vector<FMaterialFunctionOwnerStamp> Closure;
+			const std::array<DMaterialFunctionInterface*, 1> Roots{NewFunction};
+			if (!ValidateMaterialFunctionDependencies(Roots, Closure, EMaterialFunctionValidationMode::Editing)
+				|| std::ranges::any_of(Closure, [&](const auto& Entry) { return Entry.AssetPath == GetOuter()->GetObjectPath(); })) return false;
+		}
+		const auto* Previous = Function && NewFunction != Function.Get() ? &Function->GetFunctionSignature() : nullptr;
+		RefreshCall(*this, NewFunction, Previous, true);
+		return NewFunction != nullptr;
+	}
+#endif
+
 	auto ValidateMaterialFunctionCallSignature(const DMaterialExpressionFunctionCall& Call,
 		const FMaterialFunctionSignature& Signature, EMaterialFunctionValidationMode Mode) -> FMaterialProgramValidationResult
 	{
@@ -15,18 +98,18 @@ namespace Durin
 		const auto Fail = [&](FGuid Port, std::string Message) {
 			Result.Diagnostics.push_back({.NodeId = Call.Id, .Message = std::move(Message), .PortId = Port});
 		};
-		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.size() > MaterialFunctionMaxOutputs)
+		if (Call.FunctionInputs.size() > MaterialFunctionMaxInputs || Call.FunctionOutputs.size() > MaterialFunctionMaxOutputs)
 			Fail({}, "Function call exceeds port bounds.");
 		else
 		{
 			std::unordered_set<FGuid> Inputs, Outputs;
-			for (const auto& Binding : Call.Inputs)
+			for (const auto& Binding : Call.FunctionInputs)
 			{
 				const auto Port = std::ranges::find(Signature.Inputs, Binding.InputId, &FMaterialFunctionPort::Id);
 				if (Port == Signature.Inputs.end() || Port->Type != Binding.ExpectedType || !Inputs.insert(Binding.InputId).second)
 					Fail(Binding.InputId, "Function input was removed, retyped or bound more than once.");
 			}
-			for (const auto& Binding : Call.Outputs)
+			for (const auto& Binding : Call.FunctionOutputs)
 			{
 				const auto Port = std::ranges::find(Signature.Outputs, Binding.OutputId, &FMaterialFunctionPort::Id);
 				if (Port == Signature.Outputs.end() || Port->Type != Binding.ExpectedType || !Outputs.insert(Binding.OutputId).second)
@@ -35,8 +118,8 @@ namespace Durin
 			for (const auto& Port : Signature.Inputs)
 				if (Port.bRequired && Mode == EMaterialFunctionValidationMode::Compilation)
 				{
-					const auto Binding = std::ranges::find(Call.Inputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
-					if (Binding == Call.Inputs.end() || (!Binding->Input.IsConnected() && Binding->InputDefault.empty()))
+					const auto Binding = std::ranges::find(Call.FunctionInputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+					if (Binding == Call.FunctionInputs.end() || (!Binding->Input.IsConnected() && Binding->InputDefault.empty()))
 						Fail(Port.Id, "Required function input is not connected or bound.");
 				}
 		}

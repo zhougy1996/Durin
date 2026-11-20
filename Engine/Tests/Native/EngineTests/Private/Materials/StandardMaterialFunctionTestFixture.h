@@ -32,9 +32,9 @@ namespace Durin::Testing
 		const auto Call = [&](DMaterialFunction* Function, std::vector<FMaterialExpressionFunctionInputBinding> Inputs) {
 			TStrongObjectPtr<DMaterialExpressionFunctionCall> Expression(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 			Expression->Id = {0xf67a24b1, 0x4378491a, 6, static_cast<uint32>(Graph.Expressions.size() + 1)};
-			Expression->Function = Function; Expression->Inputs = std::move(Inputs);
-			for (const auto& Port : Function->GetFunctionSignature().Outputs) Expression->Outputs.push_back({Port.Id, Port.Type});
-			const FMaterialExpressionInput Link{Expression.Get(), 0, Expression->Outputs.front().OutputId};
+			Expression->Function = Function; Expression->FunctionInputs = std::move(Inputs);
+			for (const auto& Port : Function->GetFunctionSignature().Outputs) Expression->FunctionOutputs.push_back({Port.Id, Port.Type});
+			const FMaterialExpressionInput Link{Expression.Get(), 0, Expression->FunctionOutputs.front().OutputId};
 			Graph.Expressions.emplace_back(Expression.Get());
 			return Link;
 		};

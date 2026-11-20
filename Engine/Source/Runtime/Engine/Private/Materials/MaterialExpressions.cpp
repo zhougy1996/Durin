@@ -92,8 +92,8 @@ namespace Durin
 		if (Index != 0) return;
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Upstream))
 		{
-			const auto It = std::ranges::find(Call->Outputs, NamedOutput, &FMaterialFunctionOutputBinding::OutputId);
-			if (It != Call->Outputs.end()) OutputIndex = static_cast<int32>(It - Call->Outputs.begin());
+			const auto It = std::ranges::find(Call->FunctionOutputs, NamedOutput, &FMaterialFunctionOutputBinding::OutputId);
+			if (It != Call->FunctionOutputs.end()) OutputIndex = static_cast<int32>(It - Call->FunctionOutputs.begin());
 		}
 		else if (Cast<DMaterialExpressionGetMaterialAttributes>(Upstream))
 		{
@@ -106,7 +106,7 @@ namespace Durin
 	{
 		if (OutputIndex < 0) return {};
 		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()))
-			return static_cast<size_t>(OutputIndex) < Call->Outputs.size() ? Call->Outputs[OutputIndex].OutputId : FGuid{};
+			return static_cast<size_t>(OutputIndex) < Call->FunctionOutputs.size() ? Call->FunctionOutputs[OutputIndex].OutputId : FGuid{};
 		if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression.Get()) && std::in_range<uint8>(OutputIndex))
 			if (const auto* Definition = FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(OutputIndex)))
 				return Definition->AttributeID;

@@ -352,10 +352,15 @@ vector width. Vector-to-scalar and different-vector-width links remain invalid;
 Normalize still requires a vector source. Retained defaults keep their declared types.
 
 The graph node resolves function call pins from the live signature,
-ordered by display order and GUID. Detached pin records retain stable port GUIDs,
-types, names, defaults, required flags, missing-port markers, and their detached
-value constraints. Property pins expose registry stage semantics: Vertex for WPO
-and Pixel/Tangent/Normal for Normal. Function terminals and call pins expose unconstrained,
+ordered by display order with ties in signature order. Detached pin records retain
+stable port GUIDs, types, names, defaults, required flags, and value constraints.
+On authored load or a signature change, `UpdateFromFunctionResource` restores
+input bindings by port ID and rewrites consumers' output indices from the old
+and new output tables. Deleted ports lose their connections. Explicit
+`SetMaterialFunction` replacement migrates same-name ports between functions.
+
+Property pins expose registry stage semantics: Vertex for WPO and
+Pixel/Tangent/Normal for Normal. Function terminals and call pins expose unconstrained,
 non-spatial, or exact stage/kind/space constraints. The canvas formats those fields
 in pin tooltips and uses Engine diagnostics for rejected semantic links, so it does
 not duplicate the semantic algebra. Function terminals

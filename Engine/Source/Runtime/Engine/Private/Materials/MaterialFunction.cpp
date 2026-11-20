@@ -15,6 +15,15 @@
 namespace Durin
 {
 
+#if DURIN_WITH_EDITORONLY_DATA
+	auto DMaterialFunction::InvalidateSignature() -> bool
+	{
+		const auto Previous = std::move(CachedSignature);
+		bSignatureCached = false;
+		return GetFunctionSignature() != Previous;
+	}
+#endif
+
 	auto DMaterialFunction::GetFunctionSignature() const -> const FMaterialFunctionSignature&
 	{
 #if DURIN_WITH_EDITORONLY_DATA
@@ -34,6 +43,8 @@ namespace Durin
 		Super::PostLoad();
 		bSignatureCached = false;
 #if DURIN_WITH_EDITORONLY_DATA
+		for (const auto& Expression : ExpressionCollection.Expressions)
+			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->UpdateFromFunctionResource(false);
 		GraphChanges.Publish(*this);
 #endif
 	}
@@ -75,9 +86,9 @@ namespace Durin
 		if (!Result) return Result;
 		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions);
 		if (!Result) return Result;
-		bSignatureCached = false;
+		const bool SignatureChanged = InvalidateSignature();
 		Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
-		NotifyMaterialFunctionChanged(*this);
+		NotifyMaterialFunctionChanged(*this, SignatureChanged);
 		MarkPackageDirty();
 		GraphChanges.Publish(*this);
 		return Result;
@@ -170,9 +181,9 @@ namespace Durin
 #if DURIN_WITH_EDITORONLY_DATA
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ExpressionCollection"))
 		{
-			bSignatureCached = false;
+			const bool SignatureChanged = InvalidateSignature();
 			AdvanceFunctionRevision(Revision);
-			NotifyMaterialFunctionChanged(*this);
+			NotifyMaterialFunctionChanged(*this, SignatureChanged);
 		}
 		GraphChanges.Publish(*this);
 #endif

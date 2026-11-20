@@ -423,7 +423,7 @@ namespace Durin::MaterialEditor
 				else if (!Changed)
 				{
 					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Changed = CheckCommand(SelectedNode->ExtractInputDefault(Selected.InputAddress(Pin)));
-					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !Pin.bMissing && !bInheritedDynamic && !bInheritedContext))
+					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic && !bInheritedContext))
 						Changed = CheckCommand(EditorGraph->PromoteInputToParameter(Selected.InputAddress(Pin)));
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))

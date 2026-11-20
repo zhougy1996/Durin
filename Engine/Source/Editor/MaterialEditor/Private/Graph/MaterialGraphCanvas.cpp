@@ -1344,8 +1344,8 @@ namespace Durin::MaterialEditor
 							ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
 						}
 						else if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
-						else ImGui::SetTooltip("%s%s%s\n%s%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
-							Pin.bMissing ? " (missing port)" : "", (Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
+						else ImGui::SetTooltip("%s%s\n%s%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
+							(Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
 							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
 							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin),
 							ConstraintHint(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes.front(),

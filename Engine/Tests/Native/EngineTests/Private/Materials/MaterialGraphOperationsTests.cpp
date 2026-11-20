@@ -545,9 +545,9 @@ TEST(FMaterialGraphOperationsTests, PromoteOrdinaryAndFunctionInputsReplaysConne
 			EXPECT_EQ(Source->Id, Promotion->back());
 			if (IsCall)
 			{
-				ASSERT_EQ(Call->Inputs.size(), 1u);
-				EXPECT_EQ(Call->Inputs.front().InputId, Port.Id);
-				EXPECT_EQ(Call->Inputs.front().Input, (FMaterialExpressionInput{Source, 0}));
+				const auto Binding = std::ranges::find(Call->FunctionInputs, Port.Id, &FMaterialExpressionFunctionInputBinding::InputId);
+				ASSERT_NE(Binding, Call->FunctionInputs.end());
+				EXPECT_EQ(Binding->Input, (FMaterialExpressionInput{Source, 0}));
 				auto* Mask = Cast<DMaterialExpressionSwizzle>(Source);
 				ASSERT_TRUE(Mask);
 				EXPECT_EQ(Mask->Components, (std::vector<uint8>{0, 1, 2}));
@@ -563,7 +563,7 @@ TEST(FMaterialGraphOperationsTests, PromoteOrdinaryAndFunctionInputsReplaysConne
 		ASSERT_TRUE(History->Undo());
 		EXPECT_EQ(CaptureExpressions(*Material), Before);
 		EXPECT_FALSE(History->CanUndo());
-		if (IsCall) EXPECT_TRUE(Call->Inputs.empty());
+		if (IsCall) EXPECT_TRUE(std::ranges::none_of(Call->FunctionInputs, [](const auto& Binding) { return Binding.Input.IsConnected() || !Binding.InputDefault.empty(); }));
 		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision + 2);
 		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId, Requests + 2);
 		ASSERT_TRUE(History->Redo());
@@ -593,8 +593,8 @@ TEST(FMaterialGraphOperationsTests, CreationAndReplacementReplayConnectedExpress
 		ASSERT_TRUE(CallNode);
 		auto* FunctionCall = Cast<DMaterialExpressionFunctionCall>(CallNode->GetMaterialExpression());
 		ASSERT_TRUE(FunctionCall);
-		ASSERT_EQ(FunctionCall->Outputs.size(), 2u);
-		ASSERT_EQ(FunctionCall->Outputs[1].OutputId, Port.Id);
+		ASSERT_EQ(FunctionCall->FunctionOutputs.size(), 2u);
+		ASSERT_EQ(FunctionCall->FunctionOutputs[1].OutputId, Port.Id);
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_FALSE(Graph->FindNode(Call.value()));
 		ASSERT_TRUE(Transactions->Redo());
@@ -1435,9 +1435,9 @@ TEST(FMaterialGraphOperationsTests, TypedInputDefaultsCoverWidthsCoordinatesAndF
 	ASSERT_TRUE(AuthoringGraph->FindNode(CallId)->InlineInputNode(FMaterialGraphPinAddress::Input(CallId, 0, InputId), Durin::ETransactionMode::NotTransactable));
 	const auto* Call = Cast<DMaterialExpressionFunctionCall>(Material->GetExpressionCollection().Expressions.front().Get());
 	ASSERT_NE(Call, nullptr);
-	ASSERT_EQ(Call->Inputs.size(), 1u);
-	EXPECT_EQ(Call->Inputs.front().InputDefault, (std::vector<float>{4, 5, 6}));
-	EXPECT_FALSE(Call->Inputs.front().Input.IsConnected());
+	ASSERT_EQ(Call->FunctionInputs.size(), 1u);
+	EXPECT_EQ(Call->FunctionInputs.front().InputDefault, (std::vector<float>{4, 5, 6}));
+	EXPECT_FALSE(Call->FunctionInputs.front().Input.IsConnected());
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Function);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -1531,7 +1531,7 @@ TEST(FMaterialGraphOperationsTests, TypedReplacementRejectsRecursiveFunctionTarg
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Replacement(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Replacement->Id = Inserted.value();
 	Replacement->Function = Caller.Get();
-	for (const auto& Port : Caller->GetFunctionSignature().Outputs) Replacement->Outputs.push_back({Port.Id, Port.Type});
+	for (const auto& Port : Caller->GetFunctionSignature().Outputs) Replacement->FunctionOutputs.push_back({Port.Id, Port.Type});
 	const auto Rejected = AuthoringGraph->ReplaceExpression(*Replacement.Get());
 	ASSERT_FALSE(Rejected);
 	EXPECT_NE(FormatMaterialGraphCommandResult(Rejected).find("recursive"), std::string::npos);
@@ -1780,8 +1780,8 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	Call->Id = FGuid::NewGuid(); Call->Function = Function;
 	const auto InputPort = Function->GetFunctionSignature().Inputs.front().Id;
 	const auto OutputPort = Function->GetFunctionSignature().Outputs.front().Id;
-	Call->Inputs.push_back({InputPort, EMaterialProgramValueType::MaterialAttributes, {Override}});
-	Call->Outputs.push_back({OutputPort, EMaterialProgramValueType::MaterialAttributes});
+	Call->FunctionInputs.push_back({InputPort, EMaterialProgramValueType::MaterialAttributes, {Override}});
+	Call->FunctionOutputs.push_back({OutputPort, EMaterialProgramValueType::MaterialAttributes});
 	const auto BaseId = Base->Id, ConstantId = Constant->Id, OverrideId = Override->Id, CallId = Call->Id;
 	FMaterialAttributeRoot Outputs;
 	Outputs.Attributes = {Call, 0, OutputPort}; Outputs.bUseMaterialAttributes = true;

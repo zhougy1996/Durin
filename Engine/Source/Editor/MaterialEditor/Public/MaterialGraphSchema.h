@@ -85,7 +85,7 @@ namespace Durin::MaterialEditor
 		}
 		static auto IsConnectionTypeCompatible(const FMaterialGraphPinView& Input, EMaterialProgramValueType Source) -> bool
 		{
-			return !Input.bMissing && Accepts(Input.AcceptedTypes, Source);
+			return Accepts(Input.AcceptedTypes, Source);
 		}
 		static auto IsSourceAddressValid(const FMaterialGraphPinAddress& Source) -> bool
 		{

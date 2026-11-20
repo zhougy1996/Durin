@@ -1,5 +1,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
+#include "Materials/MaterialExpressionEditing.h"
+#include "Materials/MaterialFunction.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Components/PrimitiveComponent.h"
 #include "Materials/MaterialShaderMap.h"
@@ -92,9 +94,26 @@ namespace Durin
 		return Event;
 	}
 
-	auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void
+	auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function, bool bRefreshCalls) -> void
 	{
 		CheckMaterialQueryThread();
+#if DURIN_WITH_EDITORONLY_DATA
+		if (bRefreshCalls && !GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			std::vector<TWeakObjectPtr<DObject>> ChangedOwners;
+			for (auto* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
+			{
+				if (!Cast<DMaterial>(Object) && !Cast<DMaterialFunction>(Object)) continue;
+				bool Changed = false;
+				for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Object))
+					if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get()); Call && Call->Function.Get() == &Function)
+						Changed |= Call->UpdateFromFunctionResource(false);
+				if (Changed) ChangedOwners.emplace_back(Object);
+			}
+			for (auto& Owner : ChangedOwners)
+				if (Owner.IsValid()) FMaterialExpressionEditing::Publish(*Owner.Get());
+		}
+#endif
 		GetMaterialFunctionChangedEvent().Broadcast(Function);
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
 #if DURIN_WITH_EDITORONLY_DATA

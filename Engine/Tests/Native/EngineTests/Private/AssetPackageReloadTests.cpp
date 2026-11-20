@@ -76,7 +76,7 @@ namespace
 		auto Body = CaptureFunctionExpressions(Caller);
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 		const auto& Output = Callee.GetFunctionSignature().Outputs[0];
-		Call->Id = Id; Call->Function = &Callee; Call->Outputs = {{Output.Id, Output.Type}};
+		Call->Id = Id; Call->Function = &Callee; Call->FunctionOutputs = {{Output.Id, Output.Type}};
 		for (const auto& Expression : Body)
 			if (auto* Terminal = Cast<DMaterialExpressionFunctionOutput>(Expression.Get()))
 				Terminal->Source = {Call.Get(), 0, Output.Id};
@@ -358,7 +358,7 @@ TEST_F(FAssetPackageReloadTests, FunctionReloadInvalidatesNestedCallersUntilExpl
 	ASSERT_TRUE(Instance->SetParent(Material.Get()));
 	{
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-		Call->Id = RootCall; Call->Function = Wrapper.Get(); Call->Outputs = {{Output.Id, Output.Type}};
+		Call->Id = RootCall; Call->Function = Wrapper.Get(); Call->FunctionOutputs = {{Output.Id, Output.Type}};
 		const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 		FMaterialAttributeRoot Outputs;
 		Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;

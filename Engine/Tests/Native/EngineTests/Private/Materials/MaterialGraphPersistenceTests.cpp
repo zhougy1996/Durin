@@ -464,9 +464,9 @@ TEST(FMaterialGraphPersistenceTests, SecondFunctionOutputRetainsItsIndexAcrossHi
 		ASSERT_TRUE(Upstream);
 		EXPECT_EQ(Upstream->GetOuter(), &Owner);
 		EXPECT_EQ(Upstream->Id, Call.value());
-		ASSERT_EQ(Upstream->Outputs.size(), 2u);
+		ASSERT_EQ(Upstream->FunctionOutputs.size(), 2u);
 		EXPECT_EQ(Input.OutputIndex, 1);
-		EXPECT_EQ(Upstream->Outputs[1].OutputId, Port.Id);
+		EXPECT_EQ(Upstream->FunctionOutputs[1].OutputId, Port.Id);
 		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(Owner));
 		const auto* RootNode = Graph->FindNode(Owner.GetOutputNode()->Id);
 		ASSERT_TRUE(RootNode);

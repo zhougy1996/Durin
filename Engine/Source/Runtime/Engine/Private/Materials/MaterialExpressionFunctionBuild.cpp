@@ -79,16 +79,17 @@ namespace Durin
 #if !DURIN_WITH_EDITORONLY_DATA
 		return Emitter.Fail("Function call has no available expression body.");
 #else
-		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
+		if (!Call.Function && Call.FunctionInputs.empty() && Call.FunctionOutputs.empty()) return;
+		if (Call.FunctionInputs.size() > MaterialFunctionMaxInputs || Call.FunctionOutputs.empty() || Call.FunctionOutputs.size() > MaterialFunctionMaxOutputs)
 			return Emitter.Fail("Function call port bindings exceed their bounds.");
 		const auto Callee = FObjectKey(Call.Function.Get());
 		AuthoringCodeHash.UpdateValue(Call.Id);
 		AuthoringCodeHash.UpdateValue(Callee.GetHash());
-		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.Inputs.size()));
-		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.Outputs.size()));
+		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.FunctionInputs.size()));
+		AuthoringCodeHash.UpdateValue(static_cast<uint32>(Call.FunctionOutputs.size()));
 		std::set<FGuid> InputIds, OutputIds;
 		std::vector<uint32> Inputs;
-		for (const auto& Binding : Call.Inputs)
+		for (const auto& Binding : Call.FunctionInputs)
 		{
 			if (!Binding.InputId.IsValid() || !InputIds.insert(Binding.InputId).second
 				|| Binding.ExpectedType > EMaterialProgramValueType::MaterialAttributes)
@@ -114,9 +115,9 @@ namespace Durin
 		}
 		std::map<std::tuple<EMaterialProgramValueType, EMaterialEvaluationStage,
 			EMaterialSpatialKind, EMaterialCoordinateSpace>, uint32> TypeValues;
-		for (size_t Index = 0; Index < Call.Outputs.size(); ++Index)
+		for (size_t Index = 0; Index < Call.FunctionOutputs.size(); ++Index)
 		{
-			const auto& Output = Call.Outputs[Index];
+			const auto& Output = Call.FunctionOutputs[Index];
 			if (!Output.OutputId.IsValid() || InputIds.contains(Output.OutputId) || !OutputIds.insert(Output.OutputId).second
 				|| Output.ExpectedType > EMaterialProgramValueType::MaterialAttributes)
 				return Emitter.Fail("Function call output requires a unique valid typed port.", Output.OutputId);
@@ -325,10 +326,10 @@ namespace Durin
 			Found = Shared->Functions.emplace(Function, std::move(*Body)).first;
 		}
 		const auto& Body = Found->second;
-		if (Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty() || Call.Outputs.size() > MaterialFunctionMaxOutputs)
+		if (Call.FunctionInputs.size() > MaterialFunctionMaxInputs || Call.FunctionOutputs.empty() || Call.FunctionOutputs.size() > MaterialFunctionMaxOutputs)
 			return Emitter.Fail("Function call port bindings exceed their bounds.");
 		std::set<FGuid> InputIds, OutputIds;
-		for (const auto& Output : Call.Outputs)
+		for (const auto& Output : Call.FunctionOutputs)
 		{
 			const auto Port = std::ranges::find(Body.Signature.Outputs, Output.OutputId, &FMaterialFunctionPort::Id);
 			if (Port == Body.Signature.Outputs.end() || Port->Type != Output.ExpectedType || !OutputIds.insert(Output.OutputId).second)
@@ -336,7 +337,7 @@ namespace Durin
 		}
 		MIR::FGraphBuilderImpl Child(*this, Body, Call.Id);
 		if (!Result.Diagnostics.empty()) return;
-		for (const auto& Binding : Call.Inputs)
+		for (const auto& Binding : Call.FunctionInputs)
 		{
 			const auto Port = std::ranges::find(Body.Signature.Inputs, Binding.InputId, &FMaterialFunctionPort::Id);
 			if (Port == Body.Signature.Inputs.end() || Port->Type != Binding.ExpectedType || !InputIds.insert(Binding.InputId).second)
@@ -381,8 +382,8 @@ namespace Durin
 			if (Input.bRequired && !Child.BoundInputs.contains(Input.Id)) Child.Fail("Required function input has no binding.", Input.Id);
 		// Each invocation owns an independent node/output cache.
 		Child.BuildAllExpressions();
-		for (size_t Index = 0; Index < Call.Outputs.size(); ++Index)
-			Emitter.Output(static_cast<int32>(Index), Child.Resolve({OutputTerminals.at(Call.Outputs[Index].OutputId)}));
+		for (size_t Index = 0; Index < Call.FunctionOutputs.size(); ++Index)
+			Emitter.Output(static_cast<int32>(Index), Child.Resolve({OutputTerminals.at(Call.FunctionOutputs[Index].OutputId)}));
 		Shared->ActiveFunctions.pop_back();
 		if (!Result.Diagnostics.empty()) return;
 #endif

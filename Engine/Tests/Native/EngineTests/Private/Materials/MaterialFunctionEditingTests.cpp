@@ -171,9 +171,9 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	ASSERT_TRUE(Call);
 	const auto Output = FunctionPort(51, EMaterialProgramValueType::Float, "New Amount");
 	ASSERT_TRUE(AuthoringGraph->AddPort(true, Output, {Input.value()}, 0, 0, Durin::ETransactionMode::NotTransactable));
-	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 1u);
+	ASSERT_EQ(GetFunctionCalls(*Material)[0]->FunctionOutputs.size(), 2u);
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Call.value(), 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
-	ASSERT_EQ(GetFunctionCalls(*Material)[0]->Outputs.size(), 2u);
+	ASSERT_EQ(GetFunctionCalls(*Material)[0]->FunctionOutputs.size(), 2u);
 	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.GetOutputId(), Output.Id);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -214,15 +214,15 @@ TEST(FMaterialFunctionEditingTests, SharedDocumentsEditStableCallsAndInterfacesW
 	const auto InputNode = Wrapper->GetExpressionCollection().Expressions[0]->Id;
 	const auto InputPort = Function->GetFunctionSignature().Inputs[0].Id;
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Wrapper, FMaterialGraphPinAddress::Input(Nested.value(), 0, InputPort), FMaterialGraphPinAddress::Output({InputNode}), false, Durin::ETransactionMode::Record));
-	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].InputId, InputPort);
+	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->FunctionInputs[0].InputId, InputPort);
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Wrapper, FMaterialGraphPinAddress::Input(Nested.value(), 0, InputPort), FMaterialGraphPinAddress::Output({}), true, Durin::ETransactionMode::Record));
-	EXPECT_TRUE(GetFunctionCalls(*Wrapper)[0]->Inputs.empty());
+	EXPECT_FALSE(GetFunctionCalls(*Wrapper)[0]->FunctionInputs[0].Input.IsConnected());
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->Inputs[0].Input.GetExpressionId(), InputNode);
+	EXPECT_EQ(GetFunctionCalls(*Wrapper)[0]->FunctionInputs[0].Input.GetExpressionId(), InputNode);
 	auto Constant = Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>({73, 1, 2, 3});
 	ASSERT_TRUE(MaterialAuthoringGraph->CreateExpression(*Constant, 0, 0, Durin::ETransactionMode::NotTransactable));
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::Input(Inserted.value(), 0, Wrapper->GetFunctionSignature().Inputs[0].Id), FMaterialGraphPinAddress::Output({{73, 1, 2, 3}}), false, Durin::ETransactionMode::NotTransactable));
-	EXPECT_EQ(GetFunctionCalls(*Material)[0]->Inputs[0].Input.GetExpressionId(), (FGuid{73, 1, 2, 3}));
+	EXPECT_EQ(GetFunctionCalls(*Material)[0]->FunctionInputs[0].Input.GetExpressionId(), (FGuid{73, 1, 2, 3}));
 	ASSERT_TRUE(MaterialAuthoringGraph->RemoveNodes(std::span(&Constant->Id, 1), Durin::ETransactionMode::NotTransactable));
 	MarkAsGarbage(Material);
 	MarkAsGarbage(Wrapper);

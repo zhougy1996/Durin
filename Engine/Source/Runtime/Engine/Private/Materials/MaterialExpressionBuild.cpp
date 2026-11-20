@@ -199,7 +199,7 @@ namespace Durin::MIR
 			Fail("A material output is a sink and cannot be used as an expression source.");
 		else if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
 		{
-			if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= Call->Outputs.size())
+			if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= Call->FunctionOutputs.size())
 				Fail("Function call output index is not bound.");
 		}
 		else if (Cast<DMaterialExpressionTextureSample2D>(&Expression) || Cast<DMaterialExpressionTextureSampleParameter2D>(&Expression))

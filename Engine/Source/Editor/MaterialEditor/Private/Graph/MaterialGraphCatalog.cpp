@@ -186,7 +186,7 @@ namespace Durin::MaterialEditor
 			if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression))
 			{
 				Node.Opcode = EMaterialProgramOpcode::FunctionCall;
-				if (!Call->Outputs.empty()) Node.ResultType = Call->Outputs.front().ExpectedType;
+				if (!Call->FunctionOutputs.empty()) Node.ResultType = Call->FunctionOutputs.front().ExpectedType;
 			}
 			if (const auto* Collection = Cast<DMaterialExpressionCollectionParameter>(Expression); Collection && IsValid(Collection->Collection.Get()))
 				if (const auto* Declaration = Collection->Collection->FindDeclaration(Collection->ParameterId))

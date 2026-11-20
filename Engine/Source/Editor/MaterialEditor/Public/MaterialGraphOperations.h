@@ -88,7 +88,6 @@ namespace Durin::MaterialEditor
 		std::vector<EMaterialProgramValueType> AcceptedTypes;
 		FGuid PortId;
 		bool bRequired = false;
-		bool bMissing = false;
 		FMaterialFunctionDefault Default;
 		FMaterialFunctionValueConstraint Constraint;
 		FMaterialInputDefault InlineDefault;
@@ -108,7 +107,6 @@ namespace Durin::MaterialEditor
 		std::string Name;
 		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
 		FMaterialFunctionValueConstraint Constraint;
-		bool bMissing = false;
 	};
 
 	// Class plus result type identifies an authored shape; Opcode carries operation semantics.

@@ -55,12 +55,12 @@ namespace Durin::MaterialEditor
 		{
 			auto* Call = Cast<DMaterialExpressionFunctionCall>(Source);
 			if (!OutputId.IsValid() || !Call || !Call->Function.IsValid()
-				|| std::ranges::contains(Call->Outputs, OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
+				|| std::ranges::contains(Call->FunctionOutputs, OutputId, &FMaterialFunctionOutputBinding::OutputId)) return;
 			const auto& Ports = Call->Function->GetFunctionSignature().Outputs;
 			if (const auto Port = std::ranges::find(Ports, OutputId, &FMaterialFunctionPort::Id); Port != Ports.end())
 			{
 				State.Modify(*Call);
-				Call->Outputs.push_back({Port->Id, Port->Type});
+				Call->FunctionOutputs.push_back({Port->Id, Port->Type});
 			}
 		}
 
@@ -102,7 +102,6 @@ namespace Durin::MaterialEditor
 			Pin = Graph.FindPin(*SourcePin);
 			if (!Pin) return std::unexpected(RejectCommand("The source output no longer exists."));
 			const auto& Output = Pin->GetOwningNode()->GetView().Outputs[Pin->DisplayIndex];
-			if (Output.bMissing) return std::unexpected(RejectCommand("The source output no longer exists."));
 			SourceType = Output.Type;
 			Source = {SourcePin->NodeId, Output.OutputIndex, Output.PortId};
 		}
@@ -444,8 +443,9 @@ namespace Durin::MaterialEditor
 			return std::unexpected(RejectCommand("This call would introduce recursive function dependencies."));
 		const FGuid Id = FGuid::NewGuid();
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-		Call->Id = Id; Call->Function = &Function;
-		for (const auto& Output : Function.GetFunctionSignature().Outputs) Call->Outputs.push_back({Output.Id, Output.Type});
+		Call->Id = Id;
+		if (!Call->SetMaterialFunction(&Function)) return std::unexpected(RejectCommand("The selected function is unavailable."));
+		std::unordered_set<FGuid> BoundInputs;
 		for (const auto& Input : Inputs)
 		{
 			auto* Source = FindMaterialExpression(FMaterialExpressionEditing::GetExpressions(*Owner.Get()), Input.Source.SourceNodeId);
@@ -460,7 +460,10 @@ namespace Durin::MaterialEditor
 				if (Count > Values.size()) return std::unexpected(RejectCommand("The function input default has an invalid numeric width."));
 				Binding.InputDefault.assign(Values.begin(), Values.begin() + Count);
 			}
-			Call->Inputs.push_back(std::move(Binding));
+			const auto Slot = std::ranges::find(Call->FunctionInputs, Input.InputId, &FMaterialExpressionFunctionInputBinding::InputId);
+			if (Slot == Call->FunctionInputs.end() || !BoundInputs.insert(Input.InputId).second)
+				return std::unexpected(RejectCommand("The function input is missing or bound more than once."));
+			*Slot = std::move(Binding);
 		}
 		Validation = ValidateMaterialFunctionCallSignature(*Call.Get(), Function.GetFunctionSignature(), EMaterialFunctionValidationMode::Editing);
 		if (!Validation) return std::unexpected(RejectCommand("The function call bindings are invalid.", std::move(Validation.Diagnostics)));

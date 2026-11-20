@@ -89,7 +89,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 		if (Entry->Id == Call.value()) Expression = Cast<DMaterialExpressionFunctionCall>(Entry.Get());
 	ASSERT_TRUE(Expression);
 	const auto Missing = FGuid::NewGuid();
-	Expression->Outputs.push_back({Missing, EMaterialProgramValueType::Float});
+	Expression->FunctionOutputs.push_back({Missing, EMaterialProgramValueType::Float});
 	Package->ClearDirty();
 	TWeakObjectPtr<DMaterialGraph> RetiredGraph;
 	TWeakObjectPtr<DMaterialGraphNode> RetiredNode;
@@ -131,7 +131,6 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 						const auto& Pin = Node->GetView().Outputs[I];
 						EXPECT_EQ(Pin.PortId, View.Outputs[I].PortId);
 						EXPECT_EQ(Pin.Type, View.Outputs[I].Type);
-						EXPECT_EQ(Pin.bMissing, View.Outputs[I].bMissing);
 					}
 				}
 			}
@@ -141,7 +140,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 		ASSERT_TRUE(Node);
 		ASSERT_TRUE(Session.Graph->FindOutputPin(ResultLink));
 		EXPECT_EQ(Session.Graph->FindOutputPin(ResultLink)->PortId, Port.Id);
-		EXPECT_TRUE(std::ranges::any_of(Node->GetView().Outputs, [&](const auto& Pin) { return Pin.PortId == Missing && Pin.bMissing; }));
+		EXPECT_FALSE(std::ranges::contains(Node->GetView().Outputs, Missing, &FMaterialGraphOutputPinView::PortId));
 		EXPECT_FALSE(Session.GetWorkingMaterial()->GetPackage()->IsDirty());
 		RetiredGraph = Session.Graph.Get();
 		RetiredNode = Node;
@@ -229,9 +228,9 @@ TEST_F(FMaterialEditingSessionTests, FunctionGraphRelinksWideOutputSlotsByObject
 	Call->Function = Callee.Get();
 	constexpr int32 Slot = 256;
 	for (int32 I = 0; I < Slot; ++I)
-		Call->Outputs.push_back({FGuid::NewGuid(), EMaterialProgramValueType::Float});
+		Call->FunctionOutputs.push_back({FGuid::NewGuid(), EMaterialProgramValueType::Float});
 	const auto Port = Callee->GetFunctionSignature().Outputs.front();
-	Call->Outputs.push_back({Port.Id, Port.Type});
+	Call->FunctionOutputs.push_back({Port.Id, Port.Type});
 	Expressions.emplace_back(Call);
 	Result->Source.Connect(Slot, Call);
 	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Caller));
@@ -261,7 +260,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionGraphRelinksWideOutputSlotsByObject
 
 	auto* Foreign = NewObject<DMaterialExpressionFunctionCall>(Callee.Get(), NAME_None);
 	Foreign->Id = Call->Id;
-	Foreign->Outputs = Call->Outputs;
+	Foreign->FunctionOutputs = Call->FunctionOutputs;
 	Result->Source.Connect(Slot, Foreign);
 	Graph->LinkGraphNodesFromMaterial();
 	EXPECT_TRUE(TerminalPin()->LinkedTo.empty());
@@ -373,13 +372,14 @@ TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndR
 		EXPECT_FLOAT_EQ(Input->RetainedConstant.Literal.X, 0.375f);
 		EXPECT_TRUE(Root->GetView().Outputs.empty());
 	}
+	EXPECT_FALSE(Package->IsDirty());
 	Port.Type = EMaterialProgramValueType::Float3;
 	ASSERT_TRUE(OutputNode->SetFunctionPort(Port, Mode));
 	ASSERT_TRUE(CallerAuthoringGraph->FindOutputPin(Link));
 	EXPECT_EQ(CallerAuthoringGraph->FindOutputPin(Link)->Type, Port.Type);
 	ASSERT_TRUE(CallerAuthoringGraph->FindInputPin(RootAddress));
 	EXPECT_EQ(CallerAuthoringGraph->FindInputPin(RootAddress)->SourceType, Port.Type);
-	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_EQ(Transactions.Get()->GetQueueLength(), History);
 }
 
@@ -496,7 +496,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	const auto Output = First->GetFunctionSignature().Outputs[0];
 	const FGuid CallId{72, 1, 1, 1};
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
-	Call->Id = CallId; Call->Function = First; Call->Outputs = {{Output.Id, Output.Type}};
+	Call->Id = CallId; Call->Function = First; Call->FunctionOutputs = {{Output.Id, Output.Type}};
 	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
 	FMaterialAttributeRoot Outputs;
 	Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;

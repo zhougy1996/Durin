@@ -394,7 +394,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	auto* Call = Make<DMaterialExpressionFunctionCall>("CollectionFunctionCall");
 	Call->Id = FGuid::NewGuid();
 	Call->Function = Function;
-	Call->Outputs = {{Signature.Outputs.front().Id,
+	Call->FunctionOutputs = {{Signature.Outputs.front().Id,
 		EMaterialProgramValueType::Float3}};
 	const std::array<DMaterialExpression*, 1> RootExpressions{Call};
 	MIR::FGraphBuilder Builder(RootExpressions,

@@ -1,4 +1,5 @@
 #include "MaterialParameterMutation.h"
+#include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
@@ -496,6 +497,8 @@ namespace Durin
 			return;
 		}
 #if DURIN_WITH_EDITORONLY_DATA
+		for (const auto& Expression : ExpressionCollection.Expressions)
+			if (auto* Call = Cast<DMaterialExpressionFunctionCall>(Expression.Get())) Call->UpdateFromFunctionResource(false);
 		const auto SchemaValidation = DeriveExpressionParameterSchema(ExpressionCollection, ParameterSchema);
 		if (!SchemaValidation)
 		{
