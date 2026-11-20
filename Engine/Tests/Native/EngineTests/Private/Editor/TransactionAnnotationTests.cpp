@@ -183,12 +183,9 @@ TEST(FTransBufferTests, WholeAnnotationKeepsFirstStateThroughRepeatedCapture)
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 1;
 	{
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Whole annotation capture"});
-		auto Initial = FTransactionObjectRecord::CaptureWhole(*Target);
-		ASSERT_TRUE(Initial); ASSERT_TRUE(FTransBufferTestAccess::Record(*Buffer, std::move(*Initial)));
+		ASSERT_TRUE(Target->Modify(false));
 		Target->Value = 2; Target->SupplementalValue = 7;
-		auto Latest = FTransactionObjectRecord::CaptureWhole(*Target);
-		ASSERT_TRUE(Latest); ASSERT_TRUE(FTransBufferTestAccess::Record(*Buffer, std::move(*Latest)));
-		ASSERT_TRUE(Target->Modify());
+		ASSERT_TRUE(Target->Modify(false));
 	}
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->SupplementalValue, 1);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 2); EXPECT_EQ(Target->SupplementalValue, 7);
@@ -204,8 +201,7 @@ TEST(FEngineTransactionAnnotationTests, WholeRecordRestoresNativeRegistration)
 	FPropertyValueSnapshotPayload Before; ASSERT_TRUE(CapturePropertyValuePayload(Member, Root, 0, Before, true));
 	{
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Focused native record"});
-		auto Record = FTransactionObjectRecord::CaptureWhole(*Root);
-		ASSERT_TRUE(Record); ASSERT_TRUE(FTransBufferTestAccess::Record(*Buffer, std::move(*Record)));
+		ASSERT_TRUE(Root->Modify(false));
 		Root->UnregisterComponent();
 	}
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);

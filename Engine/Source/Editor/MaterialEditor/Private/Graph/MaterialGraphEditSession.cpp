@@ -377,24 +377,21 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			Change->AfterPresentation = Presentation;
 		}
 		const bool bSemantic = Change->bStructural || !Change->Members.empty();
+		FScopedMaterialGraphChange Batch(Impl->Owner);
 		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::string(Change->GetDescription())});
 		// Record before publishing dirty/revision/compile effects. A rejected history
 		// commit leaves the scope responsible for restoring the original live fields.
 		if (Transactions)
 		{
-			const auto Recorded = Transactions->StoreUndo(&Impl->Owner, std::move(Change));
+			const auto Recorded = Transactions->StoreUndo(std::move(Change));
 			if (!Recorded) return RejectCommand("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
 		}
 		std::vector<DMaterialExpression*> Previous;
 		for (auto& E : Impl->Original) Previous.push_back(E.Get());
 		FMaterialExpressionEditing::ReconcileOwnership(Impl->Owner, Previous);
 		Impl->bFinished = true;
-		FScopedMaterialGraphChange Batch(Impl->Owner);
 		WritePresentation(Impl->Owner, Presentation);
 		if (bSemantic) FMaterialExpressionEditing::Publish(Impl->Owner);
-		(void)Recording.End();
-		if (Transactions && Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
-			return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 }
@@ -404,31 +401,25 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	auto FExpressionEdit::Commit(DObject& Owner, DTransactor* Transactions, std::string Description) -> FMaterialGraphCommandResult
 	{
 		const bool Nested = Transactions && Transactions->IsActive();
-		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::move(Description), &Owner});
-		if (Transactions)
 		{
-			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
-			FScopedPackageDirtySuppression Suppress;
-			for (auto* Object : Objects)
+			FScopedTransaction Recording(Transactions, {"MaterialGraph", std::move(Description), &Owner});
+			if (Transactions)
 			{
-				Object->SetFlags(EObjectFlags::Transactional);
-				if (!Object->Modify(false))
+				if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
+				FScopedPackageDirtySuppression Suppress;
+				for (auto* Object : Objects)
 				{
-					if (Nested) (void)Recording.End();
-					else Recording.Cancel();
-					return RejectCommand("Unable to record the expression.");
+					Object->SetFlags(EObjectFlags::Transactional);
+					if (!Object->Modify(false))
+					{
+						if (!Nested) Recording.Cancel();
+						return RejectCommand("Unable to record the expression.");
+					}
 				}
 			}
+			for (auto& Write : Writes) Write();
+			Owner.MarkPackageDirty();
 		}
-		for (auto& Write : Writes) Write();
-		// The transactor advances the package checkpoint when it finalizes.
-		(void)Recording.End();
-		if (Transactions && !Transactions->GetLastResult().IsSuccess())
-		{
-			for (auto& Write : Writes | std::views::reverse) Write();
-			return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
-		}
-		if (!Transactions) Owner.MarkPackageDirty();
 		Objects.front()->PostEditChange();
 		return {};
 	}

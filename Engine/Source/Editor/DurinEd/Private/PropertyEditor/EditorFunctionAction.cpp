@@ -84,37 +84,36 @@ namespace Durin
 			FExecutionGuard() { bExecutingFunction = true; }
 			~FExecutionGuard() { bExecutingFunction = false; }
 		} Guard;
-		FScopedTransaction Transaction(Transactor.Get(), {
-			.Name = Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
-			.Description = Function->GetDisplayName(), .PrimaryObject = Target.Get()});
-		if (!Transaction.IsOutstanding())
 		{
-			Result.Error = EEditorFunctionError::History;
-			Result.History = Transactor->GetLastResult();
-			return Report();
+			FScopedTransaction Transaction(Transactor.Get(), {
+				.Name = Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
+				.Description = Function->GetDisplayName(), .PrimaryObject = Target.Get()});
+			if (!Transaction.IsOutstanding())
+			{
+				Result.Error = EEditorFunctionError::History;
+				Result.History = Transactor->GetLastResult();
+				return Report();
+			}
+			(void)Target->Modify();
+			if (Transactor->GetLastResult().Code == ETransactorResultCode::Failed)
+			{
+				Result.Error = EEditorFunctionError::History;
+				Result.History = Transactor->GetLastResult();
+				Transaction.Cancel();
+				return Report();
+			}
+			if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
+			{
+				Transaction.Cancel();
+				Result.History = Transactor->GetLastResult();
+				Result.Error = Result.History.Code != ETransactorResultCode::Discarded
+					? EEditorFunctionError::History : EEditorFunctionError::Invocation;
+				return Report();
+			}
+			Target->ProcessEvent(Function, nullptr);
+			Result.bInvoked = true;
+			Target->PostEditChange();
 		}
-		if (auto Recorded = Target->HasAnyObjectFlags(EObjectFlags::Transactional)
-			? RecordObjectForEdit(*Transactor.Get(), *Target.Get()) : FTransactionCaptureResult{}; !Recorded)
-		{
-			Transaction.Cancel();
-			Result.Error = EEditorFunctionError::History;
-			Result.History = {.Code = ETransactorResultCode::Failed,
-				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Recorded.error()})};
-			return Report();
-		}
-		(void)Target->Modify();
-		if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
-		{
-			Transaction.Cancel();
-			Result.History = Transactor->GetLastResult();
-			Result.Error = Result.History.Code != ETransactorResultCode::Discarded
-				? EEditorFunctionError::History : EEditorFunctionError::Invocation;
-			return Report();
-		}
-		Target->ProcessEvent(Function, nullptr);
-		Result.bInvoked = true;
-		Target->PostEditChange();
-		(void)Transaction.End();
 		Result.History = Transactor->GetLastResult();
 		Result.bChanged = Result.History.Code == ETransactorResultCode::Succeeded;
 		if (Result.History.Code != ETransactorResultCode::Succeeded && Result.History.Code != ETransactorResultCode::NoOp)

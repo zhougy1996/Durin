@@ -4,7 +4,7 @@ Summary: Define single-object CallInEditor buttons, invocation admission, and au
 
 Modules: DurinEd, CoreDObject, Engine
 
-Last reviewed: 2026-10-16
+Last reviewed: 2026-11-20
 
 ## Shared Details Layout
 
@@ -45,10 +45,9 @@ idle standalone admission, and reentrancy. Known unavailable buttons are disable
 with a reason; execution repeats all checks. Wrong-thread and recursive requests
 cannot touch the active edit.
 
-A history-budget discard is a failed property-edit completion, not a successful
-finish. The preview remains cancelable and blocks action execution. If its scope
-has already closed, further commit attempts reject with a cancellation instruction
-rather than silently accepting an edit without history.
+A successful property write finishes the active edit. The action checks current
+transactor availability before opening its own scope. A stale preview whose
+scope already closed still requires cancellation before another action.
 
 Target and host transactor are strongly retained during synchronous execution.
 Requests do not retain objects across frames. There is no fallback to another
@@ -68,7 +67,7 @@ After capture and `Modify()`, the adapter rechecks invocation preconditions and
 cancels the scope if that preflight fails. It dispatches through the target's
 virtual `DObject::ProcessEvent(Function, nullptr)`. After native return, the
 adapter sends one full-object `PostEditChange()` before
-capturing final state and explicitly ending the scope. No changed leaf path is
+scope destruction captures final state. No changed leaf path is
 invented. The body must preserve its invariants; arbitrary C++ calls cannot use
 detached pre-write validation. Adapted methods should not duplicate this terminal
 notification. Undo/Redo restore before/after values through ordinary property

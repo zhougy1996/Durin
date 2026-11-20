@@ -22,7 +22,7 @@ class ScopedEditorTransaction:
         if self._identity is not None:
             _request("transaction_end", self._identity)
             self._identity = None
-        # UE 5.3 returns None, including on exception. Applied edits remain.
+        # UE 5.8 returns None so an exception from the with body propagates.
 
     def cancel(self):
         if self._identity is not None:

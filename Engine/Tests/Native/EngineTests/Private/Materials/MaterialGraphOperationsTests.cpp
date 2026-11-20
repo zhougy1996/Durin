@@ -307,6 +307,59 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
+TEST(FMaterialGraphOperationsTests, GroupedConfigurationAndOrdinaryOwnerEditsReplayInBothOrders)
+{
+	InitializeDObjectSystem();
+	for (const bool bConfigurationFirst : {false, true})
+	{
+		SCOPED_TRACE(bConfigurationFirst);
+		TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, bConfigurationFirst ? "ConfigFirst" : "RenameFirst", EObjectFlags::Transactional));
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		const auto OriginalName = Material->GetFName();
+		const auto OriginalProperties = Material->GetStaticProperties();
+		FMaterialConfiguration Configuration{Material->GetDomain(), OriginalProperties};
+		Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+		Tests::FTestEditorTransactorOwner History;
+		const FName EditedName(bConfigurationFirst ? "RenamedAfterConfiguration" : "RenamedBeforeConfiguration");
+		{
+			FScopedTransaction Scope("Grouped material edit");
+			if (bConfigurationFirst) ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
+			ASSERT_TRUE(Material->Modify(false));
+			Material->Rename(EditedName);
+			if (!bConfigurationFirst) ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
+		}
+		ASSERT_EQ(History->GetQueueLength(), 1u);
+		EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 2u);
+		ASSERT_TRUE(History->Undo()) << FormatTransactorResult(History->GetLastResult());
+		EXPECT_EQ(Material->GetFName(), OriginalName);
+		EXPECT_EQ(Material->GetStaticProperties(), OriginalProperties);
+		ASSERT_TRUE(History->Redo()) << FormatTransactorResult(History->GetLastResult());
+		EXPECT_EQ(Material->GetFName(), EditedName);
+		EXPECT_EQ(Material->GetStaticProperties(), Configuration.Properties);
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, GroupedConfigurationAloneOnlyRecordsItsDomainChange)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Original = Material->GetStaticProperties();
+	FMaterialConfiguration Configuration{Material->GetDomain(), Original};
+	Configuration.Properties.ShadingModel = EMaterialShadingModel::Unlit;
+	Tests::FTestEditorTransactorOwner History;
+	{
+		FScopedTransaction Scope("Grouped configuration");
+		ASSERT_TRUE(MaterialEditing::SetConfiguration(*Material, Configuration));
+	}
+	ASSERT_EQ(History->GetQueueLength(), 1u);
+	EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 1u);
+	ASSERT_TRUE(History->Undo());
+	EXPECT_EQ(Material->GetStaticProperties(), Original);
+	ASSERT_TRUE(History->Redo());
+	EXPECT_EQ(Material->GetStaticProperties(), Configuration.Properties);
+}
+
 TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndTransactional)
 {
 	InitializeDObjectSystem();
@@ -318,7 +371,10 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 		Material->GetMaterialGraphPresentation();
 
 	TStrongObjectPtr<DMaterialGraph> EditorGraph(DMaterialGraph::Create(*Material));
-	ASSERT_TRUE(EditorGraph->MoveNodes(std::array{FMaterialGraphNodePresentation{Material->GetOutputNode()->Id, 520, -80}}));
+	{
+		FScopedTransaction Scope("Grouped graph layout");
+		ASSERT_TRUE(EditorGraph->MoveNodes(std::array{FMaterialGraphNodePresentation{Material->GetOutputNode()->Id, 520, -80}}));
+	}
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetOutputNode() != nullptr);
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);

@@ -33,6 +33,14 @@ namespace Durin
 			explicit FTransactionBusyScope(bool& Value) : Busy(Value) { Busy = true; }
 			~FTransactionBusyScope() { Busy = false; }
 		};
+		struct FTransactionInspectionScope
+		{
+			ETransactorState& State;
+			ETransactorState Previous;
+			explicit FTransactionInspectionScope(ETransactorState& InState)
+				: State(InState), Previous(std::exchange(InState, ETransactorState::Inspecting)) {}
+			~FTransactionInspectionScope() { State = Previous; }
+		};
 		auto AddSize(size_t& Total, size_t Value) -> bool
 		{
 			if (Total > std::numeric_limits<size_t>::max() - Value) return false;
@@ -69,7 +77,6 @@ namespace Durin
 		switch (Rejection.Reason)
 		{
 		case ETransactorRejectionReason::BeginState: return "Begin is unavailable during a history transition or destruction.";
-		case ETransactorRejectionReason::RecordScope: return "Record requires an active transaction scope.";
 		case ETransactorRejectionReason::ExecuteState: return "Custom changes are unavailable during a history transition or destruction.";
 		case ETransactorRejectionReason::MissingCustom: return "The custom transaction change is unavailable.";
 		case ETransactorRejectionReason::UndoState: return "Undo requires an idle transactor.";
@@ -126,8 +133,6 @@ namespace Durin
 		if (Custom)
 			for (DObject* Participant : Custom->GetModifiedObjects())
 				ModifiedObjects.Add(FPersistentObjectRef::FromKey(FObjectKey(Participant)));
-		if (CustomObject.IsNull() && ModifiedObjects.Num() == 1)
-			CustomObject = ModifiedObjects.GetReferences().front();
 	}
 
 	auto FTransactionRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
@@ -215,7 +220,11 @@ namespace Durin
 		return bReplayExpired || std::visit([this](const auto& Record) -> bool {
 			using T = std::decay_t<decltype(Record)>;
 			if constexpr (std::is_same_v<T, std::unique_ptr<FCommandChange>>)
-				return Record && Record->HasExpired(CustomObject.Resolve());
+			{
+				const auto& Target = CustomObject.IsNull() && ModifiedObjects.Num() == 1
+					? ModifiedObjects.GetReferences().front() : CustomObject;
+				return Record && Record->HasExpired(Target.Resolve());
+			}
 			else
 				return Record.HasExpired();
 		}, Data);
@@ -386,7 +395,12 @@ namespace Durin
 	{
 		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
 			Change && *Change)
-			return (*Change)->GetDetails(Operation);
+		{
+			if (Operation == ETransactionOperation::Execute) return (*Change)->GetDetails(Operation);
+			try { return (*Change)->GetDetails(Operation); }
+			catch (const std::exception& Error) { DURIN_WARN("Transaction replay details unavailable: {}", Error.what()); }
+			catch (...) { DURIN_WARN("Transaction replay details unavailable."); }
+		}
 		return {};
 	}
 
@@ -480,12 +494,9 @@ namespace Durin
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 			FTransactionBusyScope BusyScope(bBusy);
-			for (auto& Record : Records)
-				if (auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data); ObjectRecord && ObjectRecord->GetTarget().Resolve() == Object)
-				{
-					Result = DispatchObjectEvents(ETransactionObjectEventType::Snapshot, ETransactionOperation::Execute, ObjectRecord, Properties);
-					break;
-				}
+			if (const size_t Position = FindWholeRecord(Object))
+				Result = DispatchObjectEvents(ETransactionObjectEventType::Snapshot, ETransactionOperation::Execute,
+					&std::get<FTransactionObjectRecord>(Records[Position - 1].Data), Properties);
 		}
 		if (!Result && bObserverRecoveryRequired && RecordingOwner)
 			RecordingOwner->LastResult = RecordingOwner->HandleApplyFailure(*this, {.Status = ETransactionApplyFailure::RecoveryRequired, .Message = Result.error()});
@@ -502,8 +513,7 @@ namespace Durin
 			return std::unexpected("Array capture rejects Play-in-Editor owners.");
 		if (!ResolveTransactionArray(Capture)) return std::unexpected("Array capture requires a valid reflected member path.");
 		if (!Capture.Object->HasAnyObjectFlags(EObjectFlags::Transactional)) return {};
-		for (const auto& Record : Records)
-			if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Record.Data); Object && Object->GetTarget().Resolve() == Capture.Object) return {};
+		if (FindWholeRecord(Capture.Object)) return {};
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FTransactionBusyScope BusyScope(bBusy);
 		try
@@ -513,7 +523,7 @@ namespace Durin
 			auto Record = FTransactionArrayRecord::Capture(Capture);
 			if (!Record) return std::unexpected(Record.error());
 			if (Capture.Count == 0) return {};
-			Records.emplace_back(std::move(*Record));
+			AppendRecord(FTransactionRecord(std::move(*Record)));
 			return {};
 		}
 		catch (const std::exception& Error) { return std::unexpected(std::format("Array capture failed: {}", Error.what())); }
@@ -527,80 +537,104 @@ namespace Durin
 		return InspectPieReferences(*this);
 	}
 
-	auto FTransaction::AddRecord(FTransactionObjectRecord Record) -> uint64
+	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransactionRecord& Record, size_t Position) -> void
 	{
-		if (bBusy || bFinalized) return 0;
-		for (size_t Index = 0; Index < Records.size(); ++Index)
+		if (const auto* Whole = std::get_if<FTransactionObjectRecord>(&Record.Data))
+			Index[Whole->GetTarget()].WholeRecord = Position;
+		else if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data))
+			Index.try_emplace(Array->GetTarget());
+		else
 		{
-			auto* Existing = std::get_if<FTransactionObjectRecord>(&Records[Index].Data);
-			if (Existing && Existing->GetTarget() == Record.GetTarget())
-			{
-				return Index + 1;
-			}
+			for (const auto& Participant : Record.ModifiedObjects.GetReferences())
+				Index.try_emplace(Participant);
+			if (!Record.CustomObject.IsNull()) Index[Record.CustomObject].bCustomOwner = true;
 		}
-		Records.emplace_back(std::move(Record));
+	}
+
+	auto FTransaction::GetCaptureIndex() -> FObjectIndex&
+	{
+		if (!CaptureIndex)
+		{
+			auto Index = std::make_unique<FObjectIndex>();
+			for (size_t Slot = 0; Slot < Records.size(); ++Slot)
+				IndexRecord(*Index, Records[Slot], Slot + 1);
+			CaptureIndex = std::move(Index);
+		}
+		return *CaptureIndex;
+	}
+
+	auto FTransaction::AppendRecord(FTransactionRecord Record) -> size_t
+	{
+		auto& Index = GetCaptureIndex();
+		try
+		{
+			IndexRecord(Index, Record, Records.size() + 1);
+			Records.push_back(std::move(Record));
+		}
+		catch (...)
+		{
+			// Records remains authoritative if indexing participants or growing the array fails.
+			CaptureIndex.reset();
+			throw;
+		}
 		return Records.size();
+	}
+
+	auto FTransaction::FindWholeRecord(DObject* Object) -> size_t
+	{
+		if (Records.empty()) return 0;
+		const auto& Index = GetCaptureIndex();
+		const auto It = Index.find(FPersistentObjectRef(Object));
+		return It != Index.end() && It->first.Resolve() == Object ? It->second.WholeRecord : 0;
 	}
 
 	auto FTransaction::AddRecord(std::unique_ptr<FCommandChange> Change, DObject* Object) -> uint64
 	{
 		if (bBusy || bFinalized) return 0;
-		Records.emplace_back(std::move(Change), Object);
-		return Records.size();
-	}
-
-	auto RecordObjectForEdit(DTransactor& Transactor, DObject& Object) -> FTransactionCaptureResult
-	{
-		if (GIsGameThreadIdInitialized && !IsInGameThread()) return std::unexpected("Object edits require the GameThread.");
-		auto* Recording = dynamic_cast<FTransaction*>(GUndo);
-		if (!IsValid(&Transactor) || !IsValid(&Object) || !Recording || Recording->RecordingOwner != &Transactor
-			|| Recording->bBusy || Recording->bFinalized || Recording->OperationId == 0
-			|| Transactor.GetRecordingId() != Recording->Id)
-			return std::unexpected("Object edits require the owning live recording outside transaction callbacks.");
-		for (const auto& Record : Recording->Records)
-			if (const auto* Existing = std::get_if<FTransactionObjectRecord>(&Record.Data);
-				Existing && Existing->GetTarget().Resolve() == &Object) return {};
-		std::optional<FTransactionObjectRecord> Capture;
-		{
-			FTransactionBusyScope BusyScope(Recording->bBusy);
-			auto Result = FTransactionObjectRecord::CaptureWhole(Object);
-			if (!Result) return std::unexpected(FormatTransactionObjectRecordError(Result.error()));
-			Capture.emplace(std::move(*Result));
-		}
-		auto Result = Transactor.Record(std::move(*Capture));
-		if (!Result) return std::unexpected(FormatTransactorResult(Result.error()));
-		return {};
+		FTransactionBusyScope BusyScope(bBusy);
+		return AppendRecord(FTransactionRecord(std::move(Change), Object));
 	}
 
 	auto FTransaction::SaveObject(DObject* Object) -> void
 	{
-		if (RecordingOwner) (void)RecordingOwner->CaptureObject(Object);
-		else (void)CaptureObject(Object);
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (RecordingOwner && (RecordingOwner->GetState() != ETransactorState::Recording || GUndo != this || bBusy)) return;
+		const auto Result = CaptureObject(Object);
+		if (!RecordingOwner) return;
+		if (!Result)
+		{
+			RecordingOwner->LastResult = {.Code = ETransactorResultCode::Failed, .TransactionId = Id,
+				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Result.error()})};
+			DURIN_ERROR("Unable to capture transaction object: {}", Result.error());
+		}
+		else RecordingOwner->LastResult = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Id};
 	}
+
 	auto FTransaction::ContainsObject(const DObject* Object) const -> bool
 	{
-		if (!Object) return false;
+		if (!IsValid(Object)) return false;
+		if (CaptureIndex)
+		{
+			if (CaptureIndex->contains(FPersistentObjectRef::FromKey(FObjectKey(Object)))) return true;
+			const auto It = CaptureIndex->find(FPersistentObjectRef(const_cast<DObject*>(Object)));
+			return It != CaptureIndex->end() && It->first.Resolve() == Object;
+		}
 		return std::ranges::any_of(Records, [&](const auto& Record) { return std::ranges::contains(Record.GetModifiedObjects(), Object); });
 	}
+
 	auto FTransaction::CaptureObject(DObject* Object) -> FTransactionRecordResult
 	{
-		if (bBusy || bFinalized) return std::unexpected("Transaction records are closed to capture.");
+		if (bBusy || bFinalized || !IsValid(Object)) return std::unexpected("Transaction object is unavailable for capture.");
 		FTransactionBusyScope BusyScope(bBusy);
-		// A custom record already owns this object's undo representation, as in UE.
-		if (std::ranges::any_of(Records, [&](const auto& Record) {
-			return Record.CustomObject.Resolve() == Object;
-		})) return {};
-		for (auto& Record : Records)
-		{
-			if (auto* Existing = std::get_if<FTransactionObjectRecord>(&Record.Data);
-				Existing && Existing->GetTarget().Resolve() == Object)
-			{
-				return {};
-			}
-		}
+		if (RecordingOwner)
+			if (auto* Package = Object->GetPackage(); Package && Package->IsAssetPackage()) RecordingOwner->EnsurePackageState(*Package);
+		const auto& Index = GetCaptureIndex();
+		const auto It = Index.find(FPersistentObjectRef::FromKey(FObjectKey(Object)));
+		if (It != Index.end() && It->second.bCustomOwner) return {};
+		if (FindWholeRecord(Object)) return {};
 		auto Record = FTransactionObjectRecord::CaptureWhole(*Object);
 		if (!Record) return std::unexpected(FormatTransactionObjectRecordError(Record.error()));
-		Records.emplace_back(std::move(*Record));
+		AppendRecord(FTransactionRecord(std::move(*Record)));
 		return {};
 	}
 
@@ -614,6 +648,7 @@ namespace Durin
 		if (auto Result = DispatchObjectEvents(ETransactionObjectEventType::Finalized, ETransactionOperation::Execute); !Result) return Result;
 		for (auto& Record : Records) if (auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data)) ObjectRecord->ClearSnapshot();
 		bFinalized = true;
+		CaptureIndex.reset();
 		return {};
 	}
 
@@ -629,9 +664,10 @@ namespace Durin
 					return Records[Replay ? Replay->AppliedRecords[Index] : Index];
 				});
 			std::vector<const FTransactionObjectRecord*> ObjectRecords;
-			for (const auto& Record : EventRecords)
-				if (const auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data); ObjectRecord && (!SnapshotRecord || SnapshotRecord == ObjectRecord))
-					ObjectRecords.push_back(ObjectRecord);
+			if (SnapshotRecord) ObjectRecords.push_back(SnapshotRecord);
+			else
+				for (const auto& Record : EventRecords)
+					if (const auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data)) ObjectRecords.push_back(ObjectRecord);
 			auto Depth = [](const auto* Record) { size_t Result = 0; for (auto* Object = Record->GetTarget().Resolve(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
 			std::stable_sort(ObjectRecords.begin(), ObjectRecords.end(), [&](const auto* Left, const auto* Right) { return Depth(Left) > Depth(Right); });
 			std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>> Events;
@@ -688,7 +724,11 @@ namespace Durin
 		if (bBusy) return;
 		// UE IsTransient tests the complete transaction. An unchanged SaveObject
 		// still owns its baseline when another record changes the same domain.
-		if (std::ranges::all_of(Records, [](const auto& Record) { return Record.IsNoOp(); })) Records.clear();
+		if (std::ranges::all_of(Records, [](const auto& Record) { return Record.IsNoOp(); }))
+		{
+			Records.clear();
+			CaptureIndex.reset();
+		}
 	}
 
 	auto FTransaction::HasExpired() const noexcept -> bool
@@ -1108,14 +1148,14 @@ namespace Durin
 			}
 		}
 	}
-	FScopedTransaction::~FScopedTransaction() { (void)End(); }
+	FScopedTransaction::~FScopedTransaction() { Close(); }
 	FScopedTransaction::FScopedTransaction(FScopedTransaction&& Other) noexcept
 		: Transactor(std::move(Other.Transactor)), RecordingId(std::exchange(Other.RecordingId, 0)), StartIndex(std::exchange(Other.StartIndex, -1)) {}
 	auto FScopedTransaction::operator=(FScopedTransaction&& Other) noexcept -> FScopedTransaction&
 	{
 		if (this != &Other)
 		{
-			(void)End(); Transactor = std::move(Other.Transactor);
+			Close(); Transactor = std::move(Other.Transactor);
 			RecordingId = std::exchange(Other.RecordingId, 0);
 			StartIndex = std::exchange(Other.StartIndex, -1);
 		}
@@ -1125,16 +1165,18 @@ namespace Durin
 	{
 		return StartIndex >= 0 && Transactor && RecordingId && Transactor->GetRecordingId() == RecordingId;
 	}
-	auto FScopedTransaction::End() -> int32
+	auto FScopedTransaction::Close() -> void
 	{
 		const bool Valid = IsOutstanding();
+		if (Valid && !Transactor->CanTransact()) return;
 		StartIndex = -1; RecordingId = 0;
 		auto Owner = std::move(Transactor);
-		return Valid ? Owner->End() : 0;
+		if (Valid) (void)Owner->End();
 	}
 	auto FScopedTransaction::Cancel() -> void
 	{
 		const bool Valid = IsOutstanding();
+		if (Valid && !Transactor->CanTransact()) return;
 		const auto Index = std::exchange(StartIndex, -1); RecordingId = 0;
 		auto Owner = std::move(Transactor);
 		if (Valid) Owner->Cancel(Index);
@@ -1205,35 +1247,12 @@ namespace Durin
 	auto DTransBuffer::ReleaseRecording() -> void
 	{
 		if (Pending && Pending->OperationId != 0) (void)Pending->EndOperation();
+		if (Pending) Pending->CaptureIndex.reset();
 		if (Pending && GUndo == &*Pending) GUndo = nullptr;
 		ActiveCount = 0;
 	}
 	auto DTransBuffer::SetPrimaryUndoObject(DObject* Object) -> void
 	{ if (CanTransact() && Pending) Pending->SetPrimaryObject(Object); }
-	auto DTransBuffer::CaptureObject(DObject* Object) -> bool
-	{
-		CheckThread();
-		if (State != ETransactorState::Recording || !Pending || Pending->IsBusy() || !IsValid(Object)) return false;
-		if (auto* Package = Object->GetPackage(); Package && Package->IsAssetPackage()) EnsurePackageState(*Package);
-		if (auto Result = Pending->CaptureObject(Object); !Result)
-		{
-			LastResult = {.Code = ETransactorResultCode::Failed, .TransactionId = Pending->GetId(),
-				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = Result.error()})};
-			DURIN_ERROR("Unable to capture transaction object: {}", Result.error());
-			return false;
-		}
-		LastResult = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Pending->GetId()};
-		return true;
-	}
-	auto DTransBuffer::Record(FTransactionObjectRecord Record) -> std::expected<uint64, FTransactorResult>
-	{
-		CheckThread();
-		if (State != ETransactorState::Recording || !Pending || Pending->IsBusy()) return std::unexpected(Reject(ETransactorRejectionReason::RecordScope));
-		if (auto* Object = Record.GetTarget().Resolve())
-			if (auto* Package = Object->GetPackage(); Package && Package->IsAssetPackage()) EnsurePackageState(*Package);
-		const auto Id = Pending->AddRecord(std::move(Record));
-		return Id;
-	}
 	auto DTransBuffer::ReportChangeFailure(std::unique_ptr<FCommandChange> Change, FCommandChangeError Error) -> FTransactorResult
 	{
 		if (!Pending) return LastResult = FTransactorResult{.Code = ETransactorResultCode::Failed};
@@ -1253,10 +1272,38 @@ namespace Durin
 		const bool bStandalone = !IsActive();
 		// Already-applied commands cannot prove that intervening package writes
 		// belonged to them. Begin must observe those writes as external edits.
-		if (bStandalone && Begin("CustomChange", Change->GetDescription()) < 0) return LastResult;
-		for (DPackage* Package : Change->GetAffectedPackages())
-			if (IsValid(Package) && Package->IsAssetPackage()) EnsurePackageState(*Package);
-		Pending->AddRecord(std::move(Change), Object);
+		FTransactionId Id = GetRecordingId();
+		auto FailAdmission = [&](std::string Message) {
+			if (bStandalone)
+			{
+				ReleaseRecording();
+				Pending.reset();
+				State = ETransactorState::Idle;
+				RefreshOutsideEdits();
+			}
+			return LastResult = FTransactorResult{.Code = ETransactorResultCode::Failed, .TransactionId = Id,
+				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = std::move(Message)})};
+		};
+		try
+		{
+			if (bStandalone)
+			{
+				std::string Description;
+				{
+					FTransactionInspectionScope Inspect(State);
+					Description = Change->GetDescription();
+				}
+				if (Begin("CustomChange", Description) < 0) return LastResult;
+				Id = GetRecordingId();
+			}
+			FTransactionBusyScope BusyScope(Pending->bBusy);
+			auto Candidate = std::move(Change);
+			for (DPackage* Package : Candidate->GetAffectedPackages())
+				if (IsValid(Package) && Package->IsAssetPackage()) EnsurePackageState(*Package);
+			Pending->AppendRecord(FTransactionRecord(std::move(Candidate), Object));
+		}
+		catch (const std::exception& Error) { return FailAdmission(Error.what()); }
+		catch (...) { return FailAdmission("Custom transaction admission threw an unknown exception."); }
 		LastResult = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Pending->GetId()};
 		if (bStandalone) (void)End();
 		return LastResult;
@@ -1451,15 +1498,7 @@ namespace Durin
 	}
 	auto DTransBuffer::Undo(bool bCanRedo) -> bool
 	{
-		const size_t PreviousCursor = Cursor;
-		LastResult = Replay(true);
-		if (!bCanRedo && Cursor != PreviousCursor)
-		{
-			for (size_t Index = Cursor; Index < History.size(); ++Index) QueueEvent(ETransactionEventType::Discarded, History[Index], "Undo without Redo.");
-			History.erase(History.begin() + Cursor, History.end());
-			for (auto& Barrier : UndoBarriers) Barrier = std::min(Barrier, Cursor);
-			(void)RecalculateOwnedBytes();
-		}
+		LastResult = Replay(true, std::nullopt, bCanRedo);
 		return LastResult.IsSuccess();
 	}
 
@@ -1477,6 +1516,8 @@ namespace Durin
 
 	auto DTransBuffer::FindReplayIndex(bool bUndo, bool bRespectUndoBarrier) const -> std::optional<size_t>
 	{
+		if (State == ETransactorState::Inspecting || State == ETransactorState::Finalizing) return std::nullopt;
+		FTransactionInspectionScope Inspect(State);
 		if (bUndo)
 		{
 			const size_t Limit = bRespectUndoBarrier && !UndoBarriers.empty() ? UndoBarriers.back() : 0;
@@ -1491,7 +1532,7 @@ namespace Durin
 		return std::nullopt;
 	}
 
-	auto DTransBuffer::Replay(bool bUndo, std::optional<FTransactionId> ExpectedId) -> FTransactorResult
+	auto DTransBuffer::Replay(bool bUndo, std::optional<FTransactionId> ExpectedId, bool bCanRedo) -> FTransactorResult
 	{
 		CheckThread();
 		if (State != ETransactorState::Idle || GUndo)
@@ -1505,48 +1546,70 @@ namespace Durin
 		if (ExpectedId && (*ExpectedId == 0 || !Index || History[*Index].GetId() != *ExpectedId))
 			return Reject(bUndo ? ETransactorRejectionReason::UndoHead : ETransactorRejectionReason::RedoHead, *ExpectedId);
 
-		auto CrossExpired = [&](size_t First, size_t Last) {
-			for (size_t Slot = First; Slot < Last; ++Slot) History[Slot].RetireExpiredRecords();
-		};
-		if (!Index)
-		{
-			const size_t NextCursor = bUndo ? UndoLimit : History.size();
-			if (NextCursor != Cursor)
-			{
-				CrossExpired(std::min(Cursor, NextCursor), std::max(Cursor, NextCursor));
-				Cursor = NextCursor;
-				check(HistoryRevision != std::numeric_limits<uint64>::max());
-				++HistoryRevision;
-			}
-			return NothingToReplay;
-		}
-
-		RefreshOutsideEdits();
-		FTransaction& Transaction = History[*Index];
+		const size_t NextCursor = bUndo ? Index.value_or(UndoLimit)
+			: (Index ? *Index + 1 : History.size());
+		if (NextCursor == Cursor) return NothingToReplay;
+		// An expired-only transition can still retire the Redo suffix. Keep a
+		// live entry for failure reporting until publication has completed.
+		FTransaction& Transaction = History[Index.value_or(bUndo ? Cursor - 1 : Cursor)];
 		check(HistoryRevision != std::numeric_limits<uint64>::max());
 		++HistoryRevision;
 		State = bUndo ? ETransactorState::Undoing : ETransactorState::Redoing;
-		FTransaction::FReplayResult Outcome;
-		if (auto ApplyResult = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo, Outcome); !ApplyResult)
-			return HandleApplyFailure(Transaction, std::move(ApplyResult.error()));
-		if (!RecalculateOwnedBytes())
+		try
+		{
+			FTransactorResult Result = NothingToReplay;
+			FTransaction::FReplayResult Outcome;
+			if (Index)
+			{
+				RefreshOutsideEdits();
+				if (auto Applied = Transaction.Apply(bUndo, bUndo ? EPropertyChangeOrigin::Undo : EPropertyChangeOrigin::Redo, Outcome); !Applied)
+					return HandleApplyFailure(Transaction, std::move(Applied.error()));
+				Result = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Transaction.GetId()};
+			}
+			auto Bytes = std::optional{OwnedBytes};
+			if (Index || !bCanRedo) Bytes = MeasureOwnedBytes(bCanRedo ? History.size() : NextCursor);
+			if (!Bytes)
+				return HandleApplyFailure(Transaction, {.Status = ETransactionApplyFailure::RecoveryRequired,
+					.Message = "Transaction replay made retained byte accounting invalid."}, false);
+			if (Index)
+			{
+				ApplyPackageTransitions(Transaction, !bUndo, &Outcome);
+				if (Outcome.bMutatesMountedContent) NotifyMountedContentMutation();
+				QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction, std::move(Outcome.Details));
+			}
+			for (size_t Slot = std::min(Cursor, NextCursor); Slot < std::max(Cursor, NextCursor); ++Slot)
+				if (Slot != Index) History[Slot].RetireExpiredRecords();
+			if (!bCanRedo)
+			{
+				for (size_t Slot = NextCursor; Slot < History.size(); ++Slot)
+					QueueEvent(ETransactionEventType::Discarded, History[Slot], "Undo without Redo.");
+				State = ETransactorState::Finalizing;
+				History.erase(History.begin() + NextCursor, History.end());
+				for (auto& Barrier : UndoBarriers) Barrier = std::min(Barrier, NextCursor);
+			}
+			Cursor = NextCursor;
+			OwnedBytes = *Bytes;
+			State = ETransactorState::Idle;
+			return Result;
+		}
+		catch (const std::exception& Error)
+		{
 			return HandleApplyFailure(Transaction, {.Status = ETransactionApplyFailure::RecoveryRequired,
-				.Message = "Transaction replay made retained byte accounting invalid."});
-		ApplyPackageTransitions(Transaction, !bUndo, &Outcome);
-		if (Outcome.bMutatesMountedContent) NotifyMountedContentMutation();
-		if (bUndo) CrossExpired(*Index + 1, Cursor);
-		else CrossExpired(Cursor, *Index);
-		Cursor = bUndo ? *Index : *Index + 1;
-		QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction, std::move(Outcome.Details));
-		State = ETransactorState::Idle;
-		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = Transaction.GetId()};
+				.Message = std::format("Transaction replay threw: {}", Error.what())}, false);
+		}
+		catch (...)
+		{
+			return HandleApplyFailure(Transaction, {.Status = ETransactionApplyFailure::RecoveryRequired,
+				.Message = "Transaction replay threw an unknown exception."}, false);
+		}
 	}
 
-	auto DTransBuffer::HandleApplyFailure(const FTransaction& Transaction, FTransactionApplyError Error) -> FTransactorResult
+	auto DTransBuffer::HandleApplyFailure(const FTransaction& Transaction, FTransactionApplyError Error,
+		bool bMeasureHistory) -> FTransactorResult
 	{
 		const auto Operation = State == ETransactorState::Undoing ? ETransactionOperation::Undo
 			: State == ETransactorState::Redoing ? ETransactionOperation::Redo : ETransactionOperation::Execute;
-		if (!RecalculateOwnedBytes())
+		if (bMeasureHistory && !RecalculateOwnedBytes())
 		{
 			Error.Status = ETransactionApplyFailure::RecoveryRequired;
 			Error.Message += " Retained transaction accounting overflowed.";
@@ -1658,11 +1721,15 @@ namespace Durin
 
 	auto DTransBuffer::CanUndo(std::string* Reason) const -> bool
 	{
+		if (State != ETransactorState::Idle || GUndo)
+		{
+			if (Reason) *Reason = "A transaction is active.";
+			return false;
+		}
 		const bool bAvailable = FindReplayIndex(true).has_value();
 		const bool bBarrier = !UndoBarriers.empty() && !bAvailable && FindReplayIndex(true, false).has_value();
-		if (Reason) *Reason = State != ETransactorState::Idle || GUndo ? "A transaction is active."
-			: bAvailable ? "" : bBarrier ? "An undo barrier blocks earlier history." : ResetReason.empty() ? "Nothing to undo." : ResetReason;
-		return State == ETransactorState::Idle && !GUndo && bAvailable;
+		if (Reason) *Reason = bAvailable ? "" : bBarrier ? "An undo barrier blocks earlier history." : ResetReason.empty() ? "Nothing to undo." : ResetReason;
+		return bAvailable;
 	}
 
 	auto DTransBuffer::SetUndoBarrier() -> void
@@ -1697,13 +1764,7 @@ namespace Durin
 			|| (Pending && Pending->IsBusy()))
 			return std::unexpected("Transaction references are already being inspected or changed.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		struct FStateRestore
-		{
-			ETransactorState& State;
-			ETransactorState Previous;
-			~FStateRestore() { State = Previous; }
-		} Restore{State, State};
-		State = ETransactorState::Inspecting;
+		FTransactionInspectionScope Inspect(State);
 		if (Pending) { auto Result = Pending->ContainsPieObjects(); if (!Result || *Result) return Result; }
 		for (const auto& Transaction : History)
 		{ auto Result = Transaction.ContainsPieObjects(); if (!Result || *Result) return Result; }
@@ -1712,9 +1773,14 @@ namespace Durin
 
 	auto DTransBuffer::CanRedo(std::string* Reason) const -> bool
 	{
+		if (State != ETransactorState::Idle || GUndo)
+		{
+			if (Reason) *Reason = "A transaction is active.";
+			return false;
+		}
 		const bool bAvailable = FindReplayIndex(false).has_value();
-		if (Reason) *Reason = State != ETransactorState::Idle || GUndo ? "A transaction is active." : bAvailable ? "" : "Nothing to redo.";
-		return State == ETransactorState::Idle && !GUndo && bAvailable;
+		if (Reason) *Reason = bAvailable ? "" : "Nothing to redo.";
+		return bAvailable;
 	}
 
 	auto DTransBuffer::AddReferencedObjects(FReferenceCollector& Collector) -> void
@@ -1992,16 +2058,23 @@ namespace Durin
 
 	auto DTransBuffer::RecalculateOwnedBytes() -> bool
 	{
+		const auto Bytes = MeasureOwnedBytes(History.size());
+		if (!Bytes) return false;
+		OwnedBytes = *Bytes;
+		return true;
+	}
+
+	auto DTransBuffer::MeasureOwnedBytes(size_t Count) const -> std::optional<size_t>
+	{
 		size_t Total = 0;
-		for (const FTransaction& Transaction : History)
+		for (const FTransaction& Transaction : std::span(History).first(Count))
 		{
 			size_t Bytes = 0;
 			if (!Transaction.TryGetOwnedSize(Bytes)
-				|| Total > std::numeric_limits<size_t>::max() - Bytes) return false;
+				|| Total > std::numeric_limits<size_t>::max() - Bytes) return std::nullopt;
 			Total += Bytes;
 		}
-		OwnedBytes = Total;
-		return true;
+		return Total;
 	}
 
 	class FTransactorReloadParticipant final : public IPackageReloadParticipant

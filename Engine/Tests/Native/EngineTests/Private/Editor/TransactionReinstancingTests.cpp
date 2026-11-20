@@ -30,7 +30,6 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 		ASSERT_TRUE(Owner->Modify(false));
 		Default->Value = 37;
 		Owner->Value = 5;
-		ASSERT_TRUE(Scope.End());
 	}
 	Default->Rename("RejectedTemplateRename");
 	EXPECT_EQ(Logical.Resolve(), Default);
@@ -43,6 +42,7 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	ASSERT_NE(Replacement, nullptr);
 	EXPECT_EQ(Logical.Resolve(), Replacement);
 	EXPECT_EQ(Logical, FPersistentObjectRef(Replacement));
+	EXPECT_EQ(Logical.GetHash(), FPersistentObjectRef(Replacement).GetHash());
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Replacement);
 	Replacement->Value = 81;
 	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
@@ -76,7 +76,6 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Edit default subobject", Component});
 		ASSERT_TRUE(Component->Modify(false));
 		Component->SetRelativeLocation({12.0, 0.0, 0.0});
-		ASSERT_TRUE(Scope.End());
 	}
 	Private::ReleaseClassDefaultObjectForTests(Class);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -160,7 +159,6 @@ namespace
 			Durin::FScopedTransaction Scope(Buffer.Get(), {"test", "Reinstanced value", Old});
 			ASSERT_TRUE(Old->Modify());
 			Old->Value = Value;
-			ASSERT_TRUE(Scope.End());
 		}
 		auto Prepare() -> std::expected<void, Durin::FObjectReplacementError>
 		{
@@ -192,7 +190,6 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	{
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Native default command", Default});
 		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
-		ASSERT_TRUE(Scope.End());
 	}
 	Private::ReleaseClassDefaultObjectForTests(Class);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
@@ -504,7 +501,6 @@ TEST_F(FTransactionReinstancingTests, ActorHistoryReinstancingRestoresGeneratedI
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Generated history", BeforeActor});
 		ASSERT_TRUE(BeforeActor->Modify()); BeforeActor->GeneratedCount = 2;
 		ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
-		ASSERT_TRUE(Scope.End());
 	}
 	AfterActor->GeneratedCount = 2; ASSERT_TRUE(AfterActor->RerunConstructionScripts());
 	static_cast<DSceneComponent*>(AfterActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->SetRelativeLocation({77.0, 0.0, 0.0});
@@ -597,7 +593,6 @@ TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiri
 		ASSERT_TRUE(Old->Modify()); Old->Value = 12;
 		Peer->Value = 9;
 		ASSERT_TRUE(GUndo->StoreUndo(Peer.Get(), std::make_unique<FReinstancedValueCommand>(Peer.Get(), 0, 9, false)));
-		ASSERT_TRUE(Scope.End());
 	}
 	New->Value = 77;
 	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());
@@ -615,7 +610,7 @@ TEST_F(FTransactionReinstancingTests, WeakOnlySerializedDependencyRebindsWithout
 	Peer->Weak = Old;
 	{
 		FScopedTransaction Scope(Buffer.Get(), {"test", "Weak-only dependency", Peer.Get()});
-		ASSERT_TRUE(Peer->Modify()); Peer->Value = 12; ASSERT_TRUE(Scope.End());
+		ASSERT_TRUE(Peer->Modify()); Peer->Value = 12;
 	}
 	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);

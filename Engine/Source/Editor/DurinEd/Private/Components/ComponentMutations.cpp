@@ -377,11 +377,11 @@ namespace Durin
 			const FName Name = UniqueName(Owner, RequestedName, Component);
 			if (Name == Component->GetFName()) return true;
 			FScopedTransaction Recording(Transactions, {"ComponentRename", "Rename component", Component});
-			if (!Recording.IsOutstanding() || !RecordObjectForEdit(*Transactions, *Component)) return false;
+			if (!Recording.IsOutstanding()) return false;
+			Component->SetFlags(EObjectFlags::Transactional);
+			if (!Component->Modify(false)) return false;
 			Component->Rename(Name);
-			(void)Recording.End();
-			return Transactions->GetLastResult().Code != ETransactorResultCode::Failed
-				&& Transactions->GetLastResult().Code != ETransactorResultCode::RecoveryRequired;
+			return true;
 
 		});
 	}

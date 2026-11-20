@@ -700,20 +700,15 @@ namespace Durin
 				Reset();
 				return FailPropertyEdit(OutError, Message);
 			}
-			// Admit ordinary fields even after a domain command declared this object.
-			if (const auto Recorded = RecordObjectForEdit(*Transactor, *Target.Object); !Recorded)
+			if (!Target.Object->IsTemplateObject())
+				Target.Object->SetFlags(EObjectFlags::Transactional);
+			if (!Target.Object->Modify(false) || Transactor->GetLastResult().Code == ETransactorResultCode::Failed)
 			{
-				auto Message = Recorded.error();
-				TransactionScope->Cancel();
-				const auto Cleanup = Transactor->GetLastResult();
-				if (Cleanup.Code == ETransactorResultCode::Rejected
-					|| Cleanup.Code == ETransactorResultCode::Failed
-					|| Cleanup.Code == ETransactorResultCode::RecoveryRequired)
-					Message += " Cleanup also failed: " + FormatTransactorResult(Cleanup);
+				const auto Result = Transactor->GetLastResult();
 				Reset();
-				return FailPropertyEdit(OutError, Message);
+				return FailPropertyEdit(OutError, Result.Code == ETransactorResultCode::Failed
+					? FormatTransactorResult(Result) : "The target cannot participate in transaction history.");
 			}
-			(void)Target.Object->Modify(false);
 		}
 		bActive = true;
 		return true;
@@ -765,35 +760,8 @@ namespace Durin
 		{
 			return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
 		}
-		if (bChanged)
-		{
-			Target.Object->MarkPackageDirty();
-			FTransactorResult TransactorResult{
-				.Code = ETransactorResultCode::NoOp};
-			if (TransactionScope && TransactionScope->IsOutstanding())
-			{
-				(void)TransactionScope->End();
-				TransactorResult = Transactor->GetLastResult();
-				if (TransactorResult.Code == ETransactorResultCode::Rejected
-					|| TransactorResult.Code == ETransactorResultCode::Discarded
-					|| TransactorResult.Code == ETransactorResultCode::Failed
-					|| TransactorResult.Code == ETransactorResultCode::RecoveryRequired)
-				{
-					return FailPropertyEdit(OutError, FormatTransactorResult(TransactorResult));
-				}
-			}
-		}
-		else if (TransactionScope && TransactionScope->IsOutstanding())
-		{
-			(void)TransactionScope->End();
-			const FTransactorResult Result = Transactor->GetLastResult();
-			if (Result.Code == ETransactorResultCode::Rejected
-				|| Result.Code == ETransactorResultCode::Failed
-				|| Result.Code == ETransactorResultCode::RecoveryRequired)
-			{
-				return FailPropertyEdit(OutError, FormatTransactorResult(Result));
-			}
-		}
+		if (bChanged) Target.Object->MarkPackageDirty();
+		TransactionScope.reset();
 		Reset();
 		return true;
 	}
@@ -806,14 +774,7 @@ namespace Durin
 			if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
 				EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit); !Mutation)
 				return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
-		if (TransactionScope && TransactionScope->IsOutstanding())
-		{
-			(void)TransactionScope->End();
-			const auto Result = Transactor->GetLastResult();
-			if (Result.Code == ETransactorResultCode::Rejected || Result.Code == ETransactorResultCode::Failed
-				|| Result.Code == ETransactorResultCode::RecoveryRequired)
-				return FailPropertyEdit(OutError, FormatTransactorResult(Result));
-		}
+		TransactionScope.reset();
 		Reset();
 		return true;
 	}

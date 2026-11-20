@@ -25,6 +25,7 @@ namespace Durin
 
 		auto IsNull() const -> bool { return IsObjectKeyNull(Handle); }
 		auto GetKey() const -> FObjectKey { return Handle; }
+		COREDOBJECT_API auto GetHash() const noexcept -> size_t;
 		auto GetReferenceType() const -> EReferenceType { return Hierarchy.empty() ? EReferenceType::RootObject : EReferenceType::SubObject; }
 		auto GetAllocatedSize() const -> size_t { return Hierarchy.capacity() * sizeof(FSubObject); }
 		COREDOBJECT_API auto CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FPersistentObjectRef, std::string>;
@@ -67,3 +68,8 @@ namespace Durin
 	};
 
 }
+
+template<> struct std::hash<Durin::FPersistentObjectRef>
+{
+	auto operator()(const Durin::FPersistentObjectRef& Ref) const noexcept -> size_t { return Ref.GetHash(); }
+};

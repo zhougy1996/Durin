@@ -186,7 +186,7 @@ namespace Durin::MaterialEditor
 			FScopedTransaction Recording(Transactions, {"MaterialGraph", Description});
 			if (Transactions)
 			{
-				const auto Recorded = Transactions->StoreUndo(&Owner,
+				const auto Recorded = Transactions->StoreUndo(
 					MakeMaterialGraphPresentationTransaction(Owner, std::move(Changes), std::move(Description)));
 				if (!Recorded)
 				{
@@ -197,12 +197,6 @@ namespace Durin::MaterialEditor
 			// The validated candidate is published only after history accepts the edit.
 			const auto Result = WriteGraphPresentation(Owner, std::move(CandidatePresentation));
 			check(Result != EMaterialGraphPresentationResult::Rejected);
-			(void)Recording.End();
-			if (Transactions && Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
-			{
-				if (OutError) *OutError = FormatTransactorResult(Transactions->GetLastResult());
-				return false;
-			}
 			return true;
 		}
 	}

@@ -671,7 +671,6 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 				Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 				Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
 		}
-		ASSERT_TRUE(Scope.End());
 	}
 	ASSERT_EQ(Transactions->GetQueueLength(), 1u);
 	ASSERT_TRUE(Textures[1]->GetPackage()->IsDirty());
@@ -838,7 +837,6 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
         (void)Light->Modify();
         Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
         Light->SetIntensity(3);
-        ASSERT_TRUE(Scope.End());
     }
     ASSERT_TRUE(Transactions->Undo());
     EXPECT_EQ(Light->GetSourceMode(),ESkyLightSourceMode::SpecifiedCube);
@@ -999,7 +997,6 @@ TEST_F(FAssetPackageReloadTests, EditorDiscardPreservesReinstancedHistoryAndTran
 		ASSERT_TRUE(Texture->Modify());
 		Texture->SetBuildSettings(Texture->GetUsage(), !SavedSRGB, Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 			Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());
-		ASSERT_TRUE(Scope.End());
 	}
 	Cloud->SetWeatherTexture(Texture);
 	FAssetEditorSession Session;

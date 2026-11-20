@@ -4,7 +4,7 @@ Summary: Define detached property validation, stable edit targets, notifications
 
 Modules: DurinEd, CoreDObject
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-20
 
 ## Scope And Ownership
 
@@ -179,9 +179,13 @@ and `Cancel` return success as a boolean. Applying the current value succeeds
 and a no-op commit adds no undo record. The caller can supply a string output
 for diagnostics on failure. The view can surface a rejection as a short,
 non-modal notification and suppress repeated copies while it is visible.
-A failed commit or rollback leaves the edit active and keeps the reason visible
+A failed property validation, notification or rollback leaves the edit active and keeps the reason visible
 in the Details panel until retry succeeds. Python uses the failure text in its
 exceptions.
+
+A completed property write closes its session even when the buffer subsequently
+discards the entry or reports a publication failure. The buffer owns that
+diagnostic. Callers can independently check availability before starting another edit.
 
 The lifecycle is:
 
@@ -295,15 +299,12 @@ NonTransactional property metadata continues to exclude that property from
 history, including when ordinary recorded admission is selected. Local preview
 snapshots, validation and cancellation restoration remain available without history.
 
-The session opens one scope and admits each target through `RecordObjectForEdit`,
-then calls `Modify(false)` for native object/root behavior. Admission preserves
-the first canonical whole-object baseline, including fields authored by edit
-reactions, without serializing an already-recorded target again. Explicit
-business admission also supports eligible objects without the Transactional
-object flag and composes with declared native domain adapters. No focused
-history fallback or member-record update path remains. Commit ends that scope after the
-Committed notification; it records the already-applied value without a second
-write. An unchanged nested commit ends its action without canceling an enclosing
+The session opens one scope and calls `Modify(false)` before the first write.
+Recorded sessions enroll ordinary targets with the Transactional object flag.
+Template targets follow runtime eligibility. The first whole-object baseline
+includes edits made by change reactions. Repeated Modify calls reuse it.
+Commit ends the scope after the Committed notification and records the applied
+value. An unchanged nested commit ends its action without canceling an enclosing
 recording. Cancellation discards the shared native recording; preview restoration
 remains the edit session's separate responsibility. No-op/canceled Modify can
 leave a dirty package without a history entry.
@@ -317,8 +318,7 @@ rules belong to [Transaction records](../Transactions/TransactionRecords.md);
 ordering, rollback, and recovery belong to [Transactors](../Transactions/Transactors.md#structural-history-and-barriers).
 
 Editor object creation supplies `EObjectFlags::Transactional` for automatic
-whole-object capture. Explicit business admission also supports low-level targets
-without that object flag; the session does not add it. A snapshot member marked
+whole-object capture. A snapshot member marked
 `EPropertyFlags::NonTransactional` disables session history rather than selecting
 a different history backend. Object eligibility and property exclusion are distinct.
 

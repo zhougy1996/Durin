@@ -1474,7 +1474,8 @@ TEST(FActorMutationTests, LevelModifyPrimaryCameraAndActorPublicationShareOneSco
 	AActor* Added = nullptr;
 	{
 		FScopedTransaction Scope(F.Transactions.Get(), {"test", "Camera and publication"});
-		ASSERT_TRUE(RecordObjectForEdit(*F.Transactions.Get(), *Level));
+		Level->SetFlags(EObjectFlags::Transactional);
+		ASSERT_TRUE(Level->Modify(false));
 		Added = F.Editor.GetActorEditor()->SpawnActor(*Level, AActor::StaticClass(), "Added", {}, {false});
 		ASSERT_NE(Added, nullptr);
 		ASSERT_TRUE(Level->SetPrimaryCameraActor(Second));

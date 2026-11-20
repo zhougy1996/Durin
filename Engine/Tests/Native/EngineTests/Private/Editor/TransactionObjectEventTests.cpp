@@ -2,19 +2,18 @@
 
 using namespace Durin::Tests::ObjectState;
 
-TEST(FTransactionObjectEventTests, OrdinaryEditAdmissionKeepsDomainParticipantsAndRejectsForeignScopes)
+TEST(FTransactionObjectEventTests, MixedDomainCommandCapturesItsOwnerBeforeBinding)
 {
 	using namespace Durin; using namespace Durin;
-	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer, Other;
+	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "MixedDomainFields"));
-	EXPECT_FALSE(RecordObjectForEdit(*Buffer, *Target));
+	EXPECT_FALSE(Target->Modify(false));
 	int DomainValue = 1;
 	ASSERT_EQ(Buffer->Begin("test", "Domain and ordinary fields"), 0);
+	ASSERT_TRUE(Target->Modify(false));
 	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(DomainValue, 0, 1)));
-	ASSERT_TRUE(RecordObjectForEdit(*Buffer, *Target));
 	const auto Saves = Target->SerializationSaves;
-	ASSERT_TRUE(RecordObjectForEdit(*Buffer, *Target)); EXPECT_EQ(Target->SerializationSaves, Saves);
-	EXPECT_FALSE(RecordObjectForEdit(*Other, *Target)); EXPECT_EQ(Target->SerializationSaves, Saves);
+	ASSERT_TRUE(Target->Modify(false)); EXPECT_EQ(Target->SerializationSaves, Saves);
 	Target->Value = 9;
 	EXPECT_EQ(static_cast<FTransaction*>(GUndo)->GetRecordCount(), 2u);
 	EXPECT_EQ(Buffer->End(), 1);
@@ -32,8 +31,8 @@ TEST(FTransactionObjectEventTests, FailedReplayDoesNotPublishAnExternalReference
 	auto* Control = Change.get();
 	Control->bFailUndo = true;
 	ASSERT_EQ(Buffer->Begin("test", "Failed replay history"), 0);
-	ASSERT_TRUE(GUndo->StoreUndo(Target.Get(), std::move(Change)));
-	ASSERT_TRUE(RecordObjectForEdit(*Buffer, *Target));
+	ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
+	ASSERT_TRUE(Target->Modify(false));
 	Target->Value = 9;
 	EXPECT_EQ(Buffer->End(), 1);
 	auto* External = NewObject<DTransactionRecordParticipant>(nullptr, "ExternalReference");
@@ -136,7 +135,6 @@ TEST(FTransactionObjectEventTests, SynchronousEventsKeepContextAndRejectRecordin
 			EXPECT_EQ(Buffer->Begin("reentry", "reentry"), -1); EXPECT_EQ(Buffer->End(), 0);
 			Buffer->Cancel(); EXPECT_EQ(GUndo, Recording);
 			const auto Saves = Target->SerializationSaves; (void)Target->Modify(); EXPECT_EQ(Target->SerializationSaves, Saves);
-			EXPECT_FALSE(RecordObjectForEdit(*Buffer, *Target)); EXPECT_EQ(Target->SerializationSaves, Saves);
 			EXPECT_FALSE(Recording->EndOperation()); EXPECT_FALSE(Recording->Finalize());
 			EXPECT_FALSE(Recording->StoreUndo(Target.Get(), std::make_unique<FTestCustomChange>(Target->Value, 0, 99)));
 			EXPECT_EQ(Buffer->GetQueueLength(), 0u);
@@ -249,8 +247,7 @@ TEST(FTransactionObjectEventTests, WholeObjectSnapshotsObserveNativeDataAndKeepO
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "WholeSnapshots"));
 	std::vector<FTransactionObjectEvent> Events; Target->TransactionObserver = [&](const auto& Event) { Events.push_back(Event); };
 	ASSERT_EQ(Buffer->Begin("test", "Whole snapshot"), 0);
-	auto Record = FTransactionObjectRecord::CaptureWhole(*Target);
-	ASSERT_TRUE(Record); ASSERT_TRUE(FTransBufferTestAccess::Record(*Buffer, std::move(*Record)));
+	ASSERT_TRUE(Target->Modify(false));
 	Target->Value = 2; Target->NativeValue = 8;
 	ASSERT_TRUE(GUndo->SnapshotObject(Target.Get())); ASSERT_EQ(Events.size(), 1u);
 	EXPECT_GT(Target->SerializationSaves, 0); EXPECT_TRUE(Events.back().Change.bNonPropertyDataChanged);

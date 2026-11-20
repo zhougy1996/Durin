@@ -66,7 +66,6 @@ namespace Durin
             {
                 uint64 Id;
                 std::unique_ptr<FScopedTransaction> Native;
-                TWeakObjectPtr<DTransactor> Owner;
             };
             std::vector<FScope> Scopes;
 #if DURIN_WITH_PYTHON
@@ -256,17 +255,6 @@ namespace Durin
                     if (Descriptor.Name == Tool && (CurrentJob->Source != EToolSource::External || Descriptor.bExposeExternally)) return Descriptor;
             PyErr_SetString(ToolError, "Unknown, unavailable, or unexposed tool."); return {};
         }
-        auto FinishScope(FJob::FScope& Scope, bool Cancel) -> std::string
-        {
-            const bool Outstanding = Scope.Native->IsOutstanding();
-            if (Cancel) Scope.Native->Cancel(); else (void)Scope.Native->End();
-            auto* Owner = Scope.Owner.Get();
-            if (!Outstanding || !Owner) return {};
-            const auto& Result = Owner->GetLastResult();
-            if (Result.Code == ETransactorResultCode::Failed || Result.Code == ETransactorResultCode::RecoveryRequired
-                || Result.Code == ETransactorResultCode::Rejected) return FormatTransactorResult(Result);
-            return {};
-        }
         auto RequestImpl(PyObject*, PyObject* Args) -> PyObject*
         {
             const char* Operation; PyObject* Params;
@@ -300,7 +288,7 @@ namespace Durin
                 auto* Owner = CurrentEditor->GetTransactor();
                 auto Scope = std::make_unique<FScopedTransaction>(Owner, FTransactionContext{.Description = Description});
                 if (!Scope->IsOutstanding()) return Fail("The editor rejected transaction recording.");
-                CurrentJob->Scopes.push_back({Id, std::move(Scope), TWeakObjectPtr<DTransactor>(Owner)});
+                CurrentJob->Scopes.push_back({Id, std::move(Scope)});
                 return Py_BuildValue("KK", static_cast<unsigned long long>(CurrentJob->Id), static_cast<unsigned long long>(Id));
             }
             if (TransactionCleanup)
@@ -311,9 +299,9 @@ namespace Durin
                 const auto It = std::ranges::find(CurrentJob->Scopes, Id, [](const auto& Scope) { return Scope.Id; });
                 if (It != CurrentJob->Scopes.end())
                 {
-                    const auto Error = FinishScope(*It, Op == "transaction_cancel");
+                    auto Native = std::move(It->Native);
                     CurrentJob->Scopes.erase(It);
-                    if (!Error.empty()) { PyErr_SetString(PyExc_RuntimeError, Error.c_str()); return nullptr; }
+                    if (Op == "transaction_cancel") Native->Cancel();
                 }
                 Py_RETURN_NONE;
             }
@@ -575,8 +563,8 @@ namespace Durin
                     if (PyGC_Collect() < 0 || PyErr_Occurred()) { AppendError(Job, "Python reference cleanup failed: " + PythonError()); Success = false; }
                     while (!Job.Scopes.empty())
                     {
-                        const auto Error = FinishScope(Job.Scopes.back(), false); Job.Scopes.pop_back();
-                        if (!Error.empty()) { AppendError(Job, "Transaction cleanup failed: " + Error); Success = false; }
+                        auto Native = std::move(Job.Scopes.back().Native);
+                        Job.Scopes.pop_back();
                     }
                 }
                 else if (Ready)

@@ -1035,7 +1035,7 @@ def read():
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error; EXPECT_EQ("stopped\n", Result.Output);
     }
 
-    TEST_F(FPythonToolIntegrationTests, ScopeFinalCaptureFailureCannotPublishSuccessfulJob)
+    TEST_F(FPythonToolIntegrationTests, ScopeFinalCaptureFailureRemainsAHistoryDiagnostic)
     {
         TStrongObjectPtr<DSceneComponent> Object(NewObject<DSceneComponent>(nullptr, "FinalCaptureFailure", EObjectFlags::Transactional));
         Register(FToolSchema(EToolValueType::Object), true, [&](const auto& Request, const auto&) {
@@ -1049,12 +1049,19 @@ def edit():
     with durin.ScopedEditorTransaction('Fail final capture'):
         durin.tools.call('python.tests', 'echo', {})
         yield
+    print('continued after scope')
 )PY");
         Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
         ASSERT_TRUE(Host->GetTransactor()->IsActive());
         MarkObjectHierarchyAsGarbage(Object.Get()); Object.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         auto Result = Wait(Job);
-        EXPECT_EQ(EPythonJobState::Failed, Result.State); EXPECT_FALSE(Result.Error.empty());
+        EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
+        EXPECT_TRUE(Result.Error.empty());
+        EXPECT_EQ("continued after scope\n", Result.Output);
+        const auto& History = Host->GetTransactor()->GetLastResult();
+        EXPECT_EQ(ETransactorResultCode::Failed, History.Code);
+        ASSERT_NE(History.ApplyCause, nullptr);
+        EXPECT_FALSE(History.ApplyCause->Message.empty());
         EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
     }
 

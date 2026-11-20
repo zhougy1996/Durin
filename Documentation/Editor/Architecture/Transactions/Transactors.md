@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-11-20
 
 ## Service Ownership
 
@@ -77,8 +77,13 @@ panel contexts. Low-level property composition, material gestures and suspended
 script scopes retain explicit transactors where exact recording ownership is part of their contract.
 The explicit-transactor overload supports native composition and independent
 low-level buffer tests; it cannot open a competing concurrent recording.
-Cancel(), IsOutstanding() and optional End are retained, and destruction ends
-an outstanding action.
+The scope exposes Cancel() and IsOutstanding(). Destruction ends an outstanding
+action, matching UE 5.8. Use a lexical block or release an owned scope to end
+recording before the next operation. Native buffer management retains End()
+and its depth result. Ordinary edit results describe the applied model change.
+The buffer queues history publication failures for the main frame's error
+notification with the transaction description and diagnostic details. Recovery
+can block subsequent recording and replay.
 The editor management surface follows UE's ordinary call shapes: `Reset(Reason)`
 returns void, `ContainsPieObjects()` returns bool, and `GetUndoSize()` reports
 owned history bytes through `DTransactor`. `TryReset` and
@@ -87,7 +92,7 @@ them. A failed bool PIE inspection conservatively returns true. Runtime
 `ITransaction` capture/inspection remains checked so recording and replay never
 mistake a failed traversal for an empty reference set.
 Scope helpers retain a GC-visible exact transactor reference and its existing
-active transaction ID. End, Cancel, IsOutstanding and destruction first validate
+active transaction ID. Cancel, IsOutstanding and destruction first validate
 that same live recording. Cancel/End followed by a replacement Begin makes old
 helpers inert; their nested action count cannot close or cancel the replacement.
 Destroyed transactors invalidate helper cleanup. There is no public owner token,
@@ -171,6 +176,13 @@ package outcomes and event details after success. Skipped records retire in
 both directions. A package touched only by skipped records keeps its
 checkpoint. A package touched by both kinds is marked dirty and loses its
 saved checkpoint.
+
+Undo and Redo treat command detail strings as optional presentation data. A
+throwing detail provider emits a diagnostic and contributes an empty string;
+other records can still supply details. An unexpected exception from required
+replay work with uncertain effects enters RecoveryRequired and retains the
+unadvanced cursor. The buffer skips further command accounting callbacks while
+reporting such an exception.
 
 Idle and Recording accept ordinary composition through `CanTransact()` outside
 object capture and synchronous transaction callbacks.
@@ -304,19 +316,23 @@ submission does not execute the change or roll back a failed history submission;
 callers inspect the result. Within a live scope it joins the outer recording.
 StoreUndo never invokes Apply and accepts nested recording without an opt-in flag.
 
-Editor business entrypoints use `RecordObjectForEdit` when an ordinary serialized
-edit follows a domain command for the same participant. This Durin admission
-helper requires the owning live scope, game thread and an idle capture boundary;
-it rejects foreign services and transaction callback reentry. It reuses an
-existing canonical object record without another Serialize, or records one
-whole-object capture before mutation. Raw record insertion remains private.
-Core `Modify` retains UE's custom-object ownership rule; the explicit business
-gate must only accompany domain adapters that compose with serialized fields.
-Property sessions and transactional CallInEditor targets share this gate, then
-call `Modify` for native Actor/root behavior. NonTransactional CallInEditor
-targets still execute without gaining history, as with UE Modify. Actor Label,
-Actor/Component Name and existing-skybox texture
-assignment have no custom history class or executable editor-module dependency.
+During StoreUndo admission, standalone description lookup and command package
+and participant enumeration exclude reentrant recording changes. A metadata
+exception returns a failed submission. The buffer releases a recording it opened
+for this command or leaves the caller's outer recording active, with its prior
+records and retained history available. The caller still owns any business write
+it performed before submission.
+
+Ordinary editor writes call `Modify` on the target before mutation. An explicitly
+object-bound command suppresses subsequent whole-object capture for that owner.
+A command that needs both forms of replay captures the owner before binding its
+change. Commands that report affected objects without binding an owner leave
+those participants eligible for later ordinary edits, including single-participant
+commands. This permits sparse domain changes and staged graph edits to compose
+with ordinary changes without forcing an extra owner serialization. Material graph,
+presentation, parameter and configuration commands use this participant contract.
+Transactional CallInEditor targets and Actor/root edits use virtual Modify.
+NonTransactional CallInEditor targets can still execute without gaining history.
 
 The remaining custom commands have domain responsibilities beyond a field load:
 

@@ -172,15 +172,12 @@ namespace Durin::LevelEditor
 			if (Transactions)
 			{
 				if (!Recording.IsOutstanding()) return Reject(ESkyBoxPlacementError::Transaction);
-				const auto Record = RecordObjectForEdit(*Transactions, *Component);
-				if (!Record) return Reject(ESkyBoxPlacementError::Transaction);
+				Component->SetFlags(EObjectFlags::Transactional);
+				if (!Component->Modify(false)) return Reject(ESkyBoxPlacementError::Transaction);
 			}
 			Component->SetTextureCube(TextureCube);
 			auto* Property = Component->GetClass()->FindPropertyByName("TextureCube");
 			Component->PostEditChangeProperty({.MemberProperty = Property, .LeafProperty = Property});
-			(void)Recording.End();
-			if (Transactions && (Transactions->GetLastResult().Code == ETransactorResultCode::Failed
-				|| Transactions->GetLastResult().Code == ETransactorResultCode::RecoveryRequired)) return Reject(ESkyBoxPlacementError::Transaction);
 			if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();
 			return {.Actor = Actor, .bChanged = true};
 		}

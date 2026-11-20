@@ -3,7 +3,7 @@
 Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-20
 
 ## Ownership and Runtime
 
@@ -356,9 +356,10 @@ fail explicitly. Terminal publication follows native return, Python reference an
 scope cleanup. Completed jobs release their endpoint. Closing a session signals
 jobs; queued jobs have no interpreter references and can cancel immediately.
 Running/suspended jobs stop normal resumes and signal owned native work, then
-close generators/finally and End still-valid scopes on GameThread before terminal
-publication. Cleanup permits output and scope closure, rejects new work, and reports
-generator/transaction cleanup failures. Job-owned cyclic references are collected
+close generators/finally and release still-valid scopes on GameThread before terminal
+publication. Python scope exit returns None and preserves any exception from the
+`with` body. The transaction buffer reports history publication failures. Job
+cleanup reports generator and Python reference cleanup failures. Job-owned cyclic references are collected
 under this cleanup context, so finalizers cannot submit new editor work. Cancellation and explicit transaction Cancel
 remain different: neither promises rollback of applied edits.
 

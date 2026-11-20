@@ -11,8 +11,10 @@ namespace Durin
 {
 	struct FTransBufferTestAccess
 	{
-		static auto Record(DTransBuffer& Buffer, FTransactionObjectRecord Record) -> std::expected<uint64, FTransactorResult>
-		{ return static_cast<DTransactor&>(Buffer).Record(std::move(Record)); }
+		static auto AddCommand(FTransaction& Transaction, std::unique_ptr<FCommandChange> Change) -> void
+		{ Transaction.AddRecord(std::move(Change)); }
+
+		static auto CaptureIndex(const FTransaction& Transaction) { return Transaction.CaptureIndex.get(); }
 
 		static auto InitializeMemoryBudget(DTransBuffer& Buffer, size_t Bytes) -> void
 		{

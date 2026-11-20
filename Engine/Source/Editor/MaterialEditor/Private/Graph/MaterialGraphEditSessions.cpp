@@ -206,19 +206,18 @@ namespace Durin::MaterialEditor
 		if (Impl->BeforeValue == Impl->CurrentValue) return Impl->Finish();
 		if (Impl->Transactions && !Impl->Transactions->CanTransact())
 			return std::unexpected("The editor transactor is busy.");
-		FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
-		if (Impl->Transactions)
 		{
-			const auto Recorded = Impl->Transactions->StoreUndo(Material,
-				MakeMaterialGraphParameterTransaction(
-					*Material, Impl->ParameterId,
-					Impl->BeforeValue, Impl->CurrentValue));
-			if (!Recorded) return std::unexpected("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
+			FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
+			if (Impl->Transactions)
+			{
+				const auto Recorded = Impl->Transactions->StoreUndo(
+					MakeMaterialGraphParameterTransaction(
+						*Material, Impl->ParameterId,
+						Impl->BeforeValue, Impl->CurrentValue));
+				if (!Recorded) return std::unexpected("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
+			}
+			Material->MarkPackageDirty();
 		}
-		Material->MarkPackageDirty();
-		(void)Recording.End();
-		if (Impl->Transactions && Impl->Transactions->GetLastResult().Code == ETransactorResultCode::Failed)
-			return std::unexpected(FormatTransactorResult(Impl->Transactions->GetLastResult()));
 		return Impl->Finish();
 	}
 

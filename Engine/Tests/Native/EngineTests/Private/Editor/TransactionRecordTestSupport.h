@@ -412,8 +412,10 @@ namespace Durin::Tests::ObjectState
 		Buffer.SetPrimaryUndoObject(Context.PrimaryObject);
 		return {Index, Buffer.GetLastResult().TransactionId};
 	}
+	// Consume the scope so assertions can inspect the buffer after RAII completion.
+	inline void DestroyScope(Durin::FScopedTransaction) {}
 	inline auto EndRecording(Durin::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::FTransactorResult
-	{ (void)Scope.End(); return Buffer.GetLastResult(); }
+	{ DestroyScope(std::move(Scope)); return Buffer.GetLastResult(); }
 	inline auto CancelRecording(Durin::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::FTransactorResult
 	{ Scope.Cancel(); return Buffer.GetLastResult(); }
 	inline auto CancelRecording(Durin::DTransactor& Buffer, int32 Index) -> Durin::FTransactorResult

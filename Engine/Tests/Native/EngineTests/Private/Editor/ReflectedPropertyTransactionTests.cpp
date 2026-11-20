@@ -267,7 +267,7 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	EXPECT_FALSE(Package->IsDirty());
 }
 
-TEST(FReflectedPropertyEditSessionTests, FocusedFallbackPreservesInitialPackageDirtyState)
+TEST(FReflectedPropertyEditSessionTests, RecordedEditEnrollsOrdinaryTargetAndRestoresInitialPackageDirtyState)
 {
 	for (const bool bInitiallyDirty : {false, true})
 	{
@@ -289,8 +289,8 @@ TEST(FReflectedPropertyEditSessionTests, FocusedFallbackPreservesInitialPackageD
 		Durin::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Object, Property),
 			"Edit Focused Value", *Transactions.Get()));
-		EXPECT_EQ(Package->IsDirty(), bInitiallyDirty);
-		EXPECT_FALSE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Transactional));
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_TRUE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Transactional));
 		ASSERT_TRUE(Session.Apply(Proposed));
 		ASSERT_TRUE(Session.Commit());
 		EXPECT_TRUE(Package->IsDirty());

@@ -4,7 +4,7 @@ Summary: Define whole-object and array operation records, collector ownership, a
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-20
 
 ## Scope
 
@@ -36,8 +36,8 @@ Bound custom records retain an exact owning object for UE-style per-object
 recording and object summaries. Custom changes declare modified objects through
 Core's `FCommandChange::GetModifiedObjects`; records freeze and deduplicate exact
 identities for summaries, replay hooks, GC retention and package effects. A
-single declared participant binds an otherwise unbound custom record. Composite
-membership does not by itself claim exclusive whole-object capture. Both must
+sole participant supplies the target for expiry checks on an unbound command.
+Only an explicitly bound owner suppresses later whole-object capture. Commands must
 report hard dependencies, modified packages, native owned allocations, and the
 module whose executable code/deleter they retain. Collector-only dependencies
 receive no object completion hooks. See
@@ -97,10 +97,15 @@ retains only hard identities actually serialized by that transaction archive.
 ## Whole-Object Records
 
 `FTransactionObjectRecord::CaptureWhole` captures virtual Serialize, metadata and
-supplemental annotation before an edit. The transactor coalesces records by exact
-object identity across nested scopes and captures final live state at outermost
-End. Property editing uses the same whole-object path even when Modify does not
-capture an ordinary object. Interactive drafts remain property-editor values;
+supplemental annotation before an edit. During recording, a hash index keyed by
+persistent object identity stores the position of the first whole-object record.
+Nested scopes share this index. Array records establish participation and retain
+their individual positions in the ordered record list. Custom commands index each
+declared participant by exact generation; only the bound primary object suppresses
+ordinary whole-object capture. Snapshot requests use the indexed whole record.
+The outermost End captures final live state and releases the index. Retained
+history uses the ordered records for replay, reference collection, membership
+queries and controlled replacement. Recorded property edits use virtual Modify. Interactive drafts remain property-editor values;
 there is no separate focused history, field locator, promotion or record-update
 API. Selected `SnapshotObject` calls affect observation only.
 

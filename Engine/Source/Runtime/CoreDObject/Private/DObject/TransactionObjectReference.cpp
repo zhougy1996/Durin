@@ -49,6 +49,20 @@ namespace Durin
 		return Result;
 	}
 
+	auto FPersistentObjectRef::GetHash() const noexcept -> size_t
+	{
+		size_t Hash = Root.GetHash();
+		auto Combine = [&](size_t Part) { Hash ^= Part + 0x9e3779b9 + (Hash << 6) + (Hash >> 2); };
+		for (const auto& Entry : Hierarchy)
+		{
+			Combine(std::hash<FName>{}(Entry.Name));
+			Combine(Entry.Class.GetHash());
+			Combine(Entry.bClassDefault);
+			Combine(Entry.bDefaultSubobject);
+		}
+		return Hash;
+	}
+
 	auto FPersistentObjectRef::Resolve() const -> DObject*
 	{
 		DObject* Object = ResolveObjectKey(Root);

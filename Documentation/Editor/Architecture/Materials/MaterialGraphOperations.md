@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-19
+Last reviewed: 2026-11-20
 
 ## Task routing
 
@@ -664,7 +664,10 @@ validation remain typed in Engine and are formatted at the editor boundary.
 Failed graph history admission restores the original graph without publishing
 revisions. A subsequent valid commit can be undone. Assignment retains scope
 rollback, including after a valid retry following a class mismatch. Snapshot,
-property-copy and history failures include their underlying formatted explanation.
+property-copy and history admission failures include their underlying formatted
+explanation. After admission and a successful model write, scope destruction
+publishes history. A publication failure leaves the authored graph edit applied
+and is reported by the transactor.
 
 A failed parameter gesture commit keeps its preview and session active, allowing
 cancellation or retry, without marking the package dirty. A failed move commit

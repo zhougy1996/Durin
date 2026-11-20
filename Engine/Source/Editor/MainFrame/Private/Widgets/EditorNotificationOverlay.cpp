@@ -106,14 +106,14 @@ namespace Durin::MainFrame
 			ImGui::PopStyleColor(4);
 		}
 
-		auto FailureOperation(ETransactionOperation Operation) -> std::string_view
+		auto TransactionErrorTitle(ETransactionOperation Operation) -> std::string_view
 		{
 			switch (Operation)
 			{
-			case ETransactionOperation::Undo: return "undo";
-			case ETransactionOperation::Redo: return "redo";
+			case ETransactionOperation::Undo: return "Failed to undo";
+			case ETransactionOperation::Redo: return "Failed to redo";
 			case ETransactionOperation::Execute:
-			default: return "execute";
+			default: return "Transaction error in";
 			}
 		}
 	}
@@ -467,7 +467,7 @@ namespace Durin::MainFrame
 			if (Event.Type == ETransactionEventType::Failed)
 			{
 				Desc.Type = ENotificationType::Error;
-				Desc.Message = std::format("Failed to {} {}", FailureOperation(Event.Operation), Event.Description);
+				Desc.Message = std::format("{} {}", TransactionErrorTitle(Event.Operation), Event.Description);
 				Desc.Details = Event.Details;
 				Desc.DurationSeconds = 0.0f;
 				Notifications.Post(std::move(Desc));

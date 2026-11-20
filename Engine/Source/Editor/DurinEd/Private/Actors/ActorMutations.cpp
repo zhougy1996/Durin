@@ -398,11 +398,10 @@ namespace Durin
 			if (bMakeUnique) Resolved = Level.MakeUniqueActorLabel(Resolved, Actor);
 			if (Actor->GetActorLabel() == Resolved) return true;
 			FScopedTransaction Recording(Transactions, {"ActorLabel", "Set actor label", Actor});
-			if (!Recording.IsOutstanding() || !RecordObjectForEdit(*Transactions, *Actor)) return false;
-			if (!Actor->SetActorLabel(Resolved)) return false;
-			(void)Recording.End();
-			return Transactions->GetLastResult().Code != ETransactorResultCode::Failed
-				&& Transactions->GetLastResult().Code != ETransactorResultCode::RecoveryRequired;
+			if (!Recording.IsOutstanding()) return false;
+			Actor->SetFlags(EObjectFlags::Transactional);
+			if (!Actor->Modify(false)) return false;
+			return Actor->SetActorLabel(Resolved);
 		});
 	}
 
@@ -418,11 +417,10 @@ namespace Durin
 			if (Name.IsNone()) return false;
 			if (Actor->GetFName() == Name) return true;
 			FScopedTransaction Recording(Transactions, {"ActorRename", "Rename actor", Actor});
-			if (!Recording.IsOutstanding() || !RecordObjectForEdit(*Transactions, *Actor)) return false;
-			if (!Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull)) return false;
-			(void)Recording.End();
-			return Transactions->GetLastResult().Code != ETransactorResultCode::Failed
-				&& Transactions->GetLastResult().Code != ETransactorResultCode::RecoveryRequired;
+			if (!Recording.IsOutstanding()) return false;
+			Actor->SetFlags(EObjectFlags::Transactional);
+			if (!Actor->Modify(false)) return false;
+			return Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull);
 
 		});
 	}

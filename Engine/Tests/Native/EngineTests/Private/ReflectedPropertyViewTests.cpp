@@ -1486,6 +1486,9 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 	using namespace Durin;
 	auto& Reflection = GetPropertyViewHostTestReflection();
 	auto* Object = NewObject<DPropertyViewHostTestObject>(nullptr, "TypedObjectRecord");
+	FTransaction History(42, {.Description = "Historical property state"});
+	ASSERT_TRUE(History.BeginOperation());
+	History.SaveObject(Object);
 	TStrongObjectPtr<DObject> Root(Object);
 	auto Captured = FTransactionObjectRecord::CaptureWhole(*Object);
 	ASSERT_TRUE(Captured);
@@ -1507,8 +1510,8 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 		}});
 	ASSERT_TRUE(Record.Apply(false, EPropertyChangeOrigin::Redo));
 	EXPECT_EQ(Object->Value, 6);
-	FTransaction History(42, {.Description = "Historical property state"});
-	History.AddRecord(Record);
+	ASSERT_TRUE(History.Finalize());
+	ASSERT_TRUE(History.EndOperation());
 	ASSERT_TRUE(History.Apply(true, EPropertyChangeOrigin::Undo));
 	EXPECT_EQ(Object->Value, 5);
 	ASSERT_TRUE(History.Apply(false, EPropertyChangeOrigin::Redo));
