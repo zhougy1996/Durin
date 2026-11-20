@@ -1048,6 +1048,20 @@ TEST_F(FThumbnailVulkanTests, TexturePreviewPreservesRawChannelsSrgbAndAspectRat
 	});
 	FlushRenderingCommands();
 	ASSERT_NE(Input, nullptr);
+	{
+		FTexturePreview Preview;
+		Preview.SetTexture(Input, 64, 64);
+		ASSERT_FALSE(Preview.IsValid());
+		Tests::FThumbnailTestUIBackend Backend;
+		Tests::FScopedActiveUIBackend BackendScope(Backend);
+		ASSERT_TRUE(WaitForResourcePublication([&] {
+			Preview.SetTexture(Input, 64, 64);
+			return Preview.IsValid();
+		}));
+		EXPECT_EQ(Backend.NumRegistered(), 1u);
+		Preview.Release();
+		EXPECT_EQ(Backend.NumRegistered(), 0u);
+	}
 	FThumbnailCapture Pool(Contract.Output);
 	for (const auto Channel : {ETexturePreviewChannel::RGBA, ETexturePreviewChannel::Blue, ETexturePreviewChannel::Alpha})
 	{

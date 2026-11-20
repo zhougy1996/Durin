@@ -86,6 +86,8 @@ namespace Durin
 		};
 
 		FTexturePreviewRendererState GTexturePreviewRendererState;
+		// Keep the asynchronous shader request alive across interactive preview frames.
+		std::optional<FShaderMapPreparation> GInteractiveTexturePreviewShaders;
 
 		auto MakeTexturePreviewRenderTargetLayout() -> FRHIRenderTargetLayout
 		{
@@ -413,7 +415,11 @@ namespace Durin
 		FTexturePreviewOptions Options) -> void
 	{
 		if (UploadedTexture == Texture && PreviewWidth == Width && PreviewHeight == Height
-			&& DisplayOptions == Options) return;
+			&& DisplayOptions == Options)
+		{
+			if (!DisplayTexture) RefreshDisplayTexture();
+			return;
+		}
 		Release();
 		UploadedTexture = std::move(Texture);
 		PreviewWidth = Width;
@@ -426,6 +432,9 @@ namespace Durin
 	{
 		UnregisterDisplayTexture();
 		if (!UploadedTexture || !Mona::GetActiveUIBackend()) return;
+		if (!GInteractiveTexturePreviewShaders)
+			GInteractiveTexturePreviewShaders = FShaderMapPreparation::Request("DurinEd", {"DurinEd.TexturePreview"});
+		if (!GInteractiveTexturePreviewShaders->Poll().value_or(false)) return;
 		FTextureRHIRef Output;
 		const auto Input = UploadedTexture;
 		const auto Options = DisplayOptions;
@@ -462,6 +471,7 @@ namespace Durin
 
 	auto FTexturePreview::ReleaseSharedResources() -> void
 	{
+		GInteractiveTexturePreviewShaders.reset();
 		if (!GDynamicRHI)
 		{
 			GTexturePreviewRendererState.Slot.Reset();
