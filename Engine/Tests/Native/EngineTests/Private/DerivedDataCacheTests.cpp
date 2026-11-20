@@ -3,7 +3,6 @@
 #include "BuildCacheRecordPrivate.h"
 #include "BuildSchedulerPrivate.h"
 #include "CacheBackend.h"
-#include "CacheRecordFixtureCodec.h"
 #include "CacheStorageOwnership.h"
 #include "CacheDiagnosticsPrivate.h"
 #include "DerivedDataCache/DerivedDataCacheDiagnostics.h"
@@ -1227,72 +1226,6 @@ TEST(FCacheStorageTests, BucketIdentityRemainsStableAsRegistryGrows)
 	EXPECT_EQ(Original.ToString().data(), Identity);
 	EXPECT_EQ(Repeated, Original);
 	EXPECT_EQ(Repeated.ToString().data(), Identity);
-}
-
-TEST(FCacheTests, RejectsDamagedRawAndCompressedRecordsWithoutAStorageEnvelope)
-{
-	FScopedCacheDirectory Directory("CacheContentValidation");
-	const FCacheKey Key = MakeKey(FCacheBucket::FromString("Test/Objects"), 'f');
-	FBuildOutputBuilder Builder("Fixture.Output", 1);
-	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"),
-		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
-	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
-	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
-	ASSERT_TRUE(Record);
-	auto Raw = FCacheRecordFixtureCodec::Encode(*Record, 4096); ASSERT_TRUE(Raw);
-	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
-	const auto Path = Directory.Root / "Test" / "Objects" / "ff"
-		/ (std::string(32, 'f') + ".bin");
-	for (const auto& Encoded : {*Raw, *Compressed})
-	{
-		ASSERT_TRUE(GetCacheStorage().Put({Key, Encoded, 4096}));
-		auto Stored = FFileHelper::LoadFileToArray(Path); ASSERT_TRUE(Stored);
-		EXPECT_TRUE(std::ranges::equal(*Stored, Encoded.GetBytes()));
-		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, Encoded, {}, 4096); ASSERT_TRUE(Loaded);
-		Stored->back() ^= std::byte{1};
-		ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Stored, Path));
-		auto Result = FCacheRecordFixtureCodec::Decode(Key, FSharedByteBuffer::Take(*Stored), {}, 4096);
-		ASSERT_FALSE(Result);
-		EXPECT_EQ(Result.error().Code, ECacheError::Corrupt);
-		EXPECT_FALSE(Result.error().Diagnostic.empty());
-		FByteBuffer Truncated(Encoded.begin(), Encoded.end() - 1);
-		ASSERT_TRUE(GetCacheStorage().Put({Key, Truncated, 4096}));
-		auto Short = FCacheRecordFixtureCodec::Decode(Key, FSharedByteBuffer::Copy(Truncated), {}, 4096); ASSERT_FALSE(Short);
-		EXPECT_EQ(Short.error().Code, ECacheError::Corrupt);
-		FByteBuffer Appended(Encoded.begin(), Encoded.end());
-		Appended.push_back(std::byte{0});
-		ASSERT_TRUE(GetCacheStorage().Put({Key, Appended, 4096}));
-		auto Long = FCacheRecordFixtureCodec::Decode(Key, FSharedByteBuffer::Copy(Appended), {}, 4096); ASSERT_FALSE(Long);
-		EXPECT_EQ(Long.error().Code, ECacheError::Corrupt);
-	}
-}
-
-TEST(FCacheTests, RejectsLegacyStorageEnvelopesAndReplacesThemOnPut)
-{
-	FScopedCacheDirectory Directory("CacheLegacyEnvelope");
-	const FCacheKey Key = MakeKey(FCacheBucket::FromString("Test/Objects"), 'f');
-	FBuildOutputBuilder Builder("Fixture.Output", 1);
-	ASSERT_TRUE(Builder.AddValue(FValueId::FromName("Data"),
-		FSharedByteBuffer::Take(Bytes({1, 2, 3, 4}))));
-	auto Output = std::move(Builder).Build(); ASSERT_TRUE(Output);
-	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
-	ASSERT_TRUE(Record);
-	auto Raw = FCacheRecordFixtureCodec::Encode(*Record, 4096); ASSERT_TRUE(Raw);
-	auto Compressed = FCacheRecordFixtureCodec::CompressEncoded(*Raw, 4096); ASSERT_TRUE(Compressed);
-	FBinaryWriter Legacy;
-	Legacy.WriteHeader({0x43444444, 1, 1});
-	Legacy.WriteU64(Compressed->GetSize());
-	Legacy.WriteHash128(FXxHash128::HashBuffer(Compressed->GetBytes()));
-	Legacy.WriteBytes(Compressed->GetBytes());
-	ASSERT_TRUE(GetCacheStorage().Put({Key, Legacy.GetBytes(), 4096}));
-	auto Rejected = GetCacheBackend().Get({Key, {}, 4096});
-	ASSERT_TRUE(Rejected);
-	EXPECT_FALSE(*Rejected); // Legacy namespaces are cold misses, never decoded.
-	ASSERT_TRUE(GetCacheBackend().Put({.Record = *Record, .MaximumEncodedBytes = 4096, .Policy = Durin::DerivedData::ECachePolicy::Store}));
-	auto Loaded = GetCacheBackend().Get({Key, {}, 4096});
-	ASSERT_TRUE(Loaded);
-	ASSERT_TRUE(*Loaded);
-	EXPECT_TRUE(Durin::DerivedData::Private::ReadBuildOutput(Key, (**Loaded)));
 }
 
 TEST(FCacheStorageTests, RejectsOversizedAndNonregularStoredEntries)

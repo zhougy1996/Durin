@@ -1,7 +1,5 @@
 #include "HAL/FileManager.h"
 #include "MetalShaderFormat.h"
-#include "BuildCacheRecordPrivate.h"
-#include "CacheRecordFixtureCodec.h"
 #include "ShaderOutputTestSupport.h"
 #include <gtest/gtest.h>
 #include "NativeRHIBackendTestSupport.h"
@@ -988,20 +986,10 @@ void ComputeMain(uint3 id : SV_DispatchThreadID)
             EXPECT_EQ(Binding->BindingIndex, 11u);
             EXPECT_NE(*Binding, *FindBinding(Original.CompiledShaders[Index], "Params"));
         }
-        // Persist the actual compiler allocation, then replay without another compile.
+        // Carry the actual compiler allocation through shared output and the cooked library.
         auto Shared = Testing::WriteShaderOutput(Options, Relocated);
         ASSERT_FALSE(Shared.GetValues().empty());
-        const auto CacheKey = DerivedData::FCacheKey::FromHash(
-            DerivedData::FCacheBucket::FromString("ContactAllocation"), FXxHash128::HashBuffer("relocated"));
-        auto CacheRecord = DerivedData::Private::MakeBuildCacheRecord(CacheKey, Shared);
-        ASSERT_TRUE(CacheRecord);
-        auto RecordBytes = DerivedData::FCacheRecordFixtureCodec::Encode(*CacheRecord);
-        ASSERT_TRUE(RecordBytes);
-        auto LoadedRecord = DerivedData::FCacheRecordFixtureCodec::Decode(CacheKey, *RecordBytes);
-        ASSERT_TRUE(LoadedRecord);
-        auto Cached = DerivedData::Private::ReadBuildOutput(CacheKey, *LoadedRecord);
-        ASSERT_TRUE(Cached);
-        auto Warm = ShaderSharedOutput::Assemble(Options, *Cached);
+        auto Warm = ShaderSharedOutput::Assemble(Options, Shared);
         ASSERT_TRUE(Warm) << FormatShaderCompilerErrors(Warm.Errors);
         for (size_t Index = 0; Index < 3; ++Index)
             EXPECT_EQ(Warm.CompiledShaders[Index].Reflection.ResourceBindings,

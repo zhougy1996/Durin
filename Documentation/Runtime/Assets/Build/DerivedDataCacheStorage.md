@@ -169,10 +169,8 @@ occur only with all readers, writers, and editors stopped. Orphan-retention,
 publication-failure, and concurrent read/write tests cover the current policy.
 
 Legacy namespaces are cold misses with no compatibility read or rewrite path.
-The historical schema-2 whole-record codec is available only through the private
-`CacheRecordFixtureCodec.h` test fixture boundary. Public record APIs expose only generic records and values. Build interpretation lives
-in its private adapter; manifests, compression, attachment namespace/versioning,
-and historical fixture formats remain private.
+Public record APIs expose generic records and values. Private adapters interpret
+build records and implement manifests, compression, and attachment versioning.
 
 ## Bounded diagnostics
 

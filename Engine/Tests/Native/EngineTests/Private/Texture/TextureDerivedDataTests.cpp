@@ -1,7 +1,6 @@
 #include "DerivedDataRequestOwner.h"
 #include "BuildCacheRecordPrivate.h"
 #include "CacheBackend.h"
-#include "CacheRecordFixtureCodec.h"
 #include "Runtime/Engine/Private/Texture/TextureBuildInternal.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataBuild.h"
 #include "DerivedDataBuildSession.h"
@@ -836,45 +835,6 @@ TEST(FTextureDerivedDataTests, AbandonedOutputAndFailedPersistenceDoNotChangeBlo
 	EXPECT_EQ(Source.Mips[0].Pixels.data(), Address);
 	EXPECT_TRUE(Source.IsValid());
 }
-
-TEST(FTextureDerivedDataTests, DecodedCacheRecordsAssembleSharedMipsWithIdenticalCookBytes)
-{
-	using namespace Durin;
-	const auto Source = MakePlatformData();
-	FByteBuffer Expected;
-	std::string Error;
-	ASSERT_TRUE(StorePlatformDataValue(Source, Expected, Error)) << Error;
-	auto Output = TexturePrivate::MakeTexture2DSharedOutput(Source, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Output);
-	const auto Key = DerivedData::FCacheKey::FromHash(DerivedData::FCacheBucket::FromString("TextureOutputFixture"), FXxHash128::HashBuffer("encoded"));
-	auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, *Output);
-	ASSERT_TRUE(Record);
-	auto Raw = DerivedData::FCacheRecordFixtureCodec::Encode(*Record);
-	ASSERT_TRUE(Raw);
-	for (bool bCompress : {false, true})
-	{
-		auto Stored = bCompress ? DerivedData::FCacheRecordFixtureCodec::CompressEncoded(*Raw) : Raw;
-		ASSERT_TRUE(Stored);
-		auto LoadedRecord = DerivedData::FCacheRecordFixtureCodec::Decode(Key, *Stored);
-		ASSERT_TRUE(LoadedRecord);
-		auto Loaded = Durin::DerivedData::Private::ReadBuildOutput(Key, *LoadedRecord);
-		ASSERT_TRUE(Loaded);
-		auto Product = TexturePrivate::AssembleTexture2DSharedOutput(*Loaded, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-		ASSERT_TRUE(Product);
-		for (size_t Index = 0; Index < Product->Mips.size(); ++Index)
-		{
-			const auto* Value = Loaded->FindValue(DerivedData::FValueId::FromName("Durin.Texture2D.Mip").MakeIndexed(uint32(Index)));
-			ASSERT_NE(Value, nullptr);
-			EXPECT_EQ(Product->Mips[Index].Pixels.data(), Value->GetData().data());
-			EXPECT_EQ(Product->Mips[Index].Pixels.SharesStorageWith(*Stored), !bCompress);
-		}
-		Stored = FSharedByteBuffer{}; LoadedRecord = DerivedData::FCacheRecord{}; Loaded = DerivedData::FBuildOutput{};
-		FByteBuffer Actual;
-		ASSERT_TRUE(StorePlatformDataValue(*Product, Actual, Error)) << Error;
-		EXPECT_EQ(Actual, Expected);
-	}
-}
-
 
 TEST(FTexturePlatformSharedOutputTests, CubeAndVolumeRetainBlocksAndPreserveCookBytes)
 {

@@ -125,8 +125,8 @@ conversions validate structure and budgets without rehashing immutable values.
 Cache records own independent immutable schema, value, metadata, and message
 tables, retaining shared payload allocations rather than wrapping build outputs.
 `RemoveValueData` produces a descriptor-only record without changing its source.
-Such a record cannot convert to a complete build output or encode with the
-schema-2 codec; full-record cache requests continue to return resident values.
+A complete build output requires the resident values returned by a full-record
+cache request.
 Metadata is keyed by `FValueId` and stored as owned bounded
 Compact Binary objects.
 Assembly metadata is deterministic and persisted. `AddObservation` records

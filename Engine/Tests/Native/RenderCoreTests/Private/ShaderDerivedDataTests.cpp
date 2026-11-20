@@ -1,5 +1,4 @@
 #include "BuildCacheRecordPrivate.h"
-#include "CacheRecordFixtureCodec.h"
 #include "MetalShaderFormat.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "ShaderBuild/ShaderPaths.h"
@@ -297,7 +296,7 @@ namespace Durin
 			(std::array<uint32, 3>{8, 4, 2}));
 	}
 
-	TEST_F(FShaderDerivedDataTests, SuccessfulDiagnosticsSurvivePersistentCacheRoundTrip)
+	TEST_F(FShaderDerivedDataTests, SuccessfulDiagnosticsSurviveCacheRecordConversion)
 	{
 		using namespace DerivedData;
 		auto Product = MakeOutput(); Product.AddDiagnostics("/Test/Main.slang(12): warning: first\nwarning: second");
@@ -306,11 +305,7 @@ namespace Durin
 		const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("ShaderDiagnostics"), FXxHash128::HashBuffer("diagnostics"));
 		auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, Built);
 		ASSERT_TRUE(Record);
-		auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
-		// Captured from the schema-8 producer before it wrote directly to the build context.
-		EXPECT_EQ(FXxHash128::HashBuffer(Encoded->GetBytes()).ToString(), "b04062199e939eadd74af35c1c51dcbe");
-		auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
-		auto Cached = Durin::DerivedData::Private::ReadBuildOutput(Key, *Loaded);
+		auto Cached = Durin::DerivedData::Private::ReadBuildOutput(Key, *Record);
 		ASSERT_TRUE(Cached);
 		auto Restored = ShaderSharedOutput::Assemble(MakeOptions(), *Cached); ASSERT_TRUE(Restored);
 		ASSERT_EQ(Restored.Errors.size(), 2u); EXPECT_EQ(Restored.Errors[0].ErrorVirtualFilePath, "/Test/Main.slang");
@@ -689,34 +684,6 @@ namespace Durin
 		auto RejectedMetadata = ShaderSharedOutput::Assemble(Options, *WrongMetadata);
 		ASSERT_FALSE(RejectedMetadata);
 		EXPECT_EQ(RejectedMetadata.Status, EShaderBuildStatus::Error); EXPECT_FALSE(RejectedMetadata.Errors.empty());
-	}
-
-	TEST_F(FShaderDerivedDataTests, SharedOutputRetainsRawAndCompressedRecordCodeWithoutPackageChanges)
-	{
-		using namespace DerivedData;
-		const auto Options = MakeOptions();
-		for (bool Compressed : {false, true})
-		{
-			auto Product = MakeOutput();
-			for (auto& Shader : Product.CompiledShaders) Shader.DebugName = Options.VirtualShaderPath + "::" + Shader.SourceEntryPoint;
-			FByteBuffer Before; ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, Product, Before));
-			auto Output = Testing::WriteShaderOutput(Options, Product); ASSERT_FALSE(Output.GetValues().empty());
-			const auto Key = FCacheKey::FromHash(FCacheBucket::FromString("ShaderOutputFixture"), FXxHash128::HashBuffer("shader"));
-			auto Record = Durin::DerivedData::Private::MakeBuildCacheRecord(Key, Output);
-			ASSERT_TRUE(Record);
-			auto Encoded = FCacheRecordFixtureCodec::Encode(*Record); ASSERT_TRUE(Encoded);
-			if (Compressed) Encoded = FCacheRecordFixtureCodec::CompressEncoded(*Encoded);
-			ASSERT_TRUE(Encoded);
-			auto Loaded = FCacheRecordFixtureCodec::Decode(Key, *Encoded); ASSERT_TRUE(Loaded);
-			auto Warm = Durin::DerivedData::Private::ReadBuildOutput(Key, *Loaded);
-			ASSERT_TRUE(Warm);
-			const auto* Code = Warm->FindValue(ShaderValueId(0, false))->GetData().data();
-			auto Assembled = ShaderSharedOutput::Assemble(Options, *Warm); ASSERT_TRUE(Assembled);
-			EXPECT_EQ(Assembled.CompiledShaders[0].Code.data(), Code);
-			Warm = FBuildOutput{}; Loaded = FCacheRecord{}; Encoded = FSharedByteBuffer{};
-			FByteBuffer After; ASSERT_TRUE(ShaderCompiledOutput::Encode(Options, Assembled, After));
-			EXPECT_EQ(Before, After);
-		}
 	}
 
 	TEST_F(FShaderDerivedDataTests, LateEncodingFailurePublishesOnlyTransientDiagnostics)
