@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+from unittest import mock
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -9,6 +10,7 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(ROOT / "Engine/Source/Programs/DurinHeaderTool"))
 from durin_header_tool import config as configs, io as utils
+from durin_header_tool.cli.main import main
 from durin_header_tool.config import plugin_build
 from durin_header_tool.config.plugin_config import resolve_plugins
 from durin_header_tool.generators.project_cmake_file_generator import generate_project_cmake_file
@@ -145,3 +147,35 @@ def test_build_discovers_plugins_in_other_workspace_projects(workspace):
     watch = f'"{(other.parent / "Plugins").as_posix()}/*"'
     assert watch in utils.get_project_cmake_file_path("Other").read_text()
     assert watch not in utils.get_project_cmake_file_path("Game").read_text()
+
+
+def test_workspace_preparation_loads_once_and_cleans_only_owned_variant(workspace, monkeypatch):
+    game = workspace / "Game/Game.dproject"
+    other = workspace / "Other/Other.dproject"
+    module = other.parent / "Source/Dormant/Dormant.dmodule"
+    module.parent.mkdir(parents=True)
+    module.write_text('{"ModuleName":"Dormant"}', encoding="utf-8")
+    other.write_text(json.dumps(dict(ProjectName="Other", BaseModules=[],
+                                     ModuleDirs={"Dormant": "Source/Dormant"})), encoding="utf-8")
+    stale = other.parent / "Intermediate/Build/Win64/DurinEditor/Dormant"
+    retained = [
+        other.parent / "Intermediate/Build/Win64/DurinGame/Dormant",
+        game.parent / "Intermediate/Build/Win64/DurinEditor/Dormant",
+    ]
+    for directory in [stale, *retained]:
+        directory.mkdir(parents=True)
+    monkeypatch.setattr(configs, "TOOL_FINGERPRINT", "")
+    monkeypatch.setattr(configs, "NATIVE_LIBCLANG_FINGERPRINT", "")
+    monkeypatch.setattr(sys, "argv", [
+        "DurinHeaderTool", "prepare_workspace_build",
+        "--project-file", str(game), "--project-file", str(other),
+    ])
+
+    with mock.patch.object(configs, "init_configs", wraps=configs.init_configs) as init_configs:
+        main()
+
+    init_configs.assert_called_once_with([game, other])
+    assert all(utils.get_project_cmake_file_path(name).is_file() for name in ("Game", "Other"))
+    assert not utils.get_project_cmake_file_path("Engine").exists()
+    assert not stale.exists()
+    assert all(directory.is_dir() for directory in retained)

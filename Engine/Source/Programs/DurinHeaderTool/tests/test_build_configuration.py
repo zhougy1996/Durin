@@ -17,10 +17,12 @@ if str(ROOT) not in sys.path:
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from durin_header_tool.cli.command import (
+    _project_output_lock_paths,
     add_common_arguments,
     generate_module_export_file,
     generate_reflection_files,
     prepare_project_build,
+    prepare_workspace_build,
     setup_parser,
 )
 from durin_header_tool.cli.main import _get_output_lock_paths, init_logging
@@ -305,11 +307,8 @@ class TestIntermediateLayout:
         assert _get_output_lock_paths(export_args) == [utils.get_dht_module_lock_file_path("Core")]
 
     def test_project_preparation_locks_metadata_and_all_owned_modules(self):
-        project_file = configs.environment.DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
-        lock_paths = _get_output_lock_paths(
-            SimpleNamespace(function="prepare_project_build", project=project_file)
-        )
         engine_config = configs.get_project_config("Engine")
+        lock_paths = _project_output_lock_paths(engine_config)
 
         assert lock_paths[0] == utils.get_dht_project_lock_file_path("Engine")
         assert lock_paths[1:] == [
@@ -359,6 +358,7 @@ class TestIntermediateLayout:
         ("arguments", "expected_function"),
         [
             (["prepare_project_build", "--project", "Engine.dproject"], prepare_project_build),
+            (["prepare_workspace_build", "--project-file", "Engine.dproject"], prepare_workspace_build),
             (["generate_module_export_file", "--module", "Core"], generate_module_export_file),
             (["generate_reflection_files", "--module", "Core"], generate_reflection_files),
         ],

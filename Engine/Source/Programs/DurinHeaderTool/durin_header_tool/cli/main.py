@@ -15,20 +15,6 @@ def init_logging(log_level_str: str, *, quiet: bool = False):
 
 
 def _get_output_lock_paths(args):
-    if args.function == "prepare_project_build":
-        project_config = configs.load_project_config_file(args.project)
-        # Preparation may delete disabled module directories, so it takes both
-        # the project metadata lock and every module lock that it can affect.
-        return [
-            utils.get_dht_project_lock_file_path(project_config.project_name),
-            *(
-                utils.get_dht_module_lock_file_path(module_name)
-                for module_name in sorted(set(project_config.modules) | {
-                    m.module_name for m in configs.module_config.MODULE_CONFIGS.values()
-                    if m.owning_project == project_config.project_name and m.owning_plugin
-                })
-            ),
-        ]
     if args.function in {"generate_module_export_file", "generate_reflection_files"}:
         configs.get_module_config(args.module)  # Validate the module before using it as a lock scope.
         return [utils.get_dht_module_lock_file_path(args.module)]

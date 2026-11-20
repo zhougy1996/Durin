@@ -91,8 +91,6 @@ def write_cmake(root: Path, output: Path) -> None:
     lines += [")", "set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_WORKSPACE_PROJECT_FILES})",
               f'set_property(GLOBAL PROPERTY DURIN_WORKSPACE_TEST_PROJECTS [==[{json.dumps(records)}]==])',
               f'set_property(GLOBAL PROPERTY DURIN_TEST_GRAPH_FINGERPRINT "{test_graph_fingerprint(root, projects)}")']
-    for p in projects:
-        lines.append(f'add_subdirectory("{p.descriptor.parent.as_posix()}" "{p.descriptor.parent.relative_to(root).as_posix()}")')
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

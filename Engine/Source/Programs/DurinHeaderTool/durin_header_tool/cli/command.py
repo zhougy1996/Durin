@@ -1,4 +1,5 @@
 import argparse
+from contextlib import ExitStack
 from pathlib import Path
 
 
@@ -12,7 +13,7 @@ def parse_worker_count(value: str) -> int:
     return worker_count
 
 
-def add_common_arguments(parser: argparse.ArgumentParser):
+def add_common_arguments(parser: argparse.ArgumentParser, *, require_project_files: bool = False):
     from durin_header_tool.model.reflection_info import TOOL_VERSION
 
     parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
@@ -40,17 +41,46 @@ def add_common_arguments(parser: argparse.ArgumentParser):
         action="store_true",
         help="Suppress informational output while preserving warnings and errors.",
     )
-    parser.add_argument("--project-file", action="append", default=[], type=Path, help="A .dproject file that supplies module ownership and dependency context. May be repeated.")
+    parser.add_argument("--project-file", action="append", default=[], type=Path,
+                        required=require_project_files,
+                        help="A .dproject file that supplies module ownership and dependency context. May be repeated.")
+
+
+def _project_output_lock_paths(project):
+    from durin_header_tool import config as configs, io as utils
+
+    # Include disabled ordinary modules because preparation can remove their outputs.
+    modules = set(project.modules) | {
+        module.module_name for module in configs.module_config.MODULE_CONFIGS.values()
+        if module.owning_project == project.project_name and module.owning_plugin
+    }
+    return [
+        utils.get_dht_project_lock_file_path(project.project_name),
+        *(utils.get_dht_module_lock_file_path(name) for name in sorted(modules)),
+    ]
+
+
+def _prepare_projects(project_files, operation):
+    from durin_header_tool.generators.project_cmake_file_generator import generate_project_cmake_file
+    from durin_header_tool.generators.module_cmake_file_generator import generate_all_module_cmake_files_for_project
+    from durin_header_tool import config as configs, io as utils
+
+    projects = {project.config_file_path: project for project in configs.project_config.PROJECT_CONFIGS.values()}
+    for path in dict.fromkeys(path.resolve() for path in project_files):
+        project = projects[path]
+        with ExitStack() as locks:
+            for lock_path in _project_output_lock_paths(project):
+                locks.enter_context(utils.acquire_output_lock(lock_path, operation))
+            generate_project_cmake_file(project.project_name)
+            generate_all_module_cmake_files_for_project(project.project_name)
 
 
 def prepare_project_build(args):
-    from durin_header_tool.generators.project_cmake_file_generator import generate_project_cmake_file
-    from durin_header_tool.generators.module_cmake_file_generator import generate_all_module_cmake_files_for_project
-    from durin_header_tool import config as configs
+    _prepare_projects([args.project], args.function)
 
-    project_name = configs.load_project_config_file(args.project).project_name
-    generate_project_cmake_file(project_name)
-    generate_all_module_cmake_files_for_project(project_name)
+
+def prepare_workspace_build(args):
+    _prepare_projects(args.project_file, args.function)
 
 
 def generate_module_export_file(args):
@@ -81,6 +111,13 @@ def setup_parser(parser: argparse.ArgumentParser):
     )
     add_common_arguments(prepare_project_parser)
     prepare_project_parser.set_defaults(execute=prepare_project_build)
+
+    prepare_workspace_parser = subparsers.add_parser(
+        "prepare_workspace_build",
+        help="Prepare build metadata for the supplied workspace projects in order.",
+    )
+    add_common_arguments(prepare_workspace_parser, require_project_files=True)
+    prepare_workspace_parser.set_defaults(execute=prepare_workspace_build)
 
     module_export_parser = subparsers.add_parser(
         "generate_module_export_file",

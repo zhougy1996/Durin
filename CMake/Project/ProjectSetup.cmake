@@ -43,6 +43,13 @@ endif()
 file(SHA256 "${DURIN_NATIVE_LIBCLANG_PATH}" DURIN_NATIVE_LIBCLANG_FINGERPRINT)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${DURIN_NATIVE_LIBCLANG_PATH}")
 
+set(DURIN_DHT_CONTEXT_ARGS
+	-a ${DURIN_TARGET_PLATFORM}
+	--runtime-variant ${DURIN_RUNTIME_VARIANT}
+	--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
+	--native-libclang-fingerprint ${DURIN_NATIVE_LIBCLANG_FINGERPRINT}
+)
+
 function(durin_project_log project_name)
 	message(STATUS "[${project_name}] Project: ${project_name}")
 endfunction()
@@ -55,21 +62,16 @@ function(add_durin_project project_name)
 	set(DURIN_PROJECT_NAME "${project_name}" PARENT_SCOPE)
 	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_TARGET_PLATFORM}/${DURIN_RUNTIME_VARIANT}")
 	set(_durin_project_cmake_file "${_durin_project_intermediate_build_dir}/${project_name}.project.cmake")
-	set(DURIN_DHT_CONTEXT_ARGS
-		-a ${DURIN_TARGET_PLATFORM}
-		--runtime-variant ${DURIN_RUNTIME_VARIANT}
-		--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
-		--native-libclang-fingerprint ${DURIN_NATIVE_LIBCLANG_FINGERPRINT}
-	)
-	foreach(_workspace_project IN LISTS DURIN_WORKSPACE_PROJECT_FILES)
-		list(APPEND DURIN_DHT_CONTEXT_ARGS --project-file "${_workspace_project}")
-	endforeach()
-	execute_process(
-		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" ${DURIN_DHT_CONTEXT_ARGS}
-		RESULT_VARIABLE _durin_prepare_project_build_result
-	)
-	if(NOT _durin_prepare_project_build_result EQUAL 0)
-		message(FATAL_ERROR "Failed to prepare build metadata for project ${project_name} and runtime variant ${DURIN_RUNTIME_VARIANT}.")
+	set(_durin_project_file "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject")
+	if(NOT _durin_project_file IN_LIST DURIN_WORKSPACE_PROJECT_FILES)
+		# Standalone test fixtures prepare their own metadata.
+		execute_process(
+			COMMAND ${DHT_MAIN} prepare_project_build -p "${_durin_project_file}" ${DURIN_DHT_CONTEXT_ARGS}
+			RESULT_VARIABLE _durin_prepare_project_build_result
+		)
+		if(NOT _durin_prepare_project_build_result EQUAL 0)
+			message(FATAL_ERROR "Failed to prepare build metadata for project ${project_name} and runtime variant ${DURIN_RUNTIME_VARIANT}.")
+		endif()
 	endif()
 
 	include("${_durin_project_cmake_file}")

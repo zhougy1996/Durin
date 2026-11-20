@@ -29,8 +29,8 @@ from .project_config import (
 
 def init_configs(project_files=()):
     engine_project_file = environment.DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
-    load_project_config_file(engine_project_file)
-    for project_file in project_files:
+    files = (engine_project_file, *project_files)
+    for project_file in dict.fromkeys(path.resolve() for path in files):
         load_project_config_file(project_file)
 
     from .plugin_build import load_plugin_build_context

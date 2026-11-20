@@ -5,8 +5,10 @@ This document explains where Durin's CMake entrypoints live, how generated metad
 ## Overview
 
 The repository configures from the root `CMakeLists.txt`. `add_durin_workspace()`
-loads the ordered project descriptors in `Durin.dworkspace` and delegates to
-their project CMake entrypoints, beginning with Engine. Most engine and editor
+loads the ordered project descriptors in `Durin.dworkspace`. One DHT invocation
+loads the workspace configuration and prepares each project's metadata under its
+existing output locks. CMake then enters the project CMake entrypoints, beginning
+with Engine. Most engine and editor
 code is built as loadable modules rather than a monolithic executable.
 
 The main build entrypoints are:

@@ -14,6 +14,22 @@ function(add_durin_workspace)
 		message(FATAL_ERROR "Failed to load Durin.dworkspace.")
 	endif()
 	include("${_generated}")
+	foreach(_project_file IN LISTS DURIN_WORKSPACE_PROJECT_FILES)
+		list(APPEND DURIN_DHT_CONTEXT_ARGS --project-file "${_project_file}")
+	endforeach()
+	message(STATUS "Preparing DHT build metadata for the workspace")
+	execute_process(
+		COMMAND ${DHT_MAIN} prepare_workspace_build ${DURIN_DHT_CONTEXT_ARGS}
+		RESULT_VARIABLE _result
+	)
+	if(NOT _result EQUAL 0)
+		message(FATAL_ERROR "Failed to prepare workspace build metadata for runtime variant ${DURIN_RUNTIME_VARIANT}.")
+	endif()
+	foreach(_project_file IN LISTS DURIN_WORKSPACE_PROJECT_FILES)
+		get_filename_component(_project_root "${_project_file}" DIRECTORY)
+		file(RELATIVE_PATH _project_binary_dir "${CMAKE_SOURCE_DIR}" "${_project_root}")
+		add_subdirectory("${_project_root}" "${_project_binary_dir}")
+	endforeach()
     # Configuration-independent Cook schema/provider source contract. It excludes
     # authored content and project settings; those remain ordinary Cook inputs.
     set(_cook_inputs ${DURIN_DHT_TOOL_INPUTS})
