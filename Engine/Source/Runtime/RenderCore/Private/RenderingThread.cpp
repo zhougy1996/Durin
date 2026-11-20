@@ -154,6 +154,7 @@ namespace Durin
 	{
 		check(IsInGameThread());
 		if (!CompletionTask.IsValid()) return;
+		DURIN_PROFILE_CPU_ZONE_NAMED("RenderCommandFence.Wait");
 		const auto Started = std::chrono::steady_clock::now();
 		const FTaskWaitResult Result = WaitTask(CompletionTask);
 		const auto RenderCompleted = std::chrono::steady_clock::now();
@@ -330,17 +331,14 @@ namespace Durin
 
 		for (FCommand& Command : CommandsToExecute)
 		{
-			const auto Started = std::chrono::steady_clock::now();
+			DURIN_PROFILE_CPU_ZONE_NAMED("RenderCommand.Execute");
+			DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Command.Name ? Command.Name : "").substr(0, 128));
 			Command.Function(FRHICommandListImmediate::Get());
 			// A completed command must release its captured payload before the
 			// next command can complete a fence. Keeping every lambda alive until
 			// the whole batch is cleared makes fence-visible lifetime depend on
 			// whether adjacent commands happened to land in the same batch.
 			Command.Function = {};
-			const double Milliseconds = std::chrono::duration<double, std::milli>(
-				std::chrono::steady_clock::now() - Started).count();
-			if (Milliseconds >= 100.0)
-				DURIN_DEBUG("Slow render command: {} | {:.3f} ms", Command.Name, Milliseconds);
 		}
 
 		CommandsToExecute.clear();

@@ -755,7 +755,9 @@ without contaminating a restarted lifetime.
 Routine task acceptance and queued-work start/finish do not emit text logs.
 Use task snapshots, aggregate counters and Tracy execution zones to inspect
 normal activity. Text logs retain executor lifecycle summaries, rejected/invalid
-operations, exceptions, overload transitions and long waits.
+operations, exceptions and overload transitions. Ordinary task waits lasting at
+least 100 ms update the long-wait diagnostics when the wait returns, including
+on timeout. The snapshot records the elapsed wait and observed target state.
 
 Diagnostic reads do not emit profiler work. EngineLoop requests fixed
 attribution plots through PublishTaskSchedulerProfilerPlots. Collection runs

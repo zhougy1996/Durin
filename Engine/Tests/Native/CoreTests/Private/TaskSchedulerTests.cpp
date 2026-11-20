@@ -1142,27 +1142,18 @@ namespace Durin
 		EXPECT_EQ(0u, ActiveDiagnostics.RejectedTaskCount);
 		ASSERT_EQ(2u, ActiveDiagnostics.NonterminalTasks.size());
 
-		FThreadEvent WaiterStarted;
 		std::thread Waiter([&]() {
-			WaiterStarted.Trigger();
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
+			EXPECT_EQ(ETaskWaitStatus::TimedOut, Blocker.WaitDetailed(0.25).WaitStatus);
 		});
-		ASSERT_TRUE(WaiterStarted.WaitFor(1.0));
-		const auto LongWaitDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-		while (GetTaskSchedulerDiagnostics().LongWaitCount == 0 && std::chrono::steady_clock::now() < LongWaitDeadline)
-		{
-			std::this_thread::yield();
-		}
-		const FTaskSchedulerDiagnostics LongWaitDiagnostics = GetTaskSchedulerDiagnostics();
-
-		ReleaseBlocker.Trigger();
 		Waiter.join();
-		EXPECT_GE(LongWaitDiagnostics.LongWaitCount, 1u);
+		const FTaskSchedulerDiagnostics LongWaitDiagnostics = GetTaskSchedulerDiagnostics();
+		ReleaseBlocker.Trigger();
+		EXPECT_EQ(LongWaitDiagnostics.LongWaitCount, 1u);
 		EXPECT_EQ("ExternalThread", LongWaitDiagnostics.LastLongWaiterName);
 		EXPECT_EQ(Blocker.GetTaskId(), LongWaitDiagnostics.LastLongWaitTargetTaskId);
 		EXPECT_EQ("DiagnosticBlocker", LongWaitDiagnostics.LastLongWaitTargetName);
 		EXPECT_EQ(ETaskState::Running, LongWaitDiagnostics.LastLongWaitTargetState);
-		EXPECT_GE(LongWaitDiagnostics.LastLongWaitElapsedNanoseconds, 50'000'000u);
+		EXPECT_GE(LongWaitDiagnostics.LastLongWaitElapsedNanoseconds, 200'000'000u);
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Queued).TaskState);
 

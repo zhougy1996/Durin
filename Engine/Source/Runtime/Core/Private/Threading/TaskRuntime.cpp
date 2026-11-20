@@ -1596,13 +1596,13 @@ namespace Durin
 
 
 
-		auto RecordLongWait(const char* WaiterName, const FTaskDiagnostics& Target, uint64 ElapsedNanoseconds) -> void
+		auto RecordLongWait(const char* WaiterName, const FTaskStateData& Target, ETaskState State, uint64 ElapsedNanoseconds) -> void
 		{
 			std::lock_guard Lock(Mutex);
 			LastLongWaiterName = WaiterName ? WaiterName : "Unknown";
-			LastLongWaitTargetName = Target.DebugName;
-			LastLongWaitTargetTaskId = Target.TaskId;
-			LastLongWaitTargetState = Target.State;
+			LastLongWaitTargetName = Target.GetDebugName();
+			LastLongWaitTargetTaskId = Target.GetTaskId();
+			LastLongWaitTargetState = State;
 			LastLongWaitElapsedNanoseconds = ElapsedNanoseconds;
 			LongWaitCount.fetch_add(1, std::memory_order::acq_rel);
 		}
@@ -2913,37 +2913,7 @@ namespace Durin
 			auto Signal = std::make_shared<FTaskStateData::FWaitSignal>();
 			TaskState->RegisterWaiter(Signal);
 			const auto WaitStartTime = std::chrono::steady_clock::now();
-			bool bReportedLongWait = false;
-			auto ReportLongWait = [&] {
-				if (bReportedLongWait || std::chrono::duration<double>(std::chrono::steady_clock::now() - WaitStartTime).count() < LongWaitThresholdSeconds)
-				{
-					return;
-				}
-				bReportedLongWait = true;
-				if (Scheduler)
-				{
-					const char* WaiterName = GCurrentTaskState
-						? GCurrentTaskState->GetDebugName()
-						: (GetCurrentThread() ? GetCurrentThread()->GetThreadName() : "ExternalThread");
-					const FTaskDiagnostics TargetDiagnostics = TaskState->GetDiagnostics();
-					const uint64 ElapsedNanoseconds = static_cast<uint64>(
-						std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - WaitStartTime).count()
-					);
-					Scheduler->RecordLongWait(
-						WaiterName,
-						TargetDiagnostics,
-						ElapsedNanoseconds
-					);
-					DURIN_WARN(
-						"Long task wait: waiter={} | target={} | task={} | state={} | {} ms",
-						WaiterName,
-						TargetDiagnostics.DebugName,
-						TargetDiagnostics.TaskId,
-						static_cast<uint32>(TargetDiagnostics.State),
-						ElapsedNanoseconds / 1'000'000
-					);
-				}
-			};
+			ETaskWaitStatus Status = ETaskWaitStatus::Completed;
 			FTaskScheduler::FRetractionWork Retraction;
 			while (!IsTerminalState(State))
 			{
@@ -2953,17 +2923,30 @@ namespace Durin
 				if (Scheduler && !Deadline.IsExpired())
 					Scheduler->RetractTask(TaskState, Deadline, Retraction, Signal);
 				State = TaskState->GetState();
-				ReportLongWait();
 				if (IsTerminalState(State)) break;
-				if (Deadline.IsExpired()) return {ETaskWaitStatus::TimedOut, State};
+				if (Deadline.IsExpired())
+				{
+					Status = ETaskWaitStatus::TimedOut;
+					break;
+				}
 				// Retraction and concurrent bodies may introduce deferred or external dependencies.
-				if (auto Restriction = GetTaskWaitRestriction(TaskState, WaitGraph)) return {*Restriction, State};
-				const double UntilDiagnostic = bReportedLongWait ? std::numeric_limits<double>::infinity()
-					: std::max(0.0, LongWaitThresholdSeconds - std::chrono::duration<double>(std::chrono::steady_clock::now() - WaitStartTime).count());
-				const double Timeout = std::min(Deadline.Remaining(), UntilDiagnostic);
-				Signal->WaitFor(Observed, Timeout);
+				if (auto Restriction = GetTaskWaitRestriction(TaskState, WaitGraph))
+				{
+					Status = *Restriction;
+					break;
+				}
+				Signal->WaitFor(Observed, Deadline.Remaining());
 			}
-			return {ETaskWaitStatus::Completed, State};
+
+			const auto Elapsed = std::chrono::steady_clock::now() - WaitStartTime;
+			if (Scheduler && Elapsed >= std::chrono::duration<double>(LongWaitThresholdSeconds))
+			{
+				const char* WaiterName = GCurrentTaskState ? GCurrentTaskState->GetDebugName()
+					: (GetCurrentThread() ? GetCurrentThread()->GetThreadName() : "ExternalThread");
+				Scheduler->RecordLongWait(WaiterName, *TaskState, State,
+					std::chrono::duration_cast<std::chrono::nanoseconds>(Elapsed).count());
+			}
+			return {Status, State};
 		}
 	}
 
