@@ -1,5 +1,6 @@
 #include "Viewport/ViewportPickingService.h"
 #include "Components/PrimitiveComponent.h"
+#include "EditorSupportDelegates.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -111,16 +112,31 @@ namespace Durin::LevelEditor
 	{ return std::make_unique<FHitProxyPickingBackend>(); }
 
 	FViewportPickingService::FViewportPickingService()
-		: Backend(MakeHitProxyPickingBackend()) {}
+		: FViewportPickingService(MakeHitProxyPickingBackend()) {}
 
 	FViewportPickingService::FViewportPickingService(std::unique_ptr<IViewportPickingBackend> InBackend)
-		: Backend(InBackend ? std::move(InBackend) : MakeHitProxyPickingBackend()) {}
+		: Backend(InBackend ? std::move(InBackend) : MakeHitProxyPickingBackend())
+	{
+		InvalidateHitProxiesHandle = FEditorSupportDelegates::InvalidateHitProxies.AddLambda([this](DLevel& Level) {
+			if (CurrentLevel.Get() == &Level) InvalidateHitProxies();
+		});
+	}
+
+	FViewportPickingService::~FViewportPickingService()
+	{
+		FEditorSupportDelegates::InvalidateHitProxies.Remove(InvalidateHitProxiesHandle);
+	}
+
+	auto FViewportPickingService::InvalidateHitProxies() -> void
+	{
+		PendingHitProxyReads.request_stop();
+		Backend->Invalidate();
+	}
 
 	auto FViewportPickingService::SetLevel(DLevel* Level) -> void
 	{
-		Backend->Invalidate();
 		CurrentLevel = Level;
-		CachedHitProxyRevision = Level ? Level->GetEditorHitProxyRevision() : 0;
+		InvalidateHitProxies();
 	}
 
 	auto FViewportPickingService::Pick(const FViewportPickRequest& Request, const FEditorVisualizationCollector* Visualizations) -> FViewportPickResult
@@ -131,12 +147,8 @@ namespace Durin::LevelEditor
 		if (!SceneViewProjection::BuildViewportRay(Request.View, Request.ViewportPosition, RayOrigin, RayDirection)
 			|| !Math::IsFinite(RayOrigin) || !Math::IsFinite(RayDirection)) return {EViewportPickStatus::Invalid};
 
-		const uint64 HitProxyRevision = Level->GetEditorHitProxyRevision();
-		if (CachedHitProxyRevision != HitProxyRevision)
-		{
-			Backend->Invalidate();
-			CachedHitProxyRevision = HitProxyRevision;
-		}
+		if (PendingHitProxyReads.stop_requested()) PendingHitProxyReads = std::stop_source{};
+		const auto Read = PendingHitProxyReads.get_token();
 		FHitProxyRenderRequest Render;
 		Render.View = Request.View;
 		Render.bSceneGeometry = EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry);
@@ -166,7 +178,7 @@ namespace Durin::LevelEditor
 			if (Target.Kind == EViewportPickHitKind::SceneGeometry) Render.Primitives.push_back({Target.PrimitiveId.Value, FHitProxyId{Target.Token}});
 		Render.Overlays = std::move(Overlays);
 		const auto Map = Backend->GetHitProxyMap(Level->GetWorld() ? Level->GetWorld()->GetRenderScene() : nullptr, std::move(Render));
-		if (CurrentLevel.Get() != Level || Level->GetEditorHitProxyRevision() != HitProxyRevision)
+		if (Read.stop_requested() || CurrentLevel.Get() != Level)
 			return {EViewportPickStatus::Invalid};
 		FHitProxyPixel Pixel;
 		if (!Map || !Map->ReadPixel(uint32(Request.ViewportPosition.x), uint32(Request.ViewportPosition.y), Pixel)) return {EViewportPickStatus::Failed};

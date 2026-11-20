@@ -1,3 +1,4 @@
+#include "Editor/ActorHierarchyChangeTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Misc/UnifiedError.h"
 #include "NativePackageUnloadTestSupport.h"
@@ -283,47 +284,42 @@ TEST(FWorldTests, RenamesActorsWithUniqueNames)
 
 #if DURIN_WITH_EDITOR
 
-TEST(FWorldTests, TracksEditorActorHierarchyRevision)
+TEST(FWorldTests, NotifiesEditorWhenActorHierarchyChanges)
 {
 	Durin::DWorld* World = CreateWorld();
 	Durin::DLevel* Level = World->GetCurrentLevel();
-	const auto InitialRevision = Level->GetEditorActorHierarchyRevision();
+	Durin::Tests::FActorHierarchyChangeObserver Changes(*Level);
 
 	Durin::AActor* Parent = World->SpawnActor<Durin::ACameraActor>("Parent");
 	ASSERT_NE(Parent, nullptr);
-	const auto AfterParentSpawn = Level->GetEditorActorHierarchyRevision();
-	EXPECT_GT(AfterParentSpawn, InitialRevision);
+	EXPECT_TRUE(Changes.Consume());
 
 	Durin::AActor* Child = World->SpawnActor<Durin::ACameraActor>("Child");
 	ASSERT_NE(Child, nullptr);
-	const auto AfterChildSpawn = Level->GetEditorActorHierarchyRevision();
-	EXPECT_GT(AfterChildSpawn, AfterParentSpawn);
+	EXPECT_TRUE(Changes.Consume());
 
 	Child->SetActorHiddenInGame(true);
-	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterChildSpawn);
+	EXPECT_FALSE(Changes.Consume());
 	Durin::FTransform Transform;
 	Transform.Translation = {1.0, 2.0, 3.0};
 	EXPECT_TRUE(Child->SetActorTransform(Transform));
-	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterChildSpawn);
+	EXPECT_FALSE(Changes.Consume());
 
 	ASSERT_TRUE(Level->RenameActor(Child, "RenamedChild"));
-	const auto AfterRename = Level->GetEditorActorHierarchyRevision();
-	EXPECT_GT(AfterRename, AfterChildSpawn);
+	EXPECT_TRUE(Changes.Consume());
 	EXPECT_FALSE(Level->RenameActor(Child, Durin::FName()));
-	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterRename);
+	EXPECT_FALSE(Changes.Consume());
 
 	ASSERT_TRUE(Child->GetRootComponent()->AttachToComponent(Parent->GetRootComponent()));
-	const auto AfterAttach = Level->GetEditorActorHierarchyRevision();
-	EXPECT_GT(AfterAttach, AfterRename);
+	EXPECT_TRUE(Changes.Consume());
 	EXPECT_FALSE(Parent->AttachToActor(Child));
-	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterAttach);
+	EXPECT_FALSE(Changes.Consume());
 
 	ASSERT_TRUE(Child->GetRootComponent()->DetachFromComponent());
-	const auto AfterDetach = Level->GetEditorActorHierarchyRevision();
-	EXPECT_GT(AfterDetach, AfterAttach);
+	EXPECT_TRUE(Changes.Consume());
 
 	ASSERT_TRUE(World->DestroyActor(Child));
-	EXPECT_GT(Level->GetEditorActorHierarchyRevision(), AfterDetach);
+	EXPECT_TRUE(Changes.Consume());
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);

@@ -1,4 +1,5 @@
 #include "Engine/Actor.h"
+#include "EditorSupportDelegates.h"
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
 #include "Logging/LogMacros.h"
@@ -216,7 +217,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (PreviousParentActor != GetAttachParentActor())
 		{
-			if (auto* Level = Cast<DLevel>(GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(GetOuter())) FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
 		}
 #endif
 		return true;
@@ -601,7 +602,7 @@ namespace Durin
 		const bool bLabel = Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("ActorLabel");
 #if DURIN_WITH_EDITOR
 		if (!Event.MemberProperty || bLabel)
-			if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->ContainsActor(this)) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(GetOuter()); Level && Level->ContainsActor(this)) FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
 #endif
 		if (bLabel) return;
 		RerunConstructionScripts();

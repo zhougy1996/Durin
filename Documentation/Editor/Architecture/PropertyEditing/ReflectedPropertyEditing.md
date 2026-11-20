@@ -59,7 +59,7 @@ state that depends on multiple restored fields or objects.
 Scene components remember their pre-replay attachment parent without retaining
 it. During replay they defer reflected transform updates; completion removes the
 old parent's child entry, restores unique membership in the current parent,
-updates Actor hierarchy revisions for root reparenting, and recalculates world
+notifies the Outliner when root reparenting changes the Actor hierarchy, and recalculates world
 transforms through the normal render/physics notification path. Children and
 world transforms remain derived state rather than transaction snapshots.
 

@@ -1,4 +1,5 @@
 #include "Components/SceneComponent.h"
+#include "EditorSupportDelegates.h"
 #include "Components/ScopedTransformOverlapUpdate.h"
 
 #include "Collision/CollisionTypes.h"
@@ -108,7 +109,7 @@ namespace Durin
 			AActor* PreviousParentActor = PreviousParent ? PreviousParent->GetOwner() : nullptr;
 			if (PreviousParentActor == Owner) PreviousParentActor = nullptr;
 			if (PreviousParentActor != Owner->GetAttachParentActor())
-				if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+				if (auto* Level = Cast<DLevel>(Owner->GetOuter())) FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
 		}
 #endif
 		UpdateComponentToWorld();
@@ -335,7 +336,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
 		{
-			if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(Owner->GetOuter())) FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
 		}
 #endif
 		return true;
@@ -366,7 +367,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
 		{
-			if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(Owner->GetOuter())) FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*Level);
 		}
 #endif
 		return true;

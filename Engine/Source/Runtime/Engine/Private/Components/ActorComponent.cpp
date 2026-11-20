@@ -1,6 +1,7 @@
 #include "Components/ActorComponent.h"
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
+#include "EditorSupportDelegates.h"
 
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Archive.h"
@@ -201,7 +202,7 @@ namespace Durin
 		bRegistered = false;
 #if DURIN_WITH_EDITOR
 		if (auto* Level = GetOwner() ? Cast<DLevel>(GetOwner()->GetOuter()) : nullptr)
-			Level->InvalidateEditorHitProxies();
+			FEditorSupportDelegates::InvalidateHitProxies.Broadcast(*Level);
 #endif
 	}
 

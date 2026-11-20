@@ -39,7 +39,7 @@ TEST(WorldOutlinerHierarchyModelTests, BuildsSortedRootsAndNestedTraversal)
 		MakeInput(Child, &Root, "Child", "Mesh Component"),
 		MakeInput(OtherRoot, nullptr, "Other Root", "Camera"),
 		MakeInput(Root, nullptr, "Root", "Actor")};
-	Model.Rebuild(&Model, 4, Inputs);
+	Model.Rebuild(Inputs);
 
 	ASSERT_EQ(Model.GetRootNodeIndices().size(), 2);
 	const auto* RootNode = FindNode(Model, &Root);
@@ -69,7 +69,7 @@ TEST(WorldOutlinerHierarchyModelTests, BreaksCyclesAndKeepsEveryNodeReachable)
 		MakeInput(A, &C, "A"),
 		MakeInput(B, &A, "B"),
 		MakeInput(C, &B, "C")};
-	Model.Rebuild(&Model, 1, Inputs);
+	Model.Rebuild(Inputs);
 
 	ASSERT_EQ(Model.GetRootNodeIndices().size(), 1);
 	EXPECT_EQ(Model.GetNodes().size(), 3);
@@ -91,7 +91,7 @@ TEST(WorldOutlinerHierarchyModelTests, KeepsFilterAncestorsVisible)
 		MakeInput(Branch, &Root, "Branch"),
 		MakeInput(Leaf, &Branch, "Leaf", "Target Type"),
 		MakeInput(Sibling, &Root, "Sibling")};
-	Model.Rebuild(&Model, 2, Inputs);
+	Model.Rebuild(Inputs);
 
 	Model.SetFilter("target");
 	const auto* RootNode = FindNode(Model, &Root);
@@ -108,21 +108,17 @@ TEST(WorldOutlinerHierarchyModelTests, KeepsFilterAncestorsVisible)
 	EXPECT_FALSE(Model.IsNodeVisible(static_cast<uint32>(SiblingNode - Model.GetNodes().data())));
 }
 
-TEST(WorldOutlinerHierarchyModelTests, InvalidatesByRevisionAndDropsDeletedNodes)
+TEST(WorldOutlinerHierarchyModelTests, DropsDeletedNodesOnRebuild)
 {
 	FNodeKey Root{1};
 	FNodeKey Deleted{2};
 	FWorldOutlinerHierarchyModel Model;
-	EXPECT_TRUE(Model.NeedsRebuild(&Model, 1));
 	const std::array InitialInputs{MakeInput(Root, nullptr, "Root"), MakeInput(Deleted, &Root, "Deleted")};
-	Model.Rebuild(&Model, 1, InitialInputs);
-	EXPECT_FALSE(Model.NeedsRebuild(&Model, 1));
+	Model.Rebuild(InitialInputs);
 	EXPECT_TRUE(Model.Contains(&Deleted));
 
 	const std::array ReducedInputs{MakeInput(Root, nullptr, "Root")};
-	Model.Rebuild(&Model, 2, ReducedInputs);
-	EXPECT_TRUE(Model.NeedsRebuild(&Model, 1));
-	EXPECT_FALSE(Model.NeedsRebuild(&Model, 2));
+	Model.Rebuild(ReducedInputs);
 	EXPECT_FALSE(Model.Contains(&Deleted));
 	EXPECT_EQ(Model.GetDepth(&Deleted), 0);
 }

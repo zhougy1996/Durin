@@ -1,3 +1,4 @@
+#include "Editor/ActorHierarchyChangeTestSupport.h"
 #include "Editor/EditorActorSubsystemTestSupport.h"
 #include "Transactions/Transactor.h"
 #include "Actors/ActorChange.h"
@@ -1281,9 +1282,9 @@ TEST(FActorMutationTests, UnspecifiedNamesIgnoreRequiredModeAndLegacyLabelsSurvi
     auto* Legacy = NewObject<AActor>(Level, "Legacy");
     EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
     ASSERT_TRUE(Level->SetActorPresence(Legacy, true));
-    const uint64 Revision = Level->GetEditorActorHierarchyRevision();
+    Durin::Tests::FActorHierarchyChangeObserver Changes(*Level);
     ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Legacy, "Legacy label", {false}));
-    EXPECT_GT(Level->GetEditorActorHierarchyRevision(), Revision);
+    EXPECT_TRUE(Changes.Consume());
     ASSERT_TRUE(F.GetTransactions()->Undo());
     ASSERT_TRUE(F.GetActorEditor()->RenameActor(*Level, Legacy, "NewInternal", {false}));
     EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
@@ -1520,7 +1521,7 @@ TEST(FActorMutationTests, InitialLabelIsPreparationOnlyAndRenameComposesWithEarl
     auto* Level = F.GetWorld()->GetCurrentLevel();
     auto* Actor = Level->SpawnActor<AActor>("Original"); ASSERT_NE(Actor, nullptr);
     EXPECT_FALSE(Actor->SetInitialActorLabel("Rejected")); EXPECT_EQ(Actor->GetActorLabel(), "Original");
-    const auto Revision = Level->GetEditorActorHierarchyRevision();
+    Durin::Tests::FActorHierarchyChangeObserver Changes(*Level);
     {
         FScopedTransaction Scope(F.GetTransactions(), {"test", "Modify and rename"});
         ASSERT_TRUE(Actor->Modify()); Actor->SetHidden(true);
@@ -1528,7 +1529,7 @@ TEST(FActorMutationTests, InitialLabelIsPreparationOnlyAndRenameComposesWithEarl
     }
     EXPECT_EQ(F.GetTransactions()->GetTransaction(0)->GetRecordCount(), 1u);
     ASSERT_TRUE(F.GetTransactions()->Undo()); EXPECT_EQ(Actor->GetName(), "Original"); EXPECT_FALSE(Actor->IsHidden());
-    EXPECT_GT(Level->GetEditorActorHierarchyRevision(), Revision);
+    EXPECT_TRUE(Changes.Consume());
     ASSERT_TRUE(F.GetTransactions()->Redo()); EXPECT_EQ(Actor->GetName(), "NewInternal"); EXPECT_TRUE(Actor->IsHidden());
     EXPECT_EQ(Actor->GetActorLabel(), "Original");
 }

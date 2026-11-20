@@ -1,4 +1,5 @@
 #include "Panels/WorldOutlinerPanel.h"
+#include "EditorSupportDelegates.h"
 
 #include "Profiling/Profiling.h"
 
@@ -96,6 +97,18 @@ namespace Durin::LevelEditor
 
 	} // namespace
 
+	FWorldOutlinerPanel::FWorldOutlinerPanel()
+	{
+		HierarchyChangedHandle = FEditorSupportDelegates::ActorHierarchyChanged.AddLambda([this](DLevel& Level) {
+			if (DisplayedLevel.Get() == &Level) bHierarchyDirty = true;
+		});
+	}
+
+	FWorldOutlinerPanel::~FWorldOutlinerPanel()
+	{
+		FEditorSupportDelegates::ActorHierarchyChanged.Remove(HierarchyChangedHandle);
+	}
+
 	auto FWorldOutlinerPanel::ResetHierarchyCache() -> void
 	{
 		HierarchyModel.Reset();
@@ -128,7 +141,7 @@ namespace Durin::LevelEditor
 					.TypeLabel = ClassDisplayName(Actor->GetClass())});
 			}
 		}
-		HierarchyModel.Rebuild(Level, Level->GetEditorActorHierarchyRevision(), Inputs);
+		HierarchyModel.Rebuild(Inputs);
 		std::erase_if(ExpandedActors, [this](const auto& Entry) { return !HierarchyModel.Contains(Entry.first); });
 	}
 
@@ -543,12 +556,13 @@ namespace Durin::LevelEditor
 			if (DisplayedLevel.Get() != Context.Level)
 			{
 				DisplayedLevel = Context.Level;
+				bHierarchyDirty = true;
 				bLevelSelected = false;
 				bRenamingLevel = false;
 				RenamingActor = nullptr;
 				RenameDialog.Cancel();
 			}
-			if (HierarchyModel.NeedsRebuild(Context.Level, Context.Level->GetEditorActorHierarchyRevision()))
+			if (std::exchange(bHierarchyDirty, false))
 				RebuildHierarchyCache(Context.Level);
 		}
 

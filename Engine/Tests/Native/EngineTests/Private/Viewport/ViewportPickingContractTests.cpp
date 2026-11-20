@@ -138,6 +138,8 @@ TEST(FViewportPickingContractTests, ReregisteringSameComponentRejectsOldMapAndRe
 	auto* Component = Fixture.Actor->GetStaticMeshComponent();
 	FirstState->DuringPick = [&] {
 		Component->UnregisterComponent();
+		EXPECT_EQ(FirstState->Invalidations, 1u);
+		EXPECT_EQ(SecondState->Invalidations, 1u);
 		Component->RegisterComponent();
 	};
 	const auto Stale = Pick(Fixture.Client);
@@ -154,6 +156,26 @@ TEST(FViewportPickingContractTests, ReregisteringSameComponentRejectsOldMapAndRe
 	}
 	EXPECT_EQ(FirstState->Invalidations, 1u);
 	EXPECT_EQ(SecondState->Invalidations, 1u);
+}
+
+TEST(FViewportPickingContractTests, SwitchingLevelsStopsInvalidationsFromTheOldLevel)
+{
+	using namespace Durin;
+	using namespace Durin::LevelEditor;
+	FPickingFixture Fixture;
+	auto State = std::make_shared<FFakePickingState>();
+	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FImmediatePickingBackend>(State));
+	auto* Other = NewObject<DLevel>(Fixture.World, "OtherPickingLevel");
+	Fixture.Client.InitializeForLevel(Other);
+	ASSERT_EQ(State->Invalidations, 1u);
+	auto* Component = Fixture.Actor->GetStaticMeshComponent();
+	Component->UnregisterComponent();
+	Component->RegisterComponent();
+	EXPECT_EQ(State->Invalidations, 1u);
+	Fixture.Client.InitializeForLevel(Fixture.Level);
+	ASSERT_EQ(State->Invalidations, 2u);
+	Component->UnregisterComponent();
+	EXPECT_EQ(State->Invalidations, 3u);
 }
 
 TEST(FViewportPickingContractTests, SelectModeDuplicateAndDeleteUseStructuralHistory)

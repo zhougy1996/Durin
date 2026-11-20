@@ -33,9 +33,8 @@ namespace Durin::LevelEditor
 		};
 
 		auto Reset() -> void;
-		auto Rebuild(const void* Source, uint64 Revision, std::span<const FInput> Inputs) -> void;
+		auto Rebuild(std::span<const FInput> Inputs) -> void;
 		auto SetFilter(std::string_view Filter) -> void;
-		auto NeedsRebuild(const void* Source, uint64 Revision) const -> bool;
 
 		auto GetNodes() const -> std::span<const FNode> { return Nodes; }
 		auto GetRootNodeIndices() const -> std::span<const uint32> { return RootNodeIndices; }
@@ -48,8 +47,6 @@ namespace Durin::LevelEditor
 	private:
 		auto FindNode(const void* Key) const -> uint32;
 
-		const void* Source = nullptr;
-		uint64 Revision = 0;
 		std::vector<FNode> Nodes;
 		std::vector<uint32> RootNodeIndices;
 		std::unordered_map<const void*, uint32> KeyToNode;

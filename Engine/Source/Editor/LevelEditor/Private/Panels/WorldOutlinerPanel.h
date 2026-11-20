@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "Components/SceneComponent.h"
+#include "Delegates/Delegate.h"
 #include "DObject/ObjectPtr.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/WorldOutlinerHierarchyModel.h"
@@ -21,6 +22,8 @@ namespace Durin::LevelEditor
 	class FWorldOutlinerPanel final : public ILevelEditorPanel
 	{
 	public:
+		FWorldOutlinerPanel();
+		~FWorldOutlinerPanel() override;
 		auto GetWindowName() const -> const char* override { return "World Outliner"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
 
@@ -57,6 +60,8 @@ namespace Durin::LevelEditor
 		std::vector<AActor*> LastVisibleActors;
 		std::unordered_map<AActor*, bool> ExpandedActors;
 		FWorldOutlinerHierarchyModel HierarchyModel;
+		FDelegateHandle HierarchyChangedHandle;
+		bool bHierarchyDirty = true;
 		bool bWasSearching = false;
 		bool bLevelSelected = false;
 		bool bRenamingLevel = false;

@@ -7,9 +7,7 @@
 
 namespace Durin
 {
-	enum class EActorChangeError : uint8 { None, TargetUnavailable, MemberUnavailable, MembershipChanged, PropertyRestore, TransformWrite, EmptySelection, ParentMismatch, ParentInvalid, ParentCycle, AttachmentWrite, ResourceUnavailable, ActorMembership, ActorNameCollision, ActorSpawn, ActorDestroy, WorldEnding, ActorType, ActorUnsupported, ActorChanged, ActorRename, InjectedMutation, RollbackIncomplete };
-	enum class EActorMutationPhase : uint8 { None, TemporaryRename, Remove, Create, FinalRename, Update };
-	enum class EActorChangeConstraint : uint8 { None, Class, ComponentGraph, Parent, Children, BeginningPlay, EndingPlay };
+	enum class EActorChangeError : uint8 { None, TargetUnavailable, MemberUnavailable, MembershipChanged, PropertyRestore, TransformWrite, EmptySelection, ParentMismatch, ParentInvalid, ParentCycle, AttachmentWrite, ResourceUnavailable, ActorMembership, ActorNameCollision, ActorDestroy, ActorChanged, InjectedMutation, RollbackIncomplete };
 	struct FActorChangeError
 	{
 		EActorChangeError Code = EActorChangeError::None;
@@ -18,8 +16,6 @@ namespace Durin
 		std::string ExpectedParentPath, ActualParentPath;
 		size_t NodeCount = 0;
 		size_t MemberIndex = 0;
-		EActorMutationPhase MutationPhase = EActorMutationPhase::None;
-		EActorChangeConstraint ActorConstraint = EActorChangeConstraint::None;
 		std::shared_ptr<const FActorChangeError> CleanupCause;
 		std::shared_ptr<const FPropertySnapshotError> PropertyCause;
 	};

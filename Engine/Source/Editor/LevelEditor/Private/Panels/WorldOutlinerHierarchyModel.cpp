@@ -6,8 +6,6 @@ namespace Durin::LevelEditor
 {
 	auto FWorldOutlinerHierarchyModel::Reset() -> void
 	{
-		Source = nullptr;
-		Revision = 0;
 		Nodes.clear();
 		RootNodeIndices.clear();
 		KeyToNode.clear();
@@ -15,15 +13,9 @@ namespace Durin::LevelEditor
 		CachedFilter.clear();
 	}
 
-	auto FWorldOutlinerHierarchyModel::Rebuild(const void* InSource, uint64 InRevision, std::span<const FInput> Inputs) -> void
+	auto FWorldOutlinerHierarchyModel::Rebuild(std::span<const FInput> Inputs) -> void
 	{
-		Source = InSource;
-		Revision = InRevision;
-		Nodes.clear();
-		RootNodeIndices.clear();
-		KeyToNode.clear();
-		FilterVisibility.clear();
-		CachedFilter.clear();
+		Reset();
 
 		std::vector<FInput> SortedInputs(Inputs.begin(), Inputs.end());
 		std::unordered_set<void*> SeenKeys;
@@ -104,11 +96,6 @@ namespace Durin::LevelEditor
 			return bVisible;
 		};
 		for (uint32 RootIndex : RootNodeIndices) CacheVisibility(CacheVisibility, RootIndex);
-	}
-
-	auto FWorldOutlinerHierarchyModel::NeedsRebuild(const void* InSource, uint64 InRevision) const -> bool
-	{
-		return Source != InSource || Revision != InRevision;
 	}
 
 	auto FWorldOutlinerHierarchyModel::IsNodeVisible(uint32 NodeIndex) const -> bool

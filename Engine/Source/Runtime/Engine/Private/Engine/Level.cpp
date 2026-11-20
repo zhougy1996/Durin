@@ -1,4 +1,5 @@
 #include "Asset/RegistryOperations.h"
+#include "EditorSupportDelegates.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
 #include "Logging/LogMacros.h"
@@ -139,7 +140,7 @@ namespace Durin
 			return nullptr;
 		}
 #if DURIN_WITH_EDITOR
-		NotifyEditorActorHierarchyChanged();
+		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
 #endif
 		OnActorAdded(Actor);
 		if (bDispatchBeginPlay && OwningWorld && OwningWorld->HasBegunPlay()) Actor->DispatchBeginPlay();
@@ -182,7 +183,7 @@ namespace Durin
 		const auto RemovalIt = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
 		if (RemovalIt != Actors.end()) Actors.erase(RemovalIt);
 #if DURIN_WITH_EDITOR
-		NotifyEditorActorHierarchyChanged();
+		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
 #endif
 		if (bWasPrimaryCamera)
 		{
@@ -259,7 +260,7 @@ namespace Durin
 			}
 		}
 #if DURIN_WITH_EDITOR
-		NotifyEditorActorHierarchyChanged();
+		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
 #endif
 		MarkPackageDirty();
 		return true;
@@ -295,7 +296,7 @@ namespace Durin
 		if (Actor->ActorLabel.empty()) Actor->ActorLabel = Actor->GetActorLabel();
 		Actor->Rename(Name);
 #if DURIN_WITH_EDITOR
-		NotifyEditorActorHierarchyChanged();
+		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
 #endif
 		MarkPackageDirty();
 		return true;
@@ -470,7 +471,7 @@ namespace Durin
 			}
 		}
 #if DURIN_WITH_EDITOR
-		NotifyEditorActorHierarchyChanged();
+		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
 #endif
 	}
 

@@ -1,3 +1,4 @@
+#include "Editor/ActorHierarchyChangeTestSupport.h"
 #include "WorldTestSupport.h"
 #include "NativePackageUnloadTestSupport.h"
 #include "ComponentPSOPrecacheTestSupport.h"
@@ -315,17 +316,16 @@ TEST(FWorldTests, ComponentReparentUndoRedoRestoresHierarchyTransformsAndLightPu
 			ASSERT_TRUE(Scene.LightLocations.contains(Child));
 			EXPECT_EQ(Scene.LightLocations.at(Child), Child->GetWorldLocation());
 		};
-		uint64 Revision = World->GetCurrentLevel()->GetEditorActorHierarchyRevision();
+		Durin::Tests::FActorHierarchyChangeObserver Changes(*World->GetCurrentLevel());
 		ASSERT_TRUE(Transactions->Undo()) << Durin::FormatTransactorResult(Transactions->GetLastResult());
-		EXPECT_GT(World->GetCurrentLevel()->GetEditorActorHierarchyRevision(), Revision);
+		EXPECT_TRUE(Changes.Consume());
 		ExpectAttachment(First, Second, 12.0);
 		Second->SetWorldLocation({120.0, 0.0, 0.0});
 		ExpectAttachment(First, Second, 12.0);
 		First->SetWorldLocation({30.0, 0.0, 0.0});
 		ExpectAttachment(First, Second, 32.0);
-		Revision = World->GetCurrentLevel()->GetEditorActorHierarchyRevision();
 		ASSERT_TRUE(Transactions->Redo());
-		EXPECT_GT(World->GetCurrentLevel()->GetEditorActorHierarchyRevision(), Revision);
+		EXPECT_TRUE(Changes.Consume());
 		const double ReappliedX = 120.0 + AfterRelative.Translation.x;
 		ExpectAttachment(Second, First, ReappliedX);
 		First->SetWorldLocation({40.0, 0.0, 0.0});

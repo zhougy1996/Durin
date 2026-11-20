@@ -16,8 +16,6 @@ namespace Durin
 {
 	class AActor;
 	class ACameraActor;
-	class DPrimitiveComponent;
-	class DSceneComponent;
 	class DWorld;
 
 	// Requested names may be uniquified; required names reject collisions before construction.
@@ -76,21 +74,11 @@ namespace Durin
 		ENGINE_API auto ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostLoad() -> void override;
 
-#if DURIN_WITH_EDITOR
-		auto GetEditorHitProxyRevision() const -> uint64 { return EditorHitProxyRevision; }
-		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }
-#endif
-
 	private:
 		auto SpawnActorInternal(DClass* ActorClass, FName InName, bool bDispatchBeginPlay, ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> AActor*;
 		auto SpawnActorDeferredPlay(DClass* ActorClass, FName InName) -> AActor*;
 		auto OnActorAdded(AActor* Actor) -> void;
 		auto SetOwningWorld(DWorld* World) -> void { OwningWorld = World; }
-
-#if DURIN_WITH_EDITOR
-		auto InvalidateEditorHitProxies() -> void { ++EditorHitProxyRevision; }
-		auto NotifyEditorActorHierarchyChanged() -> void { ++EditorActorHierarchyRevision; }
-#endif
 
 		DPROPERTY()
 		std::vector<TObjectPtr<AActor>> Actors;
@@ -107,15 +95,7 @@ namespace Durin
 		std::optional<std::vector<FPreUndoActor>> PreUndoActors;
 		FTickRegistry TickRegistry;
 
-#if DURIN_WITH_EDITOR
-		uint64 EditorHitProxyRevision = 1;
-		uint64 EditorActorHierarchyRevision = 1;
-#endif
-
 		friend class AActor;
-		friend class DActorComponent;
-		friend class DSceneComponent;
-		friend class DPrimitiveComponent;
 		friend class DWorld;
 		friend class FTickFunction;
 		friend class FTickRegistry;

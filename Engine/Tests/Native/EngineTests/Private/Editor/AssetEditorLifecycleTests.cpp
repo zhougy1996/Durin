@@ -127,7 +127,7 @@ namespace
 	template<typename T>
 	concept CHasPublicAssetEditorTicker = requires(T& AssetEditorSubsystem) { AssetEditorSubsystem.HandleTicker(0.0f); };
 	template<typename T>
-	concept CHasPublicAssetEditorShutdown = requires(T& AssetEditorSubsystem) { AssetEditorSubsystem.CloseAssetEditorsForShutdown(); };
+	concept CHasPublicAssetEditorShutdown = requires(T& AssetEditorSubsystem) { AssetEditorSubsystem.CloseAssetEditorsForShutdown(false); };
 	template<typename T>
 	concept CHasPublicAssetCallbackDispatch = requires(T& AssetEditorSubsystem) { AssetEditorSubsystem.DispatchEditorCallback([] {}); };
 	static_assert(!CHasPublicAssetEditorTicker<DAssetEditorSubsystem>);

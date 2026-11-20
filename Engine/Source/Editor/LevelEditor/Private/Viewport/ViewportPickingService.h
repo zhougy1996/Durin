@@ -4,6 +4,9 @@
 
 #include "LevelEditorViewportPicking.h"
 #include "HitProxy.h"
+#include "Delegates/Delegate.h"
+
+#include <stop_token>
 
 namespace Durin
 {
@@ -43,15 +46,18 @@ namespace Durin::LevelEditor
 	public:
 		FViewportPickingService();
 		explicit FViewportPickingService(std::unique_ptr<IViewportPickingBackend> InBackend);
+		~FViewportPickingService();
 		auto SetLevel(DLevel* Level) -> void;
 		auto Pick(const FViewportPickRequest& Request, const FEditorVisualizationCollector* Visualizations) -> FViewportPickResult;
 		auto SetBackendForTesting(std::unique_ptr<IViewportPickingBackend> InBackend) -> void;
 	private:
+		auto InvalidateHitProxies() -> void;
 		auto Resolve(DLevel* Level, const std::vector<FViewportPickingTarget>& Targets,
 			uint32 Token, double Distance) const -> FViewportPickResult;
 		auto ValidateHit(DLevel* Level, const FViewportPickHit& Hit) const -> bool;
 		std::unique_ptr<IViewportPickingBackend> Backend;
 		TWeakObjectPtr<DLevel> CurrentLevel;
-		uint64 CachedHitProxyRevision = 0;
+		FDelegateHandle InvalidateHitProxiesHandle;
+		std::stop_source PendingHitProxyReads;
 	};
 } // namespace Durin::LevelEditor

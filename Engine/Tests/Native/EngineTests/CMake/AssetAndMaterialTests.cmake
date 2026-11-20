@@ -313,24 +313,15 @@ durin_add_native_test(EditorHierarchyTests
 durin_add_native_test(LevelMutationTests
 	KIND feature
 	DOMAINS world
-	MODULES durin-ed level-editor
+	MODULES durin-ed
 	STACKS editor
-	PRIVATE_SOURCE_OWNER LevelEditor
-	PRIVATE_SOURCE_RATIONALE
-		"Specialized StaticMesh compound replay uses LevelEditor private sources. Generic Actor and Component coverage calls the DurinEd service."
-	COMPILE_DEFINITIONS LEVELEDITOR_EXPORTS DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1
-	SOURCES Private/Editor/StaticMeshLevelMutationTests.cpp Private/Editor/EditorActorAttachmentTests.cpp
+	SOURCES Private/Editor/EditorActorAttachmentTests.cpp
 		Private/Editor/ComponentMutationTests.cpp
-	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Operations/StaticMeshLevelMutations.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd
-	INCLUDE_DIRECTORIES
-		${CMAKE_CURRENT_SOURCE_DIR}/Private
-		${_durin_level_editor_private}
-		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
-	HEAVY_RUNTIME_RATIONALE "Exercises transaction-backed LevelEditor structural mutation."
+	HEAVY_RUNTIME_RATIONALE "Exercises transaction-backed Actor and Component structural mutations."
 )
 
 # Shared material domains select whole targets; each suite and native source has one owner.
