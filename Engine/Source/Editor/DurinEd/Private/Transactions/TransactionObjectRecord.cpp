@@ -1,4 +1,4 @@
-#include "Transactions/TransactionObjectRecord.h"
+#include "Transactions/Transactor.h"
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
 
@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	auto FTransactionObjectRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
+	auto FTransaction::FWholeObjectData::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{
 		class FCheck final : public FReferenceCollector
 		{
@@ -28,7 +28,7 @@ namespace Durin
 		return false;
 	}
 
-	auto FTransactionObjectRecord::HasSameState(const FTransactionObjectRecord& Other) const -> bool
+	auto FTransaction::FWholeObjectData::HasSameState(const FTransaction::FWholeObjectData& Other) const -> bool
 	{
 		auto SameInfo = [](const FSerializedObjectInfo& A, const FSerializedObjectInfo& B) {
 			return A == B && A.Identity == B.Identity;
@@ -47,8 +47,8 @@ namespace Durin
 			&& SelectedSnapshotProperties == Other.SelectedSnapshotProperties;
 	}
 
-	auto FTransactionObjectRecord::CreateReplacement(const FObjectReplacementMap& Map) const
-		-> std::expected<FTransactionObjectRecord, std::string>
+	auto FTransaction::FWholeObjectData::CreateReplacement(const FObjectReplacementMap& Map) const
+		-> std::expected<FTransaction::FWholeObjectData, std::string>
 	{
 		auto Result = *this;
 		auto Reference = Target.CreateReplacement(Map);
@@ -71,18 +71,18 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransactionObjectRecord::Capture(DObject& Object, const FSerializedObject* CapturePolicy,
-		const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy) -> std::expected<FTransactionObjectRecord::FSerializedObject, std::string>
+	auto FTransaction::FWholeObjectData::Capture(DObject& Object, const FSerializedObject* CapturePolicy,
+		const std::shared_ptr<ITransactionObjectAnnotation>* AnnotationPolicy) -> std::expected<FTransaction::FWholeObjectData::FSerializedObject, std::string>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!CanTransactObject(Object))
+		if (!CanTransactObject(Object) && !(CapturePolicy && CapturePolicy->Observation.ObjectInfo.Target.Get() == &Object && Object.IsGarbage()))
 			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
-		if (CapturePolicy && CapturePolicy->Observation.ObjectInfo.Target.Resolve() != &Object)
+		if (CapturePolicy && CapturePolicy->Observation.ObjectInfo.Target.Get() != &Object)
 			return std::unexpected("Transaction capture policy belongs to a different object.");
 		DObjectForceRegistration(Object.GetClass());
 		if (!IsValid(Object.GetClass())) return std::unexpected("Transaction class metadata is unavailable.");
 		const FSerializedObjectInfo Info{FPersistentObjectRef(&Object), FPersistentObjectRef(Object.GetClass()),
-			FPersistentObjectRef(Object.GetOuter()), FPersistentObjectRef(Object.GetPackage()), CaptureTransactionObjectIdentity(Object), Object.GetObjectFlags()};
+			FPersistentObjectRef(Object.GetOuter()), FPersistentObjectRef(Object.GetPackage()), CaptureTransactionObjectIdentity(Object), Object.GetObjectFlags(), Object.IsGarbage()};
 		FSerializedObject State;
 		try
 		{
@@ -99,7 +99,7 @@ namespace Durin
 		return State;
 	}
 
-	auto FTransactionObjectRecord::FSerializedObject::Validate(DObject& Object) const -> FTransactionCaptureResult
+	auto FTransaction::FWholeObjectData::FSerializedObject::Validate(DObject& Object) const -> FTransactionCaptureResult
 	{
 		if (auto Result = ValidateSerializedObject(Object, GetSerializedCapture()); !Result) return Result;
 		if (Annotation)
@@ -109,13 +109,13 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionObjectRecord::FSerializedObject::AddReferencedObjects(FReferenceCollector& Collector) const -> void
+	auto FTransaction::FWholeObjectData::FSerializedObject::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		Observation.AddReferencedObjects(Collector);
 		if (Annotation) Annotation->AddReferencedObjects(Collector);
 	}
 
-	auto FTransactionObjectRecord::FSerializedObject::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	auto FTransaction::FWholeObjectData::FSerializedObject::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
 		// Account the retained identity once, together with its transfer allocations.
 		size_t Total = 0;
@@ -130,7 +130,7 @@ namespace Durin
 		OutBytes = Total; return true;
 	}
 
-	auto FTransactionObjectRecord::Reject(std::string Message, bool bRecovery) const
+	auto FTransaction::FWholeObjectData::Reject(std::string Message, bool bRecovery) const
 		-> std::unexpected<FTransactionObjectRecordError>
 	{
 		return std::unexpected(FTransactionObjectRecordError{.Owner = Target.GetKey(), .SerializationCause = std::move(Message), .bRecoveryRequired = bRecovery});
@@ -139,10 +139,10 @@ namespace Durin
 	auto FormatTransactionObjectRecordError(const FTransactionObjectRecordError& Error) -> std::string
 	{ return Error.SerializationCause; }
 
-	auto FTransactionObjectRecord::CaptureWhole(DObject& Object)
-		-> std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::CaptureWhole(DObject& Object)
+		-> std::expected<FTransaction::FWholeObjectData, FTransactionObjectRecordError>
 	{
-		FTransactionObjectRecord Record;
+		FTransaction::FWholeObjectData Record;
 		Record.Target = FPersistentObjectRef(&Object);
 		auto State = Capture(Object);
 		if (!State) return Record.Reject(State.error());
@@ -151,14 +151,14 @@ namespace Durin
 		return Record;
 	}
 
-	auto FTransactionObjectRecord::IsNoOp() const -> bool
+	auto FTransaction::FWholeObjectData::IsNoOp() const -> bool
 	{
 		return BeforeState && AfterState && !BeforeState->GetAnnotation() && !AfterState->GetAnnotation()
 			&& BeforeState->Observation.ObjectInfo == AfterState->Observation.ObjectInfo
 			&& *BeforeState->Observation.SerializedObject == *AfterState->Observation.SerializedObject && BeforeState->HasSameSchema(*AfterState);
 	}
 
-	auto FTransactionObjectRecord::HasExpired() const noexcept -> bool
+	auto FTransaction::FWholeObjectData::HasExpired() const noexcept -> bool
 	{
 		const auto Expired = [](const auto& State) {
 			return State && State->GetAnnotation() && State->GetAnnotation()->HasExpired();
@@ -166,9 +166,9 @@ namespace Durin
 		return Expired(BeforeState) || Expired(AfterState);
 	}
 
-	auto FTransactionObjectRecord::Validate() const -> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::Validate() const -> std::expected<void, FTransactionObjectRecordError>
 	{
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return Reject("Transaction object target is unavailable.");
 		if (!BeforeState || !AfterState) return Reject("Transaction object state is unavailable.");
 		if (auto Result = BeforeState->Validate(*Object); !Result) return Reject(Result.error());
@@ -176,10 +176,10 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionObjectRecord::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::CaptureAfter() -> std::expected<void, FTransactionObjectRecordError>
 	{
 		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return Reject("Transaction final capture target is unavailable.");
 		auto State = Capture(*Object, &*BeforeState);
 		if (!State) return Reject(State.error());
@@ -188,12 +188,12 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionObjectRecord::PrepareReplay() -> std::expected<void, FTransactionObjectRecordError>
+	auto FTransaction::FWholeObjectData::PrepareReplay() -> std::expected<void, FTransactionObjectRecordError>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		ClearPreparedReplay();
 		if (!BeforeState) return Reject("Transaction object initial state is unavailable.");
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return Reject("Transaction inverse capture target is unavailable.");
 		auto State = Capture(*Object, &*BeforeState);
 		if (!State) return Reject(State.error());
@@ -202,11 +202,11 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState)
+	auto FTransaction::FWholeObjectData::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool bUseHistoricalState)
 		-> std::expected<void, FTransactionObjectRecordError>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return Reject("Transaction restore target is unavailable.");
 		if (!ReplayState)
 			if (auto Captured = PrepareReplay(); !Captured) return Captured;
@@ -239,17 +239,23 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionObjectRecord::CommitReplay(bool bBefore) -> void
+	auto FTransaction::FWholeObjectData::CommitReplay(bool bBefore) -> void
 	{
-		if (ReplayState) (bBefore ? AfterState : BeforeState) = std::move(*ReplayState);
+		if (ReplayState)
+		{
+			auto& Inverse = bBefore ? AfterState : BeforeState;
+			// Ordered field capture may run after the transaction has flipped liveness.
+			ReplayState->Observation.ObjectInfo.bIsPendingKill = Inverse->Observation.ObjectInfo.bIsPendingKill;
+			Inverse = std::move(*ReplayState);
+		}
 		ReplayState.reset();
 	}
 
-	auto FTransactionObjectRecord::BuildObjectEvents(const FTransactionContext& Context,
+	auto FTransaction::FWholeObjectData::BuildObjectEvents(const FTransactionContext& Context,
 		ETransactionObjectEventType Type, ETransactionOperation Operation) const
 		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
 	{
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return std::unexpected("Transaction event target is unavailable.");
 		const bool bReplay = Type == ETransactionObjectEventType::UndoRedo;
 		const bool bUndo = Operation == ETransactionOperation::Undo;
@@ -298,7 +304,8 @@ namespace Durin
 						for (const auto Name : AdditionalChange.ChangedProperties)
 							if (!std::ranges::contains(Value.ChangedProperties, Name)) Value.ChangedProperties.push_back(Name);
 						Value.bNameChanged |= AdditionalChange.bNameChanged; Value.bOuterChanged |= AdditionalChange.bOuterChanged;
-						Value.bNonPropertyDataChanged |= AdditionalChange.bNonPropertyDataChanged; Value.bEditorPresenceChanged |= AdditionalChange.bEditorPresenceChanged;
+						Value.bNonPropertyDataChanged |= AdditionalChange.bNonPropertyDataChanged; Value.bHasPendingKillChange |= AdditionalChange.bHasPendingKillChange;
+					Value.bEditorPresenceChanged |= AdditionalChange.bEditorPresenceChanged;
 					}
 				}
 			};
@@ -318,11 +325,11 @@ namespace Durin
 		return Events;
 	}
 
-	auto FTransactionObjectRecord::Snapshot(const FTransactionContext& Context, std::span<const FProperty* const> Selected)
+	auto FTransaction::FWholeObjectData::Snapshot(const FTransactionContext& Context, std::span<const FProperty* const> Selected)
 		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return std::unexpected("Transaction snapshot target is unavailable.");
 		for (const auto* Property : Selected)
 			if (!Property || Object->GetClass()->FindPropertyByName(Property->NamePrivate) != Property)
@@ -361,7 +368,7 @@ namespace Durin
 		return Events;
 	}
 
-	auto FTransactionObjectRecord::AddReferencedObjects(FReferenceCollector& Collector) const -> void
+	auto FTransaction::FWholeObjectData::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		Target.AddReferencedObjects(Collector);
 		if (BeforeState) BeforeState->AddReferencedObjects(Collector);
@@ -371,7 +378,7 @@ namespace Durin
 		if (CompletionAnnotation) CompletionAnnotation->AddReferencedObjects(Collector);
 	}
 
-	auto FTransactionObjectRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	auto FTransaction::FWholeObjectData::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
 		size_t Total = Target.GetAllocatedSize();
 		auto Add = [&](size_t Value) {
@@ -386,7 +393,7 @@ namespace Durin
 		OutBytes = Total; return true;
 	}
 
-	auto FTransactionObjectRecord::GetAffectedPackages() const -> std::vector<DPackage*>
+	auto FTransaction::FWholeObjectData::GetAffectedPackages() const -> std::vector<DPackage*>
 	{
 		std::vector<DPackage*> Result;
 		for (const auto* State : {&BeforeState, &AfterState})

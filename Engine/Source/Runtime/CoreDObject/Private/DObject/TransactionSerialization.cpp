@@ -235,7 +235,7 @@ namespace Durin
 		FSerializedObjectDataReader(DObject& Object, const FSerializedObjectCapture& InState, std::vector<FName>& Excluded)
 			: FTransactionArchive(Object, true, Excluded, InState.Context->Versions), State(InState) {}
 		auto RestoreMetadata() -> void
-		{ Object.RestoreTransactionMetadata(State.Info.Identity.OriginalName, State.Info.Outer.Resolve(), State.Info.Flags); }
+		{ Object.RestoreTransactionMetadata(State.Info.Identity.OriginalName, State.Info.Outer.Get(), State.Info.Flags); }
 		auto Tell() const -> uint64 override { return Offset; }
 		auto GetRemainingPayloadBytes() const -> uint64 override { return State.Data->Bytes.size() - Offset; }
 		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
@@ -251,7 +251,7 @@ namespace Durin
 			FObjectKey Key; Key.SerializeForSnapshot(*this);
 			if (IsError()) return;
 			const auto Reference = std::ranges::find(State.Data->HardReferences, Key, &FPersistentObjectRef::GetKey);
-			Value = Key.IsNull() || Reference == State.Data->HardReferences.end() ? nullptr : Reference->Resolve();
+			Value = Key.IsNull() || Reference == State.Data->HardReferences.end() ? nullptr : Reference->Get();
 			if (!Key.IsNull() && !Value) SetError("A transaction hard reference no longer resolves.");
 		}
 	private:
@@ -263,9 +263,9 @@ namespace Durin
 		bool bPropertiesOnly) -> std::expected<FSerializedObjectCapture, std::string>
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!CanTransactObject(Object))
+		if (!CanTransactObject(Object) && !(CapturePolicy && CapturePolicy->Info.Target.Get() == &Object && Object.IsGarbage()))
 			return std::unexpected("Transaction capture requires a live object or a transactional published default graph.");
-		if (CapturePolicy && (!CapturePolicy->Data || !CapturePolicy->Context || CapturePolicy->Info.Target.Resolve() != &Object))
+		if (CapturePolicy && (!CapturePolicy->Data || !CapturePolicy->Context || CapturePolicy->Info.Target.Get() != &Object))
 			return std::unexpected("Transaction capture policy belongs to a different object.");
 		// Lazily declared intrinsic classes can be pending after object construction.
 		// Complete their registration before recording a generation-checked identity.
@@ -279,6 +279,7 @@ namespace Durin
 		State.Info.Outer = FPersistentObjectRef(Object.GetOuter());
 		State.Info.Package = FPersistentObjectRef(Object.GetPackage());
 		State.Info.Identity = CaptureTransactionObjectIdentity(Object); State.Info.Flags = Object.GetObjectFlags();
+		State.Info.bIsPendingKill = Object.IsGarbage();
 		if (CapturePolicy) Context->ExcludedMembers = CapturePolicy->Context->ExcludedMembers;
 		try
 		{
@@ -317,33 +318,33 @@ namespace Durin
 	static auto ValidateSerializedObjectIdentity(DObject& Object, const FSerializedObjectCapture& Capture) -> FTransactionCaptureResult
 	{
 		if (!Capture.Data || !Capture.Context) return std::unexpected("Transaction capture is incomplete.");
-		if (!IsValid(&Object) || Capture.Info.Target.Resolve() != &Object)
+		if (Capture.Info.Target.Get() != &Object)
 			return std::unexpected("Transaction object identity is no longer available.");
 		if (Capture.Info.Class.Resolve() != Object.GetClass()) return std::unexpected("Transaction object class is no longer compatible.");
-		if (!CanTransactObject(Object)) return std::unexpected("Transaction object is no longer admitted.");
+		if (!Object.IsGarbage() && !CanTransactObject(Object)) return std::unexpected("Transaction object is no longer admitted.");
 		if (Object.IsTemplateObject() && (Capture.Info.Identity.OriginalName != Object.GetFName()
-			|| Capture.Info.Outer.Resolve() != Object.GetOuter() || Capture.Info.Flags != Object.GetObjectFlags()))
+			|| Capture.Info.Outer.Get() != Object.GetOuter() || Capture.Info.Flags != Object.GetObjectFlags()))
 			return std::unexpected("Template transactions cannot change construction identity or flags.");
 		if (Capture.Info.Identity.OriginalName.IsNone())
 			return std::unexpected(std::format("Transaction object '{}' has no captured Name.", Object.GetObjectPath()));
-		if (Capture.Info.Outer.IsStale() || Capture.Info.Package.IsStale())
+		if ((!Capture.Info.Outer.IsNull() && !Capture.Info.Outer.Get()) || (!Capture.Info.Package.IsNull() && !Capture.Info.Package.Get()))
 			return std::unexpected(std::format("Transaction object '{}' Outer or package no longer resolves.", Object.GetObjectPath()));
 		if ((Capture.Info.Flags & ~MutableFlags) != (Object.GetObjectFlags() & ~MutableFlags))
 			return std::unexpected("Transaction replay cannot restore object construction flags.");
-		for (auto* Parent = Capture.Info.Outer.Resolve(); Parent; Parent = Parent->GetOuter())
+		for (auto* Parent = Capture.Info.Outer.Get(); Parent; Parent = Parent->GetOuter())
 			if (Parent == &Object) return std::unexpected("Transaction object Outer would create a cycle.");
-		if (Capture.Info.Identity.OriginalName != Object.GetFName() || Capture.Info.Outer.Resolve() != Object.GetOuter())
-			for (auto* Sibling : GDObjectArray.GetObjectsWithOuter(Capture.Info.Outer.Resolve(), EObjectQueryScope::LiveOnly))
+		if (Capture.Info.Identity.OriginalName != Object.GetFName() || Capture.Info.Outer.Get() != Object.GetOuter())
+			for (auto* Sibling : GDObjectArray.GetObjectsWithOuter(Capture.Info.Outer.Get(), EObjectQueryScope::LiveOnly))
 				if (Sibling != &Object && Sibling->GetFName() == Capture.Info.Identity.OriginalName)
 					return std::unexpected("Transaction object Name is reserved by another live object.");
-		if (auto* ParentPackage = Cast<DPackage>(Capture.Info.Outer.Resolve()); ParentPackage && ParentPackage->IsAssetPackage()
+		if (auto* ParentPackage = Cast<DPackage>(Capture.Info.Outer.Get()); ParentPackage && ParentPackage->IsAssetPackage()
 			&& !EnumHasAnyFlags(Capture.Info.Flags, EObjectFlags::Transient)
 			&& std::ranges::any_of(ParentPackage->GetTopLevelAssets(), [&](const DObject* Asset) {
 				return Asset != &Object && !Asset->IsGarbage() && Asset->GetFName() == Capture.Info.Identity.OriginalName;
 			}))
 			return std::unexpected("Transaction object metadata conflicts with a top-level asset name.");
 		for (const auto& Reference : Capture.Data->HardReferences)
-			if (Reference.IsStale()) return std::unexpected("A transaction object hard reference expired.");
+			if (!Reference.IsNull() && !Reference.Get()) return std::unexpected("A transaction object hard reference expired.");
 		return {};
 	}
 

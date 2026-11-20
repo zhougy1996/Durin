@@ -453,8 +453,9 @@ record event.
 The reachable buffer enumerates pending, undoable, and redoable transaction data,
 primary objects, targets, capture participants, package transitions, tracked
 package states, and domain-declared hard dependencies. Persistent references use
-exact object generations; weak/soft payloads do not gain retention. Marked-garbage
-objects are not rescued. See [transaction records](TransactionRecords.md).
+exact object generations. Undo and Redo records retain explicitly reported
+hard references across GC even after a participant is marked garbage. Its
+garbage flag still controls ordinary access. Weak and soft payloads remain non-owning. See [transaction records](TransactionRecords.md).
 
 Cancellation, branch replacement, eviction, Reset, module retirement, destruction,
 and editor shutdown erase the corresponding record data and collector edges.

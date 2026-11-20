@@ -119,7 +119,7 @@ namespace Durin
 		auto Result = *this;
 		for (size_t Index = 0; Index < References.size(); ++Index)
 		{
-			auto* Object = References[Index].Resolve();
+			auto* Object = References[Index].Get();
 			if (!Object) return std::unexpected("Snapshot transaction reference is unavailable.");
 			Result.ReferencedObjectKeys[Index] = FObjectKey(Object);
 		}
@@ -1777,9 +1777,12 @@ namespace Durin
 					Fail(EArchiveFailureCode::InvalidObjectReference, "Invalid property snapshot reference identifier.");
 					return;
 				}
-				Object = Id == 0 ? nullptr
-					: ResolveObjectKey(References[static_cast<size_t>(Id - 1)]);
-				if (Object && Object->IsPendingKill()) Object = nullptr;
+				Object = nullptr;
+				if (Id != 0)
+				{
+					const FObjectKey Key = References[static_cast<size_t>(Id - 1)];
+					Object = IsTransacting() ? FPersistentObjectRef::FromKey(Key).Get() : ResolveObjectKey(Key);
+				}
 				if (Id != 0 && !Object)
 				{
 					SnapshotCode = EPropertySnapshotError::UnresolvedReference;

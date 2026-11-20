@@ -69,6 +69,11 @@ namespace Durin
 		static auto GetHistoryId() -> uint64;
 
 	private:
+		friend class FTransaction;
+		friend class FPersistentObjectRef;
+		FScopedTransactionHistoryReplay(uint64 HistoryId, std::span<DObject* const> PendingKill);
+		static auto IncludesPendingKill(const DObject* Object) -> bool;
+		std::span<DObject* const> PreviousPendingKill;
 		uint64 PreviousHistoryId;
 	};
 

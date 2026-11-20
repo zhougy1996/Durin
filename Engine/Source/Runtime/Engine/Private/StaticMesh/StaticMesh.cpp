@@ -555,7 +555,7 @@ namespace Durin
 			DURIN_ERROR(
 				"Failed to create debug static mesh: {}",
 				Published.error());
-			MarkAsGarbage(Mesh);
+			Mesh->MarkAsGarbage();
 			return nullptr;
 		}
 		return Mesh;

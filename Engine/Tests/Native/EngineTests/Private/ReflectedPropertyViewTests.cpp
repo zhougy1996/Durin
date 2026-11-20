@@ -1490,7 +1490,12 @@ TEST(FReflectedPropertyViewTests, HistoricalRecordsBypassNewEditExtensionValidat
 	ASSERT_TRUE(History.BeginOperation());
 	History.SaveObject(Object);
 	TStrongObjectPtr<DObject> Root(Object);
-	auto Captured = FTransactionObjectRecord::CaptureWhole(*Object);
+	struct FRecordAccess : FTransaction
+	{
+		using Record = FWholeObjectData;
+		static auto Capture(DObject& Object) { return FWholeObjectData::CaptureWhole(Object); }
+	};
+	auto Captured = FRecordAccess::Capture(*Object);
 	ASSERT_TRUE(Captured);
 	auto Record = std::move(*Captured);
 	Object->Value = 6;

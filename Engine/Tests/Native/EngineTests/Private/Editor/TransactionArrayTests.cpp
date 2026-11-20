@@ -1,3 +1,4 @@
+#include "DObject/DObjectArray.h"
 #include "Editor/TransactionRecordTestSupport.h"
 #include "DObject/TransactionArray.h"
 #include "DObject/TransactionSerialization.h"
@@ -13,6 +14,32 @@ namespace
 	{
 		return EditTransactionArray(Object, Object.GetClass()->FindPropertyByName("Numbers"), Object.Numbers,
 			Index, Removed, std::span<const int32>(Values.begin(), Values.size()));
+	}
+}
+
+TEST(FTransactionArrayTests, OrderedArrayAndWholeObjectReplaySurvivesDeletion)
+{
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	auto* Object = NewObject<DTransactionRecordParticipant>(nullptr, "ArrayDeleteOwner");
+	Object->Numbers = {1, 2};
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Edit range and delete owner"});
+		ASSERT_TRUE(EditNumbers(*Object, 1, 1, {3}));
+		ASSERT_TRUE(Object->Modify());
+		Object->Value = 42;
+		Object->MarkAsGarbage();
+	}
+	for (int Cycle = 0; Cycle < 2; ++Cycle)
+	{
+		CollectGarbage(EObjectFlags::Standalone);
+		ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+		ASSERT_TRUE(IsValid(Object));
+		EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2}));
+		ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+		EXPECT_TRUE(Object->IsGarbage());
+		EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 3}));
+		EXPECT_EQ(Object->Value, 42);
 	}
 }
 
@@ -167,6 +194,33 @@ TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
 }
 
+TEST(FTransactionArrayTests, HistoryRetainsGarbageAllocationUntilReset)
+{
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	auto* Object = NewObject<DTransactionRecordParticipant>(nullptr, "RetainedDeletion");
+	Object->Numbers = {1, 2};
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Edit retained array"});
+		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
+	}
+	const FObjectKey Key(Object);
+	ASSERT_TRUE(Buffer->Undo());
+	MarkAsGarbage(Object);
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+	ASSERT_EQ(GDObjectArray.Resolve(Key), Object);
+	EXPECT_GE(GetLastGarbageCollectionStats().RetainedGarbageCount, 1u);
+	EXPECT_TRUE(Object->IsGarbage());
+	EXPECT_FALSE(Buffer->Redo());
+	EXPECT_TRUE(Buffer->CanRedo());
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_EQ(GDObjectArray.Resolve(Key), Object);
+	ASSERT_TRUE(Buffer->TryReset());
+	CollectGarbage(Durin::EObjectFlags::Standalone);
+	EXPECT_EQ(GDObjectArray.Resolve(Key), nullptr);
+}
+
 TEST(FTransactionArrayTests, ArrayAnnotationsAndEventsUseTheCompletedSideOncePerOwner)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
@@ -309,7 +363,7 @@ TEST(FTransactionArrayTests, FixedRangeStorageAndReplayDoNotDependOnContainerLen
 		{
 			Object->Numbers.assign(Num, 5);
 			const size_t Index = Num / 2;
-			auto Record = FTransactionArrayRecord::Capture({.Object = Object.Get(), .Member = Member,
+			auto Record = FRecordAccess::CaptureArray({.Object = Object.Get(), .Member = Member,
 				.Index = Index, .Count = 1, .Operation = Operation});
 			ASSERT_TRUE(Record) << Record.error();
 			size_t Bytes = 0; ASSERT_TRUE(Record->TryGetAllocatedSize(Bytes));

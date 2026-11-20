@@ -34,6 +34,13 @@
 
 namespace Durin::Tests::ObjectState
 {
+	struct FRecordAccess : FTransaction
+	{
+		using Record = FWholeObjectData;
+		static auto CaptureArray(const FTransactionArrayCapture& Request) { return FArrayData::Capture(Request); }
+		static auto Capture(DObject& Object) { return FWholeObjectData::CaptureWhole(Object); }
+	};
+
 	template<typename T>
 	inline auto SetValueLifecycle(Durin::FProperty& Property) -> void
 	{
@@ -270,6 +277,7 @@ namespace Durin::Tests::ObjectState
 		}
 		auto Serialize(Durin::FArchive& Archive) -> void override
 		{
+			if (bFailSave && Archive.IsSaving() && Archive.IsTransacting()) { Archive.SetError("Injected capture failure."); return; }
 			if (CaptureTrace && Archive.IsSaving() && Archive.IsTransacting()) CaptureTrace->push_back("serialize");
 			DObject::Serialize(Archive);
 			if (Archive.IsSaving() && Archive.IsTransacting()) ++SerializationSaves;
@@ -289,6 +297,7 @@ namespace Durin::Tests::ObjectState
 		int32 NativeValue = 0;
 		int32 SerializationSaves = 0;
 		int32 SerializationLoads = 0;
+		bool bFailSave = false;
 		bool bFailLoadOnce = false;
 		bool bThrowLoadOnce = false;
 		int32 FailedLoadsRemaining = 0;
@@ -382,11 +391,11 @@ namespace Durin::Tests::ObjectState
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
 			DObject::AddReferencedObjects(Collector);
-			for (const Durin::FTransactionObjectRecord& Snapshot : Records)
+			for (const FRecordAccess::Record& Snapshot : Records)
 				Snapshot.AddReferencedObjects(Collector);
 		}
 
-		std::vector<Durin::FTransactionObjectRecord> Records;
+		std::vector<FRecordAccess::Record> Records;
 	};
 
 	class FCountingReferenceCollector final : public Durin::FReferenceCollector
@@ -588,11 +597,11 @@ namespace Durin::Tests::ObjectState
 		return Path;
 	}
 
-	inline auto CaptureRecord(DTransactionRecordParticipant* Target) -> Durin::FTransactionObjectRecord
+	inline auto CaptureRecord(DTransactionRecordParticipant* Target) -> FRecordAccess::Record
 	{
-		auto Result = Durin::FTransactionObjectRecord::CaptureWhole(*Target);
+		auto Result = FRecordAccess::Capture(*Target);
 		EXPECT_TRUE(Result) << (Result ? "" : Durin::FormatTransactionObjectRecordError(Result.error()));
-		return Result ? std::move(*Result) : Durin::FTransactionObjectRecord{};
+		return Result ? std::move(*Result) : FRecordAccess::Record{};
 	}
 
 }

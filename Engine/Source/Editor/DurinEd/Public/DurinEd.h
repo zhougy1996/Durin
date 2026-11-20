@@ -31,7 +31,6 @@
 #include "PropertyEditor/PropertyView.h"
 #include "Settings/EditorSettings.h"
 #include "Transactions/Transaction.h"
-#include "Transactions/TransactionObjectRecord.h"
 #include "Transactions/Transactor.h"
 
 // Thumbnail services retained for existing DurinEd.h consumers.

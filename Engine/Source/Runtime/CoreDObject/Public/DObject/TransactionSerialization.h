@@ -26,11 +26,12 @@ namespace Durin
 		FPersistentObjectRef Target, Class, Outer, Package;
 		FTransactionObjectId Identity;
 		EObjectFlags Flags = EObjectFlags::NoFlags;
+		bool bIsPendingKill = false;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		auto operator==(const FSerializedObjectInfo& Other) const -> bool
 		{
 			return Target == Other.Target && Class == Other.Class && Outer == Other.Outer
-				&& Package == Other.Package && Flags == Other.Flags && Identity.OriginalName == Other.Identity.OriginalName;
+				&& Package == Other.Package && bIsPendingKill == Other.bIsPendingKill && Flags == Other.Flags && Identity.OriginalName == Other.Identity.OriginalName;
 		}
 	};
 

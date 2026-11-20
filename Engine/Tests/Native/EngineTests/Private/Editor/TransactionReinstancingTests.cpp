@@ -48,7 +48,7 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
 	EXPECT_EQ(Replacement->Value, Original);
 	EXPECT_EQ(Owner->Hard.Get(), Replacement);
-	ASSERT_TRUE(Buffer->Redo());
+	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
 	EXPECT_EQ(Replacement->Value, 81);
 	EXPECT_EQ(Owner->Value, 5);
 	ASSERT_TRUE(Buffer->TryReset());
@@ -200,6 +200,27 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	ASSERT_TRUE(Buffer->TryReset());
 	Default->Value = Original;
 	CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST_F(FTransactionReinstancingTests, DeletionRestoresTopLevelRegistrationAndRejectsNameConflicts)
+{
+	using namespace Durin;
+	ASSERT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Delete top-level object"});
+		ASSERT_TRUE(Old->Modify());
+		Old->MarkAsGarbage();
+	}
+	EXPECT_FALSE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
+	auto* Conflict = NewObject<DTransactionRecordParticipant>(Current, "Target", EObjectFlags::Public);
+	ASSERT_FALSE(Buffer->Undo());
+	EXPECT_TRUE(Old->IsGarbage());
+	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Conflict));
+	Conflict->MarkAsGarbage();
+	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_FALSE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
 }
 
 TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackageCheckpoint)

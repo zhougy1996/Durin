@@ -81,10 +81,14 @@ namespace Durin
 			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()
 				|| (Object->IsTemplateObject() && !bAllowTemplate)) return;
 			Object->SetInternalFlags(EObjectInternalFlags::Garbage);
-			if (auto* Package = Cast<DPackage>(Object->GetOuter())) Package->UnregisterTopLevelAsset(Object);
+			if (auto* Package = Cast<DPackage>(Object->GetOuter()); Package && std::ranges::contains(Package->GetTopLevelAssets(), Object))
+			{
+				Object->SetInternalFlags(EObjectInternalFlags::WasRegisteredTopLevelAsset);
+				Package->UnregisterTopLevelAsset(Object);
+			}
 			if (Cast<DPackage>(Object)) Private::NotifyAssetPackageChanged();
-            NotifyObjectReferencesInvalidated(*Object);
 			GDObjectArray.NotifyObjectMarkedGarbage();
+			NotifyObjectReferencesInvalidated(*Object);
 		}
 
 		auto GatherDestroyOrder(std::span<DObject* const> Candidates) -> std::vector<DObject*>
@@ -149,10 +153,18 @@ namespace Durin
 		class FMarkReferenceCollector : public FReferenceCollector
 		{
 		public:
+			auto AllowEliminatingReferences(bool bAllow) -> void override { bAllowElimination = bAllow; }
 			auto AddReferencedObject(DObject*& Object) -> void override { Enqueue(Object); }
 			auto Enqueue(DObject* Object) -> void
 			{
-				if (Object) Pending.push_back(Object);
+				if (!Object) return;
+				if (!bAllowElimination) NonEliminable.insert(Object);
+				Pending.push_back(Object);
+			}
+
+			auto CanEliminate(DObject* Object) const -> bool
+			{
+				return Object->IsGarbage() && !NonEliminable.contains(Object);
 			}
 
 			auto Drain() -> uint64
@@ -162,7 +174,7 @@ namespace Durin
 				{
 					DObject* Object = Pending.back();
 					Pending.pop_back();
-					if (!Object || !GDObjectArray.Contains(Object) || Object->IsGarbage()
+					if (!GDObjectArray.Contains(Object) || CanEliminate(Object)
 						|| Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)) continue;
 
 					Object->SetInternalFlags(EObjectInternalFlags::Reachable);
@@ -176,6 +188,8 @@ namespace Durin
 			}
 
 		private:
+			std::unordered_set<DObject*> NonEliminable;
+			bool bAllowElimination = true;
 			std::vector<DObject*> Pending;
 		};
 	}
@@ -203,6 +217,24 @@ namespace Durin
 	{
 		CheckObjectThread();
 		MarkGarbageInternal(Object);
+	}
+
+	auto DObject::MarkAsGarbage() -> void { Durin::MarkAsGarbage(this); }
+
+	auto DObject::ClearGarbage() -> void
+	{
+		CheckObjectThread();
+		if (!IsGarbage() || IsGarbageCollecting() || IsTemplateObject()
+			|| HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed | EObjectInternalFlags::FinishDestroyed)) return;
+		if (HasAnyInternalFlags(EObjectInternalFlags::WasRegisteredTopLevelAsset))
+		{
+			auto* Package = Cast<DPackage>(GetOuter());
+			if (!Package || !Package->RegisterTopLevelAsset(this)) return;
+		}
+		ClearInternalFlags(EObjectInternalFlags::Garbage | EObjectInternalFlags::WasRegisteredTopLevelAsset);
+		check(GDObjectArray.GarbageObjectCount > 0);
+		--GDObjectArray.GarbageObjectCount;
+		if (Cast<DPackage>(this)) Private::NotifyAssetPackageChanged();
 	}
 
 	auto MarkObjectHierarchyAsGarbage(DObject* RootObject) -> void
@@ -513,10 +545,11 @@ namespace Durin
 		std::vector<DObject*> SweepCandidates;
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
-			if (!IsPermanentObject(Object) && (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)))
+			if (!IsPermanentObject(Object) && (Marker.CanEliminate(Object) || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)))
 			{
 				SweepCandidates.push_back(Object);
 			}
+			else if (Object->IsGarbage()) ++GLastGarbageCollectionStats.RetainedGarbageCount;
 		}
 		GLastGarbageCollectionStats.CandidateObjectCount = static_cast<uint64>(SweepCandidates.size());
 

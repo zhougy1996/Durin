@@ -125,7 +125,7 @@ namespace Durin
 		return Message;
 	}
 
-	FTransactionRecord::FTransactionRecord(std::unique_ptr<FCommandChange> Change, DObject* Object)
+	FTransaction::FObjectRecord::FObjectRecord(std::unique_ptr<FCommandChange> Change, DObject* Object)
 		: Data(std::move(Change)), CustomObject(FPersistentObjectRef::FromKey(FObjectKey(Object)))
 	{
 		if (Object) ModifiedObjects.Add(FPersistentObjectRef::FromKey(FObjectKey(Object)));
@@ -135,10 +135,10 @@ namespace Durin
 				ModifiedObjects.Add(FPersistentObjectRef::FromKey(FObjectKey(Participant)));
 	}
 
-	auto FTransactionRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
+	auto FTransaction::FObjectRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{
-		if (const auto* Record = std::get_if<FTransactionArrayRecord>(&Data)) return Record->HasReplacementReferences(Map);
-		if (const auto* Record = std::get_if<FTransactionObjectRecord>(&Data)) return Record->HasReplacementReferences(Map);
+		if (const auto* Record = std::get_if<FTransaction::FArrayData>(&Data)) return Record->HasReplacementReferences(Map);
+		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data)) return Record->HasReplacementReferences(Map);
 		class FCheck final : public FReferenceCollector
 		{
 		public:
@@ -151,21 +151,21 @@ namespace Durin
 		return Check.bMapped;
 	}
 
-	auto FTransactionRecord::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FTransactionRecord, std::string>
+	auto FTransaction::FObjectRecord::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FTransaction::FObjectRecord, std::string>
 	{
-		if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Data))
+		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data))
 		{
 			auto Result = Array->CreateReplacement(Map);
 			if (!Result) return std::unexpected(Result.error());
-			FTransactionRecord Replacement(std::move(*Result));
+			FTransaction::FObjectRecord Replacement(std::move(*Result));
 			Replacement.bReplayExpired = bReplayExpired;
 			return Replacement;
 		}
-		if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Data))
+		if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data))
 		{
 			auto Result = Object->CreateReplacement(Map);
 			if (!Result) return std::unexpected(Result.error());
-			FTransactionRecord Replacement(std::move(*Result));
+			FTransaction::FObjectRecord Replacement(std::move(*Result));
 			Replacement.bReplayExpired = bReplayExpired;
 			return Replacement;
 		}
@@ -181,7 +181,7 @@ namespace Durin
 		if (!*Command) return std::unexpected("Command reinstancing returned no state.");
 		auto Object = Map.RemapObjectKey(CustomObject.GetKey());
 		if (!Object) return std::unexpected(ToString(Object.error()));
-		FTransactionRecord Result(std::move(*Command), ResolveObjectKey(*Object));
+		FTransaction::FObjectRecord Result(std::move(*Command), ResolveObjectKey(*Object));
 		Result.bReplayExpired = bReplayExpired;
 		std::vector<FPersistentObjectRef> Expected;
 		for (const auto& Ref : ModifiedObjects.GetReferences())
@@ -204,18 +204,18 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransactionRecord::GetModifiedObjects() const -> std::vector<DObject*>
+	auto FTransaction::FObjectRecord::GetModifiedObjects() const -> std::vector<DObject*>
 	{
-		if (const auto* Record = std::get_if<FTransactionArrayRecord>(&Data)) return {Record->GetTarget().Resolve()};
-		if (const auto* Record = std::get_if<FTransactionObjectRecord>(&Data))
-			return {Record->GetTarget().Resolve()};
+		if (const auto* Record = std::get_if<FTransaction::FArrayData>(&Data)) return {Record->GetTarget().Get()};
+		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data))
+			return {Record->GetTarget().Get()};
 		std::vector<DObject*> Result;
 		for (const auto& Reference : ModifiedObjects.GetReferences())
-			if (auto* Object = Reference.Resolve()) Result.push_back(Object);
+			if (auto* Object = Reference.Get()) Result.push_back(Object);
 		return Result;
 	}
 
-	auto FTransactionRecord::HasExpired() const noexcept -> bool
+	auto FTransaction::FObjectRecord::HasExpired() const noexcept -> bool
 	{
 		return bReplayExpired || std::visit([this](const auto& Record) -> bool {
 			using T = std::decay_t<decltype(Record)>;
@@ -230,14 +230,14 @@ namespace Durin
 		}, Data);
 	}
 
-	auto FTransactionRecord::Validate() const -> FTransactionRecordResult
+	auto FTransaction::FObjectRecord::Validate() const -> FTransactionRecordResult
 	{
-		if (const auto* Record = std::get_if<FTransactionArrayRecord>(&Data)) return Record->Validate();
+		if (const auto* Record = std::get_if<FTransaction::FArrayData>(&Data)) return Record->Validate();
 		for (const auto& Reference : ModifiedObjects.GetReferences())
-			if (Reference.IsStale()) return std::unexpected("A modified transaction participant is unavailable.");
+			if (!Reference.Get()) return std::unexpected("A modified transaction participant is unavailable.");
 		return std::visit([&](const auto& Record) -> FTransactionRecordResult {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
+			if constexpr (std::is_same_v<T, FTransaction::FWholeObjectData>)
 			{
 				const auto Result = Record.Validate();
 				if (!Result) return std::unexpected(FormatTransactionObjectRecordError(Result.error()));
@@ -248,54 +248,54 @@ namespace Durin
 		}, Data);
 	}
 
-	auto FTransactionRecord::PrepareReplay() -> FTransactionRecordResult
+	auto FTransaction::FObjectRecord::PrepareReplay() -> FTransactionRecordResult
 	{
-		if (auto* Object = std::get_if<FTransactionObjectRecord>(&Data))
+		if (auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			if (auto Prepared = Object->PrepareReplay(); !Prepared)
 				return std::unexpected(FormatTransactionObjectRecordError(Prepared.error()));
 		return {};
 	}
-	auto FTransactionRecord::ClearPreparedReplay() -> void
+	auto FTransaction::FObjectRecord::ClearPreparedReplay() -> void
 	{
-		if (auto* Array = std::get_if<FTransactionArrayRecord>(&Data)) Array->ClearPreparedReplay();
-		if (auto* Object = std::get_if<FTransactionObjectRecord>(&Data)) Object->ClearPreparedReplay();
+		if (auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) Array->ClearPreparedReplay();
+		if (auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data)) Object->ClearPreparedReplay();
 	}
-	auto FTransactionRecord::CommitReplay(bool bBefore) -> void
+	auto FTransaction::FObjectRecord::CommitReplay(bool bBefore) -> void
 	{
-		if (auto* Array = std::get_if<FTransactionArrayRecord>(&Data)) Array->CommitReplay();
-		if (auto* Object = std::get_if<FTransactionObjectRecord>(&Data)) Object->CommitReplay(bBefore);
+		if (auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) Array->CommitReplay();
+		if (auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data)) Object->CommitReplay(bBefore);
 	}
 
-	auto FTransactionRecord::CaptureAfter() -> FTransactionRecordResult
+	auto FTransaction::FObjectRecord::CaptureAfter() -> FTransactionRecordResult
 	{
-		if (auto* Record = std::get_if<FTransactionObjectRecord>(&Data))
+		if (auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			if (auto Result = Record->CaptureAfter(); !Result)
 				return std::unexpected(FormatTransactionObjectRecordError(Result.error()));
 		return {};
 	}
 
-	auto FTransactionRecord::IsNoOp() const -> bool
+	auto FTransaction::FObjectRecord::IsNoOp() const -> bool
 	{
-		if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Data)) return Array->IsNoOp();
-		if (const auto* Record = std::get_if<FTransactionObjectRecord>(&Data))
+		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) return Array->IsNoOp();
+		if (const auto* Record = std::get_if<FTransaction::FWholeObjectData>(&Data))
 			return Record->IsNoOp();
 		return false;
 	}
-	auto FTransactionRecord::GetReplayAnnotation() const -> std::pair<DObject*, std::shared_ptr<ITransactionObjectAnnotation>>
+	auto FTransaction::FObjectRecord::GetReplayAnnotation() const -> std::pair<DObject*, std::shared_ptr<ITransactionObjectAnnotation>>
 	{
-		if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Data); Array && Array->HasReplayCompletion())
-			return {Array->GetTarget().Resolve(), Array->GetReplayAnnotation()};
-		if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Data))
-			return {Object->GetTarget().Resolve(), Object->GetReplayAnnotation()};
+		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data); Array && Array->HasReplayCompletion())
+			return {Array->GetTarget().Get(), Array->GetReplayAnnotation()};
+		if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data))
+			return {Object->GetTarget().Get(), Object->GetReplayAnnotation()};
 		return {};
 	}
 
-	auto FTransactionRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired, bool bUseHistoricalState) -> FTransactionRecordResult
+	auto FTransaction::FObjectRecord::Apply(bool bBefore, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired, bool bUseHistoricalState) -> FTransactionRecordResult
 	{
 		if (OutRecoveryRequired) *OutRecoveryRequired = false;
 		return std::visit([&](auto& Record) -> FTransactionRecordResult {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
+			if constexpr (std::is_same_v<T, FTransaction::FWholeObjectData>)
 			{
 				try
 				{
@@ -317,7 +317,7 @@ namespace Durin
 					return std::unexpected(std::string("Object transaction replay threw an unknown exception."));
 				}
 			}
-			else if constexpr (std::is_same_v<T, FTransactionArrayRecord>)
+			else if constexpr (std::is_same_v<T, FTransaction::FArrayData>)
 			{
 				try { return Record.Apply(!bUseHistoricalState, Origin, OutRecoveryRequired); }
 				catch (const std::exception& Error) { return std::unexpected(std::format("Array transaction replay threw: {}", Error.what())); }
@@ -349,7 +349,7 @@ namespace Durin
 		}, Data);
 	}
 
-	auto FTransactionRecord::AddReferencedObjects(FReferenceCollector& Collector) const -> void
+	auto FTransaction::FObjectRecord::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		ModifiedObjects.AddReferencedObjects(Collector);
 		std::visit([&](const auto& Record) {
@@ -370,7 +370,7 @@ namespace Durin
 		}, Data);
 	}
 
-	auto FTransactionRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	auto FTransaction::FObjectRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
 		return std::visit([&](const auto& Record) {
 			using T = std::decay_t<decltype(Record)>;
@@ -391,7 +391,7 @@ namespace Durin
 		}, Data);
 	}
 
-	auto FTransactionRecord::GetDetails(ETransactionOperation Operation) const -> std::string
+	auto FTransaction::FObjectRecord::GetDetails(ETransactionOperation Operation) const -> std::string
 	{
 		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
 			Change && *Change)
@@ -404,10 +404,10 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionRecord::GetAffectedPackages() const -> std::vector<DPackage*>
+	auto FTransaction::FObjectRecord::GetAffectedPackages() const -> std::vector<DPackage*>
 	{
-		if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Data)) return Array->GetAffectedPackages();
-		if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Data)) return Object->GetAffectedPackages();
+		if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Data)) return Array->GetAffectedPackages();
+		if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Data)) return Object->GetAffectedPackages();
 		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
 			Change && *Change)
 		{
@@ -417,7 +417,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionRecord::MutatesMountedContent() const -> bool
+	auto FTransaction::FObjectRecord::MutatesMountedContent() const -> bool
 	{
 		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
 			Change && *Change)
@@ -425,7 +425,7 @@ namespace Durin
 		return false;
 	}
 
-	auto FTransactionRecord::IsOwnedByModule(std::string_view ModuleName) const -> bool
+	auto FTransaction::FObjectRecord::IsOwnedByModule(std::string_view ModuleName) const -> bool
 	{
 		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
 			Change && *Change)
@@ -496,7 +496,7 @@ namespace Durin
 			FTransactionBusyScope BusyScope(bBusy);
 			if (const size_t Position = FindWholeRecord(Object))
 				Result = DispatchObjectEvents(ETransactionObjectEventType::Snapshot, ETransactionOperation::Execute,
-					&std::get<FTransactionObjectRecord>(Records[Position - 1].Data), Properties);
+					&std::get<FTransaction::FWholeObjectData>(Records[Position - 1].Data), Properties);
 		}
 		if (!Result && bObserverRecoveryRequired && RecordingOwner)
 			RecordingOwner->LastResult = RecordingOwner->HandleApplyFailure(*this, {.Status = ETransactionApplyFailure::RecoveryRequired, .Message = Result.error()});
@@ -520,10 +520,10 @@ namespace Durin
 		{
 			if (RecordingOwner && Capture.Count)
 				if (auto* Package = Capture.Object->GetPackage(); Package && Package->IsAssetPackage()) RecordingOwner->EnsurePackageState(*Package);
-			auto Record = FTransactionArrayRecord::Capture(Capture);
+			auto Record = FTransaction::FArrayData::Capture(Capture);
 			if (!Record) return std::unexpected(Record.error());
 			if (Capture.Count == 0) return {};
-			AppendRecord(FTransactionRecord(std::move(*Record)));
+			AppendRecord(FTransaction::FObjectRecord(std::move(*Record)));
 			return {};
 		}
 		catch (const std::exception& Error) { return std::unexpected(std::format("Array capture failed: {}", Error.what())); }
@@ -537,11 +537,11 @@ namespace Durin
 		return InspectPieReferences(*this);
 	}
 
-	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransactionRecord& Record, size_t Position) -> void
+	auto FTransaction::IndexRecord(FObjectIndex& Index, const FTransaction::FObjectRecord& Record, size_t Position) -> void
 	{
-		if (const auto* Whole = std::get_if<FTransactionObjectRecord>(&Record.Data))
+		if (const auto* Whole = std::get_if<FTransaction::FWholeObjectData>(&Record.Data))
 			Index[Whole->GetTarget()].WholeRecord = Position;
-		else if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data))
+		else if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Record.Data))
 			Index.try_emplace(Array->GetTarget());
 		else
 		{
@@ -563,7 +563,7 @@ namespace Durin
 		return *CaptureIndex;
 	}
 
-	auto FTransaction::AppendRecord(FTransactionRecord Record) -> size_t
+	auto FTransaction::AppendRecord(FTransaction::FObjectRecord Record) -> size_t
 	{
 		auto& Index = GetCaptureIndex();
 		try
@@ -592,7 +592,7 @@ namespace Durin
 	{
 		if (bBusy || bFinalized) return 0;
 		FTransactionBusyScope BusyScope(bBusy);
-		return AppendRecord(FTransactionRecord(std::move(Change), Object));
+		return AppendRecord(FTransaction::FObjectRecord(std::move(Change), Object));
 	}
 
 	auto FTransaction::SaveObject(DObject* Object) -> void
@@ -632,9 +632,9 @@ namespace Durin
 		const auto It = Index.find(FPersistentObjectRef::FromKey(FObjectKey(Object)));
 		if (It != Index.end() && It->second.bCustomOwner) return {};
 		if (FindWholeRecord(Object)) return {};
-		auto Record = FTransactionObjectRecord::CaptureWhole(*Object);
+		auto Record = FTransaction::FWholeObjectData::CaptureWhole(*Object);
 		if (!Record) return std::unexpected(FormatTransactionObjectRecordError(Record.error()));
-		AppendRecord(FTransactionRecord(std::move(*Record)));
+		AppendRecord(FTransaction::FObjectRecord(std::move(*Record)));
 		return {};
 	}
 
@@ -643,32 +643,41 @@ namespace Durin
 		if (bBusy || bFinalized) return std::unexpected("The transaction is busy or already finalized.");
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		FTransactionBusyScope BusyScope(bBusy);
+		std::vector<DObject*> Deleted;
+		for (const auto& Record : Records)
+		{
+			const auto* Whole = std::get_if<FTransaction::FWholeObjectData>(&Record.Data);
+			if (!Whole || Whole->GetTarget().GetReferenceType() != FPersistentObjectRef::EReferenceType::RootObject) continue;
+			auto* Object = GDObjectArray.Resolve(Whole->GetTarget().GetKey());
+			if (Object && Object->IsGarbage() && !Object->IsTemplateObject()) Deleted.push_back(Object);
+		}
+		const FScopedTransactionHistoryReplay Access(FScopedTransactionHistoryReplay::GetHistoryId(), Deleted);
 		for (auto& Record : Records)
 			if (auto Result = Record.CaptureAfter(); !Result) return Result;
 		if (auto Result = DispatchObjectEvents(ETransactionObjectEventType::Finalized, ETransactionOperation::Execute); !Result) return Result;
-		for (auto& Record : Records) if (auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data)) ObjectRecord->ClearSnapshot();
+		for (auto& Record : Records) if (auto* ObjectRecord = std::get_if<FTransaction::FWholeObjectData>(&Record.Data)) ObjectRecord->ClearSnapshot();
 		bFinalized = true;
 		CaptureIndex.reset();
 		return {};
 	}
 
 	auto FTransaction::DispatchObjectEvents(ETransactionObjectEventType Type, ETransactionOperation Operation,
-		FTransactionObjectRecord* SnapshotRecord, std::span<const FProperty* const> Selected,
+		FTransaction::FWholeObjectData* SnapshotRecord, std::span<const FProperty* const> Selected,
 		const FReplayResult* Replay) -> FTransactionCaptureResult
 	{
 		bool bDispatched = false;
 		try
 		{
 			const auto EventRecords = std::views::iota(size_t{0}, Replay ? Replay->AppliedRecords.size() : Records.size())
-				| std::views::transform([&](size_t Index) -> const FTransactionRecord& {
+				| std::views::transform([&](size_t Index) -> const FTransaction::FObjectRecord& {
 					return Records[Replay ? Replay->AppliedRecords[Index] : Index];
 				});
-			std::vector<const FTransactionObjectRecord*> ObjectRecords;
+			std::vector<const FTransaction::FWholeObjectData*> ObjectRecords;
 			if (SnapshotRecord) ObjectRecords.push_back(SnapshotRecord);
 			else
 				for (const auto& Record : EventRecords)
-					if (const auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Record.Data)) ObjectRecords.push_back(ObjectRecord);
-			auto Depth = [](const auto* Record) { size_t Result = 0; for (auto* Object = Record->GetTarget().Resolve(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
+					if (const auto* ObjectRecord = std::get_if<FTransaction::FWholeObjectData>(&Record.Data)) ObjectRecords.push_back(ObjectRecord);
+			auto Depth = [](const auto* Record) { size_t Result = 0; for (auto* Object = Record->GetTarget().Get(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
 			std::stable_sort(ObjectRecords.begin(), ObjectRecords.end(), [&](const auto* Left, const auto* Right) { return Depth(Left) > Depth(Right); });
 			std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>> Events;
 			for (const auto* ObjectRecord : ObjectRecords)
@@ -679,7 +688,7 @@ namespace Durin
 			}
 			if (!SnapshotRecord)
 				for (const auto& Record : EventRecords)
-					if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data); Array && !Array->IsNoOp())
+					if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Record.Data); Array && !Array->IsNoOp())
 					{
 						auto Built = Array->BuildObjectEvents(GetContext(), Type, Operation);
 						if (!Built) return std::unexpected(Built.error());
@@ -694,18 +703,19 @@ namespace Durin
 								Existing->second.Change.bNameChanged |= Event.Change.bNameChanged;
 								Existing->second.Change.bOuterChanged |= Event.Change.bOuterChanged;
 								Existing->second.Change.bNonPropertyDataChanged |= Event.Change.bNonPropertyDataChanged;
-								Existing->second.Change.bEditorPresenceChanged |= Event.Change.bEditorPresenceChanged;
+								Existing->second.Change.bHasPendingKillChange |= Event.Change.bHasPendingKillChange;
+									Existing->second.Change.bEditorPresenceChanged |= Event.Change.bEditorPresenceChanged;
 								if (Operation != ETransactionOperation::Undo) Existing->second.Annotation = std::move(Event.Annotation);
 							}
 						}
 					}
 			std::stable_sort(Events.begin(), Events.end(), [](const auto& Left, const auto& Right) {
-				auto Depth = [](const auto& Target) { size_t Result = 0; for (auto* Object = Target.Resolve(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
+				auto Depth = [](const auto& Target) { size_t Result = 0; for (auto* Object = Target.Get(); Object && Result < 256; Object = Object->GetOuter()) ++Result; return Result; };
 				return Depth(Left.first) > Depth(Right.first);
 			});
 			for (auto& [Target, Event] : Events)
 			{
-				auto* Object = Target.Resolve();
+				auto* Object = Target.Get();
 				if (!Object) { bObserverRecoveryRequired |= bDispatched; return std::unexpected("Transaction event target became unavailable."); }
 				if (Replay && Event.CreatedBy == ETransactionObjectChangeCreatedBy::TransactionRecord)
 					if (const auto It = Replay->Annotations.find(Object); It != Replay->Annotations.end()) Event.Annotation = It->second;
@@ -733,7 +743,7 @@ namespace Durin
 
 	auto FTransaction::HasExpired() const noexcept -> bool
 	{
-		return !Records.empty() && std::ranges::all_of(Records, &FTransactionRecord::HasExpired);
+		return !Records.empty() && std::ranges::all_of(Records, &FTransaction::FObjectRecord::HasExpired);
 	}
 
 	auto FTransaction::RetireExpiredRecords() -> void
@@ -777,7 +787,6 @@ namespace Durin
 			bool bOwn;
 			~FOperationScope() { if (bOwn) (void)Transaction.EndOperation(); }
 		} OperationScope{*this, bOwnOperation};
-		const FScopedTransactionHistoryReplay ReplayHistory(Context.HistoryId);
 		FTransactionBusyScope BusyScope(bBusy);
 		auto CheckPieReferences = [&](const auto& Source) -> FTransactionRecordResult {
 			const auto Pie = InspectPieReferences(Source);
@@ -800,6 +809,24 @@ namespace Durin
 			RetireExpiredRecords();
 			return {};
 		}
+		std::vector<DObject*> LifecycleTargets;
+		std::vector<bool> SourceWasGarbage;
+		for (size_t Index : ReplayIndices)
+		{
+			const auto* Whole = std::get_if<FTransaction::FWholeObjectData>(&Records[Index].Data);
+			if (!Whole || !Whole->BeforeState || !Whole->AfterState) continue;
+			const bool Before = Whole->BeforeState->Observation.ObjectInfo.bIsPendingKill;
+			const bool After = Whole->AfterState->Observation.ObjectInfo.bIsPendingKill;
+			if (Before == After) continue;
+			auto* Object = GDObjectArray.Resolve(Whole->GetTarget().GetKey());
+			if (!Object || Object->IsTemplateObject() || Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed)
+				|| Object->IsGarbage() != (bUndo ? After : Before))
+				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
+					.RecordIndex = Index, .Message = "The recorded object lifecycle no longer matches the replay source."});
+			LifecycleTargets.push_back(Object);
+			SourceWasGarbage.push_back(Object->IsGarbage());
+		}
+		const FScopedTransactionHistoryReplay ReplayHistory(Context.HistoryId, LifecycleTargets);
 		if (auto Pie = CheckPieReferences(*this); !Pie)
 			return std::unexpected(FTransactionApplyError{.Message = Pie.error()});
 		if (auto Result = ValidateReplayRecords(ReplayIndices); !Result) return Result;
@@ -831,14 +858,14 @@ namespace Durin
 			auto CompletionTargets = std::vector<FPersistentObjectRef>(ReplayTargets.begin(), ReplayTargets.begin() + StartedTargets);
 			auto Depth = [](const FPersistentObjectRef& Target) {
 				size_t Result = 0;
-				for (auto* Object = Target.Resolve(); Object && Result < 256; Object = Object->GetOuter()) ++Result;
+				for (auto* Object = Target.Get(); Object && Result < 256; Object = Object->GetOuter()) ++Result;
 				return Result;
 			};
 			// Complete inners before their owners so Actor reconstruction observes
 			// settled component transforms and attachment reverse links.
 			std::stable_sort(CompletionTargets.begin(), CompletionTargets.end(), [&](const auto& Left, const auto& Right) { return Depth(Left) > Depth(Right); });
 			for (const auto& Target : CompletionTargets)
-				if (DObject* Object = Target.Resolve())
+				if (DObject* Object = Target.Get())
 					try
 					{
 						const auto It = Replay.Annotations.find(Object);
@@ -852,7 +879,7 @@ namespace Durin
 		bool bRetainRecoveryState = false;
 		struct FPreparedReplayScope
 		{
-			std::vector<FTransactionRecord>& Records;
+			std::vector<FTransaction::FObjectRecord>& Records;
 			bool& bRetain;
 			~FPreparedReplayScope() { if (!bRetain) for (auto& Record : Records) Record.ClearPreparedReplay(); }
 		} PreparedReplayScope{Records, bRetainRecoveryState};
@@ -881,7 +908,7 @@ namespace Durin
 		{
 			++StartedTargets;
 			std::string Failure;
-			if (auto* Object = Target.Resolve())
+			if (auto* Object = Target.Get())
 				try { Object->PreEditUndo(); }
 				catch (const std::exception& Error) { Failure = std::format("PreEditUndo threw: {}", Error.what()); }
 				catch (...) { Failure = "PreEditUndo threw an unknown exception."; }
@@ -896,10 +923,10 @@ namespace Durin
 		for (size_t Step = 0; Step < ReplayIndices.size(); ++Step)
 		{
 			const size_t Index = ReplayIndices[Step];
-			const auto* ObjectRecord = std::get_if<FTransactionObjectRecord>(&Records[Index].Data);
+			const auto* ObjectRecord = std::get_if<FTransaction::FWholeObjectData>(&Records[Index].Data);
 			const auto Earlier = std::span(ReplayIndices).first(Step);
 			const bool bOrderedInverse = ObjectRecord && std::ranges::any_of(Earlier, [&](size_t EarlierIndex) {
-				const auto* Array = std::get_if<FTransactionArrayRecord>(&Records[EarlierIndex].Data);
+				const auto* Array = std::get_if<FTransaction::FArrayData>(&Records[EarlierIndex].Data);
 				return Array && Array->GetTarget() == ObjectRecord->GetTarget();
 			});
 			// A whole baseline captured after range edits belongs to that intermediate
@@ -915,6 +942,34 @@ namespace Durin
 		if (auto Pie = CheckPieReferences(*this); !Pie)
 		{
 			return CompleteFailedReplay({.Message = Pie.error()});
+		}
+		auto SetLiveness = [](DObject& Object, bool bGarbage) -> bool {
+			if (Object.IsGarbage() == bGarbage) return true;
+			try
+			{
+				if (bGarbage) Object.MarkAsGarbage();
+				else Object.ClearGarbage();
+			}
+			catch (...) { return false; }
+			return Object.IsGarbage() == bGarbage;
+		};
+		auto RestoreLiveness = [&](size_t Count) {
+			bool bClean = true;
+			while (Count > 0)
+			{
+				--Count;
+				bClean &= SetLiveness(*LifecycleTargets[Count], SourceWasGarbage[Count]);
+			}
+			return bClean;
+		};
+		for (size_t Index = 0; Index < LifecycleTargets.size(); ++Index)
+		{
+			if (!SetLiveness(*LifecycleTargets[Index], !SourceWasGarbage[Index]))
+			{
+				const bool bClean = RestoreLiveness(Index + 1);
+				return CompleteFailedReplay({.Status = bClean ? ETransactionApplyFailure::Restored : ETransactionApplyFailure::RecoveryRequired,
+					.Message = "Unable to apply the recorded object lifecycle."});
+			}
 		}
 		for (size_t Step = 0; Step < ReplayIndices.size(); ++Step)
 		{
@@ -940,7 +995,7 @@ namespace Durin
 					if (const auto Rollback = Records[*It].Apply(!bUndo, Origin, nullptr, false); !Rollback)
 						Error.RollbackFailures.push_back({*It, Rollback.error()});
 				}
-				if (bRecordRecoveryRequired || !Error.RollbackFailures.empty())
+				if (!RestoreLiveness(LifecycleTargets.size()) || bRecordRecoveryRequired || !Error.RollbackFailures.empty())
 				{ Error.Status = ETransactionApplyFailure::RecoveryRequired; bRetainRecoveryState = true; }
 				return CompleteFailedReplay(std::move(Error));
 			}
@@ -975,7 +1030,7 @@ namespace Durin
 			return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::RecoveryRequired,
 				.Message = Pie.error()});
 		}
-		auto VisitPackages = [](const FTransactionRecord& Record, const auto& Visit) {
+		auto VisitPackages = [](const FTransaction::FObjectRecord& Record, const auto& Visit) {
 			for (auto* Package : Record.GetAffectedPackages()) if (Package) Visit(Package);
 			for (auto* Object : Record.GetModifiedObjects())
 				if (auto* Package = Object ? Object->GetPackage() : nullptr) Visit(Package);
@@ -1003,7 +1058,7 @@ namespace Durin
 	auto FTransaction::GetDetails(ETransactionOperation Operation) const -> std::string
 	{
 		std::string Details;
-		for (const FTransactionRecord& Record : Records)
+		for (const FTransaction::FObjectRecord& Record : Records)
 		{
 			if (Operation != ETransactionOperation::Execute && Record.bReplayExpired) continue;
 			std::string RecordDetails = Record.GetDetails(Operation);
@@ -1026,7 +1081,7 @@ namespace Durin
 	auto FTransaction::GetAffectedPackages() const -> std::vector<DPackage*>
 	{
 		std::vector<DPackage*> Packages;
-		for (const FTransactionRecord& Record : Records)
+		for (const FTransaction::FObjectRecord& Record : Records)
 		{
 			for (DObject* Object : Record.GetModifiedObjects())
 			{
@@ -1049,7 +1104,7 @@ namespace Durin
 
 	auto FTransaction::IsOwnedByModule(std::string_view ModuleName) const -> bool
 	{
-		return std::ranges::any_of(Records, [&](const FTransactionRecord& Record) {
+		return std::ranges::any_of(Records, [&](const FTransaction::FObjectRecord& Record) {
 			return Record.IsOwnedByModule(ModuleName);
 		});
 	}
@@ -1085,7 +1140,7 @@ namespace Durin
 	auto FTransaction::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		PrimaryObject.AddReferencedObjects(Collector);
-		for (const FTransactionRecord& Record : Records)
+		for (const FTransaction::FObjectRecord& Record : Records)
 			Record.AddReferencedObjects(Collector);
 		for (const FTransactionPackageRevisionTransition& Transition : PackageTransitions)
 			Transition.Package.AddReferencedObjects(Collector);
@@ -1097,8 +1152,8 @@ namespace Durin
 		if (!AddSize(Total, PrimaryObject.GetAllocatedSize()) || !AddSize(Total, Context.Name.capacity())
 			|| !AddSize(Total, Context.Description.capacity())
 			|| Records.capacity() > std::numeric_limits<size_t>::max()
-				/ sizeof(FTransactionRecord)
-			|| !AddSize(Total, Records.capacity() * sizeof(FTransactionRecord))
+				/ sizeof(FTransaction::FObjectRecord)
+			|| !AddSize(Total, Records.capacity() * sizeof(FTransaction::FObjectRecord))
 			|| PackageTransitions.capacity() > std::numeric_limits<size_t>::max()
 				/ sizeof(FTransactionPackageRevisionTransition)
 			|| !AddSize(Total, PackageTransitions.capacity()
@@ -1106,7 +1161,7 @@ namespace Durin
 		{
 			return false;
 		}
-		for (const FTransactionRecord& Record : Records)
+		for (const FTransaction::FObjectRecord& Record : Records)
 		{
 			size_t RecordBytes = 0;
 			if (!Record.TryGetAllocatedSize(RecordBytes) || !AddSize(Total, RecordBytes))
@@ -1300,7 +1355,7 @@ namespace Durin
 			auto Candidate = std::move(Change);
 			for (DPackage* Package : Candidate->GetAffectedPackages())
 				if (IsValid(Package) && Package->IsAssetPackage()) EnsurePackageState(*Package);
-			Pending->AppendRecord(FTransactionRecord(std::move(Candidate), Object));
+			Pending->AppendRecord(FTransaction::FObjectRecord(std::move(Candidate), Object));
 		}
 		catch (const std::exception& Error) { return FailAdmission(Error.what()); }
 		catch (...) { return FailAdmission("Custom transaction admission threw an unknown exception."); }
@@ -1786,9 +1841,11 @@ namespace Durin
 	auto DTransBuffer::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
 		DTransactor::AddReferencedObjects(Collector);
+		Collector.AllowEliminatingReferences(false);
 		if (Pending) Pending->AddReferencedObjects(Collector);
 		for (const FTransaction& Transaction : History)
 			Transaction.AddReferencedObjects(Collector);
+		Collector.AllowEliminatingReferences(true);
 		for (const auto& [Package, PackageState] : PackageStates)
 		{
 			(void)Package;
@@ -2081,8 +2138,8 @@ namespace Durin
 	{
 		struct FSourceRecord
 		{
-			std::optional<FTransactionObjectRecord> Object;
-			std::optional<FTransactionArrayRecord> Array;
+			std::optional<FTransaction::FWholeObjectData> Object;
+			std::optional<FTransaction::FArrayData> Array;
 			const FCommandChange* Command = nullptr;
 			FPersistentObjectRef CustomObject;
 			std::vector<FPersistentObjectRef> Modified;
@@ -2098,7 +2155,7 @@ namespace Durin
 		{
 			FPreparedTransaction(FTransaction Value, size_t Count) : Transaction(std::move(Value)), Records(Count) {}
 			FTransaction Transaction;
-			std::vector<std::optional<FTransactionRecord>> Records;
+			std::vector<std::optional<FTransaction::FObjectRecord>> Records;
 		};
 		class FReferences final : public FReferenceCollector
 		{
@@ -2152,8 +2209,8 @@ namespace Durin
 				for (const auto& Record : Transaction.Records)
 				{
 					FSourceRecord Snapshot;
-					if (const auto* Object = std::get_if<FTransactionObjectRecord>(&Record.Data)) Snapshot.Object = *Object;
-					else if (const auto* Array = std::get_if<FTransactionArrayRecord>(&Record.Data)) Snapshot.Array = *Array;
+					if (const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Record.Data)) Snapshot.Object = *Object;
+					else if (const auto* Array = std::get_if<FTransaction::FArrayData>(&Record.Data)) Snapshot.Array = *Array;
 					else Snapshot.Command = std::get<std::unique_ptr<FCommandChange>>(Record.Data).get();
 					Snapshot.CustomObject = Record.CustomObject;
 					Snapshot.Modified.assign(Record.ModifiedObjects.GetReferences().begin(), Record.ModifiedObjects.GetReferences().end());
@@ -2275,12 +2332,12 @@ namespace Durin
 					if (Current.CustomObject != Before.CustomObject || !std::ranges::equal(Current.ModifiedObjects.GetReferences(), Before.Modified)) return false;
 					if (Before.Object)
 					{
-						const auto* Object = std::get_if<FTransactionObjectRecord>(&Current.Data);
+						const auto* Object = std::get_if<FTransaction::FWholeObjectData>(&Current.Data);
 						if (!Object || !Object->HasSameState(*Before.Object)) return false;
 					}
 					else if (Before.Array)
 					{
-						const auto* Array = std::get_if<FTransactionArrayRecord>(&Current.Data);
+						const auto* Array = std::get_if<FTransaction::FArrayData>(&Current.Data);
 						if (!Array || !Array->HasSameState(*Before.Array)) return false;
 					}
 					else if (const auto* Command = std::get_if<std::unique_ptr<FCommandChange>>(&Current.Data); !Command || Command->get() != Before.Command) return false;

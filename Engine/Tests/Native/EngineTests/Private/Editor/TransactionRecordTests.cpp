@@ -88,7 +88,7 @@ TEST(FTransactionObjectRecordTests, AnnotationPrecedesSerializationAndPreflightD
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationCaptureOwner"));
 	std::vector<std::string> Trace; Target->CaptureTrace = &Trace;
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 17;
-	auto Record = FTransactionObjectRecord::CaptureWhole(*Target); ASSERT_TRUE(Record);
+	auto Record = FRecordAccess::Capture(*Target); ASSERT_TRUE(Record);
 	ASSERT_EQ(Trace.size(), 2u); EXPECT_EQ(Trace[0], "annotation"); EXPECT_EQ(Trace[1], "serialize");
 	ASSERT_TRUE(Record->Validate()); EXPECT_EQ(Target->AnnotationCaptures, 1u);
 	Target->SupplementalValue = 29; ASSERT_TRUE(Record->CaptureAfter());
@@ -104,6 +104,66 @@ TEST(FTransactionObjectRecordTests, AnnotationAllocationOverflowRejectsAccountin
 	InitializeDObjectSystem();
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationOverflowOwner"));
 	Target->bAnnotationEnabled = true; Target->AnnotationBytes = std::numeric_limits<size_t>::max();
-	auto Record = FTransactionObjectRecord::CaptureWhole(*Target); ASSERT_TRUE(Record);
+	auto Record = FRecordAccess::Capture(*Target); ASSERT_TRUE(Record);
 	size_t Bytes = 0; EXPECT_FALSE(Record->TryGetAllocatedSize(Bytes));
+}
+
+TEST(FTransactionObjectRecordTests, UndoDeletionRestoresLivenessAndReferencesAcrossGC)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DTransactionRecordParticipant> Owner(NewObject<DTransactionRecordParticipant>(nullptr, "DeleteOwner"));
+	auto* Child = NewObject<DTransactionRecordParticipant>(Owner.Get(), "DeleteChild");
+	const FObjectKey Key(Child);
+	Child->Value = 17;
+	Owner->Hard = Child;
+	int Events = 0;
+	Child->TransactionObserver = [&](const FTransactionObjectEvent& Event) {
+		if (Event.Type == ETransactionObjectEventType::UndoRedo && Event.Change.bHasPendingKillChange) ++Events;
+	};
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Remove child"});
+		ASSERT_TRUE(Child->Modify());
+		ASSERT_TRUE(Owner->Modify());
+		Owner->Hard = nullptr;
+		Child->MarkAsGarbage();
+	}
+	for (int Cycle = 0; Cycle < 2; ++Cycle)
+	{
+		CollectGarbage(EObjectFlags::Standalone);
+		EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+		ASSERT_EQ(GDObjectArray.Resolve(Key), Child);
+		ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+		EXPECT_EQ(ResolveObjectKey(Key), Child);
+		EXPECT_EQ(Owner->Hard.Get(), Child);
+		EXPECT_EQ(Child->Value, 17);
+		ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+		EXPECT_TRUE(Child->IsGarbage());
+		EXPECT_EQ(Owner->Hard.Get(), nullptr);
+	}
+	EXPECT_EQ(Events, 4);
+	ASSERT_TRUE(Buffer->TryReset());
+	CollectGarbage(EObjectFlags::Standalone);
+	EXPECT_EQ(GDObjectArray.Resolve(Key), nullptr);
+}
+
+TEST(FTransactionObjectRecordTests, FailedDeleteUndoReturnsToGarbageAndCanRetry)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	auto* Child = NewObject<DTransactionRecordParticipant>(nullptr, "RetryDeletedChild");
+	{
+		FScopedTransaction Scope(Buffer.Get(), {.Description = "Delete without changing fields"});
+		ASSERT_TRUE(Child->Modify());
+		Child->MarkAsGarbage();
+	}
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	Child->bFailLoadOnce = true;
+	EXPECT_FALSE(Buffer->Undo());
+	EXPECT_TRUE(Child->IsGarbage());
+	EXPECT_TRUE(Buffer->CanUndo());
+	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	EXPECT_TRUE(IsValid(Child));
 }

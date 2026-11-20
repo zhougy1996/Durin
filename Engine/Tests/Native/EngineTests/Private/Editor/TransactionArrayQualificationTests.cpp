@@ -41,12 +41,12 @@ TEST(FTransactionArrayQualificationTests, FixedRangeCaptureCostsDoNotScaleWithCo
 		{
 			Object->Numbers.assign(Num, 5);
 			const FTransactionArrayCapture Request{.Object = Object.Get(), .Member = Member, .Index = Num / 2, .Count = 1, .Operation = Operation};
-			ASSERT_TRUE(FTransactionArrayRecord::Capture(Request)); // Warm metadata and serializer paths.
+			ASSERT_TRUE(FRecordAccess::CaptureArray(Request)); // Warm metadata and serializer paths.
 			const auto Begin = std::chrono::steady_clock::now();
 #if defined(_MSC_VER) && defined(_DEBUG)
 			std::optional<FAllocationProbe> Probe(std::in_place);
 #endif
-			auto Record = FTransactionArrayRecord::Capture(Request);
+			auto Record = FRecordAccess::CaptureArray(Request);
 #if defined(_MSC_VER) && defined(_DEBUG)
 			const size_t Allocations = AllocationCount; Probe.reset();
 #else

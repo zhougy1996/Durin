@@ -24,9 +24,10 @@ namespace Durin
 		bool bNameChanged = false;
 		bool bOuterChanged = false;
 		bool bNonPropertyDataChanged = false;
+		bool bHasPendingKillChange = false;
 		bool bEditorPresenceChanged = false;
 		auto HasChanges() const -> bool
-		{ return !ChangedProperties.empty() || bNameChanged || bOuterChanged || bNonPropertyDataChanged || bEditorPresenceChanged; }
+		{ return !ChangedProperties.empty() || bNameChanged || bOuterChanged || bNonPropertyDataChanged || bHasPendingKillChange || bEditorPresenceChanged; }
 	};
 
 	// Delivered synchronously while the operation context and annotation are live.

@@ -91,9 +91,11 @@ not capture instance lifecycle annotations or activate runtime registration.
 without loading historical fields. `LoadSerializedObject` is a transfer operation:
 its caller must preflight first and own failure compensation. An error can follow
 partial native writes; a thrown native serializer explicitly requires recovery.
-Garbage and construction flags are irreversible. The canonical DurinEd record
-composes transfer, annotations and observations and coordinates inverse
-compensation; CoreDObject has no mixed object-state coordinator.
+Construction flags and physical destruction are irreversible. A whole-object record
+captures `bIsPendingKill`. When that bit changes during an edit, the transactor
+can resolve the retained generation during replay and apply `ClearGarbage()` or
+`MarkAsGarbage()` before loading fields. External deletions remain stale. A clean
+rollback restores the starting liveness and leaves the cursor in place.
 The [serialization contract](Serialization.md) owns archive filtering and
 detached parent-baseline requirements.
 

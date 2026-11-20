@@ -9,7 +9,7 @@ Last reviewed: 2026-11-20
 ## Scope
 
 CoreDObject supplies `FPersistentObjectRef` identity categories and transaction
-serialization. DurinEd's `FTransactionObjectRecord` coordinates whole-object
+serialization. DurinEd's protected `FTransaction::FObjectRecord` coordinates whole-object
 before/after payloads, observations and annotations in the same Undo/Redo order
 as executable custom changes. Capture precedes the first mutation; later captures
 of that object preserve its initial baseline. Object creation and deletion remain
@@ -60,8 +60,7 @@ marked as garbage resolves as absent even before physical removal.
 
 Merely storing a persistent reference has no retention effect.
 `AddReferencedObjects(FReferenceCollector&)` reports retained root/cached identities only when
-a reachable managed owner explicitly enumerates the reference. Collector
-traversal cannot rescue an object already marked as garbage.
+a reachable managed owner explicitly enumerates the reference. While enumerating pending and retained records, the undo buffer disables reference elimination on the collector. A reported allocation can survive GC with its garbage flag set. Ordinary resolution continues to reject it. Removing the last retaining entry permits collection on the next sweep.
 
 ## Retention-Neutral Property Payload
 
@@ -76,8 +75,7 @@ with collector traversal; whole-object records use serialized object payloads an
 transaction-filtered element payloads.
 
 Payload restore validates the requested reflected property shape and resolves
-every hard handle. A stale, physically removed, or garbage hard reference makes
-restore fail rather than substituting another object. Weak references decode
+every hard handle. A garbage target is available to transaction replay only when the same entry recorded its liveness transition. A stale generation or a physically removed target fails validation. Weak references decode
 their original handle and naturally remain invalid when the target is gone.
 Weak-reference byte offsets accompany the payload for explicit replacement; they
 never become hard edges. `CreateReplacement` prepares independent hard tables and
@@ -96,14 +94,14 @@ retains only hard identities actually serialized by that transaction archive.
 
 ## Whole-Object Records
 
-`FTransactionObjectRecord::CaptureWhole` captures virtual Serialize, metadata and
+Whole-object recording captures virtual Serialize, metadata and
 supplemental annotation before an edit. During recording, a hash index keyed by
 persistent object identity stores the position of the first whole-object record.
 Nested scopes share this index. Array records establish participation and retain
 their individual positions in the ordered record list. Custom commands index each
 declared participant by exact generation; only the bound primary object suppresses
 ordinary whole-object capture. Snapshot requests use the indexed whole record.
-The outermost End captures final live state and releases the index. Retained
+The outermost End captures final state, including the pending-kill bit, and releases the index. Retained
 history uses the ordered records for replay, reference collection, membership
 queries and controlled replacement. Recorded property edits use virtual Modify. Interactive drafts remain property-editor values;
 there is no separate focused history, field locator, promotion or record-update
@@ -137,11 +135,9 @@ path matching are owned by
 
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
-completion; native data does not invent reflected members. Capture returns
-`std::expected<FTransactionObjectRecord, FTransactionObjectRecordError>`;
-validation and application return the corresponding expected void. Errors own
+completion; native data does not invent reflected members. Whole-object capture, validation and application preserve a typed serialization error. Errors own
 exact target identity, serialization diagnostics and recovery disposition.
-`FTransactionRecord` formats diagnostics at the generic history boundary.
+`FTransaction::FObjectRecord` formats diagnostics at the generic history boundary.
 
 Replay prepares all live inverses before ordered loading, matching UE's separate
 Save and Load passes. The canonical editor record validates the desired transfer,
@@ -184,8 +180,7 @@ transaction snapshot abstraction.
 
 ## Array Operation Records
 
-`FTransactionArrayRecord` is an ordered native record beside whole-object and
-custom records. `ITransaction::SaveArray` identifies the owner, reflected member,
+The same protected `FTransaction::FObjectRecord` represents array ranges, whole objects and custom changes. Durin keeps only the active payload in each entry. `ITransaction::SaveArray` identifies the owner, reflected member,
 optional struct ancestors, static member index, range and UE operation sign:
 Insert (+1) removes on load, Remove (-1) inserts on load, and Replace (0) restores
 values. No record retains a vector address or element pointer. Owner/class/path
@@ -281,9 +276,7 @@ and script template mutation remain unsupported.
 
 Transaction references follow the ordinary CoreDObject reachability rules. A
 directly referenced child keeps its complete Outer chain alive. Referencing an
-Outer does not retain children or siblings. Object creation and deletion need
-explicit structural records; a persistent reference never resurrects a garbage
-object. [Component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history)
+Outer does not retain children or siblings. Record ownership changes on the owner and call `Modify()` on the child before marking it as garbage. Replay restores the recorded liveness before loading fields and references. [Component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history)
 retains the component and its complete Outer subtree while membership is absent,
 then restores the same live identity through lifecycle and attachment APIs.
 

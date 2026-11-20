@@ -1,4 +1,4 @@
-#include "Transactions/TransactionArrayRecord.h"
+#include "Transactions/Transactor.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -10,7 +10,7 @@
 
 namespace Durin
 {
-	auto FTransactionArrayRecord::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
+	auto FTransaction::FArrayData::HasReplacementReferences(const FObjectReplacementMap& Map) const -> bool
 	{
 		class FCheck final : public FReferenceCollector
 		{
@@ -21,7 +21,7 @@ namespace Durin
 			bool bMapped = false;
 		} Check(Map);
 		AddReferencedObjects(Check);
-		if (Check.bMapped || Map.Find(Target.Resolve()) || Map.Find(Class.Resolve())) return true;
+		if (Check.bMapped || Map.Find(Target.Get()) || Map.Find(Class.Resolve())) return true;
 		for (const auto* Range : {&Data, Inverse ? &*Inverse : nullptr})
 			if (Range) for (const auto& Value : *Range)
 			{
@@ -31,7 +31,7 @@ namespace Durin
 		return false;
 	}
 
-	auto FTransactionArrayRecord::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FTransactionArrayRecord, std::string>
+	auto FTransaction::FArrayData::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FTransaction::FArrayData, std::string>
 	{
 		if (Map.Find(Class.Resolve())) return std::unexpected("Array history cannot migrate reflected class descriptors.");
 		auto Result = *this;
@@ -63,8 +63,8 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransactionArrayRecord::Capture(const FTransactionArrayCapture& Request)
-		-> std::expected<FTransactionArrayRecord, std::string>
+	auto FTransaction::FArrayData::Capture(const FTransactionArrayCapture& Request)
+		-> std::expected<FTransaction::FArrayData, std::string>
 	{
 		if (!Request.Object || !CanTransactObject(*Request.Object) || !Request.Member
 			|| Request.Member->GetKind() != DurinCodeGen::EPropertyGenFlags::Array)
@@ -81,7 +81,7 @@ namespace Durin
 			return std::unexpected(ToString(Valid.error()));
 		if (Request.Operation == ETransactionArrayOperation::Replace && !Property->GetInner()->CanCopyAssignValue())
 			return std::unexpected("Array value replacement requires a copyable omitted-field baseline.");
-		FTransactionArrayRecord Result;
+		FTransaction::FArrayData Result;
 		Result.Target = FPersistentObjectRef(Request.Object);
 		Result.Class = FPersistentObjectRef(Request.Object->GetClass());
 		Result.Member = Property;
@@ -106,21 +106,21 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransactionArrayRecord::HasExpired() const noexcept -> bool
+	auto FTransaction::FArrayData::HasExpired() const noexcept -> bool
 	{
 		return Annotation && Annotation->HasExpired();
 	}
 
-	auto FTransactionArrayRecord::Validate() const -> FTransactionCaptureResult
+	auto FTransaction::FArrayData::Validate() const -> FTransactionCaptureResult
 	{
-		auto* Object = Target.Resolve();
-		if (!Object || !CanTransactObject(*Object) || Object->GetClass() != Class.Resolve()
+		auto* Object = Target.Get();
+		if (!Object || (!Object->IsGarbage() && !CanTransactObject(*Object)) || Object->GetClass() != Class.Resolve()
 			|| !ResolveContainer())
 			return std::unexpected("Array transaction owner or reflected schema is unavailable.");
 		for (const auto* Range : {&Data, Inverse ? &*Inverse : nullptr})
 			if (Range) for (const auto& Element : *Range)
 				for (const auto& Reference : Element.HardReferences)
-					if (Reference.IsStale()) return std::unexpected("Array transaction reference is unavailable.");
+					if (!Reference.IsNull() && !Reference.Get()) return std::unexpected("Array transaction reference is unavailable.");
 		try
 		{
 			for (const auto& Value : {Annotation, InverseAnnotation, CompletionAnnotation})
@@ -131,14 +131,14 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionArrayRecord::ResolveContainer() const -> void*
+	auto FTransaction::FArrayData::ResolveContainer() const -> void*
 	{
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object || Object->GetClass() != Class.Resolve()) return nullptr;
 		return ResolveTransactionArray({.Object = Object, .Member = Member, .MemberIndex = MemberIndex, .StructPath = StructPath});
 	}
 
-	auto FTransactionArrayRecord::CaptureRange(size_t Num) const -> std::expected<FRange, std::string>
+	auto FTransaction::FArrayData::CaptureRange(size_t Num) const -> std::expected<FRange, std::string>
 	{
 		const auto& Ops = Member->GetOps();
 		const void* Container = ResolveContainer();
@@ -167,7 +167,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTransactionArrayRecord::Apply(bool bCompensate, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired) -> FTransactionCaptureResult
+	auto FTransaction::FArrayData::Apply(bool bCompensate, EPropertyChangeOrigin Origin, bool* OutRecoveryRequired) -> FTransactionCaptureResult
 	{
 		if (auto Valid = Validate(); !Valid) return Valid;
 		const int8 Direction = bCompensate ? -Oper : Oper;
@@ -182,7 +182,7 @@ namespace Durin
 			auto Captured = CaptureRange(RemoveCount);
 			if (!Captured) return std::unexpected(Captured.error());
 			Inverse = std::move(*Captured);
-			InverseAnnotation = Annotation ? Annotation->CreateSnapshot(*Target.Resolve()) : Target.Resolve()->FindOrCreateTransactionAnnotation();
+			InverseAnnotation = Annotation ? Annotation->CreateSnapshot(*Target.Get()) : Target.Get()->FindOrCreateTransactionAnnotation();
 		}
 		FDetachedContainerStorage Detached;
 		if (Detached.Create(Ops) != EContainerOpResult::Success) return std::unexpected("Array replay range allocation failed.");
@@ -212,7 +212,7 @@ namespace Durin
 		CompletionAnnotation = bCompensate ? InverseAnnotation : Annotation;
 		bHasCompletion = true;
 		if (OutRecoveryRequired) *OutRecoveryRequired = true;
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		const FProperty* Root = StructPath.empty() ? Member : StructPath.front();
 		const FPropertyPathSegment Path{Root};
 		Object->PostEditChangeProperty({.MemberProperty = Root, .LeafProperty = Root, .Path = {&Path, 1},
@@ -223,7 +223,7 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransactionArrayRecord::CommitReplay() -> void
+	auto FTransaction::FArrayData::CommitReplay() -> void
 	{
 		if (!Inverse) return;
 		Data = std::move(*Inverse);
@@ -232,7 +232,7 @@ namespace Durin
 		Inverse.reset();
 	}
 
-	auto FTransactionArrayRecord::AddReferencedObjects(FReferenceCollector& Collector) const -> void
+	auto FTransaction::FArrayData::AddReferencedObjects(FReferenceCollector& Collector) const -> void
 	{
 		Target.AddReferencedObjects(Collector); Class.AddReferencedObjects(Collector);
 		for (const auto* Range : {&Data, Inverse ? &*Inverse : nullptr})
@@ -242,7 +242,7 @@ namespace Durin
 			if (Value) Value->AddReferencedObjects(Collector);
 	}
 
-	auto FTransactionArrayRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	auto FTransaction::FArrayData::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
 		OutBytes = sizeof(*this);
 		auto Add = [&](size_t Value) { if (Value > std::numeric_limits<size_t>::max() - OutBytes) return false; OutBytes += Value; return true; };
@@ -265,17 +265,17 @@ namespace Durin
 		return true;
 	}
 
-	auto FTransactionArrayRecord::GetAffectedPackages() const -> std::vector<DPackage*>
+	auto FTransaction::FArrayData::GetAffectedPackages() const -> std::vector<DPackage*>
 	{
-		if (auto* Object = Target.Resolve(); Object && Object->GetPackage()) return {Object->GetPackage()};
+		if (auto* Object = Target.Get(); Object && Object->GetPackage()) return {Object->GetPackage()};
 		return {};
 	}
 
-	auto FTransactionArrayRecord::BuildObjectEvents(const FTransactionContext& Context,
+	auto FTransaction::FArrayData::BuildObjectEvents(const FTransactionContext& Context,
 		ETransactionObjectEventType Type, ETransactionOperation Operation) const
 		-> std::expected<std::vector<std::pair<FPersistentObjectRef, FTransactionObjectEvent>>, std::string>
 	{
-		auto* Object = Target.Resolve();
+		auto* Object = Target.Get();
 		if (!Object) return std::unexpected("Array event target is unavailable.");
 		const auto CurrentAnnotation = Type == ETransactionObjectEventType::UndoRedo ? CompletionAnnotation
 			: Annotation ? Annotation->CreateSnapshot(*Object) : Object->FindOrCreateTransactionAnnotation();

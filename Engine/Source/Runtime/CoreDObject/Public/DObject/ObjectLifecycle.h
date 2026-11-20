@@ -14,6 +14,8 @@ namespace Durin
 	{
 	public:
 		virtual ~FReferenceCollector() = default;
+		// UE collector policy for references reported by the undo buffer.
+		virtual auto AllowEliminatingReferences(bool) -> void {}
 		virtual auto AddReferencedObject(DObject*& Object) -> void = 0;
 	};
 
@@ -39,6 +41,7 @@ namespace Durin
 		uint64 ObjectCountAfterCollection = 0;
 		uint64 MarkedObjectCount = 0;
 		uint64 CandidateObjectCount = 0;
+		uint64 RetainedGarbageCount = 0;
 		uint64 SweptObjectCount = 0;
 		uint64 DeferredDestroyObjectCount = 0;
 		double MarkMilliseconds = 0.0;

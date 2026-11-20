@@ -309,7 +309,7 @@ recording. Cancellation discards the shared native recording; preview restoratio
 remains the edit session's separate responsibility. No-op/canceled Modify can
 leave a dirty package without a history entry.
 
-`FTransactionObjectRecord` reconstructs the target from its exact object identity,
+`FTransaction::FObjectRecord` reconstructs the target from its exact object identity,
 whole-object serialized payloads and annotations. Undo/Redo check structural/type/identity validity and restore historical
 payloads directly, bypassing new-edit proposal validators and normalization.
 New edits continue to use detached validation; replay emits the normal

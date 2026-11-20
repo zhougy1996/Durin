@@ -1,6 +1,7 @@
 #include "DObject/TransactionObjectReference.h"
 
 #include "DObject/Object.h"
+#include "Misc/Transaction.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -84,6 +85,15 @@ namespace Durin
 		return Object;
 	}
 
+	auto FPersistentObjectRef::Get() const -> DObject*
+	{
+		if (auto* Live = Resolve()) return Live;
+		if (!Hierarchy.empty()) return nullptr;
+		auto* Retained = GDObjectArray.Resolve(Root);
+		return FScopedTransactionHistoryReplay::IncludesPendingKill(Retained) && !Retained->HasAnyInternalFlags(
+			EObjectInternalFlags::BeginDestroyed | EObjectInternalFlags::FinishDestroyed) ? Retained : nullptr;
+	}
+
 	auto FPersistentObjectRef::CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FPersistentObjectRef, std::string>
 	{
 		if (IsNull()) return FPersistentObjectRef{};
@@ -116,10 +126,15 @@ namespace Durin
 		FReferenceCollector& Collector) const -> void
 	{
 		// Never perform name lookup during collector traversal (UE's ARO contract).
-		DObject* Object = ResolveObjectKey(Root);
-		if (IsValid(Object)) Collector.AddReferencedObject(Object);
-		Object = ResolveObjectKey(Handle);
-		if (Handle != Root && IsValid(Object)) Collector.AddReferencedObject(Object);
+		DObject* Object = IsGarbageCollecting() ? GDObjectArray.Resolve(Root) : ResolveObjectKey(Root);
+		if (Object) Collector.AddReferencedObject(Object);
+		// A logical subobject caches a weak leaf. Its root resolves the replacement
+		// after reinstancing, so a retired cache entry must be allowed to expire.
+		if (Handle != Root)
+		{
+			Object = ResolveObjectKey(Handle);
+			if (Object) Collector.AddReferencedObject(Object);
+		}
 	}
 
 	auto FTransactionObjectReferenceSet::Add(FPersistentObjectRef Reference) -> void

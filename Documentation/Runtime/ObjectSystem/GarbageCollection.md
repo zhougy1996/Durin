@@ -249,11 +249,11 @@ For each newly reached object, the marker:
 
 The marker never queries direct children. Both ordinary reference graphs and deep Outer chains are therefore processed without recursive calls or native stack growth.
 
-Objects already marked as garbage are not made reachable again, even if they still carry a root flag or are referenced by another object.
+Ordinary root and reference traversal excludes objects marked as garbage. The undo buffer uses `AllowEliminatingReferences(false)` while reporting its history references. Such an edge keeps the reported allocation reachable for this collection while ordinary object lookup still sees it as garbage.
 
 ## Sweep And Destruction
 
-Sweep selects every non-permanent object that is already garbage or was not marked reachable. It does not inspect reachable children to rescue an Outer; reachable children already marked their Outer chains during the mark phase.
+Sweep selects every non-permanent object that was not marked reachable, plus garbage objects without a non-eliminable edge. It does not inspect reachable children to rescue an Outer; reachable children already marked their Outer chains during the mark phase.
 
 Every selected object is first marked as garbage. GC then advances it through these phases:
 
@@ -309,7 +309,7 @@ The engine checks the garbage-collection scheduler after end-of-frame render syn
 - pending-kill object pressure
 - live-object growth pressure
 
-The elapsed interval starts at `IntervalSeconds`. A collection with no sweep candidates backs it off by `IntervalBackoffMultiplier`, capped by `MaxIntervalSeconds`; finding any candidate restores the base interval. The cap is the correctness fallback for garbage created only by removing a strong reference, because reference removal alone does not otherwise trigger collection. Pending-kill and object-growth pressure continue to trigger during backoff.
+The elapsed interval starts at `IntervalSeconds`. A collection with no sweep candidates backs it off by `IntervalBackoffMultiplier`, capped by `MaxIntervalSeconds`; finding any candidate restores the base interval. The cap is the correctness fallback for garbage created only by removing a strong reference, because reference removal alone does not otherwise trigger collection. Pending-kill and object-growth pressure continue to trigger during backoff. Pending-kill pressure discounts garbage allocations retained at the last collection so the same history entries cannot trigger a sweep every frame.
 
 `DEngine::ForceGarbageCollection(bForcePurge)` records a request. The Core-only
 extension is `RequestGarbageCollection(bForcePurge)`. Requests share one process-wide

@@ -126,6 +126,8 @@ namespace Durin
 		auto GetInternalFlags() const -> EObjectInternalFlags { return InternalFlags; }
 
 		auto HasAnyInternalFlags(EObjectInternalFlags InFlags) const -> bool { return EnumHasAnyFlags(InternalFlags, InFlags); }
+		COREDOBJECT_API auto MarkAsGarbage() -> void;
+		COREDOBJECT_API auto ClearGarbage() -> void;
 		auto IsGarbage() const -> bool { return HasAnyInternalFlags(EObjectInternalFlags::Garbage); }
 		auto IsPendingKill() const -> bool { return HasAnyInternalFlags(EObjectInternalFlags::Garbage | EObjectInternalFlags::BeginDestroyed); }
 

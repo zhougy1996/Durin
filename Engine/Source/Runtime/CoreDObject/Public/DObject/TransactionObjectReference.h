@@ -30,6 +30,8 @@ namespace Durin
 		auto GetAllocatedSize() const -> size_t { return Hierarchy.capacity() * sizeof(FSubObject); }
 		COREDOBJECT_API auto CreateReplacement(const FObjectReplacementMap& Map) const -> std::expected<FPersistentObjectRef, std::string>;
 		COREDOBJECT_API auto Resolve() const -> DObject*;
+		// Native history can access an exact pending-kill participant of the active operation.
+		COREDOBJECT_API auto Get() const -> DObject*;
 		COREDOBJECT_API auto IsStale() const -> bool;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 

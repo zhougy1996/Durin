@@ -9,7 +9,6 @@
 #include "DObject/StrongObjectPtr.h"
 #include "DurinEdAPI.h"
 #include "Transactions/Transaction.h"
-#include "Transactions/TransactionObjectRecord.h"
 #include "Transactions/Transactor.h"
 
 namespace Durin

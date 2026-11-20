@@ -28,6 +28,7 @@ namespace Durin
 		FTransactionObjectChange Change(Before.Identity, Before.Flags);
 		if (Options.bFullDiff)
 		{
+			Change.bHasPendingKillChange = Before.bIsPendingKill != After.bIsPendingKill;
 			Change.bNameChanged = Before.Identity.OriginalName != After.Identity.OriginalName;
 			Change.bOuterChanged = Before.Outer != After.Outer;
 			Change.bNonPropertyDataChanged = Before.Flags != After.Flags || Before.Package != After.Package

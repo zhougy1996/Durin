@@ -2,14 +2,21 @@
 
 namespace Durin
 {
-	namespace { thread_local uint64 ReplayingHistoryId = 0; }
+	namespace { thread_local uint64 ReplayingHistoryId = 0; thread_local std::span<DObject* const> PendingKillObjects; }
 
 	FScopedTransactionHistoryReplay::FScopedTransactionHistoryReplay(uint64 HistoryId)
-		: PreviousHistoryId(std::exchange(ReplayingHistoryId, HistoryId)) {}
+		: FScopedTransactionHistoryReplay(HistoryId, {}) {}
+
+	FScopedTransactionHistoryReplay::FScopedTransactionHistoryReplay(uint64 HistoryId, std::span<DObject* const> PendingKill)
+		: PreviousPendingKill(std::exchange(PendingKillObjects, PendingKill)), PreviousHistoryId(std::exchange(ReplayingHistoryId, HistoryId)) {}
+
+	auto FScopedTransactionHistoryReplay::IncludesPendingKill(const DObject* Object) -> bool
+	{ return Object && std::ranges::contains(PendingKillObjects, Object); }
 
 	FScopedTransactionHistoryReplay::~FScopedTransactionHistoryReplay()
 	{
 		ReplayingHistoryId = PreviousHistoryId;
+		PendingKillObjects = PreviousPendingKill;
 	}
 
 	auto FScopedTransactionHistoryReplay::GetHistoryId() -> uint64 { return ReplayingHistoryId; }

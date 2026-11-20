@@ -116,6 +116,7 @@ namespace Durin
 		BeginDestroyed = 1 << 2,
 		Garbage = 1 << 3,
 		FinishDestroyed = 1 << 4,
+		WasRegisteredTopLevelAsset = 1 << 5,
 	};
 
 	ENUM_CLASS_FLAGS(EObjectFlags)

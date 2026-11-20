@@ -93,8 +93,11 @@ namespace Durin::Private
 	auto EvaluateGarbageCollection(double CurrentTime) -> EGarbageCollectionTrigger
 	{
 		ObserveCollection();
+		// Objects retained by the last mark cannot create fresh pressure every frame.
+		const uint64 Garbage = GetGarbageObjectCount();
+		const uint64 NewPressure = Garbage - std::min(Garbage, GetLastGarbageCollectionStats().RetainedGarbageCount);
 		return IsGarbageCollectionRequested() ? EGarbageCollectionTrigger::Requested
-			: GGarbageCollectionScheduler.ShouldCollect(CurrentTime, GDObjectArray.GetNum(), GetGarbageObjectCount());
+			: GGarbageCollectionScheduler.ShouldCollect(CurrentTime, GDObjectArray.GetNum(), NewPressure);
 	}
 
 	auto GetCurrentAutomaticGarbageCollectionIntervalSeconds() -> double

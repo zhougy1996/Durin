@@ -317,7 +317,7 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_NE(ResolveObjectKey(Key), nullptr);
 		};
 		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change)));
-		if (Mode == 2) { ASSERT_TRUE(Target->Modify()); Target->Value = 7; MarkObjectHierarchyAsGarbage(Target.Get()); }
+		if (Mode == 2) { ASSERT_TRUE(Target->Modify()); Target->Value = 7; Target->bFailSave = true; }
 		DestroyScope(std::move(Scope));
 		EXPECT_EQ(Buffer->GetLastResult().Code, Mode == 0 ? ETransactorResultCode::Discarded : ETransactorResultCode::Failed);
 		EXPECT_EQ(Buffer->GetLastResult().TransactionId, PendingId);

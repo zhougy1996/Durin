@@ -234,7 +234,7 @@ namespace Durin
 		NamePrivate = Name;
 		ObjectFlags = Flags;
 		if (OuterPrivate != Outer) GDObjectArray.ReparentObject(this, Outer);
-		if (auto* NewPackage = Cast<DPackage>(OuterPrivate); NewPackage && NewPackage->IsAssetPackage()
+		if (auto* NewPackage = Cast<DPackage>(OuterPrivate); NewPackage && NewPackage->IsAssetPackage() && !IsGarbage()
 			&& !HasAnyObjectFlags(EObjectFlags::Transient))
 			require(NewPackage->RegisterTopLevelAsset(this));
 		Durin::Private::InvalidateSoftObjectCaches();

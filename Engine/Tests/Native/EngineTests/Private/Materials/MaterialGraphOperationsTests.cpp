@@ -4672,6 +4672,11 @@ TEST(FMaterialGraphOperationsTests, CommandStatusAndFailurePresentationAreIndepe
 	EXPECT_TRUE(FormatMaterialGraphCommandResult(NoChange).empty());
 }
 
+namespace
+{
+	struct FMaterialRecordTestAccess : FTransaction { using Record = FObjectRecord; };
+}
+
 TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMessageAndAllowsRepair)
 {
 	InitializeDObjectSystem();
@@ -4682,7 +4687,7 @@ TEST(FMaterialGraphOperationsTests, ParameterReplayRetainsMessageAndAllowsRepair
 	Definition.Name = "ReplayValue";
 	Definition.Type = EMaterialParameterType::Scalar;
 	Definition.Value = FMaterialParameterValue::MakeScalar(.25f);
-	FTransactionRecord Record(GraphEditInternals::MakeMaterialGraphParameterTransaction(*Material,
+	FMaterialRecordTestAccess::Record Record(GraphEditInternals::MakeMaterialGraphParameterTransaction(*Material,
 		Definition.Id, Definition.Value, FMaterialParameterValue::MakeScalar(.75f)));
 	const auto Failed = Record.Apply(false, EPropertyChangeOrigin::Redo);
 	ASSERT_FALSE(Failed);
@@ -4701,7 +4706,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReplayReportsExpiredTarget)
 	InitializeDObjectSystem();
 	auto* Material = NewObject<DMaterial>(nullptr, "ExpiredPresentationOwner");
 	const auto NodeId = FGuid::NewGuid();
-	FTransactionRecord Record(GraphEditInternals::MakeMaterialGraphPresentationTransaction(
+	FMaterialRecordTestAccess::Record Record(GraphEditInternals::MakeMaterialGraphPresentationTransaction(
 		*Material, {{NodeId, 10, 20, 30, 40, true}}, "Move expired owner"));
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);

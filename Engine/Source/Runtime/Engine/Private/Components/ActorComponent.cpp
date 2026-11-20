@@ -166,7 +166,7 @@ namespace Durin
 			}
 		}
 
-		MarkAsGarbage(this);
+		MarkAsGarbage();
 	}
 
 	auto DActorComponent::BeginDestroy() -> void
