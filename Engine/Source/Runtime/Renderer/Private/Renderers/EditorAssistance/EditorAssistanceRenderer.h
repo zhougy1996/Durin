@@ -14,10 +14,12 @@
 
 namespace Durin
 {
+	class FEditorGridFragmentShader;
+	class FGizmoVertexShader;
+
 	class FEditorGridRenderer;
 	class FGizmoRenderer;
 	class FSimpleElementRenderer;
-	class FRendererResourceCoordinator;
 	class FFullscreenGeometryResources;
 	class FRHICommandListImmediate;
 }
@@ -97,7 +99,8 @@ namespace Durin::RendererEditorAssistance
 		FPipelineKey Key;
 		FVertexDeclarationRHIRef PipelineVertexDeclaration;
 		FGraphicsPipelineStateInitializer PipelineInitializer;
-		FGlobalShaderSetRef ShaderSet;
+		TShaderMapRef<FEditorGridFragmentShader> GridFragmentShader;
+		TShaderMapRef<FGizmoVertexShader> GizmoVertexShader;
 	};
 
 	struct FPrepared
@@ -127,7 +130,6 @@ namespace Durin
 		using EDrawOperation = RendererEditorAssistance::EDrawOperation;
 
 		FEditorAssistanceRenderer(
-			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FEditorAssistanceRenderer();
 

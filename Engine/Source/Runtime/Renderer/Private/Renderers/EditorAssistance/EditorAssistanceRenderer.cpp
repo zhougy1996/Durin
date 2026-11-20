@@ -39,13 +39,12 @@ namespace Durin
 	} // namespace
 
 	FEditorAssistanceRenderer::FEditorAssistanceRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
 		: EditorGridRenderer(std::make_unique<FEditorGridRenderer>(
-			InCoordinator, InFullscreenGeometry))
-		, GizmoRenderer(std::make_unique<FGizmoRenderer>(InCoordinator))
+			InFullscreenGeometry))
+		, GizmoRenderer(std::make_unique<FGizmoRenderer>())
 		, SimpleElementRenderer(
-			std::make_unique<FSimpleElementRenderer>(InCoordinator))
+			std::make_unique<FSimpleElementRenderer>())
 	{
 	}
 

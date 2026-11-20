@@ -2,7 +2,6 @@
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -144,10 +143,7 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			FGlobalShaderSetRef RawShaderSet;
-			FGlobalShaderSetRef FilterShaderSet;
-			TShaderMapRef<FGTAOVertexShader> RawVertexShader;
-			TShaderMapRef<FGTAOVertexShader> FilterVertexShader;
+			TShaderMapRef<FGTAOVertexShader> VertexShader;
 			TShaderMapRef<FGTAORawFragmentShader> FragmentShader;
 			TShaderMapRef<FGTAOSelectorFragmentShader> SelectorFragmentShader;
 			TShaderMapRef<FGTAOHalfRawFragmentShader> HalfFragmentShader;
@@ -165,14 +161,12 @@ namespace Durin
 
 		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 	};
 
 	FGroundTruthAmbientOcclusionRenderer::FGroundTruthAmbientOcclusionRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
-		: Coordinator(InCoordinator)
-		, FullscreenGeometry(InFullscreenGeometry)
+		: FullscreenGeometry(InFullscreenGeometry)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -185,55 +179,16 @@ namespace Durin
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		FPayload* Payload = State->Resources.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
+			GetGlobalShaderMap().GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				const std::array<const FGlobalShaderType*, 4> RawTypes{
-					&FGTAOVertexShader::StaticType(),
-					&FGTAORawFragmentShader::StaticType(),
-					&FGTAOSelectorFragmentShader::StaticType(),
-					&FGTAOHalfRawFragmentShader::StaticType()};
-				const std::array<const FGlobalShaderType*, 4> FilterTypes{
-					&FGTAOVertexShader::StaticType(),
-					&FGTAOFilterFragmentShader::StaticType(),
-					&FGTAOHalfFilterFragmentShader::StaticType(),
-					&FGTAOResolveFragmentShader::StaticType()};
 				FPayload Candidate;
-				const auto RawShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"GroundTruthAmbientOcclusion.Raw", RawTypes, Candidate.RawShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (RawShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (RawShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!RawShaderSetCompletion)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"GroundTruthAmbientOcclusion", "raw-shader",
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				const auto FilterShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"GroundTruthAmbientOcclusion.Filter", FilterTypes, Candidate.FilterShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (FilterShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (FilterShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!FilterShaderSetCompletion)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"GroundTruthAmbientOcclusion", "filter-shader",
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.RawVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.RawShaderSet);
-				Candidate.FilterVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.FilterShaderSet);
-				Candidate.FragmentShader = TShaderMapRef<FGTAORawFragmentShader>(Candidate.RawShaderSet);
-				Candidate.SelectorFragmentShader = TShaderMapRef<FGTAOSelectorFragmentShader>(Candidate.RawShaderSet);
-				Candidate.HalfFragmentShader = TShaderMapRef<FGTAOHalfRawFragmentShader>(Candidate.RawShaderSet);
-				Candidate.FilterFragmentShader = TShaderMapRef<FGTAOFilterFragmentShader>(Candidate.FilterShaderSet);
-				Candidate.HalfFilterFragmentShader = TShaderMapRef<FGTAOHalfFilterFragmentShader>(Candidate.FilterShaderSet);
-				Candidate.ResolveFragmentShader = TShaderMapRef<FGTAOResolveFragmentShader>(Candidate.FilterShaderSet);
+				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FGTAOVertexShader>();
+				Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FGTAORawFragmentShader>();
+				Candidate.SelectorFragmentShader = GetGlobalShaderMap().GetShader<FGTAOSelectorFragmentShader>();
+				Candidate.HalfFragmentShader = GetGlobalShaderMap().GetShader<FGTAOHalfRawFragmentShader>();
+				Candidate.FilterFragmentShader = GetGlobalShaderMap().GetShader<FGTAOFilterFragmentShader>();
+				Candidate.HalfFilterFragmentShader = GetGlobalShaderMap().GetShader<FGTAOHalfFilterFragmentShader>();
+				Candidate.ResolveFragmentShader = GetGlobalShaderMap().GetShader<FGTAOResolveFragmentShader>();
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -243,10 +198,8 @@ namespace Durin
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				FRHIShader* RawVertexRHI =
-					Candidate.RawVertexShader.GetRHIShader(false);
-				FRHIShader* FilterVertexRHI =
-					Candidate.FilterVertexShader.GetRHIShader(false);
+				FRHIShader* VertexRHI =
+					Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 				FRHIShader* SelectorRHI =
 					Candidate.SelectorFragmentShader.GetRHIShader(false);
@@ -258,7 +211,7 @@ namespace Durin
 					Candidate.HalfFilterFragmentShader.GetRHIShader(false);
 				FRHIShader* ResolveRHI =
 					Candidate.ResolveFragmentShader.GetRHIShader(false);
-				if (RawVertexRHI == nullptr || FilterVertexRHI == nullptr
+				if (VertexRHI == nullptr
 					|| FragmentRHI == nullptr || SelectorRHI == nullptr
 					|| HalfFragmentRHI == nullptr
 					|| FilterRHI == nullptr || HalfFilterRHI == nullptr
@@ -269,13 +222,13 @@ namespace Durin
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
-				Initializer.BoundShaders.VertexShader = RawVertexRHI;
+				Initializer.BoundShaders.VertexShader = VertexRHI;
 				Initializer.BoundShaders.FragmentShader = FragmentRHI;
 				Initializer.VertexDeclaration =
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
-					Candidate.RawShaderSet.GetPipelineLayout();
+					Candidate.FragmentShader.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
@@ -285,10 +238,9 @@ namespace Durin
 				Candidate.HalfPipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGroundTruthAmbientOcclusionOutput();
-				Initializer.BoundShaders.VertexShader = FilterVertexRHI;
 				Initializer.BoundShaders.FragmentShader = FilterRHI;
 				Initializer.PipelineLayout =
-					Candidate.FilterShaderSet.GetPipelineLayout();
+					Candidate.FilterFragmentShader.GetPipelineLayout();
 				Candidate.FilterPipelineInitializer = Initializer;
 				Initializer.BoundShaders.FragmentShader = HalfFilterRHI;
 				Candidate.HalfFilterPipelineInitializer = Initializer;
@@ -296,7 +248,7 @@ namespace Durin
 				Candidate.ResolvePipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			ReportRendererResourceCreateDiagnostic);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
 			auto PipelineState = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "GroundTruthAmbientOcclusionRawPipeline");

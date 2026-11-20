@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class FFullscreenGeometryResources;
-	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 
@@ -77,7 +76,6 @@ namespace Durin
 		};
 
 		FDeferredDirectionalLightingRenderer(
-			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry
 		);
 		~FDeferredDirectionalLightingRenderer();
@@ -115,7 +113,6 @@ namespace Durin
 		) -> bool;
 		struct FState;
 
-		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
 		std::unique_ptr<FState> State;
 	};

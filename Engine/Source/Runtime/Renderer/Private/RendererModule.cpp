@@ -80,12 +80,7 @@ namespace Durin
 	}
 	auto FRendererModule::PrepareSceneThumbnailShaders() -> FShaderMapPreparation
 	{
-		auto Preparation = FShaderMapPreparation::Request("Renderer", {
-			"PostProcess.Copy", "PostProcess.FXAA", "SkyLighting.Compute",
-			"DeferredDirectionalLighting.LocalBuffer", "DeferredProductionLighting.LocalBuffer", "GroundTruthAmbientOcclusion.Raw",
-			"GroundTruthAmbientOcclusion.Filter"});
-		Preparation.Add("SurfaceMaterial", {"Surface.OpaqueShadow"});
-		return Preparation;
+		return FShaderMapPreparation::Request("SurfaceMaterial", {"Surface.OpaqueShadow"});
 	}
     auto FRendererModule::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     { if (RenderingService) RenderingService->BeginFrame_RenderThread(Commands); }

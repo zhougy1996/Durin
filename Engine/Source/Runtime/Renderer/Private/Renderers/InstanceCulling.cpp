@@ -1,6 +1,5 @@
 #include "Renderers/InstanceCulling.h"
 #include "RendererResourceSlotCache.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Shader/GlobalShader.h"
@@ -38,18 +37,16 @@ namespace Durin
 	{
 		struct FGPUCullingPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FInstanceCullingComputeShader> Shader;
 			FComputePipelineStateInitializer PipelineInitializer;
 		};
 		TRenderResourceCreationSlot<FGPUCullingPayload> GPUCulling{
 			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device
+			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
 		};
 	};
-	FInstanceCullingManager::FInstanceCullingManager(FRendererResourceCoordinator& InCoordinator)
-		: Coordinator(InCoordinator)
-		, State(std::make_unique<FState>())
+	FInstanceCullingManager::FInstanceCullingManager()
+		: State(std::make_unique<FState>())
 	{
 	}
 	FInstanceCullingManager::~FInstanceCullingManager() = default;
@@ -68,37 +65,18 @@ namespace Durin
 		using FPayload = FState::FGPUCullingPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		auto* Payload = State->GPUCulling.Resolve(
-				   Coordinator.GetGeneration_RenderThread(), []() -> FResult {
-					   const std::array<const FGlobalShaderType*, 1> Types{
-						   &FInstanceCullingComputeShader::StaticType()
-					   };
+				   GetGlobalShaderMap().GetGeneration_RenderThread(), []() -> FResult {
 					   FPayload Candidate;
-					   const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-						   "InstanceCulling", Types, Candidate.ShaderSet, true,
-						   ReportRendererResourceCreateDiagnostic
-					   );
-					   if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-					   if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-					   if (!ShaderSetCompletion)
-						   return FResult::Failure(MakeRendererResourceCreateError(
-							   ERenderResourceCreateErrorCategory::ShaderCompile,
-							   "InstanceCulling", "shader",
-							   ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-							   ERenderResourceGenerationDependency::Shader
-								   | ERenderResourceGenerationDependency::Manual
-						   ));
-					   Candidate.Shader = TShaderMapRef<FInstanceCullingComputeShader>(
-						   Candidate.ShaderSet
-					   );
+					   Candidate.Shader = GetGlobalShaderMap().GetShader<FInstanceCullingComputeShader>();
 					   FRHIShader* ComputeRHI = Candidate.Shader.GetRHIShader(false);
 					   if (ComputeRHI == nullptr)
 						   return FResult::Pending();
 					   auto& Initializer = Candidate.PipelineInitializer;
 					   Initializer.ComputeShader = ComputeRHI;
-					   Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+					   Initializer.PipelineLayout = Candidate.Shader.GetPipelineLayout();
 					   return FResult::Success(std::move(Candidate));
 				   },
-				   ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
+				   ReportRendererResourceCreateDiagnostic
 			   );
 		if (!Payload || !bPrecachePipeline) return Payload != nullptr;
 		auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer, "InstanceCullingPipeline");

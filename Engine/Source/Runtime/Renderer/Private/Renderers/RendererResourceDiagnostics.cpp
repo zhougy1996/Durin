@@ -53,15 +53,4 @@ namespace Durin
 			FormatRenderResourceCreateError(Error));
 	}
 
-	auto ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable(
-		const FRenderResourceCreateDiagnostic& Diagnostic) -> void
-	{
-		if (Diagnostic.Error
-			&& Diagnostic.Error->Reason
-				== ERenderResourceCreateErrorReason::GlobalShaderUnavailable)
-		{
-			return;
-		}
-		ReportRendererResourceCreateDiagnostic(Diagnostic);
-	}
 } // namespace Durin

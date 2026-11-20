@@ -2,7 +2,6 @@
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -90,8 +89,6 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
-			FGlobalShaderSetRef ProductionShaderSet;
 			TShaderMapRef<FDeferredDirectionalVertexShader> VertexShader;
 			TShaderMapRef<FDeferredProductionVertexShader> ProductionVertexShader;
 			TShaderMapRef<FDeferredDirectionalFragmentShader> FragmentShader;
@@ -106,16 +103,14 @@ namespace Durin
 
 		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device
+			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual
 		};
 	};
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry
 	)
-		: Coordinator(InCoordinator)
-		, FullscreenGeometry(InFullscreenGeometry)
+		: FullscreenGeometry(InFullscreenGeometry)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -129,43 +124,13 @@ namespace Durin
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		FPayload* Payload = State->Resources.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
+			GetGlobalShaderMap().GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> Types{
-					&FDeferredDirectionalVertexShader::StaticType(),
-					&FDeferredDirectionalFragmentShader::StaticType()};
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"DeferredDirectionalLighting.LocalBuffer", Types, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"DeferredDirectionalLighting", "shader",
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
-				const std::array<const FGlobalShaderType*, 2> ProductionTypes{
-					&FDeferredProductionVertexShader::StaticType(),
-					&FDeferredProductionFragmentShader::StaticType()};
-				const auto ProductionCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"DeferredProductionLighting.LocalBuffer", ProductionTypes, Candidate.ProductionShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ProductionCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ProductionCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ProductionCompletion) return FResult::Failure(MakeRendererResourceCreateError(
-					ERenderResourceCreateErrorCategory::ShaderCompile, "DeferredProductionLighting", "shader",
-					ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
-				Candidate.VertexShader = TShaderMapRef<FDeferredDirectionalVertexShader>(Candidate.ShaderSet);
-				Candidate.FragmentShader = TShaderMapRef<FDeferredDirectionalFragmentShader>(Candidate.ShaderSet);
-				Candidate.ProductionVertexShader = TShaderMapRef<FDeferredProductionVertexShader>(Candidate.ProductionShaderSet);
-				Candidate.ProductionFragmentShader = TShaderMapRef<FDeferredProductionFragmentShader>(Candidate.ProductionShaderSet);
+				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalVertexShader>();
+				Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FDeferredDirectionalFragmentShader>();
+				Candidate.ProductionVertexShader = GetGlobalShaderMap().GetShader<FDeferredProductionVertexShader>();
+				Candidate.ProductionFragmentShader = GetGlobalShaderMap().GetShader<FDeferredProductionFragmentShader>();
 
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
@@ -198,13 +163,13 @@ namespace Durin
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
-					Candidate.ShaderSet.GetPipelineLayout();
+					Candidate.FragmentShader.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridDeferredOutput();
 				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
 				Initializer.BoundShaders.VertexShader = ProductionVertexRHI;
-				Initializer.PipelineLayout = Candidate.ProductionShaderSet.GetPipelineLayout();
+				Initializer.PipelineLayout = Candidate.ProductionFragmentShader.GetPipelineLayout();
 				FBlendStateInitializerRHI AdditiveBlend{};
 				AdditiveBlend[0] = {.bEnable = true, .DstColorFactor = ERHIBlendFactor::One,
 					.SrcAlphaFactor = ERHIBlendFactor::Zero, .DstAlphaFactor = ERHIBlendFactor::One};
@@ -236,7 +201,7 @@ namespace Durin
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
+			ReportRendererResourceCreateDiagnostic
 		);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{

@@ -699,8 +699,7 @@ namespace
             EXPECT_FALSE(Pass.Draw(Executor.GetImmediateCommandList(), 2, 1, {}, nullptr, &SubsetStats).bComplete);
             EXPECT_TRUE(Pass.Draw(Executor.GetImmediateCommandList(), 2, 0).bComplete);
             EXPECT_EQ(SubsetStats.DrawData.size(), 1u);
-            FRendererResourceCoordinator Coordinator;
-            FInstanceCullingManager Manager(Coordinator);
+            FInstanceCullingManager Manager;
             auto Context = Manager.CreateContext(Manager.RegisterView(FSceneView{}), {});
             FMeshDrawCommandPassStats CullingStats;
             auto CullingCommands = FMeshCommandOneFrameArray(Pass.GetMeshDrawCommands().begin(), Pass.GetMeshDrawCommands().end());
@@ -1070,8 +1069,7 @@ namespace
             const auto& Group = Pass.GetMeshDrawCommands()[1];
             EXPECT_EQ(Group.SourceDrawIndex, 2u); EXPECT_EQ(Group.NumInstances, 4u);
             EXPECT_EQ(Group.NumSourceDraws, 4u);
-			FRendererResourceCoordinator Coordinator;
-			FInstanceCullingManager Manager(Coordinator);
+			FInstanceCullingManager Manager;
 			auto Culling = Manager.CreateContext(Manager.RegisterView(FSceneView{}), Pipeline.GetPassKey());
 			FInstanceCullingAdmissionDiagnostics Diagnostics;
 			auto CullingCommands = FMeshCommandOneFrameArray(Pass.GetMeshDrawCommands().begin(), Pass.GetMeshDrawCommands().end());
@@ -1235,7 +1233,7 @@ namespace
                 AddTestMeshDrawCommand(*Resolved.DrawCommandStorage, Resolved.GetMeshDrawCommandPass({EMeshPipelinePass::GBuffer}), Command, Index);
             }
             ASSERT_TRUE(SetupMeshDrawCommands(Executor.GetImmediateCommandList(), Prepared, Resolved, false));
-            FInstanceCullingManager Manager(Coordinator);
+            FInstanceCullingManager Manager;
             FSceneView View;
             const auto FirstView = Manager.RegisterView(View);
             View.ViewLocation = FVector3(1099511627776.0, 0.0, 0.0);

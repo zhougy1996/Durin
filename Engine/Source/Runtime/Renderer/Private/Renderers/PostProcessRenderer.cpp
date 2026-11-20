@@ -141,7 +141,6 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FPostProcessVertexShader> VertexShader;
 			TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
 			TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
@@ -180,32 +179,20 @@ namespace Durin
 		auto& Slot = State->Slots[GetPostProcessVariantIndex(bPresentOutput,
 			bEnableFXAA, bHasEditorAssistance, OutputFormat)];
 		if (!Slot) Slot = std::make_unique<FState::FSlot>(
-			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device);
-		auto* Payload = Slot->Resolve(Coordinator.GetGeneration_RenderThread(),
+			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual);
+		auto* Payload = Slot->Resolve(GetGlobalShaderMap().GetGeneration_RenderThread(),
 			[this, &CommandList, bPresentOutput, bEnableFXAA, bHasEditorAssistance, OutputFormat]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
-					&FPostProcessVertexShader::StaticType(),
-					bEnableFXAA ? &FFXAAFragmentShader::StaticType() : &FCopySceneColorFragmentShader::StaticType()};
 				FPayload Candidate;
-				const auto Completion = GetGlobalShaderMap().ResolveShaderSet(
-					bEnableFXAA ? "PostProcess.FXAA" : "PostProcess.Copy", ShaderTypes, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (Completion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (Completion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!Completion) return FResult::Failure(MakeRendererResourceCreateError(
-					ERenderResourceCreateErrorCategory::ShaderCompile, "PostProcess", bEnableFXAA ? "fxaa" : "copy",
-					ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-					ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
-				Candidate.VertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.ShaderSet);
+				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FPostProcessVertexShader>();
 				FRHIShader* FragmentRHI = nullptr;
 				if (bEnableFXAA)
 				{
-					Candidate.FXAAFragmentShader = TShaderMapRef<FFXAAFragmentShader>(Candidate.ShaderSet);
+					Candidate.FXAAFragmentShader = GetGlobalShaderMap().GetShader<FFXAAFragmentShader>();
 					FragmentRHI = Candidate.FXAAFragmentShader.GetRHIShader(false);
 				}
 				else
 				{
-					Candidate.CopyFragmentShader = TShaderMapRef<FCopySceneColorFragmentShader>(Candidate.ShaderSet);
+					Candidate.CopyFragmentShader = GetGlobalShaderMap().GetShader<FCopySceneColorFragmentShader>();
 					FragmentRHI = Candidate.CopyFragmentShader.GetRHIShader(false);
 				}
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
@@ -223,10 +210,14 @@ namespace Durin
 					? RenderTargetLayouts::MakeScenePostProcessOutput(Format)
 					: RenderTargetLayouts::MakeFinalScenePostProcessOutput(bPresentOutput
 						? RenderTargetLayouts::EViewportOutput::Present : RenderTargetLayouts::EViewportOutput::Offscreen, Format);
+				const auto& PipelineLayout = bEnableFXAA
+					? Candidate.FXAAFragmentShader.GetPipelineLayout()
+					: Candidate.CopyFragmentShader.GetPipelineLayout();
+				Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Candidate.PipelineInitializer = CreatePostProcessPipeline(VertexRHI, FragmentRHI,
-					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread(), Candidate.ShaderSet.GetPipelineLayout(), Layout);
+					Candidate.PipelineVertexDeclaration, PipelineLayout, Layout);
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			}, ReportRendererResourceCreateDiagnostic);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
 			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);
@@ -316,7 +307,7 @@ namespace Durin
 			FragmentParameters.View = ViewUniformBuffer;
 			SetShaderParameters(
 				CommandList,
-				Payload->FXAAFragmentShader.GetShaderRef(),
+				Payload->FXAAFragmentShader,
 				FragmentParameters);
 		}
 		else
@@ -328,7 +319,7 @@ namespace Durin
 			FragmentParameters.View = ViewUniformBuffer;
 			SetShaderParameters(
 				CommandList,
-				Payload->CopyFragmentShader.GetShaderRef(),
+				Payload->CopyFragmentShader,
 				FragmentParameters);
 		}
 
@@ -375,14 +366,13 @@ namespace Durin
 		{
 			if (State->MaterialSlots.size() == 8) State->MaterialSlots.erase(State->MaterialSlots.begin());
 			State->MaterialSlots.emplace_back(Program, std::make_unique<FState::FMaterialSlot>(
-				ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device));
+				ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual));
 			Found = std::prev(State->MaterialSlots.end());
 		}
 		using FResult = TRenderResourceCreateResult<FState::FMaterialPipeline>;
-		const auto* Pipeline = Found->second->Resolve(Coordinator.GetGeneration_RenderThread(), [&]() -> FResult {
+		const auto* Pipeline = Found->second->Resolve(GetGlobalShaderMap().GetGeneration_RenderThread(), [&]() -> FResult {
 			FState::FMaterialPipeline Candidate;
-			for (const auto& Slot : State->Slots)
-				if (Slot && Slot->GetPayload()) { Candidate.Vertex = Slot->GetPayload()->VertexShader.GetRHIShader(false); break; }
+			Candidate.Vertex = GetGlobalShaderMap().GetShader<FPostProcessVertexShader>().GetRHIShader(false);
 			const auto& Code = Map.CompiledShaders[0];
 			auto Desc = FRHIShaderCreateDesc::Create("FPostProcessMaterialShader", Code.Frequency, Code.Code, Code.CodeHash);
 			Desc.SetEntryPoint(Code.BinaryEntryPoint.c_str());

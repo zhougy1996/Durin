@@ -22,21 +22,20 @@ namespace Durin
 	FSceneRenderingService::FSceneRenderingService()
 		: RDGAllocator(Coordinator)
 		, DefaultTextures(Coordinator)
-		, EnvironmentLighting(Coordinator, Retirement)
+		, EnvironmentLighting(Retirement)
 		, SurfaceMaterials(Coordinator, DefaultTextures)
 		, DirectionalShadowRenderer(Coordinator)
 		, GBufferRenderer(Coordinator)
-		, InstanceCullingManager(Coordinator)
-		, GBufferDebugRenderer(Coordinator, FullscreenGeometry)
-		, DeferredDirectionalLightingRenderer(Coordinator, FullscreenGeometry)
-		, GroundTruthAmbientOcclusionRenderer(Coordinator, FullscreenGeometry)
+		, GBufferDebugRenderer(FullscreenGeometry)
+		, DeferredDirectionalLightingRenderer(FullscreenGeometry)
+		, GroundTruthAmbientOcclusionRenderer(FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, SurfaceMaterials)
-		, SkyBoxRenderer(Coordinator, DefaultTextures)
+		, SkyBoxRenderer(DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
-		, ContactShadowRenderer(Coordinator, FullscreenGeometry)
+		, ContactShadowRenderer(FullscreenGeometry)
 		, VolumetricCloudRenderer(Coordinator, FullscreenGeometry)
-		, VolumetricCloudShadowRenderer(Coordinator, FullscreenGeometry)
-		, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
+		, VolumetricCloudShadowRenderer(FullscreenGeometry)
+		, EditorAssistanceRenderer(FullscreenGeometry)
 	{
 	}
 
@@ -79,7 +78,8 @@ namespace Durin
     auto FSceneRenderingService::BeginFrame_RenderThread(FRHICommandListImmediate& Commands) -> void
     {
         CheckRenderingThread();
-        GetGlobalShaderMap().ProcessCompilationResults_RenderThread();
+        if (GetGlobalShaderMap().ProcessCompilationResults_RenderThread())
+            InvalidatePreparationOwners_RenderThread();
         Retirement.Collect();
 		MaterialPSORequests.Pump([this](const auto& Params, auto& Collection, EPSOPrecacheCollectionPhase Phase) {
 			// Admission can observe a newer GameThread snapshot before its ordered

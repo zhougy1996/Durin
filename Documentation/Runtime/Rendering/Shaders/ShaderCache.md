@@ -166,7 +166,7 @@ metadata, debug name, code-only hash and bytes, canonical named reflection and
 push ranges, resource dimensions, constant-buffer sizes/member offsets, versioned
 opaque platform bytes, and complete shader identity.
 There is no separately serialized logical interface or name digest; see the
-[compiled-stage contract](GlobalShaders.md#atomic-shader-sets).
+[compiled-stage contract](GlobalShaders.md#global-shader-map-publication).
 
 The request supports 1–32 stages. A stage permits at most 64 MiB code, 65,536
 resource bindings, 65,536 push-constant ranges, 32 KiB per string, descriptor

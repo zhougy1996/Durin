@@ -4,7 +4,7 @@ Summary: Define asynchronous Renderer readiness, asset/shader preparation errors
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-11-19
+Last reviewed: 2026-11-20
 
 ## Required-Success Native Construction
 
@@ -280,16 +280,14 @@ distinguishes deferred creation from terminal failure; partially initialized
 aggregates are never visible.
 
 Fixed non-Material shader compilation and typed lookup are centralized in
-RenderCore's [Global Shader](../Shaders/GlobalShaders.md) map. Each bounded exact shader
-set has its own transactional slot and strong `FGlobalShaderSetRef` lifetime.
-Renderer feature payloads retain typed `TShaderMapRef` values and the exact set
-used by their PSO; they do not allocate, cast, or own private global
-`FShaderMapBase` instances. Material and vertex-factory/mesh combinations use
+Engine's [Global Shader](../Shaders/GlobalShaders.md) map. Renderer feature
+payloads retain typed shader references from the published generation for
+pipeline creation and parameter binding. Material and vertex-factory/mesh combinations use
 `TMaterialShaderRef` over an exact `FMaterialShaderMap`; consumers likewise do
 not initialize an ordinary map, perform a raw lookup, or cast a shader.
 
 `FSimpleElementRenderer` follows the same contract. Its line and sprite Global
-Shader sets are independently demandable, so one unavailable class skips only
+Shader references come from the same publication. An unavailable class skips only
 dependent batches. Output/depth/blend/shader-class pipeline keys retain the
 exact typed shader refs used to create them. Persistent vertex and index upload
 buffers grow to bounded power-of-two capacities through required-success

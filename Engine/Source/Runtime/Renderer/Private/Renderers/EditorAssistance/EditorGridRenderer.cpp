@@ -2,7 +2,6 @@
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "CoreGlobals.h"
 #include "Misc/AssertionMacros.h"
 #include "RHI.h"
@@ -15,36 +14,36 @@ namespace Durin
 {
 	using namespace RendererEditorAssistance;
 
+	class FEditorGridVertexShader : public FGlobalShader
+	{
+	public:
+		DURIN_DECLARE_GLOBAL_SHADER(
+			FEditorGridVertexShader,
+			FGlobalShader,
+			"/Engine/EditorGrid",
+			EShaderFrequency::Vertex,
+			"VertexMain");
+	};
+
+	class FEditorGridFragmentShader : public FGlobalShader
+	{
+	public:
+		DURIN_BEGIN_SHADER_PARAMETERS(FEditorGridFragmentShader)
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
+		DURIN_END_SHADER_PARAMETERS();
+
+		DURIN_DECLARE_GLOBAL_SHADER(
+			FEditorGridFragmentShader,
+			FGlobalShader,
+			"/Engine/EditorGrid",
+			EShaderFrequency::Fragment,
+			"FragmentMain");
+	};
+
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridVertexShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridFragmentShader);
 	namespace
 	{
-		class FEditorGridVertexShader : public FGlobalShader
-		{
-		public:
-			DURIN_DECLARE_GLOBAL_SHADER(
-				FEditorGridVertexShader,
-				FGlobalShader,
-				"/Engine/EditorGrid",
-				EShaderFrequency::Vertex,
-				"VertexMain");
-		};
-
-		class FEditorGridFragmentShader : public FGlobalShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FEditorGridFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
-			DURIN_END_SHADER_PARAMETERS();
-
-			DURIN_DECLARE_GLOBAL_SHADER(
-				FEditorGridFragmentShader,
-				FGlobalShader,
-				"/Engine/EditorGrid",
-				EShaderFrequency::Fragment,
-				"FragmentMain");
-		};
-
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridVertexShader);
-		DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridFragmentShader);
 		const FGlobalShaderSetRegistration GEditorGridShaderSet(
 			"Renderer", "EditorAssistance.EditorGrid",
 			EShaderRequestEligibility::EditorOnly,
@@ -59,7 +58,6 @@ namespace Durin
 		{
 			FVertexDeclarationRHIRef PipelineVertexDeclaration;
 			FGraphicsPipelineStateInitializer PipelineInitializer;
-			FGlobalShaderSetRef ShaderSet;
 		};
 
 		struct FPipelineEntry
@@ -67,17 +65,15 @@ namespace Durin
 			FPipelineKey Key;
 			TRenderResourceCreationSlot<FPipelinePayload> Slot{
 				ERenderResourceGenerationDependency::Shader
-					| ERenderResourceGenerationDependency::Device};
+					| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 		};
 
 		std::vector<FPipelineEntry> Pipelines;
 	};
 
 	FEditorGridRenderer::FEditorGridRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
-		: Coordinator(InCoordinator)
-		, FullscreenGeometry(InFullscreenGeometry)
+		: FullscreenGeometry(InFullscreenGeometry)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -99,16 +95,10 @@ namespace Durin
 			return;
 		}
 
-		const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
-			&FEditorGridVertexShader::StaticType(),
-			&FEditorGridFragmentShader::StaticType()};
-		FGlobalShaderSetRef ShaderSet;
-		const auto Completion = GetGlobalShaderMap().ResolveShaderSet(
-			"EditorAssistance.EditorGrid", ShaderTypes, ShaderSet, true,
-			ReportRendererResourceCreateDiagnostic);
-		if (!Completion) return;
-		TShaderMapRef<FEditorGridVertexShader> VertexShader(ShaderSet);
-		TShaderMapRef<FEditorGridFragmentShader> FragmentShader(ShaderSet);
+		TShaderMapRef<FEditorGridVertexShader> VertexShader(GetGlobalShaderMap());
+		TShaderMapRef<FEditorGridFragmentShader> FragmentShader(GetGlobalShaderMap());
+
+		if (!VertexShader.GetRHIShader(false) || !FragmentShader.GetRHIShader(false)) return;
 
 		const FPipelineKey Key{
 			.Feature = EFeature::EditorGrid,
@@ -124,11 +114,11 @@ namespace Durin
 			EntryIt = State->Pipelines.emplace(
 				State->Pipelines.end(), FState::FPipelineEntry{.Key = Key});
 		}
-		FRenderResourceGeneration PipelineGeneration = ShaderSet.GetGeneration();
+
 		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
 		auto* Pipeline = EntryIt->Slot.Resolve(
-			PipelineGeneration,
-			[this, ShaderSet, VertexShader, FragmentShader, Key]() -> FPipelineResult {
+			GetGlobalShaderMap().GetGeneration_RenderThread(),
+			[this, VertexShader, FragmentShader, Key]() -> FPipelineResult {
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeEditorAssistanceOutput(
@@ -145,12 +135,11 @@ namespace Durin
 					.bEnableTest = true,
 					.CompareOp = GetVisibleDepthCompareOp(Key.DepthConvention)});
 				Initializer.PipelineLayout =
-					ShaderSet.GetPipelineLayout();
+					FragmentShader.GetPipelineLayout();
 
 				return FPipelineResult::Success({
 					.PipelineVertexDeclaration = Initializer.VertexDeclaration,
-					.PipelineInitializer = Initializer,
-					.ShaderSet = ShaderSet});
+					.PipelineInitializer = Initializer});
 			},
 			ReportRendererResourceCreateDiagnostic);
 		if (!Pipeline)
@@ -168,7 +157,7 @@ namespace Durin
 			.Key = Key,
 			.PipelineVertexDeclaration = Pipeline->PipelineVertexDeclaration,
 			.PipelineInitializer = Pipeline->PipelineInitializer,
-			.ShaderSet = Pipeline->ShaderSet,
+			.GridFragmentShader = FragmentShader,
 		});
 	}
 
@@ -201,7 +190,7 @@ namespace Durin
 			&*Prepared.EditorGridUniform,
 			sizeof(*Prepared.EditorGridUniform));
 		SetShaderParameters(CommandList,
-			TShaderMapRef<FEditorGridFragmentShader>(PreparedIt->ShaderSet).GetShaderRef(),
+			PreparedIt->GridFragmentShader,
 			Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
 	}

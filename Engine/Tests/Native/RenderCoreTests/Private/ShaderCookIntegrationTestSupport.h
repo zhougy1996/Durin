@@ -196,11 +196,11 @@ namespace Durin
 				{
 					const auto Type = Find(Name);
 					EXPECT_NE(Type, Types.end());
-					if (Type != Types.end()) EXPECT_TRUE(Map.FindShaderSection(**Type));
+					if (Type != Types.end()) EXPECT_TRUE(Map.HasShader(**Type));
 				}
 				const auto EditorType = Find("FEditorGridVertexShader");
 				EXPECT_NE(EditorType, Types.end());
-				if (EditorType != Types.end()) EXPECT_FALSE(Map.FindShaderSection(**EditorType));
+				if (EditorType != Types.end()) EXPECT_FALSE(Map.HasShader(**EditorType));
 				Map.Shutdown_RenderThread();
 				return 0;
 			}

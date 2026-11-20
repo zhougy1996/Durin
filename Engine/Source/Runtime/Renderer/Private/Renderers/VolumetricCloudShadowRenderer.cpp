@@ -3,7 +3,6 @@
 #include "Math/Operations.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -99,7 +98,6 @@ namespace Durin
 	{
 		struct FFragmentPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudShadowVertexShader> VertexShader;
 			TShaderMapRef<FCloudShadowFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef PipelineVertexDeclaration;
@@ -107,22 +105,20 @@ namespace Durin
 		};
 		struct FComputePayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FCloudShadowComputeShader> ComputeShader;
 			FComputePipelineStateInitializer PipelineInitializer;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
 			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device};
+			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 		TRenderResourceCreationSlot<FComputePayload> ComputeResources{
 			ERenderResourceGenerationDependency::Shader
-			| ERenderResourceGenerationDependency::Device};
+			| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 	};
 
 	FVolumetricCloudShadowRenderer::FVolumetricCloudShadowRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
-		: Coordinator(InCoordinator), FullscreenGeometry(InFullscreenGeometry),
+		: FullscreenGeometry(InFullscreenGeometry),
 		  State(std::make_unique<FState>()) {}
 	FVolumetricCloudShadowRenderer::~FVolumetricCloudShadowRenderer() = default;
 	auto FVolumetricCloudShadowRenderer::SetTimingQuerySink(FTimingQuerySink Sink) -> void
@@ -181,30 +177,19 @@ namespace Durin
 		using FPayload = FState::FComputePayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		auto* Payload = State->ComputeResources.Resolve(
-			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
-				const std::array<const FGlobalShaderType*, 1> Types{
-					&FCloudShadowComputeShader::StaticType()};
+			GetGlobalShaderMap().GetGeneration_RenderThread(), []() -> FResult {
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloudShadow.Compute", Types, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
-						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceCreateErrorCategory::ShaderCompile));
 				Candidate.ComputeShader =
-					TShaderMapRef<FCloudShadowComputeShader>(Candidate.ShaderSet);
+					GetGlobalShaderMap().GetShader<FCloudShadowComputeShader>();
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
 				if (!RHIShader || !GDynamicRHI)
 					return FResult::Pending();
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
-				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Initializer.PipelineLayout = Candidate.ComputeShader.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			}, ReportRendererResourceCreateDiagnostic);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
 			auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer);
@@ -221,28 +206,16 @@ namespace Durin
 		using FPayload = FState::FFragmentPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		auto* Payload = State->FragmentResources.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> Types{
-					&FCloudShadowVertexShader::StaticType(),
-					&FCloudShadowFragmentShader::StaticType()};
+			GetGlobalShaderMap().GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"VolumetricCloudShadow.Fragment", Types, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-					return FResult::Failure(MakeFailure("VolumetricCloudShadow",
-						"shader", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceCreateErrorCategory::ShaderCompile));
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "shader",
 						ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable,
 						ERenderResourceCreateErrorCategory::ShaderBinding));
 				Candidate.VertexShader =
-					TShaderMapRef<FCloudShadowVertexShader>(Candidate.ShaderSet);
+					GetGlobalShaderMap().GetShader<FCloudShadowVertexShader>();
 				Candidate.FragmentShader =
-					TShaderMapRef<FCloudShadowFragmentShader>(Candidate.ShaderSet);
+					GetGlobalShaderMap().GetShader<FCloudShadowFragmentShader>();
 				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 				if (!VertexRHI || !FragmentRHI || !GDynamicRHI)
@@ -255,10 +228,10 @@ namespace Durin
 				Initializer.VertexDeclaration =
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Initializer.PipelineLayout = Candidate.FragmentShader.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			}, ReportRendererResourceCreateDiagnostic);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
 			auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);

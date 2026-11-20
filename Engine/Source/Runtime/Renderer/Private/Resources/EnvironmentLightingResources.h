@@ -11,7 +11,6 @@
 namespace Durin
 {
     class FRHICommandListImmediate;
-    class FRendererResourceCoordinator;
     class FRendererRDGAllocator;
     class FScene;
     class FRendererResourceRetirementQueue;
@@ -74,7 +73,7 @@ namespace Durin
     class FEnvironmentLightingResources
     {
     public:
-        explicit FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator, FRendererResourceRetirementQueue& InRetirement);
+        explicit FEnvironmentLightingResources(FRendererResourceRetirementQueue& InRetirement);
         ~FEnvironmentLightingResources();
         auto UpdateScene_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene,
             FRendererRDGAllocator& Allocator, FRHITexture* FallbackCube) -> void;
@@ -88,7 +87,6 @@ namespace Durin
         FRendererResourceRetirementQueue& Retirement;
         struct FState;
         std::unique_ptr<FState> State;
-        FRendererResourceCoordinator& Coordinator;
         std::vector<std::weak_ptr<FSkyLightingSceneState>> Scenes;
     };
 }

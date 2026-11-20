@@ -2,7 +2,6 @@
 #include "RDG/RDG.h"
 #include "RenderResourceCreation.h"
 
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RendererResourceRetirement.h"
 #include "Renderers/RendererRDGAllocator.h"
 #include "Renderers/RendererResourceDiagnostics.h"
@@ -60,7 +59,6 @@ namespace Durin
     }
     struct FEnvironmentLightingResources::FState
     {
-        FGlobalShaderSetRef ShaderSet;
         TShaderMapRef<FSkyLightingShader> Shader;
         std::optional<FComputePipelineStateInitializer> PipelineInitializer;
         FSamplerRHIRef Sampler;
@@ -68,8 +66,8 @@ namespace Durin
         FRenderResourceGeneration Generation;
         FRenderResourceAttemptState Requests;
     };
-    FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceCoordinator& InCoordinator, FRendererResourceRetirementQueue& InRetirement)
-        : Retirement(InRetirement), State(std::make_unique<FState>()), Coordinator(InCoordinator) {}
+    FEnvironmentLightingResources::FEnvironmentLightingResources(FRendererResourceRetirementQueue& InRetirement)
+        : Retirement(InRetirement), State(std::make_unique<FState>()) {}
     FEnvironmentLightingResources::~FEnvironmentLightingResources() = default;
 
     auto FSkyLightingCaptureSchedule::CanAttempt(const FSkyLightingRequestKey& Request, double Time,
@@ -121,23 +119,19 @@ namespace Durin
     auto FEnvironmentLightingResources::PrepareResources_RenderThread() -> ERenderResourceAvailability
     {
         CheckRenderingThread();
-        const auto Generation=Coordinator.GetGeneration_RenderThread();
+        const auto Generation=GetGlobalShaderMap().GetGeneration_RenderThread();
         if (State->Generation != Generation) { State=std::make_unique<FState>(); State->Generation=Generation; }
         if (!State->PipelineInitializer || !State->Sampler)
         {
             if (!GDynamicRHI) return ERenderResourceAvailability::Failed;
             FRenderPipelinePreparationScope Requests(State->Requests, Generation);
-            const std::array<const FGlobalShaderType*,1> Types{&FSkyLightingShader::StaticType()};
-            const auto Completion = GetGlobalShaderMap().ResolveShaderSet("SkyLighting.Compute", Types,
-                State->ShaderSet, true, ReportRendererResourceCreateDiagnostic);
-            if (!Completion) return Completion.Status;
-            State->Shader=TShaderMapRef<FSkyLightingShader>(State->ShaderSet);
+            State->Shader=GetGlobalShaderMap().GetShader<FSkyLightingShader>();
             auto* Shader=State->Shader.GetRHIShader(false);
             if (!Shader)
                 return Requests.HasPending() ? ERenderResourceAvailability::Pending : ERenderResourceAvailability::Failed;
             FComputePipelineStateInitializer Initializer;
             Initializer.ComputeShader=Shader;
-            Initializer.PipelineLayout=State->ShaderSet.GetPipelineLayout();
+            Initializer.PipelineLayout=State->Shader.GetPipelineLayout();
             State->PipelineInitializer = Initializer;
             State->Sampler=RHICreateSampler(FRHISamplerDesc::LinearClamp());
         }
@@ -177,7 +171,7 @@ namespace Durin
         const auto Sky=Scene.GetProceduralSky_RenderThread();
         const bool Captured=Light && Light->SourceMode==ESkyLightSourceMode::CapturedSky;
         FRHITexture* Source=Light && Light->Texture ? Light->Texture->GetReferencedTexture_RenderThread() : nullptr;
-        const auto Generation=Coordinator.GetGeneration_RenderThread();
+        const auto Generation=GetGlobalShaderMap().GetGeneration_RenderThread();
         const uint64 Provider=Captured && Sky ? Sky->InstanceId : 0;
         const auto HasAuthority=[&](const FSkyLightingGeneration& G) {
             return Light && (!Captured || Sky) && G.Owner==Light->InstanceId && G.SourceEpoch==Light->SourceEpoch
@@ -385,7 +379,7 @@ namespace Durin
     {
         CheckRenderingThread();
         const auto Result = Scene ? Scene->SkyLighting->Published : nullptr;
-        return Result && Result->Resources == Coordinator.GetGeneration_RenderThread() ? Result : nullptr;
+        return Result && Result->Resources == GetGlobalShaderMap().GetGeneration_RenderThread() ? Result : nullptr;
     }
     auto FEnvironmentLightingResources::ReleaseScene_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void
     {

@@ -3,7 +3,6 @@
 #include "RenderResourceCreation.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Math/Operations.h"
 #include "RHI.h"
@@ -63,7 +62,6 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FGBufferDebugVertexShader> VertexShader;
 			TShaderMapRef<FGBufferDebugFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef PipelineVertexDeclaration;
@@ -72,14 +70,12 @@ namespace Durin
 
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 	};
 
 	FGBufferDebugRenderer::FGBufferDebugRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
-		: Coordinator(InCoordinator)
-		, FullscreenGeometry(InFullscreenGeometry)
+		: FullscreenGeometry(InFullscreenGeometry)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -101,27 +97,11 @@ namespace Durin
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		FPayload* Payload = State->Slot.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
+			GetGlobalShaderMap().GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> Types{
-					&FGBufferDebugVertexShader::StaticType(),
-					&FGBufferDebugFragmentShader::StaticType()};
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"GBufferDebug.Debug", Types, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"GBufferDebug", "debug", ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.VertexShader = TShaderMapRef<FGBufferDebugVertexShader>(Candidate.ShaderSet);
-				Candidate.FragmentShader = TShaderMapRef<FGBufferDebugFragmentShader>(Candidate.ShaderSet);
+				Candidate.VertexShader = GetGlobalShaderMap().GetShader<FGBufferDebugVertexShader>();
+				Candidate.FragmentShader = GetGlobalShaderMap().GetShader<FGBufferDebugFragmentShader>();
 
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
@@ -150,10 +130,10 @@ namespace Durin
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
-					Candidate.ShaderSet.GetPipelineLayout();
+					Candidate.FragmentShader.GetPipelineLayout();
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			ReportRendererResourceCreateDiagnostic);
 		if (!Payload || !bPrecachePipeline) return Payload != nullptr;
 		auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer, "GBufferDebugPipeline");
 		if (!Pipeline) return false;
@@ -237,7 +217,7 @@ namespace Durin
 		Parameters.BasePassColor = BasePassColor;
 		Parameters.SceneDepth = Depth;
 		Parameters.Params = UniformBuffer;
-		SetShaderParameters(CommandList, Payload->FragmentShader.GetShaderRef(), Parameters);
+		SetShaderParameters(CommandList, Payload->FragmentShader, Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 

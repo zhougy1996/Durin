@@ -2,7 +2,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Renderers/MeshPassProcessor.h"
 #include "RendererResourceSlotCache.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Renderers/GBufferRendering.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -284,8 +283,7 @@ TEST(FRendererSceneContractTests, GBufferGPUCullingPlanPreservesIndexedArguments
     SceneData->SceneData[1] = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("CullingSceneInstances",
         64 * sizeof(FInstanceSceneShaderData), 16, EBufferUsageFlags::StructuredBuffer));
     Resolved.GPUScenePrimitives.push_back({SceneData, 0, 0});
-	FRendererResourceCoordinator Coordinator;
-	FInstanceCullingManager Manager(Coordinator);
+	FInstanceCullingManager Manager;
 	FSceneView View;
 	EXPECT_FALSE(BuildTestInstanceCullingPlan(
 		Manager, Prepared, Resolved, View));
@@ -627,8 +625,7 @@ TEST(FRendererSceneContractTests, VisibleCommandMemoryDoesNotKeepSourceResources
     EXPECT_TRUE(Life.expired());
     EXPECT_EQ(Borrowed->CachedInfo->CommandIndex, INDEX_NONE);
     EXPECT_TRUE(Borrowed->Command->bFinalized);
-	FRendererResourceCoordinator Coordinator;
-	FInstanceCullingManager Manager(Coordinator);
+	FInstanceCullingManager Manager;
 	auto Culling = Manager.CreateContext(Manager.RegisterView(FSceneView{}), Pass);
 	FInstanceCullingAdmissionDiagnostics Diagnostics;
 	FMeshCommandOneFrameArray Visible(Submission.GetMeshDrawCommands().begin(), Submission.GetMeshDrawCommands().end());

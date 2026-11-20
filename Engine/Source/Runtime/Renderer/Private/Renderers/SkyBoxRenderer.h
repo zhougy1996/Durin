@@ -7,7 +7,6 @@
 namespace Durin
 {
 	class FDefaultTextureResources;
-	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 	struct FSkyBoxSceneData;
@@ -17,7 +16,6 @@ namespace Durin
 	{
 	public:
 		FSkyBoxRenderer(
-			FRendererResourceCoordinator& InCoordinator,
 			FDefaultTextureResources& InDefaultTextures
 		);
 		~FSkyBoxRenderer();
@@ -44,7 +42,6 @@ namespace Durin
 	private:
 		struct FState;
 
-		FRendererResourceCoordinator& Coordinator;
 		FDefaultTextureResources& DefaultTextures;
 		std::unique_ptr<FState> State;
 	};

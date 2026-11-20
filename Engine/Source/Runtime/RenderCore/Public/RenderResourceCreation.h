@@ -23,7 +23,6 @@ namespace Durin
 	enum class ERenderResourceCreateErrorReason : uint8
 	{
 		Unspecified,
-		GlobalShaderUnavailable,
 		ShaderFailure,
 		PipelinePreparationRejected,
 		FullscreenGeometryUnavailable,

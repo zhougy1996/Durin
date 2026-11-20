@@ -8,7 +8,9 @@
 
 namespace Durin
 {
-	class FRendererResourceCoordinator;
+	class FSimpleLineFragmentShader;
+	class FSimpleSpriteFragmentShader;
+
 	class FRHICommandListImmediate;
 
 	struct FPreparedSimpleElementDraw
@@ -16,7 +18,8 @@ namespace Durin
 		FSimpleElementBatchKey Key;
 		FVertexDeclarationRHIRef PipelineVertexDeclaration;
 		FGraphicsPipelineStateInitializer PipelineInitializer;
-		FGlobalShaderSetRef ShaderSet;
+		TShaderMapRef<FSimpleLineFragmentShader> LineShader;
+		TShaderMapRef<FSimpleSpriteFragmentShader> SpriteShader;
 		FTextureRHIRef Texture;
 		FSamplerRHIRef Sampler;
 		uint32 IndexCount = 0;
@@ -38,8 +41,7 @@ namespace Durin
 	class FSimpleElementRenderer final
 	{
 	public:
-		explicit FSimpleElementRenderer(
-			FRendererResourceCoordinator& InCoordinator);
+		FSimpleElementRenderer();
 		~FSimpleElementRenderer();
 
 		FSimpleElementRenderer(const FSimpleElementRenderer&) = delete;
@@ -59,7 +61,6 @@ namespace Durin
 
 	private:
 		struct FState;
-		FRendererResourceCoordinator& Coordinator;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

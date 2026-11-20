@@ -1,3 +1,4 @@
+#include "Shader/GlobalShader.h"
 #include "QualificationViewPreparation.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
@@ -303,6 +304,9 @@ namespace Durin
 			}
 		);
 		InitRenderingThread();
+		FModuleManager::Get().LoadModuleChecked("Engine");
+		FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		CompileGlobalShaderMap();
 		const std::string DeviceName = DeviceProperties.deviceName.data();
 		const bool bNamedAdapter = DeviceName == "NVIDIA GeForce RTX 3090"
 								   && vk::apiVersionMajor(DeviceProperties.apiVersion) == 1u
@@ -658,9 +662,7 @@ namespace Durin
 					FVolumetricCloudRenderer TierClouds(
 						Coordinator, FullscreenGeometry
 					);
-					FVolumetricCloudShadowRenderer TierShadows(
-						Coordinator, FullscreenGeometry
-					);
+					FVolumetricCloudShadowRenderer TierShadows(FullscreenGeometry);
 					auto FragmentTargets = Tests::FRendererFeatureTargetFixture::CreateCloudFragment(
 						CloudExtent.Width, CloudExtent.Height
 					);

@@ -347,11 +347,11 @@ namespace Durin
 			StructuredReasonParticipatesInFailureIdentity)
 		{
 			const FRenderResourceCreateError Generic = MakeError();
-			const FRenderResourceCreateError GlobalShaderUnavailable = MakeError(
+			const FRenderResourceCreateError FullscreenGeometryUnavailable = MakeError(
 				EDependency::Shader,
-				ERenderResourceCreateErrorReason::GlobalShaderUnavailable);
+				ERenderResourceCreateErrorReason::FullscreenGeometryUnavailable);
 			EXPECT_NE(Generic.GetFingerprint(),
-				GlobalShaderUnavailable.GetFingerprint());
+				FullscreenGeometryUnavailable.GetFingerprint());
 		}
 
 		TEST(FRenderResourceCreationTests, PreparationBatchRetainsLargeBatchesAndKeepsNestedStateIndependent)

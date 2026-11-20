@@ -2,7 +2,6 @@
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/DefaultTextureResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SkyBoxRendering.h"
 #include "CoreGlobals.h"
@@ -73,11 +72,9 @@ namespace Durin
 	};
 
 	FSkyBoxRenderer::FSkyBoxRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FDefaultTextureResources& InDefaultTextures
 	)
-		: Coordinator(InCoordinator)
-		, DefaultTextures(InDefaultTextures)
+		: DefaultTextures(InDefaultTextures)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -93,9 +90,7 @@ namespace Durin
 		const auto Vertex = Map.GetShader<FSkyBoxVertexShader>();
 		const auto Fragment = Map.GetShader<FSkyBoxFragmentShader>();
 		if (!Vertex || !Fragment) return false;
-		auto Generation = Coordinator.GetGeneration_RenderThread();
-		Generation.Shader = Vertex.GetGeneration().Shader;
-		Generation.Manual = Vertex.GetGeneration().Manual;
+		const auto Generation = GetGlobalShaderMap().GetGeneration_RenderThread();
 		FPayload* Payload = State->Slot.Resolve(
 			Generation,
 			[&]() -> FResult {
@@ -128,7 +123,7 @@ namespace Durin
 					Candidate.VertexDeclaration;
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
 				Initializer.PipelineLayout =
-					Fragment.GetShaderRef().GetShaderMap()->GetMergedPipelineLayout();
+					Fragment.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeGraphHybridSceneBootstrap();
@@ -226,7 +221,7 @@ namespace Durin
 		);
 		SetShaderParameters(
 			CommandList,
-			Payload->FragmentShader.GetShaderRef(),
+			Payload->FragmentShader,
 			Parameters
 		);
 		CommandList.DrawIndexed(3, 0, 0);

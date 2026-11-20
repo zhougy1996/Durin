@@ -1,3 +1,4 @@
+#include "Shader/GlobalShader.h"
 #include <gtest/gtest.h>
 
 #include "VulkanEngineTestSupport.h"
@@ -116,13 +117,15 @@ namespace Durin
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
+		FModuleManager::Get().LoadModuleChecked("Engine");
+		FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		CompileGlobalShaderMap();
 
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(
 			Coordinator, FullscreenGeometry);
-		FVolumetricCloudShadowRenderer CloudShadows(
-			Coordinator, FullscreenGeometry);
+		FVolumetricCloudShadowRenderer CloudShadows(FullscreenGeometry);
 		EnqueueRenderCommand("BeginCloudPreparation", [&](FRHICommandListImmediate&) {
 			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
 		});

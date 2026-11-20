@@ -2148,72 +2148,21 @@ namespace Durin
 		EXPECT_EQ(Calls[0], 1u); EXPECT_EQ(Calls[1], 1u);
 	}
 
-	TEST_F(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
-	{
-		ASSERT_TRUE(InitializeGlobalShaderFixture());
-		FGlobalShaderMap& Map = GetGlobalShaderMap();
-		Map.Shutdown_RenderThread();
-		EXPECT_EQ(Map.GetSectionCount(), 0u);
-		EXPECT_EQ(GetGlobalShaderMap().GetSectionCount(), 0u);
-		FRenderResourceGeneration Generation;
-		Generation.Shader = 7;
-		Generation.Device = 3;
-		Map.SetGeneration_RenderThread(Generation, false);
-
-		const std::array<const FGlobalShaderType*, 2> Types = {
-			&FGlobalFixtureFragmentShader::StaticType(),
-			&FGlobalFixtureVertexShader::StaticType()};
-		const std::array<const FShaderType*, 2> BaseTypes{Types[0], Types[1]};
-		FShaderMapBase Prepared;
-		ASSERT_TRUE(InitializeShaderMapFromTypesSync(Prepared, BaseTypes, {}));
-		FScopedShaderCompletionStub Backend;
-		Backend.Stub->Completion = {.Status = EShaderBuildStatus::Ok};
-		for (const auto* Type : BaseTypes)
-			Backend.Stub->Completion.CompiledShaders.push_back(Prepared.GetCode()->GetCompiledShader(*Prepared.FindShaderIndex(Type)));
-		FGlobalShaderSetRef Set;
-		const auto Completion = Map.ResolveShaderSet(
-			"Tests.GlobalFixture", Types, Set, false);
-		ASSERT_TRUE(Completion) << Completion.Error;
-		EXPECT_EQ(Set.GetGeneration(), Generation);
-		EXPECT_EQ(Set.GetIdentity(),
-			"Tests.GlobalFixture|FGlobalFixtureFragmentShader|FGlobalFixtureVertexShader");
-
-		const TShaderMapRef<FGlobalFixtureVertexShader> Vertex(Set);
-		const TShaderMapRef<FGlobalFixtureFragmentShader> Fragment(Set);
-		EXPECT_TRUE(Vertex);
-		EXPECT_TRUE(Fragment);
-		EXPECT_EQ(Vertex.GetGeneration(), Generation);
-		EXPECT_FALSE(Set.GetPipelineLayout().BindingLayouts.empty());
-		++Generation.Shader;
-		Map.SetGeneration_RenderThread(Generation, false);
-		Backend.Stub->DeferMounted = true;
-		const auto Pending = Map.ResolveShaderSet("Tests.GlobalFixture", Types, Set, false);
-		EXPECT_EQ(Pending.Status, ERenderResourceAvailability::Pending);
-		EXPECT_TRUE(Pending.Error.empty());
-		EXPECT_FALSE(Set);
-		ASSERT_EQ(Backend.Stub->Pending.size(), 1u);
-		auto Deliver = std::move(Backend.Stub->Pending.front());
-		Deliver();
-		ASSERT_TRUE(Map.ResolveShaderSet("Tests.GlobalFixture", Types, Set, false));
-		EXPECT_EQ(Set.GetGeneration(), Generation);
-		Map.Shutdown_RenderThread();
-		EXPECT_EQ(Map.GetSectionCount(), 0u);
-		EXPECT_TRUE(Vertex);
-		EXPECT_TRUE(Fragment);
-	}
-
 	TEST_F(FShaderFoundationTests, RegisteredGlobalShadersStayPublishedUntilACompleteReload)
 	{
 		ASSERT_TRUE(InitializeGlobalShaderFixture());
 		auto& Map = GetGlobalShaderMap();
 		Map.Shutdown_RenderThread();
 		const auto& Type = FGlobalFixtureVertexShader::StaticType();
-		const FShaderType* Types[] = {&Type};
-		FGlobalShaderSetRegistration Set("Tests", "Tests.Published", EShaderRequestEligibility::GameAndEditor, {&Type});
+		const auto& FragmentType = FGlobalFixtureFragmentShader::StaticType();
+		const FShaderType* Types[] = {&FragmentType, &Type};
+		FGlobalShaderSetRegistration Set("Tests", "Tests.Published", EShaderRequestEligibility::GameAndEditor, {&Type, &FragmentType});
 		FShaderMapBase Prepared;
 		ASSERT_TRUE(InitializeShaderMapFromTypesSync(Prepared, Types, {}));
 		FScopedShaderCompletionStub Backend;
-		Backend.Stub->Completion.CompiledShaders = {Prepared.GetCode()->GetCompiledShader(*Prepared.FindShaderIndex(&Type))};
+		Backend.Stub->Completion.CompiledShaders.clear();
+		for (const auto* Stage : Types)
+			Backend.Stub->Completion.CompiledShaders.push_back(Prepared.GetCode()->GetCompiledShader(*Prepared.FindShaderIndex(Stage)));
 		class FInvocation final : public FRunnable
 		{
 		public:
@@ -2224,7 +2173,10 @@ namespace Durin
 			CompileGlobalShaderMap();
 			const auto Original = Map.GetShader<FGlobalFixtureVertexShader>();
 			ASSERT_TRUE(Original);
-			const auto OldGeneration = Original.GetGeneration();
+			const auto Fragment = Map.GetShader<FGlobalFixtureFragmentShader>();
+			ASSERT_TRUE(Fragment);
+			EXPECT_FALSE(Fragment.GetPipelineLayout().BindingLayouts.empty());
+			const auto OldGeneration = Map.GetGeneration_RenderThread();
 			auto Generation = OldGeneration;
 			++Generation.Shader;
 			Map.SetGeneration_RenderThread(Generation, true);
@@ -2232,55 +2184,44 @@ namespace Durin
 			CompileGlobalShaderMap(true);
 			Map.ProcessCompilationResults_RenderThread();
 			EXPECT_EQ(Map.GetShader<FGlobalFixtureVertexShader>().GetShader(), Original.GetShader());
+			EXPECT_EQ(Map.GetGeneration_RenderThread(), OldGeneration);
 			ASSERT_EQ(Backend.Stub->Pending.size(), 1u);
 			auto Deliver = std::move(Backend.Stub->Pending.front());
 			Deliver();
 			Map.ProcessCompilationResults_RenderThread();
 			const auto Updated = Map.GetShader<FGlobalFixtureVertexShader>();
 			ASSERT_TRUE(Updated);
-			EXPECT_EQ(Updated.GetGeneration(), Generation);
-			EXPECT_EQ(Original.GetGeneration(), OldGeneration);
+			EXPECT_EQ(Map.GetGeneration_RenderThread(), Generation);
+			EXPECT_NE(Original.GetShader(), Updated.GetShader());
 			Backend.Stub->DeferMounted = false;
+			const auto GoodOutput = Backend.Stub->Completion;
+			const auto Published = Map.GetGeneration_RenderThread();
 			Backend.Stub->Completion = FShaderCompilerOutput::Failure("failed replacement");
 			++Generation.Shader;
 			Map.SetGeneration_RenderThread(Generation, false);
 			CompileGlobalShaderMap();
 			EXPECT_EQ(Map.GetShader<FGlobalFixtureVertexShader>().GetShader(), Updated.GetShader());
-			EXPECT_EQ(Backend.Stub->Compiles, 3u);
+			EXPECT_EQ(Map.GetGeneration_RenderThread(), Published);
+			Backend.Stub->Completion.Status = EShaderBuildStatus::Canceled;
+			CompileGlobalShaderMap(true);
+			EXPECT_EQ(Map.GetShader<FGlobalFixtureVertexShader>().GetShader(), Updated.GetShader());
+			EXPECT_EQ(Backend.Stub->Compiles, 4u);
+			// The first section can initialize, but the later one rejects the two-stage output.
+			FGlobalShaderSetRegistration Partial("Tests", "Tests.VertexOnly", EShaderRequestEligibility::GameAndEditor, {&Type});
+			Backend.Stub->Completion = GoodOutput;
+			CompileGlobalShaderMap(true);
+			EXPECT_EQ(Map.GetGeneration_RenderThread(), Published);
+			EXPECT_EQ(Map.GetShader<FGlobalFixtureVertexShader>().GetShader(), Updated.GetShader());
+			Map.Shutdown_RenderThread();
+			EXPECT_FALSE(Map.HasShader(Type));
+			EXPECT_FALSE(Map.GetShader<FGlobalFixtureFragmentShader>());
+			EXPECT_FALSE(Fragment.GetPipelineLayout().BindingLayouts.empty());
 		};
 		std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Invocation, "GlobalShaderReload", 0,
 			EThreadPriority::Normal, EThreadRole::RenderingThread));
 		ASSERT_TRUE(Thread);
 		Thread->WaitForCompletion();
 		Map.Shutdown_RenderThread();
-	}
-
-	TEST_F(FShaderFoundationTests, GlobalShaderCompletionPreservesCancellationAndDiagnostics)
-	{
-		ASSERT_TRUE(InitializeGlobalShaderFixture());
-		auto& Manager = FModuleManager::Get();
-		auto Info = Manager.FindModule("ShaderBuild");
-		struct FRestore {
-			FModuleManager::FModuleInfoPtr Info; EModuleState State; std::unique_ptr<IModuleInterface> Module;
-			~FRestore() { Info->Module = std::move(Module); Info->State = State; }
-		} Restore{Info, Info->State.load(), std::move(Info->Module)};
-		auto Module = std::make_unique<FCompletionShaderStub>(); auto* Stub = Module.get();
-		Info->Module = std::move(Module); Info->State = EModuleState::Active;
-		auto& Map = GetGlobalShaderMap(); Map.Shutdown_RenderThread();
-		struct FClear { FGlobalShaderMap& Map; ~FClear() { Map.Shutdown_RenderThread(); } } Clear{Map};
-		const std::array<const FGlobalShaderType*, 2> Types{
-			&FGlobalFixtureVertexShader::StaticType(), &FGlobalFixtureFragmentShader::StaticType()};
-		FGlobalShaderSetRef Set;
-		const auto Canceled = Map.ResolveShaderSet("Tests.Completion", Types, Set, false);
-		EXPECT_EQ(Canceled.Status, ERenderResourceAvailability::Canceled);
-		EXPECT_FALSE(Set); EXPECT_TRUE(Canceled.Error.empty());
-		Stub->Completion = FShaderCompilerOutput::Failure("global shader diagnostic");
-		const auto Failed = Map.ResolveShaderSet("Tests.Completion", Types, Set, false);
-		EXPECT_EQ(Failed.Status, ERenderResourceAvailability::Failed);
-		EXPECT_EQ(Failed.Error, "global shader diagnostic"); EXPECT_FALSE(Set);
-		EXPECT_EQ(Stub->Compiles, 2u);
-		const auto Cached = Map.ResolveShaderSet("Tests.Completion", Types, Set, false);
-		EXPECT_EQ(Cached.Error, Failed.Error); EXPECT_EQ(Stub->Compiles, 2u);
 	}
 
 	TEST_F(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)

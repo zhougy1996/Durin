@@ -10,7 +10,6 @@
 namespace Durin
 {
 	class FFullscreenGeometryResources;
-	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 
@@ -139,7 +138,6 @@ namespace Durin
 		};
 
 		FGroundTruthAmbientOcclusionRenderer(
-			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FGroundTruthAmbientOcclusionRenderer();
 
@@ -179,7 +177,6 @@ namespace Durin
 	private:
 		struct FState;
 
-		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
 		std::unique_ptr<FState> State;
 	};

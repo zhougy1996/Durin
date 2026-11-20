@@ -7,13 +7,11 @@
 namespace Durin
 {
 	class FFullscreenGeometryResources;
-	class FRendererResourceCoordinator;
 
 	class FEditorGridRenderer final
 	{
 	public:
 		FEditorGridRenderer(
-			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FEditorGridRenderer();
 
@@ -35,7 +33,6 @@ namespace Durin
 	private:
 		struct FState;
 
-		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
 		std::unique_ptr<FState> State;
 	};

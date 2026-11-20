@@ -365,16 +365,17 @@ namespace Durin
 			"Shader program registration failed for '{}': {}", Name, std::string(Error.error()));
 	}
 
-	auto GetRegisteredGlobalShaderSets(EShaderTargetProfile Profile) -> std::vector<FRegisteredGlobalShaderSet>
+	auto GetRegisteredShaderRuntimeRequests(EShaderTargetProfile Profile, EShaderRuntimeRequestCategory Category)
+		-> std::vector<FShaderRuntimeRequest>
 	{
 		FRegistry& State = Registry();
 		std::lock_guard Lock(State.Mutex);
-		std::vector<FRegisteredGlobalShaderSet> Sets;
+		std::vector<FShaderRuntimeRequest> Requests;
 		for (const auto& Entry : State.Requests)
-			if (Entry.Request.Category == EShaderRuntimeRequestCategory::GlobalSet && IsEligible(Entry.Eligibility, Profile))
-				Sets.push_back({Entry.Request.Name, Entry.BuildTypes});
-		std::ranges::sort(Sets, {}, &FRegisteredGlobalShaderSet::Name);
-		return Sets;
+			if (Entry.Request.Category == Category && IsEligible(Entry.Eligibility, Profile))
+				Requests.push_back(Entry.Request);
+		std::ranges::sort(Requests, {}, &FShaderRuntimeRequest::Name);
+		return Requests;
 	}
 
 	auto FreezeShaderRuntimeInventory(

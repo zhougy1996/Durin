@@ -8,7 +8,6 @@
 
 namespace Durin
 {
-	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FFullscreenGeometryResources;
 	class FRDGShaderParameterScope;
@@ -112,7 +111,6 @@ namespace Durin
 		};
 
 		FContactShadowVisibilityRenderer(
-			FRendererResourceCoordinator& InCoordinator,
 			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FContactShadowVisibilityRenderer();
 		FContactShadowVisibilityRenderer(
@@ -140,7 +138,6 @@ namespace Durin
 		auto EnsureFragmentResources_RenderThread(
 			FRHICommandListImmediate& CommandList) -> bool;
 		struct FState;
-		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
 		std::unique_ptr<FState> State;
 	};

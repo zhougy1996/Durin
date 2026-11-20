@@ -1,3 +1,4 @@
+#include "Shader/GlobalShader.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "Materials/MaterialResourceTestSupport.h"
 #include "../../RDGTestAccess.h"
@@ -70,6 +71,7 @@ namespace Durin
 			Testing::InitializeAssetSystemForTests();
 			// Engine owns the global shader-map release hook for each RHI lifetime.
 			FModuleManager::Get().LoadModuleChecked("Engine");
+			FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		}
 	private:
 		bool bOwnScheduler = false;
@@ -1002,12 +1004,11 @@ namespace Durin
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
+		CompileGlobalShaderMap();
 
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
-		FGroundTruthAmbientOcclusionRenderer AmbientOcclusion(
-			Coordinator, FullscreenGeometry
-		);
+		FGroundTruthAmbientOcclusionRenderer AmbientOcclusion(FullscreenGeometry);
 		auto Results = std::make_shared<std::array<bool, 10>>();
 		FTextureRHIRef Normals, Surface, Depth;
 		std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets> ReleasedTargets;
@@ -1141,11 +1142,11 @@ namespace Durin
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
+		CompileGlobalShaderMap();
 
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
-		FContactShadowVisibilityRenderer ContactVisibility(
-			Coordinator, FullscreenGeometry);
+		FContactShadowVisibilityRenderer ContactVisibility(FullscreenGeometry);
 		auto Results = std::make_shared<std::array<bool, 14>>();
 		FTextureRHIRef Material, Normals, Surface, Depth;
 		std::optional<FContactShadowVisibilityRenderer::FTargets> FragmentTargets;
@@ -1302,12 +1303,11 @@ namespace Durin
 		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
+		CompileGlobalShaderMap();
 
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
-		FDeferredDirectionalLightingRenderer Deferred(
-			Coordinator, FullscreenGeometry
-		);
+		FDeferredDirectionalLightingRenderer Deferred(FullscreenGeometry);
 		auto Results = std::make_shared<std::array<bool, 12>>();
 		auto FirstTarget = std::make_shared<
 			FDeferredDirectionalLightingRenderer::FTargets>();

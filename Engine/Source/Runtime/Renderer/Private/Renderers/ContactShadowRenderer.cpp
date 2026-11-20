@@ -2,7 +2,6 @@
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
-#include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Math/Operations.h"
 #include "RHI.h"
@@ -96,7 +95,6 @@ namespace Durin
 	{
 		struct FFragmentPayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FContactVisibilityVertexShader> VertexShader;
 			TShaderMapRef<FContactVisibilityFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef PipelineVertexDeclaration;
@@ -104,22 +102,20 @@ namespace Durin
 		};
 		struct FComputePayload
 		{
-			FGlobalShaderSetRef ShaderSet;
 			TShaderMapRef<FContactVisibilityComputeShader> ComputeShader;
 			FComputePipelineStateInitializer PipelineInitializer;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
 			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 		TRenderResourceCreationSlot<FComputePayload> ComputeResources{
 			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+				| ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual};
 	};
 
 	FContactShadowVisibilityRenderer::FContactShadowVisibilityRenderer(
-		FRendererResourceCoordinator& InCoordinator,
 		FFullscreenGeometryResources& InFullscreenGeometry)
-		: Coordinator(InCoordinator), FullscreenGeometry(InFullscreenGeometry),
+		: FullscreenGeometry(InFullscreenGeometry),
 		  State(std::make_unique<FState>()) {}
 
 	FContactShadowVisibilityRenderer::~FContactShadowVisibilityRenderer() = default;
@@ -184,33 +180,19 @@ namespace Durin
 		using FPayload = FState::FComputePayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		auto* Payload = State->ComputeResources.Resolve(
-			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
-				const std::array<const FGlobalShaderType*, 1> Types{
-					&FContactVisibilityComputeShader::StaticType()};
+			GetGlobalShaderMap().GetGeneration_RenderThread(), []() -> FResult {
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"ContactVisibility.Compute", Types, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"ContactVisibilityCompute", "shader",
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
 				Candidate.ComputeShader =
-					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
+					GetGlobalShaderMap().GetShader<FContactVisibilityComputeShader>();
 				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
 				if (ComputeRHI == nullptr)
 					return FResult::Pending();
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = ComputeRHI;
-				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Initializer.PipelineLayout = Candidate.ComputeShader.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			}, ReportRendererResourceCreateDiagnostic);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
 			auto Pipeline = PipelineStateCache::PrecacheComputePipelineState(Payload->PipelineInitializer);
@@ -227,27 +209,12 @@ namespace Durin
 		using FPayload = FState::FFragmentPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		auto* Payload = State->FragmentResources.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
-				const std::array<const FGlobalShaderType*, 2> Types{
-					&FContactVisibilityVertexShader::StaticType(),
-					&FContactVisibilityFragmentShader::StaticType()};
+			GetGlobalShaderMap().GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
 				FPayload Candidate;
-				const auto ShaderSetCompletion = GetGlobalShaderMap().ResolveShaderSet(
-					"ContactVisibility.Fragment", Types, Candidate.ShaderSet, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Pending) return FResult::Pending();
-				if (ShaderSetCompletion.Status == ERenderResourceAvailability::Canceled) return FResult::Canceled();
-				if (!ShaderSetCompletion)
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"ContactVisibility", "shader",
-						ERenderResourceCreateErrorReason::GlobalShaderUnavailable,
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
 				Candidate.VertexShader =
-					TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
+					GetGlobalShaderMap().GetShader<FContactVisibilityVertexShader>();
 				Candidate.FragmentShader =
-					TShaderMapRef<FContactVisibilityFragmentShader>(Candidate.ShaderSet);
+					GetGlobalShaderMap().GetShader<FContactVisibilityFragmentShader>();
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
@@ -267,10 +234,10 @@ namespace Durin
 				Initializer.VertexDeclaration =
 					Candidate.PipelineVertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState = RHICreateRasterizerState({.CullMode = ERHICullMode::None});
-				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Initializer.PipelineLayout = Candidate.FragmentShader.GetPipelineLayout();
 				Candidate.PipelineInitializer = Initializer;
 				return FResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+			}, ReportRendererResourceCreateDiagnostic);
 		if (Payload && FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
 		{
 			auto Pipeline = PipelineStateCache::PrecacheGraphicsPipelineState(Payload->PipelineInitializer);

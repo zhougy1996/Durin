@@ -13,7 +13,6 @@
 namespace Durin
 {
 	class FInstanceCullingManager;
-	class FRendererResourceCoordinator;
 	struct FInstanceCullingTelemetry;
 	struct FPreparedStaticMeshDraw;
 	struct FMeshDrawCommandStateCache;
@@ -115,7 +114,7 @@ namespace Durin
 	class FInstanceCullingManager
 	{
 	public:
-		RENDERER_API explicit FInstanceCullingManager(FRendererResourceCoordinator& Coordinator);
+		RENDERER_API FInstanceCullingManager();
 		RENDERER_API ~FInstanceCullingManager();
 		RENDERER_API auto ResetViews() -> void;
 		RENDERER_API auto EnsureResources_RenderThread(EGPUCullingFailure Failure = EGPUCullingFailure::None, bool bPrecachePipeline = false) -> bool;
@@ -126,7 +125,6 @@ namespace Durin
 
 	private:
 		struct FState;
-		FRendererResourceCoordinator& Coordinator;
 		std::unique_ptr<FState> State;
 		std::vector<std::shared_ptr<const FInstanceCullingView>> Views;
 	};

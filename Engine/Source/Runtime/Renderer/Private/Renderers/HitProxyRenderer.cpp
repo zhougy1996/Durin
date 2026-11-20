@@ -8,7 +8,7 @@
 #include "Renderers/SceneViewPreparation.h"
 #include "Renderers/SurfaceMaterial.h"
 #include "Renderers/MaterialBindingResolution.h"
-#include "Shader/ShaderCookedLibrary.h"
+#include "Shader/GlobalShader.h"
 #include "Logging/Logger.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Scene.h"
@@ -49,6 +49,12 @@ namespace Durin
 			Add(Request.bSceneGeometry); Add(Request.Primitives.size());
 			for (const auto& Primitive : Request.Primitives) { Add(Primitive.PrimitiveId); Add(Primitive.Id.Value); }
 			Add(Request.Overlays.size());
+			if (!Request.Overlays.empty())
+			{
+				const auto& Generation = GetGlobalShaderMap().GetGeneration_RenderThread();
+				Add(Generation.Shader);
+				Add(Generation.Manual);
+			}
 			for (const auto& Overlay : Request.Overlays)
 			{
 				Add(Overlay.Id.Value); Add(Overlay.Priority); Add(Overlay.bForeground);
@@ -267,7 +273,6 @@ namespace Durin
 		});
 		if (!bReady) { return {}; }
 		if (Request.Overlays.size() > 65536) { return {}; }
-		FGlobalShaderSetRef OverlayShaders;
 		TShaderMapRef<FHitProxyOverlayFragmentShader> OverlayFragment;
 		FBufferRHIRef OverlayBuffer;
 		FVertexDeclarationRHIRef OverlayDeclaration;
@@ -276,12 +281,9 @@ namespace Durin
 		std::vector<uint32> OverlayOrder;
 		if (!Request.Overlays.empty())
 		{
-			const std::array<const FGlobalShaderType*, 2> Types{&FHitProxyOverlayVertexShader::StaticType(), &FHitProxyOverlayFragmentShader::StaticType()};
-			const auto ShaderCompletion = GetGlobalShaderMap().ResolveShaderSet("HitProxy.Overlay", Types, OverlayShaders, true, ReportRendererResourceCreateDiagnostic);
-			if (ShaderCompletion.Status == ERenderResourceAvailability::Canceled) { return {}; }
-			if (!ShaderCompletion) { return {}; }
-			TShaderMapRef<FHitProxyOverlayVertexShader> Vertex(OverlayShaders);
-			OverlayFragment = TShaderMapRef<FHitProxyOverlayFragmentShader>(OverlayShaders);
+			TShaderMapRef<FHitProxyOverlayVertexShader> Vertex(GetGlobalShaderMap());
+			OverlayFragment = GetGlobalShaderMap().GetShader<FHitProxyOverlayFragmentShader>();
+			if (!Vertex.GetRHIShader(false) || !OverlayFragment.GetRHIShader(false)) return {};
 			FVertexDeclarationElementList Elements{};
 			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float4, 0, sizeof(FHitProxyOverlayVertex));
 			Elements[1] = FVertexElement(0, 16, EVertexElementType::Float1, 1, sizeof(FHitProxyOverlayVertex));
@@ -299,7 +301,7 @@ namespace Durin
 					.bEnableTest = !Foreground,
 					.bEnableWrite = !Foreground,
 					.CompareOp = View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::LessOrEqual});
-				Pipeline.PipelineLayout = OverlayShaders.GetPipelineLayout();
+				Pipeline.PipelineLayout = OverlayFragment.GetPipelineLayout();
 				OverlayPipelines[Foreground] = Pipeline;
 
 			}

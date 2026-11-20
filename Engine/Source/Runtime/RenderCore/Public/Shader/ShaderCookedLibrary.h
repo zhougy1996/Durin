@@ -85,14 +85,8 @@ namespace Durin
 			-> FShaderOperationResult;
 	};
 
-	// Snapshot eligible global sets without freezing registration for a subsequent Cook.
-	struct FRegisteredGlobalShaderSet
-	{
-		std::string Name;
-		std::vector<const FShaderType*> Types;
-	};
-	RENDERCORE_API auto GetRegisteredGlobalShaderSets(EShaderTargetProfile Profile)
-		-> std::vector<FRegisteredGlobalShaderSet>;
+	RENDERCORE_API auto GetRegisteredShaderRuntimeRequests(EShaderTargetProfile Profile, EShaderRuntimeRequestCategory Category)
+		-> std::vector<FShaderRuntimeRequest>;
 
 	RENDERCORE_API auto FreezeShaderRuntimeInventory(
 		EShaderTargetPlatform TargetPlatform,

@@ -1,6 +1,6 @@
 # Global Shaders
 
-Summary: Define registration, atomic set ownership, typed lookup, generation recovery, and lifecycle for fixed non-Material shaders.
+Summary: Define registration, atomic map publication, typed lookup, generation recovery, and lifecycle for fixed non-Material shaders.
 
 Modules: Engine, RenderCore, Renderer, ShaderFormat
 
@@ -31,7 +31,7 @@ The initial inventory is deliberately closed over fixed Renderer programs:
 
 | Category | Families | Ownership |
 | --- | --- | --- |
-| Global | EditorGrid, Gizmo, SimpleElement line/sprite, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 38 registered types in 19 exact sets, declared by Renderer and mapped by Engine |
+| Global | EditorGrid, Gizmo, SimpleElement line/sprite, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | Declared by Renderer and published by Engine |
 | Material | Generated forward, GBuffer, and masked-shadow fragments | Engine `FMaterialShaderMap` payloads built from Engine's accepted immutable compiler result |
 | Vertex-factory/mesh | GBuffer, StaticMesh, SplineMesh, and fixed opaque-shadow combinations | The same exact typed map API using `FMeshMaterialShader` identity |
 | Finite Editor-only | TextureEditor preview and Mona ImGui backend programs | Stable feature-program contributions owned by their defining modules; excluded from Game Cook |
@@ -39,29 +39,21 @@ The initial inventory is deliberately closed over fixed Renderer programs:
 Generated Material programs remain generated rather than global. No eligible
 fixed Renderer family retains a private-map compatibility path.
 
-## Atomic Shader Sets
+## Global Shader Map Publication
 
 Renderer startup prepares the registered global sets eligible for the active profile.
 It joins authored compilation or loads cooked outputs, then queues publication before
 renderer startup resources. The render thread publishes the complete map only after
-every section passes shader-map initialization. SkyBox obtains both typed stage
-references from this map and creates its native shaders and pipeline on demand.
+every section passes shader-map initialization. Each pass obtains its stages through
+`GetGlobalShaderMap().GetShader<T>()`. A `TShaderMapRef<T>` retains the
+section that owns the shader, including its parameter bindings and code.
+Prepared draws keep the references they use for submission.
 
-Each named section sorts its type list by stable type
-name, incorporates the section name and every type into its identity, compiles
-the complete set from one source variant, and retains its merged pipeline layout.
-
-This partition keeps optional features independent and makes vertex/fragment
-or compute membership reproducible. Reusing a section name with a different
-type set is an invariant failure. `FGlobalShaderSetRef` strongly retains the
-published map and exposes its exact generation, identity, and merged pipeline
-layout. `TShaderMapRef<T>` provides type-safe access while retaining the same
-set. A pipeline payload retains the set it used; parameter binding uses a
-typed ref from that retained set rather than looking up a newer map.
-
-Every exact set also contributes one stable runtime request until the target
-inventory freezes. The 15 non-`EditorAssistance` sets are Win64/Game inputs;
-EditorGrid, Gizmo, and both SimpleElement sets are Editor-only. In Authored mode
+The cook registry supplies each eligible program's exact entry points. A
+graphics pipeline takes the merged layout from its fragment shader's section,
+so programs sharing a fullscreen vertex shader can have different layouts.
+Compute pipelines use the compute shader's section. EditorGrid, Gizmo and
+SimpleElement programs are eligible only in editor profiles. In Authored mode
 set construction asks ShaderBuild for a complete output. In Cooked mode the
 same typed construction consumes the exact `DSHD` output from the qualified
 `DSLB` library. Parameter binding, merged layouts, lazy RHI creation, generation
@@ -97,33 +89,10 @@ cache and serialization paths do not construct code owners or layouts.
 and manual generations to Engine's typed maps. Shader reload submits a replacement
 for the published map. Render-frame processing installs it once all sections succeed.
 Readers retain the previous generation during compilation and after a failed or
-canceled replacement. Existing exact-set consumers can reuse matching published
-sections. Their fallback resolution follows these rules.
-
-- changed reload validates dependencies normally on the next demanded set;
-- all reload force-recompiles the first eligible candidate in that shader
-  generation;
-- manual retry permits one new attempt for failed entries;
-- repeated demand in the same relevant generation is suppressed.
-
-A failed exact-set lookup returns no set for the requested generation and reports the
-attempted generation. A successful later candidate publishes atomically and
-reports one recovery transition. Pipeline slots use the published set generation;
-unavailable shaders prevent a new pipeline candidate from becoming Ready.
-
-Device invalidation first releases Renderer consumers, then resets every
-global section and the weak shader-map resource cache before the device
-generation advances. No previous global set substitutes for a failed replacement.
-`ResolveShaderSet` writes the set to the caller's reference on `Ready` and
-clears it otherwise. `Pending` allows another lookup after preparation,
-`Failed` carries a bounded diagnostic, and `Canceled` allows an immediate retry.
-Containing resource slots propagate `Canceled`
-without caching a failure, so the same generation can retry. Hit-proxy readbacks
-also cancel when their shader preparation cancels.
-
-The global set owns the detailed shader failure diagnostic; a containing
-feature slot mirrors the unavailable state for retry purposes without emitting
-a second wrapper failure or recovery transition.
+canceled replacement. Shader and manual generations advance for pipeline consumers when the
+replacement is published. Repeated typed lookups read the installed map.
+Compilation errors are reported once by the producer with the program name
+and compiler diagnostic.
 
 ## Lifecycle
 
@@ -151,8 +120,8 @@ Shader generation. Reload/manual generations retire earlier preparation; forced
 reload forces replacement compilation. Failed requests remain terminal until
 invalidation. Preparation does not construct typed maps or RHI objects on workers.
 `FPreparedShaderMapScope` forbids synchronous compilation during thumbnail capture;
-typed maps consume the prepared output in their requested stage order. Other
-rendering consumers retain their existing synchronous demand contract.
+material maps consume the prepared output in their requested stage order.
+Thumbnail passes read their global shaders directly from the published map.
 Unavailable prepared outputs defer the resource attempt as `Pending`, without
 publishing a failure or suppressing a same-generation retry. Pending observations
 are local to the current capture; each slot defers only when its own factory

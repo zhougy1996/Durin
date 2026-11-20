@@ -6,12 +6,11 @@
 
 namespace Durin
 {
-	class FRendererResourceCoordinator;
 
 	class FGizmoRenderer final
 	{
 	public:
-		explicit FGizmoRenderer(FRendererResourceCoordinator& InCoordinator);
+		FGizmoRenderer();
 		~FGizmoRenderer();
 
 		FGizmoRenderer(const FGizmoRenderer&) = delete;
@@ -31,7 +30,6 @@ namespace Durin
 	private:
 		struct FState;
 
-		FRendererResourceCoordinator& Coordinator;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

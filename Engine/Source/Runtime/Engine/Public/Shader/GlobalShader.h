@@ -5,8 +5,6 @@
 
 #include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
-#include "Shader/ShaderMapPreparation.h"
-#include "Shader/ShaderDiagnostics.h"
 #include "Shader/ShaderCookedLibrary.h"
 
 namespace Durin
@@ -14,7 +12,6 @@ namespace Durin
 	class FGlobalShaderMap;
 	// Startup joins the required jobs. Render-thread reloads leave the current map available.
 	ENGINE_API void CompileGlobalShaderMap(bool bForceRecompile = false);
-	class FGlobalShaderMapPayload;
 	class FGlobalShaderType;
 
 	// Registers one exact Global Shader set for deterministic target inventory.
@@ -127,82 +124,20 @@ namespace Durin
 		} \
 		namespace { const FGlobalShaderType* const ShaderClass##_GlobalShaderRegistration = &ShaderClass::StaticType(); }
 
-	using FGlobalShaderDiagnosticReporter =
-		std::function<void(const FRenderResourceCreateDiagnostic&)>;
-
-	// Strong reference to one atomically published, generation-compatible set.
-	class FGlobalShaderSetRef
-	{
-	public:
-		FGlobalShaderSetRef() = default;
-
-		explicit operator bool() const { return Payload != nullptr; }
-		ENGINE_API auto GetGeneration() const
-			-> const FRenderResourceGeneration&;
-		ENGINE_API auto GetIdentity() const -> std::string_view;
-		ENGINE_API auto GetPipelineLayout() const
-			-> const FPipelineLayoutDesc&;
-
-	private:
-		explicit FGlobalShaderSetRef(
-			std::shared_ptr<FGlobalShaderMapPayload> InPayload)
-			: Payload(std::move(InPayload))
-		{
-		}
-
-		std::shared_ptr<FGlobalShaderMapPayload> Payload;
-		friend class FGlobalShaderMap;
-		template<typename ShaderType> friend class TShaderMapRef;
-	};
-
 	template<typename ShaderType>
-	class TShaderMapRef
+	class TShaderMapRef : public TShaderRef<ShaderType>
 	{
 	public:
 		TShaderMapRef() = default;
 		explicit TShaderMapRef(const FGlobalShaderMap& Map);
-		explicit TShaderMapRef(const FGlobalShaderSetRef& Set)
-			: Payload(Set.Payload)
-		{
-			static_assert(std::derived_from<ShaderType, FGlobalShader>);
-			if (Payload)
-			{
-				FShader* Shader = GetShaderFromGlobalPayload(
-					Payload, &ShaderType::StaticType());
-				ShaderRef = TShaderRef<ShaderType>(
-					static_cast<ShaderType*>(Shader), GetShaderMapFromGlobalPayload(Payload));
-			}
-		}
-
-		auto GetShader() const -> ShaderType* { return ShaderRef.GetShader(); }
-		auto GetRHIShader(bool bRequired = true) const -> FRHIShader*
-		{
-			return ShaderRef.GetRHIShader(bRequired);
-		}
-		auto GetShaderRef() const -> const TShaderRef<ShaderType>&
-		{
-			return ShaderRef;
-		}
-		auto GetGeneration() const -> const FRenderResourceGeneration&
-		{
-			check(Payload);
-			return GetGlobalPayloadGeneration(Payload);
-		}
-		explicit operator bool() const { return static_cast<bool>(ShaderRef); }
+		auto GetPipelineLayout() const -> const FPipelineLayoutDesc& { return Section->GetMergedPipelineLayout(); }
 
 	private:
-		static auto GetShaderFromGlobalPayload(
-			const std::shared_ptr<FGlobalShaderMapPayload>& InPayload,
-			const FGlobalShaderType* InShaderType) -> FShader*;
-		static auto GetShaderMapFromGlobalPayload(
-			const std::shared_ptr<FGlobalShaderMapPayload>& InPayload)
-			-> FShaderMapBase*;
-		static auto GetGlobalPayloadGeneration(
-			const std::shared_ptr<FGlobalShaderMapPayload>& InPayload)
-			-> const FRenderResourceGeneration&;
-
-		std::shared_ptr<FGlobalShaderMapPayload> Payload;
-		TShaderRef<ShaderType> ShaderRef;
+		explicit TShaderMapRef(std::shared_ptr<FShaderMapBase> InSection)
+			: TShaderRef<ShaderType>(InSection ? static_cast<ShaderType*>(
+				InSection->GetShader(&ShaderType::StaticType())) : nullptr, InSection.get())
+			, Section(std::move(InSection)) {}
+		std::shared_ptr<FShaderMapBase> Section;
 	};
 
 	class FGlobalShaderMap
@@ -210,96 +145,28 @@ namespace Durin
 	public:
 		template<typename ShaderType>
 		auto GetShader() const -> TShaderMapRef<ShaderType> { return TShaderMapRef<ShaderType>(*this); }
-		ENGINE_API auto FindShaderSection(const FGlobalShaderType& Type) const -> FGlobalShaderSetRef;
-		ENGINE_API auto ProcessCompilationResults_RenderThread() -> void;
-		ENGINE_API auto ResolveShaderSet(
-			std::string_view SectionIdentity,
-			std::span<const FGlobalShaderType* const> ShaderTypes,
-			FGlobalShaderSetRef& OutSet,
-			bool bCreateRHIShaders = true,
-			FGlobalShaderDiagnosticReporter ReportDiagnostic = {})
-			-> FShaderMapQueryResult;
-		ENGINE_API auto SetGeneration_RenderThread(
-			const FRenderResourceGeneration& InGeneration,
-			bool bForceShaderRecompile) -> void;
+		auto HasShader(const FGlobalShaderType& Type) const -> bool { return PublishedShaders.contains(&Type); }
+		ENGINE_API auto ProcessCompilationResults_RenderThread() -> bool;
+		ENGINE_API auto SetGeneration_RenderThread(const FRenderResourceGeneration& InGeneration, bool bForceShaderRecompile) -> void;
 		ENGINE_API auto ReleaseDeviceResources_RenderThread() -> void;
 		ENGINE_API auto Shutdown_RenderThread() -> void;
-		ENGINE_API auto GetGeneration_RenderThread() const
-			-> const FRenderResourceGeneration&;
-		ENGINE_API auto GetSectionCount() const -> size_t;
+		auto GetGeneration_RenderThread() const -> const FRenderResourceGeneration& { return PublishedGeneration; }
 
 	private:
-		friend void CompileGlobalShaderMap(bool bForceRecompile);
+		friend ENGINE_API void CompileGlobalShaderMap(bool bForceRecompile);
+		template<typename ShaderType> friend class TShaderMapRef;
+		ENGINE_API auto FindSection(const FGlobalShaderType& Type) const -> std::shared_ptr<FShaderMapBase>;
 		struct FCompilation;
 		std::shared_ptr<FCompilation> PendingCompilation;
-		std::unordered_map<std::string, std::shared_ptr<FGlobalShaderMapPayload>> PublishedSections;
-		std::unordered_map<const FShaderType*, FGlobalShaderSetRef> PublishedShaders;
-		struct FSectionEntry;
-		std::unordered_map<std::string, std::unique_ptr<FSectionEntry>> Sections;
+		std::unordered_map<const FShaderType*, std::shared_ptr<FShaderMapBase>> PublishedShaders;
 		FRenderResourceGeneration Generation;
-		std::optional<uint64> ForceRecompileShaderGeneration;
+		FRenderResourceGeneration PublishedGeneration;
 	};
 
 	template<typename ShaderType>
 	TShaderMapRef<ShaderType>::TShaderMapRef(const FGlobalShaderMap& Map)
-		: TShaderMapRef(Map.FindShaderSection(ShaderType::StaticType())) {}
+		: TShaderMapRef(Map.FindSection(ShaderType::StaticType())) {}
 
 	ENGINE_API auto GetGlobalShaderMap() -> FGlobalShaderMap&;
 
-	// Template bridge definitions are emitted for every shader type by callers;
-	// these non-template helpers keep the payload representation private.
-	ENGINE_API auto GetShaderFromGlobalPayloadImpl(
-		const std::shared_ptr<FGlobalShaderMapPayload>& Payload,
-		const FGlobalShaderType* ShaderType) -> FShader*;
-	ENGINE_API auto GetShaderMapFromGlobalPayloadImpl(
-		const std::shared_ptr<FGlobalShaderMapPayload>& Payload)
-		-> FShaderMapBase*;
-	ENGINE_API auto GetGlobalPayloadGenerationImpl(
-		const std::shared_ptr<FGlobalShaderMapPayload>& Payload)
-		-> const FRenderResourceGeneration&;
-
-	template<typename ShaderType>
-	auto TShaderMapRef<ShaderType>::GetShaderFromGlobalPayload(
-		const std::shared_ptr<FGlobalShaderMapPayload>& InPayload,
-		const FGlobalShaderType* InShaderType) -> FShader*
-	{
-		return GetShaderFromGlobalPayloadImpl(InPayload, InShaderType);
-	}
-
-	template<typename ShaderType>
-	auto TShaderMapRef<ShaderType>::GetShaderMapFromGlobalPayload(
-		const std::shared_ptr<FGlobalShaderMapPayload>& InPayload)
-		-> FShaderMapBase*
-	{
-		return GetShaderMapFromGlobalPayloadImpl(InPayload);
-	}
-
-	template<typename ShaderType>
-	auto TShaderMapRef<ShaderType>::GetGlobalPayloadGeneration(
-		const std::shared_ptr<FGlobalShaderMapPayload>& InPayload)
-		-> const FRenderResourceGeneration&
-	{
-		return GetGlobalPayloadGenerationImpl(InPayload);
-	}
-
-	template<typename ShaderType>
-	auto SetShaderParameters(
-		FRHICommandListBase& RHICmdList,
-		const TShaderMapRef<ShaderType>& Shader,
-		const typename ShaderType::FParameters& Parameters) -> void
-	{
-		SetShaderParameters(RHICmdList, Shader.GetShaderRef(), Parameters);
-	}
-
-	template<typename ShaderType>
-	auto SetShaderParameters(
-		FRHICommandListBase& RHICmdList,
-		const TShaderMapRef<ShaderType>& Shader,
-		const FRDGShaderParameterScope& GraphParameters,
-		const typename ShaderType::FParameters& OrdinaryParameters) -> void
-	{
-		SetShaderParameters(
-			RHICmdList, Shader.GetShaderRef(), GraphParameters,
-			OrdinaryParameters);
-	}
 } // namespace Durin
