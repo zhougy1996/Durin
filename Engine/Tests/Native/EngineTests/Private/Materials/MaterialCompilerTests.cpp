@@ -944,7 +944,7 @@ TEST(FMaterialTranslationTests, PreservesExecutionDiagnostics)
 	auto Service = Durin::DerivedData::Private::CreateBuildForBackend({});
 	ASSERT_TRUE(Service->Register(std::make_shared<FFailingTranslation>()));
 	SetTranslationServiceForTests(Service);
-	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); RegisterTranslation(); } } Restore;
+	struct FRestore { ~FRestore() { SetTranslationServiceForTests({}); } } Restore;
 	auto Input = std::make_shared<const MIR::FCompilerInput>(MakeSyntheticMaterialCompilerInput());
 	FMaterialTranslatedProgram Product; FRequestOwner Owner;
 	SubmitTranslation(Input, true, Owner, [&](auto Value) { Product = std::move(Value); });

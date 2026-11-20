@@ -1,5 +1,6 @@
 #include "BuildServiceBackendPrivate.h"
 #include "BuildCacheRecordPrivate.h"
+#include "DerivedDataBuildFunctionFactory.h"
 #include "DerivedDataRequestOwner.h"
 #include "CacheBackend.h"
 #include "DerivedDataBuildSession.h"
@@ -18,13 +19,19 @@ namespace
 	struct FFunction final : IBuildFunction
 	{
 		mutable std::atomic<uint32> Builds = 0;
+		mutable std::atomic<uint32> Configures = 0;
 		std::function<void()> OnBuild;
 		bool FailExecution = false, Negative = false;
 		uint32 DataBytes = 32;
 		auto GetName() const -> std::string_view override { return "Session.Fixture"; }
 		auto GetVersion() const -> uint32 override { return 1; }
 		auto Configure(FBuildConfigContext& Context) const -> void override
-		{ Context.SetConstantsSchema(1); Context.SetOutput("Fixture.Output", 1); Context.SetCacheBucket(FCacheBucket::FromString("Sessions")); }
+		{
+			++Configures;
+			Context.SetConstantsSchema(1);
+			Context.SetOutput("Fixture.Output", 1);
+			Context.SetCacheBucket(FCacheBucket::FromString("Sessions"));
+		}
 		auto Build(FBuildContext& Context) const -> void override
 		{
 			++Builds; if (OnBuild) OnBuild();
@@ -544,6 +551,71 @@ TEST(FBuildSessionTests, RegistrationOnlyAffectsSessionsCreatedAfterIt)
 		++Calls; EXPECT_EQ(Result.Status, EStatus::Ok); });
 	EXPECT_TRUE(AcceptedOwner.Poll());
 	EXPECT_EQ(Calls, 2u);
+}
+
+TEST(FBuildSessionTests, DiscoversModularFactoriesAndRetainsExistingSessionSnapshots)
+{
+	constexpr auto InitialFunction = [] { return std::make_shared<FFunction>(); };
+	constexpr auto LateFunction = [] { return std::make_shared<FSecondFunction>(); };
+	std::optional<TBuildFunctionFactory<InitialFunction>> InitialFactory(std::in_place);
+	const auto Initial = std::static_pointer_cast<const FFunction>(InitialFactory->GetFunction());
+	auto Service = CreateBuildWithRegisteredFunctions();
+	auto MakeSession = [&] { return Service->CreateSession("ModularFixture", {}, CreateInlineBuildScheduler()); };
+	const auto BuildStatus = [](FBuildSession& Session, std::string Name)
+	{
+		std::optional<EStatus> Status;
+		FRequestOwner Owner;
+		Session.Build(Definition(std::move(Name)), {}, Options(), Owner, [&](auto Result) { Status = Result.Status; });
+		Owner.Wait();
+		return Status;
+	};
+
+	auto Before = MakeSession();
+	EXPECT_EQ(EStatus::Ok, BuildStatus(Before, "Session.Fixture"));
+	EXPECT_EQ(1u, Initial->Configures.load());
+
+	auto& Features = IModularFeatures::Get();
+	const FName FactoryType(IBuildFunctionFactory::FeatureName);
+	IModularFeature Unregistered;
+	Features.RegisterModularFeature(FactoryType, &*InitialFactory);
+	Features.UnregisterModularFeature(FactoryType, &Unregistered);
+	EXPECT_EQ(1u, Initial->Configures.load());
+
+	std::optional<TBuildFunctionFactory<LateFunction>> LateFactory(std::in_place);
+	auto During = MakeSession();
+	EXPECT_EQ(EStatus::Error, BuildStatus(Before, "Session.Second"));
+	EXPECT_EQ(EStatus::Ok, BuildStatus(During, "Session.Second"));
+
+	LateFactory.reset();
+	auto After = MakeSession();
+	EXPECT_EQ(EStatus::Error, BuildStatus(After, "Session.Second"));
+	EXPECT_EQ(EStatus::Ok, BuildStatus(During, "Session.Second"));
+	EXPECT_EQ(EStatus::Ok, BuildStatus(After, "Session.Fixture"));
+	EXPECT_EQ(1u, Initial->Configures.load());
+
+	std::optional<TBuildFunctionFactory<InitialFunction>> ConflictingFactory(std::in_place);
+	const auto Conflicting = std::static_pointer_cast<const FFunction>(ConflictingFactory->GetFunction());
+	auto BeforePromotion = MakeSession();
+	EXPECT_EQ(EStatus::Ok, BuildStatus(BeforePromotion, "Session.Fixture"));
+	EXPECT_EQ(0u, Conflicting->Builds.load());
+	EXPECT_EQ(1u, Conflicting->Configures.load());
+
+	InitialFactory.reset();
+	auto AfterPromotion = MakeSession();
+	EXPECT_EQ(EStatus::Ok, BuildStatus(AfterPromotion, "Session.Fixture"));
+	EXPECT_EQ(1u, Conflicting->Builds.load());
+	EXPECT_EQ(EStatus::Ok, BuildStatus(BeforePromotion, "Session.Fixture"));
+	EXPECT_EQ(1u, Conflicting->Builds.load());
+	EXPECT_EQ(1u, Conflicting->Configures.load());
+	EXPECT_EQ(1u, Initial->Configures.load());
+
+	ConflictingFactory.reset();
+	auto AfterWithdrawal = MakeSession();
+	EXPECT_EQ(EStatus::Error, BuildStatus(AfterWithdrawal, "Session.Fixture"));
+
+	auto Isolated = CreateBuild();
+	auto IsolatedSession = Isolated->CreateSession("Isolated", {}, CreateInlineBuildScheduler());
+	EXPECT_EQ(EStatus::Error, BuildStatus(IsolatedSession, "Session.Fixture"));
 }
 
 TEST(FBuildSessionTests, PersistentSessionCompletesMultipleRequestsAndReentersWithoutLocks)

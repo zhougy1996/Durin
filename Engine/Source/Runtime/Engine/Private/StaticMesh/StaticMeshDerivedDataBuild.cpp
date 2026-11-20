@@ -25,9 +25,7 @@ namespace Durin
 			DerivedData::FBuildServiceOptions Options;
 			Options.BuildLimits.Input.MaximumTotalBytes = MaximumStaticMeshSourceBytes + 64ull * 1024 * 1024;
 			Options.BuildLimits.Output.MaximumTotalBytes = MaximumStaticMeshPayloadBytes;
-			auto Service = DerivedData::CreateBuild(std::move(Options));
-			require(Service->Register(StaticMeshPrivate::MakeRenderBuildFunction()).has_value());
-			return Service;
+			return DerivedData::CreateBuildWithRegisteredFunctions(std::move(Options));
 		});
 		std::mutex CompletionHookMutex;
 		std::function<void()> CompletionHookForTests;

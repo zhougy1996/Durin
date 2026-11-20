@@ -54,5 +54,7 @@ namespace Durin::DerivedData
 	};
 
 	DERIVEDDATACACHE_API auto CreateBuild(FBuildServiceOptions Options = {}) -> std::shared_ptr<IBuild>;
+	// Uses the process-wide modular build functions with service-specific cache and limits.
+	DERIVEDDATACACHE_API auto CreateBuildWithRegisteredFunctions(FBuildServiceOptions Options = {}) -> std::shared_ptr<IBuild>;
 	DERIVEDDATACACHE_API auto GetBuild() -> IBuild&;
 }

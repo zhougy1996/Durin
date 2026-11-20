@@ -174,19 +174,21 @@ namespace Durin::DerivedData
 		class FBuild final : public IBuild
 		{
 		public:
-			explicit FBuild(FBuildServiceOptions InOptions, std::shared_ptr<ICacheBackend> InBackend = {})
-				: Options(std::move(InOptions)), Backend(std::move(InBackend)) {}
+			explicit FBuild(FBuildServiceOptions InOptions, std::shared_ptr<ICacheBackend> InBackend = {},
+				bool InUseRegisteredFunctions = false)
+				: Options(std::move(InOptions)), Backend(std::move(InBackend)), UseRegisteredFunctions(InUseRegisteredFunctions) {}
 			auto Register(std::shared_ptr<const IBuildFunction> Function)
 				-> std::expected<void, std::string> override
 			{
-				std::lock_guard Lock(Mutex);
+				if (UseRegisteredFunctions)
+					return std::unexpected("Publish a build function factory for this service.");
 				return Registry.Register(std::move(Function));
 			}
 			auto CreateSession(std::string Name, std::shared_ptr<const IBuildInputResolver> Resolver,
 				std::shared_ptr<IBuildScheduler> Scheduler) -> FBuildSession override
 			{
+				auto Snapshot = UseRegisteredFunctions ? GetBuildFunctionRegistrySnapshot() : Registry.Freeze();
 				std::lock_guard Lock(Mutex);
-				auto Snapshot = Registry.Freeze();
 				auto SessionCache = Options.Cache;
 				if (!Scheduler) Scheduler = CreateTaskBuildScheduler();
 				if (!SessionCache) {
@@ -210,18 +212,25 @@ namespace Durin::DerivedData
 			FBuildServiceOptions Options;
 			std::shared_ptr<ICache> Cache;
 			std::shared_ptr<ICacheBackend> Backend;
+			const bool UseRegisteredFunctions;
 		};
 	}
 
 	auto CreateBuild(FBuildServiceOptions Options) -> std::shared_ptr<IBuild>
 	{ return std::make_shared<Private::FBuild>(std::move(Options)); }
+
+	auto CreateBuildWithRegisteredFunctions(FBuildServiceOptions Options) -> std::shared_ptr<IBuild>
+	{
+		(void)Private::GetBuildFunctionRegistrySnapshot();
+		return std::make_shared<Private::FBuild>(std::move(Options), nullptr, true);
+	}
 	auto Private::CreateBuildForBackend(FBuildBackendOptions Options) -> std::shared_ptr<IBuild>
 	{
 		return std::make_shared<Private::FBuild>(FBuildServiceOptions{.BuildLimits = Options.BuildLimits.value_or(FBuildRequestLimits{}), .CacheDispatchLimits = Options.CacheDispatchLimits, .CacheLimits = Options.CacheLimits}, std::move(Options.Cache));
 	}
 	auto GetBuild() -> IBuild&
 	{
-		static const std::shared_ptr<IBuild> Build = CreateBuild();
+		static const std::shared_ptr<IBuild> Build = CreateBuildWithRegisteredFunctions();
 		return *Build;
 	}
 

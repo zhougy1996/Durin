@@ -35,7 +35,6 @@ namespace Durin::TexturePrivate
 	ENGINE_API auto MakeVolumeTextureSessionDefinition(const FVolumeTextureBuildRequest& Request)
 		-> std::expected<DerivedData::FBuildDefinition, DerivedData::FBuildDefinitionError>;
 
-	auto RegisterBuildFunctions() -> void;
 	auto ShutdownBuildSessions() -> void;
 	auto BuildAsync(DerivedData::FBuildDefinition Definition,
 		std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver,

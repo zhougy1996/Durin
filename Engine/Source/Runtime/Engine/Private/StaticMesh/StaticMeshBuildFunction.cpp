@@ -156,14 +156,6 @@ namespace Durin::StaticMeshPrivate
 	}
 	auto MakeRenderBuildFunction() -> std::shared_ptr<const IBuildFunction>
 	{ return std::make_shared<FRenderFunction>(); }
-	auto RegisterBuildFunction() -> void
-	{
-		static std::once_flag Once;
-		std::call_once(Once, [] {
-			if (!GetBuild().Register(MakeRenderBuildFunction()))
-				throw std::runtime_error("Failed to register the static-mesh derived-data build function.");
-		});
-	}
 	auto MakeRenderInputResolver(const FStaticMeshBuildRequest& Request) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FRenderResolver>(Request); }
 }

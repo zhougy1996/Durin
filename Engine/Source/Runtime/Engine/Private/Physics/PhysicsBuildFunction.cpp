@@ -1,5 +1,6 @@
 #include "PhysicsBuildFunction.h"
 #if DURIN_WITH_EDITOR
+#include "DerivedDataBuildFunctionFactory.h"
 #include "PhysicsCookDerivedDataKey.h"
 #include "PhysicsCookInputPrivate.h"
 #include "PhysicsSharedOutput.h"
@@ -110,6 +111,10 @@ namespace Durin::PhysicsPrivate
 		};
 	}
 	auto MakeCollisionBuildFunction() -> std::shared_ptr<const IBuildFunction> { return std::make_shared<FFunction>(); }
+	namespace
+	{
+		const TBuildFunctionFactory<MakeCollisionBuildFunction> CollisionBuildFactory;
+	}
 	auto MakeCollisionInputResolver(FPhysicsCookInput Input) -> std::shared_ptr<const IBuildInputResolver>
 	{ return std::make_shared<FResolver>(std::move(Input)); }
 }

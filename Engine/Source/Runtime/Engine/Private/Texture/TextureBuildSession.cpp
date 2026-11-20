@@ -14,11 +14,7 @@ namespace Durin::TexturePrivate
 			DerivedData::FBuildServiceOptions Options;
 			Options.BuildLimits.Input.MaximumTotalBytes = MaximumTextureSourceBytes + 16;
 			Options.BuildLimits.Output.MaximumTotalBytes = MaximumTexturePayloadBytes;
-			auto Service = DerivedData::CreateBuild(std::move(Options));
-			require(Service->Register(MakeTexture2DBuildFunction()).has_value());
-			require(Service->Register(MakeTextureCubeBuildFunction()).has_value());
-			require(Service->Register(MakeVolumeTextureBuildFunction()).has_value());
-			return Service;
+			return DerivedData::CreateBuildWithRegisteredFunctions(std::move(Options));
 		});
 	}
 
@@ -46,18 +42,6 @@ namespace Durin::TexturePrivate
 
 	}
 
-	auto RegisterBuildFunctions() -> void
-	{
-		static std::once_flag Once;
-		std::call_once(Once, [] {
-			auto& Build = DerivedData::GetBuild();
-			if (!Build.Register(MakeTexture2DBuildFunction())
-				|| !Build.Register(MakeVolumeTextureBuildFunction())
-				|| !Build.Register(MakeTextureCubeBuildFunction()))
-				throw std::runtime_error("Failed to register texture derived-data build functions.");
-		});
-
-	}
 	auto ShutdownBuildSessions() -> void
 	{ Sessions.Reset(); }
 

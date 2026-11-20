@@ -1,4 +1,4 @@
-#include "DerivedDataBuildDefinition.h"
+#include "DerivedDataBuildExecutionPrivate.h"
 #include "Serialization/BinaryEncoding.h"
 
 namespace Durin::DerivedData
@@ -35,15 +35,6 @@ namespace Durin::DerivedData
 			WriteInteger(Bytes, static_cast<uint64>(Hash.HashLow));
 			WriteInteger(Bytes, static_cast<uint64>(Hash.HashHigh));
 		}
-		auto ValidateFunction(const FBuildFunctionDescriptor& Function) -> std::expected<void, FBuildDefinitionError>
-		{
-			if (!IsName(Function.Name) || !IsName(Function.OutputType)
-				|| !Function.Version || !Function.ConstantsSchema || !Function.OutputSchema
-				|| !Function.Bucket.IsValid())
-				return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidFunction, Function.Name});
-			return {};
-		}
-
 		auto NormalizeConstants(std::vector<FBuildConstant>& Constants) -> std::expected<void, FBuildDefinitionError>
 		{
 			if (Constants.size() > MaximumFields)
@@ -132,6 +123,15 @@ namespace Durin::DerivedData
 
 	}
 
+	auto Private::ValidateBuildFunction(const FBuildFunctionDescriptor& Function) -> std::expected<void, FBuildDefinitionError>
+	{
+		if (!IsName(Function.Name) || !IsName(Function.OutputType)
+			|| !Function.Version || !Function.ConstantsSchema || !Function.OutputSchema
+			|| !Function.Bucket.IsValid())
+			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidFunction, Function.Name});
+		return {};
+	}
+
 	auto FBuildDefinition::TryCreate(std::string FunctionName,
 		std::vector<FBuildConstant> Constants, std::vector<FBuildSourceReference> Sources)
 		-> std::expected<FBuildDefinition, FBuildDefinitionError>
@@ -180,7 +180,7 @@ namespace Durin::DerivedData
 	{
 		if (Function.Name != Definition.GetFunctionName())
 			return std::unexpected(FBuildDefinitionError{EBuildDefinitionError::InvalidFunction, Function.Name});
-		if (auto Valid = ValidateFunction(Function); !Valid) return std::unexpected(Valid.error());
+		if (auto Valid = Private::ValidateBuildFunction(Function); !Valid) return std::unexpected(Valid.error());
 		if (auto Valid = NormalizeInputs(Inputs); !Valid) return std::unexpected(Valid.error());
 		const auto Sources = Definition.GetSources();
 		if (Inputs.size() != Sources.size())

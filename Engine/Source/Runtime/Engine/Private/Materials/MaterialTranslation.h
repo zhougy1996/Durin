@@ -10,7 +10,6 @@ namespace Durin::MaterialBuildPrivate
 	ENGINE_API auto GetTranslationStats() -> FTranslationStats;
 	ENGINE_API auto SetTranslationServiceForTests(std::shared_ptr<DerivedData::IBuild> Service) -> void;
 	ENGINE_API auto MakeTranslationFunction() -> std::shared_ptr<const DerivedData::IBuildFunction>;
-	ENGINE_API auto RegisterTranslation() -> void;
 	ENGINE_API auto ReleaseTranslationSession() -> void;
 	ENGINE_API auto TranslateMaterialInput(const MIR::FCompilerInput& Input, bool Force) -> FMaterialTranslatedProgram;
 	ENGINE_API auto SubmitTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, DerivedData::IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool QueryCache = true, std::shared_ptr<const FMaterialTranslationInput> EncodedInput = {})

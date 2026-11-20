@@ -21,22 +21,8 @@ namespace Durin
 			DerivedData::FBuildServiceOptions Options;
 			Options.BuildLimits.Input.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
 			Options.BuildLimits.Output.MaximumTotalBytes = MaximumPhysicsCollisionPayloadBytes;
-			auto Service = DerivedData::CreateBuild(std::move(Options));
-			require(Service->Register(PhysicsPrivate::MakeCollisionBuildFunction()).has_value());
-			return Service;
+			return DerivedData::CreateBuildWithRegisteredFunctions(std::move(Options));
 		});
-
-		auto GetPhysicsSession(std::shared_ptr<const DerivedData::IBuildInputResolver> Resolver)
-			-> DerivedData::FBuildSession
-		{
-			static std::once_flag RegisterOnce;
-			std::call_once(RegisterOnce, [] {
-				if (!DerivedData::GetBuild().Register(PhysicsPrivate::MakeCollisionBuildFunction()))
-					throw std::runtime_error("Failed to register the physics derived-data build function.");
-			});
-			return PhysicsSessions.Get(std::move(Resolver));
-		}
-
 	}
 	namespace PhysicsPrivate
 	{
@@ -55,7 +41,7 @@ namespace Durin
 		{
 			auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
 			if (!Definition) { Completion(DerivedData::FBuildCompleteParams::Error({}, DerivedData::EBuildExecutionFlags::None, "Physics build definition is invalid.")); return; }
-			auto Session = GetPhysicsSession(PhysicsPrivate::MakeCollisionInputResolver(Input));
+			auto Session = PhysicsSessions.Get(PhysicsPrivate::MakeCollisionInputResolver(Input));
 
 		DerivedData::FBuildPolicy Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
 			Session.Build(std::move(*Definition), {}, Policy, Owner, std::move(Completion));
@@ -139,7 +125,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		auto Definition = MakePhysicsCookSessionDefinition(Input.GetMode(), FCollisionCookedData::GetBuildVersion(), 0, Input.GetTargetPlatform());
 		if (!Definition) return std::unexpected(MakeAssetBuildDiagnostic("Physics build definition is invalid.", "Cook"));
-		auto Session = GetPhysicsSession(PhysicsPrivate::MakeCollisionInputResolver(Input));
+		auto Session = PhysicsSessions.Get(PhysicsPrivate::MakeCollisionInputResolver(Input));
 
 		DerivedData::FBuildPolicy Policy = Input.ShouldPersist() ? DerivedData::EBuildPolicy::Default : DerivedData::EBuildPolicy::Build | DerivedData::EBuildPolicy::CacheQuery;
 		std::optional<DerivedData::FBuildCompleteParams> Completion;

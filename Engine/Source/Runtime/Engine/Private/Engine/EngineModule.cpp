@@ -5,6 +5,7 @@
 #include "Collision/CollisionDebugSubsystem.h"
 #include "Materials/MaterialParameterCollection.h"
 #if DURIN_WITH_EDITOR
+#include "DerivedDataBuildSession.h"
 #include "Physics/PhysicsBuildFunction.h"
 #include "Materials/MaterialTranslation.h"
 #include "Materials/MaterialShaderMap.h"
@@ -21,7 +22,7 @@ namespace Durin
 		{
 			RHIReleaseResourcesHandle = GetRHIReleaseResourcesDelegate().AddLambda([] { GetGlobalShaderMap().Shutdown_RenderThread(); });
 #if DURIN_WITH_EDITOR
-			MaterialBuildPrivate::RegisterTranslation();
+			(void)DerivedData::GetBuild();
 #endif
 			CollisionDebug = std::make_unique<FWorldSubsystemRegistration>(FSubsystemDescriptor{
 				.Type = DCollisionDebugSubsystem::StaticClass(), .Provider = FModuleStartup::GetModuleName()});

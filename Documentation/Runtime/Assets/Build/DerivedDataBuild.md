@@ -27,22 +27,23 @@ single-flight, or publication policy. Sessions accept an `IBuildScheduler`;
 the inline adapter executes on the caller, while the task adapter borrows
 the running Core task system. Neither adapter acquires asset memory reservations.
 
-Engine owns the Texture2D, TextureCube, VolumeTexture, StaticMesh render, and
-physics collision function implementations. TextureCompressor and MeshBuilder
-register their Engine function adapters during module startup; physics registers
-on first use. ShaderBuild owns its shader function.
+Engine implements the Texture2D, TextureCube, VolumeTexture, StaticMesh render,
+physics collision, and Material translation build functions. TextureCompressor
+and MeshBuilder publish their Engine adapter factories for the duration of module
+startup through shutdown. Physics and Material publish static factories in the
+process-resident Engine code so standalone native clients can build without
+starting an editor host. ShaderBuild owns its shader function.
 Each family owns typed assembly, business-error translation, scheduling,
 reservations, object mutation/freshness checks, and publication. TextureCompressor and MeshBuilder
 remain pure recipe modules; ShaderBuild retains compiler scheduling, LRU, and
 single-flight.
 
-Texture, StaticMesh, and physics each own a small `FResourceBuildSessions` holder
-that lazily acquires sessions from the DDC production build; it adds no build
-service or worker pool. Asset compilation cancels and joins request owners before
-producer modules unload. Holders then release their session resources outside
-acquisition locks; they have no close/reopen state or drain protocol. ShaderBuild retains
-its isolated service/session so compiler environment and registration lifetime
-remain tied to its module, independently of Engine resource holders.
+Texture, StaticMesh, physics, and Material each own a small
+`FResourceBuildSessions` holder. Their services share the production registry
+snapshot and retain family-specific configuration and limits. Asset compilation
+cancels and joins request owners before producer modules unload. Holders release
+their session resources outside acquisition locks. ShaderBuild uses an isolated
+service with explicit registration for its compiler environment.
 
 ## Definitions, actions, and identity
 
@@ -271,11 +272,22 @@ Session creation returns a session handle directly and has no admission-result w
 
 ## Persistent sessions and lifecycle
 
-`IBuild` is implemented by the private `FBuild`, which owns its registry, cache
-and configuration directly. Each session captures an immutable registry snapshot
-when it is created; later registration affects later sessions without mutating
-existing sessions. Registered functions and required services remain owned
-until the last admitted request releases them.
+`GetBuild()` and `CreateBuildWithRegisteredFunctions()` use the process-wide
+factory registry. It enumerates `IBuildFunctionFactory` through
+`IModularFeatures` and subscribes to registration and unregistration using
+`AddRaw`. Each notification updates the affected factory entry while the
+feature list is locked. The registry configures a factory once per registration
+and reuses that entry when publishing a snapshot. The first valid registration
+for each function name wins. Removing it lets the next valid factory with the
+same name take over for new sessions. Registration and shutdown of production
+factories run on the module-control thread. Each session shares the immutable
+snapshot available when it is created. Old sessions and accepted requests own
+their functions. Any owner unloading executable code must retire those users
+before releasing the library.
+
+`CreateBuild()` creates an isolated service with explicit function registration.
+Both service forms own their cache and configuration. A session captures its
+registry snapshot when created.
 `FBuildSession::Build` uses the UE parameter order: definition or action, optional
 inputs, policy, request owner, and a move-only completion callback. Resolver and
 resource limits are fixed by session/service configuration; there is no per-request

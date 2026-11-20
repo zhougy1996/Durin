@@ -27,8 +27,13 @@ namespace Durin::DerivedData::Private
 		auto Find(std::string_view Name) const -> std::shared_ptr<const FRegisteredBuildFunction>;
 	private:
 		friend class FBuildRegistry;
-		std::vector<std::shared_ptr<const FRegisteredBuildFunction>> Entries;
+		friend class FBuildFunctionRegistry;
+		using FEntries = std::vector<std::shared_ptr<const FRegisteredBuildFunction>>;
+		std::shared_ptr<const FEntries> Entries;
 	};
+
+	auto GetBuildFunctionRegistrySnapshot() -> FBuildRegistrySnapshot;
+	auto ValidateBuildFunction(const FBuildFunctionDescriptor& Function) -> std::expected<void, FBuildDefinitionError>;
 	class FBuildRegistry
 	{
 	public:

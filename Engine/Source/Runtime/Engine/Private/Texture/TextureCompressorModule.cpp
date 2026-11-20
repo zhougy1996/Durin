@@ -2,21 +2,37 @@
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Texture/ITextureCompressorModule.h"
 #if DURIN_WITH_EDITOR
+#include "DerivedDataBuildFunctionFactory.h"
 #include "TextureDerivedDataBuild.h"
 #endif
 
 namespace Durin
 {
+#if DURIN_WITH_EDITOR
+	namespace
+	{
+		struct FTextureBuildFactories
+		{
+			DerivedData::TBuildFunctionFactory<TexturePrivate::MakeTexture2DBuildFunction> Texture2D;
+			DerivedData::TBuildFunctionFactory<TexturePrivate::MakeTextureCubeBuildFunction> TextureCube;
+			DerivedData::TBuildFunctionFactory<TexturePrivate::MakeVolumeTextureBuildFunction> VolumeTexture;
+		};
+
+		std::optional<FTextureBuildFactories> TextureBuildFactories;
+	}
+#endif
+
 	auto ITextureCompressorModule::StartupModule() -> void
 	{
 #if DURIN_WITH_EDITOR
-		TexturePrivate::RegisterBuildFunctions();
+		TextureBuildFactories.emplace();
 #endif
 	}
 	auto ITextureCompressorModule::ShutdownModule() -> void
 	{
 #if DURIN_WITH_EDITOR
 		TexturePrivate::ShutdownBuildSessions();
+		TextureBuildFactories.reset();
 #endif
 	}
 

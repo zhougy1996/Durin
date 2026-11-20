@@ -4,6 +4,7 @@
 #include "MaterialTranslationCodec.h"
 #include "Asset/ResourceBuildSessions.h"
 #include "CoreGlobals.h"
+#include "DerivedDataBuildFunctionFactory.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::MaterialBuildPrivate
@@ -15,9 +16,7 @@ namespace Durin::MaterialBuildPrivate
 			DerivedData::FBuildServiceOptions Options;
 			Options.BuildLimits.Input.MaximumTotalBytes = TranslationInputBytes;
 			Options.BuildLimits.Output.MaximumTotalBytes = TranslationOutputBytes;
-			auto Service = DerivedData::CreateBuild(std::move(Options));
-			require(Service->Register(MakeTranslationFunction()).has_value());
-			return Service;
+			return DerivedData::CreateBuildWithRegisteredFunctions(std::move(Options));
 		});
 		std::atomic_uint64_t Producers = 0, Resolutions = 0, Hits = 0, ProducerMicroseconds = 0, GameThreadProducers = 0;
 		auto InputReference(FXxHash128 Identity) -> FBuildInputReference { return {"Input", Identity, "Material.TranslationInput", 1, "Material.MIR", 1}; }
@@ -141,11 +140,11 @@ namespace Durin::MaterialBuildPrivate
 		}
 	}
 	auto MakeTranslationFunction() -> std::shared_ptr<const IBuildFunction> { return std::make_shared<FFunction>(); }
-	auto GetTranslationStats() -> FTranslationStats { return {Producers.load(), Resolutions.load(), Hits.load(), ProducerMicroseconds.load(), GameThreadProducers.load()}; }
-	auto RegisterTranslation() -> void
+	namespace
 	{
-		static std::once_flag Once; std::call_once(Once, [] { require(GetBuild().Register(MakeTranslationFunction()).has_value()); });
+		const TBuildFunctionFactory<MakeTranslationFunction> TranslationBuildFactory;
 	}
+	auto GetTranslationStats() -> FTranslationStats { return {Producers.load(), Resolutions.load(), Hits.load(), ProducerMicroseconds.load(), GameThreadProducers.load()}; }
 	auto SetTranslationServiceForTests(std::shared_ptr<IBuild> Service) -> void { Sessions.SetService(std::move(Service)); }
 	auto ReleaseTranslationSession() -> void { Sessions.Reset(); }
 	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput)
@@ -164,7 +163,7 @@ namespace Durin::MaterialBuildPrivate
 	static auto SubmitValidatedTranslation(std::shared_ptr<const MIR::FCompilerInput> Input, bool Force, IRequestOwner& Owner, std::function<void(FMaterialTranslatedProgram)> Completion, bool Query, std::shared_ptr<const FMaterialTranslationInput> EncodedInput)
 		-> void
 	{
-		RegisterTranslation(); auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) { Completion(Failure("Material snapshot exceeds the input limit.")); return; }
+		auto Request = MakeRequest(*Input, std::move(EncodedInput)); if (!Request) { Completion(Failure("Material snapshot exceeds the input limit.")); return; }
 		auto Session = Sessions.Get(Request->Resolver);
 		Session.Build(Request->Definition, {}, Force || !Query ? EBuildPolicy::Build | EBuildPolicy::CacheStore : EBuildPolicy::Default, Owner, [Input, Force, &Owner, Completion = std::move(Completion), Query, Encoded = std::make_shared<const FMaterialTranslationInput>(FMaterialTranslationInput{Request->Resolver->Bytes, Request->Resolver->Identity}), Identity = Request->Resolver->Identity](FBuildCompleteParams Result) mutable {
 				if (Result.Status == EStatus::Ok)
