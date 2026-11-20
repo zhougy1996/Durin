@@ -7397,8 +7397,20 @@ TEST(FPackageAssetTests, CodecMatchesLiveWriteInspectReferenceAndLoadSemantics)
 	EXPECT_TRUE(Codec.bCanMutate);
 	FAssetPackageEncodedClosure Relocated;
 	ASSERT_TRUE(Codec.Relocate(Context, RelocatedPath, Relocated));
-	ASSERT_TRUE(Codec.Validate({Relocated.PackageBytes, Relocated.BulkBytes,
-		RelocatedPath, Relocated.PackageBytes.size()}));
+	const FAssetPackageReadContext RelocatedContext{Relocated.PackageBytes, Relocated.BulkBytes,
+		RelocatedPath, Relocated.PackageBytes.size()};
+	ASSERT_TRUE(Codec.Validate(RelocatedContext));
+	FAssetPackageHeader RelocatedHeader;
+	ASSERT_TRUE(Codec.ReadHeader(RelocatedContext, RelocatedHeader));
+	EXPECT_EQ(RelocatedHeader.PackagePath, RelocatedPath);
+	ASSERT_EQ(RelocatedHeader.TopLevelAssets.size(), 1);
+	EXPECT_EQ(RelocatedHeader.TopLevelAssets.front().AssetPath.GetPackagePath(), RelocatedPath);
+	EXPECT_EQ(RelocatedHeader.TopLevelAssets.front().AssetPath.GetAssetName(), SourcePath.GetPackageName());
+	const auto SourceBytesAfterRelocation = FFileHelper::LoadFileToArray(SourceData->PhysicalPath);
+	ASSERT_TRUE(SourceBytesAfterRelocation) << SourceBytesAfterRelocation.error().GetMessage();
+	EXPECT_EQ(*SourceBytesAfterRelocation, V8);
+	EXPECT_EQ(Source->GetPackage()->GetPackagePathIdentity(), SourcePath);
+	EXPECT_EQ(FindPackageExact(RelocatedPath), nullptr);
 	const FAssetPackageReferenceMapping Mapping{TargetPath, ReplacementPath};
 	FAssetPackageEncodedClosure Rewritten;
 	ASSERT_TRUE(Codec.RewriteReferences(
@@ -11340,48 +11352,6 @@ TEST(FPackageAssetTests, RepeatedRenameKeepsSavedAliasesResolvable)
 	EXPECT_EQ(Asset->GetName(), Third.GetPackageName());
 #else
 	GTEST_SKIP() << "Object rename requires Editor AssetTools.";
-#endif
-}
-
-TEST(FPackageAssetTests, PackageByteRelocationRewritesEmbeddedIdentity)
-{
-#if DURIN_WITH_EDITOR
-	InitializeAssetTests();
-	Durin::FPackagePath OldPath, NewPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/MoveSource", OldPath));
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Sub/MoveSource", NewPath));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OldPath, Asset));
-	Asset->Label = "movable";
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	const auto OldFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "MoveSource.dasset";
-	Durin::FByteBuffer Before;
-	auto BeforeRead = Durin::FFileHelper::LoadFileToArray(OldFile);
-	ASSERT_TRUE(BeforeRead) << BeforeRead.error().GetMessage();
-	Before = std::move(*BeforeRead);
-	uint32 FormatVersion = 0;
-	ASSERT_TRUE(Durin::ReadLittleEndianAt(Before, 24, FormatVersion));
-	EXPECT_EQ(FormatVersion, Durin::OrdinaryAssetPackageWriterVersion);
-	const std::string_view OldPathView = OldPath.GetView();
-	const Durin::FByteView OldPathBytes =
-		std::as_bytes(std::span{OldPathView.data(), OldPathView.size()});
-	EXPECT_NE(std::search(Before.begin(), Before.end(),
-		OldPathBytes.begin(), OldPathBytes.end()), Before.end());
-
-	Durin::FByteBuffer After;
-	ASSERT_TRUE(Durin::BuildRelocatedAssetPackageBytes(Before, OldPath, {}, NewPath, After));
-	EXPECT_NE(Before, After);
-	EXPECT_TRUE(Durin::ValidateAssetPackageBytes(After, NewPath));
-	const std::string_view NewPathView = NewPath.GetView();
-	const Durin::FByteView NewPathBytes =
-		std::as_bytes(std::span{NewPathView.data(), NewPathView.size()});
-	EXPECT_NE(std::search(After.begin(), After.end(),
-		NewPathBytes.begin(), NewPathBytes.end()), After.end());
-	EXPECT_TRUE(std::filesystem::exists(OldFile));
-	EXPECT_EQ(Asset->GetPackage()->GetPackagePathIdentity(), OldPath);
-	EXPECT_EQ(Durin::FindPackageExact(NewPath), nullptr);
-#else
-	GTEST_SKIP() << "Package byte relocation coverage is selected with Editor AssetTools.";
 #endif
 }
 

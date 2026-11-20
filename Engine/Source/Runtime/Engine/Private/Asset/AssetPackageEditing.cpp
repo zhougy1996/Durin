@@ -4,9 +4,9 @@
 #include "Asset/PackageEditing.h"
 #include "Misc/UnifiedError.h"
 #include "Asset/LoadErrors.h"
+#include "AssetRegistry/Catalog.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
-#include "AssetPackageCodec.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetPackageFingerprintInternal.h"
 #include "Threading/RunnableThread.h"
@@ -56,32 +56,6 @@ namespace Durin
 			return Admission;
 		if (Runtime.GetRuntimeConfiguration().IsCooked())
 			return Error(UnifiedError::FErrorId{"AssetMutation", "ReadOnlyMode"}, "Cooked runtime package mode does not permit authored package mutation.");
-		return {};
-	}
-
-	auto BuildRelocatedAssetPackageBytes(
-		FByteView SourceBytes,
-		const FPackagePath& SourcePath,
-		FByteView SourceBulkBytes,
-		const FPackagePath& DestinationPath,
-		FByteBuffer& OutBytes) -> std::expected<void, UnifiedError::FError>
-	{
-		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
-		if (auto Result = AssetPrivate::ResolveAssetPackageReader(
-			SourceBytes, Codec); !Result)
-			return Result;
-		if (!Codec->bCanMutate)
-			return Error(PackageReadErrors::UnsupportedVersion,
-				"Relocation requires package mutation capability.");
-		AssetPrivate::FAssetPackageEncodedClosure Closure;
-		if (auto Result = Codec->Relocate(
-			{.PackageBytes = SourceBytes,
-				.BulkBytes = SourceBulkBytes,
-				.PackagePath = SourcePath,
-				.PhysicalPackageBytes = SourceBytes.size()},
-			DestinationPath, Closure); !Result)
-			return std::unexpected(ObjectPackage::ToError(Result));
-		OutBytes = std::move(Closure.PackageBytes);
 		return {};
 	}
 
