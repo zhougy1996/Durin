@@ -82,10 +82,11 @@ owners and literal inputs in Details. Parameter node types are fixed at creation
 Details has no type conversion control. Texture fallback and filtering/addressing
 controls live in collapsed Sampler settings. Parameters lists all base-material
 parameters, including disconnected owners, with search by name, display name or
-group and grouping by slash-separated paths. Clicking a parameter selects and
-frames its owner; shared parameters expose navigation to each reference. Expanding
-a parameter exposes shared renaming, display name, group, sort order, compatible
-presentation modes, scalar range hints and numeric default values. Details and
+group and grouping by slash-separated paths. Clicking a parameter name selects and
+frames its owner. Shared parameters expose navigation to each reference. Use the
+disclosure arrow to expand a parameter in place. The expanded row exposes its
+name, display name, group, sort order, compatible presentation modes, scalar
+range hints and numeric default values. Details and
 Parameters share continuous scalar/vector drags and Color presentation controls
 for base-material defaults. Each gesture previews parameter values without
 recompiling and records one undo step on release. Escape restores the original

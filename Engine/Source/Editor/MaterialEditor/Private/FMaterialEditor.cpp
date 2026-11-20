@@ -636,10 +636,11 @@ namespace Durin::MaterialEditor
 			ImGui::PushID(Parameter.Id.ToString().c_str());
 			const bool bSelected = std::ranges::any_of(NodeIds,
 				[&](const FGuid& Id) { return Canvas.GetSelection().contains(Id); });
-			const auto Flags = ImGuiTreeNodeFlags_SpanAvailWidth
+			const auto Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow
 				| (bSelected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
 			const bool bOpen = ImGui::TreeNodeEx("Parameter", Flags, "%s", Parameter.Name.ToString().c_str());
-			if (ImGui::IsItemClicked()) Canvas.SelectAndFrame(NodeIds.front());
+			if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+				Canvas.SelectAndFrame(NodeIds.front());
 			if (bOpen)
 			{
 				const auto Commit = [&]() {
