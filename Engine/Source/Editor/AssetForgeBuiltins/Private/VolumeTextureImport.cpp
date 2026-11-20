@@ -3,7 +3,6 @@
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "AssetForge/Builtins/VolumeTextureFactory.h"
 
-#include "Asset/PackageSerialization.h"
 #include "Asset/SourceHint.h"
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
@@ -21,6 +20,8 @@ namespace Durin::AssetForge::Builtins
 	using namespace Durin;
 	namespace
 	{
+		using FVolumeTextureRebuildResult = std::expected<void, std::string>;
+
 		auto ResolveOwningPackagePhysicalPath(const DVolumeTexture& Texture,
 			std::filesystem::path& OutPath) -> FVolumeTextureRebuildResult
 		{
@@ -375,7 +376,6 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildVolumeFromFilename(DVolumeTexture& Texture,
 			std::string Filename, ESourceHintBase HintBase,
 			const FVolumeTextureImportSettings& Settings,
-			const FAssetPackageSaveArgs* SaveOptions,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> FVolumeTextureRebuildResult
 		{
 			std::filesystem::path OwningPackagePath;
@@ -414,12 +414,8 @@ namespace Durin::AssetForge::Builtins
 			*Translated = {};
 			auto BuildResult = Texture.CachePlatformData({.Source = std::move(*Source), .Settings = {.OutputFormat = Settings.GetOutputFormat()}});
 			if (!BuildResult) return std::unexpected(FormatTextureBuildOperationError(BuildResult.error()));
-			if (const auto Published = PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings); !Published) return Published;
-			if (!SaveOptions) return {};
-			DPackage* Package = Texture.GetPackage();
-			FAssetWriteResult Saved;
-			if (SavePackage(Package, *SaveOptions, &Saved)) return {};
-			return std::unexpected((Saved.Error ? Saved.Error->ToString() : std::string{}));
+			return PublishDirectVolumeImportData(
+				Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings);
 		}
 	}
 
@@ -489,7 +485,7 @@ namespace Durin::AssetForge::Builtins
 			return Reject(EFactoryError::ObjectCreation);
 		if (const auto Rebuilt = RebuildVolumeFromFilename(
 			*Texture, Input.generic_string(), ESourceHintBase::AssetRelative,
-			Settings, nullptr, Input); !Rebuilt) return Failed(Rebuilt.error());
+			Settings, Input); !Rebuilt) return Failed(Rebuilt.error());
 		return Texture;
 	}
 
@@ -540,7 +536,7 @@ namespace Durin::AssetForge::Builtins
 			return;
 		}
 		const auto Rebuilt = RebuildVolumeFromFilename(*Texture,
-			Source->Hint, Source->HintBase, MakeImportSettings(State), nullptr);
+			Source->Hint, Source->HintBase, MakeImportSettings(State));
 		if (Completion) Completion(Rebuilt
 			? FReimportResult{EReimportResult::Succeeded, {}}
 			: FReimportResult{EReimportResult::Failed, Rebuilt.error(),
@@ -564,53 +560,10 @@ namespace Durin::AssetForge::Builtins
 			std::filesystem::absolute(Filenames.front()).lexically_normal();
 		const auto Rebuilt = RebuildVolumeFromFilename(*Texture, {},
 			ESourceHintBase::AssetRelative,
-			MakeImportSettings(Data->GetVolumeTextureState()), nullptr, Requested);
+			MakeImportSettings(Data->GetVolumeTextureState()), Requested);
 		if (Completion) Completion(Rebuilt
 			? FReimportResult{EReimportResult::Succeeded, {}}
 			: FReimportResult{EReimportResult::Failed, Rebuilt.error(),
 				std::make_shared<FVolumeTextureFactoryError>(Rebuilt.error())});
-	}
-
-	auto ReimportVolumeTexture(DVolumeTexture& Texture,
-		const FAssetPackageSaveArgs& SaveOptions) -> FVolumeTextureRebuildResult
-	{
-		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
-			Texture.GetAssetImportData());
-		if (!ImportData)
-		{
-			return std::unexpected(std::string("VolumeTexture has no current family import data."));
-		}
-		const FVolumeTextureImportDataState State =
-			ImportData->GetVolumeTextureState();
-		const FSourceFile* Source =
-			State.SourceData.FindByRole("source");
-		if (!Source)
-		{
-			return std::unexpected(std::string("VolumeTexture has no source filename to reimport."));
-		}
-		return RebuildVolumeFromFilename(Texture, Source->Hint, Source->HintBase,
-			MakeImportSettings(State), &SaveOptions);
-	}
-
-	auto ReimportVolumeTextureFromFile(DVolumeTexture& Texture,
-		std::string_view FilePath,
-		const FAssetPackageSaveArgs& SaveOptions) -> FVolumeTextureRebuildResult
-	{
-		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
-			Texture.GetAssetImportData());
-		if (!ImportData)
-		{
-			return std::unexpected(std::string("VolumeTexture has no current family import data."));
-		}
-		const std::filesystem::path Requested =
-			std::filesystem::absolute(FilePath).lexically_normal();
-		if (!std::filesystem::is_regular_file(Requested))
-		{
-			return std::unexpected(std::string("VolumeTexture source must be an existing PNG file: ") + std::string(FilePath));
-		}
-		return RebuildVolumeFromFilename(Texture, {},
-			ESourceHintBase::AssetRelative,
-			MakeImportSettings(ImportData->GetVolumeTextureState()),
-			&SaveOptions, Requested);
 	}
 }

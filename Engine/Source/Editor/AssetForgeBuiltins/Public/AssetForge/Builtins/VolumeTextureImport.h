@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "AssetForgeBuiltinsAPI.h"
-#include "Asset/PackageSerialization.h"
 #include "Image/ImageDecoder.h"
 #include "Texture/VolumeTexture.h"
 
@@ -69,8 +68,6 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto FormatVolumeTextureTranslationError(
 		const FVolumeTextureTranslationError& Error) -> std::string;
 
-	using FVolumeTextureRebuildResult = std::expected<void, std::string>;
-
 	// Describes source-derived import suggestions without relying on file naming.
 	struct FVolumeTextureAtlasInspection
 	{
@@ -92,11 +89,4 @@ namespace Durin::AssetForge::Builtins
 	[[nodiscard]] ASSETFORGEBUILTINS_API auto TranslateVolumeTextureAtlasSource(
 		const FVolumeTextureCapturedSource& Source,
 		const FVolumeTextureImportSettings& Settings) -> FVolumeTextureTranslationResult;
-	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportVolumeTexture(
-		DVolumeTexture& Texture,
-		const FAssetPackageSaveArgs& SaveOptions = {}) -> FVolumeTextureRebuildResult;
-	[[nodiscard]] ASSETFORGEBUILTINS_API auto ReimportVolumeTextureFromFile(
-		DVolumeTexture& Texture,
-		std::string_view FilePath,
-		const FAssetPackageSaveArgs& SaveOptions = {}) -> FVolumeTextureRebuildResult;
 }

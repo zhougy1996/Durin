@@ -422,6 +422,17 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Transparent));
 
+	Durin::FReimportResult ReimportedFromRetainedSources;
+	Durin::FReimportManager::Reimport(*Texture, {},
+		[&](Durin::FReimportResult ResultValue) {
+			ReimportedFromRetainedSources = std::move(ResultValue);
+		});
+	ASSERT_TRUE(ReimportedFromRetainedSources) << ReimportedFromRetainedSources.Message;
+	ASSERT_TRUE(ReimportedFromRetainedSources.SaveResult);
+	EXPECT_TRUE(*ReimportedFromRetainedSources.SaveResult);
+	ExpectCubeSourcePath(*Texture,
+		GetSourceHint(*Texture, FaceRoles[5]), Transparent);
+
 	const Durin::FXxHash128 ValidSourceId =
 		Texture->GetSource().GetBulkData().GetPayloadId();
 	const auto ValidPlatformDataIdentity = Texture->GetPlatformDataShared();
@@ -725,8 +736,10 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailure)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
+	const std::filesystem::path InitialSource = CopyPanorama("AnalyticalHDR.hdr", "OriginalPanorama.hdr");
 	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
-		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(), "/TextureCubeTests/ReimportPanorama");
+		InitialSource.generic_string(), "/TextureCubeTests/ReimportPanorama",
+		{.FaceDimension = 4, .ExposureEV = 2.0f});
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
 	std::string DialogError;
@@ -735,10 +748,15 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_EQ(Dialogs.front().Title, "Reimport TextureCube Panorama From File");
 	const auto InitialPlatformDataIdentity = Texture->GetPlatformDataShared();
 
-	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTextureCubePanoramaFromFile(*Texture,
-		GetPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
-		{.FaceDimension = 4, .ExposureEV = 2.0f}, Error)) << Error;
+	Durin::FReimportResult Reimported;
+	const auto OnReimported = [&](Durin::FReimportResult Completed) {
+		Reimported = std::move(Completed);
+	};
+	const std::array ReplacementFiles{GetPanoramaFixture("AnalyticalHDR.hdr").generic_string()};
+	Durin::FReimportManager::ReimportFromFiles(*Texture, ReplacementFiles, {}, OnReimported);
+	ASSERT_TRUE(Reimported) << Reimported.Message;
+	ASSERT_TRUE(Reimported.SaveResult);
+	EXPECT_TRUE(*Reimported.SaveResult);
 	EXPECT_NE(Texture->GetPlatformDataShared(), InitialPlatformDataIdentity);
 	ExpectCubeSourcePath(*Texture, GetSourceHint(*Texture, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
@@ -749,10 +767,12 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		GetPanoramaFixture("AnalyticalHDR.hdr")));
 
 	const auto FirstReimportPlatformDataIdentity = Texture->GetPlatformDataShared();
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTextureCubePanorama(*Texture,
-		{.FaceDimension = 4, .ExposureEV = 1.0f}, Error)) << Error;
+	Durin::FReimportManager::Reimport(*Texture, {}, OnReimported);
+	ASSERT_TRUE(Reimported) << Reimported.Message;
+	ASSERT_TRUE(Reimported.SaveResult);
+	EXPECT_TRUE(*Reimported.SaveResult);
 	EXPECT_NE(Texture->GetPlatformDataShared(), FirstReimportPlatformDataIdentity);
-	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
+	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 2.0f);
 
 	const auto ValidPlatformDataIdentity = Texture->GetPlatformDataShared();
 	const Durin::FSharedByteBuffer ValidPixels =
@@ -762,15 +782,16 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not radiance";
 	}
-	EXPECT_FALSE(Durin::AssetForge::Builtins::ReimportTextureCubePanoramaFromFile(
-		*Texture, Corrupt.generic_string(),
-		{.FaceDimension = 8, .ExposureEV = -1.0f}, Error));
-	EXPECT_NE(Error.find("decode"), std::string::npos);
+	const std::array CorruptFiles{Corrupt.generic_string()};
+	Durin::FReimportManager::ReimportFromFiles(*Texture, CorruptFiles, {}, OnReimported);
+	EXPECT_EQ(Reimported.Status, Durin::EReimportResult::Failed);
+	EXPECT_NE(Reimported.Message.find("decode"), std::string::npos);
+	EXPECT_FALSE(Reimported.SaveResult);
 	EXPECT_EQ(Texture->GetPlatformDataShared(), ValidPlatformDataIdentity);
 	ExpectCubeSourcePath(*Texture, GetSourceHint(*Texture, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Texture->GetPanoramaFaceDimension(), 4u);
-	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
+	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 2.0f);
 	EXPECT_TRUE(std::ranges::equal(Texture->GetPlatformData()->Faces[0].Mips[0].Pixels, ValidPixels));
 	EXPECT_TRUE(Texture->HasPlatformData());
 
@@ -788,6 +809,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	ASSERT_TRUE(Loaded->FinishCachePlatformData());
 	EXPECT_EQ(Loaded->GetSizeX(), 4u);
+	EXPECT_FLOAT_EQ(Loaded->GetPanoramaExposureEV(), 2.0f);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));

@@ -16,6 +16,7 @@
 #include "Asset/AssetCook.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
+#include "Asset/PackageSerialization.h"
 #include "Misc/FileHelper.h"
 
 using namespace Durin;
@@ -382,9 +383,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const auto* FactoryFailure = dynamic_cast<const FVolumeTextureFactoryError*>(Executed.FactoryCause.get());
 	ASSERT_NE(FactoryFailure, nullptr);
 	EXPECT_EQ(FactoryFailure->Diagnostic, "Volume texture atlas is not PNG data.");
-	const auto Failure = Durin::AssetForge::Builtins::ReimportVolumeTexture(*Imported.Asset);
-	ASSERT_FALSE(Failure);
-	EXPECT_EQ(Failure.error(), FactoryFailure->Diagnostic);
+	EXPECT_EQ(Executed.Message, FactoryFailure->Diagnostic);
+	EXPECT_FALSE(Executed.SaveResult);
 	EXPECT_EQ(Imported.Asset->GetSource().GetBulkData().GetPayloadId(), LastKnownGoodSourceId);
 	EXPECT_TRUE(Imported.Asset->HasPlatformData());
 
@@ -395,14 +395,18 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const std::filesystem::path MovedAtlas = MovedDirectory / "Noise.png";
 	std::filesystem::copy_file(AtlasPath, MovedAtlas,
 		std::filesystem::copy_options::overwrite_existing);
-	const auto Repair = ReimportVolumeTextureFromFile(*Imported.Asset, MovedAtlas.generic_string());
-	ASSERT_TRUE(Repair) << Repair.error();
+	const std::array ReplacementFiles{MovedAtlas.generic_string()};
+	FReimportResult Repair;
+	FReimportManager::ReimportFromFiles(*Imported.Asset, ReplacementFiles, {},
+		[&](FReimportResult Completed) { Repair = std::move(Completed); });
+	ASSERT_TRUE(Repair) << Repair.Message;
+	ASSERT_TRUE(Repair.SaveResult);
+	EXPECT_TRUE(*Repair.SaveResult);
 	ASSERT_NE(Imported.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Imported.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_TRUE(ImportedSource->Hint.ends_with(
 		"MovedVolume/Noise.png"));
-	ASSERT_TRUE(SavePackage(Imported.Asset->GetPackage()));
 
 	const Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture> Detail = ImportVolumeTextureForTest(
 		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings);
