@@ -149,8 +149,8 @@ fails if the pinned source no longer matches the bridge patch. This preserves
 automatic port search and explicit overrides for one-click connection.
 Use the discovered port instead of assuming every process is on 8086. An
 explicit `TRACY_PORT` remains a developer-owned override and disables the
-automatic search for that process. Profiling runtimes and `editor.tracy/status`
-warn when the variable is present. Two processes that inherit the same
+automatic search for that process. Profiling runtimes log the override at Debug
+level, and `editor.tracy/status` includes it in its diagnostics. Two processes that inherit the same
 fixed port remain alive, but only the first can listen; remove the override or
 give each process a distinct value.
 
