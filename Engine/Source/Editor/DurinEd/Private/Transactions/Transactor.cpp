@@ -77,7 +77,7 @@ namespace Durin
 		switch (Rejection.Reason)
 		{
 		case ETransactorRejectionReason::BeginState: return "Begin is unavailable during a history transition or destruction.";
-		case ETransactorRejectionReason::ExecuteState: return "Custom changes are unavailable during a history transition or destruction.";
+		case ETransactorRejectionReason::ExecuteState: return "Storing a custom change requires an active recording available for capture.";
 		case ETransactorRejectionReason::MissingCustom: return "The custom transaction change is unavailable.";
 		case ETransactorRejectionReason::UndoState: return "Undo requires an idle transactor.";
 		case ETransactorRejectionReason::UndoHead: return "The expected transaction is not the Undo head.";
@@ -1327,35 +1327,14 @@ namespace Durin
 	auto DTransBuffer::StoreUndo(DObject* Object, std::unique_ptr<FCommandChange> Change) -> FTransactorResult
 	{
 		CheckThread();
-		if (!CanTransact()) return LastResult = Reject(ETransactorRejectionReason::ExecuteState);
+		if (!IsActive() || !CanTransact()) return LastResult = Reject(ETransactorRejectionReason::ExecuteState);
 		if (!Change) return LastResult = Reject(ETransactorRejectionReason::MissingCustom);
-		const bool bStandalone = !IsActive();
-		// Already-applied commands cannot prove that intervening package writes
-		// belonged to them. Begin must observe those writes as external edits.
-		FTransactionId Id = GetRecordingId();
-		auto FailAdmission = [&](std::string Message) {
-			if (bStandalone)
-			{
-				ReleaseRecording();
-				Pending.reset();
-				State = ETransactorState::Idle;
-				RefreshOutsideEdits();
-			}
-			return LastResult = FTransactorResult{.Code = ETransactorResultCode::Failed, .TransactionId = Id,
+		const auto FailAdmission = [&](std::string Message) {
+			return LastResult = FTransactorResult{.Code = ETransactorResultCode::Failed, .TransactionId = Pending->GetId(),
 				.ApplyCause = std::make_shared<FTransactionApplyError>(FTransactionApplyError{.Message = std::move(Message)})};
 		};
 		try
 		{
-			if (bStandalone)
-			{
-				std::string Description;
-				{
-					FTransactionInspectionScope Inspect(State);
-					Description = Change->GetDescription();
-				}
-				if (Begin("CustomChange", Description) < 0) return LastResult;
-				Id = GetRecordingId();
-			}
 			FTransactionBusyScope BusyScope(Pending->bBusy);
 			auto Candidate = std::move(Change);
 			for (DPackage* Package : Candidate->GetAffectedPackages())
@@ -1364,9 +1343,7 @@ namespace Durin
 		}
 		catch (const std::exception& Error) { return FailAdmission(Error.what()); }
 		catch (...) { return FailAdmission("Custom transaction admission threw an unknown exception."); }
-		LastResult = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Pending->GetId()};
-		if (bStandalone) (void)End();
-		return LastResult;
+		return LastResult = {.Code = ETransactorResultCode::Succeeded, .TransactionId = Pending->GetId()};
 	}
 	auto DTransBuffer::End() -> int32
 	{

@@ -4354,15 +4354,15 @@ TEST(FMaterialGraphOperationsTests, DirectParameterHistoryFailureRestoresValueAn
 	auto* Owner = Cast<DMaterialExpressionScalarParameter>(Material->GetExpressionCollection().Expressions.front().Get());
 	ASSERT_NE(Owner, nullptr);
 	const auto Observer = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) {
-		Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Undoing);
+		EXPECT_TRUE(Transactions->IsActive());
+		Transactions->Cancel();
 		Owner->DefaultValue = .5f;
 	});
 	const auto RestoreFailed = MaterialEditing::SetParameterValue(*Material, ParameterId, FMaterialParameterValue::MakeScalar(.75f));
 	Material->GetGraphChanges().Unsubscribe(Observer);
-	Durin::FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	EXPECT_EQ(RestoreFailed.GetStatus(), EMaterialGraphCommandStatus::Rejected);
 	const auto Message = FormatMaterialGraphCommandResult(RestoreFailed);
-	EXPECT_TRUE(Message.starts_with("The editor transactor is busy."));
+	EXPECT_TRUE(Message.starts_with("The parameter transaction was cancelled."));
 	EXPECT_NE(Message.find("The parameter expression disagrees with its declaration."), std::string::npos);
 	EXPECT_FALSE(Transactions->CanUndo());
 }

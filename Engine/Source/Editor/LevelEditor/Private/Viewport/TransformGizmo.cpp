@@ -663,13 +663,19 @@ namespace Durin::LevelEditor
 				Entries.push_back({Target ? std::move(Target) : Snapshot.Target, Snapshot.Initial, Snapshot.Preview});
 			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
-			const auto Result = Transactions->StoreUndo(std::make_unique<FTransformTargetTransaction>(Action, DragCollectionLabel, std::move(Entries)));
-			if (!Result)
+			auto Change = std::make_unique<FTransformTargetTransaction>(Action, DragCollectionLabel, std::move(Entries));
+			// Keep multi-frame previews independent of unrelated editor transactions.
+			bool bRecorded;
 			{
-				if (Result.Code == ETransactorResultCode::RecoveryRequired) { MarkPackagesDirty(); ClearDrag(); }
-				else CancelDrag();
+				FScopedTransaction Recording(Transactions, {"TransformGizmo", std::string(Change->GetDescription())});
+				bRecorded = Recording.IsOutstanding() && Transactions->StoreUndo(std::move(Change));
+			}
+			if (!bRecorded)
+			{
+				CancelDrag();
 				return false;
 			}
+			if (!Transactions->GetLastResult()) MarkPackagesDirty();
 		}
 		else MarkPackagesDirty();
 		ClearDrag();

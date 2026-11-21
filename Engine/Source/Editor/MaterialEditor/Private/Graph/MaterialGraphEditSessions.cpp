@@ -207,7 +207,8 @@ namespace Durin::MaterialEditor
 		if (Impl->Transactions && !Impl->Transactions->CanTransact())
 			return std::unexpected("The editor transactor is busy.");
 		{
-			FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"});
+			FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"},
+				Impl->Transactions && !Impl->Transactions->IsActive());
 			if (Impl->Transactions)
 			{
 				const auto Recorded = Impl->Transactions->StoreUndo(

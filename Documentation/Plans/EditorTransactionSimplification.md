@@ -2,7 +2,7 @@
 
 Summary: Align recording and scope semantics with UE 5.8, isolate fallible command callbacks and move mounted-content discovery out of the history service.
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-21
 
 Status: Active
 Completed:
@@ -11,7 +11,11 @@ Completed:
 
 Stage 1 passed on 2026-11-20. EditorOperationTests passed all 399 tests in 15 suites on Win64-Debug-DurinEditor, using the stage 1 working tree on base `6bc1a7919`. This covers guarded admission, optional replay details, required callback failure and guarded Undo without Redo.
 
-The stage 3 scope interface change was brought forward at review. Stage 2 is complete. The stage 3 mixed-field capture bypass has also been removed. Standalone StoreUndo migration and the stage 4 journal move remain open.
+Stage 2 is complete. The stage 3 scope interface was brought forward at review and the mixed-field capture bypass was removed.
+
+The stage 3 audit covered Engine, Sandbox and RoadWeaver source, tests, tools and Python. The Level Editor transform gizmo was the only production caller using implicit standalone submission. It now records the final preview in an explicit release scope. Opening a scope across input events would let unrelated editor edits join the drag. Interactive material parameter previews use the same commit boundary. The synchronous material parameter command now opens its scope before changing the value. Graph presentation, material configuration and ApplyEditorChange already had scopes. Tools and Python use domain commands or explicit scopes. The buffer now requires an active recording for StoreUndo.
+
+Stage 3 passed on 2026-11-21 on the working tree based on `2934ba6e3`. On Win64-Debug-DurinEditor, 1,031 cases passed across EditorOperationTests, ViewportTests, SplineTests, MaterialGraphEditingTests, MaterialEditorInteractionTests, MaterialEditingPersistenceTests, EditorPropertyTests, RoadEditorIntegrationTests, PythonToolIntegrationTests and EditorHostToolTests. Coverage includes idle submission rejection, joined admission failure, foreign edits during drag, discard at release, cancellation during synchronous parameter publication and Python continuation after an injected finalization failure. Stage 4 is open.
 
 On 2026-11-20 the scope migration on base `97ac906b6` passed 836 cases on Win64-Debug-DurinEditor across EditorOperationTests, EditorPropertyTests, MaterialGraphEditingTests, MaterialEditingPersistenceTests, LevelMutationTests, SkyBoxTests, AssetPackageReloadTests, PythonToolIntegrationTests, RoadEditorIntegrationTests and EditorHostToolTests. The Python fault injection now verifies successful script continuation and an independently failed history entry. The property integration case verifies the applied value and the buffer's recovery state.
 
@@ -27,7 +31,7 @@ Keep ordinary edits expressible through a scope, Modify and ordered records. Use
 | --- | --- | --- |
 | Scope and buffer | RAII, Begin/End return previous depth, outermost End finalizes, Cancel discards the entire recording and leaves applied edits in place. A disabled scope permits an existing outer recording. | Adopt the UE scope surface. Keep stale-scope identity checks private and expose history diagnostics on the buffer. |
 | Object capture | SaveObject returns void. ContainsObject queries participation. SaveObject, StoreUndo, SaveArray and SnapshotObject have distinct roles. Ordered records and an object index coexist. | Preserve these roles. Keep reflected array paths for vector relocation. Ordinary callers use Modify. Explicitly bound changes own capture for their object. Durin commands may instead declare participants for field-specific replay. |
-| Command execution | Object-bound StoreUndo records an existing change. Replay applies ordered changes and reconstructs objects with synchronous hooks and annotations. | Checked failure, compensation and explicit recovery serve fallible native commands. Keep them inside the boundary. Remove standalone submission if all callers can establish an owning scope before mutation. |
+| Command execution | Object-bound StoreUndo records an existing change. Replay applies ordered changes and reconstructs objects with synchronous hooks and annotations. | StoreUndo requires an active recording. Callers own scope lifetime. Checked failure, compensation and explicit recovery serve fallible native commands. |
 | History publication | Undo/Redo operate on a bounded history with barriers, expiry and object replacement. | Keep successful-commit trimming and package checkpoints. Move the mounted-content journal to its editor owner. |
 
 ## Implementation Stages
@@ -53,7 +57,7 @@ Depends on stage 1. Preserve the UE void SaveObject and participation query. Use
 Scope cleanup can proceed after stage 1 independently of the stage 2 object index. UE's ScopedTransaction.cpp ends through destruction. UTransBuffer::End returns the previous depth, finalizes the outer recording and broadcasts state changes. Adopt that public scope contract. A completed domain edit remains applied when history publication fails. Preserve checked admission, native mutation errors and buffer diagnostics. CallInEditor and explicit history-management commands expose history information in their own results.
 
 - [x] Remove the public mixed-field capture bypass. Verify both edit orders with ordinary Modify and custom records, including one baseline per object.
-- [ ] Inventory native, tool and Python consumers including standalone StoreUndo. Migrate already-applied commands to an owning scope before mutation where feasible. Remove the standalone extension when no supported caller needs it; document any remaining caller and reason.
+- [x] Inventory native, tool and Python consumers including standalone StoreUndo. Migrate already-applied commands to an owning scope before mutation where feasible. Remove the standalone extension when no supported caller needs it; document any remaining caller and reason.
 - [x] Remove public scoped End and use destruction for ordinary edits and Python scope exits. Keep native transactor End for depth-based management. Keep cancellation, stale scope protection and diagnostic history results.
 - [x] Verify outer and nested completion, disabled scope, inner cancel, no-op and recovery. Exercise property and Python finalization failures with independent assertions for the model or script outcome and buffer diagnostics. Validate migrated consumers across the workspace.
 

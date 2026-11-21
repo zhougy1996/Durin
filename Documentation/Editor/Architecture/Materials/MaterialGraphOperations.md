@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-21
 
 ## Task routing
 
@@ -672,9 +672,11 @@ keeps its final positions while the transactor is busy and commits when it
 can record again. The move and parameter sessions return error text on
 failure. Their Apply methods also report whether the preview changed.
 
-Direct parameter commands cancel a rejected preview immediately. A failed cancel
-appends the restoration failure to the original commit message. A committed change
-produces one undo entry. Preview and restoration use package-dirty suppression; observers can see both publications.
+Direct parameter commands open their recording before publishing a changed value.
+If a synchronous observer cancels that recording, the command reports the
+cancellation and attempts to restore the original value. Its result includes
+any restoration failure. A committed change produces one undo entry. Observers
+can see preview and restoration writes while package revisions are suppressed.
 
 A failed parameter Apply leaves the session available for retry. A failed restoration
 keeps the parameter session active for retry. These results own their

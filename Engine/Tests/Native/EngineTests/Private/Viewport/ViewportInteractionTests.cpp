@@ -843,6 +843,31 @@ TEST(FTransformGizmoTests, CommitPreservesOutsideDirtyAndReturnsOwnedEditsToChec
 	}
 }
 
+TEST(FTransformGizmoTests, DiscardedHistoryLeavesReleasedTransformAppliedAndDirty)
+{
+	InitializeDObjectSystem();
+	FGizmoGestureProbe Probe;
+	ASSERT_TRUE(Probe.Initialize(1));
+	Durin::Tests::FTestTransactorOwner Buffer;
+	auto* Package = MakeRevisionTestPackage("DiscardedGizmoEdit");
+	Package->SetPlayInEditor(true);
+	Probe.Objects.front()->Package = Package;
+	Buffer->EstablishSavedState(*Package);
+	const auto Initial = Probe.Objects.front()->Transform;
+	Probe.Begin(Buffer.Get());
+	Probe.Move(Buffer.Get());
+	const auto Preview = Probe.Objects.front()->Transform;
+	ASSERT_NE(Initial.Translation, Preview.Translation);
+	ASSERT_FALSE(Package->IsDirty());
+	Probe.Input.bLeftMouseDown = false;
+	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
+	EXPECT_FALSE(Probe.Gizmo.IsDragging());
+	EXPECT_EQ(Buffer->GetLastResult().Code, Durin::ETransactorResultCode::Discarded);
+	EXPECT_FALSE(Buffer->CanUndo());
+	EXPECT_TRUE(Package->IsDirty());
+	ExpectVectorNear(Probe.Objects.front()->Transform.Translation, Preview.Translation);
+}
+
 TEST(FTransformGizmoTests, ReleaseAndReplayNeverOverwriteAnOutsideTransform)
 {
 	InitializeDObjectSystem();

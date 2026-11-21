@@ -1035,25 +1035,32 @@ def read():
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error; EXPECT_EQ("stopped\n", Result.Output);
     }
 
-    TEST_F(FPythonToolIntegrationTests, ScopeFinalCaptureFailureRemainsAHistoryDiagnostic)
+    TEST_F(FPythonToolIntegrationTests, ScopeFinalizationFailureRemainsAHistoryDiagnostic)
     {
-        TStrongObjectPtr<DSceneComponent> Object(NewObject<DSceneComponent>(nullptr, "FinalCaptureFailure", EObjectFlags::Transactional));
+        class FFailingHistoryChange final : public FCommandChange
+        {
+        public:
+            auto Apply() -> FCommandChangeResult override { return {}; }
+            auto Revert() -> FCommandChangeResult override { return {}; }
+            auto GetDescription() const -> std::string_view override { return "Fail final accounting"; }
+            auto GetModifiedObjects() const -> std::vector<DObject*> override { return {}; }
+            auto GetAllocatedSize() const -> size_t override { throw std::runtime_error("Injected final accounting failure"); }
+        };
         Register(FToolSchema(EToolValueType::Object), true, [&](const auto& Request, const auto&) {
-            EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({1, 0, 0});
+            EXPECT_TRUE(Host->GetTransactor()->StoreUndo(std::make_unique<FFailingHistoryChange>()));
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
         auto Job = Submit(R"PY(
 import durin
 @durin.defer
 def edit():
-    with durin.ScopedEditorTransaction('Fail final capture'):
+    with durin.ScopedEditorTransaction('Fail final accounting'):
         durin.tools.call('python.tests', 'echo', {})
         yield
     print('continued after scope')
 )PY");
         Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
         ASSERT_TRUE(Host->GetTransactor()->IsActive());
-        MarkObjectHierarchyAsGarbage(Object.Get()); Object.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
         auto Result = Wait(Job);
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
         EXPECT_TRUE(Result.Error.empty());
@@ -1061,7 +1068,7 @@ def edit():
         const auto& History = Host->GetTransactor()->GetLastResult();
         EXPECT_EQ(ETransactorResultCode::Failed, History.Code);
         ASSERT_NE(History.ApplyCause, nullptr);
-        EXPECT_FALSE(History.ApplyCause->Message.empty());
+        EXPECT_NE(History.ApplyCause->Message.find("Injected final accounting failure"), std::string::npos);
         EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
     }
 

@@ -4,7 +4,7 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-21
 
 ## Service Ownership
 
@@ -304,24 +304,20 @@ snapshot, matching the pinned UE per-object rule. A custom record added after
 a snapshot remains ordered after it; callers must choose the representation
 that describes their operation. Composite changes may use the `StoreUndo(Change)`
 convenience and must declare modified objects through `GetModifiedObjects()`.
-One declared object automatically binds a single-object command; multiple
-participants remain a composite record. Participant references are frozen
-separately from collector-only dependencies.
-Durin deliberately retains standalone StoreUndo as an editor-owned extension for
-already-applied domain writes. Without an active recording it opens a CustomChange
-scope and finalizes one entry. It cannot prove ownership of preceding package
-edit revisions: those remain outside writes and can invalidate the checkpoint.
-Use a scope before mutation to preserve an undoable clean baseline. Standalone
-submission does not execute the change or roll back a failed history submission;
-callers inspect the result. Within a live scope it joins the outer recording.
-StoreUndo never invokes Apply and accepts nested recording without an opt-in flag.
+The explicit object argument binds the command to its owner. Recording freezes
+the declared participants separately from collector-only dependencies.
 
-During StoreUndo admission, standalone description lookup and command package
-and participant enumeration exclude reentrant recording changes. A metadata
-exception returns a failed submission. The buffer releases a recording it opened
-for this command or leaves the caller's outer recording active, with its prior
-records and retained history available. The caller still owns any business write
-it performed before submission.
+Open the owning scope before a synchronous domain edit. `StoreUndo` appends to
+the active recording, including a nested recording, and rejects idle or foreign
+buffers. The scope owner controls finalization. Viewport transform drags and
+interactive material parameter edits suppress package revisions during live
+preview and open or join a scope when the user commits. This leaves the global
+recorder available to other edits between input events.
+
+During admission, command package and participant enumeration exclude reentrant
+recording changes. A metadata exception returns a failed submission and leaves
+the owner's recording and retained history intact. The caller owns any write
+performed before admission.
 
 Ordinary editor writes call `Modify` on the target before mutation. An explicitly
 object-bound command suppresses subsequent whole-object capture for that owner.
@@ -415,7 +411,7 @@ invalidate the checkpoint and keep the package dirty. A save inside an operation
 may represent an intermediate state, so neither retained endpoint is inferred to
 match disk. Save again at an idle boundary to establish a clean checkpoint.
 This conservative rule serves the same safety purpose as UE's package dirty
-fence without borrowing its dirty-bit replay model. Rejected standalone recording
+fence without borrowing its dirty-bit replay model. Rejected command admission
 does not acknowledge external package revisions or alter the saved baseline.
 
 Saved package reload prepares only while Idle and retires every whole history
