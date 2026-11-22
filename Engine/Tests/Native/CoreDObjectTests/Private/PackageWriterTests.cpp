@@ -584,6 +584,41 @@ TEST(FPackageReaderContractTests, CanonicalFixturesReadAndWriteByteIdentically)
 		ObjectPath("/Game/RedirectTarget.RedirectTarget"));
 }
 
+TEST(FPackageReaderContractTests, StoredPluginReferencesSurviveAnUnavailableMount)
+{
+	using namespace Durin;
+	auto Fixture = MakeFixture();
+	constexpr std::string_view PluginPackage = "/Plugins/DisabledFixture/Materials/Water";
+	FByteBuffer Main, Bulk;
+	FPackagePath Dependency;
+	{
+		const std::array Mounts{
+			FMountPoint{.VirtualRoot = "/Game/", .Owner = EMountOwner::Test, .Root = std::filesystem::current_path()},
+			FMountPoint{.VirtualRoot = "/Plugins/DisabledFixture/", .Owner = EMountOwner::Test,
+				.Root = std::filesystem::current_path() / "DisabledFixture"}};
+		Testing::FScopedMountRegistryFixture Mounted(Mounts);
+		ASSERT_TRUE(Mounted.IsValid()) << Mounted.GetError();
+		ASSERT_TRUE(FPackagePath::TryCreate(PluginPackage, Dependency));
+		Fixture.Summary.SoftPackageDependencies = {Dependency};
+		ASSERT_TRUE(FSoftObjectPath::TryCreate("/Plugins/DisabledFixture/Materials/Water.Water",
+			Fixture.Summary.TopLevelAssets.front().RedirectDestination));
+		ASSERT_TRUE(Package::WritePackage(Fixture, Main, Bulk));
+	}
+	FPackagePath Strict;
+	EXPECT_FALSE(FPackagePath::TryCreate(PluginPackage, Strict));
+	EXPECT_FALSE(FPackagePath::TryCreateSerializedReference("/Plugins/DisabledFixture/../Water", Strict));
+	EXPECT_FALSE(FPackagePath::TryCreateSerializedReference("/Unknown/Materials/Water", Strict));
+
+	Package::FPackageRegistryData Catalog;
+	const auto Result = Package::ReadPackageRegistry(Main, Main.size(), Bulk.size(), Fixture.Summary.PackagePath, Catalog);
+	ASSERT_TRUE(Result) << Package::FormatPackageError(Result);
+	EXPECT_EQ(Catalog.SoftPackageReferences, std::vector{Dependency});
+	EXPECT_EQ(Catalog.TopLevelAssets.front().RedirectDestination, Fixture.Summary.TopLevelAssets.front().RedirectDestination);
+	Package::FLinkerTables Linker;
+	ASSERT_TRUE(Package::ReadPackage(Main, Bulk, Fixture.Summary.PackagePath, Linker));
+	EXPECT_EQ(Linker.Summary.SoftPackageDependencies, std::vector{Dependency});
+}
+
 TEST(FPackageReaderContractTests, EnvelopeSectionAndBulkFailuresAreAtomic)
 {
 	Durin::FByteBuffer Main;

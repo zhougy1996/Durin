@@ -214,14 +214,18 @@ TEST(FProjectDefaultLevelReferenceStoreTests, ResolvesUniqueLevelWithoutInferrin
 {
 	FDefaultLevelScenario Scenario = BuildScenario("UniqueLevel");
 	auto MountFixture = ConfigureAssets(Scenario);
+	const auto LegacyPath = MakePath("/DefaultLevelTests/Levels/LegacyPackage");
+	auto* Package = Durin::CreatePackage(LegacyPath);
+	ASSERT_NE(Package, nullptr);
+	ASSERT_NE(Durin::NewObject<Durin::DLevel>(Package, "LegacyLevel",
+		Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone), nullptr);
+	ASSERT_TRUE(Durin::SavePackage(Package));
 	Durin::FSoftObjectPath LevelPath;
 	const auto Result =
-		Durin::ResolveLevelPackage(Scenario.OldPath, LevelPath);
+		Durin::ResolveLevelPackage(LegacyPath, LevelPath);
 	ASSERT_TRUE(Result) << (Result ? std::string{} : Result.error().ToString());
-	EXPECT_EQ(LevelPath.GetPackagePath(), Scenario.NewPath);
-	EXPECT_EQ(LevelPath.GetAssetPath().GetAssetName(), "Old");
-	EXPECT_NE(LevelPath.GetAssetPath().GetAssetName(),
-		Scenario.NewPath.GetPackageName());
+	EXPECT_EQ(LevelPath.GetPackagePath(), LegacyPath);
+	EXPECT_EQ(LevelPath.GetAssetPath().GetAssetName(), "LegacyLevel");
 }
 
 TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithoutTopLevelLevel)
@@ -270,7 +274,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionFollowsRedirectsA
 	std::string Error;
 	ASSERT_TRUE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
 	EXPECT_EQ(Path.GetPackagePath(), Scenario.NewPath);
-	EXPECT_EQ(Path.GetAssetPath().GetAssetName(), "Old");
+	EXPECT_EQ(Path.GetAssetPath().GetAssetName(), Scenario.NewPath.GetPackageName());
 	EXPECT_TRUE(Error.empty());
 	// A similarly prefixed mount must not admit a resolved level from another project.
 	Scenario.Project.MountRoot = "/DefaultLevelTest";
@@ -316,4 +320,27 @@ TEST(FProjectDefaultLevelReferenceStoreTests, StartupResolutionRejectsMissingAnd
 	EXPECT_FALSE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error));
 	EXPECT_FALSE(Path.IsValid());
 	EXPECT_FALSE(Error.empty());
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, EditorStartupMapOverridesTheGameDefault)
+{
+	auto Scenario = BuildScenario("EditorStartupMap");
+	auto MountFixture = ConfigureAssets(Scenario);
+	const auto ConfigPath = Scenario.Root / "Configs" / "Project.yaml";
+	const auto GameDefault = "/DefaultLevelTests/Levels/Missing";
+	const auto WriteSettings = [&](std::string_view StartupMap) {
+		std::ofstream Settings(ConfigPath);
+		Settings << "Game:\n  DefaultLevel: " << GameDefault << "\nEditor:\n  StartupMap: '" << StartupMap << "'\n";
+	};
+	Durin::FSoftObjectPath Path;
+	std::string Error;
+	WriteSettings(Scenario.NewPath.GetView());
+	ASSERT_TRUE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
+	EXPECT_EQ(Path.GetPackagePath(), Scenario.NewPath);
+	Durin::FProjectGameSettings Game;
+	ASSERT_TRUE(Durin::FProjectGameSettingsStore::ForProject(Scenario.Project).Load(Game));
+	EXPECT_EQ(Game.DefaultLevel, GameDefault);
+	WriteSettings("");
+	ASSERT_TRUE(Durin::EditorStartup::ResolveStartupLevel(Scenario.Project, Path, Error)) << Error;
+	EXPECT_FALSE(Path.IsValid());
 }

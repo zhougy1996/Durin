@@ -122,12 +122,14 @@ callbacks only present state and never advance initialization. The runtime
 [lifecycle contract](../../../Runtime/Application/RuntimeLifecycle.md) owns the
 process result and shutdown ordering.
 
-Once services are Ready, DurinEd resolves the optional default Level and submits
-one synchronous asset-open call. LevelEditor owns unsaved-change
-confirmation, map notification handling, document association, transaction revision
-handoff and viewport restoration through the same path as later opens. Empty
-default-Level configuration starts no load. No startup-specific workspace
-callbacks or separately owned loading operation exist. Load failure leaves the workspace available and is reported through editor feedback.
+Once services are Ready, DurinEd attempts the editor startup map. Set
+`Editor.StartupMap` in `Configs/Project.yaml` to choose an editor map independently
+of `Game.DefaultLevel`. An empty value skips the load. Projects without the
+editor setting continue to use the game default as their editor startup map.
+Startup keeps the initial empty world until the candidate map is ready to
+publish. A failed load reports its reason through editor feedback and leaves
+the workspace available. A successful load publishes through the normal map
+change notification, document association and viewport restoration.
 
 Normal editor ticks drain tools/scripts, update Worlds, then call
 `IMainFrameModule::TickMainFrame` before rendering and ticking notifications.
@@ -228,7 +230,7 @@ save failure leaves the current level active. The level definition copies the
 asset path and directly calls synchronous `FEditorFileUtils::LoadMap`, matching
 UE's World asset definition. Content Browser preloading holds no asset roots
 across activation/opening; the target may be collected during same-map reload.
-Default-level startup uses the same synchronous asset-open path.
+Editor startup uses the same map publication path once the startup map loads.
 Scripting `DLevelEditorSubsystem::LoadLevel` calls
 `DEditorLoadingAndSavingUtils::LoadMap`; true means the requested map is active.
 The Level Toolkit reads the current level from the editor world. It opens

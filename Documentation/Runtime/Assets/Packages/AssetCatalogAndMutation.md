@@ -240,6 +240,11 @@ physical deletion for mixed selections; ContentBrowser adapts provider selection
 and publishes committed effects through that private core. Data sources notify browser views of committed changes. Authored filesystem
 operations remain outside global object-edit Undo/Redo history.
 
+Catalog scans and cache reloads retain canonical serialized plugin references
+when the plugin mount is inactive. The catalog indexes their identities for
+reference queries. Asset loading still requires active mounts for serialized
+plugin dependencies, and Cook validates the selected dependency closure.
+
 ## Editor Operation Results
 
 Creation and duplication return live Dirty objects or nullptr. File-list imports

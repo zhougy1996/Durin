@@ -206,7 +206,7 @@ namespace Durin
 		if (bWorkspaceReady)
 		{
 			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::HostReady);
-			if (HasCurrentProject()) OpenDefaultLevel();
+			if (HasCurrentProject()) LoadDefaultMapAtStartup();
 		}
 		Profiling::TryLogStartupTimingSummary();
 		DURIN_DEBUG("Editor services initialized");
@@ -266,6 +266,11 @@ namespace Durin
 
 	auto DEditorEngine::Map_Load(const FSoftObjectPath& Path, std::string& Error) -> bool
 	{
+		return LoadEditorMap(Path, Error, false);
+	}
+
+	auto DEditorEngine::LoadEditorMap(const FSoftObjectPath& Path, std::string& Error, bool bStartupMap) -> bool
+	{
 		CheckGameThread();
 		Error.clear();
 		if (bShutdownRequested || IsPlaying() || bLoadingEditorMap)
@@ -281,21 +286,24 @@ namespace Durin
 		if (Trans && !Trans->CanTransact())
 		{ Error = "Loading the map requires available transaction history."; return false; }
 		if (Trans) Trans->Reset("Loading map");
-		const auto PreviousPackage = EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage()
-			? EditorWorld->GetCurrentLevel()->GetPackage()->GetPackagePathIdentity() : FPackagePath{};
-		std::vector<TWeakObjectPtr<DPackage>> Packages;
-		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-			if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate()
-				&& (!Package->IsNewlyCreated() || (EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage() == Package))
-				&& std::ranges::any_of(Package->GetTopLevelAssets(), [](DObject* Asset) { return Cast<DLevel>(Asset) != nullptr; }))
-				Packages.emplace_back(Package);
-		EditorDestroyWorld();
-		const auto Collection = CollectPackageExports(Packages);
-		if (!Collection.Admission) { Error = Collection.Admission.error().ToString(); return false; }
-		for (const auto& Referenced : Collection.ReferencedPackages)
-			if (Referenced == Path.GetPackagePath() || Referenced == PreviousPackage)
-				Error += Referenced.ToString() + " remains referenced.\n";
-		if (!Error.empty()) return false;
+		if (!bStartupMap)
+		{
+			const auto PreviousPackage = EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage()
+				? EditorWorld->GetCurrentLevel()->GetPackage()->GetPackagePathIdentity() : FPackagePath{};
+			std::vector<TWeakObjectPtr<DPackage>> Packages;
+			for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+				if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate()
+					&& (!Package->IsNewlyCreated() || (EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage() == Package))
+					&& std::ranges::any_of(Package->GetTopLevelAssets(), [](DObject* Asset) { return Cast<DLevel>(Asset) != nullptr; }))
+					Packages.emplace_back(Package);
+			EditorDestroyWorld();
+			const auto Collection = CollectPackageExports(Packages);
+			if (!Collection.Admission) { Error = Collection.Admission.error().ToString(); return false; }
+			for (const auto& Referenced : Collection.ReferencedPackages)
+				if (Referenced == Path.GetPackagePath() || Referenced == PreviousPackage)
+					Error += Referenced.ToString() + " remains referenced.\n";
+			if (!Error.empty()) return false;
+		}
 		std::optional<UnifiedError::FError> LoadError;
 		TStrongObjectPtr<DLevel> Level(LoadObject<DLevel>(Path, nullptr, &LoadError));
 		if (!Level) { Error = LoadError ? LoadError->ToString() : "Map package contains no level."; return false; }

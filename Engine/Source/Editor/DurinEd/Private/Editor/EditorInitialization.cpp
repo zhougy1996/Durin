@@ -1,12 +1,9 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorStartup.h"
 #include "Editor/IMainFrameModule.h"
-#include "Subsystems/AssetEditorSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Asset/Asset.h"
 #include "DObject/AssetPath.h"
-#include "DObject/Class.h"
-#include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Modules/ModuleManager.h"
 #include "Project/Project.h"
@@ -71,23 +68,29 @@ namespace Durin
 		return !bShutdownRequested;
 	}
 
-	auto DEditorEngine::OpenDefaultLevel() -> void
+	auto DEditorEngine::LoadDefaultMapAtStartup() -> void
 	{
 		FSoftObjectPath Path;
-		if (!EditorStartup::ResolveStartupLevel(*GetCurrentProject(), Path, StartupError))
+		std::string Error;
+		if (EditorStartup::ResolveStartupLevel(*GetCurrentProject(), Path, Error))
 		{
-			DURIN_ERROR("{}", StartupError);
-			GetNotificationManager().Post({.Type = ENotificationType::Error,
-				.Message = "Could not open the default level", .Details = StartupError});
-			return;
+			if (!Path.IsValid()) return;
+			try
+			{
+				if (LoadEditorMap(Path, Error, true))
+				{
+					InitialLevelPath = Path;
+					return;
+				}
+			}
+			catch (const std::exception& Exception) { Error = Exception.what(); }
+			catch (...) { Error = "Unknown map loading exception."; }
 		}
-		if (!Path.IsValid()) return;
-		auto* AssetEditors = GetEditorSubsystem<DAssetEditorSubsystem>();
-		requiref(AssetEditors, "Workspace admission requires asset-editor services.");
-		InitialLevelPath = Path;
-		if (!AssetEditors->OpenAssets({.AssetEditors = AssetEditors,
-			.Assets = {{Path, DLevel::StaticClass()->GetQualifiedName().ToString()}}}))
-			StartupError = "Could not load the default level.";
+		if (bShutdownRequested) return;
+		if (Path.IsValid()) Error = std::format("{}: {}", Path.ToString(), Error);
+		DURIN_WARN("Could not open the editor startup map. {}", Error);
+		GetNotificationManager().Post({.Type = ENotificationType::Warning,
+			.Message = "Could not open the editor startup map", .Details = std::move(Error)});
 	}
 
 }

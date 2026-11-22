@@ -45,6 +45,8 @@ namespace Durin
 		static auto TryCreate(std::string_view InPath, FPackagePath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
 		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FPackagePath& OutPath) -> std::expected<void, FObjectPathError>;
 		COREDOBJECT_API static auto TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath) -> bool;
+		// Stored references may name a plugin package before its mount is available.
+		COREDOBJECT_API static auto TryCreateSerializedReference(std::string_view InPath, FPackagePath& OutPath) -> bool;
 		static auto IsValid(std::string_view InPath) -> bool { return Validate(InPath).has_value(); }
 		auto IsValid() const -> bool { return !Path.IsNone(); }
 		COREDOBJECT_API auto ToString() const -> std::string;
@@ -53,6 +55,8 @@ namespace Durin
 		auto operator==(const FPackagePath&) const -> bool = default;
 		COREDOBJECT_API auto operator<=>(const FPackagePath& Other) const -> std::strong_ordering;
 	private:
+		static auto Parse(std::string_view InPath, FPackagePath& OutPath, bool bSerializedReference) -> std::expected<void, FObjectPathError>;
+		friend class FTopLevelAssetPath;
 		COREDOBJECT_API static auto Validate(std::string_view InPath) -> std::expected<void, FObjectPathError>;
 		explicit FPackagePath(FName InPath) : Path(std::move(InPath)) {}
 		FName Path;
@@ -66,6 +70,7 @@ namespace Durin
 		FTopLevelAssetPath() = default;
 		static auto TryCreate(std::string_view InPath, FTopLevelAssetPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
 		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>;
+		COREDOBJECT_API static auto TryCreateSerializedReference(std::string_view InPath, FTopLevelAssetPath& OutPath) -> bool;
 		static auto TryCreate(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPackagePath, InAssetName, OutPath).has_value(); }
 		COREDOBJECT_API static auto TryCreateWithDiagnostic(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>;
 		auto IsValid() const -> bool { return PackagePath.IsValid() && !AssetName.IsNone(); }
@@ -76,6 +81,8 @@ namespace Durin
 		auto operator==(const FTopLevelAssetPath&) const -> bool = default;
 		COREDOBJECT_API auto operator<=>(const FTopLevelAssetPath& Other) const -> std::strong_ordering;
 	private:
+		static auto Parse(std::string_view InPath, FTopLevelAssetPath& OutPath, bool bSerializedReference) -> std::expected<void, FObjectPathError>;
+		friend class FSoftObjectPath;
 		FPackagePath PackagePath;
 		FName AssetName;
 		friend struct std::hash<FTopLevelAssetPath>;
@@ -113,6 +120,7 @@ namespace Durin
 		explicit FSoftObjectPath(const FTopLevelAssetPath& InPath) : AssetPath(InPath) {}
 		static auto TryCreate(std::string_view InPath, FSoftObjectPath& OutPath) -> bool { return TryCreateWithDiagnostic(InPath, OutPath).has_value(); }
 		COREDOBJECT_API static auto TryCreateWithDiagnostic(std::string_view InPath, FSoftObjectPath& OutPath) -> std::expected<void, FObjectPathError>;
+		COREDOBJECT_API static auto TryCreateSerializedReference(std::string_view InPath, FSoftObjectPath& OutPath) -> bool;
 		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, std::span<const std::string> InSubobjectNames, FSoftObjectPath& OutPath) -> bool;
 		COREDOBJECT_API static auto TryCreate(const FTopLevelAssetPath& InAssetPath, FSubobjectPathView InSubobjectNames, FSoftObjectPath& OutPath) -> bool;
 		auto IsValid() const -> bool { return AssetPath.IsValid(); }
@@ -125,6 +133,7 @@ namespace Durin
 		COREDOBJECT_API auto operator==(const FSoftObjectPath& Other) const -> bool;
 		COREDOBJECT_API auto operator<=>(const FSoftObjectPath& Other) const -> std::strong_ordering;
 	private:
+		static auto Parse(std::string_view InPath, FSoftObjectPath& OutPath, bool bSerializedReference) -> std::expected<void, FObjectPathError>;
 		FTopLevelAssetPath AssetPath;
 		std::string SubobjectPath;
 		friend struct std::hash<FSoftObjectPath>;

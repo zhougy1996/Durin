@@ -70,11 +70,34 @@ namespace Durin
 			for (size_t Index = 0; Index < Count; ++Index) { const char A = StringUtils::ToLowerAscii(Left[Index]); const char B = StringUtils::ToLowerAscii(Right[Index]); if (A < B) return std::strong_ordering::less; if (A > B) return std::strong_ordering::greater; }
 			return Left.size() <=> Right.size();
 		}
+		auto IsPluginPackageReference(std::string_view Path) -> bool
+		{
+			constexpr std::string_view Root = "/Plugins/";
+			if (!Path.starts_with(Root)) return false;
+			const auto Relative = Path.substr(Root.size());
+			const auto Slash = Relative.find('/');
+			if (Slash == std::string_view::npos || Slash == 0) return false;
+			const auto Id = Relative.substr(0, Slash);
+			const auto IsLetter = [](char C) { return (C >= 'A' && C <= 'Z') || (C >= 'a' && C <= 'z') || C == '_'; };
+			return IsLetter(Id.front()) && std::ranges::all_of(Id,
+				[&](char C) { return IsLetter(C) || (C >= '0' && C <= '9'); });
+		}
 	}
 
 	auto FPackagePath::TryCreateWithDiagnostic(std::string_view InPath, FPackagePath& OutPath) -> std::expected<void, FObjectPathError>
 	{
-		if (auto Result = Validate(InPath); !Result) return Result;
+		return Parse(InPath, OutPath, false);
+	}
+	auto FPackagePath::TryCreateSerializedReference(std::string_view InPath, FPackagePath& OutPath) -> bool
+	{
+		return Parse(InPath, OutPath, true).has_value();
+	}
+	auto FPackagePath::Parse(std::string_view InPath, FPackagePath& OutPath, bool bSerializedReference) -> std::expected<void, FObjectPathError>
+	{
+		if (auto Result = Validate(InPath); !Result && !(bSerializedReference
+			&& Result.error().Code == EObjectPathError::MountLookupFailed
+			&& Result.error().MountError == EMountPathError::UnknownMount
+			&& IsPluginPackageReference(InPath))) return Result;
 		OutPath = FPackagePath(FName(InPath, -1));
 		return {};
 	}
@@ -101,11 +124,21 @@ namespace Durin
 
 	auto FTopLevelAssetPath::TryCreateWithDiagnostic(std::string_view InPath, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>
 	{
+		return Parse(InPath, OutPath, false);
+	}
+	auto FTopLevelAssetPath::TryCreateSerializedReference(std::string_view InPath, FTopLevelAssetPath& OutPath) -> bool
+	{
+		return Parse(InPath, OutPath, true).has_value();
+	}
+	auto FTopLevelAssetPath::Parse(std::string_view InPath, FTopLevelAssetPath& OutPath, bool bSerializedReference) -> std::expected<void, FObjectPathError>
+	{
 		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Asset, InPath, MaximumObjectPathBytes);
 		if (InPath.find(':') != std::string_view::npos) return FailPath(EObjectPathError::SubobjectSuffix, EObjectPathPart::Asset, InPath);
 		const size_t Slash = InPath.find_last_of('/'); const size_t Dot = InPath.find('.', Slash == std::string_view::npos ? 0 : Slash + 1);
 		if (Dot == std::string_view::npos || InPath.find('.', Dot + 1) != std::string_view::npos) return FailPath(EObjectPathError::AssetSeparator, EObjectPathPart::Asset, InPath);
-		FPackagePath Package; if (auto Result = FPackagePath::TryCreateWithDiagnostic(InPath.substr(0, Dot), Package); !Result) return Result; return TryCreateWithDiagnostic(Package, InPath.substr(Dot + 1), OutPath);
+		FPackagePath Package;
+		if (auto Result = FPackagePath::Parse(InPath.substr(0, Dot), Package, bSerializedReference); !Result) return Result;
+		return TryCreateWithDiagnostic(Package, InPath.substr(Dot + 1), OutPath);
 	}
 	auto FTopLevelAssetPath::TryCreateWithDiagnostic(const FPackagePath& InPackagePath, std::string_view InAssetName, FTopLevelAssetPath& OutPath) -> std::expected<void, FObjectPathError>
 	{
@@ -126,9 +159,18 @@ namespace Durin
 
 	auto FSoftObjectPath::TryCreateWithDiagnostic(std::string_view InPath, FSoftObjectPath& OutPath) -> std::expected<void, FObjectPathError>
 	{
+		return Parse(InPath, OutPath, false);
+	}
+	auto FSoftObjectPath::TryCreateSerializedReference(std::string_view InPath, FSoftObjectPath& OutPath) -> bool
+	{
+		return Parse(InPath, OutPath, true).has_value();
+	}
+	auto FSoftObjectPath::Parse(std::string_view InPath, FSoftObjectPath& OutPath, bool bSerializedReference) -> std::expected<void, FObjectPathError>
+	{
 		if (InPath.size() > MaximumObjectPathBytes) return FailPath(EObjectPathError::PathTooLong, EObjectPathPart::Object, InPath, MaximumObjectPathBytes);
 		const size_t Colon = InPath.find(':'); if (Colon != std::string_view::npos && InPath.find(':', Colon + 1) != std::string_view::npos) return FailPath(EObjectPathError::MultipleSubobjectSeparators, EObjectPathPart::Object, InPath);
-		FTopLevelAssetPath Asset; if (auto Result = FTopLevelAssetPath::TryCreateWithDiagnostic(InPath.substr(0, Colon), Asset); !Result) return Result;
+		FTopLevelAssetPath Asset;
+		if (auto Result = FTopLevelAssetPath::Parse(InPath.substr(0, Colon), Asset, bSerializedReference); !Result) return Result;
 		std::string Suffix; size_t Index = 0;
 		if (Colon != std::string_view::npos)
 		{

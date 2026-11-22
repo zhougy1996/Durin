@@ -194,7 +194,8 @@ namespace Durin
 
 		auto InitializeProjectWorkspace() -> bool;
 		auto InitializeWorkspaces() -> bool;
-		auto OpenDefaultLevel() -> void;
+		auto LoadDefaultMapAtStartup() -> void;
+		auto LoadEditorMap(const FSoftObjectPath& Path, std::string& Error, bool bStartupMap) -> bool;
 		auto InitEditorInternal(const FEngineInitContext& Context) -> bool;
 		DURINED_API auto RequestSubsystemDeinitialization() -> void override;
 		DURINED_API auto ShutdownHostConsumers() -> void override;

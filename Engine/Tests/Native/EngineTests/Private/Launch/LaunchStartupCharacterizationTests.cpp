@@ -33,14 +33,14 @@ TEST(FLaunchStartupCharacterizationTests, MissingExplicitProjectDoesNotSucceedAs
 	EXPECT_EQ(RunLaunchChild({"--project=" + Missing.generic_string(), "--exit-after-ticks=1"}), 1u);
 }
 
-TEST(FLaunchStartupCharacterizationTests, InvalidConfiguredLevelFailsInsteadOfOpeningEmptyDocument)
+TEST(FLaunchStartupCharacterizationTests, MissingEditorStartupMapKeepsWorkspaceAvailable)
 {
 	const auto Root = Durin::Testing::GetTestWorkDirectory() / "InvalidDefaultLevel";
 	std::filesystem::create_directories(Root / "Configs");
 	const auto Project = Root / "InvalidDefaultLevel.dproject";
 	{ std::ofstream File(Project); File << R"({"ProjectName":"InvalidDefaultLevel","BaseModules":[]})"; }
-	{ std::ofstream File(Root / "Configs" / "Project.yaml"); File << "Game:\n  DefaultLevel: /Game/Levels/Missing\n"; }
-	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=1"}), 1u);
+	{ std::ofstream File(Root / "Configs" / "Project.yaml"); File << "Editor:\n  StartupMap: /Game/Levels/Missing\n"; }
+	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=2"}), 0u);
 }
 
 TEST(FLaunchStartupCharacterizationTests, EmptyDefaultLevelShowsWorkspaceAndExitsNormally)
@@ -51,6 +51,29 @@ TEST(FLaunchStartupCharacterizationTests, EmptyDefaultLevelShowsWorkspaceAndExit
 	{ std::ofstream File(Project); File << R"({"ProjectName":"EmptyDefaultLevel","BaseModules":[]})"; }
 	{ std::ofstream File(Root / "Configs" / "Project.yaml"); File << "Game:\n  DefaultLevel: ''\n"; }
 	EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=2"}), 0u);
+}
+
+TEST(FLaunchStartupCharacterizationTests, DisabledWaterDemoKeepsWorkspaceAvailable)
+{
+	const auto Root = Durin::Testing::GetTestWorkDirectory() / "DisabledWaterDemo";
+	const auto Content = Root / "Content" / "Levels";
+	std::filesystem::create_directories(Content);
+	std::filesystem::create_directories(Root / "Configs");
+	const auto Source = std::filesystem::path(DURIN_LAUNCH_TEST_PROJECT).parent_path()
+		/ "Content" / "Levels" / "SingleLayerWaterDemo.dasset";
+	ASSERT_TRUE(std::filesystem::copy_file(Source, Content / Source.filename()));
+	const auto Project = Root / "DisabledWaterDemo.dproject";
+	{ std::ofstream File(Project); File << R"({"ProjectName":"DisabledWaterDemo","BaseModules":[]})"; }
+	{ std::ofstream File(Root / "Configs" / "Plugins.json"); File << R"({"Plugins":{"Water":false}})"; }
+	for (const auto Map : {"", "/Game/Levels/SingleLayerWaterDemo"})
+	{
+		SCOPED_TRACE(Map);
+		{
+			std::ofstream File(Root / "Configs" / "Project.yaml");
+			File << "Editor:\n  StartupMap: '" << Map << "'\n";
+		}
+		EXPECT_EQ(RunLaunchChild({"--project=" + Project.generic_string(), "--exit-after-ticks=2"}), 0);
+	}
 }
 
 TEST(FLaunchStartupCharacterizationTests, UnavailablePluginKeepsEditorAvailable)

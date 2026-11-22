@@ -236,7 +236,7 @@ namespace Durin::ObjectPackage
 						EPackageReaderReason::ImportRecord, "Imports[" + std::to_string(Index) + "]");
 				FSoftObjectPath ObjectPath;
 				if (ObjectId != 0 || !OuterIndex.IsNull()
-					|| !FSoftObjectPath::TryCreate(Names[PackageId - 1], ObjectPath))
+					|| !FSoftObjectPath::TryCreateSerializedReference(Names[PackageId - 1], ObjectPath))
 				{
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						EPackageReaderReason::ImportPath,
@@ -305,7 +305,7 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
 						EPackageReaderReason::TopLevelOrder,
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
-				if (RedirectId && !FSoftObjectPath::TryCreate(
+				if (RedirectId && !FSoftObjectPath::TryCreateSerializedReference(
 					Names[RedirectId - 1], RedirectDestination))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
 						EPackageReaderReason::RedirectPath,
@@ -337,7 +337,7 @@ namespace Durin::ObjectPackage
 					else
 					{
 						FPackagePath Path;
-						if (!FPackagePath::TryCreate(Names[Id - 1], Path))
+						if (!FPackagePath::TryCreateSerializedReference(Names[Id - 1], Path))
 							return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
 								EPackageReaderReason::DependencyPath, "Registry");
 						(ListIndex == 0 ? Registry.HardPackageReferences
@@ -703,7 +703,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::SoftReference:
 			{ uint32 NameId = 0; if (!ReadNameId(Reader, Names, NameId, true)) return false;
 				if (NameId) { Value.Text = Names[NameId - 1]; FSoftObjectPath ObjectPath;
-					if (!FSoftObjectPath::TryCreate(Value.Text, ObjectPath)) return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::PropertyValue, Path); } break; }
+					if (!FSoftObjectPath::TryCreateSerializedReference(Value.Text, ObjectPath)) return Fail(Diagnostic, EPackageReaderFailure::InvalidValue, EPackageReaderReason::PropertyValue, Path); } break; }
 			case EValueKind::Byte:
 			{ uint8 V = 0; if (!Reader.ReadU8(V)) return false; Value.Unsigned = V; break; }
 			case EValueKind::Bytes:

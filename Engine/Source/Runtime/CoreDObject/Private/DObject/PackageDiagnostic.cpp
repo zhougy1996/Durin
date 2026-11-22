@@ -157,7 +157,7 @@ namespace Durin::ObjectPackage
 		case EPackageReaderReason::RedirectPath: return "A DAST redirect destination is invalid.";
 		case EPackageReaderReason::RegistryListCount: return "A DAST Registry list count is invalid.";
 		case EPackageReaderReason::RegistryListOrder: return "A DAST Registry id list is duplicate or out of order.";
-		case EPackageReaderReason::DependencyPath: return "A DAST dependency is not a canonical mounted package path.";
+		case EPackageReaderReason::DependencyPath: return "A DAST dependency is not a canonical package reference.";
 		case EPackageReaderReason::RegistryBulk: return "DAST Registry bulk binding or extent is invalid.";
 		case EPackageReaderReason::ExportTableHeader: return "DAST export table header is invalid.";
 		case EPackageReaderReason::ExportRecord: return "A DAST export record is invalid.";

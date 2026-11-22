@@ -7,6 +7,7 @@
 #include "Engine/World.h"
 #include "FileHelpers.h"
 #include "Misc/FeedbackContext.h"
+#include "Misc/UnifiedError.h"
 #include "Transactions/Transactor.h"
 #include "LevelEditorSubsystem.h"
 #include "Engine/Level.h"
@@ -79,8 +80,14 @@ namespace Durin
 		}
 		for (const auto& Target : Args.Assets)
 		{
-			auto* Level = Cast<DLevel>(Args.LoadAsset(Target));
-			if (!Level || !Level->GetPackage()) continue;
+			std::optional<UnifiedError::FError> Error;
+			auto* Level = LoadObject<DLevel>(Target.AssetPath, nullptr, &Error);
+			if (!IsValid(Level) || Level->IsTemplateObject()
+				|| Level->GetClass()->GetQualifiedName().ToString() != Target.AssetClassName || !Level->GetPackage())
+			{
+				if (Error) FFeedbackContext::Get().Error(Error->ToString());
+				continue;
+			}
 			if (Level->GetPackage()->IsNewlyCreated())
 			{
 				FFeedbackContext::Get().Error("The level you are trying to open needs to be saved first.");

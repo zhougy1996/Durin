@@ -37,7 +37,7 @@ namespace Durin
 			for (uint32 PathIndex = 0; PathIndex < Paths; ++PathIndex)
 			{
 				FTopLevelAssetPath Path;
-				if (!Reader.ReadString(Text) || !FTopLevelAssetPath::TryCreate(Text, Path)) return false;
+				if (!Reader.ReadString(Text) || !FTopLevelAssetPath::TryCreateSerializedReference(Text, Path)) return false;
 				Entry.BundleAssets.push_back(Path);
 			}
 			ParsedData.Bundles.push_back(std::move(Entry));

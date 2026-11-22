@@ -139,7 +139,7 @@ namespace Durin::AssetPrivate
 					|| !ReadAssetManagementMetadata(Reader, Asset.PrimaryAssetId, Asset.AssetBundleData)
 					|| !FTopLevelAssetPath::TryCreate(AssetPathString, Asset.AssetPath)
 					|| (!RedirectPathString.empty()
-						&& !FSoftObjectPath::TryCreate(RedirectPathString, Asset.RedirectDestination)))
+						&& !FSoftObjectPath::TryCreateSerializedReference(RedirectPathString, Asset.RedirectDestination)))
 				{
 					OutWarning = "Ignoring invalid top-level asset metadata in asset registry cache.";
 					OutEntries.clear();
@@ -160,7 +160,7 @@ namespace Durin::AssetPrivate
 			{
 				std::string DependencyString;
 				FPackagePath Dependency;
-				if (!Reader.ReadString(DependencyString) || !FPackagePath::TryCreate(DependencyString, Dependency))
+				if (!Reader.ReadString(DependencyString) || !FPackagePath::TryCreateSerializedReference(DependencyString, Dependency))
 				{
 					OutWarning = "Ignoring invalid dependency in asset registry cache.";
 					OutEntries.clear();
@@ -179,7 +179,7 @@ namespace Durin::AssetPrivate
 			{
 				std::string DependencyString;
 				FPackagePath Dependency;
-				if (!Reader.ReadString(DependencyString) || !FPackagePath::TryCreate(DependencyString, Dependency))
+				if (!Reader.ReadString(DependencyString) || !FPackagePath::TryCreateSerializedReference(DependencyString, Dependency))
 				{
 					OutWarning = "Ignoring invalid soft dependency in asset registry cache.";
 					OutEntries.clear();
@@ -198,7 +198,7 @@ namespace Durin::AssetPrivate
 			{
 				std::string Name;
 				FPackagePath Path;
-				if (!Reader.ReadString(Name) || !FPackagePath::TryCreate(Name, Path))
+				if (!Reader.ReadString(Name) || !FPackagePath::TryCreateSerializedReference(Name, Path))
 				{
 					OutWarning = "Ignoring invalid build dependency in asset registry cache.";
 					OutEntries.clear();
