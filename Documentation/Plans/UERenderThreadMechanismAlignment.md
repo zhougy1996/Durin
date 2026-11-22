@@ -31,6 +31,8 @@ visibility to the main view. History applies the UE 5.8 camera thresholds to
 the actual producing view and resolves reordered candidates by component ID.
 Occlusion consumes scene primitive identity, eligibility and bounds. Material,
 geometry and instance publications invalidate stale feedback before visibility.
+Known numeric uniform writes on validated opaque materials without WPO
+preserve feedback across updates.
 Mesh preparation captures its own published batches. On 2026-11-22, rollout was
 approved for eligible persistent main views with an explicit per-view opt-out.
 The low-occlusion overhead gate remains open.
@@ -982,6 +984,11 @@ Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
   preparation Vulkan (28), material render proxy (14), renderer scene view
   (32), Water Vulkan (2), Sandbox gameplay (15), and RoadWeaver viewport
   qualification (2).
+  The uniform publication follow-up based on `2865ede8c` passed the
+  Win64-Release-DurinEditor Vulkan occlusion regression and 14 material render
+  proxy cases. Two diagnostic passes with a shared roughness update every
+  frame measured 5.0–5.3 µs low-occlusion preparation P50 and 7.9–8.3 µs P95.
+  These samples do not close the performance gate.
 - [x] Define conservative invalidation for cuts, camera/occluder motion,
   resolution/depth-convention changes, newly added/moved objects, scene/device
   changes and unavailable results. Never hide content on an uncertain result.

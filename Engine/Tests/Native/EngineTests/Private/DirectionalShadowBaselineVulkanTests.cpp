@@ -1615,6 +1615,25 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		EXPECT_TRUE(CasterPresent);
 		EXPECT_EQ(Frame(), Reference);
 
+		const FGuid RoughnessParameter = AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
+			AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Roughness).Value;
+		{
+			SCOPED_TRACE("opaque numeric uniform writes preserve ready history");
+			ASSERT_TRUE(RequireReadyHistory());
+			WallMaterial->UpdateParameter_GameThread(RoughnessParameter, FMaterialParameterValue::MakeScalar(0.31f));
+			WallMaterial->UpdateParameter_GameThread(RoughnessParameter, FMaterialParameterValue::MakeScalar(0.73f));
+			WallMaterial->InvalidateUniformExpressionCache_GameThread();
+			FlushRenderingCommands();
+			const auto Pixels = Frame();
+			EXPECT_FALSE(Pixels.empty());
+			EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 1u);
+			EXPECT_FALSE(ReceiverPresent);
+			Options.bEnableOcclusionHistory = false;
+			EXPECT_EQ(Frame(), Pixels);
+			EXPECT_TRUE(ReceiverPresent);
+			Options.bEnableOcclusionHistory = true;
+		}
+
 		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
 			CheckDelayedOcclusionFeedback(Commands, *Scene, View);
 			CheckOcclusionHistoryBudget(Commands, *Scene, View);
@@ -1627,6 +1646,22 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			Change();
 			CheckFirstFrame();
 		};
+		CheckChange("unknown parameter publication invalidates ready history", [&] {
+			WallMaterial->UpdateParameter_GameThread(FGuid{41, 23, 72, 9}, FMaterialParameterValue::MakeScalar(0.5f));
+			FlushRenderingCommands();
+		});
+		CheckChange("out-of-range uniform publication invalidates ready history", [&] {
+			const FGuid BaseColor = AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
+				AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
+			EnqueueRenderCommand<FShadowBaselineCommand>([&, BaseColor](FRHICommandListImmediate&) {
+				const uint64 Revision = Scene->GetOcclusionRevision_RenderThread();
+				WallMaterial->UpdateParameter_RenderThread(BaseColor,
+					FMaterialParameterValue::MakeVector(FVector3(std::numeric_limits<double>::max())));
+				EXPECT_NE(Scene->GetOcclusionRevision_RenderThread(), Revision);
+				WallMaterial->UpdateParameter_RenderThread(BaseColor, FMaterialParameterValue::MakeVector({0.7, 0.3, 0.1}));
+			});
+			FlushRenderingCommands();
+		});
 		auto ReadWallPublication = [&] {
 			std::pair<FGPUScenePrimitiveHandle, FBox> Result;
 			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {

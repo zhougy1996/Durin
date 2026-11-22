@@ -112,8 +112,14 @@ geometry records, materials or instance publications.
 Scene membership, visibility, transforms and instance updates advance the
 occlusion revision when depth coverage may change. Referenced material proxies
 and static mesh render data notify attached scenes through the same occlusion
-invalidation boundary. This includes in-place program or parameter changes,
-mesh resource initialization and release, and published LOD readiness.
+invalidation boundary. This includes program or static property changes,
+unknown parameter changes, mesh resource initialization and release, and
+published LOD readiness. A write preserves occlusion history when its numeric
+value fits the resolved uniform layout and the material is validated opaque
+without world-position offset. The write still invalidates the uniform cache.
+Bulk parameter replacement and writes that cannot be validated against the
+resolved layout invalidate occlusion history conservatively.
+An explicit uniform cache refresh does not publish a depth change.
 Occlusion invalidation is independent of HitProxy revisions. Explicit static
 mesh instances use the entire primitive's bounds. A partially exposed group
 continues to per-instance processing.

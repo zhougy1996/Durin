@@ -121,6 +121,7 @@ namespace Durin
 		auto RecordUpdate_RenderThread() -> void;
 		auto InvalidateStaticDrawLists_RenderThread() -> void;
 		auto InvalidateOcclusionHistory_RenderThread() -> void;
+		auto CanPreserveOcclusionForParameter(const FGuid& Id, const FMaterialParameterValue& Value) const -> bool;
 		std::unordered_map<FSceneInterface*, uint32> SceneReferences;
 
 		FMaterialRenderData CachedResolvedData;
@@ -129,6 +130,7 @@ namespace Durin
 		uint64 ResolutionCount = 0;
 		bool bHasResolvedData = false;
 		bool bProgramUsesWPO = false;
+		bool bHasValidatedOpaqueDepth = false;
 
 	};
 

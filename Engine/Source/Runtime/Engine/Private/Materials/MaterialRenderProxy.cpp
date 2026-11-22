@@ -168,6 +168,7 @@ namespace Durin
 	}
 	auto FMaterialRenderProxy::InvalidateOcclusionHistory_RenderThread() -> void
 	{
+		bHasValidatedOpaqueDepth = false;
 		for (const auto& [Scene, References] : SceneReferences) Scene->InvalidateOcclusionHistory_RenderThread();
 	}
 	auto FMaterialRenderProxy::SetProgram_GameThread(std::shared_ptr<const FMaterialProgram> Program) -> void
@@ -189,6 +190,7 @@ namespace Durin
 		RenderingThreadProgram = std::move(Program);
 		if (ShaderMapChanged || CollectionsChanged) UniformExpressionCache->InvalidateUniformExpressionCache();
 		InvalidateUniformExpressionCache_RenderThread(LayoutChanged);
+		InvalidateOcclusionHistory_RenderThread();
 		GMaterialRenderProxyCounters.ProgramUpdateCount.fetch_add(1);
 	}
 	auto FMaterialRenderProxy::InitParameters_GameThread(FMaterialInstanceParameterSet Parameters) -> void
@@ -210,6 +212,7 @@ namespace Durin
 		if (ParameterValues == Parameters) return;
 		ParameterValues = std::move(Parameters);
 		InvalidateUniformExpressionCache_RenderThread(false);
+		InvalidateOcclusionHistory_RenderThread();
 		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
 	}
 	auto FMaterialRenderProxy::UpdateParameter_GameThread(const FGuid& Id, const FMaterialParameterValue& Value) -> void
@@ -226,8 +229,10 @@ namespace Durin
 		check(Value.IsRenderThreadValue());
 		FMaterialParameterValue Current;
 		if (ParameterValues.GetParameterValue(Id, Current) && Current == Value) return;
+		const bool bPreserveOcclusion = CanPreserveOcclusionForParameter(Id, Value);
 		ParameterValues.SetParameter(Id, Value);
 		InvalidateUniformExpressionCache_RenderThread(false);
+		if (!bPreserveOcclusion) InvalidateOcclusionHistory_RenderThread();
 		GMaterialRenderProxyCounters.ParameterUpdateCount.fetch_add(1);
 	}
 
@@ -267,7 +272,6 @@ namespace Durin
 		if (RecreateUniformBuffer) UniformExpressionCache->ReleaseRHI();
 		else UniformExpressionCache->InvalidateUniformValues();
 		bHasResolvedData = false;
-		InvalidateOcclusionHistory_RenderThread();
 		GMaterialRenderProxyCounters.UniformCacheInvalidationCount.fetch_add(1);
 	}
 
@@ -314,8 +318,46 @@ namespace Durin
 		CheckRenderingThread();
 		if (bProgramUsesWPO || bCompiling) return false;
 		const auto* Material = GetMaterialNoFallback();
-		return Material && Material->CompiledProgram->HasShaderMap()
+		bHasValidatedOpaqueDepth = Material && Material->CompiledProgram->HasShaderMap()
 			&& Material->PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Opaque;
+		return bHasValidatedOpaqueDepth;
+	}
+
+	auto FMaterialRenderProxy::CanPreserveOcclusionForParameter(const FGuid& Id, const FMaterialParameterValue& Value) const -> bool
+	{
+		// A known numeric uniform in a validated opaque program without WPO cannot change depth coverage.
+		// Check the value before publication so a fallback caused by an invalid write also invalidates history.
+		if (!bHasValidatedOpaqueDepth) return false;
+		EMaterialRenderValueType Type;
+		FVector4 Components(0.0);
+		switch (Value.GetType())
+		{
+		case EMaterialParameterType::Scalar:
+			Type = EMaterialRenderValueType::Scalar;
+			Components.x = Value.GetScalar();
+			break;
+		case EMaterialParameterType::Vector2:
+			Type = EMaterialRenderValueType::Vector2;
+			Components = FVector4(Value.GetVector2(), 0.0, 0.0);
+			break;
+		case EMaterialParameterType::Vector:
+			Type = EMaterialRenderValueType::Vector3;
+			Components = FVector4(Value.GetVector(), 0.0);
+			break;
+		case EMaterialParameterType::Vector4:
+			Type = EMaterialRenderValueType::Vector4;
+			Components = Value.GetVector4();
+			break;
+		default: return false;
+		}
+		// The representation packs uniform components as float, including authored double vectors.
+		const auto Values = std::array{Components.x, Components.y, Components.z, Components.w};
+		if (!std::ranges::all_of(Values, [](double Component) {
+			return std::abs(Component) <= std::numeric_limits<float>::max();
+		})) return false;
+		const auto& Fields = CachedResolvedData.Representation.GetLayout().Fields;
+		const auto Field = std::ranges::find(Fields, Id, &FMaterialRenderField::ParameterId);
+		return Field != Fields.end() && Field->Storage == EMaterialRenderFieldStorage::Uniform && Field->Type == Type;
 	}
 
 	auto FMaterialRenderProxy::GetMaterialNoFallback() -> const FMaterialRenderData*
