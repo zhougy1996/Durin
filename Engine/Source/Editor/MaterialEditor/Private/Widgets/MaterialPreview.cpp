@@ -257,6 +257,13 @@ namespace Durin::MaterialEditor
 				}
 				ImGui::EndCombo();
 			}
+			bool bEnableBloom = ViewportClient->GetViewSettings().PostProcess.bEnableBloom;
+			if (ImGui::Checkbox("Bloom", &bEnableBloom))
+			{
+				auto Settings = ViewportClient->GetViewSettings();
+				Settings.PostProcess.bEnableBloom = bEnableBloom;
+				ViewportClient->SetViewSettings(Settings);
+			}
 			UpdateScene(Material);
 			if (IsPostProcessMaterial(Material)) ImGui::TextUnformatted("PostProcess: studio scene before tone mapping");
 			if (!SceneStatus.empty())
