@@ -24,8 +24,6 @@ namespace Durin::ContentBrowser::Private
 		// Owner-thread, nonblocking frame pump; true means item publication or failure
 		// completed and the panel may repair its selection against current rows.
 		auto PumpPendingSnapshots() -> bool;
-		// Reconciliation suspends existing captures; a fresh explicit capture starts a new lifecycle.
-		auto SetSnapshotPublicationSuspended(bool bSuspended) -> void { bSnapshotPublicationSuspended = bSuspended; }
 		auto IsLoading() const -> bool { return ItemsRequest && ItemsRequest->State != EItemsRequestState::Completed; }
 		auto GetNavigationRevision() const -> uint64 { return Session.NavigationRevision; }
 		// Invalidates publication and requests cooperative cancellation without waiting.
@@ -130,7 +128,6 @@ namespace Durin::ContentBrowser::Private
 		// Per-view query state outlives the model; live source access stays on the owner thread.
 		FContentBrowserDataQuery& DataQuery;
 		FEntryStatusQuery EntryStatusQuery;
-		bool bSnapshotPublicationSuspended = false;
 		FDelegateHandle ItemsUpdated, ItemsRefreshed;
 		FContentChangeBatch PendingChanges;
 		std::vector<FContentBrowserItemDataUpdate> PendingItemUpdates;

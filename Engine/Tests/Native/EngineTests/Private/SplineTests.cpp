@@ -566,8 +566,6 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_NE(Reflection.ClosedLoop, nullptr);
 
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	const uint64 MountedContentRevision =
-		Transactions->GetMountedContentMutationRevision();
 	Durin::FPropertyView View;
 	std::string Error;
 	const Durin::FPropertyViewContext Context{
@@ -585,22 +583,13 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_TRUE(SubmitPosition({20.0, 0.0, 0.0}, true));
 	ASSERT_TRUE(SubmitPosition({30.0, 0.0, 0.0}, true));
 	View.FinishActiveEdit(&Context, false);
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(),
-		MountedContentRevision);
 	EXPECT_TRUE(Error.empty());
 	EXPECT_NEAR(Spline->GetLocalSplineLength(), 30.0, 1.e-8);
 	EXPECT_EQ(Spline->GetSplineTopologyRevision(), TopologyRevision);
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(),
-		MountedContentRevision);
 	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {10.0, 0.0, 0.0});
 	EXPECT_NEAR(Spline->GetLocalSplineLength(), 10.0, 1.e-8);
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(),
-		MountedContentRevision);
 	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {30.0, 0.0, 0.0});
 
 	Transactions->Reset();

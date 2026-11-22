@@ -323,7 +323,7 @@ whole-object capture. A snapshot member marked
 a different history backend. Object eligibility and property exclusion are distinct.
 
 Dirty-state and save-checkpoint behavior belongs to
-[Package and discovery revisions](../Transactions/Transactors.md#package-and-discovery-revisions).
+[Package revisions](../Transactions/Transactors.md#package-revisions).
 Persistent changes outside history must invalidate the checkpoint and mark the
 package dirty. Reflected property edits do not request asset-registry scans.
 

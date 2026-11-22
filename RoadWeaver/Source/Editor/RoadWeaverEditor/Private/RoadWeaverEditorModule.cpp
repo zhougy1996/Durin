@@ -26,8 +26,6 @@ namespace Durin::RoadNet::Editor
 					Presentation.Bind(Invocation.Host);
 					CreateDialog = std::make_unique<FRoadNetCreateDialog>();
 					CreateDialog->Open(Invocation.Context.VirtualDirectory, {
-						.NotifyMountedContentChanged =
-							Invocation.NotifyMountedContentChanged,
 						.RevealAsset = Invocation.RevealAsset,
 						.ReportError = Invocation.ReportError});
 				},

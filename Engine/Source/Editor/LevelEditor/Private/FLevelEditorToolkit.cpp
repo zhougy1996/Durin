@@ -201,18 +201,10 @@ namespace Durin::LevelEditor
 			.ReportError =
 				[this](std::string Message) { SetError(std::move(Message)); },
 			.AssetCreated = [this](std::string AssetPath) {
-				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
-					ContentBrowserCallbacks.NotifyMountedContentChanged();
-				else if (Context->EditorHost)
-					Context->EditorHost->GetTransactor()->NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealAsset)
 					ContentBrowserCallbacks.RevealAsset(AssetPath);
 			},
 			.ImportedDirectory = [this](std::string DirectoryPath) {
-				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
-					ContentBrowserCallbacks.NotifyMountedContentChanged();
-				else if (Context->EditorHost)
-					Context->EditorHost->GetTransactor()->NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealDirectory)
 					ContentBrowserCallbacks.RevealDirectory(DirectoryPath);
 			},

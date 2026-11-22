@@ -194,8 +194,6 @@ namespace Durin::RoadNet::Editor
 		}
 
 		const std::string CreatedPath = PackagePath.ToString();
-		if (Callbacks.NotifyMountedContentChanged)
-			Callbacks.NotifyMountedContentChanged();
 		if (Callbacks.RevealAsset) Callbacks.RevealAsset(CreatedPath);
 		return true;
 	}

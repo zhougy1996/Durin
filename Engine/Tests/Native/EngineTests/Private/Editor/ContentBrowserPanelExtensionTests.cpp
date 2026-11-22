@@ -1,4 +1,6 @@
 #include "ObjectTools.h"
+#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "Editor/ContentBrowserModelFixture.h"
 #include "Editor/ContentBrowserItemTestSupport.h"
 #include "Panels/ContentBrowserPanel.h"
@@ -9,7 +11,6 @@
 #include "NativePackageUnloadTestSupport.h"
 #include "Editor/BrowserDefinitionTestSupport.h"
 #include "EngineTestSupport.h"
-#include "Editor/EditorTransactionTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Materials/Material.h"
 #include "Import/EditorReimportHandler.h"
@@ -283,7 +284,6 @@ namespace Durin::ContentBrowser::Private
 			return Panel.CommitRename(Item);
 		}
 		static auto Requests(const FContentBrowserPanel& Panel) -> std::shared_ptr<const void> { return Durin::ContentBrowser::Private::FContentBrowserModelFixtureAccess::Request(Panel.Model); }
-		static auto Suspend(FContentBrowserPanel& Panel, bool Suspended) -> void { Panel.Model.SetSnapshotPublicationSuspended(Suspended); }
 		static auto Pump(FContentBrowserPanel& Panel) -> void { Panel.Model.PumpPendingSnapshots(); }
 
 		static auto Save(FContentBrowserPanel& Panel, const FContentBrowserItem& Item) -> void { Panel.SaveItem(Item); }
@@ -375,6 +375,38 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_EQ(Saved, Next);
 	}
 
+	TEST_F(FContentBrowserPanelExtensionTests, RevealsImportedAssetBeforeTickAndListsImportsAfterReopening)
+	{
+		const auto Root = Testing::CreateTestFixtureDirectory("BrowserImportReveal");
+		const std::array Mounts{FMountPoint{.VirtualRoot = "/BrowserImportReveal/", .Owner = EMountOwner::Test,
+			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+		Testing::FScopedMountRegistryFixture Registry(Mounts);
+		ASSERT_TRUE(Registry.IsValid());
+		const auto Source = (std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf").generic_string();
+		const FContentBrowserHostContext Host{.DataSubsystem = BrowserData};
+		const auto Directory = Root / "Imported";
+		const std::string Package = "/BrowserImportReveal/Imported/OpenPanel";
+		const std::string Object = Package + ".OpenPanel";
+		{
+			FContentBrowserPanel Panel({}, {}, Host);
+			const auto Import = AssetForge::Builtins::ImportStaticMeshForTest(Source, Package);
+			ASSERT_TRUE(Import) << Import.Message;
+			ASSERT_TRUE(Panel.RevealAsset(Package));
+			EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, Object));
+			ASSERT_TRUE(Panel.RevealDirectory("/BrowserImportReveal/Imported"));
+			BrowserData->Tick(0.0f);
+			FContentBrowserPanelTestAccess::FinishCapture(Panel);
+			EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, Object));
+		}
+		const auto Import = AssetForge::Builtins::ImportStaticMeshForTest(Source, "/BrowserImportReveal/Imported/ClosedPanel");
+		ASSERT_TRUE(Import) << Import.Message;
+		BrowserData->Tick(0.0f);
+		FContentBrowserPanel Reopened({.LastDirectory = Directory.generic_string()}, {}, Host);
+		FContentBrowserPanelTestAccess::FinishCapture(Reopened);
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::HasVisibleItem(Reopened, (Directory / "OpenPanel.dasset").generic_string()));
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::HasVisibleItem(Reopened, (Directory / "ClosedPanel.dasset").generic_string()));
+	}
+
 	TEST_F(FContentBrowserPanelExtensionTests, CopiesOrdinarySelectionAcrossPanelsAndInvalidatesReplacedClipboard)
 	{
 		InitializeDObjectSystem();
@@ -398,16 +430,9 @@ namespace Durin::ContentBrowser::Private
 		Platform.Platform_SetClipboardTextFn = [](ImGuiContext* Context, const char* Text) {
 			*static_cast<std::string*>(Context->PlatformIO.Platform_ClipboardUserData) = Text;
 		};
-		Tests::FTestTransactorOwner Transactions;
-		int FullRefreshNotifications = 0;
-		FContentBrowserHostContext Host{
-			.MountedContentChanged = &Transactions->OnMountedContentChanged(),
-			.NotifyContentMutation = [&](FContentChangeBatch Changes) { FullRefreshNotifications += Changes.bFullRefresh; Transactions->NotifyMountedContentMutation(std::move(Changes)); },
-			.ReconciliationState = std::make_shared<FMountedContentReconciliationState>()};
-		Host.DataSubsystem = BrowserData;
+		FContentBrowserHostContext Host{.DataSubsystem = BrowserData};
 		FContentBrowserPanel Source({}, {}, Host);
 		FContentBrowserPanel Target({}, {}, Host);
-		const auto InitialRevision = Transactions->GetMountedContentMutationRevision();
 		FContentBrowserPanelTestAccess::SetSelection(Source, Root.generic_string(), Durin::ContentBrowser::Private::ItemDescriptions({
 			{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .PhysicalPath = (Root / "notes.txt").generic_string()},
 			{.Kind = EContentBrowserItemKind::File, .Name = "config.json", .PhysicalPath = (Root / "config.json").generic_string()}}));
@@ -422,16 +447,12 @@ namespace Durin::ContentBrowser::Private
 		FContentBrowserPanelTestAccess::Paste(Target, "/BrowserContentClipboard/Destination/");
 		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/notes.txt"));
 		EXPECT_TRUE(std::filesystem::exists(Root / "Destination/config.json"));
-		EXPECT_EQ(Transactions->GetMountedContentMutationRevision(), InitialRevision + 1);
 		BrowserData->Tick(0.0f);
 		Source.TickWhenHidden();
 		FContentBrowserPanelTestAccess::FinishCapture(Source);
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::HasVisibleItem(Source, (Root / "Destination/notes.txt").generic_string()));
-		EXPECT_EQ(FullRefreshNotifications, 0);
 		FContentBrowserPanelTestAccess::Paste(Target, "/BrowserContentClipboard/Destination/");
 		EXPECT_FALSE(std::filesystem::exists(Root / "Destination/notes_Copy.txt"));
-		EXPECT_EQ(Transactions->GetMountedContentMutationRevision(), InitialRevision + 1);
-		EXPECT_EQ(FullRefreshNotifications, 0);
 		ImGui::SetClipboardText("unrelated text");
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::CanPaste(Target));
 	}
@@ -455,7 +476,7 @@ namespace Durin::ContentBrowser::Private
 		unsigned char* Pixels;
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
-		FContentBrowserPanel Panel({}, {}, {.ReconciliationState = std::make_shared<FMountedContentReconciliationState>(), .DataSubsystem = BrowserData});
+		FContentBrowserPanel Panel({}, {}, {.DataSubsystem = BrowserData});
 		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
 		EXPECT_FALSE(std::filesystem::exists(Root / "New Folder"));
@@ -532,7 +553,7 @@ namespace Durin::ContentBrowser::Private
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 
-		FContentBrowserPanel Panel({}, {}, {.ReconciliationState = std::make_shared<FMountedContentReconciliationState>(), .DataSubsystem = BrowserData});
+		FContentBrowserPanel Panel({}, {}, {.DataSubsystem = BrowserData});
 		std::string Error;
 		int TypeDetailCalls = 0;
 		auto* Definition = NewObject<FBrowserTestDefinition>(nullptr, {});
@@ -713,7 +734,7 @@ namespace Durin::ContentBrowser::Private
 		unsigned char* Pixels;
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
-		FContentBrowserPanel Panel({}, {}, {.ReconciliationState = std::make_shared<FMountedContentReconciliationState>(), .DataSubsystem = BrowserData});
+		FContentBrowserPanel Panel({}, {}, {.DataSubsystem = BrowserData});
 		const FContentBrowserItem Asset = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::Asset, .Name = "Asset",
 			.VirtualPath = "/BrowserDrag/Asset.Asset", .PhysicalPath = Root + "/Asset.dasset"};
 		const FContentBrowserItem File = Durin::ContentBrowser::Private::FStorageItemFixture{.Kind = EContentBrowserItemKind::File, .Name = "notes.txt", .VirtualPath = "/BrowserDrag/notes.txt",
@@ -918,7 +939,7 @@ namespace Durin::ContentBrowser::Private
 		EXPECT_FALSE(std::filesystem::exists(Root / "notes.txt"));
 	}
 
-	TEST_F(FContentBrowserPanelExtensionTests, UnrelatedUpdatesPreserveOtherViewAndRespectPublicationFence)
+	TEST_F(FContentBrowserPanelExtensionTests, UnrelatedUpdatesPreserveOtherView)
 	{
 		const auto Root = Testing::CreateTestFixtureDirectory("PanelProviderUpdateScope");
 		std::filesystem::create_directory(Root / "Else");
@@ -948,10 +969,8 @@ namespace Durin::ContentBrowser::Private
 		BrowserData->Tick(0.0f);
 		FContentBrowserPanelTestAccess::Pump(First);
 		EXPECT_EQ(Before, FContentBrowserPanelTestAccess::Requests(First));
-		FContentBrowserPanelTestAccess::Suspend(Second, true);
 		FContentBrowserPanelTestAccess::Pump(Second);
 		EXPECT_EQ(OtherBefore, FContentBrowserPanelTestAccess::Requests(Second));
-		FContentBrowserPanelTestAccess::Suspend(Second, false);
 		FContentBrowserPanelTestAccess::FinishCapture(Second);
 		EXPECT_EQ(FContentBrowserPanelTestAccess::Requests(Second), OtherBefore);
 		EXPECT_FALSE(FContentBrowserPanelTestAccess::Select(Second, "/PanelProviders/Else/new.note").InternalItems.empty());

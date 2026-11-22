@@ -9,7 +9,7 @@ content roots. It combines registered engine assets and ordinary files in one
 directory-oriented view while preserving their different identities and
 operations.
 
-Its concrete models, panel body, refresh coordination, source-thumbnail caches,
+Its concrete models, panel body and source-thumbnail caches
 are owned by the `ContentBrowser` module under
 `Durin::ContentBrowser::Private`. MainFrame owns the singleton tool
 instance and its docked/drawer presentation. Shared asset
@@ -173,6 +173,22 @@ releases thumbnail references. Completed tasks are still collected after admissi
 stops; their results cannot publish. Destruction drains worker bodies before module
 code may unload. Synchronous discovery fixtures use the same owned capture boundary.
 
+### Mounted Content Changes
+
+Active data sources publish item additions, changes, moves and removals through
+`DContentBrowserDataSubsystem`. The Asset source subscribes to the live asset
+query. The File source publishes committed filesystem operations and reconciles
+external changes in the background. Both run independently of open panels.
+A source can request a full item refresh when it cannot describe the delta.
+
+Open panels apply source updates to rows, selection, directory navigation and
+thumbnail caches. A newly opened panel enumerates the current source state.
+Import completion can reveal an exact object path immediately, before the next
+data-subsystem tick. For a save callback carrying a package path, Reveal uses
+the sole top-level asset in the published package. Multi-asset packages require
+an exact object path. Explicit Refresh scans the auto-scan mounts and rebuilds
+the view on success. AssetRegistry owns its catalog revision and change history.
+
 ### Directory Tree Snapshots
 
 Directory drawing queues missing child snapshots without performing filesystem
@@ -255,7 +271,7 @@ interpret native recovery details. Explicit outputs drive reveal and selection.
 See the [provider contract](ContentBrowserData.md#operations-and-request-state)
 for result, binding and execution semantics.
 The data source never refreshes Model. Each view subscribes to item updates and explicit refresh events.
-The data service owns source ticking independently of views. Asset query subscriptions and File background reconciliation deliver updates with no open browser. RefreshCoordinator additionally consumes external host/catalog notifications and supports explicit reconciliation. **Duplicate** and `Ctrl+D` clone one
+The data service owns source ticking independently of views. Asset query subscriptions and File background reconciliation deliver updates with no open browser. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
 complete persistent object graph is copied into live memory, then the browser
@@ -421,8 +437,7 @@ notifications remain reserved for actual filesystem changes.
 Providers consume `OnAssetQueryChanged` and publish item-data events. Views
 invalidate affected caches and cancel obsolete captures; pickers share the same
 creation, rename, save, unload and discard events. Unsaved assets and their implied folders can be browsed
-and revealed without writing directories or packages. Manual or
-automatic reconciliation consumes the single `FAssetCatalogRefreshResult`,
+and revealed without writing directories or packages. Explicit Refresh consumes the single `FAssetCatalogRefreshResult`,
 including catalog/reference completeness, prior and resulting revisions,
 counters, warnings, and structured errors; the panel never retains a registry
 pointer or reads mutable last-error state. A failed refresh may display the
@@ -496,19 +511,9 @@ There is no Browser last-result cache or executable confirmation handle.
 
 If physical removal completes but Registry publication fails, the data source
 reports a warning and committed removals plus failed projection in partial-result
-facts. RefreshCoordinator reconciles from mounted authored files. The Panel
+facts. The File source reconciles mounted packages during background discovery.
+Explicit Refresh also retries catalog discovery. The Panel
 never inspects `EAssetWriteEffect`, parses diagnostic prefixes or repeats I/O.
-
-Mounted-content mutations publish structured events. Panels subscribe and coalesce
-reconciliation across views, preserving selection and directory remapping. An
-AssetRegistry item event updates view caches without another filesystem scan.
-Ordinary object/property edits do not request mounted-content reconciliation.
-
-A failed reconciliation is suppressed until an explicit Refresh or another
-mutation event. New events raised during callbacks remain pending for the next
-batch. Explicit Refresh scans auto-scan mounts and invalidates the view on success.
-Surviving navigation/selection is preserved; a removed current directory falls
-back to its nearest surviving parent. Panels retain no catalog/mutation cursor.
 
 ## Related Documentation
 

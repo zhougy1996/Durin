@@ -24,7 +24,6 @@
 #include "Asset/PackageInspection.h"
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
-#include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
@@ -3679,26 +3678,6 @@ TEST_F(FContentBrowserModelTests, UnrelatedChangesPreserveInFlightCaptureAndRela
 	EXPECT_FALSE(Model.IsLoading());
 }
 
-TEST_F(FContentBrowserModelTests, MountedReconciliationFencePreventsPrematurePublication)
-{
-	const auto A = Root / "Content/A";
-	std::filesystem::create_directory(A / "Child");
-	FProviderQueryFixture ModelSource;
-	FContentBrowserModel Model(ModelSource);
-	FContentBrowserRefreshCoordinator Coordinator;
-	Coordinator.SetPublicationSuspension([&](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
-	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
-	Coordinator.ObserveMountedContent({.bFullRefresh = true});
-	EXPECT_FALSE(Model.PumpPendingSnapshots());
-	EXPECT_TRUE(Model.IsLoading());
-	EXPECT_TRUE(Model.GetItems().empty());
-	ASSERT_TRUE(Coordinator.Synchronize(
-		[] { return std::expected<void, Durin::UnifiedError::FError>{}; }, [](const FContentChangeBatch&) {}));
-	FContentBrowserModelFixtureAccess::Wait(Model);
-	EXPECT_FALSE(Model.IsLoading());
-	EXPECT_EQ(Model.GetItems().size(), 1u);
-}
-
 TEST_F(FContentBrowserModelTests, ScopedServiceNotificationsDescribeCommittedFilesystemOperations)
 {
 	std::vector<FContentChangeBatch> Batches;
@@ -3909,31 +3888,6 @@ TEST_F(FContentBrowserModelTests, AssetAdditionIntroducesMissingDirectoryWithout
 	FContentBrowserModelFixtureAccess::Wait(Model);
 	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
 	EXPECT_EQ(Durin::ContentBrowser::Private::FContentBrowserModelFixtureAccess::Request(Model), Requests);
-}
-
-TEST_F(FContentBrowserModelTests, FreshCaptureCanProceedWhileReconciliationFailureIsSuppressed)
-{
-	const auto A = Root / "Content/A";
-	std::filesystem::create_directory(A / "Child");
-	FProviderQueryFixture ModelSource;
-	FContentBrowserModel Model(ModelSource);
-	FContentBrowserRefreshCoordinator Coordinator;
-	Coordinator.SetPublicationSuspension([&](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
-	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
-	Coordinator.ObserveMountedContent({.bFullRefresh = true});
-	EXPECT_FALSE(Model.PumpPendingSnapshots());
-	int Attempts = 0;
-	const auto Reconcile = [&] { ++Attempts; return std::expected<void, Durin::UnifiedError::FError>{std::unexpected(Durin::UnifiedError::FError{Durin::PackageReadErrors::IoError, "forced failure"})}; };
-	EXPECT_FALSE(Coordinator.Synchronize( Reconcile,
-		[](const FContentChangeBatch&) {}));
-	// A fresh request can proceed, and a suppressed failure must not suspend it again.
-	Model.RefreshItemsSnapshot(false);
-	EXPECT_TRUE(Coordinator.Synchronize( Reconcile,
-		[](const FContentChangeBatch&) {}));
-	EXPECT_EQ(Attempts, 1);
-	FContentBrowserModelFixtureAccess::Wait(Model);
-	EXPECT_FALSE(Model.IsLoading());
-	EXPECT_EQ(Model.GetItems().size(), 1u);
 }
 
 TEST_F(FContentBrowserModelTests, ContentMovePreservesEmptyFoldersAndCollapsesDescendants)

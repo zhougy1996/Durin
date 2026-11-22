@@ -5,7 +5,7 @@
 
 #include "DObject/AssetPath.h"
 #include "DObject/WeakObjectPtr.h"
-#include "AssetRegistry/ContentChanges.h"
+#include "Misc/ContentChanges.h"
 #include "ContentBrowserAPI.h"
 #include "ContentBrowserItem.h"
 #include "Import/ImportDialogSupport.h"
@@ -113,7 +113,6 @@ namespace Durin::ContentBrowser
 		std::function<bool(std::string_view)> RevealAsset;
 		std::function<bool(std::string_view)> RevealDirectory;
 		std::function<bool(std::string_view, std::string_view)> OpenAsset;
-		std::function<void()> NotifyMountedContentChanged;
 		std::function<void(std::string)> ReportError;
 		FExtensionHost Host;
 	};
@@ -219,23 +218,14 @@ namespace Durin::ContentBrowser
 		bool bCanReimportFromFile = false;
 	};
 
-	struct FMountedContentReconciliationState
-	{
-		bool bPending = false, bFailed = false;
-	};
-
 	// Supplies implementation-neutral services required to construct the browser.
 	struct FContentBrowserHostContext
 	{
 		std::function<bool(const std::string&, const std::string&)> OpenAsset;
-		// Host-owned event outlives its browser panels.
-		TMulticastDelegate<void(const FContentChangeBatch&)>* MountedContentChanged = nullptr;
-		std::function<void(FContentChangeBatch)> NotifyContentMutation;
 		std::function<bool()> CanMutateContent;
 		// Receives the qualified asset class name. Must not load assets or perform source I/O.
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
-		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
 		TWeakObjectPtr<DAssetEditorSubsystem> AssetEditors;
 		TWeakObjectPtr<DContentBrowserDataSubsystem> DataSubsystem;
 		std::function<void(ELogLevel, std::string_view)> ReportDiagnostic;
@@ -245,7 +235,7 @@ namespace Durin::ContentBrowser
 		operator FContentBrowserOperationContext() const
 		{
 			return {.OpenAsset = OpenAsset,
-				.NotifyContentMutation = NotifyContentMutation, .CanMutateContent = CanMutateContent,
+				.CanMutateContent = CanMutateContent,
 				.ReportDiagnostic = ReportDiagnostic};
 		}
 	};
@@ -258,7 +248,6 @@ namespace Durin::ContentBrowser
 		virtual auto RevealAsset(std::string_view AssetPath) -> bool = 0;
 		virtual auto RevealDirectory(std::string_view DirectoryPath) -> bool = 0;
 		virtual auto RequestFocus() -> bool = 0;
-		virtual auto NotifyMountedContentChanged() -> bool = 0;
 		virtual auto StopRequestAdmission() -> void = 0;
 		virtual auto GetAdmissionState() const -> EAdmissionState = 0;
 	};

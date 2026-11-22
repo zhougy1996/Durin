@@ -387,7 +387,7 @@ to independent listeners after the transactor reaches Idle or RecoveryRequired.
 UI notifications register as a listener; observers receive the same immutable
 transition data without stealing events. The queue is not a persistent journal.
 
-## Package And Discovery Revisions
+## Package Revisions
 
 Each committed transaction owns transitions only for actually affected packages.
 The primary context does not implicitly dirty its package. Successful replay
@@ -420,8 +420,9 @@ remain; surviving modified packages lose invalidated checkpoints. Precommit relo
 failure leaves history and package states unchanged. Successful activation
 establishes the replacement graph's saved checkpoint.
 
-Custom mounted-content changes advance the discovery revision after successful
-commit/Undo/Redo. Ordinary in-memory property edits do not request registry scans.
+Asset and filesystem changes reach browser views through their
+[data sources](../Assets/ContentBrowser.md#mounted-content-changes).
+History tracks package edit and save checkpoints independently of discovery.
 
 ## Bounds And Accounting
 

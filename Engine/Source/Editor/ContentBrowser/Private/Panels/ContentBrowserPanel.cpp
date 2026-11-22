@@ -143,11 +143,11 @@ namespace Durin::ContentBrowser::Private
 		: PresentationSettings(std::move(InSettings))
 		, SavePresentationSettings(std::move(InSaveSettings))
 		, HostContext(MakeRequestHost(std::move(InHost)))
-		, RefreshCoordinator(HostContext.ReconciliationState)
 		, DataQuery(HostContext.DataSubsystem, HostContext)
 		, Model(DataQuery)
 		, IconSize(PresentationSettings.IconSize)
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
+		, ThumbnailReferences(std::make_unique<FContentBrowserThumbnailReferences>())
 	{
 		if (auto* Data = GetDataSubsystem())
 		{
@@ -155,18 +155,12 @@ namespace Durin::ContentBrowser::Private
 			ItemDataUpdatedHandle = Data->OnItemDataUpdated().AddLambda([this, Lifetime](std::span<const FContentBrowserItemDataUpdate> Updates) {
 				if (!Lifetime.expired() && GetDataSubsystem()) ApplyItemDataUpdates(Updates);
 			});
-		}
-
-		if (HostContext.MountedContentChanged)
-		{
-			const std::weak_ptr<void> Lifetime = ExtensionLifetime;
-			MountedContentChangedHandle = HostContext.MountedContentChanged->AddLambda([this, Lifetime](const FContentChangeBatch& Batch) {
-				if (!Lifetime.expired()) RefreshCoordinator.ObserveMountedContent(Batch);
+			ItemDataRefreshedHandle = Data->OnItemDataRefreshed().AddLambda([this, Lifetime] {
+				if (!Lifetime.expired()) ThumbnailReferences->Clear();
 			});
 		}
-		RefreshCoordinator.SetPublicationSuspension([this](bool bSuspended) { Model.SetSnapshotPublicationSuspended(bSuspended); });
+
 		Model.RefreshMountSnapshot();
-		ThumbnailReferences = std::make_unique<FContentBrowserThumbnailReferences>();
 		ViewMode = static_cast<EContentBrowserViewMode>(
 			PresentationSettings.ViewMode);
 		bIconSizeLocked = PresentationSettings.bIconSizeLocked;
@@ -195,14 +189,6 @@ namespace Durin::ContentBrowser::Private
 	{
 		StopRequestAdmission();
 		SettingsPage = {};
-	}
-
-	auto FContentBrowserPanel::NotifyMountedContentChanged() -> bool
-	{
-		if (AdmissionState != EAdmissionState::Accepting)
-			return false;
-		PublishMountedContentMutation();
-		return true;
 	}
 
 	auto FContentBrowserPanel::RevealDirectory(
@@ -268,19 +254,14 @@ namespace Durin::ContentBrowser::Private
 		}
 	}
 
-	auto FContentBrowserPanel::Refresh(bool bRescanRegistry) -> void
+	auto FContentBrowserPanel::Refresh() -> void
 	{
-		if (bRescanRegistry)
+		const auto Result = Model.RescanRegistry();
+		if (!Result)
 		{
-			const auto Result = RefreshCoordinator.ReconcileExplicitly([this] { return Model.RescanRegistry(); },
-				[this](const FContentChangeBatch&) { RefreshPublishedContent(); });
-			if (!Result) SetError(Result.error().ToString());
+			SetError(Result.error().ToString());
+			return;
 		}
-		else RefreshPublishedContent();
-	}
-
-	auto FContentBrowserPanel::RefreshPublishedContent() -> void
-	{
 		if (Model.GetCurrentPhysicalPath().empty() && !Model.GetCurrentVirtualPath().empty())
 		{
 			Model.RefreshMountSnapshot();
@@ -309,39 +290,36 @@ namespace Durin::ContentBrowser::Private
 
 	auto FContentBrowserPanel::ApplyItemDataUpdates(std::span<const FContentBrowserItemDataUpdate> Updates) -> void
 	{
+		FContentChangeBatch FileChanges;
+		const auto FileSource = DataQuery.FindSourceKey(FName("File"));
 		for (const auto& Update : Updates)
 		{
 			SelectionState.Apply(Update, Model.GetItemsSnapshot());
 			FContentBrowserSelection::Migrate(RenameTarget, Update);
 			if (PendingItemAction) FContentBrowserSelection::Migrate(PendingItemAction->ItemKey, Update);
-		}
-	}
 
-	auto FContentBrowserPanel::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
-	{
-		if (Changes.bFullRefresh) { RefreshPublishedContent(); return; }
-		auto Mapped = Changes;
-		for (auto& Change : Mapped.Changes)
-			if (Change.bDirectory)
+			const auto& Item = Update.GetItemData();
+			if (!Item.GetOwnerDataSource() || Item.GetOwnerKey() != FileSource) continue;
+			const bool Folder = Item.GetItemType() == EContentBrowserItemFlags::Type_Folder;
+			std::string PhysicalPath;
+			if (!Item.GetItemPhysicalPath(PhysicalPath)) PhysicalPath = Model.VirtualToPhysical(Item.GetVirtualPath());
+			switch (Update.GetUpdateType())
 			{
-				if (!Change.OldPhysicalPath.empty()) Change.OldAssetPath = Model.PhysicalToVirtualDirectory(Change.OldPhysicalPath);
-				if (!Change.NewPhysicalPath.empty()) Change.NewAssetPath = Model.PhysicalToVirtualDirectory(Change.NewPhysicalPath);
+			case EContentBrowserItemUpdateType::Added:
+				FileChanges.Changes.push_back({EContentChangeKind::Added, {}, PhysicalPath, {}, {}, Folder});
+				break;
+			case EContentBrowserItemUpdateType::Modified:
+				FileChanges.Changes.push_back({EContentChangeKind::Modified, PhysicalPath, PhysicalPath, {}, {}, Folder});
+				break;
+			case EContentBrowserItemUpdateType::Removed:
+				FileChanges.Changes.push_back({EContentChangeKind::Removed, PhysicalPath, {}, {}, {}, Folder});
+				break;
+			case EContentBrowserItemUpdateType::Moved:
+				FileChanges.Changes.push_back({EContentChangeKind::Renamed, Model.VirtualToPhysical(Update.GetPreviousVirtualPath()), PhysicalPath, {}, {}, Folder});
+				break;
 			}
-		ThumbnailReferences->ApplyContentChanges(Mapped);
-		const auto Navigation = Model.GetNavigationRevision();
-		if (std::ranges::any_of(Mapped.Changes, [](const auto& Change) { return Change.bDirectory; })
-			&& Model.ApplyContentChanges(Mapped)) RepairSelection();
-		if (PendingItemAction && PendingItemAction->NavigationRevision == Navigation)
-		{
-			if (!PendingItemAction->ItemKey.IsValid()) PendingItemAction.reset();
-			else PendingItemAction->NavigationRevision = Model.GetNavigationRevision();
 		}
-	}
-
-	auto FContentBrowserPanel::PublishMountedContentMutation() -> void
-	{
-		if (HostContext.NotifyContentMutation) HostContext.NotifyContentMutation({.bFullRefresh = true});
-		SynchronizeMountedContentMutation();
+		if (!FileChanges.Changes.empty()) ThumbnailReferences->ApplyContentChanges(FileChanges);
 	}
 
 	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
@@ -663,14 +641,6 @@ namespace Durin::ContentBrowser::Private
 		const auto Items = CollectItemData(ContentBrowserQuery::CopySelection(Model.GetItems(), SelectionState.Selected));
 		auto* Data = GetDataSubsystem();
 		if (!Data || !Data->BulkDeleteItems(Items)) SetError("Content was not deleted. See Console for details.");
-		SynchronizeMountedContentMutation();
-	}
-
-	auto FContentBrowserPanel::SynchronizeMountedContentMutation() -> void
-	{
-		const auto Result = RefreshCoordinator.Synchronize([this] { return Model.RescanRegistry(); },
-			[this](const FContentChangeBatch& Changes) { ApplyContentChanges(Changes); });
-		if (!Result) SetError(Result.error().ToString());
 	}
 
 	auto FContentBrowserPanel::RevealAsset(std::string_view AssetPath) -> bool
@@ -707,10 +677,13 @@ namespace Durin::ContentBrowser::Private
 		if (AdmissionState == EAdmissionState::Stopped)
 			return;
 		AdmissionState = EAdmissionState::Stopping;
-		if (auto* Data = HostContext.DataSubsystem.Get()) Data->OnItemDataUpdated().Remove(ItemDataUpdatedHandle);
+		if (auto* Data = HostContext.DataSubsystem.Get())
+		{
+			Data->OnItemDataUpdated().Remove(ItemDataUpdatedHandle);
+			Data->OnItemDataRefreshed().Remove(ItemDataRefreshedHandle);
+		}
 		ItemDataUpdatedHandle = {};
-		if (HostContext.MountedContentChanged) HostContext.MountedContentChanged->Remove(MountedContentChangedHandle);
-		MountedContentChangedHandle = {};
+		ItemDataRefreshedHandle = {};
 		const std::weak_ptr<void> Lifetime = ExtensionLifetime;
 		ExtensionLifetime.reset();
 		StopHostPresentations(Lifetime);

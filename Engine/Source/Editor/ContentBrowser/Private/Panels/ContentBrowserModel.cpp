@@ -70,7 +70,6 @@ namespace Durin::ContentBrowser::Private
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		ItemsCancellation->Cancel();
 		ItemsRequest.reset();
-		bSnapshotPublicationSuspended = false;
 		InvalidateDirectoryTree();
 	}
 
@@ -94,7 +93,6 @@ namespace Durin::ContentBrowser::Private
 			ItemIndices.clear();
 			ItemFilter.reset();
 		}
-		if (bSnapshotPublicationSuspended) return false;
 		if (PendingChanges.bFullRefresh || !PendingChanges.Changes.empty())
 		{
 			auto Changes = std::exchange(PendingChanges, {});
@@ -305,7 +303,16 @@ namespace Durin::ContentBrowser::Private
 		-> FContentBrowserItemKey
 	{
 		FTopLevelAssetPath Path;
-		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path)) return {};
+		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path))
+		{
+			// Save observers identify the committed package. Reveal it only when
+			// the catalog identifies a single unambiguous asset in that package.
+			FPackagePath PackagePath;
+			if (!FPackagePath::TryCreate(AssetPath, PackagePath)) return {};
+			const auto Package = FindPackageExact(PackagePath);
+			if (!Package || Package->TopLevelAssets.size() != 1) return {};
+			Path = Package->TopLevelAssets.front().AssetPath;
+		}
 		const auto Entry = FindAssetExact(Path);
 		if (!Entry) return {};
 		if (Entry.Asset->IsRedirector())
@@ -438,7 +445,6 @@ namespace Durin::ContentBrowser::Private
 		if (ItemsRequest) ItemsRequest->State = EItemsRequestState::Cancelled;
 		ItemsCancellation->Cancel();
 		if (!DataQuery.IsAcceptingRequests()) { CancelPendingSnapshots(); return; }
-		bSnapshotPublicationSuspended = false;
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;
 		if (!bPreserveItems)

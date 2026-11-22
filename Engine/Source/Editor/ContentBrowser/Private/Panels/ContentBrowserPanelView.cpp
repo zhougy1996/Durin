@@ -129,7 +129,6 @@ namespace Durin::ContentBrowser::Private
 			bRefreshItemsOnFirstDraw = false;
 		}
 		if (!ImGui::GetCurrentContext() || !ImGui::GetDragDropPayload()) DragSnapshot.reset();
-		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
 		if (Model.PumpPendingSnapshots() || bSelectionRepairDeferred) RepairSelection();
 		CompletePendingItemAction();
@@ -239,7 +238,7 @@ namespace Durin::ContentBrowser::Private
 		if (DrawToolbarIconButton(Icons::ArrowUp, "ContentBrowserUp")) NavigateToPhysical(Parent.generic_string());
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (DrawToolbarIconButton(Icons::Refresh, "ContentBrowserRefresh")) Refresh(true);
+		if (DrawToolbarIconButton(Icons::Refresh, "ContentBrowserRefresh")) Refresh();
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rescan mounted content");
 
 		auto DrawBreadcrumb = [&](float Width) {
@@ -485,7 +484,7 @@ namespace Durin::ContentBrowser::Private
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
 				&& ImGui::GetIO().KeyShift && ImGui::IsKeyPressed(ImGuiKey_N))
 				CreateFolder(Model.GetCurrentPhysicalPath());
-			if (ImGui::IsKeyPressed(ImGuiKey_F5)) Refresh(true);
+			if (ImGui::IsKeyPressed(ImGuiKey_F5)) Refresh();
 			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && SelectionState.Selected.size() == 1)
 				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.GetItemKey()); }); It != Model.GetItems().end()) OpenItem(*It);
 			if (bAllowAssetMutation && ImGui::IsKeyPressed(ImGuiKey_F2)
@@ -1062,7 +1061,6 @@ namespace Durin::ContentBrowser::Private
 						.OpenAsset = [this, Lifetime](std::string_view Path, std::string_view Class) {
 							return !Lifetime.expired() && HostContext.OpenAsset && HostContext.OpenAsset(std::string(Path), std::string(Class));
 						},
-						.NotifyMountedContentChanged = [this, Lifetime] { if (!Lifetime.expired()) PublishMountedContentMutation(); },
 						.ReportError = [this, Lifetime](std::string Message) { if (!Lifetime.expired()) SetError(std::move(Message)); },
 						.Host = {.Lifetime = Lifetime, .bHasLifetime = true, .AssetEditors = HostContext.AssetEditors},
 					});
@@ -1129,7 +1127,7 @@ namespace Durin::ContentBrowser::Private
 		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(PhysicalDirectory);
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(PhysicalDirectory);
 		if (ImGui::MenuItem("Refresh", "F5"))
-			QueueTreeAction([this] { Refresh(true); });
+			QueueTreeAction([this] { Refresh(); });
 	}
 
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
@@ -1265,7 +1263,7 @@ namespace Durin::ContentBrowser::Private
 				QueueContentAction([this] { FixUpProject(); });
 			ImGui::EndDisabled();
 			ImGui::Separator();
-			if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
+			if (ImGui::MenuItem("Refresh", "F5")) Refresh();
 			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Model.GetCurrentPhysicalPath());
 			ImGui::EndPopup();
 		}

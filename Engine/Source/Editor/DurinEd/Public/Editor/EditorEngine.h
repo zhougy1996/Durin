@@ -207,7 +207,8 @@ namespace Durin
 	private:
 		auto CheckEditorSubsystemUpdate() -> void;
 
-		// Sole editor-session transaction history and revision service.
+
+		// Sole editor-session transaction history.
 		DPROPERTY(Transient)
 		TObjectPtr<DTransactor> Trans;
 

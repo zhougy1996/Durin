@@ -228,7 +228,6 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		Private/Editor/ContentBrowserPanelExtensionTests.cpp
 		Private/Editor/ContentBrowserItemViewTests.cpp
 		Private/Editor/ContentBrowserModelTests.cpp
-		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_content_browser_private}/ContentBrowserExtensionRegistry.cpp
 		${_durin_content_browser_private}/Panels/AssetCreationDialog.cpp
@@ -243,7 +242,6 @@ durin_add_native_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserQuery.cpp
-		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 	LIBRARIES
 		Core
 		CoreDObject

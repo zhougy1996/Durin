@@ -47,7 +47,6 @@ namespace Durin
 		virtual auto GetModifiedObjects() const -> std::vector<DObject*> = 0;
 		virtual auto GetDetails(ETransactionOperation) const -> std::string { return {}; }
 		virtual auto GetAffectedPackages() const -> std::span<DPackage* const> { return {}; }
-		virtual auto MutatesMountedContent() const -> bool { return false; }
 		virtual auto AddReferencedObjects(FReferenceCollector&) const -> void {}
 		virtual auto GetAllocatedSize() const -> size_t { return 0; }
 		virtual auto GetOwningModule() const -> std::string_view { return {}; }

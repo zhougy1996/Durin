@@ -4,10 +4,24 @@ Summary: Align recording and scope semantics with UE 5.8, isolate fallible comma
 
 Last reviewed: 2026-11-21
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-11-21
 
 ## Current Status
+
+All four stages are complete. A subsequent simplification retired the editor-session journal introduced in Stage 4 and the history command flag for mounted-content changes. The Asset and File data sources publish item updates to the browser. AssetRegistry retains its catalog revision and history retains package checkpoints. The Stage 4 checklist and validation below record the original migration.
+
+The follow-up on base `982884ea6` built `all` on Win64-Debug-DurinEditor.
+Across 15 relevant native targets, 1,350 cases passed and two browser
+symlink cases skipped because the process lacked Windows symlink privileges.
+SceneImportTests passed all 38 cases after the material fix. Browser coverage
+includes immediate asset and directory Reveal before the next subsystem tick,
+selection after delivery, and restoring a browser directory after a closed-panel
+import. Transaction coverage includes command replay and saved checkpoints.
+
+On 2026-11-21 the stage 4 working tree on base `bc7fbb455` built the incremental `all` target and passed 1,215 cases on Win64-Debug-DurinEditor across EditorOperationTests, ContentBrowserWorkflowTests, ContentBrowserDataTests, EditorPropertyTests, MaterialGraphEditingTests, MaterialEditingPersistenceTests, ViewportTests, SplineTests, RoadEditorIntegrationTests, EditorShellTests and EditorAssetWorkflowTests. Two existing browser symlink tests skipped because the process lacked Windows symlink privileges. Coverage includes external paths, history full-refresh batches, no-op, cancellation, failed commit and replay, nested publication and save/undo/redo checkpoints with a throwing subscriber.
+
+Additional SceneImportTests coverage passed 15 of 38 cases. The same 23 cases failed at the same assertions on the unmodified stage 3 base, during import before mounted-content notification. The affected material imports report an invalid object in the replacement graph.
 
 Stage 1 passed on 2026-11-20. EditorOperationTests passed all 399 tests in 15 suites on Win64-Debug-DurinEditor, using the stage 1 working tree on base `6bc1a7919`. This covers guarded admission, optional replay details, required callback failure and guarded Undo without Redo.
 
@@ -15,7 +29,7 @@ Stage 2 is complete. The stage 3 scope interface was brought forward at review a
 
 The stage 3 audit covered Engine, Sandbox and RoadWeaver source, tests, tools and Python. The Level Editor transform gizmo was the only production caller using implicit standalone submission. It now records the final preview in an explicit release scope. Opening a scope across input events would let unrelated editor edits join the drag. Interactive material parameter previews use the same commit boundary. The synchronous material parameter command now opens its scope before changing the value. Graph presentation, material configuration and ApplyEditorChange already had scopes. Tools and Python use domain commands or explicit scopes. The buffer now requires an active recording for StoreUndo.
 
-Stage 3 passed on 2026-11-21 on the working tree based on `2934ba6e3`. On Win64-Debug-DurinEditor, 1,031 cases passed across EditorOperationTests, ViewportTests, SplineTests, MaterialGraphEditingTests, MaterialEditorInteractionTests, MaterialEditingPersistenceTests, EditorPropertyTests, RoadEditorIntegrationTests, PythonToolIntegrationTests and EditorHostToolTests. Coverage includes idle submission rejection, joined admission failure, foreign edits during drag, discard at release, cancellation during synchronous parameter publication and Python continuation after an injected finalization failure. Stage 4 is open.
+Stage 3 passed on 2026-11-21 on the working tree based on `2934ba6e3`. On Win64-Debug-DurinEditor, 1,031 cases passed across EditorOperationTests, ViewportTests, SplineTests, MaterialGraphEditingTests, MaterialEditorInteractionTests, MaterialEditingPersistenceTests, EditorPropertyTests, RoadEditorIntegrationTests, PythonToolIntegrationTests and EditorHostToolTests. Coverage includes idle submission rejection, joined admission failure, foreign edits during drag, discard at release, cancellation during synchronous parameter publication and Python continuation after an injected finalization failure.
 
 On 2026-11-20 the scope migration on base `97ac906b6` passed 836 cases on Win64-Debug-DurinEditor across EditorOperationTests, EditorPropertyTests, MaterialGraphEditingTests, MaterialEditingPersistenceTests, LevelMutationTests, SkyBoxTests, AssetPackageReloadTests, PythonToolIntegrationTests, RoadEditorIntegrationTests and EditorHostToolTests. The Python fault injection now verifies successful script continuation and an independently failed history entry. The property integration case verifies the applied value and the buffer's recovery state.
 
@@ -65,8 +79,8 @@ Scope cleanup can proceed after stage 1 independently of the stage 2 object inde
 
 Depends on stage 3. Keep package checkpoints synchronized with successful history transitions. Content discovery accepts the existing content change batch from both history and external editors. Preserve synchronous object notifications and reconstruction order.
 
-- [ ] Move journal ownership and revision queries to the editor content service. Migrate MainFrame, LevelEditor, history and test consumers and remove their transactor forwarding APIs.
-- [ ] Verify revision and batch contents for execute, undo, redo, external change, no-op, cancel and failure. Verify dirty checkpoints across save, undo and redo, including notification failure behavior.
-- [ ] Audit Engine, Sandbox and RoadWeaver source and tests for retired APIs. Build affected owners and consumers, run relevant history, property, material and content tests, and update implemented contracts.
+- [x] Move journal ownership and revision queries to the editor content service. Migrate MainFrame, LevelEditor, history and test consumers and remove their transactor forwarding APIs.
+- [x] Verify revision and batch contents for execute, undo, redo, external change, no-op, cancel and failure. Verify dirty checkpoints across save, undo and redo, including notification failure behavior.
+- [x] Audit Engine, Sandbox and RoadWeaver source and tests for retired APIs. Build affected owners and consumers, run relevant history, property, material and content tests, and update implemented contracts.
 
 Use the [build](../Agents/BuildAndRun.md) and [test](../Agents/Testing.md) workflows for bounded selections and evidence reuse.

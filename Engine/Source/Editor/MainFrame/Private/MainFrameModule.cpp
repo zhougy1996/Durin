@@ -161,8 +161,6 @@ namespace Durin::MainFrame
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
 		FLevelEditorModule* LevelEditorModule = nullptr;
 		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
-		std::shared_ptr<ContentBrowser::FMountedContentReconciliationState> ContentReconciliation =
-			std::make_shared<ContentBrowser::FMountedContentReconciliationState>();
 		std::unique_ptr<FConsolePanel> Console;
 		std::unique_ptr<FPythonScriptPanel> PythonScripts;
 		std::unique_ptr<FEditorNotificationOverlay> Activity;
@@ -353,10 +351,6 @@ namespace Durin::MainFrame
 							return Context.ContentBrowserTool
 								&& Context.ContentBrowserTool->RevealDirectory(Path);
 						},
-						.NotifyMountedContentChanged = [&Context] {
-							return Context.ContentBrowserTool
-								&& Context.ContentBrowserTool->NotifyMountedContentChanged();
-						},
 					},
 					[&Context] { Context.bProjectBrowserOpen = true; }))
 				{
@@ -373,10 +367,6 @@ namespace Durin::MainFrame
 						if (!FSoftObjectPath::TryCreate(Path, ObjectPath)) return false;
 						return AssetEditors->OpenAssets({.AssetEditors = AssetEditors, .Assets = {{ObjectPath, AssetClassName}}});
 					},
-					.MountedContentChanged = GEditor ? &GEditor->GetTransactor()->OnMountedContentChanged() : nullptr,
-					.NotifyContentMutation = [](FContentChangeBatch Changes) {
-						if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation(std::move(Changes));
-					},
 					.CanMutateContent = [] { return GEditor && GEditor->GetCapabilities().bEditWorld; },
 					.QueryReimport = [](std::string_view AssetClassName) {
 						const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
@@ -389,7 +379,6 @@ namespace Durin::MainFrame
 							std::move(ReportError));
 					},
 				};
-				Services.ReconciliationState = Context.ContentReconciliation;
 				ContentBrowser::FPresentationSettings BrowserSettings;
 				std::string BrowserSettingsWarning;
 				if (!ContentBrowser::LoadPresentationSettings(

@@ -139,9 +139,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, InitialLocation, CenterScreen));
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
-	Durin::Tests::FTestTransactorOwner Transactions;
-	const uint64 MountedContentRevision =
-		Transactions->GetMountedContentMutationRevision();
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
 	Input.bFocused = true;
 	Input.bHovered = true;
 	Input.bLeftMousePressed = true;
@@ -156,9 +154,6 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Input.bLeftMouseDown = false;
 	Gizmo.Update(Targets, View, Input, Transactions.Get());
 	ASSERT_TRUE(Transactions->CanUndo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(),
-		MountedContentRevision);
 	EXPECT_EQ(Transactions->GetUndoContext(false).Description, "Translate 'Probe'");
 	const auto BeforeRejectedUndo = Target->Transform;
 	Target->bValid = false;
@@ -172,9 +167,6 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	EXPECT_TRUE(Transactions->CanUndo());
 	Target->bValid = true;
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(),
-		MountedContentRevision);
 	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
 	EXPECT_EQ(Message, "The custom transaction target is unavailable.");
 	Target->Capabilities = Durin::LevelEditor::ETransformGizmoCapability::Translate;

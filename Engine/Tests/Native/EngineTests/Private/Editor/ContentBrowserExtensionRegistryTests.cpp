@@ -100,16 +100,14 @@ namespace Durin::ContentBrowser
 	TEST(FContentBrowserExtensionRegistryTests, ImportCallbacksAndQueuedActionsStopWithTheirRequestingHost)
 	{
 		auto Lifetime = std::make_shared<uint8>(0);
-		int Calls = 0, FilesystemChanges = 0;
+		int Calls = 0;
 		FExtensionInvocation Invocation{
 			.RevealAsset = [&](std::string_view) { ++Calls; return true; },
-			.NotifyMountedContentChanged = [&] { ++FilesystemChanges; },
 			.ReportError = [&](std::string) { ++Calls; },
 			.Host = {.Lifetime = Lifetime, .bHasLifetime = true}};
 		const auto Callbacks = MakeImportDialogCallbacks(Invocation, {});
 		Callbacks.NotifyAssetCreated("/Project/Asset.Asset");
 		EXPECT_EQ(1, Calls);
-		EXPECT_EQ(0, FilesystemChanges);
 		std::string Error;
 		auto Registration = RegisterExtension({.Id = "test.host-lifetime", .Label = "Host command",
 			.Mutation = EContentMutation::ReadOnly, .IsApplicable = [](const auto&) { return true; },
@@ -124,7 +122,6 @@ namespace Durin::ContentBrowser
 		Callbacks.Report("Retired host");
 		EXPECT_FALSE(InvokeExtension(*Entry, Invocation));
 		EXPECT_EQ(2, Calls);
-		EXPECT_EQ(0, FilesystemChanges);
 	}
 
 	TEST(FContentBrowserExtensionRegistryTests, BuiltInFilterShortcutsUseDefinitionCategoryPaths)
@@ -293,7 +290,6 @@ namespace Durin::ContentBrowser
 		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid());
 		int Creations = 0;
-		int Notifications = 0;
 		std::string Revealed;
 		std::string Opened;
 		DLevel* OpenedLevel = nullptr;
@@ -335,7 +331,6 @@ namespace Durin::ContentBrowser
 				OpenError = ResultError ? ResultError->ToString() : "";
 				return (Result != nullptr);
 			},
-			.NotifyMountedContentChanged = [&] { ++Notifications; },
 			.ReportError = [&](std::string Message) { ADD_FAILURE() << Message; }};
 		Dialog.Open(Invocation);
 		EXPECT_EQ(Creations, 0);
@@ -353,7 +348,6 @@ namespace Durin::ContentBrowser
 		EXPECT_FALSE(Dialog.IsPending());
 		EXPECT_FALSE(Dialog.Confirm(true));
 		EXPECT_EQ(Creations, 1);
-		EXPECT_EQ(Notifications, 0);
 		EXPECT_EQ(Revealed, "/DeferredCreation/FinalLevel.FinalLevel");
 		EXPECT_EQ(Opened, Revealed);
 		ASSERT_NE(OpenedLevel, nullptr) << OpenError;
@@ -385,7 +379,6 @@ namespace Durin::ContentBrowser
 		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid());
 		int Attempts = 0;
-		int Notifications = 0;
 		std::string LastPath;
 		Private::FAssetCreationDialog Dialog({
 			.Id = "test.creation-retry", .Label = "Asset", .DefaultName = "NewAsset",
@@ -395,8 +388,7 @@ namespace Durin::ContentBrowser
 				Error = "Injected save failure";
 				return false;
 			}});
-		Dialog.Open({.Context = {.VirtualDirectory = "/CreationRetry"},
-			.NotifyMountedContentChanged = [&] { ++Notifications; }});
+		Dialog.Open({.Context = {.VirtualDirectory = "/CreationRetry"}});
 		for (const auto* Name : {"", "../Escape", "Folder/Asset", "Asset.dasset"})
 		{
 			Dialog.SetName(Name);
@@ -411,7 +403,6 @@ namespace Durin::ContentBrowser
 		EXPECT_TRUE(Dialog.IsPending());
 		EXPECT_FALSE(Dialog.Confirm(true));
 		EXPECT_EQ(Attempts, 2);
-		EXPECT_EQ(Notifications, 0);
 		Dialog.Cancel();
 		EXPECT_TRUE(std::filesystem::is_empty(Root));
 	}

@@ -417,14 +417,6 @@ namespace Durin
 		return {};
 	}
 
-	auto FTransaction::FObjectRecord::MutatesMountedContent() const -> bool
-	{
-		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
-			Change && *Change)
-			return (*Change)->MutatesMountedContent();
-		return false;
-	}
-
 	auto FTransaction::FObjectRecord::IsOwnedByModule(std::string_view ModuleName) const -> bool
 	{
 		if (const auto* Change = std::get_if<std::unique_ptr<FCommandChange>>(&Data);
@@ -1050,7 +1042,6 @@ namespace Durin
 				VisitPackages(Record, [&](DPackage* Package) {
 					if (const auto It = Replay.PackagesWithSkippedRecords.find(Package); It != Replay.PackagesWithSkippedRecords.end()) It->second = true;
 				});
-			Replay.bMutatesMountedContent = Replay.bMutatesMountedContent || Record.MutatesMountedContent();
 			if (auto Details = Record.GetDetails(Operation); !Details.empty())
 			{
 				if (!Replay.Details.empty()) Replay.Details += " ";
@@ -1100,11 +1091,6 @@ namespace Durin
 					Packages.push_back(Package);
 		}
 		return Packages;
-	}
-
-	auto FTransaction::MutatesMountedContent() const -> bool
-	{
-		return std::ranges::any_of(Records, [](const auto& Record) { return !Record.bReplayExpired && Record.MutatesMountedContent(); });
 	}
 
 	auto FTransaction::IsOwnedByModule(std::string_view ModuleName) const -> bool
@@ -1476,7 +1462,6 @@ namespace Durin
 			return {.Code = ETransactorResultCode::NoOp, .TransactionId = TransactionId};
 		}
 		PreparePackageTransitions(*Pending);
-		const bool bContentMutation = Pending->MutatesMountedContent();
 		FTransactionEvent Executed{.Type = ETransactionEventType::Executed, .Operation = ETransactionOperation::Execute,
 			.Id = TransactionId, .Description = Pending->Context.Description, .Details = Pending->GetDetails(ETransactionOperation::Execute)};
 		auto RejectAccounting = [&](FTransactorFailure Cause) {
@@ -1528,7 +1513,6 @@ namespace Durin
 		History.push_back(std::move(*Pending)); Pending.reset(); Cursor = History.size();
 		OwnedBytes = RetainedBytes + EntryBytes;
 		ApplyPackageTransitions(History.back(), true);
-		if (bContentMutation) NotifyMountedContentMutation();
 		for (auto& Event : PreparedEvents) Events.push_back(std::move(Event));
 		State = ETransactorState::Idle;
 		return {.Code = ETransactorResultCode::Succeeded, .TransactionId = TransactionId};
@@ -1611,7 +1595,6 @@ namespace Durin
 			if (Index)
 			{
 				ApplyPackageTransitions(Transaction, !bUndo, &Outcome);
-				if (Outcome.bMutatesMountedContent) NotifyMountedContentMutation();
 				QueueEvent(bUndo ? ETransactionEventType::Undone : ETransactionEventType::Redone, Transaction, std::move(Outcome.Details));
 			}
 			for (size_t Slot = std::min(Cursor, NextCursor); Slot < std::max(Cursor, NextCursor); ++Slot)
@@ -1984,33 +1967,6 @@ namespace Durin
 		else
 			Package->ClearDirty();
 		State.ObservedEditRevision = Package->GetEditRevision();
-	}
-
-	auto DTransBuffer::GetMountedContentMutationRevision() const -> uint64
-	{
-		return MountedContentMutationRevision;
-	}
-
-	auto DTransBuffer::NotifyMountedContentMutation() -> void
-	{
-		NotifyMountedContentMutation({.bFullRefresh = true});
-	}
-
-	auto DTransBuffer::CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch
-	{
-		check(IsInGameThread());
-		return MountedContentChanges.Read(FromRevision, MountedContentMutationRevision);
-	}
-
-	auto DTransBuffer::NotifyMountedContentMutation(FContentChangeBatch Changes) -> void
-	{
-		check(IsInGameThread());
-		check(MountedContentMutationRevision != std::numeric_limits<uint64>::max());
-		Changes.FromRevision = MountedContentMutationRevision;
-		Changes.ToRevision = MountedContentMutationRevision + 1;
-		MountedContentChanges.Append(Changes);
-		++MountedContentMutationRevision;
-		MountedContentChanged.Broadcast(Changes);
 	}
 
 	auto DTransBuffer::EstablishSavedState(DPackage& Package) -> void

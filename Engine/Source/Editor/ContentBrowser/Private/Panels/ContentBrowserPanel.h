@@ -8,7 +8,6 @@
 #include "Panels/ContentBrowserModel.h"
 #include "ContentBrowserDataSubsystem.h"
 #include "Panels/ContentBrowserItemView.h"
-#include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Threading/TaskRuntime.h"
 #include "Settings/EditorSettings.h"
 
@@ -39,7 +38,6 @@ namespace Durin::ContentBrowser::Private
 		auto RevealAsset(std::string_view AssetPath) -> bool override;
 		auto RevealDirectory(std::string_view DirectoryPath) -> bool override;
 		auto RequestFocus() -> bool override;
-		auto NotifyMountedContentChanged() -> bool override;
 		auto StopRequestAdmission() -> void override;
 		auto GetAdmissionState() const
 			-> EAdmissionState override
@@ -66,12 +64,10 @@ namespace Durin::ContentBrowser::Private
 		auto MoveItems(std::vector<FContentBrowserItem>, std::string Destination) -> bool;
 		auto PrepareForDraw() -> void;
 		auto DrawBrowserContents() -> void;
-		auto Refresh(bool bRescanRegistry) -> void;
-		auto RefreshPublishedContent() -> void;
-		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
+		auto Refresh() -> void;
 		auto ApplyItemDataUpdates(std::span<const FContentBrowserItemDataUpdate>) -> void;
-		FDelegateHandle ItemDataUpdatedHandle, MountedContentChangedHandle;
-		auto PublishMountedContentMutation() -> void;
+		FDelegateHandle ItemDataUpdatedHandle;
+		FDelegateHandle ItemDataRefreshedHandle;
 		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
@@ -135,7 +131,6 @@ namespace Durin::ContentBrowser::Private
 		std::optional<FPendingItemAction> PendingItemAction;
 		auto RequestDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
-		auto SynchronizeMountedContentMutation() -> void;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
@@ -151,7 +146,6 @@ namespace Durin::ContentBrowser::Private
 		FSavePresentationSettings SavePresentationSettings;
 		std::shared_ptr<void> ExtensionLifetime = std::make_shared<uint8>(0);
 		FContentBrowserHostContext HostContext;
-		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserDataQuery DataQuery;
 		FContentBrowserModel Model;
 		FContentBrowserSelection SelectionState;

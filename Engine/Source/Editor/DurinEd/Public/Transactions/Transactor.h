@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "DurinEdAPI.h"
-#include "AssetRegistry/ContentChanges.h"
 #include "DObject/Object.h"
 #include "Misc/ITransaction.h"
 #include "DObject/StrongObjectPtr.h"
@@ -308,7 +307,6 @@ namespace Durin
 			DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
 			DURINED_API auto GetDetails(ETransactionOperation Operation) const -> std::string;
 			DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
-			DURINED_API auto MutatesMountedContent() const -> bool;
 			DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
 			DURINED_API auto GetModifiedObjects() const -> std::vector<DObject*>;
 			DURINED_API auto PrepareReplay() -> FTransactionRecordResult;
@@ -361,7 +359,6 @@ namespace Durin
 		DURINED_API auto GetDetails(ETransactionOperation Operation) const -> std::string;
 		DURINED_API auto GetAffectedPackages() const -> std::vector<DPackage*>;
 		DURINED_API auto GetTransactionObjects() const -> std::vector<DObject*>;
-		DURINED_API auto MutatesMountedContent() const -> bool;
 		DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
 		auto GetPackageTransitions() const
 			-> std::span<const FTransactionPackageRevisionTransition>
@@ -383,7 +380,6 @@ namespace Durin
 			// Only packages with skipped records need special checkpoint handling.
 			std::unordered_map<DPackage*, bool> PackagesWithSkippedRecords;
 			std::string Details;
-			bool bMutatesMountedContent = false;
 		};
 		auto Apply(bool bUndo, EPropertyChangeOrigin Origin, FReplayResult& Replay) -> FTransactionApplyResult;
 		auto ValidateReplayRecords(std::span<const size_t> Indices) const -> FTransactionApplyResult;
@@ -474,11 +470,6 @@ namespace Durin
 		DURINED_API virtual auto GetUndoContext(bool bCheckWhetherUndoPossible = true) const -> FTransactionContext = 0;
 		DURINED_API virtual auto GetRedoContext() const -> FTransactionContext = 0;
 		virtual auto GetUndoCount() const -> size_t = 0;
-		DURINED_API virtual auto GetMountedContentMutationRevision() const -> uint64 = 0;
-		auto OnMountedContentChanged() -> TMulticastDelegate<void(const FContentChangeBatch&)>& { return MountedContentChanged; }
-		DURINED_API virtual auto NotifyMountedContentMutation() -> void = 0;
-		DURINED_API virtual auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void = 0;
-		DURINED_API virtual auto CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch = 0;
 		DURINED_API virtual auto EstablishSavedState(DPackage& Package) -> void = 0;
 		DURINED_API virtual auto MarkSaved(DPackage& Package) -> void = 0;
 		DURINED_API virtual auto InvalidateSavedState(DPackage& Package) -> void = 0;
@@ -497,9 +488,6 @@ namespace Durin
 		virtual auto GetRecordingId() const -> FTransactionId = 0;
 		friend auto Durin::ApplyEditorChange(DTransactor&, std::unique_ptr<FCommandChange>) -> FTransactorResult;
 		DURINED_API virtual auto ReportChangeFailure(std::unique_ptr<FCommandChange> Change, FCommandChangeError Error) -> FTransactorResult = 0;
-	protected:
-		TMulticastDelegate<void(const FContentChangeBatch&)> MountedContentChanged;
-	private:
 		const uint64 HistoryId = AllocateTransactionOperationId();
 	};
 
@@ -542,10 +530,6 @@ namespace Durin
 		DURINED_API auto DispatchEvents() -> void override;
 		auto GetQueueLength() const -> size_t override { return History.size(); }
 		auto GetTransaction(size_t Index) const -> const FTransaction* override { return State != ETransactorState::Finalizing && Index < History.size() ? &History[Index] : nullptr; }
-		DURINED_API auto GetMountedContentMutationRevision() const -> uint64 override;
-		DURINED_API auto NotifyMountedContentMutation() -> void override;
-		DURINED_API auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void override;
-		DURINED_API auto CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch override;
 		DURINED_API auto EstablishSavedState(DPackage& Package) -> void override;
 		DURINED_API auto MarkSaved(DPackage& Package) -> void override;
 		DURINED_API auto InvalidateSavedState(DPackage& Package) -> void override;
@@ -625,8 +609,6 @@ namespace Durin
 		std::vector<FTransactionEvent> Events;
 		FRevisionId NextRevision = 1;
 		uint64 HistoryRevision = 0;
-		uint64 MountedContentMutationRevision = 1;
-		FContentChangeJournal MountedContentChanges;
 		std::unordered_map<DPackage*, FTrackedPackageState> PackageStates;
 
 		friend struct FTransBufferTestAccess;

@@ -13,7 +13,6 @@ namespace
 		auto GetDescription() const -> std::string_view override { return "Management probe"; }
 		auto GetDetails(Durin::ETransactionOperation) const -> std::string override { if (OnDetails) OnDetails(); return "Management probe details"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { if (OnPackages) OnPackages(); return {}; }
-		auto MutatesMountedContent() const -> bool override { if (OnMutation) OnMutation(); return false; }
 		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return Participants; }
 		std::vector<Durin::DObject*> Participants;
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
@@ -28,7 +27,7 @@ namespace
 		std::function<void()> OnInspect;
 		std::function<void()> OnDestroy;
 		std::function<void()> OnMeasure;
-		std::function<void()> OnDetails, OnPackages, OnMutation;
+		std::function<void()> OnDetails, OnPackages;
 	};
 }
 
@@ -365,7 +364,7 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 {
 	using namespace Durin; using namespace Durin;
 	InitializeDObjectSystem();
-	for (int Stage : {0, 1, 2, 3, 4, 5})
+	for (int Stage : {0, 1, 2, 3, 4})
 	{
 		Tests::FTestTransactorOwner Buffer;
 		auto Prefix = std::make_unique<FManagementProbeChange>(); auto* PrefixProbe = Prefix.get();
@@ -375,7 +374,7 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 		ASSERT_TRUE(Buffer->Undo()); const auto RedoId = Buffer->GetRedoContext().TransactionId;
 		const auto Bytes = Buffer->GetUndoSize(); Buffer->SetUndoBarrier();
 		auto Enabled = std::make_shared<bool>(true); auto Destroyed = std::make_shared<int>(0);
-		const std::string Original = Stage == 5 ? "unknown exception" : std::format("Original finalization exception {}", Stage);
+		const std::string Original = Stage == 4 ? "unknown exception" : std::format("Original finalization exception {}", Stage);
 		auto Throw = [Enabled, Original] { if (*Enabled) throw std::runtime_error(Original); };
 		FScopedTransaction Scope(Buffer.Get(), {.Description = "Throwing metadata"});
 		auto Change = std::make_unique<FManagementProbeChange>(); auto* Probe = Change.get();
@@ -391,9 +390,8 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 		if (Stage == 0) Probe->OnMeasure = Throw;
 		if (Stage == 1) Probe->OnDetails = Throw;
 		if (Stage == 2) Probe->OnPackages = Throw;
-		if (Stage == 3) Probe->OnMutation = Throw;
-		if (Stage == 4) PrefixProbe->OnMeasure = Throw;
-		if (Stage == 5) Probe->OnMeasure = [Enabled] { if (*Enabled) throw 42; };
+		if (Stage == 3) PrefixProbe->OnMeasure = Throw;
+		if (Stage == 4) Probe->OnMeasure = [Enabled] { if (*Enabled) throw 42; };
 		EXPECT_NO_THROW(DestroyScope(std::move(Scope))); *Enabled = false;
 		const auto Failure = Buffer->GetLastResult();
 		EXPECT_EQ(Failure.Code, ETransactorResultCode::Failed); EXPECT_EQ(Failure.TransactionId, Id);

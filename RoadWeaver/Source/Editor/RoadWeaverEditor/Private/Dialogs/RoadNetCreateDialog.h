@@ -9,7 +9,6 @@ namespace Durin::RoadNet::Editor
 	// Routes a successful generated asset back to its Content Browser host.
 	struct FCreateDialogCallbacks
 	{
-		std::function<void()> NotifyMountedContentChanged;
 		std::function<bool(std::string_view)> RevealAsset;
 		std::function<void(std::string)> ReportError;
 	};
