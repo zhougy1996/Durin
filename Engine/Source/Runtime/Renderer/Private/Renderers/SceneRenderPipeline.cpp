@@ -94,6 +94,10 @@ namespace Durin
 		FSceneTelemetryPublication TelemetryPublication(
 			Telemetry, OutStatistics
 		);
+		// A cut belongs to the view stream even when this draw exits before collection.
+		if (!bPrepareOnly && View.bDiscardHistory)
+			if (auto* State = Service.ViewStates.Find(View.ViewStateId))
+				State->HZBOcclusionTester.Invalidate();
 		const uint32 Width =
 			OutputTarget != nullptr ? OutputTarget->GetSizeX() : 0;
 		const uint32 Height =
@@ -115,7 +119,7 @@ namespace Durin
 			// Material resolution belongs to logical collection, before the resource
 			// stages. Preserve its pending result with the same preparation batch.
 			FRenderPipelinePreparationBatch Batch(bPrepareOnly);
-			Preparation = PrepareView_RenderThread(CommandList, Context);
+			Preparation = PrepareView_RenderThread(CommandList, Context, bPrepareOnly);
 			if (bPrepareOnly && PreparationRequests) Batch.CollectRequests(*PreparationRequests);
 			if (bPrepareOnly && Batch.HasResourcePending()) return ERenderViewResult::RendererResourcesPending;
 		}

@@ -97,6 +97,7 @@ namespace Durin
 	};
 
 	// Command-local owner of immutable feature-bounded logical preparation.
+	struct FOcclusionFeedback;
 	struct FSceneRenderPlan
 	{
 		FSceneRenderPreparationConfig PreparationConfig;
@@ -104,6 +105,7 @@ namespace Durin
 		std::optional<FPreparedEnvironment> Environment;
 		FPreparedLighting Lighting;
 		FPreparedReceiverGeometry Receiver;
+		std::shared_ptr<FOcclusionFeedback> OcclusionFeedback;
 		std::optional<FPreparedDirectionalShadow> DirectionalShadow;
 		std::optional<FPreparedVolumetricCloud> VolumetricCloud;
 	};

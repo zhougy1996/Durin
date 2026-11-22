@@ -101,6 +101,8 @@ namespace Durin
 			.Failure = Logical.Qualification.GPUCullingFailure,
 			.Width = Width, .Height = Height, .Feature = Features.GBuffer,
 			.DeferredFeature = Features.Deferred});
+		if (PreparedView.OcclusionFeedback && Context.Transaction.ViewState)
+			Context.Transaction.ViewState->HZBOcclusionTester.Submit(Graph, GBufferOutput, PreparedView.OcclusionFeedback);
 		const auto AmbientOcclusionOutput =
 			AddAmbientOcclusionPasses(Graph, { .View = PreparedRenderView,
 				.Options = Options, .GBuffer = GBufferOutput,

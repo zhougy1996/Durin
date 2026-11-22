@@ -51,7 +51,7 @@ namespace Durin
 		auto PrepareFeatureResources_RenderThread(FRHICommandListImmediate& CommandList, FSceneFrameContext& Context, bool bPrepareOnly) -> ERenderViewResult;
 		auto PrepareView_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FSceneFrameContext& Context
+			FSceneFrameContext& Context, bool bPrepareOnly
 		) -> std::expected<FSceneRenderPlan, ERenderViewResult>;
 		auto ResolveSceneRenderResources_RenderThread(
 			FRHICommandListImmediate& CommandList,

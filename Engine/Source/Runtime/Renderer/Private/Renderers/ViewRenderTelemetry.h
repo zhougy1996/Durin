@@ -18,6 +18,7 @@ namespace Durin
 		size_t SubmittedPrimitives = 0;
 		size_t HiddenPrimitives = 0;
 		size_t FrustumCulledPrimitives = 0;
+		size_t OcclusionCulledPrimitives = 0;
 		size_t VisiblePrimitives = 0;
 		size_t InvalidBoundsFallbacks = 0;
 		size_t InvalidViewFallbacks = 0;

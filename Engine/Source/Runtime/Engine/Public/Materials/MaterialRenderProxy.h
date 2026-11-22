@@ -82,6 +82,9 @@ namespace Durin
 		ENGINE_API auto InvalidateUniformExpressionCache_GameThread(bool RecreateUniformBuffer = false) -> void;
 		ENGINE_API auto InvalidateUniformExpressionCache_RenderThread(bool RecreateUniformBuffer = false) -> void;
 
+		// RenderThread only. Identifies a published opaque material with stable vertex positions. Never resolves a dirty material.
+		ENGINE_API auto GetCachedOpaqueDepthMaterialId_RenderThread() const -> std::optional<uint64>;
+
 		// RenderThread only. A missing/invalid program returns null without selecting a fallback.
 		ENGINE_API auto GetMaterialNoFallback() -> const FMaterialRenderData*;
 		// RenderThread only. Returns the accepted material or the explicit error material.
@@ -124,6 +127,7 @@ namespace Durin
 		uint64 PublicationCount = 0;
 		uint64 ResolutionCount = 0;
 		bool bHasResolvedData = false;
+		bool bProgramUsesWPO = false;
 
 	};
 

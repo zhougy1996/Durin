@@ -4,7 +4,7 @@ Summary: Define optional renderer-owned identity, previous-view metadata, discon
 
 Modules: RenderCore, Renderer, Engine
 
-Last reviewed: 2026-10-29
+Last reviewed: 2026-11-22
 
 ## Public Boundary and Ownership
 
@@ -39,8 +39,7 @@ they do not add a string-keyed, type-erased public cache.
 
 History age uses `GRenderFrameCounterRenderThread`, not the number of view
 submissions. Other viewports, captures, and retries in the same render frame do
-not age a view's history. A gap above 120 render frames, or a backwards counter,
-rejects reuse.
+not age a view's history. Cloud history rejects a gap above 120 render frames or a backwards counter.
 
 After `FitViewToOutput`, Renderer begins a cloud-local candidate with fitted
 projection and view-projection matrices, viewport/output extents, depth
@@ -70,6 +69,43 @@ public ID. Explicit cuts and hard-reset signals persist until the feature
 publishes a replacement or clear. Disabled consumers publish no candidate; age
 and compatibility are rechecked when they next run. Future temporal features
 own their own paired resources, metadata, compatibility, and publication point.
+
+## Main-view occlusion history
+
+With `FSceneViewRenderOptions::bEnableOcclusionHistory` enabled, the persistent
+view's `FHZBOcclusionTester` assigns each frustum candidate a test index by
+primitive component ID. A changed batch projects its bounds conservatively and
+uploads one immutable GPU buffer.
+After opaque GBuffer depth is available, the GPU reduces 16×16 tiles and tests
+each expanded bound against all covered tiles. Each candidate gets one 32-bit
+result. Before mesh collection, the view maps the newest ready result from the
+previous two render frames that survived view and scene invalidation. Traversal
+order may change. A matching index is culled only for a confirmed occluded value. Shadow caster selection remains independent.
+
+Each view has three feedback slots. A slot supports up to 4096×4096 pixels,
+4096 candidates (16 KiB of readback) and 65,536 material record IDs.
+Going over a limit leaves frustum admission in effect for the whole view.
+History keeps weak identities for geometry and instance data so pending
+feedback can outlive retired scene inputs. A full ring skips submission. Missing or
+incompatible history leaves each candidate visible. Reuse requires matching
+projection, viewport, depth convention, scene, resource generation and opaque depth inputs (candidate identities, geometry,
+material and instance publications, transforms and bounds). HitProxy revisions
+are independent of this decision. A view ignores previous results after more
+than eight seconds idle, a time reset, or a camera step exceeding 45 degrees on
+any view axis or 10,000 world units of translation. Smaller camera steps submit
+fresh projected bounds while consuming eligible prior results. Newly exposed
+objects can therefore be briefly hidden. An origin-only rebase also resets history.
+An explicit cut takes effect when the view is submitted, even if output validation
+rejects the draw.
+Switching device generations drops the entire feedback ring.
+
+The main view checks published geometry, instance data and opaque material
+record IDs before collecting sections. A dirty or missing material, masked
+surface, world-position offset or unsupported proxy keeps frustum admission
+for that submission. Explicit static mesh instances use the entire primitive's
+bounds. A partially exposed group continues to per-instance processing.
+Direct draws, CPU merging, GPU compaction and its fallback paths all consume
+the same surviving main-view candidates.
 
 ## Engine Integration
 

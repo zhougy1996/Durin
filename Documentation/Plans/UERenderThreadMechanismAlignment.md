@@ -25,7 +25,11 @@ timing budgets are frozen. Scene-owned retention now uses the normal rendering
 path. Its functional checks are complete. Exclusive timing and workload-wide
 budgets remain open under Stages 0 and 5.
 
-Stage 2 is functionally complete. Stage 3 is the next implementation stage.
+Stage 2 is functionally complete. Stage 3 passed opt-in correctness and completed
+the initial high/low occlusion comparison. GPU bounds batches now return indexed
+visibility to the main view. History now tolerates camera movement within the UE
+5.8 thresholds and resolves reordered candidates by component ID. It stays disabled by default. The
+low-occlusion overhead gate remains open.
 Stage 2 has removed render-thread task replenishment. Static mesh merges and
 sorting follow chunk workers through a completion dependency. Each view selects
 LOD independently and publishes validated ordinary static batches directly for sibling
@@ -932,21 +936,99 @@ Depends on: Stages 0-2 visibility identities and preparation boundaries.
 
 Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
 
-- [ ] Implement the route selected in Stage 0: GPU HZB/query production plus
+- [x] Implement the route selected in Stage 0: GPU HZB/query production plus
   delayed, nonblocking history consumption for CPU admission, with the selected
   capability fallback. Keep history per persistent
   view and identify the producing frame and primitive/instance generation.
-- [ ] Define conservative invalidation for cuts, camera/occluder motion,
+  The initial route read back one conservative depth level and tested bounds on
+  the CPU. The follow-up based on `23ad86143` reuses immutable projected bounds
+  and reads GPU results by batch, producing frame and candidate index. Per-view
+  exact input comparison covers material and geometry changes without a scene
+  revision bump. A delayed-result regression reverses the candidate order and
+  restores it before consuming the old result. Release passed 180 scene contracts,
+  28 Vulkan static mesh preparation tests and the indexed occlusion pixel/admission
+  regression. The first implementation
+  qualified stable, opaque ordinary static meshes. The provisional age limit is two render frames.
+  On the Stage 3 changes based on `cf07299dd`, the Vulkan occlusion fixture
+  checks main-view draw removal, shadow caster identity, exact pixel parity,
+  cuts, expiry, separate view states and occluder replacement. Release correctness
+  regressions passed for scene contracts (179), Vulkan static mesh preparation
+  (28), both selected directional shadow cases and RoadWeaver viewport qualification.
+  The follow-up based on `27c334b1d` accepts transient disocclusion errors
+  under the UE camera movement thresholds. Pose changes refresh the GPU bounds.
+  Component IDs preserve test indices across traversal changes. Idle views,
+  cuts and large camera steps drop previous results. Depth-input changes still
+  invalidate the view without consulting the HitProxy revision. Release regression
+  covers reordered IDs, unchanged visibility publication, rotation and translation
+  boundaries, idle time and time rewind.
+- [x] Define conservative invalidation for cuts, camera/occluder motion,
   resolution/depth-convention changes, newly added/moved objects, scene/device
   changes and unavailable results. Never hide content on an uncertain result.
-- [ ] Apply validated history before expensive collection/material/section work;
+  Release regressions on the changes based on `31684738e` cover a cut on a
+  rejected submission, camera and primitive motion, additions, target and
+  fitted viewport changes, depth convention, scene switches with reused IDs,
+  and renderer device invalidation. Each Vulkan case starts with confirmed
+  occlusion, then compares first-frame draw IDs and pixels with frustum-only
+  rendering. Preparation retries keep the same logical frame to isolate
+  invalidation from expiry.
+- [x] Apply validated history before expensive collection/material/section work;
   integrate GPU visibility with existing direct/instanced/indirect and fallback
   paths without assuming that an indirect draw eliminates earlier CPU costs.
-- [ ] Test disocclusion, fast motion, thin geometry, near-plane cases, multiple
+  On the changes based on `a550a46be`, the Vulkan fixture compares direct,
+  CPU-instanced, GPU-indirect and forced fallback submissions against their
+  frustum-only images and draw IDs. A fully hidden instance group remains a
+  shadow caster, and a group with one exposed instance stays in the main view.
+  The material proxy regression checks that inspecting a dirty binding cannot
+  trigger resolution and a shader using world-position offset cannot qualify.
+  Release correctness passed for 14 material proxy cases, 28 Vulkan mesh
+  preparation cases and both selected shadow cases. Scene contracts passed
+  179/179 on three consecutive reruns after one uniform-buffer cleanup
+  assertion during render-thread shutdown.
+- [x] Test disocclusion, fast motion, thin geometry, near-plane cases, multiple
   views, dynamic/Spline instances, origin changes, unavailable/delayed results
   and teardown. Check rendered output and bounded history/feedback memory.
-- [ ] Measure CPU visits and preparation time, GPU cost and visibility latency
+  Release regressions based on `45e38a6ad` compare Vulkan draw IDs and pixels
+  with frustum-only rendering during fast camera turns, origin rebasing, near
+  clipping, thin occlusion, instance movement and spline deformation. Controlled
+  RHI completions cover ring saturation, failure, timely and expired results
+  and teardown with a pending copy. Forward and reversed perspective tests
+  cover a subpixel bound crossing a tile edge. The mesh-pass fixture now drains
+  nested resource cleanup before closing admission. The previously failing
+  material publication case passed 100 consecutive repetitions.
+- [x] Measure CPU visits and preparation time, GPU cost and visibility latency
   on occluded and low-occlusion controls before enabling an automatic policy.
+  On 2026-11-22, `ProfilesOccludedAndExposedMainViews` tested renderer
+  `f4c9972a63` with Win64 Release Vulkan on an RTX 3090 (616.64). Both
+  1080p views contain 512 single-section quads with a stationary camera. Moving
+  one opaque wall behind the grid makes the low-occlusion control. The separate
+  eight-pose-frame replay matched the history-off pixels in both scenes.
+  Three fresh processes alternated six blocks per scene, reversing the order
+  in the second process. Each block warmed 30 frames and recorded 120.
+
+  | Scene | History | Frustum candidates / prepared primitives (median) | Main-view CPU preparation p50 / p95 (µs) | View GPU interval p50 / p95 (µs) |
+  | --- | --- | --- | --- | --- |
+  | High occlusion | Off | 512 / 512 | 1287 / 1502 | 590 / 655 |
+  | High occlusion | On | 512 / 1 | 337 / 1491 | 648 / 660 |
+  | Low occlusion | Off | 512 / 512 | 1278 / 1501 | 617 / 632 |
+  | Low occlusion | On | 512 / 512 | 1509 / 1709 | 646 / 717 |
+
+  CPU timing ends at draw admission before graph construction. GPU timestamps
+  span the main-view graph, including feedback when enabled. In 831/1080
+  high-occlusion enabled frames, 511 primitives skipped section preparation.
+  The other 249 prepared all 512. Every low-occlusion frame prepared all 512.
+  At frame entry, readback readiness first became observable at a median and
+  p95 of three frames in both scenes. The renderer checks again during view
+  preparation and accepts only results at most two frames old. All three runs
+  showed higher low-occlusion CPU and GPU medians with history enabled.
+  Reproduce with the named Vulkan test, `DURIN_OCCLUSION_CSV` set to an output
+  path and `DURIN_OCCLUSION_REVERSE=1` for reverse order. Per-frame samples
+  and GPU engine observations are in `Build/Qualification/Stage3-20261122/stage3-samples.zip`.
+  The indexed GPU route repeated the same controls three times on the follow-up
+  based on `23ad86143`. Low-occlusion CPU medians were 1328/1416 µs (off/on)
+  and GPU medians were 615/646 µs. High-occlusion CPU medians were 1324/174 µs
+  and GPU medians were 589/641 µs. Concurrent browser GPU use makes these
+  diagnostic only. Samples and engine observations are in
+  `Build/Qualification/Stage3-20261122-Bounds/stage3-samples.zip`.
 
 Completion: conservative visibility passes the declared output oracle; no normal
 frame waits on feedback; occluded workload CPU work falls within budget and

@@ -40,7 +40,13 @@ namespace
             if (!Durin::IsTaskSchedulerRunning()) require(Durin::InitializeTaskScheduler(2));
             Durin::InitRenderingThread();
         }
-        ~FMeshPassRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
+        ~FMeshPassRenderingThreadScope()
+        {
+            // All fixture owners are gone. A material destructor can enqueue child cleanup
+            // behind the final fence, so wait for both queued and executing commands.
+            while (Durin::GetNumPendingRenderCommands() != 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            Durin::ShutdownRenderingThread();
+        }
     };
 }
 

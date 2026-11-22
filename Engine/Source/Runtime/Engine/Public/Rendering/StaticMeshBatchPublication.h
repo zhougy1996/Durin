@@ -19,6 +19,7 @@ namespace Durin
 	{
 		FMeshLODSelectionSnapshot LODs;
 		std::vector<FMeshGeometryRecord::FRef> Geometry;
+		size_t RequiredMaterialSlots = 0;
 		bool bValidLayout = false;
 	};
 

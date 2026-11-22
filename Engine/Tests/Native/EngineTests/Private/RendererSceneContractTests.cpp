@@ -915,6 +915,56 @@ TEST(FRendererSceneContractTests, RendererShutdownRejectsAnActiveScene)
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(Scene);
 }
 
+TEST(FRendererSceneContractTests, OcclusionRequiresStrictDepthOnEveryCoveredTile)
+{
+	using namespace Durin;
+	FSceneView View;
+	View.ViewportWidth = View.ViewportHeight = 64;
+	const FBox Bounds({-0.25, -0.25, 0.6}, {0.25, 0.25, 0.7});
+	std::array<FVector2f, 16> Tiles;
+	Tiles.fill(FVector2f(0.2f));
+	EXPECT_TRUE(IsOccludedByDepthTiles(View, Bounds, 64, 64, Tiles));
+	Tiles[5].y = 1.f;
+	EXPECT_FALSE(IsOccludedByDepthTiles(View, Bounds, 64, 64, Tiles));
+	Tiles.fill(FVector2f(0.6f));
+	EXPECT_FALSE(IsOccludedByDepthTiles(View, Bounds, 64, 64, Tiles));
+	View.DepthConvention = ESceneDepthConvention::ReversedZ;
+	Tiles.fill(FVector2f(0.8f));
+	EXPECT_TRUE(IsOccludedByDepthTiles(View, Bounds, 64, 64, Tiles));
+	Tiles[10].x = 0.f;
+	EXPECT_FALSE(IsOccludedByDepthTiles(View, Bounds, 64, 64, Tiles));
+	Tiles.fill(FVector2f(0.8f));
+	EXPECT_FALSE(IsOccludedByDepthTiles(View, FBox({0.0, 0.0, -0.1}, {0.2, 0.2, 0.1}), 64, 64, Tiles));
+	EXPECT_FALSE(IsOccludedByDepthTiles(View, Bounds, 64, 64, {}));
+}
+
+TEST(FRendererSceneContractTests, PerspectiveOcclusionKeepsThinExposedAndNearClippedBounds)
+{
+	using namespace Durin;
+	FSceneView View;
+	View.ViewportWidth = View.ViewportHeight = 64;
+	// Positive-Z perspective with near=1, far=10. The thin box straddles a tile edge.
+	for (const bool Reversed : {false, true})
+	{
+		SCOPED_TRACE(Reversed);
+		View.DepthConvention = Reversed ? ESceneDepthConvention::ReversedZ : ESceneDepthConvention::ForwardZ;
+		View.ProjectionMatrix = FMatrix(1);
+		View.ProjectionMatrix[2][2] = Reversed ? -1.0 / 9 : 10.0 / 9;
+		View.ProjectionMatrix[3][2] = Reversed ? 10.0 / 9 : -10.0 / 9;
+		View.ProjectionMatrix[2][3] = 1;
+		View.ProjectionMatrix[3][3] = 0;
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		std::array<FVector2f, 16> Tiles;
+		Tiles.fill(FVector2f(0.5f));
+		const FBox Thin({-0.001, -0.2, 4.0}, {0.001, 0.2, 4.0});
+		EXPECT_TRUE(IsOccludedByDepthTiles(View, Thin, 64, 64, Tiles));
+		EXPECT_FALSE(IsOccludedByDepthTiles(View, FBox({-0.2, -0.2, 0.9}, {0.2, 0.2, 4}), 64, 64, Tiles));
+		EXPECT_FALSE(IsOccludedByDepthTiles(View, FBox({-0.2, -0.2, -1}, {0.2, 0.2, 4}), 64, 64, Tiles));
+		Tiles[5] = FVector2f(Reversed ? 0.f : 1.f);
+		EXPECT_FALSE(IsOccludedByDepthTiles(View, Thin, 64, 64, Tiles));
+	}
+}
+
 TEST(FRendererSceneContractTests, ViewStateIdentityIsOpaqueUniqueAndMoveOwned)
 {
 	std::vector<Durin::FSceneViewStateId> Released;

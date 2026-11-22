@@ -61,7 +61,7 @@ namespace Durin
 
 	auto FSceneRenderPipeline::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FSceneFrameContext& Context
+		FSceneFrameContext& Context, bool bPrepareOnly
 	) -> std::expected<FSceneRenderPlan, ERenderViewResult>
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.PrepareView");
@@ -141,6 +141,20 @@ namespace Durin
 			PrepareSceneVisibility(
 				*Scene, Context.Logical.Requirements.MainViewCulling, Telemetry.View, Visibility
 			);
+			if (!bPrepareOnly)
+				if (auto* State = Service.ViewStates.Find(RenderView.ViewStateId))
+				{
+					if (Options.bEnableOcclusionHistory && !State->GetVolumetricCloudHistory().IsSubmissionActive()
+						&& Context.Logical.Requirements.MainViewCulling.Frustum)
+					{
+						const auto Before = Visibility.SceneInfos.size();
+						PreparedView.OcclusionFeedback = State->HZBOcclusionTester.Prepare(CommandList, RenderView, *Scene,
+							Service.Coordinator.GetGeneration_RenderThread(), Context.Logical.Width, Context.Logical.Height,
+							GRenderFrameCounterRenderThread, FTime::Seconds(), Visibility.SceneInfos);
+						Telemetry.View.Visibility.OcclusionCulledPrimitives = Before - Visibility.SceneInfos.size();
+					}
+					else State->HZBOcclusionTester.Invalidate();
+				}
 			PreparedView.Receiver.CullingFrustum = Context.Logical.Requirements.MainViewCulling.Frustum;
 			ReceiverWork.emplace(BeginStaticMeshView_RenderThread(CommandList, Visibility.SceneInfos, RenderView,
 				RenderView.Settings.Mode.RasterMode, ERenderPreparationMode::Full, &MeshPreparationCache));

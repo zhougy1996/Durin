@@ -497,7 +497,13 @@ namespace Durin
 		Candidate->bValidLayout = bValidLayout;
 		Candidate->LODs = CaptureStaticMeshLODSelection(LODResources);
 		Candidate->Geometry.reserve(LODResources.size());
-		for (const auto& LOD : LODResources) Candidate->Geometry.push_back(LOD.GeometryRecord);
+		for (const auto& LOD : LODResources)
+		{
+			Candidate->Geometry.push_back(LOD.GeometryRecord);
+			if (LOD.GeometryRecord)
+				for (const auto& Element : LOD.GeometryRecord->GetElements())
+					Candidate->RequiredMaterialSlots = std::max(Candidate->RequiredMaterialSlots, size_t(Element.MaterialSlotDiagnostic) + 1);
+		}
 		BatchGeometry = std::move(Candidate);
 		return BatchGeometry;
 	}

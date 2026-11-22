@@ -28,6 +28,7 @@
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RendererModule.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/DirectionalShadowView.h"
@@ -37,6 +38,9 @@
 #include "Renderers/SceneVisibility.h"
 #include "RenderingThread.h"
 #include "SceneTestAccess.h"
+#include "SceneInfo.h"
+#include "MeshReadbackTestSupport.h"
+#include "Rendering/SplineMeshSceneProxy.h"
 #include "SceneView.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "GeometryDepthCaptureTestSupport.h"
@@ -128,7 +132,7 @@ namespace
 	};
 
 	template<typename TCapture>
-	void CaptureReadyShadowFrame(Durin::FRendererModule& Renderer, TCapture Capture)
+	void CaptureReadyShadowFrame(Durin::FRendererModule& Renderer, TCapture Capture, std::optional<uint64> FrameNumber = {})
 	{
 		using namespace Durin;
 		const auto Preparation = FRenderResourcePreparation::Create();
@@ -138,7 +142,8 @@ namespace
 		{
 			FAssetCompilingManager::Get().ProcessAsyncTasks();
 			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
-				++GRenderFrameCounterRenderThread;
+				if (FrameNumber) GRenderFrameCounterRenderThread = *FrameNumber;
+				else ++GRenderFrameCounterRenderThread;
 				GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
 				Renderer.BeginFrame_RenderThread(Commands);
 				Capture(Commands, [&](const FSceneViewRenderRequest& Request) {
@@ -1358,6 +1363,439 @@ TEST(FDirectionalShadowBaselineVulkanTests, ValidatesShadowBehaviorAndSubTexelMo
 	Durin::RHIExit();
 }
 
+// Drive the real history ring with explicitly completed RHI requests, independent of GPU timing.
+static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Commands, const Durin::FScene& Scene, const Durin::FSceneView& View)
+{
+	using namespace Durin;
+	Testing::FVisibilityReadbackContext Backend;
+	FRHICommandListExecutor Executor(Backend);
+	constexpr uint32 Bytes = 2 * sizeof(uint32);
+	auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("HeldOcclusionResults", Bytes, sizeof(uint32), EBufferUsageFlags::SourceCopy));
+	auto Payload = [&] {
+		const std::array<uint32, 2> Results{0, 1};
+		const auto Raw = std::as_bytes(std::span(Results));
+		return FByteBuffer(Raw.begin(), Raw.end());
+	};
+	std::array<std::shared_ptr<RHIPrivate::FReadbackState>, 3> Pending;
+	std::weak_ptr<FOcclusionFeedback> LastSlot;
+	{
+		FHZBOcclusionTester History;
+		auto Prepare = [&](uint64 Frame, size_t ExpectedCandidates) {
+			const auto& Infos = Scene.GetPrimitiveSceneInfos();
+			std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
+			auto Slot = History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, Frame, double(Frame), Candidates);
+			EXPECT_EQ(Candidates.size(), ExpectedCandidates);
+			if (ExpectedCandidates == 1 && Candidates.size() == 1) EXPECT_EQ(Candidates.front(), Infos.front());
+			return Slot;
+		};
+		auto Hold = [&](const auto& Slot) {
+			Slot->Readback.EnqueueCopy(Executor.GetImmediateCommandList(), Buffer, Bytes);
+			Executor.Submit({}, ERHISubmitFlags::None);
+			return Backend.Pending;
+		};
+		for (size_t Index = 0; Index < Pending.size(); ++Index)
+		{
+			auto Slot = Prepare(Index + 1, 2);
+			ASSERT_TRUE(Slot);
+			Pending[Index] = Hold(Slot);
+			ASSERT_TRUE(Pending[Index]);
+		}
+		EXPECT_FALSE(Prepare(4, 2)); // Full ring still draws both primitives.
+		Pending[2]->Complete(Payload());
+		ASSERT_TRUE(Prepare(5, 1)); // Within the two-frame age limit.
+		Pending[0]->Complete(Payload());
+		Pending[1]->Fail();
+		auto Slot = Prepare(6, 2); // The late and failed results cannot hide anything.
+		ASSERT_TRUE(Slot);
+		// Resolve a delayed result by component identity after reversing traversal order.
+		auto PreviousOrder = Hold(Slot);
+		PreviousOrder->Complete(Payload());
+		const auto& Infos = Scene.GetPrimitiveSceneInfos();
+		std::vector<const FPrimitiveSceneInfo*> Reordered(Infos.rbegin(), Infos.rend());
+		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 7, 7.0, Reordered));
+		ASSERT_EQ(Reordered.size(), 1u);
+		EXPECT_EQ(Reordered.front(), Infos.front());
+		Slot = Prepare(8, 1);
+		ASSERT_TRUE(Slot);
+		// Exercise translation and rotation independently of the frustum changing membership.
+		auto CameraStep = [&](uint64 Frame, double Distance, double Angle, double Time, bool Reuse) {
+			auto PendingResult = Hold(Slot);
+			PendingResult->Complete(Payload());
+			auto Camera = View;
+			Camera.ViewLocation.x += Distance;
+			Camera.ViewMatrix = MakeTransform({.RotationYDegrees = Angle}) * Math::TranslationMatrix(-Camera.ViewLocation);
+			Camera.ViewProjectionMatrix = Camera.ProjectionMatrix * Camera.ViewMatrix;
+			std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
+			Slot = History.Prepare(Commands, Camera, Scene, {}, Camera.ViewportWidth, Camera.ViewportHeight, Frame, Time, Candidates);
+			EXPECT_EQ(Candidates.size(), Reuse ? 1u : 2u);
+			if (Reuse && Candidates.size() == 1) EXPECT_EQ(Candidates.front(), Infos.front());
+		};
+		CameraStep(9, 10000, 0, 9.0, true);
+		ASSERT_TRUE(Slot);
+		CameraStep(10, 20001, 0, 10.0, false);
+		ASSERT_TRUE(Slot);
+		CameraStep(11, 20001, 45, 11.0, true);
+		ASSERT_TRUE(Slot);
+		CameraStep(12, 20001, -2, 12.0, false);
+		ASSERT_TRUE(Slot);
+		CameraStep(13, 20001, -2, 20.1, false); // Idle beyond eight real seconds.
+		ASSERT_TRUE(Slot);
+		CameraStep(14, 20001, -2, 12.0, false); // View time rewound.
+		ASSERT_TRUE(Slot);
+		LastSlot = Slot;
+		Pending[0] = Hold(Slot);
+	}
+	EXPECT_TRUE(LastSlot.expired());
+	Pending[0]->Complete(Payload());
+	EXPECT_EQ(Pending[0]->GetState(), ERHIGPUReadbackState::Canceled);
+	EXPECT_EQ(Backend.GPUIdleWaits, 0u);
+}
+
+static void CheckOcclusionHistoryBudget(Durin::FRHICommandListImmediate& Commands, const Durin::FScene& Scene,
+	const Durin::FSceneView& View, const Durin::FMaterialRenderProxyRef& Material)
+{
+	using namespace Durin;
+	auto Mesh = MakeQuadRenderData();
+	Mesh->MaterialSlots.resize(17);
+	Mesh->LODResources[0].Sections[0].MaterialSlotIndex = 16;
+	ASSERT_TRUE(Mesh->InitResources(Commands));
+	FHZBOcclusionTester History;
+	std::shared_ptr<FOcclusionFeedback> Slot;
+	{
+		auto Layout = std::make_shared<std::vector<FStaticMeshRenderInstance>>();
+		Layout->push_back({1, FMatrix(1)});
+		auto Proxy = std::make_shared<FStaticMeshSceneProxy>(Mesh.get(), std::vector<FMaterialRenderProxyRef>(17, Material), Layout);
+		std::vector<std::unique_ptr<FPrimitiveSceneInfo>> Infos;
+		std::vector<const FPrimitiveSceneInfo*> Candidates;
+		for (uint32 Index = 0; Index <= 65536 / 17; ++Index)
+		{
+			Infos.push_back(std::make_unique<FPrimitiveSceneInfo>(FPrimitiveComponentId(Index + 1), Proxy, FMatrix(1)));
+			if (Index < 65536 / 17) Candidates.push_back(Infos.back().get());
+		}
+		Slot = History.Prepare(Commands, View, Scene, {}, 4096, 4096, 1, 1.0, Candidates);
+		ASSERT_TRUE(Slot);
+		EXPECT_EQ(Slot->Batch->Inputs.Primitives.size(), Candidates.size());
+		Candidates.push_back(Infos.back().get());
+		EXPECT_FALSE(History.Prepare(Commands, View, Scene, {}, 4096, 4096, 2, 2.0, Candidates));
+		EXPECT_EQ(Candidates.size(), 65536 / 17 + 1);
+		Candidates.resize(1);
+		EXPECT_FALSE(History.Prepare(Commands, View, Scene, {}, 4097, 4096, 3, 3.0, Candidates));
+	}
+	Mesh->ReleaseResources();
+	EXPECT_TRUE(Slot->Batch->Inputs.Primitives.front().Geometry.expired());
+	EXPECT_TRUE(Slot->Batch->Inputs.Primitives.front().Instances.expired());
+}
+
+TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKeepsShadowCasters)
+{
+	using namespace Durin;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("SceneOcclusion");
+	Lifecycle.Start(Renderer);
+	SetViewRenderTelemetrySink(CaptureTelemetry);
+	auto Quad = MakeQuadRenderData();
+	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) { ASSERT_TRUE(Quad->InitResources(Commands)); });
+	FlushRenderingCommands();
+	{
+		FSceneTestOwner Owner;
+		FScene* Scene = Owner.Get();
+		FSceneTestOwner OtherScene;
+		auto State = Renderer.CreateViewState();
+		auto OtherState = Renderer.CreateViewState();
+		const auto Opaque = MakeMaterial(EMaterialBlendMode::Opaque, {0.7, 0.3, 0.1});
+		auto Place = [&](uint32 Id, FVector3 Translation, FVector3 Scale) {
+			FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+				std::make_unique<FStaticMeshSceneProxy>(Quad.get(), std::vector<FMaterialRenderProxyRef>{Opaque}),
+				MakeTransform({.Translation = Translation, .Scale = Scale}));
+		};
+		Place(1, {0, 0.45, 0.7}, {0.9, 0.40, 1});
+		Place(2, {0, 0.45, 0.35}, {0.15, 0.07, 1});
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.35, 0.2, -1.0}; Light.Intensity = 3; Light.bCastShadows = true;
+		PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(100), Light);
+		FlushRenderingCommands();
+		FSceneView View;
+		View.ViewStateId = State.GetId();
+		View.ProjectionMatrix[2][2] = -1.0;
+		View.ProjectionMatrix[3][2] = 1.0;
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = View.ViewportHeight = 128;
+		View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
+		View.Settings.DirectionalShadow.Resolution = 256;
+		bool ReceiverPresent = false, CasterPresent = false;
+		std::vector<uint64> MainPrimitiveIds;
+		FSceneViewRenderOptions Options;
+		auto CullingFailure = EGPUCullingFailure::None;
+		// Hold render-frame age fixed across resource preparation retries.
+		uint64 FrameNumber = 0;
+		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) { FrameNumber = GRenderFrameCounterRenderThread; });
+		FlushRenderingCommands();
+		auto Frame = [&] {
+			FByteBuffer Pixels;
+			CaptureReadyShadowFrame(Renderer, [&](FRHICommandListImmediate& Commands, const auto& RenderReady) {
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+					FRHITextureCreateDesc::Create2D("SceneOcclusionTest", View.ViewportWidth, View.ViewportHeight, EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+				FRendererQualificationPolicy Policy;
+				Policy.GPUCullingFailure = CullingFailure;
+				Policy.ObserveAdmittedDraws = [&](const FSceneRenderPlan& Plan) {
+					auto ContainsReceiver = [](const auto& Meshes) {
+						for (uint32 Index = 0; Index < Meshes.GetNumSections(); ++Index)
+							if (Meshes.GetPrimitive(Meshes.GetDraw(Index))->PrimitiveId.Value == 2u) return true;
+						return false;
+					};
+					const auto& Meshes = Plan.Receiver.StaticMeshes;
+					MainPrimitiveIds.clear();
+					for (uint32 Index = 0; Index < Meshes.GetNumSections(); ++Index)
+						MainPrimitiveIds.push_back(Meshes.GetPrimitive(Meshes.GetDraw(Index))->PrimitiveId.Value);
+					ReceiverPresent = std::ranges::find(MainPrimitiveIds, 2u) != MainPrimitiveIds.end();
+					CasterPresent = Plan.DirectionalShadow && std::ranges::any_of(Plan.DirectionalShadow->StaticMeshes, ContainsReceiver);
+				};
+				FScopedRendererQualificationPolicy Observe(Policy);
+				if (RenderReady({Scene, View, Target, false, Options}))
+					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Target, 0, 0, Pixels));
+			}, ++FrameNumber);
+			return Pixels;
+		};
+		const auto Reference = Frame();
+		EXPECT_FALSE(Reference.empty());
+		const auto ShadowDraws = GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws;
+		EXPECT_GT(ShadowDraws, 0u);
+		EXPECT_TRUE(ReceiverPresent);
+		EXPECT_TRUE(CasterPresent);
+		Options.bEnableOcclusionHistory = true;
+		EXPECT_EQ(Frame(), Reference);
+		EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 0u);
+		auto RequireReadyHistory = [&] {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+			while (std::chrono::steady_clock::now() < Deadline)
+			{
+				Frame();
+				if (GLastTelemetry.Visibility.OcclusionCulledPrimitives == 1u && !ReceiverPresent) return true;
+			}
+			return false;
+		};
+		auto CheckFirstFrame = [&] {
+			const auto Pixels = Frame();
+			EXPECT_FALSE(Pixels.empty());
+			EXPECT_TRUE(ReceiverPresent);
+			EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 0u);
+			const auto Admitted = MainPrimitiveIds;
+			Options.bEnableOcclusionHistory = false;
+			EXPECT_EQ(Frame(), Pixels);
+			EXPECT_EQ(MainPrimitiveIds, Admitted);
+			Options.bEnableOcclusionHistory = true;
+		};
+		ASSERT_TRUE(RequireReadyHistory());
+		EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, ShadowDraws);
+		EXPECT_TRUE(CasterPresent);
+		EXPECT_EQ(Frame(), Reference);
+
+		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+			CheckDelayedOcclusionFeedback(Commands, *Scene, View);
+			CheckOcclusionHistoryBudget(Commands, *Scene, View, Opaque);
+		});
+		FlushRenderingCommands();
+
+		auto CheckChange = [&](const char* Name, auto Change) {
+			SCOPED_TRACE(Name);
+			ASSERT_TRUE(RequireReadyHistory());
+			Change();
+			CheckFirstFrame();
+		};
+		CheckChange("independent view", [&] { View.ViewStateId = OtherState.GetId(); });
+		View.ViewStateId = State.GetId();
+		CheckChange("camera cut", [&] { View.bDiscardHistory = true; });
+		View.bDiscardHistory = false;
+		CheckChange("cut on a rejected submission", [&] {
+			auto Cut = View;
+			Cut.bDiscardHistory = true;
+			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+				EXPECT_EQ(Renderer.RenderView(Commands, {Scene, Cut, nullptr, false, Options}), ERenderViewResult::InvalidOutput);
+			});
+			FlushRenderingCommands();
+		});
+		CheckChange("expired history", [&] { FrameNumber += 4; });
+		ASSERT_TRUE(RequireReadyHistory());
+		// This publication increments the HitProxy revision but leaves opaque depth unchanged.
+		Scene->UpdatePrimitiveVisibility(FPrimitiveComponentId(1), true);
+		FlushRenderingCommands();
+		EXPECT_FALSE(Frame().empty());
+		EXPECT_FALSE(ReceiverPresent);
+		View.ViewLocation.x += 0.05;
+		View.ViewMatrix = Math::TranslationMatrix(-View.ViewLocation);
+		View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+		EXPECT_FALSE(Frame().empty());
+		EXPECT_FALSE(ReceiverPresent);
+		const auto BeforeMotion = View;
+		CheckChange("translated-world origin with unchanged clip matrix", [&] { View.ViewLocation.x += 1024; });
+		View = BeforeMotion;
+		auto CheckVisiblePlateau = [&] {
+			Options.bEnableOcclusionHistory = false;
+			const auto Pixels = Frame();
+			const auto Draws = MainPrimitiveIds;
+			EXPECT_TRUE(ReceiverPresent);
+			Options.bEnableOcclusionHistory = true;
+			for (uint32 Index = 0; Index < 5; ++Index)
+			{
+				EXPECT_EQ(Frame(), Pixels);
+				EXPECT_EQ(MainPrimitiveIds, Draws);
+			}
+			return Pixels;
+		};
+		CheckChange("fast camera turn disoccludes the receiver", [&] {
+			View.ViewMatrix = MakeTransform({.RotationYDegrees = 75.0}) * BeforeMotion.ViewMatrix;
+			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+		});
+		CheckVisiblePlateau();
+		View = BeforeMotion;
+		const FVector3 Rebase(1048576, -1048576, 0);
+		CheckChange("rebase camera and both primitives", [&] {
+			View.ViewLocation += Rebase;
+			View.ViewMatrix = Math::TranslationMatrix(-View.ViewLocation);
+			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+			Place(1, Rebase + FVector3(0, 0.45, 0.7), {0.9, 0.4, 1});
+			Place(2, Rebase + FVector3(0, 0.45, 0.35), {0.15, 0.07, 1});
+			FlushRenderingCommands();
+		});
+		ASSERT_TRUE(RequireReadyHistory());
+		View = BeforeMotion;
+		Place(1, {0, 0.45, 0.7}, {0.9, 0.4, 1});
+		Place(2, {0, 0.45, 0.35}, {0.15, 0.07, 1});
+		FlushRenderingCommands();
+		CheckChange("thin occluder exposes receiver", [&] {
+			Place(1, {0, 0.45, 0.7}, {0.012, 0.4, 1});
+			FlushRenderingCommands();
+		});
+		CheckVisiblePlateau();
+		Place(1, {0, 0.45, 0.7}, {0.9, 0.40, 1});
+		FlushRenderingCommands();
+		CheckChange("receiver crosses near plane", [&] {
+			Scene->UpdatePrimitiveTransform(FPrimitiveComponentId(2), MakeTransform({
+				.Translation = {0, 0.45, 1.0}, .Scale = {0.15, 0.07, 1}, .RotationYDegrees = 30.0}));
+			FlushRenderingCommands();
+		});
+		CheckVisiblePlateau();
+		Place(2, {0, 0.45, 0.35}, {0.15, 0.07, 1});
+		FlushRenderingCommands();
+		FSplineMeshRenderDynamicData Spline;
+		Spline.Params.StartPosition = {-1, 0, 0};
+		Spline.Params.EndPosition = {1, 0, 0};
+		Spline.Params.StartTangent = Spline.Params.EndTangent = {2, 0, 0};
+		Spline.Params.SourceForwardMin = -1;
+		Spline.Params.SourceForwardMax = 1;
+		Spline.LocalBounds = Quad->LocalBounds;
+		CheckChange("spline receiver", [&] {
+			FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(2),
+				std::make_unique<FSplineMeshSceneProxy>(Quad.get(), std::vector{Opaque}, Spline),
+				MakeTransform({.Translation = {0, 0.45, 0.35}, .Scale = {0.15, 0.07, 1}}));
+			FlushRenderingCommands();
+		});
+		const auto StraightSpline = CheckVisiblePlateau();
+		Spline.Params.EndPosition.y -= 12;
+		Spline.LocalBounds.Min.y -= 12;
+		Scene->UpdateSplineMeshDynamicData(FPrimitiveComponentId(2), Spline);
+		FlushRenderingCommands();
+		EXPECT_NE(CheckVisiblePlateau(), StraightSpline);
+		Place(2, {0, 0.45, 0.35}, {0.15, 0.07, 1});
+		FlushRenderingCommands();
+		CheckChange("output resize", [&] { View.ViewportWidth = 160; });
+		CheckChange("fitted viewport", [&] { View.AspectRatioConstraint = 1.0f; });
+		CheckChange("depth convention", [&] { View.DepthConvention = ESceneDepthConvention::ReversedZ; });
+		View.DepthConvention = ESceneDepthConvention::ForwardZ;
+		CheckChange("new primitive", [&] {
+			Place(3, {-0.6, -0.5, 0.5}, {0.1, 0.1, 1});
+			FlushRenderingCommands();
+		});
+		CheckChange("device generation", [&] {
+			ASSERT_TRUE(Renderer.RequestResourceInvalidation(ERendererResourceInvalidationCause::Device).bSuccess);
+			FlushRenderingCommands();
+		});
+		CheckChange("receiver moves into view", [&] {
+			Scene->UpdatePrimitiveTransform(FPrimitiveComponentId(2), MakeTransform({.Translation = {0, -0.4, 0.35}, .Scale = {0.15, 0.07, 1}}));
+			FlushRenderingCommands();
+		});
+		Place(2, {0, 0.45, 0.35}, {0.15, 0.07, 1});
+		FlushRenderingCommands();
+		CheckChange("occluder moves away", [&] {
+			Scene->UpdatePrimitiveTransform(FPrimitiveComponentId(1), MakeTransform({.Translation = {1.4, 0, 0.7}, .Scale = {0.9, 0.4, 1}}));
+			FlushRenderingCommands();
+		});
+		Place(1, {0, 0.45, 0.7}, {0.9, 0.4, 1});
+		FlushRenderingCommands();
+		// A hidden instance primitive and a visible group large enough for GPU compaction.
+		auto PlaceInstances = [&](uint32 Id, uint32 Count, FVector3 Origin, double Spacing) {
+			auto Instances = std::make_shared<std::vector<FStaticMeshRenderInstance>>();
+			for (uint32 Index = 0; Index < Count; ++Index)
+			{
+				const FVector3 Offset(Spacing * (Index % 8), Spacing * (Index / 8), 0);
+				Instances->push_back({Index + 1, MakeTransform({.Translation = Offset, .Scale = {0.02, 0.02, 1}})});
+			}
+			FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+				std::make_unique<FStaticMeshSceneProxy>(Quad.get(), std::vector{Opaque}, Instances), Math::TranslationMatrix(Origin));
+		};
+		PlaceInstances(2, 2, {0, 0.45, 0.35}, 0.04);
+		PlaceInstances(4, 64, {0, -0.65, 0.5}, 0.06);
+		FlushRenderingCommands();
+		for (const bool CPUInstancing : {false, true})
+			for (const bool GPUCulling : {false, true})
+				for (const bool ForceFallback : {false, true})
+				{
+					if (ForceFallback && !GPUCulling) continue;
+					SCOPED_TRACE(::testing::Message() << "CPU=" << CPUInstancing << " GPU=" << GPUCulling << " fallback=" << ForceFallback);
+					Options.bEnableDynamicInstancing = CPUInstancing;
+					Options.bEnableGPUCulling = GPUCulling;
+					CullingFailure = ForceFallback ? EGPUCullingFailure::CommandAdmission : EGPUCullingFailure::None;
+					Options.bEnableOcclusionHistory = false;
+					const auto All = Frame();
+					auto ExpectedIds = MainPrimitiveIds;
+					EXPECT_EQ(std::erase(ExpectedIds, 2u), 2u);
+					Options.bEnableOcclusionHistory = true;
+					ASSERT_TRUE(RequireReadyHistory());
+					EXPECT_EQ(Frame(), All);
+					EXPECT_EQ(MainPrimitiveIds, ExpectedIds);
+					EXPECT_TRUE(CasterPresent);
+					const auto& Stats = GLastTelemetry.GBuffer;
+					EXPECT_EQ(Stats.GPUCullingIndirectDraws > 0, GPUCulling && !ForceFallback);
+					EXPECT_EQ(Stats.GPUCullingDispatchFailureViews > 0, ForceFallback);
+					if (!GPUCulling || ForceFallback)
+						EXPECT_EQ(GLastTelemetry.StaticMesh.NativeDrawSubmissions < ExpectedIds.size(), CPUInstancing);
+				}
+		Options.bEnableGPUCulling = false;
+		CullingFailure = EGPUCullingFailure::None;
+		CheckChange("one exposed instance keeps the primitive", [&] {
+			auto Layout = std::make_shared<std::vector<FStaticMeshRenderInstance>>();
+			for (double Y : {0.0, -0.9})
+				Layout->push_back({uint32(Layout->size() + 1), MakeTransform({.Translation = {0, Y, 0}, .Scale = {0.02, 0.02, 1}})});
+			Scene->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(2), Layout);
+			FlushRenderingCommands();
+		});
+		CheckVisiblePlateau();
+		EXPECT_EQ(std::ranges::count(MainPrimitiveIds, 2u), 2);
+		PlaceInstances(2, 2, {0, 0.45, 0.35}, 0.04);
+		FlushRenderingCommands();
+		CheckChange("scene switch with reused component IDs", [&] {
+			Scene = OtherScene.Get();
+			Place(2, {0, 0.45, 0.35}, {0.15, 0.07, 1});
+			FlushRenderingCommands();
+		});
+	}
+	SetViewRenderTelemetrySink(nullptr);
+	Lifecycle.Shutdown();
+	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) { Quad->ReleaseResources(); });
+	FlushRenderingCommands();
+	ShutdownRenderingThread();
+	RHIExit();
+}
+
 static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 {
 	if (!Durin::GIsGameThreadIdInitialized)
@@ -1587,6 +2025,174 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
+}
+
+TEST(FDirectionalShadowBaselineVulkanTests, ProfilesOccludedAndExposedMainViews)
+{
+	using namespace Durin;
+	const char* Output = std::getenv("DURIN_OCCLUSION_CSV");
+	if (!Output) GTEST_SKIP() << "Set DURIN_OCCLUSION_CSV in an exclusive timing lane.";
+	std::ofstream Csv(Output);
+	ASSERT_TRUE(Csv);
+	Csv << "scene,block,enabled,frame,submitted,frustum_visible,culled,prepared,sections,prep_ns,gpu_ns,produced,ready_age_frames\n";
+	const bool Reverse = std::getenv("DURIN_OCCLUSION_REVERSE") != nullptr;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(Tests::GetVulkanEngineTestInitializationContext());
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("SceneOcclusionTiming");
+	Lifecycle.Start(Renderer);
+	SetViewRenderTelemetrySink(CaptureTelemetry);
+	auto Quad = MakeQuadRenderData();
+	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) { ASSERT_TRUE(Quad->InitResources(Commands)); });
+	FlushRenderingCommands();
+	{
+		const auto Material = MakeMaterial(EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72});
+		for (const bool High : { !Reverse, Reverse })
+		{
+			FSceneTestOwner Owner;
+			FScene& Scene = *Owner;
+			auto Place = [&](uint32 Id, FVector3 Position, FVector3 Scale) {
+				FSceneInterfaceTestAccess::AddPrimitiveProxy(Scene, FPrimitiveComponentId(Id),
+					std::make_unique<FStaticMeshSceneProxy>(Quad.get(), std::vector{Material}),
+					MakeTransform({.Translation = Position, .Scale = Scale}));
+			};
+			Place(1, {0, 0, High ? 0.7 : 0.1}, {0.94, 0.94, 1});
+			for (uint32 Index = 0; Index < 511; ++Index)
+				Place(Index + 2, {-0.83 + 0.055 * (Index % 31), -0.8 + 0.1 * (Index / 31), 0.35}, {0.018, 0.027, 1});
+			FDirectionalLightSceneData Light;
+			Light.Intensity = 3;
+			Light.bCastShadows = false;
+			PublishLightForTest<FDirectionalLightSceneProxy>(Scene, FLightComponentId(1), Light);
+			auto State = Renderer.CreateViewState();
+			FlushRenderingCommands();
+			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+				FSceneView View;
+				View.ViewStateId = State.GetId();
+				View.ProjectionMatrix[2][2] = -1;
+				View.ProjectionMatrix[3][2] = 1;
+				View.ViewProjectionMatrix = View.ProjectionMatrix;
+				View.ViewportWidth = 1920;
+				View.ViewportHeight = 1080;
+				View.MaterialTimeSeconds = 0;
+				const auto Target = GDynamicRHI->RHICreateTexture(Commands, FRHITextureCreateDesc::Create2D(
+					"OcclusionTiming", 1920, 1080, EPixelFormat::SRGBA8_UNORM).SetFlags(
+						ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback));
+				ASSERT_TRUE(Target);
+				FSceneViewRenderOptions Options;
+				ASSERT_TRUE(Tests::PrepareQualificationView(Renderer, Commands, {&Scene, View, Target, false, Options}));
+				auto BeginFrame = [&] {
+					++GRenderFrameCounterRenderThread;
+					GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+					Renderer.BeginFrame_RenderThread(Commands);
+				};
+				// Pixel readbacks are confined to a separate replay. They would serialize the timing lane.
+				std::array<FByteBuffer, 8> Reference;
+				for (const bool Enabled : {false, true})
+				{
+					Options.bEnableOcclusionHistory = Enabled;
+					for (size_t Frame = 0; Frame < Reference.size(); ++Frame)
+					{
+						View.bDiscardHistory = Frame == 0 || Frame == 5;
+						View.ViewMatrix = Frame == 5 || Frame == 6 ? MakeTransform({.RotationYDegrees = 65}) : FMatrix(1);
+						View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+						BeginFrame();
+						ASSERT_EQ(Renderer.RenderView(Commands, {&Scene, View, Target, false, Options}), ERenderViewResult::Success);
+						FByteBuffer Pixels;
+						ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Target, 0, 0, Pixels));
+						if (Enabled) EXPECT_TRUE(Pixels == Reference[Frame]) << Frame;
+						else Reference[Frame] = std::move(Pixels);
+						GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+					}
+				}
+				View.bDiscardHistory = false;
+				constexpr int Warm = 30, Count = 120;
+				struct FSample
+				{
+					FGPUTimingQueryRHIRef Query;
+					std::shared_ptr<FOcclusionFeedback> Feedback;
+					bool Produced = false;
+					int Age = -1;
+					uint64 Prepare = 0;
+					FVisibilityRenderTelemetry Visibility;
+					size_t Prepared = 0, Sections = 0;
+				};
+				for (int Block = 0; Block < 6; ++Block)
+				{
+					Options.bEnableOcclusionHistory = (Block == 1 || Block == 2 || Block == 5) != Reverse;
+					std::array<FSample, Count> Rows;
+					for (auto& Row : Rows) { Row.Query = GDynamicRHI->RHICreateGPUTimingQuery(); ASSERT_TRUE(Row.Query); }
+					std::vector<int> Pending;
+					auto Poll = [&](int Frame) {
+						std::erase_if(Pending, [&](int Index) {
+							auto& Row = Rows[Index];
+							if (Row.Feedback->Readback.IsReady()) Row.Age = Frame - Index;
+							else if (Row.Feedback->Readback.IsInFlight() || Frame - Index <= 2) return false;
+							Row.Feedback.reset();
+							return true;
+						});
+					};
+					for (int Frame = -Warm; Frame < Count; ++Frame)
+					{
+						BeginFrame();
+						Poll(Frame);
+						FRendererQualificationPolicy Policy;
+						std::chrono::steady_clock::time_point Start;
+						if (Frame >= 0) Policy.ObserveAdmittedDraws = [&](const FSceneRenderPlan& Plan) {
+							auto& Row = Rows[Frame];
+							Row.Prepare = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Start).count();
+							Row.Feedback = Plan.OcclusionFeedback;
+							Row.Produced = Row.Feedback != nullptr;
+							if (Row.Feedback) Pending.push_back(Frame);
+							Commands.BeginGPUTimingQuery(Row.Query);
+						};
+						FScopedRendererQualificationPolicy Observe(Policy);
+						Start = std::chrono::steady_clock::now();
+						ASSERT_EQ(Renderer.RenderView(Commands, {&Scene, View, Target, false, Options}), ERenderViewResult::Success);
+						if (Frame >= 0)
+						{
+							auto& Row = Rows[Frame];
+							Commands.EndGPUTimingQuery(Row.Query);
+							Row.Visibility = GLastTelemetry.Visibility;
+							Row.Prepared = GLastTelemetry.StaticMesh.PreparedStaticMeshPrimitives;
+							Row.Sections = GLastTelemetry.StaticMesh.PreparedStaticMeshSections;
+						}
+						GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+					}
+					for (int Frame = Count; Frame < Count + 120; ++Frame)
+					{
+						BeginFrame();
+						Poll(Frame);
+						GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+						if (Pending.empty() && Rows.back().Query->GetResult().State == ERHIGPUTimingResultState::Ready) break;
+					}
+					for (int Frame = 0; Frame < Count; ++Frame)
+					{
+						auto& Row = Rows[Frame];
+						const auto GPU = Row.Query->GetResult();
+						ASSERT_EQ(GPU.State, ERHIGPUTimingResultState::Ready);
+						Csv << (High ? "high" : "low") << ',' << Block << ',' << Options.bEnableOcclusionHistory << ',' << Frame
+							<< ',' << Row.Visibility.SubmittedPrimitives << ',' << Row.Visibility.VisiblePrimitives << ',' << Row.Visibility.OcclusionCulledPrimitives
+							<< ',' << Row.Prepared << ',' << Row.Sections << ',' << Row.Prepare << ',' << GPU.DurationNanoseconds
+							<< ',' << Row.Produced << ',' << Row.Age << '\n';
+					}
+					Csv.flush();
+				}
+			});
+			FlushRenderingCommands();
+		}
+	}
+	SetViewRenderTelemetrySink(nullptr);
+	Lifecycle.Shutdown();
+	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) { Quad->ReleaseResources(); });
+	FlushRenderingCommands();
+	ShutdownRenderingThread();
+	RHIExit();
 }
 
 TEST(FDirectionalShadowBaselineVulkanTests, ProfilesFrozenHighOverlapPreparationFixture)

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "SceneView.h"
+#include "Renderers/SceneOcclusion.h"
 #include "RendererAPI.h"
 
 namespace Durin
@@ -139,11 +140,15 @@ namespace Durin
 		auto Invalidate(ESceneViewDiscontinuity Cause) -> void
 		{
 			VolumetricCloudHistory.Invalidate(Cause);
+			if (HasAnyViewDiscontinuity(Cause, ESceneViewDiscontinuity::DeviceInvalidation)) HZBOcclusionTester = {};
+			else HZBOcclusionTester.Invalidate();
 		}
 		auto GetVolumetricCloudHistory() -> FVolumetricCloudViewHistory&
 		{
 			return VolumetricCloudHistory;
 		}
+
+		FHZBOcclusionTester HZBOcclusionTester;
 
 	private:
 		FVolumetricCloudViewHistory VolumetricCloudHistory;

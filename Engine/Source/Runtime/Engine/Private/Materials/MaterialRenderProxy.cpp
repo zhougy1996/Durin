@@ -174,7 +174,12 @@ namespace Durin
 		const bool LayoutChanged = !RenderingThreadProgram || !Program
 			|| RenderingThreadProgram->GetShaderMap().Layout.Identity != Program->GetShaderMap().Layout.Identity;
 		const bool ShaderMapChanged = !RenderingThreadProgram || !Program || RenderingThreadProgram->ShaderMap != Program->ShaderMap;
-		if (ShaderMapChanged) InvalidateStaticDrawLists_RenderThread();
+		if (ShaderMapChanged)
+		{
+			InvalidateStaticDrawLists_RenderThread();
+			bProgramUsesWPO = Program && Program->HasShaderMap() && std::ranges::any_of(Program->GetShaderMap().Entries,
+				[](const auto& Entry) { return Entry.Requirements.bUsesWPO; });
+		}
 		const bool CollectionsChanged = !RenderingThreadProgram || !Program || RenderingThreadProgram->ActiveCollections != Program->ActiveCollections;
 		RenderingThreadProgram = std::move(Program);
 		if (ShaderMapChanged || CollectionsChanged) UniformExpressionCache->InvalidateUniformExpressionCache();
@@ -294,6 +299,14 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return bCompiling;
+	}
+
+	auto FMaterialRenderProxy::GetCachedOpaqueDepthMaterialId_RenderThread() const -> std::optional<uint64>
+	{
+		CheckRenderingThread();
+		if (!bHasResolvedData || bProgramUsesWPO || !CachedResolvedData.CompiledProgram || !CachedResolvedData.CompiledProgram->HasShaderMap()
+			|| CachedResolvedData.PlanningPassIdentity.ShaderMap.BlendMode != EMaterialBlendMode::Opaque) return {};
+		return CachedResolvedData.Representation.GetRecordId();
 	}
 
 	auto FMaterialRenderProxy::GetMaterialNoFallback() -> const FMaterialRenderData*
