@@ -64,6 +64,18 @@ TEST(FRendererSceneContractTests, MeshPassProcessorsSelectPassShaders)
 	EXPECT_NE(Shadow.GetFragmentShader(EMaterialBlendMode::Masked).Type,
 		FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::Forward).GetFragmentShader(EMaterialBlendMode::Masked).Type);
 	EXPECT_EQ(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).GetVertexFactoryPass(), MaterialMeshPassGBuffer);
+	const auto& Water = FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::SingleLayerWater);
+	EXPECT_FALSE(Water.IsMeshRelevant({}));
+	FMaterialPlanningPassIdentity WaterMaterial;
+	WaterMaterial.ShaderMap.ShadingModel = EMaterialShadingModel::SingleLayerWater;
+	EXPECT_TRUE(Water.IsMeshRelevant(WaterMaterial));
+	EXPECT_FALSE(FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::HybridRetainedForward).IsMeshRelevant(WaterMaterial));
+	const auto Pipeline = Water.DescribeMeshDraw(MakeMeshPipelineState(WaterMaterial, {}),
+		FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList, EMaterialBlendMode::Opaque, false);
+	EXPECT_EQ(Pipeline.RenderTargets.NumColorRenderTargets, 3u);
+	EXPECT_EQ(Pipeline.Depth.CompareOp, ERHIDepthCompareOp::Equal);
+	EXPECT_FALSE(Pipeline.Depth.bEnableWrite);
+	EXPECT_FALSE(EnumHasAnyFlags(Pipeline.ColorBlends[0].ColorWriteMask, ERHIColorWriteMask::Alpha));
 }
 
 TEST(FRendererSceneContractTests, MeshPassCollectorsCoverEffectiveDrawRasterStates)
@@ -134,7 +146,7 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
         const auto Factory = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
         ASSERT_TRUE(Factory);
         for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked, EMaterialBlendMode::Translucent})
-        for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit})
+        for (const auto Shading : {EMaterialShadingModel::DefaultLit, EMaterialShadingModel::Unlit, EMaterialShadingModel::SingleLayerWater})
         for (bool Main : {false, true})
         for (bool Shadow : {false, true})
         for (bool GBuffer : {false, true})
@@ -142,12 +154,14 @@ TEST(FRendererSceneContractTests, AddMeshBatchFiltersBeforeBuildingShadersOrComm
             FMaterialPlanningPassIdentity Material;
             Material.ShaderMap.BlendMode = Blend; Material.ShaderMap.ShadingModel = Shading;
             const bool Translucent = Blend == EMaterialBlendMode::Translucent;
+            const bool Water = Shading == EMaterialShadingModel::SingleLayerWater;
             const bool Deferred = !Translucent && Shading == EMaterialShadingModel::DefaultLit && GBuffer;
             bool Relevant = Main;
             if (Pass == EMeshPipelinePass::ShadowDepth) Relevant = Shadow && !Translucent;
             else if (Pass == EMeshPipelinePass::GBuffer) Relevant = Main && Deferred;
-            else if (Pass == EMeshPipelinePass::HybridRetainedForward) Relevant = Main && !Translucent && !Deferred;
+            else if (Pass == EMeshPipelinePass::HybridRetainedForward) Relevant = Main && !Translucent && !Deferred && !Water;
             else if (Pass == EMeshPipelinePass::SortedTranslucency) Relevant = Main && Translucent;
+            else if (Pass == EMeshPipelinePass::SingleLayerWater || Pass == EMeshPipelinePass::SingleLayerWaterDepth) Relevant = Main && !Translucent && Water;
             const FMeshPassProcessorBatch Batch{Material, *Factory, {}, EGeometryTopology::TriangleList, {Shadow, Main}, GBuffer};
             FMeshPassShaders Empty;
             FGraphicsPipelineStateInitializer Initializer;

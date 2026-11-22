@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Renderers/SceneRendererProfiling.h"
+
 #include "CoreMinimal.h"
 #include "CoreGlobals.h"
 #include "Asset/AssetCompilingManager.h"
@@ -68,7 +70,7 @@ namespace Durin::Tests::Water
 		const Durin::FSceneView& View, const Durin::FRHITextureCreateDesc& TargetDesc,
 		const std::function<void()>& BeforeDraw = {},
 		const std::function<void(Durin::FRHICommandListImmediate&, Durin::FRHITexture*)>& AfterDraw = {},
-		const Durin::FSceneViewRenderOptions& Options = {}) -> Durin::ERenderViewResult
+		const Durin::FSceneViewRenderOptions& Options = {}, const Durin::FRendererQualificationPolicy& Policy = {}) -> Durin::ERenderViewResult
 	{
 		using namespace Durin;
 		const auto Preparation = FRenderResourcePreparation::Create();
@@ -94,6 +96,7 @@ namespace Durin::Tests::Water
 				if (BeforeDraw) BeforeDraw();
 				if (testing::Test::HasFatalFailure())
 				{ Result = ERenderViewResult::RendererResourcesUnavailable; return; }
+				FScopedRendererQualificationPolicy Qualification(Policy);
 				Result = Renderer.RenderView(Commands,
 					{&Scene, View, Target, false, Options});
 				ASSERT_NE(Result, ERenderViewResult::RendererResourcesPending)

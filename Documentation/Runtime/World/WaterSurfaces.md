@@ -3,7 +3,7 @@
 Summary: The opt-in Water plugin renders finite Gerstner surfaces through ordinary StaticMesh and material facilities and exposes matching CPU queries.
 Modules: Water, Engine
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-23
 
 ## Enablement and authoring
 
@@ -87,10 +87,15 @@ outside this Float32 precision qualification.
 
 ## Material resources
 
-The default appearance is two-sided opaque Lit water with analytic normals and
-WPO. Its source is the ordinary typed-expression material asset
+The default appearance uses two-sided Single Layer Water with analytic normals
+and WPO. Its source is the ordinary typed-expression material asset
 `/Plugins/Water/Materials/DefaultWater.DefaultWater`. The plugin content mount
 contains authored data only; no compiled Water binary is checked in.
+
+The material uses Opaque routing, Opacity 0 and refraction derived from
+dielectric F0. RGB scattering is (0.00035, 0.00065, 0.0009) per cm and
+absorption is (0.004, 0.0012, 0.00065) per cm. PhaseG is 0.2 and the
+behind-water color scale is white. See the [material contract](../Rendering/Materials/MaterialSystem.md#single-layer-water).
 
 The component serializes a soft reference to this default asset. Ordinary Cook
 reachability retains it with a saved water Level. Projects that create water only
@@ -129,8 +134,9 @@ Game loading of the saved water Level. The component Game scene consumes the
 ordinary Cook output. The independent proof retains isolated test material
 programs; with Water enabled, both Game scenes use the normal Cook Shader
 library. Without Water, the independent proof uses its own prepared library.
+The packaged Win64 Debug fixture also starts the cooked water Level through
+the normal Game export verification path.
 
-Stage, packaged Game startup and packaged asset/Shader qualification remain
-deferred, as do refraction, underwater rendering, buoyancy, spline rivers,
-terrain modification and infinite ocean meshing. The plugin is not qualified
-for release deployment.
+The supported rendering scope is above-water Win64 Vulkan deferred rendering.
+Underwater rendering, buoyancy, spline rivers, terrain modification, infinite
+ocean meshing and release deployment remain outside this qualification.

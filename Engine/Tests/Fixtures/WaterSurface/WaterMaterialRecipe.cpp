@@ -47,8 +47,11 @@ namespace Durin::WaterMaterialRecipe
 	{
 		FWaterMaterialBuilder B;
 		B.Input.StaticProperties.bTwoSided = true;
+		B.Input.StaticProperties.ShadingModel = EMaterialShadingModel::SingleLayerWater;
+		B.Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal = {.02f, .18f, .24f};
 		B.Input.IR.GetAttribute(EMaterialProperty::MP_Roughness).Literal = {.22f};
+		B.Input.IR.GetAttribute(EMaterialProperty::MP_Opacity).Literal = {0.f};
 		const auto Zero = B.C(0), One = B.C(1);
 		const auto UV = B.Add({.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {Zero}});
 		auto Channel = [&](uint8 I) { return B.Add({.Opcode = Op::Swizzle, .Inputs = {UV}, .Payload = MIR::FSwizzle{1, {I}}}); };
@@ -98,6 +101,15 @@ namespace Durin::WaterMaterialRecipe
 		const auto Encoded = B.B(Op::Add, B.B(Op::Multiply, XY, Half, Type::Float2), Half, Type::Float2);
 		auto& Root = B.Input.IR.GetAttribute(EMaterialProperty::MP_Normal);
 		Root.bExpression = true; Root.ExpressionIndex = B.U(Op::DecodeNormalRG, Encoded, Type::Float3);
+		auto SetWaterOutput = [&](EMaterialProperty Property, Type ResultType, FMaterialProgramLiteral Value) {
+			auto& Output = B.Input.IR.GetAttribute(Property);
+			Output.bExpression = true;
+			Output.ExpressionIndex = B.Add({.Opcode = Op::Constant, .ResultType = ResultType, .Payload = Value});
+		};
+		SetWaterOutput(EMaterialProperty::MP_WaterScattering, Type::Float3, {.00035f, .00065f, .0009f});
+		SetWaterOutput(EMaterialProperty::MP_WaterAbsorption, Type::Float3, {.004f, .0012f, .00065f});
+		SetWaterOutput(EMaterialProperty::MP_WaterPhaseG, Type::Float, {.2f});
+		SetWaterOutput(EMaterialProperty::MP_WaterColorScale, Type::Float3, {1.f, 1.f, 1.f});
 		return std::move(B.Input);
 	}
 

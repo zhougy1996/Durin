@@ -19,6 +19,7 @@
 #include "CoreGlobals.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "Math/Operations.h"
 #include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -92,6 +93,37 @@ namespace Durin
 	DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
 	DURIN_IMPLEMENT_GLOBAL_SHADER(FBloomFragmentShader);
 
+	class FWaterSnapshotFragmentShader final : public FGlobalShader
+	{
+	public:
+		DURIN_BEGIN_SHADER_PARAMETERS(FWaterSnapshotFragmentShader)
+			DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterSnapshotDepth);
+		DURIN_END_SHADER_PARAMETERS();
+		DURIN_DECLARE_GLOBAL_SHADER(FWaterSnapshotFragmentShader, FGlobalShader, "/Engine/PostProcess",
+			EShaderFrequency::Fragment, "WaterSnapshotFragmentMain");
+	};
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FWaterSnapshotFragmentShader);
+
+	class FWaterReflectionFragmentShader final : public FGlobalShader
+	{
+	public:
+		DURIN_BEGIN_SHADER_PARAMETERS(FWaterReflectionFragmentShader)
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterReflectionCoverage);
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterReflectionDepth);
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterReflectionNormalRoughness);
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterReflectionSpecularF0);
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterReflectionEnvironment);
+			DURIN_SHADER_PARAMETER_TEXTURE(WaterReflectionBrdfLut);
+			DURIN_SHADER_PARAMETER_SAMPLER(WaterReflectionSampler);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(WaterReflectionView);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(WaterReflectionLighting);
+		DURIN_END_SHADER_PARAMETERS();
+		DURIN_DECLARE_GLOBAL_SHADER(FWaterReflectionFragmentShader, FGlobalShader, "/Engine/PostProcess",
+			EShaderFrequency::Fragment, "WaterReflectionFragmentMain");
+	};
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FWaterReflectionFragmentShader);
+
 	namespace
 	{
 		class FPostProcessMaterialShader final : public FMaterialShader
@@ -122,6 +154,12 @@ namespace Durin
 			"Renderer", "PostProcess.Bloom",
 			EShaderRequestEligibility::GameAndEditor,
 			{&FPostProcessVertexShader::StaticType(), &FBloomFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GWaterSnapshotShaderSet("Renderer", "Water.Snapshot",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FPostProcessVertexShader::StaticType(), &FWaterSnapshotFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GWaterReflectionShaderSet("Renderer", "Water.SkyReflection",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FPostProcessVertexShader::StaticType(), &FWaterReflectionFragmentShader::StaticType()});
 
 		struct FPostProcessViewUniform
 		{
@@ -289,6 +327,107 @@ namespace Durin
 		Parameters.BloomPass = Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
 		SetShaderParameters(Commands, Draw.FragmentShader, Parameters);
 		Commands.DrawIndexed(3, 0, 0);
+	}
+
+	auto FPostProcessRenderer::PrepareWaterSnapshot_RenderThread(FRHICommandListImmediate& Commands,
+		FPreparedWaterSnapshot& Out) -> bool
+	{
+		if (!FullscreenGeometry.EnsureResources_RenderThread(Commands)) return false;
+		const auto& Map = GetGlobalShaderMap();
+		Out.VertexShader = Map.GetShader<FPostProcessVertexShader>();
+		Out.FragmentShader = Map.GetShader<FWaterSnapshotFragmentShader>();
+		auto* Vertex = Out.VertexShader.GetRHIShader(false);
+		auto* Fragment = Out.FragmentShader.GetRHIShader(false);
+		if (!Vertex || !Fragment) return false;
+		FRHIRenderTargetLayout Targets;
+		Targets.NumColorRenderTargets = 2;
+		Targets.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(EPixelFormat::RGBA16_FLOAT,
+			ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
+		Targets.ColorAttachments[1].RenderTarget = MakeRDGAttachmentLayout(EPixelFormat::R32_FLOAT,
+			ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::DontCare);
+		Out.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Out.Pipeline = CreatePostProcessPipeline(Vertex, Fragment, Out.VertexDeclaration,
+			Out.FragmentShader.GetPipelineLayout(), Targets);
+		if (!FRenderPipelinePreparationBatch::ShouldPrecachePipelines()) return true;
+		auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Out.Pipeline);
+		if (!Request) return false;
+		FRenderPipelinePreparationBatch::Add(Request);
+		return Request->GetState() != ERHIPipelineState::Failed && Request->GetState() != ERHIPipelineState::Canceled;
+	}
+
+	auto FPostProcessRenderer::DrawWaterSnapshot_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+		const FPreparedWaterSnapshot& Draw, FRHITexture* Color, FRHITexture* Depth) -> void
+	{
+		SetGraphicsPipelineState(Commands, Draw.Pipeline);
+		Commands.SetViewport(float(View.ViewportX), float(View.ViewportY), 0,
+			float(View.ViewportX + View.ViewportWidth), float(View.ViewportY + View.ViewportHeight), 1);
+		Commands.SetScissor(float(View.ViewportX), float(View.ViewportY), float(View.ViewportWidth), float(View.ViewportHeight));
+		Commands.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+		Commands.BindIndexBuffer(FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+		FWaterSnapshotFragmentShader::FParameters Parameters;
+		Parameters.SceneColor = Color;
+		Parameters.WaterSnapshotDepth = Depth;
+		SetShaderParameters(Commands, Draw.FragmentShader, Parameters);
+		Commands.DrawIndexed(3, 0, 0);
+	}
+
+	auto FPostProcessRenderer::PrepareWaterReflection_RenderThread(FPreparedWaterReflection& Out) -> bool
+	{
+		const auto& Map = GetGlobalShaderMap();
+		Out.VertexShader = Map.GetShader<FPostProcessVertexShader>();
+		Out.FragmentShader = Map.GetShader<FWaterReflectionFragmentShader>();
+		auto* Vertex = Out.VertexShader.GetRHIShader(false);
+		auto* Fragment = Out.FragmentShader.GetRHIShader(false);
+		if (!Vertex || !Fragment) return false;
+		Out.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
+		Out.Pipeline = CreatePostProcessPipeline(Vertex, Fragment, Out.VertexDeclaration,
+			Out.FragmentShader.GetPipelineLayout(), RenderTargetLayouts::MakeGraphHybridDeferredOutput());
+		Out.Pipeline.BlendState = RHICreateBlendState({FRHIColorBlendState{
+			.bEnable = true, .SrcColorFactor = ERHIBlendFactor::One, .DstColorFactor = ERHIBlendFactor::One,
+			.ColorWriteMask = ERHIColorWriteMask::Red | ERHIColorWriteMask::Green | ERHIColorWriteMask::Blue}});
+		if (!FRenderPipelinePreparationBatch::ShouldPrecachePipelines()) return true;
+		auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Out.Pipeline);
+		if (!Request) return false;
+		FRenderPipelinePreparationBatch::Add(Request);
+		return Request->GetState() != ERHIPipelineState::Failed && Request->GetState() != ERHIPipelineState::Canceled;
+	}
+
+	auto FPostProcessRenderer::DrawWaterReflection_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+		const FPreparedWaterReflection& Draw, const FWaterReflectionInputs& Inputs) -> bool
+	{
+		FMatrix ViewToWorld;
+		if (!Math::TryInverse(View.GetTranslatedWorldToView(), ViewToWorld, 1.0e-12)) return false;
+		struct alignas(16) FViewUniform
+		{
+			FMatrix4f ViewToWorld;
+			std::array<FVector4f, 4> Projection;
+			FVector4f Viewport;
+		};
+		const auto Projection = Math::TransposeToFloat(View.ProjectionMatrix);
+		const FViewUniform Data{Math::TransposeToFloat(ViewToWorld),
+			{Projection[0], Projection[1], Projection[2], Projection[3]},
+			{float(View.ViewportX), float(View.ViewportY), float(View.ViewportWidth), float(View.ViewportHeight)}};
+		const auto Uniform = Commands.CreateUniformBufferRange(&Data, sizeof(Data));
+		if (!Uniform.Buffer) return false;
+		SetGraphicsPipelineState(Commands, Draw.Pipeline);
+		Commands.SetViewport(float(View.ViewportX), float(View.ViewportY), 0,
+			float(View.ViewportX + View.ViewportWidth), float(View.ViewportY + View.ViewportHeight), 1);
+		Commands.SetScissor(float(View.ViewportX), float(View.ViewportY), float(View.ViewportWidth), float(View.ViewportHeight));
+		Commands.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+		Commands.BindIndexBuffer(FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+		FWaterReflectionFragmentShader::FParameters Parameters;
+		Parameters.WaterReflectionCoverage = Inputs.Coverage;
+		Parameters.WaterReflectionDepth = Inputs.Depth;
+		Parameters.WaterReflectionNormalRoughness = Inputs.NormalRoughness;
+		Parameters.WaterReflectionSpecularF0 = Inputs.SpecularF0;
+		Parameters.WaterReflectionEnvironment = Inputs.Environment;
+		Parameters.WaterReflectionBrdfLut = Inputs.BrdfLut;
+		Parameters.WaterReflectionSampler = Inputs.Sampler;
+		Parameters.WaterReflectionView = Uniform;
+		Parameters.WaterReflectionLighting = Inputs.Lighting;
+		SetShaderParameters(Commands, Draw.FragmentShader, Parameters);
+		Commands.DrawIndexed(3, 0, 0);
+		return true;
 	}
 
 	auto FPostProcessRenderer::DescribeSceneTargets(uint32 Width, uint32 Height)

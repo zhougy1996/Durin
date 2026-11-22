@@ -4,6 +4,7 @@
 #if !DURIN_GENERATED_MATERIAL
 #define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage)
 #include "HitProxyParameters.inl"
+#include "SingleLayerWaterParameters.inl"
 #undef DURIN_MATERIAL_PARAMETER
 #endif
 #if DURIN_GENERATED_MATERIAL
@@ -76,6 +77,119 @@ struct HitProxyUniform { uint4 Id; float4 ViewOrigin; };
 #define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
 #include "HitProxyParameters.inl"
 #undef DURIN_MATERIAL_PARAMETER
+
+#if DURIN_MATERIAL_SHADING_MODEL == 3
+[shader("fragment")]
+float SingleLayerWaterDepthFragmentMain(VSOutput input) : SV_Target0
+{
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    if (RejectMaterialMask(EvaluateGeneratedMaterial(input).opacityMask,
+            asfloat(uint(DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
+        discard;
+#endif
+    return 1.0;
+}
+
+struct SingleLayerWaterMaterialOutput
+{
+    float4 sceneColor : SV_Target0;
+    float4 normalAndRoughness : SV_Target1;
+    float4 specularF0 : SV_Target2;
+};
+
+#define DURIN_MATERIAL_PARAMETER(Owner, Name, Type, Reflected, Runtime, Optional, Usage) Type Name;
+#include "SingleLayerWaterParameters.inl"
+#undef DURIN_MATERIAL_PARAMETER
+
+[shader("fragment")]
+SingleLayerWaterMaterialOutput SingleLayerWaterFragmentMain(VSOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+    int3 pixel = int3(int2(input.pos.xy), 0);
+    FMaterialSurface surface = EvaluateGeneratedMaterial(input);
+    FResolvedGeneratedSurfaceShading shading = ResolveGeneratedSurfaceShading(input, surface, isFrontFace);
+    float3 viewForward = WaterViewForward(WaterView);
+    float3 surfaceInView = mul(MaterialView.WorldToView, float4(input.worldPosition, 1.0)).xyz;
+    float surfaceDepth = dot(surfaceInView, viewForward);
+    float slopeTolerance = max(abs(ddx_fine(surfaceDepth)), abs(ddy_fine(surfaceDepth)));
+    if (WaterCoverage.Load(pixel) < 0.5)
+        discard;
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    if (RejectMaterialMask(surface.opacityMask, asfloat(uint(DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
+        discard;
+#endif
+    float3 normal = shading.normalFrame.shadingNormal;
+    float roughness = shading.effectiveRoughness;
+    FSurfaceLightingFrame frame = BuildSurfaceLightingFrame(input.worldPosition, normal, Lighting.ViewPosition.xyz);
+    float waterIor = WaterIor(surface.specular);
+    float4 viewport = MaterialView.Viewport;
+    FWaterBackground background = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
+        viewport, input.pos.xy, viewForward, surfaceDepth, slopeTolerance);
+    float2 offset = 0.0;
+#if DURIN_MATERIAL_REFRACTION_METHOD != 0
+    float authoredIor = waterIor;
+#if DURIN_MATERIAL_REFRACTION_METHOD == 1
+    authoredIor = surface.refraction;
+#endif
+    float3 viewNormal = normalize(mul((float3x3)MaterialView.WorldToView, normal));
+    float3 right = WaterView.Projection[0].xyz - dot(WaterView.Projection[0].xyz, viewForward) * viewForward;
+    float3 down = WaterView.Projection[1].xyz - dot(WaterView.Projection[1].xyz, viewForward) * viewForward;
+    float2 normalXY = float2(dot(viewNormal, normalize(right)), -dot(viewNormal, normalize(down)));
+    offset = WaterRefractionOffsetInPixels(normalXY, authoredIor, viewport.zw, length(right),
+        max(background.depth - surfaceDepth, 0.0) * 100.0,
+        asfloat(uint(DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS)), background.open);
+    FWaterBackground refracted = SampleWaterBackground(WaterBackgroundColor, WaterBackgroundDepth, WaterView,
+        viewport, input.pos.xy + offset, viewForward, surfaceDepth, slopeTolerance);
+    if (refracted.valid) background = refracted;
+#endif
+    if (!background.valid) background.depth = surfaceDepth;
+    float thicknessCm = max(background.depth - surfaceDepth, 0.0) * 100.0;
+    float3 extinction = surface.waterScattering + surface.waterAbsorption;
+    float3 transmission = WaterTransmission(extinction, thicknessCm, background.open);
+    float3 scatterWeight = WaterIntegratedScattering(surface.waterScattering, extinction, transmission);
+    float3 bedLight = 1.0;
+    if (background.valid && !background.open)
+    {
+        float3 bedInView = ReconstructWaterBed(WaterView, viewport, input.pos.xy, viewForward, background.depth);
+        float3 bedInWorld = mul(MaterialView.ViewToWorld, float4(bedInView, 1.0)).xyz;
+        bedLight = exp(-extinction * (max(input.worldPosition.z - bedInWorld.z, 0.0) * 100.0));
+    }
+    float shoreline = background.open ? 1.0 : saturate(thicknessCm * 0.02);
+    float3 behind = background.radiance * bedLight * lerp(1.0, surface.waterColorScale, shoreline);
+
+    float3 rotatedNormal = normal + 2.0 * cross(Lighting.EnvironmentRotation.xyz,
+        cross(Lighting.EnvironmentRotation.xyz, normal) + Lighting.EnvironmentRotation.w * normal);
+    float3 ambient = EnvironmentIrradiance.SampleLevel(EnvironmentSampler, rotatedNormal, 0).rgb
+        * Lighting.EnvironmentControl.x * surface.ambientOcclusion;
+    float3 incoming = ambient * 0.079577471546;
+    float3 direct = 0.0;
+    if (Lighting.Counts.x > 0u)
+    {
+        float3 lightDirection = SafeSurfaceNormal(Lighting.DirectionalDirection.xyz);
+        float3 radiance = Lighting.DirectionalColorIntensity.rgb * Lighting.DirectionalColorIntensity.a;
+        FDirectionalShadowSample shadow = EvaluateDirectionalShadow(input.worldPosition, shading.normalFrame.geometricNormal,
+            Lighting.DirectionalShadowControl, Lighting.DirectionalShadowViewDepthTransform,
+            Lighting.DirectionalShadowSplitDepths, Lighting.DirectionalShadowLightTransition,
+            Lighting.DirectionalShadowCascades, DirectionalShadowTexture, DirectionalShadowSampler);
+        float3 ray = refract(-frame.toView, normal, 1.0 / waterIor);
+        if (dot(ray, ray) > 0.0)
+            incoming += radiance * shadow.attenuation * WaterSchlickPhase(surface.waterPhaseG, dot(lightDirection, ray));
+        direct = EvaluateSurfaceDirectionalLighting(surface.baseColor, surface.metallic, surface.specular, roughness,
+            frame, -lightDirection, radiance, shadow.attenuation);
+    }
+    float f0 = 0.08 * surface.specular;
+    float2 brdf = EnvironmentBrdfLut.SampleLevel(EnvironmentSampler, float2(frame.NoV, roughness), 0).rg;
+    float3 scattered = incoming * scatterWeight * (1.0 - saturate(f0 * brdf.x + brdf.y));
+    SingleLayerWaterMaterialOutput result;
+    float3 color = surface.emissive + direct + (1.0 - surface.opacity) * (scattered + behind * transmission);
+    if (WaterView.DepthParameters.y == 1.0) color = transmission;
+    if (WaterView.DepthParameters.y == 2.0) color = bedLight;
+    if (WaterView.DepthParameters.y == 3.0) color = float3(offset, float(background.valid));
+    result.sceneColor = float4(color, 0.0);
+    result.normalAndRoughness = float4(EncodeOctahedralNormal(normal), roughness, 0.0);
+    result.specularF0 = float4(float3(f0), 0.0);
+    return result;
+}
+#endif
 
 [shader("fragment")]
 uint2 HitProxyFragmentMain(VSOutput input) : SV_Target0

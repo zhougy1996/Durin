@@ -29,6 +29,35 @@ namespace Durin
 		FSamplerRHIRef Sampler;
 	};
 
+	class FWaterSnapshotFragmentShader;
+	class FWaterReflectionFragmentShader;
+	struct FPreparedWaterSnapshot
+	{
+		TShaderMapRef<FPostProcessVertexShader> VertexShader;
+		TShaderMapRef<FWaterSnapshotFragmentShader> FragmentShader;
+		FVertexDeclarationRHIRef VertexDeclaration;
+		FGraphicsPipelineStateInitializer Pipeline;
+	};
+
+	struct FPreparedWaterReflection
+	{
+		TShaderMapRef<FPostProcessVertexShader> VertexShader;
+		TShaderMapRef<FWaterReflectionFragmentShader> FragmentShader;
+		FVertexDeclarationRHIRef VertexDeclaration;
+		FGraphicsPipelineStateInitializer Pipeline;
+	};
+	struct FWaterReflectionInputs
+	{
+		FRHITexture* Coverage = nullptr;
+		FRHITexture* Depth = nullptr;
+		FRHITexture* NormalRoughness = nullptr;
+		FRHITexture* SpecularF0 = nullptr;
+		FRHITexture* Environment = nullptr;
+		FRHITexture* BrdfLut = nullptr;
+		FRHISampler* Sampler = nullptr;
+		FRHIUniformBufferRange Lighting;
+	};
+
 	struct FPreparedPostProcess
 	{
 		TShaderMapRef<FPostProcessVertexShader> VertexShader;
@@ -110,6 +139,13 @@ namespace Durin
 		auto DrawMaterial_RenderThread(FRHICommandListImmediate& Commands,
 			const FPreparedPostProcessMaterial& Prepared, FRHITexture* Input0,
 			FRHITexture* Depth, const FMaterialSceneTextureUniform& Uniform) -> bool;
+		auto PrepareWaterSnapshot_RenderThread(FRHICommandListImmediate& Commands,
+			FPreparedWaterSnapshot& Out) -> bool;
+		auto DrawWaterSnapshot_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+			const FPreparedWaterSnapshot& Draw, FRHITexture* Color, FRHITexture* Depth) -> void;
+		auto PrepareWaterReflection_RenderThread(FPreparedWaterReflection& Out) -> bool;
+		auto DrawWaterReflection_RenderThread(FRHICommandListImmediate& Commands, const FSceneView& View,
+			const FPreparedWaterReflection& Draw, const FWaterReflectionInputs& Inputs) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

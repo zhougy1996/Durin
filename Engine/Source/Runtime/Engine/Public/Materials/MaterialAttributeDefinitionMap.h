@@ -19,10 +19,12 @@ namespace Durin
 	{
 	public:
 		ENGINE_API static auto GetDefinitions() -> std::span<const FMaterialAttributeDefinition>;
+		ENGINE_API static auto GetWaterOutputDefinitions() -> std::span<const FMaterialAttributeDefinition>;
 		ENGINE_API static auto Find(FGuid AttributeID) -> const FMaterialAttributeDefinition*;
 		ENGINE_API static auto Find(EMaterialProperty Property) -> const FMaterialAttributeDefinition*;
+		ENGINE_API static auto FindCompilerRoot(FGuid AttributeID) -> const FMaterialAttributeDefinition*;
 		ENGINE_API static auto GetID(EMaterialProperty Property) -> FGuid;
 		ENGINE_API static auto GetActiveProperties(EMaterialDomain Domain,
-			EMaterialShadingModel ShadingModel, EMaterialBlendMode BlendMode) -> std::vector<EMaterialProperty>;
+			const FMaterialStaticProperties& Properties) -> std::vector<EMaterialProperty>;
 	};
 }

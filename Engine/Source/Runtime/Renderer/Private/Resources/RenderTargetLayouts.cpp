@@ -230,6 +230,24 @@ namespace Durin::RenderTargetLayouts
 		return MakeGraphHybridRetainedForward();
 	}
 
+	auto MakeGraphSingleLayerWater() -> FRHIRenderTargetLayout
+	{
+		auto Layout = MakeGraphHybridRetainedForward();
+		Layout.NumColorRenderTargets = 3;
+		for (uint32 Index = 1; Index < Layout.NumColorRenderTargets; ++Index)
+			Layout.ColorAttachments[Index].RenderTarget = MakeRDGAttachmentLayout(
+				EPixelFormat::RGBA16_FLOAT, ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::Clear);
+		return Layout;
+	}
+
+	auto MakeGraphSingleLayerWaterDepth() -> FRHIRenderTargetLayout
+	{
+		auto Layout = MakeGraphHybridRetainedForward();
+		Layout.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(
+			EPixelFormat::R8_UNORM, ERHIAccess::ColorAttachmentReadWrite, ERHIRenderTargetLoadAction::Clear);
+		return Layout;
+	}
+
 	namespace
 	{
 		auto MakeGraphBoundary(FRHIRenderTargetLayout Layout) -> FRHIRenderTargetLayout

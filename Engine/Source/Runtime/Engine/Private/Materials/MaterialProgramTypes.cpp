@@ -71,7 +71,7 @@ namespace Durin
 	auto IsMaterialSurfaceOutputActive(EMaterialProperty Output, const FMaterialStaticProperties& Properties) -> bool
 	{
 		return std::ranges::contains(FMaterialAttributeDefinitionMap::GetActiveProperties(
-			EMaterialDomain::Surface,Properties.ShadingModel,Properties.BlendMode), Output);
+			EMaterialDomain::Surface, Properties), Output);
 	}
 	auto GetMaterialSurfaceOutputType(EMaterialProperty Output) -> EMaterialProgramValueType
 	{

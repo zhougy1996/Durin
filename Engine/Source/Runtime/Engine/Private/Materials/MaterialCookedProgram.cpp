@@ -36,6 +36,7 @@ namespace Durin
 		{
 			FMaterialStaticProperties Shader = CanonicalizeMaterialShaderProperties(Properties);
 			Ar << Shader.GeometryUsage << Shader.PassUsage << Shader.BlendMode << Shader.ShadingModel << Shader.OpacityMaskThreshold;
+			Ar << Shader.RefractionMethod << Shader.RefractionDepthBias;
 			if (Ar.IsLoading())
 			{
 				if (!ValidateMaterialStaticProperties(Shader)

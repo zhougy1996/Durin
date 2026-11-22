@@ -14,6 +14,7 @@ namespace Durin::RendererPrivate
 		if (!Participation.IsRelevant(Pass == EMeshPipelinePass::ShadowDepth
 			? EMeshCollectionPurpose::Shadow : EMeshCollectionPurpose::Receiver)) return false;
 		const bool bTranslucent = Material.ShaderMap.BlendMode == EMaterialBlendMode::Translucent;
+		const bool bWater = Material.ShaderMap.ShadingModel == EMaterialShadingModel::SingleLayerWater;
 		const bool bGBuffer = !bTranslucent && bSupportsGBuffer
 							  && (Material.ShaderMap.ShadingModel == EMaterialShadingModel::DefaultLit
 								  || Material.ShaderMap.ShadingModel == EMaterialShadingModel::ClearCoat);
@@ -21,8 +22,10 @@ namespace Durin::RendererPrivate
 		{
 		case EMeshPipelinePass::ShadowDepth: return !bTranslucent;
 		case EMeshPipelinePass::GBuffer: return bGBuffer;
-		case EMeshPipelinePass::HybridRetainedForward: return !bTranslucent && !bGBuffer;
+		case EMeshPipelinePass::HybridRetainedForward: return !bTranslucent && !bGBuffer && !bWater;
 		case EMeshPipelinePass::SortedTranslucency: return bTranslucent;
+		case EMeshPipelinePass::SingleLayerWater:
+		case EMeshPipelinePass::SingleLayerWaterDepth: return bWater && !bTranslucent;
 		default: return true;
 		}
 	}

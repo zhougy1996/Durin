@@ -8,8 +8,13 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Toolkits/AssetEditor.h"
 #include "Client/ViewportClient.h"
+#include "Client/SceneViewport.h"
 #include "Engine/Actor.h"
 #include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
+#include "Misc/FileHelper.h"
+#include "WaterRenderingTestSupport.h"
 
 namespace Durin::MaterialEditor
 {
@@ -200,6 +205,17 @@ TEST(FMaterialPreviewTests, PostProcessUsesStudioInputAndDomainSwitchRebindsTheS
 		Frame(); EXPECT_EQ(Mesh->GetMaterial(0),GetDefaultMaterial());
 		Configuration.Domain=EMaterialDomain::Surface; ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
 		Frame(); EXPECT_EQ(Mesh->GetMaterial(0),Material.Get());
+		Configuration.Properties.ShadingModel=EMaterialShadingModel::SingleLayerWater;
+		ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+		Frame();
+		auto* Bed=Cast<DStaticMeshComponent>(FindObjectByName("WaterPreviewBed")); ASSERT_TRUE(Bed);
+		ASSERT_TRUE(Bed->GetStaticMesh());
+		EXPECT_EQ(Bed->GetMaterial(0),GetDefaultMaterial());
+		EXPECT_EQ(Mesh->GetMaterial(0),Material.Get());
+		Configuration.Properties.ShadingModel=EMaterialShadingModel::Unlit;
+		ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
+		Frame();
+		EXPECT_EQ(Bed->GetStaticMesh(),nullptr);
 	}
 	FViewportClient Owner; Owner.SetPostProcessMaterial(Material);
 	auto Snapshot=Owner.GetViewSettings(); ASSERT_TRUE(Snapshot.PostProcess.Material);
@@ -208,4 +224,117 @@ TEST(FMaterialPreviewTests, PostProcessUsesStudioInputAndDomainSwitchRebindsTheS
 	Owner.SetPostProcessMaterial(nullptr); CollectGarbage(EObjectFlags::Standalone); FlushRenderingCommands();
 	EXPECT_FALSE(Key.ResolveObjectPtr()); EXPECT_TRUE(Snapshot.PostProcess.Material);
 	Snapshot.PostProcess.Material.reset(); FlushRenderingCommands();
+}
+
+TEST(FMaterialPreviewTests, WaterVulkanPreviewMatchesDirectRuntimeSubmission)
+{
+	using namespace Durin;
+	using namespace Durin::Tests::Water;
+	const char* Evidence = std::getenv("DURIN_WATER_PREVIEW_PROOF_DIR");
+	if (!Evidence) GTEST_SKIP() << "Set DURIN_WATER_PREVIEW_PROOF_DIR for the Win64 Vulkan comparison.";
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModuleChecked("RenderCore");
+	ASSERT_TRUE(RHIInit(FRHIInitializationContext::Headless()));
+	const std::shared_ptr<void> Shutdown(nullptr, [](void*) { RHIExit(); });
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	FMountPaths::InitDefaultMountPoints();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModuleChecked("MeshBuilder");
+	FModuleManager::Get().LoadModuleChecked("TextureCompressor");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	InitializeAssetCompilingManager();
+	FMaterialPreviewHarness Harness;
+	const std::shared_ptr<void> ClearAssets(nullptr, [](void*) {
+		FlushRenderingCommands();
+		CollectGarbage({});
+		FlushRenderingCommands();
+	});
+	const std::shared_ptr<void> StopCompilation(nullptr, [](void*) { ShutdownAssetCompilingManager(); });
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialStaticProperties Properties;
+	Properties.ShadingModel = EMaterialShadingModel::SingleLayerWater;
+	Properties.bTwoSided = true;
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
+	FMaterialRootInputs Inputs;
+	Inputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.1f});
+	Inputs.Get(EMaterialProperty::MP_Opacity).SetConstant({.2f});
+	TStrongObjectPtr<DMaterialExpressionSingleLayerWaterOutput> WaterOutput(
+		NewObject<DMaterialExpressionSingleLayerWaterOutput>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Absorption(
+		NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None));
+	Absorption->Id = FGuid::NewGuid();
+	Absorption->Value = {.002f, .001f, .0005f};
+	WaterOutput->Id = FGuid::NewGuid();
+	WaterOutput->AbsorptionCoefficients = {Absorption.Get()};
+	const std::array<DMaterialExpression*, 2> Expressions{Absorption.Get(), WaterOutput.Get()};
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Inputs));
+	ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
+	MaterialEditor::FMaterialPreview Preview("WaterVulkanMatch");
+	auto* World = Cast<DWorld>(FindObjectByName("MaterialPreview_WaterVulkanMatchWorld"));
+	ASSERT_TRUE(World);
+	FSoftObjectPath BoxPath;
+	ASSERT_TRUE(FSoftObjectPath::TryCreate("/Engine/Models/Box.Box", BoxPath));
+	FRetainedAsset Box;
+	std::string Error;
+	ASSERT_TRUE(FAssetRetentionService::Acquire(BoxPath, Box, Error)) << Error;
+	FAssetCompilingManager::Get().FinishCompilationForObject(*Box.Get());
+	Preview.SetMaterial(Material.Get());
+	Preview.SetVisible(true);
+	auto* Viewport = Harness.Engine.GetPreviewViewport();
+	ASSERT_TRUE(Viewport);
+	auto* Scene = Viewport->GetRenderScene();
+	ASSERT_TRUE(Scene);
+	Material->CacheResourceShadersForRendering(Scene->GetFeatureLevel(), EMaterialShaderPrecompileMode::Synchronous);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram(Scene->GetFeatureLevel()))
+		<< Material->GetMaterialCookDiagnostic(Scene->GetFeatureLevel());
+	auto* PreviewActor = Cast<AActor>(FindObjectByName("MaterialPreviewActor_WaterVulkanMatch"));
+	ASSERT_TRUE(PreviewActor);
+	auto* PreviewMesh = PreviewActor->FindComponentByClass<DStaticMeshComponent>();
+	ASSERT_TRUE(PreviewMesh && PreviewMesh->IsRegistered());
+	ASSERT_EQ(PreviewMesh->GetMaterial(0), Material.Get());
+	FSceneView View;
+	ASSERT_TRUE(Harness.Engine.BuildSceneView(Viewport, 128, 128, false, View));
+	View.ViewStateId = {};
+	Viewport->RequestResourcePreparation();
+	const auto TargetDesc = FRHITextureCreateDesc::Create2D("WaterPreviewComparison", 128, 128, EPixelFormat::SRGBA8_UNORM)
+		.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+	FByteBuffer PreviewPixels, RuntimePixels;
+	FRDGCapture Graph;
+	bool bCaptured = false;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	do
+	{
+		FAssetCompilingManager::Get().ProcessAsyncTasks();
+		PumpGameThreadDeferredWork();
+		Preview.SetVisible(true);
+		World->Tick({.DeltaSeconds = 0.f});
+		EnqueueRenderCommand("CaptureWaterPreview", [&](FRHICommandListImmediate& Commands) {
+			FGeometryQualificationFrame Frame(Commands);
+			Harness.RendererModule.BeginFrame_RenderThread(Commands);
+			const auto Target = GDynamicRHI->RHICreateTexture(Commands, TargetDesc);
+			ASSERT_TRUE(Target);
+			const FSceneViewRenderRequest Request{Scene, View, Target, false, {}, nullptr, &Graph};
+			const auto Result = Viewport->RenderView_RenderThread(Harness.RendererModule, Commands, Request);
+			if (Result == ERenderViewResult::RendererResourcesPending) return;
+			ASSERT_EQ(Result, ERenderViewResult::Success);
+			if (std::ranges::count(Graph.Passes, "Water.SkyReflection", &FRDGPassCapture::Name) != 1) return;
+			ReadWaterPixels(Commands, Target, PreviewPixels);
+			ASSERT_EQ(Harness.RendererModule.RenderView(Commands, Request), ERenderViewResult::Success);
+			ReadWaterPixels(Commands, Target, RuntimePixels);
+			bCaptured = true;
+		});
+		FlushRenderingCommands();
+		if (bCaptured || HasFatalFailure()) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	} while (std::chrono::steady_clock::now() < Deadline);
+	std::string PassNames;
+	for (const auto& Pass : Graph.Passes) PassNames += Pass.Name + " ";
+	ASSERT_TRUE(bCaptured) << PassNames << PreviewMesh->GetPSOPrecacheDiagnostic();
+	ASSERT_EQ(PreviewPixels.size(), 128u * 128u * 4u);
+	EXPECT_EQ(PreviewPixels, RuntimePixels);
+	const std::filesystem::path Directory(Evidence);
+	std::filesystem::create_directories(Directory);
+	EXPECT_TRUE(FFileHelper::SaveArrayToFile(PreviewPixels, Directory / "preview.rgba8"));
+	EXPECT_TRUE(FFileHelper::SaveArrayToFile(RuntimePixels, Directory / "direct-runtime.rgba8"));
 }

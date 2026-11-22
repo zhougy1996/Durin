@@ -42,7 +42,7 @@ namespace Durin
 				FName("ExpressionCollection"), FName("MaterialAttributes"), FName("bUseMaterialAttributes"),
 				FName("BaseColor"), FName("Normal"), FName("Metallic"), FName("Roughness"),
 				FName("AmbientOcclusion"), FName("EmissiveColor"), FName("Opacity"), FName("OpacityMask"),
-				FName("WorldPositionOffset"), FName("Specular"), FName("ClearCoat"), FName("ClearCoatRoughness")};
+				FName("WorldPositionOffset"), FName("Specular"), FName("ClearCoat"), FName("ClearCoatRoughness"), FName("Refraction")};
 			return std::ranges::contains(RootProperties, Name);
 		}))
 			FMaterialExpressionEditing::Publish(*this, Event.OperationId);

@@ -3,7 +3,7 @@
 Summary: Material geometry and Pass usages select an atomic required stage set whose compatible binaries share independently through ShaderBuild.
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-23
 
 ## Declared usages
 
@@ -26,6 +26,12 @@ rejected transactionally.
 | 2 | `GeometryFragmentMain` |
 | 4 | `ShadowFragmentMain` |
 | 8 | `HitProxyFragmentMain` |
+| 16 | `SingleLayerWaterFragmentMain`, `SingleLayerWaterDepthFragmentMain` |
+
+Single Layer Water color usage selects the water entry and retains the Forward
+entry for diagnostics. Its GBuffer usage canonicalizes away. The water entry
+evaluates Opacity, masked coverage when present, and the dedicated water
+output roots. The ordinary Forward view does not demand those optical roots.
 
 Registered `FMaterialShaderType` / `FMeshMaterialShaderType` descriptions own
 Shader type/source-entry pairs, frequency, domain, geometry/pass eligibility,
@@ -223,8 +229,8 @@ program. Optimized stages may retain no bindings when their entire parameter
 closure is unused; required-resource validation follows the accepted per-entry
 contract rather than a blanket nonempty-binding rule.
 
-Pass contract 25, DMAT 28 and detached translation schema 17 carry this
-contract. Normalization/generator revisions 16/29, compile adapter 26 and the
+Pass contract 28, DMAT 29 and detached translation schema 18 carry this
+contract. Normalization/generator revisions 19/30, compile adapter 26 and the
 ShaderBuild compile algorithm revision 7 invalidate earlier producer artifacts.
 Generic parameter schemas/allocation envelopes use version 2, DSHD uses version 7
 and shared ShaderBuild output uses version 8. These codecs retain resource shape

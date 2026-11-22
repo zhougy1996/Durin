@@ -63,6 +63,7 @@ namespace Durin
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		FXxHash64 FactoryKey;
 		FXxHash64 LayoutKey;
+		RendererPrivate::EMeshPipelinePass FragmentPass = RendererPrivate::EMeshPipelinePass::Forward;
 		auto operator==(const FMeshShaderMapKey&) const -> bool = default;
 	};
 

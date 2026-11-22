@@ -12,8 +12,9 @@ Use the host DevTool launcher to build `WaterSurfaceFixturePluginBuild`,
 projects remain unmodified and do not opt into Water.
 
 Copy each probe beside the corresponding inventory's Runtime binaries under
-`Build/<preset>/PluginBuild/WaterSurfaceFixture/Debug/Runtime`. The startup probe
-also needs that variant's Projects library beside it. Run with the absolute
+`Build/<preset>/PluginBuild/WaterSurfaceFixture/Debug/Runtime`. Make the
+matching Engine Runtime and ThirdParty binaries available in the process
+search path. Run with the absolute
 fixture project filename followed by `enabled`. Then save `Water:false` in the
 disposable project's `Configs/Plugins.json` and run `disabled` in a fresh process without rebuilding.
 Restore its original startup configuration before further positive runs. The probe rejects
@@ -41,8 +42,10 @@ absolute `Engine/Plugins/Water/Content/Materials/DefaultWater.dasset` filename.
 This explicit authoring operation writes source only; neither builds nor Cook
 rewrite plugin content.
 
-Run `persist` first, then use the normal host DevTool Cook command with the
-fixture `--project`, `--root /Game/WaterSurfaceLevel`, and
+Run `persist` first and build `WaterSurfaceFixtureGameReceipt` in Game. Use
+the normal host DevTool Cook command with the fixture `--project`,
+`--target-receipt Build/Win64-Debug-DurinGame/TargetReceipts/WaterSurfaceFixture/Debug/TargetReceipt.json`,
+`--root /Game/WaterSurfaceLevel`, and
 `--output-dir Build/WaterSurfaceValidation/Cooked`. Build `DurinAssetTool` if
 needed. The Cook must retain the Water material through the component's saved
 soft reference, publish its cooked package and Shader library, and leave source

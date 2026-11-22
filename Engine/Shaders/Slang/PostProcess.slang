@@ -1,5 +1,9 @@
 // Minimal fullscreen post-process shader.
 
+import Material.GBufferDecode;
+import Lighting.DirectionalShadow;
+import Lighting.ViewLightingUniform;
+
 struct VSInput
 {
     float2 pos : POSITION;
@@ -22,6 +26,7 @@ struct ViewUniform
 
 Texture2D<float4> SceneColor;
 Texture2D<float4> Bloom;
+Texture2D<float> WaterSnapshotDepth;
 SamplerState SceneColorSampler;
 ConstantBuffer<ViewUniform> View;
 
@@ -118,6 +123,67 @@ VSOutput VertexMain(VSInput input)
     output.pos = float4(input.pos, 0.0, 1.0);
     output.uv = input.uv;
     return output;
+}
+
+struct FWaterSnapshotOutput
+{
+    float4 color : SV_Target0;
+    float depth : SV_Target1;
+};
+
+[shader("fragment")]
+FWaterSnapshotOutput WaterSnapshotFragmentMain(VSOutput input)
+{
+    int3 pixel = int3(int2(input.pos.xy), 0);
+    FWaterSnapshotOutput result;
+    result.color = SceneColor.Load(pixel);
+    result.depth = WaterSnapshotDepth.Load(pixel);
+    return result;
+}
+
+struct FWaterReflectionView
+{
+    float4x4 ViewToWorld;
+    float4 Projection[4];
+    float4 Viewport;
+};
+
+Texture2D<float> WaterReflectionCoverage;
+Texture2D<float> WaterReflectionDepth;
+Texture2D<float4> WaterReflectionNormalRoughness;
+Texture2D<float4> WaterReflectionSpecularF0;
+TextureCube<float4> WaterReflectionEnvironment;
+Texture2D<float4> WaterReflectionBrdfLut;
+SamplerState WaterReflectionSampler;
+ConstantBuffer<FWaterReflectionView> WaterReflectionView;
+ConstantBuffer<FViewLightingUniform> WaterReflectionLighting;
+
+[shader("fragment")]
+float4 WaterReflectionFragmentMain(VSOutput input) : SV_Target0
+{
+    int3 pixel = int3(int2(input.pos.xy), 0);
+    if (WaterReflectionCoverage.Load(pixel) < 0.5)
+        discard;
+    float2 ndc = (input.pos.xy - WaterReflectionView.Viewport.xy) / WaterReflectionView.Viewport.zw * 2.0 - 1.0;
+    float3 viewPosition;
+    if (!ReconstructViewPositionAnalytic(WaterReflectionView.Projection[0], WaterReflectionView.Projection[1],
+            WaterReflectionView.Projection[2], WaterReflectionView.Projection[3], ndc,
+            WaterReflectionDepth.Load(pixel), viewPosition))
+        discard;
+    float3 worldPosition = mul(WaterReflectionView.ViewToWorld, float4(viewPosition, 1.0)).xyz;
+    float3 toView = normalize(WaterReflectionLighting.ViewPosition.xyz - worldPosition);
+    float4 record = WaterReflectionNormalRoughness.Load(pixel);
+    float3 normal = DecodeOctahedralNormal(record.xy);
+    float roughness = record.z;
+    float3 reflection = reflect(-toView, normal);
+    float4 rotation = WaterReflectionLighting.EnvironmentRotation;
+    reflection += 2.0 * cross(rotation.xyz, cross(rotation.xyz, reflection) + rotation.w * reflection);
+    float2 brdf = WaterReflectionBrdfLut.SampleLevel(WaterReflectionSampler,
+        float2(saturate(dot(normal, toView)), roughness), 0).rg;
+    float3 sky = WaterReflectionEnvironment.SampleLevel(WaterReflectionSampler,
+        reflection, roughness * WaterReflectionLighting.EnvironmentControl.y).rgb;
+    float3 f0 = WaterReflectionSpecularF0.Load(pixel).rgb;
+    return float4(sky * WaterReflectionLighting.EnvironmentControl.x * (f0 * brdf.x + brdf.y), 0.0);
 }
 
 [shader("fragment")]

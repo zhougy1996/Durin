@@ -7,6 +7,7 @@
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "MaterialExpressionGraphBuilder.h"
@@ -40,16 +41,6 @@ namespace Durin::MIR
 		  LinkCount(Shared->LinkCount), Environment(std::move(InEnvironment))
 	{
 		Admit(InExpressions);
-		for (uint32 Index = 0; Index < Result.IR.AttributeRoots.size(); ++Index)
-		{
-			const auto Semantics = GetMaterialSurfaceOutputSemantics(
-				FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
-			auto& Input = Result.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
-			Input.Type = Semantics.Type;
-			Input.LegalStages = Semantics.Stages;
-			Input.SpatialKind = Semantics.Kind;
-			Input.CoordinateSpace = Semantics.Space;
-		}
 	}
 
 	FGraphBuilderImpl::FGraphBuilderImpl(FGraphBuilderImpl& Parent,
@@ -207,6 +198,11 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::BuildExpression(const DMaterialExpression& Expression) -> void
 	{
 		if (!Result.Diagnostics.empty() || Built.contains(Expression.Id)) return;
+		if (Signature && Cast<DMaterialExpressionSingleLayerWaterOutput>(&Expression))
+		{
+			Fail("Functions cannot declare a Single Layer Water output.");
+			return;
+		}
 		if (Active.size() >= MaterialProgramMaxDepth || !Active.insert(Expression.Id).second)
 		{
 			Fail("Expression inputs contain a cycle or exceed the traversal depth bound.");

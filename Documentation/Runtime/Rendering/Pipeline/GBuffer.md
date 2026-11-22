@@ -4,7 +4,7 @@ Summary: Define the qualified opaque/masked geometry transport consumed by defer
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-23
 
 ## Scope and Ownership
 
@@ -26,6 +26,24 @@ fallback or a second production renderer.
 diagnostic opt-in. It affects compatible opaque and masked StaticMesh records
 in this pass. Spline, translucent, shadow, hit-proxy, retained-forward and
 editor-assistance geometry use their direct routes.
+
+## Single Layer Water
+
+Single Layer Water uses separately prepared opaque or masked StaticMesh draws.
+After opaque lighting, retained opaque and sky rendering, and applicable cloud
+composition, the graph snapshots linear HDR color and device depth. Water
+depth and coverage select the nearest fragment using the active depth
+convention. Shading uses the same displacement and mask, tests equal depth
+read-only, and uses only the snapshots for refraction. It combines direct
+surface lighting and the volume with separately evaluated view and bed paths.
+Its records carry the selected surface normal, roughness and dielectric F0.
+
+When a filtered sky environment is ready, a fullscreen pass uses only covered
+pixels and those surface records to accumulate sky specular into the existing
+HDR target. Direct specular belongs to water shading. Both passes preserve scene
+alpha and finish before sorted translucency. Views without eligible water draws
+schedule no water passes or targets. This path uses full-resolution inputs and
+supports above-water rendering and sky environment reflections.
 
 ## Compatible Instance Culling
 

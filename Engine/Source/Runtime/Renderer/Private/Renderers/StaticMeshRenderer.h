@@ -101,8 +101,7 @@ namespace Durin
 			const FPreparedStaticMeshDraw& Item,
 			const FMaterialRenderBinding& MaterialBinding,
 			std::shared_ptr<const RendererPrivate::FMeshPassPipeline>& OutPipeline,
-			bool bShadowDepth = false,
-			bool bHybridRetained = false
+			RendererPrivate::FMeshPassKey Pass
 		) -> bool;
 		struct FState;
 

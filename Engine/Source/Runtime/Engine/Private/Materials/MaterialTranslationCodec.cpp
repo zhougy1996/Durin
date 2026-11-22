@@ -89,7 +89,7 @@ namespace Durin::MaterialBuildPrivate
 			template<class T> auto Collections(T& Items) -> void
 			{ Sequence(Items, MaterialParameterCollectionMaxPerMaterial, [&](auto& V) { Value(V.CollectionId); Value(V.SchemaVersion); Layout(V.UniformLayout); }); }
 			template<class T> auto Properties(T& Properties) -> void
-			{ Value(Properties.GeometryUsage); Value(Properties.PassUsage); Value(Properties.BlendMode); Value(Properties.ShadingModel); Value(Properties.OpacityMaskThreshold); }
+			{ Value(Properties.GeometryUsage); Value(Properties.PassUsage); Value(Properties.BlendMode); Value(Properties.ShadingModel); Value(Properties.OpacityMaskThreshold); Value(Properties.RefractionMethod); Value(Properties.RefractionDepthBias); }
 			template<class T> auto Limits(T& Limits) -> void
 			{ Value(Limits.SampledImages); Value(Limits.Samplers); Value(Limits.UniformBuffers); Value(Limits.StageResources); Value(Limits.UniformBufferBytes); }
 			template<class T> auto Source(T& V) -> void { Value(V.ExpressionIndex); Value(V.NodeId); Optional(V.InputIndex); Optional(V.UVFieldIndex); }

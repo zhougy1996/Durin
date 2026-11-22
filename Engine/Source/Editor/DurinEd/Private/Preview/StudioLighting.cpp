@@ -7,15 +7,16 @@
 
 namespace Durin
 {
-    auto AddStudioSkyLight(DLevel& Level) -> bool
+    auto AddStudioSkyLight(DLevel& Level) -> DSkyLightComponent*
     {
         FSoftObjectPath Path;
-        if (!FSoftObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", Path)) return false;
-        DTextureCube* Cube = nullptr;
-        if (!(Cube = LoadObject<DTextureCube>(Path))) return false;
+        if (!FSoftObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", Path)) return nullptr;
+        auto* Cube = LoadObject<DTextureCube>(Path);
+        if (!Cube) return nullptr;
         auto* Actor = Level.SpawnActor<ASkyLightActor>("StudioSkyLight");
-        if (!Actor) return false;
-        Actor->GetSkyLightComponent()->SetSource(ESkyLightSourceMode::SpecifiedCube, Cube);
-        return true;
+        if (!Actor) return nullptr;
+        auto* Light = Actor->GetSkyLightComponent();
+        Light->SetSource(ESkyLightSourceMode::SpecifiedCube, Cube);
+        return Light;
     }
 }

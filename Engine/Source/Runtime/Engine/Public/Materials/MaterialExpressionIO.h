@@ -156,6 +156,7 @@ namespace Durin
 		FMaterialNumericInput Specular;
 		FMaterialNumericInput ClearCoat;
 		FMaterialNumericInput ClearCoatRoughness;
+		FMaterialNumericInput Refraction{1};
 
 		ENGINE_API auto Find(EMaterialProperty Property) const -> const FMaterialNumericInput*;
 		auto Find(EMaterialProperty Property) -> FMaterialNumericInput*

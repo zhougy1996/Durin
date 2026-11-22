@@ -12,6 +12,7 @@
 #include "Engine/Level.h"
 #include "LightSceneTestSupport.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/FileHelper.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Misc/Paths.h"
 #include "Shader/ShaderData.h"
@@ -79,6 +80,7 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 	const auto LoadedMaterial = LoadObject<DMaterialInterface>(MaterialPath, nullptr, &LoadedMaterialError);
 	ASSERT_TRUE(LoadedMaterial) << (*LoadedMaterialError);
 	TStrongObjectPtr<DMaterialInterface> WaterMaterial(LoadedMaterial);
+	ASSERT_EQ(WaterMaterial->GetStaticProperties().ShadingModel, EMaterialShadingModel::SingleLayerWater);
 	WaterMaterial->CacheResourceShadersForRendering(FSceneInterface::GetDefaultFeatureLevel(), EMaterialShaderPrecompileMode::Synchronous);
 	ASSERT_TRUE(WaterMaterial->GetAcceptedCompiledProgram(FSceneInterface::GetDefaultFeatureLevel()))
 		<< WaterMaterial->GetMaterialCookDiagnostic(FSceneInterface::GetDefaultFeatureLevel());
@@ -108,18 +110,28 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		FlushRenderingCommands();
 		FDirectionalLightSceneData Light; Light.Intensity = 3;
 		ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(840), Light), nullptr);
-		auto Capture = [&](double Time, FByteBuffer& Pixels) {
+		static FRDGCapture* GraphSink = nullptr;
+		auto Capture = [&](double Time, FByteBuffer& Pixels, FRDGCapture* Graph = nullptr) {
 			FSceneView View;
 			View.ViewportWidth = 192; View.ViewportHeight = 108; View.MaterialTimeSeconds = Time;
 			View.Settings.Mode.RenderMode = ERenderMode::Lit;
 			const auto Target = FRHITextureCreateDesc::Create2D("WaterComponent", 192, 108, EPixelFormat::SRGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
-			return RenderPreparedGeometryView(Renderer, *Scene, View, Target, {},
+			const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, Target, [Graph] {
+				GraphSink = Graph;
+				if (GraphSink) SetSceneRenderGraphCaptureSink(+[](const FRDGCapture& Capture) { *GraphSink = Capture; });
+			},
 				[&](FRHICommandListImmediate& C, FRHITexture* T) { ReadWaterPixels(C, T, Pixels); });
+			SetSceneRenderGraphCaptureSink(nullptr);
+			GraphSink = nullptr;
+			return Result;
 		};
 		std::array<FByteBuffer, 6> Pixels;
-		ASSERT_EQ(Capture(0, Pixels[0]), ERenderViewResult::Success) << Component->GetDiagnostic();
+		FRDGCapture WaterGraph;
+		ASSERT_EQ(Capture(0, Pixels[0], &WaterGraph), ERenderViewResult::Success) << Component->GetDiagnostic();
 		ASSERT_TRUE(Component->GetDiagnostic().empty()) << Component->GetDiagnostic();
+		EXPECT_EQ(std::ranges::count(WaterGraph.Passes, "Water.NearestDepth", &FRDGPassCapture::Name), 1);
+		EXPECT_EQ(std::ranges::count(WaterGraph.Passes, "Water.Shading", &FRDGPassCapture::Name), 1);
 		ASSERT_EQ(Capture(.75, Pixels[1]), ERenderViewResult::Success);
 		ASSERT_NE(Pixels[0], Pixels[1]);
 		ASSERT_EQ(Capture(0, Pixels[2]), ERenderViewResult::Success);
@@ -137,6 +149,14 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		Component->RegisterComponent();
 		ASSERT_EQ(Capture(.75, Pixels[5]), ERenderViewResult::Success) << Component->GetDiagnostic();
 		EXPECT_EQ(Pixels[3], Pixels[5]);
+		if (const char* Evidence = std::getenv("DURIN_WATER_PROOF_DIR"))
+		{
+			const auto Directory = std::filesystem::path(Evidence) / (DURIN_WITH_EDITOR ? "Editor" : "Cooked");
+			std::filesystem::create_directories(Directory);
+			for (const size_t Index : {0u, 1u, 3u, 4u})
+				ASSERT_TRUE(FFileHelper::SaveArrayToFile(Pixels[Index], Directory / std::format("component-{}.rgba8", Index)));
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(WaterGraph.Dump)), Directory / "component-rdg.txt"));
+		}
 	}
 }
 #endif

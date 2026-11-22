@@ -98,6 +98,7 @@
         "Public/Materials/MaterialExpressionVector.h",
         "Public/Materials/MaterialExpressionMaterialAttributes.h",
         "Public/Materials/MaterialExpressionScene.h",
+        "Public/Materials/MaterialExpressionSingleLayerWaterOutput.h",
         "Public/Materials/MaterialExpressionCollectionParameter.h",
         "Public/Materials/MaterialExpressionSwitch.h",
         "Public/Materials/MaterialExpressionFunctionCall.h",

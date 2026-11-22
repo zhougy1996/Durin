@@ -182,25 +182,31 @@ namespace Durin
 		for (auto& Record : ResolvedView.Draws) {
 			Record.Pipelines.erase({EMeshPipelinePass::HybridRetainedForward});
 			Record.Pipelines.erase({EMeshPipelinePass::SortedTranslucency});
+			Record.Pipelines.erase({EMeshPipelinePass::SingleLayerWaterDepth});
+			Record.Pipelines.erase({EMeshPipelinePass::SingleLayerWater});
 		}
-		ForEachBasePassBucket(PreparedView, [this, &PreparedView,
-			&ResolvedView, &bReady](const auto& Bucket, EMeshBasePass Pass) {
-			for (const FPreparedStaticMeshDraw& Draw : Bucket)
+		for (uint32 Index = 0; Index < PreparedView.GetNumSections(); ++Index)
+		{
+			const auto& Draw = PreparedView.GetDraw(Index);
+			if (FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
+				continue;
+			const auto* Primitive = PreparedView.GetPrimitive(Draw);
+			const auto* MaterialBinding = ResolvedView.GetMaterialBinding(Draw);
+			auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
+			const auto Prepare = [&](FMeshPassKey PassKey) -> bool {
+				return EnsureSectionResources_RenderThread(*Primitive, Draw, *MaterialBinding, Record.Pipelines[PassKey], PassKey);
+			};
+			bool bDrawReady = false;
+			if (Primitive && MaterialBinding)
 			{
-				if (FPassProcessorManager::GetMeshPassProcessor(EMeshPipelinePass::GBuffer).IsMeshRelevant(Draw.Command->Material.PlanningPassIdentity, {}, Draw.Command->bSupportsGBuffer))
-					continue;
-				const FPreparedStaticMeshPrimitive* Primitive =
-					PreparedView.GetPrimitive(Draw);
-				const FMaterialRenderBinding* MaterialBinding =
-					ResolvedView.GetMaterialBinding(Draw);
-				auto& Record = ResolvedView.Draws[Draw.ResolvedIndex];
-				const bool bDrawReady = Primitive != nullptr && MaterialBinding != nullptr
-					&& EnsureSectionResources_RenderThread(*Primitive, Draw, *MaterialBinding,
-						Record.Pipelines[FState::GetPassKey(Draw, false, true)], false, true);
-				Record.bReady = Record.bReady && bDrawReady;
-				bReady = bDrawReady && bReady;
+				const bool bWater = Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel
+					== EMaterialShadingModel::SingleLayerWater;
+				if (bWater) bDrawReady = Prepare({EMeshPipelinePass::SingleLayerWaterDepth}) && Prepare({EMeshPipelinePass::SingleLayerWater});
+				else bDrawReady = Prepare(FState::GetPassKey(Draw, false, true));
 			}
-		});
+			Record.bReady = Record.bReady && bDrawReady;
+			bReady = bDrawReady && bReady;
+		}
 		return bReady;
 	}
 
@@ -272,8 +278,9 @@ namespace Durin
 				bShadowDepth ? "StaticMeshShadowMaterialBinding" : "StaticMeshMaterialBinding"))
 			return false;
 		Record.MaterialBinding = std::move(MaterialBinding);
+		const auto Pass = FState::GetPassKey(Draw, bShadowDepth);
 		const bool bReady = Primitive && (Policy != EStaticMeshSectionResourcePolicy::SamplersOnly
-			? EnsureSectionResources_RenderThread(*Primitive, Draw, *Record.MaterialBinding, Record.Pipelines[FState::GetPassKey(Draw, bShadowDepth)], bShadowDepth)
+			? EnsureSectionResources_RenderThread(*Primitive, Draw, *Record.MaterialBinding, Record.Pipelines[Pass], Pass)
 			: EnsureMaterialSamplers_RenderThread(*Record.MaterialBinding));
 
 		if (bReady && bRetained && Generation == Coordinator.GetGeneration_RenderThread() &&
@@ -311,11 +318,12 @@ namespace Durin
 		const FPreparedStaticMeshDraw& Item,
 		const FMaterialRenderBinding& MaterialBinding,
 		std::shared_ptr<const FMeshPassPipeline>& OutPipeline,
-		bool bShadowDepth,
-		bool bHybridRetained
+		FMeshPassKey PassKey
 	) -> bool
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.EnsureSectionResources");
+		const auto Pass = PassKey.Pass;
+		const bool bShadowDepth = Pass == EMeshPipelinePass::ShadowDepth;
 		RendererPrivate::FRenderStageTimings Timings(false, bShadowDepth ? "ShadowSection" : "MeshSection",
 			bShadowDepth && GRenderFrameCounterRenderThread <= 5 ? 0.25 : 20.0);
 		OutPipeline.reset();
@@ -328,21 +336,20 @@ namespace Durin
 		const FVertexFactoryInputBinding& VertexFactory = *Primitive.CollectedBinding;
 		const auto Factory = FindMeshVertexFactory(Item.Command->PipelineKey.FactoryKey);
 		if (!Factory || Factory->GetLayoutKey() != Item.Command->PipelineKey.LayoutKey) return false;
-		const auto Pass = bShadowDepth ? EMeshPipelinePass::ShadowDepth
-			: !bHybridRetained ? EMeshPipelinePass::Forward
-			: Material.PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Translucent
-				? EMeshPipelinePass::SortedTranslucency : EMeshPipelinePass::HybridRetainedForward;
 		const auto& Processor = FPassProcessorManager::GetMeshPassProcessor(Pass);
 		const FMeshPassProcessorBatch Batch{Material.PlanningPassIdentity, *Factory,
 			{Item.Command->PipelineKey.Rasterizer, Item.Command->PipelineKey.Depth, Item.Command->PipelineKey.ColorBlend},
-			Item.Command->PipelineKey.Topology, {}, Item.Command->bSupportsGBuffer};
+			Item.Command->PipelineKey.Topology, {}, Item.Command->bSupportsGBuffer,
+			Item.Command->PipelineKey.Depth.CompareOp == ERHIDepthCompareOp::GreaterOrEqual};
 
 		using FShaderMapResult =
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		const FMeshShaderMapKey ShaderMapKey{
 			.Material = Material.PlanningPassIdentity.ShaderMap,
 			.VertexDomain = Primitive.VertexDomain,
-			.FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey
+			.FactoryKey = Item.Command->PipelineKey.FactoryKey, .LayoutKey = Item.Command->PipelineKey.LayoutKey,
+			.FragmentPass = Pass == EMeshPipelinePass::SingleLayerWater || Pass == EMeshPipelinePass::SingleLayerWaterDepth
+				? Pass : EMeshPipelinePass::Forward
 		};
 		Timings.Next("ShaderMapCache");
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
@@ -682,7 +689,8 @@ namespace Durin
 				auto& Scope = BuildScopes[PassKey];
 				if (!Scope) Scope = std::make_unique<FPassBuildScope>(ResolvedView.CachedDrawLists,
 					*ResolvedView.DrawCommandStorage, ResolvedView.GetMeshDrawCommandPass(PassKey), BindingCache);
-				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory, {Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend, PassKey.Pass == EMeshPipelinePass::GBuffer && Pipeline->GetInitializer().Description.RenderTargets.NumColorRenderTargets == 5}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer};
+				const FMeshPassProcessorBatch Batch{Draw.Command->Material.PlanningPassIdentity, *Factory, {Draw.Command->PipelineKey.Rasterizer, Draw.Command->PipelineKey.Depth, Draw.Command->PipelineKey.ColorBlend, PassKey.Pass == EMeshPipelinePass::GBuffer && Pipeline->GetInitializer().Description.RenderTargets.NumColorRenderTargets == 5}, Draw.Command->PipelineKey.Topology, {}, Draw.Command->bSupportsGBuffer,
+					Draw.Command->PipelineKey.Depth.CompareOp == ERHIDepthCompareOp::GreaterOrEqual};
 				std::shared_ptr<const FMeshDrawCommand> Cached;
 				FCachedMeshDrawCommand CachedSelection;
 				if (Ready)

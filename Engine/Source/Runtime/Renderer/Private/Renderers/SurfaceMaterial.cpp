@@ -14,6 +14,8 @@
 namespace Durin::RendererPrivate
 {
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSingleLayerWaterFragmentShader);
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSingleLayerWaterDepthFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader);
 	const auto GOpaqueShadowRequest = [] {

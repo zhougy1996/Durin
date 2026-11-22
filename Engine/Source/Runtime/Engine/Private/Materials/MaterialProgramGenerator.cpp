@@ -195,6 +195,7 @@ namespace Durin
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
 import Material.GBufferDecode;
+import Material.SingleLayerWaterLighting;
 import SceneData;
 #include "Material/SurfacePassResources.slang"
 
@@ -605,7 +606,12 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 					std::pair{P::MP_AmbientOcclusion, "ambientOcclusion"}, std::pair{P::MP_EmissiveColor, "emissive"},
 					std::pair{P::MP_Opacity, "opacity"}, std::pair{P::MP_OpacityMask, "opacityMask"},
 					std::pair{P::MP_Specular, "specular"}, std::pair{P::MP_ClearCoat, "clearCoat"},
-					std::pair{P::MP_ClearCoatRoughness, "clearCoatRoughness"}
+					std::pair{P::MP_ClearCoatRoughness, "clearCoatRoughness"},
+					std::pair{P::MP_Refraction, "refraction"},
+					std::pair{P::MP_WaterScattering, "waterScattering"},
+					std::pair{P::MP_WaterAbsorption, "waterAbsorption"},
+					std::pair{P::MP_WaterPhaseG, "waterPhaseG"},
+					std::pair{P::MP_WaterColorScale, "waterColorScale"}
 				};
 				OutSource += "    FMaterialSurface result;\n";
 				for (const auto& [Property, Field] : Fields)
@@ -894,7 +900,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 		std::unordered_set<FGuid> AttributeIDs;
 		for (const auto& Input : IR.AttributeRoots)
 		{
-			const auto* Definition = FMaterialAttributeDefinitionMap::Find(Input.AttributeID);
+			const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Input.AttributeID);
 			if (!Definition || !AttributeIDs.insert(Input.AttributeID).second
 				|| Input.GetSemantics() != Definition->Semantics)
 			{
@@ -1149,7 +1155,7 @@ float3x3 MaterialTangentToWorld(VSOutput input)
 			if (!Vertex)
 				for (auto& Root : Projected.AttributeRoots)
 				{
-					const auto* Definition = FMaterialAttributeDefinitionMap::Find(Root.AttributeID);
+					const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Root.AttributeID);
 					if (!std::ranges::contains(Demanded, Definition->Property)) { Root.bExpression = false; Root.Literal = Definition->DefaultValue; }
 				}
 			auto Request = Base;

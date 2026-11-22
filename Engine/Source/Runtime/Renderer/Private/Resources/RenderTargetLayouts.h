@@ -48,6 +48,8 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeGraphHybridDeferredOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeGraphHybridRetainedForward() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeGraphSortedTranslucency() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphSingleLayerWater() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeGraphSingleLayerWaterDepth() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output,
 		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM)
 		-> FRHIRenderTargetLayout;

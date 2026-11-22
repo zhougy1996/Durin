@@ -5,6 +5,7 @@
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "Materials/MaterialExpressionCollectionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -105,6 +106,10 @@ namespace Durin
 					"Samples a named texture parameter with mesh UV0 or a connected Float2 UV expression. Outputs share one fetch.", {"UV"}, ""),
 				Describe<DMaterialExpressionWorldPosition>(EMaterialProgramOpcode::WorldPosition, "World Position",
 					"Surface position relative to the current view origin (Float3).", {}, ""),
+				Describe<DMaterialExpressionSingleLayerWaterOutput>(EMaterialProgramOpcode::SingleLayerWaterOutput,
+					"Single Layer Water Material", "Sets the pixel inputs for the Single Layer Water shading model.",
+					{"Scattering Coefficients", "Absorption Coefficients", "Phase G", "Color Scale Behind Water"},
+					"water refraction volume", EMaterialProgramValueType::Float),
 				Describe<DMaterialExpressionPrimitiveCustomData>(EMaterialProgramOpcode::PrimitiveCustomData, "Custom Primitive Data",
 					"Reads indexed numeric channels shared by the primitive's instances.", {}, "CPD"),
 				Describe<DMaterialExpressionInstanceCustomData>(EMaterialProgramOpcode::InstanceCustomData, "Per Instance Custom Data",

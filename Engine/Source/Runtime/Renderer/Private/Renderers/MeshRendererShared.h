@@ -217,7 +217,7 @@ namespace Durin::RendererPrivate
 	{
 	public:
 			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
-			{ return {.Entry = EMaterialShaderEntry::LocalVertex, .GeometryUsage = 1, .PassUsage = 15, .VertexFactory = []() -> const FVertexFactoryType* { return &GetLocalVertexFactoryShaderType(); }}; }
+			{ return {.Entry = EMaterialShaderEntry::LocalVertex, .GeometryUsage = 1, .PassUsage = 31, .VertexFactory = []() -> const FVertexFactoryType* { return &GetLocalVertexFactoryShaderType(); }}; }
 
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
 				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
@@ -238,7 +238,7 @@ namespace Durin::RendererPrivate
 	{
 	public:
 			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
-			{ return {.Entry = EMaterialShaderEntry::SplineVertex, .GeometryUsage = 2, .PassUsage = 15, .VertexFactory = []() -> const FVertexFactoryType* { return &GetSplineVertexFactoryShaderType(); }}; }
+			{ return {.Entry = EMaterialShaderEntry::SplineVertex, .GeometryUsage = 2, .PassUsage = 31, .VertexFactory = []() -> const FVertexFactoryType* { return &GetSplineVertexFactoryShaderType(); }}; }
 
 		static auto ModifyCompilationEnvironment(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& Options) -> void
 		{

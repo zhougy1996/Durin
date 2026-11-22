@@ -40,6 +40,8 @@ namespace Durin::RendererPrivate
 		ShadowDepth,
 		GBuffer,
 		HitProxy,
+		SingleLayerWater,
+		SingleLayerWaterDepth,
 	};
 
 	// Identifies a mesh pass independently of its instance-selection algorithm.

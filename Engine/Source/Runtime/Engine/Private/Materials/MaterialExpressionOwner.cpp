@@ -55,6 +55,7 @@ namespace Durin
 		case EMaterialProperty::MP_Specular: Visit(Owner.Specular); break;
 		case EMaterialProperty::MP_ClearCoat: Visit(Owner.ClearCoat); break;
 		case EMaterialProperty::MP_ClearCoatRoughness: Visit(Owner.ClearCoatRoughness); break;
+		case EMaterialProperty::MP_Refraction: Visit(Owner.Refraction); break;
 		default: break;
 		}
 	}

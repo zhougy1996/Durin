@@ -14,9 +14,12 @@
 #include "Modules/ModuleTestSupport.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "Texture/TextureCube.h"
 #include "RendererModule.h"
 #include "RenderResourcePreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "RDG/RDGDiagnostics.h"
+#include "SceneViewProjection.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "LightSceneTestSupport.h"
@@ -28,6 +31,7 @@
 #include "Shader/IShaderBuildModule.h"
 #include "Shader/ShaderData.h"
 #include <gtest/gtest.h>
+#include <glm/gtc/packing.hpp>
 
 using namespace Durin::Tests::Water;
 
@@ -285,3 +289,649 @@ TEST(FWaterRenderingPathVulkanTests, FiniteGerstnerGridMatchesCPUAndRemainsSelec
 		FlushRenderingCommands();
 	}
 }
+
+#if DURIN_WITH_EDITOR
+TEST(FWaterRenderingPathVulkanTests, SingleLayerWaterSnapshotsAndKeepsNearestDepth)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	using P = EMaterialProperty;
+	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("Water"));
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("SingleLayerWater");
+	Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, VulkanShaderTarget));
+	Environment.FeatureLevel = FSceneInterface::GetDefaultFeatureLevel();
+	Environment.Quality = GetMaterialQualityLevel();
+	const auto Material = [&](FMaterialStaticProperties Properties, FMaterialProgramLiteral Emissive, bool bMaskHole = false) {
+		MIR::FCompilerInput Input{.StaticProperties = Properties, .Environment = Environment};
+		Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = Emissive;
+		if (Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater)
+			Input.IR.GetAttribute(P::MP_Opacity).Literal = {0};
+		if (bMaskHole)
+		{
+			using Op = EMaterialProgramOpcode;
+			using Type = EMaterialProgramValueType;
+			Input.IR.Nodes = {
+				{.Opcode = Op::Constant, .ResultType = Type::Float, .Payload = FMaterialProgramLiteral{}},
+				{.Opcode = Op::UVChannel, .ResultType = Type::Float2, .Inputs = {0}},
+				{.Opcode = Op::Swizzle, .ResultType = Type::Float, .Inputs = {1}, .Payload = MIR::FSwizzle{1, {0}}},
+				{.Opcode = Op::Step, .ResultType = Type::Float, .Inputs = {0, 2}},
+			};
+			for (auto& Node : Input.IR.Nodes)
+			{
+				std::vector<FMaterialValueSemantics> Operands;
+				for (uint32 Link : Node.Inputs) Operands.push_back(Input.IR.Nodes[Link].GetSemantics());
+				const auto Semantics = ResolveMaterialProgramNodeSemantics(Node.Opcode, Node.ResultType, Operands);
+				check(Semantics.has_value());
+				Node.LegalStages = Semantics->Stages;
+			}
+			auto& Mask = Input.IR.GetAttribute(P::MP_OpacityMask);
+			Mask.bExpression = true;
+			Mask.ExpressionIndex = 3;
+		}
+		const auto Compiled = MIR::Compile(Input);
+		EXPECT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
+		auto Proxy = MakeRefCount<FMaterialRenderProxy>();
+		if (Compiled) Durin::Testing::QueueMaterialTestState(*Proxy, {
+			.StaticProperties = Properties, .CompiledProgram = std::make_shared<const FMaterialProgram>(Compiled.Resource)});
+		return Proxy;
+	};
+	const auto Bed = Material({.bTwoSided = true}, {1, 1, 1});
+	const auto Post = Material({.bTwoSided = true}, {0, 1, 0});
+	const auto Overlay = Material({.BlendMode = EMaterialBlendMode::Translucent,
+		.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true}, {1, 0, 0});
+	const auto Water = Material({.ShadingModel = EMaterialShadingModel::SingleLayerWater, .bTwoSided = true}, {});
+	const auto Hole = Material({.BlendMode = EMaterialBlendMode::Masked,
+		.ShadingModel = EMaterialShadingModel::SingleLayerWater, .bTwoSided = true}, {}, true);
+	auto AnimatedInput = MakeWaterPathInput(true);
+	AnimatedInput.Environment = Environment;
+	AnimatedInput.StaticProperties.ShadingModel = EMaterialShadingModel::SingleLayerWater;
+	AnimatedInput.IR.GetAttribute(P::MP_Opacity).Literal = {0};
+	const auto AnimatedProgram = MIR::Compile(AnimatedInput);
+	ASSERT_TRUE(AnimatedProgram) << FormatMaterialProgramDiagnostics(AnimatedProgram.Diagnostics);
+	auto Animated = MakeRefCount<FMaterialRenderProxy>();
+	Durin::Testing::QueueMaterialTestState(*Animated, {.StaticProperties = AnimatedInput.StaticProperties,
+		.CompiledProgram = std::make_shared<const FMaterialProgram>(AnimatedProgram.Resource)});
+	ASSERT_FALSE(HasFailure());
+	auto Grid = MakeWaterPathGrid();
+	auto DisplacedGrid = MakeWaterPathGrid(.7);
+	const std::shared_ptr<void> Release(nullptr, [&](void*) {
+		EnqueueRenderCommand("ReleaseWaterFixture", [&](FRHICommandListImmediate&) {
+			Grid->ReleaseResources();
+			DisplacedGrid->ReleaseResources();
+		});
+		FlushRenderingCommands();
+	});
+	EnqueueRenderCommand("InitializeWaterFixture", [&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Grid->InitResources(Commands));
+		ASSERT_TRUE(DisplacedGrid->InitResources(Commands));
+	});
+	FlushRenderingCommands();
+	ASSERT_FALSE(HasFailure());
+
+	struct FCapture { FRDGCapture Graph; FByteBuffer Pixels; };
+	struct FVariant
+	{
+		bool bOverlay = false;
+		bool bFront = false;
+		bool bBack = false;
+		bool bHole = false;
+		bool bSwap = false;
+		bool bPost = false;
+		bool bMixedDepth = false;
+	};
+	static FRDGCapture* Sink = nullptr;
+	const auto Render = [&](bool bReversed, FVariant Variant, FCapture& Out,
+		const FMaterialRenderProxyRef& FrontWater = {}, FStaticMeshRenderData* FrontGrid = nullptr) {
+		SCOPED_TRACE(std::format("overlay={} front={} back={} hole={} swap={} post={}", Variant.bOverlay,
+			Variant.bFront, Variant.bBack, Variant.bHole, Variant.bSwap, Variant.bPost));
+		FSceneTestOwner Scene;
+		const auto Add = [&](uint32 Id, double Z, const FMaterialRenderProxyRef& Proxy,
+			double ScaleX = 1.0, FStaticMeshRenderData* Mesh = nullptr) {
+			FMatrix Transform(1);
+			Transform[0][0] = ScaleX;
+			Transform[3][2] = Z - .5;
+			FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+				std::make_unique<FStaticMeshSceneProxy>(Mesh ? Mesh : Grid.get(), std::vector{Proxy}), Transform);
+		};
+		Add(700, .8, Bed);
+		if (Variant.bOverlay) Add(701, Variant.bMixedDepth ? .36 : Variant.bPost ? .25 : .5, Overlay);
+		if (Variant.bFront)
+			Add(Variant.bSwap ? 703 : 702, .35, FrontWater ? FrontWater : (Variant.bHole ? Hole : Water), 1.0, FrontGrid);
+		if (Variant.bBack) Add(Variant.bSwap ? 702 : 703, .65, Water);
+		if (Variant.bPost) Add(704, Variant.bMixedDepth ? .33 : .15, Post, .18);
+		FSceneView View;
+		View.ViewportWidth = 86;
+		View.ViewportHeight = 64;
+		View.AspectRatioConstraint = 2.0;
+		View.MaterialTimeSeconds = .7;
+		View.Settings.Mode.RenderMode = ERenderMode::Lit;
+		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		View.Settings.AmbientOcclusion.bEnabled = false;
+		if (bReversed)
+		{
+			View.DepthConvention = ESceneDepthConvention::ReversedZ;
+			View.ProjectionMatrix[2][2] = -1;
+			View.ProjectionMatrix[3][2] = 1;
+			View.ViewProjectionMatrix = View.ProjectionMatrix;
+		}
+		const auto Target = FRHITextureCreateDesc::Create2D("SingleLayerWaterFixture", 86, 64, EPixelFormat::SRGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+		const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, Target, [&] {
+			Sink = &Out.Graph;
+			SetSceneRenderGraphCaptureSink(+[](const FRDGCapture& Graph) { *Sink = Graph; });
+		}, [&](FRHICommandListImmediate& Commands, FRHITexture* Texture) { ReadWaterPixels(Commands, Texture, Out.Pixels); });
+		SetSceneRenderGraphCaptureSink(nullptr);
+		Sink = nullptr;
+		EXPECT_EQ(Result, ERenderViewResult::Success);
+	};
+	for (bool bReversed : {false, true})
+	{
+		SCOPED_TRACE(bReversed);
+		FCapture BedOnly, NoWater, Front, Back, HoleAtFront, Swapped, PostOnly, PostAndWater;
+		Render(bReversed, {}, BedOnly);
+		Render(bReversed, {.bOverlay = true}, NoWater);
+		Render(bReversed, {.bOverlay = true, .bFront = true, .bBack = true}, Front);
+		Render(bReversed, {.bOverlay = true, .bBack = true}, Back);
+		Render(bReversed, {.bOverlay = true, .bFront = true, .bBack = true, .bHole = true}, HoleAtFront);
+		Render(bReversed, {.bOverlay = true, .bFront = true, .bBack = true, .bSwap = true}, Swapped);
+		Render(bReversed, {.bOverlay = true, .bPost = true}, PostOnly);
+		Render(bReversed, {.bOverlay = true, .bFront = true, .bPost = true}, PostAndWater);
+		ASSERT_FALSE(HasFailure());
+		EXPECT_EQ(Front.Pixels, BedOnly.Pixels);
+		EXPECT_EQ(Swapped.Pixels, Front.Pixels);
+		EXPECT_EQ(Back.Pixels, NoWater.Pixels);
+		const auto Pixel = [](const FCapture& Image, uint32 X) { return std::span(Image.Pixels).subspan((32 * 86 + X) * 4, 4); };
+		EXPECT_TRUE(std::ranges::equal(Pixel(HoleAtFront, 24), Pixel(NoWater, 24)));
+		EXPECT_TRUE(std::ranges::equal(Pixel(HoleAtFront, 62), Pixel(BedOnly, 62)));
+		EXPECT_EQ(PostAndWater.Pixels, PostOnly.Pixels);
+		EXPECT_FALSE(std::ranges::equal(Pixel(PostAndWater, 43), Pixel(PostAndWater, 24)));
+		EXPECT_NE(Front.Pixels, NoWater.Pixels);
+		EXPECT_FALSE(std::ranges::any_of(NoWater.Graph.Resources, [](const auto& Resource) { return Resource.Name.starts_with("Water."); }));
+		EXPECT_FALSE(std::ranges::any_of(NoWater.Graph.Passes, [](const auto& Pass) { return Pass.Name.starts_with("Water."); }));
+		const auto Pass = [&](std::string_view Name) { return std::ranges::find(Front.Graph.Passes, Name, &FRDGPassCapture::Name); };
+		ASSERT_NE(Pass("Water.Snapshot"), Front.Graph.Passes.end());
+		ASSERT_NE(Pass("Water.NearestDepth"), Front.Graph.Passes.end());
+		ASSERT_NE(Pass("Water.Shading"), Front.Graph.Passes.end());
+		ASSERT_NE(Pass("Scene.Color"), Front.Graph.Passes.end());
+		EXPECT_LT(Pass("Water.Snapshot"), Pass("Water.NearestDepth"));
+		EXPECT_LT(Pass("Water.NearestDepth"), Pass("Water.Shading"));
+		EXPECT_LT(Pass("Water.Shading"), Pass("Scene.Color"));
+		for (const auto Name : {"Water.BackgroundColor", "Water.BackgroundDeviceZ", "Water.Coverage"})
+		{
+			const auto Texture = std::ranges::find(Front.Graph.Resources, Name, &FRDGResourceCapture::Name);
+			ASSERT_NE(Texture, Front.Graph.Resources.end());
+			const auto Shade = Pass("Water.Shading")->DeclarationIndex;
+			EXPECT_EQ(std::ranges::count_if(Front.Graph.Uses, [&](const auto& Use) {
+				return Use.PassDeclarationIndex == Shade && Use.ResourceId == Texture->ResourceId
+					&& Use.Use == ERDGUse::Read && Use.Access == ERHIAccess::GraphicsShaderRead;
+			}), 1);
+			EXPECT_EQ(std::ranges::count_if(Front.Graph.Uses, [&](const auto& Use) {
+				return Use.PassDeclarationIndex == Shade && Use.ResourceId == Texture->ResourceId && Use.Use != ERDGUse::Read;
+			}), 0);
+		}
+		const auto Evidence = std::filesystem::path(FPaths::RootDir()) / "Build/SingleLayerWater/Stage2";
+		std::filesystem::create_directories(Evidence);
+		const auto Name = bReversed ? "ReversedZ" : "ForwardZ";
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Front.Pixels, Evidence / (std::string(Name) + ".rgba8")));
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Front.Graph.Dump)), Evidence / (std::string(Name) + "-rdg.txt")));
+
+		const FVariant Mixed{.bOverlay = true, .bFront = true, .bPost = true, .bMixedDepth = true};
+		FCapture Flat, GPUDisplaced, CPUDisplaced;
+		Render(bReversed, Mixed, Flat);
+		Render(bReversed, Mixed, GPUDisplaced, Animated);
+		Render(bReversed, Mixed, CPUDisplaced, Water, DisplacedGrid.get());
+		ASSERT_FALSE(HasFailure());
+		ASSERT_EQ(GPUDisplaced.Pixels.size(), CPUDisplaced.Pixels.size());
+		uint32 Different = 0;
+		for (size_t Offset = 0; Offset < GPUDisplaced.Pixels.size(); Offset += 4)
+			Different += !std::ranges::equal(std::span(GPUDisplaced.Pixels).subspan(Offset, 4),
+				std::span(CPUDisplaced.Pixels).subspan(Offset, 4));
+		EXPECT_LT(Different, 86u * 64u / 100u);
+		EXPECT_NE(Flat.Pixels, GPUDisplaced.Pixels);
+		const auto Integration = Evidence.parent_path() / "Stage5";
+		std::filesystem::create_directories(Integration);
+		EXPECT_TRUE(FFileHelper::SaveArrayToFile(GPUDisplaced.Pixels, Integration / (std::string(Name) + "-displaced.rgba8")));
+		EXPECT_TRUE(FFileHelper::SaveArrayToFile(CPUDisplaced.Pixels, Integration / (std::string(Name) + "-cpu-displaced.rgba8")));
+		EXPECT_TRUE(FFileHelper::SaveArrayToFile(Flat.Pixels, Integration / (std::string(Name) + "-flat.rgba8")));
+	}
+}
+
+TEST(FWaterRenderingPathVulkanTests, WaterVolumeMatchesThreeLinearHDRBedProbes)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	using P = EMaterialProperty;
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("WaterVolume");
+	Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, VulkanShaderTarget));
+	Environment.FeatureLevel = FSceneInterface::GetDefaultFeatureLevel();
+	Environment.Quality = GetMaterialQualityLevel();
+	MIR::FCompilerInput Input{.StaticProperties = {.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true},
+		.Environment = Environment};
+	Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = {1, 1, 1};
+	const auto BedProgram = MIR::Compile(Input);
+	ASSERT_TRUE(BedProgram) << FormatMaterialProgramDiagnostics(BedProgram.Diagnostics);
+	auto Bed = MakeRefCount<FMaterialRenderProxy>();
+	Durin::Testing::QueueMaterialTestState(*Bed, {.StaticProperties = Input.StaticProperties,
+		.CompiledProgram = std::make_shared<const FMaterialProgram>(BedProgram.Resource)});
+
+	Input.StaticProperties.ShadingModel = EMaterialShadingModel::SingleLayerWater;
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+	Input.IR.GetAttribute(P::MP_EmissiveColor).Literal = {};
+	Input.IR.GetAttribute(P::MP_Specular).Literal = {.25f};
+	Input.IR.GetAttribute(P::MP_Roughness).Literal = {.1f};
+	Input.IR.GetAttribute(P::MP_Opacity).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.01f, .01f, .01f};
+	auto Water = MakeRefCount<FMaterialRenderProxy>();
+	const auto PublishWater = [&] {
+		const auto Program = MIR::Compile(Input);
+		ASSERT_TRUE(Program) << FormatMaterialProgramDiagnostics(Program.Diagnostics);
+		Durin::Testing::QueueMaterialTestState(*Water, {.StaticProperties = Input.StaticProperties,
+			.CompiledProgram = std::make_shared<const FMaterialProgram>(Program.Resource)});
+	};
+	PublishWater();
+	ASSERT_FALSE(HasFailure());
+
+	auto Grid = MakeWaterPathGrid();
+	const std::shared_ptr<void> Release(nullptr, [&](void*) {
+		EnqueueRenderCommand("ReleaseWaterVolumeFixture", [&](FRHICommandListImmediate&) { Grid->ReleaseResources(); });
+		FlushRenderingCommands();
+	});
+	EnqueueRenderCommand("InitializeWaterVolumeFixture", [&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Grid->InitResources(Commands));
+	});
+	FlushRenderingCommands();
+	ASSERT_FALSE(HasFailure());
+	FSceneTestOwner Scene;
+	const auto Add = [&](uint32 Id, double CenterX, double Height, double Width, double Length,
+		const FMaterialRenderProxyRef& Proxy, double CenterY = 0.0) {
+		FMatrix Transform(1.0);
+		Transform[0][0] = Width / 1.6;
+		Transform[1][1] = Length / 1.4;
+		Transform[3] = FVector4(CenterX, CenterY, Height - .5, 1.0);
+		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Proxy}), Transform);
+	};
+	Add(710, -1.0, -.25, 1.0, 6.0, Bed);
+	Add(711, 0.0, -1.0, 1.0, 6.0, Bed);
+	Add(712, 1.0, -2.0, 1.0, 6.0, Bed);
+	Add(713, 0.0, 0.0, 6.0, 6.0, Water);
+	Add(714, 0.0, -.1, 1.0, 1.0, Water);
+	FSceneView View;
+	View.ViewportWidth = 320; View.ViewportHeight = 240;
+	View.ViewLocation = {0, 0, 3};
+	View.ViewMatrix = FMatrix(0.0);
+	View.ViewMatrix[2][0] = -1.0;
+	View.ViewMatrix[1][1] = 1.0;
+	View.ViewMatrix[0][2] = 1.0;
+	View.ViewMatrix[3] = FVector4(3, 0, 0, 1);
+	View.Settings.Mode.RenderMode = ERenderMode::Lit;
+	View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+	View.Settings.Mode.bEnableSpecularAA = false;
+	View.Settings.AmbientOcclusion.bEnabled = false;
+	View.Settings.PostProcess.bEnableFXAA = false;
+	constexpr double Aspect = 320.0 / 240.0;
+	const double VerticalFov = 2.0 * std::atan(std::tan(Math::DegreesToRadians(30.0)) / Aspect)
+		* (180.0 / std::numbers::pi);
+	const auto Target = FRHITextureCreateDesc::Create2D("WaterVolumeHDR", 320, 240, EPixelFormat::SRGBA8_UNORM)
+		.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+	const auto Evidence = std::filesystem::path(FPaths::RootDir()) / "Build/SingleLayerWater/Stage3";
+	std::filesystem::create_directories(Evidence);
+	static FByteBuffer* Sink = nullptr;
+	const auto CaptureHDR = [&](FByteBuffer& HDR, EWaterVolumeReadback Readback = EWaterVolumeReadback::None) {
+		const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, Target, [&] {
+			Sink = &HDR;
+			SetHDRSceneColorCaptureSink(+[](FRHICommandListImmediate& Commands, FRHITexture* Color, FRHITexture*) {
+				ReadWaterPixels(Commands, Color, *Sink);
+			});
+		}, {}, {}, {.WaterVolumeReadback = Readback});
+		SetHDRSceneColorCaptureSink(nullptr);
+		Sink = nullptr;
+		ASSERT_EQ(Result, ERenderViewResult::Success);
+		ASSERT_EQ(HDR.size(), 320u * 240u * 8u);
+	};
+	const auto ReadChannel = [](const FByteBuffer& HDR, uint32 X, uint32 Y, uint32 Channel) -> float {
+		uint16 Half = 0;
+		std::memcpy(&Half, HDR.data() + (Y * 320 + X) * 8 + Channel * 2, sizeof(Half));
+		return glm::unpackHalf2x16(Half).x;
+	};
+	const auto CheckColor = [&](const FByteBuffer& HDR, uint32 X, uint32 Y, FVector3f Expected) {
+		for (uint32 Channel = 0; Channel < 3; ++Channel)
+			EXPECT_NEAR(ReadChannel(HDR, X, Y, Channel), Expected[Channel], std::max(.002f, std::abs(Expected[Channel]) * .01f))
+				<< "pixel " << X << ", " << Y << ", channel " << Channel;
+	};
+	std::string Measurements = "depth_convention,x,y,expected,red,green,blue,view_transmission,bed_transmission\n";
+	for (auto Depth : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
+	{
+		View.DepthConvention = Depth;
+		ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(VerticalFov, Aspect, .1, 100.0, Depth, View.ProjectionMatrix));
+		View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+		FByteBuffer HDR, ViewTransmission, BedTransmission;
+		CaptureHDR(HDR);
+		CaptureHDR(ViewTransmission, EWaterVolumeReadback::ViewTransmission);
+		CaptureHDR(BedTransmission, EWaterVolumeReadback::BedTransmission);
+		ASSERT_FALSE(HasFailure());
+		const auto Name = Depth == ESceneDepthConvention::ForwardZ ? "ForwardZ" : "ReversedZ";
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(HDR, Evidence / (std::string(Name) + ".rgba16f")));
+		for (const auto& [Y, DepthCm] : std::array{std::pair{195u, 25.0f}, std::pair{120u, 100.0f}, std::pair{45u, 200.0f}})
+		{
+			const float Transmission = std::exp(-.01f * DepthCm);
+			const float Expected = Transmission * Transmission;
+			CheckColor(HDR, 160, Y, FVector3f(Expected));
+			CheckColor(ViewTransmission, 160, Y, FVector3f(Transmission));
+			CheckColor(BedTransmission, 160, Y, FVector3f(Transmission));
+			Measurements += std::format("{},160,{},{},{},{},{},{},{}\n", Name, Y, Expected,
+				ReadChannel(HDR, 160, Y, 0), ReadChannel(HDR, 160, Y, 1), ReadChannel(HDR, 160, Y, 2),
+				ReadChannel(ViewTransmission, 160, Y, 0), ReadChannel(BedTransmission, 160, Y, 0));
+		}
+	}
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Measurements)), Evidence / "absorption.csv"));
+
+	// Keep the same bed geometry and vary one material input at a time.
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	PublishWater();
+	FByteBuffer HDR;
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 195, FVector3f(1.0f));
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.01f, .005f, 0.0f};
+	View.ClearColor = {.2f, .4f, .6f, 1.0f};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 195, {std::exp(-.5f), std::exp(-.25f), 1.0f});
+	CheckColor(HDR, 160, 5, {0.0f, 0.0f, .6f});
+	Input.IR.GetAttribute(P::MP_Opacity).Literal = {1.0f};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 195, FVector3f(0.0f));
+	Input.IR.GetAttribute(P::MP_Opacity).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterColorScale).Literal = {.5f, .5f, .5f};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 195, FVector3f(.75f));
+	Input.IR.GetAttribute(P::MP_WaterColorScale).Literal = {1.0f, 1.0f, 1.0f};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.01f, .01f, .01f};
+	Add(715, 0.0, -.00005, .12, 1.0, Bed);
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 120, FVector3f(1.0f));
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(715));
+
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, .5f, .8660254f};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	PublishWater();
+	FByteBuffer Refraction;
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	const float Offset = ReadChannel(Refraction, 160, 120, 0);
+	EXPECT_NEAR(std::abs(Offset), 26.8772f, .1f);
+	EXPECT_NEAR(std::abs(ReadChannel(Refraction, 160, 195, 0)), 26.8772f * (25.0f / 30.0f), .1f);
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefraction;
+	Input.IR.GetAttribute(P::MP_Refraction).Literal = {1.0f};
+	PublishWater();
+	CaptureHDR(Refraction, EWaterVolumeReadback::RefractionOffset);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_FLOAT_EQ(ReadChannel(Refraction, 160, 120, 0), 0.0f);
+
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::IndexOfRefractionFromF0;
+	MIR::FCompilerInput ForegroundInput{.StaticProperties = {.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true},
+		.Environment = Environment};
+	ForegroundInput.IR.GetAttribute(P::MP_EmissiveColor).Literal = {0, 1, 0};
+	const auto ForegroundProgram = MIR::Compile(ForegroundInput);
+	ASSERT_TRUE(ForegroundProgram) << FormatMaterialProgramDiagnostics(ForegroundProgram.Diagnostics);
+	auto Foreground = MakeRefCount<FMaterialRenderProxy>();
+	Durin::Testing::QueueMaterialTestState(*Foreground, {.StaticProperties = ForegroundInput.StaticProperties,
+		.CompiledProgram = std::make_shared<const FMaterialProgram>(ForegroundProgram.Resource)});
+	const double PostY = double(Offset) * (2.0 / 320.0) * 2.8 / std::sqrt(3.0);
+	Add(716, 0.0, .2, .16, .15, Foreground, PostY);
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 120, FVector3f(1.0f));
+	CheckColor(HDR, static_cast<uint32>(std::round(160.0f + Offset)), 120, {0.0f, 1.0f, 0.0f});
+	CheckColor(HDR, Offset > 0 ? 319u : 0u, 120, FVector3f(1.0f));
+	FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene, FPrimitiveComponentId(716));
+
+	Input.StaticProperties.RefractionMethod = EMaterialRefractionMethod::None;
+	Input.IR.GetAttribute(P::MP_Normal).Literal = {0, 0, 1};
+	Input.IR.GetAttribute(P::MP_Specular).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {.005f, .005f, .005f};
+	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {.005f, .005f, .005f};
+	FDirectionalLightSceneData Sun;
+	Sun.Direction = {std::sqrt(.75), 0.0, -.5};
+	Sun.Intensity = 1.0f;
+	Sun.bCastShadows = false;
+	ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(717), Sun), nullptr);
+	for (const auto& [Phase, Expected] : std::array{std::pair{-.5f, .095317f}, std::pair{0.0f, .079577f}, std::pair{.5f, .021784f}})
+	{
+		Input.IR.GetAttribute(P::MP_WaterPhaseG).Literal = {Phase};
+		PublishWater();
+		CaptureHDR(HDR);
+		ASSERT_FALSE(HasFailure());
+		CheckColor(HDR, 160, 120, FVector3f(.135335f + .316060f * Expected));
+	}
+	Input.IR.GetAttribute(P::MP_WaterAbsorption).Literal = {};
+	Input.IR.GetAttribute(P::MP_WaterScattering).Literal = {.01f, .01f, .01f};
+	Input.IR.GetAttribute(P::MP_WaterPhaseG).Literal = {};
+	PublishWater();
+	CaptureHDR(HDR);
+	ASSERT_FALSE(HasFailure());
+	CheckColor(HDR, 160, 120, FVector3f(.135335f + .632121f * .079577f));
+}
+
+TEST(FWaterRenderingPathVulkanTests, WaterSkyReflectionCompositesOnlyTheNearestCoveredSurface)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	using P = EMaterialProperty;
+	InitializeDObjectSystem();
+	FModuleManager::Get().LoadModule("RenderCore");
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness Lifecycle("WaterReflection");
+	Lifecycle.Start(Renderer);
+	FGeometryRendererCleanup Cleanup(Lifecycle);
+	TStrongObjectPtr<DTextureCube> Cube(NewObject<DTextureCube>(nullptr, NAME_None));
+	auto CubeData = std::make_unique<FTextureCubePlatformData>();
+	CubeData->PixelFormat = EPixelFormat::RGBA32_FLOAT;
+	for (uint32 Side = 0; Side < CubeData->Faces.size(); ++Side)
+	{
+		auto& Face = CubeData->Faces[Side];
+		Face.PixelFormat = CubeData->PixelFormat;
+		const std::array<float, 4> Color{.25f + .1f * Side, .5f, .75f, 1.f};
+		FByteBuffer Bytes(sizeof(Color));
+		std::memcpy(Bytes.data(), Color.data(), sizeof(Color));
+		Face.Mips.push_back({FSharedByteBuffer::Take(std::move(Bytes)), 1, 1, sizeof(Color)});
+	}
+	Cube->SetPlatformData(std::move(CubeData));
+	Cube->UpdateResource();
+	FlushRenderingCommands();
+	const std::shared_ptr<void> ReleaseCube(nullptr, [&](void*) {
+		auto* Texture = Cube.Get();
+		Cube.Reset();
+		MarkAsGarbage(Texture);
+		CollectGarbage(EObjectFlags::Standalone);
+		FlushRenderingCommands();
+	});
+	auto Sky = std::make_shared<FSkyLightSceneProxy>();
+	Sky->PersistentId = FGuid::NewGuid();
+	Sky->SelectionKey = "WaterReflectionSky";
+	Sky->InstanceId = 1;
+	Sky->SourceEpoch = 1;
+	Sky->RequestSerial = 1;
+	Sky->bEligible = true;
+	Sky->bAutomaticRefresh = false;
+	Sky->Texture = Cube->GetTextureReferenceRHI();
+	Sky->UpdateStatus = std::make_shared<FSkyLightUpdateStatus>();
+	ASSERT_TRUE(Sky->Texture);
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, VulkanShaderTarget));
+	Environment.FeatureLevel = FSceneInterface::GetDefaultFeatureLevel();
+	Environment.Quality = GetMaterialQualityLevel();
+	auto Water = MakeRefCount<FMaterialRenderProxy>();
+	const auto PublishWater = [&](float Roughness, bool bMasked = false) {
+		MIR::FCompilerInput Input{.StaticProperties = {
+			.BlendMode = bMasked ? EMaterialBlendMode::Masked : EMaterialBlendMode::Opaque,
+			.ShadingModel = EMaterialShadingModel::SingleLayerWater, .bTwoSided = true}, .Environment = Environment};
+		Input.IR.GetAttribute(P::MP_Roughness).Literal = {Roughness};
+		Input.IR.GetAttribute(P::MP_Specular).Literal = {.25f};
+		if (bMasked) Input.IR.GetAttribute(P::MP_OpacityMask).Literal = {};
+		const auto Program = MIR::Compile(Input);
+		ASSERT_TRUE(Program) << FormatMaterialProgramDiagnostics(Program.Diagnostics);
+		Durin::Testing::QueueMaterialTestState(*Water, {.StaticProperties = Input.StaticProperties,
+			.CompiledProgram = std::make_shared<const FMaterialProgram>(Program.Resource)});
+	};
+	PublishWater(.1f);
+	ASSERT_FALSE(HasFailure());
+	auto Grid = MakeWaterPathGrid();
+	const std::shared_ptr<void> Release(nullptr, [&](void*) {
+		EnqueueRenderCommand("ReleaseWaterReflectionFixture", [&](FRHICommandListImmediate&) { Grid->ReleaseResources(); });
+		FlushRenderingCommands();
+	});
+	EnqueueRenderCommand("InitializeWaterReflectionFixture", [&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Grid->InitResources(Commands));
+	});
+	FlushRenderingCommands();
+	ASSERT_FALSE(HasFailure());
+	FSceneTestOwner Scene;
+	FSceneInterfaceTestAccess::AddSkyLightProxy(*Scene, Sky);
+	const auto Surface = [&](uint32 Id, double Height) {
+		FMatrix Transform(1.0);
+		Transform[0][0] = 3.0;
+		Transform[1][1] = 3.0;
+		Transform[3][2] = Height - .5;
+		FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
+			std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{Water}), Transform);
+	};
+	Surface(720, 0.0);
+	FSceneView View;
+	View.ViewportWidth = 96; View.ViewportHeight = 96;
+	View.Settings.Mode.RenderMode = ERenderMode::Lit;
+	View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+	View.Settings.Mode.bEnableSpecularAA = false;
+	View.Settings.AmbientOcclusion.bEnabled = false;
+	View.ClearColor = {.05f, .05f, .05f, .7f};
+	ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(60.0, 1.0, .1, 100.0,
+		View.DepthConvention, View.ProjectionMatrix));
+	const auto Aim = [&](FVector3 Position) {
+		const FVector3 Forward = Math::Normalize(-Position);
+		const FVector3 Right = Math::Normalize(Math::Cross(FVector3(1, 0, 0), Forward));
+		const FVector3 Up = Math::Cross(Forward, Right);
+		View.ViewLocation = Position;
+		for (uint32 Axis = 0; Axis < 3; ++Axis)
+			View.ViewMatrix[Axis] = FVector4(Forward[Axis], Right[Axis], Up[Axis], 0.0);
+		View.ViewMatrix[3] = FVector4(-Math::Dot(Forward, Position), -Math::Dot(Right, Position), -Math::Dot(Up, Position), 1.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+	};
+	Aim({0, 0, 3});
+	const auto Target = FRHITextureCreateDesc::Create2D("WaterReflectionHDR", 96, 96, EPixelFormat::SRGBA8_UNORM)
+		.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+	struct FCapture { FByteBuffer HDR; FRDGCapture Graph; };
+	static FCapture* Sink = nullptr;
+	const auto Capture = [&](bool bDisable, FCapture& Out) {
+		const auto Result = RenderPreparedGeometryView(Renderer, *Scene, View, Target, [&] {
+			Sink = &Out;
+			SetHDRSceneColorCaptureSink(+[](FRHICommandListImmediate& Commands, FRHITexture* Color, FRHITexture*) {
+				ReadWaterPixels(Commands, Color, Sink->HDR);
+			});
+			SetSceneRenderGraphCaptureSink(+[](const FRDGCapture& Graph) { Sink->Graph = Graph; });
+		}, {}, {}, {.bDisableWaterReflections = bDisable});
+		SetHDRSceneColorCaptureSink(nullptr);
+		SetSceneRenderGraphCaptureSink(nullptr);
+		Sink = nullptr;
+		ASSERT_EQ(Result, ERenderViewResult::Success);
+		ASSERT_EQ(Out.HDR.size(), 96u * 96u * 8u);
+	};
+	const auto ReflectionPasses = [](const FCapture& Capture) {
+		return std::ranges::count(Capture.Graph.Passes, "Water.SkyReflection", &FRDGPassCapture::Name);
+	};
+	FCapture Normal;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	do
+	{
+		Capture(false, Normal);
+		ASSERT_FALSE(HasFailure());
+		if (ReflectionPasses(Normal) != 0) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	} while (std::chrono::steady_clock::now() < Deadline);
+	ASSERT_EQ(ReflectionPasses(Normal), 1);
+	FCapture Disabled, Rear, Rough, Grazing, Masked, MaskedDisabled;
+	Capture(true, Disabled);
+	Surface(721, -.1);
+	Capture(false, Rear);
+	PublishWater(.7f);
+	Capture(false, Rough);
+	PublishWater(.1f);
+	Aim({0, 3.7, .6});
+	Capture(false, Grazing);
+	PublishWater(.1f, true);
+	Capture(false, Masked);
+	Capture(true, MaskedDisabled);
+	PublishWater(.1f);
+	Aim({0, 0, 3});
+	auto ForegroundMaterial = MakeRefCount<FMaterialRenderProxy>();
+	MIR::FCompilerInput ForegroundInput{.StaticProperties = {
+		.ShadingModel = EMaterialShadingModel::Unlit, .bTwoSided = true}, .Environment = Environment};
+	ForegroundInput.IR.GetAttribute(P::MP_EmissiveColor).Literal = {.3f, .2f, .1f};
+	const auto ForegroundProgram = MIR::Compile(ForegroundInput);
+	ASSERT_TRUE(ForegroundProgram) << FormatMaterialProgramDiagnostics(ForegroundProgram.Diagnostics);
+	Durin::Testing::QueueMaterialTestState(*ForegroundMaterial, {.StaticProperties = ForegroundInput.StaticProperties,
+		.CompiledProgram = std::make_shared<const FMaterialProgram>(ForegroundProgram.Resource)});
+	FMatrix ForegroundTransform(1.0);
+	ForegroundTransform[3][2] = .2;
+	FSceneInterfaceTestAccess::AddPrimitiveProxy(*Scene, FPrimitiveComponentId(722),
+		std::make_unique<FStaticMeshSceneProxy>(Grid.get(), std::vector{ForegroundMaterial}), ForegroundTransform);
+	FCapture Foreground, ForegroundDisabled;
+	Capture(false, Foreground);
+	Capture(true, ForegroundDisabled);
+	ASSERT_FALSE(HasFailure());
+	EXPECT_EQ(ReflectionPasses(Disabled), 0);
+	EXPECT_EQ(Rear.HDR, Normal.HDR);
+	EXPECT_EQ(Masked.HDR, MaskedDisabled.HDR);
+	const auto Center = [](const FCapture& Capture, uint32 Channel) {
+		uint16 Half = 0;
+		std::memcpy(&Half, Capture.HDR.data() + (48 * 96 + 48) * 8 + Channel * 2, sizeof(Half));
+		return glm::unpackHalf2x16(Half).x;
+	};
+	EXPECT_GT(Center(Normal, 0), Center(Disabled, 0));
+	EXPECT_NE(Center(Normal, 0), Center(Rough, 0));
+	EXPECT_NE(Center(Normal, 0), Center(Grazing, 0));
+	EXPECT_EQ(Center(Normal, 3), Center(Disabled, 3));
+	for (uint32 Channel = 0; Channel < 4; ++Channel)
+		EXPECT_EQ(Center(Foreground, Channel), Center(ForegroundDisabled, Channel));
+	EXPECT_NE(Foreground.HDR, ForegroundDisabled.HDR);
+	const auto Evidence = std::filesystem::path(FPaths::RootDir()) / "Build/SingleLayerWater/Stage4";
+	std::filesystem::create_directories(Evidence);
+	for (const auto& [Name, Capture] : std::array{std::pair{"normal", &Normal}, std::pair{"rough", &Rough},
+		std::pair{"grazing", &Grazing}, std::pair{"disabled", &Disabled}})
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Capture->HDR, Evidence / (std::string(Name) + ".rgba16f")));
+}
+#endif

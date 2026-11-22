@@ -199,6 +199,11 @@ namespace
 
 		auto ResetTestScene() -> void { Durin::FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 		auto SetTestRendererModule(Durin::IRendererModule* InRendererModule) -> void { RendererModule = InRendererModule; }
+		auto GetPreviewViewport() const -> Durin::FSceneViewport*
+		{
+			return AuxiliarySceneViewports.empty() ? nullptr : AuxiliarySceneViewports.front().get();
+		}
+		using DEngine::BuildSceneView;
 	};
 
 	auto WaitForRenderingThread() -> void

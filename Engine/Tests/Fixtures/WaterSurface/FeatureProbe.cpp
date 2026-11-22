@@ -207,6 +207,8 @@ int main(int Argc, char** Argv)
 				Require(bool(Material), Material ? "" : MaterialError->ToString());
 				(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 				Require(bool(Material->GetAcceptedCompiledProgram()), "Cooked Water material has no accepted platform program.");
+				Require(Material->GetStaticProperties().ShadingModel == EMaterialShadingModel::SingleLayerWater,
+					"Cooked Water material has the wrong shading model.");
 			}
 			std::cout << "Saved water level and queries loaded in " << DURIN_RUNTIME_VARIANT << '\n';
 		}
@@ -221,6 +223,17 @@ int main(int Argc, char** Argv)
 			Require(bool(Loaded), Loaded ? "" : LoadedError->ToString());
 			const auto Snapshot = SnapshotMaterialCompilerInput(*Loaded, {});
 			Require(bool(Snapshot), FormatMaterialProgramDiagnostics(Snapshot.Diagnostics));
+			const auto Recipe = WaterMaterialRecipe::BuildInput();
+			const auto& Input = Snapshot.Snapshot->Input;
+			Require(Input.StaticProperties == Recipe.StaticProperties, "Saved Water material static properties differ from the recipe.");
+			Require(Input.IR.GetAttribute(EMaterialProperty::MP_Opacity).Literal.X == 0.f, "Saved Water opacity changed.");
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions())
+			{
+				const auto& Actual = Input.IR.GetAttribute(Definition.Property);
+				const auto& Expected = Recipe.IR.GetAttribute(Definition.Property);
+				Require(Actual.bExpression && Input.IR.Nodes.at(Actual.ExpressionIndex).GetLiteral()
+					== Recipe.IR.Nodes.at(Expected.ExpressionIndex).GetLiteral(), "Saved Water optical coefficients differ from the recipe.");
+			}
 			CheckQueries(Snapshot.Snapshot->Input);
 		}
 		else if (Mode == "author-material")

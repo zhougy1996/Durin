@@ -492,7 +492,7 @@ namespace Durin::MaterialEditor
 						: Index == 1 ? static_cast<int>(DisplayValues.ShadingModel)
 						: static_cast<int>(DisplayValues.DepthWritePolicy);
 					const char* Items = Index == 0 ? "Opaque\0Masked\0Translucent\0"
-						: Index == 1 ? "DefaultLit\0Unlit\0ClearCoat\0" : "Automatic\0Enabled\0Disabled\0";
+						: Index == 1 ? "DefaultLit\0Unlit\0ClearCoat\0Single Layer Water\0" : "Automatic\0Enabled\0Disabled\0";
 					if (ImGui::Combo("##Value", &Value, Items))
 					{
 						bChanged = true;

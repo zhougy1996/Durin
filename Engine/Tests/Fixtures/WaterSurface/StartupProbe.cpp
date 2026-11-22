@@ -3,6 +3,7 @@
 #include "Modules/ModuleManager.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
+#include "Misc/MountPaths.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Class.h"
 
@@ -24,6 +25,12 @@ int main(int Argc, char** Argv)
 	}
 	// Frozen selection must reject early plugin lookup, even with a DLL present.
 	if (Modules.LoadModule("Water")) return 5;
+	std::string MountError;
+	if (!FMountPaths::InitDefaultMountPoints(&MountError))
+	{
+		std::cerr << MountError << '\n';
+		return 8;
+	}
 	DObjectInit();
 	if (!Projects.LoadModulesForProject(ELoadingPhase::Providers))
 	{

@@ -199,6 +199,8 @@ namespace Durin
 				const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
 				auto Properties = Material.GetStaticProperties();
 				Properties.OpacityMaskThreshold = ShaderProperties.OpacityMaskThreshold;
+				Properties.RefractionMethod = ShaderProperties.RefractionMethod;
+				Properties.RefractionDepthBias = ShaderProperties.RefractionDepthBias;
 				auto Program = Material.BindMaterialDefaultParameters(std::move(Bound));
 				if (!Program) Resource->Diagnostics.push_back({.Message = "Material default parameters no longer match the compiled shader map."});
 				else if (const auto Validation = ValidateMaterialProgram(*Program); !Validation) {

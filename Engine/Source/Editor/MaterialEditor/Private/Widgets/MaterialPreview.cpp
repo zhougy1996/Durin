@@ -36,6 +36,10 @@ namespace Durin::MaterialEditor
 			const auto* Root = Cast<DMaterial>(Material);
 			return Root && Root->GetDomain() == EMaterialDomain::PostProcess;
 		}
+		auto IsWaterMaterial(const DMaterialInterface* Material) -> bool
+		{
+			return Material && Material->GetStaticProperties().ShadingModel == EMaterialShadingModel::SingleLayerWater;
+		}
 		constexpr float PreviewRotationSensitivity = 0.25f;
 		constexpr double PreviewMinZoom = 0.4;
 		constexpr double PreviewMaxZoom = 4.0;
@@ -173,6 +177,7 @@ namespace Durin::MaterialEditor
 		~FImpl()
 		{
 			if (PreviewMesh) PreviewMesh->SetStaticMesh(nullptr);
+			if (WaterBed) WaterBed->SetStaticMesh(nullptr);
 			Host.reset();
 			if (RootInputPreview) FAssetCompilingManager::Get().MarkCompilationAsCanceled(*RootInputPreview);
 		}
@@ -204,24 +209,27 @@ namespace Durin::MaterialEditor
 			SetVisible(true);
 			if (RootInputDraft)
 				if (auto* Base = Cast<DMaterial>(Material)) Material = SelectRootInputPreview(*Base, *RootInputDraft);
-			const char* ShapeLabel = Shape == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
-			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(120.0f));
-			if (ImGui::BeginCombo(IsPostProcessMaterial(Material) ? "Input Mesh" : "Preview Mesh", ShapeLabel))
+			if (!IsWaterMaterial(Material))
 			{
-				for (const EMaterialPreviewShape Candidate : {EMaterialPreviewShape::Sphere, EMaterialPreviewShape::Box})
+				const char* ShapeLabel = Shape == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
+				ImGui::SetNextItemWidth(MonaImGui::ScaleUI(120.0f));
+				if (ImGui::BeginCombo(IsPostProcessMaterial(Material) ? "Input Mesh" : "Preview Mesh", ShapeLabel))
 				{
-					const char* Label = Candidate == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
-					if (ImGui::Selectable(Label, Candidate == Shape))
+					for (const EMaterialPreviewShape Candidate : {EMaterialPreviewShape::Sphere, EMaterialPreviewShape::Box})
 					{
-						Shape = Candidate;
-						bProxyDirty = true;
-						ViewportClient->Fit();
+						const char* Label = Candidate == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
+						if (ImGui::Selectable(Label, Candidate == Shape))
+						{
+							Shape = Candidate;
+							bProxyDirty = true;
+							ViewportClient->Fit();
+						}
 					}
+					ImGui::EndCombo();
 				}
-				ImGui::EndCombo();
+				ImGui::SameLine();
 			}
 
-			ImGui::SameLine();
 			if (ImGui::Button("Fit")) ViewportClient->Fit();
 			const ERHIFeatureLevel Capability = GDynamicRHI
 				&& GDynamicRHI->RHIGetCapabilities()
@@ -259,6 +267,7 @@ namespace Durin::MaterialEditor
 							PreviewFeatureLevel = Candidate;
 							PreviewMesh = Cast<DStaticMeshComponent>(Host->GetContentActor()->AddInstanceComponent(
 								DStaticMeshComponent::StaticClass(), "PreviewMesh"));
+							WaterBed = nullptr;
 							CurrentMaterial = nullptr;
 							bProxyDirty = true;
 							if (Material) Material->CacheResourceShadersForRendering(PreviewFeatureLevel);
@@ -316,7 +325,7 @@ namespace Durin::MaterialEditor
 			std::vector<TStrongObjectPtr<DMaterialExpression>> Added;
 			const auto& Properties = Working.GetStaticProperties();
 			for (const auto Property : FMaterialAttributeDefinitionMap::GetActiveProperties(
-				Working.GetDomain(), Properties.ShadingModel, Properties.BlendMode))
+				Working.GetDomain(), Properties))
 			{
 				auto& Input = Root.Get(Property);
 				if (Input.Connection.IsConnected() || !SupportsMaterialRootConstant(Property)) continue;
@@ -385,7 +394,7 @@ namespace Durin::MaterialEditor
 
 		auto UpdateViewportInput(const FAssetPreviewViewportInput& Input) -> void
 		{
-			if (Input.bLeftDragging && (Input.MouseDeltaX != 0.0f || Input.MouseDeltaY != 0.0f))
+			if (!bWaterInput && Input.bLeftDragging && (Input.MouseDeltaX != 0.0f || Input.MouseDeltaY != 0.0f))
 			{
 				const FVector3 CameraForward = Math::Normalize(FVector3(-2.6, 2.6, -1.8));
 				const FVector3 CameraRight = Math::Normalize(Math::Cross(FVectorConstants::Up, CameraForward));
@@ -410,9 +419,10 @@ namespace Durin::MaterialEditor
 		{
 			if (PreviewMesh == nullptr || Material == nullptr) return;
 			const bool bPostProcess = IsPostProcessMaterial(Material);
-			if (bProxyDirty || Material != CurrentMaterial || bPostProcess != bPostProcessInput)
+			const bool bWater = IsWaterMaterial(Material);
+			if (bProxyDirty || Material != CurrentMaterial || bPostProcess != bPostProcessInput || bWater != bWaterInput)
 			{
-				DStaticMesh* Mesh = GetSelectedMesh();
+				DStaticMesh* Mesh = bWater ? Cast<DStaticMesh>(BoxAsset.Get()) : GetSelectedMesh();
 				if (Mesh == nullptr || Mesh->GetRenderData() == nullptr)
 				{
 					SceneStatus = Mesh && Mesh->IsCompiling()
@@ -421,19 +431,39 @@ namespace Durin::MaterialEditor
 				}
 				SceneStatus.clear();
 				PreviewMesh->SetStaticMesh(Mesh);
+				PreviewMesh->SetWorldScale3D(FVector3(1.0));
+				PreviewMesh->SetWorldLocation(FVector3(0.0));
+				if (!bWater && WaterBed) WaterBed->SetStaticMesh(nullptr);
 				if (const auto Bounds = Mesh->GetLOD0LocalBounds())
 				{
 					const auto Extent = Bounds->GetExtent();
-					ViewportClient->SetRadius(Math::Length(Bounds->GetCenter()) + (Shape == EMaterialPreviewShape::Sphere
+					ViewportClient->SetRadius(Math::Length(Bounds->GetCenter()) + (!bWater && Shape == EMaterialPreviewShape::Sphere
 						? std::max({Extent.x, Extent.y, Extent.z}) : Math::Length(Extent)));
+					if (bWater)
+					{
+						if (!WaterBed) WaterBed = Cast<DStaticMeshComponent>(Host->GetContentActor()->AddInstanceComponent(
+							DStaticMeshComponent::StaticClass(), "WaterPreviewBed"));
+						if (!WaterBed) { SceneStatus = "The water preview bed could not be created."; return; }
+						const double Top = Bounds->GetCenter().z + Extent.z;
+						const double SurfaceScale = 0.005 / std::max(Extent.z, 0.001);
+						const double BedScale = 0.1 / std::max(Extent.z, 0.001);
+						PreviewMesh->SetWorldScale3D({1.0, 1.0, SurfaceScale});
+						PreviewMesh->SetWorldLocation({0.0, 0.0, -Top * SurfaceScale});
+						WaterBed->SetStaticMesh(Mesh);
+						WaterBed->SetWorldScale3D({1.5, 1.5, BedScale});
+						WaterBed->SetWorldLocation({0.0, 0.0, -0.65 - Top * BedScale});
+						for (uint32 Slot = 0; Slot < WaterBed->GetNumMaterials(); ++Slot)
+							WaterBed->SetMaterial(Slot, GetDefaultMaterial());
+					}
 				}
 				ViewportClient->SetPostProcessMaterial(bPostProcess ? Material : nullptr,
 					bPostProcess ? Material->GetRenderProxy(PreviewFeatureLevel, PreviewQuality) : FMaterialRenderProxyRef{});
 				for (uint32 SlotIndex = 0; SlotIndex < PreviewMesh->GetNumMaterials(); ++SlotIndex)
 					PreviewMesh->SetMaterial(SlotIndex, bPostProcess ? GetDefaultMaterial() : Material);
-				PreviewMesh->SetWorldRotation(PreviewRotation);
+				PreviewMesh->SetWorldRotation(bWater ? FQuatConstants::Identity : PreviewRotation);
 				CurrentMaterial = Material;
 				bPostProcessInput = bPostProcess;
+				bWaterInput = bWater;
 				bProxyDirty = false;
 			}
 		}
@@ -443,6 +473,7 @@ namespace Durin::MaterialEditor
 		FRetainedAsset SphereAsset;
 		FRetainedAsset BoxAsset;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
+		TObjectPtr<DStaticMeshComponent> WaterBed;
 		DMaterialInterface* CurrentMaterial = nullptr;
 		TStrongObjectPtr<DMaterial> RootInputPreview;
 		std::map<EMaterialProperty, FGuid> RootInputPreviewParameters;
@@ -454,6 +485,7 @@ namespace Durin::MaterialEditor
 		ERHIFeatureLevel PreviewFeatureLevel = ERHIFeatureLevel::SM5;
 		bool bProxyDirty = true;
 		bool bPostProcessInput = false;
+		bool bWaterInput = false;
 		// Mesh readiness is retried each frame; initialization errors are terminal.
 		std::string SceneStatus;
 		std::string Error;

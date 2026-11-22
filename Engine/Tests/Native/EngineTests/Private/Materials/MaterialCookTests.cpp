@@ -6,6 +6,7 @@
 #include "Materials/MaterialExpressionArithmetic.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionVector4Parameter.h"
 #include "Misc/UnifiedError.h"
@@ -740,7 +741,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 	const auto Root=Testing::GetTestWorkDirectory()/"IntegratedCook";
 	Testing::RemoveTestWorkDirectory(Root);
 	Testing::RegisterMountPointForTests("/Game/",(Root/"Source").generic_string()+"/");
-	const std::array Names{"M_Specular","M_ClearCoat","M_Unlit","M_PostNeutral","M_PostColor","M_PostDepth","M_Cube","M_CubeWPO"};
+	const std::array Names{"M_Specular","M_ClearCoat","M_Unlit","M_PostNeutral","M_PostColor","M_PostDepth","M_Cube","M_CubeWPO","M_Water","M_WaterMasked"};
 	std::array<FPackagePath,Names.size()> Paths;
 	std::array<std::shared_ptr<const FMaterialProgram>,Names.size()> EditorPrograms,GamePrograms;
 	std::array<FMaterialConfiguration,Names.size()> Configurations;
@@ -757,6 +758,13 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 		if (Variant==1) Configuration.Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
 		if (Variant>=2) Configuration.Properties.ShadingModel=EMaterialShadingModel::Unlit;
 		if (Variant>=3 && Variant<=5) Configuration.Domain=EMaterialDomain::PostProcess;
+		if (Variant>=8)
+		{
+			Configuration.Properties.ShadingModel=EMaterialShadingModel::SingleLayerWater;
+			Configuration.Properties.BlendMode=Variant==8 ? EMaterialBlendMode::Opaque : EMaterialBlendMode::Masked;
+			Configuration.Properties.RefractionMethod=Variant==8
+				? EMaterialRefractionMethod::IndexOfRefractionFromF0 : EMaterialRefractionMethod::IndexOfRefraction;
+		}
 		ASSERT_TRUE(Material->SetMaterialConfiguration(Configuration));
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Nodes;
 		const auto Add=[&]<class T>() { auto* E=NewObject<T>(nullptr,NAME_None); E->Id=FGuid::NewGuid(); Nodes.emplace_back(E); return E; };
@@ -791,7 +799,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 		{
 			auto* Depth=Add.template operator()<DMaterialExpressionSceneDepth>(); Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Depth};
 		}
-		if (Variant>=6)
+		if (Variant==6 || Variant==7)
 		{
 			auto* Cube=Add.template operator()<DMaterialExpressionTextureSampleParameterCube>();
 			Cube->Metadata={.Id=FGuid::NewGuid(),.Name="Cube"};
@@ -804,6 +812,14 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			Multiply->A.Connection={SampleRGB}; Multiply->B.Connection={RGB};
 			Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply};
 			if (Variant==7) Outputs.Get(EMaterialProperty::MP_WorldPositionOffset)={SampleRGB};
+		}
+		if (Variant>=8)
+		{
+			auto* Water=Add.template operator()<DMaterialExpressionSingleLayerWaterOutput>();
+			Water->AbsorptionCoefficients={RGB};
+			Outputs.Get(EMaterialProperty::MP_Opacity).SetConstant({.15f});
+			Outputs.Get(EMaterialProperty::MP_Refraction).SetConstant({1.33f});
+			if (Variant==9) Outputs.Get(EMaterialProperty::MP_OpacityMask).SetConstant({.7f});
 		}
 		std::vector<DMaterialExpression*> Expressions; for (const auto& E:Nodes) Expressions.push_back(E.Get());
 		ASSERT_TRUE(Material->SetMaterialExpressions(Expressions,Outputs));
@@ -834,6 +850,23 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			EXPECT_NE(EditorMap.ShaderMapId,EditorPrograms[Other]->GetShaderMap().ShaderMapId);
 		}
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+		if (Variant>=8)
+		{
+			Nodes.clear();
+			ASSERT_TRUE(UnloadPackage(Paths[Variant]));
+			Material=LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[Variant]));
+			ASSERT_TRUE(Material);
+			EXPECT_EQ(Material->GetStaticProperties(),Configuration.Properties);
+			const auto Water=std::ranges::find_if(Material->GetExpressionCollection().Expressions,[](const auto& Expression) {
+				return Cast<DMaterialExpressionSingleLayerWaterOutput>(Expression.Get()) != nullptr;
+			});
+			ASSERT_NE(Water,Material->GetExpressionCollection().Expressions.end());
+			EXPECT_TRUE(Cast<DMaterialExpressionSingleLayerWaterOutput>(Water->Get())->AbsorptionCoefficients.IsConnected());
+			ASSERT_TRUE(Material->CompileEdits()) << FormatMaterialProgramDiagnostics(Material->GetMaterialCompileDiagnostics());
+			const auto Reopened=Material->GetAcceptedCompiledProgram(); ASSERT_TRUE(Reopened);
+			EXPECT_EQ(Reopened->GetShaderMap().Entries,EditorPrograms[Variant]->GetShaderMap().Entries);
+			EXPECT_EQ(Reopened->GetShaderMap().Layout,EditorPrograms[Variant]->GetShaderMap().Layout);
+		}
 		ASSERT_TRUE(Cook.AddPackage(std::string("/Game/MaterialContracts/")+Names[Variant], Material->GetPackage()));
 	}
 	const auto CookRoot=std::filesystem::absolute(Root/"Cooked");
@@ -881,7 +914,15 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			uint64 ShaderBytes=0,Bindings=0;
 			for (const auto& Shader:Actual.CompiledShaders) ShaderBytes+=Shader.Code.size();
 			for (const auto& Entry:Actual.Entries) Bindings+=Entry.Bindings.size();
-			const auto PackageBytes=std::filesystem::file_size(CookRoot/"Game"/"MaterialContracts"/(std::string(Names[Variant])+".dasset"));
+			const auto PackageFile=CookRoot/"Game"/"MaterialContracts"/(std::string(Names[Variant])+".dasset");
+			const auto PackageBytes=std::filesystem::file_size(PackageFile);
+			if (Variant>=8)
+			{
+				const auto Bytes=FFileHelper::LoadFileToArray(PackageFile); ASSERT_TRUE(Bytes);
+				ObjectPackage::FLinkerTables Linker;
+				ASSERT_TRUE(ObjectPackage::ReadPackage(*Bytes,{},Paths[Variant],Linker));
+				EXPECT_FALSE(ContainsSerializedField(Linker,"Refraction"));
+			}
 			Evidence+=std::format("{},{},{},{},{},{},{},{},{},{}\n",Names[Variant],EditorPrograms[Variant]->GetShaderMap().ShaderMapId.ToString(),Actual.ShaderMapId.ToString(),EditorPrograms[Variant]->GetShaderMap().Entries.size(),Expected.Entries.size(),Actual.Entries.size(),PackageBytes,ShaderBytes,Actual.GetRetainedBytes(),Bindings);
 			ASSERT_TRUE(UnloadPackage(Paths[Variant]));
 		}

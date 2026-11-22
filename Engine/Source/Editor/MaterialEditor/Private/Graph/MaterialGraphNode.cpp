@@ -458,7 +458,7 @@ namespace Durin::MaterialEditor
 				if (Cast<DMaterialExpressionGetMaterialAttributes>(Expression)->IsSelected(Definitions[Index].Property)) View.Outputs.push_back({.SourceIndex = static_cast<int32>(Definitions[Index].Property), .PortId = Definitions[Index].AttributeID,
 					.Name = std::string(Definitions[Index].Name), .Type = Definitions[Index].Semantics.Type});
 		}
-		else if (Node.Opcode != EMaterialProgramOpcode::FunctionOutput)
+		else if (Node.Opcode != EMaterialProgramOpcode::FunctionOutput && Node.Opcode != EMaterialProgramOpcode::SingleLayerWaterOutput)
 			View.Outputs.push_back({.Name = GetProgramTypeName(Node.ResultType), .Type = Node.ResultType});
 		if (const auto* Input = Cast<DMaterialExpressionFunctionInput>(Expression); Input && !View.Outputs.empty())
 			View.Outputs.front().Name = Input->Port.Name;

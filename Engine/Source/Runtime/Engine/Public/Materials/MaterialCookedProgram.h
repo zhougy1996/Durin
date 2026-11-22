@@ -9,7 +9,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 MaterialCookedProgramPayloadSchemaVersion = 28;
+	inline constexpr uint32 MaterialCookedProgramPayloadSchemaVersion = 29;
 	inline constexpr uint64 MaterialCookedProgramMaxPayloadBytes =
 		8ull * 1024ull * 1024ull;
 	inline constexpr uint32 MaterialCookedProgramPayloadAlignment = 16;

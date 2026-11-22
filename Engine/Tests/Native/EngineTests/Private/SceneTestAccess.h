@@ -5,6 +5,7 @@
 #include "Scene.h"
 #include "SceneOwnership.h"
 #include "Math/Operations.h"
+#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -66,6 +67,13 @@ namespace Durin
 		static auto TryAddSkyBoxProxy(FScene& Scene, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool
 		{
 			return Scene.TryAddSkyBoxProxy(std::move(Proxy));
+		}
+
+		static auto AddSkyLightProxy(FScene& Scene, std::shared_ptr<const FSkyLightSceneProxy> Proxy) -> void
+		{
+			EnqueueRenderCommand("AddTestSkyLight", [&Scene, Proxy = std::move(Proxy)](FRHICommandListImmediate&) {
+				Scene.SkyLights.emplace(Proxy.get(), Proxy);
+			});
 		}
 
 		static auto TryRemoveSkyBoxProxy(

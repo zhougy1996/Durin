@@ -38,6 +38,7 @@ namespace Durin
 		case EMaterialProperty::MP_Specular: return &Specular;
 		case EMaterialProperty::MP_ClearCoat: return &ClearCoat;
 		case EMaterialProperty::MP_ClearCoatRoughness: return &ClearCoatRoughness;
+		case EMaterialProperty::MP_Refraction: return &Refraction;
 		default: return nullptr;
 		}
 	}
@@ -240,6 +241,7 @@ namespace Durin
 		case EMaterialProperty::MP_Specular: return &Specular;
 		case EMaterialProperty::MP_ClearCoat: return &ClearCoat;
 		case EMaterialProperty::MP_ClearCoatRoughness: return &ClearCoatRoughness;
+		case EMaterialProperty::MP_Refraction: return &Refraction;
 		default: return nullptr;
 		}
 	}

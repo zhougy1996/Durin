@@ -3,6 +3,7 @@
 
 #include "Client/SceneViewport.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -10,6 +11,7 @@
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "Rendering/SceneInterface.h"
+#include "Texture/TextureCube.h"
 #include "Widgets/MViewport.h"
 
 namespace Durin
@@ -52,7 +54,7 @@ namespace Durin
 				return;
 			}
 
-			(void)AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
+			PendingStudioLight = AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
 			ContentActor = PreviewScene->GetWorld()->SpawnActor<AActor>(Config.ContentActorName);
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(Config.LightActorName);
 			Light = LightActor
@@ -102,6 +104,7 @@ namespace Durin
 		std::shared_ptr<FSceneViewport> SceneViewport;
 		TObjectPtr<AActor> ContentActor;
 		TObjectPtr<DDirectionalLightComponent> Light;
+		TObjectPtr<DSkyLightComponent> PendingStudioLight;
 		std::string Error;
 		bool bViewportRegistered = false;
 		bool bPlayBegun = false;
@@ -147,6 +150,13 @@ namespace Durin
 	auto FAssetPreviewHost::SetVisible(bool bVisible) -> void
 	{
 		if (Impl->ViewportClient) Impl->ViewportClient->SetPreviewEnabled(bVisible);
+		if (bVisible && Impl->PendingStudioLight
+			&& Impl->PendingStudioLight->GetTextureCube()->GetTextureReferenceRHI())
+		{
+			// Republish once the cube is ready so an early proxy can become eligible.
+			Impl->PendingStudioLight->Recapture();
+			Impl->PendingStudioLight = nullptr;
+		}
 		if (!bVisible)
 		{
 			Impl->bLeftDragging = false;

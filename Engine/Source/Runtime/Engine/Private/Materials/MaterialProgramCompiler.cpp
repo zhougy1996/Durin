@@ -178,6 +178,9 @@ namespace Durin
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Properties.BlendMode)));
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Properties.ShadingModel)));
 		Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Properties.OpacityMaskThreshold)));
+		const auto Refraction = CanonicalizeMaterialShaderProperties(Properties);
+		Options.Macros.emplace_back("DURIN_MATERIAL_REFRACTION_METHOD", std::to_string(uint8(Refraction.RefractionMethod)));
+		Options.Macros.emplace_back("DURIN_MATERIAL_REFRACTION_DEPTH_BIAS_BITS", std::to_string(std::bit_cast<uint32>(Refraction.RefractionDepthBias)));
 		return Options;
 	}
 
@@ -488,7 +491,7 @@ namespace Durin
 			// Surface construction is lowered before normalization. Both authoring
 			// modes share final-property filtering and reachability from this point.
 			const auto& Surface = Nodes[IR.AggregateAttributesIndex];
-			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
+			for (size_t Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
 			{
 				auto& Root = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 				Root.bExpression = true;
@@ -498,14 +501,13 @@ namespace Durin
 			IR.bAggregateAttributes = false;
 		}
 		{
-			const FMaterialAttributeValues Defaults;
 			const auto Demanded = GetMaterialCompilationProperties(IR.Domain, Input.StaticProperties, Input.Environment);
-			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
-				if (!Demanded.contains(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property))
+			for (auto& Root : IR.AttributeRoots)
+				if (const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Root.AttributeID);
+					Definition && !Demanded.contains(Definition->Property))
 				{
-					auto& Root = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 					Root.bExpression = false;
-					Root.Literal = GetMaterialSurfaceOutputDefault(Defaults, FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
+					Root.Literal = Definition->DefaultValue;
 				}
 
 			IR.AggregateAttributesIndex = 0;
@@ -642,7 +644,8 @@ namespace Durin
 			return std::unexpected("Material IR aggregate Surface Root expression is invalid.");
 		}
 		auto Roots = IR.AttributeRoots;
-		if (Roots.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size())
+		if (Roots.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size()
+			+ FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions().size())
 		{
 			OutBytes.clear();
 			return std::unexpected("Material IR attribute schema is incomplete.");
@@ -652,7 +655,7 @@ namespace Durin
 		AppendLittleEndian(OutBytes, uint32(Roots.size()));
 		for (const auto& Input : Roots)
 		{
-			const auto* Definition = FMaterialAttributeDefinitionMap::Find(Input.AttributeID);
+			const auto* Definition = FMaterialAttributeDefinitionMap::FindCompilerRoot(Input.AttributeID);
 			if (!Definition || !Seen.insert(Input.AttributeID).second || Input.GetSemantics() != Definition->Semantics
 				|| !std::isfinite(Input.Literal.X) || !std::isfinite(Input.Literal.Y)
 				|| !std::isfinite(Input.Literal.Z) || !std::isfinite(Input.Literal.W)
@@ -706,6 +709,8 @@ namespace Durin
 		const auto ShaderProperties = CanonicalizeMaterialShaderProperties(StaticProperties);
 		AppendLittleEndian(Bytes, ShaderProperties.GeometryUsage);
 		AppendLittleEndian(Bytes, ShaderProperties.PassUsage);
+		AppendLittleEndian(Bytes, ShaderProperties.RefractionMethod);
+		AppendLittleEndian(Bytes, std::bit_cast<uint32>(ShaderProperties.RefractionDepthBias));
 		AppendLittleEndian(Bytes, uint8(Environment.bIncludeEditorPasses));
 		AppendLittleEndian(Bytes, ShaderProperties.BlendMode);
 		AppendLittleEndian(Bytes, ShaderProperties.ShadingModel);

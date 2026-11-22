@@ -32,6 +32,8 @@ namespace Durin
 	{
 		None, AmbientOcclusion, CloudComposite, CloudTemporal
 	};
+	enum class EWaterVolumeReadback : uint8 { None, ViewTransmission, BedTransmission, RefractionOffset };
+
 	// Feature-bounded development routes. This type is Renderer-private so
 	// production submissions cannot request qualification-only execution.
 	struct FRendererQualificationPolicy
@@ -47,6 +49,8 @@ namespace Durin
 		bool bEnableGroundTruthAmbientOcclusion = false;
 		bool bForceFragmentContactVisibility = false;
 		bool bForceFragmentVolumetricCloud = false;
+		EWaterVolumeReadback WaterVolumeReadback = EWaterVolumeReadback::None;
+		bool bDisableWaterReflections = false;
 		EGPUCullingFailure GPUCullingFailure = EGPUCullingFailure::None;
 		ESceneRasterFailure RasterFailure = ESceneRasterFailure::None;
 		EScenePreparationPending PendingFeature = EScenePreparationPending::None;

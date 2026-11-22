@@ -19,6 +19,7 @@ namespace Durin
 			MakeRDGNestedParameterMemberMetadata<FParameters, decltype(FParameters::InstanceCulling)>("InstanceCulling", offsetof(FParameters, InstanceCulling), FInstanceCullingDrawParams::GetRDGParametersMetadata()),
 			MakeRDGBufferAccessMetadata<FParameters, decltype(FParameters::LocalLights)>("LocalLights", offsetof(FParameters, LocalLights)),
 			MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorOutput)>("SceneColorOutput", offsetof(FParameters, SceneColorOutput)),
+			MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneColorFallback)>("SceneColorFallback", offsetof(FParameters, SceneColorFallback)),
 			MakeRDGDepthStencilAttachmentBindingMetadata<FParameters, decltype(FParameters::SceneDepthOutput)>("SceneDepthOutput", offsetof(FParameters, SceneDepthOutput))
 		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
@@ -78,7 +79,7 @@ namespace Durin
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
 		if (bRequiresDeferredOpaque) Parameters->Resources.InstanceCulling = Inputs.Resolved.Receiver.StaticMeshes.GetInstanceCullingDrawParams(Graph);
 		if (bRequiresDeferredOpaque) Parameters->Resources.LocalLights = Inputs.Resolved.Lighting.LocalRead;
-		Parameters->BaseScene = {.Value = Inputs.BaseScene.Completion};
+		Parameters->BaseScene = {.Value = Inputs.WaterCompletion.value_or(Inputs.BaseScene.Completion)};
 		if (Inputs.VolumetricCloud.Completion)
 			Parameters->VolumetricCloud = TRDGValueRead<FVolumetricCloudPassResult>{
 				.Value = *Inputs.VolumetricCloud.Completion
@@ -95,12 +96,16 @@ namespace Durin
 				.Texture = Color,
 				.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}
 			};
+			if (Inputs.WaterCompletion && Color != Inputs.BaseScene.Color)
+				Parameters->Resources.SceneColorFallback = FRDGColorAttachmentBinding{
+					.Texture = Inputs.BaseScene.Color, .Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
 			Parameters->Resources.SceneDepthOutput = {
 				.Texture = Inputs.BaseScene.Depth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}
 			};
 		}
-		auto Record = [Recorder, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
+		auto Record = [Recorder, RecordInputs, bVolumetricCloudComposite, Failure, bRequiresDeferredOpaque,
+			bWaterInterval = Inputs.WaterCompletion.has_value()](FRHICommandListImmediate& Commands, const FSceneColorPassParameters& PassParameters, const FRDGParameterResolver& Resolver) mutable {
 			auto& SceneColorResult = Resolver.WriteValue(
 				PassParameters.Completion
 			);
@@ -116,7 +121,7 @@ namespace Durin
 			else
 			{
 				FSceneColorPassResult Input = BaseSceneResult;
-				if (Input.IsSuccess() && bVolumetricCloudComposite
+				if (Input.IsSuccess() && bVolumetricCloudComposite && !bWaterInterval
 					&& !VolumetricCloudResult.bCompositeOutputValid)
 					Input.Result = ERenderViewResult::RendererResourcesUnavailable;
 				if (Input.IsSuccess() && Failure == ESceneRasterFailure::SortedTranslucency) Input = {};
@@ -130,14 +135,17 @@ namespace Durin
 			ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes, Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
 		};
 		const auto TimingSink = GetSortedTranslucencyTimingQuerySink();
-		if (bRequiresDeferredOpaque && TimingSink)
+		if (bRequiresDeferredOpaque && (TimingSink || Parameters->Resources.SceneColorFallback))
 		{
 			// Vulkan resets timestamp slots outside native render passes. Keep the
 			// same declared attachments and draw callback for the measured pass.
 			(void)Graph.AddPass(SceneColorPassName, ERDGPassType::Graphics, std::move(Parameters),
 				[Record = std::move(Record), TimingSink](FRHICommandListImmediate& Commands,
 					const FSceneColorPassParameters& Pass, const FRDGParameterResolver& Resolver) mutable {
-					const auto Color = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(Pass.Resources.SceneColorOutput));
+					const bool bFallback = Pass.Resources.SceneColorFallback
+						&& !Resolver.ReadValue(Pass.BaseScene).bUsesVolumetricCloudComposite;
+					const auto Color = MakeRDGNativeAttachmentBinding(Resolver.GetColorAttachment(
+						bFallback ? Pass.Resources.SceneColorFallback : Pass.Resources.SceneColorOutput));
 					const auto Depth = MakeRDGNativeAttachmentBinding(Resolver.GetDepthStencilAttachment(Pass.Resources.SceneDepthOutput));
 					FRHIRenderPassInfo Native;
 					Native.RenderTargetLayout.NumColorRenderTargets = 1;

@@ -1,0 +1,142 @@
+module SingleLayerWaterLighting;
+
+import Material.GBufferDecode;
+
+public struct FWaterViewUniform
+{
+    public float4 Projection[4];
+    public float4 DepthParameters;
+};
+
+public struct FWaterBackground
+{
+    public float3 radiance;
+    public float depth;
+    public bool valid;
+    public bool open;
+};
+
+public float3 WaterViewForward(FWaterViewUniform view)
+{
+    float3 perspectiveAxis = view.Projection[3].xyz;
+    float3 orthographicAxis = view.Projection[2].xyz * (view.DepthParameters.x == 0.0 ? -1.0 : 1.0);
+    return normalize(dot(perspectiveAxis, perspectiveAxis) > 1.0e-12 ? perspectiveAxis : orthographicAxis);
+}
+
+float2 WaterNdc(float2 pixel, float4 viewport)
+{
+    return (pixel - viewport.xy) / viewport.zw * 2.0 - 1.0;
+}
+
+public float2 ClampWaterPixel(float2 pixel, float4 viewport)
+{
+    float2 middle = viewport.xy + 0.5 * viewport.zw;
+    return clamp(pixel, min(viewport.xy + 0.55, middle),
+        max(viewport.xy + viewport.zw - 0.55, middle));
+}
+
+public FWaterBackground SampleWaterBackground(
+    Texture2D<float4> sceneColor, Texture2D<float> sceneDepth,
+    FWaterViewUniform view, float4 viewport, float2 samplePixel,
+    float3 viewForward, float surfaceDepth, float slopeTolerance)
+{
+    float2 texel = ClampWaterPixel(samplePixel, viewport) - 0.5;
+    int2 corner = int2(floor(texel));
+    float2 fraction = frac(texel);
+    float finiteWeight = 0.0;
+    float clearWeight = 0.0;
+    float3 bedColor = 0.0;
+    float3 skyColor = 0.0;
+    float depth = 0.0;
+    [unroll]
+    for (uint tap = 0; tap < 4; ++tap)
+    {
+        int2 offset = int2(tap & 1u, tap >> 1u);
+        float2 bilinear = lerp(1.0 - fraction, fraction, float2(offset));
+        float weight = bilinear.x * bilinear.y;
+        if (weight <= 0.0) continue;
+        int3 pixel = int3(corner + offset, 0);
+        float deviceDepth = sceneDepth.Load(pixel);
+        if (!isfinite(deviceDepth)) continue;
+        if (deviceDepth == view.DepthParameters.x)
+        {
+            clearWeight += weight;
+            skyColor += sceneColor.Load(pixel).rgb * weight;
+            continue;
+        }
+        float3 viewPosition;
+        if (!ReconstructViewPositionAnalytic(view.Projection[0], view.Projection[1],
+                view.Projection[2], view.Projection[3], WaterNdc(float2(pixel.xy) + 0.5, viewport),
+                deviceDepth, viewPosition))
+            continue;
+        float tapDepth = dot(viewPosition, viewForward);
+        if (tapDepth + slopeTolerance < surfaceDepth) continue;
+        finiteWeight += weight;
+        depth += tapDepth * weight;
+        bedColor += sceneColor.Load(pixel).rgb * weight;
+    }
+    FWaterBackground result = (FWaterBackground)0;
+    if (finiteWeight > 1.0e-5)
+    {
+        result.radiance = bedColor / finiteWeight;
+        result.depth = depth / finiteWeight;
+        result.valid = true;
+    }
+    else if (clearWeight > 1.0e-5)
+    {
+        result.radiance = skyColor / clearWeight;
+        result.valid = true;
+        result.open = true;
+    }
+    return result;
+}
+
+// Recover the position on the original view ray at the selected linear depth.
+public float3 ReconstructWaterBed(FWaterViewUniform view, float4 viewport,
+    float2 pixel, float3 viewForward, float depth)
+{
+    float2 ndc = WaterNdc(pixel, viewport);
+    float4 rowX = view.Projection[0] - view.Projection[3] * ndc.x;
+    float4 rowY = view.Projection[1] - view.Projection[3] * ndc.y;
+    float3 ray = cross(rowX.xyz, rowY.xyz);
+    float determinant = dot(viewForward, ray);
+    if (abs(determinant) <= 1.0e-20) return viewForward * depth;
+    return (depth * ray - rowX.w * cross(rowY.xyz, viewForward)
+        - rowY.w * cross(viewForward, rowX.xyz)) / determinant;
+}
+
+public float WaterIor(float specular)
+{
+    float f0 = 0.08 * specular;
+    return 2.0 / (1.0 - sqrt(min(f0, 0.99))) - 1.0;
+}
+
+public float2 WaterRefractionOffsetInPixels(float2 normal, float ior, float2 viewSize,
+    float projectionScale, float separationCm, float depthBiasCm, bool open)
+{
+    float aspect = viewSize.x / viewSize.y;
+    float bias = -depthBiasCm;
+    float range = max(1.0, clamp(abs(bias) * 0.5, 0.0, 50.0));
+    float fade = open ? 4.0 : 4.0 * saturate(separationCm / range + bias) * saturate(separationCm / 30.0);
+    // For offset in texels, the backing extent cancels the V/B factor.
+    return normal * (ior - 1.0) * viewSize * viewSize
+        * float2(projectionScale, -aspect * projectionScale) * (0.00023 * fade);
+}
+
+public float WaterSchlickPhase(float g, float rayLightCosine)
+{
+    float k = 1.55 * g - 0.55 * g * g * g;
+    float denominator = max(abs(1.0 + k * rayLightCosine), 1.0e-4);
+    return (1.0 - k * k) / (12.5663706144 * denominator * denominator);
+}
+
+public float3 WaterTransmission(float3 extinction, float distanceCm, bool open)
+{
+    if (open) return select(extinction > 0.0, float3(0.0), float3(1.0));
+    return exp(-extinction * distanceCm);
+}
+
+public float3 WaterIntegratedScattering(float3 scattering, float3 extinction, float3 transmission)
+{
+    return saturate(scattering * (1.0 - transmission) / max(extinction, 1.0e-5));
+}

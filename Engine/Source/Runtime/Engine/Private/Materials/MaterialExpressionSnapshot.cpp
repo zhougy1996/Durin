@@ -4,6 +4,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionSwitch.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "Materials/MaterialShaderMap.h"
 #include "Asset/Asset.h"
 
@@ -14,9 +15,65 @@
 
 namespace Durin
 {
+	auto MIR::FGraphBuilderImpl::BuildSingleLayerWaterOutputs(bool bRequired) -> void
+	{
+		const DMaterialExpressionSingleLayerWaterOutput* Output = nullptr;
+		for (const auto& [Id, Expression] : Expressions)
+			if (const auto* Candidate = Cast<DMaterialExpressionSingleLayerWaterOutput>(Expression))
+			{
+				if (Output) { Fail("A material may contain only one Single Layer Water output."); return; }
+				Output = Candidate;
+			}
+		if (bValidateAuthoring) AuthoringCodeHash.UpdateValue(Output != nullptr);
+		if (!Output)
+		{
+			if (bRequired) Fail("Single Layer Water requires a Single Layer Water output.");
+			return;
+		}
+		if (bCompileReachableOnly && !bRequired)
+		{
+			Fail("Single Layer Water output requires the Surface Single Layer Water shading model.");
+			return;
+		}
+		const std::array Inputs{&Output->ScatteringCoefficients, &Output->AbsorptionCoefficients,
+			&Output->PhaseG, &Output->ColorScaleBehindWater};
+		if (bRequired && !std::ranges::any_of(std::span(Inputs).first<3>(),
+			[](const auto* Input) { return Input->IsConnected(); }))
+		{
+			Fail("No inputs to Single Layer Water Material.");
+			return;
+		}
+		const auto Definitions = FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions();
+		SourceStack.push_back(Output->Id);
+		for (size_t Slot = 0; Slot < Inputs.size() && Result.Diagnostics.empty(); ++Slot)
+		{
+			const auto& Input = *Inputs[Slot];
+			if (!Input.IsConnected())
+			{
+				if (Input.OutputIndex != 0) Fail("Disconnected Single Layer Water input has an output selector.");
+				continue;
+			}
+			const auto Index = ResolveIndex(Input);
+			if (Index == MIR::InvalidIndex) break;
+			const auto& Definition = Definitions[Slot];
+			const auto Actual = GetNode(Index).GetSemantics();
+			if (Actual.Type != Definition.Semantics.Type || Actual.Kind != EMaterialSpatialKind::None
+				|| !MaterialStagesContain(Actual.Stages, EMaterialEvaluationStage::Pixel))
+			{
+				Fail(std::format("{} requires a numeric pixel input of type {}.", Definition.Name,
+					GetMaterialValueSemanticsName(Definition.Semantics)));
+				break;
+			}
+			auto& Root = Result.IR.GetAttribute(Definition.Property);
+			Root.bExpression = true;
+			Root.ExpressionIndex = Index;
+		}
+		SourceStack.pop_back();
+	}
+
 	template<typename RootOwner>
 	auto MIR::FGraphBuilderImpl::FinishSurface(const RootOwner& Outputs,
-		EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded)
+		EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded, bool bSingleLayerWater)
 		-> MIR::FBuildResult
 	{
 		Result.IR.Domain = Domain;
@@ -91,6 +148,7 @@ namespace Durin
 			Root.bExpression = true; Root.ExpressionIndex = Index;
 		}
 
+		if (Result.Diagnostics.empty()) BuildSingleLayerWaterOutputs(bSingleLayerWater);
 		return Finish({});
 	}
 
@@ -277,7 +335,8 @@ namespace Durin
 			return Concrete->GetExpressionBody();
 		}, .Quality = Environment.Quality, .FeatureLevel = Environment.FeatureLevel,
 			.StaticBools = Environment.StaticBools}, ForCompilation);
-		auto Built = Context.FinishSurface(*Owner, Domain, Demanded ? &*Demanded : nullptr);
+		auto Built = Context.FinishSurface(*Owner, Domain, Demanded ? &*Demanded : nullptr,
+			ForCompilation && Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater);
 		if (!Built)
 		{
 			Result.Diagnostics = std::move(Built.Diagnostics);

@@ -4,6 +4,7 @@
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "Materials/MaterialExpressionCollectionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
@@ -105,6 +106,7 @@ namespace Durin::MaterialEditor
 			{&DMaterialExpressionSign::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::Adaptive},
 			{&DMaterialExpressionReflect::StaticClass, "Math", EMaterialGraphCreationKind::Direct, EMaterialGraphPaletteShape::AdaptiveVector},
 			{&DMaterialExpressionMakeMaterialAttributes::StaticClass, "Surface"},
+			{&DMaterialExpressionSingleLayerWaterOutput::StaticClass, "Surface"},
 			{&DMaterialExpressionBlendMaterialAttributes::StaticClass, "Surface"},
 			{&DMaterialExpressionFunctionInput::StaticClass, "Functions", EMaterialGraphCreationKind::AssetBound, EMaterialGraphPaletteShape::InspectOnly},
 			{&DMaterialExpressionFunctionOutput::StaticClass, "Functions", EMaterialGraphCreationKind::AssetBound, EMaterialGraphPaletteShape::InspectOnly},

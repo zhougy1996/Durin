@@ -44,6 +44,8 @@ namespace Durin
 		FMaterialExpressionInput ClearCoat;
 		DPROPERTY()
 		FMaterialExpressionInput ClearCoatRoughness;
+		DPROPERTY()
+		FMaterialExpressionInput Refraction;
 
 
 		ENGINE_API auto GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*;

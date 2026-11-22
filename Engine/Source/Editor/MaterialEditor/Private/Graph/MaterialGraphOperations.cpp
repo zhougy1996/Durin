@@ -48,7 +48,7 @@ namespace Durin::MaterialEditor
 		case P::MP_Roughness: return EMaterialSampleOutput::G;
 		case P::MP_Opacity: return EMaterialSampleOutput::A;
 		case P::MP_AmbientOcclusion: case P::MP_OpacityMask: case P::MP_Specular:
-		case P::MP_ClearCoat: case P::MP_ClearCoatRoughness: return EMaterialSampleOutput::R;
+		case P::MP_ClearCoat: case P::MP_ClearCoatRoughness: case P::MP_Refraction: return EMaterialSampleOutput::R;
 		default: return {}; // The compact sample uses implicit pixel derivatives.
 		}
 	}

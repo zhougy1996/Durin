@@ -81,6 +81,15 @@ namespace Durin
 		DefaultLit = 0,
 		Unlit = 1,
 		ClearCoat = 2,
+		SingleLayerWater = 3,
+	};
+
+	DENUM()
+	enum class EMaterialRefractionMethod : uint8
+	{
+		None = 0,
+		IndexOfRefraction = 1,
+		IndexOfRefractionFromF0 = 2,
 	};
 
 	// Controls depth writes independently from the blend-mode default.
@@ -114,13 +123,19 @@ namespace Durin
 		DPROPERTY()
 		uint8 GeometryUsage = 3;
 
-		// Forward=1, GBuffer=2, Shadow=4, HitProxy=8 (editor only).
+		// Forward=1, GBuffer=2, Shadow=4, HitProxy=8 (editor only), SingleLayerWater=16.
 		DPROPERTY()
 		uint8 PassUsage = 15;
 
 		// Alpha values below this threshold are discarded by masked passes.
 		DPROPERTY()
 		float OpacityMaskThreshold = 0.333f;
+
+		DPROPERTY()
+		EMaterialRefractionMethod RefractionMethod = EMaterialRefractionMethod::None;
+
+		DPROPERTY()
+		float RefractionDepthBias = 0.0f;
 
 		auto operator==(const FMaterialStaticProperties&) const -> bool = default;
 	};

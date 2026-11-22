@@ -6,6 +6,7 @@ module MaterialCompilerEnvironment;
 import Material.SurfaceMaterial;
 import Material.MeshUniforms;
 import Material.GBufferDecode;
+import Material.SingleLayerWaterLighting;
 import SceneData;
 import Material.SpecularAntialiasing;
 import Lighting.DirectionalShadow;

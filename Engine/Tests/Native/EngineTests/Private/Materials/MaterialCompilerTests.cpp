@@ -8,6 +8,7 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "DerivedDataRequestOwner.h"
 #include "BuildServiceBackendPrivate.h"
 #include "BuildCacheRecordPrivate.h"
@@ -89,7 +90,7 @@ TEST(FMaterialAttributeContractTests, FrozenDefinitionsOwnTypesStagesDefaultsAnd
 {
 	using namespace Durin;
 	const auto Definitions = FMaterialAttributeDefinitionMap::GetDefinitions();
-	ASSERT_EQ(Definitions.size(), 12u);
+	ASSERT_EQ(Definitions.size(), 13u);
 	std::unordered_set<FGuid> IDs;
 	for (const auto& Definition : Definitions)
 	{
@@ -102,7 +103,7 @@ TEST(FMaterialAttributeContractTests, FrozenDefinitionsOwnTypesStagesDefaultsAnd
 	EXPECT_EQ(Normal->DefaultValue, (FMaterialProgramLiteral{0,0,1}));
 	EXPECT_EQ(Normal->Blend, EMaterialAttributeBlend::NormalizedNormal);
 	EXPECT_EQ(FMaterialAttributeDefinitionMap::Find(EMaterialProperty::MP_WorldPositionOffset)->Semantics.Stages, EMaterialEvaluationStage::Vertex);
-	const auto Unlit = FMaterialAttributeDefinitionMap::GetActiveProperties(EMaterialDomain::Surface, EMaterialShadingModel::Unlit, EMaterialBlendMode::Opaque);
+	const auto Unlit = FMaterialAttributeDefinitionMap::GetActiveProperties(EMaterialDomain::Surface, {.ShadingModel = EMaterialShadingModel::Unlit});
 	EXPECT_FALSE(std::ranges::contains(Unlit, EMaterialProperty::MP_BaseColor));
 	EXPECT_TRUE(std::ranges::contains(Unlit, EMaterialProperty::MP_EmissiveColor));
 }
@@ -240,9 +241,11 @@ TEST(FMaterialShaderStageTests, CanonicalEntryContractUsesStableShaderTypes)
 		"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain", "HitProxyFragmentMain",
 		"VertexMain", "SplineVertexMain"};
 	const auto EntryPoints = GetMaterialCompiledEntryPoints();
-	ASSERT_GE(EntryPoints.size(), 6u);
+	ASSERT_EQ(EntryPoints.size(), 9u);
 	EXPECT_TRUE(std::ranges::equal(std::span(EntryPoints).first(6), Names));
-	EXPECT_EQ(GetMaterialCompiledEntryPoints().back(), "PostProcessMaterialMain");
+	EXPECT_EQ(EntryPoints[6], "PostProcessMaterialMain");
+	EXPECT_EQ(EntryPoints[7], "SingleLayerWaterFragmentMain");
+	EXPECT_EQ(EntryPoints.back(), "SingleLayerWaterDepthFragmentMain");
 	EXPECT_EQ(GetDefaultMaterialShaderEntries().size(), 6u);
 	const auto Options = MakeMaterialShaderCompileRequest(FMaterialTranslatedProgram{.Status = EMaterialProgramStatus::Ok}, false);
 	ASSERT_EQ(Options.EntryPoints.size(), 6u);
@@ -3208,7 +3211,7 @@ TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthor
 	const auto CoatRoughness = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float, {}, {}, {.1f});
 	Input.IR.bAggregateAttributes = true;
 	Input.IR.AggregateAttributesIndex = Add(EMaterialProgramOpcode::MakeMaterialAttributes, EMaterialProgramValueType::MaterialAttributes,
-		{Color, Normal, Zero, One, One, Color, One, One, WPO, Specular, One, CoatRoughness});
+		{Color, Normal, Zero, One, One, Color, One, One, WPO, Specular, One, CoatRoughness, One});
 	const auto Unlowered = GenerateMaterialProgramSlang(Input.IR);
 	EXPECT_FALSE(Unlowered);
 	EXPECT_TRUE(Unlowered.Source.empty());
@@ -3311,8 +3314,9 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 	}
 	auto Packed = Individual;
 	std::vector<uint32> Attributes;
-	for (const auto& Root : Packed.IR.AttributeRoots)
+	for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
 	{
+		const auto& Root = Packed.IR.GetAttribute(Definition.Property);
 		if (Root.bExpression) Attributes.push_back(Root.ExpressionIndex);
 		else
 		{
@@ -3324,7 +3328,7 @@ TEST(FMaterialProgramNormalizationTests, PackedAndIndividualInputsSharePropertyA
 		}
 	}
 	Individual.IR.Nodes = Packed.IR.Nodes;
-	for (size_t Index = 0; Index < Individual.IR.AttributeRoots.size(); ++Index)
+	for (size_t Index = 0; Index < Attributes.size(); ++Index)
 	{
 		Individual.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property).bExpression = true;
 		Individual.IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property).ExpressionIndex = Attributes[Index];
@@ -3734,6 +3738,88 @@ TEST(FMaterialClearCoatTests, ModelAttributesReachBothEntriesAndSurviveSourceFre
 	const auto Inactive = MIR::Compile(Input);
 	ASSERT_TRUE(Inactive) << FormatMaterialProgramDiagnostics(Inactive.Diagnostics);
 	EXPECT_TRUE(Inactive.GetShaderMap().Layout.Fields.empty());
+}
+
+TEST(FMaterialSingleLayerWaterTests, CompilesTypedWaterOutputAndReplaysCookedEntries)
+{
+	using namespace Durin;
+	using P = EMaterialProperty;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialExpressionSingleLayerWaterOutput> Water(
+		NewObject<DMaterialExpressionSingleLayerWaterOutput>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionVector3Constant> Coefficient(
+		NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None));
+	Water->Id = FGuid::NewGuid();
+	Coefficient->Id = FGuid::NewGuid();
+	Water->ColorScaleBehindWater = {Coefficient.Get()};
+	const std::array<DMaterialExpression*, 2> Expressions{Water.Get(), Coefficient.Get()};
+	FMaterialRootInputs Outputs;
+	Outputs.Get(P::MP_Opacity).SetConstant({.2f});
+	Outputs.Get(P::MP_OpacityMask).SetConstant({.7f});
+	Outputs.Get(P::MP_Refraction).SetConstant({1.25f});
+	FMaterialStaticProperties Properties{.ShadingModel = EMaterialShadingModel::SingleLayerWater};
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
+	FMaterialCompilerEnvironment Environment;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Environment, VulkanShaderTarget));
+	EXPECT_FALSE(SnapshotMaterialCompilerInput(*Material, Environment));
+	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
+	const auto ColorOnly = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_FALSE(ColorOnly);
+	EXPECT_NE(FormatMaterialProgramDiagnostics(ColorOnly.Diagnostics).find("No inputs to Single Layer Water Material."), std::string::npos);
+	auto* LiveWater = Cast<DMaterialExpressionSingleLayerWaterOutput>(
+		FindMaterialExpression(Material->GetExpressionCollection().Expressions, Water->Id));
+	ASSERT_NE(LiveWater, nullptr);
+	LiveWater->AbsorptionCoefficients = LiveWater->ColorScaleBehindWater;
+	LiveWater->ColorScaleBehindWater = {};
+	for (const auto Blend : {EMaterialBlendMode::Opaque, EMaterialBlendMode::Masked})
+	{
+		SCOPED_TRACE(static_cast<int>(Blend));
+		Properties.BlendMode = Blend;
+		Properties.RefractionMethod = Blend == EMaterialBlendMode::Masked
+			? EMaterialRefractionMethod::IndexOfRefraction : EMaterialRefractionMethod::IndexOfRefractionFromF0;
+		Properties.RefractionDepthBias = 2.0f;
+		ASSERT_TRUE(Material->SetStaticProperties(Properties));
+		const auto Capture = SnapshotMaterialCompilerInput(*Material, Environment);
+		ASSERT_TRUE(Capture) << FormatMaterialProgramDiagnostics(Capture.Diagnostics);
+		const auto& IR = Capture.Snapshot->Input.IR;
+		EXPECT_EQ(IR.GetAttribute(P::MP_WaterScattering).Literal, FMaterialProgramLiteral{});
+		EXPECT_EQ(IR.GetAttribute(P::MP_WaterPhaseG).Literal, FMaterialProgramLiteral{});
+		EXPECT_EQ(IR.GetAttribute(P::MP_WaterColorScale).Literal, (FMaterialProgramLiteral{1, 1, 1}));
+		EXPECT_TRUE(IR.GetAttribute(P::MP_WaterAbsorption).bExpression);
+		EXPECT_EQ(IR.GetAttribute(P::MP_Opacity).Literal.X, .2f);
+		EXPECT_EQ(IR.GetAttribute(P::MP_Refraction).Literal.X, Blend == EMaterialBlendMode::Masked ? 1.25f : 1.0f);
+		const auto Compiled = MIR::Compile(Capture.Snapshot->Input);
+		ASSERT_TRUE(Compiled) << FormatMaterialProgramDiagnostics(Compiled.Diagnostics);
+		const auto& Entries = Compiled.GetShaderMap().Entries;
+		const auto Entry = std::ranges::find(Entries, "FSingleLayerWaterFragmentShader",
+			[](const auto& Request) { return Request.Shader.ShaderType; });
+		ASSERT_NE(Entry, Entries.end());
+		EXPECT_EQ(Entry->Requirements.bUsesMask, Blend == EMaterialBlendMode::Masked);
+		EXPECT_TRUE(std::ranges::contains(Entry->Requirements.AttributeIDs, FMaterialAttributeDefinitionMap::GetID(P::MP_Opacity)));
+		EXPECT_FALSE(std::ranges::contains(Entries, "FGBufferFragmentShader",
+			[](const auto& Request) { return Request.Shader.ShaderType; }));
+		FByteBuffer Bytes;
+		const auto Encoded = Testing::EncodeMaterialCookedProgramFamilyForTest(Compiled.Resource, Properties,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes);
+		ASSERT_TRUE(Encoded) << Encoded.error();
+		FMaterialStaticProperties LoadedProperties;
+		std::shared_ptr<const FMaterialProgram> Loaded;
+		const auto Decoded = Testing::DecodeMaterialCookedProgramFamilyForTest(Bytes, ECookTargetPlatform::Win64,
+			ECookTargetProfile::Game, Compiled.Resource, LoadedProperties, Loaded);
+		ASSERT_TRUE(Decoded) << Decoded.error();
+		ASSERT_TRUE(Loaded);
+		EXPECT_TRUE(Loaded->GetDebugData().IR.Nodes.empty());
+		EXPECT_EQ(LoadedProperties, CanonicalizeMaterialShaderProperties(Properties));
+		EXPECT_EQ(Loaded->GetShaderMap().Entries, Entries);
+	}
+	Properties.BlendMode = EMaterialBlendMode::Translucent;
+	EXPECT_FALSE(Material->SetStaticProperties(Properties));
+	Properties.BlendMode = EMaterialBlendMode::Opaque;
+	EXPECT_FALSE(ValidateMaterialConfiguration(EMaterialDomain::PostProcess, Properties));
+	LiveWater->PhaseG = LiveWater->AbsorptionCoefficients;
+	EXPECT_FALSE(SnapshotMaterialCompilerInput(*Material, Environment));
 }
 
 TEST(FMaterialBindingContractTests, CompilerLocationsSurviveAdmissionAndSourceFreeCookReplay)

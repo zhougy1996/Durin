@@ -158,6 +158,12 @@ namespace Durin
 				Signature.Inputs[Index] = One(GetMaterialSurfaceOutputType(
 					FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property));
 			break;
+		case EMaterialProgramOpcode::SingleLayerWaterOutput:
+			if (ResultType != Type::Float) return std::nullopt;
+			Signature.InputCount = 4;
+			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
+				Signature.Inputs[Index] = One(FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions()[Index].Semantics.Type);
+			break;
 		case EMaterialProgramOpcode::GetMaterialAttributes:
 		case EMaterialProgramOpcode::SetMaterialAttributes:
 			if (ResultType != Type::MaterialAttributes) return std::nullopt;

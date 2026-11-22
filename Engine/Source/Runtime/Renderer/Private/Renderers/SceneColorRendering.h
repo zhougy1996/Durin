@@ -21,6 +21,7 @@ namespace Durin
 		FInstanceCullingDrawParams InstanceCulling;
 		std::optional<FRDGBufferAccess> LocalLights;
 		std::optional<FRDGColorAttachmentBinding> SceneColorOutput;
+		std::optional<FRDGColorAttachmentBinding> SceneColorFallback;
 		std::optional<FRDGDepthStencilAttachmentBinding> SceneDepthOutput;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
@@ -51,6 +52,7 @@ namespace Durin
 		FSceneGeometryRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudCompositeGraphOutput& VolumetricCloud;
+		std::optional<TRDGValueHandle<FSceneColorPassResult>> WaterCompletion;
 		FStaticMeshRenderer& StaticMeshes;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;

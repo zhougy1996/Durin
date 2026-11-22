@@ -317,15 +317,35 @@ namespace Durin::RendererPrivate
 			{ return Pass == EMeshPipelinePass::Forward ? Config.Settings.bForward : Config.Settings.bHybrid; }
 			auto GetVertexFactoryPass() const -> uint32 override { return MaterialMeshPassForward; }
 			auto GetFragmentShader(FMaterialShaderBlendModeKey) const -> FMeshPassFragmentShader override
-			{ return FragmentShader<FSurfaceFragmentShader>(); }
+			{
+				if constexpr (Pass == EMeshPipelinePass::SingleLayerWater) return FragmentShader<FSingleLayerWaterFragmentShader>();
+				else if constexpr (Pass == EMeshPipelinePass::SingleLayerWaterDepth) return FragmentShader<FSingleLayerWaterDepthFragmentShader>();
+				else return FragmentShader<FSurfaceFragmentShader>();
+			}
 			auto GetPSOPrecacheVariants(const FSceneRenderPreparationConfig& Config, const FPSOPrecacheParams& Params) const -> std::vector<FMeshPSOPrecacheVariant> override
 			{ return RasterVariants(Config, Params, 8); }
 			auto DescribeMeshDraw(const FMeshPipelineState& State, FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology,
-				FMaterialShaderBlendModeKey Blend, bool) const -> FMeshPipelineDescription override
+				FMaterialShaderBlendModeKey Blend, bool bReversedZ) const -> FMeshPipelineDescription override
 			{
 				FMeshPipelineDescription Result{.Topology = Topology, .Rasterizer = State.Rasterizer, .Depth = State.Depth};
 				if constexpr (Pass == EMeshPipelinePass::Forward) Result.RenderTargets = RenderTargetLayouts::MakeGraphSceneTargets();
 				else if constexpr (Pass == EMeshPipelinePass::HybridRetainedForward) Result.RenderTargets = RenderTargetLayouts::MakeGraphHybridRetainedForward();
+				else if constexpr (Pass == EMeshPipelinePass::SingleLayerWater)
+				{
+					Result.RenderTargets = RenderTargetLayouts::MakeGraphSingleLayerWater();
+					Result.Depth.bEnableWrite = false;
+					Result.Depth.CompareOp = ERHIDepthCompareOp::Equal;
+					Result.ColorBlends[0].ColorWriteMask =
+						ERHIColorWriteMask::Red | ERHIColorWriteMask::Green | ERHIColorWriteMask::Blue;
+					return Result;
+				}
+				else if constexpr (Pass == EMeshPipelinePass::SingleLayerWaterDepth)
+				{
+					Result.RenderTargets = RenderTargetLayouts::MakeGraphSingleLayerWaterDepth();
+					Result.Depth.bEnableWrite = true;
+					Result.Depth.CompareOp = bReversedZ ? ERHIDepthCompareOp::Greater : ERHIDepthCompareOp::Less;
+					return Result;
+				}
 				else Result.RenderTargets = RenderTargetLayouts::MakeGraphSortedTranslucency();
 				Result.ColorBlends[0] = State.ColorBlend;
 				if (Blend == EMaterialBlendMode::Translucent) Result.ColorBlends[1].ColorWriteMask = ERHIColorWriteMask::None;
@@ -336,14 +356,21 @@ namespace Durin::RendererPrivate
 		{ return std::make_unique<TBasePassMeshProcessor<Pass>>(PSOCollectorIndex); }
 		template<EMeshPipelinePass Pass> auto CreateBasePSOCollector(ERHIFeatureLevel) -> std::unique_ptr<IPSOCollector>
 		{
-			constexpr auto Name = Pass == EMeshPipelinePass::Forward ? "Forward" : Pass == EMeshPipelinePass::HybridRetainedForward ? "HybridRetainedForward" : "SortedTranslucency";
+			constexpr auto Name = Pass == EMeshPipelinePass::Forward ? "Forward"
+				: Pass == EMeshPipelinePass::HybridRetainedForward ? "HybridRetainedForward"
+				: Pass == EMeshPipelinePass::SingleLayerWater ? "SingleLayerWater"
+				: Pass == EMeshPipelinePass::SingleLayerWaterDepth ? "SingleLayerWaterDepth" : "SortedTranslucency";
 			return CreateBasePassMeshProcessor<Pass>(FPSOCollectorCreateManager::GetIndex(EShadingPath::Deferred, Name));
 		}
 		const FRegisterPSOCollectorCreateFunction RegisterForwardPSO(&CreateBasePSOCollector<EMeshPipelinePass::Forward>, EShadingPath::Deferred, "Forward");
 		const FRegisterPSOCollectorCreateFunction RegisterHybridPSO(&CreateBasePSOCollector<EMeshPipelinePass::HybridRetainedForward>, EShadingPath::Deferred, "HybridRetainedForward");
 		const FRegisterPSOCollectorCreateFunction RegisterSortedPSO(&CreateBasePSOCollector<EMeshPipelinePass::SortedTranslucency>, EShadingPath::Deferred, "SortedTranslucency");
+		const FRegisterPSOCollectorCreateFunction RegisterWaterPSO(&CreateBasePSOCollector<EMeshPipelinePass::SingleLayerWater>, EShadingPath::Deferred, "SingleLayerWater");
+		const FRegisterPSOCollectorCreateFunction RegisterWaterDepthPSO(&CreateBasePSOCollector<EMeshPipelinePass::SingleLayerWaterDepth>, EShadingPath::Deferred, "SingleLayerWaterDepth");
 		const FRegisterPassProcessorCreateFunction RegisterForwardBasePass(&CreateBasePassMeshProcessor<EMeshPipelinePass::Forward>, EMeshPipelinePass::Forward);
 		const FRegisterPassProcessorCreateFunction RegisterHybridRetainedForward(&CreateBasePassMeshProcessor<EMeshPipelinePass::HybridRetainedForward>, EMeshPipelinePass::HybridRetainedForward);
 		const FRegisterPassProcessorCreateFunction RegisterSortedTranslucency(&CreateBasePassMeshProcessor<EMeshPipelinePass::SortedTranslucency>, EMeshPipelinePass::SortedTranslucency);
+		const FRegisterPassProcessorCreateFunction RegisterWater(&CreateBasePassMeshProcessor<EMeshPipelinePass::SingleLayerWater>, EMeshPipelinePass::SingleLayerWater);
+		const FRegisterPassProcessorCreateFunction RegisterWaterDepth(&CreateBasePassMeshProcessor<EMeshPipelinePass::SingleLayerWaterDepth>, EMeshPipelinePass::SingleLayerWaterDepth);
 	}
 }

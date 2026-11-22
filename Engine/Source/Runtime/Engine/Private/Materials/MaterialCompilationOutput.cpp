@@ -16,23 +16,27 @@ namespace Durin
 		using P = EMaterialProperty;
 		if (Entry == EMaterialShaderEntry::PostProcess) return {P::MP_EmissiveColor};
 		if (Entry == EMaterialShaderEntry::LocalVertex || Entry == EMaterialShaderEntry::SplineVertex) return {P::MP_WorldPositionOffset};
-		if (Entry == EMaterialShaderEntry::Shadow || Entry == EMaterialShaderEntry::HitProxy)
+		if (Entry == EMaterialShaderEntry::Shadow || Entry == EMaterialShaderEntry::HitProxy
+			|| Entry == EMaterialShaderEntry::SingleLayerWaterDepth)
 			return Properties.BlendMode == EMaterialBlendMode::Masked ? std::vector<P>{P::MP_OpacityMask} : std::vector<P>{};
 		if (Entry == EMaterialShaderEntry::GBuffer && Properties.ShadingModel == EMaterialShadingModel::Unlit) return {};
-		auto Result = FMaterialAttributeDefinitionMap::GetActiveProperties(EMaterialDomain::Surface, Properties.ShadingModel, Properties.BlendMode);
+		auto Result = FMaterialAttributeDefinitionMap::GetActiveProperties(EMaterialDomain::Surface, Properties);
 		std::erase(Result, P::MP_WorldPositionOffset);
+		if (Entry == EMaterialShaderEntry::SingleLayerWater)
+			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetWaterOutputDefinitions())
+				Result.push_back(Definition.Property);
+		else
+			std::erase(Result, P::MP_Refraction);
 		return Result;
 	}
 
 	auto GetMaterialCompilationProperties(EMaterialDomain Domain, const FMaterialStaticProperties& Properties,
 		const FMaterialCompilerEnvironment& Environment) -> std::set<EMaterialProperty>
 	{
-		const auto Active = FMaterialAttributeDefinitionMap::GetActiveProperties(Domain, Properties.ShadingModel, Properties.BlendMode);
 		std::set<EMaterialProperty> Demanded;
 		for (const auto Entry : SelectMaterialShaderEntries(Properties, Environment.bIncludeEditorPasses, Domain, &Environment))
 			for (const auto Property : GetMaterialEntryProperties(FindMaterialShaderEntry(Entry)->Entry, Properties))
-				if (std::ranges::contains(Active, Property))
-					Demanded.insert(Property);
+				Demanded.insert(Property);
 		return Demanded;
 	}
 

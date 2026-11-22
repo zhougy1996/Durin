@@ -168,14 +168,15 @@ namespace Durin::RendererPrivate
 		bool bSourceReady = true;
 		RENDERER_API auto MatchesForDynamicInstancing(const FVisibleMeshDrawCommand& Other) const -> bool;
 		auto SubmitDraw(FRHICommandList& Commands, FMeshDrawCommandStateCache* Cache = nullptr,
-			const FMeshDrawCommandOverrideArgs& Override = {}) const -> bool
+			const FMeshDrawCommandOverrideArgs& Override = {},
+			const FMeshDrawShaderBindings* FragmentOverride = nullptr) const -> bool
 		{
 			if (!bSourceReady || !Command || !Pass || (CachedInfo && CachedInfo->CommandIndex == INDEX_NONE)) return false;
 			// Generated IDs apply only to admitted indirect draws. Direct and CPU-merged
 			// fallbacks retain this command's ID stream and logical instance offset.
 			const bool bIndirect = Override.IndirectArgsBuffer != nullptr;
 			if (bIndirect && (!Override.InstanceBuffer || !Command->IndexBuffer)) return false;
-			return Command->SubmitVisible(Commands, Pass->Vertex, Pass->Fragment, DepthBias, Cache,
+			return Command->SubmitVisible(Commands, Pass->Vertex, FragmentOverride ? *FragmentOverride : Pass->Fragment, DepthBias, Cache,
 				{.PrimitiveIdsBuffer = bIndirect ? Override.InstanceBuffer : InstanceBuffer,
 					.InstanceDataByteOffset = bIndirect ? Override.InstanceDataByteOffset : 0,
 					.IndirectArgsBuffer = Override.IndirectArgsBuffer,

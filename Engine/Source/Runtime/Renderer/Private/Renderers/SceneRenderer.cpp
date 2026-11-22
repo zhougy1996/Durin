@@ -12,6 +12,7 @@
 #include "Renderers/GBufferRendering.h"
 #include "Renderers/PostProcessRendering.h"
 #include "Renderers/SceneColorRendering.h"
+#include "Renderers/SingleLayerWaterRendering.h"
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
@@ -189,8 +190,13 @@ namespace Durin
 				.ViewState = Context.Transaction.ViewState,
 				.Density = CloudDensity,
 				.Feature = Features.CloudSpatial});
+		const auto WaterCompletion = AddSingleLayerWaterPasses(Graph, PreparedRenderView,
+			BaseSceneOutput, CloudCompositeOutput, Resolved.Scene, Service.PostProcessRenderer,
+			GraphResources.Environment, GraphResources.DirectionalShadow, Width, Height,
+			Logical.Qualification);
 		const auto SceneColorOutput = AddSceneColorPasses(Graph, { .Record = GeometryInputs,
 			.BaseScene = BaseSceneOutput, .VolumetricCloud = CloudCompositeOutput,
+			.WaterCompletion = WaterCompletion,
 			.StaticMeshes = Service.StaticMeshRenderer,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.DeferredFeature = Features.Deferred,

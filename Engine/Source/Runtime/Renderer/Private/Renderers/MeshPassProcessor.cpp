@@ -526,7 +526,9 @@ namespace Durin::RendererPrivate
 			if (!Input.HitProxy.Buffer)
 				if (const auto Found = Cache.Passes.find(Key); Found != Cache.Passes.end()) { Bindings = Found->second; return true; }
 			FMeshDrawShaderBindings Prepared;
-			if (!PrepareCompiledSurfaceMaterial(Shader, Layout.ForMaterialParameters(false), Input.Material.Surface, {}, Input.Lighting,
+			auto PassLayout = Layout.ForMaterialParameters(false);
+			if (GetPass() == EMeshPipelinePass::SingleLayerWater) PassLayout = PassLayout.WithoutWaterInputs();
+			if (!PrepareCompiledSurfaceMaterial(Shader, PassLayout, Input.Material.Surface, {}, Input.Lighting,
 				Input.HitProxy, Input.ViewUniform, {}, {}, Prepared, Input.LocalLights, Input.GPUScene)) return false;
 			Bindings = std::move(Prepared);
 			if (!Input.HitProxy.Buffer) Cache.Passes.emplace(Key, Bindings);
@@ -652,7 +654,7 @@ namespace Durin::RendererPrivate
 
 	namespace
 	{
-		constexpr size_t MeshPassSlotCount = static_cast<size_t>(EMeshPipelinePass::HitProxy) + 1;
+		constexpr size_t MeshPassSlotCount = static_cast<size_t>(EMeshPipelinePass::SingleLayerWaterDepth) + 1;
 		struct FPassProcessorEntry
 		{
 			PassProcessorCreateFunction Create = nullptr;

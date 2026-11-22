@@ -117,6 +117,8 @@ namespace Durin
 	struct FResolvedSceneResources
 	{
 		FPreparedPostProcess PostProcess;
+		std::optional<FPreparedWaterSnapshot> WaterSnapshot;
+		std::optional<FPreparedWaterReflection> WaterReflection;
 		std::shared_ptr<const FPreparedPostProcessMaterial> PostProcessMaterial;
 		FResolvedLighting Lighting;
 		FResolvedReceiverGeometry Receiver;

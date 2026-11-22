@@ -112,6 +112,17 @@ namespace Durin
 		-> FMaterialStaticProperties
 	{
 		Properties.GeometryUsage &= uint8(~4u);
+		if (Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater)
+		{
+			if (Properties.PassUsage & (3u | 16u))
+				Properties.PassUsage = (Properties.PassUsage & ~2u) | 1u | 16u;
+		}
+		else
+		{
+			Properties.RefractionMethod = EMaterialRefractionMethod::None;
+		}
+		if (Properties.RefractionMethod == EMaterialRefractionMethod::None || Properties.RefractionDepthBias == 0.0f)
+			Properties.RefractionDepthBias = 0.0f;
 		if (Properties.BlendMode != EMaterialBlendMode::Masked)
 			Properties.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
 		else if (Properties.OpacityMaskThreshold == 0.0f)
@@ -264,7 +275,7 @@ namespace Durin
 		uint8 GeometryMask = 7;
 		for (const auto& D : GetMaterialShaderEntries()) if (D.VertexFactory) GeometryMask |= D.GeometryUsage;
 		if (!Properties.GeometryUsage || (Properties.GeometryUsage & ~GeometryMask)
-			|| !Properties.PassUsage || (Properties.PassUsage & ~15)
+			|| !Properties.PassUsage || (Properties.PassUsage & ~(Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater ? 31u : 15u))
 			|| ((Properties.GeometryUsage & 4) && !(Properties.GeometryUsage & 1)))
 			return std::unexpected("Material geometry/pass usage masks are invalid.");
 		switch (Properties.BlendMode)
@@ -281,12 +292,18 @@ namespace Durin
 		case EMaterialShadingModel::DefaultLit:
 		case EMaterialShadingModel::Unlit:
 		case EMaterialShadingModel::ClearCoat:
+		case EMaterialShadingModel::SingleLayerWater:
 			break;
 		default:
 			return std::unexpected("Material shading model is invalid.");
 		}
 		if (Properties.ShadingModel == EMaterialShadingModel::ClearCoat && Properties.BlendMode == EMaterialBlendMode::Translucent)
 			return std::unexpected("Translucent ClearCoat is unsupported.");
+		if (Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater && Properties.BlendMode == EMaterialBlendMode::Translucent)
+			return std::unexpected("Single Layer Water requires Opaque or Masked blending.");
+		if (Properties.RefractionMethod > EMaterialRefractionMethod::IndexOfRefractionFromF0
+			|| !std::isfinite(Properties.RefractionDepthBias))
+			return std::unexpected("Material refraction settings are invalid.");
 		switch (Properties.DepthWritePolicy)
 		{
 		case EMaterialDepthWritePolicy::Automatic:

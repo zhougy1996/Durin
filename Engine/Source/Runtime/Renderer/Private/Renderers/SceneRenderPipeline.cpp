@@ -385,6 +385,24 @@ namespace Durin
 						ResolvedSceneResources.Receiver.StaticMeshes
 					) && bPrepareOnly)
 				return ERenderViewResult::RendererResourcesUnavailable;
+			if (bWantsProductionDeferred)
+			{
+				const auto& Meshes = PreparedView.Receiver.StaticMeshes;
+				const auto IsReadyWater = [&](const FPreparedStaticMeshDraw& Draw) {
+					return ResolvedSceneResources.Receiver.StaticMeshes.IsReady(Draw)
+						&& Draw.Command->Material.PlanningPassIdentity.ShaderMap.ShadingModel == EMaterialShadingModel::SingleLayerWater;
+				};
+				if (std::ranges::any_of(Meshes.Opaque, IsReadyWater) || std::ranges::any_of(Meshes.Masked, IsReadyWater))
+				{
+					if (!Service.PostProcessRenderer.PrepareWaterSnapshot_RenderThread(CommandList,
+						ResolvedSceneResources.WaterSnapshot.emplace()))
+						return ERenderViewResult::RendererResourcesUnavailable;
+					if (ResolvedSceneResources.Receiver.StaticMeshes.Environment && !Qualification.bDisableWaterReflections
+						&& Qualification.WaterVolumeReadback == EWaterVolumeReadback::None
+						&& !Service.PostProcessRenderer.PrepareWaterReflection_RenderThread(ResolvedSceneResources.WaterReflection.emplace()))
+						return ERenderViewResult::RendererResourcesUnavailable;
+				}
+			}
 			const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
 			auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
 			const bool bForceContactShadowVisibilityFragment =

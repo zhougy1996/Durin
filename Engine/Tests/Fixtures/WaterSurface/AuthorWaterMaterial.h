@@ -10,6 +10,7 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionTextureCoordinates.h"
 #include "Materials/MaterialExpressionScene.h"
+#include "Materials/MaterialExpressionSingleLayerWaterOutput.h"
 #include "Materials/MaterialExpressionTransform.h"
 
 #if DURIN_WITH_EDITOR
@@ -131,6 +132,15 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 			Pin.SetConstant(std::vector<float>(Values.begin(), Values.begin() + uint32(Root.Type) + 1));
 		}
 	}
+	auto* Water = NewObject<DMaterialExpressionSingleLayerWaterOutput>(nullptr, NAME_None);
+	const auto WaterLink = [&](EMaterialProperty Property) {
+		return Links.at(Recipe.IR.GetAttribute(Property).ExpressionIndex);
+	};
+	Water->ScatteringCoefficients = WaterLink(EMaterialProperty::MP_WaterScattering);
+	Water->AbsorptionCoefficients = WaterLink(EMaterialProperty::MP_WaterAbsorption);
+	Water->PhaseG = WaterLink(EMaterialProperty::MP_WaterPhaseG);
+	Water->ColorScaleBehindWater = WaterLink(EMaterialProperty::MP_WaterColorScale);
+	Own(Water);
 	if (auto R = Material->SetStaticProperties(Recipe.StaticProperties); !R) throw std::runtime_error(R.error());
 	if (auto R = Material->SetMaterialExpressions(Nodes, Outputs); !R)
 		throw std::runtime_error(R.Diagnostics.empty() ? "Water source material graph validation failed." : R.Diagnostics.front().Message);

@@ -164,6 +164,8 @@ namespace Durin
 		FScalarMaterialInput ClearCoat;
 		DPROPERTY(EditorOnly)
 		FScalarMaterialInput ClearCoatRoughness;
+		DPROPERTY(EditorOnly)
+		FScalarMaterialInput Refraction;
 		static void VisitNumericField(auto& Owner, EMaterialProperty Property, auto&& Visit);
 		auto ApplyRootInputs(FMaterialRootInputs Inputs) -> void;
 		DPROPERTY(EditorOnly)

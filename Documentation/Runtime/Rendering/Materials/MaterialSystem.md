@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-23
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -16,6 +16,25 @@ representation, builder, pipeline identity, and fallback declarations live in
 surface directly. Their implementations are separated into authored schema,
 compiled-layout representation/builder, and diagnostics files. The production
 render boundary accepts only material-specific layout v5 data. Built-in role knowledge is confined to editor-owned standard function authoring and import binding.
+
+## Single Layer Water
+
+Surface materials with Opaque or Masked blend mode can select Single Layer
+Water. Connect at least one input on the required Single Layer Water Output
+terminal. It supplies RGB scattering and absorption per centimeter, scalar
+PhaseG and RGB Color Scale Behind Water.
+Disconnected inputs use zero coefficients, PhaseG zero and white scale. Water
+Opacity controls surface versus volume contributions independently of Opacity
+Mask, which controls coverage. The refraction method can disable distortion,
+derive the index of refraction from dielectric F0, or use an authored index.
+The refracted coordinate honors the material's refraction depth bias and the
+active view rectangle. The compiler retains the water roots and passes in
+source-free Cook payloads. Numeric instance coefficients follow ordinary
+parameter update rules.
+
+The editor uses a fixed water plane above an opaque bed with studio lighting.
+The production renderer owns [depth, shading and sky reflection](../Pipeline/GBuffer.md#single-layer-water)
+for the same shading model on ordinary meshes and the Water plugin surface.
 
 ## Results and diagnostics
 
@@ -1413,7 +1432,7 @@ or unsupported instance markers reject before publication. Compiler capture emit
 detached typed IR through `Build()` and owns all worker data without live
 expression or callee pointers. Legacy universal graph records are unsupported.
 
-Current compatibility versions are DMAT 28, MIR 15, layout 5, pass contract 25,
+Current compatibility versions are DMAT 29, MIR 15, layout 5, pass contract 28,
 and material Cook class-schema version 7. The independent compile adapter is version 26;
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.

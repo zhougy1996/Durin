@@ -775,10 +775,22 @@ namespace Durin::MaterialEditor
 			int Shading = static_cast<int>(Properties.ShadingModel);
 			int Blend = static_cast<int>(Properties.BlendMode);
 			int Depth = static_cast<int>(Properties.DepthWritePolicy);
-			bChanged |= DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "DefaultLit\0Unlit\0ClearCoat\0"); });
+			bChanged |= DetailsStyle::EditRow("Shading", [&] { return ImGui::Combo("##Value", &Shading, "DefaultLit\0Unlit\0ClearCoat\0Single Layer Water\0"); });
 			bChanged |= DetailsStyle::EditRow("Blend", [&] { return ImGui::Combo("##Value", &Blend, "Opaque\0Masked\0Translucent\0"); });
 			Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
 			Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
+			if (Properties.ShadingModel == EMaterialShadingModel::SingleLayerWater)
+			{
+				int Refraction = static_cast<int>(Properties.RefractionMethod);
+				bChanged |= DetailsStyle::EditRow("Refraction", [&] {
+					return ImGui::Combo("##Value", &Refraction, "None\0Index of Refraction\0Index of Refraction from F0\0");
+				});
+				Properties.RefractionMethod = static_cast<EMaterialRefractionMethod>(Refraction);
+				if (Properties.RefractionMethod != EMaterialRefractionMethod::None)
+					bChanged |= DetailsStyle::EditRow("Refraction depth bias (cm)", [&] {
+						return ImGui::InputFloat("##Value", &Properties.RefractionDepthBias, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+					});
+			}
 			if (Properties.BlendMode == EMaterialBlendMode::Masked)
 			{
 				float Threshold = Properties.OpacityMaskThreshold;

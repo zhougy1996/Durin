@@ -41,6 +41,7 @@ namespace Durin
 #include "Material/SplineParameters.inl"
 #include "Material/HitProxyParameters.inl"
 #include "Material/SceneTexturesParameters.inl"
+#include "Material/SingleLayerWaterParameters.inl"
 			DURIN_END_SHADER_PARAMETERS();
             static auto GetParametersMetadata() -> const FShaderParametersMetadata*
             { return GetShaderParametersMetadataOrNull<FSurfaceParameterProviders>(); }
@@ -60,6 +61,8 @@ namespace Durin
             RENDERER_API explicit FCompiledSurfaceBindingLayout(std::span<const FMaterialShaderBinding> Bindings);
             auto WithoutSceneInputs() const -> FCompiledSurfaceBindingLayout
             { auto R = *this; std::erase_if(R.Entries, [](const auto& E) { return E.OwnerName == "SceneTextures"; }); return R; }
+            auto WithoutWaterInputs() const -> FCompiledSurfaceBindingLayout
+            { auto R = *this; std::erase_if(R.Entries, [](const auto& E) { return E.OwnerName == "WaterScene"; }); return R; }
             auto IsValid() const -> bool { return bValid; }
             auto GetEntries() const -> std::span<const FEntry> { return Entries; }
             auto ForMaterialParameters(bool Material) const -> FCompiledSurfaceBindingLayout
@@ -98,6 +101,42 @@ namespace Durin
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceFragmentShader, FCompiledSurfaceMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"FragmentMain");
+		};
+
+		class FSingleLayerWaterFragmentShader final : public FCompiledSurfaceMaterialShader
+		{
+		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::SingleLayerWater, .GeometryUsage = 255, .PassUsage = 16, .BlendModes = 3}; }
+
+			DURIN_BEGIN_SHADER_PARAMETERS(FSingleLayerWaterFragmentShader)
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/SurfaceParameters.inl"
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+#include "Material/SingleLayerWaterParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_MATERIAL_SHADER(FSingleLayerWaterFragmentShader, FCompiledSurfaceMaterialShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "SingleLayerWaterFragmentMain");
+		};
+
+		class FSingleLayerWaterDepthFragmentShader final : public FCompiledSurfaceMaterialShader
+		{
+		public:
+			static auto GetMaterialCompilationDescription() -> FMaterialShaderEntryDescriptor
+			{ return {.Entry = EMaterialShaderEntry::SingleLayerWaterDepth, .GeometryUsage = 255, .PassUsage = 16, .BlendModes = 3}; }
+
+			DURIN_BEGIN_SHADER_PARAMETERS(FSingleLayerWaterDepthFragmentShader)
+				DURIN_MATERIAL_PARAMETER(Material, Material, ConstantBuffer<MaterialUniform>, UniformBuffer, UniformBufferDynamic, true, Draw);
+#include "Material/ViewParameters.inl"
+#include "Material/PrimitiveParameters.inl"
+#include "Material/GPUSceneParameters.inl"
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_MATERIAL_SHADER(FSingleLayerWaterDepthFragmentShader, FCompiledSurfaceMaterialShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "SingleLayerWaterDepthFragmentMain");
 		};
 
 		class FSurfaceOpaqueShadowFragmentShader final : public FMaterialShader

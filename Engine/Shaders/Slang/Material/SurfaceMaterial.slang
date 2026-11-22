@@ -15,6 +15,11 @@ public struct FMaterialSurface
     public float3 emissive;
     public float opacity;
     public float opacityMask;
+    public float refraction;
+    public float3 waterScattering;
+    public float3 waterAbsorption;
+    public float waterPhaseG;
+    public float3 waterColorScale;
 };
 
 public struct FMaterialNormalFrame
@@ -80,6 +85,11 @@ public FMaterialSurface EvaluateMaterialSurface(FMaterialSurface result)
         float3(0.0), float3(65024.0, 65024.0, 64512.0));
     result.opacity = saturate(FiniteSurfaceValue(result.opacity, 1.0));
     result.opacityMask = saturate(FiniteSurfaceValue(result.opacityMask, 1.0));
+    result.refraction = FiniteSurfaceValue(result.refraction, 1.0);
+    result.waterScattering = max(FiniteSurfaceColor(result.waterScattering, 0.0), 0.0);
+    result.waterAbsorption = max(FiniteSurfaceColor(result.waterAbsorption, 0.0), 0.0);
+    result.waterPhaseG = clamp(FiniteSurfaceValue(result.waterPhaseG, 0.0), -1.0, 1.0);
+    result.waterColorScale = max(FiniteSurfaceColor(result.waterColorScale, 1.0), 0.0);
     return result;
 }
 
