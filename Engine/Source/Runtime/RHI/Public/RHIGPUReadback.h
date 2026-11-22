@@ -6,6 +6,7 @@
 namespace Durin
 {
 	class FRHICommandListBase;
+	class FRHICommandListImmediate;
 	class FRHIBuffer;
 	class FRHIGPUMemoryReadback;
 	enum class ERHIGPUReadbackState : uint8 { Pending, Ready, Failed, Canceled };
@@ -75,6 +76,7 @@ namespace Durin
 		auto UnlockData() -> void { State->UnlockData(); }
 	private:
 		friend class FRHICommandListBase;
+		friend class FRHIGPUBufferReadback;
 		const std::shared_ptr<RHIPrivate::FReadbackState> State = std::make_shared<RHIPrivate::FReadbackState>();
 	};
 
@@ -83,6 +85,9 @@ namespace Durin
 	{
 	public:
 		RHI_API auto EnqueueCopy(FRHICommandListBase& Commands, FRHIBuffer* Source, uint32 NumBytes = 0, uint32 Offset = 0) -> void;
+		// Wait for this copy on its recording executor after closing its GPU submission.
+		// Absent, failed and canceled copies return false.
+		RHI_API auto Wait(FRHICommandListImmediate& Commands) const -> bool;
 		auto Lock(uint32 NumBytes) -> const void* { return LockData(NumBytes); }
 		auto Unlock() -> void { UnlockData(); }
 	};

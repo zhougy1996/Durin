@@ -79,20 +79,23 @@ primitive component ID. A changed batch projects its bounds conservatively and
 uploads one immutable GPU buffer.
 After opaque GBuffer depth is available, the GPU reduces 16×16 tiles and tests
 each expanded bound against all covered tiles. Each candidate gets one 32-bit
-result. Before mesh collection, the view maps the newest ready result from the
-previous two render frames that survived view and scene invalidation. Traversal
-order may change. A matching index is culled only for a confirmed occluded value. Shadow caster selection remains independent.
+result. Before mesh collection, the view selects feedback from its previous
+render and validates it against the current view and scene. It waits for that
+copy if necessary, then maps the results. Traversal order may change. A matching
+index is culled only for a confirmed occluded value. Shadow caster selection
+remains independent.
 
 Each view has three feedback slots. A slot supports up to 4096×4096 pixels and
 4096 candidates (16 KiB of readback). Going over either limit leaves frustum
-admission in effect for the whole view. A full ring skips submission. Missing
-or incompatible history leaves each candidate visible. Reuse requires matching
+admission in effect for the whole view. A full ring skips submission. Missing,
+failed or incompatible history leaves each candidate visible. Reuse requires matching
 projection, viewport, depth convention, scene, candidate identities, resource
 generation and the scene's occlusion revision. A view ignores previous results after more
 than eight seconds idle, a time reset, or a camera step exceeding 45 degrees on
 any view axis or 10,000 world units of translation. Smaller camera steps submit
-fresh projected bounds. Consumption applies the same thresholds against each
-ready result's producing view, including when newer feedback is still pending.
+fresh projected bounds. Consumption applies the same thresholds against the
+producing view before waiting. Gaps in the global render frame sequence do not
+expire the previous render's feedback while the view remains continuous.
 Newly exposed objects can still be briefly hidden within those thresholds.
 An origin-only rebase also resets history.
 An explicit cut takes effect when the view is submitted, even if output validation

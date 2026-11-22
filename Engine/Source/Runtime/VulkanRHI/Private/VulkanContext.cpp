@@ -1057,6 +1057,24 @@ namespace Durin::VulkanRHI
 		Device.GetReadbackArena().ReclaimCompleted();
 	}
 
+	auto FVulkanCommandListContext::RHIWaitForBufferReadback(RHIPrivate::FReadbackState& Request) -> void
+	{
+		CheckRHIExecutionThread();
+		const auto Match = std::ranges::find_if(PendingReadbacks,
+			[&Request](const auto& Readback) { return Readback.Request.get() == &Request; });
+		if (Match == PendingReadbacks.end())
+		{
+			if (this == Device.GetImmediateContext())
+				if (auto* Compute = Device.GetQueueContext(Device.GetComputeQueue()->GetId()); Compute && Compute != this)
+					Compute->RHIWaitForBufferReadback(Request);
+			return;
+		}
+		const auto SyncPoint = Match->Range.GetSyncPoint();
+		if (auto* Queue = Device.FindQueue(FRHIGPUSyncPointBackend::GetPoint(SyncPoint).Queue))
+			Queue->GetCompletionTracker().WaitForSyncPoint(SyncPoint, UINT64_MAX);
+		RHIPollReadbacks();
+	}
+
 
 	auto FVulkanCommandListContext::RHIBlockUntilGPUIdle() -> void
 	{

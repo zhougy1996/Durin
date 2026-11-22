@@ -935,6 +935,15 @@ namespace Durin
 				Active->NativeResources.push_back(NS::RetainPtr(Owner.get()));
 				Active->Readbacks.push_back({std::move(Owner), NumBytes, std::move(Request), State});
 			}
+			auto RHIWaitForBufferReadback(RHIPrivate::FReadbackState& Request) -> void override
+			{
+				CheckRHIExecutionThread();
+				if (!State || Active) return;
+				RHISubmitCommands();
+				std::unique_lock Lock(State->Mutex);
+				State->Completion.wait(Lock, [&] { return Request.GetState() != ERHIGPUReadbackState::Pending; });
+			}
+
 			auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
 				uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override
 			{

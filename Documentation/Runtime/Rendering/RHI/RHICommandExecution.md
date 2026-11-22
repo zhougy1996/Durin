@@ -307,6 +307,11 @@ on the RHI thread. The normal `ExecuteSynchronousOperation` surface is terminal:
 a waiter always targets the exact accepted serial, and operation failure or
 admission rejection never falls back to producer-thread backend work.
 
+`FRHIGPUBufferReadback::Wait` uses the executor that recorded the copy. Ready
+results return immediately. A pending copy uses an ordered synchronous context
+operation and waits on that copy's Vulkan queue completion point or Metal
+submission callback. An unavailable or unsuccessful copy returns false.
+
 Recorded commands retain their bound resources and explicit views until replay.
 RDG records graph-boundary attachments in attachment access and inserts the
 transitions required by later consumers. See [binding and attachment ownership](RHIResourceViewsAndTransfers.md#binding-and-attachment-ownership).

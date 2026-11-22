@@ -81,7 +81,8 @@ namespace Durin
 			auto IsVisible(size_t Index) const -> bool { return Values[Index] != 1u; }
 			auto UnmapResults() -> void { Readback.Unlock(); }
 		};
-		auto MapResults(uint64 Frame, const FOcclusionViewKey& Key) -> std::optional<FMappedResults>;
+		auto MapResults(FRHICommandListImmediate& Commands, uint64 PreviousFrame, const FOcclusionViewKey& Key)
+			-> std::optional<FMappedResults>;
 		auto Reserve(uint64 Frame) -> std::shared_ptr<FOcclusionFeedback>;
 		std::array<std::shared_ptr<FOcclusionFeedback>, 3> Slots;
 		std::optional<uint64> LastFrame;

@@ -2517,6 +2517,18 @@ namespace Durin
 	auto FRHIGPUBufferReadback::EnqueueCopy(FRHICommandListBase& Commands, FRHIBuffer* Source, uint32 NumBytes, uint32 Offset) -> void
 	{ Commands.EnqueueBufferReadback(Source, Offset, NumBytes, BeginCopy()); }
 
+	auto FRHIGPUBufferReadback::Wait(FRHICommandListImmediate& Commands) const -> bool
+	{
+		if (GetState() == ERHIGPUReadbackState::Pending && IsInFlight())
+		{
+			Commands.Executor->ExecuteSynchronousContextOperation(true, [Request = State](IRHICommandContext& Context) {
+				if (Request->GetState() == ERHIGPUReadbackState::Pending && Request->IsInFlight())
+					Context.RHIWaitForBufferReadback(*Request);
+			});
+		}
+		return IsReady();
+	}
+
 
 	auto FRHICommandListImmediate::BlockUntilGPUIdle() -> void
 	{

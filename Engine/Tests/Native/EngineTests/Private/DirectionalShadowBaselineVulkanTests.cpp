@@ -1402,7 +1402,7 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		}
 		EXPECT_FALSE(Prepare(4, 2)); // Full ring still draws both primitives.
 		Pending[2]->Complete(Payload());
-		ASSERT_TRUE(Prepare(5, 1)); // Within the two-frame age limit.
+		ASSERT_TRUE(Prepare(5, 2)); // Frame 4 produced no copy. Frame 3 cannot stand in for it.
 		Pending[0]->Complete(Payload());
 		Pending[1]->Fail();
 		auto Slot = Prepare(6, 2); // The late and failed results cannot hide anything.
@@ -1415,7 +1415,7 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 7, 7.0, Reordered));
 		ASSERT_EQ(Reordered.size(), 1u);
 		EXPECT_EQ(Reordered.front(), Infos.front());
-		Slot = Prepare(8, 1);
+		Slot = Prepare(8, 2);
 		ASSERT_TRUE(Slot);
 		// Exercise translation and rotation independently of the frustum changing membership.
 		auto CameraStep = [&](uint64 Frame, double Distance, double Angle, double Time, bool Reuse, bool bComplete = true) {
@@ -1449,7 +1449,7 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		auto Delayed = CameraStep(16, 32001, -2, 14.0, false, false);
 		ASSERT_TRUE(Slot);
 		Delayed->Complete(Payload());
-		CameraStep(17, 33001, -2, 15.0, true, false); // Frame 15 is now ready and compatible.
+		CameraStep(17, 33001, -2, 15.0, false, false); // A ready frame 15 cannot stand in for frame 16.
 		ASSERT_TRUE(Slot);
 		LastSlot = Slot;
 		Pending[0] = Hold(Slot);
@@ -1457,6 +1457,26 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 	EXPECT_TRUE(LastSlot.expired());
 	Pending[0]->Complete(Payload());
 	EXPECT_EQ(Pending[0]->GetState(), ERHIGPUReadbackState::Canceled);
+	{
+		// Exercise the real Vulkan wait with a copy still recorded on the immediate list.
+		const auto BytesToCopy = Payload();
+		auto Desc = FRHIBufferCreateDesc::Create("WaitForOcclusionResults", Bytes, sizeof(uint32), EBufferUsageFlags::SourceCopy);
+		Desc.InitialData = {BytesToCopy.data(), Desc.Size};
+		const auto Source = GDynamicRHI->RHICreateBuffer(Commands, Desc);
+		ASSERT_TRUE(Source);
+		const auto& Infos = Scene.GetPrimitiveSceneInfos();
+		std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
+		FHZBOcclusionTester History;
+		auto Feedback = History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 20, 20.0, Candidates);
+		ASSERT_TRUE(Feedback);
+		Feedback->Readback.EnqueueCopy(Commands, Source, Bytes);
+		ASSERT_TRUE(Feedback->Readback.IsInFlight());
+		EXPECT_FALSE(Feedback->Readback.IsReady());
+		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 24, 20.1, Candidates));
+		EXPECT_TRUE(Feedback->Readback.IsReady());
+		ASSERT_EQ(Candidates.size(), 1u);
+		EXPECT_EQ(Candidates.front(), Infos.front());
+	}
 	EXPECT_EQ(Backend.GPUIdleWaits, 0u);
 }
 
@@ -1740,8 +1760,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			});
 			FlushRenderingCommands();
 		});
-		CheckChange("expired history", [&] { FrameNumber += 4; });
 		ASSERT_TRUE(RequireReadyHistory());
+		FrameNumber += 4;
+		EXPECT_FALSE(Frame().empty());
+		EXPECT_FALSE(ReceiverPresent);
 		// This publication increments the HitProxy revision but leaves opaque depth unchanged.
 		Scene->UpdatePrimitiveVisibility(FPrimitiveComponentId(1), true);
 		FlushRenderingCommands();

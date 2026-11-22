@@ -35,7 +35,8 @@ Known numeric uniform writes on validated opaque materials without WPO
 preserve feedback across updates.
 Mesh preparation captures its own published batches. On 2026-11-22, rollout was
 approved for eligible persistent main views with an explicit per-view opt-out.
-The low-occlusion overhead gate remains open.
+History now waits for the previous render's compatible feedback at view
+admission. The exclusive-GPU timing and low-occlusion overhead gates remain open.
 Stage 2 has removed render-thread task replenishment. Static mesh merges and
 sorting follow chunk workers through a completion dependency. Each view selects
 LOD independently and publishes validated ordinary static batches directly for sibling
@@ -110,9 +111,10 @@ alone do not establish alignment.
 - Separate owner-thread snapshot/publication from immutable worker preparation.
   Use dependency-driven chunks or continuously replenished worker ranges; do not
   require a rendering-thread consumer to launch every subsequent wave.
-- Add conservative, asynchronous occlusion state. Unknown, stale, failed or
-  discontinuous visibility remains visible. Never wait for a GPU readback on the
-  normal frame path. Late GPU culling alone does not satisfy CPU-work reduction.
+- Add conservative occlusion history with asynchronous GPU production and
+  an explicit wait for the previous view's compatible readback at CPU admission.
+  Missing, failed or discontinuous visibility remains visible. Late GPU
+  culling alone does not satisfy CPU-work reduction.
 - Separate recording completion, native translation and ordered submission.
   Translation workers use independent backend state, not concurrent replay into
   today's shared default context. Preserve explicit inline/serial fallbacks.
@@ -942,8 +944,8 @@ Depends on: Stages 0-2 visibility identities and preparation boundaries.
 
 Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
 
-- [x] Implement the route selected in Stage 0: GPU HZB/query production plus
-  delayed, nonblocking history consumption for CPU admission, with the selected
+- [x] Implement GPU HZB/query production plus
+  previous-view history consumption for CPU admission, with the selected
   capability fallback. Keep history per persistent
   view and identify the producing frame and primitive/instance generation.
   The initial route read back one conservative depth level and tested bounds on
@@ -954,7 +956,8 @@ Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
   restores it before consuming the old result. Release passed 180 scene contracts,
   28 Vulkan static mesh preparation tests and the indexed occlusion pixel/admission
   regression. The first implementation
-  qualified stable, opaque ordinary static meshes. The provisional age limit is two render frames.
+  qualified stable, opaque ordinary static meshes and used a provisional
+  two-render-frame age limit.
   On the Stage 3 changes based on `cf07299dd`, the Vulkan occlusion fixture
   checks main-view draw removal, shadow caster identity, exact pixel parity,
   cuts, expiry, separate view states and occluder replacement. Release correctness
@@ -1045,8 +1048,8 @@ Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
   high-occlusion enabled frames, 511 primitives skipped section preparation.
   The other 249 prepared all 512. Every low-occlusion frame prepared all 512.
   At frame entry, readback readiness first became observable at a median and
-  p95 of three frames in both scenes. The renderer checks again during view
-  preparation and accepts only results at most two frames old. All three runs
+  p95 of three frames in both scenes. That revision checked again during view
+  preparation and accepted only results at most two frames old. All three runs
   showed higher low-occlusion CPU and GPU medians with history enabled.
   Reproduce with the named Vulkan test, `DURIN_OCCLUSION_CSV` set to an output
   path and `DURIN_OCCLUSION_REVERSE=1` for reverse order. Per-frame samples
@@ -1058,9 +1061,23 @@ Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
   diagnostic only. Samples and engine observations are in
   `Build/Qualification/Stage3-20261122-Bounds/stage3-samples.zip`.
 
-Completion: conservative visibility passes the declared output oracle; no normal
-frame waits on feedback; occluded workload CPU work falls within budget and
-low-occlusion overhead is accepted against the frozen controls.
+The follow-up based on `067f2c9c5` follows UE 5.8.2's HZB result mapping.
+Visibility selects the previous render of the persistent view and checks
+continuity and invalidation before waiting for its specific readback. The
+global two-frame readiness window is removed. The wait is attributed to
+`Renderer.Occlusion.WaitForFeedback`.
+
+On Win64-Release-DurinEditor, RHI command-list contracts (163), renderer scene
+contracts (180), Vulkan static mesh preparation (28), Sandbox gameplay (15) and
+RoadWeaver viewport qualification (2) passed. The Vulkan occlusion regression on
+an RTX 3090 passed with a pending copy, a gap in global frame numbers, and the
+first-frame pixel and draw-ID checks. The full Windows build reached MSVC
+`C1083` on three ContentBrowserAssetDataSource generated-object paths longer
+than 260 characters. Metal and exclusive-GPU timing remain unverified.
+
+Completion requires conservative visibility to pass the declared output
+oracle, with readback wait time included in the high- and low-occlusion
+performance qualification against the frozen controls.
 
 ### Stage 4: Separate asynchronous recording, native translation and submission
 

@@ -249,8 +249,13 @@ namespace Durin
 			{ if (bCaptureTextureReadbacks) TextureReadbacks.push_back(std::move(Request)); else Request->Fail(); }
 			bool bCaptureBufferReadbacks = false;
 			std::vector<std::shared_ptr<RHIPrivate::FReadbackState>> BufferReadbacks;
+			std::function<void(RHIPrivate::FReadbackState&)> OnWaitForBufferReadback;
 			auto RHIEnqueueBufferReadback(FRHIBuffer*, uint32, uint32, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override
 			{ if (bCaptureBufferReadbacks) BufferReadbacks.push_back(std::move(Request)); else Request->Fail(); }
+			auto RHIWaitForBufferReadback(RHIPrivate::FReadbackState& Request) -> void override
+			{
+				if (OnWaitForBufferReadback) OnWaitForBufferReadback(Request);
+			}
 
 			IRHICommandContext* SecondaryQueue = nullptr;
 			bool bStorageAttached = false;
@@ -1268,6 +1273,35 @@ namespace Durin
 		Request.Cancel(); EXPECT_EQ(Data[2], std::byte{3}); EXPECT_FALSE(Request.Lock(4));
 		Request.Unlock(); EXPECT_EQ(Request.GetDataSize(), 0u);
 		EXPECT_EQ(Request.GetState(), ERHIGPUReadbackState::Canceled);
+	}
+
+	TEST(FRHICommandListTests, BufferReadbackWaitTargetsOneCopy)
+	{
+		FRecordingCommandContext Context;
+		Context.bCaptureBufferReadbacks = true;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("WaitReadback", 8, 4, EBufferUsageFlags::SourceCopy));
+		FRHIGPUBufferReadback First;
+		FRHIGPUBufferReadback Second;
+		EXPECT_FALSE(First.Wait(Commands));
+		First.EnqueueCopy(Commands, Buffer, 4);
+		Second.EnqueueCopy(Commands, Buffer, 4, 4);
+		int Waits = 0;
+		Context.OnWaitForBufferReadback = [&](RHIPrivate::FReadbackState& Request)
+		{
+			++Waits;
+			ASSERT_EQ(Context.BufferReadbacks.size(), 2u);
+			ASSERT_EQ(&Request, Context.BufferReadbacks.front().get());
+			Request.Complete(MakeByteVector({1, 2, 3, 4}));
+		};
+
+		EXPECT_TRUE(First.Wait(Commands));
+		EXPECT_TRUE(First.Wait(Commands));
+		EXPECT_EQ(Second.GetState(), ERHIGPUReadbackState::Pending);
+		Second.Cancel();
+		EXPECT_FALSE(Second.Wait(Commands));
+		EXPECT_EQ(Waits, 1);
 	}
 
 	TEST(FRHICommandListTests, ReusableReadbackWaitsForRetirementAndPreservesAnEarlierLock)

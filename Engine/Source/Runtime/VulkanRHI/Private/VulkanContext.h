@@ -106,6 +106,7 @@ namespace Durin::VulkanRHI
 		auto RHIEnqueueTextureReadback(FRHITexture* Texture, uint32 MipIndex,
 			uint32 ArraySlice, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override;
 		auto RHIPollReadbacks() -> void override;
+		auto RHIWaitForBufferReadback(RHIPrivate::FReadbackState& Request) -> void override;
 		auto RHIEnqueueBufferReadback(FRHIBuffer* Source, uint32 Offset, uint32 NumBytes, std::shared_ptr<RHIPrivate::FReadbackState> Request) -> void override;
 		// Refuses arena pressure instead of waiting for an older GPU submission.
 		auto TryAcquireReadbackRange(uint64 Size, uint64 Alignment) -> FVulkanTransferRange;

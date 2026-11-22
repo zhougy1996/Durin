@@ -1,5 +1,6 @@
 #include "Renderers/SceneOcclusion.h"
 
+#include "Profiling/Profiling.h"
 #include "Renderers/GBufferRendering.h"
 #include "Scene.h"
 #include "SceneInfo.h"
@@ -16,7 +17,6 @@ namespace Durin
 		constexpr uint32 TileSize = 16;
 		constexpr uint32 MaxExtent = 4096;
 		constexpr uint32 MaxCandidates = 4096;
-		constexpr uint64 MaxHistoryAge = 2;
 
 		auto TileCount(uint32 Extent) -> uint32 { return (Extent + TileSize - 1) / TileSize; }
 
@@ -186,24 +186,23 @@ namespace Durin
 		}
 	}
 
-	auto FHZBOcclusionTester::MapResults(uint64 Frame, const FOcclusionViewKey& Key) -> std::optional<FMappedResults>
+	auto FHZBOcclusionTester::MapResults(FRHICommandListImmediate& Commands, uint64 PreviousFrame,
+		const FOcclusionViewKey& Key) -> std::optional<FMappedResults>
 	{
-		FOcclusionFeedback* Newest = nullptr;
-		for (const auto& Slot : Slots)
+		const auto Slot = std::ranges::find_if(Slots, [PreviousFrame](const auto& Feedback) {
+			return Feedback && Feedback->bValid && Feedback->Frame == PreviousFrame;
+		});
+		if (Slot == Slots.end() || !Key.CanReuseResults((*Slot)->Batch->Key)) return {};
+		auto& Readback = (*Slot)->Readback;
+		if (!Readback.IsReady())
 		{
-			if (!Slot || !Slot->bValid) continue;
-			if (Frame <= Slot->Frame || Frame - Slot->Frame > MaxHistoryAge)
-			{
-				Slot->bValid = false;
-				continue;
-			}
-			if ((!Newest || Slot->Frame > Newest->Frame) && Slot->Readback.IsReady()
-				&& Key.CanReuseResults(Slot->Batch->Key)) Newest = Slot.get();
+			DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.Occlusion.WaitForFeedback");
+			if (!Readback.Wait(Commands)) return {};
 		}
 		const uint32 Bytes = uint32(CurrentBatch->Bounds.size()) * sizeof(uint32);
-		if (Newest && Newest->Readback.GetDataSize() == Bytes)
-			if (const auto* Values = static_cast<const uint32*>(Newest->Readback.Lock(Bytes)))
-				return FMappedResults{Newest->Readback, Values};
+		if (Readback.GetDataSize() == Bytes)
+			if (const auto* Values = static_cast<const uint32*>(Readback.Lock(Bytes)))
+				return FMappedResults{Readback, Values};
 		return {};
 	}
 
@@ -231,6 +230,7 @@ namespace Durin
 			|| View.Settings.Mode.RenderMode != ERenderMode::Lit || View.Settings.Mode.RasterMode != ERasterMode::Solid
 			|| View.Settings.Mode.VisibilityMode != EViewVisibilityMode::Normal) { Invalidate(); return {}; }
 		constexpr double ProbablyVisibleSeconds = 8.0;
+		const auto PreviousFrame = LastFrame;
 		if (LastFrame && (Frame <= *LastFrame || RealTimeSeconds < LastRenderTime - 0.0001
 			|| RealTimeSeconds - LastRenderTime > ProbablyVisibleSeconds)) Invalidate();
 		LastRenderTime = RealTimeSeconds;
@@ -273,13 +273,14 @@ namespace Durin
 			if (!Batch->BoundsBuffer) { Invalidate(); return {}; }
 			CurrentBatch = std::move(Batch);
 		}
-		if (auto Results = MapResults(Frame, Key))
-		{
-			for (size_t TestIndex = 0; TestIndex < CandidateOrder.size(); ++TestIndex)
-				if (!Results->IsVisible(TestIndex)) Candidates[CandidateOrder[TestIndex]] = nullptr;
-			std::erase(Candidates, nullptr);
-			Results->UnmapResults();
-		}
+		if (PreviousFrame)
+			if (auto Results = MapResults(Commands, *PreviousFrame, Key))
+			{
+				for (size_t TestIndex = 0; TestIndex < CandidateOrder.size(); ++TestIndex)
+					if (!Results->IsVisible(TestIndex)) Candidates[CandidateOrder[TestIndex]] = nullptr;
+				std::erase(Candidates, nullptr);
+				Results->UnmapResults();
+			}
 		return Reserve(Frame);
 	}
 

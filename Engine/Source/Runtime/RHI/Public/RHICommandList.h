@@ -366,6 +366,7 @@ namespace Durin
 
 		friend class FRHICommandListExecutor;
 		friend class FDynamicRHI;
+		friend class FRHIGPUBufferReadback;
 	};
 
 	enum class ERHICommandBatchState : uint8 { Pending, Succeeded, Canceled, Expired };
@@ -449,6 +450,7 @@ namespace Durin
 		friend class FRHICommandListFence;
 		friend class FRHICommandListImmediate;
 		friend class FRenderCommandFence;
+		friend class FRHIGPUBufferReadback;
 	};
 
 	extern RHI_API FRHICommandListExecutor GCommandListExecutor;
