@@ -33,6 +33,11 @@ The feature probe supports:
 - `material`: Editor-only comparison of the saved source material graph against
   the CPU waves, queries, normals and bounds.
 - `author-material OUTPUT`: Editor-only regeneration of the source material.
+- `author-demo-level`: Editor-only creation, save and reopen of
+  `/Game/Levels/SingleLayerWaterDemo`. Run in the disposable fixture project
+  to regenerate the Sandbox demo. Make the Editor's AssetForgeBuiltins,
+  MeshBuilder and TextureCompressor DLLs and their dependencies available
+  beside the probe.
 - `load-cooked COOK_DIR`: load the saved Level and accepted Water platform
   program from an ordinary Cook generation without authored registry scanning.
 

@@ -27,11 +27,93 @@
 #include "Threading/TaskRuntime.h"
 #include "AuthorWaterMaterial.h"
 
+#if DURIN_WITH_EDITOR
+#include "Actors/CameraActor.h"
+#include "Actors/DirectionalLightActor.h"
+#include "Actors/PlayerStart.h"
+#include "Actors/SkyLightActor.h"
+#include "Actors/StaticMeshActor.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Math/Transform.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Texture/TextureCube.h"
+#endif
+
 namespace
 {
 	using namespace Durin;
 	auto Require(bool Value, std::string_view Message) -> void { if (!Value) throw std::runtime_error(std::string(Message)); }
 	auto Length(FVector3 V) -> double { return std::sqrt(Math::Dot(V, V)); }
+
+#if DURIN_WITH_EDITOR
+	auto AuthorWaterDemoLevel() -> void
+	{
+		Require(bool(RefreshAssetRegistry()), "Asset registry scan failed.");
+		FSoftObjectPath BoxPath, SkyPath;
+		Require(FSoftObjectPath::TryCreate("/Engine/Models/Box.Box", BoxPath), "Invalid box path.");
+		Require(FSoftObjectPath::TryCreate("/Engine/Renderer/DefaultStudioCube.DefaultStudioCube", SkyPath), "Invalid sky path.");
+		std::optional<UnifiedError::FError> AssetError;
+		auto* Box = LoadObject<DStaticMesh>(BoxPath, nullptr, &AssetError);
+		Require(Box && Box->GetNormalizedSize() > 0.f, AssetError ? AssetError->ToString() : "Demo box is unavailable.");
+		auto* Sky = LoadObject<DTextureCube>(SkyPath, nullptr, &AssetError);
+		Require(Sky != nullptr, AssetError ? AssetError->ToString() : "Demo studio sky is unavailable.");
+
+		FPackagePath Path;
+		Require(FPackagePath::TryCreate("/Game/Levels/SingleLayerWaterDemo", Path), "Invalid demo level path.");
+		auto* Package = CreatePackage(Path);
+		auto* Level = NewObject<DLevel>(Package, "SingleLayerWaterDemo", EObjectFlags::Public);
+		const auto Place = [](AActor* Actor, const FVector3& Position, const FVector3& Angles = {},
+			const FVector3& Scale = FVector3(1.0)) {
+			FTransform Transform;
+			Transform.Translation = Position;
+			Transform.Rotation = Math::MakeQuaternionFromEulerDegrees(Angles);
+			Transform.Scale3D = Scale;
+			Require(Actor && Actor->SetActorTransform(Transform), "Demo actor placement failed.");
+		};
+		const auto AddBox = [&](FName Name, const FVector3& Center, const FVector3& Dimensions) {
+			auto* Actor = Level->SpawnActor<AStaticMeshActor>(Name);
+			Place(Actor, Center, {}, Dimensions / double(Box->GetNormalizedSize()));
+			Actor->GetStaticMeshComponent()->SetStaticMesh(Box);
+		};
+
+		auto* Water = Level->SpawnActor<AWaterSurfaceActor>("Water");
+		Require(Water && Water->GetWaterComponent(), "Water actor construction failed.");
+		auto Settings = Water->GetWaterComponent()->GetSettings();
+		Settings.Extent = {16., 12.};
+		Settings.Amplitude = .12f;
+		Require(bool(Water->GetWaterComponent()->SetSettings(Settings)), "Demo water settings rejected.");
+
+		// Tops of the three beds sit at 25, 100 and 200 cm below the still surface.
+		const double Width = Settings.Extent.x / 3.0;
+		AddBox("Bed025cm", {-Width, 0, -.4}, {Width, 12., .3});
+		AddBox("Bed100cm", {0, 0, -1.15}, {Width, 12., .3});
+		AddBox("Bed200cm", {Width, 0, -2.15}, {Width, 12., .3});
+		AddBox("PierShallow", {-4., 2., .35}, {.65, .65, 1.5});
+		AddBox("PierDeep", {4., -2., -.45}, {.75, .75, 3.3});
+		AddBox("ObservationDeck", {-10., 0., -.15}, {4., 5., .6});
+		Place(Level->SpawnActor<APlayerStart>("PlayerStart"), {-10.5, 0., 1.5});
+		Place(Level->SpawnActor<ACameraActor>("WaterOverview"), {-12., 0., 7.}, {0., 27., 0.});
+		auto* Sun = Level->SpawnActor<ADirectionalLightActor>("Sun");
+		Place(Sun, {0., 0., 5.}, {0., 52., -30.});
+		Sun->GetLightComponent()->SetIntensity(3.f);
+		auto* SkyLight = Level->SpawnActor<ASkyLightActor>("StudioSky");
+		Require(SkyLight != nullptr, "Demo sky light construction failed.");
+		SkyLight->GetSkyLightComponent()->SetSource(ESkyLightSourceMode::SpecifiedCube, Sky);
+
+		const auto ActorCount = Level->GetActors().size();
+		Require(bool(SavePackage(Package)), "Demo level save failed.");
+		const auto Unloaded = CollectPackageExports(std::array{TWeakObjectPtr<DPackage>(Package)});
+		Require(bool(Unloaded.Admission) && Unloaded.CollectedCount > 0, "Demo level unload failed.");
+		const auto Loaded = LoadPackage(Path);
+		auto* Reloaded = Loaded ? Cast<DLevel>(Loaded->FindTopLevelAsset("SingleLayerWaterDemo")) : nullptr;
+		Require(Reloaded && Reloaded->GetActors().size() == ActorCount, "Demo level actors did not reopen.");
+		auto* ReloadedWater = Cast<AWaterSurfaceActor>(Reloaded->FindActorByName("Water"));
+		Require(ReloadedWater && ReloadedWater->GetWaterComponent()->GetSettings() == Settings, "Demo wave settings did not persist.");
+		std::cout << "SingleLayerWaterDemo saved and reopened with " << ActorCount << " actors\n";
+	}
+#endif
 
 	// Independent Float32 evaluation of the material recipe, including its normal
 	// decode. It does not call the CPU wave evaluator or inverse query.
@@ -181,7 +263,8 @@ int main(int Argc, char** Argv)
 		}
 		Require(bool(InitializeAssetRuntime(std::move(Configuration))), "Asset runtime initialization failed.");
 		DObjectInit();
-		if (Cooked) InitializeAssetCompilingManager();
+		const bool NeedsAssetCompilers = Cooked || Mode == "author-demo-level";
+		if (NeedsAssetCompilers) InitializeAssetCompilingManager();
 		Require(Projects.LoadModulesForProject(ELoadingPhase::Providers), Projects.GetLastError());
 		if (Mode == "queries") CheckQueries();
 		else if (Mode == "load" || Mode == "load-cooked")
@@ -242,6 +325,13 @@ int main(int Argc, char** Argv)
 			AuthorWaterMaterial(Argv[3]);
 			std::cout << "Authored Water source material (no compiled platform data)\n";
 		}
+		else if (Mode == "author-demo-level")
+		{
+			Modules.LoadModuleChecked("MeshBuilder");
+			Modules.LoadModuleChecked("TextureCompressor");
+			Modules.LoadModuleChecked("AssetForgeBuiltins");
+			AuthorWaterDemoLevel();
+		}
 		else if (Mode == "persist")
 		{
 			std::optional<Durin::UnifiedError::FError> LoadedError;
@@ -266,11 +356,8 @@ int main(int Argc, char** Argv)
 		}
 #endif
 		else throw std::runtime_error("Unknown water probe mode.");
-		if (Cooked)
-		{
-			Require(!Modules.IsModuleLoaded("ShaderBuild"), "Cooked content loaded a compiler service.");
-			ShutdownAssetCompilingManager();
-		}
+		if (Cooked) Require(!Modules.IsModuleLoaded("ShaderBuild"), "Cooked content loaded a compiler service.");
+		if (NeedsAssetCompilers) ShutdownAssetCompilingManager();
 		ShutdownAssetRuntime(); Modules.ShutdownModulesAtExit(); ShutdownTaskScheduler();
 		return 0;
 	}
