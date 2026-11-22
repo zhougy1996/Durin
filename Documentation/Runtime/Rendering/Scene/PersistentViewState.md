@@ -73,8 +73,8 @@ own their own paired resources, metadata, compatibility, and publication point.
 ## Main-view occlusion history
 
 Occlusion history is enabled by default for eligible persistent main views.
-The level viewport's display menu and Viewport and Controls preferences
-share the **Occlusion Culling** setting, saved as
+The level viewport's **Occlusion Culling** setting is under
+**Edit → Editor Preferences → Viewport and Controls → Rendering**. It is saved as
 `SceneViewport.OcclusionCulling` in `LevelEditorWorkspace.yaml`.
 Disabling it gives the main view frustum-only admission and invalidates its
 occlusion history. Render requests can also opt out through

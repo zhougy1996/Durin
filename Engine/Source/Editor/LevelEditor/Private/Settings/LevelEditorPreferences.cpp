@@ -48,6 +48,8 @@ namespace Durin::LevelEditor
 		bool bChanged = ImGui::DragFloat("Camera movement speed", &Next.CameraSpeed, 0.05f, 0.05f, 10000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 		ImGui::SeparatorText("Rendering");
 		bChanged |= ImGui::Checkbox("Occlusion Culling", &Next.bOcclusionCulling);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Use depth from earlier frames to cull hidden objects in the level viewport.");
 		ImGui::SeparatorText("Overlays");
 		bChanged |= ImGui::Checkbox("Show world grid", &Next.bGrid);
 		bChanged |= ImGui::Checkbox("Show viewport statistics", &Next.bStatistics);

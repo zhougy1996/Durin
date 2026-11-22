@@ -38,7 +38,6 @@ namespace Durin::LevelEditor
 		std::function<void(std::string)> ReportError;
 		std::function<bool(std::string_view)> RenameLevel;
 		std::function<void(AActor*)> FocusActor;
-		std::function<void(bool)> SetViewportOcclusionCulling;
 		std::function<void(EPlayStartLocation, EPlayDestination)> StartPlay;
 		std::function<void(bool)> ApplyPlayChanges;
 		std::function<bool(std::string_view)> ActivateViewportEditMode;
