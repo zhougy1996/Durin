@@ -6,6 +6,7 @@
 #include "MaterialGraphOperations.h"
 #include "MaterialGraphReadModel.h"
 #include "MonaImGui.h"
+#include "PropertyEditor/DetailPanel.h"
 #include "PropertyEditor/PropertyControlFrame.h"
 
 namespace Durin
@@ -39,6 +40,7 @@ namespace Durin::MaterialEditor
 			float Height) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
 		auto DrawSelectionDetails(DTransactor& Transactions) -> void;
+		auto FinishDetailsEdit(bool bCancel) -> bool;
 		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter,
 			DTransactor& Transactions) -> void;
 		enum class EParameterTextField { Name, DisplayName, Group, Binding };
@@ -85,7 +87,7 @@ namespace Durin::MaterialEditor
 		auto FinishRootInputEdit(bool bCancel) -> bool;
 		auto DrawRootInputValue(const FMaterialGraphPinView& Pin, uint64 Revision,
 			FMaterialInputDefault Value, float Width) -> void;
-		auto DrawNodeLiteral(const FGuid& NodeId, std::optional<FMaterialGraphPinAddress> Pin,
+		auto DrawNodeLiteral(const FGuid& NodeId, FMaterialGraphPinAddress Pin,
 			EMaterialProgramValueType Type, const FMaterialProgramLiteral& Value) -> void;
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
@@ -252,12 +254,14 @@ namespace Durin::MaterialEditor
 		struct FNodeLiteralDraft
 		{
 			FGuid NodeId;
-			std::optional<FMaterialGraphPinAddress> Pin;
+			FMaterialGraphPinAddress Pin;
 			FMaterialInputDefault Value;
 			uint64 Revision = 0;
 			int ActiveFrame = -1;
 		};
 		std::optional<FNodeLiteralDraft> NodeLiteralDraft;
+		std::unique_ptr<IDetailsView> ExpressionDetails = CreateDetailView();
+		int ExpressionDetailsFrame = -1;
 		using FRootInputControlId = std::pair<EMaterialProperty, ImGuiID>;
 		PropertyEditor::TPropertyControlFrame<FRootInputControlId, uint64, FMaterialInputDefault> RootInputFrame;
 		std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>> RootInputDraft;

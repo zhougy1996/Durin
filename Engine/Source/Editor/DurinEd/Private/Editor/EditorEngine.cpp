@@ -10,7 +10,7 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
-#include "PropertyEditor/PropertyEditing.h"
+#include "PropertyEditor/PropertyHandle.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
@@ -523,10 +523,10 @@ namespace Durin
 
 	auto DEditorEngine::ShutdownHostConsumers() -> void
 	{
-		while (!PropertyEditSessions.empty())
+		while (!ActivePropertyEdits.empty())
 		{
-			auto* Session = PropertyEditSessions.back();
-			PropertyEditSessions.pop_back();
+			auto* Session = ActivePropertyEdits.back();
+			ActivePropertyEdits.pop_back();
 			std::string Error;
 			if (!Session->IsActive()) Session->Reset();
 			else if (!Session->Cancel(&Error))

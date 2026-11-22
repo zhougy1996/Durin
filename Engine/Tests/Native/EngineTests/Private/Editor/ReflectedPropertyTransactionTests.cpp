@@ -1,4 +1,5 @@
 #include "ReflectedPropertyEditingTestSupport.h"
+#include "PropertyEditor/PropertyHandle.h"
 #include "Editor/EditorTransactionTestSupport.h"
 
 TEST(FReflectedPropertyEditSessionTests, PostEditUndoDefaultsToFullObjectChange)
@@ -159,7 +160,7 @@ TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	ASSERT_TRUE(Session.Begin(Target, "Rooted Edit", Durin::ETransactionMode::NotTransactable));
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
@@ -177,7 +178,7 @@ TEST(FReflectedPropertyEditSessionTests, RejectsACollectedTargetBeforeReadingIts
 		Durin::FPropertyEditTarget::ForMember(Object, Property);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	std::string Error;
 	const bool EditResult1 = Session.Begin(Target, "Stale Edit", Durin::ETransactionMode::NotTransactable, &Error);
 	EXPECT_FALSE(EditResult1);
@@ -200,7 +201,7 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 		return Snapshot;
 	};
 	FTestTransactorOwner Transactions;
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Object, Property), "Edit Value", *Transactions.Get()));
 
 	EXPECT_TRUE(Session.Apply(Capture(11)));
@@ -248,7 +249,7 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	FTestTransactorOwner Transactions;
 	Transactions.Get()->EstablishSavedState(*Package);
 
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Saved Value", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(Proposed));
 	ASSERT_TRUE(Session.Commit());
@@ -286,7 +287,7 @@ TEST(FReflectedPropertyEditSessionTests, RecordedEditEnrollsOrdinaryTargetAndRes
 		FTestTransactorOwner Transactions;
 		ASSERT_FALSE(Transactions.Get()->GetPackageRevisionState(*Package).has_value());
 
-		Durin::FPropertyEditSession Session;
+		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(Durin::FPropertyEditTarget::ForMember(Object, Property),
 			"Edit Focused Value", *Transactions.Get()));
 		EXPECT_TRUE(Package->IsDirty());
@@ -313,7 +314,7 @@ TEST(FReflectedPropertyEditSessionTests, HostShutdownRestoresPreviewBeforeNextEd
 	FPropertyValueSnapshot Preview;
 	ASSERT_TRUE(CapturePropertyValue(Property, Object.Get(), 0, Preview));
 	Object->Value = 3;
-	FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	{
 		Tests::FTestEditorTransactorOwner First;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Object.Get(), Property), "Preview"));
@@ -343,11 +344,11 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 	Object->Value = 3;
 	FTestTransactorOwner Transactions;
 
-	Durin::FPropertyEditSession NoOpSession;
+	Durin::PropertyEditor::FPropertyEdit NoOpSession;
 	ASSERT_TRUE(NoOpSession.Begin(Target, "No-op", *Transactions.Get()));
 	EXPECT_TRUE(NoOpSession.Commit());
 
-	Durin::FPropertyEditSession CancelledSession;
+	Durin::PropertyEditor::FPropertyEdit CancelledSession;
 	ASSERT_TRUE(CancelledSession.Begin(Target, "Cancelled", *Transactions.Get()));
 	ASSERT_TRUE(CancelledSession.Apply(Proposed));
 	EXPECT_TRUE(CancelledSession.Cancel());
@@ -372,7 +373,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Object, 0, Proposed));
 	Object->Value = 4;
 	FTestTransactorOwner Transactions;
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Rooted Value", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(Proposed));
 	ASSERT_TRUE(Session.Commit());
@@ -399,7 +400,7 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	Owner->ObjectValue = Before;
 	const auto Target = Durin::FPropertyEditTarget::ForMember(Owner, Property);
 	FTestTransactorOwner Transactions;
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Object Value", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(Proposed));
 	ASSERT_TRUE(Session.Commit());
@@ -431,7 +432,7 @@ TEST(FReflectedPropertyEditSessionTests, UnchangedNestedSessionPreservesOuterRec
 	{
 		Durin::FScopedTransaction Outer("test", "Outer edit", nullptr);
 		ASSERT_TRUE(First->Modify()); First->Value = 7;
-		FPropertyEditSession Session;
+		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Second.Get(), Second->GetClass()->FindPropertyByName("Value")), "Unchanged", *Transactions.Get()));
 		EXPECT_TRUE(Session.Commit());
 		EXPECT_TRUE(Transactions.Get()->IsActive());
@@ -445,7 +446,7 @@ TEST(FReflectedPropertyEditSessionTests, ExplicitUnrecordedAdmissionCannotJoinOu
 	using namespace Durin;
 	TStrongObjectPtr<DReflectedTransactionTestObject> Object(NewObject<DReflectedTransactionTestObject>(nullptr, "AdmissionProperty"));
 	const auto Target = FPropertyEditTarget::ForMember(Object.Get(), Object->GetClass()->FindPropertyByName("Value"));
-	FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	EXPECT_FALSE(Session.Begin(Target, "Missing editor"));
 	EXPECT_FALSE(Session.IsActive());
 	ASSERT_TRUE(Session.Begin(Target, "Unrecorded", ETransactionMode::NotTransactable));

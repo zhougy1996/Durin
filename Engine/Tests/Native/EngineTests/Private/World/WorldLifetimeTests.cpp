@@ -13,7 +13,7 @@
 #include "DObject/Class.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
-#include "PropertyEditor/PropertyEditing.h"
+#include "PropertyEditor/PropertyHandle.h"
 #include "Preview/PreviewScene.h"
 #include "IRendererModule.h"
 #include "Rendering/LightSceneProxy.h"
@@ -535,7 +535,7 @@ TEST(FWorldTests, ReflectedActorVisibilitySynchronizesInteractiveCancelAndHistor
 	ASSERT_TRUE(Durin::CapturePropertyValue(Hidden, Light, 0, HiddenValue));
 	Light->SetActorHiddenInGame(false);
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	Durin::FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	const auto Target = Durin::FPropertyEditTarget::ForMember(Light, Hidden);
 	ASSERT_TRUE(Session.Begin(Target, "Hide light", *Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(HiddenValue));

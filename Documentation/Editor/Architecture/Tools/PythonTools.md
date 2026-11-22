@@ -189,7 +189,7 @@ Read access does not imply write admission. Assets and subsystem fields cannot
 be written through this path.
 
 Each write converts a complete detached candidate before opening one native
-`FPropertyEditSession`. Native proposal hooks normalize or reject it; script
+`FPropertyEdit`. Native proposal hooks normalize or reject it; script
 admission and authoritative editability are checked again before publication.
 The session emits native notifications, updates dirty state and commits through
 the Host transactor. `ScopedEditorTransaction` groups multiple writes. Rejection

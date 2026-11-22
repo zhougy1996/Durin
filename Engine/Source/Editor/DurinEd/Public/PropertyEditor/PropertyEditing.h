@@ -6,23 +6,17 @@
 #include "DObject/PropertyChange.h"
 #include "DObject/ObjectValidation.h"
 #include "DObject/ContainerOps.h"
-#include "DObject/StrongObjectPtr.h"
 #include "DurinEdAPI.h"
-#include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 
 namespace Durin
 {
-	namespace PropertyEditor { class FPropertyEdit; }
-	class FPropertyView;
 	class DObject;
 	class FProperty;
 }
 
 namespace Durin
 {
-	namespace PropertyEditor { class FPropertyEdit; }
-	class FPropertyView;
 	struct FPropertyEditExtension
 	{
 		std::function<std::expected<void, FObjectValidationError>(DObject&, FPropertyEditProposal&)> PreEdit;
@@ -160,57 +154,4 @@ namespace Durin
 		DURINED_API auto MatchesContinuousEdit(const FPropertyEditTarget& Other) const -> bool;
 	};
 
-	// Coalesces continuous widget changes into one reflected-property transaction.
-	class FPropertyEditSession
-	{
-	public:
-		DURINED_API ~FPropertyEditSession();
-
-		// Operations return success. Optional diagnostics are written on failure.
-		FPropertyEditSession() = default;
-		FPropertyEditSession(const FPropertyEditSession&) = delete;
-		auto operator=(const FPropertyEditSession&) -> FPropertyEditSession& = delete;
-
-		DURINED_API auto Begin(
-			const FPropertyEditTarget& InTarget,
-			// An empty description uses "Edit <MemberProperty>" after target validation.
-			std::string_view InDescription,
-			ETransactionMode Mode = ETransactionMode::Record,
-			std::string* OutError = nullptr
-		) -> bool;
-		DURINED_API auto Begin(const FPropertyEditTarget& Target, std::string_view Description,
-			DTransactor& Transactor, std::string* OutError = nullptr) -> bool;
-		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError = nullptr) -> bool;
-		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError = nullptr) -> bool;
-		DURINED_API auto Commit(std::string* OutError = nullptr) -> bool;
-		DURINED_API auto Cancel(std::string* OutError = nullptr) -> bool;
-		// Close a rejected/no-change edit without discarding an enclosing recording.
-		// Applied previews must use Cancel instead.
-		DURINED_API auto CancelUnchanged(std::string* OutError = nullptr) -> bool;
-
-		auto IsActive() const -> bool { return bActive; }
-		DURINED_API auto MatchesTarget(const FPropertyEditTarget& Other) const -> bool;
-		auto HasChanges() const -> bool { return bActive && !(OriginalValue == CurrentValue); }
-		auto GetDescription() const -> std::string_view { return Description; }
-		auto GetOriginalValue() const -> const FPropertyValueSnapshotPayload& { return OriginalValue; }
-		auto GetCurrentValue() const -> const FPropertyValueSnapshotPayload& { return CurrentValue; }
-
-	private:
-		auto BeginInternal(const FPropertyEditTarget& Target, std::string_view Description,
-			DTransactor* Transactor, std::string* OutError) -> bool;
-		friend class DEditorEngine;
-		friend class FPropertyView;
-		friend class PropertyEditor::FPropertyEdit;
-		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
-			std::string* OutError, bool* OutChanged) -> bool;
-		auto Reset(bool bCancelRecording = true) -> void;
-
-		FPropertyEditTarget Target;
-		TStrongObjectPtr<DObject> TargetObject;
-		FPropertyValueSnapshotPayload OriginalValue;
-		FPropertyValueSnapshotPayload CurrentValue;
-		std::string Description;
-		std::optional<FScopedTransaction> TransactionScope;
-		bool bActive = false;
-	};
 }

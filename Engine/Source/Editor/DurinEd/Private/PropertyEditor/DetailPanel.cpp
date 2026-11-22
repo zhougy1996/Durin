@@ -1,10 +1,39 @@
 #include "PropertyEditor/DetailPanel.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Profiling/Profiling.h"
 #include "MonaImGui.h"
 #include "Widgets/MonaImGuiPropertyTable.h"
 
 namespace Durin
 {
+	namespace
+	{
+		class FDetailsView final : public IDetailsView
+		{
+		public:
+			auto SetObject(DObject* Object) -> void override { SelectedObject = TWeakObjectPtr<DObject>(Object); }
+
+			auto Draw(const FPropertyViewContext& Context, const FDetailPanelOptions& Options) -> FDetailPanelResult override
+			{
+				return DrawDetailPanel(PropertyView, Context, SelectedObject.Get(), Options);
+			}
+
+			auto FinishActiveEdit(const FPropertyViewContext& Context, bool bCancel) -> bool override
+			{
+				return PropertyView.FinishActiveEdit(&Context, bCancel);
+			}
+
+		private:
+			TWeakObjectPtr<DObject> SelectedObject;
+			FPropertyView PropertyView;
+		};
+	}
+
+	auto CreateDetailView() -> std::unique_ptr<IDetailsView>
+	{
+		return std::make_unique<FDetailsView>();
+	}
+
 	auto DrawDetailPanel(FPropertyView& View, const FPropertyViewContext& Context,
 		DObject* Object, const FDetailPanelOptions& Options) -> FDetailPanelResult
 	{

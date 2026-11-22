@@ -16,7 +16,7 @@ namespace Durin::PropertyEditor
 	auto FPropertyControlFrame::EndFrame(bool bCancel, ETransactionMode Mode,
 		const std::function<bool()>& PrepareNewEdit, std::string* OutError, bool* OutChanged) -> bool
 	{
-		bool bChanged = bCancel && Edit.Session.HasChanges();
+		bool bChanged = bCancel && Edit.HasChanges();
 		const bool bSucceeded = Frame.EndFrame(bCancel,
 			[&](ImGuiID, const FReflectedPropertyHandle& Handle) {
 				return PrepareNewEdit() && Handle.BeginEdit(Edit, Mode, OutError);
@@ -38,7 +38,9 @@ namespace Durin::PropertyEditor
 
 	auto FPropertyControlFrame::FinishEdit(bool bCancel) -> bool
 	{
-		const bool bFinished = bCancel ? Edit.Cancel(&FinishError) : Edit.Commit(&FinishError);
+		const bool bFinished = bCancel
+			? (Edit.HasChanges() ? Edit.Cancel(&FinishError) : Edit.CancelUnchanged(&FinishError))
+			: Edit.Commit(&FinishError);
 		if (bFinished) FinishError.clear();
 		return bFinished;
 	}

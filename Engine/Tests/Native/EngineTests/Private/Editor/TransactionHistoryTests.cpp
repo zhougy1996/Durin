@@ -1,4 +1,5 @@
 #include "Editor/TransactionRecordTestSupport.h"
+#include "PropertyEditor/PropertyHandle.h"
 
 using namespace Durin::Tests::ObjectState;
 
@@ -179,7 +180,7 @@ TEST(FTransBufferTests, CompletedPropertyWriteSurvivesHistoryPublicationFailure)
 	FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(CapturePropertyValue(Property, Object.Get(), 0, Proposed));
 	Object->Value = 0;
-	FPropertyEditSession Edit;
+	Durin::PropertyEditor::FPropertyEdit Edit;
 	ASSERT_TRUE(Edit.Begin(FPropertyEditTarget::ForMember(Object.Get(), Property), "Set value", *Buffer));
 	ASSERT_TRUE(Edit.Apply(Proposed));
 	Object->TransactionObserver = [](const auto&) { throw std::runtime_error("Finalization observer failed"); };

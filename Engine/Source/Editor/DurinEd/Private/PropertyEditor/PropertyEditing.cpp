@@ -1,4 +1,4 @@
-#include "PropertyEditor/PropertyEditing.h"
+#include "PropertyEditor/PropertyHandle.h"
 
 #include "PropertyEditor/PropertyValueDraft.h"
 #include "Editor/EditorEngine.h"
@@ -622,7 +622,7 @@ namespace Durin
 		}
 	}
 
-	FPropertyEditSession::~FPropertyEditSession()
+	PropertyEditor::FPropertyEdit::~FPropertyEdit()
 	{
 		// An applied preview must never be abandoned merely because its UI owner is
 		// destroyed. Explicit Commit/Cancel remains preferable because it can surface errors.
@@ -638,7 +638,7 @@ namespace Durin
 		Reset();
 	}
 
-	auto FPropertyEditSession::Begin(const FPropertyEditTarget& Target,
+	auto PropertyEditor::FPropertyEdit::Begin(const FPropertyEditTarget& Target,
 		std::string_view Description, ETransactionMode Mode, std::string* OutError) -> bool
 	{
 		if (Mode == ETransactionMode::Record && Target.SnapshotProperty
@@ -649,11 +649,11 @@ namespace Durin
 		return BeginInternal(Target, Description, *Owner, OutError);
 	}
 
-	auto FPropertyEditSession::Begin(const FPropertyEditTarget& Target,
+	auto PropertyEditor::FPropertyEdit::Begin(const FPropertyEditTarget& Target,
 		std::string_view Description, DTransactor& Transactor, std::string* OutError) -> bool
 	{ return BeginInternal(Target, Description, &Transactor, OutError); }
 
-	auto FPropertyEditSession::BeginInternal(
+	auto PropertyEditor::FPropertyEdit::BeginInternal(
 		const FPropertyEditTarget& InTarget,
 		std::string_view InDescription,
 		DTransactor* InTransactor,
@@ -694,7 +694,7 @@ namespace Durin
 				Reset();
 				return FailPropertyEdit(OutError, "The editor is shutting down.");
 			}
-			GEditor->PropertyEditSessions.push_back(this);
+			GEditor->ActivePropertyEdits.push_back(this);
 		}
 		if (bRecord)
 		{
@@ -726,18 +726,18 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyEditSession::Apply(
+	auto PropertyEditor::FPropertyEdit::Apply(
 		const FPropertyValueSnapshot& ProposedValue, std::string* OutError) -> bool
 	{
 		return Apply(ProposedValue.GetPayload(), OutError);
 	}
 
-	auto FPropertyEditSession::Apply(const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError) -> bool
+	auto PropertyEditor::FPropertyEdit::Apply(const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError) -> bool
 	{
 		return ApplyInternal(ProposedValue, OutError, nullptr);
 	}
 
-	auto FPropertyEditSession::ApplyInternal(
+	auto PropertyEditor::FPropertyEdit::ApplyInternal(
 		const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError, bool* OutChanged) -> bool
 	{
 		if (OutChanged) *OutChanged = false;
@@ -756,12 +756,12 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyEditSession::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
+	auto PropertyEditor::FPropertyEdit::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
 	{
 		return bActive && Target.MatchesContinuousEdit(Other);
 	}
 
-	auto FPropertyEditSession::Commit(std::string* OutError) -> bool
+	auto PropertyEditor::FPropertyEdit::Commit(std::string* OutError) -> bool
 	{
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		if (TransactionScope && (!GEditor || !GEditor->GetTransactor()->IsActive()))
@@ -777,7 +777,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyEditSession::CancelUnchanged(std::string* OutError) -> bool
+	auto PropertyEditor::FPropertyEdit::CancelUnchanged(std::string* OutError) -> bool
 	{
 		if (!bActive || HasChanges())
 			return FailPropertyEdit(OutError, "Unchanged cancellation requires an active unchanged edit.");
@@ -789,7 +789,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyEditSession::Cancel(std::string* OutError) -> bool
+	auto PropertyEditor::FPropertyEdit::Cancel(std::string* OutError) -> bool
 	{
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
 		const bool bChanged = HasChanges();
@@ -806,9 +806,9 @@ namespace Durin
 		return true;
 	}
 
-	auto FPropertyEditSession::Reset(bool bCancelRecording) -> void
+	auto PropertyEditor::FPropertyEdit::Reset(bool bCancelRecording) -> void
 	{
-		if (GEditor) std::erase(GEditor->PropertyEditSessions, this);
+		if (GEditor) std::erase(GEditor->ActivePropertyEdits, this);
 		bActive = false;
 		if (bCancelRecording && TransactionScope) TransactionScope->Cancel();
 		TransactionScope.reset();

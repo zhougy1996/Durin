@@ -336,6 +336,7 @@ namespace Durin::MaterialEditor
 	{
 		ParameterTextDraft.reset();
 		NodeLiteralDraft.reset();
+		if (!FinishDetailsEdit(true)) return false;
 		RootInputFrame.Finish(true, [this](bool bCancel) { return FinishRootInputEdit(bCancel); });
 		if (!FinishParameterEdit(true)) return false;
 		if (MoveSession.IsActive())

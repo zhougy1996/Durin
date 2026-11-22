@@ -21,10 +21,10 @@ still use their own setters; `DObject` does not own editor history.
 | Scoped recording, Undo/Redo ordering, package revisions, and dirty checkpoints | [Transactors](../Transactions/Transactors.md) |
 | Property kinds, metadata, and value operations | [Property reflection](../../../Runtime/ObjectSystem/PropertyReflection.md) |
 
-A host owns `FPropertyView`, which owns one `FPropertyEditSession`. A live session
-temporarily roots its exact preview target and releases that root on commit,
-cancel, or reset. Committed payloads and collector edges belong to the externally
-owned transactor shared with domain commands.
+`FPropertyView` and its frame-settled controls use the same `FPropertyEdit`
+implementation. An active edit roots its exact preview target and releases it
+on commit, cancel, or reset. The shared editor transactor owns committed history
+and its collector edges.
 
 ## Object Notification Contract
 
@@ -161,9 +161,10 @@ Python dependency; the Python adapter owns conversion and exception mapping.
 `Durin::PropertyEditor::IPropertyHandle` provides typed reads and writes for
 reflected `int32` and `FLinearColor` values. The reflected handle resolves a
 member or nested path on the current object generation. `SetValue` completes
-one edit, while `BeginEdit` binds an `FPropertyEdit` that accepts repeated values until `Commit` or
-`Cancel`. Both paths use detached drafts and `FPropertyEditSession`.
-Recorded sessions use the active editor's history. Editor shutdown restores unfinished previews and releases their scopes before another editor can record.
+one edit. The view and its frame-settled controls retain an `FPropertyEdit` for
+interactive writes. Both paths validate detached drafts and use the active
+editor's history. Editor shutdown restores unfinished previews and releases
+their scopes before another editor can record.
 
 The default top-level `int32` control and reflected `FLinearColor` popup record
 input during drawing. At frame end the host applies the active control's final
@@ -174,7 +175,7 @@ terminal action blocks the handoff. Drawing order does not change the values
 recorded for Undo. Other controls continue to use the legacy widget submission
 path.
 
-`FPropertyEditSession` implements one logical edit. `Begin`, `Apply`, `Commit`,
+`FPropertyEdit` implements one logical edit. `Begin`, `Apply`, `Commit`,
 and `Cancel` return success as a boolean. Applying the current value succeeds
 and a no-op commit adds no undo record. The caller can supply a string output
 for diagnostics on failure. The view can surface a rejection as a short,

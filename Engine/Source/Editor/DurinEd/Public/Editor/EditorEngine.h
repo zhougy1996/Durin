@@ -16,7 +16,7 @@
 
 namespace Durin
 {
-	class FPropertyEditSession;
+	namespace PropertyEditor { class FPropertyEdit; }
 	class DLevel;
 }
 
@@ -207,8 +207,8 @@ namespace Durin
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:
-		friend class FPropertyEditSession;
-		std::vector<FPropertyEditSession*> PropertyEditSessions;
+		friend class PropertyEditor::FPropertyEdit;
+		std::vector<PropertyEditor::FPropertyEdit*> ActivePropertyEdits;
 		auto CheckEditorSubsystemUpdate() -> void;
 
 

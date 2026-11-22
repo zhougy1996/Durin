@@ -13,9 +13,10 @@ owns Actor/Component aggregation.
 
 ## View Ownership And Submission
 
-`FPropertyView` is an embeddable immediate-mode view, not a dockable
-panel or standalone asset editor. A host stores one instance and supplies a
-context containing:
+A host can create an `IDetailsView` with `CreateDetailView()`, bind its selected
+object with `SetObject()`, and draw it each frame. The view keeps a weak selection
+and owns its property interaction state. Hosts that embed individual rows can
+own an `FPropertyView` directly. Both supply a context containing:
 
 - transaction mode (recorded by default, or explicit NotTransactable);
 - an error-reporting callback;

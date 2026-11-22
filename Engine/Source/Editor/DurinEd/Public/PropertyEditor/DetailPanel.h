@@ -27,6 +27,17 @@ namespace Durin
 		bool bRefreshRequested = false;
 	};
 
+	class IDetailsView
+	{
+	public:
+		virtual ~IDetailsView() = default;
+		virtual auto SetObject(DObject* Object) -> void = 0;
+		virtual auto Draw(const FPropertyViewContext& Context, const FDetailPanelOptions& Options = {}) -> FDetailPanelResult = 0;
+		virtual auto FinishActiveEdit(const FPropertyViewContext& Context, bool bCancel) -> bool = 0;
+	};
+
+	DURINED_API auto CreateDetailView() -> std::unique_ptr<IDetailsView>;
+
 	DURINED_API auto DrawDetailPanel(FPropertyView& View, const FPropertyViewContext& Context,
 		DObject* Object, const FDetailPanelOptions& Options = {}) -> FDetailPanelResult;
 }

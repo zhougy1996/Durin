@@ -336,7 +336,7 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::SaveMaterial() -> bool
 	{
 		const auto Session = EditingSession;
-		if (!CancelCanvasInteraction() || !FinishActivePropertyEdit(false)
+		if (!FinishActivePropertyEdit(false) || !CancelCanvasInteraction()
 			|| !IsEditorOpen() || EditingSession != Session) return false;
 		auto* Source = Session ? Session->GetSourceMaterial() : nullptr;
 		if (Session)
@@ -811,7 +811,9 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> bool
 	{
 		const FPropertyViewContext Context = MakePropertyViewContext();
-		return PropertyView.FinishActiveEdit(&Context, bCancel);
+		if (!PropertyView.FinishActiveEdit(&Context, bCancel)) return false;
+		const auto Session = EditingSession;
+		return !Session || !Session->Canvas || Session->Canvas->FinishDetailsEdit(bCancel);
 	}
 
 	auto FMaterialEditor::MakePropertyViewContext() -> FPropertyViewContext

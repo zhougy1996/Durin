@@ -627,10 +627,11 @@ Native completion repairs expression ownership before graph observers read it.
 An external bulk replacement retires the old children. History requiring a
 retired child fails preflight even when its replacement carries the same GUID.
 
-Ordinary material Details rows use `FPropertyEditSession` and its canonical
-whole-object recording gate. The semantic edit session remains a coordinated
-graph command because type adaptation, expression membership and shared
-parameter references require one validated publication and compensation boundary.
+The Details panel binds scalar and vector constant expressions to the shared
+`IDetailsView`. Their reflected values use whole-object recording and publish
+through the expression's property notification. Graph commands coordinate type
+adaptation, expression membership and shared parameter references within one
+validated publication and compensation boundary.
 Sparse GUID-keyed presentation gestures preserve unrelated positions/labels;
 parameter gestures replay through the owner's expression-backed parameter setter.
 

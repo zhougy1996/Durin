@@ -76,7 +76,8 @@ namespace Durin::MaterialEditor
 	auto FMaterialEditor::SaveFunction() -> bool
 	{
 		const auto Session = FunctionSession;
-		if (!Session || !RequestDeactivate() || !ApplyFunction() || FunctionSession != Session) return false;
+		if (!Session || !Session->Canvas->FinishDetailsEdit(false) || !RequestDeactivate()
+			|| !ApplyFunction() || FunctionSession != Session) return false;
 		return EditorSession.Save(Session->GetSource(), {}, [this](std::string Message) { SetError(std::move(Message)); });
 	}
 
@@ -373,13 +374,14 @@ namespace Durin::MaterialEditor
 		if (!EditorSession.GetEditor()) { ImGui::TextDisabled("Editor transactions are unavailable."); return; }
 		if (ImGui::Button("Apply"))
 		{
-			if (RequestDeactivate()) ApplyFunction();
+			if (Document.Canvas->FinishDetailsEdit(false) && RequestDeactivate()) ApplyFunction();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Save")) SaveActiveDocument();
 		if (!IsCurrent()) return;
 		ImGui::SameLine();
-		if (ImGui::Button("Compile Preview")) Document.PreviewInvalidation.RequestRefresh();
+		if (ImGui::Button("Compile Preview") && Document.Canvas->FinishDetailsEdit(false))
+			Document.PreviewInvalidation.RequestRefresh();
 		ImGui::SameLine();
 		if (ImGui::BeginCombo("Output", Document.Output.IsValid() ? "Selected output" : "Choose output"))
 		{

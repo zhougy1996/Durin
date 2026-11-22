@@ -323,7 +323,7 @@ The remaining custom commands have domain responsibilities beyond a field load:
 | Material parameter gesture | Material owner; a stable parameter ID updates synchronized expression-backed values through the owner's `SetParameterValue` publication boundary, rather than one reflected owner scalar. Texture values are collector dependencies. |
 
 Each custom change separately enumerates collector dependencies and owned bytes.
-Ordinary material Details edits use the shared property session. Outliner
+Material Details uses shared reflected edits for constant values. Outliner
 visibility and primary-camera edits already use scoped `Modify`; Python scopes
 use the same application recording and job cleanup, and script label setters
 route through the Actor subsystem. No alternate history is introduced for these

@@ -2,32 +2,76 @@
 
 #include "CoreMinimal.h"
 
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Math/MathFwd.h"
 #include "PropertyEditor/PropertyEditing.h"
+#include "Transactions/Transaction.h"
+
+namespace Durin { class DEditorEngine; class FPropertyView; }
 
 namespace Durin::PropertyEditor
 {
+	// Coalesces continuous widget changes into one reflected-property transaction.
 	class FPropertyEdit
 	{
 	public:
+		DURINED_API ~FPropertyEdit();
+
+		// Operations return success. Optional diagnostics are written on failure.
+		FPropertyEdit() = default;
+		FPropertyEdit(const FPropertyEdit&) = delete;
+		auto operator=(const FPropertyEdit&) -> FPropertyEdit& = delete;
+
+		DURINED_API auto Begin(
+			const FPropertyEditTarget& InTarget,
+			// An empty description uses "Edit <MemberProperty>" after target validation.
+			std::string_view InDescription,
+			ETransactionMode Mode = ETransactionMode::Record,
+			std::string* OutError = nullptr
+		) -> bool;
+		DURINED_API auto Begin(const FPropertyEditTarget& Target, std::string_view Description,
+			DTransactor& Transactor, std::string* OutError = nullptr) -> bool;
+		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError = nullptr) -> bool;
+		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto SetValue(int32 Value, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto SetValue(const FLinearColor& Value, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto Commit(std::string* OutError = nullptr) -> bool;
 		DURINED_API auto Cancel(std::string* OutError = nullptr) -> bool;
-		auto IsActive() const -> bool { return Session.IsActive(); }
-		auto IsEditingObject(const DObject* Object) const -> bool { return IsActive() && Target.Object == Object; }
-		auto MatchesTarget(const FPropertyEditTarget& Other) const -> bool { return Session.MatchesTarget(Other); }
+		// Close a rejected/no-change edit without discarding an enclosing recording.
+		// Applied previews must use Cancel instead.
+		DURINED_API auto CancelUnchanged(std::string* OutError = nullptr) -> bool;
+
+		auto IsActive() const -> bool { return bActive; }
+		DURINED_API auto MatchesTarget(const FPropertyEditTarget& Other) const -> bool;
+		auto IsEditingObject(const DObject* Object) const -> bool { return bActive && Target.Object == Object; }
+		auto HasChanges() const -> bool { return bActive && !(OriginalValue == CurrentValue); }
+		auto GetDescription() const -> std::string_view { return Description; }
+		auto GetOriginalValue() const -> const FPropertyValueSnapshotPayload& { return OriginalValue; }
+		auto GetCurrentValue() const -> const FPropertyValueSnapshotPayload& { return CurrentValue; }
 
 	private:
+		auto BeginInternal(const FPropertyEditTarget& Target, std::string_view Description,
+			DTransactor* Transactor, std::string* OutError) -> bool;
+		friend class ::Durin::DEditorEngine;
+		friend class ::Durin::FPropertyView;
 		friend class FReflectedPropertyHandle;
 		friend class FPropertyControlFrame;
+		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
+			std::string* OutError, bool* OutChanged) -> bool;
+		auto Reset(bool bCancelRecording = true) -> void;
+
 		auto WriteControlValue(const std::variant<int32, FLinearColor>& Value, std::string* OutError,
 			bool& bOutChanged) -> bool;
 		template<typename TValue>
 		auto WriteValue(const TValue& Value, std::string* OutError, bool* OutChanged = nullptr) -> bool;
 		FPropertyEditTarget Target;
-		FPropertyEditSession Session;
+		TStrongObjectPtr<DObject> TargetObject;
+		FPropertyValueSnapshotPayload OriginalValue;
+		FPropertyValueSnapshotPayload CurrentValue;
+		std::string Description;
+		std::optional<FScopedTransaction> TransactionScope;
+		bool bActive = false;
 	};
 
 	class IPropertyHandle
@@ -39,8 +83,6 @@ namespace Durin::PropertyEditor
 		virtual auto IsEditable() const -> bool = 0;
 		virtual auto SetValue(int32 Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool = 0;
 		virtual auto SetValue(const FLinearColor& Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool = 0;
-		virtual auto BeginEdit(FPropertyEdit& Edit, ETransactionMode Mode = ETransactionMode::Record,
-			std::string* OutError = nullptr) const -> bool = 0;
 	};
 
 	// Resolves a reflected member or nested path on the bound object generation.
@@ -54,10 +96,11 @@ namespace Durin::PropertyEditor
 		DURINED_API auto IsEditable() const -> bool override;
 		DURINED_API auto SetValue(int32 Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool override;
 		DURINED_API auto SetValue(const FLinearColor& Value, ETransactionMode Mode = ETransactionMode::Record) const -> bool override;
-		DURINED_API auto BeginEdit(FPropertyEdit& Edit, ETransactionMode Mode = ETransactionMode::Record,
-			std::string* OutError = nullptr) const -> bool override;
 
 	private:
+		friend class FPropertyControlFrame;
+		auto BeginEdit(FPropertyEdit& Edit, ETransactionMode Mode, std::string* OutError = nullptr) const -> bool;
+		auto ResolveTarget() const -> FPropertyEditTarget;
 		auto ResolveMember(DObject*& OutOwner) const -> const FProperty*;
 		template<typename TValue>
 		auto ReadValue(TValue& OutValue) const -> bool;

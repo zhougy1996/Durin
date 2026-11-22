@@ -1,7 +1,9 @@
 #include "Materials/MaterialExpressionBuild.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/PropertyChange.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -284,6 +286,35 @@ namespace Durin
 	auto ReadMaterialOutputDefault(const FMaterialRootInputs& Outputs, EMaterialProperty Property) -> std::vector<float>
 	{
 		return FMaterialAttributeDefinitionMap::Find(Property) ? ReadMaterialNumericDefault(Outputs.Get(Property), Property) : std::vector<float>{};
+	}
+
+	auto DMaterialExpression::PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError>
+	{
+		if (auto Result = Super::PreEditChangeProperty(Proposal); !Result) return Result;
+		if (!Proposal.DraftRootProperty || Proposal.DraftRootProperty != Proposal.MemberProperty
+			|| !Proposal.DraftRootContainer || Proposal.MemberProperty->NamePrivate != FName("Value")) return {};
+
+		const auto ValidateConstant = [&]<typename TExpression>() -> bool {
+			if (!IsA(TExpression::StaticClass())) return true;
+			using TValue = decltype(TExpression::Value);
+			const auto& Value = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<TValue>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			const auto IsRepresentable = [](double Component) {
+				return std::abs(Component) <= std::numeric_limits<float>::max();
+			};
+			if constexpr (std::is_same_v<TValue, float>) return IsRepresentable(Value);
+			else
+			{
+				for (decltype(Value.length()) Index = 0; Index < Value.length(); ++Index)
+					if (!IsRepresentable(Value[Index])) return false;
+				return true;
+			}
+		};
+		if (ValidateConstant.template operator()<DMaterialExpressionScalarConstant>()
+			&& ValidateConstant.template operator()<DMaterialExpressionVector2Constant>()
+			&& ValidateConstant.template operator()<DMaterialExpressionVector3Constant>()
+			&& ValidateConstant.template operator()<DMaterialExpressionVector4Constant>()) return {};
+		return RejectPropertyEdit(*this, Proposal, EPropertyEditRejection::NonFiniteValue);
 	}
 
 	auto DMaterialExpression::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

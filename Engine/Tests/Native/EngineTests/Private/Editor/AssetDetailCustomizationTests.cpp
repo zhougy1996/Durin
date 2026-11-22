@@ -117,14 +117,16 @@ TEST(FAssetDetailCustomizationTests, DrawsBothLayoutsThroughTheSharedPropertyTab
 	ImGui::NewFrame();
 	ImGui::SetNextWindowSize({800.0f, 700.0f});
 	ImGui::Begin("Asset Layout Rendering Test");
-	Durin::FPropertyView View;
-	const auto TextureResult = Durin::DrawDetailPanel(View, {}, Texture, {
+	const auto View = Durin::CreateDetailView();
+	View->SetObject(Texture);
+	const auto TextureResult = View->Draw({}, {
 		.PropertyTableId = "TextureAssetDetailsRows",
 		.ExtendLayout = [&](auto& Layout) { Layout.ApplyCustomization(Texture, *Durin::TextureEditor::CreateTextureBuildSettingsDetails()); }});
 	EXPECT_TRUE(TextureResult.bOwnerReady);
 	EXPECT_TRUE(TextureResult.bTableDrawn);
 	EXPECT_EQ(TextureResult.VisibleRowCount, 7u);
-	const auto CollectionResult = Durin::DrawDetailPanel(View, {}, Collection, {
+	View->SetObject(Collection);
+	const auto CollectionResult = View->Draw({}, {
 		.PropertyTableId = "CollectionAssetDetailsRows",
 		.ExtendLayout = [&](auto& Layout) { Layout.ApplyCustomization(Collection, *Durin::MaterialEditor::CreateMaterialParameterCollectionDetails()); }});
 	EXPECT_TRUE(CollectionResult.bOwnerReady);

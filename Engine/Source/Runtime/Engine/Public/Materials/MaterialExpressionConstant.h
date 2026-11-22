@@ -16,7 +16,7 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionScalarConstant(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
-		DPROPERTY()
+		DPROPERTY(Edit)
 		float Value = 0.0f;
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
@@ -31,7 +31,7 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionVector2Constant(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
-		DPROPERTY()
+		DPROPERTY(Edit)
 		FVector2 Value{0.0};
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
@@ -46,7 +46,7 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionVector3Constant(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
-		DPROPERTY()
+		DPROPERTY(Edit)
 		FVector3 Value{0.0};
 
 		DPROPERTY()
@@ -64,7 +64,7 @@ namespace Durin
 	public:
 		explicit DMaterialExpressionVector4Constant(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
-		DPROPERTY()
+		DPROPERTY(Edit)
 		FVector4 Value{0.0};
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;

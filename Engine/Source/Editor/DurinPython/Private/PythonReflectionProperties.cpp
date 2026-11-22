@@ -3,7 +3,7 @@
 #include "Editor/EditorEngine.h"
 #include "Engine/Actor.h"
 #include "Components/ActorComponent.h"
-#include "PropertyEditor/PropertyEditing.h"
+#include "PropertyEditor/PropertyHandle.h"
 
 namespace Durin::PythonReflection::Private
 {
@@ -67,7 +67,7 @@ namespace Durin::PythonReflection::Private
             return Error(Registry->AccessError, Path + ": target lost write admission");
         auto* Transactor = C->Host->GetTransactor();
         if (!Transactor) return Error(Registry->AccessError, Path + ": Host history is unavailable");
-        FPropertyEditSession Session;
+        Durin::PropertyEditor::FPropertyEdit Session;
         std::string EditError;
         if (!Session.Begin(FPropertyEditTarget::ForMember(Object, &P), {}, *Transactor, &EditError))
             return Error(Registry->AccessError, Path + ": " + EditError);

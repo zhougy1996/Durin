@@ -1530,7 +1530,7 @@ TEST(FReflectedPropertyViewTests, SessionDiagnosticsAreOptionalAndSurviveRetry)
 {
 	using namespace Durin;
 	Testing::InitializeAssetSystemForTests();
-	FPropertyEditSession Session;
+	Durin::PropertyEditor::FPropertyEdit Session;
 	EXPECT_FALSE(Session.Commit());
 
 	std::string MissingError;

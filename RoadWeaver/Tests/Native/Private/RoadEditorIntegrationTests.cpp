@@ -1,7 +1,7 @@
 #include "NativeAssetRuntimeTestSupport.h"
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
-#include "PropertyEditor/PropertyEditing.h"
+#include "PropertyEditor/PropertyHandle.h"
 #include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
@@ -149,7 +149,7 @@ namespace
 	{
 		const auto Changed = AddRoad();
 		ASSERT_TRUE(ValidateDefinition(Changed));
-		FPropertyEditSession Session;
+		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Add road", *Transactor));
 		ASSERT_TRUE(Session.Apply(Capture(Changed)));
 		ExpectPreview(Changed);
@@ -166,7 +166,7 @@ namespace
 
 	TEST_P(FRoadEditorIntegrationTests, CancelRestoresStructuralPreviewWithoutCreatingHistory)
 	{
-		FPropertyEditSession Session;
+		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Cancel road addition", *Transactor));
 		ASSERT_TRUE(Session.Apply(Capture(AddRoad())));
 		ASSERT_EQ(Actor->GetAlignments().size(), 2u);
@@ -182,7 +182,7 @@ namespace
 		auto Invalid = AddRoad();
 		Invalid.Roads.back().LaneSections.front().Lanes.front().Id = Original.Roads.front().LaneSections.front().Lanes.front().Id;
 		const auto Before = Actor->GetAlignments().front();
-		FPropertyEditSession Session;
+		Durin::PropertyEditor::FPropertyEdit Session;
 		ASSERT_TRUE(Session.Begin(FPropertyEditTarget::ForMember(Asset, Property), "Reject duplicate lane", *Transactor));
 		EXPECT_FALSE(Session.Apply(Capture(Invalid)));
 		EXPECT_TRUE(Session.Commit());

@@ -191,7 +191,7 @@ namespace Durin
 		std::string FinishError;
 		std::string LastTransientError;
 		double LastTransientErrorTime = 0.0;
-		FPropertyEditSession EditSession;
+		PropertyEditor::FPropertyEdit EditSession;
 		PropertyEditor::FPropertyControlFrame HandleControls;
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;

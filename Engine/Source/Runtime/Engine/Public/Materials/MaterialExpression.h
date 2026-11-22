@@ -23,6 +23,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		explicit DMaterialExpression(const FObjectInitializer& Initializer) : Super(Initializer) {}
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 #if DURIN_WITH_EDITORONLY_DATA
 		virtual auto CanRenameNode() const -> bool { return false; }

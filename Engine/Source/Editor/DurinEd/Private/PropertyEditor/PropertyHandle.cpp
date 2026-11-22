@@ -81,23 +81,13 @@ namespace Durin::PropertyEditor
 		FPropertyValueSnapshotPayload Proposed;
 		if (const auto Captured = Draft.Capture(Proposed); !Captured)
 			return Reject(OutError, FormatPropertyValueDraftError(Captured.error()));
-		return Session.ApplyInternal(Proposed, OutError, OutChanged);
+		return ApplyInternal(Proposed, OutError, OutChanged);
 	}
 
 	auto FPropertyEdit::WriteControlValue(const std::variant<int32, FLinearColor>& Value, std::string* OutError,
 		bool& bOutChanged) -> bool
 	{
 		return std::visit([&](const auto& TypedValue) { return WriteValue(TypedValue, OutError, &bOutChanged); }, Value);
-	}
-
-	auto FPropertyEdit::Commit(std::string* OutError) -> bool
-	{
-		return Session.Commit(OutError);
-	}
-
-	auto FPropertyEdit::Cancel(std::string* OutError) -> bool
-	{
-		return Session.HasChanges() ? Session.Cancel(OutError) : Session.CancelUnchanged(OutError);
 	}
 
 	FReflectedPropertyHandle::FReflectedPropertyHandle(DObject& InObject, FName InMember, uint32 InArrayIndex)
@@ -161,17 +151,15 @@ namespace Durin::PropertyEditor
 	{
 		if (!IsEditable()) return Reject(OutError, "The property is unavailable or read-only.");
 		if (GUndo) return Reject(OutError, "A property edit cannot start inside an active transaction.");
-		FPropertyEditTarget Target;
-		if (PathTarget) Target = *PathTarget;
-		else
-		{
-			DObject* Owner = nullptr;
-			const auto* Property = ResolveMember(Owner);
-			Target = FPropertyEditTarget::ForMember(Owner, Property, ArrayIndex);
-		}
-		auto Result = Edit.Session.Begin(Target, {}, Mode, OutError);
-		if (Result) Edit.Target = std::move(Target);
-		return Result;
+		return Edit.Begin(ResolveTarget(), {}, Mode, OutError);
+	}
+
+	auto FReflectedPropertyHandle::ResolveTarget() const -> FPropertyEditTarget
+	{
+		if (PathTarget) return *PathTarget;
+		DObject* Owner = nullptr;
+		const auto* Property = ResolveMember(Owner);
+		return FPropertyEditTarget::ForMember(Owner, Property, ArrayIndex);
 	}
 
 	auto FReflectedPropertyHandle::SetValue(int32 Value, ETransactionMode Mode) const -> bool
@@ -190,7 +178,11 @@ namespace Durin::PropertyEditor
 		FPropertyEdit Edit;
 		if (!BeginEdit(Edit, Mode)) return false;
 		if (Edit.SetValue(Value) && Edit.Commit()) return true;
-		if (Edit.IsActive()) Edit.Cancel();
+		if (Edit.IsActive())
+		{
+			if (Edit.HasChanges()) Edit.Cancel();
+			else Edit.CancelUnchanged();
+		}
 		return false;
 	}
 }
