@@ -40,6 +40,7 @@ namespace Durin::LevelEditor
 		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
 		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
 		const FYamlNodeView SceneViewport = Root.GetView("SceneViewport");
+		bEnableOcclusionCulling = SceneViewport.GetView("OcclusionCulling").GetBool(true);
 		bShowWorldGrid = SceneViewport.GetView("ShowWorldGrid").GetBool(true);
 		bShowViewportStatistics = SceneViewport.GetView("ShowStatistics").GetBool(false);
 		const double LoadedCameraMovementSpeed = SceneViewport.GetView("CameraMovementSpeed").GetDouble(5.0);
@@ -81,7 +82,7 @@ namespace Durin::LevelEditor
 		}
 	}
 
-	auto FLevelEditorWorkspaceSettings::Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool
+	auto FLevelEditorWorkspaceSettings::Save(const FSceneViewportPanel* SceneViewportPanel) -> bool
 	{
 		FYamlDocument Document;
 		FYamlNodeRef Root = Document.GetMutableRoot();
@@ -111,6 +112,9 @@ namespace Durin::LevelEditor
 			GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(GizmoScaleSnap));
 		}
 		FYamlNodeRef SceneViewportNode = Root.AddMap("SceneViewport");
+		const bool bOcclusionCulling = SceneViewportPanel
+			? SceneViewportPanel->IsOcclusionCullingEnabled() : bEnableOcclusionCulling;
+		SceneViewportNode.SetChildValue("OcclusionCulling", bOcclusionCulling);
 		SceneViewportNode.SetChildValue("ShowWorldGrid", SceneViewportPanel ? SceneViewportPanel->IsGridVisible() : bShowWorldGrid);
 		SceneViewportNode.SetChildValue("ShowStatistics", SceneViewportPanel
 			? SceneViewportPanel->IsStatisticsVisible() : bShowViewportStatistics);
@@ -126,6 +130,7 @@ namespace Durin::LevelEditor
 			DURIN_WARN("Failed to save level editor workspace settings.");
 			return false;
 		}
+		bEnableOcclusionCulling = bOcclusionCulling;
 		return true;
 	}
 
@@ -137,6 +142,7 @@ namespace Durin::LevelEditor
 			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 2)));
 			Gizmo->GetSnapSettings() = {bGizmoSnapEnabled, GizmoTranslationSnap, GizmoRotationSnap, GizmoScaleSnap};
 		}
+		SceneViewportPanel.SetOcclusionCullingEnabled(bEnableOcclusionCulling);
 		SceneViewportPanel.SetGridVisible(bShowWorldGrid);
 		SceneViewportPanel.SetStatisticsVisible(bShowViewportStatistics);
 		SceneViewportPanel.SetCameraMovementSpeed(CameraMovementSpeed);

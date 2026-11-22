@@ -982,6 +982,14 @@ namespace Durin::LevelEditor
 				});
 				ImGui::EndMenu();
 			}
+			if (RenderSettingsClient && Context.SetViewportOcclusionCulling)
+			{
+				bool bEnabled = RenderSettingsClient->GetViewSettings().Mode.bEnableOcclusionCulling;
+				if (ImGui::Checkbox("Occlusion Culling", &bEnabled))
+					Context.SetViewportOcclusionCulling(bEnabled);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Use previous-frame depth to cull hidden objects in the main view.");
+			}
 			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Shadows"))
 			{
 				if (ImGui::BeginMenu("Directional Shadows"))

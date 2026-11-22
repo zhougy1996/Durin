@@ -72,9 +72,14 @@ own their own paired resources, metadata, compatibility, and publication point.
 
 ## Main-view occlusion history
 
-Occlusion history is enabled by default for eligible persistent main views. Set
-`FSceneViewRenderOptions::bEnableOcclusionHistory` to false for frustum-only
-admission. The persistent view's `FHZBOcclusionTester` assigns each frustum candidate a test index by
+Occlusion history is enabled by default for eligible persistent main views.
+The level viewport's display menu and Viewport and Controls preferences
+share the **Occlusion Culling** setting, saved as
+`SceneViewport.OcclusionCulling` in `LevelEditorWorkspace.yaml`.
+Disabling it gives the main view frustum-only admission and invalidates its
+occlusion history. Render requests can also opt out through
+`FSceneViewRenderOptions::bEnableOcclusionHistory`.
+The persistent view's `FHZBOcclusionTester` assigns each frustum candidate a test index by
 primitive component ID. A changed batch projects its bounds conservatively and
 uploads one immutable GPU buffer.
 After opaque GBuffer depth is available, the GPU reduces 16×16 tiles and tests

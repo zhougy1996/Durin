@@ -241,6 +241,24 @@ namespace Durin::LevelEditor
 		return ViewportClient ? &ViewportClient->GetTransformGizmo() : nullptr;
 	}
 
+	auto FSceneViewportPanel::IsOcclusionCullingEnabled() const -> bool
+	{
+		return !ViewportClient || ViewportClient->GetViewSettings().Mode.bEnableOcclusionCulling;
+	}
+
+	auto FSceneViewportPanel::SetOcclusionCullingEnabled(bool bEnabled) -> void
+	{
+		auto Apply = [bEnabled](FViewportClient* Client) {
+			if (!Client) return;
+			auto Settings = Client->GetViewSettings();
+			Settings.Mode.bEnableOcclusionCulling = bEnabled;
+			Client->SetViewSettings(Settings);
+		};
+		Apply(ViewportClient.get());
+		if (auto* Editor = EditorOwner.Get())
+			Apply(Editor->GetPlayViewportRenderSettingsClient());
+	}
+
 	auto FSceneViewportPanel::IsGridVisible() const -> bool
 	{
 		return ViewportClient != nullptr && ViewportClient->IsGridVisible();

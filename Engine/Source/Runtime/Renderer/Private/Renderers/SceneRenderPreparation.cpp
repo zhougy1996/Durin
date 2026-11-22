@@ -144,7 +144,8 @@ namespace Durin
 			if (!bPrepareOnly)
 				if (auto* State = Service.ViewStates.Find(RenderView.ViewStateId))
 				{
-					if (Options.bEnableOcclusionHistory && !State->GetVolumetricCloudHistory().IsSubmissionActive()
+					if (RenderView.Settings.Mode.bEnableOcclusionCulling && Options.bEnableOcclusionHistory
+						&& !State->GetVolumetricCloudHistory().IsSubmissionActive()
 						&& Context.Logical.Requirements.MainViewCulling.Frustum)
 					{
 						const auto Before = Visibility.SceneInfos.size();

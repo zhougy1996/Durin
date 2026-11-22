@@ -57,6 +57,8 @@ namespace Durin::LevelEditor
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 		auto GetEditModeManager() -> FEditorModeTools& { return EditModeManager; }
+		auto IsOcclusionCullingEnabled() const -> bool;
+		auto SetOcclusionCullingEnabled(bool bEnabled) -> void;
 		auto IsGridVisible() const -> bool;
 		auto SetGridVisible(bool bVisible) -> void;
 		auto GetCameraMovementSpeed() const -> float;

@@ -1635,6 +1635,17 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		EXPECT_TRUE(CasterPresent);
 		EXPECT_EQ(Frame(), Reference);
 
+		View.Settings.Mode.bEnableOcclusionCulling = false;
+		EXPECT_EQ(Frame(), Reference);
+		EXPECT_TRUE(ReceiverPresent);
+		EXPECT_TRUE(CasterPresent);
+		EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 0u);
+		View.Settings.Mode.bEnableOcclusionCulling = true;
+		EXPECT_EQ(Frame(), Reference);
+		EXPECT_TRUE(ReceiverPresent);
+		EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 0u);
+		ASSERT_TRUE(RequireReadyHistory());
+
 		const FGuid RoughnessParameter = AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
 			AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::Roughness).Value;
 		{

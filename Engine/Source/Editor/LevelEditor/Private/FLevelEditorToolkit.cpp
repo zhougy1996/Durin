@@ -98,8 +98,8 @@ namespace Durin::LevelEditor
 		SceneViewportPanel->GetEditModeManager().Synchronize(*Context);
 		ViewportSettingsPage = FEditorSettingsPageRegistration({
 			.Id = "editor.viewport.host." + std::to_string(FObjectKeyHash{}(FObjectKey(EditorOwner.Get()))), .Label = "Viewport and Controls",
-			.Keywords = "camera movement speed grid statistics snap translation rotation scale gizmo",
-			.Description = "Level viewport navigation, overlays and transform snapping. Changes take effect immediately and stay in sync with the viewport toolbar.",
+			.Keywords = "camera movement speed occlusion culling grid statistics snap translation rotation scale gizmo",
+			.Description = "Level viewport navigation, rendering, overlays and transform snapping. Changes take effect immediately and stay in sync with the viewport toolbar.",
 			.Draw = [this](std::string& Error) { DrawViewportPreferences(Error); },
 			.Reset = [this] { return ResetViewportPreferences(); },
 		});
@@ -158,6 +158,15 @@ namespace Durin::LevelEditor
 		SceneViewportPanel = SceneViewport.get();
 		Context->FocusActor = [this](AActor* Actor) {
 			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);
+		};
+		Context->SetViewportOcclusionCulling = [this](bool bEnabled) {
+			const bool bPrevious = SceneViewportPanel->IsOcclusionCullingEnabled();
+			SceneViewportPanel->SetOcclusionCullingEnabled(bEnabled);
+			if (!WorkspaceSettings.Save(SceneViewportPanel))
+			{
+				SceneViewportPanel->SetOcclusionCullingEnabled(bPrevious);
+				Context->SetError("Could not save viewport preferences.");
+			}
 		};
 		WorkspaceSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));

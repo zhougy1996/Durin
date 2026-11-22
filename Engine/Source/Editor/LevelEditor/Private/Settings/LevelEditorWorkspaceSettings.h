@@ -24,7 +24,7 @@ namespace Durin::LevelEditor
 		static constexpr float MaximumDetailsPaneRatio = 0.90f;
 
 		auto Load() -> bool;
-		auto Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool;
+		auto Save(const FSceneViewportPanel* SceneViewportPanel) -> bool;
 		auto PruneInvalidViewportStates() -> void;
 		auto ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void;
 		auto CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void;
@@ -46,6 +46,7 @@ namespace Durin::LevelEditor
 		float GizmoScaleSnap = 0.1f;
 		uint8 GizmoMode = 0;
 		uint8 GizmoSpace = 0;
+		bool bEnableOcclusionCulling = true;
 		bool bShowWorldGrid = true;
 		bool bShowViewportStatistics = false;
 		float CameraMovementSpeed = 5.0f;

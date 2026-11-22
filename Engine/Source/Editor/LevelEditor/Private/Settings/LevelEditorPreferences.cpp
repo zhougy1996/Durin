@@ -11,6 +11,7 @@ namespace Durin::LevelEditor
 		struct FViewportPreferences
 		{
 			float CameraSpeed = 5.0f;
+			bool bOcclusionCulling = true;
 			bool bGrid = true;
 			bool bStatistics = false;
 			FTransformGizmoSnapSettings Snap;
@@ -20,6 +21,7 @@ namespace Durin::LevelEditor
 		{
 			FViewportPreferences Values;
 			Values.CameraSpeed = Panel.GetCameraMovementSpeed();
+			Values.bOcclusionCulling = Panel.IsOcclusionCullingEnabled();
 			Values.bGrid = Panel.IsGridVisible();
 			Values.bStatistics = Panel.IsStatisticsVisible();
 			if (const auto* Gizmo = Panel.GetTransformGizmo()) Values.Snap = Gizmo->GetSnapSettings();
@@ -29,6 +31,7 @@ namespace Durin::LevelEditor
 		auto Apply(FSceneViewportPanel& Panel, const FViewportPreferences& Values) -> void
 		{
 			Panel.SetCameraMovementSpeed(Values.CameraSpeed);
+			Panel.SetOcclusionCullingEnabled(Values.bOcclusionCulling);
 			Panel.SetGridVisible(Values.bGrid);
 			Panel.SetStatisticsVisible(Values.bStatistics);
 			if (auto* Gizmo = Panel.GetTransformGizmo()) Gizmo->GetSnapSettings() = Values.Snap;
@@ -43,6 +46,8 @@ namespace Durin::LevelEditor
 		ImGui::SeparatorText("Navigation");
 		ImGui::SetNextItemWidth(MonaImGui::ScaleUI(220.0f));
 		bool bChanged = ImGui::DragFloat("Camera movement speed", &Next.CameraSpeed, 0.05f, 0.05f, 10000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SeparatorText("Rendering");
+		bChanged |= ImGui::Checkbox("Occlusion Culling", &Next.bOcclusionCulling);
 		ImGui::SeparatorText("Overlays");
 		bChanged |= ImGui::Checkbox("Show world grid", &Next.bGrid);
 		bChanged |= ImGui::Checkbox("Show viewport statistics", &Next.bStatistics);
