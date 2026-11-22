@@ -238,7 +238,7 @@ TEST_F(FEditorFunctionTests, OversizedActionRemainsUndoableAndPreservesCheckpoin
 	EXPECT_TRUE(Error.empty());
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
-	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Target->Value, 0);
 	EXPECT_FALSE(Package->IsDirty());

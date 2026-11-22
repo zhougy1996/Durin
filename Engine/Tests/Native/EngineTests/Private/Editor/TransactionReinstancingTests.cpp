@@ -245,7 +245,7 @@ TEST_F(FTransactionReinstancingTests, RetainsUndoRedoPrimaryIdentityAndNewPackag
 	EXPECT_TRUE(Candidate->IsDirty());
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(New->Value, 77);
 	EXPECT_FALSE(Candidate->IsDirty());
-	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Candidate)->bCheckpointValid);
+	EXPECT_TRUE(Buffer->GetPackageRevisionState(*Candidate)->HasSavedCheckpoint());
 }
 
 TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheckedHistoryPublication)
@@ -427,7 +427,7 @@ TEST_F(FTransactionReinstancingTests, UnsupportedCommandRetiresItsGenericPeerAsO
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Peer->Value, 9);
 	const auto State = Buffer->GetPackageRevisionState(*OtherPackage);
-	ASSERT_TRUE(State); EXPECT_FALSE(State->bCheckpointValid);
+	ASSERT_TRUE(State); EXPECT_FALSE(State->HasSavedCheckpoint());
 	EXPECT_TRUE(OtherPackage->IsDirty());
 	ASSERT_TRUE(Operation.Retire());
 	MarkObjectHierarchyAsGarbage(OtherPackage);

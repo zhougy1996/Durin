@@ -86,9 +86,9 @@ notification with the transaction description and diagnostic details. Recovery
 can block subsequent recording and replay.
 The editor management surface follows UE's ordinary call shapes: `Reset(Reason)`
 returns void, `ContainsPieObjects()` returns bool, and `GetUndoSize()` reports
-owned history bytes through `DTransactor`. `TryReset` and
-`TryContainsPieObjects` retain Durin's checked diagnostics when a caller needs
-them. A failed bool PIE inspection conservatively returns true. Runtime
+owned history bytes through `DTransactor`. Lifecycle callers use `TryReset`
+when they need reset diagnostics. A failed or busy PIE inspection conservatively
+returns true. History events carry their own presentation details. Runtime
 `ITransaction` capture/inspection remains checked so recording and replay never
 mistake a failed traversal for an empty reference set.
 Scope helpers retain a GC-visible exact transactor reference and its existing
@@ -358,14 +358,23 @@ PreEditUndo remains a conflict. Scene components use their existing pre-undo
 parent to make the same distinction for attachment edges. These checks supplement
 UE's serialized-state flip with Durin's reversible native absence boundaries.
 
-`ApplyEditorChange` is the synchronous domain execution helper. It opens or joins
-a transaction scope and stores the change on
-success. Invalid initial accounting rejects before mutation. Final capture or
-accounting failure can follow applied mutations; ordinary recording does not
-compensate them automatically. Actor/Material typed errors stay in their domains;
-the generic history boundary owns only a message and recovery disposition.
-Deferred completion callbacks, Executing state, synchronous opt-in, public
-scope/record tokens, Execute, and CommitApplied are absent.
+`ApplyEditorChange` checks the command's initial size and copies its description
+under an inspection guard. Inside its recording scope it admits the command's
+participants and affected packages before calling `Apply()`. A metadata failure
+leaves the model, the outer recording and the existing history heads intact.
+The buffer retains the prepared command for GC during execution. Nested edits
+and `Modify` capture in their ordinary order, followed by the applied command.
+A callback cannot cancel, reset or end the executing scope. Declared package
+identities are captured once for GC, checkpoint handling and reinstancing.
+
+A command that reports a clean apply failure loses only its own record. Declaring
+a package on that command does not create a saved checkpoint for it. Unknown
+effects retain the pending graph for recovery. A successful apply still needs
+outermost finalization to publish history. A prepublication accounting or
+capture failure can leave the edit applied, return a failure and preserve the
+previous Redo branch. The outermost scope publishes the final result. A joined
+call reports admission and execution to its caller before that boundary.
+Actor and Material commands retain their domain-specific errors.
 
 Property replay restores owned historical payloads directly after structural,
 type, and exact-identity checks. It bypasses new-edit proposal validation and
@@ -394,7 +403,8 @@ The primary context does not implicitly dirty its package. Successful replay
 applies before/after session revisions; a valid saved checkpoint clears dirty
 state when Undo reaches the saved revision and marks it dirty when Redo leaves.
 Saving at a history position preserves redo. A replacement branch receives fresh
-revision identities. Invalid checkpoints remain conservative until save/activation.
+revision identities. A zero saved revision denotes an invalid checkpoint. The
+buffer owns each entry's package transitions. Invalid checkpoints remain conservative until save/activation.
 Durin publishes revision/dirty transitions after checked native completion, so
 failed replay can preserve its prior revision instead of borrowing UE's eager
 dirty-bit update before loads. Completion callbacks do not establish checkpoints.

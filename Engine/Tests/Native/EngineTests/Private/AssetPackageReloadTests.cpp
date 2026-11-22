@@ -697,11 +697,11 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	auto Reloaded = LoadObject<DTexture2D>(Testing::MakePackageLeafAssetObjectPathForTests(Paths[0]), nullptr, &ReloadedError);
 	ASSERT_TRUE(Reloaded); Textures[0] = Reloaded;
 	const auto ReloadedState = Transactions->GetPackageRevisionState(*Textures[0]->GetPackage());
-	ASSERT_TRUE(ReloadedState); EXPECT_TRUE(ReloadedState->bCheckpointValid);
+	ASSERT_TRUE(ReloadedState); EXPECT_TRUE(ReloadedState->HasSavedCheckpoint());
 	EXPECT_FALSE(Textures[0]->GetPackage()->IsDirty());
 	const auto OtherState = Transactions->GetPackageRevisionState(*Textures[1]->GetPackage());
 	ASSERT_TRUE(OtherState.has_value());
-	EXPECT_TRUE(OtherState->bCheckpointValid);
+	EXPECT_TRUE(OtherState->HasSavedCheckpoint());
 	EXPECT_TRUE(Textures[1]->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(Transactions->Undo());

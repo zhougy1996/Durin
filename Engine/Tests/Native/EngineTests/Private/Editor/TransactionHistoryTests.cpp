@@ -8,12 +8,12 @@ namespace
 	{
 	public:
 		~FManagementProbeChange() override { if (OnDestroy) OnDestroy(); }
-		auto Apply() -> Durin::FCommandChangeResult override { return {}; }
+		auto Apply() -> Durin::FCommandChangeResult override { if (OnApply) OnApply(); return {}; }
 		auto Revert() -> Durin::FCommandChangeResult override { return {}; }
-		auto GetDescription() const -> std::string_view override { return "Management probe"; }
+		auto GetDescription() const -> std::string_view override { if (OnDescription) OnDescription(); return "Management probe"; }
 		auto GetDetails(Durin::ETransactionOperation) const -> std::string override { if (OnDetails) OnDetails(); return "Management probe details"; }
 		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { if (OnPackages) OnPackages(); return {}; }
-		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { return Participants; }
+		auto GetModifiedObjects() const -> std::vector<Durin::DObject*> override { if (OnParticipants) OnParticipants(); return Participants; }
 		std::vector<Durin::DObject*> Participants;
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) const -> void override
 		{
@@ -27,7 +27,7 @@ namespace
 		std::function<void()> OnInspect;
 		std::function<void()> OnDestroy;
 		std::function<void()> OnMeasure;
-		std::function<void()> OnDetails, OnPackages;
+		std::function<void()> OnDetails, OnPackages, OnParticipants, OnDescription, OnApply;
 	};
 }
 
@@ -203,9 +203,8 @@ TEST(FTransBufferTests, ResetPurgesActiveScopesWithoutReentryOrChangingReason)
 			EXPECT_EQ(Transactor.GetQueueLength(), 0u); EXPECT_EQ(Transactor.GetUndoSize(), 0u);
 			EXPECT_EQ(Transactor.GetUndoContext().TransactionId, 0u); EXPECT_EQ(Transactor.GetRedoContext().TransactionId, 0u);
 			EXPECT_EQ(Transactor.GetTransaction(0), nullptr);
-			EXPECT_TRUE(Transactor.GetTransactionDetails(1, ETransactionOperation::Undo).empty());
 			EXPECT_FALSE(Transactor.TryReset()); EXPECT_LT(Transactor.Begin("Probe", "Reentry"), 0);
-			EXPECT_FALSE(Transactor.TryContainsPieObjects());
+			EXPECT_TRUE(Transactor.ContainsPieObjects());
 			Transactor.MarkSaved(*Package);
 			EXPECT_FALSE(Transactor.GetPackageRevisionState(*Package));
 			if (bPending)
@@ -245,14 +244,11 @@ TEST(FTransBufferTests, PieQueriesPreservePositiveAndFailedInspectionAcrossRedo)
 	Probe->Reference = NewObject<DObject>(Package.Get(), "Dependency");
 	ASSERT_TRUE(ApplyEditorChange(Transactor, std::move(Change))); EXPECT_FALSE(Transactor.ContainsPieObjects());
 	Probe->OnInspect = [] { throw std::runtime_error("Injected PIE inspection failure"); };
-	const auto Checked = Transactor.TryContainsPieObjects();
-	EXPECT_FALSE(Checked); if (!Checked) EXPECT_NE(Checked.error().find("Injected PIE inspection failure"), std::string::npos);
 	EXPECT_TRUE(Transactor.ContainsPieObjects());
 	Probe->OnInspect = {};
 	EXPECT_FALSE(Transactor.ContainsPieObjects());
 	Package->SetPlayInEditor(true);
 	EXPECT_TRUE(Transactor.ContainsPieObjects());
-	const auto Positive = Transactor.TryContainsPieObjects(); ASSERT_TRUE(Positive); EXPECT_TRUE(*Positive);
 	Package->SetPlayInEditor(false); ASSERT_TRUE(Transactor.Undo()); EXPECT_TRUE(Transactor.CanRedo());
 	Package->SetPlayInEditor(true); EXPECT_TRUE(Transactor.ContainsPieObjects());
 	Package->SetPlayInEditor(false);
@@ -279,14 +275,14 @@ TEST(FTransBufferTests, PieQueriesGuardHistoryAndPendingRecordsAgainstReentry)
 			Buffer->SetUndoBarrier(); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), Barrier);
 			Buffer->RemoveUndoBarrier(); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), Barrier);
 			Buffer->ClearUndoBarriers(); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), Barrier);
-			EXPECT_FALSE(Buffer->TryReset()); EXPECT_FALSE(Buffer->TryContainsPieObjects());
+			EXPECT_FALSE(Buffer->TryReset());
 			EXPECT_TRUE(Buffer->ContainsPieObjects()); EXPECT_FALSE(Buffer->Undo());
 			if (GUndo) { EXPECT_FALSE(GUndo->ContainsPieObjects()); EXPECT_FALSE(GUndo->EndOperation()); }
 		};
 		EXPECT_FALSE(Buffer->ContainsPieObjects()); EXPECT_EQ(Visits, 1);
-		const auto Checked = Buffer->TryContainsPieObjects();
+		EXPECT_FALSE(Buffer->ContainsPieObjects());
 		Probe->OnInspect = {};
-		ASSERT_TRUE(Checked); EXPECT_FALSE(*Checked); EXPECT_EQ(Visits, 2);
+		EXPECT_EQ(Visits, 2);
 		EXPECT_TRUE(Buffer->CanTransact()); EXPECT_EQ(Buffer->IsActive(), bPending);
 		Scope.reset();
 		Buffer->ClearUndoBarriers();
@@ -316,10 +312,9 @@ TEST(FTransBufferTests, FinalizationRejectionKeepsDestructorsGuardedAfterPieQuer
 			++Inspected; EXPECT_FALSE(Buffer->CanTransact());
 			if (bThrow) throw std::runtime_error("Final inspection failure");
 		};
-		Change->OnDestroy = [&, PendingId, Recording] {
+		Change->OnDestroy = [&, Recording] {
 			++Destroyed; ASSERT_FALSE(Buffer->CanTransact());
 			EXPECT_FALSE(Buffer->TryReset()); EXPECT_LT(Buffer->Begin("Reentry", "Destructor"), 0);
-			EXPECT_TRUE(Buffer->GetTransactionDetails(PendingId, ETransactionOperation::Undo).empty());
 			EXPECT_FALSE(Recording->BeginOperation()); EXPECT_FALSE(Recording->ContainsPieObjects());
 			EXPECT_EQ(Buffer->GetTransaction(0), nullptr); EXPECT_EQ(Buffer->GetRedoContext().TransactionId, 0u);
 			RequestGarbageCollection(); EXPECT_TRUE(IsGarbageCollectionRequested()); EXPECT_NE(ResolveObjectKey(Key), nullptr);
@@ -389,7 +384,7 @@ TEST(FTransBufferTests, FinalizationExceptionsKeepOriginalFailureAndRedoBranch)
 		ASSERT_TRUE(Buffer->StoreUndo(std::move(Change))); const auto Id = Buffer->GetLastResult().TransactionId;
 		if (Stage == 0) Probe->OnMeasure = Throw;
 		if (Stage == 1) Probe->OnDetails = Throw;
-		if (Stage == 2) Probe->OnPackages = Throw;
+		if (Stage == 2) Probe->OnInspect = Throw;
 		if (Stage == 3) PrefixProbe->OnMeasure = Throw;
 		if (Stage == 4) Probe->OnMeasure = [Enabled] { if (*Enabled) throw 42; };
 		EXPECT_NO_THROW(DestroyScope(std::move(Scope))); *Enabled = false;
@@ -420,7 +415,7 @@ TEST(FTransBufferTests, FinalizationAccountingFailureDoesNotRetryThrowingMetadat
 	const auto Failure = Buffer->GetLastResult();
 	EXPECT_EQ(Failure.Code, ETransactorResultCode::Failed); EXPECT_EQ(Failure.TransactionId, Id);
 	ASSERT_TRUE(Failure.FailureCause); EXPECT_EQ(Failure.FailureCause->Code, ETransactorFailure::EntryAccounting);
-	EXPECT_GT(PackageQueries, 0); EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle); EXPECT_EQ(GUndo, nullptr);
+	EXPECT_EQ(PackageQueries, 0); EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle); EXPECT_EQ(GUndo, nullptr);
 	EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId); ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Value, 1);
 }
 TEST(FTransBufferTests, ScopedDestructionContainsFinalizationException)
@@ -1315,7 +1310,7 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryMessageAndDisablesHistor
 	FTransBufferTestAccess::AddCommand(Transaction, std::move(FailingUndo));
 	FTransBufferTestAccess::AddCommand(Transaction, std::move(FailingRedo));
 	FTransBufferTestAccess::AddCommand(Transaction, std::move(OtherFailingRedo));
-	Transaction.SetPackageTransitions({{.Package = FPersistentObjectRef(Package)}});
+	FTransBufferTestAccess::AddPackageTransition(Transaction, *Package);
 	FTransBufferTestAccess::InstallHistory(*Buffer, std::move(Transaction));
 	EXPECT_FALSE(Buffer->Undo());
 	const auto Result = Buffer->GetLastResult();
@@ -1331,7 +1326,7 @@ TEST(FTransBufferTests, FailedCompensationPreservesEveryMessageAndDisablesHistor
 		EXPECT_EQ(Failure.Message, "Injected mutation failure.");
 	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
 	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
-	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_EQ((Buffer->GetQueueLength() - Buffer->GetUndoCount()), 1u);
 	EXPECT_FALSE(Buffer->CanUndo());
@@ -1913,6 +1908,164 @@ TEST(FTransBufferTests, ExcludedStructReferencesDoNotAcquireHistoryRetention)
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Nested.Count, 1);
 }
 
+TEST(FTransBufferTests, ApplyEditorChangeRejectsThrowingMetadataBeforeMutation)
+{
+	using namespace Durin;
+	using FHook = std::function<void()> FManagementProbeChange::*;
+	InitializeDObjectSystem();
+	for (FHook Hook : {&FManagementProbeChange::OnDescription, &FManagementProbeChange::OnMeasure,
+		&FManagementProbeChange::OnPackages, &FManagementProbeChange::OnParticipants})
+	{
+		Tests::FTestTransactorOwner Buffer;
+		int Value = 0;
+		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
+		ASSERT_TRUE(Buffer->Undo());
+		const auto RedoId = Buffer->GetRedoContext().TransactionId;
+		for (bool Joined : {false, true})
+		{
+			std::optional<FScopedTransaction> Outer;
+			if (Joined) Outer.emplace(Buffer.Get(), FTransactionContext{.Description = "Outer"});
+			auto Change = std::make_unique<FManagementProbeChange>();
+			Change->OnApply = [&] { ++Value; };
+			Change.get()->*Hook = [&] {
+				EXPECT_FALSE(Buffer->CanTransact());
+				Buffer->Cancel();
+				throw std::runtime_error("Injected admission failure");
+			};
+			const auto Result = ApplyEditorChange(*Buffer, std::move(Change));
+			EXPECT_EQ(Result.Code, ETransactorResultCode::Failed);
+			EXPECT_EQ(Buffer->GetLastResult().Code, Result.Code);
+			EXPECT_NE(FormatTransactorResult(Result).find("Injected admission failure"), std::string::npos);
+			EXPECT_EQ(Value, 0);
+			EXPECT_EQ(Buffer->IsActive(), Joined);
+			if (Joined) EXPECT_TRUE(Outer->IsOutstanding());
+			Outer.reset();
+			EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+			EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
+		}
+		ASSERT_TRUE(Buffer->Redo());
+		EXPECT_EQ(Value, 1);
+	}
+}
+
+TEST(FTransBufferTests, ApplyAllowsNestedCapturesBeforeAppendingTheCommand)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	int Nested = 0;
+	auto Change = std::make_unique<FManagementProbeChange>();
+	Change->OnApply = [&] {
+		ASSERT_TRUE(GUndo);
+		EXPECT_FALSE(GUndo->EndOperation());
+		EXPECT_FALSE(GUndo->Finalize());
+		EXPECT_FALSE(Buffer->TryReset());
+		Buffer->Cancel();
+		EXPECT_EQ(Buffer->End(), 0);
+		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Nested, 0, 1)));
+	};
+	ASSERT_TRUE(ApplyEditorChange(*Buffer, std::move(Change)));
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 2u);
+	EXPECT_EQ(Nested, 1);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Nested, 0);
+}
+
+TEST(FTransBufferTests, CleanApplyFailureRetiresOnlyItsOwnRecord)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	int Value = 0;
+	{
+		FScopedTransaction Outer(Buffer.Get(), {.Description = "Keep the outer edit"});
+		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Value, 0, 1)));
+		auto Failed = std::make_unique<FTestCustomChange>(Value, 1, 2);
+		Failed->bFailRedo = true;
+		EXPECT_EQ(ApplyEditorChange(*Buffer, std::move(Failed)).Code, ETransactorResultCode::Failed);
+		EXPECT_TRUE(Outer.IsOutstanding());
+		EXPECT_EQ(Value, 1);
+	}
+	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
+	EXPECT_EQ(Buffer->GetTransaction(0)->GetRecordCount(), 1u);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Value, 0);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Value, 1);
+}
+
+TEST(FTransBufferTests, UnknownApplyEffectsRetainRecordWithoutRepeatingAdmissionMetadata)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Tests::FTestTransactorOwner Buffer;
+	TStrongObjectPtr<DObject> Target(NewObject<DObject>(nullptr, "UncertainCommandTarget"));
+	int Value = 0;
+	auto Change = std::make_unique<FManagementProbeChange>();
+	Change->Reference = Target.Get();
+	Change->OnApply = [&] {
+		++Value;
+		throw std::runtime_error("Injected apply failure");
+	};
+	Change->OnPackages = [&] {
+		if (Value) throw std::runtime_error("Package inspection failed after Apply");
+	};
+	const auto Failure = ApplyEditorChange(*Buffer, std::move(Change));
+	EXPECT_EQ(Value, 1);
+	EXPECT_EQ(Failure.Code, ETransactorResultCode::RecoveryRequired);
+	EXPECT_NE(FormatTransactorResult(Failure).find("Injected apply failure"), std::string::npos);
+	EXPECT_FALSE(Buffer->CanTransact());
+	EXPECT_EQ(GUndo, nullptr);
+	FCountingReferenceCollector Collector;
+	Buffer->AddReferencedObjects(Collector);
+	EXPECT_TRUE(std::ranges::contains(Collector.References, Target.Get()));
+}
+
+TEST(FTransBufferTests, ApplyEditorChangeReportsPublicationFailureAfterMutation)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	for (bool Joined : {false, true})
+	{
+		Tests::FTestTransactorOwner Buffer;
+		int Value = 0, Other = 0;
+		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FTestCustomChange>(Other, 0, 1)));
+		ASSERT_TRUE(Buffer->Undo());
+		const auto RedoId = Buffer->GetRedoContext().TransactionId;
+		TStrongObjectPtr<DPackage> Package(NewObject<DPackage>(nullptr, "PublicationFailurePackage"));
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(Joined ? "/TransactionTests/JoinedPublicationFailure" : "/TransactionTests/PublicationFailure", Path));
+		Package->InitializeAssetPackage(Path);
+		Buffer->EstablishSavedState(*Package);
+		TStrongObjectPtr<DObject> Target(NewObject<DObject>(Package.Get(), "Participant"));
+		std::optional<FScopedTransaction> Outer;
+		if (Joined) Outer.emplace(Buffer.Get(), FTransactionContext{.Description = "Outer"});
+		auto Change = std::make_unique<FManagementProbeChange>();
+		Change->Participants = {Target.Get()};
+		Change->OnApply = [&] { ++Value; };
+		Change->OnMeasure = [&] {
+			if (Value) throw std::runtime_error("Injected post-apply accounting failure");
+		};
+		const auto Submitted = ApplyEditorChange(*Buffer, std::move(Change));
+		EXPECT_EQ(Submitted.Code, Joined ? ETransactorResultCode::Succeeded : ETransactorResultCode::Failed);
+		Outer.reset();
+		const auto Failure = Buffer->GetLastResult();
+		EXPECT_EQ(Failure.Code, ETransactorResultCode::Failed);
+		EXPECT_EQ(Failure.TransactionId, Submitted.TransactionId);
+		EXPECT_NE(FormatTransactorResult(Failure).find("Injected post-apply accounting failure"), std::string::npos);
+		EXPECT_EQ(Value, 1);
+		ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
+		EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
+		EXPECT_TRUE(Package->IsDirty());
+		EXPECT_EQ(Buffer->GetQueueLength(), 1u);
+		EXPECT_EQ(Buffer->GetRedoContext().TransactionId, RedoId);
+		ASSERT_TRUE(Buffer->Redo());
+		EXPECT_EQ(Other, 1);
+		EXPECT_EQ(Value, 1);
+	}
+}
+
 TEST(FTransBufferTests, InvalidInitialAccountingRejectsBeforeMutation)
 {
 	using namespace Durin; using namespace Durin;
@@ -2299,7 +2452,7 @@ TEST(FTransBufferTests, ModuleRetirementCannotResurrectAnEarlierCleanCheckpoint)
 	Buffer->MarkSaved(*Package); EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->DiscardCustomChangesByModule("RetiredCheckpointModule"));
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 0u);
-	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo()); EXPECT_TRUE(Package->IsDirty());
 	Buffer->MarkSaved(*Package); EXPECT_FALSE(Package->IsDirty());
 }
@@ -2322,7 +2475,7 @@ TEST(FTransBufferTests, ForgetPackageRemapsBarriersAndInvalidatesSurvivingPartic
 	Buffer->MarkSaved(*Second);
 	Buffer->ForgetPackage(*First);
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u); EXPECT_EQ(Buffer->GetCurrentUndoBarrier(), 0u);
-	EXPECT_FALSE(Buffer->GetPackageRevisionState(*First)); EXPECT_FALSE(Buffer->GetPackageRevisionState(*Second)->bCheckpointValid);
+	EXPECT_FALSE(Buffer->GetPackageRevisionState(*First)); EXPECT_FALSE(Buffer->GetPackageRevisionState(*Second)->HasSavedCheckpoint());
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo()); EXPECT_TRUE(Second->IsDirty());
 }
 TEST(FTransBufferTests, ReviewSaveDuringRecordingCannotMakeAnOldStateClean)
@@ -2338,7 +2491,7 @@ TEST(FTransBufferTests, ReviewSaveDuringRecordingCannotMakeAnOldStateClean)
 		FScopedTransaction Scope(Buffer.Get(), {.Description = "Save inside recording"});
 		ASSERT_TRUE(Target->Modify()); Target->Value = 7;
 		Package->ClearDirty(); Buffer->MarkSaved(*Package);
-		EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+		EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	}
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 7); EXPECT_TRUE(Package->IsDirty());
@@ -2360,7 +2513,7 @@ TEST(FTransBufferTests, ReviewSavedStateActivationDuringRecordingCannotClearDirt
 	{
 		FScopedTransaction Scope(Buffer.Get(), {.Description = "Second"}); ASSERT_TRUE(Target->Modify()); Target->Value = 2;
 		Buffer->EstablishSavedState(*Package);
-		EXPECT_TRUE(Package->IsDirty()); EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+		EXPECT_TRUE(Package->IsDirty()); EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	}
 	EXPECT_EQ(Buffer->GetQueueLength(), 2u);
 	ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Undo()); EXPECT_TRUE(Package->IsDirty());
@@ -2453,7 +2606,7 @@ TEST(FTransBufferTests, ReviewSaveDuringReplayInvalidatesTheCheckpoint)
 	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "Recorded"}); ASSERT_TRUE(Target->Modify()); Target->Value = 1; }
 	Target->Trace = [&](std::string_view Event) { if (Event == "post") Buffer->MarkSaved(*Package); };
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_TRUE(Package->IsDirty());
-	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	Target->Trace = {}; Buffer->MarkSaved(*Package); EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_FALSE(Package->IsDirty());

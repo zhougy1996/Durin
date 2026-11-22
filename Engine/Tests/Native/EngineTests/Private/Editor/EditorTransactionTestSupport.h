@@ -14,6 +14,9 @@ namespace Durin
 		static auto AddCommand(FTransaction& Transaction, std::unique_ptr<FCommandChange> Change) -> void
 		{ Transaction.AddRecord(std::move(Change)); }
 
+		static auto AddPackageTransition(FTransaction& Transaction, DPackage& Package) -> void
+		{ Transaction.PackageTransitions.push_back({.Package = FPersistentObjectRef(&Package)}); }
+
 		static auto CaptureIndex(const FTransaction& Transaction) { return Transaction.CaptureIndex.get(); }
 
 		static auto InitializeMemoryBudget(DTransBuffer& Buffer, size_t Bytes) -> void

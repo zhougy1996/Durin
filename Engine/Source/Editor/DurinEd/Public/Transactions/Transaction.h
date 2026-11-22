@@ -45,6 +45,6 @@ namespace Durin
 	{
 		FRevisionId CurrentRevision = 0;
 		FRevisionId SavedRevision = 0;
-		bool bCheckpointValid = false;
+		auto HasSavedCheckpoint() const -> bool { return SavedRevision != 0; }
 	};
 }

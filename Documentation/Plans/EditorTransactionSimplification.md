@@ -11,6 +11,29 @@ Completed: 2026-11-21
 
 All four stages are complete. A subsequent simplification retired the editor-session journal introduced in Stage 4 and the history command flag for mounted-content changes. The Asset and File data sources publish item updates to the browser. AssetRegistry retains its catalog revision and history retains package checkpoints. The Stage 4 checklist and validation below record the original migration.
 
+The command-failure follow-up keeps the UE ordering of object baselines and
+custom undo records. ApplyEditorChange prepares command metadata before the
+edit, then appends the command after any nested Modify captures. Durin keeps
+checked publication and recovery for native commands that can fail. The
+transaction and reinstancing cases cover package declarations and GC ownership.
+
+On base `465fbcdd0`, the command follow-up built `all` on Win64-Debug-DurinEditor.
+Across EditorOperationTests, LevelMutationTests, SkyBoxTests, AssetPackageReloadTests,
+EditorPropertyTests, ViewportTests, EditorHostToolTests, PythonToolIntegrationTests,
+RoadEditorIntegrationTests, MaterialGraphEditingTests and MaterialEditingPersistenceTests,
+981 cases passed. Fault injection covered metadata rejection before Apply and failed
+history publication after a successful edit, both standalone and inside an outer
+scope. Additional cases covered nested commands, clean failure and recovery
+with retained references. One intermediate map-key interaction test failed once.
+The property suite passed on immediate retry and on the final build.
+
+The interface follow-up removed the buffer detail lookup and checked public PIE
+query. Checkpoint validity derives from the saved revision. Package transitions
+are private to retained history and its buffer. On base `af49af358`, the
+Win64-Debug-DurinEditor `all` build succeeded and 681 cases passed across
+EditorOperationTests, AssetPackageReloadTests, ViewportTests, EditorPropertyTests,
+RoadEditorIntegrationTests and MaterialEditingPersistenceTests.
+
 The follow-up on base `982884ea6` built `all` on Win64-Debug-DurinEditor.
 Across 15 relevant native targets, 1,350 cases passed and two browser
 symlink cases skipped because the process lacked Windows symlink privileges.

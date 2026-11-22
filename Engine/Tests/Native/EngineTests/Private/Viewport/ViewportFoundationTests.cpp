@@ -608,7 +608,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresCheckpointsForFullyR
 		ASSERT_TRUE(State);
 		EXPECT_EQ(State->CurrentRevision, ExpiredBefore->CurrentRevision);
 		EXPECT_EQ(State->SavedRevision, ExpiredBefore->SavedRevision);
-		EXPECT_EQ(State->bCheckpointValid, ExpiredBefore->bCheckpointValid);
+		EXPECT_EQ(State->HasSavedCheckpoint(), ExpiredBefore->HasSavedCheckpoint());
 		EXPECT_TRUE(ExpiredPackage->IsDirty());
 	};
 	Expired = true;
@@ -616,7 +616,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryOnlyRestoresCheckpointsForFullyR
 	EXPECT_EQ(Value, 10);
 	EXPECT_FALSE(LivePackage->IsDirty());
 	EXPECT_TRUE(SharedPackage->IsDirty());
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->bCheckpointValid);
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->HasSavedCheckpoint());
 	ExpectExpiredPackageUnchanged();
 	ASSERT_TRUE(Manager->Redo());
 	EXPECT_EQ(Value, 11);
@@ -670,7 +670,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 		ASSERT_TRUE(State);
 		EXPECT_EQ(State->CurrentRevision, Before[Index].CurrentRevision);
 		EXPECT_EQ(State->SavedRevision, Before[Index].SavedRevision);
-		EXPECT_EQ(State->bCheckpointValid, Before[Index].bCheckpointValid);
+		EXPECT_EQ(State->HasSavedCheckpoint(), Before[Index].HasSavedCheckpoint());
 		EXPECT_TRUE(Packages[Index]->IsDirty());
 	}
 	const auto FailureEvents = Tests::CollectTransactionEvents(*Manager);
@@ -684,7 +684,7 @@ TEST(FEditorTransactionManagerTests, MixedExpiryCompensatesAFailedReplayAndCanRe
 	EXPECT_TRUE(ExpiredPackage->IsDirty());
 	EXPECT_TRUE(SharedPackage->IsDirty());
 	ASSERT_TRUE(Manager->GetPackageRevisionState(*SharedPackage));
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->bCheckpointValid);
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*SharedPackage)->HasSavedCheckpoint());
 	const auto UndoEvents = Tests::CollectTransactionEvents(*Manager);
 	ASSERT_EQ(UndoEvents.size(), 1u);
 	EXPECT_EQ(UndoEvents[0].Type, ETransactionEventType::Undone);
@@ -747,7 +747,7 @@ TEST(FEditorTransactionManagerTests, TracksSavedCheckpointAcrossCommitUndoRedoAn
 	Durin::Tests::FTestTransactorOwner Manager;
 	Manager->EstablishSavedState(*Package);
 	const Durin::FPackageRevisionState Initial = *Manager->GetPackageRevisionState(*Package);
-	EXPECT_TRUE(Initial.bCheckpointValid);
+	EXPECT_TRUE(Initial.HasSavedCheckpoint());
 	EXPECT_EQ(Initial.CurrentRevision, Initial.SavedRevision);
 	EXPECT_FALSE(Package->IsDirty());
 
@@ -788,7 +788,7 @@ TEST(FEditorTransactionManagerTests, AllocatesFreshRevisionWhenReplacingSavedRed
 	const Durin::FPackageRevisionState Branched = *Manager->GetPackageRevisionState(*Package);
 	EXPECT_NE(Branched.CurrentRevision, DiscardedSavedRevision);
 	EXPECT_EQ(Branched.SavedRevision, DiscardedSavedRevision);
-	EXPECT_TRUE(Branched.bCheckpointValid);
+	EXPECT_TRUE(Branched.HasSavedCheckpoint());
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Manager->CanRedo());
 }
@@ -851,14 +851,14 @@ TEST(FEditorTransactionManagerTests, InvalidCheckpointStaysDirtyUntilResave)
 	Durin::Tests::FTestTransactorOwner Manager;
 	Manager->EstablishSavedState(*Package);
 	Manager->InvalidateSavedState(*Package);
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	EXPECT_TRUE(Package->IsDirty());
 
 	ASSERT_TRUE(Durin::ApplyEditorChange(*Manager, std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
 	ASSERT_TRUE(Manager->Undo());
 	EXPECT_TRUE(Package->IsDirty());
 	Manager->MarkSaved(*Package);
-	EXPECT_TRUE(Manager->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_TRUE(Manager->GetPackageRevisionState(*Package)->HasSavedCheckpoint());
 	EXPECT_FALSE(Package->IsDirty());
 
 	Manager->ForgetPackage(*Package);
@@ -986,14 +986,14 @@ TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateWithoutClearingDir
 	Durin::LevelEditor::FLevelDocumentRevisionState::Activate(Manager.Get(), Previous, CleanReplacement);
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*Previous).has_value());
 	ASSERT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement).has_value());
-	EXPECT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement)->bCheckpointValid);
+	EXPECT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement)->HasSavedCheckpoint());
 	EXPECT_FALSE(CleanReplacement->IsDirty());
 
 	DirtyReplacement->MarkDirty();
 	Durin::LevelEditor::FLevelDocumentRevisionState::Activate(Manager.Get(), CleanReplacement, DirtyReplacement);
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*CleanReplacement).has_value());
 	ASSERT_TRUE(Manager->GetPackageRevisionState(*DirtyReplacement).has_value());
-	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement)->bCheckpointValid);
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement)->HasSavedCheckpoint());
 	EXPECT_TRUE(DirtyReplacement->IsDirty());
 
 }

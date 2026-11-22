@@ -27,7 +27,6 @@ namespace Durin::LevelEditor
 			if (PreviousPackage) Transactions->ForgetPackage(*PreviousPackage);
 			if (!Package) return;
 			if (Transactions->GetPackageRevisionState(*Package)) return;
-			if (Transactions->GetPackageRevisionState(*Package)) return;
 			if (Package->IsDirty())
 				Transactions->InvalidateSavedState(*Package);
 			else
