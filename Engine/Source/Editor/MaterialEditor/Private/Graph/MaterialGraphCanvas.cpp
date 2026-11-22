@@ -34,12 +34,12 @@ namespace Durin::MaterialEditor
 			if (Constraint.Mode == EMaterialFunctionValueConstraintMode::Unconstrained
 				&& Constraint.Stages == EMaterialEvaluationStage::Both) return {};
 			if (Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact)
-				return "\n" + GetMaterialValueSemanticsName({Type, Constraint.Stages,
+				return GetMaterialValueSemanticsName({Type, Constraint.Stages,
 					Constraint.Kind, Constraint.Space});
 			const char* Stage = Constraint.Stages == EMaterialEvaluationStage::Both
 				? "Vertex|Pixel" : Constraint.Stages == EMaterialEvaluationStage::Vertex
 					? "Vertex" : "Pixel";
-			return std::format("\n{} [{}]", Constraint.Mode
+			return std::format("{} [{}]", Constraint.Mode
 				== EMaterialFunctionValueConstraintMode::NonSpatial ? "Non-spatial" : "Any semantics", Stage);
 		}
 		constexpr float PinExpansionHeight = 20.0f;
@@ -1411,12 +1411,18 @@ namespace Durin::MaterialEditor
 							ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
 						}
 						else if (!Pin.bActive) ImGui::SetTooltip("Inactive for the current shading/blend settings. Its connection and default are retained.");
-						else ImGui::SetTooltip("%s%s\n%s%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
-							(Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal
-							? FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9)
-							: DescribeFunctionDefault(Pin.Default)).c_str(), BroadcastHint(Pin),
-							ConstraintHint(Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes.front(),
-								Pin.Constraint).c_str());
+						else
+						{
+							std::string Default;
+							if (Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)
+								Default = "\n" + FormatGraphNumericValue(Pin.InlineDefault.Type, Pin.InlineDefault.Literal, 9);
+							else if (Pin.Default.Kind != EMaterialFunctionDefaultKind::None)
+								Default = "\n" + DescribeFunctionDefault(Pin.Default);
+							const auto Constraint = ConstraintHint(
+								Pin.AcceptedTypes.empty() ? Pin.SourceType : Pin.AcceptedTypes.front(), Pin.Constraint);
+							ImGui::SetTooltip("%s%s%s%s%s%s", Pin.Name.c_str(), Pin.bRequired ? " (required)" : "",
+								Default.c_str(), BroadcastHint(Pin), Constraint.empty() ? "" : "\n", Constraint.c_str());
+						}
 					}
 				}
 
@@ -1432,18 +1438,32 @@ namespace Durin::MaterialEditor
 					const std::string_view Hint = Response.Allows(true) ? "Connect" : Response.Reason;
 					ImGui::SetTooltip("%.*s", static_cast<int>(Hint.size()), Hint.data());
 				}
-				else ImGui::SetTooltip("%s (%s)%s", Pin.Name.c_str(), GetProgramTypeName(Pin.Type),
-					ConstraintHint(Pin.Type, Pin.Constraint).c_str());
+				else
+				{
+					const char* Type = GetProgramTypeName(Pin.Type);
+					const bool bNamedPin = !Pin.Name.empty() && Pin.Name != Type;
+				const auto Constraint = ConstraintHint(Pin.Type, Pin.Constraint);
+					if (Pin.Constraint.Mode == EMaterialFunctionValueConstraintMode::Exact)
+					ImGui::SetTooltip("%s%s%s", bNamedPin ? Pin.Name.c_str() : "", bNamedPin ? "\n" : "", Constraint.c_str());
+					else if (bNamedPin)
+					ImGui::SetTooltip("%s (%s)%s%s", Pin.Name.c_str(), Type, Constraint.empty() ? "" : "\n", Constraint.c_str());
+					else
+					ImGui::SetTooltip("%s%s%s", Type, Constraint.empty() ? "" : "\n", Constraint.c_str());
+				}
 			}
-			if (bShowHoverTooltip && bOverNodeTitle && !Hit.InputNode && !Hit.OutputNode)
+			if (bShowHoverTooltip && bOverNodeTitle && !Hit.InputNode && !Hit.OutputNode && !Hit.bPinExpansion)
 			{
 				ImGui::BeginTooltip();
-				const auto Display = MakeGraphNodeDisplay(*HoveredNode->View, Material);
-				ImGui::TextUnformatted(Display.Title.c_str());
-				if (Display.Value) ImGui::TextUnformatted(FormatGraphNumericValue(HoveredNode->View->Node.ResultType, *Display.Value, 9).c_str());
-				if (!Display.Subtitle.empty())
+				const auto& Node = *HoveredNode->View;
+				const auto Display = MakeGraphNodeDisplay(Node, Material);
+				const bool bConstant = !Node.Node.bMaterialOutput && Node.Node.Opcode == EMaterialProgramOpcode::Constant;
+				if (!bConstant) ImGui::TextUnformatted(Display.Title.c_str());
+				if (Display.Value)
+					ImGui::TextUnformatted(FormatGraphNumericValue(Node.Node.ResultType, *Display.Value, 9).c_str());
+				if ((bConstant || !Display.Value) && !Display.Subtitle.empty() && Display.Subtitle != Display.Title)
 					ImGui::TextDisabled("%s", Display.Subtitle.c_str());
-				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
+				if (!bConstant && Node.Node.Opcode != EMaterialProgramOpcode::FunctionInput && Node.Outputs.size() == 1)
+					ImGui::TextDisabled("Output: %s", GetProgramTypeName(Node.Outputs.front().Type));
 				ImGui::EndTooltip();
 			}
 			if (OpenFunction && bHovered && HoveredNode && !Hit.bPinExpansion && !Hit.InputNode && !Hit.OutputNode
