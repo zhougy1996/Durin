@@ -1,6 +1,13 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Widgets/MaterialPreview.h"
 #include "Widgets/MaterialPreviewFraming.h"
+#include "Graph/MaterialExpressionParameters.h"
+#include "Graph/MaterialGraphValueTypes.h"
+
+#include "Asset/AssetCompilingManager.h"
+#include "DObject/Package.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionIO.h"
 
 #include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
@@ -167,6 +174,7 @@ namespace Durin::MaterialEditor
 		{
 			if (PreviewMesh) PreviewMesh->SetStaticMesh(nullptr);
 			Host.reset();
+			if (RootInputPreview) FAssetCompilingManager::Get().MarkCompilationAsCanceled(*RootInputPreview);
 		}
 
 		auto SetVisible(bool bInVisible) -> void
@@ -176,7 +184,8 @@ namespace Durin::MaterialEditor
 
 		auto SetMaterial(DMaterialInterface* Material) -> void { UpdateScene(Material); }
 
-		auto Draw(DMaterialInterface* Material, float PanelHeight) -> void
+		auto Draw(DMaterialInterface* Material, float PanelHeight,
+			const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>* RootInputDraft = nullptr) -> void
 		{
 			if (!ImGui::BeginChild("MaterialPreview", ImVec2(0.0f, PanelHeight), ImGuiChildFlags_None))
 			{
@@ -193,6 +202,8 @@ namespace Durin::MaterialEditor
 			}
 
 			SetVisible(true);
+			if (RootInputDraft)
+				if (auto* Base = Cast<DMaterial>(Material)) Material = SelectRootInputPreview(*Base, *RootInputDraft);
 			const char* ShapeLabel = Shape == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(120.0f));
 			if (ImGui::BeginCombo(IsPostProcessMaterial(Material) ? "Input Mesh" : "Preview Mesh", ShapeLabel))
@@ -281,7 +292,97 @@ namespace Durin::MaterialEditor
 			ImGui::EndChild();
 		}
 
+		auto OnRootInputCommitted(uint64 PreviousRevision, uint64 CurrentRevision) -> void
+		{
+			if (!RootInputPreview || RootInputPreviewRevision != PreviousRevision) return;
+			RootInputPreviewRevision = CurrentRevision;
+			bRootInputPreviewCommitted = true;
+		}
+
 	private:
+		auto BuildRootInputPreview(DMaterial& Working) -> void
+		{
+			if (RootInputPreview) FAssetCompilingManager::Get().MarkCompilationAsCanceled(*RootInputPreview);
+			RootInputPreview.Reset();
+			RootInputPreviewParameters.clear();
+			RootInputPreviewRevision = Working.GetMaterialContentRevision();
+			bRootInputPreviewCommitted = false;
+			if (Working.UsesMaterialAttributes()) return;
+
+			auto Root = Working.CaptureRootInputs();
+			std::vector<DMaterialExpression*> Expressions;
+			for (const auto& Expression : Working.GetExpressionCollection().Expressions)
+				Expressions.push_back(Expression.Get());
+			std::vector<TStrongObjectPtr<DMaterialExpression>> Added;
+			const auto& Properties = Working.GetStaticProperties();
+			for (const auto Property : FMaterialAttributeDefinitionMap::GetActiveProperties(
+				Working.GetDomain(), Properties.ShadingModel, Properties.BlendMode))
+			{
+				auto& Input = Root.Get(Property);
+				if (Input.Connection.IsConnected() || !SupportsMaterialRootConstant(Property)) continue;
+				const auto Type = GetMaterialSurfaceOutputType(Property);
+				const auto Values = ReadMaterialNumericDefault(Input, Property);
+				const FMaterialProgramLiteral Literal{Values[0], Values.size() > 1 ? Values[1] : 0.0f, Values.size() > 2 ? Values[2] : 0.0f};
+				const auto Id = FGuid::NewGuid();
+				auto Parameter = GraphEditInternals::MakeParameterExpression({
+					.Id = Id, .Name = FName("Preview_" + Id.ToString()), .Type = *GetParameterType(Type),
+					.Value = MakeParameterValue(Type, Literal)});
+				if (!Parameter) return;
+				auto* Output = static_cast<DMaterialExpression*>(Parameter.Expression.Get());
+				Added.emplace_back(Output);
+				Expressions.push_back(Output);
+				if (Type == EMaterialProgramValueType::Float3)
+				{
+					auto Mask = GraphEditInternals::MakeParameterMask(*Parameter.Expression, Type);
+					Output = Mask.Get();
+					Added.emplace_back(Output);
+					Expressions.push_back(Output);
+				}
+				Input.Connection = {Output};
+				RootInputPreviewParameters.emplace(Property, Id);
+			}
+			if (RootInputPreviewParameters.empty()) return;
+
+			TStrongObjectPtr<DMaterial> PreviewMaterial(NewObject<DMaterial>(
+				DMaterial::StaticClass(), nullptr, NAME_None, EObjectFlags::Transient));
+			PreviewMaterial->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+			FScopedPackageDirtySuppression SuppressPackageRevision;
+			if (!PreviewMaterial->SetMaterialConfiguration({Working.GetDomain(), Properties})
+				|| !PreviewMaterial->SetMaterialExpressions(Expressions, std::move(Root))) return;
+			PreviewMaterial->CompileEdits();
+			RootInputPreview = std::move(PreviewMaterial);
+		}
+
+		auto SelectRootInputPreview(DMaterial& Working,
+				const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>& Draft) -> DMaterial*
+		{
+			if (RootInputPreviewRevision != Working.GetMaterialContentRevision()) BuildRootInputPreview(Working);
+			const bool bShowCommitted = bRootInputPreviewCommitted
+				&& Working.GetEditCompileMode() != EMaterialEditCompileMode::Manual
+				&& !Working.GetMaterialCompileStatus().IsCurrent();
+			if ((!Draft && !bShowCommitted) || !RootInputPreview || !RootInputPreview->GetMaterialCompileStatus().IsCurrent())
+				return &Working;
+
+			auto SetValue = [this](const FGuid& Id, FMaterialParameterValue Value) {
+				const auto* Existing = RootInputPreview->FindParameterDefinition(Id);
+				if (Existing && Existing->Value != Value)
+					(void)RootInputPreview->SetParameterValue(Id, std::move(Value));
+			};
+			FScopedPackageDirtySuppression SuppressPackageRevision;
+			for (const auto& Parameter : Working.GetParameterDefinitions()) SetValue(Parameter.Id, Parameter.Value);
+			for (const auto& [Property, Id] : RootInputPreviewParameters)
+			{
+				const auto Type = GetMaterialSurfaceOutputType(Property);
+				const auto Values = ReadMaterialNumericDefault(*Working.GetNumericInputForProperty(Property), Property);
+				const FMaterialProgramLiteral Literal = Draft && Draft->first == Property ? Draft->second.Literal
+					: FMaterialProgramLiteral{Values[0], Values.size() > 1 ? Values[1] : 0.0f, Values.size() > 2 ? Values[2] : 0.0f};
+				SetValue(Id, Type == EMaterialProgramValueType::Float3
+					? FMaterialParameterValue::MakeVector4({Literal.X, Literal.Y, Literal.Z, 0.0})
+					: MakeParameterValue(Type, Literal));
+			}
+			return RootInputPreview.Get();
+		}
+
 		auto UpdateViewportInput(const FAssetPreviewViewportInput& Input) -> void
 		{
 			if (Input.bLeftDragging && (Input.MouseDeltaX != 0.0f || Input.MouseDeltaY != 0.0f))
@@ -343,6 +444,10 @@ namespace Durin::MaterialEditor
 		FRetainedAsset BoxAsset;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		DMaterialInterface* CurrentMaterial = nullptr;
+		TStrongObjectPtr<DMaterial> RootInputPreview;
+		std::map<EMaterialProperty, FGuid> RootInputPreviewParameters;
+		uint64 RootInputPreviewRevision = 0;
+		bool bRootInputPreviewCommitted = false;
 		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		EMaterialQualityLevel PreviewQuality = EMaterialQualityLevel::High;
@@ -375,4 +480,15 @@ namespace Durin::MaterialEditor
 	{
 		Impl->Draw(Material, PanelHeight);
 	}
+	auto FMaterialPreview::DrawRootInputs(DMaterialInterface* Material, float PanelHeight,
+		const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>& Draft) -> void
+	{
+		Impl->Draw(Material, PanelHeight, &Draft);
+	}
+
+	auto FMaterialPreview::OnRootInputCommitted(uint64 PreviousRevision, uint64 CurrentRevision) -> void
+	{
+		Impl->OnRootInputCommitted(PreviousRevision, CurrentRevision);
+	}
+
 }

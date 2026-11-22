@@ -84,6 +84,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
 	{
+		EndRootInputFrame();
 		ParameterFrame.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false),
 			[this](const FParameterControlId& Id, const TWeakObjectPtr<DTransactor>& Transactions) {
 				auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
@@ -105,6 +106,86 @@ namespace Durin::MaterialEditor
 				return static_cast<bool>(Result);
 			},
 			[this](bool bCancel) { return FinishParameterSession(bCancel); });
+	}
+
+	auto FMaterialGraphCanvas::EndRootInputFrame() -> void
+	{
+		const auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
+		const bool bStale = RootInputDraft && (!Material || RootInputRevision != Material->GetMaterialContentRevision());
+		RootInputFrame.EndFrame(bStale || ImGui::IsKeyPressed(ImGuiKey_Escape, false),
+			[this](const FRootInputControlId& Id, uint64 Revision) {
+				RootInputRevision = Revision;
+				RootInputDraft.emplace(Id.first, FMaterialInputDefault{});
+				return true;
+			},
+			[this](const FMaterialInputDefault& Value) {
+				RootInputDraft->second = Value;
+				return true;
+			},
+			[this](bool bCancel) { return FinishRootInputEdit(bCancel); });
+	}
+
+	auto FMaterialGraphCanvas::FinishRootInputEdit(bool bCancel) -> bool
+	{
+		const auto Draft = std::exchange(RootInputDraft, std::nullopt);
+		const auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
+		auto* Root = EditorGraph->GetRootNode();
+		if (!bCancel && Draft && Root && Material && RootInputRevision == Material->GetMaterialContentRevision())
+		{
+			const auto Result = Root->PinDefaultValueChanged(FMaterialGraphPinAddress::MaterialOutput(Draft->first), Draft->second);
+			CheckCommand(Result);
+			if (Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded && Services.RootInputCommitted)
+				Services.RootInputCommitted(RootInputRevision);
+		}
+		return true;
+	}
+
+	auto FMaterialGraphCanvas::DrawRootInputValue(const FMaterialGraphPinView& Pin, uint64 Revision,
+		FMaterialInputDefault Value, float Width) -> void
+	{
+		using namespace MonaImGui::PropertyEdit;
+		using P = EMaterialProperty;
+		if (RootInputDraft && RootInputDraft->first == Pin.MaterialProperty && RootInputRevision == Revision)
+			Value = RootInputDraft->second;
+		FPropertyInteractionState Interaction;
+		const auto Widget = ImGui::GetID("##Value");
+		bool bEdited = false;
+		ImGui::BeginGroup();
+		ImGui::SetNextItemWidth(Width);
+		if (Pin.MaterialProperty == P::MP_BaseColor || Pin.MaterialProperty == P::MP_EmissiveColor)
+		{
+			FLinearColor Color(Value.Literal.X, Value.Literal.Y, Value.Literal.Z, 1.0f);
+			const auto Mode = Pin.MaterialProperty == P::MP_EmissiveColor ? EColorPickerMode::LinearHDR : EColorPickerMode::Linear;
+			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
+			if (ImGui::BeginTable("##Swatch", 1, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX, {Width, 0.0f}))
+			{
+				ImGui::TableNextColumn();
+				bEdited = DrawColorPicker(Color, Mode, false, false, &Interaction);
+				if (Interaction.End != EPropertyInteractionEnd::Cancel)
+					Interaction = FPropertyInteractionState::FromPopup(Interaction.Id,
+						ImGui::IsPopupOpen(Interaction.Id, ImGuiPopupFlags_AnyPopupLevel));
+				ImGui::EndTable();
+			}
+			ImGui::PopStyleVar();
+			if (bEdited) Value.Literal = {Color.R, Color.G, Color.B};
+		}
+		else if (Value.Type == EMaterialProgramValueType::Float3)
+		{
+			FVector3f Vector(Value.Literal.X, Value.Literal.Y, Value.Literal.Z);
+			FWidgetState State;
+			bEdited = EditVectorValue("##Value", Vector, 0.01, &State,
+				{.MaximumWidthInEm = Width / ImGui::GetFontSize(), .Format = "%.4g"});
+			Interaction = FPropertyInteractionState::FromWidget(Widget, State);
+			if (bEdited) Value.Literal = {Vector.x, Vector.y, Vector.z};
+		}
+		else
+		{
+			bEdited = ImGui::DragFloat("##Value", &Value.Literal.X, 0.01f, 0.0f, 0.0f, "%.4g");
+			Interaction = FPropertyInteractionState::FromWidget(Widget, {ImGui::IsItemActive(), ImGui::IsItemDeactivatedAfterEdit()});
+		}
+		ImGui::EndGroup();
+		RootInputFrame.Observe({*Pin.MaterialProperty, Interaction.Id}, Revision, Interaction.End,
+			bEdited ? std::optional(Value) : std::nullopt);
 	}
 
 	auto FMaterialGraphCanvas::FinishParameterEdit(bool bCancel) -> bool
@@ -362,10 +443,12 @@ namespace Durin::MaterialEditor
 				});
 			}
 		}
-		const auto DrawInput = [&](size_t Index) {
+		const auto DrawInput = [&](size_t Index, bool bInactiveRoot = false) {
 			// A property edit can synchronously reconstruct the node during this row.
 			const auto Pin = Selected.Inputs[Index];
-			if (Pin.SourceType > EMaterialProgramValueType::Float4) return;
+			const bool bRoot = Selected.Node.bMaterialOutput;
+			const bool bRootAttributes = bRoot && Pin.MaterialProperty == EMaterialProperty::MP_MaterialAttributes;
+			if (Pin.SourceType > EMaterialProgramValueType::Float4 && !bRootAttributes) return;
 			ImGui::PushID(static_cast<int>(Pin.InputIndex));
 			auto Value = Pin.InlineDefault;
 			if (Value.Kind == EMaterialInputDefaultKind::None)
@@ -385,8 +468,8 @@ namespace Durin::MaterialEditor
 			const bool bInheritedContext = Pin.bSupportsConstant && !Pin.bUseConstant
 				&& (Selected.Node.IsSampleUVInput(Pin.InputIndex)
 					|| (Selected.Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && Pin.InputIndex != 0));
-			const bool bRootNormal = Selected.Node.bMaterialOutput && Pin.MaterialProperty == EMaterialProperty::MP_Normal;
-			const auto EditValue = [&]() {
+			const bool bRootNormal = bRoot && Pin.MaterialProperty == EMaterialProperty::MP_Normal;
+			const auto EditValue = [&](float Width) {
 				if (bRootNormal)
 				{
 					ImGui::TextUnformatted("Default tangent-space normal (0, 0, 1)");
@@ -402,6 +485,17 @@ namespace Durin::MaterialEditor
 					ImGui::TextWrapped("%s", DescribeFunctionDefault(Pin.Default).c_str());
 					return;
 				}
+				if (bRootAttributes)
+				{
+					ImGui::TextDisabled("No connection");
+					return;
+				}
+				if (bRoot && Pin.bSupportsConstant && Material)
+				{
+					DrawRootInputValue(Pin, Material->GetMaterialContentRevision(), Value, Width);
+					return;
+				}
+				ImGui::SetNextItemWidth(Width);
 				if (EditLiteralValue(Value.Type, Value.Literal))
 				{
 					Value.Kind = EMaterialInputDefaultKind::Literal;
@@ -414,11 +508,18 @@ namespace Durin::MaterialEditor
 				if (Pin.bActive && Pin.Name == "Mip Value")
 					Label = *SamplingMode == EMaterialTextureReadMode::Level ? "Mip Level" : "Mip Bias";
 			}
-			else if (Pin.bSupportsConstant) Label += Pin.bUseConstant ? " (constant)" : " (inherited)";
-			MonaImGui::PropertyEdit::BeginRow(Label.c_str());
+			else if (!bRoot && Pin.bSupportsConstant) Label += Pin.bUseConstant ? " (constant)" : " (inherited)";
+			const char* Tooltip = nullptr;
+			if (bInactiveRoot) Tooltip = "Inactive for the current material settings.";
+			else if (bRoot && Pin.bSupportsConstant && !bConnected)
+				Tooltip = Pin.bUseConstant ? "Local constant" : "Using the material definition default";
+			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), false, 0.0f, Tooltip);
 			const float MenuWidth = ImGui::GetFrameHeight();
-			const float ValueWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - MenuWidth - ImGui::GetStyle().ItemSpacing.x);
-			ImGui::SetNextItemWidth(ValueWidth);
+			const bool bReset = bRoot && !bConnected && Pin.bUseConstant && !bInactiveRoot;
+			const auto& Style = ImGui::GetStyle();
+			const float ResetWidth = bReset ? ImGui::CalcTextSize("Reset").x + 2.0f * Style.FramePadding.x + Style.ItemSpacing.x : 0.0f;
+			const float ActionsWidth = bInactiveRoot ? 0.0f : MenuWidth + Style.ItemSpacing.x + ResetWidth;
+			const float ValueWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - ActionsWidth);
 			if (Upstream)
 			{
 				const auto& Source = Upstream->GetOwningNode()->GetView();
@@ -428,16 +529,37 @@ namespace Durin::MaterialEditor
 					SelectAndFrame(Source.Node.Id);
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Connected to %s. Click to locate.", SourceLabel.c_str());
 			}
-			else EditValue();
+			else if (bInactiveRoot)
+			{
+				const auto& Literal = Pin.RetainedConstant.Literal;
+				if (Pin.SourceType == EMaterialProgramValueType::Float3)
+					ImGui::TextDisabled("Constant (%g, %g, %g)", Literal.X, Literal.Y, Literal.Z);
+				else ImGui::TextDisabled("Constant %g", Literal.X);
+			}
+			else EditValue(ValueWidth);
+			if (bInactiveRoot)
+			{
+				MonaImGui::PropertyEdit::EndRow();
+				ImGui::PopID();
+				return;
+			}
+			bool bResetRequested = false;
+			if (bReset)
+			{
+				ImGui::SameLine();
+				bResetRequested = ImGui::Button("Reset");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Use the material definition default.");
+			}
 			ImGui::SameLine();
 			if (ImGui::Button("...", {MenuWidth, 0.0f})) ImGui::OpenPopup("InputActions");
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Input actions");
 			MonaImGui::PropertyEdit::EndRow();
+			if (bResetRequested) Submit(SelectedNode->SetPinUseConstant(Selected.InputAddress(Pin), false));
 			if (ImGui::BeginPopup("InputActions"))
 			{
 				if (!Changed && bConnected)
 				{
-					if (ImGui::MenuItem("Inline constant", nullptr, false, !bRootNormal)) Submit(SelectedNode->InlineInputNode(Selected.InputAddress(Pin)));
+					if (ImGui::MenuItem("Inline constant", nullptr, false, !bRootNormal && !bRootAttributes)) Submit(SelectedNode->InlineInputNode(Selected.InputAddress(Pin)));
 					if (!Changed && ImGui::MenuItem("Disconnect")) Changed = BreakPinLinks(Selected.InputAddress(Pin));
 				}
 				else if (!Changed)
@@ -457,11 +579,10 @@ namespace Durin::MaterialEditor
 				if (!Changed && Pin.PortId.IsValid() && !Pin.bRequired
 					&& Pin.InlineDefault.Kind != EMaterialInputDefaultKind::None && ImGui::MenuItem("Use function default"))
 					Submit(SelectedNode->PinDefaultValueChanged(Selected.InputAddress(Pin), {}));
-				if (!Changed && bConnected && ImGui::BeginMenu("When disconnected"))
+				if (!Changed && bConnected && !bRootAttributes && ImGui::BeginMenu("When disconnected"))
 				{
 					ImGui::TextUnformatted("Value used after disconnecting");
-					ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
-					EditValue();
+					EditValue(ImGui::GetFontSize() * 16.0f);
 					ImGui::EndMenu();
 				}
 				ImGui::EndPopup();
@@ -469,8 +590,15 @@ namespace Durin::MaterialEditor
 			ImGui::PopID();
 		};
 		std::vector<size_t> UnusedConnectedInputs;
+		std::vector<size_t> InactiveRootInputs;
 		for (size_t Index = 0; !Changed && Index < Selected.Inputs.size(); ++Index)
 		{
+			if (Selected.Node.bMaterialOutput && !Selected.Inputs[Index].bActive)
+			{
+				if (Selected.Inputs[Index].bUseConstant || !SelectedNode->GetInputPin(static_cast<int32>(Index))->LinkedTo.empty())
+					InactiveRootInputs.push_back(Index);
+				continue;
+			}
 			if (SamplingMode && !Selected.Inputs[Index].bActive)
 			{
 				if (!SelectedNode->GetInputPin(static_cast<int32>(Index))->LinkedTo.empty())
@@ -487,6 +615,12 @@ namespace Durin::MaterialEditor
 				if (Changed) break;
 				DrawInput(Index);
 			}
+			MonaImGui::PropertyEdit::EndGroup();
+		}
+		if (!Changed && !InactiveRootInputs.empty()
+			&& MonaImGui::PropertyEdit::BeginGroup("InactiveRootInputs", "Inactive inputs", ImGuiTreeNodeFlags_None))
+		{
+			for (const size_t Index : InactiveRootInputs) DrawInput(Index, true);
 			MonaImGui::PropertyEdit::EndGroup();
 		}
 		MonaImGui::PropertyEdit::EndTable();

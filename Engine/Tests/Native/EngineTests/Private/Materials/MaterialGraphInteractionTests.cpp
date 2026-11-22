@@ -253,6 +253,10 @@ namespace Durin::MaterialEditor
 		}
 		static auto FinishParameter(FMaterialGraphCanvas& Canvas, bool bCancel) -> bool { return Canvas.FinishParameterEdit(bCancel); }
 		static auto ParameterActive(const FMaterialGraphCanvas& Canvas) -> bool { return Canvas.ParameterSession.IsActive(); }
+		static auto DrawRootInputValue(FMaterialGraphCanvas& Canvas, const FMaterialGraphPinView& Pin, uint64 Revision) -> void
+		{
+			Canvas.DrawRootInputValue(Pin, Revision, Pin.InlineDefault, 240.0f);
+		}
 		static auto Duplicate(FMaterialGraphCanvas& Canvas, DMaterial& Material,
 			DTransactor& Transactions, std::span<const FGuid> Nodes) -> void
 		{
@@ -744,6 +748,76 @@ TEST(FMaterialGraphInteractionTests, CanvasGeometryUsesStableMetricsAndZoomHyste
 	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
 		0.70f, EMaterialGraphDetailLevel::Editing),
 		EMaterialGraphDetailLevel::Editing);
+}
+
+TEST(FMaterialGraphInteractionTests, RootInputDragPreviewsAndCommitsOneUndo)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Property = EMaterialProperty::MP_Roughness;
+	const auto Address = FMaterialGraphPinAddress::MaterialOutput(Property);
+	auto* Graph = DMaterialGraph::Create(*Material);
+	ASSERT_TRUE(Graph->GetRootNode()->PinDefaultValueChanged(Address,
+		{.Kind = EMaterialInputDefaultKind::Literal, .Literal = {.X = .31f}}, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Graph->GetRootNode()->SetPinUseConstant(Address, false, Durin::ETransactionMode::NotTransactable));
+	const auto Original = Material->GetNumericInputForProperty(Property)->Capture();
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas{*Graph, {.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
+	auto* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {800, 480}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.MouseDoubleClickTime = 0.f;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	ImVec2 Start;
+	const auto Frame = [&](ImVec2 Mouse, bool bDown, bool bVisible = true) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, bDown);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({600, 300});
+		ImGui::Begin("Root input", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		if (bVisible)
+		{
+			const auto& Pins = Graph->GetRootNode()->GetView().Inputs;
+			const auto Pin = std::ranges::find(Pins, Property, &FMaterialGraphPinView::MaterialProperty);
+			if (Pin != Pins.end())
+			{
+				FMaterialGraphCanvasTestAccess::DrawRootInputValue(Canvas, *Pin, Material->GetMaterialContentRevision());
+				Start = {ImGui::GetItemRectMin().x + 20.0f, ImGui::GetItemRectMin().y + ImGui::GetFrameHeight() / 2.0f};
+			}
+			else ADD_FAILURE() << "Missing Roughness pin";
+		}
+		Canvas.EndParameterFrame();
+		ImGui::End(); ImGui::Render();
+	};
+	Frame({700, 400}, false); Frame({700, 400}, false);
+	const auto Drag = [&] {
+		Frame(Start, false); Frame(Start, true);
+		Frame({Start.x + 20.0f, Start.y}, true);
+		Frame({Start.x + 30.0f, Start.y}, true);
+	};
+	Drag();
+	ASSERT_TRUE(Canvas.GetRootInputDraft());
+	const float Preview = Canvas.GetRootInputDraft()->second.Literal.X;
+	EXPECT_NE(Preview, 0.5f);
+	EXPECT_EQ(*Material->GetNumericInputForProperty(Property), Original);
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	Frame({Start.x + 30.0f, Start.y}, false);
+	EXPECT_FALSE(Canvas.GetRootInputDraft());
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_FLOAT_EQ(Material->GetNumericInputForProperty(Property)->Constant[0], Preview);
+	EXPECT_TRUE(Material->GetNumericInputForProperty(Property)->UseConstant);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(*Material->GetNumericInputForProperty(Property), Original);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_FLOAT_EQ(Material->GetNumericInputForProperty(Property)->Constant[0], Preview);
+
+	Drag();
+	ASSERT_TRUE(Canvas.GetRootInputDraft());
+	Frame(Start, false, false);
+	EXPECT_FALSE(Canvas.GetRootInputDraft());
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	EXPECT_FLOAT_EQ(Material->GetNumericInputForProperty(Property)->Constant[0], Preview);
+	ImGui::DestroyContext(Context);
 }
 
 TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedComponentsAndUndo)

@@ -20,6 +20,7 @@ namespace Durin::MaterialEditor
 	{
 		std::function<void(std::string)> ReportError = [](std::string) {};
 		std::function<void(std::string_view)> OpenFunction;
+		std::function<void(uint64)> RootInputCommitted;
 	};
 
 	// Owns one document's transient material graph viewport and interaction state.
@@ -40,6 +41,10 @@ namespace Durin::MaterialEditor
 		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter,
 			DTransactor& Transactions) -> void;
 		auto EndParameterFrame() -> void;
+		auto GetRootInputDraft() const -> const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>&
+		{
+			return RootInputDraft;
+		}
 		auto SelectAndFrameDiagnostic(
 			const FMaterialProgramDiagnostic& Diagnostic) -> bool;
 		auto CancelInteraction() -> bool;
@@ -68,6 +73,10 @@ namespace Durin::MaterialEditor
 			const MonaImGui::PropertyEdit::FPropertyInteractionState& State, std::optional<FMaterialParameterValue> Value) -> void;
 		auto FinishParameterEdit(bool bCancel) -> bool;
 		auto FinishParameterSession(bool bCancel) -> bool;
+		auto EndRootInputFrame() -> void;
+		auto FinishRootInputEdit(bool bCancel) -> bool;
+		auto DrawRootInputValue(const FMaterialGraphPinView& Pin, uint64 Revision,
+			FMaterialInputDefault Value, float Width) -> void;
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
 		// Returns true for both Succeeded and NoChange.
@@ -221,6 +230,10 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterSession;
+		using FRootInputControlId = std::pair<EMaterialProperty, ImGuiID>;
+		PropertyEditor::TPropertyControlFrame<FRootInputControlId, uint64, FMaterialInputDefault> RootInputFrame;
+		std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>> RootInputDraft;
+		uint64 RootInputRevision = 0;
 		using FParameterControlId = std::pair<FGuid, ImGuiID>;
 		PropertyEditor::TPropertyControlFrame<FParameterControlId, TWeakObjectPtr<DTransactor>, FMaterialParameterValue> ParameterFrame;
 		int FailedParameterFinishFrame = -1;

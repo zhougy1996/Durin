@@ -553,7 +553,11 @@ namespace Durin::MaterialEditor
 		if (Preview == nullptr) Preview = std::make_shared<FMaterialPreview>(GetWindowId());
 		// A close callback may release the toolkit's preview while this draw unwinds.
 		const auto DrawingPreview = Preview;
-		DrawingPreview->Draw(Material, Height);
+		const auto* Canvas = EditingSession->Canvas.get();
+		if (Canvas && Canvas->GetSelection().contains(EMaterialGraphEndpoint::MaterialRoot))
+			DrawingPreview->DrawRootInputs(Material, Height, Canvas->GetRootInputDraft());
+		else
+			DrawingPreview->Draw(Material, Height);
 	}
 
 	auto FMaterialEditor::DrawGraphPanel(std::string_view Resource, float Height) -> void
@@ -845,7 +849,11 @@ namespace Durin::MaterialEditor
 			Canvas = std::make_unique<FMaterialGraphCanvas>(*EditingSession->Graph,
 				FMaterialGraphEditorServices{
 					.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
-					.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(*this, Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); }});
+					.OpenFunction = [this](std::string_view Path) { OpenReferencedMaterialAsset(*this, Path, DMaterialFunction::StaticClass()->GetQualifiedName().ToString()); },
+					.RootInputCommitted = [Session = std::weak_ptr(EditingSession)](uint64 PreviousRevision) {
+						if (const auto Document = Session.lock(); Document && Document->Preview)
+							Document->Preview->OnRootInputCommitted(PreviousRevision, Document->GetWorkingMaterial()->GetMaterialContentRevision());
+					}});
 			if (const auto* State = ProfileSettings->FindViewport(EditingSession->GetSourceMaterial()->GetObjectPath()))
 				Canvas->SetViewport(State->Zoom, State->Pan);
 		}

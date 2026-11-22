@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 #include "MaterialEditorAPI.h"
+#include "Materials/MaterialProgramTypes.h"
 
 namespace Durin { class DMaterialInterface; }
 
@@ -18,6 +19,9 @@ namespace Durin::MaterialEditor
 		auto SetVisible(bool bInVisible) -> void;
 		auto SetMaterial(DMaterialInterface* Material) -> void;
 		auto Draw(DMaterialInterface* Material, float PanelHeight = 0.0f) -> void;
+		auto DrawRootInputs(DMaterialInterface* Material, float PanelHeight,
+			const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>& Draft) -> void;
+		auto OnRootInputCommitted(uint64 PreviousRevision, uint64 CurrentRevision) -> void;
 
 	private:
 		class FImpl;
