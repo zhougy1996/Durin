@@ -266,7 +266,7 @@ namespace Durin
 			GroundTruthAmbientOcclusionDebugMode =
 				EGroundTruthAmbientOcclusionDebugMode::Disabled;
 		// Conservative prior-frame depth admission for persistent main views.
-		bool bEnableOcclusionHistory = false;
+		bool bEnableOcclusionHistory = true;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.

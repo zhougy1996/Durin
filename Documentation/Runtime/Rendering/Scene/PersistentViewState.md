@@ -72,8 +72,9 @@ own their own paired resources, metadata, compatibility, and publication point.
 
 ## Main-view occlusion history
 
-With `FSceneViewRenderOptions::bEnableOcclusionHistory` enabled, the persistent
-view's `FHZBOcclusionTester` assigns each frustum candidate a test index by
+Occlusion history is enabled by default for eligible persistent main views. Set
+`FSceneViewRenderOptions::bEnableOcclusionHistory` to false for frustum-only
+admission. The persistent view's `FHZBOcclusionTester` assigns each frustum candidate a test index by
 primitive component ID. A changed batch projects its bounds conservatively and
 uploads one immutable GPU buffer.
 After opaque GBuffer depth is available, the GPU reduces 16×16 tiles and tests

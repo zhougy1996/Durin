@@ -30,8 +30,9 @@ the initial high/low occlusion comparison. GPU bounds batches now return indexed
 visibility to the main view. History applies the UE 5.8 camera thresholds to
 the actual producing view and resolves reordered candidates by component ID.
 Occlusion checks only material slots referenced by published geometry and shares
-that geometry capture with mesh preparation. History stays disabled by default.
-The low-occlusion overhead gate remains open.
+that geometry capture with mesh preparation. On 2026-11-22, rollout was approved
+for eligible persistent main views with an explicit per-view opt-out. The
+low-occlusion overhead gate remains open.
 Stage 2 has removed render-thread task replenishment. Static mesh merges and
 sorting follow chunk workers through a completion dependency. Each view selects
 LOD independently and publishes validated ordinary static batches directly for sibling

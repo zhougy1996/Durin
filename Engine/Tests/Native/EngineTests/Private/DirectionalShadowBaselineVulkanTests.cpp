@@ -1602,13 +1602,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			}, ++FrameNumber);
 			return Pixels;
 		};
+		Options.bEnableOcclusionHistory = false;
 		const auto Reference = Frame();
 		EXPECT_FALSE(Reference.empty());
 		const auto ShadowDraws = GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws;
 		EXPECT_GT(ShadowDraws, 0u);
 		EXPECT_TRUE(ReceiverPresent);
 		EXPECT_TRUE(CasterPresent);
-		Options.bEnableOcclusionHistory = true;
+		Options = FSceneViewRenderOptions{};
+		EXPECT_TRUE(Options.bEnableOcclusionHistory);
 		EXPECT_EQ(Frame(), Reference);
 		EXPECT_EQ(GLastTelemetry.Visibility.OcclusionCulledPrimitives, 0u);
 		auto RequireReadyHistory = [&] {
