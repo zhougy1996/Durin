@@ -11,7 +11,6 @@
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionInputs.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
 #include "Graph/MaterialGraphValueTypes.h"
@@ -241,7 +240,7 @@ namespace Durin::MaterialEditor
 	{
 		MaterialExpression = Source.Expression;
 		View = std::move(Metadata);
-		SetExpressionLabels(View, Source.Expression);
+		if (Source.Expression) SetExpressionLabels(View, Source.Expression);
 		struct FRestoreSource
 		{
 			const FMaterialGraphPinSource*& Slot;
@@ -292,7 +291,7 @@ namespace Durin::MaterialEditor
 			CreatePins();
 			return;
 		}
-		if (!GetMaterialExpression()) return;
+		if (!View.Node.bMaterialOutput && !GetMaterialExpression()) return;
 		auto* Graph = Cast<DMaterialGraph>(GetOuter());
 		Graph->RefreshNodes(EnumerateCatalog(), std::span(&View.Node.Id, 1));
 	}
@@ -304,35 +303,37 @@ namespace Durin::MaterialEditor
 	{
 		const auto& Source = *ActiveSource;
 		const auto* Material = Source.Material;
-		auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(Source.Expression);
-		if (!Material || !Terminal) return;
-		for (const auto& Definition : GetMaterialDomainOutputPins(Material->GetDomain()))
+		if (!Material) return;
+		const auto Properties = GetMaterialDomainInputProperties(Material->GetDomain());
+		for (uint32 Index = 0; Index < Properties.size(); ++Index)
 		{
-			const bool bAttributes = Definition.Id == EMaterialOutputPin::Surface;
-			if (bAttributes != Terminal->Outputs.bUseMaterialAttributes) continue;
-			FMaterialGraphPinView Pin{.InputIndex = static_cast<uint32>(Definition.Id), .Name = std::string(Definition.Name),
-				.AcceptedTypes = {Definition.Type}};
-			if (Definition.Id == EMaterialOutputPin::WorldPositionOffset)
+			const auto Property = Properties[Index];
+			const bool bAttributes = Property == EMaterialProperty::MP_MaterialAttributes;
+			if (!Material->IsRootInputVisible(Property)) continue;
+			const auto Description = Material->GetExpressionInputDescription(Property);
+			check(Description);
+			FMaterialGraphPinView Pin{.InputIndex = Index, .MaterialProperty = Property, .Name = std::string(Description->Name),
+				.AcceptedTypes = {Description->Type}};
+			if (Property == EMaterialProperty::MP_WorldPositionOffset)
 				Pin.Constraint.Stages = EMaterialEvaluationStage::Vertex;
 			else if (!bAttributes)
 			{
-				const auto Semantics = GetMaterialSurfaceOutputSemantics(
-					static_cast<EMaterialProperty>(Definition.Id));
+				const auto Semantics = GetMaterialSurfaceOutputSemantics(Property);
 				Pin.Constraint = {.Mode = EMaterialFunctionValueConstraintMode::Exact,
 					.Stages = Semantics.Stages, .Kind = Semantics.Kind,
 					.Space = Semantics.Space};
 			}
-			if (Definition.Id != EMaterialOutputPin::WorldPositionOffset && Definition.Id != EMaterialOutputPin::Normal
-				&& Definition.Type > EMaterialProgramValueType::Float && Definition.Type <= EMaterialProgramValueType::Float4)
+			if (Property != EMaterialProperty::MP_WorldPositionOffset && Property != EMaterialProperty::MP_Normal
+				&& Description->Type > EMaterialProgramValueType::Float && Description->Type <= EMaterialProgramValueType::Float4)
 				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
-			Pin.InlineDefault = DefaultView(ReadMaterialOutputDefault(Terminal->Outputs, Definition.Id));
-			if (const auto* Numeric = GetMaterialOutputNumericInput(Terminal->Outputs, Definition.Id))
+			if (const auto& Numeric = Description->Numeric)
 			{
+				Pin.InlineDefault = DefaultView(ReadMaterialNumericDefault(*Numeric, Property));
 				Pin.bSupportsConstant = true; Pin.bUseConstant = Numeric->UseConstant;
 				Pin.RetainedConstant = DefaultView(Numeric->Constant);
 			}
-			Pin.bActive = bAttributes || Definition.Id == EMaterialOutputPin::WorldPositionOffset || IsMaterialSurfaceOutputActive(
-				static_cast<EMaterialProperty>(Definition.Id), Material->GetStaticProperties());
+			Pin.bActive = bAttributes || Property == EMaterialProperty::MP_WorldPositionOffset || IsMaterialSurfaceOutputActive(
+				Property, Material->GetStaticProperties());
 			View.Inputs.push_back(std::move(Pin));
 		}
 	}
@@ -404,7 +405,7 @@ namespace Durin::MaterialEditor
 		if ((Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes
 			|| Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes) && !View.Inputs.empty())
 		{
-			View.Inputs[0].Name = "Surface";
+			View.Inputs[0].Name = "Material Attributes";
 			View.Inputs[0].AcceptedTypes = {EMaterialProgramValueType::MaterialAttributes};
 		}
 		if (Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes)
@@ -415,16 +416,19 @@ namespace Durin::MaterialEditor
 				if (Index >= Definitions.size()) continue;
 				View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
 					.SourceType = GetMaterialSurfaceOutputType(Property),
-					.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)},
-					.InlineDefault = Attribute.Source.UseConstant ? DefaultView(Attribute.Source.Constant) : FMaterialInputDefault{},
-					.RetainedConstant = DefaultView(Attribute.Source.Constant), .bSupportsConstant = true,
-					.bUseConstant = Attribute.Source.UseConstant});
+					.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)}});
 			}
 		for (auto& Pin : View.Inputs)
+		{
+			const bool Make = Node.Opcode == EMaterialProgramOpcode::MakeMaterialAttributes;
+			const bool Set = Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes;
+			if ((Make || (Set && Pin.InputIndex > 0)) && !MaterialNumericInputAllowsScalarBroadcast(
+				EMaterialProgramOpcode::MakeMaterialAttributes, Make ? Pin.InputIndex : Pin.InputIndex - 1)) continue;
 			if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
 				&& Pin.AcceptedTypes.front() != EMaterialProgramValueType::Float
 				&& FMaterialGraphSchema::AcceptsPort(Pin.AcceptedTypes.front(), EMaterialProgramValueType::Float))
 				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
+		}
 	}
 
 	auto DMaterialGraphNode::CreateOutputPins() -> void

@@ -18,7 +18,7 @@ namespace Durin
 	ENUM_CLASS_FLAGS(EMaterialGraphNodeChange);
 	enum class EMaterialGraphChange : uint8
 	{
-		None = 0, Reset = 1 << 0,
+		None = 0, Reset = 1 << 0, RootInputs = 1 << 1, RootPosition = 1 << 2,
 	};
 	ENUM_CLASS_FLAGS(EMaterialGraphChange);
 	struct FMaterialGraphNodeChange

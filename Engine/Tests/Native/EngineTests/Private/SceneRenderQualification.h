@@ -773,7 +773,7 @@ namespace Durin
 			Color->Id = {1, 2, 3, 4};
 			Color->Value = Blend == EMaterialBlendMode::Translucent ? FVector3{0.1, 0.6, 0.9} : FVector3{0.7, 0.25, 0.1};
 			std::vector<DMaterialExpression*> Expressions{Color};
-			FMaterialAttributeRoot Outputs;
+			FMaterialRootInputs Outputs;
 			// Retain the pre-migration Unlit image with an explicit emissive recipe.
 			Outputs.Get(Shading == EMaterialShadingModel::Unlit ? EMaterialProperty::MP_EmissiveColor : EMaterialProperty::MP_BaseColor) = {Color};
 			if (Blend != EMaterialBlendMode::Opaque)

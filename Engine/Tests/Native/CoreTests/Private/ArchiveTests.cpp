@@ -411,6 +411,12 @@ TEST(FArchiveTests, CustomVersionRegistrationAndUsageKeepFileFactsSeparate)
 	EXPECT_NE(Error.find("ArchiveTest"), std::string::npos);
 	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{Guid, 1}, FCustomVersion{Guid, 1}}, Error));
 	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{{0xc057, 0, 0, 99}, 1}}, Error));
+	const FGuid RangeGuid{0xc057, 0, 0, 42};
+	EXPECT_FALSE(FCustomVersionRegistry::Register({RangeGuid, 3, "ArchiveRange", 4}));
+	ASSERT_TRUE(FCustomVersionRegistry::Register({RangeGuid, 3, "ArchiveRange", 2}));
+	EXPECT_FALSE(FCustomVersionRegistry::Register({RangeGuid, 3, "ArchiveRange", 1}));
+	EXPECT_FALSE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{RangeGuid, 1}}, Error));
+	EXPECT_TRUE(FCustomVersionRegistry::Validate(std::array{FCustomVersion{RangeGuid, 2}}, Error));
 	Writer.UsingCustomVersion({0xc057, 0, 0, 99});
 	ASSERT_TRUE(Writer.IsError());
 	EXPECT_EQ(Writer.GetFailure()->Code, EArchiveFailureCode::UnsupportedVersion);

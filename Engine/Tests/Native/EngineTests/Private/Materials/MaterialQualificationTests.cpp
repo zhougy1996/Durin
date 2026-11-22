@@ -262,7 +262,7 @@ TEST_F(FMaterialQualificationTests, ParallelProgramCompilationWorkloads)
 			std::vector<std::shared_ptr<MIR::FCompilerInput>> Inputs;
 			for (uint32 Index = 0; Index < Count; ++Index) {
 				auto Input = std::make_shared<MIR::FCompilerInput>();
-				FMaterialAttributeRoot Outputs;
+				FMaterialRootInputs Outputs;
 				Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({.271f + Index * .071f + Sample * .011f + (Workload == 2 ? .039f : 0.f)});
 				MIR::FGraphBuilder Graph(std::span<DMaterialExpression* const>{}); Input->IR = Graph.FinishSurface(Outputs).IR;
 				ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input->Environment)); Inputs.push_back(std::move(Input));
@@ -351,7 +351,7 @@ TEST_F(FMaterialQualificationTests, RequestToPublicationWorkloads)
 				auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
 				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 				if (Workload) ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
-				auto Outputs = Material->GetExpressionOutputs(); Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.527f + Sample * 0.013f});
+				auto Outputs = Material->CaptureRootInputs(); Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.527f + Sample * 0.013f});
 				std::vector<DMaterialExpression*> Expressions;
 				for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 				ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -408,7 +408,7 @@ TEST_F(FMaterialQualificationTests, AsyncCaptureToPublicationWorkloads)
 				auto* Material = NewObject<DMaterial>(nullptr, NAME_None);
 				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 				if (Workload) ASSERT_TRUE(Testing::SetStandardMaterialExpressionsForTest(*Material));
-				auto Outputs = Material->GetExpressionOutputs(); Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.527f + Sample * 0.013f});
+				auto Outputs = Material->CaptureRootInputs(); Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.527f + Sample * 0.013f});
 				std::vector<DMaterialExpression*> Expressions;
 				for (const auto& Expression : Material->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 				ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -454,8 +454,7 @@ TEST_F(FMaterialQualificationTests, MaximumGraphLayoutLatency)
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaximumLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
 	Testing::FTestMaterialExpressionGraph Graph;
-	// Applying a graph materializes its required output owner.
-	while (Graph.Expressions.size() + 1 < MaterialProgramMaxNodeCount)
+	while (Graph.Expressions.size() < MaterialProgramMaxNodeCount)
 		Graph.Expressions.emplace_back(Testing::MakeGraphExpression<DMaterialExpressionScalarConstant>().Get());
 	ASSERT_TRUE(Graph.Apply(*Material));
 	const uint64 SemanticRevision =

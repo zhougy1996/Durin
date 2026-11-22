@@ -6,7 +6,6 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionVector.h"
@@ -126,18 +125,18 @@ namespace Durin::MaterialEditor
 	auto ReadGraphOutputs(const DMaterial& Material) -> FMaterialAttributeValues
 	{
 		FMaterialAttributeValues Result;
-		const auto& Outputs = Material.GetExpressionOutputs();
-		Result.Attributes = ToGraphLink(Outputs.Attributes);
+		Result.Attributes = ToGraphLink(*Material.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes));
 		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
 		{
-			GetMaterialSurfaceOutputLink(Result, Definition.Property) = ToGraphLink(Outputs.Get(Definition.Property));
-			const auto V = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Definition.Property));
+			const auto Input = *Material.GetNumericInputForProperty(Definition.Property);
+			GetMaterialSurfaceOutputLink(Result, Definition.Property) = ToGraphLink(Input.Connection);
+			const auto V = ReadMaterialNumericDefault(Input, Definition.Property);
 			GetMaterialSurfaceOutputDefault(Result, Definition.Property) = {V[0], V.size() > 1 ? V[1] : 0.f, V.size() > 2 ? V[2] : 0.f};
 		}
 		return Result;
 	}
 
-	auto ReadMaterialGraph(const DObject* Owner, std::span<const FMaterialGraphCatalogEntry> Catalog,
+	auto ReadMaterialGraph(const DObject* Owner, FGuid RootViewId, std::span<const FMaterialGraphCatalogEntry> Catalog,
 		std::optional<std::span<const FGuid>> Nodes, const FMaterialGraphNodeVisitor& Visit) -> FMaterialGraphView
 	{
 		std::unordered_set<FGuid> Selected;
@@ -158,7 +157,7 @@ namespace Durin::MaterialEditor
 		{
 			auto* Expression = Expressions[Ordinal].Get();
 			if (Nodes && !Selected.contains(Expression->Id)) continue;
-			FMaterialGraphNodeDescriptor Node{.Id = Expression->Id, .bMaterialOutput = Cast<DMaterialExpressionMaterialOutput>(Expression) != nullptr};
+			FMaterialGraphNodeDescriptor Node{.Id = Expression->Id};
 			const auto* Description = FindMaterialExpressionDescription(Expression->GetClass());
 			if (Description)
 			{
@@ -201,12 +200,6 @@ namespace Durin::MaterialEditor
 			const auto Position = Positions.find(Node.Id);
 			FMaterialGraphNodeView View{.Node = Node, .Presentation = Position != Positions.end()
 				? *Position->second : DefaultNodePresentation(Node, Ordinal)};
-			if (Node.bMaterialOutput)
-			{
-				View.PrimaryLabel = "Material Output";
-				Visit(std::move(View), {Expression, Material, nullptr});
-				continue;
-			}
 			const FMaterialGraphCatalogEntry* Shape = nullptr;
 			const auto ShapeIt = BaseShapes.find(Expression->GetClass());
 			if (ShapeIt != BaseShapes.end())
@@ -224,6 +217,13 @@ namespace Durin::MaterialEditor
 						}
 			View.PrimaryLabel = Shape ? Shape->OperationName : Description ? std::string(Description->Name) : "Unknown";
 			Visit(std::move(View), {Expression, Material, Shape});
+		}
+		if (Material && (!Nodes || Selected.contains(RootViewId)))
+		{
+			const auto [X, Y] = Material->GetRootPosition();
+			FMaterialGraphNodeView Root{.Node = {.Id = RootViewId, .bMaterialOutput = true}, .PrimaryLabel = "Material Output",
+				.Presentation = {RootViewId, X, Y}};
+			Visit(std::move(Root), {nullptr, Material, nullptr});
 		}
 		if (Material) Result.Outputs = ReadGraphOutputs(*Material);
 		Result.bFunction = Function != nullptr;

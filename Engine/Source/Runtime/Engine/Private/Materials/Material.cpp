@@ -1,6 +1,5 @@
 #include "MaterialParameterMutation.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/Material.h"
@@ -46,23 +45,13 @@ namespace Durin
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-#if DURIN_WITH_EDITORONLY_DATA
-		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
-			&& ObjectInitializer.Purpose != EObjectConstructionPurpose::AssetLoad
-			&& ObjectInitializer.Purpose != EObjectConstructionPurpose::Duplication)
-		{
-			auto* Output = NewObject<DMaterialExpressionMaterialOutput>(this, "MaterialOutput");
-			Output->Id = FGuid::NewGuid();
-			ExpressionCollection.Expressions.push_back(Output);
-		}
-#endif
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
 #if DURIN_WITH_EDITORONLY_DATA
-			ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &ObservedExpressionCode);
+			ValidateExpressionGraph(&ObservedExpressionCode);
 #endif
 			if (!IsMaterialCompilationAcceptingRequests())
-				RequestProgramCompile(StaticProperties);
+				RequestProgramCompile();
 			PublishMaterialRenderProxyState();
 		}
 	}
@@ -506,7 +495,7 @@ namespace Durin
 			return;
 		}
 		const FMaterialProgramValidationResult ProgramValidation =
-			ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &ObservedExpressionCode);
+			ValidateExpressionGraph(&ObservedExpressionCode);
 		if (!ProgramValidation)
 		{
 			const auto Message = ProgramValidation.Diagnostics.empty()
@@ -519,7 +508,7 @@ namespace Durin
 		for (const auto& Expression : ExpressionCollection.Expressions) if (Expression) Ids.push_back(Expression->Id);
 		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Ids);
 		AdvanceRevision(MaterialProgramRevision);
-		RequestProgramCompile(StaticProperties);
+		RequestProgramCompile();
 		PublishMaterialRenderProxyState();
 		NotifyParameterChanges();
 		GraphChanges.Publish(*this);
@@ -550,7 +539,7 @@ namespace Durin
 				if (!DeriveExpressionParameterSchema(ExpressionCollection, Schema)) return;
 				// An editable graph may have compiler diagnostics. Invalidate failed
 				// graphs too, so an old successful preview cannot mask the new error.
-				const bool bCompilable = static_cast<bool>(ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs(), &Code));
+				const bool bCompilable = static_cast<bool>(ValidateExpressionGraph(&Code));
 				ParameterSchema = std::move(Schema);
 				const bool bShaderChanged = !bCompilable || Code != ObservedExpressionCode;
 				ObservedExpressionCode = Code;

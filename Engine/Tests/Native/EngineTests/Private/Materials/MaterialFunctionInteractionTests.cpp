@@ -43,14 +43,14 @@ TEST(FMaterialFunctionInteractionTests, PreviewWrappersCompileEveryOutputTypeWit
 		EXPECT_EQ(Function->GetExpressionCollection().Expressions, SourceExpressions);
 		EXPECT_EQ(Function->GetFunctionRevision(), Revision);
 		const auto Before = Preview->GetExpressionCollection().Expressions;
-		const auto BeforeOutputs = Preview->GetExpressionOutputs();
+		const auto BeforeOutputs = Preview->CaptureRootInputs();
 		const auto BeforeRevision = Preview->GetMaterialCompileDebugInfo().AuthoredRevision;
 		const auto MissingId = FGuid::NewGuid();
 		const auto Missing = BuildMaterialFunctionPreview(*Function, MissingId, *Preview);
 		ASSERT_FALSE(Missing);
 		EXPECT_EQ(Missing.Message.find("The preview output no longer exists."), 0u);
 		EXPECT_EQ(Preview->GetExpressionCollection().Expressions, Before);
-		EXPECT_EQ(Preview->GetExpressionOutputs(), BeforeOutputs);
+		EXPECT_EQ(Preview->CaptureRootInputs(), BeforeOutputs);
 		EXPECT_EQ(Preview->GetMaterialCompileDebugInfo().AuthoredRevision, BeforeRevision);
 		ASSERT_TRUE(BuildMaterialFunctionPreview(*Function, Output.Id, *Preview));
 	}

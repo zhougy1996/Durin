@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-21
+Last reviewed: 2026-11-22
 
 ## Task routing
 
@@ -42,17 +42,29 @@ contains no ImGui or workspace navigation services.
 `DMaterial` and `DMaterialFunction` own concrete `DMaterialExpression` children.
 Expression connections use stable GUIDs and output indices; presentation stores
 GUID-keyed positions and labels separately from expression payloads. Material instances never own or edit a graph.
-Each authored material owns exactly one `DMaterialExpressionMaterialOutput`. Its
-`Outputs` field owns terminal links and literal defaults; `GetExpressionOutputs()`
-is a read-through accessor, not separately serialized state. The strict graph
-setter rejects missing or duplicate output nodes. The recipe overload constructs
-the terminal before publishing the graph. The terminal is selectable and movable,
-but cannot be deleted or duplicated. Copying a mixed selection excludes it.
+Each base material owns its root input fields, packed connection, mode and root
+position. Its expression collection holds the body. `SetMaterialExpressions`
+validates the candidate and remaps every body and root connection against the
+same source-to-copy map before publishing. `CaptureRootInputs()` returns a
+detached value for bulk graph assignment. Property queries provide access to
+individual inputs. Rejected assignments preserve the material.
 
-`DMaterial::Domain` selects Surface or PostProcess output definitions. Stable
-`EMaterialOutputPin` property keys are independent of display order. Surface
+The editor projects one root for each base material, including an empty expression
+body. Every root pin uses a material-root address with an `EMaterialProperty`
+key, including `MP_MaterialAttributes` for the packed input. Root pin
+`SourceIndex` selects a row in the domain's input property list. Commands,
+selection and reconnection use the property key across pin reconstruction. Root
+input edits record the material before changing its fields. A published root-input
+change rebuilds the root pins and their links. A root-position change updates
+presentation only. Working-copy Apply compares root bindings by upstream
+expression identity and includes the root coordinates in its save checkpoint.
+
+`DMaterial::Domain` selects Surface or PostProcess output definitions. The read-only
+`GetExpressionInputDescription` returns the stored connection, numeric input
+when applicable, type and name for every supported property in either mode.
+`IsRootInputVisible` applies the domain and mode when projecting canvas pins. Surface
 admits DefaultLit, Unlit and ClearCoat; PostProcess admits opaque Unlit and exposes
-Emissive Color. The output terminal's `bUseMaterialAttributes` selects property
+Emissive Color. The material's `bUseMaterialAttributes` selects property
 inputs or one Material Attributes input. Both root representations and their
 inactive links/defaults persist across domain/model/output-mode changes. Engine's
 attribute registry and selected execution contract determine which values compile.
@@ -93,7 +105,7 @@ retain their strict graph-validation boundary.
 live edits, ownership reconciliation, and publication. Transaction capture,
 rollback, and replay follow [Transactions and gestures](#transactions-and-gestures).
 The graph owns clipboard commands and supplies a lightweight command object with the same weak owner for asset commands. The public command object has no raw connect or disconnect entry points.
-New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the previous connection and retained constant.
+New graph nodes allocate their pins with `AllocateDefaultPins()`. Existing nodes use `ReconstructNode()` to reread the authored links, defaults and function port IDs. Both paths dispatch the virtual `CreateInputPins()` and `CreateOutputPins()` hooks. The material root specializes input creation for its domain and output mode. The read model copies these node views for full and partial refresh. Details routes pin default changes through the owning node. A Set Material Attributes node uses schema admission for existing pins and checks the same type and cycle rules before adding a new input. Choosing a source creates the binding and connection in one edit. Choosing the base value removes the binding and its pin. Undo restores the attribute selection and its previous connection. An open Set prototype starts with standard material defaults.
 Each graph node owns transient editor pins. `GetInputPin` and `GetOutputPin` take
 display ordinals. A pin's signed 32-bit `SourceIndex` identifies the authored
 slot, with -1 for a signature port that has no call binding. Function outputs
@@ -395,12 +407,11 @@ Callers that select auxiliary
 nodes can request them from the creation action. Paste, duplicate, and input
 promotion return the ordered list of created graph nodes. Failures carry the
 command status, validation diagnostics, and message. `SetUseMaterialAttributes`
-switches the terminal mode as one undoable edit.
+switches the material root mode as one undoable edit.
 Connection, disconnection, promotion and paste never switch modes or erase the
 other connection set. A source incompatible with Surface produces compiler
 diagnostics. A disconnected aggregate input uses standard surface defaults,
-independently of retained individual defaults. Output package version 2 persists
-the mode and is required on load; older output versions are rejected.
+independently of retained individual defaults. Material output version 6 stores the mode and both connection sets on the material. The editor opens converted v6 packages through the regular loader.
 
 Semantic commands record participating objects before changing their live fields
 and publish through the owner after storage checks. `ReplaceExpression()` copies
@@ -435,17 +446,15 @@ Whole-presentation writes compare the sanitized state; bounded position writes
 validate the complete request before applying it. Parameter definitions and graph
 presentation have no public revision counters; observers consume graph changes.
 
-Concrete expression inputs retain numeric defaults, and each of the
-eight fixed Surface inputs is optionally connected. Disconnecting or
-deleting a surface source clears its link and returns to the retained typed
-fallback; ordinary inputs similarly restore retained literals. Required inputs without a fallback remain visible as compiler diagnostics. The
-canvas makes input replacement explicit with Shift and uses the same command
-result for invalid-target feedback. Both output connection sets remain structurally validated, but only the selected
-mode contributes output roots. Normalization unpacks aggregate roots and applies
-`IsMaterialSurfaceOutputActive` to both modes: normal, metallic, roughness and AO
-require Lit; opacity requires Translucent; opacity mask requires Masked. Unused
-property branches and their exclusive parameter bindings are pruned. These rules
-use the compiling material variant's settings, including instance overrides.
+The twelve named numeric material roots retain independent constants. Removing an
+upstream expression clears the wire and exposes the enabled constant or the
+property default. A disconnected Make pin uses the property default. An open Set
+assignment inherits its prototype value. The canvas uses Shift for explicit
+replacement and reports incompatible links through the graph command result.
+Asset validation checks stored links in both root modes. For compilation, Surface
+selects the authored root mode and PostProcess selects individual Emissive. The
+effective variant properties, including instance overrides, determine the active
+roots. Normalization removes unused property branches and parameter bindings.
 
 Imported structural parents use the same Surface as a new material: each input
 accepts the final property value. Factor/sample composition lives upstream. Reusable
@@ -456,8 +465,10 @@ functions can still return an aggregate Surface through the existing aggregate m
 `DMaterial` and `DMaterialFunction` publish owning-thread graph changes through
 `FMaterialGraphChangeSource`. `FMaterialGraphChangeSet` contains one node list
 with GUIDs and combinable Added, Removed, Content, Interface, Inputs, and Position
-flags, plus a graph-level Reset flag. Material output connections, defaults and
-position produce ordinary node changes; there are no output-specific graph flags.
+flags. Graph flags identify Reset, RootInputs and RootPosition. Material output
+connections, defaults and mode changes invalidate RootInputs. Root movement
+invalidates RootPosition. The editor resolves these flags to the projected node
+in each observing graph.
 These are invalidation hints for reading the current owner, not replayable edits
 or transaction history. Unknown expression-property changes conservatively
 invalidate that node's content, interface, and inputs.
@@ -699,7 +710,11 @@ The root property context menu offers two editor-only shortcuts. **Promote to Pa
 creates a parameter from an unconnected property's default and inserts a channel mask
 when the widths differ. **Add Texture** creates a texture sample parameter using mesh
 UV0 and connects the property-specific channel, replacing any existing link. For
-Normal it selects normal-map sampling and a flat-normal fallback. Each shortcut
+Normal it selects normal-map sampling and a flat-normal fallback. Normal requires
+typed tangent-space input, so ordinary numeric parameter promotion is unavailable.
+World Position Offset accepts vector parameter promotion. Its vertex input cannot
+use the shortcut's implicit-derivative texture sample. Specular, Clear Coat and
+Clear Coat Roughness accept scalar parameters and use R for the texture shortcut. Each shortcut
 commits node placement, expressions and the root connection in one transaction.
 
 One user-visible command produces one global editor transaction. Semantic
@@ -736,7 +751,7 @@ query keys. Each canvas owns its results and clears invalidation after rebuildin
 `DMaterialGraph` owns copy, cut, paste and duplicate for material and function
 drafts. Cut composes copy and removal. Duplicate copies the selection and pastes
 it at the requested offset in one history step. Catalog lookup and search belong
-to private Material Editor code. `MoveNodes` also moves the material output terminal.
+to private Material Editor code. `MoveNodes` accepts the projected material root alongside expressions. A single coordinate change record restores all moved positions. It writes root coordinates on the material and expression coordinates in the presentation table.
 `DMaterialGraph::CalculateLayout` reads node sizes from the current graph and follows
 stored expression inputs, including hidden root properties. It returns a detached presentation. `Layout` applies the
 calculated positions in one transaction. The canvas captures stable IDs from the returned nodes for its selection.

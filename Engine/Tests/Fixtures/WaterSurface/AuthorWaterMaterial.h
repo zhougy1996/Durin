@@ -120,7 +120,7 @@ inline auto AuthorWaterMaterial(const std::filesystem::path& Destination) -> voi
 		}
 		Links.push_back(Link);
 	}
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
 	{
 		const auto& Root = Recipe.IR.GetAttribute(Definition.Property);

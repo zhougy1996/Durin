@@ -54,7 +54,7 @@ namespace
 		const auto& Collection = Material ? Material->GetExpressionCollection() : Cast<DMaterialFunction>(&Owner)->GetExpressionCollection();
 		std::vector<DMaterialExpression*> Nodes;
 		for (auto& E : Collection.Expressions) Nodes.push_back(E.Get());
-		const auto Result = Material ? MIR::FGraphBuilder::ValidateSurface(Nodes, Material->GetExpressionOutputs())
+		const auto Result = Material ? MIR::FGraphBuilder::ValidateSurface(Nodes, Material->CaptureRootInputs())
 			: MIR::FGraphBuilder::ValidateFunction(Nodes);
 		return !Result && !Result.Diagnostics.empty();
 	}

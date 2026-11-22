@@ -33,19 +33,30 @@ namespace Durin::MaterialEditor
 		StaleOwner,
 	};
 
-	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialAttribute, MaterialSurface, Output, FunctionOutput };
+	enum class EMaterialGraphEndpoint : uint8 { MaterialRoot };
+	using FMaterialGraphNodeAddress = std::variant<FGuid, EMaterialGraphEndpoint>;
+	struct FMaterialGraphNodePosition
+	{
+		FMaterialGraphNodeAddress Node;
+		int32 X, Y;
+	};
+
+	enum class EMaterialGraphPinKind : uint8 { Input, FunctionInput, MaterialRoot, Output, FunctionOutput };
 	struct FMaterialGraphPinAddress
 	{
 		FGuid NodeId;
 		EMaterialGraphPinKind Kind = EMaterialGraphPinKind::Input;
 		uint32 Index = 0;
 		FGuid PortId;
+		EMaterialProperty Property = EMaterialProperty::MP_MaterialAttributes;
 		auto operator==(const FMaterialGraphPinAddress&) const -> bool = default;
+		auto IsMaterialRoot() const -> bool { return Kind == EMaterialGraphPinKind::MaterialRoot; }
 		static auto Input(FGuid Node, uint32 Index, FGuid Port = {}) -> FMaterialGraphPinAddress
 		{ return {Node, Port.IsValid() ? EMaterialGraphPinKind::FunctionInput : EMaterialGraphPinKind::Input, Port.IsValid() ? 0u : Index, Port}; }
-		static auto MaterialOutput(FGuid Node, std::optional<EMaterialProperty> Attribute = {}) -> FMaterialGraphPinAddress
-		{ return {Node, Attribute ? EMaterialGraphPinKind::MaterialAttribute : EMaterialGraphPinKind::MaterialSurface,
-			Attribute ? static_cast<uint32>(*Attribute) : static_cast<uint32>(EMaterialOutputPin::Surface)}; }
+		static auto MaterialOutput(EMaterialProperty Property = EMaterialProperty::MP_MaterialAttributes) -> FMaterialGraphPinAddress
+		{ return {.Kind = EMaterialGraphPinKind::MaterialRoot, .Property = Property}; }
+		auto HasValidRootAddress() const -> bool
+		{ return IsMaterialRoot() && !NodeId.IsValid() && !PortId.IsValid() && Index == 0; }
 		static auto Output(FMaterialProgramLink Link) -> FMaterialGraphPinAddress
 		{ return {Link.SourceNodeId, Link.SourceOutputId.IsValid() ? EMaterialGraphPinKind::FunctionOutput : EMaterialGraphPinKind::Output, Link.SourceOutputIndex, Link.SourceOutputId}; }
 	};
@@ -80,6 +91,7 @@ namespace Durin::MaterialEditor
 	struct FMaterialGraphPinView
 	{
 		uint32 InputIndex = 0;
+		std::optional<EMaterialProperty> MaterialProperty;
 		std::string Name;
 		FMaterialProgramLink Link;
 		EMaterialProgramValueType SourceType = EMaterialProgramValueType::Float;
@@ -192,9 +204,7 @@ namespace Durin::MaterialEditor
 		std::string FunctionPath;
 		auto InputAddress(const FMaterialGraphPinView& Pin) const -> FMaterialGraphPinAddress
 		{
-			if (Node.bMaterialOutput)
-				return {Node.Id, Pin.InputIndex == static_cast<uint32>(EMaterialOutputPin::Surface)
-					? EMaterialGraphPinKind::MaterialSurface : EMaterialGraphPinKind::MaterialAttribute, Pin.InputIndex};
+			if (Pin.MaterialProperty) return FMaterialGraphPinAddress::MaterialOutput(*Pin.MaterialProperty);
 			return FMaterialGraphPinAddress::Input(Node.Id, Pin.InputIndex, Pin.PortId);
 		}
 	};

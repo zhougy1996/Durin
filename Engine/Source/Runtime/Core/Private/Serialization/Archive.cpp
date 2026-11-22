@@ -80,12 +80,15 @@ namespace Durin
 
 	auto FCustomVersionRegistry::Register(FCustomVersionDefinition Definition) -> bool
 	{
-		if (!Definition.Guid.IsValid() || Definition.CurrentVersion < 0 || Definition.Name.empty()) return false;
+		if (!Definition.Guid.IsValid() || Definition.MinimumSupportedVersion < 0
+			|| Definition.CurrentVersion < Definition.MinimumSupportedVersion || Definition.Name.empty()) return false;
 		auto& Registry = VersionRegistry();
 		std::lock_guard Lock(Registry.Mutex);
 		const auto It = std::ranges::find(Registry.Definitions, Definition.Guid, &FCustomVersionDefinition::Guid);
 		if (It != Registry.Definitions.end())
-			return It->CurrentVersion == Definition.CurrentVersion && It->Name == Definition.Name;
+			return It->CurrentVersion == Definition.CurrentVersion && It->Name == Definition.Name
+				&& It->MinimumSupportedVersion == Definition.MinimumSupportedVersion
+				&& It->RequiredByClasses == Definition.RequiredByClasses;
 		Registry.Definitions.push_back(std::move(Definition));
 		std::ranges::sort(Registry.Definitions, {}, &FCustomVersionDefinition::Guid);
 		return true;
@@ -98,9 +101,10 @@ namespace Durin
 		return Registry.Definitions;
 	}
 
-	FCustomVersionRegistration::FCustomVersionRegistration(FGuid Guid, int32 Version, std::string_view Name)
+	FCustomVersionRegistration::FCustomVersionRegistration(FGuid Guid, int32 Version, std::string_view Name,
+		int32 MinimumSupportedVersion, std::vector<std::string> RequiredByClasses)
 	{
-		const bool Registered = FCustomVersionRegistry::Register({Guid, Version, std::string(Name)});
+		const bool Registered = FCustomVersionRegistry::Register({Guid, Version, std::string(Name), MinimumSupportedVersion, std::move(RequiredByClasses)});
 		requiref(Registered, "Invalid or conflicting custom version registration: {}", Name);
 	}
 
@@ -116,6 +120,9 @@ namespace Durin
 				Error = std::format("Invalid or duplicate custom version {} ({}).", Version.Guid.ToString(), Version.Version);
 			else if (It == Definitions.end())
 				Error = std::format("Unknown custom version {} (file version {}).", Version.Guid.ToString(), Version.Version);
+			else if (Version.Version < It->MinimumSupportedVersion)
+				Error = std::format("Custom version '{}' {} is unsupported: file {}, minimum {}.",
+					It->Name, Version.Guid.ToString(), Version.Version, It->MinimumSupportedVersion);
 			else if (Version.Version > It->CurrentVersion)
 				Error = std::format("Custom version '{}' {} is newer than supported: file {}, current {}.",
 					It->Name, Version.Guid.ToString(), Version.Version, It->CurrentVersion);

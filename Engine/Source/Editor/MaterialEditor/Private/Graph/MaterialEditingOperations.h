@@ -33,6 +33,8 @@ namespace Durin::MaterialEditor::MaterialEditing
 		int32 Y = 0;
 	};
 
+	MATERIALEDITOR_API auto CanPromoteSurfaceOutput(const DMaterial& Material, EMaterialProperty Property) -> bool;
+	MATERIALEDITOR_API auto SurfaceTextureOutput(const DMaterial& Material, EMaterialProperty Property) -> std::optional<EMaterialSampleOutput>;
 	MATERIALEDITOR_API auto PromoteSurfaceOutputToParameter(DMaterial& Material, const FMaterialGraphSurfaceNodeRequest& Request,
 		ETransactionMode Mode = ETransactionMode::Record)
 		-> TMaterialGraphResult<DMaterialExpression*>;

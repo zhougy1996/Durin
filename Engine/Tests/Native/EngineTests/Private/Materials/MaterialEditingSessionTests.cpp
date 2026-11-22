@@ -6,7 +6,6 @@
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
@@ -58,7 +57,7 @@ namespace
 		}
 		auto Edit(DMaterial& Material, float Roughness) -> void
 		{
-			auto Outputs = Material.GetExpressionOutputs();
+			auto Outputs = Material.CaptureRootInputs();
 			Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({Roughness});
 			std::vector<DMaterialExpression*> Expressions;
 			for (const auto& Expression : Material.GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
@@ -82,8 +81,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 	const auto Call = MaterialAuthoringGraph->InsertFunctionCall(*Callee, 100, 200, ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Call);
 	const auto ResultLink = FMaterialProgramLink{Call.value(), 0, Port.Id};
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Source, FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id,
-		EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output(ResultLink), true, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Source, FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output(ResultLink), true, ETransactionMode::NotTransactable));
 	DMaterialExpressionFunctionCall* Expression = nullptr;
 	for (const auto& Entry : Source->GetExpressionCollection().Expressions)
 		if (Entry->Id == Call.value()) Expression = Cast<DMaterialExpressionFunctionCall>(Entry.Get());
@@ -112,8 +110,8 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 				{
 					auto* Node = Graph->FindNode(View.Node.Id);
 					ASSERT_TRUE(Node);
-					ASSERT_TRUE(Node->GetMaterialExpression());
-					EXPECT_EQ(Graph->AddExpression(*Node->GetMaterialExpression()), Node);
+					if (View.Node.bMaterialOutput) EXPECT_EQ(Graph->GetRootNode(), Node);
+					else { ASSERT_TRUE(Node->GetMaterialExpression()); EXPECT_EQ(Graph->AddExpression(*Node->GetMaterialExpression()), Node); }
 					Node->ReconstructNode();
 					EXPECT_EQ(Node->GetView().Presentation, View.Presentation);
 					EXPECT_EQ(Cast<DMaterialGraphNode_Root>(Node) != nullptr, View.Node.bMaterialOutput);
@@ -153,8 +151,7 @@ TEST_F(FMaterialEditingSessionTests, EditorGraphsRebuildFromWorkingAssetsWithout
 TEST_F(FMaterialEditingSessionTests, RebuildRestoresTextureChannelsAndSparseMaterialAttributeSlots)
 {
 	auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Source);
-	auto* Root = Cast<DMaterialExpressionMaterialOutput>(Expressions.front().Get());
-	ASSERT_TRUE(Root);
+	auto Root = Source->CaptureRootInputs();
 	auto* Sample = NewObject<DMaterialExpressionTextureSample2D>(Source, NAME_None);
 	auto* Make = NewObject<DMaterialExpressionMakeMaterialAttributes>(Source, NAME_None);
 	auto* Get = NewObject<DMaterialExpressionGetMaterialAttributes>(Source, NAME_None);
@@ -168,17 +165,15 @@ TEST_F(FMaterialEditingSessionTests, RebuildRestoresTextureChannelsAndSparseMate
 	Get->AttributeIDs = {FMaterialAttributeDefinitionMap::GetID(Roughness)};
 	Get->Surface.Connect(0, Make);
 	const int32 Green = static_cast<int32>(EMaterialSampleOutput::G);
-	Make->Values.Get(Metallic).Connection.Connect(Green, Sample);
-	Root->Outputs.Get(Roughness).Connection.Connect(static_cast<int32>(Roughness), Get);
-	Root->Outputs.Get(Metallic).Connection.Connect(Green, Sample);
-	Root->Outputs.Attributes.Connect(0, Make);
+	Make->GetExpressionInputForProperty(Metallic)->Connect(Green, Sample);
+	Root.Get(Roughness).Connection.Connect(static_cast<int32>(Roughness), Get);
+	Root.Get(Metallic).Connection.Connect(Green, Sample);
+	Root.Attributes.Connect(0, Make);
+	FMaterialExpressionEditing::SetRootInputs(*Source, Root);
 	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Source));
-	const auto CheckRoot = [&](int32 Slot, const DMaterialExpression& Upstream, int32 SourceIndex, size_t Fanout) {
-		const auto* Node = Graph->FindNode(Root->Id);
-		ASSERT_TRUE(Node);
-		const auto Inputs = Node->GetPins();
-		const auto Input = std::ranges::find(Inputs, Slot, &FMaterialGraphPin::SourceIndex);
-		ASSERT_NE(Input, Inputs.end());
+	const auto CheckRoot = [&](EMaterialProperty Property, const DMaterialExpression& Upstream, int32 SourceIndex, size_t Fanout) {
+		const auto* Input = Graph->FindPin(FMaterialGraphPinAddress::MaterialOutput(Property));
+		ASSERT_TRUE(Input);
 		ASSERT_EQ(Input->LinkedTo.size(), 1u);
 		const auto* Output = Input->LinkedTo.front();
 		EXPECT_EQ(Output->Direction, EMaterialGraphPinDirection::Output);
@@ -193,21 +188,23 @@ TEST_F(FMaterialEditingSessionTests, RebuildRestoresTextureChannelsAndSparseMate
 		auto* SampleNode = Graph->FindNode(Sample->Id);
 		ASSERT_TRUE(SampleNode);
 		const auto Before = SampleNode->GetView().Presentation;
-		ASSERT_NE(Before.X, 0);
+		EXPECT_EQ(Before.NodeId, Sample->Id);
 		SampleNode->ReconstructNode();
 		EXPECT_EQ(SampleNode->GetView().Presentation, Before);
-		CheckRoot(static_cast<int32>(Metallic), *Sample, Green, 2);
-		CheckRoot(static_cast<int32>(Roughness), *Get, static_cast<int32>(Roughness), 1);
+		CheckRoot(Metallic, *Sample, Green, 2);
+		CheckRoot(Roughness, *Get, static_cast<int32>(Roughness), 1);
 	}
 	const auto* OldOutput = Graph->FindNode(Sample->Id)->GetOutputPin(2);
-	Root->Outputs.Get(Metallic).Connection.Connect(static_cast<int32>(EMaterialSampleOutput::A), Sample);
+	Root.Get(Metallic).Connection.Connect(static_cast<int32>(EMaterialSampleOutput::A), Sample);
+	FMaterialExpressionEditing::SetRootInputs(*Source, Root);
 	Graph->LinkGraphNodesFromMaterial();
 	EXPECT_EQ(OldOutput, Graph->FindNode(Sample->Id)->GetOutputPin(2));
 	ASSERT_EQ(OldOutput->LinkedTo.size(), 1u);
-	CheckRoot(static_cast<int32>(Metallic), *Sample, static_cast<int32>(EMaterialSampleOutput::A), 1);
-	Root->Outputs.bUseMaterialAttributes = true;
+	CheckRoot(Metallic, *Sample, static_cast<int32>(EMaterialSampleOutput::A), 1);
+	Root.bUseMaterialAttributes = true;
+	FMaterialExpressionEditing::SetRootInputs(*Source, Root);
 	Graph->RebuildGraph();
-	CheckRoot(static_cast<int32>(EMaterialOutputPin::Surface), *Make, 0, 2);
+	CheckRoot(EMaterialProperty::MP_MaterialAttributes, *Make, 0, 2);
 	const auto* Channel = Graph->FindNode(Sample->Id)->GetOutputPin(2); // RGB, R, G in display order.
 	ASSERT_TRUE(Channel);
 	EXPECT_EQ(Channel->SourceIndex, Green);
@@ -294,12 +291,12 @@ TEST_F(FMaterialEditingSessionTests, ReconstructNodeReadsRenamedFunctionPinsAndR
 	ASSERT_TRUE(Call);
 
 	const FMaterialProgramLink Link{Call.value(), 0, Port.Id};
-	const auto RootAddress = FMaterialGraphPinAddress::MaterialOutput(Source->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
+	const auto RootAddress = FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness);
 	ASSERT_TRUE(CallerAuthoringGraph->GetSchema().TryCreateConnection(*CallerAuthoringGraph, FMaterialGraphPinAddress::Output(Link), RootAddress, true, Mode));
 
 	auto* CallNode = CallerAuthoringGraph->FindNode(Link.SourceNodeId);
 	auto* OutputNode = FunctionAuthoringGraph->FindNode(Terminal.value());
-	auto* Root = CallerAuthoringGraph->FindNode(RootAddress.NodeId);
+	auto* Root = CallerAuthoringGraph->GetRootNode();
 	ASSERT_TRUE(CallNode && OutputNode && Root);
 	Port.Name = "Renamed";
 	const auto InputAddress = FMaterialGraphPinAddress::Input(Link.SourceNodeId, 0, InputPort.Id);
@@ -393,7 +390,7 @@ TEST_F(FMaterialEditingSessionTests, TypedExpressionCopiesStayIndependentAcrossA
 	Parameter->Metadata.Name = FName("SessionValue");
 	Parameter->DefaultValue = 0.23f;
 	DMaterialExpression* Inputs[] = {Parameter.Get()};
-	auto Outputs = Source->GetExpressionOutputs();
+	auto Outputs = Source->CaptureRootInputs();
 	Outputs.Get(EMaterialProperty::MP_Roughness).Connection.Expression = Parameter.Get();
 	ASSERT_TRUE(Source->SetMaterialExpressions(Inputs, Outputs));
 	Package->ClearDirty();
@@ -454,7 +451,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_NE(Draft->GetPackage(), Package);
 	EXPECT_TRUE(Draft->GetPackage()->GetTopLevelAssets().empty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
-	const auto Original = Source->GetExpressionOutputs();
+	const auto Original = Source->CaptureRootInputs();
 	const auto Generation = Source->GetMaterialCompileDebugInfo().RequestId;
 	auto* Child = NewObject<DMaterialInstance>(nullptr, "ApplyChild");
 	TStrongObjectPtr<DMaterialInstance> ChildRoot(Child);
@@ -463,14 +460,14 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	Edit(*Draft, 0.37f);
 	Draft->CompileEdits();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
-	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
+	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, Generation);
 	EXPECT_EQ(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision);
 	EXPECT_FALSE(Package->IsDirty());
 	ASSERT_TRUE(Session.HasUnappliedChanges());
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_EQ(Child->GetParent(), Source);
-	EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), CaptureMaterialOutputBindings(Draft->GetExpressionOutputs()));
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Source), CaptureMaterialOutputBindings(*Draft));
 	EXPECT_GT(Child->GetMaterialCompileDebugInfo().AuthoredRevision, ChildRevision);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_FALSE(Session.HasUnappliedChanges());
@@ -479,7 +476,7 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_EQ(Source->GetMaterialCompileDebugInfo().RequestId, AppliedGeneration);
 	Edit(*Draft, 0.62f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.37f);
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.37f);
 	MarkAsGarbage(Child);
 }
 
@@ -498,7 +495,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 	Call->Id = CallId; Call->Function = First; Call->FunctionOutputs = {{Output.Id, Output.Type}};
 	const std::array<DMaterialExpression*, 1> Expressions{Call.Get()};
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Attributes = {Call.Get(), 0, Output.Id}; Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Source->SetMaterialExpressions(Expressions, Outputs));
 	const auto GetCall = [](DMaterial& Material) {
@@ -509,7 +506,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 	std::string Error;
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
-	ASSERT_EQ(Draft->GetExpressionCollection().Expressions.size(), 2u);
+	ASSERT_EQ(Draft->GetExpressionCollection().Expressions.size(), 1u);
 	EXPECT_EQ(GetCall(*Draft)->Function.Get(), First);
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 	{
@@ -520,7 +517,7 @@ TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindin
 		ASSERT_TRUE(Renamed.Commit("Rename Call", Transactions.Get()));
 	}
 	ASSERT_TRUE(Transactions.Get()->Undo());
-	EXPECT_EQ(CaptureMaterialOutputBindings(Draft->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Draft), CaptureMaterialOutputBindings(Outputs));
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	const auto Label = std::ranges::find(Draft->GetMaterialGraphPresentation().Nodes, CallId, &FMaterialGraphNodePresentation::NodeId);
 	ASSERT_NE(Label, Draft->GetMaterialGraphPresentation().Nodes.end());
@@ -557,12 +554,12 @@ TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStay
 	Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = Definition.Id, .Name = Definition.Name};
 	Parameter->DefaultValue = Definition.Value.GetScalar();
 	const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
-	ASSERT_TRUE(Draft->SetMaterialExpressions(Expressions, Draft->GetExpressionOutputs()));
+	ASSERT_TRUE(Draft->SetMaterialExpressions(Expressions, Draft->CaptureRootInputs()));
 	auto Properties = OriginalProperties;
 	Properties.bTwoSided = !Properties.bTwoSided;
 	ASSERT_TRUE(Draft->SetStaticProperties(Properties));
 	auto Presentation = OriginalPresentation;
-	Testing::OutputPosition(*Draft, Presentation).X += 100;
+	Draft->SetRootPosition(Draft->GetRootPosition().first + 100, Draft->GetRootPosition().second);
 	ASSERT_TRUE(Draft->SetMaterialGraphPresentation(Presentation) != Durin::EMaterialGraphPresentationResult::Rejected);
 	EXPECT_EQ(Source->GetStaticProperties(), OriginalProperties);
 	EXPECT_EQ(Source->GetMaterialGraphPresentation(), OriginalPresentation);
@@ -583,8 +580,8 @@ TEST_F(FMaterialEditingSessionTests, ExternalSourceChangeRejectsApplyWithoutOver
 	Edit(*Source, 0.72f);
 	EXPECT_FALSE(Session.FinishAndApply(Error));
 	EXPECT_NE(Error.find("outside"), std::string::npos);
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.72f);
-	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.31f);
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.72f);
+	EXPECT_FLOAT_EQ(Session.GetWorkingMaterial()->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.31f);
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 }
 
@@ -592,7 +589,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 {
 	Tests::FTestEditorTransactorOwner Transactions;
 	TObjectPtr<DMaterial> RetiredDraft;
-	const auto Original = Source->GetExpressionOutputs();
+	const auto Original = Source->CaptureRootInputs();
 	{
 		FMaterialEditingSession Session;
 		std::string Error;
@@ -600,8 +597,8 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 			Transactions.Get())) << Error;
 		auto* Draft = Session.GetWorkingMaterial();
 		RetiredDraft = Draft;
-		const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Draft->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
-		ASSERT_TRUE(Session.Graph->FindNode(Pin.NodeId)->PinDefaultValueChanged(Pin,
+		const auto Pin = FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness);
+		ASSERT_TRUE(Session.Graph->GetRootNode()->PinDefaultValueChanged(Pin,
 			{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.X = 0.21f}}));
 		EXPECT_TRUE(Session.HasUnappliedChanges());
 		ASSERT_TRUE(Transactions->Undo());
@@ -612,17 +609,17 @@ TEST_F(FMaterialEditingSessionTests, DiscardRetiresDraftAndItsHistoryWithoutChan
 		Session.MarkSaved();
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_TRUE(Session.HasUnappliedChanges());
-		EXPECT_NE(Source->GetExpressionOutputs(), Original);
+		EXPECT_NE(Source->CaptureRootInputs(), Original);
 	}
 	EXPECT_FALSE(RetiredDraft.IsValid());
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FALSE(Transactions->CanRedo());
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.21f);
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.21f);
 }
 
 TEST_F(FMaterialEditingSessionTests, DiscardWithoutApplyLeavesSourceClean)
 {
-	const auto Original = Source->GetExpressionOutputs();
+	const auto Original = Source->CaptureRootInputs();
 	{
 		FMaterialEditingSession Session;
 		std::string Error;
@@ -630,7 +627,7 @@ TEST_F(FMaterialEditingSessionTests, DiscardWithoutApplyLeavesSourceClean)
 		Edit(*Session.GetWorkingMaterial(), 0.19f);
 	}
 	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
+	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 }
 
 TEST_F(FMaterialEditingSessionTests, RelocationDoesNotInvalidateAnUnchangedSource)
@@ -644,5 +641,5 @@ TEST_F(FMaterialEditingSessionTests, RelocationDoesNotInvalidateAnUnchangedSourc
 		FGuid::NewGuid().ToString()), Destination));
 	ASSERT_TRUE(Package->RelocateAssetPackage(Destination));
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
-	EXPECT_FLOAT_EQ(Source->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Constant[0], 0.46f);
+	EXPECT_FLOAT_EQ(Source->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Constant[0], 0.46f);
 }

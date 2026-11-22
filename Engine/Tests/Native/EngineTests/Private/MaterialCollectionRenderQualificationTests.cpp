@@ -79,7 +79,7 @@ TEST(FMaterialCollectionRenderQualificationTests, RecordsStableWorldRenderViewBa
 		Color->ParameterId = ColorId;
 		Mask->Id = FGuid::NewGuid(); Mask->Collection = Collection.Get();
 		Mask->ParameterId = MaskId;
-		FMaterialAttributeRoot Outputs;
+		FMaterialRootInputs Outputs;
 		Outputs.Get(EMaterialProperty::MP_BaseColor) = {Color.Get()};
 		Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Mask.Get()};
 		const std::array<DMaterialExpression*, 2> Expressions{Color.Get(), Mask.Get()};

@@ -10,7 +10,6 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionCustomData.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionTextureCoordinates.h"
@@ -244,9 +243,7 @@ namespace Durin
 				Describe<DMaterialExpressionGetMaterialAttributes>(EMaterialProgramOpcode::GetMaterialAttributes, "Get Material Attributes",
 					"Reads selected typed material attributes.", {"Attributes"}, ""),
 				Describe<DMaterialExpressionSetMaterialAttributes>(EMaterialProgramOpcode::SetMaterialAttributes, "Set Material Attributes",
-					"Overrides selected attributes while retaining the base values.", {"Attributes"}, ""),
-				{DMaterialExpressionMaterialOutput::StaticClass(), std::nullopt, "Material Output",
-					"Publishes material domain outputs.", {}, EMaterialExpressionOutputBehavior::Instance, {}},
+					"Overrides connected attributes on the incoming surface. An open surface input uses the material attribute defaults.", {"Attributes"}, ""),
 			};
 			std::unordered_map<const DClass*, bool> Classes;
 			for (const auto& Description : Result)

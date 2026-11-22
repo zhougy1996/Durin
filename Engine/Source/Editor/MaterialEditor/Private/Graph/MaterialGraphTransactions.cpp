@@ -60,11 +60,13 @@ namespace Durin::MaterialEditor
 				std::unordered_map<FGuid, size_t> Indices;
 				for (size_t I = 0; I < Candidate.Nodes.size(); ++I) Indices.emplace(Candidate.Nodes[I].NodeId, I);
 				std::unordered_set<FGuid> Remove;
+				std::optional<std::pair<int32, int32>> RootPosition;
 				for (const auto& Change : NodeChanges)
 				{
 					const auto It = Indices.find(Change.NodeId);
 					const auto X = bBefore ? Change.BeforeX : Change.AfterX;
 					const auto Y = bBefore ? Change.BeforeY : Change.AfterY;
+					if (Change.bMaterialRoot) { RootPosition = {X, Y}; continue; }
 					if (It == Indices.end())
 					{
 						if (!bBefore || Change.HadAuthoredPosition)
@@ -79,8 +81,10 @@ namespace Durin::MaterialEditor
 				}
 				if (!Remove.empty()) std::erase_if(Candidate.Nodes, [&](const auto& Node) { return Remove.contains(Node.NodeId); });
 				const auto Count = Candidate.Nodes.size();
+				FScopedMaterialGraphChange Batch(*Target);
 				if (WriteGraphPresentation(*Target, std::move(Candidate)) == EMaterialGraphPresentationResult::Rejected)
 					return {{.Code = EMaterialChangeError::PresentationWrite, .TargetPath = TargetPath, .NodeCount = Count}};
+				if (RootPosition) Cast<DMaterial>(Target)->SetRootPosition(RootPosition->first, RootPosition->second);
 				return {};
 			}
 
@@ -177,12 +181,21 @@ namespace Durin::MaterialEditor
 			FMaterialGraphPresentation CandidatePresentation,
 			std::string Description,
 			std::vector<FNodePositionChange> Changes,
-			DTransactor* Transactions, std::string* OutError) -> bool
+			DTransactor* Transactions, std::string* OutError, FGuid RootViewId) -> bool
 		{
 			if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions)
 				return FailWithError(OutError, "The editor transactor is busy.");
 
 			if (Changes.empty()) return true;
+			std::optional<std::pair<int32, int32>> RootPosition;
+			if (auto Root = std::ranges::find(CandidatePresentation.Nodes, RootViewId, &FMaterialGraphNodePresentation::NodeId); Root != CandidatePresentation.Nodes.end())
+			{
+				RootPosition = {Root->X, Root->Y};
+				CandidatePresentation.Nodes.erase(Root);
+				for (auto& Change : Changes)
+					if (Change.NodeId == RootViewId) { Change.NodeId = {}; Change.bMaterialRoot = true; }
+			}
+			FScopedMaterialGraphChange Batch(Owner);
 			FScopedTransaction Recording("MaterialGraph", Description, nullptr, Transactions != nullptr);
 			if (Transactions)
 			{
@@ -198,6 +211,7 @@ namespace Durin::MaterialEditor
 			// The validated candidate is published only after history accepts the edit.
 			const auto Result = WriteGraphPresentation(Owner, std::move(CandidatePresentation));
 			check(Result != EMaterialGraphPresentationResult::Rejected);
+			if (RootPosition) Cast<DMaterial>(&Owner)->SetRootPosition(RootPosition->first, RootPosition->second);
 			return true;
 		}
 	}

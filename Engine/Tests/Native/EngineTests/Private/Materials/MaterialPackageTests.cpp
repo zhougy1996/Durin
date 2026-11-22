@@ -2,6 +2,7 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionArithmetic.h"
+#include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionTransform.h"
 #include "Misc/UnifiedError.h"
@@ -10,6 +11,7 @@
 #include "StaticMesh/StaticMeshTestEnvironment.h"
 #include "StaticMeshMaterialTestFixture.h"
 #include "Materials/MaterialCustomVersion.h"
+#include "Asset/LoadErrors.h"
 #include "Materials/MaterialFunction.h"
 
 TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
@@ -113,7 +115,7 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	Durin::FVector3 RetainedBaseColor;
 	ASSERT_TRUE(Loaded->GetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), RetainedBaseColor));
 	ExpectColorNear(Durin::FVector4f(Durin::FVector3f(RetainedBaseColor), 1.f), Durin::FVector4f(.2f, .4f, .6f, 1.f));
-	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	const auto LoadedBinding = GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded));
 	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.0f);
 	float Retained = 0;
@@ -140,7 +142,7 @@ TEST(FMaterialPackageTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	LoadedBase->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
 	ASSERT_TRUE(Loaded->GetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), RetainedBaseColor));
 	ExpectColorNear(Durin::FVector4f(Durin::FVector3f(RetainedBaseColor), 1.f), Durin::FVector4f(.6f, .4f, .2f, 1.f));
-	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(.5f, .5f, .5f, 1.f));
+	ExpectColorNear(GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Loaded)).BaseColor, Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(InstancePath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(
 		BasePath,
@@ -186,8 +188,8 @@ TEST(FMaterialPackageTests, TypedExpressionsRoundTripDuplicateAndRejectMalformed
 	const auto CheckGraph = [&](DMaterial* Candidate) {
 		ASSERT_NE(Candidate, nullptr);
 		const auto& Children = Candidate->GetExpressionCollection().Expressions;
-		ASSERT_EQ(Children.size(), Authored.Expressions.size() + 1);
-		EXPECT_EQ(CaptureMaterialOutputBindings(Candidate->GetExpressionOutputs()), CaptureMaterialOutputBindings(Authored.Outputs));
+		ASSERT_EQ(Children.size(), Authored.Expressions.size());
+		EXPECT_EQ(CaptureMaterialOutputBindings(*Candidate), CaptureMaterialOutputBindings(Authored.Outputs));
 		EXPECT_EQ(Candidate->GetMaterialGraphPresentation(), Presentation);
 		for (size_t Index = 0; Index < Authored.Expressions.size(); ++Index)
 		{
@@ -380,7 +382,7 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 		std::pair{FMaterialGraphVersion::Guid, std::array{-1, 5, 7}},
 		std::pair{FMaterialInstanceVersion::Guid, std::array{-1, 1, 3}},
 		std::pair{FMaterialFunctionVersion::Guid, std::array{-1, 2, 4}},
-		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 3, 5}},
+		std::pair{FMaterialOutputVersion::Guid, std::array{-1, 5, 7}},
 	};
 	for (const auto& [Guid, Versions] : RejectedVersionBoundaries)
 		for (const int32 Version : Versions)
@@ -398,7 +400,9 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 			DMaterial* Loaded = nullptr;
 			const auto Result = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path), nullptr, &ResultError);
 			Loaded = Result;
-			EXPECT_FALSE(Result) << (ResultError ? ResultError->ToString() : "");
+			ASSERT_TRUE(ResultError);
+			EXPECT_TRUE(ResultError->Is(PackageReadErrors::UnsupportedVersion)) << ResultError->ToString();
+			EXPECT_FALSE(Result);
 			EXPECT_EQ(Loaded, nullptr);
 			EXPECT_EQ(FindResidentPackage(Path), nullptr);
 		}
@@ -413,6 +417,128 @@ TEST(FMaterialPackageTests, MixedPackageRequiresAllVersionDomainsAndPreservesIns
 	const auto LoadedChildren = GetLoadedDirectMaterialChildren(Loaded);
 	ASSERT_EQ(LoadedChildren.size(), 1u);
 	EXPECT_EQ(LoadedChildren.front().ResolveObjectPtr(), Loaded->GetPackage()->FindTopLevelAsset("Overrides"));
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FMaterialPackageTests, StandaloneMakeRequiresOutputVersionBeforeBindingItsFields)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture Registry;
+	const auto Root = Testing::CreateTestFixtureDirectory("MakeOutputVersion");
+	Testing::RegisterMountPointForTests("/MakeOutputVersion/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/MakeOutputVersion/Function", Path));
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
+	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> Make(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
+	Make->Id = FGuid::NewGuid();
+	TStrongObjectPtr<DMaterialExpressionScalarConstant> Value(NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None));
+	Value->Id = FGuid::NewGuid();
+	Value->Value = .375f;
+	Make->Roughness = {Value.Get()};
+	std::vector<DMaterialExpression*> Body;
+	for (const auto& Expression : Function->GetExpressionCollection().Expressions) Body.push_back(Expression.Get());
+	Body.push_back(Make.Get());
+	Body.push_back(Value.Get());
+	ASSERT_TRUE(Function->SetFunctionExpressions(Body));
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+
+	const auto File = Root / "Function.dasset";
+	const auto Original = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(Original);
+	ObjectPackage::FLinkerTables Tables;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(*Original, {}, Path, Tables));
+	ASSERT_EQ(std::erase_if(Tables.CustomVersions, [](const auto& V) { return V.Guid == FMaterialOutputVersion::Guid; }), 1u);
+	// Give Roughness a wire type that cannot bind to an expression connection.
+	const auto ClassName = Make->GetClass()->GetQualifiedName().ToString();
+	auto Schema = std::ranges::find(Tables.Schemas, ClassName, &ObjectPackage::FSerializedSchema::QualifiedName);
+	ASSERT_NE(Schema, Tables.Schemas.end());
+	auto Field = std::ranges::find(Schema->Fields, "Roughness", &ObjectPackage::FSerializedField::Name);
+	ASSERT_NE(Field, Schema->Fields.end());
+	Field->Type = {.Kind = ObjectPackage::EValueKind::Bool};
+	auto Export = std::ranges::find(Tables.Exports, ClassName, &ObjectPackage::FPackageExport::ClassName);
+	ASSERT_NE(Export, Tables.Exports.end());
+	auto Tag = std::ranges::find(Export->Properties, "Roughness", &ObjectPackage::FPropertyTag::FieldName);
+	ASSERT_NE(Tag, Export->Properties.end());
+	Tag->Type = Field->Type;
+	Tag->Value = {};
+	Tag->Payload.clear();
+	FByteBuffer Bytes, Bulk;
+	ASSERT_TRUE(ObjectPackage::WritePackage(Tables, Bytes, Bulk));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
+	const auto ObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(Path);
+	std::optional<UnifiedError::FError> Error;
+	EXPECT_FALSE(LoadObject<DMaterialFunction>(ObjectPath, nullptr, &Error));
+	ASSERT_TRUE(Error);
+	EXPECT_TRUE(Error->Is(PackageReadErrors::UnsupportedVersion)) << Error->ToString();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Original, File));
+	Function = LoadObject<DMaterialFunction>(ObjectPath);
+	ASSERT_NE(Function, nullptr);
+	const auto* Reopened = Cast<DMaterialExpressionMakeMaterialAttributes>(
+		FindMaterialExpression(Function->GetExpressionCollection().Expressions, Make->Id));
+	ASSERT_NE(Reopened, nullptr);
+	EXPECT_EQ(Reopened->Roughness.GetExpressionId(), Value->Id);
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FMaterialPackageTests, StandaloneSetRequiresOutputVersion)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture Registry;
+	const auto Root = Testing::CreateTestFixtureDirectory("SetOutputVersion");
+	Testing::RegisterMountPointForTests("/SetOutputVersion/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/SetOutputVersion/Function", Path));
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
+
+	TStrongObjectPtr<DMaterialExpressionFunctionInput> Input(NewObject<DMaterialExpressionFunctionInput>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionSetMaterialAttributes> Set(NewObject<DMaterialExpressionSetMaterialAttributes>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionFunctionOutput> Output(NewObject<DMaterialExpressionFunctionOutput>(nullptr, NAME_None));
+	Input->Id = FGuid::NewGuid();
+	Input->Port = Function->GetFunctionSignature().Inputs.front();
+	Set->Id = FGuid::NewGuid();
+	Set->Surface = {Input.Get()};
+	Output->Id = FGuid::NewGuid();
+	Output->Port = Function->GetFunctionSignature().Outputs.front();
+	Output->Source = {Set.Get()};
+	const std::array<DMaterialExpression*, 3> Body{Input.Get(), Set.Get(), Output.Get()};
+	const auto Validation = Function->SetFunctionExpressions(Body);
+	ASSERT_TRUE(Validation) << FormatMaterialProgramDiagnostics(Validation.Diagnostics);
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+
+	const auto File = Root / "Function.dasset";
+	const auto Original = FFileHelper::LoadFileToArray(File);
+	ASSERT_TRUE(Original);
+	ObjectPackage::FLinkerTables Tables;
+	ASSERT_TRUE(ObjectPackage::ReadPackage(*Original, {}, Path, Tables));
+	const auto Version = std::ranges::find(Tables.CustomVersions, FMaterialOutputVersion::Guid, &FCustomVersion::Guid);
+	ASSERT_NE(Version, Tables.CustomVersions.end());
+	EXPECT_EQ(Version->Version, FMaterialOutputVersion::CurrentVersion);
+	Tables.CustomVersions.erase(Version);
+	FByteBuffer Bytes, Bulk;
+	ASSERT_TRUE(ObjectPackage::WritePackage(Tables, Bytes, Bulk));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bytes, File));
+	const auto ObjectPath = Testing::MakePackageLeafAssetObjectPathForTests(Path);
+	std::optional<UnifiedError::FError> Error;
+	EXPECT_FALSE(LoadObject<DMaterialFunction>(ObjectPath, nullptr, &Error));
+	ASSERT_TRUE(Error);
+	EXPECT_TRUE(Error->Is(PackageReadErrors::UnsupportedVersion)) << Error->ToString();
+	EXPECT_EQ(FindResidentPackage(Path), nullptr);
+
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(*Original, File));
+	Function = LoadObject<DMaterialFunction>(ObjectPath);
+	ASSERT_TRUE(Function);
+	const auto* Reopened = Cast<DMaterialExpressionSetMaterialAttributes>(
+		FindMaterialExpression(Function->GetExpressionCollection().Expressions, Set->Id));
+	ASSERT_TRUE(Reopened);
+	EXPECT_EQ(Reopened->Surface.GetExpressionId(), Input->Id);
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
@@ -505,13 +631,14 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 	auto Graph = Testing::MakePBRMaterialExpressionsForTest();
 	TStrongObjectPtr<DMaterialExpressionMakeMaterialAttributes> Packed(NewObject<DMaterialExpressionMakeMaterialAttributes>(nullptr, NAME_None));
 	Packed->Id = FGuid::NewGuid();
-	Packed->Values = Graph.Outputs;
+	for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+		*Packed->GetExpressionInputForProperty(Field.Property) = Graph.Outputs.Get(Field.Property).Connection;
 	Graph.Expressions.emplace_back(Packed.Get());
 	Graph.Outputs.Attributes = {Packed.Get()};
 	Graph.Outputs.bUseMaterialAttributes = true;
 	ASSERT_TRUE(Graph.Apply(*Material));
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
-	const auto Expected = CaptureMaterialOutputBindings(Material->GetExpressionOutputs());
+	const auto Expected = CaptureMaterialOutputBindings(*Material);
 	ASSERT_TRUE(UnloadPackage(Path));
 	Material = nullptr;
 	{
@@ -520,7 +647,7 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(CaptureMaterialOutputBindings(Material->GetExpressionOutputs()), Expected);
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Material), Expected);
 	// Write a current package with the packed connection retained but inactive.
 	Graph.Outputs.bUseMaterialAttributes = false;
 	ASSERT_TRUE(Graph.Apply(*Material));
@@ -532,7 +659,7 @@ TEST(FMaterialPackageTests, OutputModePersistsBothConnections)
 		Material = LoadedValue;
 		ASSERT_TRUE(LoadedValue);
 	}
-	EXPECT_EQ(CaptureMaterialOutputBindings(Material->GetExpressionOutputs()), CaptureMaterialOutputBindings(Graph.Outputs));
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Material), CaptureMaterialOutputBindings(Graph.Outputs));
 	ASSERT_TRUE(UnloadPackage(Path));
 	Testing::RemoveTestWorkDirectory(Root);
 }

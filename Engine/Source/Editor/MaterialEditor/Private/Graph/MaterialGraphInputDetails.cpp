@@ -153,7 +153,7 @@ namespace Durin::MaterialEditor
 		auto* SelectedNode = EditorGraph->FindNode(Selection.front());
 		if (!SelectedNode) return;
 		const TStrongObjectPtr<DMaterialExpression> Expression(SelectedNode->GetMaterialExpression());
-		if (!Expression) return;
+		if (!Expression && !SelectedNode->GetView().Node.bMaterialOutput) return;
 		const auto& Selected = SelectedNode->GetView();
 		ImGui::PushID(Selection.front().ToString().c_str());
 		ImGui::TextWrapped("%s", Selected.PrimaryLabel.c_str());
@@ -336,9 +336,9 @@ namespace Durin::MaterialEditor
 				const auto Attribute = FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property;
 				const auto Binding = std::ranges::find(Surface->Attributes, Attribute, &FMaterialExpressionAttributeBinding::GetProperty);
 				const bool bKeepBase = Binding == Surface->Attributes.end()
-					|| (!Binding->Source.Connection.IsConnected() && !Binding->Source.UseConstant);
+					|| !Binding->Input.IsConnected();
 				DetailsStyle::EditRow(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name.data(), [&] {
-					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : Binding->Source.Connection.IsConnected() ? "Connected" : "Constant")) return false;
+					if (!ImGui::BeginCombo("##Value", bKeepBase ? "Keep base value" : "Connected")) return false;
 					if (ImGui::Selectable("Keep base value", bKeepBase)) Submit(SelectedNode->ClearAttributeInput(Attribute));
 					for (const auto& Source : View.Nodes)
 					{
@@ -437,7 +437,8 @@ namespace Durin::MaterialEditor
 				else if (!Changed)
 				{
 					if (ImGui::MenuItem("Extract constant", nullptr, false, Pin.InlineDefault.Kind == EMaterialInputDefaultKind::Literal)) Changed = CheckCommand(SelectedNode->ExtractInputDefault(Selected.InputAddress(Pin)));
-					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic && !bInheritedContext))
+					if (!Changed && Material && ImGui::MenuItem("Promote to parameter", nullptr, false, !bInheritedDynamic && !bInheritedContext
+						&& (!Selected.InputAddress(Pin).IsMaterialRoot() || MaterialEditing::CanPromoteSurfaceOutput(*Material, Selected.InputAddress(Pin).Property))))
 						Changed = CheckCommand(EditorGraph->PromoteInputToParameter(Selected.InputAddress(Pin)));
 				}
 				if (!Changed && Pin.bSupportsConstant && ImGui::MenuItem(Pin.bUseConstant ? "Use definition default" : "Use retained constant"))

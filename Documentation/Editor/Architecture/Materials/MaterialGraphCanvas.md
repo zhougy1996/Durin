@@ -172,15 +172,15 @@ Semantic zoom uses Editing and a distant Overview, with separate entry and exit
 thresholds. Editing keeps node titles, secondary identity where applicable,
 pin labels, previews, and tooltips as the graph scales. Overview keeps
 silhouettes, selection, focus, pan, and framing while disabling pin mutation.
-Frame All includes
-all authored nodes, including the unique material output. Frame Selection uses
-only the selection. The output terminal uses the same GUID-based selection,
-movement, connection, bounds and diagnostic framing as other nodes. Its integral
-position is stored in the ordinary node presentation list. A missing saved
-position has a fixed fallback; explicit layout places it from its input edges.
-The terminal is an authored graph node but produces no value instruction in the
-compiled material program. Its input descriptors come from the material domain:
-Surface displays eight property pins by default. Enabling Use material attributes
+Frame All includes the material root and its ordinary expressions. Function graphs
+display their function ports. The material root projects its coordinates from
+`DMaterial::EditorX/EditorY`. Selection distinguishes the material root from an
+expression GUID. Reopening the same document resolves the selection against its new
+graph. Root pin commands identify the property or the packed Material Attributes
+endpoint. Explicit layout uses the root's stored inputs and moves it together with
+selected expressions in a single presentation transaction.
+
+The root obtains its input descriptors from the material domain and mode. Enabling Use material attributes
 in material Details displays only the Material Attributes input. Stable semantic
 pin keys do not depend on display order. Mode changes are undoable and preserve
 both connection sets; wiring never switches modes. Individual inputs unused by
@@ -276,7 +276,7 @@ Escape and every document lifecycle cancellation close the palette and discard
 reconnection and movement drafts without dirtying or compiling
 the material. The schema supplies eligible context actions. The canvas ranks them by search text and recent use.
 
-`Promote to Parameter` is available on an unconnected Surface input. It
+`Promote to Parameter` is available on an unconnected numeric root input that accepts ordinary parameter semantics, including World Position Offset. It
 creates the compatible material-owned Parameter node one column upstream, copies the
 fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly

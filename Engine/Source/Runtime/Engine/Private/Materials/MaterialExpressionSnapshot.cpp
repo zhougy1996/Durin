@@ -1,4 +1,5 @@
 #include "MaterialExpressionGraphBuilder.h"
+#include "MaterialPreparedProgram.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
@@ -13,57 +14,61 @@
 
 namespace Durin
 {
-	auto MIR::FGraphBuilderImpl::FinishSurface(const FMaterialAttributeRoot& Outputs)
+	template<typename RootOwner>
+	auto MIR::FGraphBuilderImpl::FinishSurface(const RootOwner& Outputs,
+		bool UseAttributes, EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded)
 		-> MIR::FBuildResult
 	{
-		if (Outputs.Properties.Bindings.size() > 64) { Fail("Material attribute binding limit exceeded."); return Finish({}); }
-		std::unordered_set<FGuid> Seen;
-		for (const auto& Binding : Outputs.Properties.Bindings)
-			if (!FMaterialAttributeDefinitionMap::Find(Binding.AttributeID) || !Seen.insert(Binding.AttributeID).second)
-			{
-				const auto* Definition = FMaterialAttributeDefinitionMap::Find(Binding.AttributeID);
-				Result.Diagnostics.push_back({.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
-					.LocationIndex = Definition ? uint32(Definition->Property) : 255u,
-					.Message = "Material attributes contain an unknown or duplicate identity.", .AttributeID = Binding.AttributeID});
-				return Finish({});
-			}
+		Result.IR.Domain = Domain;
+		const auto& Attributes = *Outputs.GetExpressionInputDescription(EMaterialProperty::MP_MaterialAttributes)->Connection;
+		const bool StoredMode = Outputs.UsesMaterialAttributes();
 		if (bValidateAuthoring) BuildAllExpressions();
 		if (bValidateAuthoring)
 		{
 			// Retained wiring must stay structurally valid even when its mode is inactive.
-			if (!Outputs.bUseMaterialAttributes && Outputs.Attributes.IsConnected()) ResolveIndex(Outputs.Attributes);
-			if (Outputs.bUseMaterialAttributes)
-				for (const auto& Binding : Outputs.Properties.Bindings)
-					if (Binding.Input.Connection.IsConnected()) ResolveIndex(Binding.Input.Connection);
+			if (!StoredMode && Attributes.IsConnected()) ResolveIndex(Attributes);
+			if (StoredMode)
+				for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+					if (const auto& Link = *Outputs.GetExpressionInputForProperty(Field.Property); Link.IsConnected()) ResolveIndex(Link);
 		}
-		if (!Outputs.Attributes.IsConnected() && Outputs.Attributes.OutputIndex != 0)
+		if ((!Demanded || UseAttributes) && !Attributes.IsConnected() && Attributes.OutputIndex != 0)
 		{ Fail("Disconnected material attributes input has an output selector."); return Finish({}); }
-		AuthoringCodeHash.UpdateValue(Outputs.bUseMaterialAttributes);
+		AuthoringCodeHash.UpdateValue(StoredMode);
 		uint32 Aggregate = MIR::InvalidIndex;
-		if (Outputs.bUseMaterialAttributes && Outputs.Attributes.IsConnected())
+		if (UseAttributes && Attributes.IsConnected() && (!Demanded || !Demanded->empty()))
 		{
-			Aggregate = ResolveIndex(Outputs.Attributes);
+			Aggregate = ResolveIndex(Attributes);
 			if (Aggregate != MIR::InvalidIndex && GetNode(Aggregate).ResultType != EMaterialProgramValueType::MaterialAttributes)
 				Fail("Aggregate material output requires a Surface expression.");
 		}
 		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
 		{
-			const auto& Stored = Outputs.Get(Definition.Property);
-			const auto& Link = Stored.Connection;
-			const auto Width = uint32(Definition.Semantics.Type) + 1;
-			if (Stored.Constant.size() != Width || !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); })
-				|| (!Link.IsConnected() && Link.OutputIndex != 0))
-			{ Fail("Material attribute has an invalid selector or retained default."); break; }
-			AuthoringCodeHash.UpdateValue(Definition.AttributeID);
-			AuthoringCodeHash.UpdateValue(Stored.UseConstant);
-			for (float V : Stored.Constant) AuthoringCodeHash.UpdateValue(V);
+			if (Demanded && !Demanded->contains(Definition.Property)) continue;
 			auto& Root = Result.IR.GetAttribute(Definition.Property);
-			Root.Literal = Definition.DefaultValue;
-			if (!Outputs.bUseMaterialAttributes && Stored.UseConstant) Root.Literal = {Stored.Constant[0], Width > 1 ? Stored.Constant[1] : 0.f, Width > 2 ? Stored.Constant[2] : 0.f, Width > 3 ? Stored.Constant[3] : 0.f};
 			uint32 Index = MIR::InvalidIndex;
-			if (Aggregate != MIR::InvalidIndex && size_t(Definition.Property) < GetNode(Aggregate).Inputs.size())
-				Index = GetNode(Aggregate).Inputs[size_t(Definition.Property)];
-			else if (!Outputs.bUseMaterialAttributes && Link.IsConnected()) Index = ResolveIndex(Link);
+			if (!UseAttributes || !Demanded)
+			{
+				const auto Description = Outputs.GetExpressionInputDescription(Definition.Property);
+				const auto& Stored = *Description->Numeric;
+				const auto& Link = Stored.Connection;
+				const auto Width = uint32(Description->Type) + 1;
+				if (Stored.Constant.size() != Width || !std::ranges::all_of(Stored.Constant, [](float V) { return std::isfinite(V); })
+					|| (!Link.IsConnected() && Link.OutputIndex != 0))
+				{ Fail("Material attribute has an invalid selector or retained default."); break; }
+				if (bValidateAuthoring)
+				{
+					AuthoringCodeHash.UpdateValue(Definition.AttributeID);
+					AuthoringCodeHash.UpdateValue(Stored.UseConstant);
+					for (float V : Stored.Constant) AuthoringCodeHash.UpdateValue(V);
+				}
+				if (!UseAttributes)
+				{
+					if (Stored.UseConstant) Root.Literal = {Stored.Constant[0], Width > 1 ? Stored.Constant[1] : 0.f,
+						Width > 2 ? Stored.Constant[2] : 0.f, Width > 3 ? Stored.Constant[3] : 0.f};
+					if (Link.IsConnected()) Index = ResolveIndex(Link);
+				}
+			}
+			if (Aggregate != MIR::InvalidIndex) Index = Attribute(Aggregate, Definition.Property);
 			if (Index != MIR::InvalidIndex && Definition.Property != EMaterialProperty::MP_Normal
 				&& Definition.Property != EMaterialProperty::MP_WorldPositionOffset)
 			{
@@ -93,12 +98,13 @@ namespace Durin
 		return Finish({});
 	}
 
+	template<typename RootOwner>
 	auto MIR::FGraphBuilderImpl::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-		const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+		const RootOwner& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
 	{
 		MIR::FGraphBuilderImpl Context(Expressions);
 		Context.bValidateAuthoring = true;
-		auto Built = Context.FinishSurface(Outputs);
+		auto Built = Context.FinishSurface(Outputs, Outputs.UsesMaterialAttributes());
 		if (Built && OutCodeFingerprint)
 		{
 			// A transient edit checkpoint, not shader identity or a persisted encoding.
@@ -154,7 +160,51 @@ namespace Durin
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
 	}
 
-	auto SnapshotMaterialCompilerInput(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment)
+	auto MIR::FGraphBuilder::FinishSurface(const FMaterialRootInputs& Outputs) -> MIR::FBuildResult
+	{
+		return Impl->FinishSurface(Outputs, Outputs.UsesMaterialAttributes());
+	}
+
+	auto MIR::FGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
+		const FMaterialRootInputs& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+	{
+		return FGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
+	}
+
+#if DURIN_WITH_EDITORONLY_DATA
+	static auto ValidateOwnedExpressionGraph(const FMaterialExpressionCollection& Collection,
+		const auto& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
+	{
+		std::vector<DMaterialExpression*> Expressions;
+		for (const auto& Expression : Collection.Expressions) Expressions.push_back(Expression.Get());
+		const std::unordered_set<DMaterialExpression*> Members(Expressions.begin(), Expressions.end());
+		const auto InBody = [&](const FMaterialExpressionInput& Link) {
+			return Link.OutputIndex >= 0 && (!Link.Expression || Members.contains(Link.Expression.Get()));
+		};
+		if (!InBody(*Outputs.GetExpressionInputDescription(EMaterialProperty::MP_MaterialAttributes)->Connection))
+			return {.Diagnostics = {{.Message = "Material Attributes refers outside the material body or has a negative selector."}}};
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+			if (!InBody(*Outputs.GetExpressionInputForProperty(Field.Property)))
+				return {.Diagnostics = {{.Message = "Property input refers outside the material body or has a negative selector.", .AttributeID = Field.AttributeID}}};
+		return MIR::FGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
+	}
+
+	auto DMaterial::ValidateExpressionGraph(FXxHash128* Fingerprint) const -> FMaterialProgramValidationResult
+	{
+		return ValidateOwnedExpressionGraph(ExpressionCollection, *this, Fingerprint);
+	}
+
+	auto DMaterial::ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
+		const FMaterialRootInputs& Outputs, FXxHash128* Fingerprint) -> FMaterialProgramValidationResult
+	{
+		return ValidateOwnedExpressionGraph(Collection, Outputs, Fingerprint);
+	}
+#endif
+
+	enum class EMaterialCapturePurpose { Compilation, ParameterReachability };
+
+	static auto CaptureMaterialInputs(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment,
+		EMaterialCapturePurpose Purpose)
 		-> FMaterialCompilerSnapshotResult
 	{
 		check(IsInGameThread());
@@ -217,6 +267,13 @@ namespace Durin
 			}
 		std::ranges::sort(StaticBools, {}, &FMaterialCompilerEnvironment::FStaticBoolValue::DeclarationId);
 		Environment.StaticBools = StaticBools;
+		const bool ForCompilation = Purpose == EMaterialCapturePurpose::Compilation;
+		const auto Properties = Material.GetStaticProperties();
+		const auto Domain = Owner->GetDomain();
+		const auto Demanded = ForCompilation
+			? std::optional(GetMaterialCompilationProperties(Domain, Properties, Environment)) : std::nullopt;
+		const bool UseAttributes = ForCompilation ? Owner->UsesMaterialAttributesForDomain()
+			: Owner->UsesMaterialAttributes();
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
 		MIR::FGraphBuilderImpl Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
 			-> std::optional<MIR::FFunctionBody> {
@@ -225,9 +282,8 @@ namespace Durin
 			Owners.push_back({FObjectKey(const_cast<DMaterialFunction*>(Concrete)), Concrete->GetObjectPath(), Concrete->GetFunctionRevision()});
 			return Concrete->GetExpressionBody();
 		}, .Quality = Environment.Quality, .FeatureLevel = Environment.FeatureLevel,
-			.StaticBools = Environment.StaticBools});
-		auto Built = Context.FinishSurface(Owner->GetExpressionOutputs());
-		Built.IR.Domain = Owner->GetDomain();
+			.StaticBools = Environment.StaticBools}, ForCompilation);
+		auto Built = Context.FinishSurface(*Owner, UseAttributes, Domain, Demanded ? &*Demanded : nullptr);
 		if (!Built)
 		{
 			Result.Diagnostics = std::move(Built.Diagnostics);
@@ -235,12 +291,18 @@ namespace Durin
 		}
 		MIR::FCompilerInput Snapshot{.IR = std::move(Built.IR), .Parameters = std::move(Built.Parameters),
 			.Collections = std::move(Built.Collections),
-			.StaticProperties = Material.GetStaticProperties(), .Environment = std::move(Environment), .Sources = std::move(Built.Sources)};
+			.StaticProperties = Properties, .Environment = std::move(Environment), .Sources = std::move(Built.Sources)};
 		std::ranges::sort(Snapshot.Environment.Dependencies, {}, &FMaterialCompilerDependency::VirtualPath);
 		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);
 		Result.Snapshot.emplace(FMaterialCompilerSnapshot{std::move(Snapshot), std::move(Owners)});
 		return Result;
 #endif
+	}
+
+	auto SnapshotMaterialCompilerInput(const DMaterialInterface& Material, FMaterialCompilerEnvironment Environment)
+		-> FMaterialCompilerSnapshotResult
+	{
+		return CaptureMaterialInputs(Material, std::move(Environment), EMaterialCapturePurpose::Compilation);
 	}
 
 	auto AreMaterialFunctionOwnersCurrent(std::span<const FMaterialFunctionOwnerStamp> Owners) -> bool
@@ -295,7 +357,7 @@ namespace Durin
 			&& AreMaterialFunctionOwnersCurrent(ParameterReachabilityFunctionOwners)) return ParameterReachability;
 
 		auto Result = std::make_shared<FMaterialParameterReachability>();
-		auto Capture = SnapshotMaterialCompilerInput(*this, {});
+		auto Capture = CaptureMaterialInputs(*this, {}, EMaterialCapturePurpose::ParameterReachability);
 		Result->Validation = {.bSucceeded = static_cast<bool>(Capture), .Diagnostics = std::move(Capture.Diagnostics)};
 		if (!Capture) return Result;
 		const auto& Snapshot = Capture.Snapshot->Input;

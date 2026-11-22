@@ -117,12 +117,20 @@ namespace Durin::MaterialEditor
 		MATERIALEDITOR_API static auto Create(DObject& MaterialOrFunction) -> DMaterialGraph*;
 		auto GetMaterialOrFunction() const -> DObject* { return Owner.Get(); }
 		MATERIALEDITOR_API auto GetSchema() const -> const FMaterialGraphSchema&;
+		auto GetRootNode() const -> DMaterialGraphNode* { return FindNode(RootViewId); }
 		auto GetNodes() const -> std::span<const TObjectPtr<DMaterialGraphNode>> { return Nodes; }
 		MATERIALEDITOR_API auto FindNode(const FGuid& Id) const -> DMaterialGraphNode*;
+		auto ResolveNode(const FMaterialGraphNodeAddress& Address) const -> DMaterialGraphNode*
+		{
+			if (const auto* Id = std::get_if<FGuid>(&Address)) return FindNode(*Id);
+			return GetRootNode();
+		}
 		MATERIALEDITOR_API auto FindPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPin*;
 		MATERIALEDITOR_API auto FindInputPin(const FMaterialGraphPinAddress& Address) const -> const FMaterialGraphPinView*;
 		MATERIALEDITOR_API auto FindOutputPin(const FMaterialProgramLink& Link) const -> const FMaterialGraphOutputPinView*;
-		// Resolves the material terminal and moves it using the common position command.
+		// Semantic position commands resolve against the receiving graph, including after reload.
+		MATERIALEDITOR_API auto MoveSelection(std::span<const FMaterialGraphNodePosition> Positions,
+			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
 		// Position commands ignore labels and preserve unrelated presentation fields.
 		MATERIALEDITOR_API auto MoveNodes(std::span<const FMaterialGraphNodePresentation> Positions,
 			ETransactionMode Mode = ETransactionMode::Record, std::string* OutError = nullptr) const -> bool;
@@ -195,6 +203,8 @@ namespace Durin::MaterialEditor
 		auto LinkMaterialExpressionsFromGraph(const FMaterialGraphPin& Input, const FMaterialGraphPin* Output,
 			bool Replace, ETransactionMode Mode, std::string* OutError) -> bool;
 		auto BreakOutputLinks(const FMaterialGraphPin& Output, ETransactionMode Mode, std::string* OutError) -> bool;
+		// Local widget handle; persistent commands address the root by kind and material property.
+		FGuid RootViewId = FGuid::NewGuid();
 		TWeakObjectPtr<DObject> Owner;
 		const FMaterialGraphSchema* Schema = nullptr;
 		DPROPERTY(Transient, NonTransactional)

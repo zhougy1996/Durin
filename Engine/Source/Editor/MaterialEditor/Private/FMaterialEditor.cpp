@@ -314,6 +314,8 @@ namespace Durin::MaterialEditor
 		if (Previous != EditingSession || IsClosed()) return false;
 		ReleaseMaterialSession();
 		EditingSession = std::move(Session);
+		if (Previous && Previous->Canvas && Previous->GetSourceMaterial() == &Source)
+			GetOrCreateCanvas().RestoreSelection(Previous->Canvas->GetSelection());
 		return true;
 	}
 
@@ -747,8 +749,7 @@ namespace Durin::MaterialEditor
 		if (!BaseMaterial) return;
 		auto& Canvas = GetOrCreateCanvas();
 		const auto& Selection = Canvas.GetSelection();
-		const auto* Output = BaseMaterial->GetOutputNode();
-		const bool bShowMaterialDetails = Selection.empty() || (Output && Selection.contains(Output->Id));
+		const bool bShowMaterialDetails = Selection.empty() || Selection.contains(EMaterialGraphEndpoint::MaterialRoot);
 		if (bShowMaterialDetails)
 		{
 			ImGui::PushTextWrapPos(0.0f);
@@ -761,7 +762,7 @@ namespace Durin::MaterialEditor
 		if (bShowMaterialDetails
 			&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", DetailsStyle::MakeTableConfig()))
 		{
-			bool bAttributes = BaseMaterial->GetExpressionOutputs().bUseMaterialAttributes;
+			bool bAttributes = BaseMaterial->UsesMaterialAttributes();
 			if (DetailsStyle::EditRow("Use material attributes", [&] { return ImGui::Checkbox("##Value", &bAttributes); }))
 			{
 				const auto Result = MaterialEditing::SetUseMaterialAttributes(*BaseMaterial, bAttributes);

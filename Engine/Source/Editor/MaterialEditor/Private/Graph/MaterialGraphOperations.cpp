@@ -31,18 +31,25 @@ namespace Durin::MaterialEditor
 		return Message.empty() ? "The material graph command failed." : Message;
 	}
 
-	namespace
+	auto MaterialEditing::CanPromoteSurfaceOutput(const DMaterial& Material, EMaterialProperty Property) -> bool
 	{
-		auto GetSurfaceLink(FMaterialAttributeRoot& Outputs, EMaterialProperty Attribute) -> FMaterialExpressionInput*
+		const auto Input = Material.GetNumericInputForProperty(Property);
+		return Input && !Input->Connection.IsConnected() && Property != EMaterialProperty::MP_Normal;
+	}
+
+	auto MaterialEditing::SurfaceTextureOutput(const DMaterial& Material, EMaterialProperty Property) -> std::optional<EMaterialSampleOutput>
+	{
+		if (!Material.GetNumericInputForProperty(Property)) return {};
+		using P = EMaterialProperty;
+		switch (Property)
 		{
-			if (Attribute > EMaterialProperty::MP_OpacityMask) return nullptr;
-			return GetMaterialOutputInput(Outputs, static_cast<EMaterialOutputPin>(Attribute));
-		}
-		auto GetSurfaceDefault(const FMaterialAttributeRoot& Outputs, EMaterialProperty Attribute) -> FMaterialProgramLiteral
-		{
-			const auto Value = ReadMaterialOutputDefault(Outputs, static_cast<EMaterialOutputPin>(Attribute));
-			return Value.size() == 3 ? FMaterialProgramLiteral{Value[0], Value[1], Value[2]}
-				: Value.size() == 1 ? FMaterialProgramLiteral{Value[0]} : FMaterialProgramLiteral{};
+		case P::MP_Normal: case P::MP_BaseColor: case P::MP_EmissiveColor: return EMaterialSampleOutput::RGB;
+		case P::MP_Metallic: return EMaterialSampleOutput::B;
+		case P::MP_Roughness: return EMaterialSampleOutput::G;
+		case P::MP_Opacity: return EMaterialSampleOutput::A;
+		case P::MP_AmbientOcclusion: case P::MP_OpacityMask: case P::MP_Specular:
+		case P::MP_ClearCoat: case P::MP_ClearCoatRoughness: return EMaterialSampleOutput::R;
+		default: return {}; // The compact sample uses implicit pixel derivatives.
 		}
 	}
 
@@ -271,9 +278,9 @@ namespace Durin::MaterialEditor
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
-		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
-		if (!Link) return std::unexpected(RejectCommand("The material surface output is invalid."));
-		if (Link->IsConnected()) return std::unexpected(RejectCommand("Only an unconnected material surface output can be promoted."));
+		if (!CanPromoteSurfaceOutput(Material, Request.Output))
+			return std::unexpected(RejectCommand("This root input cannot be promoted to a numeric parameter."));
+		auto* Link = State.EditRootInput(Request.Output);
 		FMaterialParameterDefinition Definition;
 		Definition.Id = FGuid::NewGuid(); Definition.Name = "SurfaceParameter";
 		for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
@@ -281,7 +288,10 @@ namespace Durin::MaterialEditor
 		Definition.DisplayName = Definition.Name.ToString();
 		const auto Type = GetMaterialSurfaceOutputType(Request.Output);
 		Definition.Type = *GetParameterType(Type);
-		Definition.Value = MakeParameterValue(Type, GetSurfaceDefault(State.GetOutputs(), Request.Output));
+		const auto Components = ReadMaterialNumericDefault(*Material.GetNumericInputForProperty(Request.Output), Request.Output);
+		const FMaterialProgramLiteral Literal{Components[0], Components.size() > 1 ? Components[1] : 0.f,
+			Components.size() > 2 ? Components[2] : 0.f};
+		Definition.Value = MakeParameterValue(Type, Literal);
 		auto Created = MakeParameterExpression(Definition);
 		if (!Created) return std::unexpected(RejectCommand(std::move(Created.Message)));
 		auto Parameter = std::move(Created.Expression);
@@ -307,8 +317,9 @@ namespace Durin::MaterialEditor
 		if (!Admission) return std::unexpected(RejectCommand(Admission.error()));
 		auto* Transactions = *Admission;
 		FGraphEditSession State(Material);
-		auto* Link = GetSurfaceLink(State.GetOutputs(), Request.Output);
-		if (!Link) return std::unexpected(RejectCommand("The material surface output is invalid."));
+		const auto Channel = SurfaceTextureOutput(Material, Request.Output);
+		if (!Channel) return std::unexpected(RejectCommand("This root input cannot use a compact texture sample."));
+		auto* Link = State.EditRootInput(Request.Output);
 		TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Texture(NewObject<DMaterialExpressionTextureSampleParameter2D>(nullptr, NAME_None));
 		Texture->Id = FGuid::NewGuid();
 		Texture->Metadata.Id = FGuid::NewGuid(); Texture->Metadata.Name = "TextureParameter";
@@ -321,8 +332,7 @@ namespace Durin::MaterialEditor
 			Texture->DefaultValue.TextureFallback = EMaterialTextureFallback::FlatRGNormal;
 		}
 		const auto Id = Texture->Id;
-		constexpr std::array<uint8, 8> Channels{1, 1, 4, 3, 2, 1, 5, 2};
-		*Link = {Texture.Get(), Channels[static_cast<size_t>(Request.Output)]};
+		*Link = {Texture.Get(), static_cast<int32>(*Channel)};
 		State.Presentation.Nodes.push_back({Id, Request.X, Request.Y, Texture->Metadata.DisplayName});
 		State.Expressions.emplace_back(Texture.Get());
 		auto Result = State.Commit("Add Material Surface Texture", Transactions);

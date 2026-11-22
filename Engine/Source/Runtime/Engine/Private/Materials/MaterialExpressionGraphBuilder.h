@@ -14,19 +14,22 @@ namespace Durin::MIR
 	{
 	public:
 		explicit FGraphBuilderImpl(std::span<DMaterialExpression* const> Expressions,
-			FBuildEnvironment Environment = {});
+			FBuildEnvironment Environment = {}, bool bCompileReachableOnly = false);
 		FGraphBuilderImpl(const FGraphBuilderImpl&) = delete;
 		auto operator=(const FGraphBuilderImpl&) -> FGraphBuilderImpl& = delete;
 		// Local authoring validation checks typed links without requiring available callee bodies.
 		// Its opaque function values stay private and can never become compiler snapshots.
+		template<typename RootOwner>
 		static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-			const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+			const RootOwner& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 		static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 		auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
 		auto FunctionInput(FGuid PortId) -> FValue;
 		auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
 		auto FunctionCall(const DMaterialExpressionFunctionCall& Call, FEmitter& Emitter) -> void;
+		auto Aggregate(uint32 Prototype, const FEmitter::FAttributeAssignment& Assignment) -> uint32;
+		auto Attribute(uint32 Aggregate, EMaterialProperty Property) -> uint32;
 		auto Emit(FNode Node) -> uint32;
 		auto Literal(std::span<const float> Components,
 			EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
@@ -55,9 +58,12 @@ namespace Durin::MIR
 		auto Fail(std::string Message, FGuid PortId = {}) -> uint32;
 		auto GetNode(uint32 Index) const -> const FNode& { return Result.IR.Nodes.at(Index); }
 		auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
-		auto FinishSurface(const FMaterialAttributeRoot& Outputs) -> FBuildResult;
+		template<typename RootOwner>
+		auto FinishSurface(const RootOwner& Outputs, bool UseAttributes, EMaterialDomain Domain = EMaterialDomain::Surface,
+			const std::set<EMaterialProperty>* Demanded = nullptr) -> FBuildResult;
 	private:
 		friend class FEmitter;
+		auto AttributeLiteral(EMaterialProperty Property, const FMaterialProgramLiteral& Value) -> uint32;
 		struct FSharedState
 		{
 			FBuildResult Result;
@@ -71,6 +77,7 @@ namespace Durin::MIR
 		FGraphBuilderImpl(FGraphBuilderImpl& Parent,
 			const FFunctionBody& Body, FGuid CallId);
 		auto Admit(std::span<DMaterialExpression* const> InExpressions) -> void;
+		bool bCompileReachableOnly;
 		bool bValidateAuthoring = false;
 		FXxHash128Builder AuthoringCodeHash;
 		auto OpaqueAuthoringValue(EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,

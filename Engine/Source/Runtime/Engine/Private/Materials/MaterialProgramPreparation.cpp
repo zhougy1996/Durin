@@ -260,7 +260,7 @@ namespace Durin
 						MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap | EMaterialRenderDirtyFlags::PipelineState);
 						return;
 					}
-					RequestProgramCompile(GetStaticProperties(), false, nullptr, std::move(Environment), Resource);
+					RequestProgramCompile(false, nullptr, std::move(Environment), Resource);
 				}
 				if (!Resource->Compilation.expired())
 				{

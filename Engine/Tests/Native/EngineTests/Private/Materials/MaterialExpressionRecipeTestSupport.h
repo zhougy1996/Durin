@@ -51,7 +51,7 @@ namespace Durin::Testing
 	struct FTestMaterialExpressionGraph
 	{
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Expressions;
-		FMaterialAttributeRoot Outputs;
+		FMaterialRootInputs Outputs;
 		FMaterialGraphPresentation Presentation;
 		uint32 NextId = 0;
 		std::unordered_map<FGuid, EMaterialProgramValueType> Types;

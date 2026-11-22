@@ -212,7 +212,7 @@ namespace
 	// Test-only projection of familiar PBR names from generic compiled fields.
 	struct FMaterialTestBinding : Durin::FMaterialRenderBinding
 	{
-		FVector4f BaseColor{0.5f, 0.5f, 0.5f, 1.0f};
+		FVector4f BaseColor{0.f, 0.f, 0.f, 1.f};
 		FVector3f Emissive{0.0f};
 		FVector3f Normal{0.0f, 0.0f, 1.0f};
 		float Metallic = 0.0f;

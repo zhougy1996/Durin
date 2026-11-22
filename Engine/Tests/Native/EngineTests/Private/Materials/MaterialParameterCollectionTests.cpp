@@ -296,7 +296,7 @@ TEST_F(FMaterialParameterCollectionTests,
 	Expression->Collection = Collection;
 	Expression->ParameterId = Value.Id;
 	auto* Material = Make<DMaterial>("CollectionCookMaterial");
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection.Connect(0, Expression);
 	const std::array<DMaterialExpression*, 1> Expressions{Expression};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -404,7 +404,7 @@ TEST_F(FMaterialParameterCollectionTests,
 					return Concrete->GetExpressionBody();
 				return std::nullopt;
 			}});
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Get(EMaterialProperty::MP_BaseColor).Connection = {Call, 0, Signature.Outputs.front().Id};
 	const auto Built = Builder.FinishSurface(Outputs);
 	ASSERT_TRUE(Built) << (Built.Diagnostics.empty() ? "no diagnostic"

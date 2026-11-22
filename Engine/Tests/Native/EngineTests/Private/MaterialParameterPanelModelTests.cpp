@@ -722,7 +722,7 @@ TEST(FMaterialParameterPanelModelTests, TypedResourceOutputsSkipUnusedUVDependen
 	auto ResourceConsumer = Testing::MakeGraphExpression<DMaterialExpressionTextureSample2D>();
 	ResourceConsumer->Texture = {Sample.Get(), 7};
 	const std::array<DMaterialExpression*, 4> Expressions{UV.Get(), Mask.Get(), Sample.Get(), ResourceConsumer.Get()};
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {ResourceConsumer.Get(), 5};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
@@ -782,7 +782,7 @@ TEST(FMaterialParameterPanelModelTests, ReachabilitySharesFunctionOutputAnalysis
 		{B, EMaterialProgramValueType::Float, {ParameterB.Get()}}};
 	Call->FunctionOutputs = Nested->FunctionOutputs;
 	const std::array<DMaterialExpression*, 3> Expressions{ParameterA.Get(), ParameterB.Get(), Call.Get()};
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Get(EMaterialProperty::MP_Roughness) = {Call.Get(), 0, X};
 	ASSERT_TRUE(Base->SetMaterialExpressions(Expressions, Outputs));
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
@@ -853,9 +853,7 @@ TEST(FMaterialParameterPanelModelTests, PresentationAndCompileDoNotInvalidatePar
 	ASSERT_TRUE(Instance->SetParent(Base.Get()));
 	MaterialEditor::FMaterialParameterPanelModel Model(Instance.Get());
 	const auto* Rows = Model.GetEntries().data();
-	auto Presentation = Base->GetMaterialGraphPresentation();
-	Presentation.Nodes.push_back({Base->GetOutputNode()->Id, 10, 20});
-	EXPECT_EQ(Base->SetMaterialGraphPresentation(Presentation), EMaterialGraphPresentationResult::Changed);
+	Base->SetRootPosition(10, 20);
 	EXPECT_FALSE(Model.NeedsRefresh());
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_EQ(Model.GetEntries().data(), Rows);
@@ -920,7 +918,7 @@ TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetai
 	auto Opacity = Testing::MakeGraphExpression<DMaterialExpressionScalarParameter>();
 	Opacity->Metadata.Id = Id; Opacity->Metadata.Name = Durin::AssetForge::Builtins::MaterialParameters::OpacityName();
 	Opacity->DefaultValue = 1.f;
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Get(EMaterialProperty::MP_Opacity) = {Opacity.Get()};
 	ASSERT_TRUE(Base->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Opacity.Get()}, Outputs));
 	ASSERT_TRUE(SavePackage(Base->GetPackage()));

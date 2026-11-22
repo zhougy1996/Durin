@@ -4,7 +4,6 @@
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionEditing.h"
 #include "Materials/Material.h"
@@ -38,9 +37,16 @@ namespace Durin
 	auto DMaterial::PostTransacted(const FTransactionObjectEvent& Event) -> void
 	{
 		if (Event.Type != ETransactionObjectEventType::UndoRedo) return;
-		if (std::ranges::contains(Event.Change.ChangedProperties, FName("ExpressionCollection")))
+		if (std::ranges::any_of(Event.Change.ChangedProperties, [](FName Name) {
+			static const std::array RootProperties{
+				FName("ExpressionCollection"), FName("MaterialAttributes"), FName("bUseMaterialAttributes"),
+				FName("BaseColor"), FName("Normal"), FName("Metallic"), FName("Roughness"),
+				FName("AmbientOcclusion"), FName("EmissiveColor"), FName("Opacity"), FName("OpacityMask"),
+				FName("WorldPositionOffset"), FName("Specular"), FName("ClearCoat"), FName("ClearCoatRoughness")};
+			return std::ranges::contains(RootProperties, Name);
+		}))
 			FMaterialExpressionEditing::Publish(*this, Event.OperationId);
-		else if (std::ranges::contains(Event.Change.ChangedProperties, FName("GraphPresentation")))
+		else if (std::ranges::any_of(Event.Change.ChangedProperties, [](FName Name) { return Name == "GraphPresentation" || Name == "EditorX" || Name == "EditorY"; }))
 			GraphChanges.PublishPresentation(*this);
 	}
 
@@ -69,6 +75,20 @@ namespace Durin
 		return Function->ExpressionCollection.Expressions;
 	}
 
+	auto FMaterialExpressionEditing::SetRootInputs(DMaterial& Owner, FMaterialRootInputs Inputs) -> bool
+	{
+		if (Inputs.FindInvalidConstantWidth()) return false;
+		Owner.ApplyRootInputs(std::move(Inputs));
+		return true;
+	}
+
+	void FMaterialExpressionEditing::VisitRootConnections(DMaterial& Owner, const std::function<void(FMaterialExpressionInput&)>& Visit)
+	{
+		Visit(Owner.MaterialAttributes);
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+			Visit(const_cast<FMaterialExpressionInput&>(*Owner.GetExpressionInputForProperty(Field.Property)));
+	}
+
 	auto FMaterialExpressionEditing::ValidateStorage(DObject& Owner) -> FMaterialProgramValidationResult
 	{
 		const auto& Expressions = GetExpressions(Owner);
@@ -87,17 +107,15 @@ namespace Durin
 		}
 		if (auto* Material = Cast<DMaterial>(&Owner))
 		{
-			if (std::ranges::count_if(Expressions, [](const auto& E) { return Cast<DMaterialExpressionMaterialOutput>(E.Get()) != nullptr; }) != 1)
-				return Fail("A material graph requires exactly one output node.");
-			if (GetMaterialDomainOutputPins(Material->Domain).empty()) return Fail("Unsupported material domain.");
+			if (GetMaterialDomainInputProperties(Material->Domain).empty()) return Fail("Unsupported material domain.");
 			std::vector<FMaterialParameterDefinition> Schema;
 			return DMaterial::DeriveExpressionParameterSchema(Material->ExpressionCollection, Schema);
 		}
 		std::vector<DMaterialExpression*> Nodes;
 		for (const auto& E : Expressions)
 		{
-			if (Cast<DMaterialExpressionParameter>(E.Get()) || Cast<DMaterialExpressionMaterialOutput>(E.Get()))
-				return Fail("Functions cannot own root parameters or material outputs.");
+			if (Cast<DMaterialExpressionParameter>(E.Get()))
+				return Fail("Functions cannot own root parameters.");
 			Nodes.push_back(E.Get());
 		}
 		return ValidateMaterialFunctionSignature(DeriveMaterialFunctionSignature(Nodes));
@@ -167,7 +185,7 @@ namespace Durin::Private
 	}
 
 	auto ReplaceOwnedExpressions(DObject& Owner, FMaterialExpressionCollection& Collection,
-		std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+		std::span<DMaterialExpression* const> Expressions, FMaterialRootInputs* Root) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
 		TStrongObjectPtr<DObject> Staging(NewObject<DObject>(nullptr, "MaterialExpressionApply"));
@@ -184,11 +202,6 @@ namespace Durin::Private
 			}
 			auto* Copy = *Duplicated;
 			Copies.Expressions.emplace_back(Copy);
-			const auto SortRoot = [](FMaterialAttributeRoot& Root) {
-				std::ranges::sort(Root.Properties.Bindings, {}, &FMaterialAttributeBinding::AttributeID);
-			};
-			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(Copy)) SortRoot(Output->Outputs);
-			if (auto* Make = Cast<DMaterialExpressionMakeMaterialAttributes>(Copy)) SortRoot(Make->Values);
 			if (auto* Get = Cast<DMaterialExpressionGetMaterialAttributes>(Copy)) std::ranges::sort(Get->AttributeIDs);
 			if (auto* Set = Cast<DMaterialExpressionSetMaterialAttributes>(Copy))
 				std::ranges::sort(Set->Attributes, {}, &FMaterialExpressionAttributeBinding::AttributeID);
@@ -197,17 +210,21 @@ namespace Durin::Private
 		}
 		std::unordered_map<const DMaterialExpression*, DMaterialExpression*> Remap;
 		for (size_t Index = 0; Index < Expressions.size(); ++Index) Remap.emplace(Expressions[Index], Copies.Expressions[Index].Get());
-		for (const auto& Copy : Copies.Expressions)
+		bool Valid = true;
+		const auto RemapInput = [&](FMaterialExpressionInput& Input) {
+			if (!Input.Expression) return;
+			const auto Source = Remap.find(Input.Expression.Get());
+			if (Source == Remap.end()) Valid = false;
+			else Input.Expression = Source->second;
+		};
+		for (const auto& Copy : Copies.Expressions) VisitStoredMaterialInputs(*Copy, RemapInput);
+		if (Root)
 		{
-			bool Valid = true;
-			VisitStoredMaterialInputs(*Copy, [&](FMaterialExpressionInput& Input) {
-				if (!Input.Expression) return;
-				const auto Source = Remap.find(Input.Expression.Get());
-				if (Source == Remap.end()) Valid = false;
-				else Input.Expression = Source->second;
-			});
-			if (!Valid) return {.Diagnostics = {{.Message = "Connection refers to an expression outside the candidate graph."}}};
+			RemapInput(Root->Attributes);
+			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+				RemapInput(Root->Get(Field.Property).Connection);
 		}
+		if (!Valid) return {.Diagnostics = {{.Message = "Connection refers outside the candidate graph."}}};
 		// Retire the old identities for history and remove them from the package
 		// hierarchy before a prepared graph can be published.
 		for (auto& Expression : Collection.Expressions)

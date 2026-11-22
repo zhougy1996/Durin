@@ -21,6 +21,9 @@ namespace Durin
 		FGuid Guid;
 		int32 CurrentVersion = 0;
 		std::string Name;
+		int32 MinimumSupportedVersion = 0;
+		// Qualified export base classes that require this record before property binding.
+		std::vector<std::string> RequiredByClasses;
 	};
 
 	// Owns copied definitions for the process lifetime, including after module unload.
@@ -30,7 +33,7 @@ namespace Durin
 		// Thread-safe. Identical registration is idempotent; invalid or conflicting definitions fail.
 		CORE_API static auto Register(FCustomVersionDefinition Definition) -> bool;
 		CORE_API static auto GetAll() -> std::vector<FCustomVersionDefinition>;
-		// Rejects invalid, duplicate, unknown and future records. Old-version migration belongs to serializers.
+		// Rejects invalid, duplicate, unknown and out-of-range records before resolving package exports.
 		CORE_API static auto Validate(std::span<const FCustomVersion> Versions, std::string& Error) -> bool;
 	};
 
@@ -38,6 +41,7 @@ namespace Durin
 	class FCustomVersionRegistration
 	{
 	public:
-		CORE_API FCustomVersionRegistration(FGuid Guid, int32 Version, std::string_view Name);
+		CORE_API FCustomVersionRegistration(FGuid Guid, int32 Version, std::string_view Name,
+			int32 MinimumSupportedVersion = 0, std::vector<std::string> RequiredByClasses = {});
 	};
 }

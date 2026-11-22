@@ -173,7 +173,7 @@ namespace Durin::MaterialEditor
 				break;
 			case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
 				bLocated = Diagnostic.LocationIndex < 8
-					|| Diagnostic.LocationIndex == static_cast<uint32>(EMaterialOutputPin::WorldPositionOffset);
+					|| Diagnostic.LocationIndex == static_cast<uint32>(EMaterialProperty::MP_WorldPositionOffset);
 				break;
 			case EMaterialProgramDiagnosticLocationKind::Program:
 				break;

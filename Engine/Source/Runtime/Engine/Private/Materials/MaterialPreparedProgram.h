@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	auto GetMaterialCompilationProperties(EMaterialDomain Domain, const FMaterialStaticProperties& Properties,
+		const FMaterialCompilerEnvironment& Environment) -> std::set<EMaterialProperty>;
 	auto ValidateMaterialStageSequence(std::span<const FShaderCode> Stages, const FMaterialRenderLayout& Layout,
 		const FMaterialCompilerResourceLimits& Limits, const FMaterialShaderEntrySet& OrderedEntries)
 		-> FMaterialLayoutValidationResult;

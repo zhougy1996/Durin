@@ -296,7 +296,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 		});
 	WaitForRenderingThread();
 	const auto Binding = GetMaterialBinding(Resolved);
-	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
 	EXPECT_FLOAT_EQ(Binding.Metallic, 0.0f);
 	EXPECT_FLOAT_EQ(Binding.Roughness, 0.5f);

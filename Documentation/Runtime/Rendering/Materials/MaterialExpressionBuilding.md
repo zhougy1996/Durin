@@ -36,7 +36,7 @@ aggregate evaluator in the source generator.
 
 `DMaterialExpression::Build(MIR::FEmitter&) const` builds a node and registers
 each output with `Output(int32, Value)`. Function calls look up each callee
-terminal by port GUID and register its value at the caller¡¯s binding index. The virtual interface
+terminal by port GUID and register its value at the caller's binding index. The virtual interface
 has no default arguments or output-selection state. An emitter belongs to one
 Build invocation and must not escape it.
 
@@ -138,7 +138,7 @@ compiled result.
 `MaterialExpressionDescription.h` exposes immutable Engine class adapters through
 `GetMaterialExpressionDescriptions()` and `FindMaterialExpressionDescription()`.
 Each concrete reflected class has one description with its name, aliases,
-semantic operation (absent for the material terminal), authored input labels,
+semantic operation, authored input labels,
 supported shapes, and fixed/adaptive/instance output behavior. The adapters and
 class lookup are initialized once after reflection initialization, borrow class
 pointers, and construct no expression or asset objects. Descriptions are runtime,
@@ -154,9 +154,21 @@ from authored state rather than inferred from palette availability.
 
 `MaterialExpressionInputs.h` owns reflected connection traversal and retained
 numeric-default lookup. Fixed members retain declaration order; function calls
-visit binding order; material terminals and attribute overrides project stable
-property identities to command addresses. Attribute selectors and bindings persist
-GUIDs rather than definition-table positions. Visitors borrow live inputs for the
+visit binding order. MIR and editor readers borrow the material's named numeric
+fields through `GetNumericInputForProperty`. Make exposes its connection-only
+fields through `GetExpressionInputForProperty`. The same accessor on the material
+accepts both numeric properties and `MP_MaterialAttributes`. Compiler capture
+selects live inputs using the domain, effective instance properties and root mode
+before resolving dependencies. PostProcess uses individual Emissive even when the
+stored packed flag is set. Asset validation checks retained links in both modes.
+Whole-graph replacement and cross-owner duplication use owned `FMaterialRootInputs`.
+Root commands stage only touched numeric fields, the packed link or the mode bit.
+The read-only input description carries the connection, type, name and optional
+numeric view for both live and detached root validation. MIR constructs aggregates
+and selects properties through the graph builder. Make, Set, Get and Blend use
+the emitter interface, which owns the dense representation and default literals.
+Historical comparisons store source IDs, selectors, flags and component values.
+Dynamic attribute selectors and overrides retain their attribute GUIDs. Visitors borrow live inputs for the
 current owning-thread operation. Editor commands, clipboard, and layout share
 this contract without putting expression references into detached compilation.
 
@@ -173,18 +185,19 @@ Durin models channel selection through expression outputs and Swizzle nodes.
 UE also provides input names and per-input component masks.
 Node and function port GUIDs survive graph reconstruction and duplication. Reflected
 `FMaterialNumericInput` groups that `Connection` with `UseConstant` and a retained
-float-array `Constant`. Numeric expressions, terminal properties, sampling UVs
-and individual Surface attribute overrides use this storage. Resources and
+float-array `Constant`. Numeric expressions and sampling UVs use this storage. Material roots retain their enabled bit and fixed-width scalar, linear RGB or vector components. Resources and
 aggregate Surface links remain identity-only; function port defaults and material
 parameter defaults retain their separate ownership.
 
 A connection takes precedence over either flag state. Broken or incompatible
 connections report diagnostics. A disconnected input uses its constant when
 enabled, otherwise its definition fallback. `GetMaterialNumericInputFallback`
-owns numeric node fallbacks; standard Surface values come from
-`FMaterialAttributeDefinitionMap`, projected through `FMaterialAttributeValues`.
-Sampling UVs inherit mesh UV0 and attribute overrides
-inherit their base Surface value. Inputs without a fallback remain required.
+owns numeric node fallbacks. Material and Make read standard property defaults
+from `FMaterialAttributeDefinitionMap`. Make emits a disconnected Normal literal
+with tangent-space normal semantics.
+Set starts from the incoming aggregate, or from the same defaults as Make when
+its prototype is disconnected. Only connected assignments replace attributes.
+Sampling UVs inherit mesh UV0. Inputs without a fallback remain required.
 
 Retained constants are validated even behind connections or while disabled.
 Adaptive inputs retain their component widths and scalar broadcasting rules.
@@ -192,11 +205,8 @@ Canonical inactive storage is finite zero with an appropriate input width; it
 does not define the fallback. Authored fingerprints include the flag and retained
 components, while shader identity still uses the resolved compiler representation.
 
-Authored packages require graph custom version 5 and function-port version 2;
-terminal output version 3 is unchanged. Older, missing, and future versions
-reject. The repository materials and standard functions were canonically resaved
-before the former graph-4/function-1 migration window was retired, so loading
-never guesses spatial semantics for legacy generic numeric values or ports.
+Authored graphs use graph version 10 and function-port version 6. Material roots
+and Make/Set expressions write output version 6. Make and Set pins store expression connections. Set inherits the incoming attribute when its pin is open. [Material version domains](../../ObjectSystem/Versioning.md)
 
 ## Traversal and invocation state
 
@@ -220,8 +230,7 @@ not share values computed from different caller bindings.
 Every authored expression is checked for locally valid storage, including
 disconnected nodes and unused function calls. Compilation semantics and expanded
 bounds are evaluated only for the root-reachable, selector-chosen closure.
-Material output terminals are handled by surface finalization and cannot be
-consumed as expression sources. Builds run on the owning thread and must finish
+Surface finalization consumes the owning materialâ€™s named inputs and mode. Builds run on the owning thread and must finish
 before a graph edit or asynchronous dispatch.
 
 ## Validation and publication
@@ -264,12 +273,18 @@ payload and failures retain typed diagnostics. A failed retry cannot publish a
 partial input or a mismatched dependency list. A previously captured result
 remains independent of later capture attempts or owner edits.
 
-Capture runs on the owning thread, resolves instances to the material root, and
-uses the requested material's effective static properties. Input data contains no
-object references. Function stamps retain object keys, paths and revisions rather
-than object ownership; freshness checks remain on the owning thread. Compilation
-moves the captured input and stamps into its lifecycle request; reachability
-uses the same capture and validates stamps before reusing its cached result.
+On the owning thread, capture selects shader entries from the material domain,
+the requested instance's effective static properties and the compiler environment.
+It resolves only the roots those entries use. Surface uses either the packed
+attributes input or the individual properties. PostProcess uses the individual
+Emissive Color input even when the asset retains packed Surface wiring.
+Only traversed function bodies contribute owner stamps. Each stamp records the
+object key, path and revision for freshness checks on the owning thread.
+Workers receive detached input data.
+
+Asset validation traverses every stored connection in both root modes.
+Authoring parameter reachability uses the owner's stored mode independently of
+shader entry selection and verifies function stamps before reusing its cache.
 Collection capture stores only detached asset path, collection GUID, schema,
 uniform layout and default bytes; no collection object reference reaches worker
 execution. Cooking continues through this compilation boundary. Collection GUID,

@@ -20,7 +20,7 @@ namespace
 	auto CaptureMaterialExpressions(const Durin::DMaterial& Material) -> Durin::Testing::FTestMaterialExpressionGraph
 	{
 		Durin::Testing::FTestMaterialExpressionGraph Graph;
-		Graph.Outputs = Material.GetExpressionOutputs();
+		Graph.Outputs = Material.CaptureRootInputs();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 			Graph.Expressions.emplace_back(Durin::DuplicateObject(Expression.Get(), nullptr, Durin::NAME_None).value());
 		const auto Rebind = [&](Durin::FMaterialExpressionInput& Input) {
@@ -30,7 +30,7 @@ namespace
 		};
 		for (const auto& Node : Graph.Expressions) Durin::VisitStoredMaterialInputs(*Node, Rebind);
 		Rebind(Graph.Outputs.Attributes);
-		for (auto& Binding : Graph.Outputs.Properties.Bindings) Rebind(Binding.Input.Connection);
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Rebind(Graph.Outputs.Get(Field.Property).Connection);
 		return Graph;
 	}
 

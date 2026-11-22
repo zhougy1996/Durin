@@ -2,7 +2,6 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Misc/FeedbackContext.h"
 #include "HAL/PlatformLibrary.h"
@@ -1237,7 +1236,7 @@ int main(int ArgC, char** ArgV)
 		const std::array Suffixes{"Color", "NormalDX", "Metalness", "Roughness"};
 		const std::array Names{"BaseColorTexture", "NormalTexture", "MetallicTexture", "RoughnessTexture"};
 		std::vector<TStrongObjectPtr<DMaterialExpression>> Nodes;
-		FMaterialAttributeRoot Outputs;
+		FMaterialRootInputs Outputs;
 		for (uint32 I = 0; I < Properties.size(); ++I)
 		{
 			const auto Name = std::string("Metal053C_1K-JPG_") + Suffixes[I];
@@ -1253,16 +1252,15 @@ int main(int ArgC, char** ArgV)
 			Nodes.emplace_back(Sample);
 			Outputs.Get(Properties[I]) = {Sample, uint8(I < 2 ? 1 : 2)};
 		}
-		auto* Terminal = NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None);
-		Terminal->Id = {0x53544735, 0x52555354, 0, 5}; Terminal->Outputs = Outputs; Nodes.emplace_back(Terminal);
 		FPackagePath Path; if (!FPackagePath::TryCreate(Destination, Path)) return 1;
 		auto* Material = NewObject<DMaterial>(CreatePackage(Path), "M_MetalRust", EObjectFlags::Public);
 		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		std::vector<DMaterialExpression*> Expressions; for (const auto& E : Nodes) Expressions.push_back(E.Get());
-		if (!Material->SetMaterialExpressions(Expressions) || !Material->CompileEdits()) return 1;
+		if (!Material->SetMaterialExpressions(Expressions, std::move(Outputs)) || !Material->CompileEdits()) return 1;
 		FMaterialGraphPresentation Layout;
 		for (uint32 I=0; I<4; ++I) Layout.Nodes.push_back({Nodes[I]->Id, 0, int32(I)*240});
-		Layout.Nodes.push_back({Terminal->Id, 600, 240}); Material->SetMaterialGraphPresentation(Layout);
+		Material->SetRootPosition(600, 240);
+		Material->SetMaterialGraphPresentation(std::move(Layout));
 		FByteBuffer Bytes; if (!SerializeAssetPackageBytes(Material->GetPackage(), Bytes)) return 1;
 		if (!FFileHelper::SaveArrayToFileAtomically(Bytes, File)) return 1;
 		std::cout << "Recreated current-format rust material; logical path and texture references retained.\n";
@@ -1295,9 +1293,9 @@ int main(int ArgC, char** ArgV)
 			{
 				auto* Material = NewObject<DMaterial>(Package, Names[Index], EObjectFlags::Public);
 				Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-				const auto Result = Material->SetMaterialExpressions(std::span<DMaterialExpression* const>{}, FMaterialAttributeRoot{});
+				const auto Result = Material->SetMaterialExpressions(std::span<DMaterialExpression* const>{}, FMaterialRootInputs{});
 				if (!Result) return 1;
-				Material->SetMaterialGraphPresentation({.Nodes = {{Material->GetOutputNode()->Id, 1600, 400}}});
+				Material->SetRootPosition(1600, 400);
 			}
 			else
 			{

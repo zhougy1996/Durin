@@ -2,6 +2,7 @@
 #include "Graph/MaterialGraphCanvas.h"
 #include "MaterialGraph.h"
 #include "Materials/MaterialExpressionInputs.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Package.h"
@@ -17,7 +18,17 @@ namespace Durin::MaterialEditor
 	{
 		const auto& Current = Material.GetExpressionCollection().Expressions;
 		if (Domain != Material.GetDomain() || Properties != Material.GetStaticProperties()
+			|| RootPosition != Material.GetRootPosition() || RootBindings.UseMaterialAttributes != Material.UsesMaterialAttributes()
 			|| Presentation != Material.GetMaterialGraphPresentation() || Expressions.size() != Current.size()) return false;
+		const auto& Packed = *Material.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes);
+		if (RootBindings.AttributeSource != Packed.GetExpressionId() || RootBindings.AttributeOutputIndex != Packed.OutputIndex)
+			return false;
+		if (!std::ranges::equal(RootBindings.Properties, FMaterialAttributeDefinitionMap::GetDefinitions(),
+			[&](const auto& Saved, const auto& Field) {
+				const auto Live = Material.GetNumericInputForProperty(Field.Property);
+				return Saved.Source == Live->Connection.GetExpressionId() && Saved.OutputIndex == Live->Connection.OutputIndex
+					&& Saved.UseConstant == Live->UseConstant && std::ranges::equal(Saved.Constant, Live->Constant);
+			})) return false;
 		// Compare detached snapshot fields against references in this particular copy of the asset.
 		std::unordered_map<FGuid, DMaterialExpression*> Nodes;
 		for (const auto& Node : Current) Nodes.emplace(Node->Id, Node.Get());
@@ -52,6 +63,8 @@ namespace Durin::MaterialEditor
 		FAuthoredState Candidate;
 		Candidate.Properties = Material.GetStaticProperties();
 		Candidate.Domain = Material.GetDomain();
+		Candidate.RootPosition = Material.GetRootPosition();
+		Candidate.RootBindings = CaptureMaterialOutputBindings(Material);
 		Candidate.Presentation = Material.GetMaterialGraphPresentation();
 		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
 		{
@@ -76,7 +89,7 @@ namespace Durin::MaterialEditor
 			std::vector<DMaterialExpression*> Expressions;
 			for (const auto& Expression : Source.GetExpressionCollection().Expressions)
 				Expressions.push_back(Expression.Get());
-			return Destination.SetMaterialExpressions(Expressions, Source.GetExpressionOutputs());
+			return Destination.SetMaterialExpressions(Expressions, Source.CaptureRootInputs());
 		}
 	}
 
@@ -131,6 +144,7 @@ namespace Durin::MaterialEditor
 			Error = "The source material's authored state is invalid.";
 			return false;
 		}
+		Working->SetRootPosition(Applied.RootPosition.first, Applied.RootPosition.second);
 		Working->SetMaterialGraphPresentation(Applied.Presentation);
 		Working->CompileEdits();
 		Working->SetEditCompileMode(Mode);
@@ -237,6 +251,7 @@ namespace Durin::MaterialEditor
 		}
 		// The complete candidate configuration passed admission before publication.
 		(void)Source->SetMaterialConfiguration({Candidate.Domain, Candidate.Properties});
+		Source->SetRootPosition(Candidate.RootPosition.first, Candidate.RootPosition.second);
 		Source->SetMaterialGraphPresentation(Candidate.Presentation);
 		if (Source->GetMaterialCompileStatus().HasUnsubmittedEdits()) Source->CompileEdits();
 		Source->SetEditCompileMode(PreviousMode);

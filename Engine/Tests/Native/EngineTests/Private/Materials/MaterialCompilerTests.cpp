@@ -2276,7 +2276,10 @@ TEST(FMaterialProgramSchemaTests,
 			Validation.Diagnostics.front().NodeId.ToString()));
 	EXPECT_TRUE(Validation.Diagnostics.empty());
 	EXPECT_NE(FMaterialExpressionCollection::StaticStruct()->FindPropertyByName("Expressions"), nullptr);
-	EXPECT_NE(FMaterialAttributeRoot::StaticStruct()->FindPropertyByName("Properties"), nullptr);
+	EXPECT_NE(DMaterial::StaticClass()->FindPropertyByName("BaseColor"), nullptr);
+	EXPECT_EQ(DMaterial::StaticClass()->FindPropertyByName("PropertyInputs_DEPRECATED"), nullptr);
+	EXPECT_EQ(DMaterialExpressionMakeMaterialAttributes::StaticClass()->FindPropertyByName("Values_DEPRECATED"), nullptr);
+	EXPECT_EQ(FMaterialExpressionAttributeBinding::StaticStruct()->FindPropertyByName("Source_DEPRECATED"), nullptr);
 	EXPECT_NE(DMaterialExpressionScalarConstant::StaticClass()->FindPropertyByName("Value"), nullptr);
 	DStruct* Presentation = FMaterialGraphPresentation::StaticStruct();
 	ASSERT_NE(Presentation, nullptr);
@@ -2399,7 +2402,7 @@ TEST(FMaterialProgramSchemaTests,
 	std::ranges::reverse(Graph.Expressions);
 	ASSERT_TRUE(Graph.Apply(*Base));
 	const auto& Owned = Base->GetExpressionCollection().Expressions;
-	ASSERT_EQ(Owned.size(), Graph.Expressions.size() + 1);
+	ASSERT_EQ(Owned.size(), Graph.Expressions.size());
 	for (size_t Index = 0; Index < Graph.Expressions.size(); ++Index)
 	{
 		EXPECT_EQ(Owned[Index]->Id, Graph.Expressions[Index]->Id);
@@ -2409,11 +2412,11 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_EQ(Instance->GetParent(), Base.Get());
 	EXPECT_TRUE(GDObjectArray.GetObjectsWithOuter(Instance.Get(), EObjectQueryScope::LiveOnly).empty());
 	const auto BeforeChildren = Owned;
-	const auto BeforeOutputs = Base->GetExpressionOutputs();
+	const auto BeforeOutputs = Base->CaptureRootInputs();
 	Graph.Outputs.Get(EMaterialProperty::MP_BaseColor).Constant[0] = std::numeric_limits<float>::quiet_NaN();
 	EXPECT_FALSE(Graph.Apply(*Base));
 	EXPECT_EQ(Base->GetExpressionCollection().Expressions, BeforeChildren);
-	EXPECT_EQ(Base->GetExpressionOutputs(), BeforeOutputs);
+	EXPECT_EQ(Base->CaptureRootInputs(), BeforeOutputs);
 }
 
 TEST(FMaterialProgramNormalizationTests,
@@ -2436,8 +2439,9 @@ TEST(FMaterialProgramNormalizationTests,
 	EXPECT_EQ(Before.StaticProperties, After.StaticProperties);
 	EXPECT_EQ(Before.Environment, After.Environment);
 	for (const auto& Node : Before.IR.Nodes) EXPECT_TRUE(Node.HasValidPayload());
-	EXPECT_EQ(Before.Parameters.size(),
-		Material->GetParameterDefinitions().size());
+	EXPECT_LT(Before.Parameters.size(), Material->GetParameterDefinitions().size());
+	for (const auto& Parameter : Before.Parameters)
+		EXPECT_NE(Material->FindParameterDefinition(Parameter.Id), nullptr);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_TRUE(Durin::MIR::Normalize(Before));
@@ -2460,7 +2464,7 @@ TEST(FMaterialProgramNormalizationTests,
 	EXPECT_TRUE(Normalized.ActiveParameters.empty());
 	EXPECT_FALSE(Normalized.IR.bAggregateAttributes);
 	EXPECT_EQ(Normalized.IR.GetAttribute(EMaterialProperty::MP_BaseColor).Literal,
-		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
+		(Durin::FMaterialProgramLiteral{0.f, 0.f, 0.f, 0.f}));
 	EXPECT_EQ(Normalized.IR.GetAttribute(EMaterialProperty::MP_Normal).Literal,
 		(Durin::FMaterialProgramLiteral{0.0f, 0.0f, 1.0f, 0.0f}));
 	std::string Source;
@@ -3248,7 +3252,7 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	Position->Id = FGuid::NewGuid(); Time->Id = FGuid::NewGuid(); PositionColor->Id = FGuid::NewGuid();
 	PositionColor->Input = {Position.Get()}; PositionColor->Components = {0, 1, 0};
 	const std::array<DMaterialExpression*, 3> Expressions{Position.Get(), Time.Get(), PositionColor.Get()};
-	FMaterialAttributeRoot Outputs;
+	FMaterialRootInputs Outputs;
 	Outputs.Get(EMaterialProperty::MP_BaseColor) = {PositionColor.Get()}; Outputs.Get(EMaterialProperty::MP_Roughness) = {Time.Get()};
 	Outputs.Get(EMaterialProperty::MP_OpacityMask) = {Time.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
@@ -3257,6 +3261,9 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 
 	const auto CompilerEnvironmentResult = BuildDefaultMaterialCompilerEnvironment(Environment);
 	ASSERT_TRUE(CompilerEnvironmentResult) << CompilerEnvironmentResult.error();
+	auto Properties = Material->GetStaticProperties();
+	Properties.BlendMode = EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
 	auto InputCapture = SnapshotMaterialCompilerInput(*Material, Environment);
 	ASSERT_TRUE(InputCapture);
 	auto& Input = InputCapture.Snapshot->Input;
@@ -3268,7 +3275,6 @@ TEST(FMaterialProgramSchemaTests, EnvironmentInputsCompileWithoutMaterialParamet
 	EXPECT_NE(Source.Source.find("MaterialView.Parameters.x"), std::string::npos);
 	EXPECT_EQ(Source.Source.find("Material.SurfaceParams"), std::string::npos);
 	EXPECT_EQ(Source.Source.find("materialTime :"), std::string::npos);
-	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
 	const auto Compiled = MIR::Compile(Input);
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
 	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));

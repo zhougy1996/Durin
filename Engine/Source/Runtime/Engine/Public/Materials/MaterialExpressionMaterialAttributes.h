@@ -12,7 +12,7 @@
 
 namespace Durin
 {
-	// Builds eight surface attributes from their applicable numeric inputs.
+	// Unconnected fields inherit the material attribute definition.
 	DCLASS()
 	class DMaterialExpressionMakeMaterialAttributes : public DMaterialExpressionNumeric
 	{
@@ -21,7 +21,36 @@ namespace Durin
 		explicit DMaterialExpressionMakeMaterialAttributes(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 		DPROPERTY()
-		FMaterialAttributeRoot Values;
+		FMaterialExpressionInput BaseColor;
+		DPROPERTY()
+		FMaterialExpressionInput Normal;
+		DPROPERTY()
+		FMaterialExpressionInput Metallic;
+		DPROPERTY()
+		FMaterialExpressionInput Roughness;
+		DPROPERTY()
+		FMaterialExpressionInput AmbientOcclusion;
+		DPROPERTY()
+		FMaterialExpressionInput EmissiveColor;
+		DPROPERTY()
+		FMaterialExpressionInput Opacity;
+		DPROPERTY()
+		FMaterialExpressionInput OpacityMask;
+		DPROPERTY()
+		FMaterialExpressionInput WorldPositionOffset;
+		DPROPERTY()
+		FMaterialExpressionInput Specular;
+		DPROPERTY()
+		FMaterialExpressionInput ClearCoat;
+		DPROPERTY()
+		FMaterialExpressionInput ClearCoatRoughness;
+
+
+		ENGINE_API auto GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*;
+		auto GetExpressionInputForProperty(EMaterialProperty Property) -> FMaterialExpressionInput*
+			{ return const_cast<FMaterialExpressionInput*>(std::as_const(*this).GetExpressionInputForProperty(Property)); }
+
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return uint32(FMaterialAttributeDefinitionMap::GetDefinitions().size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
@@ -58,8 +87,7 @@ namespace Durin
 		FMaterialExpressionAttributeBinding(EMaterialProperty InAttribute, FMaterialExpressionInput InSource)
 			: AttributeID(FMaterialAttributeDefinitionMap::GetID(InAttribute))
 		{
-			Source.Connection = InSource;
-			Source.Constant.resize(static_cast<uint32>(GetMaterialSurfaceOutputType(InAttribute)) + 1, 0.f);
+			Input = InSource;
 		}
 
 		DPROPERTY()
@@ -71,7 +99,8 @@ namespace Durin
 		}
 
 		DPROPERTY()
-		FMaterialNumericInput Source;
+		FMaterialExpressionInput Input;
+
 
 		auto operator==(const FMaterialExpressionAttributeBinding&) const -> bool = default;
 	};
@@ -90,6 +119,7 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FMaterialExpressionAttributeBinding> Attributes;
 
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		auto GetAuthoredInputCount() const -> uint32 override { return 1 + static_cast<uint32>(Attributes.size()); }
 
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;

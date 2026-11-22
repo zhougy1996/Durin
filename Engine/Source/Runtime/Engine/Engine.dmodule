@@ -103,7 +103,6 @@
         "Public/Materials/MaterialExpressionFunctionCall.h",
         "Public/Materials/MaterialExpressionFunctionIO.h",
         "Public/Materials/MaterialExpressionCustomData.h",
-        "Public/Materials/MaterialExpressionMaterialOutput.h",
         "Public/Materials/MaterialExpressionNumeric.h",
         "Public/Materials/MaterialExpressionParameter.h",
         "Public/Materials/MaterialExpressionConstant.h",

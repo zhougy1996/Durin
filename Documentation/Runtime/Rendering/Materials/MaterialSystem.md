@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-22
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -270,8 +270,10 @@ vertex-to-fragment interpolator.
 outputs. Concrete reflected expression classes own only their applicable values,
 inputs and defaults; there is no authored Program, universal node, or separate call
 table. GUID connections preserve node, parameter and function-port identities.
-The material owns `FMaterialAttributeRoot`: a bounded GUID-keyed property set
-and an optional aggregate `MaterialAttributes` connection. The immutable
+The material directly owns twelve named scalar, color and vector inputs, the packed
+`MaterialAttributes` connection and the mode bit. Make Material Attributes owns
+twelve named expression connections. Disconnected Make pins inherit the attribute definition. Dynamic Get/Set expressions identify selected
+attributes by GUID. The immutable
 `FMaterialAttributeDefinitionMap` owns property types, defaults, stage/space
 semantics, applicability and blend policy. WPO belongs to the same set.
 [Vertex evaluation](MaterialVertexEvaluation.md) owns vertex roots and interpolation. `DMaterialInstance` owns no expressions and resolves its root through
@@ -317,21 +319,22 @@ fallback and validates the resident RHI texture against the compiled field.
 [Material scene inputs](MaterialSceneInputs.md) defines PostProcessInput0, read-only depth, viewport conversion and graph-owned resource binding.
 Synthetic expression source records retain authored node, input and call path.
 These authoring forms lower before normalization and do
-not change layout v5. Fresh materials own one material-output expression node
-and twelve unconnected property defaults:
-BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
+not change layout v5. Fresh materials start with an empty expression body and twelve unconnected property defaults including
+BaseColor `(0, 0, 0)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
 OpacityMask `1`, WPO `(0,0,0)`, Specular `0.5`, ClearCoat `1`, and
 ClearCoatRoughness `0.1`. DefaultLit executes Specular; coat properties retain
 inactive authored intent until their shading implementation is available. Aggregate
-mode selects one MaterialAttributes source; per-property mode selects the
-individual bindings. Both connection sets and retained fallbacks survive mode
+mode selects one MaterialAttributes source. Per-property mode reads the named
+inputs. Both connection sets and retained fallbacks survive mode
 changes. Inactive known properties retain their authoring state and create no
-execution bindings. Unknown/duplicate IDs, malformed retained defaults and
-incompatible selected values reject before publication.
+execution bindings. Graph validation rejects malformed retained defaults and
+incompatible selected values. Dynamic Get/Set selections require valid, unique
+attribute IDs.
 Authored and cooked graphs require version 10. Each connected input stores a hard
 reference to an expression in its owning graph and a signed 32-bit output index. Output
-version 4 and function version 6 retain their existing compatibility boundaries. `asset material-foundation` recreates DefaultMaterial and the three
+version 6 is written for base materials and functions containing Make or Set. The loader requires this version before binding their fields.
+Function ports use version 6. `asset material-foundation` recreates DefaultMaterial and the three
 standard functions at their existing Engine paths; use `--dry-run` to inspect
 the bounded write set. `asset material-rust --project Sandbox/Sandbox.dproject`
 recreates the four-map Sandbox sample at `/Game/Materials/Metal/M_MetalRust`.
@@ -403,16 +406,10 @@ publish their post-factory tangent basis. Reflection is reachability exact, so
 programs that do not consume a field or block do not bind it, and opaque shadow
 fragments require no surface-material resources.
 
-Base materials also persist bounded `EditorOnly` graph presentation containing
-one integral position per live node GUID and an optional integral position for
-the derived Surface terminal. Presentation schema 2 sanitizes both
-domains against live typed-expression GUIDs without constructing a program projection,
-and never enters semantic validation, normalized
-IR, compile snapshots, shader identity, derived data, or Cook. MaterialEditor's
-shared inspection, command, canvas, clipboard, transaction, and
-diagnostic-navigation boundary is defined by
-[Material Graph Operations](../../../Editor/Architecture/Materials/MaterialGraphOperations.md)
-and [Material Graph Canvas](../../../Editor/Architecture/Materials/MaterialGraphCanvas.md).
+Base materials persist expression positions and labels by node GUID. The editor-only
+material fields `EditorX` and `EditorY` store root placement. Fresh roots use
+(1280, 0), which also preserves the legacy canvas fallback for packages without
+a terminal position row. Layout edits leave shader identity unchanged.
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
@@ -1250,8 +1247,8 @@ destruction detaches world, scene, viewport, preview, and thumbnail consumers,
 then shuts the service down before Engine and rendering shutdown. Loading is
 never lazy and never occurs on the render thread.
 
-The authored default is opaque, lit, one-sided, automatic-depth-write neutral
-gray with BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`,
+The authored default is opaque, lit, one-sided, automatic-depth-write black
+with BaseColor `(0, 0, 0)`, Normal `(0, 0, 1)`, Metallic `0`,
 Roughness `0.5`, AmbientOcclusion `1`, zero Emissive, unit Opacity and
 OpacityMask, and no textures. It is valid authored data and is not classified
 as an error.
@@ -1421,11 +1418,9 @@ and material Cook class-schema version 7. The independent compile adapter is ver
 normalization/generator revisions are private producer inputs. Time uses `MaterialView`;
 fragments using the old time interpolator and prior Cook hits require rebuilding.
 DMAT has no authored Program version word. Materials use ordinary DAST v11
-default-relative owned-object serialization, with no material-specific serializer
-or universal old-asset conversion path. Materials and functions require graph version 10.
-Material outputs require version 4, function ports require version 6, and
-material instances require version 3. Missing version markers reject before
-object publication.
+default-relative owned-object serialization. Materials and functions require graph version 10.
+Material output writers use version 6, function ports require version 6, and
+material instances require version 3. A standalone Set requires the material-output version even when its prototype is open.
 
 Mesh components persist the positional `DMeshComponent::OverrideMaterials`
 collection. StaticMesh and SplineMesh components serialize only the base

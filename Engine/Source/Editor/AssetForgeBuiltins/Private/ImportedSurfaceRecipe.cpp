@@ -46,7 +46,7 @@ namespace Durin::AssetForge::Builtins
 			const auto Role = MaterialParameters::PBRMaterialProperties.at(I);
 			const auto ValueType = GetMaterialSurfaceOutputType(Role);
 			const auto& Input = Roles[I];
-			auto& Output = Builder.Output(Result.Graph.Outputs, I);
+			auto& Output = Result.Graph.Outputs.Get(Role).Connection;
 			Result.CanonicalKey += ";";
 			if (!Input.Sample)
 			{

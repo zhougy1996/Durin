@@ -343,7 +343,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyUsesSharedEngineDefaultForUnassigne
 		const Durin::FMaterialRenderData& Default = Snapshot.Materials[SlotIndex];
 		const auto Binding = GetMaterialBinding(Default);
 		EXPECT_EQ(Binding.Textures[0], nullptr);
-		ExpectColorNear(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+		ExpectColorNear(Binding.BaseColor, Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 		EXPECT_FALSE(Default.Representation.IsError());
 		EXPECT_NE(Snapshot.MaterialProxies[SlotIndex], nullptr);
 	}
@@ -391,7 +391,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	ExpectColorNear(GetMaterialBinding(Initial.Materials[2]).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(Initial.Materials[3]).BaseColor,
-		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+		Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	EXPECT_EQ(Component->GetMaterial(2), Shared);
 
 	Shared->SetVectorParameterValue(Durin::AssetForge::Builtins::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
@@ -404,7 +404,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	ExpectColorNear(GetMaterialBinding(Updated.Materials[2]).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(Updated.Materials[3]).BaseColor,
-		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+		Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	EXPECT_EQ(
 		Updated.Materials[0].PlanningPassIdentity,
 		Initial.Materials[0].PlanningPassIdentity);
@@ -416,7 +416,7 @@ TEST(FMaterialRenderingTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySh
 	ASSERT_EQ(Dormant.Materials.size(), 1u);
 	ExpectColorNear(
 		GetMaterialBinding(Dormant.Materials[0]).BaseColor,
-		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+		Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	EXPECT_EQ(Component->GetMaterialOverride(1), Override);
 	Component->SetStaticMesh(Mesh);
 	const FMaterialSlotsSnapshot Reactivated = CaptureMaterialSlots(Harness.Scene);

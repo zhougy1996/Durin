@@ -2,7 +2,6 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Graph/MaterialGraphChange.h"
 #include "Materials/Material.h"
@@ -78,6 +77,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FNodes Original;
 		std::unordered_set<DMaterialExpression*> OriginalObjects;
 		FMaterialGraphPresentation OriginalPresentation;
+		FMaterialRootInputEdits Root;
 		std::vector<FMemberChange> Members;
 		std::unordered_set<DMaterialExpression*> Modified;
 		bool bFinished = false;
@@ -130,11 +130,39 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		});
 		return Result;
 	}
-	auto FGraphEditSession::GetOutputs() -> FMaterialAttributeRoot&
+	auto FGraphEditSession::GetRootInput(EMaterialProperty Property) const -> const FMaterialExpressionInput*
 	{
-		for (auto& E : Expressions)
-			if (auto* Output = Cast<DMaterialExpressionMaterialOutput>(E.Get())) { Modify(*Output); return Output->Outputs; }
-		check(false); std::terminate();
+		const auto& Root = Impl->Root;
+		if (Property == EMaterialProperty::MP_MaterialAttributes && Root.Attributes) return &*Root.Attributes;
+		if (const auto It = Root.Numeric.find(Property); It != Root.Numeric.end()) return &It->second.Connection;
+		const auto* Material = Cast<DMaterial>(&Impl->Owner);
+		return Material ? Material->GetExpressionInputForProperty(Property) : nullptr;
+	}
+	auto FGraphEditSession::EditNumericRoot(EMaterialProperty Property) -> FMaterialNumericInput*
+	{
+		auto& Fields = Impl->Root.Numeric;
+		if (auto It = Fields.find(Property); It != Fields.end()) return &It->second;
+		const auto Input = Cast<DMaterial>(&Impl->Owner)->GetNumericInputForProperty(Property);
+		return Input ? &Fields.emplace(Property, Input->Capture()).first->second : nullptr;
+	}
+	auto FGraphEditSession::EditRootInput(EMaterialProperty Property) -> FMaterialExpressionInput*
+	{
+		if (Property == EMaterialProperty::MP_MaterialAttributes)
+		{
+			auto& Packed = Impl->Root.Attributes;
+			if (!Packed) Packed = *GetRootInput(Property);
+			return &*Packed;
+		}
+		auto* Numeric = EditNumericRoot(Property);
+		return Numeric ? &Numeric->Connection : nullptr;
+	}
+	void FGraphEditSession::SetRootMode(bool UseAttributes) { Impl->Root.UseAttributes = UseAttributes; }
+	void FGraphEditSession::ResetRoot()
+	{
+		SetRootMode(false);
+		Impl->Root.Attributes.emplace();
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+			Impl->Root.Numeric.insert_or_assign(Field.Property, FMaterialNumericInput(uint32(Field.Semantics.Type) + 1));
 	}
 	auto ValidateGraphEdit(DObject& Owner, const std::unordered_map<const FMaterialExpressionInput*, FMaterialExpressionInput>& Links) -> FMaterialGraphCommandResult
 	{
@@ -168,6 +196,17 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	{
 		auto* Previous = Slot.Get();
 		Slot = &Replacement;
+		if (!bFunction)
+		{
+			const auto Rebind = [&](EMaterialProperty Property) {
+				const auto* Link = GetRootInput(Property);
+				if (Link->Expression.Get() != Previous) return;
+				const auto Port = Link->GetOutputId();
+				*EditRootInput(Property) = FMaterialExpressionInput(&Replacement, Port.IsValid() ? 0 : Link->OutputIndex, Port);
+			};
+			Rebind(EMaterialProperty::MP_MaterialAttributes);
+			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Rebind(Field.Property);
+		}
 		for (const auto& Node : Expressions)
 			VisitStoredMaterialInputs(*Node, [&](FMaterialExpressionInput& Input) {
 				if (Input.Expression.Get() != Previous) return;
@@ -194,11 +233,28 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions) return RejectCommand("The editor transactor is busy.");
-		const bool bGraphWritten = !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
+		const auto* Material = Cast<DMaterial>(&Impl->Owner);
+		const auto& Root = Impl->Root;
+		const bool bRootChanged = Material && ((Root.UseAttributes && *Root.UseAttributes != Material->UsesMaterialAttributes())
+			|| (Root.Attributes && *Root.Attributes != *Material->GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes))
+			|| std::ranges::any_of(Root.Numeric, [&](const auto& Entry) {
+				return *Material->GetNumericInputForProperty(Entry.first) != Entry.second;
+			}));
+		const bool bGraphWritten = bRootChanged || !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)
 		{
 			if (auto Valid = ValidateGraphEdit(Impl->Owner); !Valid) return Valid;
+			if (!bFunction)
+			{
+				if (!Root.HasValidWidths(*Material)) return RejectCommand("A material root constant has the wrong width.");
+				const auto InBody = [&](const FMaterialExpressionInput& Link) {
+					return Link.OutputIndex >= 0 && (!Link.Expression || std::ranges::contains(Expressions, Link.Expression));
+				};
+				if (!InBody(*GetRootInput(EMaterialProperty::MP_MaterialAttributes)) || !std::ranges::all_of(FMaterialAttributeDefinitionMap::GetDefinitions(), [&](const auto& Field) {
+					return InBody(*GetRootInput(Field.Property));
+				})) return RejectCommand("A retained material input refers to a missing expression.");
+			}
 			// Type inference is best effort. Incompatible widths remain compiler diagnostics.
 			std::unordered_set<DMaterialExpression*> TypeChanges, ChangedOutputs;
 			for (auto& M : Impl->Members)
@@ -224,7 +280,6 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				AdaptNumericTypes(*this, Seeds, Outputs);
 			}
 			if (Impl->CaptureError) return RejectCommand("Unable to record the edited expression. " + ToString(*Impl->CaptureError));
-			if (!bFunction) std::stable_partition(Expressions.begin(), Expressions.end(), [](auto& E) { return !Cast<DMaterialExpressionMaterialOutput>(E.Get()); });
 		}
 		std::vector<FGuid> PresentationIds;
 		for (auto& E : Expressions) PresentationIds.push_back(E->Id);
@@ -239,7 +294,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 			if (!Member.IsNoOp()) Changed.push_back(&Member);
 		}
 		const bool bPresentation = Presentation != Impl->OriginalPresentation;
-		if (!bStructural && Changed.empty() && !bPresentation)
+		if (!bStructural && Changed.empty() && !bPresentation && !bRootChanged)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
 
 		std::vector<DMaterialExpression*> Removed;
@@ -281,7 +336,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				if (!Nested) Recording.Cancel();
 				return false;
 			};
-			if ((bStructural || bPresentation) && !Record(Impl->Owner)) return RejectCommand("Unable to record the graph owner.");
+			if ((bStructural || bPresentation || bRootChanged) && !Record(Impl->Owner)) return RejectCommand("Unable to record the graph owner.");
 			for (auto* Node : Removed)
 				if (!Record(*Node)) return RejectCommand("Unable to record the removed expression.");
 			for (auto* Member : Changed)
@@ -299,7 +354,8 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FMaterialExpressionEditing::ReconcileOwnership(Impl->Owner, {});
 		Impl->bFinished = true;
 		if (bPresentation) WritePresentation(Impl->Owner, Presentation);
-		if (bStructural || !Changed.empty()) FMaterialExpressionEditing::Publish(Impl->Owner);
+		if (bRootChanged) FMaterialExpressionEditing::ApplyRootEdits(*Cast<DMaterial>(&Impl->Owner), Root);
+		if (bRootChanged || bStructural || !Changed.empty()) FMaterialExpressionEditing::Publish(Impl->Owner);
 		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 }

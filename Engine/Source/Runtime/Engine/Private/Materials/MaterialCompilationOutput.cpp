@@ -24,6 +24,18 @@ namespace Durin
 		return Result;
 	}
 
+	auto GetMaterialCompilationProperties(EMaterialDomain Domain, const FMaterialStaticProperties& Properties,
+		const FMaterialCompilerEnvironment& Environment) -> std::set<EMaterialProperty>
+	{
+		const auto Active = FMaterialAttributeDefinitionMap::GetActiveProperties(Domain, Properties.ShadingModel, Properties.BlendMode);
+		std::set<EMaterialProperty> Demanded;
+		for (const auto Entry : SelectMaterialShaderEntries(Properties, Environment.bIncludeEditorPasses, Domain, &Environment))
+			for (const auto Property : GetMaterialEntryProperties(FindMaterialShaderEntry(Entry)->Entry, Properties))
+				if (std::ranges::contains(Active, Property))
+					Demanded.insert(Property);
+		return Demanded;
+	}
+
 	auto BuildMaterialCompilationOutput(const MIR::FModule& IR, const FMaterialRenderLayout& Layout,
 		std::span<const FMaterialCompilerParameterDeclaration> Parameters, std::span<const FMaterialParameterCollectionLayout> Collections,
 		const FMaterialStaticProperties& Properties, const FMaterialCompilerEnvironment& Environment, FMaterialProgramIdentity Identity)

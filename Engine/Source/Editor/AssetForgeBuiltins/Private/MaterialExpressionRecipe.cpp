@@ -1,6 +1,6 @@
 #include "AssetForge/Builtins/MaterialExpressionRecipe.h"
 #include "Materials/MaterialExpression.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 
@@ -8,6 +8,23 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
+		auto SameRoot(const FMaterialRootInputs& Recipe, const auto& Other) -> bool
+		{
+			const auto SameLink = [](const FMaterialExpressionInput& A, const FMaterialExpressionInput& B) {
+				return A.GetExpressionId() == B.GetExpressionId() && A.OutputIndex == B.OutputIndex;
+			};
+			if (Recipe.bUseMaterialAttributes != Other.UsesMaterialAttributes()
+				|| !SameLink(Recipe.Attributes, *Other.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes))) return false;
+			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+			{
+				const auto& A = Recipe.Get(Field.Property);
+				const auto B = Other.GetNumericInputForProperty(Field.Property);
+				if (!SameLink(A.Connection, B->Connection) || A.UseConstant != B->UseConstant
+					|| !std::ranges::equal(A.Constant, B->Constant)) return false;
+			}
+			return true;
+		}
+
 		template<typename A, typename B>
 		auto SameExpressions(const A& Left, const B& Right) -> bool
 		{
@@ -28,22 +45,18 @@ namespace Durin::AssetForge::Builtins
 		auto Result = Material.SetMaterialExpressions(Nodes, Outputs);
 		if (Result)
 		{
-			auto Layout = Presentation;
-			if (const auto* Output = Material.GetOutputNode())
-				Layout.Nodes.push_back({Output->Id, OutputPosition.first, OutputPosition.second});
-			Material.SetMaterialGraphPresentation(std::move(Layout));
+			Material.SetRootPosition(OutputPosition.first, OutputPosition.second);
+			Material.SetMaterialGraphPresentation(Presentation);
 		}
 		return Result;
 	}
 	auto FMaterialExpressionRecipe::MatchesGraph(const DMaterial& Material) const -> bool
 	{
-		std::vector<TObjectPtr<DMaterialExpression>> Body;
-		for (const auto& Expression : Material.GetExpressionCollection().Expressions)
-			if (!Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) Body.push_back(Expression);
-		return CaptureMaterialOutputBindings(Outputs) == CaptureMaterialOutputBindings(Material.GetExpressionOutputs()) && SameExpressions(Expressions, Body);
+		return SameRoot(Outputs, Material)
+			&& SameExpressions(Expressions, Material.GetExpressionCollection().Expressions);
 	}
 	auto FMaterialExpressionRecipe::MatchesGraph(const FMaterialExpressionRecipe& Other) const -> bool
 	{
-		return CaptureMaterialOutputBindings(Outputs) == CaptureMaterialOutputBindings(Other.Outputs) && SameExpressions(Expressions, Other.Expressions);
+		return SameRoot(Outputs, Other.Outputs) && SameExpressions(Expressions, Other.Expressions);
 	}
 }

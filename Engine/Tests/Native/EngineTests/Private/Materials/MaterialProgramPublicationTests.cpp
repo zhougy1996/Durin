@@ -45,7 +45,7 @@ TEST(FMaterialProgramPublicationTests,
 		Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity);
 
 	auto Edited = CaptureMaterialExpressions(*Base);
-	Edited.Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({ReadMaterialOutputDefault(Edited.Outputs, Durin::EMaterialOutputPin::Roughness)[0] + 0.01f});
+	Edited.Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({ReadMaterialOutputDefault(Edited.Outputs, Durin::EMaterialProperty::MP_Roughness)[0] + 0.01f});
 	auto Validation = Edited.Apply(*Base);
 	ASSERT_TRUE(Validation);
 	EXPECT_EQ(Durin::Testing::CaptureMaterialRenderData(*Base).PlanningPassIdentity.ShaderMap.ProgramIdentity,

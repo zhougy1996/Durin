@@ -4,7 +4,6 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialFunctionInterface.h"
 
@@ -32,14 +31,11 @@ namespace Durin
 		if (!Result.Diagnostics.empty()) return MIR::InvalidIndex;
 		if (Type == EMaterialProgramValueType::MaterialAttributes)
 		{
-			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = Type};
 			// These are validation-only opaque values. Equal semantic shapes can
 			// share a placeholder without spending expanded graph nodes per field.
 			std::map<std::tuple<EMaterialProgramValueType, EMaterialEvaluationStage,
 				EMaterialSpatialKind, EMaterialCoordinateSpace>, uint32> Shapes;
-			for (uint8 Attribute = 0; Attribute < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Attribute)
-			{
-				const auto Output = FMaterialAttributeDefinitionMap::GetDefinitions()[Attribute].Property;
+			return Aggregate(InvalidIndex, [&](EMaterialProperty Output) -> std::optional<uint32> {
 				const auto Semantics = GetMaterialSurfaceOutputSemantics(Output);
 				const auto Key = std::tuple{Semantics.Type, Semantics.Stages, Semantics.Kind, Semantics.Space};
 				auto [Shape, Inserted] = Shapes.try_emplace(Key, InvalidIndex);
@@ -52,9 +48,8 @@ namespace Durin
 					Node.SpatialKind = Semantics.Kind;
 					Node.CoordinateSpace = Semantics.Space;
 				}
-				Surface.Inputs.push_back(Value);
-			}
-			return Emit(std::move(Surface));
+				return Value;
+			});
 		}
 		if (Type > EMaterialProgramValueType::MaterialAttributes || Result.IR.Nodes.size() >= MaterialFunctionMaxExpandedNodes
 			|| LinkCount + Inputs.size() > MaterialFunctionMaxExpandedLinks)
@@ -164,8 +159,8 @@ namespace Durin
 		Context.bValidateAuthoring = true;
 		Context.Signature = &Signature;
 		for (const auto& [Id, Expression] : Context.Expressions)
-			if (Cast<DMaterialExpressionParameter>(Expression) || Cast<DMaterialExpressionMaterialOutput>(Expression))
-				Context.Fail("Functions cannot declare material parameters or material outputs.");
+			if (Cast<DMaterialExpressionParameter>(Expression))
+				Context.Fail("Functions cannot declare material parameters.");
 		auto Built = Context.Finish({});
 		return {.bSucceeded = static_cast<bool>(Built), .Diagnostics = std::move(Built.Diagnostics)};
 	}
@@ -237,22 +232,9 @@ namespace Durin
 		}
 		case EMaterialFunctionDefaultKind::MaterialAttributes:
 		{
-			MIR::FNode Surface{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = EMaterialProgramValueType::MaterialAttributes};
-			for (uint8 Index = 0; Index < FMaterialAttributeDefinitionMap::GetDefinitions().size(); ++Index)
-			{
-				const auto Attribute = FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property;
-				const auto& Numeric = GetMaterialSurfaceOutputDefault(Default.Surface, Attribute);
-				const std::array Components{Numeric.X, Numeric.Y, Numeric.Z, Numeric.W};
-				Surface.Inputs.push_back(Literal(
-					std::span(Components).first(static_cast<size_t>(
-						GetMaterialSurfaceOutputType(Attribute)) + 1),
-					Attribute == EMaterialProperty::MP_Normal
-						? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
-					Attribute == EMaterialProperty::MP_Normal
-						? EMaterialCoordinateSpace::Tangent
-						: EMaterialCoordinateSpace::None));
-			}
-			Value = Emit(std::move(Surface));
+			Value = Aggregate(InvalidIndex, [&](EMaterialProperty Property) -> std::optional<uint32> {
+				return AttributeLiteral(Property, GetMaterialSurfaceOutputDefault(Default.Surface, Property));
+			});
 			break;
 		}
 		default: Fail("Function input has no usable binding or default."); break;
@@ -381,7 +363,7 @@ namespace Durin
 		for (const auto& Input : Body.Signature.Inputs)
 			if (Input.bRequired && !Child.BoundInputs.contains(Input.Id)) Child.Fail("Required function input has no binding.", Input.Id);
 		// Each invocation owns an independent node/output cache.
-		Child.BuildAllExpressions();
+		if (!bCompileReachableOnly) Child.BuildAllExpressions();
 		for (size_t Index = 0; Index < Call.FunctionOutputs.size(); ++Index)
 			Emitter.Output(static_cast<int32>(Index), Child.Resolve({OutputTerminals.at(Call.FunctionOutputs[Index].OutputId)}));
 		Shared->ActiveFunctions.pop_back();

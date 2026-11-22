@@ -499,12 +499,9 @@ namespace Durin
 		}
 		{
 			const FMaterialAttributeValues Defaults;
-			std::set<EMaterialProperty> Demanded;
-			for (const auto Entry : SelectMaterialShaderEntries(Input.StaticProperties, Input.Environment.bIncludeEditorPasses, Input.IR.Domain, &Input.Environment))
-				for (const auto Property : GetMaterialEntryProperties(FindMaterialShaderEntry(Entry)->Entry, Input.StaticProperties)) Demanded.insert(Property);
+			const auto Demanded = GetMaterialCompilationProperties(IR.Domain, Input.StaticProperties, Input.Environment);
 			for (size_t Index = 0; Index < IR.AttributeRoots.size(); ++Index)
-				if (!Demanded.contains(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property)
-					|| (IR.Domain == EMaterialDomain::Surface && !IsMaterialSurfaceOutputActive(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property, Input.StaticProperties)))
+				if (!Demanded.contains(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property))
 				{
 					auto& Root = IR.GetAttribute(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Property);
 					Root.bExpression = false;

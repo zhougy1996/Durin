@@ -22,6 +22,7 @@ using Durin::Testing::ImportSceneForTest;
 #include "TextureTestSupport.h"
 
 #include "Asset/PackageSerialization.h"
+#include "Asset/PackageInspection.h"
 #include "Asset/PackageReload.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
@@ -972,12 +973,23 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	{
 		if (Output.AssetClassName == "Durin::DTexture2D") ++TextureCount;
 		if (Output.Role == "Material")
+		{
+			Instance = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath));
+			ASSERT_NE(Instance, nullptr);
+			const auto Entry = FindPackageExact(Output.AssetPath);
+			ASSERT_TRUE(Entry);
+			FAssetPackageInspection Package;
+			ASSERT_TRUE(InspectAssetPackage(Entry->PhysicalPath, Package));
+			const auto& Body = Instance->GetExpressionCollection().Expressions;
+			for (const auto& Object : Package.Objects)
 			{
-				std::optional<Durin::UnifiedError::FError> LoadedValueError;
-				auto LoadedValue = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), nullptr, &LoadedValueError);
-				Instance = LoadedValue;
-				ASSERT_TRUE(LoadedValue);
+				if (!Object.ClassName.starts_with("Durin::DMaterialExpression")) continue;
+				EXPECT_NE(Object.ClassName, "Durin::DMaterialExpressionMaterialOutput");
+				EXPECT_TRUE(std::ranges::any_of(Body, [&](const auto& Expression) {
+					return Expression->GetName() == Object.ObjectName;
+				})) << Object.ObjectPath;
 			}
+		}
 	}
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(TextureCount, 1u);
@@ -985,7 +997,7 @@ TEST(FSceneImportTests, PackedSourceChannelsPublishOneLinearSampleOwner)
 	ASSERT_NE(Parent, nullptr);
 	EXPECT_EQ(std::ranges::count_if(Parent->GetExpressionCollection().Expressions,
 		[](const auto& Expression) { return Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()) != nullptr; }), 1);
-	const auto& Outputs = Parent->GetExpressionOutputs();
+	const auto& Outputs = Parent->CaptureRootInputs();
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.GetExpressionId(), Outputs.Get(EMaterialProperty::MP_Roughness).Connection.GetExpressionId());
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.GetExpressionId(), Outputs.Get(EMaterialProperty::MP_AmbientOcclusion).Connection.GetExpressionId());
 	EXPECT_EQ(Outputs.Get(EMaterialProperty::MP_Metallic).Connection.OutputIndex, 4);
@@ -1040,8 +1052,8 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 		}
 	EXPECT_EQ(Parent->GetPackage()->GetEditRevision(), Revision);
 	EXPECT_FALSE(Parent->GetPackage()->IsDirty());
-	const auto Original = Parent->GetExpressionOutputs();
-	const auto ApplyOutputs = [&](const FMaterialAttributeRoot& Outputs) {
+	const auto Original = Parent->CaptureRootInputs();
+	const auto ApplyOutputs = [&](const FMaterialRootInputs& Outputs) {
 		std::vector<DMaterialExpression*> Expressions;
 		for (const auto& Expression : Parent->GetExpressionCollection().Expressions) Expressions.push_back(Expression.Get());
 		return Parent->SetMaterialExpressions(Expressions, Outputs);
@@ -1055,9 +1067,9 @@ TEST(FSceneImportTests, ExplicitParentsReuseAcrossDestinationsAndRejectIncompati
 		{.MeshMode = EAssetImportMeshMode::Combined}, Options, {}, {});
 	EXPECT_FALSE(Rejected);
 	EXPECT_NE(Rejected.Message.find("graph"), std::string::npos);
-	EXPECT_EQ(CaptureMaterialOutputBindings(Parent->GetExpressionOutputs()), ExpectedBindings);
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Parent), ExpectedBindings);
 	for (const auto& Output : Rejected.Outputs) EXPECT_FALSE(FindPackageExact(Output.AssetPath));
-	auto Restored = Parent->GetExpressionOutputs();
+	auto Restored = Parent->CaptureRootInputs();
 	auto& AO = Restored.Get(EMaterialProperty::MP_AmbientOcclusion);
 	AO.Constant = Original.Get(EMaterialProperty::MP_AmbientOcclusion).Constant;
 	AO.UseConstant = Original.Get(EMaterialProperty::MP_AmbientOcclusion).UseConstant;
@@ -1378,8 +1390,8 @@ TEST(FSceneImportTests, StandardFunctionLibraryPreservesEditsAndRejectsIncompati
 	ASSERT_TRUE(Compact.Apply(*Material));
 	EXPECT_EQ(std::ranges::count_if(Material->GetExpressionCollection().Expressions, [](const auto& E) { return Cast<DMaterialExpressionFunctionCall>(E.Get()) != nullptr; }), 1u);
 	EXPECT_EQ(Material->GetParameterDefinitions().size(), 48u);
-	EXPECT_FALSE(Material->GetExpressionOutputs().Attributes.IsConnected());
-	const auto& Outputs = Material->GetExpressionOutputs();
+	EXPECT_FALSE(Material->CaptureRootInputs().Attributes.IsConnected());
+	const auto& Outputs = Material->CaptureRootInputs();
 	for (const auto& Link : {Outputs.Get(EMaterialProperty::MP_BaseColor), Outputs.Get(EMaterialProperty::MP_Normal), Outputs.Get(EMaterialProperty::MP_Metallic), Outputs.Get(EMaterialProperty::MP_Roughness),
 		Outputs.Get(EMaterialProperty::MP_AmbientOcclusion), Outputs.Get(EMaterialProperty::MP_EmissiveColor), Outputs.Get(EMaterialProperty::MP_Opacity), Outputs.Get(EMaterialProperty::MP_OpacityMask)}) EXPECT_TRUE(Link.Connection.IsConnected());
 	FMaterialCompilerEnvironment Environment;

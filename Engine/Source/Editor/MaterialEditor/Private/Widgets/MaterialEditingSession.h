@@ -50,6 +50,8 @@ namespace Durin::MaterialEditor
 			FMaterialStaticProperties Properties;
 			EMaterialDomain Domain = EMaterialDomain::Surface;
 			FMaterialGraphPresentation Presentation;
+			std::pair<int32, int32> RootPosition;
+			FMaterialOutputBindings RootBindings;
 			auto Matches(const DMaterial& Material) const -> bool;
 		};
 		static auto Capture(const DMaterial& Material, FAuthoredState& OutState) -> std::expected<void, FObjectGraphError>;

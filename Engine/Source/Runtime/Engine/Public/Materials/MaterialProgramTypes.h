@@ -235,6 +235,7 @@ namespace Durin
 		MP_BaseColor = 0, MP_Normal = 1, MP_Metallic = 2, MP_Roughness = 3,
 		MP_AmbientOcclusion = 4, MP_EmissiveColor = 5, MP_Opacity = 6, MP_OpacityMask = 7,
 		MP_WorldPositionOffset = 8, MP_Specular = 9, MP_ClearCoat = 10, MP_ClearCoatRoughness = 11,
+		MP_MaterialAttributes = 255,
 	};
 
 	inline auto MaterialNumericInputAllowsScalarBroadcast(

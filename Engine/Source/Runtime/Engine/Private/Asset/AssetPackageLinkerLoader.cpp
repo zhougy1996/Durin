@@ -375,6 +375,16 @@ namespace Durin::AssetPrivate
 				for (const auto& Export : Exports) PropertyCount += Export.Export->Properties.size();
 				FObjectLoadTimingSession::RecordPackage(Linker.Summary.PackagePath, Exports.size(), PropertyCount);
 			}
+			// A missing domain may otherwise surface as a field type mismatch before Serialize runs.
+			std::vector<std::pair<DClass*, FCustomVersionDefinition>> MissingVersions;
+			for (const auto& Definition : FCustomVersionRegistry::GetAll())
+			{
+				if (Definition.RequiredByClasses.empty()
+					|| std::ranges::contains(Linker.CustomVersions, Definition.Guid, &FCustomVersion::Guid)) continue;
+				for (const auto& Name : Definition.RequiredByClasses)
+					if (auto* RequiredClass = FindClassByQualifiedName(FName(Name)))
+						MissingVersions.emplace_back(RequiredClass, Definition);
+			}
 			uint64 DiscardedFields = 0;
 			auto& LiveDependencies = Application.LiveDependencies;
 			for (FExportView& Object : Exports)
@@ -384,6 +394,11 @@ namespace Durin::AssetPrivate
 				{
 					return Load.Fail(UnifiedError::FError{Durin::AssetLoadErrors::UnknownClass, std::format("Serialized class '{}' is unavailable. Enable its required plugin and restart, or restore its native provider, before editing or saving this package.", Object.Export->ClassName)}, Object.Path);
 				}
+				for (const auto& [RequiredClass, Version] : MissingVersions)
+					if (Class->IsChildOf(RequiredClass))
+						return Load.Fail(UnifiedError::FError{Durin::PackageReadErrors::UnsupportedVersion,
+							std::format("{} requires custom version '{}' {} at {}; file version is missing.",
+								Object.Export->ClassName, Version.Name, Version.Guid.ToString(), Version.CurrentVersion)}, Object.Path);
 				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
 				{
 					const auto* Schema = LinkerSchema::FindSchema(Linker, Property.DeclaringType);

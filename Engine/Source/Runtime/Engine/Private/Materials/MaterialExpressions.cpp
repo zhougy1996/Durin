@@ -5,7 +5,6 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
@@ -21,17 +20,83 @@
 
 namespace Durin
 {
-	auto CaptureMaterialOutputBindings(FMaterialAttributeRoot Root) -> std::pair<FMaterialAttributeRoot, std::vector<FGuid>>
+	auto FMaterialPropertyInputs::Find(EMaterialProperty Property) const -> const FMaterialNumericInput*
 	{
-		std::vector<FGuid> Sources;
-		const auto Capture = [&](FMaterialExpressionInput& Input) {
-			Sources.push_back(Input.GetExpressionId());
-			Input.Expression.Reset();
-		};
-		Capture(Root.Attributes);
-		for (auto& Binding : Root.Properties.Bindings) Capture(Binding.Input.Connection);
-		return {std::move(Root), std::move(Sources)};
+		switch (Property)
+		{
+		case EMaterialProperty::MP_BaseColor: return &BaseColor;
+		case EMaterialProperty::MP_Normal: return &Normal;
+		case EMaterialProperty::MP_Metallic: return &Metallic;
+		case EMaterialProperty::MP_Roughness: return &Roughness;
+		case EMaterialProperty::MP_AmbientOcclusion: return &AmbientOcclusion;
+		case EMaterialProperty::MP_EmissiveColor: return &EmissiveColor;
+		case EMaterialProperty::MP_Opacity: return &Opacity;
+		case EMaterialProperty::MP_OpacityMask: return &OpacityMask;
+		case EMaterialProperty::MP_WorldPositionOffset: return &WorldPositionOffset;
+		case EMaterialProperty::MP_Specular: return &Specular;
+		case EMaterialProperty::MP_ClearCoat: return &ClearCoat;
+		case EMaterialProperty::MP_ClearCoatRoughness: return &ClearCoatRoughness;
+		default: return nullptr;
+		}
 	}
+
+	auto FMaterialRootInputs::FindInvalidConstantWidth() const -> std::optional<EMaterialProperty>
+	{
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+			if (Get(Field.Property).Constant.size() != uint32(Field.Semantics.Type) + 1) return Field.Property;
+		return std::nullopt;
+	}
+
+	FMaterialInputDescription::FMaterialInputDescription(const FMaterialExpressionInput& Packed)
+		: Connection(&Packed), Type(EMaterialProgramValueType::MaterialAttributes), Name("Material Attributes") {}
+
+	FMaterialInputDescription::FMaterialInputDescription(EMaterialProperty Property, FMaterialNumericInputView Input)
+		: Connection(&Input.Connection), Numeric(Input)
+	{
+		const auto* Field = FMaterialAttributeDefinitionMap::Find(Property);
+		check(Field);
+		Type = Field->Semantics.Type;
+		Name = Field->Name;
+	}
+
+	auto FMaterialRootInputs::GetExpressionInputDescription(EMaterialProperty Property) const -> std::optional<FMaterialInputDescription>
+	{
+		if (Property == EMaterialProperty::MP_MaterialAttributes)
+			return FMaterialInputDescription{Attributes};
+		const auto* Input = Properties.Find(Property);
+		if (!Input) return std::nullopt;
+		return FMaterialInputDescription{Property, *Input};
+	}
+
+	auto FMaterialRootInputs::GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*
+	{
+		const auto Description = GetExpressionInputDescription(Property);
+		return Description ? Description->Connection : nullptr;
+	}
+
+	static auto CaptureBindings(const auto& Root) -> FMaterialOutputBindings
+	{
+		const auto& Attributes = *Root.GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes);
+		FMaterialOutputBindings Result{Root.UsesMaterialAttributes(), Attributes.GetExpressionId(), Attributes.OutputIndex};
+		Result.Properties.reserve(FMaterialAttributeDefinitionMap::GetDefinitions().size());
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+		{
+			const auto Input = Root.GetNumericInputForProperty(Field.Property);
+			Result.Properties.push_back({Input->Connection.GetExpressionId(), Input->Connection.OutputIndex,
+				Input->UseConstant, {Input->Constant.begin(), Input->Constant.end()}});
+		}
+		return Result;
+	}
+	auto CaptureMaterialOutputBindings(const FMaterialRootInputs& Root) -> FMaterialOutputBindings
+	{
+		return CaptureBindings(Root);
+	}
+#if DURIN_WITH_EDITORONLY_DATA
+	auto CaptureMaterialOutputBindings(const DMaterial& Material) -> FMaterialOutputBindings
+	{
+		return CaptureBindings(Material);
+	}
+#endif
 
 	namespace
 	{
@@ -122,37 +187,6 @@ namespace Durin
 	{
 		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions()) AttributeIDs.push_back(Definition.AttributeID);
 	}
-	FMaterialAttributeRoot::FMaterialAttributeRoot()
-	{
-		Properties.Bindings.reserve(64);
-		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
-			Properties.Bindings.push_back({Definition.AttributeID,
-				FMaterialNumericInput(uint32(Definition.Semantics.Type) + 1)});
-	}
-	auto FMaterialAttributeRoot::Get(EMaterialProperty Property) -> FMaterialNumericInput&
-	{
-		const auto* Definition = FMaterialAttributeDefinitionMap::Find(Property);
-		check(Definition);
-		for (auto& Binding : Properties.Bindings)
-			if (Binding.AttributeID == Definition->AttributeID) return Binding.Input;
-		Properties.Bindings.reserve(64);
-		FMaterialNumericInput Input(static_cast<uint32>(Definition->Semantics.Type) + 1);
-		Properties.Bindings.push_back({Definition->AttributeID, std::move(Input)});
-		return Get(Property);
-	}
-	auto FMaterialAttributeRoot::Get(EMaterialProperty Property) const -> const FMaterialNumericInput&
-	{
-		const auto ID = FMaterialAttributeDefinitionMap::GetID(Property);
-		for (const auto& Binding : Properties.Bindings) if (Binding.AttributeID == ID) return Binding.Input;
-		static const auto Defaults = [] {
-			FMaterialAttributeRoot Root;
-			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions()) Root.Get(Definition.Property);
-			return Root;
-		}();
-		for (const auto& Binding : Defaults.Properties.Bindings) if (Binding.AttributeID == ID) return Binding.Input;
-		check(false);
-		return Defaults.Properties.Bindings.front().Input;
-	}
 	auto GetMaterialNumericInputFallback(EMaterialProgramOpcode Opcode,
 		EMaterialProgramValueType Type, uint32 Slot) -> std::vector<float>
 	{
@@ -169,13 +203,7 @@ namespace Durin
 		}
 		const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
 		if (!Signature || Slot >= Signature->InputCount) return {};
-		if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes)
-		{
-			const FMaterialAttributeValues Defaults;
-			const auto Value = GetMaterialSurfaceOutputDefault(Defaults, FMaterialAttributeDefinitionMap::GetDefinitions()[Slot].Property);
-			const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
-			return {Components.begin(), Components.begin() + static_cast<uint32>(GetMaterialSurfaceOutputType(FMaterialAttributeDefinitionMap::GetDefinitions()[Slot].Property)) + 1};
-		}
+		if (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes) return {}; // Connection-only pins.
 		const auto& Accepted = Signature->Inputs[Slot];
 		if (Accepted.empty() || Accepted.front() > EMaterialProgramValueType::Float4) return {};
 		if (Opcode == EMaterialProgramOpcode::Swizzle) return std::vector<float>(static_cast<uint32>(Type) + 1, 0.f);
@@ -194,62 +222,63 @@ namespace Durin
 		return std::vector<float>(Width, Value);
 	}
 
-	auto DMaterialExpressionMaterialOutput::Serialize(FArchive& Ar) -> void
+	auto DMaterialExpressionMakeMaterialAttributes::GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*
+	{
+		switch (Property)
+		{
+		case EMaterialProperty::MP_BaseColor: return &BaseColor;
+		case EMaterialProperty::MP_Normal: return &Normal;
+		case EMaterialProperty::MP_Metallic: return &Metallic;
+		case EMaterialProperty::MP_Roughness: return &Roughness;
+		case EMaterialProperty::MP_AmbientOcclusion: return &AmbientOcclusion;
+		case EMaterialProperty::MP_EmissiveColor: return &EmissiveColor;
+		case EMaterialProperty::MP_Opacity: return &Opacity;
+		case EMaterialProperty::MP_OpacityMask: return &OpacityMask;
+		case EMaterialProperty::MP_WorldPositionOffset: return &WorldPositionOffset;
+		case EMaterialProperty::MP_Specular: return &Specular;
+		case EMaterialProperty::MP_ClearCoat: return &ClearCoat;
+		case EMaterialProperty::MP_ClearCoatRoughness: return &ClearCoatRoughness;
+		default: return nullptr;
+		}
+	}
+
+	auto DMaterialExpressionSetMaterialAttributes::Serialize(FArchive& Ar) -> void
 	{
 		if (!FMaterialOutputVersion::Serialize(Ar)) return;
 		Super::Serialize(Ar);
 	}
 
-	auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>
+	auto DMaterialExpressionMakeMaterialAttributes::Serialize(FArchive& Ar) -> void
 	{
-		static const auto Pins = [] {
-			std::vector<FMaterialOutputPinDefinition> Result{{EMaterialOutputPin::Surface, "Material Attributes", EMaterialProgramValueType::MaterialAttributes}};
-			for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
-				Result.push_back({static_cast<EMaterialOutputPin>(Definition.Property), Definition.Name, Definition.Semantics.Type});
-			return Result;
+		if (!FMaterialOutputVersion::Serialize(Ar)) return;
+		Super::Serialize(Ar);
+	}
+
+	auto GetMaterialDomainInputProperties(EMaterialDomain Domain) -> std::span<const EMaterialProperty>
+	{
+		static const auto Surface = [] {
+			std::vector<EMaterialProperty> Properties{EMaterialProperty::MP_MaterialAttributes};
+			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Properties.push_back(Field.Property);
+			return Properties;
 		}();
-		static const std::array PostProcessPins{FMaterialOutputPinDefinition{EMaterialOutputPin::Emissive, "Emissive Color", EMaterialProgramValueType::Float3}};
-		if (Domain == EMaterialDomain::PostProcess) return PostProcessPins;
-		return Domain == EMaterialDomain::Surface ? std::span<const FMaterialOutputPinDefinition>(Pins) : std::span<const FMaterialOutputPinDefinition>{};
+		static constexpr std::array PostProcess{EMaterialProperty::MP_EmissiveColor};
+		if (Domain == EMaterialDomain::PostProcess) return PostProcess;
+		return Domain == EMaterialDomain::Surface ? std::span<const EMaterialProperty>(Surface) : std::span<const EMaterialProperty>{};
 	}
 
-	auto GetMaterialOutputNumericInput(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> FMaterialNumericInput*
+	auto ReadMaterialNumericDefault(FMaterialNumericInputView Input, EMaterialProperty Property) -> std::vector<float>
 	{
-		const auto Property = static_cast<EMaterialProperty>(Pin);
-		return FMaterialAttributeDefinitionMap::Find(Property) ? &Outputs.Get(Property) : nullptr;
+		const auto* Field = FMaterialAttributeDefinitionMap::Find(Property);
+		if (!Field) return {};
+		if (Input.UseConstant) return {Input.Constant.begin(), Input.Constant.end()};
+		const auto& Value = Field->DefaultValue;
+		const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
+		return {Components.begin(), Components.begin() + static_cast<uint32>(Field->Semantics.Type) + 1};
 	}
 
-	auto GetMaterialOutputInput(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*
+	auto ReadMaterialOutputDefault(const FMaterialRootInputs& Outputs, EMaterialProperty Property) -> std::vector<float>
 	{
-		if (Pin == EMaterialOutputPin::Surface) return &Outputs.Attributes;
-		auto* Numeric = GetMaterialOutputNumericInput(Outputs, Pin);
-		return Numeric ? &Numeric->Connection : nullptr;
-	}
-
-	auto ReadMaterialOutputDefault(const FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> std::vector<float>
-	{
-		const auto* Definition = FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Pin));
-		if (!Definition) return {};
-		const auto& Numeric = Outputs.Get(Definition->Property);
-		return Numeric.UseConstant ? Numeric.Constant : GetMaterialNumericInputFallback(
-			EMaterialProgramOpcode::MakeMaterialAttributes, EMaterialProgramValueType::MaterialAttributes, static_cast<uint32>(Pin));
-	}
-
-	auto WriteMaterialOutputDefault(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool
-	{
-		auto* Numeric = GetMaterialOutputNumericInput(Outputs, Pin);
-		if (!Numeric) return false;
-		if (Value.empty()) { Numeric->UseConstant = false; return true; }
-		const auto Width = Pin == EMaterialOutputPin::WorldPositionOffset ? 3u
-			: static_cast<uint32>(GetMaterialSurfaceOutputType(static_cast<EMaterialProperty>(Pin))) + 1;
-		if (Value.size() != Width) return false;
-		Numeric->SetConstant({Value.begin(), Value.end()});
-		return true;
-	}
-
-	auto DMaterialExpressionMaterialOutput::Build(MIR::FEmitter& Emitter) const -> void
-	{
-		return Emitter.Fail("A material output is a sink and cannot be used as an expression source.");
+		return FMaterialAttributeDefinitionMap::Find(Property) ? ReadMaterialNumericDefault(Outputs.Get(Property), Property) : std::vector<float>{};
 	}
 
 	auto DMaterialExpression::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void

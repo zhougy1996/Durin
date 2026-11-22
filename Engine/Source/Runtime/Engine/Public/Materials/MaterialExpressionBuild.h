@@ -102,6 +102,10 @@ namespace Durin
 			ENGINE_API auto FunctionInput(FGuid PortId) -> FValue;
 			ENGINE_API auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
 			ENGINE_API auto FunctionCall(const DMaterialExpressionFunctionCall& Call) -> void;
+			// Called in property order. An empty assignment inherits the prototype or definition default.
+			using FAttributeAssignment = std::function<std::optional<uint32>(EMaterialProperty)>;
+			ENGINE_API auto Aggregate(uint32 Prototype, const FAttributeAssignment& Assignment) -> uint32;
+			ENGINE_API auto Attribute(uint32 Aggregate, EMaterialProperty Property) -> uint32;
 			ENGINE_API auto Emit(FNode Node) -> uint32;
 			ENGINE_API auto Literal(std::span<const float> Components,
 				EMaterialSpatialKind Kind = EMaterialSpatialKind::None,
@@ -150,10 +154,10 @@ namespace Durin
 			FGraphBuilder(const FGraphBuilder&) = delete;
 			auto operator=(const FGraphBuilder&) -> FGraphBuilder& = delete;
 			ENGINE_API auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
-			ENGINE_API auto FinishSurface(const FMaterialAttributeRoot& Outputs) -> FBuildResult;
+			ENGINE_API auto FinishSurface(const FMaterialRootInputs& Outputs) -> FBuildResult;
 			// Local validation permits unavailable function bodies; opaque values never reach snapshots.
 			ENGINE_API static auto ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-				const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
+				const FMaterialRootInputs& Outputs, FXxHash128* OutCodeFingerprint = nullptr) -> FMaterialProgramValidationResult;
 			ENGINE_API static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		private:
 			std::unique_ptr<FGraphBuilderImpl> Impl;

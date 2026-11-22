@@ -61,9 +61,9 @@ namespace Durin::MaterialEditor::MaterialEditing
 		auto Admission = ResolveEditorTransactor(Mode);
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
-		if (Material.GetExpressionOutputs().bUseMaterialAttributes == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (Material.UsesMaterialAttributes() == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		FGraphEditSession State(Material);
-		State.GetOutputs().bUseMaterialAttributes = bEnabled;
+		State.SetRootMode(bEnabled);
 		return State.Commit("Change Material Output Mode", Transactions);
 	}
 

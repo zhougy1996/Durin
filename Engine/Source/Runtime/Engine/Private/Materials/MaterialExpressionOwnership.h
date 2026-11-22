@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialProgramTypes.h"
 
 
@@ -15,5 +16,5 @@ namespace Durin::Private
 	// Duplicates every candidate before changing ownership; failure leaves the
 	// current collection intact. Revision and notification policy stays with the caller.
 	auto ReplaceOwnedExpressions(DObject& Owner, FMaterialExpressionCollection& Collection,
-		std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
+		std::span<DMaterialExpression* const> Expressions, FMaterialRootInputs* Root = nullptr) -> FMaterialProgramValidationResult;
 }

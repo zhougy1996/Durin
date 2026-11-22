@@ -49,6 +49,9 @@ namespace Durin
 		DPROPERTY()
 		FVector3 Value{0.0};
 
+		DPROPERTY()
+		bool bTangentSpaceNormal = false;
+
 		ENGINE_API auto Build(MIR::FEmitter& Emitter) const -> void override;
 
 	};

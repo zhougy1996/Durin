@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-22
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -36,7 +36,7 @@ DAST format version. Property snapshots are process-local and unversioned.
 represented by a missing record, never by substituting the current version.
 
 Core's `FCustomVersionRegistry` owns copied, immutable process-lifetime definitions
-(GUID, current version, diagnostic name). Modules register before serialization,
+(GUID, current version, diagnostic name and minimum supported version). Modules register before serialization,
 using `FCustomVersionRegistration` or checked `Register` calls. Identical
 registration is idempotent; invalid or conflicting registrations fail. Definitions
 survive module unload and cannot be changed or removed during the process lifetime.
@@ -53,10 +53,11 @@ The writer emits GUID, version, and a zero reserved framing byte. Nonzero
 framing flags, invalid GUIDs, negative/out-of-range versions, and duplicate
 records fail parsing; legacy emission/support/codec metadata is unsupported.
 Read-only package inspection does not require local version registration. Before
-constructing objects, Engine rejects unknown GUIDs and versions newer than the
-local registered current version. Required-version absence and old-version
-migration/rejection belong to the consuming serializer. There is no generic
-minimum-version policy, downgrade writer, or migration registry.
+resolving export classes, Engine rejects unknown GUIDs and records outside the
+registered inclusive version range. The minimum defaults to zero. A domain can
+also name export base classes that require its record. The linker checks these
+classes and subclasses before matching their fields. Serializers check their
+own required records and handle any supported older payloads.
 
 Cook build inputs conservatively include all registered GUID/current-version
 pairs, including formats used only by cooked serializers, before deciding reuse.
@@ -90,18 +91,18 @@ The package domains are registered when Engine loads. Their source authority is
 
 | Domain | Current version | Authored data |
 | --- | ---: | --- |
-| `FMaterialGraphVersion` | 4 | `DMaterial` and `DMaterialFunction` expression graphs |
-| `FMaterialInstanceVersion` | 1 | Typed instance parameter storage |
-| `FMaterialFunctionVersion` | 1 | Terminal-owned function port definitions |
-| `FMaterialOutputVersion` | 3 | Terminal-owned material output data |
+| `FMaterialGraphVersion` | 10 | `DMaterial` and `DMaterialFunction` expression graphs |
+| `FMaterialInstanceVersion` | 3 | Typed instance parameter storage |
+| `FMaterialFunctionVersion` | 6 | Terminal-owned function port definitions |
+| `FMaterialOutputVersion` | 6 | Direct typed material fields and connection-only Make/Set inputs |
 
-Serializers declare applicable domains during discovery/save and require exactly
-the current version on authored/cooked loads. Missing records are never inferred
-from defaults or obsolete fields. A material declares graph and output domains;
-a function declares graph and port domains. Domains can coexist in a multi-asset
-package, but an instance does not declare its parent's graph domain unless that
-graph is serialized in the same package. No legacy-reader or converter fallback
-exists; ordinary non-version `AlwaysSerialize` fields keep their normal behavior.
+Serializers declare applicable domains during discovery and save. Materials
+require graph and output versions. Functions require graph and port versions.
+Each embedded Make or Set export also requires material output version 6,
+including in standalone functions. A missing or unsupported output record fails
+with `PackageReadErrors::UnsupportedVersion` before reflected fields are bound.
+The output version participates in the cook key. Shader and cooked program
+payloads retain their existing layouts.
 
 ObjectGraph, Duplicate, PropertySnapshot, and EditableCopy do not require package
 version records. Cooked dispatch performs the same checks through

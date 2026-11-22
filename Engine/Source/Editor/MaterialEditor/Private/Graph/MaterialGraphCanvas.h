@@ -16,8 +16,6 @@ namespace Durin
 
 namespace Durin::MaterialEditor
 {
-	// All canvas selections refer to authored expression identities.
-	using FMaterialGraphCanvasNodeId = std::variant<FGuid>;
 	struct FMaterialGraphEditorServices
 	{
 		std::function<void(std::string)> ReportError = [](std::string) {};
@@ -54,10 +52,11 @@ namespace Durin::MaterialEditor
 				Zoom, EMaterialGraphDetailLevel::Editing);
 		}
 		auto GetViewport() const -> std::pair<float, ImVec2> { return {Zoom, Pan}; }
-		auto GetSelection() const -> const std::unordered_set<FMaterialGraphCanvasNodeId>&
+		auto GetSelection() const -> const std::unordered_set<FMaterialGraphNodeAddress>&
 		{
 			return SelectedNodes;
 		}
+		void RestoreSelection(const std::unordered_set<FMaterialGraphNodeAddress>& Selection);
 		auto GetSelectedSurfaceOutput() const
 			-> std::optional<EMaterialProperty>
 		{
@@ -188,8 +187,13 @@ namespace Durin::MaterialEditor
 		float Zoom = 1.0f;
 		bool bFunctionGraph = false;
 		FGuid OutputNodeId;
+		auto SelectionKey(FGuid Id) const -> FMaterialGraphNodeAddress
+		{
+			if (OutputNodeId.IsValid() && Id == OutputNodeId) return EMaterialGraphEndpoint::MaterialRoot;
+			return Id;
+		}
 		EMaterialGraphDetailLevel DetailLevel = EMaterialGraphDetailLevel::Editing;
-		std::unordered_set<FMaterialGraphCanvasNodeId> SelectedNodes;
+		std::unordered_set<FMaterialGraphNodeAddress> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<FMaterialProgramDiagnostic> SelectedDiagnostic;
 		std::optional<EMaterialProperty> SelectedSurfaceOutput;

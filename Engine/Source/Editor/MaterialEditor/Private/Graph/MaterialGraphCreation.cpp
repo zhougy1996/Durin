@@ -8,7 +8,6 @@
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
@@ -328,7 +327,8 @@ namespace Durin::MaterialEditor
 			if ((Entry.Opcode == EMaterialProgramOpcode::QualitySwitch
 				|| Entry.Opcode == EMaterialProgramOpcode::FeatureLevelSwitch)
 				&& Index > 0) return;
-			if (!FindMaterialNumericInput(*Expression, Input) && !Input.IsConnected())
+			if (Entry.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes && Entry.Opcode != EMaterialProgramOpcode::SetMaterialAttributes
+				&& !FindMaterialNumericInput(*Expression, Input) && !Input.IsConnected())
 				if (!InvalidInput) InvalidInput = Index;
 		});
 		if (InvalidInput) return std::unexpected(RejectCommand("Create this node from a compatible texture or Surface output."));

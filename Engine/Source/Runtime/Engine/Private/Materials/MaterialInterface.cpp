@@ -341,7 +341,6 @@ namespace Durin
 	}
 
 	auto DMaterialInterface::RequestProgramCompile(
-		const FMaterialStaticProperties& CandidateProperties,
 		bool bForceRecompile, FObjectCacheContext* Context,
 		std::optional<FMaterialCompilerEnvironment> RequestedEnvironment,
 		std::shared_ptr<FMaterialResource> Resource) -> bool
@@ -351,7 +350,7 @@ namespace Durin
 		if (FWeakObjectPtr(this).GetKey().IsNull() && IsMaterialCompilationAcceptingRequests()) return true;
 		const bool SelectResource = !Resource;
 		if (!Resource) Resource = CompilationState.SelectedResource;
-		CompilationState.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
+		CompilationState.LastObservedShaderProperties = CanonicalizeMaterialShaderProperties(GetStaticProperties());
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
 		const auto EnvironmentError = RequestedEnvironment
@@ -395,7 +394,6 @@ namespace Durin
 			return false;
 		}
 		auto& Input = Snapshot.Snapshot->Input;
-		Input.StaticProperties = CandidateProperties;
 		CompilationState.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
 			*this, std::move(Input), bForceRecompile, Context, std::move(Resource));
@@ -413,7 +411,7 @@ namespace Durin
 			|| FeatureLevel > Environment.FeatureLevel) return false;
 		Environment.Quality = Quality;
 		Environment.FeatureLevel = FeatureLevel;
-		return RequestProgramCompile(GetStaticProperties(), false, nullptr,
+		return RequestProgramCompile(false, nullptr,
 			std::move(Environment));
 	}
 

@@ -70,6 +70,8 @@ namespace Durin::MaterialEditor
 			return;
 		}
 
+		if (Changes.Has(G::RootInputs)) Changes.MarkNode(RootViewId, N::Content | N::Interface | N::Inputs);
+		if (Changes.Has(G::RootPosition)) Changes.MarkNode(RootViewId, N::Position);
 		// Rebind only when a call site was added, replaced, removed or retargeted.
 		std::unordered_set<FGuid> ChangedOutputs;
 		for (const auto& Change : Changes.Nodes)
@@ -115,6 +117,13 @@ namespace Durin::MaterialEditor
 			else if (auto* Node = FindNode(Change.NodeId))
 			{
 				const auto* Material = Cast<DMaterial>(Asset);
+				if (Material && Node->View.Node.bMaterialOutput)
+				{
+					const auto [X, Y] = Material->GetRootPosition();
+					Node->View.Presentation.X = X;
+					Node->View.Presentation.Y = Y;
+					continue;
+				}
 				const auto& Positions = Material ? Material->GetMaterialGraphPresentation().Nodes
 					: Cast<DMaterialFunction>(Asset)->GetFunctionPresentation().Nodes;
 				const auto It = std::ranges::find(Positions, Change.NodeId, &FMaterialGraphNodePresentation::NodeId);

@@ -24,6 +24,6 @@ namespace Durin::MaterialEditor
 
 	using FMaterialGraphNodeVisitor = std::function<void(FMaterialGraphNodeView, const FMaterialGraphPinSource&)>;
 	auto ReadGraphOutputs(const DMaterial& Material) -> FMaterialAttributeValues;
-	auto ReadMaterialGraph(const DObject* Owner, std::span<const FMaterialGraphCatalogEntry> Catalog,
+	auto ReadMaterialGraph(const DObject* Owner, FGuid RootViewId, std::span<const FMaterialGraphCatalogEntry> Catalog,
 		std::optional<std::span<const FGuid>> Nodes, const FMaterialGraphNodeVisitor& Visit) -> FMaterialGraphView;
 }

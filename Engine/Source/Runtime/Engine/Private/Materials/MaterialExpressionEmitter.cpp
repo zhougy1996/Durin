@@ -39,6 +39,16 @@ namespace Durin::MIR
 		Builder.FunctionCall(Call, *this);
 	}
 
+	auto FEmitter::Aggregate(uint32 Prototype, const FAttributeAssignment& Assignment) -> uint32
+	{
+		return Builder.Aggregate(Prototype, Assignment);
+	}
+
+	auto FEmitter::Attribute(uint32 Aggregate, EMaterialProperty Property) -> uint32
+	{
+		return Builder.Attribute(Aggregate, Property);
+	}
+
 	auto FEmitter::Emit(FNode Node) -> uint32
 	{
 		return Builder.Emit(std::move(Node));

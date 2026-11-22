@@ -52,6 +52,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		int32 BeforeX, BeforeY;
 		int32 AfterX, AfterY;
 		bool HadAuthoredPosition;
+		bool bMaterialRoot = false;
 	};
 
 	MATERIALEDITOR_API auto MakeMaterialGraphPresentationTransaction(
@@ -70,6 +71,6 @@ namespace Durin::MaterialEditor::GraphEditInternals
 		FMaterialGraphPresentation CandidatePresentation,
 		std::string Description,
 		std::vector<FNodePositionChange> Changes,
-		DTransactor* Transactions, std::string* OutError) -> bool;
+		DTransactor* Transactions, std::string* OutError, FGuid RootViewId) -> bool;
 
 }

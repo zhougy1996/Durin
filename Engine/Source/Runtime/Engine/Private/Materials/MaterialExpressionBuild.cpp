@@ -5,7 +5,6 @@
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionSwitch.h"
 #include "Materials/MaterialExpressionTextureSample.h"
@@ -30,25 +29,14 @@ namespace Durin::MIR
 		return Impl->Finish(Roots);
 	}
 
-	auto FGraphBuilder::FinishSurface(const FMaterialAttributeRoot& Outputs) -> FBuildResult
-	{
-		return Impl->FinishSurface(Outputs);
-	}
-
-	auto FGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
-		const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
-	{
-		return FGraphBuilderImpl::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
-	}
-
 	auto FGraphBuilder::ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
 		return FGraphBuilderImpl::ValidateFunction(Expressions);
 	}
 
 	FGraphBuilderImpl::FGraphBuilderImpl(std::span<DMaterialExpression* const> InExpressions,
-		FBuildEnvironment InEnvironment)
-		: Shared(std::make_shared<FSharedState>()), Result(Shared->Result), Depths(Shared->Depths),
+		FBuildEnvironment InEnvironment, bool bInCompileReachableOnly)
+		: bCompileReachableOnly(bInCompileReachableOnly), Shared(std::make_shared<FSharedState>()), Result(Shared->Result), Depths(Shared->Depths),
 		  LinkCount(Shared->LinkCount), Environment(std::move(InEnvironment))
 	{
 		Admit(InExpressions);
@@ -66,7 +54,7 @@ namespace Durin::MIR
 
 	FGraphBuilderImpl::FGraphBuilderImpl(FGraphBuilderImpl& Parent,
 		const FFunctionBody& Body, FGuid CallId)
-		: Shared(Parent.Shared), Result(Shared->Result), Depths(Shared->Depths), LinkCount(Shared->LinkCount),
+		: bCompileReachableOnly(Parent.bCompileReachableOnly), Shared(Parent.Shared), Result(Shared->Result), Depths(Shared->Depths), LinkCount(Shared->LinkCount),
 		  Environment(Parent.Environment), Signature(&Body.Signature), FunctionPath(Body.AssetPath), CallPath(Parent.CallPath)
 	{
 		CallPath.push_back(CallId);
@@ -93,6 +81,7 @@ namespace Durin::MIR
 				Fail("Expression collection contains a null owner, invalid GUID, or duplicate GUID.");
 				return;
 			}
+			if (bCompileReachableOnly) continue;
 			const auto HashInput = [&](const FMaterialNumericInput& Input) {
 				AuthoringCodeHash.UpdateValue(Input.UseConstant);
 				AuthoringCodeHash.UpdateValue(static_cast<uint32>(Input.Constant.size()));
@@ -103,8 +92,6 @@ namespace Durin::MIR
 					&& static_cast<FStructProperty*>(Property)->GetStruct() == FMaterialNumericInput::StaticStruct())
 					HashInput(*static_cast<const FMaterialNumericInput*>(Property->GetValuePtr(Expression)));
 			});
-			if (const auto* Surface = Cast<DMaterialExpressionSetMaterialAttributes>(Expression))
-				for (const auto& Attribute : Surface->Attributes) HashInput(Attribute.Source);
 			if (const auto* StaticBool = Cast<DMaterialExpressionStaticBool>(Expression))
 			{
 				AuthoringCodeHash.UpdateValue(StaticBool->DeclarationId);
@@ -134,12 +121,7 @@ namespace Durin::MIR
 				Fail("Parameter expressions require valid parameter GUIDs and a material owner.");
 				return;
 			}
-			if (Signature && Cast<DMaterialExpressionMaterialOutput>(Expression))
-			{
-				Fail("Functions cannot declare material parameters or material outputs.");
-				return;
-			}
-			if (!Cast<DMaterialExpressionMaterialOutput>(Expression)) AuthoredLinks += Expression->GetAuthoredInputCount();
+			AuthoredLinks += Expression->GetAuthoredInputCount();
 			if (AuthoredLinks > MaterialProgramMaxLinkCount)
 			{
 				Fail("Expression collection exceeds the authored input/link bound.");
@@ -148,8 +130,6 @@ namespace Durin::MIR
 			if (const auto* Parameter = Cast<DMaterialExpressionParameter>(Expression))
 			{
 				const auto Definition = Parameter->GetParameterDefinition();
-				if (Definition.Type == EMaterialParameterType::Texture)
-					Shared->TextureUsages[Definition.Id] = Definition.TextureUsage;
 				const auto [Owner, bInserted] = ParameterOwners.emplace(Definition.Id, Definition);
 				if ((!bInserted && Owner->second != Definition)
 					|| (bInserted && !ParameterNames.insert(Definition.Name).second)
@@ -195,9 +175,7 @@ namespace Durin::MIR
 	auto FGraphBuilderImpl::ReportMissingOutput(const DMaterialExpression& Expression,
 		const FMaterialExpressionInput& Input) -> void
 	{
-		if (Cast<DMaterialExpressionMaterialOutput>(&Expression))
-			Fail("A material output is a sink and cannot be used as an expression source.");
-		else if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
+		if (const auto* Call = Cast<DMaterialExpressionFunctionCall>(&Expression))
 		{
 			if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= Call->FunctionOutputs.size())
 				Fail("Function call output index is not bound.");
@@ -237,6 +215,12 @@ namespace Durin::MIR
 		SourceStack.push_back(Expression.Id);
 		// Each recursive invocation has its own emitter; upstream builds cannot change its output owner.
 		FEmitter Emitter(*this, Expression.Id);
+		if (const auto* Parameter = Cast<DMaterialExpressionParameter>(&Expression))
+		{
+			const auto Definition = Parameter->GetParameterDefinition();
+			if (Definition.Type == EMaterialParameterType::Texture)
+				Shared->TextureUsages[Definition.Id] = Definition.TextureUsage;
+		}
 		Expression.Build(Emitter);
 		SourceStack.pop_back();
 		Active.erase(Expression.Id);
@@ -289,6 +273,45 @@ namespace Durin::MIR
 			return Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
 				+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {*Value.GetIndex()}});
 		return Value;
+	}
+
+	auto FGraphBuilderImpl::Attribute(uint32 Aggregate, EMaterialProperty Property) -> uint32
+	{
+		if (Aggregate == InvalidIndex) return InvalidIndex;
+		const auto& Node = GetNode(Aggregate);
+		const auto Slot = uint32(Property);
+		if (Node.Opcode != EMaterialProgramOpcode::MakeMaterialAttributes
+			|| Node.Inputs.size() != FMaterialAttributeDefinitionMap::GetDefinitions().size() || Slot >= Node.Inputs.size())
+			return Fail("Material attribute selection requires a constructed surface and a numeric property.");
+		return Node.Inputs[Slot];
+	}
+
+	auto FGraphBuilderImpl::AttributeLiteral(EMaterialProperty Property, const FMaterialProgramLiteral& Value) -> uint32
+	{
+		const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
+		const bool Normal = Property == EMaterialProperty::MP_Normal;
+		return Literal(std::span(Components).first(uint32(GetMaterialSurfaceOutputType(Property)) + 1),
+			Normal ? EMaterialSpatialKind::Normal : EMaterialSpatialKind::None,
+			Normal ? EMaterialCoordinateSpace::Tangent : EMaterialCoordinateSpace::None);
+	}
+
+	auto FGraphBuilderImpl::Aggregate(uint32 Prototype, const FEmitter::FAttributeAssignment& Assignment) -> uint32
+	{
+		FNode Node{.Opcode = EMaterialProgramOpcode::MakeMaterialAttributes, .ResultType = EMaterialProgramValueType::MaterialAttributes};
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+		{
+			uint32 Value = InvalidIndex;
+			if (Prototype != InvalidIndex)
+			{
+				Value = Attribute(Prototype, Field.Property);
+				if (Value == InvalidIndex) return InvalidIndex;
+			}
+			if (const auto Assigned = Assignment(Field.Property)) Value = *Assigned;
+			else if (Prototype == InvalidIndex) Value = AttributeLiteral(Field.Property, Field.DefaultValue);
+			if (Value == InvalidIndex) return InvalidIndex;
+			Node.Inputs.push_back(Value);
+		}
+		return Emit(std::move(Node));
 	}
 
 	auto FGraphBuilderImpl::Emit(FNode Node) -> uint32
@@ -625,16 +648,8 @@ namespace Durin::MIR
 			const auto& Input = Stored.Connection;
 			if (!Input.IsConnected() && Input.OutputIndex != 0)
 				return Fail("Disconnected numeric input has an output selector.");
-			const bool bSurfaceNormalDefault = Opcode == EMaterialProgramOpcode::MakeMaterialAttributes
-				&& Slot == static_cast<size_t>(EMaterialProperty::MP_Normal)
-				&& !Input.IsConnected();
 			auto Index = Input.IsConnected() ? ResolveIndex(Input)
-				: Literal(Stored.UseConstant ? Default
-					: GetMaterialNumericInputFallback(Opcode, Type, Slot),
-					bSurfaceNormalDefault ? EMaterialSpatialKind::Normal
-						: EMaterialSpatialKind::None,
-					bSurfaceNormalDefault ? EMaterialCoordinateSpace::Tangent
-						: EMaterialCoordinateSpace::None);
+				: Literal(Stored.UseConstant ? Default : GetMaterialNumericInputFallback(Opcode, Type, Slot));
 			if (bBroadcast && Index != InvalidIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
 			{
 				Index = Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
@@ -779,7 +794,6 @@ namespace Durin::MIR
 		for (const auto& [Id, Expression] : Expressions)
 		{
 			if (!Result.Diagnostics.empty()) return;
-			if (Cast<DMaterialExpressionMaterialOutput>(Expression)) continue;
 			BuildExpression(*Expression);
 		}
 	}

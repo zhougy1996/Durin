@@ -138,7 +138,7 @@ TEST(FMaterialFunctionEditingTests, UnfinishedCallsRemainEditableAndCompileAfter
 	EXPECT_TRUE(ValidateMaterialFunctionDependencies(Roots, Closure));
 	const auto RootCall = RootAuthoringGraph->InsertFunctionCall(*Function, 100, 200, Durin::ETransactionMode::NotTransactable).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(RootCall);
-	ASSERT_TRUE(RootAuthoringGraph->GetSchema().TryCreateConnection(*RootAuthoringGraph, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({RootCall.value(), 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(RootAuthoringGraph->GetSchema().TryCreateConnection(*RootAuthoringGraph, FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({RootCall.value(), 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(Material->CompileEdits());
 	const auto RootConstant = Testing::CreateGraphConstant(*RootAuthoringGraph, 0.6f);
 	ASSERT_TRUE(RootConstant);
@@ -172,9 +172,9 @@ TEST(FMaterialFunctionEditingTests, CallInsertionBindsRequiredInputsAndAdmitsNew
 	const auto Output = FunctionPort(51, EMaterialProgramValueType::Float, "New Amount");
 	ASSERT_TRUE(AuthoringGraph->AddPort(true, Output, {Input.value()}, 0, 0, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->FunctionOutputs.size(), 2u);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Call.value(), 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Call.value(), 0, Output.Id}), true, Durin::ETransactionMode::NotTransactable));
 	ASSERT_EQ(GetFunctionCalls(*Material)[0]->FunctionOutputs.size(), 2u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.GetOutputId(), Output.Id);
+	EXPECT_EQ(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection.GetOutputId(), Output.Id);
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -263,7 +263,7 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	EXPECT_FALSE(AuthoringGraph->RemovePort(false, Input.Id, Durin::ETransactionMode::NotTransactable));
 	const auto Inserted = CallerAuthoringGraph->InsertFunctionCall(*Function, 0, 0, Durin::ETransactionMode::Record).transform(Testing::GraphNodeId);
 	ASSERT_TRUE(Inserted);
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.value(), .SourceOutputId = Output.Id}), true, Durin::ETransactionMode::Record));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({.SourceNodeId = Inserted.value(), .SourceOutputId = Output.Id}), true, Durin::ETransactionMode::Record));
 	ASSERT_TRUE(Material->CompileEdits());
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 	const auto Identity = Material->GetAcceptedCompiledProgram()->GetShaderMap().ShaderMapId;
@@ -287,10 +287,10 @@ TEST(FMaterialFunctionEditingTests, CommandsAuthorFunctionPortsAndCompileASelect
 	const auto CallId = Inserted.value();
 	ASSERT_TRUE(CallerAuthoringGraph->RemoveNodes(std::span(&CallId, 1), Durin::ETransactionMode::Record));
 	EXPECT_TRUE(GetFunctionCalls(*Material).empty());
-	EXPECT_FALSE(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.IsConnected());
+	EXPECT_FALSE(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection.IsConnected());
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	ASSERT_EQ(GetFunctionCalls(*Material).size(), 1u);
-	EXPECT_EQ(Material->GetExpressionOutputs().Get(EMaterialProperty::MP_Roughness).Connection.GetOutputId(), Output.Id);
+	EXPECT_EQ(Material->GetNumericInputForProperty(EMaterialProperty::MP_Roughness)->Connection.GetOutputId(), Output.Id);
 	const auto BeforeRemoval = Function->GetFunctionSignature();
 	const auto* SourceExpression = AuthoringGraph->FindNode(AddedNode->front())->GetMaterialExpression();
 	ASSERT_TRUE(AuthoringGraph->RemovePort(true, Output.Id));

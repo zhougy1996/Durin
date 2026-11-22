@@ -21,7 +21,7 @@ namespace Durin
 	struct FMaterialOutputVersion
 	{
 		static constexpr FGuid Guid{0x92e65c3f, 0xbd864756, 0xb3e9d2ac, 0x843a7b10};
-		static constexpr int32 CurrentVersion = 4; // Stable-ID attribute roots.
+		static constexpr int32 CurrentVersion = 6; // Direct root fields and connection-only Make/Set inputs.
 		ENGINE_API static auto Serialize(FArchive& Ar) -> bool;
 	};
 

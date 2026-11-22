@@ -284,11 +284,21 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::ClearSharedClipboard() -> void { GraphClipboard.reset(); }
 
+	void FMaterialGraphCanvas::RestoreSelection(const std::unordered_set<FMaterialGraphNodeAddress>& Selection)
+	{
+		SelectedNodes.clear();
+		for (const auto& Key : Selection)
+		{
+			if (EditorGraph->ResolveNode(Key))
+				SelectedNodes.insert(Key);
+		}
+	}
+
 	auto FMaterialGraphCanvas::SelectAndFrame(const FGuid& NodeId) -> bool
 	{
 		if (!NodeId.IsValid()) return false;
 		SelectedSurfaceOutput.reset();
-		SelectedNodes = {NodeId};
+		SelectedNodes = {SelectionKey(NodeId)};
 		PendingFrameNode = NodeId;
 		return true;
 	}
@@ -304,13 +314,18 @@ namespace Durin::MaterialEditor
 			SelectedSurfaceOutput.reset();
 			return SelectAndFrame(Diagnostic.NodeId);
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
+		{
 			if (Diagnostic.LocationIndex >= FMaterialAttributeDefinitionMap::GetDefinitions().size()
 				|| !FMaterialAttributeDefinitionMap::Find(static_cast<EMaterialProperty>(Diagnostic.LocationIndex))) return false;
-			SelectedNodes = {Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId};
+			const auto* Root = EditorGraph->GetRootNode();
+			if (!Diagnostic.NodeId.IsValid() && !Root) return false;
+			if (Root) OutputNodeId = Root->GetView().Node.Id;
+			SelectedNodes = {Diagnostic.NodeId.IsValid() ? SelectionKey(Diagnostic.NodeId) : FMaterialGraphNodeAddress{EMaterialGraphEndpoint::MaterialRoot}};
 			PendingFrameNode = Diagnostic.NodeId.IsValid() ? Diagnostic.NodeId : OutputNodeId;
 			SelectedSurfaceOutput =
 				static_cast<EMaterialProperty>(Diagnostic.LocationIndex);
 			return true;
+		}
 		case EMaterialProgramDiagnosticLocationKind::Program:
 			return false;
 		}
@@ -353,6 +368,8 @@ namespace Durin::MaterialEditor
 		}
 		bFunctionGraph = bFunction;
 		const auto Changes = ReadModel.Refresh(Owner);
+		const auto* Root = EditorGraph->GetRootNode();
+		OutputNodeId = Root ? Root->GetView().Node.Id : FGuid{};
 		const auto& Inspection = ReadModel.GetView();
 		using N = EMaterialGraphNodeChange;
 		if (bViewStale || Changes.Has(EMaterialGraphChange::Reset)
@@ -365,7 +382,7 @@ namespace Durin::MaterialEditor
 			CachedNodeIndices.clear();
 			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
 				CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
-			std::erase_if(SelectedNodes, [&](const auto& Id) { return !CachedNodeIndices.contains(std::get<FGuid>(Id)); });
+			std::erase_if(SelectedNodes, [&](const auto& Id) { return !CachedNodeIndices.contains(std::holds_alternative<FGuid>(Id) ? std::get<FGuid>(Id) : OutputNodeId); });
 			if (PendingFrameNode.IsValid() && !CachedNodeIndices.contains(PendingFrameNode)) PendingFrameNode = {};
 			if (const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
 				Context && Context->ContextNode.IsValid() && !CachedNodeIndices.contains(Context->ContextNode)) ResetInteraction();
@@ -398,7 +415,6 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material) -> const FMaterialGraphView&
 	{
-		OutputNodeId = Material.GetOutputNode() ? Material.GetOutputNode()->Id : FGuid{};
 		PrepareDocumentView(Material);
 
 		return CachedView;
@@ -455,8 +471,9 @@ namespace Durin::MaterialEditor
 	auto FMaterialGraphCanvas::GetSelectedProgramNodes() const -> std::vector<FGuid>
 	{
 		std::vector<FGuid> Nodes;
-		for (const FMaterialGraphCanvasNodeId& Id : SelectedNodes)
+		for (const FMaterialGraphNodeAddress& Id : SelectedNodes)
 			if (const auto* Node = std::get_if<FGuid>(&Id)) Nodes.push_back(*Node);
+			else if (OutputNodeId.IsValid()) Nodes.push_back(OutputNodeId);
 		return Nodes;
 	}
 
@@ -470,7 +487,7 @@ namespace Durin::MaterialEditor
 		for (const FMaterialGraphNodeView& Node : View.Nodes)
 		{
 			if (Scope == EFrameScope::Selection
-				&& !SelectedNodes.contains(Node.Node.Id)) continue;
+				&& !SelectedNodes.contains(SelectionKey(Node.Node.Id))) continue;
 			const ImVec2 Position(
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
@@ -527,7 +544,7 @@ namespace Durin::MaterialEditor
 				const auto Pin = std::ranges::find(Outputs, Output->SourceIndex, &FMaterialGraphOutputPinView::SourceIndex);
 				if (Pin == Outputs.end()) continue;
 				const auto A = Source.OutputPins[Pin - Outputs.begin()];
-				const bool Focused = SelectedNodes.empty() || SelectedNodes.contains(Node->GetView().Node.Id) || SelectedNodes.contains(SourceId);
+				const bool Focused = SelectedNodes.empty() || SelectedNodes.contains(SelectionKey(Node->GetView().Node.Id)) || SelectedNodes.contains(SelectionKey(SourceId));
 				const auto Color = TypeColor(Pin->Type);
 				DrawCulledLink(DrawList, A, Destination.InputPins[I], CanvasMinimum, CanvasMaximum,
 					Focused ? Color : WithAlpha(Color, 72), Focused ? 3.0f : 1.5f);
@@ -550,7 +567,7 @@ namespace Durin::MaterialEditor
 		{
 			SelectedNodes.clear();
 			for (const FMaterialGraphNodeView& Node : View.Nodes)
-				SelectedNodes.insert(Node.Node.Id);
+				SelectedNodes.insert(SelectionKey(Node.Node.Id));
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) && !SelectedNodes.empty())
 		{
@@ -616,7 +633,7 @@ namespace Durin::MaterialEditor
 		const auto Duplicated = EditorGraph->DuplicateNodes(NodeIds, 40, 40);
 		if (!CheckCommand(Duplicated)) return;
 		SelectedNodes.clear();
-		for (const auto* Node : *Duplicated) SelectedNodes.insert(Node->GetView().Node.Id);
+		for (const auto* Node : *Duplicated) SelectedNodes.insert(SelectionKey(Node->GetView().Node.Id));
 	}
 
 	auto FMaterialGraphCanvas::PasteNodes(
@@ -633,7 +650,7 @@ namespace Durin::MaterialEditor
 		RepeatedPasteCount = Offset;
 		SelectedSurfaceOutput.reset();
 		SelectedNodes.clear();
-		for (const auto* Node : *Pasted) SelectedNodes.insert(Node->GetView().Node.Id);
+		for (const auto* Node : *Pasted) SelectedNodes.insert(SelectionKey(Node->GetView().Node.Id));
 	}
 
 	auto FMaterialGraphCanvas::RemoveNodes(
@@ -676,7 +693,7 @@ namespace Durin::MaterialEditor
 		if (ContextNodeView && !ContextSurfaceOutput)
 		{
 			std::vector<FGuid> ContextSelection;
-			if (SelectedNodes.contains(ContextNodeView->Node.Id))
+			if (SelectedNodes.contains(SelectionKey(ContextNodeView->Node.Id)))
 				ContextSelection = GetSelectedProgramNodes();
 			else ContextSelection = {ContextNodeView->Node.Id};
 			const auto& Edited = ContextNodeView->Node;
@@ -714,12 +731,12 @@ namespace Durin::MaterialEditor
 			if (ImGui::MenuItem("Delete", nullptr, false, CanRemoveSelection))
 				RemoveNodes(Owner, Transactions, ContextSelection);
 		}
-		else if (SurfaceMaterial && ContextSurfaceOutput)
+		else if (SurfaceMaterial && ContextSurfaceOutput && ContextNodeView && ContextNodeView->Node.bMaterialOutput)
 		{
-			if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
+			if (*ContextSurfaceOutput == EMaterialProperty::MP_MaterialAttributes)
 			{
 				if (ImGui::MenuItem("Disconnect Surface"))
-					BreakPinLinks(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id));
+					BreakPinLinks(FMaterialGraphPinAddress::MaterialOutput());
 			}
 			else
 			{
@@ -734,15 +751,15 @@ namespace Durin::MaterialEditor
 				};
 				if (Link.SourceNodeId.IsValid()
 					&& ImGui::MenuItem("Disconnect to Default"))
-					BreakPinLinks(FMaterialGraphPinAddress::MaterialOutput((*SurfaceMaterial).GetOutputNode()->Id, *ContextSurfaceOutput));
+					BreakPinLinks(FMaterialGraphPinAddress::MaterialOutput(*ContextSurfaceOutput));
 				if (ImGui::MenuItem("Reset Default"))
 					if (auto* Root = EditorGraph->FindNode(ContextNodeView->Node.Id))
-						CheckCommand(Root->SetPinUseConstant(FMaterialGraphPinAddress::MaterialOutput(ContextNodeView->Node.Id, *ContextSurfaceOutput), false));
-				if (!Link.SourceNodeId.IsValid()
+						CheckCommand(Root->SetPinUseConstant(FMaterialGraphPinAddress::MaterialOutput(*ContextSurfaceOutput), false));
+				if (MaterialEditing::CanPromoteSurfaceOutput(*SurfaceMaterial, *ContextSurfaceOutput)
 					&& ImGui::MenuItem("Promote to Parameter"))
 					CheckCommand(
 						MaterialEditing::PromoteSurfaceOutputToParameter(*SurfaceMaterial, NodeRequest));
-				if (ImGui::MenuItem("Add Texture"))
+				if (MaterialEditing::SurfaceTextureOutput(*SurfaceMaterial, *ContextSurfaceOutput) && ImGui::MenuItem("Add Texture"))
 					CheckCommand(MaterialEditing::AddTextureToSurfaceOutput(*SurfaceMaterial, NodeRequest));
 			}
 		}
@@ -823,7 +840,7 @@ namespace Durin::MaterialEditor
 				SelectedNodes.clear();
 				SelectedSurfaceOutput.reset();
 				SelectedNodes.insert((*Created)->GetView().Node.Id);
-				for (const auto* Node : AuxiliaryNodes) SelectedNodes.insert(Node->GetView().Node.Id);
+				for (const auto* Node : AuxiliaryNodes) SelectedNodes.insert(SelectionKey(Node->GetView().Node.Id));
 				RememberCreation(MakeCreationAction(*Entry));
 			}
 			return true;
@@ -1002,10 +1019,10 @@ namespace Durin::MaterialEditor
 				bool bRemovedFromSelection = false;
 				if (ImGui::GetIO().KeyCtrl)
 				{
-					bRemovedFromSelection = SelectedNodes.erase(Id) != 0;
-					if (!bRemovedFromSelection) SelectedNodes.insert(Id);
+					bRemovedFromSelection = SelectedNodes.erase(SelectionKey(Id)) != 0;
+					if (!bRemovedFromSelection) SelectedNodes.insert(SelectionKey(Id));
 				}
-				else if (!SelectedNodes.contains(Id)) SelectedNodes = {Id};
+				else if (!SelectedNodes.contains(SelectionKey(Id))) SelectedNodes = {SelectionKey(Id)};
 				if (!bRemovedFromSelection)
 				{
 					const std::vector<FGuid> Selection = GetSelectedProgramNodes();
@@ -1015,7 +1032,7 @@ namespace Durin::MaterialEditor
 					{
 						FMovingInteraction Moving{.StartMouse = Mouse};
 						for (const FVisualNode& Visual : VisualNodes)
-							if (SelectedNodes.contains(Visual.View->Node.Id))
+							if (SelectedNodes.contains(SelectionKey(Visual.View->Node.Id)))
 								Moving.StartPositions.emplace(
 									Visual.View->Node.Id, Visual.View->Presentation);
 						Interaction = std::move(Moving);
@@ -1078,7 +1095,7 @@ namespace Durin::MaterialEditor
 			{
 				for (const FVisualNode& Visual : VisualNodes)
 					if (Intersects(Minimum, Maximum, Visual.Minimum, Visual.Maximum))
-						SelectedNodes.insert(Visual.View->Node.Id);
+						SelectedNodes.insert(SelectionKey(Visual.View->Node.Id));
 				ResetInteraction();
 			}
 		}
@@ -1118,7 +1135,7 @@ namespace Durin::MaterialEditor
 			std::get_if<FReconnectingInputInteraction>(&Interaction))
 		{
 			const auto Address = Reconnecting->Destination;
-			const auto DestinationIt = VisualIndices.find(Address.NodeId);
+			const auto DestinationIt = VisualIndices.find(Address.IsMaterialRoot() ? OutputNodeId : Address.NodeId);
 			if (DestinationIt != VisualIndices.end())
 			{
 				const auto& Destination = VisualNodes[DestinationIt->second];
@@ -1162,8 +1179,7 @@ namespace Durin::MaterialEditor
 				Interaction = FContextMenuInteraction{
 					.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
 						: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
-					.SurfaceOutput = HoveredInputNode && HoveredInputNode->View->Node.bMaterialOutput
-						&& HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex <= static_cast<uint32>(EMaterialOutputPin::Surface) ? std::optional{static_cast<EMaterialProperty>(HoveredInputNode->View->Inputs[HoveredInputIndex].InputIndex)} : std::nullopt};
+					.SurfaceOutput = HoveredInputNode ? HoveredInputNode->View->Inputs[HoveredInputIndex].MaterialProperty : std::nullopt};
 				ImGui::OpenPopup("MaterialGraphContext");
 			}
 		}
@@ -1308,7 +1324,7 @@ namespace Durin::MaterialEditor
 			{
 				if (!Intersects(Visual.Minimum, Visual.Maximum,
 					CanvasMinimum, CanvasMaximum)) continue;
-				const bool bSelected = SelectedNodes.contains(Visual.View->Node.Id);
+				const bool bSelected = SelectedNodes.contains(SelectionKey(Visual.View->Node.Id));
 				DrawList->AddRectFilled(Visual.Minimum, Visual.Maximum,
 					bSelected ? IM_COL32(55, 72, 94, GraphSelectedNodeBodyAlpha)
 						: IM_COL32(42, 46, 54, GraphNodeBodyAlpha),
@@ -1442,7 +1458,7 @@ namespace Durin::MaterialEditor
 				FrameNodes(View, CanvasSize, EFrameScope::All);
 			if (PendingFrameNode.IsValid())
 			{
-				SelectedNodes = {PendingFrameNode};
+				SelectedNodes = {SelectionKey(PendingFrameNode)};
 				FrameNodes(View, CanvasSize, EFrameScope::Selection);
 				PendingFrameNode = {};
 			}

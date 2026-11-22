@@ -4,7 +4,6 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 
 #include "MaterialGraphOperations.h"
@@ -50,7 +49,7 @@ namespace Durin::MaterialEditor
 		virtual auto CanCreateExpression(const DMaterialExpression& Expression) const -> bool
 		{
 			if (Cast<DMaterialExpressionFunctionInput>(&Expression) || Cast<DMaterialExpressionFunctionOutput>(&Expression)) return HasFunctionPorts();
-			if (Cast<DMaterialExpressionMaterialOutput>(&Expression) || Cast<DMaterialExpressionParameter>(&Expression)) return CanOwnParameters();
+			if (Cast<DMaterialExpressionParameter>(&Expression)) return CanOwnParameters();
 			return true;
 		}
 		MATERIALEDITOR_API auto CanCreate(const FMaterialGraphCreationAction& Action,
@@ -106,10 +105,6 @@ namespace Durin::MaterialEditor
 		static auto CanRemove(bool bMaterialOutput) -> bool
 		{
 			return !bMaterialOutput;
-		}
-		static auto CanRemove(const DMaterialExpression& Expression) -> bool
-		{
-			return CanRemove(Cast<DMaterialExpressionMaterialOutput>(&Expression) != nullptr);
 		}
 	protected:
 		virtual auto AllowsAction(const FMaterialGraphCreationAction& Action) const -> bool = 0;

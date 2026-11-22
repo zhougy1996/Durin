@@ -39,7 +39,7 @@ namespace Durin::MaterialEditor
 		if (Impl->bActive) return std::unexpected("A graph move is already active.");
 		auto* Owner = Graph.GetMaterialOrFunction();
 		if (!Owner) return std::unexpected("The material graph owner is no longer available.");
-		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
+		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount + (Graph.GetRootNode() ? 1u : 0u))
 			return std::unexpected("The graph move selection is empty or exceeds the node bound.");
 		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions) return std::unexpected("The editor transactor is busy.");
 		Impl->NodeIds.clear();
@@ -72,7 +72,7 @@ namespace Durin::MaterialEditor
 		auto* Owner = Graph ? Graph->GetMaterialOrFunction() : nullptr;
 		if (!Owner) { Cancel(); return std::unexpected("The material graph owner is no longer available."); }
 		if (!IsCurrent(*Owner)) { Cancel(); return std::unexpected("The graph changed semantically during the move."); }
-		if (Positions.size() > MaterialProgramMaxNodeCount) return std::unexpected("The graph move preview exceeds the node bound.");
+		if (Positions.size() > MaterialProgramMaxNodeCount + (Graph->GetRootNode() ? 1u : 0u)) return std::unexpected("The graph move preview exceeds the node bound.");
 		std::unordered_set<FGuid> Requested;
 		for (const auto& Position : Positions)
 		{

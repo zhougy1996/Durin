@@ -28,7 +28,7 @@ namespace Durin
 		using T = EMaterialProgramValueType;
 		using S = EMaterialEvaluationStage;
 		static const std::array Definitions{
-			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,1}, P::MP_BaseColor, "Base Color", {T::Float3,S::Pixel}, {.5f,.5f,.5f}},
+			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,1}, P::MP_BaseColor, "Base Color", {T::Float3,S::Pixel}, {0,0,0}},
 			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,2}, P::MP_Normal, "Normal", {T::Float3,S::Pixel,EMaterialSpatialKind::Normal,EMaterialCoordinateSpace::Tangent}, {0,0,1}, EMaterialAttributeBlend::NormalizedNormal},
 			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,3}, P::MP_Metallic, "Metallic", {T::Float,S::Pixel}, {0}},
 			FMaterialAttributeDefinition{{0x4d415454,0x52505250,1,4}, P::MP_Roughness, "Roughness", {T::Float,S::Pixel}, {.5f}},

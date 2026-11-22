@@ -1,11 +1,12 @@
 #include "Materials/MaterialObjectValidation.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/ObjectCacheContext.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialAttributeDefinitionMap.h"
 #include "MaterialExpressionOwnership.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "Materials/MaterialExpressionBuild.h"
 #include "Materials/MaterialFunctionInterface.h"
 
@@ -18,35 +19,117 @@
 namespace Durin
 {
 #if DURIN_WITH_EDITORONLY_DATA
-	auto DMaterial::GetOutputNode() const -> const DMaterialExpressionMaterialOutput*
+	namespace
 	{
-		for (const auto& Expression : ExpressionCollection.Expressions)
-			if (const auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) return Output;
-		return nullptr;
-	}
+		auto Components(float& Scalar) -> std::span<float> { return {&Scalar, 1}; }
+		auto Components(const float& Scalar) -> std::span<const float> { return {&Scalar, 1}; }
+		auto Components(float (&Vector)[3]) -> std::span<float> { return Vector; }
+		auto Components(const float (&Vector)[3]) -> std::span<const float> { return Vector; }
 
-	auto DMaterial::GetExpressionOutputs() const -> const FMaterialAttributeRoot&
-	{
-		if (const auto* Output = GetOutputNode()) return Output->Outputs;
-		static const FMaterialAttributeRoot Empty;
-		return Empty; // Cooked assets contain the compiled projection, not an authored graph.
-	}
-
-	auto DMaterial::ValidateExpressionGraph(const FMaterialExpressionCollection& Collection,
-		const FMaterialAttributeRoot& Outputs, FXxHash128* OutCodeFingerprint) -> FMaterialProgramValidationResult
-	{
-		const auto Count = std::ranges::count_if(Collection.Expressions, [](const auto& Expression) {
-			return Cast<DMaterialExpressionMaterialOutput>(Expression.Get()) != nullptr;
-		});
-		if (Count != 1)
+		auto View(const auto& Field) -> FMaterialNumericInputView
 		{
-			FMaterialProgramValidationResult Invalid;
-			Invalid.Diagnostics.push_back({.Message = "A material graph requires exactly one material output node."});
-			return Invalid;
+			return {Field.Connection, Field.UseConstant, Components(Field.Constant)};
 		}
-		std::vector<DMaterialExpression*> Expressions;
-		for (const auto& Expression : Collection.Expressions) Expressions.push_back(Expression.Get());
-		return MIR::FGraphBuilder::ValidateSurface(Expressions, Outputs, OutCodeFingerprint);
+		void Assign(auto& Field, const FMaterialNumericInput& Input)
+		{
+			auto Target = Components(Field.Constant);
+			check(Target.size() == Input.Constant.size());
+			Field.Connection = Input.Connection;
+			Field.UseConstant = Input.UseConstant;
+			std::ranges::copy(Input.Constant, Target.begin());
+		}
+	}
+	void DMaterial::VisitNumericField(auto& Owner, EMaterialProperty Property, auto&& Visit)
+	{
+		switch (Property)
+		{
+		case EMaterialProperty::MP_BaseColor: Visit(Owner.BaseColor); break;
+		case EMaterialProperty::MP_Normal: Visit(Owner.Normal); break;
+		case EMaterialProperty::MP_Metallic: Visit(Owner.Metallic); break;
+		case EMaterialProperty::MP_Roughness: Visit(Owner.Roughness); break;
+		case EMaterialProperty::MP_AmbientOcclusion: Visit(Owner.AmbientOcclusion); break;
+		case EMaterialProperty::MP_EmissiveColor: Visit(Owner.EmissiveColor); break;
+		case EMaterialProperty::MP_Opacity: Visit(Owner.Opacity); break;
+		case EMaterialProperty::MP_OpacityMask: Visit(Owner.OpacityMask); break;
+		case EMaterialProperty::MP_WorldPositionOffset: Visit(Owner.WorldPositionOffset); break;
+		case EMaterialProperty::MP_Specular: Visit(Owner.Specular); break;
+		case EMaterialProperty::MP_ClearCoat: Visit(Owner.ClearCoat); break;
+		case EMaterialProperty::MP_ClearCoatRoughness: Visit(Owner.ClearCoatRoughness); break;
+		default: break;
+		}
+	}
+
+	auto DMaterial::GetNumericInputForProperty(EMaterialProperty Property) const -> std::optional<FMaterialNumericInputView>
+	{
+		const auto Description = GetExpressionInputDescription(Property);
+		return Description ? Description->Numeric : std::nullopt;
+	}
+
+	auto FMaterialRootInputEdits::HasValidWidths(const DMaterial& Material) const -> bool
+	{
+		return std::ranges::all_of(Numeric, [&](const auto& Entry) {
+			const auto Live = Material.GetNumericInputForProperty(Entry.first);
+			return Live && Live->Constant.size() == Entry.second.Constant.size();
+		});
+	}
+
+	void FMaterialExpressionEditing::ApplyRootEdits(DMaterial& Owner, const FMaterialRootInputEdits& Edits)
+	{
+		check(Edits.HasValidWidths(Owner));
+		for (const auto& [Property, Input] : Edits.Numeric)
+			DMaterial::VisitNumericField(Owner, Property, [&](auto& Field) { Assign(Field, Input); });
+		if (Edits.Attributes) Owner.MaterialAttributes = *Edits.Attributes;
+		if (Edits.UseAttributes) Owner.bUseMaterialAttributes = *Edits.UseAttributes;
+	}
+
+	void DMaterial::ApplyRootInputs(FMaterialRootInputs Inputs)
+	{
+		for (const auto& Definition : FMaterialAttributeDefinitionMap::GetDefinitions())
+			VisitNumericField(*this, Definition.Property, [&](auto& Field) { Assign(Field, Inputs.Get(Definition.Property)); });
+		MaterialAttributes = Inputs.Attributes;
+		bUseMaterialAttributes = Inputs.bUseMaterialAttributes;
+	}
+
+	auto DMaterial::CaptureRootInputs() const -> FMaterialRootInputs
+	{
+		FMaterialRootInputs Result;
+		Result.Attributes = MaterialAttributes;
+		Result.bUseMaterialAttributes = bUseMaterialAttributes;
+		for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
+			Result.Get(Field.Property) = GetNumericInputForProperty(Field.Property)->Capture();
+		return Result;
+	}
+
+	auto DMaterial::GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*
+	{
+		const auto Description = GetExpressionInputDescription(Property);
+		return Description ? Description->Connection : nullptr;
+	}
+
+	auto DMaterial::GetExpressionInputDescription(EMaterialProperty Property) const -> std::optional<FMaterialInputDescription>
+	{
+		if (Property == EMaterialProperty::MP_MaterialAttributes)
+			return FMaterialInputDescription{MaterialAttributes};
+		std::optional<FMaterialInputDescription> Result;
+		VisitNumericField(*this, Property, [&](const auto& Input) {
+			Result.emplace(Property, View(Input));
+		});
+		return Result;
+	}
+
+	auto DMaterial::IsRootInputVisible(EMaterialProperty Property) const -> bool
+	{
+		return (Property == EMaterialProperty::MP_MaterialAttributes) == UsesMaterialAttributesForDomain()
+			&& std::ranges::contains(GetMaterialDomainInputProperties(Domain), Property);
+	}
+
+	void DMaterial::SetRootPosition(int32 X, int32 Y)
+	{
+		if (EditorX == X && EditorY == Y) return;
+		EditorX = X;
+		EditorY = Y;
+		MarkPackageDirty();
+		GraphChanges.PublishPresentation(*this);
 	}
 
 	auto DMaterial::DeriveExpressionParameterSchema(const FMaterialExpressionCollection& Collection,
@@ -98,11 +181,11 @@ namespace Durin
 		std::vector<FMaterialParameterDefinition> Schema;
 		if (const auto Validation = DeriveExpressionParameterSchema(ExpressionCollection, Schema); !Validation)
 			return RejectLoadedObjectGraph(GetObjectPath(), "Material graph has an invalid parameter schema.");
-		if (GetMaterialDomainOutputPins(Domain).empty())
+		if (GetMaterialDomainInputProperties(Domain).empty())
 			return RejectMaterialObjectGraph(GetObjectPath(), {{.Message = "Unsupported material domain."}});
 		const auto OwnershipError = Private::ValidateExpressionOwnership(*this, ExpressionCollection);
 		if (!OwnershipError) return RejectMaterialObjectGraph(GetObjectPath(), {{.Message = OwnershipError.error()}});
-		auto Validation = ValidateExpressionGraph(ExpressionCollection, GetExpressionOutputs());
+		auto Validation = ValidateExpressionGraph();
 		if (!Validation)
 		{
 			return RejectMaterialObjectGraph(GetObjectPath(), std::move(Validation.Diagnostics));
@@ -115,30 +198,12 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITORONLY_DATA
-	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions,
-		FMaterialAttributeRoot Outputs) -> FMaterialProgramValidationResult
+	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
 	{
-		// Recipe convenience: publish an ordinary output node together with the supplied expressions.
-		TStrongObjectPtr<DMaterialExpressionMaterialOutput> Terminal(NewObject<DMaterialExpressionMaterialOutput>(nullptr, NAME_None));
-		const auto* Existing = GetOutputNode();
-		Terminal->Id = Existing ? Existing->Id : FGuid::NewGuid();
-		Terminal->Outputs = std::move(Outputs);
-		std::vector<DMaterialExpression*> Nodes;
-		bool bHasOutput = false;
-		for (auto* Expression : Expressions)
-		{
-			if (const auto* Output = Cast<DMaterialExpressionMaterialOutput>(Expression))
-			{
-				if (bHasOutput) return {.Diagnostics = {{.Message = "A material graph cannot contain multiple output nodes."}}};
-				bHasOutput = true; Terminal->Id = Output->Id; continue;
-			}
-			Nodes.push_back(Expression);
-		}
-		Nodes.push_back(Terminal.Get());
-		return SetMaterialExpressions(Nodes);
+		return SetMaterialExpressions(Expressions, CaptureRootInputs());
 	}
 
-	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult
+	auto DMaterial::SetMaterialExpressions(std::span<DMaterialExpression* const> Expressions, FMaterialRootInputs Outputs) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
 		FMaterialProgramValidationResult Result;
@@ -148,23 +213,12 @@ namespace Durin
 		Result = DeriveExpressionParameterSchema(Candidate, Schema);
 		if (!Result) return Result;
 		FXxHash128 Code;
-		const DMaterialExpressionMaterialOutput* Output = nullptr;
-		for (auto* Expression : Expressions)
-			if (const auto* Terminal = Cast<DMaterialExpressionMaterialOutput>(Expression))
-			{
-				if (Output) return {.Diagnostics = {{.Message = "A material graph requires exactly one output node."}}};
-				Output = Terminal;
-			}
-		if (!Output) return {.Diagnostics = {{.Message = "The material graph has no output node."}}};
-		if (GetMaterialDomainOutputPins(Domain).empty()) return {.Diagnostics = {{.Message = "Unsupported material domain."}}};
-		Result = ValidateExpressionGraph(Candidate, Output->Outputs, &Code);
+		if (GetMaterialDomainInputProperties(Domain).empty()) return {.Diagnostics = {{.Message = "Unsupported material domain."}}};
+		Result = ValidateExpressionGraph(Candidate, Outputs, &Code);
 		if (!Result) return Result;
-		std::vector<DMaterialExpression*> Ordered;
-		for (auto* Expression : Expressions)
-			if (Expression != Output) Ordered.push_back(Expression);
-		Ordered.push_back(const_cast<DMaterialExpressionMaterialOutput*>(Output));
-		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Ordered);
+		Result = Private::ReplaceOwnedExpressions(*this, ExpressionCollection, Expressions, &Outputs);
 		if (!Result) return Result;
+		ApplyRootInputs(std::move(Outputs));
 		FObjectCacheContext Context;
 		const bool bShaderChanged = Code != ObservedExpressionCode;
 		ObservedExpressionCode = Code;

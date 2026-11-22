@@ -46,18 +46,18 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error)) << Error;
 	auto* Draft = Session.GetWorkingMaterial();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
-	const auto Original = Source->GetExpressionOutputs();
+	const auto Original = Source->CaptureRootInputs();
 	auto Outputs = Original;
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.132711f});
 	ASSERT_TRUE(Draft->SetMaterialExpressions({}, Outputs));
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
 	ASSERT_TRUE(Session.IsApplyPending());
-	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
+	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 	ASSERT_TRUE(Testing::FailMaterialCompilation(*Draft));
 	Session.Tick(Error);
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
+	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 	EXPECT_FALSE(Package->IsDirty());
 
 	Error.clear();
@@ -70,7 +70,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	Session.Tick(Error);
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(Source->GetExpressionOutputs(), Original);
+	EXPECT_EQ(Source->CaptureRootInputs(), Original);
 
 	Error.clear();
 	ASSERT_TRUE(Session.RequestApply(Error)) << Error;
@@ -78,7 +78,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	Session.Tick(Error);
 	EXPECT_TRUE(Error.empty()) << Error;
 	EXPECT_FALSE(Session.IsApplyPending());
-	EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Source), CaptureMaterialOutputBindings(Outputs));
 	EXPECT_FALSE(Session.HasUnappliedChanges());
 
 	Outputs.Get(EMaterialProperty::MP_Roughness).SetConstant({0.632719f});
@@ -91,7 +91,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	EXPECT_TRUE(Error.empty()) << Error;
 	EXPECT_FALSE(Session.IsApplyPending());
 	EXPECT_TRUE(Session.HasUnappliedChanges());
-	EXPECT_NE(Source->GetExpressionOutputs(), Outputs);
+	EXPECT_NE(Source->CaptureRootInputs(), Outputs);
 
 	// Automatic deadlines must be serviced for transient drafts even when their
 	// document is hidden; the source must remain unchanged after completion.
@@ -103,7 +103,7 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	EXPECT_FALSE(Draft->GetMaterialCompileStatus().HasScheduledEdits());
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Draft);
 	EXPECT_TRUE(Draft->GetMaterialCompileStatus().IsCurrent());
-	EXPECT_NE(Source->GetExpressionOutputs(), Outputs);
+	EXPECT_NE(Source->CaptureRootInputs(), Outputs);
 	// Apply must wait for a pending attempt even when the installed content is current.
 	ASSERT_TRUE(RequestMaterialRecompile(*Draft, true));
 	const auto ForcedRequest = Draft->GetMaterialCompileDebugInfo().RequestId;
@@ -113,5 +113,5 @@ auto QualifyMaterialEditingSessionAsync() -> void
 	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
 	EXPECT_TRUE(Draft->IsCompilationFinished());
 	EXPECT_EQ(Draft->GetMaterialCompileDebugInfo().RequestId, ForcedRequest);
-	EXPECT_EQ(CaptureMaterialOutputBindings(Source->GetExpressionOutputs()), CaptureMaterialOutputBindings(Outputs));
+	EXPECT_EQ(CaptureMaterialOutputBindings(*Source), CaptureMaterialOutputBindings(Outputs));
 }

@@ -193,7 +193,7 @@ TEST(FMeshPSOPrecacheVulkanTests, CollectedInitializersCoverDrawStatesParticipat
         ASSERT_TRUE(Material->SetStaticProperties(Properties));
         TStrongObjectPtr<DMaterialExpressionScalarParameter> Parameter(NewObject<DMaterialExpressionScalarParameter>(nullptr, NAME_None));
         Parameter->Id = FGuid::NewGuid(); Parameter->Metadata = {.Id = FGuid::NewGuid(), .Name = "CollectorScalar"}; Parameter->DefaultValue = 0.5f;
-        FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter.Get()};
+        FMaterialRootInputs Outputs; Outputs.Get(EMaterialProperty::MP_Roughness) = {Parameter.Get()};
         const std::array<DMaterialExpression*, 1> Expressions{Parameter.Get()};
         ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Outputs));
         Material->CacheResourceShadersForRendering(InitialConfig.FeatureLevel);

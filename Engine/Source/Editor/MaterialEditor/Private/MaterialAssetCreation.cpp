@@ -19,14 +19,8 @@ namespace Durin
 				: Reset.Diagnostics.front().Message;
 			return false;
 		}
-		FMaterialGraphPresentation Presentation;
-		TStrongObjectPtr<MaterialEditor::DMaterialGraph> Graph(MaterialEditor::DMaterialGraph::Create(Material));
-		if (!Graph->CalculateLayout({}, Presentation, &OutError)) return false;
-		if (Material.SetMaterialGraphPresentation(std::move(Presentation)) == EMaterialGraphPresentationResult::Rejected)
-		{
-			OutError = "The new material graph presentation could not be initialized.";
-			return false;
-		}
+		Material.SetRootPosition(1280, 0);
+		Material.SetMaterialGraphPresentation({});
 		if (RequestMaterialRecompile(Material))
 		{
 			(void)FAssetCompilingManager::Get().FinishCompilationForObject(Material);

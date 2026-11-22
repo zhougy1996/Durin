@@ -4,6 +4,7 @@
 #include "Materials/MaterialExpressionInputs.h"
 #include "Materials/Material.h"
 #include "MaterialGraph.h"
+#include "Materials/MaterialExpressionEditing.h"
 #include "MaterialGraphNodeDisplay.h"
 
 namespace Durin::MaterialEditor
@@ -31,7 +32,7 @@ namespace Durin::MaterialEditor
 				const auto It = Indices.find(Position.NodeId);
 				const bool Authored = It != Indices.end();
 				const auto& Before = Authored ? Presentation.Nodes[It->second] : Node->second->GetView().Presentation;
-				if (Before.X == Position.X && Before.Y == Position.Y && (Authored || !AuthorDefaultPositions)) continue;
+				if (Before.X == Position.X && Before.Y == Position.Y && (Authored || Node->second->GetView().Node.bMaterialOutput || !AuthorDefaultPositions)) continue;
 				if (Changes) Changes->push_back({Position.NodeId, Before.X, Before.Y, Position.X, Position.Y, Authored});
 				if (Authored)
 				{
@@ -69,6 +70,20 @@ namespace Durin::MaterialEditor
 		return Zoom < 0.42f ? EMaterialGraphDetailLevel::Overview : EMaterialGraphDetailLevel::Editing;
 	}
 
+	auto DMaterialGraph::MoveSelection(std::span<const FMaterialGraphNodePosition> Positions,
+		ETransactionMode Mode, std::string* OutError) const -> bool
+	{
+		std::vector<FMaterialGraphNodePresentation> Resolved;
+		Resolved.reserve(Positions.size());
+		for (const auto& Position : Positions)
+		{
+			const auto* Node = ResolveNode(Position.Node);
+			if (!Node) return FailWithError(OutError, "A moved material graph node does not exist.");
+			Resolved.push_back({Node->GetView().Node.Id, Position.X, Position.Y});
+		}
+		return MoveNodes(Resolved, Mode, OutError);
+	}
+
 	auto DMaterialGraph::MoveNodes(
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		ETransactionMode Mode, std::string* OutError) const -> bool
@@ -86,7 +101,7 @@ namespace Durin::MaterialEditor
 		if (OutError) OutError->clear();
 		if (!Owner.IsValid()) return FailWithError(OutError, "The material graph owner is no longer available.");
 		if (Positions.empty()) return true;
-		if (Positions.size() > MaterialProgramMaxNodeCount)
+		if (Positions.size() > MaterialProgramMaxNodeCount + (GetRootNode() ? 1u : 0u))
 			return FailWithError(OutError, "The material graph move request exceeds the node bound.");
 		FMaterialGraphPresentation Presentation = ReadGraphPresentation(*Owner.Get());
 		std::unordered_set<FGuid> Requested;
@@ -96,7 +111,7 @@ namespace Durin::MaterialEditor
 		std::vector<FNodePositionChange> Changes;
 		if (!ApplyPositions(*this, Positions, Presentation, false, &Changes, OutError)) return false;
 		return CommitPresentationChange(*Owner.Get(), std::move(Presentation),
-			"Move Material Nodes", std::move(Changes), Transactions, OutError);
+			"Move Material Nodes", std::move(Changes), Transactions, OutError, RootViewId);
 	}
 
 	auto DMaterialGraph::CalculateLayout(
@@ -119,20 +134,21 @@ namespace Durin::MaterialEditor
 		for (const auto& GraphNode : GetNodes())
 		{
 			auto* Expression = GraphNode->MaterialExpression.Get();
-			if (!Expression) continue;
 			const auto& Visual = GraphNode->GetView();
 			FLayoutNode Node{Visual.Node.Id, {}, GraphNodeWidth(Visual), GraphNodeHeight(Visual)};
 			// Retained inputs still constrain layout when the current root mode hides their pins.
-			VisitStoredMaterialInputs(*Expression, [&](const FMaterialExpressionInput& Input) {
+			const auto AddInput = [&](const FMaterialExpressionInput& Input) {
 				if (const auto* Source = Input.Expression.Get()) Node.Inputs.push_back(Source->Id);
-			});
+			};
+			if (Expression) VisitStoredMaterialInputs(*Expression, AddInput);
+			else if (auto* Material = Cast<DMaterial>(Owner.Get())) FMaterialExpressionEditing::VisitRootConnections(*Material, AddInput);
 			Nodes.push_back(std::move(Node));
 		}
 		const auto FindLayoutNode = [&](const FGuid& Id) -> const FLayoutNode* {
 			const auto It = std::ranges::find(Nodes, Id, &FLayoutNode::Id);
 			return It == Nodes.end() ? nullptr : &*It;
 		};
-		if (NodeIds.size() > MaterialProgramMaxNodeCount)
+		if (NodeIds.size() > MaterialProgramMaxNodeCount + (GetRootNode() ? 1u : 0u))
 			return FailWithError(OutError, "The material graph layout request exceeds the node bound.");
 		std::unordered_set<FGuid> Requested(NodeIds.begin(), NodeIds.end());
 		if (NodeIds.empty())
@@ -170,7 +186,9 @@ namespace Durin::MaterialEditor
 		std::unordered_map<FGuid, size_t> Ranks;
 		for (auto& [Column, Nodes] : Columns)
 		{
-			std::ranges::sort(Nodes);
+			std::ranges::sort(Nodes, [&](const FGuid& A, const FGuid& B) {
+				return std::pair(A == RootViewId, A) < std::pair(B == RootViewId, B);
+			});
 			for (size_t Index = 0; Index < Nodes.size(); ++Index)
 			{
 				NodeColumns.emplace(Nodes[Index], Column);
@@ -236,6 +254,13 @@ namespace Durin::MaterialEditor
 		const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
 		struct FRect { float MinX; float MinY; float MaxX; float MaxY; };
 		std::vector<FRect> Occupied;
+		if (!NodeIds.empty() && !Requested.contains(RootViewId))
+			if (const auto* Root = GetRootNode())
+			{
+				const auto& View = Root->GetView();
+				const auto& P = View.Presentation;
+				Occupied.push_back({static_cast<float>(P.X), static_cast<float>(P.Y), P.X + GraphNodeWidth(View), P.Y + GraphNodeHeight(View)});
+			}
 		if (!NodeIds.empty())
 			for (const FMaterialGraphNodePresentation& Existing : Presentation.Nodes)
 				if (!Requested.contains(Existing.NodeId))
@@ -290,6 +315,6 @@ namespace Durin::MaterialEditor
 		std::vector<FNodePositionChange> Changes;
 		if (!ApplyPositions(*this, Positions, Presentation, true, &Changes, OutError)) return false;
 		return CommitPresentationChange(*Owner.Get(), std::move(Presentation),
-			"Layout Graph Nodes", std::move(Changes), Transactions, OutError);
+			"Layout Graph Nodes", std::move(Changes), Transactions, OutError, RootViewId);
 	}
 }

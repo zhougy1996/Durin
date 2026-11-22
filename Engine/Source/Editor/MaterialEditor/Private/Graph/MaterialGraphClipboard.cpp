@@ -3,7 +3,6 @@
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionIO.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/Material.h"
 #include "MaterialGraphEditInternals.h"
@@ -24,12 +23,11 @@ namespace Durin::MaterialEditor
 		const auto& Expressions = FMaterialExpressionEditing::GetExpressions(*Owner.Get());
 		const auto& Presentation = Material ? Material->GetMaterialGraphPresentation().Nodes
 			: Cast<DMaterialFunction>(Owner.Get())->GetFunctionPresentation().Nodes;
-		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
+		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount + (Material ? 1u : 0u))
 			return FailWithError(OutError, "The material graph copy selection is empty or exceeds the node bound.");
 		std::unordered_set<FGuid> Selected(NodeIds.begin(), NodeIds.end());
 		if (Selected.size() != NodeIds.size()) return FailWithError(OutError, "The material graph copy selection contains duplicate node GUIDs.");
-		for (const auto& Expression : Expressions)
-			if (Cast<DMaterialExpressionMaterialOutput>(Expression.Get())) Selected.erase(Expression->Id);
+		if (Material) Selected.erase(RootViewId);
 		if (Selected.empty()) return FailWithError(OutError, "The material output terminal cannot be copied.");
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
 		for (const auto& Position : Presentation) Positions.emplace(Position.NodeId, Position);
@@ -67,7 +65,7 @@ namespace Durin::MaterialEditor
 			});
 		if (Material)
 		{
-			const auto& Surface = Material->GetExpressionOutputs().Attributes;
+			const auto& Surface = *Material->GetExpressionInputForProperty(EMaterialProperty::MP_MaterialAttributes);
 			if (const auto It = CopiedExpressions.find(Surface.Expression.Get()); It != CopiedExpressions.end())
 				OutPayload.AggregateSurface.Connect(Surface.OutputIndex, It->second);
 		}
@@ -195,7 +193,7 @@ namespace Durin::MaterialEditor
 		{
 			const auto Source = Copies.find(Payload.AggregateSurface.Expression.Get());
 			if (Source == Copies.end()) return std::unexpected(RejectCommand("The aggregate Surface clipboard source is missing from the selection."));
-			if (!State.bFunction) State.GetOutputs().Attributes.Connect(Payload.AggregateSurface.OutputIndex, Source->second);
+			if (!State.bFunction) State.EditRootInput(EMaterialProperty::MP_MaterialAttributes)->Connect(Payload.AggregateSurface.OutputIndex, Source->second);
 		}
 		auto Result = State.Commit("Paste Graph Nodes", Transactions);
 		if (!Result) return std::unexpected(std::move(Result));

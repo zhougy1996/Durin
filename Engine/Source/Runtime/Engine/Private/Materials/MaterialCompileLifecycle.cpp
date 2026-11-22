@@ -256,8 +256,7 @@ namespace Durin
 				Material.RetireFailedMaterialGeneration(Context);
 				return false;
 			}
-			return Material.RequestProgramCompile(
-				Material.GetStaticProperties(), bForceRecompile, Context);
+			return Material.RequestProgramCompile(bForceRecompile, Context);
 		}
 	}
 

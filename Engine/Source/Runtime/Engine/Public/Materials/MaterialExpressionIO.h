@@ -67,69 +67,151 @@ namespace Durin
 		auto operator==(const FMaterialNumericInput&) const -> bool = default;
 	};
 
+	// Non-owning property read used by root projection and MIR.
+	struct FMaterialNumericInputView
+	{
+		const FMaterialExpressionInput& Connection;
+		bool UseConstant;
+		std::span<const float> Constant;
+		FMaterialNumericInputView(const FMaterialExpressionInput& Link, bool Enabled, std::span<const float> Value)
+			: Connection(Link), UseConstant(Enabled), Constant(Value) {}
+		FMaterialNumericInputView(const FMaterialNumericInput& Input)
+			: FMaterialNumericInputView(Input.Connection, Input.UseConstant, Input.Constant) {}
+		auto Capture() const -> FMaterialNumericInput
+		{
+			FMaterialNumericInput Result;
+			Result.Connection = Connection;
+			Result.UseConstant = UseConstant;
+			Result.Constant.assign(Constant.begin(), Constant.end());
+			return Result;
+		}
+		auto operator==(const FMaterialNumericInput& Other) const -> bool
+		{
+			return Connection == Other.Connection && UseConstant == Other.UseConstant
+				&& std::ranges::equal(Constant, Other.Constant);
+		}
+	};
+
+	DSTRUCT()
+	struct FScalarMaterialInput
+	{
+		GENERATED_BODY()
+		DPROPERTY()
+		FMaterialExpressionInput Connection;
+		DPROPERTY()
+		bool UseConstant = false;
+		DPROPERTY()
+		float Constant = 0.f;
+	};
+
+	DSTRUCT()
+	struct FColorMaterialInput
+	{
+		GENERATED_BODY()
+		DPROPERTY()
+		FMaterialExpressionInput Connection;
+		DPROPERTY()
+		bool UseConstant = false;
+		DPROPERTY()
+		float Constant[3]{};
+	};
+
+	DSTRUCT()
+	struct FVectorMaterialInput
+	{
+		GENERATED_BODY()
+		DPROPERTY()
+		FMaterialExpressionInput Connection;
+		DPROPERTY()
+		bool UseConstant = false;
+		DPROPERTY()
+		float Constant[3]{};
+	};
+
 	ENGINE_API auto GetMaterialNumericInputFallback(EMaterialProgramOpcode Opcode,
 		EMaterialProgramValueType Type, uint32 Slot) -> std::vector<float>;
 
-	DSTRUCT()
-	struct FMaterialAttributeBinding
+	struct FMaterialInputDescription
 	{
-		GENERATED_BODY()
-		DPROPERTY()
-		FGuid AttributeID;
-		DPROPERTY()
-		FMaterialNumericInput Input;
-		auto operator==(const FMaterialAttributeBinding&) const -> bool = default;
-	};
-	DSTRUCT()
-	struct FMaterialAttributes
-	{
-		GENERATED_BODY()
-		DPROPERTY()
-		std::vector<FMaterialAttributeBinding> Bindings;
-		auto operator==(const FMaterialAttributes&) const -> bool = default;
-	};
-	// Serialized bindings use stable attribute identities, not terminal pin order.
-	DSTRUCT()
-	struct FMaterialAttributeRoot
-	{
-		GENERATED_BODY()
-		ENGINE_API FMaterialAttributeRoot();
-
-		DPROPERTY()
-		FMaterialExpressionInput Attributes;
-		DPROPERTY()
-		FMaterialAttributes Properties;
-
-		// Both connection sets are retained; only the selected set drives the output.
-		DPROPERTY()
-		bool bUseMaterialAttributes = false;
-		ENGINE_API auto Get(EMaterialProperty Property) -> FMaterialNumericInput&;
-		ENGINE_API auto Get(EMaterialProperty Property) const -> const FMaterialNumericInput&;
-
-		auto operator==(const FMaterialAttributeRoot&) const -> bool = default;
-
-	};
-
-	// Captures root values and upstream node identities independently of the owning graph.
-	ENGINE_API auto CaptureMaterialOutputBindings(FMaterialAttributeRoot Root) -> std::pair<FMaterialAttributeRoot, std::vector<FGuid>>;
-
-	// Persistent semantic identities; their values do not encode visual pin order.
-	enum class EMaterialOutputPin : uint8
-	{
-		BaseColor = 0, Normal = 1, Metallic = 2, Roughness = 3,
-		AmbientOcclusion = 4, Emissive = 5, Opacity = 6, OpacityMask = 7,
-		WorldPositionOffset = 8, Specular = 9, ClearCoat = 10, ClearCoatRoughness = 11, Surface = 255,
-	};
-	struct FMaterialOutputPinDefinition
-	{
-		EMaterialOutputPin Id;
+		ENGINE_API explicit FMaterialInputDescription(const FMaterialExpressionInput& Packed);
+		ENGINE_API FMaterialInputDescription(EMaterialProperty Property, FMaterialNumericInputView Input);
+		const FMaterialExpressionInput* Connection = nullptr;
+		std::optional<FMaterialNumericInputView> Numeric;
+		EMaterialProgramValueType Type{};
 		std::string_view Name;
-		EMaterialProgramValueType Type;
 	};
-	ENGINE_API auto GetMaterialDomainOutputPins(EMaterialDomain Domain) -> std::span<const FMaterialOutputPinDefinition>;
-	ENGINE_API auto GetMaterialOutputInput(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> FMaterialExpressionInput*;
 
-	ENGINE_API auto GetMaterialOutputNumericInput(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> FMaterialNumericInput*;
-	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin) -> std::vector<float>;
-	ENGINE_API auto WriteMaterialOutputDefault(FMaterialAttributeRoot& Outputs, EMaterialOutputPin Pin, std::span<const float> Value) -> bool;
+	// Detached editable values for bulk graph operations.
+	struct FMaterialPropertyInputs
+	{
+		FMaterialNumericInput BaseColor{3};
+		FMaterialNumericInput Normal{3};
+		FMaterialNumericInput Metallic;
+		FMaterialNumericInput Roughness;
+		FMaterialNumericInput AmbientOcclusion;
+		FMaterialNumericInput EmissiveColor{3};
+		FMaterialNumericInput Opacity;
+		FMaterialNumericInput OpacityMask;
+		FMaterialNumericInput WorldPositionOffset{3};
+		FMaterialNumericInput Specular;
+		FMaterialNumericInput ClearCoat;
+		FMaterialNumericInput ClearCoatRoughness;
+
+		ENGINE_API auto Find(EMaterialProperty Property) const -> const FMaterialNumericInput*;
+		auto Find(EMaterialProperty Property) -> FMaterialNumericInput*
+			{ return const_cast<FMaterialNumericInput*>(std::as_const(*this).Find(Property)); }
+		auto operator==(const FMaterialPropertyInputs&) const -> bool = default;
+	};
+
+	// Owned root state for detached graph construction, editing and comparison.
+	struct FMaterialRootInputs
+	{
+		FMaterialPropertyInputs Properties;
+		FMaterialExpressionInput Attributes;
+		bool bUseMaterialAttributes = false;
+
+		ENGINE_API auto GetExpressionInputDescription(EMaterialProperty Property) const -> std::optional<FMaterialInputDescription>;
+		ENGINE_API auto FindInvalidConstantWidth() const -> std::optional<EMaterialProperty>;
+		auto UsesMaterialAttributes() const -> bool { return bUseMaterialAttributes; }
+		auto GetNumericInputForProperty(EMaterialProperty Property) const -> const FMaterialNumericInput* { return Properties.Find(Property); }
+		ENGINE_API auto GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*;
+		auto GetExpressionInputForProperty(EMaterialProperty Property) -> FMaterialExpressionInput*
+			{ return const_cast<FMaterialExpressionInput*>(std::as_const(*this).GetExpressionInputForProperty(Property)); }
+		auto Get(EMaterialProperty Property) const -> const FMaterialNumericInput&
+		{
+			const auto* Input = Properties.Find(Property);
+			check(Input);
+			return *Input;
+		}
+		auto Get(EMaterialProperty Property) -> FMaterialNumericInput& { return const_cast<FMaterialNumericInput&>(std::as_const(*this).Get(Property)); }
+		auto operator==(const FMaterialRootInputs&) const -> bool = default;
+	};
+
+	// Historical comparisons use authored identities, independent of managed object lifetime.
+	struct FMaterialOutputBindings
+	{
+		struct FPropertyBinding
+		{
+			FGuid Source;
+			int32 OutputIndex;
+			bool UseConstant;
+			std::vector<float> Constant;
+			auto operator==(const FPropertyBinding&) const -> bool = default;
+		};
+		bool UseMaterialAttributes = false;
+		FGuid AttributeSource;
+		int32 AttributeOutputIndex = 0;
+		std::vector<FPropertyBinding> Properties;
+		auto operator==(const FMaterialOutputBindings&) const -> bool = default;
+	};
+	ENGINE_API auto CaptureMaterialOutputBindings(const FMaterialRootInputs& Root) -> FMaterialOutputBindings;
+#if DURIN_WITH_EDITORONLY_DATA
+	class DMaterial;
+	ENGINE_API auto CaptureMaterialOutputBindings(const DMaterial& Material) -> FMaterialOutputBindings;
+#endif
+
+	ENGINE_API auto GetMaterialDomainInputProperties(EMaterialDomain Domain) -> std::span<const EMaterialProperty>;
+
+	ENGINE_API auto ReadMaterialNumericDefault(FMaterialNumericInputView Input, EMaterialProperty Property) -> std::vector<float>;
+	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialRootInputs& Outputs, EMaterialProperty Pin) -> std::vector<float>;
 }

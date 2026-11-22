@@ -289,7 +289,6 @@ namespace Durin
 		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
 		FBulkData CookedProgramData;
 		ENGINE_API auto RequestProgramCompile(
-			const FMaterialStaticProperties& CandidateProperties,
 			bool bForceRecompile = false, FObjectCacheContext* Context = nullptr,
 			std::optional<FMaterialCompilerEnvironment> RequestedEnvironment = std::nullopt,
 			std::shared_ptr<FMaterialResource> Resource = {}) -> bool;

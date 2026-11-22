@@ -51,13 +51,16 @@ namespace Durin
 			}
 			if (Call.Function.Get() == Function && Call.FunctionInputs == Inputs && Call.FunctionOutputs == Outputs) return false;
 			if (auto* Owner = Call.GetOuter(); Cast<DMaterial>(Owner) || Cast<DMaterialFunction>(Owner))
-				for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Owner))
-					VisitStoredMaterialInputs(*Expression, [&](FMaterialExpressionInput& Input) {
-						if (Input.Expression.Get() != &Call) return;
-						if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= NewIndices.size()
-							|| NewIndices[Input.OutputIndex] < 0) Input = {};
-						else Input.OutputIndex = NewIndices[Input.OutputIndex];
-					});
+			{
+				const auto Remap = [&](FMaterialExpressionInput& Input) {
+					if (Input.Expression.Get() != &Call) return;
+					if (Input.OutputIndex < 0 || static_cast<size_t>(Input.OutputIndex) >= NewIndices.size()
+						|| NewIndices[Input.OutputIndex] < 0) Input = {};
+					else Input.OutputIndex = NewIndices[Input.OutputIndex];
+				};
+				for (const auto& Expression : FMaterialExpressionEditing::GetExpressions(*Owner)) VisitStoredMaterialInputs(*Expression, Remap);
+				if (auto* Material = Cast<DMaterial>(Owner)) FMaterialExpressionEditing::VisitRootConnections(*Material, Remap);
+			}
 			Call.Function = Function;
 			Call.FunctionInputs = std::move(Inputs);
 			Call.FunctionOutputs = std::move(Outputs);

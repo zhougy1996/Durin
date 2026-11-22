@@ -6,7 +6,8 @@ namespace Durin
 	namespace
 	{
 		const FCustomVersionRegistration OutputRegistration{
-			FMaterialOutputVersion::Guid, FMaterialOutputVersion::CurrentVersion, "MaterialOutputNode"};
+			FMaterialOutputVersion::Guid, FMaterialOutputVersion::CurrentVersion, "MaterialOutputNode", FMaterialOutputVersion::CurrentVersion,
+			{"Durin::DMaterial", "Durin::DMaterialExpressionMakeMaterialAttributes", "Durin::DMaterialExpressionSetMaterialAttributes"}};
 		const FCustomVersionRegistration GraphRegistration{
 			FMaterialGraphVersion::Guid, FMaterialGraphVersion::CurrentVersion, "MaterialGraph"};
 		const FCustomVersionRegistration FunctionRegistration{

@@ -334,7 +334,7 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	EXPECT_GT(CookedStatistics.CompiledCodeBytes, 0u);
 	EXPECT_EQ(
 		GetMaterialBinding(Durin::Testing::CaptureMaterialRenderData(*Cooked)).BaseColor,
-		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+		Durin::FVector4f(0.f, 0.f, 0.f, 1.f));
 	}
 
 	Durin::ShutdownAssetRuntime();
@@ -760,7 +760,7 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 		auto* Color=Add.template operator()<DMaterialExpressionVector4Parameter>();
 		Color->Metadata={.Id=FGuid::NewGuid(),.Name="Color"}; Color->DefaultValue={.5,1,2,1}; ColorIds[Variant]=Color->Metadata.Id;
 		auto* RGB=Add.template operator()<DMaterialExpressionSwizzle>(); RGB->Input={Color}; RGB->Components={0,1,2};
-		FMaterialAttributeRoot Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB};
+		FMaterialRootInputs Outputs; Outputs.Get(EMaterialProperty::MP_EmissiveColor)={RGB};
 		if (Variant<2)
 		{
 			auto* Weight=Add.template operator()<DMaterialExpressionScalarParameter>();

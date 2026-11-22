@@ -1,6 +1,5 @@
 #include "Misc/Build.h"
 #include "Materials/MaterialExpression.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
 #if DURIN_WITH_EDITORONLY_DATA
 #include "Materials/MaterialGraphChanges.h"
@@ -8,6 +7,7 @@
 #include "Materials/MaterialFunction.h"
 #include "DObject/Archive.h"
 #include "DObject/Property.h"
+#include "DObject/ObjectKey.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -49,6 +49,7 @@ namespace Durin
 		struct FNodeState
 		{
 			DClass* Class = nullptr;
+			FObjectKey Identity;
 			std::optional<EMaterialTextureDimension> TextureDimension;
 			std::vector<FPropertyValueSnapshotPayload> Properties;
 		};
@@ -59,7 +60,8 @@ namespace Durin
 			FMaterialGraphPresentation Presentation;
 			FMaterialStaticProperties Properties;
 			EMaterialDomain Domain = EMaterialDomain::Surface;
-			FGuid OutputId;
+			std::optional<FMaterialOutputBindings> Root;
+			std::pair<int32, int32> RootPosition;
 			bool bValid = true;
 		};
 		auto Capture(DObject& Owner) -> FGraphState
@@ -73,7 +75,8 @@ namespace Durin
 				State.Presentation = Material->GetMaterialGraphPresentation();
 				State.Properties = Material->GetStaticProperties();
 				State.Domain = Material->GetDomain();
-				if (const auto* Output = Material->GetOutputNode()) State.OutputId = Output->Id;
+				State.Root = CaptureMaterialOutputBindings(*Material);
+				State.RootPosition = Material->GetRootPosition();
 			}
 			else
 			{
@@ -87,6 +90,7 @@ namespace Durin
 				if (!Expression) { State.bValid = false; continue; }
 				State.Order.push_back(Expression->Id);
 				auto& Node = State.Nodes[Expression->Id];
+				Node.Identity = FObjectKey(Expression.Get());
 				Node.Class = Expression->GetClass();
 				if (const auto* Texture = Cast<DMaterialExpressionTextureParameter>(Expression.Get())) Node.TextureDimension = Texture->DefaultValue.Dimension;
 				Node.Class->ForEachProperty([&](FProperty* Property) {
@@ -133,7 +137,7 @@ namespace Durin
 				const auto It = Before.Nodes.find(Id);
 				if (It == Before.Nodes.end()) { Result.MarkNode(Id, N::Added); continue; }
 				const auto& Old = It->second;
-				if (Old.Class != Node.Class || Old.Properties.size() != Node.Properties.size())
+				if (Old.Identity != Node.Identity || Old.Class != Node.Class || Old.Properties.size() != Node.Properties.size())
 				{
 					Result.MarkNode(Id, N::Content | N::Interface | N::Inputs);
 					continue;
@@ -150,15 +154,15 @@ namespace Durin
 					Result.MarkNode(Id, bContent ? N::Content : N::Content | N::Interface | N::Inputs);
 				}
 			}
-			if (After.OutputId.IsValid() && (Before.Properties.ShadingModel != After.Properties.ShadingModel
+			if (After.Root && (Before.Root != After.Root || Before.Properties.ShadingModel != After.Properties.ShadingModel
 				|| Before.Properties.BlendMode != After.Properties.BlendMode || Before.Domain != After.Domain))
-				Result.MarkNode(After.OutputId, N::Content | N::Interface);
+				Result.MarkGraph(G::RootInputs);
+			if (Before.RootPosition != After.RootPosition) Result.MarkGraph(G::RootPosition);
 			Result.Merge(DifferencePresentation(Before.Presentation, After.Presentation));
 			// Unpositioned nodes use collection order for their deterministic fallback layout.
 			if (Before.Order != After.Order)
 				for (const auto Id : After.Order)
-					if (After.Nodes.at(Id).Class != DMaterialExpressionMaterialOutput::StaticClass()
-						&& !std::ranges::contains(After.Presentation.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)) Result.MarkNode(Id, N::Position);
+					if (!std::ranges::contains(After.Presentation.Nodes, Id, &FMaterialGraphNodePresentation::NodeId)) Result.MarkNode(Id, N::Position);
 			return Result;
 		}
 	}
@@ -251,10 +255,16 @@ namespace Durin
 			{
 				FMaterialGraphPresentation Current;
 #if DURIN_WITH_EDITORONLY_DATA
-				if (const auto* Material = Cast<DMaterial>(&Owner)) Current = Material->GetMaterialGraphPresentation();
+				if (const auto* Material = Cast<DMaterial>(&Owner))
+				{
+					Current = Material->GetMaterialGraphPresentation();
+					const auto Position = Material->GetRootPosition();
+					if (Impl->Checkpoint.RootPosition != Position) Changes.MarkGraph(G::RootPosition);
+					Impl->Checkpoint.RootPosition = Position;
+				}
 				else Current.Nodes = Cast<DMaterialFunction>(&Owner)->GetFunctionPresentation().Nodes;
 #endif
-				Changes = DifferencePresentation(Impl->Checkpoint.Presentation, Current);
+				Changes.Merge(DifferencePresentation(Impl->Checkpoint.Presentation, Current));
 				Impl->Checkpoint.Presentation = std::move(Current);
 			}
 			if (!Changes.IsEmpty()) Impl->Changed.Broadcast(Changes);

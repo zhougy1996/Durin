@@ -3,7 +3,6 @@
 #include "Materials/MaterialExpressionIO.h"
 #include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionVector.h"
-#include "Materials/MaterialExpressionMaterialOutput.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionTextureParameter.h"
 #include "Materials/MaterialExpressionTextureSample.h"
@@ -84,7 +83,7 @@ namespace Durin::MaterialEditor
 			State.Expressions.emplace_back(Value);
 			return Value;
 		};
-		auto* Terminal = Add.operator()<DMaterialExpressionMaterialOutput>();
+		State.ResetRoot();
 		std::array<FMaterialExpressionInput, static_cast<size_t>(Type::MaterialAttributes) + 1> RequiredValues;
 		auto* Call = Add.operator()<DMaterialExpressionFunctionCall>();
 		if (!Call->SetMaterialFunction(&Function)) return RejectCommand("The preview function is unavailable.");
@@ -124,7 +123,11 @@ namespace Durin::MaterialEditor
 			}
 		FMaterialExpressionInput Value{Call, 0, OutputId};
 		FMaterialStaticProperties Properties;
-		if (Output->Type == Type::MaterialAttributes) { State.GetOutputs().Attributes = Value; State.GetOutputs().bUseMaterialAttributes = true; }
+		if (Output->Type == Type::MaterialAttributes)
+		{
+			State.SetRootMode(true);
+			*State.EditRootInput(EMaterialProperty::MP_MaterialAttributes) = Value;
+		}
 		else
 		{
 			Properties.ShadingModel = EMaterialShadingModel::Unlit;
@@ -155,13 +158,12 @@ namespace Durin::MaterialEditor
 				auto* Mask = Add.operator()<DMaterialExpressionSwizzle>();
 				Mask->Input = Value; Mask->Components = {0, 1, 2}; Value = {Mask};
 			}
-			State.GetOutputs().Get(EMaterialProperty::MP_EmissiveColor) = Value;
+			*State.EditRootInput(EMaterialProperty::MP_EmissiveColor) = Value;
 		}
 		for (size_t Index = 0; Index < State.Expressions.size(); ++Index)
 			State.Presentation.Nodes.push_back({State.Expressions[Index]->Id, static_cast<int32>(Index % 4) * 320,
 				static_cast<int32>(Index / 4) * 240});
-		for (auto& Position : State.Presentation.Nodes)
-			if (Position.NodeId == Terminal->Id) Position.X = 1280;
+
 		auto Result = State.Commit("Build Function Preview", nullptr);
 		if (Result)
 			if (const auto Applied = Preview.SetStaticProperties(Properties); !Applied)

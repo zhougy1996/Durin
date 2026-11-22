@@ -40,7 +40,7 @@ namespace Durin::AssetForge::Builtins
 			auto* Texture = Cast<DMaterialExpressionTextureSampleParameter2D>(Parameter(Kind::Texture, 0, 0));
 			Texture->UV = UV;
 			const FMaterialExpressionInput Sample{Texture, Channels[I]};
-			auto& Output = B.Output(Recipe.Outputs, I);
+			auto& Output = Recipe.Outputs.Get(Role).Connection;
 			if (I == 1)
 			{
 				auto* N = B.Add<DMaterialExpressionBlendNormalsRNM>(I, 960, Row);
