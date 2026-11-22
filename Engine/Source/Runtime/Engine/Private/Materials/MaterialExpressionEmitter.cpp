@@ -24,6 +24,11 @@ namespace Durin::MIR
 		return Builder.ResolveIndex(Input);
 	}
 
+	auto FEmitter::ValidCast(uint32 Code, EMaterialProgramValueType DestType) -> uint32
+	{
+		return Builder.ValidCast(Code, DestType);
+	}
+
 	auto FEmitter::FunctionInput(FGuid PortId) -> FValue
 	{
 		return Builder.FunctionInput(PortId);

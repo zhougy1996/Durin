@@ -28,6 +28,25 @@
 #include "Graph/MaterialGraphEditInternals.h"
 #include "Graph/MaterialGraphExpressionRegistry.h"
 
+TEST(FMaterialGraphOperationsTests, ValidCastPermitsDirectEmissiveWire)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	const auto Wide = Testing::CreateGraphCatalogNode(*Graph, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float4);
+	const auto Narrow = Testing::CreateGraphCatalogNode(*Graph, EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float2);
+	ASSERT_TRUE(Wide);
+	ASSERT_TRUE(Narrow);
+	const auto Emissive = FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_EmissiveColor);
+	const auto WideOutput = FMaterialGraphPinAddress::Output({Wide->front(), 0});
+	const auto NarrowOutput = FMaterialGraphPinAddress::Output({Narrow->front(), 0});
+	EXPECT_FALSE(Graph->GetSchema().CanCreateConnection(*Graph, NarrowOutput, Emissive).Allows(true));
+	EXPECT_TRUE(Graph->GetSchema().TryCreateConnection(*Graph, WideOutput, Emissive, false, Durin::ETransactionMode::NotTransactable));
+	EXPECT_EQ(Material->GetExpressionInputDescription(EMaterialProperty::MP_EmissiveColor)->Connection->GetExpressionId(), Wide->front());
+	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 2u);
+}
+
 TEST(FMaterialGraphOperationsTests, SamplingOutputsRejectRetiredSelectorsWithoutMutatingGraph)
 {
 	InitializeDObjectSystem();
@@ -910,7 +929,7 @@ TEST(FMaterialGraphOperationsTests, MathWidthsPropagateBroadcastAndUndoAtomicall
 		ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material, FMaterialGraphPinAddress::Input(MakeVector->front(), 0), FMaterialGraphPinAddress::Output({A}), false, Durin::ETransactionMode::NotTransactable));
 		const auto Fixed = CaptureExpressions(*Material);
 		ASSERT_TRUE(Connect(Vector->front(), true));
-		EXPECT_TRUE(HasGraphDiagnostics(*Material));
+		EXPECT_FALSE(HasGraphDiagnostics(*Material));
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(CaptureExpressions(*Material), Fixed);
 	}
@@ -966,7 +985,7 @@ TEST(FMaterialGraphOperationsTests, FixedInputsBroadcastScalarsAndUndoWithoutAut
 	EXPECT_TRUE(HasGraphDiagnostics(*Material));
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material.Get(), FMaterialGraphPinAddress::Input(M, 2), FMaterialGraphPinAddress::Output({V}), false));
-	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	EXPECT_FALSE(HasGraphDiagnostics(*Material));
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), After);
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(CaptureExpressions(*Material), Before);
@@ -1739,7 +1758,7 @@ TEST(FMaterialGraphOperationsTests, ConstantPaletteUsesOneEntryAndTypeChangesPre
 	const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 	ResultType = EMaterialProgramValueType::Float4;
 	ASSERT_TRUE(ApplyValue());
-	EXPECT_TRUE(HasGraphDiagnostics(*Material));
+	EXPECT_FALSE(HasGraphDiagnostics(*Material));
 	EXPECT_GT(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(CaptureExpressions(*Material), Connected);
@@ -3517,7 +3536,7 @@ TEST(FMaterialGraphOperationsTests, InvalidTypesRemainEditableAndUndoRestoresDia
 	ASSERT_TRUE(Vector); ASSERT_TRUE(Scalar);
 	const auto Original = Material->GetExpressionCollection().Expressions;
 	Durin::Tests::FTestEditorTransactorOwner Transactions;
-	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material.Get(), FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_Roughness), FMaterialGraphPinAddress::Output({Vector->front()}), true));
+	ASSERT_TRUE(GraphEditInternals::WriteExpressionConnection(Material.Get(), FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_BaseColor), FMaterialGraphPinAddress::Output({Vector->front()}), true));
 	EXPECT_TRUE(HasGraphDiagnostics(*Material));
 	ASSERT_TRUE(AuthoringGraph->FindNode(Scalar.value())->SetConstantValue(FMaterialParameterValue::MakeScalar(.75f)));
 	EXPECT_TRUE(HasGraphDiagnostics(*Material));

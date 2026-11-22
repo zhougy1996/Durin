@@ -7,6 +7,7 @@
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialAttributeDefinitionMap.h"
+#include "Materials/MaterialExpressionDescription.h"
 #include "Materials/MaterialExpressionFunctionCall.h"
 #include "Materials/MaterialExpressionFunctionIO.h"
 #include "Materials/MaterialExpressionInputs.h"
@@ -323,9 +324,8 @@ namespace Durin::MaterialEditor
 					.Stages = Semantics.Stages, .Kind = Semantics.Kind,
 					.Space = Semantics.Space};
 			}
-			if (Property != EMaterialProperty::MP_WorldPositionOffset && Property != EMaterialProperty::MP_Normal
-				&& Description->Type > EMaterialProgramValueType::Float && Description->Type <= EMaterialProgramValueType::Float4)
-				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
+			if (MaterialInputAllowsValidCast(EMaterialProgramOpcode::MakeMaterialAttributes, uint32(Property)))
+				AppendMaterialValidCastSources(Pin.AcceptedTypes);
 			if (const auto& Numeric = Description->Numeric)
 			{
 				Pin.InlineDefault = DefaultView(ReadMaterialNumericDefault(*Numeric, Property));
@@ -399,12 +399,14 @@ namespace Durin::MaterialEditor
 						.Constraint = Port.Constraint,
 						.InlineDefault = Binding == Call->FunctionInputs.end() ? FMaterialInputDefault{} : DefaultView(Binding->InputDefault),
 						.bAdvanced = Port.bAdvanced});
+					AppendMaterialValidCastSources(View.Inputs.back().AcceptedTypes);
 				}
 		}
 		if (const auto* Output = Cast<DMaterialExpressionFunctionOutput>(Expression); Output && !View.Inputs.empty())
 		{
 			View.Inputs.front().Name = Output->Port.Name;
 			View.Inputs.front().AcceptedTypes = {Output->Port.Type};
+			AppendMaterialValidCastSources(View.Inputs.front().AcceptedTypes);
 		}
 		if ((Node.Opcode == EMaterialProgramOpcode::GetMaterialAttributes
 			|| Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes) && !View.Inputs.empty())
@@ -421,18 +423,9 @@ namespace Durin::MaterialEditor
 				View.Inputs.push_back({.InputIndex = Index + 1, .Name = std::string(Definitions[Index].Name),
 					.SourceType = GetMaterialSurfaceOutputType(Property),
 					.AcceptedTypes = {GetMaterialSurfaceOutputType(Property)}});
+				if (MaterialInputAllowsValidCast(EMaterialProgramOpcode::MakeMaterialAttributes, Index))
+					AppendMaterialValidCastSources(View.Inputs.back().AcceptedTypes);
 			}
-		for (auto& Pin : View.Inputs)
-		{
-			const bool Make = Node.Opcode == EMaterialProgramOpcode::MakeMaterialAttributes;
-			const bool Set = Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes;
-			if ((Make || (Set && Pin.InputIndex > 0)) && !MaterialNumericInputAllowsScalarBroadcast(
-				EMaterialProgramOpcode::MakeMaterialAttributes, Make ? Pin.InputIndex : Pin.InputIndex - 1)) continue;
-			if (Node.Opcode != EMaterialProgramOpcode::Normalize && Node.Opcode != EMaterialProgramOpcode::SceneTexture && Node.Opcode != EMaterialProgramOpcode::SceneDepth && !IsMaterialSamplingNode(Node.Opcode) && Pin.AcceptedTypes.size() == 1
-				&& Pin.AcceptedTypes.front() != EMaterialProgramValueType::Float
-				&& FMaterialGraphSchema::AcceptsPort(Pin.AcceptedTypes.front(), EMaterialProgramValueType::Float))
-				Pin.AcceptedTypes.push_back(EMaterialProgramValueType::Float);
-		}
 	}
 
 	auto DMaterialGraphNode::CreateOutputPins() -> void

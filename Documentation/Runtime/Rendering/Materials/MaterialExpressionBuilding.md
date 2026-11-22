@@ -188,9 +188,22 @@ float-array `Constant`. Numeric expressions and sampling UVs use this storage. M
 aggregate Surface links remain identity-only; function port defaults and material
 parameter defaults retain their separate ownership.
 
-A connection takes precedence over either flag state. Broken or incompatible
-connections report diagnostics. A disconnected input uses its constant when
-enabled, otherwise its definition fallback. `GetMaterialNumericInputFallback`
+A connection takes precedence over either flag state. At fixed-width inputs
+that admit implicit conversions, `CanValidCast` defines the accepted source
+types and `FEmitter::ValidCast(Code, DestType)` emits the conversion or reports
+a diagnostic. Following [UE ValidCast](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FMaterialCompiler/ValidCast),
+the operation preserves matching types, repeats a scalar to fill a vector,
+and truncates trailing vector components. For example, a Float4 wired to
+Emissive Color becomes an RGB swizzle in MIR. Expanding a Float2 or Float3
+requires an explicit expression. Spatial values require an explicit component
+mask for truncation, and input-specific stage and coordinate-space contracts
+still apply. Width-inferred arithmetic retains its equal-vector-width rule
+and scalar broadcasting. Authored connections retain their original source
+and output index.
+
+Broken or incompatible connections report diagnostics. A disconnected input
+uses its constant when enabled and its definition fallback otherwise.
+`GetMaterialNumericInputFallback`
 owns numeric node fallbacks. Material and Make read standard property defaults
 from `FMaterialAttributeDefinitionMap`. An open individual Normal root always
 uses the tangent-space default (0, 0, 1), including when v6 stores an enabled

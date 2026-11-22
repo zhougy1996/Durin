@@ -99,6 +99,9 @@ namespace Durin
 			ENGINE_API auto Output(int32 Index, FValue Value) -> void;
 			ENGINE_API auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 			ENGINE_API auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
+			// Casts an emitted value or reports an error. Numeric casts can truncate
+			// trailing lanes or replicate a scalar to the requested vector width.
+			ENGINE_API auto ValidCast(uint32 Code, EMaterialProgramValueType DestType) -> uint32;
 			ENGINE_API auto FunctionInput(FGuid PortId) -> FValue;
 			ENGINE_API auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
 			ENGINE_API auto FunctionCall(const DMaterialExpressionFunctionCall& Call) -> void;

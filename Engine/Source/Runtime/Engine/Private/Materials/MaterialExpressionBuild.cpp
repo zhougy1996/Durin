@@ -265,13 +265,29 @@ namespace Durin::MIR
 			&& Result.IR.Nodes[*Value.GetIndex()].ResultType == Type;
 	}
 
-	auto FGraphBuilderImpl::BroadcastScalar(FValue Value,
-		EMaterialProgramValueType Type) -> FValue
+	auto FGraphBuilderImpl::ValidCast(uint32 Code, EMaterialProgramValueType DestType) -> uint32
 	{
-		if (Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4
-			&& MatchesType(Value, EMaterialProgramValueType::Float))
+		if (!Result.Diagnostics.empty()) return InvalidIndex;
+		if (Code >= Result.IR.Nodes.size()) return Fail("ValidCast requires an emitted value.");
+		const auto SourceType = GetNode(Code).ResultType;
+		if (SourceType == DestType) return Code;
+		if (!CanValidCast(SourceType, DestType)) return Fail("Expression input has an incompatible type.");
+		if (SourceType == EMaterialProgramValueType::Float)
 			return Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
-				+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {*Value.GetIndex()}});
+				+ static_cast<uint8>(DestType) - 1), .ResultType = DestType, .Inputs = {Code}});
+		if (GetNode(Code).SpatialKind != EMaterialSpatialKind::None)
+			return Fail("Use an explicit component mask to truncate a spatial value.");
+		FSwizzle Mask{.Length = static_cast<uint8>(static_cast<uint8>(DestType) + 1)};
+		for (uint8 Lane = 0; Lane < Mask.Length; ++Lane) Mask.Components[Lane] = Lane;
+		return Emit({.Opcode = EMaterialProgramOpcode::Swizzle, .ResultType = DestType,
+			.Inputs = {Code}, .Payload = Mask});
+	}
+
+	auto FGraphBuilderImpl::TryValidCast(FValue Value, EMaterialProgramValueType DestType) -> FValue
+	{
+		if (const auto* Code = Value.GetIndex(); Code && *Code < Result.IR.Nodes.size()
+			&& CanValidCast(GetNode(*Code).ResultType, DestType))
+			return ValidCast(*Code, DestType);
 		return Value;
 	}
 
@@ -321,15 +337,18 @@ namespace Durin::MIR
 		if (!Node.HasValidPayload() || !Signature || Node.Inputs.size() != Signature->InputCount)
 			return Fail("Expression opcode, result width, or input count is invalid.");
 		// Adapt authored fixed-width inputs before admitting strictly typed IR.
-		// Normalize keeps its requirement for a vector source.
+		// Width-inferred arithmetic only broadcasts scalars between differing widths.
 		for (size_t Slot = 0; Slot < Node.Inputs.size(); ++Slot)
 		{
 			if (Signature->Inputs[Slot].size() == 1
-				&& MaterialNumericInputAllowsScalarBroadcast(Node.Opcode, static_cast<uint32>(Slot)))
+				&& MaterialInputAllowsValidCast(Node.Opcode, static_cast<uint32>(Slot)))
 			{
 				const auto Before = Node.Inputs[Slot];
-				Node.Inputs[Slot] = *BroadcastScalar(Before, Signature->Inputs[Slot].front()).GetIndex();
-				if (Node.Inputs[Slot] != Before
+				if (Before >= Result.IR.Nodes.size()) continue;
+				const auto SourceType = GetNode(Before).ResultType;
+				if (IsMaterialAdaptiveNumeric(Node.Opcode) && SourceType != EMaterialProgramValueType::Float) continue;
+				Node.Inputs[Slot] = *TryValidCast(Before, Signature->Inputs[Slot].front()).GetIndex();
+				if (Node.Inputs[Slot] != Before && SourceType == EMaterialProgramValueType::Float
 					&& (Node.Opcode == EMaterialProgramOpcode::Multiply
 						|| Node.Opcode == EMaterialProgramOpcode::Divide))
 					Node.ScalarBroadcastMask |= static_cast<uint8>(1u << Slot);
@@ -652,8 +671,7 @@ namespace Durin::MIR
 				: Literal(Stored.UseConstant ? Default : GetMaterialNumericInputFallback(Opcode, Type, Slot));
 			if (bBroadcast && Index != InvalidIndex && GetNode(Index).ResultType == EMaterialProgramValueType::Float)
 			{
-				Index = Emit({.Opcode = static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2)
-					+ static_cast<uint8>(Type) - 1), .ResultType = Type, .Inputs = {Index}});
+				Index = ValidCast(Index, Type);
 				if (Opcode == EMaterialProgramOpcode::Multiply
 					|| Opcode == EMaterialProgramOpcode::Divide)
 					Node.ScalarBroadcastMask |= static_cast<uint8>(1u << Slot);
@@ -704,7 +722,7 @@ namespace Durin::MIR
 			? Resolve(Stored.Connection)
 			: FValue(Literal(Stored.UseConstant ? Stored.Constant
 				: std::vector<float>(static_cast<uint32>(Type) + 1, 0.f)));
-		if (!MatchesType(Value, Type)) Value = BroadcastScalar(Value, Type);
+		Value = TryValidCast(Value, Type);
 		if (!MatchesType(Value, Type)) return Fail("Expression input has an incompatible type.");
 		return Value;
 	}
@@ -718,8 +736,7 @@ namespace Durin::MIR
 				return Fail("Disconnected numeric input has an output selector.");
 			return ResolveNumericChoice(DefaultValue, Type);
 		}
-		auto Value = Resolve(Input);
-		if (!MatchesType(Value, Type)) Value = BroadcastScalar(Value, Type);
+		const auto Value = TryValidCast(Resolve(Input), Type);
 		if (!MatchesType(Value, Type)) return Fail("Expression input has an incompatible type.");
 		return Value;
 	}

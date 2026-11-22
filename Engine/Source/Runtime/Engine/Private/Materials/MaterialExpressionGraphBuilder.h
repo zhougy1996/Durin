@@ -25,6 +25,7 @@ namespace Durin::MIR
 		static auto ValidateFunction(std::span<DMaterialExpression* const> Expressions) -> FMaterialProgramValidationResult;
 		auto Resolve(const FMaterialExpressionInput& Input) -> FValue;
 		auto ResolveIndex(const FMaterialExpressionInput& Input) -> uint32;
+		auto ValidCast(uint32 Code, EMaterialProgramValueType DestType) -> uint32;
 		auto FunctionInput(FGuid PortId) -> FValue;
 		auto FunctionOutput(FGuid PortId, const FMaterialExpressionInput& Source) -> FValue;
 		auto FunctionCall(const DMaterialExpressionFunctionCall& Call, FEmitter& Emitter) -> void;
@@ -86,7 +87,7 @@ namespace Durin::MIR
 		auto BuildAllExpressions() -> void;
 		uint64 AuthoredLinks = 0;
 		auto MatchesType(const FValue& Value, EMaterialProgramValueType Type) const -> bool;
-		auto BroadcastScalar(FValue Value, EMaterialProgramValueType Type) -> FValue;
+		auto TryValidCast(FValue Value, EMaterialProgramValueType DestType) -> FValue;
 		auto ResolveNumericChoice(const FMaterialNumericInput& Input,
 			EMaterialProgramValueType Type) -> FValue;
 		auto ResolveOptionalChoice(const FMaterialExpressionInput& Input,

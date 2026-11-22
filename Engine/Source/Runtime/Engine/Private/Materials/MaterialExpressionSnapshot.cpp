@@ -69,13 +69,9 @@ namespace Durin
 				}
 			}
 			if (Aggregate != MIR::InvalidIndex) Index = Attribute(Aggregate, Definition.Property);
-			if (Index != MIR::InvalidIndex && Definition.Property != EMaterialProperty::MP_Normal
-				&& Definition.Property != EMaterialProperty::MP_WorldPositionOffset)
-			{
-				const auto Broadcast = BroadcastScalar(Index, Root.Type);
-				const auto* BroadcastIndex = Broadcast.GetIndex();
-				Index = BroadcastIndex ? *BroadcastIndex : MIR::InvalidIndex;
-			}
+			if (Index != MIR::InvalidIndex && MaterialInputAllowsValidCast(
+				EMaterialProgramOpcode::MakeMaterialAttributes, uint32(Definition.Property)))
+				Index = *TryValidCast(Index, Root.Type).GetIndex();
 			if (Index == MIR::InvalidIndex || !Result.Diagnostics.empty()) continue;
 			const auto Actual = GetNode(Index).GetSemantics();
 			const bool Compatible = Definition.Property == EMaterialProperty::MP_WorldPositionOffset

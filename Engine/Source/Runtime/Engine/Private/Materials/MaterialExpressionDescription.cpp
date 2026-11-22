@@ -55,12 +55,13 @@ namespace Durin
 						Shape.InputNames.emplace_back(FMaterialAttributeDefinitionMap::GetDefinitions()[Index].Name);
 					else Shape.InputNames.emplace_back(InputNames[Index] ? InputNames[Index] : "Value");
 					Shape.AcceptedInputTypes.emplace_back(Signature->Inputs[Index].begin(), Signature->Inputs[Index].end());
-					const bool bExactNormal = Opcode == EMaterialProgramOpcode::BlendNormalsRNM
-						|| (Opcode == EMaterialProgramOpcode::MakeMaterialAttributes && Index == static_cast<uint8>(EMaterialProperty::MP_Normal));
-					if (MaterialNumericInputAllowsScalarBroadcast(Opcode, Index) && !bExactNormal
-						&& Signature->Inputs[Index].size() == 1 && Signature->Inputs[Index].front() > EMaterialProgramValueType::Float
-						&& Signature->Inputs[Index].front() <= EMaterialProgramValueType::Float4)
-						Shape.AcceptedInputTypes.back().push_back(EMaterialProgramValueType::Float);
+					if (!MaterialInputAllowsValidCast(Opcode, Index)) continue;
+					auto& Accepted = Shape.AcceptedInputTypes.back();
+					if (!IsMaterialAdaptiveNumeric(Opcode))
+						AppendMaterialValidCastSources(Accepted);
+					else if (Accepted.size() == 1 && Accepted.front() != EMaterialProgramValueType::Float
+						&& CanValidCast(EMaterialProgramValueType::Float, Accepted.front()))
+						Accepted.push_back(EMaterialProgramValueType::Float);
 				}
 				if (IsMaterialSamplingNode(Opcode))
 				{

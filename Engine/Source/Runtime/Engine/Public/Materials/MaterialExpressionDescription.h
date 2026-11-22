@@ -11,7 +11,7 @@ namespace Durin
 
 	enum class EMaterialExpressionOutputBehavior { Fixed, AdaptiveNumeric, Instance };
 
-	// Authored pins may accept scalar broadcast or depend on instance state.
+	// Authored pins may accept implicit casts or depend on instance state.
 	// These shapes are not normalized MIR operation signatures.
 	struct FMaterialExpressionAuthoringShape
 	{
@@ -19,6 +19,15 @@ namespace Durin
 		std::vector<std::string> InputNames;
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
 	};
+
+	inline auto AppendMaterialValidCastSources(std::vector<EMaterialProgramValueType>& Types) -> void
+	{
+		if (Types.size() != 1) return;
+		const auto DestType = Types.front();
+		for (const auto SourceType : {EMaterialProgramValueType::Float, EMaterialProgramValueType::Float2,
+			EMaterialProgramValueType::Float3, EMaterialProgramValueType::Float4})
+			if (SourceType != DestType && CanValidCast(SourceType, DestType)) Types.push_back(SourceType);
+	}
 
 	// Process-lifetime class adapter; all class pointers are borrowed from reflection.
 	// No expression instances, asset owners, or editor policy are retained here.

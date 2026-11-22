@@ -300,10 +300,10 @@ namespace Durin
 		if (Alpha.Constant.size() != 1 || !std::isfinite(Alpha.Constant[0])
 			|| (!Alpha.Connection.IsConnected() && Alpha.Connection.OutputIndex != 0))
 			return Emitter.Fail("Attribute blend alpha has an invalid retained default or selector.");
-		const auto Weight = Alpha.Connection.IsConnected() ? Emitter.ResolveIndex(Alpha.Connection)
+		const auto Weight = Alpha.Connection.IsConnected()
+			? Emitter.ValidCast(Emitter.ResolveIndex(Alpha.Connection), EMaterialProgramValueType::Float)
 			: Emitter.Literal(Alpha.UseConstant ? std::span<const float>(Alpha.Constant) : std::span<const float>(std::array{.5f}));
-		if (Weight == MIR::InvalidIndex || Emitter.GetNode(Weight).ResultType != EMaterialProgramValueType::Float)
-			return Emitter.Fail("Attribute blend alpha must be a scalar.");
+		if (Weight == MIR::InvalidIndex) return;
 		Emitter.Output(0, Emitter.Aggregate(MIR::InvalidIndex, [&](EMaterialProperty Property) -> std::optional<uint32> {
 			const auto* Field = FMaterialAttributeDefinitionMap::Find(Property);
 			const auto AValue = Emitter.Attribute(Left, Property);

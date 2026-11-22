@@ -2323,13 +2323,17 @@ TEST(FMaterialProgramSchemaTests,
 	}
 	{
 		auto Graph = Testing::MakePBRMaterialExpressionsForTest();
-		Graph.Outputs.Get(EMaterialProperty::MP_Metallic).Connection = Graph.Outputs.Get(EMaterialProperty::MP_BaseColor).Connection;
+		auto* Vector = NewObject<DMaterialExpressionVector2Constant>(nullptr, NAME_None);
+		Vector->Id = FGuid::NewGuid();
+		Vector->Value = {1, 2};
+		Graph.Expressions.emplace_back(Vector);
+		Graph.Outputs.Get(EMaterialProperty::MP_BaseColor).Connection = {Vector};
 		const auto Validation = ExpectFailure(Graph, std::format(
 			"Material output source has an incompatible type. [expected type {}] [actual type {}]",
-			static_cast<uint8>(EMaterialProgramValueType::Float), static_cast<uint8>(EMaterialProgramValueType::Float3)));
+			static_cast<uint8>(EMaterialProgramValueType::Float3), static_cast<uint8>(EMaterialProgramValueType::Float2)));
 		ASSERT_FALSE(Validation.Diagnostics.empty());
 		EXPECT_EQ(Validation.Diagnostics.front().LocationKind, EMaterialProgramDiagnosticLocationKind::SurfaceOutput);
-		EXPECT_EQ(Validation.Diagnostics.front().LocationIndex, static_cast<uint32>(EMaterialProperty::MP_Metallic));
+		EXPECT_EQ(Validation.Diagnostics.front().LocationIndex, static_cast<uint32>(EMaterialProperty::MP_BaseColor));
 	}
 	{
 		Testing::FTestMaterialExpressionGraph Graph;

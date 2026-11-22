@@ -763,13 +763,14 @@ TEST(FMaterialExpressionTests, NormalRGBSamplingInFunctionsFollowsResourceUsageA
 	EXPECT_EQ(std::ranges::count(Flat.IR.Nodes, EMaterialProgramOpcode::TextureSample2D, &MIR::FNode::Opcode), 0);
 }
 
-TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
+TEST(FMaterialExpressionTests, FunctionPortsUseValidCast)
 {
 	using namespace Durin;
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
 	using Type = EMaterialProgramValueType;
 	for (const auto Width : {Type::Float2, Type::Float3, Type::Float4})
+	for (const auto SourceType : {Type::Float, Type::Float4})
 	for (const bool AtInput : {false, true})
 	{
 		TStrongObjectPtr<DMaterialFunction> Function(NewObject<DMaterialFunction>(nullptr, NAME_None));
@@ -779,17 +780,20 @@ TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 		Output->Id = FGuid::NewGuid(); Output->Port.Id = FGuid::NewGuid(); Output->Source = {Input};
 		MIR::FFunctionBody Body;
 		Body.Expressions = {Input, Output}; Body.AssetPath = "/Direct/Broadcast";
-		const auto InputType = AtInput ? Width : Type::Float;
+		const auto InputType = AtInput ? Width : SourceType;
 		Body.Signature.Inputs = {{.Id = Input->Port.Id, .Type = InputType, .Name = "Value", .bRequired = true}};
 		Body.Signature.Outputs = {{.Id = Output->Port.Id, .Type = Width, .Name = "Result"}};
 		ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Body.Signature, Body.Expressions)));
 		TStrongObjectPtr<DMaterialExpressionScalarConstant> Scalar(NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None));
 		Scalar->Id = FGuid::NewGuid(); Scalar->Value = .25f;
+		TStrongObjectPtr<DMaterialExpressionVector4Constant> Vector(NewObject<DMaterialExpressionVector4Constant>(nullptr, NAME_None));
+		Vector->Id = FGuid::NewGuid(); Vector->Value = {1, 2, 3, 4};
+		auto* Source = SourceType == Type::Float ? static_cast<DMaterialExpression*>(Scalar.Get()) : Vector.Get();
 		TStrongObjectPtr<DMaterialExpressionFunctionCall> Call(NewObject<DMaterialExpressionFunctionCall>(nullptr, NAME_None));
 		Call->Id = FGuid::NewGuid(); Call->Function = Function.Get();
-		Call->FunctionInputs = {{Input->Port.Id, InputType, {Scalar.Get()}}};
+		Call->FunctionInputs = {{Input->Port.Id, InputType, {Source}}};
 		Call->FunctionOutputs = {{Output->Port.Id, Width}};
-		const std::array<DMaterialExpression*, 2> Graph{Scalar.Get(), Call.Get()};
+		const std::array<DMaterialExpression*, 2> Graph{Source, Call.Get()};
 		ASSERT_TRUE(MIR::FGraphBuilder::ValidateSurface(Graph, {}));
 		const std::array Roots{FMaterialExpressionInput{Call.Get(), 0, Output->Port.Id}};
 		MIR::FBuildEnvironment Environment{.FindFunction = [&](const DMaterialFunctionInterface&) { return std::optional(Body); }};
@@ -797,9 +801,21 @@ TEST(FMaterialExpressionTests, FunctionPortsBroadcastScalarsToEveryVectorWidth)
 		ASSERT_TRUE(Built);
 		const auto& Result = Built.IR.Nodes[Built.Roots[0]];
 		EXPECT_EQ(Result.ResultType, Width);
-		EXPECT_EQ(Result.Opcode, static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2) + static_cast<uint8>(Width) - 1));
-		ASSERT_EQ(Result.Inputs.size(), 1u);
-		EXPECT_FLOAT_EQ(Built.IR.Nodes[Result.Inputs[0]].GetLiteral().X, .25f);
+		if (SourceType == Type::Float)
+		{
+			EXPECT_EQ(Result.Opcode, static_cast<EMaterialProgramOpcode>(static_cast<uint8>(EMaterialProgramOpcode::Splat2) + static_cast<uint8>(Width) - 1));
+			ASSERT_EQ(Result.Inputs.size(), 1u);
+			EXPECT_FLOAT_EQ(Built.IR.Nodes[Result.Inputs[0]].GetLiteral().X, .25f);
+		}
+		else if (Width == Type::Float4)
+			EXPECT_EQ(Result.Opcode, EMaterialProgramOpcode::Constant);
+		else
+		{
+			ASSERT_EQ(Result.Opcode, EMaterialProgramOpcode::Swizzle);
+			const auto Mask = Result.GetSwizzle();
+			EXPECT_EQ(Mask.Length, static_cast<uint8>(Width) + 1);
+			for (uint8 Lane = 0; Lane < Mask.Length; ++Lane) EXPECT_EQ(Mask.Components[Lane], Lane);
+		}
 	}
 }
 
@@ -889,6 +905,30 @@ TEST(FMaterialExpressionTests, BuildEmitsDetachedNumericIRAndRejectsInvalidGraph
 	Add->A = {Constant.Get(), 1}; Reject();
 	Add->A = {Constant.Get()}; Add->A.SetConstant({1, 2}); Reject();
 	Add->A.SetConstant({std::numeric_limits<float>::infinity()}); Reject();
+}
+
+TEST(FMaterialExpressionTests, ValidCastLowersEmissiveToTheSameIRAsAnExplicitRGBMask)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterialExpressionVector4Constant> Vector(NewObject<DMaterialExpressionVector4Constant>(nullptr, NAME_None));
+	TStrongObjectPtr<DMaterialExpressionSwizzle> Mask(NewObject<DMaterialExpressionSwizzle>(nullptr, NAME_None));
+	Vector->Id = FGuid::NewGuid();
+	Vector->Value = {5, 4, 3, 2};
+	Mask->Id = FGuid::NewGuid();
+	Mask->Input = {Vector.Get()};
+	Mask->Components = {0, 1, 2};
+	const std::array<DMaterialExpression*, 2> Expressions{Vector.Get(), Mask.Get()};
+	FMaterialRootInputs Outputs;
+	Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Vector.Get()};
+	const auto Implicit = MIR::FGraphBuilder(Expressions).FinishSurface(Outputs);
+	ASSERT_TRUE(Implicit);
+	Outputs.Get(EMaterialProperty::MP_EmissiveColor) = {Mask.Get()};
+	const auto Explicit = MIR::FGraphBuilder(Expressions).FinishSurface(Outputs);
+	ASSERT_TRUE(Explicit);
+	EXPECT_EQ(Implicit.IR.Nodes, Explicit.IR.Nodes);
+	EXPECT_EQ(Implicit.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor).ExpressionIndex,
+		Explicit.IR.GetAttribute(EMaterialProperty::MP_EmissiveColor).ExpressionIndex);
 }
 
 TEST(FMaterialExpressionTests, SamplingOutputSelectorsPreserveChannelsAndRejectRetiredIndex)
@@ -1397,7 +1437,7 @@ TEST(FMaterialExpressionTests, LocalFunctionValidationUsesDeclaredPortsWithoutAn
 	Input->Port.Id = {};
 	EXPECT_FALSE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	Input->Port.Id = InputId;
-	Signature.Outputs[0].Type = EMaterialProgramValueType::Float;
+	Signature.Outputs[0].Type = EMaterialProgramValueType::Float4;
 	EXPECT_FALSE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	Signature.Outputs[0].Type = EMaterialProgramValueType::Float3;
 	EXPECT_FALSE(MIR::FGraphBuilder::ValidateFunction(Durin::Testing::WithFunctionPorts(Signature, std::span(Expressions).first(1))));

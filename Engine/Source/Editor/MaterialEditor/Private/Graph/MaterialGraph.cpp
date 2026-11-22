@@ -370,8 +370,7 @@ namespace Durin::MaterialEditor
 		if (const auto* Input = Graph->FindPin(Address)) return Graph->GetSchema().CanCreateConnection(Output, Input);
 		const auto SourceType = Output->GetOwningNode()->GetView().Outputs[Output->DisplayIndex].Type;
 		const auto Type = GetMaterialSurfaceOutputType(Property);
-		const bool Compatible = SourceType == Type || (SourceType == EMaterialProgramValueType::Float
-			&& MaterialNumericInputAllowsScalarBroadcast(EMaterialProgramOpcode::MakeMaterialAttributes, uint32(Property))
+		const bool Compatible = SourceType == Type || (MaterialInputAllowsValidCast(EMaterialProgramOpcode::MakeMaterialAttributes, uint32(Property))
 			&& FMaterialGraphSchema::AcceptsPort(Type, SourceType));
 		return CheckConnection(*Output, *this, Compatible, nullptr);
 	}

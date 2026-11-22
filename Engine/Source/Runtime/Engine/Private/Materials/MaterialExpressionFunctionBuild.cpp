@@ -102,7 +102,7 @@ namespace Durin
 			if (Binding.Input.IsConnected())
 			{
 				PortStack.push_back(Binding.InputId);
-				const auto Value = BroadcastScalar(Resolve(Binding.Input), Binding.ExpectedType);
+				const auto Value = TryValidCast(Resolve(Binding.Input), Binding.ExpectedType);
 				PortStack.pop_back();
 				if (!MatchesType(Value, Binding.ExpectedType)) return Emitter.Fail("Function binding value does not match its declared type.", Binding.InputId);
 				if (Value.GetIndex()) Inputs.push_back(*Value.GetIndex());
@@ -256,7 +256,7 @@ namespace Durin
 		if (!Signature) return Fail("Function output terminal has no owning invocation.");
 		const auto Port = std::ranges::find(Signature->Outputs, PortId, &FMaterialFunctionPort::Id);
 		if (Port == Signature->Outputs.end()) return Fail("Function output terminal has no matching declaration.");
-		const auto Value = BroadcastScalar(Resolve(Source), Port->Type);
+		const auto Value = TryValidCast(Resolve(Source), Port->Type);
 		if (!MatchesType(Value, Port->Type)) return Fail("Function output source does not match its declared type.");
 		if (const auto Index = Value.GetIndex(); Index
 			&& !MatchesMaterialFunctionValueConstraint(
@@ -334,7 +334,7 @@ namespace Durin
 			{
 				PortStack.push_back(Binding.InputId);
 				const auto Value = Binding.Input.IsConnected()
-					? BroadcastScalar(Resolve(Binding.Input), Port->Type) : MIR::FValue(Literal(Default));
+					? TryValidCast(Resolve(Binding.Input), Port->Type) : MIR::FValue(Literal(Default));
 				PortStack.pop_back();
 				if (!MatchesType(Value, Port->Type)) return Emitter.Fail("Function binding value does not match its declared type.", Binding.InputId);
 				if (const auto Index = Value.GetIndex(); Index

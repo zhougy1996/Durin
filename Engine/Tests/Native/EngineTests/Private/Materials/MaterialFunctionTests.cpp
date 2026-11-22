@@ -1548,6 +1548,8 @@ TEST(FMaterialFunctionTests, SurfaceOverridesSupportAllEightAttributesAndRejectI
 	ASSERT_TRUE(Passthrough);
 	EXPECT_EQ(Normalized.Identity, Passthrough.Identity);
 	Set->Attributes = {{EMaterialProperty::MP_Metallic, *Inputs[0]}};
+	EXPECT_TRUE(NormalizeTypedExpressions(Expressions, Outputs));
+	Set->Attributes = {{EMaterialProperty::MP_BaseColor, *Inputs[1]}};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));
 	Set->Attributes = {{EMaterialProperty::MP_Metallic, *Inputs[2]}, {EMaterialProperty::MP_Metallic, *Inputs[2]}};
 	EXPECT_FALSE(NormalizeTypedExpressions(Expressions, Outputs));

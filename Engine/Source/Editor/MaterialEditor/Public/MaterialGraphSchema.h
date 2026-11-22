@@ -79,8 +79,7 @@ namespace Durin::MaterialEditor
 		}
 		static auto AcceptsPort(EMaterialProgramValueType Type, EMaterialProgramValueType Source) -> bool
 		{
-			return Type == Source || (Source == EMaterialProgramValueType::Float
-				&& Type > EMaterialProgramValueType::Float && Type <= EMaterialProgramValueType::Float4);
+			return CanValidCast(Source, Type);
 		}
 		static auto IsConnectionTypeCompatible(const FMaterialGraphPinView& Input, EMaterialProgramValueType Source) -> bool
 		{

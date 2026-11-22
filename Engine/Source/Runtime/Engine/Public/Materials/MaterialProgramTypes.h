@@ -44,6 +44,14 @@ namespace Durin
 		StaticBool,
 	};
 
+	constexpr auto CanValidCast(EMaterialProgramValueType SourceType,
+		EMaterialProgramValueType DestType) -> bool
+	{
+		using Type = EMaterialProgramValueType;
+		return SourceType == DestType || (SourceType <= Type::Float4 && DestType <= Type::Float4
+			&& (SourceType == Type::Float || SourceType > DestType));
+	}
+
 	// A value is legal in every stage represented by this mask. Both is not an
 	// interpolation request: the consuming root still selects one exact stage.
 	DENUM()
@@ -261,6 +269,12 @@ namespace Durin
 					|| Slot == static_cast<uint32>(EMaterialProperty::MP_WorldPositionOffset))))
 			return false;
 		return true;
+	}
+
+	// Implicit width casts use the same fixed-input policy as scalar broadcast.
+	inline auto MaterialInputAllowsValidCast(EMaterialProgramOpcode Opcode, uint32 Slot) -> bool
+	{
+		return MaterialNumericInputAllowsScalarBroadcast(Opcode, Slot);
 	}
 
 	// Describes base pin types only; literal, parameter, and swizzle payloads need validation.
