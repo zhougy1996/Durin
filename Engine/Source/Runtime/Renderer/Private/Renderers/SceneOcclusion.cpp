@@ -87,21 +87,24 @@ namespace Durin
 				return &Metadata;
 			}
 		};
-		auto CaptureOcclusionPrimitive(const FPrimitiveSceneInfo& Info, std::vector<uint64>& Materials) -> std::optional<FOcclusionPrimitive>
+		auto CaptureOcclusionPrimitive(const FPrimitiveSceneInfo& Info, FStaticMeshBatchCaptureContext& Capture,
+			std::vector<uint64>& Materials) -> std::optional<FOcclusionPrimitive>
 		{
 			const auto& Proxy = Info.GetProxy();
 			if (typeid(Proxy) != typeid(FStaticMeshSceneProxy)) return {};
 			const auto& Mesh = static_cast<const FStaticMeshSceneProxy&>(Proxy);
 			if (!Mesh.GetRenderData()) return {};
-			const auto Geometry = Mesh.GetRenderData()->CaptureBatchGeometry_RenderThread();
-			if (!Geometry->bValidLayout || Geometry->RequiredMaterialSlots > Mesh.GetNumMaterials()
-				|| Geometry->RequiredMaterialSlots > MaxMaterialRecords - Materials.size()) return {};
+			const auto& Geometry = Capture.CaptureGeometry(*Mesh.GetRenderData());
+			const auto& Slots = Geometry->ReferencedMaterialSlots;
+			const auto Bindings = Mesh.GetUsedMaterials();
+			if (!Geometry->bValidLayout || (!Slots.empty() && Slots.back() >= Bindings.size())
+				|| Slots.size() > MaxMaterialRecords - Materials.size()) return {};
 			FOcclusionPrimitive Primitive{.Handle = Info.GPUSceneHandle,
 				.Geometry = Geometry,
-				.Instances = Mesh.GetInstanceSceneDataBuffers(), .MaterialCount = uint32(Geometry->RequiredMaterialSlots), .Transform = Mesh.GetLocalToWorld(), .Bounds = Info.GetWorldBounds()};
-			const auto Slots = Mesh.GetUsedMaterials().first(Geometry->RequiredMaterialSlots);
-			for (const auto& Binding : Slots)
+				.Instances = Mesh.GetInstanceSceneDataBuffers(), .MaterialCount = uint32(Slots.size()), .Transform = Mesh.GetLocalToWorld(), .Bounds = Info.GetWorldBounds()};
+			for (const uint32 Slot : Slots)
 			{
+				const auto& Binding = Bindings[Slot];
 				const auto Record = Binding ? Binding->GetCachedOpaqueDepthMaterialId_RenderThread() : std::nullopt;
 				if (!Record) return {};
 				Materials.push_back(*Record);
@@ -217,7 +220,7 @@ namespace Durin
 		}
 	}
 
-	auto FHZBOcclusionTester::MapResults(uint64 Frame) -> std::optional<FMappedResults>
+	auto FHZBOcclusionTester::MapResults(uint64 Frame, const FOcclusionViewKey& Key) -> std::optional<FMappedResults>
 	{
 		FOcclusionFeedback* Newest = nullptr;
 		for (const auto& Slot : Slots)
@@ -228,7 +231,8 @@ namespace Durin
 				Slot->bValid = false;
 				continue;
 			}
-			if (Slot->Readback.IsReady() && (!Newest || Slot->Frame > Newest->Frame)) Newest = Slot.get();
+			if ((!Newest || Slot->Frame > Newest->Frame) && Slot->Readback.IsReady()
+				&& Key.CanReuseResults(Slot->Batch->Key)) Newest = Slot.get();
 		}
 		const uint32 Bytes = uint32(CurrentBatch->Bounds.size()) * sizeof(uint32);
 		if (Newest && Newest->Readback.GetDataSize() == Bytes)
@@ -255,7 +259,7 @@ namespace Durin
 
 	auto FHZBOcclusionTester::Prepare(FRHICommandListImmediate& Commands, const FSceneView& View, const FScene& Scene,
 		const FRenderResourceGeneration& Generation, uint32 Width, uint32 Height, uint64 Frame, double RealTimeSeconds,
-		std::vector<const FPrimitiveSceneInfo*>& Candidates) -> std::shared_ptr<FOcclusionFeedback>
+		std::vector<const FPrimitiveSceneInfo*>& Candidates, FStaticMeshBatchCaptureContext& Capture) -> std::shared_ptr<FOcclusionFeedback>
 	{
 		if (!Width || !Height || Width > MaxExtent || Height > MaxExtent || Candidates.empty() || Candidates.size() > MaxCandidates
 			|| View.Settings.Mode.RenderMode != ERenderMode::Lit || View.Settings.Mode.RasterMode != ERasterMode::Solid
@@ -279,7 +283,7 @@ namespace Durin
 		Scratch.Primitives.reserve(Candidates.size());
 		for (const uint32 Index : CandidateOrder)
 		{
-			auto Primitive = CaptureOcclusionPrimitive(*Candidates[Index], Scratch.MaterialRecords);
+			auto Primitive = CaptureOcclusionPrimitive(*Candidates[Index], Capture, Scratch.MaterialRecords);
 			if (!Primitive) { Invalidate(); return {}; }
 			Scratch.Primitives.push_back(std::move(*Primitive));
 		}
@@ -312,7 +316,7 @@ namespace Durin
 			if (!Batch->BoundsBuffer) { Invalidate(); return {}; }
 			CurrentBatch = std::move(Batch);
 		}
-		if (auto Results = MapResults(Frame))
+		if (auto Results = MapResults(Frame, Key))
 		{
 			for (size_t TestIndex = 0; TestIndex < CandidateOrder.size(); ++TestIndex)
 				if (!Results->IsVisible(TestIndex)) Candidates[CandidateOrder[TestIndex]] = nullptr;

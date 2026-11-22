@@ -1383,7 +1383,8 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		auto Prepare = [&](uint64 Frame, size_t ExpectedCandidates) {
 			const auto& Infos = Scene.GetPrimitiveSceneInfos();
 			std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
-			auto Slot = History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, Frame, double(Frame), Candidates);
+			FStaticMeshBatchCaptureContext Capture;
+			auto Slot = History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, Frame, double(Frame), Candidates, Capture);
 			EXPECT_EQ(Candidates.size(), ExpectedCandidates);
 			if (ExpectedCandidates == 1 && Candidates.size() == 1) EXPECT_EQ(Candidates.front(), Infos.front());
 			return Slot;
@@ -1412,23 +1413,26 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		PreviousOrder->Complete(Payload());
 		const auto& Infos = Scene.GetPrimitiveSceneInfos();
 		std::vector<const FPrimitiveSceneInfo*> Reordered(Infos.rbegin(), Infos.rend());
-		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 7, 7.0, Reordered));
+		FStaticMeshBatchCaptureContext ReorderedCapture;
+		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 7, 7.0, Reordered, ReorderedCapture));
 		ASSERT_EQ(Reordered.size(), 1u);
 		EXPECT_EQ(Reordered.front(), Infos.front());
 		Slot = Prepare(8, 1);
 		ASSERT_TRUE(Slot);
 		// Exercise translation and rotation independently of the frustum changing membership.
-		auto CameraStep = [&](uint64 Frame, double Distance, double Angle, double Time, bool Reuse) {
+		auto CameraStep = [&](uint64 Frame, double Distance, double Angle, double Time, bool Reuse, bool bComplete = true) {
 			auto PendingResult = Hold(Slot);
-			PendingResult->Complete(Payload());
+			if (bComplete) PendingResult->Complete(Payload());
 			auto Camera = View;
 			Camera.ViewLocation.x += Distance;
 			Camera.ViewMatrix = MakeTransform({.RotationYDegrees = Angle}) * Math::TranslationMatrix(-Camera.ViewLocation);
 			Camera.ViewProjectionMatrix = Camera.ProjectionMatrix * Camera.ViewMatrix;
 			std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
-			Slot = History.Prepare(Commands, Camera, Scene, {}, Camera.ViewportWidth, Camera.ViewportHeight, Frame, Time, Candidates);
+			FStaticMeshBatchCaptureContext Capture;
+			Slot = History.Prepare(Commands, Camera, Scene, {}, Camera.ViewportWidth, Camera.ViewportHeight, Frame, Time, Candidates, Capture);
 			EXPECT_EQ(Candidates.size(), Reuse ? 1u : 2u);
 			if (Reuse && Candidates.size() == 1) EXPECT_EQ(Candidates.front(), Infos.front());
+			return PendingResult;
 		};
 		CameraStep(9, 10000, 0, 9.0, true);
 		ASSERT_TRUE(Slot);
@@ -1441,6 +1445,14 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		CameraStep(13, 20001, -2, 20.1, false); // Idle beyond eight real seconds.
 		ASSERT_TRUE(Slot);
 		CameraStep(14, 20001, -2, 12.0, false); // View time rewound.
+		ASSERT_TRUE(Slot);
+		CameraStep(15, 26001, -2, 13.0, true);
+		ASSERT_TRUE(Slot);
+		// Each step is within the limit. The only ready result is two steps away.
+		auto Delayed = CameraStep(16, 32001, -2, 14.0, false, false);
+		ASSERT_TRUE(Slot);
+		Delayed->Complete(Payload());
+		CameraStep(17, 33001, -2, 15.0, true, false); // Frame 15 is now ready and compatible.
 		ASSERT_TRUE(Slot);
 		LastSlot = Slot;
 		Pending[0] = Hold(Slot);
@@ -1459,6 +1471,27 @@ static void CheckOcclusionHistoryBudget(Durin::FRHICommandListImmediate& Command
 	Mesh->MaterialSlots.resize(17);
 	Mesh->LODResources[0].Sections[0].MaterialSlotIndex = 16;
 	ASSERT_TRUE(Mesh->InitResources(Commands));
+	{
+		std::vector<FMaterialRenderProxyRef> Materials(17);
+		Materials.back() = Material;
+		auto Proxy = std::make_shared<FStaticMeshSceneProxy>(Mesh.get(), std::move(Materials));
+		FPrimitiveSceneInfo Info(FPrimitiveComponentId(1), Proxy, FMatrix(1));
+		std::vector<const FPrimitiveSceneInfo*> Candidates{&Info};
+		FHZBOcclusionTester SparseHistory;
+		FStaticMeshBatchCaptureContext Capture;
+		auto Feedback = SparseHistory.Prepare(Commands, View, Scene, {}, 4096, 4096, 1, 1.0, Candidates, Capture);
+		ASSERT_TRUE(Feedback);
+		EXPECT_EQ(Feedback->Batch->Inputs.MaterialRecords.size(), 1u);
+		auto Publication = Proxy->DrawStaticElements(Capture);
+		ASSERT_TRUE(Publication);
+		EXPECT_EQ(Feedback->Batch->Inputs.Primitives.front().Geometry.lock(), Publication->Geometry);
+	}
+	Mesh->ReleaseResources();
+	auto& Sections = Mesh->LODResources[0].Sections;
+	Sections.resize(17, Sections.front());
+	for (uint32 Slot = 0; Slot < Sections.size(); ++Slot)
+		Sections[Slot].MaterialSlotIndex = Slot;
+	ASSERT_TRUE(Mesh->InitResources(Commands));
 	FHZBOcclusionTester History;
 	std::shared_ptr<FOcclusionFeedback> Slot;
 	{
@@ -1472,14 +1505,18 @@ static void CheckOcclusionHistoryBudget(Durin::FRHICommandListImmediate& Command
 			Infos.push_back(std::make_unique<FPrimitiveSceneInfo>(FPrimitiveComponentId(Index + 1), Proxy, FMatrix(1)));
 			if (Index < 65536 / 17) Candidates.push_back(Infos.back().get());
 		}
-		Slot = History.Prepare(Commands, View, Scene, {}, 4096, 4096, 1, 1.0, Candidates);
+		auto Prepare = [&](uint32 Width, uint64 Frame) {
+			FStaticMeshBatchCaptureContext Capture;
+			return History.Prepare(Commands, View, Scene, {}, Width, 4096, Frame, double(Frame), Candidates, Capture);
+		};
+		Slot = Prepare(4096, 1);
 		ASSERT_TRUE(Slot);
 		EXPECT_EQ(Slot->Batch->Inputs.Primitives.size(), Candidates.size());
 		Candidates.push_back(Infos.back().get());
-		EXPECT_FALSE(History.Prepare(Commands, View, Scene, {}, 4096, 4096, 2, 2.0, Candidates));
+		EXPECT_FALSE(Prepare(4096, 2));
 		EXPECT_EQ(Candidates.size(), 65536 / 17 + 1);
 		Candidates.resize(1);
-		EXPECT_FALSE(History.Prepare(Commands, View, Scene, {}, 4097, 4096, 3, 3.0, Candidates));
+		EXPECT_FALSE(Prepare(4097, 3));
 	}
 	Mesh->ReleaseResources();
 	EXPECT_TRUE(Slot->Batch->Inputs.Primitives.front().Geometry.expired());

@@ -15,8 +15,9 @@ for primitive proxies and the path for explicit instances and invalid layouts.
 StaticMesh subclasses that customize batch collection must also override
 `DrawStaticElements` to return matching inputs or an empty publication.
 
-The asset shares `FStaticMeshBatchGeometry`: LOD policy/readiness and strong
-`FMeshGeometryRecord` owners. Each proxy retains per-LOD
+The asset shares `FStaticMeshBatchGeometry`: LOD policy/readiness, strong
+`FMeshGeometryRecord` owners and the distinct material slots referenced by
+published geometry. Each proxy retains per-LOD
 `FStaticMeshBatchInputs`, containing geometry and resolved immutable material
 snapshots in section order. `FMeshBatch::StaticInputs` references that owner;
 its legacy material vector remains empty. Both paths pass through the same
@@ -38,12 +39,14 @@ contents are not part of these input publications.
 ## Capture and update rules
 
 `FStaticMeshBatchCaptureContext` belongs to one render preparation command.
-The receiver and its shadow cascades share it. No scene, material, geometry or
-readiness mutations may occur between uses. A new command must create a fresh
-context. Material proxies resolve once per context; raw proxy keys never
-escape into worker jobs. Views that select the same LOD of a primitive can
-retain the same immutable admitted batch. Each view records its requested LOD
-and selects the section facts for its pass.
+Main-view occlusion, receiver collection and shadow cascades share it. No scene,
+material, geometry or readiness mutations may occur between uses. A new command
+must create a fresh context. Each asset's geometry publication is validated on
+its first capture and shared for later uses in that context. Material proxies
+resolve once per context. Raw asset and proxy keys stay on the render thread.
+Views that select the same LOD of a primitive can retain the same immutable
+admitted batch. Each view records its requested LOD and selects the section
+facts for its pass.
 
 | Change | Next capture behavior |
 | --- | --- |

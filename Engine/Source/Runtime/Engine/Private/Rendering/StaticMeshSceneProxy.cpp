@@ -103,12 +103,20 @@ namespace Durin
 		return Materials.emplace(Key, Proxy ? Proxy->GetMaterialWithFallback() : GetErrorMaterialRenderData()).first->second;
 	}
 
+	auto FStaticMeshBatchCaptureContext::CaptureGeometry(const FStaticMeshRenderData& RenderData)
+		-> const std::shared_ptr<const FStaticMeshBatchGeometry>&
+	{
+		auto [Entry, Inserted] = Geometry.try_emplace(&RenderData);
+		if (Inserted) Entry->second = RenderData.CaptureBatchGeometry_RenderThread();
+		return Entry->second;
+	}
+
 	auto FStaticMeshSceneProxy::DrawStaticElements(FStaticMeshBatchCaptureContext& Context) const
 		-> FStaticMeshBatchPublication::FRef
 	{
 		CheckRenderingThread();
 		if (Instances || !RenderData) return {};
-		const auto Geometry = RenderData->CaptureBatchGeometry_RenderThread();
+		const auto& Geometry = Context.CaptureGeometry(*RenderData);
 		if (!Geometry->bValidLayout) return {};
 		bool bCurrent = StaticBatches && StaticBatches->Geometry == Geometry
 			&& StaticBatches->MaterialRecords.size() == Materials.size();

@@ -502,8 +502,11 @@ namespace Durin
 			Candidate->Geometry.push_back(LOD.GeometryRecord);
 			if (LOD.GeometryRecord)
 				for (const auto& Element : LOD.GeometryRecord->GetElements())
-					Candidate->RequiredMaterialSlots = std::max(Candidate->RequiredMaterialSlots, size_t(Element.MaterialSlotDiagnostic) + 1);
+					Candidate->ReferencedMaterialSlots.push_back(Element.MaterialSlotDiagnostic);
 		}
+		auto& Slots = Candidate->ReferencedMaterialSlots;
+		std::ranges::sort(Slots);
+		Slots.erase(std::ranges::unique(Slots).begin(), Slots.end());
 		BatchGeometry = std::move(Candidate);
 		return BatchGeometry;
 	}

@@ -10,6 +10,7 @@
 namespace Durin
 {
 	class FStaticMeshSceneProxy;
+	struct FStaticMeshRenderData;
 	struct FMeshCollectionContext;
 	class FMeshBatchCollector;
 
@@ -19,7 +20,7 @@ namespace Durin
 	{
 		FMeshLODSelectionSnapshot LODs;
 		std::vector<FMeshGeometryRecord::FRef> Geometry;
-		size_t RequiredMaterialSlots = 0;
+		std::vector<uint32> ReferencedMaterialSlots;
 		bool bValidLayout = false;
 	};
 
@@ -48,6 +49,9 @@ namespace Durin
 		friend class FStaticMeshSceneProxy;
 		ENGINE_API auto ResolveMaterial(const FMaterialRenderProxyRef& Proxy) -> const FMaterialRenderData&;
 		std::unordered_map<const FMaterialRenderProxy*, FMaterialRenderData> Materials;
+		std::unordered_map<const FStaticMeshRenderData*, std::shared_ptr<const FStaticMeshBatchGeometry>> Geometry;
+	public:
+		ENGINE_API auto CaptureGeometry(const FStaticMeshRenderData& RenderData) -> const std::shared_ptr<const FStaticMeshBatchGeometry>&;
 	};
 
 	// Selects stable inputs and admits a fresh instance overlay through the same

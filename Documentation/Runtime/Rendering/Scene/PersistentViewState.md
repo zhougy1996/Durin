@@ -93,16 +93,20 @@ material and instance publications, transforms and bounds). HitProxy revisions
 are independent of this decision. A view ignores previous results after more
 than eight seconds idle, a time reset, or a camera step exceeding 45 degrees on
 any view axis or 10,000 world units of translation. Smaller camera steps submit
-fresh projected bounds while consuming eligible prior results. Newly exposed
-objects can therefore be briefly hidden. An origin-only rebase also resets history.
+fresh projected bounds. Consumption applies the same thresholds against each
+ready result's producing view, including when newer feedback is still pending.
+Newly exposed objects can still be briefly hidden within those thresholds.
+An origin-only rebase also resets history.
 An explicit cut takes effect when the view is submitted, even if output validation
 rejects the draw.
 Switching device generations drops the entire feedback ring.
 
 The main view checks published geometry, instance data and opaque material
-record IDs before collecting sections. A dirty or missing material, masked
-surface, world-position offset or unsupported proxy keeps frustum admission
-for that submission. Explicit static mesh instances use the entire primitive's
+record IDs for slots actually referenced by published LOD sections. A dirty or
+missing referenced material, masked surface, world-position offset or unsupported
+proxy keeps frustum admission for that submission. Mesh preparation shares
+the same geometry capture and resolves full material data after occlusion
+admission. Explicit static mesh instances use the entire primitive's
 bounds. A partially exposed group continues to per-instance processing.
 Direct draws, CPU merging, GPU compaction and its fallback paths all consume
 the same surviving main-view candidates.

@@ -89,7 +89,8 @@ namespace Durin
 
 		RENDERER_API auto Prepare(FRHICommandListImmediate& Commands, const FSceneView& View,
 			const FScene& Scene, const FRenderResourceGeneration& Generation, uint32 Width, uint32 Height,
-			uint64 Frame, double RealTimeSeconds, std::vector<const FPrimitiveSceneInfo*>& Candidates)
+			uint64 Frame, double RealTimeSeconds, std::vector<const FPrimitiveSceneInfo*>& Candidates,
+			FStaticMeshBatchCaptureContext& Capture)
 			-> std::shared_ptr<FOcclusionFeedback>;
 		auto Submit(FRDGBuilder& Graph, const FGBufferGraphOutput& GBuffer,
 			const std::shared_ptr<FOcclusionFeedback>& Feedback) -> void;
@@ -101,7 +102,7 @@ namespace Durin
 			auto IsVisible(size_t Index) const -> bool { return Values[Index] != 1u; }
 			auto UnmapResults() -> void { Readback.Unlock(); }
 		};
-		auto MapResults(uint64 Frame) -> std::optional<FMappedResults>;
+		auto MapResults(uint64 Frame, const FOcclusionViewKey& Key) -> std::optional<FMappedResults>;
 		auto Reserve(uint64 Frame) -> std::shared_ptr<FOcclusionFeedback>;
 		std::array<std::shared_ptr<FOcclusionFeedback>, 3> Slots;
 		std::optional<uint64> LastFrame;

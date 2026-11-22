@@ -150,7 +150,7 @@ namespace Durin
 						const auto Before = Visibility.SceneInfos.size();
 						PreparedView.OcclusionFeedback = State->HZBOcclusionTester.Prepare(CommandList, RenderView, *Scene,
 							Service.Coordinator.GetGeneration_RenderThread(), Context.Logical.Width, Context.Logical.Height,
-							GRenderFrameCounterRenderThread, FTime::Seconds(), Visibility.SceneInfos);
+							GRenderFrameCounterRenderThread, FTime::Seconds(), Visibility.SceneInfos, MeshPreparationCache.StaticCollection.Capture);
 						Telemetry.View.Visibility.OcclusionCulledPrimitives = Before - Visibility.SceneInfos.size();
 					}
 					else State->HZBOcclusionTester.Invalidate();
