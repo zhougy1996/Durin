@@ -6,7 +6,6 @@
 #include "RHIGPUReadback.h"
 #include "SceneView.h"
 #include "GPUScene.h"
-#include "Rendering/StaticMeshBatchPublication.h"
 #include "Rendering/PrimitiveComponentId.h"
 
 namespace Durin
@@ -14,22 +13,11 @@ namespace Durin
 	class FRDGBuilder;
 	class FPrimitiveSceneInfo;
 	struct FGBufferGraphOutput;
-	struct FInstanceSceneDataBuffers;
-
-	struct FOcclusionPrimitive
-	{
-		FGPUScenePrimitiveHandle Handle;
-		std::weak_ptr<const FStaticMeshBatchGeometry> Geometry;
-		std::weak_ptr<const FInstanceSceneDataBuffers> Instances;
-		uint32 MaterialCount;
-		FMatrix Transform;
-		FBox Bounds;
-		auto operator==(const FOcclusionPrimitive& Other) const -> bool;
-	};
 
 	struct FOcclusionViewKey
 	{
 		std::weak_ptr<FGPUScene> Scene;
+		uint64 SceneRevision;
 		FRenderResourceGeneration Generation;
 		FMatrix View, Projection, ViewProjection;
 		ERHIFeatureLevel FeatureLevel;
@@ -40,13 +28,6 @@ namespace Durin
 		ESceneDepthConvention Depth{};
 		EViewLODMode LODMode{};
 		auto CanReuseResults(const FOcclusionViewKey& Previous) const -> bool;
-	};
-
-	struct FOcclusionSceneInputs
-	{
-		std::vector<FOcclusionPrimitive> Primitives;
-		std::vector<uint64> MaterialRecords;
-		auto operator==(const FOcclusionSceneInputs&) const -> bool = default;
 	};
 
 	// One farthest-depth level, with both depth conventions. Each word pair covers an entire 16x16 tile.
@@ -64,7 +45,6 @@ namespace Durin
 	struct FHZBBoundsBatch
 	{
 		FOcclusionViewKey Key;
-		FOcclusionSceneInputs Inputs;
 		std::unordered_map<FPrimitiveComponentId, uint32, FPrimitiveComponentIdHash> TestIndices;
 		std::vector<FHZBProjectedBounds> Bounds;
 		FBufferRHIRef BoundsBuffer;
@@ -89,8 +69,7 @@ namespace Durin
 
 		RENDERER_API auto Prepare(FRHICommandListImmediate& Commands, const FSceneView& View,
 			const FScene& Scene, const FRenderResourceGeneration& Generation, uint32 Width, uint32 Height,
-			uint64 Frame, double RealTimeSeconds, std::vector<const FPrimitiveSceneInfo*>& Candidates,
-			FStaticMeshBatchCaptureContext& Capture)
+			uint64 Frame, double RealTimeSeconds, std::vector<const FPrimitiveSceneInfo*>& Candidates)
 			-> std::shared_ptr<FOcclusionFeedback>;
 		auto Submit(FRDGBuilder& Graph, const FGBufferGraphOutput& GBuffer,
 			const std::shared_ptr<FOcclusionFeedback>& Feedback) -> void;
@@ -107,7 +86,6 @@ namespace Durin
 		std::array<std::shared_ptr<FOcclusionFeedback>, 3> Slots;
 		std::optional<uint64> LastFrame;
 		double LastRenderTime = 0;
-		FOcclusionSceneInputs Scratch;
 		std::vector<uint32> CandidateOrder;
 		std::shared_ptr<const FHZBBoundsBatch> CurrentBatch;
 	};

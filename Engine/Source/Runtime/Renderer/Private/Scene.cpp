@@ -13,6 +13,7 @@
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Materials/MaterialParameterCollection.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 #include "Math/Operations.h"
 #include "RenderingThread.h"
@@ -422,7 +423,12 @@ namespace Durin
 		, WorldBounds(TransformBounds(LocalBounds, InTransform))
 	{
 		Proxy->SetTransform(InTransform);
-		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
+		if (Scene)
+		{
+			for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
+			if (const auto* Mesh = dynamic_cast<const FStaticMeshSceneProxy*>(Proxy.get()); Mesh && Mesh->GetRenderData())
+				Mesh->GetRenderData()->AddSceneReference(*Scene);
+		}
 	}
 
 	FPrimitiveSceneInfo::~FPrimitiveSceneInfo()
@@ -435,8 +441,13 @@ namespace Durin
 	auto FPrimitiveSceneInfo::DetachFromScene() -> void
 	{
 		if (DrawLists) DrawLists->Detach(*this);
-		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
-		Scene = nullptr;
+		if (Scene)
+		{
+			for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
+			if (const auto* Mesh = dynamic_cast<const FStaticMeshSceneProxy*>(Proxy.get()); Mesh && Mesh->GetRenderData())
+				Mesh->GetRenderData()->RemoveSceneReference(*Scene);
+			Scene = nullptr;
+		}
 	}
 	auto FPrimitiveSceneInfo::RequestGPUSceneUpdate(EGPUSceneDirtyState Dirty) -> void
 	{
@@ -477,6 +488,7 @@ namespace Durin
 
 	auto FPrimitiveSceneInfo::SetTransform(const FMatrix& InTransform) -> void
 	{
+		if (Scene && Proxy->GetLocalToWorld() != InTransform) ++Scene->OcclusionRevision;
 		Proxy->SetTransform(InTransform);
 		WorldBounds = TransformBounds(LocalBounds, Proxy->GetLocalToWorld());
 		RequestGPUSceneUpdate(EGPUSceneDirtyState::Transform);
@@ -488,6 +500,7 @@ namespace Durin
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->RemoveSceneReference(*Scene);
 		const bool Updated = Proxy->UpdateMaterialBinding_RenderThread(Update);
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
+		if (Updated && Scene) Scene->InvalidateOcclusionHistory_RenderThread();
 		return Updated;
 	}
 
@@ -505,6 +518,7 @@ namespace Durin
 
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
+		++OcclusionRevision;
 		InvalidateMeshPreparation();
 		GPUScene->RemovePrimitive(Info);
 		Info.DetachFromScene();
@@ -533,6 +547,21 @@ namespace Durin
 		if (CachedDrawLists) CachedDrawLists->MeshPreparation.Reset();
 	}
 
+	auto FScene::InvalidateOcclusionHistory_RenderThread() -> void
+	{
+		CheckRenderingThread();
+		++OcclusionRevision;
+		bOcclusionEligibilityDirty = true;
+	}
+
+	auto FScene::UpdatePrimitiveOcclusion_RenderThread() -> void
+	{
+		CheckRenderingThread();
+		if (!std::exchange(bOcclusionEligibilityDirty, false)) return;
+		for (auto* Info : PrimitiveSceneInfos)
+			Info->bCanBeOccluded = Info->GetProxy().CanBeOccluded();
+	}
+
 	auto FScene::AddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> void
 	{
 		RequireActive("AddPrimitiveProxy");
@@ -552,6 +581,7 @@ namespace Durin
 			PrimitiveSceneInfos.push_back(RawInfo);
 
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
+			InvalidateOcclusionHistory_RenderThread();
 		});
 	}
 
@@ -566,9 +596,10 @@ namespace Durin
 			++HitProxyRevision;
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
-				Found != PrimitiveInfosById.end())
+				Found != PrimitiveInfosById.end() && Found->second->IsVisible() != bVisible)
 			{
 				Found->second->SetVisible(bVisible);
+				++OcclusionRevision;
 			}
 		});
 	}
@@ -627,6 +658,7 @@ namespace Durin
 				if (Instances) for (const auto& Instance : *Instances) LiveBatches.push_back(Instance.Id);
 				Found->second->RetainPrimitiveUniformBuffers(LiveBatches);
 				static_cast<FStaticMeshSceneProxy&>(Found->second->GetProxy()).SetRenderInstances(Instances);
+				++OcclusionRevision;
 				InvalidateMeshPreparation();
 				Found->second->RefreshBounds();
 				Found->second->RequestGPUSceneUpdate(EGPUSceneDirtyState::InstanceData);
@@ -660,8 +692,8 @@ namespace Durin
 			++HitProxyRevision;
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
-				Found != PrimitiveInfosById.end())
-				Found->second->UpdateSplineMeshDynamicData(std::move(DynamicData));
+				Found != PrimitiveInfosById.end() && Found->second->UpdateSplineMeshDynamicData(std::move(DynamicData)))
+				++OcclusionRevision;
 		});
 	}
 

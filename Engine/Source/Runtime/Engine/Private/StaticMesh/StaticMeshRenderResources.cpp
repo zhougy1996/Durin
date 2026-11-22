@@ -4,8 +4,10 @@
 #include "RenderingThread.h"
 #include "RHI.h"
 #include "Rendering/MeshGeometryRecord.h"
+#include "Rendering/SceneInterface.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/StaticMeshBatchPublication.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -435,6 +437,7 @@ namespace Durin
 			ReleaseResources();
 			return false;
 		}
+		bool bPublishedGeometry = false;
 		for (size_t Index = 0; Index < LODResources.size(); ++Index)
 		{
 			auto& LOD = LODResources[Index];
@@ -475,8 +478,39 @@ namespace Durin
 			}
 			LOD.GeometryRecord = std::move(*Record);
 			LOD.bReadyForRendering = true;
+			bPublishedGeometry = true;
 		}
+		if (bPublishedGeometry) InvalidateOcclusionHistory_RenderThread();
 		return true;
+	}
+
+	auto FStaticMeshRenderData::AddSceneReference(FSceneInterface& Scene) const -> void
+	{
+		CheckRenderingThread();
+		++SceneReferences[&Scene];
+	}
+
+	auto FStaticMeshRenderData::RemoveSceneReference(FSceneInterface& Scene) const -> void
+	{
+		CheckRenderingThread();
+		const auto Found = SceneReferences.find(&Scene);
+		require(Found != SceneReferences.end());
+		if (!--Found->second) SceneReferences.erase(Found);
+	}
+
+	auto FStaticMeshRenderData::InvalidateOcclusionHistory_RenderThread() const -> void
+	{
+		for (const auto& [Scene, References] : SceneReferences) Scene->InvalidateOcclusionHistory_RenderThread();
+	}
+
+	auto FStaticMeshRenderData::SetLODReady_RenderThread(uint32 LODIndex, bool bReady) -> void
+	{
+		CheckRenderingThread();
+		auto& LOD = LODResources.at(LODIndex);
+		require(!bReady || LOD.GeometryRecord);
+		if (LOD.bReadyForRendering == bReady) return;
+		LOD.bReadyForRendering = bReady;
+		InvalidateOcclusionHistory_RenderThread();
 	}
 
 	auto FStaticMeshRenderData::CaptureBatchGeometry_RenderThread() const -> std::shared_ptr<const FStaticMeshBatchGeometry>
@@ -514,6 +548,8 @@ namespace Durin
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
 		check(IsInRenderingThread());
+		if (std::ranges::any_of(LODResources, [](const auto& LOD) { return LOD.GeometryRecord != nullptr; }))
+			InvalidateOcclusionHistory_RenderThread();
 		BatchGeometry.reset();
 		for (FStaticMeshVertexFactories& Factories
 			: LODVertexFactories | std::views::reverse)

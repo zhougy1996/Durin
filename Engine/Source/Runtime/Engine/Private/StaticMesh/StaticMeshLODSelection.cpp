@@ -65,14 +65,14 @@ namespace Durin
 			 LODIndex < static_cast<uint32>(LODResources.size());
 			 ++LODIndex)
 		{
-			if (LODResources[LODIndex].bReadyForRendering)
+			if (LODResources[LODIndex].IsReadyForRendering())
 			{
 				return LODIndex;
 			}
 		}
 		for (uint32 LODIndex = RequestedLOD; LODIndex > 0; --LODIndex)
 		{
-			if (LODResources[LODIndex - 1].bReadyForRendering)
+			if (LODResources[LODIndex - 1].IsReadyForRendering())
 			{
 				return LODIndex - 1;
 			}
@@ -85,7 +85,7 @@ namespace Durin
 	{
 		FMeshLODSelectionSnapshot Result;
 		Result.reserve(LODResources.size());
-		for (const auto& LOD : LODResources) Result.push_back({LOD.ScreenSize, LOD.bReadyForRendering});
+		for (const auto& LOD : LODResources) Result.push_back({LOD.ScreenSize, LOD.IsReadyForRendering()});
 		return Result;
 	}
 

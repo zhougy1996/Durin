@@ -83,7 +83,7 @@ namespace Durin
 		ENGINE_API auto InvalidateUniformExpressionCache_RenderThread(bool RecreateUniformBuffer = false) -> void;
 
 		// RenderThread only. Identifies a published opaque material with stable vertex positions. Never resolves a dirty material.
-		ENGINE_API auto GetCachedOpaqueDepthMaterialId_RenderThread() const -> std::optional<uint64>;
+		ENGINE_API auto HasStableOpaqueDepth_RenderThread() -> bool;
 
 		// RenderThread only. A missing/invalid program returns null without selecting a fallback.
 		ENGINE_API auto GetMaterialNoFallback() -> const FMaterialRenderData*;
@@ -120,6 +120,7 @@ namespace Durin
 		bool bCompilingInitialized = false;
 		auto RecordUpdate_RenderThread() -> void;
 		auto InvalidateStaticDrawLists_RenderThread() -> void;
+		auto InvalidateOcclusionHistory_RenderThread() -> void;
 		std::unordered_map<FSceneInterface*, uint32> SceneReferences;
 
 		FMaterialRenderData CachedResolvedData;

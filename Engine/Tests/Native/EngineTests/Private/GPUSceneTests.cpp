@@ -1366,6 +1366,7 @@ namespace
 		(*Scene)->UpdateStaticMeshRenderInstances(FPrimitiveComponentId{1}, {});
 		Run(); EXPECT_EQ(Info().NumInstanceSceneDataEntries, 1u);
 		FSceneInterfaceTestAccess::RemovePrimitiveProxy(**Scene, FPrimitiveComponentId{1});
+		FlushRenderingCommands();
 	}
 
 	TEST_F(FGPUSceneTests, SceneMutationHooksPatchTransformAndPrimitiveData)

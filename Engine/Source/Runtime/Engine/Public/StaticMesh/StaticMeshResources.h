@@ -380,9 +380,6 @@ namespace Durin
 		float ScreenSize = 0.0f;
 		uint8 NumTexCoords = 0;
 		bool bHasColorVertexData = false;
-		// Caches aggregate GPU-buffer and matching vertex-factory readiness
-		// for render-thread LOD selection.
-		bool bReadyForRendering = false;
 		std::shared_ptr<const FMeshGeometryRecord> GeometryRecord;
 
 		auto GetNumVertices() const -> uint32
@@ -393,9 +390,15 @@ namespace Durin
 		{
 			return IndexBuffer.GetNumIndices();
 		}
+		auto IsReadyForRendering() const -> bool { return bReadyForRendering; }
+	private:
+		friend struct FStaticMeshRenderData;
+		// Readiness is published with the geometry and any attached scene.
+		bool bReadyForRendering = false;
 	};
 
 	class FRHICommandListImmediate;
+	class FSceneInterface;
 
 	ENGINE_API auto PackStaticMeshTangentBasis(
 		const FVector3f& Normal,
@@ -417,12 +420,18 @@ namespace Durin
 
 		ENGINE_API auto InitResources(FRHICommandListImmediate& RHICmdList) -> bool;
 		ENGINE_API auto ReleaseResources() -> void;
+		ENGINE_API auto SetLODReady_RenderThread(uint32 LODIndex, bool bReady) -> void;
+		ENGINE_API auto AddSceneReference(FSceneInterface& Scene) const -> void;
+		ENGINE_API auto RemoveSceneReference(FSceneInterface& Scene) const -> void;
 #if DURIN_BUILD_DEBUG
 		ENGINE_API auto SetResourceDebugOwner(FName InOwner) -> void;
 #endif
 		ENGINE_API auto GetNumInitializedResources() const -> size_t;
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
+	private:
+		auto InvalidateOcclusionHistory_RenderThread() const -> void;
+		mutable std::unordered_map<FSceneInterface*, size_t> SceneReferences;
 	};
 
 	enum class EStaticMeshLODPolicyError : uint8 { None, Empty, InvalidScreenSize, NotDescending, MissingFinalZero };

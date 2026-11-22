@@ -43,6 +43,8 @@ namespace Durin
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }
 		auto GetWorldBounds() const -> const FBox& { return WorldBounds; }
+		auto GetOcclusionBounds() const -> const FBox& { return WorldBounds; }
+		auto CanBeOccluded() const -> bool { return bCanBeOccluded; }
 		auto IsVisible() const -> bool { return bVisible; }
 		auto GetProxy() const -> FPrimitiveSceneProxy& { return *Proxy; }
 		RENDERER_API auto GetSplineMeshProxy() const -> FSplineMeshSceneProxy&;
@@ -67,6 +69,7 @@ namespace Durin
 		std::map<uint64, std::shared_ptr<FUniformBuffer>> PrimitiveUniformBuffers;
 		FScene* Scene = nullptr;
 		bool bNeedsStaticMeshUpdate = false;
+		bool bCanBeOccluded = false;
 		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;

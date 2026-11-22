@@ -169,11 +169,8 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 			}
 			Layer.Parameters[0].Value = 0.1f * Version;
 			Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
-			const auto BeforeResolve = Proxy->GetResolutionCount_RenderThread();
-			EXPECT_FALSE(Proxy->GetCachedOpaqueDepthMaterialId_RenderThread());
-			EXPECT_EQ(Proxy->GetResolutionCount_RenderThread(), BeforeResolve);
+			EXPECT_TRUE(Proxy->HasStableOpaqueDepth_RenderThread());
 			const auto& Published = Proxy->GetMaterialWithFallback();
-			EXPECT_EQ(Proxy->GetCachedOpaqueDepthMaterialId_RenderThread(), Published.Representation.GetRecordId());
 			EXPECT_TRUE(Published.UniformExpressionCache);
 			if (Publisher) EXPECT_EQ(Published.UniformExpressionCache, Publisher);
 			Publisher = Published.UniformExpressionCache;
@@ -201,7 +198,7 @@ TEST(FMaterialRenderProxyTests, PreboundFieldsMatchGuidWritesAndInvalidateWithTh
 		Durin::Testing::ApplyMaterialTestState(*Proxy, Layer);
 		const auto& Changed = Proxy->GetMaterialWithFallback().Representation;
 		EXPECT_FALSE(Changed.IsError());
-		EXPECT_FALSE(Proxy->GetCachedOpaqueDepthMaterialId_RenderThread());
+		EXPECT_FALSE(Proxy->HasStableOpaqueDepth_RenderThread());
 		EXPECT_EQ(Changed.GetLayout().Fields.front().ParameterId, Layer.Parameters[1].Id);
 		EXPECT_EQ(GetMaterialRenderProxyCounters().ParameterBindingBuildCount - Before.ParameterBindingBuildCount, 2u);
 		Layer.Parameters.erase(Layer.Parameters.begin());

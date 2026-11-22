@@ -1285,29 +1285,30 @@ namespace Durin
 		EXPECT_EQ(
 			SelectStaticMeshLOD(std::numeric_limits<float>::quiet_NaN(), LODResources),
 			0u);
-		LODResources[2].bReadyForRendering = true;
-		const auto FrozenLODs = CaptureStaticMeshLODSelection(LODResources);
+		auto Selection = CaptureStaticMeshLODSelection(LODResources);
 		for (float Size : {0.0f, 0.24f, 0.25f, 0.49f, 0.5f, 1.0f,
 			std::numeric_limits<float>::quiet_NaN()})
-			EXPECT_EQ(SelectStaticMeshLOD(Size, FrozenLODs), SelectStaticMeshLOD(Size, LODResources));
+			EXPECT_EQ(SelectStaticMeshLOD(Size, Selection), SelectStaticMeshLOD(Size, LODResources));
 		for (uint32 Requested : {0u, 1u, 2u, 3u, InvalidStaticMeshLODIndex})
-			EXPECT_EQ(ResolveAvailableStaticMeshLOD(Requested, FrozenLODs), ResolveAvailableStaticMeshLOD(Requested, LODResources));
+			EXPECT_EQ(ResolveAvailableStaticMeshLOD(Requested, Selection), ResolveAvailableStaticMeshLOD(Requested, LODResources));
+		Selection[2].bReadyForRendering = true;
+		const auto FrozenLODs = Selection;
 		EXPECT_EQ(
 			ResolveAvailableStaticMeshLOD(
-				1, LODResources),
+				1, Selection),
 			2u);
-		LODResources[0].bReadyForRendering = true;
-		LODResources[2].bReadyForRendering = false;
+		Selection[0].bReadyForRendering = true;
+		Selection[2].bReadyForRendering = false;
 		EXPECT_EQ(ResolveAvailableStaticMeshLOD(1, FrozenLODs), 2u);
-		EXPECT_EQ(ResolveAvailableStaticMeshLOD(1, CaptureStaticMeshLODSelection(LODResources)), 0u);
+		EXPECT_EQ(ResolveAvailableStaticMeshLOD(1, Selection), 0u);
 		EXPECT_EQ(
 			ResolveAvailableStaticMeshLOD(
-				2, LODResources),
+				2, Selection),
 			0u);
-		LODResources[0].bReadyForRendering = false;
+		Selection[0].bReadyForRendering = false;
 		EXPECT_EQ(
 			ResolveAvailableStaticMeshLOD(
-				0, LODResources),
+				0, Selection),
 			InvalidStaticMeshLODIndex);
 
 		struct FDistinctGeometryLOD

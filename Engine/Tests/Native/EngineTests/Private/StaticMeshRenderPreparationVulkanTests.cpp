@@ -569,7 +569,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_TRUE(std::ranges::all_of(
 				MultiLODRenderData->LODResources,
 				[](const Durin::FStaticMeshLODResources& LOD) {
-					return LOD.bReadyForRendering;
+					return LOD.IsReadyForRendering();
 				}));
 			auto& PublishedSection = RenderData->LODResources[0].Sections[0];
 			const uint32 PublishedIndexCount = PublishedSection.IndexCount;
@@ -1136,7 +1136,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 
 			MultiLODRenderData->LODVertexFactories[1]
 				.VertexFactory.ReleaseResource();
-			MultiLODRenderData->LODResources[1].bReadyForRendering = false;
+			MultiLODRenderData->SetLODReady_RenderThread(1, false);
 			const Durin::FPreparedStaticMeshView Fallback =
 				Prepare(MakeOrthographicView(2.5));
 			ASSERT_EQ(Fallback.Primitives.size(), 1u);
@@ -1180,10 +1180,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			}
 			MultiLODRenderData->LODVertexFactories[0]
 				.VertexFactory.ReleaseResource();
-			MultiLODRenderData->LODResources[0].bReadyForRendering = false;
+			MultiLODRenderData->SetLODReady_RenderThread(0, false);
 			MultiLODRenderData->LODVertexFactories[2]
 				.VertexFactory.ReleaseResource();
-			MultiLODRenderData->LODResources[2].bReadyForRendering = false;
+			MultiLODRenderData->SetLODReady_RenderThread(2, false);
 			const Durin::FPreparedStaticMeshView Unavailable =
 				Prepare(MakeOrthographicView(2.5));
 			EXPECT_TRUE(Unavailable.Primitives.empty());
@@ -1361,7 +1361,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_TRUE(std::ranges::none_of(
 				MultiLODRenderData->LODResources,
 				[](const Durin::FStaticMeshLODResources& LOD) {
-					return LOD.bReadyForRendering;
+					return LOD.IsReadyForRendering();
 				}));
 		}
 	);

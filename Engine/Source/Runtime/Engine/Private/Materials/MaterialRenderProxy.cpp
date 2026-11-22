@@ -114,6 +114,7 @@ namespace Durin
 	}
 	auto FMaterialRenderProxy::ReleaseRHI() -> void
 	{
+		InvalidateOcclusionHistory_RenderThread();
 		FMaterialRenderProxy* Material = this;
 		for (const auto& [Scene, References] : SceneReferences) Scene->UpdateStaticDrawListsForMaterials(std::span(&Material, 1));
 		UniformExpressionCache->ReleaseRHI();
@@ -164,6 +165,10 @@ namespace Durin
 	{
 		FMaterialRenderProxy* Material = this;
 		for (const auto& [Scene, References] : SceneReferences) Scene->UpdateStaticDrawListsForMaterials(std::span(&Material, 1));
+	}
+	auto FMaterialRenderProxy::InvalidateOcclusionHistory_RenderThread() -> void
+	{
+		for (const auto& [Scene, References] : SceneReferences) Scene->InvalidateOcclusionHistory_RenderThread();
 	}
 	auto FMaterialRenderProxy::SetProgram_GameThread(std::shared_ptr<const FMaterialProgram> Program) -> void
 	{ QueueMaterialUpdate(*this, [Program = std::move(Program)](auto& Proxy) mutable { Proxy.SetProgram_RenderThread(std::move(Program)); }); }
@@ -235,6 +240,7 @@ namespace Durin
 		InvalidateStaticDrawLists_RenderThread();
 		Properties = std::move(NewProperties);
 		bHasResolvedData = false;
+		InvalidateOcclusionHistory_RenderThread();
 		GMaterialRenderProxyCounters.PropertyUpdateCount.fetch_add(1);
 	}
 	auto FMaterialRenderProxy::SetCompiling_GameThread(bool Compiling) -> void
@@ -251,6 +257,7 @@ namespace Durin
 		if (bCompiling == Compiling) return;
 		bCompiling = Compiling;
 		bHasResolvedData = false;
+		InvalidateOcclusionHistory_RenderThread();
 	}
 	auto FMaterialRenderProxy::InvalidateUniformExpressionCache_GameThread(bool RecreateUniformBuffer) -> void
 	{ QueueMaterialUpdate(*this, [RecreateUniformBuffer](auto& Proxy) { Proxy.RecordUpdate_RenderThread(); Proxy.InvalidateUniformExpressionCache_RenderThread(RecreateUniformBuffer); }); }
@@ -260,6 +267,7 @@ namespace Durin
 		if (RecreateUniformBuffer) UniformExpressionCache->ReleaseRHI();
 		else UniformExpressionCache->InvalidateUniformValues();
 		bHasResolvedData = false;
+		InvalidateOcclusionHistory_RenderThread();
 		GMaterialRenderProxyCounters.UniformCacheInvalidationCount.fetch_add(1);
 	}
 
@@ -301,12 +309,13 @@ namespace Durin
 		return bCompiling;
 	}
 
-	auto FMaterialRenderProxy::GetCachedOpaqueDepthMaterialId_RenderThread() const -> std::optional<uint64>
+	auto FMaterialRenderProxy::HasStableOpaqueDepth_RenderThread() -> bool
 	{
 		CheckRenderingThread();
-		if (!bHasResolvedData || bProgramUsesWPO || !CachedResolvedData.CompiledProgram || !CachedResolvedData.CompiledProgram->HasShaderMap()
-			|| CachedResolvedData.PlanningPassIdentity.ShaderMap.BlendMode != EMaterialBlendMode::Opaque) return {};
-		return CachedResolvedData.Representation.GetRecordId();
+		if (bProgramUsesWPO || bCompiling) return false;
+		const auto* Material = GetMaterialNoFallback();
+		return Material && Material->CompiledProgram->HasShaderMap()
+			&& Material->PlanningPassIdentity.ShaderMap.BlendMode == EMaterialBlendMode::Opaque;
 	}
 
 	auto FMaterialRenderProxy::GetMaterialNoFallback() -> const FMaterialRenderData*

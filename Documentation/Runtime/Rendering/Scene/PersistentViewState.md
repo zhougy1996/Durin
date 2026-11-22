@@ -83,15 +83,12 @@ result. Before mesh collection, the view maps the newest ready result from the
 previous two render frames that survived view and scene invalidation. Traversal
 order may change. A matching index is culled only for a confirmed occluded value. Shadow caster selection remains independent.
 
-Each view has three feedback slots. A slot supports up to 4096×4096 pixels,
-4096 candidates (16 KiB of readback) and 65,536 material record IDs.
-Going over a limit leaves frustum admission in effect for the whole view.
-History keeps weak identities for geometry and instance data so pending
-feedback can outlive retired scene inputs. A full ring skips submission. Missing or
-incompatible history leaves each candidate visible. Reuse requires matching
-projection, viewport, depth convention, scene, resource generation and opaque depth inputs (candidate identities, geometry,
-material and instance publications, transforms and bounds). HitProxy revisions
-are independent of this decision. A view ignores previous results after more
+Each view has three feedback slots. A slot supports up to 4096×4096 pixels and
+4096 candidates (16 KiB of readback). Going over either limit leaves frustum
+admission in effect for the whole view. A full ring skips submission. Missing
+or incompatible history leaves each candidate visible. Reuse requires matching
+projection, viewport, depth convention, scene, candidate identities, resource
+generation and the scene's occlusion revision. A view ignores previous results after more
 than eight seconds idle, a time reset, or a camera step exceeding 45 degrees on
 any view axis or 10,000 world units of translation. Smaller camera steps submit
 fresh projected bounds. Consumption applies the same thresholds against each
@@ -102,13 +99,24 @@ An explicit cut takes effect when the view is submitted, even if output validati
 rejects the draw.
 Switching device generations drops the entire feedback ring.
 
-The main view checks published geometry, instance data and opaque material
-record IDs for slots actually referenced by published LOD sections. A dirty or
-missing referenced material, masked surface, world-position offset or unsupported
-proxy keeps frustum admission for that submission. Mesh preparation shares
-the same geometry capture and resolves full material data after occlusion
-admission. Explicit static mesh instances use the entire primitive's
-bounds. A partially exposed group continues to per-instance processing.
+The scene maintains each primitive's occlusion eligibility and world-space
+occlusion bounds. Eligibility comes from the proxy's `CanBeOccluded()` and
+is refreshed before visibility when scene publications make it dirty. The
+ordinary static mesh proxy checks opaque depth eligibility only for slots
+referenced by published LOD sections. An unsupported candidate keeps the
+whole view on frustum admission because unsupported geometry can contribute
+depth that changes independently. The occlusion tester consumes the scene's
+primitive identity, eligibility and bounds. It does not capture mesh batches,
+geometry records, materials or instance publications.
+
+Scene membership, visibility, transforms and instance updates advance the
+occlusion revision when depth coverage may change. Referenced material proxies
+and static mesh render data notify attached scenes through the same occlusion
+invalidation boundary. This includes in-place program or parameter changes,
+mesh resource initialization and release, and published LOD readiness.
+Occlusion invalidation is independent of HitProxy revisions. Explicit static
+mesh instances use the entire primitive's bounds. A partially exposed group
+continues to per-instance processing.
 Direct draws, CPU merging, GPU compaction and its fallback paths all consume
 the same surviving main-view candidates.
 

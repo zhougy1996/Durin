@@ -29,10 +29,11 @@ Stage 2 is functionally complete. Stage 3 passed opt-in correctness and complete
 the initial high/low occlusion comparison. GPU bounds batches now return indexed
 visibility to the main view. History applies the UE 5.8 camera thresholds to
 the actual producing view and resolves reordered candidates by component ID.
-Occlusion checks only material slots referenced by published geometry and shares
-that geometry capture with mesh preparation. On 2026-11-22, rollout was approved
-for eligible persistent main views with an explicit per-view opt-out. The
-low-occlusion overhead gate remains open.
+Occlusion consumes scene primitive identity, eligibility and bounds. Material,
+geometry and instance publications invalidate stale feedback before visibility.
+Mesh preparation captures its own published batches. On 2026-11-22, rollout was
+approved for eligible persistent main views with an explicit per-view opt-out.
+The low-occlusion overhead gate remains open.
 Stage 2 has removed render-thread task replenishment. Static mesh merges and
 sorting follow chunk workers through a completion dependency. Each view selects
 LOD independently and publishes validated ordinary static batches directly for sibling
@@ -972,6 +973,15 @@ Outcome: occluded scenes reduce downstream CPU preparation as well as GPU work.
   The same preset passed static mesh preparation Vulkan (28), renderer scene
   contracts (180), Sandbox gameplay (15), and RoadWeaver viewport qualification
   (2).
+  The follow-up based on `888af4b7a` moved eligibility to scene primitive
+  records and uses the scene's occlusion revision for depth publication
+  invalidation. Win64-Debug-DurinEditor Vulkan passed the first-frame pixel
+  and draw ID comparisons after in-place material, LOD readiness and instance
+  updates. The producing primitive handle and world bounds stay equal in
+  each case. The same preset passed renderer contracts (180), static mesh
+  preparation Vulkan (28), material render proxy (14), renderer scene view
+  (32), Water Vulkan (2), Sandbox gameplay (15), and RoadWeaver viewport
+  qualification (2).
 - [x] Define conservative invalidation for cuts, camera/occluder motion,
   resolution/depth-convention changes, newly added/moved objects, scene/device
   changes and unavailable results. Never hide content on an uncertain result.

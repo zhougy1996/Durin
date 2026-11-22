@@ -1383,8 +1383,7 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		auto Prepare = [&](uint64 Frame, size_t ExpectedCandidates) {
 			const auto& Infos = Scene.GetPrimitiveSceneInfos();
 			std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
-			FStaticMeshBatchCaptureContext Capture;
-			auto Slot = History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, Frame, double(Frame), Candidates, Capture);
+			auto Slot = History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, Frame, double(Frame), Candidates);
 			EXPECT_EQ(Candidates.size(), ExpectedCandidates);
 			if (ExpectedCandidates == 1 && Candidates.size() == 1) EXPECT_EQ(Candidates.front(), Infos.front());
 			return Slot;
@@ -1413,8 +1412,7 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 		PreviousOrder->Complete(Payload());
 		const auto& Infos = Scene.GetPrimitiveSceneInfos();
 		std::vector<const FPrimitiveSceneInfo*> Reordered(Infos.rbegin(), Infos.rend());
-		FStaticMeshBatchCaptureContext ReorderedCapture;
-		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 7, 7.0, Reordered, ReorderedCapture));
+		ASSERT_TRUE(History.Prepare(Commands, View, Scene, {}, View.ViewportWidth, View.ViewportHeight, 7, 7.0, Reordered));
 		ASSERT_EQ(Reordered.size(), 1u);
 		EXPECT_EQ(Reordered.front(), Infos.front());
 		Slot = Prepare(8, 1);
@@ -1428,8 +1426,7 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 			Camera.ViewMatrix = MakeTransform({.RotationYDegrees = Angle}) * Math::TranslationMatrix(-Camera.ViewLocation);
 			Camera.ViewProjectionMatrix = Camera.ProjectionMatrix * Camera.ViewMatrix;
 			std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
-			FStaticMeshBatchCaptureContext Capture;
-			Slot = History.Prepare(Commands, Camera, Scene, {}, Camera.ViewportWidth, Camera.ViewportHeight, Frame, Time, Candidates, Capture);
+			Slot = History.Prepare(Commands, Camera, Scene, {}, Camera.ViewportWidth, Camera.ViewportHeight, Frame, Time, Candidates);
 			EXPECT_EQ(Candidates.size(), Reuse ? 1u : 2u);
 			if (Reuse && Candidates.size() == 1) EXPECT_EQ(Candidates.front(), Infos.front());
 			return PendingResult;
@@ -1464,63 +1461,21 @@ static void CheckDelayedOcclusionFeedback(Durin::FRHICommandListImmediate& Comma
 }
 
 static void CheckOcclusionHistoryBudget(Durin::FRHICommandListImmediate& Commands, const Durin::FScene& Scene,
-	const Durin::FSceneView& View, const Durin::FMaterialRenderProxyRef& Material)
+	const Durin::FSceneView& View)
 {
 	using namespace Durin;
-	auto Mesh = MakeQuadRenderData();
-	Mesh->MaterialSlots.resize(17);
-	Mesh->LODResources[0].Sections[0].MaterialSlotIndex = 16;
-	ASSERT_TRUE(Mesh->InitResources(Commands));
-	{
-		std::vector<FMaterialRenderProxyRef> Materials(17);
-		Materials.back() = Material;
-		auto Proxy = std::make_shared<FStaticMeshSceneProxy>(Mesh.get(), std::move(Materials));
-		FPrimitiveSceneInfo Info(FPrimitiveComponentId(1), Proxy, FMatrix(1));
-		std::vector<const FPrimitiveSceneInfo*> Candidates{&Info};
-		FHZBOcclusionTester SparseHistory;
-		FStaticMeshBatchCaptureContext Capture;
-		auto Feedback = SparseHistory.Prepare(Commands, View, Scene, {}, 4096, 4096, 1, 1.0, Candidates, Capture);
-		ASSERT_TRUE(Feedback);
-		EXPECT_EQ(Feedback->Batch->Inputs.MaterialRecords.size(), 1u);
-		auto Publication = Proxy->DrawStaticElements(Capture);
-		ASSERT_TRUE(Publication);
-		EXPECT_EQ(Feedback->Batch->Inputs.Primitives.front().Geometry.lock(), Publication->Geometry);
-	}
-	Mesh->ReleaseResources();
-	auto& Sections = Mesh->LODResources[0].Sections;
-	Sections.resize(17, Sections.front());
-	for (uint32 Slot = 0; Slot < Sections.size(); ++Slot)
-		Sections[Slot].MaterialSlotIndex = Slot;
-	ASSERT_TRUE(Mesh->InitResources(Commands));
 	FHZBOcclusionTester History;
-	std::shared_ptr<FOcclusionFeedback> Slot;
-	{
-		auto Layout = std::make_shared<std::vector<FStaticMeshRenderInstance>>();
-		Layout->push_back({1, FMatrix(1)});
-		auto Proxy = std::make_shared<FStaticMeshSceneProxy>(Mesh.get(), std::vector<FMaterialRenderProxyRef>(17, Material), Layout);
-		std::vector<std::unique_ptr<FPrimitiveSceneInfo>> Infos;
-		std::vector<const FPrimitiveSceneInfo*> Candidates;
-		for (uint32 Index = 0; Index <= 65536 / 17; ++Index)
-		{
-			Infos.push_back(std::make_unique<FPrimitiveSceneInfo>(FPrimitiveComponentId(Index + 1), Proxy, FMatrix(1)));
-			if (Index < 65536 / 17) Candidates.push_back(Infos.back().get());
-		}
-		auto Prepare = [&](uint32 Width, uint64 Frame) {
-			FStaticMeshBatchCaptureContext Capture;
-			return History.Prepare(Commands, View, Scene, {}, Width, 4096, Frame, double(Frame), Candidates, Capture);
-		};
-		Slot = Prepare(4096, 1);
-		ASSERT_TRUE(Slot);
-		EXPECT_EQ(Slot->Batch->Inputs.Primitives.size(), Candidates.size());
-		Candidates.push_back(Infos.back().get());
-		EXPECT_FALSE(Prepare(4096, 2));
-		EXPECT_EQ(Candidates.size(), 65536 / 17 + 1);
-		Candidates.resize(1);
-		EXPECT_FALSE(Prepare(4097, 3));
-	}
-	Mesh->ReleaseResources();
-	EXPECT_TRUE(Slot->Batch->Inputs.Primitives.front().Geometry.expired());
-	EXPECT_TRUE(Slot->Batch->Inputs.Primitives.front().Instances.expired());
+	const auto& Infos = Scene.GetPrimitiveSceneInfos();
+	ASSERT_FALSE(Infos.empty());
+	std::vector<const FPrimitiveSceneInfo*> Candidates(Infos.begin(), Infos.end());
+	auto Slot = History.Prepare(Commands, View, Scene, {}, 4096, 4096, 1, 1.0, Candidates);
+	ASSERT_TRUE(Slot);
+	EXPECT_EQ(Slot->Batch->Bounds.size(), Candidates.size());
+	Candidates.resize(4097, Infos.front());
+	EXPECT_FALSE(History.Prepare(Commands, View, Scene, {}, 4096, 4096, 2, 2.0, Candidates));
+	EXPECT_EQ(Candidates.size(), 4097u);
+	Candidates.resize(1);
+	EXPECT_FALSE(History.Prepare(Commands, View, Scene, {}, 4097, 4096, 3, 3.0, Candidates));
 }
 
 TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKeepsShadowCasters)
@@ -1539,7 +1494,21 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 	Lifecycle.Start(Renderer);
 	SetViewRenderTelemetrySink(CaptureTelemetry);
 	auto Quad = MakeQuadRenderData();
-	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) { ASSERT_TRUE(Quad->InitResources(Commands)); });
+	auto Wall = MakeQuadRenderData();
+	Wall->MaterialSlots.resize(17);
+	Wall->LODResources[0].Sections[0].MaterialSlotIndex = 16;
+	Wall->LODResources[0].ScreenSize = 0.01f;
+	auto NarrowWall = MakeQuadRenderData();
+	auto& NarrowLOD = NarrowWall->LODResources.front();
+	NarrowLOD.Sections[0].MaterialSlotIndex = 16;
+	NarrowLOD.VertexBuffers.PositionVertexBuffer.Init(
+		{{-1, -1, 0}, {-0.5f, -1, 0}, {-0.5f, 1, 0}, {-1, 1, 0}});
+	Wall->LODResources.push_back(std::move(NarrowLOD));
+	Wall->LODVertexFactories.resize(Wall->LODResources.size());
+	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
+		ASSERT_TRUE(Quad->InitResources(Commands));
+		ASSERT_TRUE(Wall->InitResources(Commands));
+	});
 	FlushRenderingCommands();
 	{
 		FSceneTestOwner Owner;
@@ -1548,9 +1517,17 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 		auto State = Renderer.CreateViewState();
 		auto OtherState = Renderer.CreateViewState();
 		const auto Opaque = MakeMaterial(EMaterialBlendMode::Opaque, {0.7, 0.3, 0.1});
+		const auto WallMaterial = MakeMaterial(EMaterialBlendMode::Opaque, {0.7, 0.3, 0.1});
+		const auto Translucent = MakeMaterial(EMaterialBlendMode::Translucent, {0.7, 0.3, 0.1});
+		const auto WallBindings = [&] {
+			std::vector<FMaterialRenderProxyRef> Bindings(17);
+			Bindings.back() = WallMaterial;
+			return Bindings;
+		};
 		auto Place = [&](uint32 Id, FVector3 Translation, FVector3 Scale) {
 			FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(Id),
-				std::make_unique<FStaticMeshSceneProxy>(Quad.get(), std::vector<FMaterialRenderProxyRef>{Opaque}),
+				std::make_unique<FStaticMeshSceneProxy>(Id == 1 ? Wall.get() : Quad.get(),
+					Id == 1 ? WallBindings() : std::vector{Opaque}),
 				MakeTransform({.Translation = Translation, .Scale = Scale}));
 		};
 		Place(1, {0, 0.45, 0.7}, {0.9, 0.40, 1});
@@ -1640,7 +1617,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 
 		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate& Commands) {
 			CheckDelayedOcclusionFeedback(Commands, *Scene, View);
-			CheckOcclusionHistoryBudget(Commands, *Scene, View, Opaque);
+			CheckOcclusionHistoryBudget(Commands, *Scene, View);
 		});
 		FlushRenderingCommands();
 
@@ -1650,6 +1627,72 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 			Change();
 			CheckFirstFrame();
 		};
+		auto ReadWallPublication = [&] {
+			std::pair<FGPUScenePrimitiveHandle, FBox> Result;
+			EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {
+				const auto& Infos = Scene->GetPrimitiveSceneInfos();
+				const auto Found = std::ranges::find_if(Infos, [](const auto* Info) { return Info->GetId().Value == 1u; });
+				ASSERT_NE(Found, Infos.end());
+				Result = {(*Found)->GPUSceneHandle, (*Found)->GetOcclusionBounds()};
+			});
+			FlushRenderingCommands();
+			return Result;
+		};
+		auto CheckInPlaceChange = [&](const char* Name, auto Change) {
+			CheckChange(Name, [&] {
+				const auto Before = ReadWallPublication();
+				Change();
+				const auto After = ReadWallPublication();
+				EXPECT_EQ(After.first, Before.first);
+				EXPECT_EQ(After.second.Min, Before.second.Min);
+				EXPECT_EQ(After.second.Max, Before.second.Max);
+			});
+		};
+		std::shared_ptr<const FMaterialProgram> WallProgram, TranslucentProgram;
+		EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {
+			WallProgram = WallMaterial->GetMaterialWithFallback().CompiledProgram;
+			TranslucentProgram = Translucent->GetMaterialWithFallback().CompiledProgram;
+		});
+		FlushRenderingCommands();
+		auto PublishWallMaterial = [&](EMaterialBlendMode BlendMode, const auto& Program) {
+			FMaterialStaticProperties Properties;
+			Properties.BlendMode = BlendMode;
+			Properties.bTwoSided = true;
+			WallMaterial->SetProperties_GameThread(Properties);
+			WallMaterial->SetProgram_GameThread(Program);
+			FlushRenderingCommands();
+		};
+		CheckInPlaceChange("in-place material publication removes depth coverage", [&] {
+			PublishWallMaterial(EMaterialBlendMode::Translucent, TranslucentProgram);
+		});
+		PublishWallMaterial(EMaterialBlendMode::Opaque, WallProgram);
+
+		auto SetWallLODReady = [&](bool bReady) {
+			EnqueueRenderCommand<FShadowBaselineCommand>([&, bReady](FRHICommandListImmediate&) {
+				Wall->SetLODReady_RenderThread(0, bReady);
+			});
+			FlushRenderingCommands();
+		};
+		CheckInPlaceChange("in-place geometry readiness removes depth coverage", [&] { SetWallLODReady(false); });
+		SetWallLODReady(true);
+
+		auto WallInstances = [](bool bCoverCenter) {
+			auto Instances = std::make_shared<std::vector<FStaticMeshRenderInstance>>();
+			Instances->push_back({1, MakeTransform({.Translation = {-1.0, 0, 0}, .Scale = {0.2, 1, 1}})});
+			Instances->push_back({2, MakeTransform({.Translation = {1.0, 0, 0}, .Scale = {0.2, 1, 1}})});
+			if (bCoverCenter) Instances->push_back({3, MakeTransform({.Scale = {0.4, 1, 1}})});
+			return Instances;
+		};
+		FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*Scene, FPrimitiveComponentId(1),
+			std::make_unique<FStaticMeshSceneProxy>(Wall.get(), WallBindings(), WallInstances(true)),
+			MakeTransform({.Translation = {0, 0.45, 0.7}, .Scale = {0.9, 0.40, 1}}));
+		FlushRenderingCommands();
+		CheckInPlaceChange("instance publication removes depth within the same bounds", [&] {
+			Scene->UpdateStaticMeshRenderInstances(FPrimitiveComponentId(1), WallInstances(false));
+			FlushRenderingCommands();
+		});
+		Place(1, {0, 0.45, 0.7}, {0.9, 0.40, 1});
+		FlushRenderingCommands();
 		CheckChange("independent view", [&] { View.ViewStateId = OtherState.GetId(); });
 		View.ViewStateId = State.GetId();
 		CheckChange("camera cut", [&] { View.bDiscardHistory = true; });
@@ -1829,7 +1872,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ConsumesReadyMainViewOcclusionAndKee
 	}
 	SetViewRenderTelemetrySink(nullptr);
 	Lifecycle.Shutdown();
-	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) { Quad->ReleaseResources(); });
+	EnqueueRenderCommand<FShadowBaselineCommand>([&](FRHICommandListImmediate&) {
+		Wall->ReleaseResources();
+		Quad->ReleaseResources();
+	});
 	FlushRenderingCommands();
 	ShutdownRenderingThread();
 	RHIExit();

@@ -29,7 +29,7 @@ namespace Durin
 		const uint32 SelectedLOD = Context.PreparedLOD ? Context.PreparedLOD->Selected
 			: ResolveAvailableStaticMeshLOD(RequestedLOD, RenderData->LODResources);
 		if (RequestedLOD >= RenderData->LODResources.size() || SelectedLOD >= RenderData->LODResources.size()
-			|| !RenderData->LODResources[SelectedLOD].bReadyForRendering)
+			|| !RenderData->LODResources[SelectedLOD].IsReadyForRendering())
 		{
 			Collector.RecordOutcome(EGeometrySubmissionOutcome::ResourceFailure);
 			return;

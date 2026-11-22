@@ -27,6 +27,7 @@ namespace Durin
 			-> FStaticMeshBatchPublication::FRef override;
 		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
 		ENGINE_API auto GetLocalBounds() const -> FBox override;
+		ENGINE_API auto CanBeOccluded() const -> bool override;
 		ENGINE_API auto CaptureLODSelection_RenderThread() const -> std::optional<FMeshLODSelectionSnapshot> override;
 		ENGINE_API auto ResolveMaterialRenderData_RenderThread(
 			uint32 SlotIndex) const -> const FMaterialRenderData&;

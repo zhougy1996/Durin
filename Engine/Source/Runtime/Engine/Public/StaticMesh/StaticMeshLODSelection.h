@@ -16,6 +16,7 @@ namespace Durin
 	{
 		float ScreenSize = 0.0f;
 		bool bReadyForRendering = false;
+		auto IsReadyForRendering() const -> bool { return bReadyForRendering; }
 	};
 	using FMeshLODSelectionSnapshot = std::vector<FMeshLODSelectionEntry>;
 	ENGINE_API auto CaptureStaticMeshLODSelection(

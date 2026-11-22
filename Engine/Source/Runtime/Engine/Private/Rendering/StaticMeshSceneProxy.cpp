@@ -103,6 +103,16 @@ namespace Durin
 		return Materials.emplace(Key, Proxy ? Proxy->GetMaterialWithFallback() : GetErrorMaterialRenderData()).first->second;
 	}
 
+	auto FStaticMeshSceneProxy::CanBeOccluded() const -> bool
+	{
+		CheckRenderingThread();
+		if (typeid(*this) != typeid(FStaticMeshSceneProxy) || !RenderData) return false;
+		const auto Geometry = RenderData->CaptureBatchGeometry_RenderThread();
+		return Geometry->bValidLayout && std::ranges::all_of(Geometry->ReferencedMaterialSlots, [&](uint32 Slot) {
+			return Slot < Materials.size() && Materials[Slot] && Materials[Slot]->HasStableOpaqueDepth_RenderThread();
+		});
+	}
+
 	auto FStaticMeshBatchCaptureContext::CaptureGeometry(const FStaticMeshRenderData& RenderData)
 		-> const std::shared_ptr<const FStaticMeshBatchGeometry>&
 	{

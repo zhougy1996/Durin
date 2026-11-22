@@ -1,8 +1,6 @@
 #include "Renderers/SceneOcclusion.h"
 
 #include "Renderers/GBufferRendering.h"
-#include "StaticMesh/StaticMeshResources.h"
-#include "Rendering/StaticMeshSceneProxy.h"
 #include "Scene.h"
 #include "SceneInfo.h"
 #include "Shader/GlobalShader.h"
@@ -18,7 +16,6 @@ namespace Durin
 		constexpr uint32 TileSize = 16;
 		constexpr uint32 MaxExtent = 4096;
 		constexpr uint32 MaxCandidates = 4096;
-		constexpr size_t MaxMaterialRecords = 65536;
 		constexpr uint64 MaxHistoryAge = 2;
 
 		auto TileCount(uint32 Extent) -> uint32 { return (Extent + TileSize - 1) / TileSize; }
@@ -87,43 +84,12 @@ namespace Durin
 				return &Metadata;
 			}
 		};
-		auto CaptureOcclusionPrimitive(const FPrimitiveSceneInfo& Info, FStaticMeshBatchCaptureContext& Capture,
-			std::vector<uint64>& Materials) -> std::optional<FOcclusionPrimitive>
-		{
-			const auto& Proxy = Info.GetProxy();
-			if (typeid(Proxy) != typeid(FStaticMeshSceneProxy)) return {};
-			const auto& Mesh = static_cast<const FStaticMeshSceneProxy&>(Proxy);
-			if (!Mesh.GetRenderData()) return {};
-			const auto& Geometry = Capture.CaptureGeometry(*Mesh.GetRenderData());
-			const auto& Slots = Geometry->ReferencedMaterialSlots;
-			const auto Bindings = Mesh.GetUsedMaterials();
-			if (!Geometry->bValidLayout || (!Slots.empty() && Slots.back() >= Bindings.size())
-				|| Slots.size() > MaxMaterialRecords - Materials.size()) return {};
-			FOcclusionPrimitive Primitive{.Handle = Info.GPUSceneHandle,
-				.Geometry = Geometry,
-				.Instances = Mesh.GetInstanceSceneDataBuffers(), .MaterialCount = uint32(Slots.size()), .Transform = Mesh.GetLocalToWorld(), .Bounds = Info.GetWorldBounds()};
-			for (const uint32 Slot : Slots)
-			{
-				const auto& Binding = Bindings[Slot];
-				const auto Record = Binding ? Binding->GetCachedOpaqueDepthMaterialId_RenderThread() : std::nullopt;
-				if (!Record) return {};
-				Materials.push_back(*Record);
-			}
-			return Primitive;
-		}
 	}
 
-	auto FOcclusionPrimitive::operator==(const FOcclusionPrimitive& Other) const -> bool
-	{
-		return Handle == Other.Handle && !Geometry.owner_before(Other.Geometry) && !Other.Geometry.owner_before(Geometry)
-			&& !Instances.owner_before(Other.Instances) && !Other.Instances.owner_before(Instances)
-			&& MaterialCount == Other.MaterialCount && Transform == Other.Transform
-			&& Bounds.bIsValid == Other.Bounds.bIsValid && Bounds.Min == Other.Bounds.Min && Bounds.Max == Other.Bounds.Max;
-	}
 	auto FOcclusionViewKey::CanReuseResults(const FOcclusionViewKey& Previous) const -> bool
 	{
 		if (Scene.owner_before(Previous.Scene) || Previous.Scene.owner_before(Scene)
-			|| Generation != Previous.Generation
+			|| SceneRevision != Previous.SceneRevision || Generation != Previous.Generation
 			|| Projection != Previous.Projection || FeatureLevel != Previous.FeatureLevel || FadeRange != Previous.FadeRange
 			|| Viewport != Previous.Viewport || Width != Previous.Width || Height != Previous.Height
 			|| Depth != Previous.Depth || LODMode != Previous.LODMode) return false;
@@ -259,7 +225,7 @@ namespace Durin
 
 	auto FHZBOcclusionTester::Prepare(FRHICommandListImmediate& Commands, const FSceneView& View, const FScene& Scene,
 		const FRenderResourceGeneration& Generation, uint32 Width, uint32 Height, uint64 Frame, double RealTimeSeconds,
-		std::vector<const FPrimitiveSceneInfo*>& Candidates, FStaticMeshBatchCaptureContext& Capture) -> std::shared_ptr<FOcclusionFeedback>
+		std::vector<const FPrimitiveSceneInfo*>& Candidates) -> std::shared_ptr<FOcclusionFeedback>
 	{
 		if (!Width || !Height || Width > MaxExtent || Height > MaxExtent || Candidates.empty() || Candidates.size() > MaxCandidates
 			|| View.Settings.Mode.RenderMode != ERenderMode::Lit || View.Settings.Mode.RasterMode != ERasterMode::Solid
@@ -269,7 +235,7 @@ namespace Durin
 			|| RealTimeSeconds - LastRenderTime > ProbablyVisibleSeconds)) Invalidate();
 		LastRenderTime = RealTimeSeconds;
 		LastFrame = Frame;
-		const FOcclusionViewKey Key{Scene.GPUScene, Generation, View.ViewMatrix,
+		const FOcclusionViewKey Key{Scene.GPUScene, Scene.GetOcclusionRevision_RenderThread(), Generation, View.ViewMatrix,
 			View.ProjectionMatrix, View.ViewProjectionMatrix, View.FeatureLevel, {View.ViewFadeStart, View.ViewRenderDistance}, View.ViewLocation, {View.ViewportX, View.ViewportY, View.ViewportWidth, View.ViewportHeight},
 			Width, Height, View.DepthConvention, View.Settings.Mode.LODMode};
 		const bool SameMembers = CurrentBatch && CurrentBatch->MapCandidates(Candidates, CandidateOrder);
@@ -278,16 +244,7 @@ namespace Durin
 			CandidateOrder.resize(Candidates.size());
 			for (uint32 Index = 0; Index < Candidates.size(); ++Index) CandidateOrder[Index] = Index;
 		}
-		Scratch.Primitives.clear();
-		Scratch.MaterialRecords.clear();
-		Scratch.Primitives.reserve(Candidates.size());
-		for (const uint32 Index : CandidateOrder)
-		{
-			auto Primitive = CaptureOcclusionPrimitive(*Candidates[Index], Capture, Scratch.MaterialRecords);
-			if (!Primitive) { Invalidate(); return {}; }
-			Scratch.Primitives.push_back(std::move(*Primitive));
-		}
-		if (!SameMembers || !Key.CanReuseResults(CurrentBatch->Key) || CurrentBatch->Inputs != Scratch)
+		if (!SameMembers || !Key.CanReuseResults(CurrentBatch->Key))
 			Invalidate();
 		// Even a sub-threshold camera move needs fresh projected bounds for this frame's GPU test.
 		if (!CurrentBatch || CurrentBatch->Key.View != Key.View || CurrentBatch->Key.Origin != Key.Origin
@@ -295,19 +252,19 @@ namespace Durin
 		{
 			auto Batch = std::make_shared<FHZBBoundsBatch>();
 			Batch->Key = Key;
-			std::swap(Batch->Inputs, Scratch);
 			Batch->Bounds.reserve(Candidates.size());
 			Batch->TestIndices.reserve(Candidates.size());
 			const auto Matrix = View.GetTranslatedWorldToClip();
 			for (const uint32 Index : CandidateOrder)
 			{
 				const auto* Info = Candidates[Index];
-				if (!Info->GetId().IsValid() || !Batch->TestIndices.emplace(Info->GetId(), uint32(Batch->Bounds.size())).second)
+				if (!Info->CanBeOccluded() || !Info->GetId().IsValid()
+					|| !Batch->TestIndices.emplace(Info->GetId(), uint32(Batch->Bounds.size())).second)
 				{
 					Invalidate();
 					return {};
 				}
-				Batch->AddBounds(View, Matrix, Info->GetWorldBounds());
+				Batch->AddBounds(View, Matrix, Info->GetOcclusionBounds());
 			}
 			auto Desc = FRHIBufferCreateDesc::Create("Scene.Occlusion.Bounds", uint32(Batch->Bounds.size() * sizeof(FHZBProjectedBounds)),
 				sizeof(FHZBProjectedBounds), EBufferUsageFlags::StructuredBuffer);

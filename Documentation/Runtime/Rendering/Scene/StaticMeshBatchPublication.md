@@ -39,14 +39,21 @@ contents are not part of these input publications.
 ## Capture and update rules
 
 `FStaticMeshBatchCaptureContext` belongs to one render preparation command.
-Main-view occlusion, receiver collection and shadow cascades share it. No scene,
-material, geometry or readiness mutations may occur between uses. A new command
-must create a fresh context. Each asset's geometry publication is validated on
-its first capture and shared for later uses in that context. Material proxies
-resolve once per context. Raw asset and proxy keys stay on the render thread.
+Receiver collection and shadow cascades share it. No scene, material, geometry
+or readiness mutations may occur between uses. A new command must create a fresh
+context. Each asset's geometry publication is validated on its first capture
+and shared for later uses in that context. Material proxies resolve once per
+context. Raw asset and proxy keys stay on the render thread.
 Views that select the same LOD of a primitive can retain the same immutable
 admitted batch. Each view records its requested LOD and selects the section
 facts for its pass.
+
+Author LOD layout, section geometry and screen sizes before resource publication.
+For live geometry replacement, retire the existing resources and publish through
+`InitResources`. Publish an availability-only change through
+`SetLODReady_RenderThread`. These paths invalidate occlusion feedback in
+scenes using the render data. Live geometry must fit the primitive's published
+bounds. Changes to those bounds follow the scene proxy publication path.
 
 | Change | Next capture behavior |
 | --- | --- |

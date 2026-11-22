@@ -1808,10 +1808,10 @@ TEST(FRendererSceneContractTests, SceneViewportRenderGraphCaptureIsExplicitAndIs
 
 TEST(FRendererSceneContractTests, DirectionalShadowCandidatesStartFromSceneAndKeepRelevantOffCameraCasters)
 {
+	Durin::FStaticMeshRenderData RenderData;
 	FRenderingThreadScope RenderingThread;
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
-	Durin::FStaticMeshRenderData RenderData;
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.25), Durin::FVector3(0.25)
 	);
@@ -1864,10 +1864,10 @@ TEST(FRendererSceneContractTests, DirectionalShadowCandidatesStartFromSceneAndKe
 
 TEST(FRendererSceneContractTests, DirectionalShadowCasterTableBuildsZeroThroughAllCascadeMasksOnce)
 {
+	Durin::FStaticMeshRenderData RenderData;
 	FRenderingThreadScope RenderingThread;
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
-	Durin::FStaticMeshRenderData RenderData;
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.05), Durin::FVector3(0.05)
 	);
@@ -1920,10 +1920,10 @@ TEST(FRendererSceneContractTests, DirectionalShadowCasterTableBuildsZeroThroughA
 
 TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAndFifoLifetime)
 {
+	Durin::FStaticMeshRenderData RenderData;
 	FRenderingThreadScope RenderingThread;
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
-	Durin::FStaticMeshRenderData RenderData;
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-1.0, -2.0, -3.0),
 		Durin::FVector3(1.0, 2.0, 3.0)
@@ -1972,14 +1972,13 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 
 TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisible)
 {
+	Durin::FStaticMeshRenderData ValidRenderData, InvalidBoundsRenderData;
 	FRenderingThreadScope RenderingThread;
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
-	Durin::FStaticMeshRenderData ValidRenderData;
 	ValidRenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.5), Durin::FVector3(0.5)
 	);
-	Durin::FStaticMeshRenderData InvalidBoundsRenderData;
 
 	auto AddStaticMesh = [&](uint64 Id, const Durin::FVector3& Location,
 							 bool bVisible, const Durin::FStaticMeshRenderData* RenderData) {
@@ -2044,10 +2043,10 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 
 TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndependent)
 {
+	Durin::FStaticMeshRenderData RenderData;
 	FRenderingThreadScope RenderingThread;
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
-	Durin::FStaticMeshRenderData RenderData;
 	RenderData.LocalBounds = Durin::FBox(
 		Durin::FVector3(-0.5), Durin::FVector3(0.5)
 	);

@@ -148,9 +148,10 @@ namespace Durin
 						&& Context.Logical.Requirements.MainViewCulling.Frustum)
 					{
 						const auto Before = Visibility.SceneInfos.size();
+						Scene->UpdatePrimitiveOcclusion_RenderThread();
 						PreparedView.OcclusionFeedback = State->HZBOcclusionTester.Prepare(CommandList, RenderView, *Scene,
 							Service.Coordinator.GetGeneration_RenderThread(), Context.Logical.Width, Context.Logical.Height,
-							GRenderFrameCounterRenderThread, FTime::Seconds(), Visibility.SceneInfos, MeshPreparationCache.StaticCollection.Capture);
+							GRenderFrameCounterRenderThread, FTime::Seconds(), Visibility.SceneInfos);
 						Telemetry.View.Visibility.OcclusionCulledPrimitives = Before - Visibility.SceneInfos.size();
 					}
 					else State->HZBOcclusionTester.Invalidate();
