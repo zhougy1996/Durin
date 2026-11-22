@@ -356,6 +356,9 @@ the graph and release them when replay storage retires.
 With a threaded RHI executor and physical queue capabilities, recording dispatches
 the first complete execution batch immediately, then coalesces up to eight
 complete batches per CPU dispatch and dispatches the remainder at graph end.
+An `AddDispatchHint(Pass)` declaration closes the batch after a retained pass
+and requests dispatch at the next safe boundary. The hint follows normal pass
+culling and FIFO queue admission.
 Dispatch occurs after the batch GPU submission, transitions, and ownership
 releases close. An open outer timing/diagnostic scope or buffer lock defers it
 to a later safe boundary. Whole-view GPU timing therefore delays dispatch until

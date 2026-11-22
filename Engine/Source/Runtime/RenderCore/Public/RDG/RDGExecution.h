@@ -245,6 +245,7 @@ namespace Durin
 		uint32 FirstPass = 0;
 		uint32 NumPasses = 0;
 		bool bEpilogue = false;
+		bool bDispatchAfter = false;
 		auto operator==(const FRDGSubmissionBatch&) const -> bool = default;
 	};
 

@@ -8,6 +8,7 @@ namespace Durin
 	class FRHICommandListBase;
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
+	class FRHIGPUBufferReadback;
 	class FRHIGPUMemoryReadback;
 	enum class ERHIGPUReadbackState : uint8 { Pending, Ready, Failed, Canceled };
 	using ERHITextureReadbackState = ERHIGPUReadbackState;
@@ -29,15 +30,36 @@ namespace Durin
 			}
 			auto ResetReady() -> void
 			{ std::lock_guard Lock(Mutex); require(!bInFlight); ClearReadyData(); State = ERHIGPUReadbackState::Pending; }
-			auto Cancel() -> void { std::lock_guard Lock(Mutex); CancelLocked(); }
+			auto Cancel() -> void { std::lock_guard Lock(Mutex); CancelLocked(); ResultChanged.notify_all(); }
 			// Only a command/backend that will never complete this copy may abandon it.
-			auto Abandon() -> void { std::lock_guard Lock(Mutex); CancelLocked(); bInFlight = false; }
+			auto Abandon() -> void { std::lock_guard Lock(Mutex); CancelLocked(); bInFlight = false; ResultChanged.notify_all(); }
 			auto Complete(FByteBuffer Bytes) -> void
-			{ std::lock_guard Lock(Mutex); bInFlight = false; if (State != ERHIGPUReadbackState::Pending) return; Data = std::move(Bytes); State = ERHIGPUReadbackState::Ready; }
+			{
+				std::lock_guard Lock(Mutex);
+				bInFlight = false;
+				if (State != ERHIGPUReadbackState::Pending) return;
+				Data = std::move(Bytes);
+				State = ERHIGPUReadbackState::Ready;
+				ResultChanged.notify_all();
+			}
 			auto Fail() -> void
-			{ std::lock_guard Lock(Mutex); bInFlight = false; if (State == ERHIGPUReadbackState::Pending) State = ERHIGPUReadbackState::Failed; }
+			{ std::lock_guard Lock(Mutex); bInFlight = false; if (State == ERHIGPUReadbackState::Pending) State = ERHIGPUReadbackState::Failed; ResultChanged.notify_all(); }
 		private:
 			friend class Durin::FRHIGPUMemoryReadback;
+			friend class Durin::FRHIGPUBufferReadback;
+			auto WaitForResult(const bool& bFallbackFinished) -> void
+			{
+				std::unique_lock Lock(Mutex);
+				ResultChanged.wait(Lock, [&] {
+					return State != ERHIGPUReadbackState::Pending || !bInFlight || bFallbackFinished;
+				});
+			}
+			auto FinishFallback(bool& bFallbackFinished) -> void
+			{
+				std::lock_guard Lock(Mutex);
+				bFallbackFinished = true;
+				ResultChanged.notify_all();
+			}
 			auto TakeData(FByteBuffer& Out) -> bool
 			{ std::lock_guard Lock(Mutex); if (State != ERHIGPUReadbackState::Ready || bLocked || Data.empty()) return false; Out = std::move(Data); return true; }
 			auto ClearReadyData() -> void
@@ -49,6 +71,7 @@ namespace Durin
 			auto UnlockData() -> void
 			{ std::lock_guard Lock(Mutex); require(bLocked); bLocked = false; LockedData.clear(); if (State == ERHIGPUReadbackState::Canceled) Data.clear(); }
 			mutable std::mutex Mutex;
+			std::condition_variable ResultChanged;
 			ERHIGPUReadbackState State = ERHIGPUReadbackState::Pending;
 			FByteBuffer Data, LockedData;
 			bool bInFlight = false, bLocked = false;

@@ -120,6 +120,8 @@ namespace Durin
 			FRDGPassHandle Consumer) -> void;
 		RENDERCORE_API auto MarkPassRoot(FRDGPassHandle Pass,
 			std::string_view Reason = "side-effect") -> void;
+		// Prefer dispatch after this pass closes its submission batch.
+		RENDERCORE_API auto AddDispatchHint(FRDGPassHandle Pass) -> void;
 		RENDERCORE_API auto EnablePassCulling() -> void;
 		// Eligibility is an author declaration; enabling the policy does not imply
 		// that an independent physical queue is available during execution.

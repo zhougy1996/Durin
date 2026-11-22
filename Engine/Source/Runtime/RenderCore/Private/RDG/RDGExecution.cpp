@@ -535,10 +535,12 @@ namespace Durin
 		constexpr uint32 MaxBatchesPerDispatch = 8;
 		uint32 BatchesSinceDispatch = 0;
 		bool bDispatchedFirstBatch = false;
-		auto DispatchCompletedBatch = [&](bool bFinal) {
+		bool bDispatchRequested = false;
+		auto DispatchCompletedBatch = [&](bool bFinal, bool bHint = false) {
 			if (!bDispatchWhileRecording) return;
 			++BatchesSinceDispatch;
-			if ((!bDispatchedFirstBatch || BatchesSinceDispatch >= MaxBatchesPerDispatch || bFinal)
+			bDispatchRequested |= bHint;
+			if ((!bDispatchedFirstBatch || BatchesSinceDispatch >= MaxBatchesPerDispatch || bFinal || bDispatchRequested)
 				&& CommandList.CanDispatchToRHIThread())
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("RDG.DispatchRecordedBatches");
@@ -546,6 +548,7 @@ namespace Durin
 				CommandList.DispatchToRHIThread();
 				BatchesSinceDispatch = 0;
 				bDispatchedFirstBatch = true;
+				bDispatchRequested = false;
 			}
 		};
 		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
@@ -655,7 +658,7 @@ namespace Durin
 			for (const auto& Transition : Context.TransitionBegins[Batch.Id.Index]) CommandList.BeginTransition(Transition);
 			for (const auto& Transfer : Context.Releases[Batch.Id.Index]) CommandList.ReleaseQueueOwnership(Transfer);
 			CloseSubmission.Close();
-			DispatchCompletedBatch(Batch.Id.Index + 1 == Compiled->ExecutionPlan.Batches.size());
+			DispatchCompletedBatch(Batch.Id.Index + 1 == Compiled->ExecutionPlan.Batches.size(), Batch.bDispatchAfter);
 		}
 		return {};
 	}

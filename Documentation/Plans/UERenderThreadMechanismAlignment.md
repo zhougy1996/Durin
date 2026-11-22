@@ -89,6 +89,10 @@ Depends on the recording prerequisite `345a2fc30`. Use the
   visibility latency, and the frustum-only pixel/draw-ID oracle. Previous
   timing receipts predate this wait policy.
 
+The GBuffer feedback dispatch and result publication follow
+[the persistent-view contract](../Runtime/Rendering/Scene/PersistentViewState.md#main-view-occlusion-history)
+and [RHI readback completion](../Runtime/Rendering/RHI/RHICommandExecution.md#flush-and-synchronous-operations).
+
 ### Stage 4: Separate asynchronous recording, native translation and submission
 
 Depends on Stage 2 immutable inputs and Stage 0 RHI attribution. Use the Stage 3
@@ -162,6 +166,21 @@ two startup logs under the same directory at `20261122-235505-910487-23928-ctest
 and `20261122-235524-643972-34980-ctest.log`.
 
 ### Performance controls and diagnostics
+
+On 2026-11-23, windowed Sandbox `/Game/Levels/GrayboxStage15` reproduced the
+reported difference at the saved viewport camera on RTX 3090 Vulkan. The
+`0b7130de1` stock Debug/Tracy pair measured on/off frame-interval medians
+of 9.469/6.252 ms. An intermediate capture with early dispatch and polling
+showed 3.625 ms median from result publication to RT return. After making the
+wait follow publication, that span was 0.040 ms, and the wait itself went
+from 5.663/8.437 to 2.221/4.581 ms p50/p95 on waiting frames. Neither
+steady-state trace saw a native fence wait inside the readback fallback.
+The final uncapped toggle pair measured 16.798/21.402 ms on and
+14.036/17.296 ms off for frame interval p50/p95. These were Debug diagnostics
+with uncontrolled focus and host load. Repeat in a fixed-focus exclusive
+Release lane for end-to-end acceptance. Traces and sampling/analysis scripts
+are under `Build/Diagnostics/OcclusionGraybox/`. Use `before-{on,off}.tracy`,
+`isolated-after-on.tracy`, and `final-{on,off}.tracy` from this checkout.
 
 The 2026-11-19 baseline and cache runs used `Win64-Release-DurinEditor`,
 MSVC 14.44.35207, RTX 3090, Tracy off, and Vulkan validation off. The offscreen

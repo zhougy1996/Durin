@@ -127,6 +127,7 @@ namespace Durin::RDGPrivate
 		// Nonzero only for owned upload helpers; declarations stay independently addressable.
 		uint64 BufferUploadBytes = 0;
 		bool bRoot = false;
+		bool bDispatchAfter = false;
 		// Terminal exports consume contents but may hand off a writable access state.
 		bool bExport = false;
 		std::string RootReason;

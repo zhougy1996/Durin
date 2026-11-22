@@ -2519,13 +2519,44 @@ namespace Durin
 
 	auto FRHIGPUBufferReadback::Wait(FRHICommandListImmediate& Commands) const -> bool
 	{
-		if (GetState() == ERHIGPUReadbackState::Pending && IsInFlight())
+		if (GetState() != ERHIGPUReadbackState::Pending || !IsInFlight()) return IsReady();
+		auto* Executor = Commands.Executor;
+		auto Resolve = [Request = State](IRHICommandContext& Context) {
+			DURIN_PROFILE_CPU_ZONE_NAMED("RHI.Readback.ResolveOnExecutor");
+			if (Request->GetState() == ERHIGPUReadbackState::Pending && Request->IsInFlight())
+				Context.RHIWaitForBufferReadback(*Request);
+		};
+		auto* RHIThread = Executor->State->RHIThread;
+		if (!RHIThread)
 		{
-			Commands.Executor->ExecuteSynchronousContextOperation(true, [Request = State](IRHICommandContext& Context) {
-				if (Request->GetState() == ERHIGPUReadbackState::Pending && Request->IsInFlight())
-					Context.RHIWaitForBufferReadback(*Request);
-			});
+			Executor->ExecuteSynchronousContextOperation(true, std::move(Resolve));
+			return IsReady();
 		}
+		checkf(!Commands.HasOpenBufferLocks(), "A buffer readback wait requires all buffer locks to be closed.");
+		Executor->State->SynchronousOperationCount.fetch_add(1, std::memory_order_relaxed);
+		Executor->Submit({}, ERHISubmitFlags::None);
+		if (GetState() != ERHIGPUReadbackState::Pending || !IsInFlight()) return IsReady();
+
+		struct FFallback
+		{
+			std::mutex Mutex;
+			bool bWaitReturned = false;
+			bool bFinished = false; // Accessed under the readback state's mutex.
+		};
+		const auto Fallback = std::make_shared<FFallback>();
+		FRHIThreadWork Work;
+		Work.PayloadBytes = sizeof(FFallback);
+		Work.Execute = [Executor, Request = State, Fallback, Resolve = std::move(Resolve)] {
+			std::lock_guard Lock(Fallback->Mutex);
+			if (Fallback->bWaitReturned) return;
+			Resolve(Executor->State->ReplayContext.GetOperationContext("Buffer readback wait"));
+			Request->FinishFallback(Fallback->bFinished);
+		};
+		if (!RHIThread->Enqueue(Work)) RHITerminateOnFailure("Buffer readback wait", "RHI thread is closed");
+		State->WaitForResult(Fallback->bFinished);
+		// A queued fallback must not inspect a later copy using this readback.
+		std::lock_guard Lock(Fallback->Mutex);
+		Fallback->bWaitReturned = true;
 		return IsReady();
 	}
 

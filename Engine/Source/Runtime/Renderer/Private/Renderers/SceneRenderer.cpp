@@ -86,11 +86,6 @@ namespace Durin
 			PreparedView.VolumetricCloud ? &*PreparedView.VolumetricCloud : nullptr;
 		const FPreparedEnvironment* Environment =
 			PreparedView.Environment ? &*PreparedView.Environment : nullptr;
-		const auto DirectionalShadowOutput =
-			AddDirectionalShadowPasses(Graph, { .ShadowRecord = DirectionalShadow,
-				.Shadow = GraphResources.DirectionalShadow,
-				.Renderer = Service.DirectionalShadowRenderer,
-				.Resolved = Resolved.Scene, .Telemetry = Telemetry});
 		const auto GBufferOutput = AddGBufferPasses(Graph, { .View = PreparedRenderView,
 			.Receiver = PreparedView.Receiver,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
@@ -103,6 +98,11 @@ namespace Durin
 			.DeferredFeature = Features.Deferred});
 		if (PreparedView.OcclusionFeedback && Context.Transaction.ViewState)
 			Context.Transaction.ViewState->HZBOcclusionTester.Submit(Graph, GBufferOutput, PreparedView.OcclusionFeedback);
+		const auto DirectionalShadowOutput =
+			AddDirectionalShadowPasses(Graph, { .ShadowRecord = DirectionalShadow,
+				.Shadow = GraphResources.DirectionalShadow,
+				.Renderer = Service.DirectionalShadowRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry});
 		const auto AmbientOcclusionOutput =
 			AddAmbientOcclusionPasses(Graph, { .View = PreparedRenderView,
 				.Options = Options, .GBuffer = GBufferOutput,

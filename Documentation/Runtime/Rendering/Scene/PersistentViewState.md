@@ -4,7 +4,7 @@ Summary: Define optional renderer-owned identity, previous-view metadata, discon
 
 Modules: RenderCore, Renderer, Engine
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-23
 
 ## Public Boundary and Ownership
 
@@ -84,7 +84,10 @@ primitive component ID. A changed batch projects its bounds conservatively and
 uploads one immutable GPU buffer.
 After opaque GBuffer depth is available, the GPU reduces 16×16 tiles and tests
 each expanded bound against all covered tiles. Each candidate gets one 32-bit
-result. Before mesh collection, the view selects feedback from its previous
+result. The graph records this prefix before independent directional-shadow
+passes and requests early dispatch after the readback. Vulkan publishes
+completed readbacks at closed submission boundaries as well as frame begin.
+Before mesh collection, the view selects feedback from its previous
 render and validates it against the current view and scene. It waits for that
 copy if necessary, then maps the results. Traversal order may change. A matching
 index is culled only for a confirmed occluded value. Shadow caster selection

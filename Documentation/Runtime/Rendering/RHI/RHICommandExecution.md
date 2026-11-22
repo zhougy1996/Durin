@@ -308,9 +308,13 @@ a waiter always targets the exact accepted serial, and operation failure or
 admission rejection never falls back to producer-thread backend work.
 
 `FRHIGPUBufferReadback::Wait` uses the executor that recorded the copy. Ready
-results return immediately. A pending copy uses an ordered synchronous context
-operation and waits on that copy's Vulkan queue completion point or Metal
-submission callback. An unavailable or unsuccessful copy returns false.
+results return immediately. In threaded mode, publication of the copy result
+can wake the waiter while later RHI work is still queued. An ordered fallback
+on the executor can resolve a pending copy using its Vulkan queue completion
+point or Metal submission callback. A fallback left in the queue after the
+wait returns cannot inspect a later copy on the same facade. Inline mode
+resolves the copy on the caller. An unavailable or unsuccessful copy returns
+false.
 
 Recorded commands retain their bound resources and explicit views until replay.
 RDG records graph-boundary attachments in attachment access and inserts the

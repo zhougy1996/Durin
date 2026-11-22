@@ -237,6 +237,8 @@ namespace Durin::VulkanRHI
 		bInsideGPUSubmission = false;
 		if (Device.GetQueueCapabilities().Queues.size() > 1)
 			Device.GetSubmissionCoordinator().EnqueueContext(*this);
+		// Publish completed feedback while later graph batches are still replaying.
+		RHIPollReadbacks();
 	}
 
 	auto FVulkanCommandListContext::RHIReleaseQueueOwnership(const std::shared_ptr<FRHIQueueTransfer>& Transfer) -> void
@@ -1003,7 +1005,10 @@ namespace Durin::VulkanRHI
 		RHICopyBuffer(Source, Range.GetBuffer(), Regions);
 		const std::array After{FRHIBufferTransition{Range.GetBuffer(), Range.GetOffset(), NumBytes, ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
 		RHITransitionBuffers(After);
-		Device.GetSubmissionCoordinator().SubmitContext(*this);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Readback.SubmitBufferCopy");
+			Device.GetSubmissionCoordinator().SubmitContext(*this);
+		}
 		RetainReadback(std::move(Range), std::move(Request));
 	}
 
@@ -1045,6 +1050,7 @@ namespace Durin::VulkanRHI
 			}
 			if (State == ERHIGPUSubmissionState::Complete)
 			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Vulkan.Readback.Publish");
 				Readback.Range.Invalidate();
 				const auto* Data = Readback.Range.GetMappedPointer();
 				if (Data) Readback.Request->Complete(FByteBuffer(Data, Data + Readback.Range.GetSize()));

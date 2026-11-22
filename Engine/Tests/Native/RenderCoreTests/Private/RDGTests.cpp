@@ -2125,6 +2125,30 @@ namespace Durin
 			EXPECT_EQ(Context.Uploads[Index].Data.front(), static_cast<std::byte>(Index + 1));
 	}
 
+	TEST_F(FRDGTests, DispatchHintClosesBatchWithoutRetainingDeadPasses)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Dead = FRDGBuilderTestAccessor::AddPass(Builder, "Dead", ERDGPassType::Copy);
+		const auto First = FRDGBuilderTestAccessor::AddPass(Builder, "First", ERDGPassType::Copy);
+		const auto Feedback = FRDGBuilderTestAccessor::AddPass(Builder, "Feedback", ERDGPassType::Copy);
+		const auto Tail = FRDGBuilderTestAccessor::AddPass(Builder, "Tail", ERDGPassType::Copy);
+		Builder.AddPassDependency(First, Feedback);
+		Builder.AddPassDependency(Feedback, Tail);
+		Builder.MarkPassRoot(Tail);
+		Builder.AddDispatchHint(Dead);
+		Builder.AddDispatchHint(Feedback);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result) << ToString(Result.error());
+		const auto& Batches = Builder.GetExecutionPlan().Batches;
+		ASSERT_EQ(Batches.size(), 4u);
+		EXPECT_FALSE(Batches[0].bDispatchAfter);
+		EXPECT_TRUE(Batches[1].bDispatchAfter);
+		EXPECT_EQ(Batches[1].FirstPass + Batches[1].NumPasses, Batches[2].FirstPass);
+		EXPECT_FALSE(Batches[2].bDispatchAfter);
+		EXPECT_TRUE(Batches[3].bEpilogue);
+	}
+
 	TEST_F(FRDGTests, QueuedUploadBatchesKeepExactCrossQueueHandoffs)
 	{
 		FRDGBuilder Builder;

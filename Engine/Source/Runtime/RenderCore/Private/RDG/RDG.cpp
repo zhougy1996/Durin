@@ -938,6 +938,18 @@ namespace Durin
 		State->Passes[Pass.Index].RootReason = std::string(Reason);
 	}
 
+	auto FRDGBuilder::AddDispatchHint(FRDGPassHandle Pass) -> void
+	{
+		RequireBuilding();
+		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
+		{
+			State->DeclarationErrors.push_back(FRDGIdentityError{ERDGIdentityError::PassHandleInvalid,
+				FRDGIdentityErrorContext{.Index = Pass.Index}});
+			return;
+		}
+		State->Passes[Pass.Index].bDispatchAfter = true;
+	}
+
 	auto FRDGBuilder::SetRasterPass(FRDGPassHandle Pass, const FRDGRasterPassOptions& Options) -> void
 	{
 		RequireBuilding();

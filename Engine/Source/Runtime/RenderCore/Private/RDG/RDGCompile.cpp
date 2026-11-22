@@ -1139,12 +1139,13 @@ namespace Durin
 			{
 				const auto Queue = QueueForPass(Index);
 				const uint64 UploadBytes = CompiledState->RuntimePasses[Index].BufferUploadBytes;
-				const bool bJoinUploads = UploadBytes != 0 && UploadBatchBytes != 0
+				const bool bPreviousDispatch = Index != 0 && Execution.Batches.back().bDispatchAfter;
+				const bool bJoinUploads = !bPreviousDispatch && UploadBytes != 0 && UploadBatchBytes != 0
 					&& Execution.Batches.back().Queue == Queue
 					&& Execution.Batches.back().NumPasses < MaxUploadBatchCount
 					&& UploadBatchBytes <= MaxUploadBatchBytes
 					&& UploadBytes <= MaxUploadBatchBytes - UploadBatchBytes;
-				const bool bJoinPasses = Index != 0 && UploadBytes == 0 && UploadBatchBytes == 0
+				const bool bJoinPasses = Index != 0 && !bPreviousDispatch && UploadBytes == 0 && UploadBatchBytes == 0
 					// Preserve prompt dispatch of the first ordinary pass to the RHI thread.
 					&& (Execution.Batches.size() > 1
 						|| (CompiledState->Passes[Index - 1].bRaster && CompiledState->Passes[Index].bRaster))
@@ -1162,6 +1163,8 @@ namespace Durin
 						.Queue = Queue, .FirstPass = Index, .NumPasses = 1});
 					UploadBatchBytes = UploadBytes;
 				}
+				Execution.Batches.back().bDispatchAfter =
+					Passes[CompiledState->Passes[Index].DeclarationIndex].bDispatchAfter;
 				PassToSubmission[Index] = Execution.Batches.back().Id.Index;
 			}
 			if (ScheduledCount != 0 || !CompiledState->FinalBarriers.GetBufferTransitions().empty()

@@ -354,5 +354,6 @@ namespace Durin
 					Feedback->Readback.EnqueueCopy(Commands, Resolver.GetBuffer(Params.Arguments), ResultBytes);
 			});
 		Graph.MarkPassRoot(Pass, "Persistent view occlusion feedback");
+		Graph.AddDispatchHint(Pass);
 	}
 }

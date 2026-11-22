@@ -1304,6 +1304,55 @@ namespace Durin
 		EXPECT_EQ(Waits, 1);
 	}
 
+	TEST(FRHICommandListTests, ThreadedReadbackWaitReturnsOnPublicationBeforeQueuedFallback)
+	{
+		FRecordingCommandContext Context;
+		Context.bCaptureBufferReadbacks = true;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		auto& Commands = Executor.GetImmediateCommandList();
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create("WaitReadback", 8, 4, EBufferUsageFlags::SourceCopy));
+		FRHIGPUBufferReadback Request;
+		Request.EnqueueCopy(Commands, Buffer, 4);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		Executor.CreateFence().Wait();
+		ASSERT_EQ(Context.BufferReadbacks.size(), 1u);
+		const auto Pending = Context.BufferReadbacks.front();
+
+		FThreadEvent ReleaseTail;
+		FRHIThreadWork Tail;
+		Tail.Execute = [&] { ReleaseTail.WaitFor(3.0); };
+		const uint64 TailSerial = RHIThread.Enqueue(Tail);
+		ASSERT_NE(TailSerial, 0u);
+		bool bFallbackQueued = false;
+		std::jthread Publisher([&] {
+			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+			while (Executor.GetLastSubmittedSerial() == TailSerial && std::chrono::steady_clock::now() < Deadline)
+				std::this_thread::yield();
+			bFallbackQueued = Executor.GetLastSubmittedSerial() > TailSerial;
+			Pending->Complete(MakeByteVector({1, 2, 3, 4}));
+		});
+
+		EXPECT_TRUE(Request.Wait(Commands));
+		EXPECT_LT(Executor.GetCompletedSerial(), TailSerial);
+		Publisher.join();
+		EXPECT_TRUE(bFallbackQueued);
+
+		int FallbackCalls = 0;
+		Context.OnWaitForBufferReadback = [&](RHIPrivate::FReadbackState& State) {
+			++FallbackCalls;
+			// The first queued fallback must skip this new, as-yet unrecorded copy.
+			EXPECT_EQ(Context.BufferReadbacks.size(), 2u);
+			State.Complete(MakeByteVector({5, 6, 7, 8}));
+		};
+		Request.EnqueueCopy(Commands, Buffer, 4, 4);
+		ReleaseTail.Trigger();
+		EXPECT_TRUE(Request.Wait(Commands));
+		Executor.CreateFence().Wait();
+		EXPECT_EQ(FallbackCalls, 1);
+	}
+
 	TEST(FRHICommandListTests, ReusableReadbackWaitsForRetirementAndPreservesAnEarlierLock)
 	{
 		FRecordingCommandContext Context; Context.bCaptureBufferReadbacks = true;
