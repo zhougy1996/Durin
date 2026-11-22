@@ -29,6 +29,7 @@ namespace Durin
 		std::optional<FRDGTextureParameter> IsolatedDeferred;
 		std::optional<FRDGTextureParameter> BasePassDebug;
 		std::optional<FRDGTextureParameter> MaterialOutput;
+		std::optional<FRDGTextureParameter> Bloom;
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;

@@ -129,6 +129,7 @@ namespace Durin
 	struct FSceneViewPostProcessSettings
 	{
 		bool bEnableFXAA = true;
+		bool bEnableBloom = false;
 		// Manual display exposure in EV stops. Renderer canonicalizes non-finite
 		// values to zero and clamps authored values to the display contract range.
 		float ExposureEV = 0.0f;

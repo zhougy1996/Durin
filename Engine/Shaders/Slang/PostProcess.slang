@@ -16,12 +16,26 @@ struct ViewUniform
 {
     float2 InvRenderTargetSize;
     float ExposureScale;
-    float Padding;
+    float BloomIntensity;
+    float4 BloomRect;
 };
 
 Texture2D<float4> SceneColor;
+Texture2D<float4> Bloom;
 SamplerState SceneColorSampler;
 ConstantBuffer<ViewUniform> View;
+
+struct BloomPassUniform
+{
+    float4 SourceRect;
+    float2 InvSourceSize;
+    float ExposureScale;
+    uint Stage;
+};
+
+Texture2D<float4> BloomSource;
+Texture2D<float4> BloomDetail;
+ConstantBuffer<BloomPassUniform> BloomPass;
 
 static float Luma(float3 color)
 {
@@ -50,6 +64,53 @@ static float DisplayAlpha(float sceneAlpha)
     return isfinite(sceneAlpha) ? saturate(sceneAlpha) : 0.0;
 }
 
+static float3 DisplaySample(float3 sceneLinear, float2 uv)
+{
+    if (View.BloomIntensity > 0.0)
+    {
+        float2 bloomUV = (uv - View.BloomRect.xy) / View.BloomRect.zw;
+        if (all(bloomUV >= 0.0) && all(bloomUV < 1.0))
+            sceneLinear += Bloom.SampleLevel(SceneColorSampler, bloomUV, 0).rgb * View.BloomIntensity;
+    }
+    return DisplayMap(sceneLinear);
+}
+
+static float3 SampleDisplay(float2 uv)
+{
+    return DisplaySample(SceneColor.Sample(SceneColorSampler, uv).rgb, uv);
+}
+
+static float3 BloomTap(float2 uv, bool extract)
+{
+    const float2 halfTexel = BloomPass.InvSourceSize * 0.5;
+    uv = clamp(uv, BloomPass.SourceRect.xy + halfTexel,
+        max(BloomPass.SourceRect.xy + halfTexel, BloomPass.SourceRect.xy + BloomPass.SourceRect.zw - halfTexel));
+    float3 color = BloomSource.SampleLevel(SceneColorSampler, uv, 0).rgb;
+    if (!extract) return color;
+
+    color = all(isfinite(color)) ? max(color, 0.0) : float3(0.0);
+    const float brightness = dot(color, float3(0.2126, 0.7152, 0.0722)) * BloomPass.ExposureScale;
+    const float knee = saturate(brightness - 0.5);
+    const float contribution = max(brightness - 1.0, 0.5 * knee * knee);
+    return color * (contribution / max(brightness, 1e-6));
+}
+
+[shader("fragment")]
+float4 BloomFragmentMain(VSOutput input) : SV_Target
+{
+    const bool extract = BloomPass.Stage == 0;
+    const bool upsample = BloomPass.Stage == 2;
+    const float2 uv = BloomPass.SourceRect.xy + input.uv * BloomPass.SourceRect.zw;
+    const float2 offset = BloomPass.InvSourceSize * (upsample ? 0.75 : 0.5);
+    float3 color = 0.25 * BloomTap(uv + float2(-offset.x, -offset.y), extract)
+        + 0.25 * BloomTap(uv + float2(offset.x, -offset.y), extract)
+        + 0.25 * BloomTap(uv + float2(-offset.x, offset.y), extract)
+        + 0.25 * BloomTap(uv + float2(offset.x, offset.y), extract);
+    if (upsample)
+        color = lerp(BloomDetail.SampleLevel(SceneColorSampler, input.uv, 0).rgb, color, 0.65);
+    return float4(color, 0.0);
+}
+
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
 {
@@ -63,19 +124,19 @@ VSOutput VertexMain(VSInput input)
 float4 CopyFragmentMain(VSOutput input) : SV_Target
 {
     const float4 center = SceneColor.Sample(SceneColorSampler, input.uv);
-    return float4(DisplayMap(center.rgb), DisplayAlpha(center.a));
+    return float4(DisplaySample(center.rgb, input.uv), DisplayAlpha(center.a));
 }
 
 [shader("fragment")]
 float4 FXAAFragmentMain(VSOutput input) : SV_Target
 {
     float2 texel = View.InvRenderTargetSize;
-    float3 rgbNW = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2(-1.0, -1.0)).rgb);
-    float3 rgbNE = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2( 1.0, -1.0)).rgb);
-    float3 rgbSW = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2(-1.0,  1.0)).rgb);
-    float3 rgbSE = DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + texel * float2( 1.0,  1.0)).rgb);
+    float3 rgbNW = SampleDisplay(input.uv + texel * float2(-1.0, -1.0));
+    float3 rgbNE = SampleDisplay(input.uv + texel * float2( 1.0, -1.0));
+    float3 rgbSW = SampleDisplay(input.uv + texel * float2(-1.0,  1.0));
+    float3 rgbSE = SampleDisplay(input.uv + texel * float2( 1.0,  1.0));
     float4 center = SceneColor.Sample(SceneColorSampler, input.uv);
-    float3 centerDisplay = DisplayMap(center.rgb);
+    float3 centerDisplay = DisplaySample(center.rgb, input.uv);
 
     float lumaNW = Luma(rgbNW);
     float lumaNE = Luma(rgbNE);
@@ -95,11 +156,11 @@ float4 FXAAFragmentMain(VSOutput input) : SV_Target
     direction = clamp(direction * inverseDirectionAdjustment, float2(-8.0, -8.0), float2(8.0, 8.0)) * texel;
 
     float3 rgbA = 0.5 * (
-        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * (1.0 / 3.0 - 0.5)).rgb) +
-        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * (2.0 / 3.0 - 0.5)).rgb));
+        SampleDisplay(input.uv + direction * (1.0 / 3.0 - 0.5)) +
+        SampleDisplay(input.uv + direction * (2.0 / 3.0 - 0.5)));
     float3 rgbB = rgbA * 0.5 + 0.25 * (
-        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * -0.5).rgb) +
-        DisplayMap(SceneColor.Sample(SceneColorSampler, input.uv + direction * 0.5).rgb));
+        SampleDisplay(input.uv + direction * -0.5) +
+        SampleDisplay(input.uv + direction * 0.5));
 
     float lumaB = Luma(rgbB);
     float3 resolved = (lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;

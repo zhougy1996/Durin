@@ -35,7 +35,8 @@ namespace Durin
 			DURIN_TEXTURE(SceneColor), DURIN_TEXTURE(CloudComposite),
 			DURIN_TEXTURE(SceneDepth),
 			DURIN_COLOR(GBufferDebugOutput, ERHIAccess::GraphicsShaderRead),
-			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred), DURIN_TEXTURE(BasePassDebug), DURIN_TEXTURE(MaterialOutput)
+			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred), DURIN_TEXTURE(BasePassDebug), DURIN_TEXTURE(MaterialOutput),
+			DURIN_TEXTURE(Bloom)
 		};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FPostProcessPassResources", Members);
@@ -64,9 +65,6 @@ namespace Durin
 			FParameters>("FPostProcessPassParameters", Members);
 		return &Metadata;
 	}
-
-	#undef DURIN_COLOR
-	#undef DURIN_TEXTURE
 
 	namespace
 	{
@@ -100,10 +98,105 @@ namespace Durin
 				const FSceneViewRenderOptions&,
 				const FPostProcessRenderer::FSceneTargets&,
 				const FGBufferRenderer::FTargets*,
-				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*, FRHITexture*) -> FPostProcessPassResult;
+				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*, FRHITexture*, FRHITexture*) -> FPostProcessPassResult;
 		};
 
+		struct FBloomPassParameters
+		{
+			FRDGTextureParameter Source;
+			std::optional<FRDGTextureParameter> Detail;
+			std::optional<FRDGTextureParameter> CloudComposite;
+			std::optional<FRDGTextureParameter> MaterialOutput;
+			std::optional<TRDGValueRead<FSceneColorPassResult>> SceneColor;
+			std::optional<TRDGValueRead<bool>> MaterialApplied;
+			FRDGColorAttachmentBinding Output;
+
+			static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
+			{
+				using FParameters = FBloomPassParameters;
+				static const std::array Members{
+					DURIN_TEXTURE(Source), DURIN_TEXTURE(Detail),
+					DURIN_TEXTURE(CloudComposite), DURIN_TEXTURE(MaterialOutput),
+					MakeRDGValueParameterMemberMetadata<FParameters, decltype(SceneColor), FSceneColorPassResult>(
+						"SceneColor", offsetof(FParameters, SceneColor)),
+					MakeRDGValueParameterMemberMetadata<FParameters, decltype(MaterialApplied), bool>(
+						"MaterialApplied", offsetof(FParameters, MaterialApplied)),
+					MakeRDGColorAttachmentBindingMetadata<FParameters, decltype(Output)>(
+						"Output", offsetof(FParameters, Output))};
+				static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>("FBloomPassParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		auto AddBloomPasses(FRDGBuilder& Graph, FPostProcessRenderer& Renderer, const std::shared_ptr<const FPreparedBloom>& Draw,
+			const FSceneView& View, const FPostProcessPassParameters& PostProcess) -> FRDGTextureParameter
+		{
+			constexpr uint32 MaxLevels = 5;
+			constexpr FRHITextureSubresourceRange ColorRange{ERHITextureAspect::Color, 0, 1, 0, 1};
+			const auto AddPass = [&](std::string Name, EBloomStage Stage, FIntPoint Extent,
+				FRDGTextureParameter Source, std::optional<FRDGTextureParameter> Detail = std::nullopt)
+				-> FRDGTextureParameter
+			{
+				const auto Output = Graph.CreateTexture({.Texture = FRHITextureCreateDesc::Create2D(
+					"Bloom", Extent.x, Extent.y, EPixelFormat::RGBA16_FLOAT)
+					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
+					.SetClearValue(FClearValueBinding(0, 0, 0, 0))}, Name + ".Color");
+				auto Parameters = Graph.AllocParameters<FBloomPassParameters>();
+				Parameters->Source = Source;
+				Parameters->Detail = Detail;
+				Parameters->Output = {Output, ColorRange, ERHIRenderTargetLoadAction::Clear};
+				if (Stage == EBloomStage::Extract)
+				{
+					Parameters->SceneColor = PostProcess.SceneColor;
+					Parameters->CloudComposite = PostProcess.Resources.CloudComposite;
+					Parameters->MaterialApplied = PostProcess.MaterialCompletion;
+					Parameters->MaterialOutput = PostProcess.Resources.MaterialOutput;
+				}
+				(void)Graph.AddRasterPass(Name, std::move(Parameters),
+					[&Renderer, Draw, Stage, &View](FRHICommandListImmediate& Commands,
+						const FBloomPassParameters& Pass, const FRDGParameterResolver& Resolver) {
+						const auto* SceneColor = Resolver.ReadValue(Pass.SceneColor);
+						if (SceneColor && !SceneColor->IsSuccess()) return;
+						auto* Input = Resolver.GetTexture(Pass.Source);
+						if (const auto* Applied = Resolver.ReadValue(Pass.MaterialApplied); Applied && *Applied)
+							Input = Resolver.GetTexture(Pass.MaterialOutput);
+						else if (SceneColor && SceneColor->bUsesVolumetricCloudComposite && Pass.CloudComposite)
+							Input = Resolver.GetTexture(Pass.CloudComposite);
+						Renderer.DrawBloom_RenderThread(Commands, *Draw, Stage, Input,
+							Resolver.GetTexture(Pass.Detail), Resolver.GetColorAttachment(Pass.Output).Texture, View);
+					});
+				return {Output, ColorRange};
+			};
+
+			std::array<FIntPoint, MaxLevels> Extents;
+			std::array<FRDGTextureParameter, MaxLevels> Levels;
+			FIntPoint Extent(static_cast<int32>(View.ViewportWidth), static_cast<int32>(View.ViewportHeight));
+			FRDGTextureParameter Result = *PostProcess.Resources.SceneColor;
+			uint32 NumLevels = 0;
+			for (; NumLevels < MaxLevels; ++NumLevels)
+			{
+				Extent = {(Extent.x + 1) / 2, (Extent.y + 1) / 2};
+				Extents[NumLevels] = Extent;
+				const bool bExtract = NumLevels == 0;
+				Result = AddPass(bExtract ? "Scene.Bloom.Extract" : "Scene.Bloom.Downsample." + std::to_string(NumLevels),
+					bExtract ? EBloomStage::Extract : EBloomStage::Downsample, Extent, Result);
+				Levels[NumLevels] = Result;
+				if (Extent.x == 1 && Extent.y == 1)
+				{
+					++NumLevels;
+					break;
+				}
+			}
+			for (uint32 Level = NumLevels - 1; Level > 0; --Level)
+				Result = AddPass("Scene.Bloom.Upsample." + std::to_string(Level - 1),
+					EBloomStage::Upsample, Extents[Level - 1], Result, Levels[Level - 1]);
+			return Result;
+		}
+
 	} // namespace
+
+	#undef DURIN_COLOR
+	#undef DURIN_TEXTURE
 
 	auto AddPostProcessPasses(
 		FRDGBuilder& Graph, const FPostProcessFeatureInputs& Inputs) -> FPostProcessGraphOutput
@@ -183,6 +276,9 @@ namespace Durin
 			Parameters->Resources.CloudComposite = {
 				*Inputs.SceneColor.CloudComposite,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
+		if (Recorder.Draw.Bloom)
+			Parameters->Resources.Bloom = AddBloomPasses(Graph, Recorder.PostProcessRenderer,
+				Recorder.Draw.Bloom, RecordView, Parameters.Get());
 		if (bGBufferDebug)
 			Parameters->Resources.SceneDepth = {Inputs.SceneColor.Depth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
@@ -277,7 +373,8 @@ namespace Durin
 					bPresentOutput, LocalOptions, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					DebugTargets ? &*DebugTargets : nullptr,
-					SceneColorInput, MaterialColorInput, IsolatedDeferredOutput
+					SceneColorInput, MaterialColorInput, IsolatedDeferredOutput,
+					Resolver.GetTexture(PassParameters.Resources.Bloom)
 				);
 			});
 		if (!bHasEditorAssistance)
@@ -300,7 +397,8 @@ namespace Durin
 		const FGBufferDebugRenderer::FTargets* GBufferDebugTargets,
 		FRHITexture* SceneColor,
 		FRHITexture* MaterialColor,
-		FRHITexture* GroundTruthAmbientOcclusionDebugOutput
+		FRHITexture* GroundTruthAmbientOcclusionDebugOutput,
+		FRHITexture* Bloom
 	) -> FPostProcessPassResult
 	{
 		const uint32 Width = OutputTarget->GetSizeX();
@@ -350,7 +448,7 @@ namespace Durin
 		);
 		PostProcessRenderer.Draw_RenderThread(CommandList, PostProcessInput, OutputTarget, Draw,
 			FClearValueBinding(View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a),
-			bPresentOutput, RenderView.Settings.PostProcess.ExposureEV);
+			bPresentOutput, RenderView, Bloom);
 		PostProcessTiming.Commit();
 		return {.Result = ERenderViewResult::Success};
 	}

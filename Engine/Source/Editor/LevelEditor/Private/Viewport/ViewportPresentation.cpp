@@ -1093,6 +1093,13 @@ namespace Durin::LevelEditor
 						});
 					ImGui::EndMenu();
 				}
+				bool bEnableBloom = RenderSettingsClient->GetViewSettings().PostProcess.bEnableBloom;
+				if (ImGui::Checkbox("Bloom", &bEnableBloom))
+				{
+					auto Settings = RenderSettingsClient->GetViewSettings();
+					Settings.PostProcess.bEnableBloom = bEnableBloom;
+					RenderSettingsClient->SetViewSettings(Settings);
+				}
 				if (ImGui::BeginMenu("FXAA"))
 				{
 					bool bEnabled = Layout.bEnableFXAA;

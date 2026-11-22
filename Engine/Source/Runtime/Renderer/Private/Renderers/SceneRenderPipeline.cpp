@@ -369,6 +369,8 @@ namespace Durin
 			if (!Service.PostProcessRenderer.Prepare_RenderThread(CommandList,
 				RenderView.Settings.PostProcess.bEnableFXAA, Targets, ResolvedSceneResources.PostProcess))
 				return ERenderViewResult::RendererResourcesUnavailable;
+			Service.PostProcessRenderer.PrepareBloom_RenderThread(
+				RenderView, Context.Logical.Options, ResolvedSceneResources.PostProcess);
 			ResolvedSceneResources.PostProcessMaterial = Service.PostProcessRenderer.PrepareMaterial_RenderThread(
 				CommandList, RenderView, Context.Logical.Options, Context.Logical.Scene, Width, Height,
 				Qualification.bFailPostProcessMaterialPreparation, Qualification.bFailPostProcessMaterialBindings);

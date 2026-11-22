@@ -34,7 +34,7 @@ transfer encoding; shader code must not encode sRGB itself.
 Each immutable `FSceneView` owns one manual `ExposureEV`. Its default and
 non-finite fallback are `0.0`; authored values are clamped to `[-16, 16]`.
 The CPU computes `exposureScale = exp2(ExposureEV)` and packs it with inverse
-target size in one 16-byte per-draw uniform. Sequential views never share
+target size and Bloom constants in a per-draw uniform. Sequential views never share
 semantic exposure state.
 
 For each RGB channel, the selected ACES fitted transform is:
@@ -63,10 +63,30 @@ All scene draws and optional contact-shadow composition finish in HDR. Display
 mapping and optional FXAA then write the SDR output. An optional per-view
 [PostProcess material](../Materials/MaterialSceneInputs.md#per-view-slot-and-preview)
 runs between completed HDR composition and that display transform, with a
-separate HDR output and local failure bypass. Editor grid, gizmos,
+separate HDR output and local failure bypass. Bloom reads the selected HDR
+result after this material slot. Editor grid, gizmos,
 overlay lines, and icons load that output afterward, preserving their crisp
 SDR design. Present/offscreen selection changes only the final resource state,
 not color processing.
+
+## Bloom
+
+`FSceneViewPostProcessSettings::bEnableBloom` opts a view in. The Level Editor
+exposes the setting under **Post Processing > Bloom**. It defaults to off,
+and diagnostic outputs bypass the effect.
+
+RDG extracts highlights from the fitted view into a half-resolution HDR
+target. The filter uses exposed luminance with a threshold of 1.0 and a soft
+knee of 0.5 while preserving scene-linear RGB in the pyramid. Up to five
+levels of downsampling and the corresponding upsampling combine broad and
+narrow highlights. The levels are frame-transient and stop growing in count
+once both dimensions reach one pixel.
+
+The display pass samples the reconstructed result at 0.15 strength and adds
+it to scene RGB before applying exposure and the ACES fit. The Copy and FXAA
+paths both apply this composition, preserving scene alpha and the fitted
+view's letterbox. The effect adds no full-resolution HDR output. A view with
+Bloom disabled declares no Bloom passes or textures.
 
 ## Resources, Retention, and Failure
 

@@ -20,6 +20,15 @@ namespace Durin
 	class FPostProcessVertexShader;
 	class FCopySceneColorFragmentShader;
 	class FFXAAFragmentShader;
+	class FBloomFragmentShader;
+	enum class EBloomStage : uint32 { Extract, Downsample, Upsample };
+	struct FPreparedBloom
+	{
+		TShaderMapRef<FBloomFragmentShader> FragmentShader;
+		FGraphicsPipelineStateInitializer PipelineInitializer;
+		FSamplerRHIRef Sampler;
+	};
+
 	struct FPreparedPostProcess
 	{
 		TShaderMapRef<FPostProcessVertexShader> VertexShader;
@@ -28,6 +37,7 @@ namespace Durin
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateInitializer PipelineInitializer;
 		FSamplerRHIRef SceneColorSampler;
+		std::shared_ptr<const FPreparedBloom> Bloom;
 	};
 
 	struct FPreparedPostProcessMaterial
@@ -81,13 +91,18 @@ namespace Durin
 		auto Prepare_RenderThread(
 			FRHICommandListImmediate& CommandList, bool bEnableFXAA, const FRHIRenderTargetLayout& Targets, FPreparedPostProcess& Draw)
 			-> bool;
+		auto PrepareBloom_RenderThread(const FSceneView& View, const FSceneViewRenderOptions& Options,
+			FPreparedPostProcess& Draw) -> void;
+		auto DrawBloom_RenderThread(FRHICommandListImmediate& Commands, const FPreparedBloom& Draw,
+			EBloomStage Stage, FRHITexture* Source, FRHITexture* Detail, FRHITexture* Output,
+			const FSceneView& View) -> void;
 		static auto DescribeSceneTargets(uint32 Width, uint32 Height)
 			-> std::array<FRHITextureCreateDesc, 2>;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor, FRHITexture* Output,
 			const FPreparedPostProcess& Draw, const FClearValueBinding& ClearColor,
-			bool bPresentOutput, float ExposureEV) -> void;
+			bool bPresentOutput, const FSceneView& View, FRHITexture* Bloom) -> void;
 		auto PrepareMaterial_RenderThread(FRHICommandListImmediate& Commands,
 			const FSceneView& View, const FSceneViewRenderOptions& Options, FScene* Scene, uint32 Width, uint32 Height,
 			bool bRejectPreparation = false, bool bRejectBindings = false)

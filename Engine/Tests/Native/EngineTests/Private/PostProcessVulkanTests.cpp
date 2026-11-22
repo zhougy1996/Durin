@@ -12,6 +12,7 @@
 #include "Misc/RuntimePaths.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "RDG/RDGDiagnostics.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Rendering/SceneInterface.h"
@@ -67,7 +68,8 @@ namespace Durin
 			}
 		} Cleanup{Lifecycle, Scene};
 		Scene = Renderer.CreateScene();
-		auto Prepare = [&](bool FXAA, EPixelFormat Format, FByteBuffer* Pixels = nullptr) {
+		auto Prepare = [&](bool FXAA, EPixelFormat Format, FByteBuffer* Pixels = nullptr,
+			bool Bloom = false, float Brightness = 0.0f, FRDGCapture* Capture = nullptr) {
 			FTextureRHIRef Output;
 			const auto Preparation = FRenderResourcePreparation::Create();
 			const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -86,6 +88,7 @@ namespace Durin
 					View.ViewportWidth = 32; View.ViewportHeight = 32;
 					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 					View.Settings.PostProcess.bEnableFXAA = FXAA;
+					View.Settings.PostProcess.bEnableBloom = Bloom;
 					const auto DrawsBefore = Commands.GetNumRecordedDrawCommands();
 					Renderer.PrepareViewResources(Commands, {Scene.get(), View, Output, false, {}}, Preparation);
 					EXPECT_EQ(Commands.GetNumRecordedDrawCommands(), DrawsBefore);
@@ -106,10 +109,11 @@ namespace Durin
 					FSceneView View;
 					View.ViewportWidth = 32;
 					View.ViewportHeight = 32;
-					View.ClearColor.a = 1.0f;
+					View.ClearColor = {Brightness, Brightness, Brightness, 1.0f};
 					View.Settings.Mode.RenderMode = ERenderMode::Unlit;
 					View.Settings.PostProcess.bEnableFXAA = FXAA;
-					EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}}), ERenderViewResult::Success);
+					View.Settings.PostProcess.bEnableBloom = Bloom;
+					EXPECT_EQ(Renderer.RenderView(Commands, {Scene.get(), View, Output, false, {}, nullptr, Capture}), ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, *Pixels));
 					GDynamicRHI->RHIEndFrame_RenderThread(Commands);
 				});
@@ -141,6 +145,29 @@ namespace Durin
 		};
 		CheckDraws(255, 255);
 		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, Expected);
+		for (const bool FXAA : {false, true})
+		{
+			SCOPED_TRACE(FXAA);
+			FByteBuffer Disabled, Enabled, DimDisabled, DimEnabled;
+			FRDGCapture DisabledGraph, EnabledGraph;
+			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &Disabled, false, 1.75f, &DisabledGraph);
+			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &Enabled, true, 1.75f, &EnabledGraph);
+			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &DimDisabled, false, 0.25f);
+			Prepare(FXAA, EPixelFormat::SRGBA8_UNORM, &DimEnabled, true, 0.25f);
+			ASSERT_EQ(Enabled.size(), 32u * 32u * 4u);
+			ASSERT_EQ(Disabled.size(), Enabled.size());
+			EXPECT_GT(std::to_integer<int>(Enabled[0]), std::to_integer<int>(Disabled[0]));
+			EXPECT_EQ(Enabled[3], Disabled[3]);
+			EXPECT_EQ(DimEnabled, DimDisabled);
+			const auto IsBloom = [](const FRDGPassCapture& Pass) { return Pass.Name.starts_with("Scene.Bloom."); };
+			EXPECT_EQ(std::ranges::count_if(DisabledGraph.Passes, IsBloom), 0);
+			EXPECT_EQ(std::ranges::count_if(EnabledGraph.Passes, IsBloom), 9);
+			const auto LastUpsample = std::ranges::find(EnabledGraph.Passes, "Scene.Bloom.Upsample.0", &FRDGPassCapture::Name);
+			const auto Display = std::ranges::find(EnabledGraph.Passes, "Scene.PostProcess", &FRDGPassCapture::Name);
+			ASSERT_NE(Display, EnabledGraph.Passes.end());
+			EXPECT_LT(LastUpsample, Display);
+		}
+		EXPECT_EQ(GDynamicRHI->RHIGetPipelineCacheStatistics().GraphicsPipelines.NativeCreations, ++Expected);
 
 		const auto Path = Source / "PostProcess.slang";
 		std::ifstream Input(Path, std::ios::binary);

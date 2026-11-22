@@ -40,6 +40,7 @@ namespace Durin
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FPostProcessInputParameters)
 			DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
+			DURIN_SHADER_PARAMETER_TEXTURE(Bloom);
 			DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
 		DURIN_END_SHADER_PARAMETERS();
@@ -73,9 +74,23 @@ namespace Durin
 			"FXAAFragmentMain");
 	};
 
+	class FBloomFragmentShader : public FGlobalShader
+	{
+	public:
+		DURIN_BEGIN_SHADER_PARAMETERS(FBloomFragmentShader)
+			DURIN_SHADER_PARAMETER_TEXTURE(BloomSource);
+			DURIN_SHADER_PARAMETER_TEXTURE(BloomDetail);
+			DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(BloomPass);
+		DURIN_END_SHADER_PARAMETERS();
+		DURIN_DECLARE_GLOBAL_SHADER(FBloomFragmentShader, FGlobalShader,
+			"/Engine/PostProcess", EShaderFrequency::Fragment, "BloomFragmentMain");
+	};
+
 	DURIN_IMPLEMENT_GLOBAL_SHADER(FPostProcessVertexShader);
 	DURIN_IMPLEMENT_GLOBAL_SHADER(FCopySceneColorFragmentShader);
 	DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FBloomFragmentShader);
 
 	namespace
 	{
@@ -103,15 +118,45 @@ namespace Durin
 			EShaderRequestEligibility::GameAndEditor,
 			{&FPostProcessVertexShader::StaticType(),
 			 &FFXAAFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GPostProcessBloomShaderSet(
+			"Renderer", "PostProcess.Bloom",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FPostProcessVertexShader::StaticType(), &FBloomFragmentShader::StaticType()});
 
 		struct FPostProcessViewUniform
 		{
 			FVector2f InvRenderTargetSize{1.0f, 1.0f};
 			float ExposureScale = 1.0f;
-			float Padding = 0.0f;
+			float BloomIntensity = 0.0f;
+			FVector4f BloomRect{};
 		};
-		static_assert(sizeof(FPostProcessViewUniform) == 16);
+		static_assert(sizeof(FPostProcessViewUniform) == 32);
 		static_assert(alignof(FPostProcessViewUniform) == alignof(float));
+
+		struct FBloomPassUniform
+		{
+			FVector4f SourceRect;
+			FVector2f InvSourceSize;
+			float ExposureScale;
+			uint32 Stage;
+		};
+		static_assert(sizeof(FBloomPassUniform) == 32);
+
+		auto GetViewRectUV(const FSceneView& View, const FVector2f& InvSize) -> FVector4f
+		{
+			return {View.ViewportX * InvSize.x, View.ViewportY * InvSize.y,
+				View.ViewportWidth * InvSize.x, View.ViewportHeight * InvSize.y};
+		}
+
+		auto HasPostProcessDiagnostic(const FSceneView& View, const FSceneViewRenderOptions& Options) -> bool
+		{
+			return Options.GBufferDebugMode != EGBufferDebugMode::Disabled
+				|| Options.DeferredDirectionalDebugMode != EDeferredDirectionalDebugMode::Disabled
+				|| Options.GroundTruthAmbientOcclusionDebugMode != EGroundTruthAmbientOcclusionDebugMode::Disabled
+				|| View.Settings.DirectionalShadow.bShowContactDebug
+				|| View.Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit
+				|| View.Settings.VolumetricCloud.DebugMode != EVolumetricCloudDebugMode::Lit;
+		}
 
 		auto CreatePostProcessPipeline(
 			FRHIShader* VertexShader,
@@ -193,6 +238,59 @@ namespace Durin
 		return true;
 	}
 
+	auto FPostProcessRenderer::PrepareBloom_RenderThread(const FSceneView& View,
+		const FSceneViewRenderOptions& Options, FPreparedPostProcess& Draw) -> void
+	{
+		if (!View.Settings.PostProcess.bEnableBloom || HasPostProcessDiagnostic(View, Options))
+			return;
+
+		auto Shader = GetGlobalShaderMap().GetShader<FBloomFragmentShader>();
+		auto* Fragment = Shader.GetRHIShader(false);
+		if (!Fragment) return;
+		FRHIRenderTargetLayout Targets;
+		Targets.NumColorRenderTargets = 1;
+		Targets.ColorAttachments[0].RenderTarget = MakeRDGAttachmentLayout(
+			EPixelFormat::RGBA16_FLOAT, ERHIAccess::ColorAttachmentReadWrite,
+			ERHIRenderTargetLoadAction::Clear);
+		auto Pipeline = CreatePostProcessPipeline(Draw.VertexShader.GetRHIShader(false), Fragment,
+			Draw.VertexDeclaration, Shader.GetPipelineLayout(), Targets);
+		if (FRenderPipelinePreparationBatch::ShouldPrecachePipelines())
+		{
+			auto Request = PipelineStateCache::PrecacheGraphicsPipelineState(Pipeline);
+			if (!Request || Request->GetState() == ERHIPipelineState::Failed
+				|| Request->GetState() == ERHIPipelineState::Canceled) return;
+			FRenderPipelinePreparationBatch::Add(Request);
+		}
+		Draw.Bloom = std::make_shared<FPreparedBloom>(FPreparedBloom{
+			std::move(Shader), std::move(Pipeline), Draw.SceneColorSampler});
+	}
+
+	auto FPostProcessRenderer::DrawBloom_RenderThread(FRHICommandListImmediate& Commands,
+		const FPreparedBloom& Draw, EBloomStage Stage, FRHITexture* Source,
+		FRHITexture* Detail, FRHITexture* Output, const FSceneView& View) -> void
+	{
+		const float Width = static_cast<float>(Output->GetSizeX());
+		const float Height = static_cast<float>(Output->GetSizeY());
+		SetGraphicsPipelineState(Commands, Draw.PipelineInitializer);
+		Commands.SetViewport(0, 0, 0, Width, Height, 1);
+		Commands.SetScissor(0, 0, Width, Height);
+		Commands.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+		Commands.BindIndexBuffer(FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+
+		const FVector2f InvSourceSize(1.0f / Source->GetSizeX(), 1.0f / Source->GetSizeY());
+		const FBloomPassUniform Uniform{
+			Stage == EBloomStage::Extract ? GetViewRectUV(View, InvSourceSize) : FVector4f{0, 0, 1, 1},
+			InvSourceSize, DisplayMapping::CalculateExposureScale(View.Settings.PostProcess.ExposureEV),
+			static_cast<uint32>(Stage)};
+		FBloomFragmentShader::FParameters Parameters;
+		Parameters.BloomSource = Source;
+		Parameters.BloomDetail = Detail ? Detail : Source;
+		Parameters.SceneColorSampler = Draw.Sampler;
+		Parameters.BloomPass = Commands.CreateUniformBufferRange(&Uniform, sizeof(Uniform));
+		SetShaderParameters(Commands, Draw.FragmentShader, Parameters);
+		Commands.DrawIndexed(3, 0, 0);
+	}
+
 	auto FPostProcessRenderer::DescribeSceneTargets(uint32 Width, uint32 Height)
 		-> std::array<FRHITextureCreateDesc, 2>
 	{
@@ -213,7 +311,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* SceneColor, FRHITexture* Output,
 		const FPreparedPostProcess& Draw, const FClearValueBinding& ClearColor,
-		bool bPresentOutput, float ExposureEV) -> void
+		bool bPresentOutput, const FSceneView& View, FRHITexture* Bloom) -> void
 	{
 		if (FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
@@ -254,7 +352,12 @@ namespace Durin
 			1.0f / static_cast<float>(Width),
 			1.0f / static_cast<float>(Height));
 		ViewUniform.ExposureScale =
-			DisplayMapping::CalculateExposureScale(ExposureEV);
+			DisplayMapping::CalculateExposureScale(View.Settings.PostProcess.ExposureEV);
+		if (Bloom)
+		{
+			ViewUniform.BloomIntensity = 0.15f;
+			ViewUniform.BloomRect = GetViewRectUV(View, ViewUniform.InvRenderTargetSize);
+		}
 		const FRHIUniformBufferRange ViewUniformBuffer =
 			CommandList.CreateUniformBufferRange(
 				&ViewUniform,
@@ -262,6 +365,7 @@ namespace Durin
 
 		FPostProcessInputParameters::FParameters Parameters;
 		Parameters.SceneColor = SceneColor;
+		Parameters.Bloom = Bloom ? Bloom : SceneColor;
 		Parameters.SceneColorSampler = Draw.SceneColorSampler;
 		Parameters.View = ViewUniformBuffer;
 		if (Draw.FXAAFragmentShader) SetShaderParameters(CommandList, Draw.FXAAFragmentShader, Parameters);
@@ -278,12 +382,7 @@ namespace Durin
 	{
 		using namespace RendererPrivate;
 		const auto& Proxy = View.Settings.PostProcess.Material;
-		if (!Proxy || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
-			|| Options.DeferredDirectionalDebugMode != EDeferredDirectionalDebugMode::Disabled
-			|| Options.GroundTruthAmbientOcclusionDebugMode != EGroundTruthAmbientOcclusionDebugMode::Disabled
-			|| View.Settings.DirectionalShadow.bShowContactDebug
-			|| View.Settings.DirectionalShadow.DiagnosticMode != EDirectionalShadowDiagnosticMode::Lit
-			|| View.Settings.VolumetricCloud.DebugMode != EVolumetricCloudDebugMode::Lit)
+		if (!Proxy || HasPostProcessDiagnostic(View, Options))
 		{
 			State->MaterialOutput = nullptr;
 			return {};

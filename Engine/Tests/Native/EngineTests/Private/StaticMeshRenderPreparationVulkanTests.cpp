@@ -6491,11 +6491,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests, PostProcessMaterialsRunBeforeDispl
 		};
 		struct FCapture { FByteBuffer HDR,Input,Final; FRDGCapture Graph; };
 		static FCapture* Sink=nullptr;
-		const auto Render=[&](uint32 Extent,float EV,bool FXAA,bool Reverse,FCapture& Out, bool Debug=false, uint32 Failure=0) {
+		const auto Render=[&](uint32 Extent,float EV,bool FXAA,bool Reverse,FCapture& Out,
+			bool Debug=false, uint32 Failure=0, bool Bloom=false) {
 			FSceneView View; View.ViewportWidth=Extent; View.ViewportHeight=Extent; View.AspectRatioConstraint=2;
 			View.ClearColor={.07f,.11f,.13f,.3f}; View.Settings.AmbientOcclusion.bEnabled=false;
 			View.Settings.Mode.VisibilityMode=EViewVisibilityMode::FrustumCullingDisabled;
 			View.Settings.PostProcess.Material=Slot; View.Settings.PostProcess.ExposureEV=EV; View.Settings.PostProcess.bEnableFXAA=FXAA;
+			View.Settings.PostProcess.bEnableBloom = Bloom;
 			View.DepthConvention=Reverse ? ESceneDepthConvention::ReversedZ : ESceneDepthConvention::ForwardZ;
 			if (Reverse) { View.ProjectionMatrix[2][2]=-1; View.ProjectionMatrix[3][2]=1; View.ViewProjectionMatrix=View.ProjectionMatrix; }
 			FSceneViewRenderOptions Options; if (Debug) Options.GBufferDebugMode=EGBufferDebugMode::Emissive;
@@ -6555,6 +6557,27 @@ TEST(FStaticMeshRenderPreparationVulkanTests, PostProcessMaterialsRunBeforeDispl
 			FCapture Debug; Render(Extent,EV,FXAA,Reverse,Debug,true); EXPECT_FALSE(EffectPass(Debug));
 			for (uint32 Failure=1;Failure<=2;++Failure) { FCapture Rejected; Render(Extent,EV,FXAA,Reverse,Rejected,false,Failure); EXPECT_EQ(EffectPass(Rejected),Failure==2); EXPECT_EQ(Rejected.Final,Baseline.Final); }
 		}
+		Publish(Programs[1]);
+		FCapture WithoutBloom, WithBloom, DebugWithoutBloom, DebugWithBloom;
+		Render(64, 2, false, false, WithoutBloom);
+		Render(64, 2, false, false, WithBloom, false, 0, true);
+		const auto& Passes = WithBloom.Graph.Passes;
+		const auto MaterialPass = std::ranges::find(Passes, "Scene.PostProcessMaterial", &FRDGPassCapture::Name);
+		const auto ExtractPass = std::ranges::find(Passes, "Scene.Bloom.Extract", &FRDGPassCapture::Name);
+		const auto DisplayPass = std::ranges::find(Passes, "Scene.PostProcess", &FRDGPassCapture::Name);
+		ASSERT_NE(DisplayPass, Passes.end());
+		EXPECT_LT(MaterialPass, ExtractPass);
+		EXPECT_LT(ExtractPass, DisplayPass);
+		EXPECT_EQ(WithBloom.Input, WithoutBloom.Input);
+		ASSERT_EQ(WithBloom.Final.size(), 64u * 64u * 4u);
+		ASSERT_EQ(WithoutBloom.Final.size(), WithBloom.Final.size());
+		EXPECT_NE(WithBloom.Final, WithoutBloom.Final);
+		EXPECT_TRUE(std::equal(WithBloom.Final.begin(), WithBloom.Final.begin() + 64 * 4, WithoutBloom.Final.begin()));
+		Render(64, 2, false, false, DebugWithoutBloom, true);
+		Render(64, 2, false, false, DebugWithBloom, true, 0, true);
+		EXPECT_EQ(DebugWithBloom.Final, DebugWithoutBloom.Final);
+		EXPECT_EQ(std::ranges::find(DebugWithBloom.Graph.Passes, "Scene.Bloom.Extract", &FRDGPassCapture::Name),
+			DebugWithBloom.Graph.Passes.end());
 		if (const auto* Directory=std::getenv("DURIN_MATERIAL_POSTPROCESS_EVIDENCE_DIR")) ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Measurements)),std::filesystem::path(Directory)/"postprocess.csv"));
 		Slot.reset(); FlushRenderingCommands();
 		EnqueueRenderCommand("PostProcessRemoveInput",[&](FRHICommandListImmediate&) { FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene,FPrimitiveComponentId(8040)); FSceneInterfaceTestAccess::RemovePrimitiveProxy(*Scene,FPrimitiveComponentId(8041)); }); FlushRenderingCommands();
