@@ -1,17 +1,19 @@
 # Retained StaticMesh Batch Inputs
 
-Summary: Ordinary StaticMesh publishes immutable geometry and material inputs while each view captures instance and LOD state independently.
+Summary: Ordinary StaticMesh publishes immutable geometry and material inputs and shares admitted batches across views of the same submission.
 Modules: Engine, Renderer
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-22
 
 ## Publication boundary
 
-`FStaticMeshSceneProxy::CaptureStaticMeshBatches_RenderThread` publishes a
-`shared_ptr<const FStaticMeshBatchPublication>`. The renderer opts in only for
-the exact ordinary `FStaticMeshSceneProxy` class without a render-instance
-array. Derived providers, SplineMesh, explicit render instances and invalid
-asset layouts continue through virtual dynamic collection.
+`FPrimitiveSceneProxy::DrawStaticElements` returns an optional immutable
+publication on the render thread. Ordinary StaticMesh and Water publish inputs
+for all LODs. Each view selects its own LOD and filters batches for its pass.
+An empty publication selects per-view `CollectMeshBatches`. This is the default
+for primitive proxies and the path for explicit instances and invalid layouts.
+StaticMesh subclasses that customize batch collection must also override
+`DrawStaticElements` to return matching inputs or an empty publication.
 
 The asset shares `FStaticMeshBatchGeometry`: LOD policy/readiness and strong
 `FMeshGeometryRecord` owners. Each proxy retains per-LOD
@@ -39,7 +41,9 @@ contents are not part of these input publications.
 The receiver and its shadow cascades share it. No scene, material, geometry or
 readiness mutations may occur between uses. A new command must create a fresh
 context. Material proxies resolve once per context; raw proxy keys never
-escape into worker jobs. Workers capture only immutable publication owners.
+escape into worker jobs. Views that select the same LOD of a primitive can
+retain the same immutable admitted batch. Each view records its requested LOD
+and selects the section facts for its pass.
 
 | Change | Next capture behavior |
 | --- | --- |
@@ -62,8 +66,9 @@ for each receiver/shadow view and preserves unavailable-LOD fallback.
 
 For ordinary StaticMesh with the exact `FStaticMeshBatchBinding` local factory,
 `FMeshDrawDescriptionCache` retains two immutable renderer-owned tables. One
-stores binding compatibility and per-section Forward/Shadow/GBuffer capability
-facts per published LOD and preparation pass. The other stores the Section draw
+stores binding compatibility and per-section capabilities per published LOD.
+Receiver preparation checks Forward and GBuffer support. Shadow preparation
+checks ShadowDepth support. The other stores the Section draw
 descriptions for that LOD and pass policy. A miss builds the selected table
 lazily; warmed views select it without repeating per-section capability and
 command-description lookups. Dynamic providers, render instances, derived
@@ -92,6 +97,7 @@ tables; it cannot silently reuse this contract.
 Current material-uniform indices are resolved once per table per preparation
 command and shared among that command's views. They never enter persistent
 tables. Batch admission still validates current instance data and transforms.
+Only translucent sections compute a per-view sort center and depth.
 View-dependent sorting, primitive IDs, final resource bindings and per-cascade
 bias remain downstream. No scene/proxy pointer escapes into a table or job.
 
@@ -140,7 +146,13 @@ success/failure. Context owners survive underlying cache-slot replacement and
 retire when the invocation ends; they are never shared with worker jobs or kept
 across commands, frames or device teardown.
 
-## Command-local instance validation
+## Primitive transforms and command-local instance validation
+
+The render-thread primitive proxy owns its local-to-world matrix. On a matrix
+change it computes the inverse, normal matrix and determinant. Ordinary static
+batches capture these values with the admitted batch. A subsequent proxy update
+cannot change an earlier capture. Instance and custom batches may supply their
+own matrices and validate them through the command-local cache.
 
 `FStaticMeshPreparationCache` owns an `FMeshBatchValidationCache` shared by
 collector admission and transform preparation for the receiver and cascades.

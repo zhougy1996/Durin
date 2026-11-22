@@ -223,9 +223,11 @@ namespace Durin::Tests
 	public:
 		explicit FQualificationFactory(bool InForwardOnly = false) : bForwardOnly(InForwardOnly) {}
 		inline static std::atomic<uint64> SupportQueries = 0;
+		inline static std::atomic<uint64> GBufferQueries = 0;
 		auto Supports(uint32 Pass, const FGeometryDrawRange& Draw) const -> bool override
 		{
 			SupportQueries.fetch_add(1, std::memory_order_relaxed);
+			if (Pass == RendererPrivate::MaterialMeshPassGBuffer) GBufferQueries.fetch_add(1, std::memory_order_relaxed);
 			return FMeshVertexFactoryImplementation::Supports(Pass, Draw);
 		}
 		auto GetType() const -> const FVertexFactoryType& override

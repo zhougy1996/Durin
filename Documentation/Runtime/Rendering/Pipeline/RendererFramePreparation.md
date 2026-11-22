@@ -2,7 +2,7 @@
 
 Summary: Define submission ownership, CPU preparation, resource resolution, graph execution and transactional output.
 Modules: Engine, Renderer, RenderCore, RHI
-Last reviewed: 2026-11-19
+Last reviewed: 2026-11-21
 
 ## Ownership Boundary
 
@@ -17,8 +17,9 @@ renderer/pipeline inspect the whole context; features receive narrow inputs.
 `FSceneRenderPlan` owns the fitted view and immutable environment, lighting,
 receiver/shadow geometry and cloud inputs. It contains no game-thread objects,
 execution resources or telemetry. Material time is resolved once in the fitted
-view. Preparation returns a complete plan or typed failure; resource resolution
-does not mutate published logical draws. Final component admission filters lists
+view. Logical preparation publishes the receiver and cascade descriptors. The
+frame context retains pending cascade work until GPUScene collection publishes
+each cascade's completed, biased draws. Final component admission filters lists
 before graph authoring, preserving stable resolved indices.
 
 [Load preparation](LoadPreparation.md) pumps the same resource phases with a fresh
@@ -28,9 +29,19 @@ remain retryable; terminal errors and capacity exhaustion fail explicitly.
 Geometry preparation has three boundaries:
 
 1. The render thread captures scene/proxy state and immutable static mesh
-   publications. Indexed CPU ranges select LOD and materialize retained batches
-   from the publication and a copied per-view collection context.
-2. The render thread admits batches and calls dynamic providers. Indexed CPU
+   publications. Indexed CPU ranges compute projected size for dynamic providers
+   and view-dependent LOD selection. In parallel-sized collections, ordinary
+   static meshes with a single LOD or forced LOD 0 resolve availability
+   immediately. Their preparation chunks compute the projection fallback
+   statistic from captured view and bounds. Small collections project inline.
+   Within a submission the receiver and cascades share the admitted ordinary
+   static batch for each primitive and selected LOD. Each view keeps its own
+   requested LOD, purpose filter and pass-specific section facts. After a static
+   section cache hit, sibling shadow cascades can reference the same immutable
+   resolved transform and sections through the admitted batch index. Reuse
+   requires matching batch identity, shadow section facts, raster mode and depth
+   convention. Each view still checks source availability.
+2. The render thread admits new batches and calls dynamic providers. Indexed CPU
    ranges validate retained stream descriptors for batches without a geometry
    record and compute spline winding from captured scale parameters. Published
    geometry records carry their checked stream facts. Factory support callbacks,
@@ -76,11 +87,19 @@ indexed outputs in scene order. The
 render thread submits all ranges before waiting. If a task fails or is canceled,
 the owner drains the ranges and retries inline.
 
+`BeginStaticMeshView_RenderThread` collects and resolves the receiver or cascade
+inputs, then starts preparation. Each view consumes its result through
+`FinishStaticMeshView`. HitProxy calls both through the synchronous
+`PrepareStaticMeshView_RenderThread` entry point.
+
 `StartStaticMeshPreparation` launches up to eight independent CPU workers over
 128-primitive chunks and a finalization task with those workers as prerequisites.
 Finalization assembles chunks in input order, then sorts and groups draws. The
-render thread starts receiver and cascade work and consumes the terminal result
-at `FinishStaticMeshPreparation`. Workers read resolved snapshots. Scene/proxy
+render thread starts every cascade before joining the receiver. Feature planning,
+view resources and receiver GPUScene collection can overlap the cascade tasks.
+Each cascade joins at its own GPUScene collection in index order. Shadow logical
+preparation time sums the launch phase and cascade finalization on the render
+thread. Workers read resolved snapshots. Scene/proxy
 access, mutable cache access, RHI resource resolution and result publication
 stay on the render thread. The task path starts at 256 primitives by default.
 Small inputs and an unavailable scheduler use the inline path.

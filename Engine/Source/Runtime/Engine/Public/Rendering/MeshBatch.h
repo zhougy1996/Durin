@@ -7,6 +7,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
+#include "Rendering/PrimitiveSceneTransform.h"
 #include "Rendering/PrimitiveRenderParticipation.h"
 #include "Rendering/PrimitiveCustomData.h"
 #include "Rendering/MeshBatchValidationCache.h"
@@ -147,7 +148,9 @@ namespace Durin
 
 		auto Add(FMeshBatch Batch) -> EGeometrySubmissionOutcome
 		{
-			const auto Outcome = Admit(std::move(Batch));
+			const auto Outcome = Validate(Batch);
+			if (Outcome == EGeometrySubmissionOutcome::Submitted)
+				Batches.push_back(std::move(Batch));
 			RecordOutcome(Outcome);
 			return Outcome;
 		}
@@ -164,8 +167,8 @@ namespace Durin
 		// Transfers checked snapshots to the frame builder without copying materials.
 		auto TakeBatches() && -> std::vector<FMeshBatch> { return std::move(Batches); }
 
-	private:
-		auto Admit(FMeshBatch Batch) -> EGeometrySubmissionOutcome
+		// Check admission against the collected batches without taking ownership.
+		auto Validate(const FMeshBatch& Batch, const FPrimitiveSceneTransform* PrimitiveTransform = nullptr) const -> EGeometrySubmissionOutcome
 		{
 			if ((Purpose == EMeshCollectionPurpose::Receiver && !Batch.bReceiver)
 				|| (Purpose == EMeshCollectionPurpose::Shadow && !Batch.bShadowCaster))
@@ -195,7 +198,11 @@ namespace Durin
 				|| Batch.LayoutKey != Batch.Binding->GetLayoutKey())
 				return EGeometrySubmissionOutcome::InvalidSubmission;
 			FMatrix WorldToLocal;
-			if (ValidationCache
+			if (PrimitiveTransform && PrimitiveTransform->LocalToWorld == Batch.LocalToWorld)
+			{
+				if (!PrimitiveTransform->bAdmissible) return EGeometrySubmissionOutcome::InvalidSubmission;
+			}
+			else if (ValidationCache
 					? !ValidationCache->ResolveTransform(Batch.PrimitiveId, Batch.BatchId, Batch.LocalToWorld)
 						  .bAdmissible
 					: (!Math::IsFinite(Batch.LocalToWorld) || !Math::TryInverse(Batch.LocalToWorld, WorldToLocal)))
@@ -203,11 +210,7 @@ namespace Durin
 			if (std::ranges::any_of(Batches, [&](const FMeshBatch& Existing) {
 				return Existing.PrimitiveId == Batch.PrimitiveId && Existing.BatchId == Batch.BatchId;
 			})) return EGeometrySubmissionOutcome::InvalidSubmission;
-			if (Batch.GeometryRecord)
-			{
-				Batches.push_back(std::move(Batch));
-				return EGeometrySubmissionOutcome::Submitted;
-			}
+			if (Batch.GeometryRecord) return EGeometrySubmissionOutcome::Submitted;
 			bool bHasDraws = false;
 			for (size_t Index = 0; Index < Batch.Elements.size(); ++Index)
 			{
@@ -221,11 +224,10 @@ namespace Durin
 				if (Outcome != EGeometrySubmissionOutcome::Submitted) return Outcome;
 				bHasDraws = true;
 			}
-			if (!bHasDraws) return EGeometrySubmissionOutcome::Empty;
-			Batches.push_back(std::move(Batch));
-			return EGeometrySubmissionOutcome::Submitted;
+			return bHasDraws ? EGeometrySubmissionOutcome::Submitted : EGeometrySubmissionOutcome::Empty;
 		}
 
+	private:
 		std::array<size_t, 6> OutcomeCounts{};
 		EMeshCollectionPurpose Purpose;
 		FMeshBatchValidationCache* ValidationCache = nullptr;

@@ -283,10 +283,14 @@ namespace
 	TEST_F(FGPUSceneTests, PacksSemanticParametersWithSplitOriginAndTypedIds)
 	{
 		const FVector3 Origin(1e12 + 0.125, -1e12 + 0.25, 1e12 + 0.5);
-		auto Params = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Math::TranslationMatrix(Origin))
-			.WorldBounds(FBox(Origin - FVector3(2.0), Origin + FVector3(2.0))).InstanceSceneData(7, 3).Build();
-		ASSERT_TRUE(Params);
-		FPrimitiveSceneShaderData Primitive(*Params);
+		const auto Transform = Math::TranslationMatrix(Origin) * Math::ScaleMatrix(FVector3(-2.0, 4.0, 0.5));
+		const FBox Bounds(Origin - FVector3(2.0), Origin + FVector3(2.0));
+		FPrimitiveCustomData Custom;
+		Custom.Values.back() = -3.5f;
+		const auto Packed = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Transform).CustomPrimitiveData(Custom)
+			.WorldBounds(Bounds).InstanceSceneData(7, 3).Build();
+		ASSERT_TRUE(Packed);
+		const auto& Primitive = *Packed;
 		EXPECT_EQ(std::bit_cast<uint32>(Primitive.Data[16].x), 7u);
 		EXPECT_EQ(std::bit_cast<uint32>(Primitive.Data[16].y), 3u);
 		for (uint32 Axis = 0; Axis < 3; ++Axis)
@@ -296,10 +300,19 @@ namespace
 			EXPECT_FLOAT_EQ(Primitive.Data[15][Axis], 2.f);
 		}
 		FInstanceSceneShaderData Instance;
-		ASSERT_TRUE(Instance.Build(17, 2, 24, {88}, Params->LocalToWorld, Params->WorldBounds));
+		ASSERT_TRUE(Instance.Build(17, 2, 24, {88}, Transform, Bounds));
 		EXPECT_EQ(std::bit_cast<uint32>(Instance.Data[16].x), 17u);
 		EXPECT_EQ(std::bit_cast<uint32>(Instance.Data[16].w), 24u);
 		EXPECT_EQ(std::bit_cast<uint32>(Instance.Data[17].y), 88u);
+		const auto DefaultInstance = FInstanceSceneShaderData::FromPrimitive(Primitive, 17, 24);
+		ASSERT_TRUE(Instance.Build(17, 0, 24, {}, Transform, Bounds));
+		EXPECT_EQ(DefaultInstance.Data, Instance.Data);
+		EXPECT_FLOAT_EQ(Primitive.Data[4].x, -0.5f);
+		EXPECT_FLOAT_EQ(Primitive.Data[15].w, -1.f);
+		EXPECT_FLOAT_EQ(Primitive.Data.back().w, -3.5f);
+		EXPECT_EQ(FInstanceSceneShaderData::FromPrimitive({}, 17, 24).Data, FInstanceSceneShaderData{}.Data);
+		Custom.Values.back() = std::numeric_limits<float>::quiet_NaN();
+		EXPECT_FALSE(FPrimitiveUniformShaderParametersBuilder().CustomPrimitiveData(Custom).Build());
 		EXPECT_FALSE(FPrimitiveUniformShaderParametersBuilder().LocalToWorld(FMatrix(0.0)).Build());
 	}
 

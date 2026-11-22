@@ -5,6 +5,7 @@
 
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
+#include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderGraphTypes.h"
@@ -25,6 +26,8 @@ namespace Durin
 			FRendererQualificationPolicy Qualification;
 			FSceneViewRequirements Requirements;
 			std::optional<FSceneRenderPlan> PreparedView;
+			// Each cascade is joined by its GPUScene consumer. Unconsumed work drains on teardown.
+			std::vector<FStaticMeshPreparationWork> PendingShadowCascades;
 			RendererEditorAssistance::FPrepared EditorAssistance;
 			uint32 Width = 0;
 			uint32 Height = 0;

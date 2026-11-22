@@ -5,6 +5,7 @@
 #include "WaterSurfaceActor.h"
 #include "WaterSurfaceComponent.h"
 #include "WaterRenderingTestSupport.h"
+#include "Renderers/StaticMeshRenderPreparation.h"
 #include "EngineTestSupport.h"
 #include "AssetRegistry/Scan.h"
 #include "Engine/World.h"
@@ -98,6 +99,13 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		ASSERT_TRUE(World->SetCurrentLevel(Level));
 		World->SetRenderScene(Scene.Get());
 		ASSERT_TRUE(Component->IsRegistered());
+		EnqueueRenderCommand("CheckWaterStaticElements", [&](FRHICommandListImmediate& Commands) {
+			const auto View = CollectStaticMeshView_RenderThread(Commands, Scene->GetPrimitiveSceneInfos(),
+				FSceneView{}, ERasterMode::Solid, ERenderPreparationMode::Full);
+			ASSERT_EQ(View->Primitives.size(), 1u);
+			EXPECT_TRUE(View->Primitives.front().bRetainedStaticMesh);
+		});
+		FlushRenderingCommands();
 		FDirectionalLightSceneData Light; Light.Intensity = 3;
 		ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*Scene, FLightComponentId(840), Light), nullptr);
 		auto Capture = [&](double Time, FByteBuffer& Pixels) {

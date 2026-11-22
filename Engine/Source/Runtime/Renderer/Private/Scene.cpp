@@ -418,10 +418,10 @@ namespace Durin
 		: Scene(InScene), Id(InId)
 		, Proxy(std::move(InProxy))
 		, Kind(Proxy->GetKind())
-		, Transform(InTransform)
 		, LocalBounds(Proxy->GetLocalBounds())
-		, WorldBounds(TransformBounds(LocalBounds, Transform))
+		, WorldBounds(TransformBounds(LocalBounds, InTransform))
 	{
+		Proxy->SetTransform(InTransform);
 		if (Scene) for (const auto& Material : Proxy->GetUsedMaterials()) if (Material) Material->AddSceneReference(*Scene);
 	}
 
@@ -477,8 +477,8 @@ namespace Durin
 
 	auto FPrimitiveSceneInfo::SetTransform(const FMatrix& InTransform) -> void
 	{
-		Transform = InTransform;
-		WorldBounds = TransformBounds(LocalBounds, Transform);
+		Proxy->SetTransform(InTransform);
+		WorldBounds = TransformBounds(LocalBounds, Proxy->GetLocalToWorld());
 		RequestGPUSceneUpdate(EGPUSceneDirtyState::Transform);
 	}
 
@@ -498,7 +498,7 @@ namespace Durin
 		if (Kind != EPrimitiveSceneProxyKind::SplineMesh
 			|| !GetSplineMeshProxy().UpdateDynamicData_RenderThread(std::move(DynamicData))) return false;
 		LocalBounds = GetSplineMeshProxy().GetLocalBounds();
-		WorldBounds = TransformBounds(LocalBounds, Transform);
+		WorldBounds = TransformBounds(LocalBounds, Proxy->GetLocalToWorld());
 		RequestGPUSceneUpdate(EGPUSceneDirtyState::Bounds);
 		return true;
 	}

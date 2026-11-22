@@ -1085,15 +1085,15 @@ namespace Durin
 	struct FVertexElement
 	{
 		// The vertex stream index this element comes from.
-		uint8 StreamIndex;
+		uint8 StreamIndex = 0;
 		// The offset in bytes of this element in the vertex stream.
-		uint8 Offset;
+		uint8 Offset = 0;
 		// The data type of this element.
 		EVertexElementType Type = EVertexElementType::None;
 		// The attribute index this element will be consumed as in shader. eg: for HLSL, this is the value specified in the semantic, for GLSL, this is the location.
-		uint8 AttributeIndex;
+		uint8 AttributeIndex = 0;
 
-		uint16 Stride;
+		uint16 Stride = 0;
 		FRHIVertexElementIdentity::EInputRate InputRate =
 			FRHIVertexElementIdentity::EInputRate::Vertex;
 

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 
+#include "Rendering/PrimitiveSceneTransform.h"
 #include "Math/Operations.h"
 #include "Rendering/PrimitiveComponentId.h"
 #include "Rendering/PrimitiveCustomData.h"
@@ -13,18 +14,6 @@ namespace Durin
 	class FMeshBatchValidationCache
 	{
 	public:
-		struct FTransform
-		{
-			FMatrix LocalToWorld{1.0};
-			FMatrix4f NormalToWorld{1.0f};
-			FMatrix WorldToLocal{1.0};
-			double Determinant = 0.0;
-			// Admission accepts an invertible double matrix; rendering additionally
-			// needs a finite determinant and a representable normal matrix.
-			bool bAdmissible = false;
-			bool bValid = false;
-		};
-
 		auto ValidateValues(FPrimitiveComponentId PrimitiveId, uint64 BatchId, const FBox& Bounds,
 			const FPrimitiveCustomData& PrimitiveData, const FPrimitiveCustomData& InstanceData) -> bool
 		{
@@ -47,21 +36,14 @@ namespace Durin
 		}
 
 		auto ResolveTransform(FPrimitiveComponentId PrimitiveId, uint64 BatchId, const FMatrix& LocalToWorld)
-			-> const FTransform&
+			-> const FPrimitiveSceneTransform&
 		{
 			auto& Entry = Entries[{PrimitiveId.Value, BatchId}];
 			auto& Fact = Entry.Transform;
 			if (Entry.bHasTransform && Fact.LocalToWorld == LocalToWorld) return Fact;
 			Entry.bHasTransform = true;
 			++TransformBuilds;
-			Fact = FTransform{};
-			Fact.LocalToWorld = LocalToWorld;
-			if (!Math::IsFinite(LocalToWorld) || !Math::TryInverse(LocalToWorld, Fact.WorldToLocal)) return Fact;
-			Fact.bAdmissible = true;
-			Fact.Determinant = Math::LinearDeterminant(LocalToWorld);
-			Fact.NormalToWorld = Math::TransposeToFloat(Math::Transpose(Fact.WorldToLocal));
-			Fact.bValid = std::isfinite(Fact.Determinant) && Math::IsFinite(FMatrix(Fact.NormalToWorld))
-				&& Math::IsFinite(FMatrix(Fact.WorldToLocal));
+			Fact = FPrimitiveSceneTransform(LocalToWorld);
 			return Fact;
 		}
 		auto GetTransformBuilds() const -> size_t { return TransformBuilds; }
@@ -69,7 +51,7 @@ namespace Durin
 	private:
 		struct FEntry
 		{
-			FTransform Transform;
+			FPrimitiveSceneTransform Transform;
 			FBox Bounds;
 			FPrimitiveCustomData PrimitiveData;
 			FPrimitiveCustomData InstanceData;

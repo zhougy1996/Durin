@@ -18,7 +18,7 @@ namespace Durin
 	class FSplineMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
-	// Owns one primitive proxy plus Renderer-derived transform and bounds state.
+	// Owns one primitive proxy and its renderer-managed bounds.
 	class FPrimitiveSceneInfo final
 	{
 	public:
@@ -41,7 +41,6 @@ namespace Durin
 		RENDERER_API auto RetainPrimitiveUniformBuffers(std::span<const uint64> Batches) -> void;
 		RENDERER_API auto GetSceneInfoRef() const -> FPrimitiveSceneInfoRef;
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
-		auto GetTransform() const -> const FMatrix& { return Transform; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }
 		auto GetWorldBounds() const -> const FBox& { return WorldBounds; }
 		auto IsVisible() const -> bool { return bVisible; }
@@ -52,7 +51,7 @@ namespace Durin
 		auto RefreshBounds() -> void
 		{
 			LocalBounds = Proxy->GetLocalBounds();
-			SetTransform(Transform);
+			SetTransform(Proxy->GetLocalToWorld());
 		}
 		RENDERER_API auto UpdateMaterialBinding(
 			const FMaterialRenderProxyBindingUpdate& Update) -> bool;
@@ -71,7 +70,6 @@ namespace Durin
 		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;
-		FMatrix Transform{1.0};
 		FBox LocalBounds;
 		FBox WorldBounds;
 		bool bVisible = true;

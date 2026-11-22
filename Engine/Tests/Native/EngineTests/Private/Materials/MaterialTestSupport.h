@@ -340,7 +340,7 @@ namespace
 			if (Snapshot.Proxy == nullptr) return;
 			Snapshot.Material =
 				Snapshot.Proxy->ResolveMaterialRenderData_RenderThread();
-			Snapshot.Transform = Info->GetTransform();
+			Snapshot.Transform = Info->GetProxy().GetLocalToWorld();
 		});
 		WaitForRenderingThread();
 		return Snapshot;

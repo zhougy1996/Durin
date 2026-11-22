@@ -139,10 +139,10 @@ namespace Durin
 		{
 			const uint32 PrimitiveIndex = Info.GetPersistentIndex().Index;
 			auto RefreshPrimitive = [&] {
-				const auto Parameters = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Info.GetTransform())
+				const auto Primitive = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Info.GetProxy().GetLocalToWorld())
 					.WorldBounds(Info.GetWorldBounds()).CustomPrimitiveData(Info.GetProxy().GetCustomPrimitiveData())
 					.InstanceSceneData(Info.InstanceSceneDataOffset, Info.NumInstanceSceneDataEntries).Build();
-				Store(Primitives, PrimitiveDirty, PrimitiveIndex, Parameters ? FPrimitiveSceneShaderData(*Parameters) : FPrimitiveSceneShaderData{});
+				Store(Primitives, PrimitiveDirty, PrimitiveIndex, Primitive.value_or(FPrimitiveSceneShaderData{}));
 			};
 			if (Dirty == static_cast<uint8>(EGPUSceneDirtyState::PrimitiveCustomData)) { RefreshPrimitive(); return; }
 			const auto Source = Info.GetProxy().GetInstanceSceneDataBuffers();
@@ -178,10 +178,16 @@ namespace Durin
 			{
 				const auto& Item = Sorted[RelativeId];
 				const uint32 Index = Info.InstanceSceneDataOffset + RelativeId;
-				const auto Transform = Info.GetTransform() * Item.LocalToPrimitive;
+				const uint32 PayloadOffset = Index * (PrimitiveCustomDataFloatCount / 4);
 				FInstanceSceneShaderData Packed;
-				Packed.Build(PrimitiveIndex, RelativeId, Index * (PrimitiveCustomDataFloatCount / 4), Item.Id,
-					Transform, TransformPrimitiveBounds(Item.LocalBounds, Transform));
+				if (Source)
+				{
+					const auto Transform = Info.GetProxy().GetLocalToWorld() * Item.LocalToPrimitive;
+					Packed.Build(PrimitiveIndex, RelativeId, PayloadOffset, Item.Id,
+						Transform, TransformPrimitiveBounds(Item.LocalBounds, Transform));
+				}
+				else
+					Packed = FInstanceSceneShaderData::FromPrimitive(Primitives[PrimitiveIndex], PrimitiveIndex, PayloadOffset);
 				Store(Instances, InstanceDirty, Index, Packed);
 				Store(Payload, PayloadDirty, Index, Item.CustomData);
 			}
@@ -224,11 +230,11 @@ namespace Durin
 		if (Found == State->DynamicAllocations.end() || Index >= Found->second.Count || !InstanceData.IsValid()) return false;
 		const auto& Range = Found->second;
 		const auto PrimitiveId = Range.PrimitiveOffset + Index, InstanceId = Range.InstanceOffset + Index;
-		const auto Parameters = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Transform).WorldBounds(Bounds)
+		const auto Primitive = FPrimitiveUniformShaderParametersBuilder().LocalToWorld(Transform).WorldBounds(Bounds)
 			.CustomPrimitiveData(PrimitiveData).InstanceSceneData(InstanceId, 1).Build();
-		FInstanceSceneShaderData Packed;
-		if (!Parameters || !Packed.Build(PrimitiveId, 0, InstanceId * (PrimitiveCustomDataFloatCount / 4), {}, Transform, Bounds)) return false;
-		FState::Store(State->Primitives, State->PrimitiveDirty, PrimitiveId, FPrimitiveSceneShaderData(*Parameters));
+		if (!Primitive) return false;
+		const auto Packed = FInstanceSceneShaderData::FromPrimitive(*Primitive, PrimitiveId, InstanceId * (PrimitiveCustomDataFloatCount / 4));
+		FState::Store(State->Primitives, State->PrimitiveDirty, PrimitiveId, *Primitive);
 		FState::Store(State->Instances, State->InstanceDirty, InstanceId, Packed);
 		FState::Store(State->Payload, State->PayloadDirty, InstanceId, InstanceData);
 		++State->Revision;

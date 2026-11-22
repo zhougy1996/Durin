@@ -2,7 +2,7 @@
 
 Summary: Define scene-owned Primitive and Instance records, incremental uploads, selected-instance shader access and allocation retirement.
 Modules: RenderCore, Engine, Renderer
-Last reviewed: 2026-11-18
+Last reviewed: 2026-11-22
 
 ## Scope and Ownership
 
@@ -37,9 +37,11 @@ Component APIs retain the existing uint32 IDs and complete snapshots.
 ## Values and Packing
 
 `FPrimitiveUniformShaderParametersBuilder` validates affine finite transforms,
-invertibility, finite float transport and custom channels. Semantic values
-are packed explicitly into `FPrimitiveSceneShaderData`.
-`FInstanceSceneShaderData::Build` shares transform packing. Invalid transforms
+invertibility, finite float transport and custom channels. Its result is the
+packed `FPrimitiveSceneShaderData` upload record. Default instances and
+single-instance dynamic writes copy its 16 transform and bounds words and write
+their own instance headers. Explicit instances pack their own composed transform
+and bounds through `FInstanceSceneShaderData::Build`. Invalid transforms
 produce inactive zero records. Invalid bounds retain an invalid marker and are
 retained conservatively by culling consumers.
 

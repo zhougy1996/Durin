@@ -31,6 +31,9 @@ namespace Durin
 		static constexpr uint32 HeaderOffset = 16;
 		static constexpr uint32 PayloadOffset = 17;
 		std::array<FVector4f, DataStrideInFloat4s> Data{};
+		// The default instance shares the validated primitive's transform and bounds.
+		RENDERCORE_API static auto FromPrimitive(const FPrimitiveSceneShaderData& Primitive,
+			uint32 PrimitiveId, uint32 InstancePayloadDataOffset) -> FInstanceSceneShaderData;
 		RENDERCORE_API auto Build(uint32 PrimitiveId, uint32 InstanceRelativeId,
 			uint32 InstancePayloadDataOffset, FPrimitiveInstanceId StableId,
 			const FMatrix& LocalToWorld, const FBox& WorldBounds) -> bool;

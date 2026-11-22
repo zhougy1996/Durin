@@ -46,7 +46,6 @@ namespace Durin
 	{
 		friend class FStaticMeshSceneProxy;
 		ENGINE_API auto ResolveMaterial(const FMaterialRenderProxyRef& Proxy) -> const FMaterialRenderData&;
-		std::unordered_map<const FStaticMeshSceneProxy*, FStaticMeshBatchPublication::FRef> Publications;
 		std::unordered_map<const FMaterialRenderProxy*, FMaterialRenderData> Materials;
 	};
 

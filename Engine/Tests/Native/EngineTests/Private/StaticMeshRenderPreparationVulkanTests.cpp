@@ -1,5 +1,6 @@
 #include "MaterialRenderProxyUpdateTestSupport.h"
 #include "Threading/TaskRuntime.h"
+#include "Threading/ThreadEvent.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionArithmetic.h"
 #include "Materials/MaterialExpressionScene.h"
@@ -713,10 +714,23 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			{
 				ASSERT_TRUE(Primitive.bRetainedStaticMesh);
 				ASSERT_EQ(Primitive.Batches.size(), 1u);
-				const auto& Batch = Primitive.Batches.front().Batch;
+				const auto& Batch = Primitive.Batches.front().GetBatch();
 				EXPECT_EQ(Batch.GeometryRecord, First.Opaque.front().Command->GeometryOwner);
-				EXPECT_EQ(Batch.RequestedLOD, 0u);
+				EXPECT_EQ(Primitive.Batches.front().RequestedLOD, 0u);
 				EXPECT_EQ(Batch.SelectedLOD, 0u);
+				EXPECT_EQ(&Batch, &Collected->Primitives.front().Batches.front().GetBatch());
+			}
+
+			// A single-LOD batch can be admitted before projection. Both preparation policies
+			// must still report the same invalid-view fallback as the projection oracle.
+			ASSERT_FALSE(Collected->Primitives.front().ProjectionStatus.has_value());
+			const auto Frozen = Durin::ResolveCollectedStaticMeshView_RenderThread(CommandList, Collected, &SharedFacts);
+			for (const auto Policy : {Durin::EStaticMeshPreparationPolicy::Inline, Durin::EStaticMeshPreparationPolicy::Tasks})
+			{
+				const auto Prepared = Durin::FinishStaticMeshPreparation(Durin::StartStaticMeshPreparation(Frozen, Policy));
+				ASSERT_TRUE(Prepared);
+				EXPECT_EQ(Prepared->ProjectedSizeFallbacks, RepeatedStatic.size());
+				EXPECT_EQ(Prepared->PreparationTaskCount, Policy == Durin::EStaticMeshPreparationPolicy::Tasks ? 2u : 0u);
 			}
 
 			Summary->Opaque = First.Opaque.size();
@@ -762,9 +776,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				First.Translucent.front().Command->PipelineKey.ColorBlend.bEnable;
 			Summary->FirstViewDistance =
 				First.Translucent.front().TranslucentSortDepth;
-			const size_t TransformBuilds = SharedFacts.TransformBuilds;
+			const size_t TransformBuilds = SharedFacts.Admission.GetTransformBuilds();
 			const size_t MaterialBuilds = SharedFacts.MaterialBuilds;
-			EXPECT_GT(TransformBuilds, 0u);
+			EXPECT_EQ(TransformBuilds, 0u);
 			EXPECT_GT(MaterialBuilds, 0u);
 
 			Durin::FSceneView SecondView;
@@ -776,12 +790,40 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 					Durin::ERasterMode::Solid, Durin::ERenderPreparationMode::Full, &SharedFacts
 				);
 			ASSERT_EQ(Second.GetNumSections(), First.GetNumSections());
-			EXPECT_EQ(SharedFacts.TransformBuilds, TransformBuilds);
+			EXPECT_EQ(SharedFacts.Admission.GetTransformBuilds(), TransformBuilds);
 			EXPECT_EQ(SharedFacts.MaterialBuilds, MaterialBuilds);
 			EXPECT_EQ(Second.Opaque.front().MaterialUniformIndex, First.Opaque.front().MaterialUniformIndex);
 			Summary->SecondViewDistance =
 				Second.Translucent.front().TranslucentSortDepth;
 			EXPECT_EQ(Second.Opaque.front().Command->PipelineKey.Rasterizer.PolygonMode, Durin::ERHIPolygonMode::Fill);
+			const auto Shadow = Durin::PrepareStaticMeshView_RenderThread(CommandList,
+				SceneInfos, FirstView, Durin::ERasterMode::Solid, Durin::ERenderPreparationMode::ShadowDepth, &SharedFacts);
+			EXPECT_EQ(Shadow.GetNumSections(), First.Opaque.size() + First.Masked.size());
+			EXPECT_TRUE(Shadow.Translucent.empty());
+			for (const auto& Draw : Shadow.Opaque) EXPECT_FALSE(Draw.Command->bSupportsGBuffer);
+			for (const auto& Draw : Shadow.Masked) EXPECT_FALSE(Draw.Command->bSupportsGBuffer);
+			for (const auto& Draw : Second.Opaque) EXPECT_DOUBLE_EQ(Draw.TranslucentSortDepth, 0.0);
+			for (const auto& Draw : Second.Masked) EXPECT_DOUBLE_EQ(Draw.TranslucentSortDepth, 0.0);
+			auto ResolveShadow = [&](const Durin::FSceneView& View, Durin::ERasterMode Raster) {
+				auto Captured = Durin::CollectStaticMeshView_RenderThread(CommandList, SceneInfos, View, Raster,
+					Durin::ERenderPreparationMode::ShadowDepth, &SharedFacts);
+				return Durin::ResolveCollectedStaticMeshView_RenderThread(CommandList, std::move(Captured), &SharedFacts);
+			};
+			const auto FirstCascade = ResolveShadow(FirstView, Durin::ERasterMode::Solid);
+			const auto SecondCascade = ResolveShadow(SecondView, Durin::ERasterMode::Solid);
+			const auto WireCascade = ResolveShadow(SecondView, Durin::ERasterMode::Wireframe);
+			const auto& SolidBatch = FirstCascade->Primitives.front().GetBatch(0);
+			ASSERT_TRUE(SolidBatch.StaticElements);
+			EXPECT_EQ(&SolidBatch, &SecondCascade->Primitives.front().GetBatch(0));
+			EXPECT_NE(&SolidBatch, &WireCascade->Primitives.front().GetBatch(0));
+			const auto PreparedWire = Durin::PrepareStaticMeshInputs(*WireCascade);
+			ASSERT_FALSE(PreparedWire.Opaque.empty());
+			EXPECT_EQ(PreparedWire.Opaque.front().Command->PipelineKey.Rasterizer.PolygonMode, Durin::ERHIPolygonMode::Line);
+			EXPECT_TRUE(PreparedWire.Translucent.empty());
+			ASSERT_EQ(SharedFacts.StaticCollection.Primitives.size(), 1u);
+			const auto& LODs = SharedFacts.StaticCollection.Primitives.at(SceneInfos.front()).AdmittedLODs;
+			ASSERT_EQ(LODs.size(), 1u);
+			EXPECT_EQ(&SharedFacts.StaticCollection.Batches[LODs.front()].Snapshot->Batch, &Collected->Primitives.front().Batches.front().GetBatch());
 		}
 	);
 	Durin::FlushRenderingCommands();
@@ -1045,6 +1087,24 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(ForcedLOD0.Primitives[0].RequestedLODIndex, 0u);
 			EXPECT_EQ(ForcedLOD0.Primitives[0].SelectedLODIndex, 0u);
 			EXPECT_EQ(ForcedLOD0.SelectedTriangles, 4u);
+			EXPECT_EQ(ForcedLOD0.ProjectedSizeFallbacks, 0u);
+			auto ForcedCrossing = MakePerspectiveView(4.5, 800, 800);
+			ForcedCrossing.Settings.Mode.LODMode = Durin::EViewLODMode::ForceLOD0;
+			const std::vector<const Durin::FPrimitiveSceneInfo*> ForcedPrimitives(
+				256, MultiLODScene.GetPrimitiveSceneInfos().front());
+			for (const auto& ForcedView : {Forced, ForcedCrossing})
+			{
+				auto Captured = Durin::CollectStaticMeshView_RenderThread(CommandList, ForcedPrimitives,
+					ForcedView, Durin::ERasterMode::Solid);
+				ASSERT_EQ(Captured->Primitives.size(), ForcedPrimitives.size());
+				EXPECT_FALSE(Captured->Primitives.front().ProjectionStatus.has_value());
+				const auto Inputs = Durin::ResolveCollectedStaticMeshView_RenderThread(CommandList, std::move(Captured));
+				const auto Deferred = Durin::FinishStaticMeshView(Durin::StartStaticMeshPreparation(Inputs));
+				const auto Reference = Prepare(ForcedView);
+				EXPECT_EQ(Deferred.ProjectedSizeFallbacks, ForcedPrimitives.size() * Reference.ProjectedSizeFallbacks);
+				EXPECT_EQ(Deferred.SelectedTriangles, ForcedPrimitives.size() * ForcedLOD0.SelectedTriangles);
+			}
+			EXPECT_EQ(Prepare(ForcedCrossing).ProjectedSizeFallbacks, 1u);
 
 			const Durin::FPreparedStaticMeshView PerspectiveLarge =
 				Prepare(MakePerspectiveView(1.0, 1600, 800));
@@ -1086,6 +1146,38 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Fallback.SelectedTriangles, 1u);
 			EXPECT_EQ(Fallback.VisibleCandidates,
 				Fallback.Primitives.size() + Fallback.RejectedPrimitives);
+			{
+				Durin::FStaticMeshPreparationCache Shared;
+				Durin::FMeshDrawDescriptionCache Templates;
+				Templates.BeginSubmission();
+				Shared.Commands = &Templates;
+				auto PrepareView = [&](double Extent, Durin::ERenderPreparationMode Mode) {
+					return Durin::PrepareStaticMeshView_RenderThread(CommandList, MultiLODScene.GetPrimitiveSceneInfos(),
+						MakeOrthographicView(Extent), Durin::ERasterMode::Solid, Mode, &Shared);
+				};
+				const auto Receiver = PrepareView(5.0, Durin::ERenderPreparationMode::Full);
+				const auto Cascade = PrepareView(2.5, Durin::ERenderPreparationMode::ShadowDepth);
+				const auto FallbackCascade = PrepareView(2.5, Durin::ERenderPreparationMode::ShadowDepth);
+				const auto SameSelectedLOD = PrepareView(5.0, Durin::ERenderPreparationMode::ShadowDepth);
+				const auto NearCascade = PrepareView(2.0, Durin::ERenderPreparationMode::ShadowDepth);
+				ASSERT_EQ(Receiver.Primitives.size(), 1u);
+				ASSERT_EQ(Cascade.Primitives.size(), 1u);
+				ASSERT_EQ(NearCascade.Primitives.size(), 1u);
+				EXPECT_EQ(Receiver.Primitives[0].RequestedLODIndex, 2u);
+				EXPECT_EQ(Receiver.Primitives[0].SelectedLODIndex, 2u);
+				EXPECT_EQ(Cascade.Primitives[0].RequestedLODIndex, 1u);
+				EXPECT_EQ(Cascade.Primitives[0].SelectedLODIndex, 2u);
+				EXPECT_EQ(Cascade.ResourceFallbacks, 1u);
+				ASSERT_EQ(FallbackCascade.Primitives.size(), 1u);
+				ASSERT_EQ(SameSelectedLOD.Primitives.size(), 1u);
+				EXPECT_EQ(FallbackCascade.Primitives.front().RequestedLODIndex, 1u);
+				EXPECT_EQ(SameSelectedLOD.Primitives.front().RequestedLODIndex, 2u);
+				EXPECT_EQ(SameSelectedLOD.Primitives.front().SelectedLODIndex, 2u);
+				EXPECT_EQ(SameSelectedLOD.ResourceFallbacks, 0u);
+				EXPECT_EQ(NearCascade.Primitives[0].SelectedLODIndex, 0u);
+				EXPECT_EQ(Shared.StaticCollection.Primitives.at(MultiLODScene.GetPrimitiveSceneInfos().front()).AdmittedLODs.size(), 2u);
+				Templates.EndSubmission();
+			}
 			MultiLODRenderData->LODVertexFactories[0]
 				.VertexFactory.ReleaseResource();
 			MultiLODRenderData->LODResources[0].bReadyForRendering = false;
@@ -1218,6 +1310,20 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 					SourceView, Durin::ERasterMode::Solid);
 				RetainedFrame = Durin::PrepareStaticMeshView_RenderThread(CommandList, RetainedInfos,
 					SourceView, Durin::ERasterMode::Solid);
+				RetainedInfo->SetTransform(Durin::FMatrix(0.0));
+				EXPECT_FALSE(RetainedProxy->GetPrimitiveSceneTransform().bAdmissible);
+				const auto Singular = Durin::PrepareStaticMeshView_RenderThread(CommandList, RetainedInfos,
+					SourceView, Durin::ERasterMode::Solid);
+				EXPECT_EQ(Singular.GetNumSections(), 0u);
+				const auto Mirrored = Durin::Math::ScaleMatrix(Durin::FVector3(-2.0, 1.0, 1.0));
+				RetainedInfo->SetTransform(Mirrored);
+				EXPECT_EQ(RetainedProxy->GetLocalToWorld(), Mirrored);
+				const auto Updated = Durin::PrepareStaticMeshView_RenderThread(CommandList, RetainedInfos,
+					SourceView, Durin::ERasterMode::Solid);
+				ASSERT_FALSE(Updated.Primitives.empty());
+				EXPECT_DOUBLE_EQ(Updated.Primitives.front().WorldToLocal[0][0], -0.5);
+				const auto Captured = Durin::ResolveCollectedStaticMeshView_RenderThread(CommandList, Collected);
+				EXPECT_EQ(Captured->Primitives.front().GetBatch(0).Transform.WorldToLocal, Durin::FMatrix(1.0));
 				SourceView.ViewLocation = Durin::FVector3(500.0);
 				SourceView.DepthConvention = Durin::ESceneDepthConvention::ReversedZ;
 				Scene.GPUScene->RemovePrimitive(*RetainedInfo);
@@ -1237,7 +1343,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(RetainedGeometry->GetRecordId(), OldRecordId);
 			// Scene info/proxy and source view are gone, and asset resources have a
 			// new publication. Replaying the captured collection still uses old facts.
-			auto Replay = Durin::PrepareCollectedStaticMeshView_RenderThread(CommandList, Collected);
+			auto Replay = Durin::FinishStaticMeshView(Durin::StartStaticMeshPreparation(
+				Durin::ResolveCollectedStaticMeshView_RenderThread(CommandList, Collected)));
 			// Source removal invalidates preparation; captured CPU facts are not a historical render submission.
 			EXPECT_EQ(Replay.GetNumSections(), 0u);
 			RetainedGeometry.reset();
@@ -1545,6 +1652,53 @@ TEST(FStaticMeshRenderPreparationVulkanTests, DepthReadbackConsumesHostPreparedS
 	ShutdownRenderingThread();
 	FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 	RHIExit();
+}
+
+static void CheckMeshPreparationDuringSchedulerShutdown()
+{
+	using namespace Durin;
+	ASSERT_FALSE(IsTaskSchedulerRunning());
+	ASSERT_TRUE(InitializeTaskScheduler(1));
+	FThreadEvent Started;
+	struct FShutdown { ~FShutdown() { ShutdownTaskScheduler(); } } Shutdown;
+	auto Blocker = Tasks::LaunchIndependentTask("Hold worker until scheduler closes admission", [&] {
+		Started.Trigger();
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (IsTaskSchedulerRunning() && std::chrono::steady_clock::now() < Deadline)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		return !IsTaskSchedulerRunning();
+	});
+	ASSERT_TRUE(Started.WaitFor(5));
+	auto Collected = std::make_shared<FCollectedStaticMeshView>();
+	Collected->Primitives.resize(256);
+	for (auto& Primitive : Collected->Primitives) Primitive.bPresent = true;
+	auto Inputs = std::make_shared<FStaticMeshPreparationInputs>();
+	Inputs->Primitives.resize(Collected->Primitives.size());
+	Inputs->Collected = std::move(Collected);
+	const std::weak_ptr<const FStaticMeshPreparationInputs> Lifetime = Inputs;
+	auto Work = StartStaticMeshPreparation(std::move(Inputs));
+	EXPECT_EQ(Work.Workers.size(), 2u);
+	EXPECT_FALSE(Work.Completion.IsCompleted());
+	EXPECT_FALSE(Lifetime.expired());
+	ShutdownTaskScheduler();
+	EXPECT_TRUE(Blocker.GetResult());
+	for (const auto& Worker : Work.Workers) EXPECT_EQ(Worker.GetState(), ETaskState::Succeeded);
+	EXPECT_EQ(Work.Completion.GetState(), ETaskState::Succeeded);
+	auto Prepared = FinishStaticMeshPreparation(std::move(Work));
+	ASSERT_TRUE(Prepared);
+	EXPECT_EQ(Prepared->PreparationTaskCount, 2u);
+	EXPECT_EQ(Prepared->RejectedPrimitives, 256u);
+	EXPECT_TRUE(Lifetime.expired());
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, SchedulerShutdownDrainsAdmittedMeshPreparation)
+{
+	// Other Vulkan cases share a process-wide scheduler and may run in any order.
+	GTEST_FLAG_SET(death_test_style, "threadsafe");
+	EXPECT_EXIT({
+		CheckMeshPreparationDuringSchedulerShutdown();
+		std::_Exit(testing::Test::HasFailure() ? EXIT_FAILURE : EXIT_SUCCESS);
+	}, testing::ExitedWithCode(EXIT_SUCCESS), "");
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeometryAndFactory)
@@ -2116,8 +2270,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			ASSERT_EQ(Prepared.Opaque.size(), 1u);
 			ASSERT_EQ(Prepared.Translucent.size(), 1u);
 			EXPECT_EQ(Prepared.Opaque[0].Command->bSupportsGBuffer, LocalFactory);
+			const auto GBufferQueries = FQualificationFactory::GBufferQueries.load(std::memory_order_relaxed);
 			const auto Shadow = PrepareStaticMeshView_RenderThread(Commands, ForwardOwner->GetPrimitiveSceneInfos(), View, ERasterMode::Solid, ERenderPreparationMode::ShadowDepth);
 			EXPECT_EQ(Shadow.bResourceFailure, FailShadow);
+			EXPECT_EQ(FQualificationFactory::GBufferQueries.load(std::memory_order_relaxed), GBufferQueries);
 		});
 		FlushRenderingCommands();
 		FSceneView View;
@@ -2160,11 +2316,35 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	}
 	EXPECT_EQ(Snapshot.Opaque.front().Command->Vertices.Buffer, OldBuffer);
 	EXPECT_NE(Geometries[0].Vertices.Buffer, OldBuffer);
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		auto Collected = CollectStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), InitialView, ERasterMode::Solid);
+		FrozenInput = ResolveCollectedStaticMeshView_RenderThread(Commands, std::move(Collected));
+	});
+	FlushRenderingCommands();
+	ASSERT_TRUE(FrozenInput);
+	ASSERT_EQ(FrozenInput->Collected->Primitives.size(), 2u);
+	const auto Membership = FrozenInput->Collected->Primitives.front().SceneInfo;
+	ASSERT_TRUE(Membership.IsSceneBound());
+	const std::weak_ptr<const FVertexFactoryInputBinding> Binding = Geometries[0].Binding;
 	Owner.Reset();
 	FlushRenderingCommands();
 	OldBuffer = {};
 	Snapshot = {};
 	Geometries = {};
+	EXPECT_TRUE(Membership.GPUScene.expired());
+	EXPECT_FALSE(Binding.expired());
+	{
+		auto Work = StartStaticMeshPreparation(std::move(FrozenInput), EStaticMeshPreparationPolicy::Tasks);
+		ASSERT_EQ(Work.Workers.size(), 1u);
+		auto Prepared = FinishStaticMeshPreparation(std::move(Work));
+		ASSERT_TRUE(Prepared);
+		ASSERT_EQ(Prepared->GetNumSections(), 4u);
+		EXPECT_FALSE(Prepared->bResourceFailure);
+		EXPECT_TRUE(std::ranges::any_of(Prepared->Primitives, [&](const auto& Primitive) {
+			return Primitive.CollectedBinding == Binding.lock() && Primitive.PrimitiveId == FPrimitiveComponentId(100);
+		}));
+	}
+	EXPECT_TRUE(Binding.expired());
 }
 
 TEST(FMaterialAnimationVulkanTests, CachedCommandsInvalidateResourceChangesAndReuseNumericUpdates)
@@ -2772,6 +2952,7 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			{
 			public:
 				using FStaticMeshSceneProxy::FStaticMeshSceneProxy;
+				auto DrawStaticElements(FStaticMeshBatchCaptureContext&) const -> FStaticMeshBatchPublication::FRef override { return {}; }
                 bool bDynamicSceneData = false;
 				auto CollectMeshBatches(const FMeshCollectionContext& Context, FMeshBatchCollector& Collector) const -> void override
 				{
@@ -2793,6 +2974,22 @@ TEST(FMaterialCustomDataVulkanTests, StableInstancesMatchDynamicMaterialsAcrossP
 			private:
 				mutable FMeshGeometryRecord::FRef Geometry;
 			};
+			{
+				FSceneTestOwner CustomScene;
+				auto Proxy = std::make_unique<FIndependentBindingProxy>(Geometry.get(), std::vector{Custom->GetRenderProxy()});
+				Proxy->bDynamicSceneData = true;
+				FSceneInterfaceTestAccess::AddPrimitiveProxy(*CustomScene, FPrimitiveComponentId(1003), std::move(Proxy), FMatrix(1.0));
+				EnqueueRenderCommand("CheckCustomMeshCollection", [&](FRHICommandListImmediate& Commands) {
+					const auto View = CollectStaticMeshView_RenderThread(Commands, CustomScene->GetPrimitiveSceneInfos(),
+						FSceneView{}, ERasterMode::Solid);
+					ASSERT_EQ(View->Primitives.size(), 1u);
+					const auto& Primitive = View->Primitives.front();
+					EXPECT_FALSE(Primitive.bRetainedStaticMesh);
+					ASSERT_EQ(Primitive.Batches.size(), 1u);
+					EXPECT_EQ(Primitive.Batches.front().GetBatch().PrimitiveIdMode, EPrimitiveIdMode::PrimID_DynamicPrimitiveShaderData);
+				});
+				FlushRenderingCommands();
+			}
 			auto Small = std::vector<FStaticMeshRenderInstance>(Instances.begin(), Instances.begin() + 3);
 			for (size_t Index = 0; Index < Small.size(); ++Index)
 			{
@@ -4484,14 +4681,17 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SharedFactsRejectChangedTransforms
 	FStaticMeshPreparationCache Cache;
 	const FPrimitiveComponentId Id(1);
 	const FMatrix Transform = Math::ScaleMatrix(FVector3(-2.0, 3.0, 4.0));
-	EXPECT_TRUE(Cache.ResolveTransform(Id, 1, Transform).bValid);
-	EXPECT_LT(Cache.ResolveTransform(Id, 1, Transform).Determinant, 0.0);
-	EXPECT_EQ(Cache.TransformBuilds, 1u);
-	EXPECT_TRUE(Cache.ResolveTransform(Id, 2, FMatrix(1.0)).bValid);
-	EXPECT_EQ(Cache.TransformBuilds, 2u);
-	EXPECT_FALSE(Cache.ResolveTransform(Id, 1, Math::ScaleMatrix(FVector3(0.0))).bValid);
-	EXPECT_TRUE(Cache.ResolveTransform(Id, 1, Transform).bValid);
-	EXPECT_EQ(Cache.TransformBuilds, 4u);
+	EXPECT_TRUE(Cache.Admission.ResolveTransform(Id, 1, Transform).bValid);
+	EXPECT_LT(Cache.Admission.ResolveTransform(Id, 1, Transform).Determinant, 0.0);
+	EXPECT_EQ(Cache.Admission.GetTransformBuilds(), 1u);
+	EXPECT_TRUE(Cache.Admission.ResolveTransform(Id, 2, FMatrix(1.0)).bValid);
+	EXPECT_EQ(Cache.Admission.GetTransformBuilds(), 2u);
+	EXPECT_FALSE(Cache.Admission.ResolveTransform(Id, 1, Math::ScaleMatrix(FVector3(0.0))).bValid);
+	EXPECT_TRUE(Cache.Admission.ResolveTransform(Id, 1, Transform).bValid);
+	EXPECT_EQ(Cache.Admission.GetTransformBuilds(), 4u);
+	const auto& WideInverse = Cache.Admission.ResolveTransform(Id, 1, Math::ScaleMatrix(FVector3(1e-40, 1e40, 1.0)));
+	EXPECT_TRUE(WideInverse.bAdmissible);
+	EXPECT_FALSE(WideInverse.bValid);
 
 	const FGuid Scalar = FGuid::NewGuid();
 	const FGuid Texture = FGuid::NewGuid();

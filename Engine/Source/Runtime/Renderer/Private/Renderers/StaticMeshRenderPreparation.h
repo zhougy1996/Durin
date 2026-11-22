@@ -12,6 +12,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Rendering/MeshBatch.h"
 #include "Rendering/PrimitiveCustomData.h"
+#include "Rendering/PrimitiveSceneTransform.h"
 #include "RHIResources.h"
 #include "UniformBuffer.h"
 #include "Scene.h"
@@ -77,6 +78,16 @@ namespace Durin
 		bool bMaterialUnavailable = false;
 	};
 	class FMeshDrawDescriptionCache;
+	struct FResolvedStaticMeshBatch
+	{
+		FPrimitiveSceneTransform Transform;
+		std::vector<FResolvedStaticMeshSection> Elements;
+		std::shared_ptr<const std::vector<FResolvedStaticMeshSection>> StaticElements;
+		auto GetElement(size_t Index) const -> const FResolvedStaticMeshSection&
+		{
+			return StaticElements ? (*StaticElements)[Index] : Elements[Index];
+		}
+	};
 	struct FMeshViewPreparationInput
 	{
 		FBox WorldBounds;
@@ -87,7 +98,6 @@ namespace Durin
 	{
 		FProjectedScreenSizeResult Projected;
 		std::optional<FPreparedMeshLODSelection> LOD;
-		FStaticMeshBatchPublication::FRef StaticBatches;
 	};
 	struct FMeshViewPreparationFacts
 	{
@@ -102,7 +112,36 @@ namespace Durin
 	struct FStaticMeshPreparationCache
 	{
 		FMeshDrawDescriptionCache* Commands = nullptr;
-		FStaticMeshBatchCaptureContext StaticBatchCapture;
+		struct FStaticBatchSnapshot
+		{
+			FMeshBatch Batch;
+			FPrimitiveSceneTransform Transform;
+		};
+		struct FAdmittedBatch
+		{
+			std::shared_ptr<const FStaticBatchSnapshot> Snapshot;
+			size_t Index;
+		};
+		struct FStaticBatchEntry
+		{
+			std::shared_ptr<const FStaticBatchSnapshot> Snapshot;
+			ERasterMode RasterMode{};
+			ESceneDepthConvention DepthConvention{};
+			std::shared_ptr<const FStaticMeshSectionFacts> ShadowFacts;
+			std::shared_ptr<const FResolvedStaticMeshBatch> ResolvedShadow;
+		};
+		struct FStaticPrimitive
+		{
+			FStaticMeshBatchPublication::FRef Publication;
+			std::vector<size_t> AdmittedLODs;
+		};
+		// Scene/proxy inputs are stable for this single receiver/cascade submission.
+		struct FStaticCollection
+		{
+			FStaticMeshBatchCaptureContext Capture;
+			std::vector<FStaticBatchEntry> Batches;
+			std::unordered_map<const FPrimitiveSceneInfo*, FStaticPrimitive> Primitives;
+		} StaticCollection;
 		// Frame-local uniform indices never enter the persistent Section tables.
 		struct FResolvedSections
 		{
@@ -110,17 +149,13 @@ namespace Durin
 			std::shared_ptr<const std::vector<FResolvedStaticMeshSection>> Elements;
 		};
 		std::unordered_map<const FStaticMeshPassSections*, FResolvedSections> ResolvedSections;
-		using FTransform = FMeshBatchValidationCache::FTransform;
 		FMeshBatchValidationCache Admission;
 		std::unordered_multimap<uint64, uint32> MaterialIndices;
 		std::map<std::pair<uint64, const FUniformExpressionCache*>, uint32> MaterialRecordIndices;
 		std::vector<std::shared_ptr<const FUniformExpressionCache>> MaterialPublishers;
 		std::vector<FMaterialRenderRepresentation> Materials;
-		size_t TransformBuilds = 0;
 		size_t MaterialBuilds = 0;
 
-		RENDERER_API auto ResolveTransform(FPrimitiveComponentId PrimitiveId,
-			uint64 BatchId, const FMatrix& LocalToWorld) -> const FTransform&;
 		RENDERER_API auto ResolveMaterial(FMaterialRenderData& Material) -> std::optional<uint32>;
 	};
 
@@ -253,7 +288,6 @@ namespace Durin
 		uint32 ResolvedIndex = 0;
 		uint32 PrimitiveIndex = 0;
 		uint32 MaterialUniformIndex = UINT32_MAX;
-		FVector3 SortCenter{0.0};
 		double TranslucentSortDepth = 0.0;
 	};
 	static_assert(sizeof(FPreparedStaticMeshDraw) <= 128, "Visible mesh draws must retain compact references, not stable payload copies.");
@@ -442,7 +476,14 @@ namespace Durin
 		using FElementFacts = FStaticMeshSectionFact;
 		struct FBatch
 		{
-			FMeshBatch Batch;
+			std::variant<FStaticMeshPreparationCache::FAdmittedBatch, FMeshBatch> Source;
+			// Views can request different LODs and select the same admitted fallback.
+			uint32 RequestedLOD = 0;
+			auto GetBatch() const -> const FMeshBatch&
+			{
+				if (auto* Dynamic = std::get_if<FMeshBatch>(&Source)) return *Dynamic;
+				return std::get<FStaticMeshPreparationCache::FAdmittedBatch>(Source).Snapshot->Batch;
+			}
 			std::shared_ptr<const FGPUSceneDynamicPrimitiveData> DynamicPrimitiveData;
 			std::shared_ptr<const FVertexFactoryInputBinding> InputBinding;
 			bool bFactoryCompatible = false;
@@ -464,7 +505,8 @@ namespace Durin
 			bool bPresent = false;
 			bool bSplineMesh = false;
 			bool bRetainedStaticMesh = false;
-			bool bProjectedSizeFallback = false;
+			// Empty when projection can run on the immutable preparation snapshot after admission.
+			std::optional<EProjectedScreenSizeStatus> ProjectionStatus = EProjectedScreenSizeStatus::Valid;
 			FBox WorldBounds;
 			decltype(FPreparedStaticMeshView::SubmissionOutcomes) Outcomes{};
 			std::vector<FBatch> Batches;
@@ -488,18 +530,18 @@ namespace Durin
 	struct FStaticMeshPreparationInputs
 	{
 		using FElement = FResolvedStaticMeshSection;
-		struct FBatch
+		using FBatch = FResolvedStaticMeshBatch;
+		std::shared_ptr<const FCollectedStaticMeshView> Collected;
+		struct FPrimitive
 		{
-			FStaticMeshPreparationCache::FTransform Transform;
-			std::vector<FElement> Elements;
-			std::shared_ptr<const std::vector<FElement>> StaticElements;
-			auto GetElement(size_t Index) const -> const FElement&
+			std::vector<FBatch> Batches;
+			bool bSourceAvailable = true;
+			std::shared_ptr<const FBatch> StaticShadowBatch;
+			auto GetBatch(size_t Index) const -> const FBatch&
 			{
-				return StaticElements ? (*StaticElements)[Index] : Elements[Index];
+				return StaticShadowBatch ? *StaticShadowBatch : Batches[Index];
 			}
 		};
-		std::shared_ptr<const FCollectedStaticMeshView> Collected;
-		struct FPrimitive { std::vector<FBatch> Batches; bool bSourceAvailable = true; };
 		std::vector<FPrimitive> Primitives;
 		size_t MaterialCount = 0;
 	};
@@ -561,13 +603,10 @@ namespace Durin
 
 	RENDERER_API auto PrepareStaticMeshInputs(const FStaticMeshPreparationInputs& Resolved) -> FPreparedStaticMeshView;
 
-	RENDERER_API auto PrepareCollectedStaticMeshView_RenderThread(
+	RENDERER_API auto BeginStaticMeshView_RenderThread(
 		const FRHICommandListImmediate& CommandList,
-		std::shared_ptr<const FCollectedStaticMeshView> Collected,
-		FStaticMeshPreparationCache* SharedCache = nullptr) -> FPreparedStaticMeshView;
-	RENDERER_API auto StartCollectedStaticMeshView_RenderThread(
-		const FRHICommandListImmediate& CommandList,
-		std::shared_ptr<const FCollectedStaticMeshView> Collected,
+		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
+		const FSceneView& View, ERasterMode RasterMode, ERenderPreparationMode Mode,
 		FStaticMeshPreparationCache* SharedCache = nullptr) -> FStaticMeshPreparationWork;
 	RENDERER_API auto FinishStaticMeshView(FStaticMeshPreparationWork Work) -> FPreparedStaticMeshView;
 

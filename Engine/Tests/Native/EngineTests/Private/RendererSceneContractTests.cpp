@@ -2434,7 +2434,11 @@ TEST(FRendererSceneContractTests, CollectsIndependentGeometrySnapshotsTransactio
 		Batch.Elements.push_back(Element);
 		Batch.Elements.push_back(Element);
 		Batch.Elements.back().ElementId = 9;
+		EXPECT_EQ(Collector.Validate(Batch), EGeometrySubmissionOutcome::Submitted);
+		EXPECT_TRUE(Collector.GetBatches().empty());
+		EXPECT_EQ(Collector.GetOutcomeCount(EGeometrySubmissionOutcome::Submitted), 0u);
 		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Submitted);
+		EXPECT_EQ(Collector.Validate(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
 		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
 		Batch.BatchId = 6;
 		Batch.Elements.back().Draw.ElementCount = 6;

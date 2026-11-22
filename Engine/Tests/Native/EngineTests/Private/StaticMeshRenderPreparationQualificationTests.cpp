@@ -270,8 +270,7 @@ TEST(FStaticMeshRenderPreparationQualificationTests, RecordsDisjointViewCacheChu
 				{
 					ASSERT_GT(Info->GetId().Value, Index * KeysPerView);
 					ASSERT_LE(Info->GetId().Value, (Index + 1) * KeysPerView);
-					const auto Batch = static_cast<const FStaticMeshSceneProxy&>(Info->GetProxy())
-						.CaptureStaticMeshBatches_RenderThread(Capture);
+					const auto Batch = Info->GetProxy().DrawStaticElements(Capture);
 					ASSERT_TRUE(Batch && Batch->LODs.size() == 1 && Batch->LODs.front());
 					const auto& Inputs = Batch->LODs.front();
 					ASSERT_EQ(Inputs->Geometry->GetElements().size(), 1u);

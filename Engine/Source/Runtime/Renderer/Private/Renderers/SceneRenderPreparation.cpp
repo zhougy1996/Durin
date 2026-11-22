@@ -142,9 +142,8 @@ namespace Durin
 				*Scene, Context.Logical.Requirements.MainViewCulling, Telemetry.View, Visibility
 			);
 			PreparedView.Receiver.CullingFrustum = Context.Logical.Requirements.MainViewCulling.Frustum;
-			ReceiverWork.emplace(StartCollectedStaticMeshView_RenderThread(CommandList,
-				CollectStaticMeshView_RenderThread(CommandList, Visibility.SceneInfos, RenderView,
-					RenderView.Settings.Mode.RasterMode, ERenderPreparationMode::Full, &MeshPreparationCache), &MeshPreparationCache));
+			ReceiverWork.emplace(BeginStaticMeshView_RenderThread(CommandList, Visibility.SceneInfos, RenderView,
+				RenderView.Settings.Mode.RasterMode, ERenderPreparationMode::Full, &MeshPreparationCache));
 			Visibility.SceneInfos.clear();
 			if (!PreparedView.Environment)
 				if (const auto Sky = Scene->GetProceduralSky_RenderThread())
@@ -214,16 +213,15 @@ namespace Durin
 												std::chrono::steady_clock::now() - DiscoveryStart
 						)
 												.count());
-					std::vector<FStaticMeshPreparationWork> CascadeWork;
+					auto& CascadeWork = Context.Logical.PendingShadowCascades;
 					CascadeWork.reserve(PreparedView.DirectionalShadow->View.CascadeCount);
 					for (uint32 CascadeIndex = 0;
 						CascadeIndex < PreparedView.DirectionalShadow->View.CascadeCount; ++CascadeIndex)
 					{
 						const auto Start = std::chrono::steady_clock::now();
-						CascadeWork.push_back(StartCollectedStaticMeshView_RenderThread(CommandList,
-							CollectStaticMeshView_RenderThread(CommandList, CasterTable.Cascades[CascadeIndex].SceneInfos,
-								PreparedView.DirectionalShadow->View.Cascades[CascadeIndex].CasterView,
-								ERasterMode::Solid, ERenderPreparationMode::ShadowDepth, &MeshPreparationCache), &MeshPreparationCache));
+						CascadeWork.push_back(BeginStaticMeshView_RenderThread(CommandList, CasterTable.Cascades[CascadeIndex].SceneInfos,
+							PreparedView.DirectionalShadow->View.Cascades[CascadeIndex].CasterView,
+							ERasterMode::Solid, ERenderPreparationMode::ShadowDepth, &MeshPreparationCache));
 						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
 							static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 								std::chrono::steady_clock::now() - Start).count());
@@ -278,49 +276,6 @@ namespace Durin
 						Telemetry.View.DirectionalShadow.ShadowCulledCasters += Casters.Culled;
 						Telemetry.View.DirectionalShadow.ShadowInvalidBoundsFallbacks +=
 							Casters.InvalidBoundsFallbacks;
-						auto& StaticMeshes =
-							PreparedView.DirectionalShadow->StaticMeshes[CascadeIndex];
-						const auto StaticSplineStart =
-							std::chrono::steady_clock::now();
-						StaticMeshes = FinishStaticMeshView(std::move(CascadeWork[CascadeIndex]));
-						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
-							static_cast<uint64>(std::chrono::duration_cast<
-													std::chrono::nanoseconds>(
-													std::chrono::steady_clock::now()
-													- StaticSplineStart
-							)
-													.count());
-						Telemetry.View.DirectionalShadow.ShadowSortingBatchingNanoseconds +=
-							StaticMeshes.SortingNanoseconds;
-						Telemetry.View.DirectionalShadow.
-							ShadowStaticSplinePrimitiveFactBuilds +=
-							StaticMeshes.SharedPrimitiveFactBuilds;
-						Telemetry.View.DirectionalShadow.ShadowSelectedLODFactBuilds +=
-							StaticMeshes.SelectedLODFactBuilds;
-						Telemetry.View.DirectionalShadow.
-							ShadowStaticSplineSectionFactBuilds +=
-							StaticMeshes.SharedSectionFactBuilds;
-						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
-							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
-								for (auto& Draw : *Bucket)
-								{
-									Draw.RasterBias = {Cascade.Bias.RasterConstant,
-										Cascade.Bias.RasterSlope, Cascade.Bias.RasterClamp};
-								}
-						};
-						ApplyRasterBias(StaticMeshes);
-						CascadeTelemetry.PreparedStaticMeshCasters =
-							StaticMeshes.PreparedLocalPrimitives;
-						CascadeTelemetry.PreparedSplineMeshCasters =
-							StaticMeshes.PreparedSplinePrimitives;
-					CascadeTelemetry.PreparedTriangles =
-						StaticMeshes.SelectedTriangles;
-						Telemetry.View.DirectionalShadow.ShadowPreparedStaticMeshCasters +=
-							CascadeTelemetry.PreparedStaticMeshCasters;
-						Telemetry.View.DirectionalShadow.ShadowPreparedSplineMeshCasters +=
-							CascadeTelemetry.PreparedSplineMeshCasters;
-						Telemetry.View.DirectionalShadow.ShadowPreparedTriangles +=
-							CascadeTelemetry.PreparedTriangles;
 					}
 					Telemetry.View.DirectionalShadow.ShadowLogicalPreparationNanoseconds =
 						static_cast<uint64>(std::chrono::duration_cast<
@@ -381,6 +336,34 @@ namespace Durin
 		return PreparedView;
 	}
 
+	static auto FinishShadowCascade(FSceneFrameContext& Context, uint32 Index) -> void
+	{
+		auto& Shadow = *Context.Logical.PreparedView->DirectionalShadow;
+		auto& Telemetry = Context.Observation.Telemetry.View.DirectionalShadow;
+		const auto Start = FTime::Nanoseconds();
+		auto& Meshes = Shadow.StaticMeshes[Index];
+		Meshes = FinishStaticMeshView(std::move(Context.Logical.PendingShadowCascades[Index]));
+		Telemetry.ShadowStaticSplinePreparationNanoseconds += FTime::Nanoseconds() - Start;
+
+		const auto& Bias = Shadow.View.Cascades[Index].Bias;
+		for (auto* Bucket : {&Meshes.Opaque, &Meshes.Masked})
+			for (auto& Draw : *Bucket)
+				Draw.RasterBias = {Bias.RasterConstant, Bias.RasterSlope, Bias.RasterClamp};
+
+		Telemetry.ShadowSortingBatchingNanoseconds += Meshes.SortingNanoseconds;
+		Telemetry.ShadowStaticSplinePrimitiveFactBuilds += Meshes.SharedPrimitiveFactBuilds;
+		Telemetry.ShadowSelectedLODFactBuilds += Meshes.SelectedLODFactBuilds;
+		Telemetry.ShadowStaticSplineSectionFactBuilds += Meshes.SharedSectionFactBuilds;
+		auto& Cascade = Telemetry.ShadowCascades[Index];
+		Cascade.PreparedStaticMeshCasters = Meshes.PreparedLocalPrimitives;
+		Cascade.PreparedSplineMeshCasters = Meshes.PreparedSplinePrimitives;
+		Cascade.PreparedTriangles = Meshes.SelectedTriangles;
+		Telemetry.ShadowPreparedStaticMeshCasters += Cascade.PreparedStaticMeshCasters;
+		Telemetry.ShadowPreparedSplineMeshCasters += Cascade.PreparedSplineMeshCasters;
+		Telemetry.ShadowPreparedTriangles += Cascade.PreparedTriangles;
+		Telemetry.ShadowLogicalPreparationNanoseconds += FTime::Nanoseconds() - Start;
+	}
+
 	auto FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FSceneFrameContext& Context, bool bPrepareOnly
@@ -401,6 +384,7 @@ namespace Durin
 				ResolvedSceneResources.DirectionalShadow.emplace();
 				for (uint32 Cascade = 0; Cascade < PreparedView.DirectionalShadow->View.CascadeCount; ++Cascade)
 				{
+					FinishShadowCascade(Context, Cascade);
 					const auto& Prepared = PreparedView.DirectionalShadow->StaticMeshes[Cascade];
 					auto& Resolved = ResolvedSceneResources.DirectionalShadow->StaticMeshes[Cascade];
 					Resolved.GPUScenePrimitives = CollectGPUScenePrimitives(Prepared, Dynamic);

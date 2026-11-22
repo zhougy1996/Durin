@@ -2,12 +2,16 @@
 
 Summary: Reduce repeated StaticMesh collection, resource resolution and command-hit work across directional shadow cascades while preserving dynamic validation and resource lifetime.
 
-Last reviewed: 2026-10-20
+Last reviewed: 2026-11-21
 
 Status: Active
 Completed:
 
 ## Current Status
+
+Ordinary static meshes now share admitted batches between the receiver and its
+cascades. See [render-thread alignment Stage 2](UERenderThreadMechanismAlignment.md#stage-2-build-a-dependency-driven-preparation-pipeline)
+for the workload comparison. Resource validation and cascade projection remain open.
 
 Baseline measurement is complete at `6ccf6abdc`. Temporary instrumentation was
 removed, eight source files were restored with matching original hashes, and

@@ -36,21 +36,28 @@ namespace Durin
 		}
 	}
 
-	auto FPrimitiveUniformShaderParametersBuilder::Build() const -> std::optional<FPrimitiveUniformShaderParameters>
+	auto FPrimitiveUniformShaderParametersBuilder::Build() const -> std::optional<FPrimitiveSceneShaderData>
 	{
-		std::array<FVector4f, 16> Packed;
-		if (!Parameters.CustomPrimitiveData.IsValid() || !PackTransform(Packed, Parameters.LocalToWorld, Parameters.WorldBounds)) return {};
-		auto Result = Parameters;
-		Result.Flags = 1;
+		FPrimitiveSceneShaderData Result;
+		if (!CustomData.IsValid() || !PackTransform(std::span(Result.Data).first<FPrimitiveSceneShaderData::HeaderOffset>(), Transform, Bounds))
+			return {};
+		Result.Data[FPrimitiveSceneShaderData::HeaderOffset] = PackUint4(InstanceOffset, InstanceCount, 1, 0);
+		for (uint32 Index = 0; Index < PrimitiveCustomDataFloatCount / 4; ++Index)
+			for (uint32 Channel = 0; Channel < 4; ++Channel)
+				Result.Data[FPrimitiveSceneShaderData::CustomDataOffset + Index][Channel] = CustomData.Values[Index * 4 + Channel];
 		return Result;
 	}
 
-	FPrimitiveSceneShaderData::FPrimitiveSceneShaderData(const FPrimitiveUniformShaderParameters& Parameters)
+	auto FInstanceSceneShaderData::FromPrimitive(const FPrimitiveSceneShaderData& Primitive,
+		uint32 PrimitiveId, uint32 InstancePayloadDataOffset) -> FInstanceSceneShaderData
 	{
-		if (!PackTransform(std::span<FVector4f, 16>(Data.data(), 16), Parameters.LocalToWorld, Parameters.WorldBounds)) return;
-		Data[HeaderOffset] = PackUint4(Parameters.InstanceSceneDataOffset, Parameters.NumInstanceSceneDataEntries, Parameters.Flags, 0);
-		for (uint32 Index = 0; Index < PrimitiveCustomDataFloatCount / 4; ++Index)
-			for (uint32 Channel = 0; Channel < 4; ++Channel) Data[CustomDataOffset + Index][Channel] = Parameters.CustomPrimitiveData.Values[Index * 4 + Channel];
+		static_assert(HeaderOffset == FPrimitiveSceneShaderData::HeaderOffset);
+		FInstanceSceneShaderData Result;
+		if (std::bit_cast<uint32>(Primitive.Data[HeaderOffset].z) == 0) return Result;
+		std::ranges::copy(std::span(Primitive.Data).first<HeaderOffset>(), Result.Data.begin());
+		Result.Data[HeaderOffset] = PackUint4(PrimitiveId, 0, 1, InstancePayloadDataOffset);
+		Result.Data[PayloadOffset] = PackUint4(PrimitiveCustomDataFloatCount, 0, 0, 0);
+		return Result;
 	}
 
 	auto FInstanceSceneShaderData::Build(uint32 PrimitiveId, uint32 InstanceRelativeId,

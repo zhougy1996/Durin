@@ -1551,7 +1551,9 @@ static void ProfileShadowPreparation(size_t PrimitiveCount, bool bBoxes)
 	if (bBoxes && (!CacheSetting || std::string_view(CacheSetting) != "off"))
 	{
 		EXPECT_EQ(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformUploads, 0u);
-		EXPECT_GT(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformReuses, 0u);
+		// The local vertex factory reads GPUScene and skips fallback primitive uniforms.
+		EXPECT_EQ(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPrimitiveUniformReuses, 0u);
+		EXPECT_GT(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
 		EXPECT_GT(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPersistentCommandHits, 0u);
 		EXPECT_EQ(ThreeCascades.LastTelemetry.DirectionalShadow.ShadowPersistentCommandMisses, 0u);
 	}

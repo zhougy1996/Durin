@@ -103,14 +103,13 @@ namespace Durin
 		return Materials.emplace(Key, Proxy ? Proxy->GetMaterialWithFallback() : GetErrorMaterialRenderData()).first->second;
 	}
 
-	auto FStaticMeshSceneProxy::CaptureStaticMeshBatches_RenderThread(FStaticMeshBatchCaptureContext& Context) const
+	auto FStaticMeshSceneProxy::DrawStaticElements(FStaticMeshBatchCaptureContext& Context) const
 		-> FStaticMeshBatchPublication::FRef
 	{
 		CheckRenderingThread();
-		if (const auto Found = Context.Publications.find(this); Found != Context.Publications.end()) return Found->second;
-		if (Instances || !RenderData) return Context.Publications.emplace(this, nullptr).first->second;
+		if (Instances || !RenderData) return {};
 		const auto Geometry = RenderData->CaptureBatchGeometry_RenderThread();
-		if (!Geometry->bValidLayout) return Context.Publications.emplace(this, nullptr).first->second;
+		if (!Geometry->bValidLayout) return {};
 		bool bCurrent = StaticBatches && StaticBatches->Geometry == Geometry
 			&& StaticBatches->MaterialRecords.size() == Materials.size();
 		for (size_t Index = 0; Index < Materials.size(); ++Index)
@@ -149,7 +148,7 @@ namespace Durin
 			}
 			StaticBatches = std::move(Candidate);
 		}
-		return Context.Publications.emplace(this, StaticBatches).first->second;
+		return StaticBatches;
 	}
 
 	auto BuildPublishedStaticMeshBatch(const FStaticMeshBatchPublication& Publication,
