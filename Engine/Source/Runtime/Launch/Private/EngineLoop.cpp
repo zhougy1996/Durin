@@ -534,8 +534,7 @@ namespace Durin
 		{
 			RHIExit();
 		}
-		// Producers have retired through host/object/module shutdown. Render fences
-		// still admit task events until the final render and RHI drains complete.
+		// Producers have retired through host, object and module shutdown.
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		bGameThreadDeferredExecutorStarted = false;
 

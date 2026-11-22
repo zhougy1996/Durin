@@ -91,7 +91,7 @@ TEST_F(FMaterialQualificationTests, ProxyPublicationAndResolveBaseline)
 {
 	using namespace Durin;
 	FModuleManager::Get().LoadModule("RenderCore");
-	const bool OwnsThread = GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Stopped;
+	const bool OwnsThread = !IsRenderingThreadRunning();
 	if (OwnsThread) InitRenderingThread();
 	struct FShutdown { bool Owns; ~FShutdown() { if (Owns) ShutdownRenderingThread(); } } Shutdown{OwnsThread};
 	const auto Root = Testing::CreateTestFixtureDirectory("MaterialProxyBaseline");
@@ -835,8 +835,7 @@ TEST_F(FMaterialQualificationTests, DynamicInstanceUpdateWorkloads)
 	FModuleManager::Get().LoadModule("RenderCore");
 	struct FScopedRenderingThread
 	{
-		bool bOwns = GetRenderCommandAdmissionState()
-			== ERenderCommandAdmissionState::Stopped;
+		bool bOwns = !IsRenderingThreadRunning();
 		FScopedRenderingThread() { if (bOwns) InitRenderingThread(); }
 		~FScopedRenderingThread() { if (bOwns) ShutdownRenderingThread(); }
 	} RenderingThread;

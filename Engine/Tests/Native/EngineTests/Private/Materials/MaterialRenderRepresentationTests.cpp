@@ -271,8 +271,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 		? "Asset catalog refresh failed without a diagnostic."
 		: Durin::FormatAssetRegistryError(Refresh.Errors.front()));
 	const bool bOwnsRenderingThread =
-		Durin::GetRenderCommandAdmissionState()
-			== Durin::ERenderCommandAdmissionState::Stopped;
+		!Durin::IsRenderingThreadRunning();
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
 	ASSERT_TRUE(Durin::InitializeDefaultMaterialService());
 	EXPECT_TRUE(Durin::IsDefaultMaterialServiceAvailable());
@@ -371,8 +370,7 @@ TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 	InitializeDObjectSystem();
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
 	const bool bOwnsRenderingThread =
-		Durin::GetRenderCommandAdmissionState()
-			== Durin::ERenderCommandAdmissionState::Stopped;
+		!Durin::IsRenderingThreadRunning();
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
 	Durin::FStaticMeshSceneProxy Proxy(
 		nullptr,

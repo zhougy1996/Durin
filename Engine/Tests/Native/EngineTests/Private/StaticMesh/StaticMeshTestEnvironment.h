@@ -23,17 +23,13 @@ namespace
 			Durin::FModuleManager::Get().LoadModule("MeshBuilder");
 			Durin::FModuleManager::Get().LoadModule("TextureCompressor");
 			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-			ASSERT_EQ(
-				Durin::GetRenderCommandAdmissionState(),
-				Durin::ERenderCommandAdmissionState::Stopped);
+			ASSERT_FALSE(Durin::IsRenderingThreadRunning());
 			Durin::InitRenderingThread();
 		}
 
 		auto TearDown() -> void override
 		{
-			ASSERT_EQ(
-				Durin::GetRenderCommandAdmissionState(),
-				Durin::ERenderCommandAdmissionState::Running);
+			ASSERT_TRUE(Durin::IsRenderingThreadRunning());
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
 			Durin::ShutdownAssetCompilingManager();

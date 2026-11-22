@@ -372,7 +372,7 @@ namespace Durin
 				GetObjectPath());
 			return;
 		}
-		if (!GDynamicRHI || GetRenderCommandAdmissionState() != ERenderCommandAdmissionState::Running)
+		if (!GDynamicRHI || !IsRenderingThreadRunning())
 		{
 			DURIN_WARN("Texture upload requires an RHI and open render-command admission. (texture: {})", GetObjectPath());
 			return;

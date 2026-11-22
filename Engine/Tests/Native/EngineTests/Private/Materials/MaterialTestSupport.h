@@ -378,8 +378,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			bOwnsRenderingThread =
-				Durin::GetRenderCommandAdmissionState()
-					== Durin::ERenderCommandAdmissionState::Stopped;
+				!Durin::IsRenderingThreadRunning();
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
 			if (Durin::FMountPaths::FindMountForVirtualPath(
 					Durin::DefaultMaterialPackagePath))
@@ -445,8 +444,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			bOwnsRenderingThread =
-				Durin::GetRenderCommandAdmissionState()
-					== Durin::ERenderCommandAdmissionState::Stopped;
+				!Durin::IsRenderingThreadRunning();
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
 			if (Durin::FMountPaths::FindMountForVirtualPath(
 					Durin::DefaultMaterialPackagePath))

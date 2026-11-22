@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, Renderer, MonaImGui
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-22
 
 Scene-owned Primitive/Instance buffer mirrors, upload transactions and native
 recovery follow [Persistent GPU scene storage](../Scene/GPUScene.md). This owner
@@ -14,13 +14,6 @@ coexists with source-associated Primitive uniforms for unsupported factories onl
 initialization, update, and release state machine. This contract covers generic
 RenderCore lifetime; asset-specific publication and RHI command execution stay
 with their owning systems.
-
-## Command Admission Boundary
-
-RenderCore command admission is observable as `Stopped`, `Running`, or
-`Draining`. Normal initialization moves it to `Running`. Render commands
-require running admission; submission after closure is a contract failure.
-Producers stop submitting before final shutdown begins.
 
 ## Resource State
 
@@ -69,11 +62,11 @@ ordinary deferred cleanup boundary.
 ## Source-owned draw resources
 
 `CreateRenderResource<T>()` pairs shared source ownership with
-`DeleteRenderResource`. While admission is running, deletion queues `ReleaseResource` when initialized
-followed by deferred cleanup, without reading render-thread state on the releasing
-thread. After admission closes, only uninitialized storage can be deleted directly. Last initialized
-owner release requires running command admission. Producers therefore release
-these owners before admission closes. `VisitInitializedRenderResources` is a
+`DeleteRenderResource`. While the rendering thread is active, it releases RHI
+state on that thread and queues ordered C++ cleanup. With rendering stopped,
+only uninitialized storage can be deleted directly. Producers release their
+initialized resources before requesting render shutdown.
+`VisitInitializedRenderResources` is a
 render-thread-only registry visitor; callbacks must not change registry membership.
 Bulk release collects matching resources before releasing them. Deferred cleanup
 removes storage from its queue under the queue lock, then destroys it outside that
@@ -206,8 +199,7 @@ pass. Debug builds reject live resources and pending cleanup at their owning
 boundary, while non-Debug builds execute the same drains and shutdown calls.
 Control-flow side effects never belong inside `check` or `checkf`.
 
-Render-command admission, accepted-command drain, RHI deferred deletion, and
-thread-stop diagnostics are defined by
+Render-command submission and the final render/RHI drain are defined by
 [RHI Command Execution](../RHI/RHICommandExecution.md).
 
 ## Related Documentation

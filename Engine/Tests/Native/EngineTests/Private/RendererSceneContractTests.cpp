@@ -2162,7 +2162,7 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 
 TEST(FRendererSceneContractTests, ComponentPublicationRequiresCommandAdmission)
 {
-	ASSERT_EQ(Durin::GetRenderCommandAdmissionState(), Durin::ERenderCommandAdmissionState::Stopped);
+	ASSERT_FALSE(Durin::IsRenderingThreadRunning());
 	EXPECT_DEATH_IF_SUPPORTED({
 		auto Scene = Durin::FSceneInterfaceTestAccess::CreateScene();
 		auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "RejectedScenePublicationWorld");

@@ -101,26 +101,9 @@ namespace Durin
 				ShutdownTaskScheduler(false);
 			}
 		};
-
-		struct FAcceptedBeforeAdmissionCloseCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "AcceptedBeforeAdmissionClose";
-			}
-		};
-
-		struct FAcceptedDuringOwnerRetirementCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "AcceptedDuringOwnerRetirement";
-			}
-		};
-
 	}
 
-	TEST_F(FRenderResourceLifecycleTests, DeferredSourceDestructionCanReleaseChildResources)
+	TEST_F(FRenderResourceLifecycleTests, ShutdownDrainsDeferredSourceAndChildResources)
 	{
 		struct FSource final : FRenderResource
 		{
@@ -135,14 +118,12 @@ namespace Durin
 		});
 		FlushRenderingCommands();
 		Source.reset();
-		// Drain parent release, parent cleanup, then child cleanup.
-		FlushRenderingCommands();
-		FlushRenderingCommands();
-		FlushRenderingCommands();
+		ShutdownRenderingThread();
 		EXPECT_EQ(Events->ReleaseCount, 1);
 		EXPECT_TRUE(Events->bDestroyedOnRenderingThread);
 		EXPECT_EQ(GetNumInitializedRenderResources(), 0u);
 		EXPECT_EQ(GetNumPendingRenderResourceCleanup(), 0u);
+		InitRenderingThread();
 	}
 
 	TEST_F(FRenderResourceLifecycleTests, SharedSourceReleaseUsesOrderedCleanup)
@@ -231,32 +212,23 @@ namespace Durin
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
-		AdmissionCloseDrainsAcceptedWorkAndRestarts)
+		ShutdownDrainsAcceptedWorkAndRestarts)
 	{
 		std::atomic<bool> bAcceptedCommandExecuted = false;
-		FRenderThreadCommandPipe::Enqueue<
-				FAcceptedBeforeAdmissionCloseCommand>(
-				[&bAcceptedCommandExecuted](FRHICommandListImmediate&) {
-					bAcceptedCommandExecuted.store(
-						true, std::memory_order_release);
-				});
+		EnqueueRenderCommand("AcceptedBeforeShutdown",
+			[&bAcceptedCommandExecuted](FRHICommandListImmediate&) {
+				bAcceptedCommandExecuted.store(true, std::memory_order_release);
+			});
 
 		ShutdownRenderingThread();
 
 		EXPECT_TRUE(bAcceptedCommandExecuted.load(
 			std::memory_order_acquire));
-		EXPECT_EQ(GetRenderCommandAdmissionState(),
-			ERenderCommandAdmissionState::Stopped);
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		EXPECT_FALSE(IsRenderingThreadRunning());
 		FlushRenderingCommands();
-		FlushRenderingCommands();
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
-		EXPECT_EQ(GetRenderCommandAdmissionState(), ERenderCommandAdmissionState::Stopped);
 
-		// Restore the fixture contract and prove the stopped pipe is reusable.
 		InitRenderingThread();
-		EXPECT_EQ(GetRenderCommandAdmissionState(),
-			ERenderCommandAdmissionState::Running);
+		EXPECT_TRUE(IsRenderingThreadRunning());
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
@@ -272,8 +244,7 @@ namespace Durin
 		Tasks::FTask Probe = Durin::Tasks::FTask(Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
 			ProbeStarted.Trigger();
 			ReleaseProbe.Wait();
-			FRenderThreadCommandPipe::Enqueue<
-				FAcceptedDuringOwnerRetirementCommand>(
+			EnqueueRenderCommand("AcceptedDuringOwnerRetirement",
 				[&bRenderCommandExecuted](FRHICommandListImmediate&) {
 					bRenderCommandExecuted.store(
 						true, std::memory_order_release);
@@ -291,8 +262,7 @@ namespace Durin
 		EXPECT_TRUE(bRenderCommandExecuted.load(std::memory_order_acquire));
 		EXPECT_TRUE(IsTaskSchedulerRunning());
 		ShutdownRenderingThread();
-		EXPECT_EQ(ERenderCommandAdmissionState::Stopped, GetRenderCommandAdmissionState());
-		EXPECT_EQ(0u, GetNumPendingRenderCommands());
+		EXPECT_FALSE(IsRenderingThreadRunning());
 		ShutdownTaskScheduler(true);
 		const FTaskSchedulerDiagnostics SchedulerDiagnostics =
 			GetTaskSchedulerDiagnostics();
@@ -389,8 +359,7 @@ namespace Durin
 
 		EXPECT_TRUE(bDestroyed.load(std::memory_order_acquire));
 		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 0u);
-		EXPECT_EQ(GetRenderCommandAdmissionState(),
-			ERenderCommandAdmissionState::Stopped);
+		EXPECT_FALSE(IsRenderingThreadRunning());
 
 		InitRenderingThread();
 	}
@@ -435,33 +404,6 @@ namespace Durin
 			EXPECT_EQ(PublishedValue, Index + 1);
 			EXPECT_TRUE(Fence.IsFenceComplete());
 		}
-	}
-
-	TEST_F(FRenderResourceLifecycleTests, PendingCommandsCountActiveBatchOnce)
-	{
-		FThreadEvent Started, Release;
-		ENQUEUE_RENDER_COMMAND(BlockPendingCount)([&](FRHICommandListImmediate&) {
-			Started.Trigger();
-			Release.Wait();
-		});
-		const bool bStarted = Started.WaitFor(1.0);
-		EXPECT_TRUE(bStarted);
-		if (bStarted)
-		{
-			EXPECT_EQ(GetNumPendingRenderCommands(), 1u);
-			for (uint32 Index = 0; Index < 32; ++Index)
-			{
-				ENQUEUE_RENDER_COMMAND(CountQueuedCommand)([](FRHICommandListImmediate&) {});
-			}
-			EXPECT_EQ(GetNumPendingRenderCommands(), 33u);
-		}
-		Release.Trigger();
-		// Exercise snapshots while the consumer clears and switches batches.
-		for (uint32 Index = 0; Index < 1000; ++Index)
-			EXPECT_LE(GetNumPendingRenderCommands(), 33u);
-		ShutdownRenderingThread();
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
-		InitRenderingThread();
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,

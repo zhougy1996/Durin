@@ -295,8 +295,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 TEST(FStaticMeshThumbnailRendererTests,
 	WarmPersistentHitDoesNotLoadStaticMeshOrCreatePreviewScene)
 {
-	if (Durin::GetRenderCommandAdmissionState()
-		!= Durin::ERenderCommandAdmissionState::Running)
+	if (!Durin::IsRenderingThreadRunning())
 		Durin::InitRenderingThread();
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -364,8 +363,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 TEST(FStaticMeshThumbnailRendererTests,
 	CorruptPersistentHitIsInvalidatedAndRetriedThroughColdPath)
 {
-	if (Durin::GetRenderCommandAdmissionState()
-		!= Durin::ERenderCommandAdmissionState::Running)
+	if (!Durin::IsRenderingThreadRunning())
 		Durin::InitRenderingThread();
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;

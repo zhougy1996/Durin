@@ -11,7 +11,7 @@ namespace Durin::Testing
 	// builder. CPU-only tests own a temporary rendering thread when necessary.
 	inline auto CaptureMaterialRenderData(const DMaterialInterface& Material) -> FMaterialRenderData
 	{
-		const bool OwnsThread = GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Stopped;
+		const bool OwnsThread = !IsRenderingThreadRunning();
 		if (OwnsThread)
 		{
 			FModuleManager::Get().LoadModule("RenderCore");

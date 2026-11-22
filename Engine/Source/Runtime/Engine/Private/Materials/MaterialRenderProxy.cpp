@@ -471,21 +471,9 @@ namespace Durin
 	{
 		if (!Proxy) return;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		const auto Admission = GetRenderCommandAdmissionState();
-		if (Admission == ERenderCommandAdmissionState::Stopped) return;
-		checkf(Admission == ERenderCommandAdmissionState::Running,
-			"Material proxy retirement must finish before render-command shutdown.");
-
-		struct FReleaseMaterialRenderProxyCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "ReleaseMaterialRenderProxy";
-			}
-		};
-		FRenderThreadCommandPipe::Enqueue<FReleaseMaterialRenderProxyCommand>(
-			[Proxy = std::move(Proxy)](
-				FRHICommandListImmediate&) mutable {
+		if (!IsRenderingThreadRunning()) return;
+		EnqueueRenderCommandDeferred("ReleaseMaterialRenderProxy",
+			[Proxy = std::move(Proxy)](FRHICommandListImmediate&) mutable {
 				Proxy = {};
 			});
 	}

@@ -343,12 +343,12 @@ namespace Durin
 			|| !IsSupportedMaterialFeatureLevel(Level) || !IsSupportedMaterialQualityLevel(Quality)) return {};
 		const auto Resource = GetCompilationResource(Level, Quality, true);
 		if (!Resource->Proxy) { Resource->Proxy = MakeRefCount<FMaterialRenderProxy>(); Resource->bProxyInitialized = false; }
-		if (!Resource->bProxyInitialized && GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+		if (!Resource->bProxyInitialized && IsRenderingThreadRunning())
 		{
 			SubmitMaterialProxyUpdates(*Resource->Proxy, GetMaterialResource(Level, Quality), EMaterialRenderDirtyFlags::AllRenderState);
 			Resource->bProxyInitialized = true;
 		}
-		if (GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+		if (IsRenderingThreadRunning())
 			Resource->Proxy->SetCompiling_GameThread(GetMaterialCompileStatus(Level, Quality).State == EMaterialCompileState::Running);
 		return Resource->Proxy;
 	}
@@ -369,7 +369,7 @@ namespace Durin
 					Resource->AcceptedProperties = ResolveResourceProperties(*Resource);
 			}
 			if (Resource->Proxy && Resource->Configuration.Backend == PreparationBackend()
-				&& GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+				&& IsRenderingThreadRunning())
 			{
 				SubmitMaterialProxyUpdates(*Resource->Proxy, GetMaterialResource(Resource->Configuration.FeatureLevel, Resource->Configuration.Quality),
 					Resource->bProxyInitialized ? Flags : EMaterialRenderDirtyFlags::AllRenderState, ChangedParameters);

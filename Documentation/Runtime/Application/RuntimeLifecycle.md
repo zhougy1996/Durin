@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, Projects, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-22
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -131,15 +131,13 @@ selection. Launch carries one explicit adoption intent into Mona rendering, and
 the startup viewport transfers that candidate exactly once; later viewports
 create their own surfaces. Explicit RHI-only Headless initialization creates
 no surface; normal engine startup always uses the presentation context.
-Render-command admission opens immediately after `RHIInit()` and before Mona
-rendering, editor previews, or engine initialization can enqueue work.
+Launch starts the rendering thread after `RHIInit()` and before Mona rendering,
+editor previews, or engine initialization can enqueue work.
 If the selected RHI backend cannot load or initialize, Launch reports the
 backend diagnostic, returns initialization failure and unwinds the hidden startup
 window without entering project startup. Mona uses the ordinary render flush
 barrier before destroying windows. RenderCore treats a stopped queue as already
-drained, including before RHI startup; callers do not inspect queue admission.
-Repeated Mona shutdown is safe. Normal exit
-still destroys windows and rendering resources before closing render admission.
+drained, including before RHI startup. Repeated Mona shutdown is safe.
 
 Mona rendering initialization is backend-neutral. In an editor runtime, Launch
 then loads MonaImGui and requires it to install the active backend before
@@ -499,10 +497,9 @@ shutdown order directly:
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; reflection cleanup is owned by this explicit exit stage. |
 | Drain objects | Release roots, run `partial GC -> render flush -> full purge -> final GC`, and require zero deferred object destruction. |
 | Shut down modules | Call module Shutdown in reverse Startup-completion order after object cleanup; keep task executors and render/RHI threads available for module-owned waits. |
-| Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
-| Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
+| Stop rendering | After render producers retire, request render-thread exit and join it after accepted commands, derived cleanup and the final resource audit and RHI drain. |
 | Stop RHI | Flush recorded commands, stop and join the RHI thread, then drain deferred resources and shut down the backend inline on the game thread. |
-| Stop CPU work | After render/RHI teardown, shut down both CPU and blocking-I/O pools through the process [task system](../Core/TaskSystem.md) in `Drain` mode. Keep task-event admission open until all render fences have retired. |
+| Stop CPU work | After render/RHI teardown, shut down both CPU and blocking-I/O pools through the process [task system](../Core/TaskSystem.md) in `Drain` mode. |
 | Close the application | Shut down the platform application and publish successful process termination. |
 
 There is no global exit phase or pre-exit callback registry. Each owner closes
@@ -517,10 +514,8 @@ references:
   while their component, viewport, scene, or preview owner remains attached.
 
 CPU-work owners close admission and join work that can publish render/RHI commands
-during host/service or module teardown, before render admission closes. The task
-system remains open through render/RHI teardown because render fences create
-task events. Standalone future readiness and observer events do not replace
-owner producer joins; accepted task/command captures must retire before their
+during host/service or module teardown, before Launch requests render-thread
+exit. Accepted task and command captures must retire before their
 resources or modules are released. Work that accesses objects must finish during host/service
 or object teardown before those objects are collected; retaining the executors
 for later module cleanup does not extend object lifetimes. Owners are responsible

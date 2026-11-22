@@ -548,8 +548,7 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	EXPECT_FALSE(Instance->IsParameterValueOrphan(
 		Durin::AssetForge::Builtins::MaterialParameters::GetBuiltinParameterIds(
 			Durin::AssetForge::Builtins::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	const bool bOwnsRenderingThread = Durin::GetRenderCommandAdmissionState()
-		== Durin::ERenderCommandAdmissionState::Stopped;
+	const bool bOwnsRenderingThread = !Durin::IsRenderingThreadRunning();
 	if (bOwnsRenderingThread) Durin::InitRenderingThread();
 	Durin::FMaterialRenderData BaseData, ChildData;
 	auto BaseProxy = Cooked->GetRenderProxy();

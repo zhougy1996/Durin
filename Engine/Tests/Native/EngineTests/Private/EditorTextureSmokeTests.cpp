@@ -248,7 +248,6 @@ namespace Durin
 		MaterialWorkspace.reset();
 		MaterialEditorHarness.Shutdown();
 		ShutdownRenderingThread();
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
 
 	TEST(FEditorTextureSmokeTests,
@@ -365,9 +364,7 @@ namespace Durin
 			});
 		FlushRenderingCommands();
 		ShutdownRenderingThread();
-		EXPECT_EQ(GetRenderCommandAdmissionState(),
-			ERenderCommandAdmissionState::Stopped);
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		EXPECT_FALSE(IsRenderingThreadRunning());
 	}
 
 	TEST(FEditorTextureSmokeTests,
@@ -415,7 +412,6 @@ namespace Durin
 			GetNumPendingRenderResourceCleanup(), InitialDeferredCleanupCount);
 
 		ShutdownRenderingThread();
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
 } // namespace Durin
 #include "TextureAssetTestEnvironment.h"

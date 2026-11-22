@@ -2,7 +2,7 @@
 
 Summary: Define recorded GPU command ownership, submission, synchronization, and RHI-thread execution.
 
-Modules: RHI
+Modules: RHI, RenderCore
 
 Durin's renderer records backend-neutral RHI commands into owned command-list
 storage and replays them through one executor. The normal runtime uses one
@@ -487,33 +487,22 @@ does not change GPU submission scope routing or enable production async compute.
 
 ## Runtime Drain And Diagnostics
 
-`FFrameSync::EndFrame` preserves the two-slot render-command pacing fence and
-does not wait for RHI completion. A `Threads` sync, including
-`FlushRenderingCommands`, submits pending immediate work and waits the exact RHI
-serial. Render commands trigger a shared `Tasks::FTaskEvent`; the GameThread-owned
-fence stores its `Tasks::FTask` and, for RHI-inclusive fences, an independently
-retained RHI receipt published before the event completes. Completion remains
-visible whether it precedes or races a wait. Destroying or restarting the fence
-does not invalidate queued event/receipt captures. RHI submission or execution
-failure is terminal rather than a successful flush. Task-event admission remains
-open until rendering and RHI have stopped; render-producing task owners must
-close admission and join before render teardown. See [runtime shutdown](../../Application/RuntimeLifecycle.md).
+`EnqueueRenderCommand` runs inline on the rendering thread.
+`EnqueueRenderCommandDeferred` preserves FIFO ordering even from that thread.
+Producers must finish submitting before the GameThread requests render shutdown.
+The rendering thread drains accepted commands and any cleanup they enqueue,
+releases command captures, checks the render-resource registry and deferred C++
+cleanup, and drains outstanding RHI work and deferred deletes before exiting.
+See [runtime shutdown](../../Application/RuntimeLifecycle.md).
 
-`FlushRenderingCommands` owns the lifecycle check: on the GameThread, a stopped
-render queue is already drained and the call performs no submission, including
-before RHI startup. Callers use the barrier without inspecting admission state.
-Calling it while admission is Draining remains an ordering error; ordinary
-render-command submission still requires Running admission.
-
-Render shutdown closes render-command admission, drains every accepted command,
-flushes the immediate timeline and deferred deletion, then verifies all of the
-following before `RHIExit()`:
-
-- both render command queues and the active-command count are zero;
-- executor pending-batch count is zero;
-- submitted and completed serials match;
-- the render-resource registry, deferred C++ cleanup, and pending RHI deletion
-  are empty.
+`FFrameSync::Sync(EndFrame)` limits GameThread lead over the rendering thread to
+one frame. `Threads` and `FlushRenderingCommands()` synchronize accepted work
+through the exact RHI serial captured by their fence. RHI execution failure
+fails the wait.
+Final render shutdown also drains cleanup queued behind the fence.
+`FlushRenderingCommands()` is a GameThread no-op when the rendering thread is
+stopped. A queued fence retains its completion state independently of the fence
+object and of the task scheduler.
 
 `RHIExit()` closes pipeline compilation, releases upper-layer owners and flushes
 recorded commands on the current executor. In threaded mode, stopping the FIFO
@@ -524,12 +513,8 @@ drains deferred RHI resources (including deletes produced by destructors), and
 shuts down the backend. Backends drain resources released by their own teardown
 before destroying the corresponding native device objects.
 
-The final rendering-thread audit logs cumulative command count, payload bytes,
-submitted batches, submission groups, replay time, wait count and duration,
-synchronous-operation count, peak queued-or-active entries/batches/bytes,
-and backpressure. `FRHICommandListExecutor::GetStats()`
-exposes the same CPU-side snapshot. These values diagnose executor stalls and
-queue sizing; they are not GPU timing measurements.
+`FRHICommandListExecutor::GetStats()` exposes CPU-side queue and replay counters
+for diagnosing stalls and backpressure. GPU timing uses separate measurements.
 
 ## Related Documentation
 

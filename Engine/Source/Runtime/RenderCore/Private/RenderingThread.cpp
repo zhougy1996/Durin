@@ -10,18 +10,8 @@
 
 namespace Durin
 {
-	FRunnable* GRenderingThreadRunnable = nullptr;
-
 	namespace
 	{
-		struct FFenceRenderCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "FenceCommand";
-			}
-		};
-
 		auto CheckRenderingThreadShutdown() -> void
 		{
 			const bool bResourcesReleased =
@@ -78,52 +68,106 @@ namespace Durin
 				== GCommandListExecutor.GetCompletedSerial(),
 				"Rendering thread shutdown left incomplete RHI submissions.");
 		}
-	}
 
-	class FRenderingThread : public FRunnable
-	{
-	public:
-		~FRenderingThread() override
+		class FRenderingThread final : public FRunnable
 		{
-		}
-
-		auto Run() -> uint32 override
-		{
-			check(IsInRenderingThread());
-			// RHIInit binds the command-list context; context-free tests may still use the render command pipe.
-			DURIN_TRACE("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
-			while (FRenderThreadCommandPipe::Launch())
+		public:
+			auto Start() -> void
 			{
+				std::lock_guard Lock(Mutex);
+				require(!GRenderingThread);
+				bStopRequested = false;
+				GRenderingThread = FRunnableThread::Create(this, "RenderingThread", 0,
+					EThreadPriority::Normal, EThreadRole::RenderingThread);
+				requiref(GRenderingThread, "Rendering thread creation failed.");
+				bRunning = true;
 			}
-			return 0;
-		}
 
-		auto Stop() -> void override
-		{
-			FRenderThreadCommandPipe::Shutdown();
-		}
+			auto Stop() -> void override
+			{
+				{
+					std::lock_guard Lock(Mutex);
+					require(bRunning && !bStopRequested);
+					bStopRequested = true;
+				}
+				CommandAvailable.notify_one();
+			}
 
-		auto Exit() -> void override
-		{
-			DURIN_TRACE("Rendering thread shut down.");
-		}
-	};
+			auto IsRunning() -> bool
+			{
+				std::lock_guard Lock(Mutex);
+				return bRunning;
+			}
 
-	static auto StartRenderingThread() -> void
-	{
-		GRenderingThreadRunnable = new FRenderingThread();
-		GRenderingThread = FRunnableThread::Create(GRenderingThreadRunnable, "RenderingThread", 0, EThreadPriority::Normal, EThreadRole::RenderingThread);
-	}
+			auto Enqueue(const char* Name,
+				TMoveOnlyFunction<void(FRHICommandListImmediate&)>&& Function) -> void
+			{
+				bool bWasEmpty;
+				{
+					std::lock_guard Lock(Mutex);
+					// Accepted commands can enqueue ordered cleanup until the consumer runs out of work.
+					requiref(bRunning && (!bStopRequested || GetCurrentThread() == GRenderingThread),
+						"Render command '{}' was submitted outside the rendering thread lifetime.", Name);
+					bWasEmpty = PendingCommands.empty();
+					PendingCommands.emplace_back(Name, std::move(Function));
+				}
+				if (bWasEmpty)
+				{
+					CommandAvailable.notify_one();
+				}
+			}
 
-	static auto StopRenderingThread() -> void
-	{
-		GRenderingThread->WaitForCompletion();
+			auto Run() -> uint32 override
+			{
+				std::vector<FCommand> Commands;
+				std::unique_lock Lock(Mutex);
+				check(IsInRenderingThread());
+				for (;;)
+				{
+					CommandAvailable.wait(Lock, [this]() {
+						return bStopRequested || !PendingCommands.empty();
+					});
+					if (PendingCommands.empty())
+					{
+						bRunning = false;
+						break;
+					}
 
-		delete GRenderingThread;
-		GRenderingThread = nullptr;
+					Commands.swap(PendingCommands);
+					Lock.unlock();
+					for (FCommand& Command : Commands)
+					{
+						DURIN_PROFILE_CPU_ZONE_NAMED("RenderCommand.Execute");
+						DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Command.Name ? Command.Name : "").substr(0, 128));
+						Command.Function(FRHICommandListImmediate::Get());
+						// Release captures before the next command can complete a fence.
+						Command.Function = nullptr;
+					}
+					Commands.clear();
+					Lock.lock();
+				}
+				Lock.unlock();
+				CheckRenderingThreadShutdown();
+				return 0;
+			}
 
-		delete GRenderingThreadRunnable;
-		GRenderingThreadRunnable = nullptr;
+		private:
+			struct FCommand
+			{
+				const char* Name;
+				TMoveOnlyFunction<void(FRHICommandListImmediate&)> Function;
+			};
+
+			std::vector<FCommand> PendingCommands;
+			std::mutex Mutex;
+			std::condition_variable CommandAvailable;
+			bool bRunning = false;
+			bool bStopRequested = false;
+		};
+
+		FRenderingThread RenderingThread;
+		std::array<FRenderCommandFence, 2> FrameFences;
+		uint32 NextFrameFence = 0;
 	}
 
 	FRenderCommandFence::FRenderCommandFence() = default;
@@ -139,7 +183,7 @@ namespace Durin
 			? std::make_shared<FRHICommandListFence>() : nullptr;
 		CompletionTask = Event;
 		RHIFence = Receipt;
-		FRenderThreadCommandPipe::Enqueue<FFenceRenderCommand>(
+		EnqueueRenderCommand("FenceCommand",
 			[Event = std::move(Event), Receipt = std::move(Receipt)](FRHICommandListImmediate&) mutable {
 				if (Receipt)
 				{
@@ -190,52 +234,23 @@ namespace Durin
 
 	namespace FFrameSync
 	{
-		struct FRenderThreadFence
-		{
-			explicit FRenderThreadFence(ERenderCommandFenceMode Mode)
-			{
-				Fence.BeginFence(Mode);
-			}
-
-			~FRenderThreadFence()
-			{
-				Fence.Wait();
-			}
-
-			FRenderCommandFence Fence;
-		};
-
-		std::array<std::optional<FRenderThreadFence>, 2> RenderThreadFences;
-
-		static uint32 NextFenceIndex = 0;
-
 		auto Sync(EFlushMode FlushMode) -> void
 		{
 			check(IsInGameThread());
 			const auto SyncStarted = std::chrono::steady_clock::now();
-			bool bFullSync = (FlushMode == EFlushMode::Threads);
-
-			RenderThreadFences[NextFenceIndex].emplace(
-				bFullSync ? ERenderCommandFenceMode::RHIThread
-					: ERenderCommandFenceMode::RenderThread);
-			NextFenceIndex ^= 1;
-
+			const bool bFullSync = FlushMode == EFlushMode::Threads;
 			if (bFullSync)
 			{
-				for (size_t i = 0; i < RenderThreadFences.size(); ++i)
-				{
-					if (RenderThreadFences[i].has_value())
-					{
-						RenderThreadFences[i].reset();
-					}
-				}
+				FRenderCommandFence Fence;
+				Fence.BeginFence(ERenderCommandFenceMode::RHIThread);
+				FrameFences[NextFrameFence ^ 1].Wait();
+				Fence.Wait();
 			}
 			else
 			{
-				if (RenderThreadFences[NextFenceIndex].has_value())
-				{
-					RenderThreadFences[NextFenceIndex].reset();
-				}
+				FrameFences[NextFrameFence].BeginFence();
+				NextFrameFence ^= 1;
+				FrameFences[NextFrameFence].Wait();
 			}
 			const double SyncMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - SyncStarted).count();
 			if (Profiling::AreStartupDiagnosticsEnabled() && SyncMS >= 20.0)
@@ -245,22 +260,30 @@ namespace Durin
 
 	auto InitRenderingThread() -> void
 	{
-		FRenderThreadCommandPipe::Start();
-		StartRenderingThread();
+		RenderingThread.Start();
 	}
 
 	auto ShutdownRenderingThread() -> void
 	{
 		check(IsInGameThread());
-		FRenderThreadCommandPipe::Shutdown();
-		StopRenderingThread();
+		require(GRenderingThread);
+		GRenderingThread->Kill(true);
+		delete GRenderingThread;
+		GRenderingThread = nullptr;
+		FrameFences[NextFrameFence ^ 1].Wait();
+		NextFrameFence = 0;
+	}
+
+	auto IsRenderingThreadRunning() -> bool
+	{
+		return RenderingThread.IsRunning();
 	}
 
 	auto FlushRenderingCommands() -> void
 	{
 		check(IsInGameThread());
 		// Stopped admission owns no accepted work, including before RHI startup.
-		if (GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Stopped) return;
+		if (!IsRenderingThreadRunning()) return;
 		ENQUEUE_RENDER_COMMAND(FlushPendingDeleteRHIResourcesCmd)([](FRHICommandListImmediate& RHICmdList) {
 			RHICmdList.ImmediateFlush(
 				EImmediateFlushType::DispatchToRHIThread,
@@ -269,122 +292,21 @@ namespace Durin
 		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
 	}
 
-	auto GetImmediateCommandList_ForRenderCommand() -> FRHICommandListImmediate&
+	auto EnqueueRenderCommand(const char* Name,
+		TMoveOnlyFunction<void(FRHICommandListImmediate&)> Function) -> void
 	{
-		return FRHICommandListImmediate::Get();
-	}
-
-	auto GetRenderCommandAdmissionState() -> ERenderCommandAdmissionState
-	{
-		return FRenderThreadCommandPipe::GetAdmissionState();
-	}
-
-	auto GetNumPendingRenderCommands() -> size_t
-	{
-		return FRenderThreadCommandPipe::GetNumPendingCommands();
-	}
-
-	auto FRenderThreadCommandPipe::EnqueueImpl(
-		const char* Name,
-		std::function<void(FRHICommandListImmediate&)>&& Function) -> void
-	{
-		bool bWasEmpty;
+		if (IsInRenderingThread())
 		{
-			std::lock_guard Lock(Mutex);
-			checkf(AdmissionState == ERenderCommandAdmissionState::Running,
-				"Render command '{}' was submitted after admission closed.", Name);
-			bWasEmpty = CommandQueue[ProduceIndex].empty();
-			CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
+			Function(FRHICommandListImmediate::Get());
+			return;
 		}
-		if (bWasEmpty)
-		{
-			CommandAvailableCV.notify_one();
-		}
+		EnqueueRenderCommandDeferred(Name, std::move(Function));
 	}
 
-	auto FRenderThreadCommandPipe::LaunchImpl() -> bool
+	auto EnqueueRenderCommandDeferred(const char* Name,
+		TMoveOnlyFunction<void(FRHICommandListImmediate&)> Function) -> void
 	{
-		check(IsInRenderingThread());
-		std::unique_lock Lock(Mutex);
-		CommandAvailableCV.wait(Lock, [this]() {
-			return !CommandQueue[ProduceIndex].empty()
-				|| AdmissionState == ERenderCommandAdmissionState::Draining;
-		});
-
-		if (CommandQueue[ProduceIndex].empty())
-		{
-			check(AdmissionState == ERenderCommandAdmissionState::Draining);
-			Lock.unlock();
-			CheckRenderingThreadShutdown();
-			Lock.lock();
-			check(CommandQueue[0].empty());
-			check(CommandQueue[1].empty());
-			check(ActiveCommandCount == 0);
-			AdmissionState = ERenderCommandAdmissionState::Stopped;
-			return false;
-		}
-
-		std::vector<FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
-		ProduceIndex ^= 1;
-		ActiveCommandCount += CommandsToExecute.size();
-		Lock.unlock();
-
-		for (FCommand& Command : CommandsToExecute)
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("RenderCommand.Execute");
-			DURIN_PROFILE_CPU_ZONE_TEXT(std::string_view(Command.Name ? Command.Name : "").substr(0, 128));
-			Command.Function(FRHICommandListImmediate::Get());
-			// A completed command must release its captured payload before the
-			// next command can complete a fence. Keeping every lambda alive until
-			// the whole batch is cleared makes fence-visible lifetime depend on
-			// whether adjacent commands happened to land in the same batch.
-			Command.Function = {};
-		}
-
-		CommandsToExecute.clear();
-		Lock.lock();
-		ActiveCommandCount = 0;
-		return true;
+		RenderingThread.Enqueue(Name, std::move(Function));
 	}
-
-	auto FRenderThreadCommandPipe::StartImpl() -> void
-	{
-		std::lock_guard Lock(Mutex);
-		checkf(AdmissionState == ERenderCommandAdmissionState::Stopped,
-			"Rendering thread command admission can only start from stopped.");
-		check(CommandQueue[0].empty());
-		check(CommandQueue[1].empty());
-		check(ActiveCommandCount == 0);
-		ProduceIndex = 0;
-		AdmissionState = ERenderCommandAdmissionState::Running;
-	}
-
-	auto FRenderThreadCommandPipe::ShutdownImpl() -> void
-	{
-		{
-			std::lock_guard Lock(Mutex);
-			checkf(AdmissionState == ERenderCommandAdmissionState::Running,
-				"Rendering thread can only shut down while running.");
-			AdmissionState = ERenderCommandAdmissionState::Draining;
-		}
-		CommandAvailableCV.notify_one();
-	}
-
-	auto FRenderThreadCommandPipe::GetAdmissionStateImpl() const
-		-> ERenderCommandAdmissionState
-	{
-		std::lock_guard Lock(Mutex);
-		return AdmissionState;
-	}
-
-	auto FRenderThreadCommandPipe::GetNumPendingCommandsImpl() const -> size_t
-	{
-		std::lock_guard Lock(Mutex);
-		// The consumer clears its vector outside Mutex. Count that batch only
-		// through ActiveCommandCount, which is published under Mutex.
-		return CommandQueue[ProduceIndex].size() + ActiveCommandCount;
-	}
-
-	FRenderThreadCommandPipe FRenderThreadCommandPipe::Instance;
 
 } // namespace Durin

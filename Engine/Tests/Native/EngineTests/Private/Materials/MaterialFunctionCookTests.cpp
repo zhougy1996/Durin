@@ -17,7 +17,7 @@ namespace
 			InitializeDObjectSystem();
 			// Full cook emits the fixed shader library as well as material programs.
 			// Register its renderer-owned inventory independently of other test suites.
-			ASSERT_EQ(Durin::GetRenderCommandAdmissionState(), Durin::ERenderCommandAdmissionState::Stopped);
+			ASSERT_FALSE(Durin::IsRenderingThreadRunning());
 			Durin::InitRenderingThread();
 			RendererLifecycle.Start(RendererModule);
 		}

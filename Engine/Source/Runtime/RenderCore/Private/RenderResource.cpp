@@ -12,38 +12,6 @@ namespace Durin
 		std::mutex PendingCleanupMutex;
 		std::vector<FDeferredRenderResourceCleanup> PendingCleanup;
 
-		struct FBeginInitResourceCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "BeginInitResource";
-			}
-		};
-
-		struct FBeginUpdateResourceCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "BeginUpdateResource";
-			}
-		};
-
-		struct FBeginReleaseResourceCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "BeginReleaseResource";
-			}
-		};
-
-		struct FBeginCleanupRenderResourceCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "BeginCleanupRenderResource";
-			}
-		};
-
 #if DURIN_BUILD_DEBUG
 		auto GetDebugOwnerString(const FRenderResource& Resource)
 			-> std::string
@@ -54,26 +22,6 @@ namespace Durin
 				: Owner.ToString();
 		}
 #endif
-
-		template<typename CommandTag, typename LambdaType>
-		auto EnqueueRequiredResourceCommand(
-			FRenderResource* Resource, LambdaType&& Lambda) -> void
-		{
-#if DURIN_BUILD_DEBUG
-			checkf(FRenderThreadCommandPipe::GetAdmissionState() == ERenderCommandAdmissionState::Running,
-				"Required render-resource command '{}' was submitted after admission closed: "
-				"type='{}', owner='{}', queue='command_pipe'.",
-				CommandTag::GetName(), Resource->GetFriendlyName(),
-				GetDebugOwnerString(*Resource));
-#else
-			checkf(FRenderThreadCommandPipe::GetAdmissionState() == ERenderCommandAdmissionState::Running,
-				"Required render-resource command '{}' was submitted after admission closed: "
-				"type='{}', queue='command_pipe'.",
-				CommandTag::GetName(), Resource->GetFriendlyName());
-#endif
-			FRenderThreadCommandPipe::Enqueue<CommandTag>(
-				std::forward<LambdaType>(Lambda));
-		}
 	}
 
 	FRenderResource::~FRenderResource()
@@ -136,8 +84,7 @@ namespace Durin
 	auto FRenderResource::BeginInit_GameThread() -> void
 	{
 		check(IsInGameThread());
-		EnqueueRequiredResourceCommand<FBeginInitResourceCommand>(
-			this,
+		EnqueueRenderCommandDeferred("BeginInitResource",
 			[this](FRHICommandListImmediate& RHICmdList) {
 				InitResource(RHICmdList);
 			});
@@ -146,8 +93,7 @@ namespace Durin
 	auto FRenderResource::BeginUpdateRHI_GameThread() -> void
 	{
 		check(IsInGameThread());
-		EnqueueRequiredResourceCommand<FBeginUpdateResourceCommand>(
-			this,
+		EnqueueRenderCommandDeferred("BeginUpdateResource",
 			[this](FRHICommandListImmediate& RHICmdList) {
 				UpdateRHI(RHICmdList);
 			});
@@ -156,8 +102,7 @@ namespace Durin
 	auto FRenderResource::BeginRelease_GameThread() -> void
 	{
 		check(IsInGameThread());
-		EnqueueRequiredResourceCommand<FBeginReleaseResourceCommand>(
-			this,
+		EnqueueRenderCommandDeferred("BeginReleaseResource",
 			[this](FRHICommandListImmediate&) {
 				ReleaseResource();
 			});
@@ -197,8 +142,7 @@ namespace Durin
 			std::lock_guard Lock(PendingCleanupMutex);
 			PendingCleanup.push_back(std::move(Cleanup));
 		}
-		EnqueueRequiredResourceCommand<FBeginCleanupRenderResourceCommand>(
-			Resource,
+		EnqueueRenderCommandDeferred("BeginCleanupRenderResource",
 			[Resource](FRHICommandListImmediate&) {
 				check(IsInRenderingThread());
 				std::unique_ptr<FRenderResource> Released;
@@ -218,7 +162,7 @@ namespace Durin
 
 	auto DeleteRenderResource(FRenderResource* Resource) -> void
 	{
-		if (FRenderThreadCommandPipe::GetAdmissionState() != ERenderCommandAdmissionState::Running)
+		if (!IsRenderingThreadRunning())
 		{
 			require(!Resource->IsInitialized());
 			delete Resource;

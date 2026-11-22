@@ -17,7 +17,7 @@ namespace Durin
 		RHIThread,
 	};
 
-	// GameThread-owned fence. The task scheduler must remain open through render teardown.
+	// GameThread-owned fence for ordered render or RHI command completion.
 	class FRenderCommandFence
 	{
 	public:
@@ -57,130 +57,26 @@ namespace Durin
 
 	RENDERCORE_API auto InitRenderingThread() -> void;
 
-	enum class ERenderCommandAdmissionState : uint8
-	{
-		Stopped,
-		Running,
-		Draining,
-	};
-
 	RENDERCORE_API auto ShutdownRenderingThread() -> void;
+	RENDERCORE_API auto IsRenderingThreadRunning() -> bool;
 
-	// Game-thread barrier for accepted render/RHI work; a stopped queue is already drained.
+	// GameThread barrier for accepted render/RHI work; a stopped queue is already drained.
 	RENDERCORE_API auto FlushRenderingCommands() -> void;
 
-	RENDERCORE_API auto GetRenderCommandAdmissionState()
-		-> ERenderCommandAdmissionState;
-	RENDERCORE_API auto GetNumPendingRenderCommands() -> size_t;
+	// Executes inline on the rendering thread. Command names must have static storage.
+	RENDERCORE_API auto EnqueueRenderCommand(
+		const char* Name, TMoveOnlyFunction<void(FRHICommandListImmediate&)> Function) -> void;
 
-	// Owns the double-buffered command queue transferred from producers to the render thread.
-	class FRenderThreadCommandPipe
-	{
-	public:
-		template<typename RenderCommandTag, typename LambdaType>
-		static auto Enqueue(LambdaType&& Lambda) -> void
-		{
-			Instance.EnqueueImpl(
-				RenderCommandTag::GetName(), std::move(Lambda));
-		}
-
-		template<typename LambdaType>
-		static auto EnqueueNamed(
-			const char* Name, LambdaType&& Lambda) -> void
-		{
-			Instance.EnqueueImpl(Name, std::move(Lambda));
-		}
-
-		static auto Launch() -> bool
-		{
-			return Instance.LaunchImpl();
-		}
-
-		static auto Start() -> void
-		{
-			Instance.StartImpl();
-		}
-
-		static auto Shutdown() -> void
-		{
-			Instance.ShutdownImpl();
-		}
-
-		static auto GetAdmissionState() -> ERenderCommandAdmissionState
-		{
-			return Instance.GetAdmissionStateImpl();
-		}
-
-		static auto GetNumPendingCommands() -> size_t
-		{
-			return Instance.GetNumPendingCommandsImpl();
-		}
-
-	private:
-		RENDERCORE_API auto EnqueueImpl(
-			const char* Name,
-			std::function<void(FRHICommandListImmediate&)>&& Function) -> void;
-		RENDERCORE_API auto LaunchImpl() -> bool;
-
-		RENDERCORE_API auto StartImpl() -> void;
-		RENDERCORE_API auto ShutdownImpl() -> void;
-		RENDERCORE_API auto GetAdmissionStateImpl() const
-			-> ERenderCommandAdmissionState;
-		RENDERCORE_API auto GetNumPendingCommandsImpl() const -> size_t;
-
-		static RENDERCORE_API FRenderThreadCommandPipe Instance;
-
-		struct FCommand
-		{
-			FCommand(const char* InName, std::function<void(FRHICommandListImmediate&)>&& InFunction)
-				: Name(InName)
-				, Function(std::move(InFunction))
-			{
-			}
-			const char* Name;
-			std::function<void(FRHICommandListImmediate&)> Function;
-		};
-
-		std::array<std::vector<FCommand>, 2> CommandQueue;
-		mutable std::mutex Mutex;
-		std::condition_variable CommandAvailableCV;
-		uint32 ProduceIndex = 0;
-		size_t ActiveCommandCount = 0;
-		ERenderCommandAdmissionState AdmissionState =
-			ERenderCommandAdmissionState::Stopped;
-	};
-
-	RENDERCORE_API auto GetImmediateCommandList_ForRenderCommand() -> FRHICommandListImmediate&;
+	// Always queues behind prior submissions, including from the rendering thread.
+	RENDERCORE_API auto EnqueueRenderCommandDeferred(
+		const char* Name, TMoveOnlyFunction<void(FRHICommandListImmediate&)> Function) -> void;
 
 	template<typename RenderCommandTag, typename LambdaType>
 	auto EnqueueRenderCommand(LambdaType&& Lambda) -> void
 	{
-		if (IsInRenderingThread())
-		{
-			Lambda(GetImmediateCommandList_ForRenderCommand());
-			return;
-		}
-		FRenderThreadCommandPipe::Enqueue<RenderCommandTag, LambdaType>(
-			std::move(Lambda));
-	}
-
-	template<typename LambdaType>
-	auto EnqueueRenderCommand(
-		const char* Name, LambdaType&& Lambda) -> void
-	{
-		if (IsInRenderingThread())
-		{
-			Lambda(GetImmediateCommandList_ForRenderCommand());
-			return;
-		}
-		FRenderThreadCommandPipe::EnqueueNamed(
-			Name, std::move(Lambda));
-	}
-
-	template<typename RenderCommandTag, typename LambdaType>
-	void EnqueueRenderCommand(LambdaType& Lambda)
-	{
-		static_assert(sizeof(LambdaType) == 0, "EnqueueRenderCommand only accepts rvalue references.");
+		static_assert(!std::is_lvalue_reference_v<LambdaType>,
+			"EnqueueRenderCommand only accepts rvalue references.");
+		EnqueueRenderCommand(RenderCommandTag::GetName(), std::move(Lambda));
 	}
 
 #define DECLARE_RENDER_COMMAND_TAG(Type, Name) \

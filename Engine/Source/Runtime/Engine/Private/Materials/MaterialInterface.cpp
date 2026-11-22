@@ -616,7 +616,7 @@ namespace Durin
 		{
 			SubmitMaterialRenderProxyState();
 		}
-		if (MaterialRenderProxy && GetRenderCommandAdmissionState() == ERenderCommandAdmissionState::Running)
+		if (MaterialRenderProxy && IsRenderingThreadRunning())
 			MaterialRenderProxy->SetCompiling_GameThread(GetMaterialCompileStatus().State == EMaterialCompileState::Running);
 		return MaterialRenderProxy;
 	}
@@ -778,10 +778,7 @@ namespace Durin
 			return;
 		}
 		// A pre-start edit is rebuilt on the next proxy request after render admission opens.
-		const auto Admission = GetRenderCommandAdmissionState();
-		if (Admission == ERenderCommandAdmissionState::Stopped) return;
-		checkf(Admission == ERenderCommandAdmissionState::Running,
-			"Material publication must finish before render-command shutdown.");
+		if (!IsRenderingThreadRunning()) return;
 
 		SubmitMaterialProxyUpdates(*MaterialRenderProxy, GetMaterialResource(), Flags, ChangedParameters);
 		bMaterialProxyPublicationDirty = false;
