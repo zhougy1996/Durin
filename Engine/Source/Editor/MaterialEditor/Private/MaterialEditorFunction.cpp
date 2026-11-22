@@ -440,6 +440,8 @@ namespace Durin::MaterialEditor
 			ImGui::End();
 			if (!IsCurrent()) return;
 		}
+		Document.Canvas->EndNodeLiteralFrame();
+		if (!IsCurrent()) return;
 		if (ProfileSettings->bParametersVisible)
 		{
 			if (BeginPanel("Inputs", "Inputs", &ProfileSettings->bParametersVisible)) DrawInputs(Document);

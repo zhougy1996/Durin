@@ -41,6 +41,7 @@ namespace Durin::MaterialEditor
 		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter,
 			DTransactor& Transactions) -> void;
 		auto EndParameterFrame() -> void;
+		auto EndNodeLiteralFrame() -> void;
 		auto GetRootInputDraft() const -> const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>&
 		{
 			return RootInputDraft;
@@ -77,6 +78,8 @@ namespace Durin::MaterialEditor
 		auto FinishRootInputEdit(bool bCancel) -> bool;
 		auto DrawRootInputValue(const FMaterialGraphPinView& Pin, uint64 Revision,
 			FMaterialInputDefault Value, float Width) -> void;
+		auto DrawNodeLiteral(const FGuid& NodeId, std::optional<FMaterialGraphPinAddress> Pin,
+			EMaterialProgramValueType Type, const FMaterialProgramLiteral& Value) -> void;
 		friend struct FMaterialGraphCanvasTestAccess;
 		auto ReportError(std::string Message) const -> void;
 		// Returns true for both Succeeded and NoChange.
@@ -230,6 +233,15 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterSession;
+		struct FNodeLiteralDraft
+		{
+			FGuid NodeId;
+			std::optional<FMaterialGraphPinAddress> Pin;
+			FMaterialInputDefault Value;
+			uint64 Revision = 0;
+			int ActiveFrame = -1;
+		};
+		std::optional<FNodeLiteralDraft> NodeLiteralDraft;
 		using FRootInputControlId = std::pair<EMaterialProperty, ImGuiID>;
 		PropertyEditor::TPropertyControlFrame<FRootInputControlId, uint64, FMaterialInputDefault> RootInputFrame;
 		std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>> RootInputDraft;

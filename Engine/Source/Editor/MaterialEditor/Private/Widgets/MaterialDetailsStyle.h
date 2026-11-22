@@ -19,6 +19,12 @@ namespace Durin::MaterialEditor::DetailsStyle
 		return Config;
 	}
 
+	inline auto NumericInputFinished() -> bool
+	{
+		return !ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+			&& (!ImGui::IsItemActive() || ImGui::IsItemDeactivatedAfterEdit());
+	}
+
 	// Keep labels out of value controls and scope their hidden IDs to the row.
 	template <typename FDraw>
 	auto EditRow(const char* Label, FDraw&& Draw) -> bool

@@ -679,7 +679,14 @@ namespace Durin::MaterialEditor
 					if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
 					std::string Group = Parameter.GroupName.ToString();
 					if (!bSubmitted && EditText("Group", Group)) { Parameter.GroupName = FName(Group); Commit(); }
-					if (!bSubmitted && DetailsStyle::EditRow("Order", [&] { return ImGui::InputInt("##Value", &Parameter.SortOrder, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue); })) Commit();
+					int SortOrder = Parameter.SortOrder;
+					if (!bSubmitted && DetailsStyle::EditRow("Order", [&] {
+						return ImGui::InputInt("##Value", &SortOrder, 0, 0) && DetailsStyle::NumericInputFinished();
+					}))
+					{
+						Parameter.SortOrder = SortOrder;
+						Commit();
+					}
 					constexpr std::array Presentations{"Default", "Drag", "Integer", "Color", "Asset picker"};
 					const auto PresentationIndex = static_cast<size_t>(Parameter.Presentation);
 					MonaImGui::PropertyEdit::BeginRow("Presentation");
@@ -707,7 +714,9 @@ namespace Durin::MaterialEditor
 						if (!bSubmitted && Parameter.bHasRange)
 						{
 							float Range[]{Parameter.MinimumValue, Parameter.MaximumValue};
-							if (DetailsStyle::EditRow("Min / Max", [&] { return ImGui::InputFloat2("##Value", Range, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue); }))
+							if (DetailsStyle::EditRow("Min / Max", [&] {
+								return ImGui::InputFloat2("##Value", Range, "%.4g") && DetailsStyle::NumericInputFinished();
+							}))
 							{
 								Parameter.MinimumValue = Range[0]; Parameter.MaximumValue = Range[1]; Commit();
 							}
@@ -794,8 +803,16 @@ namespace Durin::MaterialEditor
 			Properties.ShadingModel = static_cast<EMaterialShadingModel>(Shading);
 			Properties.BlendMode = static_cast<EMaterialBlendMode>(Blend);
 			if (Properties.BlendMode == EMaterialBlendMode::Masked)
-				bChanged |= DetailsStyle::EditRow("Mask cutoff", [&] { return ImGui::InputFloat("##Value", &Properties.OpacityMaskThreshold,
-					0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue); });
+			{
+				float Threshold = Properties.OpacityMaskThreshold;
+				if (DetailsStyle::EditRow("Mask cutoff", [&] {
+					return ImGui::InputFloat("##Value", &Threshold, 0, 0, "%.3f") && DetailsStyle::NumericInputFinished();
+				}))
+				{
+					Properties.OpacityMaskThreshold = Threshold;
+					bChanged = true;
+				}
+			}
 			bChanged |= DetailsStyle::EditRow("Two sided", [&] { return ImGui::Checkbox("##Value", &Properties.bTwoSided); });
 			bChanged |= DetailsStyle::EditRow("Depth write", [&] { return ImGui::Combo("##Value", &Depth, "Automatic\0Enabled\0Disabled\0"); });
 			Properties.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Depth);

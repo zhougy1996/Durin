@@ -502,7 +502,14 @@ namespace Durin::MaterialEditor
 					}
 				}
 				else if (Index == 2)
-					bChanged |= ImGui::InputFloat("##Value", &DisplayValues.OpacityMaskThreshold, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+				{
+					float Threshold = DisplayValues.OpacityMaskThreshold;
+					if (ImGui::InputFloat("##Value", &Threshold, 0, 0, "%.3f") && DetailsStyle::NumericInputFinished())
+					{
+						DisplayValues.OpacityMaskThreshold = Threshold;
+						bChanged = true;
+					}
+				}
 				else bChanged |= ImGui::Checkbox("Enabled", &DisplayValues.bTwoSided);
 				ImGui::EndDisabled();
 				if (bResolved)

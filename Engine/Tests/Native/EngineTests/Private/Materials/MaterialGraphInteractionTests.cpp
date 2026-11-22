@@ -257,6 +257,10 @@ namespace Durin::MaterialEditor
 		{
 			Canvas.DrawRootInputValue(Pin, Revision, Pin.InlineDefault, 240.0f);
 		}
+		static auto DrawConstantValue(FMaterialGraphCanvas& Canvas, const FMaterialGraphNodeView& Node) -> void
+		{
+			Canvas.DrawNodeLiteral(Node.Node.Id, std::nullopt, Node.Node.ResultType, Node.Node.GetConstantLiteral());
+		}
 		static auto Duplicate(FMaterialGraphCanvas& Canvas, DMaterial& Material,
 			DTransactor& Transactions, std::span<const FGuid> Nodes) -> void
 		{
@@ -860,6 +864,7 @@ TEST(FMaterialGraphInteractionTests, FunctionDefaultControlsPreserveInheritedCom
 			const auto TableId = ImGui::GetID("NodeProperties");
 			ImGui::PopID();
 			Canvas.DrawSelectionDetails(*Transactions.Get());
+			Canvas.EndNodeLiteralFrame();
 			const auto* Table = Context->Tables.GetByKey(TableId);
 			if (Table) Field = {Table->Columns[1].WorkMinX + 15,
 				Table->OuterRect.Min.y + DetailsStyle::MakeTableConfig().CellPadding.y + ImGui::GetFrameHeight() / 2};
@@ -1577,6 +1582,78 @@ TEST(FMaterialGraphInteractionTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
+}
+
+TEST(FMaterialGraphInteractionTests, ConstantInputCommitsWhenFocusLeavesAndCancelsOnEscape)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+	const auto Constant = Testing::CreateGraphCatalogNode(*Graph, EMaterialProgramOpcode::Constant,
+		EMaterialProgramValueType::Float3, {}, 0, 0, Durin::ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Constant);
+	const auto Id = Constant->front();
+	const auto GetValue = [&] { return Graph->FindNode(Id)->GetView().Node.GetConstantLiteral(); };
+	const auto Original = GetValue();
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas{*Graph, {.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
+	auto* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {800, 480}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.MouseDoubleClickTime = 0.0f;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	const ImVec2 Outside{450, 140};
+	const auto Frame = [&](bool bDown = false, bool bDrawField = true, bool bFocusField = false) {
+		IO.AddMousePosEvent(Outside.x, Outside.y);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, bDown);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({600, 300});
+		ImGui::Begin("Constant Details", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		if (bDrawField)
+		{
+			if (bFocusField) ImGui::SetKeyboardFocusHere();
+			ImGui::SetNextItemWidth(240.0f);
+			FMaterialGraphCanvasTestAccess::DrawConstantValue(Canvas, Graph->FindNode(Id)->GetView());
+		}
+		Canvas.EndNodeLiteralFrame();
+		ImGui::End(); ImGui::Render();
+	};
+	Frame();
+	Frame();
+	const auto TypeValue = [&](const char* Text) {
+		Frame(false, true, true);
+		Frame();
+		EXPECT_NE(ImGui::GetActiveID(), 0u);
+		IO.AddInputCharactersUTF8(Text);
+		Frame();
+	};
+	const auto PressKey = [&](ImGuiKey Key) {
+		IO.AddKeyEvent(Key, true); Frame();
+		IO.AddKeyEvent(Key, false); Frame();
+	};
+	TypeValue("7");
+	EXPECT_EQ(GetValue(), Original);
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	Frame(true);
+	EXPECT_EQ(GetValue(), (FMaterialProgramLiteral{7, Original.Y, Original.Z}));
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	Frame();
+	TypeValue("8");
+	PressKey(ImGuiKey_Escape);
+	EXPECT_FLOAT_EQ(GetValue().X, 7.0f);
+	EXPECT_EQ(Transactions->GetQueueLength(), 1u);
+	TypeValue("9");
+	PressKey(ImGuiKey_Enter);
+	EXPECT_FLOAT_EQ(GetValue().X, 9.0f);
+	EXPECT_EQ(Transactions->GetQueueLength(), 2u);
+	TypeValue("10");
+	Frame(true, false);
+	EXPECT_FLOAT_EQ(GetValue().X, 10.0f);
+	EXPECT_EQ(Transactions->GetQueueLength(), 3u);
+	EXPECT_TRUE(Transactions->Undo());
+	EXPECT_FLOAT_EQ(GetValue().X, 9.0f);
+	ImGui::DestroyContext(Context);
 }
 
 TEST(FMaterialGraphInteractionTests, NumericNodeDisplayTracksValuesAndUndo)

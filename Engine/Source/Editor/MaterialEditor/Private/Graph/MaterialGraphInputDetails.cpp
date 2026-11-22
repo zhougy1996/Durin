@@ -10,6 +10,7 @@
 #include "Materials/MaterialExpressionVector.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialFunction.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Graph/MaterialEditingOperations.h"
 #include "MaterialExpressionParameters.h"
@@ -23,6 +24,16 @@
 
 namespace Durin::MaterialEditor
 {
+	namespace
+	{
+		auto GetNodeLiteralRevision(const DObject* Owner) -> uint64
+		{
+			if (const auto* Material = Cast<DMaterial>(Owner)) return Material->GetMaterialContentRevision();
+			if (const auto* Function = Cast<DMaterialFunction>(Owner)) return Function->GetFunctionRevision();
+			return 0;
+		}
+	}
+
 	auto FMaterialGraphCanvas::DrawParameterValue(
 		const FMaterialParameterDefinition& Parameter, DTransactor& Transactions) -> void
 	{
@@ -84,6 +95,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
 	{
+		EndNodeLiteralFrame();
 		EndRootInputFrame();
 		ParameterFrame.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false),
 			[this](const FParameterControlId& Id, const TWeakObjectPtr<DTransactor>& Transactions) {
@@ -223,6 +235,44 @@ namespace Durin::MaterialEditor
 		return ReadModel.GetView();
 	}
 
+	auto FMaterialGraphCanvas::DrawNodeLiteral(const FGuid& NodeId, std::optional<FMaterialGraphPinAddress> Pin,
+		EMaterialProgramValueType Type, const FMaterialProgramLiteral& Value) -> void
+	{
+		const int Count = static_cast<int>(Type) + 1;
+		if (Count < 1 || Count > 4) return;
+		std::array<float, 4> Components{Value.X, Value.Y, Value.Z, Value.W};
+		const bool bEdited = ImGui::InputScalarN("##Value", ImGuiDataType_Float, Components.data(), Count,
+			nullptr, nullptr, "%.4g");
+		const bool bFinished = DetailsStyle::NumericInputFinished();
+		if (bEdited)
+		{
+			NodeLiteralDraft = FNodeLiteralDraft{NodeId, Pin,
+				{.Kind = EMaterialInputDefaultKind::Literal, .Type = Type,
+					.Literal = {Components[0], Components[1], Components[2], Components[3]}},
+				GetNodeLiteralRevision(EditorGraph->GetMaterialOrFunction()), bFinished ? -1 : ImGui::GetFrameCount()};
+		}
+		else if (NodeLiteralDraft && NodeLiteralDraft->NodeId == NodeId && NodeLiteralDraft->Pin == Pin)
+			NodeLiteralDraft.reset();
+	}
+
+	auto FMaterialGraphCanvas::EndNodeLiteralFrame() -> void
+	{
+		if (!NodeLiteralDraft) return;
+		const auto* Owner = EditorGraph->GetMaterialOrFunction();
+		if (!Owner || ImGui::IsKeyPressed(ImGuiKey_Escape, false)
+			|| NodeLiteralDraft->Revision != GetNodeLiteralRevision(Owner))
+		{
+			NodeLiteralDraft.reset();
+			return;
+		}
+		// A canvas selection change can remove the input before Details draws its deactivation frame.
+		if (NodeLiteralDraft->ActiveFrame == ImGui::GetFrameCount()) return;
+		const auto Draft = *std::exchange(NodeLiteralDraft, std::nullopt);
+		if (auto* Node = EditorGraph->FindNode(Draft.NodeId))
+			CheckCommand(Draft.Pin ? Node->PinDefaultValueChanged(*Draft.Pin, Draft.Value)
+				: Node->SetConstantValue(MakeParameterValue(Draft.Value.Type, Draft.Value.Literal)));
+	}
+
 	auto FMaterialGraphCanvas::DrawSelectionDetails(DTransactor& Transactions) -> void
 	{
 		if (!EditorGraph->GetMaterialOrFunction()) { CancelInteraction(); return; }
@@ -262,17 +312,6 @@ namespace Durin::MaterialEditor
 			if (!DetailsStyle::EditRow(Label, [&] { return ImGui::InputText("##Value", Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
 			Value = Buffer.data();
 			return true;
-		};
-		const auto EditLiteralValue = [](EMaterialProgramValueType Type, FMaterialProgramLiteral& Value) {
-			std::array<float, 4> Components{Value.X, Value.Y, Value.Z, Value.W};
-			const int Count = static_cast<int>(Type) + 1;
-			if (Count < 1 || Count > 4 || !ImGui::InputScalarN("##Value", ImGuiDataType_Float, Components.data(), Count,
-				nullptr, nullptr, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue)) return false;
-			Value = {Components[0], Components[1], Components[2], Components[3]};
-			return true;
-		};
-		const auto EditLiteral = [&](const char* Label, EMaterialProgramValueType Type, FMaterialProgramLiteral& Value) {
-			return DetailsStyle::EditRow(Label, [&] { return EditLiteralValue(Type, Value); });
 		};
 		auto* Material = Cast<DMaterial>(&Owner);
 		if (const auto* ParameterExpression = Cast<DMaterialExpressionParameter>(Expression.Get()); Material && ParameterExpression)
@@ -345,8 +384,12 @@ namespace Durin::MaterialEditor
 			else if (const auto* E = Cast<DMaterialExpressionVector3Constant>(Expression.Get())) { Type = EMaterialProgramValueType::Float3; Value = {static_cast<float>(E->Value.x), static_cast<float>(E->Value.y), static_cast<float>(E->Value.z)}; }
 			else if (const auto* E = Cast<DMaterialExpressionVector4Constant>(Expression.Get())) { Type = EMaterialProgramValueType::Float4; Value = {static_cast<float>(E->Value.x), static_cast<float>(E->Value.y), static_cast<float>(E->Value.z), static_cast<float>(E->Value.w)}; }
 			else bConstant = false;
-			if (bConstant && EditLiteral("Value", Type, Value))
-				Submit(SelectedNode->SetConstantValue(MakeParameterValue(Type, Value)));
+			if (bConstant)
+			{
+				MonaImGui::PropertyEdit::BeginRow("Value");
+				DrawNodeLiteral(Selected.Node.Id, std::nullopt, Type, Value);
+				MonaImGui::PropertyEdit::EndRow();
+			}
 		}
 		std::optional<EMaterialTextureReadMode> SamplingMode;
 		const auto EditSamplingMode = [&](const auto* Sample) {
@@ -496,11 +539,7 @@ namespace Durin::MaterialEditor
 					return;
 				}
 				ImGui::SetNextItemWidth(Width);
-				if (EditLiteralValue(Value.Type, Value.Literal))
-				{
-					Value.Kind = EMaterialInputDefaultKind::Literal;
-					Submit(SelectedNode->PinDefaultValueChanged(Selected.InputAddress(Pin), Value));
-				}
+				DrawNodeLiteral(Selected.Node.Id, Selected.InputAddress(Pin), Value.Type, Value.Literal);
 			};
 			auto Label = Pin.Name;
 			if (SamplingMode)
