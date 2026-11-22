@@ -109,6 +109,12 @@ namespace Durin
 			.bEditWorld = bRunTools && !IsPlaying(),
 			.bPresentWorkspace = bReady};
 	}
+	auto DEditorEngine::CanReplayTransactions() const -> bool
+	{
+		return !IsPlaying() && (!EditorWorld || (!EditorWorld->IsShutdownRequested()
+			&& EditorWorld->GetPlayState() == EWorldPlayState::Stopped));
+	}
+
 	auto DEditorEngine::CanTransact() const -> bool
 	{ return GEditor == this && GetCapabilities().bRunTools && Trans && Trans->CanTransact(); }
 	auto DEditorEngine::CancelTransaction(int32 StartIndex) -> void { if (Trans) Trans->Cancel(StartIndex); }

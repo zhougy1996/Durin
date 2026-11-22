@@ -276,9 +276,15 @@ the previous component registration state. Terminal runtime destruction remains
 separate: reversible editor removal does not route `OnActorDestroyed`, EndPlay,
 or garbage marking. Inactive graphs become collectible when history releases them.
 
-Duplication uses ordinary owned-graph duplication and remaps editable references
-and attachments between selected graphs. Derived component data is rebuilt before
-publication. Rename retains identity and exact before/after names; initial name
+Actor duplication remaps editable references across the prepared copies before routing
+one PostLoad per created object, children before their Outer. A retired candidate
+is skipped. Publication registers the surviving Actors in selection order. The final
+attachment pass resolves each source parent Actor name among published copies first,
+then in the destination Level. It attaches the child's current root to the parent's
+root with world space preserved. Unresolved parents and non-root components that
+crossed an Actor boundary stay detached in world space. Attachments within a copied
+Actor retain their component identities. The batch uses one Undo entry.
+Rename retains identity and exact before/after names; initial name
 allocation includes inactive history-owned siblings. No-op renames create no entry.
 Replay restores camera selection from the Level snapshot and validates reserved names and the proposed attachment graph before writing. Conflicts preserve history for a repaired retry.
 Play transitions and read-only commands are rejected. Prepared objects from

@@ -53,6 +53,24 @@ TEST(FRuntimeTransactionContractTests, OperationIdentitiesRemainDistinctAcrossDo
 	EXPECT_GT(Second, First);
 }
 
+TEST(FRuntimeTransactionContractTests, RenameAndOuterChangeRespectLiveSiblingNames)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	auto* First = NewObject<DObject>(nullptr, "RenameFirstOuter");
+	auto* Second = NewObject<DObject>(nullptr, "RenameSecondOuter");
+	auto* Target = NewObject<DObject>(First, "Movable");
+	auto* Sibling = NewObject<DObject>(First, "Reserved");
+	auto* Occupant = NewObject<DObject>(Second, "Movable");
+	Target->Rename(Sibling->GetFName());
+	EXPECT_EQ(Target->GetFName(), FName("Movable"));
+	Target->SetOuterPrivate(Second);
+	EXPECT_EQ(Target->GetOuter(), First);
+	Occupant->Rename("Released");
+	Target->SetOuterPrivate(Second);
+	EXPECT_EQ(Target->GetOuter(), Second);
+}
+
 TEST(FRuntimeTransactionContractTests, ExactReferencePreservesIdentityAndRejectsGarbageAndSlotReuse)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();

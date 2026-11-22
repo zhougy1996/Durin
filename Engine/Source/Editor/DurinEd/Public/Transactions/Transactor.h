@@ -136,7 +136,7 @@ namespace Durin
 
 		private:
 			friend class FTransaction;
-			auto ValidateSource(bool bUndo, bool bPublishingActor) const -> FTransactionCaptureResult;
+			auto ValidateSource(bool bUndo) const -> FTransactionCaptureResult;
 			// UE's editor FSerializedObject is distinct from the runtime byte payload.
 			struct FSerializedObject
 			{
@@ -501,6 +501,7 @@ namespace Durin
 		auto AllocateRevision() -> FRevisionId;
 		auto PreparePackageTransitions(FTransaction& Transaction) -> void;
 		auto FindReplayIndex(bool bUndo, bool bRespectUndoBarrier = true) const -> std::optional<size_t>;
+		auto CanReplayInHost(std::string* Reason) const -> bool;
 		auto Replay(bool bUndo, std::optional<FTransactionId> ExpectedId = std::nullopt,
 			bool bCanRedo = true, std::string* OutError = nullptr) -> bool;
 		auto ApplyPackageTransitions(const FTransaction& Transaction,

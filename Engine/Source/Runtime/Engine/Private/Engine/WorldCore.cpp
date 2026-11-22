@@ -191,7 +191,7 @@ namespace Durin
 			{
 				if (CurrentLevel.Get() != Level || !CanDispatchSubsystems()) break;
 				if (Actor && !Actor->IsPendingKill() && Actor->GetOuter() == Level
-					&& !Actor->IsBeingDestroyed()) Level->OnActorAdded(Actor.Get());
+					&& !Actor->IsBeingDestroyed()) Level->ActivateActor(Actor.Get());
 			}
 			// Registration can enqueue an early capture before every provider exists.
 			// Coalesce a final request after all actors and construction scripts settle.

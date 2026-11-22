@@ -411,6 +411,16 @@ namespace Durin
 		std::optional<FAuthoredOverrideDiagnostic> OverrideCause;
 	};
 	COREDOBJECT_API auto ToString(const FObjectGraphError& Error) -> std::string;
+	struct FObjectDuplicationParameters
+	{
+		const DObject* SourceObject = nullptr;
+		DObject* DestOuter = nullptr;
+		FName DestName;
+		// The caller routes PostLoad when the complete set of copies is ready.
+		bool bSkipPostLoad = false;
+		std::unordered_map<DObject*, DObject*>* CreatedObjects = nullptr;
+	};
+	COREDOBJECT_API auto StaticDuplicateObjectEx(const FObjectDuplicationParameters& Parameters) -> std::expected<DObject*, FObjectGraphError>;
 	// Duplicates the source Outer tree; failure retires candidates and clears OutDuplicates.
 	COREDOBJECT_API auto DuplicateObject(
 		const DObject* SourceObject,
@@ -440,5 +450,6 @@ namespace Durin
 	COREDOBJECT_API auto InitializeObjectFromDefaults(const DObject* Defaults, DObject* Destination,
 		const std::unordered_map<DObject*, DObject*>& ReferenceMap) -> std::expected<void, FObjectPropertyCopyError>;
 
+	// Passing the same object remaps references in place and preserves its other editable values.
 	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap) -> std::expected<void, FObjectPropertyCopyError>;
 }

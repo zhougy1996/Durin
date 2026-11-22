@@ -9,6 +9,18 @@ Completed: 2026-11-21
 
 ## Current Status
 
+On base aea9b9f54, Actor batches resolve editable references before dispatching PostLoad once per created object. Only Actor roots restore cross-Actor links. Regression coverage includes a forward mesh reference and shared material visible during PostLoad, candidate retirement, internal and external component attachments, world transforms and single-step Undo/Redo. Win64-Debug-DurinEditor passed 1,152 cases across LevelMutationTests, CoreObjectTests, WorldTests, SplineTests, ViewportTests, EditorOperationTests, PythonReflectionIntegrationTests and RoadEditorIntegrationTests. The incremental `all` build passed.
+
+On base 96293fd47, cross-Actor duplication resolves the parent Actor by source name and attaches to its root, preserving world space. Retirement during either PostLoad pass skips the affected candidate and leaves one Undo entry for the surviving copy. Win64-Debug-DurinEditor passed 661 cases across LevelMutationTests, ViewportTests, EditorOperationTests, PythonReflectionIntegrationTests and RoadEditorIntegrationTests. The incremental `all` build passed.
+
+On base 1504c8f18, duplication publishes each admitted Actor, then restores cross-Actor links by source parent name with world space preserved. Tests cover child-first selection, missing components, rejected or renamed parents, root retirement during PostLoad and single-step history. Win64-Debug-DurinEditor passed 1,205 cases across LevelMutationTests, CoreObjectTests, WorldTests, SkyBoxTests, ViewportTests, EditorOperationTests, PythonReflectionIntegrationTests, PythonToolIntegrationTests, EditorHostToolTests and RoadEditorIntegrationTests. The incremental `all` build passed.
+
+On base 41c034e5c, all 1,026 tests passed across LevelMutationTests, WorldTests, SkyBoxTests, ViewportTests, EditorOperationTests, PythonReflectionIntegrationTests, PythonToolIntegrationTests, EditorHostToolTests and RoadEditorIntegrationTests. The final `all` build passed.
+
+On base e4660b191, editor-owned buffers consult their host before replay. Object identity mutations enforce sibling names and absent Actors restore component ownership without activation. Combined attachment validation remains. Win64-Debug-DurinEditor passed 1,366 cases across CoreObjectTests, CoreTransactionContractTests, WorldTests, LevelMutationTests, SkyBoxTests, EditorOperationTests, AssetPackageReloadTests, PythonReflectionIntegrationTests, MaterialGraphEditingTests and AssetPackageTests.
+
+On base 5eaa1c645, Actor publication and removal use separate Level APIs. The Level snapshot restores order. Regression coverage observes the external parent at component registration, cancellation after the first boundary detach, and retirement of an unpublished duplicate in PostLoad. Win64-Debug-DurinEditor passed all 1,024 cases across LevelMutationTests, WorldTests, SkyBoxTests, ViewportTests, EditorOperationTests, PythonReflectionIntegrationTests, PythonToolIntegrationTests, EditorHostToolTests and RoadEditorIntegrationTests. The final all build passed.
+
 On base c1ff3b11a, membership history follows serialized references and annotations. The destination Level array identifies actual publications, and instance component replay restores the recorded list. LevelMutationTests, WorldTests, SkyBoxTests, EditorOperationTests and AssetPackageReloadTests passed all 754 cases on Win64-Debug-DurinEditor, including GC of Outer-only children, reference restoration, detached-owner admission, occupied names and attachment cycles.
 
 Actor and instance-component membership now use scoped object snapshots for creation, deletion and duplication. Level and Actor state, component creation method, lifecycle and attachment edges replay through existing transaction records. Replay retains unpublished identities across GC, validates world availability before structural writes, and leaves SkyBox texture retirement independent of Actor publication. On base 04f99be03, Win64-Debug-DurinEditor passed all 1,239 tests across LevelMutationTests, WorldTests, SkyBoxTests, ViewportTests, EditorOperationTests, PythonReflectionIntegrationTests, PythonToolIntegrationTests, AssetPackageReloadTests, EditorHostToolTests, RoadEditorIntegrationTests, EditorPropertyTests and MaterialGraphEditingTests. The final all build passed.
@@ -179,6 +191,13 @@ Scope cleanup can proceed after stage 1 independently of the stage 2 object inde
 - [x] Replace Actor and instance-component membership commands with owner and participant snapshots. Set instance creation method before capture and restore native ownership and lifecycle on replay. Retire the membership recorder and its buffer-only failure paths.
 
 - [x] Follow recorded GC references, restore instance membership from snapshots and determine publication from the destination Level array before validating names, World state and attachments.
+
+- [x] Separate prepared Actor publication from batch removal, append new Actors and restore order through Level snapshots. Verify cancellation between boundary detaches and attachment before registration.
+
+- [x] Gate editor-owned buffer replay on the host World, enforce sibling identity at rename and reparent boundaries, and restore inactive Actor ownership without interpreting Level snapshots in the transactor. Preserve combined attachment-cycle preflight.
+
+- [x] Share Actor publication completion and activation and return the surviving duplicate selection. Verify partial publication, Undo and Redo.
+- [x] Resolve cross-Actor links after publication in a second pass, including child-first selection, existing parent lookup and unresolved parents. Restore Actor root links in world space. Remap references before one PostLoad per created object and skip retired candidates. Keep the complete AddActor operation public and registration private.
 
 ### Stage 4: Move mounted-content discovery to its owner
 

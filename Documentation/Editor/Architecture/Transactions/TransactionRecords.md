@@ -142,6 +142,11 @@ object has the same authored GUID. Actor instance-component lists restore the re
 Both sides still undergo ordinary reference
 and schema validation.
 
+Ordinary rename and Outer changes preserve the current identity on a sibling
+name collision. During GC a reachable child must leave a destroyed Outer.
+If the root namespace already contains its name, forced detachment assigns
+an available name and preserves the child's object identity.
+
 Historical load bypasses new-edit proposal validation and normalization.
 Reflected member notifications follow the complete load and precede object
 completion; native data does not invent reflected members. Whole-object capture, validation and application preserve a typed serialization error. Errors own

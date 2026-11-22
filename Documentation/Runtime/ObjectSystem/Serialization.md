@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, dup
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-22
 
 ## Archive And Object Serialization
 
@@ -450,8 +450,11 @@ to their duplicate, external hard references remain shared, and constructor-crea
 inners may be reused. Weak references remap only when their targets are already
 duplicated for structural or hard-reference reasons; a weak-only external target
 becomes null. After all values and authored ledgers are copied, graph-validation
-hooks run before any duplicate PostLoad notification. A rejection retires the
-whole duplicate graph. Any failure retires the incomplete duplicate graph.
+hooks run before any duplicate PostLoad notification. If a PostLoad callback retires
+the duplicate root, duplication stops before the next callback and reports an invalid
+root. Failure retires the incomplete duplicate graph. `StaticDuplicateObjectEx` can defer
+`PostLoad` with `bSkipPostLoad`. `CreatedObjects` collects successful mappings so the caller
+can fix references and dispatch PostLoad once in child-before-Outer order.
 `FProperty` value construction/copy and `FReflectedValueStorage` operations return
 `std::expected<void, FPropertyValueError>`. Errors own property and Struct names, the requested array
 index and dimension, layout facts, and the failed operation. Missing inputs,

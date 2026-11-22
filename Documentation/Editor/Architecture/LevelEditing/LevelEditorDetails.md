@@ -83,7 +83,7 @@ collision before writing; it never substitutes another name during undo or redo.
 Live native components, including the root, can be renamed; template objects
 cannot. Name changes preserve root/ownership roles and render registration.
 Ordinary historical fields may restore on a retained absent owner, without
-reactivating it or rerunning new-edit admission. Component presence replay checks the owner before restoring membership.
+reactivating it or rerunning new-edit admission. An unpublished Actor reconciles its restored instance list and native ownership while its tick and components remain inactive.
 
 Reparenting opens a scope and captures the moved component before preserving its
 world transform under the destination. Actor attachment captures the moved roots

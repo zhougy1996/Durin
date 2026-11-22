@@ -3620,10 +3620,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkAsGarbage(Outer);
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 		EXPECT_FALSE(ObjectArrayContains(Outer));
+		std::unordered_set<Durin::FName> RootNames;
 		for (Durin::DObject* Child : Children)
 		{
 			EXPECT_TRUE(ObjectArrayContains(Child));
 			EXPECT_EQ(Child->GetOuter(), nullptr);
+			EXPECT_TRUE(RootNames.insert(Child->GetFName()).second);
 			Durin::RemoveFromRoot(Child);
 		}
 		Durin::CollectGarbage(Durin::EObjectFlags::Standalone);

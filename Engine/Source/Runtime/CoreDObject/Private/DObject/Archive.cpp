@@ -5,6 +5,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectPtr.h"
 #include "DObject/OverridableManager.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "DObject/ObjectLifecycle.h"
@@ -1988,11 +1989,9 @@ namespace Durin
 		return Message;
 	}
 
-	static auto DuplicateObjectInternal(DObject* RootObject, DObject* NewOuter,
-		FName NewName,
-		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> std::expected<DObject*, FObjectGraphError>
+	auto StaticDuplicateObjectEx(const FObjectDuplicationParameters& Parameters) -> std::expected<DObject*, FObjectGraphError>
 	{
-		if (OutDuplicates) OutDuplicates->clear();
+		auto* RootObject = const_cast<DObject*>(Parameters.SourceObject);
 		if (!RootObject)
 		{
 			return ObjectGraphFailure({.Code = EObjectGraphError::InvalidRoot});
@@ -2018,7 +2017,7 @@ namespace Durin
 		auto DiscardDuplicates = [&DuplicateRoot]() { MarkObjectHierarchyAsGarbage(DuplicateRoot); };
 		for (DObject* Source : Sources)
 		{
-			DObject* DuplicateOuter = Source == RootObject ? NewOuter : Duplicates[Source->GetOuter()];
+			DObject* DuplicateOuter = Source == RootObject ? Parameters.DestOuter : Duplicates[Source->GetOuter()];
 			if (Source != RootObject && !DuplicateOuter)
 			{
 				DiscardDuplicates();
@@ -2052,7 +2051,7 @@ namespace Durin
 				FStaticConstructObjectParameters Params;
 				Params.Class = Class;
 				Params.Outer = DuplicateOuter;
-				Params.Name = Source == RootObject && !NewName.IsNone() ? NewName : Source->GetFName();
+				Params.Name = Source == RootObject && !Parameters.DestName.IsNone() ? Parameters.DestName : Source->GetFName();
 				Params.Size = Class->GetStructureSize();
 				Params.Purpose = EObjectConstructionPurpose::Duplication;
 				Duplicate = StaticConstructObject(Params);
@@ -2229,11 +2228,22 @@ namespace Durin
 					.Cause = Validated.error()});
 			}
 		}
-		for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
+		if (!Parameters.bSkipPostLoad)
 		{
-			Duplicates[*It]->PostLoad();
+			const FObjectPtr RootHandle(DuplicateRoot);
+			for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
+			{
+				Duplicates[*It]->PostLoad();
+				// A child callback can retire the preparation before its parent runs PostLoad.
+				if (!RootHandle.IsValid())
+				{
+					MarkObjectHierarchyAsGarbage(RootHandle.Get());
+					return ObjectGraphFailure({.Code = EObjectGraphError::InvalidRoot, .Message = "Duplicate root retired during PostLoad."});
+				}
+			}
 		}
-		if (OutDuplicates) *OutDuplicates = Duplicates;
+		if (Parameters.CreatedObjects)
+			for (const auto& [Source, Copy] : Duplicates) Parameters.CreatedObjects->insert_or_assign(Source, Copy);
 		return DuplicateRoot;
 	}
 
@@ -2241,8 +2251,8 @@ namespace Durin
 		FName NewName,
 		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> std::expected<DObject*, FObjectGraphError>
 	{
-		return DuplicateObjectInternal(
-			const_cast<DObject*>(SourceObject), NewOuter, NewName, OutDuplicates);
+		if (OutDuplicates) OutDuplicates->clear();
+		return StaticDuplicateObjectEx({.SourceObject = SourceObject, .DestOuter = NewOuter, .DestName = NewName, .CreatedObjects = OutDuplicates});
 	}
 
 	namespace
@@ -2496,6 +2506,9 @@ namespace Durin
 					Result.error().Cause = Captured.error();
 					return;
 				}
+				if (Source == Destination && std::ranges::none_of(Original.Snapshot.GetReferencedObjects(),
+					[&](DObject* Object) { return ReferenceMap.contains(Object); }))
+					continue;
 				OriginalValues.push_back(std::move(Original));
 
 				FByteBuffer Bytes;
@@ -2525,7 +2538,7 @@ namespace Durin
 			RollBack();
 			return Result;
 		}
-		Destination->MarkPackageDirty();
+		if (Source != Destination || !OriginalValues.empty()) Destination->MarkPackageDirty();
 		return {};
 	}
 }

@@ -95,6 +95,17 @@ namespace Durin
 		} Scope{*this};
 		FScopedSuspendRerunConstructionScripts CompletionSuspension(*this, false);
 		auto* Level = Cast<DLevel>(GetOuter());
+		for (const auto& Component : InstanceComponents)
+			if (!IsValid(Component.Get()) || Component->GetOwner() != this || Component->GetCreationMethod() != EComponentCreationMethod::Instance)
+				throw std::runtime_error("Actor authored component membership cannot be restored.");
+		for (const auto& Component : GetComponentsSnapshot())
+		{
+			if (!Component || Component->GetCreationMethod() != EComponentCreationMethod::Instance
+				|| std::ranges::contains(InstanceComponents, Component)) continue;
+			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
+			Component->SetOwnedByActor(false);
+		}
+		ResetOwnedComponents();
 		if (Level && (Level->GetWorld() || Level->PreUndoActors) && !Level->ContainsActor(this))
 		{
 			if (Level->PreUndoActors && std::erase(*Level->PreUndoActors, FObjectKey(this)))
@@ -108,17 +119,6 @@ namespace Durin
 			Super::PostEditUndo();
 			return;
 		}
-		for (const auto& Component : InstanceComponents)
-			if (!IsValid(Component.Get()) || Component->GetOwner() != this || Component->GetCreationMethod() != EComponentCreationMethod::Instance)
-				throw std::runtime_error("Actor authored component membership cannot be restored.");
-		for (const auto& Component : GetComponentsSnapshot())
-		{
-			if (!Component || Component->GetCreationMethod() != EComponentCreationMethod::Instance
-				|| std::ranges::contains(InstanceComponents, Component)) continue;
-			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
-			Component->SetOwnedByActor(false);
-		}
-		ResetOwnedComponents();
 		if (!RerunConstructionScriptsImpl(Annotation ? &Annotation->GetComponentInstanceDataCache() : nullptr,
 			Annotation ? &Annotation->GetRootReconstructionData() : nullptr)) throw std::runtime_error(NativeConstructionError.empty()
 			? "Actor transaction reconstruction failed." : NativeConstructionError);

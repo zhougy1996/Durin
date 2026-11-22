@@ -2,7 +2,6 @@
 
 #include "Editor/EditorEngine.h"
 #include "Components/SceneComponent.h"
-#include "Actors/ActorEditingValidation.h"
 
 #include "PropertyEditor/PropertyEditing.h"
 #include "DObject/Archive.h"
@@ -780,48 +779,11 @@ namespace Durin
 		if (auto Pie = CheckPieReferences(*this); !Pie)
 			return std::unexpected(FTransactionApplyError{.Message = Pie.error()});
 		if (auto Result = ValidateReplayRecords(ReplayIndices); !Result) return Result;
-		std::unordered_map<DObject*, FName> PublishingActors;
-		for (size_t Index : ReplayIndices)
-		{
-			const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data);
-			auto* Level = Whole ? Cast<DLevel>(Whole->GetTarget().Get()) : nullptr;
-			if (!Level) continue;
-			const auto& Saved = (bUndo ? Whole->BeforeState : Whole->AfterState)->Observation;
-			for (const auto& Tag : Saved.SerializedTaggedData)
-			{
-				if (!Tag.bReflected || Tag.Name != FName("Actors")) continue;
-				std::unordered_set<AActor*> Published;
-				for (const auto& Actor : Level->GetActors()) Published.insert(Actor.Get());
-				for (const auto& Slot : Saved.SerializationContext->ReferenceSlots)
-				{
-					if (Slot.bWeak || Slot.Offset < Tag.Begin || Slot.Offset >= Tag.End) continue;
-					FObjectMemoryReader Reader(FByteView(Saved.SerializedObject->Bytes).subspan(Slot.Offset, Tag.End - Slot.Offset), EArchivePurpose::Transaction);
-					FObjectKey Key;
-					Key.SerializeForSnapshot(Reader);
-					auto* Actor = Cast<AActor>(ResolveObjectKey(Key));
-					if (Actor && !Published.contains(Actor)) PublishingActors.emplace(Actor, Actor->GetFName());
-				}
-			}
-		}
 		for (size_t Index : ReplayIndices)
 			if (const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data))
-			{
-				const auto It = PublishingActors.find(Whole->GetTarget().Get());
-				if (It != PublishingActors.end()) It->second = (bUndo ? Whole->BeforeState : Whole->AfterState)->Observation.ObjectInfo.Identity.OriginalName;
-				if (auto Valid = Whole->ValidateSource(bUndo, It != PublishingActors.end()); !Valid)
+				if (auto Valid = Whole->ValidateSource(bUndo); !Valid)
 					return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
 						.RecordIndex = Index, .Message = Valid.error()});
-			}
-		for (const auto& [Object, Name] : PublishingActors)
-		{
-			auto* Level = Cast<DLevel>(Object->GetOuter());
-			if (!CanEditActorLevel(Level))
-				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
-					.Message = "The level is unavailable for actor publication."});
-			if (!Level->IsActorNameAvailable(Name, Cast<AActor>(Object)))
-				return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
-					.Message = "The requested actor name is occupied."});
-		}
 		// Validate the complete destination graph before any replay callback can observe a write.
 		std::unordered_map<DSceneComponent*, DSceneComponent*> Parents;
 		for (size_t Index : ReplayIndices)
@@ -1522,9 +1484,18 @@ namespace Durin
 		return std::nullopt;
 	}
 
+	auto DTransBuffer::CanReplayInHost(std::string* Reason) const -> bool
+	{
+		const auto* Host = Cast<DEditorEngine>(GetOuter());
+		if (Host && !Host->CanReplayTransactions())
+			return FailWithReason(Reason, "Editor world playback or shutdown prevents history replay.");
+		return true;
+	}
+
 	auto DTransBuffer::Replay(bool bUndo, std::optional<FTransactionId> ExpectedId, bool bCanRedo, std::string* OutError) -> bool
 	{
 		CheckThread();
+		if (!CanReplayInHost(OutError)) return false;
 		if (State != ETransactorState::Idle || GUndo)
 			return FailWithReason(OutError, bUndo ? "Undo requires an idle transactor." : "Redo requires an idle transactor.");
 		const size_t UndoLimit = UndoBarriers.empty() ? 0 : UndoBarriers.back();
@@ -1750,6 +1721,7 @@ namespace Durin
 				? RecoveryGuidance : "A transaction is active.";
 			return false;
 		}
+		if (!CanReplayInHost(Reason)) return false;
 		const bool bAvailable = FindReplayIndex(true).has_value();
 		const bool bBarrier = !UndoBarriers.empty() && !bAvailable && FindReplayIndex(true, false).has_value();
 		if (Reason) *Reason = bAvailable ? "" : bBarrier ? "An undo barrier blocks earlier history." : ResetReason.empty() ? "Nothing to undo." : ResetReason;
@@ -1803,6 +1775,7 @@ namespace Durin
 				? RecoveryGuidance : "A transaction is active.";
 			return false;
 		}
+		if (!CanReplayInHost(Reason)) return false;
 		const bool bAvailable = FindReplayIndex(false).has_value();
 		if (Reason) *Reason = bAvailable ? "" : "Nothing to redo.";
 		return bAvailable;

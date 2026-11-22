@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-11-13
+Last reviewed: 2026-11-22
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -41,29 +41,22 @@ published Level members. Editor admission and optional label uniqueness belong
 to `DEditorActorSubsystem`; ordinary label and object-name history use the shared
 whole-object record rather than dedicated rename commands.
 
-Actor presence commands capture the Level through the common SaveObject path
-before native publication. The resulting object record owns Actor-array order
-and primary-camera history. Native presence replay uses the Level's temporary
-PreEditUndo membership baseline to recognize an already-loaded array without
-accepting unrelated earlier membership edits. It then registers/unregisters the
-exact retained Actor through the normal lifecycle boundary; ordinary field
-restoration alone does not activate it.
-As in UE's Level completion, still-live Actors omitted by an older array are
-preserved. Durin distinguishes reversible absence by preserving pre-replay
-published Actors only when no presence adapter changed them in that operation;
-older absent objects are not accidentally republished. This also preserves
-nontransactional Actors added outside the recording.
+Editor publication and removal capture the Level before changing its Actors array.
+That snapshot restores order and the primary camera. The editor host checks World availability before Undo and Redo. Rename and
+Outer changes reserve sibling names even for unpublished Actors held by history. Actor
+completion restores registration through lifecycle annotations. Level completion
+preserves independently published Actors that the historical array omitted.
 
 Actors index transient generated components by stable native-construction keys.
 Those components also participate in unified live ownership and World/editor
 lifecycles but are excluded from authored package and duplication state. See
 [Native Actor Construction](NativeConstruction.md).
 
-`DLevel::SetActorPresence` provides reversible editor membership without changing
+`DLevel::AddActor` and `DLevel::RemoveActor` provide reversible editor membership without changing
 object identity or terminal destruction state. Removal unregisters Actor Tick and
 components, updates Level ordering and primary-camera fallback, and leaves owned
-component graphs intact. Restoration accepts an insertion index and can defer
-component registration until the caller restores attachment state. It rejects
+component graphs intact. New Actors append to the Level. Its snapshot restores the recorded order during replay.
+AddActor inserts an admitted member and captures its absent state during recording before publishing it. Publication selects the camera, announces the hierarchy change, registers tick and components, and marks the package dirty. Runtime spawn shares this completion. Reconnecting a Level to a World only reactivates its members. The Level rejects
 play transitions, invalid ownership, duplicate membership and name collisions.
 The editor owns attachment snapshots, registration-state restoration, collector
 retention and persistence admission; see

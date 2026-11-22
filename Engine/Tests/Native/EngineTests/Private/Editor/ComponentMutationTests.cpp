@@ -10,6 +10,8 @@
 #include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "StaticMesh/StaticMesh.h"
+#include "Asset/AssetImportData.h"
+#include "Materials/Material.h"
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 #include "DObject/DObjectGlobals.h"
@@ -43,7 +45,7 @@ namespace Durin
 		{ SetRelativeLocation({3.0, 0.0, 0.0}); }
 		auto OnComponentCreated() -> void override { Super::OnComponentCreated(); ++Created; CreatedLocation = GetWorldLocation(); if (CreationProbe) CreationProbe(*this); }
 		auto OnComponentDestroyed() -> void override { Super::OnComponentDestroyed(); ++Destroyed; }
-		auto OnRegister() -> void override { Super::OnRegister(); ++Registered; }
+		auto OnRegister() -> void override { Super::OnRegister(); ++Registered; if (RegisterProbe) RegisterProbe(*this); }
 		auto OnUnregister() -> void override { Super::OnUnregister(); ++Unregistered; if (UnregisterProbe) UnregisterProbe(*this); }
 		auto InitializeComponent() -> void override { Super::InitializeComponent(); ++Initialized; }
 		auto UninitializeComponent() -> void override { Super::UninitializeComponent(); ++Uninitialized; }
@@ -56,6 +58,7 @@ namespace Durin
 		bool bFailCapture = false;
 		inline static std::function<void(FStructuralTestLight&)> PostLoadProbe;
 		inline static std::function<void(FStructuralTestLight&)> CreationProbe;
+		inline static std::function<void(FStructuralTestLight&)> RegisterProbe;
 		inline static std::function<void(FStructuralTestLight&)> UnregisterProbe;
 		uint32 Created = 0, Destroyed = 0, Registered = 0, Unregistered = 0, Initialized = 0, Uninitialized = 0;
 		FVector3 CreatedLocation{0.0};
@@ -280,6 +283,92 @@ TEST(FActorMutationTests, DuplicationRemapsSelectedHierarchyOwnedComponentsAndSp
 	EXPECT_TRUE(F.Scene.Lights.contains(LightCopy));
 }
 
+TEST(FActorMutationTests, DuplicatePostLoadObservesRemappedForwardReferenceOnce)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* Source = Level->SpawnActor<AStaticMeshActor>("MeshUser");
+	auto* Provider = Level->SpawnActor<AActor>("MeshOwner");
+	auto* Mesh = NewObject<DStaticMesh>(Provider, "SharedMesh");
+	ASSERT_TRUE(Mesh);
+	FMeshDescription Geometry;
+	Geometry.PolygonGroups.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	auto& Section = Geometry.Sections.emplace_back();
+	Section.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+	Section.Indices = {0, 1, 2};
+	Section.SourceMaterialIndex = 0;
+	FStaticMeshSource Authored;
+	ASSERT_TRUE(Authored.Initialize(std::move(Geometry)));
+	auto* Import = NewObject<DAssetImportData>(Mesh, "SourceData");
+	const auto Initialized = Mesh->SetImportedSource(std::move(Authored), {{.Name = "Default", .SourceName = "Default"}}, *Import);
+	ASSERT_TRUE(Initialized) << Initialized.error();
+	Source->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "SharedMaterial"));
+	ASSERT_TRUE(Source->GetStaticMeshComponent()->SetMaterial(Material.Get()));
+	ASSERT_TRUE(Source->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Observer"));
+	int Calls = 0;
+	TObjectPtr<DStaticMesh> ObservedMesh;
+	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::PostLoadProbe = {}; } } Reset;
+	FStructuralTestLight::PostLoadProbe = [&](FStructuralTestLight& Component) {
+		auto* Copy = Cast<AStaticMeshActor>(Component.GetOuter());
+		ASSERT_TRUE(Copy && Copy != Source);
+		++Calls;
+		ObservedMesh = Copy->GetStaticMeshComponent()->GetStaticMesh();
+		ASSERT_TRUE(ObservedMesh);
+		EXPECT_NE(ObservedMesh.Get(), Mesh);
+		EXPECT_EQ(Copy->GetStaticMeshComponent()->GetMaterial(), Material.Get());
+	};
+	AActor* Sources[] = {Source, Provider};
+	const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, Sources, {false});
+	FStructuralTestLight::PostLoadProbe = {};
+	ASSERT_EQ(Copies.size(), 2u);
+	ASSERT_EQ(Calls, 1);
+	ASSERT_TRUE(ObservedMesh);
+	EXPECT_EQ(ObservedMesh->GetOuter(), Copies.back().Get());
+	auto* MeshCopy = static_cast<AStaticMeshActor*>(Copies.front().Get())->GetStaticMeshComponent();
+	EXPECT_EQ(MeshCopy->GetStaticMesh(), ObservedMesh.Get());
+	EXPECT_EQ(Source->GetStaticMeshComponent()->GetStaticMesh(), Mesh);
+	ASSERT_TRUE(F.Transactions->Undo());
+	ASSERT_TRUE(F.Transactions->Redo());
+	EXPECT_EQ(MeshCopy->GetStaticMesh(), ObservedMesh.Get());
+	EXPECT_EQ(MeshCopy->GetMaterial(), Material.Get());
+}
+
+TEST(FActorMutationTests, DuplicationKeepsInternalChildrenAndDetachesNonRootExternalChildrenInWorldSpace)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* Source = Level->SpawnActor<AStaticMeshActor>("Source");
+	auto* External = Cast<DSceneComponent>(Source->AddInstanceComponent(DSceneComponent::StaticClass(), "External"));
+	auto* Inner = Cast<DSceneComponent>(Source->AddInstanceComponent(DSceneComponent::StaticClass(), "Inner"));
+	ASSERT_TRUE(External && Inner);
+	ASSERT_TRUE(External->AttachToComponent(F.Actor->GetRootComponent(), EAttachmentTransformRule::KeepRelative));
+	ASSERT_TRUE(Inner->AttachToComponent(External, EAttachmentTransformRule::KeepRelative));
+	External->SetWorldLocation({17, 4, 9});
+	Inner->SetRelativeLocation({3, 2, 1});
+	const auto Location = Inner->GetWorldLocation();
+	AActor* Sources[] = {Source, F.Actor};
+	const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, Sources, {false});
+	ASSERT_EQ(Copies.size(), 2u);
+	const auto& Components = Copies.front()->GetInstanceComponents();
+	ASSERT_EQ(Components.size(), 2u);
+	auto* ExternalCopy = Cast<DSceneComponent>(Components[0].Get());
+	auto* InnerCopy = Cast<DSceneComponent>(Components[1].Get());
+	ASSERT_TRUE(ExternalCopy && InnerCopy);
+	auto Check = [&] {
+		EXPECT_EQ(External->GetAttachParent(), F.Actor->GetRootComponent());
+		EXPECT_EQ(ExternalCopy->GetAttachParent(), nullptr);
+		EXPECT_EQ(ExternalCopy->GetWorldLocation(), External->GetWorldLocation());
+		EXPECT_EQ(InnerCopy->GetAttachParent(), ExternalCopy);
+		EXPECT_EQ(InnerCopy->GetWorldLocation(), Location);
+	};
+	Check();
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_FALSE(Level->ContainsActor(Copies.front().Get()));
+	ASSERT_TRUE(F.Transactions->Redo());
+	Check();
+}
+
 TEST(FActorMutationTests, SingleActorDuplicationRestoresItsExternalParentAndRootlessActorsAreAdmitted)
 {
 	FComponentFixture F;
@@ -304,7 +393,7 @@ TEST(FActorMutationTests, SingleActorDuplicationRestoresItsExternalParentAndRoot
 	EXPECT_TRUE(Level->ContainsActor(Rootless));
 }
 
-TEST(FActorMutationTests, BatchConflictRejectsEveryWriteAndRetainsHistoryForRetry)
+TEST(FActorMutationTests, UnpublishedActorReservesItsNameThroughBatchUndo)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -314,18 +403,36 @@ TEST(FActorMutationTests, BatchConflictRejectsEveryWriteAndRetainsHistoryForRetr
 	auto* Conflict = Level->SpawnActor<AActor>(Other->GetFName());
 	ASSERT_NE(Conflict, nullptr);
 	EXPECT_NE(Conflict->GetFName(), Other->GetFName());
-	// Bypass the naming service to exercise defensive replay against external corruption.
+	const auto PreviousName = Conflict->GetFName();
 	Conflict->Rename(Other->GetFName());
-	const auto Head = F.Transactions->GetUndoContext().TransactionId;
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
-	EXPECT_FALSE(Level->ContainsActor(F.Actor));
-	EXPECT_FALSE(F.Actor->GetRootComponent()->IsRegistered());
-	EXPECT_TRUE(IsPackageCaptureObjectOmitted(F.Actor));
-	ASSERT_TRUE(Level->DestroyActor(Conflict));
+	EXPECT_EQ(Conflict->GetFName(), PreviousName);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_TRUE(Level->ContainsActor(F.Actor));
 	EXPECT_TRUE(Level->ContainsActor(Other));
+}
+
+TEST(FActorMutationTests, CancellationDuringFirstDetachLeavesSecondChildAndActorPublished)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* First = Level->SpawnActor<AStaticMeshActor>("FirstChild");
+	auto* Second = Level->SpawnActor<AStaticMeshActor>("SecondChild");
+	ASSERT_TRUE(First->AttachToActor(F.Actor, EAttachmentTransformRule::KeepWorld));
+	ASSERT_TRUE(Second->AttachToActor(F.Actor, EAttachmentTransformRule::KeepWorld));
+	FScopedTransaction Outer("Cancel during removal");
+	int Calls = 0;
+	auto Handle = FEditorSupportDelegates::ActorHierarchyChanged.AddLambda([&](DLevel& Changed) {
+		if (&Changed == Level && ++Calls == 1) Outer.Cancel();
+	});
+	AActor* Target = F.Actor;
+	const bool Removed = F.Editor.GetActorEditor()->DestroyActors(*Level, {&Target, 1}, {false});
+	FEditorSupportDelegates::ActorHierarchyChanged.Remove(Handle);
+	EXPECT_FALSE(Removed);
+	EXPECT_EQ(Calls, 1);
+	EXPECT_EQ(First->GetAttachParentActor(), nullptr);
+	EXPECT_EQ(Second->GetAttachParentActor(), Target);
+	EXPECT_TRUE(Level->ContainsActor(Target));
+	EXPECT_FALSE(F.Transactions->CanUndo());
 }
 
 TEST(FActorMutationTests, CombinedAttachmentCyclesRejectRestorationBeforeAnyMembershipWrite)
@@ -1066,22 +1173,165 @@ TEST(FActorMutationTests, DuplicationDoesNotPublishBoundaryAttachmentsDuringDeri
 	ASSERT_TRUE(Source->AttachToActor(F.Actor, EAttachmentTransformRule::KeepRelative));
 	ASSERT_NE(Source->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Observer"), nullptr);
 	const auto ChildCount = F.Actor->GetRootComponent()->GetAttachChildren().size();
-	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::PostLoadProbe = {}; } } Reset;
+	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::PostLoadProbe = {}; FStructuralTestLight::RegisterProbe = {}; } } Reset;
 	int Observed = 0;
 	FStructuralTestLight::PostLoadProbe = [&](FStructuralTestLight&) {
 		++Observed;
 		EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachChildren().size(), ChildCount);
 	};
+	int Registrations = 0;
+	FStructuralTestLight::RegisterProbe = [&](FStructuralTestLight& Component) {
+		++Registrations;
+		EXPECT_EQ(Component.GetOwner()->GetAttachParentActor(), nullptr);
+		EXPECT_TRUE(Level->ContainsActor(Component.GetOwner()));
+	};
 	AActor* Target = Source;
 	const auto Copied = F.Editor.GetActorEditor()->DuplicateActors(*Level, {&Target, 1}, {false});
+	FStructuralTestLight::RegisterProbe = {};
 	ASSERT_FALSE(Copied.empty());
-	EXPECT_GT(Observed, 0);
+	EXPECT_EQ(Registrations, 1);
+	EXPECT_EQ(Observed, 1);
 	EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachChildren().size(), ChildCount + 1);
 	EXPECT_EQ(Copied.front()->GetAttachParentActor(), F.Actor);
 	ASSERT_TRUE(F.Transactions->Undo());
 	EXPECT_EQ(F.Actor->GetRootComponent()->GetAttachChildren().size(), ChildCount);
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Copied.front()->GetAttachParentActor(), F.Actor);
+}
+
+TEST(FActorMutationTests, DuplicateReturnsPublishedPrefixAndOneUndoRestoresTheLevel)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* First = Level->SpawnActor<AStaticMeshActor>("BatchFirst");
+	auto* Second = Level->SpawnActor<AStaticMeshActor>("BatchSecond");
+	ASSERT_TRUE(First->AttachToActor(F.Actor, EAttachmentTransformRule::KeepRelative));
+	ASSERT_TRUE(First->AddInstanceComponent(FStructuralTestLight::StaticClass(), "Probe"));
+	const auto Before = Level->GetActors().size();
+	bool RejectedSecond = false;
+	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::RegisterProbe = {}; } } Reset;
+	FStructuralTestLight::RegisterProbe = [&](FStructuralTestLight& Component) {
+		EXPECT_TRUE(Level->ContainsActor(Component.GetOwner()));
+		EXPECT_EQ(Component.GetOwner()->GetAttachParentActor(), nullptr);
+		for (auto* Inner : GDObjectArray.GetObjectsWithOuter(Level, EObjectQueryScope::LiveOnly))
+			if (auto* Candidate = Cast<AActor>(Inner); Candidate && !Level->ContainsActor(Candidate))
+			{
+				MarkObjectHierarchyAsGarbage(Candidate);
+				RejectedSecond = true;
+			}
+	};
+	AActor* Sources[] = {First, Second};
+	const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, Sources, {false});
+	FStructuralTestLight::RegisterProbe = {};
+	ASSERT_TRUE(RejectedSecond);
+	ASSERT_EQ(Copies.size(), 1u);
+	EXPECT_NE(Copies.front().Get(), First);
+	EXPECT_EQ(Copies.front()->GetAttachParentActor(), F.Actor);
+	EXPECT_EQ(Level->GetActors().size(), Before + 1);
+	EXPECT_TRUE(Level->ContainsActor(Copies.front().Get()));
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_EQ(Level->GetActors().size(), Before);
+	EXPECT_FALSE(Level->ContainsActor(Copies.front().Get()));
+	EXPECT_TRUE(Level->ContainsActor(First));
+	EXPECT_TRUE(Level->ContainsActor(Second));
+	EXPECT_FALSE(F.Transactions->CanUndo());
+	ASSERT_TRUE(F.Transactions->Redo());
+	EXPECT_TRUE(Level->ContainsActor(Copies.front().Get()));
+	EXPECT_EQ(Level->GetActors().size(), Before + 1);
+}
+
+TEST(FActorMutationTests, ParentCopyRetiredDuringPreparationStillAllowsChildDuplication)
+{
+	FComponentFixture F;
+	auto* Level = F.World->GetCurrentLevel();
+	auto* Parent = Level->SpawnActor<AStaticMeshActor>("SourceParent");
+	auto* Child = Level->SpawnActor<AStaticMeshActor>("SourceChild");
+	ASSERT_TRUE(Child->AttachToActor(Parent));
+	ASSERT_TRUE(Parent->AddInstanceComponent(FStructuralTestLight::StaticClass(), "RetireCopy"));
+	struct FResetProbe { ~FResetProbe() { FStructuralTestLight::PostLoadProbe = {}; } } Reset;
+	int Calls = 0;
+	FStructuralTestLight::PostLoadProbe = [&](FStructuralTestLight& Component) {
+		auto* Copy = Cast<AActor>(Component.GetOuter());
+		++Calls;
+		if (Copy && Copy != Parent) MarkObjectHierarchyAsGarbage(Copy);
+	};
+	const auto Immediate = DuplicateObject(Parent, Level, "RetiredDuringPostLoad");
+	ASSERT_FALSE(Immediate);
+	EXPECT_EQ(Immediate.error().Code, EObjectGraphError::InvalidRoot);
+	ASSERT_EQ(Calls, 1);
+	Calls = 0;
+	AActor* Sources[] = {Child, Parent};
+	const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, Sources, {false});
+	FStructuralTestLight::PostLoadProbe = {};
+	ASSERT_EQ(Calls, 1);
+	ASSERT_EQ(Copies.size(), 1u);
+	EXPECT_EQ(Copies.front()->GetAttachParentActor(), Parent);
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_FALSE(Level->ContainsActor(Copies.front().Get()));
+	EXPECT_FALSE(F.Transactions->CanUndo());
+	ASSERT_TRUE(F.Transactions->Redo());
+	EXPECT_EQ(Copies.front()->GetAttachParentActor(), Parent);
+}
+
+TEST(FActorMutationTests, ChildFirstDuplicationResolvesPublishedParentAfterRegistration)
+{
+	enum class EParent { Copied, CopiedWithoutMount, Existing, Missing };
+	for (auto Scenario : {EParent::Copied, EParent::CopiedWithoutMount, EParent::Existing, EParent::Missing})
+	{
+		SCOPED_TRACE(static_cast<int>(Scenario));
+		const bool bRejectParent = Scenario == EParent::Existing || Scenario == EParent::Missing;
+		FComponentFixture F;
+		auto* Level = F.World->GetCurrentLevel();
+		auto* Parent = Level->SpawnActor<AStaticMeshActor>("Parent");
+		auto* Child = Level->SpawnActor<AStaticMeshActor>("Child");
+		auto* Driver = Level->SpawnActor<AStaticMeshActor>("Driver");
+		auto* Mount = Cast<DSceneComponent>(Parent->AddInstanceComponent(DSceneComponent::StaticClass(), "Mount"));
+		ASSERT_TRUE(Mount);
+		Mount->SetWorldLocation({12, 20, 30});
+		ASSERT_TRUE(Child->GetRootComponent()->AttachToComponent(Mount, EAttachmentTransformRule::KeepRelative));
+		const auto ChildWorld = Child->GetRootComponent()->GetWorldLocation();
+		ASSERT_TRUE(Child->AddInstanceComponent(FStructuralTestLight::StaticClass(), "ChildProbe"));
+		ASSERT_TRUE(Driver->AddInstanceComponent(FStructuralTestLight::StaticClass(), "DriverProbe"));
+		int ChildRegistrations = 0;
+		struct FResetProbe { ~FResetProbe() { FStructuralTestLight::RegisterProbe = {}; } } Reset;
+		FStructuralTestLight::RegisterProbe = [&](FStructuralTestLight& Probe) {
+			if (Probe.GetFName() == FName("ChildProbe"))
+			{
+				++ChildRegistrations;
+				EXPECT_EQ(Probe.GetOwner()->GetAttachParentActor(), nullptr);
+				EXPECT_EQ(Probe.GetOwner()->GetRootComponent()->GetWorldLocation(), ChildWorld);
+			}
+			else
+			{
+				if (Scenario == EParent::Missing) Parent->Rename("RenamedParent");
+				for (auto* Inner : GDObjectArray.GetObjectsWithOuter(Level, EObjectQueryScope::LiveOnly))
+				{
+					auto* Candidate = Cast<AActor>(Inner);
+					if (!Candidate || Level->ContainsActor(Candidate)) continue;
+					if (bRejectParent) MarkObjectHierarchyAsGarbage(Candidate);
+					else if (Scenario == EParent::CopiedWithoutMount)
+						for (const auto& Component : Candidate->GetComponentsSnapshot())
+							if (Component->GetFName() == Mount->GetFName()) Component->DestroyComponent();
+				}
+			}
+		};
+		AActor* Sources[] = {Child, Driver, Parent};
+		const auto Copies = F.Editor.GetActorEditor()->DuplicateActors(*Level, Sources, {false});
+		FStructuralTestLight::RegisterProbe = {};
+		ASSERT_EQ(Copies.size(), bRejectParent ? 2u : 3u);
+		EXPECT_EQ(ChildRegistrations, 1);
+		auto* ExpectedParent = Scenario == EParent::Missing ? nullptr : bRejectParent ? Parent : Copies.back().Get();
+		auto CheckAttachment = [&] {
+			EXPECT_EQ(Copies.front()->GetAttachParentActor(), ExpectedParent);
+			EXPECT_EQ(Copies.front()->GetRootComponent()->GetWorldLocation(), ChildWorld);
+			EXPECT_EQ(Copies.front()->GetRootComponent()->GetAttachParent(), ExpectedParent ? ExpectedParent->GetRootComponent() : nullptr);
+		};
+		CheckAttachment();
+		ASSERT_TRUE(F.Transactions->Undo());
+		for (const auto& Copy : Copies) EXPECT_FALSE(Level->ContainsActor(Copy.Get()));
+		ASSERT_TRUE(F.Transactions->Redo());
+		CheckAttachment();
+	}
 }
 
 TEST(FActorMutationTests, UnavailableServiceAndRecoveringHistoryRejectBeforePreparation)
@@ -1115,7 +1365,7 @@ TEST(FActorMutationTests, OrdinaryRenameSurvivesDurinEdCustomCommandRetirement)
 	EXPECT_EQ(F.Actor->GetName(), "Owner");
 }
 
-TEST(FComponentMutationTests, StructuralReplayRejectsDetachedOwnersWhileMetadataHistoryKeepsIdentity)
+TEST(FComponentMutationTests, DetachedOwnerRestoresComponentOwnershipWithoutActivation)
 {
 	for (int Operation = 0; Operation < 4; ++Operation)
 	{
@@ -1134,30 +1384,26 @@ TEST(FComponentMutationTests, StructuralReplayRejectsDetachedOwnersWhileMetadata
 		case 3: Result = Editor->ReparentComponent(*F.Actor, Child, Parent, {false}); break;
 		}
 		ASSERT_TRUE(Result);
-		const auto Head = F.Transactions->GetUndoContext().TransactionId;
 		const auto Name = Child->GetFName();
-		const auto ComponentCount = F.Actor->GetComponents().size();
-		ASSERT_TRUE(Level->SetActorPresence(F.Actor, false));
-		if (Operation >= 2)
-		{
-			ASSERT_TRUE(F.Transactions->Undo()); EXPECT_EQ(Child->GetFName(), FName("Child"));
-			if (Operation == 3) EXPECT_EQ(Child->GetAttachParent(), F.Actor->GetRootComponent());
-			EXPECT_FALSE(Child->IsRegistered()); EXPECT_FALSE(Level->ContainsActor(F.Actor));
-			ASSERT_TRUE(F.Transactions->Redo()); EXPECT_EQ(Child->GetFName(), Name);
-			EXPECT_FALSE(Child->IsRegistered()); EXPECT_FALSE(Level->ContainsActor(F.Actor));
-			ASSERT_TRUE(Level->SetActorPresence(F.Actor, true));
-			continue;
-		}
-		EXPECT_FALSE(F.Transactions->Undo());
-		EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
-		EXPECT_EQ(Child->GetFName(), Name);
-		EXPECT_EQ(F.Actor->GetComponents().size(), ComponentCount);
-		ASSERT_TRUE(Level->SetActorPresence(F.Actor, true));
+		const auto Count = F.Actor->GetComponents().size();
+		ASSERT_TRUE(Level->RemoveActor(F.Actor));
 		ASSERT_TRUE(F.Transactions->Undo());
+		EXPECT_EQ(Child->GetFName(), FName("Child"));
+		EXPECT_EQ(F.Actor->GetComponents().size(), Operation == 0 ? Count - 1 : Operation == 1 ? Count + 1 : Count);
+		EXPECT_TRUE(F.Actor->OwnsComponent(Child));
+		EXPECT_FALSE(Child->IsRegistered());
+		EXPECT_FALSE(Level->ContainsActor(F.Actor));
+		if (Operation == 3) EXPECT_EQ(Child->GetAttachParent(), F.Actor->GetRootComponent());
+		ASSERT_TRUE(F.Transactions->Redo());
+		EXPECT_EQ(F.Actor->GetComponents().size(), Count);
+		EXPECT_EQ(F.Actor->OwnsComponent(Child), Operation != 1);
+		EXPECT_EQ(Child->GetFName(), Name);
+		EXPECT_FALSE(Child->IsRegistered());
+		EXPECT_FALSE(Level->ContainsActor(F.Actor));
 	}
 }
 
-TEST(FComponentMutationTests, CapturedLevelWithoutPublicationCannotAdmitDetachedOwner)
+TEST(FComponentMutationTests, CapturedLevelAndDetachedOwnerRestoreTheirOwnSnapshots)
 {
 	FComponentFixture F;
 	auto* Level = F.World->GetCurrentLevel();
@@ -1167,14 +1413,13 @@ TEST(FComponentMutationTests, CapturedLevelWithoutPublicationCannotAdmitDetached
 	{
 		FScopedTransaction Scope("Edit component and detached level");
 		ASSERT_TRUE(F.Editor.GetActorEditor()->AddComponent(*F.Actor, DSceneComponent::StaticClass(), nullptr, {false}));
-		ASSERT_TRUE(Level->SetActorPresence(F.Actor, false));
+		ASSERT_TRUE(Level->RemoveActor(F.Actor));
 		Level->SetFlags(EObjectFlags::Transactional);
 		ASSERT_TRUE(Level->Modify(false));
 		ASSERT_TRUE(Level->SetPrimaryCameraActor(nullptr));
 	}
-	const auto Head = F.Transactions->GetUndoContext().TransactionId;
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
+	ASSERT_TRUE(F.Transactions->Undo());
+	EXPECT_EQ(Level->GetPrimaryCameraActor(), Camera);
 	EXPECT_FALSE(Level->ContainsActor(F.Actor));
 }
 
@@ -1464,7 +1709,7 @@ TEST(FActorMutationTests, UnspecifiedNamesIgnoreRequiredModeAndLegacyLabelsSurvi
     ASSERT_NE(Third, nullptr);
     auto* Legacy = NewObject<AActor>(Level, "Legacy");
     EXPECT_EQ(Legacy->GetActorLabel(), "Legacy");
-    ASSERT_TRUE(Level->SetActorPresence(Legacy, true));
+    ASSERT_TRUE(Level->AddActor(Legacy));
     Durin::Tests::FActorHierarchyChangeObserver Changes(*Level);
     ASSERT_TRUE(F.GetActorEditor()->SetActorLabel(*Level, Legacy, "Legacy label", {false}));
     EXPECT_TRUE(Changes.Consume());

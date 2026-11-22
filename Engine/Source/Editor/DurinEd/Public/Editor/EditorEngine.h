@@ -119,6 +119,7 @@ namespace Durin
 		DURINED_API auto EndTransaction() -> int32 override;
 		DURINED_API auto CancelTransaction(int32 StartIndex = 0) -> void override;
 		DURINED_API auto CanTransact() const -> bool override;
+		DURINED_API auto CanReplayTransactions() const -> bool;
 		DURINED_API auto GetEditorSubsystem(DClass* Type) const -> DEditorSubsystem*;
 		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
 		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }

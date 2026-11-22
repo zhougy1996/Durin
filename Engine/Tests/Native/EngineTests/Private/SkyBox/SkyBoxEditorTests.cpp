@@ -166,16 +166,11 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	ASSERT_NE(Conflict, nullptr);
 	EXPECT_NE(Conflict->GetFName(), Actor->GetFName());
 	EXPECT_EQ(Conflict->GetActorLabel(), "Sky");
-	// Inject a name collision explicitly; normal spawning reserves undo-held names.
+	const auto ReservedName = Conflict->GetFName();
 	Conflict->Rename("Sky");
-	std::string Message;
-	ASSERT_FALSE(Transactions->RedoExpected(Transactions->GetRedoContext().TransactionId, &Message));
-	EXPECT_EQ(Message, "The requested actor name is occupied.");
-	EXPECT_EQ(Level->FindActorByName("Sky"), Conflict);
-	EXPECT_TRUE(Transactions->CanRedo());
-	ASSERT_TRUE(Level->DestroyActor(Conflict));
+	EXPECT_EQ(Conflict->GetFName(), ReservedName);
 	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Message, "The requested actor name is occupied.");
+	ASSERT_TRUE(Level->DestroyActor(Conflict));
 	EXPECT_EQ(Level->FindActorByName("Sky"), Actor);
 	Actor = Durin::Cast<Durin::ASkyBoxActor>(Level->FindActorByName("Sky"));
 	ASSERT_NE(Actor, nullptr);

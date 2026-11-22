@@ -9,6 +9,7 @@
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Engine/Actor.h"
@@ -17,89 +18,16 @@
 
 namespace Durin
 {
-	namespace
+	// Keep the same child-before-Outer PostLoad order as DuplicateObject. Capture the
+	// created graph before callbacks can rebuild components or collect an Outer-only child.
+	static auto GatherDuplicatePostLoad(DObject* Source, const std::unordered_map<DObject*, DObject*>& Graph,
+		std::vector<TStrongObjectPtr<DObject>>& Copies) -> void
 	{
-		struct FAttachmentState
-		{
-			TObjectPtr<DSceneComponent> Child, Parent;
-			FTransform Relative;
-		};
-
-		auto EditActorMembership(DLevel& Level, std::span<AActor* const> Actors, bool bRemove,
-			DTransactor& Transactions, std::string_view Description, std::vector<FAttachmentState> Links = {}) -> bool
-		{
-			std::vector<TStrongObjectPtr<AActor>> Pinned;
-			std::vector<bool> Transient;
-			for (auto* Actor : Actors)
-			{
-				if (!IsValid(Actor) || Actor->GetOuter() != &Level || Level.ContainsActor(Actor) != bRemove
-					|| (!bRemove && !Level.IsActorNameAvailable(Actor->GetFName(), Actor))) return false;
-				Pinned.emplace_back(Actor);
-				Transient.push_back(Actor->HasAnyObjectFlags(EObjectFlags::Transient));
-			}
-			if (bRemove)
-			{
-				std::unordered_set<AActor*> Selected(Actors.begin(), Actors.end());
-				for (const auto& Actor : Level.GetActors())
-					for (const auto& Component : Actor->GetComponents())
-						if (auto* Child = Cast<DSceneComponent>(Component.Get()); Child && Child->GetAttachParent()
-							&& Selected.contains(Actor.Get()) != Selected.contains(Child->GetAttachParent()->GetOwner()))
-							Links.push_back({Child, Child->GetAttachParent(), Child->GetRelativeTransform()});
-			}
-			FScopedTransaction Scope("Actor", Description, &Level);
-			if (!Scope.IsOutstanding()) return false;
-			Level.SetFlags(EObjectFlags::Transactional);
-			Level.Modify(false);
-			for (auto* Actor : Actors)
-			{
-				if (!Transactions.IsActive()) return false;
-				if (!bRemove) Actor->SetTransient(true);
-				Actor->SetFlags(EObjectFlags::Transactional);
-				// Presence changes the Actor and Level. Capture a root separately only
-				// when its attachment changes, leaving configured component assets live.
-				Actor->DObject::Modify(false);
-			}
-			for (const auto& Link : Links)
-			{
-				if (!Transactions.IsActive()) return false;
-				Link.Child->SetFlags(EObjectFlags::Transactional);
-				Link.Child->Modify(false);
-			}
-			if (!Transactions.IsActive()) return false;
-			if (bRemove)
-				for (const auto& Link : Links)
-					if (!Link.Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld)) return false;
-			for (size_t I = 0; I < Actors.size(); ++I)
-			{
-				const size_t Index = bRemove ? Actors.size() - 1 - I : I;
-				auto* Actor = Actors[Index];
-				if (!Transactions.IsActive() || !CanEditActorLevel(&Level) || !IsValid(Actor)) return false;
-				if (!bRemove) Actor->SetTransient(Transient[Index]);
-				if (!Level.SetActorPresence(Actor, !bRemove, std::numeric_limits<size_t>::max(), Links.empty()) || !IsValid(Actor) || Level.ContainsActor(Actor) == bRemove) return false;
-				if (bRemove) Actor->SetTransient(true);
-				if (!CanEditActorLevel(&Level)) return false;
-			}
-			if (!bRemove && !Links.empty())
-			{
-				for (const auto& Link : Links)
-				{
-					if (!IsValid(Link.Child.Get()) || !IsValid(Link.Parent.Get())
-						|| !Link.Child->AttachToComponent(Link.Parent.Get(), EAttachmentTransformRule::KeepRelative)) return false;
-					Link.Child->SetRelativeTransform(Link.Relative);
-				}
-				for (auto* Actor : Actors)
-				{
-					if (!CanEditActorOwner(Actor)) return false;
-					for (const auto& Component : Actor->GetComponentsSnapshot())
-					{
-						if (IsValid(Component.Get()) && Actor->OwnsComponent(Component.Get()) && Level.GetWorld())
-							Component->RegisterComponent();
-						if (!CanEditActorOwner(Actor)) return false;
-					}
-				}
-			}
-			return true;
-		}
+		auto It = Graph.find(Source);
+		if (It == Graph.end()) return;
+		Copies.emplace_back(It->second);
+		for (auto* Inner : GDObjectArray.GetObjectsWithOuter(Source, EObjectQueryScope::LiveOnly))
+			GatherDuplicatePostLoad(Inner, Graph, Copies);
 	}
 
 	static auto SpawnConfiguredActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
@@ -137,12 +65,19 @@ namespace Durin
 			catch (...) { return Reject("Actor configuration threw."); }
 			if (!IsValid(Raw)) return Reject("Actor retired during configuration.");
 		}
-		if (!EditActorMembership(Level, {&Raw, 1}, false, Transactions, "Add actor"))
+		FScopedTransaction Scope("Actor", "Add actor", &Level);
+		if (Scope.IsOutstanding())
 		{
-			if (IsValid(Raw) && !Level.ContainsActor(Raw)) MarkObjectHierarchyAsGarbage(Raw);
-			return std::unexpected(std::string("Actor unavailable for publication."));
+			Level.SetFlags(EObjectFlags::Transactional);
+			Level.Modify(false);
+			if (Transactions.IsActive() && Level.AddActor(Raw))
+			{
+				if (IsValid(Raw) && Level.ContainsActor(Raw)) return Raw;
+				return std::unexpected(std::string("Actor removed during publication."));
+			}
 		}
-		return Raw;
+		if (IsValid(Raw) && !Level.ContainsActor(Raw)) MarkObjectHierarchyAsGarbage(Raw);
+		return std::unexpected(std::string("Actor unavailable for publication."));
 	}
 
 	auto DEditorActorSubsystem::SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
@@ -174,7 +109,44 @@ namespace Durin
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return false;
-			return EditActorMembership(Level, Actors, true, *Transactions, "Delete actors");
+			std::vector<DSceneComponent*> BoundaryChildren;
+			for (const auto& Actor : Level.GetActors())
+				for (const auto& Component : Actor->GetComponents())
+					if (auto* Child = Cast<DSceneComponent>(Component.Get()); Child && Child->GetAttachParent()
+						&& Unique.contains(Actor.Get()) != Unique.contains(Child->GetAttachParent()->GetOwner()))
+						BoundaryChildren.push_back(Child);
+
+			FScopedTransaction Scope("Actor", "Delete actors", &Level);
+			if (!Scope.IsOutstanding()) return false;
+			Level.SetFlags(EObjectFlags::Transactional);
+			Level.Modify(false);
+			for (auto* Actor : Actors)
+			{
+				if (!Transactions->IsActive() || !IsValid(Actor)) return false;
+				Actor->SetFlags(EObjectFlags::Transactional);
+				Actor->DObject::Modify(false);
+			}
+			for (auto* Child : BoundaryChildren)
+			{
+				if (!Transactions->IsActive() || !IsValid(Child)) return false;
+				Child->SetFlags(EObjectFlags::Transactional);
+				Child->Modify(false);
+			}
+			for (auto* Child : BoundaryChildren)
+			{
+				if (!Transactions->IsActive() || !CanEditActorLevel(&Level) || !IsValid(Child)
+					|| !Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld)) return false;
+			}
+			for (auto* Actor : Actors | std::views::reverse)
+			{
+				if (!Transactions->IsActive() || !CanEditActorLevel(&Level) || !IsValid(Actor)) return false;
+				// Removal notifications may cancel history and collect after the Level releases its reference.
+				TStrongObjectPtr<AActor> Removing(Actor);
+				if (!Level.RemoveActor(Actor) || !IsValid(Actor) || Level.ContainsActor(Actor)) return false;
+				Actor->SetTransient(true);
+				if (!CanEditActorLevel(&Level)) return false;
+			}
+			return true;
 
 		});
 	}
@@ -189,68 +161,109 @@ namespace Durin
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {};
-			std::vector<TObjectPtr<AActor>> Copies;
-			std::vector<AActor*> Raw;
-			std::vector<FAttachmentState> PreparedAttachments;
+			std::vector<TStrongObjectPtr<AActor>> Prepared;
+			std::unordered_map<AActor*, FName> ParentNames;
+			std::unordered_map<FName, TObjectPtr<AActor>> CopiesBySourceName;
+			auto DiscardUnpublished = [&]() -> std::vector<TObjectPtr<AActor>> {
+				for (const auto& Actor : Prepared)
+					if (Actor && !Level.ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
+				return {};
+			};
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
 				std::unordered_map<DObject*, DObject*> Duplicates;
 				std::vector<std::string> Labels;
+				std::vector<std::vector<TStrongObjectPtr<DObject>>> PendingPostLoad;
 				for (AActor* Source : Actors)
 				{
 					std::unordered_map<DObject*, DObject*> Graph;
-					auto Copy = DuplicateObject(Source, &Level, Level.MakeUniqueActorName(Source->GetFName()), &Graph);
-					if (!Copy) { for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
+					if (!IsValid(Source)) return DiscardUnpublished();
+					auto* SourceParent = Source->GetAttachParentActor();
+					const FName ParentName = SourceParent ? SourceParent->GetFName() : NAME_None;
+					auto Result = StaticDuplicateObjectEx({.SourceObject = Source, .DestOuter = &Level,
+						.DestName = Level.MakeUniqueActorName(Source->GetFName()), .bSkipPostLoad = true, .CreatedObjects = &Graph});
+					if (!Result) continue;
+					auto* Copy = static_cast<AActor*>(*Result);
+					GatherDuplicatePostLoad(Source, Graph, PendingPostLoad.emplace_back());
 					Labels.push_back(Level.MakeUniqueActorLabel(Source->GetActorLabel(), nullptr, Labels));
-					(*Copy)->SetInitialActorLabel(Labels.back());
-					Copies.push_back(*Copy);
-					Raw.push_back(*Copy);
+					Copy->SetInitialActorLabel(Labels.back());
+					Prepared.emplace_back(Copy);
+					if (!ParentName.IsNone()) ParentNames.emplace(Copy, ParentName);
+					CopiesBySourceName.emplace(Source->GetFName(), Copy);
 					Duplicates.insert(Graph.begin(), Graph.end());
-					// Duplication remaps the complete owned graph and runs PostLoad before publication.
 				}
-				const std::unordered_set<AActor*> CopiedOwners(Raw.begin(), Raw.end());
+
+				if (Prepared.empty()) return {};
+
 				// Reconnect references between selected graphs as well as within each Outer tree.
 				for (const auto& [Source, Copy] : Duplicates)
 				{
 					if (!IsValid(Copy)) continue;
-					if (const auto Result = CopyEditableObjectProperties(Source, Copy, Duplicates); !Result)
-					{ for (const auto& Actor : Copies) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
+					if (const auto Result = CopyEditableObjectProperties(Copy, Copy, Duplicates); !Result)
+						return DiscardUnpublished();
 					if (auto* Scene = Cast<DSceneComponent>(Copy))
 					{
-						auto* Parent = static_cast<DSceneComponent*>(Source)->GetAttachParent();
-						if (auto It = Duplicates.find(Parent); It != Duplicates.end()) Parent = static_cast<DSceneComponent*>(It->second);
-						if (Parent && !CopiedOwners.contains(Parent->GetOwner()))
+						auto* SourceScene = static_cast<DSceneComponent*>(Source);
+						auto* Parent = SourceScene->GetAttachParent();
+						if (Parent && Parent->GetOwner() != SourceScene->GetOwner())
 						{
-							const auto Relative = Scene->GetRelativeTransform();
-							PreparedAttachments.push_back({Scene, Parent, Relative});
-							if (Scene->GetAttachParent()) Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
-							Scene->SetWorldTransform(FTransform::Combine(Parent->GetWorldTransform(), Relative));
+							if (Scene->GetAttachParent()) Scene->DetachFromComponent(EDetachmentTransformRule::KeepWorld);
+							Scene->SetWorldTransform(SourceScene->GetWorldTransform());
 						}
-						else if (Parent) verify(Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative));
+						else if (auto It = Duplicates.find(Parent); It != Duplicates.end())
+							verify(Scene->AttachToComponent(static_cast<DSceneComponent*>(It->second), EAttachmentTransformRule::KeepRelative));
 						else { if (Scene->GetAttachParent()) Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative); Scene->UpdateComponentToWorld(); }
 					}
 				}
-				// Rebuild derived data after editable cross-graph references are remapped.
-				for (AActor* Actor : Raw)
-					for (const auto& Component : Actor->GetComponentsSnapshot())
-						if (IsValid(Component.Get()) && Component->GetCreationMethod() != EComponentCreationMethod::Generated) Component->PostLoad();
-				// External parent child lists are changed only by successful replay.
-				for (AActor* Actor : Raw)
+				for (const auto& Graph : PendingPostLoad)
 				{
-					for (const auto& Component : Actor->GetComponents())
-						if (auto* Scene = Cast<DSceneComponent>(Component.Get()); Scene && Scene->GetAttachParent() && !CopiedOwners.contains(Scene->GetAttachParent()->GetOwner()))
-							Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
+					const FObjectPtr Root(Graph.front().Get());
+					for (const auto& Object : Graph | std::views::reverse)
+					{
+						if (!Root.IsValid()) break;
+						if (IsValid(Object.Get())) Object->PostLoad();
+					}
+					if (!Root.IsValid()) MarkObjectHierarchyAsGarbage(Root.Get());
 				}
 			}
+			std::erase_if(Prepared, [](const auto& Actor) { return !IsValid(Actor.Get()); });
+			if (Prepared.empty()) return {};
 			if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
-			{ for (const auto& Actor : Copies) if (IsValid(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
-			if (!EditActorMembership(Level, Raw, false, *Transactions, "Duplicate actors", std::move(PreparedAttachments)))
+				return DiscardUnpublished();
+			FScopedTransaction Scope("Actor", "Duplicate actors", &Level);
+			if (!Scope.IsOutstanding()) return DiscardUnpublished();
+			Level.SetFlags(EObjectFlags::Transactional);
+			Level.Modify(false);
+			std::vector<TObjectPtr<AActor>> Published;
+			for (AActor* Actor : Prepared)
 			{
-				for (const auto& Actor : Copies)
-					if (IsValid(Actor.Get()) && !Level.ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
-				return {};
+				if (Transactions->IsActive() && CanEditActorLevel(&Level) && Level.AddActor(Actor))
+					Published.emplace_back(Actor);
+				else if (IsValid(Actor) && !Level.ContainsActor(Actor))
+					MarkObjectHierarchyAsGarbage(Actor);
 			}
-			return Copies;
+
+			for (AActor* Child : Published)
+			{
+				if (!Transactions->IsActive() || !CanEditActorLevel(&Level)) break;
+				auto Link = ParentNames.find(Child);
+				if (Link == ParentNames.end() || !CanEditActorOwner(Child)) continue;
+				TObjectPtr<DSceneComponent> Root = Child->GetRootComponent();
+				if (!Root.IsValid()) continue;
+				Root->SetFlags(EObjectFlags::Transactional);
+				Root->Modify(false);
+				if (!Transactions->IsActive() || !CanEditActorLevel(&Level)) break;
+				if (!CanEditActorOwner(Child) || !Root.IsValid() || Child->GetRootComponent() != Root.Get()) continue;
+				const auto It = CopiesBySourceName.find(Link->second);
+				auto* ParentActor = It != CopiesBySourceName.end() ? It->second.Get() : nullptr;
+				if (!IsValid(ParentActor) || !Level.ContainsActor(ParentActor))
+					ParentActor = Level.FindActorByName(Link->second);
+				if (!CanEditActorOwner(ParentActor)) continue;
+				auto* Parent = ParentActor->GetRootComponent();
+				if (IsValid(Parent)) Root->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld);
+			}
+			std::erase_if(Published, [&](const auto& Actor) { return !Actor.IsValid() || !Level.ContainsActor(Actor.Get()); });
+			return Published;
 
 		});
 	}

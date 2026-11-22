@@ -4,6 +4,7 @@
 #include "Asset/LoadErrors.h"
 #include "Logging/LogMacros.h"
 #include "Engine/Level.h"
+#include "Misc/ITransaction.h"
 
 #include "Actors/CameraActor.h"
 #include "AssetRegistry/Catalog.h"
@@ -139,16 +140,9 @@ namespace Durin
 			MarkObjectHierarchyAsGarbage(Actor);
 			return nullptr;
 		}
-#if DURIN_WITH_EDITOR
-		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
-#endif
-		OnActorAdded(Actor);
-		if (bDispatchBeginPlay && OwningWorld && OwningWorld->HasBegunPlay()) Actor->DispatchBeginPlay();
-		if (!PrimaryCameraActor)
-		{
-			if (auto* Camera = Cast<ACameraActor>(Actor)) PrimaryCameraActor = Camera;
-		}
-		MarkPackageDirty();
+		FinishActorPublication(Actor);
+		if (bDispatchBeginPlay && OwningWorld && OwningWorld->HasBegunPlay() && ContainsActor(Actor))
+			Actor->DispatchBeginPlay();
 		return Actor;
 	}
 
@@ -227,31 +221,42 @@ namespace Durin
 		Super::PostEditUndo();
 	}
 
-	auto DLevel::SetActorPresence(AActor* Actor, bool bPresent, size_t ActorIndex, bool bRegisterComponents) -> bool
+	auto DLevel::CanEditActorMembership(const AActor* Actor) const -> bool
 	{
-		if (!IsValid(Actor) || Actor->IsTemplateObject() || Actor->GetOuter() != this || Actor->IsBeingDestroyed()
-			|| Actor->HasBegunPlay() || (OwningWorld && (OwningWorld->HasBegunPlay() || OwningWorld->IsEndingPlay()))
-			|| ContainsActor(Actor) == bPresent) return false;
-		if (bPresent)
+		return IsValid(Actor) && !Actor->IsTemplateObject() && Actor->GetOuter() == this
+			&& !Actor->IsBeingDestroyed() && !Actor->HasBegunPlay()
+			&& (!OwningWorld || (!OwningWorld->IsShutdownRequested() && OwningWorld->GetPlayState() == EWorldPlayState::Stopped));
+	}
+
+	auto DLevel::AddActor(AActor* Actor) -> bool
+	{
+		if (!CanEditActorMembership(Actor) || ContainsActor(Actor) || !IsActorNameAvailable(Actor->GetFName(), Actor)) return false;
+		Actors.emplace_back(Actor);
+		if (GUndo)
 		{
-			if (!IsActorNameAvailable(Actor->GetFName(), Actor)) return false;
-			if (!ContainsActor(Actor)) Actors.insert(Actors.begin() + std::min(ActorIndex, Actors.size()), Actor);
-			if (OwningWorld) Actor->RegisterTickFunction(this);
-			if (bRegisterComponents) OnActorAdded(Actor);
-			if (!PrimaryCameraActor) PrimaryCameraActor = Cast<ACameraActor>(Actor);
+			// Capture the absent side only for an admitted Actor, before publication callbacks.
+			const bool bTransient = Actor->HasAnyObjectFlags(EObjectFlags::Transient);
+			Actor->SetTransient(true);
+			Actor->SetFlags(EObjectFlags::Transactional);
+			Actor->DObject::Modify(false);
+			if (IsValid(Actor)) Actor->SetTransient(bTransient);
 		}
-		else
+		FinishActorPublication(Actor);
+		return true;
+	}
+
+	auto DLevel::RemoveActor(AActor* Actor) -> bool
+	{
+		if (!CanEditActorMembership(Actor) || !ContainsActor(Actor)) return false;
+		Actor->UnregisterTickFunction();
+		for (const auto& Component : Actor->GetComponentsSnapshot())
+			if (Component) Component->UnregisterComponent();
+		std::erase_if(Actors, [Actor](const auto& Entry) { return Entry.Get() == Actor; });
+		if (PrimaryCameraActor.Get() == Actor)
 		{
-			Actor->UnregisterTickFunction();
-			for (const auto& Component : Actor->GetComponentsSnapshot())
-				if (Component) Component->UnregisterComponent();
-			std::erase_if(Actors, [Actor](const auto& Entry) { return Entry.Get() == Actor; });
-			if (PrimaryCameraActor.Get() == Actor)
-			{
-				PrimaryCameraActor = nullptr;
-				for (const auto& Remaining : Actors)
-					if (auto* Camera = Cast<ACameraActor>(Remaining.Get())) { PrimaryCameraActor = Camera; break; }
-			}
+			PrimaryCameraActor = nullptr;
+			for (const auto& Remaining : Actors)
+				if (auto* Camera = Cast<ACameraActor>(Remaining.Get())) { PrimaryCameraActor = Camera; break; }
 		}
 #if DURIN_WITH_EDITOR
 		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
@@ -350,13 +355,25 @@ namespace Durin
 		return Label;
 	}
 
-	auto DLevel::OnActorAdded(AActor* Actor) -> void
+	auto DLevel::FinishActorPublication(AActor* Actor) -> void
 	{
-		if (!Actor || !OwningWorld) return;
+		if (!IsValid(Actor) || !ContainsActor(Actor)) return;
+		if (!PrimaryCameraActor) PrimaryCameraActor = Cast<ACameraActor>(Actor);
+#if DURIN_WITH_EDITOR
+		FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
+#endif
+		ActivateActor(Actor);
+		MarkPackageDirty();
+	}
+
+	auto DLevel::ActivateActor(AActor* Actor) -> void
+	{
+		if (!IsValid(Actor) || !OwningWorld || !ContainsActor(Actor)) return;
 		Actor->RegisterTickFunction(this);
 		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetComponentsSnapshot();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
+			if (!IsValid(Actor) || !OwningWorld || OwningWorld->IsShutdownRequested() || !ContainsActor(Actor)) return;
 			if (Component
 				&& !Component->IsPendingKill()
 				&& Component->GetOwner() == Actor

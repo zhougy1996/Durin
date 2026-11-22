@@ -49,10 +49,9 @@ namespace Durin
 		}
 
 		ENGINE_API auto DestroyActor(AActor* Actor) -> bool;
-		// Reversible editor membership; leaves object/component identity and terminal
-		// destruction callbacks intact. Callers restore attachments before registration.
-		ENGINE_API auto SetActorPresence(AActor* Actor, bool bPresent,
-			size_t ActorIndex = std::numeric_limits<size_t>::max(), bool bRegisterComponents = true) -> bool;
+		// The caller snapshots Level membership. True means admitted, even if a callback removes it.
+		ENGINE_API auto AddActor(AActor* Actor) -> bool;
+		ENGINE_API auto RemoveActor(AActor* Actor) -> bool;
 		ENGINE_API auto DestroyAllActors() -> void;
 		ENGINE_API auto ContainsActor(const AActor* Actor) const -> bool;
 		ENGINE_API auto FindActorByName(FName Name) const -> AActor*;
@@ -75,7 +74,9 @@ namespace Durin
 	private:
 		auto SpawnActorInternal(DClass* ActorClass, FName InName, bool bDispatchBeginPlay, ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> AActor*;
 		auto SpawnActorDeferredPlay(DClass* ActorClass, FName InName) -> AActor*;
-		auto OnActorAdded(AActor* Actor) -> void;
+		auto FinishActorPublication(AActor* Actor) -> void;
+		auto ActivateActor(AActor* Actor) -> void;
+		auto CanEditActorMembership(const AActor* Actor) const -> bool;
 		auto SetOwningWorld(DWorld* World) -> void { OwningWorld = World; }
 
 		DPROPERTY()

@@ -1,7 +1,6 @@
 #include "Transactions/Transactor.h"
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
-#include "Actors/ActorEditingValidation.h"
 
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
@@ -179,24 +178,10 @@ namespace Durin
 
 	// Only a field explicitly requiring an exact starting state opts into this check.
 	// The ordered tags already contain the identities of referenced objects.
-	auto FTransaction::FWholeObjectData::ValidateSource(bool bUndo, bool bPublishingActor) const -> FTransactionCaptureResult
+	auto FTransaction::FWholeObjectData::ValidateSource(bool bUndo) const -> FTransactionCaptureResult
 	{
 		const auto& Source = (bUndo ? AfterState : BeforeState)->Observation;
 		auto* Object = Target.Get();
-		const auto& Destination = (bUndo ? BeforeState : AfterState)->Observation;
-		auto* Actor = Cast<AActor>(Object);
-		auto* Level = Cast<DLevel>(Actor ? Actor->GetOuter() : Object);
-
-		// Ordinary metadata can replay on an unpublished object. Publishing an Actor
-		// or changing its instance list also requires a stopped, editable world.
-		if (Level && (!CanEditActorLevel(Level) || (Actor && !Level->ContainsActor(Actor) && !bPublishingActor)))
-		{
-			const FName Membership(Actor ? "InstanceComponents" : "Actors");
-			auto Diff = DiffUtil::GenerateObjectDiff(Source, Destination, {.bFullDiff = false,
-				.ShouldSkipProperty = [&](FName Name) { return Name != Membership; }});
-			if (!Diff) return std::unexpected(Diff.error());
-			if (!Diff->ChangedProperties.empty()) return std::unexpected("The level or component owner is unavailable for membership replay.");
-		}
 		auto RequiresMatch = [&](FName Name) {
 			const auto* Field = Object->GetClass()->FindPropertyByName(Name);
 			return Field && Field->GetMetaData("ValidateTransactionSource") == "true";

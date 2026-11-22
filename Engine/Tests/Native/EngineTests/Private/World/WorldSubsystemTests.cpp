@@ -1855,13 +1855,21 @@ TEST_F(FWorldSubsystemTests, StructuralActorEditingRejectsWorldShutdownRequestBe
 	auto* Actor = Level->SpawnActor<ACameraActor>("ClosingOwner");
 	auto* Service = Host->GetEditorSubsystem<DEditorActorSubsystem>();
 	ASSERT_NE(Service, nullptr);
-	ASSERT_NE(Service->AddComponent(*Actor, DSceneComponent::StaticClass(), nullptr, {false}), nullptr);
+	ASSERT_TRUE(Service->SetActorLabel(*Level, Actor, "First", {false}));
+	ASSERT_TRUE(Service->SetActorLabel(*Level, Actor, "Second", {false}));
+	ASSERT_TRUE(Host->GetTransactor()->Undo());
+	const auto RedoId = Host->GetTransactor()->GetRedoContext().TransactionId;
 	const auto UndoId = Host->GetTransactor()->GetUndoContext().TransactionId;
 	World->BeginTearingDown();
 	EXPECT_EQ(World->GetCurrentLevel(), Level);
 	EXPECT_TRUE(World->IsShutdownRequested());
 	EXPECT_FALSE(Service->SpawnActor(*Level, AActor::StaticClass(), "Closing", {}, {false}));
+	EXPECT_FALSE(Host->GetTransactor()->CanUndo());
+	EXPECT_FALSE(Host->GetTransactor()->CanRedo());
 	EXPECT_FALSE(Host->GetTransactor()->Undo());
+	EXPECT_FALSE(Host->GetTransactor()->RedoExpected(RedoId));
+	EXPECT_EQ(Actor->GetActorLabel(), "First");
+	EXPECT_EQ(Host->GetTransactor()->GetRedoContext().TransactionId, RedoId);
 	EXPECT_EQ(Host->GetTransactor()->GetUndoContext().TransactionId, UndoId);
 	Host->PreExit();
 }

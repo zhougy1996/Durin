@@ -330,9 +330,21 @@ route through the Actor subsystem. No alternate history is introduced for these
 consumers.
 
 Actor creation, deletion and duplication capture the Level, each edited Actor and
-the scene components whose attachment crosses the selection boundary. The Level
-snapshot owns Actor order and the primary camera. During completion, the Level
-preserves independently published Actors. Replay determines which Actors will be published from the destination Actors array. Name, World and attachment-cycle checks precede writes. Actor annotations restore tick and
+the scene components whose attachments cross the selection boundary. Prepared
+Actors append to the Level and register before the batch restores cross-Actor
+attachments. Candidates retired during preparation acquire no history record.
+Duplication records admitted Actors and the final attachments between Actor roots
+in the same transaction and returns the surviving copies in selection order. Runtime spawn and editor placement
+share publication completion, including component activation and notification. Removal checks the recording before each boundary
+detach. If a callback cancels it, subsequent links and Level members stay in place.
+
+The Level snapshot owns Actor order and the primary camera. Level completion
+preserves independently published Actors. The editor host admits history replay
+only outside play and while its editor World is stopped and open. Its buffer
+applies that rule to queries, Undo and Redo, including direct callers. Standalone
+buffers have no host World. Object renames and Outer changes reject occupied
+sibling names. Replay still validates historical identity changes and the combined
+destination attachment graph before writing. Actor annotations restore tick and
 component registration. Viewport placement uses the same subsystem. Spawn
 configuration runs once before publication and Redo restores the recorded object.
 Presence captures the Actor through the base object implementation of Modify. Its

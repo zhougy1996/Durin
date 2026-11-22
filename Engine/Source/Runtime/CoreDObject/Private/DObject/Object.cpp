@@ -195,10 +195,19 @@ namespace Durin
 			Private::NotifyAssetPackageChanged();
 	}
 
+	static auto IsSiblingNameAvailable(const DObject& Object, const DObject* Outer, FName Name) -> bool
+	{
+		const auto Siblings = GDObjectArray.GetObjectsWithOuter(Outer,
+			Outer ? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::IncludeTemplates);
+		return std::ranges::none_of(Siblings, [&](const DObject* Sibling) {
+			return Sibling != &Object && Sibling->GetFName() == Name;
+		});
+	}
+
 	auto DObject::Rename(FName InName) -> void
 	{
 		if (IsTemplateObject()) return;
-		if (NamePrivate.ToString() == InName.ToString()) return;
+		if (NamePrivate.ToString() == InName.ToString() || !IsSiblingNameAvailable(*this, GetOuter(), InName)) return;
 		if (auto* Package = Cast<DPackage>(GetOuter()); Package && Package->IsAssetPackage()
 			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
 		NamePrivate = InName;
@@ -213,7 +222,7 @@ namespace Durin
 		for (auto* Outer = NewOuter; Outer; Outer = Outer->GetOuter()) if (Outer == this) return false;
 		auto* Package = Cast<DPackage>(NewOuter);
 		if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
-			|| !Package->CanUseTopLevelAssetName(InName, this)) return false;
+			|| !IsSiblingNameAvailable(*this, NewOuter, InName) || !Package->CanUseTopLevelAssetName(InName, this)) return false;
 		auto* OldPackage = GetPackage();
 		if (auto* Previous = Cast<DPackage>(OuterPrivate)) Previous->UnregisterTopLevelAsset(this);
 		NamePrivate = InName;
@@ -307,6 +316,19 @@ namespace Durin
 
 		if (GDObjectArray.Contains(this))
 		{
+			if (!IsGarbage() && !IsSiblingNameAvailable(*this, NewOuter, GetFName()))
+			{
+				// A reachable child must leave its destroyed Outer even when a root
+				// already uses its name. Ordinary reparent requests keep their name.
+				if (NewOuter || !OuterPrivate || !OuterPrivate->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)) return;
+				const std::string Base = GetName();
+				size_t Suffix = FObjectKey(this).GetHash();
+				FName Available;
+				do { Available = FName(std::format("{}_{}", Base, Suffix++)); }
+				while (!IsSiblingNameAvailable(*this, nullptr, Available));
+				NamePrivate = Available;
+				Durin::Private::InvalidateSoftObjectCaches();
+			}
 			auto* OldPackage = Cast<DPackage>(OuterPrivate);
 			auto* NewPackage = Cast<DPackage>(NewOuter);
 			const bool bPersistentTopLevel = !IsTemplateObject()
