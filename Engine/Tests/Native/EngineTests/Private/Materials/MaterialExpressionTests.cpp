@@ -406,19 +406,21 @@ TEST(FMaterialExpressionTests, MaterialCanReplaceItsOwnExpressionsAndClearOwnedC
 	const std::array<DMaterialExpression*, 1> Initial{Source.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Initial, Outputs));
 	TStrongObjectPtr<DMaterialExpression> Previous(Material->GetExpressionCollection().Expressions[0].Get());
+	const FGuid PreviousId = Previous->Id;
 	const std::array<DMaterialExpression*, 1> Existing{Previous.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Existing, Material->GetExpressionOutputs()));
 	TStrongObjectPtr<DMaterialExpression> Current(Material->GetExpressionCollection().Expressions[0].Get());
-	EXPECT_NE(Current.Get(), Previous.Get());
-	EXPECT_EQ(Current->Id, Previous->Id);
+	ASSERT_TRUE(Current.IsValid());
+	EXPECT_FALSE(Previous.IsValid());
+	EXPECT_NE(Current.GetKey(), Previous.GetKey());
+	EXPECT_EQ(Current->Id, PreviousId);
 	EXPECT_EQ(Current->GetOuter(), Material.Get());
-	EXPECT_NE(Previous->GetOuter(), Material.Get());
 	EXPECT_EQ(Cast<DMaterialExpressionScalarConstant>(Current.Get())->Value, .75f);
 	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}));
 	ASSERT_TRUE(Material->SetMaterialExpressions({}, {}));
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions.size(), 1u);
-	EXPECT_NE(Current->GetOuter(), Material.Get());
-	EXPECT_EQ(GDObjectArray.GetObjectsWithOuter(Material.Get(), EObjectQueryScope::LiveOnly).size(), 1u);
+	EXPECT_FALSE(Current.IsValid());
+	EXPECT_EQ(GDObjectArray.GetObjectsWithOuter(Material.Get(), EObjectQueryScope::IncludeUnpublished, true).size(), 1u);
 	ASSERT_TRUE(Material->ValidateLoadedObjectGraph({}));
 }
 
@@ -448,7 +450,11 @@ TEST(FMaterialExpressionTests, FunctionPersistsOnlyOwnedExpressionsAndAppliesInd
 	const std::array<DMaterialExpression*, 2> Expressions{Constant, Output};
 	ASSERT_TRUE(Function->SetFunctionExpressions(Durin::Testing::WithFunctionPorts(Signature, Expressions)));
 	EXPECT_EQ(DMaterialFunction::StaticClass()->FindPropertyByName("Graph"), nullptr);
-	for (const auto& PreviousExpression : Previous) EXPECT_NE(PreviousExpression->GetOuter(), Function);
+	for (const auto& PreviousExpression : Previous)
+	{
+		EXPECT_TRUE(PreviousExpression->IsGarbage());
+		EXPECT_NE(PreviousExpression->GetPackage(), Function->GetPackage());
+	}
 	ASSERT_EQ(GDObjectArray.GetObjectsWithOuter(Function, EObjectQueryScope::LiveOnly).size(), 2u);
 	Constant->Value.x = .9;
 	const auto* Owned = Cast<DMaterialExpressionVector2Constant>(Function->GetExpressionCollection().Expressions[0].Get());

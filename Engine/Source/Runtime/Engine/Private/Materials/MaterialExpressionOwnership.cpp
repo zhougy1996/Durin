@@ -208,7 +208,14 @@ namespace Durin::Private
 			});
 			if (!Valid) return {.Diagnostics = {{.Message = "Connection refers to an expression outside the candidate graph."}}};
 		}
-		for (auto& Expression : Collection.Expressions) if (Expression) Expression->MarkAsGarbage();
+		// Retire the old identities for history and remove them from the package
+		// hierarchy before a prepared graph can be published.
+		for (auto& Expression : Collection.Expressions)
+			if (Expression)
+			{
+				Expression->MarkAsGarbage();
+				Expression->SetOuterPrivate(nullptr);
+			}
 		for (auto& Expression : Copies.Expressions) Expression->SetOuterPrivate(&Owner);
 		Collection = std::move(Copies);
 		return {.bSucceeded = true};

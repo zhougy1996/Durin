@@ -393,7 +393,9 @@ namespace Durin
 		case EObjectReplacementMapReason::None: return {};
 		case EObjectReplacementMapReason::PackageBudget: return "Replacement package count is empty or exceeds its budget.";
 		case EObjectReplacementMapReason::InvalidPackagePair: return "Expected unique live/prepared package pairs at the same path.";
-		case EObjectReplacementMapReason::InvalidObject: return "Graph contains a dead/template object.";
+		case EObjectReplacementMapReason::InvalidObject:
+			return Error.ObjectPath.empty() ? "Graph contains a dead/template object."
+				: std::format("Graph contains a dead/template object at '{}'.", Error.ObjectPath);
 		case EObjectReplacementMapReason::DuplicateIdentity: return "Graph contains duplicate relative Outer paths.";
 		case EObjectReplacementMapReason::ObjectBudget: return "Replacement graph object budget exceeded.";
 		case EObjectReplacementMapReason::IncompatibleType: return "Replacement type is not assignable to the previous type.";
