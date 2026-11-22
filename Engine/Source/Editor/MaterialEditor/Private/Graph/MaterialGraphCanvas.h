@@ -12,6 +12,7 @@ namespace Durin
 {
 	class DTransactor;
 	class DMaterialFunction;
+	class DMaterialExpressionParameter;
 }
 
 namespace Durin::MaterialEditor
@@ -40,6 +41,11 @@ namespace Durin::MaterialEditor
 		auto DrawSelectionDetails(DTransactor& Transactions) -> void;
 		auto DrawParameterValue(const FMaterialParameterDefinition& Parameter,
 			DTransactor& Transactions) -> void;
+		enum class EParameterTextField { Name, DisplayName, Group, Binding };
+		auto DrawParameterText(const char* Label, EParameterTextField Field, const FGuid& TargetId,
+			std::string_view Value) -> void;
+		auto ReplaceParameterDefinition(const DMaterialExpressionParameter& Expression,
+			const FMaterialParameterDefinition& Definition) -> FMaterialGraphCommandResult;
 		auto EndParameterFrame() -> void;
 		auto EndNodeLiteralFrame() -> void;
 		auto GetRootInputDraft() const -> const std::optional<std::pair<EMaterialProperty, FMaterialInputDefault>>&
@@ -74,6 +80,7 @@ namespace Durin::MaterialEditor
 			const MonaImGui::PropertyEdit::FPropertyInteractionState& State, std::optional<FMaterialParameterValue> Value) -> void;
 		auto FinishParameterEdit(bool bCancel) -> bool;
 		auto FinishParameterSession(bool bCancel) -> bool;
+		auto EndParameterTextFrame() -> void;
 		auto EndRootInputFrame() -> void;
 		auto FinishRootInputEdit(bool bCancel) -> bool;
 		auto DrawRootInputValue(const FMaterialGraphPinView& Pin, uint64 Revision,
@@ -233,6 +240,15 @@ namespace Durin::MaterialEditor
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterSession;
+		struct FParameterTextDraft
+		{
+			EParameterTextField Field;
+			FGuid TargetId;
+			std::string Original;
+			std::string Text;
+			int ActiveFrame = -1;
+		};
+		std::optional<FParameterTextDraft> ParameterTextDraft;
 		struct FNodeLiteralDraft
 		{
 			FGuid NodeId;

@@ -334,6 +334,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::CancelInteraction() -> bool
 	{
+		ParameterTextDraft.reset();
 		NodeLiteralDraft.reset();
 		RootInputFrame.Finish(true, [this](bool bCancel) { return FinishRootInputEdit(bCancel); });
 		if (!FinishParameterEdit(true)) return false;

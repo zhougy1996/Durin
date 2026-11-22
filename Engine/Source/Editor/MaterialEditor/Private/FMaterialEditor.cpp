@@ -626,13 +626,6 @@ namespace Durin::MaterialEditor
 			bSubmitted = true;
 			if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 		};
-		const auto EditText = [](const char* Label, std::string& Value) {
-			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
-			std::copy_n(Value.data(), std::min(Value.size(), Buffer.size() - 1), Buffer.data());
-			if (!DetailsStyle::EditRow(Label, [&] { return ImGui::InputText("##Value", Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
-			Value = Buffer.data();
-			return true;
-		};
 		const auto DrawEntry = [&](FMaterialParameterDefinition Parameter) {
 			std::vector<FGuid> NodeIds;
 			for (const auto& Expression : Base->GetExpressionCollection().Expressions)
@@ -653,32 +646,16 @@ namespace Durin::MaterialEditor
 					const auto& Expressions = Base->GetExpressionCollection().Expressions;
 					const auto It = std::ranges::find(Expressions, NodeIds.front(), [](const auto& E) { return E->Id; });
 					if (It == Expressions.end()) return;
-					// Copy the concrete owner so texture-sample inputs and node identity survive metadata edits.
-					TStrongObjectPtr<DMaterialExpressionParameter> Candidate(
-						Cast<DMaterialExpressionParameter>(DuplicateObject(It->Get(), nullptr, NAME_None).value()));
-					if (!Candidate)
-					{
-						SetError("The parameter definition is invalid.");
-						bSubmitted = true;
-						return;
-					}
-					if (const auto Applied = Candidate->SetParameterDefinition(Parameter); !Applied)
-					{
-						SetError(Applied.error());
-						bSubmitted = true;
-						return;
-					}
-					Submit(EditingSession->Graph->ReplaceExpression(*Candidate));
+					if (const auto* Expression = Cast<DMaterialExpressionParameter>(It->Get()))
+						Submit(Canvas.ReplaceParameterDefinition(*Expression, Parameter));
 				};
 				if (MonaImGui::PropertyEdit::BeginTable("ParameterMetadata", DetailsStyle::MakeTableConfig()))
 				{
-					std::string Name = Parameter.Name.ToString();
-					if (EditText("Name", Name))
-						Submit(MaterialEditing::RenameParameter(*Base, Parameter.Id, FName(Name)));
+					using EField = FMaterialGraphCanvas::EParameterTextField;
+					Canvas.DrawParameterText("Name", EField::Name, Parameter.Id, Parameter.Name.ToString());
 					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rename all references while preserving material instance overrides.");
-					if (!bSubmitted && EditText("Display name", Parameter.DisplayName)) Commit();
-					std::string Group = Parameter.GroupName.ToString();
-					if (!bSubmitted && EditText("Group", Group)) { Parameter.GroupName = FName(Group); Commit(); }
+					Canvas.DrawParameterText("Display name", EField::DisplayName, Parameter.Id, Parameter.DisplayName);
+					Canvas.DrawParameterText("Group", EField::Group, Parameter.Id, Parameter.GroupName.ToString());
 					int SortOrder = Parameter.SortOrder;
 					if (!bSubmitted && DetailsStyle::EditRow("Order", [&] {
 						return ImGui::InputInt("##Value", &SortOrder, 0, 0) && DetailsStyle::NumericInputFinished();

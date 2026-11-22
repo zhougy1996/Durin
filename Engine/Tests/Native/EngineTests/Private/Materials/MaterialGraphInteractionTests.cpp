@@ -1656,6 +1656,78 @@ TEST(FMaterialGraphInteractionTests, ConstantInputCommitsWhenFocusLeavesAndCance
 	ImGui::DestroyContext(Context);
 }
 
+TEST(FMaterialGraphInteractionTests, ParameterTextCommitsOnFocusLossOrEnterAndCancelsOnEscape)
+{
+	InitializeDObjectSystem();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, NAME_None));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialParameterDefinition First{.Id = FGuid::NewGuid(), .Name = "FirstTextParameter",
+		.Type = EMaterialParameterType::Scalar, .Value = FMaterialParameterValue::MakeScalar(1.0f)};
+	auto Second = First;
+	Second.Id = FGuid::NewGuid();
+	Second.Name = "SecondTextParameter";
+	const auto Created = MaterialEditing::CreateParameter(*Material, First, Durin::ETransactionMode::NotTransactable);
+	ASSERT_TRUE(Created);
+	ASSERT_TRUE(MaterialEditing::CreateParameter(*Material, Second, Durin::ETransactionMode::NotTransactable));
+	const auto NodeId = (*Created)->Id;
+	Durin::Tests::FTestEditorTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas{*DMaterialGraph::Create(*Material), {.ReportError = [](std::string Error) { ADD_FAILURE() << Error; }}};
+	const std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> Context(ImGui::CreateContext(), ImGui::DestroyContext);
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {800, 480}; IO.DeltaTime = 1.f / 60; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	using EField = FMaterialGraphCanvas::EParameterTextField;
+	EField Field = EField::Name;
+	std::string Original = First.Name.ToString();
+	const auto Frame = [&](bool bClick = false, bool bDrawField = true, bool bFocus = false) {
+		IO.AddMousePosEvent(550.0f, 180.0f);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, bClick);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({600, 300});
+		ImGui::Begin("Parameter text", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		if (bDrawField && MonaImGui::PropertyEdit::BeginTable("Metadata", DetailsStyle::MakeTableConfig()))
+		{
+			if (bFocus) ImGui::SetKeyboardFocusHere();
+			ImGui::PushID(static_cast<int>(Field));
+			Canvas.DrawParameterText("Parameter", Field, Field == EField::Binding ? NodeId : First.Id, Original);
+			ImGui::PopID();
+			MonaImGui::PropertyEdit::EndTable();
+		}
+		Canvas.EndParameterFrame();
+		ImGui::End(); ImGui::Render();
+	};
+	const auto TypeText = [&](EField NewField, std::string Value, const char* Text) {
+		Field = NewField;
+		Original = std::move(Value);
+		Frame(); Frame(false, true, true); Frame();
+		EXPECT_NE(ImGui::GetActiveID(), 0u);
+		IO.AddInputCharactersUTF8(Text); Frame();
+	};
+	const auto PressKey = [&](ImGuiKey Key) {
+		IO.AddKeyEvent(Key, true); Frame();
+		IO.AddKeyEvent(Key, false); Frame();
+	};
+	TypeText(EField::Name, First.Name.ToString(), "RenamedTextParameter");
+	EXPECT_EQ(Material->FindParameterDefinition(First.Id)->Name, First.Name);
+	Frame(true); Frame();
+	EXPECT_EQ(Material->FindParameterDefinition(First.Id)->Name, FName("RenamedTextParameter"));
+	TypeText(EField::DisplayName, "RenamedTextParameter", "Display name");
+	PressKey(ImGuiKey_Enter);
+	EXPECT_EQ(Material->FindParameterDefinition(First.Id)->DisplayName, "Display name");
+	TypeText(EField::DisplayName, "Display name", "Canceled display name");
+	PressKey(ImGuiKey_Escape);
+	EXPECT_EQ(Material->FindParameterDefinition(First.Id)->DisplayName, "Display name");
+	TypeText(EField::Group, First.GroupName.ToString(), "New group");
+	Frame(true); Frame();
+	EXPECT_EQ(Material->FindParameterDefinition(First.Id)->GroupName, FName("New group"));
+	TypeText(EField::Binding, "RenamedTextParameter", "SecondTextParameter");
+	Frame(true, false);
+	EXPECT_EQ(FindExpression<DMaterialExpressionParameter>(*Material, NodeId)->Metadata.Id, Second.Id);
+	EXPECT_EQ(Transactions->GetQueueLength(), 4u);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(FindExpression<DMaterialExpressionParameter>(*Material, NodeId)->Metadata.Id, First.Id);
+}
+
 TEST(FMaterialGraphInteractionTests, NumericNodeDisplayTracksValuesAndUndo)
 {
 	InitializeDObjectSystem();

@@ -13,7 +13,7 @@
 #include "Materials/MaterialFunction.h"
 #include "Widgets/MaterialDetailsStyle.h"
 #include "Graph/MaterialEditingOperations.h"
-#include "MaterialExpressionParameters.h"
+#include "MaterialGraphEditInternals.h"
 #include "Materials/MaterialExpressionInputs.h"
 #include "MaterialGraphValueTypes.h"
 #include "Asset/AssetPicker.h"
@@ -95,6 +95,7 @@ namespace Durin::MaterialEditor
 
 	auto FMaterialGraphCanvas::EndParameterFrame() -> void
 	{
+		EndParameterTextFrame();
 		EndNodeLiteralFrame();
 		EndRootInputFrame();
 		ParameterFrame.EndFrame(ImGui::IsKeyPressed(ImGuiKey_Escape, false),
@@ -118,6 +119,83 @@ namespace Durin::MaterialEditor
 				return static_cast<bool>(Result);
 			},
 			[this](bool bCancel) { return FinishParameterSession(bCancel); });
+	}
+
+	auto FMaterialGraphCanvas::DrawParameterText(const char* Label, EParameterTextField Field, const FGuid& TargetId,
+		std::string_view Value) -> void
+	{
+		std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
+		std::copy_n(Value.data(), std::min(Value.size(), Buffer.size() - 1), Buffer.data());
+		bool bActive = false;
+		const bool bEdited = DetailsStyle::EditRow(Label, [&] {
+			const bool bChanged = ImGui::InputText("##Value", Buffer.data(), Buffer.size());
+			bActive = ImGui::IsItemActive();
+			return bChanged;
+		});
+		const bool bSameTarget = ParameterTextDraft && ParameterTextDraft->TargetId == TargetId
+			&& ParameterTextDraft->Field == Field;
+		if (!bEdited)
+		{
+			if (bSameTarget) ParameterTextDraft.reset();
+			return;
+		}
+		if (!bSameTarget) ParameterTextDraft = FParameterTextDraft{Field, TargetId, std::string(Value)};
+		ParameterTextDraft->Text = Buffer.data();
+		ParameterTextDraft->ActiveFrame = bActive ? ImGui::GetFrameCount() : -1;
+	}
+
+	auto FMaterialGraphCanvas::ReplaceParameterDefinition(const DMaterialExpressionParameter& Expression,
+		const FMaterialParameterDefinition& Definition) -> FMaterialGraphCommandResult
+	{
+		const auto Duplicated = DuplicateObject(&Expression, nullptr, NAME_None);
+		if (!Duplicated) return GraphEditInternals::RejectCommand(ToString(Duplicated.error()));
+		TStrongObjectPtr<DMaterialExpressionParameter> Candidate(Duplicated.value());
+		if (const auto Applied = Candidate->SetParameterDefinition(Definition); !Applied)
+			return GraphEditInternals::RejectCommand(Applied.error());
+		return EditorGraph->ReplaceExpression(*Candidate);
+	}
+
+	auto FMaterialGraphCanvas::EndParameterTextFrame() -> void
+	{
+		if (!ParameterTextDraft) return;
+		auto* Material = Cast<DMaterial>(EditorGraph->GetMaterialOrFunction());
+		if (!Material || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ParameterTextDraft.reset();
+			return;
+		}
+		// Keep the draft attached to its original parameter or node when the row disappears.
+		if (ParameterTextDraft->ActiveFrame == ImGui::GetFrameCount()) return;
+		const auto Draft = *std::exchange(ParameterTextDraft, std::nullopt);
+		const auto& Expressions = Material->GetExpressionCollection().Expressions;
+		const auto It = std::ranges::find_if(Expressions, [&](const auto& Entry) {
+			const auto* Parameter = Cast<DMaterialExpressionParameter>(Entry.Get());
+			return Parameter && (Draft.Field == EParameterTextField::Binding
+				? Parameter->Id : Parameter->Metadata.Id) == Draft.TargetId;
+		});
+		if (It == Expressions.end()) return;
+		const auto& Expression = *Cast<DMaterialExpressionParameter>(It->Get());
+		auto Definition = Expression.GetParameterDefinition();
+		switch (Draft.Field)
+		{
+		case EParameterTextField::Name:
+			if (Definition.Name.ToString() == Draft.Original)
+				CheckCommand(MaterialEditing::RenameParameter(*Material, Definition.Id, FName(Draft.Text)));
+			return;
+		case EParameterTextField::DisplayName:
+			if (Definition.DisplayName != Draft.Original) return;
+			Definition.DisplayName = Draft.Text;
+			break;
+		case EParameterTextField::Group:
+			if (Definition.GroupName.ToString() != Draft.Original) return;
+			Definition.GroupName = FName(Draft.Text);
+			break;
+		case EParameterTextField::Binding:
+			if (Definition.Name.ToString() != Draft.Original) return;
+			Definition.Name = FName(Draft.Text);
+			break;
+		}
+		CheckCommand(ReplaceParameterDefinition(Expression, Definition));
 	}
 
 	auto FMaterialGraphCanvas::EndRootInputFrame() -> void
@@ -306,33 +384,11 @@ namespace Durin::MaterialEditor
 			CheckCommand(Result);
 			Changed = Result.GetStatus() == EMaterialGraphCommandStatus::Succeeded;
 		};
-		const auto EditText = [](const char* Label, std::string& Value) {
-			std::array<char, MaterialProgramMaxDisplayNameBytes + 1> Buffer{};
-			std::copy_n(Value.data(), std::min(Value.size(), Buffer.size() - 1), Buffer.data());
-			if (!DetailsStyle::EditRow(Label, [&] { return ImGui::InputText("##Value", Buffer.data(), Buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue); })) return false;
-			Value = Buffer.data();
-			return true;
-		};
 		auto* Material = Cast<DMaterial>(&Owner);
 		if (const auto* ParameterExpression = Cast<DMaterialExpressionParameter>(Expression.Get()); Material && ParameterExpression)
 		{
 			auto Parameter = ParameterExpression->GetParameterDefinition();
-			const auto CommitParameter = [&]() {
-				auto Created = GraphEditInternals::MakeParameterExpression(Parameter);
-				if (!Created) { ReportError(Created.Message); return; }
-				auto Replacement = std::move(Created.Expression);
-				Replacement->Id = Expression->Id;
-				if (const auto* Sample = Cast<DMaterialExpressionTextureSampleParameter2D>(Expression.Get()); Sample && Parameter.Type == EMaterialParameterType::Texture)
-				{
-					TStrongObjectPtr<DMaterialExpressionTextureSampleParameter2D> Copy(DuplicateObject(Sample, nullptr, NAME_None).value());
-					if (!Copy) { ReportError("Unable to copy the parameter expression."); return; }
-					if (const auto Applied = Copy->SetParameterDefinition(Parameter); !Applied) { ReportError(Applied.error()); return; }
-					Submit(EditorGraph->ReplaceExpression(*Copy.Get()));
-				}
-				else Submit(EditorGraph->ReplaceExpression(*Replacement.Get()));
-			};
-			std::string Name = Parameter.Name.ToString();
-			if (!Changed && EditText("Parameter name", Name)) { Parameter.Name = FName(Name); CommitParameter(); }
+			DrawParameterText("Parameter name", EParameterTextField::Binding, Expression->Id, Parameter.Name.ToString());
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change this node's parameter binding. Existing names use the existing parameter's value.");
 			if (!Changed && Parameter.Type == EMaterialParameterType::Texture)
 			{
@@ -341,7 +397,7 @@ namespace Durin::MaterialEditor
 				if (DetailsStyle::EditRow("Texture usage", [&] { return ImGui::Combo("##Value", &Usage, Cube ? "Color\0Data / Mask\0" : "Color\0Normal\0Data / Mask\0"); }))
 				{
 					Parameter.TextureUsage = Cube ? (Usage == 1 ? ETextureUsage::DataMask : ETextureUsage::Color) : static_cast<ETextureUsage>(Usage);
-					CommitParameter();
+					Submit(ReplaceParameterDefinition(*ParameterExpression, Parameter));
 				}
 				MonaImGui::PropertyEdit::BeginRow("Texture");
 				const auto Interaction = AssetPicker::Draw({.RequiredClass = Parameter.Value.GetTexture().Dimension == EMaterialTextureDimension::TextureCube ? DTextureCube::StaticClass() : DTexture2D::StaticClass(),
