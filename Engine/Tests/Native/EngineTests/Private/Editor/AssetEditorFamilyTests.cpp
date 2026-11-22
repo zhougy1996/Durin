@@ -20,6 +20,10 @@
 #include "AssetTools/IAssetTools.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/Package.h"
+#include "FileHelpers.h"
+#include "Materials/Material.h"
 #include <gtest/gtest.h>
 
 namespace Durin::TextureEditor
@@ -152,6 +156,63 @@ namespace
 		const auto EditorInstances = Durin::Testing::GetReflectedEditors(AssetEditorSubsystem);
 		ASSERT_EQ(2u, EditorInstances.size());
 		EXPECT_NE(EditorInstances.front()->GetToolkit(), EditorInstances.back()->GetToolkit());
+	}
+
+	TEST_F(FAssetEditorFamilyTests, MaterialExitReportsSourceAndIgnoresDiscardedPreview)
+	{
+		auto* Source = Create<DMaterial>("MaterialExitSource");
+		ASSERT_NE(nullptr, Source);
+		auto* SourcePackage = Source->GetPackage();
+		ASSERT_TRUE(SavePackage(SourcePackage));
+		ASSERT_TRUE(Open(*Source));
+		const auto Toolkit = AssetEditorSubsystem->GetActiveAssetToolkit();
+		ASSERT_TRUE(Toolkit);
+
+		const auto Objects = GDObjectArray.GetAll(EObjectQueryScope::LiveOnly);
+		const auto Preview = std::ranges::find_if(Objects, [&](DObject* Object) {
+			return IsValid(Object) && Cast<DMaterial>(Object) && Object->GetFName() == Source->GetFName()
+				&& Object->HasAnyObjectFlags(EObjectFlags::Transient);
+		});
+		ASSERT_NE(Preview, Objects.end());
+		auto* Working = Cast<DMaterial>(*Preview);
+		auto* PreviewPackage = Working->GetPackage();
+		ASSERT_NE(nullptr, PreviewPackage);
+
+		const auto OriginalPosition = Source->GetRootPosition();
+		Working->SetRootPosition(OriginalPosition.first + 32, OriginalPosition.second);
+		ASSERT_TRUE(PreviewPackage->IsDirty());
+		EXPECT_FALSE(SourcePackage->IsDirty());
+		EXPECT_FALSE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(true, true), PreviewPackage));
+		const auto DraftChanges = Toolkit->GetUnsavedChanges();
+		ASSERT_EQ(1u, DraftChanges.size());
+		EXPECT_EQ(Source->GetName(), DraftChanges.front().Label);
+		EXPECT_EQ(Source->GetObjectPath(), DraftChanges.front().ResourcePath);
+		ASSERT_TRUE(Toolkit->SaveForExit());
+		EXPECT_EQ(Working->GetRootPosition(), Source->GetRootPosition());
+		EXPECT_FALSE(SourcePackage->IsDirty());
+
+		Source->MarkPackageDirty();
+		const auto SourceChanges = Toolkit->GetUnsavedChanges();
+		ASSERT_EQ(1u, SourceChanges.size());
+		EXPECT_EQ(Source->GetName(), SourceChanges.front().Label);
+		EXPECT_TRUE(std::ranges::contains(FEditorFileUtils::GetDirtyPackages(true, true), SourcePackage));
+		ASSERT_TRUE(Toolkit->SaveForExit());
+
+		const auto SavedPosition = Source->GetRootPosition();
+		Working->SetRootPosition(OriginalPosition.first, OriginalPosition.second);
+		EXPECT_FALSE(Toolkit->CloseWindow(EAssetEditorCloseReason::AssetEditorHostClosed));
+		const auto Prompt = AssetEditorSubsystem->GetPendingClosePrompt();
+		ASSERT_TRUE(Prompt);
+		ASSERT_EQ(EAssetEditorCloseResult::Closed,
+			AssetEditorSubsystem->ResolvePendingClose(Prompt->RequestId, EAssetEditorCloseResponse::Discard));
+		FEditorEngineTestAccess::SetStartupState(*Host, EHostStartupState::Ready);
+		Host->Tick(0.0f, false);
+		EXPECT_TRUE(Toolkit->IsClosed());
+		EXPECT_TRUE(Toolkit->GetUnsavedChanges().empty());
+		EXPECT_EQ(SavedPosition, Source->GetRootPosition());
+		const auto DirtyPackages = FEditorFileUtils::GetDirtyPackages(true, true);
+		EXPECT_FALSE(std::ranges::contains(DirtyPackages, PreviewPackage));
+		EXPECT_FALSE(std::ranges::contains(DirtyPackages, SourcePackage));
 	}
 
 	TEST_F(FAssetEditorFamilyTests, MaterialFamiliesRejectGroupingAndOpenOneToolkitPerAsset)

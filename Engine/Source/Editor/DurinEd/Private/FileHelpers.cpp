@@ -18,11 +18,17 @@ namespace Durin
 		thread_local FScopedPackageSaveObserver* SaveObserver = nullptr;
 		FEditorFileUtils::FSavePrompt SavePrompt;
 
+		auto IsSaveCandidate(const DPackage* Package) -> bool
+		{
+			return Package && !Package->IsPendingKill() && Package->IsAssetPackage()
+				&& !Package->IsGraphPrivate() && !Package->HasAnyObjectFlags(EObjectFlags::Transient);
+		}
+
 		auto FilterPackages(std::span<DPackage* const> Input, bool OnlyDirty) -> std::vector<DPackage*>
 		{
 			std::vector<DPackage*> Result;
 			for (auto* Package : Input)
-				if (Package && Package->IsAssetPackage() && !Package->IsGraphPrivate()
+				if (IsSaveCandidate(Package)
 					&& (!OnlyDirty || Package->IsDirty()) && !std::ranges::contains(Result, Package)) Result.push_back(Package);
 			return Result;
 		}
@@ -32,7 +38,7 @@ namespace Durin
 	{
 		std::vector<DPackage*> Result;
 		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
-			if (auto* Package = Cast<DPackage>(Object); Package && Package->IsAssetPackage() && !Package->IsGraphPrivate() && Package->IsDirty())
+			if (auto* Package = Cast<DPackage>(Object); IsSaveCandidate(Package) && Package->IsDirty())
 			{
 				const bool Map = std::ranges::any_of(Package->GetTopLevelAssets(), [](auto* Asset) { return Cast<DLevel>(Asset) != nullptr; });
 				if (Map ? Maps : Content) Result.push_back(Package);
