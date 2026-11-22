@@ -159,8 +159,7 @@ fields through `GetNumericInputForProperty`. Make exposes its connection-only
 fields through `GetExpressionInputForProperty`. The same accessor on the material
 accepts both numeric properties and `MP_MaterialAttributes`. Compiler capture
 selects live inputs using the domain, effective instance properties and root mode
-before resolving dependencies. PostProcess uses individual Emissive even when the
-stored packed flag is set. Asset validation checks retained links in both modes.
+before resolving dependencies. Both domains use the stored packed flag. Asset validation checks retained links in both modes.
 Whole-graph replacement and cross-owner duplication use owned `FMaterialRootInputs`.
 Root commands stage only touched numeric fields, the packed link or the mode bit.
 The read-only input description carries the connection, type, name and optional
@@ -193,7 +192,9 @@ A connection takes precedence over either flag state. Broken or incompatible
 connections report diagnostics. A disconnected input uses its constant when
 enabled, otherwise its definition fallback. `GetMaterialNumericInputFallback`
 owns numeric node fallbacks. Material and Make read standard property defaults
-from `FMaterialAttributeDefinitionMap`. Make emits a disconnected Normal literal
+from `FMaterialAttributeDefinitionMap`. An open individual Normal root always
+uses the tangent-space default (0, 0, 1), including when v6 stores an enabled
+Normal constant. Make emits a disconnected Normal literal
 with tangent-space normal semantics.
 Set starts from the incoming aggregate, or from the same defaults as Make when
 its prototype is disconnected. Only connected assignments replace attributes.
@@ -275,9 +276,8 @@ remains independent of later capture attempts or owner edits.
 
 On the owning thread, capture selects shader entries from the material domain,
 the requested instance's effective static properties and the compiler environment.
-It resolves only the roots those entries use. Surface uses either the packed
-attributes input or the individual properties. PostProcess uses the individual
-Emissive Color input even when the asset retains packed Surface wiring.
+PostProcess reads Emissive Color from the selected root mode. An open packed
+input supplies the default attribute set, whose Emissive Color is black.
 Only traversed function bodies contribute owner stamps. Each stamp records the
 object key, path and revision for freshness checks on the owning thread.
 Workers receive detached input data.

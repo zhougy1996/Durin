@@ -62,6 +62,7 @@ namespace Durin::MaterialEditor::MaterialEditing
 		if (!Admission) return RejectCommand(Admission.error());
 		auto* Transactions = *Admission;
 		if (Material.UsesMaterialAttributes() == bEnabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (!Material.CanEditMaterialAttributesMode()) return RejectCommand("Change the material attributes mode in the Surface domain.");
 		FGraphEditSession State(Material);
 		State.SetRootMode(bEnabled);
 		return State.Commit("Change Material Output Mode", Transactions);

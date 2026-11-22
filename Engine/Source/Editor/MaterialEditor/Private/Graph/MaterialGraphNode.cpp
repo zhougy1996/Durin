@@ -329,8 +329,12 @@ namespace Durin::MaterialEditor
 			if (const auto& Numeric = Description->Numeric)
 			{
 				Pin.InlineDefault = DefaultView(ReadMaterialNumericDefault(*Numeric, Property));
-				Pin.bSupportsConstant = true; Pin.bUseConstant = Numeric->UseConstant;
-				Pin.RetainedConstant = DefaultView(Numeric->Constant);
+				if (SupportsMaterialRootConstant(Property))
+				{
+					Pin.bSupportsConstant = true;
+					Pin.bUseConstant = Numeric->UseConstant;
+					Pin.RetainedConstant = DefaultView(Numeric->Constant);
+				}
 			}
 			Pin.bActive = bAttributes || Property == EMaterialProperty::MP_WorldPositionOffset || IsMaterialSurfaceOutputActive(
 				Property, Material->GetStaticProperties());

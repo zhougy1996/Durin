@@ -16,24 +16,24 @@ namespace Durin
 {
 	template<typename RootOwner>
 	auto MIR::FGraphBuilderImpl::FinishSurface(const RootOwner& Outputs,
-		bool UseAttributes, EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded)
+		EMaterialDomain Domain, const std::set<EMaterialProperty>* Demanded)
 		-> MIR::FBuildResult
 	{
 		Result.IR.Domain = Domain;
 		const auto& Attributes = *Outputs.GetExpressionInputDescription(EMaterialProperty::MP_MaterialAttributes)->Connection;
-		const bool StoredMode = Outputs.UsesMaterialAttributes();
+		const bool UseAttributes = Outputs.UsesMaterialAttributes();
 		if (bValidateAuthoring) BuildAllExpressions();
 		if (bValidateAuthoring)
 		{
 			// Retained wiring must stay structurally valid even when its mode is inactive.
-			if (!StoredMode && Attributes.IsConnected()) ResolveIndex(Attributes);
-			if (StoredMode)
+			if (!UseAttributes && Attributes.IsConnected()) ResolveIndex(Attributes);
+			if (UseAttributes)
 				for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions())
 					if (const auto& Link = *Outputs.GetExpressionInputForProperty(Field.Property); Link.IsConnected()) ResolveIndex(Link);
 		}
 		if ((!Demanded || UseAttributes) && !Attributes.IsConnected() && Attributes.OutputIndex != 0)
 		{ Fail("Disconnected material attributes input has an output selector."); return Finish({}); }
-		AuthoringCodeHash.UpdateValue(StoredMode);
+		AuthoringCodeHash.UpdateValue(UseAttributes);
 		uint32 Aggregate = MIR::InvalidIndex;
 		if (UseAttributes && Attributes.IsConnected() && (!Demanded || !Demanded->empty()))
 		{
@@ -63,7 +63,7 @@ namespace Durin
 				}
 				if (!UseAttributes)
 				{
-					if (Stored.UseConstant) Root.Literal = {Stored.Constant[0], Width > 1 ? Stored.Constant[1] : 0.f,
+					if (SupportsMaterialRootConstant(Definition.Property) && Stored.UseConstant) Root.Literal = {Stored.Constant[0], Width > 1 ? Stored.Constant[1] : 0.f,
 						Width > 2 ? Stored.Constant[2] : 0.f, Width > 3 ? Stored.Constant[3] : 0.f};
 					if (Link.IsConnected()) Index = ResolveIndex(Link);
 				}
@@ -104,7 +104,7 @@ namespace Durin
 	{
 		MIR::FGraphBuilderImpl Context(Expressions);
 		Context.bValidateAuthoring = true;
-		auto Built = Context.FinishSurface(Outputs, Outputs.UsesMaterialAttributes());
+		auto Built = Context.FinishSurface(Outputs);
 		if (Built && OutCodeFingerprint)
 		{
 			// A transient edit checkpoint, not shader identity or a persisted encoding.
@@ -162,7 +162,7 @@ namespace Durin
 
 	auto MIR::FGraphBuilder::FinishSurface(const FMaterialRootInputs& Outputs) -> MIR::FBuildResult
 	{
-		return Impl->FinishSurface(Outputs, Outputs.UsesMaterialAttributes());
+		return Impl->FinishSurface(Outputs);
 	}
 
 	auto MIR::FGraphBuilder::ValidateSurface(std::span<DMaterialExpression* const> Expressions,
@@ -272,8 +272,6 @@ namespace Durin
 		const auto Domain = Owner->GetDomain();
 		const auto Demanded = ForCompilation
 			? std::optional(GetMaterialCompilationProperties(Domain, Properties, Environment)) : std::nullopt;
-		const bool UseAttributes = ForCompilation ? Owner->UsesMaterialAttributesForDomain()
-			: Owner->UsesMaterialAttributes();
 		std::vector<FMaterialFunctionOwnerStamp> Owners;
 		MIR::FGraphBuilderImpl Context(Expressions, {.FindFunction = [&](const DMaterialFunctionInterface& Function)
 			-> std::optional<MIR::FFunctionBody> {
@@ -283,7 +281,7 @@ namespace Durin
 			return Concrete->GetExpressionBody();
 		}, .Quality = Environment.Quality, .FeatureLevel = Environment.FeatureLevel,
 			.StaticBools = Environment.StaticBools}, ForCompilation);
-		auto Built = Context.FinishSurface(*Owner, UseAttributes, Domain, Demanded ? &*Demanded : nullptr);
+		auto Built = Context.FinishSurface(*Owner, Domain, Demanded ? &*Demanded : nullptr);
 		if (!Built)
 		{
 			Result.Diagnostics = std::move(Built.Diagnostics);

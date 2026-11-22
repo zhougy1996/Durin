@@ -59,7 +59,7 @@ namespace Durin::MIR
 		auto GetNode(uint32 Index) const -> const FNode& { return Result.IR.Nodes.at(Index); }
 		auto Finish(std::span<const FMaterialExpressionInput> Roots) -> FBuildResult;
 		template<typename RootOwner>
-		auto FinishSurface(const RootOwner& Outputs, bool UseAttributes, EMaterialDomain Domain = EMaterialDomain::Surface,
+		auto FinishSurface(const RootOwner& Outputs, EMaterialDomain Domain = EMaterialDomain::Surface,
 			const std::set<EMaterialProperty>* Demanded = nullptr) -> FBuildResult;
 	private:
 		friend class FEmitter;

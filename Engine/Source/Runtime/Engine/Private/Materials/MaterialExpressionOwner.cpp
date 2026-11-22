@@ -119,7 +119,7 @@ namespace Durin
 
 	auto DMaterial::IsRootInputVisible(EMaterialProperty Property) const -> bool
 	{
-		return (Property == EMaterialProperty::MP_MaterialAttributes) == UsesMaterialAttributesForDomain()
+		return (Property == EMaterialProperty::MP_MaterialAttributes) == UsesMaterialAttributes()
 			&& std::ranges::contains(GetMaterialDomainInputProperties(Domain), Property);
 	}
 

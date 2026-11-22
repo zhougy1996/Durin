@@ -47,7 +47,7 @@ namespace Durin
 		// Capture independent input values for whole-graph replacement and ownership rebinding.
 		ENGINE_API auto CaptureRootInputs() const -> FMaterialRootInputs;
 		auto UsesMaterialAttributes() const -> bool { return bUseMaterialAttributes; }
-		auto UsesMaterialAttributesForDomain() const -> bool { return Domain == EMaterialDomain::Surface && bUseMaterialAttributes; }
+		auto CanEditMaterialAttributesMode() const -> bool { return Domain == EMaterialDomain::Surface; }
 		ENGINE_API auto GetNumericInputForProperty(EMaterialProperty Property) const -> std::optional<FMaterialNumericInputView>;
 		ENGINE_API auto GetExpressionInputForProperty(EMaterialProperty Property) const -> const FMaterialExpressionInput*;
 		ENGINE_API auto IsRootInputVisible(EMaterialProperty Property) const -> bool;

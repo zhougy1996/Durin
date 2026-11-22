@@ -3940,13 +3940,17 @@ TEST(FStaticMeshRenderPreparationVulkanTests, SplineMirrorsMatchStaticTransforms
 		Outputs.Get(EMaterialProperty::MP_BaseColor).SetConstant({0.8f, 0.2f, 0.1f});
 		// A nonzero tangent-space Y makes an incorrect bitangent sign visible
 		// in the captured GBuffer, independently of the lighting direction.
-		Outputs.Get(EMaterialProperty::MP_Normal).SetConstant({0.3f, 0.6f, 0.74f});
 		for (auto* Material : {SingleSided.Get(), TwoSided.Get()})
 		{
 			FMaterialStaticProperties Properties;
 			Properties.bTwoSided = Material == TwoSided.Get();
 			ASSERT_TRUE(Material->SetStaticProperties(Properties));
-			ASSERT_TRUE(Material->SetMaterialExpressions({}, Outputs));
+			TStrongObjectPtr<DMaterialExpressionVector3Constant> Normal(NewObject<DMaterialExpressionVector3Constant>(Material, NAME_None));
+			Normal->Id = FGuid::NewGuid();
+			Normal->Value = FVector3(.3f, .6f, .74f);
+			Normal->bTangentSpaceNormal = true;
+			Outputs.Get(EMaterialProperty::MP_Normal).Connection = {Normal.Get()};
+			ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Normal.Get()}, Outputs));
 			FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 			ASSERT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::Ready);
 		}

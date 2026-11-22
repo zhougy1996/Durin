@@ -762,6 +762,7 @@ namespace Durin::MaterialEditor
 		if (bShowMaterialDetails
 			&& MonaImGui::PropertyEdit::BeginTable("SurfaceProperties", DetailsStyle::MakeTableConfig()))
 		{
+			ImGui::BeginDisabled(!BaseMaterial->CanEditMaterialAttributesMode());
 			bool bAttributes = BaseMaterial->UsesMaterialAttributes();
 			if (DetailsStyle::EditRow("Use material attributes", [&] { return ImGui::Checkbox("##Value", &bAttributes); }))
 			{
@@ -769,6 +770,7 @@ namespace Durin::MaterialEditor
 				if (!Result) SetError(FormatMaterialGraphCommandResult(Result));
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch output inputs. Both modes retain their connections. Only the selected mode is used.");
+			ImGui::EndDisabled();
 			FMaterialConfiguration Configuration{BaseMaterial->GetDomain(), BaseMaterial->GetStaticProperties()};
 			int Domain = static_cast<int>(Configuration.Domain);
 			bool bChanged = DetailsStyle::EditRow("Domain", [&] { return ImGui::Combo("##Value", &Domain, "Surface\0PostProcess\0"); });

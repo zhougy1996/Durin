@@ -385,7 +385,13 @@ namespace Durin::MaterialEditor
 			const bool bInheritedContext = Pin.bSupportsConstant && !Pin.bUseConstant
 				&& (Selected.Node.IsSampleUVInput(Pin.InputIndex)
 					|| (Selected.Node.Opcode == EMaterialProgramOpcode::SetMaterialAttributes && Pin.InputIndex != 0));
+			const bool bRootNormal = Selected.Node.bMaterialOutput && Pin.MaterialProperty == EMaterialProperty::MP_Normal;
 			const auto EditValue = [&]() {
+				if (bRootNormal)
+				{
+					ImGui::TextUnformatted("Default tangent-space normal (0, 0, 1)");
+					return;
+				}
 				if (bInheritedContext)
 				{
 					ImGui::TextUnformatted(Selected.Node.IsSampleUVInput(Pin.InputIndex) ? "Mesh UV0" : "Base Surface value");
@@ -431,7 +437,7 @@ namespace Durin::MaterialEditor
 			{
 				if (!Changed && bConnected)
 				{
-					if (ImGui::MenuItem("Inline constant")) Submit(SelectedNode->InlineInputNode(Selected.InputAddress(Pin)));
+					if (ImGui::MenuItem("Inline constant", nullptr, false, !bRootNormal)) Submit(SelectedNode->InlineInputNode(Selected.InputAddress(Pin)));
 					if (!Changed && ImGui::MenuItem("Disconnect")) Changed = BreakPinLinks(Selected.InputAddress(Pin));
 				}
 				else if (!Changed)

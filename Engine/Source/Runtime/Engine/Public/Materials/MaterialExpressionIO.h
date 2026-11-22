@@ -212,6 +212,7 @@ namespace Durin
 
 	ENGINE_API auto GetMaterialDomainInputProperties(EMaterialDomain Domain) -> std::span<const EMaterialProperty>;
 
+	ENGINE_API auto SupportsMaterialRootConstant(EMaterialProperty Property) -> bool;
 	ENGINE_API auto ReadMaterialNumericDefault(FMaterialNumericInputView Input, EMaterialProperty Property) -> std::vector<float>;
 	ENGINE_API auto ReadMaterialOutputDefault(const FMaterialRootInputs& Outputs, EMaterialProperty Pin) -> std::vector<float>;
 }

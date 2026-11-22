@@ -261,16 +261,21 @@ namespace Durin
 			for (const auto& Field : FMaterialAttributeDefinitionMap::GetDefinitions()) Properties.push_back(Field.Property);
 			return Properties;
 		}();
-		static constexpr std::array PostProcess{EMaterialProperty::MP_EmissiveColor};
+		static constexpr std::array PostProcess{EMaterialProperty::MP_EmissiveColor, EMaterialProperty::MP_MaterialAttributes};
 		if (Domain == EMaterialDomain::PostProcess) return PostProcess;
 		return Domain == EMaterialDomain::Surface ? std::span<const EMaterialProperty>(Surface) : std::span<const EMaterialProperty>{};
+	}
+
+	auto SupportsMaterialRootConstant(EMaterialProperty Property) -> bool
+	{
+		return Property != EMaterialProperty::MP_Normal && Property != EMaterialProperty::MP_MaterialAttributes;
 	}
 
 	auto ReadMaterialNumericDefault(FMaterialNumericInputView Input, EMaterialProperty Property) -> std::vector<float>
 	{
 		const auto* Field = FMaterialAttributeDefinitionMap::Find(Property);
 		if (!Field) return {};
-		if (Input.UseConstant) return {Input.Constant.begin(), Input.Constant.end()};
+		if (SupportsMaterialRootConstant(Property) && Input.UseConstant) return {Input.Constant.begin(), Input.Constant.end()};
 		const auto& Value = Field->DefaultValue;
 		const std::array Components{Value.X, Value.Y, Value.Z, Value.W};
 		return {Components.begin(), Components.begin() + static_cast<uint32>(Field->Semantics.Type) + 1};

@@ -30,7 +30,7 @@ namespace Durin::MaterialEditor
 			FMaterialNumericInput* Numeric = nullptr;
 			std::vector<float> Inherited;
 
-			auto SupportsDefault() const -> bool { return Default != nullptr; }
+			auto SupportsDefault() const -> bool { return Default && (!RootProperty || SupportsMaterialRootConstant(*RootProperty)); }
 			auto Read() const -> std::vector<float> { return RootProperty ? ReadMaterialNumericDefault(*Numeric, *RootProperty) : Numeric ? (Numeric->UseConstant ? Numeric->Constant : Inherited) : Default ? *Default : std::vector<float>{}; }
 			auto Write(const std::vector<float>& Value) const -> bool
 			{
@@ -113,12 +113,18 @@ namespace Durin::MaterialEditor
 			return Result;
 		}
 
-		auto MakeConstant(std::span<const float> Value) -> TStrongObjectPtr<DMaterialExpression>
+		auto MakeConstant(std::span<const float> Value, bool bTangentSpaceNormal) -> TStrongObjectPtr<DMaterialExpression>
 		{
 			TStrongObjectPtr<DMaterialExpression> Result;
 			if (Value.size() == 1) { auto* E = NewObject<DMaterialExpressionScalarConstant>(nullptr, NAME_None); E->Value = Value[0]; Result = E; }
 			if (Value.size() == 2) { auto* E = NewObject<DMaterialExpressionVector2Constant>(nullptr, NAME_None); E->Value = FVector2(Value[0], Value[1]); Result = E; }
-			if (Value.size() == 3) { auto* E = NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None); E->Value = FVector3(Value[0], Value[1], Value[2]); Result = E; }
+			if (Value.size() == 3)
+			{
+				auto* E = NewObject<DMaterialExpressionVector3Constant>(nullptr, NAME_None);
+				E->Value = FVector3(Value[0], Value[1], Value[2]);
+				E->bTangentSpaceNormal = bTangentSpaceNormal;
+				Result = E;
+			}
 			if (Value.size() == 4) { auto* E = NewObject<DMaterialExpressionVector4Constant>(nullptr, NAME_None); E->Value = FVector4(Value[0], Value[1], Value[2], Value[3]); Result = E; }
 			if (Result) Result->Id = FGuid::NewGuid();
 			return Result;
@@ -149,7 +155,7 @@ namespace Durin::MaterialEditor
 		if (Pin.IsMaterialRoot() && Cast<DMaterial>(Owner)) RootEdit.emplace(*Owner);
 		const auto Input = FindInput(Expression, Pin, RootEdit ? &*RootEdit : nullptr);
 		if (!Input.Message.empty()) return RejectCommand(Input.Message);
-		if (!Input.Numeric) return RejectCommand("This input has no retained numeric constant.");
+		if (!Input.Numeric || !Input.SupportsDefault()) return RejectCommand("This input does not support an editable constant.");
 		if (Input.Numeric->UseConstant == Enabled) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (RootEdit)
 		{
@@ -277,9 +283,11 @@ namespace Durin::MaterialEditor
 		FGraphEditSession State(*Graph->GetMaterialOrFunction());
 		const auto Input = FindInput(Expression, Pin, &State);
 		if (!Input.Message.empty()) return std::unexpected(RejectCommand(Input.Message));
-		if (!Input.SupportsDefault() || Input.Source->IsConnected() || Input.Read().empty())
+		const bool bRootNormal = Input.RootProperty == EMaterialProperty::MP_Normal;
+		const auto Value = Input.Read();
+		if (Input.Source->IsConnected() || Value.empty())
 			return std::unexpected(RejectCommand("Only an unconnected numeric literal can be extracted."));
-		auto Constant = MakeConstant(Input.Read());
+		auto Constant = MakeConstant(Value, bRootNormal);
 		if (!Constant) return std::unexpected(RejectCommand("The input default has an unsupported width."));
 		*Input.Source = {Constant.Get()};
 		State.Presentation.Nodes.push_back({Constant->Id, View.Presentation.X - 320, View.Presentation.Y});

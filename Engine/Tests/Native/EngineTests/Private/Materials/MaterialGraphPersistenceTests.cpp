@@ -60,6 +60,74 @@ TEST(FMaterialGraphPersistenceTests, HiddenRootDefaultResetRetainsLiteralAndHist
 	EXPECT_EQ(Restored->RetainedConstant, Value);
 }
 
+TEST(FMaterialGraphPersistenceTests, DisconnectedNormalIgnoresRetainedConstantAcrossReload)
+{
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	Testing::FScopedMountRegistryFixture Registry;
+	Testing::RegisterMountPointForTests("/NormalRoot/", Testing::GetTestWorkDirectory().generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/NormalRoot/Material", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Property = EMaterialProperty::MP_Normal;
+	const auto Pin = FMaterialGraphPinAddress::MaterialOutput(Property);
+	const FMaterialProgramLiteral Flat{0.f, 0.f, 1.f};
+	auto Normal = Testing::MakeGraphExpression<DMaterialExpressionVector3Constant>();
+	Normal->Value = FVector3(0.f, 1.f, 0.f);
+	Normal->bTangentSpaceNormal = true;
+	FMaterialRootInputs Inputs;
+	Inputs.Get(Property).SetConstant({1.f, 0.f, 0.f});
+	Inputs.Get(Property).Connection = {Normal.Get()};
+	ASSERT_TRUE(Material->SetMaterialExpressions(std::array<DMaterialExpression*, 1>{Normal.Get()}, Inputs));
+	const auto CheckNormal = [&](bool Connected) {
+		const auto Capture = SnapshotMaterialCompilerInput(*Material, {.CompilerIdentity = "NormalRoot"});
+		ASSERT_TRUE(Capture);
+		const auto& IR = Capture.Snapshot->Input.IR;
+		const auto& Root = IR.GetAttribute(Property);
+		ASSERT_EQ(Root.bExpression, Connected);
+		if (Connected) EXPECT_EQ(IR.Nodes.at(Root.ExpressionIndex).GetLiteral(), (FMaterialProgramLiteral{0.f, 1.f, 0.f}));
+		else EXPECT_EQ(Root.Literal, Flat);
+	};
+	{
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		Tests::FTestEditorTransactorOwner History;
+		CheckNormal(true);
+		EXPECT_FALSE(Graph->GetRootNode()->InlineInputNode(Pin));
+		ASSERT_TRUE(Graph->GetSchema().BreakPinLinks(*Graph, Pin));
+		CheckNormal(false);
+		ASSERT_TRUE(History->Undo());
+		CheckNormal(true);
+		ASSERT_TRUE(History->Redo());
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	}
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = LoadObject<DMaterial>(Testing::MakePackageLeafAssetObjectPathForTests(Path));
+	ASSERT_TRUE(Material);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	CheckNormal(false);
+	const auto Stored = *Material->GetNumericInputForProperty(Property);
+	EXPECT_TRUE(Stored.UseConstant);
+	EXPECT_TRUE(std::ranges::equal(Stored.Constant, std::array{1.f, 0.f, 0.f}));
+	{
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		const auto* View = Graph->FindInputPin(Pin);
+		ASSERT_TRUE(View);
+		EXPECT_FALSE(View->bSupportsConstant);
+		EXPECT_EQ(View->InlineDefault.Literal, Flat);
+		auto* Root = Graph->GetRootNode();
+		EXPECT_FALSE(Root->SetPinUseConstant(Pin, false, ETransactionMode::NotTransactable));
+		EXPECT_FALSE(Root->PinDefaultValueChanged(Pin, View->InlineDefault, ETransactionMode::NotTransactable));
+		ASSERT_TRUE(Root->ExtractInputDefault(Pin, ETransactionMode::NotTransactable));
+		const auto* Extracted = Cast<DMaterialExpressionVector3Constant>(Material->GetExpressionInputForProperty(Property)->Expression.Get());
+		ASSERT_TRUE(Extracted);
+		EXPECT_TRUE(Extracted->bTangentSpaceNormal);
+		EXPECT_EQ(Extracted->Value, FVector3(0, 0, 1));
+	}
+	ASSERT_TRUE(Testing::EnsurePackageNotResident(Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
 TEST(FMaterialGraphPersistenceTests, MixedRootAndExpressionMovementReplaysWithPropertyEditsAndReload)
 {
 	InitializeDObjectSystem();
@@ -791,7 +859,7 @@ TEST(FMaterialGraphPersistenceTests, PackedFunctionAndRetainedIndividualInputsRo
 	ASSERT_TRUE(Testing::EnsurePackageNotResident(FunctionPath));
 }
 
-TEST(FMaterialGraphPersistenceTests, PostProcessRetainsSurfaceFunctionWithoutCompilingIt)
+TEST(FMaterialGraphPersistenceTests, PostProcessCompilesStoredRootModeAcrossDomainChangesAndReload)
 {
 	InitializeDObjectSystem();
 	FScopedOfflinePreparation Offline;
@@ -823,8 +891,11 @@ TEST(FMaterialGraphPersistenceTests, PostProcessRetainsSurfaceFunctionWithoutCom
 	Roots.Get(Roughness).Connection = {Call.Get(), 0, Output->Port.Id};
 	auto Make = Testing::MakeGraphExpression<DMaterialExpressionMakeMaterialAttributes>();
 	Make->Roughness = Roots.Get(Roughness).Connection;
+	auto Glow = Testing::MakeGraphExpression<DMaterialExpressionVector3Constant>();
+	Glow->Value = FVector3(.75f, .5f, .25f);
+	Make->EmissiveColor = {Glow.Get()};
 	Roots.Attributes = {Make.Get()};
-	const std::array<DMaterialExpression*, 2> Expressions{Call.Get(), Make.Get()};
+	const std::array<DMaterialExpression*, 3> Expressions{Call.Get(), Make.Get(), Glow.Get()};
 	ASSERT_TRUE(Material->SetMaterialExpressions(Expressions, Roots));
 	const FMaterialCompilerEnvironment Environment{.CompilerIdentity = "DomainRoots"};
 	const auto Surface = SnapshotMaterialCompilerInput(*Material, Environment);
@@ -850,7 +921,8 @@ TEST(FMaterialGraphPersistenceTests, PostProcessRetainsSurfaceFunctionWithoutCom
 	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 	ASSERT_EQ(Material->GetDomain(), EMaterialDomain::PostProcess);
 	ASSERT_TRUE(Material->UsesMaterialAttributes());
-	EXPECT_FALSE(Material->UsesMaterialAttributesForDomain());
+	EXPECT_FALSE(Material->CanEditMaterialAttributesMode());
+	EXPECT_FALSE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
 	const auto Hidden = *Material->GetNumericInputForProperty(Roughness);
 	ASSERT_EQ(Hidden.Connection.GetExpressionId(), Call->Id);
 	ASSERT_EQ(Hidden.Connection.GetOutputId(), Output->Port.Id);
@@ -870,27 +942,48 @@ TEST(FMaterialGraphPersistenceTests, PostProcessRetainsSurfaceFunctionWithoutCom
 	ASSERT_TRUE(LoadedCall);
 	TStrongObjectPtr<DMaterialFunctionInterface> SavedFunction(LoadedCall->Function.Get());
 	ASSERT_TRUE(SavedFunction);
-	for (bool Packed : {true, false})
+	const auto PackedPin = FMaterialGraphPinAddress::MaterialOutput(EMaterialProperty::MP_MaterialAttributes);
+	const auto ColorPin = FMaterialGraphPinAddress::MaterialOutput(Emissive);
 	{
-		if (!Packed) ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
-		LoadedCall = Cast<DMaterialExpressionFunctionCall>(Material->GetExpressionInputForProperty(Roughness)->Expression.Get());
-		ASSERT_TRUE(LoadedCall);
-		LoadedCall->Function = nullptr;
-		EXPECT_TRUE(Material->IsRootInputVisible(Emissive));
-		const auto Snapshot = SnapshotMaterialCompilerInput(*Material, Environment);
-		ASSERT_TRUE(Snapshot) << FormatMaterialProgramDiagnostics(Snapshot.Diagnostics);
-		EXPECT_TRUE(Snapshot.Snapshot->FunctionOwners.empty());
-		EXPECT_EQ(Snapshot.Snapshot->Input.IR, Clean.Snapshot->Input.IR);
-		EXPECT_TRUE(Snapshot.Snapshot->Input.Sources.empty());
-		const auto Compiled = MIR::Normalize(Snapshot.Snapshot->Input);
-		ASSERT_TRUE(Compiled);
-		EXPECT_EQ(Compiled.CanonicalBytes, Expected.CanonicalBytes);
-		EXPECT_EQ(Compiled.Identity, Expected.Identity);
-		LoadedCall->Function = SavedFunction.Get();
+		TStrongObjectPtr<DMaterialGraph> Graph(DMaterialGraph::Create(*Material));
+		EXPECT_TRUE(Graph->FindInputPin(PackedPin));
+		EXPECT_FALSE(Graph->FindInputPin(ColorPin));
+		const auto Packed = SnapshotMaterialCompilerInput(*Material, Environment);
+		ASSERT_TRUE(Packed);
+		EXPECT_EQ(Packed.Snapshot->FunctionOwners.size(), 1u);
+		const auto& IR = Packed.Snapshot->Input.IR;
+		const auto& Color = IR.GetAttribute(Emissive);
+		ASSERT_TRUE(Color.bExpression);
+		EXPECT_EQ(IR.Nodes.at(Color.ExpressionIndex).GetLiteral(), (FMaterialProgramLiteral{.75f, .5f, .25f}));
+		Tests::FTestEditorTransactorOwner History;
+		ASSERT_TRUE(Graph->GetSchema().BreakPinLinks(*Graph, PackedPin));
+		const auto Open = SnapshotMaterialCompilerInput(*Material, Environment);
+		ASSERT_TRUE(Open);
+		EXPECT_TRUE(Open.Snapshot->FunctionOwners.empty());
+		const auto& Default = Open.Snapshot->Input.IR.GetAttribute(Emissive);
+		EXPECT_FALSE(Default.bExpression);
+		EXPECT_EQ(Default.Literal, FMaterialProgramLiteral{});
+		ASSERT_TRUE(History->Undo());
+		EXPECT_TRUE(Material->GetExpressionInputForProperty(PackedPin.Property)->IsConnected());
 	}
-	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
 	ASSERT_TRUE(Material->SetMaterialConfiguration({}));
-	EXPECT_TRUE(Material->UsesMaterialAttributesForDomain());
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, false, ETransactionMode::NotTransactable));
+	ASSERT_TRUE(Material->SetMaterialConfiguration(Effect));
+	EXPECT_TRUE(Material->IsRootInputVisible(Emissive));
+	EXPECT_FALSE(Material->IsRootInputVisible(PackedPin.Property));
+	LoadedCall = Cast<DMaterialExpressionFunctionCall>(Material->GetExpressionInputForProperty(Roughness)->Expression.Get());
+	ASSERT_TRUE(LoadedCall);
+	LoadedCall->Function = nullptr;
+	const auto Individual = SnapshotMaterialCompilerInput(*Material, Environment);
+	ASSERT_TRUE(Individual);
+	EXPECT_TRUE(Individual.Snapshot->FunctionOwners.empty());
+	EXPECT_TRUE(Individual.Snapshot->Input.Sources.empty());
+	const auto IndividualCompiled = MIR::Normalize(Individual.Snapshot->Input);
+	ASSERT_TRUE(IndividualCompiled);
+	EXPECT_EQ(IndividualCompiled.Identity, Expected.Identity);
+	LoadedCall->Function = SavedFunction.Get();
+	ASSERT_TRUE(Material->SetMaterialConfiguration({}));
+	ASSERT_TRUE(MaterialEditing::SetUseMaterialAttributes(*Material, true, ETransactionMode::NotTransactable));
 	const auto PackedSurface = SnapshotMaterialCompilerInput(*Material, Environment);
 	ASSERT_TRUE(PackedSurface);
 	EXPECT_EQ(PackedSurface.Snapshot->FunctionOwners.size(), 1u);

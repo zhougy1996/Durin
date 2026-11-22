@@ -1,6 +1,7 @@
 #include "MaterialResourceTestSupport.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionIO.h"
+#include "Materials/MaterialExpressionMaterialAttributes.h"
 #include "Materials/MaterialExpressionCustomData.h"
 #include "Materials/MaterialExpressionArithmetic.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
@@ -116,8 +117,10 @@ static auto QualifyDefaultMaterialCook(bool Metal) -> void
 	ASSERT_TRUE(InvalidData);
 	CookedData = std::move(*InvalidData);
 	Cooked->PostLoad();
+	// PostLoad can observe the completed asynchronous read on its first poll.
+	const auto DiagnosticAfterLoad = Cooked->GetMaterialCookDiagnostic();
 	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram(), nullptr);
-	EXPECT_TRUE(Cooked->GetMaterialCookDiagnostic().empty()); // Queries do not read/decode payloads.
+	EXPECT_EQ(Cooked->GetMaterialCookDiagnostic(), DiagnosticAfterLoad);
 	const std::array<Durin::DObject*, 1> Owners{Cooked};
 	Durin::FShaderCompilingManager::Get().FinishCompilationForObjects(Owners);
 	EXPECT_EQ(Cooked->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
@@ -778,7 +781,10 @@ TEST(FMaterialIntegratedCookTests, FinalCorpusPreservesAllocationsAndUpdatesWith
 			{
 				auto* Multiply=Add.template operator()<DMaterialExpressionMultiply>(); Multiply->ResultType=EMaterialProgramValueType::Float3;
 				Multiply->A.Connection={SceneRGB}; Multiply->B.Connection={RGB};
-				Outputs.Get(EMaterialProperty::MP_EmissiveColor)={Multiply};
+				auto* Make = Add.template operator()<DMaterialExpressionMakeMaterialAttributes>();
+				Make->EmissiveColor = {Multiply};
+				Outputs.Attributes = {Make};
+				Outputs.bUseMaterialAttributes = true;
 			}
 		}
 		if (Variant==5)

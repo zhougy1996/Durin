@@ -4,7 +4,7 @@ Summary: Define shared MaterialEditor expression ownership, inspection, commands
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-11-22
+Last reviewed: 2026-11-23
 
 ## Task routing
 
@@ -63,9 +63,9 @@ expression identity and includes the root coordinates in its save checkpoint.
 `GetExpressionInputDescription` returns the stored connection, numeric input
 when applicable, type and name for every supported property in either mode.
 `IsRootInputVisible` applies the domain and mode when projecting canvas pins. Surface
-admits DefaultLit, Unlit and ClearCoat; PostProcess admits opaque Unlit and exposes
-Emissive Color. The material's `bUseMaterialAttributes` selects property
-inputs or one Material Attributes input. Both root representations and their
+admits DefaultLit, Unlit and ClearCoat. PostProcess admits opaque Unlit. Its root
+shows Emissive Color in individual mode or Material Attributes in packed mode.
+The mode switch is editable in Surface. Both root representations and their
 inactive links/defaults persist across domain/model/output-mode changes. Engine's
 attribute registry and selected execution contract determine which values compile.
 WPO follows the property-address contract and
@@ -448,11 +448,13 @@ presentation have no public revision counters; observers consume graph changes.
 
 The twelve named numeric material roots retain independent constants. Removing an
 upstream expression clears the wire and exposes the enabled constant or the
-property default. A disconnected Make pin uses the property default. An open Set
+property default. The individual Normal root always falls back to (0, 0, 1).
+Extract creates a tangent-space Normal constant node. Inline is unavailable
+because disconnecting would discard the node's effective value. A disconnected Make pin uses the property default. An open Set
 assignment inherits its prototype value. The canvas uses Shift for explicit
 replacement and reports incompatible links through the graph command result.
-Asset validation checks stored links in both root modes. For compilation, Surface
-selects the authored root mode and PostProcess selects individual Emissive. The
+Asset validation checks stored links in both root modes. Both domains compile
+the stored mode. The
 effective variant properties, including instance overrides, determine the active
 roots. Normalization removes unused property branches and parameter bindings.
 
