@@ -4,6 +4,7 @@
 
 #include "Collision/CollisionTypes.h"
 #include "DObject/Class.h"
+#include "DObject/Archive.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
@@ -81,6 +82,19 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!bAttachmentUndoPending && IsAppliedChange(Event) && Event.MemberProperty
 			&& Event.MemberProperty->NamePrivate == FName("RelativeTransform")) UpdateComponentToWorld();
+	}
+
+	auto DSceneComponent::Serialize(FArchive& Ar) -> void
+	{
+		auto* Previous = GetAttachParent();
+		Super::Serialize(Ar);
+		if (Ar.IsLoading() && Ar.IsTransacting() && bAttachmentUndoPending && Previous != GetAttachParent())
+		{
+			// Membership records later in this replay inspect the reverse links.
+			if (Previous) Previous->RemoveAttachChild(this);
+			if (AttachParent && !std::ranges::contains(AttachParent->AttachChildren, TObjectPtr<DSceneComponent>(this)))
+				AttachParent->AttachChildren.emplace_back(this);
+		}
 	}
 
 	auto DSceneComponent::PreEditUndo() -> void

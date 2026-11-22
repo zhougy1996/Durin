@@ -42,6 +42,7 @@ namespace Durin
 
 		ENGINE_API explicit DSceneComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto GetComponentInstanceData() const -> std::shared_ptr<FActorComponentInstanceData> override;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;
 		ENGINE_API auto OnRegister() -> void override;
@@ -85,10 +86,6 @@ namespace Durin
 		ENGINE_API auto DetachFromComponent(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 
 		auto GetAttachParent() const -> DSceneComponent* { return AttachParent.Get(); }
-		// Native replay adapters may reuse an edge loaded earlier in this replay,
-		// but must still reject an edge changed before PreEditUndo.
-		auto IsAttachmentChangedDuringUndo() const -> bool
-		{ return bAttachmentUndoPending && PreUndoAttachParent.Get() != AttachParent.Get(); }
 		auto GetAttachChildren() const -> const std::vector<TObjectPtr<DSceneComponent>>& { return AttachChildren; }
 		ENGINE_API auto IsAttachedTo(const DSceneComponent* Component) const -> bool;
 

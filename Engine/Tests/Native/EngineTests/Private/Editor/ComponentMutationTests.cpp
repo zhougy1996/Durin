@@ -804,24 +804,25 @@ TEST(FComponentMutationTests, ReparentSupportsDetachedStateAndRejectsInvalidEdit
 	EXPECT_EQ(Component->GetAttachParent(), nullptr);
 }
 
-TEST(FComponentMutationTests, ReparentRejectsChangedParentAndCyclesWithoutMovingHistory)
+TEST(FComponentMutationTests, ReparentRestoresSnapshotAndRejectsCyclesWithoutMovingHistory)
 {
 	FComponentFixture F;
 	auto* Moving = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Moving"));
 	auto* Parent = static_cast<DSceneComponent*>(F.Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Parent"));
 	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Moving, Parent, {false}));
 	ASSERT_TRUE(Moving->DetachFromComponent());
-	const auto Head = F.Transactions->GetUndoContext().TransactionId;
-	EXPECT_FALSE(F.Transactions->Undo());
-	EXPECT_EQ(F.Transactions->GetUndoContext().TransactionId, Head);
-	EXPECT_EQ(Moving->GetAttachParent(), nullptr);
-	ASSERT_TRUE(Moving->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld));
+	ASSERT_TRUE(F.Transactions->Undo());
+	ASSERT_EQ(Moving->GetAttachParent(), F.Actor->GetRootComponent());
+	// Undo captured the external detached state as its inverse.
+	ASSERT_TRUE(F.Transactions->Redo());
+	ASSERT_EQ(Moving->GetAttachParent(), nullptr);
+	ASSERT_TRUE(F.Editor.GetActorEditor()->ReparentComponent(*F.Actor, Moving, Parent, {false}));
 	ASSERT_TRUE(F.Transactions->Undo());
 	ASSERT_TRUE(Parent->AttachToComponent(Moving, EAttachmentTransformRule::KeepWorld));
 	const auto Redo = F.Transactions->GetRedoContext().TransactionId;
 	EXPECT_FALSE(F.Transactions->Redo());
 	EXPECT_EQ(F.Transactions->GetRedoContext().TransactionId, Redo);
-	EXPECT_EQ(Moving->GetAttachParent(), F.Actor->GetRootComponent());
+	EXPECT_EQ(Moving->GetAttachParent(), nullptr);
 	ASSERT_TRUE(Parent->AttachToComponent(F.Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
 	ASSERT_TRUE(F.Transactions->Redo());
 	EXPECT_EQ(Moving->GetAttachParent(), Parent);
@@ -1068,9 +1069,10 @@ TEST(FComponentMutationTests, StructuralReplayRejectsDetachedOwnersWhileMetadata
 		const auto Name = Child->GetFName();
 		const auto ComponentCount = F.Actor->GetComponents().size();
 		ASSERT_TRUE(Level->SetActorPresence(F.Actor, false));
-		if (Operation == 2)
+		if (Operation >= 2)
 		{
 			ASSERT_TRUE(F.Transactions->Undo()); EXPECT_EQ(Child->GetFName(), FName("Child"));
+			if (Operation == 3) EXPECT_EQ(Child->GetAttachParent(), F.Actor->GetRootComponent());
 			EXPECT_FALSE(Child->IsRegistered()); EXPECT_FALSE(Level->ContainsActor(F.Actor));
 			ASSERT_TRUE(F.Transactions->Redo()); EXPECT_EQ(Child->GetFName(), Name);
 			EXPECT_FALSE(Child->IsRegistered()); EXPECT_FALSE(Level->ContainsActor(F.Actor));

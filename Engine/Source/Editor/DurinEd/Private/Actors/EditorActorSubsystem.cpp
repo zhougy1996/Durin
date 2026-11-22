@@ -1,7 +1,7 @@
 #include "Actors/EditorActorSubsystem.h"
 #include "Transactions/Transactor.h"
 #include "Actors/ActorEditingScope.h"
-#include "Actors/ActorAttachmentTransaction.h"
+#include "Components/SceneComponent.h"
 #include "Editor/EditorEngine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -71,12 +71,47 @@ namespace Durin
 					|| !Unique.insert(Actor).second) return false;
 			return true;
 		}
-		auto SubmitAttachment(DTransactor& Transactions, std::vector<FActorAttachmentTransaction::FEntry> Entries,
-			bool bAttach) -> bool
+		struct FAttachmentEdit
 		{
-			if (Entries.empty()) return true;
-			const auto Result = ApplyEditorChange(Transactions, std::make_unique<FActorAttachmentTransaction>(std::move(Entries), bAttach));
-			if (!Result) return false;
+			DSceneComponent* Root;
+			DSceneComponent* OldParent;
+			FTransform BeforeRelative;
+			FTransform AfterRelative;
+		};
+
+		auto SetAttachment(const FAttachmentEdit& Edit, DSceneComponent* Parent, const FTransform& Relative) -> bool
+		{
+			if (Edit.Root->GetAttachParent() != Parent)
+			{
+				const bool Changed = Parent ? Edit.Root->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)
+					: Edit.Root->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
+				if (!Changed) return false;
+			}
+			Edit.Root->SetRelativeTransform(Relative);
+			return true;
+		}
+
+		auto SubmitAttachment(DTransactor& Transactions, const std::vector<FAttachmentEdit>& Edits,
+			DSceneComponent* Parent) -> bool
+		{
+			if (Edits.empty()) return true;
+			FScopedTransaction Scope(&Transactions, {"ActorAttachment", Parent ? "Attach actors" : "Detach actors"});
+			if (!Scope.IsOutstanding()) return false;
+			for (const auto& Edit : Edits)
+			{
+				Edit.Root->SetFlags(EObjectFlags::Transactional);
+				if (!Edit.Root->Modify(false)) return false;
+			}
+			for (size_t Index = 0; Index < Edits.size(); ++Index)
+			{
+				if (SetAttachment(Edits[Index], Parent, Edits[Index].AfterRelative)) continue;
+				while (Index > 0)
+				{
+					const auto& Previous = Edits[--Index];
+					SetAttachment(Previous, Previous.OldParent, Previous.BeforeRelative);
+				}
+				return false;
+			}
 			return true;
 		}
 	}
@@ -89,16 +124,24 @@ namespace Durin
 		{
 			if (!ValidateActors(Level, Actors) || !IsValid(Parent) || !ValidateActors(Level, {&Parent, 1}))
 				return false;
-			std::vector<FActorAttachmentTransaction::FEntry> Entries;
+			std::vector<FAttachmentEdit> Entries;
 			for (auto* Actor : Actors)
 			{
 				if (Parent == Actor) return false;
 				for (auto* Ancestor = Parent; Ancestor; Ancestor = Ancestor->GetAttachParentActor())
 					if (Ancestor == Actor) return false;
 				if (Actor->GetAttachParentActor() != Parent || Rule == EAttachmentTransformRule::SnapToTarget)
-					Entries.push_back(MakeActorAttachmentEntry(*Actor, *Parent, Rule));
+				{
+					auto* Root = Actor->GetRootComponent();
+					if (Parent->GetRootComponent()->IsAttachedTo(Root)) return false;
+					FTransform Relative = Root->GetRelativeTransform();
+					if (Rule == EAttachmentTransformRule::KeepWorld)
+						Relative = FTransform::MakeRelative(Root->GetWorldTransform(), Parent->GetActorTransform());
+					else if (Rule == EAttachmentTransformRule::SnapToTarget) Relative = FTransform{};
+					Entries.push_back({Root, Root->GetAttachParent(), Root->GetRelativeTransform(), Relative});
+				}
 			}
-			return SubmitAttachment(*Admission, std::move(Entries), true);
+			return SubmitAttachment(*Admission, Entries, Parent->GetRootComponent());
 
 		});
 	}
@@ -110,10 +153,14 @@ namespace Durin
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
 			if (!ValidateActors(Level, Actors)) return false;
-			std::vector<FActorAttachmentTransaction::FEntry> Entries;
+			std::vector<FAttachmentEdit> Entries;
 			for (auto* Actor : Actors)
-				if (Actor->GetAttachParentActor()) Entries.push_back(MakeActorDetachmentEntry(*Actor, Rule));
-			return SubmitAttachment(*Admission, std::move(Entries), false);
+				if (Actor->GetAttachParentActor()) {
+					auto* Root = Actor->GetRootComponent();
+					Entries.push_back({Root, Root->GetAttachParent(), Root->GetRelativeTransform(),
+						Rule == EDetachmentTransformRule::KeepWorld ? Root->GetWorldTransform() : Root->GetRelativeTransform()});
+				}
+			return SubmitAttachment(*Admission, Entries, nullptr);
 
 		});
 	}

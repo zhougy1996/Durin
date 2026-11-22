@@ -9,6 +9,8 @@ Completed: 2026-11-21
 
 ## Current Status
 
+Actor attachment, detachment and component reparenting now use scoped component snapshots. Replay checks the destination graph for cycles before writes. On base `47f130c27`, LevelMutationTests (55) and EditorOperationTests (413) passed on Win64-Debug-DurinEditor, including mixed membership and snapshot replay.
+
 All four stages are complete. A subsequent simplification retired the editor-session journal introduced in Stage 4 and the history command flag for mounted-content changes. The Asset and File data sources publish item updates to the browser. AssetRegistry retains its catalog revision and history retains package checkpoints. The Stage 4 checklist and validation below record the original migration.
 
 The command-failure follow-up keeps the UE ordering of object baselines and

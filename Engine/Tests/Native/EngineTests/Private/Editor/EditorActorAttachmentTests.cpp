@@ -116,18 +116,7 @@ TEST(FEditorActorAttachmentTests, SelectedTransformRulesProduceReversibleResults
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
 
 	ASSERT_TRUE(Child->DetachFromActor(EDetachmentTransformRule::KeepWorld));
-	EXPECT_FALSE(Transactions->Undo());
-	const auto Rejected = Transactions->GetLastResult();
-	ASSERT_FALSE(Rejected);
-	ASSERT_TRUE(Rejected.ApplyCause);
-	const auto& Message = Rejected.ApplyCause->Message;
-	EXPECT_EQ(Message, "The actor parent changed outside history.");
-	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
-	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
-	EXPECT_TRUE(Transactions->CanUndo());
-	ASSERT_TRUE(Child->AttachToActor(Parent, EAttachmentTransformRule::KeepWorld));
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(Message, "The actor parent changed outside history.");
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(Child->GetActorTransform(), ChildTransform);
 

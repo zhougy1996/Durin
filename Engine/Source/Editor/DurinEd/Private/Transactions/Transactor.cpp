@@ -1,6 +1,7 @@
 #include "Transactions/Transactor.h"
 
 #include "Editor/EditorEngine.h"
+#include "Components/SceneComponent.h"
 
 #include "PropertyEditor/PropertyEditing.h"
 #include "DObject/Archive.h"
@@ -830,6 +831,42 @@ namespace Durin
 				if (auto Valid = Whole->ValidateSource(bUndo); !Valid)
 					return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
 						.RecordIndex = Index, .Message = Valid.error()});
+		// Validate the complete destination graph before any replay callback can observe a write.
+		std::unordered_map<DSceneComponent*, DSceneComponent*> Parents;
+		for (size_t Index : ReplayIndices)
+		{
+			const auto* Whole = std::get_if<FWholeObjectData>(&Records[Index].Data);
+			auto* Scene = Whole ? Cast<DSceneComponent>(Whole->GetTarget().Get()) : nullptr;
+			if (!Scene) continue;
+			const auto& Saved = (bUndo ? Whole->BeforeState : Whole->AfterState)->Observation;
+			for (const auto& Tag : Saved.SerializedTaggedData)
+			{
+				if (!Tag.bReflected || Tag.Name != FName("AttachParent")) continue;
+				const auto& Slots = Saved.SerializationContext->ReferenceSlots;
+				const auto Slot = std::ranges::find_if(Slots, [&](const auto& Item) {
+					return !Item.bWeak && Item.Offset >= Tag.Begin && Item.Offset < Tag.End;
+				});
+				if (Slot == Slots.end()) continue;
+				FObjectMemoryReader Reader(FByteView(Saved.SerializedObject->Bytes).subspan(Slot->Offset, Tag.End - Slot->Offset), EArchivePurpose::Transaction);
+				FObjectKey Key;
+				Key.SerializeForSnapshot(Reader);
+				const auto& References = Saved.SerializedObject->HardReferences;
+				const auto Ref = std::ranges::find(References, Key, &FPersistentObjectRef::GetKey);
+				Parents[Scene] = Ref == References.end() ? nullptr : Cast<DSceneComponent>(Ref->Get());
+			}
+		}
+		for (const auto& Edge : Parents)
+		{
+			std::unordered_set<DSceneComponent*> Visited;
+			for (auto* Node = Edge.first; Node;)
+			{
+				if (!Visited.insert(Node).second)
+					return std::unexpected(FTransactionApplyError{.Status = ETransactionApplyFailure::ValidationFailed,
+						.Message = "Restoring the recorded attachment would create a cycle."});
+				const auto It = Parents.find(Node);
+				Node = It == Parents.end() ? Node->GetAttachParent() : It->second;
+			}
+		}
 		std::vector<size_t> Applied;
 		Applied.reserve(ReplayIndices.size());
 		std::vector<FPersistentObjectRef> ReplayTargets;
@@ -929,6 +966,14 @@ namespace Durin
 				const auto* Array = std::get_if<FTransaction::FArrayData>(&Records[EarlierIndex].Data);
 				return Array && Array->GetTarget() == ObjectRecord->GetTarget();
 			});
+			if (ObjectRecord && Cast<DSceneComponent>(ObjectRecord->GetTarget().Get()))
+			{
+				const auto Prior = bUndo ? std::span(ReplayIndices).subspan(Step + 1) : Earlier;
+				if (std::ranges::any_of(Prior, [&](size_t Other) {
+					return std::holds_alternative<std::unique_ptr<FCommandChange>>(Records[Other].Data)
+						&& std::ranges::contains(Records[Other].GetModifiedObjects(), ObjectRecord->GetTarget().Get());
+				})) continue;
+			}
 			// A whole baseline captured after range edits belongs to that intermediate
 			// state. Redo must prepare it after those edits, not from the entry start.
 			if (bOrderedInverse) continue;

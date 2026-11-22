@@ -183,84 +183,6 @@ namespace Durin
 			bool bRemove = false, bRoot = false, bRegistered = true, bTransient = false, bDuplicate = false;
 		};
 
-		class FComponentEditChange : public FActorCommandChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{ return {Component.Get()}; }
-
-			FComponentEditChange(AActor& InOwner, DActorComponent& InComponent)
-				: Owner(&InOwner), Component(&InComponent), Packages{InOwner.GetPackage()} {}
-			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (DObject* Object : {static_cast<DObject*>(Owner.Get()), static_cast<DObject*>(Component.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
-			}
-		protected:
-			auto CanReplay() const -> bool
-			{
-				return CanEditActorOwner(Owner.Get()) && IsValid(Component.Get())
-					&& !Component->IsBeingDestroyed() && !Component->HasBegunPlay()
-					&& Component->GetOwner() == Owner.Get() && Owner->OwnsComponent(Component.Get())
-					&& Component->GetCreationMethod() != EComponentCreationMethod::Generated;
-			}
-			auto Reject(EActorChangeError Code) const -> FActorChangeResult
-			{ return {{.Code = Code, .TargetPath = Component ? Component->GetObjectPath() : std::string{}}}; }
-			TObjectPtr<AActor> Owner;
-			TObjectPtr<DActorComponent> Component;
-		private:
-			std::array<DPackage*, 1> Packages;
-		};
-
-		class FComponentReparentChange final : public FComponentEditChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
-			{ return {Component.Get(), BeforeParent.Get(), AfterParent.Get()}; }
-
-			FComponentReparentChange(AActor& Owner, DSceneComponent& Component, DSceneComponent* Parent)
-				: FComponentEditChange(Owner, Component), BeforeParent(Component.GetAttachParent()), AfterParent(Parent),
-				BeforeRelative(Component.GetRelativeTransform()), AfterRelative(Parent
-					? FTransform::MakeRelative(Component.GetWorldTransform(), Parent->GetWorldTransform()) : Component.GetWorldTransform()) {}
-			auto GetDescription() const -> std::string_view override { return "Reparent component"; }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				FComponentEditChange::AddReferencedObjects(Collector);
-				for (DObject* Object : {static_cast<DObject*>(BeforeParent.Get()), static_cast<DObject*>(AfterParent.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
-			}
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
-			{
-				FScopedPackageDirtySuppression SuppressReplay;
-				if (!CanReplay() || Owner->GetRootComponent() == Component.Get()) return Reject(EActorChangeError::TargetUnavailable);
-				auto* Scene = static_cast<DSceneComponent*>(Component.Get());
-				const bool bAfter = Operation != ETransactionOperation::Undo;
-				auto* Parent = (bAfter ? AfterParent : BeforeParent).Get();
-				// Whole-object replay may already have restored this authored edge.
-				// Keep validation, but do not publish the same native attachment twice.
-				if (Scene->GetAttachParent() != (bAfter ? BeforeParent : AfterParent).Get()
-					&& (Scene->GetAttachParent() != Parent || !Scene->IsAttachmentChangedDuringUndo())) return Reject(EActorChangeError::ParentMismatch);
-				if (Parent)
-				{
-					if (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay() || !Parent->GetOwner()
-						|| !Parent->GetOwner()->OwnsComponent(Parent) || Parent->GetOwner()->GetOuter() != Owner->GetOuter()
-						|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated) return Reject(EActorChangeError::ParentInvalid);
-					if (Parent == Scene || Parent->IsAttachedTo(Scene)) return Reject(EActorChangeError::ParentCycle);
-					if (Scene->GetAttachParent() != Parent
-						&& !Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)) return Reject(EActorChangeError::AttachmentWrite);
-				}
-				else if (Scene->GetAttachParent() && !Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative))
-					return Reject(EActorChangeError::AttachmentWrite);
-				Scene->SetRelativeTransform(bAfter ? AfterRelative : BeforeRelative);
-				return {};
-			}
-		private:
-			TObjectPtr<DSceneComponent> BeforeParent, AfterParent;
-			FTransform BeforeRelative, AfterRelative;
-		};
-
 		auto Execute(std::unique_ptr<FActorCommandChange> Change, DActorComponent* Component,
 			DTransactor* Transactions) -> bool
 		{
@@ -394,14 +316,19 @@ namespace Durin
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
 			auto* Transactions = Admission;
-			if (!IsValid(Component) || Component->GetOwner() != &Owner
+			if (!IsValid(Component) || Component->IsBeingDestroyed() || Component->HasBegunPlay() || Component->GetOwner() != &Owner
 				|| !Owner.OwnsComponent(Component) || Owner.GetRootComponent() == Component
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated
-				|| (Parent && (!IsValid(Parent) || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)
+				|| (Parent && (!IsValid(Parent) || Parent->IsBeingDestroyed() || Parent->HasBegunPlay() || Parent->GetOwner() != &Owner || !Owner.OwnsComponent(Parent)
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent == Component || Parent->IsAttachedTo(Component))))
 				return false;
 			if (Component->GetAttachParent() == Parent) return true;
-			return Execute(std::make_unique<FComponentReparentChange>(Owner, *Component, Parent), Component, Transactions);
+			FScopedTransaction Scope(Transactions, {"ComponentAttachment", "Reparent component", Component});
+			if (!Scope.IsOutstanding()) return false;
+			Component->SetFlags(EObjectFlags::Transactional);
+			if (!Component->Modify(false)) return false;
+			return Parent ? Component->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld)
+				: Component->DetachFromComponent(EDetachmentTransformRule::KeepWorld);
 
 		});
 	}

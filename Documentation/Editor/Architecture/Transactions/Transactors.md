@@ -336,7 +336,6 @@ The remaining custom commands have domain responsibilities beyond a field load:
 | --- | --- |
 | Actor presence | Level, affected Actors/components and attachment endpoints; exact identity/Name reservation, native Level publication, reversible absence and activation. The Level's shared object record owns serialized Actor order and primary camera; camera snapshots inside the adapter serve initial-execution compensation only. |
 | Component presence | Owner, component, parent and detached children; native live membership, root role, registration, ordered publication and retention of the complete absent Outer subtree. Serialized instance membership may precede this adapter; Actor completion reconciles and validates the final set. |
-| Actor attachment / component reparent | Moved roots/components and old/new endpoints; graph admission, transform rules, native attachment publication and compensation. An already-restored destination edge is not published twice. |
 | Transform gizmo | Declared target objects; arbitrary `ITransformGizmoTarget` also permits native-only targets and fallible transform setters, so the adapter retains gesture replay. |
 | StaticMesh placement / new SkyBox | Level and declared Actor/component participants; prepared asset bindings, creation/identity, native publication and coordinated rollback. Existing SkyBox texture edits use an ordinary component record. |
 | Material semantic graph | Owner, changed expressions and added/removed nodes; connection/type adaptation, synchronized parameter references, membership and one validated publication/rollback boundary. Local member snapshots are domain compensation, not the property UI's history backend. |
@@ -354,8 +353,7 @@ Actor presence captures its Level through `GUndo->SaveObject` before initial
 publication. Level's balanced native completion hooks remember pre-replay
 membership temporarily, so an array loaded earlier in the same operation can
 be activated without duplicate insertion. A membership change made before
-PreEditUndo remains a conflict. Scene components use their existing pre-undo
-parent to make the same distinction for attachment edges. These checks supplement
+PreEditUndo remains a conflict. Actor attachment, detachment and component reparenting capture the moved scene components with Modify before writing. Undo and Redo restore the recorded parent and relative transform even after an external reparent. Replay checks the destination attachment graph against unaffected live edges before writing. Scene component completion reconciles reverse links and world transforms. These checks supplement
 UE's serialized-state flip with Durin's reversible native absence boundaries.
 
 `ApplyEditorChange` checks the command's initial size and copies its description
