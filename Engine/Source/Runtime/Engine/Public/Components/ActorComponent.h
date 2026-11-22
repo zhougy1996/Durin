@@ -83,6 +83,7 @@ namespace Durin
 		ENGINE_API auto PostEditUndo(std::shared_ptr<ITransactionObjectAnnotation> Annotation) -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
+		auto SetCreationMethod(EComponentCreationMethod Method) -> void { CreationMethod = Method; }
 		auto GetCreationMethod() const -> EComponentCreationMethod { return CreationMethod; }
 		auto IsOwnedByActor() const -> bool { return bOwnedByActor; }
 		auto HasBegunPlay() const -> bool { return PlayState != EComponentPlayState::NotBegun; }
@@ -126,7 +127,6 @@ namespace Durin
 		// Call OnUnregister();
 		auto ExecuteUnregisterEvents() -> void;
 		auto SetOwnedByActor(bool bOwned) -> void { bOwnedByActor = bOwned; }
-		auto SetCreationMethod(EComponentCreationMethod Method) -> void { CreationMethod = Method; }
 
 	private:
 		AActor* OwnerActorPrivate;

@@ -32,7 +32,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Actors/EditorActorSubsystem.h"
-#include "SkyBoxPlacement.h"
+#include "Operations/SkyBoxPlacement.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin::LevelEditor
@@ -366,16 +366,14 @@ namespace Durin::LevelEditor
 						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
-							const FSkyBoxPlacementResult Result = FSkyBoxPlacement::PlaceTextureCube(
-								*Context.Level,
-								TextureCube,
-								FName(std::format("{}_SkyBox", AssetPath.GetAssetPath().GetAssetName())),
-								Context.EditorHost ? Context.EditorHost->GetTransactor() : nullptr,
-								Context.bReadOnly);
-							if (!Result)
-								Context.SetError(Result.Message);
-							else
-								Actor = Result.Actor;
+							if (auto* ActorEditor = Context.GetActorEditor())
+							{
+								const auto Result = PlaceSkyBox(*ActorEditor, *Context.Level, TextureCube,
+									FName(std::format("{}_SkyBox", AssetPath.GetAssetPath().GetAssetName())), {Context.bReadOnly});
+								if (Result) Actor = *Result;
+								else Context.SetError(Result.error());
+							}
+							else Context.SetError("The actor editor subsystem is unavailable.");
 						}
 						else
 							Context.SetError("Only StaticMesh and TextureCube assets can be placed in the scene viewport.");

@@ -267,7 +267,7 @@ StaticMesh asset placement prepares its mesh and final transform before first
 registration. Actor structural edits use one application history entry per
 command and package revision transitions, without manual saved-state invalidation.
 
-Membership records retain exact Actor identities and complete Outer trees across
+Level and Actor snapshots retain exact Actor identities and referenced participants across
 absence. Removal unregisters components and Tick functions, detaches boundary
 attachments with world transforms intact, and excludes absent graphs from package
 capture through the Actor's transient flag. Restoration preserves Level ordering,
@@ -280,8 +280,7 @@ Duplication uses ordinary owned-graph duplication and remaps editable references
 and attachments between selected graphs. Derived component data is rebuilt before
 publication. Rename retains identity and exact before/after names; initial name
 allocation includes inactive history-owned siblings. No-op renames create no entry.
-Replay validates membership, names, camera selection, and the complete proposed
-attachment graph before writes. Conflicts preserve history for a repaired retry.
+Replay restores camera selection from the Level snapshot and validates reserved names and the proposed attachment graph before writing. Conflicts preserve history for a repaired retry.
 Play transitions and read-only commands are rejected. Prepared objects from
 rejected initial commands retire without reserving names for later edits.
 

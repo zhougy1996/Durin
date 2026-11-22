@@ -247,13 +247,13 @@ else:
 )");
         EXPECT_FALSE(Host->GetTransactor()->CanUndo());
     }
-    TEST_F(PythonReflectionTests, ActorNoOpsSucceedWithoutDirtyingOrAddingHistory)
+    TEST_F(PythonReflectionTests, ActorNoOpsLeavePackageAndHistoryUnchanged)
     {
         PrepareActorScene();
         ActorPass(R"(
 seed = actors.GetAllLevelActors(level)[-1]
 assert actors.RenameActor(level, seed, 'Seed') is True
-assert actors.DetachActors(level, [seed]) is True
+assert actors.DetachActors(level, [seed]) is False
 )");
         EXPECT_FALSE(Host->GetTransactor()->CanUndo());
         EXPECT_FALSE(ScenePackage->IsDirty());
@@ -305,10 +305,10 @@ with durin.ScopedEditorTransaction('Duplicate and attach preview'):
     builtins.duplicate = copied[0]
     assert actors.AttachActors(level, [builtins.duplicate], seed) is True
     assert actors.GetActorInfo(level, seed).children == [builtins.duplicate]
-    assert actors.AttachActors(level, [builtins.duplicate], seed) is True
+    assert actors.AttachActors(level, [builtins.duplicate], seed) is False
     assert actors.AttachActors(level, [seed], builtins.duplicate) is False
     assert actors.DetachActors(level, [builtins.duplicate]) is True
-    assert actors.DetachActors(level, [builtins.duplicate], durin.types.Durin.DetachmentTransformRule.KEEP_RELATIVE) is True
+    assert actors.DetachActors(level, [builtins.duplicate], durin.types.Durin.DetachmentTransformRule.KEEP_RELATIVE) is False
     failed = actors.DestroyActors(level, [seed, seed])
     assert failed is False
     assert seed in actors.GetAllLevelActors(level)

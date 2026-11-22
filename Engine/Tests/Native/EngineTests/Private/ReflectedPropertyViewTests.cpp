@@ -509,7 +509,7 @@ TEST(FReflectedPropertyViewTests, ContinuousInteractionCancelsBeforeDeactivation
 	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
-	ASSERT_TRUE(Transactions.Get()->TryReset());
+	Transactions.Get()->Reset();
 	Frame(8);
 	IO.AddKeyEvent(ImGuiKey_Escape, true);
 	Frame(9, false);
@@ -618,7 +618,7 @@ TEST(FReflectedPropertyViewTests, DifferentWidgetsForSamePropertyFinishBeforeApp
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Object->Value, 5);
 	EXPECT_FALSE(Transactions->CanUndo());
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	ASSERT_TRUE(Write(1, 7));
 	Object->bAllowRestore = false;
 	ASSERT_FALSE(View.FinishActiveEdit(&Context, true));
@@ -798,7 +798,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftValues[1].ToSoftObjectPath(), Second);
-	ASSERT_TRUE(Transactions.Get()->TryReset());
+	Transactions.Get()->Reset();
 
 	const Durin::FPropertyEditTarget ArrayTarget =
 		Durin::FPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
@@ -809,7 +809,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	EXPECT_EQ(Object.SoftArray[0].ToSoftObjectPath(), First);
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftArray[0].ToSoftObjectPath(), Third);
-	ASSERT_TRUE(Transactions.Get()->TryReset());
+	Transactions.Get()->Reset();
 
 	const std::string Alpha = "Alpha";
 	Durin::FPropertyValueSnapshot KeySnapshot;
@@ -1253,7 +1253,7 @@ TEST(FReflectedPropertyViewTests, ColorPickerGroupsMultipleDragsAndCancelsAbando
 	EXPECT_FALSE(Transactions.Get()->CanUndo());
 	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(*Color, FinalPreview);
-	ASSERT_TRUE(Transactions.Get()->TryReset());
+	Transactions.Get()->Reset();
 	IO.AddMousePosEvent(350.0f, 60.0f);
 	DrawFrame();
 	DrawFrame(true);

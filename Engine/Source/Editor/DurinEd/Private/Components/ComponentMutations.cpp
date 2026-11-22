@@ -1,12 +1,12 @@
 #include "Actors/EditorActorSubsystem.h"
 #include "Transactions/Transactor.h"
-#include "Actors/ActorChange.h"
 #include "Actors/ActorEditingScope.h"
 #include "Actors/ActorEditingValidation.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/Archive.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -19,180 +19,34 @@ namespace Durin
 {
 	namespace
 	{
-		struct FChildAttachment
+		auto PublishInstance(AActor& Owner, DActorComponent& Component, DSceneComponent* Parent,
+			const FTransform& Relative, bool bTransient, DTransactor& Transactions, std::string_view Description) -> bool
 		{
-			TObjectPtr<DSceneComponent> Child;
-			FTransform Relative;
-		};
-
-		// Keeps an absent component alive, rather than resurrecting a garbage object or
-		// replacing its identity and invalidating older property-history records.
-		class FComponentMembershipChange final : public FActorCommandChange
-		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			TStrongObjectPtr<DActorComponent> Prepared(&Component);
+			Component.SetCreationMethod(EComponentCreationMethod::Instance);
+			FScopedTransaction Scope("Component", Description, &Owner);
+			if (!Scope.IsOutstanding()) return false;
+			Owner.SetFlags(EObjectFlags::Transactional);
+			Owner.Modify(false);
+			if (!Transactions.IsActive()) return false;
+			Component.SetFlags(EObjectFlags::Transactional);
+			Component.Modify(false);
+			if (!Transactions.IsActive()) return false;
+			Component.SetTransient(bTransient);
+			auto* Scene = Cast<DSceneComponent>(&Component);
+			if (Scene)
 			{
-				std::vector<DObject*> Objects{Owner.Get(), Component.Get(), Parent.Get()};
-				for (const auto& Entry : Children) Objects.push_back(Entry.Child.Get());
-				return Objects;
+				Scene->SetRelativeTransform(Relative);
+				if (Parent && !Scene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)) return false;
+				Scene->UpdateComponentToWorld();
 			}
-
-			FComponentMembershipChange(AActor& InOwner, DActorComponent& InComponent, bool bInRemove)
-				: Owner(&InOwner), Component(&InComponent), bRemove(bInRemove)
-			{
-				Packages[0] = Owner->GetPackage();
-				bRegistered = bRemove ? Component->IsRegistered() : true;
-				bTransient = Component->HasAnyObjectFlags(EObjectFlags::Transient);
-				bRoot = Owner->GetRootComponent() == &InComponent;
-				const auto& Instances = Owner->GetInstanceComponents();
-				InstanceIndex = 0;
-				while (InstanceIndex < Instances.size() && Instances[InstanceIndex].Get() != &InComponent) ++InstanceIndex;
-				if (auto* Scene = Cast<DSceneComponent>(&InComponent))
-				{
-					Parent = Scene->GetAttachParent();
-					Relative = Scene->GetRelativeTransform();
-					for (const auto& Child : Scene->GetAttachChildren())
-						if (Child && Child->GetAttachParent() == Scene)
-							Children.push_back({Child, Child->GetRelativeTransform()});
-				}
-				RetainTree(&InComponent);
-			}
-
-			auto ConfigureAddition(DSceneComponent* InParent, bool bInRoot, const FTransform& InRelative,
-				bool bInTransient = false, bool bInDuplicate = false) -> void
-			{
-				Parent = InParent;
-				bRoot = bInRoot;
-				Relative = InRelative;
-				bTransient = bInTransient;
-				bDuplicate = bInDuplicate;
-			}
-			auto GetDescription() const -> std::string_view override { return bRemove ? "Delete component" : bDuplicate ? "Duplicate component" : "Add component"; }
-			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto GetAllocatedSize() const -> size_t override
-			{ return Children.capacity() * sizeof(FChildAttachment) + Retained.capacity() * sizeof(TObjectPtr<DObject>); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (DObject* Object : {static_cast<DObject*>(Owner.Get()), static_cast<DObject*>(Parent.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
-				for (const auto& Object : Retained)
-				{
-					DObject* Value = Object.Get();
-					if (Value) Collector.AddReferencedObject(Value);
-				}
-				for (const auto& Entry : Children)
-				{
-					DObject* Value = Entry.Child.Get();
-					if (Value) Collector.AddReferencedObject(Value);
-				}
-			}
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
-			{
-				FScopedPackageDirtySuppression SuppressReplay;
-				const bool bPresent = (Operation != ETransactionOperation::Undo) != bRemove;
-				auto Reject = [&](EActorChangeError Code) -> FActorChangeResult {
-					return {{.Code = Code, .TargetPath = Component ? Component->GetObjectPath() : std::string{}}};
-				};
-				auto Interrupted = []() -> FActorChangeResult {
-					return {{.Code = EActorChangeError::TargetUnavailable,
-						.CleanupCause = std::make_shared<FActorChangeError>(FActorChangeError{.Code = EActorChangeError::RollbackIncomplete})}};
-				};
-				if (!CanEditActorOwner(Owner.Get()) || !IsValid(Component.Get()) || Component->IsBeingDestroyed() || Component->HasBegunPlay()
-					|| Component->GetOwner() != Owner.Get()
-					|| Component->HasAnyObjectFlags(EObjectFlags::ClassDefaultObject | EObjectFlags::DefaultSubobject)
-					|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return Reject(EActorChangeError::TargetUnavailable);
-				// Serialized membership can already be restored by an earlier object
-				// record. This adapter owns publication into the native live set.
-				if (Owner->OwnsComponent(Component.Get()) == bPresent) return Reject(EActorChangeError::MembershipChanged);
-				auto* Scene = Cast<DSceneComponent>(Component.Get());
-				if (bPresent)
-				{
-					if (Owner->OwnsComponent(Component.Get())) return Reject(EActorChangeError::MembershipChanged);
-					if (bRoot && Owner->GetRootComponent() && Owner->GetRootComponent() != Component.Get()) return Reject(EActorChangeError::MembershipChanged);
-					if (Parent && (!IsValid(Parent.Get()) || !Parent->GetOwner()
-						|| Parent->GetOwner()->GetOuter() != Owner->GetOuter()
-						|| !Parent->GetOwner()->OwnsComponent(Parent.Get()) || Parent.Get() == Scene
-						|| (Scene && Parent->IsAttachedTo(Scene)))) return Reject(EActorChangeError::ParentInvalid);
-					for (const auto& Existing : Owner->GetComponents())
-						if (Existing && Existing->GetFName() == Component->GetFName()) return Reject(EActorChangeError::MembershipChanged);
-					for (const auto& Entry : Children)
-						if (!IsValid(Entry.Child.Get()) || Entry.Child->IsBeingDestroyed() || !Entry.Child->GetOwner()
-							|| !Entry.Child->GetOwner()->OwnsComponent(Entry.Child.Get())
-							|| Entry.Child->GetOwner()->GetOuter() != Owner->GetOuter()
-							|| Entry.Child->GetAttachParent()) return Reject(EActorChangeError::ParentInvalid);
-					// Runtime callbacks can retire participants after membership publication.
-					Component->SetTransient(bTransient);
-					if (Scene)
-					{
-						Scene->SetRelativeTransform(Relative);
-						if (Parent) verify(Scene->AttachToComponent(Parent.Get(), EAttachmentTransformRule::KeepRelative));
-						else Scene->UpdateComponentToWorld();
-					}
-					if (!Owner->SetInstanceComponentPresence(Component.Get(), true, false, InstanceIndex))
-						return Reject(EActorChangeError::MembershipChanged);
-					if (!CanEditActorOwner(Owner.Get()) || !IsValid(Component.Get()) || !Owner->IsInstanceComponent(Component.Get()))
-						return Interrupted();
-					if (bRoot) verify(Owner->SetRootComponent(Scene));
-					for (const auto& Entry : Children)
-					{
-						verify(Entry.Child->AttachToComponent(Scene, EAttachmentTransformRule::KeepRelative));
-						Entry.Child->SetRelativeTransform(Entry.Relative);
-					}
-					if (bRegistered) Component->RegisterComponent();
-					if (!CanEditActorOwner(Owner.Get()) || !IsValid(Component.Get()) || !Owner->IsInstanceComponent(Component.Get()))
-						return Interrupted();
-					Retained.clear();
-					RetainTree(Component.Get());
-				}
-				else
-				{
-					if (Scene && (Scene->GetAttachParent() != Parent.Get()
-						|| (Owner->GetRootComponent() == Scene) != bRoot)) return Reject(EActorChangeError::ParentMismatch);
-					if (Scene && Scene->GetAttachChildren().size() != Children.size()) return Reject(EActorChangeError::MembershipChanged);
-					for (const auto& Entry : Children)
-						if (!IsValid(Entry.Child.Get()) || Entry.Child->GetAttachParent() != Scene) return Reject(EActorChangeError::ParentMismatch);
-					bRegistered = Component->IsRegistered();
-					Retained.clear();
-					RetainTree(Component.Get());
-					if (!Owner->SetInstanceComponentPresence(Component.Get(), false)) return Reject(EActorChangeError::MembershipChanged);
-					if (!CanEditActorOwner(Owner.Get()) || !IsValid(Component.Get()) || Owner->OwnsComponent(Component.Get()))
-						return Interrupted();
-					Retained.clear();
-					RetainTree(Component.Get());
-					Component->SetTransient(true);
-				}
-				return {};
-			}
-
-		private:
-			auto RetainTree(DObject* Object) -> void
-			{
-				if (!IsValid(Object)) return;
-				Retained.emplace_back(Object);
-				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) RetainTree(Child);
-			}
-			TObjectPtr<AActor> Owner;
-			TObjectPtr<DActorComponent> Component;
-			TObjectPtr<DSceneComponent> Parent;
-			std::vector<FChildAttachment> Children;
-			std::vector<TObjectPtr<DObject>> Retained;
-			FTransform Relative;
-			std::array<DPackage*, 1> Packages{};
-			size_t InstanceIndex = 0;
-			bool bRemove = false, bRoot = false, bRegistered = true, bTransient = false, bDuplicate = false;
-		};
-
-		auto Execute(std::unique_ptr<FActorCommandChange> Change, DActorComponent* Component,
-			DTransactor* Transactions) -> bool
-		{
-			if (!Transactions) return false;
-			const auto Result = ApplyEditorChange(*Transactions, std::move(Change));
-			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired && IsValid(Component))
-				if (auto* Owner = Component->GetOwner(); !IsValid(Owner) || !Owner->OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
-			if (!Result) return false;
-			return true;
+			if (!Owner.SetInstanceComponentPresence(&Component, true, false) || !IsValid(&Component)
+				|| !CanEditActorOwner(&Owner) || !Owner.IsInstanceComponent(&Component)) return false;
+			if (Scene && !Parent && !Owner.GetRootComponent()) Owner.SetRootComponent(Scene);
+			Component.RegisterComponent();
+			return CanEditActorOwner(&Owner) && IsValid(&Component) && Owner.IsInstanceComponent(&Component);
 		}
+
 		auto UniqueName(AActor& Owner, FName Requested, DObject* Ignored = nullptr) -> FName
 		{
 			const auto Existing = GDObjectArray.GetObjectsWithOuter(&Owner, EObjectQueryScope::LiveOnly);
@@ -222,11 +76,8 @@ namespace Durin
 				Component = NewObject<DActorComponent>(Class, &Owner, UniqueName(Owner, FName(Name)), EObjectFlags::Transactional);
 			}
 			if (!Component) return nullptr;
-			// PostInitProperties establishes native ownership. This domain command
-			// prepares an absent instance and publishes membership only during Apply.
 			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
 			Component->SetTransient(true);
-			auto Change = std::make_unique<FComponentMembershipChange>(Owner, *Component, false);
 			auto* Scene = Cast<DSceneComponent>(Component);
 			DSceneComponent* Destination = Scene ? (Parent ? Parent : Owner.GetRootComponent()) : nullptr;
 			FTransform Relative = Scene && !Parent ? Scene->GetRelativeTransform() : FTransform{};
@@ -235,13 +86,16 @@ namespace Durin
 				Scene->UpdateComponentToWorld();
 				Relative = FTransform::MakeRelative(Scene->GetWorldTransform(), Destination->GetWorldTransform());
 			}
-			Change->ConfigureAddition(Destination, Scene && !Owner.GetRootComponent() && !Destination, Relative);
 			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)
 			{
 				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
 			}
-			if (auto Applied = Execute(std::move(Change), Component, Transactions); !Applied) return nullptr;
+			if (!PublishInstance(Owner, *Component, Destination, Relative, false, *Transactions, "Add component"))
+			{
+				if (IsValid(Component) && !Owner.OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
+				return nullptr;
+			}
 			return Component;
 
 		});
@@ -268,18 +122,21 @@ namespace Durin
 			if (!Copy) return nullptr;
 			auto* Component = *Copy;
 			if (IsValid(&Owner) && IsValid(Component)) Owner.RemoveOwnedComponent(Component);
-			auto Change = std::make_unique<FComponentMembershipChange>(Owner, *Component, false);
 			Component->SetTransient(true);
 			// Ordinary duplication runs PostLoad and remaps owned subobjects before publication.
 			auto* SourceScene = Cast<DSceneComponent>(Source);
-			Change->ConfigureAddition(SourceScene ? SourceScene->GetAttachParent() : nullptr, false,
-				SourceScene ? SourceScene->GetRelativeTransform() : FTransform{}, Source->HasAnyObjectFlags(EObjectFlags::Transient), true);
 			if (auto Revalidated = Admit(Context, nullptr, &Owner, true); !Revalidated)
 			{
 				if (IsValid(Component)) MarkObjectHierarchyAsGarbage(Component);
 				return nullptr;
 			}
-			if (auto Applied = Execute(std::move(Change), Component, Transactions); !Applied) return nullptr;
+			if (!PublishInstance(Owner, *Component, SourceScene ? SourceScene->GetAttachParent() : nullptr,
+				SourceScene ? SourceScene->GetRelativeTransform() : FTransform{}, Source->HasAnyObjectFlags(EObjectFlags::Transient),
+				*Transactions, "Duplicate component"))
+			{
+				if (IsValid(Component) && !Owner.OwnsComponent(Component)) MarkObjectHierarchyAsGarbage(Component);
+				return nullptr;
+			}
 			return Component;
 
 		});
@@ -298,10 +155,10 @@ namespace Durin
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
 			const FName Name = UniqueName(Owner, RequestedName, Component);
 			if (Name == Component->GetFName()) return true;
-			FScopedTransaction Recording(Transactions, {"ComponentRename", "Rename component", Component});
+			FScopedTransaction Recording("ComponentRename", "Rename component", Component);
 			if (!Recording.IsOutstanding()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
-			if (!Component->Modify(false)) return false;
+			if (!Component->Modify(false) || !Transactions->IsActive()) return false;
 			Component->Rename(Name);
 			return true;
 
@@ -323,10 +180,10 @@ namespace Durin
 					|| Parent->GetCreationMethod() == EComponentCreationMethod::Generated || Parent == Component || Parent->IsAttachedTo(Component))))
 				return false;
 			if (Component->GetAttachParent() == Parent) return true;
-			FScopedTransaction Scope(Transactions, {"ComponentAttachment", "Reparent component", Component});
+			FScopedTransaction Scope("ComponentAttachment", "Reparent component", Component);
 			if (!Scope.IsOutstanding()) return false;
 			Component->SetFlags(EObjectFlags::Transactional);
-			if (!Component->Modify(false)) return false;
+			if (!Component->Modify(false) || !Transactions->IsActive()) return false;
 			return Parent ? Component->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld)
 				: Component->DetachFromComponent(EDetachmentTransformRule::KeepWorld);
 
@@ -344,7 +201,18 @@ namespace Durin
 			if (!IsValid(Component) || !Owner.IsInstanceComponent(Component)
 				|| Component->GetCreationMethod() == EComponentCreationMethod::Generated)
 				return false;
-			return Execute(std::make_unique<FComponentMembershipChange>(Owner, *Component, true), Component, Transactions);
+			FScopedTransaction Scope("Component", "Delete component", &Owner);
+			if (!Scope.IsOutstanding()) return false;
+			Owner.SetFlags(EObjectFlags::Transactional);
+			Owner.Modify(false);
+			Component->SetFlags(EObjectFlags::Transactional);
+			Component->Modify(false);
+			if (auto* Scene = Cast<DSceneComponent>(Component))
+				for (const auto& Child : Scene->GetAttachChildren())
+					if (Child) { Child->SetFlags(EObjectFlags::Transactional); Child->Modify(false); }
+			if (!Transactions->IsActive() || !Owner.SetInstanceComponentPresence(Component, false)) return false;
+			Component->SetTransient(true);
+			return CanEditActorOwner(&Owner) && !Owner.OwnsComponent(Component);
 
 		});
 	}

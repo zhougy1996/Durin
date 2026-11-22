@@ -1,9 +1,12 @@
 #include "WorldTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
+#include "DObject/AssetPath.h"
 
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Editor/EditorEngineTestSupport.h"
 #include "Transactions/Transactor.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Client/ViewportClient.h"
 #include "Engine/GameEngine.h"
 #include "Engine/MapChange.h"
@@ -1119,7 +1122,12 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	InitializeDObjectSystem();
 	auto* Engine = Durin::NewObject<Durin::DEditorEngine>(nullptr, "NativeGameplayPIETestEngine");
 	Durin::TStrongObjectPtr<Durin::DEditorEngine> EngineRoot(Engine);
-	auto* EditorWorld = Durin::NewObject<Durin::DWorld>(Engine, "EditorWorld");
+	Durin::Testing::RegisterMountPointForTests("/PlayApply/", std::filesystem::temp_directory_path().generic_string() + "/");
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/PlayApply/EditorWorld", Path));
+	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetPackageName());
+	Package->InitializeAssetPackage(Path);
+	auto* EditorWorld = Durin::NewObject<Durin::DWorld>(Package, "EditorWorld");
 	EditorWorld->SetWorldType(Durin::EWorldType::Editor);
 	EXPECT_NO_THROW(EditorWorld->InitializeSubsystems());
 	auto* EditorLevel = Durin::NewObject<Durin::DLevel>(EditorWorld, "EditorLevel");
@@ -1134,7 +1142,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	std::string Error;
 	Durin::TStrongObjectPtr<Durin::DTransBuffer> Foreign(Durin::NewObject<Durin::DTransBuffer>(nullptr, "ForeignPlayRecording"));
 	{
-		Durin::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign recording"});
+		Durin::Tests::FBufferRecording Scope(Foreign.Get(), {.Description = "Foreign recording"});
 		EXPECT_FALSE(Durin::FEditorEngineTestAccess::StartPlaySession(*Engine, Request, Durin::AGameMode::StaticClass(), &Error));
 		EXPECT_FALSE(Error.empty()); EXPECT_EQ(Engine->GetPlayWorld(), nullptr);
 		EXPECT_EQ(Engine->GetPlayState(), Durin::EPlayState::Stopped);
@@ -1147,11 +1155,18 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	ASSERT_NE(Engine->GetPlayWorld()->GetPackage(), nullptr);
 	EXPECT_TRUE(Engine->GetPlayWorld()->GetPackage()->IsPlayInEditor());
 	{
-		Durin::FScopedTransaction Scope(Foreign.Get(), {.Description = "Foreign apply recording"});
+		Durin::Tests::FBufferRecording Scope(Foreign.Get(), {.Description = "Foreign apply recording"});
 		uint32 Applied = 42;
 		EXPECT_FALSE(Engine->ApplyPlaySessionChanges({}, &Applied, &Error));
 		EXPECT_EQ(Applied, 0u); EXPECT_FALSE(Error.empty()); EXPECT_TRUE(Scope.IsOutstanding());
 	}
+	auto* PlayCamera = Engine->GetPlayWorld()->FindActorByName(AuthoredCamera->GetFName());
+	ASSERT_NE(PlayCamera, nullptr);
+	ASSERT_TRUE(PlayCamera->SetActorLocation({4.0, 5.0, 6.0}));
+	uint32 AppliedCount = 0;
+	ASSERT_TRUE(Engine->ApplyPlaySessionChanges({PlayCamera}, &AppliedCount, &Error)) << Error;
+	EXPECT_EQ(AppliedCount, 1u);
+	EXPECT_DOUBLE_EQ(AuthoredCamera->GetActorTransform().Translation.z, 6.0);
 	EXPECT_NE(Engine->GetPIEWorldContext(), nullptr);
 	const Durin::FObjectKey PlayPackageKey(Engine->GetPlayWorld()->GetPackage());
 	ASSERT_NE(Engine->GetPlayWorld()->GetLocalPlayerController(), nullptr);
@@ -1169,7 +1184,17 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	Engine->StepPlaySession();
 	Engine->Tick(1.0f / 60.0f, false);
 	ASSERT_TRUE(Engine->GetPlayWorld()->RestartPlayer());
-	Engine->StopPlaySession();
+	bool bRequestedStop = false;
+	const auto DirtyHandle = Durin::OnAssetPackagesChanged().AddLambda([&] {
+		if (std::exchange(bRequestedStop, true)) return;
+		EXPECT_FALSE(Engine->ApplyPlaySessionChanges({PlayCamera}));
+		Engine->StopPlaySession();
+		EXPECT_TRUE(Engine->IsPlaying());
+	});
+	EXPECT_TRUE(Engine->ApplyPlaySessionChanges({PlayCamera}, &AppliedCount, &Error)) << Error;
+	Durin::OnAssetPackagesChanged().Remove(DirtyHandle);
+	EXPECT_TRUE(bRequestedStop);
+	EXPECT_EQ(AppliedCount, 1u);
 	EXPECT_EQ(Engine->GetPIEWorldContext(), nullptr);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Durin::ResolveObjectKey(PlayPackageKey), nullptr);

@@ -1762,7 +1762,7 @@ TEST_F(FWorldSubsystemTests, ActorEditingAdmitsOnlyItsLiveHostAndEditableStopped
 	EXPECT_EQ(First->GetTransactor()->GetUndoContext().TransactionId, 0u);
 	ASSERT_TRUE(First->GetTransactor()->End());
 	EXPECT_EQ(First->GetTransactor()->GetUndoContext(false).Description, "Grouped host history");
-	ASSERT_TRUE(First->GetTransactor()->Undo()) << FormatTransactorResult(First->GetTransactor()->GetLastResult());
+	ASSERT_TRUE(First->GetTransactor()->Undo());
 	EXPECT_FALSE(Level->ContainsActor(Grouped));
 	ASSERT_TRUE(First->GetTransactor()->Redo());
 	EXPECT_TRUE(Level->ContainsActor(Grouped));

@@ -203,7 +203,7 @@ namespace Durin
 		Super::PreEditUndo();
 		PreUndoActors.emplace();
 		PreUndoActors->reserve(Actors.size());
-		for (const auto& Actor : Actors) PreUndoActors->push_back({FObjectKey(Actor.Get())});
+		for (const auto& Actor : Actors) PreUndoActors->emplace_back(Actor.Get());
 	}
 
 	auto DLevel::PostEditUndo() -> void
@@ -212,32 +212,26 @@ namespace Durin
 		{
 			// UE ULevel restores still-live Actors omitted by a historical array.
 			// Durin keeps absent objects valid, so only preserve previously published
-			// Actors that no native presence adapter changed in this operation.
+			// Actors whose own snapshots did not remove them.
 			for (const auto& Entry : *PreUndoActors)
 			{
-				auto* Object = ResolveObjectKey(Entry.Actor);
+				auto* Object = ResolveObjectKey(Entry);
 				auto* Actor = IsValid(Object) ? Cast<AActor>(Object) : nullptr;
-				if (!Entry.bPresenceChanged && Actor && Actor->GetOuter() == this && !ContainsActor(Actor)) Actors.emplace_back(Actor);
+				if (Actor && Actor->GetOuter() == this && !ContainsActor(Actor)) Actors.emplace_back(Actor);
 			}
 			PreUndoActors.reset();
+#if DURIN_WITH_EDITOR
+			FEditorSupportDelegates::ActorHierarchyChanged.Broadcast(*this);
+#endif
 		}
 		Super::PostEditUndo();
-	}
-
-	auto DLevel::IsActorMembershipChangedDuringUndo(const AActor* Actor) const -> bool
-	{
-		return PreUndoActors && ContainsActor(Actor)
-			!= std::ranges::contains(*PreUndoActors, FObjectKey(Actor), &FPreUndoActor::Actor);
 	}
 
 	auto DLevel::SetActorPresence(AActor* Actor, bool bPresent, size_t ActorIndex, bool bRegisterComponents) -> bool
 	{
 		if (!IsValid(Actor) || Actor->IsTemplateObject() || Actor->GetOuter() != this || Actor->IsBeingDestroyed()
 			|| Actor->HasBegunPlay() || (OwningWorld && (OwningWorld->HasBegunPlay() || OwningWorld->IsEndingPlay()))
-			|| (ContainsActor(Actor) == bPresent && !IsActorMembershipChangedDuringUndo(Actor))) return false;
-		if (PreUndoActors)
-			for (auto& Entry : *PreUndoActors)
-				if (Entry.Actor == FObjectKey(Actor)) Entry.bPresenceChanged = true;
+			|| ContainsActor(Actor) == bPresent) return false;
 		if (bPresent)
 		{
 			if (!IsActorNameAvailable(Actor->GetFName(), Actor)) return false;

@@ -285,8 +285,8 @@ namespace Durin
                 const char* Description;
                 if (!PyArg_ParseTuple(Params, "s", &Description)) return nullptr;
                 const auto Id = NextIdentity++;
-                auto* Owner = CurrentEditor->GetTransactor();
-                auto Scope = std::make_unique<FScopedTransaction>(Owner, FTransactionContext{.Description = Description});
+                if (GEditor != CurrentEditor) return Fail("The script editor is no longer active.");
+                auto Scope = std::make_unique<FScopedTransaction>(Description);
                 if (!Scope->IsOutstanding()) return Fail("The editor rejected transaction recording.");
                 CurrentJob->Scopes.push_back({Id, std::move(Scope)});
                 return Py_BuildValue("KK", static_cast<unsigned long long>(CurrentJob->Id), static_cast<unsigned long long>(Id));
@@ -652,7 +652,13 @@ namespace Durin
                 std::lock_guard Lock(Mutex);
                 for (const auto& [Id, Job] : Jobs) if (Job->Endpoint == Endpoint) { Cancel(Job); Closing.push_back(Job); }
             }
-            if (Executing || !ThreadState) return;
+            if (Executing || !ThreadState)
+            {
+                // Python cleanup is deferred. Release native scopes before their editor is replaced.
+                for (auto& Job : Closing)
+                    while (!Job->Scopes.empty()) Job->Scopes.pop_back();
+                return;
+            }
             Executing = true; PyEval_RestoreThread(std::exchange(ThreadState, nullptr)); CurrentEditor = nullptr;
             for (auto& Job : Closing) if (Job->Started) { Finish(*Job, EPythonJobState::Cancelled); std::lock_guard Lock(Mutex); std::erase(Queue, Job); }
             ThreadState = PyEval_SaveThread(); Executing = false;

@@ -273,7 +273,7 @@ TEST(FSharedDetailCustomizationTests, DeferredTargetsPreserveDragReleaseEscapeAn
 	EXPECT_EQ(Value(), Committed);
 	IO.AddKeyEvent(ImGuiKey_Escape, false);
 	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false); Draw();
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkObjectHierarchyAsGarbage(Light);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

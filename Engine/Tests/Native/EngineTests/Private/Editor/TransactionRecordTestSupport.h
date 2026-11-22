@@ -419,18 +419,8 @@ namespace Durin::Tests::ObjectState
 	{
 		const auto Index = Buffer.Begin(Context.Name, Context.Description);
 		Buffer.SetPrimaryUndoObject(Context.PrimaryObject);
-		return {Index, Buffer.GetLastResult().TransactionId};
+		return {Index, Index >= 0 ? Durin::GUndo->GetContext().TransactionId : 0};
 	}
-	// Consume the scope so assertions can inspect the buffer after RAII completion.
-	inline void DestroyScope(Durin::FScopedTransaction) {}
-	inline auto EndRecording(Durin::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::FTransactorResult
-	{ DestroyScope(std::move(Scope)); return Buffer.GetLastResult(); }
-	inline auto CancelRecording(Durin::FScopedTransaction& Scope, Durin::DTransactor& Buffer) -> Durin::FTransactorResult
-	{ Scope.Cancel(); return Buffer.GetLastResult(); }
-	inline auto CancelRecording(Durin::DTransactor& Buffer, int32 Index) -> Durin::FTransactorResult
-	{ Buffer.Cancel(Index); return Buffer.GetLastResult(); }
-	inline auto EndRecording(Durin::DTransactor& Buffer) -> Durin::FTransactorResult
-	{ (void)Buffer.End(); return Buffer.GetLastResult(); }
 	inline auto ReadTransactionEvents(Durin::DTransactor& Buffer) -> std::vector<Durin::FTransactionEvent>
 	{
 		std::vector<Durin::FTransactionEvent> Events;

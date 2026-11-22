@@ -2,6 +2,7 @@
 #include "RoadNet/RoadNetActor.h"
 #include "RoadNet/RoadNetBuilder.h"
 #include "PropertyEditor/PropertyEditing.h"
+#include "Editor/EditorEngine.h"
 #include "Transactions/Transaction.h"
 #include "Transactions/Transactor.h"
 #include "Components/SplineMeshComponent.h"
@@ -39,8 +40,9 @@ namespace
 			PackageRoot = TStrongObjectPtr<DObject>(Package);
 			Asset = NewObject<DRoadNet>(Package, "Network");
 			Draft = NewObject<DRoadNet>(Asset, "Draft");
-			Transactor = NewObject<DTransBuffer>(nullptr, "RoadEditorHistory");
-			TransactorRoot = TStrongObjectPtr<DObject>(Transactor);
+			Editor = NewObject<DEditorEngine>(nullptr, "RoadEditor");
+			ASSERT_TRUE(Editor->ActivateEditor());
+			Transactor = static_cast<DTransBuffer*>(Editor->GetTransactor());
 			Property = Asset->GetClass()->FindPropertyByName(FName("Definition"));
 			ASSERT_NE(Property, nullptr);
 
@@ -73,7 +75,13 @@ namespace
 		auto TearDown() -> void override
 		{
 			if (Actor) Actor->BeginDestroy();
-			if (Transactor) EXPECT_TRUE(Transactor->TryReset());
+			if (Transactor) Transactor->Reset();
+			if (Editor)
+			{
+				Editor->PreExit();
+				MarkObjectHierarchyAsGarbage(Editor.Get());
+				Editor.Reset();
+			}
 			if (Package)
 			{
 				PackageRoot.Reset();
@@ -133,7 +141,7 @@ namespace
 		DTransBuffer* Transactor = nullptr;
 		FProperty* Property = nullptr;
 		TStrongObjectPtr<DObject> PackageRoot;
-		TStrongObjectPtr<DObject> TransactorRoot;
+		TStrongObjectPtr<DEditorEngine> Editor;
 		FDefinition Original;
 	};
 
@@ -190,7 +198,7 @@ namespace
 		const auto Changed = AddRoad();
 		std::string Error;
 		{
-			FScopedTransaction Transaction(Transactor, {"road", "Add road using Modify"});
+			Durin::FScopedTransaction Transaction("road", "Add road using Modify", nullptr);
 			ASSERT_TRUE(Asset->Modify());
 			ASSERT_TRUE(Asset->SetDefinition(Changed, Error)) << Error;
 		}

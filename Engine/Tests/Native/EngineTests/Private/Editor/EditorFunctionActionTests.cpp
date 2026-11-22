@@ -3,6 +3,7 @@
 #include "PropertyEditor/DetailPanel.h"
 #include "MonaImGui.h"
 #include "DObject/Class.h"
+#include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
@@ -175,7 +176,6 @@ TEST_F(FEditorFunctionTests, InheritedVirtualActionRecordsValuesAndNeverReinvoke
 	const auto Action = ExecuteEditorFunction(View, Context, Request(Target));
 	EXPECT_EQ(Action.Error, EEditorFunctionError::None);
 	EXPECT_TRUE(Action.bInvoked);
-	EXPECT_TRUE(Action.bChanged);
 	EXPECT_EQ(Target->Value, 10);
 	EXPECT_EQ(Target->DerivedValue, 20);
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
@@ -208,7 +208,7 @@ TEST_F(FEditorFunctionTests, AdmissionAndReentrancyPreventNativeMutation)
 	EXPECT_EQ(Target->EventDispatches, 0);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	Context.TransactionMode = ETransactionMode::Record;
-	FScopedTransaction Busy(Buffer.Get(), {"test", "Busy"});
+	Durin::FScopedTransaction Busy("test", "Busy", nullptr);
 	EXPECT_TRUE(ExecuteEditorFunction(View, Context, Request(Target)).bInvoked);
 	(void)Busy.Cancel();
 	EXPECT_EQ(Target->Invocations, 1);
@@ -277,7 +277,6 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 	const auto ActionRequest = Request(Light, "NormalizeSettings");
 	const auto Action = ExecuteEditorFunction(View, Context, ActionRequest);
 	ASSERT_EQ(Action.Error, EEditorFunctionError::None);
-	EXPECT_TRUE(Action.bChanged);
 	EXPECT_EQ(*Intensity->ContainerPtrToValuePtr<float>(Light.Get()), 0.0f);
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Buffer->Undo());
@@ -288,7 +287,6 @@ TEST_F(FEditorFunctionTests, GeneratedPrivatePointLightActionSupportsUndoAndNoOp
 	Buffer->MarkSaved(*Package);
 	const auto NoOp = ExecuteEditorFunction(View, Context, ActionRequest);
 	EXPECT_TRUE(NoOp.bInvoked);
-	EXPECT_FALSE(NoOp.bChanged);
 	EXPECT_EQ(NoOp.Error, EEditorFunctionError::None);
 	EXPECT_TRUE(Package->IsDirty());
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
@@ -324,9 +322,9 @@ TEST_F(FEditorFunctionTests, ActivePropertyEditCommitsBeforeIndependentAction)
 TEST_F(FEditorFunctionTests, DisabledAndMissingEditorScopesRemainInert)
 {
 	Tests::FTestEditorTransactorOwner Buffer;
-	FScopedTransaction Missing(nullptr, {"test", "Missing"});
+	Durin::FScopedTransaction Missing("test", "Missing", nullptr, false);
 	EXPECT_FALSE(Missing.IsOutstanding());
-	FScopedTransaction Disabled(Buffer.Get(), {"test", "Disabled"}, false);
+	Durin::FScopedTransaction Disabled("test", "Disabled", nullptr, false);
 	EXPECT_FALSE(Disabled.IsOutstanding());
 	EXPECT_FALSE(Buffer->IsActive());
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
@@ -379,7 +377,7 @@ TEST_F(FEditorFunctionTests, DetailsClickExecutesOnlyAfterAllRowsAndRequestsRefr
 	const auto Clicked = Frame();
 	EXPECT_TRUE(Clicked.bActionInvoked);
 	EXPECT_TRUE(Clicked.bRefreshRequested);
-	EXPECT_TRUE(Clicked.bChanged);
+	EXPECT_FALSE(Clicked.bChanged);
 	EXPECT_EQ(Target->Invocations, 1);
 	EXPECT_EQ(Buffer->GetQueueLength(), 1u);
 }
@@ -425,6 +423,38 @@ TEST_F(FEditorFunctionTests, EffectiveOverrideCanRemoveTheInheritedEditorButton)
 	EXPECT_EQ(Target->Value, 10);
 }
 
+TEST_F(FEditorFunctionTests, DirtyCallbackCancellationPreventsNativeInvocation)
+{
+	Tests::FTestEditorTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(MakeActionPackage(), "CanceledAction"));
+	FPropertyView View;
+	const auto Handle = OnAssetPackagesChanged().AddLambda([&] { if (Buffer->IsActive()) Buffer->Cancel(); });
+	const auto Result = ExecuteEditorFunction(View, {}, Request(Target));
+	OnAssetPackagesChanged().Remove(Handle);
+	EXPECT_EQ(Result.Error, EEditorFunctionError::History);
+	EXPECT_FALSE(Result.bInvoked);
+	EXPECT_EQ(Target->EventDispatches, 0);
+	EXPECT_EQ(Target->Invocations, 0);
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+}
+
+TEST_F(FEditorFunctionTests, NestedInvocationLeavesPublicationToOuterScope)
+{
+	Tests::FTestEditorTransactorOwner Buffer;
+	TStrongObjectPtr<DFunctionTarget> Target(NewObject<DFunctionTarget>(nullptr, "NestedAction"));
+	FPropertyView View;
+	{
+		FScopedTransaction Outer("Grouped action");
+		const auto Result = ExecuteEditorFunction(View, {}, Request(Target));
+		EXPECT_TRUE(Result.bInvoked);
+		EXPECT_EQ(Result.Error, EEditorFunctionError::None);
+		EXPECT_EQ(Buffer->GetQueueLength(), 0u);
+	}
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+	EXPECT_EQ(Target->Invocations, 1);
+}
+
 TEST_F(FEditorFunctionTests, NonTransactionalTargetStillExecutesNativeAction)
 {
 	Tests::FTestEditorTransactorOwner Buffer;
@@ -435,7 +465,6 @@ TEST_F(FEditorFunctionTests, NonTransactionalTargetStillExecutesNativeAction)
 	const auto Result = ExecuteEditorFunction(View, Context, Request(Target));
 	EXPECT_EQ(Result.Error, EEditorFunctionError::None);
 	EXPECT_TRUE(Result.bInvoked);
-	EXPECT_FALSE(Result.bChanged);
 	EXPECT_EQ(Target->Invocations, 1);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }

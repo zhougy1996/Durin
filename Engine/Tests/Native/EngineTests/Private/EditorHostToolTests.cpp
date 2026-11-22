@@ -329,7 +329,7 @@ namespace Durin::MainFrame
 			return It == Entries.end() ? nullptr : &*It;
 		};
 
-		const auto First = ApplyEditorChange(*History, std::make_unique<FChange>(Value, 1, "First"));
+		const auto First = Durin::Tests::RecordTestEdit(*History, std::make_unique<FChange>(Value, 1, "First"));
 		ASSERT_TRUE(First);
 		Publish();
 		const auto* FirstNotice = Find("First");
@@ -343,12 +343,12 @@ namespace Durin::MainFrame
 		FirstUndo.Invoke();
 		EXPECT_EQ(Value, 1);
 
-		ASSERT_TRUE(ApplyEditorChange(*History, std::make_unique<FChange>(Value, 10, "Middle", &bExpired)));
+		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*History, std::make_unique<FChange>(Value, 10, "Middle", &bExpired)));
 		Publish();
 		const auto* MiddleNotice = Find("Middle");
 		ASSERT_TRUE(MiddleNotice && MiddleNotice->Action);
 		const auto OldUndo = *MiddleNotice->Action;
-		const auto Last = ApplyEditorChange(*History, std::make_unique<FChange>(Value, 100, "Last"));
+		const auto Last = Durin::Tests::RecordTestEdit(*History, std::make_unique<FChange>(Value, 100, "Last"));
 		ASSERT_TRUE(Last);
 		ASSERT_TRUE(History->Undo());
 		ASSERT_TRUE(History->Undo());
@@ -359,17 +359,17 @@ namespace Durin::MainFrame
 		ASSERT_TRUE(OldRedo.IsEnabled());
 
 		bExpired = true;
-		EXPECT_EQ(History->GetRedoContext().TransactionId, Last.TransactionId);
+		EXPECT_EQ(History->GetRedoContext().TransactionId, Last);
 		EXPECT_FALSE(OldRedo.IsEnabled());
 		OldRedo.Invoke();
 		EXPECT_EQ(Value, 1);
-		EXPECT_EQ(History->GetRedoContext().TransactionId, Last.TransactionId);
+		EXPECT_EQ(History->GetRedoContext().TransactionId, Last);
 		History->RemoveUndoBarrier();
-		EXPECT_EQ(History->GetUndoContext().TransactionId, First.TransactionId);
+		EXPECT_EQ(History->GetUndoContext().TransactionId, First);
 		EXPECT_FALSE(OldUndo.IsEnabled());
 		OldUndo.Invoke();
 		EXPECT_EQ(Value, 1);
-		EXPECT_EQ(History->GetUndoContext().TransactionId, First.TransactionId);
+		EXPECT_EQ(History->GetUndoContext().TransactionId, First);
 		ASSERT_TRUE(History->Redo());
 		EXPECT_EQ(Value, 101);
 	}

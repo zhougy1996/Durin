@@ -663,7 +663,7 @@ TEST_F(FAssetPackageReloadTests, ReloadRetainsCrossPackageHistoryAndRebindsTheSa
 	Transactions->EstablishSavedState(*Textures[0]->GetPackage());
 	Transactions->EstablishSavedState(*Textures[1]->GetPackage());
 	{
-		FScopedTransaction Scope(Transactions, {"test", "Cross-package edit"});
+		Tests::FBufferRecording Scope(Transactions, {"test", "Cross-package edit"});
 		for (DTexture2D* Texture : Textures)
 		{
 			(void)Texture->Modify();
@@ -833,7 +833,7 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     auto* Transactions=NewObject<DTransBuffer>(nullptr,"SkyLightHistory");
     TStrongObjectPtr<DTransBuffer> Root(Transactions);
     {
-        FScopedTransaction Scope(Transactions,{"test","Change Sky Light"});
+        Tests::FBufferRecording Scope(Transactions, {"test", "Change Sky Light"});
         (void)Light->Modify();
         Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
         Light->SetIntensity(3);
@@ -844,7 +844,7 @@ TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceA
     ASSERT_TRUE(Transactions->Redo());
     EXPECT_EQ(Light->GetSourceMode(),ESkyLightSourceMode::CapturedSky);
     EXPECT_EQ(Light->GetIntensity(),3);
-    ASSERT_TRUE(Transactions->TryReset()); Root.Reset();
+    Transactions->Reset(); Root.Reset();
     ASSERT_TRUE(SavePackage(Actor->GetPackage()));
     ASSERT_TRUE(UnloadPackage(Path));
     ASkyLightActor* Reopened=nullptr;
@@ -993,7 +993,7 @@ TEST_F(FAssetPackageReloadTests, EditorDiscardPreservesReinstancedHistoryAndTran
 	EditorOwner->EstablishSavedState(*Texture->GetPackage());
 	const auto SavedSRGB = Texture->IsSRGB();
 	{
-		FScopedTransaction Scope(EditorOwner.Get(), {"test", "Discarded texture settings", Texture});
+		Durin::FScopedTransaction Scope("test", "Discarded texture settings", Texture);
 		ASSERT_TRUE(Texture->Modify());
 		Texture->SetBuildSettings(Texture->GetUsage(), !SavedSRGB, Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
 			Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold());

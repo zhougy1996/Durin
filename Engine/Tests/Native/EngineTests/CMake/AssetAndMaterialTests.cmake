@@ -317,6 +317,7 @@ durin_add_native_test(LevelMutationTests
 		Private/Editor/ComponentMutationTests.cpp
 	LIBRARIES Core CoreDObject Engine DurinEd
 	INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/DurinEd/Private
 	REQUIRES editor
 	REQUIREMENT_RATIONALE "Uses editor-only build services or editor module implementations."
 	HEAVY_RUNTIME_RATIONALE "Exercises transaction-backed Actor and Component structural mutations."

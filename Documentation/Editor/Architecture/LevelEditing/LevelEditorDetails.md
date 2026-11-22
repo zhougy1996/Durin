@@ -4,7 +4,7 @@ Summary: Define Actor/Component inspection targets, component aggregation, gener
 
 Modules: LevelEditor, DurinEd, Engine
 
-Last reviewed: 2026-10-21
+Last reviewed: 2026-11-22
 
 ## Host Ownership
 
@@ -58,18 +58,15 @@ instance membership; duplication also rejects the root component.
 Removal unregisters and uninitializes the component, routes its destruction
 notification, removes authored/owned/instance membership, and clears its root
 role when applicable. Scene children detach with their world transforms intact.
-The record retains the exact component and its Outer subtree through collector
-references; absent objects are transient and excluded from package capture.
+The record retains the exact component and captured references; absent objects are transient and excluded from package capture.
 Undo restores membership order, root role, parent/child attachments and relative
 transforms before restoring the previous registration state. Older property
 records therefore continue to resolve the same object. Discarding history lets
 an absent component be collected normally.
 
-Replay revalidates the owner's Level membership and stopped, non-closing World.
-Retention refreshes the complete Outer subtree before removal and after lifecycle
-callbacks, including subobjects added after publication. Callback removal of the
-component or retirement of its owner cannot report a successful edit; incomplete
-compensation requires recovery. Replay suppresses incidental package dirty marks
+The owner and component are captured before the membership write. The new
+component already has the Instance creation method when captured. GC follows the recorded references. Outer-only children may expire. If a callback removes the component or retires its owner, the
+subsystem reports that publication failed. Replay suppresses incidental package dirty marks
 so rejected operations do not advance package revisions.
 
 Duplication uses the ordinary object-graph duplication pipeline, including owned
@@ -86,20 +83,14 @@ collision before writing; it never substitutes another name during undo or redo.
 Live native components, including the root, can be renamed; template objects
 cannot. Name changes preserve root/ownership roles and render registration.
 Ordinary historical fields may restore on a retained absent owner, without
-reactivating it or rerunning new-edit admission. Structural membership and
-attachment commands still require a live admitted owner.
+reactivating it or rerunning new-edit admission. Component presence replay checks the owner before restoring membership.
 
-Reparenting records retain both parents and both authored relative transforms.
-Initial execution preserves the component's world transform; undo and redo restore
-the captured relative transform through the normal attach/detach APIs, rebuilding
-both child lists, descendant world transforms, and render updates. Root moves,
-foreign destinations, generated components, and cycles are rejected. Replay also
-rejects an unrelated current parent or an unavailable destination before writing.
-When an earlier whole-object load already restored the desired edge, the adapter
-does not publish that attachment again. The pre-undo parent distinguishes that
-case from an external edit made before replay. Component presence similarly reconciles
-serialized instance membership with native ownership; the Actor completion hook
-validates the settled set after the complete ordered replay.
+Reparenting opens a scope and captures the moved component before preserving its
+world transform under the destination. Actor attachment captures the moved roots
+after validating the batch. Undo restores the saved parent and relative transform
+even after an external edit. Replay checks the destination graph for cycles and
+reconciles reverse links during completion.
+The Actor completion hook validates native instance membership after ordered replay.
 No-op renames and reparenting create no history entry. Both commands participate
 in package saved revisions without manual saved-state invalidation.
 

@@ -102,12 +102,13 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	ASSERT_NE(TransProperty, nullptr);
 	EXPECT_TRUE(TransProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
 	{
-		Durin::FScopedTransaction Missing(nullptr, {.Description = "No transaction owner"});
+		Durin::FScopedTransaction Missing("No active editor");
 		EXPECT_FALSE(Missing.IsOutstanding());
 		EXPECT_FALSE(Buffer->IsActive());
 	}
+	ASSERT_TRUE(Editor->ActivateEditor());
 	{
-		Durin::FScopedTransaction Scope(Editor->GetTransactor(), {.Description = "Editor transaction"});
+		Durin::FScopedTransaction Scope("Editor transaction");
 		ASSERT_TRUE(Scope.IsOutstanding());
 		Scope.Cancel();
 		EXPECT_FALSE(Scope.IsOutstanding());
@@ -125,7 +126,7 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	ASSERT_TRUE(Editor->Modify(false));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
-	EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Destroying);
+	EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), Durin::ETransactorState::Destroying);
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 	EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
@@ -161,7 +162,7 @@ TEST(FAssetEditorSessionTests, UndoToActivatedRevisionClearsDirtyState)
 	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);
 
 	{
-		Durin::FScopedTransaction Recording(&Transactions, {.Description = "Edit Asset"});
+		Durin::FScopedTransaction Recording("Edit Asset");
 		Package->MarkDirty();
 		ASSERT_TRUE(Transactions.StoreUndo(
 			std::make_unique<FAppliedPackageEdit>(*Package)));
@@ -173,7 +174,7 @@ TEST(FAssetEditorSessionTests, UndoToActivatedRevisionClearsDirtyState)
 	EXPECT_TRUE(Package->IsDirty());
 	const auto UndoLabel = Documents.GetUndoDescription();
 	EXPECT_EQ(UndoLabel, "Edit Asset");
-	ASSERT_TRUE(Transactions.TryReset());
+	Transactions.Reset();
 	EXPECT_TRUE(Documents.GetUndoDescription().empty());
 	EXPECT_EQ(UndoLabel, "Edit Asset");
 

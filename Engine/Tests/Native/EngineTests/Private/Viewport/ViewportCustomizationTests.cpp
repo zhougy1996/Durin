@@ -410,7 +410,7 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	ASSERT_GT(Math::Length(SecondDragged - SecondStart), 1.e-3);
 
 	{
-		FScopedTransaction Scope(Transactions.Get(), {.Description = "Reorder spline points"});
+		Durin::FScopedTransaction Scope("Reorder spline points");
 		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	}
 	ASSERT_TRUE(Transactions->Undo());
@@ -432,7 +432,6 @@ TEST(FSplineViewportAuthoringTests, PointUndoFollowsItsOwnHistoryAndExpiresTheWh
 	const auto ExternallyReordered = Spline->GetSplinePoints();
 	EXPECT_FALSE(Transactions->CanUndo());
 	EXPECT_FALSE(Transactions->Undo());
-	EXPECT_EQ(Transactions->GetLastResult().Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(Spline->GetSplinePoints(), ExternallyReordered);
 	EXPECT_EQ(Second->GetSplinePoint(0)->Position, SecondDragged);
 
@@ -608,7 +607,7 @@ TEST(FActorComponentDetailsTests, CuratedActorTransformAndVisibilityPreserveUndo
 	EXPECT_TRUE(*Visible->ContainerPtrToValuePtr<bool>(Component));
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FALSE(*Visible->ContainerPtrToValuePtr<bool>(Component));
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -1298,7 +1297,7 @@ TEST(FObjectPropertyViewCustomizationTests, CameraViewDistanceSearchAndUndoUseOr
 	EXPECT_EQ(Settings->RenderDistance, Before);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Settings->RenderDistance, 300000.0f);
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkObjectHierarchyAsGarbage(Camera);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }

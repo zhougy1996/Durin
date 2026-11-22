@@ -19,10 +19,6 @@ namespace Durin
 		bool bReadOnly;
 		FActorEditContext(bool bInReadOnly) : bReadOnly(bInReadOnly) {}
 	};
-	// Native compound owners supply prepared, unpublished actors. The returned change
-	// retains identities for replay; the preparer owns cleanup until publication.
-	DURINED_API auto MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors,
-		bool bRemove, std::string Description) -> std::unique_ptr<FActorCommandChange>;
 }
 
 namespace Durin
@@ -84,10 +80,12 @@ namespace Durin
 		DFUNCTION(ScriptCallable, ScriptName = "DetachActors")
 		DURINED_API auto ScriptDetachActors(DLevel* Level, const std::vector<TObjectPtr<AActor>>& Actors, EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 		// Failed creation returns null, failed duplication an empty array, and other failures false.
-		// Successful no-ops return true without new history. Detailed recovery state belongs to the transactor.
+		// Attachment and detachment report whether any root changed. Other successful no-ops return true. Detailed recovery state belongs to the transactor.
 		DURINED_API auto SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
 			const FActorEditContext& Context, std::function<void(AActor&)> Configure = {},
-			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested, const std::string& Label = "") -> AActor*;
+			ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested, const std::string& Label = "", std::string* OutError = nullptr) -> AActor*;
+		// Checks the host's edit policy for an existing level actor.
+		DURINED_API auto CanEditActor(AActor& Actor, const FActorEditContext& Context) const -> std::expected<void, std::string>;
 		DURINED_API auto DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> bool;
 		DURINED_API auto DuplicateActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> std::vector<TObjectPtr<AActor>>;
 		DURINED_API auto RenameActor(DLevel& Level, AActor* Actor, FName Name, const FActorEditContext& Context,
@@ -106,7 +104,7 @@ namespace Durin
 	private:
 		auto ScriptEditContext(DLevel* Level) const -> std::optional<FActorEditContext>;
 		auto Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner = nullptr,
-			bool bDuringEdit = false) const -> DTransactor*;
+			bool bDuringEdit = false, std::string* OutError = nullptr) const -> DTransactor*;
 		bool bEditing = false;
 	};
 }

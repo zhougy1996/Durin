@@ -157,11 +157,8 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	EXPECT_EQ(Transactions->GetUndoContext(false).Description, "Translate 'Probe'");
 	const auto BeforeRejectedUndo = Target->Transform;
 	Target->bValid = false;
-	EXPECT_FALSE(Transactions->Undo());
-	const auto Rejected = Transactions->GetLastResult();
-	ASSERT_FALSE(Rejected);
-	ASSERT_TRUE(Rejected.ApplyCause);
-	const auto& Message = Rejected.ApplyCause->Message;
+	std::string Message;
+	ASSERT_FALSE(Transactions->UndoExpected(Transactions->GetUndoContext().TransactionId, &Message));
 	EXPECT_EQ(Message, "The custom transaction target is unavailable.");
 	ExpectVectorNear(Target->Transform.Translation, BeforeRejectedUndo.Translation);
 	EXPECT_TRUE(Transactions->CanUndo());
@@ -386,7 +383,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Client.ProjectWorldToViewport(InitialLocation, {800.0f, 600.0f}, CenterScreen));
 	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
-	Durin::Tests::FTestTransactorOwner TransformTransactions;
+	Durin::Tests::FTestEditorTransactorOwner TransformTransactions;
 	TransformTransactions->EstablishSavedState(*Package);
 	Durin::LevelEditor::FLevelEditorViewportInput DragInput;
 	DragInput.bFocused = true;
@@ -733,7 +730,7 @@ namespace
 TEST(FTransformGizmoTests, FailedCancelRetainsRetryStateAndNeverClearsDirty)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	Durin::TStrongObjectPtr<Durin::DPackage> Package(Durin::NewObject<Durin::DPackage>(nullptr, "FailedGizmoCancel"));
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/GestureTests/", Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
@@ -754,7 +751,7 @@ TEST(FTransformGizmoTests, FailedCancelRetainsRetryStateAndNeverClearsDirty)
 TEST(FTransformGizmoTests, FailedPreviewRollsBackAllTargetsWithoutHistory)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	const auto Initial = Probe.Objects[0]->Transform;
 	Probe.Begin(Buffer.Get());
 	bool bFail = true; auto Target = Probe.Objects[1];
@@ -769,7 +766,7 @@ TEST(FTransformGizmoTests, FailedPreviewRollsBackAllTargetsWithoutHistory)
 TEST(FTransformGizmoTests, CancelPreservesAnOutsideTransformWrite)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestTransactorOwner Buffer; const auto Initial = Probe.Objects[1]->Transform;
+	Durin::Tests::FTestEditorTransactorOwner Buffer; const auto Initial = Probe.Objects[1]->Transform;
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
 	Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
 	const auto Outside = Probe.Objects[0]->Transform;
@@ -782,12 +779,12 @@ TEST(FTransformGizmoTests, CancelPreservesAnOutsideTransformWrite)
 TEST(FTransformGizmoTests, ReplayWriteFailureCompensatesEveryTarget)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo());
 	const auto Before = Probe.Objects[0]->Transform; const auto Head = Buffer->GetUndoContext().TransactionId;
 	bool bFail = true; auto Target = Probe.Objects[1];
 	Target->Setter = [Target, &bFail](const Durin::FTransform& Value) { Target->Transform = Value; return !std::exchange(bFail, false); };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Idle);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), Durin::ETransactorState::Idle);
 	for (const auto& Object : Probe.Objects) ExpectVectorNear(Object->Transform.Translation, Before.Translation);
 	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Head); Target->Setter = {}; ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
 }
@@ -795,18 +792,18 @@ TEST(FTransformGizmoTests, ReplayWriteFailureCompensatesEveryTarget)
 TEST(FTransformGizmoTests, ReplayRollbackFailureRequiresRecovery)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(2));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get()); ASSERT_TRUE(Buffer->CanUndo());
 	auto Target = Probe.Objects[1];
 	Target->Setter = [Target](const Durin::FTransform& Value) { Target->Transform = Value; return false; };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::RecoveryRequired);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), Durin::ETransactorState::RecoveryRequired);
 	EXPECT_FALSE(Buffer->CanTransact()); Target->Setter = {};
 }
 
 TEST(FTransformGizmoTests, ClampedPreviewCreatesNoSpuriousHistory)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	Probe.Objects[0]->Setter = [](const Durin::FTransform&) { return true; };
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); Probe.Release(Buffer.Get());
 	EXPECT_FALSE(Buffer->CanUndo()); EXPECT_EQ(Buffer->GetQueueLength(), 0u);
@@ -820,7 +817,7 @@ TEST(FTransformGizmoTests, CommitPreservesOutsideDirtyAndReturnsOwnedEditsToChec
 	for (bool bOutsideWrite : {false, true})
 	{
 		FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-		Durin::Tests::FTestTransactorOwner Buffer;
+		Durin::Tests::FTestEditorTransactorOwner Buffer;
 		Durin::TStrongObjectPtr<Durin::DPackage> Package(Durin::NewObject<Durin::DPackage>(nullptr, bOutsideWrite ? "OutsideGesture" : "OwnedGesture"));
 		Durin::FPackagePath Path; ASSERT_TRUE(Durin::FPackagePath::TryCreate(bOutsideWrite ? "/GestureCheckpoint/Outside" : "/GestureCheckpoint/Owned", Path));
 		Package->InitializeAssetPackage(Path); Probe.Objects[0]->Package = Package.Get();
@@ -840,7 +837,7 @@ TEST(FTransformGizmoTests, DiscardedHistoryLeavesReleasedTransformAppliedAndDirt
 	InitializeDObjectSystem();
 	FGizmoGestureProbe Probe;
 	ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	auto* Package = MakeRevisionTestPackage("DiscardedGizmoEdit");
 	Package->SetPlayInEditor(true);
 	Probe.Objects.front()->Package = Package;
@@ -854,7 +851,9 @@ TEST(FTransformGizmoTests, DiscardedHistoryLeavesReleasedTransformAppliedAndDirt
 	Probe.Input.bLeftMouseDown = false;
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_FALSE(Probe.Gizmo.IsDragging());
-	EXPECT_EQ(Buffer->GetLastResult().Code, Durin::ETransactorResultCode::Discarded);
+	const auto Events = Durin::Tests::CollectTransactionEvents(*Buffer);
+	ASSERT_FALSE(Events.empty());
+	EXPECT_EQ(Events.back().Type, Durin::ETransactionEventType::Discarded);
 	EXPECT_FALSE(Buffer->CanUndo());
 	EXPECT_TRUE(Package->IsDirty());
 	ExpectVectorNear(Probe.Objects.front()->Transform.Translation, Preview.Translation);
@@ -865,12 +864,12 @@ TEST(FTransformGizmoTests, ReleaseAndReplayNeverOverwriteAnOutsideTransform)
 	InitializeDObjectSystem();
 	for (bool bCommitted : {false, true})
 	{
-		FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1)); Durin::Tests::FTestTransactorOwner Buffer;
+		FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1)); Durin::Tests::FTestEditorTransactorOwner Buffer;
 		Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get());
 		if (bCommitted) Probe.Release(Buffer.Get());
 		Probe.Objects[0]->Transform.Translation += Durin::FVector3(100, 200, 300);
 		const auto Outside = Probe.Objects[0]->Transform;
-		if (bCommitted) { EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), Durin::ETransactorState::Idle); }
+		if (bCommitted) { EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), Durin::ETransactorState::Idle); }
 		else { Probe.Release(Buffer.Get()); EXPECT_FALSE(Buffer->CanUndo()); }
 		EXPECT_FALSE(Probe.Gizmo.IsDragging());
 		ExpectVectorNear(Probe.Objects[0]->Transform.Translation, Outside.Translation);
@@ -880,7 +879,7 @@ TEST(FTransformGizmoTests, ReleaseAndReplayNeverOverwriteAnOutsideTransform)
 TEST(FTransformGizmoTests, ForeignRecordingDefersRestoreWithoutJoiningItsHistory)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestTransactorOwner Buffer; const auto Initial = Probe.Objects[0]->Transform;
+	Durin::Tests::FTestEditorTransactorOwner Buffer; const auto Initial = Probe.Objects[0]->Transform;
 	Probe.Begin(Buffer.Get()); Probe.Move(Buffer.Get()); const auto Preview = Probe.Objects[0]->Transform;
 	ASSERT_GE(Buffer->Begin("ForeignEdit", "Foreign edit"), 0);
 	Probe.Input.bCancel = true;
@@ -895,7 +894,7 @@ TEST(FTransformGizmoTests, ForeignRecordingDefersRestoreWithoutJoiningItsHistory
 TEST(FTransformGizmoTests, IdleGizmoYieldsToPropertyRecordingWithoutReportingFailure)
 {
 	InitializeDObjectSystem(); FGizmoGestureProbe Probe; ASSERT_TRUE(Probe.Initialize(1));
-	Durin::Tests::FTestTransactorOwner Buffer;
+	Durin::Tests::FTestEditorTransactorOwner Buffer;
 	ASSERT_GE(Buffer->Begin("ReflectedProperty", "Edit Color"), 0);
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));
 	EXPECT_TRUE(Probe.Gizmo.Update(Probe.Targets, Probe.View, Probe.Input, Buffer.Get()));

@@ -665,17 +665,13 @@ namespace Durin::LevelEditor
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
 			auto Change = std::make_unique<FTransformTargetTransaction>(Action, DragCollectionLabel, std::move(Entries));
 			// Keep multi-frame previews independent of unrelated editor transactions.
-			bool bRecorded;
-			{
-				FScopedTransaction Recording(Transactions, {"TransformGizmo", std::string(Change->GetDescription())});
-				bRecorded = Recording.IsOutstanding() && Transactions->StoreUndo(std::move(Change));
-			}
-			if (!bRecorded)
+			FScopedTransaction Recording("TransformGizmo", std::string(Change->GetDescription()), nullptr);
+			if (!Recording.IsOutstanding() || !Transactions->StoreUndo(std::move(Change)))
 			{
 				CancelDrag();
 				return false;
 			}
-			if (!Transactions->GetLastResult()) MarkPackagesDirty();
+			MarkPackagesDirty();
 		}
 		else MarkPackagesDirty();
 		ClearDrag();
@@ -704,7 +700,7 @@ namespace Durin::LevelEditor
 
 	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, DTransactor* Transactions) -> bool
 	{
-		if (GUndo || (Transactions && (!Transactions->CanTransact() || Transactions->IsActive())))
+		if (GUndo || (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions))
 		{
 			// Restore only after the foreign recorder/replay has released GUndo.
 			if (IsDragging()) bRestorePending = true;

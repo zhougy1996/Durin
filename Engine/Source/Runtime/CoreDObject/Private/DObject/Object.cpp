@@ -497,7 +497,7 @@ namespace Durin
 		if (CanTransactObject(*this) && HasAnyObjectFlags(EObjectFlags::Transactional) && GUndo)
 		{
 			GUndo->SaveObject(this);
-			bRecorded = GUndo->ContainsObject(this);
+			bRecorded = true;
 		}
 		if (bRecorded || bAlwaysMarkDirty) MarkPackageDirty();
 		return bRecorded;

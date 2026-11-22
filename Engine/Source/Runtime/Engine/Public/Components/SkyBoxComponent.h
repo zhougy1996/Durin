@@ -37,7 +37,7 @@ namespace Durin
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal) -> std::expected<void, FObjectValidationError> override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
-		auto GetTextureCube() const -> DTextureCube* { return TextureCube.Get(); }
+		ENGINE_API auto GetTextureCube() const -> DTextureCube*;
 		auto GetTint() const -> const FLinearColor& { return Tint; }
 		auto GetIntensity() const -> float { return Intensity; }
 		ENGINE_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;

@@ -25,8 +25,6 @@ namespace Durin
 	{
 		EEditorFunctionError Error = EEditorFunctionError::None;
 		bool bInvoked = false;
-		bool bChanged = false;
-		FTransactorResult History;
 	};
 
 	DURINED_API auto CanExecuteEditorFunction(const FPropertyViewContext& Context,

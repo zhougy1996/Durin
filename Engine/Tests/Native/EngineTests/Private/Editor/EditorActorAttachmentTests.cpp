@@ -6,6 +6,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Transactions/Transaction.h"
 #include "Engine/Level.h"
+#include "EditorSupportDelegates.h"
 #include "Editor/EditorActorSubsystemTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
@@ -153,4 +154,32 @@ TEST(FEditorActorAttachmentTests, SnapToExistingParentStillChangesTransform)
 	ExpectTransformNear(Child->GetActorTransform(), Parent->GetActorTransform());
 	ASSERT_TRUE(Transactions->Undo());
 	ExpectTransformNear(Child->GetActorTransform(), Before);
+}
+
+TEST(FEditorActorAttachmentTests, LaterCycleSkipsActorAndOneUndoRestoresEarlierAttachment)
+{
+	FAttachmentFixture F;
+	auto* Old = F.Level->SpawnActor<ACameraActor>("Old");
+	auto* Destination = F.Level->SpawnActor<ACameraActor>("Destination");
+	auto* First = F.Level->SpawnActor<ACameraActor>("First");
+	auto* Second = F.Level->SpawnActor<ACameraActor>("Second");
+	ASSERT_TRUE(First->AttachToActor(Old));
+	bool Injected = false;
+	auto Handle = FEditorSupportDelegates::ActorHierarchyChanged.AddLambda([&](DLevel& Level) {
+		if (&Level != F.Level || Injected || First->GetAttachParentActor() != Destination) return;
+		Injected = true;
+		EXPECT_TRUE(Destination->AttachToActor(Second)); // Block the next forward write.
+	});
+	std::array<AActor*, 2> Actors{First, Second};
+	auto Result = F.Editor.GetActorEditor()->AttachActors(*F.Level, Actors, Destination, EAttachmentTransformRule::KeepWorld, {false});
+	FEditorSupportDelegates::ActorHierarchyChanged.Remove(Handle);
+	EXPECT_TRUE(Injected);
+	EXPECT_TRUE(Result);
+	EXPECT_EQ(First->GetAttachParentActor(), Destination);
+	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
+	ASSERT_EQ(F.Editor.GetTransactions()->GetQueueLength(), 1u);
+	ASSERT_TRUE(F.Editor.GetTransactions()->Undo());
+	EXPECT_EQ(First->GetAttachParentActor(), Old);
+	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
+	EXPECT_FALSE(F.Editor.GetTransactions()->CanUndo());
 }

@@ -4,7 +4,7 @@ Summary: Define per-editor native services, reflected PIE controls, Actor/Compon
 
 Modules: ContentBrowserData, ContentBrowserAssetDataSource, ContentBrowserFileDataSource, DurinEd, LevelEditor, MainFrame, DurinPython, DurinMCP, Engine
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-22
 
 ## Host Contract
 
@@ -251,7 +251,7 @@ Executing, Undoing, Redoing, pending asynchronous operations, RecoveryRequired
 and Destroying still reject admission. Detached, foreign, template or unsupported
 participants fail before preparation. Creation returns the Actor/Component pointer
 or null; Actor duplication returns the new Actors in input order or an empty
-array. Other edits return bool, with true also covering successful no-ops. Public
+array. Other edits return bool, with attachment and detachment reporting whether any root changed. Other successful no-ops return true. Public
 operations carry no error strings, status enum or history result. Detailed
 execution/recovery state stays in DTransactor.
 Same-name rename, same-label assignment and same-parent reparent produce no history entry. Empty or
@@ -259,14 +259,15 @@ duplicate batch participants are rejected; valid batches submit once.
 
 World admission reads the full play state, including subsystem BeginPlay before
 Actor play dispatch, and rejects a requested shutdown before teardown occurs.
-Replay uses the same World boundaries and requires the owner still belong to
-its Level. Component admission checks the thread before reading owner state.
+Membership replay uses the same World boundaries and requires the owner still belong to
+its Level. Attachment snapshots can restore a retained component on an absent owner. Component admission checks the thread before reading owner state.
 
-DurinEd owns general replay code and module tags; runtime Level/Actor methods
-remain mechanisms. `MakeActorPresenceChange` exports opaque structural-change
-ownership for specialized compound commands. Their owners retain responsibility
-for private preparation and cleanup before publication. Preparation callbacks
-are synchronous and never stored in history. There is one editor transactor.
+DurinEd owns Actor and component membership recording. LevelEditor owns the viewport
+SkyBox drop policy. It creates through the host Actor subsystem's SpawnActor callback
+or requests edit access to the existing Actor before replacing its texture.
+The viewport reports the operation's diagnostic. A same-texture drop returns the
+existing Actor before opening a scope. Actor history restores membership and identity,
+and a restored component publishes an empty texture reference if its cube has retired.
 Native Actor service tests initialize real editor subsystems and use their
 editor-owned history; production services have no injected-history or hostless mode.
 
@@ -325,7 +326,7 @@ an explicit native session option. Native read-only policy always wins.
 Script edits expose the same simple return values as native calls. A rejected
 domain edit returns None, an empty array or false; no per-operation failure
 diagnostic is exposed. Binding rejection of invalid types or stale arguments
-still precedes domain execution and raises an exception. Successful no-ops return
+still precedes domain execution and raises an exception. Except for attachment and detachment, successful no-ops return
 true without entering history. Structural deletion preserves identity for Undo,
 and retained proxies remain subject to published-membership checks.
 

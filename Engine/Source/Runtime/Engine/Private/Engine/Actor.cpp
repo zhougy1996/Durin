@@ -12,6 +12,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/TransactionObjectReference.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Engine/TransactionAnnotations.h"
@@ -44,10 +45,10 @@ namespace Durin
 
 	auto AActor::Modify(bool bAlwaysMarkDirty) -> bool
 	{
-		bool bRecorded = Super::Modify(bAlwaysMarkDirty);
+		const bool bRecordedActor = Super::Modify(bAlwaysMarkDirty);
 		if (RootComponent && RootComponent->GetCreationMethod() != EComponentCreationMethod::Generated)
-			bRecorded = RootComponent->Modify(bAlwaysMarkDirty) || bRecorded;
-		return bRecorded;
+			return RootComponent->Modify(bAlwaysMarkDirty) || bRecordedActor;
+		return bRecordedActor;
 	}
 	auto AActor::FindGeneratedComponent(const FActorGeneratedComponentKey& Key) const -> DActorComponent*
 	{
@@ -93,8 +94,15 @@ namespace Durin
 			~FCompletionScope() { Actor.EditConstructionSuspension.reset(); }
 		} Scope{*this};
 		FScopedSuspendRerunConstructionScripts CompletionSuspension(*this, false);
-		if (const auto* Level = Cast<DLevel>(GetOuter()); Level && Level->GetWorld() && !Level->ContainsActor(this))
+		auto* Level = Cast<DLevel>(GetOuter());
+		if (Level && (Level->GetWorld() || Level->PreUndoActors) && !Level->ContainsActor(this))
 		{
+			if (Level->PreUndoActors && std::erase(*Level->PreUndoActors, FObjectKey(this)))
+			{
+				UnregisterTickFunction();
+				for (const auto& Component : GetComponentsSnapshot())
+					if (Component) Component->UnregisterComponent();
+			}
 			// Structural absence owns activation. Retain identity and authored data
 			// without reconstructing or registering an Actor outside the Level.
 			Super::PostEditUndo();
@@ -287,19 +295,17 @@ namespace Durin
 			|| Component->GetCreationMethod() == EComponentCreationMethod::Generated) return false;
 		if (bPresent)
 		{
-			if (OwnsComponent(Component)) return false;
+			if (OwnsComponent(Component) || IsInstanceComponent(Component)) return false;
 			for (const auto& Existing : OwnedComponents)
 				if (Existing && Existing->GetFName() == Component->GetFName()) return false;
 			Component->SetCreationMethod(EComponentCreationMethod::Instance);
 			DActorComponent* Next = InstanceIndex < InstanceComponents.size() ? InstanceComponents[InstanceIndex].Get() : nullptr;
 			AddOwnedComponent(Component);
-			const bool bAlreadySerialized = IsInstanceComponent(Component);
-			if (!bAlreadySerialized) InstanceComponents.emplace_back(Component);
+			InstanceComponents.emplace_back(Component);
 			if (Next && Next != Component)
 			{
 				for (auto* Components : {&OwnedComponents, &InstanceComponents})
 				{
-					if (Components == &InstanceComponents && bAlreadySerialized) continue;
 					auto It = std::ranges::find_if(*Components, [Next](const auto& Entry) { return Entry.Get() == Next; });
 					if (It != Components->end()) std::rotate(It, std::prev(Components->end()), Components->end());
 				}
@@ -309,7 +315,7 @@ namespace Durin
 		}
 		else
 		{
-			if (!OwnsComponent(Component) || (!IsInstanceComponent(Component) && !EditConstructionSuspension)) return false;
+			if (!OwnsComponent(Component) || !IsInstanceComponent(Component)) return false;
 			if (auto* SceneComponent = Cast<DSceneComponent>(Component))
 			{
 				const auto Children = SceneComponent->GetAttachChildren();
@@ -322,9 +328,7 @@ namespace Durin
 			if (auto Result = Component->ApplyLifecycleState({}); !Result) throw std::runtime_error(Result.error());
 			RemoveOwnedComponent(Component);
 		}
-		// During replay, the serialized instance array can precede native
-		// membership adapters. Actor completion validates the settled live set.
-		if (!EditConstructionSuspension) ValidateComponentOwnership();
+		ValidateComponentOwnership();
 		MarkPackageDirty();
 		return true;
 	}

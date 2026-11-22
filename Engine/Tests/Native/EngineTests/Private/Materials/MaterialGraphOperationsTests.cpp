@@ -331,10 +331,10 @@ TEST(FMaterialGraphOperationsTests, GroupedConfigurationAndOrdinaryOwnerEditsRep
 		}
 		ASSERT_EQ(History->GetQueueLength(), 1u);
 		EXPECT_EQ(History->GetTransaction(0)->GetRecordCount(), 2u);
-		ASSERT_TRUE(History->Undo()) << FormatTransactorResult(History->GetLastResult());
+		ASSERT_TRUE(History->Undo());
 		EXPECT_EQ(Material->GetFName(), OriginalName);
 		EXPECT_EQ(Material->GetStaticProperties(), OriginalProperties);
-		ASSERT_TRUE(History->Redo()) << FormatTransactorResult(History->GetLastResult());
+		ASSERT_TRUE(History->Redo());
 		EXPECT_EQ(Material->GetFName(), EditedName);
 		EXPECT_EQ(Material->GetStaticProperties(), Configuration.Properties);
 	}
@@ -398,7 +398,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_EQ(*PreservedNode, UnrelatedPosition);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 520);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	FMaterialGraphMoveSession Move;
 	ASSERT_TRUE(Move.Begin(*EditorGraph, std::array{Material->GetOutputNode()->Id}, Transactions.Get()));
 	ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Material->GetOutputNode()->Id, 600, 40}}));
@@ -410,7 +410,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	ASSERT_TRUE(Move.Commit());
 	EXPECT_EQ(Testing::OutputPosition(*Material, Material->GetMaterialGraphPresentation()).X, 600);
 	EXPECT_TRUE(Transactions->CanUndo());
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -1870,7 +1870,7 @@ TEST(FMaterialGraphOperationsTests, TypedLayoutIncludesCallAndSurfaceDependencie
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), Layout);
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -2129,7 +2129,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Transactions->Undo());
 	const FMaterialGraphView RestoredCut = Testing::CaptureGraphView(*MaterialEditorGraph);
 	EXPECT_NE(FindViewNode(RestoredCut, StandaloneId), nullptr);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -2200,7 +2200,7 @@ TEST(FMaterialGraphOperationsTests, CrossGraphPasteUsesExpressionObjectsAndRepla
 		ASSERT_TRUE(Transactions->Redo());
 		Check();
 		EXPECT_EQ(Link.Expression.Get(), Snapshot);
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 	}
 }
 
@@ -2246,7 +2246,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardRetainsDependenciesAndRemap
 	TStrongObjectPtr<DMaterialGraph> WeakFunctionEditorGraph(DMaterialGraph::Create(*WeakFunction.Get()));
 	EXPECT_FALSE(WeakFunctionEditorGraph->Paste(Payload, 0, 0, Durin::ETransactionMode::NotTransactable));
 	EXPECT_EQ(CaptureExpressions(*WeakFunction.Get()), FunctionBefore);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Payload = {};
 	RetainedTarget.Reset();
 	MarkAsGarbage(Target);
@@ -2302,7 +2302,7 @@ TEST(FMaterialGraphOperationsTests, FunctionClipboardCopiesPortsAndSurfaceBindin
 	EXPECT_EQ(CaptureExpressions(*Target), Before);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Target->GetFunctionSignature().Outputs.size(), 3u);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Source); MarkAsGarbage(Target); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -2375,7 +2375,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 		CoalescedUndoGraph, CreatedId);
 	ASSERT_NE(CoalescedUndo, nullptr);
 	EXPECT_EQ(CoalescedUndo->Presentation.X, 320);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -2513,7 +2513,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(Restored.IsConnected());
 	EXPECT_EQ(Restored.Expression->Id, Textured.value());
 	EXPECT_EQ(Restored.OutputIndex, 1);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -2600,7 +2600,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(BaseColor, FVector4(0.7, 0.8, 0.9, 0));
 	EXPECT_EQ(Material->GetMaterialCompileDebugInfo().RequestId,
 		CompileGeneration);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -2632,7 +2632,7 @@ TEST(FMaterialGraphOperationsTests, MoveAndDefaultHistoryDoNotGrowWithUnrelatedN
 		EXPECT_GT(MoveBytes, 0u);
 		if (SmallMoveBytes) EXPECT_EQ(MoveBytes, *SmallMoveBytes);
 		else SmallMoveBytes = MoveBytes;
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		const auto Root = FMaterialGraphPinAddress::MaterialOutput(Material->GetOutputNode()->Id, EMaterialProperty::MP_Roughness);
 		ASSERT_TRUE(Graph->FindNode(Root.NodeId)->PinDefaultValueChanged(Root,
 			{.Kind = EMaterialInputDefaultKind::Literal, .Type = EMaterialProgramValueType::Float, .Literal = {.41f, 0.f, 0.f, 0.f}}));
@@ -2774,7 +2774,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 
 	auto Constant = Testing::MakeGraphExpression<DMaterialExpressionVector4Constant>();
 	Constant->Value = {1, 2, 3, 4};
@@ -2799,7 +2799,7 @@ TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShare
 	EXPECT_EQ(CaptureExpressions(*Material), Original);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->FindParameterDefinition("Tint")->Id, TintId);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -2885,7 +2885,7 @@ TEST(FMaterialGraphOperationsTests, TypedHistoryRestoresDeletedChildrenWithoutSh
 	ASSERT_NE(Restored, nullptr);
 	EXPECT_FLOAT_EQ(Restored->DefaultValue, 0.72f);
 	EXPECT_EQ(Restored->Metadata.DisplayName, "Live edit");
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(Material->GetExpressionCollection().Expressions[0].Get(), Restored);
 	Material.Reset();
@@ -2922,7 +2922,7 @@ TEST(FMaterialGraphOperationsTests, DeletingSurfaceOverrideSourceRestoresBaseAnd
 	Remaining = Cast<DMaterialExpressionSetMaterialAttributes>(Material->GetExpressionCollection().Expressions[Material->GetExpressionCollection().Expressions.size() - 2].Get());
 	ASSERT_EQ(Remaining->Attributes.size(), 1u);
 	EXPECT_EQ(Remaining->Attributes.front().Source.Connection.GetExpressionId(), DeletedId);
-	EXPECT_TRUE(Transactions->TryReset()); Material.Reset();
+	Transactions->Reset(); Material.Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -2993,7 +2993,7 @@ TEST(FMaterialGraphOperationsTests, SharedParametersSynchronizeRebindAndUndo)
 	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	MarkAsGarbage(Instance); MarkAsGarbage(Material); CollectGarbage(Durin::EObjectFlags::Standalone);
 }
 
@@ -3148,7 +3148,7 @@ TEST(FMaterialGraphOperationsTests, OwnerPublishesCompleteCommandAndHistoryOnce)
 	ASSERT_EQ(Events.size(), 3u);
 	EXPECT_EQ(Events.back().Nodes[0].Flags, EMaterialGraphNodeChange::Added);
 	Material->GetGraphChanges().Unsubscribe(Handle);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 }
 
 TEST(FMaterialGraphOperationsTests, ReadModelObservesDirectAndReflectedEditsWithoutCompilePolling)
@@ -3421,7 +3421,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputUsesStablePinsAndOrdinaryNodeC
 	EXPECT_EQ(Events.size(), BeforeRejected);
 	EXPECT_EQ(Material->GetOutputNode()->Id, OutputId);
 	Material->GetGraphChanges().Unsubscribe(Handle);
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 }
 
 TEST(FMaterialGraphOperationsTests, ConnectionsAndReplayPreserveObjectsWithoutGraphCopies)
@@ -3539,10 +3539,10 @@ TEST(FMaterialGraphOperationsTests, CompoundCreationAndDeletionReplayAcrossGC)
 	ASSERT_EQ(History->GetQueueLength(), 1u);
 	auto Find = [&]() { return Cast<DMaterialExpressionScalarConstant>(
 		FindMaterialExpression(Material->GetExpressionCollection().Expressions, Id)); };
-	ASSERT_TRUE(History->Undo()) << FormatTransactorResult(History->GetLastResult());
+	ASSERT_TRUE(History->Undo());
 	EXPECT_EQ(Find(), nullptr);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(History->Redo()) << FormatTransactorResult(History->GetLastResult());
+	ASSERT_TRUE(History->Redo());
 	ASSERT_NE(Find(), nullptr);
 	EXPECT_EQ(Find()->GetOuter(), Material.Get());
 	EXPECT_FLOAT_EQ(Find()->Value, .75f);
@@ -3552,10 +3552,10 @@ TEST(FMaterialGraphOperationsTests, CompoundCreationAndDeletionReplayAcrossGC)
 	ASSERT_TRUE(Graph->RemoveNodes(std::array{Id}));
 	ASSERT_EQ(History->End(), 1);
 	CollectGarbage(Durin::EObjectFlags::Standalone);
-	ASSERT_TRUE(History->Undo()) << FormatTransactorResult(History->GetLastResult());
+	ASSERT_TRUE(History->Undo());
 	ASSERT_NE(Find(), nullptr);
 	EXPECT_FLOAT_EQ(Find()->Value, .75f);
-	ASSERT_TRUE(History->Redo()) << FormatTransactorResult(History->GetLastResult());
+	ASSERT_TRUE(History->Redo());
 	EXPECT_EQ(Find(), nullptr);
 }
 
@@ -3610,8 +3610,6 @@ TEST(FMaterialGraphOperationsTests, StructuralReplayRejectsDifferentMemberWithTh
 		const auto Handle = Material->GetGraphChanges().Subscribe(*Material, [&](const auto&) { ++Events; });
 		const auto Revision = Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 		EXPECT_FALSE(bUndo ? History->Undo() : History->Redo());
-		ASSERT_TRUE(History->GetLastResult().ApplyCause);
-		EXPECT_EQ(History->GetLastResult().ApplyCause->Status, ETransactionApplyFailure::ValidationFailed);
 		EXPECT_TRUE(bUndo ? History->CanUndo() : History->CanRedo());
 		EXPECT_EQ(Material->GetExpressionCollection().Expressions, Current);
 		EXPECT_EQ(Material->GetMaterialCompileDebugInfo().AuthoredRevision, Revision);
@@ -3637,11 +3635,9 @@ TEST(FMaterialGraphOperationsTests, ReplayRejectsParticipantsReplacedOutsideHist
 	ASSERT_TRUE(Material->SetMaterialExpressions(Nodes));
 	const auto Before = CaptureExpressions(*Material);
 	const auto Revision = Material->GetMaterialProgramRevision();
-	EXPECT_FALSE(Transactions->Undo());
-	const auto Failed = Transactions->GetLastResult();
-	ASSERT_FALSE(Failed);
-	ASSERT_TRUE(Failed.ApplyCause);
-	EXPECT_FALSE(Failed.ApplyCause->Message.empty());
+	std::string ReplayError;
+	ASSERT_FALSE(Transactions->UndoExpected(Transactions->GetUndoContext().TransactionId, &ReplayError));
+	EXPECT_FALSE(ReplayError.empty());
 	EXPECT_EQ(CaptureExpressions(*Material), Before);
 	EXPECT_EQ(Material->GetMaterialProgramRevision(), Revision);
 	EXPECT_TRUE(Transactions->CanUndo());
@@ -3955,7 +3951,7 @@ TEST(FMaterialGraphOperationsTests, CreationRequestConnectsAndUndoesAsOneEdit)
 	EXPECT_FALSE(Transactions->CanUndo());
 	ASSERT_TRUE(Transactions->Redo());
 	const auto After = CaptureExpressions(*Material);
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	EXPECT_FALSE(Action.PerformAction(*AuthoringGraph, 0, 0, FMaterialGraphPinAddress::Output({FGuid::NewGuid()})));
 	EXPECT_EQ(CaptureExpressions(*Material), After);
 	EXPECT_FALSE(Transactions->CanUndo());
@@ -4052,7 +4048,7 @@ TEST(FMaterialGraphOperationsTests, SharedMoveDraftPreservesIndependentPresentat
 		EXPECT_EQ(AuthoringGraph->FindNode(OtherId)->GetView().Presentation.X, 1100);
 		ASSERT_TRUE(Transactions->Redo());
 		EXPECT_EQ(Read(), Later);
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		ASSERT_TRUE(Move.Begin(*AuthoringGraph, std::array{Id}, Transactions.Get()));
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		ASSERT_TRUE(Move.Commit());
@@ -4182,7 +4178,7 @@ TEST(FMaterialGraphOperationsTests, MoveHistorySizeDoesNotGrowWithUnchangedNodes
 		ASSERT_TRUE(Move.Apply(std::array{FMaterialGraphNodePresentation{Id, 400, 240}}));
 		ASSERT_TRUE(Move.Commit());
 		const auto SmallBytes = Transactions->GetUndoSize();
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		{
 			GraphEditInternals::FGraphEditSession Setup(*Owner);
 			for (int Index = 0; Index < 32; ++Index)
@@ -4299,7 +4295,7 @@ TEST(FMaterialGraphOperationsTests, GestureHistoryFailuresRemainRetryableAndCanc
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Material->FindParameterDefinition(ParameterId)->Value.GetScalar(), .25f);
 
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	const auto NodeId = Created.value();
 	const auto Before = Material->GetMaterialGraphPresentation();
 	FMaterialGraphMoveSession Move;

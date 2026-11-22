@@ -104,12 +104,13 @@ namespace Durin
 		if (Params.bResetTransBuffer)
 			if (auto* Editor = GetTransactionEditor(); Editor && Editor->GetTransactor())
 			{
-				const auto Reset = Editor->GetTransactor()->TryReset("Unload Packages");
-				if (!Reset && Reset.Code != ETransactorResultCode::NoOp)
+				auto* Transactor = Editor->GetTransactor();
+				if (!Transactor->CanTransact())
 				{
-					Errors += FormatTransactorResult(Reset);
+					Errors += "Unloading packages requires available transaction history.";
 					return false;
 				}
+				Transactor->Reset("Unload Packages");
 			}
 		const auto Result = CollectPackageExports(Candidates);
 		if (!Result.Admission) { Errors += Result.Admission.error().ToString(); return false; }

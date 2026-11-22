@@ -11,7 +11,6 @@ namespace Durin
 		case EActorChangeError::ActorChanged: return "The actor changed after planning.";
 		case EActorChangeError::InjectedMutation: return "Injected mutation failure.";
 		case EActorChangeError::RollbackIncomplete: return "Rollback also failed.";
-		case EActorChangeError::ResourceUnavailable: return "The transaction resource is unavailable.";
 		case EActorChangeError::ActorMembership: return "The actor no longer belongs to the recorded level.";
 		case EActorChangeError::ActorNameCollision: return "The requested actor name is occupied.";
 		case EActorChangeError::ActorDestroy: return "The level rejected actor removal.";

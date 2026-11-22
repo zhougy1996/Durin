@@ -123,7 +123,7 @@ TEST(FTransactionObjectRecordTests, UndoDeletionRestoresLivenessAndReferencesAcr
 		if (Event.Type == ETransactionObjectEventType::UndoRedo && Event.Change.bHasPendingKillChange) ++Events;
 	};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Remove child"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Remove child"});
 		ASSERT_TRUE(Child->Modify());
 		ASSERT_TRUE(Owner->Modify());
 		Owner->Hard = nullptr;
@@ -134,16 +134,16 @@ TEST(FTransactionObjectRecordTests, UndoDeletionRestoresLivenessAndReferencesAcr
 		CollectGarbage(EObjectFlags::Standalone);
 		EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 		ASSERT_EQ(GDObjectArray.Resolve(Key), Child);
-		ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+		ASSERT_TRUE(Buffer->Undo());
 		EXPECT_EQ(ResolveObjectKey(Key), Child);
 		EXPECT_EQ(Owner->Hard.Get(), Child);
 		EXPECT_EQ(Child->Value, 17);
-		ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+		ASSERT_TRUE(Buffer->Redo());
 		EXPECT_TRUE(Child->IsGarbage());
 		EXPECT_EQ(Owner->Hard.Get(), nullptr);
 	}
 	EXPECT_EQ(Events, 4);
-	ASSERT_TRUE(Buffer->TryReset());
+	Buffer->Reset();
 	CollectGarbage(EObjectFlags::Standalone);
 	EXPECT_EQ(GDObjectArray.Resolve(Key), nullptr);
 }
@@ -155,7 +155,7 @@ TEST(FTransactionObjectRecordTests, FailedDeleteUndoReturnsToGarbageAndCanRetry)
 	Tests::FTestTransactorOwner Buffer;
 	auto* Child = NewObject<DTransactionRecordParticipant>(nullptr, "RetryDeletedChild");
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Delete without changing fields"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Delete without changing fields"});
 		ASSERT_TRUE(Child->Modify());
 		Child->MarkAsGarbage();
 	}
@@ -164,6 +164,6 @@ TEST(FTransactionObjectRecordTests, FailedDeleteUndoReturnsToGarbageAndCanRetry)
 	EXPECT_FALSE(Buffer->Undo());
 	EXPECT_TRUE(Child->IsGarbage());
 	EXPECT_TRUE(Buffer->CanUndo());
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_TRUE(IsValid(Child));
 }

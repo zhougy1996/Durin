@@ -107,5 +107,5 @@ TEST(FMaterialFunctionInteractionTests, PreviewInvalidationTracksTransitiveEdits
 	ASSERT_TRUE(LeafOutput->OnRenameNode("Former dependency", Durin::ETransactionMode::NotTransactable));
 	EXPECT_FALSE(First.ConsumeRefreshRequest());
 	EXPECT_TRUE(Second.ConsumeRefreshRequest());
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 }

@@ -29,6 +29,7 @@ namespace Durin
 			Buffer.History.push_back(std::move(Transaction));
 			Buffer.Cursor = 1;
 		}
+		static auto GetState(const DTransBuffer& Buffer) -> ETransactorState { return Buffer.State; }
 		static auto SetState(DTransBuffer& Buffer, ETransactorState State) -> void
 		{
 			Buffer.State = State;
@@ -38,6 +39,38 @@ namespace Durin
 
 namespace Durin::Tests
 {
+	// Pair raw Begin/End in low-level tests that deliberately run without an editor.
+	class FBufferRecording
+	{
+	public:
+		FBufferRecording(DTransactor* InBuffer, FTransactionContext Context, bool Enabled = true)
+			: Buffer(InBuffer), Index(Enabled ? Buffer->Begin(Context.Name, Context.Description) : -1)
+		{
+			if (IsOutstanding()) Buffer->SetPrimaryUndoObject(Context.PrimaryObject);
+		}
+		~FBufferRecording() { (void)End(); }
+		FBufferRecording(const FBufferRecording&) = delete;
+		auto operator=(const FBufferRecording&) -> FBufferRecording& = delete;
+		auto IsOutstanding() const -> bool { return Index >= 0; }
+		auto End() -> int32 { return std::exchange(Index, -1) >= 0 ? Buffer->End() : 0; }
+		auto Cancel() -> void
+		{
+			if (IsOutstanding() && Buffer->CanTransact()) Buffer->Cancel(std::exchange(Index, -1));
+		}
+	private:
+		DTransactor* Buffer;
+		int32 Index;
+	};
+
+	// Seed real history for consumers that exercise Undo, Redo or history inspection.
+	inline auto RecordTestEdit(DTransactor& Buffer, std::unique_ptr<FCommandChange> Change) -> FTransactionId
+	{
+		FBufferRecording Scope(&Buffer, {"TestEdit", std::string(Change->GetDescription())});
+		if (!Scope.IsOutstanding() || !Change->Apply()) return 0;
+		const auto Id = GUndo->GetContext().TransactionId;
+		return Buffer.StoreUndo(std::move(Change)) ? Id : 0;
+	}
+
 	inline auto CollectTransactionEvents(DTransactor& Buffer) -> std::vector<FTransactionEvent>
 	{
 		std::vector<FTransactionEvent> Events;

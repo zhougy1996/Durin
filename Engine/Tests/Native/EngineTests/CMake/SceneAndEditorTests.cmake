@@ -58,7 +58,7 @@ durin_add_native_test(SkyBoxTests
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned sky-box placement white-box coverage avoids exporting private customization symbols."
+		"Sky-box tests exercise private viewport placement and customization."
 	SOURCES
 		Private/SkyBox/SkyBoxRenderingTests.cpp
 		Private/SkyBox/SkyBoxComponentTests.cpp

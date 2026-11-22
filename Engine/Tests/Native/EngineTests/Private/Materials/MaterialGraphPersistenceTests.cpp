@@ -729,7 +729,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 		Material->GetGraphChanges().Unsubscribe(Subscription);
 		EXPECT_EQ(Material->GetDomain(),Configurations[Index].Domain); EXPECT_EQ(Material->GetStaticProperties(),Configurations[Index].Properties);
 		EXPECT_EQ(CaptureExpressions(*Material),Before); // Inactive roots and stable parameter IDs are retained.
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		const auto Revision=Material->GetMaterialCompileDebugInfo().AuthoredRevision;
 		auto Invalid=Configurations[Index]; Invalid.Domain=EMaterialDomain::PostProcess; Invalid.Properties.ShadingModel=EMaterialShadingModel::ClearCoat;
 		EXPECT_FALSE(MaterialEditing::SetConfiguration(*Material, Invalid)); EXPECT_FALSE(Transactions->CanUndo());
@@ -786,7 +786,7 @@ TEST(FMaterialGraphPersistenceTests, Stage4ConfigurationsUndoRedoValueUpdatesAnd
 			EXPECT_EQ(GetMaterialCompilationStatistics().AcceptedRequests,InstanceRequests);
 			MarkAsGarbage(Instance.Get());
 		}
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		const auto Expected=CaptureExpressions(*Material);
 		ASSERT_TRUE(SavePackage(Material->GetPackage()));
 		ASSERT_TRUE(UnloadPackage(Path)); Material=nullptr;

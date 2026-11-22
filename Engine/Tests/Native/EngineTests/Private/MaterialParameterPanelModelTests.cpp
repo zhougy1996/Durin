@@ -134,7 +134,7 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	EXPECT_FLOAT_EQ(StoredValue, 0.0f);
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -164,7 +164,7 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	EXPECT_EQ(Override.GetType(), Durin::EMaterialParameterType::Vector4);
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -227,7 +227,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	EXPECT_FLOAT_EQ(Value, 0.25f);
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -270,7 +270,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	EXPECT_TRUE(Instance->GetLocalParameterValueCount() == 0);
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -350,7 +350,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	EXPECT_FALSE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::MarkAsGarbage(Texture);
@@ -419,7 +419,7 @@ TEST(FMaterialParameterPanelModelTests, ColorPopupCoalescesReflectedOverridesAnd
 	EXPECT_FALSE(Transactions->CanUndo());
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Read(), Final);
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Frame(nullptr, true);
 	Frame(&First);
 	EXPECT_EQ(Read(), First);
@@ -449,7 +449,7 @@ TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBound
 		const auto Id = GetBuiltinParameterIds(Role).Value;
 		FMaterialParameterPanelModel Model(Instance.Get());
 		ASSERT_TRUE(Model.SetOverrideEnabled(View, Context, *FindEntry(Model, Id), true));
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		const auto Read = [&] {
 			FMaterialParameterValue Value;
 			EXPECT_TRUE(Instance->GetLocalParameterValue(Id, Value));
@@ -483,7 +483,7 @@ TEST(FMaterialParameterPanelModelTests, ContinuousScalarAndVectorUseGestureBound
 		ASSERT_TRUE(Transactions->Undo());
 		EXPECT_EQ(Read(), Original);
 		EXPECT_FALSE(Transactions->CanUndo());
-		ASSERT_TRUE(Transactions->TryReset());
+		Transactions->Reset();
 		Frame(true);
 		IO.AddKeyEvent(ImGuiKey_Escape, true); Frame(true, false);
 		EXPECT_EQ(Read(), Original);
@@ -515,7 +515,7 @@ TEST(FMaterialParameterPanelModelTests, SwitchingOverridesAfterFailedCancelDoesN
 	ASSERT_TRUE(Model.SetOverrideEnabled(View, Context, *FindEntry(Model, Alpha), true));
 	ASSERT_TRUE(Model.SetOverrideEnabled(View, Context, *FindEntry(Model, Beta), true));
 	Model.Refresh();
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	const auto Read = [&](const FGuid& Id) {
 		FMaterialParameterValue Value;
 		EXPECT_TRUE(Instance->GetLocalParameterValue(Id, Value));
@@ -591,7 +591,7 @@ TEST(FMaterialParameterPanelModelTests, GraphDefaultSessionsRemainParameterScope
 	EXPECT_FLOAT_EQ(ResolvedOpacity, 1.0f);
 	EXPECT_TRUE(Error.empty());
 
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -674,7 +674,7 @@ TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithou
 	EXPECT_FALSE(Model.Refresh());
 	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.GetScalar(), 1.0f);
 	EXPECT_TRUE(Error.empty());
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -897,7 +897,7 @@ TEST(FMaterialParameterPanelModelTests, MetadataNotificationsReachEachObserverAc
 	EXPECT_TRUE(Second.NeedsRefresh());
 	Second.Refresh();
 	EXPECT_EQ(FindEntry(Second, Id)->Definition->Name, FName("Coverage"));
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 }
 
 TEST(FMaterialParameterPanelModelTests, ParentPackageReplacementInvalidatesRetainedRows)

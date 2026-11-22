@@ -51,6 +51,12 @@ namespace Durin
 			MarkRenderStateDirty();
 	}
 
+	auto DSkyBoxComponent::GetTextureCube() const -> DTextureCube*
+	{
+		auto* Cube = TextureCube.Get();
+		return IsValid(Cube) ? Cube : nullptr;
+	}
+
 	auto DSkyBoxComponent::SetTextureCube(DTextureCube* InTextureCube) -> void
 	{
 		if (TextureCube.Get() == InTextureCube) return;
@@ -95,7 +101,7 @@ namespace Durin
 		Data.Rotation = GetWorldRotation();
 		Data.Tint = FVector3f(Tint.R, Tint.G, Tint.B);
 		Data.Intensity = FMath::Max(0.0f, Intensity);
-		if (DTextureCube* Cube = TextureCube.Get())
+		if (DTextureCube* Cube = GetTextureCube())
 			Data.TextureReference = Cube->GetTextureReferenceRHI();
 		return std::make_unique<FSkyBoxSceneProxy>(std::move(Data));
 	}

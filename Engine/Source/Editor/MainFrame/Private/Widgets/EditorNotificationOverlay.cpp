@@ -506,11 +506,12 @@ namespace Durin::MainFrame
 			Action.Invoke = [Source, Id, bOffersRedo] {
 				auto* Transactor = Cast<DTransactor>(ResolveObjectKey(Source));
 				if (!Transactor) return;
-				const auto Result = bOffersRedo
-					? Transactor->RedoExpected(Id) : Transactor->UndoExpected(Id);
-				if (!Result)
+				std::string Error;
+				const bool bApplied = bOffersRedo
+					? Transactor->RedoExpected(Id, &Error) : Transactor->UndoExpected(Id, &Error);
+				if (!bApplied)
 					DURIN_ERROR("Unable to apply notification history action: {}",
-						FormatTransactorResult(Result));
+						Error);
 			};
 			Desc.Action = std::move(Action);
 			Notifications.Post(std::move(Desc));

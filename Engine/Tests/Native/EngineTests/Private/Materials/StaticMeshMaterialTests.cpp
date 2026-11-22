@@ -343,7 +343,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, *RedEntry, Material));
 	ASSERT_TRUE(EditError.empty());
 	ASSERT_TRUE(Durin::SavePackage(Component->GetPackage()));
-	EXPECT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(ComponentPath));
 	Material = nullptr;

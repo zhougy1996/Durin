@@ -246,12 +246,12 @@ namespace Durin::MaterialEditor
 		FMaterialGraphParameterEditSession Session;
 		const auto Begun = Session.Begin(Material, ParameterId, Transactions);
 		if (!Begun) return RejectCommand(Begun.error());
-		FScopedTransaction Recording(Transactions, {"MaterialGraph", "Edit material parameter"});
-		if (Transactions && !Recording.IsOutstanding()) return RejectCommand(FormatTransactorResult(Transactions->GetLastResult()));
+		FScopedTransaction Recording("MaterialGraph", "Edit material parameter", nullptr, Transactions != nullptr);
+		if (Transactions && !Recording.IsOutstanding()) return RejectCommand("The editor could not begin the material parameter transaction.");
 		auto Applied = Session.Apply(std::move(Value));
 		if (!Applied) return RejectCommand(Applied.error());
 		std::expected<void, std::string> Committed;
-		if (Transactions && !Recording.IsOutstanding()) Committed = std::unexpected("The parameter transaction was cancelled.");
+		if (Transactions && !Transactions->IsActive()) Committed = std::unexpected("The parameter transaction was cancelled.");
 		else Committed = Session.Commit();
 		if (!Committed)
 		{

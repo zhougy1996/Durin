@@ -97,7 +97,7 @@ TEST(FAssetDetailCustomizationTests, PreservesPreviewCancellationAndAssetUndoRed
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Collection->GetDeclarations().size(), 1u);
 	EXPECT_TRUE(Collection->Validate());
-	ASSERT_TRUE(Transactions->TryReset());
+	Transactions->Reset();
 	Durin::MarkObjectHierarchyAsGarbage(Texture);
 	Durin::MarkObjectHierarchyAsGarbage(Collection);
 	Durin::CollectGarbage(Durin::EObjectFlags::Standalone);

@@ -5,6 +5,7 @@
 #include "Tools/EditorToolSubsystem.h"
 #include "Tools/NativeToolset.h"
 #include "Editor/EditorEngineTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/StrongObjectPtr.h"
@@ -482,7 +483,7 @@ else: raise AssertionError('null was treated as absent')
             const auto& Args = std::get<FToolValue::FObject>(Request.Arguments.Data);
             if (Args.contains("value"))
             {
-                FScopedTransaction Scope(Host->GetTransactor(), {.Description = "Native domain edit"});
+                Durin::FScopedTransaction Scope("Native domain edit");
                 EXPECT_TRUE(Object->Modify());
                 Object->SetRelativeLocation(FVector3(static_cast<double>(std::get<int64>(Args.at("value").Data)), 0, 0));
             }
@@ -751,7 +752,7 @@ def other():
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::TargetNotFound, "Exact fixture target retired", {}}}};
             if (std::get<uint64>(Arguments.at("revision").Data) != Revision)
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::RevisionConflict, "Prepared revision is stale", {}}}};
-            FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Apply prepared value"});
+            Durin::FScopedTransaction Scope("Apply prepared value");
             EXPECT_TRUE(Resolved->Modify()); Resolved->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             ++Revision; return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -793,7 +794,7 @@ def prepare():
         TStrongObjectPtr<DSceneComponent> UiObject(NewObject<DSceneComponent>(nullptr, "SharedUiRecording", EObjectFlags::Transactional));
         FToolSchema Schema(EToolValueType::Object); Schema.Properties.emplace("value", FToolSchema(EToolValueType::Integer)); Schema.Required = {"value"};
         Register(Schema, true, [&](const auto& Request, const auto& Context) {
-            FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Native edit"});
+            Durin::FScopedTransaction Scope("Native edit");
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -862,6 +863,11 @@ def work():
         auto Result = Runtime.GetJobResult(Job); ASSERT_TRUE(Result);
         EXPECT_EQ(EPythonJobState::Cancelled, Result->State); EXPECT_EQ("closed\n", Result->Output) << Result->Error;
         EXPECT_FALSE(Host->GetTransactor()->IsActive());
+        Tests::FTestEditorTransactorOwner NextEditor;
+        FScopedTransaction Next("New host");
+        ASSERT_TRUE(Next.IsOutstanding());
+        Runtime.Stop();
+        EXPECT_TRUE(NextEditor->IsActive());
     }
 
     TEST_F(FPythonToolIntegrationTests, SuspendedStopClosesGeneratorsBeforeInterpreterRestart)
@@ -976,12 +982,12 @@ def wait():
         EXPECT_NE(std::string::npos, Result->Error.find("expected cleanup diagnostic"));
     }
 
-    TEST_F(FPythonToolIntegrationTests, CrossYieldInnerCancelLeavesAppliedDataAndStaleOuterScopeIsInert)
+    TEST_F(FPythonToolIntegrationTests, CrossYieldInnerCancelUnwindsOuterBeforeReplacement)
     {
         TStrongObjectPtr<DSceneComponent> Object(NewObject<DSceneComponent>(nullptr, "CrossYieldCancel", EObjectFlags::Transactional));
         FToolSchema Schema(EToolValueType::Object); Schema.Properties.emplace("value", FToolSchema(EToolValueType::Integer)); Schema.Required = {"value"};
         Register(Schema, true, [&](const auto& Request, const auto& Context) {
-            FScopedTransaction Scope(GetToolEditor(Context)->GetTransactor(), {.Description = "Native edit"});
+            Durin::FScopedTransaction Scope("Native edit");
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({static_cast<double>(std::get<int64>(std::get<FToolValue::FObject>(Request.Arguments.Data).at("value").Data)), 0, 0});
             return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -994,9 +1000,9 @@ def edit():
         yield
         with durin.ScopedEditorTransaction('Inner') as inner:
             inner.cancel()
-        yield
-        with durin.ScopedEditorTransaction('Replacement'):
-            durin.tools.call('python.tests', 'echo', {'value': 9})
+    yield
+    with durin.ScopedEditorTransaction('Replacement'):
+        durin.tools.call('python.tests', 'echo', {'value': 9})
 )PY"));
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
         EXPECT_EQ(9.0, Object->GetRelativeLocation().x); EXPECT_EQ(1u, Host->GetTransactor()->GetQueueLength());
@@ -1061,14 +1067,18 @@ def edit():
 )PY");
         Tools->TickScripts(); Tools->TickScripts(); Tools->TickScripts();
         ASSERT_TRUE(Host->GetTransactor()->IsActive());
+        std::string Diagnostic;
+        auto* Buffer = Host->GetTransactor();
+        const auto Listener = Buffer->AddTransactionListener([&](const FTransactionEvent& Event) {
+            if (Event.Type == ETransactionEventType::Failed) Diagnostic = Event.Details;
+        });
         auto Result = Wait(Job);
         EXPECT_EQ(EPythonJobState::Succeeded, Result.State) << Result.Error;
         EXPECT_TRUE(Result.Error.empty());
         EXPECT_EQ("continued after scope\n", Result.Output);
-        const auto& History = Host->GetTransactor()->GetLastResult();
-        EXPECT_EQ(ETransactorResultCode::Failed, History.Code);
-        ASSERT_NE(History.ApplyCause, nullptr);
-        EXPECT_NE(History.ApplyCause->Message.find("Injected final accounting failure"), std::string::npos);
+        Buffer->DispatchEvents();
+        Buffer->RemoveTransactionListener(Listener);
+        EXPECT_NE(Diagnostic.find("Injected final accounting failure"), std::string::npos);
         EXPECT_FALSE(Host->GetTransactor()->IsActive()); EXPECT_EQ(0u, Host->GetTransactor()->GetQueueLength());
     }
 
@@ -1090,7 +1100,7 @@ def edit():
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::TargetNotFound, "Target retired", {}}}};
             if (std::get<uint64>(Args.at("revision").Data) != Revision)
                 return FToolResult{EToolStatus::Failed, {}, {{EToolError::RevisionConflict, "Revision changed during preparation", {}}}};
-            FScopedTransaction Apply(GetToolEditor(Context)->GetTransactor(), {.Description = "Short native apply"});
+            Durin::FScopedTransaction Apply("Short native apply");
             EXPECT_TRUE(Resolved->Modify()); Resolved->SetRelativeLocation({static_cast<double>(std::get<int64>(Args.at("value").Data)), 0, 0});
             ++Revision; ++Effects; return FToolResult{EToolStatus::Succeeded, Request.Arguments};
         });
@@ -1109,7 +1119,7 @@ def prepare():
         for (int I = 0; I < 3; ++I) Host->Tick(0.0f, false);
         ASSERT_EQ(1, PendingCalls); EXPECT_FALSE(Host->GetTransactor()->IsActive());
         {
-            FScopedTransaction Ui(Host->GetTransactor(), {.Description = "UI changes revision"});
+            Durin::FScopedTransaction Ui("UI changes revision");
             EXPECT_TRUE(Object->Modify()); Object->SetRelativeLocation({2, 0, 0}); ++Revision;
         }
         Preparation.TrySetValue({EToolStatus::Succeeded, FToolValue::FObject{{"value", 4}, {"revision", uint64{1}}, {"target", "fixture"}}});

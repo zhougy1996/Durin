@@ -49,10 +49,8 @@ namespace Durin::LevelEditor
 		{
 			auto Service = ResolveEditorTransactor(Mode);
 			if (!Service) return false;
-			FScopedTransaction Transaction(*Service, {
-				.Name = "SplineEdit",
-				.Description = std::move(Description),
-			});
+			FScopedTransaction Transaction("SplineEdit", Description, nullptr, *Service != nullptr);
+			if (*Service && !Transaction.IsOutstanding()) return false;
 			if (!Edit()) return false;
 			return true;
 		}

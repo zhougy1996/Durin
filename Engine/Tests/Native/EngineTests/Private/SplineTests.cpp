@@ -421,7 +421,7 @@ TEST(FSplineComponentTests, RejectsInvalidBulkCandidatesWithoutChangingPublished
 
 	Tests::FTestEditorTransactorOwner Transactions;
 	{
-		FScopedTransaction Scope(Transactions.Get(), {.Description = "Invalid spline bulk edits"});
+		Durin::FScopedTransaction Scope("Invalid spline bulk edits");
 		auto Invalid = End;
 		Invalid.InputKey = Start.InputKey;
 		EXPECT_FALSE(Spline->SetSplinePoints({Start, Invalid}, 10.0));
@@ -448,7 +448,7 @@ TEST(FSplineComponentTests, RejectsInvalidBulkCandidatesWithoutChangingPublished
 	EXPECT_EQ(Notifications, 0);
 
 	{
-		FScopedTransaction Scope(Transactions.Get(), {.Description = "Valid spline bulk edit"});
+		Durin::FScopedTransaction Scope("Valid spline bulk edit");
 		ASSERT_TRUE(Spline->SetSplinePoints({Start, FSplinePoint({6.0, 0.0, 0.0}), End}, 11.0));
 	}
 	EXPECT_TRUE(Package->IsDirty());
@@ -476,11 +476,11 @@ TEST(FSplineEditingTests, PointRangeHistoryExpiresAfterForeignTopology)
 	Changed.Position = Original[1].Position;
 	Changed.LeaveTangent.y = 2.0;
 	{
-		FScopedTransaction Scope(History.Get(), {.Description = "Edit spline point"});
+		Durin::FScopedTransaction Scope("Edit spline point");
 		ASSERT_TRUE(Spline->UpdateSplinePoint(0, Changed));
 	}
 	{
-		FScopedTransaction Scope(History.Get(), {.Description = "Reorder in the same history"});
+		Durin::FScopedTransaction Scope("Reorder in the same history");
 		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	}
 	ASSERT_TRUE(History->Undo());
@@ -490,14 +490,13 @@ TEST(FSplineEditingTests, PointRangeHistoryExpiresAfterForeignTopology)
 
 	Tests::FTestTransactorOwner OtherHistory;
 	{
-		FScopedTransaction Scope(OtherHistory.Get(), {.Description = "Reorder in another history"});
+		Durin::Tests::FBufferRecording Scope(OtherHistory.Get(), {.Description = "Reorder in another history"});
 		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
 	}
 	const auto Reordered = Spline->GetSplinePoints();
 	const auto Snapshot = Spline->GetEvaluationData();
 	EXPECT_FALSE(History->CanUndo());
 	EXPECT_FALSE(History->Undo());
-	EXPECT_EQ(History->GetLastResult().Code, ETransactorResultCode::NoOp);
 	EXPECT_FALSE(History->CanRedo());
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
 	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
@@ -512,7 +511,7 @@ TEST(FSplineEditingTests, ReflectedPointHistoryExpiresAfterForeignTopology)
 	auto Changed = Spline->GetSplinePoints();
 	Changed[0].Position.y += 2.0;
 	{
-		FScopedTransaction Scope(History.Get(), {.Description = "Replace spline points"});
+		Durin::FScopedTransaction Scope("Replace spline points");
 		ASSERT_TRUE(Spline->SetSplinePoints(Changed));
 	}
 	ASSERT_TRUE(History->CanUndo());
@@ -521,7 +520,6 @@ TEST(FSplineEditingTests, ReflectedPointHistoryExpiresAfterForeignTopology)
 	const auto Snapshot = Spline->GetEvaluationData();
 	EXPECT_FALSE(History->CanUndo());
 	EXPECT_FALSE(History->Undo());
-	EXPECT_EQ(History->GetLastResult().Code, ETransactorResultCode::NoOp);
 	EXPECT_EQ(Spline->GetSplinePoints(), Reordered);
 	EXPECT_EQ(Spline->GetEvaluationData(), Snapshot);
 }
@@ -605,7 +603,7 @@ TEST(FSplineEditingTests, StructuralUndoAndRedoRestoreOrderAndInvalidateOldIndic
 	TStrongObjectPtr<DSplineComponent> Spline(NewObject<DSplineComponent>(nullptr, "RangeSpline", EObjectFlags::Transactional));
 	const auto Before = Spline->GetSplinePoints();
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Spline point edits"});
+		Durin::FScopedTransaction Scope("Spline point edits");
 		ASSERT_TRUE(Spline->InsertSplinePoint(1, FSplinePoint({100, 200, 0})));
 		ASSERT_TRUE(Spline->RemoveSplinePoint(0));
 		ASSERT_TRUE(Spline->MoveSplinePoint(0, 1));
@@ -785,17 +783,17 @@ TEST(FSplineMeshActorEditingTests, ActorModifyRestoresInputsAfterGeneratedCompon
 	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
 	Tests::FTestEditorTransactorOwner Transactions;
 	{
-		FScopedTransaction Scope(Transactions.Get(), {"test", "Edit actor construction input"});
+		Durin::FScopedTransaction Scope("test", "Edit actor construction input", nullptr);
 		ASSERT_TRUE(Actor->Modify());
 		Actor->GetSplineComponent()->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({200.0, 0.0, 0.0})});
 	}
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	ASSERT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
-	ASSERT_TRUE(Transactions->Undo()) << FormatTransactorResult(Transactions->GetLastResult());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 3u);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
-	ASSERT_TRUE(Transactions->Redo()) << FormatTransactorResult(Transactions->GetLastResult());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Actor->GetSplineComponent()->GetNumSplinePoints(), 2u);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 1u);
-	ASSERT_TRUE(Transactions->TryReset()); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
+	Transactions->Reset(); MarkObjectHierarchyAsGarbage(Level); Root.Reset(); CollectGarbage(Durin::EObjectFlags::Standalone);
 }

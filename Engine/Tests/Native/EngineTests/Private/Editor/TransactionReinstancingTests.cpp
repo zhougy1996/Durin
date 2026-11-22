@@ -25,7 +25,7 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	Owner->Hard = Default;
 	const auto Original = Default->Value;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Edit class default", Default});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Edit class default", Default});
 		ASSERT_TRUE(Default->Modify(false));
 		ASSERT_TRUE(Owner->Modify(false));
 		Default->Value = 37;
@@ -45,13 +45,13 @@ TEST(FTransactionTemplateTests, PublishedClassDefaultUsesModifyAndSurvivesRecrea
 	EXPECT_EQ(Logical.GetHash(), FPersistentObjectRef(Replacement).GetHash());
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Replacement);
 	Replacement->Value = 81;
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Replacement->Value, Original);
 	EXPECT_EQ(Owner->Hard.Get(), Replacement);
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Replacement->Value, 81);
 	EXPECT_EQ(Owner->Value, 5);
-	ASSERT_TRUE(Buffer->TryReset());
+	Buffer->Reset();
 	Replacement->Value = Original;
 }
 
@@ -73,7 +73,7 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 	const auto Before = Component->GetRelativeTransform();
 	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "SubobjectHistory"));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Edit default subobject", Component});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Edit default subobject", Component});
 		ASSERT_TRUE(Component->Modify(false));
 		Component->SetRelativeLocation({12.0, 0.0, 0.0});
 	}
@@ -85,13 +85,13 @@ TEST(FTransactionTemplateTests, DefaultSubobjectHistoryResolvesRecreatedGraphWit
 	Component->SetFlags(EObjectFlags::Transactional);
 	EXPECT_EQ(Logical.Resolve(), Component);
 	Component->SetRelativeLocation({29.0, 0.0, 0.0});
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Component->GetRelativeLocation(), Before.Translation);
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Component->GetRelativeLocation().x, 29.0);
 	EXPECT_FALSE(Component->IsRegistered());
 	EXPECT_FALSE(Component->HasBegunPlay());
-	ASSERT_TRUE(Buffer->TryReset());
+	Buffer->Reset();
 	Component->SetRelativeTransform(Before);
 	Component->ClearFlags(EObjectFlags::Transactional);
 }
@@ -156,7 +156,7 @@ namespace
 		}
 		auto Record(int32 Value) -> void
 		{
-			Durin::FScopedTransaction Scope(Buffer.Get(), {"test", "Reinstanced value", Old});
+			Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Reinstanced value", Old});
 			ASSERT_TRUE(Old->Modify());
 			Old->Value = Value;
 		}
@@ -188,8 +188,8 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	const auto Original = Default->Value;
 	TStrongObjectPtr<DTransBuffer> Buffer(NewObject<DTransBuffer>(nullptr, "OpaqueTemplateHistory"));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Native default command", Default});
-		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Native default command", Default});
+		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::make_unique<FReinstancedValueCommand>(Default, Original, 8, false)));
 	}
 	Private::ReleaseClassDefaultObjectForTests(Class);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
@@ -197,7 +197,7 @@ TEST(FTransactionTemplateTests, OpaqueCustomParticipantsExpireBeforeRecreatedDef
 	Default->Value = 93;
 	EXPECT_FALSE(Buffer->Undo());
 	EXPECT_EQ(Default->Value, 93);
-	ASSERT_TRUE(Buffer->TryReset());
+	Buffer->Reset();
 	Default->Value = Original;
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 }
@@ -207,7 +207,7 @@ TEST_F(FTransactionReinstancingTests, DeletionRestoresTopLevelRegistrationAndRej
 	using namespace Durin;
 	ASSERT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Delete top-level object"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Delete top-level object"});
 		ASSERT_TRUE(Old->Modify());
 		Old->MarkAsGarbage();
 	}
@@ -217,7 +217,7 @@ TEST_F(FTransactionReinstancingTests, DeletionRestoresTopLevelRegistrationAndRej
 	EXPECT_TRUE(Old->IsGarbage());
 	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Conflict));
 	Conflict->MarkAsGarbage();
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_TRUE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
 	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_FALSE(std::ranges::contains(Current->GetTopLevelAssets(), Old));
@@ -265,7 +265,7 @@ TEST_F(FTransactionReinstancingTests, ExplicitReinstancingHookUsesTheSharedCheck
 	EXPECT_EQ(Buffer->GetUndoContext().PrimaryObject, Reinstanced);
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Reinstanced->Value, 0);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Reinstanced->Value, 77);
-	FScopedTransaction Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
+	Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Busy reinstancing", Reinstanced});
 	EXPECT_FALSE(Buffer->OnObjectsReinstanced(Map));
 	Scope.Cancel();
 	MarkAsGarbage(Old);
@@ -519,7 +519,7 @@ TEST_F(FTransactionReinstancingTests, ActorHistoryReinstancingRestoresGeneratedI
 	ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
 	static_cast<DSceneComponent*>(BeforeActor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)))->SetRelativeLocation({17.0, 0.0, 0.0});
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Generated history", BeforeActor});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Generated history", BeforeActor});
 		ASSERT_TRUE(BeforeActor->Modify()); BeforeActor->GeneratedCount = 2;
 		ASSERT_TRUE(BeforeActor->RerunConstructionScripts());
 	}
@@ -610,7 +610,7 @@ TEST_F(FTransactionReinstancingTests, UnaffectedNativeCommandMovesWithoutRequiri
 	using namespace Durin; using namespace Durin;
 	TStrongObjectPtr<DTransactionRecordParticipant> Peer(NewObject<DTransactionRecordParticipant>(nullptr, "UnaffectedNativePeer"));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Mixed affected and unaffected", Old});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Mixed affected and unaffected", Old});
 		ASSERT_TRUE(Old->Modify()); Old->Value = 12;
 		Peer->Value = 9;
 		ASSERT_TRUE(GUndo->StoreUndo(Peer.Get(), std::make_unique<FReinstancedValueCommand>(Peer.Get(), 0, 9, false)));
@@ -630,7 +630,7 @@ TEST_F(FTransactionReinstancingTests, WeakOnlySerializedDependencyRebindsWithout
 	TStrongObjectPtr<DTransactionRecordParticipant> KeepNew(New);
 	Peer->Weak = Old;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Weak-only dependency", Peer.Get()});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Weak-only dependency", Peer.Get()});
 		ASSERT_TRUE(Peer->Modify()); Peer->Value = 12;
 	}
 	ASSERT_TRUE(Prepare()); ASSERT_TRUE(Operation.TryCommit());

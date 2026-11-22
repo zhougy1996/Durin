@@ -1,15 +1,13 @@
 #include "Actors/EditorActorSubsystem.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Transactions/Transactor.h"
-#include "Actors/ActorChange.h"
 #include "Actors/ActorEditingScope.h"
 #include "Actors/ActorEditingValidation.h"
 
-#include "Actors/CameraActor.h"
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
-#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -21,278 +19,148 @@ namespace Durin
 {
 	namespace
 	{
-		struct FActorState
-		{
-			TObjectPtr<AActor> Actor;
-			FName Name;
-			size_t Index;
-			bool bTransient, bTick;
-			std::vector<TObjectPtr<DActorComponent>> Registered;
-		};
 		struct FAttachmentState
 		{
 			TObjectPtr<DSceneComponent> Child, Parent;
 			FTransform Relative;
 		};
 
-		class FActorPresenceChange final : public FActorCommandChange
+		auto EditActorMembership(DLevel& Level, std::span<AActor* const> Actors, bool bRemove,
+			DTransactor& Transactions, std::string_view Description, std::vector<FAttachmentState> Links = {}) -> bool
 		{
-		public:
-			auto GetModifiedObjects() const -> std::vector<DObject*> override
+			std::vector<TStrongObjectPtr<AActor>> Pinned;
+			std::vector<bool> Transient;
+			for (auto* Actor : Actors)
 			{
-				std::vector<DObject*> Objects{Level.Get()};
-				for (const auto& State : States)
-				{
-					Objects.push_back(State.Actor.Get());
-					for (const auto& Component : State.Registered) Objects.push_back(Component.Get());
-				}
-				for (const auto& Link : Attachments)
-				{
-					Objects.push_back(Link.Child.Get());
-					Objects.push_back(Link.Parent.Get());
-				}
-				return Objects;
+				if (!IsValid(Actor) || Actor->GetOuter() != &Level || Level.ContainsActor(Actor) != bRemove
+					|| (!bRemove && !Level.IsActorNameAvailable(Actor->GetFName(), Actor))) return false;
+				Pinned.emplace_back(Actor);
+				Transient.push_back(Actor->HasAnyObjectFlags(EObjectFlags::Transient));
 			}
-
-			FActorPresenceChange(DLevel& InLevel, std::span<AActor* const> InActors, bool bInRemove, std::string InDescription,
-				std::span<const FAttachmentState> PreparedAttachments = {})
-				: Level(&InLevel), Description(std::move(InDescription)), bRemove(bInRemove), BeforeCamera(InLevel.GetPrimaryCameraActor())
+			if (bRemove)
 			{
-				Packages[0] = InLevel.GetPackage();
-				std::unordered_set<AActor*> Selected(InActors.begin(), InActors.end());
-				for (AActor* Actor : InActors)
-				{
-					size_t Index = InLevel.GetActors().size() + States.size();
-					if (bRemove) Index = static_cast<size_t>(std::ranges::find_if(InLevel.GetActors(), [Actor](const auto& Entry) { return Entry.Get() == Actor; }) - InLevel.GetActors().begin());
-					States.push_back({Actor, Actor->GetFName(), Index, Actor->HasAnyObjectFlags(EObjectFlags::Transient),
-						bRemove ? Actor->GetPrimaryActorTick().IsTickFunctionRegistered() : InLevel.GetWorld() != nullptr, {}});
+				std::unordered_set<AActor*> Selected(Actors.begin(), Actors.end());
+				for (const auto& Actor : Level.GetActors())
 					for (const auto& Component : Actor->GetComponents())
-						if (Component && (bRemove ? Component->IsRegistered() : InLevel.GetWorld() != nullptr)) States.back().Registered.push_back(Component);
-				}
-				std::ranges::sort(States, {}, &FActorState::Index);
-				std::vector<AActor*> All;
-				for (const auto& Actor : InLevel.GetActors()) All.push_back(Actor.Get());
-				if (!bRemove) All.insert(All.end(), InActors.begin(), InActors.end());
-				for (AActor* Actor : All)
-					for (const auto& Component : Actor->GetComponents())
-						if (auto* Child = Cast<DSceneComponent>(Component.Get()); Child && Child->GetAttachParent())
-						{
-							auto* Parent = Child->GetAttachParent();
-							if (Selected.contains(Actor) != Selected.contains(Parent->GetOwner()))
-								Attachments.push_back({Child, Parent, Child->GetRelativeTransform()});
-						}
-				Attachments.insert(Attachments.end(), PreparedAttachments.begin(), PreparedAttachments.end());
-				AfterCamera = BeforeCamera;
-				if (bRemove && Selected.contains(BeforeCamera.Get())) AfterCamera = nullptr;
-				if (!AfterCamera)
-					for (AActor* Actor : All)
-						if (bRemove ? !Selected.contains(Actor) : Selected.contains(Actor))
-							if (auto* Camera = Cast<ACameraActor>(Actor)) { AfterCamera = Camera; break; }
-				RetainActors();
+						if (auto* Child = Cast<DSceneComponent>(Component.Get()); Child && Child->GetAttachParent()
+							&& Selected.contains(Actor.Get()) != Selected.contains(Child->GetAttachParent()->GetOwner()))
+							Links.push_back({Child, Child->GetAttachParent(), Child->GetRelativeTransform()});
 			}
-			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetOwningModule() const -> std::string_view override { return "DurinEd"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto GetAllocatedSize() const -> size_t override
+			FScopedTransaction Scope("Actor", Description, &Level);
+			if (!Scope.IsOutstanding()) return false;
+			Level.SetFlags(EObjectFlags::Transactional);
+			Level.Modify(false);
+			for (auto* Actor : Actors)
 			{
-				size_t Bytes = Description.capacity() + States.capacity() * sizeof(FActorState)
-					+ Attachments.capacity() * sizeof(FAttachmentState) + Retained.capacity() * sizeof(TObjectPtr<DObject>);
-				for (const auto& State : States) Bytes += State.Registered.capacity() * sizeof(TObjectPtr<DActorComponent>);
-				return Bytes;
+				if (!Transactions.IsActive()) return false;
+				if (!bRemove) Actor->SetTransient(true);
+				Actor->SetFlags(EObjectFlags::Transactional);
+				// Presence changes the Actor and Level. Capture a root separately only
+				// when its attachment changes, leaving configured component assets live.
+				Actor->DObject::Modify(false);
 			}
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			for (const auto& Link : Links)
 			{
-				for (DObject* Object : {static_cast<DObject*>(Level.Get()), static_cast<DObject*>(BeforeCamera.Get()), static_cast<DObject*>(AfterCamera.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
-				for (const auto& Ref : Retained) { DObject* Object = Ref.Get(); if (Object) Collector.AddReferencedObject(Object); }
-				for (const auto& Link : Attachments)
-					for (DObject* Object : {static_cast<DObject*>(Link.Child.Get()), static_cast<DObject*>(Link.Parent.Get())})
-						if (Object) Collector.AddReferencedObject(Object);
+				if (!Transactions.IsActive()) return false;
+				Link.Child->SetFlags(EObjectFlags::Transactional);
+				Link.Child->Modify(false);
 			}
-			auto Replay(ETransactionOperation Operation) -> FActorChangeResult override
+			if (!Transactions.IsActive()) return false;
+			if (bRemove)
+				for (const auto& Link : Links)
+					if (!Link.Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld)) return false;
+			for (size_t I = 0; I < Actors.size(); ++I)
 			{
-				FScopedPackageDirtySuppression SuppressReplay;
-				const bool bAfter = Operation != ETransactionOperation::Undo;
-				const bool bPresent = bAfter != bRemove;
-				const auto Reject = [](EActorChangeError Code) -> FActorChangeResult { return {{.Code = Code}}; };
-				const auto Interrupted = []() -> FActorChangeResult {
-					return {{.Code = EActorChangeError::TargetUnavailable,
-						.CleanupCause = std::make_shared<FActorChangeError>(FActorChangeError{.Code = EActorChangeError::RollbackIncomplete})}};
-				};
-				if (!CanEditActorLevel(Level.Get())) return Reject(EActorChangeError::TargetUnavailable);
-				const bool bHistorical = Level->IsTransactionRestorePending();
-				if (!bHistorical && Level->GetPrimaryCameraActor() != (bAfter ? BeforeCamera : AfterCamera).Get()) return Reject(EActorChangeError::ActorChanged);
-				auto* DesiredCamera = (bAfter ? AfterCamera : BeforeCamera).Get();
-				if (!bHistorical && DesiredCamera && (!IsValid(DesiredCamera) || (!Level->ContainsActor(DesiredCamera)
-					&& (!bPresent || std::ranges::none_of(States, [DesiredCamera](const auto& State) { return State.Actor.Get() == DesiredCamera; }))))) return Reject(EActorChangeError::ActorMembership);
-				for (const auto& State : States)
-				{
-					auto* Actor = State.Actor.Get();
-					if (!IsValid(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || Actor->GetOuter() != Level.Get()
-						|| (Level->ContainsActor(Actor) == bPresent && !Level->IsActorMembershipChangedDuringUndo(Actor))) return Reject(EActorChangeError::ActorMembership);
-					if (Actor->GetFName() != State.Name) return Reject(EActorChangeError::ActorChanged);
-					if (bPresent)
-						if (!Level->IsActorNameAvailable(Actor->GetFName(), Actor)) return Reject(EActorChangeError::ActorNameCollision);
-					for (const auto& Component : Actor->GetComponents())
-						if (!IsValid(Component.Get()) || Component->IsBeingDestroyed() || Component->HasBegunPlay()) return Reject(EActorChangeError::TargetUnavailable);
-				}
-				for (const auto& Link : Attachments)
-				{
-					if (!IsValid(Link.Child.Get()) || !IsValid(Link.Parent.Get()) || Link.Child->IsBeingDestroyed() || Link.Parent->IsBeingDestroyed()) return Reject(EActorChangeError::ParentInvalid);
-					for (DSceneComponent* Scene : {Link.Child.Get(), Link.Parent.Get()})
-					{
-						auto* Owner = Scene->GetOwner();
-						if (!IsValid(Owner) || Owner->GetOuter() != Level.Get() || !Owner->OwnsComponent(Scene)
-							|| (!Level->ContainsActor(Owner) && std::ranges::none_of(States, [Owner](const auto& State) { return State.Actor.Get() == Owner; }))) return Reject(EActorChangeError::ParentInvalid);
-					}
-					if (Link.Child->GetAttachParent() != (bPresent ? nullptr : Link.Parent.Get())) return Reject(EActorChangeError::ParentMismatch);
-					if (bPresent && (Link.Parent.Get() == Link.Child.Get() || Link.Parent->IsAttachedTo(Link.Child.Get()))) return Reject(EActorChangeError::ParentCycle);
-				}
-				if (bPresent)
-				{
-					std::unordered_map<DSceneComponent*, DSceneComponent*> Parents;
-					for (const auto& Link : Attachments) Parents.emplace(Link.Child.Get(), Link.Parent.Get());
-					for (const auto& Link : Attachments)
-					{
-						std::unordered_set<DSceneComponent*> Visited;
-						for (auto* Parent = Link.Parent.Get(); Parent;)
-						{
-							if (Parent == Link.Child.Get() || !Visited.insert(Parent).second) return Reject(EActorChangeError::ParentCycle);
-							const auto It = Parents.find(Parent);
-							Parent = It == Parents.end() ? Parent->GetAttachParent() : It->second;
-						}
-					}
-				}
-				if (GUndo && !bHistorical)
-				{
-					// One serialized owner for Level membership and camera fields. The
-					// command retains only native publication and local compensation.
-					GUndo->SaveObject(Level.Get());
-					if (!GUndo->ContainsObject(Level.Get())) return Reject(EActorChangeError::MemberUnavailable);
-				}
-				if (!bPresent)
-				{
-					RetainActors();
-					for (const auto& Link : Attachments) verify(Link.Child->DetachFromComponent(EDetachmentTransformRule::KeepWorld));
-					for (auto It = States.rbegin(); It != States.rend(); ++It)
-					{
-						if (!CanEditActorLevel(Level.Get()) || !IsValid(It->Actor.Get())
-							|| It->Actor->IsBeingDestroyed() || It->Actor->HasBegunPlay()
-							|| (!Level->ContainsActor(It->Actor.Get()) && !Level->IsActorMembershipChangedDuringUndo(It->Actor.Get()))) return Interrupted();
-						It->Registered.clear();
-						for (const auto& Component : It->Actor->GetComponents()) if (Component->IsRegistered()) It->Registered.push_back(Component);
-						if (!Level->SetActorPresence(It->Actor.Get(), false)
-							|| !CanEditActorLevel(Level.Get()) || !IsValid(It->Actor.Get()) || It->Actor->IsBeingDestroyed()
-							|| Level->ContainsActor(It->Actor.Get()))
-							return Interrupted();
-						It->Actor->SetTransient(true);
-					}
-				}
-				else
-				{
-					for (const auto& State : States)
-					{
-						if (!IsValid(State.Actor.Get()) || State.Actor->IsBeingDestroyed()) return Interrupted();
-						State.Actor->SetTransient(State.bTransient);
-						if (!Level->SetActorPresence(State.Actor.Get(), true, State.Index, false)
-							|| !CanEditActorOwner(State.Actor.Get())) return Interrupted();
-						if (!State.bTick) State.Actor->GetPrimaryActorTick().UnregisterTickFunction();
-					}
-					for (const auto& Link : Attachments)
-					{
-						verify(Link.Child->AttachToComponent(Link.Parent.Get(), EAttachmentTransformRule::KeepRelative));
-						Link.Child->SetRelativeTransform(Link.Relative);
-					}
-					for (const auto& State : States)
-						for (const auto& Component : State.Registered)
-						{
-							if (IsValid(Component.Get()) && State.Actor->OwnsComponent(Component.Get())) Component->RegisterComponent();
-							if (!CanEditActorOwner(State.Actor.Get())) return Interrupted();
-						}
-				}
-				RetainActors();
-				if (!bHistorical && !Level->SetPrimaryCameraActor((bAfter ? AfterCamera : BeforeCamera).Get())) return Interrupted();
-				return {};
+				const size_t Index = bRemove ? Actors.size() - 1 - I : I;
+				auto* Actor = Actors[Index];
+				if (!Transactions.IsActive() || !CanEditActorLevel(&Level) || !IsValid(Actor)) return false;
+				if (!bRemove) Actor->SetTransient(Transient[Index]);
+				if (!Level.SetActorPresence(Actor, !bRemove, std::numeric_limits<size_t>::max(), Links.empty()) || !IsValid(Actor) || Level.ContainsActor(Actor) == bRemove) return false;
+				if (bRemove) Actor->SetTransient(true);
+				if (!CanEditActorLevel(&Level)) return false;
 			}
-		private:
-			auto RetainTree(DObject* Object) -> void
+			if (!bRemove && !Links.empty())
 			{
-				if (!IsValid(Object)) return;
-				Retained.emplace_back(Object);
-				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) RetainTree(Child);
+				for (const auto& Link : Links)
+				{
+					if (!IsValid(Link.Child.Get()) || !IsValid(Link.Parent.Get())
+						|| !Link.Child->AttachToComponent(Link.Parent.Get(), EAttachmentTransformRule::KeepRelative)) return false;
+					Link.Child->SetRelativeTransform(Link.Relative);
+				}
+				for (auto* Actor : Actors)
+				{
+					if (!CanEditActorOwner(Actor)) return false;
+					for (const auto& Component : Actor->GetComponentsSnapshot())
+					{
+						if (IsValid(Component.Get()) && Actor->OwnsComponent(Component.Get()) && Level.GetWorld())
+							Component->RegisterComponent();
+						if (!CanEditActorOwner(Actor)) return false;
+					}
+				}
 			}
-			auto RetainActors() -> void { Retained.clear(); for (const auto& State : States) RetainTree(State.Actor.Get()); }
-			TObjectPtr<DLevel> Level;
-			std::string Description;
-			bool bRemove;
-			TObjectPtr<ACameraActor> BeforeCamera, AfterCamera;
-			std::vector<FActorState> States;
-			std::vector<FAttachmentState> Attachments;
-			std::vector<TObjectPtr<DObject>> Retained;
-			std::array<DPackage*, 1> Packages{};
-		};
-
-		auto Execute(std::unique_ptr<FActorCommandChange> Change, std::vector<TObjectPtr<AActor>> Actors, DTransactor& Transactions) -> bool
-		{
-			const auto Result = ApplyEditorChange(Transactions, std::move(Change));
-			if (!Result && Result.Code != ETransactorResultCode::RecoveryRequired)
-				for (const auto& Actor : Actors)
-					if (IsValid(Actor.Get()))
-						if (auto* Level = Cast<DLevel>(Actor->GetOuter()); Level && !Level->ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
-			if (!Result) return false;
 			return true;
 		}
 	}
 
-	auto MakeActorPresenceChange(DLevel& Level, std::span<AActor* const> Actors, bool bRemove, std::string Description) -> std::unique_ptr<FActorCommandChange>
+	static auto SpawnConfiguredActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
+		DTransactor& Transactions, auto&& ConfigureAndValidate,
+		ESpawnActorNameMode NameMode, const std::string& Label) -> std::expected<AActor*, std::string>
 	{
-		if (!CanEditActorLevel(&Level) || Actors.empty()) return {};
-		std::unordered_set<AActor*> Unique;
-		for (auto* Actor : Actors)
-			if (!IsValid(Actor) || Actor->GetOuter() != &Level || Actor->IsBeingDestroyed() || Actor->HasBegunPlay()
-				|| Level.ContainsActor(Actor) != bRemove || !Unique.insert(Actor).second) return {};
-		return std::make_unique<FActorPresenceChange>(Level, Actors, bRemove, std::move(Description));
+		if (!CanEditActorLevel(&Level) || !CanConstructObjectOfClass(Class, AActor::StaticClass()))
+			return std::unexpected(std::string("The actor class or target level is unavailable."));
+		DObjectForceRegistration(Class);
+		if (Label.find('\0') != std::string::npos) return std::unexpected(std::string("Invalid actor label."));
+		const FName Requested = Name.IsNone()
+			? FName(Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Name;
+		Name = Level.ResolveActorName(Requested, Name.IsNone() ? ESpawnActorNameMode::Requested : NameMode);
+		if (Name.IsNone()) return std::unexpected(std::string("The requested actor name is occupied."));
+		AActor* Raw = nullptr;
+		TStrongObjectPtr<AActor> Prepared;
+		{
+			FScopedPackageDirtySuppression SuppressPreparation;
+			Raw = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional);
+			Prepared = Raw;
+			auto Reject = [&](std::string Reason) {
+				if (IsValid(Raw)) MarkObjectHierarchyAsGarbage(Raw);
+				return std::unexpected(std::move(Reason));
+			};
+			if (!Raw) return Reject("Actor construction failed.");
+			Raw->SetInitialActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
+			if (!Raw->RerunConstructionScripts()) return Reject("Actor construction scripts failed.");
+			Raw->SetActorTransform(Transform);
+			try
+			{
+				auto Result = ConfigureAndValidate(*Raw);
+				if (!Result) return Reject(std::move(Result.error()));
+			}
+			catch (const std::exception& Error) { return Reject(Error.what()); }
+			catch (...) { return Reject("Actor configuration threw."); }
+			if (!IsValid(Raw)) return Reject("Actor retired during configuration.");
+		}
+		if (!EditActorMembership(Level, {&Raw, 1}, false, Transactions, "Add actor"))
+		{
+			if (IsValid(Raw) && !Level.ContainsActor(Raw)) MarkObjectHierarchyAsGarbage(Raw);
+			return std::unexpected(std::string("Actor unavailable for publication."));
+		}
+		return Raw;
 	}
 
 	auto DEditorActorSubsystem::SpawnActor(DLevel& Level, DClass* Class, FName Name, const FTransform& Transform,
-		const FActorEditContext& Context, std::function<void(AActor&)> Configure, ESpawnActorNameMode NameMode, const std::string& Label) -> AActor*
+		const FActorEditContext& Context, std::function<void(AActor&)> Configure, ESpawnActorNameMode NameMode, const std::string& Label, std::string* OutError) -> AActor*
 	{
-		auto Admission = Admit(Context, &Level);
+		if (OutError) OutError->clear();
+		auto Admission = Admit(Context, &Level, nullptr, false, OutError);
 		if (!Admission) return nullptr;
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> AActor*
 		{
-			auto* Transactions = Admission;
-			if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) return nullptr;
-			DObjectForceRegistration(Class);
-			if (Label.find('\0') != std::string::npos) return nullptr;
-			const FName Requested = Name.IsNone()
-				? FName(Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Name;
-			Name = Level.ResolveActorName(Requested, Name.IsNone() ? ESpawnActorNameMode::Requested : NameMode);
-			if (Name.IsNone()) return nullptr;
-			AActor* Actor = nullptr;
-			{
-				FScopedPackageDirtySuppression SuppressPreparation;
-				Actor = NewObject<AActor>(Class, &Level, Name, EObjectFlags::Transactional);
-				if (Actor) Actor->SetInitialActorLabel(Level.MakeUniqueActorLabel(Label.empty() ? Requested.ToString() : Label));
-				if (Actor && Actor->RerunConstructionScripts())
-				{
-					Actor->SetActorTransform(Transform);
-					if (Configure)
-					{
-						try { Configure(*Actor); }
-						catch (...) { MarkObjectHierarchyAsGarbage(Actor); return nullptr; }
-					}
-					if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
-					{ if (IsValid(Actor)) MarkObjectHierarchyAsGarbage(Actor); return nullptr; }
-					if (!IsValid(Actor)) return nullptr;
-				}
-				else { if (Actor) MarkObjectHierarchyAsGarbage(Actor); return nullptr; }
-			}
-			auto Change = MakeActorPresenceChange(Level, {&Actor, 1}, false, "Add actor");
-			Actor->SetTransient(true);
-			if (auto Applied = Execute(std::move(Change), {Actor}, *Transactions); !Applied) return nullptr;
-			return Actor;
-
+			auto Result = SpawnConfiguredActor(Level, Class, Name, Transform, *Admission, [&](AActor& Actor) -> std::expected<void, std::string> {
+				if (Configure) Configure(Actor);
+				std::string Reason;
+				if (!Admit(Context, &Level, nullptr, true, &Reason)) return std::unexpected(std::move(Reason));
+				return {};
+			}, NameMode, Label);
+			if (!Result && OutError) *OutError = Result.error();
+			return Result.value_or(nullptr);
 		});
 	}
 	auto DEditorActorSubsystem::DestroyActors(DLevel& Level, std::span<AActor* const> Actors, const FActorEditContext& Context) -> bool
@@ -306,7 +174,7 @@ namespace Durin
 			std::unordered_set<AActor*> Unique;
 			for (AActor* Actor : Actors)
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return false;
-			return Execute(MakeActorPresenceChange(Level, Actors, true, "Delete actors"), {Actors.begin(), Actors.end()}, *Transactions);
+			return EditActorMembership(Level, Actors, true, *Transactions, "Delete actors");
 
 		});
 	}
@@ -323,7 +191,7 @@ namespace Durin
 				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed() || Actor->HasBegunPlay() || !Unique.insert(Actor).second) return {};
 			std::vector<TObjectPtr<AActor>> Copies;
 			std::vector<AActor*> Raw;
-			std::unique_ptr<FActorCommandChange> Change;
+			std::vector<FAttachmentState> PreparedAttachments;
 			{
 				FScopedPackageDirtySuppression SuppressPreparation;
 				std::unordered_map<DObject*, DObject*> Duplicates;
@@ -341,7 +209,6 @@ namespace Durin
 					// Duplication remaps the complete owned graph and runs PostLoad before publication.
 				}
 				const std::unordered_set<AActor*> CopiedOwners(Raw.begin(), Raw.end());
-				std::vector<FAttachmentState> PreparedAttachments;
 				// Reconnect references between selected graphs as well as within each Outer tree.
 				for (const auto& [Source, Copy] : Duplicates)
 				{
@@ -367,19 +234,22 @@ namespace Durin
 				for (AActor* Actor : Raw)
 					for (const auto& Component : Actor->GetComponentsSnapshot())
 						if (IsValid(Component.Get()) && Component->GetCreationMethod() != EComponentCreationMethod::Generated) Component->PostLoad();
-				Change = std::make_unique<FActorPresenceChange>(Level, Raw, false, "Duplicate actors", PreparedAttachments);
 				// External parent child lists are changed only by successful replay.
 				for (AActor* Actor : Raw)
 				{
 					for (const auto& Component : Actor->GetComponents())
 						if (auto* Scene = Cast<DSceneComponent>(Component.Get()); Scene && Scene->GetAttachParent() && !CopiedOwners.contains(Scene->GetAttachParent()->GetOwner()))
 							Scene->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
-					Actor->SetTransient(true);
 				}
 			}
 			if (auto Revalidated = Admit(Context, &Level, nullptr, true); !Revalidated)
 			{ for (const auto& Actor : Copies) if (IsValid(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get()); return {}; }
-			if (auto Applied = Execute(std::move(Change), Copies, *Transactions); !Applied) return {};
+			if (!EditActorMembership(Level, Raw, false, *Transactions, "Duplicate actors", std::move(PreparedAttachments)))
+			{
+				for (const auto& Actor : Copies)
+					if (IsValid(Actor.Get()) && !Level.ContainsActor(Actor.Get())) MarkObjectHierarchyAsGarbage(Actor.Get());
+				return {};
+			}
 			return Copies;
 
 		});
@@ -397,10 +267,15 @@ namespace Durin
 				? (Class->GetDefaultObjectName().empty() ? Class->GetName() : Class->GetDefaultObjectName()) : Label;
 			if (bMakeUnique) Resolved = Level.MakeUniqueActorLabel(Resolved, Actor);
 			if (Actor->GetActorLabel() == Resolved) return true;
-			FScopedTransaction Recording(Transactions, {"ActorLabel", "Set actor label", Actor});
+			const bool bOwnsRecording = !Transactions->IsActive();
+			FScopedTransaction Recording("ActorLabel", "Set actor label", Actor);
 			if (!Recording.IsOutstanding()) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->Modify(false)) return false;
+			if (!Actor->Modify(false) || !Transactions->IsActive())
+			{
+				if (bOwnsRecording) Recording.Cancel();
+				return false;
+			}
 			return Actor->SetActorLabel(Resolved);
 		});
 	}
@@ -416,10 +291,15 @@ namespace Durin
 			Name = Level.ResolveActorName(Name, NameMode, Actor);
 			if (Name.IsNone()) return false;
 			if (Actor->GetFName() == Name) return true;
-			FScopedTransaction Recording(Transactions, {"ActorRename", "Rename actor", Actor});
+			const bool bOwnsRecording = !Transactions->IsActive();
+			FScopedTransaction Recording("ActorRename", "Rename actor", Actor);
 			if (!Recording.IsOutstanding()) return false;
 			Actor->SetFlags(EObjectFlags::Transactional);
-			if (!Actor->Modify(false)) return false;
+			if (!Actor->Modify(false) || !Transactions->IsActive())
+			{
+				if (bOwnsRecording) Recording.Cancel();
+				return false;
+			}
 			return Level.RenameActor(Actor, Name, ESpawnActorNameMode::RequiredReturnNull);
 
 		});

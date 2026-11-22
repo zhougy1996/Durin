@@ -10,6 +10,7 @@
 #include "Toolkits/ToolkitManager.h"
 #include "Tickable.h"
 #include "Editor/EditorEngine.h"
+#include "PropertyEditor/PropertyEditing.h"
 #include "Tools/EditorToolSubsystem.h"
 #include "Notifications/Notification.h"
 #include "Notifications/EditorNotificationSubsystem.h"
@@ -271,11 +272,9 @@ namespace Durin
 		if (const auto Admission = CheckPackageCollectionAllowed(); !Admission)
 		{ Error = Admission.error().ToString(); return false; }
 		if (!RendererModule) { Error = "Renderer services are unavailable."; return false; }
-		if (Trans)
-		{
-			const auto Reset = Trans->TryReset("Loading map");
-			if (!Reset && Reset.Code != ETransactorResultCode::NoOp) { Error = FormatTransactorResult(Reset); return false; }
-		}
+		if (Trans && !Trans->CanTransact())
+		{ Error = "Loading the map requires available transaction history."; return false; }
+		if (Trans) Trans->Reset("Loading map");
 		const auto PreviousPackage = EditorWorld && EditorWorld->GetCurrentLevel() && EditorWorld->GetCurrentLevel()->GetPackage()
 			? EditorWorld->GetCurrentLevel()->GetPackage()->GetPackagePathIdentity() : FPackagePath{};
 		std::vector<TWeakObjectPtr<DPackage>> Packages;
@@ -319,11 +318,8 @@ namespace Durin
 		FScopedEditorMapOperation Operation(bLoadingEditorMap);
 		if (EditorWorld)
 		{
-			if (Trans)
-			{
-				const auto Reset = Trans->TryReset("New map");
-				if (!Reset && Reset.Code != ETransactorResultCode::NoOp) return nullptr;
-			}
+			if (Trans && !Trans->CanTransact()) return nullptr;
+			if (Trans) Trans->Reset("New map");
 			EditorDestroyWorld();
 		}
 		auto Scene = RendererModule->CreateScene();
@@ -352,11 +348,9 @@ namespace Durin
 		{ Error = "Closing the level requires an idle editor outside Play in Editor."; return false; }
 		if (!EditorWorld || !EditorWorld->GetCurrentLevel()) return true;
 		const FScopedEditorMapOperation Operation(bLoadingEditorMap);
-		if (Trans)
-		{
-			const auto Reset = Trans->TryReset("Closing map");
-			if (!Reset && Reset.Code != ETransactorResultCode::NoOp) { Error = FormatTransactorResult(Reset); return false; }
-		}
+		if (Trans && !Trans->CanTransact())
+		{ Error = "Closing the map requires available transaction history."; return false; }
+		if (Trans) Trans->Reset("Closing map");
 		try
 		{
 			GLevelEditorModeTools(*this).DeactivateAllModes();
@@ -523,6 +517,18 @@ namespace Durin
 
 	auto DEditorEngine::ShutdownHostConsumers() -> void
 	{
+		while (!PropertyEditSessions.empty())
+		{
+			auto* Session = PropertyEditSessions.back();
+			PropertyEditSessions.pop_back();
+			std::string Error;
+			if (!Session->IsActive()) Session->Reset();
+			else if (!Session->Cancel(&Error))
+			{
+				DURIN_ERROR("Property preview cancellation during editor shutdown failed: {}", Error);
+				Session->Reset();
+			}
+		}
 		TeardownPlaySession();
 		if (Trans) Trans->Cancel();
 		if (EditorWorld) EditorWorld->CleanupWorld();
@@ -748,12 +754,13 @@ namespace Durin
 			SetGameInputWindow(PlayWindow->GetNativeWindow());
 		}
 
-		if (const auto Reset = Trans->TryReset(); !Reset)
+		if (!Trans->CanTransact())
 		{
+			if (OutError) *OutError = "Transaction history became unavailable while starting Play.";
 			StopPlaySession();
-			if (OutError) *OutError = FormatTransactorResult(Reset);
 			return false;
 		}
+		Trans->Reset("Starting Play");
 		NewPlayWorld->BeginPlay({
 			.GameModeClass = GameModeClass,
 			.ViewTargetOverride = ViewTargetOverride});
@@ -769,7 +776,12 @@ namespace Durin
 
 	auto DEditorEngine::StopPlaySession() -> void
 	{
-		if (PlayState == EPlayState::Stopped) return;
+		if (bApplyingPlayChanges)
+		{
+			bStopAfterApply = true;
+			return;
+		}
+		if (PlayState == EPlayState::Stopped || PlayState == EPlayState::Stopping) return;
 		DWorld* WorldToRestore = EditorWorld.Get();
 		DLevel* LevelToRestore = EditorLevel.Get();
 		TeardownPlaySession();
@@ -824,7 +836,7 @@ namespace Durin
 			RetiredPlayLevels.emplace_back(LevelToDestroy);
 			RetiredPlayFences.emplace_back(std::move(RetirementFence));
 		}
-		Trans->Reset();
+		if (Trans->CanTransact()) Trans->Reset("Stopping Play");
 		PlayState = EPlayState::Stopped;
 		PlayDestination = EPlayDestination::EmbeddedViewport;
 		ReleaseRetiredPlaySessions();
@@ -959,7 +971,7 @@ namespace Durin
 	{
 		if (OutAppliedActorCount) *OutAppliedActorCount = 0;
 		if (OutError) OutError->clear();
-		if (!IsPlaying() || !PlayWorld || !EditorLevel)
+		if ((PlayState != EPlayState::Playing && PlayState != EPlayState::Paused) || !PlayWorld || !EditorLevel)
 		{
 			if (OutError) *OutError = "No Play session is active.";
 			return false;
@@ -970,6 +982,21 @@ namespace Durin
 			return false;
 		}
 
+		if (bApplyingPlayChanges)
+		{
+			if (OutError) *OutError = "Play changes are already being applied.";
+			return false;
+		}
+		bApplyingPlayChanges = true;
+		struct FApplyScope
+		{
+			DEditorEngine& Engine;
+			~FApplyScope()
+			{
+				Engine.bApplyingPlayChanges = false;
+				if (std::exchange(Engine.bStopAfterApply, false)) Engine.StopPlaySession();
+			}
+		} Scope{*this};
 		std::unordered_set<DObject*> SelectedRoots;
 		if (PlayActors.empty())
 		{
@@ -989,22 +1016,16 @@ namespace Durin
 			for (DObject* Current = Object; Current; Current = Current->GetOuter()) if (SelectedRoots.contains(Current)) return true;
 			return false;
 		};
-		bool bCopiedAny = false;
+		Trans->Reset("Applying Play changes");
 		for (const auto& [PlayObject, EditorObject] : PlayToEditorObjects)
 		{
 			if (!IsUnderSelectedActor(PlayObject)) continue;
 			if (const auto CopyResult = CopyEditableObjectProperties(PlayObject, EditorObject, PlayToEditorObjects); !CopyResult)
 			{
-				if (bCopiedAny)
-				{
-					Trans->Reset();
-					if (DPackage* Package = EditorLevel->GetPackage())
-						Trans->InvalidateSavedState(*Package);
-				}
+				if (DPackage* Package = EditorLevel->GetPackage()) Trans->InvalidateSavedState(*Package);
 				if (OutError) *OutError = ToString(CopyResult.error());
 				return false;
 			}
-			bCopiedAny = true;
 		}
 		for (DObject* PlayActor : SelectedRoots)
 		{
@@ -1014,14 +1035,8 @@ namespace Durin
 				EditorActor->MarkPackageDirty();
 			}
 		}
-		const auto Reset = Trans->TryReset();
 		if (DPackage* Package = EditorLevel->GetPackage())
 			Trans->InvalidateSavedState(*Package);
-		if (!Reset)
-		{
-			if (OutError) *OutError = FormatTransactorResult(Reset);
-			return false;
-		}
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
 	}

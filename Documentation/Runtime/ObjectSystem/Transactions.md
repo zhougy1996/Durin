@@ -4,11 +4,12 @@ Summary: Define runtime-neutral transaction capture, custom changes, exact objec
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-10-25
+Last reviewed: 2026-11-22
 
 ## Core Boundary
 
 `Misc/ITransaction.h` defines the runtime capture interface published as `GUndo`.
+SaveObject returns void. Modify reports admission to recording. Failure to serialize a whole-object baseline or final snapshot invalidates the entire recording, including nested edits. ContainsObject queries participation independently.
 Core forward-declares object and reflected-property types; it does not include
 CoreDObject or an editor module to define a transaction or custom change.
 The editor owns the active recorder and application history, as described in

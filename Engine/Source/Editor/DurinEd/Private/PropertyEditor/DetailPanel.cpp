@@ -36,7 +36,6 @@ namespace Durin
 			const auto Action = ExecuteEditorFunction(View, Context, *Declared.FunctionRequest);
 			Result.bActionInvoked = Action.bInvoked;
 			Result.bRefreshRequested = Action.bInvoked;
-			Result.bChanged |= Action.bChanged;
 		}
 		if (Options.bShowEmptyMessage && Result.VisibleRowCount == 0)
 			ImGui::TextDisabled(!Options.SearchText.empty() ? "No properties or actions match the current search."

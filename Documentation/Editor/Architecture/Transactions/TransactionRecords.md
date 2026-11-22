@@ -4,7 +4,7 @@ Summary: Define whole-object and array operation records, collector ownership, a
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-22
 
 ## Scope
 
@@ -12,8 +12,8 @@ CoreDObject supplies `FPersistentObjectRef` identity categories and transaction
 serialization. DurinEd's protected `FTransaction::FObjectRecord` coordinates whole-object
 before/after payloads, observations and annotations in the same Undo/Redo order
 as executable custom changes. Capture precedes the first mutation; later captures
-of that object preserve its initial baseline. Object creation and deletion remain
-explicit custom changes rather than persistent-reference resurrection.
+of that object preserve its initial baseline. Editor Actor and instance-component creation and deletion record the owning
+membership and participants. The retained object can be published again by replay.
 
 All capture, resolution, collector traversal, and detached restore operations
 run on the game thread under CoreDObject's synchronous collection contract.
@@ -25,7 +25,7 @@ and a recovery-required disposition. It carries no Actor or Material error types
 deferred completion, or synchronous qualification flag. Initial domain execution
 is separate from StoreUndo retention; Undo calls Revert and Redo calls Apply.
 
-Actor/Component and LevelEditor changes retain typed `FActorChangeError` in their
+LevelEditor transform gizmo changes retain typed `FActorChangeError` in their
 domain adapter. MaterialEditor owns its independent `FMaterialChangeError`,
 including material diagnostic causes. Domain composition and rollback preserve
 these causes until conversion at the generic history boundary. Incomplete rollback
@@ -138,7 +138,8 @@ checked replay preflight. Undo compares the live property's tagged bytes to the
 recorded after side and Redo compares them to the before side. The check runs
 before replay callbacks and writes. Material and function expression collections
 use this for ordered membership, including the case where a different live
-object has the same authored GUID. Both sides still undergo ordinary reference
+object has the same authored GUID. Actor instance-component lists restore the recorded destination, including root replacement.
+Both sides still undergo ordinary reference
 and schema validation.
 
 Historical load bypasses new-edit proposal validation and normalization.
@@ -285,8 +286,7 @@ and script template mutation remain unsupported.
 Transaction references follow the ordinary CoreDObject reachability rules. A
 directly referenced child keeps its complete Outer chain alive. Referencing an
 Outer does not retain children or siblings. Record ownership changes on the owner and call `Modify()` on the child before marking it as garbage. Replay restores the recorded liveness before loading fields and references. [Component structure history](../LevelEditing/LevelEditorDetails.md#component-structure-history)
-retains the component and its complete Outer subtree while membership is absent,
-then restores the same live identity through lifecycle and attachment APIs.
+uses owner and participant snapshots. History enumerates recorded targets, serialized references and annotation dependencies. Unreferenced children with only an Outer relationship can be collected while history survives. Actor and component completion restore native lifecycle and attachment state on the retained identities.
 
 Record callbacks request GC; the owner collects only after application and any
 compensation have completed. Record application does not block GC dynamically. A custom replay

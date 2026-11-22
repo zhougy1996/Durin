@@ -44,11 +44,12 @@ namespace Durin::MaterialEditor::MaterialEditing
 		const FMaterialConfiguration Before{Material.GetDomain(), Material.GetStaticProperties()};
 		if (Before.Domain == Configuration.Domain && Before.Properties == Configuration.Properties)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		FScopedTransaction Recording(Transactions, {"MaterialGraph", "Change Material Configuration"});
+		FScopedTransaction Recording("MaterialGraph", "Change Material Configuration", nullptr, Transactions != nullptr);
 		if (Transactions)
 		{
-			const auto Recorded = Transactions->StoreUndo(std::make_unique<FMaterialConfigurationChange>(Material, Before, Configuration));
-			if (!Recorded) return RejectCommand("Unable to record the configuration edit. " + FormatTransactorResult(Recorded));
+			std::string Error;
+			const auto Recorded = Transactions->StoreUndo(std::make_unique<FMaterialConfigurationChange>(Material, Before, Configuration), &Error);
+			if (!Recorded) return RejectCommand("Unable to record the configuration edit. " + Error);
 		}
 		const auto Result = Material.SetMaterialConfiguration(Configuration);
 		if (!Result) { Recording.Cancel(); return RejectCommand("The material configuration was rejected.", Result.Diagnostics); }

@@ -39,8 +39,6 @@ namespace Durin
 		ENGINE_API auto PreEditUndo() -> void override;
 		ENGINE_API auto PostEditUndo() -> void override;
 		using Super::PostEditUndo;
-		auto IsTransactionRestorePending() const -> bool { return PreUndoActors.has_value(); }
-		ENGINE_API auto IsActorMembershipChangedDuringUndo(const AActor* Actor) const -> bool;
 		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName(), ESpawnActorNameMode NameMode = ESpawnActorNameMode::Requested) -> AActor*;
 
 		template<typename T>
@@ -87,12 +85,7 @@ namespace Durin
 		TObjectPtr<ACameraActor> PrimaryCameraActor;
 
 		DWorld* OwningWorld = nullptr;
-		struct FPreUndoActor
-		{
-			FObjectKey Actor;
-			bool bPresenceChanged = false;
-		};
-		std::optional<std::vector<FPreUndoActor>> PreUndoActors;
+		std::optional<std::vector<FObjectKey>> PreUndoActors;
 		FTickRegistry TickRegistry;
 
 		friend class AActor;

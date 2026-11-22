@@ -41,7 +41,7 @@ namespace Durin::MaterialEditor
 		if (!Owner) return std::unexpected("The material graph owner is no longer available.");
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return std::unexpected("The graph move selection is empty or exceeds the node bound.");
-		if (Transactions && !Transactions->CanTransact()) return std::unexpected("The editor transactor is busy.");
+		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions) return std::unexpected("The editor transactor is busy.");
 		Impl->NodeIds.clear();
 		for (const auto& Id : NodeIds)
 		{
@@ -149,7 +149,7 @@ namespace Durin::MaterialEditor
 		if (Impl->bActive) return std::unexpected("A material parameter edit is already active.");
 		if (!IsValid(&Material))
 			return std::unexpected("The material graph owner is no longer available.");
-		if (Transactions && !Transactions->CanTransact())
+		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions)
 			return std::unexpected("The editor transactor is busy.");
 		FResolvedMaterialParameter Resolved;
 		if (!Material.ResolveParameterValue(ParameterId, Resolved)
@@ -204,18 +204,19 @@ namespace Durin::MaterialEditor
 			Impl->CurrentValue.GetTexture().Texture = Impl->CurrentTexture.Get();
 		}
 		if (Impl->BeforeValue == Impl->CurrentValue) return Impl->Finish();
-		if (Impl->Transactions && !Impl->Transactions->CanTransact())
+		if (Impl->Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Impl->Transactions)
 			return std::unexpected("The editor transactor is busy.");
 		{
-			FScopedTransaction Recording(Impl->Transactions, {"MaterialGraph", "Edit material parameter"},
+			FScopedTransaction Recording("MaterialGraph", "Edit material parameter", nullptr,
 				Impl->Transactions && !Impl->Transactions->IsActive());
 			if (Impl->Transactions)
 			{
+				std::string Error;
 				const auto Recorded = Impl->Transactions->StoreUndo(
 					MakeMaterialGraphParameterTransaction(
 						*Material, Impl->ParameterId,
-						Impl->BeforeValue, Impl->CurrentValue));
-				if (!Recorded) return std::unexpected("Unable to record the graph edit. " + FormatTransactorResult(Recorded));
+						Impl->BeforeValue, Impl->CurrentValue), &Error);
+				if (!Recorded) return std::unexpected("Unable to record the graph edit. " + Error);
 			}
 			Material->MarkPackageDirty();
 		}

@@ -14,48 +14,59 @@ namespace Durin
 {
 	DEditorActorSubsystem::DEditorActorSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
-	auto DEditorActorSubsystem::Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner, bool bDuringEdit) const
+	auto DEditorActorSubsystem::CanEditActor(AActor& Actor, const FActorEditContext& Context) const -> std::expected<void, std::string>
+	{
+		std::string Error;
+		if (!Admit(Context, nullptr, &Actor, false, &Error)) return std::unexpected(std::move(Error));
+		return {};
+	}
+
+	auto DEditorActorSubsystem::Admit(const FActorEditContext& Context, DLevel* Level, AActor* Owner, bool bDuringEdit, std::string* OutError) const
 		-> DTransactor*
 	{
 
-		if (!IsInGameThread()) return nullptr;
-		if (!IsValid(this)) return nullptr;
+		auto Reject = [&](const char* Message) -> DTransactor* {
+			if (OutError) *OutError = Message;
+			return nullptr;
+		};
+		if (!IsInGameThread()) return Reject("Actor edits require the game thread.");
+		if (!IsValid(this)) return Reject("The actor subsystem is unavailable.");
 		if (Owner)
 		{
-			if (!IsValid(Owner)) return nullptr;
+			if (!IsValid(Owner)) return Reject("The actor is unavailable.");
 			auto* OwnerLevel = Cast<DLevel>(Owner->GetOuter());
-			if (Level && Level != OwnerLevel) return nullptr;
+			if (Level && Level != OwnerLevel) return Reject("The actor belongs to another level.");
 			Level = OwnerLevel;
 		}
-		if (bEditing && !bDuringEdit) return nullptr;
-		if (Context.bReadOnly) return nullptr;
+		if (bEditing && !bDuringEdit) return Reject("Another actor edit is in progress.");
+		if (Context.bReadOnly) return Reject("The level is read-only.");
 		auto* Host = GetEditor();
 		if (!IsValid(Host) || Host != GEditor || Host->IsShutdownRequested()
 			|| Host->GetEditorSubsystem<DEditorActorSubsystem>() != this)
-			return nullptr;
-		if (Host->IsPlaying()) return nullptr;
+			return Reject("The editor host is unavailable or shutting down.");
+		if (Host->IsPlaying()) return Reject("Actor editing is unavailable during play.");
 		if (!IsValid(Level) || !IsValid(Host->GetEditorWorld()) || Level->GetWorld() != Host->GetEditorWorld()
 			|| Host->GetEditorWorld()->GetCurrentLevel() != Level)
-			return nullptr;
+			return Reject("The target is not the current editor level.");
 		auto* Transactions = Host->GetTransactor();
 		if (!IsValid(Level) || Level->IsTemplateObject()
 			|| (Owner && (!IsValid(Owner) || Owner->IsTemplateObject() || Owner->IsBeingDestroyed() || Owner->HasBegunPlay()
 				|| Owner->GetOuter() != Level || !Level->ContainsActor(Owner))))
-			return nullptr;
+			return Reject("The level or actor is unavailable for editing.");
 		if (auto* World = Level->GetWorld(); World && (!IsValid(World) || World->IsShutdownRequested()))
-			return nullptr;
+			return Reject("The world is shutting down.");
 		if (auto* World = Level->GetWorld(); World && World->GetPlayState() != EWorldPlayState::Stopped)
-			return nullptr;
+			return Reject("The world is playing.");
 		if (auto* Script = FScopedEditorScriptCall::Current())
 		{
 			if (!Script->IsAdmitted() || Script->GetContext().Host != Host)
-				return nullptr;
+				return Reject("The script is not admitted by this editor.");
 			const auto Access = Script->ResolveEditAccess(*Level);
 			if (Access != EEditorScriptTargetAccess::Writable)
-				return nullptr;
+				return Reject("The script cannot write to this level.");
 		}
 		if (!IsValid(Transactions) || !Transactions->CanTransact())
-			return nullptr;
+			return Reject("Editor history is unavailable for recording.");
 		return Transactions;
 	}
 
@@ -71,48 +82,37 @@ namespace Durin
 					|| !Unique.insert(Actor).second) return false;
 			return true;
 		}
-		struct FAttachmentEdit
+		auto WouldCreateCycle(AActor& Child, AActor& Parent) -> bool
 		{
-			DSceneComponent* Root;
-			DSceneComponent* OldParent;
-			FTransform BeforeRelative;
-			FTransform AfterRelative;
-		};
-
-		auto SetAttachment(const FAttachmentEdit& Edit, DSceneComponent* Parent, const FTransform& Relative) -> bool
-		{
-			if (Edit.Root->GetAttachParent() != Parent)
-			{
-				const bool Changed = Parent ? Edit.Root->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative)
-					: Edit.Root->DetachFromComponent(EDetachmentTransformRule::KeepRelative);
-				if (!Changed) return false;
-			}
-			Edit.Root->SetRelativeTransform(Relative);
-			return true;
+			for (auto* Ancestor = &Parent; Ancestor; Ancestor = Ancestor->GetAttachParentActor())
+				if (Ancestor == &Child) return true;
+			return Parent.GetRootComponent()->IsAttachedTo(Child.GetRootComponent());
 		}
 
-		auto SubmitAttachment(DTransactor& Transactions, const std::vector<FAttachmentEdit>& Edits,
-			DSceneComponent* Parent) -> bool
+		template<class Edit>
+		auto SubmitAttachment(DTransactor& Transactions, DLevel& Level, std::span<AActor* const> Actors,
+			const char* Description, Edit Apply) -> bool
 		{
-			if (Edits.empty()) return true;
-			FScopedTransaction Scope(&Transactions, {"ActorAttachment", Parent ? "Attach actors" : "Detach actors"});
+			// Notifications may retire a later actor before its turn.
+			std::vector<TObjectPtr<AActor>> Targets(Actors.begin(), Actors.end());
+			FScopedTransaction Scope("ActorAttachment", Description, nullptr);
 			if (!Scope.IsOutstanding()) return false;
-			for (const auto& Edit : Edits)
+			bool Changed = false;
+			for (const auto& Target : Targets)
 			{
-				Edit.Root->SetFlags(EObjectFlags::Transactional);
-				if (!Edit.Root->Modify(false)) return false;
+				if (!Transactions.IsActive()) break;
+				auto* Actor = Target.Get();
+				if (!IsValid(Actor) || !Level.ContainsActor(Actor) || Actor->IsBeingDestroyed()) continue;
+				auto* Root = Actor->GetRootComponent();
+				if (IsValid(Root)) Changed |= Apply(*Root);
 			}
-			for (size_t Index = 0; Index < Edits.size(); ++Index)
-			{
-				if (SetAttachment(Edits[Index], Parent, Edits[Index].AfterRelative)) continue;
-				while (Index > 0)
-				{
-					const auto& Previous = Edits[--Index];
-					SetAttachment(Previous, Previous.OldParent, Previous.BeforeRelative);
-				}
-				return false;
-			}
-			return true;
+			return Changed;
+		}
+
+		auto CaptureRoot(DSceneComponent& Root, const DTransactor& Transactions) -> bool
+		{
+			Root.SetFlags(EObjectFlags::Transactional);
+			return Root.Modify(false) && Transactions.IsActive();
 		}
 	}
 	auto DEditorActorSubsystem::AttachActors(DLevel& Level, std::span<AActor* const> Actors, AActor* Parent,
@@ -124,25 +124,25 @@ namespace Durin
 		{
 			if (!ValidateActors(Level, Actors) || !IsValid(Parent) || !ValidateActors(Level, {&Parent, 1}))
 				return false;
-			std::vector<FAttachmentEdit> Entries;
 			for (auto* Actor : Actors)
-			{
-				if (Parent == Actor) return false;
-				for (auto* Ancestor = Parent; Ancestor; Ancestor = Ancestor->GetAttachParentActor())
-					if (Ancestor == Actor) return false;
-				if (Actor->GetAttachParentActor() != Parent || Rule == EAttachmentTransformRule::SnapToTarget)
-				{
-					auto* Root = Actor->GetRootComponent();
-					if (Parent->GetRootComponent()->IsAttachedTo(Root)) return false;
-					FTransform Relative = Root->GetRelativeTransform();
-					if (Rule == EAttachmentTransformRule::KeepWorld)
-						Relative = FTransform::MakeRelative(Root->GetWorldTransform(), Parent->GetActorTransform());
-					else if (Rule == EAttachmentTransformRule::SnapToTarget) Relative = FTransform{};
-					Entries.push_back({Root, Root->GetAttachParent(), Root->GetRelativeTransform(), Relative});
-				}
-			}
-			return SubmitAttachment(*Admission, Entries, Parent->GetRootComponent());
+				if (WouldCreateCycle(*Actor, *Parent)) return false;
 
+			TObjectPtr<AActor> Destination(Parent);
+			return SubmitAttachment(*Admission, Level, Actors, "Attach actors", [&](DSceneComponent& Root) {
+				auto* Target = Destination.Get();
+				if (!IsValid(Target) || Target->IsBeingDestroyed() || !Level.ContainsActor(Target)) return false;
+				auto* ParentRoot = Target->GetRootComponent();
+				if (!IsValid(ParentRoot) || WouldCreateCycle(*Root.GetOwner(), *Target)) return false;
+				if (Root.GetAttachParent() == ParentRoot)
+				{
+					if (Rule != EAttachmentTransformRule::SnapToTarget) return false;
+					const auto& Relative = Root.GetRelativeTransform();
+					const FTransform Identity;
+					if (Relative.Rotation == Identity.Rotation && Relative.Translation == Identity.Translation
+						&& Relative.Scale3D == Identity.Scale3D) return false;
+				}
+				return CaptureRoot(Root, *Admission) && Root.AttachToComponent(ParentRoot, Rule);
+			});
 		});
 	}
 	auto DEditorActorSubsystem::DetachActors(DLevel& Level, std::span<AActor* const> Actors,
@@ -153,15 +153,9 @@ namespace Durin
 		return RunActorEdit(GetEditor(), bEditing, [&]() -> bool
 		{
 			if (!ValidateActors(Level, Actors)) return false;
-			std::vector<FAttachmentEdit> Entries;
-			for (auto* Actor : Actors)
-				if (Actor->GetAttachParentActor()) {
-					auto* Root = Actor->GetRootComponent();
-					Entries.push_back({Root, Root->GetAttachParent(), Root->GetRelativeTransform(),
-						Rule == EDetachmentTransformRule::KeepWorld ? Root->GetWorldTransform() : Root->GetRelativeTransform()});
-				}
-			return SubmitAttachment(*Admission, Entries, nullptr);
-
+			return SubmitAttachment(*Admission, Level, Actors, "Detach actors", [&](DSceneComponent& Root) {
+				return Root.GetAttachParent() && CaptureRoot(Root, *Admission) && Root.DetachFromComponent(Rule);
+			});
 		});
 	}
 }

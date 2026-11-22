@@ -9,27 +9,111 @@
 #include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Transactions/Transaction.h"
 #include "Math/Operations.h"
-#include "SkyBoxPlacement.h"
+#include "Operations/SkyBoxPlacement.h"
+#include "Editor/EditorActorSubsystemTestSupport.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Texture/TextureCube.h"
 
 TEST(FSkyBoxEditorWorkflowTests, TextureAssignmentComposesWithOtherComponentFieldsThroughGenericHistory)
 {
 	using namespace Durin;
-	Testing::InitializeAssetSystemForTests(); Tests::FTestTransactorOwner Transactions;
-	TStrongObjectPtr<DLevel> Level(NewObject<DLevel>(nullptr, "SkyBoxOrdinaryEdits"));
+	Tests::FActorEditorFixture Editor;
+	auto* Transactions = Editor.GetTransactions();
+	auto* Level = Editor.GetWorld()->GetCurrentLevel();
 	TStrongObjectPtr<DTextureCube> Before(NewObject<DTextureCube>(nullptr, "SkyBefore")), After(NewObject<DTextureCube>(nullptr, "SkyAfter"));
 	auto* Actor = Level->SpawnActor<ASkyBoxActor>("Sky"); ASSERT_NE(Actor, nullptr);
 	auto* Component = Actor->GetSkyBoxComponent(); Component->SetTextureCube(Before.Get());
+	FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Redoing);
+	auto Blocked = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, After.Get(), "Sky", {false});
+	ASSERT_FALSE(Blocked);
+	EXPECT_EQ(Blocked.error(), "Editor history is unavailable for recording.");
+	auto Same = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, Before.Get(), "Sky", {false});
+	ASSERT_FALSE(Same);
+	EXPECT_EQ(Same.error(), Blocked.error());
+	EXPECT_EQ(Transactions->GetQueueLength(), 0u);
+	EXPECT_EQ(Component->GetTextureCube(), Before.Get());
+	FTransBufferTestAccess::SetState(*Transactions, ETransactorState::Idle);
 	{
-		FScopedTransaction Scope(Transactions.Get(), {"test", "Texture and intensity"});
-		ASSERT_TRUE(LevelEditor::FSkyBoxPlacement::PlaceTextureCube(*Level, After.Get(), "Sky", Transactions.Get()));
+		Durin::FScopedTransaction Scope("test", "Texture and intensity", nullptr);
+		ASSERT_TRUE(Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, After.Get(), "Sky", {false}));
 		Component->SetIntensity(3.0f);
 	}
 	EXPECT_EQ(Transactions->GetTransaction(0)->GetRecordCount(), 1u);
 	EXPECT_FALSE(Transactions->GetTransaction(0)->IsOwnedByModule("LevelEditor"));
 	ASSERT_TRUE(Transactions->Undo()); EXPECT_EQ(Component->GetTextureCube(), Before.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 1.0f);
 	ASSERT_TRUE(Transactions->Redo()); EXPECT_EQ(Component->GetTextureCube(), After.Get()); EXPECT_FLOAT_EQ(Component->GetIntensity(), 3.0f);
+}
+
+TEST(FSkyBoxEditorWorkflowTests, RedoRestoresActorWithEmptyTextureAfterAssetRetirement)
+{
+	using namespace Durin;
+	Testing::InitializeAssetSystemForTests();
+	Tests::FActorEditorFixture Editor;
+	auto* Transactions = Editor.GetTransactions();
+	auto* Level = Editor.GetWorld()->GetCurrentLevel();
+	TStrongObjectPtr<DTextureCube> Cube(NewObject<DTextureCube>(nullptr, "PreparedSkyCube"));
+	InitRenderingThread();
+	FSkyBoxTestEngine Engine;
+	auto* Scene = Engine.CreateTestScene();
+	GEngine = &Engine;
+	auto* World = Editor.GetWorld();
+	World->SetRenderScene(Scene);
+	// Keep scene teardown outside the assertions that exercise replay.
+	auto CheckReplay = [&] {
+		auto Placement = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, Cube.Get(), "Sky", {false});
+		ASSERT_TRUE(Placement) << Placement.error();
+		ASSERT_EQ(Transactions->GetQueueLength(), 1u);
+		EXPECT_FALSE(Transactions->GetTransaction(0)->IsOwnedByModule("DurinEd"));
+		ASSERT_TRUE(Transactions->Undo());
+		EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
+		Cube->MarkAsGarbage();
+		auto Rejected = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *Level, Cube.Get(), "Invalid", {false});
+		ASSERT_FALSE(Rejected);
+		EXPECT_EQ(Rejected.error(), "The dropped TextureCube is unavailable.");
+		EXPECT_EQ(Level->FindActorByName("Invalid"), nullptr);
+		ASSERT_TRUE(Transactions->Redo());
+		ASSERT_EQ(Level->FindActorByName("Sky"), *Placement);
+		EXPECT_EQ(Cast<ASkyBoxActor>(*Placement)->GetSkyBoxComponent()->GetTextureCube(), nullptr);
+		auto Observation = ObserveSkyBoxes(*Scene);
+		EXPECT_TRUE(Observation.bHasSkyBox);
+		EXPECT_FALSE(Observation.Data.TextureReference);
+	};
+	CheckReplay();
+	World->SetCurrentLevel(nullptr);
+	World->SetRenderScene(nullptr);
+	FlushRenderingCommands();
+	Engine.ResetTestScene();
+	GEngine = nullptr;
+	ShutdownRenderingThread();
+}
+
+TEST(FSkyBoxEditorWorkflowTests, HostRejectsForeignLevelForCreationAndReplacement)
+{
+	using namespace Durin;
+	Tests::FActorEditorFixture Editor;
+	TStrongObjectPtr<DLevel> Other(NewObject<DLevel>(nullptr, "ForeignSkyLevel"));
+	TStrongObjectPtr<DTextureCube> Before(NewObject<DTextureCube>(nullptr, "ForeignBefore"));
+	TStrongObjectPtr<DTextureCube> After(NewObject<DTextureCube>(nullptr, "ForeignAfter"));
+	auto* Subsystem = Editor.GetActorEditor();
+	auto* Current = Editor.GetWorld()->GetCurrentLevel();
+	auto ReadOnly = Durin::LevelEditor::PlaceSkyBox(*Subsystem, *Current, Before.Get(), "ReadOnlySky", {true});
+	ASSERT_FALSE(ReadOnly);
+	EXPECT_EQ(ReadOnly.error(), "The level is read-only.");
+	EXPECT_EQ(Current->FindActorByName("ReadOnlySky"), nullptr);
+	auto Create = Durin::LevelEditor::PlaceSkyBox(*Subsystem, *Other, Before.Get(), "Sky", {false});
+	ASSERT_FALSE(Create);
+	EXPECT_EQ(Create.error(), "The target is not the current editor level.");
+	EXPECT_EQ(Other->FindActorByName("Sky"), nullptr);
+
+	auto* Actor = Other->SpawnActor<ASkyBoxActor>("Sky");
+	ASSERT_NE(Actor, nullptr);
+	auto* Component = Actor->GetSkyBoxComponent();
+	Component->SetTextureCube(Before.Get());
+	auto Replace = Durin::LevelEditor::PlaceSkyBox(*Subsystem, *Other, After.Get(), "Sky", {false});
+	ASSERT_FALSE(Replace);
+	EXPECT_EQ(Replace.error(), Create.error());
+	EXPECT_EQ(Component->GetTextureCube(), Before.Get());
+	EXPECT_FALSE(Editor.GetTransactions()->CanUndo());
 }
 
 TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
@@ -56,25 +140,25 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
-	Durin::Tests::FTestTransactorOwner Transactions;
+	Durin::Tests::FActorEditorFixture Editor;
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(Level));
+	auto* Transactions = Editor.GetTransactions();
 	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Undoing);
 
-	const auto Blocked = Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
-		*Level, CubeResult.Asset, "Sky", Transactions.Get());
+	const auto Blocked = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(),
+		*Level, CubeResult.Asset, "Sky", {false});
 	ASSERT_FALSE(Blocked);
-	EXPECT_EQ(Blocked.Error, Durin::LevelEditor::ESkyBoxPlacementError::Transaction);
-	EXPECT_FALSE(Blocked.Message.empty());
-	const auto RejectionMessage = Blocked.Message;
+	EXPECT_EQ(Blocked.error(), "Editor history is unavailable for recording.");
+	const auto RejectionMessage = Blocked.error();
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
 	Durin::FTransBufferTestAccess::SetState(*Transactions, Durin::ETransactorState::Idle);
 
-	const Durin::LevelEditor::FSkyBoxPlacementResult Placement =
-		Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
-			*Level, CubeResult.Asset, "Sky", Transactions.Get());
-	ASSERT_TRUE(Placement) << Placement.Message;
-	EXPECT_TRUE(Placement.bChanged);
-	EXPECT_EQ(Blocked.Message, RejectionMessage);
-	auto* Actor = Durin::Cast<Durin::ASkyBoxActor>(Placement.Actor);
+	const auto Placement =
+		Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(),
+			*Level, CubeResult.Asset, "Sky", {false});
+	ASSERT_TRUE(Placement) << Placement.error();
+	EXPECT_EQ(Blocked.error(), RejectionMessage);
+	auto* Actor = Durin::Cast<Durin::ASkyBoxActor>(*Placement);
 	ASSERT_NE(Actor, nullptr);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
@@ -84,11 +168,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_EQ(Conflict->GetActorLabel(), "Sky");
 	// Inject a name collision explicitly; normal spawning reserves undo-held names.
 	Conflict->Rename("Sky");
-	EXPECT_FALSE(Transactions->Redo());
-	const auto Rejected = Transactions->GetLastResult();
-	ASSERT_FALSE(Rejected);
-	ASSERT_TRUE(Rejected.ApplyCause);
-	const auto& Message = Rejected.ApplyCause->Message;
+	std::string Message;
+	ASSERT_FALSE(Transactions->RedoExpected(Transactions->GetRedoContext().TransactionId, &Message));
 	EXPECT_EQ(Message, "The requested actor name is occupied.");
 	EXPECT_EQ(Level->FindActorByName("Sky"), Conflict);
 	EXPECT_TRUE(Transactions->CanRedo());
@@ -109,6 +190,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(nullptr));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(LevelPath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
 
@@ -128,6 +210,16 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	EXPECT_FLOAT_EQ(LoadedComponent->GetIntensity(), 2.5f);
 	EXPECT_EQ(LoadedComponent->GetWorldRotation(), Transform.Rotation);
 
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(LoadedLevel));
+	const auto BeforeCount = Transactions->GetQueueLength();
+	auto Existing = Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(), *LoadedLevel,
+		LoadedComponent->GetTextureCube(), "RejectedSky", {false});
+	ASSERT_TRUE(Existing) << Existing.error();
+	EXPECT_EQ(*Existing, LoadedActor);
+	EXPECT_EQ(LoadedLevel->FindActorByName("RejectedSky"), nullptr);
+	EXPECT_EQ(Transactions->GetQueueLength(), BeforeCount);
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(nullptr));
+
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SkyBoxEditorWorkflowWorld");
 	EXPECT_NO_THROW(World->InitializeSubsystems());
 	World->SetRenderScene(Scene);
@@ -139,13 +231,6 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 		Observation.Data.TextureReference,
 		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
 
-	const Durin::LevelEditor::FSkyBoxPlacementResult ExistingPlacement =
-		Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
-			*LoadedLevel, LoadedComponent->GetTextureCube(), "RejectedSky", nullptr);
-	EXPECT_TRUE(ExistingPlacement);
-	EXPECT_EQ(ExistingPlacement.Actor, LoadedActor);
-	EXPECT_FALSE(ExistingPlacement.bChanged);
-	EXPECT_EQ(LoadedLevel->FindActorByName("RejectedSky"), nullptr);
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
 	World->SetRenderScene(nullptr);
@@ -196,13 +281,14 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASkyBoxActor>("PanoramaSky");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Tests::FTestTransactorOwner Transactions;
-	const Durin::LevelEditor::FSkyBoxPlacementResult Placement =
-		Durin::LevelEditor::FSkyBoxPlacement::PlaceTextureCube(
-			*Level, CubeResult.Asset, "UnusedName", Transactions.Get());
-	ASSERT_TRUE(Placement) << Placement.Message;
-	EXPECT_EQ(Placement.Actor, Actor);
-	EXPECT_TRUE(Placement.bChanged);
+	Durin::Tests::FActorEditorFixture Editor;
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(Level));
+	auto* Transactions = Editor.GetTransactions();
+	const auto Placement =
+		Durin::LevelEditor::PlaceSkyBox(*Editor.GetActorEditor(),
+			*Level, CubeResult.Asset, "UnusedName", {false});
+	ASSERT_TRUE(Placement) << Placement.error();
+	EXPECT_EQ(*Placement, Actor);
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
@@ -210,6 +296,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
+	ASSERT_TRUE(Editor.GetWorld()->SetCurrentLevel(nullptr));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(LevelPath));
 	ASSERT_TRUE(Durin::Testing::EnsurePackageNotResident(CubePath));
 

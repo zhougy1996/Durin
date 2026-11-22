@@ -1,6 +1,7 @@
 #include "PropertyEditor/PropertyEditing.h"
 
 #include "PropertyEditor/PropertyValueDraft.h"
+#include "Editor/EditorEngine.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -8,7 +9,6 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
-#include "DObject/WeakObjectPtr.h"
 #include "Logging/LogMacros.h"
 #include "Misc/AssertionMacros.h"
 #include "Tools/EditorScriptCall.h"
@@ -676,7 +676,7 @@ namespace Durin
 			return FailPropertyEdit(OutError, Message);
 		}
 		Target.Object = TargetObject.Get();
-		Transactor = Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional) ? nullptr : InTransactor;
+		const bool bRecord = InTransactor && !Target.SnapshotProperty->HasAnyPropertyFlags(EPropertyFlags::NonTransactional);
 		Description = InDescription.empty()
 			? std::format("Edit {}", Target.MemberProperty->NamePrivate)
 			: InDescription;
@@ -687,13 +687,25 @@ namespace Durin
 			return FailPropertyEdit(OutError, Message);
 		}
 		CurrentValue = OriginalValue;
-		if (Transactor)
+		if (GEditor)
 		{
-			TransactionScope.emplace(Transactor, FTransactionContext{
-				.Name = "ReflectedProperty",
-				.Description = Description,
-				.PrimaryObject = Target.Object,
-			});
+			if (GEditor->IsShutdownRequested())
+			{
+				Reset();
+				return FailPropertyEdit(OutError, "The editor is shutting down.");
+			}
+			GEditor->PropertyEditSessions.push_back(this);
+		}
+		if (bRecord)
+		{
+			auto* Owner = GEditor ? GEditor->GetTransactor() : nullptr;
+			if (!Owner || Owner != InTransactor)
+			{
+				Reset();
+				return FailPropertyEdit(OutError, "Property recording requires the active editor's transactor.");
+			}
+			const bool bOwnsRecording = !Owner->IsActive();
+			TransactionScope.emplace("ReflectedProperty", Description, Target.Object);
 			if (!TransactionScope->IsOutstanding())
 			{
 				const auto Message = "The reflected-property transactor rejected the edit scope.";
@@ -702,12 +714,12 @@ namespace Durin
 			}
 			if (!Target.Object->IsTemplateObject())
 				Target.Object->SetFlags(EObjectFlags::Transactional);
-			if (!Target.Object->Modify(false) || Transactor->GetLastResult().Code == ETransactorResultCode::Failed)
+			const bool bCaptured = Target.Object->Modify(false);
+			if (!TransactionScope) return FailPropertyEdit(OutError, "The editor closed during property capture.");
+			if (!bCaptured || !Owner->IsActive())
 			{
-				const auto Result = Transactor->GetLastResult();
-				Reset();
-				return FailPropertyEdit(OutError, Result.Code == ETransactorResultCode::Failed
-					? FormatTransactorResult(Result) : "The target cannot participate in transaction history.");
+				Reset(bOwnsRecording);
+				return FailPropertyEdit(OutError, "The target cannot participate in transaction history.");
 			}
 		}
 		bActive = true;
@@ -752,7 +764,7 @@ namespace Durin
 	auto FPropertyEditSession::Commit(std::string* OutError) -> bool
 	{
 		if (!bActive) return FailPropertyEdit(OutError, "No reflected-property edit session is active.");
-		if (Transactor && (!TransactionScope || !TransactionScope->IsOutstanding()))
+		if (TransactionScope && (!GEditor || !GEditor->GetTransactor()->IsActive()))
 			return FailPropertyEdit(OutError, "The property transaction scope is unavailable. Cancel this edit before retrying.");
 		const bool bChanged = HasChanges();
 		if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
@@ -761,8 +773,7 @@ namespace Durin
 			return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
 		}
 		if (bChanged) Target.Object->MarkPackageDirty();
-		TransactionScope.reset();
-		Reset();
+		Reset(false);
 		return true;
 	}
 
@@ -774,8 +785,7 @@ namespace Durin
 			if (const auto Mutation = ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
 				EPropertyChangePhase::Cancelled, EPropertyChangeOrigin::Edit); !Mutation)
 				return FailPropertyEdit(OutError, FormatPropertyMutationError(Mutation.Error));
-		TransactionScope.reset();
-		Reset();
+		Reset(false);
 		return true;
 	}
 
@@ -792,32 +802,20 @@ namespace Durin
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
 			return FailPropertyEdit(OutError, FormatPropertyMutationError(Result.Error));
 		}
-		if (TransactionScope && TransactionScope->IsOutstanding())
-		{
-			TransactionScope->Cancel();
-			const FTransactorResult CancelResult = Transactor->GetLastResult();
-			if (CancelResult.Code == ETransactorResultCode::Rejected
-				|| CancelResult.Code == ETransactorResultCode::Failed
-				|| CancelResult.Code == ETransactorResultCode::RecoveryRequired)
-			{
-				return FailPropertyEdit(OutError, FormatTransactorResult(CancelResult));
-			}
-		}
 		Reset();
 		return true;
 	}
 
-	auto FPropertyEditSession::Reset() -> void
+	auto FPropertyEditSession::Reset(bool bCancelRecording) -> void
 	{
-		if (TransactionScope && TransactionScope->IsOutstanding())
-			(void)TransactionScope->Cancel();
-		TransactionScope.reset();
+		if (GEditor) std::erase(GEditor->PropertyEditSessions, this);
 		bActive = false;
+		if (bCancelRecording && TransactionScope) TransactionScope->Cancel();
+		TransactionScope.reset();
 		Target = {};
 		TargetObject.Reset();
 		OriginalValue = {};
 		CurrentValue = {};
 		Description.clear();
-		Transactor = nullptr;
 	}
 }

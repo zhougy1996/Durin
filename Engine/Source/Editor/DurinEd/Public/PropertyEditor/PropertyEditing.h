@@ -198,18 +198,18 @@ namespace Durin
 	private:
 		auto BeginInternal(const FPropertyEditTarget& Target, std::string_view Description,
 			DTransactor* Transactor, std::string* OutError) -> bool;
+		friend class DEditorEngine;
 		friend class FPropertyView;
 		friend class PropertyEditor::FPropertyEdit;
 		auto ApplyInternal(const FPropertyValueSnapshotPayload& ProposedValue,
 			std::string* OutError, bool* OutChanged) -> bool;
-		auto Reset() -> void;
+		auto Reset(bool bCancelRecording = true) -> void;
 
 		FPropertyEditTarget Target;
 		TStrongObjectPtr<DObject> TargetObject;
 		FPropertyValueSnapshotPayload OriginalValue;
 		FPropertyValueSnapshotPayload CurrentValue;
 		std::string Description;
-		DTransactor* Transactor = nullptr;
 		std::optional<FScopedTransaction> TransactionScope;
 		bool bActive = false;
 	};

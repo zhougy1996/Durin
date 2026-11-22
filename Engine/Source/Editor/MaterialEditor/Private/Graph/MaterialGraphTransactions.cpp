@@ -179,18 +179,19 @@ namespace Durin::MaterialEditor
 			std::vector<FNodePositionChange> Changes,
 			DTransactor* Transactions, std::string* OutError) -> bool
 		{
-			if (Transactions && !Transactions->CanTransact())
+			if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions)
 				return FailWithError(OutError, "The editor transactor is busy.");
 
 			if (Changes.empty()) return true;
-			FScopedTransaction Recording(Transactions, {"MaterialGraph", Description});
+			FScopedTransaction Recording("MaterialGraph", Description, nullptr, Transactions != nullptr);
 			if (Transactions)
 			{
+				std::string Error;
 				const auto Recorded = Transactions->StoreUndo(
-					MakeMaterialGraphPresentationTransaction(Owner, std::move(Changes), std::move(Description)));
+					MakeMaterialGraphPresentationTransaction(Owner, std::move(Changes), std::move(Description)), &Error);
 				if (!Recorded)
 				{
-					if (OutError) *OutError = "Unable to record the graph edit. " + FormatTransactorResult(Recorded);
+					if (OutError) *OutError = "Unable to record the graph edit. " + Error;
 					return false;
 				}
 			}

@@ -27,10 +27,10 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 	EXPECT_EQ(Buffer->End(), 1); ASSERT_EQ(Events.size(), 2u);
 	EXPECT_EQ(Events.back().Type, ETransactionObjectEventType::Finalized);
 	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Retired), nullptr);
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	ASSERT_EQ(Events.size(), 3u); EXPECT_EQ(Events.back().Operation, ETransactionOperation::Undo);
 	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(0.0));
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	ASSERT_EQ(Events.size(), 4u); EXPECT_EQ(Events.back().Operation, ETransactionOperation::Redo);
 	EXPECT_EQ(Scene()->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
 	const auto Bytes = Buffer->GetUndoSize();
@@ -40,7 +40,7 @@ TEST(FEngineTransactionAnnotationTests, GeneratedComponentEventsFollowSnapshotsA
 		EXPECT_EQ(Buffer->GetUndoSize(), Bytes);
 	}
 	Actor->GeneratedTransactionObserver = {}; Scene()->TransactionObserver = {};
-	ASSERT_TRUE(Buffer->TryReset()); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
+	Buffer->Reset(); EXPECT_EQ(Buffer->GetUndoSize(), 0u);
 }
 
 TEST(FEngineTransactionAnnotationTests, GeneratedComponentFinalEventClosesLastSnapshotAtOriginalValue)
@@ -114,7 +114,7 @@ TEST(FTransBufferTests, AnnotationOnlyHistoryRestoresDesiredSideAndFlipsLiveSupp
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "AnnotationOnlyHistory"));
 	Target->bAnnotationEnabled = true;
-	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Annotation only"}); ASSERT_TRUE(Target->Modify()); Target->SupplementalValue = 9; }
+	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Annotation only"}); ASSERT_TRUE(Target->Modify()); Target->SupplementalValue = 9; }
 	ASSERT_EQ(Buffer->GetQueueLength(), 1u);
 	Target->SupplementalValue = 17;
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->SupplementalValue, 0);
@@ -130,10 +130,10 @@ TEST(FTransBufferTests, AnnotationReferencesSurviveCallbackCollectionAndReleaseW
 	Target->bAnnotationEnabled = true; Target->bRequestCollectionDuringAnnotation = true;
 	Target->AnnotationReference = NewObject<DObject>(nullptr, "AnnotationRetainedReference");
 	const auto Key = FObjectKey(Target->AnnotationReference);
-	{ FScopedTransaction Scope(Buffer.Get(), {"test", "Annotation GC"}); ASSERT_TRUE(Target->Modify()); Target->SupplementalValue = 3; }
+	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Annotation GC"}); ASSERT_TRUE(Target->Modify()); Target->SupplementalValue = 3; }
 	Target->AnnotationReference = nullptr; CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(ResolveObjectKey(Key), nullptr);
 	ASSERT_TRUE(Buffer->Undo()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(ResolveObjectKey(Key), nullptr);
-	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
+	Buffer->Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(Key), nullptr);
 }
 
 TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
@@ -143,7 +143,7 @@ TEST(FTransBufferTests, CompensatedLoadCompletesWithPreOperationAnnotation)
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "CompensatedAnnotation"));
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 1;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Annotation compensation"}); ASSERT_TRUE(Target->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Annotation compensation"}); ASSERT_TRUE(Target->Modify());
 		Target->Value = 7; Target->SupplementalValue = 2;
 	}
 	Target->bFailLoadOnce = true;
@@ -163,13 +163,13 @@ TEST(FTransBufferTests, LaterRecordFailurePreservesOriginalAnnotationForRetry)
 	int OpaqueValue = 0;
 	auto Failure = std::make_unique<FTestCustomChange>(OpaqueValue, 0, 1); auto* Fault = Failure.get();
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Annotated atomic retry"});
-		ASSERT_TRUE(ApplyEditorChange(*Buffer, std::move(Failure)));
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Annotated atomic retry"});
+		ASSERT_TRUE(Durin::Tests::RecordTestEdit(*Buffer, std::move(Failure)));
 		ASSERT_TRUE(Target->Modify()); Target->Value = 7; Target->SupplementalValue = 3;
 	}
 	Target->SupplementalValue = 11; Fault->bFailUndo = true;
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Target->Value, 7); EXPECT_EQ(Target->SupplementalValue, 11);
-	EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
+	EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::Idle); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 	Fault->bFailUndo = false;
 	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Target->Value, 0); EXPECT_EQ(Target->SupplementalValue, 0);
 	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Target->Value, 7); EXPECT_EQ(Target->SupplementalValue, 11);
@@ -182,7 +182,7 @@ TEST(FTransBufferTests, WholeAnnotationKeepsFirstStateThroughRepeatedCapture)
 	TStrongObjectPtr<DTransactionRecordParticipant> Target(NewObject<DTransactionRecordParticipant>(nullptr, "WholeAnnotation"));
 	Target->bAnnotationEnabled = true; Target->SupplementalValue = 1;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Whole annotation capture"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Whole annotation capture"});
 		ASSERT_TRUE(Target->Modify(false));
 		Target->Value = 2; Target->SupplementalValue = 7;
 		ASSERT_TRUE(Target->Modify(false));
@@ -200,7 +200,7 @@ TEST(FEngineTransactionAnnotationTests, WholeRecordRestoresNativeRegistration)
 	auto* Member = Root->GetClass()->FindPropertyByName("CreationMethod"); ASSERT_NE(Member, nullptr);
 	FPropertyValueSnapshotPayload Before; ASSERT_TRUE(CapturePropertyValuePayload(Member, Root, 0, Before, true));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Focused native record"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Focused native record"});
 		ASSERT_TRUE(Root->Modify(false));
 		Root->UnregisterComponent();
 	}
@@ -217,7 +217,7 @@ TEST(FEngineTransactionAnnotationTests, DefaultComponentAnnotationIsImplicitAndR
 	Component->SetFlags(EObjectFlags::Transactional);
 	EXPECT_FALSE(Component->FindOrCreateTransactionAnnotation());
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Default native snapshot"}); ASSERT_TRUE(Component->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Default native snapshot"}); ASSERT_TRUE(Component->Modify());
 		Component->SetComponentTickEnabled(true);
 	}
 	ASSERT_TRUE(Component->FindOrCreateTransactionAnnotation());
@@ -249,16 +249,16 @@ TEST(FEngineTransactionAnnotationTests, ActorAndRootRestoreNativeLifecycleOncePe
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Root, nullptr);
 	ASSERT_EQ(Root->Created, 1u); ASSERT_EQ(Root->Registered, 1u);
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Native annotation lifecycle"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Native annotation lifecycle"}); ASSERT_TRUE(Actor->Modify());
 		Actor->SetActorTickEnabled(true); Root->SetComponentTickEnabled(true); Root->UnregisterComponent();
 	}
 	const auto Constructions = Actor->ConstructionCalls;
 	Root->bRequestCollectionOnRegister = true;
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Root->IsComponentTickEnabled()); EXPECT_TRUE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Initialized, 1u);
 	EXPECT_EQ(Actor->ConstructionCalls, Constructions + 1);
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Root->IsComponentTickEnabled()); EXPECT_FALSE(Root->IsRegistered());
 	EXPECT_EQ(Root->Created, 1u); EXPECT_EQ(Root->Registered, 2u); EXPECT_EQ(Root->Unregistered, 2u); EXPECT_EQ(Root->Uninitialized, 0u);
 	EXPECT_EQ(Actor->ConstructionCalls, Constructions + 2);
@@ -278,19 +278,19 @@ TEST(FEngineTransactionAnnotationTests, GeneratedRootRecreatesWithoutRetainingOl
 	const auto BeforeWorld = Generated->GetWorldLocation(); const auto ChildWorld = Other->GetRootComponent()->GetWorldLocation();
 	const auto OldKey = FObjectKey(Generated);
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Generated root state"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Generated root state"}); ASSERT_TRUE(Actor->Modify());
 		Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
 	}
 	EXPECT_EQ(Actor->GetRootComponent(), nullptr); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	Actor->bRequestCollectionDuringConstruction = true;
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	auto* Restored = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent()); ASSERT_NE(Restored, nullptr);
 	EXPECT_NE(FObjectKey(Restored), OldKey); EXPECT_EQ(Restored->GetWorldLocation(), BeforeWorld); EXPECT_EQ(Restored->CreatedLocation, FVector3(0.0));
 	EXPECT_EQ(Restored->Created, 1u); EXPECT_EQ(Restored->Registered, 1u); EXPECT_EQ(Restored->Initialized, 1u);
 	EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), Restored); EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), ChildWorld);
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_EQ(Actor->GetRootComponent(), nullptr);
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_EQ(Other->GetRootComponent()->GetAttachParent(), Actor->GetRootComponent());
 	EXPECT_EQ(Other->GetRootComponent()->GetWorldLocation(), ChildWorld);
 }
@@ -307,13 +307,13 @@ TEST(FEngineTransactionAnnotationTests, SerializedChildEditsAndGeneratedRootReco
 	auto* Child = Other->GetRootComponent(); ASSERT_TRUE(Child->AttachToComponent(Root)); Child->SetRelativeLocation({2.0, 0.0, 0.0});
 	const auto Before = Child->GetWorldLocation();
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Serialized child and root reconstruction"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Serialized child and root reconstruction"});
 		ASSERT_TRUE(Actor->Modify()); ASSERT_TRUE(Child->Modify()); Child->SetRelativeLocation({3.0, 0.0, 0.0});
 		Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
 	}
 	const auto After = Child->GetWorldLocation(); EXPECT_EQ(After, FVector3(8.0, 0.0, 0.0));
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult()); EXPECT_EQ(Child->GetWorldLocation(), Before);
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult()); EXPECT_EQ(Child->GetWorldLocation(), After);
+	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Child->GetWorldLocation(), Before);
+	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Child->GetWorldLocation(), After);
 }
 
 TEST(FEngineTransactionAnnotationTests, SwitchingGeneratedAndAuthoredRootsPreservesBothHistorySides)
@@ -325,12 +325,12 @@ TEST(FEngineTransactionAnnotationTests, SwitchingGeneratedAndAuthoredRootsPreser
 	auto* GeneratedRoot = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(GeneratedRoot, nullptr); ASSERT_TRUE(Actor->SetRootComponent(GeneratedRoot));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Root kind switch"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Root kind switch"}); ASSERT_TRUE(Actor->Modify());
 		ASSERT_TRUE(Actor->SetRootComponent(NativeRoot));
 	}
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult()); EXPECT_EQ(Actor->GetRootComponent(), Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
+	ASSERT_TRUE(Buffer->Undo()); EXPECT_EQ(Actor->GetRootComponent(), Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	EXPECT_NE(Actor->GetRootComponent(), GeneratedRoot); EXPECT_TRUE(GeneratedRoot->IsPendingKill());
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult()); EXPECT_EQ(Actor->GetRootComponent(), NativeRoot);
+	ASSERT_TRUE(Buffer->Redo()); EXPECT_EQ(Actor->GetRootComponent(), NativeRoot);
 }
 
 TEST(FEngineTransactionAnnotationTests, FailedReconstructionCleansNewOutputAndRequiresRecovery)
@@ -339,11 +339,11 @@ TEST(FEngineTransactionAnnotationTests, FailedReconstructionCleansNewOutputAndRe
 	FTransactionEngineWorld Fixture; Tests::FTestTransactorOwner Buffer;
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("FailedReconstructionActor"); ASSERT_NE(Actor, nullptr);
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Reconstruction failure"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Reconstruction failure"}); ASSERT_TRUE(Actor->Modify());
 		Actor->GeneratedCount = 2; ASSERT_TRUE(Actor->RerunConstructionScripts());
 	}
 	const auto Before = Actor->GetComponentsSnapshot(); Actor->bFailConstruction = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 	EXPECT_TRUE(std::ranges::none_of(Actor->GetComponents(), [](const auto& Component) { return Component->GetCreationMethod() == EComponentCreationMethod::Generated; }));
 	for (const auto& Component : Before)
 		if (Component->GetCreationMethod() == EComponentCreationMethod::Generated) EXPECT_TRUE(Component->IsPendingKill());
@@ -362,12 +362,12 @@ TEST(FEngineTransactionAnnotationTests, ExpiredAnnotationParticipantRejectsBefor
 	auto* Generated = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_TRUE(Actor->SetRootComponent(Generated)); ASSERT_TRUE(Other->GetRootComponent()->AttachToComponent(Generated));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Expired annotation participant"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Expired annotation participant"}); ASSERT_TRUE(Actor->Modify());
 		Actor->GeneratedCount = 0; ASSERT_TRUE(Actor->RerunConstructionScripts());
 	}
 	MarkAsGarbage(Other->GetRootComponent());
 	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Actor->GeneratedCount, 0); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
-	EXPECT_NE(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_NE(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
 }
 
 TEST(FEngineTransactionAnnotationTests, RetirementInsideRegistrationCallbackRequiresRecoveryWithoutReinitializingGarbage)
@@ -377,10 +377,10 @@ TEST(FEngineTransactionAnnotationTests, RetirementInsideRegistrationCallbackRequ
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("CallbackRetirementActor"); ASSERT_NE(Actor, nullptr);
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Retiring callback"}); ASSERT_TRUE(Actor->Modify()); Root->UnregisterComponent();
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Retiring callback"}); ASSERT_TRUE(Actor->Modify()); Root->UnregisterComponent();
 	}
 	const auto Initializations = Root->Initialized; Root->bDestroyOnRegister = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
 	EXPECT_TRUE(Root->IsGarbage()); EXPECT_EQ(Root->Initialized, Initializations); EXPECT_EQ(Buffer->GetUndoCount(), 0u);
 }
 
@@ -392,22 +392,22 @@ TEST(FEngineTransactionAnnotationTests, GeneratedSceneOverridesReplayWithoutAnAu
 	auto* Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Scene, nullptr); Scene->SetRelativeLocation({9.0, 0.0, 0.0});
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Generated scene pose"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Generated scene pose"}); ASSERT_TRUE(Actor->Modify());
 		Scene->SetRelativeLocation({12.0, 0.0, 0.0}); ASSERT_TRUE(Actor->RerunConstructionScripts());
 	}
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Scene, nullptr); EXPECT_EQ(Scene->GetRelativeLocation(), FVector3(9.0, 0.0, 0.0));
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Scene, nullptr); EXPECT_EQ(Scene->GetRelativeLocation(), FVector3(12.0, 0.0, 0.0));
 	Actor->ConstructionLocation = FVector3(12.0, 0.0, 0.0);
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Scene, nullptr); EXPECT_EQ(Scene->GetRelativeLocation(), *Actor->ConstructionLocation);
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	Actor->ConstructionLocation = FVector3(4.0, 0.0, 0.0);
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	Scene = static_cast<DSceneComponent*>(Actor->FindGeneratedComponent(DTransactionConstructionActor::Key(0)));
 	ASSERT_NE(Scene, nullptr); EXPECT_EQ(Scene->GetRelativeLocation(), *Actor->ConstructionLocation);
 }
@@ -420,14 +420,14 @@ TEST(FEngineTransactionAnnotationTests, EmptyActorAnnotationIsOmittedAndDefaultT
 	ASSERT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
 	EXPECT_FALSE(Actor->FindOrCreateTransactionAnnotation());
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Actor tick state"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Actor tick state"}); ASSERT_TRUE(Actor->Modify());
 		Actor->SetActorTickEnabled(true);
 		Actor->GetPrimaryActorTick().UnregisterTickFunction();
 	}
 	EXPECT_TRUE(Actor->FindOrCreateTransactionAnnotation());
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	EXPECT_FALSE(Actor->IsActorTickEnabled()); EXPECT_TRUE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
-	ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Redo());
 	EXPECT_TRUE(Actor->IsActorTickEnabled()); EXPECT_FALSE(Actor->GetPrimaryActorTick().IsTickFunctionRegistered());
 }
 
@@ -438,11 +438,11 @@ TEST(FEngineTransactionAnnotationTests, InnerRegistrationFailureRequiresRecovery
 	auto* Actor = Fixture.World->SpawnActor<DTransactionConstructionActor>("InnerCallbackFailure");
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Inner registration failure"}); ASSERT_TRUE(Actor->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Inner registration failure"}); ASSERT_TRUE(Actor->Modify());
 		Root->UnregisterComponent();
 	}
 	Root->bThrowOnRegister = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
 	Root->bThrowOnRegister = false;
 	const auto Before = Actor->ConstructionCalls;
 	ASSERT_TRUE(Actor->RerunConstructionScripts()); EXPECT_EQ(Actor->ConstructionCalls, Before + 1);
@@ -458,7 +458,7 @@ TEST(FEngineTransactionAnnotationTests, AttachmentReverseLinksAreSettledBeforeHi
 	auto* Root = static_cast<DTransactionLifecycleScene*>(Actor->GetRootComponent());
 	ASSERT_TRUE(Root->AttachToComponent(First->GetRootComponent()));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {"test", "Attachment callback state"}); ASSERT_TRUE(Root->Modify());
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {"test", "Attachment callback state"}); ASSERT_TRUE(Root->Modify());
 		ASSERT_TRUE(Root->AttachToComponent(Second->GetRootComponent())); Root->UnregisterComponent();
 	}
 	bool Called = false;

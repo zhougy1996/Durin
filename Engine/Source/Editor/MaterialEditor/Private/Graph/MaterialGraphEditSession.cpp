@@ -193,7 +193,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 
 	auto FGraphEditSession::Commit(std::string Description, DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (Transactions && !Transactions->CanTransact()) return RejectCommand("The editor transactor is busy.");
+		if (Transactions && ResolveEditorTransactor(ETransactionMode::Record).value_or(nullptr) != Transactions) return RejectCommand("The editor transactor is busy.");
 		const bool bGraphWritten = !Impl->Members.empty() || !std::ranges::equal(Expressions, Impl->Original,
 			{}, [](auto& E) { return E.Get(); }, [](auto& E) { return E.Get(); });
 		if (bGraphWritten)
@@ -268,7 +268,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 				if (auto Result = Member->Restore(true); !Result) return RejectCommand(FormatMaterialChangeError(Result.Error));
 		}
 		const bool Nested = Transactions && Transactions->IsActive();
-		FScopedTransaction Recording(Transactions, {"MaterialGraph", std::move(Description), &Impl->Owner});
+		FScopedTransaction Recording("MaterialGraph", Description, &Impl->Owner, Transactions != nullptr);
 		if (Transactions)
 		{
 			if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");
@@ -311,7 +311,7 @@ namespace Durin::MaterialEditor::GraphEditInternals
 	{
 		const bool Nested = Transactions && Transactions->IsActive();
 		{
-			FScopedTransaction Recording(Transactions, {"MaterialGraph", std::move(Description), &Owner});
+			FScopedTransaction Recording("MaterialGraph", Description, &Owner, Transactions != nullptr);
 			if (Transactions)
 			{
 				if (!Recording.IsOutstanding()) return RejectCommand("Unable to start the graph transaction.");

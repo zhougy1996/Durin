@@ -3,7 +3,7 @@
 Summary: Embed trusted editor scripts with native Toolsets, reflected type/object wrappers and transaction scopes.
 Modules: DurinPython, DurinEd, MainFrame, Core
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-22
 
 ## Ownership and Runtime
 
@@ -316,8 +316,7 @@ self. Exit ends recording and returns None, including when an exception leaves
 the block. Exceptions propagate. Cancel discards the entire active recording,
 including when called on an inner scope, and returns None. Applied edits remain.
 
-The scope uses the admitting editor's transactor, without GEditor lookup or a
-second history stack. Ordinary native domain scopes join it. A script can read a
+Entry validates the script endpoint's editor and opens a native scope through the active editor. Endpoint shutdown releases outstanding native scopes before another host can record. Ordinary native domain scopes join it. A script can read a
 result, make subsequent edits and group them into one Undo/Redo entry. Each
 participant still calls Modify or records its native command change. Exit after
 cancel is harmless; a completed scope can be entered again. Unfinished job-owned
@@ -326,8 +325,8 @@ retaining a Python scope in imported state cannot keep recording across jobs.
 A scope may span yield and keeps the editor's global recording open: UI/native
 edits and other jobs on that host join it. Undo/Redo follows the native recording
 state. Sessions share the active editor's history; suspension
-releases interpreter execution, not the recording. Scope validity uses the native transaction
-ID and GC-visible transactor ownership so stale helpers cannot alter a replacement.
+releases interpreter execution, not the recording. After cancellation, exit all remaining native and Python scopes from that recording
+before starting another transaction on the same host. This also applies across jobs and yields.
 Prefer waiting/preparation outside recording, then revalidate and apply in a short
 synchronous scope. No isolation, automatic splitting or rollback is supplied.
 See [native recording](../Transactions/Transactors.md#transactions-and-scoped-recording).

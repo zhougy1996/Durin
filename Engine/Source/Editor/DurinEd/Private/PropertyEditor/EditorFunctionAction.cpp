@@ -54,12 +54,11 @@ namespace Durin
 		const FEditorFunctionRequest& Request) -> FEditorFunctionResult
 	{
 		FEditorFunctionResult Result;
-		auto Report = [&] {
+		auto Report = [&](std::string_view Detail = {}) {
 			if (Context.ReportError && Result.Error != EEditorFunctionError::None)
 			{
 				std::string Message(DescribeEditorFunctionError(Result.Error));
-				if (Result.bInvoked) Message += " Native code already ran; the mutation was not rolled back.";
-				if (Result.Error == EEditorFunctionError::History) Message += " " + FormatTransactorResult(Result.History);
+				if (!Detail.empty()) { Message += " "; Message += Detail; }
 				Context.ReportError(std::move(Message));
 			}
 			return Result;
@@ -84,43 +83,30 @@ namespace Durin
 			FExecutionGuard() { bExecutingFunction = true; }
 			~FExecutionGuard() { bExecutingFunction = false; }
 		} Guard;
+		const bool bOwnsRecording = !Transactor->IsActive();
 		{
-			FScopedTransaction Transaction(Transactor.Get(), {
-				.Name = Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
-				.Description = Function->GetDisplayName(), .PrimaryObject = Target.Get()});
+			FScopedTransaction Transaction(Request.RootOwner.ToString() + "::" + Request.FunctionName.ToString(),
+				Function->GetDisplayName(), Target.Get());
 			if (!Transaction.IsOutstanding())
 			{
 				Result.Error = EEditorFunctionError::History;
-				Result.History = Transactor->GetLastResult();
 				return Report();
 			}
-			(void)Target->Modify();
-			if (Transactor->GetLastResult().Code == ETransactorResultCode::Failed)
+			Target->Modify();
+			if (!Transactor->IsActive())
 			{
 				Result.Error = EEditorFunctionError::History;
-				Result.History = Transactor->GetLastResult();
-				Transaction.Cancel();
-				return Report();
+				return Report("Recording ended during capture.");
 			}
 			if (ValidateFunctionInvocation(Target.Get(), Function, {}) != EFunctionInvokeError::None)
 			{
-				Transaction.Cancel();
-				Result.History = Transactor->GetLastResult();
-				Result.Error = Result.History.Code != ETransactorResultCode::Discarded
-					? EEditorFunctionError::History : EEditorFunctionError::Invocation;
+				if (bOwnsRecording) Transaction.Cancel();
+				Result.Error = EEditorFunctionError::Invocation;
 				return Report();
 			}
 			Target->ProcessEvent(Function, nullptr);
 			Result.bInvoked = true;
 			Target->PostEditChange();
-		}
-		Result.History = Transactor->GetLastResult();
-		Result.bChanged = Result.History.Code == ETransactorResultCode::Succeeded;
-		if (Result.History.Code != ETransactorResultCode::Succeeded && Result.History.Code != ETransactorResultCode::NoOp)
-		{
-			Result.Error = EEditorFunctionError::History;
-			Target->MarkPackageDirty();
-			if (auto* Package = Target->GetPackage()) Transactor->InvalidateSavedState(*Package);
 		}
 		return Report();
 	}

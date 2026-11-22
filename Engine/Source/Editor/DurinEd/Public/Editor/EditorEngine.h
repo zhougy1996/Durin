@@ -16,6 +16,7 @@
 
 namespace Durin
 {
+	class FPropertyEditSession;
 	class DLevel;
 }
 
@@ -176,7 +177,7 @@ namespace Durin
 			const FPlayRequest& Request,
 			std::optional<DClass*> GameModeOverride,
 			std::string* OutError) -> bool;
-		auto AreHostConsumersIdle() -> bool override { return !bLoadingEditorMap && Super::AreHostConsumersIdle(); }
+		auto AreHostConsumersIdle() -> bool override { return !bLoadingEditorMap && !bApplyingPlayChanges && Super::AreHostConsumersIdle(); }
 		auto EditorDestroyWorld() -> void;
 		// Runtime travel is not an editor map-loading API.
 		using DEngine::OpenLevel;
@@ -205,6 +206,8 @@ namespace Durin
 	protected:
 		DURINED_API auto InitializeEditorSubsystems() -> void;
 	private:
+		friend class FPropertyEditSession;
+		std::vector<FPropertyEditSession*> PropertyEditSessions;
 		auto CheckEditorSubsystemUpdate() -> void;
 
 
@@ -233,6 +236,8 @@ namespace Durin
 		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DLevel>> RetiredPlayLevels;
 
+		bool bApplyingPlayChanges = false;
+		bool bStopAfterApply = false;
 		EPlayState PlayState = EPlayState::Stopped;
 		EPlayDestination PlayDestination = EPlayDestination::EmbeddedViewport;
 		std::unordered_map<DObject*, DObject*> EditorToPlayObjects;

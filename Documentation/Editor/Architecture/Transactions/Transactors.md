@@ -4,7 +4,9 @@ Summary: Define UE-shaped native recording, synchronous Undo/Redo, package check
 
 Modules: Core, CoreDObject, Engine, DurinEd
 
-Last reviewed: 2026-11-21
+Last reviewed: 2026-11-22
+
+A reflected editor action rechecks recording after marking its target dirty and before invoking native code. Recovery lockout directs the user to recover affected data and reload the session.
 
 ## Service Ownership
 
@@ -16,21 +18,17 @@ CanTransact; the editor implements them through its transactor.
 
 DTransactor requires all recording, history and package-revision capabilities
 through pure virtual functions. Concrete implementations cannot inherit silent
-no-op or unsupported behavior. The base retains listener registration, result
-storage and convenience forwarding. ApplyEditorChange is declared only in
-Transactions/Transactor.h; consumers include that header directly.
+no-op or unsupported behavior. The base owns listener registration and history identity. Callers open a transaction before editing and use StoreUndo for an already-applied custom change.
 
 Core defines the [runtime transaction contracts](../../../Runtime/ObjectSystem/Transactions.md),
 including custom changes, context, `ITransaction`, and ordinary
 GameThread pointer `GUndo`. Outermost Begin publishes the pending `FTransaction`;
 End, Cancel, owner retirement and destruction clear it before releasing storage.
 A competing buffer cannot begin while another recording is published. There is
-no candidate registry or host recorder binding stack. Object capture retains
-Durin's typed failures through the owning buffer; CoreDObject has no editor dependency.
-Buffer object capture and exact recording identity are private collaboration
-hooks for FTransaction and FScopedTransaction. Ordinary callers use Modify(),
+no candidate registry or host recorder binding stack. Object capture logs serialization errors. CoreDObject has no editor dependency.
+FTransaction collaborates privately with the buffer on object capture. Ordinary callers use Modify(),
 scopes and transaction results; DTransactor exposes no object-capture method or
-recording-identity query. ITransaction::SaveObject remains the runtime boundary.
+recording-identity query. ITransaction::SaveObject returns void. A failed whole-object snapshot invalidates the recording across nested scopes. The outer End, Cancel or Reset preserves applied writes, clears Undo and Redo, invalidates affected package checkpoints and queues a failure event with the original transaction ID. ContainsObject includes additional command and array participants whose whole-object baseline may still fail to serialize.
 
 Host callback scopes guard execution and teardown, not transaction routing.
 Callbacks request GC; the host collects after the complete operation returns.
@@ -71,34 +69,23 @@ The index is an activity count, never a history ID or an isolated savepoint.
 
 `FScopedTransaction` provides UE-shaped description and full-context constructors
 using the active editor. A disabled scope or unavailable editor remains inert.
-Simple panel actions such as actor visibility and primary-camera selection use
-these constructors rather than passing the process editor's transactor through
-panel contexts. Low-level property composition, material gestures and suspended
-script scopes retain explicit transactors where exact recording ownership is part of their contract.
-The explicit-transactor overload supports native composition and independent
-low-level buffer tests; it cannot open a competing concurrent recording.
-The scope exposes Cancel() and IsOutstanding(). Destruction ends an outstanding
-action, matching UE 5.8. Use a lexical block or release an owned scope to end
-recording before the next operation. Native buffer management retains End()
-and its depth result. Ordinary edit results describe the applied model change.
+Scope construction, destruction and cancellation use the active editor.
+Pass false for optional unrecorded edits. Independent buffer users pair Begin with End or Cancel directly.
+Destruction ends an outstanding scope. Cancel discards recording. Native End() returns the previous depth. Only the outermost End publishes history. Ordinary edit results describe the applied model change.
 The buffer queues history publication failures for the main frame's error
 notification with the transaction description and diagnostic details. Recovery
 can block subsequent recording and replay.
-The editor management surface follows UE's ordinary call shapes: `Reset(Reason)`
-returns void, `ContainsPieObjects()` returns bool, and `GetUndoSize()` reports
-owned history bytes through `DTransactor`. Lifecycle callers use `TryReset`
-when they need reset diagnostics. A failed or busy PIE inspection conservatively
+`Reset(reason)` clears history. Map replacement, package unload and PIE check `CanTransact()` before proceeding and report admission errors at their own entry points. PIE clears history before copying changes into the editor world. Package callbacks can request a stop during copy-back. Teardown waits for copy-back to exit, including on failure, and nested copy-back is rejected. ContainsPieObjects returns bool and GetUndoSize
+reports owned history bytes. A failed or busy PIE inspection conservatively
 returns true. History events carry their own presentation details. Runtime
 `ITransaction` capture/inspection remains checked so recording and replay never
 mistake a failed traversal for an empty reference set.
-Scope helpers retain a GC-visible exact transactor reference and its existing
-active transaction ID. Cancel, IsOutstanding and destruction first validate
-that same live recording. Cancel/End followed by a replacement Begin makes old
-helpers inert; their nested action count cannot close or cancel the replacement.
-Destroyed transactors invalidate helper cleanup. There is no public owner token,
-private history, extra recording generation, object snapshot or checked preparation
-in the helper. Explicit scopes may remain open between host execution boundaries;
-all callers on the active editor join that global recording.
+A scope stores only the index returned by Begin. It is noncopyable and nonmovable. As in UE 5.8, IsOutstanding() tests whether the saved index is
+nonnegative. Use the host transactor's IsActive() when a callback may have ended recording.
+Cancel discards the entire recording and clears the calling scope's index. A sole
+scope can therefore cancel and immediately start another transaction. If other scopes
+from that recording remain, unwind them before starting a new recording on the same
+host. This rule also applies after external End or Reset. Keep the same editor active until scope exit. Before releasing the editor, shutdown cancels property previews and releases suspended Python scopes. Ordinary native callers must unwind their lexical scopes before host replacement.
 
 ### Everyday Object Editing
 
@@ -121,8 +108,7 @@ editing; native default-graph transactions have explicit
 nested action. Final-after capture happens at outermost End, so 0, outer write 1,
 inner write 2, outer write 3 replays as Undo 0 / Redo 3. Property editing and
 explicit whole-object recording use that same first-before baseline. AActor overrides Modify to include its native root
-component, matching the pinned Actor.cpp behavior; generated roots are rebuilt
-by construction. Direct references to Generated objects are excluded from
+component, following the pinned Actor.cpp traversal. A failed capture of either eligible object invalidates the recording. Generated roots are rebuilt by construction. Direct references to Generated objects are excluded from
 automatic capture. Derived component membership, reverse attachment lists, and
 world-transform caches are NonTransactional and rebuilt by replay hooks.
 Final capture includes reflected Transient fields;
@@ -195,8 +181,7 @@ Reset cancels the complete active recording and purges history, barriers, queued
 events and package tracking without reverting applied edits or clearing package
 dirty flags. It snapshots the reason before invoking record destructors and
 blocks reentrant recording, reset and inspection throughout cleanup. Package
-revision queries hide retiring checkpoint data until cleanup completes. Existing
-scopes become inert. Even an empty reset invalidates prepared history publication.
+revision queries hide retiring checkpoint data until cleanup completes. Unwind existing scopes before starting the next recording. Even an empty reset invalidates prepared history publication.
 Refusal during replay or recovery preserves the retained graph; it is not a
 recovery operation.
 
@@ -260,9 +245,7 @@ inverses are inspected at their actual step and compensated on rejection. The
 current record is inspected per step, with complete checks at phase boundaries,
 so traversal stays linear in retained reference slots rather than quadratic in
 record count. After clean compensation, transient inverses are cleared and
-retained references are checked again after balanced native completion. Taint
-from that completion or the final synchronous UndoRedo observers requires
-recovery; it does not publish a successful cursor transition.
+retained references are checked again after balanced native completion. A confirmed PIE reference after successful replay or complete compensation retires history and releases its references. Completed edits report Undo or Redo. Restored edits report failure. A throwing observer or indeterminate reference inspection during replay requires recovery.
 This is Durin's explicit safety extension beyond UE's recording-end PIE filter.
 
 ### Synchronous Object Events
@@ -327,17 +310,14 @@ those participants eligible for later ordinary edits, including single-participa
 commands. This permits sparse domain changes and staged graph edits to compose
 with ordinary changes without forcing an extra owner serialization. Material graph,
 presentation, parameter and configuration commands use this participant contract.
-Transactional CallInEditor targets and Actor/root edits use virtual Modify.
+Transactional CallInEditor targets and ordinary Actor/root edits use virtual Modify.
 NonTransactional CallInEditor targets can still execute without gaining history.
 
 The remaining custom commands have domain responsibilities beyond a field load:
 
 | Command family | Modified participants and retained responsibility |
 | --- | --- |
-| Actor presence | Level, affected Actors/components and attachment endpoints; exact identity/Name reservation, native Level publication, reversible absence and activation. The Level's shared object record owns serialized Actor order and primary camera; camera snapshots inside the adapter serve initial-execution compensation only. |
-| Component presence | Owner, component, parent and detached children; native live membership, root role, registration, ordered publication and retention of the complete absent Outer subtree. Serialized instance membership may precede this adapter; Actor completion reconciles and validates the final set. |
 | Transform gizmo | Declared target objects; arbitrary `ITransformGizmoTarget` also permits native-only targets and fallible transform setters, so the adapter retains gesture replay. |
-| StaticMesh placement / new SkyBox | Level and declared Actor/component participants; prepared asset bindings, creation/identity, native publication and coordinated rollback. Existing SkyBox texture edits use an ordinary component record. |
 | Material semantic graph | Owner, changed expressions and added/removed nodes; connection/type adaptation, synchronized parameter references, membership and one validated publication/rollback boundary. Local member snapshots are domain compensation, not the property UI's history backend. |
 | Material presentation | Material owner; GUID-keyed sparse position/label changes preserve unrelated presentation entries. |
 | Material parameter gesture | Material owner; a stable parameter ID updates synchronized expression-backed values through the owner's `SetParameterValue` publication boundary, rather than one reflected owner scalar. Texture values are collector dependencies. |
@@ -349,29 +329,35 @@ use the same application recording and job cleanup, and script label setters
 route through the Actor subsystem. No alternate history is introduced for these
 consumers.
 
-Actor presence captures its Level through `GUndo->SaveObject` before initial
-publication. Level's balanced native completion hooks remember pre-replay
-membership temporarily, so an array loaded earlier in the same operation can
-be activated without duplicate insertion. A membership change made before
-PreEditUndo remains a conflict. Actor attachment, detachment and component reparenting capture the moved scene components with Modify before writing. Undo and Redo restore the recorded parent and relative transform even after an external reparent. Replay checks the destination attachment graph against unaffected live edges before writing. Scene component completion reconciles reverse links and world transforms. These checks supplement
-UE's serialized-state flip with Durin's reversible native absence boundaries.
+Actor creation, deletion and duplication capture the Level, each edited Actor and
+the scene components whose attachment crosses the selection boundary. The Level
+snapshot owns Actor order and the primary camera. During completion, the Level
+preserves independently published Actors. Replay determines which Actors will be published from the destination Actors array. Name, World and attachment-cycle checks precede writes. Actor annotations restore tick and
+component registration. Viewport placement uses the same subsystem. Spawn
+configuration runs once before publication and Redo restores the recorded object.
+Presence captures the Actor through the base object implementation of Modify. Its
+native root needs a separate snapshot only when an attachment changes. This lets
+SkyBox Redo use the surviving component with an empty texture after asset retirement.
 
-`ApplyEditorChange` checks the command's initial size and copies its description
-under an inspection guard. Inside its recording scope it admits the command's
-participants and affected packages before calling `Apply()`. A metadata failure
-leaves the model, the outer recording and the existing history heads intact.
-The buffer retains the prepared command for GC during execution. Nested edits
-and `Modify` capture in their ordinary order, followed by the applied command.
-A callback cannot cancel, reset or end the executing scope. Declared package
-identities are captured once for GC, checkpoint handling and reinstancing.
+Component creation, deletion and duplication capture the owning Actor and the
+instance component. Deletion also captures detached children. An instance has
+its creation method before its first snapshot. Actor completion reconciles the
+serialized instance list with native ownership and lifecycle. All participants
+join the caller's scope, including ordinary edits from lifecycle callbacks.
+Cancel discards the recording and leaves completed model writes in place.
 
-A command that reports a clean apply failure loses only its own record. Declaring
-a package on that command does not create a saved checkpoint for it. Unknown
-effects retain the pending graph for recovery. A successful apply still needs
-outermost finalization to publish history. A prepublication accounting or
-capture failure can leave the edit applied, return a failure and preserve the
-previous Redo branch. The outermost scope publishes the final result. A joined
-call reports admission and execution to its caller before that boundary.
+In UE 5.8, LevelActor.cpp captures the Level before inserting a spawned Actor.
+UWorld::RemoveActor in World.cpp can call ModifyLevel before removal.
+ULevel::Serialize includes its Actors array. ComponentEditorUtils.cpp calls
+Modify on the target Actor when adding or duplicating an instance component
+and on the component during deletion. FTransaction::SaveObject in
+EditorTransaction.cpp creates the per-object record on first capture. Durin retains absent object identities for earlier property
+history and uses transaction annotations to reconstruct native lifecycle state.
+
+Batch attachment and detachment preflight the selection, then capture and edit each
+eligible root in one scope. Later rejections leave earlier edits available for one
+Undo. The return value reports whether any root changed.
+
 Actor and Material commands retain their domain-specific errors.
 
 Property replay restores owned historical payloads directly after structural,
@@ -386,8 +372,7 @@ Historical flips are published only after all records and native completion
 succeed. Clean compensation uses the prepared live inverses and allows replay
 to be retried at the same cursor with the same package checkpoints. Incomplete compensation or a custom
 exception retains the participant graph and requires recovery. Reset does not
-repair data or unlock catastrophic recovery. Diagnostic results retain actionable
-failure and rollback messages without requiring ordinary clients to inspect causes.
+repair data or unlock catastrophic recovery. Undo and Redo return bool. Delayed actions check their expected history ID and may request failure text. The buffer publishes replay and finalization diagnostics through history events.
 
 History events are queued during transitions and delivered by DispatchEvents
 to independent listeners after the transactor reaches Idle or RecoveryRequired.
@@ -437,12 +422,12 @@ History tracks package edit and save checkpoints independently of discovery.
 The production soft budget is 64 MiB of owned native transaction data, without
 an entry cap. SetMemoryBudget changes the limit while Idle; it takes effect at the next successful commit. Zero evicts the old prefix on the next successful commit without a Redo branch. Accounting includes context, record storage,
 payloads/reference tables, capture metadata, and reported custom allocations;
-it excludes the transitive retained DObject graph. Aggregation checks overflow.
+it excludes the transitive retained DObject graph. If retained sizes overflow after a completed replay, the buffer invalidates the affected package checkpoints, clears history and reports the completed operation. New edits can be recorded immediately. Overflow after a clean compensation also clears history and preserves the original failure diagnostic. A throwing replay callback can have unknown side effects and still requires recovery.
 
 Before appending a successful new entry, trim oldest existing history while the
 old history occupies at least the budget. The incoming entry remains undoable
 even when oversized. Redo replacement skips additional prefix trimming. Canceled,
-empty, and failed submissions preserve the existing history. Undo/Redo do not trim.
+empty, and rejected submissions preserve the existing history unless snapshot failure, a known post-write refusal or size overflow invalidates it. Undo/Redo do not trim.
 Compared with UE's Begin-time trimming, Durin delays destructive trimming until
 successful finalization so no removed-transaction restoration machinery is needed.
 Pending entries are absent from GetQueueLength and owned-byte queries; Redo data
@@ -469,7 +454,7 @@ currently replaying. Retirement discards the entire mixed entry, publishes a
 Discarded event, remaps barriers, and invalidates saved checkpoints for its affected
 asset packages. Package forgetting applies the same conservative rule to surviving
 affected packages. A module cannot unload while retained custom executable code
-requires it; recovery participants remain until their buffer is retired.
+requires it; references already owned by retained records survive recovery until the buffer is retired.
 
 ## Related Documentation
 

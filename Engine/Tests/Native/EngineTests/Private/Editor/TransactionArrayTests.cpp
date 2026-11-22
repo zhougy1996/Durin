@@ -24,7 +24,7 @@ TEST(FTransactionArrayTests, OrderedArrayAndWholeObjectReplaySurvivesDeletion)
 	auto* Object = NewObject<DTransactionRecordParticipant>(nullptr, "ArrayDeleteOwner");
 	Object->Numbers = {1, 2};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Edit range and delete owner"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Edit range and delete owner"});
 		ASSERT_TRUE(EditNumbers(*Object, 1, 1, {3}));
 		ASSERT_TRUE(Object->Modify());
 		Object->Value = 42;
@@ -33,10 +33,10 @@ TEST(FTransactionArrayTests, OrderedArrayAndWholeObjectReplaySurvivesDeletion)
 	for (int Cycle = 0; Cycle < 2; ++Cycle)
 	{
 		CollectGarbage(EObjectFlags::Standalone);
-		ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+		ASSERT_TRUE(Buffer->Undo());
 		ASSERT_TRUE(IsValid(Object));
 		EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2}));
-		ASSERT_TRUE(Buffer->Redo()) << FormatTransactorResult(Buffer->GetLastResult());
+		ASSERT_TRUE(Buffer->Redo());
 		EXPECT_TRUE(Object->IsGarbage());
 		EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 3}));
 		EXPECT_EQ(Object->Value, 42);
@@ -50,7 +50,7 @@ TEST(FTransactionArrayTests, PieOwnerIsRejectedBeforeMutation)
 	Package->SetPlayInEditor(true);
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(Package.Get(), "Owner"));
 	Object->Numbers = {1, 2, 3};
-	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "PIE array"}); EXPECT_FALSE(EditNumbers(*Object, 0, 1, {})); }
+	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "PIE array"}); EXPECT_FALSE(EditNumbers(*Object, 0, 1, {})); }
 	EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2, 3}));
 	EXPECT_EQ(Buffer->GetQueueLength(), 0u);
 }
@@ -61,9 +61,9 @@ TEST(FTransactionArrayTests, ReplaysOrderedOverlappingOperationsAcrossRelocation
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "RangeOperations"));
 	Object->Numbers = {1, 2, 3, 4};
 	{
-		FScopedTransaction Outer(Buffer.Get(), {.Description = "Array operations"});
+		Durin::Tests::FBufferRecording Outer(Buffer.Get(), {.Description = "Array operations"});
 		ASSERT_TRUE(EditNumbers(*Object, 1, 1, {}));
-		FScopedTransaction Inner(Buffer.Get(), {.Description = "Nested array operations"});
+		Durin::Tests::FBufferRecording Inner(Buffer.Get(), {.Description = "Nested array operations"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 0, {8, 9}));
 		Object->Numbers.reserve(10000);
 		ASSERT_TRUE(EditNumbers(*Object, 2, 1, {7}));
@@ -86,7 +86,7 @@ TEST(FTransactionArrayTests, RejectsInvalidRangesAndSkipsNoOpAdapters)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "RangeValidation"));
 	Object->Numbers = {1, 2};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "No changes"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "No changes"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {1}));
 		ASSERT_TRUE(EditNumbers(*Object, 2, 0, {}));
 		EXPECT_FALSE(EditNumbers(*Object, std::numeric_limits<size_t>::max(), 1, {}));
@@ -105,7 +105,7 @@ TEST(FTransactionArrayTests, WholeObjectFallbackAndRangeBaselinesRemainOrdered)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "MixedRangeSnapshots"));
 	Object->Numbers = {1, 2, 3};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Range then whole object"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Range then whole object"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 		ASSERT_TRUE(Object->Modify(false));
 		ASSERT_TRUE(EditNumbers(*Object, 1, 0, {8}));
@@ -127,7 +127,7 @@ TEST(FTransactionArrayTests, FailedPeerCompensatesRangesWithoutPublishingFlips)
 	auto Change = std::make_unique<FTestCustomChange>(Object->Value, 0, 4);
 	auto* Failure = Change.get(); Failure->bFailUndo = true;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Range compensation"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Range compensation"});
 		Object->Value = 4;
 		ASSERT_TRUE(Buffer->StoreUndo(nullptr, std::move(Change)));
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
@@ -150,7 +150,7 @@ TEST(FTransactionArrayTests, RetainsNestedHardEdgesButNotWeakEdgesAndPreservesOm
 	Object->NestedArray[0].HardReference = Hard.Get(); Object->NestedArray[0].WeakReference = Weak.Get();
 	const auto* Member = Object->GetClass()->FindPropertyByName("NestedArray");
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Remove referenced range"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Remove referenced range"});
 		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>{}));
 	}
 	Hard = nullptr; Weak = nullptr; CollectGarbage(Durin::EObjectFlags::Standalone);
@@ -159,7 +159,7 @@ TEST(FTransactionArrayTests, RetainsNestedHardEdgesButNotWeakEdgesAndPreservesOm
 	EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), ResolveObjectKey(HardKey));
 	EXPECT_EQ(Object->NestedArray[0].WeakReference.Get(), nullptr);
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Replace nested value"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Replace nested value"});
 		FRecordNestedValue Replacement = Object->NestedArray[0]; Replacement.Count = 42;
 		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Replacement, 1)));
 	}
@@ -174,7 +174,7 @@ TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "RangeEviction"));
 	Object->Numbers.resize(100000, 5);
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Discard array recording"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Discard array recording"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 		Scope.Cancel();
 	}
@@ -183,7 +183,7 @@ TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 	EXPECT_EQ(Object->Numbers.size(), 99999u);
 	for (int Index = 0; Index != 12; ++Index)
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Bounded range history"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Bounded range history"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 	}
 	EXPECT_LT(Buffer->GetQueueLength(), 12u);
@@ -191,7 +191,7 @@ TEST(FTransactionArrayTests, CancellationAndBoundedEvictionReleaseRangeOwners)
 	EXPECT_LT(Buffer->GetUndoSize(), Buffer->GetMemoryBudget() + EntryBytes);
 	const FObjectKey OwnerKey(Object.Get()); Object = nullptr;
 	CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_NE(ResolveObjectKey(OwnerKey), nullptr);
-	ASSERT_TRUE(Buffer->TryReset()); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
+	Buffer->Reset(); CollectGarbage(Durin::EObjectFlags::Standalone); EXPECT_EQ(ResolveObjectKey(OwnerKey), nullptr);
 }
 
 TEST(FTransactionArrayTests, HistoryRetainsGarbageAllocationUntilReset)
@@ -201,7 +201,7 @@ TEST(FTransactionArrayTests, HistoryRetainsGarbageAllocationUntilReset)
 	auto* Object = NewObject<DTransactionRecordParticipant>(nullptr, "RetainedDeletion");
 	Object->Numbers = {1, 2};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Edit retained array"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Edit retained array"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 	}
 	const FObjectKey Key(Object);
@@ -216,7 +216,7 @@ TEST(FTransactionArrayTests, HistoryRetainsGarbageAllocationUntilReset)
 	EXPECT_TRUE(Buffer->CanRedo());
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(GDObjectArray.Resolve(Key), Object);
-	ASSERT_TRUE(Buffer->TryReset());
+	Buffer->Reset();
 	CollectGarbage(Durin::EObjectFlags::Standalone);
 	EXPECT_EQ(GDObjectArray.Resolve(Key), nullptr);
 }
@@ -229,7 +229,7 @@ TEST(FTransactionArrayTests, ArrayAnnotationsAndEventsUseTheCompletedSideOncePer
 	std::vector<FTransactionObjectEvent> Events;
 	Object->TransactionObserver = [&](const FTransactionObjectEvent& Event) { Events.push_back(Event); };
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Annotated array operations"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Annotated array operations"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {})); Object->SupplementalValue = 2;
 		ASSERT_TRUE(EditNumbers(*Object, 1, 0, {8})); Object->SupplementalValue = 3;
 	}
@@ -251,7 +251,7 @@ TEST(FTransactionArrayTests, ReinstancingRebindsOwnerAndNestedHardAndWeakReferen
 	Old->NestedArray.resize(1); Old->NestedArray[0].Count = 7;
 	Old->NestedArray[0].HardReference = OldReference.Get(); Old->NestedArray[0].WeakReference = OldReference.Get();
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Reinstance array data"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Reinstance array data"});
 		ASSERT_TRUE(EditTransactionArray(*Old, Old->GetClass()->FindPropertyByName("NestedArray"), Old->NestedArray, 0, 1, std::span<const FRecordNestedValue>{}));
 	}
 	const FObjectReplacementMap::FEntry Entries[]{{Old.Get(), New.Get()}, {OldReference.Get(), NewReference.Get()}};
@@ -275,7 +275,7 @@ TEST(FTransactionArrayTests, DefaultGraphElementReferencesResolveRecreatedDefaul
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "DefaultReferenceArray"));
 	Object->NestedArray.resize(1); Object->NestedArray[0].HardReference = Default; Object->NestedArray[0].WeakReference = Default;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Default references in array elements"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Default references in array elements"});
 		ASSERT_TRUE(EditTransactionArray(*Object, Object->GetClass()->FindPropertyByName("NestedArray"), Object->NestedArray,
 			0, 1, std::span<const FRecordNestedValue>{}));
 	}
@@ -283,7 +283,7 @@ TEST(FTransactionArrayTests, DefaultGraphElementReferencesResolveRecreatedDefaul
 	EXPECT_EQ(ResolveObjectKey(OldKey), nullptr);
 	ASSERT_TRUE(Private::CreateClassDefaultObjectsForBatch(Classes));
 	const auto* Replacement = Class->GetDefaultObject(); ASSERT_NE(Replacement, nullptr);
-	ASSERT_TRUE(Buffer->Undo()) << FormatTransactorResult(Buffer->GetLastResult());
+	ASSERT_TRUE(Buffer->Undo());
 	ASSERT_EQ(Object->NestedArray.size(), 1u);
 	EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), Replacement);
 	EXPECT_EQ(Object->NestedArray[0].WeakReference.Get(), nullptr);
@@ -295,7 +295,7 @@ TEST(FTransactionArrayTests, EmptyArraysAndAliasedInsertionsKeepValidRanges)
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "EmptyRange"));
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Empty and aliased arrays"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Empty and aliased arrays"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 0, {1, 2})); Object->Numbers.shrink_to_fit();
 		ASSERT_TRUE(EditTransactionArray(*Object, Object->GetClass()->FindPropertyByName("Numbers"), Object->Numbers,
 			2, 0, std::span<const int32>(Object->Numbers)));
@@ -314,7 +314,7 @@ TEST(FTransactionArrayTests, FirstArrayEditPreservesACleanPackageCheckpoint)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(Package.Get(), "ArrayOwner"));
 	Object->Numbers = {1, 2}; Package->ClearDirty();
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "First array package edit"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "First array package edit"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 	}
 	EXPECT_TRUE(Package->IsDirty());
@@ -328,13 +328,13 @@ TEST(FTransactionArrayTests, PostSpliceObserverFailureRequiresRecovery)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "ArrayRecovery"));
 	Object->Numbers = {1, 2};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Array observer failure"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Array observer failure"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 	}
 	Object->bThrowPropertyNotification = true;
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::RecoveryRequired);
 	EXPECT_EQ(Object->Numbers, (std::vector<int32>{1, 2}));
-	Object->bThrowPropertyNotification = false; EXPECT_FALSE(Buffer->TryReset());
+	Object->bThrowPropertyNotification = false; Buffer->Reset(); EXPECT_FALSE(Buffer->CanTransact());
 }
 
 TEST(FTransactionArrayTests, ExpiredOwnersRejectReplayBeforeHooks)
@@ -343,7 +343,7 @@ TEST(FTransactionArrayTests, ExpiredOwnersRejectReplayBeforeHooks)
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "ExpiredArrayOwner"));
 	Object->Numbers = {1, 2};
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Expired owner"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Expired owner"});
 		ASSERT_TRUE(EditNumbers(*Object, 0, 1, {}));
 	}
 	EXPECT_EQ(Object->UndoBegins, 0);
@@ -389,7 +389,7 @@ TEST(FTransactionArrayTests, ReviewPieArrayInverseCompensatesWithoutRetainingPla
 	TStrongObjectPtr<DTransactionRecordParticipant> Object(NewObject<DTransactionRecordParticipant>(nullptr, "RangeOwner"));
 	Object->NestedArray.resize(1); Object->NestedArray[0].Count = 7;
 	const auto* Member = Object->GetClass()->FindPropertyByName("NestedArray");
-	{ FScopedTransaction Scope(Buffer.Get(), {.Description = "Replace range"}); FRecordNestedValue Value; Value.Count = 42;
+	{ Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Replace range"}); FRecordNestedValue Value; Value.Count = 42;
 		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1))); }
 	for (const bool bUndo : {true, false})
 	{
@@ -416,7 +416,7 @@ TEST(FTransactionArrayTests, PieInverseRejectionRestoresMixedRecordsAndAnnotatio
 	First->SupplementalValue = 10; Second->SupplementalValue = 30; Second->Numbers = {1};
 	const auto* Member = First->GetClass()->FindPropertyByName("NestedArray"); int Counter = 5;
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Mixed inverse rejection"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Mixed inverse rejection"});
 		FRecordNestedValue Value; Value.Count = 42;
 		ASSERT_TRUE(EditTransactionArray(*First, Member, First->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1)));
 		First->SupplementalValue = 20;
@@ -425,7 +425,7 @@ TEST(FTransactionArrayTests, PieInverseRejectionRestoresMixedRecordsAndAnnotatio
 	}
 	First->NestedArray[0].HardReference = Pie.Get(); const auto Head = Buffer->GetUndoContext().TransactionId;
 	int Events = 0; First->TransactionObserver = Second->TransactionObserver = [&](const auto&) { ++Events; };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::Idle);
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Durin::FTransBufferTestAccess::GetState(*Buffer), ETransactorState::Idle);
 	EXPECT_EQ(Buffer->GetUndoContext().TransactionId, Head); EXPECT_EQ(Counter, 5); EXPECT_EQ(Second->Numbers, (std::vector<int32>{9}));
 	EXPECT_EQ(First->NestedArray[0].Count, 42); EXPECT_EQ(First->NestedArray[0].HardReference.Get(), Pie.Get());
 	EXPECT_EQ(First->SupplementalValue, 20); EXPECT_EQ(Second->SupplementalValue, 40); EXPECT_EQ(Events, 0);
@@ -435,7 +435,7 @@ TEST(FTransactionArrayTests, PieInverseRejectionRestoresMixedRecordsAndAnnotatio
 	First->NestedArray[0].HardReference = nullptr; ASSERT_TRUE(Buffer->Undo()); ASSERT_TRUE(Buffer->Redo());
 }
 
-TEST(FTransactionArrayTests, CompensationCompletionTaintRequiresRecovery)
+TEST(FTransactionArrayTests, CompensationCompletionTaintDiscardsHistory)
 {
 	InitializeDObjectSystem(); Tests::FTestTransactorOwner Buffer;
 	TStrongObjectPtr<DPackage> OrdinaryPackage(NewObject<DPackage>(nullptr, "CompensationTaint"));
@@ -446,12 +446,12 @@ TEST(FTransactionArrayTests, CompensationCompletionTaintRequiresRecovery)
 	Object->NestedArray.resize(1); Object->NestedArray[0].HardReference = Ordinary.Get();
 	const auto* Member = Object->GetClass()->FindPropertyByName("NestedArray");
 	{
-		FScopedTransaction Scope(Buffer.Get(), {.Description = "Tainted compensation"});
+		Durin::Tests::FBufferRecording Scope(Buffer.Get(), {.Description = "Tainted compensation"});
 		auto Value = Object->NestedArray[0]; Value.Count = 42;
 		ASSERT_TRUE(EditTransactionArray(*Object, Member, Object->NestedArray, 0, 1, std::span<const FRecordNestedValue>(&Value, 1)));
 	}
 	Object->NestedArray[0].HardReference = Pie.Get();
 	Object->Trace = [&](std::string_view Event) { if (Event == "post") OrdinaryPackage->SetPlayInEditor(true); };
-	EXPECT_FALSE(Buffer->Undo()); EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
-	EXPECT_FALSE(Buffer->CanTransact()); EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), Pie.Get());
+	EXPECT_FALSE(Buffer->Undo()); EXPECT_TRUE(Buffer->CanTransact());
+	EXPECT_EQ(Buffer->GetQueueLength(), 0u); EXPECT_EQ(Object->NestedArray[0].HardReference.Get(), Pie.Get());
 }

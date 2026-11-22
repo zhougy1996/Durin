@@ -4,7 +4,7 @@ Summary: Define detached property validation, stable edit targets, notifications
 
 Modules: DurinEd, CoreDObject
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-22
 
 ## Scope And Ownership
 
@@ -163,7 +163,7 @@ reflected `int32` and `FLinearColor` values. The reflected handle resolves a
 member or nested path on the current object generation. `SetValue` completes
 one edit, while `BeginEdit` binds an `FPropertyEdit` that accepts repeated values until `Commit` or
 `Cancel`. Both paths use detached drafts and `FPropertyEditSession`.
-The scope requires ownership of its recording.
+Recorded sessions use the active editor's history. Editor shutdown restores unfinished previews and releases their scopes before another editor can record.
 
 The default top-level `int32` control and reflected `FLinearColor` popup record
 input during drawing. At frame end the host applies the active control's final

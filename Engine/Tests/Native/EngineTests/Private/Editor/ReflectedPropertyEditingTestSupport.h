@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EditorTransactionTestSupport.h"
 
 #include "PropertyEditor/PropertyEditing.h"
 #include "Transactions/Transaction.h"
@@ -29,26 +30,7 @@
 
 namespace
 {
-	class FTestTransactorOwner
-	{
-	public:
-		FTestTransactorOwner()
-			: Transactor(Durin::NewObject<Durin::DTransBuffer>(nullptr, MakeName()))
-			, TransactorRoot(Transactor)
-		{}
-
-		auto Get() const -> Durin::DTransBuffer* { return Transactor; }
-
-	private:
-		static auto MakeName() -> Durin::FName
-		{
-			static uint64 NextId = 1;
-			return Durin::FName("ReflectedPropertyTransactor" + std::to_string(NextId++));
-		}
-
-		Durin::DTransBuffer* Transactor = nullptr;
-		Durin::TStrongObjectPtr<Durin::DObject> TransactorRoot;
-	};
+	using FTestTransactorOwner = Durin::Tests::FTestEditorTransactorOwner;
 
 	struct FValueContainer
 	{

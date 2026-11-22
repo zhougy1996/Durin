@@ -737,7 +737,7 @@ TEST_F(FEditorToolTests, JoinsRecordingAndKeepsDetachedEndpointSafeAfterShutdown
 	auto Endpoint = Tools->GetService();
 	auto Id = Endpoint->Submit(Request()); ASSERT_TRUE(Id);
 	{
-		FScopedTransaction Transaction(Host->GetTransactor(), {"tool test"});
+		Durin::FScopedTransaction Transaction("tool test");
 		Tools->TickTools();
 		EXPECT_EQ(EToolInvocationState::Completed, Endpoint->GetInvocation(*Id)->State);
 		EXPECT_EQ(1, Toolset.Executions);

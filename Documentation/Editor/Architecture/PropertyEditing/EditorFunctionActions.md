@@ -4,7 +4,7 @@ Summary: Define single-object CallInEditor buttons, invocation admission, and au
 
 Modules: DurinEd, CoreDObject, Engine
 
-Last reviewed: 2026-11-20
+Last reviewed: 2026-11-22
 
 ## Shared Details Layout
 
@@ -30,9 +30,7 @@ Clicks produce `FEditorFunctionRequest` identities: exact `FObjectKey`, function
 name, and root owner. Execution occurs after traversal and table closure, with
 no reuse of property addresses or row pointers afterward. Layouts rebuild on
 every draw; retained hosts consume `bRefreshRequested` for derived presentation.
-`bActionInvoked` reports a returned native call independently of `bChanged`,
-which reports a recorded authored change. A no-op or failed history commit is
-not a successful recorded change merely because native code ran.
+`bActionInvoked` reports a returned native call and requests a refresh even when the function leaves the object unchanged. The panel reserves `bChanged` for property edits. A nested invocation leaves publication to the enclosing scope.
 
 ## Admission And Lifetime
 
@@ -41,7 +39,7 @@ the checked `FPropertyView::FinishActiveEdit` terminal operation. Failure blocks
 invocation; success keeps the property edit and action as separate history
 entries. It resolves the request again and checks game thread, read-only policy,
 liveness, compatible effective slot, flag, non-template target, host transactor,
-idle standalone admission, and reentrancy. Known unavailable buttons are disabled
+recording availability, and reentrancy. Known unavailable buttons are disabled
 with a reason; execution repeats all checks. Wrong-thread and recursive requests
 cannot touch the active edit.
 
@@ -59,15 +57,13 @@ Nested actions join that recording; replay, recovery, and destruction remain una
 The adapter requires recorded mode. It validates the resolved target, effective
 descriptor, and empty argument view before opening the action transaction. It
 then opens a normal scope on the active editor's transactor with the action label,
-slot identity, and primary target, then calls `Target->Modify()`. The return value
-reports recording and does not veto invocation; nontransactional native actions
-can still execute. Capture failures remain available through diagnostics.
+slot identity, and primary target, then calls `Target->Modify()`. Recording must remain active after synchronous dirty notifications. A serialization failure permits native execution and invalidates the whole recording. A nontransactional target may execute without a capture.
 
 After capture and `Modify()`, the adapter rechecks invocation preconditions and
-cancels the scope if that preflight fails. It dispatches through the target's
+discards an independently opened recording if that preflight fails. A joined invocation leaves the enclosing recording active. It dispatches through the target's
 virtual `DObject::ProcessEvent(Function, nullptr)`. After native return, the
 adapter sends one full-object `PostEditChange()` before
-scope destruction captures final state. No changed leaf path is
+scope destruction ends the action. No changed leaf path is
 invented. The body must preserve its invariants; arbitrary C++ calls cannot use
 detached pre-write validation. Adapted methods should not duplicate this terminal
 notification. Undo/Redo restore before/after values through ordinary property
@@ -85,10 +81,7 @@ Reconstructible transient derived caches are allowed. Complex commands need an
 explicit domain/custom-change adapter; a signature cannot prove undoability.
 
 `Cancel` discards history, not mutations. Final snapshot or history-budget failure
-may follow native execution. The result preserves `bInvoked` and the history
-failure, reports through `Context.ReportError`, requests refresh, conservatively
-marks the target package dirty, and invalidates its saved checkpoint. There is
-no automatic retry or promise of atomic rollback.
+may follow native execution. The adapter reports admission errors through `Context.ReportError`. After invocation the panel refreshes and the buffer reports any publication failure through its history event. Applied native writes remain in the model.
 
 ## Related Documentation
 
