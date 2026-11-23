@@ -87,7 +87,7 @@ namespace Durin
 
 		// RenderThread only. A missing/invalid program returns null without selecting a fallback.
 		ENGINE_API auto GetMaterialNoFallback() -> const FMaterialRenderData*;
-		// RenderThread only. Returns the accepted material or the explicit error material.
+		// RenderThread only. Returns the accepted material, a pending publication, or the explicit error material.
 		ENGINE_API auto GetMaterialWithFallback() -> const FMaterialRenderData&;
 		ENGINE_API auto IsCompiling() const -> bool;
 

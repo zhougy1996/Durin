@@ -4308,15 +4308,31 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ComponentsAutomaticallyPrecacheAnd
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			EXPECT_EQ(MaterialProxy->GetMaterialNoFallback(), nullptr);
 			EXPECT_TRUE(MaterialProxy->IsCompiling());
-			EXPECT_TRUE(MaterialProxy->GetMaterialWithFallback().Representation.IsError());
+			EXPECT_TRUE(MaterialProxy->GetMaterialWithFallback().Representation.IsPending());
 			FRenderPipelinePreparationBatch Batch;
 			FSceneView View;
 			View.ViewportWidth = View.ViewportHeight = 64;
-			(void)PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
+			const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
 				ERasterMode::Solid, ERenderPreparationMode::Full);
 			EXPECT_TRUE(FRenderPipelinePreparationBatch::HasPending());
+			EXPECT_EQ(Prepared.GetNumSections(), 0u);
+			EXPECT_FALSE(Prepared.bResourceFailure);
 		});
-		Durin::Testing::QueueMaterialTestState(*MaterialProxy, Accepted);
+		auto CheckDraws = [&](const Durin::Testing::FMaterialTestState& State, bool bExpectError) {
+			Durin::Testing::QueueMaterialTestState(*MaterialProxy, State);
+			EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&, bExpectError](FRHICommandListImmediate& Commands) {
+				FRenderPipelinePreparationBatch Batch;
+				FSceneView View;
+				View.ViewportWidth = View.ViewportHeight = 64;
+				const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, Scene.GetPrimitiveSceneInfos(), View,
+					ERasterMode::Solid, ERenderPreparationMode::Full);
+				ASSERT_FALSE(Prepared.Opaque.empty());
+				EXPECT_EQ(Prepared.Opaque.front().Command->Material.Representation.IsError(), bExpectError);
+				EXPECT_FALSE(FRenderPipelinePreparationBatch::HasPending());
+			});
+		};
+		CheckDraws({}, true);
+		CheckDraws(Accepted, false);
 		FlushRenderingCommands();
 		const auto Job = Component->GetPSOPrecacheComponentData().GetLatestJobSet();
 		EXPECT_EQ(DPrimitiveComponent::GetPendingPSOPrecacheComponentCount(), 0u);

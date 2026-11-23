@@ -46,6 +46,12 @@ namespace Durin
 		Storage = Error.Storage;
 	}
 
+	auto FMaterialRenderRepresentation::Pending() -> const FMaterialRenderRepresentation&
+	{
+		static const FMaterialRenderRepresentation Representation({}, {}, {}, {}, {}, false);
+		return Representation;
+	}
+
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation(
 		FMaterialRenderLayout InLayout,
 		FByteBuffer InUniformPayload,
@@ -181,6 +187,11 @@ namespace Durin
 		return Storage->bError;
 	}
 
+	auto FMaterialRenderRepresentation::IsPending() const -> bool
+	{
+		return Storage == Pending().Storage;
+	}
+
 	auto FMaterialRenderRepresentation::GetSamplers() const -> std::span<const FMaterialSamplerState>
 	{ return Storage->Samplers; }
 	auto FMaterialRenderRepresentation::GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>
@@ -198,6 +209,8 @@ namespace Durin
 	{
 		OutBinding = FMaterialRenderBinding{};
 		OutDiagnostic = {};
+		if (Representation.IsPending())
+			return SetValidationFailure(OutDiagnostic, "Material is still compiling.");
 		if (Representation.GetLayout().Identity.Version == CompiledMaterialRenderLayoutVersion)
 		{
 			// TryCreate validates before immutable publication. Retain the publication

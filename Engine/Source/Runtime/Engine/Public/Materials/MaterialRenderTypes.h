@@ -50,6 +50,7 @@ namespace Durin
 		ENGINE_API auto GetResources() const
 			-> std::span<const FRHITextureReferenceRef>;
 		ENGINE_API auto IsError() const -> bool;
+		ENGINE_API auto IsPending() const -> bool;
 		ENGINE_API auto GetSamplers() const -> std::span<const FMaterialSamplerState>;
 		ENGINE_API auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback>;
 		ENGINE_API auto GetRecordId() const -> uint64;
@@ -58,6 +59,9 @@ namespace Durin
 		ENGINE_API auto GetContentHash() const -> uint64;
 
 	private:
+		static auto Pending() -> const FMaterialRenderRepresentation&;
+		friend class FMaterialRenderProxy;
+
 		FMaterialRenderRepresentation(
 			FMaterialRenderLayout InLayout,
 			FByteBuffer InUniformPayload,

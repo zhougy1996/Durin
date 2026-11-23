@@ -673,6 +673,11 @@ namespace Durin
 					const auto SectionIndex = Element.ElementId;
 					auto& Item = FrozenBatch.Elements[ElementIndex];
 					auto Material = Element.Material;
+					if (Material.Representation.IsPending())
+					{
+						bStableMaterials = false;
+						continue;
+					}
 					if (Material.CompiledProgram && Material.CompiledProgram->FeatureLevel != Primitive.FeatureLevel)
 					{
 						Item.bMaterialUnavailable = true;

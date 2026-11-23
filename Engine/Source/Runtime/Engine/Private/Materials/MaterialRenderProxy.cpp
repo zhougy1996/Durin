@@ -388,6 +388,7 @@ namespace Durin
 		CachedResolvedData.UniformExpressionCache = UniformExpressionCache;
 		if (!RenderingThreadProgram && bCompiling)
 		{
+			CachedResolvedData.Representation = FMaterialRenderRepresentation::Pending();
 			++ResolutionCount;
 			bHasResolvedData = true;
 			return CachedResolvedData;

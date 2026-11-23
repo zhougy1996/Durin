@@ -118,7 +118,8 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	const auto Compiling = CaptureMaterialProxy(Proxy);
 	EXPECT_TRUE(Compiling.bIsCompiling);
 	EXPECT_FALSE(Compiling.bHasMaterial);
-	EXPECT_TRUE(Compiling.RenderData.Representation.IsError());
+	EXPECT_TRUE(Compiling.RenderData.Representation.IsPending());
+	EXPECT_FALSE(Compiling.RenderData.Representation.IsError());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid));
 	EXPECT_EQ(GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, Counters.RepresentationValidationFailureCount);
@@ -126,6 +127,9 @@ TEST(FMaterialRenderProxyTests, PendingProgramDoesNotBecomeInvalidMaterial)
 	const auto Failed = CaptureMaterialProxy(Proxy);
 	EXPECT_FALSE(Failed.bIsCompiling);
 	EXPECT_FALSE(Failed.bHasMaterial);
+	EXPECT_FALSE(Failed.RenderData.Representation.IsPending());
+	EXPECT_TRUE(Failed.RenderData.Representation.IsError());
+	EXPECT_NE(Compiling.RenderData.Representation.GetRecordId(), Failed.RenderData.Representation.GetRecordId());
 	EXPECT_EQ(GetMaterialFallbackDiagnosticsSnapshot().Get(EMaterialFallbackReason::MaterialDataInvalid),
 		Before.Get(EMaterialFallbackReason::MaterialDataInvalid) + 1);
 	ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
