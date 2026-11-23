@@ -235,44 +235,14 @@ namespace Durin
 		const bool bPresentOutput = Logical.bPresentOutput;
 		auto* CloudWeatherTexture = Resolved.Scene.VolumetricCloud ? Resolved.Scene.VolumetricCloud->Weather : nullptr;
 		FGraphResources GraphResources;
-		FRDGBudget SceneRenderBudget{
+		Graph.SetBudget({
 			.MaxPasses = 256,
 			.MaxDependencies = 4096,
 			.MaxBufferTransitions = 4096,
 			.MaxTextureTransitions = 4096,
-			// Three shadow layer passes and their typed-result consumer replace
-			// the single shadow pass (+3 passes, +8 edges, +2 barrier calls).
-			.RegressionMaxPasses = 15,
-			.RegressionMaxDependencies = 36,
-			.RegressionMaxTextureTransitions = 34,
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
-		};
-		if (Logical.Options.bEnableGPUCulling)
-		{
-			// One compute producer and one optional buffer-readback consumer.
-			SceneRenderBudget.RegressionMaxPasses += IsViewRenderTelemetryObserved() ? 2 : 1;
-		}
-		if (Features.RequiresProductionDeferred())
-		{
-			// Measured scene routes: three Base Scene stages replace one callback;
-			// production-only routes also omit the obsolete binding preparation pass.
-			const bool bIsolated = Features.RequiresIsolatedDeferred();
-			SceneRenderBudget.RegressionMaxPasses += bIsolated ? 2 : 1;
-			SceneRenderBudget.RegressionMaxDependencies += bIsolated ? 10 : 1;
-			// Seven previously native handoffs become explicit graph barriers; the
-			// fragment cloud route adds two depth attachment/sample handoffs.
-			SceneRenderBudget.RegressionMaxTextureTransitions += 9;
-		}
-		if (Features.ContactVisibility.HasPurpose(ESceneFeaturePurpose::Production)
-			&& Features.ContactVisibility.Decision.Route
-				== FContactShadowVisibilityRenderer::ERoute::Compute)
-		{
-			// Four GBuffer textures and scene depth switch to compute reads
-			// and back to graphics reads; the fragment baseline has neither.
-			SceneRenderBudget.RegressionMaxTextureTransitions += 2 * 5;
-		}
-		Graph.SetBudget(SceneRenderBudget);
+		});
 		Graph.EnablePassCulling();
 		auto ImportPersistentTexture = [&](std::string_view Name,
 			FRHITexture* Texture) -> std::optional<FRDGTextureHandle> {

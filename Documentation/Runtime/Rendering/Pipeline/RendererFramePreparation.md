@@ -272,10 +272,10 @@ follow graph/backend contracts; aliasing and async compute remain explicit opt-i
 
 ## Scene Budgets and Capture
 
-Structural budgets reject invalid/oversized graphs; observational ceilings report
-regressions without changing rendering policy. Exact route adjustments live in
-`FSceneRenderer::PrepareGraphResources`; they must reflect declared buffers as well
-as textures. Interpretation follows [graph diagnostics](RenderGraph.md#diagnostics-and-budgets).
+The scene graph uses structural safety budgets and observational CPU timing
+budgets. Pass, dependency, and transition counts are available in captures.
+In Rendering Diagnostics, use **Capture next frame** and open **Render Graph**
+to inspect individual passes. See [graph diagnostics](RenderGraph.md#diagnostics-and-budgets).
 
 `SetSceneRenderGraphCaptureSink` and explicit viewport capture requests share one
 owning snapshot when both observe an execution. No consumer means no capture.

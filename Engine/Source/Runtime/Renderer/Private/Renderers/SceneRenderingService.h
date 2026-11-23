@@ -21,7 +21,6 @@
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneRenderResults.h"
-#include "Renderers/SceneRenderGraphWarnings.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceRetirement.h"
@@ -140,6 +139,5 @@ namespace Durin
 		FSceneViewStateRegistry ViewStates;
 		// Used only during serial render-thread preparation; retains candidate capacity.
 		FSceneVisibilityResult VisibilityScratch;
-		FSceneRenderGraphWarnings RenderGraphWarnings;
 	};
 } // namespace Durin

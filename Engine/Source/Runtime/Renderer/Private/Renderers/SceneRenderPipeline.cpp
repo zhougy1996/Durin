@@ -567,25 +567,6 @@ namespace Durin
 		// Hand its closed prefix to RHI before later view/UI work is recorded.
 		if (CommandList.IsRHIThreadEnabled() && CommandList.CanDispatchToRHIThread())
 			CommandList.DispatchToRHIThread();
-		const FRDGStatistics Statistics = Graph.GetStatistics();
-		if (Service.RenderGraphWarnings.ShouldReport(Statistics, Graph.GetBudget()))
-		{
-			const FRDGBudget& Budget = Graph.GetBudget();
-			DURIN_WARN(
-				"Scene render graph regression budget exceeded: passes={}/{} "
-				"dependencies={}/{} buffer-transitions={}/{} "
-				"texture-transitions={}/{} texture-subresource-transitions={}",
-				Statistics.DeclaredPasses, Budget.RegressionMaxPasses,
-				Statistics.Dependencies, Budget.RegressionMaxDependencies,
-				Statistics.BufferTransitions,
-				Budget.RegressionMaxBufferTransitions,
-				Statistics.TextureTransitions,
-				Budget.RegressionMaxTextureTransitions, Statistics.TextureTransitionSubresources);
-			if (Service.RenderGraphWarnings.IsFull())
-				DURIN_WARN("Scene render graph regression warning limit reached; "
-					"further warnings are suppressed for this renderer. "
-					"Render graph captures still contain complete statistics.");
-		}
 		const bool Executed = Result.has_value();
 		if (!Executed)
 		{

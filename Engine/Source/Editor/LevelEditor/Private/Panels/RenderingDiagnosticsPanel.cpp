@@ -102,7 +102,10 @@ namespace Durin::LevelEditor
 			ImGui::TableNextColumn();
 			ImGui::TextUnformatted(Label);
 			ImGui::TableNextColumn();
-			if (bRegressionExceeded)
+			constexpr uint32 Unlimited = std::numeric_limits<uint32>::max();
+			if (RegressionLimit == Unlimited)
+				ImGui::Text("%llu", static_cast<unsigned long long>(Actual));
+			else if (bRegressionExceeded)
 				ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.2f, 1.0f),
 					"%llu / %llu regression",
 					static_cast<unsigned long long>(Actual),
@@ -111,9 +114,12 @@ namespace Durin::LevelEditor
 				ImGui::Text("%llu / %llu regression",
 					static_cast<unsigned long long>(Actual),
 					static_cast<unsigned long long>(RegressionLimit));
-			ImGui::SameLine();
-			ImGui::TextDisabled("  safety %llu",
-				static_cast<unsigned long long>(SafetyLimit));
+			if (SafetyLimit != Unlimited)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("  safety %llu",
+					static_cast<unsigned long long>(SafetyLimit));
+			}
 		}
 	} // namespace
 
