@@ -18,12 +18,14 @@ namespace Durin
 	{
 		static_assert(FWaterWaveData{}.size() <= PrimitiveCustomDataFloatCount);
 
-		auto ResolveWaterSettings(const FWaterSurfaceSettings& Settings, const DWaterWaves* Asset)
-			-> std::expected<FWaterSurfaceSettings, std::string>
+		auto ResolveWaterSettings(const FWaterSurfaceSettings& Settings, const TSoftObjectPtr<DWaterWaves>& Source)
+			-> std::expected<FResolvedWaterSurface, std::string>
 		{
-			auto Effective = Settings;
-			if (Asset)
+			FResolvedWaterSurface Effective{Settings};
+			if (!Source.IsNull())
 			{
+				const auto* Asset = Source.LoadSynchronous();
+				if (!Asset) return std::unexpected("Water Waves asset could not be loaded: " + Source.ToSoftObjectPath().ToString());
 				const auto& Group = Asset->GetWaveGroup();
 				if (!Group) return std::unexpected(Group.error());
 				Effective.Amplitude = Group->BaseAmplitude;
@@ -60,6 +62,9 @@ namespace Durin
 		[[maybe_unused]] const bool bValidPath = FSoftObjectPath::TryCreate("/Plugins/Water/Materials/DefaultWater.DefaultWater", Path);
 		check(bValidPath);
 		DefaultMaterialAsset = std::move(Path);
+		[[maybe_unused]] const bool bValidWaves = FSoftObjectPath::TryCreate("/Plugins/Water/Waves/DefaultWaterWaves.DefaultWaterWaves", Path);
+		check(bValidWaves);
+		WavesSource = std::move(Path);
 	}
 
 	auto DWaterSurfaceComponent::HasSupportedTransform() const -> bool
@@ -71,10 +76,8 @@ namespace Durin
 
 	auto DWaterSurfaceComponent::SetSettings(const FWaterSurfaceSettings& Value) -> std::expected<void, std::string>
 	{
-		if (auto E = ValidateWaterSurface(Value); !E) return E;
-		if (WaveAsset)
-			if (const auto Effective = ResolveWaterSettings(Value, WaveAsset.Get()); !Effective)
-				return std::unexpected(Effective.error());
+		if (const auto Effective = ResolveWaterSettings(Value, WavesSource); !Effective)
+			return std::unexpected(Effective.error());
 		if (Settings == Value) return {};
 		Settings = Value;
 		MarkPackageDirty();
@@ -84,10 +87,12 @@ namespace Durin
 
 	auto DWaterSurfaceComponent::SetWaveAsset(DWaterWaves* Value) -> std::expected<void, std::string>
 	{
-		if (WaveAsset.Get() == Value) return {};
-		if (const auto Effective = ResolveWaterSettings(Settings, Value); !Effective)
+		TSoftObjectPtr<DWaterWaves> Source;
+		if (const auto Result = Source.TrySetObject(Value); !Result) return std::unexpected(ToString(Result.error()));
+		if (WavesSource == Source) return {};
+		if (const auto Effective = ResolveWaterSettings(Settings, Source); !Effective)
 			return std::unexpected(Effective.error());
-		WaveAsset = Value;
+		WavesSource = std::move(Source);
 		MarkPackageDirty();
 		RefreshSurface();
 		return {};
@@ -110,7 +115,6 @@ namespace Durin
 	auto DWaterSurfaceComponent::RefreshSurface() -> void
 	{
 		if (!IsRegistered()) return;
-		BindWaveAsset(WaveAsset.Get());
 		// The replacement proxy publishes the new wave data with its grid and bounds.
 		DestroyRenderState();
 		SynchronizeSurface();
@@ -119,7 +123,8 @@ namespace Durin
 
 	auto DWaterSurfaceComponent::SynchronizeSurface() -> void
 	{
-		auto Effective = ResolveWaterSettings(Settings, WaveAsset.Get());
+		auto Effective = ResolveWaterSettings(Settings, WavesSource);
+		BindWaveAsset(WavesSource.Get());
 		if (!Effective)
 		{
 			EffectiveSettings.reset();
@@ -141,14 +146,6 @@ namespace Durin
 		EnqueueRenderCommand("InitializeWaterGeometry", [Owner = Geometry](FRHICommandListImmediate& Commands) {
 			if (!Owner->InitResources(Commands)) DURIN_ERROR("Water grid render-resource initialization failed.");
 		});
-	}
-
-	auto DWaterSurfaceComponent::SetWaveGenerator(const IWaterWaveGenerator& Generator) -> std::expected<void, std::string>
-	{
-		if (WaveAsset) return std::unexpected("Clear the Water Waves Asset before applying a local wave generator.");
-		auto Candidate = Settings;
-		Candidate.Waves = Generator.GenerateWaves();
-		return SetSettings(Candidate);
 	}
 
 	auto DWaterSurfaceComponent::ResolveMaterial() -> FMaterialRenderProxyRef
@@ -183,7 +180,6 @@ namespace Durin
 
 	auto DWaterSurfaceComponent::OnRegister() -> void
 	{
-		BindWaveAsset(WaveAsset.Get());
 		SynchronizeSurface();
 		Super::OnRegister();
 	}
@@ -217,17 +213,15 @@ namespace Durin
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
 		{
 			const auto* Candidate = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FWaterSurfaceSettings>(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			if (auto E = ValidateWaterSurface(*Candidate); !E) return RejectEnginePropertyEdit(*this, Proposal, E.error());
-			if (WaveAsset)
-				if (const auto Effective = ResolveWaterSettings(*Candidate, WaveAsset.Get()); !Effective)
-					return RejectEnginePropertyEdit(*this, Proposal, Effective.error());
+			if (const auto Effective = ResolveWaterSettings(*Candidate, WavesSource); !Effective)
+				return RejectEnginePropertyEdit(*this, Proposal, Effective.error());
 		}
-		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("WaveAsset")
+		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("WavesSource")
 			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
 		{
-			const auto& Candidate = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<TObjectPtr<DWaterWaves>>(
+			const auto& Candidate = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<TSoftObjectPtr<DWaterWaves>>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			if (const auto Effective = ResolveWaterSettings(Settings, Candidate.Get()); !Effective)
+			if (const auto Effective = ResolveWaterSettings(Settings, Candidate); !Effective)
 				return RejectEnginePropertyEdit(*this, Proposal, Effective.error());
 		}
 		return {};
@@ -236,7 +230,7 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty || Event.MemberProperty->NamePrivate == FName("Settings")
-			|| Event.MemberProperty->NamePrivate == FName("WaveAsset"))
+			|| Event.MemberProperty->NamePrivate == FName("WavesSource"))
 		{
 			RefreshSurface();
 			return;
@@ -246,7 +240,7 @@ namespace Durin
 	auto DWaterSurfaceComponent::ValidateLoadedObjectGraph(const FObjectGraphLoadContext& Context) const -> std::expected<void, FObjectValidationError>
 	{
 		if (auto E = Super::ValidateLoadedObjectGraph(Context); !E) return E;
-		if (auto E = ValidateWaterSurface(Settings); !E) return RejectLoadedObjectGraph(GetObjectPath(), E.error());
+		if (auto E = ValidateWaterSurface(FResolvedWaterSurface{Settings}); !E) return RejectLoadedObjectGraph(GetObjectPath(), E.error());
 		return {};
 	}
 	auto DWaterSurfaceComponent::QuerySurface(FVector3 Point, double Seconds) const -> std::optional<FWaterSurfaceSample>
@@ -254,13 +248,13 @@ namespace Durin
 		if (!HasSupportedTransform() || !std::isfinite(Point.x) || !std::isfinite(Point.y) || !std::isfinite(Point.z)) return {};
 		const auto M = GetWorldTransform().ToMatrix();
 		const FVector3 Local(Math::Inverse(M) * FVector4(Point, 1));
-		const auto Query = [&](const FWaterSurfaceSettings& Effective) { return QueryWaterSurface(Effective, FVector2(Local), Seconds); };
+		const auto Query = [&](const FResolvedWaterSurface& Effective) { return QueryWaterSurface(Effective, FVector2(Local), Seconds); };
 		std::optional<FWaterSurfaceSample> Result;
 		if (IsRegistered())
 		{
 			if (EffectiveSettings) Result = Query(*EffectiveSettings);
 		}
-		else if (const auto Effective = ResolveWaterSettings(Settings, WaveAsset.Get()))
+		else if (const auto Effective = ResolveWaterSettings(Settings, WavesSource))
 		{
 			Result = Query(*Effective);
 		}

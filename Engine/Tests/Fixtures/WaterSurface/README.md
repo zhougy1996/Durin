@@ -28,11 +28,12 @@ The feature probe supports:
   parameter updates, world transforms, and seeded wave asset generation.
   Available in both variants.
 - `persist`: Editor-only creation, save, unload and reopen of a Level containing
-  manual water and two actors referencing a separate shared Water Waves asset.
+  flat water, default preset water and two actors sharing a custom Water Waves asset.
 - `load`: load that saved Level and verify water composition, parameters, shared
   asset identity and queries in either runtime variant.
 - `material`: Editor-only comparison of the saved source material graph against
   the CPU waves, queries, normals and bounds.
+- `author-wave-preset OUTPUT`: write the default Water Waves source asset.
 - `author-waves OUTPUT`: regenerate the Gerstner function with its existing public ports.
 - `author-material OUTPUT`: Editor-only regeneration of the source material.
 - `author-demo-level`: Editor-only creation, save and reopen of

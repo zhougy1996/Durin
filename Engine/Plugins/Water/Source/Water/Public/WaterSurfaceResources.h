@@ -7,5 +7,5 @@
 namespace Durin
 {
 	struct FStaticMeshRenderData;
-	WATER_API auto MakeWaterGrid(const FWaterSurfaceSettings& Settings) -> std::unique_ptr<FStaticMeshRenderData>;
+	WATER_API auto MakeWaterGrid(const FResolvedWaterSurface& Settings) -> std::unique_ptr<FStaticMeshRenderData>;
 }

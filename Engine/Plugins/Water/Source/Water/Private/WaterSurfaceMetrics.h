@@ -13,5 +13,5 @@ namespace Durin
 		double HorizontalEnvelope;
 	};
 
-	auto MeasureWaterSurface(const FWaterSurfaceSettings& Settings) -> std::expected<FWaterSurfaceMetrics, std::string>;
+	auto MeasureWaterSurface(const FResolvedWaterSurface& Settings) -> std::expected<FWaterSurfaceMetrics, std::string>;
 }

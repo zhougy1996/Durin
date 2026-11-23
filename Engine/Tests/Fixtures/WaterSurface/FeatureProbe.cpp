@@ -84,7 +84,6 @@ namespace
 		Require(Water && Water->GetWaterComponent(), "Water actor construction failed.");
 		auto Settings = Water->GetWaterComponent()->GetSettings();
 		Settings.Extent = {16., 12.};
-		Settings.Amplitude = .12f;
 		Require(bool(Water->GetWaterComponent()->SetSettings(Settings)), "Demo water settings rejected.");
 
 		// Tops of the three beds sit at 25, 100 and 200 cm below the still surface.
@@ -119,7 +118,7 @@ namespace
 
 	// Independent Float32 evaluation of the material recipe, including its normal
 	// decode. It does not call the CPU wave evaluator or inverse query.
-	auto EvaluateMaterial(const MIR::FCompilerInput& Input, const FWaterSurfaceSettings& S, FVector2 P, double Time)
+	auto EvaluateMaterial(const MIR::FCompilerInput& Input, const FResolvedWaterSurface& S, FVector2 P, double Time)
 		-> std::pair<FVector3, FVector3>
 	{
 		std::vector<FVector4f> V;
@@ -164,7 +163,13 @@ namespace
 
 	auto CheckQueries(const MIR::FCompilerInput& Input = WaterMaterialRecipe::BuildInput()) -> void
 	{
-		std::array<FWaterSurfaceSettings, 8> Cases;
+		std::array<FResolvedWaterSurface, 8> Cases;
+		auto* Generator = NewObject<DWaterWaves>(nullptr, NAME_None);
+		const auto& Group = Generator->GetWaveGroup().value();
+		Cases[0].Amplitude = Group.BaseAmplitude;
+		Cases[0].Wavelength = Group.BaseWavelength;
+		Cases[0].Waves = Group.Waves;
+		Cases[1] = Cases[0];
 		Require(Cases[0].Waves.size() == 16, "Default water must have sixteen waves.");
 		Cases[7].Waves.assign(MaxWaterWaves, {});
 		Cases[7].Waves.back() = {{-.6, .8}, .75f, 1.f};
@@ -229,24 +234,10 @@ namespace
 		Invalid = Cases[0]; Invalid.Waves.front().AmplitudeRatio = 1;
 		Require(!ValidateWaterSurface(Invalid), "Excessive total wave weight accepted.");
 		auto* Component = NewObject<DWaterSurfaceComponent>(nullptr, NAME_None);
-		auto S = Cases[0]; S.Elevation = 3; S.Amplitude = .15f;
-		Require(bool(Component->SetSettings(S)), "Component settings failed.");
-		Require(Component->QuerySurface({0, 0, 0}, .75).has_value(), "Component query failed.");
-		struct FTestWaveGenerator final : IWaterWaveGenerator
-		{
-			std::vector<FWaterWave> Waves;
-			auto GenerateWaves() const -> std::vector<FWaterWave> override { return Waves; }
-		};
-		FTestWaveGenerator Generator;
-		Generator.Waves = Invalid.Waves;
-		Require(!Component->SetWaveGenerator(Generator) && Component->GetSettings() == S,
-			"Invalid generated waves changed component settings.");
-		Generator.Waves = Cases[4].Waves;
-		Require(bool(Component->SetWaveGenerator(Generator)), "Valid generated waves rejected.");
-		S.Waves = Cases[4].Waves;
-		Generator.Waves.clear();
-		Require(Component->GetSettings() == S, "Component did not retain a snapshot of generated waves.");
-		S.Amplitude = 0; S.Elevation = 7;
+		Require(bool(Component->SetWaveAsset(nullptr)), "Could not clear preset before registration.");
+		FWaterSurfaceSettings S;
+		S.Elevation = 7;
+		Invalid.Extent.x = 0;
 		Require(bool(Component->SetSettings(S)), "Parameter edit failed.");
 		Require(std::abs(Component->QuerySurface({0, 0, 0}, .75)->Position.z - 7) < 1.e-8, "Query retained stale edited settings.");
 		Require(!Component->SetSettings(Invalid), "Invalid edit accepted.");
@@ -291,9 +282,9 @@ namespace
 
 	auto CheckSavedWaveAsset(const DLevel& Level) -> void
 	{
-		Require(Level.GetActors().size() == 3, "Saved shared water actors did not load.");
-		auto* First = Cast<AWaterSurfaceActor>(Level.GetActors()[1].Get());
-		auto* Second = Cast<AWaterSurfaceActor>(Level.GetActors()[2].Get());
+		Require(Level.GetActors().size() == 4, "Saved shared water actors did not load.");
+		auto* First = Cast<AWaterSurfaceActor>(Level.FindActorByName("WaterA"));
+		auto* Second = Cast<AWaterSurfaceActor>(Level.FindActorByName("WaterB"));
 		Require(First && Second, "Saved wave asset owners did not load.");
 		auto* Asset = First->GetWaterComponent()->GetWaveAsset();
 		Require(Asset && Asset == Second->GetWaterComponent()->GetWaveAsset(), "Saved water actors did not resolve the same wave asset.");
@@ -309,15 +300,12 @@ namespace
 		auto* Asset = NewObject<DWaterWaves>(nullptr, NAME_None);
 		auto* Copy = NewObject<DWaterWaves>(nullptr, NAME_None);
 		const auto& Default = Asset->GetWaveGroup();
-		const FWaterSurfaceSettings Local;
-		Require(Default && Default->Waves.size() == 16 && Default->Waves == Local.Waves
-			&& Default->BaseAmplitude == Local.Amplitude && Default->BaseWavelength == Local.Wavelength,
-			"Component and asset default spectra differ.");
+		Require(Default && Default->Waves.size() == 16, "Default generator must produce sixteen waves.");
 		Require(Default->Waves[0].Direction == FVector2(1, 0)
-			&& std::abs(Local.Amplitude - 5.08125f) < 1.e-5f
-			&& std::abs(Local.Wavelength / Local.Waves[0].WavenumberRatio - 60.f) < 1.e-5f
-			&& std::abs(Local.Waves[1].Direction.x + .664813) < 1.e-5
-			&& std::abs(Local.Waves[1].Direction.y - .747010) < 1.e-5,
+			&& std::abs(Default->BaseAmplitude - 5.08125f) < 1.e-5f
+			&& std::abs(Default->BaseWavelength / Default->Waves[0].WavenumberRatio - 60.f) < 1.e-5f
+			&& std::abs(Default->Waves[1].Direction.x + .664813) < 1.e-5
+			&& std::abs(Default->Waves[1].Direction.y - .747010) < 1.e-5,
 			"Default spectrum differs from the UE simple generator reference.");
 		auto Settings = SavedWaveSettings();
 		Require(bool(Asset->SetGeneratorSettings(Settings)) && bool(Copy->SetGeneratorSettings(Settings)), "Valid wave asset settings rejected.");
@@ -388,8 +376,14 @@ int main(int Argc, char** Argv)
 			CheckSavedWaveAsset(*Level);
 			auto* Actor = Cast<AWaterSurfaceActor>(Level->GetActors()[0].Get());
 			Require(Actor && Actor->GetRootComponent() == Actor->GetWaterComponent(), "Saved water actor composition changed.");
-			auto Expected = FWaterSurfaceSettings{}; Expected.Extent = {24, 20}; Expected.Elevation = 2.5f; Expected.Amplitude = .2f;
-			Expected.Waves = {{{1, 2}, .7f, 1.1f}, {{-3, 1}, .3f, .6f}};
+			auto Expected = FWaterSurfaceSettings{}; Expected.Extent = {24, 20}; Expected.Elevation = 2.5f;
+			Require(!Actor->GetWaterComponent()->GetWaveAsset(), "Cleared wave source did not persist.");
+			const auto Flat = Actor->GetWaterComponent()->QuerySurface({0, 0, 0}, 1.);
+			Require(Flat && Flat->Position.z == Expected.Elevation && Flat->Normal == FVector3(0, 0, 1), "Cleared water has waves.");
+			auto* WithPreset = Cast<AWaterSurfaceActor>(Level->FindActorByName("PresetWater"));
+			Require(WithPreset && WithPreset->GetWaterComponent()->GetWaveAsset()
+				&& WithPreset->GetWaterComponent()->GetWaveAsset()->GetWaveGroup()->Waves.size() == 16,
+				"Default preset did not survive the runtime boundary.");
 			Require(Actor->GetWaterComponent()->GetSettings() == Expected, "Saved water parameters changed across the runtime boundary.");
 			Require(Actor->GetWaterComponent()->QuerySurface({0, 0, 0}, .75).has_value(), "Saved water query failed.");
 			if (Cooked)
@@ -433,6 +427,16 @@ int main(int Argc, char** Argv)
 			}
 			CheckQueries(Snapshot.Snapshot->Input);
 		}
+		else if (Mode == "author-wave-preset")
+		{
+			FPackagePath Path;
+			Require(FPackagePath::TryCreate("/Plugins/Water/Waves/DefaultWaterWaves", Path), "Invalid preset path.");
+			auto* Package = CreatePackage(Path);
+			auto* Waves = NewObject<DWaterWaves>(Package, "DefaultWaterWaves", EObjectFlags::Public);
+			FByteBuffer Bytes;
+			Require(Argc == 4 && Waves && SerializeAssetPackageBytes(Package, Bytes)
+				&& FFileHelper::SaveArrayToFileAtomically(Bytes, Argv[3]), "Failed to write default wave preset.");
+		}
 		else if (Mode == "author-waves")
 		{
 			Require(Argc == 4, "Expected wave function destination.");
@@ -463,8 +467,9 @@ int main(int Argc, char** Argv)
 			auto* Level = NewObject<DLevel>(Package, "WaterSurfaceLevel", EObjectFlags::Public);
 			auto* Water = Level->SpawnActor<AWaterSurfaceActor>("Water");
 			Require(Water && Water->GetWaterComponent(), "Water actor construction failed.");
-			auto S = Water->GetWaterComponent()->GetSettings(); S.Extent = {24, 20}; S.Elevation = 2.5f; S.Amplitude = .2f;
-			S.Waves = {{{1, 2}, .7f, 1.1f}, {{-3, 1}, .3f, .6f}};
+			auto S = Water->GetWaterComponent()->GetSettings(); S.Extent = {24, 20}; S.Elevation = 2.5f;
+			Require(bool(Water->GetWaterComponent()->SetWaveAsset(nullptr)), "Failed to clear waves.");
+			Require(Level->SpawnActor<AWaterSurfaceActor>("PresetWater") != nullptr, "Could not create preset water.");
 			Require(bool(Water->GetWaterComponent()->SetSettings(S)), "Settings mutation failed.");
 			FPackagePath WavesPath;
 			Require(FPackagePath::TryCreate("/Game/SharedWaterWaves", WavesPath), "Invalid wave asset path.");

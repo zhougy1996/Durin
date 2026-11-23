@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 #include "Components/MeshComponent.h"
 #include "DObject/SoftObjectPtr.h"
-#include "DObject/WeakObjectPtr.h"
 #include "WaterWaves.h"
 #include "WaterSurfaceComponent.gen.h"
 
@@ -18,9 +17,8 @@ namespace Durin
 	public:
 		WATER_API explicit DWaterSurfaceComponent(const FObjectInitializer& Initializer);
 		WATER_API auto SetSettings(const FWaterSurfaceSettings& Value) -> std::expected<void, std::string>;
-		WATER_API auto SetWaveGenerator(const IWaterWaveGenerator& Generator) -> std::expected<void, std::string>;
 		WATER_API auto SetWaveAsset(DWaterWaves* Value) -> std::expected<void, std::string>;
-		auto GetWaveAsset() const -> DWaterWaves* { return WaveAsset.Get(); }
+		auto GetWaveAsset() const -> DWaterWaves* { return WavesSource.LoadSynchronous(); }
 		auto GetSettings() const -> const FWaterSurfaceSettings& { return Settings; }
 		auto GetDiagnostic() const -> const std::string& { return Diagnostic; }
 		// Projects the point along component-local Z. Returns world position/normal.
@@ -45,11 +43,12 @@ namespace Durin
 		auto HasSupportedTransform() const -> bool;
 		DPROPERTY(Category = "Water", Edit)
 		FWaterSurfaceSettings Settings;
-		DPROPERTY(Category = "Water", Edit, DisplayName = "Water Waves Asset")
-		TObjectPtr<DWaterWaves> WaveAsset;
-		TWeakObjectPtr<DWaterWaves> BoundWaveAsset;
+		DPROPERTY(Category = "Water", Edit, AlwaysSerialize, DisplayName = "Waves Source")
+		TSoftObjectPtr<DWaterWaves> WavesSource;
+		DPROPERTY(Transient)
+		TObjectPtr<DWaterWaves> BoundWaveAsset;
 		FDelegateHandle WaveAssetChangeHandle;
-		std::optional<FWaterSurfaceSettings> EffectiveSettings;
+		std::optional<FResolvedWaterSurface> EffectiveSettings;
 		// Null uses the plugin's default Lit material. Overrides must implement its custom-data wave contract.
 		DPROPERTY(Category = "Water", Edit)
 		TObjectPtr<DMaterialInterface> Material;

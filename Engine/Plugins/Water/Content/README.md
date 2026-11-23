@@ -8,6 +8,8 @@ ordinary cooked material package from its Cook generation.
 The graph uses the Single Layer Water shading model and calls the plugin's
 `Materials/GerstnerWaves.dasset` function for world displacement and tangent-space normals. See the [water material settings](../../../../Documentation/Runtime/World/WaterSurfaces.md#material-resources).
 
+The shipped wave preset is **Waves/DefaultWaterWaves.dasset**. New water surfaces reference it by default. Clear **Waves Source** for a flat surface.
+
 Saved water components serialize the default soft reference explicitly so Cook
 can discover it even when the value matches the class default. Projects that
 spawn water only at runtime must retain this material using an explicit Cook

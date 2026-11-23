@@ -19,7 +19,7 @@ namespace Durin
 		}
 	}
 
-	auto MeasureWaterSurface(const FWaterSurfaceSettings& S) -> std::expected<FWaterSurfaceMetrics, std::string>
+	auto MeasureWaterSurface(const FResolvedWaterSurface& S) -> std::expected<FWaterSurfaceMetrics, std::string>
 	{
 		if (!Finite(S.Extent) || !std::isfinite(S.Elevation) || !std::isfinite(S.Amplitude)
 			|| !std::isfinite(S.Wavelength) || !std::isfinite(S.Speed) || !std::isfinite(S.Steepness))
@@ -64,13 +64,13 @@ namespace Durin
 		return FWaterSurfaceMetrics{uint32(CellsX), uint32(CellsY), Amplitude, Amplitude * S.Steepness};
 	}
 
-	auto ValidateWaterSurface(const FWaterSurfaceSettings& S) -> std::expected<void, std::string>
+	auto ValidateWaterSurface(const FResolvedWaterSurface& S) -> std::expected<void, std::string>
 	{
 		if (const auto Metrics = MeasureWaterSurface(S); !Metrics) return std::unexpected(Metrics.error());
 		return {};
 	}
 
-	auto PackWaterWaveData(const FWaterSurfaceSettings& S) -> FWaterWaveData
+	auto PackWaterWaveData(const FResolvedWaterSurface& S) -> FWaterWaveData
 	{
 		FWaterWaveData Data{S.Amplitude, S.Wavelength, S.Speed, S.Steepness};
 		for (size_t Index = 0; Index < std::min<size_t>(PrimitiveWaterWaves, S.Waves.size()); ++Index)
@@ -87,7 +87,7 @@ namespace Durin
 		return Data;
 	}
 
-	auto PackWaterInstanceWaveData(const FWaterSurfaceSettings& S) -> FWaterInstanceWaveData
+	auto PackWaterInstanceWaveData(const FResolvedWaterSurface& S) -> FWaterInstanceWaveData
 	{
 		FWaterInstanceWaveData Data{};
 		for (size_t Index = PrimitiveWaterWaves; Index < S.Waves.size(); ++Index)
@@ -102,7 +102,7 @@ namespace Durin
 		return Data;
 	}
 
-	auto EvaluateWaterSurface(const FWaterSurfaceSettings& S, FVector2 P, double Seconds) -> FWaterSurfaceSample
+	auto EvaluateWaterSurface(const FResolvedWaterSurface& S, FVector2 P, double Seconds) -> FWaterSurfaceSample
 	{
 		FWaterSurfaceSample Result{FVector3(P, S.Elevation)};
 		FVector3 TX(1, 0, 0), TY(0, 1, 0);
@@ -122,7 +122,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto QueryWaterSurface(const FWaterSurfaceSettings& S, FVector2 XY, double Seconds) -> std::optional<FWaterSurfaceSample>
+	auto QueryWaterSurface(const FResolvedWaterSurface& S, FVector2 XY, double Seconds) -> std::optional<FWaterSurfaceSample>
 	{
 		if (!Finite(XY) || !std::isfinite(Seconds)) return {};
 		const auto Metrics = MeasureWaterSurface(S);

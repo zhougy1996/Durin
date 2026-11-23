@@ -5,7 +5,7 @@
 
 namespace Durin
 {
-	auto MakeWaterGrid(const FWaterSurfaceSettings& S) -> std::unique_ptr<FStaticMeshRenderData>
+	auto MakeWaterGrid(const FResolvedWaterSurface& S) -> std::unique_ptr<FStaticMeshRenderData>
 	{
 		const auto Metrics = MeasureWaterSurface(S);
 		if (!Metrics) return {};

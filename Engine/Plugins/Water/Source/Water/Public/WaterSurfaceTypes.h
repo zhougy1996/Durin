@@ -41,19 +41,19 @@ namespace Durin
 		DPROPERTY(Edit)
 		float Elevation = 0;
 		DPROPERTY(Edit)
-		float Amplitude = 0;
-		DPROPERTY(Edit)
-		float Wavelength = 8;
-		DPROPERTY(Edit)
 		float Speed = 1;
 		DPROPERTY(Edit)
 		float Steepness = .3f;
-		DPROPERTY(Edit)
-		std::vector<FWaterWave> Waves;
-
-		WATER_API FWaterSurfaceSettings();
 
 		auto operator==(const FWaterSurfaceSettings&) const -> bool = default;
+	};
+
+	// Snapshot shared by the CPU query, mesh builder and material upload.
+	struct FResolvedWaterSurface : FWaterSurfaceSettings
+	{
+		float Amplitude = 0;
+		float Wavelength = 8;
+		std::vector<FWaterWave> Waves;
 	};
 
 	struct FWaterSurfaceSample
@@ -62,22 +62,13 @@ namespace Durin
 		FVector3 Normal{0, 0, 1};
 	};
 
-	// Generates an authored Gerstner wave group. The component copies and validates
-	// the result, so generation never runs during surface queries or rendering.
-	class IWaterWaveGenerator
-	{
-	public:
-		virtual ~IWaterWaveGenerator() = default;
-		virtual auto GenerateWaves() const -> std::vector<FWaterWave> = 0;
-	};
-
-	WATER_API auto ValidateWaterSurface(const FWaterSurfaceSettings& Settings) -> std::expected<void, std::string>;
+	WATER_API auto ValidateWaterSurface(const FResolvedWaterSurface& Settings) -> std::expected<void, std::string>;
 	// Packs validated settings for the default material. Inactive slots are zero.
-	WATER_API auto PackWaterWaveData(const FWaterSurfaceSettings& Settings) -> FWaterWaveData;
-	WATER_API auto PackWaterInstanceWaveData(const FWaterSurfaceSettings& Settings) -> FWaterInstanceWaveData;
+	WATER_API auto PackWaterWaveData(const FResolvedWaterSurface& Settings) -> FWaterWaveData;
+	WATER_API auto PackWaterInstanceWaveData(const FResolvedWaterSurface& Settings) -> FWaterInstanceWaveData;
 	// Parametric evaluation requires validated settings and finite coordinates/time.
-	WATER_API auto EvaluateWaterSurface(const FWaterSurfaceSettings& Settings, FVector2 UndisplacedXY, double Seconds) -> FWaterSurfaceSample;
+	WATER_API auto EvaluateWaterSurface(const FResolvedWaterSurface& Settings, FVector2 UndisplacedXY, double Seconds) -> FWaterSurfaceSample;
 	// Outside the deformed rectangle, invalid settings/coordinates/time: no surface.
-	WATER_API auto QueryWaterSurface(const FWaterSurfaceSettings& Settings, FVector2 DisplacedXY, double Seconds) -> std::optional<FWaterSurfaceSample>;
+	WATER_API auto QueryWaterSurface(const FResolvedWaterSurface& Settings, FVector2 DisplacedXY, double Seconds) -> std::optional<FWaterSurfaceSample>;
 	WATER_API auto GetWaterMaterialTime() -> double;
 }

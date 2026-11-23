@@ -53,14 +53,6 @@ namespace Durin
 		}
 	}
 
-	FWaterSurfaceSettings::FWaterSurfaceSettings()
-	{
-		static const auto Default = GenerateWaveGroup(FWaterWavesSettings{}).value();
-		Wavelength = Default.BaseWavelength;
-		Amplitude = Default.BaseAmplitude;
-		Waves = Default.Waves;
-	}
-
 	DWaterWaves::DWaterWaves(const FObjectInitializer& Initializer) : Super(Initializer) {}
 
 	auto DWaterWaves::SetGeneratorSettings(const FWaterWavesSettings& Value) -> std::expected<void, std::string>

@@ -14,10 +14,10 @@ or admit the module; ordinary plugin dependencies can also enable it. The first
 qualified platform is Win64; the descriptor excludes other platforms.
 
 `AWaterSurfaceActor` owns a `DWaterSurfaceComponent` root. Generic reflected
-editing exposes its `Settings` and optional `Material`. Full XY dimensions,
-local elevation, amplitude, base wavelength, speed, steepness and the wave
-group persist with the Level. Positive uniform scale,
-translation and rotation are supported; use Extent for independent dimensions.
+editing exposes the surface dimensions, local elevation, speed, steepness,
+Waves Source and optional material. Each Level saves the component settings and
+wave asset reference. Positive uniform scale, translation and rotation are
+supported; use Extent for independent dimensions.
 Nonuniform, zero, negative or mirrored scale produces a local diagnostic and
 no render proxy or component query surface.
 
@@ -43,11 +43,11 @@ most 32 times the minimum, and per-wave amplitude inside 0..2 m. A group with
 no waves or zero amplitude is flat. Horizontal displacement uses the component
 steepness. The inverse query and grid limits below apply to the result.
 
-Assign the asset in the component's **Water Waves Asset** field. Multiple
-components and Levels can reference the same asset. Each component keeps its
-own extent, elevation, speed and steepness. Clearing the reference restores
-its saved local amplitude, wavelength and wave group. The local C++ generator
-can be applied after clearing the reference.
+New components reference the plugin preset **/Plugins/Water/Waves/DefaultWaterWaves**.
+Select a different asset in **Waves Source** to change the spectrum. Clearing
+the field gives a flat surface at the component elevation with zero Gerstner
+displacement and a local up normal. An assigned asset that fails to load
+produces a diagnostic. Multiple components can share a wave asset.
 
 Asset edits and transaction replay refresh every registered component that
 references the asset. Each component publishes its effective wave parameters
@@ -70,8 +70,6 @@ P.z  = elevation + sum(A * sin(theta))
 N    = normalize(cross(dP/dp.x, dP/dp.y))
 ```
 
-New water components use the same spectrum as a new Water Waves asset.
-Explicitly saved local wave records retain their directions and ratios.
 An empty group gives a flat surface. Each direction is normalized for
 evaluation, A is the surface amplitude times the wave amplitude ratio, and
 k is the wave wavenumber ratio times 2*pi/wavelength. Omega is
@@ -95,11 +93,6 @@ with one cell per axis when all weights are zero. Each axis has at most
 256 cells (at most 66049 vertices). Extent/wavelength combinations exceeding
 that limit are rejected before allocation. Setters, reflected edit proposals
 and loaded object graphs enforce the same settings contract.
-
-A native `IWaterWaveGenerator` can generate the group procedurally.
-`DWaterSurfaceComponent::SetWaveGenerator` calls it once and applies the returned
-waves through `SetSettings`. The saved group is independent of the generator's
-lifetime, and invalid output leaves the current group in place.
 
 `EvaluateWaterSurface` evaluates validated parameters at undisplaced XY.
 `QueryWaterSurface` inverts the displaced XY map by bounded contraction, then
@@ -139,7 +132,7 @@ behind-water color scale is white. See the [material contract](../Rendering/Mate
 
 The component serializes a soft reference to this default asset. Ordinary Cook
 reachability retains it with a saved water Level. Projects that create water only
-at runtime must retain the material through an explicit Cook root or their
+at runtime must retain the material and any wave preset through explicit Cook roots or their
 existing asset policy. Reflected default construction does not load content.
 Rendering retains the loaded material through a transient reflected reference.
 

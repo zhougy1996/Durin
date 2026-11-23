@@ -10,6 +10,7 @@
 #include "EngineTestSupport.h"
 #include "AssetRegistry/Scan.h"
 #include "DObject/Class.h"
+#include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
@@ -140,20 +141,17 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		ASSERT_NE(Pixels[0], Pixels[1]);
 		ASSERT_EQ(Capture(0, Pixels[2]), ERenderViewResult::Success);
 		EXPECT_EQ(Pixels[0], Pixels[2]);
-		Settings.Amplitude = .15f;
-		Settings.Waves.assign(MaxWaterWaves, {});
-		Settings.Waves.back() = {{0, 2}, .9f, 1.8f};
-		ASSERT_TRUE(Component->SetSettings(Settings));
-		ASSERT_EQ(Capture(.75, Pixels[2]), ERenderViewResult::Success);
-		EXPECT_NE(Pixels[1], Pixels[2]);
-		Settings.Waves.clear();
-		ASSERT_TRUE(Component->SetSettings(Settings));
+		ASSERT_NE(Component->GetWaveAsset(), nullptr);
+		ASSERT_EQ(Component->GetWaveAsset()->GetWaveGroup()->Waves.size(), 16u);
+		ASSERT_TRUE(Component->SetWaveAsset(nullptr));
+		ASSERT_EQ(Capture(0, Pixels[2]), ERenderViewResult::Success);
+		EXPECT_NE(Pixels[0], Pixels[2]);
 		EXPECT_TRUE(std::ranges::equal(std::span(Component->GetCustomPrimitiveData().Values).first(FWaterWaveData{}.size()),
-			PackWaterWaveData(Settings)));
+			PackWaterWaveData(FResolvedWaterSurface{Settings})));
 		const auto Query = Component->QuerySurface({0, 0, 0}, .75);
 		ASSERT_TRUE(Query); EXPECT_NEAR(Query->Position.z, Settings.Elevation, 1.e-6);
 		ASSERT_EQ(Capture(.75, Pixels[3]), ERenderViewResult::Success);
-		EXPECT_NE(Pixels[2], Pixels[3]);
+		EXPECT_EQ(Pixels[2], Pixels[3]);
 		Component->UnregisterComponent();
 		ASSERT_EQ(Capture(.75, Pixels[4]), ERenderViewResult::Success);
 		EXPECT_NE(Pixels[3], Pixels[4]);
@@ -161,7 +159,9 @@ TEST(FWaterSurfaceComponentVulkanTests, RegistrationEditsAndRuntimeRenderingShar
 		ASSERT_EQ(Capture(.75, Pixels[5]), ERenderViewResult::Success) << Component->GetDiagnostic();
 		EXPECT_EQ(Pixels[3], Pixels[5]);
 
-		auto* SharedWaves = NewObject<DWaterWaves>(nullptr, NAME_None);
+		FPackagePath SharedPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/Game/RenderingTestWaves", SharedPath));
+		auto* SharedWaves = NewObject<DWaterWaves>(CreatePackage(SharedPath), "RenderingTestWaves", EObjectFlags::Public);
 		// Keep both spectra within the clip volume of this 1.5 m test surface.
 		auto VisibleSpectrum = SharedWaves->GetGeneratorSettings();
 		VisibleSpectrum.MinAmplitude = .003f;
